@@ -1,10 +1,10 @@
-# Provider 设置页
+# Página de Configurações de Provider
 
-> 状态：当前有效设计
+> Estado: design vigente
 >
-> 最近更新：2026-09-08
+> Atualização mais recente: 2026-09-08
 
-Provider 设置页编辑 Personal Config，并通过 Host 中的 Provider Settings Service 与目标 Environment 的 Config、Registry 交互。页面采用自动保存：输入过程保留本地草稿，一次编辑动作结束后提交本次编辑后的 Personal Provider Draft；Host 完成持久化并刷新 Registry 后，页面才确认保存成功。
+A página de configurações de Provider edita o Personal Config e interage com o Config e o Registry do Environment alvo através do Provider Settings Service no Host. A página usa salvamento automático: durante a digitação o rascunho local é mantido e, quando uma ação de edição termina, o Personal Provider Draft depois dessa edição é submetido; só depois que o Host conclui a persistência e atualiza o Registry a página confirma que o salvamento foi bem-sucedido.
 
 ```text
 Renderer Draft
@@ -26,54 +26,53 @@ Provider Registry
 Renderer 显示保存成功
 ```
 
-设置页不读取物理配置文件，也不在 Renderer 中执行 Overlay、完整性校验或 Registry 成员判断。远端设置页调用目标 Environment 的同一 Service；Desktop 不把本机 Provider 配置当作远端事实。
+A página de configurações não lê o arquivo de configuração físico nem executa Overlay, validação de integridade ou julgamento de membro do Registry no Renderer. A página de configurações remota chama o mesmo Service do Environment alvo; o Desktop não trata a configuração de Provider local como um fato remoto.
 
-## 自动保存
+## Salvamento automático
 
-### 账号套餐失效后的连接切换（Todo93）
+### Troca de conexão após perda do plano da conta (Todo93)
 
-2026-09-08 裁决：同账号、同完整连接从 available/pending 变为明确 unavailable 时提示一次，并提供“切换至具体套餐”按钮；只有用户点击、重新校验并条件写入成功后才改变实际连接。持续不可用不重复提示，unknown 不当失效，恢复后再次失效是新事件。首次启动/切换身份只建立基线，不比较不同套餐的状态；手动选未开通个人套餐不自动弹回。保留首次无选择的初始化及旧连接迁移保护。
+Decisão de 2026-09-08: quando, na mesma conta e na mesma conexão completa, o estado passa de available/pending para unavailable explicitamente, mostra-se um aviso uma única vez e oferece-se o botão "Alternar para o plano específico"; a conexão real só muda depois que o usuário clica, revalida e a escrita condicional tem sucesso. Indisponibilidade contínua não repete o aviso, unknown não é tratado como perda e uma nova perda depois da recuperação é um evento novo. A primeira inicialização/troca de identidade apenas estabelece a linha de base e não compara o estado de planos diferentes; escolher manualmente um plano individual não contratado não volta automaticamente. Mantêm-se a inicialização sem escolha da primeira vez e a proteção de migração da conexão antiga.
 
-观察记录只在根层内存维护，不新增持久化字段/迁移。AccountProviderState.connectionKey 是同轮账号与完整连接身份的摘要，只供观察隔离，不进入 Config Overlay。设置页手动选择仍沿用原保存入口，Start 连接入口过滤及 Provider visibility 不变，不绕过模型执行门禁。详细状态、旧建议失效和测试边界见 [Todo93](../../steps/todo-93-account-plan-loss-manual-switch.md)。它替代 Todo88 R06 的自动切换裁决；当前实现只在点击并重新验证后条件写入。
+Os registros de observação são mantidos apenas em memória no nível raiz, sem novos campos persistidos nem migração. `AccountProviderState.connectionKey` é um resumo da identidade da conta e da conexão completa na mesma rodada e serve só para isolamento de observação, não entra no Config Overlay. A seleção manual na página de configurações continua usando a entrada de salvamento original, o filtro da entrada de conexão Start e a visibility de Provider permanecem inalterados e o gate de execução de modelos não é contornado. Detalhes do estado, invalidação de recomendações antigas e fronteiras de teste estão em [Todo93](../../steps/todo-93-account-plan-loss-manual-switch.md). Isso substitui a decisão de troca automática do R06 do Todo88; a implementação atual só faz a escrita condicional depois do clique e da revalidação.
 
-### 模型弹窗最终裁决（Todo90 / Todo92）
+### Decisão final sobre o diálogo de modelo (Todo90 / Todo92)
 
-2026-09-08 已按本节实现并通过 Pro 联合验收；证据由 Todo90/92 记录，与下文历史“恢复默认”及焦点边框描述冲突时以本节为准。
+Implementado conforme esta seção em 2026-09-08 e aprovado na aceitação conjunta do Pro; as evidências são registradas em Todo90/92, e em caso de conflito com as descrições históricas de "restaurar padrão" e de borda de foco abaixo, esta seção prevalece.
 
-- 保留保存/取消同行的开关，显示名称改为“智能配置”。说明：“根据模型 ID 自动匹配推荐配置，允许单独修改。”
-- 开启：按模型 ID 匹配并继承推荐配置，允许个人覆盖；关闭：把当前有效草稿完整填入，所有配置必填，不再按 ID 匹配或借推荐补齐，不显示个人覆盖样式。
-- 重新开启清除模型配置覆盖，按当前 ID 恢复推荐；之后的新编辑仍保留。所有切换只改草稿，保存生效、取消放弃，不改变 ID/启停/成员归属。现有模式字段保留，不新增迁移。
-- 边框只表达无覆盖/有覆盖，采用中性/淡强调色细边框；保存重开保留来源标记。数值、模态、能力、MFJS 各项独立；修改档位名称、数量、顺序时所有档位框一起高亮，Mapping 单独高亮。外层容器不高亮。
-- Hover 与聚焦共用轻微背景变化，不修改边框、不加额外焦点轮廓；选项开启/关闭底色和键盘焦点仍需可辨认。只调整模型编辑器，不全局改共享基础组件。
-- MFJS 使用与能力选项相同的按钮样式，无图标、无前置复选框；彻底删除“没有 icon 就渲染复选框”的视觉分支，保留可访问性语义。
-- 保留推理外层容器及档位/Mapping 内部编辑区，去掉重复的“推理设置”标题；高级设置保留标题和容器。没有“自定义”文字、没有组级或全局恢复默认按钮。
+- Mantém-se o interruptor na mesma linha de salvar/cancelar, e o texto visível passa a ser "智能配置" (configuração inteligente). Descrição: "根据模型 ID 自动匹配推荐配置，允许单独修改。" (o texto de UI permanece como está).
+- Ligado: faz correspondência por Model ID e herda a configuração recomendada, permitindo sobrescrita pessoal; desligado: preenche com o rascunho efetivo atual por completo, todos os campos passam a ser obrigatórios, sem correspondência por ID nem preenchimento por recomendação, e sem exibir o estilo de sobrescrita pessoal.
+- Religar limpa a sobrescrita de configuração do modelo e restaura a recomendação com base no ID atual; as edições posteriores são preservadas. Todas as trocas alteram apenas o rascunho: salvar passa a valer e cancelar descarta, sem alterar ID/estado liga-desliga/pertinência de membro. Campos de modo existentes são mantidos, sem nova migração.
+- A borda expressa apenas "sem sobrescrita/com sobrescrita", com borda fina em cor neutra/acento suave; ao reabrir após salvar, o marcador de origem é preservado. Valores, modais, capacidades e cada item de MFJS são independentes; ao modificar nome de nível, quantidade ou ordem, todas as caixas de nível são realçadas juntas, e o Mapping é realçado separadamente. O contêiner externo não é realçado.
+- Hover e foco compartilham uma leve mudança de fundo, sem modificar a borda e sem adicionar contorno de foco extra; o fundo ligado/desligado das opções e o foco de teclado continuam precisam ser distinguíveis. Ajusta-se apenas o editor de modelo, sem alterar globalmente os componentes base compartilhados.
+- MFJS usa o mesmo estilo de botão das opções de capacidade, sem ícone e sem checkbox inicial; o ramo visual "renderizar checkbox quando não há ícone" é removido por completo, preservando a semântica de acessibilidade.
+- Mantém-se o contêiner externo de raciocínio e a área de edição interna de níveis/Mapping, removendo o título duplicado "推理设置" (configuração de raciocínio); as configurações avançadas mantêm título e contêiner. Não há texto "自定义" (personalizado) nem botão de restaurar padrão no nível do grupo ou global.
 
-实现与验收分别见 [Todo90](../../steps/todo-90-model-add-edit-shared-recommended-draft.md) 和 [Todo92](../../steps/todo-92-model-smart-config-and-override-feedback.md)。
+A implementação e a aceitação estão em [Todo90](../../steps/todo-90-model-add-edit-shared-recommended-draft.md) e [Todo92](../../steps/todo-92-model-smart-config-and-override-feedback.md).
 
-实现归属：添加/编辑共用编辑草稿 hook；个人字段的来源标记属于编辑意图，不通过整份表单校验结果倒推。Host 返回推荐基线，UI 只把未覆盖的控件投影到基线，不自行做规则匹配。固定模式停止推荐请求；Host 写入检查完整性，运行解析只采用其完整个人配置（enabled 仍按独立启停规则处理），不能借 Built-in 补缺。
+Atribuição da implementação: um hook de rascunho de edição compartilhado por adicionar/editar; o marcador de origem dos campos pessoais pertence à intenção de edição e não é deduzido pelo resultado da validação do formulário inteiro. O Host devolve a baseline recomendada e a UI apenas projeta os controles não sobrescritos sobre a baseline, sem fazer correspondência de regras por conta própria. Modos fixos param as requisições de recomendação; o Host verifica a integridade na escrita, e a resolução de execução só adota a configuração pessoal completa (com `enabled` ainda tratado pela regra independente de liga/desliga), sem complementar lacunas com Built-in.
 
-### 写入与编辑事务补充（Todo 89）
+### Complemento de escrita e transação de edição (Todo 89)
 
-内置/账号 Provider 可以尚无 Personal Provider 记录。修改成员或顺序时由 Config Service
-按需建立稀疏覆盖；编辑模型配置不要求也不额外创建 Provider 记录。成员来源统一来自 Facade
-同一快照，不能改用可执行 Registry 或静态名单。新增模型保留已有成员的相对顺序并追加新成员。
-删除后的 Personal-only Provider 不得被迟到保存重新创建。
+Providers Built-in/de conta ainda podem não ter um registro de Personal Provider. Ao modificar membros ou ordem, o Config Service
+cria uma cobertura esparsa conforme a necessidade; editar a configuração de um modelo não exige nem cria um registro de Provider adicional. A origem dos membros vem uniformemente do mesmo snapshot do Facade, e não pode ser trocada pelo Registry executável nem por uma lista estática. Ao adicionar um modelo, a ordem relativa dos membros existentes é preservada e o novo membro é acrescentado.
+Um Provider Personal-only removido não pode ser recriado por um salvamento atrasado.
 
-模型启停使用独立叶子更新，在原子事务中读取最新个人配置，只改变 enabled，保留配置模式和其余字段。
-Provider 表单只提交被编辑的配置项，未触碰的 headers 等字段保留；没有编辑不触发保存。
+A liga/desliga de modelo usa uma atualização de folha independente que, dentro de uma transação atômica, lê a configuração pessoal mais recente, altera apenas `enabled` e preserva o modo de configuração e os demais campos.
+O formulário de Provider submete apenas os itens de configuração editados e preserva campos não tocados, como headers; sem edição, não há salvamento.
 
-模型弹窗打开时固定本次编辑的原模型、草稿和 revision。外部 View 更新不覆盖这份草稿，保存仍检查版本；
-冲突或失败保留输入，取消并重新打开才加载最新值。配置不完整的模型仍提供编辑修复和启停入口；
-个人成员可删除，继承成员不可删除或重命名。可编辑不代表可执行，Registry 完整性校验保持不变。
+Ao abrir o diálogo de modelo, ficam fixados o modelo original, o rascunho e a revision desta edição. Atualizações externas de View não sobrescrevem esse rascunho, e o salvamento continua verificando a versão;
+em caso de conflito ou falha, a entrada é preservada, e só cancelar e reabrir carrega os valores mais recentes. Modelos com configuração incompleta continuam oferecendo entrada de edição e de liga/desliga;
+membros pessoais podem ser removidos, enquanto membros herdados não podem ser removidos nem renomeados. Editável não significa executável, e a validação de integridade do Registry permanece inalterada.
 
-模型成员和配置直接显示 Host 返回的 View，不再维护一份添加/删除失败时整表回滚的副本；
-仅拖拽保留已有乐观顺序。添加弹窗等待实际保存完成才关闭，失败在原草稿中重试；
-显式弹窗不提供脱离草稿的通知重试操作。账号与普通供应商详情共用同一组模型写入回调。
-Start Plan 已由 Account 快照确认可用时，额度/套餐卡重新查询的临时空状态不能卸载模型编辑区；
-并不因此允许未领取的 Start Plan 展示模型，也不修改权益查询缓存、切换套餐或执行门禁。
+A associação de modelos e a configuração passam a exibir diretamente a View devolvida pelo Host e não mantêm mais uma cópia com rollback da tabela inteira em caso de falha de adição/remoção;
+apenas o arraste preserva a ordem otimista existente. O diálogo de adição só fecha depois que o salvamento real é concluído, e a falha é tentada novamente no rascunho original;
+um diálogo explícito não oferece ações de notificação de nova tentativa fora do rascunho. Conta e detalhes de fornecedor comum compartilham o mesmo conjunto de callbacks de escrita de modelo.
+Quando o Start Plan já é confirmado como disponível pelo snapshot de Account, um estado vazio temporário decorrente de uma nova consulta o cartão de cota/plano não pode desmontar a área de edição de modelo;
+isso também não permite que um Start Plan não retirado exiba modelos, nem altera o cache de consulta de entitlement, a troca de plano ou o gate de execução.
 
-文本输入在编辑过程中只修改组件内 Draft。连续 1200ms 没有新输入时自动提交；输入框失去焦点、
-用户按 Enter，或者切换到其他 Provider 时立即提交一次 Personal Provider Draft 更新。选择框、开关和拖动在操作完成后立即提交。
+A entrada de texto, durante a edição, altera apenas o Draft dentro do componente. Após 1200ms contínuos sem nova entrada, a submissão é automática; ao perder o foco,
+ao o usuário pressionar Enter ou ao trocar para outro Provider, a atualização do Personal Provider Draft é submetida imediatamente. Caixas de seleção, interruptores e arrastes são submetidos assim que a operação é concluída.
 
 ```text
 输入字符
@@ -88,56 +87,51 @@ Start Plan 已由 Account 快照确认可用时，额度/套餐卡重新查询�
 └─ 立即保存操作后的 Personal Draft
 ```
 
-文本 idle-trigger 只调度当前 Provider Draft 的一次保存；每次新输入取消上一计时器，连续输入只保存最终值。
-失焦、Enter 和切换 Provider 会取消计时器并立即 flush。自动保存不得建立第二份 accepted queue；
-过期响应继续由 Provider Draft revision 隔离。
+O idle-trigger de texto agenda apenas um salvamento do Draft do Provider atual; cada nova entrada cancela o timer anterior, e uma digitação contínua salva apenas o valor final.
+Perda de foco, Enter e troca de Provider cancelam o timer e fazem flush imediato. O salvamento automático não pode criar uma segunda fila accepted;
+respostas obsoletas continuam isoladas pela revision do Provider Draft.
 
-新增和编辑模型 ID 时使用同一 1200ms idle-trigger 调度 `resolveModelConfig()`。该方法只按当前
-Provider 与未保存的稀疏 Model Draft 解析 `inheritedConfig/effectiveConfig/issues`，不持久化、不改变
-Registry revision。失焦、Enter 或显式保存立即 flush；保存按钮等待当前 Resolution 完成后在同一次操作中继续提交。
+Ao adicionar e ao editar um Model ID, usa-se o mesmo idle-trigger de 1200ms para agendar `resolveModelConfig()`. Esse método resolve `inheritedConfig/effectiveConfig/issues` apenas com base no
+Provider atual e no Model Draft esparso não salvo, sem persistir e sem alterar a revision do Registry. Perda de foco, Enter ou salvamento explícito fazem flush imediato; o botão de salvar espera a Resolução atual terminar e continua a submissão na mesma operação.
 
-推荐配置匹配提示使用“已为模型匹配到推荐配置”（英文：Recommended settings matched for this model），
-不再称为“已加载模型默认配置”。此处只调整提示文案，不改变解析、提示时机或保存行为。
+O aviso de correspondência da configuração recomendada usa "已为模型匹配到推荐配置" (inglês: Recommended settings matched for this model) e
+não é mais chamado de "已加载模型默认配置". Aqui apenas o texto do aviso é ajustado, sem mudar a resolução, o momento do aviso ou o comportamento de salvamento.
 
-一次保存只提交本次操作所属的 Personal Draft，而不是把页面当前集合当 Repository 快照：Provider 字段只
-写 Provider Config；Model 字段只写该模型的 `type="provider-model"` 专属 Rule。新增 Personal Model 原子写入
-`modelIds` 成员、完整 `modelOrder` 与初始 `enabled=true` 专属 Rule；删除、重命名和调序也使用各自的领域原子操作。
-任何普通保存都不遍历或替换同 Provider 的其他
-Model Rules，也不把 Effective Config 反向复制进 Personal。
-完整暴露的一个配置项在被用户修改后提交完整替代值；未修改的继承值不因表单加载或无关字段保存而物化。
-Provider Settings Facade 以同一 revision 的 Effective Built-in 与 Personal 为输入生成 Settings View，并由
-Personal Repository 原子更新配置。保存方法等待相应 Registry 刷新完成后返回，因此成功响应同时表示：
+Um salvamento submete apenas o Personal Draft ao qual a operação pertence, e não trata o conjunto atual da página como um snapshot do Repository: campos de Provider só
+escrevem o Provider Config; campos de Model só escrevem a Rule específica `type="provider-model"` daquele modelo. Ao adicionar um Personal Model, grava atomicamente
+a associação de membros `modelIds`, o `modelOrder` completo e a Rule específica inicial `enabled=true`; remoção, renomeação e reordenação também usam suas operações atômicas de domínio.
+Nenhum salvamento comum percorre nem substitui as outras
+Model Rules do mesmo Provider, nem copia o Effective Config de volta para o Personal.
+Um item de configuração exposto por completo é submetido com seu valor substituto completo depois de modificado pelo usuário; valores herdados não modificados não são materializados pelo carregamento do formulário nem por um salvamento de campo sem relação.
+O Provider Settings Facade gera a Settings View a partir do Effective Built-in e do Personal da mesma revision, e o
+Personal Repository atualiza a configuração atomicamente. O método de salvamento só retorna depois que o Registry correspondente termina a atualização, portanto uma resposta bem-sucedida significa simultaneamente:
 
-1. Personal Config 已经持久化；
-2. 当前进程 Registry 已经观察到这一版本；
-3. 返回的 Settings View 对应这次提交后的事实。
+1. o Personal Config foi persistido;
+2. o Registry do processo atual já observou esta versão;
+3. a Settings View devolvida corresponde aos fatos posteriores a esta submissão.
 
-设置页是否展示、锁定或隐藏一个字段，只是 UI 产品决策，不是 Config Schema 的权限边界。正式 UI 可以
-不开放 Account Access、Built-in Model ID、PDF/Audio 等字段，但 Schema 不因此增加“用户不得书写”的
-来源校验。用户手工编辑 Personal Config 时仍使用相同 Overlay、结构与完整性规则；业务上无效但结构完整
-的账号连接由 Request Auth 或服务端请求失败承接。
+Exibir, travar ou ocultar um campo na página de configurações é apenas uma decisão de produto da UI, e não uma fronteira de permissão do Config Schema. A UI formal pode
+não expor campos como Account Access, Built-in Model ID e PDF/Audio, mas o Schema não ganha por isso uma validação de origem do tipo "o usuário não pode escrever".
+Quando o usuário edita manualmente o Personal Config, o mesmo Overlay, as mesmas estruturas e as mesmas regras de integridade continuam valendo; conexões de conta invalidas para o negócio mas estruturalmente completas são tratadas pelo Request Auth ou por falha de requisição do servidor.
 
-模型格式 Draft 直接维护 `properties.input_format` / `properties.output_format`。输入页只展示锁定的
-Text 与可编辑的 Image、Video、PDF；Audio 隐藏但必须原样保留。输出页只展示锁定的 Text。
-Facade 不从 Built-in 基线反向生成 Personal Rule。它以 Effective Built-in 与已有 Personal Overlay 计算
-权威 Effective Config；Renderer 只提交用户实际修改后物化的叶子，隐藏字段未被触碰时不会产生新覆盖。详见
-[`../model/input-output-format.md`](../model/input-output-format.md)。
+O Draft de formato de modelo mantém diretamente `properties.input_format` / `properties.output_format`. A página de entrada exibe apenas Text travado e
+Image, Video e PDF editáveis; Audio fica oculto mas precisa ser preservado como está. A página de saída exibe apenas Text travado.
+O Facade não gera Rules Personal na direção inversa a partir da baseline Built-in. Ele calcula o Effective Config autoritativo a partir do Effective Built-in e do Personal Overlay existente;
+o Renderer submete apenas as folhas materializadas pelas modificações reais do usuário, e campos ocultos não tocados não geram nova cobertura. Detalhes em
+[`../model/input-output-format.md`](../model/input-output-format.md).
 
-正常编辑的 View 按来源提供只读 `templateConfig?`、`effectiveBuiltinConfig?`、稀疏 `personalConfig` 和权威
-`effectiveConfig`；Template 创建的 Personal Provider 不伪造 `effectiveBuiltinConfig`。Renderer 只把
-`personalConfig` 复制为 Personal Draft。继承值可以作为控件展示值，但只有用户
-触碰某个配置项时才把该项物化进 Draft。普通字段可以通过恢复默认删除对应 Personal 字段；模型列表中的
-`enabled` 开关不提供“恢复默认”操作，用户每次切换都保存明确的 Personal 布尔值。Renderer 不调用 Effective →
-Personal diff，也不自行组合成员或计算冲突。
+A View da edição normal fornece por origem `templateConfig?`, `effectiveBuiltinConfig?`, `personalConfig` esparso e `effectiveConfig` autoritativo;
+um Personal Provider criado por Template não fabrica `effectiveBuiltinConfig`. O Renderer copia apenas `personalConfig` como Personal Draft. Valores herdados podem servir como valor de exibição de um controle, mas um item de configuração só é materializado no Draft quando o usuário o toca. Campos comuns podem ser removidos do Personal pelo "restaurar padrão"; o interruptor `enabled` da lista de modelos não oferece "restaurar padrão", e cada alternância salva um valor booleano Personal explícito. O Renderer não chama o diff Effective →
+Personal, nem monta sozinho a associação de membros ou calcula conflitos.
 
-页面为每个 Provider Draft 维护递增 revision。只有响应 revision 与当前 Draft revision 一致时，才可以把当前输入显示为已保存；较早请求的迟到响应不能覆盖新输入，也不能错误显示成功。同一 Provider 的
-Provider/Model/成员写入按发生顺序执行；rename 等待旧 ID 操作并切换后续身份，delete 是终止操作，连接测试
-等待相关保存。外部 View 更新只刷新未编辑字段，dirty 字段保留本地输入；保存失败保留输入与重试入口。
+A página mantém uma revision incremental para cada Provider Draft. Somente quando a revision da resposta é igual à revision do Draft atual a entrada atual pode ser exibida como salva;
+uma resposta atrasada de uma requisição mais antiga não pode sobrescrever uma entrada nova nem exibir sucesso indevidamente. As escritas de Provider/Model/membros do mesmo Provider são executadas na ordem em que ocorrem; rename espera as operações do ID antigo e troca as identidades subsequentes, delete é uma operação terminal e o teste de
+conexão espera pelos salvamentos relacionados. Atualizações externas de View só atualizam campos não editados e campos dirty mantêm a entrada local; uma falha de salvamento preserva a entrada e a entrada de nova tentativa.
 
-## 保存反馈
+## Feedback de salvamento
 
-Renderer 内部继续使用 Draft revision 区分本地编辑、在途保存和过期响应，但不向用户展示 `dirty` 文案，也不在
-Provider 内容区保留另一套保存状态。一次保存操作只投影为窗口底部的一条通知，并按同一稳定 key 原位替换：
+O Renderer continua usando internamente a revision do Draft para distinguir edição local, salvamento em trânsito e resposta obsoleta, mas não exibe o texto `dirty` ao usuário e não mantém
+outro conjunto de estado de salvamento na área de conteúdo do Provider. Uma operação de salvamento é projetada como uma única notificação no rodapé da janela, substituída no lugar pela mesma chave estável:
 
 ```text
 saving（不自动消失）
@@ -147,13 +141,13 @@ saving（不自动消失）
   `-- failure -> 同 key 替换，延长停留并提供重试/关闭
 ```
 
-模型弹窗的保存按钮仍在请求期间显示 Spinner 并禁止重复提交；这是操作控件状态，不是第二套保存反馈。只有 Host
-确认相应 revision 后才能用 success 替换 saving。较早请求的迟到响应不得覆盖当前操作，失败信息不能仅用颜色表达。
+O botão de salvar do diálogo de modelo continua mostrando um Spinner durante a requisição e bloqueia submissões duplicadas; esse é o estado de um controle de operação, e não um segundo conjunto de feedback de salvamento. Só depois que o Host
+confirma a revision correspondente o success pode substituir o saving. Respostas atrasadas de requisições mais antigas não podem sobrescrever a operação atual, e a informação de falha não pode ser expressa apenas por cor.
 
-## Provider 身份与名称
+## Identidade e nome do Provider
 
-`providerId` 是创建后不可修改的执行身份；`label` 是可以编辑的展示名称。两者不再通过 rename 相互转换。
-Personal-only Provider 创建时取得当前未占用的缺省 ID：
+`providerId` é a identidade de execução imutável após a criação; `label` é o nome de exibição editável. Os dois não são mais convertidos entre si por rename.
+Um Personal Provider criado recebe um ID padrão livre no momento da criação:
 
 ```text
 new-provider
@@ -161,25 +155,23 @@ new-provider-2
 new-provider-3
 ```
 
-设置页修改名称只写 Personal `label` Overlay。空白 label 表示恢复继承；所有 Effective Provider label
-忽略大小写后必须唯一，避免设置页和模型选择器出现无法区分的同名入口。`providerId` 继续保持非空、去除
-首尾空格且全局唯一。内部状态和跨进程协议使用结构化 `ModelSelection`；Prompt CLI 的
-`provider/model` 只是在 Entry 边界的人类输入简写。
+Alterar o nome na página de configurações escreve apenas o Overlay de `label` Personal. Um label em branco significa voltar a herdar; todos os labels de Effective Provider
+precisam ser únicos ignorando maiúsculas e minúsculas, evitando entradas homônimas indistinguíveis na página de configurações e no seletor de modelos. `providerId` continua não vazio, sem espaços nas pontas e globalmente único. O estado interno e o protocolo entre processos usam o `ModelSelection` estruturado; o `provider/model` do Prompt CLI
+é apenas uma abreviação de entrada humana na fronteira de Entry.
 
-ZCode Built-in 与 Account Built-in Provider 的 ID 由 ZCode Built-in Provider Config 管理，设置页不可重命名。
-它们仍可由 Built-in Config 提供只读 `label` 和品牌信息；`providerId` 始终是执行身份与无 label 时的
-展示回退。
+Os IDs do ZCode Built-in e do Account Built-in Provider são gerenciados pelo ZCode Built-in Provider Config e não podem ser renomeados pela página de configurações.
+Eles ainda podem fornecer, pelo Built-in Config, `label` somente-leitura e informações de marca; o `providerId` é sempre a identidade de execução e o fallback de exibição quando não há label.
 
-`visibility` 是 Provider Config 的产品可见性事实，不是设置页控件。Provider Settings Facade 只返回
-`visibility = "visible"` 的 Provider；hidden Provider 不出现在设置页，页面也不提供切换这一字段的操作。
-隐藏只影响产品入口，不影响 Registry 成员、完整性校验或内部执行。
+`visibility` é um fato de visibilidade de produto do Provider Config, e não um controle da página de configurações. O Provider Settings Facade retorna apenas
+Providers com `visibility = "visible"`; um Provider hidden não aparece na página de configurações, e a página também não oferece operação para alternar esse campo.
+O ocultamento afeta apenas a entrada de produto, e não a associação do Registry, a validação de integridade ou a execução interna.
 
-Model Config 不再具有独立 `visibility`。模型是否出现在普通选择器由 Provider visibility、Model enabled 与完整性
-共同决定；Settings 仍展示 disabled 模型，供用户编辑或重新启用。
+O Model Config não tem mais `visibility` independente. Se um modelo aparece no seletor comum é decidido em conjunto pela visibility do Provider, pelo enabled do Model e pela integridade;
+as Settings continuam exibindo modelos desabilitados, para que o usuário possa editá-los ou reativá-los.
 
-## Provider 分组、新增与删除
+## Agrupamento, adição e remoção de Providers
 
-设置页只展示真实 Provider；Template 只出现在右侧 Template 选择页：
+A página de configurações exibe apenas Providers reais; o Template aparece somente na página de seleção de Templates, à direita:
 
 ```text
 zai-family / bigmodel-family
@@ -198,18 +190,18 @@ standard-personal
 └─ 已创建的普通 Personal Provider
 ```
 
-Provider 不保存额外的 `builtin` 标志或顶层 `enabled`，也不靠 Provider ID 白名单推断分组。Template 不是
-Provider，没有运行时 `providerId`、可执行状态或 Settings 详情页。
+O Provider não salva uma flag `builtin` extra nem um `enabled` de topo, e o agrupamento não é inferido por uma lista branca de IDs de Provider. Template não é
+Provider: não tem `providerId` de runtime, estado executável ou página de detalhes em Settings.
 
-顶部操作复用 Subagents 设置页的头部动作层级：刷新在前，使用 `outline + icon-md`；“添加供应商”在后，使用带 Plus 图标的 `default + default` 主操作按钮；两者右对齐并保持 `gap-2`。点击添加后左侧 Provider 导航保持不变，右侧详情切换为
-`ProviderTemplatePicker`。选择页直接消费目标 Host 的 `ProviderSettingsView.providerTemplates`，按发布顺序显示
-固定高度、最多两行名称的 Template 卡片，不另建 Catalog、搜索、ID 排序表或 Renderer 品牌名单。页面提供返回，
-创建成功后进入新 Provider 详情。长名称超过两行时截断并通过 Tooltip 展示全名。
+A ação do topo reaproveita a hierarquia de ações de cabeçalho da página de configurações de Subagents: Refresh primeiro, usando `outline + icon-md`; "添加供应商" depois, usando o botão de ação principal `default + default` com ícone Plus; ambos alinhados à direita e mantendo `gap-2`. Após clicar em adicionar, a navegação de Providers da esquerda permanece igual e os detalhes da direita mudam para
+`ProviderTemplatePicker`. A página de seleção consome diretamente o `ProviderSettingsView.providerTemplates` do Host alvo e exibe, na ordem de publicação, cartões de Template
+com altura fixa e nome de no máximo duas linhas, sem criar outro Catalog, busca, tabela de ordenação por ID ou lista de marcas no Renderer. A página oferece retorno e,
+após a criação bem-sucedida, entra nos detalhes do novo Provider. Nomes longos que passam de duas linhas são truncados e o nome completo é exibido em um Tooltip.
 
-Provider 详情中的“添加模型”是从属于当前 Provider 的次要创建操作，使用带 Plus 图标的 `secondary + default` 按钮；按钮
-保留在“模型列表”标题行右侧，标题行父容器使用 `mb-1`，与列表主体保持 `4px` 间距，不能悬贴或覆盖列表边框。
+"添加模型" nos detalhes do Provider é uma operação de criação secundário subordinada ao Provider atual, usando o botão `secondary + default` com ícone Plus; o botão
+fica à direita do título "模型列表", e o contêiner pai da linha de título usa `mb-1`, mantendo `4px` de distância do corpo da lista, sem encostar nem cobrir a borda da lista.
 
-选择页有两个立即生效的创建入口：
+A página de seleção tem duas entradas de criação com efeito imediato:
 
 ```text
 添加供应商
@@ -228,38 +220,37 @@ Provider 详情中的“添加模型”是从属于当前 Provider 的次要创�
    └─ 进入完整自定义详情
 ```
 
-`standard-personal` 当前只支持 `api-key` Access。Renderer 只根据 Effective `access.type` 选择对应设置表单，
-不得根据 Provider group 另建一套 UI 推断。Template 创建和空白创建统一调用
-`createPersonalProvider({ templateId?, label?, initialConfig? })`；`initialConfig` 不允许携带 `label`，避免绕过去重。
-Template 名称只作为创建种子；创建后的 Personal `label` 稳定、可编辑，不随界面语言或 Template 更新自动变化。
-Welcome 的 API Key 入口也调用同一原子创建操作，不能维护
-固定 `zai-api` / `bigmodel-api` 运行时 Provider 或专用保存接口。
+O `standard-personal` atualmente suporta apenas Access `api-key`. O Renderer escolhe o formulário de configuração correspondente apenas com base no `access.type` efetivo
+e não pode criar um conjunto paralelo de inferências de UI a partir do group do Provider. A criação por Template e a criação em branco chamam uniformemente
+`createPersonalProvider({ templateId?, label?, initialConfig? })`; o `initialConfig` não pode carregar `label`, evitando contornar a desduplicação.
+O nome do Template serve apenas como semente de criação; o `label` Personal criado é estável, editável e não muda automaticamente com o idioma da interface ou com atualizações do Template.
+A entrada de API Key do Welcome também chama a mesma operação de criação atômica e não pode manter
+Providers de runtime fixos `zai-api` / `bigmodel-api` nem uma interface de salvamento dedicada.
 
-不完整的新 Provider 可以出现在 Settings View 并展示完整性问题，但不会进入 Registry。
-Personal-only Provider 的结构化草稿允许保存：空 Base URL、空 API Key 或空模型成员不应阻断持久化；空值不写成
-非法的伪 URL，而是保持对应字段缺省。Host 仍按正式完整性规则把该 Provider 标为不可执行。非空但格式错误的
-URL 继续作为字段错误拒绝，避免把输入错误误当成“尚未配置”。
+Um novo Provider incompleto pode aparecer na Settings View e exibir problemas de integridade, mas não entra no Registry.
+O rascunho estruturado de um Personal Provider pode ser salvo: Base URL vazia, API Key vazia ou associação de modelos vazia não devem bloquear a persistência; valores vazios não são escritos como
+URL pseudo-inválida, mas mantidos como campo ausente. O Host continua marcando esse Provider como não executável pelas regras formais de integridade. Uma URL não vazia, mas com formato incorreto,
+continua sendo rejeitada como erro de campo, evitando confundir erro de entrada com "ainda não configurado".
 
-Provider 设置页不提供通用启停控件。Account 套餐资格展示读取 `access.entitled`；普通 Personal Provider 是否
-存在由其 Personal 根定义表达。两者都不能再用 Provider 顶层 `enabled` 推断。
+A página de configurações do Provider não oferece um controle geral de liga/desliga. A exibição da elegibilidade de plano da conta lê `access.entitled`; se um Personal Provider comum existe
+é expresso pela sua raiz Personal. Nenhum dos dois pode mais ser inferido por um `enabled` de topo do Provider.
 
-Provider Template 的发布顺序决定“添加供应商”菜单的默认顺序。智谱、Moonshot、MiniMax、DeepSeek、
-Alibaba Model Studio、Xiaomi 等国内模型服务排在 OpenAI、Anthropic、xAI 等海外服务之前；Renderer 不再另存一份
-菜单专用排序表。
+A ordem de publicação do Provider Template determina a ordem padrão do menu "添加供应商". Serviços de modelos nacionais como Zhipu, Moonshot, MiniMax, DeepSeek,
+Alibaba Model Studio e Xiaomi vêm antes de serviços 해외 como OpenAI, Anthropic e xAI; o Renderer não mantém mais uma tabela de ordenação exclusiva do menu.
 
-Provider 导航、详情标题、Template 选择页和 Account 详情统一读取 Provider Config 的结构化 `logo` 引用，由
-UI 资源解析器将 `logo.key + 当前实际主题` 映射到打包素材。缺失、未知 key 或资源加载失败均回退通用 Package
-图标；Renderer 不按 Provider ID 推断品牌。纯自定义 Provider 暂不支持上传 Logo。
+A navegação de Providers, o título dos detalhes, a página de seleção de Template e os detalhes de Account lêem uniformemente a referência estruturada `logo` do Provider Config, com
+o resolvedor de recursos da UI mapeando `logo.key + tema realmente atual` para o asset empacotado. Ausência, chave desconhecida ou falha de carregamento do recurso caem para o ícone genérico de Package;
+o Renderer não infere a marca pelo ID do Provider. Upload de Logo não é suportado por enquanto em Providers puramente personalizados.
 
-删除普通 Provider 时删除该 Personal Provider 根定义及其 Personal `provider-model` Rules；Template 不受影响，
-以后仍可再次创建新的实例。Account Family Provider 不提供删除入口，账号状态由 Account Overlay 更新。通用
-Personal `match` Rules 不随 Provider 删除。
+Ao remover um Provider comum, a raiz de definição do Personal Provider e suas Personal `provider-model` Rules são removidas; o Template não é afetado e
+uma nova instância pode ser criada depois. Providers de Account Family não oferecem entrada de remoção, e o estado da conta é atualizado pelo Account Overlay. Rules
+Personal `match` comuns não são removidas junto com o Provider.
 
-## 模型列表与编辑
+## Lista e edição de modelos
 
-模型列表承担浏览、启停、测试、编辑、Personal 模型删除和全成员排序。列表必须直接
-展示 `enabled` 状态和操作按钮；模型 ID、Properties 与 Option Specs 等内容在独立
-模型编辑页中修改，列表行不提供内联名称编辑。
+A lista de modelos comporta navegação, liga/desliga, teste, edição, remoção de modelos Personal e ordenação de todos os membros. A lista precisa exibir diretamente
+o estado `enabled` e os botões de operação; Model ID, Properties e Option Specs são modificados em uma página de
+edição de modelo separada, e a linha da lista não oferece edição de nome em linha.
 
 ```text
 模型列表行
@@ -274,86 +265,85 @@ Personal `match` Rules 不随 Provider 删除。
 └─ Model ID 与非交互空白均可启动整行拖动（Built-in 与 Personal）
 ```
 
-Model ID 是 `providerId/modelId` 身份的一部分。Built-in Model ID 只读；编辑页修改 Personal Model ID
-时执行一次明确的原子重命名操作，而不是把它当作普通展示文本。
+O Model ID faz parte da identidade `providerId/modelId`. O Built-in Model ID é somente-leitura; ao editar um Personal Model ID
+a página de edição executa uma operação de renomeação atômica explícita, em vez de tratá-lo como texto de exibição comum.
 
-`enabled` 开关显示 Effective Model Config，切换后写入 Personal `type="provider-model"` 专属 Rule，并保持明确
-布尔值；模型列表不提供删除该叶子的“恢复默认”入口。disabled 模型继续显示在 Provider 页面，但从普通模型选择器隐藏。开关不等于
-`selectable`：Provider 配置不完整、Account 未获得权益或 Provider hidden 都可能让一个 enabled 模型仍不可选择。
+O interruptor `enabled` exibe o Effective Model Config e, ao ser alternado, escreve uma Rule Personal `type="provider-model"` específica, mantendo um booleano explícito;
+a lista de modelos não oferece uma entrada de "restaurar padrão" para remover essa folha. Modelos disabled continuam aparecendo na página do Provider, mas ficam ocultos no seletor de modelos comum. O interruptor não é igual a
+`selectable`: um Provider com configuração incompleta, uma conta sem entitlement ou um Provider hidden ainda podem tornar um modelo enabled não selecionável.
 
-普通 Personal Provider 导航行不显示独立拖动块；Provider 名称、图标或非交互空白都是同一个整行拖动区域。
-点击仍选择 Provider，拖动超过激活距离后才进入排序，避免把普通点击误判为拖拽。行内真实按钮继续排除在拖动
-激活区域之外；可拖文字禁止浏览器文本选择，不能出现“选中文字但没有排序”的假拖动态。
+A linha de navegação de um Personal Provider comum não exibe um bloco de arraste independente; o nome, o ícone ou o espaço não interativo do Provider formam a mesma区域 de arraste da linha inteira.
+Clicar continua selecionando o Provider, e só a ordenação é ativada depois que o arraste passa da distância de ativação, evitando confundir um clique comum com arrasto. Os botões reais dentro da linha continuam excluídos da região
+de ativação do arraste; o texto arrastável proíbe a seleção de texto do navegador, e não pode aparecer um falso estado de arraste do tipo "texto selecionado, mas sem reordenação".
 
-`executable` 和 `selectable` 是 Host 派生结果，不是保存字段：前者由 Account entitlement（账号类型）、Provider
-完整性、Model enabled 和成员身份决定；后者再要求 Provider visibility 为 visible。hidden 不等于 disabled。
+`executable` e `selectable` são resultados derivados pelo Host, e não campos salvos: o primeiro é determinado pelo entitlement da conta (tipo de conta), pela integridade do Provider,
+pelo enabled do Model e pela identidade de membro; o segundo exige ainda que a visibility do Provider seja visible. hidden não é igual a disabled.
 
-`builtinModelIds` 与 `modelIds` 重名时采用 Built-in-wins：只产生一条可正常运行的 Built-in 模型。正常 UI
-禁止创建重复成员；手工配置中的重复在下一次相关保存时规范化。系统不建立冲突 DTO、暂停身份或第二个同名
-模型。Host 仍显式返回 `builtin`，仅用于 Model ID 只读和删除权限，Renderer 不从 ID 或目录猜来源。
+Quando `builtinModelIds` e `modelIds` têm o mesmo nome, vale Built-in-wins: produz-se apenas um modelo Built-in que funciona normalmente. A UI normal
+proíbe criar membros duplicados; duplicatas em configuração manual são normalizadas no próximo salvamento relacionado. O sistema não cria DTO de conflito, não suspende identidades nem cria um segundo modelo com o mesmo nome.
+O Host ainda devolve `builtin` explicitamente, usado apenas para o Model ID somente-leitura e para a permissão de remoção, e o Renderer não adivinha a origem pelo ID ou pelo diretório.
 
-Model 编辑使用本地 Draft 和手动保存。弹窗允许编辑产品开放的 Model Config 字段：enabled、context、输入输出格式、
-能力布尔值、MFJS、Reasoning 档位、Reasoning Mapping 与最大输出 Token。Reasoning Mapping 使用固定高度
-技术文本框：Personal Map 是 value，Inherited Map 是 placeholder，清空表示恢复继承。最大输出 Token 使用
-独立数字输入，直接展示且不放进“高级”折叠；Max Output Map 暂不开放第二编辑入口，保存其他字段时必须
-原样保留。
-启用开关与 Model ID 共用首行，不单独占据一个状态卡片。主要字段顺序固定为
-`Model ID/启用 -> context -> 最大输出 Token -> 输入类型 -> 输出类型 -> 模型能力`，复杂 JSON 与 MFJS
-位于这些常用字段之后。
-context、最大输出 Token 和两个复杂 JSON 槽位都只把 Personal 覆盖作为输入值；当前继承/生效值显示为同一输入框的
-placeholder，不再另设只读预览，也不能把继承值预填成用户输入。空白表示继承，明确填写的 Map 表达式表示
-Personal 叶子覆盖。JSON/Map 编辑区只保留文本框自身的边框、固定高度和内部滚动，不再套第二层有边界容器；MFJS 开关前使用
-“其他设置”分组标题，避免复杂 JSON 与后续布尔设置在视觉上粘连。最大输出数字 `N` 直接表达
-`optionSpecs.maxOutputTokens.max=N`，不再保存 Option Default。弹窗底部始终提供“全部恢复默认”，无 Personal Overlay 时禁用；一次清除该模型除身份/成员之外的
-全部 Personal Model Config 覆盖；保存仍只
-写相对 Effective Built-in 真正变化的稀疏 Personal Rule。取消、X 和 Esc 不产生 Mutation。PDF/Audio 字段不在 UI
-展示，但任何其他编辑都必须保留已有值。弹窗打开期间，弹窗内容与遮罩都必须排除在模型整行拖动激活区之外；
-Portal 的 React 事件冒泡不能穿透弹窗启动背景模型排序。
-桌面弹窗保持居中的中等最大高度，长表单只在内容区滚动，不贴近窗口上下边缘形成近乎全屏的“顶天立地”布局；
-窄屏仍按可用视口高度安全收缩。
+A edição de modelo usa Draft local e salvamento manual. O diálogo permite editar os campos de Model Config abertos para o produto: enabled, context, formatos de entrada e saída,
+booleanos de capacidade, MFJS, níveis de Reasoning, Reasoning Mapping e máximo de tokens de saída. O Reasoning Mapping usa uma caixa de texto técnico de altura fixa:
+o Personal Map é o value, o Inherited Map é o placeholder, e limpar significa voltar a herdar. O máximo de tokens de saída usa uma
+entrada numérica separada, exibida diretamente e fora da dobra "avançado"; o Max Output Map não abre por enquanto uma segunda entrada de edição e precisa ser preservado como está ao salvar os demais campos.
+O interruptor de ativação compartilha a primeira linha com o Model ID e não ocupa sozinho um cartão de estado. A ordem dos campos principais é fixa como
+`Model ID/启用 -> context -> 最大输出 Token -> 输入类型 -> 输出类型 -> 模型能力`, com o JSON complexo e o MFJS
+depois desses campos comuns.
 
-输入/输出格式、能力布尔值与 MFJS 使用同一个 Boolean Model Option。checked 只表达 Effective 值；稀疏
-Personal 叶子的存在通过更高饱和度的外框与 Checkbox 边框表达，不显示“默认/已修改”文字，也不以值是否等于
-Built-in 推断来源。锁定 Text 只表达不可编辑。
+context, máximo de tokens de saída e os dois slots de JSON complexo usam apenas a cobertura Personal como valor de entrada; o valor herdado/em vigor atual aparece como placeholder
+da mesma caixa de entrada, sem uma segunda pré-visualização somente-leitura, e o valor herdado não pode ser pré-preenchido como entrada do usuário. Branco significa herdar, e uma expressão Map explicitamente preenchida significa
+cobertura de folha Personal. A área de edição de JSON/Map mantém apenas a borda da própria caixa, a altura fixa e o scroll interno, sem um segundo contêiner com borda; antes do interruptor MFJS usa o
+título de grupo "其他设置", evitando que o JSON complexo fique visualmente grudado nos booleanos seguintes. O número máximo de saída `N` expressa diretamente
+`optionSpecs.maxOutputTokens.max=N` e não salva mais Option Default. O rodapé do diálogo sempre oferece "全部恢复默认", desabilitado quando não há Personal Overlay; essa ação limpa todas as coberturas Personal
+de Model Config daquele modelo exceto identidade/membro; o salvamento continua escrevendo apenas a Rule Personal esparsa que realmente mudou em relação ao Effective Built-in. Cancelar, X e Esc não geram Mutation. Campos de PDF/Audio não são exibidos na UI,
+mas qualquer outra edição precisa preservar os valores existentes. Enquanto o diálogo estiver aberto, seu conteúdo e o overlay precisam ficar fora da região de ativação do arraste da linha inteira do modelo;
+a propagação de eventos React pelo Portal não pode atravessar o diálogo e iniciar a ordenação de modelos em segundo plano.
+O diálogo de desktop mantém uma altura máxima média e centralizada, formulários longos rolam apenas na área de conteúdo e não encostam nas bordas superior e inferior da janela formando um layout quase de tela cheia;
+em telas estreitas ele ainda encolhe com segurança conforme a altura útil do viewport.
 
-新增 Personal Model 时，Host 的 Model Config Resolution 是该 `providerId/modelId/api.type` 的继承基线。Renderer
-将数字和 JSON 作为 placeholder，将格式和能力布尔值缓存为表单展示状态；展示缓存不属于 Personal Config，
-迟到的 Resolution 也不得覆盖用户已经触碰的字段。保存时仍按继承基线生成稀疏 Personal Overlay，禁止把
-ZCode Built-in Model Config Rules 的默认事实反向物化。
+Formatos de entrada/saída, booleanos de capacidade e MFJS usam o mesmo Boolean Model Option. O estado checked expressa apenas o valor efetivo; a presença de uma folha Personal esparsa
+é expressa por uma moldura externa mais saturada e pela borda do Checkbox, sem texto "padrão/modificado" e sem inferir a origem pelo fato de o valor ser igual ao
+Built-in. Text travado expressa apenas que não é editável.
 
-Provider/Model 保存与模型连接反馈使用应用既有窗口级 Toast，固定在 viewport 底部；不同对象向上堆叠，同一对象
-的 saving、success、failure 按 key 替换。保存或连接失败比成功停留更久，并提供必要的重试或关闭入口。模型级消息
-必须包含 Model ID，必要时同时包含 Provider 身份。Toast 的静态位置只能由 `top`/`bottom` inset 决定；Y 轴
-transform 只用于消息自身的入场动画，底部容器不得被平移出 viewport。
+Ao adicionar um Personal Model, a Resolução de Model Config do Host é a baseline de herança daquele `providerId/modelId/api.type`. O Renderer
+usa números e JSON como placeholder e mantém formatos e booleanos de capacidade em cache como estado de exibição do formulário; esse cache de exibição não pertence ao Personal Config, e
+uma Resolução atrasada também não pode sobrescrever campos que o usuário já tocou. Ao salvar, o Overlay Personal esparso continua sendo gerado a partir da baseline de herança, e é proibido materializar na direção inversa os fatos default das
+ZCode Built-in Model Config Rules.
 
-完整 UI、状态归属和接受用例见
-[`model-membership-and-enablement.md`](./model-membership-and-enablement.md)。
+O salvamento de Provider/Model e o feedback de conexão de modelo usam o Toast de nível de janela já existente no aplicativo, fixo na parte inferior do viewport; objetos diferentes se empilham para cima e o saving, success e failure de um mesmo objeto
+são substituídos por chave. Falhas de salvamento ou de conexão permanecem por mais tempo que o sucesso e oferecem as entradas de nova tentativa ou de fechamento necessárias. Mensagens de nível de modelo
+precisam conter o Model ID e, quando necessário, também a identidade do Provider. A posição estática do Toast só pode ser determinada pelo inset `top`/`bottom`; transform no eixo Y
+é usado apenas para a animação de entrada da própria mensagem, e o contêiner inferior não pode ser deslocado para fora do viewport.
 
-Provider 设置的左右分栏容器使用稳定高度，不由 Provider 数量、Model 数量或右侧表单长度撑高。外层卡片裁切溢出，
-左侧 Provider 导航与右侧 Provider 详情各自拥有独立的纵向滚动区；滚动长模型列表时不能带动 Provider 导航，反之
-亦然。两侧滚动区都必须具有 `min-height: 0`，保证 Grid/Flex 子项真正收缩并产生内部滚动，而不是继续撑高页面。
-模型设置页使用比普通 Settings 表单更宽的内容列，为固定 Provider 导航和完整详情表单保留足够横向空间；左右滚动区
-都不得产生横向滚动条。窄屏仍可收起导航文字并让详情字段换行或截断，不能依赖横向拖动才能访问字段。
+A UI completa, a atribuição de estado e os casos de aceitação estão em
+[`model-membership-and-enablement.md`](./model-membership-and-enablement.md).
 
-Template 创建的 Personal Provider 与完全自定义 Personal Provider 使用同一套详情信息层级。继承自 Template 的
-Base URL 与 API Schema 必须可见，但使用只读控件或等价的冻结展示；用户仍可编辑 API Key、模型配置和允许覆盖的
-Personal 字段。Provider ID 与 Built-in Model ID 保持只读。不能因为 Endpoint 只读而隐藏整个连接事实区，也不能
-另建一份 Template 专用详情 DTO。
+O container de divisão esquerda/direita da configuração de Provider usa altura estável e não é esticado pela quantidade de Providers, pela quantidade de Modelos nem pelo comprimento do formulário à direita. O cartão externo corta o overflow,
+e a navegação de Providers à esquerda e os detalhes do Provider à direita têm áreas de rolagem vertical independentes; rolar uma lista longa de modelos não pode arrastar a navegação de Providers, e vice-versa.
+As duas áreas de rolagem precisam ter `min-height: 0`, garantindo que os itens Grid/Flex realmente encolham e produzam scroll interno, em vez de continuar esticando a página.
+A página de configurações de modelo usa uma coluna de conteúdo mais larga que um formulário de Settings comum, reservando espaço horizontal suficiente para a navegação fixa de Providers e para o formulário completo de detalhes; as duas áreas de rolagem
+não podem gerar barra de rolagem horizontal. Em telas estreitas ainda é possível recolher o texto da navegação e deixar os campos de detalhes quebrarem a linha ou serem truncados, sem depender de arraste horizontal para acessar um campo.
 
-Personal Model Config Rule 不决定字段是否可编辑，它只是用户明确修改后形成的稀疏持久化结果。设置页是否允许编辑由
-字段所有权和产品交互决定；一旦允许编辑，Built-in/Personal Model 都通过同一 Personal Rule 保存覆盖。模型成员是否
-允许改名或删除则由成员来源独立决定，Builtin Model ID 只读且不能删除。
+Um Personal Provider criado por Template e um Personal Provider totalmente personalizado usam o mesmo conjunto de hierarquia de informações de detalhes. Base URL e API Schema herdadas de um Template
+devem ser visíveis, mas com controles somente-leitura ou exibição congelada equivalente; o usuário ainda pode editar API Key, configuração de modelo e os campos Personal que permitem sobrescrita.
+O Provider ID e o Built-in Model ID permanecem somente-leitura. Não se pode esconder toda a área de fatos de conexão só porque o Endpoint é somente-leitura, nem
+criar outro DTO de detalhes exclusivo de Template.
 
-账号 Individual / Team Coding Plan 是上述通用展示规则的产品例外：设置页完全隐藏 Endpoint 与 API Schema，只展示
-套餐状态和 Effective 模型配置。隐藏不代表 Config 缺少字段；Endpoint/API Schema 仍保留在 Effective Provider
-Config，并由 Registry、ModelFactory 与 Runtime 正常消费。Renderer 不为此裁剪或重建 Account Provider Config，
-也不能让套餐、额度、凭据或请求错误决定模型配置区域是否存在。
+Uma Personal Model Config Rule não determina se um campo é editável; ela é apenas o resultado esparso e persistente formado depois que o usuário modificou explicitamente o campo. Se a página de configurações permite a edição é decidido
+pela propriedade do campo e pela interação de produto; uma vez permitida a edição, tanto modelos Built-in quanto Personal salvam a cobertura pela mesma Personal Rule. Se a associação de modelos permite
+renomear ou remover é decidido de forma independente pela origem do membro, e o Builtin Model ID é somente-leitura e não pode ser removido.
 
-## Provider 与模型调序
+As Coding Plan Individual / Team da conta são a exceção de produto às regras de exibição acima: a página de configurações oculta completamente Endpoint e API Schema e exibe apenas
+o estado do plano e a configuração efetiva de modelos. Ocultar não significa que o Config esteja sem campos; Endpoint/API Schema continuam presentes no Effective Provider
+Config e são consumidos normalmente por Registry, ModelFactory e Runtime. O Renderer não recorta nem reconstrói o Account Provider Config por causa disso,
+nem permite que plano, cota, credencial ou erro de requisição decidam se a área de configuração de modelos existe.
 
-Provider 和 Model 都使用显式 Personal 顺序字段，不依赖 Map 插入顺序。Family Provider 固定在最前且不参与
-普通排序；两个固定创建操作紧随 Family；所有 `standard-personal` Provider 位于操作之后并可统一拖动。Provider
-顺序由 `providerOrder` 的有效成员加未排序 Personal 尾段确定。
+## Ordenação de Providers e modelos
+
+Provider e Model usam campos de ordem Personal explícitos e não dependem da ordem de inserção do Map. Providers de Family ficam fixos na frente e não participam da
+ordenação comum; as duas operações fixas de criação vêm logo após as Families; todos os Providers `standard-personal` ficam depois das operações e podem ser arrastados de forma unificada. A ordem de Providers
+é determinada pelos membros válidos de `providerOrder` mais a cauda de Personais ainda não ordenados.
 
 ```text
 Personal:       [A, B, C, X, Y]
@@ -364,16 +354,16 @@ providerOrder:  [C, X, A, Y, B]
 保存完整 providerOrder，去重复、删 stale、补遗漏
 ```
 
-所有 Effective Built-in/Personal Model 成员都可以拖动；Builtin 只是不允许删除。拖动保存完整
-`modelOrder`，但不修改 `builtinModelIds` / `modelIds` 的成员所有权，也不修改 ModelConfigRules 优先级。
-模型整行是拖动激活区域，行内 Switch、测试、编辑和删除必须排除；可拖文字禁止浏览器文本选择。指针使用移动
-阈值，触屏保留纵向滚动，键盘提供等价排序能力。
+Todos os membros de Model Effective Built-in/Personal podem ser arrastados; o Builtin só não pode ser removido. O arraste salva o
+`modelOrder` completo, mas não altera a propriedade de membros de `builtinModelIds` / `modelIds` nem a prioridade das ModelConfigRules.
+A linha inteira do modelo é a região de ativação do arraste, e Switch, teste, edição e remoção dentro da linha precisam ficar excluídos; o texto arrastável proíbe a seleção de texto. O ponteiro usa um
+limiar de movimento, o toque preserva a rolagem vertical e o teclado oferece capacidade de ordenação equivalente.
 
-拖动采用乐观展示：操作结束后立即保存；保存失败时恢复原顺序，并在对应列表显示错误。
+O arraste usa exibição otimista: salva imediatamente após a conclusão da operação; se o salvamento falhar, a ordem original é restaurada e o erro é exibido na lista correspondente.
 
-## 连通性测试
+## Teste de conectividade
 
-连通性测试是 Host 对 Renderer 提供的 Provider Settings 能力。自动保存使测试不需要维护“临时 Registry”或一份不可发布的执行快照：
+O teste de conectividade é uma capacidade de Provider Settings que o Host oferece ao Renderer. Como o salvamento é automático, o teste não precisa manter um "Registry temporário" nem um snapshot de execução não publicável:
 
 ```text
 点击模型“测试”
@@ -394,14 +384,13 @@ Model.streamText() 发出最小真实请求
 正式 Adapter / Request Auth / Provider API
 ```
 
-测试按钮可以使用模型项的 `executable` 提供正常 UI 状态，但 Host 不复制 Registry 准入算法。disabled、配置
-不完整或单集合重复的模型不能测试；跨集合重名时测试正常可执行的 Built-in X。
+O botão de teste pode usar o `executable` do item de modelo para o estado normal da UI, mas o Host não copia o algoritmo de admissão do Registry. Modelos disabled, com configuração
+incompleta ou duplicados dentro de um mesmo conjunto não podem ser testados; quando há nomes iguais entre conjuntos, o teste usa o Built-in X normalmente executável.
 
-Renderer 不准备安全校验 Header，不拼 Endpoint、Reasoning 参数或协议请求体。Registry 使用保存后的正式 ProviderConfig、ModelConfig 和 Model Options 创建 Model；请求 attempt 通过正式 Request Auth Service 取得 API Key、JWT、Runtime Key、一次性安全校验 Header 等动态鉴权材料。
+O Renderer não prepara Header de validação de segurança e não monta Endpoint, parâmetros de Reasoning ou corpo de requisição de protocolo. O Registry cria o Model com o ProviderConfig, ModelConfig e Model Options formais já salvos; a tentativa de request obtém o material de autenticação dinâmico (API Key, JWT, Runtime Key, Header de validação de segurança de uso único etc.) pelo Request Auth Service formal.
 
-账号 Provider 的设置、权益和 Usage 入口同样只能从 Settings View 读取 Registry 的静态
-`access: { type: "zhipu-account", family, mode }`。Renderer 不用动态 Account Access Schema 解析该字段，
-也不把当前套餐或 Team scope 伪装成 Effective Provider Config：
+As entradas de configuração, entitlement e Usage de um Provider de conta também só podem ler, a partir da Settings View, o `access: { type: "zhipu-account", family, mode }` estático do Registry.
+O Renderer não interpreta esse campo com o Schema de Account Access dinâmico e não disfarça o plano atual ou o escopo de Team como Effective Provider Config:
 
 ```text
 Provider Settings View.access { family, mode }
@@ -416,26 +405,25 @@ Host Account Request Auth Service
 Entitlement / Usage / Reset / Model Request
 ```
 
-动态账号事实由目标 Environment 的账号服务在调用时解析。Team usage 列表可以把已订阅产品响应与静态
-`team-coding-plan` mode 组合成查询 scope，但不得把该 scope 写回 Personal Config、Account Overlay 或 Registry。
+Os fatos dinâmicos da conta são resolvidos no momento da chamada pelo serviço de conta do Environment alvo. A lista de usage de Team pode combinar a resposta de produtos assinados com o modo estático
+`team-coding-plan` para formar o escopo da consulta, mas não pode gravar esse escopo de volta no Personal Config, no Account Overlay ou no Registry.
 
-测试使用与 Agent 相同的流式 Adapter 路径，固定发送两条消息：system `You are ZCode connectivity probe.`，user `hi`，并消费完整流。文本、角色、顺序是白名单相关契约，不添加历史、工具、额外 system 或国际化文本（Todo 91）；不影响其他辅助请求。连接测试独立使用 1 Token 输出预算，Reasoning 显式使用有序档位的首项，不复用辅助内容生成的 5,000 Token 预算（Todo144）。正常 finish（含 length）即成功，不要求正文；流异常或缺少 finish 仍失败。测试路径不依赖已经退役的 Option Default，也不假设 Model 已绑定隐式默认 Options。超时、鉴权、预算参数拒绝、模型不存在、限流、服务端错误和响应解析错误由正式 Model/Adapter 错误边界归一化，再投影为设置页结果，不自动增加预算或更换模型。
+O teste usa o mesmo caminho de Adapter de streaming do Agent e envia fixamente duas mensagens: system `You are ZCode connectivity probe.`, user `hi`, consumindo o stream completo. Texto, papéis e ordem são um contrato de whitelist relevante, e nenhum histórico, ferramenta, system extra ou texto de internacionalização é adicionado (Todo 91); isso não afeta outras requisições auxiliares. O teste de conexão usa de forma independente um orçamento de saída de 1 Token, e o Reasoning usa explicitamente o primeiro item da lista ordenada de níveis, sem reutilizar o orçamento de 5.000 Tokens da geração de conteúdo auxiliar (Todo144). Um finish normal (incluindo length) é sucesso e não exige corpo; stream anormal ou finish ausente ainda é falha. O caminho de teste não depende do Option Default já descontinuado e não pressupõe que o Model já esteja vinculado a Options default implícitos. Timeout, falha de autenticação, rejeição de parâmetros de orçamento, modelo inexistente, limitação de taxa, erro do servidor e erro de parsing da resposta são normalizados pela fronteira formal de erros de Model/Adapter e então projetados como resultado da página de configurações, sem aumentar o orçamento nem trocar de modelo automaticamente.
 
-测试成功表示保存后的正式 Model 能够完成一次真实请求，而不只是某个独立 HTTP Probe 收到了成功状态码。Start Plan、Coding Plan 和普通 API Provider 使用同一入口；它们的差异结束在 Provider、Request Auth 和 Adapter 内部。
+Um teste bem-sucedido significa que o Model formal, depois de salvo, conseguiu completar uma requisição real, e não apenas que um Probe HTTP independente recebeu um status de sucesso. Start Plan, Coding Plan e Provider de API comum usam a mesma entrada; as diferenças entre eles terminam dentro do Provider, do Request Auth e do Adapter.
 
-一次测试只返回一个成功/失败联合结果，不保留单元素 `results[]`、Endpoint 聚合或 Host 端 API 类型推断。
-最终准入由目标 Environment 当前 Registry 的 ModelFactory 完成；测试不修改任何模型选择或 Active Model。
+Um teste retorna apenas um resultado único de sucesso/falha, sem manter `results[]` de elemento único, agregação de Endpoint ou inferência de tipo de API no Host.
+A admissão final é feita pelo ModelFactory do Registry atual do Environment alvo; o teste não modifica nenhuma seleção de modelo nem o Active Model.
 
-## 实施边界
+## Limites de implementação
 
-Renderer、Host、本地与远端 Environment 使用相同 Settings Service 契约。设置页不建立临时 Registry、
-Connectivity Probe Adapter 或第二套 Overlay/完整性算法。
+Renderer, Host e Environments local e remoto usam o mesmo contrato de Settings Service. A página de configurações não cria um Registry temporário,
+um Connectivity Probe Adapter nem um segundo algoritmo de Overlay/integridade.
 
-## Provider 表单保存与反馈
+## Salvamento e feedback do formulário de Provider
 
-Provider 详情主表单采用同一套自动保存语义：文本输入变更后，用户停止输入一段短时间即提交最新
-完整 Provider Draft；失焦、Enter、切换 Provider 或卸载时立即 flush。同一 Provider 的连续输入共享一个
-debounce，不按字段制造多份保存。选择器、Switch 等离散操作继续即时保存。
+O formulário principal dos detalhes do Provider usa a mesma semântica de salvamento automático: após a alteração de uma entrada de texto, quando o usuário para de digitar por um curto período o Provider Draft completo mais recente é submetido; perda de foco, Enter, troca de Provider ou desmontagem fazem flush imediato. Entradas consecutivas no mesmo Provider compartilham um
+debounce, sem criar vários salvadores por campo. Seletores, Switches e outras operações discretas continuam salvando imediatamente.
 
 ```text
 连续输入 --重置定时器--> 停顿阈值 --保存最新完整 Draft
@@ -443,12 +431,12 @@ debounce，不按字段制造多份保存。选择器、Switch 等离散操作�
      +-- blur / Enter / 切换 --> 取消定时器 --> 立即保存
 ```
 
-Model Metadata Dialog 仍是显式交易：只有点击“保存”才提交，“取消”必须可以放弃整份草稿，因此不参与
-Provider 主表单的闲时自动保存。
+O Model Metadata Dialog continua sendo uma transação explícita: apenas o clique em "保存" submete e "取消" precisa poder descartar o rascunho inteiro, portanto ele não participa do
+salvamento automático por ocioso do formulário principal do Provider.
 
-添加和编辑提交后，在保存返回前不接受重复提交、Esc 或遮罩关闭，避免旧请求结束掉重开的新草稿。
-保存成功关闭弹窗；失败保留输入，恢复编辑/取消能力，并在原草稿中重试，不从外部通知另起一次保存。
+Após a submissão de adição e edição, não são aceitos submissão duplicada, Esc nem fechamento por overlay antes de o salvamento retornar, evitando que uma requisição antiga encerre um rascunho novo reaberto.
+O salvamento bem-sucedido fecha o diálogo; a falha preserva a entrada, restaura a capacidade de editar/cancelar e permite tentar de novo no rascunho original, sem iniciar outro salvamento por uma notificação externa.
 
-保存与模型连通性反馈归属当前 Provider 详情栏，不是全局 viewport Toast。反馈容器固定在右侧详情栏底部，
-不随 Provider 或 Model 长列表滚动；不同对象向上堆叠，同一对象的 saving / success / failure 原位替换。
-success 使用成功色横幅与对勾，failure 停留更久并可重试或关闭。
+O feedback de salvamento e de conectividade do modelo pertence à coluna de detalhes do Provider atual, e não a um Toast global de viewport. O contêiner de feedback é fixo na parte inferior da coluna de detalhes à direita,
+sem rolar junto com listas longas de Providers ou Modelos; objetos diferentes se empilham para cima e o saving / success / failure de um mesmo objeto é substituído no lugar.
+O success usa uma faixa com cor de sucesso e um visto, e o failure permanece por mais tempo e pode ser fechado ou tentado novamente.

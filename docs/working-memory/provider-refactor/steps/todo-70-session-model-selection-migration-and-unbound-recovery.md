@@ -1,267 +1,239 @@
-# Todo 70：Session Model Selection 迁移与未绑定恢复
+# Todo 70: Migração de Session Model Selection e recuperação não vinculada
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização de atribuição de verificação (2026-09-09): as pendências de teste/falhas/promoções manuais remanescentes neste documento foram transferidas uniformemente para [Todo102](todo-102-verification-debt-closeout.md), encerrando o cronograma de verificação independente neste documento; a evidência histórica é preservada e a transferência não significa que os testes passaram.
 
-> 状态：已完成实现与阶段验收（2026-09-04）。
+> Status: implementação e aceitação por fases concluídas (2026-09-04).
 >
-> 来源：Provider 重构上线前的存量 Session 恢复失败复盘
+> Origem: retrospectiva das falhas de recuperação de Sessions existentes antes do lançamento da refatoração de Provider
 >
-> 执行顺序：先完成 Todo 72 的身份转换基础，再与 Todo 69 的存储边界衔接；之后实施本文，最后衔接 Todo 71。
-> 遵守 Todo 69“不持续双写”的实用回滚边界，不依赖旧字段回写编码器。
+> Ordem de execução: primeiro concluir a base de conversão de identidade do Todo 72, depois conectar com a fronteira de armazenamento do Todo 69; em seguida implementar este documento e, por fim, conectar com o Todo 71.
+> Respeitar a fronteira prática de rollback do Todo 69 de "não dual-write contínuo", sem depender de codificadores que reescrevam campos antigos.
 
-## 1. 问题
+## 1. Problema
 
-存量 Session 恢复时，持久化的 Model Selection 可能出现以下情况：
+Na recuperação de Sessions existentes, o Model Selection persistido pode estar:
 
-- 仍是旧结构；
-- 新结构中缺少 `reasoningLevel`；
-- 已保存的 Provider、Model 或 Reasoning 已不再存在；
-- 新旧字段同时存在，但内容不同。
+- ainda na estrutura antiga;
+- sem `reasoningLevel` na estrutura nova;
+- com Provider, Model ou Reasoning já salvos que não existem mais;
+- com campos novo e antigo simultâneos, mas com conteúdos diferentes.
 
-当前恢复链路会过早把这类不完整 Selection 交给严格的 ModelFactory，导致 Session 连历史内容也无法
-打开，例如：
+A cadeia de recuperação atual entrega cedo esse tipo de Selection incompleto ao ModelFactory estrito, o que faz a Session nem conseguir abrir o conteúdo histórico, por exemplo:
 
 ```text
 Reasoning level is required for provider/model
 ```
 
-这不是模型请求失败，而是 Session 恢复与执行模型绑定没有分开。
+Isso não é falha de requisição de modelo, é o fato de a recuperação de Session não estar separada do vínculo do modelo de execução.
 
-## 2. 目标
+## 2. Objetivo
 
-本 Todo 只做两件事：
+Este Todo faz apenas duas coisas:
 
-1. 旧 Session 在持久化读取边界尽量迁移成当前 Model Selection；不批量改写历史，不为降级回滚新增旧字段双写；
-2. Session 恢复只读取迁移后的新字段。能确定的信息正常恢复，无法确定的信息保持未绑定，但不得阻止
-   Session 打开和历史查看。
+1. Na fronteira de leitura da persistência, migrar Sessions antigas para o Model Selection atual tanto quanto possível; não reescrever o histórico em lote e não adicionar dual-write de campos antigos para rollback degradado;
+2. A recuperação de Session lê apenas os campos novos já migrados. Informação que pode ser determinada é recuperada normalmente; a que não pode fica não vinculada, mas sem impedir a abertura da Session e a visualização do histórico.
 
-本 Todo 只负责 Session 的升级读取和恢复，不复制其他领域的升级逻辑。Todo 69 的范围已经收窄为降级回滚的
-物理兼容边界，当前唯一生产改动是 Bot Config/State 文件隔离；它不再承诺各领域持续双写，也不能据此认为
-其他领域的升级迁移已经全部完成。
+Este Todo é responsável apenas pela leitura de atualização e pela recuperação de Sessions; não replica a lógica de atualização de outras áreas. O escopo do Todo 69 já foi reduzido à fronteira de compatibilidade física do rollback degradado, e sua única mudança de produção hoje é o isolamento de arquivos de Bot Config/State; ele não promete mais dual-write contínuo por área, e também não se pode concluir por ele que as migrações de atualização das outras áreas estão todas concluídas.
 
-旧 Provider 身份转换统一采用 [Todo 72](./todo-72-legacy-builtin-provider-and-model-selection-migration.md)。
-其中旧 Coding Plan 的动态身份允许按迁移时同一 Family 当前选中的个人/Team 连接转换；
-这是旧结构升级规则，不是当前 Selection 失效后的 Account-first 回退。本文继续负责 Session 的
-唯一 Decoder 与未绑定恢复，不新增平行转换入口，不用旧字段修补已有当前结构。
+A conversão da identidade de Provider antigo adota uniformemente o [Todo 72](./todo-72-legacy-builtin-provider-and-model-selection-migration.md).
+Nele, a identidade dinâmica do antigo Coding Plan permite converter conforme a conexão pessoal/Team selecionada na mesma Family no momento da migração; essa é uma regra de atualização da estrutura antiga, e não um fallback Account-first após a Selection atual ficar inválida. Este documento continua responsável pelo único Decoder da Session e pela recuperação não vinculada, sem adicionar entradas de conversão paralelas e sem usar campos antigos para remendar estruturas atuais já existentes.
 
-## 2.1 共同原则
+## 2.1 Princípios comuns
 
-本 Todo 与 Todo 69 共同遵守以下原则：
+Este Todo e o Todo 69 obedecem aos seguintes princípios:
 
-1. 老数据尽量迁移；
-2. 旧原始数据不做破坏性批量清理，但不持续生成旧字段；回滚退化按 Todo 69 接受；
-3. 当前恢复只认新字段；
-4. 能确定的缺失值直接补齐；
-5. 无法确定的允许留空；
-6. 不自动替换失效选择；模型或 Reasoning 留空时不弹提示，由控件空态表达；
-7. 不能因为模型选择数据损坏而让整个 Session 无法打开。
+1. Dados antigos são migrados tanto quanto possível;
+2. Não se faz limpeza destrutiva em lote dos dados brutos antigos, mas também não se gera continuamente campos antigos; a degradação por rollback é aceita conforme o Todo 69;
+3. A recuperação atual só reconhece campos novos;
+4. Valores ausentes que podem ser determinados são preenchidos diretamente;
+5. Os que não podem podem ficar vazios;
+6. Não se substitui automaticamente uma escolha inválida; quando o Model ou Reasoning fica vazio não aparece aviso, e o estado vazio do controle expressa isso;
+7. Não se pode impedir a abertura de toda a Session por corrupção dos dados de escolha de modelo.
 
-这里必须区分三种行为：
+É preciso distinguir aqui três comportamentos:
 
-- **迁移**：旧字段与新字段可以一一对应时，机械搬运同一个值；
-- **补齐**：能由同一条持久化事实唯一确定新字段时，直接写入；
-- **替换**：原值已经失效，系统改用另一个 Model、Provider 或 Reasoning。
+- **Migração**: quando campo antigo e campo novo podem corresponder um a um, mover mecanicamente o mesmo valor;
+- **Preenchimento**: quando o novo campo pode ser determinado unicamente a partir de um mesmo fato persistido, gravar diretamente;
+- **Substituição**: quando o valor original já está inválido e o sistema passa a usar outro Model, Provider ou Reasoning.
 
-迁移和确定性补齐不改变用户选择。当前计划对失效的 Model/Provider/Reasoning 不做自动替换，
-而是保持未绑定并等待用户选择，不弹失效提示。Configured Default、模型规则
-默认值、`values[0]`、`values.at(-1)`、列表首项和历史消息都不能被当作“确定的缺失值”。
+Migração e preenchimento determinístico não alteram a escolha do usuário. O plano atual não faz substituição automática de Model/Provider/Reasoning inválidos e, em vez disso, mantém não vinculado esperando o usuário escolher, sem aviso de invalidez. Configured Default, valor default das regras de modelo, `values[0]`, `values.at(-1)`, o primeiro item da lista e mensagens históricas não podem ser tratados como "valor ausente determinístico".
 
 ```text
-旧 Session 持久化数据
+Dados persistidos da Session antiga
         |
         v
-持久化读取边界
-├─ 真正旧结构 ------> 转成当前 Model Selection
-└─ 已有当前结构 ----> 只采用当前结构
+Fronteira de leitura da persistência
+├─ estrutura realmente antiga ------> converte para o Model Selection atual
+└─ estrutura atual já existente -----> adota somente a estrutura atual
         |
         v
-Session 恢复
-├─ Selection 完整且合法 ------> 绑定执行 Model
-└─ Selection 缺失或失效 ------> 保持未绑定，正常打开 Session
+Recuperação da Session
+├─ Selection completa e válida --------> vincula o Model de execução
+└─ Selection ausente ou inválida -------> mantém não vinculada, abre a Session normalmente
                                       |
                                       v
-                              用户重新选择后再绑定
+                              Após o usuário escolher de novo, vincula
 ```
 
-## 3. 单向存储迁移与当前写入
+## 3. Migração de armazenamento unidirecional e escrita atual
 
-### 3.1 读取优先级
+### 3.1 Prioridade de leitura
 
-- 存在当前 Model Selection 时，只读取当前字段；
-- 不得再使用旧 `thoughtLevel`、旧消息字段、恢复提示或其他旁路补充当前 Selection；
-- 只有数据中完全没有当前结构、能够明确判定为旧 Session 时，兼容 Decoder 才读取旧字段并转换；
-- 旧字段能确定表达的 Provider、Model 和 Reasoning 正常转换；旧结构没有的信息保持缺失，不猜测。
+- Existindo o Model Selection atual, ler somente os campos atuais;
+- Não se usa mais o antigo `thoughtLevel`, os campos antigos de mensagem, dicas de recuperação ou qualquer outro bypass para completar a Selection atual;
+- Somente quando os dados não têm nenhuma estrutura atual e podem ser claramente julgados como Session antiga é que o Decoder compatível lê os campos antigos e converte;
+- Provider, Model e Reasoning que os campos antigos conseguem determinar são convertidos normalmente; a informação que a estrutura antiga não tem permanece ausente e não é adivinhada.
 
-“当前结构”不能仅按是否存在 `modelSelection` 字段判断：旧版也可能已经写这个字段，但使用明确的旧
-`builtin:*` 身份。此类有旧格式/保留身份依据的数据按 Todo 72 在升级边界转换，然后才按当前选择恢复。
-当前字段优先仍然成立：转换其自身能够确定的身份，不从旁边的旧 `thoughtLevel` 等字段修补它；
-普通未知 ID 或 Registry 暂不可用也不能被当成旧数据依据。
+"Estrutura atual" não pode ser julgado apenas pela existência do campo `modelSelection`: versões antigas também podem já ter escrito esse campo, mas usando identidades `builtin:*` explicitamente antigas. Dados com formato antigo ou com base de identidade reservada são convertidos no limite de atualização conforme o Todo 72 e só então a recuperação usa a seleção atual.
+A prioridade do campo atual continua valendo: converta a própria identidade que ele consiga determinar, sem remendá-lo a partir de campos antigos vizinhos como o antigo `thoughtLevel`; IDs desconhecidos comuns ou Registry temporariamente indisponível também não podem servir de base para tratar como dado antigo.
 
-旧字段只在真正旧记录的 Decoder 中提供升级输入，不是当前恢复逻辑的第二事实源。原始存储中已有的旧字段
-不要求批量删除，但当前版本一旦看到当前结构，就必须忽略旧字段，即使当前结构本身不完整。
+Os campos antigos só fornecem entrada de atualização no Decoder dos registros realmente antigos e não são uma segunda fonte de fato para a lógica de recuperação atual. Os campos antigos já existentes no armazenamento bruto não precisam ser removidos em lote, mas assim que a versão atual enxerga a estrutura atual precisa ignorar os campos antigos, mesmo que a estrutura atual em si seja incompleta.
 
-### 3.2 写入规则
+### 3.2 Regras de escrita
 
-当前写入继续走唯一 Session Store 边界：
+A escrita atual continua passando pela fronteira única do Session Store:
 
-- 当前 Model Selection 是权威字段；
-- 只写当前结构，不从它反向派生旧消息别名或旧 `thoughtLevel`；
-- 当前 Decoder 返回的领域对象不暴露旧别名；
-- 单向 Decoder 的中文注释说明旧结构来源及当前字段优先规则；不新增回滚 Encoder 或通用兼容抽象。
+- O Model Selection atual é o campo autoritativo;
+- Só se escreve a estrutura atual, sem derivar dela aliases de mensagens antigas nem o antigo `thoughtLevel`;
+- O objeto de domínio devolvido pelo Decoder atual não expõe aliases antigos;
+- Os comentários em chinês do Decoder unidirecional explicam a origem da estrutura antiga e a regra de prioridade do campo atual; não se adiciona Encoder de rollback nem abstrações de compatibilidade genéricas.
 
-不新增数据库表迁移，不批量重写全部历史 Session。历史消息在读取和后续正常写回时逐步迁移。
-但当前 Session 选择若成功转换了旧 Coding Plan 动态身份，必须在本次恢复中通过现有保存入口固定新身份，
-不等用户再次发消息；Reasoning 无法确定仍可留空。只写当前选择，不改历史请求身份，不反写旧字段。
-写入前沿用现有串行化/并发保护，不能覆盖恢复期间用户新保存的选择；写入失败不能报告迁移已完成，
-也不能因此阻止历史打开。失败按现有存储错误日志/反馈处理，与“留空不弹提示”不是同一类错误。
+Não se adiciona migração de tabela de banco de dados nem reescrita em lote de todo o histórico de Sessions. As mensagens históricas migram gradualmente na leitura e na gravação normal posterior.
+Mas, se a Selection atual da Session converter com sucesso a identidade dinâmica do antigo Coding Plan, a nova identidade precisa ser fixada nesta recuperação pela entrada de salvamento existente, sem esperar o usuário enviar outra mensagem; um Reasoning que não possa ser determinado pode continuar vazio. Só se escreve a seleção atual, sem mexer na identidade das requisições históricas e sem reescrever campos antigos.
+Antes da escrita vale a serialização/proteção de concorrência existente, para não sobrescrever uma escolha nova salva pelo usuário durante a recuperação; uma falha de escrita não pode reportar a migração como concluída nem por isso impedir a abertura do histórico. A falha é tratada pelo log/feedback de erro de armazenamento já existente e não é a mesma classe de erro do "vazio sem aviso".
 
-存储接入使用一个窄化的 `migrateLegacyModelSelection` 操作：Adapter 识别原始旧结构，
-身份转换由调用方注入并复用 72 的规则，Adapter 不读取账号文件或猜测 Registry 顺序。
-先读候选，再异步取得身份转换结果；写入事务内重新核对候选及当前选择，若已发生变化就放弃本次旧结果。
-现有当前 entry（包括不完整数据）优先于历史消息。仅当没有当前 entry、且最近的选择证据确属旧结构时，
-才允许从该旧消息导入。成功后保存为现有当前选择 entry，不修改消息和 Session 活动时间。
+A integração de armazenamento usa uma operação estreita `migrateLegacyModelSelection`: o Adapter reconhece a estrutura bruta antiga, a conversão de identidade é injetada pelo chamador reutilizando as regras do 72 e o Adapter não lê arquivos de conta nem adivinha a ordem do Registry.
+Lê-se primeiro o candidato e obtém-se de forma assíncrona o resultado da conversão de identidade; dentro da transação de escrita o candidato e a seleção atual são reconferidos e, se já mudaram, o resultado antigo é descartado.
+A entry atual existente (inclusive dados incompletos) tem prioridade sobre mensagens históricas. Só quando não há entry atual e a evidência de escolha mais recente for de fato de estrutura antiga é permitido importar a partir dessa mensagem antiga. Depois de sucesso, salva-se como entry de seleção atual existente, sem modificar a mensagem nem o tempo de atividade da Session.
 
-协议宿主通过只用于升级的 `session/resolveLegacyModelProvider` 返回旧 Provider 对应的当前 ID，
-输入只有 `sessionId/providerId`，不传凭据。请求绑定产生它的 Workspace CLI/Host 连接；
-Host 用自己所在 Environment 的账号连接解释旧 Coding Plan，不转发到桌面 UI 的偏好解析链。
-Standalone 没有账号宿主时仍可转换静态旧身份，动态 Coding Plan 保持未绑定。
-这不是可供正常执行使用的 Provider 别名接口：仅真实旧结构导入会调用，固定新 entry 后不再调用。
-不改变 Desktop continuous / Mobile replayable 的订阅、owner 路由或队列，也不让手机另起 Host。
+O host de protocolo devolve o ID atual correspondente ao Provider antigo por meio do `session/resolveLegacyModelProvider`, usado apenas para atualização, com entrada apenas `sessionId/providerId` e sem credenciais. A requisição vincula a conexão Workspace CLI/Host que a produziu;
+o Host interpreta o antigo Coding Plan com a conexão de conta do seu próprio Environment, sem encaminhar para a cadeia de resolução de preferências da UI do desktop. Um Standalone sem host de conta ainda pode converter identidades estáticas antigas, e o Coding Plan dinâmico permanece não vinculado.
+Essa não é uma interface de alias de Provider para uso em execução normal: só a importação de estrutura realmente antiga a chama, e depois que a nova entry está fixada ela não é mais chamada.
+Não se altera a assinatura, o roteamento de owner ou a fila de Desktop continuous / Mobile replayable, nem se deixa o celular iniciar outro Host.
 
-## 4. Session 恢复行为
+## 4. Comportamento de recuperação de Session
 
-### 4.1 完整且合法
+### 4.1 Completa e válida
 
-Provider、Model 和 Reasoning 都仍然合法时，原样恢复并绑定执行 Model。
+Quando Provider, Model e Reasoning ainda são válidos, a Seleção é restaurada como está e o Model de execução é vinculado.
 
-### 4.2 Reasoning 缺失或失效
+### 4.2 Reasoning ausente ou inválido
 
-保留仍然有效的 Provider/Model 身份，但将 Selection 视为未完成：
+Preserva-se a identidade Provider/Model ainda válida, mas a Selection é considerada incompleta:
 
-- 只清除缺失或已经不属于当前 `values` 的 `reasoningLevel`，不得改动仍然有效的 `providerId/modelId`；
-- 不使用 `values[0]`、`values.at(-1)` 或 Configured Default 自动选择档位；
-- 不读取旧字段或历史消息猜测档位；
-- Session 正常打开；
-- UI 显示尚未完成的模型选择，用户重新选择 Reasoning 后才能继续执行。
+- Limpa-se apenas o `reasoningLevel` ausente ou que já não pertença ao `values` atual, sem mexer no `providerId/modelId` ainda válido;
+- Não se usa `values[0]`, `values.at(-1)` ou Configured Default para escolher o nível automaticamente;
+- Não se lêem campos antigos nem mensagens históricas para adivinhar o nível;
+- A Session abre normalmente;
+- A UI mostra uma escolha de modelo ainda não concluída, e o usuário precisa escolher o Reasoning de novo para poder continuar a execução.
 
-### 4.3 Provider 或 Model 失效
+### 4.3 Provider ou Model inválido
 
-复用同一套“Selection 未绑定”恢复语义：
+Reutiliza-se a mesma semântica de recuperação de "Selection não vinculada":
 
-- 不自动替换成 Account Provider 第一个模型、Configured Default 或其他候选；
-- 清除不可解析的执行绑定；
-- Session 正常打开并保留全部历史；
-- 用户重新选择当前可用模型后继续。
+- Não se substitui automaticamente pelo primeiro modelo do Account Provider, pelo Configured Default ou por outro candidato;
+- Limpa-se o vínculo de execução não resolvível;
+- A Session abre normalmente e preserva todo o histórico;
+- O usuário continua depois de escolher de novo um modelo atualmente disponível.
 
-Reasoning 失效与 Provider/Model 失效不是两套恢复系统。差别只在于前者仍可保留模型身份，后者连模型
-身份也无法绑定。两者复用同一个 Selection validator 和控件空态规则，但必须保留这一层级差异，不能因为
-Reasoning 失效就整份清空 Selection 或切换到另一个 Provider/Model。
+Reasoning inválido e Provider/Model inválido não são dois sistemas de recuperação. A diferença está apenas em o primeiro ainda poder preservar a identidade do modelo, enquanto o segundo nem a identidade do modelo consegue vincular. Ambos reutilizam o mesmo Selection validator e as mesmas regras de estado vazio do controle, mas essa diferença de nível precisa ser preservada e não se pode, por causa de um Reasoning inválido, limpar a Selection inteira ou mudar para outro Provider/Model.
 
-历史恢复与 Todo 71 的活跃 Draft 统一留空，不再区分两种失效回退策略。模型或 Reasoning 留空时不弹
-Toast、弹窗或额外失效横幅，不维护对应通知去重状态；用户通过选择控件补全后继续。
-取消的是留空提示，不取消真实执行、提交或存储故障的正常错误反馈。
+A recuperação histórica e o Draft ativo do Todo 71 unificam o "vazio", sem distinguir mais duas estratégias de fallback para invalidez. Quando o Model ou Reasoning fica vazio não aparece Toast, diálogo nem banner extra de invalidez, e não se mantém estado de deduplicação de notificação correspondente; o usuário completa pelo controle de seleção e continua.
+O que foi cancelado é o aviso de campo vazio, não o feedback de erro normal de execução, envio ou falha de armazenamento.
 
-### 4.4 未绑定不等于半成品 Model
+### 4.4 "Não vinculada" não é um Model pela metade
 
-未完成的 Selection 不得进入 ModelFactory：
+Uma Selection incompleta não pode entrar no ModelFactory:
 
 ```text
-Session 历史恢复
+Recuperação do histórico da Session
         |
-        +--> 可独立完成，不要求存在 Active Model
+        +--> pode ser concluída sozinha, sem exigir Model Ativo
         |
-        `--> 用户发起下一次执行
+        `--> o usuário inicia a próxima execução
                   |
-                  +-- Selection 完整 --> 创建 Active Model
-                  `-- Selection 未绑定 -> 要求用户完成选择
+                  +-- Selection completa --> cria Model Ativo
+                  `-- Selection não vinculada -> exige que o usuário complete a seleção
 ```
 
-不得通过放宽 ModelFactory、恢复 Runtime fallback 或构造缺少 Reasoning 的 Active Model 解决问题。
+Não se pode resolver o problema afrouxando o ModelFactory, restaurando fallback do Runtime ou construindo um Model Ativo sem Reasoning.
 
-### 4.5 “未绑定”的具体表示与状态归属
+### 4.5 Representação concreta de "não vinculada" e atribuição de estado
 
-“未绑定”不是新的持久化格式，也不是一种半成品 Active Model。它只描述 Session 历史已经恢复，但当前没有
-一份可以交给 ModelFactory 的完整 Selection：
+"Não vinculada" não é um novo formato de persistência nem um Model Ativo pela metade. Ela apenas descreve que o histórico da Session já foi recuperado mas que no momento não existe uma Selection completa que possa ser entregue ao ModelFactory:
 
 ```text
-Session 已成功打开
-├─ 历史消息：已经恢复
-└─ 执行绑定
-   ├─ Selection 完整有效 ------> Runtime 持有完整 Session Selection
-   ├─ Reasoning 缺失/失效 ----> 保留 Provider/Model 供 Composer 修复
-   `─ Provider/Model 失效 ----> Runtime 暂无 Session Selection
+Session aberta com sucesso
+├─ mensagens históricas: já recuperadas
+└─ vínculo de execução
+   ├─ Selection completa e válida ------> Runtime mantém a Selection completa da Session
+   ├─ Reasoning ausente/inválido ------> mantém Provider/Model para o Composer corrigir
+   `─ Provider/Model inválido ----------> Runtime não tem Selection da Session por enquanto
 ```
 
-具体约束：
+Restrições concretas:
 
-- 持久化 Decoder 继续返回它能确定恢复的当前 Selection 候选；不新增 `unbound: true` 一类数据库字段；
-- 只有完整、经当前 `ModelSelectionView` 校验的 Selection 才写入 Runtime 的 Session Selection，并允许创建
-  Active Model；
-- Reasoning 缺失或失效时，恢复结果保留仍有效的 `providerId/modelId`，只把 `reasoningLevel` 清空，作为
-  Composer 的待修正选择；Runtime 不得提前把它绑定成可执行 Model；
-- Provider/Model 失效时，Runtime 与 Composer 的可执行 Selection 都置空；原身份只可用于诊断日志，
-  不能继续作为请求路由；
-- 失效层级由恢复时根据最新 Registry 重新计算，通过现有恢复结果让 UI 呈现相应空态；不弹失效通知，
-  不持久化一份可能过时的 `selectionIssue`；
-- UI 显示历史不依赖 Selection。用户重新选择完整 Provider/Model/Reasoning 后，才更新 Session Selection 并
-  恢复执行。
+- O Decoder de persistência continua devolvendo o candidato de Selection atual que ele consiga determinar recuperar; não se adiciona um campo de banco de dados do tipo `unbound: true`;
+- Somente uma Selection completa e validada pelo `ModelSelectionView` atual é gravada na Session Selection do Runtime, e só essa permite criar Model Ativo;
+- Quando o Reasoning está ausente ou inválido, o resultado da recuperação mantém o `providerId/modelId` ainda válido e apenas esvazia o `reasoningLevel`, como seleção pendente de correção pelo Composer; o Runtime não pode vinculá-la antecipadamente como Model executável;
+- Quando Provider/Model estão inválidos, a Selection executável do Runtime e do Composer é esvaziada; a identidade original só pode servir para log de diagnóstico e não pode continuar como roteamento de requisição;
+- O nível de invalidez é recalculado na recuperação com o Registry mais recente e a UI apresenta o estado vazio correspondente pelo resultado de recuperação existente; não há notificação de invalidez nem uma `selectionIssue` possivelmente desatualizada é persistida;
+- A exibição do histórico na UI não depende da Selection. Só depois que o usuário escolhe novamente Provider/Model/Reasoning completos é que a Session Selection é atualizada e a execução retomada.
 
-实现可以使用现有可选字段和恢复结果表达以上状态，不为此增加公共 `UnboundSelection`、Execution Binding 或
-另一套模型 DTO。
+A implementação pode expressar esses estados com os campos opcionais e o resultado de recuperação já existentes, sem adicionar um `UnboundSelection` público, Execution Binding ou outro DTO de modelo.
 
-落地时，Runtime 的 Session Selection 允许缺失，执行入口在调用严格 ModelFactory 前拒绝缺失选择。
-历史消息的模型来源字段也允许缺失：旧数据可能没有来源，恢复产生的合成时间线也未必执行过模型请求。
-不能为了满足消息类型而借用默认模型伪造来源；真实模型输出仍从当轮 Active Model 记录来源。
+Na implementação, a Session Selection do Runtime pode estar ausente, e o ponto de entrada de execução rejeita uma seleção ausente antes de chamar o ModelFactory estrito.
+O campo de origem do modelo das mensagens históricas também pode estar ausente: dados antigos podem não ter origem e a linha do tempo sintética gerada pela recuperação talvez nunca tenha executado uma requisição de modelo. Não se pode forjar origem com um modelo default só para satisfazer o tipo da mensagem; a saída real do modelo continua registrando a origem a partir do Model Ativo da rodada.
 
-## 5. 与现有行为的边界
+## 5. Fronteiras com o comportamento existente
 
-- 新建 Session 和用户正常选模仍按正式选择规则生成完整 Selection；本 Todo 不改变默认档位规则；
-- 连接测试、标题生成、Git 等辅助请求继续使用 Todo 67 规定的 `values[0]`，与存量 Session 恢复无关；
-- Active Model 一经创建仍保持冻结；Registry 更新不修改已经运行的 Turn；
-- 会话模式、消息内容、Compact、队列和工具恢复不纳入本次模型选择修复；
-- Todo 69 已裁决 Session、闲时和自动化不持续双写；本 Todo 保留单向旧 Session Decoder，不恢复降级写入逻辑。
+- Session nova e a seleção normal de modelo pelo usuário continuam gerando uma Selection completa pelas regras oficiais de seleção; este Todo não muda a regra de nível default;
+- Testes de conexão, geração de título, Git e outras requisições auxiliares continuam usando o `values[0]` definido pelo Todo 67, sem relação com a recuperação de Sessions existentes;
+- Um Model Ativo, uma vez criado, continua congelado; atualizações de Registry não modificam um Turn já em execução;
+- Modo de sessão, conteúdo das mensagens, Compact, fila e recuperação de ferramentas não entram nesta correção de escolha de modelo;
+- O Todo 69 já decidiu que Session, tempo ocioso e automação não fazem dual-write contínuo; este Todo mantém o Decoder unidirecional de Sessions antigas e não restaura a lógica de escrita degradada.
 
-## 6. 测试先行
+## 6. Testes primeiro
 
-先固定以下失败场景，再修改生产代码：
+Antes de modificar o código de produção, fixar os seguintes cenários de falha:
 
-1. 只含旧字段的 Session 能被 Decoder 转成当前 Model Selection；
-2. 新旧字段同时存在时，当前字段唯一生效，旧字段不能补写或覆盖它；
-3. 旧结构中能够一一对应的值被机械迁移，无法确定的字段保持缺失；
-4. 当前 Selection 缺少 Reasoning 时，Session 可以打开，历史完整，Provider/Model 保持不变，执行保持未绑定；
-5. 当前 Reasoning 已不在模型 `values` 中时，只清空 Reasoning，Provider/Model 保持不变，并等待用户重新选择；
-6. Provider 或 Model 已不存在时，Session 可以打开，不自动切换其他模型；
-7. 用户完成模型与 Reasoning 选择后，可以正常创建 Active Model 并继续对话；
-8. 未绑定状态和失效原因不写入新的持久化事实；Registry 恢复后重新打开 Session 会按最新 View 重新校验；
-9. 当前完整 Selection 的冷恢复、重连、Fork 和继续执行不发生回归；
-10. 当前写回仅使用当前结构，不新增旧消息别名；单向旧记录 Decoder 继续有效，符合 Todo 69 的非双写边界。
-11. 模型/Reasoning 留空不弹提示；交给 Composer、切页或重启后不被默认初始化自动补齐。
-12. 旧版已存在 `modelSelection` 但使用明确旧内置身份时正常转换；当前未知身份不触发猜测，旁路旧字段不补值。
-13. 首次按个人连接迁移后，不发送消息即关闭；切换 Team 再次打开仍读取已固定的个人身份（不可用则留空），
-    不重新迁成 Team；写入失败和并发新选择不会被误记为成功或被旧结果覆盖。
+1. Uma Session só com campos antigos pode ser convertida pelo Decoder em Model Selection atual;
+2. Quando campos novo e antigo existem simultaneamente, o campo atual é o único efetivo e o antigo não pode complementar nem sobrescrevê-lo;
+3. Valores da estrutura antiga que correspondem um a um são migrados mecanicamente e os campos que não podem ser determinados permanecem ausentes;
+4. Quando a Selection atual está sem Reasoning, a Session abre, o histórico fica completo, Provider/Model permanecem inalterados e a execução segue não vinculada;
+5. Quando o Reasoning atual já não está nos `values` do modelo, só o Reasoning é limpo, Provider/Model permanecem inalterados e o usuário precisa escolher de novo;
+6. Quando Provider ou Model já não existem, a Session abre e não muda sozinha para outro modelo;
+7. Depois que o usuário conclui a escolha de modelo e Reasoning, um Model Ativo pode ser criado normalmente e a conversa continua;
+8. O estado não vinculado e a razão da invalidez não são gravados como um novo fato persistente; reabrir a Session depois da recuperação do Registry revalida pela View mais recente;
+9. A recuperação a frio, a reconexão, o fork e a continuação de execução de uma Selection atual completa não regridem;
+10. A gravação de volta usa apenas a estrutura atual, sem novos aliases de mensagens antigas; o Decoder unidirecional de registros antigos continua válido, de acordo com a fronteira de não-dual-write do Todo 69.
+11. Model/Reasoning vazio não gera aviso; depois de passar pelo Composer, trocar de página ou reiniciar, a inicialização default não completa automaticamente.
+12. Quando a versão antiga já tem `modelSelection` mas usando identidades antigas de builtin explícitas, a conversão funciona normalmente; identidades atuais desconhecidas não disparam adivinhação e campos antigos de bypass não preenchem valores.
+13. Depois de migrar pela primeira vez para a conexão pessoal, fechar sem enviar mensagem; ao trocar para Team e abrir de novo, ainda lê a identidade pessoal já fixada (vazia se indisponível),
+    sem migrar de novo para Team; falhas de escrita e novas escolhas concorrentes não são registradas como sucesso nem sobrescritas pelo resultado antigo.
 
-涉及 Desktop 交互时补充 E2E：打开 Selection 已失效的存量 Session、查看历史、重新选模并继续发送。
+Quando houver interação de Desktop, acrescentar E2E: abrir uma Session existente com Selection inválida, ver o histórico, escolher o modelo de novo e continuar enviando.
 
-## 7. 实施顺序
+## 7. Ordem de implementação
 
-1. 审计 Session 中所有当前/旧 Model Selection 的 Decoder 和编码入口；
-2. 用测试固定“当前字段优先，真正旧结构才迁移”的存储边界；
-3. 将 Session 历史恢复与执行 Model 创建解耦；
-4. 收口 Reasoning 缺失、Reasoning 失效、Provider/Model 失效为同一未绑定恢复语义；
-5. 删除恢复链路中从旧字段、消息或其他提示补齐当前 Selection 的旁路；
-6. 验证用户重新选择后能够继续执行并正确持久化；
-7. 联合 Todo 69 检查没有误加旧字段回写，且未破坏旧 Session 的单向升级入口；
-8. 运行定向测试、E2E、`pnpm typecheck`、`pnpm lint` 和 `git diff --check`；
-9. 形成实施记录，列明实际删除的旁路、保留的兼容入口和真实验证结果。
+1. Auditar todos os Decoders e pontos de entrada de codificação de Model Selection atual/antigo na Session;
+2. Fixar com testes a fronteira de armazenamento "campo atual primeiro, só estrutura realmente antiga é migrada";
+3. Desacoplar a recuperação do histórico da Session da criação do Model de execução;
+4. Consolidar Reasoning ausente, Reasoning inválido e Provider/Model inválido na mesma semântica de recuperação não vinculada;
+5. Remover da cadeia de recuperação os bypasses que completam a Selection atual a partir de campos antigos, mensagens ou outras dicas;
+6. Verificar que o usuário pode continuar a execução e persistir corretamente depois de escolher de novo;
+7. Verificar em conjunto com o Todo 69 que nenhuma escrita de campo antigo foi acrescentada por engano e que a entrada de atualização unidirecional de Sessions antigas não foi quebrada;
+8. Executar testes direcionados, E2E, `pnpm typecheck`, `pnpm lint` e `git diff --check`;
+9. Produzir o registro de implementação, listando os bypasses efetivamente removidos, as entradas de compatibilidade preservadas e os resultados reais de verificação.
 
-## 8. 完成标准
+## 8. Critérios de conclusão
 
-- 任何 Model Selection 缺失或失效都不会阻止 Session 打开和历史查看；
-- 当前恢复逻辑只消费当前 Model Selection，不把旧字段重新发展为事实源；
-- 真正旧 Session 仍能通过唯一存储 Decoder 迁移；
-- 系统不会静默替用户选择 Model 或 Reasoning；
-- 留空时不弹失效提示，交给 Todo 71 后仍保持空态，不自动填默认模型；
-- 未绑定 Selection 不会进入严格 ModelFactory；
-- 用户完成选择后可以继续原 Session；
-- Todo 69 的实用回滚能力保持成立；
-- 测试、类型检查、Lint、差异检查及相关 E2E 全部通过。
+- Nenhuma ausência ou invalidez de Model Selection impede a abertura da Session e a visualização do histórico;
+- A lógica de recuperação atual consome apenas o Model Selection atual e não retransforma campos antigos em fonte de fato;
+- Sessions realmente antigas ainda podem ser migradas pelo único Decoder de armazenamento;
+- O sistema não escolhe Model ou Reasoning silenciosamente pelo usuário;
+- Quando fica vazio não aparece aviso de invalidez, e depois de passar pelo Todo 71 o estado vazio é mantido sem preencher modelo default;
+- Uma Selection não vinculada não entra no ModelFactory estrito;
+- Depois que o usuário completa a escolha, pode continuar na Session original;
+- A capacidade prática de rollback do Todo 69 continua válida;
+- Testes, verificação de tipos, Lint, verificação de diff e E2E relacionados passam inteiramente.

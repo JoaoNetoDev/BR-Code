@@ -1,30 +1,36 @@
-# zai 与 bigmodel Team Plan 全链路对称化
+# Simetria de ponta a ponta entre zai e bigmodel no Team Plan
 
-更新日期：2026-08-05
+Data de atualização: 2026-08-05
 
-> 历史实施 spec。本文后半部分的 `ModelProviderService`、Registry Snapshot 和 runtime-key 投影描述已经
-> 被 Provider Refactor 取代。当前 Team/Individual 执行通过 Effective Provider Config、ModelFactory 与
-> Account Request Auth Service 完成；动态凭据不进入 Registry。本文保留旧根因与迁移依据，不作为当前
-> 代码地图。
+> spec histórico de implementação. As descrições de `ModelProviderService`, Registry Snapshot e
+> projeção de runtime-key na segunda metade deste documento já foram substituídas pelo Provider
+> Refactor. Atualmente a execução Team/Individual é feita por Effective Provider Config,
+> ModelFactory e Account Request Auth Service; credenciais dinâmicas não entram no Registry.
+> Mantemos aqui a causa raiz antiga e a base da migração, sem serving de mapa de código atual.
 
-## 背景
+## Contexto
 
-Model Provider 设置详情页的「连接方式」支持 Start Plan / Individual Coding Plan / Team Plan / API Key 四种。
-历史上 Team Plan 只在 `bigmodel` family 上真正落地，`zai` family 的 Team Plan 是**断裂的半成品**：
-key 生成层有半套设施，但识别、匹配、数据获取、UI 渲染、登录恢复全部 hardcode bigmodel 或被
-`familySpec.id === "bigmodel"` 守卫挡住，zai team key 是死代码。
+A página de detalhes de configuração de Model Provider, no campo 「连接方式」 (modo de conexão),
+suporta quatro opções: Start Plan / Individual Coding Plan / Team Plan / API Key.
+Historicamente o Team Plan só foi realmente implementado na family `bigmodel`; o Team Plan da family
+`zai` era um **meio-produto quebrado**: a camada de geração de key tinha meia infraestrutura, mas
+identificação, matching, obtenção de dados, renderização de UI e restauração de login estavam todos
+hardcoded para bigmodel ou bloqueados pela guarda `familySpec.id === "bigmodel"`, deixando a team key
+de zai como código morto.
 
-本 spec 描述把 zai 与 bigmodel 在 Team Plan 全链路对齐的改造。
+Este spec descreve a mudança que alinha zai e bigmodel em toda a cadeia do Team Plan.
 
-## 名词
+## Termos
 
 - `ProviderFamilyDomain = ModelProviderFamilyId = "zai" | "bigmodel"`
-- Team Plan 连接键（connection key）：形如 `team-plan:<codingPlanProviderId>:<productId>:<orgId>:<projectId>`，
-  用于在 `modelProviderFamilySelectedKeys[family]` 里标识"当前选中某个团队的订阅"。
-- 企业定价 / 团队产品（enterprise pricing / team products）：`GET /subscription/enterprise/v2/pricing`
-  返回的套餐列表，按 family 独立请求。
+- Team Plan connection key (connection key): no formato
+  `team-plan:<codingPlanProviderId>:<productId>:<orgId>:<projectId>`, usada em
+  `modelProviderFamilySelectedKeys[family]` para identificar "atualmente selecionada a assinatura de
+  um determinado time".
+- Enterprise pricing / team products: a lista de pacotes retornada por
+  `GET /subscription/enterprise/v2/pricing`, requisitada de forma independente por family.
 
-## 现状：5 环节不对称表
+## Situação atual: tabela de assimetria dos 5 elos
 
 ```text
 环节                  bigmodel                          zai
@@ -62,20 +68,23 @@ key 生成层有半套设施，但识别、匹配、数据获取、UI 渲染、�
                       只读 selectedKeys.bigmodel                        ❌ zai 不清理
 ```
 
-**关键事实（已直接读源码核实）**：
+**Fatos-chave (verificados diretamente na fonte)**:
 
-- `createTeamPlanConnectionKey` dispatcher（`packages/ui/src/lib/modelProviderFamilyConnectionSelection.ts:29-45`）
-  对 zai 走通用字符串拼接产出 `team-plan:builtin:zai-coding-plan:...`，是唯一半对称点。
-- 但下游 `matchesBigModelTeamPlanConnectionKey` 严格检查 bigmodel 前缀，zai key 永远匹配失败。
-- `resolveLatestModelProviderFamilyConnectionSelection` 的 `familySpec.id === "bigmodel"` 守卫使 zai
-  即使有 subscribed team products 也不被识别为 team 连接。
-- zai team key 从未真正写入用户 `modelProviderFamilySelectedKeys.zai`（被各处守卫挡住），
-  **实际无存量 zai team key 需迁移**。
+- O dispatcher `createTeamPlanConnectionKey`
+  (`packages/ui/src/lib/modelProviderFamilyConnectionSelection.ts:29-45`) usa concatenação de string
+  genérica para zai, produzindo `team-plan:builtin:zai-coding-plan:...` — é o único ponto
+  semi-simétrico.
+- Porém, a jusante `matchesBigModelTeamPlanConnectionKey` verifica estritamente o prefixo bigmodel,
+  então a key de zai nunca casa (código morto).
+- A guarda `familySpec.id === "bigmodel"` em `resolveLatestModelProviderFamilyConnectionSelection`
+  faz com que zai não seja reconhecido como conexão team, mesmo tendo team products assinados.
+- A team key de zai nunca foi realmente escrita em `modelProviderFamilySelectedKeys.zai` do usuário
+  (bloqueada pelas guardas em vários pontos), **na prática não há team key de zai legada a migrar**.
 
-## 目标：5 环节对称 + key 按 family 生成
+## Objetivo: simetria nos 5 elos + key gerada por family
 
 ```text
-环节① service:    按 request.family 路由到独立 ZaiCodingPlanSubscriptionProvider
+环节① service:    按 request.family 路由 to separate ZaiCodingPlanSubscriptionProvider
 环节② request:    EnterpriseCodingPlanPricingRequest 加 family?: ProviderFamilyDomain
 环节③ hook:       useEnterpriseCodingPlanProducts 加 family 参数
 环节④ key:        新增 family-aware create/parse/matches
@@ -84,112 +93,134 @@ key 生成层有半套设施，但识别、匹配、数据获取、UI 渲染、�
                   登录恢复/失效清理对 zai 开放
 ```
 
-## 后端契约（用户确认）
+## Contrato de backend (confirmado pelo usuário)
 
-- zai 用自己的域名（测试 `api.z.ai` / 线上 `api.z.ai`，即 `resolveZaiCodingPlanHost()`）。
-- 除"购买"相关路径外，定价 / 团队项目 / 订阅查询 / 余额等路径结构复用 bigmodel 的 URL 结构，
-  仅 host、providerId、OAuth token 不同。
-- 购买路径：Stripe / PayPal 在 bigmodel provider 内已 zai-aware（`assertZaiPaymentProvider` +
-  `/api/pay` 前缀 + zai token），复用。Alipay `createSign`/`updateSign` 对 zai 显式抛
-  `CODING_PLAN_ZAI_OVERSEAS_PAYMENT_REQUIRED`，保持不变。
+- zai usa seu próprio domínio (teste `api.z.ai` / produção `api.z.ai`, isto é,
+  `resolveZaiCodingPlanHost()`).
+- Exceto pelos caminhos de "compra", os caminhos de pricing / projetos de time / consulta de
+  assinatura / saldo reutilizam a estrutura de URL do bigmodel; apenas host, providerId e OAuth token
+  diferem.
+- Caminhos de compra: Stripe / PayPal já são zai-aware dentro do provider bigmodel
+  (`assertZaiPaymentProvider` + prefixo `/api/pay` + token zai) e são reutilizados. Alipay
+  `createSign`/`updateSign` lança explicitamente `CODING_PLAN_ZAI_OVERSEAS_PAYMENT_REQUIRED` para zai,
+  permanecendo inalterado.
 
-## 关键技术决策
+## Decisões técnicas-chave
 
-### 1. zai provider 独立类（不复用 bigmodel provider 实例）
+### 1. Classe de provider zai independente (não reutiliza instância do provider bigmodel)
 
-bigmodel provider 的 enterprise 读方法（`getEnterprisePricing`、`getEnterpriseBalance`、
-`getEnterprisePendingOrders`、`checkEnterpriseOrderStatus`、`enrichEnterprisePricingTeamProjects`）
-硬编码了 `BUILTIN_MODEL_PROVIDER_IDS.bigmodelCodingPlan` 作为 providerId + bigmodel host + bigmodel token，
-无法参数化复用。新建 `ZaiCodingPlanSubscriptionProvider`：
+Os métodos de leitura enterprise do provider bigmodel (`getEnterprisePricing`,
+`getEnterpriseBalance`, `getEnterprisePendingOrders`, `checkEnterpriseOrderStatus`,
+`enrichEnterprisePricingTeamProjects`) têm hardcoded
+`BUILTIN_MODEL_PROVIDER_IDS.bigmodelCodingPlan` como providerId + host bigmodel + token bigmodel,
+não podendo ser reutilizados de forma parametrizada. Cria-se `ZaiCodingPlanSubscriptionProvider`:
 
-- 继承或组合 `BigModelCodingPlanSubscriptionProvider`
-- override enterprise 读方法：host 用 `resolveZaiCodingPlanHost()`、providerId 用 `zaiCodingPlan`、
-  token 用 `loadZaiAuthorization`
-- override `enrichEnterprisePricingTeamProjects`：customerInfo 走 zai 域名 + zai token，
-  team project 预热 key 走 zai providerId
-- 购买路径（Stripe/PayPal）不 override，复用父类（已 zai-aware）
+- herda ou compõe `BigModelCodingPlanSubscriptionProvider`
+- override dos métodos de leitura enterprise: host usa `resolveZaiCodingPlanHost()`, providerId usa
+  `zaiCodingPlan`, token usa `loadZaiAuthorization`
+- override de `enrichEnterprisePricingTeamProjects`: customerInfo passa pelo domínio zai + token
+  zai; key de pré-aquecimento do team project usa providerId zai
+- caminhos de compra (Stripe/PayPal) não são sobrescritos, reutilizam a classe pai (já zai-aware)
 
-### 2. connection key 按 family 生成（无迁移风险）
+### 2. Connection key gerada por family (sem risco de migração)
 
-`packages/shared/src/plan-identity.ts` 新增：
+Adiciona-se em `packages/shared/src/plan-identity.ts`:
 
 - `createTeamPlanConnectionKeyByFamily(family, parts)`
 - `parseTeamPlanConnectionKeyByFamily(family, key)`
 - `matchesTeamPlanConnectionKeyByFamily(family, candidateKey, selectedKey)`
 
-bigmodel 分支委托给现有 `*BigModelTeamPlanConnectionKey`（保持兼容，bigmodel 前缀不变）。
-zai 分支用 `team-plan:builtin:zai-coding-plan:` 前缀，结构 / legacy 兼容规则与 bigmodel 对称。
+O branch bigmodel delega aos `*BigModelTeamPlanConnectionKey` existentes (mantém compatibilidade,
+prefixo bigmodel inalterado). O branch zai usa o prefixo `team-plan:builtin:zai-coding-plan:`, com
+estrutura / regras de compatibilidade legacy simétricas ao bigmodel.
 
-**无存量迁移**：zai team key 从未写入用户 selectedKey，不存在迁移。bigmodel 前缀不变。
+**Sem migração legada**: a team key de zai nunca foi escrita no selectedKey do usuário, logo não há
+migração. O prefixo bigmodel não muda.
 
-### 3. 不改 bigmodel literal
+### 3. Não alterar literais bigmodel
 
-~15 源文件 + ~10 测试文件的 `team-plan:builtin:bigmodel-coding-plan:` literal 保持不动。
-zai 新代码统一用新 family-aware helper，不引入新 literal。
+Os literais `team-plan:builtin:bigmodel-coding-plan:` em ~15 arquivos de código + ~10 de teste
+permanecem intocados. O novo código zai usa uniformemente o novo helper family-aware, sem introduzir
+novos literais.
 
-## 落地顺序（TDD：spec → 测试 → 实现）
+## Ordem de implementação (TDD: spec → testes → implementação)
 
-### Phase 1 — shared 层
+### Phase 1 — camada shared
 
-- `packages/shared/src/plan-identity.ts`：新增 3 个 family-aware helper
-- `packages/shared/src/coding-plan-subscription.ts`：`EnterpriseCodingPlanPricingRequest` 加 `family?: ProviderFamilyDomain`
-- `packages/shared/test/planIdentitySnapshot.test.ts`：补 zai family 用例（create/parse/matches/legacy/wildcard）
+- `packages/shared/src/plan-identity.ts`: adicionar 3 helpers family-aware
+- `packages/shared/src/coding-plan-subscription.ts`: `EnterpriseCodingPlanPricingRequest` ganha
+  `family?: ProviderFamilyDomain`
+- `packages/shared/test/planIdentitySnapshot.test.ts`: adicionar casos da family zai
+  (create/parse/matches/legacy/wildcard)
 
-### Phase 2 — services 层
+### Phase 2 — camada services
 
-- 新建 `packages/services/src/coding-plan-subscription/zaiCodingPlanSubscriptionProvider.ts`
-- `packages/services/src/coding-plan-subscription/codingPlanSubscriptionService.ts`：按 `request.family`
-  路由到 bigmodel / zai provider 实例（family 缺省时保持 bigmodel，向后兼容）
-- `packages/services/test/`：补 zai provider 单测（enterprise pricing 走 zai host/token、service 路由）
+- Criar `packages/services/src/coding-plan-subscription/zaiCodingPlanSubscriptionProvider.ts`
+- `packages/services/src/coding-plan-subscription/codingPlanSubscriptionService.ts`: rotear por
+  `request.family` para as instâncias de provider bigmodel / zai (sem family mantém bigmodel,
+  retrocompatível)
+- `packages/services/test/`: adicionar testes unitários do provider zai (enterprise pricing usando
+  host/token zai, roteamento do service)
 
-### Phase 3 — UI 层
+### Phase 3 — camada UI
 
-- `useEnterpriseCodingPlanProducts.ts`：加 `family` 参数；读对应 family 的 static bucket；
-  传 family 给 service
-- `providerFamilyConnectionVisibility.ts`：`appendSubscribedTeamPlanItems` / `buildEntitlementTeamPlanItems`
-  / `filterStartPlanItems` 按 family 循环或参数化
-- `ModelProviderSection.tsx`：为 zai family 也调用 hook 得到 zai subscribedTeamProducts；
-  清理 useEffect 改 family-aware（**合并当前重复的两份 effect**）；`showPurchasedTeamPlanFallback` family-aware
-- `modelProviderFamilyConnectionSelection.ts`：去掉 `familySpec.id === "bigmodel"` 守卫，
-  zai 也走 team key 解析；matcher 改用 family-aware 版本
-- `oauthProviderFamilySelectionRefresh.ts` / `modelProviderFamilySelectedKeyMigration.ts`：
-  team 识别对 zai 开放（`resolveCodingPlanProviderIdFromSelectedKey` 认 zai 前缀；
-  `migrateBigModelTeamPlanSelectedKey` 泛化为 family-aware）
+- `useEnterpriseCodingPlanProducts.ts`: adicionar parâmetro `family`; ler o static bucket da family
+  correspondente; passar family ao service
+- `providerFamilyConnectionVisibility.ts`: `appendSubscribedTeamPlanItems` /
+  `buildEntitlementTeamPlanItems` / `filterStartPlanItems` iterando ou parametrizados por family
+- `ModelProviderSection.tsx`: chamar o hook também para a family zai, obtendo
+  `subscribedTeamProducts` de zai; useEffect de limpeza passa a ser family-aware
+  (**mesclar as duas cópias duplicadas atuais**); `showPurchasedTeamPlanFallback` family-aware
+- `modelProviderFamilyConnectionSelection.ts`: remover a guarda `familySpec.id === "bigmodel"`, para
+  que zai também passe pela resolução de team key; matcher passa a usar a versão family-aware
+- `oauthProviderFamilySelectionRefresh.ts` / `modelProviderFamilySelectedKeyMigration.ts`: abrir o
+  reconhecimento de team para zai (`resolveCodingPlanProviderIdFromSelectedKey` reconhece o prefixo
+  zai; `migrateBigModelTeamPlanSelectedKey` generalizado para family-aware)
 
-### Phase 4 — consumer 对齐
+### Phase 4 — alinhamento dos consumidores
 
-14+ `parse/matches/create` 调用点（model selection groups、usage sources、telemetry、off-peak、
-composer、services layer）逐个改 family-aware。多数已在 `createTeamPlanConnectionKey` dispatcher 内，
-只需下游 matcher/parse 也走 family-aware 版本。literal `startsWith("team-plan:...")` 检查点逐个评估。
+14+ pontos de chamada `parse/matches/create` (model selection groups, usage sources, telemetry,
+off-peak, composer, camada services) alterados um a um para family-aware. A maioria já está dentro do
+dispatcher `createTeamPlanConnectionKey`; basta fazer os matchers/parse a jusante também usarem a
+versão family-aware. Cada checkpoint literal `startsWith("team-plan:...")` é avaliado individualmente.
 
-### Phase 5 — 验证
+### Phase 5 — validação
 
 - `pnpm typecheck` + `pnpm lint`
-- 单测：plan-identity zai、zai provider、UI 可见性、selectedKey 迁移、登录恢复
-- e2e：zai team plan 连接方式可见 / 登录恢复 / 失效清理
-- 测试环境实际调用 zai 域名 enterprise pricing 验证后端契约
+- Testes unitários: plan-identity zai, provider zai, visibilidade de UI, migração de selectedKey,
+  restauração de login
+- e2e: visibilidade do modo de conexão do zai team plan / restauração de login / limpeza de
+  invalidez
+- Chamada real ao enterprise pricing do domínio zai em ambiente de teste para validar o contrato de
+  backend
 
-## 实施记录（2026-08-05）
+## Registro de implementação (2026-08-05)
 
-### 后端契约验证
+### Validação do contrato de backend
 
-测试环境实际请求 `https://api.z.ai/api/biz/customer/getCustomerInfo`（zai 域名）成功，
-返回结构与 bigmodel 同构（含 `organizations[].projects[]`，`projectType=2` 标识团队编程项目）。
-zai token 用 `Bearer` header（区别于 bigmodel 裸 token）。
+Requisição real em ambiente de teste a `https://api.z.ai/api/biz/customer/getCustomerInfo` (domínio
+zai) com sucesso, retornando estrutura isomórfica à do bigmodel (incluindo `organizations[].projects[]`,
+com `projectType=2` identificando projeto de programação de time). O token zai usa header `Bearer`
+(diferente do token裸 do bigmodel).
 
-结论：zai team plan 的 availability 校验（customerInfo 团队项目验证）可复用 bigmodel 的 URL 结构，
-只需 host → `buildRuntimeZaiBusinessUrl`、token → `oauth:zai:access_token`、header → `createZaiLoginAuthHeaders`。
+Conclusão: a validação de availability do zai team plan (verificação de projeto de time via
+customerInfo) pode reutilizar a estrutura de URL do bigmodel, cambiando apenas host →
+`buildRuntimeZaiBusinessUrl`, token → `oauth:zai:access_token`, header →
+`createZaiLoginAuthHeaders`.
 
-### 注入流程运行时验证（dev:desktop:test）
+### Validação de runtime do fluxo de injeção (dev:desktop:test)
 
-5 环节对称化在 zai 已端到端打通，证据来自 app 日志 + `~/.zcode-dev` 凭证手动调用 `api.z.ai`：
+A simetria dos 5 elos foi validada ponta a ponta em zai, com evidências dos logs do app + chamada
+manual ao `api.z.ai` usando credenciais de `~/.zcode-dev`:
 
-1. **routing 正确**：`getEnterprisePricing` 由 `ZaiCodingPlanSubscriptionProvider` 处理，prewarm 日志带
-   `family: "builtin:zai-coding-plan"`，请求落在测试环境 zai biz 域名 `api.z.ai`
-   （`TEST_ZAI_BUSINESS_BASE_URL`，不是 zcode 前端域 `zcode.z.ai`）。
-2. **customerInfo 正确**：测试账号在 `org-2B118...` / `proj_50399...` 下有 `projectType: 2` 团队项目，
-   `getCustomerInfo` 200 成功，结构与 bigmodel 同构。
-3. **注入流程复用**：prewarm 已对 zai 执行 list + POST create `zcode-team-api-key`：
+1. **Roteamento correto**: `getEnterprisePricing` tratado por `ZaiCodingPlanSubscriptionProvider`;
+   logs de prewarm com `family: "builtin:zai-coding-plan"`; requisição caindo no domínio zai biz de
+   teste `api.z.ai` (`TEST_ZAI_BUSINESS_BASE_URL`, e não no domínio do frontend zcode `zcode.z.ai`).
+2. **customerInfo correto**: a conta de teste tem projeto de time `projectType: 2` sob
+   `org-2B118...` / `proj_50399...`; `getCustomerInfo` retorna 200 com sucesso, com estrutura
+   isomórfica à do bigmodel.
+3. **Reuso do fluxo de injeção**: o prewarm já executou list + POST create `zcode-team-api-key` para
+   zai:
    ```
    list:   { code: 200, apiKeyCount: 2, usableApiKeyCount: 0 }   ← 没有 name=zcode-team-api-key 的 key
    create: { code: 500, "You currently do not have a valid team subscription grant record,
@@ -197,80 +228,116 @@ zai token 用 `Bearer` header（区别于 bigmodel 裸 token）。
    status: "missing"
    ```
 
-**看不到 team plan 的根因 = zai 测试账号后端 grant 缺失**（与对称化代码无关）：
-该 org/project 下不存在 `name=zcode-team-api-key, keyType=2` 的 key，且 POST 创建被 zai 后端拒绝。
-`status: "missing"` → `apiKeyStatus: "unavailable"` → UI 按 `apiKeyStatus === "unavailable"` 过滤掉菜单项
-（`modelSelectionGroups.ts` / `providerFamilyConnectionVisibility.ts`）。
+**Causa raiz de não ver o team plan = falta de grant do backend para a conta de teste zai**
+(sem relação com o código de simetria): não existe key com `name=zcode-team-api-key, keyType=2` sob
+essa org/project, e o POST de criação é rejeitado pelo backend zai. `status: "missing"` →
+`apiKeyStatus: "unavailable"` → a UI filtra o item de menu por `apiKeyStatus === "unavailable"`
+(`modelSelectionGroups.ts` / `providerFamilyConnectionVisibility.ts`).
 
-> 注意：zai 后端虽然在该项目下返回了 `name="member-{userId}", keyType=2` 的 key，但客户端注入流程
-> **不应**放宽 `isUsableBigModelTeamPlanApiKey` 的 name 校验去识别它——`zcode-team-api-key` 是
-> zcode 客户端注入流程的统一命名契约，zai/bigmodel 都必须遵守。修复方式是给 zai 测试账号补 grant，
-> 让 POST 能成功创建 `zcode-team-api-key`，而不是在客户端做 family 特判。
+> Atenção: embora o backend zai tenha retornado uma key com `name="member-{userId}", keyType=2` sob
+> esse projeto, o fluxo de injeção do cliente **não deve** afrouxar a validação de nome de
+> `isUsableBigModelTeamPlanApiKey` para reconhecê-la — `zcode-team-api-key` é o contrato unificado de
+> nomenclatura do fluxo de injeção do cliente zcode, e zai/bigmodel devem obedecê-lo. A correção é
+> adicionar grant à conta de teste zai, para que o POST consiga criar `zcode-team-api-key`, e não
+> fazer um caso especial por family no cliente.
 
-### 实际改动的文件清单
+### Lista real de arquivos alterados
 
 **shared**
 
-- `plan-identity.ts`：`TEAM_PLAN_CONNECTION_KEY_PREFIX_BY_FAMILY` + family-aware `create/parse/matches/resolveFamily`
-- `coding-plan-subscription.ts`：`EnterpriseCodingPlanPricingRequest.family?`
-- `off-peak-types.ts`：`OffPeakCodingPlanKind` 新增 `zai-team`
+- `plan-identity.ts`: `TEAM_PLAN_CONNECTION_KEY_PREFIX_BY_FAMILY` + `create/parse/matches/resolveFamily`
+  family-aware
+- `coding-plan-subscription.ts`: `EnterpriseCodingPlanPricingRequest.family?`
+- `off-peak-types.ts`: `OffPeakCodingPlanKind` ganha `zai-team`
 
 **services**
 
-- `coding-plan-subscription/`：新建 `zaiCodingPlanSubscriptionProvider`（继承 bigmodel，override host/token/header/providerId）；`codingPlanSubscriptionService` 按 `request.family` 路由
-- `model-provider/codingPlanProviderAvailability.ts`：`validateSelectedTeamPlanAvailability(family, ...)` 泛化，zai 也走 customerInfo 校验；`validateZaiCodingPlanPairAvailability` 加 team project 校验
-- `session/offPeakRuntimeModel.ts`：去掉 `providerFamily === "bigmodel"` 守卫，zai team plan 可走 off-peak
+- `coding-plan-subscription/`: novo `zaiCodingPlanSubscriptionProvider` (herda bigmodel, sobrescreve
+  host/token/header/providerId); `codingPlanSubscriptionService` roteia por `request.family`
+- `model-provider/codingPlanProviderAvailability.ts`:
+  `validateSelectedTeamPlanAvailability(family, ...)` generalizada, zai também passa pela validação
+  de customerInfo; `validateZaiCodingPlanPairAvailability` ganha validação de team project
+- `session/offPeakRuntimeModel.ts`: removida a guarda `providerFamily === "bigmodel"`, zai team plan
+  pode passar por off-peak
 
 **UI lib**
 
-- `modelProviderFamilyConnectionSelection.ts`：去 `familySpec.id === "bigmodel"` 守卫（latest + missing）
-- `modelProviderFamilySelectedKeyMigration.ts`：`migrateBigModelTeamPlanSelectedKey` → family-aware `migrateTeamPlanSelectedKeyForDomain`；参数 `upgradeBigModelTeamPlan` → `upgradeTeamPlan`
-- `oauthProviderFamilySelectionRefresh.ts`：`resolveCodingPlanProviderIdFromSelectedKey` 认 zai 前缀；`getEnterprisePricingProducts` 对 zai 拉定价；`hasCompleteTeamPlanConnectionKey` family-aware；启动恢复保护分支对 zai 开放
-- `modelSelectionGroups.ts`：`buildTeamPlanConnectionOptions` 去掉 `familyId !== "bigmodel"` 守卫（zai team 选项可生成）；`createTeamPlanConnectionKey`/`matchesTeamPlanConnectionKey`/`isSelectedTeamPlanKnownUnavailable`/`resolveSelectedTeamPlanConnectionKey`/`isSelectedFamilyTeamPlanConnection` 全 family-aware
-- `codingPlanUsageSources.ts`：team usage source 按 `product.family` 生成 key + providerId；`matchesTeamPlanUsageSourceKey` family-aware
-- `codingPlanEntitlementContext.ts`：新增 `resolveTeamPlanEntitlementContext(family, ...)` + zai 版
-- `codingPlanFunnelTelemetry.ts`：team plan 识别 family-aware
+- `modelProviderFamilyConnectionSelection.ts`: removida a guarda `familySpec.id === "bigmodel"`
+  (latest + missing)
+- `modelProviderFamilySelectedKeyMigration.ts`: `migrateBigModelTeamPlanSelectedKey` →
+  family-aware `migrateTeamPlanSelectedKeyForDomain`; parâmetro `upgradeBigModelTeamPlan` →
+  `upgradeTeamPlan`
+- `oauthProviderFamilySelectionRefresh.ts`: `resolveCodingPlanProviderIdFromSelectedKey` reconhece o
+  prefixo zai; `getEnterprisePricingProducts` busca pricing para zai;
+  `hasCompleteTeamPlanConnectionKey` family-aware; ramo de proteção da restauração na inicialização
+  aberto para zai
+- `modelSelectionGroups.ts`: `buildTeamPlanConnectionOptions` remove a guarda `familyId !== "bigmodel"`
+  (opções team de zai podem ser geradas); `createTeamPlanConnectionKey`/`matchesTeamPlanConnectionKey`/
+  `isSelectedTeamPlanKnownUnavailable`/`resolveSelectedTeamPlanConnectionKey`/
+  `isSelectedFamilyTeamPlanConnection` todos family-aware
+- `codingPlanUsageSources.ts`: team usage source gera key + providerId por `product.family`;
+  `matchesTeamPlanUsageSourceKey` family-aware
+- `codingPlanEntitlementContext.ts`: novo `resolveTeamPlanEntitlementContext(family, ...)` + versão zai
+- `codingPlanFunnelTelemetry.ts`: reconhecimento de team plan family-aware
 
 **UI section**
 
-- `ModelProviderSection.tsx`：合并两个重复的失效 team key 清理 useEffect 为单个 family-aware effect；`showPurchasedTeamPlanFallback` family-aware；`isSelectedTeamPlanStillSubscribed` family-aware；为 zai 独立调 `useEnterpriseCodingPlanProducts` 并合并 `subscribedTeamProducts`
-- `providerFamilyConnectionVisibility.ts`：`buildEntitlementTeamPlanItems`/`buildSelectedTeamPlanFallbackItems` 遍历两 family；`resolveTeamPlanProjectKey` family-aware
-- `useModelProviderNavigation.ts`：`resolveRestoredSelection` team key 恢复 family-aware；`selectedTeamPlanKey` 传入也覆盖 zai
-- `useCodingPlanEntitlements.ts`：zai team plan 查询带 organizationId/projectId/cacheKey（对称 bigmodel）
-- `useEnterpriseCodingPlanProducts.ts`：加 `family` 参数（Phase 3）
-- `enterpriseCodingPlanProducts.ts`：`family` 字段（Phase 3）
+- `ModelProviderSection.tsx`: mescla os dois useEffects duplicados de limpeza de team key inválida em
+  um único effect family-aware; `showPurchasedTeamPlanFallback` family-aware;
+  `isSelectedTeamPlanStillSubscribed` family-aware; chama `useEnterpriseCodingPlanProducts`
+  separadamente para zai e mescla `subscribedTeamProducts`
+- `providerFamilyConnectionVisibility.ts`: `buildEntitlementTeamPlanItems`/
+  `buildSelectedTeamPlanFallbackItems` iteram as duas families; `resolveTeamPlanProjectKey`
+  family-aware
+- `useModelProviderNavigation.ts`: restauração de team key em `resolveRestoredSelection`
+  family-aware; passagem de `selectedTeamPlanKey` também cobre zai
+- `useCodingPlanEntitlements.ts`: consulta de zai team plan com
+  organizationId/projectId/cacheKey (simétrico a bigmodel)
+- `useEnterpriseCodingPlanProducts.ts`: parâmetro `family` (Phase 3)
+- `enterpriseCodingPlanProducts.ts`: campo `family` (Phase 3)
 
-**UI 其它**
+**UI outros**
 
-- `v4/composer/V4ComposerToolbar.tsx`：`resolveContextTeamUsageSourceFromEntitlementSnapshot` 按 snapshot.provider.id 判断 family
-- `store/offPeakTaskStore.ts`：`hasAnyOffPeakCodingPlanProvider` team 识别 family-aware
+- `v4/composer/V4ComposerToolbar.tsx`: `resolveContextTeamUsageSourceFromEntitlementSnapshot`
+  determina a family por `snapshot.provider.id`
+- `store/offPeakTaskStore.ts`: `hasAnyOffPeakCodingPlanProvider` com reconhecimento de team
+  family-aware
 
-### 显式保留为 bigmodel 专用的路径
+### Caminhos explicitamente mantidos como exclusivos de bigmodel
 
-以下路径**不需要** zai 对称，因为语义上就是 bigmodel 专用，或 zai 有独立等价路径：
+Os caminhos abaixo **não precisam** de simetria com zai, porque semanticamente já são exclusivos de
+bigmodel, ou o zai tem um caminho equivalente próprio:
 
-- `codingPlanProviderAvailability.ts` 的 `validateBigModelCodingPlanPairAvailability` — 函数本身按 family 分离，zai 有独立的 `validateZaiCodingPlanPairAvailability`
-- `modelProviderService.ts:178` 的 `resolveSelectedBigModelTeamContext` — 读 `selectedKeys.bigmodel`，bigmodel bucket 专用
-- `zcodeAgentService.ts:1024` — 守卫 `providerId !== bigmodelCodingPlan` 直接 return false，仅服务 bigmodel provider 的项目成员提示
+- `validateBigModelCodingPlanPairAvailability` em `codingPlanProviderAvailability.ts` — a função em
+  si é separada por family; zai tem seu próprio `validateZaiCodingPlanPairAvailability`
+- `resolveSelectedBigModelTeamContext` em `modelProviderService.ts:178` — lê
+  `selectedKeys.bigmodel`, exclusivo do bucket bigmodel
+- `zcodeAgentService.ts:1024` — a guarda `providerId !== bigmodelCodingPlan` retorna false
+  diretamente, serve apenas à dica de membros de projeto do provider bigmodel
 
-### 待评估项
+### Itens pendentes de avaliação
 
-- ~~`WorkspaceSidebarFooterUsageSummary` 的 `CurrentSidebarCodingPlanUsageSource.team` 分支类型硬绑 `bigmodelCodingPlan`；zai team usage summary 显示需要类型 + 调用方对齐（当前 zai 在 sidebar 只显示 individual）~~ ✅ 已修复（见下文「消费方对称化遗漏」章节）
-- e2e：zai team plan 连接方式可见 / 登录恢复 / 失效清理的 e2e 测试待补
+- ~~O branch `team` de `CurrentSidebarCodingPlanUsageSource.team` em
+  `WorkspaceSidebarFooterUsageSummary` tem o tipo preso a `bigmodelCodingPlan`; exibir o resumo de uso
+  de team zai exige alinhar tipo + chamadores (hoje zai no sidebar mostra só individual)~~ ✅ Corrigido
+  (ver a seção 「消费方对称化遗漏」 abaixo)
+- e2e: testes e2e de visibilidade do modo de conexão do zai team plan / restauração de login /
+  limpeza de invalidez ainda pendentes
 
-## 修复：zai Plan Card 卡在「加载中」（appendSubscribedTeamPlanItems bigmodel 守卫短路）
+## Correção: Plan Card do zai travado em 「加载中」 (curto-circuito pela guarda bigmodel em appendSubscribedTeamPlanItems)
 
-日期：2026-08-06
+Data: 2026-08-06
 
-### 现象
+### Sintoma
 
-zai OAuth 登录成功 + team plan provider 已落盘 + selectedKey 已是 team key 后，
-设置页 Z.ai Plan Card 仍一直显示「加载中...」，无法进入连接方式详情。
+Após login OAuth zai bem-sucedido + team plan provider persistido + selectedKey já sendo team key,
+o Plan Card Z.ai na página de configurações continuava mostrando 「加载中...」, sem conseguir entrar
+nos detalhes do modo de conexão.
 
-### 根因（CDP 抓 React fiber + 运行时 state 确认）
+### Causa raiz (confirmada via captura do React fiber por CDP + state de runtime)
 
-`appendSubscribedTeamPlanItems`（`providerFamilyConnectionVisibility.ts`）有一个
-**bigmodel 硬编码前置守卫**：
+`appendSubscribedTeamPlanItems` (`providerFamilyConnectionVisibility.ts`) tem uma **guarda
+pré-requisito hardcoded para bigmodel**:
 
 ```typescript
 const bigmodelCodingPlanItem = items.find(
@@ -281,58 +348,66 @@ if (!bigmodelCodingPlanItem) {
 }
 ```
 
-当设置页 `providerFamilyDomain === "zai"` 时，`codingPlanItems` 经
-`shouldShowCodingPlanForProviderFamilyDomain` 过滤后**只含 zai family**（zai-coding-plan
+Quando `providerFamilyDomain === "zai"` na página de configurações, `codingPlanItems`, após ser
+filtrado por `shouldShowCodingPlanForProviderFamilyDomain`, **contém apenas a family zai** (zai-coding-plan
 
-- zai-start-plan），没有 `bigmodelCodingPlan`。守卫直接 return，zai teamPlan item
-  **永远不生成**。
+- zai-start-plan), sem `bigmodelCodingPlan`. A guarda retorna direto, e o item teamPlan de zai
+  **nunca é gerado**.
 
-下游连锁：
+Cadeia de efeitos a jusante:
 
-- `connectionModeCodingPlanItems` 不含 teamPlan item
-- `resolveSavedPlanConnectionItem(selectableNavigationItems, teamKey)` 找不到匹配 → null
-- `pickFamilyModeNavigationItem` 走 `if (mode === "oauth" && savedItemKey)` 分支 →
-  savedItemKey 不是 startPlan key → **return null**
+- `connectionModeCodingPlanItems` não contém o item teamPlan
+- `resolveSavedPlanConnectionItem(selectableNavigationItems, teamKey)` não acha correspondência → null
+- `pickFamilyModeNavigationItem` cai no branch `if (mode === "oauth" && savedItemKey)` →
+  savedItemKey não é startPlan key → **return null**
 - `selectedNavItem = null`
 - `Detail.tsx` L269 `if (!selectedNavItem) return <ModelProviderLoadingCard>` →
-  **永远 loading**
+  **sempre loading**
 
-### 修复
+### Correção
 
-`appendSubscribedTeamPlanItems` 去掉 bigmodel 前置守卫，三个 builder（entitlement /
-fallback / product）各自按 family 用 `resolveCodingPlanItemForFamily` 解析对应
-codingPlanItem（Phase 3 已改），不存在就跳过该 family。fallback 插入位置也改为按
-首个 team item 所属 family 找锚点（原硬编码 `bigmodelCodingPlanItem.key`）。
+`appendSubscribedTeamPlanItems` remove a guarda pré-requisito de bigmodel; os três builders
+(entitlement / fallback / product) resolvem cada codingPlanItem por family via
+`resolveCodingPlanItemForFamily` (já alterado na Phase 3), pulando a family quando não existe. A
+posição de inserção do fallback também passou a buscar a âncora pela family do primeiro item team
+(antes o literal hardcoded `bigmodelCodingPlanItem.key`).
 
-### 测试
+### Testes
 
-`packages/ui/test/providerFamilyConnectionVisibility.test.ts` 新增 1 个回归测试
-「zai-only 视图（无 bigmodel codingPlan item）仍生成 zai Team Plan 连接项」，
-覆盖 selectedTeamPlanKey 存在 + items 只含 zai 的场景。13 tests 全绿。
+`packages/ui/test/providerFamilyConnectionVisibility.test.ts` ganha 1 teste de regressão
+「visão apenas-zai (sem item codingPlan bigmodel) ainda gera o item de conexão Z.ai Team Plan»,
+cobrando o cenário com selectedTeamPlanKey presente + items contendo apenas zai. 13 testes
+totalmente verdes.
 
-### 运行时验证
+### Validação em runtime
 
-CDP 抓取修复前后的 React fiber state：
+Captura do state do React fiber por CDP antes e depois da correção:
 
-- 修复前：`connectionModeCodingPlanItems` 只有 1 个 item（zai-coding-plan），
-  无 teamPlan item；`selectedNavItem = null`；Detail 渲染 `<ModelProviderLoadingCard>`。
-- 修复后：HMR 应用后页面「加载中」消失（`loadingCount: 0`），Plan Card 正常渲染。
+- Antes: `connectionModeCodingPlanItems` tinha apenas 1 item (zai-coding-plan), sem item teamPlan;
+  `selectedNavItem = null`; Detail renderizava `<ModelProviderLoadingCard>`.
+- Depois: com o HMR aplicado, o 「加载中」 desapareceu da página (`loadingCount: 0`) e o Plan Card
+  renderizou normalmente.
 
-## 修复：zai Team Plan 在 sidebar badge / 聊天框模型选择 / 使用统计页不显示（消费方对称化遗漏）
+## Correção: zai Team Plan não aparece no badge da sidebar / seletor de modelo do composer / página de estatísticas de uso (omissões de simetria nos consumidores)
 
-日期：2026-08-06
+Data: 2026-08-06
 
-### 现象
+### Sintoma
 
-zai OAuth 登录 + team plan 已落盘 + 设置页 Plan Card 正常显示团队套餐后，以下三个区域仍**不显示** zai team plan 相关内容：
+Após login OAuth zai + team plan persistido + Plan Card da página de configurações mostrando
+normalmente o pacote de time, as três áreas abaixo continuavam **sem exibir** nada relacionado ao
+zai team plan:
 
-1. **侧边栏头像 badge**：不显示 team 标识 / 额度
-2. **聊天框模型选择器**：不出现 zai team 模型分组
-3. **使用统计页**：不显示 zai team source / 额度
+1. **Badge no avatar da sidebar**: não mostra o identificador de time / a cota
+2. **Seletor de modelo do composer**: não aparece o grupo de modelos team zai
+3. **Página de estatísticas de uso**: não mostra a origem/cota zai team
 
-### 根因
+### Causa raiz
 
-三个区域都是 Phase 3 zai 对称化时遗漏的**消费方**差异。lib 层 `modelSelectionGroups.ts` / `codingPlanEntitlementContext.ts` / `codingPlanUsageSources.ts` 已对称（能生成 zai team 数据），但消费数据的 UI 组件仍用 bigmodel 单 family 旧写法，把 zai team 数据挡在外面：
+As três áreas são diferenças de **consumidores** esquecidas na simetria zai da Phase 3. Na camada lib,
+`modelSelectionGroups.ts` / `codingPlanEntitlementContext.ts` / `codingPlanUsageSources.ts` já estão
+simétricos (geram dados team zai), mas os componentes de UI que consomem esses dados ainda usam a
+escrita antiga de family única bigmodel, bloqueando os dados team zai:
 
 ```text
 区域                        断裂点
@@ -362,83 +437,105 @@ sidebar badge               WorkspaceSidebarFooterUsageSummary.tsx
   └─ CodingPlanUsagePanel.effectiveEntitlement zai providerId 一律走个人分支
 ```
 
-### 修复策略
+### Estratégia de correção
 
-统一对齐 `ModelProviderSection.tsx:486-522` 已验证的「双 family hook + 合并 subscribedTeamProducts」模式：
+Alinhar uniformemente ao padrão já validado de 「hook de duas families + mesclagem de
+subscribedTeamProducts」 em `ModelProviderSection.tsx:486-522`:
 
-**lib 层先行**（`codingPlanUsageSources.ts`）：
+**Camada lib primeiro** (`codingPlanUsageSources.ts`):
 
-- `CurrentSidebarCodingPlanUsageSource.team.providerId` 从硬绑 `bigmodelCodingPlan` 松开为 `SidebarUsageCodingPlanProviderId`
-- `resolveSidebarCurrentCodingPlanUsageSource` 新增 `zaiSelectedKey` 参数，zai 分支先判 team-plan 前缀，命中返回 team source
-- `formatTeamUsageSourceLabel` 按 `product.family` 取品牌前缀（zai → `Z.ai - `，bigmodel → `BigModel - `）
+- `CurrentSidebarCodingPlanUsageSource.team.providerId` deixa de estar preso a `bigmodelCodingPlan` e
+  passa a ser `SidebarUsageCodingPlanProviderId`
+- `resolveSidebarCurrentCodingPlanUsageSource` ganha o parâmetro `zaiSelectedKey`; o branch zai
+  verifica primeiro o prefixo team-plan e, se casar, retorna a team source
+- `formatTeamUsageSourceLabel` pega o prefixo de marca por `product.family` (zai → `Z.ai - `,
+  bigmodel → `BigModel - `)
 
-**消费方 1 — sidebar badge**（`WorkspaceSidebarFooterUsageSummary.tsx`）：
+**Consumidor 1 — badge da sidebar** (`WorkspaceSidebarFooterUsageSummary.tsx`):
 
-- 新增 `zaiEnterpriseProducts` hook，`subscribedTeamProducts` 合并双 family
-- `currentUsageSource` 传 `zaiSelectedKey`
-- `teamEntitlement` 按 `currentUsageSource.audience === "team"` 路由，`preferredProviderId` 动态取
-- `profilePlanBadge` 去掉 `bigmodelFamilyAllowed` 前置守卫，`teamEntitlementLoading` 合并双 family loading
-- `providerEntitlements` team 分支按 `audience === "team"` 路由（兼容 zai/bigmodel）
+- novo hook `zaiEnterpriseProducts`; `subscribedTeamProducts` mescla as duas families
+- `currentUsageSource` recebe `zaiSelectedKey`
+- `teamEntitlement` roteia por `currentUsageSource.audience === "team"`; `preferredProviderId` é
+  obtido dinamicamente
+- `profilePlanBadge` remove a guarda pré-requisito `bigmodelFamilyAllowed`; `teamEntitlementLoading`
+  mescla o loading das duas families
+- o branch team de `providerEntitlements` roteia por `audience === "team"` (compatível com
+  zai/bigmodel)
 
-**消费方 2 — 聊天框模型选择器**（`V4ComposerToolbar.tsx`）：
+**Consumidor 2 — seletor de modelo do composer** (`V4ComposerToolbar.tsx`):
 
-- `V4ContextPlanConnection.teamCoding` 类型放开 `family: ProviderFamilyDomain` + zai/bigmodel providerId
-- `resolveV4ContextPlanConnection` 新增 zai team-plan 前缀识别分支
-- `resolveContextCodingPlanUsageSource` providerId 类型/守卫放开，按 `team-plan:` 前缀路由
-- `contextCodingPlanUsageTeamSource` 按 `connection.providerId` 取对应 entitlement snapshot
-- `enterpriseProducts` hook 传 `family: connection.family`
-- 新增 `showPurchasedTeamPlanFallback` 计算（双 family 任一有 team key 即显示，对齐 `ModelProviderSection.tsx:549-558`）
-- `buildModelSelectGroups` 传 `subscribedTeamProducts` + `showPurchasedTeamPlanFallback`（替代原 `[]` / `false`）
+- o tipo `V4ContextPlanConnection.teamCoding` abre `family: ProviderFamilyDomain` + providerId
+  zai/bigmodel
+- `resolveV4ContextPlanConnection` ganha um branch de reconhecimento de prefixo team-plan zai
+- `resolveContextCodingPlanUsageSource` abre tipo/guarda de providerId, roteando pelo prefixo
+  `team-plan:`
+- `contextCodingPlanUsageTeamSource` pega o entitlement snapshot correspondente por
+  `connection.providerId`
+- o hook `enterpriseProducts` recebe `family: connection.family`
+- novo cálculo de `showPurchasedTeamPlanFallback` (mostra se qualquer uma das duas families tiver
+  team key, alinhado a `ModelProviderSection.tsx:549-558`)
+- `buildModelSelectGroups` recebe `subscribedTeamProducts` + `showPurchasedTeamPlanFallback` (no lugar
+  do `[]` / `false` anteriores)
 
-**消费方 3 — 使用统计页**（`SettingsPage.tsx` + `CodingPlanUsagePanel.tsx`）：
+**Consumidor 3 — página de estatísticas de uso** (`SettingsPage.tsx` + `CodingPlanUsagePanel.tsx`):
 
-- `SettingsPage` 新增 `usageZaiEnterpriseProducts` hook，`usageSubscribedTeamProducts` 合并双 family；`checkingUsageCodingPlanTab` 合并双 family loading
-- `CodingPlanUsagePanel.zaiEntitlement` 加 `!effectiveSourceIsTeamPlan` 守卫（team source 不当个人查）
-- `CodingPlanUsagePanel.teamEntitlement` 按 `effectiveSourceIsTeamPlan` 路由，`preferredProviderId` 动态取
-- `CodingPlanUsagePanel.effectiveEntitlement` 先判 team plan（命中走 teamEntitlement），否则按 providerId 走个人分支
+- `SettingsPage` ganha o hook `usageZaiEnterpriseProducts`; `usageSubscribedTeamProducts` mescla as
+  duas families; `checkingUsageCodingPlanTab` mescla o loading das duas families
+- `CodingPlanUsagePanel.zaiEntitlement` ganha a guarda `!effectiveSourceIsTeamPlan` (team source não
+  é consultado como individual)
+- `CodingPlanUsagePanel.teamEntitlement` roteia por `effectiveSourceIsTeamPlan`, com
+  `preferredProviderId` dinâmico
+- `CodingPlanUsagePanel.effectiveEntitlement` verifica team plan primeiro (se casar, vai para
+  teamEntitlement), senão segue o branch individual por providerId
 
-### 测试
+### Testes
 
-`packages/ui/test/codingPlanUsagePanel.test.ts` 新增 5 个 zai 对称回归测试：
+`packages/ui/test/codingPlanUsagePanel.test.ts` ganha 5 testes de regressão de simetria zai:
 
-- zai team product 展开为带 zai providerId + `Z.ai - ` 品牌前缀的 usage source
-- `resolveSidebarCurrentCodingPlanUsageSource` 把 zai team selectedKey 解析成 team source
-- zai team key 未匹配 source 时返回 null（不回退 individual）
-- zai 个人 coding-plan key 解析成 individual
-- `matchesTeamPlanUsageSourceKey` 对 zai team sourceId/selectedKey 正确匹配
+- team product zai expandido em usage source com providerId zai + prefixo de marca `Z.ai - `
+- `resolveSidebarCurrentCodingPlanUsageSource` resolve o selectedKey team zai em team source
+- team key zai sem source correspondente retorna null (não faz fallback para individual)
+- key zai individual coding-plan é resolvida como individual
+- `matchesTeamPlanUsageSourceKey` casa corretamente sourceId/selectedKey de team zai
 
-全量相关测试（codingPlanUsagePanel 17 + providerFamilyConnectionVisibility / modelSelectionGroups /
-sidebarUsageCodingPlanProviderPreference / codingPlanEntitlements / enterpriseCodingPlanProducts /
-v4ComposerToolbarRecovery / modelProviderCodingPlan / modelProviderCodingPlanI18n /
-zcodeModelSelectionResolution / modelProviderFamilyConnectionSelection /
-workspaceSidebarFooterWebRemoteControlTooltip）共 **319 tests 全绿**。
+Todos os testes relacionados (codingPlanUsagePanel 17 + providerFamilyConnectionVisibility /
+modelSelectionGroups / sidebarUsageCodingPlanProviderPreference / codingPlanEntitlements /
+enterpriseCodingPlanProducts / v4ComposerToolbarRecovery / modelProviderCodingPlan /
+modelProviderCodingPlanI18n / zcodeModelSelectionResolution /
+modelProviderFamilyConnectionSelection / workspaceSidebarFooterWebRemoteControlTooltip)
+totalizam **319 testes totalmente verdes**.
 
-### 多端 / 远控影响
+### Impacto em multi-dispositivo / controle remoto
 
-本次改动只在 UI renderer 层（消费 entitlement / enterprise pricing 数据的 React 组件 + lib），
-不涉及 stream / snapshot / queue / owner / replayable 等远控语义，桌面 continuous 与手机 replayable
-链路均不受影响。
+Esta alteração afeta apenas a camada de renderer da UI (componentes React + libs que consomem dados
+de entitlement / enterprise pricing), não envolve semântica de controle remoto como stream / snapshot /
+queue / owner / replayable; as cadeias desktop continuous e celular replayable não são afetadas.
 
-## 修复：zai Team Plan 聊天框模型选择器仍不显示（refreshCodingPlanApiKey zai 分支漏传 selectedKeys）
+## Correção: zai Team Plan ainda não aparece no seletor de modelo do composer (branch zai de refreshCodingPlanApiKey não passa selectedKeys)
 
-日期：2026-08-06
+Data: 2026-08-06
 
-### 现象
+### Sintoma
 
-上一节「消费方对称化遗漏」修复后，sidebar badge / 使用统计页已显示 zai team plan，但**聊天框模型选择器仍不显示 zai team 模型**（`modelGroups` 为空数组）。
+Após a correção da seção anterior 「消费方对称化遗漏」, o badge da sidebar e a página de estatísticas de
+uso passaram a exibir o zai team plan, mas **o seletor de modelo do composer ainda não exibia os
+modelos team zai** (`modelGroups` como array vazio).
 
-### 根因（CDP 抓 React fiber + config.json 核实）
+### Causa raiz (confirmada via captura do React fiber por CDP + config.json)
 
-`builtin:zai-coding-plan` provider 的 `enabled: false`，导致 `shouldIncludeModelProviderInSelection` →
-`isModelProviderEnabled(provider)` 返回 false → provider 被 `filterModelProvidersByEntitlement` 过滤掉 →
-`buildModelSelectGroups` 拿不到 `codingPlanProvider` → team 模型分组建不出来。
+O provider `builtin:zai-coding-plan` tem `enabled: false`, fazendo
+`shouldIncludeModelProviderInSelection` → `isModelProviderEnabled(provider)` retornar false → o
+provider é filtrado por `filterModelProvidersByEntitlement` → `buildModelSelectGroups` não obtém
+`codingPlanProvider` → o grupo de modelos team não pode ser construído.
 
-`enabled` 由 availability 校验设置（`applyCodingPlanAvailabilityToProvider`）。zai 的 availability 校验
-`validateZaiCodingPlanPairAvailability` → `validateSelectedTeamPlanAvailability("zai", context)` 需要
-`context.modelProviderFamilySelectedKeys` 才能解析 selectedKey → 查 team project → 返回 `available`。
+`enabled` é definido pela validação de availability (`applyCodingPlanAvailabilityToProvider`). A
+validação de availability do zai `validateZaiCodingPlanPairAvailability` →
+`validateSelectedTeamPlanAvailability("zai", context)` precisa de
+`context.modelProviderFamilySelectedKeys` para resolver o selectedKey → consultar o team project →
+retornar `available`.
 
-但 `refreshCodingPlanApiKey`（`modelProviderService.ts:1465`）调用 zai 分支时**漏传了**
-`modelProviderFamilySelectedKeys`（bigmodel 分支传了，zai 没传）：
+Mas `refreshCodingPlanApiKey` (`modelProviderService.ts:1465`), ao chamar o branch zai, **não passa**
+`modelProviderFamilySelectedKeys` (o branch bigmodel passa, o zai não):
 
 ```typescript
 // 修复前：zai 分支只传 apiClient + credentialService
@@ -455,41 +552,46 @@ isZaiCodingPlanProviderId(providerId)
       })
 ```
 
-链路：`context.modelProviderFamilySelectedKeys` undefined → `resolveSelectedTeamContext` 返回 null →
-`validateSelectedTeamPlanAvailability` 返回 `{ kind: "unknown" }` → 回退个人 `subscription/list` →
-团队账号无个人订阅 → `{ kind: "unavailable", reason: "coding_plan_not_entitled" }` → `enabled: false`。
+Cadeia: `context.modelProviderFamilySelectedKeys` undefined → `resolveSelectedTeamContext` retorna
+null → `validateSelectedTeamPlanAvailability` retorna `{ kind: "unknown" }` → fallback para
+`subscription/list` individual → conta de time sem assinatura individual →
+`{ kind: "unavailable", reason: "coding_plan_not_entitled" }` → `enabled: false`.
 
-`resolveCodingPlanEntryStatus`（入口缓存）有同样的 zai 漏传 bug。
+`resolveCodingPlanEntryStatus` (cache de entrada) tem o mesmo bug de omissão no branch zai.
 
-### 修复
+### Correção
 
-`modelProviderService.ts` 两处调用点统一加载 `loadProviderRegistryFamilySettings()` 一次，
-zai/bigmodel 两个分支共享 `modelProviderFamilySelectedKeys`：
+Os dois pontos de chamada em `modelProviderService.ts` passam a carregar
+`loadProviderRegistryFamilySettings()` uma única vez, com `modelProviderFamilySelectedKeys`
+compartilhado entre os branches zai/bigmodel:
 
-- `refreshCodingPlanApiKey`（:1462-1482）
-- `resolveCodingPlanEntryStatus`（:1300-1313）
+- `refreshCodingPlanApiKey` (:1462-1482)
+- `resolveCodingPlanEntryStatus` (:1300-1313)
 
-### 测试
+### Testes
 
-`packages/services/test/modelProviderService.test.ts` 新增回归测试
-「Z.ai 已选 Team Plan 项目时刷新 Coding Plan 会按 team project 校验并启用 provider（对齐 BigModel）」，
-覆盖 zai team selectedKey + getCustomerInfo team project 场景。已验证该测试在修复前失败、修复后通过。
+`packages/services/test/modelProviderService.test.ts` ganha o teste de regressão
+「quando Z.ai tem Team Plan selecionado, atualizar o Coding Plan valida pelo team project e habilita
+o provider (alinhado a BigModel)», cobrindo o cenário de team selectedKey zai + team project do
+getCustomerInfo. Verificou-se que o teste falha antes da correção e passa depois.
 
-## 修复：zai Team Plan 选中后发消息仍走个人 Coding Plan（runtime registry 漏 team apiKey 投影）
+## Correção: após selecionar zai Team Plan, enviar mensagem ainda usa Coding Plan individual (registry de runtime sem projeção de team apiKey)
 
-日期：2026-08-06
+Data: 2026-08-06
 
-### 现象
+### Sintoma
 
-选中 zai team plan、provider 已 `enabled: true`、聊天框也能选出 team 模型后，发消息却报
-`[1113][Insufficient balance or no resource package. Please recharge.]`。日志显示请求命中的是
-**个人 zai coding plan 的额度**，而不是选中团队项目的额度。
+Após selecionar o zai team plan, com o provider `enabled: true` e o composer permitindo escolher
+modelos team, enviar uma mensagem dá erro
+`[1113][Insufficient balance or no resource package. Please recharge.]`. Os logs mostram que a
+requisição atingiu a **cota do zai coding plan individual**, e não a do projeto de time selecionado.
 
-### 根因
+### Causa raiz
 
-`buildZCodeProviderRegistrySnapshot`（`modelProviderService.ts`）——发消息时下发给 agent runtime 的
-provider 凭据快照——只有 bigmodel 的 team runtime key 投影（`resolveSelectedBigModelTeamPlanRuntimeApiKey`），
-**没有 zai 对应实现**：
+`buildZCodeProviderRegistrySnapshot` (`modelProviderService.ts`) — o snapshot de credenciais de
+provider entregue ao agent runtime ao enviar mensagens — só tem a projeção de runtime key de team do
+bigmodel (`resolveSelectedBigModelTeamPlanRuntimeApiKey`), **sem implementação equivalente para
+zai**:
 
 ```text
 buildZCodeProviderRegistrySnapshot
@@ -500,60 +602,76 @@ buildZCodeProviderRegistrySnapshot
        zai team 选中     → 不覆盖 → 仍是个人 coding plan 的空 apiKey / start plan JWT ❌
 ```
 
-同时 `filterResolvedProviderFamiliesForRegistry` 里只有 bigmodel 给 `pickResolvedFamilyProvider`
-传了 `forceCodingPlan: true`。zai 选中 team plan 时，coding provider（`enabled:false`，因为只有
-team 选中后才会被 enable）会被 `pickResolvedFamilyProvider` 提前丢弃，runtime key 投影即使存在也
-拿不到 provider → 下发的是 zai-start-plan / 个人 zai provider → 走个人 Coding Plan 余额。
+Ao mesmo tempo, em `filterResolvedProviderFamiliesForRegistry` apenas o bigmodel passa
+`forceCodingPlan: true` para `pickResolvedFamilyProvider`. Quando zai tem team plan selecionado, o
+coding provider (`enabled:false`, pois só é habilitado após a seleção de team) é descartado
+antecipadamente por `pickResolvedFamilyProvider`; mesmo que a projeção de runtime key existisse, ela
+não obteria o provider → o que é entregue é zai-start-plan / o provider zai individual → usa o saldo
+do Coding Plan individual.
 
-链路：registry 下发个人 start plan JWT → agent runtime 据此鉴权 → 命中个人账户额度 → `[1113]` 余额不足。
+Cadeia: o registry entrega o JWT individual de start plan → o agent runtime autentica por ele → atinge
+a cota da conta individual → `[1113]` saldo insuficiente.
 
-### 修复（对齐 bigmodel 三处）
+### Correção (alinhada ao bigmodel em três pontos)
 
-1. **`resolveSelectedZaiTeamContext`**：对齐 `resolveSelectedBigModelTeamContext`，用 family-aware
-   `parseTeamPlanConnectionKeyByFamily("zai", selectedKey)` 解析出 `organizationId` / `projectId`。
-2. **`resolveSelectedZaiTeamPlanRuntimeApiKey`**：对齐 `resolveSelectedBigModelTeamPlanRuntimeApiKey`，
-   读 `oauth:${ZAI_PROVIDER_ID}:access_token` → 校验 zcode JWT 未过期 → 调用 zai 业务域名
-   （`resolveZaiBusinessBaseUrl` + `createZaiLoginAuthHeaders`）的 `getCustomerInfo` 校验 org/project
-   存在 → `ensureBigModelTeamPlanProjectApiKey` + `copyBigModelTeamPlanProjectApiKeySecret`
-   （zai/bigmodel 业务 API 路径同构，仅 host/providerId/token 不同）→ 返回 `${apiKey}.${secretKey}`。
-3. **`buildZCodeProviderRegistrySnapshot` 接入**：新增 `zaiTeamRuntimeApiKey` + `selectedZaiTeamContext`
-   计算；filter 阶段保留 zai coding provider；map 阶段 zai team 选中时覆盖 `apiKey` + `enabled: true`。
-4. **`filterResolvedProviderFamiliesForRegistry`**：zai 也传
-   `forceCodingPlan: Boolean(resolveSelectedZaiTeamContext(familySelectedKeys))`，与 bigmodel 对称。
+1. **`resolveSelectedZaiTeamContext`**: alinhado a `resolveSelectedBigModelTeamContext`, usa o
+   `parseTeamPlanConnectionKeyByFamily("zai", selectedKey)` family-aware para extrair
+   `organizationId` / `projectId`.
+2. **`resolveSelectedZaiTeamPlanRuntimeApiKey`**: alinhado a
+   `resolveSelectedBigModelTeamPlanRuntimeApiKey`, lê `oauth:${ZAI_PROVIDER_ID}:access_token` →
+   valida que o JWT zcode não expirou → chama o `getCustomerInfo` no domínio de negócio zai
+   (`resolveZaiBusinessBaseUrl` + `createZaiLoginAuthHeaders`) para validar org/projeto →
+   `ensureBigModelTeamPlanProjectApiKey` + `copyBigModelTeamPlanProjectApiKeySecret`
+   (os caminhos de API de negócio zai/bigmodel são isomórficos, só host/providerId/token diferem) →
+   retorna `${apiKey}.${secretKey}`.
+3. **Integração em `buildZCodeProviderRegistrySnapshot`**: novos cálculos de `zaiTeamRuntimeApiKey` +
+   `selectedZaiTeamContext`; preservation do coding provider zai na fase de filter; na fase de map,
+   quando team zai está selecionado, sobrescrever `apiKey` + `enabled: true`.
+4. **`filterResolvedProviderFamiliesForRegistry`**: zai também passa
+   `forceCodingPlan: Boolean(resolveSelectedZaiTeamContext(familySelectedKeys))`, simétrico ao
+   bigmodel.
 
-### 测试
+### Testes
 
-`packages/services/test/modelProviderService.test.ts` 新增回归测试
-「Z.ai Team Plan 选中时 provider registry 使用团队项目 API Key（对齐 BigModel）」，覆盖：
-zai team selectedKey + zai 业务域名 `getCustomerInfo` / `api_keys` / `api_keys/copy` mock 场景，
-断言 registry 返回 `apiKey: { source: "inline", value: "team-ak-zai.team-secret-zai" }`、
-`models[0].disabledReason` 为 undefined、所有业务请求的 authorization 头为原始 zai token。
+`packages/services/test/modelProviderService.test.ts` ganha o teste de regressão
+「quando Z.ai Team Plan está selecionado, o provider registry usa a API Key do projeto de time
+(alinhado a BigModel)», cobrindo: team selectedKey zai + mocks de `getCustomerInfo` / `api_keys` /
+`api_keys/copy` no domínio de negócio zai, assertando que o registry retorna
+`apiKey: { source: "inline", value: "team-ak-zai.team-secret-zai" }`, que
+`models[0].disabledReason` é undefined e que o header de authorization de todas as requisições de
+negócio é o token zai original.
 
-已通过 stash 验证该测试在修复前失败、修复后通过。typecheck（本次改动文件无新增错误）+ lint（0 errors）通过。
+Validado via stash que o teste falha antes da correção e passa depois. typecheck (sem novos erros nos
+arquivos alterados) + lint (0 errors) passaram.
 
-### 多端 / 远控影响
+### Impacto em multi-dispositivo / controle remoto
 
-此修复只影响 host process 下发给 agent runtime 的 provider 凭据快照构造（`modelProviderService`），
-不涉及 stream / snapshot / queue / owner / replayable 等远控语义。桌面 continuous 与手机 replayable
-链路都通过同一个 `getProviderRegistrySnapshot` 读 provider，二者均受益于 zai team apiKey 投影修复，
-不改变各自的 delivery 边界。
+Esta correção afeta apenas a construção do snapshot de credenciais de provider entregue pelo host
+process ao agent runtime (`modelProviderService`), não envolve semântica de controle remoto como stream /
+snapshot / queue / owner / replayable. As cadeias desktop continuous e celular replayable leem os
+providers pelo mesmo `getProviderRegistrySnapshot`; ambas se beneficiam da correção da projeção de
+team apiKey do zai, sem alterar seus respectivos limites de entrega.
 
-## 修复：Team Plan 启动后个人套餐使用统计缺少凭证
+## Correção: após iniciar com Team Plan, as estatísticas de uso do pacote individual ficam sem credencial
 
-日期：2026-08-17
+Data: 2026-08-17
 
-### 现象与根因
+### Sintoma e causa raiz
 
-账号同时拥有个人套餐和 Team Plan，App 以 Team Plan 连接方式启动后，「使用统计」仍会按账号权益
-展示个人套餐来源；但个人用量查询只读取当前缓存 Coding Plan provider 的 `apiKey`。Team Plan 启动时
-该 provider 可能没有个人套餐 key，首次修复尝试调用通用 key 刷新仍不完整：个人 key 解析继续按
-“默认名称，否则第一个项目”猜项目，当 Team Plan 项目排在前面时会误入 `projectType=2` 的团队项目，
-在那里创建个人 `zcode-api-key` 被拒绝，刷新后 key 仍为空，最终抛出
-`bigmodel_coding_plan_api_key_required` / `zai_coding_plan_api_key_required`。
+A conta possui simultaneamente pacote individual e Team Plan; quando o App inicia com modo de conexão
+Team Plan, 「使用统计」 ainda exibe a origem do pacote individual conforme os direitos da conta, mas a
+consulta de uso individual lê apenas o `apiKey` do Coding Plan provider em cache. Na inicialização com
+Team Plan esse provider pode não ter a key do pacote individual, e a primeira tentativa de correção,
+chamar a atualização genérica de key, continuou incompleta: a resolução da key individual seguiu
+"adivinhando" o projeto pelo "nome padrão, senão o primeiro projeto"; quando o projeto de Team Plan vem
+primeiro, ela cai no projeto de time com `projectType=2`, onde criar a `zcode-api-key` individual é
+rejeitado — após a atualização a key continua vazia e, no fim, lança
+`bigmodel_coding_plan_api_key_required` / `zai_coding_plan_api_key_required`.
 
-### 语义
+### Semântica
 
-使用统计是账号级多来源视图，凭证必须按用户点击的来源独立解析：
+As estatísticas de uso são uma visão de múltiplas origens no nível da conta; as credenciais devem ser
+resolvidas de forma independente conforme a origem clicada pelo usuário:
 
 ```text
 个人来源（无 organizationId / projectId）
@@ -566,14 +684,16 @@ zai team selectedKey + zai 业务域名 `getCustomerInfo` / `api_keys` / `api_ke
   -> 禁止回退个人 provider apiKey
 ```
 
-个人凭证恢复复用 `IModelProviderService.refreshCodingPlanApiKey`，不在 usage provider 内复制 OAuth
-或 API Key 兑换逻辑。刷新失败或刷新后仍无 key 时保留原错误语义。
+A recuperação da credencial individual reutiliza `IModelProviderService.refreshCodingPlanApiKey`, sem
+duplicar lógica de OAuth ou troca de API Key dentro do usage provider. Se a atualização falhar, ou se
+depois dela ainda não houver key, a semântica de erro original é preservada.
 
-### 运行连接与统计来源的边界
+### Limite entre conexão de runtime e origem das estatísticas
 
-使用统计是多来源视图，用户点击的个人套餐不等于当前模型运行连接。当 Team Plan
-是当前连接时，个人 Coding Plan provider 会被标记为 `enabled=false`，但它仍是个人
-统计来源的凭证容器。因此：
+As estatísticas de uso são uma visão de múltiplas origens; o pacote individual clicado pelo usuário
+não é igual à conexão de runtime atual do modelo. Quando o Team Plan é a conexão atual, o Coding Plan
+provider individual é marcado como `enabled=false`, mas ele continua sendo o container de credenciais da
+origem individual das estatísticas. Portanto:
 
 ```text
 明确点击个人统计来源
@@ -585,23 +705,25 @@ zai team selectedKey + zai 业务域名 `getCustomerInfo` / `api_keys` / `api_ke
   -> 继续要求 enabled=true
 ```
 
-放宽只适用于显式指定来源的 Coding Plan 统计查询，不得改变 agent registry
-的当前连接选择。
+O relaxamento vale apenas para consultas de Coding Plan com origem explicitamente indicada e não pode
+alterar a escolha de conexão atual do agent registry.
 
-## 修复：zai Team Plan 使用统计页报「无法读取用量统计」（bigmodelUsageQuotaProvider 多处 bigmodel 硬编码）
+## Correção: página de estatísticas de uso do zai Team Plan reporta 「无法读取用量统计」 (múltiplos hardcodes bigmodel em bigmodelUsageQuotaProvider)
 
-日期：2026-08-06
+Data: 2026-08-06
 
-### 现象
+### Sintoma
 
-zai team plan 选中、provider 已启用、聊天框能选出 team 模型、发消息也走团队项目后，
-打开「使用统计」页 Coding Plan 面板仍报错：「无法读取用量统计。请稍后重试，或检查网络和供应商配置。」
-日志显示抛出 `zai_coding_plan_api_key_required`。
+Com o zai team plan selecionado, provider habilitado, composer permitindo escolher modelos team e o
+envio de mensagem indo pelo projeto de time, ao abrir a página 「使用统计」 o painel de Coding Plan
+ainda erra: 「无法读取用量统计。请稍后重试，或检查网络和供应商配置。」
+Os logs mostram o lançamento de `zai_coding_plan_api_key_required`.
 
-### 根因
+### Causa raiz
 
-`packages/services/src/usage-stats/providers/bigmodelUsageQuotaProvider.ts`（quota / monitor 用量查询
-provider）有 4 处只认 `bigmodelCodingPlan`，zai coding plan team plan 进不来：
+`packages/services/src/usage-stats/providers/bigmodelUsageQuotaProvider.ts` (provider de consulta de
+uso de quota / monitor) tem 4 pontos que só reconhecem `bigmodelCodingPlan`, e o zai coding plan team
+plan não entra:
 
 ```text
 ① shouldUseBigModelTeamContext(provider) — 只对 bigmodelCodingPlan 返回 true
@@ -619,64 +741,69 @@ provider）有 4 处只认 `bigmodelCodingPlan`，zai coding plan team plan 进�
    zai team 即使进入此分支也读不到 token（key 名不对）
 ```
 
-链路：上述任一拦截 → `pickQuotaProvider` 返回 null 或 team 授权解析返回 null →
-`getCodingPlanUsageSnapshot` throw → UI 显示「无法读取用量统计」。
+Cadeia: qualquer uma dessas interceptações → `pickQuotaProvider` retorna null, ou a autorização de
+team retorna null → `getCodingPlanUsageSnapshot` lança → a UI exibe 「无法读取用量统计」.
 
-### 修复（4 处 family-aware 化）
+### Correção (4 pontos tornados family-aware)
 
-1. `BigModelTeamContext` → `TeamPlanContext`，新增 `family: ProviderFamilyDomain` 字段
-2. `shouldUseBigModelTeamContext` + `resolveBigModelTeamContext` → 合并为
-   `resolveTeamPlanContextForProvider(provider, request)`：任何 coding plan provider
-   （`isCodingPlanModelProviderId`）配合 org/project 都解析出带 family 的 team context
-3. `resolveBigModelTeamProjectApiKey` → `resolveTeamPlanProjectApiKey`：按 `teamContext.family`
-   选 OAuth token key（`oauth:zai:access_token` vs `oauth:bigmodel:access_token`）+
-   业务域名（`resolveZaiBusinessBaseUrl` vs `resolveBigModelApiOrigin`）。header 构造
-   （`createBigModelBizHeaders`，含 `bigmodel-organization`/`bigmodel-project`）zai/bigmodel
-   业务接口已验证同构，复用
+1. `BigModelTeamContext` → `TeamPlanContext`, com o novo campo `family: ProviderFamilyDomain`
+2. `shouldUseBigModelTeamContext` + `resolveBigModelTeamContext` → fundidos em
+   `resolveTeamPlanContextForProvider(provider, request)`: qualquer coding plan provider
+   (`isCodingPlanModelProviderId`) com org/project resolve um team context com family
+3. `resolveBigModelTeamProjectApiKey` → `resolveTeamPlanProjectApiKey`: escolhe a key do token OAuth
+   por `teamContext.family` (`oauth:zai:access_token` vs `oauth:bigmodel:access_token`) + o domínio de
+   negócio (`resolveZaiBusinessBaseUrl` vs `resolveBigModelApiOrigin`). A construção de header
+   (`createBigModelBizHeaders`, com `bigmodel-organization`/`bigmodel-project`) já foi verificada como
+   isomórfica entre zai/bigmodel e é reutilizada
 
-> **token key 规约（关键）**：OAuth credential key 用的是 **OAuth provider id**
-> （`ZAI_PROVIDER_ID = "zai"` / `BIGMODEL_PROVIDER_ID = "bigmodel"`），不是
-> **builtin provider id**（`BUILTIN_MODEL_PROVIDER_IDS.zai = "builtin:zai"`）。
-> 初版修复误用 `BUILTIN_MODEL_PROVIDER_IDS.zai` 拼 key 得到 `oauth:builtin:zai:access_token`，
-> 实际 credential 存的是 `oauth:zai:access_token`（对齐 `loadZaiAuthorization`），
-> 导致 token 永远加载不到 → `zai_coding_plan_api_key_required`。已修正为 `ZAI_PROVIDER_ID`。4. `shouldAllowDisabledBigModelTeamProvider` → `shouldAllowDisabledTeamProvider`：
-> 任何 coding plan provider 配合 team org/project 都允许 disabled provider 5. `isProviderSelectableForQuota`：team org/project 存在时，任何 coding plan provider
-> 都放宽 apiKey 为空拦截（preferredProviderId 精确匹配由 `pickQuotaProvider` 兜底）
+> **Convenção de token key (crítico)**: a credential key OAuth usa o **OAuth provider id**
+> (`ZAI_PROVIDER_ID = "zai"` / `BIGMODEL_PROVIDER_ID = "bigmodel"`), e não o
+> **builtin provider id** (`BUILTIN_MODEL_PROVIDER_IDS.zai = "builtin:zai"`).
+> A primeira versão da correção usou `BUILTIN_MODEL_PROVIDER_IDS.zai` para montar a key, gerando
+> `oauth:builtin:zai:access_token`, enquanto a credential real é armazenada como
+> `oauth:zai:access_token` (alinhado a `loadZaiAuthorization`), fazendo o token nunca ser carregado →
+> `zai_coding_plan_api_key_required`. Corrigido para `ZAI_PROVIDER_ID`. 4. `shouldAllowDisabledBigModelTeamProvider` → `shouldAllowDisabledTeamProvider`:
+> qualquer coding plan provider com org/project de team permite provider disabled 5. `isProviderSelectableForQuota`: quando há org/project de team,
+> qualquer coding plan provider tem a interceptação de "apiKey vazio" relaxada (o matching exato por
+> preferredProviderId fica por conta de `pickQuotaProvider`)
 
-### 测试
+### Testes
 
-`packages/services/test/usageStatsService.test.ts` 新增 2 个 zai 对称回归测试：
+`packages/services/test/usageStatsService.test.ts` ganha 2 testes de regressão de simetria zai:
 
-- 「Z.ai Team Plan 用量在 provider apiKey 为空时复制团队项目 API Key（对齐 BigModel）」
-- 「Z.ai Team Plan 用量允许已登录但被禁用的 Coding Plan provider（对齐 BigModel）」
+- 「O uso do Z.ai Team Plan copia a API Key do projeto de time quando a apiKey do provider está vazia
+  (alinhado a BigModel)」
+- 「O uso do Z.ai Team Plan permite um Coding Plan provider autenticado, mas desabilitado (alinhado a
+  BigModel)」
 
-覆盖：zai coding plan provider + zai OAuth token（`oauth:zai:access_token`，对齐
-`loadZaiAuthorization`）+ zai 业务域名（`api.z.ai`）+ 团队项目 api_keys list/copy +
-monitor quota/model-usage/tool-usage。已通过 stash 验证：修复前两个测试均失败
-（token key 不匹配导致 `zai_coding_plan_api_key_required`），修复后通过。
-usageStatsService 全部 12 tests 全绿。
+Cobertura: coding plan provider zai + token OAuth zai (`oauth:zai:access_token`, alinhado a
+`loadZaiAuthorization`) + domínio de negócio zai (`api.z.ai`) + list/copy de api_keys do projeto de
+time + monitor quota/model-usage/tool-usage. Validado via stash: antes da correção os dois testes
+falhavam (token key incompatível causando `zai_coding_plan_api_key_required`), depois passam.
+Todos os 12 testes do usageStatsService verdes.
 
-typecheck（services 包 0 错误）+ lint（0 errors）通过。
+typecheck (0 erros no pacote services) + lint (0 errors) passaram.
 
-### 多端 / 远控影响
+### Impacto em multi-dispositivo / controle remoto
 
-此修复只影响 host process 的用量统计查询（`usageStatsService` → monitor API），不涉及
-stream / snapshot / queue / owner / replayable 等远控语义。桌面 continuous 与手机 replayable
-链路都通过同一个 `usageStatsService` 读用量，二者均受益于 zai team 用量查询修复。
+Esta correção afeta apenas a consulta de estatísticas de uso do host process (`usageStatsService` →
+monitor API), não envolve semântica de controle remoto como stream / snapshot / queue / owner /
+replayable. As cadeias desktop continuous e celular replayable leem o uso pelo mesmo `usageStatsService`;
+ambas se beneficiam da correção da consulta de uso team do zai.
 
-## 修复：zai Team Plan 输入框旁上下文用量不显示额度（V4ComposerToolbar teamEntitlement 硬编码 bigmodelCodingPlan）
+## Correção: o uso de contexto ao lado da caixa de entrada não mostra a cota do zai Team Plan (teamEntitlement com bigmodelCodingPlan hardcoded em V4ComposerToolbar)
 
-日期：2026-08-06
+Data: 2026-08-06
 
-### 现象
+### Sintoma
 
-zai team plan 选中后，输入框左侧的「上下文用量 / 套餐剩余额度」区域不显示 zai team plan
-的 quota（落空或显示为空）。
+Após selecionar o zai team plan, a área 「上下文用量 / 套餐剩余额度」 à esquerda da caixa de entrada
+não exibe a quota do zai team plan (fica em branco ou vazia).
 
-### 根因
+### Causa raiz
 
-`packages/ui/src/v4/composer/V4ComposerToolbar.tsx`（`V4ComposerModelControls`）里给
-`teamEntitlement` hook 传的 `preferredProviderId` 硬编码为 `bigmodelCodingPlan`：
+Em `packages/ui/src/v4/composer/V4ComposerToolbar.tsx` (`V4ComposerModelControls`), o
+`preferredProviderId` passado ao hook `teamEntitlement` está hardcoded como `bigmodelCodingPlan`:
 
 ```typescript
 const teamEntitlement = useUsageEntitlement({
@@ -688,19 +815,20 @@ const teamEntitlement = useUsageEntitlement({
 });
 ```
 
-zai team plan 选中时，`contextCodingPlanUsageTeamSource.providerId` 已正确产出为
-`zaiCodingPlan`（在 `resolveContextTeamUsageSourceFromEntitlementSnapshot` /
-`resolveV4ContextPlanConnection` 里按 family 处理），但这里没跟随它，仍传 `bigmodelCodingPlan`。
+Quando o zai team plan está selecionado, `contextCodingPlanUsageTeamSource.providerId` já é produzido
+corretamente como `zaiCodingPlan` (tratado por family em
+`resolveContextTeamUsageSourceFromEntitlementSnapshot` / `resolveV4ContextPlanConnection`), mas aqui
+não é acompanhado — continua passando `bigmodelCodingPlan`.
 
-链路：`preferredProviderId=bigmodelCodingPlan` + zai team org/project →
-服务端 `pickQuotaProvider` 按 `provider.id === preferredProviderId` 精确匹配
-（`requirePreferredProvider: true`）→ zai coding plan provider 不匹配 bigmodelCodingPlan →
-返回 null → `resolveAuthorization` 返回 null → `teamEntitlement.snapshot` 为空 →
-输入框旁上下文用量区域不显示 zai team 额度。
+Cadeia: `preferredProviderId=bigmodelCodingPlan` + org/project de team zai →
+`pickQuotaProvider` no servidor faz matching exato por `provider.id === preferredProviderId`
+(`requirePreferredProvider: true`) → o coding plan provider zai não casa com bigmodelCodingPlan →
+retorna null → `resolveAuthorization` retorna null → `teamEntitlement.snapshot` fica vazio → a área de
+uso de contexto ao lado da caixa de entrada não mostra a cota team zai.
 
-### 修复
+### Correção
 
-`preferredProviderId` 改为跟随 `contextCodingPlanUsageTeamSource.providerId`：
+`preferredProviderId` passa a acompanhar `contextCodingPlanUsageTeamSource.providerId`:
 
 ```typescript
 preferredProviderId:
@@ -708,37 +836,40 @@ preferredProviderId:
   BUILTIN_MODEL_PROVIDER_IDS.bigmodelCodingPlan,
 ```
 
-`contextCodingPlanUsageTeamSource.providerId` 已在
-`resolveContextTeamUsageSourceFromEntitlementSnapshot`（按 family 反查 coding plan provider id）
-和 `resolveV4ContextPlanConnection`（zai team 分支产 `zaiCodingPlan`）里正确产出，可直接复用。
+`contextCodingPlanUsageTeamSource.providerId` já é produzido corretamente em
+`resolveContextTeamUsageSourceFromEntitlementSnapshot` (busca reversa do coding plan provider id por
+family) e em `resolveV4ContextPlanConnection` (o branch team zai produz `zaiCodingPlan`), podendo ser
+reutilizado diretamente.
 
-### 多端 / 远控影响
+### Impacto em multi-dispositivo / controle remoto
 
-此修复只影响 UI renderer 层（输入框旁上下文用量的 entitlement 查询参数），不涉及
-stream / snapshot / queue / owner / replayable 等远控语义，桌面与手机链路均不受影响。
+Esta correção afeta apenas a camada de renderer da UI (parâmetros de consulta de entitlement do uso de
+contexto ao lado da caixa de entrada), não envolve semântica de controle remoto como stream / snapshot /
+queue / owner / replayable; as cadeias desktop e celular não são afetadas.
 
-## 风险点
+## Riscos
 
-| 风险                                                                          | 缓解                                                                                                                                                                                                                                |
+| Risco                                                                          | Mitigação                                                                                                                                                                                                                                |
 | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ~~zai 后端企业接口实际行为未知~~                                              | ✅ 已验证：测试环境 `api.z.ai` getCustomerInfo 成功，结构与 bigmodel 同构；注入流程（list + POST create `zcode-team-api-key`）已在 zai 复用，prewarm 日志可见。测试账号 POST 创建被拒（缺 grant）属后端侧问题，代码无需改动 |
-| ~~ModelProviderSection 清理 useEffect 重复（anomaly）~~                       | ✅ 已合并为单个 family-aware effect                                                                                                                                                                                                 |
-| ~~`WorkspaceSidebarFooterUsageSummary` 显式 `providerFamily !== "zai"` 排除~~ | ✅ 已修复：sidebar badge / 聊天框模型选择 / 使用统计页三个消费方已全部对称化（见上文「消费方对称化遗漏」章节）                                                                                                                      |
-| literal 前缀检查点遗漏                                                        | grep 全量 `team-plan:` literal 逐一评估，已覆盖核心路径                                                                                                                                                                             |
+| ~~Comportamento real das interfaces enterprise do backend zai desconhecido~~  | ✅ Verificado: `getCustomerInfo` no `api.z.ai` de teste com sucesso, estrutura isomórfica à do bigmodel; o fluxo de injeção (list + POST create `zcode-team-api-key`) já foi reutilizado em zai, visível nos logs de prewarm. A criação via POST na conta de teste foi rejeitada (grant faltando), o que é um problema do backend e não exige mudança de código |
+| ~~useEffect de limpeza duplicado em ModelProviderSection (anomalia)~~           | ✅ Mesclado em um único effect family-aware                                                                                                                                                                                                |
+| ~~Exclusão explícita `providerFamily !== "zai"` em `WorkspaceSidebarFooterUsageSummary`~~ | ✅ Corrigido: os três consumidores — badge da sidebar / seletor de modelo do composer / página de estatísticas de uso — foram todos simetrizados (ver a seção 「消费方对称化遗漏」 acima)                                                                                     |
+| Checkpoints com literal de prefixo esquecidos                          | grep em todos os literais `team-plan:` avaliados um a um, com cobertura dos caminhos principais                                                                                                                                                                           |
 
-## 修复：zai coding plan provider 不落盘（endpoint 兜底对称化）
+## Correção: o zai coding plan provider não é persistido (simetrização do fallback de endpoint)
 
-日期：2026-08-05
+Data: 2026-08-05
 
-### 现象
+### Sintoma
 
-zai OAuth 登录成功后，设置页 Plan Card 仍显示「未连接」。直接读 `config.json` 发现
-`builtin:zai-coding-plan` provider 不存在，而 `builtin:bigmodel-coding-plan` 正常存在。
+Após um login OAuth zai bem-sucedido, o Plan Card na página de configurações continuava exibindo
+「未连接」. Lendo `config.json` diretamente, o provider `builtin:zai-coding-plan` não existe, enquanto
+`builtin:bigmodel-coding-plan` existe normalmente.
 
-### 根因
+### Causa raiz
 
-`loadSinglePresetProvider`（`packages/services/src/model-provider/repo/oauthPresetProviderRepo.ts`）
-的 endpoint 解析**不对称**：
+A resolução de endpoint em `loadSinglePresetProvider`
+(`packages/services/src/model-provider/repo/oauthPresetProviderRepo.ts`) é ** assimétrica**:
 
 ```text
 oauthProvider === BIGMODEL_PROVIDER_ID
@@ -746,26 +877,33 @@ oauthProvider === BIGMODEL_PROVIDER_ID
   : collectSchemaEndpoints(matchedProviders)                     // ❌ 无兜底
 ```
 
-- bigmodel：`buildBigModelCodingPlanAnthropicEndpoints` → `resolveBigModelCodingPlanAnthropicBaseUrl`
-  硬编码兜底 `https://open.bigmodel.cn/api/anthropic`，remote 不下发 baseUrl 也能构造 endpoint。
-- zai：`collectSchemaEndpoints` 在 `baseUrl` 为空时直接 `continue`（`oauthPresetProviderRepoShared.ts`），
-  返回空 endpoint → `getModelProviderEndpointKinds(endpoints).length === 0` →
-  `loadSinglePresetProvider` return null → `builtin:zai-coding-plan` 永远不落盘。
+- bigmodel: `buildBigModelCodingPlanAnthropicEndpoints` →
+  `resolveBigModelCodingPlanAnthropicBaseUrl` tem o fallback hardcoded
+  `https://open.bigmodel.cn/api/anthropic`, permitindo construir o endpoint mesmo sem baseUrl vindo do
+  remote.
+- zai: `collectSchemaEndpoints` dá `continue` direto quando `baseUrl` está vazio
+  (`oauthPresetProviderRepoShared.ts`), retornando endpoint vazio →
+  `getModelProviderEndpointKinds(endpoints).length === 0` → `loadSinglePresetProvider` retorna null →
+  `builtin:zai-coding-plan` nunca é persistido.
 
-UI 判定 `resolveCodingPlanEntitlementState` 里 `hasCodingPlanProvider=false` → 显示「未连接」。
+A UI, em `resolveCodingPlanEntitlementState`, tem `hasCodingPlanProvider=false` → exibe 「未连接」.
 
-### 修复（与 bigmodel 完全对称）
+### Correção (totalmente simétrica ao bigmodel)
 
-`packages/services/src/model-provider/repo/oauthPresetProviderRepoShared.ts` 新增 zai 三件套：
+Novo trio zai em
+`packages/services/src/model-provider/repo/oauthPresetProviderRepoShared.ts`:
 
 1. `resolveZaiCodingPlanAnthropicBaseUrl(env)` → `${resolveZaiBusinessBaseUrl(env)}/api/anthropic`
-   （测试 `api.z.ai` / 线上 `api.z.ai`，与 builtin:zai API Key provider 运行时域名一致）
-2. `normalizeZaiCodingPlanAnthropicBaseUrlForEnv(baseUrl, env)`：remote baseUrl 优先，缺失或非法时
-   回退兜底；补一层 `new URL()` 合法性校验（`normalizeModelProviderBaseUrlForKind` 不拦截纯文本）
-3. `buildZaiCodingPlanAnthropicEndpoints(providers)`：remote anthropic baseUrl 优先，否则兜底；
-   paths 用 `/v1/messages`
+   (teste `api.z.ai` / produção `api.z.ai`, igual ao domínio em runtime do provider API Key
+   builtin:zai)
+2. `normalizeZaiCodingPlanAnthropicBaseUrlForEnv(baseUrl, env)`: baseUrl do remote tem prioridade,
+   com fallback quando ausente ou inválido; acrescenta uma camada de validação de legalidade com
+   `new URL()` (`normalizeModelProviderBaseUrlForKind` não intercepta texto puro)
+3. `buildZaiCodingPlanAnthropicEndpoints(providers)`: anthropic baseUrl do remote tem prioridade, senão
+   o fallback; paths usam `/v1/messages`
 
-`packages/services/src/model-provider/repo/oauthPresetProviderRepo.ts` 改 endpoint 分支：
+Mudança do branch de endpoint em
+`packages/services/src/model-provider/repo/oauthPresetProviderRepo.ts`:
 
 ```typescript
 const endpoints =
@@ -774,44 +912,50 @@ const endpoints =
     : buildZaiCodingPlanAnthropicEndpoints(matchedProviders); // 从 collectSchemaEndpoints 换过来
 ```
 
-（`oauthProvider` 在此函数只有 `BIGMODEL_PROVIDER_ID` / `ZAI_PROVIDER_ID` 两个值，二者都是 coding plan provider。）
+(`oauthProvider` tem, nesta função, apenas os valores `BIGMODEL_PROVIDER_ID` / `ZAI_PROVIDER_ID`, e
+ambos são coding plan provider.)
 
-### 测试
+### Testes
 
-`packages/services/test/oauthPresetProviderRepoSharedZai.test.ts`（7 tests 全绿）覆盖：
-remote baseUrl 优先、缺失 baseUrl 时兜底、非法 URL 回退、环境解析、与 bigmodel 对称性。
+`packages/services/test/oauthPresetProviderRepoSharedZai.test.ts` (7 testes verdes) cobre: prioridade
+do baseUrl do remote, fallback quando falta baseUrl, retorno ao fallback em URL inválida, resolução de
+ambiente e simetria com o bigmodel.
 
-### 多端 / 远控影响
+### Impacto em multi-dispositivo / controle remoto
 
-此修复只影响 provider 持久化层（本地 config.json 写入），不涉及 stream / snapshot / queue /
-owner / replayable 等远控语义，桌面 continuous 与手机 replayable 链路均不受影响。
+Esta correção afeta apenas a camada de persistência de provider (escrita local em config.json), não
+envolve semântica de controle remoto como stream / snapshot / queue / owner / replayable; as cadeias
+desktop continuous e celular replayable não são afetadas.
 
-## quota limit type 等价（CREDIT_LIMIT ↔ TOKENS_LIMIT）
+## Equivalência de tipo de quota limit (CREDIT_LIMIT ↔ TOKENS_LIMIT)
 
-### 现象
+### Sintoma
 
-zai Team Plan 选中后，使用统计页的「5 小时 / 每周」配额卡空白，聊天框上下文用量、
-Usage Remaining 浮层同样不显示额度。monitor 接口 `getCodingPlanUsageSnapshot` 返回 OK，
-但 UI 匹配不到 limit。
+Após selecionar o zai Team Plan, o cartão de quota 「5 小时 / 每周」 na página de estatísticas de uso
+fica em branco; o uso de contexto no composer e o popover Usage Remaining também não mostram cota. A
+interface de monitor `getCodingPlanUsageSnapshot` retorna OK, mas a UI não casa nenhum limit.
 
-### 根因（运行时日志确认）
+### Causa raiz (confirmada por logs de runtime)
 
-zai 业务后端 Team Plan 的 `/api/monitor/usage/quota/limit?type=2` 返回的 limit `type` 是
-`CREDIT_LIMIT`，bigmodel 业务后端是 `TOKENS_LIMIT`。两者 `unit/number` 语义完全一致：
+O limit `type` retornado por `/api/monitor/usage/quota/limit?type=2` do Team Plan no backend de negócio
+zai é `CREDIT_LIMIT`, enquanto no backend de negócio bigmodel é `TOKENS_LIMIT`. A semântica de
+`unit/number` é idêntica nos dois:
 
-| 卡片         | 查询条件           | bigmodel 返回  | zai 返回               |
+| Cartão         | Condição de consulta  | bigmodel retorna  | zai retorna               |
 | ------------ | ------------------ | -------------- | ---------------------- |
 | 5 小时       | `unit=3, number=5` | `TOKENS_LIMIT` | `CREDIT_LIMIT`         |
 | 每周         | `unit=6`           | `TOKENS_LIMIT` | `CREDIT_LIMIT`         |
 | 工具（每月） | `unit=5, number=1` | `TIME_LIMIT`   | （zai 测试账号未返回） |
 
-四个消费方（`CodingPlanUsagePanel` / `CodingPlanContextUsage` /
-`CodingPlanUsageRemainingPanel` / `StatusCards`）原本硬绑 `TOKENS_LIMIT`/`TIME_LIMIT` 精确匹配，
-zai 返回 `CREDIT_LIMIT` 时全部 miss → 配额卡不渲染。
+Quatro consumidores (`CodingPlanUsagePanel` / `CodingPlanContextUsage` /
+`CodingPlanUsageRemainingPanel` / `StatusCards`) tinham matching exato preso a
+`TOKENS_LIMIT`/`TIME_LIMIT`; com zai retornando `CREDIT_LIMIT` todos davam miss → o cartão de quota não
+é renderizado.
 
-### 修复
+### Correção
 
-`packages/ui/src/lib/codingPlanQuotaPresentation.ts` 新增等价 type 集合与分类判断：
+Novo conjunto de types equivalentes e classificação em
+`packages/ui/src/lib/codingPlanQuotaPresentation.ts`:
 
 ```typescript
 const TOKEN_LIMIT_TYPES = new Set(["TOKENS_LIMIT", "CREDIT_LIMIT"]);
@@ -825,32 +969,41 @@ export function isSameLimitCategory(limitType, queryType): boolean {
 }
 ```
 
-- `findCodingPlanQuotaLimit` 改用 `isSameLimitCategory`，`unit/number` 仍精确匹配。
-  覆盖 `CodingPlanUsagePanel` / `CodingPlanContextUsage` / `CodingPlanUsageRemainingPanel`。
-- `StatusCards.tsx` 的 file-scoped `findUsageLimit` 同样改用导出的 `isSameLimitCategory`，
-  与前者保持一致（原本靠 `isDisplayableUsageLimit` 兜底，现在精确卡片也能命中）。
+- `findCodingPlanQuotaLimit` passa a usar `isSameLimitCategory`; `unit/number` continua com matching
+  exato. Cobre `CodingPlanUsagePanel` / `CodingPlanContextUsage` /
+  `CodingPlanUsageRemainingPanel`.
+- O `findUsageLimit` de escopo de arquivo em `StatusCards.tsx` também passa a usar o
+  `isSameLimitCategory` exportado, mantendo consistência com o anterior (antes contava com o fallback
+  `isDisplayableUsageLimit`; agora até os cartões exatos casam).
 
-### 设计说明
+### Nota de design
 
-zai 后端用 `CREDIT_LIMIT` 是当前线上行为（api.z.ai / api.z.ai 均如此）。
-按「和 bigmodel 应该一样」的产品预期，`CREDIT_LIMIT` 视为 zai 后端待对齐的历史命名；
-消费方等价匹配后，zai 后端若后续统一切到 `TOKENS_LIMIT`，UI 无需再改。
-unit/number 语义是稳定契约，type 枚举差异通过等价集合吸收。
+O uso de `CREDIT_LIMIT` pelo backend zai é o comportamento atual em produção (api.z.ai / api.z.ai).
+Sob a expectativa de produto de que "deveria ser igual ao bigmodel", `CREDIT_LIMIT` é considerado uma
+nomenclatura histórica a ser alinhada no backend zai; com o matching equivalente nos consumidores, se
+o backend zai migrar depois para `TOKENS_LIMIT` de forma unificada, a UI não precisará mudar.
+A semântica de unit/number é um contrato estável; a diferença no enum de type é absorvida pelo
+conjunto de equivalência.
 
-### 测试
+### Testes
 
-`packages/ui/test/codingPlanUsagePanel.test.ts` 新增 2 个测试：
+`packages/ui/test/codingPlanUsagePanel.test.ts` ganha 2 testes:
 
-- zai `CREDIT_LIMIT` 按 `TOKENS_LIMIT` 查询等价命中（5h / weekly），缺失项返回 null
-- bigmodel `TOKENS_LIMIT`/`TIME_LIMIT` 原行为不变，`CREDIT_LIMIT` 不误匹配 `TIME_LIMIT` 查询
+- `CREDIT_LIMIT` do zai casa por equivalência em consulta a `TOKENS_LIMIT` (5h / weekly), retornando
+  null para itens ausentes
+- O comportamento original de `TOKENS_LIMIT`/`TIME_LIMIT` do bigmodel permanece, e `CREDIT_LIMIT` não
+  casa por engano com consulta de `TIME_LIMIT`
 
-### 多端 / 远控影响
+### Impacto em multi-dispositivo / controle remoto
 
-纯 UI 层 limit 匹配逻辑，不涉及 stream / snapshot / queue / owner / replayable 语义。
+Lógica de matching de limit puramente na camada de UI, sem envolver a semântica de stream / snapshot / queue /
+owner / replayable.
 
-## 相关文档
+## Documentos relacionados
 
-- `docs/coding-plan-enterprise.md` — 企业版编程套餐购买闭环（bigmodel 现状）
-- `docs/input-model-provider-team-plan-linkage.md` — 输入框模型/Provider/Team Plan 链路
-- `docs/coding-plan-purchase-panel-flow.md` — 购买面板流程
-- `docs/model-provider-coding-plan-availability.md` — Coding Plan 可用性计算
+- `docs/coding-plan-enterprise.md` — ciclo de compra do plano de programação corporate (situação atual
+  do bigmodel)
+- `docs/input-model-provider-team-plan-linkage.md` — cadeia modelo/Provider/Team Plan da caixa de
+  entrada
+- `docs/coding-plan-purchase-panel-flow.md` — fluxo do painel de compra
+- `docs/model-provider-coding-plan-availability.md` — cálculo de disponibilidade do Coding Plan

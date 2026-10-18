@@ -1,31 +1,31 @@
-# Provider Refactor 核心设计
+# Design Principal do Refactor de Provider
 
-> 状态：现行设计
-> 本文只描述最终架构与不变量，不复述迁移过程。历史来源与矛盾裁定见
-> [`evidence-and-contradictions.md`](./evidence-and-contradictions.md)。
+> Status: design vigente
+> Este documento descreve apenas a arquitetura final e os invariantes, sem repetir o processo de migração. As fontes históricas e as decisões sobre contradições estão em
+> [`evidence-and-contradictions.md`](./evidence-and-contradictions.md).
 
-## 1. 目的
+## 1. Objetivo
 
-Provider 配置体系的唯一目的，是把用户对某个模型 API 的选择和配置，稳定地装配成一次可执行的模型调用。
+O único propósito do sistema de configuração de Provider é montar, de forma estável, a escolha e a configuração do usuário sobre uma API de modelo em uma chamada de modelo executável.
 
-它需要回答：
+Ele precisa responder:
 
-- 有哪些 Provider，每个 Provider 有哪些模型；
-- Provider 使用哪种 API Schema、Endpoint 和访问方式；
-- 模型具有什么静态能力，接受哪些选项，逻辑选项怎样映射到协议参数；
-- 当前账号和用户配置怎样影响最终 Provider；
-- 一次提交最终使用哪个 Provider、Model 和 Options；
-- 配置更新、账号刷新和执行并发时，哪一份事实生效。
+- Quais Providers existem e quais modelos cada Provider tem;
+- Que API Schema, Endpoint e forma de acesso o Provider usa;
+- Que capacidades estáticas o modelo tem, quais opções aceita e como as opções lógicas mapeiam para parâmetros de protocolo;
+- Como a conta atual e a configuração do usuário afetam o Provider final;
+- Qual Provider, Model e Options cada submissão usa ao final;
+- Qual fonte de verdade prevalece durante atualizações de configuração, refresh de conta e concorrência de execução.
 
-它不是统一凭据中心，也不是最终授权方。API Key Provider 可以直接保存 API Key；账号类型的 Provider Config
-只描述静态访问类型，登录态 Token、Team Project Key、Start Plan JWT 和闲时 Ticket 等动态材料由账号与执行期服务取得。
-模型服务端仍然对每次请求作最终鉴权和授权裁决。
+Ele não é um centro unificado de credenciais nem a autoridade final de autorização. Um Provider do tipo API Key pode guardar a API Key diretamente; um Provider Config do tipo conta
+apenas descreve o tipo de acesso estático, e materiais dinâmicos como Token de sessão, Team Project Key, Start Plan JWT e Ticket de período ocioso são obtidos pela conta e pelos serviços de execução.
+O servidor do modelo continua tomando a decisão final de autenticação e autorização para cada requisição.
 
-## 2. 核心原则
+## 2. Princípios centrais
 
-### 2.1 一份配置事实，两条解析路径
+### 2.1 Uma fonte de verdade de configuração, dois caminhos de resolução
 
-Provider 和 Model 的配置分别解决不同问题，最后在同一个模型身份上汇合：
+A configuração de Provider e a de Model resolvem problemas diferentes e convergem na mesma identidade de modelo:
 
 ```text
 Provider Config 路径                              Model Config 路径
@@ -65,12 +65,12 @@ Provider Templates + Account Providers            ZCode Built-in Model Config Ru
                                                     Adapter
 ```
 
-Provider 路径决定“最终有哪些 Provider、成员模型是谁、如何访问 API”。Model Rule 路径决定“模型有什么能力、
-选项和协议映射”。不得为设置页、闲时任务、连接测试或某种 Adapter 再复制一套模型能力事实。
+O caminho de Provider determina "quais Providers existem ao final, quais são os modelos membros e como a API é acessada". O caminho de Model Rules determina "quais capacidades, opções e mapeamentos de protocolo o modelo tem".
+Não se deve duplicar os fatos de capacidade de modelo para a página de configurações, tarefas ociosas, teste de conexão ou algum Adapter específico.
 
-### 2.2 Overlay 是稀疏意图，Effective 是解析结果
+### 2.2 Overlay é intenção esparsa, Effective é resultado de resolução
 
-Provider 的生效顺序固定为：
+A ordem de precedência do Provider é fixa:
 
 ```ts
 effectiveProviders = resolveProviderTemplates(
@@ -80,13 +80,13 @@ effectiveProviders = resolveProviderTemplates(
 );
 ```
 
-- ZCode Built-in 提供普通 Provider Template 与 Account Provider 静态基线；
-- Account 只投影账号连接与套餐造成的动态约束；
-- Personal 最后生效，表达用户显式配置；
-- `undefined` 表示本层不覆盖，`null` 表示本层显式清除，具体值表示显式覆盖；
-- Overlay 自身可以不完整，只有进入 Registry 的 Effective Config 必须完整。
+- ZCode Built-in fornece a linha de base estática de Provider Template comum e de Account Provider;
+- Account apenas projeta as restrições dinâmicas decorrentes da conexão da conta e do plano contratado;
+- Personal tem efeito por último, expressando a configuração explícita do usuário;
+- `undefined` significa que esta camada não sobrescreve, `null` significa que esta camada limpa explicitamente, e um valor concreto significa sobrescrita explícita;
+- O próprio Overlay pode ser incompleto; apenas o Effective Config que entra no Registry precisa ser completo.
 
-Model Rules 全部是有序 Overlay。Builtin 的有效顺序为：
+Todas as Model Rules são Overlays ordenados. A ordem efetiva do Builtin é:
 
 ```text
 modelRules
@@ -97,62 +97,57 @@ modelRules
     -> Personal providerModelRules / manualProviderModelRules
 ```
 
-其中 `providerSiteRules` 按具体 Base URL 匹配站点行为，`templateModelRules` 按
-`templateId + modelId` 匹配模板成员和默认 `enabled`，两者不是同一种身份匹配。
-Personal Config 只允许具体 `providerId + modelId` 的精确覆盖，不再提供、读取或写出 Personal 全局 Match Rules。
-所有规则继续保持数组书写顺序，不引入动态优先级算法。
+Nelas, `providerSiteRules` casa o comportamento do site pela Base URL concreta, e `templateModelRules` casa os membros do template e o `enabled` padrão por
+`templateId + modelId`; não são o mesmo tipo de casamento de identidade.
+A Config pessoal só permite sobrescrita exata para `providerId + modelId` concretos, sem oferecer, ler ou gravar Personal Match Rules globais.
+Todas as regras continuam sendo escritas em ordem de array, sem introduzir algoritmo de prioridade dinâmica.
 
-### Match 配置维护原则（2026-09-10 裁决）
+### Princípios de manutenção de configuração de Match (decisão de 2026-09-10)
 
-- Built-in Match 以主流配置和官方能力为依据，官方优先；不为了落后或不完整的第三方兼容实现，降低已知模型的默认能力。
-- 已知模型在相应 API Schema 下支持的能力，写入模型／模型 API 规则，沿用前后缀匹配。不能仅因为通过第三方代理访问就默认关闭；代理不支持时，用户通过具体模型的 Personal 配置覆盖关闭。
-- 官方优先不等于同品牌所有型号都支持：不同型号、API Schema 的明确支持边界必须保留，不能把某型号能力用宽泛品牌正则授予全部型号。
-- 站点专有行为写入 `providerSiteRules`，按“一具体 Base URL 一条规则”维护；不同域名或 endpoint 不用正则 alternation 合并。同一 URL 可在一条规则中声明多项已经确认的能力；因模型／API 条件不同而必须拆分的规则仍分别保留。
-- 同一 URL 的规范化等价形式（例如尾斜杠）可以在同一规则处理，但不能借此放宽到整站所有路径或任意子域。
-- 能力继续经统一 Overlay/Resolver 形成最终 Model properties；不在 Runtime 恢复按模型名或域名猜测能力的旁路。迁接旧行为时分别核对各项能力，不能把删除旧判断误作取消原有能力。
+- O Match Built-in se baseia em configurações principais e capacidades oficiais, com prioridade para o oficial; não se reduz a capacidade padrão de modelos conhecidos para suportar implementações de terceiros desatualizadas ou incompletas.
+- Capacidades suportadas por modelos conhecidos sob o API Schema correspondente devem ser escritas nas regras de modelo／modelo API, mantendo o casamento por prefixo e sufixo. Não se deve desligar por padrão apenas por acessar via proxy de terceiros; quando o proxy não suportar, o usuário desliga pela Config pessoal do modelo concreto.
+- Prioridade para o oficial não significa que todos os modelos de uma mesma marca suportem algo: os limites explícitos de suporte por modelo e por API Schema devem ser preservados, sem conceder a capacidade de um modelo a todos os outros por uma regex ampla de marca.
+- Comportamento específico de site vai para `providerSiteRules`, mantido como "uma Base URL concreta, uma regra"; domínios ou endpoints diferentes não são unidos por alternância de regex. A mesma URL pode declarar várias capacidades já confirmadas em uma única regra; regras que precisem ser divididas por condições diferentes de modelo／API continuam separadas.
+- Formas normalizadas equivalentes da mesma URL (por exemplo, barra final) podem ser tratadas na mesma regra, mas isso não autoriza ampliar para todos os caminhos do site ou para subdomínios arbitrários.
+- As capacidades continuam formando as propriedades finais do Model via Overlay/Resolver unificado; não se restaura no Runtime um caminho alternativo que adivinhe capacidades por nome de modelo ou por domínio. Ao migrar comportamento antigo, verifique cada capacidade separadamente; não confunda remover uma verificação antiga com cancelar a capacidade original.
 
-### 2.3 Builtin Provider 维护清单
+### 2.3 Lista de manutenção de Builtin Provider
 
-Builtin 的维护范围用一张简短的入口库存表表达，不在文档中重复抄写完整 Provider Config，具体内容见
-[`Builtin Provider 维护清单`](./builtin-provider-inventory.md)：
+O escopo de manutenção do Builtin é expresso por uma tabela curta de inventário de entradas, sem repetir aqui a Provider Config completa; veja
+[`Lista de Manutenção de Builtin Provider`](./builtin-provider-inventory.md):
 
 ```text
 供应商 | 类型 | templateId / providerId | Base URL | 产品维护模型
 ```
 
-- 普通 API 入口填写 `templateId`；Account 入口填写具体 `providerId`。
-- 表中模型就是产品主动维护的模型；Template 的 `builtinModelIds` 是配置中的对应事实。
-- 不额外维护模型展示名、模型所属 Template 的重复字段或 Provider Site Catalog。
-- 供应商目录中未出现在表内的历史模型不进入 Builtin Template，也不做兼容迁移。
-- URL 特殊规则只在配置中作为 `providerSiteRules` 存在；它不是另一份供应商清单。
+- Entradas de API comum preenchem `templateId`; entradas de Account preenchem o `providerId` concreto.
+- Os modelos na tabela são os modelos mantidos ativamente pelo produto; os `builtinModelIds` do Template são o fato correspondente na configuração.
+- Não se mantém adicionalmente nome de exibição de modelo, campos duplicados do Template dono do modelo ou um Provider Site Catalog.
+- Modelos históricos do diretório de fornecedores que não aparecem na tabela não entram em Builtin Template nem recebem migração de compatibilidade.
+- Regras especiais de URL existem apenas na configuração como `providerSiteRules`; não constituem outra lista de fornecedores.
 
-### API Schema 选择原则
+### Princípio de escolha do API Schema
 
-同一供应商可能同时提供多种 API Schema。官方模板统一优先选择 Anthropic Messages；只有供应商或具体模型/Endpoint 不支持
-Anthropic 时，才选择该入口实际支持且验证最充分的其他 Schema。这个判断以模板实际请求证据为准，不以
-“OpenAI-compatible”等宣传标签推断。若同一站点不同模型必须使用不同 Schema，则拆分模板身份，或先提出明确的每模型 API
-配置设计；不得把不同协议模型塞进一个固定 `api.type`。模板确定的 Schema 仍可按既定 overlay 顺序被更具体的配置覆盖。
+Um mesmo fornecedor pode oferecer vários API Schemas ao mesmo tempo. Templates oficiais priorizam uniformemente Anthropic Messages; só quando o fornecedor ou o modelo／Endpoint concreto não suporta Anthropic é que se escolhe outro Schema que a entrada realmente suporta e que tenha a verificação mais sólida. Essa decisão se baseia na evidência real de requisição do template, não em rótulos de marketing como "OpenAI-compatible". Se na mesma origem diferentes modelos precisarem usar Schemas diferentes, separe a identidade do template ou proponha primeiro um desenho explícito de configuração de API por modelo; não se pode enfiar modelos de protocolos diferentes em um `api.type` fixo. O Schema definido pelo template ainda pode ser sobrescrito por configurações mais específicas, na ordem de overlay estabelecida.
 
-### 聚合 Provider 的模型清单原则
+### Princípio de lista de modelos de Provider agregador
 
-聚合服务商的模型清单可以参照上游供应商的维护清单：上游已经维护的模型，只要聚合站点实际提供，就应纳入聚合入口。
-例如当前 OpenRouter 的模型 ID 可能写成 `openai/gpt-5.6-sol`，而上游模型 ID 是 `gpt-5.6-sol`；这只是该聚合服务商当前的
-清单和命名对应关系，不表示所有聚合服务商都必须带前缀，也不要求运行时先剥掉前缀再解析。聚合入口仍然维护自己的 Model/API/Site
-配置，因为同一个模型经过聚合站点后，协议、能力和参数映射可能不同。
+A lista de modelos de um serviço agregador pode tomar como referência a lista de manutenção do fornecedor upstream: modelos que o upstream já mantém, desde que a aggregating site realmente os ofereça, devem entrar na entrada agregada.
+Por exemplo, o model ID atual do OpenRouter pode ser `openai/gpt-5.6-sol`, enquanto o model ID upstream é `gpt-5.6-sol`; isso é apenas a correspondência atual de nomeação e catálogo desse agregador, não significa que todos os agregadores precisem de prefixo nem exige que o Runtime remova o prefixo antes de resolver. A entrada agregada continua mantendo sua própria configuração de Model／API／Site, porque o mesmo modelo, ao passar por um site agregador, pode ter protocolo, capacidades e mapeamento de parâmetros diferentes.
 
-### 2.3 Sparse 与 Complete 必须分开
+### 2.3 Sparse e Complete devem ficar separados
 
-写入边界接收稀疏 Config；执行边界只接收经过完整性证明的类型。完整类型是同一份 Config 的类型收窄，
-不是另一套 DTO，也不是第二个 Registry。
+A fronteira de escrita recebe Config esparsa; a fronteira de execução recebe apenas tipos com completude comprovada. O tipo completo é um estreitamento de tipo da mesma Config,
+não outro conjunto de DTO nem um segundo Registry.
 
-Model 的字段以 `@zcode/shared/model-config` 的完整数据 schema 为唯一来源；稀疏 schema 从同一字段派生
-缺省/null 覆盖语义。构造输入、JSON 输出及 Registry 完整类型使用 schema 推导，行为类只保留冻结、overlay
-和序列化行为。完整性检查复用该 schema，不再手写第二份字段/值域检查表。纯数据 schema 不引用行为类，
-避免 codec 与类之间循环依赖。Provider/API/Access 同样由 `config/provider-data-schema.ts` 提供单一数据合同；
-CLI 的 ModelProperties/OptionSpecs 类型及协议媒体字段投影同样从共享 Model schema 派生，
-不反向依赖 Provider 行为实现。共享层只依赖纯表达式编译器，不包含状态或 IO。
-Provider 完整性只加强已有执行必填项，不要求所有展示/成员字段必填，来源写权限通过同一 schema 派生。
-Personal 暂存未完成 endpoint 的边界保留，坏地址只阻断该 Provider 的 Registry 准入。规则由 `rule-data-schema.ts` 按来源派生；数据文件不带内存层标识 `type`，也不根据字段有无重新猜规则层次。
+Os campos de Model têm como única fonte o schema de dados completo de `@zcode/shared/model-config`; o schema esparso deriva da mesma lista de campos
+a semântica de default／override por null. A construção de entrada, a saída JSON e o tipo completo do Registry usam inferência a partir do schema; as classes de comportamento mantêm apenas congelamento, overlay
+e serialização. A checagem de completude reaproveita esse schema, sem reescrever à mão uma segunda lista de verificação de campos／domínios. O schema de dados puro não referencia classes de comportamento,
+evitando dependência circular entre codec e classe. Provider／API／Access também fornecem um contrato de dados único via `config/provider-data-schema.ts`;
+os tipos ModelProperties／OptionSpecs da CLI e a projeção de campos de mídia do protocolo também derivam do Model schema compartilhado,
+sem depender inversamente da implementação de comportamento do Provider. A camada compartilhada depende apenas do compilador de expressões puras, sem estado ou IO.
+A completude do Provider só reforça itens já obrigatórios para execução, não exige que todos os campos de exibição／membro sejam obrigatórios, e a permissão de escrita por origem deriva do mesmo schema.
+A fronteira de Personal para endpoints incompletos é preservada; um endereço inválido apenas bloqueia a admissão daquele Provider no Registry. As regras são derivadas por origem por `rule-data-schema.ts`; arquivos de dados não carregam o identificador de camada em memória `type` e a camada da regra não é re-adivinhada pela presença de campos.
 
 ```text
 Sparse Config / Rules
@@ -165,29 +160,28 @@ Sparse Config / Rules
         `--> Complete executable configs   -> Registry
 ```
 
-不完整、禁用或暂不可执行的 Provider/Model 可以保存并在设置页显示；它们不能进入可执行 Registry。
+Providers／Models incompletos, desabilitados ou temporariamente não executáveis podem ser salvos e exibidos na página de configurações; eles não podem entrar no Registry executável.
 
-### 2.4 身份、能力、状态和展示正交
+### 2.4 Identidade, capacidade, estado e exibição são ortogonais
 
-- `providerId + modelId` 是模型身份；同一 `modelId` 可以存在于不同 Provider。
-- Provider 顶层没有 `enabled`；Personal 定义存在即属于 Settings，Account Provider 固定属于对应 Family。
-- 完整性表达是否具备构造执行对象所需事实。
-- `executable` 由 Account Access 权益（账号类型）、Provider 完整、Model 启用和 Model 完整共同决定。
-- `selectable` 在 `executable` 基础上再受 Provider `visibility` 影响。
-- `visibility` 是 Provider 的展示投影，不是权限、鉴权或完整性豁免。
-- Model 没有独立 `visibility`；Model 是否出现在普通选择中由其执行资格和 Provider 可见性共同决定。
+- `providerId + modelId` é a identidade do modelo; o mesmo `modelId` pode existir em Providers diferentes.
+- O Provider de nível superior não tem `enabled`; Personal definido significa pertencer às Settings, e Account Provider pertence fixamente à Family correspondente.
+- Completude expressa se há os fatos necessários para construir o objeto de execução.
+- `executable` é determinado em conjunto pelo direito de acesso da Account Access (tipo de conta), completude do Provider, habilitação do Model e completude do Model.
+- `selectable` depende de `executable` e ainda é afetado pelo `visibility` do Provider.
+- `visibility` é a projeção de exibição do Provider, não permissão, autenticação nem isenção de completude.
+- Model não tem `visibility` independente; se um Model aparece na seleção comum é decidido por sua elegibilidade de execução e pela visibilidade do Provider.
 
-### 2.5 已创建的 Model 是执行事实
+### 2.5 O Model criado é o fato de execução
 
-Registry 是创建 Model 的目录，不是一次执行过程中持续回读的可变状态。ModelFactory 从目标 Environment 的当前
-Registry 取得完整 Provider/Model 配置并创建不可变 Model。之后 Config 或 Registry 更新只影响后来创建的 Model，
-不静默改变已经运行的请求、Compact、Memory 或子 Agent。
+O Registry é o catálogo para criar Models, não um estado mutável relido continuamente durante uma execução. O ModelFactory obtém do Registry atual do Environment de destino a Provider／Model Config completa e cria um Model imutável. Atualizações posteriores de Config ou Registry afetam apenas Models criados depois,
+sem alterar silenciosamente requisições, Compact, Memory ou subagentes já em execução.
 
-## 3. 配置契约
+## 3. Contratos de configuração
 
 ### 3.1 Provider Config
 
-Provider Config 的正式字段是：
+Os campos formais de Provider Config são:
 
 ```ts
 interface ProviderConfig {
@@ -206,30 +200,29 @@ interface ProviderConfig {
 }
 ```
 
-字段含义：
+Significado dos campos:
 
-| 字段               | 含义                                                             |
-| ------------------ | ---------------------------------------------------------------- |
-| `group`            | Personal 或 Account Family 分组；不是 Access Mode                |
-| `logo`             | 展示资源 key，未知 key 回退通用图标                              |
-| `access`           | 调用所需访问材料的静态取得方式                                   |
-| `api`              | 最终 API Schema、Base URL 和静态 Header                          |
-| `builtinModelIds`  | ZCode 或 Account 层拥有的模型成员                                |
-| `personalModelIds` | Personal 层拥有的模型成员                                        |
-| `modelOrder`       | 用户对最终成员集合表达的总顺序意图                               |
-| `visibility`       | Provider 是否进入普通设置/选择投影；不影响内部精确 Registry 查找 |
+| Campo              | Significado                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `group`            | Agrupamento Personal ou Account Family; não é Access Mode                                    |
+| `logo`             | Key do recurso de exibição; key desconhecido cai no ícone genérico                          |
+| `access`           | Forma estática de obtenção dos materiais de acesso necessários à chamada                    |
+| `api`              | API Schema final, Base URL e Headers estáticos                                              |
+| `builtinModelIds`  | Membros de modelo pertencentes à camada ZCode ou Account                                     |
+| `personalModelIds` | Membros de modelo pertencentes à camada Personal                                             |
+| `modelOrder`       | Intenção de ordem total expressa pelo usuário sobre o conjunto final de membros               |
+| `visibility`       | Se o Provider entra nas projeções comuns de configuração／seleção; não afeta buscas internas precisas no Registry |
 
-成员集合保留来源：Built-in 成员在前，Personal 成员在后；单集合内重复只保留第一次；Personal 与 Built-in
-同名时保留 Built-in 身份并丢弃 Personal 重复项。`modelOrder` 只排序已存在成员，不创造模型。
+Os conjuntos de membros preservam a origem: membros Built-in primeiro, membros Personal depois; duplicatas dentro de um mesmo conjunto mantêm apenas a primeira; quando Personal e Built-in têm o mesmo nome, mantém-se a identidade Built-in e descarta-se o item Personal duplicado. `modelOrder` apenas ordena membros existentes, não cria modelos.
 
-实例外层规则为 `{ providerId, templateId?, providerName?, config }`；模板为
-`{ templateId, templateNameMap, config }`。身份、继承关系和名称不是 Config 叶子。
-模板创建时按当前语言 → en-US → templateId 生成实例名称，并在 Personal 文件锁内去重。
-之后只改连接字段不写继承名称；显式改名才写外层 `providerName`，语言变化不改已保存名称。
+A regra de nível externo da instância é `{ providerId, templateId?, providerName?, config }`; o template é
+`{ templateId, templateNameMap, config }`. Identidade, relação de herança e nome não são folhas da Config.
+Na criação do template, o nome da instância é gerado por idioma atual → en-US → templateId, com deduplicação dentro do lock do arquivo Personal.
+Depois disso, alterar apenas campos de conexão não grava o nome herdado; apenas uma renomeação explícita grava o `providerName` externo, e mudança de idioma não altera nomes já salvos.
 
 ### 3.2 Provider Access
 
-正式 Access 联合类型只有两种：
+O tipo de união formal de Access tem apenas duas variantes:
 
 ```ts
 type ProviderAccessConfig =
@@ -246,15 +239,15 @@ type ProviderAccessConfig =
     };
 ```
 
-`group`、`accountType` 和 `mode` 不重复：
+`group`, `accountType` e `mode` não se repetem:
 
-- `group` 是 Provider 的静态产品分组；
-- `accountType` 是智谱账号体系的访问身份；
-- `mode` 是该账号 Provider 的访问模式。
+- `group` é o agrupamento estático de produto do Provider;
+- `accountType` é a identidade de acesso dentro do sistema de contas da Zhipu;
+- `mode` é o modo de acesso do Provider para aquela conta.
 
-`entitled` 是当前账号是否具有该固定 Account Provider 产品资格的唯一配置事实。Provider 顶层不存在 `enabled`。
-`zhipu-account` Config 不保存账号连接 ID、商品 ID、组织/项目 Scope、Token 或请求安全校验协议。账号运行协议中仍可有
-`planKind`、`productId` 等字段，但它们属于账号、套餐或请求期上下文，不是 Provider Config Schema。
+`entitled` é o único fato de configuração que indica se a conta atual tem qualificação de produto para aquele Account Provider fixo. Não existe `enabled` no nível superior do Provider.
+A Config `zhipu-account` não guarda ID de conexão de conta, ID de produto, escopo de organização／projeto, Token ou protocolo de validação de segurança da requisição. O protocolo de execução da conta ainda pode ter campos como
+`planKind` e `productId`, mas eles pertencem à conta, ao plano ou ao contexto da requisição, e não ao Schema de Provider Config.
 
 ### 3.3 Model Config
 
@@ -286,58 +279,58 @@ interface ModelConfig {
 }
 ```
 
-这些字段从 Config、Registry、跨进程协议到 Active Model 使用同一名字和同一嵌套结构。Runtime 不派生
-`supportsImages`、capability map 或另一份媒体 DTO。
+Esses campos usam o mesmo nome e a mesma estrutura aninhada desde a Config, o Registry e o protocolo entre processos até o Active Model. O Runtime não deriva
+`supportsImages`, capability map ou outro DTO de mídia.
 
-Effective Model Config 必须补齐：
+A Effective Model Config deve completar:
 
-- `enabled`；MFJS 是 `properties.requiresMfjsToolSchema`，不在 ModelConfig 顶层重复保存；
-- 完整 `properties` 及所有 input/output format 叶子；
-- `maxOutputTokens` Option Spec 及其完整 `map`；
-- `reasoningLevel` Option Spec 及其非空有序 `values`、完整 `map`；不支持推理的模型使用
-  `values: ["disabled"]` 与空 Patch `map: "{}"`。
+- `enabled`; MFJS é `properties.requiresMfjsToolSchema`, sem duplicação no nível superior de ModelConfig;
+- `properties` completas e todas as folhas de input／output format;
+- o Option Spec de `maxOutputTokens` e seu `map` completo;
+- o Option Spec de `reasoningLevel` e seus `values` ordenados não vazios e o `map` completo; modelos sem suporte a raciocínio usam
+  `values: ["disabled"]` e um Patch vazio `map: "{}"`.
 
-`reasoningLevel` 的字段仅为 `values`/`map`，`maxOutputTokens` 仅为 `max`/`map`；成员名已经确定选项形态，
-不再持久化重复的 `type: "enum"/"limit"`。这不影响 Provider API/Access 的联合类型 discriminator。
+Os campos de `reasoningLevel` são apenas `values`／`map`, e de `maxOutputTokens` apenas `max`／`map`; o nome do membro já determina a forma da opção,
+e não se persiste mais o `type: "enum"/"limit"` duplicado. Isso não afeta o discriminator do tipo de união de Provider API／Access.
 
-具体模型的 reasoning 行为只能由 Model Config Rules 表达，生产 Runtime 不按具体模型 ID 硬编码思考强度、
-请求补丁或重放策略。每个 Option Spec 的受限 CEL `map(value)` 直接生成最终原始 Request Body 的 JSON Merge
-Patch；Adapter 只在 AI SDK 生成基础 Body 后、请求安全校验前应用同一映射，并负责协议编码与其真实编码能力边界。
+O comportamento de raciocínio de um modelo concreto só pode ser expresso por Model Config Rules; o Runtime de produção não embute intensidade de pensamento, patch de requisição
+ou estratégia de replay por model ID concreto. O `map(value)` em CEL restrito de cada Option Spec gera diretamente o JSON Merge Patch do Request Body bruto final;
+o Adapter aplica o mesmo mapeamento apenas depois de o AI SDK gerar o Body base e antes da validação de segurança da requisição, sendo responsável pela codificação de protocolo e pelos limites de sua capacidade real de codificação.
 
 ### 3.4 Model Config Rule
 
-规则所属集合明确表达层次；文件内各记录不再重复 `type`：
+O conjunto ao qual a regra pertence expressa explicitamente a camada; os registros dentro do arquivo não repetem `type`:
 
-| 集合                              | 匹配身份                                     | 内容                                   |
-| --------------------------------- | -------------------------------------------- | -------------------------------------- |
-| modelRules                        | modelMatch                                   | 稀疏 ModelConfig                       |
-| modelApiRules                     | modelMatch + apiTypeMatch                    | 稀疏 ModelConfig                       |
-| providerSiteRules                 | modelMatch + baseUrlMatch，可选 apiTypeMatch | 稀疏 ModelConfig                       |
-| templateModelRules                | templateId + modelId                         | 稀疏 ModelConfig                       |
-| builtinProviderModelRules         | providerId + modelId                         | 稀疏 ModelConfig                       |
-| Personal providerModelRules       | providerId + modelId                         | 智能配置的精确覆盖                     |
-| Personal manualProviderModelRules | providerId + modelId                         | 完整手动配置，仅 enabled 允许继承/null |
+| Conjunto                              | Identidade de casamento                              | Conteúdo                                  |
+| ------------------------------------- | ---------------------------------------------------- | ----------------------------------------- |
+| modelRules                            | modelMatch                                           | ModelConfig esparsa                       |
+| modelApiRules                         | modelMatch + apiTypeMatch                            | ModelConfig esparsa                       |
+| providerSiteRules                     | modelMatch + baseUrlMatch, apiTypeMatch opcional     | ModelConfig esparsa                       |
+| templateModelRules                    | templateId + modelId                                 | ModelConfig esparsa                       |
+| builtinProviderModelRules             | providerId + modelId                                 | ModelConfig esparsa                       |
+| Personal providerModelRules           | providerId + modelId                                 | sobrescrita exata da configuração inteligente |
+| Personal manualProviderModelRules     | providerId + modelId                                 | configuração manual completa; só `enabled` admite herança／null |
 
-三种 Match 的严格 schema 拒绝越层条件及 `providerMatch`。正则整串匹配，模型名忽略大小写，URL 使用规范化值；各集合数组顺序保持。
-同身份不能同时处于智能/手动集合。手动配置不继承其他参数，仅保留 enabled 的既有独立启停语义；保存时所有必需嵌套叶子及表达式共同校验。
+Os schemas estritos dos três Match rejeitam condições entre camadas e `providerMatch`. As regex casam a string inteira, nomes de modelo ignoram maiúsculas／minúsculas, URLs usam valores normalizados; a ordem dos arrays de cada conjunto é preservada.
+A mesma identidade não pode estar ao mesmo tempo nos conjuntos inteligente／manual. A configuração manual não herda outros parâmetros e mantém apenas a semântica independente de ativar／desativar de `enabled`; ao salvar, todas as folhas aninhadas obrigatórias e expressões são validadas em conjunto.
 
-## 4. 解析、设置投影与 Registry
+## 4. Resolução, projeção de Settings e Registry
 
-### 4.1 Resolver 是唯一汇合点
+### 4.1 O Resolver é o único ponto de convergência
 
-Resolver 负责：
+O Resolver é responsável por:
 
-1. 只允许 Account Overlay 作用于 ZCode Built-in Provider；
-2. 计算 `Built-in -> Account -> Personal` 的 Effective Provider；
-3. 组合 Effective Model Rules；
-4. 解析最终模型成员、来源和顺序；
-5. 为每个 `providerId/modelId/api.type/api.baseUrl` 解析 Effective Model Config；
-6. 分别计算 issues、enabled、entitled、executable 和 selectable；
-7. 同时产出设置候选和 Registry 可执行集合。
+1. permitir que o Account Overlay atue apenas sobre Providers ZCode Built-in;
+2. calcular o Effective Provider de `Built-in -> Account -> Personal`;
+3. combinar as Effective Model Rules;
+4. resolver os membros finais de modelo, sua origem e sua ordem;
+5. resolver a Effective Model Config para cada `providerId/modelId/api.type/api.baseUrl`;
+6. calcular separadamente issues, enabled, entitled, executable e selectable;
+7. produzir simultaneamente os candidatos de Settings e o conjunto executável do Registry.
 
-Renderer、Usage UI、套餐卡、ModelFactory 和 Adapter 都不得重新实现这套 Overlay 或成员推导。
+Renderer, UI de uso, cartão de plano, ModelFactory e Adapter não podem reimplementar esse Overlay ou a derivação de membros.
 
-### 4.2 Settings View 与 Registry 是同一解析的两个投影
+### 4.2 Settings View e Registry são duas projeções da mesma resolução
 
 ```text
                     ProviderConfigResolution
@@ -350,20 +343,20 @@ Renderer、Usage UI、套餐卡、ModelFactory 和 Adapter 都不得重新实现
     Provider Settings Facade               Provider Registry
 ```
 
-Settings View 需要保留：
+A Settings View precisa preservar:
 
-- Effective Provider；
-- Account 生效后的 Built-in 基线；
-- Personal Provider Overlay；
-- 每个模型的 Effective、Effective Built-in 与 Personal 精确覆盖；
-- 完整性问题和执行状态。
+- o Effective Provider;
+- a linha de base Built-in após efeito da Account;
+- o Personal Provider Overlay;
+- para cada modelo, o Effective, o Effective Built-in e a sobrescrita exata Personal;
+- problemas de completude e estado de execução.
 
-因此设置页可以编辑或修复尚未进入 Registry 的配置。Registry 只保留启用、完整且至少拥有一个可执行模型的
-Provider，以及其中可执行的模型。
+Assim a página de configurações pode editar ou corrigir configurações que ainda não entraram no Registry. O Registry mantém apenas Providers habilitados, completos e com pelo menos um modelo executável,
+e dentro deles apenas os modelos executáveis.
 
 ### 4.3 Account Provider Config
 
-Account Provider Config 是正式 Provider Overlay，但它只投影账号上游事实对 Built-in 账号 Provider 的影响：
+A Account Provider Config é um Overlay formal de Provider, mas apenas projeta o efeito dos fatos upstream da conta sobre os Account Providers Built-in:
 
 ```text
 账号登录、Family 选择、套餐选择、权益接口
@@ -382,59 +375,59 @@ Account Provider Config 是正式 Provider Overlay，但它只投影账号上游
           `─ builtinModelIds（若服务端返回）
 ```
 
-具体规则：
+Regras específicas:
 
-- Account Provider 由 Built-in 固定声明并进入对应 Family；
-- 当前账号明确拥有该产品时写 `access.entitled=true`，明确无资格时写 `false`；
-- Individual / Team 默认沿用 Built-in 模型成员；
-- Start Plan 的模型因账号而异，成功时使用接口返回的模型集合约束 `builtinModelIds`；
-- Start Plan 没有可靠模型集合时保留上一份可用 Account Overlay；首次无可用事实时 fail-closed；
-- 临时查询失败的 `unknown` 保留上一份 Account Overlay，避免抖动；首次无历史事实时 fail-closed；
-- 动态凭据不写入 Account Provider Config。
+- O Account Provider é declarado fixamente pelo Built-in e entra na Family correspondente;
+- quando a conta atual tem explicitamente o produto, grava `access.entitled=true`; quando explicitamente não tem, grava `false`;
+- Individual／Team herdam por padrão os membros de modelo Built-in;
+- os modelos do Start Plan variam por conta; em caso de sucesso, usa-se o conjunto de modelos retornado pela interface para restringir `builtinModelIds`;
+- quando o Start Plan não tem um conjunto de modelos confiável, mantém-se o último Account Overlay utilizável; na primeira vez sem fatos utilizáveis, adota-se fail-closed;
+- um `unknown` por falha temporária de consulta mantém o último Account Overlay, evitando oscilação; na primeira vez sem fato histórico, adota-se fail-closed;
+- credenciais dinâmicas não são gravadas na Account Provider Config.
 
-Account State 的可选 `unavailableReason` 随同一份快照传递，Host 与 CLI 的严格协议复用 shared 原因 schema。
-个人套餐服务端明确无权益显示未开通；已登录但获取 Key 失败显示获取失败并复用手动刷新重试，不能仅凭缺 Key
-推断 OAuth 失效或强制重新登录。Z.ai 与 BigModel 使用一致分类。原因只属于运行态事实，不写 Provider Config；
-具体裁决与验证见 [Todo114](../steps/todo-114-account-status-sync-and-key-retry.md)（上游原 Todo105）。
+O `unavailableReason` opcional do Account State é transmitido com o mesmo snapshot, e o protocolo estrito entre Host e CLI reutiliza o schema de reasons compartilhado.
+Para planos pessoais, se o servidor explicitamente disser que não há direito, exibe-se como não contratado; se o usuário estiver autenticado mas a obtenção da Key falhar, exibe-se falha de obtenção e reutiliza-se a atualização manual para tentar de novo, sem inferir invalidação de OAuth nem forçar novo login só pela ausência da Key.
+Z.ai e BigModel usam a mesma classificação. O reason pertence apenas ao fato de execução e não é gravado na Provider Config;
+a decisão específica e a verificação estão em [Todo114](../steps/todo-114-account-status-sync-and-key-retry.md)（antigo Todo105 upstream）.
 
-Account 与 Built-in revision 必须配对。Built-in 更新而 Account 仍基于旧 revision 时，Registry 继续服务上一份完整快照，
-等待 Account Source 重算后原子发布，不能发布“新 Built-in + 旧 Account”的中间态。
+O revision de Account e o de Built-in devem estar pareados. Quando o Built-in é atualizado mas a Account ainda está baseada na revisão antiga, o Registry continua servindo o snapshot completo anterior,
+aguardando o recálculo da Account Source para publicar atomicamente; não se pode publicar o estado intermediário "Built-in novo + Account antiga".
 
-### 4.4 设置页不理解 Account Overlay
+### 4.4 A página de configurações não entende o Account Overlay
 
-设置页直接消费 Provider Settings View 中的最终 Effective Provider/Model；它不读取、重放或推断 Account Overlay。
-套餐、额度、连接错误和购买状态是独立产品投影，只能控制状态卡及相应操作，不能决定 Effective Provider 配置区、
-模型列表或模型编辑入口是否存在。
+A página de configurações consome diretamente o Effective Provider／Model final da Provider Settings View; ela não lê, reproduz nem infere o Account Overlay.
+Plano, cota, erro de conexão e status de compra são projeções de produto independentes, que só controlam o cartão de status e as ações correspondentes, e não decidem se a seção de configuração do Effective Provider,
+a lista de modelos ou a entrada de edição de modelo existem.
 
-Individual / Team Coding Plan 可以在产品 UI 中隐藏 Endpoint 和 API Schema，但这些字段仍完整存在于 Effective
-Provider Config，并被 Registry、ModelFactory 和 Runtime 消费。隐藏是展示决策，不是删字段后的 Account DTO。
+Individual／Team Coding Plan pode ocultar Endpoint e API Schema na UI de produto, mas esses campos continuam existindo por completo no Effective
+Provider Config e são consumidos pelo Registry, pelo ModelFactory e pelo Runtime. Ocultar é uma decisão de exibição, não um DTO de Account sem campos.
 
-这项页面收口已由 Todo 32 完成：Team / Individual 详情按 `providerId` 从 Provider Settings View 精确解析；套餐状态卡
-不再控制 Provider 配置区和模型列表是否存在；页面隐藏 Endpoint/API Schema 时不删减 Effective Provider Config。
+Esse fechamento da página foi concluído pela Todo 32: os detalhes de Team／Individual resolvem com precisão por `providerId` a partir da Provider Settings View; o cartão de status do plano
+não controla mais a existência da seção de configuração do Provider nem da lista de modelos; e a página não remove campos do Effective Provider Config ao ocultar Endpoint／API Schema.
 
-### 4.5 Start 独立 Provider（Todo154）
+### 4.5 Start como Provider independente (Todo154)
 
-2026-09-16 用户完成逐层裁决：Start 复用当前 App 登录，免单独连接，与当前个人／团队套餐同时可用；不启动 Todo101 的个人／多团队全面并存。
+Em 2026-09-16 o usuário tomou decisões camada por camada: o Start reutiliza o login atual do App, sem conexão separada, e fica disponível simultaneamente com o plano pessoal／de equipe atual; não se inicia a coexistência completa de Todo101 entre pessoal／multiteam.
 
-- 保留两家 Start Provider ID，统一显示名称，logo 各自沿用 Z.ai／BigModel。按当前品牌过滤，在现有“智谱”分组独立展示，复用详情，只去掉连接／断开。无虚拟 Provider、ID 合并或展示身份映射。
-- 保留 current，解释为匹配当前账号访问上下文。Start 不依赖付费 selection；个人／团队仍依赖当前付费选择。允许 Start 与一个付费套餐同时 current=true；权益、模型完整性、启用及请求凭据独立校验。Start connectionKey 不包含付费选择。
-- Start 按保存的 Provider ID／modelId／options 解析，退出唯一当前付费连接映射；个人／团队继续原映射。Start 失效或跨品牌后不自动替换 Provider。
-- Start 请求直接复用当前对应品牌登录的 zcodeJwtToken，解除 selection.kind 必须等于 Start 的条件；保留原鉴权，不复制 token、不新增切账号竞态校验或中断机制。
-- 不迁移模型数据，不建立升级连接快照、额外迁移版本或全库转换。旧 kind:start-plan 保持可读而不控制 Start 执行；不再写此值启用 Start。首次付费初始化保持原顺序，旧值不得被当成新用户空态误选套餐。
-- 提交／创建时，若当前为付费套餐、同模型在 Start 有明确可用额度且思考选项兼容，提示“切换套餐／不了”和“不再提示”。切换只修改当前入口的模型选择，再继续原提交／保存，不改变全局付费连接；未知额度不阻断原提交。
-- 推荐覆盖对话新提交、定时任务创建／修改模型保存、Wiki 手动新生成，以及自定义 Subagent 保存、内置／插件 Subagent 显式模型的即时保存。继承／默认不变。Bot、立即运行、后台触发／执行、闲时、已提交队列执行、原请求重试及 Wiki 失败页补齐不提示；保存并运行仅在保存阶段提示一次。
-- 不再提示是当前 App／Host 的统一持久化偏好，跨入口和重启生效，同 Host 手机遵守，不增加跨设备账号云同步；只关闭推荐，不指定默认套餐、不改其他入口模型，下次仍按各入口保存的选择执行，不屏蔽实际额度／凭据错误。
-- Start 保留现有额度横幅与不可用反馈；全局连接失效通知只观察个人／团队，保留付费间建议，删除通过写 Start 连接来切换的动作。
+- Mantêm-se os dois Start Provider ID, com nome de exibição unificado; cada um mantém o logo de Z.ai／BigModel. Filtrados pela marca atual, são exibidos de forma independente no grupo "智谱" existente, reutilizando os detalhes e removendo apenas conectar／desconectar. Sem Provider virtual, fusão de ID ou mapeamento de identidade de exibição.
+- Mantém-se `current`, interpretado como o contexto de acesso da conta atual. O Start não depende de uma seleção paga; pessoal／equipe continuam dependendo da seleção paga atual. É permitido que o Start e um plano pago estejam ambos com `current=true`; direito, completude de modelo, habilitação e credenciais da requisição são validados de forma independente. A Start connectionKey não inclui a seleção paga.
+- O Start resolve pelo Provider ID／modelId／options salvos e sai do mapeamento de única conexão paga atual; pessoal／equipe mantêm o mapeamento original. Quando o Start expira ou é de outra marca, o Provider não é substituído automaticamente.
+- As requisições do Start reutilizam diretamente o `zcodeJwtToken` do login atual da marca correspondente, dispensando a condição de que `selection.kind` seja igual a Start; a autenticação original é preservada, sem copiar token, sem nova verificação de corrida ao trocar de conta e sem mecanismo de interrupção.
+- Não se migram dados de modelo, não se cria snapshot de conexão de upgrade, versão de migração extra ou conversão de toda a base. O antigo `kind:start-plan` permanece legível, mas não controla a execução do Start; não se escreve mais esse valor para habilitar o Start. A primeira inicialização paga mantém a ordem original, e valores antigos não podem ser tratados como estado vazio de novo usuário causing escolha indevida de plano.
+- Ao submeter／criar, se o plano atual for pago, o mesmo modelo tiver cota explicitamente disponível no Start e as opções de raciocínio forem compatíveis, exibe-se o aviso "切换套餐／不了" e "不再提示". A troca altera apenas a seleção de modelo da entrada atual e então continua a submissão／gravação original, sem mudar a conexão paga global; cota desconhecida não bloqueia a submissão original.
+- A recomendação cobre novas submissões de conversa, criação／edição de modelo em tarefas agendadas, nova geração manual de Wiki e o salvamento imediato de modelos explícitos em Subagentes customizados, Subagentes embutidos／de plugin. Herança／default não mudam. Bot, execução imediata, disparo／execução em background, ocioso, execução de fila já submetida, retry da requisição original e a tela de falha de Wiki não avisam; salvar e executar avisa apenas uma vez, na etapa de salvamento.
+- "Não avisar de novo" é uma preferência persistente unificada do App／Host atual, válida entre entradas e reinícios, obedecida pelo celular do mesmo Host, sem adicionar sincronização de conta entre dispositivos; ela desliga apenas a recomendação, não define plano padrão, não muda o modelo de outras entradas, e na próxima vez a execução segue a escolha salva em cada entrada, sem mascarar erros reais de cota／credencial.
+- O Start mantém a faixa de cota existente e o feedback de indisponibilidade; a notificação global de falha de conexão observa apenas pessoal／equipe, mantém a sugestão entre planos pagos e remove a ação de trocar escrevendo uma conexão de Start.
 
-普通 Session／草稿已有提交写回，Automation／显式 Subagent 长期配置不一定回写。不迁移是已确认的新行为选择，不表示所有旧配置的有效结果都不变；具体证据与撤回的全量迁移推断见 [C25](./evidence-and-contradictions.md#c25-start-独立-provider-与现行单连接语义)。
+Session／rascunho comuns já têm escrita de volta na submissão; Automation／configuração de Subagente explícita de longo prazo não têm necessariamente escrita de volta. Não migrar é uma escolha de novo comportamento já confirmada e não significa que o resultado válido de toda configuração antiga permaneça idêntico; as evidências específicas e a inferência de migração completa que foi revertida estão em [C25](./evidence-and-contradictions.md#c25-start-独立-provider-与现行单连接语义).
 
-本节目标已按 2026-09-16 的实施授权落地。完整按钮语义、入口矩阵、状态归属与验证证据由 [Todo154](../steps/todo-154-start-plan-independent-provider.md) 维护。Start 在共用 node facade 中按 ordinary 精确解析；推荐复用 UsageEntitlement 与 SettingService，偏好字段为 startPlanRecommendationDismissed。Built-in → Account → Personal、目标 Environment Registry、continuous／replayable 与原提交 owner 保持。
+O objetivo desta seção foi implementado conforme a autorização de 2026-09-16. A semântica completa dos botões, a matriz de entradas, a atribuição de estado e as evidências de verificação são mantidas por [Todo154](../steps/todo-154-start-plan-independent-provider.md). O Start é resolvido com precisão como ordinary na fachada node compartilhada; a recomendação reutiliza UsageEntitlement e SettingService, e o campo de preferência é `startPlanRecommendationDismissed`. Built-in → Account → Personal, o Registry do Environment de destino, continuous／replayable e o owner da submissão original permanecem.
 
-## 5. 选择、创建与执行
+## 5. Seleção, criação e execução
 
-### 5.1 Model Selection 是稀疏用户意图
+### 5.1 Model Selection é intenção esparsa do usuário
 
-Model Selection 只保存：
+Model Selection guarda apenas:
 
 ```ts
 interface ModelSelection {
@@ -446,10 +439,10 @@ interface ModelSelection {
 }
 ```
 
-它不复制 Endpoint、API Schema、能力、凭据、Provider Snapshot 或 Effective Config。提交时必须在目标 Environment 的
-当前 Registry 校验；远程工作区不能在本地 Registry 预判后把本地执行事实发送过去。
+Ela não copia Endpoint, API Schema, capacidades, credenciais, snapshot de Provider ou Effective Config. Na submissão, deve ser validada contra o Registry atual do Environment de destino;
+um workspace remoto não pode prever no Registry local e depois enviar o fato de execução local para lá.
 
-### 5.2 ModelFactory 固定完整执行事实
+### 5.2 O ModelFactory fixa os fatos completos de execução
 
 ```text
 ModelSelection
@@ -469,28 +462,28 @@ ModelFactory
 不可变 Model
 ```
 
-- API Key Provider 使用 Config 中保存的 Key；
-- 智谱账号 Provider 在请求期通过账号访问服务取得当前动态凭据；
-- Off-Peak 仍使用固定 Provider ID 表达精确产品身份，并以 `zhipu-account + mode=off-peak` 表达访问方式；
-- 缺少动态访问材料时在网络请求前明确失败；
-- Retry 可以刷新同一访问方式的动态材料，但不能改变 Provider、Model 或静态配置身份。
+- Providers do tipo API Key usam a Key salva na Config;
+- Providers de conta Zhipu obtêm as credenciais dinâmicas atuais no momento da requisição, pelo serviço de acesso da conta;
+- Off-Peak continua usando um Provider ID fixo para expressar a identidade de produto precisa, e `zhipu-account + mode=off-peak` para expressar a forma de acesso;
+- quando falta material de acesso dinâmico, a falha é explícita antes da requisição de rede;
+- Retry pode renovar os materiais dinâmicos da mesma forma de acesso, mas não pode mudar o Provider, o Model ou a identidade da configuração estática.
 
-### 5.3 所有执行分支使用同一个 Model
+### 5.3 Todos os ramos de execução usam o mesmo Model
 
-正常请求、Compact、Memory、子 Agent 和 Off-Peak 都必须使用正式 Model/ModelFactory：
+Requisição normal, Compact, Memory, subagente e Off-Peak devem usar o Model／ModelFactory formais:
 
-- Compact 使用本轮 Active Model，不回退到 Session 默认 Model；
-- Memory 等异步工作保留创建它的 Model 或同结构不可变执行事实；
-- 子 Agent 默认继承父 ModelFactory；显式选择时通过同一个 Registry 创建自己的 Model；
-- Off-Peak 用标准 ModelSelection 和固定隐藏 Provider 精确创建 Model，不修改普通 Session Selection；
-- 媒体 gating 读取 `Model.properties.inputFormat`，同时尊重 Adapter 的真实编码能力。
+- Compact usa o Active Model deste turno, sem voltar ao Model default da Session;
+- trabalhos assíncronos como Memory preservam o Model que os criou ou um fato de execução imutável de estrutura equivalente;
+- subagentes herdam por padrão o ModelFactory do pai; com seleção explícita, criam seu próprio Model pelo mesmo Registry;
+- Off-Peak cria o Model com precisão a partir de um ModelSelection padrão e um Provider oculto fixo, sem modificar a Selection da Session comum;
+- o gating de mídia lê `Model.properties.inputFormat`, respeitando ao mesmo tempo a capacidade real de codificação do Adapter.
 
-不存在 ModelRef、ModelConnectionPort、AI SDK 执行 Registry、Legacy Model Catalog、Runtime capability map 或
-为特殊执行建立的第二个 Registry。
+Não existem ModelRef, ModelConnectionPort, Registry de execução do AI SDK, Legacy Model Catalog, capability map do Runtime nem
+um segundo Registry estabelecido para execuções especiais.
 
-## 6. 状态所有权与提交边界
+## 6. Propriedade de estado e fronteira de submissão
 
-模型选择必须区分四种状态：
+A seleção de modelo precisa distinguir quatro estados:
 
 ```text
 Composer Draft Selection
@@ -507,66 +500,63 @@ Session Current Selection
 Active Model
 ```
 
-- Composer Draft 是未提交草稿；
-- Submission Selection 是本次用户提交接受的精确选择；
-- Session Current Selection 是后续默认；
-- Active Model 是已经创建并冻结的执行事实。
+- Composer Draft é um rascunho não submetido;
+- Submission Selection é a seleção precisa aceita por esta submissão do usuário;
+- Session Current Selection é o default posterior;
+- Active Model é o fato de execução já criado e congelado.
 
-队列、Guide 步骤、恢复和模型切换不得把这四层合并。Off-Peak 等辅助执行也不得借机修改 Session Current Selection。
+Fila, etapas de Guide, restauração e troca de modelo não podem fundir essas quatro camadas. Execuções auxiliares como Off-Peak também não podem alterar o Session Current Selection.
 
-Guide 携带选择时仍通过现有 Factory 重新解析并创建 Model，保证配置更新用于后续请求。
-切模前缀重建仅比较当前 Loop 与新执行 Model 的 Provider、模型、推理档位；对象重新创建或
-输出上限变化不等于切模。Session 选择事件仍比较提交前后的 Session，不能代替 Loop 比较。
-本轮不改变真实切模的输出风格冻结行为，也不改变 Guide admission/归属与多端传输。
+Quando o Guide carrega uma seleção, ele ainda resolve e cria o Model pela Factory existente, garantindo que atualizações de configuração sejam usadas nas requisições seguintes.
+A reconstruction de prefixo de troca de modelo compara apenas o Provider, o modelo e o nível de raciocínio entre o Loop atual e o novo Model de execução; recriação de objeto ou mudança de limite de saída não equivale a troca de modelo. O evento de seleção da Session ainda compara a Session antes e depois da submissão e não substitui a comparação de Loop.
+Este turno não altera o congelamento de estilo de saída de uma troca real de modelo, nem a admission／atribuição do Guide ou o transporte multi-dispositivo.
 
-## 7. Environment、刷新与持久化
+## 7. Environment, refresh e persistência
 
-### 7.1 执行 Environment 拥有自己的事实
+### 7.1 O Environment de execução tem seus próprios fatos
 
-每个真正执行模型的 Environment 拥有自己的：
+Cada Environment que realmente executa o modelo possui seu próprio:
 
-- ZCode Built-in Config Source；
-- Personal Config Repository；
-- Account Provider Source；
-- Resolver、Registry 和 ModelFactory。
+- ZCode Built-in Config Source;
+- Personal Config Repository;
+- Account Provider Source;
+- Resolver, Registry e ModelFactory.
 
-Local、SSH、WSL、Docker 或 Server 由各自 Host/Worker 读取本环境配置。Host 不向 Worker 发送 Registry Snapshot，
-也不让 Renderer 成为配置权威。Remote Provisioning、远程编辑和登录同步是独立产品能力，不属于 Provider 核心重构。
+Local, SSH, WSL, Docker ou Server são lidos pelo respectivo Host／Worker a partir da configuração deste Environment. O Host não envia snapshot de Registry ao Worker,
+nem torna o Renderer a autoridade de configuração. Provisionamento remoto, edição remota e sincronização de login são capacidades de produto independentes e não fazem parte do refactor central de Provider.
 
-### 7.2 Config 更新必须原子、自愈
+### 7.2 Atualizações de Config devem ser atômicas e autotratáveis
 
-- Repository 使用版本外壳、原子写入、文件锁和 revision；这些是存储实现，不是 Provider 领域中的 Config Document。
-- Source watcher 只通知“事实可能变化”；Registry Service 重新读取完整 Config 与 Account 快照后一次性解析发布。
-- 刷新期间继续服务上一份完整 Registry；失败不发布半成品，后续事件必须能够自愈重试。
-- Built-in 远端发布使用两层结构：版本/刷新元数据外壳 + 纯 Provider/Model Config 内容。
-- Built-in 活跃缓存按 ZCode Endpoint 隔离，避免不同 Environment 复用错误配置。
-- 设置写入完成后，执行入口必须观察到对应 Environment 的新 Registry；连接测试应通过正式 Host
-  Registry/ModelFactory 创建模型，不能在 Renderer 临时拼装另一个 Model。
+- O Repository usa casca de versão, escrita atômica, lock de arquivo e revision; isso é implementação de armazenamento, não um Config Document no domínio de Provider.
+- O watcher de Source apenas notifica "os fatos podem ter mudado"; o Registry Service relê a Config completa e o snapshot de Account e então resolve e publica de uma vez.
+- Durante o refresh, continua-se servindo o Registry completo anterior; falhas não publicam um resultado parcial e eventos posteriores devem conseguir se recuperar e tentar de novo.
+- A publicação remota de Built-in usa duas camadas: casca de metadados de versão／refresh + conteúdo puro de Provider／Model Config.
+- O cache ativo de Built-in é isolado por ZCode Endpoint, evitando que diferentes Environments reutilizem configs erradas.
+- Depois que a gravação em Settings termina, a entrada de execução precisa observar o novo Registry do Environment correspondente; o teste de conexão deve criar o modelo pelo Host Registry／ModelFactory formais, sem montar temporariamente outro Model no Renderer.
 
-### 7.3 Config 名称与物理外壳
+### 7.3 Nomes de Config e casca física
 
-领域名称固定为：
+Os nomes de domínio são fixos:
 
-- ZCode Built-in Provider Config；
-- Account Provider Config；
-- Personal Provider Config；
-- Effective Provider Config；
-- ZCode Built-in Model Config Rules；
-- Personal Model Config Rules；
-- Effective Model Config Rules；
-- Effective Model Config。
+- ZCode Built-in Provider Config;
+- Account Provider Config;
+- Personal Provider Config;
+- Effective Provider Config;
+- ZCode Built-in Model Config Rules;
+- Personal Model Config Rules;
+- Effective Model Config Rules;
+- Effective Model Config.
 
-不使用 `Official Config` 作为现行别名，也不把 `Document` 建成领域中间态。`schemaVersion`、`revision`、远端刷新时间和
-文件迁移只属于发布或 Repository 外壳。
+Não se usa `Official Config` como apelido atual, nem se constrói `Document` como estado intermediário de domínio. `schemaVersion`, `revision`, hora de refresh remoto e migração de arquivos pertencem apenas à casca de publicação ou do Repository.
 
-最终 Builtin 文件为 `{ schemaVersion: 1, revision, config }`：config 内
-`providerConfigRules` 包含 `templateRules/providerRules`，`modelConfigRules` 包含上述五个 Builtin 集合。
-Personal 文件为 `{ schemaVersion: 1, config }`：config 内 `providerConfigRules.providerRules`、
-`modelConfigRules.providerModelRules/manualProviderModelRules` 均必需（可为空），另有可选 `providerOrder/defaultModelSelection`。
-默认选择适配器复用同一个 Personal Repository，不再独立文件、锁或 watcher。普通字段更新保留未修改成员；
-全量分发替换整份 config，缺省默认选择即清除。分发失败按整份文件 CAS 回滚，用户期间改写的新内容不得覆盖。
+O arquivo Builtin final é `{ schemaVersion: 1, revision, config }`: dentro de config,
+`providerConfigRules` contém `templateRules/providerRules`, e `modelConfigRules` contém os cinco conjuntos Builtin acima.
+O arquivo Personal é `{ schemaVersion: 1, config }`: dentro de config, `providerConfigRules.providerRules`,
+`modelConfigRules.providerModelRules/manualProviderModelRules` são obrigatórios (podem estar vazios), e há também `providerOrder/defaultModelSelection` opcionais.
+O adaptador de seleção default reutiliza o mesmo Personal Repository, sem arquivo, lock ou watcher separados. Atualização de campos comuns preserva membros não modificados;
+a distribuição completa substitui a config inteira, e a ausência da seleção default significa limpá-la. Falha na distribuição reverte o arquivo inteiro por CAS, sem sobrescrever conteúdo novo reescrito pelo usuário durante a operação.
 
-环境配置目录中的程序维护文件统一为：
+Os arquivos mantidos pelo programa no diretório de configuração do Environment são uniformemente:
 
 ```text
 runtime/provider/
@@ -577,77 +567,74 @@ runtime/provider/
   bundled/zcode-builtin.json
 ```
 
-随包副本固定路径，内容相同复用、变化原子替换；下载/刷新仍三维隔离。升级以退出旧进程为前提，不保留 hash 历史副本。
-运行时 Builtin revision 包含 Active 规范化路径范围及发布序号，Host 与读取该路径的 Worker 一致；
-不同 Endpoint 同序号不再被 Registry 误去重。磁盘发布序号继续单调，同来源同序号必须同内容。
-刷新记录、分发状态和分发信封的 schemaVersion 也为1；Bot 仍保留现有 version3，不纳入重置。
+A cópia embutida tem caminho fixo; conteúdo idêntico é reutilizado e conteúdo alterado é substituído atomicamente; download／refresh continuam isolados nas três dimensões. A atualização pressupõe a saída do processo antigo e não mantém cópias históricas de hash.
+A revision Builtin em runtime inclui o escopo de caminhos canonizados ativos e o número de sequência da publicação, e é一致 entre Host e Worker que lê aquele caminho;
+Endpoints diferentes com o mesmo número de sequência não são mais deduplicados indevidamente pelo Registry. O número de sequência em disco continua monotônico, e a mesma origem com o mesmo número de sequência deve ter o mesmo conteúdo.
+O schemaVersion dos registros de refresh, do estado de distribuição e do envelope de distribuição também é 1; o Bot mantém o version3 atual e não entra no reset.
 
-## 8. 设置写入与交互边界
+## 8. Escrita em Settings e fronteira de interação
 
-- 设置页通过 Facade/Hooks 读取 Provider Settings View，不直接访问 Repository。
-- 编辑 Draft 属于 Renderer；保存由 Host 的 Provider Config Service 原子执行。
-- Built-in Provider 的静态字段可以展示为只读；Personal Overlay 只写用户明确改动。
-- Provider/Model 重命名、创建、删除和排序是显式领域操作，普通保存不承担创建或复活语义。
-- 同一 Provider 的写操作串行化；Model Draft 以 revision 防止迟到保存覆盖新编辑。
-- 连接测试先保存当前 Draft、等待正式 Registry 更新，再通过 ModelFactory 发起真实协议探测；它作为
-  低成本辅助请求使用 `reasoningLevel.values[0]`，并显式使用
-  `min(5000, optionSpecs.maxOutputTokens.max)`。
-- 保存、连接成功或失败的反馈属于当前 Provider 详情列的底部横幅；同一操作的新状态替换旧状态，不能被长模型列表推离
-  当前窗口。具体视觉交互不改变 Config 或 Registry 权威。
+- A página de configurações lê a Provider Settings View via Facade／Hooks e não acessa o Repository diretamente.
+- A edição do Draft pertence ao Renderer; o salvamento é executado atomicamente pelo Provider Config Service do Host.
+- Campos estáticos de um Provider Built-in podem ser exibidos como somente leitura; o Personal Overlay grava apenas o que o usuário mudou explicitamente.
+- Renomear, criar, excluir e ordenar Providers／Models são operações de domínio explícitas; um salvamento comum não carrega semântica de criação ou ressurreição.
+- Escritas no mesmo Provider são serializadas; Model Draft usa revision para impedir que um salvamento tardio sobrescreva uma edição mais nova.
+- O teste de conexão salva primeiro o Draft atual, aguarda a atualização do Registry formal e então faz uma sondagem real de protocolo pelo ModelFactory; como uma requisição auxiliar de baixo custo ele usa `reasoningLevel.values[0]` e explicitamente
+  `min(5000, optionSpecs.maxOutputTokens.max)`.
+- O feedback de salvamento, de conexão bem-sucedida ou com falha pertence à faixa inferior da coluna de detalhes do Provider atual; um novo estado da mesma operação substitui o estado antigo e não pode ser empurrado para fora da janela atual pela lista longa de modelos. A interação visual concreta não altera a autoridade da Config ou do Registry.
 
-## 9. 兼容与删除边界
+## 9. Limites de compatibilidade e de remoção
 
-允许存在的兼容只有明确的一次性边界：
+As únicas compatibilidades permitidas são fronteiras explícitas e pontuais:
 
-- 旧 Personal Config importer 可以读取已发布历史字段，并立即投影成新 Personal Overlay；
-- 历史账号、商品和 Usage 协议可以继续使用自己的 `planKind/productId`，但不得重新进入 Provider Config；
-- Adapter 内部可以使用协议局部 helper，但不得把旧 capability 类型重新暴露成 Model 事实源。
+- o importador antigo de Personal Config pode ler campos históricos já publicados e projetá-los imediatamente como o novo Personal Overlay;
+- protocolos históricos de conta, produto e Usage podem continuar usando seus próprios `planKind/productId`, mas não podem voltar a entrar na Provider Config;
+- o interior de um Adapter pode usar helpers locais do protocolo, mas não pode reexpor tipos antigos de capability como fonte de fatos de Model.
 
-正式 Config、Registry、Model 和 Runtime 中禁止重新出现：
+Está proibido reaparecer na Config, Registry, Model e Runtime formais:
 
-- `Official Config` 双轨；
-- `ProviderConfigDocument` / `ModelSelectionConfigDocument` 领域对象；
-- `request-auth` / `execution-provided` Access；
-- `accessId`、静态 `planKind`、`challenge`、`requestSigning`、`executionProtocol`；
-- `executionOnly` 或“受信执行”逃逸开关；
-- Model `visibility`；
-- `adapterCompatibility`、`reasoningReplay` 和具体模型 Runtime hardcode；
-- `modalities`、平铺 `supportsImages/Pdf/Video` 或第二套 capability DTO；
-- `ModelRef`、`ModelConnectionPort`、Legacy Catalog/Preset 和第二个执行 Registry。
+- a via dupla de `Official Config`;
+- os objetos de domínio `ProviderConfigDocument` / `ModelSelectionConfigDocument`;
+- Access `request-auth` / `execution-provided`;
+- `accessId`, `planKind` estático, `challenge`, `requestSigning`, `executionProtocol`;
+- `executionOnly` ou interruptores de escape de "execução confiável";
+- `visibility` de Model;
+- `adapterCompatibility`, `reasoningReplay` e hardcode de Runtime por modelo concreto;
+- `modalities`, `supportsImages/Pdf/Video` achatados ou um segundo conjunto de DTOs de capability;
+- `ModelRef`, `ModelConnectionPort`, Legacy Catalog／Preset e um segundo Registry de execução.
 
-## 10. 核心不变量
+## 10. Invariantes centrais
 
-1. Provider 静态事实只有 ZCode Built-in、Account Overlay 和 Personal Overlay 三层来源。
-2. Model 静态事实只有 ZCode Built-in Rules 与 Personal Rules；Personal 在后，精确 Personal 最后。
-3. Effective Model Config 必须在 Effective Provider 的 API 上下文中解析。
-4. Settings 与 Registry 来自同一次 Resolver 解析；Settings 不从 Registry 反推不完整配置。
-5. Registry 只含完整可执行项，但 hidden Provider 仍可被内部精确执行。
-6. Account Overlay 只约束 Built-in 账号 Provider；Start Plan 的模型集合可以因账号而异。
-7. 动态账号凭据不进入 Config；API Key Config 可以持有 API Key；最终授权由服务端决定。
-8. ModelFactory 只消费当前 Registry 的完整配置；Active Model 创建后冻结。
-9. Provider/Model 身份始终是 `providerId/modelId`，不能只按 modelId 路由。
-10. 产品 UI、套餐卡、Usage 和连接错误不得成为 Provider/Model 配置事实源。
-11. 不为 Off-Peak、连接测试、Compact、Memory、子 Agent 或远程执行建立第二套模型事实。
-12. 当前代码若与已裁决设计不同，应视为实现漂移，而不是新的隐式设计。
+1. Os fatos estáticos de Provider têm apenas três fontes: ZCode Built-in, Account Overlay e Personal Overlay.
+2. Os fatos estáticos de Model têm apenas ZCode Built-in Rules e Personal Rules; Personal vem depois, e o Personal exato vem por último.
+3. A Effective Model Config precisa ser resolvida no contexto de API do Effective Provider.
+4. Settings e Registry vêm da mesma resolução do Resolver; Settings não infere config incompleta a partir do Registry.
+5. O Registry contém apenas itens completos e executáveis, mas um Provider hidden ainda pode ser executado com precisão internamente.
+6. O Account Overlay só restringe Account Providers Built-in; o conjunto de modelos do Start Plan pode variar por conta.
+7. Credenciais dinâmicas de conta não entram na Config; a Config de API Key pode conter a API Key; a autorização final é do servidor.
+8. O ModelFactory só consome a config completa do Registry atual; o Active Model congela após a criação.
+9. A identidade de Provider／Model é sempre `providerId/modelId` e não se pode rotear apenas por modelId.
+10. UI de produto, cartão de plano, Usage e erros de conexão não podem ser fonte de fatos de configuração de Provider／Model.
+11. Não se estabelece um segundo conjunto de fatos de modelo para Off-Peak, teste de conexão, Compact, Memory, subagente ou execução remota.
+12. Se o código atual divergir do design já decidido, isso deve ser visto como drift de implementação, e não como novo design implícito.
 
-## 11. 尚未完成但不改变设计的工作
+## 11. Trabalhos inconclusos que não alteram o design
 
-### Provider 启动/读取边界（Todo128）
+### Fronteira de start／leitura de Provider (Todo128)
 
-`ProviderRuntime`、`NodeProviderConfigRuntime`、`NodeProviderRegistryRuntime`、
-`ProviderRegistryService` 及 Services 的 Config 转交层统一 `start(): Promise<void>`。
-它只等待首次就绪并保留既有去重/失败重试/释放；不返回供业务长期缓存的启动快照。
-业务显式读取 `configService.read()` 或 `registryService.getSnapshot()`，显式刷新仍走
-`refresh()`。当前指最近已完成状态，不隐式等待将来的账号请求。闲时资格与派发沿用同一
-Registry-backed 凭据解析，不新增状态 owner。
+`ProviderRuntime`, `NodeProviderConfigRuntime`, `NodeProviderRegistryRuntime`,
+`ProviderRegistryService` e a camada de repasse de Config dos Services unificam `start(): Promise<void>`.
+Ele apenas aguarda a primeira prontidão e mantém a deduplicação／retry de falha／liberação existentes; não retorna um snapshot de inicialização para cache de longo prazo.
+O código de negócio lê explicitamente `configService.read()` ou `registryService.getSnapshot()`, e o refresh explícito continua passando por
+`refresh()`. O estado atual significa o estado concluído mais recente e não espera implicitamente por requisições de conta futuras. A elegibilidade e o despacho em período ocioso seguem a mesma
+resolução de credenciais apoiada pelo Registry, sem novo owner de estado.
 
-### 其他待办
+### Outros pendentes
 
-- Todo 15：历史发布验证范围记录，已废弃，不再作为独立 Todo；
-- Todo 19：历史 Built-in Release 门禁讨论，已废弃，不再作为独立 Todo；
-- Todo 22：新增 Built-in Provider 与云平台 Access，仍是草案；
-- Todo 11 / 11A：Runtime 组合清理草案与释放问题，不能在未裁决前改变本设计；
-- 与最新 `origin/staging` 的最终集成和真实产品验证。
+- Todo 15: registro de escopo de verificação de publicações históricas, obsoleto e que deixa de ser um Todo independente;
+- Todo 19: discussão histórica de gate de release do Built-in, obsoleta e que deixa de ser um Todo independente;
+- Todo 22: adicionar Built-in Provider e Access de plataformas de nuvem, ainda em rascunho;
+- Todo 11 / 11A: rascunho de limpeza de composição do Runtime e questão de liberação, que não podem mudar este design antes de uma decisão;
+- integração final com o `origin/staging` mais recente e verificação real no produto.
 
-这些事项可以补充验证、产品投影或实现清理，但若要改变本文的配置层级、Access Schema、Registry 权威或 Model
-生命周期，必须先形成新的明确裁决并更新本文。
+Esses itens podem complementar a verificação, as projeções de produto ou a limpeza de implementação, mas, se quiserem alterar as camadas de configuração, o Access Schema, a autoridade do Registry ou o ciclo de vida do Model descritas aqui, é preciso antes formar uma nova decisão explícita e atualizar este documento.

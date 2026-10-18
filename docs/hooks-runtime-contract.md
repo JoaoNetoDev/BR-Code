@@ -1,12 +1,12 @@
 # Hooks Runtime Contract
 
-> 状态：Implementation Spec
+> Status: Implementation Spec
 >
-> 本文是 ZCode 当前 Hooks 实现、桌面设置页和自动化测试的共同验收依据。
+> Este documento é a base de aceitação comum da implementação atual de Hooks do ZCode, da página de configurações do desktop e dos testes automatizados.
 
-## 目标与边界
+## Objetivos e limites
 
-本期只支持 ZCode 已存在的 7 个事件：
+Esta fase suporta apenas os 7 eventos que já existem no ZCode:
 
 - `SessionStart`
 - `UserPromptSubmit`
@@ -16,19 +16,16 @@
 - `PostToolUseFailure`
 - `Stop`
 
-本期不增加新的 Hook 事件。每个已支持事件都必须形成完整闭环：配置可加载、matcher
-语义明确、stdin 与 Claude Code 兼容、stdout 能影响对应运行时行为、失败可观测，并有独立
-自动化测试。
+Nenhum evento de Hook novo é adicionado nesta fase. Todo evento já suportado precisa formar um ciclo completo: a configuração pode ser carregada, a semântica do matcher é clara, o stdin é compatível com Claude Code, o stdout consegue afetar o comportamento de runtime correspondente, a falha é observável e existe um teste de automação independente.
 
-持久化 Hook 类型限定为：
+Os tipos de Hook persistidos são limitados a:
 
-- `process`：`command + args[]`，通过 argv 执行，不经过 shell。
-- `command`：完整 shell command，兼容 Claude Marketplace 插件。
+- `process`: `command + args[]`, executado por argv, sem passar por shell.
+- `command`: comando shell completo, compatível com plugins do Claude Marketplace.
 
-本期不实现 `prompt`、`agent`、`http`、`callback` 持久化配置，也不实现 `if`、`once`、
-`asyncRewake`。这些字段和新增事件不能被 UI 写入，也不能被文档标记为已支持。
+Esta fase não implementa a configuração persistida de `prompt`, `agent`, `http` ou `callback`, nem implementa `if`, `once` ou `asyncRewake`. Esses campos e os novos eventos não podem ser escritos pela UI nem ser marcados como suportados pela documentação.
 
-## 状态所有权
+## Posse do estado
 
 ```text
 user config + enabled plugin hooks
@@ -47,38 +44,31 @@ HooksService / conversation projection
   -> atomic Trust mutation / supersede / revoke
 ```
 
-- Hook 的执行权只在 `apps/zcode-cli` Agent runtime。
-- UI 和 `packages/services` 只管理配置和只读来源展示，不执行 Hook。
-- 每个 session 启动时捕获 Hook 配置快照。配置修改只保证新 session
-  生效；设置页保存后要关闭尚未使用的 deferred draft session，避免下一次首发继续复用旧快照。
-- 远程 workspace 的 HooksService 必须来自远端 service collection。`workspacePath` 用于文件
-  读写；UI 缓存和并发请求隔离使用 `workspaceIdentity?.trim() || workspacePath`。
+- O direito de executar Hooks existe apenas no runtime do Agent em `apps/zcode-cli`.
+- A UI e `packages/services` apenas gerenciam a configuração e exibem as fontes em modo somente leitura; não executam Hooks.
+- Um snapshot da configuração de Hooks é capturado na inicialização de cada session. Alterações de configuração só garantem efeito em novas sessions; depois de salvar na página de configurações é preciso encerrar as deferred draft sessions ainda não usadas, evitando que o próximo primeiro envio continue reutilizando o snapshot antigo.
+- O HooksService de um workspace remoto precisa vir da coleção de services remota. `workspacePath` é usado para leitura e escrita de arquivos; o cache da UI e o isolamento de requisições concorrentes usam `workspaceIdentity?.trim() || workspacePath`.
 
-## 配置来源与合并
+## Fontes de configuração e merge
 
-| 来源                           | Runtime 执行 | 设置页编辑 | 生效规则                                               |
+| Source                             | Runtime execution | Settings-page editing | Regra de efetivação                                    |
 | ------------------------------ | ------------ | ---------- | ------------------------------------------------------ |
-| `~/.zcode/cli/config.json`     | 是           | 是         | user hooks 先执行                                      |
-| workspace `.zcode/config.json` | 条件执行     | 是         | rollout 开启且 exact Trust/policy admission 通过后执行 |
-| 已启用插件 hooks               | 是           | 否         | 按现有 plugin 来源规则执行                             |
-| `.agents/settings.json`        | 否           | 否         | 只读展示，可显式导入 `.zcode`                          |
-| `.claude/settings.json`        | 否           | 否         | 只读展示，可显式导入 `.zcode`                          |
+| `~/.zcode/cli/config.json`     | Sim           | Sim         | Os user hooks são executados primeiro                                      |
+| workspace `.zcode/config.json` | Execução condicional     | Sim         | Executado após rollout ativado e aprovação de Trust/policy exata |
+| Hooks de plugins habilitados               | Sim           | Não         | Executado conforme as regras de origem de plugin existentes                             |
+| `.agents/settings.json`        | Não           | Não         | Exibido em modo somente leitura, com importação explícita para `.zcode`                          |
+| `.claude/settings.json`        | Não           | Não         | Exibido em modo somente leitura, com importação explícita para `.zcode`                          |
 
-配置合并约束：
+Restrições de merge da configuração:
 
-1. runtime executable config 只直接合并 user 与已启用插件 hooks；workspace project hooks 保留在隔离的
-   immutable snapshot side-channel。未 admission 前不得创建可执行 callback；发现诊断统一使用
-   `config_project_hooks_pending_trust`，Runtime blocked reason 进一步区分 pending、feature-disabled、policy、
-   store failure 与 snapshot mismatch。
-2. 单个受信配置来源的 `hooks.enabled:false` 只禁用该来源内的 hooks，不能关闭其他来源。
-3. 插件 hooks 只在插件启用时注入 runtime；插件关闭后新 session 不再执行。
-4. 每个 `process` / `command` 支持 `enabled?: boolean`，缺省为 `true`。Runner 必须跳过
-   `enabled:false`，不能只在 UI 中隐藏或变灰。
-5. UI 只把 `.zcode` hooks 写回原 user/project 文件，不修改 plugin、`.agents` 或 `.claude` 文件。
-6. 单条 Hook 的未知扩展字段必须在设置服务中往返保留，并由 Agent 配置 schema 接受；runtime
-   可以忽略当前版本不识别的字段，不能因此让整个配置文件失效。
+1. A runtime executable config mescla diretamente apenas user e hooks de plugins habilitados; os project hooks de workspace permanecem em um side-channel de snapshot imutável e isolado. Antes da admission não pode existir callback executável; os diagnósticos de descoberta usam uniformemente `config_project_hooks_pending_trust`, e o Runtime blocked reason distingue ainda pending, feature-disabled, policy, store failure e snapshot mismatch.
+2. `hooks.enabled:false` em uma única fonte confiável desabilita apenas os hooks daquela fonte e não pode desligar as outras fontes.
+3. Hooks de plugin só são injetados no runtime quando o plugin está habilitado; com o plugin desligado, novas sessions não os executam mais.
+4. Cada `process` / `command` suporta `enabled?: boolean`, com padrão `true`. O Runner precisa pular `enabled:false`, e não basta esconder ou esmaecer na UI.
+5. A UI escreve hooks de `.zcode` de volta apenas nos arquivos originais de user/project e não modifica arquivos de plugin, `.agents` ou `.claude`.
+6. Campos de extensão desconhecidos de um Hook individual precisam ser preservados na ida e volta pelo serviço de configurações e aceitos pelo schema de configuração do Agent; o runtime pode ignorar campos que a versão atual não reconhece, mas isso não pode invalidar o arquivo de configuração inteiro.
 
-示例：
+Exemplo:
 
 ```json
 {
@@ -106,147 +96,129 @@ HooksService / conversation projection
 }
 ```
 
-## Matcher 契约
+## Contrato de matcher
 
-Matcher 规则：
+Regras do matcher:
 
-- 缺省、空字符串和 `*`：match all。
-- 只包含字母、数字、下划线和 `|`：按精确名称或精确名称列表匹配。
-- 其他字符串：按 JavaScript 正则匹配；非法正则不执行该 matcher，并记录诊断。
-- tool 事件匹配 `tool_name`，同时兼容 `Agent` / `Task` 等 ZCode alias。
-- `SessionStart` 匹配 `source`。
-- `UserPromptSubmit` 和 `Stop` 没有 matcher query；即使配置带 matcher，也执行该组 hooks。
+- Ausente, string vazia e `*`: casa com tudo.
+- Contém apenas letras, números, underscore e `|`: casa por nome exato ou lista de nomes exatos.
+- Qualquer outra string: casa por expressão regular JavaScript; uma regex inválida não executa o matcher e registra um diagnóstico.
+- Eventos de tool casam por `tool_name`, mantendo compatibilidade com aliases do ZCode como `Agent` / `Task`.
+- `SessionStart` casa por `source`.
+- `UserPromptSubmit` e `Stop` não têm query de matcher; mesmo que a configuração traga matcher, os hooks desse grupo são executados.
 
-## Claude 兼容 stdin
+## stdin compatível com Claude
 
-所有 Hook stdin 都是单行 JSON 加换行，同时保留 ZCode camelCase 字段和 Claude Code
-snake_case 字段。
+Todo stdin de Hook é uma única linha de JSON com quebra de linha, preservando simultaneamente os campos camelCase do ZCode e os campos snake_case do Claude Code.
 
-基础字段：
+Campos básicos:
 
 - `session_id`
 - `transcript_path`
 - `cwd`
 - `permission_mode`
 - `hook_event_name`
-- `agent_type`（存在时）
+- `agent_type`（quando presente）
 
-事件字段：
+Campos por evento：
 
-| Event                | 必需的 Claude 兼容字段                                                   |
+| Event                | Required Claude-compatible fields                                                   |
 | -------------------- | ------------------------------------------------------------------------ |
-| `SessionStart`       | `source`，可选 `agent_type`、`model`                                     |
+| `SessionStart`       | `source`, com `agent_type` e `model` opcionais                                     |
 | `UserPromptSubmit`   | `prompt`                                                                 |
 | `PreToolUse`         | `tool_name`、`tool_input`、`tool_use_id`                                 |
-| `PermissionRequest`  | `tool_name`、`tool_input`、可选 `permission_suggestions`                 |
-| `PostToolUse`        | `tool_name`、`tool_input`、`tool_use_id`、完整 `tool_response`           |
-| `PostToolUseFailure` | `tool_name`、`tool_input`、`tool_use_id`、字符串 `error`、`is_interrupt` |
+| `PermissionRequest`  | `tool_name`、`tool_input`、`permission_suggestions` opcional                 |
+| `PostToolUse`        | `tool_name`、`tool_input`、`tool_use_id`、`tool_response` completo           |
+| `PostToolUseFailure` | `tool_name`、`tool_input`、`tool_use_id`、string `error`、`is_interrupt` |
 | `Stop`               | `stop_hook_active`、`last_assistant_message`                             |
 
-`PostToolUse.tool_response` 使用工具 handler 的完整结构化输出；`toolResultPreview` 继续作为
-ZCode 扩展字段保留，但不能替代 `tool_response`。
+`PostToolUse.tool_response` usa a saída estruturada completa do handler da ferramenta; `toolResultPreview` continua sendo preservado como campo de extensão do ZCode, mas não pode substituir `tool_response`.
 
-ZCode 当前没有 Claude JSONL transcript 文件，因此 configured runner 为每次 Hook 创建临时
-兼容 transcript：Stop 至少包含最后一条 assistant message，其他事件至少提供存在且可读的
-JSONL 文件。Hook 完成后清理临时目录。
+O ZCode hoje não tem o arquivo de transcript JSONL do Claude, portanto o runner configurado cria um transcript temporário compatível para cada Hook: Stop contém pelo menos a última assistant message e os demais eventos fornecem pelo menos um arquivo JSONL existente e legível. O diretório temporário é limpo depois que o Hook termina.
 
-## stdout、退出码与事件效果
+## stdout, exit code e efeitos nos eventos
 
-stdout 规则：
+Regras de stdout:
 
-- 空 stdout：成功，无额外效果。
-- 非 JSON stdout：成功，只作为诊断，不注入模型上下文。
-- 以 `{` 开头的合法 JSON：校验已知字段并消费。
-- 未知 JSON 字段忽略，不能导致整个 Hook 失败。
-- 已知字段类型错误或 `hookSpecificOutput.hookEventName` 错误：该 Hook 失败；失败与其他 Hook 隔离。
+- stdout vazio: sucesso, sem efeito adicional.
+- stdout que não é JSON: sucesso, serve apenas como diagnóstico e não é injetado no contexto do modelo.
+- JSON válido começando com `{`: os campos conhecidos são validados e consumidos.
+- Campos JSON desconhecidos são ignorados e não podem fazer o Hook inteiro falhar.
+- Tipo errado em um campo conhecido ou `hookSpecificOutput.hookEventName` incorreto: aquele Hook falha; a falha é isolada dos outros Hooks.
 
-退出码规则：
+Regras de exit code:
 
-- `0`：成功并解析 stdout。
-- `2`：请求阻断；对可阻断事件产生对应 block/deny，Stop 产生继续一轮反馈。
-- 其他非零：可恢复 Hook 失败，不让整个 turn 崩溃。
+- `0`: sucesso e faz o parse do stdout.
+- `2`: solicita bloqueio; produz o block/deny correspondente em eventos bloqueáveis, e no Stop produz feedback para mais uma rodada.
+- Outro valor não zero: falha de Hook recuperável, sem derrubar o turno inteiro.
 
-事件输出效果：
+Efeitos de saída por evento:
 
-| Event                | 可阻断           | 可修改                                       | 模型可见上下文                                   |
+| Event                | Bloqueável           | Modificável                                       | Contexto visível ao modelo                                   |
 | -------------------- | ---------------- | -------------------------------------------- | ------------------------------------------------ |
-| `SessionStart`       | 否               | 否                                           | `additionalContext` 注入首轮前                   |
-| `UserPromptSubmit`   | 是               | 不修改原 prompt                              | `additionalContext` 注入本轮前                   |
-| `PreToolUse`         | 是               | `updatedInput`，并重新做 tool schema 校验    | 成功/失败 tool result 都携带 `additionalContext` |
-| `PermissionRequest`  | 是               | allow 时可返回 `updatedInput` 和 permissions | 否                                               |
-| `PostToolUse`        | 否               | 本期不替换 tool output                       | 追加 `additionalContext`                         |
-| `PostToolUseFailure` | 否               | 否                                           | 追加 recovery `additionalContext`                |
-| `Stop`               | 是，表示不要结束 | 否                                           | block reason/context 注入下一轮，最多连续 3 次   |
+| `SessionStart`       | Não               | Não                                           | `additionalContext` injetado antes da primeira rodada                   |
+| `UserPromptSubmit`   | Sim               | Não modifica o prompt original                              | `additionalContext` injetado antes desta rodada                   |
+| `PreToolUse`         | Sim               | `updatedInput`, com nova validação do tool schema    | Success/failure tool result sempre carregam `additionalContext` |
+| `PermissionRequest`  | Sim               | No allow pode retornar `updatedInput` e permissions | Não                                               |
+| `PostToolUse`        | Não               | Nesta fase não substitui o tool output                       | Acrescenta `additionalContext`                         |
+| `PostToolUseFailure` | Não               | Não                                           | Acrescenta `additionalContext` de recovery                |
+| `Stop`               | Sim, indicando não encerrar | Não                                           | block reason/context injetado na próxima rodada, no máximo 3 vezes consecutivas   |
 
-兼容字段：
+Campos de compatibilidade:
 
-- 顶层 `decision:"approve"|"block"`。
-- 顶层 `continue:false` 在 `UserPromptSubmit`、`PreToolUse`、`PermissionRequest` 中阻断。
-- Stop 使用 `decision:"block"`；为兼容已发布的 ZCode 配置，`continue:true` 且带
-  `additionalContext` 也可继续一轮。
-- `PermissionRequest` 同时接受 Claude 的 `updatedPermissions` 和 ZCode 历史字段
-  `permissionUpdates`。
-- `suppressOutput:true` 表示不投影 Hook stdout；它不抑制结构化 decision/context。
+- `decision:"approve"|"block"` no nível superior.
+- `continue:false` no nível superior bloqueia em `UserPromptSubmit`, `PreToolUse` e `PermissionRequest`.
+- Stop usa `decision:"block"`; para compatibilidade com configurações do ZCode já publicadas, `continue:true` com `additionalContext` também continua mais uma rodada.
+- `PermissionRequest` aceita tanto o `updatedPermissions` do Claude quanto o campo histórico do ZCode `permissionUpdates`.
+- `suppressOutput:true` indica que o stdout do Hook não deve ser projetado; ele não suprime a decision/context estruturada.
 
-`PreToolUse` 的失败结果包括 Hook 自身 deny、后续权限拒绝和工具 handler 失败；这些提前返回路径
-也必须保留已产生的 `additionalContext`，不能只在 handler 成功或抛错路径追加。
+O resultado de falha de `PreToolUse` inclui o próprio deny do Hook, a negativa de permissão posterior e a falha do handler da ferramenta; esses caminhos de retorno antecipado também precisam preservar o `additionalContext` já produzido, e não apenas acrescentá-lo no caminho de sucesso ou de erro do handler.
 
-## async 契约
+## Contrato de async
 
-`command` hook 支持 `async:true`：
+Hooks `command` suportam `async:true`:
 
-1. Agent 启动命令后立即继续当前事件，不等待命令退出。
-2. async stdout 不能 block、修改输入或注入 context；这些输出被忽略。
-3. 后台命令仍受 timeout 和调用方 cancellation 管理；调用方取消后必须终止命令，并产生
-   `outcome: "cancelled"` 的 Hook lifecycle event。
-4. 后台 Promise 必须捕获错误，不能产生 unhandled rejection。
+1. Depois de iniciar o comando, o Agent continua o evento atual imediatamente, sem esperar o comando terminar.
+2. O stdout do async não pode bloquear, modificar a entrada nem injetar context; essas saídas são ignoradas.
+3. O comando em segundo plano continua sujeito a timeout e ao cancellation do chamador; após o cancelamento do chamador o comando precisa ser encerrado e um Hook lifecycle event com `outcome: "cancelled"` precisa ser produzido.
+4. A Promise em segundo plano precisa capturar erros e não pode gerar unhandled rejection.
 
-`process` hook 本期保持同步。`asyncRewake` 不在本期能力声明中。
+Hooks `process` permanecem síncronos nesta fase. `asyncRewake` não faz parte da declaração de capacidades desta fase.
 
-## 设置页契约
+## Contrato da página de configurações
 
-Hooks 设置页必须在 desktop 和 Web UI 使用同一组件，并满足：
+A página de configurações de Hooks precisa usar o mesmo componente no desktop e na Web UI e satisfazer:
 
-- `.zcode` hooks 支持新增、编辑、删除、启停和 user/workspace scope。
-- 表单支持 7 个事件、`process` / `command` 类型、matcher、argv、timeout、`statusMessage`
-  和 command async。
-- `.agents` / `.claude` hooks 标记为兼容来源、不可直接编辑或启停，并提供显式导入 `.zcode`。
-- 插件 hooks 单独分组；列表只读展示 event 与 command，并以分组标题和插件图标表达来源。
-  matcher、type、source path 与 effective enabled 状态保留为数据事实，不在列表行重复堆叠。
-- 插件 Hook 的 User / Workspace 分栏只使用 overview 安装记录中的权威 scope。overview
-  降级或安装记录缺失时必须保留 `unknown`，不得默认为 User；未知 scope 的 Hook 在两个
-  Tab 中均保持可见并显示“作用域未知”标签，避免伪造来源或静默丢失数据。
-- 插件 Hook 的启停跟随插件设置，不在 Hooks 页创建第二套 override。
-- 页面文案支持 `zh-CN` / `en-US`，使用语义颜色和现有控件；窄屏下内容和操作不能重叠。
-- 页面明确提示：修改应用于新 session。
-- 页面遵循 MCP、Skills、Commands 设置页的统一信息架构：顶部使用共享 Scope 菜单、当前
-  Scope 的 Hook 总数与搜索入口；当前 Scope 下按 `Installed`、具体插件、`Legacy` 分组。
-- 搜索后只展示存在匹配 Hook 的分组；无结果时展示统一空状态，不保留计数为 0 的分组标题。
-- 组内使用单个圆角 surface 列表容器和元素分割线。Hook Item 以 Event 为主标题，command
-  使用 `font-mono text-ui-sm`；直接配置显示开关并可整行进入编辑，插件 Hook 只读且使用插件
-  图标，兼容来源显示 Import。
-- 从当前 Scope 新建 Hook 时，表单默认选择相同 scope；表单复用 `PluginScopeMenu`。
-  编辑已有 Hook 时 Scope 不可迁移。没有可用 workspace 时菜单只提供 User。
-- 新增/编辑页复用资源设置页的返回链接、标题和说明层级；desktop 与手机 Web 使用相同的
-  响应式布局。
-- HooksSection 必须接收并透传 `workspaceIdentity`，远程工作区的读取、写入和 session
-  invalidation 以 `workspaceIdentity?.trim() || workspacePath` 隔离。
+- Hooks de `.zcode` suportam adicionar, editar, deletar, habilitar/desabilitar e scope user/workspace.
+- O formulário suporta os 7 eventos, os tipos `process` / `command`, matcher, argv, timeout, `statusMessage` e command async.
+- Hooks de `.agents` / `.claude` são marcados como fontes de compatibilidade, não editáveis nem habilitáveis diretamente, e oferecem importação explícita para `.zcode`.
+- Hooks de plugin ficam em um grupo separado; a lista exibe em modo somente leitura event e command, expressando a origem com o título do grupo e o ícone do plugin.
+  matcher, type, source path e o estado de habilitação efetivo são preservados como fatos de dados e não são empilhados de novo na linha da lista.
+- As colunas User / Workspace dos Hooks de plugin usam apenas o scope autoritativo dos registros de instalação do overview. Quando o overview está degradado ou o registro de instalação está ausente, é preciso preservar `unknown` e nunca assumir User como padrão; um Hook de scope desconhecido permanece visível nas duas Tabs e exibe a etiqueta "作用域未知", evitando forjar origem ou perder dados silenciosamente.
+- A habilitação dos Hooks de plugin acompanha a configuração do plugin, sem criar um segundo conjunto de overrides na página de Hooks.
+- Os textos da página suportam `zh-CN` / `en-US`, usando cores semânticas e os controles existentes; em tela estreita o conteúdo e as ações não podem se sobrepor.
+- A página informa claramente: as alterações valem para novas sessions.
+- A página segue a arquitetura de informação unificada das páginas de configurações de MCP, Skills e Commands: no topo usa o menu compartilhado de Scope, com o total de Hooks do Scope atual e a entrada de busca; dentro do Scope atual os grupos são `Installed`, o plugin específico e `Legacy`.
+- Após a busca, apenas os grupos que possuem Hooks com correspondência são exibidos; sem resultados aparece um estado vazio uniforme, sem manter títulos de grupo com contagem 0.
+- Dentro do grupo usa-se um único contêiner de lista com surface de cantos arredondados e linhas divisórias. O Hook Item usa o Event como título principal e o command com `font-mono text-ui-sm`; configurações diretas exibem um toggle e permitem entrar na edição pela linha inteira, Hooks de plugin são somente leitura e usam o ícone do plugin, e fontes de compatibilidade exibem Import.
+- Ao criar um Hook no Scope atual, o formulário seleciona por padrão o mesmo scope e reaproveita `PluginScopeMenu`.
+  Ao editar um Hook existente, o Scope não pode ser migrado. Sem workspace disponível, o menu oferece apenas User.
+- A página de criação/edição reaproveita o link de retorno, o título e a hierarquia de descrição da página de configurações de recursos; desktop e Web no celular usam o mesmo layout responsivo.
+- HooksSection precisa receber e repassar `workspaceIdentity`, e a leitura, escrita e invalidação de session do workspace remoto são isoladas por `workspaceIdentity?.trim() || workspacePath`.
 
-## 验收矩阵
+## Matriz de aceitação
 
-| ID    | Event                | 证明点                                                                            | 自动化层                 |
+| ID    | Event                | Ponto de prova                                                                            | Camada de automação                 |
 | ----- | -------------------- | --------------------------------------------------------------------------------- | ------------------------ |
-| HK-01 | `SessionStart`       | startup matcher、snake_case stdin、首轮 context                                   | core + desktop E2E       |
-| HK-02 | `UserPromptSubmit`   | prompt stdin、matcher 不过滤、block/context                                       | core + desktop E2E       |
-| HK-03 | `PreToolUse`         | tool matcher、deny/ask/allow、updatedInput、context；三个提前失败出口不丢 context | core + desktop E2E       |
-| HK-04 | `PermissionRequest`  | 仅 ask 路径触发、allow/deny/modify、permission updates                            | core + desktop E2E       |
-| HK-05 | `PostToolUse`        | 完整 `tool_response`、context                                                     | core + desktop E2E       |
-| HK-06 | `PostToolUseFailure` | 字符串 error、interrupt、recovery context                                         | core + desktop E2E       |
-| HK-07 | `Stop`               | last assistant、transcript、block 续跑上限                                        | core + desktop E2E       |
-| HK-08 | Config/source        | user+project+plugin 顺序、逐 Hook disabled 真跳过                                 | adapter/bootstrap/core   |
-| HK-09 | Settings             | `.zcode` 可写、legacy 可导入、plugin 只读可见                                     | service/UI + desktop E2E |
-| HK-10 | Executors/async      | process argv、command shell/fire-and-forget、父级取消、后台 lifecycle、错误隔离   | core + desktop E2E       |
+| HK-01 | `SessionStart`       | matcher de startup, stdin snake_case, contexto da primeira rodada                                   | core + desktop E2E       |
+| HK-02 | `UserPromptSubmit`   | stdin de prompt, matcher sem filtro, block/context                                       | core + desktop E2E       |
+| HK-03 | `PreToolUse`         | matcher de tool, deny/ask/allow, updatedInput, context; as três saídas de falha antecipada não perdem context | core + desktop E2E       |
+| HK-04 | `PermissionRequest`  | dispara só no caminho ask, allow/deny/modify, permission updates                            | core + desktop E2E       |
+| HK-05 | `PostToolUse`        | `tool_response` completo, context                                                     | core + desktop E2E       |
+| HK-06 | `PostToolUseFailure` | error string, interrupt, contexto de recovery                                         | core + desktop E2E       |
+| HK-07 | `Stop`               | last assistant, transcript, limite de rodadas com block                                        | core + desktop E2E       |
+| HK-08 | Config/source        | ordem user+project+plugin, disabled por Hook realmente pula                                 | adapter/bootstrap/core   |
+| HK-09 | Settings             | `.zcode` gravável, legacy importável, plugin somente leitura e visível                                     | service/UI + desktop E2E |
+| HK-10 | Executors/async      | argv de process, command shell/fire-and-forget, cancelamento do pai, lifecycle em segundo plano, isolamento de erro   | core + desktop E2E       |
 
-完整窗口级 suite 使用 `HK-LC-01`、`HK-EF-01`、`HK-ST-01`、`HK-UP-01`，定义在
-`docs/testing/hooks-e2e-coverage-matrix.md`。其中父级取消保留在 core 的确定性 AbortSignal
-测试；窗口级验证 async command 真实启动/完成且其 stdout 决策不会反向改变已继续的事件。
+A suíte completa em nível de janela usa `HK-LC-01`, `HK-EF-01`, `HK-ST-01` e `HK-UP-01`, definidas em `docs/testing/hooks-e2e-coverage-matrix.md`. Nelas o cancelamento do pai permanece no teste determinístico de AbortSignal do core; a validação em nível de janela confirma que o command async realmente inicia/termina e que sua decisão de stdout não altera retroativamente o evento que já continuou.

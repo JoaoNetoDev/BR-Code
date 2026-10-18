@@ -42,13 +42,13 @@ A timeline do V4 mantém uma máquina de estados explícita de fixação ao fund
 同一帧内：用户滚动意图 > 显式定位动作 > 内容/测高/折叠布局变化
 ```
 
-| 事件来源                                        | FOLLOWING 时          | DETACHED 时               |
-| ----------------------------------------------- | --------------------- | ------------------------- |
-| wheel/touch/键盘/滚动条向上离底                 | 立即转 DETACHED       | 保持 DETACHED             |
-| 用户滚回底部附近                                | 保持 FOLLOWING        | 转 FOLLOWING              |
-| 点击“回到底部”或提交立即开始的新 prompt         | 保持 FOLLOWING 并贴底 | 转 FOLLOWING 并贴底       |
-| live delta、terminal 折叠、virtualizer 测高补偿 | 保持 FOLLOWING 并贴底 | 保持 DETACHED，不夺滚动权 |
-| 查找、轮次导航、fork 锚点定位                   | 先转 DETACHED 再定位  | 保持 DETACHED             |
+| 事件来源                                        | Quando FOLLOWING           | Quando DETACHED                |
+| ----------------------------------------------- | -------------------------- | ------------------------------ |
+| wheel/touch/teclado/barra de rolagem subindo e saindo do fundo | transiciona imediatamente para DETACHED | mantém DETACHED             |
+| Usuário volta para perto do fundo                | mantém FOLLOWING           | transiciona para FOLLOWING     |
+| Clique em "回到底部" ou envio imediato de um novo prompt | mantém FOLLOWING e gruda no fundo | transiciona para FOLLOWING e gruda no fundo |
+| live delta, recolhimento em terminal, compensação de medição do virtualizer | mantém FOLLOWING e gruda no fundo | mantém DETACHED, sem tomar o direito de rolagem |
+| Busca, navegação de turno e ancoragem de fork    | transiciona primeiro para DETACHED e depois posiciona | mantém DETACHED             |
 
 ## Fronteira de Implementação
 

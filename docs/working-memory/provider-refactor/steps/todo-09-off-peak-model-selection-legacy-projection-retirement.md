@@ -1,29 +1,26 @@
-# 09 Off-Peak 模型选择旧投影退役
+# 09 Aposentadoria da projeção legada de seleção de modelo do Off-Peak
 
-> 闲时任务 Desktop 图形 E2E 的未完成运行与失败定位统一由 Todo 78 收口，本 Todo 不再单独排期。
+> As execuções pendentes e a localização de falhas do E2E gráfico do Desktop para tarefas off-peak são consolidadas de forma unificada pela Todo 78; esta Todo não é mais agendada separadamente.
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-24
+> Data: 2026-08-24
 >
-> 来源审查：[`../research/model-abstraction-unification-cleanup-audit.md`](../research/model-abstraction-unification-cleanup-audit.md)
+> Revisão de origem: [`../research/model-abstraction-unification-cleanup-audit.md`](../research/model-abstraction-unification-cleanup-audit.md)
 >
-> 总路线图：[`todo-00-model-abstraction-unification-roadmap.md`](./todo-00-model-abstraction-unification-roadmap.md)
+> Roadmap geral: [`todo-00-model-abstraction-unification-roadmap.md`](./todo-00-model-abstraction-unification-roadmap.md)
 
-## 1. 任务目标
+## 1. Objetivo da tarefa
 
-删除 Off-Peak 将新 Provider Registry / Effective Model Config 反向投影为旧
-`ModelProviderModelConfig` 的过渡链。Off-Peak 的模型候选、Reasoning Option Spec、提交校验和派发校验统一
-消费同一份 Registry 模型事实；真正执行继续提交标准 `ModelSelection`，由普通 Registry / ModelFactory 创建
-Active Model。
+Remover do Off-Peak a cadeia de transição que projeta de volta o novo Provider Registry / Effective Model Config para o antigo `ModelProviderModelConfig`. Os candidatos de modelo do Off-Peak, o Reasoning Option Spec, a validação de submissão e a validação de despacho consomem uniformemente o mesmo fato de modelo do Registry; a execução real continua submetendo um `ModelSelection` padrão, e o Registry / ModelFactory comuns criam o Active Model.
 
-本 Todo 只收口模型选择事实和校验边界，不重新设计 Off-Peak 产品：
+Esta Todo apenas consolida o fato de seleção de modelo e a fronteira de validação, sem reprojetar o produto Off-Peak:
 
-- 远端 `client/configs.offPeak.enable_offpeak_task` 继续只负责入口曝光；
-- Account / Coding Plan 继续负责账号支持、Ticket 准入和请求期鉴权；
-- 隐藏的 Built-in `builtin:offpeak-idle-plan` Provider 继续负责模型成员和完整 Model Config；
-- Off-Peak Task 继续拥有自己的表单草稿、任务记录和调度状态；
-- idle 自动 turn 继续使用 execution-scoped 标准 `ModelSelection`，不修改 Session Selection。
+- o remoto `client/configs.offPeak.enable_offpeak_task` continua responsável apenas pela exposição da entrada;
+- Account / Coding Plan continuam responsáveis por suporte de conta, admissão de Ticket e autenticação no momento da requisição;
+- o Provider Built-in oculto `builtin:offpeak-idle-plan` continua responsável pelos membros de modelo e pelo Model Config completo;
+- a Off-Peak Task continua tendo seus próprios rascunhos de formulário, registros de tarefa e estado de agendamento;
+- o turno idle automático continua usando o `ModelSelection` padrão com escopo de execução, sem modificar a Session Selection.
 
 ```text
 当前
@@ -63,58 +60,50 @@ Scoped ModelSelectionView
               `--> 派发前校验 -> ModelSelection -> ModelFactory
 ```
 
-## 2. 已确认的架构边界
+## 2. Fronteiras de arquitetura confirmadas
 
-### 2.1 Hidden Provider 不进入普通模型选择 View
+### 2.1 Provider oculto não entra na View comum de seleção de modelo
 
-普通 `ModelSelectionFacade.getView()` 继续过滤 `visibility: "hidden"` 的 Provider。这是普通用户选择面的
-正确边界，不能为了 Off-Peak 放宽。
+O `ModelSelectionFacade.getView()` comum continua filtrando Providers com `visibility: "hidden"`. Essa é a fronteira correta da tela de seleção do usuário comum e não pode ser afrouxada por causa do Off-Peak.
 
-Off-Peak 产品服务只允许按固定 `OFF_PEAK_PROVIDER_ID` 从完整 Registry 精确读取目标 Provider，并使用与普通
-Model Selection 相同的投影逻辑生成 scoped View。禁止增加以下入口：
+O serviço de produto Off-Peak só pode ler com precisão o Provider alvo do Registry completo pelo `OFF_PEAK_PROVIDER_ID` fixo e usar a mesma lógica de projeção da Model Selection comum para gerar a View scoped. São proibidas as seguintes entradas:
 
-- 普通模型选择器包含隐藏 Provider；
-- Renderer 按任意 Provider ID 查询隐藏 Provider；
-- `includeHidden`、`trusted`、`executionOnly` 等通用逃逸参数；
-- Off-Peak 专用完整 Model Config DTO。
+- o seletor de modelos comum incluir Providers ocultos;
+- o Renderer consultar um Provider oculto por qualquer ID de Provider;
+- parâmetros genéricos de escape como `includeHidden`, `trusted`, `executionOnly`;
+- DTO de Model Config completo exclusivo do Off-Peak.
 
-目标可以返回现有 `ModelSelectionView`，其中最多包含一个 `builtin:offpeak-idle-plan` Provider；也可以在服务接口中直接
-返回现有 `ModelSelectionProviderView`。无论选择哪一种物理外壳，Provider 和 Model 的内部结构必须复用正式
-Selection View 类型和同一个 projector，不能复制字段定义。
+O objetivo pode devolver o `ModelSelectionView` existente, contendo no máximo um Provider `builtin:offpeak-idle-plan`; também pode devolver diretamente o `ModelSelectionProviderView` existente na interface do serviço. Qualquer que seja o invólucro físico escolhido, a estrutura interna de Provider e Model precisa reutilizar os tipos formais de Selection View e o mesmo projector, sem copiar definições de campos.
 
-### 2.2 四类事实保持分离
+### 2.2 Manter separados os quatro tipos de fato
 
-| 事实                            | 权威来源                                                            | 本 Todo 行为                                     |
-| ------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------ |
-| Off-Peak 入口曝光               | `client/configs.offPeak.enable_offpeak_task`                        | 保留，只与 Registry 候选非空共同形成创建入口门控 |
-| 模型成员与 Model Config         | Built-in / Account / Personal 解析后的完整 Registry                 | 统一候选、Reasoning、默认模型和校验来源          |
-| 账号是否支持、Ticket 与请求鉴权 | 当前 Account Access、Off-Peak availability/ticket API、Request Auth | 不迁移到 Model Config，不改变                    |
-| 任务草稿、选择和调度状态        | Renderer draft、Off-Peak Task Service/Repo、Scheduler               | 继续由产品自己拥有，不写 Session Selection       |
+| Fato                                              | Fonte autoritativa                                                             | Comportamento desta Todo                                              |
+| ------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| Exposição da entrada Off-Peak                     | `client/configs.offPeak.enable_offpeak_task`                                     | Mantida; forma em conjunto com candidatos não vazios do Registry o gateamento da entrada de criação |
+| Membros de modelo e Model Config                  | Registry completo resolvido de Built-in / Account / Personal                     | Fonte unificada de candidatos, Reasoning, modelo padrão e validação   |
+| Suporte da conta, Ticket e autenticação de requisição | Account Access atual, API de availability/ticket do Off-Peak, Request Auth    | Não migrado para Model Config e não alterado                         |
+| Rascunho de tarefa, seleção e estado de agendamento | Rascunho do Renderer, Off-Peak Task Service/Repo, Scheduler                      | Continua pertencendo ao próprio produto e não escreve Session Selection |
 
-Account Provider 的动态 `allowedModelIds` 不参与闲时模型列表。当前 Off-Peak 模型成员是隐藏 Built-in Provider
-的产品级成员；Coding Plan Account 只决定账号准入和请求鉴权。
+O `allowedModelIds` dinâmico do Account Provider não participa da lista de modelos off-peak. Os membros de modelo atuais do Off-Peak são membros de nível de produto do Provider Built-in oculto; o Coding Plan Account apenas decide a admissão da conta e a autenticação da requisição.
 
-### 2.3 删除旧反向投影
+### 2.3 Remover a projeção reversa legada
 
-删除以下模型事实桥接：
+Remover as seguintes pontes de fato de modelo:
 
-- `OffPeakBuiltInModels.allowedModels`；
-- `OffPeakBuiltInModels.allowedModelConfigs`；
-- `OffPeakClientConfig.allowedModels`；
-- `OffPeakClientConfig.allowedModelConfigs`；
-- `buildOffPeakBuiltInModels()` 及其旧 DTO 构造职责；
-- `createOffPeakModelConfig()`；
-- `createLegacyReasoningSpec()`；
-- Off-Peak 对 `ModelProviderModelConfig`、`ModelProviderModality` 和
-  `ModelProviderReasoningSpec` 的依赖。
+- `OffPeakBuiltInModels.allowedModels`;
+- `OffPeakBuiltInModels.allowedModelConfigs`;
+- `OffPeakClientConfig.allowedModels`;
+- `OffPeakClientConfig.allowedModelConfigs`;
+- `buildOffPeakBuiltInModels()` e suas responsabilidades antigas de construção de DTO;
+- `createOffPeakModelConfig()`;
+- `createLegacyReasoningSpec()`;
+- as dependências do Off-Peak em `ModelProviderModelConfig`, `ModelProviderModality` e `ModelProviderReasoningSpec`.
 
-不得保留 deprecated alias、双写或“迁移期 DTO”。当前分支的 Provider Refactor 配置尚未作为独立兼容协议
-发布，本 Todo 不设计所谓新旧版本兼容。
+Não se pode manter alias deprecated, escrita dupla ou um "DTO de período de migração". A configuração de Provider Refactor do branch atual ainda não foi publicada como protocolo de compatibilidade independente, e esta Todo não projeta compatibilidade entre uma suposta versão nova e uma antiga.
 
-### 2.4 Product View 只组合事实，不重新解释事实
+### 2.4 Product View apenas compõe fatos e não reinterpreta fatos
 
-现有 `OffPeakClientConfig` 同时装了远端开关和旧模型 DTO，名字与职责已经不准确。目标服务返回值应收口为
-类似 `OffPeakClientView` 的只读产品 View：
+O `OffPeakClientConfig` existente guarda ao mesmo tempo o switch remoto e o DTO de modelo legado, e o nome e as responsabilidades já não são precisos. O valor de retorno do serviço alvo deve ser consolidado em uma View de produto somente leitura, algo como `OffPeakClientView`:
 
 ```ts
 interface OffPeakClientView {
@@ -124,33 +113,32 @@ interface OffPeakClientView {
 }
 ```
 
-`enabled` 的目标判据仍为：
+O critério alvo de `enabled` continua sendo:
 
 ```text
 产品开关命中
 AND scoped Registry 中至少存在一个可创建的模型候选
 ```
 
-`modelSelectionView` 是 Registry View 的产品作用域投影，不是新的 Config 或模型事实源。最终物理命名可以在
-实现时按现有 Service 类型组织微调，但不得重新定义模型字段。
+`modelSelectionView` é a projeção de escopo de produto da Registry View e não uma nova fonte de Config ou de fato de modelo. A nomenclatura física final pode ser ajustada na implementação conforme a organização atual de tipos de Service, mas não se pode redefinir campos de modelo.
 
-## 3. UI、草稿与持久化
+## 3. UI, rascunho e persistência
 
-### 3.1 UI 直接读取标准候选
+### 3.1 A UI lê diretamente os candidatos padrão
 
-`OffPeakEditView` 从 scoped `ModelSelectionView` 直接生成扁平模型候选：
+`OffPeakEditView` gera candidatos de modelo achatados diretamente a partir do `ModelSelectionView` scoped:
 
-- 模型 ID 来自 `provider.models[].modelId`；
-- Reasoning 档位和默认值来自 `model.config.optionSpecs.reasoningLevel`；
-- Reasoning 控件复用现有 Registry Model Thought Option helper；
-- 不读取 `reasoningMapping`，Provider 请求参数仍只在 ModelFactory / Adapter 正向消费；
-- 不把 Context、Input/Output Format、Tool 能力或 Provider patch 复制进 Off-Peak 草稿。
+- o ID do modelo vem de `provider.models[].modelId`;
+- os níveis de Reasoning e o valor padrão vêm de `model.config.optionSpecs.reasoningLevel`;
+- o controle de Reasoning reutiliza o helper existente de Registry Model Thought Option;
+- não lê `reasoningMapping`; os parâmetros de requisição do Provider continuam sendo consumidos apenas em sentido direto pelo ModelFactory / Adapter;
+- não copia Context, Input/Output Format, capacidade de Tool ou patch de Provider para o rascunho do Off-Peak.
 
-继续复用 `ModelConfigSelect` 的扁平展示模式，但不带入普通对话的 Provider 管理入口、Session 状态或继承语义。
+Continua-se reutilizando o padrão de exibição achatada de `ModelConfigSelect`, sem trazer a entrada de gestão de Providers da conversa comum, o estado de Session ou a semântica de herança.
 
-### 3.2 草稿使用标准 Selection 语义
+### 3.2 O rascunho usa a semântica padrão de Selection
 
-创建/编辑页的模型草稿应按一个标准选择解释：
+O rascunho de modelo da página de criação/edição deve ser interpretado como uma seleção padrão:
 
 ```ts
 {
@@ -160,42 +148,39 @@ AND scoped Registry 中至少存在一个可创建的模型候选
 }
 ```
 
-切换模型时，Reasoning 当前值必须重新按新模型的 Option Spec 解析；无 Reasoning Option Spec 的模型不显示该
-控件，也不能保留前一个模型的档位作为提交值。
+Ao trocar de modelo, o valor atual de Reasoning precisa ser resolvido novamente pelo Option Spec do novo modelo; um modelo sem Reasoning Option Spec não exibe o controle e também não pode manter o nível do modelo anterior como valor submetido.
 
-### 3.3 暂不改 Task 数据库形态
+### 3.3 Não alterar por enquanto a forma do banco de dados de Task
 
-`ZCodeOffPeakTask.model` 和 `thoughtLevel` 是 Off-Peak Task 的产品持久化/API 边界，不是模型事实全集。本
-Todo 不要求修改 SQLite 列或服务端任务接口：
+`ZCodeOffPeakTask.model` e `thoughtLevel` são a fronteira de persistência/API de produto da Off-Peak Task, não o conjunto completo de fatos de modelo. Esta
+Todo não exige modificar colunas SQLite nem a interface de tarefas do servidor:
 
 ```text
 ModelSelection.modelId                 -> task.model
 ModelSelection.options.reasoningLevel  -> task.thoughtLevel
 ```
 
-该投影只允许存在于 Off-Peak Task 提交/读取边界。执行时必须正向构造标准 `ModelSelection`，不能由任务字段
-反向推断 Model Properties、Reasoning Mapping 或 Provider API。
+Essa projeção só pode existir na fronteira de submissão/leitura da Off-Peak Task. Na execução é obrigatório construir em sentido direto um `ModelSelection` padrão e não inferir Model Properties, Reasoning Mapping ou API de Provider a partir dos campos da tarefa.
 
-新建表单始终提交一个明确模型。是否继续允许历史任务记录缺少 `model`，按现有 Off-Peak 产品兼容范围处理，
-但不能因此在 Registry 外制造默认或假 Model；缺省时只允许从当前 scoped Registry 的有序候选中取第一项。
+O novo formulário sempre submete um modelo explícito. Se registros históricos de tarefa ainda podem não ter `model` é tratado dentro do escopo de compatibilidade de produto do Off-Peak atual,
+mas não se pode por isso fabricar um padrão ou um Model falso fora do Registry; na ausência, só é permitido pegar o primeiro item dos candidatos ordenados do Registry scoped atual.
 
-### 3.4 已保存选择失效时的行为
+### 3.4 Comportamento quando uma seleção salva deixa de valer
 
-| 场景                                        | 行为                                                           |
-| ------------------------------------------- | -------------------------------------------------------------- |
-| History / 终态只读任务的模型已退出 Registry | 继续展示任务保存的字符串事实，不把它重新加入候选，也不修改任务 |
-| queued / paused 编辑时保存模型已失效        | 显示不可用状态并阻止原样保存；用户需选择当前有效模型           |
-| 保存的 Reasoning 档位已失效                 | 显示不可用状态；保存前选择有效档位或清除为当前默认语义         |
-| 创建期间 Registry 更新                      | 提交边界按当前 Registry 重新校验，不信任页面初始快照           |
+| Cenário                                                     | Comportamento                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| O modelo de uma tarefa de History/estado final saiu do Registry | Continua exibindo o fato de string salvo pela tarefa, sem adicioná-lo aos candidatos e sem modificar a tarefa |
+| Ao editar uma tarefa queued/paused o modelo salvo ficou inválido | Mostra estado indisponível e impede salvar como está; o usuário precisa escolher um modelo válido atual |
+| O nível de Reasoning salvo ficou inválido                     | Mostra estado indisponível; antes de salvar, escolher um nível válido ou limpar para a semântica padrão atual |
+| O Registry é atualizado durante a criação                    | A fronteira de submissão revalida com o Registry atual e não confia no snapshot inicial da página |
 
-禁止静默替换为第一项并覆盖用户原选择。
+É proibido substituir silenciosamente pelo primeiro item e sobrescrever a escolha original do usuário.
 
-## 4. 校验与 fail-closed
+## 4. Validação e fail-closed
 
-### 4.1 创建和编辑校验
+### 4.1 Validação de criação e edição
 
-当前创建只验证标题、Prompt、Workspace 和权限模式，编辑也会把 `model` / `thoughtLevel` 原样落库。目标是在
-真正取 Ticket 或写 Repo 前，用当前完整 Registry 校验标准 `ModelSelection`：
+Atualmente a criação só valida título, Prompt, Workspace e modo de permissão, e a edição grava `model` / `thoughtLevel` como vieram. O objetivo é validar o `ModelSelection` padrão contra o Registry completo atual antes de realmente obter o Ticket ou escrever no Repo:
 
 ```text
 Renderer Submission
@@ -210,42 +195,40 @@ Host / Service 构造 Off-Peak ModelSelection
         `--> 有效：继续创建或编辑
 ```
 
-Renderer 的禁用态只是及时反馈，Host / Service 校验才是提交边界，不能只信任 UI 快照。
+O estado desabilitado do Renderer é apenas feedback rápido; a validação do Host / Service é a fronteira de submissão e não se pode confiar apenas no snapshot da UI.
 
-### 4.2 派发前重新校验
+### 4.2 Revalidar antes do despacho
 
-任务可能在队列中等待较长时间，因此 Scheduler/Host 派发前必须针对当前 Registry 再校验一次：
+Como uma tarefa pode ficar muito tempo na fila, o Scheduler/Host precisa validar de novo contra o Registry atual antes do despacho:
 
-- Provider 不存在；
-- Model 不存在或已停用；
-- Reasoning Level 不再受支持；
-- scoped Provider 当前没有可创建候选。
+- o Provider não existe;
+- o Model não existe ou está desativado;
+- o Reasoning Level não é mais suportado;
+- o Provider scoped não tem candidatos criáveis no momento.
 
-这些都是确定性配置错误，必须在模型网络请求前 fail-closed，并映射为 Off-Peak permanent dispatch failure：
-任务转 `failed`，停止重试和重取号。网络、Agent 生命周期等可能自愈错误继续沿用 transient 退避。
+Todos esses são erros de configuração determinísticos e devem falhar de forma fechada antes de qualquer requisição de rede de modelo, sendo mapeados para Off-Peak permanent dispatch failure:
+a tarefa vai para `failed`, parando com retry e sem buscar número novamente. Erros de rede, de ciclo de vida do Agent e outros que podem se curar sozinhos continuam com backoff transient.
 
-本 Todo 不修改普通用户 `ModelSelectionFacade.validate()` 的 hidden 可见性语义；Off-Peak 内部校验应直接使用
-完整 Registry 的精确选择校验，不能借普通用户候选 View 反推。
+Esta Todo não modifica a semântica de visibilidade hidden do `ModelSelectionFacade.validate()` do usuário comum; a validação interna do Off-Peak deve usar diretamente a validação de seleção precisa do Registry completo e não pode inferir pela View de candidatos do usuário comum.
 
-## 5. Mock 边界
+## 5. Fronteira do Mock
 
-### 5.1 保留 Off-Peak Mock 网关
+### 5.1 Manter o Mock gateway do Off-Peak
 
-`ZCODE_OFFPEAK_MOCK=1` 及其 Ticket/Availability/生命周期场景变量继续用于本地开发和 Desktop E2E：
+`ZCODE_OFFPEAK_MOCK=1` e suas variáveis de cenário de Ticket/Availability/ciclo de vida continuam sendo usados para desenvolvimento local e E2E do Desktop:
 
-- 模拟远端入口开关和套餐展示态；
-- 模拟 Ticket、queued/ready/active、过期和核销；
-- 模拟 availability、配额、429 和 Retry-After；
-- 模拟请求期凭据及 Off-Peak 模型 API Endpoint。
+- simular o switch de entrada remoto e o estado de exibição do plano;
+- simular Ticket, queued/ready/active, expiração e verificação;
+- simular availability, cota, 429 e Retry-After;
+- simular credenciais de período de requisição e o Endpoint de API de modelo do Off-Peak.
 
-本 Todo 不删除 `offPeakMockGateway`，也不把 Mock 扩散到普通 Provider、Official MCP 或生产凭据解析。
+Esta Todo não remove `offPeakMockGateway` nem espalha o Mock para Provider comum, Official MCP ou resolução de credenciais de produção.
 
-### 5.2 删除模型列表环境变量
+### 5.2 Remover a variável de ambiente de lista de modelos
 
-删除 `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS`。它来源于旧设计中远端 `client/configs.allowed_models` 是模型列表
-事实源的阶段；当前真实 E2E 不依赖该变量，继续保留会允许 Mock 制造 Registry 不存在的模型。
+Remover `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS`. Ela vem do estágio do desenho antigo em que o `client/configs.allowed_models` remoto era a fonte de verdade da lista de modelos; o E2E real atual não depende dessa variável e mantê-la permitiria que o Mock fabricasse modelos inexistentes no Registry.
 
-目标测试链为：
+A cadeia de testes alvo é:
 
 ```text
 ZCODE_OFFPEAK_MOCK
@@ -256,63 +239,61 @@ ZCODE_OFFPEAK_MOCK
 `- 声明 builtin:offpeak-idle-plan 的 Provider API 和模型成员
 ```
 
-测试需要自定义模型时，必须通过测试 ZCode Built-in Config / Built-in Model Rules 声明完整事实，不得用环境变量字符串、
-临时 Model Config、假 Model 或 fallback Model 注入。
+Quando o teste precisar de um modelo customizado, é obrigatório declarar o fato completo pelo ZCode Built-in Config / Built-in Model Rules de teste, sem injeção por string de variável de ambiente, Model Config temporário, Model falso ou Model de fallback.
 
-保留 `ZCODE_OFFPEAK_MOCK_NO_PLAN` 以及 Ready/Active/Availability/Retry 等场景变量；它们模拟产品或服务状态，
-不与模型 Registry 争夺事实所有权。
+Manter `ZCODE_OFFPEAK_MOCK_NO_PLAN` e as variáveis de cenário Ready/Active/Availability/Retry; elas simulam estado de produto ou de serviço e não disputam a posse do fato com o Registry de modelos.
 
-## 6. 影响面与状态所有权
+## 6. Superfície de impacto e posse de estado
 
-### 6.1 Feature Summary
+### 6.1 Resumo da Feature
 
-| 字段             | 内容                                                                                                                 |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Developer intent | 删除 Off-Peak 新 Registry 到旧 Model Config 的反向投影                                                               |
-| Capability       | Off-Peak Model Selection / Off-Peak Model Execution                                                                  |
-| Change layer     | option-source、draft-default、validation、commit-effect、persistence boundary                                        |
-| Operating mode   | planning                                                                                                             |
-| Primary seeds    | `buildOffPeakBuiltInModels`、`getOffPeakClientConfig`、`OffPeakEditView`、`OffPeakTaskService`、`dispatchOffPeakRun` |
-| Out of scope     | Ticket 状态机、Account Access、Request Auth、Telemetry、Queue/Recovery、数据库迁移                                   |
+| Campo             | Conteúdo                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Developer intent | Remover do Off-Peak a projeção reversa do novo Registry para o Model Config antigo                                        |
+| Capability        | Off-Peak Model Selection / Off-Peak Model Execution                                                                       |
+| Change layer      | option-source, draft-default, validation, commit-effect, persistence boundary                                            |
+| Operating mode    | planning                                                                                                                 |
+| Primary seeds     | `buildOffPeakBuiltInModels`, `getOffPeakClientConfig`, `OffPeakEditView`, `OffPeakTaskService`, `dispatchOffPeakRun`       |
+| Fora do escopo    | máquina de estado do Ticket, Account Access, Request Auth, Telemetry, Queue/Recovery, migração de banco de dados             |
 
-### 6.2 UI Surface Matrix
+### 6.2 Matriz de Superfície de UI
 
-| 用户场景                | UI 入口                                           | 展示/草稿 owner      | 候选/默认来源                              | 校验/gating                                         | 提交与落点                                                | 模式边界                          |
-| ----------------------- | ------------------------------------------------- | -------------------- | ------------------------------------------ | --------------------------------------------------- | --------------------------------------------------------- | --------------------------------- |
-| 创建闲时任务            | Automations / New Task 模板进入 `OffPeakEditView` | Renderer local draft | scoped Registry View；首个候选作为新建默认 | 远端开关、Plan support、availability、当前 Registry | `OffPeakTaskService.createTask` -> Ticket + Off-Peak Repo | Desktop 本地；不新增手机/远程入口 |
-| 编辑 queued/paused 任务 | Automations `OffPeakEditView`                     | Renderer local draft | 已保存选择；当前 Registry 负责可用性       | 状态守卫 + 当前 Registry                            | `updateTask` -> Off-Peak Repo                             | 不修改 Session Selection          |
-| 查看终态/运行任务       | Off-Peak 卡片/History                             | 已保存任务事实       | 保存的 model/thought 字符串                | 只读                                                | 无模型提交                                                | Registry 变化不重写历史           |
+| Cenário do usuário            | Entrada de UI                                              | Owner de exibição/rascunho | Origem de candidatos/padrão        | Validação/gating                                   | Submissão e destino                                            | Limite de modo                              |
+| ----------------------------- | ---------------------------------------------------------- | --------------------------- | ----------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------- |
+| Criar tarefa off-peak         | Automations / New Task entra em `OffPeakEditView`          | Rascunho local do Renderer  | View scoped do Registry; primeiro candidato como padrão de criação | switch remoto, suporte de plano, availability, Registry atual | `OffPeakTaskService.createTask` -> Ticket + Repo do Off-Peak | Desktop local; sem nova entrada de celular/remoto |
+| Editar tarefa queued/paused  | Automations `OffPeakEditView`                              | Rascunho local do Renderer  | Seleção salva; Registry atual decide disponibilidade | guarda de estado + Registry atual              | `updateTask` -> Repo do Off-Peak                                | Não modifica Session Selection              |
+| Ver tarefa final/em execução  | Cartão do Off-Peak / History                                | Fato de tarefa salvo        | Strings de model/thought salvas      | Somente leitura                                     | Sem submissão de modelo                                        | Mudança no Registry não reescreve histórico |
 
-### 6.3 State Owners And Commit Sinks
+### 6.3 Owners de Estado e Commit Sinks
 
-| 状态/事实                          | 展示或缓存                    | 权威 owner                                  | Commit sink / 持久化                 |
-| ---------------------------------- | ----------------------------- | ------------------------------------------- | ------------------------------------ |
-| 入口曝光                           | Off-Peak Zustand 快照         | Remote `client/configs`                     | 不独立持久化                         |
-| 模型候选、Properties、Option Specs | scoped Selection View         | Provider Registry                           | 不独立持久化                         |
-| Plan 支持和 Ticket availability    | Renderer 脱敏快照             | Account Access / Off-Peak Server            | 现有 Service 缓存                    |
-| 创建/编辑草稿                      | `OffPeakEditView` local state | Renderer draft                              | 用户确认前不持久化                   |
-| 已选 model / thought               | Task UI 投影                  | Off-Peak Task Service/Repo                  | `off_peak_tasks.model/thought_level` |
-| 实际执行 Model                     | 当前 automatic turn           | Registry / ModelFactory 创建的 Active Model | 不写 Session Selection               |
+| Estado/fato                                    | Exibido ou cacheado          | Owner autoritativo                          | Commit sink / persistência            |
+| ---------------------------------------------- | ---------------------------- | ------------------------------------------- | -------------------------------------- |
+| Exposição da entrada                           | Snapshot Zustand do Off-Peak | `client/configs` remoto                     | Não é persistido de forma independente |
+| Candidatos de modelo, Properties, Option Specs | Selection View scoped       | Provider Registry                           | Não é persistido de forma independente |
+| Suporte de plano e availability de Ticket      | Snapshot sanitizado do Renderer | Account Access / Off-Peak Server       | Cache de Service existente             |
+| Rascunho de criação/edição                     | local state de `OffPeakEditView` | Rascunho do Renderer                 | Não é persistido antes da confirmação do usuário |
+| model / thought selecionado                    | Projeção de UI da Task       | Off-Peak Task Service/Repo                  | `off_peak_tasks.model/thought_level`   |
+| Model realmente executado                      | Turno automático atual       | Active Model criado pelo Registry / ModelFactory | Não escreve Session Selection     |
 
-### 6.4 分级关系
+### 6.4 Relations graduais
 
-| 等级           | 关系                                                  | 原因                                        |
-| -------------- | ----------------------------------------------------- | ------------------------------------------- |
-| must-inspect   | Registry -> scoped Off-Peak Selection View            | 新唯一候选和 Reasoning 来源                 |
-| must-inspect   | Off-Peak create/update -> Registry validation         | 避免无效选择先取 Ticket 或入库              |
-| must-inspect   | Scheduler/Host -> dispatch validation -> ModelFactory | 排队后失效必须 permanent fail-closed        |
-| should-inspect | `ModelConfigSelect` / Model Thought helper            | 共享展示实现，但草稿和提交仍属于 Off-Peak   |
-| conditional    | Mock Gateway / E2E ZCode Built-in Config              | 只影响本地开发和 E2E，不进入生产模型事实    |
-| invariant-only | Account Access / Ticket / Request Auth                | 继续负责准入与动态访问材料，不决定模型成员  |
-| invariant-only | desktop continuous / mobile replayable                | 不改变执行和恢复语义，不新增移动端 Off-Peak |
-| invariant-only | Session Selection / App Recent / Queue                | idle selection 只作用于 automatic turn      |
+| Nível           | Relação                                                  | Motivo                                                              |
+| --------------- | --------------------------------------------------------- | ------------------------------------------------------------------- |
+| must-inspect   | Registry -> scoped Off-Peak Selection View               | Nova única fonte de candidatos e Reasoning                         |
+| must-inspect   | Off-Peak create/update -> Registry validation             | Evita que uma seleção inválida obtenha Ticket ou entre no Repo     |
+| must-inspect   | Scheduler/Host -> dispatch validation -> ModelFactory     | Invalidação após o enfileiramento exige fail-closed permanente     |
+| should-inspect | `ModelConfigSelect` / Model Thought helper                | Implementação de exibição compartilhada, mas rascunho e submissão continuam do Off-Peak |
+| conditional    | Mock Gateway / ZCode Built-in Config de E2E               | Só afeta desenvolvimento local e E2E e não entra no fato de modelo de produção |
+| invariant-only | Account Access / Ticket / Request Auth                    | Continua responsável pela admissão e pelo material de acesso dinâmico e não decide membros de modelo |
+| invariant-only | desktop continuous / mobile replayable                    | Não altera semântica de execução nem de recuperação e não adiciona Off-Peak no mobile |
+| invariant-only | Session Selection / App Recent / Queue                    | A seleção idle só atua sobre o turno automático                     |
 
-### 6.5 Graph Drift 与后续 Graph Delta
+### 6.5 Graph Drift e Graph Delta subsequente
 
-当前 Feature Graph 已记录 `off-peak-model-execution -> provider-registry/model-capabilities`，但尚未明确记录
-创建/编辑 UI 的候选来自固定隐藏 Provider 的 scoped Selection View，以及提交/派发的双重 Registry 校验。
+O Feature Graph atual já registra `off-peak-model-execution -> provider-registry/model-capabilities`, mas ainda não registra explicitamente
+que os candidatos da UI de criação/edição vêm da Selection View scoped do Provider oculto fixo, nem a dupla validação de Registry na submissão e no despacho.
 
-实施本 Todo 时补充以下已确认语义边：
+Ao implementar esta Todo, acrescentar as seguintes arestas semânticas confirmadas:
 
 ```text
 surface.off-peak-creation
@@ -328,100 +309,96 @@ capability.off-peak-model-execution
   --revalidates-before-dispatch-with--> complete Provider Registry
 ```
 
-功能图当前存在并发修改，本计划落盘时不改图文件，避免覆盖相邻工作的图谱更新。
+O grafo funcional tem modificações concorrentes neste momento, e este plano não altera os arquivos do grafo ao ser gravado, evitando sobrescrever atualizações de grafo de trabalhos vizinhos.
 
-## 7. 用例与剪枝
+## 7. Casos de uso e poda
 
-### 7.1 已接受用例
+### 7.1 Casos aceitos
 
-| Case ID | Setup                                     | Action                   | Assertions                                                            | 证据层                       |
-| ------- | ----------------------------------------- | ------------------------ | --------------------------------------------------------------------- | ---------------------------- |
-| OPM-01  | hidden Off-Peak Provider 有两个可创建模型 | 打开创建页               | 普通选择 View 不含该 Provider；Off-Peak scoped View 精确包含两个模型  | Provider + Service + UI unit |
-| OPM-02  | 模型有 Reasoning Option Spec              | 切换模型和档位           | UI 只读 values/default；提交为标准 Selection 语义                     | Provider + UI unit           |
-| OPM-03  | 模型无 Reasoning Option Spec              | 从推理模型切换到该模型   | Reasoning 控件隐藏，旧档位不随提交泄漏                                | UI unit                      |
-| OPM-04  | 提交时模型或档位已失效                    | 创建任务                 | 本地稳定错误；不调用 takeTicket；不写 Repo                            | Service unit                 |
-| OPM-05  | queued/paused 保存选择已失效              | 编辑并保存               | 展示不可用且阻止原样保存；不静默换成首项                              | UI + Service unit            |
-| OPM-06  | History 模型已退出 Registry               | 查看历史                 | 仍展示已保存字符串，不把它加入候选或重写记录                          | UI unit                      |
-| OPM-07  | 排队后模型/档位退出 Registry              | Scheduler 派发           | 网络前拒绝；任务 permanent failed；不进入 transient 重试              | Host/Scheduler unit          |
-| OPM-08  | Task 未显式模型且 scoped View 非空        | Host 解析默认            | 只取当前 View 有序第一项，不从 Connection/Catalog/假 Model 推断       | Host unit                    |
-| OPM-09  | `ZCODE_OFFPEAK_MOCK=1`                    | 运行 Off-Peak E2E        | 产品服务由 Mock 驱动；模型候选只来自测试 ZCode Built-in Config        | Services + Desktop E2E       |
-| OPM-10  | 测试试图用未知模型                        | 构造测试 Registry / 提交 | 无 `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS` 入口；缺完整 Config 时明确失败 | Config + Service unit        |
+| Case ID | Setup                                         | Action                         | Asserções                                                                 | Camada de evidência         |
+| ------- | --------------------------------------------- | ------------------------------ | ------------------------------------------------------------------------- | ---------------------------- |
+| OPM-01  | Provider oculto do Off-Peak tem dois modelos criáveis | Abrir a página de criação      | A View comum não contém o Provider; a View scoped do Off-Peak contém com precisão os dois modelos | Provider + Service + UI unit |
+| OPM-02  | O modelo tem Reasoning Option Spec           | Trocar modelo e nível           | A UI só lê values/default; a submissão usa semântica padrão de Selection   | Provider + UI unit           |
+| OPM-03  | O modelo não tem Reasoning Option Spec       | Trocar de um modelo de raciocínio para ele | O controle de Reasoning fica oculto e o nível antigo não vaza na submissão | UI unit                      |
+| OPM-04  | O modelo ou o nível já ficou inválido na submissão | Criar tarefa                   | Erro local estável; sem chamada a takeTicket; sem escrita no Repo         | Service unit                 |
+| OPM-05  | A seleção salva de queued/paused ficou inválida | Editar e salvar                 | Mostra indisponível e impede salvar como está; não troca silenciosamente pelo primeiro item | UI + Service unit            |
+| OPM-06  | O modelo do History saiu do Registry          | Ver histórico                   | Continua exibindo a string salva, sem adicioná-la aos candidatos nem reescrever o registro | UI unit                      |
+| OPM-07  | Modelo/nível saiu do Registry após o enfileiramento | Despacho pelo Scheduler        | Recusado antes da rede; tarefa com permanent failed; não entra em retry transient | Host/Scheduler unit          |
+| OPM-08  | Task sem modelo explícito e View scoped não vazia | Host resolve o padrão           | Pega só o primeiro item ordenado da View atual e não infere de Connection/Catalog/Model falso | Host unit                    |
+| OPM-09  | `ZCODE_OFFPEAK_MOCK=1`                        | Rodar o E2E do Off-Peak         | O serviço de produto é movido pelo Mock; os candidatos de modelo vêm só do ZCode Built-in Config de teste | Services + Desktop E2E       |
+| OPM-10  | O teste tenta usar um modelo desconhecido     | Construir Registry de teste / submeter | Sem entrada `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS`; falha explícita na falta de Config completo | Config + Service unit        |
 
-### 7.2 明确剪枝
+### 7.2 Podas explícitas
 
-| 组合                                                 | 处理   | 原因                                                  |
-| ---------------------------------------------------- | ------ | ----------------------------------------------------- |
-| 手机 `/remote` 创建或编辑 Off-Peak                   | pruned | 当前产品明确不支持，不因 DTO 清理新增入口             |
-| 远程 Workspace Off-Peak                              | pruned | 当前 Off-Peak 只面向 Desktop 本地 Workspace           |
-| Registry 更新后自动重写已保存任务                    | pruned | 任务记录保存历史选择；只在编辑/派发边界校验           |
-| Account allowedModelIds 过滤 idle models             | pruned | Account 负责准入和鉴权，不拥有闲时产品模型成员        |
-| Mock 注入任意模型                                    | pruned | 模型事实必须来自测试 ZCode Built-in Config / Registry |
-| 修改 Session Selection、App Recent 或普通 busy queue | pruned | execution-scoped idle turn 的既有不变量               |
+| Combinação                                                 | Tratamento | Motivo                                                                   |
+| ---------------------------------------------------------- | --------- | ------------------------------------------------------------------------ |
+| Criar ou editar Off-Peak em `/remote` no celular            | pruned    | O produto atual não suporta explicitamente e a limpeza de DTO não cria entradas novas |
+| Off-Peak em Workspace remoto                                | pruned    | O Off-Peak atual é voltado apenas para Workspace local do Desktop       |
+| Reescrever automaticamente tarefas salvas após atualização do Registry | pruned | O registro da tarefa guarda a escolha histórica e só é validado nas fronteiras de edição/despacho |
+| Filtrar modelos idle por allowedModelIds do Account          | pruned    | O Account responde por admissão e autenticação e não possui os membros de modelo do produto off-peak |
+| Injetar modelos arbitrários pelo Mock                       | pruned    | O fato de modelo precisa vir do ZCode Built-in Config / Registry de teste |
+| Modificar Session Selection, App Recent ou a fila comum de busy | pruned | Invariantes existentes do turno idle com escopo de execução              |
 
-本 Todo 以 Provider/Services/UI/Host/Scheduler 单测为主。现有 Off-Peak Desktop E2E 只需验证 Mock + 测试
-ZCode Built-in Config 的代表性主链，不新增大规模 Conversation E2E，也不改 conversation case catalog。
+Esta Todo se apoia principalmente em testes unitários de Provider/Services/UI/Host/Scheduler. O E2E de Desktop do Off-Peak existente só precisa validar a cadeia principal representativa de Mock + ZCode Built-in Config de teste, sem novos E2Es de Conversation em larga escala e sem alterar o catálogo de cases de conversation.
 
-## 8. 实施顺序
+## 8. Ordem de implementação
 
-### Step A：Spec 与失败测试
+### Step A: Spec e testes falhos
 
-- 更新 Off-Peak spec 中候选 View、双重校验和 Mock 模型事实边界；
-- 为 scoped hidden Provider View、UI Reasoning、create/update 校验、dispatch permanent failure 和 Mock
-  ZCode Built-in Config 先写失败测试；
-- 确认 Todo 03 已发布完整 Registry Model Config 类型；若 Todo 08 已删除独立 Reasoning State，直接复用其
-  Selection View helper。
+- atualizar a spec do Off-Peak com a View de candidatos, a dupla validação e a fronteira de fato de modelo do Mock;
+- escrever primeiro os testes falhos para a View scoped de Provider oculto, o Reasoning da UI, a validação de create/update, a permanent failure de despacho e o ZCode Built-in Config de Mock;
+- confirmar que a Todo 03 já publicou o tipo de Model Config completo do Registry Model; se a Todo 08 já removeu o estado de Reasoning independente, reutilizar diretamente o helper de Selection View dela.
 
-### Step B：统一 Registry 投影
+### Step B: Unificar a projeção do Registry
 
-- 在 Provider 层提取普通 Model Selection 与 scoped Off-Peak 共用的 Provider/Model View projector；
-- 普通 Facade 继续先过滤 hidden，再调用 projector；
-- Off-Peak 服务按固定 Provider ID 精确读取并调用同一 projector；
-- 不新增 `includeHidden` 通用参数。
+- extrair na camada de Provider o projector de View de Provider/Model compartilhado entre a Model Selection comum e o Off-Peak scoped;
+- o Facade comum continua filtrando hidden primeiro e depois chamando o projector;
+- o serviço do Off-Peak lê com precisão pelo ID de Provider fixo e chama o mesmo projector;
+- não adicionar um parâmetro genérico `includeHidden`.
 
-### Step C：Service Contract 与 UI
+### Step C: Contrato de Service e UI
 
-- 将 `OffPeakClientConfig` 收口为产品 View，携带 scoped 标准 Selection View；
-- UI 直接用 Registry model candidates 构造扁平选择器；
-- Reasoning 复用正式 Model Thought Option helper；
-- 删除 `allowedModels` / `allowedModelConfigs` 和 Off-Peak legacy thought helper。
+- consolidar `OffPeakClientConfig` em uma View de produto carregando a Selection View padrão scoped;
+- a UI constrói diretamente o seletor achatado com candidatos de modelo do Registry;
+- o Reasoning reutiliza o helper formal de Model Thought Option;
+- remover `allowedModels` / `allowedModelConfigs` e o helper de thought legado do Off-Peak.
 
-### Step D：提交和派发校验
+### Step D: Validação de submissão e despacho
 
-- create/update 在 Ticket/Repo 前校验当前 Selection；
-- 派发前重新校验，确定性失效映射 permanent failure；
-- Host 默认模型读取 scoped View 的有序第一项；
-- 不从 Connection、Catalog、Provider 类型或 modelId hardcode 制造 fallback。
+- create/update valida a Selection atual antes do Ticket/Repo;
+- revalidar antes do despacho e mapear a invalidação determinística para permanent failure;
+- o Host lê como modelo padrão o primeiro item ordenado da View scoped;
+- não fabricar fallback a partir de Connection, Catalog, tipo de Provider ou hardcode de modelId.
 
-### Step E：Mock 和旧代码归零
+### Step E: Mock e código legado zerados
 
-- 删除 `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS` 生产解析、测试和文档；
-- 保留 Mock Gateway 及产品/服务状态场景变量；
-- E2E 继续从正式 ZCode Built-in Config 派生测试 Provider，只覆盖 Endpoint 和必要测试事实；
-- 删除失去调用方的 legacy DTO 构造、类型 import、helper 和测试 fixture。
+- remover a resolução de produção, os testes e a documentação de `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS`;
+- manter o Mock Gateway e as variáveis de cenário de produto/serviço;
+- o E2E continua derivando o Provider de teste do ZCode Built-in Config formal, cobrindo só o Endpoint e os fatos de teste necessários;
+- remover a construção de DTO legado, imports de tipo, helpers e fixtures de teste que ficaram sem chamadores.
 
-### Step F：验证与提交
+### Step F: Verificação e commit
 
-- 运行 Provider、Coding Plan Subscription、Off-Peak Service、UI、Host/Scheduler 受影响单测；
-- 运行代表性 Off-Peak Desktop E2E；
-- 运行 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`；
-- 更新 Feature Graph 已确认语义边；
-- 独立 Conventional Commit。
+- rodar os testes unitários afetados de Provider, Coding Plan Subscription, Off-Peak Service, UI e Host/Scheduler;
+- rodar o E2E representativo de Off-Peak do Desktop;
+- rodar `pnpm typecheck`, `pnpm lint`, `pnpm fmt:check`;
+- atualizar as arestas semânticas confirmadas do Feature Graph;
+- Conventional Commit independente.
 
-## 9. 完成定义
+## 9. Definição de conclusão
 
-- Off-Peak 生产代码不再引用 `ModelProviderModelConfig`；
-- 无 `allowedModelConfigs` 和模型事实用途的 `allowedModels`；
-- 无 `createOffPeakModelConfig()`、`createLegacyReasoningSpec()` 和旧 Off-Peak Reasoning helper；
-- 普通 `ModelSelectionView` 仍过滤 hidden Provider；
-- Off-Peak scoped View 只能解析固定 `OFF_PEAK_PROVIDER_ID`，且复用正式 View projector；
-- UI、创建/编辑校验、默认模型和派发校验读取同一 Registry revision/结构；
-- 无 `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS`；测试模型只来自测试 ZCode Built-in Config / Registry；
-- 无假 Model、fallback Model、临时 Model Config 或 Registry 外模型能力推断；
-- 失效选择在创建/编辑时不取 Ticket、不写 Repo，在派发时 permanent fail-closed；
-- Task 数据库、Ticket、Account Access、Request Auth、Telemetry、desktop continuous 与 mobile replayable
-  语义保持不变。
+- O código de produção do Off-Peak não referencia mais `ModelProviderModelConfig`;
+- não existe mais `allowedModelConfigs` nem `allowedModels` com uso como fato de modelo;
+- não existem mais `createOffPeakModelConfig()`, `createLegacyReasoningSpec()` nem o helper de Reasoning legado do Off-Peak;
+- o `ModelSelectionView` comum continua filtrando Providers ocultos;
+- a View scoped do Off-Peak só resolve o `OFF_PEAK_PROVIDER_ID` fixo e reutiliza o projector de View formal;
+- a UI, a validação de criação/edição, o modelo padrão e a validação de despacho leem a mesma revision/estrutura do Registry;
+- não existe mais `ZCODE_OFFPEAK_MOCK_ALLOWED_MODELS`; os modelos de teste vêm só do ZCode Built-in Config / Registry de teste;
+- não há Model falso, Model de fallback, Model Config temporário ou inferência de capacidade de modelo fora do Registry;
+- uma seleção inválida não obtém Ticket nem escreve no Repo em criação/edição e falha de forma fechada permanente no despacho;
+- a semântica do banco de dados de Task, do Ticket, do Account Access, do Request Auth, da Telemetry, do desktop continuous e do mobile replayable permanece inalterada.
 
-完成后，Off-Peak 从候选展示到真实执行只剩一条模型抽象链：
+Concluído, o Off-Peak tem apenas uma cadeia de abstração de modelo da exibição de candidatos à execução real:
 
 ```text
 Built-in / Account / Personal Config

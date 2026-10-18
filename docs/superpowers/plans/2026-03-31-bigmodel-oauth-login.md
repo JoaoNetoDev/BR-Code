@@ -1,54 +1,54 @@
-# BigModel OAuth Login Implementation Plan
+# Plano de Implementação do Login OAuth BigModel
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Replace username/password login with BigModel OAuth, making login optional (non-blocking).
+**Objetivo:** Substituir o login por usuário/senha pelo OAuth do BigModel, tornando o login opcional (não bloqueante).
 
-**Architecture:** New IOAuthService in host process handles OAuth business logic (state, PKCE, token exchange). Main process only registers custom protocol and routes deep links via state→windowId mapping. UI uses LoginDialog (from WelcomeScreen) with useOAuth hook. Auth state unified to Zustand store.
+**Arquitetura:** Um novo IOAuthService no processo host trata da lógica de negócio do OAuth (state, PKCE, troca de token). O processo main apenas registra o protocolo custom e roteia deep links via mapeamento state→windowId. A UI usa LoginDialog (do WelcomeScreen) com o hook useOAuth. O estado de autenticação é unificado em uma store Zustand.
 
-**Tech Stack:** Electron 41, React 19, Zustand 5, TypeScript, pnpm monorepo, shadcn UI
+**Stack técnico:** Electron 41, React 19, Zustand 5, TypeScript, monorepo pnpm, shadcn UI
 
-**Design Spec:** `docs/superpowers/specs/2026-03-31-bigmodel-oauth-login-design.md`
+**Spec de Design:** `docs/superpowers/specs/2026-03-31-bigmodel-oauth-login-design.md`
 
 ---
 
-## File Structure
+## Estrutura de Arquivos
 
-### New files
-| File | Responsibility |
+### Novos arquivos
+| Arquivo | Responsabilidade |
 |---|---|
-| `packages/shared/src/oauth.ts` | OAuth 配置常量 |
-| `packages/services/src/oauth/oauth.ts` | IOAuthService 接口 + descriptor |
-| `packages/services/src/oauth/oauthService.ts` | OAuthService Node.js 实现（state、PKCE、token exchange） |
-| `packages/ui/src/hooks/useOAuth.ts` | OAuth 登录流程 hook（startLogin + UI 状态） |
-| `packages/ui/src/hooks/useTokenRefresh.ts` | Token 刷新 hook（常驻 Root/App） |
-| `packages/ui/src/WelcomeScreen.tsx` | 内容替换为 LoginDialog 组件（保留文件，改内容和导出名） |
+| `packages/shared/src/oauth.ts` | Constantes de configuração do OAuth |
+| `packages/services/src/oauth/oauth.ts` | Interface IOAuthService + descriptor |
+| `packages/services/src/oauth/oauthService.ts` | Implementação Node.js do OAuthService (state, PKCE, troca de token) |
+| `packages/ui/src/hooks/useOAuth.ts` | Hook do fluxo de login OAuth (startLogin + estado de UI) |
+| `packages/ui/src/hooks/useTokenRefresh.ts` | Hook de refresh de token (permanente em Root/App) |
+| `packages/ui/src/WelcomeScreen.tsx` | Conteúdo substituído pelo componente LoginDialog (mantém o arquivo, troca conteúdo e nome de export) |
 
-### Modified files
-| File | Change |
+### Arquivos modificados
+| Arquivo | Mudança |
 |---|---|
 | `packages/shared/src/channels.ts` | ServiceChannels +OAuth; PlatformChannels +OpenExternal/OAuthRegisterState/OAuthCallback/RendererReady; -LoginSuccess/-Logout |
 | `packages/shared/src/platform.ts` | IPlatformService +openExternal/registerOAuthState/onOAuthCallback/notifyRendererReady; -loginSuccess/-logout |
-| `packages/shared/src/test-ids.ts` | 删除旧 TID，新增 OAuth TID |
+| `packages/shared/src/test-ids.ts` | Remove TIDs antigos de login, adiciona TIDs de OAuth |
 | `packages/services/src/accessor.ts` | +oauthService |
-| `packages/services/src/index.ts` | +IOAuthService 导出 |
-| `packages/services/src/node.ts` | +createOAuthService 注册 |
-| `packages/client/src/remoteServiceAccess.ts` | +oauthService proxy |
-| `packages/desktop/src/host/index.ts` | Remote 模式 ServiceCollection +IOAuthService |
+| `packages/services/src/index.ts` | +export de IOAuthService |
+| `packages/services/src/node.ts` | +registro de createOAuthService |
+| `packages/client/src/remoteServiceAccess.ts` | +proxy oauthService |
+| `packages/desktop/src/host/index.ts` | ServiceCollection do modo Remote +IOAuthService |
 | `packages/client/src/globals.d.ts` | +openExternal/registerOAuthState/onOAuthCallback/notifyRendererReady; -loginSuccess/-logout |
-| `packages/desktop/src/preload/index.ts` | +OAuth 方法; -loginSuccess/-logout |
-| `packages/desktop/src/renderer/src/main.tsx` | platform 实现改造; -skipAuth/-loginSuccess/-logout |
-| `packages/desktop/src/main/index.ts` | +protocol 注册/deep link/state 路由; -createLoginWindow/-hasAuthToken/-LoginSuccess/-Logout IPC |
-| `packages/desktop/vite.config.ts` | 删除 login.html 入口 |
-| `packages/desktop/electron-builder.config.js` | +protocols 配置 |
-| `packages/ui/src/Root.tsx` | 删除 mock auth; useState→Zustand; +OAuth 回调监听; +useTokenRefresh; -WelcomeScreen/-skipAuth; +LoginDialog 状态管理 |
-| `packages/ui/src/App.tsx` | 右上角：未登录显示登录按钮，已登录显示退出按钮; +onLogin prop |
-| `packages/ui/src/store/index.ts` | 删除 MOCK_USER 相关；新增 oauthError 字段用于 Root→LoginDialog 错误传递 |
-| `packages/web/src/main.tsx` | platform 适配（-loginSuccess/-logout; +空实现） |
-| `AGENTS.md` | 更新 window.zcode 允许列表 |
+| `packages/desktop/src/preload/index.ts` | +métodos OAuth; -loginSuccess/-logout |
+| `packages/desktop/src/renderer/src/main.tsx` | Reforma da implementação de platform; -skipAuth/-loginSuccess/-logout |
+| `packages/desktop/src/main/index.ts` | +registro de protocolo/roteamento de deep link/state; -createLoginWindow/-hasAuthToken/-IPC LoginSuccess/-Logout |
+| `packages/desktop/vite.config.ts` | Remove a entrada login.html |
+| `packages/desktop/electron-builder.config.js` | +configuração de protocols |
+| `packages/ui/src/Root.tsx` | Remove mock auth; useState→Zustand; +escuta de callback OAuth; +useTokenRefresh; -WelcomeScreen/-skipAuth; +gerenciamento de estado do LoginDialog |
+| `packages/ui/src/App.tsx` | Canto superior direito: exibe botão de login quando deslogado, botão de logout quando logado; +prop onLogin |
+| `packages/ui/src/store/index.ts` | Remove o relacionado a MOCK_USER; adiciona o campo oauthError para passar erro de Root→LoginDialog |
+| `packages/web/src/main.tsx` | Adaptação de platform (-loginSuccess/-logout; +implementações vazias) |
+| `AGENTS.md` | Atualiza a lista de permitidos de window.zcode |
 
-### Deleted files
-| File |
+### Arquivos excluídos
+| Arquivo |
 |---|
 | `packages/desktop/src/renderer/src/login.tsx` |
 | `packages/desktop/src/renderer/login.html` |
@@ -58,20 +58,20 @@
 
 ---
 
-## Task 1: Shared Layer — Channels, OAuth Config, Platform Types, Test IDs
+## Tarefa 1: Camada Shared — Channels, configuração OAuth, tipos de Platform, Test IDs
 
-**Files:**
-- Modify: `packages/shared/src/channels.ts`
-- Create: `packages/shared/src/oauth.ts`
-- Modify: `packages/shared/src/platform.ts`
-- Modify: `packages/shared/src/test-ids.ts`
-- Modify: `packages/shared/src/index.ts` (导出 oauth)
+**Arquivos:**
+- Modificar: `packages/shared/src/channels.ts`
+- Criar: `packages/shared/src/oauth.ts`
+- Modificar: `packages/shared/src/platform.ts`
+- Modificar: `packages/shared/src/test-ids.ts`
+- Modificar: `packages/shared/src/index.ts` (exporta oauth)
 
-- [ ] **Step 1: 修改 channels.ts — 新增 OAuth channels，删除 LoginSuccess/Logout**
+- [ ] **Passo 1: modificar channels.ts — adicionar channels de OAuth, remover LoginSuccess/Logout**
 
-在 `packages/shared/src/channels.ts` 中：
+Em `packages/shared/src/channels.ts`:
 
-ServiceChannels 新增 OAuth（在 FileWatcher 之后）：
+ServiceChannels ganha OAuth (após FileWatcher):
 ```ts
   /** 文件系统监视服务 */
   FileWatcher: "file-watcher",
@@ -80,7 +80,7 @@ ServiceChannels 新增 OAuth（在 FileWatcher 之后）：
 } as const;
 ```
 
-PlatformChannels 删除 LoginSuccess 和 Logout，新增 OAuth 相关：
+PlatformChannels remove LoginSuccess e Logout e adiciona o relacionado a OAuth:
 ```ts
 export const PlatformChannels = {
   /** 打开系统目录选择框 */
@@ -116,11 +116,11 @@ export const PlatformChannels = {
 } as const;
 ```
 
-同步删除 PlatformChannelMap 中的 LoginSuccess 和 Logout 条目（删除 `channels.ts` 第 122-129 行）。
+Remova também, em sincronia, as entradas LoginSuccess e Logout do PlatformChannelMap (remova `channels.ts` linhas 122-129).
 
-- [ ] **Step 2: 创建 oauth.ts — OAuth 配置常量**
+- [ ] **Passo 2: criar oauth.ts — constantes de configuração do OAuth**
 
-创建 `packages/shared/src/oauth.ts`：
+Crie `packages/shared/src/oauth.ts`:
 ```ts
 /**
  * BigModel OAuth 配置
@@ -140,9 +140,9 @@ export const BIGMODEL_OAUTH_CONFIG = {
 } as const;
 ```
 
-- [ ] **Step 3: 修改 platform.ts — 删除 loginSuccess/logout，新增 OAuth 方法**
+- [ ] **Passo 3: modificar platform.ts — remover loginSuccess/logout, adicionar métodos OAuth**
 
-替换 `packages/shared/src/platform.ts` 为：
+Substitua `packages/shared/src/platform.ts` por:
 ```ts
 import type { SSHConnectOptions } from "./index.js";
 
@@ -198,11 +198,11 @@ export interface IPlatformService {
 }
 ```
 
-- [ ] **Step 4: 修改 test-ids.ts — 删除旧登录 TID，新增 OAuth TID**
+- [ ] **Passo 4: modificar test-ids.ts — remover TIDs antigos de login, adicionar TIDs de OAuth**
 
-删除 `TID_LOGIN_FORM`、`TID_USERNAME_INPUT`、`TID_PASSWORD_INPUT`、`TID_LOGIN_BUTTON`、`TID_LOGIN_ERROR`。
+Remova `TID_LOGIN_FORM`、`TID_USERNAME_INPUT`、`TID_PASSWORD_INPUT`、`TID_LOGIN_BUTTON`、`TID_LOGIN_ERROR`.
 
-新增：
+Adicione:
 ```ts
 /** 右上角登录触发按钮 */
 export const TID_LOGIN_TRIGGER = "login-trigger";
@@ -212,18 +212,18 @@ export const TID_OAUTH_CANCEL = "oauth-cancel";
 export const TID_OAUTH_ERROR = "oauth-error";
 ```
 
-- [ ] **Step 5: 修改 index.ts — 导出 oauth 模块**
+- [ ] **Passo 5: modificar index.ts — exportar o módulo oauth**
 
-在 `packages/shared/src/index.ts` 中添加导出：
+Adicione o export em `packages/shared/src/index.ts`:
 ```ts
 export { BIGMODEL_OAUTH_CONFIG } from "./oauth.js";
 ```
 
-- [ ] **Step 6: 验证**
+- [ ] **Passo 6: verificar**
 
 Run: `cd packages/shared && pnpm typecheck && pnpm lint`
 
-- [ ] **Step 7: 提交**
+- [ ] **Passo 7: commitar**
 
 ```bash
 git add packages/shared/src/channels.ts packages/shared/src/oauth.ts packages/shared/src/platform.ts packages/shared/src/test-ids.ts packages/shared/src/index.ts
@@ -232,14 +232,14 @@ git commit -m "feat(shared): add OAuth channels, config, and platform types; rem
 
 ---
 
-## Task 2: IOAuthService Interface + Descriptor
+## Tarefa 2: Interface IOAuthService + Descriptor
 
-**Files:**
-- Create: `packages/services/src/oauth/oauth.ts`
+**Arquivos:**
+- Criar: `packages/services/src/oauth/oauth.ts`
 
-- [ ] **Step 1: 创建 IOAuthService 接口**
+- [ ] **Passo 1: criar a interface IOAuthService**
 
-创建 `packages/services/src/oauth/oauth.ts`：
+Crie `packages/services/src/oauth/oauth.ts`:
 ```ts
 import { ServiceChannels } from "@zcode/shared";
 import { createServiceDescriptor } from "../descriptors.js";
@@ -278,11 +278,11 @@ export interface IOAuthService {
 export const IOAuthService = createServiceDescriptor<IOAuthService>(ServiceChannels.OAuth);
 ```
 
-- [ ] **Step 2: 验证**
+- [ ] **Passo 2: verificar**
 
 Run: `cd packages/services && pnpm typecheck`
 
-- [ ] **Step 3: 提交**
+- [ ] **Passo 3: commitar**
 
 ```bash
 git add packages/services/src/oauth/oauth.ts
@@ -291,14 +291,14 @@ git commit -m "feat(services): add IOAuthService interface and descriptor"
 
 ---
 
-## Task 3: OAuthService Implementation
+## Tarefa 3: Implementação do OAuthService
 
-**Files:**
-- Create: `packages/services/src/oauth/oauthService.ts`
+**Arquivos:**
+- Criar: `packages/services/src/oauth/oauthService.ts`
 
-- [ ] **Step 1: 实现 OAuthService**
+- [ ] **Passo 1: implementar o OAuthService**
 
-创建 `packages/services/src/oauth/oauthService.ts`：
+Crie `packages/services/src/oauth/oauthService.ts`:
 ```ts
 import { randomBytes, createHash } from "node:crypto";
 import { BIGMODEL_OAUTH_CONFIG } from "@zcode/shared";
@@ -501,11 +501,11 @@ export function createOAuthService(credentialService: ICredentialService): IOAut
 }
 ```
 
-- [ ] **Step 2: 验证**
+- [ ] **Passo 2: verificar**
 
 Run: `cd packages/services && pnpm typecheck`
 
-- [ ] **Step 3: 提交**
+- [ ] **Passo 3: commitar**
 
 ```bash
 git add packages/services/src/oauth/oauthService.ts
@@ -514,18 +514,18 @@ git commit -m "feat(services): implement OAuthService with PKCE, state managemen
 
 ---
 
-## Task 4: Service Wiring — Accessor, Index, Node, RemoteServiceAccess
+## Tarefa 4: Service Wiring — Accessor, Index, Node, RemoteServiceAccess
 
-**Files:**
-- Modify: `packages/services/src/accessor.ts`
-- Modify: `packages/services/src/index.ts`
-- Modify: `packages/services/src/node.ts`
-- Modify: `packages/client/src/remoteServiceAccess.ts`
-- Modify: `packages/desktop/src/host/index.ts`
+**Arquivos:**
+- Modificar: `packages/services/src/accessor.ts`
+- Modificar: `packages/services/src/index.ts`
+- Modificar: `packages/services/src/node.ts`
+- Modificar: `packages/client/src/remoteServiceAccess.ts`
+- Modificar: `packages/desktop/src/host/index.ts`
 
-- [ ] **Step 1: 修改 accessor.ts — 新增 oauthService**
+- [ ] **Passo 1: modificar accessor.ts — adicionar oauthService**
 
-在 `packages/services/src/accessor.ts` 第 8 行后添加 import，第 19 行后添加字段：
+Em `packages/services/src/accessor.ts`, adicione o import após a linha 8 e o campo após a linha 19:
 ```ts
 import type { IOAuthService } from "./oauth/oauth.js";
 ```
@@ -533,42 +533,42 @@ import type { IOAuthService } from "./oauth/oauth.js";
   readonly oauthService: IOAuthService;
 ```
 
-- [ ] **Step 2: 修改 index.ts — 导出 OAuth 模块**
+- [ ] **Passo 2: modificar index.ts — exportar o módulo OAuth**
 
-在 `packages/services/src/index.ts` 末尾添加：
+Adicione ao final de `packages/services/src/index.ts`:
 ```ts
 // OAuth service — IOAuthService is both a type (interface) and value (descriptor)
 export { IOAuthService } from "./oauth/oauth.js";
 ```
 
-- [ ] **Step 3: 修改 node.ts — 注册 OAuthService**
+- [ ] **Passo 3: modificar node.ts — registrar o OAuthService**
 
-在 `packages/services/src/node.ts` 中：
+Em `packages/services/src/node.ts`:
 
-添加 import：
+Adicione os imports:
 ```ts
 import { IOAuthService } from "./oauth/oauth.js";
 import { createOAuthService } from "./oauth/oauthService.js";
 ```
 
-添加导出：
+Adicione o export:
 ```ts
 export { createOAuthService } from "./oauth/oauthService.js";
 ```
 
-在 `createLocalServices` 函数的 ServiceCollection 链中添加：
+Adicione na cadeia de ServiceCollection da função `createLocalServices`:
 ```ts
     .register(IFileWatcherService, createFileWatcherService())
     .register(IOAuthService, createOAuthService(createCredentialService()));
 ```
 
-注意：OAuthService 需要注入 credentialService。由于 `createLocalServices` 中各服务是独立创建的（不共享实例），这里单独创建一个 credentialService 给 OAuthService 使用。它们读写同一个文件所以数据一致。
+Atenção: o OAuthService precisa receber o credentialService por injeção. Como em `createLocalServices` cada serviço é criado de forma independente (sem compartilhar instâncias), criamos aqui um credentialService separado para uso do OAuthService. Ambos leem e escrevem o mesmo arquivo, portanto os dados são consistentes.
 
-- [ ] **Step 4: 修改 remoteServiceAccess.ts — 添加 oauthService proxy**
+- [ ] **Passo 4: modificar remoteServiceAccess.ts — adicionar o proxy oauthService**
 
-在 `packages/client/src/remoteServiceAccess.ts` 中：
+Em `packages/client/src/remoteServiceAccess.ts`:
 
-添加 import：
+Adicione o import:
 ```ts
 import {
   ...existing imports,
@@ -576,7 +576,7 @@ import {
 } from "@zcode/services";
 ```
 
-添加字段和构造器中的初始化：
+Adicione o campo e a inicialização no construtor:
 ```ts
   readonly oauthService: IOAuthService;
 ```
@@ -586,29 +586,29 @@ import {
     );
 ```
 
-- [ ] **Step 5: 修改 host/index.ts — Remote 模式注册 IOAuthService**
+- [ ] **Passo 5: modificar host/index.ts — registrar IOAuthService no modo Remote**
 
-在 `packages/desktop/src/host/index.ts` 中：
+Em `packages/desktop/src/host/index.ts`:
 
-Remote 模式的 ServiceCollection（`InitRemote` 分支）不走 `createLocalServices()`，需手动注册 IOAuthService。
+O ServiceCollection do modo Remote (branch `InitRemote`) não passa por `createLocalServices()`, então é preciso registrar o IOAuthService manualmente.
 
-添加 import：
+Adicione os imports:
 ```ts
 import { IOAuthService } from "@zcode/services";
 import { createOAuthService, createCredentialService } from "@zcode/services/node";
 ```
 
-在 remote 模式的 `new ServiceCollection()` 链中添加（OAuth 是本地操作，不走 SSH）：
+Adicione na cadeia `new ServiceCollection()` do modo remote (OAuth é uma operação local, não passa por SSH):
 ```ts
     .register(IFileWatcherService, connection.services.fileWatcherService)
     .register(IOAuthService, createOAuthService(createCredentialService()));
 ```
 
-- [ ] **Step 6: 验证**
+- [ ] **Passo 6: verificar**
 
 Run: `pnpm typecheck`
 
-- [ ] **Step 6: 提交**
+- [ ] **Passo 6: commitar**
 
 ```bash
 git add packages/services/src/accessor.ts packages/services/src/index.ts packages/services/src/node.ts packages/client/src/remoteServiceAccess.ts packages/desktop/src/host/index.ts
@@ -617,15 +617,15 @@ git commit -m "feat(services): wire IOAuthService into accessor, registry, remot
 
 ---
 
-## Task 5: Preload Bridge + globals.d.ts
+## Tarefa 5: Preload Bridge + globals.d.ts
 
-**Files:**
-- Modify: `packages/desktop/src/preload/index.ts`
-- Modify: `packages/client/src/globals.d.ts`
+**Arquivos:**
+- Modificar: `packages/desktop/src/preload/index.ts`
+- Modificar: `packages/client/src/globals.d.ts`
 
-- [ ] **Step 1: 修改 preload/index.ts — 删除 loginSuccess/logout，新增 OAuth 方法**
+- [ ] **Passo 1: modificar preload/index.ts — remover loginSuccess/logout, adicionar métodos OAuth**
 
-替换 `packages/desktop/src/preload/index.ts` 为：
+Substitua `packages/desktop/src/preload/index.ts` por:
 ```ts
 import { contextBridge, ipcRenderer } from "electron";
 import type { SSHConnectOptions } from "@zcode/shared";
@@ -696,9 +696,9 @@ ipcRenderer.on(InternalChannels.ServicePort, (event) => {
 });
 ```
 
-- [ ] **Step 2: 修改 globals.d.ts — 同步更新 window.zcode 类型**
+- [ ] **Passo 2: modificar globals.d.ts — atualizar os tipos de window.zcode em sincronia**
 
-替换 `packages/client/src/globals.d.ts` 为：
+Substitua `packages/client/src/globals.d.ts` por:
 ```ts
 import type { SSHConnectOptions } from "@zcode/shared";
 
@@ -741,11 +741,11 @@ declare global {
 }
 ```
 
-- [ ] **Step 3: 验证**
+- [ ] **Passo 3: verificar**
 
 Run: `pnpm typecheck`
 
-- [ ] **Step 4: 提交**
+- [ ] **Passo 4: commitar**
 
 ```bash
 git add packages/desktop/src/preload/index.ts packages/client/src/globals.d.ts
@@ -754,24 +754,24 @@ git commit -m "feat(desktop): update preload bridge and globals.d.ts for OAuth; 
 
 ---
 
-## Task 6: Main Process — Protocol Registration, Deep Link, IPC
+## Tarefa 6: Processo Main — registro de protocolo, deep link, IPC
 
-**Files:**
-- Modify: `packages/desktop/src/main/index.ts`
+**Arquivos:**
+- Modificar: `packages/desktop/src/main/index.ts`
 
-这是最大的改动。需要在 main/index.ts 中：
-1. 新增 custom protocol 注册和单实例锁
-2. 新增 open-url / second-instance 监听
-3. 新增 state→windowId 映射 + 冷启动缓存
-4. 新增 OpenExternal / OAuthRegisterState / RendererReady IPC 监听
-5. 删除 createLoginWindow 函数
-6. 删除 hasAuthToken 函数及启动分支
-7. 删除 LoginSuccess / Logout IPC 监听
-8. 修改 activate 事件
+Esta é a maior alteração. É preciso, em main/index.ts:
+1. adicionar o registro do protocolo custom e o lock de instância única
+2. adicionar as escutas de open-url / second-instance
+3. adicionar o mapeamento state→windowId + cache de cold start
+4. adicionar as escutas IPC de OpenExternal / OAuthRegisterState / RendererReady
+5. remover a função createLoginWindow
+6. remover a função hasAuthToken e o branch de startup correspondente
+7. remover as escutas IPC de LoginSuccess / Logout
+8. alterar o evento activate
 
-- [ ] **Step 1: 在文件顶部（app.whenReady 之前）添加 protocol 注册和单实例锁**
+- [ ] **Passo 1: adicionar registro de protocolo e lock de instância única no topo do arquivo (antes de app.whenReady)**
 
-在 `app.whenReady()` 调用之前添加：
+Adicione antes da chamada `app.whenReady()`:
 ```ts
 // ============================================================================
 // Custom Protocol 注册 + 单实例锁
@@ -806,9 +806,9 @@ app.on("second-instance", (_event, argv) => {
 });
 ```
 
-- [ ] **Step 2: 添加 deep link 处理和 state→windowId 映射**
+- [ ] **Passo 2: adicionar tratamento de deep link e mapeamento state→windowId**
 
-在文件中添加：
+Adicione ao arquivo:
 ```ts
 // ============================================================================
 // OAuth deep link 路由
@@ -847,9 +847,9 @@ function handleDeepLink(url: string) {
 }
 ```
 
-- [ ] **Step 3: 在 app.whenReady() 内添加 OAuth IPC 监听**
+- [ ] **Passo 3: adicionar as escutas IPC de OAuth dentro de app.whenReady()**
 
-在 `app.whenReady()` 回调中添加：
+Adicione no callback de `app.whenReady()`:
 ```ts
   // OAuth: 注册 state → windowId 映射
   ipcMain.on(PlatformChannels.OAuthRegisterState, (event, state: string) => {
@@ -882,21 +882,21 @@ function handleDeepLink(url: string) {
   });
 ```
 
-- [ ] **Step 4: 删除 LoginSuccess / Logout IPC 监听**
+- [ ] **Passo 4: remover as escutas IPC de LoginSuccess / Logout**
 
-删除 `main/index.ts` 中 `ipcMain.on(PlatformChannels.LoginSuccess, ...)` 和 `ipcMain.on(PlatformChannels.Logout, ...)` 两段代码（约第 832-847 行）。
+Remova de `main/index.ts` os trechos `ipcMain.on(PlatformChannels.LoginSuccess, ...)` e `ipcMain.on(PlatformChannels.Logout, ...)` (por volta das linhas 832-847).
 
-- [ ] **Step 5: 删除 hasAuthToken 函数和凭据文件直读**
+- [ ] **Passo 5: remover a função hasAuthToken e a leitura direta do arquivo de credenciais**
 
-删除 `main/index.ts` 第 175-195 行的 `credentialsDir`、`credentialsFile`、`hasAuthToken()` 函数。
+Remova de `main/index.ts` as linhas 175-195 com `credentialsDir`, `credentialsFile` e a função `hasAuthToken()`.
 
-- [ ] **Step 6: 删除 createLoginWindow 函数**
+- [ ] **Passo 6: remover a função createLoginWindow**
 
-删除 `createLoginWindow` 函数整体（约第 528-566 行）。
+Remova a função `createLoginWindow` por inteiro (por volta das linhas 528-566).
 
-- [ ] **Step 7: 修改启动逻辑 — 始终创建主窗口**
+- [ ] **Passo 7: alterar a lógica de startup — sempre criar a janela principal**
 
-将 `app.whenReady()` 中的启动分支替换：
+Substitua o branch de startup em `app.whenReady()`:
 ```ts
   // 删除:
   // if (await hasAuthToken()) {
@@ -914,9 +914,9 @@ function handleDeepLink(url: string) {
   if (protocolUrl) handleDeepLink(protocolUrl);
 ```
 
-- [ ] **Step 8: 修改 activate 事件 — 不再检查 token**
+- [ ] **Passo 8: alterar o evento activate — não verifica mais o token**
 
-将 `app.on("activate", ...)` 替换：
+Substitua `app.on("activate", ...)` por:
 ```ts
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
@@ -925,11 +925,11 @@ app.on("activate", () => {
 });
 ```
 
-- [ ] **Step 9: 验证**
+- [ ] **Passo 9: verificar**
 
 Run: `pnpm typecheck`
 
-- [ ] **Step 10: 提交**
+- [ ] **Passo 10: commitar**
 
 ```bash
 git add packages/desktop/src/main/index.ts
@@ -938,15 +938,15 @@ git commit -m "feat(desktop): add protocol registration, deep link routing; remo
 
 ---
 
-## Task 7: Desktop Platform Implementation
+## Tarefa 7: Implementação de platform no Desktop
 
-**Files:**
-- Modify: `packages/desktop/src/renderer/src/main.tsx`
-- Modify: `packages/web/src/main.tsx`
+**Arquivos:**
+- Modificar: `packages/desktop/src/renderer/src/main.tsx`
+- Modificar: `packages/web/src/main.tsx`
 
-- [ ] **Step 1: 修改 desktop main.tsx — 删除 loginSuccess/logout，添加 OAuth 方法，删除 skipAuth**
+- [ ] **Passo 1: modificar desktop main.tsx — remover loginSuccess/logout, adicionar métodos OAuth, remover skipAuth**
 
-替换 `packages/desktop/src/renderer/src/main.tsx` 中的 `desktopPlatform` 对象和 Root 渲染：
+Substitua o objeto `desktopPlatform` e a renderização do Root em `packages/desktop/src/renderer/src/main.tsx`:
 
 ```ts
 // Desktop 平台操作实现：通过 preload bridge 调用 main 进程
@@ -967,7 +967,7 @@ const desktopPlatform: IPlatformService = {
 };
 ```
 
-Root 渲染中删除 `skipAuth` prop：
+Remova a prop `skipAuth` na renderização do Root:
 ```tsx
       <Root
         services={services}
@@ -980,9 +980,9 @@ Root 渲染中删除 `skipAuth` prop：
       />
 ```
 
-- [ ] **Step 2: 修改 web main.tsx — 删除 loginSuccess/logout，添加 OAuth 空实现**
+- [ ] **Passo 2: modificar web main.tsx — remover loginSuccess/logout, adicionar implementações vazias de OAuth**
 
-将 `packages/web/src/main.tsx` 中的 `webPlatform` 替换：
+Substitua `webPlatform` em `packages/web/src/main.tsx`:
 ```ts
 const webPlatform: IPlatformService = {
   selectDirectory: () => Promise.resolve(null),
@@ -1013,11 +1013,11 @@ const webPlatform: IPlatformService = {
 };
 ```
 
-- [ ] **Step 3: 验证**
+- [ ] **Passo 3: verificar**
 
 Run: `pnpm typecheck`
 
-- [ ] **Step 4: 提交**
+- [ ] **Passo 4: commitar**
 
 ```bash
 git add packages/desktop/src/renderer/src/main.tsx packages/web/src/main.tsx
@@ -1026,15 +1026,15 @@ git commit -m "feat(desktop,web): update platform implementations for OAuth; rem
 
 ---
 
-## Task 8: UI Hooks — useOAuth + useTokenRefresh
+## Tarefa 8: Hooks de UI — useOAuth + useTokenRefresh
 
-**Files:**
-- Create: `packages/ui/src/hooks/useOAuth.ts`
-- Create: `packages/ui/src/hooks/useTokenRefresh.ts`
+**Arquivos:**
+- Criar: `packages/ui/src/hooks/useOAuth.ts`
+- Criar: `packages/ui/src/hooks/useTokenRefresh.ts`
 
-- [ ] **Step 1: 创建 useOAuth hook**
+- [ ] **Passo 1: criar o hook useOAuth**
 
-创建 `packages/ui/src/hooks/useOAuth.ts`：
+Crie `packages/ui/src/hooks/useOAuth.ts`:
 ```ts
 /**
  * useOAuth —— OAuth 登录流程 hook
@@ -1103,9 +1103,9 @@ export function useOAuth() {
 }
 ```
 
-- [ ] **Step 2: 创建 useTokenRefresh hook**
+- [ ] **Passo 2: criar o hook useTokenRefresh**
 
-创建 `packages/ui/src/hooks/useTokenRefresh.ts`：
+Crie `packages/ui/src/hooks/useTokenRefresh.ts`:
 ```ts
 /**
  * useTokenRefresh —— Token 刷新 hook（常驻层）
@@ -1153,11 +1153,11 @@ export function useTokenRefresh() {
 }
 ```
 
-- [ ] **Step 3: 验证**
+- [ ] **Passo 3: verificar**
 
 Run: `cd packages/ui && pnpm typecheck`
 
-- [ ] **Step 4: 提交**
+- [ ] **Passo 4: commitar**
 
 ```bash
 git add packages/ui/src/hooks/useOAuth.ts packages/ui/src/hooks/useTokenRefresh.ts
@@ -1166,16 +1166,16 @@ git commit -m "feat(ui): add useOAuth and useTokenRefresh hooks"
 
 ---
 
-## Task 9: LoginDialog — Replace WelcomeScreen
+## Tarefa 9: LoginDialog — substituir WelcomeScreen
 
-**Files:**
-- Modify: `packages/ui/src/WelcomeScreen.tsx` (内容完全替换为 LoginDialog 组件)
+**Arquivos:**
+- Modificar: `packages/ui/src/WelcomeScreen.tsx` (conteúdo totalmente substituído pelo componente LoginDialog)
 
-将 `WelcomeScreen.tsx` 的内容完全替换为 `LoginDialog` 组件。文件保留原路径，导出名改为 `LoginDialog`。
+Substitua totalmente o conteúdo de `WelcomeScreen.tsx` pelo componente `LoginDialog`. O arquivo mantém o caminho original, e o nome de export passa a ser `LoginDialog`.
 
-- [ ] **Step 1: 将 WelcomeScreen.tsx 改造为 LoginDialog**
+- [ ] **Passo 1: transformar WelcomeScreen.tsx em LoginDialog**
 
-替换 `packages/ui/src/WelcomeScreen.tsx` 的全部内容：
+Substitua todo o conteúdo de `packages/ui/src/WelcomeScreen.tsx`:
 ```tsx
 /**
  * LoginDialog —— OAuth 登录弹窗
@@ -1299,9 +1299,9 @@ export function LoginDialog({ open, onOpenChange }: LoginDialogProps) {
 }
 ```
 
-- [ ] **Step 2: 添加 i18n 消息**
+- [ ] **Passo 2: adicionar mensagens de i18n**
 
-在 zh-CN 和 en-US 的语言文件中添加以下 key：
+Adicione as seguintes chaves nos arquivos de idioma zh-CN e en-US:
 ```
 login.title = 登录 / Login
 login.description = 通过 BigModel 账号登录以获取完整功能 / Login with BigModel for full features
@@ -1311,17 +1311,17 @@ login.oauth.cancel = 取消 / Cancel
 login.oauth.retry = 重新登录 / Retry Login
 ```
 
-- [ ] **Step 3: 更新 UI 包的导出**
+- [ ] **Passo 3: atualizar os exports do pacote de UI**
 
-在 `packages/ui/src/index.ts` 中：
-- 将 `WelcomeScreen` 的导出替换为 `LoginDialog`
-- 如果有 `export { WelcomeScreen }` 改为 `export { LoginDialog }`
+Em `packages/ui/src/index.ts`:
+- substitua o export de `WelcomeScreen` por `LoginDialog`
+- se houver `export { WelcomeScreen }`, mude para `export { LoginDialog }`
 
-- [ ] **Step 3: 验证**
+- [ ] **Passo 3: verificar**
 
 Run: `cd packages/ui && pnpm typecheck`
 
-- [ ] **Step 4: 提交**
+- [ ] **Passo 4: commitar**
 
 ```bash
 git add packages/ui/src/WelcomeScreen.tsx packages/ui/src/index.ts
@@ -1330,50 +1330,50 @@ git commit -m "feat(ui): replace WelcomeScreen with LoginDialog for BigModel OAu
 
 ---
 
-## Task 10: Root.tsx Refactor + App.tsx Login Button
+## Tarefa 10: Refactor de Root.tsx + botão de login em App.tsx
 
-**Files:**
-- Modify: `packages/ui/src/Root.tsx`
-- Modify: `packages/ui/src/App.tsx`
+**Arquivos:**
+- Modificar: `packages/ui/src/Root.tsx`
+- Modificar: `packages/ui/src/App.tsx`
 
-这是 UI 层最核心的改动：
-1. 删除 `MOCK_USER`、`AUTH_TOKEN_KEY`、`skipAuth`、mock 登录逻辑
-2. `user` 状态从 `useState` 改为 Zustand store
-3. 新增常驻的 OAuth 回调监听 + `notifyRendererReady`
-4. 新增常驻的 `useTokenRefresh` hook
-5. 登录 UI 从全屏 WelcomeScreen 改为 LoginDialog
-6. logout 逻辑在 UI 层通过 credentialService + Zustand 处理
-7. App.tsx 中 logout 按钮改为：未登录显示"登录"，已登录显示用户名 + "退出"
+Esta é a alteração mais central na camada de UI:
+1. remover `MOCK_USER`, `AUTH_TOKEN_KEY`, `skipAuth` e a lógica de login mock
+2. mudar o estado `user` de `useState` para a store Zustand
+3. adicionar escuta permanente do callback OAuth + `notifyRendererReady`
+4. adicionar o hook permanente `useTokenRefresh`
+5. trocar a UI de login de WelcomeScreen em tela cheia por LoginDialog
+6. tratar o logout na camada de UI via credentialService + Zustand
+7. em App.tsx, o botão de logout passa a: exibir "登录" quando deslogado, e nome de usuário + "退出" quando logado
 
-- [ ] **Step 1.5: 修改 store/index.ts — 新增 oauthError 字段**
+- [ ] **Passo 1.5: modificar store/index.ts — adicionar o campo oauthError**
 
-在 `packages/ui/src/store/index.ts` 的 `ZCodeState` 接口中添加：
+Adicione à interface `ZCodeState` em `packages/ui/src/store/index.ts`:
 ```ts
   /** OAuth 回调错误（Root 层写入，LoginDialog 读取） */
   oauthError: string | null;
   setOAuthError: (error: string | null) => void;
 ```
 
-在 `create<ZCodeState>()` 的初始值中添加：
+Adicione ao valor inicial de `create<ZCodeState>()`:
 ```ts
     oauthError: null,
     setOAuthError: (error: string | null) => set({ oauthError: error }),
 ```
 
-- [ ] **Step 2: 重构 Root.tsx**
+- [ ] **Passo 2: refatorar Root.tsx**
 
-关键改动（不完整展示，实际需完整重写 RootInner）：
+Principais mudanças (exibição incompleta; na prática é preciso reescrever por completo RootInner):
 
-1. 删除 `MOCK_USER`、`AUTH_TOKEN_KEY` 常量
-2. 删除 `skipAuth` prop 及相关逻辑
-3. RootProps 中删除 `skipAuth`
-4. 将 `const [user, setUser] = useState<UserInfo | null>(skipAuth ? MOCK_USER : null)` 改为：
+1. remover as constantes `MOCK_USER` e `AUTH_TOKEN_KEY`
+2. remover a prop `skipAuth` e a lógica relacionada
+3. remover `skipAuth` de RootProps
+4. trocar `const [user, setUser] = useState<UserInfo | null>(skipAuth ? MOCK_USER : null)` por:
    ```ts
    const user = useZCodeStore((s) => s.user);
    const setUser = useZCodeStore((s) => s.setUser);
    ```
-5. 删除 `const [checked, setChecked] = useState(!!skipAuth)` — 改为根据 token 加载状态控制
-6. 启动时的 token 检查改为：
+5. remover `const [checked, setChecked] = useState(!!skipAuth)` — passar a controlar pelo estado de carregamento do token
+6. a verificação de token no startup passa a ser:
    ```ts
    useEffect(() => {
      services.credentialService.load("auth_token").then((token) => {
@@ -1395,7 +1395,7 @@ git commit -m "feat(ui): replace WelcomeScreen with LoginDialog for BigModel OAu
      });
    }, [services.credentialService, setUser]);
    ```
-7. 添加常驻的 OAuth 回调监听（在 RootInner 的 useEffect 中）：
+7. adicionar a escuta permanente do callback OAuth (no useEffect de RootInner):
    ```ts
    // 在组件顶层通过 hook 获取 setter
    const setOAuthError = useZCodeStore((s) => s.setOAuthError);
@@ -1418,20 +1418,20 @@ git commit -m "feat(ui): replace WelcomeScreen with LoginDialog for BigModel OAu
      return dispose;
    }, [platform, services.oauthService, setUser, setOAuthError]);
    ```
-8. 挂载 useTokenRefresh hook（当前为 stub，暴露 API 供后续 401 拦截集成）：
+8. montar o hook useTokenRefresh (atualmente um stub, expondo a API para a futura integração do interceptor de 401):
    ```ts
    // 注意：tryRefresh/clearCredentials 当前未被自动调用。
    // 后续需要在 API 调用层（如 oauthService 或 HTTP 拦截器）接入 401 → tryRefresh 的链路。
    // 本次只提供 hook API，实际的 401 自动刷新属于后续任务。
    const { tryRefresh, clearCredentials } = useTokenRefresh();
    ```
-9. 删除 `handleLogin` 函数
-10. 删除 `!user` 条件下渲染 WelcomeScreen 的分支 — 未登录时正常渲染主界面
-11. 添加 LoginDialog 状态管理：
+9. remover a função `handleLogin`
+10. remover o branch que renderiza WelcomeScreen sob a condição `!user` — quando deslogado, a interface principal é renderizada normalmente
+11. adicionar o gerenciamento de estado do LoginDialog:
     ```ts
     const [loginDialogOpen, setLoginDialogOpen] = useState(false);
     ```
-12. `handleLogout` 改为：
+12. `handleLogout` passa a ser:
     ```ts
     const handleLogout = async () => {
       await services.credentialService.delete("auth_token");
@@ -1440,7 +1440,7 @@ git commit -m "feat(ui): replace WelcomeScreen with LoginDialog for BigModel OAu
       setUser(null);
     };
     ```
-13. 在 App 组件传入 `onLogin`、`onLogout` 和 `user`：
+13. passar `onLogin`, `onLogout` e `user` ao componente App:
     ```tsx
     <App
       ...
@@ -1450,16 +1450,16 @@ git commit -m "feat(ui): replace WelcomeScreen with LoginDialog for BigModel OAu
       ...
     />
     ```
-14. 在 RootInner 底部渲染 LoginDialog：
+14. renderizar o LoginDialog no fim de RootInner:
     ```tsx
     <LoginDialog open={loginDialogOpen} onOpenChange={setLoginDialogOpen} />
     ```
 
-- [ ] **Step 2: 修改 App.tsx — 添加登录按钮，替代固定的 logout 按钮**
+- [ ] **Passo 2: modificar App.tsx — adicionar botão de login, substituindo o botão de logout fixo**
 
-在 `packages/ui/src/App.tsx` 中：
+Em `packages/ui/src/App.tsx`:
 
-1. Props 新增 `onLogin?: () => void` 和 `user?: UserInfo | null`：
+1. Adicione as props `onLogin?: () => void` e `user?: UserInfo | null`:
    ```ts
    export function App({
      ...
@@ -1475,7 +1475,7 @@ git commit -m "feat(ui): replace WelcomeScreen with LoginDialog for BigModel OAu
    })
    ```
 
-2. 将右上角的 logout 按钮区域改为（未登录显示登录按钮，已登录显示用户名 + 退出按钮）：
+2. Troque a área do botão de logout no canto superior direito por (botão de login quando deslogado; nome de usuário + botão de sair quando logado):
    ```tsx
    {onLogin ? (
      <button
@@ -1500,13 +1500,13 @@ git commit -m "feat(ui): replace WelcomeScreen with LoginDialog for BigModel OAu
    ) : null}
    ```
 
-3. 在 i18n 语言文件中添加 `app.login` key（登录 / Login）
+3. Adicione a chave `app.login` (登录 / Login) nos arquivos de idioma de i18n
 
-- [ ] **Step 2: 验证**
+- [ ] **Passo 2: verificar**
 
 Run: `pnpm typecheck && pnpm lint`
 
-- [ ] **Step 3: 提交**
+- [ ] **Passo 3: commitar**
 
 ```bash
 git add packages/ui/src/Root.tsx packages/ui/src/App.tsx packages/ui/src/store/index.ts
@@ -1515,31 +1515,31 @@ git commit -m "feat(ui): refactor Root.tsx + App.tsx + store — remove mock aut
 
 ---
 
-## Task 11: Cleanup — Delete Login Window, Update Vite Config, Migrate E2E Tests
+## Tarefa 11: Limpeza — excluir a janela de login, atualizar o Vite Config, migrar testes E2E
 
-**Files:**
-- Delete: `packages/desktop/src/renderer/src/login.tsx`
-- Delete: `packages/desktop/src/renderer/login.html`
-- Delete: `packages/desktop/test/e2e/pages/login.page.ts`
-- Delete: `packages/desktop/test/e2e/login.test.ts`
-- Delete: `packages/desktop/test/e2e/login-extended.test.ts`
-- Modify: `packages/desktop/vite.config.ts`
+**Arquivos:**
+- Excluir: `packages/desktop/src/renderer/src/login.tsx`
+- Excluir: `packages/desktop/src/renderer/login.html`
+- Excluir: `packages/desktop/test/e2e/pages/login.page.ts`
+- Excluir: `packages/desktop/test/e2e/login.test.ts`
+- Excluir: `packages/desktop/test/e2e/login-extended.test.ts`
+- Modificar: `packages/desktop/vite.config.ts`
 
-- [ ] **Step 1: 删除 login.tsx**
+- [ ] **Passo 1: excluir login.tsx**
 
 ```bash
 rm packages/desktop/src/renderer/src/login.tsx
 ```
 
-- [ ] **Step 2: 删除 login.html**
+- [ ] **Passo 2: excluir login.html**
 
 ```bash
 rm packages/desktop/src/renderer/login.html
 ```
 
-- [ ] **Step 3: 修改 vite.config.ts — 删除 login 入口**
+- [ ] **Passo 3: modificar vite.config.ts — remover a entrada login**
 
-在 `packages/desktop/vite.config.ts` 中，rollupOptions.input 删除 login 行：
+Em `packages/desktop/vite.config.ts`, remova a linha login de rollupOptions.input:
 ```ts
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
@@ -1547,7 +1547,7 @@ rm packages/desktop/src/renderer/login.html
         },
 ```
 
-- [ ] **Step 4: 删除旧登录 e2e 测试文件**
+- [ ] **Passo 4: excluir os arquivos antigos de teste e2e de login**
 
 ```bash
 rm packages/desktop/test/e2e/pages/login.page.ts
@@ -1555,20 +1555,20 @@ rm packages/desktop/test/e2e/login.test.ts
 rm packages/desktop/test/e2e/login-extended.test.ts
 ```
 
-这些测试依赖已删除的登录窗口、TID_USERNAME_INPUT 等元素，无法继续使用。
-OAuth 登录的 e2e 测试需要 mock BigModel 端点和 deep link，属于后续单独任务。
+Esses testes dependem da janela de login já removida e de elementos como TID_USERNAME_INPUT, portanto não podem mais ser usados.
+Os testes e2e de login OAuth exigem mock do endpoint do BigModel e do deep link, o que fica para uma tarefa separada posterior.
 
-注意：`seed-credentials.test.ts` 也引用了 `login.page.ts`，需要同步修改，移除对登录页的 import 和相关断言。
+Atenção: `seed-credentials.test.ts` também referencia `login.page.ts` e precisa ser modificado em sincronia, removendo o import da página de login e as asserções relacionadas.
 
-- [ ] **Step 5: 修改 seed-credentials.test.ts — 移除 login.page.ts 依赖**
+- [ ] **Passo 5: modificar seed-credentials.test.ts — remover a dependência de login.page.ts**
 
-检查 `packages/desktop/test/e2e/seed-credentials.test.ts` 中对 `login.page.ts` 的 import 和调用，删除或替换。该测试的核心逻辑是验证凭据种子，不依赖登录 UI 流程，只需移除登录页相关的断言。
+Verifique o import e as chamadas de `login.page.ts` em `packages/desktop/test/e2e/seed-credentials.test.ts` e remova ou substitua. A lógica central desse teste é verificar o seed de credenciais e não depende do fluxo de UI de login; basta remover as asserções relacionadas à página de login.
 
-- [ ] **Step 5: 验证**
+- [ ] **Passo 5: verificar**
 
 Run: `pnpm typecheck && pnpm lint`
 
-- [ ] **Step 6: 提交**
+- [ ] **Passo 6: commitar**
 
 ```bash
 git add -A packages/desktop/src/renderer/src/login.tsx packages/desktop/src/renderer/login.html packages/desktop/vite.config.ts packages/desktop/test/e2e/pages/login.page.ts packages/desktop/test/e2e/login.test.ts packages/desktop/test/e2e/login-extended.test.ts packages/desktop/test/e2e/seed-credentials.test.ts
@@ -1577,15 +1577,15 @@ git commit -m "chore(desktop): remove login window, old login e2e tests, fix see
 
 ---
 
-## Task 12: Build Config + AGENTS.md Update
+## Tarefa 12: Configuração de build + atualização do AGENTS.md
 
-**Files:**
-- Modify: `packages/desktop/electron-builder.config.js`
-- Modify: `AGENTS.md`
+**Arquivos:**
+- Modificar: `packages/desktop/electron-builder.config.js`
+- Modificar: `AGENTS.md`
 
-- [ ] **Step 1: 修改 electron-builder.config.js — 添加 protocols 配置**
+- [ ] **Passo 1: modificar electron-builder.config.js — adicionar a configuração protocols**
 
-在 `packages/desktop/electron-builder.config.js` 中，mac 配置之前添加 protocols：
+Em `packages/desktop/electron-builder.config.js`, adicione protocols antes da config de mac:
 ```js
   // OAuth deep link 协议注册（macOS 打包后需要 Info.plist 中声明 CFBundleURLTypes）
   protocols: [
@@ -1597,20 +1597,20 @@ git commit -m "chore(desktop): remove login window, old login e2e tests, fix see
   mac: {
 ```
 
-- [ ] **Step 2: 修改 AGENTS.md — 更新 window.zcode 允许列表和描述**
+- [ ] **Passo 2: modificar AGENTS.md — atualizar a lista de permitidos de window.zcode e sua descrição**
 
-在 `AGENTS.md` 第 92 行，更新"包括登录窗口"为"包括远程窗口"（删除登录窗口引用）。
+Na linha 92 de `AGENTS.md`, troque "包括登录窗口" por "包括远程窗口" (removendo a referência à janela de login).
 
-第 99 行更新为：
+Atualize a linha 99 para:
 ```
 * `window.zcode` 上只剩 `selectDirectory`、`activateOrSetWorkspace`、`connectRemote`、`log`、`openExternal`、`registerOAuthState`、`onOAuthCallback`、`notifyRendererReady`，不包含 credential
 ```
 
-- [ ] **Step 3: 验证**
+- [ ] **Passo 3: verificar**
 
 Run: `pnpm typecheck && pnpm lint`
 
-- [ ] **Step 4: 提交**
+- [ ] **Passo 4: commitar**
 
 ```bash
 git add packages/desktop/electron-builder.config.js AGENTS.md
@@ -1619,30 +1619,30 @@ git commit -m "chore: add protocol config for macOS deep link; update AGENTS.md"
 
 ---
 
-## Task 13: Final Verification
+## Tarefa 13: Verificação final
 
-- [ ] **Step 1: 全项目 typecheck**
+- [ ] **Passo 1: typecheck em todo o projeto**
 
 Run: `pnpm typecheck`
-Expected: 0 errors
+Esperado: 0 erros
 
-- [ ] **Step 2: 全项目 lint**
+- [ ] **Passo 2: lint em todo o projeto**
 
 Run: `pnpm lint`
-Expected: 0 errors
+Esperado: 0 erros
 
-- [ ] **Step 3: 构建验证**
+- [ ] **Passo 3: verificação de build**
 
 Run: `pnpm build`
-Expected: 成功构建
+Esperado: build bem-sucedido
 
-- [ ] **Step 4: 手动验证清单**
+- [ ] **Passo 4: checklist de verificação manual**
 
-- 启动应用 → 直接进入主界面（不弹登录窗口）
-- 右上角有「登录」按钮（`TID_LOGIN_TRIGGER`）→ 点击弹出 LoginDialog
-- LoginDialog 中点击"通过 BigModel 登录"（`TID_OAUTH_LOGIN_BUTTON`）→ 浏览器打开 BigModel 登录页
-- 完成认证后 → 应用自动回到已登录状态，LoginDialog 自动关闭
-- 右上角显示用户 displayName + 「退出」按钮
-- 认证失败时 → LoginDialog 显示错误信息，可重试
-- 点击「退出」→ 回到未登录状态，右上角恢复为「登录」按钮
-- 应用在未登录状态仍可正常使用
+- Iniciar o aplicativo → entra direto na interface principal (sem janela de login)
+- Há um botão 「登录」 no canto superior direito (`TID_LOGIN_TRIGGER`) → clicar abre o LoginDialog
+- Clicar em "通过 BigModel 登录" no LoginDialog (`TID_OAUTH_LOGIN_BUTTON`) → o navegador abre a página de login do BigModel
+- Após concluir a autenticação → o aplicativo volta automaticamente ao estado logado e o LoginDialog fecha sozinho
+- O canto superior direito exibe o displayName do usuário + o botão 「退出」
+- Em caso de falha na autenticação → o LoginDialog exibe a mensagem de erro e permite tentar de novo
+- Clicar em 「退出」 → volta ao estado deslogado e o canto superior direito volta a exibir o botão 「登录」
+- O aplicativo continua utiliz normalmente mesmo deslogado

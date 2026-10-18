@@ -1,52 +1,47 @@
-# PPTX 预览
+# Prévia de PPTX
 
-## 目标
+## Objetivo
 
-第一期在工作区 Preview Pane 中提供 `.pptx` 只读预览。预览使用
-`@aiden0z/pptx-renderer` 在 Renderer 内解析 OOXML，并将选中幻灯片渲染为 DOM。用户可以显式进入
-“选择元素”模式，把具体元素作为结构化引用加入当前主 Composer；Agent 再通过官方 PPTX skill 对
-引用做 fingerprint 校验、OOXML 定位和窄范围写回。
+A primeira entrega oferece prévia somente leitura de `.pptx` no Preview Pane do workspace. A prévia usa
+`@aiden0z/pptx-renderer` para analisar OOXML dentro do Renderer e renderiza o slide selecionado como DOM. O usuário pode entrar explicitamente
+no modo "Selecionar elemento" e adicionar um elemento concreto ao Composer principal atual como referência estruturada; o Agent então usa a skill oficial de PPTX para fazer
+verificação por fingerprint, localização OOXML e escrita de retorno de escopo estreito sobre essa referência.
 
-Preview Pane 内不提供 DOM 编辑、PPTX 导出或直接写回；Desktop 可以把当前只读渲染结果导出为新的
-PDF，但接口必须按能力拆分，后续实现不能依赖 `@aiden0z/pptx-renderer` 的私有 DOM 结构。Preview Pane
-顶栏保留与
-XLSX、DOCX 相同的通用“在外部编辑器打开”按钮；该操作离开内置预览，不属于 PPTX 内部编辑能力。
+O Preview Pane não oferece edição de DOM, exportação PPTX nem escrita direta de retorno; o Desktop pode exportar o resultado da renderização somente leitura atual como um novo
+PDF, mas a interface precisa ser dividida por capacidade, e a implementação posterior não pode depender da estrutura de DOM privada de `@aiden0z/pptx-renderer`. A barra superior do Preview Pane mantém o botão genérico
+"Abrir no editor externo", igual ao de
+XLSX e DOCX; essa ação sai da prévia embutida e não faz parte da capacidade de edição interna de PPTX.
 
-## 产品边界
+## Limites de Produto
 
-- 仅支持 `.pptx`；`.ppt`、`.pptm`、加密或损坏文件不在第一期范围内。
-- 内置 PPTX 预览保持只读，不展示 DOM 编辑、PPTX 保存或协作入口。Desktop 在平台同时提供
-  `printPageToPdf` 与 `saveFile` 时展示“导出为 PDF”；Web 和手机 `/remote` 不展示 Electron-only 入口。
-- PDF 导出创建新的本地 `.pdf`，不覆盖源 PPTX，也不写回远程 workspace。输出表达当前
-  `pptx-renderer` DOM 的 Chromium 打印效果，不承诺 PowerPoint/WPS 原生或无损转换。
-- 元素引用首期只支持 slide-owned `shape`、`picture`、`chart`、`table` 与 `table-cell`。master/layout
-  元素、group 本身及组内非文本子元素不生成可选引用；组内文本可作为 shape 文本引用。
-- 普通点击继续承担超链接等预览交互；只有用户显式开启“选择元素”模式后，元素 overlay 才接管点击。
-- 选择一个元素后先显示本地选中态，再由用户执行“添加到当前任务”；不会自动发送 prompt。
-- 引用只加入当前 focused/primary Composer，按 `workspaceKey + remoteSessionId + draft/session scope`
-  隔离；相同 source path、fingerprint、slide part、node id 与 table cell 坐标精确去重。
-- Composer 聚合 chip 只负责展开引用列表；列表中的具体引用项可打开对应 PPTX，并尝试定位引用时的
-  `slideIndex`。草稿引用与历史 user row 中恢复的只读引用使用相同导航语义。
-- 引用导航开始前必须退出 Preview Pane 的元素选择模式并清除本地选中元素。导航只定位文件与页码，
-  不自动恢复选择模式、不高亮旧元素，也不修改结构化引用。
-- 文件不存在与引用页码不存在使用两个独立 toast。只要文件仍可打开，即使引用页码已不存在，也必须
-  展开文件预览；新打开的文件停留在默认页，已打开的同文件保留当前页，不能把 clamp 后的其它页伪装成
-  定位成功。
-- 文件 fingerprint 已变化但原页码仍存在时，继续按原页码定位，并以非阻塞 toast 提示内容可能与引用时
-  不同。文件/页码导航失败不影响 Composer 草稿或历史引用。
-- 顶栏展示 Preview Pane 通用的“在外部编辑器打开”按钮，与 XLSX、DOCX 使用相同的编辑器选择、
-  能力判断和 `IPlatformService.openInEditor()` 链路；该入口不改变内置预览的只读边界，也不承担
-  原文件写回语义。
-- 不承诺 PowerPoint 完整保真。动画、切换、公式、OLE、完整 EMF/WMF、真实 3D 等内容按
-  `pptx-renderer` 的当前能力降级。
-- UI 相关最终验收由人工在 Desktop 和手机 Web 上完成。
+- Apenas `.pptx` é suportado; `.ppt`, `.pptm`, arquivos criptografados ou corrompidos não estão no escopo da primeira entrega.
+- A prévia PPTX embutida permanece somente leitura, sem exibir edição de DOM, salvamento de PPTX ou entrada de colaboração. O Desktop exibe "Exportar como PDF" quando a plataforma oferece ao mesmo tempo
+  `printPageToPdf` e `saveFile`; o Web e o `/remote` do celular não exibem a entrada exclusiva de Electron.
+- A exportação PDF cria um novo `.pdf` local, não sobrescreve o PPTX de origem nem escreve de volta no workspace remoto. A saída expressa o efeito de impressão Chromium do DOM atual do
+  `pptx-renderer`, sem promessa de conversão nativa ou sem perdas do PowerPoint/WPS.
+- As referências de elemento da primeira entrega suportam apenas `shape`, `picture`, `chart`, `table` e `table-cell` pertencentes ao slide. Elementos master/layout,
+  o próprio group e elementos não textuais dentro do grupo não geram referências selecionáveis; o texto dentro de um grupo pode ser referenciado como texto de shape.
+- O clique comum continua responsável por interações de prévia como hyperlinks; os overlays de elemento só assumem o clique depois que o usuário habilita explicitamente o modo "Selecionar elemento".
+- Depois de selecionar um elemento, primeiro é exibido o estado local de seleção, e então o usuário executa "Adicionar à tarefa atual"; nenhum prompt é enviado automaticamente.
+- As referências só entram no Composer focused/primary atual, isoladas por `workspaceKey + remoteSessionId + draft/session scope`;
+  source path, fingerprint, slide part, node id e coordenadas de table cell idênticos são deduplicados de forma exata.
+- O chip agregador do Composer serve apenas para expandir a lista de referências; os itens concretos da lista podem abrir o PPTX correspondente e tentar localizar o
+  `slideIndex` da referência. Referências de rascunho e referências somente leitura recuperadas de user rows do histórico usam a mesma semântica de navegação.
+- Antes de iniciar a navegação de uma referência, é preciso sair do modo de seleção de elementos do Preview Pane e limpar o elemento selecionado localmente. A navegação apenas localiza arquivo e página,
+  sem restaurar automaticamente o modo de seleção, sem destacar o elemento antigo e sem modificar a referência estruturada.
+- Arquivo inexistente e página de referência inexistente usam dois toasts independentes. Enquanto o arquivo ainda puder ser aberto, mesmo que a página referenciada não exista mais, é preciso
+  expandir a prévia do arquivo; um arquivo recém-aberto fica na página padrão e um arquivo já aberto mantém a página atual, sem disfarçar outras páginas após o clamp como
+  sucesso de localização.
+- Quando o fingerprint do arquivo mudou mas a página original ainda existe, continua-se localizando pela página original e mostra-se um toast não bloqueante avisando que o conteúdo pode estar diferente do momento da referência. Falhas de navegação de arquivo/página não afetam o rascunho do Composer nem as referências do histórico.
+- A barra superior exibe o botão genérico do Preview Pane "Abrir no editor externo", usando a mesma seleção de editor, o mesmo julgamento de capacidade e a mesma cadeia `IPlatformService.openInEditor()` de XLSX e DOCX; essa entrada não muda o limite somente leitura da prévia embutida e não carrega a semântica de escrita de volta do arquivo original.
+- Não há promessa de fidelidade completa ao PowerPoint. Animações, transições, fórmulas, OLE, EMF/WMF completos, 3D real e afins são degradados conforme a capacidade atual do
+  `pptx-renderer`.
+- A aceitação final relacionada à UI é feita manualmente no Desktop e no Web do celular.
 
-## 已打开文件的变化自动重载
+## Recarregamento Automático de Arquivos Já Abertos
 
-已在 Preview Pane 标签页中打开的 PPTX 必须监听源文件所在目录。Host 文件监听事件命中当前
-`source.path` 后，Preview Pane 重新读取完整文件字节，并把新的 `ArrayBuffer` 交给 viewer generation
-生命周期。不能把 watcher、文件读取或预览状态放进 desktop main、relay、Agent runtime 或 conversation
-snapshot。
+Um PPTX já aberto em uma aba do Preview Pane precisa observar o diretório onde o arquivo de origem está. Quando um evento de escanear arquivo do Host atinge o
+`source.path` atual, o Preview Pane relê os bytes completos do arquivo e entrega o novo `ArrayBuffer` ao ciclo de vida da generation do viewer. O watcher, a leitura de arquivo e o estado da prévia não podem ser colocados no desktop main, no relay, no runtime do Agent nem em snapshot de conversa.
 
 ```text
 open PPTX tab
@@ -64,42 +59,42 @@ target file changed / renamed / recreated
      |-- missing/invalid -> show existing localized read error; keep directory watcher alive
 ```
 
-### 边界决策
+### Decisões de Fronteira
 
-| 边界          | 决策                                                                                                                  |
-| ------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 监听对象      | 监听父目录而不是文件句柄，兼容 PowerPoint/WPS 的临时文件加原子 rename 保存方式                                        |
-| 目标过滤      | `FileWatchEvent.changedPath` 可选；明确为其它文件时忽略，旧 Host 或未知路径事件保守重载                               |
-| 首次读取      | 先建立 watcher 订阅再读取，避免订阅建立前的保存事件导致预览长期停留在旧版本                                           |
-| 并发          | watcher 事件只增加 reload generation；旧 range read、旧解析和旧 render 均不得提交状态                                 |
-| 状态重置      | 成功接收新字节后回到第 1 页、100% 缩放并退出元素选择，清除选中元素和未确认 AI 编辑草稿                                |
-| Composer 引用 | 已加入 Composer 或历史消息的结构化引用保留原 fingerprint，不随预览重载删除或改写                                      |
-| 本地/远程     | 继续通过 `useWorkspaceServices(workspacePath, remoteSessionId, workspaceIdentity)` 选择已有 Host watcher/file service |
-| delivery      | 预览重载是 renderer-local 投影，不进入 desktop continuous 或 web remote replayable 消息流                             |
-| PDF 导出      | 本轮不改变导出事务；导出中的 document generation 不因异步 watcher 回调被错误复用，失败仍走既有导出错误路径            |
+| Fronteira          | Decisão                                                                                                                |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Objeto observado  | Observar o diretório pai em vez de um handle de arquivo, para ser compatível com o salvamento por arquivo temporário mais rename atômico do PowerPoint/WPS |
+| Filtro de alvo   | `FileWatchEvent.changedPath` é opcional; quando aponta explicitamente para outro arquivo, o evento é ignorado, e eventos de Host antigo ou de caminho desconhecido recarregam de forma conservadora |
+| Primeira leitura  | Estabelecer a assinatura do watcher antes de ler, evitando que um evento de salvamento anterior à assinatura deixe a prévia presa numa versão antiga |
+| Concorrência      | Eventos do watcher apenas incrementam a generation de reload; leituras de range antigas, análises antigas e renders antigos não podem submeter estado |
+| Reset de estado   | Depois de receber os novos bytes com sucesso, voltar à página 1, 100% de zoom e sair do modo de seleção de elemento, limpando o elemento selecionado e o rascunho de edição de IA não confirmado |
+| Referências no Composer | Referências estruturadas já adicionadas ao Composer ou em mensagens do histórico mantêm o fingerprint original e não são apagadas nem reescritas pelo recarregamento da prévia |
+| Local/remoto      | Continuar selecionando os Host watcher/file services existentes via `useWorkspaceServices(workspacePath, remoteSessionId, workspaceIdentity)` |
+| delivery          | O recarregamento da prévia é uma projeção local do renderer e não entra no fluxo de mensagens do desktop continuous nem do web remote replayable |
+| Exportação PDF    | Esta rodada não muda a transação de exportação; a document generation em andamento na exportação não é reutilizada por engano por callbacks assíncronos do watcher, e a falha continua seguindo o caminho de erro de exportação já existente |
 
-### 状态组合与剪枝
+### Combinações de Estado e Poda
 
-| Case ID        | Setup                                         | Event                                    | Expected result                                                    | 状态                     |
-| -------------- | --------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------ | ------------------------ |
-| PPTX-RELOAD-01 | 本地 PPTX 标签页已打开                        | 同一文件保存                             | 重新读取并以全新 viewer generation 从默认状态显示                  | accepted                 |
-| PPTX-RELOAD-02 | SSH/WSL/Docker 或手机 `/remote` 附着已有 Host | 同一远程文件保存                         | 只调用对应 workspace-scoped watcher/file service，不读取本机同路径 | accepted                 |
-| PPTX-RELOAD-03 | PPTX 已打开                                   | 同目录其它文件变化且事件含 `changedPath` | 不重新读取 PPTX                                                    | accepted                 |
-| PPTX-RELOAD-04 | 旧 Host 或平台 watcher 不提供具体变化路径     | 收到目录事件                             | 保守重新读取当前 PPTX                                              | accepted                 |
-| PPTX-RELOAD-05 | 连续保存或写入期间发生多次事件                | 多个读取并发                             | 只有最新 reload generation 可以提交字节、错误和 loading 状态       | accepted                 |
-| PPTX-RELOAD-06 | 文件被删除后标签页仍打开                      | 删除后重新创建                           | 先显示缺失错误；父目录 watcher 保留，重建后恢复预览                | accepted                 |
-| PPTX-RELOAD-07 | 已存在 Composer PPTX 引用                     | 源文件重载                               | viewer-local 选择清空，Composer 引用保持原 fingerprint             | accepted                 |
-| PPTX-RELOAD-08 | 未打开或标签页已关闭                          | 文件变化                                 | 不存在 watcher，不触发读取                                         | pruned：无可见预览 owner |
+| Case ID        | Setup                                           | Evento                                    | Resultado esperado                                                      | Estado                    |
+| -------------- | ----------------------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------- | ------------------------- |
+| PPTX-RELOAD-01 | Aba de PPTX local já aberta                     | O mesmo arquivo é salvo                   | Relê e exibe a partir do estado padrão com uma generation de viewer totalmente nova | accepted                 |
+| PPTX-RELOAD-02 | SSH/WSL/Docker ou `/remote` do celular anexado a um Host existente | O mesmo arquivo remoto é salvo | Chama apenas o watcher/file service do workspace correspondente, sem ler o mesmo caminho local | accepted |
+| PPTX-RELOAD-03 | PPTX aberto                                     | Outro arquivo do mesmo diretório muda e o evento contém `changedPath` | Não relê o PPTX                                                        | accepted                 |
+| PPTX-RELOAD-04 | Host antigo ou watcher da plataforma que não fornece o caminho concreto da mudança | Recebe um evento de diretório | Relê conservadoramente o PPTX atual                                      | accepted                 |
+| PPTX-RELOAD-05 | Vários eventos durante salvamentos ou escritas consecutivos | Leituras concorrentes                     | Apenas a generation de reload mais recente pode submeter bytes, erro e estado de loading | accepted |
+| PPTX-RELOAD-06 | Arquivo é deletado com a aba ainda aberta        | Recriado após a exclusão                  | Mostra primeiro o erro de ausência; o watcher do diretório pai é mantido e a prévia é restaurada após a recriação | accepted |
+| PPTX-RELOAD-07 | Já existe uma referência PPTX no Composer       | Recarrega o arquivo de origem             | A seleção local do viewer é limpa e a referência do Composer mantém o fingerprint original | accepted |
+| PPTX-RELOAD-08 | Não aberto ou aba já fechada                    | O arquivo muda                            | Não existe watcher e nenhuma leitura é disparada                       | podado: não há owner de prévia visível |
 
-该能力不涉及 conversation/session 状态组合，不新增 conversation E2E case catalog 或 coverage matrix；
-自动化覆盖 service、hook 和 viewer lifecycle，真实 Office 保存行为与 UI 刷新由人工在各平台验收。
+Essa capacidade não envolve combinações de estado de conversa/sessão e não acrescenta case catalog nem coverage matrix de E2E de conversa;
+a cobertura automática abrange service, hook e ciclo de vida do viewer, enquanto o comportamento real de salvamento do Office e o refresh de UI são aceitos manualmente em cada plataforma.
 
-## PDF 导出
+## Exportação PDF
 
-Desktop PDF 导出复用同一 `PresentationPreviewDocument`，在 Renderer 中创建一次性的全量打印 DOM，
-等待页面 render handle、字体、图片解码和两个绘制帧就绪后，再由 Desktop Main 对当前
-`webContents` 调用 `printToPDF()`。保存对话框只在 PDF 字节生成成功后出现；取消保存不报错，打印或
-保存失败使用统一失败反馈。打印 DOM 与 render handle 在成功、失败和取消路径都必须释放。
+A exportação PDF do Desktop reutiliza o mesmo `PresentationPreviewDocument`, cria no Renderer um DOM de impressão completo e descartável uma única vez,
+e só depois de o handle de renderização da página, as fontes, a decodificação das imagens e dois quadros de pintura estarem prontos o Desktop Main chama `printToPDF()` no
+`webContents` atual. O diálogo de salvar só aparece depois que os bytes do PDF foram gerados com sucesso; cancelar o salvamento não gera erro, e falha de impressão ou
+de salvamento usa um retorno de falha unificado. O DOM de impressão e o handle de renderização precisam ser liberados tanto no caminho de sucesso quanto nos de falha e cancelamento.
 
 ```text
 viewer(document ready)
@@ -114,20 +109,15 @@ viewer(document ready)
                   `-- failed ---> failure toast
 ```
 
-字体处理只作用于一次性打印 DOM，不修改主预览 DOM：
+O tratamento de fontes atua apenas sobre o DOM de impressão descartável e não modifica o DOM principal da prévia:
 
-- 已安装、可测量且能进入 Chromium PDF 的首选字体保持不变，避免无条件统一字体造成版式退化。
-- 若 PPTX 指定字体在当前系统不可用或已知无法进入当前 Chromium PDF，从原字体栈中选择首个真实可
-  打印字体；若整条字体栈均不可用，按 CJK/Latin 文本和 sans/serif/monospace/narrow 类别选择当前
-  操作系统可用的确定性 fallback。macOS `PingFang SC` 在当前 Skia/PDF m146 可用于屏幕绘制但不会写入
-  PDF，导出时必须跳过并选择 `Hiragino Sans GB`、`Arial Unicode MS` 等可打印 CJK 字体。
-- 打印前必须移除不可用字体前缀，把真实可用字体放在 `font-family` 首位。仅等待
-  `document.fonts.ready` 不能证明系统字体存在，也不能证明 Chromium PDF 管线会保留屏幕端的隐式
-  fallback。
-- 字体替换可能改变字符宽度与换行，因此 PDF 仍以“当前预览能力下的可读导出”为边界；不能把 fallback
-  描述为原字体保真或 Office 原生转换。
+- A fonte preferida que já está instalada, é mensurável e consegue entrar no PDF do Chromium é mantida como está, evitando que a unificação incondicional de fontes degrade o layout.
+- Se a fonte especificada pelo PPTX não está disponível no sistema atual ou sabe-se que não consegue entrar no PDF do Chromium atual, escolhe-se a primeira fonte realmente imprimível da pilha original; se toda a pilha estiver indisponível, escolhe-se um fallback determinístico disponível no sistema operacional atual conforme o texto CJK/Latin e as categorias sans/serif/monospace/narrow. No macOS, `PingFang SC` pode ser usado para desenho na tela no Skia/PDF m146 atual, mas não é gravado no PDF; na exportação é preciso pulá-la e escolher uma fonte CJK imprimível como `Hiragino Sans GB` ou `Arial Unicode MS`.
+- Antes da impressão é preciso remover prefixos de fontes indisponíveis e colocar a fonte realmente disponível em primeiro lugar em `font-family`. Apenas esperar
+  `document.fonts.ready` não prova que a fonte do sistema existe, nem prova que o pipeline de PDF do Chromium preserva o fallback implícito do lado da tela.
+- A substituição de fontes pode alterar a largura dos caracteres e as quebras de linha, então o PDF continua limitado a "uma exportação legível dentro da capacidade atual de prévia"; o fallback não pode ser descrito como fidelidade à fonte original nem como conversão nativa do Office.
 
-## 界面
+## Interface
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -150,48 +140,32 @@ viewer(document ready)
 └──────────────┴───────────────────────────────────────────────┘
 ```
 
-- 左侧是固定语义的垂直缩略图列表；选中项使用 `bg-selected` 和可见边框。
-- 主区域一次只挂载一页，保持页面纵横比并在可用区域内居中。
-- PPTX 预览的缩略图栏和底部工具栏统一使用 `bg-surface/30`；幻灯片外框、缩略图画布和主预览画布保持原有背景层级，幻灯片渲染内容、选中态和 hover 语义保持独立。
-- 主区域下方工具栏支持上一页、下一页、输入页码跳转、缩小、显示倍率和放大。
-- 工具栏提供显式“选择元素”开关；打开后，hover/selected overlay 使用稳定 element bounds，不读取
-  `pptx-renderer` 私有 DOM class、子节点顺序或 store。
-- 多层元素按 slide z-order 命中最上层；table cell 比 table 容器优先。选中元素上方先展示只包含
-  “AI 编辑”的上下文悬浮条；点击后只进入 viewer-local 编辑意见草稿，不立即向 Composer 分发引用。
-  原悬浮条替换为沿用代码评论样式的多行评论框、“取消”和“添加到对话”二阶段悬浮条：取消只丢弃本次意见并回到
-  “AI 编辑”菜单；确认后才把结构化引用加入当前 Composer，不自动发送 prompt，并保留元素高亮。
-  输入为空也允许添加纯元素引用；非空输入 trim 后保存为 `comment`。评论框展开期间，键盘输入归输入框
-  所有：方向键只移动光标、不翻页，Esc 与“取消”同义，只丢弃本次评论草稿并回到“AI 编辑”菜单；中文/日文
-  输入法组合态下的 Esc 属于取消候选词，既不关闭悬浮条也不丢弃草稿（同时读取 composition 事件维护的本地
-  状态与平台 `isComposing`，避免事件时序让其中一个提前失效）；未展开评论框时 Esc 才退出选择模式。
-- 已高亮的 `shape` 或 `table-cell` 含有文本时，其 bounds 内恢复浏览器原生文字划选；高亮框和“AI 编辑”
-  悬浮条继续保留。拖拽划选不改变结构化元素选择，也不触发 PPTX 内的超链接或页面跳转；点击 bounds 外
-  的其它元素仍切换当前高亮。picture、chart、table 容器等无文本元素维持 overlay 接管指针的行为。
-- 执行“AI 编辑”时若浏览器存在非空文字选区，引用的 `selectedText` 只保存当前高亮元素 bounds 内且
-  可由该元素完整文本复核的划选文本；跨越其它 shape 或 table cell（包括 bounds 重叠元素）的选区必须
-  过滤掉其它元素内容。`text` 与 `textFingerprint` 始终对应当前高亮元素的完整文本，Agent inspect
-  使用完整文本 fingerprint 做冲突校验，`selectedText` 只作为模型理解用户编辑意图的上下文。若没有
-  可归属到当前高亮元素的非空选区，则不生成 `selectedText`。
-- `comment` 对齐代码视图评论的既有语义，只保存用户针对当前元素输入的修改意见，是引用的可选模型
-  指令；它与
-  `selectedText` 都不参与 `sourceFingerprint`、`textFingerprint`、OOXML 定位、去重或冲突校验。
-  模型必须先按原始引用 inspect 完整元素，再结合 `selectedText` 与 `comment` 生成完整替换文本。
-- 悬浮条以选中元素 overlay 作为定位锚点，通过应用层 Portal 渲染，保持稳定 UI 尺寸，不跟随
-  幻灯片 zoom 缩放，也不受页面 `overflow-hidden` 裁切。默认显示在元素上方，空间不足时翻转到下方，
-  并在 Preview viewport 内做边界避让；缩放、滚动和 viewport resize 时跟随锚点重新定位。
-- 若当前运行环境无法可靠维护缩放后的锚点定位，缩放操作必须退出元素选择模式并关闭悬浮条，不能让
-  菜单停留在旧坐标。当前 Radix Popover/Floating UI 路径支持 transform 后的 DOM 锚点，应优先跟随。
-- 左右方向键切页；页码输入框内保留文本光标语义。
-- 窄屏仍保留缩略图、主预览和全部核心操作；缩略图栏收窄，“AI 编辑”悬浮条保持同一语义并限制在
-  Preview viewport 内，不改为独立的底部 action sheet。
-- 外部打开按钮复用 Preview Pane 的通用顶栏行为；是否可用由当前平台、工作区类型和已发现的外部
-  编辑器共同决定，PPTX 不增加独立的选择或 fallback 规则。
-- 引用列表项使用真实按钮语义，支持鼠标、Enter 与 Space；删除引用是独立兄弟按钮，不能因为事件冒泡
-  触发文件导航。Desktop、手机 Web、Zai Light 与 Zai Dark 保持相同语义。
+- À esquerda há uma lista vertical de miniaturas de semântica fixa; o item selecionado usa `bg-selected` e uma borda visível.
+- A área principal monta apenas uma página por vez, preservando a proporção da página e centralizando-a na área disponível.
+- A barra de miniaturas da prévia PPTX e a barra inferior de ferramentas usam uniformemente `bg-surface/30`; a moldura do slide, o canvas das miniaturas e o canvas principal da prévia mantêm os níveis de fundo originais, e o conteúdo renderizado do slide, o estado de seleção e a semântica de hover permanecem independentes.
+- A barra de ferramentas abaixo da área principal suporta página anterior, próxima página, salto por número de página digitado, redução, exibição do fator de zoom e aumento.
+- A barra de ferramentas oferece uma chave explícita de "Selecionar elemento"; uma vez ligada, os overlays de hover/selected usam bounds de elemento estáveis e não leem
+  class privado de DOM do `pptx-renderer`, ordem de nós filhos nem store.
+- Em elementos sobrepostos, o hit-test usa o z-order do slide e acerta a camada mais alta; table cell tem prioridade sobre o contêiner de table. Acima do elemento selecionado primeiro é exibida uma barra de contexto flutuante contendo apenas "AI 编辑"; ao clicar, entra-se apenas em um rascunho local de opinião de edição do viewer, sem distribuir imediatamente a referência ao Composer.
+  A barra flutuante original é substituída por uma caixa de comentário de várias linhas com o estilo dos comentários de código já existente, mais uma barra flutuante de duas fases "Cancelar" e "Adicionar à conversa": cancelar descarta apenas esta opinião e volta ao menu "AI 编辑"; só a confirmação adiciona a referência estruturada ao Composer atual, sem enviar prompt automaticamente, e preserva o destaque do elemento.
+  É permitido adicionar uma referência de elemento puro mesmo com entrada vazia; uma entrada não vazia é salva como `comment` após trim. Enquanto a caixa de comentário está expandida, a entrada de teclado pertence à caixa de texto: as setas movem apenas o cursor e não paginam, Esc equivale a "Cancelar" e descarta apenas o rascunho de comentário voltando ao menu "AI 编辑"; no estado de composição do IME chinês/japonês o Esc é um cancelamento de palavra candidata, não fecha a barra flutuante e não descarta o rascunho (lê-se ao mesmo tempo o estado local mantido pelos eventos de composição e o `isComposing` da plataforma, evitando que o timing dos eventos invalide um deles antes da hora); só com a caixa de comentário fechada o Esc sai do modo de seleção.
+- Quando um `shape` ou `table-cell` destacado contém texto, dentro dos seus bounds é restaurada a seleção nativa de texto do navegador; a caixa de destaque e a barra flutuante "AI 编辑" continuam sendo mantidas. Arrastar a seleção não muda a seleção estruturada de elemento nem dispara hyperlinks ou saltos de página dentro do PPTX; clicar em outro elemento fora dos bounds continua trocando o destaque atual. Elementos sem texto como picture, chart e contêiner de table mantêm o comportamento de takeover de ponteiro pelo overlay.
+- Ao executar "AI 编辑", se o navegador tiver uma seleção de texto não vazia, o `selectedText` da referência salva apenas o texto selecionado que está dentro dos bounds do elemento atualmente destacado e pode ser reconferido contra o texto completo desse elemento; seleções que atravessam outros shapes ou table cells (inclusive elementos com bounds sobrepostos) precisam filtrar o conteúdo dos outros elementos. `text` e `textFingerprint` sempre correspondem ao texto completo do elemento atualmente destacado, o inspect do Agent usa o fingerprint do texto completo para a verificação de conflito, e `selectedText` serve apenas como contexto para o modelo entender a intenção de edição do usuário. Se não houver seleção não vazia atribuível ao elemento atualmente destacado, o `selectedText` não é gerado.
+- O `comment` se alinha à semântica existente dos comentários da visão de código, salvando apenas a opinião de modificação digitada pelo usuário para o elemento atual, e é uma instrução opcional de modelo da referência; ele e
+  o `selectedText` não participam de `sourceFingerprint`, `textFingerprint`, da localização OOXML, da deduplicação nem da verificação de conflitos.
+  O modelo precisa primeiro inspecionar o elemento completo pela referência original e só então gerar o texto de substituição completo combinando `selectedText` e `comment`.
+- A barra flutuante usa o overlay do elemento selecionado como âncora de posicionamento, é renderizada através de um Portal da camada de aplicação, mantém um tamanho de UI estável, não escala junto com o zoom do
+  slide e não é cortada pelo `overflow-hidden` da página. Por padrão aparece acima do elemento, vira para baixo quando não há espaço e faz desvio de borda dentro do viewport da prévia; ao ampliar, rolar e redimensionar o viewport, ela reposiciona acompanhando a âncora.
+- Se o ambiente de execução atual não conseguir manter de forma confiável o posicionamento da âncora após o zoom, a operação de zoom precisa sair do modo de seleção de elemento e fechar a barra flutuante; o menu não pode ficar parado em coordenadas antigas. O caminho atual com Radix Popover/Floating UI suporta âncoras de DOM após transform, então é preferível acompanhar.
+- As setas esquerda e direita trocam de página; dentro do campo de número de página o semântica de cursor de texto é preservada.
+- Em telas estreitas continuam as miniaturas, a prévia principal e todas as operações essenciais; a barra de miniaturas estreita, e a barra flutuante "AI 编辑" mantém a mesma semântica e fica limitada ao
+  viewport da prévia, sem virar uma action sheet inferior independente.
+- O botão de abertura externa reutiliza o comportamento genérico da barra superior do Preview Pane; a disponibilidade é decidida em conjunto pela plataforma atual, pelo tipo de workspace e pelos editores externos já descobertos, e o PPTX não acrescenta regras próprias de seleção ou fallback.
+- Os itens da lista de referências usam semântica real de botão, suportando mouse, Enter e Space; remover uma referência é um botão irmão independente e não pode disparar a navegação do arquivo por bubbling de evento. Desktop, Web do celular, Zai Light e Zai Dark mantêm a mesma semântica.
 
-## 抽象边界
+## Fronteira de Abstração
 
-Presentation 能力按接口隔离：
+A capacidade de Presentation é isolada por interface:
 
 ```text
 PresentationCapabilities
@@ -201,23 +175,22 @@ PresentationCapabilities
 └─ persistence?: Host document service       # 后续 workspace 写回
 ```
 
-`PresentationPreviewEngine` 暴露稳定的页面级契约：
+O `PresentationPreviewEngine` expõe um contrato estável no nível de página:
 
-- `open(data)`：解析二进制并返回 preview document。
-- `pageCount` / `pageSize`：页面列表与画布尺寸。
-- `renderPage(pageIndex, container)`：把单页渲染到指定容器并返回可释放 handle。
-- `getPageElements(pageIndex)`：返回应用自有的稳定元素模型，包括 slide part、OOXML node id、类型、
-  名称、文本摘要、bounds、z-order，以及 table cell 坐标；只返回当前产品范围内的 slide-owned 元素。
-- `dispose()`：销毁文档级资源。
+- `open(data)`: analisa os binários e devolve o preview document.
+- `pageCount` / `pageSize`: lista de páginas e dimensões do canvas.
+- `renderPage(pageIndex, container)`: renderiza uma única página no container indicado e devolve um handle liberável.
+- `getPageElements(pageIndex)`: devolve o modelo de elemento estável e próprio da aplicação, incluindo slide part, node id OOXML, tipo,
+  nome, resumo de texto, bounds, z-order e as coordenadas de table cell; devolve somente elementos do escopo atual de produto pertencentes ao slide.
+- `dispose()`: destrói os recursos de nível de documento.
 
-调用方不得读取第三方生成 DOM 的 class、子节点顺序或内联样式来实现业务逻辑。后续编辑通过独立
-`PresentationEditEngine` 和稳定 element ID 建模；导出通过独立 Export DOM 完成。
+Quem chama não pode ler class, ordem de nós filhos nem estilo inline do DOM gerado por terceiros para implementar lógica de negócio. A edição posterior é modelada por um
+`PresentationEditEngine` independente e IDs de elemento estáveis; a exportação é feita por um Export DOM independente.
 
-`renderPage` 的 `container` 必须是没有 React 子节点的独立 leaf mount。第三方 renderer 及其
-`dispose`/cleanup 只能增删该节点内部的 DOM；selection overlay、悬浮操作条等 React 管理节点必须作为
-leaf mount 的兄弟节点存在，禁止与 renderer 共用容器或 ref，避免命令式清理破坏 React DOM 所有权。
+O `container` de `renderPage` precisa ser um leaf mount separado sem nós filhos React. O renderer de terceiros e seu
+`dispose`/cleanup só podem adicionar e remover DOM dentro desse nó; nós gerenciados por React como o selection overlay e a barra flutuante de ações precisam existir como irmãos do leaf mount. É proibido compartilhar container ou ref com o renderer, para que a limpeza imperativa não quebre a propriedade do DOM por React.
 
-## 结构化引用与 Composer
+## Referência Estruturada e Composer
 
 ```text
 Preview source bytes + source metadata
@@ -229,7 +202,7 @@ Preview source bytes + source metadata
   -> chip + hidden `# Presentation element comments:` prompt tail
 ```
 
-引用最小结构：
+Estrutura mínima da referência:
 
 ```text
 PptxElementReference
@@ -243,26 +216,21 @@ PptxElementReference
 └─ capturedAt
 ```
 
-- `sourceFingerprint` 为完整预览字节的 `sha256:<hex>`，不是 size/mtime 的近似值。
-- 权威定位键是 `sourcePath + sourceFingerprint + slidePart + nodeId`；table cell 再加
-  `rowIndex + cellIndex`。
-  `nodeName`、完整 `text`、`textFingerprint` 和 bounds 只作复核、解释与冲突诊断，不得在歧义时猜测；
-  `selectedText` 只表达用户关注的文本片段，`comment` 只表达用户对该元素的修改意见；二者均不
-  参与定位或冲突校验。Agent 必须先 inspect 完整元素文本，再结合这两个上下文字段生成传给
-  `update-text` 的完整替换文本，不能把子串或修改意见当成独立 OOXML 目标。
-- 新发送的 prompt 尾块复用代码评论的模型语义，标题为 `# Presentation element comments:`，并在 JSON
-  前固定声明：每个非空 `comment` 都是针对该条引用的独立用户修改要求，必须逐条处理且禁止跨引用混用。
-  该声明与 `comment` 字段直接进入用户 prompt，不依赖模型加载 PPTX skill。历史
-  `# Presentation elements:` JSON 尾块继续支持反解析，但新引用不再生成旧标题。
-- Composer 聚合 chip 的悬浮列表沿用代码评论附件的层级：元素摘要和定位信息之后展示非空 `comment`，
-  便于发送前核对每条元素引用与修改意见的绑定关系。
-- prompt 尾块与附件协议分离，不上传 PPTX 二进制；历史 user row 反解析后只展示正文与引用 chip，隐藏
-  内部结构化块。selection、code comment、web element 与 presentation element 使用固定尾块顺序，
-  parser 按相反顺序消费。
-- source 切换会清除 viewer 内的 hover/selected 状态；已加入 Composer 的引用保留，直到用户删除、
-  发送成功或 scope 切换。引用不进入 task snapshot/replayable 运行态。
+- `sourceFingerprint` é o `sha256:<hex>` dos bytes completos da prévia, não uma aproximação de size/mtime.
+- A chave de localização autoritativa é `sourcePath + sourceFingerprint + slidePart + nodeId`; para table cell somam-se
+  `rowIndex + cellIndex`.
+  `nodeName`, o `text` completo, `textFingerprint` e os bounds servem apenas para reconferência, interpretação e diagnóstico de conflito, e não podem ser adivinhados em caso de ambiguidade;
+  `selectedText` expressa apenas o trecho de texto em que o usuário está focado, e `comment` expressa apenas a opinião de modificação do usuário sobre aquele elemento; nenhum dos dois participa da localização ou da verificação de conflitos. O Agent precisa inspecionar primeiro o texto completo do elemento e só então gerar o texto de substituição completo para `update-text`, combinando esses dois campos de contexto; não pode tratar uma substring ou opinião de modificação como um alvo OOXML independente.
+- O bloco de prompt enviado de novo reutiliza a semântica de modelo dos comentários de código, com o título `# Presentation element comments:`, e declara de forma fixa antes do JSON: cada `comment` não vazio é uma exigência de modificação do usuário, independente e específica daquela referência, precisa ser tratada uma a uma e não pode ser misturada entre referências.
+  Essa declaração e o campo `comment` entram diretamente no prompt do usuário e não dependem de o modelo carregar a skill de PPTX. O bloco de tail JSON histórico
+  `# Presentation elements:` continua suportando a análise inversa, mas novas referências não geram mais o título antigo.
+- A lista flutuante do chip agregador do Composer segue a hierarquia dos anexos de comentários de código: depois do resumo do elemento e das informações de localização, exibe os `comment` não vazios,
+  facilitando a conferência do vínculo de cada referência de elemento com sua opinião de modificação antes do envio.
+- O bloco de tail do prompt é separado do protocolo de anexos e não envia o binário do PPTX; depois da análise inversa, um user row histórico exibe apenas o corpo e o chip de referência, ocultando
+  o bloco estruturado interno. selection, code comment, web element e presentation element usam uma ordem fixa de tail e o parser consome na ordem inversa.
+- Trocar o source limpa o estado de hover/selected dentro do viewer; referências já adicionadas ao Composer são mantidas até o usuário removê-las, o envio ter sucesso ou o scope mudar. Referências não entram em task snapshot nem no runtime replayable.
 
-状态与时序：
+Estado e timing:
 
 ```text
 viewer idle
@@ -292,7 +260,7 @@ composer(scope A, focused)
   -- switch scope -----> clear renderer-local reference draft
 ```
 
-引用导航使用 renderer-local 一次性请求，不进入 prompt、task snapshot 或 replayable runtime：
+A navegação de referências usa uma requisição pontual local do renderer e não entra em prompt, task snapshot nem runtime replayable:
 
 ```text
 PptxReferencePreviewNavigation
@@ -301,22 +269,21 @@ PptxReferencePreviewNavigation
 └─ expectedSourceFingerprint
 ```
 
-Code Viewer tab 继续只按 `workspaceKey + sourcePath` 复用；文件树产生的通用 `file` source 与
-引用反向打开产生的 `pptx` source，只要最终指向同一个 `.pptx` 路径，就必须归一为同一个 PPTX
-resource key，不能把入口携带的 source type 当成不同文件身份。`requestId`、页码与
-`expectedSourceFingerprint` 都不得进入稳定 tab key。
-同文件的新导航请求只驱动已加载 viewer 的本地页码状态，不应重新 range-read 或解析整个 PPTX。远程
-workspace 继续使用引用携带的 `workspaceIdentity` 与 `remoteSessionId` 选择既有 Host file service；
-renderer、relay 和 desktop main 不新增文件读取或导航状态。
+A tab do Code Viewer continua sendo reutilizada apenas por `workspaceKey + sourcePath`; um source `file` genérico vindo da árvore de arquivos e um source `pptx` vindo da abertura reversa por referência, desde que apontem para o mesmo caminho `.pptx`, precisam ser normalizados para a mesma resource key de PPTX, e o source type da entrada não pode ser tratado como identidade de arquivo diferente. `requestId`, número de página e
+`expectedSourceFingerprint` não podem entrar na tab key estável.
 
-## Agent resolver 与写回
+Uma nova requisição de navegação para o mesmo arquivo apenas comanda o estado local de página do viewer já carregado e não deve gerar novo range-read nem analisar o PPTX inteiro. O workspace
+remoto continua usando o `workspaceIdentity` e o `remoteSessionId` da própria referência para selecionar o Host file service existente;
+renderer, relay e desktop main não acrescentam leitura de arquivo nem estado de navegação.
 
-> 现状：内置 document-skills 插件已对齐市场版 `pptx` 生产 skill，不再随包分发
-> `scripts/pptx_reference.py`。本节记录的 resolver 契约（fingerprint 校验、`--replace-source`
-> 与 `--output` 互斥、fail-closed 冲突处理）仍是该能力的设计基线，但当前无内置实现承载；
-> Preview Pane 结构化引用照旧注入 Composer，写回由 Agent 侧自行完成。
+## Resolver do Agent e Escrita de Retorno
 
-官方 `pptx` skill 提供 inspect-before-update 的窄接口；Preview Pane 仍保持只读：
+> Situação atual: o plugin document-skills embutido já está alinhado à skill de produção `pptx` do mercado e não distribui mais
+> `scripts/pptx_reference.py`. O contrato de resolver registrado nesta seção (verificação de fingerprint, mutualidade entre `--replace-source`
+> e `--output`, tratamento de conflito fail-closed) continua sendo a linha de base de design dessa capacidade, mas hoje não há implementação embutida que o carregue;
+> a referência estruturada do Preview Pane continua injetando no Composer, e a escrita de retorno é feita pelo próprio lado do Agent.
+
+A skill oficial `pptx` oferece uma interface estreita de inspect-before-update; o Preview Pane continua somente leitura:
 
 ```text
 reference from prompt
@@ -333,46 +300,37 @@ reference from prompt
   -> atomic replace selected output path
 ```
 
-- 首期可写范围为 shape 文本和 table-cell 文本；picture/chart/table 容器可精确 inspect，但没有未经
-  定义的通用 mutation。更新命令不得把整个 slide 或相似文本当作 fallback。同一 source revision 的
-  多个引用必须作为一次 batch 写入同一临时 PPTX，不能逐次从原文件覆盖输出而丢失前序修改。
-- 文件 fingerprint 不一致、slide/node 不存在、类型不符、table 坐标越界、零匹配或多匹配时必须
-  fail closed，并提示用户重新打开预览、重新选择；禁止继续写入。
-- fingerprint 与 OOXML 定位/复制必须消费同一份源字节快照，禁止 hash 后按路径再次打开，以免并发
-  替换把校验 revision 与实际写入 revision 分离。
-- Agent resolver 必须在任何 ZIP 条目解压前完成集中预检：压缩文件不超过 `64MB`，非目录条目不超过
-  `4000`，单条解压大小不超过 `32MB`，总解压大小不超过 `256MB`，`ppt/media/` 总大小不超过
-  `192MB`，单条压缩比不超过 `200:1`。前五项与 Preview Pane 当前读取上限及
-  `RECOMMENDED_ZIP_LIMITS` 对齐；压缩比是 resolver 防止高压缩率条目消耗 Agent/Host 资源的独立边界。
-- Resolver 必须拒绝重复条目名、绝对路径、反斜杠、NUL、`.`/`..` 路径段和加密条目。虽然 resolver
-  不会把条目解压到目录，异常名称仍会破坏按 OOXML part 定位和重打包的一致性。
-- slide XML 读取和 archive 重打包必须使用固定大小分块，并按实际读取字节再次执行单条/总量限制；
-  禁止通过 `ZipFile.read()` 将媒体或嵌入对象完整载入内存。超限和异常 ZIP 返回稳定的
-  `pptx_update_failed`，其中 `reason` 为 `zip_limit_exceeded` 或 `invalid_zip_entry`，且不得产生输出。
-- Preview Pane 结构化元素引用编辑默认覆盖引用中的 `sourcePath`；用户明确要求“另存为”、保留原稿或
-  指定新 `.pptx` 路径时才写入副本。该默认值只属于结构化引用编辑，不扩散到普通 PPTX 创建、转换、
-  PDF 导出或未来原生编辑器。
-- 覆盖源文件必须使用显式 `--replace-source`，另存副本使用 `--output <path>`，两种模式互斥；禁止把
-  缺失输出参数静默解释为破坏性覆盖。两种模式都必须先写同目录临时文件并完成 ZIP/XML/目标复验。
-- `--replace-source` 在最终原子替换前必须再次读取源路径并校验最初的 `sourceFingerprint`。若外部
-  PowerPoint/WPS 或另一 Agent 在临时文件生成期间保存了新 revision，resolver 必须删除临时文件、
-  fail closed 并保留当前源文件，禁止用模型基于旧 revision 的结果覆盖新内容。
-- 覆盖模式不自动创建备份或撤销记录；用户需要保留原稿时必须明确要求副本。远程 workspace 的执行由
-  既有 Agent/Host 工作区承担，不把 IO 放进 Renderer、relay 或 desktop main。
-- OOXML 写回只承诺上述窄范围文本替换，不承诺 PowerPoint 无损编辑、版式重排、动画或协作语义。
+- O escopo gravável da primeira entrega é o texto de shape e o texto de table cell; picture/chart e o contêiner de table podem ser inspecionados com precisão, mas não há mutation genérica definida. O comando de atualização não pode usar o slide inteiro ou um texto semelhante como fallback. Múltiplas referências da mesma source revision precisam ser gravadas em um único batch no mesmo PPTX temporário; sobrescrever a saída a partir do arquivo original uma a cada vez perderia as modificações anteriores.
+- Quando o fingerprint do arquivo não bate, o slide/nó não existe, o tipo não confere, as coordenadas de table estão fora do limite, ou há zero ou múltiplos matches, é preciso falhar fechada
+  e avisar o usuário para reabrir a prévia e selecionar de novo; é proibido continuar escrevendo.
+- O fingerprint e a localização/cópia OOXML precisam consumir a mesma snapshot de bytes de origem. É proibido fazer hash e depois reabrir pelo caminho, para que uma substituição concorrente não separe a revision validada da revision realmente gravada.
+- O resolver do Agent precisa completar uma pré-verificação centralizada antes de descompactar qualquer entrada ZIP: o arquivo compactado não pode exceder `64MB`, entradas que não são diretório não podem exceder `4000`, o tamanho descompactado de uma entrada não pode exceder `32MB`, o tamanho total descompactado não pode exceder `256MB`, o tamanho total de `ppt/media/` não pode exceder
+  `192MB` e a razão de compressão de uma entrada não pode exceder `200:1`. Os cinco primeiros itens estão alinhados ao limite de leitura atual do Preview Pane e ao
+  `RECOMMENDED_ZIP_LIMITS`; a razão de compressão é uma fronteira independente do resolver para impedir que entradas com altíssima compressão consumam recursos do Agent/Host.
+- O resolver precisa rejeitar nomes de entrada duplicados, caminhos absolutos, barras invertidas, NUL, segmentos de caminho `.`/`..` e entradas criptografadas. Embora o resolver
+  não extraia entradas para um diretório, nomes anormais ainda quebrariam a consistência de localização por OOXML part e de reempacotamento.
+- A leitura do XML do slide e o reempacotamento do archive precisam usar blocos de tamanho fixo e reaplicar os limites de entrada e total com base nos bytes efetivamente lidos;
+  é proibido usar `ZipFile.read()` para carregar mídia ou objetos incorporados inteiros na memória. Ao estourar o limite e em ZIP inválido, é preciso devolver um `pptx_update_failed` estável, com `reason` igual a `zip_limit_exceeded` ou `invalid_zip_entry`, sem gerar saída.
+- A edição de referência estruturada de elemento do Preview Pane cobre por padrão o `sourcePath` da referência; só grava em uma cópia quando o usuário pedir explicitamente "salvar como", quiser preservar o original ou especificar um novo caminho `.pptx`. Esse valor padrão pertence apenas à edição de referência estruturada e não se espalha para criação comum de PPTX, conversão, exportação PDF ou um futuro editor nativo.
+- Sobrescrever o arquivo de origem exige `--replace-source` explícito, e salvar uma cópia usa `--output <path>`; os dois modos são mutuamente exclusivos, e é proibido interpretar silenciosamente um parâmetro de saída ausente como sobrescrita destrutiva. Os dois modos precisam escrever primeiro um arquivo temporário no mesmo diretório e concluir a reverificação ZIP/XML/alvo.
+- O `--replace-source` precisa ler o caminho de origem novamente e validar o `sourceFingerprint` inicial antes da substituição atômica final. Se um PowerPoint/WPS externo ou outro Agent salvou uma nova revision enquanto o arquivo temporário era gerado, o resolver precisa apagar o arquivo temporário,
+  falhar fechada e preservar o arquivo de origem atual; é proibido sobrescrever conteúdo novo com um resultado do modelo baseado na revision antiga.
+- O modo de sobrescrita não cria automaticamente backup nem registro de undo; quando o usuário quiser preservar o original, precisa pedir explicitamente uma cópia. A execução em workspace remoto fica a cargo do
+  Agent/Host de workspace já existente, sem colocar IO no Renderer, no relay ou no desktop main.
+- A escrita de retorno OOXML só promete a substituição de texto de escopo estreito acima, sem promessa de edição sem perdas no PowerPoint, rearranjo de layout, animações ou semântica de colaboração.
 
-### 写回状态组合与剪枝
+### Combinações de Estado de Escrita de Retorno e Poda
 
-| Case ID       | Setup                                          | Event                                      | Expected result                                                         | 状态                 |
-| ------------- | ---------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- | -------------------- |
-| PPTX-WRITE-01 | 单个或同 revision 多个结构化元素引用           | 用户未指定保存策略                         | 一次 batch 使用 `--replace-source`，临时文件验证后原子覆盖 `sourcePath` | accepted             |
-| PPTX-WRITE-02 | 结构化元素引用                                 | 用户明确要求另存、保留原稿或指定新路径     | 使用 `--output` 写新 `.pptx`，源文件保持不变                            | accepted             |
-| PPTX-WRITE-03 | 引用捕获后源文件已变化                         | update 开始时 fingerprint 不匹配           | 不创建可信输出，提示重新打开预览并重新选择                              | accepted             |
-| PPTX-WRITE-04 | 初始校验通过，临时输出生成期间源文件被外部保存 | replace-source 提交前 fingerprint 再次变化 | 删除临时输出，保留外部新 revision，返回稳定冲突                         | accepted             |
-| PPTX-WRITE-05 | 同 source revision 包含多个引用                | 模型执行修改                               | 仅允许一次 `update-texts` batch，禁止逐个覆盖导致前序修改丢失           | accepted             |
-| PPTX-WRITE-06 | 普通 PPTX 创建、转换、PDF 导出或未来原生编辑器 | 未携带 Preview Pane 结构化引用             | 不继承本节覆盖默认值，继续遵守各自 artifact/save contract               | pruned：独立产品边界 |
+| Case ID       | Setup                                          | Evento                                      | Resultado esperado                                                           | Estado                 |
+| ------------- | ---------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- | ---------------------- |
+| PPTX-WRITE-01 | Uma ou várias referências estruturadas de elemento da mesma revision | Usuário não especifica política de salvamento | Um único batch usa `--replace-source` e sobrescreve `sourcePath` atomicamente após validar o arquivo temporário | accepted             |
+| PPTX-WRITE-02 | Referência estruturada de elemento             | Usuário pede explicitamente salvar como, preservar o original ou especifica novo caminho | Usa `--output` para gravar um novo `.pptx`, mantendo o arquivo de origem intacto | accepted             |
+| PPTX-WRITE-03 | O arquivo de origem mudou após a captura da referência | O fingerprint não bate no início do update | Não cria saída confiável e avisa para reabrir a prévia e selecionar de novo | accepted             |
+| PPTX-WRITE-04 | A validação inicial passou e o arquivo de origem foi salvo externamente durante a geração da saída temporária | O fingerprint muda de novo antes do commit do replace-source | Apaga a saída temporária, preserva a nova revision externa e retorna um conflito estável | accepted             |
+| PPTX-WRITE-05 | A mesma source revision contém várias referências | O modelo executa as modificações          | Só é permitido um único batch de `update-texts`; sobrescrever um a um é proibido por perder modificações anteriores | accepted             |
+| PPTX-WRITE-06 | Criação comum de PPTX, conversão, exportação PDF ou futuro editor nativo | Sem referência estruturada do Preview Pane   | Não herda o valor padrão de sobrescrita desta seção e continua obedecendo ao próprio artifact/save contract | podado: fronteira de produto independente |
 
-## 数据与进程边界
+## Fronteira de Dados e Processo
 
 ```text
 PreviewPane
@@ -383,31 +341,24 @@ PreviewPane
   -> preview DOM
 ```
 
-- 路径执行继续使用 `workspacePath/path`。
-- workspace 隔离继续使用 `workspaceIdentity?.trim() || workspacePath`，远程链路保留
-  `remoteSessionId`。
-- 手机 `/remote` 通过 shared-host attachment 使用桌面窗口已有 Host 的文件服务；不创建独立
-  local/remote Host 或 Agent runtime。
-- 文档预览与未发送引用不进入 conversation task 的 continuous/replayable 消息流；发送后的结构化
-  prompt 文本沿既有 conversation 路径传输，不新增 relay/main 业务状态。
-- `pptx-renderer` 需要完整 ArrayBuffer。第一期按 `256KB` 分段读取，文件上限为 `64MB`；旧远端缺少
-  `stat.size/readFileRange` 时，只回退现有 `readMediaPreview` 的 `8MB` 兼容通道。这个版本偏差无法由
-  Renderer 再次 `stat` 消除：旧 Host 不会返回真实 size，也没有 range 能力。
-- 旧远端的 `readMediaPreview` 超限错误必须映射为 PPTX 专属、可国际化的 `8MB` 兼容上限文案，不能
-  复用 `64MB` 文案误报真实阈值，也不能把 service 返回的绝对路径直接展示给用户。
-- 分段读取必须满足“实际已读字节数等于首次 `stat.size`”的不变式；空 chunk 或读取完成后二次
-  `stat.size` 变化均按文件不完整处理，不得把裁剪后的 buffer 交给 ZIP 解析器。
+- A execução de caminho continua usando `workspacePath/path`.
+- O isolamento de workspace continua usando `workspaceIdentity?.trim() || workspacePath`, e a cadeia remota mantém o
+  `remoteSessionId`.
+- O `/remote` do celular usa shared-host attachment com o serviço de arquivos do Host já existente na janela do desktop; não cria um Host local/remoto independente nem um runtime de Agent próprio.
+- A prévia de documento e as referências não enviadas não entram no fluxo de mensagens continuous/replayable da conversation task; o texto do prompt estruturado depois de enviado trafega pelo caminho de conversa já existente, sem novo estado de negócio no relay/main.
+- O `pptx-renderer` precisa de um ArrayBuffer completo. A primeira entrega lê em segmentos de `256KB`, com limite de arquivo de `64MB`; quando o remoto antigo não tem
+  `stat.size`/`readFileRange`, há apenas um fallback para o canal de compatibilidade de `8MB` do `readMediaPreview` existente. Esse desvio de versão não pode ser eliminado por um novo `stat` no Renderer: o Host antigo não devolve o size real e não tem capacidade de range.
+- O erro de limite do `readMediaPreview` no remoto antigo precisa ser mapeado para um texto de limite de compatibilidade de `8MB` exclusivo de PPTX e internacionalizável; não pode reutilizar o texto de `64MB` relatando um limiar falso, nem exibir ao usuário o caminho absoluto devolvido pelo service.
+- A leitura segmentada precisa satisfazer o invariante de que "a quantidade de bytes efetivamente lida é igual ao primeiro `stat.size`"; chunk vazio ou mudança de `stat.size` após a conclusão da leitura são tratados como arquivo incompleto, e é proibido entregar ao parser de ZIP um buffer aparado.
 
-## 性能和资源管理
+## Performance e Gerenciamento de Recursos
 
-- PPTX React 组件和 `@aiden0z/pptx-renderer` 必须懒加载，不进入普通代码/图片预览的初始 bundle。
-- 解析使用 `RECOMMENDED_ZIP_LIMITS`、lazy slide 和 lazy media 能力。
-- 主预览只挂载当前页；切页和卸载时调用 render handle 的 `dispose()`。
-- 缩略图使用 IntersectionObserver 近屏挂载，离屏时释放 slide handle。
-- 文档切换或 Pane 卸载时释放所有图片 Blob URL、图表实例和字体资源。
-- 文档解析和页面渲染都必须绑定到当前 viewer generation。切换文档或卸载后，即使旧
-  `open()` / render handle 的 `ready` Promise 才完成或失败，也只能释放旧资源，不能再写入当前
-  viewer 的 document 或 load error 状态。
+- Os componentes React de PPTX e o `@aiden0z/pptx-renderer` precisam ser carregados sob demanda e não entram no bundle inicial da prévia comum de código/imagem.
+- A análise usa `RECOMMENDED_ZIP_LIMITS`, slide lazy e capacidades de mídia lazy.
+- A prévia principal monta apenas a página atual; ao trocar de página e ao desmontar, chama-se o `dispose()` do handle de renderização.
+- As miniaturas usam IntersectionObserver para montar perto da tela e liberam o handle do slide quando saem da tela.
+- Ao trocar de documento ou desmontar o Pane, são liberados todos os Blob URLs de imagem, instâncias de gráfico e recursos de fonte.
+- A análise do documento e a renderização de página precisam estar vinculadas à generation atual do viewer. Depois de trocar de documento ou desmontar, mesmo que o Promise de `ready` do `open()` ou do handle de renderização antigo só então complete ou falhe, ele pode apenas liberar recursos antigos e não pode mais escrever no estado de documento ou erro de carga do viewer atual.
 
 ```text
 generation N             cleanup / data changed             generation N+1
@@ -416,65 +367,60 @@ render(N).ready ── late reject ───────────────
 open(N) ───────── late resolve ─────────────────────────────> dispose old document -> ignore
 ```
 
-- `readFileRange` 暂无底层 abort 协议；切换文档后在每次 range RPC 返回时检查 effect 的 disposed
-  状态，立即停止后续分段读取和旧 source 的状态写入。
+- O `readFileRange` ainda não tem protocolo de abort subjacente; depois de trocar de documento, o estado disposed do effect é verificado a cada retorno de range RPC, parando imediatamente as leituras segmentadas seguintes e as escritas de estado do source antigo.
 
-## 错误与日志
+## Erros e Logs
 
-- 文件不存在、`64MB` 通用上限、旧远端 `8MB` 兼容上限、读取不完整、其它读取失败、解析失败分别
-  显示可国际化的只读错误。
-- 其它 PPTX 读取错误若包含当前源文件路径，用户可见文案只保留文件名；完整路径只允许进入本地日志，
-  防止手机 `/remote` 或远程 workspace 把服务端目录暴露到界面。
-- UI 日志统一通过 `packages/ui/src/logger.ts`；不得直接调用 `console.log` 或
-  `window.zcode?.log`。
-- 高频逐节点渲染信息不落生产日志；第一期只记录一次加载/解析失败。
+- Arquivo inexistente, limite genérico de `64MB`, limite de compatibilidade de `8MB` do remoto antigo, leitura incompleta, outras falhas de leitura e falha de análise mostram cada um um
+  erro somente leitura internacionalizável.
+- Outros erros de leitura de PPTX que contenham o caminho do arquivo de origem atual: o texto visível ao usuário mantém apenas o nome do arquivo; o caminho completo só pode entrar no log local,
+  para que o `/remote` do celular ou o workspace remoto não exponha diretórios do servidor na interface.
+- Os logs de UI passam uniformemente por `packages/ui/src/logger.ts`; é proibido chamar `console.log` ou
+  `window.zcode?.log` diretamente.
+- Informações de renderização por nó e de alta frequência não vão para o log de produção; a primeira entrega registra apenas uma falha de carregamento/análise.
 
-## 后续能力预留
+## Reservas para Capacidades Futuras
 
-- DOM 编辑：文本、移动、缩放、删除、层级和 undo/redo，由 `PresentationEditEngine` 管理命令状态。
-- 当前上下文悬浮条只实现“AI 编辑”，不展示禁用或占位的格式控件。未来只有在对应
-  `PresentationEditEngine` mutation capability 存在时，才可把真实可用的行内编辑 action 加入同一操作条；
-  `canSelect`、`canReference` 与 `canMutate` 必须继续分离。
-- 导出：`PresentationExportEngine` 消费规范化 Export DOM，输出新的 PPTX 副本。
-- Preview Pane 原生保存：未来若加入，必须新增 workspace-scoped Host 文档服务，负责 edit lease、
-  source fingerprint、冲突检查、临时文件和原子替换；不扩展 `IFileService` 承担编辑事务。
+- Edição de DOM: texto, mover, redimensionar, excluir, hierarquia e undo/redo, com o estado de comandos gerenciado pelo `PresentationEditEngine`.
+- A barra flutuante de contexto atual implementa apenas "AI 编辑", sem exibir controles de formato desabilitados ou de placeholder. Somente quando a mutation capability correspondente do
+  `PresentationEditEngine` existir é possível adicionar ações de edição em linha realmente funcionais à mesma barra de ações; `canSelect`, `canReference` e `canMutate` precisam continuar separados.
+- Exportação: o `PresentationExportEngine` consome um Export DOM normalizado e gera uma nova cópia PPTX.
+- Salvamento nativo do Preview Pane: se for adicionado futuramente, precisa criar um Host document service com escopo de workspace, responsável por edit lease,
+  source fingerprint, verificação de conflitos, arquivo temporário e substituição atômica; não estender `IFileService` para assumir a transação de edição.
 
-## 验证
+## Verificação
 
-自动化检查：
+Verificações automatizadas:
 
-- `.pptx` 路径识别、source 升级和大小限制。
-- `.pptx` 与 XLSX、DOCX 的通用外部打开按钮保持相同的显示、禁用和调用语义。
-- 翻页、页码 clamp、缩放 clamp 的纯逻辑。
-- 连续切换文档时，旧解析结果会被释放，旧页面的迟到渲染错误不会污染新文档状态。
-- watcher 必须先于首次 PPTX 读取进入 ready；关闭标签页或切换 source 后释放订阅并调用 `unwatch`。
-- 目标文件事件触发重新读取，同目录其它明确路径事件被过滤；未知路径事件兼容旧 Host 并保守重载。
-- 连续 watcher 事件采用 latest-wins generation，旧读取的成功、失败和 loading 收尾均不能覆盖新读取。
-- 自动重载成功后重置页码、缩放、元素选择模式、选中元素与未确认 AI 编辑草稿；Composer 引用不变。
-- 元素模型过滤、table cell bounds、z-order hit-test、source generation 清理。
-- 引用 payload 校验、workspace/remote/scope 隔离、精确去重、prompt 序列化与反解析。
-- 草稿与历史引用项的按钮/键盘导航、删除按钮事件隔离、同文件 tab 复用与重复请求重新定位。
-- 导航前退出元素选择；有效页定位；文件不存在、页码不存在、fingerprint 变化的独立反馈语义。
-- 同文件页码导航不重新读取 PPTX；跨文件导航仍复用现有 generation 清理和迟到结果防护。
-- 部分文字划选保留完整元素 `textFingerprint`，`selectedText` 可无损进入 Composer 上下文；带部分选区的
-  shape/table-cell 引用仍能完成 inspect 和完整文本更新。
-- resolver 的 fingerprint mismatch、node 歧义/缺失、shape text 与 table-cell 更新、临时文件验证。
-- `--replace-source` 与 `--output` 互斥；原路径覆盖成功；提交前源 fingerprint 变化时保持外部新 revision；
-  明确另存时保持源文件不变。
-- 中英文文案和 UI 字体 token。
-- `pnpm typecheck`、`pnpm lint`。
+- Reconhecimento de caminho `.pptx`, upgrade de source e limite de tamanho.
+- O botão genérico de abertura externa de `.pptx` mantém a mesma semântica de exibição, desabilitação e chamada de XLSX e DOCX.
+- Lógica pura de troca de página, clamp de número de página e clamp de zoom.
+- Na troca consecutiva de documentos, o resultado da análise antiga é liberado e erros de renderização tardios da página antiga não poluem o estado do novo documento.
+- O watcher precisa entrar em estado ready antes da primeira leitura do PPTX; ao fechar a aba ou trocar o source, a assinatura é liberada e `unwatch` é chamado.
+- Evento do arquivo alvo dispara nova leitura; eventos de caminho explicitamente diferentes do mesmo diretório são filtrados; eventos de caminho desconhecido são compatíveis com o Host antigo e recarregam de forma conservadora.
+- Eventos consecutivos do watcher adotam generation latest-wins; o sucesso, a falha e o fechamento de loading da leitura antiga não podem sobrescrever a nova leitura.
+- Após o recarregamento automático bem-sucedido, são redefinidos número de página, zoom, modo de seleção de elemento, elemento selecionado e rascunho de edição de IA não confirmado; as referências do Composer não mudam.
+- Filtro do modelo de elemento, bounds de table cell, hit-test de z-order e limpeza de source generation.
+- Validação do payload de referência, isolamento de workspace/remote/scope, deduplicação exata, serialização e análise inversa do prompt.
+- Navegação por botão/teclado de itens de rascunho e de histórico, isolamento de evento do botão de remoção, reutilização de tab do mesmo arquivo e reposicionamento em requisições repetidas.
+- Sair do modo de seleção de elemento antes da navegação; posicionamento de página válida; semântica de feedback independente para arquivo inexistente, página inexistente e mudança de fingerprint.
+- A navegação de página no mesmo arquivo não relê o PPTX; a navegação entre arquivos continua reutilizando a limpeza de generation existente e a proteção contra resultados tardios.
+- A seleção parcial de texto mantém o `textFingerprint` completo do elemento, e o `selectedText` pode entrar sem perdas no contexto do Composer; referências de shape/table-cell com seleção parcial ainda conseguem completar o inspect e a atualização do texto completo.
+- Fingerprint mismatch, ambiguidade/ausência de nó, atualização de texto de shape e de table-cell e validação de arquivo temporário do resolver.
+- Mutualidade entre `--replace-source` e `--output`; sucesso da sobrescrita no caminho original; preservação da nova revision externa quando o fingerprint da origem muda antes do commit; e manutenção do arquivo de origem inalterado quando há um "salvar como" explícito.
+- Textos em chinês e inglês e tokens de fonte da UI.
+- `pnpm typecheck`, `pnpm lint`.
 
-人工 UI 验收：
+Aceitação manual de UI:
 
-- Desktop 本地、SSH/WSL/Docker 远程工作区。
-- 手机 `/remote`。
-- Zai Light / Zai Dark。
-- 普通、图表、SmartArt、嵌入字体、大文件、损坏文件。
-- 缩略图选择、上一页/下一页、页码跳转、按钮和快捷键缩放。
-- 选择模式与普通超链接点击互不污染；重叠元素、table cell、切页/切文件、添加/删除 Composer chip。
-- 从草稿和历史 user row 点击具体引用项；同文件重复点击；定位前选择模式关闭；文件缺失、页码缺失与
-  fingerprint 变化 toast；仅能定位文件时 Preview Pane 仍展开。
-- Desktop 主 Composer 与分屏非 focused Composer、手机 `/remote` shared-host 场景的引用隔离。
-- PPTX、XLSX、DOCX 顶栏外部打开按钮的可见性、禁用状态、提示文案和实际打开结果一致。
-- PowerPoint/WPS 原地保存与临时文件 rename 保存均触发重载；连续保存最终展示最后版本。
-- 已打开文件删除、重建后能恢复；关闭标签页后不再触发 Host watcher 或文件读取。
+- Desktop local, workspace remoto SSH/WSL/Docker.
+- `/remote` do celular.
+- Zai Light / Zai Dark.
+- Arquivos comuns, com gráficos, SmartArt, fonte incorporada, arquivos grandes e arquivos corrompidos.
+- Seleção de miniatura, página anterior/seguinte, salto de página e zoom por botão e atalho.
+- O modo de seleção não polui o clique comum de hyperlink; elementos sobrepostos, table cell, troca de página/arquivo, adição/remoção de chip do Composer.
+- Clicar em um item concreto de referência a partir do rascunho e de um user row do histórico; cliques repetidos no mesmo arquivo; o modo de seleção é fechado antes do posicionamento; toasts de arquivo ausente, página ausente e mudança de fingerprint; o Preview Pane ainda expande quando só é possível localizar o arquivo.
+- Isolamento de referências entre o Composer principal do Desktop e um Composer de tela dividida não focused, e no cenário shared-host do `/remote` do celular.
+- Consistência de visibilidade, estado desabilitado, texto de dica e resultado real de abertura do botão de abertura externa da barra superior de PPTX, XLSX e DOCX.
+- Salvamento no lugar do PowerPoint/WPS e salvamento com rename de arquivo temporário disparam reload; salvamentos consecutivos exibem por fim a última versão.
+- Arquivo aberto é excluído e recriado, e a prévia é restaurada; depois de fechar a aba, nenhum watcher de Host nem leitura de arquivo é disparado.

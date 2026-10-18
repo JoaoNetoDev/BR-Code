@@ -1,54 +1,54 @@
-# ZCode Protocol 模型型控制请求异步化
+# Assincronização de Requisições de Controle Baseadas em Modelo do ZCode Protocol
 
-## 背景
+## Contexto
 
-App 通过子进程 stdio 与 `apps/zcode-cli` 的 ZCode Protocol 通信。协议客户端把普通 request 当作短通信请求处理，默认 30 秒超时；agent 侧 NDJSON transport 又会串行处理进入的消息。若一个 protocol handler 在同步等待模型请求，后续消息会排队，甚至会挡住 agent -> app 反向 request 的 response。
+O App se comunica com o ZCode Protocol de `apps/zcode-cli` por stdio de subprocesso. O cliente de protocolo trata request comum como requisição de comunicação curta, com timeout padrão de 30 segundos; o transport NDJSON do lado do agente processa as mensagens de entrada em série. Se um handler de protocolo espera sincronamente por uma requisição de modelo, as mensagens seguintes ficam na fila e podem até bloquear a response de um request reverso do agente para o app.
 
-`session/send` 会快速 ACK，真实模型 turn 在后台运行，并通过 session event / `state.updated` 推送进度。过去 `session/compact` 和 `prompt/enhance` 同步等待模型请求时，会遇到同类问题：
+`session/send` faz ACK rapidamente, e o turno real de modelo roda em background, empurrando o progresso por session event / `state.updated`. No passado, `session/compact` e `prompt/enhance` enfrentavam o mesmo problema ao esperar sincronamente por requisições de modelo:
 
-- 模型请求超过普通通信 timeout 后，host 可能把 agent client 判定为 stale 并清理进程。
-- 同 workspace 其他 session 的 protocol request 会被串行队列阻塞。
-- provider runtime headers、permission、user input 等 agent -> app 反向 request 的 response 可能被长 handler 挡住。
+- depois que a requisição de modelo passa do timeout de comunicação comum, o host pode considerar o agent client obsoleto e limpar o processo;
+- protocol requests de outras sessions do mesmo workspace ficam bloqueados pela fila serial;
+- as responses de requests reversos do agente para o app, como provider runtime headers, permission e user input, podem ser bloqueadas por handlers longos.
 
-## 目标
+## Objetivos
 
-- 模型型控制请求的 protocol ACK 不承载模型生命周期。
-- agent -> app 的 response / error response 不被任何长 handler 阻塞。
-- stop / cancel 类控制消息可以绕过长 handler。
-- `session/compact` 保持 session turn 语义，结果继续走 compact timeline 和 snapshot。
-- `prompt/enhance` 保持 composer 草稿工具语义，结果走独立 job notification，不写入 session timeline。
-- 桌面端继续使用 direct continuous 链路；手机 `/remote` 继续通过 shared-host attachment 和 replayable session/task 边界恢复状态。
+- O ACK de protocolo de requisições de controle baseadas em modelo não carrega o ciclo de vida do modelo.
+- As responses / error responses do agente para o app não são bloqueadas por nenhum handler longo.
+- Mensagens de controle de stop / cancel podem contornar handlers longos.
+- `session/compact` mantém a semântica de turno de session; o resultado continua passando pela timeline de compactação e pelo snapshot.
+- `prompt/enhance` mantém a semântica de ferramenta de rascunho do composer; o resultado passa por job notification independente e não é escrito na timeline da session.
+- O desktop continua usando o链路 continuous direto; o `/remote` do celular continua recuperando o estado pela fronteira de shared-host attachment e de session/task replayable.
 
-## 通信规则
+## Regras de Comunicação
 
 ### Transport bypass
 
-Agent 侧 NDJSON transport 必须让以下消息绕过串行 processing queue：
+O transport NDJSON do lado do agente precisa deixar as seguintes mensagens contornarem a fila de processamento serial:
 
 - response
 - error response
 - `session/stop`
 - `prompt/enhance/cancel`
 
-原因：response / error response 是已有反向 request 的完成信号，不能再等待当前 request handler 结束；stop / cancel 是控制信号，必须能打断后台操作。
+Motivo: response / error response são sinais de conclusão de um request reverso já existente e não podem esperar o fim do handler atual do request; stop / cancel são sinais de controle e precisam poder interromper operações em background.
 
 ### `session/compact`
 
-`session/compact` 是 session-scoped model operation。
+`session/compact` é uma operação de modelo de escopo de session.
 
-请求处理只做：
+O tratamento da requisição faz apenas:
 
-1. 校验 session、revision 和 active turn。
-2. 处理重复 compact：若当前 active turn 已是 compact，返回 `already_running`。
-3. 创建并登记 `AbortController`。
-4. 启动后台 `/compact` turn。
-5. 快速返回 ACK snapshot。
+1. validar session, revision e active turn;
+2. tratar compact duplicado: se o active turn atual já for um compact, retornar `already_running`;
+3. criar e registrar um `AbortController`;
+4. iniciar o turno `/compact` em background;
+5. retornar rapidamente o snapshot de ACK.
 
-完成、失败、中断、跳过等终态继续由现有 compact timeline event 和 snapshot 表达。调用方不能把 `session/compact` 的返回值视为 terminal result。
+Estados terminais como conclusão, falha, interrupção e skip continuam expressos pelos eventos de timeline de compactação e pelo snapshot já existentes. O chamador não pode tratar o valor de retorno de `session/compact` como resultado terminal.
 
-App 侧调用 `session/compact` 时使用 compact 专用 ACK timeout，而不是普通 request 的 30 秒默认值。原因是 compact 涉及模型维护态、较大的 session snapshot、以及历史/兼容 agent 可能仍有分钟级处理窗口；30 秒会把可恢复的压缩误判为 stale agent。该长 timeout 只保护 ACK 边界，不改变后台 compact 终态仍由 timeline / snapshot 驱动的语义。
+Ao chamar `session/compact`, o lado App usa um timeout de ACK dedicado à compactação, em vez do padrão de 30 segundos dos requests comuns. A razão é que a compactação envolve estado de manutenção do modelo, um snapshot de session maior, e agentes antigos/compatíveis ainda podem ter janelas de processamento na casa dos minutos; 30 segundos classificariam como agent obsoleto uma compactação recuperável. Esse timeout longo protege apenas a fronteira do ACK e não muda a semântica de o estado terminal da compactação em background continuar sendo dirigido por timeline / snapshot.
 
-建议结果结构保留旧字段，并增加 compact metadata：
+A estrutura de resultado recomendada preserva os campos antigos e adiciona metadata de compactação:
 
 ```ts
 {
@@ -62,19 +62,19 @@ App 侧调用 `session/compact` 时使用 compact 专用 ACK timeout，而不是
 }
 ```
 
-`session/stop` 仍通过 `record.activeAbortController` 中断后台 compact。
+`session/stop` ainda interrompe a compactação em background por `record.activeAbortController`.
 
 ### `prompt/enhance`
 
-`prompt/enhance` 是 workspace/session-associated utility model job，不是 session turn。
+`prompt/enhance` é um job de modelo utilitário associado a workspace/session, e não um turno de session.
 
-协议拆成：
+O protocolo é dividido em:
 
 - `prompt/enhance/start`
 - `prompt/enhance/cancel`
-- `prompt/enhance/result`，agent -> app notification
+- `prompt/enhance/result`, notificação do agente para o app
 
-`start` 快速返回：
+`start` retorna rapidamente:
 
 ```ts
 {
@@ -83,7 +83,7 @@ App 侧调用 `session/compact` 时使用 compact 专用 ACK timeout，而不是
 }
 ```
 
-后台 job 完成后发送 notification：
+Quando o job em background termina, o agente envia a notificação:
 
 ```ts
 {
@@ -94,176 +94,126 @@ App 侧调用 `session/compact` 时使用 compact 专用 ACK timeout，而不是
 }
 ```
 
-`prompt/enhance/start` 参数必须带 `requestId`，并支持可选 `sessionId`。有 `sessionId` 时使用该 session 的模型配置和 provider runtime headers；没有 session 时才按 workspace 创建临时 app。这样同 workspace 多 session 不会随机复用第一个 active session 的模型状态。
+Os parâmetros de `prompt/enhance/start` devem trazer `requestId` e suportar `sessionId` opcional. Havendo `sessionId`, usam-se a configuração de modelo e os provider runtime headers dessa session; sem session, só então se cria um app temporário por workspace. Assim, múltiplas sessions no mesmo workspace não reutilizam aleatoriamente o estado de modelo da primeira session ativa.
 
-UI 的“取消增强”必须调用 `prompt/enhance/cancel`，不能只让旧结果失效。UI 仍需保留 requestId 防覆盖，避免取消后或用户继续编辑后，旧 result 覆盖新输入。
+O «取消增强» da UI precisa chamar `prompt/enhance/cancel`, e não apenas invalidar o resultado antigo. A UI ainda precisa manter o requestId para evitar sobreposição, para que um result antigo não sobrescreva a nova entrada depois de um cancelamento ou de o usuário continuar editando.
 
-## App / Service 责任
+## Responsabilidades de App / Service
 
-- `ZCodeAgentService.enhancePrompt()` 可继续对 UI 暴露 Promise，但内部应封装 start、result notification 和 cancel。
-- service 持有 pending prompt enhance job；relay 和 desktop main 只做透传，不持有业务状态。
-- `ZCodeSessionService.compactSession()` 和 task facade 的 `compactSession()` 返回 ACK 后不再广播 terminal snapshot；终态由 session event / snapshot 同步驱动。
-- 手机 replayable 路径不得绕过 shared host，也不得把 prompt enhance job 状态下沉到 relay/main。
+- `ZCodeAgentService.enhancePrompt()` pode continuar expondo uma Promise para a UI, mas internamente deve encapsular start, result notification e cancel.
+- O service mantém os jobs de prompt enhance pendentes; relay e desktop main apenas repassam, sem manter estado de negócio.
+- `ZCodeSessionService.compactSession()` e o `compactSession()` da facade de tasks deixam de fazer broadcast de snapshot terminal depois de retornar o ACK; o estado terminal é dirigido pela sincronização de session event / snapshot.
+- O caminho replayable do celular não pode contornar o shared host nem afundar o estado de job de prompt enhance no relay/main.
 
-## 验证清单
+## Checklist de Verificação
 
-- `/compact` ACK 使用 compact 专用长 timeout，压缩完成由 timeline 更新。
-- `/compact` 期间同 workspace 其他 session 能 read/create/send。
-- `/compact` 期间 `session/stop` 能中断压缩。
-- compact 模型请求前的 provider runtime headers response 不被队列阻塞。
-- prompt enhance 超过 30 秒不触发 stale agent dispose。
-- prompt enhance cancel 会真实 abort agent 侧模型请求，旧 result 不覆盖用户后续输入。
-- 同 workspace 多 session 下，prompt enhance 使用当前 session 的模型配置。
-- 手机 `/remote` 的 compact 状态通过 replayable snapshot/timeline 恢复。
+- O ACK de `/compact` usa o timeout longo dedicado à compactação, e a conclusão da compactação vem por atualização de timeline.
+- Durante `/compact`, outras sessions do mesmo workspace conseguem read/create/send.
+- Durante `/compact`, `session/stop` consegue interromper a compactação.
+- A response de provider runtime headers antes da requisição de modelo da compactação não é bloqueada pela fila.
+- Um prompt enhance que passa de 30 segundos não dispara descarte de agent obsoleto.
+- O cancelamento de prompt enhance realmente aborta a requisição de modelo do lado do agente, e o result antigo não sobrescreve a entrada posterior do usuário.
+- Com múltiplas sessions no mesmo workspace, o prompt enhance usa a configuração de modelo da session atual.
+- O estado de compactação do `/remote` no celular é recuperado por snapshot/timeline replayable.
 
-## 反向请求的会话路由与终止保证（2026-09-09 追记）
+## Roteamento de Sessão das Requisições Reversas e Garantia de Terminação (recorte de 2026-09-09)
 
-### 现象
+### Fenômeno
 
-2026-09-09 的用户日志（`zcode-logs-20260909-035718`，构建 3.11.2 / c4d5b5bc）里，两个 dwf run
-（`dwfrun-920daa62` 5 个子代理、`dwfrun-5e8d371f` 3 个子代理，provider 都是
-`builtin:bigmodel-start-plan`）的全部 8 个子代理各自打出一条 `model.request.started` 之后再无
-任何事件，直到 80 分钟后日志导出：没有完成、没有失败、也没有 `model.stream.stalled`（600 秒
-stream idle 计时器要等首个 SSE 事件才起跑，请求根本没发出去）。CLI 侧每个子代理的最后一行是
-`zcode_protocol.session.require_missing`，桌面侧对应 8 条
-`zcode-agent.respondProviderRuntimeHeaders FAIL … Session is not active: sess_dwf-…`；同一天主会话
-的 38 次同类交换全部 OK。
+Nos logs de usuário de 2026-09-09 (`zcode-logs-20260909-035718`, build 3.11.2 / c4d5b5bc), dois dwf runs (`dwfrun-920daa62` com 5 subagentes, `dwfrun-5e8d371f` com 3 subagentes, ambos com provider `builtin:bigmodel-start-plan`) tiveram seus 8 subagentes, cada um, emitir um `model.request.started` e depois nenhum evento por mais 80 minutos, até a exportação dos logs: sem conclusão, sem falha e sem `model.stream.stalled` (o timer de 600 segundos de stream idle só começa após o primeiro evento SSE, ou seja, a requisição nunca chegou a ser enviada). A última linha de cada subagente no CLI é `zcode_protocol.session.require_missing`, e no lado desktop correspondem a 8 mensagens `zcode-agent.respondProviderRuntimeHeaders FAIL … Session is not active: sess_dwf-…`; no mesmo dia, as 38 trocas equivalentes da sessão principal passaram todas OK.
 
-### 根因链路
+### Cadeia de Causa Raiz
 
 ```
 2026-09-09T06:35:38Z  dwfrun-920daa62 / actor_1_1..actor_1_5
 
  actor runtime            CLI protocol server          desktop service        UI
-   │ attempt 1 前置刷新          │                            │                │
+   │ refresh antes da tentativa 1      │                            │                │
    ├─ refreshBeforeModelRequest(sessionId = sess_dwf-…-actor_1_1)              │
    │                            ├─ interaction/requestProviderRuntimeHeaders ─►│
-   │                            │                            ├─ 安全校验 ─────►│
+   │                            │                            ├─ verificação de segurança ─────►│
    │                            │                            │◄─ headers ─────┤
    │                            │◄─ updateRuntimeModelConfig(sess_dwf-…) ──────┤
    │                            ├─ requireSession → sessionUnavailable         │
-   │                            │  （throw 发生在 client.respond 之前）         │
-   │                            │                            ╳ respond 永不发出 │
-   │ ⏳ 永久等待：requestClient 无 timeout，abort 之外没有第二个出口             │
-   │ 🎫 且此时准入票据已持有（admitAttempt 在 resolveModelForAttempt 之前）      │
+   │                            │  (o throw acontece antes do client.respond)    │
+   │                            │                            ╳ respond nunca é emitido │
+   │ ⏳ espera permanente: requestClient sem timeout, sem segunda saída além do abort │
+   │ 🎫 e o ticket de admissão já está em posse (admitAttempt antes de resolveModelForAttempt) │
 ```
 
-两条独立缺陷叠加：
+Duas falhas independentes se somam:
 
-1. **路由身份取错**。子 runtime 有两条身份轴，代码里只有一条：
+1. **Identidade de roteamento errada**. O runtime filho tem dois eixos de identidade, e o código só tem um:
 
    ```
-   账本身份 sessionId                      路由身份 clientSessionId
-   ├─ 事件持久化 / transcript              ├─ interaction/requestPermission
-   ├─ trace 归档                           ├─ interaction/requestProviderRuntimeHeaders
-   └─ session store                        └─ interaction/requestUserInput
-      子 runtime = 自己                       子 runtime = 父（递归到根）
+   identidade de ledger sessionId                 identidade de roteamento clientSessionId
+   ├─ persistência de eventos / transcript       ├─ interaction/requestPermission
+   ├─ arquivamento de trace                      ├─ interaction/requestProviderRuntimeHeaders
+   └─ session store                              └─ interaction/requestUserInput
+      runtime filho = a si mesmo                runtime filho = o pai (recursivamente até a raiz)
    ```
 
-   `ProviderRuntimeHeadersPort.refreshBeforeModelRequest` 过去在入参里收 `sessionId`，core 的调用点
-   填 `runtime.sessionId`。core 内建 subagent 靠一个私有包装
-   （`createSubagentProviderRuntimeHeadersPort`）把它换成父会话；dwf actor 与 legacy workflow child
-   两处装配直接把 `appOptions.providerRuntimeHeadersPort` 原样塞进 runtime deps，于是发出的是子会话
-   身份。同一处漂移也发生在 `permissionBroker`：core 包了
-   `createSubagentInteractionBroker`，另两处没有——dwf actor 的 permission / AskUserQuestion 一旦发生，
-   会走同一条死路。**私有包装存在本身就是接口设计错了的信号**：只要调用点还能选 sessionId，第 N 个
-   child 装配点就会再错一次。
+   `ProviderRuntimeHeadersPort.refreshBeforeModelRequest` recebia antes `sessionId` nos parâmetros, e o ponto de chamada no core preenchia `runtime.sessionId`. O subagente embutido do core depende de um wrapper privado (`createSubagentProviderRuntimeHeadersPort`) para trocá-lo pela sessão pai; as duas montagens de dwf actor e de legacy workflow child colocavam `appOptions.providerRuntimeHeadersPort` diretamente nas deps do runtime, de modo que a identidade enviada era a da sessão filha. O mesmo desvio ocorre em `permissionBroker`: o core embrulha com `createSubagentInteractionBroker`, as outras duas montagens não — assim que o permission / AskUserQuestion do dwf actor ocorre, ele entra no mesmo beco sem saída. **A existência do wrapper privado já é, por si só, sinal de que o design da interface está errado**: enquanto o ponto de chamada ainda puder escolher o sessionId, o N-ésimo ponto de montagem de child vai errar de novo.
 
-2. **反向请求的 response 不是无条件的**。桌面 `respondProviderRuntimeHeaders` 先做副作用
-   （把 runtime model config 推给该 session），副作用抛错时 `pending.client.respond(...)` 根本没执行。
-   2026-08-16 的 web 远控卡死（headers 请求滞留 `pendingProviderRuntimeHeaders`）是同一类失败的另一个
-   触发点。
+2. **A response de um request reverso não é incondicional**. O `respondProviderRuntimeHeaders` do desktop primeiro executa um efeito colateral (empurrar o runtime model config para aquela session); quando o efeito lança erro, `pending.client.respond(...)` simplesmente não é executado. O travamento do controle remoto web de 2026-08-16 (com o pedido de headers retido em `pendingProviderRuntimeHeaders`) é outro gatilho do mesmo tipo de falha.
 
-### 契约
+### Contratos
 
-**契约 1：面向客户端的端口在构造期绑定路由身份，调用点不传 sessionId。**
+**Contrato 1: a porta voltada ao cliente vincula a identidade de roteamento na fase de construção, e os pontos de chamada não passam sessionId.**
 
-- runtime 侧的 `ProviderRuntimeHeadersPort.refreshBeforeModelRequest` 入参**不再有** `sessionId`。
-- workspace 级实现仍然是会话参数化的，单独命名为 `SessionRoutedProviderRuntimeHeadersPort`，
-  只出现在 `ZCodeAppOptions` 与协议装配层。
-- 两者之间只有一座桥 `bindProviderRuntimeHeadersPort(port, clientSessionId)`，绑定唯一发生在
-  create-app 为**主** runtime 装配时。类型上未绑定端口进不了 runtime deps，调用点因此无从选错。
+- o `ProviderRuntimeHeadersPort.refreshBeforeModelRequest` do lado runtime **não tem mais** `sessionId` nos parâmetros;
+- a implementação de escopo de workspace continua parametrizada por sessão, com o nome próprio `SessionRoutedProviderRuntimeHeadersPort`, aparecendo apenas em `ZCodeAppOptions` e na camada de montagem do protocolo;
+- entre as duas existe uma única ponte, `bindProviderRuntimeHeadersPort(port, clientSessionId)`, e a vinculação só acontece quando o create-app monta o runtime **principal**; no sistema de tipos, uma porta não vinculada não entra nas deps do runtime, e portanto não há como o ponto de chamada escolher errado.
 
-**契约 2：child runtime 的对外端口只能由父 runtime 铸造。**
+**Contrato 2: as portas externas do runtime child só podem ser cunhadas pelo runtime pai.**
 
-- `AgentRuntime.createChildClientPorts(context)` 是唯一出口，内部走 `deriveChildClientPorts`；
-  `parentSessionId` 由父 runtime 自己填，调用方给不了。
-- 三处 child 装配（core subagent、dwf actor `script-workflow-child-runtime.ts`、legacy
-  `workflow-facade.ts`）统一经它取 `permissionBroker` 与 `providerRuntimeHeadersPort`，不再各自从
-  `appOptions` 取。
-- 任意深度自动收敛到根会话，无需额外规则：
-  - `providerRuntimeHeadersPort` 已绑定、无会话参数，透传即幂等；
-  - `permissionBroker` 每层改写 `request.sessionId`，**外层（离客户端更近的一层）后写**，最终值是根；
-    `origin` 反过来保留最内层已有值，子代理归属不被外层覆盖。
+- `AgentRuntime.createChildClientPorts(context)` é a única saída, passando internamente por `deriveChildClientPorts`; o `parentSessionId` é preenchido pelo próprio runtime pai e não pode ser fornecido pelo chamador;
+- as três montagens de child (core subagent, dwf actor `script-workflow-child-runtime.ts`, legacy `workflow-facade.ts`) obtêm uniformemente `permissionBroker` e `providerRuntimeHeadersPort` por ela, sem mais buscar cada uma por conta própria em `appOptions`;
+- qualquer profundidade converge automaticamente para a sessão raiz, sem regra extra:
+  - `providerRuntimeHeadersPort` já está vinculado e não tem parâmetro de sessão, portanto repassar é idempotente;
+  - `permissionBroker` reescreve `request.sessionId` a cada camada, com **a camada externa (a mais próxima do cliente) escrevendo por último**, de modo que o valor final é o da raiz; o `origin` mantém em sentido inverso o valor existente mais interno, para que a atribuição ao subagente não seja sobrescrita pelas camadas externas.
 
-**契约 3：反向请求的 response 无条件发出。**
+**Contrato 3: a response de requests reversos é emitida incondicionalmente.**
 
-- `respondProviderRuntimeHeaders` 的副作用（runtime model config 推送）失败不得吞掉 response：
-  改为副作用异常 → 先 `respond({ headersApplied: false, errorMessage })`，再把原异常上抛给调用方。
-- CLI 侧收到 `headersApplied:false` 会按既有路径抛 `ProtocolRequestError(-32031)`，attempt 以真实原因
-  失败，而不是永久挂起。
-- 这里**不**加 requestClient 超时：官方版本的安全校验交互合法地可以等用户数分钟，超时只会把一种猜测换成另一种；
-  请求已随 run 的 abort signal 取消，response 有保证之后不需要第二个出口。
+- a falha do efeito colateral (push do runtime model config) em `respondProviderRuntimeHeaders` não pode engolir a response: em vez disso, exceção no efeito colateral → responder primeiro `respond({ headersApplied: false, errorMessage })` e só então relançar a exceção original ao chamador;
+- no lado do CLI, `headersApplied:false` leva a `ProtocolRequestError(-32031)` pelo caminho já existente, e a tentativa falha com a causa real, em vez de ficar pendurada para sempre;
+- aqui **não** se adiciona timeout no requestClient: na versão oficial, a interação de verificação de segurança pode legitimamente esperar vários minutos pelo usuário, e o timeout apenas trocaria um palpite por outro; a requisição já é cancelada pelo abort signal do run e, com a response garantida, não é necessária uma segunda saída.
 
-### 验证清单
+### Checklist de Verificação
 
-| 断言 | 覆盖方式 |
+| Asserção | Cobertura |
 |---|---|
-| dwf actor 的 headers 刷新走父 runtime 的已绑定端口，且入参不再有 `sessionId` | `bootstrap/tests/script-workflow-child-runtime.test.ts`（真实 adapter attempt 链路） |
-| 父铸造的 permission broker 带父会话身份 + 子代理 origin | 同上 |
-| 嵌套两层时 `sessionId` 收敛到根、`origin` 保留最内层 | `core/tests/child-client-ports.test.ts` |
-| core subagent 路由行为不变（私有包装删除后由统一派生覆盖） | `core/tests/subagent-explore.test.ts`（含「端口入参不得再出现 sessionId」回归守卫） |
-| 桌面侧 runtime model config 推送抛错时 CLI 仍收到 response | `packages/services/test/zcodeAgentService.providerRegistry.test.ts` |
-| 未绑定的 `SessionRoutedProviderRuntimeHeadersPort` 进不了 runtime deps | `pnpm typecheck`（两个类型不兼容，三处 child 装配都在 src 内） |
-| legacy workflow child 与 dwf actor 走同一次派生 | 同一调用点 + 类型；facade 目前没有测试装配，无独立用例 |
+| A refresh de headers do dwf actor passa pelo porto já vinculado do runtime pai, e os parâmetros não têm mais `sessionId` | `bootstrap/tests/script-workflow-child-runtime.test.ts` (cadeia real de tentativa de adapter) |
+| O permission broker cunhado pelo pai carrega a identidade da sessão pai + a origin do subagente | o mesmo |
+| Com dois níveis de aninhamento, `sessionId` converge para a raiz e `origin` preserva o mais interno | `core/tests/child-client-ports.test.ts` |
+| O comportamento de roteamento do core subagent não muda (coberto pela derivação unificada após a remoção do wrapper privado) | `core/tests/subagent-explore.test.ts` (inclui a guarda de regressão de que «o parâmetro da porta não pode mais conter sessionId») |
+| Quando o push do runtime model config lança erro no desktop, o CLI ainda recebe a response | `packages/services/test/zcodeAgentService.providerRegistry.test.ts` |
+| Um `SessionRoutedProviderRuntimeHeadersPort` não vinculado não entra nas deps do runtime | `pnpm typecheck` (dois tipos incompatíveis, as três montagens de child estão em src) |
+| legacy workflow child e dwf actor passam pela mesma derivação | o mesmo ponto de chamada + tipos; a facade hoje não tem montagem de teste, sem caso isolado |
 
-> **追记 2026-09-11（与 staging 同步：契约 1 的实现形态改变，契约 2 不变）**
+> **Recorte de 2026-09-11 (sincronizado com staging: a forma da implementação do Contrato 1 muda, o Contrato 2 permanece)**
 >
-> staging 的 provider 重构（`docs/working-memory/provider-refactor/`）让 core 的
-> `ProviderRuntimeHeadersPort.refreshBeforeModelRequest` 入参**重新带 `sessionId`**（官方版本
-> 安全校验的重试也经它），主 runtime 填 `runtime.sessionId`。于是「构造期绑定、入参无 sessionId」
-> 这一形态不再成立，`bindProviderRuntimeHeadersPort` 与 `SessionRoutedProviderRuntimeHeadersPort`
-> 随之删除。契约 1 的**意图**——调用点选不错路由身份——改由契约 2 的派生层兑现：
-> `deriveChildClientPorts` 对 `providerRuntimeHeadersPort` 也包一层，把入参的 `sessionId` 改写成
-> 父会话；多层嵌套外层后写，最终值必然是根会话（与 `permissionBroker` 同一条规则）。三处 child 装配
-> （core subagent、dwf actor、legacy workflow child）仍只经 `AgentRuntime.createChildClientPorts`。
-> 验证清单里「入参不再有 sessionId」的两行改为断言 `routedSessionId === 父会话`
-> （`script-workflow-child-runtime.test.ts`、`subagent-explore.test.ts`）。「桌面侧 runtime model
-> config 推送抛错时 CLI 仍收到 response」一行：staging 重写了 `respondProviderRuntimeHeaders`
-> （账号鉴权材料解析失败 → `headersApplied: false` + 原因，仍无条件回包），我们那条针对旧
-> `updateRuntimeModelConfig` 副作用的用例随旧路径删除，契约 3 由新实现保持。
+> O provider refactor do staging (`docs/working-memory/provider-refactor/`) fez o `ProviderRuntimeHeadersPort.refreshBeforeModelRequest` do core voltar a ter `sessionId` nos parâmetros (a repetição da verificação de segurança da versão oficial também passa por ele), com o runtime principal preenchendo `runtime.sessionId`. Assim, a forma «vinculação na construção, sem sessionId nos parâmetros» deixou de valer, e `bindProviderRuntimeHeadersPort` e `SessionRoutedProviderRuntimeHeadersPort` foram removidos em consequência. A **intenção** do Contrato 1 — o ponto de chamada não escolher a identidade de roteamento errada — passa a ser cumprida pela camada de derivação do Contrato 2: `deriveChildClientPorts` também embrulha `providerRuntimeHeadersPort`, reescrevendo o `sessionId` de parâmetro para a sessão pai; em aninhamento profundo a camada externa escreve por último e o valor final é necessariamente a sessão raiz (a mesma regra do `permissionBroker`). As três montagens de child (core subagent, dwf actor, legacy workflow child) continuam passando apenas por `AgentRuntime.createChildClientPorts`.
+> Na checklist de verificação, as duas linhas de «o parâmetro não tem mais sessionId» passam a afirmar `routedSessionId === sessão pai` (`script-workflow-child-runtime.test.ts`, `subagent-explore.test.ts`). Na linha «quando o push do runtime model config lança erro no desktop, o CLI ainda recebe a response»: o staging reescreveu `respondProviderRuntimeHeaders` (falha na resolução do material de autenticação da conta → `headersApplied: false` + motivo, ainda respondendo incondicionalmente), e nosso caso, que cobria o efeito colateral antigo `updateRuntimeModelConfig`, foi removido junto com o caminho antigo; o Contrato 3 é mantido pela nova implementação.
 
-**契约 4：Browser Use 是唯一「账本身份上线」的反向请求。**
+**Contrato 4: Browser Use é a única requisição reversa em que a identidade de ledger «sobe».**
 
-`interaction/browserList` / `interaction/browserExecute` 的 `sessionId` 不是路由身份，而是桌面
-browser backend 的 **tab 归属**（`docs/browser-use/2026-07-14-browser-tab-conversation-isolation-spec.md`，
-scope key 含 `sessionId`）。桌面 service 对这两个方法是纯中继，不按 `sessionId` 找 task；需要从会话
-解析的只有 CLI 侧 `buildBrowserRequestContext` 填的 workspace（`workspaceKey` / `workspacePath` /
-`workspaceIdentity` / `remoteSessionId`）与 `clientMode`。所以 dwf actor 的浏览器请求：
+O `sessionId` de `interaction/browserList` / `interaction/browserExecute` não é identidade de roteamento, mas a **atribuição de tab** do browser backend do desktop (`docs/browser-use/2026-07-14-browser-tab-conversation-isolation-spec.md`, com scope key contendo `sessionId`). O service do desktop é um puro relay para esses dois métodos e não procura task por `sessionId`; o que precisa ser resolvido a partir da sessão é apenas o workspace preenchido pelo `buildBrowserRequestContext` no lado CLI (`workspaceKey` / `workspacePath` / `workspaceIdentity` / `remoteSessionId`) e o `clientMode`. Portanto, para as requisições de navegador do dwf actor:
 
 ```
 actor runtime (sess_dwf-…-actor_2_1)
   │ mcp__node_repl__js  _meta.session_id = actor
   ▼
-node_repl broker socket ──► ProtocolBrowserControlBroker（每个 server context 一份状态）
-                              │ sessions.get(actor) 缺席
-                              │ childSessionParents.get(actor) = 父会话  ← forChildSession 登记
-                              │ requireSession(父会话) → workspace / clientMode
+node_repl broker socket ──► ProtocolBrowserControlBroker (um estado por server context)
+                              │ sessions.get(actor) ausente
+                              │ childSessionParents.get(actor) = sessão pai  ← registrado por forChildSession
+                              │ requireSession(sessão pai) → workspace / clientMode
                               ▼
-                  interaction/browserExecute { sessionId: actor, workspace…: 父会话的 }
+                  interaction/browserExecute { sessionId: actor, workspace…: o da sessão pai }
                               ▼
-                  desktop main：scope = (…, workspaceKey, sessionId=actor, clientMode)
+                  desktop main: scope = (…, workspaceKey, sessionId=actor, clientMode)
 ```
 
-- 登记只能由父 runtime 的端口派生：`BrowserControlPort.forChildSession({childSessionId, parentSessionId})`
-  返回的子端口在 `closeSession` 发出 `{ method: "closeSession", closeTabs: true }` 之后撤销登记。
-  没有登记的非客户端会话一律 `Session is not active`，不按 id 形状猜父会话。
-- dwf actor 与 core `Agent` subagent 拿子端口：dwf actor（`tabOwner: "child"`）的 runtime 在 run dispose 时
-  `closeBrowserSession`，连 tab 关闭；core subagent 用 `tabOwner: "parent"`，下发的 `sessionId` 换成父会话
-  （与当前对话共用 tab，面板据此展开），子端口的 turnEnded / closeSession 不发往桌面，closeSession 只撤销登记
-  （`docs/browser-use/2026-07-16-subagent-browser-unavailable-spec.md`）。legacy `Workflow` child 没有关闭链路，
-  不给。细节见 `apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md`「Subagent sessions」。
-- 同一 server context 里 `createProtocolBrowserControlBroker` 被调用两次（进程级 node_repl broker 与每个
-  app 的 runtime 端口）。连接记忆（`turnEnded` / `closeSession` 要发往哪些 browser）与子会话登记都必须
-  按 context 共享：node_repl 流量走进程级实例，生命周期走 app 实例；分开存时 app 实例从未见过连接，
-  `turnEnded` / `closeSession` 从不到达桌面。
+- O registro só pode vir da porta derivada do runtime pai: o porto filho devolvido por `BrowserControlPort.forChildSession({childSessionId, parentSessionId})` revoga o registro depois de `closeSession` emitir `{ method: "closeSession", closeTabs: true }`. Qualquer sessão não cliente e sem registro recebe sempre `Session is not active`, sem adivinhar a sessão pai pelo formato do id.
+- dwf actor e subagente `Agent` do core recebem o porto filho: o runtime do dwf actor (`tabOwner: "child"`) executa `closeBrowserSession` no dispose do run, fechando as tabs; o subagente do core usa `tabOwner: "parent"`, e o `sessionId` enviado é trocado pela sessão pai (compartilhando tab com a conversa atual, e o painel se expande a partir disso), com turnEnded / closeSession do porto filho não enviados ao desktop, e closeSession apenas revogando o registro (`docs/browser-use/2026-07-16-subagent-browser-unavailable-spec.md`). O `Workflow` child legado não tem cadeia de fechamento, e por isso não recebe uma. Detalhes em `apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md`, seção «Subagent sessions».
+- No mesmo server context, `createProtocolBrowserControlBroker` é chamado duas vezes (o broker node_repl de nível de processo e a porta de runtime de cada app). Tanto a memória de conexão (para onde `turnEnded` / `closeSession` devem ir) quanto o registro de sessões filhas precisam ser compartilhados por context: o tráfego node_repl passa pela instância de nível de processo e o ciclo de vida pela instância do app; quando ficam separadas, a instância do app nunca viu a conexão e `turnEnded` / `closeSession` nunca chegam ao desktop.

@@ -1,275 +1,282 @@
-# Side Pane Terminal 跨 Workspace 会话保活
+# Manutenção da Sessão do Terminal do Side Pane ao Trocar de Workspace
 
-> 本 spec 是对 [`docs/ui/side-pane-terminal-tabs.md`](../ui/side-pane-terminal-tabs.md) 的增量。
-> 原设计只规定了"side pane 内切 tab / 收起 side pane 时保持挂载"（第 19 行），
-> **未覆盖"跨 workspace 切换"**。本 spec 补这块契约，并给出实现方案。
+> Esta spec é um incremento sobre [`docs/ui/side-pane-terminal-tabs.md`](../ui/side-pane-terminal-tabs.md).
+> O design original apenas especificava “manter montado ao trocar de tab dentro do side pane / ao recolher o side pane” (linha 19),
+> **sem cobrir a troca entre workspaces**. Esta spec completa esse contrato e propõe uma implementação.
 
-## 0. 与既有设计的关系（不可违背）
+## 0. Relação com o design existente (inegociável)
 
-`docs/ui/side-pane-terminal-tabs.md` 已明确：
+`docs/ui/side-pane-terminal-tabs.md` já estabelece:
 
-- 第 10/16 行：每个 side pane terminal tab 是**独立终端实例**，`+` 菜单每次新建、不复用单例。
-- 第 18 行：**底部 Terminal 面板不和 side pane Terminal tab 共享终端 session 状态**。
-- 第 19 行：关闭 tab 卸载 `TerminalSession` 并释放终端进程；**切换其他 side pane tab / 收起 side pane 时保持挂载**。
+- Linhas 10/16: cada side pane terminal tab é uma **instância de terminal independente**, e o menu `+` cria uma nova a cada uso, sem reutilizar um singleton.
+- Linha 18: o **painel Terminal inferior não compartilha o estado de sessão de terminal com os side pane Terminal tabs**.
+- Linha 19: fechar a tab descarrega o `TerminalSession` e libera o processo de terminal; **trocar para outro side pane tab / recolher o side pane mantém tudo montado**.
 
-本方案严格遵守：**不与下侧共享 session**、**每个 side pane terminal 仍按 tab.id 独立**。只把第 19 行的保活契约**扩展到"跨 workspace 切换"**。
+Esta proposta segue isso estritamente: **não compartilha sessão com o painel inferior** e **cada side pane terminal continua independente por `tab.id`**. A única coisa é estender o contrato de manutenção da linha 19 para a **troca entre workspaces**.
 
-## 1. 根因（为什么第一版 forceMount 池没用）
+## 1. Causa raiz (por que o pool forceMount da primeira versão não funcionou)
 
-`TerminalSession.tsx:309-639` 把 **XTerm 实例 + PTY + 订阅全绑在一个 effect** 里：
-
-```
-effect 创建:  new XTerm(:318) → term.open(container)(:338) → terminalService.create(:440) → 订阅 data/exit
-effect cleanup(:606-628):  terminalService.dispose(杀PTY,:622) + term.dispose(销xterm+scrollback,:626)
-effect 依赖(:629-639):       [cwd, sessionId, services, onShellLabelChange, 多个 resize callback, ...]
-```
-
-**只要依赖里任一项引用变了，effect 就重跑 → cleanup → xterm+PTY 全 dispose → 历史丢。**
-
-侧边栏 terminal 活在 `sidePaneState` 体系里（per-workspace、按 `sidePaneMemoryKey` 整体替换，`useAppPanels.ts:229-243`）。跨 workspace 切换必然触发组件卸载或依赖变化 → effect 重跑 → dispose。
-
-第一版试图在渲染层加并行池 + forceMount 来"阻止组件卸载"，但 forceMount 挡不住 effect 依赖变化，且和 sidePaneState 替换机制两套并行容易不一致——即"层级太低"。**正解是让 xterm+PTY 所有权脱离组件树**，组件任意卸载/重挂都不影响它们。
-
-下侧不丢，是因为 `panelState`（`Terminal.tsx:99`）从一开始就不在 per-workspace 体系里（单实例组件 state 存所有 workspace session），靠 forceMount 让 TerminalSession 不卸载。侧边栏活在 per-workspace 体系里，搬不过来这套。
-
-## 2. 方案：xterm+PTY 所有权上移到模块级 registry（方案 B）
-
-模块级单例 `sidePaneTerminalSessionRegistry`，持有 `persistentKey(=tab.id) → { xterm 实例, fitAddon, terminalId, 订阅 disposers, cwd, hostEl, profileTheme }`。`TerminalSession` 加 `persistentKey?` prop：有则走 registry 复用路径，无则走原路径（下侧零改动）。
+`TerminalSession.tsx:309-639` amarra a **instância XTerm + o PTY + as inscrições todas em um único effect**:
 
 ```
-                      模块级单例（仅 side pane，与下侧 panelState 完全独立）
+effect cria:  new XTerm(:318) → term.open(container)(:338) → terminalService.create(:440) → inscrição de data/exit
+effect cleanup(:606-628):  terminalService.dispose(mata o PTY,:622) + term.dispose(descarta xterm+scrollback,:626)
+dependências do effect(:629-639): [cwd, sessionId, services, onShellLabelChange, vários callbacks de resize, ...]
+```
+
+**Assim que qualquer item das dependências muda de referência, o effect roda de novo → cleanup → xterm+PTY são totalmente descartados → o histórico se perde.**
+
+O terminal da barra lateral vive no sistema `sidePaneState` (por workspace, substituído inteiramente por `sidePaneMemoryKey`, `useAppPanels.ts:229-243`). A troca entre workspaces necessariamente dispara o desmonte do componente ou uma mudança de dependência → o effect roda de novo → dispose.
+
+A primeira versão tentou adicionar um pool paralelo e forceMount na camada de renderização para “impedir o desmonte do componente”, mas forceMount não bloqueia mudanças nas dependências do effect e, junto com o mecanismo de substituição do sidePaneState, dois mecanismos paralelos ficam facilmente inconsistentes — ou seja, “nível baixo demais”. **A solução correta é tirar a propriedade do xterm+PTY da árvore de componentes**, de modo que qualquer desmonte/remontagem do componente não os afete.
+
+O painel inferior não perde histórico porque o `panelState` (`Terminal.tsx:99`) nunca esteve no sistema por workspace (state de componente único guarda as sessões de todos os workspaces) e depende do forceMount para que o TerminalSession não seja desmontado. A barra lateral vive no sistema por workspace e não pode trazer esse mecanismo para cá.
+
+## 2. Solução: subir a propriedade de xterm+PTY para um registry de nível de módulo (opção B)
+
+Um singleton de nível de módulo `sidePaneTerminalSessionRegistry` mantém `persistentKey(=tab.id) → { instância xterm, fitAddon, terminalId, disposers de inscrição, cwd, hostEl, profileTheme }`. `TerminalSession` ganha a prop `persistentKey?`: se presente, segue o caminho de reuso via registry; se ausente, segue o caminho original (zero mudanças no painel inferior).
+
+```
+                      Singleton de nível de módulo (somente side pane, totalmente independente do panelState inferior)
                   ┌──────────────────────────────────────────────────────────┐
                   │ sidePaneTerminalSessionRegistry                           │
                   │   Map<persistentKey(=tab.id), entry>                      │
                   │   entry = { key, term: XTerm, fitAddon, terminalId,        │
-                  │             cwd, workspaceKey, hostEl(常驻 div,            │
-                  │             term.open 在它上面), profileTheme(create 返回, │
-                  │             跨重挂常驻), dispose(由创建方注入) }           │
-                  │   + stashDiv(display:none 挂 document.body)               │
+                  │             cwd, workspaceKey, hostEl(div residente,       │
+                  │             term.open é feito nele), profileTheme(retornado │
+                  │             por create, residente entre remontagens),     │
+                  │             dispose(injetado por quem cria) }             │
+                  │   + stashDiv(display:none, preso a document.body)          │
                   └──────────────────────────────────────────────────────────┘
                   API: has/get/register/attachDom/detachDom/release/releaseByPredicate
-                       （registry 不内建 factory——资源创建由 TerminalSession 完成，再 register）
+                       （o registry não embute factory — a criação de recursos é feita pelo TerminalSession, que depois faz register）
                            ▲
                            │
-              TerminalSession 加 persistentKey?: string + workspaceKey?: string
+              TerminalSession ganha persistentKey?: string + workspaceKey?: string
               ┌────────────────────────────────────────────────────────────┐
-              │ 有 persistentKey（仅 SidePaneTerminalPane 传 = tab.id）:    │
-              │   effect:  get(key) 命中→复用 / miss→创建并 register         │
+              │ com persistentKey (só SidePaneTerminalPane passa = tab.id): │
+              │   effect:  get(key) hit→reusar / miss→criar e register        │
               │             attachDom(key, container)                       │
-              │   cleanup: detachDom(key)  ← 不 dispose，hostEl 移回 stash  │
-              │ 无 persistentKey（下侧）: 走原 effect（字节级不变）          │
+              │   cleanup: detachDom(key)  ← não faz dispose, o hostEl volta│
+              │                          para o stash                       │
+              │ sem persistentKey (inferior): segue o effect original         │
+              │   (byte a byte inalterado)                                   │
               └────────────────────────────────────────────────────────────┘
 ```
 
-### 时序
+### Sequência
 
 ```
-[workspace A] 打开 side pane terminal tab（tab.id = terminal:uuid1）
-  SidePaneTerminalPane(persistentKey=tab.id, workspaceKey=A, cwd=A)   ← 不再 useState(createUuid)
-   └ TerminalSession effect [有 persistentKey]
-       ├ get(tab.id) 命中 → 复用；miss → 创建：new XTerm + open(hostEl) + 创建 PTY + 订阅
+[workspace A] abre um side pane terminal tab (tab.id = terminal:uuid1)
+  SidePaneTerminalPane(persistentKey=tab.id, workspaceKey=A, cwd=A)   ← sem mais useState(createUuid)
+   └ effect do TerminalSession [com persistentKey]
+       ├ get(tab.id) hit → reusar; miss → criar: new XTerm + open(hostEl) + criar PTY + inscrições
        │                    → entry.workspaceKey = workspaceKey → register(tab.id, entry)
-       ├ termRef/fitAddonRef/terminalIdRef ← entry 的引用
-       ├ attachDom(tab.id, containerRef)  → hostEl 从 stash 移入 container
-       └ fitAddon.fit()                   → 按真实尺寸 resize PTY
+       ├ termRef/fitAddonRef/terminalIdRef ← as referências da entry
+       ├ attachDom(tab.id, containerRef)  → o hostEl sai do stash para o container
+       └ fitAddon.fit()                   → resize do PTY conforme o tamanho real
 
-[切到 workspace B] sidePaneState 整体替换，旧 SidePaneTerminalPane 卸载
-  TerminalSession cleanup [有 persistentKey]
-   ├ 释放组件局部 observer（ResizeObserver/MutationObserver）
-   └ detachDom(tab.id)  → hostEl 移回 stashDiv（term/PTY/订阅 都不 dispose）
+[troca para o workspace B] o sidePaneState é substituído por inteiro, o antigo SidePaneTerminalPane é desmontado
+  cleanup do TerminalSession [com persistentKey]
+   ├ libera os observers locais do componente (ResizeObserver/MutationObserver)
+   └ detachDom(tab.id)  → o hostEl volta para o stashDiv (term/PTY/inscrições não são descartados)
 
-[切回 workspace A] SidePaneTerminalPane 重挂（tab.id 稳定）
-  TerminalSession effect [有 persistentKey]
-   ├ get(tab.id) → 命中，返回已有 entry
-   ├ attachDom(tab.id, containerRef) → hostEl 移回 container
-   └ fitAddon.fit() → scrollback 历史完整保留 ✓
+[volta ao workspace A] o SidePaneTerminalPane é remontado (tab.id estável)
+  effect do TerminalSession [com persistentKey]
+   ├ get(tab.id) → hit, devolve a entry existente
+   ├ attachDom(tab.id, containerRef) → o hostEl volta para o container
+   └ fitAddon.fit() → o histórico de scrollback é preservado por completo ✓
 
-[显式关闭 side pane terminal tab]（useAppPanels 的 close 单/其他/全部）
-  └ release(tab.id) → entry.dispose()(杀 PTY + 销 xterm + 释放订阅) ← 进程回收（守第 19 行契约）
+[fechamento explícito de um side pane terminal tab] (o close único/outros/todos de useAppPanels)
+  └ release(tab.id) → entry.dispose()(mata o PTY + descarta o xterm + libera as inscrições) ← reciclagem do processo (cumpre o contrato da linha 19)
 
-[workspace tab 真正关闭]（WorkspaceShellLayout 监听 openWorkspaceKeys）
-  └ releaseByPredicate(entry => entry.workspaceKey 不在 openWorkspaceKeys)
-       → 回收该 workspace 残留的常驻 PTY，对称下侧 Terminal.tsx:145-177
+[fechamento real de uma workspace tab] (WorkspaceShellLayout escuta openWorkspaceKeys)
+  └ releaseByPredicate(entry => entry.workspaceKey não está em openWorkspaceKeys)
+       → recicla os PTY residentes remanescentes daquele workspace, simétrico a Terminal.tsx:145-177
 ```
 
-## 3. xterm 实例复用机制（技术命门）
+## 3. Mecanismo de reuso da instância xterm (o ponto técnico crítico)
 
-xterm scrollback 在 XTerm 实例 buffer 里。复用必须**保留同一 XTerm 实例**，不能 dispose+new。
+O scrollback do xterm fica no buffer da instância XTerm. O reuso **precisa preservar a mesma instância XTerm**; não pode fazer dispose+new.
 
-- `term.open(el)` 只调一次（首次创建时 open 到 entry 的 `hostEl`）。
-- 复用 = 把 `hostEl`（含 `.xterm` DOM 子树）用 `appendChild` **物理移动**到当前 container；移动后调 `fitAddon.fit()` 恢复尺寸。
-- detach = `hostEl` 移回 `stashDiv`（`display:none`，挂 `document.body`，registry 懒创建），避免 React 卸载 container 时连带销毁 xterm DOM。
-- 社区先例：VS Code terminal tab 切换即用 xterm DOM 移动复用，canvas/webgl renderer 移动后 fit 即可恢复。
+- `term.open(el)` é chamado uma única vez (na primeira criação, aberto no `hostEl` da entry).
+- Reusar = mover fisicamente o `hostEl` (com a subárvore DOM `.xterm`) para o container atual via `appendChild`; depois de mover, chamar `fitAddon.fit()` para restaurar o tamanho.
+- Detach = mover o `hostEl` de volta para o `stashDiv` (`display:none`, preso a `document.body`, criado preguiçosamente pelo registry), evitando que o desmonte do container pelo React destrua junto o DOM do xterm.
+- Precedente na comunidade: a troca de terminal tabs do VS Code já usa o reuso por movimentação do DOM do xterm; com renderer canvas/webgl, basta um fit após a movimentação para recuperar.
 
-### 3.1 输入订阅必须 registry-scoped（关键契约，曾踩坑）
+### 3.1 As inscrições de entrada precisam ter escopo de registry (contrato chave, já deu problema)
 
-`term.onData`（键盘输入→PTY）和 Windows 输入法 textarea 兜底**必须挂进 `registryDisposers`（随 entry 常驻），不能进 `localDisposers`**。
+`term.onData` (teclado → PTY) e o fallback de textarea do método de input do Windows **precisam ser guardados em `registryDisposers` (residentes com a entry) e não em `localDisposers`**.
 
-- `localDisposers` 在 cleanup（detach）时被全部 dispose——`term.onData` 若在内，detach 时被取消，而复用路径不重绑 → **切回 workspace 后 scrollback 在但无法输入交互**（PTY/xterm 都活着，只有输入链路被砍断）。
-- `registryDisposers` 随 entry 常驻，detach 不取消；只有 `release`（关 tab / workspace 关闭）时 `entry.dispose` 才清理。
-- Windows textarea 兜底原本依赖单次 effect 闭包变量 `ptyCancelled`，移到 registry 后必须去掉该检查（`ptyCancelled` detach 后变 true 会让兜底永久失效）；release 时 disposer 移除监听，PTY disposed 后 write 为 no-op，安全。
-- **persistentKey 路径的 `onData` 必须与原路径字节对齐**（含 `inputFallbackKeydownCandidate` 去重 + `recordTerminalInputFallbackHandledData`/`recordTerminalInputFallbackRecentData` 历史维护）。曾因简化漏掉这段，导致 Windows 中文输入法无法通过 Shift 切英文直接输入（只能回车提交）。`customKeyEventHandler` 在首建时 attach 到 term、随 term 常驻，keydown 写 candidate；registry-scoped 的 onData 消费 candidate、维护历史，textarea 兜底再消费历史 —— 三者共用首建组件实例的 ref，跨 detach/reattach 自洽。
-- **PTY ready 后必须 `flushTerminalServiceResize()`**（对称原路径）：创建期间 ResizeObserver 排进 `pendingTerminalSizeRef` 的尺寸，在 `terminalIdRef.current = id` 后立即 flush；否则 `scheduleFitAndResize("init")` 会因 pending 去重跳过，PTY 停在错误 cols/rows。
-- **exit 订阅与原路径对称**：有 `onExit` 则回调（autoClose），否则写退出提示。side pane 当前不传 `onExit`，二者等价；保持对称以防未来接线。
+- `localDisposers` são todos descartados no cleanup (detach) — se `term.onData` estiver ali, ele é cancelado no detach, e o caminho de reuso não rebinda nada → **ao voltar para o workspace o scrollback está lá mas não dá para digitar** (o PTY/xterm estão vivos, só a cadeia de entrada foi cortada).
+- `registryDisposers` residency junto com a entry e não é cancelado no detach; só no `release` (fechamento de tab / de workspace) o `entry.dispose` limpa tudo.
+- O fallback de textarea do Windows dependia originalmente da variável de closure de effect único `ptyCancelled`; depois de movido para o registry essa verificação precisa ser removida (`ptyCancelled` fica true após o detach e tornaria o fallback permanentemente inoperante); no release o disposer remove o listener e, com o PTY descartado, o write vira no-op, o que é seguro.
+- **O `onData` do caminho persistentKey precisa ficar alinhado byte a byte com o caminho original** (incluindo a deduplicação de `inputFallbackKeydownCandidate` + a manutenção de histórico de `recordTerminalInputFallbackHandledData`/`recordTerminalInputFallbackRecentData`). Já houve uma simplificação que omitiu esse trecho e fazia o método de input chinês do Windows não conseguir digitar inglês diretamente com Shift (só commitando com Enter). O `customKeyEventHandler` é anexado ao term na primeira criação e reside com o term, gravando o candidate no keydown; o `onData` com escopo de registry consome o candidate e mantém o histórico, e o fallback de textarea consome o histórico depois — os três compartilham a ref da instância criada na primeira montagem, ficando coerentes entre detach/reattach.
+- **Depois que o PTY fica pronto é obrigatório chamar `flushTerminalServiceResize()`** (simétrico ao caminho original): os tamanhos que o ResizeObserver enfileirou em `pendingTerminalSizeRef` durante a criação são enviados imediatamente após `terminalIdRef.current = id`; caso contrário `scheduleFitAndResize("init")` seria pulado pela dedupe de pending e o PTY ficaria parado com cols/rows errados.
+- **Inscrição de exit simétrica ao caminho original**: se houver `onExit`, chama o callback (autoClose); caso contrário, escreve a mensagem de saída. O side pane hoje não passa `onExit`, então as duas formas são equivalentes; manter a simetria evita problemas quando esse接线 for feito no futuro.
 
-## 4. 实现策略：registry 路径独立，原路径不动（守下侧零回归）
+## 4. Estratégia de implementação: caminho de registry isolado, caminho original intocado (garantindo zero regressão no painel inferior)
 
-为彻底保证下侧 terminal（核心功能）不回归，`TerminalSession` 的 persistentKey 路径**独立写一套资源创建逻辑**（factory），不抽取/扰动原 effect 的 300 行创建+订阅代码：
+Para garantir por completo que o terminal inferior (funcionalidade central) não sofra regressão, o caminho persistentKey do `TerminalSession` **escreve um conjunto independente de lógica de criação de recursos** (factory), sem extrair nem perturbar as 300 linhas de criação+inscrição do effect original:
 
-- **原路径（无 persistentKey，下侧）**：effect 逻辑、cleanup、依赖数组**字节级不变**。
-- **registry 路径（有 persistentKey）**：effect 开头分叉，走 `ensureSession(key, factory)`；factory 内部 new XTerm + open(hostEl) + create PTY + 订阅（逻辑上对称原路径，但独立成函数，复用同一份 `terminalService`）。
+- **Caminho original (sem persistentKey, painel inferior)**: lógica do effect, cleanup e array de dependências **byte a byte inalterados**.
+- **Caminho de registry (com persistentKey)**: o effect bifurca no início e segue `ensureSession(key, factory)`; dentro da factory são feitos new XTerm + open(hostEl) + create do PTY + inscrições (logicamente simétrico ao caminho original, mas isolado em uma função e reutilizando a mesma `terminalService`).
 
-代价：factory 与原路径创建逻辑有重复。收益：下侧零风险（不动它），registry 路径独立可控、可测。
+Custo: há duplicação entre a factory e a lógica de criação do caminho original. Benefício: risco zero no painel inferior (não se mexe nele) e um caminho de registry isolado, controlável e testável.
 
-## 5. 边界与兼容（遵守多端/远控/工作区约束）
+## 5. Limites e compatibilidade (respeitando as restrições de multi-plataforma/-controle remoto/workspace)
 
-- **仅 side pane**：`persistentKey` 只由 `SidePaneTerminalPane` 传入（= `tab.id`）。下侧 `Terminal.tsx` 不传，走原路径，零回归（守 side-pane-terminal-tabs.md 第 18 行）。
-- **不动 `terminalService`**：PTY 仍在根级共享单例（本地 workspace 共用 `baseServices`），只是 dispose 时机由 registry 控制（显式关 tab 才 dispose）。
-- **不动 `sidePaneState` 替换机制**：browser/subagent/plan 等 tab 行为不变。
-- **registry 按 `persistentKey`(=tab.id) 隔离**：不按 `workspacePath` 匹配（符合 workspace identity 约束）。远程 workspace 的 PTY 仍归当前窗口 services（第 24 行），registry 只存 PTY id 引用，不改变归属。
-- **不涉及 session/task realtime、replayable/continuous 链路**（第 25-26 行）：纯 renderer terminal DOM 复用。
-- **回收点齐全**（防孤儿 PTY）：
-  - 显式关 side pane terminal tab → `useAppPanels` 的 `handleCloseSidePaneTab` / `handleCloseOtherSidePaneTabs` / `handleCloseAllSidePaneTabs` 调 `release(tab.id)`。
-  - workspace tab 真正关闭 → `WorkspaceShellLayout` 监听 `openWorkspaceKeys` 变化，按 `entry.workspaceKey` 批量 `releaseByPredicate`（对称下侧 `Terminal.tsx:145-177`）。`workspaceKey` 由 `SidePaneTerminalPane → TerminalSession` 透传并写入 entry。
-  - registry 模块卸载/测试 → `clearForTest()`。
+- **Somente side pane**: `persistentKey` é passado apenas por `SidePaneTerminalPane` (= `tab.id`). `Terminal.tsx` no painel inferior não passa nada e segue o caminho original, com zero regressão (cumprindo a linha 18 de side-pane-terminal-tabs.md).
+- **`terminalService` não é alterado**: o PTY continua no singleton compartilhado de nível raiz (workspaces locais compartilham `baseServices`); apenas o momento do dispose passa a ser controlado pelo registry (só quando a tab é fechada explicitamente).
+- **O mecanismo de substituição do `sidePaneState` não é alterado**: o comportamento de tabs como browser/subagent/plan continua igual.
+- **O registry é isolado por `persistentKey`(=tab.id)**: não há casamento por `workspacePath` (compatível com a restrição de identidade de workspace). O PTY de um workspace remoto continua pertencendo aos services da janela atual (linha 24); o registry guarda apenas a referência do id do PTY, sem alterar a pertença.
+- **Não envolve session/task realtime nem cadeias replayable/continuous** (linhas 25-26): é apenas reuso de DOM de terminal no renderer.
+- **Pontos de reciclagem completos** (evita PTY órfãos):
+  - Fechamento explícito de um side pane terminal tab → `handleCloseSidePaneTab` / `handleCloseOtherSidePaneTabs` / `handleCloseAllSidePaneTabs` de `useAppPanels` chamam `release(tab.id)`.
+  - Fechamento real de uma workspace tab → `WorkspaceShellLayout` escuta mudanças em `openWorkspaceKeys` e faz `releaseByPredicate` em lote por `entry.workspaceKey` (simétrico a `Terminal.tsx:145-177`). O `workspaceKey` é repassado por `SidePaneTerminalPane → TerminalSession` e gravado na entry.
+  - Descarregamento do registry de módulo / testes → `clearForTest()`.
 
-## 6. 风险
+## 6. Riscos
 
-- xterm DOM 物理移动的 renderer 刷新（第 3 节）—— 实现阶段验证 fit 能恢复；若异常，回退用 React Portal 把 `hostEl` 常驻投射（仍不 dispose 实例）。
-- registry 内存管理：workspace 关闭、tab 关闭都要 release，避免孤儿 PTY。
-- factory 与原路径重复代码的长期同步—— 当前靠 `TerminalSession` 复用契约测试 + 既有 `terminalPanelState.test.ts` 守护，但两份拷贝已漂移 3 次（见第 8 节）；根本解法是第 8 节的 `wireTerminalProcessing` 收敛重构。
+- Refresh do renderer na movimentação física do DOM do xterm (seção 3) — validar na fase de implementação que o fit recupera; se houver problema, voltar a usar um React Portal para projetar o `hostEl` residente (ainda sem descartar a instância).
+- Gerência de memória do registry: é preciso fazer release ao fechar workspace e ao fechar tab, para evitar PTYs órfãos.
+- Sincronização de longo prazo entre o código duplicado da factory e do caminho original — hoje é protegida pelo teste de contrato de reuso do `TerminalSession` e pelo `terminalPanelState.test.ts` existente, mas as duas cópias já divergiram 3 vezes (ver seção 8); a solução de fundo é a refatoração de convergência para `wireTerminalProcessing` da seção 8.
 
-## 7. 执行顺序（先 spec → 先测试 → 再代码）
+## 7. Ordem de execução (primeiro a spec → primeiro os testes → depois o código)
 
-1. **spec**：本文件。
-2. **测试（先写）**：
-   - `sidePaneTerminalSessionRegistry.test.ts`：ensureSession 命中/miss、attachDom/detachDom 的 hostEl 归属移动、release 真 dispose（term+PTY+订阅）、跨"切换"（detach 后）entry 仍在、releaseByPredicate 批量回收。
-   - `TerminalSession`/`SidePaneTerminalPane` 复用契约：有 persistentKey 走 registry、无 persistentKey 走原路径（源码断言 + 行为）。
-3. **代码**：
-   - 新建 `packages/ui/src/terminal/sidePaneTerminalSessionRegistry.ts`（模块级单例 + stashDiv，entry 含 `workspaceKey`）。
-   - `TerminalSession.tsx` 加 `persistentKey?` + `workspaceKey?` prop，effect 开头分叉 registry 路径（复用=attachDom，首建=register，cleanup=detachDom / 半成品 release）。
-   - `SidePaneTerminalPane.tsx`：`sessionId` 从 prop 传入（= tab.id，跨 workspace 稳定），并传 `persistentKey={sessionId}` + `workspaceKey`；删 `useState(createUuid)`。
-   - `AnimatedSidePanePanel.tsx`：渲染 `SidePaneTerminalPane` 时透传 `sessionId={tab.id}` + `workspaceKey`。
-   - `useAppPanels.ts`：显式关 side pane terminal tab（单/其他/全部）→ `release(tab.id)`。
-   - `WorkspaceShellLayout.tsx`：监听 `openWorkspaceKeys`，workspace tab 关闭时按 `entry.workspaceKey` 批量 `releaseByPredicate`（对称下侧 `Terminal.tsx:145-177`）。
-4. **校验**：`pnpm typecheck` + `pnpm lint` + 新测试 + `terminalPanelState.test.ts` 回归。
-5. **commit**：`fix(ui): keep side pane terminal alive across workspace switch via session registry`。
+1. **spec**: este arquivo.
+2. **Testes (escritos primeiro)**:
+   - `sidePaneTerminalSessionRegistry.test.ts`: hit/miss de ensureSession, movimentação de pertença do hostEl em attachDom/detachDom, release descartando de verdade (term+PTY+inscrições), entrada ainda existente após um “detach”, reciclagem em lote por releaseByPredicate.
+   - Contrato de reuso de `TerminalSession`/`SidePaneTerminalPane`: com persistentKey vai pelo registry, sem persistentKey vai pelo caminho original (asserções de código-fonte + comportamento).
+3. **Código**:
+   - Criar `packages/ui/src/terminal/sidePaneTerminalSessionRegistry.ts` (singleton de nível de módulo + stashDiv, com a entry contendo `workspaceKey`).
+   - `TerminalSession.tsx` ganha as props `persistentKey?` + `workspaceKey?`, com o effect bifurcando logo no início para o caminho de registry (reuso=attachDom, primeira criação=register, cleanup=detachDom / release de semifinados).
+   - `SidePaneTerminalPane.tsx`: `sessionId` vem por prop (= tab.id, estável entre workspaces), passando também `persistentKey={sessionId}` + `workspaceKey`; remover `useState(createUuid)`.
+   - `AnimatedSidePanePanel.tsx`: ao renderizar `SidePaneTerminalPane`, repassar `sessionId={tab.id}` + `workspaceKey`.
+   - `useAppPanels.ts`: fechamento explícito de side pane terminal tab (único/outros/todos) → `release(tab.id)`.
+   - `WorkspaceShellLayout.tsx`: escutar `openWorkspaceKeys` e, ao fechar uma workspace tab, fazer `releaseByPredicate` em lote por `entry.workspaceKey` (simétrico a `Terminal.tsx:145-177`).
+4. **Validação**: `pnpm typecheck` + `pnpm lint` + novos testes + regressão `terminalPanelState.test.ts`.
+5. **commit**: `fix(ui): keep side pane terminal alive across workspace switch via session registry`.
 
 ---
 
-## 8. 待重构：终端处理逻辑收敛为单一 `wireTerminalProcessing`（设计稿，未实施）
+## 8. A refatorar: convergir a lógica de processamento do terminal em um único `wireTerminalProcessing` (rascunho de design, não implementado)
 
-> 本节是**设计**，记录在保活落地后暴露出的架构缺陷与目标重构方案。当前实现尚未按此重构；保留给后续专项处理。
+> Esta seção é **design**: registra as falhas de arquitetura expostas depois que a manutenção de sessão entrou e o alvo da refatoração. A implementação atual ainda não foi refatorada assim; fica reservada para um trabalho futuro.
 
-### 8.1 问题：两条路径是"拷贝"而非"共享"
+### 8.1 Problema: os dois caminhos são “cópias”, não “compartilhamento”
 
-理想形态（也是产品本意）：**终端处理逻辑只有一份**，persistentKey 路径与原路径（下侧 terminal）只在**容器管理**上分叉。当前 `TerminalSession.tsx` 的 effect 里却是两条 ~370 行的平行分支，靠注释 + `terminalSessionFocus.test.ts` 的结构断言手动维持字节对齐。
+A forma ideal (e também a intenção do produto): **só existe uma cópia da lógica de processamento do terminal**, e o caminho persistentKey e o caminho original (terminal inferior) só bifurcam no **gerenciamento do container**. Hoje, porém, o effect do `TerminalSession.tsx` tem dois ramos paralelos de cerca de 370 linhas, mantidos alinhados byte a byte à mão por meio de comentários e das asserções estruturais de `terminalSessionFocus.test.ts`.
 
 ```
-当前结构（问题）：
+Estrutura atual (o problema):
 useEffect(() => {
   if (persistentKey) {
-    复用路径: registry.get → attachDom/fit/focus
-    首建路径: new XTerm → open(hostEl)
+    caminho de reuso: registry.get → attachDom/fit/focus
+    caminho de primeira criação: new XTerm → open(hostEl)
               ┌─────────────────────────────────────┐
-              │ customKeyEventHandler               │  ◀── 终端处理
-              │ themeObserver / registerLinkProvider│      （第一份拷贝）
-              │ .create().then(flush+opts+data+exit │
+              │ customKeyEventHandler               │  ◀── processamento
+              │ themeObserver / registerLinkProvider│      do terminal
+              │ .create().then(flush+opts+data+exit │      (primeira cópia)
               │   +onData+textareaIME)+resize+catch │
               └─────────────────────────────────────┘
     → registryDisposers / localDisposers
-    cleanup: detachDom（保活）          ┐
-  }                                    │ 容器管理（合理分叉）
-  else {                               │
-    new XTerm → open(el)               │
+    cleanup: detachDom (mantém vivo)          ┐
+  }                                           │ gerenciamento de container
+  else {                                      │ (bifurcação razoável)
+    new XTerm → open(el)                      │
     ┌─────────────────────────────────┐│
-    │ 同样的处理逻辑，再写一遍         ││  ◀── 终端处理（第二份拷贝）
+    │ a mesma lógica de processamento, ││  ◀── processamento do terminal
+    │ escrita de novo                   ││      (segunda cópia)
     └─────────────────────────────────┘│
-    → disposables（effect 局部）        │
-    cleanup: dispose 全部（销毁）       ┘
+    → disposables (locais do effect)      │
+    cleanup: descarta tudo (destrói)      ┘
   }
 })
 ```
 
-### 8.2 证据：已发生 3 次漂移
+### 8.2 Evidência: 3 divergências já aconteceram
 
-两份拷贝只要任一处改动，另一处极易遗漏。已确认的漂移：
+Com duas cópias, qualquer alteração em um ponto é facilmente esquecida no outro. Divergências já confirmadas:
 
-| # | 项 | 后果 | 状态 |
-|---|----|------|------|
-| 1 | `flushTerminalServiceResize()` | persistentKey 路径 id ready 后未 flush 创建期排队 resize，PTY 停在错误 cols/rows | 已修（f8cfca38b7） |
-| 2 | exit 订阅查 `exitHandlerRef` | persistentKey 路径 exit 订阅未查 onExit 回调，与原路径不对称 | 已修（f8cfca38b7） |
-| 3 | paste 快捷键 `logger.debug("[Terminal] paste via shortcut")` | persistentKey 路径 customKeyEventHandler 漏了该 debug 日志 | 已对齐（本次） |
+| # | Item | Consequência | Status |
+|---|----|-------------|--------|
+| 1 | `flushTerminalServiceResize()` | No caminho persistentKey o resize enfileirado durante a criação não era enviado depois que o id ficava pronto, e o PTY ficava parado com cols/rows errados | Corrigido (f8cfca38b7) |
+| 2 | A inscrição de exit consulta `exitHandlerRef` | No caminho persistentKey a inscrição de exit não consultava o callback onExit, ficando assimétrica em relação ao caminho original | Corrigido (f8cfca38b7) |
+| 3 | Atalho de paste `logger.debug("[Terminal] paste via shortcut")` | No caminho persistentKey o customKeyEventHandler ficou sem esse log de debug | Alinhado (nesta mudança) |
 
-这 3 个全是"两份拷贝必然漂移"的直接产物。
+As 3 são produto direto de “duas cópias inevitavelmente divergem”.
 
-### 8.3 目标结构
+### 8.3 Estrutura alvo
 
-抽出**唯一的**终端处理函数，两条路径各自只剩纯容器管理：
+Extrair uma função de processamento do terminal **única**, deixando em cada caminho apenas o gerenciamento puro de container:
 
 ```
-// 终端处理：全局唯一
+// processamento do terminal: globalmente único
 function wireTerminalProcessing(term, host, ctx): {
-  termDisposers: IDisposable[],   // 跟随 term 生命周期（data/exit/onData/linkProvider）
-  domDisposers:  IDisposable[],   // 跟随 DOM 容器生命周期（themeObserver/resizeObserver）
-  cancelPtyCreate: () => void,    // cleanup 早于 create resolve 时的孤儿 PTY 守卫
+  termDisposers: IDisposable[],   // segue o ciclo de vida do term (data/exit/onData/linkProvider)
+  domDisposers:  IDisposable[],   // segue o ciclo de vida do container DOM (themeObserver/resizeObserver)
+  cancelPtyCreate: () => void,    // guarda contra PTY órfão quando o cleanup precede o resolve do create
 }
 {
-  // 以下全部只写一次：
-  // - attachCustomKeyEventHandler（IME candidate + Ctrl/C/V）
-  // - themeObserver（documentElement class → 配色）
+  // Tudo abaixo é escrito uma única vez:
+  // - attachCustomKeyEventHandler (candidate de IME + Ctrl/C/V)
+  // - themeObserver (class do documentElement → paleta)
   // - registerLinkProvider
   // - terminalService.create().then(
-  //     flushTerminalServiceResize + windowsPty/font/theme options +
-  //     (theme 写入 entry.profileTheme，跨重挂常驻；observer 从 entry 读，禁用组件局部 ref——CR-01) +
-  //     onDynamicData + onDynamicExit + onData(IME 三段去重) + textarea 兜底 +
-  //     scheduleFitAndResize("init") + requestFocus)
-  // - ResizeObserver（observe host）
-  // - .catch（写失败提示 + 释放 registry 占位 entry：ownership 校验
-  //   registry.get(key)===本次 entry 才 release，避免僵尸 entry 被复用快路径
-  //   误用导致终端永久无法连接；校验防重挂后新 entry 被误删）
+  //     flushTerminalServiceResize + options de windowsPty/fonte/tema +
+  //     (o tema é gravado em entry.profileTheme, residente entre remontagens;
+  //      o observer lê da entry, e a ref local do componente é desabilitada — CR-01) +
+  //     onDynamicData + onDynamicExit + onData(dedupe de IME em três etapas) +
+  //     fallback de textarea + scheduleFitAndResize("init") + requestFocus)
+  // - ResizeObserver (observa o host)
+  // - .catch (escreve a mensagem de falha + libera a entry de placeholder do registry:
+  //   só faz release se registry.get(key) === a entry desta chamada, evitando que uma
+  //   entry zumbi reutilizada pelo caminho rápido seja confundida e deixe o terminal
+  //   permanentemente sem conexão; a checagem evita que uma entry nova após remontagem
+  //   seja removida por engano)
 }
 
 useEffect(() => {
   if (persistentKey) {
     const existing = registry.get(persistentKey)
     if (existing) { attachDom(hostEl); fit; focus; return () => detach }   ┐
-    const term = new XTerm({...}); term.open(hostEl)                        │ 容器管理
-    const { termDisposers, domDisposers, cancelPtyCreate } =               │ （分叉）
-        wireTerminalProcessing(term, hostEl, {...})                         │
+    const term = new XTerm({...}); term.open(hostEl)                        │ gerenciamento
+    const { termDisposers, domDisposers, cancelPtyCreate } =               │ de container
+        wireTerminalProcessing(term, hostEl, {...})                         │ (bifurcação)
     registry.register(persistentKey, { term, termDisposers, workspaceKey }) │
     localDisposers = domDisposers                                          │
     return () => { cancelPtyCreate(); detachDom; drain(domDisposers) }      ┘
   }
   const term = new XTerm({...}); term.open(el)                             ┐
-  const { termDisposers, domDisposers, cancelPtyCreate } =                 │ 容器管理
-      wireTerminalProcessing(term, el, {...})                               │ （分叉）
-  const disposables = [...termDisposers, ...domDisposers]                  │
+  const { termDisposers, domDisposers, cancelPtyCreate } =                 │ gerenciamento
+      wireTerminalProcessing(term, el, {...})                               │ de container
+  const disposables = [...termDisposers, ...domDisposers]                  │ (bifurcação)
   return () => { cancelPtyCreate(); drain(disposables); dispose(term+pty) } ┘
 })
 ```
 
-### 8.4 为什么 disposer 要分两类
+### 8.4 Por que os disposers precisam ser divididos em duas categorias
 
-这是重构里**唯一**需要想清楚的非平凡点，也是 persistentKey 路径今天用 `registryDisposers` / `localDisposers` 两个桶的原因：
+Este é o **único** ponto não trivial que exige reflexão na refatoração, e é também a razão de o caminho persistentKey usar hoje dois baldes, `registryDisposers` e `localDisposers`:
 
-- **跟随 term（termDisposers）**：`onDynamicData` / `onDynamicExit` / `term.onData` / `registerLinkProvider`。它们绑定的是 PTY ↔ term 的数据链路；persistentKey 路径下 term 跨 detach 存活，这些订阅**必须**随 term 常驻（否则切回后 scrollback 在但输入死，即 bug #1 / commit 9e32c2d2d9 的根因）。
-- **跟随 DOM（domDisposers）**：`themeObserver`（observe documentElement）、`ResizeObserver`（observe 当前 `el`）。persistentKey 路径下每次重挂 `el` 是新节点，observer 必须随 effect 重绑。
+- **Seguem o term (termDisposers)**: `onDynamicData` / `onDynamicExit` / `term.onData` / `registerLinkProvider`. Eles amarram a cadeia de dados PTY ↔ term; no caminho persistentKey o term sobrevive ao detach, então essas inscrições **precisam** residency com o term (caso contrário, ao voltar o scrollback está lá mas a entrada morre — a causa raiz do bug #1 / commit 9e32c2d2d9).
+- **Seguem o DOM (domDisposers)**: `themeObserver` (observa o documentElement) e `ResizeObserver` (observa o `el` atual). No caminho persistentKey cada remontagem tem um nó novo, então os observers precisam ser religados a cada effect.
 
-原路径 term 不跨 effect 存活，两类都进同一个 `disposables` 即可——这正是重构后原路径的写法（`[...termDisposers, ...domDisposers]`）。
+No caminho original o term não sobrevive ao effect, então as duas categorias podem ir para o mesmo `disposables` — é exatamente a escrita do caminho original depois da refatoração (`[...termDisposers, ...domDisposers]`).
 
-### 8.5 测试先行（重构时必须先红后绿）
+### 8.5 Testes primeiro (na refatoração é obrigatório começar vermelho e terminar verde)
 
-1. **新增契约测试**：断言 `TerminalSession` effect 在 persistentKey 与非 persistentKey 两条分支都调用同一个 `wireTerminalProcessing`（源码级：grep 出现次数 = 2，且不在同一条 if 内重复）。这是机械保证"处理逻辑只有一份"的护栏。
-2. **保留**现有 `terminalSessionFocus.test.ts` 的行为契约（IME onData 字节、exit 对称、flush 时序），重构后逐条仍须绿。
-3. **回归**：`terminalPanelState.test.ts`（下侧）+ `sidePaneTerminalSessionRegistry.test.ts`（保活）不可退化。
+1. **Novo teste de contrato**: afirmar que o effect do `TerminalSession` chama o mesmo `wireTerminalProcessing` nos dois ramos, persistentKey e não persistentKey (em nível de código-fonte: o número de ocorrências no grep = 2, e sem duplicação dentro do mesmo if). É a trava mecânica que garante “só existe uma cópia da lógica de processamento”.
+2. **Manter** os contratos de comportamento existentes de `terminalSessionFocus.test.ts` (bytes do onData de IME, simetria do exit, ordem do flush); depois da refatoração, todos precisam continuar verdes.
+3. **Regressão**: `terminalPanelState.test.ts` (painel inferior) + `sidePaneTerminalSessionRegistry.test.ts` (manutenção de sessão) não podem regredir.
 
-### 8.6 风险与前置条件
+### 8.6 Riscos e pré-requisitos
 
-- 改动面：抽出 ~250 行共享代码，effect 两条分支各瘦到 ~40 行。机械搬移为主，但涉及 **async create 时序、pending resize flush、composition 三段去重**，属时序/IME 敏感区。
-- 当前**无 e2e 安全网**（本特性 e2e 在原 plan 中列为"后续可选"）。重构前应先补一条跨 workspace 切换 + IME 输入的 e2e（照 `browser-tab-close-cross-workspace.test.ts` 骨架），否则回归只能靠单测 + 手动冒烟。
-- 重构是**纯结构、零行为变更**：合并后必须保证两条路径的外部可观测行为（scrollback 保活、输入、IME、resize、主题、退出提示）与重构前逐一对齐。建议重构 commit 单独成 MR，不夹带任何行为改动。
+- Superfície de mudança: extração de cerca de 250 linhas de código compartilhado, deixando os dois ramos do effect com cerca de 40 linhas cada. É principalmente uma movimentação mecânica, mas envolve **ordem do create assíncrono, flush do resize pendente e a deduplicação em três etapas do composition**, ou seja, uma área sensível a timing e a IME.
+- Hoje **não há rede de segurança e2e** (a e2e desta feature estava listada como “opcional posteriormente” no plan original). Antes da refatoração vale adicionar uma e2e de troca entre workspaces + entrada por IME (seguindo o esqueleto de `browser-tab-close-cross-workspace.test.ts`); caso contrário, a regressão só pode ser coberta por teste unitário + smoke test manual.
+- A refatoração é **puramente estrutural, com zero mudança de comportamento**: depois da fusão é obrigatório garantir que o comportamento externamente observável das duas plataformas (scrollback preservado, entrada, IME, resize, tema, mensagem de saída) fique alinhado um a um com o de antes da refatoração. Recomenda-se que o commit da refatoração vire um MR isolado, sem nenhuma mudança de comportamento embutida.
 
-### 8.7 触发本设计的来由
+### 8.7 O que motivou este design
 
-2026-08-12 审计 persistentKey 路径与原路径差异时发现 3 处漂移（8.2）。用户判断这是**设计缺陷**（重复分支），要求先固化设计、后续再重构；当下仅逐处对齐已发现的漂移。本节即该设计固化产物。
+Em 2026-08-12, ao auditar as diferenças entre o caminho persistentKey e o caminho original, foram encontradas 3 divergências (8.2). O usuário julgou que se trata de um **defeito de design** (ramos duplicados) e pediu primeiro consolidar o design, refatorando depois; por enquanto apenas as divergências encontradas foram alinhadas uma a uma. Esta seção é o produto dessa consolidação.

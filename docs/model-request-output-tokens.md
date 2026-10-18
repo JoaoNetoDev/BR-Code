@@ -1,65 +1,63 @@
-# 模型请求输出上限策略
+# Política de limite de saída da requisição de modelo
 
-更新日期：2026-08-13
+Data de atualização: 2026-08-13
 
-本文说明 zcode-cli 如何把模型级 `maxOutputTokens` 转换为每次请求的输出预算。桌面本地、
-远程 workspace 和手机 Web 远控复用同一条 agent 请求链路，策略一致。
+Este documento explica como o zcode-cli converte o `maxOutputTokens` de nível de modelo em um orçamento de saída por requisição. O desktop local,
+o remote workspace e o controle remoto Web do celular reutilizam a mesma cadeia de requisição do agent, de modo que a política é consistente.
 
-## 模型级预算
+## Orçamento de nível de modelo
 
-ModelFactory 根据 Effective Model Config 创建 Active Model。普通 Turn 从
-`model.optionSpecs.maxOutputTokens.max` 选择输出预算，再应用本轮 preflight cap；Compact summary
-取该上限与 20,000 的较小值。最终预算通过请求级 `options.maxOutputTokens` 传入 Model，
-不属于长期 ModelSelection，也不从 Settings 旧结构、Catalog、Provider ID 或 modelId 重新推断。
+O ModelFactory cria o Active Model a partir da Effective Model Config. Um Turn normal escolhe o orçamento de saída em
+`model.optionSpecs.maxOutputTokens.max` e depois aplica o cap de preflight desta rodada; o summary do Compact
+toma o menor valor entre esse limite e 20.000. O orçamento final é passado ao Model pelo `options.maxOutputTokens` em nível de requisição,
+não pertence ao ModelSelection de longo prazo e não é reinferido a partir da estrutura antiga de Settings, do Catalog, do Provider ID ou do modelId.
 
 ```ts
 const effectiveMaxOutputTokens = model.optionSpecs.maxOutputTokens.max;
 ```
 
-32K 不是独立的全局 hard cap。模型声明 64K 时 effective 为 64K，声明 16K 时 effective
-为 16K；不再用 `min(modelMaxOutputTokens, 32K)` 二次裁剪。
+32K não é um hard cap global independente. Quando o modelo declara 64K, o valor efetivo é 64K; quando declara 16K, o efetivo
+é 16K; não se usa mais `min(modelMaxOutputTokens, 32K)` para um segundo corte.
 
-Built-in 通用 Model Config Rule 负责声明完整默认 Option Spec；具体模型和 Personal Rule 只覆盖差异叶子。
-因此 Active Model 的 `optionSpecs.maxOutputTokens` 总是完整；请求级预算仍须通过 Model 校验。
+A Model Config Rule geral do Built-in é responsável por declarar o Option Spec padrão completo; modelos específicos e Personal Rules sobrescrevem apenas as folhas divergentes.
+Portanto, o `optionSpecs.maxOutputTokens` do Active Model é sempre completo; o orçamento em nível de requisição ainda precisa passar pela validação do Model.
 
-## Provider 请求字段
+## Campos de requisição do Provider
 
-core 只计算本轮最终 `maxOutputTokens`，不再附带请求类别或 Provider 字段提示。Active Model 的
-`optionSpecs.maxOutputTokens.map` 将这个最终数值映射为目标 API Schema 的原始 JSON 字段：
+O core calcula somente o `maxOutputTokens` final desta rodada e não acompanha mais a categoria de requisição nem dicas de campos do Provider. O
+`optionSpecs.maxOutputTokens.map` do Active Model mapeia esse valor final para o campo JSON cru do schema da API de destino:
 
-- **Anthropic Messages**：通常映射为 `max_tokens`；
-- **OpenAI Chat Completions**：通常映射为 `max_completion_tokens`，兼容协议可以声明 `max_tokens`；
-- **OpenAI Responses**：映射为 `max_output_tokens`。
+- **Anthropic Messages**: normalmente mapeado para `max_tokens`;
+- **OpenAI Chat Completions**: normalmente mapeado para `max_completion_tokens`, e protocolos compatíveis podem declarar `max_tokens`;
+- **OpenAI Responses**: mapeado para `max_output_tokens`.
 
-Adapter 在 AI SDK 完成基础序列化和协议兼容之后、请求安全校验与网络发送之前执行该 Map。它不再同时向
-AI SDK 传递通用 `maxOutputTokens`，也不再保留 32K fallback、Provider ID 分支、fixed-thinking
-加减或原始字段清洗。具体映射只属于命中当前 `providerId/modelId/api.type/baseURL` 的 Model Config
-Rule，完整契约见
-[Model Option Map 与原始请求体](./working-memory/provider-refactor/design/model/model-option-map.md)。
+O Adapter executa esse Map depois que o AI SDK conclui a serialização básica e a compatibilidade de protocolo, e antes da validação de segurança da requisição e do envio pela rede. Ele não passa mais um `maxOutputTokens` genérico ao AI SDK em paralelo, nem mantém o fallback de 32K, ramos por Provider ID, ajustes e remoções de fixed-thinking ou limpeza de campos crus. Os mapeamentos específicos pertencem apenas à Model Config
+Rule que corresponde ao `providerId/modelId/api.type/baseURL` atual; o contrato completo está em
+[Model Option Map e corpo de requisição cru](./working-memory/provider-refactor/design/model/model-option-map.md).
 
-## 固定预算策略（3.12.2）
+## Política de orçamento fixo (3.12.2)
 
-所有新 Runtime（桌面本地、远程 workspace、手机 shared-host、纯 CLI、子 Agent）统一使用
-`preflight-v1`。不再消费 `client/configs.modelContextBudget.strategy`；兼容旧 Host 的协议字段
-仍接受 `legacy`，但在本版本 Runtime 边界归一到共享常量 `DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY`。
-运行中的旧进程不热切换；升级后创建或冷恢复的 Runtime 采用新规则。
+Todos os novos Runtimes (desktop local, remote workspace, shared-host do celular, CLI puro, sub Agent) usam uniformemente
+`preflight-v1`. O `client/configs.modelContextBudget.strategy` não é mais consumido; o campo de protocolo que ainda aceita `legacy` para
+compatibilidade com Hosts antigos é normalizado no limite de Runtime desta versão para a constante compartilhada `DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY`.
+Processos antigos em execução não fazem hot switch; Runtimes criados após a atualização ou recuperados a frio adoptam as novas regras.
 
-`getModelContextBudgetStrategy()` 保留服务兼容接口，但仅返回共享常量，不读缓存、不发请求、
-不启动计时器或后台刷新。本地 Host 与 remote workspace 偏好桥直接使用共享常量；
-`runtime-materialization` 和 `user-execution` 都只读取必要本地 Settings，仍保持 scope 隔离。
-预算值不写 Settings、数据库或 provider 配置；已有 client-config 请求与其他消费者完全不变。
+`getModelContextBudgetStrategy()` mantém a interface de compatibilidade de serviço, mas retorna apenas a constante compartilhada, sem ler cache, sem enviar requisições,
+sem iniciar timers ou refreshes em segundo plano. A ponte de preferência do Host local e do remote workspace usa diretamente a constante compartilhada;
+tanto `runtime-materialization` quanto `user-execution` leem apenas as Settings locais necessárias, preservando o isolamento de scope.
+Os valores de orçamento não são gravados em Settings, banco de dados ou configuração de provider; as requisições existentes de client-config e os demais consumidores permanecem totalmente inalterados.
 
 ```text
-必要本地 Settings + 固定 preflight-v1 -> runtime preferences -> Runtime -> 子 Agent
-client/configs -> 套餐/页面/实际闲时工具创建（不参与预算或聊天启动）
+Settings locais necessárias + preflight-v1 fixo -> runtime preferences -> Runtime -> sub Agent
+client/configs -> criação de plano/página/ferramenta real de off-peak (não participa do orçamento nem do início do chat)
 ```
 
-原因：旧实现为可回退算法在每次 Runtime 创建时等待远端最多 5 秒，重复创建会串行放大等待。
-统一算法后删除远端选择和 legacy 分支，不用额外缓存、超时或后台任务补偿。
+Motivo: a implementação antiga aguardava até 5 segundos de servidor a cada criação de Runtime para um algoritmo com recuo, e criações repetidas ampliavam a espera em série.
+Depois da unificação do algoritmo, a escolha remota e os ramos legacy foram removidos, sem compensar com cache extra, timeout ou tarefas em segundo plano.
 
-## Auto Compact 输入窗口
+## Janela de entrada do Auto Compact
 
-统一最多保留 21K 输出窗口，不再应用 legacy 的 95% threshold：
+Uniformemente mantém-se uma janela de saída de no máximo 21K e não se aplica mais o threshold legacy de 95%:
 
 ```ts
 const outputReserve = Math.min(effectiveMaxOutputTokens, 21_000);
@@ -67,29 +65,27 @@ const inputWindow = Math.max(0, contextWindow - outputReserve);
 const compactThreshold = Math.max(0, inputWindow - 13_000);
 ```
 
-128K context、64K output 时，reserve 为 21K，effective input 为 107K，compact threshold 为 94K。
-输入 `legacy` 或旧 percent override 也不改变该算法；小于 21K 的输出上限原样保留。
-Auto Compact 的 token 来源、13K buffer、失败熔断和时间线语义不变。
+Com context de 128K e output de 64K, o reserve é 21K, o input efetivo é 107K e o compact threshold é 94K.
+Informar `legacy` na entrada ou um override de percentual antigo também não altera esse algoritmo; limites de saída menores que 21K são mantidos como são.
+A origem dos tokens do Auto Compact, o buffer de 13K, o circuito de falha e a semântica da linha do tempo permanecem inalterados.
 
-## 主请求 Preflight Cap
+## Cap de preflight da requisição principal
 
-在每个主模型 step（包含 tool continuation）发送前复用 Auto Compact 已有的
-usage estimation：从当前 provider-visible message projection 尾部向前查找最近一条已经提交、且
-带有有效 `tokens` 的真实 assistant。该 assistant 的 provider usage 作为上下文基线，只对它之后的
-消息做本地增量估算；找不到有效 assistant 时继续做全量本地估算。usage 归属直接来自既有的
-`AssistantMessageInfo.tokens`，不新增第二份 `providerUsage` 持久化字段，也不持久化绝对消息下标
-作为 anchor。响应尚未提交到 history 时不会参与扫描。Compact 替换 provider-visible 的旧前缀后，
-preserved assistant 的原始 usage 不再代表当前上下文；运行时和冷启动 projection 只在 preserved
-消息的副本上将 usage 归零。Compact 之后新增的 assistant 不在该范围内，仍保留自己的 tokens；
-持久化 transcript 中的原始 tokens 不被修改。没有 preserved segment 的旧 Compact 数据继续使用
-兼容路径。
+Antes de cada step do modelo principal (incluindo a continuação por ferramenta), reutiliza-se a estimativa de uso já existente no Auto Compact:
+a partir da cauda da projeção de mensagens visível ao provider, procura-se para trás o assistant real mais recente que já foi submetido e
+que tem `tokens` válidos. O usage desse assistant, visto pelo provider, é a linha de base do contexto, e a estimativa incremental local é feita apenas para as mensagens
+posteriores a ele; quando nenhum assistant válido é encontrado, continua-se com uma estimativa local completa. A atribuição de uso vem diretamente do
+`AssistantMessageInfo.tokens` já existente, sem adicionar um segundo campo persistido de `providerUsage` e sem persistir o índice absoluto de mensagem
+como anchor. Respostas ainda não submetidas ao history não participam da varredura. Depois que o Compact substitui o prefixo antigo visível ao provider,
+o usage original dos assistants preservados deixa de representar o contexto atual; o runtime e a projeção de cold start zeram o usage apenas nas cópias das mensagens preservadas. Assistants adicionados depois do Compact estão fora desse escopo e continuam com seus próprios tokens;
+os tokens originais do transcript persistido não são modificados. Dados antigos de Compact sem segmento preservado continuam usando o caminho de compatibilidade.
 
-本地增量复用 Compact 的共享估算器：每条消息按 `ceil(provider-visible 字符数 / 3)` 估算，
-assistant 的 tool call 名称和序列化入参也计入字符数。OTB09 以 `inputTokens=1` 和
-255,984 字符 user message 锁定边界；该 provider usage anchor 已覆盖上一轮 assistant，
-因此 suffix 只估算 anchor 后的新用户消息：
-`estimatedCurrentUsage = 1 + 85,328 = 85,329`。因此 128K context 下本轮发送
-`max_tokens = 128,000 - 85,329 - 1,000 = 41,671`。
+A estimativa incremental local reaproveita o estimador compartilhado do Compact: cada mensagem é estimada por `ceil(número de caracteres visíveis ao provider / 3)`,
+e o nome das tool calls do assistant e seus argumentos serializados também entram na contagem de caracteres. OTB09 fixa o limite com `inputTokens=1` e uma
+mensagem user de 255.984 caracteres; esse anchor de usage do provider já cobre o assistant da rodada anterior,
+portanto o suffix estima apenas a nova mensagem de usuário posterior ao anchor:
+`estimatedCurrentUsage = 1 + 85,328 = 85,329`. Assim, com context de 128K, esta rodada envia
+`max_tokens = 128,000 - 85,329 - 1,000 = 41,671`.
 
 ```ts
 const estimatedAvailable = Math.floor(contextWindow - estimatedCurrentUsage - 1_000);
@@ -99,265 +95,257 @@ const finalMaxOutputTokens =
     : effectiveMaxOutputTokens;
 ```
 
-- 不设置 minimum sendable，也不对 `<3000` 增加分支；2,999 或 1 都按计算值发送。
-- Reasoning Map 与输出上限 Map 分别读取各自的最终 Option value；core 不在此处推断 Provider 的
-  thinking budget。
-- Cap 仅属于当前 model step，不修改 request、Settings 或模型配置；Compact 后重新计算。
-- Compact summary、title、TCV、workspace/internal 请求不使用 Preflight Cap。
-- 裁剪后仍超窗时不做 provider 数字解析或 reduction retry，继续进入既有错误分类和 reactive
-  compact。
+- não se define minimum sendable nem se adiciona um ramo para `<3000`; 2.999 ou 1 são enviados pelo valor calculado;
+- o Reasoning Map e o Map do limite de saída leem cada qual seu próprio valor de Option final; o core não infere aqui o thinking budget do Provider;
+- o Cap pertence somente ao model step atual, não modifica request, Settings nem configuração de modelo; é recalculado após o Compact;
+- o summary do Compact, o title, o TCV e as requisições de workspace/internas não usam o Preflight Cap;
+- se a janela ainda for excedida após o corte, não há parsing numérico do provider nem retry de redução; o fluxo continua para a classificação de erros existente e o compact
+  reativo.
 
-### 混合长度 Smoke 合同
+### Contrato de smoke de comprimentos misturados
 
-使用两组固定 seed 验证从 baseline、连续 cap 到 Auto Compact 的完整链路：
+Duas séries fixas de seeds verificam a cadeia completa do baseline, do cap contínuo até o Auto Compact:
 
-| 场景                                  | effective input window |                 cap 起点 | Auto Compact threshold |
+| Cenário                                  | janela de input efetiva |                 ponto de partida do cap | threshold do Auto Compact |
 | ------------------------------------- | ---------------------: | -----------------------: | ---------------------: |
 | `64K context + 48K maxOutputTokens`   |      `64K - 21K = 43K` |   `64K - 48K - 1K = 15K` |      `43K - 13K = 30K` |
 | `200K context + 128K maxOutputTokens` |    `200K - 21K = 179K` | `200K - 128K - 1K = 71K` |    `179K - 13K = 166K` |
 
 ```text
-空 Session
+Session vazia
    |
    v
-固定 seed 的不同长度真实用户消息
+mensagens reais de usuário de comprimentos diferentes a partir das seeds fixas
    |
-   +-- estimated usage <= cap 起点 --> max_tokens=baseline
+   +-- estimated usage <= ponto de partida do cap --> max_tokens=baseline
    |
-   +-- cap 起点 < estimated usage < Auto Compact threshold
-   |        `--> max_tokens=min(baseline, context - usage - 1K)，至少连续两轮单调缩小
+   +-- ponto de partida do cap < estimated usage < threshold do Auto Compact
+   |        `--> max_tokens=min(baseline, context - usage - 1K), com pelo menos duas rodadas de redução monótona
    |
-   `-- estimated usage >= Auto Compact threshold
+   `-- estimated usage >= threshold do Auto Compact
             `--> Auto Compact summary(max_tokens=20K)
                                       |
                                       v
-                              继续原 pending user message
+                              continua a user message pendente original
                                       |
                                       v
-                              按压缩后 usage 重新计算 cap
+                              recalcula o cap com o usage pós-compact
 ```
 
-200K/128K 场景的尾部使用少量细粒度消息，把实际 `max_tokens` 依次推进到约 34.3K、
-33.1K；理论边界为 `200K - 166K - 1K = 33K`。下一条消息刚跨过 166K threshold 后必须先
-Compact，不应再发送等于或低于 33K 的主请求。这样同时覆盖边界两侧，但不引入大量微小轮次。
+A cauda do cenário 200K/128K usa poucas mensagens de granularidade fina, empurrando o `max_tokens` real sequencialmente para cerca de 34.3K e
+33.1K; o limite teórico é `200K - 166K - 1K = 33K`. Depois que a mensagem seguinte cruza o threshold de 166K, o Compact precisa acontecer primeiro, e
+não se deve mais enviar uma requisição principal igual ou inferior a 33K. Isso cobre os dois lados do limite sem introduzir muitas rodadas minúsculas.
 
-这里的“用尽窗口”指用到 preserve 21K 与 13K buffer 共同定义的 effective input threshold，
-不是绕过 Auto Compact 强行填满原始 context window。测试只固定两组输入长度序列与 synthetic
-provider usage，不引入运行时随机 seed、provider 错误、工具调用、queue 或远程控制组合。
+Aqui, "esgotar a janela" significa usar até o effective input threshold definido em conjunto pelo preserve de 21K e o buffer de 13K,
+e não contornar o Auto Compact para preencher à força a context window original. Os testes fixam apenas as duas séries de comprimentos de entrada e o
+usage sintético do provider, sem introduzir seeds aleatórios de runtime, erros de provider, tool calls, filas ou combinações de controle remoto.
 
-## Compact 请求边界
+## Limites da requisição de Compact
 
-Compact summary 使用 effective 值与现有 20K 任务预算中的较小者：
+O summary do Compact usa o menor valor entre o efetivo e o orçamento de tarefa de 20K já existente:
 
 ```ts
 const compactSummaryMaxOutputTokens = Math.min(effectiveMaxOutputTokens, 20_000);
 ```
 
-因此 effective=16K 时 Compact 请求使用 16K，effective=64K 时使用 20K。
-Compact 只决定本轮 `maxOutputTokens` value；它与 reasoning level 按相同 Option Map 链在最终原始
-请求体上投影，不再经过 Adapter 的 fixed-thinking 预算换算。
+Portanto, com effective=16K a requisição de Compact usa 16K, e com effective=64K usa 20K.
+O Compact decide somente o valor de `maxOutputTokens` desta rodada; ele e o reasoning level são projetados no corpo de requisição cru final pela mesma cadeia de
+Option Map, e não passam mais pela conversão de orçamento de fixed-thinking do Adapter.
 
-## Output-limit Continue 恢复
+## Recuperação de Continue por output-limit
 
-正常 Main Agent、Subagent 和 workflow child 共用同一条 output-limit 恢复逻辑。一次模型成功响应在
-没有完整 tool call，且满足以下任一 stop reason 时进入恢复：
+O Main Agent, o Subagent e o workflow child normais compartilham a mesma lógica de recuperação por output-limit. Uma resposta de modelo bem-sucedida entra na recuperação
+quando não contém um tool call completo e satisfaz qualquer um destes stop reasons:
 
-- normalized `finishReason === "length"`；
-- raw reason 为 `max_tokens`、`max_output_tokens` 或 `model_context_window_exceeded`。
+- `finishReason` normalizado igual a `"length"`;
+- reason bruto `max_tokens`, `max_output_tokens` ou `model_context_window_exceeded`.
 
-成功响应的 `model_context_window_exceeded` 属于上述 Continue 恢复，不能仅凭该结束标记转成
-Reactive Compact；normalized reason 为 `other` 或 `length`、内容和 usage 全空时均遵循此约定。
-连续耗尽 3 次 Continue 后仍按 output-limit 报错，不因该 raw reason 改走 Reactive Compact。
+Um `model_context_window_exceeded` em resposta bem-sucedida pertence à recuperação por Continue acima e não pode, apenas por esse marcador de término, virar
+Reactive Compact; o mesmo vale quando o reason normalizado é `other` ou `length` e o conteúdo e o usage estão totalmente vazios.
+Após 3 Continue consecutivos esgotados, o erro de output-limit continua sendo reportado e o raw reason não faz o fluxo ir para Reactive Compact.
 
-这是有意设计（非 Bug），经隔离实测确认，并与原始实现提交
-`6e7ef0d6171c54d6cd65c88bd79762ad0a9be54d` 保持一致：成功响应的
-`model_context_window_exceeded` 映射为 `apiError: max_output_tokens`，即使 content 全空也走三次
-Continue。历史讨论中“根据 raw reason 优先 Compact”的初步方案已被这次核验纠正，不是最终约定。
+Esse é um comportamento intencional (não é bug), confirmado por teste isolado e consistente com o commit original da implementação
+`6e7ef0d6171c54d6cd65c88bd79762ad0a9be54d`: o `model_context_window_exceeded` de uma resposta bem-sucedida é mapeado como `apiError: max_output_tokens`, e mesmo
+com o conteúdo totalmente vazio ele passa por três Continue. A proposta inicial de "priorizar o Compact conforme o raw reason"discussida na história foi corrigida por esta verificação e não é o acordo final.
 
-协议层的区别是“生成截断”和“请求失败”：Anthropic 的
-[context window overflow 定义](https://platform.claude.com/docs/en/build-with-claude/context-windows#context-window-overflow-behavior)
-允许支持该行为的模型接受 input 本身未超窗、但 input + `max_tokens` 超窗的请求，生成填满窗口时
-才返回该 stop reason；input 本身已超窗则返回 `400 invalid_request_error`（prompt is too long）。
-该标记仍表示触及上下文容量，不意味着窗口没有满；它是有效但被截断的响应，不能据名称直接构造
-请求异常。参见 [stop reason 定义](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons#model_context_window_exceeded)。
-三次恢复与空内容处理是本项目确认的约定，不是协议保证续写一定成功；每次 Continue
-仍回到既有 outer loop，保留 Micro/Auto Compact，后续若抛出真实超窗异常仍走 Reactive Compact。
+A distinção no nível do protocolo é entre "geração truncada" e "requisição que falhou": a
+[definição de overflow da context window da Anthropic](https://platform.claude.com/docs/en/build-with-claude/context-windows#context-window-overflow-behavior)
+permite que modelos que suportam esse comportamento aceitem requisições em que o input em si não excede a janela, mas input + `max_tokens` excede, retornando esse stop reason
+apenas quando a geração preenche a janela; se o input em si já excede, retorna `400 invalid_request_error` (prompt is too long).
+Esse marcador continua significando que a capacidade de contexto foi atingida e não significa que a janela não tenha sido preenchida; é uma resposta válida mas truncada, e não se pode
+construir uma exceção de requisição só pelo nome. Consulte a [definição de stop reason](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons#model_context_window_exceeded).
+As três recuperações e o tratamento de conteúdo vazio são um acordo confirmado por este projeto, e não uma garantia de protocolo de que a continuação terá sucesso; cada Continue
+ainda volta ao outer loop existente, preservando Micro/Auto Compact, e, se mais tarde for lançada uma exceção real de overflow, ela segue para o Reactive Compact.
 
-协议 adapter 的标准归一化边界如下；runtime 只消费 normalized/raw 事实，不从 HTTP event 名称重新推断：
+Os limites normais de padronização dos adapters de protocolo são os seguintes; o runtime consome apenas os fatos normalized/raw e não reinfere a partir do nome do evento HTTP:
 
-| 协议                 | provider raw 终态                                                     | adapter normalized finish reason |
+| Protocolo                 | estado final bruto do provider                                                     | finish reason normalizado do adapter |
 | -------------------- | --------------------------------------------------------------------- | -------------------------------- |
 | Anthropic Messages   | `stop_reason=max_tokens`                                              | `length`                         |
 | Chat Completions     | `finish_reason=length`                                                | `length`                         |
 | OpenAI Responses API | `response.incomplete` + `incomplete_details.reason=max_output_tokens` | `length`                         |
 
-部分非标准 OpenAI-compatible 服务会在 Chat Completions 返回
-`finish_reason=max_tokens`。AI SDK 对该未知枚举保留 `rawFinishReason=max_tokens`，normalized 值可能为
-`other`；runtime 的 raw-reason 兼容分支仍会继续恢复。adapter focused wire test 固定这个
-`other + raw=max_tokens` 例子，Desktop OTC11 则使用两种标准协议各自的原生终态验证端到端归一化。
-Runtime 一旦结合 normalized/raw reason 和完整 tool-call 事实确认本 step 属于 output-limit，必须在生成
-`ModelComplete`、usage fact 和 transcript finish 前把 canonical `finishReason` 统一为 `length`；adapter
-network/model-io、Runtime diagnostics 与 `providerMetadata.rawFinishReason` 仍保留 provider 原始事实。
+Alguns serviços não padronizados compatíveis com OpenAI retornam
+`finish_reason=max_tokens` em Chat Completions. O AI SDK preserva `rawFinishReason=max_tokens` para essa enumeração desconhecida, e o valor normalizado pode ser
+`other`; o ramo de compatibilidade por raw reason do runtime continua recuperando. O wire test focado do adapter fixa esse
+exemplo de `other + raw=max_tokens`, enquanto o Desktop OTC11 usa o estado final nativo de cada um dos dois protocolos padrão para validar a normalização ponta a ponta.
+Assim que o Runtime combinar o normalized/raw reason e o fato completo de tool calls e confirmar que o step pertence ao output-limit, ele deve unificar o `finishReason` canônico como `length`
+antes de gerar `ModelComplete`, o fato de usage e o finish do transcript; o network/model-io do adapter, os diagnostics do Runtime e o `providerMetadata.rawFinishReason` continuam preservando os fatos brutos do provider.
 
-真正以 request error 抛出的 context overflow 不属于本节，继续走既有 Reactive Compact。完整 tool
-call 的优先级高于 output-limit；判断使用 adapter 已经完成组装的全部 tool calls，而不是只看本地可执行
-tool calls。只有命中上述 output-limit 判据时，text、reasoning 和 usage 全空的响应才允许恢复；其他空
-响应继续走 suspicious-empty 错误。
+Um context overflow realmente lançado como request error não pertence a esta seção e continua seguindo para o Reactive Compact existente. Um tool
+call completo tem prioridade sobre o output-limit; o julgamento usa todas as tool calls que o adapter já montou, e não apenas as tool calls executáveis localmente.
+Somente quando os critérios de output-limit acima são atingidos é que uma resposta com text, reasoning e usage totalmente vazios pode recuperar; outras respostas vazias continuam indo para o erro suspicious-empty.
 
-恢复最多追加 3 条 user-role Continue，因此一次恢复链最多产生 4 次正常模型请求。文案必须保持
-完全一致：
+A recuperação acrescenta no máximo 3 Continue com role user, portanto uma cadeia de recuperação produz no máximo 4 requisições normais de modelo. O texto precisa permanecer
+exatamente igual:
 
 ```text
 Output token limit hit. Resume directly — no apology, no recap of what you were doing. Pick up mid-thought if that is where the cut happened. Break remaining work into smaller pieces.
 ```
 
-Continue 是 query-local 普通 user message，不包装为 `<system-reminder>`。它对本轮后续 provider 请求
-可见，但不进入 canonical `MessageHistory`、Session event/transcript、UI user bubble、hydration、fork /
-edit 输入或 latest-real-user 判定。Turn 结束时 query-local 状态直接消亡，不执行清理、history cursor
-同步或整体 copyback。
+O Continue é uma user message comum e local à query, sem ser embutido em `<system-reminder>`. Ele é visível para as requisições ao provider da mesma rodada, mas não entra no
+`MessageHistory` canônico, nos eventos/transcript de Session, na bolha de user da UI, na hydration, na entrada de fork/edit nem na determinação de latest-real-user. No fim do Turn o estado
+local à query morre diretamente, sem executar limpeza, sincronização de cursor de history nem copyback global.
 
-Compact 同样遵守这一边界：待总结部分即使含有先前的 Continue，实际 provider 请求仍保留它，
-但 `querySource=compact` 的 `ModelRequest` 事件必须使用过滤后的 recordable projection，
-不能把实际请求数组直接写入事件。回归测试覆盖两次 Continue 后触发 Reactive Compact，
-确保 Continue 对 summary 请求可见、对事件和持久化消息不可见。
-Anthropic wire 验收同时覆盖一条和三条 Continue：相邻 user 合并后，准确文案及出现次数不变，
-不引入 `<system-reminder>` 包装。
+O Compact também respeita esse limite: mesmo que a parte a ser resumida contenha Continue anteriores, a requisição real ao provider o mantém,
+mas o evento `ModelRequest` com `querySource=compact` precisa usar a projeção recordable filtrada, e não pode escrever o array de requisições real diretamente no evento. Testes de regressão cobrem o
+Reactive Compact disparado após dois Continue, garantindo que o Continue seja visível na requisição de summary e invisível para eventos e mensagens persistidas.
+A aceitação do wire Anthropic cobre simultaneamente um e três Continue: após a mesclagem de users adjacentes, o texto exato e o número de ocorrências permanecem iguais,
+sem introduzir o wrapper `<system-reminder>`.
 
 ```text
-Turn 入口
-  query.entries = [...borrowReadOnlyRuntimeEntries()]   # O(n) 指针浅快照
+Entrada do Turn
+  query.entries = [...borrowReadOnlyRuntimeEntries()]   # snapshot superficial de ponteiros O(n)
         |
         v
-每次 outer loop
-  requestEntries = [...query.entries]                   # 请求前浅展开
+Cada outer loop
+  requestEntries = [...query.entries]                   # expansão superficial antes da requisição
         |
         +-- output-limit --> query = [...request, partial assistant?, Continue]
         +-- tool ---------> query = [...request, assistant, tool results]
         +-- Compact ------> query = compactResult.entries
-        `-- 正常完成 -----> Guide / Stop Hook / Turn complete
+        `-- conclusão normal -> Guide / Stop Hook / Turn complete
 ```
 
-entry/message/content 在进入 `MessageHistory` 或 query state 后按不可变值使用。同步即时只读使用
-`borrowReadOnlyRuntimeEntries()`；跨 `await` 的 query/Compact 边界只复制数组指针，不调用
-`toRuntimeEntries()` 深克隆内容。provider projection 是请求前唯一必要的内容克隆边界。
+entry/message/content são usados como valores imutáveis depois de entrar no `MessageHistory` ou no query state. O uso síncrono imediato somente leitura usa
+`borrowReadOnlyRuntimeEntries()`; as fronteiras de query/Compact entre `await`s apenas copiam os ponteiros do array, sem chamar
+`toRuntimeEntries()` para clonar profundamente o conteúdo. A projeção para o provider é a única fronteira de clonagem de conteúdo realmente necessária antes da requisição.
 
-### Partial、Compact 与外部输入
+### Partial, Compact e entradas externas
 
-- 有真实 text 或 reasoning 时，当前 assistant 按既有 step 路径提交；恢复尚未耗尽且两者都为空时，
-  不向 canonical/query-local history 追加空 assistant。第 4 次耗尽的持久错误边界见下节。
-- `TurnResult.response` 仍只返回最后一次真实模型响应，不把多段 partial 拼接成一个字符串。
-- output-limit 分支在 Guide 和 Stop Hook 之前返回 outer loop。恢复链正常结束后，两者恢复既有行为。
-- 恢复期间暂停 pending runtime commands、异步 project-memory update 和新 runtime notice 的消费，保证
-  `partial assistant → Continue` 是原子序列；Abort、Micro/Auto Compact、MCP/tools、projection 与
-  token budgeting 保持运行。
-- Micro/Auto/Reactive Compact 使用当前 query-local entries。Compact boundary 和 summary 立即按既有
-  规则持久化；独立存在的 Continue 从 canonical post-compact entries 过滤，恢复计数不因 Compact 重置。
-  Manual Compact 没有 query-local 输入，继续直接使用 canonical history。
-- Compact recent-preserve 沿用既有边界：普通 assistant 可以进入 preserved segment，带
-  `info.error` 的 transcript error carrier 不进入 provider history。次数耗尽时真实 partial 与 error
-  carrier 分开持久化，因此不需要扩展 Compact 的消息分类规则。
-- 恢复链视为一个原子 Turn：链内模型、语言或 output-style 刷新不改写当前 query-local prefix；若刷新与
-  turn-local Compact 并发，Compact 提交 canonical history 时保留已经刷新的 canonical prefix，使变更只
-  在下一独立 Turn 生效。
-- canonical transcript 仍逐请求保存每条真实 partial assistant，`TurnResult.response` 也仍只返回最后一次
-  response；展示归约只发生在 V4 ProductProjection。只有 `ModelComplete` 同时明确携带
-  `stopReason="length"`、`toolCallCount=0`，且下一正文位于同一 product turn 并与上一条
-  `assistantText` 视觉紧邻时，投影才重新打开原 row 并直接追加，不插入换行。最终 row 的稳定 `rowId`
-  不变，message/action 身份推进到最后一条 assistant。tool、reasoning、可见 user、timeline、不同
-  product turn、非 `length` 以及缺失 tool-call 事实都会保留原有分段。
+- quando há text ou reasoning real, o assistant atual é submetido pelo caminho de step existente; enquanto a recuperação não se esgota e os dois estiverem vazios,
+  nenhum assistant vazio é acrescentado ao history canônico ou local à query. O limite de erro persistente da 4ª vez esgotada está na seção abaixo.
+- `TurnResult.response` continua retornando apenas a última resposta real do modelo, sem concatenar vários partials em uma única string.
+- o ramo de output-limit retorna ao outer loop antes do Guide e do Stop Hook. Depois que a cadeia de recuperação termina normalmente, ambos retomam o comportamento existente.
+- durante a recuperação, o consumo de pending runtime commands, das atualizações assíncronas de project-memory e dos novos runtime notices é pausado, garantindo que
+  `partial assistant → Continue` seja uma sequência atômica; Abort, Micro/Auto Compact, MCP/tools, projeção e
+  token budgeting continuam rodando.
+- Micro/Auto/Reactive Compact usam os entries locais à query atuais. A fronteira do Compact e o summary são persistidos imediatamente pelas regras existentes; um Continue de existência independente é filtrado a partir dos canonical post-compact entries, e a contagem de recuperação não é reiniciada pelo Compact.
+  O Manual Compact não tem entrada local à query e continua usando diretamente o history canônico.
+- o recent-preserve do Compact mantém a fronteira existente: um assistant comum pode entrar no segmento preservado, e um
+  transcript error carrier com `info.error` não entra no provider history. Quando o número de tentativas se esgota, o partial real e o error
+  carrier são persistidos separadamente, portanto não é preciso estender as regras de classificação de mensagens do Compact.
+- a cadeia de recuperação é tratada como um Turn atômico: uma atualização de modelo, idioma ou output-style dentro da cadeia não reescreve o prefixo local à query atual; se a atualização for
+  concorrente com um Compact local ao turn, o Compact preserva o prefixo canônico já atualizado ao gravar o history canônico, de modo que a mudança só
+  passe a valer no próximo Turn independente.
+- o transcript canônico continua salvando cada partial assistant real por requisição, e `TurnResult.response` continua retornando apenas a última
+  response; a redução de exibição acontece somente na V4 ProductProjection. Apenas quando um `ModelComplete` carrega explicitamente
+  `stopReason="length"`, `toolCallCount=0`, e o próximo corpo está no mesmo product turn e é visualmente adjacente ao `assistantText` anterior, a projeção reabre a row original e acrescenta
+  diretamente, sem inserir quebra de linha. O `rowId` estável da row final não muda, e a identidade de message/action avança até o último assistant. tool, reasoning, user visível, timeline, product
+  turn diferente, algo que não seja `length` e a ausência do fato de tool call preservam a segmentação original.
 
 ```text
 p1 text ─ ModelComplete(length, tools=0) ─ p2 text ─ ... ─ p3 text
-   │                    同 turn 且紧邻                    │
-   └──────── ProductProjection: 同一 assistant row ──────┘
+   │                    mesmo turn e adjacente                   │
+   └──────── ProductProjection: mesma assistant row ──────┘
 
 tool / reasoning / user / timeline / turn boundary
-   └──────── ProductProjection: 新 assistant row
+   └──────── ProductProjection: nova assistant row
 ```
 
-### 次数耗尽与 usage
+### Esgotamento de tentativas e usage
 
-第 4 次响应仍命中 output-limit 时，不发送第 5 次请求。若响应存在真实 text 或 reasoning，先把它作为
-不带 `info.error` 的普通 assistant 连同真实 usage 提交；随后用新的 message ID 向 Session transcript
-单独写入一条 error-only assistant 和对应 `step-finish`。若响应完全为空，则只写入 error-only carrier。
-carrier 的 `tokens` 使用全零占位，不能成为 usage anchor，也不进入 live 或 cold-hydrated provider
-history。它直接使用既有 assistant error 结构：稳定错误码放在 `error.name`，
-`data.message/retryable/attribution` 分别恢复错误文案、UI recoverable 和 provider source，不扩展通用
-hydration 规则。请求级真实 usage 仍由既有 `ModelComplete` 和 usage observability 记录。
-随后复用现有 `ModelError` / `TurnError` 收口向实时 UI 展示错误，不再追加 `TurnComplete(success)`。
-该错误只终止当前 Turn command，不新增 `CoreErrorType`、不结束 Agent runtime 或交互式 CLI 进程，
-错误展示文案也不进入 provider history。所有上述 output-limit reason 统一使用中性文案
-`The model's response exceeded the output token maximum.`。
+Quando a 4ª resposta ainda atinge o output-limit, nenhuma 5ª requisição é enviada. Se a resposta tiver text ou reasoning real, ela é primeiro submetida como um
+assistant comum sem `info.error`, junto com o usage real; em seguida, com um novo message ID, grava-se separadamente no transcript da Session um assistant somente de erro e o `step-finish`
+correspondente. Se a resposta for totalmente vazia, grava-se apenas o carrier somente de erro.
+Os `tokens` do carrier usam um placeholder de zeros, não podem se tornar um anchor de usage e não entram no provider history live nem cold-hydrated.
+Ele usa diretamente a estrutura de assistant error existente: o código de erro estável vai em `error.name`, e
+`data.message/retryable/attribution` restauram, respectivamente, o texto do erro, a recuperabilidade na UI e a origem no provider, sem estender as regras gerais de
+hydration. O usage real em nível de requisição continua sendo registrado pelo `ModelComplete` e pela observabilidade de usage já existentes.
+Depois disso, reutiliza-se o fechamento existente de `ModelError` / `TurnError` para exibir o erro na UI em tempo real, sem acrescentar `TurnComplete(success)`.
+Esse erro encerra apenas o command do Turn atual, não cria um novo `CoreErrorType`, não encerra o Agent runtime nem o processo de CLI interativo,
+e o texto de exibição do erro também não entra no provider history. Todos os output-limit reasons acima usam uniformemente o texto neutro
+`The model's response exceeded the output token maximum.`.
 
-恢复链不维护额外的 usage snapshot 或绝对 message cursor。带有真实 text、reasoning 或 tool call 的
-partial assistant 会连同归一化后的 `tokens` 一起提交到 canonical 与 query-local history；下一次请求继续
-使用既有的反向扫描，从最近一条有效 assistant usage 开始，只对其后的 Continue 等消息做本地增量估算。
-空 output-limit 在前三次恢复中间态不生成 assistant entry 或 transcript message；次数耗尽时仅保留上述
-durable error-only assistant。它在 live 和 cold hydration 后都不覆盖上一条有效 usage，也不进入 provider
-history；有真实 partial 时，普通 assistant 保留原始 usage，独立 error carrier 仍为零 usage。
-恢复结束后 query-only Continue 自然消失，下一独立用户消息仍位于最近一条 canonical assistant 之后，
-因此无需重锚或清理临时 usage 状态。
-Compact 继续通过 post-compact entries 自身的 assistant tokens 决定有效基线，不增加 Continue 专用失效逻辑。
+A cadeia de recuperação não mantém nenhum snapshot de usage extra nem cursor absoluto de mensagem. Um
+partial assistant com text, reasoning ou tool call reais é submetido ao history canônico e local à query junto com seus `tokens` normalizados; a próxima requisição continua
+usando a varredura reversa existente, a partir do usage do assistant válido mais recente, e faz a estimativa incremental local apenas para mensagens como o Continue que vêm depois.
+O output-limit vazio não gera assistant entry nem mensagem de transcript nos estados intermediários das três primeiras recuperações; quando as tentativas se esgotam, apenas o
+assistant durable somente de erro descrito acima é mantido. Ele não sobrescreve o último usage válido nem entra no provider history, tanto no live quanto após a cold hydration; havendo partial
+real, o assistant comum mantém o usage original e o carrier de erro independente continua com usage zero.
+Depois que a recuperação termina, o Continue query-only desaparece naturalmente, e a próxima mensagem independente do usuário continua depois do assistant canônico mais recente,
+portanto não é preciso reanclar nem limpar estado temporário de usage.
+O Compact continua decidindo a linha de base válida pelos próprios assistant tokens dos post-compact entries, sem nenhuma lógica de invalidação específica para Continue.
 
-### 自动化证据边界
+### Limites da evidência automatizada
 
-Continue 的自动化按责任边界分三层，不把同一状态矩阵复制到 Desktop：
+A automação do Continue é dividida em três camadas por responsabilidade, sem copiar a mesma matriz de estado para o Desktop:
 
-- Core runtime tests 覆盖 normalized/raw reason、空响应、text/reasoning partial、三次上限、次数耗尽、
-  partial assistant 与 error-only carrier 分离、carrier 的零 usage/provider 隔离和 cold error 恢复、streaming/non-streaming/tool 优先级、Abort、Guide/Stop Hook、
-  外部通知、Main/Subagent 共用循环，以及 raw-compatible output-limit 向 live/durable `length` 的统一归一化。
-- Compact focused tests 覆盖 Micro/Auto/Reactive 对 query-local entries 的处理以及恢复次数不被 Compact
-  重置；既有 Manual Compact tests 继续证明 canonical 默认路径。
-- Agent E2E 使用本地 scripted OpenAI-compatible provider，穿过 Bootstrap app、真实 adapter、HTTP request、
-  SessionStore 和冷恢复，验证准确 Continue wire、无第 5 次请求、真实 partial 持久化、耗尽终态的
-  durable error-only assistant、下一 Turn/runtime 可继续以及该 carrier/Continue 都不泄漏到冷恢复请求。
-- E2E helper 必须等待异步 App 创建，并透传 `resume/sessionId`；冷恢复断言确认 session 身份和原历史，
-  不能仅检查新请求没有 Continue。case 声明的 context/output 上限必须进入完整、有效的 Provider Registry，
-  输出 Option Map 按协议写入真实请求体；Continue case 固定 100,000 context 和 16,000 output，
-  正常恢复及冷恢复请求均验证 `max_tokens=16000`，不得被 helper 的通用默认值覆盖。
-- ProductProjection focused tests 验证 live 的严格复用谓词、累计正文、最终 action/message 锚点和边界
-  负例；transcript hydration focused tests 验证持久化 `assistant.info.finish="length"` 能重建相同 cold
-  结果，不把 Continue user 注入事件或协议。
-- Desktop OTC08 使用 case-local provider replay，验证三次真实主请求最终只形成一个累计 assistant DOM
-  block；该 pending manual-review case 在确认转正前不进入默认 conversation gate。
-- Desktop OTC11 将 OTC09 的相同 Markdown 拼接缝分别穿过 Chat Completions 与 Responses API，验证两种
-  标准协议都归一化为 `length`、触发相同 Continue 链并形成一个累计 assistant DOM block。
-- OpenAI-compatible adapter wire test 单独固定非标准 Chat `finish_reason=max_tokens` 对应
-  normalized `other` 与 `rawFinishReason=max_tokens`，避免 Desktop 标准协议 case 混淆兼容输入。
-- Anthropic wire test 只补相邻 user 序列化后的准确文案；不为每个 BYOK provider 复制完整恢复循环。
+- os testes de runtime do Core cobrem o normalized/raw reason, resposta vazia, partial de text/reasoning, o limite de três vezes, o esgotamento de tentativas,
+  a separação entre partial assistant e carrier somente de erro, o isolamento de usage zero/provider do carrier e a recuperação de erro a frio, a prioridade entre streaming/non-streaming/tool, Abort, Guide/Stop Hook,
+  notificações externas, o loop compartilhado entre Main/Subagent e a normalização unificada de output-limit raw-compatible para `length` live/durable.
+- os testes focados de Compact cobrem o tratamento de Micro/Auto/Reactive sobre os entries locais à query e o fato de a contagem de recuperação não ser
+  reiniciada pelo Compact; os testes existentes de Manual Compact continuam provando o caminho canônico padrão.
+- o Agent E2E usa um provider local OpenAI-compatible roteirizado, passando pelo app do Bootstrap, pelo adapter real, pela requisição HTTP,
+  pelo SessionStore e pela recuperação a frio, validando o wire exato do Continue, a ausência de uma 5ª requisição, a persistência do partial real, o assistant durable somente de erro
+  no estado final esgotado, a continuidade no Turn/runtime seguinte e o fato de que nem esse carrier nem o Continue vazam para a requisição de recuperação a frio.
+- o helper de E2E precisa aguardar a criação assíncrona do App e repassar `resume/sessionId`; as asserções de recuperação a frio confirmam a identidade da session e o histórico original,
+  e não podem apenas verificar que a nova requisição não tem Continue. Os limites de context/output declarados pelo case precisam entrar no Provider Registry completo e válido,
+  e o Output Option Map precisa escrever no corpo de requisição real conforme o protocolo; o case de Continue fixa 100.000 de context e 16.000 de output,
+  e tanto a requisição normal de recuperação quanto a de recuperação a frio validam `max_tokens=16000`, sem que sejam sobrescritas pelos valores padrão genéricos do helper.
+- os testes focados de ProductProjection validam o predicado estrito de reuso no live, o corpo acumulado, o anchor final de action/message e os
+  casos negativos de fronteira; os testes focados de transcript hydration validam que um `assistant.info.finish="length"` persistido reconstrói o mesmo resultado a
+  frio, sem injetar o user do Continue em eventos ou no protocolo.
+- o Desktop OTC08 usa provider replay case-local e valida que três requicações principais reais resultam em apenas um bloco DOM de assistant acumulado; esse case manual-review
+  pendente não entra no gate de conversation padrão antes da promoção confirmada.
+- o Desktop OTC11 faz a mesma emenda de Markdown do OTC09 passar tanto pelo Chat Completions quanto pela Responses API, validando que os dois
+  protocolos padrão são normalizados como `length`, disparam a mesma cadeia de Continue e formam um bloco DOM de assistant acumulado.
+- o wire test do adapter OpenAI-compatible fixa separadamente o `finish_reason=max_tokens` não padrão do Chat correspondendo a
+  normalized `other` e `rawFinishReason=max_tokens`, evitando que os cases de protocolo padrão do Desktop confundam entrada compatível.
+- o wire test da Anthropic acrescenta apenas a verificação do texto exato após a serialização de users adjacentes; não é preciso copiar o ciclo de recuperação completo para cada provider BYOK.
 
-Continue 不形成新的 user row、协议事件、delivery state 或 React 特判。desktop `continuous` 与 mobile
-`replayable` 消费同一份服务端 ProductProjection 结果；实时 `TurnError` 到既有产品投影的通用映射继续
-由 Bootstrap 的错误投影测试承担。
+O Continue não forma uma nova user row, evento de protocolo, delivery state ou caso especial em React. O desktop `continuous` e o mobile
+`replayable` consomem o mesmo resultado de ProductProjection do servidor; o mapeamento genérico do `TurnError` em tempo real para a projeção de produto existente continua
+sendo responsabilidade dos testes de projeção de erro do Bootstrap.
 
-## 派生 child runtime
+## Runtime child derivado
 
-Subagent 继承父 runtime 创建时固定的 context-budget strategy；在实际 `childModelRef` 确定后，
-从当前 runtime catalog/overlay 解析对应模型的
-`contextWindow` 和 `maxOutputTokens`，再由同一个 32K fallback 公式构造 child runtime。
-registry refresh 只影响之后创建的 child；已经运行的 child 不动态改变预算。
+O Subagent herda a estratégia de context-budget fixada na criação do runtime pai; depois que o `childModelRef` real é determinado,
+o `contextWindow` e o `maxOutputTokens` do modelo correspondente são resolvidos a partir do runtime catalog/overlay atual, e o child runtime é então
+construído pela mesma fórmula de fallback de 32K.
+O refresh do registry só afeta os children criados depois disso; um child já em execução não muda de orçamento dinamicamente.
 
-普通 workflow child 和 script workflow child 通过父 main runtime 的 `runtimeConfig` 创建，因此同样
-继承父 runtime 创建时固定的 context-budget strategy；它们不单独向 Host 请求 strategy，也不在
-运行中热切换。本策略不改变 workflow child 的其余生命周期、模型选择或工具行为。
+Workflow children comuns e script workflow children são criados pelo `runtimeConfig` do runtime main pai, portanto também
+herdam a estratégia de context-budget fixada na criação do runtime pai; eles não pedem strategy ao Host separadamente nem fazem
+hot switch em execução. Esta política não altera o restante do ciclo de vida, da seleção de modelo nem do comportamento de ferramentas dos workflow children.
 
-## Context exceeded 恢复
+## Recuperação de Context exceeded
 
-Adapter 在 Error、`cause` 和标准 JSON response body 中识别 provider 明确报告的超上下文错误。
-标准 response body 的 `error.code` 与 `error.message` 都属于识别输入；不能只读取外层
-`APICallError.message`，因为兼容层常把外层统一写成 `Bad Request`。
+O Adapter reconhece, no Error, no `cause` e no corpo de resposta JSON padrão, os erros de contexto excedido explicitamente reportados pelo provider.
+Tanto o `error.code` quanto o `error.message` do corpo de resposta padrão são entradas de reconhecimento; não se pode ler apenas o
+`APICallError.message` externo, porque a camada de compatibilidade frequentemente escreve o externo de forma unificada como `Bad Request`.
 
-当前只收录官方文档或官方仓库中可以与其他 400/422 错误稳定区分的形态：
+Atualmente só são catalogadas as formas que, na documentação oficial ou em repositórios oficiais, podem ser distinguidas de forma estável de outros erros 400/422:
 
-| 来源                             | 可识别信号                                                                                       |
+| Fonte                             | Sinal reconhecível                                                                                       |
 | -------------------------------- | ------------------------------------------------------------------------------------------------ |
-| OpenAI-compatible / Azure OpenAI | `context_length_exceeded` 等既有 context code；或 `maximum context length` 的明确 token 超限文案 |
-| Anthropic                        | `prompt is too long`；既有 `model_context_window_exceeded` stop reason/code                      |
+| OpenAI-compatible / Azure OpenAI | codes de contexto já existentes como `context_length_exceeded`; ou o texto explícito de limite de tokens de `maximum context length` |
+| Anthropic                        | `prompt is too long`; stop reason/code já existente `model_context_window_exceeded`                      |
 | Google Gemini                    | `input token count ... exceeds the maximum number of tokens allowed`                             |
-| Alibaba Cloud Model Studio       | `Range of input length should be [1, ...]`；`Total message token length exceed model limit`      |
-| BigModel                         | 既有 provider business code `1261`                                                               |
+| Alibaba Cloud Model Studio       | `Range of input length should be [1, ...]`; `Total message token length exceed model limit`      |
+| BigModel                         | code de negócio existente do provider `1261`                                                               |
 
-资料来源：
+Fontes:
 
 - [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
 - [Anthropic context window overflow behavior](https://platform.claude.com/docs/en/build-with-claude/context-windows#context-window-overflow-behavior)
@@ -369,14 +357,13 @@ Adapter 在 Error、`cause` 和标准 JSON response body 中识别 provider 明�
 - [MiniMax error codes](https://platform.minimaxi.com/docs/api-reference/errorcode)
 - [Amazon Bedrock runtime errors](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html)
 
-OpenAI Responses 在关闭自动截断时只承诺超窗会返回 `400`，没有给出稳定的专用错误内容；Mistral
-同样只说明通用 `400 Bad Request`，DeepSeek 只列出通用 `400 Invalid Format` /
-`422 Invalid Parameters`，Amazon Bedrock 只给出通用 `ValidationException` / `400`。这些状态码
-不能与其他无效请求稳定区分，因此不做状态码兜底。MiniMax `1039` 同时可能表示输出
-`max_tokens` 限制，也不直接归类为上下文溢出。
+O OpenAI Responses, com o truncamento automático desativado, apenas promete que um overflow retorna `400`, sem fornecer um conteúdo de erro dedicado e estável; a Mistral
+também só descreve o `400 Bad Request` genérico, a DeepSeek só lista `400 Invalid Format` /
+`422 Invalid Parameters` genéricos, e o Amazon Bedrock só dá `ValidationException` / `400` genéricos. Esses códigos de status
+não podem ser distinguidos de forma estável de outras requisições inválidas, portanto não há fallback por código de status. O `1039` da MiniMax pode significar ao mesmo tempo o limite de saída
+`max_tokens` e também não é classificado diretamente como overflow de contexto.
 
-命中后继续归类为 `ModelContextExceeded`，交给 core 每个 model-step 重试链最多一次的 reactive
-compact；完整 tool result batch 后进入下一 model step 才重新开放：
+Após o match, o resultado continua classificado como `ModelContextExceeded` e entregue à cadeia de retry reativa de compact da core, no máximo uma vez por model-step; um novo model step só reabre após um lote completo de tool results:
 
 ```text
 provider error
@@ -384,9 +371,9 @@ provider error
       v
 adapter context signal classifier
       |
-      +-- 未命中 --> 原有 400/422 分类
+      +-- sem match --> classificação 400/422 existente
       |
-      `-- 命中 --> ModelContextExceeded
+      `-- com match --> ModelContextExceeded
                          |
                          v
                   reactive compact
@@ -395,18 +382,18 @@ adapter context signal classifier
                  replay current model step
 ```
 
-该恢复路径复用 compact 模块的快速回填熔断，不在 adapter 新增另一套重试或压缩状态。
+Esse caminho de recuperação reaproveita o circuito de rápido refill do módulo de compact e não adiciona ao adapter outro conjunto de retries ou de estado de compactação.
 
-## 约束
+## Restrições
 
-- Effective Model Config 的 Option Spec 声明输出上限；执行链从该上限计算请求级预算，ModelSelection 不保存输出预算。
-- Built-in 通用 Rule 提供完整默认值；32K 若作为默认值，也只能在该 Rule 中声明，不能在请求路径 fallback。
-- 主请求、Target Completion Verification、Auto Compact 和 Microcompact 使用同一个
-  effective 值。
-- Compact summary 使用 `min(effective, 20_000)`。
-- Provider 字段差异只由当前 Effective Option Spec 的 `map` 表达，不改变通用预算结果。
-- 所有 Option Map 都在最终 JSON Request Body 边界执行，并先于官方版本的请求安全校验。
-- 仅在现有 session runtime preferences 协议增加可选 strategy，缺失默认 `preflight-v1`；不新增 public
-  capability、Settings 入口或全局环境变量。
-- 非 output-limit 的空回复完成态、既有 reactive compact 次数、错误识别和其他自动重试保持不变。
-- `legacy` 只保留协议输入兼容，不再保留运行期算法分支。
+- o Option Spec da Effective Model Config declara o limite de saída; a cadeia de execução calcula o orçamento em nível de requisição a partir desse limite, e o ModelSelection não armazena orçamento de saída.
+- a Rule geral do Built-in fornece os valores padrão completos; se 32K for usado como padrão, ele só pode ser declarado nessa Rule, nunca como fallback no caminho da requisição.
+- a requisição principal, o Target Completion Verification, o Auto Compact e o Microcompact usam o mesmo
+  valor efetivo.
+- o summary do Compact usa `min(effective, 20_000)`.
+- as diferenças de campo do Provider são expressas apenas pelo `map` do Effective Option Spec atual e não alteram o resultado do orçamento genérico.
+- todos os Option Maps são executados na fronteira do corpo JSON final da requisição e antes da validação de segurança da versão oficial.
+- apenas nas preferências de protocolo de runtime de session já existentes é adicionada uma strategy opcional, com ausência defaultando para `preflight-v1`; não há nova
+  capability pública, entrada de Settings nem variável de ambiente global.
+- a conclusão de resposta vazia que não seja de output-limit, o número existente de compactações reativas, o reconhecimento de erros e as outras retentativas automáticas permanecem inalterados.
+- `legacy` é mantido apenas como compatibilidade de entrada de protocolo, sem ramo de algoritmo em runtime.

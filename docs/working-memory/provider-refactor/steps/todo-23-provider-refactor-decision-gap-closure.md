@@ -1,34 +1,33 @@
-# 23 Provider Refactor 决策缺口与设置事务收口
+# 23 Lacunas de decisão do Provider Refactor e consolidação das transações de Settings
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Verificação de atribuição atualizada (2026-09-09): a dívida residual de subteste/falha/promoção manual deste documento é transferida para [Todo102](todo-102-verification-debt-closeout.md), encerrando o agendamento de verificação independente aqui; as evidências históricas são preservadas, e a transferência não significa que os testes passaram.
 
-> 状态：已完成（自动化收口；macOS Electron 交互复验随开发链进行）
+> Status: concluído (consolidação de automação; a reverificação interativa no Electron do macOS acompanha o desenvolvimento)
 >
-> 日期：2026-08-27
+> Data: 2026-08-27
 >
-> 来源：Provider Refactor 完成声明后的反向审查
+> Origem: revisão reversa após a declaração de conclusão do Provider Refactor
 >
-> 关联任务：[`05`](./todo-05-model-ref-retirement.md)、
-> [`07`](./todo-07-account-connection-selection-and-access-context-cutover.md)、
-> [`12`](./todo-12-model-selection-validation-boundary-cutover.md)、
-> [`13`](./todo-13-target-host-model-selection-authority.md)、
-> [`14`](./todo-14-post-refactor-mechanical-zero.md)、
-> [`15`](./todo-15-provider-release-validation.md)、
-> [`20`](./todo-20-account-overlay-atomicity-and-review-closeout.md)、
+> Tarefas relacionadas: [`05`](./todo-05-model-ref-retirement.md),
+> [`07`](./todo-07-account-connection-selection-and-access-context-cutover.md),
+> [`12`](./todo-12-model-selection-validation-boundary-cutover.md),
+> [`13`](./todo-13-target-host-model-selection-authority.md),
+> [`14`](./todo-14-post-refactor-mechanical-zero.md),
+> [`15`](./todo-15-provider-release-validation.md),
+> [`20`](./todo-20-account-overlay-atomicity-and-review-closeout.md),
 > [`21`](./todo-21-zcode-builtin-config-ownership-and-model-activation-order.md)
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-本 Todo 收口已经明确、但没有完整进入当前实现的 Provider Refactor 决策。它不是新一轮架构重写，也不重新讨论已经正确
-落地的 Provider group、Model enabled、Builtin-wins、Provider/Model order、专属 Rule、Access protocol 或 Host 权威来源。
+Este Todo consolida as decisões do Provider Refactor que já estão claras, mas não entraram por completo na implementação atual. Não é uma nova reescrita de arquitetura, e não rediscute o Provider group, Model enabled, Builtin-wins, Provider/Model order, Rule exclusiva, Access protocol ou a fonte autoritativa do Host, que já foram corretamente implementados.
 
-本次审查发现的问题分为三类：
+Os problemas encontrados nesta revisão se dividem em três categorias:
 
-1. 旧抽象换名后仍在运行，例如 `ForkModelRef`；
-2. Todo/Design 已声明完成，但实现没有满足，例如 Model 编辑原子保存和继承态；
-3. 讨论中已经裁决，但没有进入正式 Todo/Design，例如公共 `accessId` 退役和普通 Built-in Provider 简化编辑器。
+1. abstrações antigas que continuam em vigor depois de renomeadas, por exemplo `ForkModelRef`;
+2. itens declarados concluídos no Todo/Design, mas que a implementação não atende, por exemplo o salvamento atômico da edição de Model e o estado herdado;
+3. itens já decididos na discussão, mas que não entraram no Todo/Design oficial, por exemplo a aposentadoria do `accessId` público e o editor simplificado para Provider Built-in comum.
 
-目标完成后，主链必须重新满足：
+Ao fim, a cadeia principal precisa voltar a satisfazer:
 
 ```text
 未来执行意图
@@ -56,54 +55,54 @@ Provider/Model Settings
 Persist + Registry @ revision R2
 ```
 
-### 0.1 本轮不重新打开的裁决
+### 0.1 Decisões que não são reabertas neste ciclo
 
-- `modelMatch` 对完整 Model ID 做大小写不敏感的正则完整匹配；需要包含匹配时由 Rule 作者显式写前后 `.*`，Resolver
-  不自动补；
-- Provider group、Provider visibility、Provider/Model enabled 的既有语义不变；
-- Provider/Model order、Builtin-wins、五个 Source Schema 和 `provider-model` 专属 Rule 不变；
-- Model Config、Runtime 和 Protocol 继续共用 `properties.input_format/output_format`；
-- Local workspace 使用 Local Host，remote workspace 使用 Remote Host；Renderer 不重新获得配置权威；
-- 不建立 `ModelIdentity`、第二个 Registry、第二套 capability DTO 或新的 Config Document 抽象。
+- `modelMatch` faz correspondência completa por regex, case-insensitive, sobre o Model ID completo; quando for preciso incluir correspondência, o autor da Rule escreve explicitamente `.*` antes e depois, e o Resolver
+  não completa automaticamente;
+- a semântica existente de Provider group, Provider visibility e Provider/Model enabled permanece inalterada;
+- Provider/Model order, Builtin-wins, os cinco Source Schema e a Rule exclusiva de `provider-model` permanecem inalterados;
+- Model Config, Runtime e Protocol continuam compartilhando `properties.input_format/output_format`;
+- workspace local usa Local Host e workspace remoto usa Remote Host; o Renderer não recupera a autoridade de configuração;
+- não criar `ModelIdentity`, um segundo Registry, um segundo conjunto de capability DTO ou uma nova abstração de Config Document.
 
-### 0.2 非目标
+### 0.2 Não é objetivo
 
-- Todo 22 中延期的 OpenRouter、OpenCode Zen、Azure、Volcano Ark、AWS Bedrock；
-- Client Config 全局公共 Service 重构；
-- Telemetry 总体设计重构；
-- Off-Peak 字符串错误改为结构化协议；
-- Conversation queue、continuous/replayable、workspace identity 或模型选择产品生命周期变更；
-- 为当前未发布分支增加 dual-read、兼容别名或无必要 migration。
+- OpenRouter, OpenCode Zen, Azure, Volcano Ark e AWS Bedrock, adiados no Todo 22;
+- refatoração do Service público global de Client Config;
+- refatoração do design geral de Telemetry;
+- mudar o erro em string de Off-Peak para um protocolo estruturado;
+- mudanças de produto no ciclo de vida de Conversation queue, continuous/replayable, workspace identity ou seleção de modelo;
+- adicionar dual-read, alias de compatibilidade ou migration desnecessário para branches ainda não publicados.
 
-## 1. 已确认问题与目标状态
+## 1. Problemas confirmados e estado-alvo
 
-| 编号 | 当前问题                                                                                           | 目标状态                                                                         |
-| ---- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| G1   | `accessId` 同时进入 Account Overlay、Provider Config、Protocol、Credential key、Request Auth 和 UI | 由 Todo 24 删除；账号服务按静态 family/planKind 解析当前兼容连接                 |
-| G2   | `ForkModelRef { providerId, modelId, variant }` 是旧 `ModelRef` 的同形别名                         | 后续执行意图直接使用 `ModelSelection`，`variant` 退出                            |
-| G3   | `formatModelSelection()` 不能保存 `maxOutputTokens`，字符串仍被当作可逆领域格式                    | 状态、协议和持久化只传结构化 `ModelSelection`；字符串只作为 Picker/Legacy 边界值 |
-| G4   | Model 编辑提交后立即关闭，rename 与 config save 是两次 Mutation                                    | 完整 Draft 通过一次原子 Host Mutation 提交，Registry 观察成功后关闭              |
-| G5   | 修改 Model ID 时没有先移动 Personal 专属 Rule 并重新预览 Effective Config                          | Host 提供无持久化 Preview；新 ID 立即刷新继承结果，Personal 显式值不变           |
-| G6   | UI 把 Effective 值复制进 Personal Draft，继承、未设置和明确覆盖混淆                                | Draft 分离 Personal 值与 Effective Preview，四态语义可观察、可编辑、可恢复       |
-| G7   | 普通 Built-in Provider 和 Personal-only Provider 复用完整编辑器                                    | “添加供应商”进入简化编辑器；“创建自定义供应商”保留完整编辑器                     |
-| G8   | `adapterCompatibility.reasoningReplay` 把历史模型特例保留成正式 Config 维度                        | 删除整个 Compatibility 容器；所有 Adapter 只执行 canonical replay                |
-| G9   | Adapter 执行文件和注释继续使用旧 Registry 命名，旧 Todo 完成声明与代码事实不符                     | 命名机械归零；历史 Todo 增加纠正说明，路线图与 Feature Graph 在实现后同步        |
+| Número | Problema atual | Estado-alvo |
+| --- | --- | --- |
+| G1 | `accessId` entra simultaneamente no Account Overlay, Provider Config, Protocol, Credential key, Request Auth e UI | removido pelo Todo 24; o serviço de contas resolve a conexão compatível atual por family/planKind estáticos |
+| G2 | `ForkModelRef { providerId, modelId, variant }` é um alias com a mesma forma do antigo `ModelRef` | a intenção futura de execução usa diretamente `ModelSelection`, e `variant` sai de cena |
+| G3 | `formatModelSelection()` não consegue preservar `maxOutputTokens`, e a string continua sendo tratada como formato de domínio reversível | estado, protocolo e persistência só transportam o `ModelSelection` estruturado; a string é apenas valor de fronteira Picker/Legacy |
+| G4 | a edição de Model fecha imediatamente após o submit, e rename e config save são duas Mutations | o Draft completo é submetido por uma única Mutation Host atômica, e o fechamento ocorre após o Registry observar sucesso |
+| G5 | ao alterar o Model ID, a Rule exclusiva Personal não é movida primeiro nem o Effective Config é re-visualizado | o Host oferece Preview sem persistência; o novo ID atualiza imediatamente o resultado herdado e os valores explícitos Personal permanecem |
+| G6 | a UI copia valores Effective para o Draft Personal, confundindo herança, não definido e sobrescrita explícita | o Draft separa valor Personal de Effective Preview, com a semântica de quatro estados observável, editável e recuperável |
+| G7 | Provider Built-in comum e Provider Personal-only reutilizam o editor completo | "Adicionar fornecedor" entra no editor simplificado; "Criar fornecedor personalizado" mantém o editor completo |
+| G8 | `adapterCompatibility.reasoningReplay` preserva casos especiais de modelos históricos como uma dimensão oficial de Config | remover o contêiner Compatibility por completo; todos os Adapters executam apenas o replay canônico |
+| G9 | a execução e os comentários de Adapter continuam usando a nomenclatura antiga de Registry, e as declarações de conclusão de Todos antigos não batem com o fato do código | normalização mecânica dos nomes; Todos históricos ganham nota de correção, e o roadmap e o Feature Graph são sincronizados após a implementação |
 
-## 2. Access：由 Todo 24 取代
+## 2. Access: substituído pelo Todo 24
 
-本 Todo 最初提出的账号连接版本与旧 Active Model 失效设计已经撤销。Access 的唯一当前契约见
-Todo 24（该文档只在官方版本保留），要点如下：
+A versão de conexão de conta e o design antigo de invalidação de Active Model propostos inicialmente por este Todo foram revogados. O contrato atual único de Access está no
+Todo 24 (documento mantido apenas na versão oficial), com os pontos principais:
 
-- Built-in 固定 `family + planKind`；Account Overlay 只投影 `enabled` 和 Start 账号模型成员；
-- 当前账号、商品、Team scope 与动态凭据由账号服务管理，每个请求按当前兼容连接解析；
-- 不保存账号连接 ID 或连接版本，也不因同一 `family + planKind` 下账号变化使旧 Active Model 人工失效；
-- Local、Remote 与 Standalone 各自使用所在 Environment 的账号服务，缺少兼容连接时在网络前失败。
+- Built-in fixa `family + planKind`; o Account Overlay só projeta `enabled` e os membros de modelo da conta Start;
+- a conta, o produto, o escopo de Team e as credenciais dinâmicas atuais são geridos pelo serviço de contas, e cada requisição resolve pela conexão compatível atual;
+- não se salva ID de conexão de conta nem versão de conexão, e não se invalida manualmente o Active Model antigo só porque a conta mudou sob o mesmo `family + planKind`;
+- Local, Remote e Standalone usam cada um o serviço de contas do seu Environment, e falham antes da rede quando falta uma conexão compatível.
 
-## 3. ModelSelection 与 `ModelRef` 机械归零
+## 3. ModelSelection e zeragem mecânica do `ModelRef`
 
-### 3.1 Fork 使用标准 `ModelSelection`
+### 3.1 Fork usa o `ModelSelection` padrão
 
-删除公共 `ForkModelRef` 及其 `variant`：
+Remover o `ForkModelRef` público e seu `variant`:
 
 ```text
 Fork / Side Chat / Before-input Fork
@@ -116,41 +115,41 @@ Fork / Side Chat / Before-input Fork
     └─ options.reasoningLevel / maxOutputTokens（存在时）
 ```
 
-历史消息只有实际 provider/model/reasoning 事实、但没有完整未来选择时，由该消费者明确决定是否能构造 Selection；不能新建
-另一个 Ref/Identity 类型绕过语义判断。`Model.options` 仍是已绑定执行值，不能被一般性反投影为未来选择。
+Quando uma mensagem histórica tem fatos reais de provider/model/reasoning, mas não tem a escolha futura completa, cabe a esse consumidor decidir explicitamente se consegue construir uma Selection; não se deve criar
+outro tipo de Ref/Identity para contornar o julgamento semântico. `Model.options` continua sendo valor de execução já vinculado e não pode ser retroprojetado de forma genérica como escolha futura.
 
-### 3.2 结构化 Selection 是唯一领域表示
+### 3.2 A Selection estruturada é a única representação de domínio
 
-`modelSelectionSchema` 继续是结构化对象的唯一严格 Schema。以下位置只能保存或传输对象：
+`modelSelectionSchema` continua sendo o único Schema estrito do objeto estruturado. Estes locais só podem guardar ou transmitir o objeto:
 
-- Protocol 命令和响应；
-- Session/Task/Automation/Subagent/Repo Wiki 等产品状态；
-- Fork/Compact/Child 等后续执行意图；
-- Host 与 Agent 的模型设置、默认值和提交参数。
+- comandos e respostas de Protocol;
+- estado de produto como Session/Task/Automation/Subagent/Repo Wiki;
+- intenções futuras de execução como Fork/Compact/Child;
+- configurações, defaults e parâmetros de envio de modelos do Host e do Agent.
 
-字符串只允许两类边界：
+Strings são permitidas apenas em duas fronteiras:
 
-1. UI Select 控件要求的 Picker Value；
-2. 明确已发布的 Legacy 字符串读取。
+1. o Picker Value exigido pelos controles Select da UI;
+2. a leitura explícita de strings Legacy já publicadas.
 
-相关函数必须按真实语义命名为 `formatModelPickerValue`、`parseModelPickerValue` 或
-`parseLegacyModelSelectionValue`，不得继续宣称 `parse(format(selection))` 能恢复包含 `maxOutputTokens` 的完整 Selection。
-调用方必须同时持有结构化 Selection，不能从 Picker Value 重建并覆盖完整状态。
+As funções relacionadas devem ser nomeadas conforme a semântica real como `formatModelPickerValue`, `parseModelPickerValue` ou
+`parseLegacyModelSelectionValue`; não se pode continuar afirmando que `parse(format(selection))` recupera a Selection completa com `maxOutputTokens`.
+O chamador precisa manter ao mesmo tempo a Selection estruturada e não pode reconstruir e sobrescrever o estado completo a partir do Picker Value.
 
-### 3.3 比较语义
+### 3.3 Semântica de comparação
 
-不增加统一的 `sameModelSelection()` 或 `ModelIdentity` helper。各消费者继续显式比较自己真正关心的字段，并保持改造前行为：
+Não criar um `sameModelSelection()` unificado nem um helper `ModelIdentity`. Cada consumidor continua comparando explicitamente os campos que realmente lhe importam, preservando o comportamento anterior à refatoração:
 
-- 判断执行目标是否变化时，可以只比较 `providerId/modelId`；
-- 判断用户选择是否变化时，由该产品显式比较它保存的 option leaves；
-- reasoning 不重新进入 identity；
-- 不为了减少重复代码改变既有比较结果。
+- ao decidir se o alvo de execução mudou, pode-se comparar apenas `providerId/modelId`;
+- ao decidir se a escolha do usuário mudou, cada produto compara explicitamente as folhas de opção que guarda;
+- reasoning não entra novamente na identity;
+- não alterar resultados de comparação existentes só para reduzir código duplicado.
 
-## 4. Settings：把 Model 编辑真正做成手动事务
+## 4. Settings: tornar a edição de Model uma transação manual de verdade
 
-### 4.1 唯一提交契约
+### 4.1 Contrato único de submissão
 
-Model 编辑弹窗继续使用手动保存。Host 暴露一次完整 Mutation，输入至少包含：
+O diálogo de edição de Model continua usando salvamento manual. O Host expõe uma Mutation completa, cuja entrada contém no mínimo:
 
 ```ts
 interface SavePersonalModelDraftInput {
@@ -162,21 +161,21 @@ interface SavePersonalModelDraftInput {
 }
 ```
 
-实际名称可遵循现有服务命名，但语义不可拆分。Host 在同一事务中完成：
+O nome real pode seguir a nomenclatura existente dos serviços, mas a semântica não pode ser dividida. O Host conclui, na mesma transação:
 
-1. 校验 Provider/Model membership、Builtin 冲突、Model ID 和 Source Schema；
-2. Personal Model rename 时原子更新 `modelIds` 与 `modelOrder`；
-3. 移动对应 Personal `provider-model` Rule；
-4. 保存完整稀疏 Personal Model Config；
-5. 持久化并发布 Registry revision；
-6. 返回已经可观察的新 Host View/revision。
+1. validar membership de Provider/Model, conflito Builtin, Model ID e Source Schema;
+2. ao fazer rename do Personal Model, atualizar atomicamente `modelIds` e `modelOrder`;
+3. mover a Rule Personal `provider-model` correspondente;
+4. salvar o Personal Model Config completo e esparso;
+5. persistir e publicar a revision do Registry;
+6. devolver a nova Host View/revision já observável.
 
-弹窗只有收到成功响应后才能关闭。校验、持久化、Registry 发布或 revision conflict 失败时保留 Draft 和弹窗，显示明确错误；
-不在 Renderer 中通过两次调用补偿式回滚。
+O diálogo só pode fechar depois de receber a resposta de sucesso. Em caso de falha de validação, persistência, publicação de Registry ou conflito de revision, o Draft e o diálogo são preservados, com um erro explícito;
+não se compensa com rollback de duas chamadas no Renderer.
 
-### 4.2 Model ID 实时 Preview
+### 4.2 Preview em tempo real do Model ID
 
-Host 提供无持久化、无 Registry mutation 的 Preview：
+O Host oferece um Preview sem persistência e sem mutation de Registry:
 
 ```text
 Original Personal Rule + Local Draft
@@ -193,13 +192,13 @@ Original Personal Rule + Local Draft
 返回 Effective Preview + validation issues
 ```
 
-修改 Model ID 后应进行去抖 Preview。旧响应必须按 request sequence 或 Draft revision 丢弃，不能覆盖更新的输入。Preview
-不修改 Personal 文件、Provider membership、modelOrder 或正式 Registry。保存时 Host 必须重新执行权威解析与校验，不能信任
-Renderer Preview。
+Após alterar o Model ID, um Preview com debounce deve ser executado. Respostas antigas precisam ser descartadas por request sequence ou Draft revision e não podem sobrescrever uma entrada mais nova. O Preview
+não altera o arquivo Personal, o membership de Provider, o modelOrder nem o Registry oficial. No salvamento, o Host precisa reexecutar a resolução e a validação autoritativas e não pode confiar no
+Preview do Renderer.
 
-### 4.3 Draft 与继承事实分离
+### 4.3 Separar Draft dos fatos herdados
 
-Renderer Draft 不再把 Effective 值复制成 Personal value。每个字段至少保留：
+O Draft do Renderer não copia mais valores Effective como valor Personal. Cada campo guarda pelo menos:
 
 ```ts
 interface ModelFieldDraft<T> {
@@ -209,33 +208,30 @@ interface ModelFieldDraft<T> {
 }
 ```
 
-不要求机械建立这个通用类型；可以按字段使用现有结构。必须保持的四种产品语义是：
+Não é obrigatório criar mecanicamente esse tipo genérico; pode-se usar a estrutura existente por campo. Os quatro estados semânticos de produto que precisam ser mantidos são:
 
-| 状态                    | 保存事实                         | UI                             |
-| ----------------------- | -------------------------------- | ------------------------------ |
-| 上游有值、无 Personal   | 不写 Personal                    | 低强调展示继承值               |
-| 上游无值、无 Personal   | 不写 Personal                    | “未设置”/短横线                |
-| Personal 明确值         | 写对应稀疏叶子                   | 正常强调，可恢复继承           |
-| Personal explicit clear | 写 `null`，仅限允许 clear 的字段 | 明确显示清除状态，不等同未覆盖 |
+| Estado | Fato salvo | UI |
+| --- | --- | --- |
+| upstream tem valor, sem Personal | não escreve Personal | exibe o valor herdado com baixa ênfase |
+| upstream não tem valor, sem Personal | não escreve Personal | "não definido"/travessão |
+| valor Personal explícito | escreve a folha esparsa correspondente | realce normal, permite voltar à herança |
+| explicit clear no Personal | escreve `null`, apenas nos campos que permitem clear | exibe claramente o estado limpo, que não equivale a não sobrescrito |
 
-数值/文本输入使用继承值作为 placeholder；Boolean/Format 使用现有风格的 Toggle Chip/Selectable Tag，并用对勾、短横线、
-描边和低干扰撤销入口区分状态，不能只靠颜色。PDF/Audio 继续隐藏但无损保留。`requiresMfjsToolSchema` 放在编辑器最后。
+Entradas numéricas/de texto usam o valor herdado como placeholder; Boolean/Format usam Toggle Chip/Selectable Tag no estilo existente, distinguindo estado por visto, travessão, contorno e uma entrada de desfazer de baixa interferência, e não apenas por cor. PDF/Audio continuam ocultos, mas preservados sem perda. `requiresMfjsToolSchema` fica por último no editor.
 
-### 4.4 JSON 槽位
+### 4.4 Slots de JSON
 
-继续保留三个独立 JSON 编辑器：
+Continuam existindo três editores JSON independentes:
 
-- `optionSpecs.reasoningLevel`；
-- `optionSpecs.maxOutputTokens`；
-- `reasoningMapping`。
+- `optionSpecs.reasoningLevel`;
+- `optionSpecs.maxOutputTokens`;
+- `reasoningMapping`.
 
-每个编辑器直接替换自己的 Personal 槽位，空内容恢复继承，不在编辑器内部按 key 合并。保存使用 Provider 权威 Schema 校验，
-至少提供格式化和字段路径错误；如所选编辑器能够可靠提供行列，再显示行列。UI 不复制 Effective JSON 到 Personal 文本框，
-Effective 结果使用单独的低强调预览。
+Cada editor substitui diretamente seu próprio slot Personal, e conteúdo vazio restaura a herança; não há merge por key dentro do editor. O salvamento valida com o Schema autoritativo do Provider e oferece, no mínimo, formatação e erros com caminho de campo; se o editor escolhido entregar coluna e linha de forma confiável, exiba também linha e coluna. A UI não copia o JSON Effective para a caixa de texto Personal; o resultado Effective usa um preview separado e de baixa ênfase.
 
-## 5. Settings：区分 Built-in 添加与自定义创建
+## 5. Settings: distinguir adição de Built-in e criação de Provider personalizado
 
-普通 Provider Settings 保持两个入口：
+As Provider Settings comuns mantêm duas entradas:
 
 ```text
 添加供应商
@@ -254,19 +250,18 @@ Effective 结果使用单独的低强调预览。
       └─ 模型列表与模型配置
 ```
 
-普通 Built-in Provider 的 API Schema、默认 Endpoint 和身份来自 Built-in Config，不在主编辑路径中重复展示为普通可编辑字段。
-删除始终只删除 Personal Overlay；Built-in Config 永远不被删除。Personal-only Provider 删除后因为没有 Built-in 底座而自然
-消失。Provider ID 在所有界面只读。
+O API Schema, o Endpoint padrão e a identidade de um Provider Built-in comum vêm do Built-in Config e não são reexibidos como campos editáveis comuns no caminho principal de edição.
+A remoção sempre remove apenas o Personal Overlay; o Built-in Config nunca é removido. Um Provider Personal-only desaparece naturalmente após a remoção, por não ter base Built-in.
+O Provider ID é somente leitura em todas as telas.
 
-简化编辑器与完整编辑器可以复用模型列表、API Key 和测试组件，但不能因为复用 `InlineEditableProviderCard` 而重新暴露完整
-字段。Z.ai/BigModel Family 保持固定 Family UI，不进入这两个普通入口，也不提供 Provider disable 操作。
+O editor simplificado e o editor completo podem reutilizar lista de modelos, API Key e componentes de teste, mas não podem reexpor os campos completos só por reutilizar `InlineEditableProviderCard`. A Family Z.ai/BigModel mantém a UI de Family fixa, não entra nesses dois caminhos comuns e também não oferece operação de disable de Provider.
 
-## 6. Adapter Compatibility 删除与命名归零
+## 6. Remoção do Adapter Compatibility e zeragem dos nomes
 
 ### 6.1 Reasoning replay
 
-canonical 历史回放不需要任何 `reasoningReplay` 配置。最终裁决是完整删除
-`adapterCompatibility`、`reasoningReplay` 与 synthetic empty-thinking 投影：
+O replay histórico canônico não precisa de nenhuma configuração `reasoningReplay`. A decisão final é remover por completo
+`adapterCompatibility`, `reasoningReplay` e a projeção de empty-thinking sintético:
 
 ```text
 Canonical Message
@@ -278,182 +273,180 @@ Adapter 标准编码
 完整回放真实 reasoning；不删除、不补造空 thinking
 ```
 
-Model Config Schema、Overlay、Resolver、Registry、Runtime、Built-in Config、Personal Config 和测试 fixture 均不得继续
-接受或传播 Compatibility 容器。历史未发布格式不增加 importer；遇到旧字段按严格 Schema 拒绝。
+Model Config Schema, Overlay, Resolver, Registry, Runtime, Built-in Config, Personal Config e fixtures de teste não podem continuar
+aceitando nem propagando o contêiner Compatibility. Formatos históricos não publicados não ganham importer; ao encontrar campos antigos, rejeitar pelo Schema estrito.
 
-### 6.2 Adapter 执行命名
+### 6.2 Nomenclatura da execução de Adapter
 
-当前 Adapter 文件实际承载 AI SDK Model Execution 装配，不再是业务 Registry。完成时应：
+Os arquivos de Adapter atuais carregam de fato a montagem da execução de Model do AI SDK e já não são um Registry de negócio. Na conclusão, deve-se:
 
-- Adapter 执行文件使用准确的 `model-execution.ts` / factory 命名；
-- 删除“session registry”“provider registry cache”等已经不成立的注释；
-- 保留确实属于 Adapter 私有的 transport/factory/cache，不因改名引入新的公共抽象；
-- 不把业务 Provider Config、Model Config 重新复制为 Adapter 可查询 Registry。
+- nomear os arquivos de execução de Adapter com precisão como `model-execution.ts` / factory;
+- remover comentários como "session registry" e "provider registry cache", que não correspondem mais à realidade;
+- manter transport/factory/cache que realmente são privados do Adapter, sem introduzir novas abstrações públicas só por causa da renomeação;
+- não copiar de volta Config de Provider e Config de Model de negócio como um Registry consultável pelo Adapter.
 
 ## 7. Impact Brief
 
-### 7.1 功能摘要
+### 7.1 Resumo funcional
 
-| 字段             | 结论                                                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Developer intent | 收口 Provider Refactor 已裁决但未实现的公共 access、ModelSelection 和 Settings 事务缺口                                               |
-| Capability       | Provider Registry、Account Request Auth、Model Selection、Provider Settings                                                           |
-| Change layer     | `draft-default`、`validation`、`commit-effect`、`persistence`、`presentation`                                                         |
-| Operating mode   | planning / implementation handoff                                                                                                     |
-| Primary seeds    | `ZhipuAccountAccessConfig`、`AccountProviderCredentialService`、`ForkModelRef`、`formatModelSelection`、`ProviderModelMetadataDialog` |
-| Out of scope     | Provider 扩容、Telemetry 重构、Conversation recovery、Client Config 公共服务                                                          |
+| Campo | Conclusão |
+| --- | --- |
+| Developer intent | consolidar as lacunas de access público, ModelSelection e transação de Settings decididas mas não implementadas no Provider Refactor |
+| Capability | Provider Registry, Account Request Auth, Model Selection, Provider Settings |
+| Change layer | `draft-default`, `validation`, `commit-effect`, `persistence`, `presentation` |
+| Operating mode | planning / implementation handoff |
+| Primary seeds | `ZhipuAccountAccessConfig`, `AccountProviderCredentialService`, `ForkModelRef`, `formatModelSelection`, `ProviderModelMetadataDialog` |
+| Out of scope | expansão de Provider, refatoração de Telemetry, recuperação de Conversation, serviço público de Client Config |
 
 ### 7.2 UI Surface Matrix
 
-| 用户场景                    | UI 入口                                    | Draft/展示 owner                   | 默认/继承来源                   | 校验与提交                            | 权威 owner                   | 模式边界                   |
-| --------------------------- | ------------------------------------------ | ---------------------------------- | ------------------------------- | ------------------------------------- | ---------------------------- | -------------------------- |
-| 添加普通 Built-in Provider  | Provider Settings 固定操作                 | Renderer 选择态；无 Provider Draft | 目标 Host Built-in Config       | 创建 Personal Overlay                 | 目标 Environment Host        | Local/Remote 使用各自 Host |
-| 创建 Personal-only Provider | 自定义创建界面                             | Renderer 创建态                    | 无默认 API Schema               | 立即创建不完整 Provider，后续自动保存 | 目标 Environment Host        | 同上                       |
-| 编辑 Model                  | 大一档手动保存弹窗                         | Renderer Local Draft               | Host Effective Preview          | 一次原子 Model Mutation               | Personal Config + Registry   | Desktop/Mobile 同语义      |
-| 模型选择                    | Conversation/Automation/Subagent/Repo Wiki | 各产品自己的 Draft                 | 目标 Host Selection View        | 各自 commit sink                      | 各自产品状态/Worker Registry | 不统一各产品生命周期       |
-| Account 连接展示            | Family/Usage/Entitlement UI                | Host 投影状态                      | Account Connection/Availability | 既有登录/连接动作                     | Account 服务                 | 不读取 `accessId`          |
+| Cenário do usuário | Entrada de UI | Owner do Draft/Exibição | Origem de default/herança | Validação e submissão | Owner autoritativo | Limite de modo |
+| --- | --- | --- | --- | --- | --- | --- |
+| Adicionar Provider Built-in comum | ação fixa das Provider Settings | estado de seleção no Renderer; sem Provider Draft | Built-in Config do Host alvo | cria Personal Overlay | Host do Environment alvo | Local/Remote usam seus próprios Hosts |
+| Criar Provider Personal-only | interface de criação personalizada | estado de criação no Renderer | sem API Schema padrão | cria imediatamente um Provider incompleto, com salvamento automático posterior | Host do Environment alvo | idem |
+| Editar Model | diálogo grande de salvamento manual | Local Draft do Renderer | Effective Preview do Host | uma Mutation de Model atômica | Personal Config + Registry | mesma semântica em Desktop/Mobile |
+| Seleção de modelo | Conversation/Automation/Subagent/Repo Wiki | o próprio Draft de cada produto | Selection View do Host alvo | sink de commit de cada um | estado de produto próprio / Worker Registry | não unificar os ciclos de vida dos produtos |
+| Exibição de conexão de Account | Family/Usage/Entitlement UI | estado projetado pelo Host | Account Connection/Availability | ações de login/conexão já existentes | serviço de contas | não lê `accessId` |
 
-### 7.3 分级关系
+### 7.3 Relações graduais
 
-| 等级           | 关系                                                      | 原因                                                           |
-| -------------- | --------------------------------------------------------- | -------------------------------------------------------------- |
-| must-inspect   | Account Connection -> Account Overlay -> Request Auth     | 删除连接 ID 后仍须按当前兼容连接解析且缺失时 fail-closed       |
-| must-inspect   | Model editor -> Host Mutation -> Personal Config/Registry | 当前分步保存会丢 Draft 并产生非原子状态                        |
-| must-inspect   | Fork/Protocol/Persistence -> ModelSelection               | `ForkModelRef` 和字符串会继续制造第二种选择表示                |
-| should-inspect | Usage/Telemetry/Family UI -> Account status               | 当前部分展示通过 `accessId` presence 推断连接                  |
-| should-inspect | Automation/Subagent/Repo Wiki/Conversation picker         | 共享 Picker Value，但状态和提交落点必须继续分离                |
-| conditional    | Standalone/Remote Host Request Auth                       | 每个 Environment 必须使用自己的账号服务                        |
-| invariant-only | desktop continuous / mobile replayable                    | 本轮不改变 stream、snapshot、queue 或恢复语义                  |
-| invariant-only | Off-Peak                                                  | 继续使用普通 ModelSelection/Registry/ModelFactory 和请求期鉴权 |
+| Nível | Relação | Motivo |
+| --- | --- | --- |
+| must-inspect | Account Connection -> Account Overlay -> Request Auth | mesmo sem o ID de conexão, ainda é preciso resolver pela conexão compatível atual e falhar de forma fechada quando ela falta |
+| must-inspect | Model editor -> Host Mutation -> Personal Config/Registry | o salvamento em etapas atual perde o Draft e produz estado não atômico |
+| must-inspect | Fork/Protocol/Persistence -> ModelSelection | `ForkModelRef` e as strings continuariam criando uma segunda representação de escolha |
+| should-inspect | Usage/Telemetry/Family UI -> Account status | parte da exibição atual infere a conexão pela presença de `accessId` |
+| should-inspect | Automation/Subagent/Repo Wiki/Conversation picker | compartilham o Picker Value, mas estado e ponto de submissão precisam continuar separados |
+| conditional | Standalone/Remote Host Request Auth | cada Environment precisa usar o seu próprio serviço de contas |
+| invariant-only | desktop continuous / mobile replayable | este ciclo não muda stream, snapshot, queue nem semântica de recuperação |
+| invariant-only | Off-Peak | continua usando ModelSelection/Registry/ModelFactory comuns e autenticação por requisição |
 
-### 7.4 State owner 与 Commit sink
+### 7.4 State owner e Commit sink
 
-| 状态/事实                                  | 权威 owner                             | 镜像/缓存                   | Commit sink                                       |
-| ------------------------------------------ | -------------------------------------- | --------------------------- | ------------------------------------------------- |
-| Built-in/Personal Provider 与 Model Config | 目标 Environment Host Provider Service | Renderer Host View          | Provider Config Repository + Registry publication |
-| Model 编辑 Draft                           | 当前弹窗 Renderer                      | 无持久缓存                  | 单次 Host Model Mutation                          |
-| 当前账号连接与 identity                    | Account/Credential Services            | Account Provider snapshot   | 既有登录、连接、退出流程                          |
-| 请求期凭据                                 | Account Request Auth Service           | 私有 Credential Store/cache | 每个 request attempt 解析，不写 Config            |
-| 未来模型选择                               | 各产品结构化 `ModelSelection`          | Picker Value 仅展示         | 各产品既有提交入口                                |
-| 当前执行模型                               | Agent Runtime Active Model             | 无反向可编辑镜像            | ModelFactory 创建                                 |
+| Estado/fato | Owner autoritativo | Espelho/cache | Commit sink |
+| --- | --- | --- | --- |
+| Built-in/Personal Provider e Model Config | Provider Service do Host do Environment alvo | Host View no Renderer | Provider Config Repository + publicação no Registry |
+| Draft de edição de Model | Renderer do diálogo atual | sem cache persistente | uma única Host Model Mutation |
+| Conexão de conta e identity atuais | Account/Credential Services | snapshot do Account Provider | fluxos existentes de login, conexão e logout |
+| Credenciais por requisição | Account Request Auth Service | Credential Store/cache privado | resolvido em cada tentativa de request, sem escrever em Config |
+| Escolha futura de modelo | `ModelSelection` estruturada de cada produto | apenas exibição como Picker Value | entrada de envio já existente de cada produto |
+| Modelo de execução atual | Active Model do Agent Runtime | sem espelho editável reverso | criação pelo ModelFactory |
 
-### 7.5 必须保持的不变量
+### 7.5 Invariantes que precisam ser mantidos
 
-1. 账号类型 Provider Config 不保存凭据或账号身份；API Access 仍可直接保存用户填写的 API Key；
-2. 切换/退出账号后，旧 Active Model 只可使用当前兼容 family/planKind 的连接，否则网络前失败；
-3. Local 与 Remote Environment 各自解析 Provider Registry、账号连接和请求凭据；
-4. `ModelSelection` 只保存显式选择意图，缺省 option 继续由 ModelFactory 解析；
-5. Model 编辑取消不写配置，失败不关闭弹窗，成功只发布一个最终 revision；
-6. Built-in Model 不能删除，Provider ID 不能修改，Builtin Config 永远不被 Settings 删除；
-7. UI 隐藏字段 PDF/Audio 和未编辑 Personal JSON 槽位无损保留；
-8. 不改变各模型选择入口的状态归属、Queue、Recovery、Off-Peak admission 或 Telemetry 总体设计；
-9. 不恢复 ModelRef、ModelIdentity、公共 connection key 或第二个 Registry；
-10. 不因为清理旧命名把旧 Registry 的配置职责搬进新 execution/factory 抽象。
+1. Provider Config do tipo de conta não salva credenciais nem identidade de conta; o API Access ainda pode salvar diretamente a API Key preenchida pelo usuário;
+2. depois de trocar ou sair de uma conta, o Active Model antigo só pode usar a conexão da family/planKind compatível atual, ou então falhar antes da rede;
+3. os Environments Local e Remote resolvem cada um o Provider Registry, a conexão de conta e as credenciais de requisição;
+4. `ModelSelection` guarda apenas a intenção de escolha explícita, e a opção default continua sendo resolvida pelo ModelFactory;
+5. cancelar a edição de Model não escreve configuração, falhar não fecha o diálogo e sucesso publica apenas uma revision final;
+6. Model Built-in não pode ser removido, Provider ID não pode ser modificado e o Builtin Config nunca é removido pelas Settings;
+7. campos ocultos pela UI, como PDF/Audio, e slots de JSON Personal não editados são preservados sem perda;
+8. não mudar a atribuição de estado das entradas de seleção de modelo, nem Queue, Recovery, Off-Peak admission ou o design geral de Telemetry;
+9. não restaurar ModelRef, ModelIdentity, connection key pública ou um segundo Registry;
+10. não mover para abstrações novas de execution/factory as responsabilidades de configuração do Registry antigo só por causa da limpeza de nomes.
 
-### 7.6 Graph drift 审查与同步结果
+### 7.6 Revisão de graph drift e resultado da sincronização
 
-实施前 Feature Graph 仍声明 Account Overlay 发布 opaque `accessId`，Todo 05/21 也包含与当前代码不一致的完成结果。
-这些 graph/spec drift 已随本 Todo 和 Todo 24 同步；审查范围包括：
+Antes da implementação, o Feature Graph ainda declarava que o Account Overlay publicava um `accessId` opaco, e os Todo 05/21 também continham resultados de conclusão incompatíveis com o código atual.
+Esse drift de graph/spec foi sincronizado junto com este Todo e o Todo 24; o escopo da revisão inclui:
 
-- Design Tree 中 Account Access、Request Auth、Model Selection、Settings 和 Registry 文档；
-- Feature Graph 的 Provider Registry、Model Selection、Off-Peak 与 Settings 节点和不变量；
-- Todo 05、07、12–14、20、21 的纠正说明或 superseded 链接；
-- Todo 00 路线图的最终完成结果。
+- os documentos de Account Access, Request Auth, Model Selection, Settings e Registry da Design Tree;
+- os nós e invariantes de Provider Registry, Model Selection, Off-Peak e Settings do Feature Graph;
+- notas de correção ou links de superseded nos Todo 05, 07, 12–14, 20 e 21;
+- o resultado final de conclusão da linha do tempo do Todo 00.
 
-同步不得把实现中的临时权衡提升为设计。除非出现客观不可实现、正确性冲突或新可靠事实，实施应忠实执行本 Todo；普通实现
-歧义选择影响最小且可逆的方案继续，不阻塞目标，完成后再讨论。
+A sincronização não pode elevar as compensações temporárias da implementação ao status de decisão de design. A menos que apareça um fato objetivo de impossibilidade, conflito de correção ou um novo fato confiável, a implementação deve executar este Todo fielmente; ambiguidades comuns de implementação devem seguir a opção de menor impacto e reversível, sem bloquear a meta, e podem ser discutidas depois.
 
-## 8. 实施切片
+## 8. Fatias de implementação
 
-### Slice A：失败测试与公共契约
+### Slice A: testes falhando e contratos públicos
 
-1. 为 Todo 24 Access 契约、ModelSelection options 保真和原子 Model Mutation
-   先写失败测试；
-2. 建立 Settings Draft 四态、Model ID Preview 和 Built-in 简化编辑器的组件/服务契约测试；
-3. 为 Local/Remote Host authority、Standalone Request Auth 和 Off-Peak 不变量补回归测试。
+1. escrever primeiro testes falhando para o contrato de Access do Todo 24, a fidelidade de options do ModelSelection e a Mutation atômica de Model;
+2. estabelecer testes de contrato de componente/serviço para os quatro estados do Draft de Settings, o Preview de Model ID e o editor simplificado de Built-in;
+3. adicionar testes de regressão para a autoridade de Local/Remote Host, o Request Auth do Standalone e os invariantes de Off-Peak.
 
-### Slice B：ModelSelection 归零
+### Slice B: zeragem do ModelSelection
 
-1. `ForkModelRef` 全部改为 `ModelSelection`，删除 `variant` 转换；
-2. 协议、持久化和产品状态只保存结构化对象；
-3. Picker/Legacy 字符串 helper 明确改名并限制边界；
-4. 删除重复 Parser/Formatter，不新增统一比较 helper。
+1. trocar todos os `ForkModelRef` por `ModelSelection` e remover a conversão de `variant`;
+2. fazer protocolo, persistência e estado de produto guardarem apenas o objeto estruturado;
+3. renomear explicitamente os helpers de string Picker/Legacy e limitar a fronteira;
+4. remover Parsers/Formatters duplicados sem criar helper de comparação unificado.
 
-### Slice C：Access 契约
+### Slice C: contrato de Access
 
-由 Todo 24 完整实施和验收，本 Todo 不再维护另一份 Access 实施列表。
+Implementado e aceito por completo pelo Todo 24; este Todo não mantém mais outra lista de implementação de Access.
 
-### Slice D：Model 编辑事务与 Preview
+### Slice D: transação de edição de Model e Preview
 
-1. 增加一次性 Host Preview 和一次性 Host Save Mutation；
-2. rename、membership、order、专属 Rule 和 Personal Config 在同一事务提交；
-3. Renderer 弹窗等待成功再关闭，冲突/失败保留 Draft；
-4. Model ID Preview 防抖并拒绝 stale response；
-5. 删除 `rename()` 后再 `save()` 的分步 helper 和乐观补偿逻辑。
+1. adicionar um Host Preview único e uma Host Save Mutation única;
+2. submeter rename, membership, order, Rule exclusiva e Personal Config na mesma transação;
+3. fazer o diálogo no Renderer esperar o sucesso para fechar, preservando o Draft em conflito/falha;
+4. aplicar debounce no Preview de Model ID e rejeitar respostas obsoletas;
+5. remover o helper em etapas `rename()` seguido de `save()` e a lógica de compensação otimista.
 
-### Slice E：Settings 语义与表现
+### Slice E: semântica e apresentação de Settings
 
-1. Draft 分离 Personal 值、Inherited Preview 和 Effective Preview；
-2. 实现继承、未设置、明确覆盖、explicit clear 四态；
-3. 三个 JSON 槽位复用权威 Schema，增加格式化和路径错误；
-4. 普通 Built-in Provider 使用 API Key + Model List 简化编辑器；Personal-only 使用完整编辑器；
-5. `requiresMfjsToolSchema` 移到最后，完成 Light/Dark、Desktop/Mobile、键盘和中英文检查。
+1. separar no Draft o valor Personal, o Inherited Preview e o Effective Preview;
+2. implementar os quatro estados herança, não definido, sobrescrita explícita e explicit clear;
+3. reutilizar o Schema autoritativo nos três slots de JSON e adicionar erros de formatação e de caminho;
+4. usar o editor simplificado de API Key + Model List para Provider Built-in comum e o editor completo para Personal-only;
+5. mover `requiresMfjsToolSchema` para o final e concluir as verificações de Light/Dark, Desktop/Mobile, teclado e chinês/inglês.
 
-### Slice F：Compatibility、命名和文档机械归零
+### Slice F: Compatibility, nomes e zeragem mecânica da documentação
 
-1. 完整删除 `adapterCompatibility`、`reasoningReplay` 和 synthetic empty-thinking 投影；
-2. 校验 Adapter `model-execution.ts` 及注释均使用 execution/factory 命名，不改变 transport/factory 行为；
-3. 执行机械残留搜索，删除死 helper、测试 fixture 和错误注释；
-4. 同步 Design Tree、Feature Graph、Todo 状态与 superseded 关系；
-5. 按切片提交 Conventional Commits，不把全部变化压成一个不可审查提交。
+1. remover por completo `adapterCompatibility`, `reasoningReplay` e a projeção de empty-thinking sintético;
+2. verificar se o `model-execution.ts` do Adapter e seus comentários usam nomenclatura de execution/factory, sem mudar o comportamento de transport/factory;
+3. executar a busca mecânica de resíduos, removendo helpers mortos, fixtures de teste e comentários incorretos;
+4. sincronizar a Design Tree, o Feature Graph, o status dos Todos e as relações de superseded;
+5. submeter Conventional Commits por fatia, sem espremer todas as mudanças em um único commit impossível de revisar.
 
-## 9. 测试与验收
+## 9. Testes e aceitação
 
-### 9.1 Config、Account 与 Request Auth
+### 9.1 Config, Account e Request Auth
 
-- Zhipu Account Access Schema 不接受、序列化或要求 `accessId`；
-- Account Overlay 只发布 enabled 和 Start 账号模型成员；
-- Individual/Start/Team 各自能从当前账号服务取得正确凭据；
-- 相同 Family/Plan 下切换账号时旧 Model 按当前兼容连接重新解析凭据；
-- 账号凭据刷新不热改 Model 的 Endpoint、API type、Properties 或 Model Selection；
-- Credential Store/in-flight cache 在不同账号、Provider、Team scope 间不串用；
-- UI、Usage、Telemetry 不通过 access 字符串推断账号连接；
-- Local、Remote、Standalone 与 Off-Peak 使用各自 Environment 的账号事实。
+- o Schema de Zhipu Account Access não aceita, serializa nem exige `accessId`;
+- o Account Overlay publica apenas enabled e os membros de modelo da conta Start;
+- Individual/Start/Team obtêm cada um as credenciais corretas do serviço de contas atual;
+- ao trocar de conta sob a mesma Family/Plan, o Model antigo resolve novamente as credenciais pela conexão compatível atual;
+- a atualização de credenciais da conta não muda em tempo quente o Endpoint, o tipo de API, as Properties ou a Model Selection do Model;
+- Credential Store/in-flight cache não vazam entre contas, Providers ou escopos de Team;
+- UI, Usage e Telemetry não inferem a conexão da conta por strings de access;
+- Local, Remote, Standalone e Off-Peak usam os fatos de conta do seu próprio Environment.
 
 ### 9.2 ModelSelection
 
-- `modelSelectionSchema` 完整接受并保留 `reasoningLevel/maxOutputTokens`；
-- Fork/Side Chat/Before-input Fork 不再产生 `variant` 或 Ref alias；
-- Picker Value 不会覆盖调用方持有的完整 Selection options；
-- Legacy 字符串只在明确 importer/codec 边界解析；
-- Conversation、Automation、Subagent、Repo Wiki 的比较与提交语义保持原行为；
-- Config 默认变化不会被反向固化到历史 Selection。
+- `modelSelectionSchema` aceita e preserva por completo `reasoningLevel/maxOutputTokens`;
+- Fork/Side Chat/Before-input Fork não produzem mais `variant` nem alias de Ref;
+- o Picker Value não sobrescreve as options completas da Selection que o chamador possui;
+- strings Legacy são analisadas apenas em fronteiras explícitas de importer/codec;
+- Conversation, Automation, Subagent e Repo Wiki mantêm o comportamento original de comparação e submissão;
+- mudanças de default de Config não são fixadas retroativamente em Selections históricas.
 
-### 9.3 Settings Transaction 与 Preview
+### 9.3 Transação de Settings e Preview
 
-- 打开、编辑、取消/X/Esc 不写配置；
-- 保存只产生一次 Host Mutation 和一个最终 Registry revision；
-- rename 同时更新 Personal membership、modelOrder 和 exact Rule；
-- 保存失败、revision conflict 和 Registry 发布失败均保留弹窗与 Draft；
-- 修改 Model ID 先移动 Preview Rule，再解析新 Built-in 默认，Personal 明确值保持；
-- Preview stale response 不覆盖最新 Model ID；
-- 上游有值、上游无值、Personal 覆盖、explicit clear 四态 round-trip；
-- PDF/Audio 和未编辑 JSON 槽位无损保留；
-- 三个 JSON 编辑器独立替换、空内容恢复继承、非法内容阻止保存；
-- `requiresMfjsToolSchema` 位于最后。
+- abrir, editar e cancelar/X/Esc não escreve configuração;
+- o salvamento produz apenas uma Host Mutation e uma revision final de Registry;
+- o rename atualiza simultaneamente o membership Personal, o modelOrder e a Rule exata;
+- falha de salvamento, conflito de revision e falha de publicação de Registry preservam o diálogo e o Draft;
+- ao alterar o Model ID, a Preview Rule é movida primeiro e só então os novos defaults Built-in são resolvidos, mantendo os valores Personal explícitos;
+- uma resposta obsoleta de Preview não sobrescreve o Model ID mais recente;
+- round-trip dos quatro estados: upstream com valor, upstream sem valor, sobrescrita Personal e explicit clear;
+- PDF/Audio e slots de JSON não editados são preservados sem perda;
+- os três editores JSON substituem de forma independente, conteúdo vazio restaura a herança e conteúdo inválido impede o salvamento;
+- `requiresMfjsToolSchema` fica por último.
 
 ### 9.4 Provider Settings
 
-- “添加供应商”只列普通 `standard-builtin` 未添加候选；
-- 添加后只显示简化 API Key + Model 编辑主路径；
-- “创建自定义供应商”创建不完整 `standard-personal` Provider 并显示完整编辑器；
-- 删除任意 Provider 都只删除 Personal Overlay；Built-in Config 不变；
-- Family UI、普通排序、Provider ID、Built-in Model 删除权限和 model enabled 行为保持原裁决；
-- Desktop/Web/Mobile、Zai Light/Zai Dark、键盘、触屏和中英文通过回归。
+- "Adicionar fornecedor" lista apenas candidatos `standard-builtin` comuns ainda não adicionados;
+- depois de adicionar, só aparece o caminho principal simplificado de edição de API Key + Model;
+- "Criar fornecedor personalizado" cria um Provider `standard-personal` incompleto e mostra o editor completo;
+- remover qualquer Provider remove apenas o Personal Overlay; o Built-in Config não muda;
+- Family UI, ordenação comum, Provider ID, permissão de remoção de Model Built-in e comportamento de model enabled seguem as decisões originais;
+- Desktop/Web/Mobile, Zai Light/Zai Dark, teclado, toque e chinês/inglês passam na regressão.
 
-### 9.5 Mechanical zero
+### 9.5 Zero mecânico
 
-完成时至少满足：
+Na conclusão, no mínimo:
 
 ```text
 生产公共链 accessId                       = 0
@@ -465,59 +458,57 @@ adapterCompatibility / reasoningReplay         = 0
 旧 Adapter Registry 命名与错误注释          = 0
 ```
 
-允许保留的搜索命中必须逐条列入完成记录，并证明属于第三方字段、明确 Legacy 只读边界或历史文档引用；不能用宽泛 allowlist 掩盖
-生产残留。
+As ocorrências de busca que permanecerem precisam ser listadas uma a uma no registro de conclusão, provando que pertencem a campos de terceiros, a fronteiras Legacy explicitamente somente leitura ou a referências de documentação histórica; não se pode usar uma allowlist ampla para mascarar
+resíduos de produção.
 
-最终执行：
+Execução final:
 
-- 相关 Provider、Services、Shared、Core、Bootstrap、UI 单测；
-- `pnpm typecheck`；
-- `pnpm lint`；
-- `pnpm fmt:check`；
-- 受影响 Desktop E2E，以及 Local/Remote Host Provider Settings/Selection 回归；
-- `pnpm knip` 与定向 `rg` 机械零检查；
-- 必要时 `pnpm test:unit:affected` 和 `pnpm verify:pre-push`。
+- testes unitários relacionados de Provider, Services, Shared, Core, Bootstrap e UI;
+- `pnpm typecheck`;
+- `pnpm lint`;
+- `pnpm fmt:check`;
+- E2E de Desktop afetados e regressão de Provider Settings/Selection em Local/Remote Host;
+- `pnpm knip` e a verificação mecânica de zero com `rg` direcionado;
+- quando necessário, `pnpm test:unit:affected` e `pnpm verify:pre-push`.
 
-## 10. 完成定义
+## 10. Definição de conclusão
 
-只有以下条件全部满足，才能把本 Todo 标记为“已完成”：
+Somente quando todas as condições abaixo estiverem satisfeitas este Todo pode ser marcado como "concluído":
 
-1. G1–G9 的代码、测试和机械零门禁全部完成；
-2. `accessId` 没有以新名字重新进入 Provider Config、Model、Protocol、UI 或公共 Credential contract；
-3. 账号切换、退出、凭据刷新和 Remote/Standalone 请求均有当前连接解析与缺失时 fail-closed 证据；
-4. Fork、Picker、Protocol 和 Persistence 不再存在第二套 ModelSelection 表示；
-5. Model 编辑保存是一次 Host Mutation，失败保留 Draft，Preview 不产生持久化；
-6. Built-in 简化编辑器与 Personal-only 完整编辑器按 group 分流；
-7. Design Tree、Feature Graph、路线图和相关旧 Todo 已同步真实实现，不再错误宣称未满足的事项已完成；
-8. 必需测试、类型检查、Lint、格式检查、受影响 E2E 和机械残留检查通过；
-9. 按可审查切片提交 Conventional Commits，并在实施记录中保留自主选择与验证证据。
+1. o código, os testes e os portões de zero mecânico de G1–G9 estiverem completos;
+2. `accessId` não tiver voltado a entrar, com novo nome, no Provider Config, Model, Protocol, UI ou contrato público de Credential;
+3. houver evidência de resolução pela conexão atual e de falha fechada quando ela falta, para troca de conta, logout, atualização de credenciais e requisições Remote/Standalone;
+4. Fork, Picker, Protocol e Persistence não tiverem mais uma segunda representação de ModelSelection;
+5. o salvamento da edição de Model for uma única Host Mutation, com falha preservando o Draft e Preview sem produzir persistência;
+6. o editor simplificado Built-in e o editor completo Personal-only estiverem separados por group;
+7. a Design Tree, o Feature Graph, o roadmap e os Todos antigos relacionados estiverem sincronizados com a implementação real e não declararem mais como concluídas coisas não atendidas;
+8. os testes necessários, a verificação de tipos, o Lint, a verificação de formatação, os E2E afetados e a checagem de resíduos mecânicos passarem;
+9. Conventional Commits forem submetidos por fatia revisável, preservando escolhas próprias e evidências de verificação no registro de implementação.
 
-## 11. 实施记录（2026-08-27）
+## 11. Registro de implementação (2026-08-27)
 
-- ModelSelection 统一保留结构化 `providerId/modelId/options`，Fork、Side Chat、Automation、Subagent 与
-  Persistence 不再维护 Ref alias 或 reasoning identity variant；
-- Model 编辑保存收口为一次带 `basedOnRevision` 的 Host Mutation，rename、membership、order 与精确 Personal Rule
-  原子提交；Preview 只返回继承值和 Effective 值，不持久化、不接受 Renderer 提供 API/Endpoint 权威；
-- Personal Model Draft 改为真正稀疏 Overlay：未触碰叶子不写入，PDF/Audio 和 JSON 槽位无损保留；“全部恢复默认”以
-  当前模型 ID 的新继承结果为基线；
-- Provider/Model 设置页完成既定简化、排序和弹窗交互；Provider 连续排序使用 UI 乐观投影，Environment owner 变化时
-  丢弃旧 Pending，不形成第二份配置事实；
-- `adapterCompatibility`、`reasoningReplay`、synthetic empty-thinking 以及相关 fixture/helper 已从当前生产链删除；
-- Access 切片由 Todo 24 按最终裁决完成，ZAPI 退役由 Todo 25 完成。
+- O ModelSelection unificado mantém `providerId/modelId/options` estruturados; Fork, Side Chat, Automation, Subagent e
+  Persistence não mantêm mais Ref alias nem reasoning identity variant;
+- O salvamento da edição de Model foi consolidado em uma única Host Mutation com `basedOnRevision`, com submissão atômica de rename, membership, order e Rule Personal
+  exata; o Preview só devolve valores herdados e Effective, sem persistir e sem aceitar autoridade de API/Endpoint vinda do Renderer;
+- O Personal Model Draft passou a ser um Overlay realmente esparso: folhas não tocadas não são escritas, PDF/Audio e slots de JSON são preservados sem perda, e "restaurar todos os padrões" usa como
+  base o novo resultado herdado do Model ID atual;
+- As páginas de configuração de Provider/Model concluíram a simplificação, a ordenação e a interação de diálogo já definidas; a ordenação contínua de Provider usa projeção otimista na UI, e ao mudar o owner de Environment o
+  Pending antigo é descartado, sem criar um segundo fato de configuração;
+- `adapterCompatibility`, `reasoningReplay`, empty-thinking sintético e fixtures/helpers relacionados foram removidos da cadeia de produção atual;
+- A fatia de Access foi concluída pelo Todo 24 conforme a decisão final, e a aposentadoria da ZAPI foi concluída pelo Todo 25.
 
-> 后续反向审查补充：Host Preview 与 Model Draft 原子保存本身已按本 Todo 完成；Personal Match/Exact
-> Rule 的稳定分组优先级，以及 Resolver 与写入侧三段顺序 helper 的机械归一，由
-> [`Todo 28`](./todo-28-model-rule-precedence-and-order-canonicalization.md) 承接。
+> Complemento de revisão posterior: o Host Preview e o salvamento atômico do Model Draft já foram concluídos por este Todo; o agrupamento estável de precedência das Personal Match/Exact
+> Rules, bem como a normalização mecânica dos helpers de três etapas do Resolver e do lado de escrita, ficam a cargo do
+> [`Todo 28`](./todo-28-model-rule-precedence-and-order-canonicalization.md).
 
-验证证据：
+Evidências de verificação:
 
-- 根 `pnpm typecheck` 通过；根 `pnpm lint` 为 0 error（34 条全仓既有 warning）；
-- Model 设置定向测试 235/235、UI/Services 契约测试 47/47、CLI Provider/Adapter/Bootstrap 定向测试
-  228/228 通过；
-- 根全量 Unit 12,438/12,440 直接通过；仅失败的两个 Windows ZIP 用例是宿主缺少系统 `zip`，使用隔离的兼容 ZIP
-  命令复跑 17/17 通过；
-- 本轮 216 个修改文件经 `oxfmt` 修正后定向格式检查通过；根 `fmt:check` 仍被仓库既有二进制文件和 Electron 上游
-  示例 HTML 解析错误阻塞；
-- 根 `knip` 仍报告全仓既有 unused 基线；定向检查未报告本轮新增 Access、Credential 或 UI 拆分符号；
-- 生产代码机械搜索确认 `ForkModelRef`、`adapterCompatibility`、`reasoningReplay`、
-  `anthropic-empty-thinking` 与旧 Access Type 均为零。
+- o `pnpm typecheck` da raiz passou; o `pnpm lint` da raiz terminou com 0 error (34 warnings já existentes em todo o repositório);
+- testes direcionados de configurações de Model 235/235, testes de contrato de UI/Services 47/47 e testes direcionados de Provider/Adapter/Bootstrap da CLI
+  228/228 passaram;
+- a Unit completa da raiz passou direto em 12.438/12.440; os dois únicos casos de ZIP no Windows falharam porque o host não tem o `zip` de sistema, e a repetição com um comando ZIP compatível e isolado passou 17/17;
+- os 216 arquivos modificados neste ciclo passaram na verificação de formatação direcionada após correção com `oxfmt`; o `fmt:check` da raiz continua bloqueado por arquivos binários já existentes no repositório e por erros de parsing de HTML de exemplo do Electron upstream;
+- o `knip` da raiz ainda reporta a baseline de unused já existente em todo o repositório; a verificação direcionada não reportou símbolos novos de Access, Credential ou split de UI deste ciclo;
+- a busca mecânica no código de produção confirma `ForkModelRef`, `adapterCompatibility`, `reasoningReplay`,
+  `anthropic-empty-thinking` e o antigo Type de Access todos como zero.

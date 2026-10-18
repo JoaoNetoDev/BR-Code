@@ -1,11 +1,10 @@
-# Provider 目标设计
+# Design alvo do sistema de Provider
 
-> 状态：当前有效设计
+> Estado: design vigente
 >
-> 最近更新：2026-09-01
+> Atualizado em: 2026-09-01
 
-Provider 系统完成一件事：把目标 Environment 中的 Provider 配置、Model Config Rules 和一次
-ModelSelection 转化为能够稳定封装模型 API 调用的 Model。
+O sistema de Provider faz uma coisa: transformar a configuração de Provider, as Model Config Rules e uma ModelSelection do Environment alvo em um Model capaz de encapsular de forma estável as chamadas à API de modelos.
 
 ```text
 Provider Config 路径                         Model Config 路径
@@ -62,61 +61,44 @@ Effective Built-in Provider Config         Effective Model Config Rules
                       ModelRequest -> Adapter -> API
 ```
 
-左路决定最终有哪些 Provider、每个 Provider 有哪些模型、使用什么 API 和访问方式；右路决定每个
-模型具有什么能力、选项如何映射为请求参数。两路在最终
-`providerId + modelId + api.type + baseURL` 上汇合。
+O caminho da esquerda decide quais Providers existem no final, quais modelos cada Provider tem e qual API e modo de acesso são usados; o caminho da direita decide quais capacidades cada modelo tem e como as opções são mapeadas para parâmetros de requisição. Os dois caminhos convergem em `providerId + modelId + api.type + baseURL`.
 
-## 配置语言
+## Linguagem de configuração
 
-Provider Config 固定按以下顺序解析：
+O Provider Config é resolvido sempre nesta ordem:
 
 ```ts
 effectiveBuiltinProviders = zcodeBuiltinProviders.overlay(accountBuiltinProviders);
 effectiveProviders = effectiveBuiltinProviders.overlay(personalProviders);
 ```
 
-优先级是 `Personal > Account Built-in > ZCode Built-in`。Account Built-in 只处理 ZCode Built-in 已声明
-的账号 Provider；其结果是 Effective Built-in Provider Config。Personal 保存用户自定义 Provider 和最终
-覆盖。
+A prioridade é `Personal > Account Built-in > ZCode Built-in`. O Account Built-in trata apenas os Providers de conta já declarados pelo ZCode Built-in; seu resultado é o Effective Built-in Provider Config. O Personal guarda os Providers personalizados pelo usuário e as substituições finais.
 
-普通配置项继续使用整体替代或逐叶 Overlay；Provider 模型成员因所有权不同拆成
-`builtinModelIds` 与 `modelIds`，并由 `modelOrder` 表达顺序。Model Config 的 `enabled` 表达模型启用意图；同 ID
-双来源时 Built-in-wins，重复后项确定性忽略；Model Config 不保存成员或可见性。完整语义见
-[`registry/model-membership-and-enablement.md`](./registry/model-membership-and-enablement.md)。
+Itens de configuração comuns continuam usando substituição integral ou Overlay folha a folha; por terem donos diferentes, os membros de modelo de um Provider são separados em `builtinModelIds` e `modelIds`, com a ordem expressa por `modelOrder`. O `enabled` do Model Config expressa a intenção de habilitação do modelo; quando o mesmo ID vem das duas fontes, Built-in-wins, e itens posteriores duplicados são ignorados de forma determinística; o Model Config não guarda membros nem visibilidade. A semântica completa está em [`registry/model-membership-and-enablement.md`](./registry/model-membership-and-enablement.md).
 
-Model Config Rules 固定按以下顺序组合：
+As Model Config Rules são combinadas sempre nesta ordem:
 
 ```ts
 effectiveModelRules = ModelConfigRules.composeEffective(zcodeBuiltinModelRules, personalModelRules);
 ```
 
-其内部顺序是 `ZCode Built-in + Personal provider-model`。Personal JSON 只保存精确 Rule，物理排列
-不改变精确 Rule 最后覆盖的语义。
+A ordem interna é `ZCode Built-in + Personal provider-model`. O JSON do Personal guarda apenas a Rule exata, e a disposição física não altera a semântica de substituição final da Rule exata.
 
-Rules 解析 Effective Provider Config 中的模型，不能先解析模型再追加 Account 或 Personal Provider
-Overlay。`Effective` 只表示 Overlay/解析已经完成，不产生第二套公开 DTO。
+As Rules resolvem os modelos presentes no Effective Provider Config; não se pode resolver os modelos primeiro e depois acrescentar o Overlay de Account ou Personal. `Effective` indica apenas que o Overlay/resolução foi concluído e não gera um segundo conjunto público de DTOs.
 
-完整字段、Overlay、可见性、Access、存储和迁移见
-[`registry/configuration.md`](./registry/configuration.md)。
+Os campos completos, o Overlay, a visibilidade, o Access, o armazenamento e as migrações estão em [`registry/configuration.md`](./registry/configuration.md).
 
-ZCode Built-in Release 的 Provider/Rule 排列、Match/Exact Rule 写作层级、Endpoint 特化、证据边界和默认
-启用目录维护规范见
-[`registry/zcode-builtin-provider-config.md`](./registry/zcode-builtin-provider-config.md)。
+A disposição de Provider/Rule do ZCode Built-in Release, a hierarquia de escrita de Match/Exact Rule, a especialização de Endpoint, os limites de evidência e as normas de manutenção do catálogo de habilitação padrão estão em [`registry/zcode-builtin-provider-config.md`](./registry/zcode-builtin-provider-config.md).
 
-模型历史回放、请求编码兼容与 Provider Access 产品协议的归属见
-[`registry/request-compatibility-and-access-protocols.md`](./registry/request-compatibility-and-access-protocols.md)。
+A atribuição de replay de histórico de modelos, da compatibilidade de codificação de requisição e do protocolo de produto de Provider Access está em [`registry/request-compatibility-and-access-protocols.md`](./registry/request-compatibility-and-access-protocols.md).
 
-Model Option 值域、受限 CEL Map、原始 Request Body 注入点和唯一请求字段权威见
-[`model/model-option-map.md`](./model/model-option-map.md)。
+O domínio de valores de Model Option, o Map de CEL restrito, os pontos de injeção no Request Body bruto e a autoridade única dos campos de requisição estão em [`model/model-option-map.md`](./model/model-option-map.md).
 
-当前 Provider/Model 配置体系的完整决策叙事见
-[`registry/provider-and-model-configuration-overview.md`](./registry/provider-and-model-configuration-overview.md)。该综述用于
-先建立整体心智；字段精确契约仍以本设计树各专题文档为准。
+A narrativa completa das decisões do sistema atual de configuração de Provider/Model está em [`registry/provider-and-model-configuration-overview.md`](./registry/provider-and-model-configuration-overview.md). Essa visão geral serve para construir primeiro o modelo mental completo; o contrato preciso dos campos continua sendo o dos documentos topical desta árvore de design.
 
-## Provider Config 与凭据
+## Provider Config e credenciais
 
-Provider Config 是模型 API 调用的装配输入，可以保存静态访问凭据或稳定凭据引用；它不是统一凭据
-中心，不负责所有动态凭据的生命周期，也不承担服务端最终授权裁决。
+O Provider Config é a entrada de montagem da chamada à API de modelos e pode guardar credenciais de acesso estáticas ou referências estáveis a credenciais; ele não é um centro unificado de credenciais, não é responsável pelo ciclo de vida de todas as credenciais dinâmicas e não assume a decisão final de autorização do servidor.
 
 ```text
 api-key
@@ -127,26 +109,18 @@ zhipu-account
    └─ 请求期 Account Request Auth Service 从当前兼容连接解析 scope 与动态凭据
 ```
 
-Request Auth 缺失时，Model/Adapter 在网络请求前返回类型化鉴权错误。账号 Token、Runtime Key、
-一次性安全校验 Header、Off-Peak Ticket 等动态材料不进入 Provider Config 或 Registry View。普通 API Key
-Provider 仍可以由 Personal Config 保存 API Key。
+Quando o Request Auth está ausente, o Model/Adapter retorna um erro de autenticação tipado antes da requisição de rede. Materiais dinâmicos como Token de conta, Runtime Key, Header de verificação de segurança de uso único e Ticket de Off-Peak não entram no Provider Config nem na Registry View. Provedores comuns de API Key ainda podem ter a API Key guardada pelo Personal Config.
 
-账号 Access 类别由 ZCode Built-in 声明；Account Overlay 只写入 `access.entitled`，并在服务端返回
-账号模型集合时约束对应 Provider 的模型成员。
-`productId`、`organizationId`、`projectId`、账号身份与动态凭据由 Account Connection Service 拥有，
-在请求期按静态 `family + mode` 解析，不进入 Provider Config 或 Active Model。
+As categorias de Access de conta são declaradas pelo ZCode Built-in; o Account Overlay escreve apenas `access.entitled` e restringe a atualização dos modelos do Provider correspondente quando o servidor devolve o conjunto de modelos da conta.
+`productId`, `organizationId`, `projectId`, a identidade da conta e as credenciais dinâmicas são properties do Account Connection Service e são resolvidas em tempo de requisição a partir de `family + mode` estáticos, sem entrar no Provider Config nem no Active Model.
 
-同一 Family 的 Start、Individual Coding Plan、Team Coding Plan 是三个固定类型的独立 Built-in Provider。
-Account Overlay 分别记录每个固定 Provider 当前是否具备套餐资格，不允许同一 Coding Plan Provider 在
-Individual 与 Team 之间运行时变形，也不通过 Built-in Provider ID 字符串推断 Plan。顶层 `enabled`
-始终只表达该 Provider 定义是否参与配置解析，不承担账号资格语义。
+Start, Individual Coding Plan e Team Coding Plan do mesmo Family são três Built-in Providers independentes de tipo fixo. O Account Overlay registra separadamente se cada Provider fixo tem hoje elegibilidade de plano; não é permitido que o mesmo Coding Plan Provider se transforme em runtime entre Individual e Team, nem inferir o Plan a partir da string do Built-in Provider ID. O `enabled` de nível superior sempre expressa apenas se a definição do Provider participa da resolução de configuração e não carrega semântica de elegibilidade de conta.
 
-Provider 的 `visibility` 只控制用户是否能在 Settings 和 Model Selection 中看到它。Hidden Provider
-仍然使用普通完整性校验、Registry 和 ModelFactory；可见性不表达鉴权或安全权限。
+O `visibility` do Provider controla somente se o usuário consegue vê-lo em Settings e em Model Selection. Um Provider Hidden continua usando a validação de integridade comum, o Registry e o ModelFactory; a visibilidade não expressa permissão de autenticação ou de segurança.
 
-## 一次普通执行
+## Uma execução comum
 
-用户在 Composer 选择模型并提交后：
+Depois que o usuário seleciona um modelo no Composer e submete:
 
 ```text
 1. Entry 固定本次 ModelSelection
@@ -158,14 +132,11 @@ Provider 的 `visibility` 只控制用户是否能在 Settings 和 Model Selecti
 7. Usage、Trace 和错误归因到实际 Model
 ```
 
-Selection 只保存 `providerId`、`modelId` 和通用 Options。Endpoint、Access、模型 Properties、
-Option Spec Map 和 Provider API 协议来自 Registry、ModelFactory 和请求期依赖。Config 更新只影响
-后来创建的 Model，不热改正在执行的对象。
+A Selection guarda apenas `providerId`, `modelId` e as Options comuns. Endpoint, Access, Properties do modelo, Option Spec Map e o protocolo de API do Provider vêm do Registry, do ModelFactory e das dependências de tempo de requisição. Atualizações de Config afetam apenas Models criados depois; não há hot patch de objetos em execução.
 
-## Registry、Settings 与 Selection
+## Registry, Settings e Selection
 
-Registry 保存当前 Environment 中所有完整、enabled 的 Provider，以及其中 Effective Model Config 完整且
-`enabled=true` 的模型，包括 visible 与 hidden Provider：
+O Registry guarda todos os Providers completos e enabled do Environment atual, além dos modelos cujo Effective Model Config está completo e com `enabled=true`, incluindo Providers visible e hidden:
 
 ```text
 Provider Registry
@@ -177,17 +148,13 @@ Provider Registry
        `--> 内部精确 lookup/create：共用同一 Registry
 ```
 
-Settings Facade 同时提供 Effective Built-in、Personal 显式字段、Effective Config、成员来源、启用状态、顺序和
-完整性问题。Selection Facade 只组织 visible Provider 中 executable 的模型。Built-in/Personal 重名时只返回
-Built-in candidate，后项在下一次 Provider 保存时规范化。Renderer 不读取物理配置、不重复 Overlay、成员、排序或
-候选算法，也不按 modelId 推断模型能力。
+O Settings Facade fornece simultaneamente o Built-in Efetivo, os campos explícitos do Personal, o Config Efetivo, a origem dos membros, o estado de habilitação, a ordem e os problemas de integridade. O Selection Facade organiza apenas os modelos executáveis entre os Providers visible. Em caso de nome coincidente entre Built-in/Personal, apenas o candidate Built-in é retornado e o item posterior é normalizado no próximo salvamento do Provider. O Renderer não lê a configuração física, não repete Overlay, membros, ordenação ou o algoritmo de candidatos, e não infere capacidades de modelo a partir do modelId.
 
-完整 Registry 设计见 [`registry/registry.md`](./registry/registry.md)，设置页见
-[`registry/settings.md`](./registry/settings.md)，运行装配见 [`registry/runtime.md`](./registry/runtime.md)。
+O design completo do Registry está em [`registry/registry.md`](./registry/registry.md), a página de configurações em [`registry/settings.md`](./registry/settings.md) e a montagem de runtime em [`registry/runtime.md`](./registry/runtime.md).
 
-## Model 执行边界
+## Limites de execução do Model
 
-Model 是业务代码唯一使用的模型调用对象：
+O Model é o único objeto de chamada de modelo usado pelo código de negócio:
 
 ```text
 Model
@@ -198,16 +165,13 @@ Model
 └─ streamText(request)
 ```
 
-通常一个 Agent Loop 从开始到结束持有同一个 Active Model。Guide/“立即”是明确的 Step 切换边界；
-已经发出的请求继续使用旧 Model，后续 Step 使用新 Model。Automatic Compact 使用 Loop 当前 Active
-Model。Subagent 根据明确的 Selection 通过 Registry 创建自己的 Model。
+Em geral, um Agent Loop mantém o mesmo Active Model do início ao fim. Guide/«立即» é uma fronteira explícita de troca de Step; requisições já enviadas continuam usando o Model antigo e os Steps seguintes usam o novo Model. O Compact Automático usa o Active Model atual do Loop. O Subagent cria seu próprio Model pelo Registry a partir de uma Selection explícita.
 
-输入输出能力直接来自 `Model.properties.input_format/output_format`，Config、Model、Runtime、Adapter
-和协议不建立第二套 capability DTO。详见 [`model/input-output-format.md`](./model/input-output-format.md)。
+As capacidades de entrada e saída vêm diretamente de `Model.properties.input_format/output_format`; Config, Model, Runtime, Adapter e protocolo não constroem um segundo conjunto de DTOs de capability. Detalhes em [`model/input-output-format.md`](./model/input-output-format.md).
 
-## 特殊执行
+## Execuções especiais
 
-特殊执行不会携带完整 ProviderConfig 或 ModelConfig，也不建立临时 Provider：
+Execuções especiais não carregam ProviderConfig ou ModelConfig completos nem criam um Provider temporário:
 
 ```text
 Core Submission
@@ -225,13 +189,9 @@ Core Submission
        Loop Active Model
 ```
 
-闲时任务根据当前账号 Family 精确使用用户不可见的 Built-in `account:zai-offpeak-idle-plan` 或
-`account:bigmodel-offpeak-idle-plan`；两者都是普通、完整 Provider，不在执行时互相变形。闲时 Loop 不修改再恢复
-Session Selection；Permission approve/deny 后同一个自动 Turn 继续使用 idle Model；Foreground Subagent 通过通用
-override 使用 idle Selection 并创建自己的 Model。完整语义见
-[`execution/execution.md`](./execution/execution.md)。
+Tarefas off-peak usam com precisão, conforme o Family da conta atual, o Built-in invisível ao usuário `account:zai-offpeak-idle-plan` ou `account:bigmodel-offpeak-idle-plan`; ambos são Providers comuns e completos, que não se transformam um no outro em tempo de execução. O Loop off-peak não modifica e depois restaura a Session Selection; após approve/deny de permissão, o mesmo Turn automático continua usando o idle Model; o Foreground Subagent usa a idle Selection por meio do override comum e cria seu próprio Model. A semântica completa está em [`execution/execution.md`](./execution/execution.md).
 
-## 状态层级
+## Hierarquia de estados
 
 ```text
 Composer Selection
@@ -247,13 +207,11 @@ Loop Active Model
 └─ 当前 Loop 真正调用的不可变 Model
 ```
 
-这些状态不能互相模拟。闲时任务、Subagent 和 Background 不回写 App Recent；闲时任务也不改写
-Session Selection。普通选择的 Reasoning 在 Host Selection 边界按有序档位补全为具体值；ModelFactory 只校验并
-冻结 Active Model，不再拥有 Option default。详见 [`interaction/interaction.md`](./interaction/interaction.md)。
+Esses estados não podem se imitar. Tarefas off-peak, Subagent e Background não reescrevem o App Recent; tarefas off-peak também não reescrevem a Session Selection. O Reasoning de uma seleção comum é completado com um valor concreto por faixa ordenada na fronteira de Host Selection; o ModelFactory apenas valida e congela o Active Model e já não possui o default de Option. Detalhes em [`interaction/interaction.md`](./interaction/interaction.md).
 
-## Environment 边界
+## Limites de Environment
 
-Provider Config 和 Registry 归实际执行模型请求的目标 Environment 所有：
+O Provider Config e o Registry pertencem ao Environment alvo que realmente executa a requisição de modelo:
 
 ```text
 Local Environment  -> Local Config / Registry / Execution
@@ -261,21 +219,18 @@ SSH Environment    -> Remote Config / Registry / Execution
 Cloud Environment  -> Cloud Config / Registry / Execution
 ```
 
-这是长期所有权蓝图，不意味着 Remote Provisioning、远端设置或登录属于本次 Provider Refactor。
-Desktop continuous、Mobile replayable、Queue、snapshot 和 workspace identity 也不是 Provider 语义；共享
-协议变化只做不变量回归。详见 [`environment/environment.md`](./environment/environment.md)。
+Este é um blueprint de propriedade de longo prazo e não significa que o Remote Provisioning, as configurações remotas ou o login façam parte deste Provider Refactor. Desktop continuous, Mobile replayable, Queue, snapshot e workspace identity também não são semântica de Provider; mudanças no protocolo compartilhado servem apenas para regressão de invariantes. Detalhes em [`environment/environment.md`](./environment/environment.md).
 
-## 分层阅读
+## Leitura por camadas
 
-- [`registry/registry.md`](./registry/registry.md)：Config 如何成为 Registry 和 Model。
-- [`registry/configuration.md`](./registry/configuration.md)：字段、Overlay、Visibility、Access、Rules 和存储。
-- [`registry/zcode-builtin-provider-config.md`](./registry/zcode-builtin-provider-config.md)：Built-in Provider/Model Rule 的发布维护规范。
-- [`registry/model-membership-and-enablement.md`](./registry/model-membership-and-enablement.md)：模型成员所有权、重名冲突、启停与 UI。
-- [`registry/model-creation.md`](./registry/model-creation.md)：ModelFactory、Adapter 和请求期鉴权。
-- [`model/model.md`](./model/model.md)：Model、ModelRequest、Options、生命周期和归因。
-- [`interaction/interaction.md`](./interaction/interaction.md)：Submission、Session Selection 和 Active Model。
-- [`execution/execution.md`](./execution/execution.md)：Compact、Subagent、Goal、Background 和闲时任务。
-- [`environment/environment.md`](./environment/environment.md)：长期 Environment 所有权蓝图。
+- [`registry/registry.md`](./registry/registry.md): como o Config vira Registry e Model.
+- [`registry/configuration.md`](./registry/configuration.md): campos, Overlay, Visibility, Access, Rules e armazenamento.
+- [`registry/zcode-builtin-provider-config.md`](./registry/zcode-builtin-provider-config.md): normas de publicação e manutenção de Built-in Provider/Model Rule.
+- [`registry/model-membership-and-enablement.md`](./registry/model-membership-and-enablement.md): propriedade de membros de modelo, conflitos de nome, habilitação e UI.
+- [`registry/model-creation.md`](./registry/model-creation.md): ModelFactory, Adapter e autenticação em tempo de requisição.
+- [`model/model.md`](./model/model.md): Model, ModelRequest, Options, ciclo de vida e atribuição.
+- [`interaction/interaction.md`](./interaction/interaction.md): Submission, Session Selection e Active Model.
+- [`execution/execution.md`](./execution/execution.md): Compact, Subagent, Goal, Background e tarefas off-peak.
+- [`environment/environment.md`](./environment/environment.md): blueprint de propriedade de Environment de longo prazo.
 
-Design 只描述目标系统。迁移顺序和实施结果进入 [`../steps/steps.md`](../steps/steps.md)，当前代码事实
-进入 [`../research/research.md`](../research/research.md)。
+O Design descreve apenas o sistema alvo. A ordem de migração e os resultados da implementação ficam em [`../steps/steps.md`](../steps/steps.md), e os fatos sobre o código atual em [`../research/research.md`](../research/research.md).

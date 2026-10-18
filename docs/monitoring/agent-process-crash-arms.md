@@ -1,22 +1,19 @@
-# Agent 进程崩溃 ARMS 上报
+# Reporte ARMS de crash do processo do Agent
 
-## 目标
+## Objetivo
 
-桌面端 Host 拉起的 ZCode Agent 是普通 Node 子进程，不属于 Electron
-`child-process-gone` 自动采集范围。Agent 非预期退出时需要由现有
-`RuntimeProcessLifecycleReporter` 主动把崩溃事实送到 desktop main，再由 main
-调用 ARMS `sendCustom`。
+O ZCode Agent iniciado pelo Host do desktop é um subprocesso Node comum e não pertence ao escopo de coleta automática `child-process-gone` do Electron. Quando o Agent sai de forma inesperada, o `RuntimeProcessLifecycleReporter` existente precisa enviar ativamente o fato do crash ao desktop main, que então chama o ARMS `sendCustom`.
 
-本功能同时满足：
+Esta funcionalidade atende simultaneamente a:
 
-- `perf_agent_start.value=1`，作为 Agent runtime 级崩溃率的分母。
-- `perf_agent_ready.value=1`，表示同一 runtime 已通过 provider/model 门禁并可执行模型。
-- `perf_agent_crash.value=1`，用于统计 Agent 崩溃次数。
-- 原始事件保留脱敏、限长的错误信息，支持按错误码和稳定指纹聚合。
-- 主动关闭、workspace 重启、应用退出不计为崩溃。
-- 手机远控继续复用桌面 shared host，不在 relay 或 Web 端重复上报。
+- `perf_agent_start.value=1`, como denominador da taxa de crash de nível de runtime do Agent.
+- `perf_agent_ready.value=1`, indicando que o mesmo runtime já passou pelo gate de provider/model e consegue executar o modelo.
+- `perf_agent_crash.value=1`, usado para contar as ocorrências de crash do Agent.
+- O evento original mantém a informação de erro desidentificada e limitada em tamanho, permitindo agregação por código de erro e impressão digital estável.
+- Encerramento ativo, restart de workspace e saída do app não contam como crash.
+- O controle remoto do celular continua reutilizando o shared host do desktop e não reporta em duplicidade no relay ou na Web.
 
-## 状态与时序
+## Estado e temporização
 
 ```text
 Agent stderr
@@ -53,126 +50,105 @@ Agent stderr
                        └─ ARMS perf_agent_crash(value=1)
 ```
 
-`protocol-close` 是 Agent 崩溃后常见的结果，不是主动退出意图，禁止据此把退出
-标为 expected。
+`protocol-close` é um resultado comum depois de um crash do Agent, não uma intenção de saída ativa, e é proibido marcar a saída como expected com base nele.
 
-Desktop main 是应用退出生命周期的唯一事实源。`perf_app_exit` 发出后必须持续保持
-`app_quit` / `update_install`，直到进程退出；Host IPC 晚到的 Agent exit 即使缺少
-termination intent，也不能重新混入 runtime crash。此外，本地 desktop RUM 边界将
-Windows `0x40010004` 和 POSIX `SIGTERM` 在缺少结构化根因时视为受控终止特征：即使
-Host 未提供 termination intent，也不上报 crash。`protocol-close` 本身不能建立主动退出
-意图；Host 必须将首次 cleanup 原因作为 `terminationReason` 传到 desktop main。即使其后
-的进程树回收产生上述系统退出特征，desktop RUM 仍按协议故障上报 crash。该兼容分类只
-影响 desktop RUM，不改写 Host 进程生命周期事件。
+O desktop main é a única fonte de verdade do ciclo de vida de saída da aplicação. Depois que `perf_app_exit` é emitido, `app_quit` / `update_install` precisa continuar sendo mantidos até o processo sair; um Agent exit que chega tarde via Host IPC, mesmo sem termination intent, não pode voltar a ser misturado a um runtime crash. Além disso, a fronteira de RUM local do desktop trata o Windows `0x40010004` e o POSIX `SIGTERM`, na ausência de causa raiz estruturada, como características de terminação controlada: mesmo que o Host não forneça termination intent, nenhum crash é reportado. O próprio `protocol-close` não pode estabelecer uma intenção de saída ativa; o Host precisa passar a primeira causa de cleanup como `terminationReason` ao desktop main. Mesmo que a posterior recolha da árvore de processos produza essas características de saída do sistema, o RUM do desktop continua reportando crash por falha de protocolo. Essa classificação de compatibilidade afeta apenas o RUM do desktop e não reescreve os eventos de ciclo de vida de processo do Host.
 
-ready 状态由 Agent service 持有，因为“进程已 spawn”和“可执行模型”是两个不同阶段。
-ProcessManager 只负责把首次 ready 与当前 `runtime_instance_id` 绑定，并在 exit 事件中携带
-`runtimeReady`。desktop main 不用 IPC 到达时序反推阶段：新 Host 明确映射为
-`startup` / `runtime`，兼容旧 Host 缺字段时映射为 `unknown`。
+O estado ready é mantido pelo Agent service, porque “o processo já foi spawn” e “consegue executar o modelo” são dois estágios diferentes. O ProcessManager é responsável apenas por vincular o primeiro ready ao `runtime_instance_id` atual e por carregar `runtimeReady` no evento de exit. O desktop main não infere o estágio pela temporização de chegada do IPC: um Host novo é mapeado explicitamente como `startup` / `runtime`, e um Host antigo sem o campo é mapeado como `unknown`.
 
-## 事件契约
+## Contrato de eventos
 
 ### `perf_agent_start`
 
 - `group`: `stability`
 - `value`: `1`
-- 触发：Node `ChildProcess` 发出 `spawn`，确认 runtime 已真实启动。
-- 属性：`process_role=agent`、`runtime_instance_id`、`runtime_generation`、`provider`。
+- Gatilho: o `ChildProcess` do Node emite `spawn`, confirmando que o runtime realmente iniciou.
+- Propriedades: `process_role=agent`, `runtime_instance_id`, `runtime_generation`, `provider`.
 
 ### `perf_agent_ready`
 
 - `group`: `stability`
 - `value`: `1`
-- 触发：同一 runtime 首次通过 provider/model 门禁，且仍是当前存活进程。
-- 属性：`process_role=agent`、`runtime_instance_id`、`runtime_generation`、`provider`、
-  `startup_duration_ms`。
-- 同一 `runtime_instance_id` 最多上报一次；只读启动但 provider/model 尚未就绪时只产生
-  `perf_agent_start`，不产生 ready。
+- Gatilho: o mesmo runtime passa pelo gate de provider/model pela primeira vez e ainda é o processo vivo atual.
+- Propriedades: `process_role=agent`, `runtime_instance_id`, `runtime_generation`, `provider`,
+  `startup_duration_ms`.
+- O mesmo `runtime_instance_id` é reportado no máximo uma vez; quando só houve start de leitura e o provider/model ainda não está pronto, apenas `perf_agent_start` é produzido, sem ready.
 
 ### `perf_agent_crash`
 
 - `group`: `stability`
 - `value`: `1`
-- 触发：已经创建 Agent runtime，但没有主动退出意图时发生进程退出。缺少结构化根因的
-  `0x40010004` / `SIGTERM` 仍按受控终止特征抑制；`terminationReason=protocol-close`
-  时不受最终退出签名影响。即使 `exitCode=0`，长期运行的 Agent 自行结束也属于非预期退出。
+- Gatilho: ocorre saída do processo com um runtime de Agent já criado, mas sem intenção de saída ativa. Um `0x40010004` / `SIGTERM` sem causa raiz estruturada continua sendo suprimido como característica de terminação controlada; com `terminationReason=protocol-close`, a assinatura final de saída não tem influência. Mesmo com `exitCode=0`, um Agent de longa duração que termina por conta própria também é uma saída inesperada.
 
-属性：
+Propriedades:
 
-| 字段                  | 说明                                                |
-| --------------------- | --------------------------------------------------- |
-| `process_role`        | 固定为 `agent`                                      |
-| `incident_kind`       | 固定为 `unexpected_exit`                            |
-| `exit_code`           | 无退出码时为空字符串                                |
-| `signal`              | 无 signal 时为空字符串                              |
-| `termination_reason`  | Host 保留的结构化退出根因，例如 `protocol-close`    |
-| `error_name`          | 从 stderr 末尾提取，无法识别时为 `AgentProcessExit` |
-| `error_code`          | 从 Node 错误输出提取，例如 `EPIPE`                  |
-| `error_message`       | 脱敏后的错误摘要                                    |
-| `error_stack`         | 脱敏且最多 4000 字符的 stderr 尾部                  |
-| `error_fingerprint`   | 规范化错误名、错误码和首条错误的稳定哈希            |
-| `stderr_line_count`   | Agent 整个生命周期输出到 stderr 的行数              |
-| `runtime_instance_id` | 每次 spawn 生成的随机不透明 ID，不含 workspace/PID  |
-| `runtime_generation`  | 当前 workspace Agent runtime 代次                   |
-| `uptime_ms`           | Agent 从 spawn 到 exit 的存活时间                   |
-| `crash_phase`         | `startup` / `runtime` / `unknown`                   |
-| `termination_class`   | `exit_zero` / `exit_nonzero` / `signal` / `unknown` |
-| `diagnostic_class`    | `oom` / `sqlite` / `errno` / `generic` / `none`     |
+| Campo                  | Descrição                                                     |
+| --------------------- | ------------------------------------------------------------- |
+| `process_role`        | fixo em `agent`                                                |
+| `incident_kind`       | fixo em `unexpected_exit`                                     |
+| `exit_code`           | string vazia quando não há código de saída                    |
+| `signal`              | string vazia quando não há signal                             |
+| `termination_reason`  | causa raiz estruturada de saída preservada pelo Host, como `protocol-close` |
+| `error_name`          | extraído do fim do stderr; `AgentProcessExit` quando não identificável |
+| `error_code`          | extraído da saída de erro do Node, como `EPIPE`               |
+| `error_message`       | resumo de erro desidentificado                                |
+| `error_stack`         | cauda do stderr desidentificada e com no máximo 4000 caracteres |
+| `error_fingerprint`   | hash estável do nome de erro, do código de erro e do primeiro erro normalizados |
+| `stderr_line_count`   | número de linhas que o Agent escreveu no stderr durante todo o ciclo de vida |
+| `runtime_instance_id` | ID aleatório e opaco gerado a cada spawn, sem workspace/PID    |
+| `runtime_generation`  | geração atual do runtime do Agent do workspace                 |
+| `uptime_ms`           | tempo de vida do Agent, do spawn ao exit                      |
+| `crash_phase`         | `startup` / `runtime` / `unknown`                             |
+| `termination_class`   | `exit_zero` / `exit_nonzero` / `signal` / `unknown`           |
+| `diagnostic_class`    | `oom` / `sqlite` / `errno` / `generic` / `none`               |
 
-诊断摘要按确定性优先级提取：OOM → SQLite → errno → 通用异常 → 无诊断。`[Object]`、
-对象尾括号、GC 标题、native stack 地址、Node 内部位置和 SQLite ExperimentalWarning
-仅保留在脱敏后的 `error_stack` 中，不得成为 `error_message`。OOM 使用
-`AgentOutOfMemory / ERR_OUT_OF_MEMORY`；errno 必须把 `EPERM`、`EPIPE` 等写入
-`error_code`；SQLite 即使没有 SQLite code，也通过 `diagnostic_class=sqlite` 聚合。
+O resumo de diagnóstico é extraído por prioridade determinística: OOM → SQLite → errno → exceção genérica → sem diagnóstico. `[Object]`,
+parênteses finais de objeto, títulos de GC, endereços de native stack, posições internas do Node e SQLite ExperimentalWarning
+permanecem apenas no `error_stack` desidentificado e não podem se tornar `error_message`. OOM usa
+`AgentOutOfMemory / ERR_OUT_OF_MEMORY`; errno precisa gravar `EPERM`, `EPIPE` etc. em
+`error_code`; o SQLite, mesmo sem SQLite code, é agregado por `diagnostic_class=sqlite`.
 
 ### `perf_agent_spawn_error`
 
 - `group`: `stability`
 - `value`: `1`
-- 触发：Agent 命令或 cwd 无法 spawn。
-- 属性复用 `error_name`、`error_code`、`error_message`、`error_stack`、
-  `error_fingerprint`、`diagnostic_class`，并携带本次尝试的 `runtime_instance_id`。
+- Gatilho: o comando ou o cwd do Agent não pode ser spawnado.
+- As propriedades reutilizam `error_name`, `error_code`, `error_message`, `error_stack`,
+  `error_fingerprint` e `diagnostic_class`, carregando também o `runtime_instance_id` desta tentativa.
 
-## 退出分类
+## Classificação de saída
 
-| 原因                                   | 分类                             | 上报 crash |
-| -------------------------------------- | -------------------------------- | ---------- |
-| `workspace-dispose`                    | `expected`                       | 否         |
-| `manager-dispose` / retry              | `expected`                       | 否         |
-| `request-timeout`                      | `watchdog_recycle`               | 否         |
-| desktop `app_quit` / `update_install`  | 应用退出保护                     | 否         |
-| 无结构化根因的 Windows `0x40010004`    | desktop RUM 受控终止兼容分类     | 否         |
-| 无结构化根因的 POSIX `SIGTERM`         | desktop RUM 受控终止兼容分类     | 否         |
-| `protocol-close` 后任意 code/signal    | 不设置 intent，保持 `unexpected` | 是         |
-| 其他无 cleanup 请求的 code/signal exit | `unexpected`                     | 是         |
+| Causa                                        | Classificação                          | Reporta crash |
+| -------------------------------------------- | -------------------------------------- | ------------- |
+| `workspace-dispose`                           | `expected`                            | não           |
+| `manager-dispose` / retry                     | `expected`                            | não           |
+| `request-timeout`                             | `watchdog_recycle`                     | não           |
+| desktop `app_quit` / `update_install`         | proteção de saída da aplicação        | não           |
+| Windows `0x40010004` sem causa raiz estruturada | classificação de compatibilidade de terminação controlada do desktop RUM | não |
+| POSIX `SIGTERM` sem causa raiz estruturada    | classificação de compatibilidade de terminação controlada do desktop RUM | não |
+| qualquer code/signal após `protocol-close`   | sem intent, permanece `unexpected`    | sim           |
+| outras saídas por code/signal sem pedido de cleanup | `unexpected`                    | sim           |
 
-首次设置的 termination intent 是根因事实，后续幂等 cleanup 不覆盖它。
+O termination intent definido pela primeira vez é o fato de causa raiz, e cleanups idempotentes posteriores não o sobrescrevem.
 
-## 隐私和容量
+## Privacidade e volume
 
-- 禁止上传 `workspacePath`、`workspaceIdentity`、command、args、环境变量、
-  session/task id 或模型输入输出。
-- services 层先遮盖 token、cookie、authorization、password、secret 等赋值。
-- services 与 desktop main 两层都遮盖没有赋值前缀的 `sk-...` API key；错误文本不得
-  因缺少 `token=` / `Authorization` 前缀而绕过脱敏。
-- desktop main 再把 workspace 绝对路径替换成 `<workspace>`，错误详情截断到
-  4000 字符。
-- desktop main 同时替换 Windows/macOS/Linux 常见用户主目录；指纹生成前进一步移除
-  任意绝对路径、UUID、PID 和行列号，避免路径泄露和高基数。
-- ARMS 上报属于旁路观测；任何 schema、IPC 或 `sendCustom` 失败都不能影响
-  Agent 启动、退出和自动恢复。
+- É proibido enviar `workspacePath`, `workspaceIdentity`, command, args, variáveis de ambiente, ids de session/task ou entrada/saída do modelo.
+- A camada de services mascara primeiro atribuições de token, cookie, authorization, password, secret etc.
+- As camadas de services e desktop main mascaram chaves de API `sk-...` sem prefixo de atribuição; o texto de erro não pode escapar da desidentificação por não ter o prefixo `token=` / `Authorization`.
+- O desktop main substitui caminhos absolutos de workspace por `<workspace>` e trunca os detalhes do erro em 4000 caracteres.
+- O desktop main também substitui os diretórios home de usuário comuns de Windows/macOS/Linux; antes de gerar a impressão digital, remove ainda qualquer caminho absoluto, UUID, PID e número de linha/coluna, evitando vazamento de caminhos e alta cardinalidade.
+- O reporte ARMS é uma observação em via lateral; qualquer falha de schema, IPC ou `sendCustom` não pode afetar a inicialização, a saída nem a recuperação automática do Agent.
 
-## Agent 进程级异常边界
+## Fronteira de exceção em nível de processo do Agent
 
-协议模式（`app-server` / `agent-server`）在 CLI 入口安装进程级异常边界，覆盖：
+O modo de protocolo (`app-server` / `agent-server`) instala na entrada da CLI uma fronteira de exceção em nível de processo, cobrindo:
 
 - `uncaughtException`
 - `unhandledRejection`
 - `uncaughtExceptionMonitor`
 
-该边界把诊断信息写入 `stderr`，不向 stdout 写普通文本，避免破坏 ZCode Protocol
-NDJSON 通道。到达这里的未知异常意味着业务层未能恢复：首次异常报告后交给 CLI
-生命周期 owner 有界退出，不再接受新的业务。普通请求/模型/工具错误仍在原业务边界处理。
+Essa fronteira grava as informações de diagnóstico em `stderr` e não escreve texto comum em stdout, evitando quebrar o canal NDJSON do ZCode Protocol. Uma exceção desconhecida que chega aqui significa que a camada de negócio não conseguiu se recuperar: após o primeiro relatório da exceção, o owner do ciclo de vida da CLI faz uma saída limitada e deixa de aceitar novo trabalho. Erros comuns de requisição/modelo/ferramenta continuam sendo tratados nas fronteiras de negócio originais.
 
 ```text
 uncaughtException / unhandledRejection
@@ -185,20 +161,15 @@ CLI process-level boundary
              └─ CLI owner 停止接单、取消和清理、非零退出
 ```
 
-早期实现通过 listener 保活，依赖 Host timeout 回收；父端已消失时该假设不成立，且
-stderr 的异步 EPIPE 会再次触发边界并循环写坏管道。现在 stderr 写入边界独立吸收该流的
-同步/异步失败并停用出口；不得全局忽略其他流的 EPIPE。`uncaughtExceptionMonitor`
-只记录 origin，strict rejection 仍由 rejection listener 统一报告。清理期间的后续异常
-不重复诊断、不延长首次退出时限。完整时序见 CLI 协议进程生命周期 spec。
+A implementação inicial mantinha o processo vivo por meio de um listener e dependia da coleta por timeout do Host; essa premissa não vale quando o lado pai já desapareceu, e o EPIPE assíncrono do stderr dispara novamente a fronteira e corrompe o pipeline em ciclo. Agora a fronteira de escrita em stderr absorve de forma independente as falhas síncronas/assíncronas desse fluxo e desativa a saída; não se pode ignorar globalmente o EPIPE de outros fluxos. `uncaughtExceptionMonitor`
+apenas registra a origin, e a strict rejection continua reportada de forma unificada pelo rejection listener. Exceções posteriores durante a limpeza
+não repetem o diagnóstico nem estendem o prazo da primeira saída. A temporização completa está no spec de ciclo de vida do processo de protocolo da CLI.
 
-该边界只在协议模式安装，不改变普通 headless CLI、TUI、doctor、login 等命令原有的
-失败退出语义。`perf_agent_crash` 仍表示实际退出；异常发生后是否退出不影响 JS 错误上报。
+Essa fronteira só é instalada no modo de protocolo e não altera a semântica original de saída por falha de comandos como o CLI headless comum, TUI, doctor e login. `perf_agent_crash` continua representando a saída real; se há ou não saída após a exceção não afeta o reporte de erros JS.
 
-### CLI 的 JS 异常上报（2026-09-14 引入）
+### Reporte de exceções JS da CLI (introduzido em 2026-09-14)
 
-根因：异常边界保留了进程，但 stderr 只进 debug / exit tail，Electron SDK 无法自动
-捕获 Node 子进程异常。必须在异常发生时显式发送 `exception`，不能依赖退出日志的
-`console.error` 自动采集。
+Causa raiz: a fronteira de exceção preserva o processo, mas o stderr só alimenta debug/exit tail e o SDK do Electron não consegue capturar automaticamente exceções de subproc Node. É preciso enviar explicitamente `exception` no momento da exceção, sem depender da coleta automática do `console.error` do log de saída.
 
 ```text
 CLI 异常边界（errorId 唯一事实源）
@@ -210,58 +181,52 @@ CLI 异常边界（errorId 唯一事实源）
   → RUM JS 错误
 ```
 
-- 共享公开契约为 `@zcode/shared/process-diagnostic`，并从 ZCode Protocol 入口导出。
-  CLI / SEA 构建 alias 必须精确声明该子路径，避免被通用 shared alias 拼到 index.ts 后。
-  字段为 `version/errorId/kind/origin/name/message/stack/occurredAt`；kind/origin 只接受
-  uncaughtException / unhandledRejection。名称最多 128 字符，消息 4000，栈 16000，
-  JSON 行最多 128 Ki 字符（覆盖 JSON 转义膨胀）；未知版本、额外字段、损坏帧不转发。
-- 同一次 monitor + uncaughtException 只由后者输出一次。
-  使用 Node strict rejection 模式时，Node 先触发 origin=unhandledRejection 的 uncaughtException，
-  被处理后再触发 unhandledRejection；该情形统一由后者报告一次，避免同一 rejection 双计数。
-  原有可读 stderr 保留供旧 Host 和 crash tail 使用；新 Host 不把结构化行重复加入 tail。CLI 早期启动即能输出，不依赖
-  stdout 协议就绪；诊断本身不新增计时器、重试队列或业务状态，退出时限由 CLI lifecycle
-  统一持有。任何序列化/写入失败不能再次抛出。
-- ProcessManager 只使用创建该 child 时的 runtime 身份，不按路径查询“当前进程”，避免
-  旧进程晚到的异常被归入新 runtime。IPC 异常是观测旁路，不参与 ready / exit / task 状态。
-- Main 是 RUM SDK 和去重状态的唯一 owner：按 runtimeInstanceId + errorId 保留最近
-  1024 条已提交事件；SDK 同步失败不记成功。相同栈的不同 errorId 必须分别计数。
-  不保证强杀前尚未写入管道的异常送达，不通过异常推断进程已经恢复或崩溃。
-- RUM 事件保留原始错误名、脱敏消息和栈，附带 process_role=agent、process_error_kind、
-  process_error_origin、error_id、runtime_instance_id、runtime_generation、lane（如有）、
-  app_version、arms_env、device_mid 和稳定指纹。沿用 main 的脱敏及 4000 字符上限；
-  不上传 workspace、命令或 task/session 标识。
-- 已走生命周期 reporter 的退出 / spawn 失败日志带明确诊断标记，仅过滤这类
-  console.error 包装事件；本地 error 日志保留，其他 console.error 继续采集。
-  “perf_agent_crash / perf_agent_spawn_error reported” 改为 info，避免上报成功再产生 JS 错误。
-- 新旧 CLI/Host 混用时保留原有 crash 上报；新异常契约不改 stdout wire version。
-  本次覆盖桌面 Host 直接启动的 CLI；独立终端 CLI、SSH/WSL/Docker 远端 Agent 的独立
-  采集入口不在本次新增范围。手机 shared-host 复用此旁路，不在 relay/Web 重复采集，
-  desktop continuous 和 web replayable 的任务事件、owner/lease/队列语义均不改变。
+- O contrato público compartilhado é `@zcode/shared/process-diagnostic` e é exportado a partir da entrada do ZCode Protocol.
+  O alias de build CLI / SEA precisa declarar esse subcaminho com precisão, para que ele não seja montado no index.ts pelo alias shared genérico.
+  Os campos são `version/errorId/kind/origin/name/message/stack/occurredAt`; kind/origin aceitam apenas
+  uncaughtException / unhandledRejection. O nome tem no máximo 128 caracteres, a mensagem 4000, o stack 16000 e a
+  linha JSON no máximo 128 Ki caracteres (cobrindo a inflação do escape JSON); versões desconhecidas, campos extras e quadros corrompidos não são encaminhados.
+- Na mesma ocorrência de monitor + uncaughtException, somente o segundo produz a saída.
+  Com o modo strict rejection do Node, o Node dispara primeiro o uncaughtException com origin=unhandledRejection e, depois de tratado, dispara o unhandledRejection; esse caso é reportado de forma unificada apenas pelo segundo, evitando a contagem dupla da mesma rejection.
+  O stderr legível existente é mantido para o Host antigo e o crash tail; o Host novo não adiciona a linha estruturada de novo ao tail. A CLI consegue gerar essa saída já no início, sem depender da
+  prontidão do protocolo stdout; o diagnóstico em si não adiciona temporizadores, filas de retry nem estado de negócio, e o prazo de saída é mantido de forma unificada pelo lifecycle da CLI. Qualquer falha de serialização/escrita não pode lançar uma nova exceção.
+- O ProcessManager usa apenas a identidade de runtime do momento em que aquele child foi criado e não consulta o “processo atual” por caminho, evitando que uma exceção tardia de um processo antigo seja atribuída a um runtime novo. A exceção via IPC é uma observação em via lateral e não participa do estado de ready / exit / task.
+- O Main é o único owner do SDK do RUM e do estado de desduplicação: mantém as 1024 últimas submissões enviadas por runtimeInstanceId + errorId; uma falha síncrona do SDK não é registrada como sucesso. errorIds diferentes com o mesmo stack precisam ser contados separadamente.
+  Não se garante a entrega de uma exceção que ainda não foi escrita no pipeline antes de um kill forçado, e não se infere recuperação nem crash do processo a partir da exceção.
+- O evento do RUM preserva o nome de erro original, a mensagem desidentificada e o stack, acompanhando process_role=agent, process_error_kind,
+  process_error_origin, error_id, runtime_instance_id, runtime_generation, lane (se houver),
+  app_version, arms_env, device_mid e a impressão digital estável. Reutiliza a desidentificação do main e o limite de 4000 caracteres;
+  não envia workspace, comando ou identificadores de task/session.
+- Os logs de saída/falha de spawn que já passaram pelo lifecycle reporter carregam uma marcação de diagnóstico explícita, e apenas esse tipo de
+  evento encapsulado em console.error é filtrado; os logs de erro locais são preservados e os demais console.error continuam sendo coletados.
+  “perf_agent_crash / perf_agent_spawn_error reported” passa a info, evitando gerar um erro JS depois de um reporte bem-sucedido.
+- Na mistura de CLI/Host antigo e novo, o reporte de crash existente é preservado; o novo contrato de exceção não muda a versão wire do stdout.
+  Esta cobertura vale para a CLI iniciada diretamente pelo Host do desktop; entradas de coleta independentes para a CLI de terminal isolada e o Agente remoto via SSH/WSL/Docker não fazem parte do que é adicionado agora. O shared-host do celular reutiliza essa via lateral e não duplica a coleta no relay/Web, e as
+  semânticas de eventos de tarefa, owner/lease/fila de desktop continuous e web replayable não mudam.
 
-验收：真实 CLI 分别注入 throw / rejection，退出前即出现一次 JS exception；随后有界
-exit 1 产生一次实际退出事件，无包装日志 JS 错误。Host 在 stderr drain 后生成 exit tail，
-不能在 child exit 事件或发 EOF 前关掉诊断 reader。
-覆盖 IPC 非法输入、非 Error rejection、生产 debug 关闭、跨平台路径脱敏、重复事件、
-上报失败隔离。线上验证同时记录 SDK 请求/HTTP 响应，并在 RUM 按唯一标记核对索引结果。
+Aceite: injetar throw / rejection em uma CLI real produz uma exceção JS antes mesmo da saída; em seguida, a saída limitada
+exit 1 produz um evento de saída real, sem erro JS em log encapsulado. O Host gera o exit tail depois do drain do stderr e
+não pode fechar o reader de diagnóstico no evento de child exit nem antes de enviar EOF.
+Cobrir entrada IPC inválida, rejection que não é Error, debug de produção desativado, desidentificação de caminhos multiplataforma, eventos duplicados e
+isolamento de falha de reporte. A validação em produção também registra a requisição SDK/resposta HTTP e confere o resultado do índice no RUM pela marca única.
 
-## 验证
+## Verificação
 
-- 自然 `exit 1`、自然 `exit 0`、`SIGKILL` 均产生一次 crash。
-- 缺少 `terminationReason` 时，Windows `0x40010004` 和 POSIX `SIGTERM` 即使暂被标记为
-  `unexpected`，也不产生 crash。
-- 成功 spawn 产生一次 start，且 start/crash 的 `runtime_instance_id` 相同。
-- 主动 workspace/app cleanup 不产生 crash。
-- `perf_app_exit` 后异步到达的 Agent exit 不产生 crash，且 lifecycle 不恢复为 runtime。
-- `protocol-close → SIGTERM / 0x40010004 / 其他 exit` 均产生 crash，并携带
-  `termination_reason=protocol-close`。
-- 同一 runtime 的 start / ready / crash 共用 `runtime_instance_id`，ready 最多一次。
-- ready 前退出为 `crash_phase=startup`，ready 后退出为 `runtime`，旧 Host 缺字段为 `unknown`。
-- OOM、SQLite、errno 摘要分别得到稳定的 `diagnostic_class`，结构噪音不进入摘要。
-- spawn `ENOENT` 产生一次 `perf_agent_spawn_error`。
-- stderr 中的 credential 和 workspace 路径不会进入最终 payload。
-- 超长 stderr 截断到 4000 字符。
-- 两个 runtime 在短时间内崩溃会产生两条事件，并通过不同
-  `runtime_instance_id` 区分。
-- 协议模式中未捕获同步异常和未处理 Promise rejection 会写入 stderr，但不会立即让
-  CLI 进程退出；普通 CLI/TUI 仍保持原有未捕获异常行为。
-- 进程级异常边界不会向 stdout 写入非协议文本，也不会覆盖既有 `process.exitCode`。
+- Um `exit 1` natural, um `exit 0` natural e um `SIGKILL` produzem um crash cada.
+- Na ausência de `terminationReason`, o Windows `0x40010004` e o POSIX `SIGTERM`, mesmo marcados provisoriamente como
+  `unexpected`, não produzem crash.
+- Um spawn bem-sucedido produz um start, e o `runtime_instance_id` de start/crash é o mesmo.
+- Cleanup ativo de workspace/app não produz crash.
+- Um Agent exit que chega de forma assíncrona depois de `perf_app_exit` não produz crash, e o lifecycle não volta a runtime.
+- `protocol-close → SIGTERM / 0x40010004 / outra saída` produz crash e carrega
+  `termination_reason=protocol-close`.
+- start / ready / crash do mesmo runtime compartilham `runtime_instance_id`, e ready ocorre no máximo uma vez.
+- Uma saída antes do ready tem `crash_phase=startup`, após o ready tem `runtime`, e um Host antigo sem o campo tem `unknown`.
+- Resumos de OOM, SQLite e errno obtêm um `diagnostic_class` estável, e ruído estrutural não entra no resumo.
+- Um spawn com `ENOENT` produz um `perf_agent_spawn_error`.
+- Credenciais e caminhos de workspace no stderr não entram no payload final.
+- Um stderr muito longo é truncado em 4000 caracteres.
+- Dois runtimes que quebram em pouco tempo produzem dois eventos, distinguíveis por `runtime_instance_id` diferente.
+- No modo de protocolo, exceções síncronas não capturadas e Promise rejections não tratadas são gravadas em stderr, mas não fazem o processo
+  CLI sair imediatamente; o CLI/TUI comum mantém o comportamento original de exceção não capturada.
+- A fronteira de exceção em nível de processo não escreve texto não protocolar em stdout nem sobrescreve o `process.exitCode` existente.

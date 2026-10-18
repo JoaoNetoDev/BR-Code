@@ -1,40 +1,38 @@
-# 20 Account Overlay 原子性与 Provider Review 收口
+# 20 Atomicidade do Account Overlay e fechamento do Provider Review
 
-> 状态：已实施（代码与 Provider 定向验证完成；全仓既有环境项见实施记录）
+> Status: implementado (código e verificação direcionada de Provider concluídos; itens de ambiente preexistentes do repositório inteiro estão no registro de implementação)
 >
-> 日期：2026-08-26
+> Data: 2026-08-26
 >
-> 来源：Provider Refactor 全分支上线前静态审查与 Account Provider 语义复核
+> Origem: revisão estática de toda a branch do Provider Refactor antes do go-live e reavaliação semântica do Account Provider
 >
-> 相关任务：[`07`](./todo-07-account-connection-selection-and-access-context-cutover.md)、
+> Tarefas relacionadas: [`07`](./todo-07-account-connection-selection-and-access-context-cutover.md)、
 > [`17`](./todo-17-provider-registry-settings-authority-boundary-closure.md)、
 > [`18`](./todo-18-zcode-builtin-client-config-sync-and-lkg.md)
 >
-> 相关设计：[`configuration.md`](../design/registry/configuration.md)、
+> Designs relacionados: [`configuration.md`](../design/registry/configuration.md)、
 > [`registry.md`](../design/registry/registry.md)、
 > [`runtime.md`](../design/registry/runtime.md)、
 > [`model-creation.md`](../design/registry/model-creation.md)、
 > [`environment.md`](../design/environment/environment.md)
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-本 Todo 收口 Provider Refactor 全分支静态审查中已经完成产品与架构裁决、但尚未进入实现的改动：
+Este Todo fecha as alterações da revisão estática de toda a branch do Provider Refactor que já tiveram decisão de produto e arquitetura, mas ainda não entraram na implementação:
 
-1. 保留 Account Built-in Provider Config 作为正式 Overlay，并用 `enabled`、账号级 Start Plan
-   `builtinModelIds` 与结构化 Account Access 表达当前账号动态事实；
-2. 阻止 Registry 发布“新 ZCode Built-in + 旧 Account Overlay”的中间组合；
-3. 将 ZCode Built-in Environment Active/LKG 按 ZCode Endpoint 物理隔离；
-4. 修正 CLI `--help` / `--version` 不必要启动 Provider Runtime，以及 Bootstrap 漏声明 `zod`；
-5. 删除审查确认的孤儿 ZIP 实现与专属依赖。
+1. manter o Account Built-in Provider Config como Overlay oficial e expressar com `enabled`, o `builtinModelIds` de Start Plan no nível da conta e o Account Access estruturado os fatos dinâmicos da conta atual;
+2. impedir que o Registry publique a combinação intermediária "novo ZCode Built-in + Account Overlay antigo";
+3. isolar fisicamente o Active/LKG do ZCode Built-in Environment por ZCode Endpoint;
+4. corrigir o `--help` / `--version` da CLI, que iniciava Provider Runtime desnecessariamente, e a omissão da declaração de `zod` no Bootstrap;
+5. remover as implementações ZIP órfãs confirmadas pela revisão e suas dependências exclusivas.
 
-本 Todo 不包含最新 `origin/staging` 的语义移植与冲突处理，也不承担最终 Release Checklist 或额外的
-Built-in Release 业务完整性发布门禁。
+Este Todo não inclui o port da semântica do `origin/staging` mais recente nem o tratamento de conflitos, e também não assume o Release Checklist final nem uma barreira extra de publicação de integridade de negócio do Built-in Release.
 
-## 1. 已确认裁决
+## 1. Decisões confirmadas
 
-### 1.1 Account 继续是正式 Provider Config Overlay
+### 1.1 Account continua sendo um Overlay oficial de Provider Config
 
-Account Overlay 不是为了形式统一而存在。当前账号会真实改变账号型 Built-in Provider 的有效配置：
+O Account Overlay não existe por uniformidade formal. A conta atual realmente muda a configuração efetiva dos Built-in Providers do tipo conta:
 
 ```text
 ZCode Built-in Provider Config
@@ -52,7 +50,7 @@ Personal Provider Config
 Effective Provider Config
 ```
 
-顺序保持：
+A ordem é mantida:
 
 ```ts
 const effectiveBuiltinProviders = zcodeBuiltinProviders.overlay(accountBuiltinProviders);
@@ -60,13 +58,13 @@ const effectiveBuiltinProviders = zcodeBuiltinProviders.overlay(accountBuiltinPr
 const effectiveProviders = effectiveBuiltinProviders.overlay(personalProviders);
 ```
 
-Account 只读取和约束 ZCode Built-in 中 `access.type = "zhipu-account"` 的 Provider，不读取、不约束 Personal-only
-Provider。Personal 继续作为最后一层用户覆盖。
+Account lê e restringe apenas os Providers do ZCode Built-in cujo `access.type = "zhipu-account"`; não lê nem restringe Providers
+exclusivos de Personal. Personal continua sendo a última camada de override do usuário.
 
-### 1.2 账号可用性统一使用 `enabled`
+### 1.2 A disponibilidade da conta passa a usar uniformemente `enabled`
 
-Account Provider 是否可用不再通过“缺少 Account Overlay，最终因 `accessId` 不完整而退出 Registry”间接表达。
-Account Source 对每个相关 Built-in Account Provider 明确投影：
+A disponibilidade de um Account Provider deixa de ser expressa indiretamente por "ausência de Account Overlay, o que fazia o Registry sair porque `accessId` ficou incompleto".
+O Account Source projeta explicitamente para cada Built-in Account Provider relevante:
 
 ```text
 available
@@ -76,22 +74,22 @@ unavailable
 └─ enabled: false
 
 unknown
-├─ 有上一份成功 Account Overlay：保留上一份
-└─ 无上一份：fail-closed，enabled: false
+├─ há um Account Overlay bem-sucedido anterior: manter o anterior
+└─ não há anterior: fail-closed, enabled: false
 ```
 
-`enabled` 继续是 Provider 的统一执行门。Settings 可保留 disabled Provider 用于展示和诊断；Selection、Registry
-可执行 View 与 ModelFactory 均拒绝 `enabled = false`。不增加并行的 `available`、`eligible` 或新的执行状态字段。
+`enabled` continua sendo a barreira de execução unificada do Provider. Settings pode manter Providers disabled para exibição e diagnóstico; Selection, a View executável do
+Registry e o ModelFactory rejeitam `enabled = false`. Não são adicionados `available`, `eligible` em paralelo nem novos campos de estado de execução.
 
-### 1.3 Start Plan 模型成员是账号级事实
+### 1.3 Os membros de modelo do Start Plan são um fato de nível de conta
 
-产品事实已经确认：不同 Start Plan 账号的可用模型集合可能不同，`billing/balance` 返回的模型集合必须进入
-Account Overlay：
+O fato de produto já está confirmado: o conjunto de modelos disponíveis pode diferir entre contas de Start Plan, e o conjunto de modelos retornado por `billing/balance` precisa entrar no
+Account Overlay:
 
 ```text
 Start Plan balance
 └─ capabilities: model:<id>
-   （暂时保留 show_name legacy fallback）
+   (fallback legacy show_name mantido temporariamente)
               |
               v
 Account Provider Config.builtinModelIds
@@ -100,29 +98,29 @@ Account Provider Config.builtinModelIds
 ZCode Built-in Model Config Rules resolve
 ```
 
-规则如下：
+As regras são:
 
-- Start Plan available 且解析到非空模型集合：以账号集合整列表覆盖 Built-in `builtinModelIds`；
-- Individual / Team 接口不提供模型集合：Account Overlay 不写 `builtinModelIds`，继承 Built-in 默认成员；
-- Start Plan active 但本轮未解析到任何模型：有 LKG 时保留上一份成功 Overlay；无 LKG 时 fail-closed，不得回退到
-  宽泛 Built-in 默认集合；
-- `show_name` 只作为当前服务端兼容输入暂时保留；服务端保证稳定提供 `model:<id>` 后另行删除；
-- Account 只改变成员资格，不提供 Properties、Reasoning、context 或 max output；模型静态事实仍
-  由 ZCode Built-in + Personal Model Config Rules 解析；
-- Personal `modelIds` 继续在账号约束后的 Built-in Inventory 之后加入，真实请求仍由服务端最终授权。
+- Start Plan disponível e com um conjunto de modelos não vazio resolvido: sobrescreve a lista completa de `builtinModelIds` do Built-in com o conjunto da conta;
+- interfaces Individual / Team não fornecem conjunto de modelos: o Account Overlay não escreve `builtinModelIds` e herda os membros padrão do Built-in;
+- Start Plan ativo mas sem nenhum modelo resolvido nesta rodada: havendo LKG, mantém o último Overlay bem-sucedido; sem LKG, fail-closed, sem recuar para o
+  conjunto padrão amplo do Built-in;
+- `show_name` é mantido temporariamente apenas como entrada de compatibilidade do servidor atual; será removido em separado assim que o servidor garantir `model:<id>` de forma estável;
+- Account altera apenas a elegibilidade de membro; não fornece Properties, Reasoning, context nem max output; os fatos estáticos do modelo continuam sendo
+  resolvidos pelas ZCode Built-in + Personal Model Config Rules;
+- o `modelIds` de Personal continua sendo adicionado depois do Inventory Built-in já restringido pela conta, e a requisição real continua sendo autorizada finalmente pelo servidor.
 
-### 1.4 Account Access 继续进入 Overlay，但不包含真实凭据
+### 1.4 O Account Access continua entrando no Overlay, mas sem credenciais reais
 
-`accessId` 是客户端从当前账号身份、Provider、Plan 与 Team scope 生成的稳定、非敏感访问身份。它不是服务端返回的
-Secret，但当前执行语义需要它：
+`accessId` é uma identidade de acesso estável e não sensível, gerada pelo cliente a partir da identidade da conta atual, do Provider, do Plan e do escopo de Team. Não é um Secret
+retornado pelo servidor, mas a semântica de execução atual precisa dele:
 
-- 同一账号刷新 Token、JWT、API Key 或 Header 时保持同一访问身份；
-- 切换账号、套餐或 Team scope 时访问身份变化；
-- Active Model 固定创建时的 Account Access，后续凭据刷新不能无声切换到另一个账号；
-- Individual Coding Plan Credential Store 按访问身份隔离；
-- Team Plan 的 product/organization/project 作为结构化 Access 字段参与请求期解析。
+- mantém a mesma identidade de acesso quando a mesma conta renova Token, JWT, API Key ou Headers;
+- a identidade de acesso muda ao trocar de conta, plano ou escopo de Team;
+- o Active Model fixa o Account Access no momento da criação; uma renovação posterior de credenciais não pode trocar silenciosamente para outra conta;
+- o Individual Coding Plan Credential Store é isolado por identidade de acesso;
+- product/organization/project do Team Plan participam da resolução no momento da requisição como campos estruturados de Access.
 
-Account Overlay 可以写入：
+O Account Overlay pode escrever:
 
 ```ts
 access: {
@@ -136,27 +134,27 @@ access: {
 }
 ```
 
-Token、JWT、API Key、动态 Header 与凭据刷新仍归 Request Auth/Credential Service；它们不得进入 Config、Registry 或
-Active Model 静态配置。服务端继续承担最终授权裁决。
+Token, JWT, API Key, Headers dinâmicos e renovação de credenciais continuam pertencendo ao Request Auth/Credential Service; eles não podem entrar no Config, no Registry ou na
+configuração estática do Active Model. O servidor continua sendo o responsável pela decisão final de autorização.
 
-### 1.5 Account Overlay 必须声明 Built-in 来源 revision
+### 1.5 O Account Overlay precisa declarar a revisão da origem Built-in
 
-当前 `AccountProviderService` 使用 Built-in Account Provider 计算 Overlay；Registry 又同时订阅 Config Source 与 Account
-Source。Built-in 变化时，Registry 可能短暂组合新 Built-in 与旧 Account Overlay：
+Hoje o `AccountProviderService` usa o Built-in Account Provider para calcular o Overlay; e o Registry assina simultaneamente o Config Source e o Account
+Source. Quando o Built-in muda, o Registry pode combinar por um instante novo Built-in com o Overlay antigo:
 
 ```text
 B0 + A0
    |
    | Built-in -> B1
    v
-B1 + A0  <- 禁止发布
+B1 + A0  <- proibido publicar
    |
    | Account refresh
    v
-B1 + A1  <- 唯一允许的新 Snapshot
+B1 + A1  <- único novo Snapshot permitido
 ```
 
-不建立跨服务端接口的共同版本协议，也不要求 Account API 返回 Built-in revision。只在客户端派生 Source 中保存来源证明：
+Não se estabelece um protocolo de versão comum entre as interfaces do servidor, nem se exige que a Account API retorne a revisão do Built-in. Guarda-se apenas a prova de origem na Source derivada no cliente:
 
 ```ts
 interface ProviderConfigSnapshot {
@@ -173,23 +171,23 @@ interface AccountProviderConfigSnapshot {
 }
 ```
 
-Registry 只在两者匹配时发布：
+O Registry só publica quando os dois casam:
 
 ```ts
 account.basedOnZCodeBuiltinRevision === config.zcodeBuiltinRevision;
 ```
 
-不匹配时保留当前完整 Registry Snapshot，等待 Account Source 完成对新 Built-in 的投影。Account 即使得到与上一轮内容相同的
-Provider Map，只要 `basedOnZCodeBuiltinRevision` 改变，也必须发布新的 Account Source revision/change event，使 Registry
-能够应用新 Built-in。Personal 更新不改变 `zcodeBuiltinRevision`，不得被 Account 网络刷新阻塞。
+Quando não casam, o Snapshot completo atual do Registry é mantido, aguardando o Account Source concluir a projeção para o novo Built-in. Mesmo que o Account receba um Provider Map
+idêntico ao da rodada anterior, desde que `basedOnZCodeBuiltinRevision` tenha mudado ele precisa publicar uma nova revisão/evento de mudança do Account Source, para que o Registry
+possa aplicar o novo Built-in. Uma atualização Personal não altera `zcodeBuiltinRevision` e não pode ser bloqueada por uma atualização de rede do Account.
 
-### 1.6 Active/LKG 按 ZCode Endpoint 隔离
+### 1.6 Active/LKG isolados por ZCode Endpoint
 
-这里的 Endpoint 指 ZCode 平台控制面 `zcodeEndpointOrigin`（生产、测试或开发/mock Origin），不是 Provider Config 中的
-模型 API Endpoint。Todo 18 当前只让 `refresh-control.json.endpointKey` 隔离刷新 TTL，但不同 Endpoint 仍共享
-`active.json`，导致互不相关的 revision 被比较。
+Aqui, Endpoint significa o plano de controle da plataforma ZCode `zcodeEndpointOrigin` (Origin de produção, de teste ou de desenvolvimento/mock), e não o
+Endpoint de API de modelos do Provider Config. O Todo 18 hoje apenas isola o TTL de refresh via `refresh-control.json.endpointKey`, mas Endpoints diferentes ainda compartilham
+`active.json`, o que faz com que revisões sem relação sejam comparadas entre si.
 
-Remote Active 与刷新控制文件必须按规范化 Endpoint 的稳定、碰撞安全路径段物理隔离：
+Os arquivos remotos de Active e de controle de refresh precisam ser isolados fisicamente por um segmento de caminho estável e à prova de colisões, derivado do Endpoint normalizado:
 
 ```text
 <environmentConfigRoot>/provider/zcode-builtin/
@@ -200,49 +198,48 @@ Remote Active 与刷新控制文件必须按规范化 Endpoint 的稳定、碰�
          └─ refresh-control.json
 ```
 
-约束：
+Restrições:
 
-- `endpointKey` 从规范化 Origin 确定性生成；不得直接把不安全 URL 字符写成路径；
-- revision 只在同一 Endpoint 的 Bundled/Remote 发布语义内比较；
-- 切换 Endpoint 后若该 Endpoint 没有 Active，使用 Bundled 完成 ready，再后台刷新新 Endpoint；
-- 不得把 Endpoint A 的 LKG 作为 Endpoint B 的候选；
-- 切回旧 Endpoint 时允许复用该 Endpoint 自己的 LKG；
-- 保留 control payload 中的 `endpointKey` 作为防御性一致性检查；
-- Todo 18 尚未形成正式发布兼容历史，不为旧的未分区 Active 路径增加 dual-read；旧路径自然退出。
+- `endpointKey` é gerado deterministicamente a partir da Origin normalizada; não é permitido gravar caracteres de URL inseguros diretamente no caminho;
+- as revisões só são comparadas dentro da semântica de publicação Bundled/Remote do mesmo Endpoint;
+- após trocar de Endpoint, se esse Endpoint não tiver Active, usa-se o Bundled para completar o ready e depois se refresca o novo Endpoint em segundo plano;
+- não se pode usar o LKG do Endpoint A como candidato para o Endpoint B;
+- ao voltar para o Endpoint antigo, é permitido reutilizar o LKG desse próprio Endpoint;
+- mantém-se o `endpointKey` no control payload como verificação defensiva de consistência;
+- o Todo 18 ainda não formou histórico oficial de compatibilidade de publicação, portanto não se adiciona dual-read para caminhos Active antigos não particionados; o caminho antigo sai naturalmente.
 
-### 1.7 CLI 与依赖修正
+### 1.7 Correções de CLI e de dependências
 
-CLI Provider Runtime 准备逻辑不得覆盖纯元信息入口：
+A lógica de preparação do Provider Runtime da CLI não pode sobrescrever entradas puramente de metadados:
 
 ```text
 --help / -h / --version / -v
-└─ 不读取或落盘 Provider Config
-   不启动 /client/configs 刷新
-   不依赖 Built-in asset ready
+└─ não lê nem grava Provider Config em disco
+   não inicia o refresh de /client/configs
+   não depende do asset Built-in pronto
 ```
 
-只修正入口判定和对应测试，不借机重构整个 CLI Bootstrap。`doctor` 等既有不需要 Provider Runtime 的命令保持现状。
+Corrige-se apenas o julgamento da entrada e os testes correspondentes, sem refatorar todo o Bootstrap da CLI. Comandos já existentes que não precisam de Provider Runtime, como `doctor`, permanecem como estão.
 
-Bootstrap 生产代码直接导入 `zod`，必须在自己的 `dependencies` 中直接声明，不能依赖 workspace 提升或传递依赖。
+O código de produção do Bootstrap importa `zod` diretamente, portanto precisa declará-lo diretamente nas suas próprias `dependencies`, sem depender de hoisting do workspace nem de dependência transitiva.
 
-### 1.8 审查确认的机械清理
+### 1.8 Limpeza mecânica confirmada pela revisão
 
-删除零引用的：
+Remover os itens sem nenhuma referência:
 
-- `packages/zcode-server-cli/src/packaging/zipArchive.ts`；
-- 仅由它使用的 `yazl`；
-- 仅由它使用的 `@types/yazl`。
+- `packages/zcode-server-cli/src/packaging/zipArchive.ts`;
+- `yazl`, usado apenas por ele;
+- `@types/yazl`, usado apenas por ele.
 
-保留实际用于 ZIP 解压的 `yauzl`，并保留此前为 Linux pre-push/测试环境修复的 Server ZIP、macOS notarize 与跨平台
-`stat` 行为。删除前后用 `dep:refs`、`knip` 和目标打包测试证明没有静态调用方或发布入口依赖孤儿实现。
+Manter o `yauzl`, realmente usado para descompactação de ZIP, e manter o ZIP do Server, o notarize de macOS e o comportamento de `stat` multiplataforma corrigidos antes para o pre-push de Linux/ambiente de teste. Antes e depois da remoção, provar com `dep:refs`, `knip` e os testes de empacotamento alvo que nenhum chamador estático ou entrada de publicação depende da implementação órfã.
 
-`packages/ui/src/hooks/useProviderModelOrder.ts` 已确认由当前 Provider Refactor 新增且零引用，已在提交
-`01ac05e2be` 删除，不再作为本 Todo 的待实施内容。PDF 脚本文件尾空行不处理。
+`packages/ui/src/hooks/useProviderModelOrder.ts` foi confirmado como adicionado pelo Provider Refactor atual e sem referências, e já foi removido no commit
+`01ac05e2be`, não sendo mais conteúdo pendente deste Todo. As linhas em branco no fim dos arquivos de script PDF não são tratadas.
 
-## 2. 目标刷新链
+## 2. Cadeia de refresh alvo
 
 ```text
-Bundled / Endpoint-scoped Active / Remote
+Bundled / Active com escopo de Endpoint / Remote
                     |
                     v
           ZCode Built-in Source Bn
@@ -268,218 +265,215 @@ Personal Provider Config ------+
                                v
                    later ModelFactory.create()
 
-already-created Active Model
-└─ remains frozen
+Active Model já criado
+└─ permanece congelado
 ```
 
-## 3. 实施步骤
+## 3. Passos de implementação
 
-### Step 0：先同步正式 Design 与 Feature Graph
+### Step 0: sincronizar primeiro o Design oficial e o Feature Graph
 
-- 在 `configuration.md`、`registry.md`、`runtime.md`、`model-creation.md` 写明本 Todo 的 Account Overlay 字段和
-  revision barrier；
-- 在 Environment Design 写明 Active/LKG 的 Endpoint 物理隔离；
-- 修正 Todo 18 中 `<platform>/<appVersion>/active.json` 的旧路径表述；
-- 更新 Feature Graph 的 Provider Registry invariant：Account Overlay 显式控制 `enabled`、Start 账号模型成员和
-  Account Access，并且 Registry 只发布来源 revision 匹配的组合。
+- registrar em `configuration.md`, `registry.md`, `runtime.md` e `model-creation.md` os campos do Account Overlay e a
+  barreira de revisão deste Todo;
+- registrar no Design de Environment o isolamento físico do Active/LKG por Endpoint;
+- corrigir a descrição antiga de caminho `<platform>/<appVersion>/active.json` no Todo 18;
+- atualizar o invariante de Provider Registry do Feature Graph: o Account Overlay controla explicitamente `enabled`, os membros de modelo Start da conta e o
+  Account Access, e o Registry só publica combinações com revisões de origem correspondentes.
 
-### Step 1：先写失败测试
+### Step 1: escrever primeiro os testes que falham
 
-- 固定 Account `enabled`、Start 账号模型成员、LKG 与 revision mismatch 行为；
-- 固定 Personal 更新不等待 Account 刷新；
-- 固定 Endpoint A/B 的 Active/LKG 隔离；
-- 固定 CLI help/version 不准备 Provider Runtime；
-- 固定 Bootstrap 独立依赖与 ZIP 打包路径不依赖孤儿 helper。
+- fixar o comportamento de `enabled` do Account, dos membros de modelo Start da conta, do LKG e do mismatch de revisão;
+- fixar que a atualização Personal não espera o refresh do Account;
+- fixar o isolamento de Active/LKG entre Endpoint A/B;
+- fixar que CLI help/version não prepara o Provider Runtime;
+- fixar a dependência direta do Bootstrap e que o caminho de empacotamento ZIP não depende do helper órfão.
 
-### Step 2：补齐分层 revision
+### Step 2: completar as revisões por camada
 
-- `ProviderConfigSnapshot` 暴露 `zcodeBuiltinRevision` 与 `personalRevision`，保留现有组合 `revision`；
-- `AccountProviderConfigSnapshot` 增加 `basedOnZCodeBuiltinRevision`；
-- Mutable/Empty/Test Sources 使用同一契约，不增加字符串解析或 wildcard revision；
-- Account Source revision 同时包含来源 Built-in revision 与 Overlay 内容身份，保证同内容新来源仍触发变化。
+- `ProviderConfigSnapshot` expõe `zcodeBuiltinRevision` e `personalRevision`, mantendo o `revision` combinado existente;
+- `AccountProviderConfigSnapshot` ganha `basedOnZCodeBuiltinRevision`;
+- Mutable/Empty/Test Sources usam o mesmo contrato, sem adicionar revisão por parsing de string ou wildcard;
+- a revisão do Account Source inclui simultaneamente a revisão Built-in de origem e a identidade do conteúdo do Overlay, garantindo que uma nova origem com o mesmo conteúdo ainda dispare mudança.
 
-### Step 3：收正 Account Overlay
+### Step 3: corrigir o Account Overlay
 
-- availability 显式投影 `enabled`；
-- unavailable 发布 sparse `{ enabled: false }` Overlay；
-- available 发布完整结构化 Account Access；
-- Start Plan 精确投影账号 `builtinModelIds`；
-- Individual/Team 不复制 Built-in 模型成员；
-- Start 无法解析模型时执行 LKG/fail-closed，不回退宽泛 Built-in；
-- 保留当前 `show_name` compatibility，但只限 Account Source 私有解析边界。
+- a availability projeta `enabled` explicitamente;
+- unavailable publica um Overlay sparse `{ enabled: false }`;
+- available publica o Account Access estruturado completo;
+- o Start Plan projeta exatamente os `builtinModelIds` da conta;
+- Individual/Team não copiam membros de modelo do Built-in;
+- quando o Start não consegue resolver modelos, executa LKG/fail-closed, sem recuar para o Built-in amplo;
+- manter a compatibilidade atual de `show_name`, mas limitada à fronteira de parsing privada do Account Source.
 
-### Step 4：增加 Registry revision barrier
+### Step 4: adicionar a barreira de revisão do Registry
 
-- Config/Account 来源不匹配时不调用 Resolver、不替换 Registry、不通知 Facade；
-- 保留上一份完整 Snapshot；
-- Account 更新到匹配 revision 后只发布一次最终 Registry；
-- generation 变化继续丢弃过时 rebuild；
-- Personal-only 变化沿当前快速路径立即发布；
-- 刷新失败保留上一份 Account Overlay 与完整 Registry，并输出可诊断错误。
+- quando as origens Config/Account não casam, não chama o Resolver, não substitui o Registry e não notifica a Facade;
+- mantém o Snapshot completo anterior;
+- depois que o Account atualiza para a revisão correspondente, publica o Registry final apenas uma vez;
+- mudanças de generation continuam descartando rebuilds obsoletos;
+- mudanças apenas Personal seguem o caminho rápido atual e publicam imediatamente;
+- uma falha de refresh mantém o último Account Overlay e o Registry completo, e emite um erro diagnosticável.
 
-### Step 5：Endpoint-scoped Active/LKG
+### Step 5: Active/LKG com escopo de Endpoint
 
-- 将规范化 Endpoint 映射为稳定安全的缓存路径段；
-- Active 与 refresh-control 进入同一 Endpoint 目录；
-- 同 Endpoint 多进程继续共享文件锁、lease、TTL 与 revision 比较；
-- Endpoint 切换触发该 Endpoint 的 Built-in refresh，并按 Account -> Registry 顺序收敛；
-- 删除旧未分区路径使用，不增加迁移 fallback。
+- mapear o Endpoint normalizado para um segmento de caminho de cache estável e seguro;
+- Active e refresh-control entram no mesmo diretório de Endpoint;
+- múltiplos processos do mesmo Endpoint continuam compartilhando lock de arquivo, lease, TTL e comparação de revisões;
+- a troca de Endpoint dispara o refresh Built-in desse Endpoint e converge na ordem Account -> Registry;
+- remover o uso do caminho antigo não particionado, sem adicionar fallback de migração.
 
-### Step 6：CLI、依赖与孤儿代码
+### Step 6: CLI, dependências e código órfão
 
-- 排除 `--help/-h/--version/-v` 的 Provider Runtime prepare；
-- 为 Bootstrap 添加直接 `zod` dependency；
-- 删除 `zipArchive.ts`、`yazl` 与 `@types/yazl`；
-- 不修改 `yauzl` 解压链和已确认的 Linux pre-push 兼容修复。
+- excluir o prepare de Provider Runtime para `--help/-h/--version/-v`;
+- adicionar a dependência direta de `zod` ao Bootstrap;
+- remover `zipArchive.ts`, `yazl` e `@types/yazl`;
+- não modificar a cadeia de descompactação com `yauzl` nem as correções de compatibilidade de pre-push de Linux já confirmadas.
 
-### Step 7：验证与记录
+### Step 7: verificação e registro
 
-- 执行 Provider、Provider Node、Services、CLI Bootstrap 的定向单测与 typecheck；
-- 执行根 `pnpm typecheck`、`pnpm lint`、相关 unit 与格式检查；
-- 更新 Todo 状态、实施记录与 Feature Graph evidence；
-- 使用 Conventional Commit 提交，不与 staging merge 冲突解决混成同一提交。
+- executar testes unitários direcionados e typecheck de Provider, Provider Node, Services e CLI Bootstrap;
+- executar o `pnpm typecheck` e o `pnpm lint` da raiz, os unit relevantes e a checagem de formatação;
+- atualizar o status deste Todo, o registro de implementação e as evidências do Feature Graph;
+- usar Conventional Commit nas submissões, sem misturar no mesmo commit a resolução de conflitos do merge de staging.
 
-## 4. 测试计划
+## 4. Plano de testes
 
 ### 4.1 Account Overlay
 
-- available Account Provider 得到 `enabled: true` 和完整 Access；
-- unavailable 得到 `enabled: false`，不靠完整性失败表达禁用；
-- unknown 有 LKG 时保留，无 LKG 时 fail-closed；
-- Start 两个账号返回不同 models 时得到不同精确 `builtinModelIds`；
-- Start active 但模型列表为空/不可解析时不继承宽泛 Built-in；
-- Individual/Team 不返回 models 时继承当前 Built-in；
-- Team product/org/project 与 accessId 稳定生成，切换任一身份字段后变化；
-- Account Overlay 不能约束 Personal-only Provider；
-- Personal 仍在 Account 之后覆盖。
+- um Account Provider disponível recebe `enabled: true` e o Access completo;
+- indisponível recebe `enabled: false`, sem expressar desativação por falha de completude;
+- unknown com LKG mantém o anterior; sem LKG, fail-closed;
+- quando dois contas Start retornam models diferentes, recebem `builtinModelIds` precisos e diferentes;
+- Start ativo mas com lista de modelos vazia ou não resolvível não herda o Built-in amplo;
+- Individual/Team que não retornam models herdam o Built-in atual;
+- product/org/project do Team e o accessId são gerados de forma estável e mudam ao trocar qualquer um dos campos de identidade;
+- o Account Overlay não pode restringir Providers exclusivos de Personal;
+- Personal continua sobrescrevendo depois do Account.
 
-### 4.2 Registry 原子发布
+### 4.2 Publicação atômica do Registry
 
-- `B0/A0 -> B1` 且 Account refresh 延迟时不发布 `B1/A0`；
-- Account 完成 `A1 basedOn B1` 后只发布 `B1/A1`；
-- Account Overlay 内容相同但来源从 B0 变 B1 时仍触发最终 rebuild；
-- Personal P0 -> P1 且 Built-in 仍为 B1 时立即发布 `B1/A1/P1`；
-- Account 刷新失败时保持旧完整 Registry；
-- 已创建 Active Model 不被任何刷新热改。
+- `B0/A0 -> B1` com o refresh do Account atrasado não publica `B1/A0`;
+- depois que o Account completa `A1 basedOn B1`, publica apenas `B1/A1`;
+- conteúdo de Account Overlay igual mas origem indo de B0 para B1 ainda dispara o rebuild final;
+- Personal P0 -> P1 com Built-in ainda em B1 publica imediatamente `B1/A1/P1`;
+- quando o refresh do Account falha, o Registry completo antigo é mantido;
+- o Active Model já criado não sofre hot patch por nenhuma atualização.
 
-### 4.3 Endpoint Active/LKG
+### 4.3 Active/LKG por Endpoint
 
-- Endpoint A revision 20 与 Endpoint B revision 10 分别进入独立路径，B 不被 A 判 stale；
-- A/B 同 revision 不同内容不互相产生发布协议错误；
-- 切回 A 可复用 A 的 LKG；
-- B 无 LKG且远端失败时使用 Bundled，不使用 A 的 LKG；
-- 同 Endpoint 多进程仍只有一个 lease owner 发起网络请求；
-- Endpoint Setting/Environment 变化触发正确 Source 刷新。
+- a revisão 20 do Endpoint A e a revisão 10 do Endpoint B entram em caminhos independentes, e B não é julgado stale por A;
+- A e B com a mesma revisão e conteúdos diferentes não geram erro de protocolo de publicação entre si;
+- ao voltar para A, o LKG de A pode ser reutilizado;
+- B sem LKG e com falha remota usa o Bundled e não usa o LKG de A;
+- com múltiplos processos no mesmo Endpoint, apenas um dono de lease inicia requisições de rede;
+- mudanças de Endpoint Setting/Environment disparam o refresh da Source correta.
 
-### 4.4 CLI、依赖与清理
+### 4.4 CLI, dependências e limpeza
 
-- `--help/-h/--version/-v` 不调用 Provider Runtime prepare；
-- prompt/TUI/server 等需要模型的入口继续正常 prepare；
-- Bootstrap filtered typecheck/install/packaging 能解析直接 `zod`；
-- 删除 `zipArchive.ts` 后 dep:refs 为零且 Server ZIP 目标测试继续通过；
-- `yauzl` 解压测试与 Linux pre-push 修复不回归。
+- `--help/-h/--version/-v` não chamam o prepare de Provider Runtime;
+- entradas que precisam de modelo, como prompt/TUI/server, continuam fazendo prepare normalmente;
+- o typecheck/install/empacotamento filtrado do Bootstrap resolve o `zod` direto;
+- depois de remover `zipArchive.ts`, o dep:refs fica em zero e os testes alvo de ZIP do Server continuam passando;
+- os testes de descompactação com `yauzl` e as correções de pre-push de Linux não regridem.
 
-## 5. 非目标与不变量
+## 5. Não objetivos e invariantes
 
-- 不合并最新 staging；
-- 不实现最终 Release Checklist 中的真实账号、真实发布制品和跨平台统一验证；
-- 不实现额外的 Built-in 业务完整性发布门禁；
-- 不删除 Account Overlay、Start 账号模型集合或 accessId；
-- 不把 Token、JWT、API Key、Header 写入 Config；
-- 不改变 Model Config Rule 顺序、Model Properties、Reasoning 或 Adapter 事实；
-- 不改变 Off-Peak、Subagent、Compact、Memory 的 Active Model 所有权；
-- 不改变 Desktop continuous、Mobile replayable、队列和恢复语义；
-- 不为 Endpoint 缓存引入第二份 LKG、dual-read 或跨 Endpoint revision 比较。
+- não fazer merge do staging mais recente;
+- não implementar, do Release Checklist final, a conta real, os artefatos reais de publicação e a verificação unificada multiplataforma;
+- não implementar uma barreira extra de publicação de integridade de negócio do Built-in;
+- não remover o Account Overlay, o conjunto de modelos Start da conta nem o accessId;
+- não escrever Token, JWT, API Key ou Headers no Config;
+- não alterar a ordem das Model Config Rules, as Model Properties, o Reasoning ou os fatos do Adapter;
+- não alterar a propriedade do Active Model em Off-Peak, Subagent, Compact e Memory;
+- não alterar a semântica de Desktop continuous, Mobile replayable, filas e recuperação;
+- não introduzir uma segunda LKG, dual-read ou comparação de revisão entre Endpoints para o cache de Endpoint.
 
-## 6. 完成标准
+## 6. Critérios de conclusão
 
-- Account Overlay 用 `enabled` 明确表达账号 Provider 可用性；
-- Start Plan 每个账号的精确模型成员进入 `builtinModelIds`，空结果安全 fail-closed；
-- Account Access 保持非敏感、完整、可冻结，真实凭据仍在请求期解析；
-- Registry 永不发布来源 Built-in revision 不匹配的 Account Overlay；
-- Personal-only 更新不被 Account 刷新阻塞；
-- Active/LKG 与刷新控制按 Endpoint 隔离；
-- CLI help/version 不触发 Provider Runtime；Bootstrap 直接声明 `zod`；
-- 孤儿 ZIP 文件与专属依赖删除，保留的跨平台 ZIP/Notarize 行为测试通过；
-- 定向测试、根 typecheck、lint、相关 unit 与格式检查通过；
-- Design、Todo 状态和 Feature Graph 与最终实现一致。
+- o Account Overlay expressa a disponibilidade de um Provider de conta explicitamente com `enabled`;
+- os membros de modelo precisos de cada conta do Start Plan entram em `builtinModelIds`, e um resultado vazio faz fail-closed com segurança;
+- o Account Access permanece não sensível, completo e congelável, e as credenciais reais ainda são resolvidas no momento da requisição;
+- o Registry nunca publica um Account Overlay cuja revisão de Built-in de origem não corresponde;
+- atualizações apenas Personal não são bloqueadas pelo refresh do Account;
+- Active/LKG e o controle de refresh são isolados por Endpoint;
+- CLI help/version não dispara Provider Runtime; e o Bootstrap declara `zod` diretamente;
+- o arquivo ZIP órfão e as dependências exclusivas são removidos, e os testes do comportamento de ZIP/Notarize multiplataforma preservado passam;
+- testes direcionados, typecheck da raiz, lint, unit relevantes e checagem de formatação passam;
+- Design, status deste Todo e Feature Graph ficam consistentes com a implementação final.
 
 ## 7. Impact Brief
 
-| Field            | Value                                                                                                           |
+| Campo            | Valor                                                                                                           |
 | ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| Developer intent | 收口 Provider Review 已裁决缺口，不改变主架构                                                                   |
-| Capability       | Provider Registry、Account Overlay、Built-in Remote/LKG、CLI Bootstrap                                          |
-| Change layer     | option-source / validation / persistence / commit-effect                                                        |
-| Operating mode   | planning                                                                                                        |
-| Primary seeds    | `AccountProviderService`、`ProviderRegistryService`、`resolveZCodeBuiltinCachePaths`、`requiresProviderRuntime` |
-| Out of scope     | staging merge、真实环境统一验证、Release 业务完整性门禁                                                         |
+| Intenção do desenvolvedor | Fechar as lacunas já decididas no Provider Review, sem mudar a arquitetura principal                                                                   |
+| Capacidade       | Provider Registry, Account Overlay, Built-in Remote/LKG, CLI Bootstrap                                          |
+| Camada de mudança    | option-source / validation / persistence / commit-effect                                                        |
+| Modo de operação   | planning                                                                                                        |
+| Seeds principais    | `AccountProviderService`、`ProviderRegistryService`、`resolveZCodeBuiltinCachePaths`、`requiresProviderRuntime` |
+| Fora do escopo     | merge de staging, verificação unificada em ambiente real, barreira de integridade de negócio do Release                                                         |
 
 ### State Owners And Commit Sinks
 
-| State/fact                    | Authoritative owner        | Persistence/cache             | Publish sink     |
+| State/fact                    | Dono autoritativo        | Persistência/cache             | Sink de publicação     |
 | ----------------------------- | -------------------------- | ----------------------------- | ---------------- |
-| Built-in revision/content     | ZCode Built-in Source      | Endpoint-scoped `active.json` | Config Service   |
-| Account enabled/models/access | AccountProviderService     | 进程内 LKG Snapshot           | Account Source   |
-| Personal Config               | Personal Repository        | `config.json`                 | Config Service   |
-| Effective Provider/Model      | ProviderRegistryService    | 进程内 immutable Snapshot     | Registry/Facades |
-| Active Model                  | ModelFactory-created Model | 执行生命周期内冻结            | Adapter request  |
+| Revisão/conteúdo Built-in     | ZCode Built-in Source      | `active.json` com escopo de Endpoint | Config Service   |
+| enabled/models/access da conta | AccountProviderService     | Snapshot LKG em processo           | Account Source   |
+| Personal Config               | Repositório Personal        | `config.json`                 | Config Service   |
+| Provider/Model Efetivo      | ProviderRegistryService    | Snapshot imutável em processo     | Registry/Facades |
+| Active Model                  | Model criado pelo ModelFactory | Congelado durante o ciclo de vida de execução | Adapter request  |
 
 ### Must-Preserve Invariants
 
-- Account 只约束 Built-in account Provider，Personal 最后覆盖；
-- Account Start models 是成员事实，不是模型静态能力事实；
-- revision barrier 只表达客户端派生来源，不创造服务端共同版本协议；
-- Endpoint 是 Environment 配置源隔离，不是模型 API Endpoint；
-- 动态凭据不进入 Config，服务端最终授权；
-- 已创建 Active Model 不随 Config/Account 刷新变化。
+- Account restringe apenas o Built-in account Provider, e Personal sobrescreve por último;
+- os models Start do Account são fato de elegibilidade de membro, não fato de capacidade estática do modelo;
+- a barreira de revisão expressa apenas origem derivada no cliente e não cria um protocolo de versão comum do servidor;
+- Endpoint é isolamento de Source de configuração do Environment, e não o Endpoint de API de modelos;
+- credenciais dinâmicas não entram no Config, e a autorização final é do servidor;
+- o Active Model já criado não muda com atualizações de Config/Account.
 
 ### Graph Delta
 
-实施 Step 0 将更新 `capability.provider-registry`：补充 Account `enabled`、Start 账号模型成员、Account Access 与
-`basedOnZCodeBuiltinRevision` 原子发布不变量；补充 Built-in Active/LKG 的 Endpoint-scoped persistence 节点。当前 Todo
-是已确认语义的实施入口，不新增 UI Surface。
+O Step 0 de implementação vai atualizar `capability.provider-registry`: acrescentar o `enabled` do Account, os membros de modelo Start da conta, o Account Access e o
+invariante de publicação atômica por `basedOnZCodeBuiltinRevision`; acrescentar o nó de persistência com escopo de Endpoint do Active/LKG do Built-in. Este Todo
+é a porta de entrada de implementação de semântica já confirmada e não adiciona UI Surface.
 
 ### Unresolved Questions
 
-无会改变本 Todo 实施范围的未决产品问题。`show_name` 退役依赖服务端后续保证，作为明确兼容退出条件保留，不阻塞本 Todo。
+Não há questão de produto em aberto que altere o escopo de implementação deste Todo. A aposentadoria de `show_name` depende de uma garantia posterior do servidor e é mantida como condição explícita de saída de compatibilidade, sem bloquear este Todo.
 
-## 8. 实施记录
+## 8. Registro de implementação
 
-### 8.1 已落地
+### 8.1 Já entregue
 
-- `ProviderConfigSnapshot` 已拆分组合 revision、ZCode Built-in revision 与 Personal revision；
-  `AccountProviderConfigSnapshot` 已携带 `basedOnZCodeBuiltinRevision`，且 Account revision 同时包含来源与 Overlay 内容；
-- Account Resolver 已统一投影 `enabled`：available 显式启用，unavailable 显式禁用，unknown 首次 fail-closed；
-  Start Plan 精确采用账号模型集合，空集合执行 LKG/fail-closed；Individual/Team 继承 Built-in 成员；
-- Registry 已增加 Built-in/Account revision barrier：不匹配时保留上一份完整 Snapshot，匹配后再发布；Personal-only
-  revision 变化不等待 Account 重算；
-- Environment Source 已按规范化 ZCode 控制面 Origin 的 SHA-256 路径段隔离 `active.json` 与
-  `refresh-control.json`；Endpoint 切换使用各自 Bundled/LKG，晚到的旧 Endpoint 响应不会落盘；
-- Desktop Services 在读取 Settings 时动态解析当前 Endpoint；Bootstrap、Protocol 与 Agent stdio payload 已贯穿
-  Account 来源 revision；首次 Account 事实尚未到达时使用与当前 Built-in 匹配的 fail-closed Snapshot；
-- CLI `--help/-h/--version/-v` 已跳过 Provider Runtime prepare；Bootstrap 已直接声明 `zod`；
-- 零引用的 `zipArchive.ts` 及 Server CLI 对 `yazl`、`@types/yazl` 的专属依赖已删除，`yauzl` 解压链保留。
+- `ProviderConfigSnapshot` foi dividido em revisão combinada, revisão do ZCode Built-in e revisão Personal;
+  `AccountProviderConfigSnapshot` passou a carregar `basedOnZCodeBuiltinRevision`, e a revisão do Account inclui simultaneamente a origem e o conteúdo do Overlay;
+- o Account Resolver passou a projetar `enabled` de forma unificada: available habilita explicitamente, unavailable desabilita explicitamente e unknown faz fail-closed na primeira vez;
+  o Start Plan adota exatamente o conjunto de modelos da conta, e um conjunto vazio executa LKG/fail-closed; Individual/Team herdam os membros do Built-in;
+- o Registry ganhou a barreira de revisão Built-in/Account: quando não há correspondência mantém o último Snapshot completo e publica depois da correspondência; mudanças de revisão apenas Personal não esperam o recálculo do Account;
+- o Environment Source passou a isolar `active.json` e `refresh-control.json` por um segmento de caminho SHA-256 derivado da Origin normalizada do plano de controle ZCode; a troca de Endpoint usa Bundled/LKG próprios, e respostas atrasadas do Endpoint antigo não vão para disco;
+- os Services do Desktop resolvem o Endpoint atual dinamicamente ao ler as Settings; Bootstrap, Protocol e o payload stdio do Agent já percorrem a revisão de origem do
+  Account; quando os primeiros fatos de Account ainda não chegaram, usa-se um Snapshot fail-closed que corresponde ao Built-in atual;
+- o `--help/-h/--version/-v` da CLI já pula o prepare de Provider Runtime; e o Bootstrap já declara `zod` diretamente;
+- o `zipArchive.ts` sem referências e as dependências exclusivas do Server CLI sobre `yazl` e `@types/yazl` foram removidos, e a cadeia de descompactação com `yauzl` foi preservada.
 
-### 8.2 自动化证据
+### 8.2 Evidências automatizadas
 
-- `@zcode/provider`：14 个测试文件、130 条测试通过，package typecheck 通过；
-- `@zcode/provider-node`：5 个测试文件、36 条测试通过，package typecheck 通过；
-- Services Account/Registry/Request Auth 定向测试：3 个测试文件、24 条测试通过；
-- CLI Bootstrap process/protocol 定向测试：114 条测试通过，package typecheck 通过；
-- CLI Provider Runtime Env 的 development、SEA 与元信息入口 3 条定向测试通过；
-- Server CLI build 通过；根 `pnpm typecheck` 与 `pnpm lint` 通过；本次修改文件格式化与 `git diff --check` 通过。
-- 全量 `pnpm test:unit` 共 12,388 条：12,360 条通过、25 条跳过、3 条失败；其中 Provider 改动面没有失败，
-  失败项由下节记录的两个既有环境/时序基线组成。
+- `@zcode/provider`: 14 arquivos de teste, 130 testes aprovados e typecheck do package aprovado;
+- `@zcode/provider-node`: 5 arquivos de teste, 36 testes aprovados e typecheck do package aprovado;
+- testes direcionados de Account/Registry/Request Auth de Services: 3 arquivos de teste, 24 testes aprovados;
+- testes direcionados de process/protocol do CLI Bootstrap: 114 testes aprovados e typecheck do package aprovado;
+- 3 testes direcionados da Env de Provider Runtime da CLI para development, SEA e entradas de metadados aprovados;
+- build do Server CLI aprovado; `pnpm typecheck` e `pnpm lint` da raiz aprovados; formatação dos arquivos modificados e `git diff --check` aprovados.
+- o `pnpm test:unit` completo, com 12.388 testes: 12.360 aprovados, 25 pulados e 3 falhos; não houve falha na superfície de mudança de Provider,
+  e as falhas são compostas pelas duas baselines preexistentes de ambiente/timing registradas na seção abaixo.
 
-### 8.3 已确认的仓库/环境基线
+### 8.3 Baselines de repositório/ambiente confirmadas
 
-- Server CLI 全包测试中的两个 Windows ZIP 用例在当前 Linux 环境因系统命令 `zip` 不存在而报 `spawn zip ENOENT`；
-  当前生产打包路径原本就直接使用该系统命令，被删除的孤儿 helper 没有任何调用方，因此这不是本 Todo 引入的回归；
-- CUA Permission Broker 的 socket close 时序用例在全量并发运行时失败一次；同一条用例随后独立复跑通过，属于与 Provider
-  无关的既有时序波动；
-- `@zcode/cli` 独立 typecheck 仍被既有 `AgentRuntimeConfig.modelSelection` 缺失挡住，报错位于
-  `prompt-command.ts` 与 `tui-prompt-handler.ts`，不在本 Todo 改动面；
-- 全仓 `fmt:check` 仍会扫描 Electron vendor fiddle 的既有非法 HTML 与二进制 `gb2312.js`，因此本次以修改文件格式检查
-  和 `git diff --check` 作为提交证据；
-- 工作区新鲜度检查因当前环境无法连接 Git proxy `127.0.0.1:1080` 而无法刷新远端引用；本 Todo 未合并 staging。
+- dois casos de ZIP para Windows dos testes de todo o pacote do Server CLI falham no ambiente Linux atual com `spawn zip ENOENT` porque o comando de sistema `zip` não existe;
+  o caminho de empacotamento de produção já usava diretamente esse comando de sistema, e o helper órfão removido não tinha nenhum chamador, portanto não se trata de regressão introduzida por este Todo;
+- o caso de timing de socket close do CUA Permission Broker falhou uma vez na execução concorrente completa; o mesmo caso passou ao ser reexecutado isoladamente depois, o que caracteriza uma flutuação de timing preexistente e sem relação com Provider;
+- o typecheck isolado do `@zcode/cli` continua bloqueado pelo `AgentRuntimeConfig.modelSelection` ausente preexistente, com erro em
+  `prompt-command.ts` e `tui-prompt-handler.ts`, fora da superfície de mudança deste Todo;
+- o `fmt:check` do repositório inteiro continua varrendo o HTML inválido preexistente e o binário `gb2312.js` do Electron vendor fiddle, portanto desta vez a checagem de formatação dos arquivos modificados e o
+  `git diff --check` foram usados como evidência de commit;
+- a checagem de novidade do workspace não conseguiu atualizar as referências remotas porque o ambiente atual não consegue se conectar ao Git proxy `127.0.0.1:1080`; este Todo não fez merge de staging.

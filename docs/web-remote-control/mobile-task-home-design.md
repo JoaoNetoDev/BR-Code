@@ -1,73 +1,102 @@
-# 手机端远程控制任务首页改造方案
+# Plano de reformulação da homepage de tarefas do controle remoto no celular
 
-> **状态：已实施。** 当前代码入口是 `packages/ui/src/WebRemoteControlMobileShell.tsx`、
-> `WebRemoteControlMobileTaskHome.tsx` 与 `hooks/useWebRemoteControlTaskOpen.ts`；下文“推荐/实施顺序”
-> 保留设计轨迹，不表示待实现状态。
+> **Status: implementado.** Os pontos de entrada atuais no código são
+> `packages/ui/src/WebRemoteControlMobileShell.tsx`,
+> `WebRemoteControlMobileTaskHome.tsx` e `hooks/useWebRemoteControlTaskOpen.ts`; a seção
+> “Recomendação/ordem de implementação” abaixo preserva o rastro do design e não indica estado
+> pendente.
 >
-> 当前远控链路使用外部 relay 的 `data.payload` app payload。本文中涉及任务首页/切 workspace 的交互仍有效；旧 relay token、HTTP bootstrap、`bridgeToken/wsUrl` 假设已废弃，不再作为实现依据。
+> O caminho (chain) de controle remoto atual usa o app payload `data.payload` de um relay externo. As
+> interações envolvendo a homepage de tarefas e a troca de workspace neste documento continuam
+> válidas; as suposições antigas de relay token, bootstrap HTTP e `bridgeToken/wsUrl` estão
+> obsoletas e não são mais uma base para a implementação.
 
-产品与架构总览见 [Web 远程控制概览](./web-remote-control-architecture.md)。本文记录手机首页与
-聊天页的交互契约；时间线、主题和宽屏列表等专题由总览统一导航。
+A visão geral de produto e arquitetura está em
+[Web remote control overview](./web-remote-control-architecture.md). Este documento registra o
+contrato de interação da homepage e da página de chat no celular; linha do tempo, temas e listas em
+telas largas são navegados de forma unificada pela visão geral.
 
-## 背景（改造前）
+## Contexto (antes da reformulação)
 
-改造前，手机端 Web 远程控制复用了桌面端 `WorkspaceSidebar` 和聊天区域：
+Antes da reformulação, o controle remoto Web no celular reaproveitava o `WorkspaceSidebar` e a área
+de chat do desktop:
 
-1. 手机页面在小屏下被 `WorkspaceShellLayout` 改成上下结构。
-2. 上半部分仍是桌面 sidebar 的裁剪版，包含 workspace、任务入口和一些桌面侧栏能力。
-3. 下半部分复用桌面聊天区。
+1. Em tela pequena, a página do celular era transformada pelo `WorkspaceShellLayout` em uma
+   estrutura vertical.
+2. A metade superior continuava sendo uma versão recortada da sidebar do desktop, com workspace,
+   entradas de tarefas e algumas capacidades da barra lateral do desktop.
+3. A metade inferior reutilizava a área de chat do desktop.
 
-这个结构能快速复用已有逻辑，但不适合新的手机端信息架构。新的目标是让手机端变成两个明确页面：
+Essa estrutura permite reaproveitar rapidamente a lógica existente, mas não serve à nova
+arquitetura de informação do celular. O novo objetivo é transformar o celular em duas páginas
+claras:
 
-1. 首页：当前设备上的工作区和任务列表。
-2. 聊天页：选中某个任务后的聊天界面，继续复用桌面聊天组件。
+1. Homepage: a lista de workspaces e tarefas do dispositivo atual.
+2. Página de chat: a interface de chat depois que uma tarefa é selecionada, continuando a
+   reaproveitar os componentes de chat do desktop.
 
-核心变化是：手机端不再复用桌面端任务列表 UI，但任务点击、跨 workspace 切换、mobile view state 上报等业务逻辑继续复用现有桌面远控链路。
+A mudança central é: o celular deixa de reutilizar a UI de lista de tarefas do desktop, mas a lógica
+de negócio — clique na tarefa, troca entre workspaces, reporte de mobile view state — continua
+reaproveitando a cadeia de controle remoto existente do desktop.
 
-## 目标
+## Objetivos
 
-1. 手机端远控首页展示 workspace card，card 可展开，展开后展示该 workspace 下的任务。
-2. 点击任务后进入聊天页，聊天页继续复用现有 header 和 V4 session chat surface。
-3. 任务点击逻辑复用现有 Web 远控逻辑：
-   - 同 workspace task：直接选中任务并上报 mobile view state。
-   - 跨 workspace task：请求新的 workspace bridge，再进入对应任务。
-4. 扫码初始态不再自动进入聊天页。
-5. 如果扫码入口带有初始 task，首页自动展开该 task 所属 workspace card，并把对应 task 行显示为选中态。
-6. 保持 desktop 和 mobile 选中态分离，手机端操作不反向切换桌面端当前 tab/task。
-7. 遵守 `workspaceKey = workspaceIdentity?.trim() || workspacePath` 的身份隔离规则。
+1. A homepage de controle remoto no celular exibe workspace cards; o card pode ser expandido e, ao
+   expandido, mostra as tarefas daquele workspace.
+2. Ao clicar em uma tarefa, entra-se na página de chat, que continua reaproveitando o header
+   existente e a V4 session chat surface.
+3. A lógica de clique na tarefa reaproveita a lógica Web remota existente:
+   - tarefa do mesmo workspace: seleciona a tarefa diretamente e reporta o mobile view state.
+   - tarefa de outro workspace: solicita um novo workspace bridge e depois entra na tarefa
+     correspondente.
+4. O estado inicial de leitura do QR code não entra mais automaticamente na página de chat.
+5. Se o ponto de entrada do QR code trouxer uma tarefa inicial, a homepage expande automaticamente o
+   workspace card ao qual a tarefa pertence e exibe a linha da tarefa correspondente como
+   selecionada.
+6. Mantém-se a separação entre o estado selecionado do desktop e do celular; uma ação no celular não
+   troca de volta a tab/task atual do desktop.
+7. Respeita-se a regra de isolamento de identidade
+   `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
 
-## 非目标
+## Não objetivos
 
-第一版不做：
+A primeira versão não faz:
 
-1. 手机端新建 workspace。
-2. 手机端新建 SSH / WSL / Docker remote session。
-3. 手机端管理桌面窗口外的 workspace。
-4. 多手机同时控制同一 desktop window。
-5. 重做聊天组件、ZCode runtime 或 relay 协议主链路。
-6. 让桌面端同步切到手机端选择的 task。
+1. Criar workspace no celular.
+2. Criar SSH / WSL / Docker remote session no celular.
+3. Gerenciar, no celular, workspaces fora da janela do desktop.
+4. Vários celulares controlando a mesma janela do desktop ao mesmo tempo.
+5. Refazer os componentes de chat, o runtime do ZCode ou o caminho principal do protocolo de relay.
+6. Fazer o desktop mudar para a task escolhida no celular.
 
-## 2026-05-02 补充：workspace 级新建任务入口
+## Complemento de 2026-05-02: entrada de criação de task no nível do workspace
 
-为补齐手机端操作闭环，任务首页的每个 workspace card 右侧增加“新建任务”按钮，行为如下：
+Para completar o ciclo de operação no celular, cada workspace card da homepage de tarefas recebe um
+botão “新建任务” à direita, com o seguinte comportamento:
 
-1. 同 workspace：
-   - 调用 `startDraft(workspacePath, workspaceIdentity)` 进入草稿态。
-   - 上报 `updateMobileViewState(workspaceKey)`（不带 taskId），避免继续高亮旧 task。
-   - 进入聊天页。
-2. 跨 workspace：
-   - 走 `switchWorkspace(workspaceKey, { mobileNavigationIntent: "chat" })`，且不传 `taskId`。
-   - 目标 Root 以 `initialTaskId=undefined` 启动，进入该 workspace 的草稿态。
-3. Web 远控 `switcher` 增加可选 `startDraft(workspaceKey, { mobileNavigationIntent })` 能力，
-   便于手机端统一调用；不支持该能力的实现仍可回退到 `switchWorkspace + updateMobileViewState`。
+1. Mesmo workspace:
+   - chama `startDraft(workspacePath, workspaceIdentity)` para entrar no estado de rascunho;
+   - reporta `updateMobileViewState(workspaceKey)` (sem taskId), evitando continuar realçando a task
+     antiga;
+   - entra na página de chat.
+2. Outro workspace:
+   - segue por `switchWorkspace(workspaceKey, { mobileNavigationIntent: "chat" })`, sem passar
+     `taskId`;
+   - o Root de destino inicia com `initialTaskId=undefined`, entrando no estado de rascunho daquele
+     workspace.
+3. O `switcher` do controle remoto Web ganha a capacidade opcional
+   `startDraft(workspaceKey, { mobileNavigationIntent })`, para o celular chamar de forma uniforme;
+   implementações que não suportam essa capacidade ainda podem recorrer a
+   `switchWorkspace + updateMobileViewState`.
 
-该补充保持现有身份隔离规则：`workspaceKey = workspaceIdentity?.trim() || workspacePath`。
+Este complemento mantém a regra de isolamento de identidade existente:
+`workspaceKey = workspaceIdentity?.trim() || workspacePath`.
 
-## 推荐方案
+## Solução recomendada
 
-采用移动端专用 shell，而不是继续改造 `WorkspaceSidebar`。
+Adotar um shell dedicado ao mobile, em vez de continuar reformulando o `WorkspaceSidebar`.
 
-推荐新增一层手机远控 UI：
+Recomenda-se adicionar uma camada de UI de controle remoto do celular:
 
 ```text
 WebRemoteControlMobileShell
@@ -77,79 +106,104 @@ WebRemoteControlMobileShell
   └── chat: existing chat header + V4 session chat surface
 ```
 
-桌面端和宽屏 Web 远控继续走现有 `WorkspaceShellLayout` 的桌面布局。只有满足 `webRemoteControlWorkspaceSwitcher` 且小屏断点时，才进入移动端两页 shell。
+O desktop e o controle remoto Web em tela larga continuam usando o layout de desktop existente do
+`WorkspaceShellLayout`. O shell de duas páginas do mobile só entra em uso quando
+`webRemoteControlWorkspaceSwitcher` é satisfeito e o breakpoint de tela pequena é atingido.
 
-这样做的好处：
+Os benefícios dessa abordagem:
 
-1. 首页 UI 可以完全按手机端体验设计，不受桌面 sidebar 的历史结构限制。
-2. 聊天页仍复用现有聊天能力，降低风险。
-3. task 点击、workspace bridge、mobile view state 不重新发明，只抽出为共享 hook。
-4. 后续如果手机首页继续演进，例如搜索、状态筛选、设备登录态，也不会污染桌面 sidebar。
+1. A UI da homepage pode ser projetada inteiramente para a experiência do celular, sem ficar limitada
+   pela estrutura histórica da sidebar do desktop.
+2. A página de chat continua reaproveitando a capacidade de chat existente, reduzindo o risco.
+3. O clique na tarefa, o workspace bridge e o mobile view state não são reinventados; apenas são
+   extraídos como um hook compartilhado.
+4. Se a homepage do celular evoluir depois, por exemplo com busca, filtro por status ou estado de login
+   de dispositivo, isso não contamina a sidebar do desktop.
 
-## 页面模型
+## Modelo de página
 
-### 首页
+### Homepage
 
-首页用于浏览当前 desktop window 内已打开的 workspace 和 task。
+A homepage serve para navegar pelos workspaces e tasks já abertos dentro da janela atual do desktop.
 
-信息结构：
+Estrutura de informações:
 
-1. 顶部品牌和设备状态：
+1. Marca e status do dispositivo no topo:
    - `ZCode Remote Control`
-   - 第一版展示连接状态，不新增设备名称协议字段
-2. 可关闭提示区：
-   - 说明本次扫码连接可查看当前设备上的项目、任务和会话
-   - 二维码失效后需要回到 desktop 重新连接
-3. 工作区任务区：
-   - 标题：当前设备上的工作区和任务
-   - 副文案：总 workspace/task 数
-   - 操作：全部收起、刷新
-4. workspace card：
-   - workspace 名称
-   - workspace 路径
-   - local / SSH remote / Docker / WSL 等弱标签，第一版可先用 local / remote
-   - 最近更新时间，从该 workspace 下 task 的 `updatedAt` 最大值派生；没有 task 时不展示
-   - task 数
-   - 展开/收起按钮
-5. task row：
-   - 任务标题
+   - a primeira versão mostra o estado da conexão e não adiciona um campo de protocolo para o nome
+     do dispositivo
+2. Área de aviso dispensável:
+   - explica que esta conexão via QR code permite ver os projetos, tarefas e sessões do dispositivo
+     atual
+   - depois que o QR code expira, é preciso voltar ao desktop para reconectar
+3. Área de workspaces e tarefas:
+   - título: os workspaces e as tarefas no dispositivo atual
+   - texto secundário: contagem total de workspaces/tasks
+   - ações: recolher tudo, atualizar
+4. Workspace card:
+   - nome do workspace
+   - caminho do workspace
+   - rótulos leves como local / SSH remote / Docker / WSL; na primeira versão pode começar com
+     local / remote
+   - horário de atualização mais recente, derivado do maior `updatedAt` entre as tasks daquele
+     workspace; não é exibido quando não há tasks
+   - quantidade de tasks
+   - botão de expandir/recolher
+5. Linha de task:
+   - título da tarefa
    - provider CLI
-   - 更新时间
-   - 状态 pill
-   - 未读、运行中、错误等状态标识
-   - 当前选中 task 使用 selected 样式
+   - horário de atualização
+   - pill de status
+   - indicadores como não lida, em execução, erro
+   - a task atualmente selecionada usa o estilo selected
 
-2026-05-28 补充：手机首页顶部增加全局 pinned 分区。桌面 renderer 同步任务快照时会同时读取
-`kind: "pinned"` 与 `kind: "timeline"` 两类 sqlite 列表；mobile 首页收到统一 task targets 后，
-先按 `pinned === true` 拆出置顶分区，再把非置顶任务交给 workspace/timeline 普通列表。置顶任务
-不再重复出现在普通 workspace card 或 timeline 列表中，但 active task 校验和选中态必须同时匹配
-pinned 分区与普通分组。
+Complemento de 2026-05-28: a homepage do celular ganha uma seção global pinned no topo. Quando o
+renderer do desktop sincroniza o snapshot de tarefas, ele lê simultaneamente as duas listas sqlite
+`kind: "pinned"` e `kind: "timeline"`; ao receber os task targets unificados, a homepage do mobile
+separa primeiro a seção de fixados por `pinned === true` e depois entrega as tarefas não fixadas às
+listas normais por workspace/timeline. As tarefas fixadas não aparecem mais duplicadas em workspace
+cards comuns nem na lista de timeline, mas a validação de task ativa e o estado selecionado precisam
+casar simultaneamente com a seção pinned e com o agrupamento comum.
 
-首页自己拥有滚动区域，不能依赖桌面 sidebar 的滚动容器。
+A homepage tem sua própria área de rolagem e não pode depender do container de rolagem da sidebar do
+desktop.
 
-### 聊天页
+### Página de chat
 
-聊天页复用现有工作区主内容：
+A página de chat reutiliza o conteúdo principal existente do workspace:
 
-1. 顶部保留移动简化后的 chat header。
-2. 增加返回首页入口。
-3. 主体继续使用 Root 注入的 V4 chat content（最终由 `packages/ui/src/v4/SessionPane.tsx` 承载会话）。
-4. terminal、browser、side pane 的移动端展示规则沿用现有远控策略，第一版不主动扩展。
+1. No topo, mantém-se o chat header simplificado para mobile.
+2. Adiciona-se uma entrada para voltar à homepage.
+3. O corpo continua usando o V4 chat content injetado pelo Root (finalmente hospedado por
+   `packages/ui/src/v4/SessionPane.tsx`, que carrega a sessão).
+4. As regras de exibição móvel de terminal, browser e side pane seguem a estratégia de controle
+   remoto existente; a primeira versão não as estende ativamente.
 
-### 聊天页交互浮层边界
+### Limite das camadas flutuantes de interação na página de chat
 
-手机远控聊天页复用桌面会话组件，并保持与桌面一致的浮层层级和操作方式；手机端只收紧
-浮层尺寸，避免为了适配窄视口引入另一套模型选择行为。
-在 `web-remote-replayable` 且粗指针手机视口下，交互浮层必须满足：
+A página de chat do controle remoto no celular reutiliza os componentes de sessão do desktop e
+mantém a mesma hierarquia de camadas e as mesmas formas de interação do desktop; o celular apenas
+estreita as dimensões das camadas, evitando introduzir outro comportamento de seleção de modelo só
+por causa da viewport estreita.
+Em `web-remote-replayable` e em uma viewport de celular com ponteiro grosso, as camadas flutuantes de
+interação precisam satisfazer:
 
-1. 打开后的可交互内容完整位于当前可视视口内，左右不得被页面根节点裁切。
-2. 模型选择继续使用与桌面一致的 provider 一级菜单和 model 二级菜单；手机端 model 二级菜单
-   以更窄宽度为上限，并通过 Radix 当前方向的 available width 自动收缩到视口边缘；收缩时取消
-   共享菜单的最小宽度下限，长模型名在菜单项内部截断，不把一级、二级内容改成单列长列表。
-3. 右侧状态面板内的分支选择和 Todo 折叠预览优先沿纵向打开，由 Radix 在上/下之间翻转；禁止将它们固定在状态面板左侧。
-4. 单个浮层宽度不得超过 `calc(100vw - 2rem)`；长模型名、分支名和中英文文案由浮层内部截断或滚动承接，不得让页面本身产生水平滚动。
+1. Depois de abertas, o conteúdo interativo fica inteiro dentro da viewport visível atual e não pode
+   ser cortado nas laterais pela raiz da página.
+2. A seleção de modelo continua usando o menu primário de provider e o menu secundário de model,
+   iguais aos do desktop; no celular o menu secundário de model tem uma largura máxima menor e encolhe
+   automaticamente até a borda da viewport conforme o available width do Radix na direção atual; ao
+   encolher, o limite de largura mínima do menu compartilhado é cancelado e nomes longos de modelo são
+   truncados dentro do item do menu, sem transformar o conteúdo primário e secundário em uma única
+   lista longa de coluna única.
+3. A seleção de branch e a pré-visualização de colapso de Todo dentro do painel de status à direita
+   abrem preferencialmente na vertical, com o Radix alternando entre cima/baixo; é proibido fixá-los
+   no lado esquerdo do painel de status.
+4. A largura de uma única camada flutuante não pode ultrapassar `calc(100vw - 2rem)`; nomes longos de
+   modelo, nomes de branch e textos em chinês/inglês são truncados dentro da camada ou absorvidos por
+   rolagem, e a própria página não pode gerar rolagem horizontal.
 
-当前与修复后的呈现边界：
+Limite de apresentação atual e depois da correção:
 
 ```text
 当前（手机）
@@ -166,29 +220,36 @@ provider root menu -> desktop-width model submenu（保持现状）
 status panel row    -> left popover（保持现状）
 ```
 
-该边界只属于 renderer presentation；不改变 mobile shell 导航、task/session 投影、
-`CommandInbox`、owner/lease、relay 或 `desktop-continuous` / `web-remote-replayable` delivery 语义。
+Esse limite pertence apenas à apresentação do renderer; não altera a navegação do shell do mobile,
+a projeção de task/session, o `CommandInbox`, owner/lease, o relay nem a semântica de entrega
+`desktop-continuous` / `web-remote-replayable`.
 
-## 扫码初始态
+## Estado inicial de leitura do QR code
 
-当前链路里，desktop main 会通过 `initialViewState` 返回扫码发起时的 workspace/task。
+No caminho atual, o desktop main retorna o workspace/task do momento da leitura do QR code por
+`initialViewState`.
 
-新行为：
+Novo comportamento:
 
-1. bootstrap 仍然选择 `mobileViewState -> initialViewState -> 第一个 workspace`。
-2. web 仍然打开对应 workspace bridge，保证当前 Root/App 有可用 workspace 服务。
-3. mobile shell 初始页面固定为 `home`。
-4. 首页根据 `activeWorkspaceKey` 展开对应 workspace card。
-5. 首页根据 `activeTaskId` 把对应 task row 标为选中。
-6. 不自动进入聊天页。
+1. O bootstrap continua escolhendo `mobileViewState -> initialViewState -> primeiro workspace`.
+2. O web continua abrindo o workspace bridge correspondente, garantindo que o Root/App atual tenha um
+   serviço de workspace disponível.
+3. A página inicial do mobile shell é sempre `home`.
+4. A homepage expande o workspace card correspondente conforme `activeWorkspaceKey`.
+5. A homepage marca a linha da task correspondente como selecionada conforme `activeTaskId`.
+6. Não entra automaticamente na página de chat.
 
-`initialTaskId` 在这个阶段只表达“首页选中态”，不能触发 `onNavigateToChat`，也不能复用点击任务的打开流程。
+Nesta etapa, `initialTaskId` expressa apenas o «estado selecionado da homepage»; ele não pode
+disparar `onNavigateToChat` nem reutilizar o fluxo de abertura por clique numa task.
 
-这样用户扫码后首先看到当前设备上所有 workspace/task 的总览，同时能清楚知道桌面扫码时对应的 task 在哪个 workspace 下。
+Assim, depois de ler o QR code, o usuário vê primeiro uma visão geral de todos os workspaces/tasks do
+dispositivo atual e ainda sabe claramente em qual workspace estava a task correspondente quando o
+desktop gerou o QR code.
 
-## 点击任务流程
+## Fluxo de clique numa tarefa
 
-任务打开逻辑从现有 `WebRemoteControlTaskIndex` 中抽出，形成共享 hook：
+A lógica de abertura de tarefa é extraída do `WebRemoteControlTaskIndex` existente e forma um hook
+compartilhado:
 
 ```text
 useWebRemoteControlTaskOpen
@@ -207,7 +268,8 @@ useWebRemoteControlTaskOpen
     error
 ```
 
-跨 workspace 后进入聊天页需要一份一次性导航意图，不能从 `initialTaskId` 反推：
+Entrar na página de chat depois de trocar de workspace exige uma intenção de navegação de uso único,
+que não pode ser deduzida a partir de `initialTaskId`:
 
 ```ts
 type WebRemoteControlMobileNavigationIntent = "chat";
@@ -223,45 +285,57 @@ interface WebRemoteControlMobileShellProps {
 }
 ```
 
-规则：
+Regras:
 
-1. `WebRemoteControlWorkspaceSwitcherApi.switchWorkspace()` 的第二个参数扩展为 `WebRemoteControlWorkspaceSwitchOptions`，旧调用不传 `mobileNavigationIntent` 时行为不变。
-2. web 入口在调用 `openWorkspaceBridge()` 前把 `mobileNavigationIntent` 暂存为内存中的 pending intent。
-3. 新 bridge 渲染 Root/MobileShell 时把 pending intent 作为 `initialNavigationIntent` 传入，MobileShell 首次 mount 后消费并清空。
-4. pending intent 不写入 URL，不写入 `mobileViewState`，也不传给 desktop main；它只解决当前浏览器页跨 Root remount 后的页面落点。
-5. 扫码初始 `initialTaskId` 不设置 pending intent，因此只展开首页 card 和选中 task row。
+1. O segundo parâmetro de `WebRemoteControlWorkspaceSwitcherApi.switchWorkspace()` é estendido para
+   `WebRemoteControlWorkspaceSwitchOptions`; as chamadas antigas que não passam
+   `mobileNavigationIntent` mantêm o comportamento.
+2. A entrada web armazena o `mobileNavigationIntent` como pending intent em memória antes de chamar
+   `openWorkspaceBridge()`.
+3. Quando o novo bridge renderiza o Root/MobileShell, o pending intent é passado como
+   `initialNavigationIntent` e consumido e limpo após o primeiro mount do MobileShell.
+4. O pending intent não é escrito na URL nem no `mobileViewState`, e não é repassado ao desktop main;
+   ele existe apenas para resolver o ponto de chegada da página no browser atual após um remount do
+   Root entre workspaces.
+5. O `initialTaskId` inicial da leitura do QR code não define pending intent, portanto apenas expande
+   o card da homepage e seleciona a linha da task.
 
-同 workspace task：
+Task do mesmo workspace:
 
-1. 计算 `taskWorkspaceKey`。
-2. 判断是否等于当前 `activeWorkspaceKey`。
-3. 如果首页快照中的 task 带有 `unreadAt`，通过当前 Web 远控 bridge 的
-   `switcher.markTaskRead(task)` 显式调用 `setTaskUnread(..., false)`；该动作不得依赖手机 Root
-   内部 task query cache 是否已经水合。
-4. 调用 `onSelectTask(task.workspacePath, task.taskId, task.workspaceIdentity)`。
-5. 调用 `switcher.updateMobileViewState(taskWorkspaceKey, task.taskId)`。
-6. 切换 mobile shell 到 `chat` 页面。
+1. Calcula `taskWorkspaceKey`.
+2. Verifica se é igual ao `activeWorkspaceKey` atual.
+3. Se a task do snapshot da homepage tiver `unreadAt`, chama explicitamente
+   `setTaskUnread(..., false)` via `switcher.markTaskRead(task)` do bridge Web remoto atual; essa
+   ação não pode depender de o task query cache interno do Root do celular já estar hidratado.
+4. Chama `onSelectTask(task.workspacePath, task.taskId, task.workspaceIdentity)`.
+5. Chama `switcher.updateMobileViewState(taskWorkspaceKey, task.taskId)`.
+6. Troca o mobile shell para a página `chat`.
 
-跨 workspace task：
+Task de outro workspace:
 
-1. 设置 switching 状态。
-2. 调用 `switcher.switchWorkspace(taskWorkspaceKey, { taskId: task.taskId,
-   mobileNavigationIntent: "chat", markTaskReadExpectedUnreadAt: task.unreadAt })`。
-3. Web 端连接目标 workspace 的 shared-host bridge 后，使用目标 bridge 的
-   `workspacePath/workspaceIdentity` 和首页快照中的 `unreadAt` 调用
-   `setTaskUnread(..., false, expectedUnreadAt)`；失败只记录日志，不得阻止任务打开。
-4. 新 bridge 渲染完成后，Root 接收 `initialTaskId` 并选中任务。
-5. MobileShell 消费这次用户点击流程携带的一次性导航意图，进入 `chat` 页面。
-6. 失败时记录 `logger.error`，并停留首页显示错误。
+1. Define o estado de switching.
+2. Chama `switcher.switchWorkspace(taskWorkspaceKey, { taskId: task.taskId,
+   mobileNavigationIntent: "chat", markTaskReadExpectedUnreadAt: task.unreadAt })`.
+3. Depois que o lado web conecta o shared-host bridge do workspace de destino, usa o
+   `workspacePath/workspaceIdentity` do bridge de destino e o `unreadAt` do snapshot da homepage para
+   chamar `setTaskUnread(..., false, expectedUnreadAt)`; uma falha apenas registra log e não pode
+   impedir a abertura da tarefa.
+4. Depois que o novo bridge finishes de renderizar, o Root recebe `initialTaskId` e seleciona a
+   tarefa.
+5. O MobileShell consome a intenção de navegação de uso único trazida por este fluxo de clique e entra
+   na página `chat`.
+6. Em caso de falha, registra `logger.error` e permanece na homepage exibindo o erro.
 
-注意：扫码初始 task 只影响首页选中态，不调用这个点击流程。
+Atenção: a task inicial do QR code afeta apenas o estado selecionado da homepage e não chama este
+fluxo de clique.
 
-### 手机打开任务后的未读清除边界
+### Limite de limpeza de não lida após abrir uma tarefa no celular
 
-手机任务首页的蓝点来自 desktop renderer 推送的 `WebRemoteControlTaskTarget.unreadAt` 快照；手机
-Root 内的 task query cache 是另一个按当前 bridge 异步水合的数据面。点击任务时不得再用 query cache
-是否命中 `unreadAt` 作为是否清除未读的前置条件，否则同一 task 已经 active、冷 cache 或跨 Root
-remount 时会跳过持久化。
+O ponto azul da homepage de tarefas do celular vem do snapshot `WebRemoteControlTaskTarget.unreadAt`
+empurrado pelo desktop renderer; o task query cache dentro do Root do celular é outro plano de dados
+que hidrata de forma assíncrona conforme o bridge atual. Ao clicar numa tarefa, não se pode usar
+novamente «o query cache tem `unreadAt`» como condição para limpar a não lida, porque assim a mesma
+task já ativa, um cache frio ou um remount entre Roots pulariam a persistência.
 
 ```text
 mobile home snapshot task.unreadAt
@@ -276,47 +350,55 @@ mobile home snapshot task.unreadAt
 desktop task selection -> existing query-cache optimistic clear（保持不变）
 ```
 
-约束：
+Restrições:
 
-1. 只有手机首页点击且快照明确带有 `unreadAt` 时发起写入；已读 task 不产生无意义 mutation。
-2. 同 workspace 使用当前 bridge service；跨 workspace 必须等目标 bridge 建立后使用目标 service，
-   禁止 main/relay 持有或修改 task 业务状态。
-3. 目标参数必须贯穿 `workspaceIdentity`；路径执行语义继续使用 `workspacePath`。
-4. 标记已读失败不能阻止导航。返回首页后由权威 tasks-index 快照决定蓝点是否恢复。
-5. 桌面 `desktop-continuous` 的 `useWorkspaceTaskNavigation`、query-cache overlay、排序与
-   `lastActivityAt` 逻辑不变；本动作只存在于手机 Web 远控 switcher。
-6. 手机已读只确认本次首页快照对应的通知：repository 必须在同一原子写入边界内比较当前
-   `unreadAt` 与 `expectedUnreadAt`。相等时清除；不相等时返回当前 meta 且不发变更事件，禁止迟到
-   的旧点击覆盖随后产生的后台完成或错误未读。
+1. A escrita só é iniciada quando o clique veio da homepage do celular e o snapshot traz claramente
+   `unreadAt`; uma task já lida não gera uma mutation sem sentido.
+2. No mesmo workspace usa-se o service do bridge atual; em outro workspace é preciso esperar o bridge de
+   destino ser estabelecido e usar o service de destino. É proibido que main/relay mantenha ou modifique
+   o estado de negócio das tasks.
+3. Os parâmetros de destino precisam atravessar `workspaceIdentity`; a semântica de execução por
+   caminho continua usando `workspacePath`.
+4. Falhar ao marcar como lida não pode impedir a navegação. Ao voltar à homepage, o snapshot
+   autoritativo do tasks-index decide se o ponto azul reaparece.
+5. O `useWorkspaceTaskNavigation`, o overlay de query cache, a ordenação e a lógica de `lastActivityAt`
+   do `desktop-continuous` do desktop não mudam; esta ação existe apenas no switcher de controle
+   remoto Web do celular.
+6. A leitura do celular confirma apenas a notificação correspondente ao snapshot atual da homepage: o
+   repository precisa comparar o `unreadAt` atual com o `expectedUnreadAt` dentro da mesma fronteira
+   de escrita atômica. Se forem iguais, limpa; se não forem, devolve o meta atual sem emitir evento de
+   mudança, proibindo que um clique antigo e atrasado sobrescreva a não lida de conclusão ou de erro
+   gerada depois.
 
-## 组件拆分
+## Divisão de componentes
 
-建议新增或调整以下 UI 文件：
+Sugere-se adicionar ou ajustar os seguintes arquivos de UI:
 
 1. `packages/ui/src/WebRemoteControlMobileShell.tsx`
-   - 手机远控两页壳层。
-   - 管理 `home/chat` 页面状态。
-   - 管理返回首页。
-   - 消费跨 workspace 点击带来的一次性 `mobileNavigationIntent`。
-   - 持有切换中 overlay。
+   - shell de duas páginas do controle remoto do celular.
+   - gerencia o estado de página `home/chat`.
+   - gerencia o retorno à homepage.
+   - consome o `mobileNavigationIntent` de uso único trazido pelo clique entre workspaces.
+   - mantém o overlay de switching.
 2. `packages/ui/src/WebRemoteControlMobileTaskHome.tsx`
-   - 渲染首页。
-   - 加载 workspace/task 快照。
-   - 管理 workspace card 展开状态。
-   - 根据 active workspace/task 初始化展开和选中。
+   - renderiza a homepage.
+   - carrega o snapshot de workspaces/tasks.
+   - gerencia o estado de expansão dos workspace cards.
+   - inicializa expansão e seleção conforme o workspace/task ativos.
 3. `packages/ui/src/hooks/useWebRemoteControlTaskOpen.ts`
-   - 抽出现有 `WebRemoteControlTaskIndex` 的 task 打开逻辑。
-   - 供移动首页和旧 task index 复用。
+   - extrai a lógica de abertura de task do `WebRemoteControlTaskIndex` existente.
+   - é reaproveitado pela homepage do mobile e pelo antigo task index.
 4. `packages/ui/src/lib/webRemoteControlTaskIndex.ts`
-   - 保留并扩展分组、排序、默认展开 key 计算。
+   - preserva e estende o cálculo de agrupamento, ordenação e chaves de expansão padrão.
 5. `packages/ui/src/app-shell/WorkspaceShellLayout.tsx`
-   - 在手机远控断点下渲染 `WebRemoteControlMobileShell`。
-   - 移除手机远控对顶部 sidebar 高度拖拽的依赖。
-   - 桌面端远控布局保持现状。
+   - renderiza `WebRemoteControlMobileShell` no breakpoint de controle remoto do celular.
+   - remove a dependência do controle remoto do celular em relação ao arraste de altura da sidebar
+     superior.
+   - o layout de controle remoto do desktop permanece como está.
 
-## 数据模型补充
+## Complementos no modelo de dados
 
-当前 `WebRemoteControlTaskTarget` 已包含首页所需的基础字段：
+O `WebRemoteControlTaskTarget` atual já contém os campos básicos necessários à homepage:
 
 1. `taskId`
 2. `title`
@@ -331,12 +413,19 @@ desktop task selection -> existing query-cache optimistic clear（保持不变�
 11. `unreadAt`
 12. `pinned`
 
-首页派生展示字段：
+Campos de exibição derivados na homepage:
 
-1. 顶部设备区第一版不新增 `deviceLabel` 协议字段，只展示当前远控连接状态。后续如果要展示真实设备名，需要显式扩展 `WebRemoteControlWindowBootstrapResult` / `WebRemoteControlWorkspaceListResult` 增加可选 `deviceLabel`，并提供连接状态文案作为 fallback。
-2. workspace card 的最近更新时间不新增 `workspaceUpdatedAt` 协议字段，由 mobile 首页按 workspace 分组后取该组 task 的最大 `updatedAt`。没有 task 的 workspace 不显示更新时间。
+1. A área de dispositivo no topo não adiciona, na primeira versão, um campo de protocolo `deviceLabel`
+   e mostra apenas o estado da conexão de controle remoto atual. Se depois for necessário exibir o nome
+   real do dispositivo, é preciso estender explicitamente
+   `WebRemoteControlWindowBootstrapResult` / `WebRemoteControlWorkspaceListResult` com um
+   `deviceLabel` opcional e fornecer o texto de status da conexão como fallback.
+2. O horário de atualização mais recente do workspace card não adiciona um campo de protocolo
+   `workspaceUpdatedAt`: a homepage do mobile o deriva agrupando por workspace e tomando o maior
+   `updatedAt` do grupo. Um workspace sem tasks não exibe horário de atualização.
 
-为了支持截图里的状态 pill，建议补一个可选展示字段：
+Para suportar o pill de status da captura de tela, sugere-se acrescentar um campo de exibição
+opcional:
 
 ```ts
 displayStatus?: "idle" | "running" | "completed" | "error";
@@ -348,24 +437,29 @@ hasBackgroundWork?: boolean;
 workflowActivity?: SessionWorkflowActivity;
 ```
 
-字段来源按权威级别分层，不能把多个缓存当成同级事实：
+A origem dos campos é stratified por nível de autoridade; não se pode tratar vários caches como
+fatos de mesmo nível:
 
-1. task 行带有 sessions-index activity sidecar 时，实时 `phase` 是当前展示状态的唯一权威：
+1. Quando a linha da task traz o activity sidecar do sessions-index, o `phase` em tempo real é a
+   única autoridade para o estado exibido:
    - `prewarming` / `running` → `running`
    - `completedSuccess` / `completedInterrupted` → `completed`
    - `error` → `error`
-   - `draft` 不产生持久 task 行；如果兼容数据意外带入 `draft`，不把它当成终态，继续走下一级 fallback
-2. 没有 sessions-index activity 时，才读取当前 renderer 的 task runtime cache：
-   - `creating` / `queued` / `streaming` / `waiting_permission` / `waiting_user_input` 等 live status → `running`
+   - `draft` não gera linha de task persistente; se dados compatíveis trouxerem `draft` por
+     engano, ele não é tratado como estado terminal e segue para o próximo nível de fallback
+2. Sem activity do sessions-index, só então lê-se o task runtime cache do renderer atual:
+   - status live como `creating` / `queued` / `streaming` / `waiting_permission` /
+     `waiting_user_input` → `running`
    - `failed` → `error`
    - `completed` → `completed`
-3. runtime cache 也没有明确状态时，才读取 tasks-index 持久终态：
+3. Sem um estado explícito também no runtime cache, só então lê-se o estado terminal persistido do
+   tasks-index:
    - `completed` → `completed`
    - `error` → `error`
-4. 单独的持久 `status=running` 只表示旧进程可能未正常收尾，不能证明当前 host 仍在运行，fallback 为
-   `idle`。
+4. Um `status=running` persistido isolado indica apenas que um processo antigo pode não ter finalizado
+   corretamente e não prova que o host atual ainda esteja em execução; o fallback é `idle`.
 
-这条优先级必须覆盖所有冲突方向，而不是只修 `running`：
+Essa precedência precisa cobrir todas as direções de conflito, e não apenas corrigir `running`:
 
 | sessions-index activity | 旧 runtime / 持久缓存 | 手机展示 |
 | --- | --- | --- |
@@ -374,46 +468,60 @@ workflowActivity?: SessionWorkflowActivity;
 | `error` | live / `completed` / `running` | `error` |
 | 缺失或兼容 `draft` | 任意 | 保持现有 runtime → 持久终态 fallback |
 
-因此 sessions-index 新帧既能把旧 `completed/error` cache 推进为 `running`，也能把旧 live cache 收口为
-`completed/error`。手机首页不自行合并这些来源。
+Assim, um novo frame do sessions-index tanto consegue promover um cache antigo `completed/error` para
+`running` quanto consegue encerrar um cache live antigo como `completed/error`. A homepage do celular
+não combina essas origens por conta própria.
 
-聚合边界：
+Limites de agregação:
 
-1. `displayStatus` 由 desktop renderer 在构建 `WebRemoteControlTaskTarget` 快照时计算；
-   `buildWebRemoteControlTaskTargets()` 先读取 task 行携带的 sessions-index activity，再按上述顺序
-   fallback 到 Zustand task runtime state 和 `ZCodeTaskMeta.status`。
-2. mobile 首页只消费 `WebRemoteControlTaskTarget.displayStatus`，不能直接读取 ZCode runtime、Repo、Service 或持久化实现。
-3. 同步链路仍是 renderer `syncWebRemoteControlTasks()` -> desktop main -> relay -> mobile bootstrap/listWorkspaces，不新增 mobile 侧状态查询入口。
-4. sessions-index activity 或兼容 task runtime state 变化都要触发重新构建并同步 task snapshot，避免
-   `running` / `completed` / `error` pill 滞后到下一次 task list 刷新。
-5. 该字段只用于手机首页展示，不改变 ZCode runtime 的真实状态来源。旧数据缺失时 mobile 前端 fallback 为 `idle`。
+1. `displayStatus` é calculado pelo desktop renderer ao construir o snapshot
+   `WebRemoteControlTaskTarget`; `buildWebRemoteControlTaskTargets()` lê primeiro o activity do
+   sessions-index carregado pela linha da task e só então faz fallback, na ordem acima, para o task
+   runtime state do Zustand e para `ZCodeTaskMeta.status`.
+2. A homepage do mobile consome apenas `WebRemoteControlTaskTarget.displayStatus` e não pode ler
+   diretamente o runtime do ZCode, o Repo, o Service ou a implementação de persistência.
+3. A cadeia de sincronização continua sendo renderer `syncWebRemoteControlTasks()` -> desktop main ->
+   relay -> mobile bootstrap/listWorkspaces, sem nova entrada de consulta de estado no lado do mobile.
+4. Tanto mudanças no activity do sessions-index quanto no task runtime state compatível precisam
+   disparar a reconstrução e a sincronização do snapshot de tarefas, evitando que o pill de
+   `running` / `completed` / `error` fique atrasado até a próxima atualização da lista de tasks.
+5. Esse campo é usado apenas para exibição na homepage do celular e não altera a origem real do
+   estado no runtime do ZCode. Quando os dados antigos não têm o campo, o frontend do mobile faz
+   fallback para `idle`.
 
-### 首页快照推送去重边界
+### Limite de deduplicação do push do snapshot da homepage
 
-Desktop main 只对 renderer 已构建的 `WebRemoteControlWorkspaceListResult` 做传输去重，不拥有或重新
-解释 task 业务状态。去重签名必须覆盖手机首页需要即时采用、但只在生命周期节点或用户操作时变化的
-字段：
+O desktop main faz apenas deduplicação de transporte sobre o `WebRemoteControlWorkspaceListResult`
+já construído pelo renderer; ele não possui nem reinterpreta o estado de negócio das tasks. A
+assinatura de deduplicação precisa cobrir os campos que a homepage do celular precisa adotar
+imediatamente, mas que só mudam em pontos do ciclo de vida ou em ações do usuário:
 
-1. task：`title`、`unreadAt`、`displayStatus`、`pinned`、`archived`、`remoteSessionId`；
-2. workspace 连接状态：`kind`、`connectionState`、`remoteSessionId`、`lastConnectionError`；
-3. task/workspace 的稳定身份字段继续参与签名，保证新增、删除和跨 workspace membership 变化可见。
+1. task: `title`, `unreadAt`, `displayStatus`, `pinned`, `archived`, `remoteSessionId`;
+2. estado de conexão do workspace: `kind`, `connectionState`, `remoteSessionId`,
+   `lastConnectionError`;
+3. os campos de identidade estáveis de task/workspace continuam participando da assinatura, garantindo
+   que adições, remoções e mudanças de pertencimento entre workspaces fiquem visíveis.
 
-字段按手机端展示语义归一化：缺失 `displayStatus` 等价于 `idle`，缺失 `connectionState` 等价于
-`connected`，缺失可选字符串等价于空串，缺失布尔 membership 等价于 `false`。上述任一有效值变化都
-必须发送新的 `workspace-list-updated`。
+Os campos são normalizados conforme a semântica de exibição do celular: `displayStatus` ausente
+equivale a `idle`, `connectionState` ausente equivale a `connected`, string opcional ausente equivale
+a string vazia e pertencimento booleano ausente equivale a `false`. Qualquer mudança em um desses
+valores válidos precisa enviar um novo `workspace-list-updated`.
 
-`updatedAt` 来自 sessions-index `lastActivityAt`，流式文本和工具事件期间会高频变化。本轮不把它加入
-即时推送签名；如需实时刷新相对时间和时间排序，必须另行设计节流/合并策略，不能让每个流式事件推送
-整份任务首页快照。
+O `updatedAt` vem do `lastActivityAt` do sessions-index e muda com alta frequência durante texto em
+streaming e eventos de ferramentas. Esta rodada não o inclui na assinatura de push imediato; se for
+necessário atualizar o tempo relativo e a ordenação por tempo em tempo real, uma estratégia de
+throttle/agregação precisa ser desenhada à parte, para que cada evento de streaming não empurre a
+snapshot inteira da homepage de tarefas.
 
 ```text
 低频展示/连接字段变化 ──> main 快照签名变化 ──> workspace-list-updated ──> 手机立即采用
 高频 updatedAt 变化 ────> 本轮不触发整表即时推送（保留后续节流/合并边界）
 ```
 
-### 状态投影影响边界
+### Limite de impacto da projeção de status
 
-本次修复属于 presentation / state-source precedence，不改变会话 command、runtime、持久化或恢复协议。
+Esta correção pertence a presentation / state-source precedence e não altera o command de sessão, o
+runtime, a persistência nem o protocolo de recuperação.
 
 ```text
 sessions-index phase (实时 activity) ───────────────┐
@@ -425,159 +533,204 @@ desktop task list ── sessions-index continuous projection（保持原链路�
 mobile /remote ───── renderer task snapshot + replayable delivery（只修正 payload 字段）
 ```
 
-必须保持：
+É preciso manter:
 
-1. relay、desktop main 和 shared-host attachment 仍只透传，不持有 task/session 业务状态。
-2. 桌面 `desktop-continuous` 与手机 `web-remote-replayable` 的 snapshot/gap、owner、queue 语义不变。
-3. tasks-index 继续拥有持久 row/membership；sessions-index activity 只拥有实时 phase。
-4. `workspaceIdentity?.trim() || workspacePath`、`remoteSessionId` 和 pinned/archived membership 不受状态
-   合并影响。
-5. 手机的 running-first 排序继续消费最终 `displayStatus`，因此 stale cache 不再把终态行错误置顶或把
-   真实运行行压回普通时间排序。
+1. relay, desktop main e shared-host attachment continuam apenas repassando e não possuem estado de
+   negócio de task/session.
+2. As semânticas de snapshot/gap, owner e queue do `desktop-continuous` do desktop e do
+   `web-remote-replayable` do celular não mudam.
+3. O tasks-index continua sendo dono das rows persistentes e do pertencimento; o activity do
+   sessions-index é dono apenas do phase em tempo real.
+4. `workspaceIdentity?.trim() || workspacePath`, o `remoteSessionId` e o pertencimento
+   pinned/archived não são afetados pela combinação de estados.
+5. A ordenação running-first do celular continua consumindo o `displayStatus` final, de modo que um
+   cache obsoleto não coloca mais uma linha terminal no topo nem rebaixa uma linha realmente em
+   execução para a ordenação temporal comum.
 
-Focused 回归覆盖所有 phase 与冲突 cache 的组合；本次不新增 conversation E2E，因为没有新增交互、
-command 或 delivery 行为，运行时 NDJSON 已证明 sessions-index 在错误窗口持续发布正确 phase，缺陷位于
-纯 renderer target projection。
+A regressão focada cobre todas as combinações de phase e cache conflitante; esta rodada não adiciona
+E2E de conversa, porque não há nova interação, comando ou comportamento de entrega, e o NDJSON de
+runtime já provou que o sessions-index publica o phase correto continuamente na janela do defeito,
+que estava na projeção de targets puramente do renderer.
 
-为了支持 pinned 分区，`WebRemoteControlTaskTarget` 增加可选字段：
+Para suportar a seção pinned, `WebRemoteControlTaskTarget` ganha um campo opcional:
 
 ```ts
 pinned?: boolean;
 ```
 
-字段来源：
+Origem do campo:
 
-1. Desktop renderer 在 `Root` 中分别通过 `useGlobalTaskList({ kind: "pinned" })` 和
-   `useGlobalTaskList({ kind: "timeline" })` 读取任务。
-2. `buildWebRemoteControlTaskTargets()` 对 pinned 查询结果标记 `pinned: true`，timeline 查询结果不标记。
-3. Mobile 首页只消费该展示字段进行分区；不直接读取 task repo、sqlite、ZCode service 或 runtime。
-4. `workspace_task_list_changed` 携带 task meta 的增量事件只表示标题、时间、状态等元数据变化，不表示
-   pinned/archived 成员关系变化。前端缓存更新必须保留现有列表归属，避免状态刷新把置顶任务移出 pinned 分区。
+1. O desktop renderer lê as tarefas no `Root` separadamente através de `useGlobalTaskList({ kind: "pinned" })`
+   e `useGlobalTaskList({ kind: "timeline" })`.
+2. `buildWebRemoteControlTaskTargets()` marca `pinned: true` no resultado da consulta de pinned e não
+   marca o resultado da consulta de timeline.
+3. A homepage do mobile consome apenas esse campo de exibição para fazer a divisão; ela não lê
+   diretamente o task repo, o sqlite, o service do ZCode nem o runtime.
+4. O evento incremental `workspace_task_list_changed`, que carrega mudanças de metadados da task meta
+   como título, horário e status, não indica mudança de pertencimento pinned/archived. A atualização
+   do cache no frontend precisa preservar a lista existente, evitando que uma atualização de status
+   tire uma tarefa fixada da seção pinned.
 
-## 状态与路由
+## Estado e roteamento
 
-第一版不需要引入真实 URL 路由，可以在 mobile shell 内部用 React state：
+A primeira versão não precisa introduzir roteamento real por URL; pode usar React state dentro do
+shell do mobile:
 
 ```text
 currentMobilePage: "home" | "chat"
 ```
 
-进入聊天：
+Entrar no chat:
 
-1. 用户点击 task。
-2. task 选择成功。
-3. 设置 `currentMobilePage = "chat"`。
-4. 如果当前 history state 不是 `{ zcodeMobilePage: "chat" }`，补一层 chat history state。
+1. O usuário clica numa task.
+2. A seleção da task tem sucesso.
+3. Define-se `currentMobilePage = "chat"`.
+4. Se o history state atual não for `{ zcodeMobilePage: "chat" }`, adiciona-se uma camada de chat
+   history state.
 
-返回首页：
+Voltar à homepage:
 
-1. 点击 header 返回按钮。
-2. 如果当前 history state 是 `{ zcodeMobilePage: "chat" }`，调用 `history.back()`，由 `popstate` 回到 home。
-3. 如果当前没有 chat history state，直接设置 `currentMobilePage = "home"` 作为兜底。
-4. 保留当前 active task 的选中态。
+1. Clica-se no botão de retorno do header.
+2. Se o history state atual for `{ zcodeMobilePage: "chat" }`, chama-se `history.back()`, e o
+   `popstate` volta para home.
+3. Se não houver chat history state, define-se diretamente `currentMobilePage = "home"` como
+   fallback.
+4. Preserva-se o estado selecionado da task ativa.
 
-浏览器返回键：
+Botão de voltar do navegador:
 
-1. mobile shell 初始进入 `home` 时不写 history，保留扫码入口原始历史栈。
-2. 只有用户从 `home` 点击 task 并成功进入 `chat` 时，调用一次 `history.pushState({ zcodeMobilePage: "chat" }, "")`。
-3. 如果当前已经是这层 `chat` state，不重复 push，避免同一个 task 多次点击堆叠历史。
-4. `popstate` 命中 `{ zcodeMobilePage: "chat" }` 时设置 `currentMobilePage = "chat"`；从 chat 点返回按钮时用 `history.back()` 回到 home，而不是直接改 state。
-5. `popstate` 回到非 `zcodeMobilePage` state 时设置 `currentMobilePage = "home"`，并放行浏览器后续默认返回行为。
-6. 跨 workspace task 点击成功并重新挂载 Root 后，仍按“用户点击进入 chat”的规则补一层 `chat` state；这层 state 来自点击流程的一次性 `mobileNavigationIntent`，扫码初始 `initialTaskId` 不补这层 state。
-7. mobile shell unmount 时移除 `popstate` listener。
+1. Quando o mobile shell entra inicialmente em `home`, nenhum history é escrito, preservando a pilha
+   de histórico original do ponto de entrada do QR code.
+2. Só quando o usuário clica numa task em `home` e entra com sucesso em `chat` chama-se uma vez
+   `history.pushState({ zcodeMobilePage: "chat" }, "")`.
+3. Se o estado atual já for esse state de `chat`, não se faz push de novo, evitando que cliques
+   repetidos na mesma task empilhem histórico.
+4. Quando o `popstate` atinge `{ zcodeMobilePage: "chat" }`, define-se
+   `currentMobilePage = "chat"`; ao clicar no botão de voltar a partir do chat, usa-se
+   `history.back()` para voltar a home, em vez de alterar o state diretamente.
+5. Quando o `popstate` volta a um state diferente de `zcodeMobilePage`, define-se
+   `currentMobilePage = "home"` e o comportamento padrão de retorno do navegador é liberado.
+6. Quando o clique numa task de outro workspace tem sucesso e o Root é remontado, ainda se adiciona
+   uma camada de state `chat` conforme a regra «o usuário clicou e entrou no chat»; essa camada vem do
+   `mobileNavigationIntent` de uso único do fluxo de clique, e o `initialTaskId` inicial do QR code não
+   adiciona essa camada.
+7. Quando o mobile shell é desmontado, remove-se o listener de `popstate`.
 
-不要把 workspace/task 状态塞进 URL，避免和扫码入口及配对态互相耦合。
+Não se deve colocar o estado de workspace/task na URL, evitando acoplá-lo ao ponto de entrada do QR
+code e ao estado de pareamento.
 
-## 样式规则
+## Regras de estilo
 
-UI 必须遵守根目录 `DESIGN.md`：
+A UI precisa seguir o `DESIGN.md` da raiz:
 
-1. 使用语义 token，例如 `bg-background`、`bg-card`、`border-card-border`、`text-foreground-subtle`。
-2. card 使用 `rounded-lg`，不要使用过大的圆角。
-3. 首页是业务工具界面，保持紧凑、清晰、可扫描，不做营销页。
-4. 支持 light、dark、Zai light、Zai dark。
-5. 支持中英文文案长度，不依赖固定英文短句。
-6. 按钮使用现有 `Button` 组件和 lucide 图标。
-7. 首页滚动、card 高度、task row 高度需要稳定，展开/收起不能造成不可控横向溢出。
+1. Usar tokens semânticos, por exemplo `bg-background`, `bg-card`, `border-card-border`,
+   `text-foreground-subtle`.
+2. Cards usam `rounded-lg`; não use raios grandes demais.
+3. A homepage é uma interface de ferramenta de negócio: mantê-la compacta, clara e legível, sem cara de
+   página de marketing.
+4. Suportar light, dark, Zai light e Zai dark.
+5. Suportar o comprimento dos textos em chinês e inglês, sem depender de frases curtas fixas em
+   inglês.
+6. Botões usam o componente `Button` existente e ícones lucide.
+7. A rolagem da homepage, a altura dos cards e a altura das linhas de task precisam ser estáveis, e
+   expandir/recolher não pode causar transbordo horizontal descontrolado.
 
-## 日志
+## Logs
 
-涉及交互问题时需要打日志辅助定位，不猜测状态。
+Quando houver problemas de interação, é preciso registrar logs para ajudar a localizar, sem adivinhar o
+estado.
 
-UI 层统一使用：
+A camada de UI usa uniformemente:
 
 ```ts
 import { logger } from "@/logger.js";
 ```
 
-建议日志点：
+Pontos de log sugeridos:
 
-1. 首页加载 workspace/task 快照失败：`error`。
-2. 点击同 workspace task 后 mobile view state 更新失败：`error`。
-3. 跨 workspace task 开始切换：`info`。
-4. 跨 workspace task 切换失败：`error`。
-5. 扫码初始态无法匹配 workspace/task：`warn`。
+1. Falha ao carregar o snapshot de workspaces/tasks da homepage: `error`.
+2. Falha ao atualizar o mobile view state após clicar numa task do mesmo workspace: `error`.
+3. Início da troca ao clicar numa task de outro workspace: `info`.
+4. Falha na troca ao clicar numa task de outro workspace: `error`.
+5. Estado inicial do QR code sem correspondência de workspace/task: `warn`.
 
-高频渲染和普通 hover 不打日志。
+Renderizações de alta frequência e hovers comuns não geram log.
 
-## 实现与回归测试
+## Implementação e testes de regressão
 
-必须执行：
+É preciso executar:
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-当前测试入口：
+Entradas de teste atuais:
 
 1. `packages/ui/test/webRemoteControlMobileTaskHome.test.ts`
-   - workspace 按 desktop 返回顺序分组。
-   - 默认展开 `activeWorkspaceKey`。
-   - `activeTaskId` 对应 task 显示 selected。
-   - 点击全部收起后所有 workspace card 收起。
+   - workspaces agrupados na ordem retornada pelo desktop.
+   - expansão padrão do `activeWorkspaceKey`.
+   - a task correspondente ao `activeTaskId` aparece como selected.
+   - após clicar em recolher tudo, todos os workspace cards ficam recolhidos.
 2. `packages/ui/test/useWebRemoteControlTaskOpen.test.ts`
-   - 同 workspace task 调用 `onSelectTask` 和 `updateMobileViewState`。
-   - 跨 workspace task 调用 `switchWorkspace` 时带上 `{ taskId, mobileNavigationIntent: "chat" }`。
-   - 切换失败时保留错误并清掉 switching 状态。
+   - task do mesmo workspace chama `onSelectTask` e `updateMobileViewState`.
+   - task de outro workspace chama `switchWorkspace` com `{ taskId, mobileNavigationIntent: "chat" }`.
+   - em caso de falha na troca, o erro é preservado e o estado de switching é limpo.
 3. `packages/ui/test/workspaceShellRemoteMobileLayout.test.ts`
-   - 手机远控断点渲染 mobile shell。
-   - 非手机断点继续渲染现有 shell/sidebar。
-   - 扫码初始 task 只展开首页 card 和选中 task row，不进入 chat。
-   - 用户点击 task 进入 chat 时只补一层 history state，浏览器返回回到 home。
-   - 跨 workspace 点击后重新挂载 Root 时消费一次性 `mobileNavigationIntent` 进入 chat，并在消费后清空。
+   - o breakpoint de controle remoto do celular renderiza o mobile shell.
+   - fora do breakpoint de celular, continua renderizando o shell/sidebar existente.
+   - a task inicial do QR code apenas expande o card da homepage e seleciona a linha da task, sem
+     entrar no chat.
+   - quando o usuário clica numa task e entra no chat, apenas uma camada de history state é
+     adicionada, e o retorno do browser volta para home.
+   - após um clique entre workspaces remontar o Root, o `mobileNavigationIntent` de uso único é
+     consumido para entrar no chat e é limpo após o consumo.
 4. `packages/shared/test/webRemoteControl.test.ts`
-   - 如新增 `displayStatus`，补 schema/类型兼容测试。
+   - se `displayStatus` for novo, acrescentar testes de compatibilidade de schema/tipo.
 5. `packages/ui/test/webRemoteControlTaskIndex.test.ts`
-   - `buildWebRemoteControlTaskTargets()` 按 sessions-index activity → task runtime →
-     `ZCodeTaskMeta.status` 的优先级计算 `displayStatus`。
-   - 覆盖 live phase 与 stale runtime/persisted cache 在 running、completed、error 三个方向上的冲突。
-   - activity 缺失或为兼容 `draft` 时保持原有 runtime/persisted fallback，持久 `running` 仍不得制造假
-     running。
+   - `buildWebRemoteControlTaskTargets()` calcula `displayStatus` pela prioridade activity do
+     sessions-index → task runtime → `ZCodeTaskMeta.status`.
+   - cobre os conflitos entre phase live e cache runtime/persistido obsoleto nas três direções
+     running, completed e error.
+   - quando o activity está ausente ou é o `draft` compatível, o fallback runtime/persistido original
+     é mantido, e um `running` persistido ainda não pode fabricar um running falso.
 6. `packages/desktop/test/webRemoteControlManagerExternalRelay.test.ts`
-   - 同一 task 只改变 `title`、`unreadAt`、`displayStatus`、`pinned`、`archived` 或
-     `remoteSessionId` 时必须推送 `workspace-list-updated`。
-   - 同一 workspace 只改变 `connectionState`、`remoteSessionId` 或 `lastConnectionError` 时必须推送；
-     完全相同的有效字段快照仍应去重。
-   - 单独改变高频 `updatedAt` 不属于本轮即时推送契约。
+   - quando apenas `title`, `unreadAt`, `displayStatus`, `pinned`, `archived` ou `remoteSessionId`
+     mudam na mesma task, é preciso enviar `workspace-list-updated`.
+   - quando apenas `connectionState`, `remoteSessionId` ou `lastConnectionError` mudam no mesmo
+     workspace, é preciso enviar; um snapshot de campos válidos totalmente idêntico ainda deve ser
+     deduplicado.
+   - mudar apenas o `updatedAt` de alta frequência não faz parte do contrato de push imediato desta
+     rodada.
 
-## 历史实施顺序
+## Ordem histórica de implementação
 
-建议按以下顺序落地：
+Sugere-se a seguinte ordem de execução:
 
-1. 抽出 `useWebRemoteControlTaskOpen`，保持现有 `WebRemoteControlTaskIndex` 行为不变。
-2. 新增 mobile 首页组件，先用现有 task target 字段完成 workspace card 和 task row。
-3. 新增 mobile shell，并在小屏远控模式下接入。
-4. 调整扫码初始态：默认停留首页，只展开并选中对应 task。
-5. 补充 `displayStatus` 字段和状态 pill。
-6. 移除或旁路手机远控旧的 sidebar 顶部拖拽折叠逻辑。
-7. 补测试，执行 `pnpm typecheck` 和 `pnpm lint`。
-8. 更新 `docs/web-remote-control/web-remote-control-architecture.md` 中当前手机端 UI 描述。
+1. Extrair `useWebRemoteControlTaskOpen`, mantendo o comportamento do `WebRemoteControlTaskIndex`
+   existente inalterado.
+2. Adicionar o componente de homepage do mobile, usando primeiro os campos de task target existentes
+   para completar os workspace cards e as task rows.
+3. Adicionar o mobile shell e integrá-lo no modo de controle remoto em tela pequena.
+4. Ajustar o estado inicial do QR code: permanecer por padrão na homepage, expandindo e selecionando
+   apenas a task correspondente.
+5. Acrescentar o campo `displayStatus` e o pill de status.
+6. Remover ou contornar a lógica antiga de arrastar e recolher o topo da sidebar no controle remoto do
+   celular.
+7. Acrescentar os testes e executar `pnpm typecheck` e `pnpm lint`.
+8. Atualizar a descrição atual da UI móvel em
+   `docs/web-remote-control/web-remote-control-architecture.md`.
 
-## 风险点
+## Riscos
 
-1. 跨 workspace task 点击会重新创建 bridge，新 Root 首帧状态必须和 mobile shell 页面状态配合好，避免先闪首页再进聊天。
-2. 扫码初始态仍需要打开 workspace bridge，否则聊天页无法复用现有服务；但 UI 不应自动跳聊天。
-3. 远程 workspace 必须始终使用 `workspaceIdentity` 做 key，不能只用 `workspacePath`。
-4. `WorkspaceShellLayout` 已有远控手机布局历史逻辑较多，接入 mobile shell 时要小心保留桌面远控行为。
-5. 如果后续加入真实 URL 路由，需要避免把短期 `remoteControlToken` 和内部 task 页面状态混在一起。
+1. Clicar numa task de outro workspace recria o bridge, e o estado do primeiro frame do novo Root
+   precisa se articular bem com o estado de página do mobile shell, evitando piscar a homepage antes
+   de entrar no chat.
+2. O estado inicial do QR code ainda precisa abrir o workspace bridge, porque a página de chat
+   depende dos serviços existentes; mas a UI não deve pular automaticamente para o chat.
+3. Workspace remoto precisa usar sempre `workspaceIdentity` como key e nunca apenas `workspacePath`.
+4. `WorkspaceShellLayout` já tem bastante lógica histórica de layout de controle remoto no celular, e
+   é preciso ter cuidado ao integrar o mobile shell para preservar o comportamento de controle
+   remoto do desktop.
+5. Se uma rota real por URL for adicionada depois, é preciso evitar misturar o `remoteControlToken` de
+   curto prazo com o estado interno de página de task.

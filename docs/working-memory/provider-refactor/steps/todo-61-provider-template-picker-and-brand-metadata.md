@@ -1,55 +1,55 @@
-# Todo 61：Provider Template 选择页与品牌元数据收口
+# Todo 61：Página de Seleção de Template de Provider e Consolidação de Metadados de Marca
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-09-02
+> Data: 2026-09-02
 >
-> 背景：产品分支 `feat/provider-ux-refactor` 基于较早的 Provider 实现新增了供应商目录、Logo、侧栏样式等改动。本 Todo 不合并该分支，而是在当前 Provider Template、Provider Config Overlay 和 Registry 架构上重新实现已确认的产品意图。
+> Contexto: o branch de produto `feat/provider-ux-refactor` adicionou, sobre uma implementação de Provider mais antiga, mudanças como catálogo de fornecedores, logos e estilos de barra lateral. Este Todo não faz merge desse branch; em vez disso, reimplementa a intenção de produto já confirmada sobre a arquitetura atual de Provider Template, Provider Config Overlay e Registry.
 
-## 1. 目标
+## 1. Objetivo
 
-在不恢复旧 Model Catalog、不新增第二套 Provider 候选源的前提下，完成以下设置页体验：
+Sem restaurar o antigo Model Catalog e sem introduzir uma segunda fonte de candidatos de Provider, concluir a seguinte experiência na página de configurações:
 
-- 顶部提供统一的“添加供应商”入口；
-- 入口在右侧详情区域打开 Provider Template 选择页；
-- Template 选择页直接消费目标 Host 的 `ProviderSettingsView.providerTemplates`；
-- 支持从 Template 创建 Personal Provider，也支持创建无 Template 的纯自定义 Provider；
-- Template 名称支持中英文；
-- 创建出的 Personal Provider 获得稳定、唯一、可编辑的 `label`；
-- Provider Logo 由 Effective Provider Config 决定，不由 Renderer 按 Provider ID 维护第二份产品名单；
-- 保持现有 Provider 设置页布局、滚动、拖动、Account Provider 和删除回落行为。
+- uma entrada unificada “Adicionar fornecedor” no topo;
+- a entrada abre a página de seleção de Provider Template na área de detalhes à direita;
+- a página de seleção de Template consome diretamente o `ProviderSettingsView.providerTemplates` do Host de destino;
+- permite criar um Personal Provider a partir de um Template, bem como criar um Provider puramente personalizado sem Template;
+- os nomes de Template suportam chinês e inglês;
+- o Personal Provider criado recebe um `label` estável, único e editável;
+- o Logo do Provider é determinado pela Effective Provider Config, e não pelo Renderer mantendo uma segunda lista de produtos por Provider ID;
+- manter o layout, a rolagem, o arraste, o Account Provider e o comportamento de fallback de exclusão da página de configurações de Provider atual.
 
 ### Impact Brief
 
-- Primary owner：Provider Config/Template 领域与目标 Host 的 Settings Facade。
-- Primary UI：模型设置页的 Provider 导航、详情标题与新增 `ProviderTemplatePicker`。
-- Downstream：Bundled/Remote Built-in Release、Active/LKG、Personal 创建、Desktop/Web/手机设置页。
-- 不变量：Registry 身份、Account 页面、Model Rule 优先级、拖动/删除回落和模型执行语义不变。
-- 主要风险：Release 壳版本未原子切换、Renderer 复制品牌事实、名称去重绕过 Host 原子更新、未知远端 Logo key 导致配置拒绝。
+- Primary owner: domínio de Provider Config/Template e o Settings Facade do Host de destino.
+- Primary UI: navegação de Provider da página de configurações de modelos, título de detalhes e o novo `ProviderTemplatePicker`.
+- Downstream: Bundled/Remote Built-in Release, Active/LKG, criação Personal, páginas de configurações Desktop/Web/mobile.
+- Invariantes: identidade do Registry, páginas de Account, prioridade de Model Rule, semântica de arraste/fallback de exclusão e de execução de modelos permanecem inalteradas.
+- Principais riscos: versão do casco de Release não trocada atomicamente, Renderer replicando fatos de marca, desduplicação de nome contornando a atualização atômica do Host e chave de Logo remota desconhecida levando à rejeição da configuração.
 
-## 2. 术语与边界
+## 2. Terminologia e Limites
 
-### 2.1 不恢复 Catalog
+### 2.1 Não restaurar o Catalog
 
-本功能不使用 `Catalog` 作为领域名。旧 Model Catalog 曾经承担模型能力和运行时事实，已经退出 Provider 主链路；重新使用同名概念容易造成错误联想。
+Esta funcionalidade não usa `Catalog` como nome de domínio. O antigo Model Catalog chegou a carregar capacidades de modelo e fatos de runtime, mas já saiu da cadeia principal de Provider; reutilizar o mesmo conceito facilitaria associativos errados.
 
-命名统一为：
+A nomenclatura unificada é:
 
 ```text
-用户界面：添加供应商
-代码组件：ProviderTemplatePicker
-页面状态：template-picker
-数据来源：ProviderSettingsView.providerTemplates
+Interface do usuário：添加供应商
+Componente de código：ProviderTemplatePicker
+Estado da página：template-picker
+Fonte de dados：ProviderSettingsView.providerTemplates
 ```
 
-禁止新增：
+É proibido adicionar:
 
-- `ProviderCatalog` / `CatalogProvider` 领域类型；
-- Catalog Service、Catalog Source 或 Catalog Repository；
-- Renderer 内按 Provider ID 维护的候选列表或排序表；
-- 从旧 Model Catalog、Preset 或远端产品配置补充 Template 事实。
+- tipos de domínio `ProviderCatalog` / `CatalogProvider`;
+- Catalog Service, Catalog Source ou Catalog Repository;
+- listas de candidatos ou tabelas de ordenação mantidas no Renderer por Provider ID;
+- complement Template com fatos do antigo Model Catalog, de Presets ou da configuração remota de produtos.
 
-唯一链路为：
+O único fluxo é:
 
 ```text
 ProviderSettingsView.providerTemplates
@@ -66,11 +66,11 @@ ProviderSettingsView.providerTemplates
        Personal Provider Config
 ```
 
-### 2.2 领域壳原则
+### 2.2 Princípio do casco de domínio
 
-当一个领域对象除了 Config Overlay 之外还拥有自身元数据时，使用领域壳承载元数据和 Overlay；领域对象不直接等同于 Overlay，也不把领域元数据污染进通用 Overlay。
+Quando um objeto de domínio possui, além do Config Overlay, metadados próprios, use um casco de domínio para carregar os metadados e o Overlay; o objeto de domínio não é igual ao Overlay nem contamina os metadados de domínio dentro do Overlay genérico.
 
-本轮只把该原则用于 `ProviderTemplate`。普通 Built-in Provider 没有新增独立元数据，不为了形式统一机械包装；Model Config Rule 的集中结构和优先级不变。
+Nesta rodada o princípio é aplicado apenas a `ProviderTemplate`. Um Built-in Provider comum não recebe novos metadados próprios e não é envolvido mecanicamente por uniformidade formal; a estrutura centralizada e a prioridade do Model Config Rule permanecem inalteradas.
 
 ```ts
 interface ProviderTemplate {
@@ -79,14 +79,14 @@ interface ProviderTemplate {
 }
 ```
 
-当前：
+Atualmente:
 
 ```text
 ProviderTemplateMap
 └─ templateId -> ProviderConfig
 ```
 
-目标：
+Alvo:
 
 ```text
 ProviderTemplateMap
@@ -95,7 +95,7 @@ ProviderTemplateMap
                  └─ config: ProviderConfig Overlay
 ```
 
-以下结构不迁入 Template 壳：
+A estrutura a seguir não é migrada para dentro do casco de Template:
 
 ```text
 modelConfigRules
@@ -104,13 +104,13 @@ modelConfigRules
 └─ providerModelRules
 ```
 
-原因是它们共同表达清晰的规则优先级。把 Template/Provider 精确 Rule 搬进各自领域壳，会隐藏其前面仍有 `matchRules` Overlay 的事实；这不是本轮预期改动。
+O motivo é que elas expressam em conjunto uma prioridade de regras clara. Mover as Rules precisas de Template/Provider para seus respectivos cascos de domínio ocultaria o fato de que ainda existe um Overlay de `matchRules` antes delas; essa não é a mudança esperada nesta rodada.
 
-`providerTemplates` 的物理值结构发生了破坏性变化，因此 Bundled Release、Remote Release codec、Active/LKG cache 和测试 fixture 必须原子切换到同一个新 Schema Version。当前旧结构尚未正式发布，不提供 dual-read、旧壳 importer 或运行时 shape 猜测；旧客户端与新发布内容通过既有 app-version/Schema-Version 边界隔离。
+A estrutura física do valor de `providerTemplates` sofreu uma mudança destrutiva, portanto o Bundled Release, o codec de Remote Release, o cache Active/LKG e os fixtures de teste precisam mudar atomicamente para a mesma nova Schema Version. A estrutura antiga ainda não foi oficialmente publicada, então não há dual-read, importer do casco antigo nem adivinhação de shape em runtime; clientes antigos e conteúdos novos ficam isolados pela fronteira existente de app-version/Schema-Version.
 
-## 3. Template 多语言名称
+## 3. Nomes multilíngue de Template
 
-Template 壳新增 `nameMap`。键使用当前应用 Locale 的 BCP 47 标识：
+O casco de Template ganha `nameMap`. As chaves usam o identificador BCP 47 do Locale atual do aplicativo:
 
 ```ts
 type ProviderTemplateNameMap = Readonly<{
@@ -119,9 +119,9 @@ type ProviderTemplateNameMap = Readonly<{
 }>;
 ```
 
-Built-in 发布内容应同时提供当前支持的中英文名称。当前 Release Schema 只接受 `zh-CN`、`en-US`；以后增加 Locale 时必须同步提升 Schema/Release Version，不能由旧客户端猜测新键。
+O conteúdo Built-in publicado deve fornecer simultaneamente os nomes em chinês e em inglês atualmente suportados. O Release Schema atual aceita apenas `zh-CN` e `en-US`; ao adicionar Locales no futuro, será obrigatório elevar em conjunto Schema/Release Version, e clientes antigos não podem adivinhar novas chaves.
 
-名称解析顺序：
+Ordem de resolução do nome:
 
 ```text
 nameMap[当前 locale]
@@ -137,11 +137,11 @@ nameMap["en-US"]
 templateId
 ```
 
-`nameMap` 只属于 Template，不加入 `ProviderConfig`，也不新增 `label_map`。Template 选择页直接使用它；Renderer 不维护 Provider ID 到 i18n message 的映射。
+`nameMap` pertence apenas ao Template, não entra em `ProviderConfig` e não cria um novo `label_map`. A página de seleção de Template o usa diretamente; o Renderer não mantém um mapeamento de Provider ID para mensagem i18n.
 
-## 4. 创建与名称去重
+## 4. Criação e Desduplicação de Nomes
 
-Template 名称是创建时的名称种子，不是创建后 Provider 的动态名称。
+O nome do Template é uma semente de nome no momento da criação, não um nome dinâmico do Provider depois de criado.
 
 ```text
 当前界面 Locale
@@ -159,75 +159,75 @@ Config Service 在 Personal Config 更新锁内重新检查名称
 生成唯一 label 并写入 Personal Provider Overlay
 ```
 
-约束：
+Restrições:
 
-- UI 传入的 `label` 只是名称种子，不能绕过服务端去重；
-- 去重必须与 Personal Provider 创建在同一次原子更新中完成；
-- `initialConfig` 不允许携带 `label`，避免通用 Overlay 绕过去重入口；
-- 名称冲突时延续 `Name`、`Name 2`、`Name 3` 的现有语义；
-- 创建后 `label` 是稳定的 Personal 配置，切换界面语言不自动重命名；
-- 用户后续改名继续写入同一个 Personal `label`；
-- Template 配置更新不覆盖已创建 Provider 的 `label`。
+- o `label` enviado pela UI é apenas uma semente de nome e não pode contornar a desduplicação no servidor;
+- a desduplicação precisa ocorrer na mesma atualização atômica da criação do Personal Provider;
+- `initialConfig` não pode carregar `label`, evitando que o Overlay genérico contorne o ponto de entrada da desduplicação;
+- em caso de conflito de nome, mantém-se a semântica existente de `Name`, `Name 2`, `Name 3`;
+- após a criação, `label` é uma configuração Personal estável e trocar o idioma da interface não renomeia automaticamente;
+- uma renomeação posterior do usuário continua gravando no mesmo `label` Personal;
+- atualizações de configuração do Template não sobrescrevem o `label` do Provider já criado.
 
-纯自定义 Provider 继续使用本地化的“新供应商”名称种子，并经过同一原子去重入口。
+Um Provider puramente personalizado continua usando a semente de nome localizada “新供应商” e passa pelo mesmo ponto de entrada atômico de desduplicação.
 
-## 5. Template 选择页交互
+## 5. Interação da Página de Seleção de Template
 
-### 5.1 入口与页面
+### 5.1 Entrada e Página
 
-- 在设置页说明区域顶部、刷新按钮附近增加“添加供应商”按钮；
-- 点击后左侧 Provider 导航保持不变，右侧详情区域切换为 `ProviderTemplatePicker`；
-- 页面提供返回按钮；返回后恢复进入前的 Provider 详情；
-- 创建成功后立即进入新建 Provider 的详情；
-- 不新增窄屏上下分栏，继续使用当前左右分栏；
-- 继续使用当前左右区域独立滚动，不重写设置页高度和 overflow 层级；
-- 本轮不提供 Template 搜索。
+- adicionar o botão “添加供应商” no topo da área de descrição da página de configurações, perto do botão de atualizar;
+- ao clicar, a navegação de Providers à esquerda permanece inalterada e a área de detalhes à direita muda para `ProviderTemplatePicker`;
+- a página oferece um botão de voltar; ao voltar, os detalhes do Provider anteriores à entrada são restaurados;
+- após a criação bem-sucedida, entrar imediatamente nos detalhes do novo Provider;
+- não criar nova divisão superior/inferior para telas estreitas; continuar usando a divisão esquerda/direita atual;
+- continuar usando a rolagem independente das áreas esquerda e direita, sem reescrever a altura da página de configurações nem a hierarquia de overflow;
+- esta rodada não oferece busca de Template.
 
-### 5.2 Template 卡片
+### 5.2 Cartão de Template
 
-- 使用当前 Built-in Provider Template 的发布顺序；
-- 不在 UI 维护 Provider ID 排序表；
-- 页面首项或明确区域提供“自定义供应商”入口；
-- 卡片整块可点击，并在右侧显示统一的进入箭头；
-- 卡片严格使用 64px 固定高度；
-- 名称保持单行，超出可用宽度时省略；
-- 被省略时通过悬浮提示展示完整名称；
-- 不使用 `overflow-wrap: anywhere` 拆散正常单词；
-- Logo 使用统一尺寸与留白，名称占用剩余宽度；
-- Desktop、Web 和手机布局均需验证长中英文名称；完整名称通过悬浮提示读取。
+- usar a ordem de publicação atual dos Built-in Provider Templates;
+- não manter tabela de ordenação de Provider ID na UI;
+- o primeiro item da página ou uma área explícita oferece a entrada “自定义供应商”;
+- o cartão inteiro é clicável e exibe uma seta de entrada unificada à direita;
+- o cartão usa estritamente altura fixa de 64px;
+- o nome permanece em uma única linha e é truncado quando excede a largura disponível;
+- quando truncado, o nome completo é exibido em um tooltip;
+- não usar `overflow-wrap: anywhere` para quebrar palavras normais;
+- o Logo usa tamanho e respiro unificados, e o nome ocupa a largura restante;
+- layouts Desktop, Web e mobile precisam ser validados com nomes longos em chinês e inglês; o nome completo é lido pelo tooltip.
 
-## 6. 设置页其他已确认改动
+## 6. Outras Mudanças Confirmadas na Página de Configurações
 
-- Provider 侧栏仅调整 Logo 所需尺寸，不整体搬运产品分支的行高、选中态和状态样式；
-- 状态点读取 Provider `executable`：可执行为绿色，不可执行为灰色；
-- 不恢复 Provider 顶层 `enabled` 或 Provider Switch；
-- 不显示“已启用”状态文案；
-- “添加模型”移动到“模型列表”标题右侧；
-- 删除 Provider 后继续使用当前导航 fallback，不实现相邻 Provider 选择；
-- Provider 删除失败时保持当前选择；
-- Template 选择页中的品牌名称由 Template `nameMap` 发布；`Z.AI` 中 `AI` 必须大写；
-- 已创建 Provider 与 Account Provider 的名称继续读取各自 Effective Provider Config 的 `label`，不能反向读取 Template `nameMap`；
-- 除已明确本地化的名称外，英文界面使用官方英文品牌名；不在 Renderer 按 ID 翻译品牌。
+- a barra lateral de Provider ajusta apenas as dimensões necessárias ao Logo, sem trazer o line-height, o estado selecionado e os estilos de estado do branch de produto;
+- o ponto de status lê `executable` do Provider: verde quando executável, cinza quando não executável;
+- não restaurar o `enabled` de topo do Provider nem o Provider Switch;
+- não exibir o texto de status “已启用”;
+- “添加模型” é movido para o lado direito do título “模型列表”;
+- após excluir um Provider, continua-se usando o fallback de navegação atual, sem implementar seleção de Provider adjacente;
+- quando a exclusão do Provider falha, mantém-se a seleção atual;
+- o nome da marca na página de seleção de Template é publicado pelo `nameMap` do Template; em `Z.AI`, `AI` deve estar em maiúsculas;
+- os nomes de Providers já criados e de Account Providers continuam lendo o `label` de suas respectivas Effective Provider Config, sem ler o `nameMap` do Template na direção inversa;
+- exceto pelos nomes explicitamente localizados, a interface em inglês usa o nome oficial da marca em inglês; não traduzir marcas por ID no Renderer.
 
-## 7. Logo 配置与打包资源
+## 7. Configuração de Logo e Recursos Empacotados
 
-Logo 保留在 `ProviderConfig`，不在 Provider Template 壳中重复定义。`ProviderConfig` 已经承载 `label`、`visibility` 等 Provider 展示事实；Logo 同样是最终 Provider 的展示事实。Template 通过内部 `config` 提供默认 Logo，Account/Built-in Provider 直接通过自己的 Provider Config 提供 Logo，Personal Overlay 可以继承它。所有设置页最终只读取 Effective Provider Config，不按 Provider ID 推断 Logo。
+O Logo permanece em `ProviderConfig` e não é redefinido no casco de Provider Template. `ProviderConfig` já carrega fatos de exibição do Provider como `label` e `visibility`; o Logo também é um fato de exibição do Provider final. O Template fornece o Logo padrão por meio do `config` interno, Account/Built-in Providers fornecem o Logo diretamente pela sua própria Provider Config, e o Personal Overlay pode herdá-lo. Todas as páginas de configurações leem apenas a Effective Provider Config e não inferem o Logo por Provider ID.
 
-### 7.1 当前实现事实
+### 7.1 Fatos da Implementação Atual
 
-- `ProviderConfig.logoUrl` 当前只在 Schema、Overlay、Resolver 和旧配置迁移中流转；设置页没有消费该字段；
-- 现有账号界面的 Z.AI / BigModel 图标由 OAuth 品牌图标 helper 提供；
-- 普通 Personal Provider 和由 Template 创建的 Provider 当前统一显示通用 Package 图标；
-- 产品分支新增了多份 80×80 PNG，并在 Renderer 中维护 `Provider ID -> Logo import` 映射；
-- 该映射同时列举 Template Provider、Account Provider 和按量 API Provider，复制了 Provider 身份与品牌归属事实，不能原样采用；
-- 产品分支的素材清单中，Moonshot、MiniMax、Xiaomi、OpenAI、Anthropic、xAI、DeepSeek 有可追溯来源；Z.AI 标记为用户提供；Alibaba 素材来自第三方 GitHub 仓库，不能据此认定为官方来源；
-- 产品分支新增 PNG 统一为不透明方形画布，深浅主题、视觉留白和不同品牌图形尺寸尚未统一验证。
+- `ProviderConfig.logoUrl` atualmente circula apenas pelo Schema, pelo Overlay, pelo Resolver e pela migração de configurações antigas; a página de configurações não consome esse campo;
+- os ícones Z.AI / BigModel da interface de contas existente são fornecidos por um helper de ícones de marca OAuth;
+- Personal Providers comuns e Providers criados a partir de Template exibem hoje uniformemente o ícone genérico de Package;
+- o branch de produto adicionou vários PNGs de 80×80 e mantém no Renderer um mapeamento `Provider ID -> Logo import`;
+- esse mapeamento enumera simultaneamente Template Providers, Account Providers e Providers de API por consumo, replicando fatos de identidade de Provider e atribuição de marca, e não pode ser adotado como está;
+- na lista de assets do branch de produto, Moonshot, MiniMax, Xiaomi, OpenAI, Anthropic, xAI e DeepSeek têm origem rastreável; Z.AI está marcado como fornecido pelo usuário; os assets da Alibaba vêm de um repositório GitHub de terceiros e não podem ser considerados oficiais com base nisso;
+- os PNGs novos do branch de produto adotam uniformemente uma tela quadrada opaca, e tema claro/escuro, respiro visual e tamanhos gráficos diferentes entre marcas ainda não foram unificados e validados.
 
-因此，本轮实施删除 Renderer 的 Provider ID Logo 映射，并把未被消费、名称又绑定 URL 载体的 `ProviderConfig.logoUrl` 直接替换为结构化 `ProviderConfig.logo`。当前结构尚未正式发布，不新增 `logoUrl -> logo` 兼容读取或 URL 转换；旧 Personal importer 也不迁移 `logoUrl`。Provider 与品牌资源的关联只在 Provider Config 中声明一次。
+Por isso, a implementação desta rodada remove o mapeamento de Logo por Provider ID do Renderer e substitui diretamente o `ProviderConfig.logoUrl`, não consumido e com nome atrelado ao veículo URL, por um `ProviderConfig.logo` estruturado. A estrutura atual ainda não foi oficialmente publicada, então não se adiciona leitura compatível `logoUrl -> logo` nem conversão de URL; o importer Personal antigo também não migra `logoUrl`. A associação entre Provider e recursos de marca é declarada uma única vez na Provider Config.
 
-### 7.2 配置与资源结构
+### 7.2 Estrutura de Configuração e Recursos
 
-本轮结构固定为：
+A estrutura desta rodada é fixada como:
 
 ```ts
 type ProviderLogoRef = Readonly<{
@@ -240,9 +240,9 @@ interface ProviderConfigInput {
 }
 ```
 
-虽然类型采用可扩展的辨别联合结构，本轮 Schema 只接受 `type: "builtin"`。不实现 URL、上传文件或 Data URL 类型。
+Embora o tipo adote uma estrutura de união discriminada extensível, o Schema desta rodada aceita apenas `type: "builtin"`. Não são implementados tipos de URL, arquivo enviado ou Data URL.
 
-`key` 是开放字符串，不在 Provider Schema 中枚举，也不参加 Provider 完整性或可执行性校验。UI 的通用资源解析器负责把 `key` 解析成 Desktop/Web 均可使用的打包资源；解析器不保存 Provider 排序、名称、Template 成员或 Account 产品逻辑。
+`key` é uma string aberta, não é enumerada no Schema do Provider e não participa da validação de integridade ou de executabilidade do Provider. O resolvedor genérico de recursos da UI é responsável por resolver `key` em um recurso empacotado utilizável em Desktop e Web; o resolvedor não guarda ordenação de Provider, nomes, membros de Template nem lógica de produto de Account.
 
 ```text
 Effective Provider Config.logo
@@ -255,19 +255,19 @@ Effective Provider Config.logo
                 `-- 未知/缺失 --> 通用 Package 图标
 ```
 
-Official Config 可以远程发布客户端尚不认识的新 `key`。这种情况必须正常解析、保存并进入 Registry；旧客户端只回退通用图标，不能报错，也不能让 Provider 变成不可执行。客户端以后打包相同 key 的素材后自然显示 Logo。
+Uma Official Config pode publicar remotamente uma nova `key` que o cliente ainda não conhece. Isso precisa ser resolvido, salvo e entrar no Registry normalmente; um cliente antigo apenas volta ao ícone genérico, sem gerar erro e sem tornar o Provider inexecutável. Quando o cliente mais tarde empacotar o asset com a mesma key, o Logo aparece naturalmente.
 
-这里的前向容错只针对未知 `key`，不针对未知 `type`。当前客户端只支持 `type="builtin"`；未来增加 URL、上传文件或其他类型时，需要随 Release Schema/客户端兼容策略正式升级，不能要求旧客户端猜测新资源协议。
+A tolerância a futuro aqui se aplica apenas a `key` desconhecida, não a `type` desconhecida. O cliente atual suporta apenas `type="builtin"`; ao adicionar URL, arquivo enviado ou outros tipos no futuro, será preciso elevar formalmente o Release Schema/a estratégia de compatibilidade do cliente, sem exigir que clientes antigos adivinhem um novo protocolo de recursos.
 
-由 Template 创建的 Personal Provider 继续通过 `templateId` 继承 Template `config.logo`，不把 Logo 复制进 Personal Overlay。因此远端 Template 在后续 revision 更新 Logo 时，没有显式 Logo 覆盖的既有实例会自然取得新素材引用；已有 Personal `label` 不受影响。Account Provider、Family 按量 API Provider 和其他 Built-in Provider 在各自的 Provider Config 中声明同一个 Logo key；允许多个 Provider 复用相同 key。
+O Personal Provider criado a partir de um Template continua herdando o Template `config.logo` por meio do `templateId`, sem copiar o Logo para o Personal Overlay. Assim, quando um Template remoto atualizar o Logo em uma revisão posterior, as instâncias existentes sem cobertura explícita de Logo obtêm naturalmente a nova referência de asset; o `label` Personal existente não é afetado. Account Providers, Family API-by-consumo e outros Built-in Providers declaram a mesma key de Logo em suas respectivas Provider Configs; é permitido que múltiplos Providers reutilizem a mesma key.
 
-`logo` 是共同 Provider Config Overlay 的展示配置项：Personal Schema 可以显式覆盖已知 Built-in key，也可以用 `null` 清除并回退通用图标，但本轮 UI 不提供这一编辑入口。纯自定义 Provider 创建时不写 `logo`，默认使用通用 Package 图标。
+`logo` é um item de configuração de exibição do Overlay comum de Provider Config: o Personal Schema pode sobrescrever explicitamente uma key Built-in conhecida ou usar `null` para limpar e voltar ao ícone genérico, mas esta rodada de UI não oferece esse ponto de edição. Um Provider puramente personalizado não grava `logo` na criação e usa por padrão o ícone genérico de Package.
 
-Settings View、跨进程协议和表单 View Model 只原样投影 Effective Provider Config 中的同一 `logo` 结构；不增加 `resolvedLogoUrl`、`providerBrand` 或 Provider ID 映射。资源 URL 只在最终 UI 资源解析器中由 `logo.key + 当前主题` 计算。
+Settings View, o protocolo entre processos e o View Model de formulário apenas projetam a mesma estrutura `logo` da Effective Provider Config; não são adicionados `resolvedLogoUrl`, `providerBrand` nem mapeamentos por Provider ID. A URL do recurso só é calculada por `logo.key + tema atual` no resolvedor de recursos de UI final.
 
-### 7.3 明暗主题
+### 7.3 Temas Claro e Escuro
 
-Provider Config 只声明一个 `key`，不声明 `lightLogoKey` / `darkLogoKey`。同一品牌是否需要两个主题素材属于打包资源实现细节：
+A Provider Config declara apenas uma `key`, sem declarar `lightLogoKey` / `darkLogoKey`. Se uma mesma marca precisa de dois assets por tema, isso é um detalhe de implementação de recursos empacotados:
 
 ```ts
 interface BuiltinProviderLogoAsset {
@@ -276,23 +276,23 @@ interface BuiltinProviderLogoAsset {
 }
 ```
 
-- 品牌彩色 Logo 在两个主题均清晰时，只提供 `light`，两种主题复用；
-- 官方明确提供 light/dark 版本，或单色标记在某主题对比度不足时，同时打包两份；
-- UI 根据当前主题选择 `dark ?? light`；
-- 不通过 CSS filter、反色或重新着色篡改品牌素材；
-- SVG 使用 `<img>` 加载时，不能依赖外部 `currentColor`，需要打包具有明确颜色的文件或分别提供主题版本。
-- `system` 主题先由现有主题状态解析成实际 light/dark，再选择资源；Logo Resolver 不建立第三种主题状态；
-- Logo 与旁边的 Provider 名称表达同一信息时属于装饰图，使用空 `alt` 并从辅助技术名称中隐藏，避免重复朗读。
+- quando o Logo colorido da marca é nítido nos dois temas, fornece-se apenas `light`, reutilizado nos dois temas;
+- quando o oficial fornece explicitamente versões light/dark, ou quando a marca monocromática tem contraste insuficiente em algum tema, empacotam-se as duas cópias;
+- a UI escolhe `dark ?? light` conforme o tema atual;
+- não se altera o asset da marca com CSS filter, inversão ou recoloração;
+- quando um SVG é carregado via `<img>`, não se pode depender de `currentColor` externo; é preciso empacotar um arquivo com cores explícitas ou fornecer versões separadas por tema;
+- o tema `system` é primeiro resolvido pelo estado de tema existente para light/dark real, e só então o recurso é escolhido; o Logo Resolver não estabelece um terceiro estado de tema;
+- quando o Logo expressa a mesma informação que o nome do Provider ao lado, ele é uma imagem decorativa: usar `alt` vazio e ocultá-lo do nome acessível, evitando leitura duplicada.
 
-### 7.4 Personal 与 Account Provider 边界
+### 7.4 Limite entre Personal e Account Provider
 
-Account Provider 不是 Provider Template，不能为了复用 Logo 强行增加 `templateId`。它直接从自己的 Built-in Provider Config 得到 Logo。现有 OAuth 图标 helper 不再作为 Provider 设置页的品牌事实源；OAuth/Login 自身的图标用途可以保留。
+Um Account Provider não é um Provider Template e não deve receber um `templateId` forçado para reaproveitar o Logo. Ele obtém o Logo diretamente da sua própria Built-in Provider Config. O helper de ícones OAuth existente deixa de ser a fonte de fatos de marca da página de configurações de Provider; o uso dos próprios ícones para OAuth/Login pode ser mantido.
 
-纯自定义 Provider 没有 Logo 时使用通用 Package 图标。本轮不提供上传 Logo、填写 Logo URL 或选择内置 Logo 的 UI；以后确有需求再扩展 `ProviderLogoRef`。
+Um Provider puramente personalizado sem Logo usa o ícone genérico de Package. Esta rodada não oferece UI para enviar Logo, preencher URL de Logo ou selecionar um Logo embutido; se surgir a necessidade, `ProviderLogoRef` será estendido.
 
-### 7.5 首批打包素材集合
+### 7.5 Primeiro Conjunto de Assets Empacotados
 
-第一批内置 key 固定为：
+O primeiro lote de keys embutidas é fixado como:
 
 ```text
 zai
@@ -307,128 +307,128 @@ anthropic
 xai
 ```
 
-素材原则：
+Princípios dos assets:
 
-- 优先使用品牌官方提供的 SVG；没有合适 SVG 时使用官方 PNG/JPEG；
-- 素材不要求相同源格式或源尺寸；首批位图允许在不裁切、不改图形的前提下缩放为打包尺寸，源素材有透明通道时应保留；
-- UI 使用统一方形容器、`object-contain` 和一致留白控制视觉尺寸；
-- Z.AI 与 BigModel 复用仓库已有、已经用于正式登录/账号界面的品牌素材；
-- Moonshot Kimi 使用 `MoonshotAI/Branding-Guide` 官方资源；首批单素材在两种主题复用；
-- MiniMax 使用官方品牌包中的方形素材；
-- DeepSeek 使用其官方组织发布的品牌图形，产品发布前确认商标使用授权；
-- Alibaba Model Studio 不采用产品分支中来自第三方 GitHub 仓库的图片，改用阿里云/百炼官方素材；中国和国际 Template 复用同一个 key；
-- Xiaomi MiMo 使用其官方平台素材；
-- OpenAI、Anthropic 使用各自官方网站素材；Anthropic 若使用单色 SVG，需要提供明确的 light/dark 文件，不能把含 `currentColor` 的 SVG 当普通 `<img>` 后期待继承页面颜色；
-- xAI 使用官方站点或官方组织素材；
-- 产品分支中的来源清单保留为审计线索，但素材只在来源与主题适配复核后重新纳入，不能直接整批复制。
+- preferir o SVG fornecido oficialmente pela marca; quando não houver SVG adequado, usar o PNG/JPEG oficial;
+- não é exigido o mesmo formato ou as mesmas dimensões de origem; no primeiro lote, bitmaps podem ser redimensionados ao tamanho empacotado sem recorte e sem alteração do gráfico, preservando o canal alpha quando o asset de origem o tiver;
+- a UI usa um container quadrado uniforme, `object-contain` e um respiro consistente para controlar o tamanho visual;
+- Z.AI e BigModel reutilizam os assets de marca já existentes no repositório e já usados nas telas oficiais de login/conta;
+- Moonshot Kimi usa os recursos oficiais de `MoonshotAI/Branding-Guide`; o asset único do primeiro lote é reutilizado nos dois temas;
+- MiniMax usa o asset quadrado do pacote de marca oficial;
+- DeepSeek usa o gráfico de marca publicado por sua organização oficial, confirmando a autorização de uso de marca antes do lançamento do produto;
+- Alibaba Model Studio não adota a imagem do repositório GitHub de terceiros do branch de produto, usando os assets oficiais de Alibaba Cloud/Bailian; os Templates da China e internacional reutilizam a mesma key;
+- Xiaomi MiMo usa o asset de sua plataforma oficial;
+- OpenAI e Anthropic usam os assets de seus respectivos sites oficiais; se Anthropic usar um SVG monocromático, é preciso fornecer arquivos light/dark explícitos, e não tratar um SVG com `currentColor` como um `<img>` comum esperando que herde a cor da página;
+- xAI usa o site oficial ou os assets da organização oficial;
+- a lista de origens do branch de produto é preservada como pista de auditoria, mas os assets só voltam a ser incluídos após reavaliação de origem e adequação de tema; não podem ser copiados em lote diretamente.
 
-每个打包素材记录品牌、来源 URL、获取日期、文件格式、是否包含透明通道和主题用途。Logo 缺失、资源加载失败或远端配置引用未知 key 时均回退通用图标。
+Cada asset empacotado registra marca, URL de origem, data de obtenção, formato de arquivo, presença de canal transparente e uso por tema. Logo ausente, falha de carregamento de recurso ou referência a uma key desconhecida na configuração remota resultam todos em fallback para o ícone genérico.
 
-### 7.6 展示面边界
+### 7.6 Limite das Superfícies de Exibição
 
-本轮统一 Logo 的展示面固定为：
+As superfícies de exibição do Logo unificado desta rodada são fixadas como:
 
-| 展示面                         | 数据来源                                      | 本轮行为                                        |
-| ------------------------------ | --------------------------------------------- | ----------------------------------------------- |
-| Provider 左侧导航              | Effective Provider Config                     | 展示 Provider Logo；缺失或未知 key 回退通用图标 |
-| Provider 详情标题              | Effective Provider Config                     | 与导航使用同一个 Logo Resolver                  |
-| Provider Template 选择页       | Template `config.logo`                        | 展示 Template 基线 Logo                         |
-| Account Provider 详情          | Account Provider 的 Effective Provider Config | 不再用 Provider ID 推断 Z.AI/BigModel Logo      |
-| Welcome/OAuth 登录入口         | 登录产品自身的品牌资源                        | 暂时保留，不能反向成为 Provider Logo 事实源     |
-| 模型选择器、会话消息、任务列表 | 不属于本轮                                    | 不为了“统一品牌”扩展新的 Logo 展示需求          |
+| Superfície                          | Fonte de dados                                     | Comportamento nesta rodada                                  |
+| ---------------------------------- | -------------------------------------------------- | ------------------------------------------------------------ |
+| Navegação de Provider à esquerda   | Effective Provider Config                          | Exibe o Logo do Provider; ausência ou key desconhecida cai para o ícone genérico |
+| Título de detalhes do Provider     | Effective Provider Config                          | Usa o mesmo Logo Resolver da navegação                       |
+| Página de seleção de Provider Template | Template `config.logo`                          | Exibe o Logo base do Template                                |
+| Detalhes do Account Provider       | Effective Provider Config do Account Provider       | Não infere mais o Logo Z.AI/BigModel por Provider ID          |
+| Entrada de login Welcome/OAuth      | Recurso de marca do próprio produto de login        | Mantido por enquanto, não pode se tornar a fonte de fatos de Logo do Provider |
+| Seletor de modelo, mensagens de sessão, lista de tarefas | Fora do escopo desta rodada        | Não expande novas necessidades de exibição de Logo por “unificação de marca” |
 
-所有打包 Logo 放在 Desktop 与 Web 共用的 UI 资源边界，由同一个 Resolver 使用。Renderer 可以维护 `logo key -> 打包资源` 的资源表，但该表只负责加载资源，不包含 Provider ID、名称、排序、Template 成员或 Account 产品规则。
+Todos os Logos empacotados ficam na fronteira de recursos de UI compartilhada por Desktop e Web, usados pelo mesmo Resolver. O Renderer pode manter uma tabela de recursos `logo key -> recurso empacotado`, mas essa tabela apenas carrega o recurso e não contém Provider ID, nome, ordenação, membros de Template ou regras de produto de Account.
 
-## 8. 明确不纳入
+## 8. Explicitamente Fora do Escopo
 
-- 不合并或 cherry-pick `feat/provider-ux-refactor`；
-- 不引入 Catalog 数据层；
-- 不改 Account Provider、Start Plan、Individual Plan、Team Plan 页面结构；
-- 不删除或简化套餐介绍、购买卡片、价格、Quota 与 Usage；
-- 不改变 Account entitlement、Access、Registry 完整性或模型执行语义；
-- 不移动 Model Config Rule，也不改变 Match/Template/Provider/Personal Rule 优先级；
-- 不改变 Provider/Model 拖动语义；
-- 不改变 Provider 设置页整体宽度、高度和双栏滚动结构；
-- 不在本轮增加 Template 搜索。
+- não fazer merge nem cherry-pick de `feat/provider-ux-refactor`;
+- não introduzir uma camada de dados Catalog;
+- não mudar a estrutura das páginas de Account Provider, Start Plan, Individual Plan e Team Plan;
+- não remover nem simplificar a apresentação de planos, os cartões de compra, preços, Quota e Usage;
+- não alterar entitlement de Account, Access, integridade do Registry ou semântica de execução de modelos;
+- não mover o Model Config Rule nem mudar a prioridade de Match/Template/Provider/Personal Rule;
+- não alterar a semântica de arraste de Provider/Model;
+- não alterar a largura total, a altura nem a estrutura de rolagem de duas colunas da página de configurações de Provider;
+- não adicionar busca de Template nesta rodada.
 
-## 9. 实施顺序
+## 9. Ordem de Implementação
 
-1. 更新 Provider Template、Provider Config 与设置页 Design，并更新 Feature Graph 的 Template/Settings 节点和代码种子，固定领域壳、名称、Logo 状态归属与展示面；
-2. 提升 Built-in Release Schema Version，并先补 Provider Template Schema、JSON round-trip、Bundled/Remote 发布解码、Active/LKG 和名称解析测试；
-3. 将 `ProviderTemplateMap` 从 `ProviderConfig` 值升级为 `ProviderTemplate` 值；
-4. 更新 Built-in JSON，使每个 Template 使用 `{ nameMap, config }`；
-5. 更新 Resolver、Config Service、Facade 与 Settings View 的 Template 投影；
-6. 更新创建接口，显式接收名称种子并在服务端原子去重；
-7. 先补设置页交互 E2E，再实现顶部入口、Template 选择页、返回和创建后落点；
-8. 删除未发布的 `logoUrl`，改用 `logo`；整理首批打包素材并接入主题感知的统一资源解析，不增加兼容 importer；
-9. 调整侧栏 Logo 尺寸、状态点与“添加模型”位置；
-10. 清理旧下拉式 Template 入口和 Renderer Provider ID 名称/Logo/排序表；
-11. 全面 Review 不存在 Catalog、Provider enabled 或 Account 页面回退。
+1. Atualizar o Design de Provider Template, Provider Config e da página de configurações, além dos nós Template/Settings do Feature Graph e das sementes de código, fixando o casco de domínio, os nomes, a posse do estado de Logo e as superfícies de exibição;
+2. Elevar a Built-in Release Schema Version e primeiro adicionar os testes de Schema do Provider Template, round-trip de JSON, decodificação de publicação Bundled/Remote, Active/LKG e resolução de nomes;
+3. Evoluir `ProviderTemplateMap` de um valor `ProviderConfig` para um valor `ProviderTemplate`;
+4. Atualizar o JSON Built-in para que cada Template use `{ nameMap, config }`;
+5. Atualizar a projeção de Template no Resolver, no Config Service, no Facade e na Settings View;
+6. Atualizar a interface de criação para receber explicitamente a semente de nome e desduplicar atomicamente no servidor;
+7. Adicionar primeiro os E2E de interação da página de configurações, depois implementar a entrada do topo, a página de seleção de Template, o retorno e o destino pós-criação;
+8. Remover o `logoUrl` não publicado e passar a usar `logo`; organizar o primeiro lote de assets empacotados e conectar a resolução unificada com consciência de tema, sem adicionar importer de compatibilidade;
+9. Ajustar as dimensões do Logo na barra lateral, o ponto de status e a posição de “添加模型”;
+10. Limpar a entrada antiga de Template em dropdown e as tabelas de nome/Logo/ordenação por Provider ID do Renderer;
+11. Revisar de forma abrangente que não há Catalog, `enabled` de Provider nem regressão nas páginas de Account.
 
-## 10. 测试与完成标准
+## 10. Testes e Critérios de Conclusão
 
 ### Config / Provider
 
-- Provider Template 壳严格解析与 JSON round-trip；
-- Bundled、Remote、Active/LKG 和 fixture 使用同一个新 Release Schema Version；旧 Template Map shape 不提供兼容读取；
-- `nameMap` 当前语言、英文和 `templateId` fallback；
-- Template `config` 继续使用正式 Provider Config Overlay Schema；
-- Model Config Rule 物理结构与解析优先级不变；
-- 同名创建在服务端原子生成稳定后缀；
-- 并发创建不能生成相同 `label`；
-- `initialConfig.label` 不能绕过去重；
-- 创建后切换语言不修改 Personal `label`。
-- `logo` 严格接受当前 `builtin` 结构，但 `key` 不做闭集枚举；
-- `logo` Overlay、`null` 清除、JSON round-trip 与 Effective Provider 投影正确；
-- Template Logo 更新会影响后续 Effective Config，但不会复制或改写 Personal `label`；
-- Settings View/Protocol 原样携带 `logo` 引用，不携带解析后的资源 URL；
-- 未知 Logo key 不产生完整性错误，也不影响 Registry/executable。
-- 未知 Logo type 继续由当前严格 Schema 拒绝，不与未知 key 的 UI fallback 混淆。
+- o casco de Provider Template faz strict parsing e round-trip de JSON;
+- Bundled, Remote, Active/LKG e fixtures usam a mesma nova Release Schema Version; o shape antigo de Template Map não tem leitura compatível;
+- fallback de `nameMap` para idioma atual, inglês e `templateId`;
+- o `config` do Template continua usando o Schema oficial de Provider Config Overlay;
+- a estrutura física e a prioridade de resolução do Model Config Rule não mudam;
+- criação com o mesmo nome gera sufixo estável atomicamente no servidor;
+- criações concorrentes não podem gerar o mesmo `label`;
+- `initialConfig.label` não pode contornar a desduplicação;
+- trocar o idioma após a criação não modifica o `label` Personal.
+- `logo` aceita estritamente a estrutura `builtin` atual, mas `key` não faz enumeração de conjunto fechado;
+- Overlay de `logo`, limpeza com `null`, round-trip de JSON e projeção para o Effective Provider corretos;
+- atualização do Logo do Template afeta a Effective Config posterior, mas não copia nem reescreve o `label` Personal;
+- Settings View/Protocol carregam a referência `logo` como está, sem a URL de recurso resolvida;
+- uma key de Logo desconhecida não gera erro de integridade nem afeta Registry/executable.
+- um `type` de Logo desconhecido continua sendo rejeitado pelo Schema estrito atual, sem se confundir com o fallback de UI para key desconhecida.
 
 ### UI / E2E
 
-- 顶部入口打开右侧 Template 选择页；
-- 返回恢复原详情；
-- Template 发布顺序不变；
-- 无搜索入口；
-- 中英文 Template 名称正确；
-- 单行长名称正确省略、完整名称悬浮提示、Logo 与进入箭头对齐正确；
-- 已知 Logo、未知 Logo fallback、缺失 Logo fallback 和 light/dark 资源选择正确；
-- System 主题解析后选择正确的 light/dark 资源，单资源品牌在两种主题下复用；
-- Logo 不导致 Provider 名称被辅助技术重复朗读；
-- 从 Template 创建与纯自定义创建均进入新 Provider 详情；
-- Provider 状态点严格反映 `executable`；
-- 添加模型位于标题右侧；
-- 删除当前 Provider 延续既有 fallback；
-- Account Provider 页面和套餐卡没有行为或视觉回归；
-- Desktop、Web、手机、Zai Light、Zai Dark 和键盘操作均覆盖。
+- a entrada do topo abre a página de seleção de Template à direita;
+- o retorno restaura os detalhes originais;
+- a ordem de publicação dos Templates não muda;
+- não há entrada de busca;
+- nomes de Template em chinês e em inglês corretos;
+- nome longo em linha única é truncado corretamente, o tooltip mostra o nome completo e o Logo e a seta de entrada ficam alinhados corretamente;
+- Logo conhecido, fallback de Logo desconhecido, fallback de Logo ausente e escolha de recursos light/dark corretos;
+- o tema System é resolvido e escolhe o recurso light/dark correto, e marcas com recurso único são reutilizadas nos dois temas;
+- o Logo não faz o nome do Provider ser lido duplicadamente por tecnologia assistiva;
+- criação a partir de Template e criação puramente personalizada entram ambas nos detalhes do novo Provider;
+- o ponto de status do Provider reflete estritamente `executable`;
+- “添加模型” fica à direita do título;
+- excluir o Provider atual mantém o fallback existente;
+- a página de Account Provider e os cartões de planos não têm regressão de comportamento ou visual;
+- Desktop, Web, mobile, Zai Light, Zai Dark e operação por teclado estão todos cobertos.
 
-### 验证
+### Verificação
 
-- Provider、Provider Node、Services 和 UI 定向单测；
-- 受影响 Desktop E2E；
-- `pnpm typecheck`；
-- `pnpm lint`；
-- `pnpm test:unit`；
-- `git diff --check`。
+- testes unitários direcionados de Provider, Provider Node, Services e UI;
+- E2E de Desktop afetados;
+- `pnpm typecheck`;
+- `pnpm lint`;
+- `pnpm test:unit`;
+- `git diff --check`.
 
-完成后提交 Conventional Commit，并在提交信息中加入真实的 Agent 会话 trailer；未获得 Session ID 时不得猜测。
+Após a conclusão, fazer um commit Conventional Commit e incluir na mensagem o trailer real da sessão do Agent; não adivinhar o Session ID quando ele não for obtido.
 
-## 11. 实施结果
+## 11. Resultado da Implementação
 
-- Built-in Release Schema 已提升到 v3、Built-in revision 已提升到 8；Bundled、Remote、Active/LKG 与测试 fixture 原子切换到同一 Template 壳。
-- Template 选择页、返回、从 Template/纯自定义创建、创建后落点、Host 原子名称去重和并发去重均已实现。
-- `logoUrl` 已从正式 Provider Config 删除，替换为开放 key 的 `logo: { type: "builtin", key }`；未知 key 或资源加载失败只回退通用图标，不影响 Provider 完整性和执行。
-- 首批品牌素材已打包到 UI 公共资源边界，来源、归属和缩放方式记录在 `model-provider-logo-sources.json`；当前素材在两种主题下均复用，Resolver 已保留可选 dark 资源位。
-- Provider 导航、详情标题和 Template 卡片统一消费 Effective Provider Config/Template config 中的 Logo；Renderer 没有 Provider ID 到品牌的映射。
-- 顶部“添加供应商”入口和“添加模型”标题侧入口已完成；旧侧栏 Template 下拉与候选项已删除，Account 页面及删除 fallback 未改变。
+- A Built-in Release Schema foi elevada para v3 e a revisão Built-in para 8; Bundled, Remote, Active/LKG e fixtures de teste mudaram atomicamente para o mesmo casco de Template.
+- A página de seleção de Template, o retorno, a criação a partir de Template/puramente personalizada, o destino pós-criação, a desduplicação atômica de nomes no Host e a desduplicação concorrente foram implementados.
+- `logoUrl` foi removido da Provider Config oficial e substituído por `logo: { type: "builtin", key }` com key aberta; key desconhecida ou falha de carregamento de recurso apenas faz fallback para o ícone genérico, sem afetar a integridade nem a execução do Provider.
+- O primeiro lote de assets de marca foi empacotado na fronteira de recursos comuns de UI, com origem, atribuição e forma de redimensionamento registradas em `model-provider-logo-sources.json`; os assets atuais são reutilizados nos dois temas e o Resolver já preserva o slot opcional de recurso dark.
+- A navegação de Provider, o título de detalhes e o cartão de Template consomem uniformemente o Logo da Effective Provider Config / config do Template; o Renderer não tem mapeamento de Provider ID para marca.
+- A entrada “添加供应商” no topo e a entrada “添加模型” ao lado do título foram concluídas; o dropdown de Template antigo da barra lateral e seus candidatos foram removidos, e as páginas de Account e o fallback de exclusão não mudaram.
 
-### 验证记录
+### Registro de Verificação
 
-- Provider、Provider Node、Services、Server、UI 定向单测：22 个文件、388 项通过；
-- `pnpm typecheck`：通过；
-- `pnpm --filter @zcode/desktop typecheck:e2e`：通过；
-- `pnpm lint`：通过（仅仓库既有 warning）；
-- 全量 Unit：13,071 项通过、25 项跳过；另有 2 个与本 Todo 无关的既有测试基线失败，分别是 E2E CLI seed 环境变量计数和 pre-push hook 命令断言；
-- Desktop E2E 已完成应用构建，但当前 Samantha 环境缺少 `xvfb-run`，WebdriverIO 未能创建 Chrome session，未产生用例级结果；
-- 修改文件格式检查与 `git diff --check`：通过。
+- testes unitários direcionados de Provider, Provider Node, Services, Server e UI: 22 arquivos, 388 casos passando;
+- `pnpm typecheck`: passou;
+- `pnpm --filter @zcode/desktop typecheck:e2e`: passou;
+- `pnpm lint`: passou (apenas os warnings já existentes no repositório);
+- Unit completo: 13.071 casos passando, 25 pulados; há ainda 2 falhas de baseline pré-existentes sem relação com este Todo, respectivamente a contagem de variáveis de ambiente do seed do E2E CLI e a asserção de comando do pre-push hook;
+- o E2E de Desktop concluiu a build do aplicativo, mas o ambiente Samantha atual não tem `xvfb-run`; o WebdriverIO não conseguiu criar a sessão do Chrome e não houve resultado por caso;
+- verificação de formatação dos arquivos modificados e `git diff --check`: passou.

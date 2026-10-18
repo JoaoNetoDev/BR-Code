@@ -1,21 +1,20 @@
-# Conversation Timeline Resolver Design
+# Design do Conversation Timeline Resolver
 
-> **状态：已由 [16-timeline-authority-plan.md](./16-timeline-authority-plan.md) 裁决并实施。** 本文保留
-> 根因分析、备选结构和迁移建议；当前落地采用 canonical fact normalizer、持久 anchor、
-> `entityId/productTurnId` 寻址、`session_input` ledger 与受约束的 timeline placement，并没有把本文
-> 所有通用 graph/resolver 设想原样实现。当前事实以 16 的实施状态、02/07 当前规格和代码为准。
+> **Estado: já arbitrado e implementado por [16-timeline-authority-plan.md](./16-timeline-authority-plan.md).** Este documento mantém
+> a análise de causa raiz, as estruturas alternativas e as recomendações de migração; a implementação atual adota um canonical fact normalizer, âncoras persistentes,
+> endereçamento por `entityId/productTurnId`, um ledger de `session_input` e um timeline placement restrito, e não implementou literalmente todas as ideias genéricas de graph/resolver deste texto. Os fatos atuais são os da implementação do 16, das especificações atuais 02/07 e do código.
 
-## 状态
+## Estado
 
-- 目标：解释 v4 conversation 重构后仍出现消息错位、吞消息、timeline 位置不稳定的根因，并给出一套可落地的权威排序结构设计。
-- 范围：conversation session 的可见 transcript、queue drain、compact timeline、goal verify timeline、model change timeline、fork timeline、多段 assistant、background Bash/subagent completion wake。
-- 非目标：本文不直接修改实现，不定义最终 UI 样式，不替代 E2E case catalog。后续实现前仍需把接受的语义回写到 case catalog 和 coverage matrix。
+- Objetivo: explicar a causa raiz dos problemas de mensagem fora de ordem, de mensagens “engolidas” e de posição instável no timeline que permanecem após o refactor da conversation do v4, e apresentar um design de estrutura de ordenação autoritativa e implementável.
+- Escopo: transcript visível da conversation session, queue drain, compact timeline, goal verify timeline, model change timeline, fork timeline, múltiplos segmentos de assistant e o wake de conclusão de Bash/subagent em background.
+- Não objetivo: este documento não modifica a implementação diretamente, não define o estilo final de UI e não substitui o catálogo de cases E2E. Antes da implementação posterior, a semântica aceita ainda precisa ser reescrita no catálogo de cases e na coverage matrix.
 
-## 背景与问题
+## Contexto e problema
 
-v4 重构的目标之一是把 conversation 状态收敛到 CLI 虚拟投影，让 UI 不再猜测 runtime 状态。但当前投影仍然更像“事件来了就生成 row”的行生成器，而不是完整的 timeline resolver。结果是 UI 虽然接近无脑渲染，但拿到的 rows 里已经混入了错误归属和错误顺序。
+Um dos objetivos do refactor v4 era convergir o estado da conversation para uma projeção virtual no CLI, para que a UI não tivesse mais que adivinhar o estado do runtime. Mas a projeção atual ainda se parece mais com um gerador de rows “gera uma row quando o evento chega” do que com um timeline resolver completo. O resultado é que, embora a UI esteja próxima de uma renderização sem pensar, as rows recebidas já contêm atribuição e ordenação erradas.
 
-当前最容易混在一起的 4 种顺序：
+As 4 ordens que hoje se confundem mais facilmente:
 
 ```text
 eventSeq
@@ -31,23 +30,23 @@ visualPlacement
   UI timeline 上应该出现的位置，例如 assistant work 内部、turn tail boundary、下一轮之前的 light boundary
 ```
 
-这 4 种顺序不能共用一个 `turnId`、`rowId` 或 append order。`event.turnId` 是 runtime 事实，不等于 UI turn 容器；`row.appended` 是传输优化，不等于视觉排序权威。
+Essas 4 ordens não podem compartilhar um mesmo `turnId`, `rowId` ou append order. `event.turnId` é um fato de runtime e não equivale ao container de turn da UI; `row.appended` é uma otimização de transporte e não equivale à autoridade de ordenação visual.
 
-## 现有语义证据
+## Evidências da semântica atual
 
-当前 docs 已经有一些关键裁决，说明 timeline 不能再按固定 turn 模板处理：
+Os docs atuais já contêm alguns arbitramentos importantes mostrando que o timeline não pode mais ser tratado com um template fixo de turn:
 
-- Synthetic user message 的 `role=user` 只表示 provider/store 物理角色，不表示 UI 用户输入。fork、rewind、goal-continuation、goal_state_change、background_task、subagent、compact summary 等必须经 projection policy 分类。
-- Fork 只能针对稳定 assistant message；child 复制 fork 点前稳定 transcript 和 session 配置，不复制父 queue、live background bash/subagent、pending background result 或 continuation inbox。
-- 同一个逻辑 turn 可以有多段 assistant text row；fork/retry action 只允许出现在最后一段完成态 assistant row。
-- `context_compaction` 是 assistant activity，可以出现在 assistant work 内部；`session_fork`、`goal_verification`、model change 是 turn boundary，不进入 assistant history。
-- Background Agent/Bash 可以让父 turn 先 completed，后台完成后通过 `<task-notification>` 唤醒 main agent 继续处理。这个 wake 是 model-only trigger，不显示成用户气泡。
+- O `role=user` de uma synthetic user message indica apenas o papel físico provider/store, e não entrada do usuário na UI. fork, rewind, goal-continuation, goal_state_change, background_task, subagent e compact summary precisam ser classificados por projection policy.
+- O fork só pode atingir uma assistant message estável; a child copia o transcript estável anterior ao ponto de fork e a configuração da sessão, mas não copia a queue do pai, o bash/subagent live em background, um resultado de background pendente nem a inbox de continuation.
+- O mesmo turn lógico pode ter vários assistant text row; a ação de fork/retry só pode aparecer na última assistant row em estado completed.
+- `context_compaction` é atividade de assistant e pode aparecer dentro do assistant work; `session_fork`, `goal_verification` e model change são turn boundary e não entram no histórico de assistant.
+- Agent/Bash em background pode permitir que o turn pai já esteja completed e, após a conclusão em background, acordar o main agent por `<task-notification>` para continuar o processamento. Esse wake é um trigger model-only e não é exibido como bolha de usuário.
 
-这些裁决共同指向一个结构：需要先建立 typed semantic entity，再由 resolver 计算 product turn 和 visual placement。
+Esses arbitramentos apontam para uma estrutura: é preciso primeiro estabelecer uma typed semantic entity e só então deixar o resolver calcular o product turn e o visual placement.
 
-## 为什么会“吞消息”
+## Por que mensagens são “engolidas”
 
-多数“吞消息”不是底层事实真的不存在，而是投影后的 UI rows 发生了错误归组、覆盖或隐藏。
+A maioria dos casos de “mensagem engolida” não é o fato subjacente realmente inexistente, mas rows da UI após a projeção sofrendo de agrupamento errado, sobrescrita ou ocultação.
 
 ```text
 Case A: queue drain 仍落在同一个 runtime turn
@@ -90,28 +89,28 @@ assistant A1.2 final
 就会丢最终回复、工具结果或文件引用。
 ```
 
-根因不是 UI 缺 if，而是 CLI 投影没有先完成语义守恒和权威排序。
+A causa raiz não é a UI faltar um `if`, e sim a projeção do CLI não ter concluído antes a conservação semântica e a ordenação autoritativa.
 
-## 设计目标
+## Objetivos de design
 
-1. UI 只消费已解析的权威 timeline，不再基于 `turnId + latestAssistantTextRow` 推断结构。
-2. 每个可见用户输入、assistant segment、compact lifecycle、goal verify lifecycle、fork marker、background wake 都有稳定业务身份。
-3. `eventSeq` 只作为事实输入顺序，不作为视觉排序权威。
-4. `runtimeTurnId` 只表达 runtime trace 归属，不直接决定 product turn。
-5. 所有非尾部 placement 由 CLI resolver 处理；append-only delta 表达不了时发送 snapshot resync。
-6. desktop continuous 与 web remote replayable 共享同一权威 snapshot 语义，但 delivery profile 只影响中间帧，不改变最终 timeline。
+1. A UI consome somente o timeline autoritativo já resolvido e não infere mais a estrutura a partir de `turnId + latestAssistantTextRow`.
+2. Cada entrada de usuário visível, segment de assistant, ciclo de vida de compact, ciclo de vida de goal verify, marker de fork e wake de background têm uma identidade de negócio estável.
+3. `eventSeq` serve apenas como ordem de entrada de fatos, e não como autoridade de ordenação visual.
+4. `runtimeTurnId` expressa apenas a atribuição de trace de runtime e não decide diretamente o product turn.
+5. Todo placement não-caudal é tratado pelo resolver do CLI; quando o delta append-only não consegue expressá-lo, envia-se um snapshot resync.
+6. desktop continuous e web remote replayable compartilham a mesma semântica de snapshot autoritativa, mas o delivery profile afeta apenas os frames intermediários e não muda o timeline final.
 
-## 分层原则
+## Princípios de camadas
 
-时间线分层遵循三点：
+A estratificação do timeline segue três pontos:
 
-1. **权威顺序是会话内 aggregate sequence**，不是 timestamp、row append 顺序或 UI 数组位置。
-2. **输入生命周期独立于模型执行**。prompt 先 durable admitted，再在 safe boundary promoted 成 transcript message；queue 不依赖 renderer 内存证明自己存在过。
-3. **DB 存领域事实，不存 UI 布局**。transcript projection 是领域事实，不是“第几个气泡/哪个卡片/哪条泳道”的 UI schema。
+1. **A ordem autoritativa é a aggregate sequence dentro da sessão**, e não timestamp, ordem de append de row ou posição do array da UI.
+2. **O ciclo de vida da entrada é independente da execução do modelo**. O prompt é primeiro admitted de forma durable e só depois é promovido a transcript message em um safe boundary; a queue não depende da memória do renderer para provar que existiu.
+3. **O banco guarda fatos de domínio, e não layout de UI**. A projeção de transcript é um fato de domínio, e não um schema de UI do tipo “qual é o número do bubble/qual é o card/qual é a faixa”.
 
-按 id 合并 message/part 的兼容层只属于 legacy client merge，不是排序权威。ZCode 采用 `event_sequence + input ledger + domain projection`，而不是把 UI rows 继续当事实源。
+A camada de compatibilidade que mescla message/part por id pertence apenas ao legacy client merge e não é a autoridade de ordenação. O ZCode adota `event_sequence + input ledger + domain projection`, em vez de continuar tratando as UI rows como fonte de fatos.
 
-## 总体架构
+## Arquitetura geral
 
 ```text
 Raw Event Journal / Persisted Facts
@@ -142,9 +141,9 @@ UI
   无脑渲染 resolved snapshot，不再猜 turn tail 或 hidden message
 ```
 
-## 最小物理字段与领域语义
+## Campos físicos mínimos e semântica de domínio
 
-本文后续出现的 `sourceCommandId`、`anchorMessageId`、`lifecycleKey`、`visibility` 等，不表示都必须新增成物理列。更推荐的持久化形态是少量稳定物理字段加 typed JSON refs：
+Os `sourceCommandId`, `anchorMessageId`, `lifecycleKey`, `visibility` etc. que aparecem adiante não precisam necessariamente se tornar novas colunas físicas. A forma de persistência mais recomendada é poucos campos físicos estáveis mais refs tipadas em JSON:
 
 ```text
 session_event / message / part
@@ -155,7 +154,7 @@ session_event / message / part
   data JSON
 ```
 
-`data JSON` 里存清楚领域语义：
+A semântica de domínio é guardada claramente no `data JSON`:
 
 ```json
 {
@@ -176,7 +175,7 @@ session_event / message / part
 }
 ```
 
-不能把这些语义压缩成一个 `pid`。`pid` 只能表达树状父子关系，但 conversation timeline 至少同时存在以下正交关系：
+Não é possível comprimir essa semântica em um único `pid`. O `pid` só consegue expressar a relação pai-filho em árvore, mas o conversation timeline tem pelo menos as seguintes relações ortogonais simultâneas:
 
 ```text
 id
@@ -204,11 +203,11 @@ visibility
   UI 可见、仅 provider 可见，还是只影响状态
 ```
 
-如果强行复用一个 `pid`，字段会在不同场景下分别表示 `response-to`、`display-after`、`caused-by`、`fork-from`、`compact-before`。字段数量少了，但语义被污染，resolver 仍然只能猜。
+Se se tentar reutilizar à força um único `pid`, o campo passa a significar `response-to`, `display-after`, `caused-by`, `fork-from` ou `compact-before` conforme o cenário. O número de campos diminui, mas a semântica é contaminada e o resolver continua obrigado a adivinhar.
 
-## 核心实体模型
+## Modelo central de entidades
 
-Semantic Ledger 不以 UI row 为中心，而以业务实体为中心。
+O Semantic Ledger não é centrado em UI row, e sim em entidade de negócio.
 
 ```ts
 interface TimelineEntityBase {
@@ -226,21 +225,21 @@ interface TimelineEntityBase {
 }
 ```
 
-建议的实体类型：
+Tipos de entidade sugeridos:
 
-| Entity | 说明 |
+| Entity | Descrição |
 | --- | --- |
-| `UserIntent` | 真实用户输入、queue drain 后的用户输入、model-only continuation、background notification wake |
-| `ProductTurn` | 用户可见或 model-only 的逻辑轮次容器 |
-| `AssistantSegment` | 一段 assistant role 输出。一个 product turn 可有多个 segment |
-| `WorkActivity` | tool、reasoning、subagent、compact 等 assistant work 内活动 |
-| `TimelineBoundary` | goalVerify、fork、modelChange 等轮次边界 |
-| `QueueItem` | 未来用户意图，不是 transcript |
-| `BackgroundWork` | detached Bash/subagent runtime work，归属父 session，不是 queue |
+| `UserIntent` | entrada real do usuário, entrada do usuário após queue drain, model-only continuation e wake de notificação de background |
+| `ProductTurn` | container de turno lógico visível ao usuário ou model-only |
+| `AssistantSegment` | uma saída com role de assistant. Um product turn pode ter vários segments |
+| `WorkActivity` | tool, reasoning, subagent, compact etc., atividades dentro do assistant work |
+| `TimelineBoundary` | goalVerify, fork, modelChange etc., fronteiras de turno |
+| `QueueItem` | intenção futura do usuário, que não é transcript |
+| `BackgroundWork` | trabalho de runtime detached de Bash/subagent, pertencente à sessão pai e não à queue |
 
-## Lane 与 Placement
+## Lane e Placement
 
-timeline 不再只有“用户消息”和“assistant 消息”两类。resolver 先给每个实体分 lane：
+O timeline não tem mais apenas duas categorias, “mensagem do usuário” e “mensagem do assistant”. O resolver primeiro atribui uma lane a cada entidade:
 
 ```text
 queue
@@ -265,7 +264,7 @@ stateOnly
   只影响状态，不进入 timeline rows
 ```
 
-典型 lane rank：
+Ranks de lane típicos:
 
 ```text
 0 lightBoundaryBeforeTurn
@@ -276,11 +275,11 @@ stateOnly
 5 stateOnly
 ```
 
-`stateOnly` 不能进入 `rows.window`。如果一个 marker 决定不渲染，就不应该作为 hidden row 影响虚拟滚动、turn grouping 或 history 折叠。
+`stateOnly` não pode entrar em `rows.window`. Se um marker opta por não ser renderizado, ele não deveria influenciar a rolagem virtual, o agrupamento de turnos ou o colapso de histórico como uma hidden row.
 
-## 权威排序
+## Ordenação autoritativa
 
-resolver 生成确定性的 `orderKey`：
+O resolver gera um `orderKey` determinístico:
 
 ```ts
 interface TimelineOrderKey {
@@ -292,7 +291,7 @@ interface TimelineOrderKey {
 }
 ```
 
-排序来源不是 timestamp，也不是 row append 顺序，而是约束图：
+A origem da ordenação não é timestamp nem ordem de append de row, e sim o grafo de restrições:
 
 ```text
 cause edge
@@ -314,13 +313,13 @@ copy edge
   fork source assistant -> child copied graph
 ```
 
-resolver 对约束图做 deterministic topological placement。相同位置的实体再用 `entityOrdinal` 稳定排序，不能依赖 DB id 字典序。
+O resolver faz um deterministic topological placement sobre o grafo de restrições. Entidades na mesma posição são ordenadas de forma estável por `entityOrdinal`, sem depender da ordem lexicográfica de ids do banco.
 
-## 关键语义规则
+## Regras semânticas-chave
 
 ### Queue Drain
 
-queue 是未来用户意图，不绑定当前 runtime turn。drain 后必须创建新的 product turn。
+A queue é uma intenção futura do usuário e não fica presa ao runtime turn atual. Depois do drain, é preciso criar um novo product turn.
 
 ```text
 T1
@@ -334,11 +333,11 @@ T2
   assistant A2
 ```
 
-如果 runtime 实现仍在同一个 activeTurn 内完成 roundtrip，projection 也必须拆出新的 `productTurnId`。`runtimeTurnId` 不能直接成为 UI turn。
+Se a implementação de runtime ainda concluir o roundtrip dentro do mesmo activeTurn, a projeção também precisa extrair um novo `productTurnId`. `runtimeTurnId` não pode virar diretamente o turn da UI.
 
-### 多段 Assistant
+### Assistant em múltiplos segmentos
 
-一个 product turn 可以包含多个 assistant segment：
+Um product turn pode conter vários segments de assistant:
 
 ```text
 T1
@@ -350,11 +349,11 @@ T1
     AssistantSegment A1.2 final
 ```
 
-所有 segment 都必须保留。UI 可以折叠早段，但 resolver 不能覆盖。fork/retry/action target 只挂在最后稳定完成态 assistant segment 上。
+Todos os segments precisam ser mantidos. A UI pode colapsar segmentos iniciais, mas o resolver não pode sobrescrevê-los. fork/retry/action target fica pendurado apenas no último segment de assistant concluído de forma estável.
 
 ### Compact
 
-compact 是 assistant activity，不是用户气泡，也不是强制 turn boundary。
+Compact é atividade de assistant, e não uma bolha de usuário nem um turn boundary obrigatório.
 
 ```text
 T1
@@ -366,11 +365,11 @@ T1
     assistant after compact
 ```
 
-手动 `/compact` 命令是命令入口，不显示为普通 user query。若没有后续 assistant，compact 可以作为独立弱 timeline 显示，但仍不是一个空 user turn。
+O comando manual `/compact` é uma entrada de comando e não é exibido como uma user query comum. Se não houver assistant seguinte, o compact pode ser exibido como uma timeline fraca independente, mas ainda assim não é um turn de usuário vazio.
 
 ### Goal Verify
 
-goal verify 是 turn tail boundary。身份以 `targetId + goalIteration` 为主，`verificationId` 只能作为单次 attempt alias。
+Goal verify é um turn tail boundary. A identidade é principalmente `targetId + goalIteration`, e `verificationId` só pode servir como alias de uma tentativa individual.
 
 ```text
 T1
@@ -386,17 +385,17 @@ T2
 BM goalVerify(target-1, iteration-2) running -> pass
 ```
 
-goal verify 必须有 anchor：
+Goal verify precisa ter âncora:
 
 ```text
 anchor = anchorAssistantMessageId || anchorTurnId || explicit fallback placement
 ```
 
-如果 anchor 指向的 turn 已经在窗口中间，且当前 delta 只能 append，则不能硬 append 到尾部，应发 snapshot resync。
+Se o turn apontado pela âncora já estiver no meio da janela e o delta atual só puder fazer append, não é possível forçar o append ao final: deve-se enviar um snapshot resync.
 
 ### Model Change
 
-model change 是 light boundary，不是 assistant work。用户仅切换草稿模型不污染 transcript；只有下一次 accepted turn 真正使用了新模型，才生成 boundary。
+Model change é uma light boundary, e não assistant work. O usuário apenas alternar o modelo do rascunho não contamina o transcript; a boundary só é gerada quando o próximo turno aceito realmente usa o novo modelo.
 
 ```text
 T1 assistant A1
@@ -407,11 +406,11 @@ T2 user Q2
 T2 assistant A2 using new model
 ```
 
-首轮使用某个模型不构成 model change。若产品决定 modelChange 不在 transcript 中可见，则它应为 `stateOnly` 或单独 banner state，不应进入 `rows.window`。
+A primeira vez que um modelo é usado não constitui model change. Se o produto decidir que modelChange não é visível no transcript, ele deve ser `stateOnly` ou um banner state separado e não deve entrar em `rows.window`.
 
 ### Fork
 
-fork 应按 graph cut，而不是 DOM row 或当前 latest assistant。
+O fork deve ser um graph cut, e não uma row de DOM nem o assistant latest atual.
 
 ```text
 parent:
@@ -432,21 +431,21 @@ do not copy continuation inbox
 do not copy active run fields
 ```
 
-父 session 追加：
+O parent session acrescenta:
 
 ```text
 BM forkCreated(childSessionId, anchor=A1)
 ```
 
-child session 追加：
+A child session acrescenta:
 
 ```text
 BM forkNotice(parentSessionId, anchor=A1-copy)
 ```
 
-Goal fork state 需要复制 fork 点之前的 target 和 verifier timeline，并改写 copied verifier 的 `anchorAssistantMessageId` 到 child message id。不能在 bootstrap/protocol 层用 `setTarget` 重新创建空 target。
+O goal fork state precisa copiar o target e a timeline de verifier anteriores ao ponto de fork, reescrevendo o `anchorAssistantMessageId` do verifier copiado para o id de message da child. Não se pode recriar um target vazio com `setTarget` na camada bootstrap/protocol.
 
-fork 的核心不只是复制，而是 **copy by value + provenance**：
+O núcleo do fork não é apenas copiar, e sim **copy by value + provenance**:
 
 ```text
 parent session S1
@@ -467,7 +466,7 @@ child session S2
   seq 5  A2' { originMessageId: A2 }
 ```
 
-因此 fork 后每条 copied message 都有两种身份：
+Portanto, depois do fork, cada message copiada tem duas identidades:
 
 ```text
 local identity
@@ -479,7 +478,7 @@ origin provenance
   只用于追溯来源、展示来源、debug，不参与 child 的 UI placement
 ```
 
-所有被复制的本地引用都必须 remap 到 child session 的 local id：
+Todas as referências locais copiadas precisam ser remapeadas para os ids locais da child session:
 
 ```text
 parent:
@@ -493,11 +492,11 @@ child:
   S2.A2'.parentMessageId = S1.U2
 ```
 
-这条规则同样适用于 `anchorMessageId`、`sourceCommandId`、goal verifier anchor、compact anchor。若引用对象没有被复制，不能继续作为 child local anchor，只能降级为 `originRef` 或 diagnostics fallback。
+Essa regra também vale para `anchorMessageId`, `sourceCommandId`, a âncora de goal verifier e a âncora de compact. Se o objeto referenciado não foi copiado, ele não pode continuar como âncora local da child e só pode ser rebaixado a `originRef` ou a um diagnostics fallback.
 
 ### Background Bash / Subagent
 
-background work 是 detached runtime work，不是 queue，也不是普通 user message。
+Background work é trabalho de runtime detached, e não queue nem mensagem de usuário comum.
 
 ```text
 T1
@@ -520,13 +519,13 @@ T2
     assistant A2 handles <task-notification>
 ```
 
-用户裁决：background notification 不需要显示成用户气泡。本文将其建模为 `visibility=modelOnly` 的 `UserIntent`，可以创建 product turn，但不生成 visible user row。是否额外显示轻量 system boundary 不在本轮设计内；默认不进入 transcript rows。
+Decisão do usuário: a notificação de background não precisa ser exibida como bolha de usuário. Aqui ela é modelada como um `UserIntent` com `visibility=modelOnly`, que pode criar um product turn mas não gera uma visible user row. Se exibir adicionalmente uma system boundary leve está fora do design desta rodada; por padrão ela não entra nas transcript rows.
 
-background completion 仍通过 runtime command queue 消费，不新增同 session 并发 `executeTurn`。如果 active loop 仍有合法 roundtrip，notification 可以合流；idle 时通过 model-only wake 串行继续。
+A conclusão de background continua sendo consumida pela command queue do runtime e não adiciona um `executeTurn` concorrente na mesma sessão. Se o loop ativo ainda tiver um roundtrip legítimo, a notificação pode convergir; quando ocioso, a continuação é serializada por um wake model-only.
 
 ## Snapshot Contract
 
-最终 UI 最理想消费的是结构化 snapshot，而不是扁平 rows：
+O consumo ideal pela UI final é um snapshot estruturado, e não rows achatados:
 
 ```ts
 interface ResolvedTimelineSnapshot {
@@ -552,7 +551,7 @@ interface ResolvedTurnNode {
 }
 ```
 
-兼容期可以继续 materialize 成 `rows.window`，但 rows 必须带上 resolver 结果：
+Durante o período de compatibilidade, ainda se pode materializar em `rows.window`, mas as rows precisam carregar o resultado do resolver:
 
 ```text
 entityId
@@ -566,11 +565,11 @@ lifecycleKey
 sourceCommandId
 ```
 
-UI 可以临时沿用现有组件，但不再自己从 `turnId + latestAssistantTextRow` 推断逻辑结构。
+A UI pode reutilizar temporariamente os componentes existentes, mas deixa de inferir a estrutura lógica a partir de `turnId + latestAssistantTextRow`.
 
-## Delta 与 Resync
+## Delta e Resync
 
-现有 append-only delta 可以保留，但语义必须收紧：
+O delta append-only existente pode ser mantido, mas a semântica precisa ser apertada:
 
 ```text
 尾部新增
@@ -589,11 +588,11 @@ UI 可以临时沿用现有组件，但不再自己从 `turnId + latestAssistant
   snapshot.resync
 ```
 
-不要让客户端用 `row.upserted` 模拟移动，因为现有 apply 只按 rowId 替换，不改变位置。只要 resolver 发现一个可见 entity 的 `orderKey` 位于已发送窗口中间，就应该发 snapshot resync 或进入新的 snapshot epoch。
+Não se deve deixar o cliente simular movimentação com `row.upserted`, porque o apply atual só substitui por rowId e não muda a posição. Assim que o resolver perceber que o `orderKey` de uma entidade visível está no meio da janela já enviada, ele deve enviar um snapshot resync ou entrar em um novo snapshot epoch.
 
-## 守恒不变量
+## Invariantes de conservação
 
-resolver 每次生成 snapshot 后必须运行守恒检查。失败时不要把坏 snapshot 发给 UI，应记录 error，并在开发环境下暴露诊断。
+Depois de gerar cada snapshot, o resolver precisa rodar as verificações de conservação. Em caso de falha, não se deve enviar um snapshot quebrado para a UI: é preciso registrar o error e expor o diagnóstico em ambiente de desenvolvimento.
 
 ```text
 输入守恒
@@ -626,9 +625,9 @@ background 守恒
   hidden/modelOnly trigger 不得影响 visible user turn count。
 ```
 
-## 真实持久化结构
+## Estrutura real de persistência
 
-2026-07-07 只读检查本机真实持久化数据后，确认 conversation 相关数据不是单一数据库事实源，而是三层：
+Após uma inspeção somente leitura dos dados persistidos reais da máquina em 2026-07-07, confirmou-se que os dados relacionados a conversation não têm uma única fonte de fato em banco, e sim três camadas:
 
 ```text
 UI v4 virtual projection
@@ -648,17 +647,17 @@ Task list/search index: ~/.zcode/v2/tasks-index.sqlite
   - 只服务列表、分组、搜索，不应作为消息顺序真相源
 ```
 
-真实 CLI DB 才是会话正文权威库。本次检查到的规模：
+O DB real do CLI é o banco autoritativo do corpo da sessão. A escala observada nesta inspeção:
 
 | Store | Count / Schema fact |
 | --- | --- |
-| `session` | 2,989 rows |
-| `message` | 26,942 rows，`data` 为 JSON，物理列已有 `sequence` |
-| `part` | 96,112 rows，`data` 为 JSON，物理列已有 `sequence` |
-| `session_entry` | 1,402 rows，主要为 `target_completion_verification` 和 `runtime/bash_shell_selection` |
-| app `follow_up_queue` | 当前 0 rows，结构为 `session_id + position + payload`，不是 transcript 顺序源 |
+| `session` | 2.989 rows |
+| `message` | 26.942 rows, `data` em JSON, coluna física já tem `sequence` |
+| `part` | 96.112 rows, `data` em JSON, coluna física já tem `sequence` |
+| `session_entry` | 1.402 rows, principalmente `target_completion_verification` e `runtime/bash_shell_selection` |
+| app `follow_up_queue` | atualmente 0 rows, estrutura `session_id + position + payload`, não é fonte de ordem do transcript |
 
-`message` / `part` 的 repository 读取顺序当前是：
+A ordem de leitura atual do repository de `message` / `part` é:
 
 ```text
 message:
@@ -668,11 +667,11 @@ part:
   order by message_id, sequence is null, sequence, time_created, id
 ```
 
-这说明代码已经把 `sequence` 作为新数据主排序字段，并为缺失 `sequence` 的数据保留 fallback。
+Isso mostra que o código já trata `sequence` como o novo campo de ordenação principal dos dados e preserva um fallback para dados sem `sequence`.
 
-## 真实数据暴露的风险
+## Riscos expostos pelos dados reais
 
-当前不是“数据库完全没有排序字段”，而是排序字段和语义锚点都不够可靠。
+O cenário atual não é “o banco não tem nenhum campo de ordenação”, e sim que tanto o campo de ordenação quanto as âncoras semânticas não são confiáveis o bastante.
 
 ```text
 0014_message_part_sequence migration
@@ -685,20 +684,20 @@ NULL sequence rows observed after migration
   range: 2026-06-29 07:50:30 EDT -> 2026-07-07 09:01:35 EDT
 ```
 
-因此 NULL `sequence` 不是纯老数据包袱。当前或近期仍有写入、导入、修复脚本、raw SQL 或其他未定位旁路绕过了统一 `saveMessage` / `savePart` 写法，或者以旧 SQL 直接写入。已核实的 fork 主路径若走 `persistMessage` / `persistPart` / session-store repository，不应再被当作 NULL sequence 的默认嫌疑；后续应继续用日志和 DB invariant 找到真实旁路。
+Portanto, `sequence` NULL não é apenas uma herança de dados antigos. Ainda há, no presente ou no passado recente, escritas, importações, scripts de reparo, raw SQL ou outros caminhos não localizados que contornaram a forma unificada de escrita `saveMessage` / `savePart`, ou escreveram direto por SQL antigo. O caminho principal de fork já verificado, quando passa por `persistMessage` / `persistPart` / pelo session-store repository, não deve mais ser o suspeito padrão de NULL sequence; é preciso continuar usando logs e invariantes do DB para achar os caminhos reais que contornam.
 
-语义字段覆盖也明显不足：
+A cobertura dos campos semânticos também é claramente insuficiente:
 
 | Field / fact | Count |
 | --- | ---: |
-| `message.data.semantics` | 569 / 26,942 |
-| `message.data.anchor` | 432 / 26,942 |
-| `message.data.anchor.turnId` | 425 / 26,942 |
-| `part.type = timeline` | 45 / 96,112 |
+| `message.data.semantics` | 569 / 26.942 |
+| `message.data.anchor` | 432 / 26.942 |
+| `message.data.anchor.turnId` | 425 / 26.942 |
+| `part.type = timeline` | 45 / 96.112 |
 | timeline `anchorMessageId` | 21 / 45 |
 | timeline `anchorTurnId` | 10 / 45 |
 
-timeline 类型分布：
+Distribuição dos tipos de timeline:
 
 | `timelineType` | Count |
 | --- | ---: |
@@ -707,22 +706,22 @@ timeline 类型分布：
 | `session_fork` | 6 |
 | `context_compaction` | 5 |
 
-这解释了 goal verify、fork、compact 等 marker 为什么容易漂：真实数据里很多 marker 没有足够 anchor，resolver 若只按 append 位置、timestamp 或当前 turn 推断，就会在冷恢复、late event、fork copy、queue drain 后出现错位。
+Isso explica por que markers como goal verify, fork e compact tendem a derivar: nos dados reais, muitos markers não têm âncora suficiente, e se o resolver só inferir pela posição de append, pelo timestamp ou pelo turn atual, haverá desalinhamento após cold recovery, late event, fork copy e queue drain.
 
-## 持久化字段与数据库关系
+## Campos de persistência e relação com o banco
 
-本文不要求把所有 resolver 字段都直接变成数据库列。正确分层应是：
+Este documento não exige que todos os campos do resolver virem diretamente colunas do banco. A estratificação correta deve ser:
 
-1. `~/.zcode/cli/db/db.sqlite` 的 `session/message/part/session_entry` 是 conversation transcript 的权威事实源。
-2. app `zcode.db` 只存 app 元数据、通知、renderer-local queue，不作为 transcript 顺序源。
-3. `tasks-index.sqlite` 只存任务列表、搜索、分组，不作为 transcript 顺序源。
-4. 新写入 `message` / `part` 必须通过统一 repository，保证 `sequence` 非空且同 session / message 内稳定单调。
-5. 新写入 timeline part 时必须记录 anchor 和 semantic fields，例如 `anchorMessageId`、`anchorTurnId`、`lifecycleKey`、`visibility`、`timelineType`。
-6. 新写入用户意图、queue drain、background wake 时必须保留 `sourceCommandId` / `cause` / `origin` / `turnId`，否则 UI 无法区分真实用户输入、队列消费、model-only wake。
-7. CLI cold resume 必须从 persisted facts 重新喂给同一个 resolver，而不是另写一套 hydration 顺序逻辑。
-8. materialized snapshot 可以缓存 `entityId/productTurnId/orderKey`，但缓存不是事实源。
+1. `session/message/part/session_entry` de `~/.zcode/cli/db/db.sqlite` é a fonte de fato autoritativa do conversation transcript.
+2. O `zcode.db` do app guarda apenas metadados do app, notificações e a queue renderer-local, e não é fonte de ordem do transcript.
+3. O `tasks-index.sqlite` guarda apenas a lista, a busca e o agrupamento de tarefas, e não é fonte de ordem do transcript.
+4. As novas escritas de `message` / `part` precisam passar pelo repository unificado, garantindo `sequence` não nulo e monotônico estável dentro da mesma sessão/message.
+5. Ao escrever um novo timeline part, é preciso registrar âncora e campos semânticos, como `anchorMessageId`, `anchorTurnId`, `lifecycleKey`, `visibility` e `timelineType`.
+6. Ao escrever novas intenções de usuário, queue drain e background wake, é preciso preservar `sourceCommandId` / `cause` / `origin` / `turnId`; caso contrário a UI não consegue distinguir entrada real do usuário, consumo de fila e wake model-only.
+7. O cold resume do CLI precisa devolver os persisted facts ao mesmo resolver, em vez de escrever um conjunto próprio de lógica de ordenação de hydration.
+8. O snapshot materializado pode cachear `entityId/productTurnId/orderKey`, mas o cache não é fonte de fato.
 
-数据库是否需要加物理列，要按风险分层处理：
+A questão de o banco precisar de novas colunas físicas precisa ser tratada com camadas de risco:
 
 ```text
 必须先修
@@ -744,7 +743,7 @@ timeline 类型分布：
   这些是 resolver 输出，不是原始事实。可以缓存，但不应成为唯一事实。
 ```
 
-推荐的最小持久化边界：
+Fronteira mínima de persistência recomendada:
 
 ```text
 event_sequence 或 session_sequence
@@ -770,13 +769,13 @@ message / part
   data JSON 带 typed refs / semantics
 ```
 
-如果已有统一 allocator 能保证所有 transcript facts 使用同一套 session 内单调 sequence，可以不新增 `session_sequence` 表；否则应新增或等价实现一个 allocator，避免 message、part、session_entry、command 各自生成不可比较的顺序。
+Se já existir um allocator unificado capaz de garantir que todos os transcript facts usem a mesma sequência monotônica dentro da sessão, a tabela `session_sequence` pode ser dispensada; caso contrário, um allocator novo ou equivalente deve ser adicionado, para evitar que message, part, session_entry e command gerem ordens incomparáveis entre si.
 
-根因不是简单“数据库少一个排序字段”。真实问题是：`sequence` 已存在但覆盖不完整，语义锚点覆盖率也低；因此 projection snapshot 必须成为权威 resolver，不能让 UI 或 hydration 从 row 顺序、role、turnId 里反推。
+A causa raiz não é simplesmente “faltou um campo de ordenação no banco”. O problema real é que `sequence` já existe, mas a cobertura é incompleta, e a cobertura das âncoras semânticas também é baixa; por isso o snapshot de projeção precisa se tornar o resolver autoritativo, sem deixar a UI ou a hydration deduzirem a ordem a partir da ordem das rows, do role ou do turnId.
 
-## 测试与验收分层
+## Camadas de teste e aceite
 
-先用 L1/L2 稳住 resolver，再挑代表性 E2E。旧 E2E 不要求一次性全绿，但每个 accepted case 必须有明确 setup/action/assert。
+Primeiro estabilize o resolver com L1/L2 e então escolha E2E representativos. O E2E antigo não precisa ficar verde de uma vez, mas cada case aceito precisa ter setup/action/assert explícitos.
 
 ```text
 L1: Semantic Ledger / Resolver golden
@@ -799,31 +798,31 @@ L4: E2E representative
   background completion model-only wake 不显示用户气泡
 ```
 
-## 迁移建议
+## Recomendações de migração
 
-1. 在 docs 中裁决并冻结 `eventSeq/runtimeTurn/productTurn/visualPlacement` 四层边界。
-2. 先审计所有 `message` / `part` 写入路径，禁止绕过 session-store repository；修复后新增 DB invariant，避免迁移后继续制造 NULL `sequence`。
-3. 对现有 NULL `sequence` 做兼容 backfill 或读取期稳定推导。读取期推导不能改变历史事实，但必须保证同一 session 多次 hydrate 得到同一顺序。
-4. 新增或等价实现 `session_command` / `session_input`，把 queued prompt、background wake、resume input 的 admitted/promoted 生命周期持久化。
-5. 为新写入的 v4 facts 补齐 `semantics`、`anchor`、`sourceCommandId`、`cause`、`origin`、`visibility`、`lifecycleKey`。老数据缺字段时由 resolver 推导，不做破坏性强迁移。
-6. 为 fork copied message 生成 child local id / local sequence，并 remap child 内部 refs；parent id 只能进入 `origin*` provenance。
-7. 为 v4 row/snapshot 增加 `entityId/productTurnId/lane/placement/anchor/visibility/lifecycleKey/orderKey`。
-8. 新增 Semantic Ledger 和 Timeline Resolver，先只覆盖 queue、assistant segment、compact、goalVerify、fork、modelChange、background wake。
-9. materializer 继续输出旧 rows 形态，但 rows 来自 resolved graph；任何无法归组的 visible message/part 必须进入 diagnostics fallback row，不允许静默丢弃。
-10. UI render units 改为消费 resolver 结果，逐步删除 `turnId + latest assistant` 的推断逻辑。
-11. cold resume、desktop continuous、web remote replayable 全部走同一个 resolver。
-12. 对守恒失败加服务层日志和开发态诊断，避免坏 snapshot 静默进入 UI。
+1. Arbitrar e congelar nos docs as quatro camadas `eventSeq/runtimeTurn/productTurn/visualPlacement`.
+2. Auditar primeiro todos os caminhos de escrita de `message` / `part`, proibindo contornar o session-store repository; depois de corrigir, adicionar um DB invariant para evitar que a migração continue produzindo NULL `sequence`.
+3. Fazer um backfill compatível ou uma dedução estável em tempo de leitura para o `sequence` NULL existente. A dedução em tempo de leitura não pode alterar fatos históricos, mas precisa garantir que várias hydrations da mesma sessão obtenham a mesma ordem.
+4. Adicionar ou implementar de forma equivalente `session_command` / `session_input`, persistindo o ciclo de vida admitted/promoted de queued prompt, background wake e resume input.
+5. Completar `semantics`, `anchor`, `sourceCommandId`, `cause`, `origin`, `visibility` e `lifecycleKey` nos facts v4 novos. Quando faltarem campos em dados antigos, o resolver deduz, sem migração destrutiva.
+6. Gerar id local / sequence local para a message copiada de fork e remapear as refs internas da child; os ids do parent só podem entrar na provenance `origin*`.
+7. Adicionar `entityId/productTurnId/lane/placement/anchor/visibility/lifecycleKey/orderKey` às rows/snapshots do v4.
+8. Adicionar o Semantic Ledger e o Timeline Resolver, cobrindo primeiro apenas queue, assistant segment, compact, goalVerify, fork, modelChange e background wake.
+9. O materializer continua emitindo o formato antigo de rows, mas essas rows passam a vir do grafo resolvido; qualquer message/part visível que não possa ser agrupado precisa entrar em uma diagnostics fallback row, e não pode ser descartada em silêncio.
+10. Mudar os render units da UI para consumir o resultado do resolver, removendo progressivamente a lógica de inferência `turnId + latest assistant`.
+11. Fazer cold resume, desktop continuous e web remote replayable passarem pelo mesmo resolver.
+12. Adicionar logs na camada de serviço e diagnóstico em desenvolvimento para falhas de conservação, evitando que um snapshot quebrado entre na UI em silêncio.
 
-## 需要后续单独裁决的问题
+## Questões que exigem arbitragem posterior
 
-1. Background notification 是否需要轻量 system boundary。当前裁决：不显示成用户气泡，默认不进入 transcript rows。
-2. modelChange 最终是 timeline row 还是 SessionPane/banner state。无论选择哪种，都不能以 hidden row 形式污染 rows.window。
-3. goal verifying 是否继续作为 compact/fork 的 lock。当前较新的 case catalog 表达为不产生独立 validating lock，但 formal-proof 和部分实现仍是旧语义，需要单独回写裁决。
-4. append-only delta 是否扩展 `row.inserted/row.moved`。本文建议不扩展，非尾部变化统一 snapshot resync，降低客户端错误面。
+1. Se a notificação de background precisa de uma system boundary leve. Arbitragens atual: não exibir como bolha de usuário e não entrar por padrão nas transcript rows.
+2. Se modelChange será finalmente uma timeline row ou um SessionPane/banner state. Qualquer que seja a escolha, não se pode poluir rows.window com uma hidden row.
+3. Se goal verifying continua sendo um lock de compact/fork. O catálogo de cases mais recente expressa que não gera um lock de validating independente, mas o formal-proof e parte da implementação ainda têm a semântica antiga e precisam de uma arbitragem reescrita à parte.
+4. Se o delta append-only será estendido com `row.inserted/row.moved`. Este documento recomenda não estender: mudanças não caudas unificadas em snapshot resync, reduzindo a superfície de erro do cliente.
 
-## 结论
+## Conclusão
 
-要彻底解决消息顺序和吞消息，不能继续把 CLI projection 当作“row append reducer”。CLI 需要成为真正的 timeline authority：
+Para resolver de fato o problema de ordem de mensagens e de mensagens engolidas, não se pode continuar tratando a projeção do CLI como um “row append reducer”. O CLI precisa se tornar uma verdadeira autoridade de timeline:
 
 ```text
 事实归一
@@ -839,4 +838,4 @@ L4: E2E representative
   输入、assistant、compact、goal、fork、background 全部有 invariant
 ```
 
-只有做到这一层，UI 才能真的不猜、不补、不吞。
+Só ao chegar nesse nível a UI poderá de fato parar de adivinhar, complementar e engolir.

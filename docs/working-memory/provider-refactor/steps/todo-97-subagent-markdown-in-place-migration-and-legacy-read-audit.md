@@ -1,29 +1,29 @@
-# Todo 97：Subagent Markdown 原字段迁移与旧字段读取专项复审
+# Todo 97: Migração dos campos originais do Markdown de Subagent e revisão auditoria das leituras de campos antigos
 
-> 验证归属更新（2026-09-09）：本文残余欠测/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。Wiki 一次迁移边界已实现并验收，本 Todo 开发项已全部收尾。
+> Atualização da atribuição de validação (2026-09-09): as pendências de teste deficitário/promoção manual remanescentes deste texto foram transferidas uniformemente para o [Todo102](todo-102-verification-debt-closeout.md), o que encerra o cronograma de validação independente deste texto; as evidências históricas são preservadas, e a transferência não significa que os testes passaram. A fronteira de migração única do Wiki já foi implementada e aceita, e todos os itens de desenvolvimento deste Todo foram encerrados.
 
-> 状态：已裁决开发范围完成；2026-09-09 补齐 Wiki 一次落盘迁移及二审。执行证据见 [总记录](../research/todo94-97-execution-and-review.md) 与 [逐存储审计表](../research/todo97-selection-storage-audit.md)。下文 §4/§5 的“当前事实/待执行”是开工记录，最新结果以审计表及 §7/§8 为准；验证欠账统一由 Todo102 承接。
-> 总目标：用户可读的 Subagent Markdown 保留 `model`、`thoughtLevel`，仅对用户数据目录里的文件在原字段中迁移旧 Provider 身份，项目和插件文件不自动修改；同步彻查整个 Provider / Model Selection 迁移链路的中间格式兼容及旧字段运行时回读。
+> Status: escopo de desenvolvimento decidido como concluído; em 2026-09-09 foram complementadas a migração de gravação única do Wiki e a segunda revisão. As evidências de execução estão no [registro geral](../research/todo94-97-execution-and-review.md) e na [tabela de auditoria por armazenamento](../research/todo97-selection-storage-audit.md). Em §4/§5, os “fatos atuais / a executar” são o registro de abertura do trabalho, e os resultados mais recentes são os da tabela de auditoria e de §7/§8; a dívida de validação é assumida uniformemente pelo Todo102.
+> Objetivo geral: o Markdown de Subagent legível pelo usuário mantém `model` e `thoughtLevel`, migrando nos campos originais a identidade antiga de Provider apenas para os arquivos do diretório de dados do usuário, sem modificar automaticamente arquivos de projeto e de plugin; ao mesmo tempo, auditar minuciosamente em toda a cadeia de migração de Provider / Model Selection a compatibilidade de formatos intermediários e as leituras em runtime de campos antigos.
 
-## 1. 两条必须执行、必须重新审查的原则
+## 1. Dois princípios obrigatórios e que exigem nova revisão
 
-1. **不兼容未上线、已经被重新裁决替代的中间格式。** 只迁移实际发布过的旧配置，不为本轮错误迁移产物增加逆迁移、双读、双写或优先级分支。Subagent Markdown 中间态 `modelSelection` 不转回 `model` / `thoughtLevel`，也不保留其正式读取/保存路径。不擅自清理用户磁盘上的中间态文件。
-2. **旧字段只用于迁移，迁移后的正式使用不得再读取旧字段。** 禁止新字段为空、损坏、模型不可选、账号未登录、Provider 暂缺或 SSH 失联时回读旧字段补值。保留用于回滚的旧数据不等于允许运行时使用。新进来的真正旧文件可以重新进入明确的迁移入口，但不能把同一份文件每次加载时的内存兼容称作一次迁移完成。
+1. **Não dar compatibilidade a formatos intermediários que nunca foram publicados e que já foram substituídos por uma decisão posterior.** Só migramos a configuração antiga efetivamente publicada, sem adicionar migração inversa, leitura dupla, escrita dupla ou ramificação de prioridade para produtos de migração errados deste ciclo. O estado intermediário `modelSelection` do Markdown de Subagent não é convertido de volta para `model` / `thoughtLevel`, e seu caminho formal de leitura/gravação não é mantido. Arquivos intermediários no disco do usuário não são limpos por conta própria.
+2. **Campos antigos servem apenas para a migração, e o uso formal após a migração não pode ler de novo campos antigos.** É proibido reler campos antigos para completar valores quando o novo campo está vazio, corrompido, com modelo não selecionável, com conta não logada, com Provider ausente ou com SSH desconectado. Manter dados antigos para rollback não equivale a permitir o uso em runtime. Arquivos genuinamente antigos recém-chegados podem reentrar por uma entrada de migração explícita, mas não se pode chamar de migração concluída a compatibilidade em memória feita a cada carregamento do mesmo arquivo.
 
-这里的“旧字段”按契约判断，不是按字段名字判断：**本次明确保留的 Markdown `model` / `thoughtLevel` 是迁移后的正式字段**，正常读取它们不违反第二条。被淘汰的是其中的旧 Provider 表达，以及其他存储中已被新字段取代的字段。内部/协议的结构化 `ModelSelection` 仍合法；不能因 Markdown 不再使用同名字段而全仓删除内部类型。
+Aqui, “campo antigo” é julgado pelo contrato, não pelo nome do campo: **o `model` / `thoughtLevel` do Markdown preservado explicitamente neste ciclo é o campo formal pós-migração**, e lê-los normalmente não viola o segundo princípio. O que foi aposentado é a antiga expressão de Provider dentro deles, além dos campos de outros armazenamentos que foram substituídos por campos novos. O `ModelSelection` estruturado interno/protocolar continua legítimo; não se pode apagar o tipo interno de todo o repositório só porque o Markdown não usa mais o campo de mesmo nome.
 
-两条原则都必须形成逐入口审计表、测试及二次复审证据。不得只写注释、只改一个 decoder，或只凭搜索不到某个字段名宣布完成。
+Os dois princípios precisam gerar uma tabela de auditoria por entrada de acesso, testes e evidências de segunda revisão. Não é permitido considerar concluído apenas escrevendo comentários, apenas mudando um decoder, ou apenas anunciando a conclusão com base em não encontrar um determinado nome de campo por busca.
 
-## 2. Subagent 已裁决方案
+## 2. Solução decidida para Subagent
 
-- 用户／项目 Markdown 的正式格式继续为 `model`、`thoughtLevel`；创建、编辑、保存、Host 读取和 Agent 加载必须一致，不得保存后又生成 `modelSelection`。
-- **自动原地迁移仅限用户数据目录 `<data>/agents/`**。项目 `.zcode/agents/`、插件附带文件及其他来源全部不自动迁移、不写回；这不取消用户主动编辑保存项目配置的已有功能。
-- 按 [Todo 96](todo-96-selection-offline-migration-and-resolution-consolidation.md) 做确定性旧身份转换：旧 BigModel / Z.ai Coding Plan 迁为同域 Individual；不查询当前连接、登录、权益、Registry、View 或模型能力。Individual 只是迁移落点，不表示用户历史使用个人套餐，不切换连接。
-- 模型 ID、思考档位保留原意图；档位别名治理属于 Todo 95，不顺带改写。继承选择保持继承，不因身份迁移猜一个模型。
-- 正确解码实际旧字符串后，只变更 Provider 身份；覆盖旧 `provider/model` 和 `custom:...` 编码，保证模型 ID 无损往返，不能对正文全局替换。
-- 自动原地迁移只修改相关 frontmatter 值，保留正文、注释、未知字段和无关格式；不能直接用重建整个 Markdown 的现有 serializer 做迁移。
-- 内部 profile、服务接口与 App–Agent 协议继续使用结构化 `ModelSelection`。内置 Explore / general-purpose 的 `agents-state.json` 覆盖仍用现行结构化字段，不因 Markdown 易读性要求改回旧 JSON 双 map。
-- 显式 Subagent 执行时取得有效选择的接入由 Todo 96 负责；本项不靠保留旧 ID 运行时解析替代它，也不以设置页通过冒充后台通过。已接受的损坏选择继承策略不借本项重新扩大为另一轮错误处理设计。
+- O formato formal do Markdown de usuário/projeto continua sendo `model` e `thoughtLevel`; criar, editar, salvar, leitura pelo Host e carregamento pelo Agent precisam ser coerentes, e não é permitido salvar e depois gerar `modelSelection`.
+- **A migração automática no local se limita ao diretório de dados do usuário `<data>/agents/`**. O `.zcode/agents/` do projeto, arquivos accompanying de plugin e todas as outras origens não são migrados automaticamente nem escritos de volta; isso não cancela a funcionalidade já existente de o usuário editar e salvar ativamente a configuração do projeto.
+- Seguir o [Todo 96](todo-96-selection-offline-migration-and-resolution-consolidation.md) para a conversão determinística da identidade antiga: o BigModel / Z.ai Coding Plan antigo migra para Individual do mesmo domínio; não se consulta a conexão atual, o login, os benefícios, o Registry, a View nem as capacidades do modelo. Individual é apenas o destino da migração e não significa que o usuário usava historicamente um plano pessoal, nem troca a conexão.
+- O model ID e a faixa de pensamento preservam a intenção original; o governar os aliases de faixa pertence ao Todo 95 e não é reescrito junto. A seleção herdada continua herdada, sem adivinhar um modelo por causa da migração de identidade.
+- Depois de decodificar corretamente a string antiga real, apenas a identidade de Provider é alterada; a codificação antiga `provider/model` e `custom:...` é coberta, garantindo um round-trip do model ID sem perdas, e não é permitido fazer substituição global no corpo do texto.
+- A migração automática no local altera somente os valores relevantes do frontmatter, preservando corpo, comentários, campos desconhecidos e formatação não relacionada; não se pode fazer a migração reconstruindo o Markdown inteiro com o serializer existente.
+- Perfis internos, interfaces de serviço e o protocolo App–Agent continuam usando o `ModelSelection` estruturado. As overrides de `agents-state.json` dos Explore / general-purpose embutidos continuam usando os campos estruturados atuais, sem voltar ao antigo JSON de double map por causa da exigência de legibilidade do Markdown.
+- A obtenção da seleção válida na execução explícita de Subagent é responsabilidade do Todo 96; este item não substitui isso por resolução em runtime da ID antiga preservada, nem usa a passagem na página de Settings para fingir a aprovação de backend. A estratégia já aceita de herança de seleção corrompida não é ampliada por este item para virar outro round de design de tratamento de erro.
 
 ```text
 用户数据目录里的真正旧 Markdown
@@ -39,107 +39,106 @@
                          不再回读旧身份或中间格式补值
 ```
 
-## 3. 文件写入边界：已裁决，仅用户目录
+## 3. Fronteira de escrita de arquivo: decidida, apenas diretório do usuário
 
-实施收口：共享纯文本转换与正式字段 codec，Node-only 用户目录迁移由 Host/Agent 初始化复用；不让普通 reader 转换 Provider。迁移保留原文件模式及其他字节，复用文件锁，写前比较原文；符号链接、只读文件不改权限或跟随到范围外，失败不转换内存来冒充完成。范围外旧身份仍作为显式不可绑定选择接受现有校验。
+Fechamento da implementação: a transformação de texto puro e o codec dos campos formais são compartilhados, e a migração do diretório do usuário, que é Node-only, é reutilizada pela inicialização do Host/Agent; um reader comum não converte Provider. A migração preserva o modo e os demais bytes do arquivo original, reutiliza o file lock e compara o texto original antes de escrever; links simbólicos e arquivos somente leitura não têm permissão alterada nem são seguidos para fora do escopo, e uma falha não converte a memória para fingir conclusão. Identidades antigas fora do escopo continuam sendo aceitas pelas validações existentes como seleção explicitamente não vinculável.
 
-用户已明确：只改用户目录里的文件，其他全部不动。无需再为项目、插件或只读来源设计自动迁移方案。
+O usuário deixou claro: alterar apenas os arquivos do diretório do usuário e não tocar em mais nada. Não é preciso desenhar um plano de migração automática para projeto, plugin ou fontes somente leitura.
 
-- 在既有用户配置初始化／迁移阶段完成用户目录迁移，随后正式加载；复用现有初始化边界，不另造调度器或为了其他来源扩展加载时机。
-- 自动迁移不得遍历项目或插件目录写回，不创建影子副本，不修改权限，不自动禁用插件。共享读取契约仍统一，但不为范围外的旧文件保留永久身份兼容旁路；未迁移的旧身份不保证可用，沿用既定校验，不暗中重绑。
-- 原文件解析失败、写入失败、并发用户编辑时不能宣称迁移完成，也不能覆盖新内容。采用现有异步 IO 和事务/并发保护能力，不引入定时等待解决同步问题。
-- 再次加载已迁移文件不应再调用旧身份转换；新加入的真正旧文件仍可被迁移。不能只设置一个全局“迁移过”标志而遗漏后加入的文件。
+- A migração do diretório do usuário é concluída na fase de inicialização/migração da configuração de usuário já existente, com o carregamento formal em seguida; reutiliza-se a fronteira de inicialização atual, sem criar um agendador à parte nem estender o momento de carregamento por causa de outras origens.
+- A migração automática não pode varrer diretórios de projeto ou de plugin para escrever de volta, não cria cópias-sombra, não altera permissões e não desabilita plugins automaticamente. O contrato de leitura compartilhado continua unificado, mas não se mantém um desvio permanente de compatibilidade de identidade para arquivos antigos fora do escopo; uma identidade antiga não migrada não tem garantia de funcionar, e a validação já estabelecida vale, sem rebind silencioso.
+- Se o parsing do arquivo original, a escrita ou a edição concorrente pelo usuário falharem, não se pode declarar a migração concluída nem sobrescrever conteúdo novo. Usam-se as capacidades existentes de IO assíncrono e de proteção transacional/de concorrência, sem introduzir espera por temporizador para resolver problemas de sincronia.
+- Carregar de novo um arquivo já migrado não deve chamar de novo a conversão de identidade antiga; arquivos genuinamente antigos adicionados depois ainda podem ser migrados. Não se pode apenas definir uma flag global de “migrado” e deixar de fora arquivos adicionados depois.
 
-## 4. 当前事实、影响边界与代码种子
+## 4. Fatos atuais, fronteira de impacto e sementes de código
 
-本项为 feature-boundary-planner 的 planning，主要层级是 persistence / validation / commit-effect。没有 codegraph 工具；以下为定向读取及此前内存复现，不声称已完成全仓审计。
+Este item é um planning de feature-boundary-planner, com camadas principais em persistence / validation / commit-effect. Não há ferramenta de codegraph; o que segue vem de leituras direcionadas e de reprodução anterior em memória, e não reivindica uma auditoria de todo o repositório.
 
-| 等级 / 场景 | 入口及共享实现 | 原意图与提交落点 | 当前事实 / 必须检查 |
+| Nível / cenário | Entrada e implementação compartilhada | Intenção original e ponto de envio | Fato atual / o que precisa ser checado |
 | --- | --- | --- | --- |
-| must-inspect：用户／项目设置表单 | SubagentsSection → subagentsService → subagentMarkdown | 表单草稿；显式 Save 写各自 Markdown | 当前 serializer 写 `modelSelection`；必须统一为正式原字段，保存不重引中间态 |
-| must-inspect：Host 读取 | `packages/services/src/subagents/subagentMarkdown.ts`、`subagentModelSelection.ts` | 文件是权威；返回内部 selection | 当前按是否存在 modelSelection 分双读路径；需删除中间格式分支，明确迁移与正式读取分界 |
-| must-inspect：Agent 冷启动 | bootstrap `subagents.ts`、`subagent-legacy-selection.ts`、`app/create-app.ts`；core `profile-model-selection.ts` | Markdown → 内部 profile | 当前每次导入旧身份只改内存、不写 Markdown；需追到重启后二次读取，不能只测单次结果 |
-| must-inspect：内置覆盖 | subagentsService 的 state importer / prepareRuntimeState，bootstrap state reader | `agents-state.json` | 格式不回退；彻查旧双 map 只在迁移入口读，正式 reader 只读当前字段 |
-| invariant-only：项目／插件等范围外文件 | 项目/插件 agent discovery 和 profile loader | 各自原文件 | 自动迁移不写入，不新增中间态或旧身份长期兼容；用户主动 Save 与自动迁移分开 |
-| must-inspect：所有 Selection 使用入口 | Todo 96 的 Session、Automation、Bot、Wiki、Recent/Default/Draft | 各业务原有存储、保存时机 | 排查同类中间态兼容、新空值回读旧值、反复内存转换、环境失败破坏原意图；不是只检查 Subagent |
-| invariant-only：实际执行 / 远端 | Subagent child 启动、目标 Host 的有效解析及最终 Registry 校验 | 本次运行冻结的具体选择 | 不绕过最终校验、不改正在运行请求；不借本地配置修远端，不新增发送前同步 |
-| invariant-only：闲时 | Off-Peak migration / Ticket | 已有票据与固定运行选择 | 纳入旧读取事实审计；不得机械套用 Individual 迁移或改变 Ticket 绑定，冲突另列裁决 |
+| must-inspect: formulários de Settings de usuário/projeto | SubagentsSection → subagentsService → subagentMarkdown | Rascunho do formulário; Save explícito grava cada Markdown | O serializer atual grava `modelSelection`; precisa unificar nos campos originais formais, e o save não reintroduz o estado intermediário |
+| must-inspect: leitura pelo Host | `packages/services/src/subagents/subagentMarkdown.ts`, `subagentModelSelection.ts` | O arquivo é autoritativo; retorna a selection interna | Hoje há dois caminhos de leitura conforme exista modelSelection; é preciso remover o ramo de formato intermediário e definir com clareza a fronteira entre migração e leitura formal |
+| must-inspect: cold start do Agent | bootstrap `subagents.ts`, `subagent-legacy-selection.ts`, `app/create-app.ts`; core `profile-model-selection.ts` | Markdown → perfil interno | Hoje cada importação de identidade antiga só muda a memória e não grava o Markdown; é preciso chegar à segunda leitura após o restart, sem testar só o resultado de uma única vez |
+| must-inspect: overrides embutidas | state importer / prepareRuntimeState do subagentsService, state reader do bootstrap | `agents-state.json` | O formato não regride; auditar minuciosamente que o double map antigo só é lido na entrada de migração e que o reader formal só lê os campos atuais |
+| invariant-only: arquivos fora de escopo, como projeto/plugin | agent discovery e profile loader de projeto/plugin | Seu próprio arquivo original | A migração automática não escreve, e não se adiciona estado intermediário nem compatibilidade de longa duração com identidade antiga; o Save ativo do usuário é separado da migração automática |
+| must-inspect: todas as entradas de uso de Selection | Session, Automation, Bot, Wiki, Recent/Default/Draft do Todo 96 | O armazenamento e o momento de save próprios de cada área | Investigar compatibilidade com estados intermediários do mesmo tipo, retorno a valores antigos com novo valor vazio, conversão em memória repetida e destruição da intenção original por falha de ambiente; não é só verificar Subagent |
+| invariant-only: execução real / remoto | Início do child de Subagent, resolução válida no Host alvo e validação final do Registry | A seleção concreta congelada nesta execução | Não contorna a validação final e não altera requisição em andamento; não usa configuração local para consertar o remoto e não adiciona sincronização antes do envio |
+| invariant-only: tempo ocioso | Migration / Ticket do Off-Peak | O tíquete existente e a seleção de execução fixa | Entra na auditoria de fatos de leitura antiga; não pode aplicar mecanicamente a migração Individual nem mudar o vínculo do Ticket, e conflitos vão para uma decisão à parte |
 
-共享的是身份解码、内部 Selection 和候选解析，不共享保存副作用：Subagent Save 不等于 Composer 发送接纳，内置 JSON 不等于 Markdown，插件也不等于用户文件。主会话、定时任务的执行行为不在本项擅自重构。
+O que é compartilhado é a decodificação de identidade, a Selection interna e a resolução de candidatos; o que não é compartilhado é o efeito de gravação: o Save de Subagent não equivale à admissão de envio do Composer, o JSON embutido não equivale ao Markdown, e plugin também não equivale ao arquivo do usuário. O comportamento de execução da sessão principal e das tarefas agendadas não é refatorado por conta própria neste item.
 
-必须保持桌面 continuous / 手机 replayable、shared-host、workspaceIdentity 隔离及目标文件系统权限；远端文件由所属执行环境处理，不能按本地同路径写回。本次不改变布局、主题、国际化或消息恢复链路。
+É preciso preservar o continuous do desktop / replayable do celular, o shared-host, o isolamento por workspaceIdentity e as permissões do sistema de arquivos alvo; os arquivos remotos são tratados pelo ambiente de execução dono deles e não podem ser escritos de volta pelo mesmo caminho local. Esta mudança não altera layout, tema, internacionalização nem a cadeia de recuperação de mensagens.
 
-图谱漂移：当前 subagents invariant 仍记载“不写 Markdown”的旧实现；本计划只增加引用，不谎报已经切换。实现验收后同步图谱和 `docs/subagents-built-in-model-overrides.md`，旧规范与代码不一致处逐项记录，而非直接按当前代码改规范。
+Drift do grafo: o invariant atual de subagents ainda registra a implementação antiga “não grava Markdown”; este plano apenas adiciona referências e não mente dizendo que a troca já aconteceu. Depois da aceitação da implementação, o grafo e o `docs/subagents-built-in-model-overrides.md` são sincronizados, e cada item em que a especificação antiga conflita com o código é registrado, em vez de se alterar a especificação diretamente conforme o código atual.
 
-## 5. 重新排查：必须交付的过程表
+## 5. Nova investigação: tabelas de processo obrigatórias
 
-对每个持久格式分别记录下面这些列；“当前字段名”相同不代表属于同一格式。范围是本轮 Provider / Model Selection 重构，不扩成全仓所有数据迁移重做。
+Registrar as colunas abaixo para cada formato persistente; um mesmo “nome de campo atual” não significa pertencer ao mesmo formato. O escopo é o refactor de Provider / Model Selection deste ciclo, sem se expandir para refazer todas as migrações de dados do repositório.
 
-| 入口 / 文件或表 | 发布旧格式 | 正式当前格式 | 未上线中间态分支 | 迁移入口及触发 | 完成写入证据 | 正式 reader / runtime 是否回读旧值 | 保存是否重写旧/中间格式 | 处理 / 测试 / 二审 |
+| Entrada / arquivo ou tabela | Formato antigo publicado | Formato atual formal | Ramo intermediário não publicado | Entrada de migração e gatilho | Evidência de escrita concluída | O reader formal / runtime relê valores antigos | O save reescreve formato antigo/intermediário | Tratamento / teste / segunda revisão |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 用户目录 Subagent Markdown | 待核实样本 | model / thoughtLevel，新 Provider 值 | modelSelection（确定移除兼容） | 既有用户配置初始化／迁移阶段 | 待实现 | 待逐调用链核对 | 当前存在 | 待执行 |
-| 项目／插件 Subagent Markdown | 原文件保留 | 正式读取使用 model / thoughtLevel | modelSelection（不增加兼容） | 排除自动迁移 | 验证无自动写入 | 纳入读取审计，不新增旧身份旁路 | 项目显式 Save 与自动迁移分开 | 待验证 |
-| 内置 Subagent state JSON | 待核实旧双 map | builtInModelSelectionOverrides | 按发布来源识别 | 现有 prepareRuntimeState | 待复验 | 待复验 | 待复验 | 待执行 |
-| Session / Recent / Draft | 各实际旧存储 | 各正式存储 | 待逐项列明 | 对照 Todo 96 | 待记录 | 待记录 | 待记录 | 待执行 |
-| Automation / Bot / Wiki | 各实际旧存储 | 各正式存储 | 待逐项列明 | 对照 Todo 96 | 待记录 | 待记录 | 待记录 | 待执行 |
-| Provider config / Account connection | 各实际发布旧格式 | 各正式配置 | 待核对本轮被替代字段 | 各自现有迁移入口 | 待记录 | 待记录 | 待记录 | 新设计冲突单列，不顺带重做 |
-| Off-Peak | 既有旧任务记录 | 现行任务格式 | 待核实 | 既有专用边界 | 待记录 | 待记录 | 待记录 | 审计，不改变票据契约 |
+| Markdown de Subagent do diretório do usuário | Amostras a verificar | model / thoughtLevel, com valor novo de Provider | modelSelection (compatibilidade a remover com certeza) | Fase de inicialização/migração da configuração de usuário já existente | A implementar | A conferir cadeia por cadeia | Existe hoje | A executar |
+| Markdown de Subagent de projeto/plugin | Arquivo original preservado | Leitura oficial usa model / thoughtLevel | modelSelection (sem adicionar compatibilidade) | Excluído da migração automática | Verificar que não há escrita automática | Entra na auditoria de leitura, sem novo desvio de identidade antiga | Save explícito de projeto separado da migração automática | A validar |
+| JSON de estado de Subagent embutido | Double map antigo a verificar | builtInModelSelectionOverrides | Identificado pela origem publicada | prepareRuntimeState existente | A reverificar | A reverificar | A reverificar | A executar |
+| Session / Recent / Draft | Cada armazenamento antigo real | Cada armazenamento formal | A listar item a item | Em confronto com o Todo 96 | A registrar | A registrar | A registrar | A executar |
+| Automation / Bot / Wiki | Cada armazenamento antigo real | Cada armazenamento formal | A listar item a item | Em confronto com o Todo 96 | A registrar | A registrar | A registrar | A executar |
+| Provider config / Account connection | Cada formato antigo realmente publicado | Cada configuração formal | Conferir os campos substituídos neste ciclo | Cada entrada de migração já existente | A registrar | A registrar | A registrar | Conflito com novo design fica em coluna própria, sem refazer junto |
+| Off-Peak | Registro de tarefa antigo existente | Formato de tarefa atual | A verificar | Fronteira dedicada já existente | A registrar | A registrar | A registrar | Auditoria, sem mudar o contrato do tíquete |
 
-追踪至少覆盖：迁移、正式读取、设置页展示、实际执行、保存、重启。不能仅搜索 `legacy` 命名；重点查 `new ?? old`、新值无效后 fallback、双读 parser、RPC resolver、每次加载重新导入，以及测试是否把旧运行行为锁成正确。
+O rastreamento precisa cobrir pelo menos: migração, leitura formal, exibição na página de Settings, execução real, save e restart. Não basta buscar por nomenclatura `legacy`; o foco está em `new ?? old`, fallback quando o novo valor é inválido, parser de leitura dupla, resolver via RPC, nova importação a cada carregamento, e em testes que travam um comportamento antigo de runtime como se estivesse correto.
 
-发现缺口必须分类：明确违反已裁决原则且能直接修复／与其他已裁决边界冲突需讨论／仅留在迁移或回滚数据中无需删除。旧字段为迁移保留的代码允许存在，但需给出调用边界和正式路径零调用证明。跨 Todo 修复链接到具体条目，不重复造两套实现。
+Toda lacuna encontrada precisa ser classificada: violação clara de um princípio já decidido e corrigível diretamente; conflito com outra fronteira já decidida que precisa de discussão; ou algo que permanece apenas nos dados de migração/rollback e não precisa ser removido. Código mantido por causa de campos antigos reservados à migração pode existir, mas precisa vir com a prova do limite de chamada e de zero chamadas no caminho formal. Correções entre Todos devem apontar para o item específico, sem criar duas implementações paralelas.
 
-## 6. 验收与执行顺序
+## 6. Aceitação e ordem de execução
 
-维度：真正旧格式／当前格式／未上线中间态；用户／项目／内置 JSON／插件只读；首次迁移／重启／显式保存；正常写入／失败／并发编辑；在线／离线。只覆盖改变语义的组合，不笛卡尔积铺开。
+Dimensões: formato genuinamente antigo / formato atual / estado intermediário não publicado; usuário / projeto / JSON embutido / plugin somente leitura; primeira migração / restart / save explícito; escrita normal / falha / edição concorrente; online / offline. Cobrir apenas as combinações que mudam a semântica, sem abrir o produto cartesiano completo.
 
-| 用例 | 准备与动作 | 断言及证据 | 状态 |
+| Caso | Preparação e ação | Asserções e evidências | Status |
 | --- | --- | --- | --- |
-| SA97-01 | 用户目录里两种真实旧字符串编码，迁移后重启加载 | 仅 Provider 值改变，模型/档位保留；第二次加载不再调用旧身份转换 | accepted，待单测/文件集成 |
-| SA97-02 | 未登录、空 Provider、SSH 断连条件下迁移同一旧选择 | 输出一致，无账号/网络/候选查询；原意图不被置空 | accepted，对接 SM96 |
-| SA97-03 | 含正文同名字符串、注释、未知 YAML 字段、不同换行的文件 | 精确文件差异仅在目标字段值；迁移幂等，不整份重建 | accepted，待文件测试 |
-| SA97-04 | 设置页创建/编辑用户及项目 agent，保存后冷启动 | 只写正式 model / thoughtLevel；Host/Agent 解码一致；实际 child 消费对应内部选择 | accepted，待服务/Agent 集成及 Pro E2E |
-| SA97-05 | 中间态 Markdown 的 modelSelection | 无专用兼容、逆迁移或优先读取分支；保存不再产生该字段；不借测试要求恢复该格式 | accepted，待负向测试及引用审查 |
-| SA97-06 | 其他存储已存在当前字段，旧字段与其冲突；当前值清空/不可用 | 正式路径不调用旧 reader，不复活旧意图；保留各自已裁决的清空/损坏处理 | accepted，逐入口测试 |
-| SA97-07 | 用户目录迁移同时用户编辑，或写入失败，随后重新加载 | 不覆盖并发内容、不标假完成、不绕过迁移进入旧字段执行路径；沿用迁移失败处理，不为写权限扩大产品设计 | accepted，待文件测试 |
-| SA97-08 | 内置 JSON 旧双 map 迁移并重启，及新版覆盖保存 | 正式 reader 只读新字段，覆盖原子性保持；不随 Markdown 改回旧格式 | accepted，待集成 |
-| SA97-09 | 同时存在用户、项目、插件的旧文件，执行初始化迁移 | 仅用户目录文件变化，项目和插件文件字节不变；不创建影子文件、不改权限、不为范围外旧身份新增兼容执行路径 | accepted，待文件集成 |
-| SA97-10 | 审计表每个入口：迁移完成，再读取/执行/保存/重启 | 旧字段只在迁移使用，无中间态兼容；附实现位置、测试命令、结果与二审结论 | accepted，完成门槛 |
+| SA97-01 | Duas codificações de string antigas reais no diretório do usuário, migrar e carregar após restart | Apenas o valor de Provider muda, modelo/faixa preservados; o segundo carregamento não chama de novo a conversão de identidade antiga | accepted, aguardando teste unitário/integração de arquivo |
+| SA97-02 | Migrar a mesma seleção antiga sem login, com Provider vazio e com SSH desconectado | Saída consistente, sem consulta a conta/rede/candidatos; a intenção original não é esvaziada | accepted, integração com SM96 |
+| SA97-03 | Arquivo com string de mesmo nome no corpo, comentários, campos YAML desconhecidos e quebras de linha diferentes | A diferença precisa do arquivo fica só no valor do campo alvo; a migração é idempotente e não reconstrói o arquivo inteiro | accepted, aguardando teste de arquivo |
+| SA97-04 | Criar/editar agent de usuário e de projeto na página de Settings, salvar e fazer cold start | Só grava model / thoughtLevel formais; Host/Agent decodificam de forma coerente; o child real consome a selection interna correspondente | accepted, aguardando integração de serviço/Agent e E2E Pro |
+| SA97-05 | modelSelection de Markdown em estado intermediário | Sem compatibilidade dedicada, migração inversa ou ramo de leitura prioritária; o save não volta a produzir esse campo; nem os testes exigem restaurar esse formato | accepted, aguardando teste negativo e revisão de referências |
+| SA97-06 | Outros armazenamentos já com o campo atual, com o campo antigo em conflito; valor atual vazio/inutilizável | O caminho formal não chama o reader antigo nem revive a intenção antiga; preserva o tratamento de limpeza/corrupção já decidido para cada área | accepted, teste por entrada |
+| SA97-07 | Migração do diretório do usuário com edição simultânea pelo usuário, ou falha de escrita, e depois novo carregamento | Não sobrescreve conteúdo concorrente, não marca falsa conclusão e não desvia para o caminho de execução por campo antigo ao contornar a migração; segue o tratamento de falha de migração existente, sem ampliar o design de produto por causa de permissão de escrita | accepted, aguardando teste de arquivo |
+| SA97-08 | Migrar o double map antigo do JSON embutido, reiniciar e salvar a nova override | O reader formal lê apenas os campos novos e a atomicidade da override se mantém; não volta ao formato antigo por causa do Markdown | accepted, aguardando integração |
+| SA97-09 | Arquivos antigos coexistindo de usuário, projeto e plugin, executando a migração de inicialização | Só o arquivo do diretório do usuário muda, e os bytes dos arquivos de projeto e plugin ficam intactos; não cria arquivo-sombra, não altera permissões e não cria caminho de execução compatível para identidade antiga fora de escopo | accepted, aguardando integração de arquivo |
+| SA97-10 | Cada entrada da tabela de auditoria: migração concluída e depois leitura/execução/save/restart | O campo antigo é usado só na migração, sem compatibilidade de estado intermediário; anexa posição da implementação, comando de teste, resultado e conclusão da segunda revisão | accepted, é oportão de conclusão |
 
-1. 补齐审计表的真实发布依据和调用链，按 §3 已裁决的用户目录范围接入既有迁移阶段；不扩展到项目或插件自动改写。
-2. 同步 Todo 96 中“Markdown 不自动重写”的旧条款，并标注本项为新裁决；具体 effectiveSelection 执行接入仍由 Todo 96 完成。
-3. 先写纯转换/文件测试，再改统一读写及迁移边界；删除不必要中间格式分支，清理导出前查实际引用。
-4. 按审计表处理明确缺口。不可恢复的旧记录保留既定未迁移边界，不猜值；不得以保留旧读取兜底来假装迁移成功。
-5. 补齐设置保存与 child 冷启动证据，使用隔离 fixture，不操作同事真实数据。实现时遵守 Agent/Design/E2E 指令，跑 `pnpm typecheck`、`pnpm lint`、相关单测与 MacBook Pro E2E；记录未运行项。
-6. 二次复审每个入口“迁移前 -> 写入完成 -> 重启正式读取”，保存测试、差异与裁决轨迹。两个原则及表格未验收完，不得将本 Todo 标完成。
+1. Complementar a base de publicação real e as cadeias de chamada da tabela de auditoria, e conectar à fase de migração já existente dentro do escopo de diretório do usuário decidido em §3; sem extensão para reescrita automática de projeto ou plugin.
+2. Sincronizar a cláusula antiga “Markdown não é reescrito automaticamente” do Todo 96 e marcar este item como nova decisão; o acesso efetivo da execução via effectiveSelection continua sendo feito pelo Todo 96.
+3. Escrever primeiro os testes de transformação pura/arquivo e depois mudar a leitura/gravação unificada e a fronteira de migração; remover ramos de formato intermediário desnecessários e conferir as referências reais antes de limpar exports.
+4. Tratar as lacunas claras conforme a tabela de auditoria. Registros antigos irrecuperáveis mantêm a fronteira de não migrado já estabelecida e não têm valores adivinhados; não se pode fingir migração bem-sucedida preservando uma leitura antiga de fallback.
+5. Completar as evidências de save em Settings e de cold start do child, usando fixture isolada e sem mexer nos dados reais de colegas. Na implementação, seguir as instruções de Agent/Design/E2E, rodar `pnpm typecheck`, `pnpm lint`, os testes unitários relacionados e o E2E no MacBook Pro; registrar o que não foi executado.
+6. Fazer a segunda revisão de cada entrada “antes da migração -> escrita concluída -> leitura formal após restart”, salvando testes, diferenças e rastro de decisões. Sem aceitar os dois princípios e a tabela, este Todo não pode ser marcado como concluído.
 
-本次 graph delta 仅增加 model-selection / subagents 的本计划引用。当前无新增 UI surface 或业务 owner；实现后再更新事实不变量。E2E handoff：使用真实旧字段样本的隔离文件 fixture；保存产物和实际 child 选择分别断言，不用仅表单截图代替落盘/执行证据，不依赖定时 sleep。
+O graph delta deste ciclo apenas adiciona referências deste plano em model-selection / subagents. Não há nova superfície de UI nem novo owner de negócio; os fatos e invariantes são atualizados depois da implementação. Handoff de E2E: usar fixture de arquivo isolado com amostras reais de campos antigos; afirmar separadamente o artefato salvo e a seleção real do child, sem substituir a evidência de gravação/execução por apenas um print do formulário e sem depender de sleep temporizado.
 
-## 7. 实施、验收与二审（2026-09-08）
+## 7. Implementação, aceitação e segunda revisão (2026-09-08)
 
-| 用例 | 当前结果 |
+| Caso | Resultado atual |
 | --- | --- |
-| SA97-01/02/03 | 纯转换与文件集成通过；两种旧编码离线固定迁移，BOM/CRLF/注释/正文保留；重启幂等，后来加入的旧文件仍可导入 |
-| SA97-04 | Host/Agent 正式 codec 一致；Pro SE 三条创建/编辑落盘及 I20 冷启动 child 共4项通过 |
-| SA97-05 | 中间态 modelSelection 无读取/逆迁移分支；正式 serializer 不再产生该字段，负向测试通过 |
-| SA97-06/08 | JSON 当前 map 的空/坏/缺档位不回读旧双 map；Host/独立 Agent 初始化先导入落盘，旧 map 只留回滚；I20 从旧 JSON 验证 child/high |
-| SA97-07 | 并发初始化、写失败重试、写前外部编辑、临时文件清理测试通过；不宣称能锁住不遵守应用文件锁的外部编辑器全部竞争窗口 |
-| SA97-09 | 用户/项目/插件三份同内容 CRLF 文件，实际调用各 loader 连续两次，只有用户文件 Provider 身份改变，项目/插件文件及其显式旧身份不变；另有符号链接、只读文件不写的文件测试。没有为未迁移身份新增内存 alias |
-| SA97-10 | 全域审计已落表；发现 Session 普通 codec 回读旧 thoughtLevel，已移到 SQLite 单向导入并通过23条测试。Wiki 剩余边界已由 §8 完成；Off-Peak 保留已裁决专用例外 |
+| SA97-01/02/03 | A transformação pura e a integração de arquivo passaram; as duas codificações antigas têm migração offline fixa, com BOM/CRLF/comentários/corpo preservados; idempotência no restart, e arquivos antigos adicionados depois ainda podem ser importados |
+| SA97-04 | Codec formal de Host/Agent coerente; três verificações de criação/edição em disco no Pro SE mais o cold start de child do I20, 4 itens aprovados |
+| SA97-05 | O modelSelection de estado intermediário não tem ramo de leitura/migração inversa; o serializer formal não produz mais esse campo, e o teste negativo passou |
+| SA97-06/08 | O map JSON atual vazio/ruim/sem faixa não relê o double map antigo; a inicialização do Host/Agent independente importa e grava antes, e o map antigo fica só para rollback; o I20 validou child/high a partir do JSON antigo |
+| SA97-07 | Passaram os testes de inicialização concorrente, retry de falha de escrita, edição externa antes da escrita e limpeza de arquivo temporário; não se reivindica a capacidade de travar todas as janelas de competição de editores externos que não respeitam o file lock da aplicação |
+| SA97-09 | Com três arquivos CRLF de mesmo conteúdo em usuário/projeto/plugin, chamando cada loader duas vezes seguidas, apenas a identidade de Provider do arquivo do usuário muda, e os arquivos de projeto/plugin e suas identidades antigas explícitas ficam intactos; há também testes de arquivo para link simbólico e arquivo somente leitura sem escrita. Nenhum alias em memória foi adicionado para identidades não migradas |
+| SA97-10 | A auditoria de todo o escopo foi registrada em tabela; encontrou-se que o codec comum de Session relia o thoughtLevel antigo, que foi movido para uma importação unidirecional em SQLite e aprovado em 23 testes. A fronteira restante do Wiki foi concluída em §8; o Off-Peak mantém a exceção dedicada já decidida |
 
-- 扩大回归：根61文件/900条、Agent17文件/201条通过；随后新增 custom: Provider 编码冲突红灯并修复，共享 Subagent 3文件/25条通过。
-- 根 typecheck/lint、Agent bootstrap typecheck 通过；Lint 41警告/0错误，存量警告及94遗留清理另记。
-- 二审删除旧全 profile 内存转换 helper 和 Host 重复 parser；普通 reader 不查当前连接，不做历史兜底。内部协议 ModelSelection、运行中冻结选择、最终 Registry 校验、continuous/replayable 和目标 Workspace 边界不变。
-- 同步 subagents 图谱种子与事实不变量；详细代码、发布依据、例外及运行证据见审计表。显式 Subagent 的 Worker 本地解析后续已由 Todo99 完成，不再列为待裁决协议。
+- Regressão ampliada: raiz com 61 arquivos/900 casos e Agent com 17 arquivos/201 casos aprovados; em seguida foi adicionado e corrigido um caso vermelho de conflito de codificação de Provider `custom:`, e o Subagent compartilhado passou com 3 arquivos/25 casos.
+- Typecheck/lint da raiz e typecheck do bootstrap do Agent aprovados; lint com 41 avisos/0 erros, e os avisos de estoque e a limpeza pendente de 94 itens ficaram registrados separadamente.
+- A segunda revisão removeu o helper antigo de conversão de perfil inteiro em memória e o parser duplicado do Host; o reader comum não consulta a conexão atual nem faz fallback de histórico. O ModelSelection do protocolo interno, a seleção congelada em execução, a validação final do Registry, continuous/replayable e a fronteira do Workspace alvo permanecem inalterados.
+- Sincronizar as sementes do grafo de subagents e os fatos invariantes; o código detalhado, a base de publicação, as exceções e as evidências de execução estão na tabela de auditoria. A resolução local do Worker na execução explícita de Subagent foi depois concluída pelo Todo99 e não é mais listada como protocolo pendente de decisão.
 
-## 8. Wiki 剩余边界执行契约（2026-09-09）
+## 8. Contrato de execução da fronteira restante do Wiki (2026-09-09)
 
-- 本节取代 Todo96 的 Wiki“读取旧字段只做内存转换、不写文件”例外。真正旧 `wiki.json` / `draft.json` 首次加载进入明确迁移入口，落盘成功之后正式读取只消费 `modelSelection`。
-- 迁移只识别已发布的 `generationModel`、`generationOptions.thoughtLevel`。新字段存在（包括 null、坏值、旧 ID 的未上线中间态）即为权威，不转换新字段身份，不从旧字段补值；无可导入旧选择时以 null 记录已处理，不猜默认模型。
-- 离线导入复用既有 Provider 身份迁移，不查询账号、连接、Registry 或 View。仅移除旧选择字段，保留页面正文、目录树、元信息及不相关 options；不重写 task 或 draft page 文件。
-- 在现有异步文件锁内重新读取并决定是否迁移，再原子写入；普通写入、删除目标文件使用同一锁。迁移失败保留原文件、抛出错误，下次正常加载可重试；已迁文件再次读取不写盘。不增加后台迁移调度或同步协议。
-- 正式读取仍按当前 schema 校验新选择。网络/Provider 不可用不能导致迁移选择置空，实际生成继续使用公共有效选择解析，固定运行和恢复不重绑。
-- SA97-W01：真实旧 Wiki/Draft 首次读即落盘，重建 Storage 后幂等；SA97-W02：新字段空/坏/中间身份不回退，未知字段和正文保留；SA97-W03：写入失败可重试、并发迁移/保存/删除不覆盖或复活；SA97-W04：Pro 旧 Wiki 冷启动阅读、模型/档位回显、正文切页、迁后文件稳定与删除回空。
+- Esta seção substitui a exceção do Todo96 para o Wiki de “ler campo antigo fazendo só conversão em memória, sem escrever arquivo”. Um `wiki.json` / `draft.json` genuinamente antigo, no primeiro carregamento, entra por uma entrada de migração explícita, e a leitura formal posterior ao sucesso da gravação só consome `modelSelection`.
+- A migração só reconhece `generationModel` e `generationOptions.thoughtLevel` já publicados. A existência do campo novo (inclusive null, valor ruim ou o estado intermediário não publicado com ID antiga) já é autoritativa, sem converter a identidade do campo novo e sem completar valor a partir do campo antigo; quando não há seleção antiga importável, registra-se null como já processado e não se adivinha um modelo padrão.
+- A importação offline reutiliza a migração de identidade de Provider existente, sem consultar conta, conexão, Registry ou View. Apenas os campos da seleção antiga são removidos, preservando o corpo da página, a árvore de diretórios, os metadados e as options não relacionadas; os arquivos de task ou de página de rascunho não são reescritos.
+- A decisão de migrar é tomada relendo dentro do file lock assíncrono existente, e a escrita é atômica; a escrita normal e a remoção do arquivo alvo usam o mesmo lock. Uma falha de migração preserva o arquivo original e lança erro, permitindo retry no próximo carregamento normal; um arquivo já migrado não é reescrito ao ser lido de novo. Não se adiciona agendador de migração em background nem protocolo de sincronização.
+- A leitura formal continua validando a nova seleção pelo schema atual. Indisponibilidade de rede/Provider não pode esvaziar a seleção migrada, e a geração real continua usando a resolução comum de seleção válida, sem rebind na execução fixa nem na recuperação.
 
 ```text
 旧文件预读 → 发现旧字段 → 文件锁内重新读取 → 离线导入 → 原子落盘
@@ -147,10 +146,12 @@
                          与保存/删除同锁          正式 reader 只读新字段
 ```
 
-### 验收与二审结果
+- SA97-W01: um Wiki/Draft genuinamente antigo é gravado já na primeira leitura e o resultado é idempotente após reconstruir o Storage; SA97-W02: campo novo vazio/ruim/identidade intermediária não sofre fallback, e campos desconhecidos e corpo são preservados; SA97-W03: falha de escrita pode ser reexecutada, e migração/save/remoção concorrentes não sobrescrevem nem ressuscitam; SA97-W04: cold start de Wiki antigo no Pro com leitura, retorno de modelo/faixa, troca de página preservando o corpo, estabilidade do arquivo após a migração e remoção voltando ao vazio.
 
-- Wiki 相关 10 文件 / 146 条单测通过（含新增 11 条文件迁移测试）；全仓 typecheck、lint 通过（39 条存量警告、0 错误），diff 检查通过。已有 Authority 测试中的“真正旧结构读取不写盘”断言同步改为最新裁决，当前格式读取不写盘的其他断言保留。
-- SA97-W01/02/03：独立文件测试覆盖 Wiki/Draft 离线迁移及重启幂等、未知型号/档位保留、新字段空/坏/中间态不回退、原子写失败重试、并发读只写一次、预读后保存/删除的锁内复查，以及迁移写入中删除需同锁等待。
-- SA97-W04：Pro `desktop-e2e-20260909-122856-891` 1/1 通过：应用退出后注入真正旧 Wiki，冷启动模型/high 回显，首次读取文件已迁移且正文结构不变，切页后文件字节稳定，删除回空。未请求模型服务。
-- 二审纠正：保留磁盘未知选项不能恢复 Todo94 已撤销的运行时 `maxOutputTokens`。正式 reader 仍移除该废弃选项；当前有效选择、生成冻结、后台恢复与输出 Limit 权威均未更改。
-- 生产修改限定 `repoWikiStorage.ts`；没有引入 Account/Provider 依赖、定时迁移器、协议变化或另一份选择权威。原子锁只协调遵守该锁的应用进程，不宣称防住外部编辑器任意写入。桌面 continuous / 手机 replayable 均复用所属 Host Storage，不改变消息流与 workspaceIdentity。
+### Resultados de aceitação e segunda revisão
+
+- 10 arquivos / 146 testes unitários relacionados a Wiki aprovados (incluindo 11 novos testes de migração de arquivo); typecheck e lint de todo o repositório aprovados (39 avisos de estoque, 0 erros), e a verificação de diff passou. A asserção “ler a estrutura genuinamente antiga não escreve em disco” do teste de Authority existente foi atualizada para a decisão mais recente, e as outras asserções de que a leitura do formato atual não escreve em disco foram preservadas.
+- SA97-W01/02/03: testes de arquivo independentes cobrem a migração offline de Wiki/Draft e a idempotência no restart, a preservação de modelo/faixa desconhecidos, o não fallback diante de campo novo vazio/ruim/intermediário, o retry de falha de escrita atômica, a escrita única sob leitura concorrente, a re-verificação dentro do lock após a pré-leitura com save/remoção, e a necessidade de esperar o mesmo lock ao remover durante uma escrita de migração.
+- SA97-W04: Pro `desktop-e2e-20260909-122856-891` 1/1 aprovado: após sair da aplicação, foi injetado um Wiki genuinamente antigo, o cold start retornou modelo/high, o arquivo já estava migrado na primeira leitura com a estrutura do corpo intacta, os bytes do arquivo ficaram estáveis depois da troca de página e a remoção voltou ao vazio. Nenhum serviço de modelo foi solicitado.
+- Correção na segunda revisão: manter opções desconhecidas em disco não pode restaurar o `maxOutputTokens` de runtime que o Todo94 já revogou. O reader formal continua removendo essa opção obsoleta; a seleção válida atual, o congelamento da geração, a recuperação em background e a autoridade do limite de saída não foram alterados.
+- As modificações de produção ficaram restritas a `repoWikiStorage.ts`; não foi introduzida dependência de Account/Provider, migrador temporizado, mudança de protocolo nem uma segunda autoridade de seleção. O lock atômico coordena apenas processos da aplicação que respeitam esse lock, e não se reivindica proteção contra escrita arbitrária de um editor externo. Desktop continuous e celular replayable reutilizam o Storage do Host dono, sem mudar o fluxo de mensagens nem o workspaceIdentity.

@@ -1,52 +1,52 @@
-# Model Provider Catalog And Metadata Design
+# Design de catálogo e metadata de model providers
 
-## 背景
+## Contexto
 
-当前模型供应商链路已经分成两层事实源：
+A cadeia atual de fornecedores de modelos já está dividida em duas camadas de fonte de verdade:
 
-- Host `modelProviderService` 管理 app 侧 provider 配置、API Key、endpoint、catalog 导入和落盘。
-- ZCode Agent server 接收 Host 生成的 provider registry snapshot，并维护运行态模型目录、当前模型和 reasoning/thought level。
+- O `modelProviderService` do Host gerencia a configuração de providers do lado do app, a API Key, o endpoint, a importação de catálogo e a persistência em disco.
+- O ZCode Agent server recebe o snapshot do provider registry gerado pelo Host e mantém o diretório de modelos em runtime, o modelo atual e o nível de reasoning/thought.
 
-设置页已经支持从 `models.dev` 导入 provider、自定义 provider、编辑模型 id 列表和 provider 基础字段。聊天框在 ZCode Agent 路径下优先使用 agent 返回的 `settings.model.available/current`，Host provider registry 通过 `workspace/updateProviderRegistry` 热同步给 agent。
+A página de configurações já suporta importar providers de `models.dev`, providers customizados, editar a lista de ids de modelos e os campos básicos do provider. Na rota do ZCode Agent, a caixa de conversa prioriza `settings.model.available/current` retornados pelo agent, e o provider registry do Host é sincronizado por calor com o agent via `workspace/updateProviderRegistry`.
 
-现在要把开发阶段的中国 LLM catalog、provider 拖拽排序和单模型运行时 metadata 纳入正式设计。该设计只描述 app/host/agent registry 之间的契约与实现边界，不改变远控链路的 ownership 规则。
+Agora o catálogo de LLM da China em fase de desenvolvimento, a ordenação de providers por arrastar e soltar e o metadata de runtime por modelo entram no design oficial. Este design descreve apenas o contrato e as fronteiras de implementação entre os registries de app/host/agent, sem alterar as regras de ownership da链路 de controle remoto.
 
-## 目标
+## Objetivos
 
-- 接入 `models_catalog_china_llm_zcode_2026-06-03.json` 作为开发阶段临时 catalog source，并为后续 CDN 下载保留清晰迁移点。
-- catalog 数据模型贴合 `zcode.model-providers.v1` JSON schema：保留 `kind`、`endpoints.baseURL + paths`、`model.kinds`、`modalities` 和 reasoning patch，不伪装成 `models.dev`。
-- provider 排序支持拖拽，排序结果持久化，并由 UI 同时应用到设置页 provider 导航和聊天框 provider 分组顺序。
-- 单模型字段从旧的 `string[] + metadata map` 收敛成模型对象数组，避免新旧字段长期双写。
-- catalog 导入后的模型能力进入 `ModelProviderConfig`，再由 `convertModelProviderConfigToZCodeProviderInput` 投影到 ZCode Protocol 的 `ZCodeModelProviderInput.models[*]`。
-- 保持桌面、本地远程 workspace、手机 `/remote` shared-host attachment 的 provider registry 同步语义不变。
+- Incorporar `models_catalog_china_llm_zcode_2026-06-03.json` como fonte de catálogo temporária da fase de desenvolvimento, reserving um ponto de migração claro para um download posterior via CDN.
+- Fazer o modelo de dados do catálogo seguir o JSON schema `zcode.model-providers.v1`: preservar `kind`, `endpoints.baseURL + paths`, `model.kinds`, `modalities` e o patch de reasoning, sem se passar por `models.dev`.
+- Suportar ordenação de providers por arrastar e soltar, com o resultado persistido e aplicado pela UI tanto à navegação de providers da página de configurações quanto à ordem dos grupos de providers da caixa de conversa.
+- Convergir os campos de modelo individual do antigo `string[] + metadata map` para um array de objetos de modelo, evitando escrita dupla de campos antigos e novos por muito tempo.
+- Fazer as capacidades de modelo após a importação do catálogo entrarem em `ModelProviderConfig` e, em seguida, serem projetadas por `convertModelProviderConfigToZCodeProviderInput` em `ZCodeModelProviderInput.models[*]` do ZCode Protocol.
+- Manter inalterada a semântica de sincronização do provider registry entre desktop, workspace remoto local, attachment shared-host do `/remote` pelo celular.
 
-## 非目标
+## Não objetivos
 
-- 不在本阶段实现 CDN 服务、签名校验、增量更新或离线缓存策略。
-- 不把 provider 拖拽排序做成改变 provider 来源分组的操作；拖拽只改变展示相对顺序，不改变 `source`、预置身份或官方 OAuth 身份。
-- 不把单模型编辑扩展成完整价格、限流、区域、计费和多 endpoint fallback 管理。
-- 不让 UI 在 `session/send` 时携带 provider/model metadata；运行时仍只使用 agent server 已应用的 workspace model catalog。
-- v1 不提供任意 reasoning patch JSON 编辑器。reasoning patch 先来自 catalog 或迁移逻辑，避免用户在 UI 中写出格式正确但运行时不可用的参数。
+- Não implementar nesta etapa serviço de CDN, verificação de assinatura, atualização incremental nem estratégia de cache offline.
+- Não fazer a ordenação por arrastar e soltar mudar o agrupamento de origem do provider; arrastar só muda a ordem relativa de exibição e não altera `source`, a identidade predefinida nem a identidade oficial por OAuth.
+- Não expandir a edição de modelo individual para gestão completa de preço, limitação de taxa, região, cobrança e fallback de múltiplos endpoints.
+- Não deixar a UI carregar metadata de provider/model no momento de `session/send`; em runtime continua se usando apenas o workspace model catalog já aplicado pelo agent server.
+- A v1 não oferece um editor de JSON de patch de reasoning arbitrário. O patch de reasoning vem primeiro do catálogo ou da lógica de migração, evitando que o usuário escreva na UI parâmetros com formato correto mas inutilizáveis em runtime.
 
-## 当前约束
+## Restrições atuais
 
-- `models_catalog_china_llm_zcode_2026-06-03.json` 遵循 `zcode.model-providers.v1` schema。它的 `endpoints.paths` key 是 runtime `kind`：`anthropic`、`openai`、`openai-compatible`；公开 JSON 中不能出现 AI SDK 内部命名 `openaiCompatible`。
-- `endpoints.baseURL + endpoints.paths[kind]` 描述该 kind 的请求地址。当前 app/agent 协议只有单个 effective provider kind/baseURL，因此导入和投影必须显式选择 effective kind，不能在统一 catalog model 中提前丢掉其他 kind。
-- `model.kinds` 表示单模型支持的接口格式，并且必须存在于 provider 的 `endpoints.paths` 中。`modalities` 是模型输入/输出能力来源，UI 的 `supportsImages` 等布尔值应由它推导。
-- `reasoning.levels[level][kind]` 是请求参数 patch，不是最终 providerOptions，也不包含 UI label、rank 或 enabled。转换层需要把公开 JSON 的 `openai-compatible` namespace 映射成 AI SDK 内部的 `openaiCompatible`。
-- 现有 `ModelProviderConfig.models` 是 `string[]`，但如果本阶段正式切换到模型对象数组，就必须提供旧 `model-providers.json` 的一次性自动迁移，否则升级用户的 provider 会因为 schema 不匹配而丢失或读不出来。
-- 现有 `sortModelProvidersForDisplay` 会按内置 provider bucket 重排，普通数组顺序不能代表用户排序。
-- ZCode Protocol 已有 `ZCodeModelReasoningState`：
+- `models_catalog_china_llm_zcode_2026-06-03.json` segue o schema `zcode.model-providers.v1`. Sua key `endpoints.paths` é o `kind` de runtime: `anthropic`, `openai`, `openai-compatible`; o JSON público não pode conter o nome interno do AI SDK `openaiCompatible`.
+- `endpoints.baseURL + endpoints.paths[kind]` descreve o endereço de requisição daquele kind. Como o protocolo atual de app/agent tem apenas um effective provider kind/baseURL, a importação e a projeção precisam escolher explicitamente o effective kind, sem descartar cedo os outros kinds no catalog model unificado.
+- `model.kinds` representa os formatos de interface suportados pelo modelo individual e precisa existir em `endpoints.paths` do provider. `modalities` é a fonte das capacidades de entrada/saída do modelo; booleanos da UI como `supportsImages` devem ser derivados dela.
+- `reasoning.levels[level][kind]` é um patch de parâmetros de requisição, não providerOptions finais, e não inclui label, rank ou enabled de UI. A camada de conversão precisa mapear o namespace público `openai-compatible` do JSON público para o `openaiCompatible` interno do AI SDK.
+- O `ModelProviderConfig.models` atual é um `string[]`, mas, se esta etapa mudar oficialmente para um array de objetos de modelo, é obrigatório fornecer uma migração automática única do `model-providers.json` antigo, senão os providers de quem atualiza serão perdidos ou não poderão ser lidos por incompatibilidade de schema.
+- O `sortModelProvidersForDisplay` atual reordena por buckets de providers embutidos, então a ordem de um array comum não representa a ordenação do usuário.
+- O ZCode Protocol já tem `ZCodeModelReasoningState`:
   - `enabled`
   - `levels: { value, label, description? }[]`
   - `defaultLevel?`
   - `providerOptionsByLevel?`
 
-## Catalog Source 设计
+## Design da Catalog Source
 
-### Source 分层
+### Camada de sources
 
-新增 app 侧 catalog source 抽象，不把中国 LLM catalog 伪装成 `models.dev` 原始 schema。
+Cria-se uma abstração de catalog source do lado do app, sem passar o catálogo de LLM da China pelo schema original de `models.dev`.
 
 ```ts
 type ModelProviderCatalogSourceId =
@@ -60,13 +60,13 @@ interface ModelProviderCatalogSource {
 }
 ```
 
-`models-dev` 继续从 `https://models.dev/api.json` 获取，但解析后也转换成 app 内统一 catalog file。`china-llm-zcode-dev` 在开发阶段从仓库根目录的 `models_catalog_china_llm_zcode_2026-06-03.json` 读取。
+`models-dev` continua obtendo dados de `https://models.dev/api.json`, mas, após o parsing, também é convertido no catalog file unificado do app. `china-llm-zcode-dev`, na fase de desenvolvimento, lê `models_catalog_china_llm_zcode_2026-06-03.json` na raiz do repositório.
 
-`catalogSourceId` 只表示“从哪个 catalog 导入”，不得混用为 provider 的产品来源分组。provider 的 `source` 仍只表达 `builtin`、`models-dev`、`custom`、`workspace` 等产品语义；如果后续要新增产品来源，必须正式扩展 shared schema、protocol source schema 和 UI 分组逻辑。
+`catalogSourceId` indica apenas "de qual catálogo importar" e não pode ser confundido com o agrupamento de origem de produto do provider. O `source` do provider continua expressando apenas semântica de produto como `builtin`, `models-dev`, `custom`, `workspace`; se for necessário adicionar uma nova origem de produto no futuro, é preciso estender formalmente o shared schema, o source schema do protocol e a lógica de agrupamento da UI.
 
-### 统一 catalog model
+### Catalog model unificado
 
-内部统一 catalog model 直接贴合公开 JSON schema，避免在 source adapter 阶段丢字段：
+O catalog model unificado interno segue diretamente o JSON schema público, evitando perder campos na etapa de source adapter:
 
 ```ts
 type ModelProviderKind = "anthropic" | "openai" | "openai-compatible";
@@ -114,26 +114,26 @@ interface ProviderOptionsPatch {
 }
 ```
 
-`models.dev` adapter 负责把旧字段转换为这个模型：
+O adapter de `models.dev` converte os campos antigos para esse modelo:
 
-- provider `api` 进入一个 effective kind 的 endpoint。
-- `attachment` / `modalities.input` 转成 `modalities`，不生成持久化的 `supportsImages` 字段。
-- `tool_call`、`structured_output` 这类 `models.dev` 独有布尔能力只作为导入时的可选 runtime metadata；如果当前统一 schema 没有字段承载，不应塞进无关字段。
-- 只有 `supportsReasoning: true` 但没有 level/patch 明细时，不生成假的 reasoning levels；这类模型仅在 UI 上展示“可能支持 reasoning”，不向 agent 声明可选择的 thought levels。
+- o `api` do provider entra em um endpoint de um effective kind;
+- `attachment` / `modalities.input` viram `modalities`, sem gerar um campo persistido `supportsImages`;
+- capacidades booleanas exclusivas do `models.dev`, como `tool_call` e `structured_output`, servem apenas como metadata opcional de runtime na importação; se o schema unificado atual não tem campo que as carregue, não devem ser enfiadas em campos sem relação;
+- com apenas `supportsReasoning: true` e sem detalhe de level/patch, não se geram reasoning levels falsos; esses modelos aparecem na UI como "possivelmente compatível com reasoning", sem declarar thought levels selecionáveis ao agent.
 
-### 临时本地文件与 CDN 迁移点
+### Arquivo local temporário e ponto de migração para CDN
 
-开发阶段 `china-llm-zcode-dev` source 读取本地 JSON 文件。该 source 的 loader 需要集中定义未来 CDN URL 迁移点，并在文档中记录：
+Na fase de desenvolvimento a source `china-llm-zcode-dev` lê um arquivo JSON local. O loader dessa source precisa definir de forma centralizada o futuro ponto de migração para a URL de CDN e registrar em documentação:
 
-- 当前阶段：读取本地 catalog 文件，便于快速开发和审核。
-- CDN 阶段：同一 source id 改为通过 `ApiClient` 下载 JSON，保留本地开发 fallback。
-- 切换 CDN 不改变统一 catalog model、provider 配置落盘 schema 或 agent registry 投影。
+- etapa atual: ler o arquivo de catálogo local, facilitando o desenvolvimento rápido e a revisão;
+- etapa CDN: a mesma source id passa a baixar o JSON via `ApiClient`, mantendo o fallback local de desenvolvimento;
+- trocar para CDN não altera o catalog model unificado, o schema de persistência da configuração de providers nem a projeção para o agent registry.
 
-## Provider 配置设计
+## Design da configuração de Provider
 
-### 新落盘结构
+### Nova estrutura persistida
 
-不再新增 `modelMetadata` map，也不再长期维护 `modelDisplayNames` / `modelSupportedFormats` 双写。新的落盘结构把模型 id 和 metadata 放在同一个对象里：
+Não se adiciona mais um map `modelMetadata` nem se mantém por muito tempo a escrita dupla `modelDisplayNames` / `modelSupportedFormats`. A nova estrutura persistida coloca o id do modelo e o metadata no mesmo objeto:
 
 ```ts
 interface ModelProviderStoreFile {
@@ -170,44 +170,44 @@ interface ModelProviderModelConfig extends ModelProviderCatalogModel {
 }
 ```
 
-这样做的原因是：新 catalog 的核心事实已经是模型对象。继续保留 `models: string[]` 再用多个 map 补 metadata，会让模型改名、删除、排序、导入和投影都必须同步维护多个索引，复杂度高且容易产生孤儿 metadata。
+A razão é que o fato central do novo catálogo já é o objeto de modelo. Continuar com `models: string[]` e completar o metadata com vários maps obrigaria a manter vários índices sincronizados em renomeação, exclusão, ordenação, importação e projeção, o que é complexo e gera facilmente metadata órfã.
 
-### 旧数据自动迁移
+### Migração automática de dados antigos
 
-需要旧 `model-providers.json` 的自动迁移逻辑。这里的“迁移”不是长期兼容旧字段，而是在读取旧文件时一次性转换为新结构，并在转换成功后原子写回 v2。
+É necessária a lógica de migração automática do `model-providers.json` antigo. Aqui "migração" não é compatibilidade de longa duração com campos antigos, e sim uma conversão única para a nova estrutura ao ler o arquivo antigo, com escrita atômica de volta em v2 após a conversão bem-sucedida.
 
-读取逻辑：
+Lógica de leitura:
 
-1. 如果文件是 `{ schemaVersion: "zcode.model-providers.v2", providers: [...] }`，按新 schema 读取。
-2. 如果文件是旧版裸数组，先按旧 `modelProviderListSchema` 解析，再转换成 v2。
-3. 如果解析失败，不覆盖原文件；记录 warn，并降级为空列表或现有安全 fallback。
-4. 写回 v2 前先保留备份，例如 `model-providers.v1.backup.json`。备份失败不应阻塞读取，但必须记录 warn。
+1. Se o arquivo é `{ schemaVersion: "zcode.model-providers.v2", providers: [...] }`, lê pelo novo schema.
+2. Se o arquivo é o array simples antigo, faz parsing pelo `modelProviderListSchema` antigo e então converte para v2.
+3. Se o parsing falhar, não sobrescreve o arquivo original; registra um warn e degrada para lista vazia ou o fallback seguro já existente.
+4. Antes de escrever de volta o v2, guarda um backup, por exemplo `model-providers.v1.backup.json`. Falha ao gerar o backup não deve bloquear a leitura, mas precisa ser registrada como warn.
 
-旧 provider 到 v2 的转换规则：
+Regras de conversão de provider antigo para v2:
 
-- `models: string[]` 转为 `models: ModelProviderModelConfig[]`，每个模型至少包含 `id`、`name`、`kinds`、`modalities` 和保守的 `contextWindow`。
-- `modelDisplayNames[modelId]` 转为模型 `name`。
-- `modelSupportedFormats[modelId]` 转为模型 `kinds`：
+- `models: string[]` vira `models: ModelProviderModelConfig[]`, com cada modelo contendo pelo menos `id`, `name`, `kinds`, `modalities` e um `contextWindow` conservador;
+- `modelDisplayNames[modelId]` vira o `name` do modelo;
+- `modelSupportedFormats[modelId]` vira `kinds` do modelo:
   - `anthropic` -> `anthropic`
   - `openai` -> `openai-compatible`
   - `responses` -> `openai`
-  - `gemini` 当前没有对应 `ModelProviderKind`，迁移时不写入 `kinds`；如果某模型只剩 `gemini`，保留 provider 但禁用该模型或标记 `disabledReason`，避免静默生成不可用运行时配置。
-- 旧 `apiFormat` 决定 provider 的 `defaultKind`：
+  - `gemini` hoje não tem `ModelProviderKind` correspondente, então nada é escrito em `kinds` durante a migração; se um modelo ficar só com `gemini`, o provider é preservado, mas o modelo é desabilitado ou marcado com `disabledReason`, evitando gerar silenciosamente uma configuração de runtime inutilizável;
+- o `apiFormat` antigo determina o `defaultKind` do provider:
   - `anthropic-messages` -> `anthropic`
   - `openai-chat-completions` -> `openai-compatible`
   - `openai-responses` -> `openai`
-- 旧 `endpoints.anthropic` / `endpoints.openai` 是历史 adapter-ready URL，无法可靠拆成 `baseURL + path`。迁移时把选中的 legacy endpoint 原样放入 `endpoints.baseURL`，对应 `paths[kind]` 设为空字符串，并通过注释或测试固定该语义：空 path 表示 legacy baseURL 已经包含 adapter 所需路径。
-- `providerMappings`、`enabled`、`systemDisabledReason`、`apiKey`、`headers`、`createdAt`、`updatedAt` 原样保留。
+- `endpoints.anthropic` / `endpoints.openai` antigos são URLs históricas adapter-ready e não podem ser quebrados de forma confiável em `baseURL + path`. Na migração, o endpoint legado selecionado é colocado como está em `endpoints.baseURL`, o `paths[kind]` correspondente recebe string vazia, e a semântica é fixada por comentário ou teste: path vazio significa que o baseURL legado já contém o caminho de que o adapter precisa;
+- `providerMappings`, `enabled`, `systemDisabledReason`, `apiKey`, `headers`, `createdAt` e `updatedAt` são preservados como estão.
 
-没有这段迁移，升级后的新 schema 会把旧数组当作无效文件，用户已有 provider、API Key、模型列表和开关状态都有丢失风险。
+Sem esse trecho de migração, o novo schema depois da atualização trataria o array antigo como arquivo inválido, e os providers, API Keys, listas de modelos e estados de开关 já existentes do usuário teriam risco de ser perdidos.
 
-## Provider 排序设计
+## Design da ordenação de Providers
 
-### 状态归属
+### Propriedade do estado
 
-provider 展示顺序是 UI/设置偏好，不影响 agent 请求行为。它不进入 `ZCodeModelProviderInput`，也不因为单纯排序变更触发 provider registry revision。
+A ordem de exibição dos providers é uma preferência de UI/configurações e não afeta o comportamento de requisição do agent. Ela não entra em `ZCodeModelProviderInput` e não dispara uma revisão do provider registry por causa de uma simples mudança de ordenação.
 
-排序持久化独立于 provider runtime config：
+A persistência da ordenação é independente da config de runtime dos providers:
 
 ```ts
 interface ModelProviderDisplayOrderState {
@@ -216,136 +216,136 @@ interface ModelProviderDisplayOrderState {
 }
 ```
 
-推荐由 `modelProviderService` 提供独立方法读取和保存该状态，落盘文件可独立于 `model-providers.json`。这样拖拽排序不会误触发 `onDidChangeProviderRegistry`，也不会让远端 agent 因展示顺序变化重建 provider catalog。
+Recomenda-se que `modelProviderService` ofereça métodos separados para ler e salvar esse estado, com um arquivo em disco independente de `model-providers.json`. Assim, arrastar para ordenar não dispara `onDidChangeProviderRegistry` por engano e não faz o agent remoto reconstruir o catálogo de providers por causa da ordem de exibição.
 
-### 排序规则
+### Regras de ordenação
 
-展示排序函数接收 provider 列表和可选用户排序：
+A função de ordenação de exibição recebe a lista de providers e a ordenação opcional do usuário:
 
-1. 已在 `providerIds` 中的 provider 按该顺序展示。
-2. 新增但未出现在 `providerIds` 中的 provider 按当前 bucket fallback 排到对应组尾部。
-3. 已删除 provider 的 id 在保存下一次排序时清理。
-4. provider 的来源分组仍由现有规则决定，拖拽不改变分组身份。
+1. Providers que já estão em `providerIds` são exibidos nessa ordem.
+2. Providers novos que não aparecem em `providerIds` vão, pelo fallback de bucket atual, para o fim do grupo correspondente.
+3. Os ids de providers removidos são limpos ao salvar a próxima ordenação.
+4. O agrupamento de origem dos providers continua sendo determinado pelas regras existentes; arrastar não muda a identidade do grupo.
 
-排序应用点必须明确分成两处：
+Os pontos de aplicação da ordenação precisam ser claramente divididos em dois:
 
-- 设置页导航：在每个可拖拽分组内应用 display order。
-- 聊天框模型选择器：先按 agent 返回的 `settings.model.available` 构建 provider 分组，再按本地 display order 重排分组；组内模型顺序仍使用 agent/catalog 顺序。这样 display order 不需要进入 registry，也能影响聊天框展示。
+- navegação da página de configurações: aplicar o display order dentro de cada grupo arrastável;
+- seletor de modelos da caixa de conversa: primeiro construir os grupos de providers a partir de `settings.model.available` retornado pelo agent e depois reordenar os grupos pelo display order local; a ordem dos modelos dentro do grupo continua sendo a ordem do agent/catalogo. Assim, o display order não precisa entrar no registry e ainda afeta a exibição na caixa de conversa.
 
-`buildProviderRegistrySnapshot` 仍可按稳定规则排序 provider 以保证 revision 可复现。只编辑 display order 不调用 `convertModelProviderConfigToZCodeProviderInput`，也不改变 provider registry revision。
+`buildProviderRegistrySnapshot` pode continuar ordenando os providers por regras estáveis para garantir que a revision seja reproduzível. Editar apenas o display order não chama `convertModelProviderConfigToZCodeProviderInput` nem altera a revision do provider registry.
 
-### 拖拽交互
+### Interação de arrastar e soltar
 
-使用项目已有 `@dnd-kit`：
+Usa o `@dnd-kit` já presente no projeto:
 
-- 左侧 provider 导航项显示 `GripVertical` 拖拽把手。
-- 只有真实 provider 节点可拖拽；`添加供应商`、loading 节点、分组标题不可拖拽。
-- 预置分组、自定义分组、官方分组保持分组边界。跨分组拖拽不改变 provider source，v1 不支持跨分组移动。
-- 拖拽结束后 optimistic 更新本地顺序并保存；保存失败时恢复前一顺序并通过 UI logger 记录 warn。
-- 键盘可访问性沿用 `@dnd-kit` sortable 默认 attributes/listeners，拖拽按钮有国际化 aria-label 和 tooltip。
+- os itens de navegação de provider à esquerda mostram um handle de arraste `GripVertical`;
+- apenas nós de provider reais podem ser arrastados; `添加供应商`, nós de loading e títulos de grupo não podem;
+- grupos predefinidos, grupos customizados e o grupo oficial mantêm as fronteiras de grupo. Arrastar entre grupos não muda o source do provider e a v1 não suporta mover entre grupos;
+- ao fim do arraste, atualiza a ordem local de forma otimista e salva; se o salvamento falhar, restaura a ordem anterior e registra um warn pelo logger da UI;
+- a acessibilidade por teclado segue os attributes/listeners padrão do sortable do `@dnd-kit`, e o botão de arraste tem aria-label e tooltip internacionalizados.
 
-## Reasoning 设计
+## Design de Reasoning
 
-### 数据边界
+### Fronteira de dados
 
-落盘和 catalog 中的 reasoning 只保留运行时事实：
+O reasoning na persistência e no catálogo mantém apenas fatos de runtime:
 
 - `defaultLevel`
 - `levels[level][kind].set`
 - `levels[level][kind].unset`
 
-不落盘 UI label、description、rank 或 `enabled`。UI 展示 label 由 i18n 根据 level id 派生，例如 `off`、`enabled`、`high`、`max`；未知 level 直接显示原始 value。
+Não são persistidos label, description, rank ou `enabled` de UI. O label exibido na UI é derivado por i18n a partir do id do level, por exemplo `off`, `enabled`, `high`, `max`; um level desconhecido exibe o value original.
 
-### 投影到 ZCode Protocol
+### Projeção para o ZCode Protocol
 
-`convertModelProviderConfigToZCodeProviderInput` 构造每个 `models[*]` 时：
+Ao construir cada `models[*]` em `convertModelProviderConfigToZCodeProviderInput`:
 
-1. 选择 effective kind：`model.defaultKind ?? provider.defaultKind`。
-2. 校验 effective kind 存在于 `model.kinds` 和 `provider.endpoints.paths`。不满足时禁用该模型或跳过，并记录 warn。
-3. 选择运行时模型名：`model.modelIdByKind?.[effectiveKind] ?? model.id`。
-4. 从 `modalities.input` 推导 `supportsImages`；`supportsTools`、`supportsJsonSchemaOutput` 如需要支持，应作为独立 schema 字段补充，不能从无关字段猜。
-5. 透传 `contextWindow`、`maxOutputTokens`。
-6. 如果存在 `reasoning.levels`，为每个 level 取当前 effective kind 的 patch，并转换成 `providerOptionsByLevel[level]`：
-   - `set` 按 path 写入嵌套对象。
-   - `unset` 在生成 provider options 时删除对应 path，或用统一 sentinel 在最终运行时应用前删除。
-   - namespace 映射为 `anthropic -> anthropic`、`openai -> openai`、`openai-compatible -> openaiCompatible`。
-7. 生成 `ZCodeModelReasoningState.levels` 时只填 `{ value, label }`，label 由 i18n/本地映射生成。
-8. `defaultLevel` 只有在存在于 levels 中时透传；否则使用第一个 level。
+1. Escolher o effective kind: `model.defaultKind ?? provider.defaultKind`.
+2. Validar que o effective kind existe em `model.kinds` e em `provider.endpoints.paths`. Se não for satisfeito, desabilitar o modelo ou pulá-lo e registrar um warn.
+3. Escolher o nome de runtime do modelo: `model.modelIdByKind?.[effectiveKind] ?? model.id`.
+4. Derivar `supportsImages` a partir de `modalities.input`; `supportsTools` e `supportsJsonSchemaOutput`, se precisarem de suporte, devem ser adicionados como campos de schema próprios e não adivinhados a partir de campos sem relação.
+5. Passar adiante `contextWindow` e `maxOutputTokens`.
+6. Se `reasoning.levels` existir, para cada level pegar o patch do effective kind atual e convertê-lo em `providerOptionsByLevel[level]`:
+   - `set` escreve no objeto aninhado conforme o path;
+   - `unset` remove o path correspondente ao gerar os provider options, ou usa um sentinel unificado removido antes da aplicação final em runtime;
+   - o mapeamento de namespace é `anthropic -> anthropic`, `openai -> openai`, `openai-compatible -> openaiCompatible`.
+7. Ao gerar `ZCodeModelReasoningState.levels`, preencher apenas `{ value, label }`, com o label gerado por i18n/mapeamento local.
+8. `defaultLevel` só é passado adiante se existir nos levels; caso contrário, usa-se o primeiro level.
 
-如果模型没有 reasoning patch，不生成 label-only level，也不声明可选择 thought levels。
+Se o modelo não tiver patch de reasoning, não se gera level apenas com label nem se declaram thought levels selecionáveis.
 
-### 设置页编辑
+### Edição na página de configurações
 
-v1 只提供低风险编辑：
+A v1 oferece apenas edições de baixo risco:
 
-- Provider：名称、API Key、baseURL、kind paths、默认 kind。
-- Model：模型 id、显示名、支持 kinds、默认 kind、modalities、context window、max output tokens。
-- Reasoning：查看 catalog 已有 levels，允许启用/禁用已有 level；删除当前默认 level 后按归一化规则选择剩余第一个 level 作为默认。
+- Provider: nome, API Key, baseURL, paths de kind, kind padrão;
+- Model: id do modelo, nome de exibição, kinds suportados, kind padrão, modalities, context window, max output tokens;
+- Reasoning: ver os levels já existentes no catálogo e permitir habilitar/desabilitar levels existentes; após remover o level padrão atual, escolher como padrão o primeiro level restante conforme as regras de normalização.
 
-v1 不提供“新增任意 reasoning level”或“高级 JSON 参数编辑”。原因是 reasoning patch 是运行时请求参数，不是展示配置；没有 provider 文档和测试支撑时，UI 很容易保存出 agent 可选择但请求不可用的 level。后续如果要支持自定义 patch，应做成单独高级功能，并复用 catalog schema 的 patch editor 和连通性测试。
+A v1 não oferece "adicionar qualquer reasoning level" nem "edição avançada de parâmetros JSON". A razão é que o patch de reasoning são parâmetros de requisição de runtime, não configuração de exibição; sem documentação do provider e sem testes de apoio, a UI facilmente salvaria um level selecionável pelo agent mas inutilizável na requisição. Se for preciso suportar patches customizados no futuro, isso deve virar uma função avançada à parte, reutilizando o patch editor do schema do catálogo e o teste de conectividade.
 
-## Agent Registry 投影
+## Projeção para o Agent Registry
 
-`convertModelProviderConfigToZCodeProviderInput` 需要把 v2 provider config 投影到当前 ZCode Protocol：
+`convertModelProviderConfigToZCodeProviderInput` precisa projetar a provider config v2 para o ZCode Protocol atual:
 
-- provider `kind` 使用 effective kind。
-- provider `baseURL` 使用按 effective kind 解析后的 runtime baseURL。legacy 迁移产生的空 path 表示 `baseURL` 已经是旧 adapter-ready URL。
-- `models[*].modelId` 使用 kind-aware 模型名。
-- `models[*].label` 使用模型 `name`。
-- `models[*].contextWindow`、`maxOutputTokens`、`supportsImages` 从模型对象透传/推导。
-- `models[*].reasoning` 使用 patch 转换后的 `ZCodeModelReasoningState`。
-- `models[*].providerOptions.supportedFormats` 不再作为主要事实源；如果当前 agent 仍依赖它过滤格式，可在投影阶段由 `model.kinds` 临时生成，后续收敛到 kind 语义。
+- o `kind` do provider usa o effective kind;
+- o `baseURL` do provider usa o runtime baseURL resolvido conforme o effective kind. O path vazio gerado pela migração legada significa que o `baseURL` já é a antiga URL adapter-ready;
+- `models[*].modelId` usa o nome de modelo consciente de kind;
+- `models[*].label` usa o `name` do modelo;
+- `models[*].contextWindow`, `maxOutputTokens` e `supportsImages` são passados adiante/derivados do objeto de modelo;
+- `models[*].reasoning` usa o `ZCodeModelReasoningState` convertido a partir do patch;
+- `models[*].providerOptions.supportedFormats` deixa de ser a principal fonte de verdade; se o agent atual ainda depender dele para filtrar formatos, ele pode ser gerado temporariamente na projeção a partir de `model.kinds`, convergindo depois para a semântica de kind.
 
-修改 provider/model runtime metadata 会触发 registry snapshot revision，影响下一轮 turn。只修改 display order 不触发 registry snapshot revision。
+Alterar metadata de runtime de provider/model dispara uma revisão do registry snapshot, afetando o próximo turno. Alterar apenas o display order não dispara revisão do registry snapshot.
 
-## 远控和多端边界
+## Fronteiras de controle remoto e multi-plataforma
 
-- 手机 `/remote` 仍通过 shared-host attachment 连接桌面窗口已存在的 host，不创建独立 provider runtime。
-- provider metadata 仍由本机 Host provider registry snapshot 下发到远端 workspace agent server。
-- `workspaceIdentity` 继续用于远程 workspace provider registry sync 的身份隔离；新增 display order 若作为 app 全局偏好，不使用 workspace identity 分片。
-- desktop continuous 和 mobile web-remote replayable 的 session 事件语义不变。provider registry 更新仍走 workspace state update，不把 replayable snapshot 语义扩散到 desktop continuous 主链路。
+- O `/remote` do celular continua se conectando, via shared-host attachment, a um host já existente na janela do desktop e não cria um runtime de provider independente;
+- o metadata de provider continua sendo enviado pelo snapshot do provider registry do Host local para o agent server do workspace remoto;
+- `workspaceIdentity` continua sendo usada para o isolamento de identidade do sync do provider registry de workspaces remotos; se o novo display order for uma preferência global do app, ele não usa partição por workspace identity;
+- a semântica dos eventos de sessão do desktop continuous e do mobile web-remote replayable não muda. A atualização do provider registry continua passando por workspace state update e não espalha a semântica de snapshot replayable para o链路 principal do desktop continuous.
 
-## 日志
+## Logs
 
-- UI 拖拽保存失败、reasoning level 归一化失败等交互日志使用 `packages/ui/src/logger.ts`。
-- catalog 加载、解析失败、CDN 下载失败、旧 provider 配置迁移成功/失败等服务层日志使用 `createServiceLogger("ModelProviderService")` 或同等服务 logger。高频路径不打 info。
-- provider registry revision 变化只在 metadata/provider 行为变化时记录；display order 保存不记录为 registry 更新。
+- Logs de interação como falha ao salvar o arraste da UI ou falha na normalização de reasoning level usam `packages/ui/src/logger.ts`.
+- Logs da camada de serviço como carregamento de catálogo, falha de parsing, falha de download no CDN e sucesso/falha da migração de config de providers antigos usam `createServiceLogger("ModelProviderService")` ou um service logger equivalente. Caminhos de alta frequência não registram info.
+- Mudanças na revision do provider registry só são registradas quando há mudança de metadata/comportamento de provider; salvar o display order não é registrado como atualização de registry.
 
-## 测试与验收
+## Testes e aceitação
 
-- shared schema 测试覆盖：
-  - `zcode.model-providers.v1` catalog file 解析。
-  - `zcode.model-providers.v2` provider store 解析。
-  - 旧裸数组 `model-providers.json` 自动迁移到 v2。
-  - reasoning patch 的 `set` / `unset` 校验和 namespace 映射。
-  - `convertModelProviderConfigToZCodeProviderInput` 透传 context、output、modalities 推导能力和 reasoning。
-- service 测试覆盖：
-  - `models.dev` adapter 继续可用，并输出统一 catalog model。
-  - `china-llm-zcode-dev` adapter 能解析本地 catalog。
-  - 旧 provider 配置迁移后 API Key、enabled、providerMappings、模型显示名和模型格式不丢。
-  - display order 保存不触发 provider registry changed event。
-- UI 测试覆盖：
-  - 设置页 provider 导航拖拽后顺序持久化。
-  - 添加供应商从 catalog 导入后模型对象正确进入草稿。
-  - 单模型 reasoning levels 可以启用/禁用；删除默认 level 后按归一化规则修正。
-  - 只编辑 display order 时，设置页和聊天框 provider 分组顺序变化，但 agent registry snapshot revision 不变化。
-- 手动验证覆盖：
-  - 桌面本地 workspace：导入 catalog provider，设置 API Key，聊天框可见模型 metadata。
-  - 远程 workspace：provider registry snapshot 同步后远端 agent 可见相同模型能力。
-  - 手机 `/remote`：重连后模型列表来自已 attach host 的 agent state，不创建独立 provider runtime。
+- Os testes de shared schema cobrem:
+  - o parsing do catalog file `zcode.model-providers.v1`;
+  - o parsing do provider store `zcode.model-providers.v2`;
+  - a migração automática do array simples antigo `model-providers.json` para v2;
+  - a validação de `set` / `unset` do patch de reasoning e o mapeamento de namespace;
+  - `convertModelProviderConfigToZCodeProviderInput` passando adiante context, output, capacidades derivadas de modalities e reasoning.
+- Os testes de serviço cobrem:
+  - o adapter de `models.dev` continua usável e produz o catalog model unificado;
+  - o adapter `china-llm-zcode-dev` consegue fazer parsing do catálogo local;
+  - após a migração da config antiga de provider, API Key, enabled, providerMappings, nomes de exibição de modelos e formatos de modelos não se perdem;
+  - salvar o display order não dispara o evento de provider registry changed.
+- Os testes de UI cobrem:
+  - a ordem persiste após arrastar os providers na navegação da página de configurações;
+  - após importar do catálogo por `添加供应商`, os objetos de modelo entram corretamente no rascunho;
+  - os reasoning levels de um modelo individual podem ser habilitados/desabilitados; após remover o level padrão, a regra de normalização é aplicada;
+  - ao editar apenas o display order, a ordem dos grupos de providers muda na página de configurações e na caixa de conversa, mas a revision do registry snapshot do agent não muda.
+- A verificação manual cobre:
+  - workspace local desktop: importar um provider do catálogo, definir a API Key e ver o metadata dos modelos na caixa de conversa;
+  - workspace remoto: após o sync do snapshot do provider registry, o agent remoto enxerga as mesmas capacidades de modelo;
+  - `/remote` pelo celular: após reconectar, a lista de modelos vem do agent state do host já attached, sem criar um runtime de provider independente.
 
-## 实施顺序
+## Ordem de implementação
 
-1. 扩展 shared 类型和 schema，新增 catalog schema、provider store v2 schema 和旧数据迁移函数。
-2. 抽象 catalog source，并把 `models.dev` 与本地中国 LLM catalog 都转换到统一 catalog model。
-3. 修改 provider 导入逻辑，让 catalog model 写入 v2 `ModelProviderConfig.models` 对象数组。
-4. 修改 agent registry 投影，支持 effective kind、modalities 推导和 reasoning patch 转换。
-5. 新增 display order 读取/保存服务接口与 UI hook。
-6. 改造 provider 导航排序和拖拽交互。
-7. 改造聊天框 provider 分组排序，在 UI 侧应用 display order。
-8. 改造单模型编辑 UI，聚焦模型对象字段和已有 reasoning level 的启用/禁用。
-9. 补齐测试、运行 `pnpm typecheck` 和 `pnpm lint`。
+1. Estender os tipos e schemas compartilhados, adicionando o catalog schema, o provider store v2 schema e a função de migração de dados antigos.
+2. Abstrair a catalog source e fazer tanto `models.dev` quanto o catálogo local de LLM da China serem convertidos para o catalog model unificado.
+3. Alterar a lógica de importação de providers para que o catalog model seja escrito no array de objetos v2 `ModelProviderConfig.models`.
+4. Alterar a projeção para o agent registry para suportar effective kind, derivação por modalities e conversão de patch de reasoning.
+5. Adicionar as interfaces de serviço de leitura/salvamento de display order e o hook de UI.
+6. Reformular a ordenação da navegação de providers e a interação de arrastar e soltar.
+7. Reformular a ordenação dos grupos de providers na caixa de conversa, aplicando o display order no lado da UI.
+8. Reformular a UI de edição de modelo individual, com foco nos campos do objeto de modelo e em habilitar/desabilitar reasoning levels existentes.
+9. Completar os testes e rodar `pnpm typecheck` e `pnpm lint`.
 
-## 后续事项
+## Próximos passos
 
-中国 LLM catalog 的 CDN 化是明确后续事项：在开发阶段使用本地 `models_catalog_china_llm_zcode_2026-06-03.json`，等 catalog 审核和发布流程稳定后，把 `china-llm-zcode-dev` loader 切换为 CDN 下载，并保留本地 fallback 供开发调试。该切换不得改变 provider 落盘 schema 或 ZCode Protocol 投影。
+A transformação do catálogo de LLM da China em CDN é um item claramente seguinte: na fase de desenvolvimento usa-se o `models_catalog_china_llm_zcode_2026-06-03.json` local e, depois que o processo de revisão e publicação do catálogo estabilizar, o loader `china-llm-zcode-dev` passa a baixar via CDN, mantendo o fallback local para depuração em desenvolvimento. Essa troca não pode alterar o schema de persistência dos providers nem a projeção para o ZCode Protocol.

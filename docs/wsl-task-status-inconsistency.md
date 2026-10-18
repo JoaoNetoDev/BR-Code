@@ -1,49 +1,46 @@
-# WSL 任务状态不一致：根因分析与修复方案
+# Inconsistência de status de tarefa no WSL：análise de causa raiz e plano de correção
 
-日期：2026-08-21（T1/T2）、2026-09-04（T3） ｜ 状态：分析与修复完成 ｜ 分支：`fix/wsl-status`
+Data：2026-08-21（T1／T2）、2026-09-04（T3） ｜ Status：análise e correção concluídas ｜ Branch：`fix/wsl-status`
 
-## 用户症状
+## Sintomas relatados pelo usuário
 
-WSL 连接项目时，左侧任务栏与聊天区的任务运行状态持续不一致，双向都出现过：
+Ao conectar um projeto no WSL, o estado de execução da tarefa na barra lateral de tarefas e na área de chat permanecia inconsistente, e os dois sentidos ocorreram：
 
-- 症状①：任务列表在转圈（loading），聊天区任务已结束；
-- 症状②：任务列表没有转圈，聊天区任务仍在进行中。
+- Sintoma①：a lista de tarefas fica carregando（loading）, enquanto a tarefa na área de chat já terminou；
+- Sintoma②：a lista de tarefas não fica carregando, enquanto a tarefa na área de chat ainda está em andamento.
 
-事发环境：ZCode 3.9.0（commit cb07e825，Windows 11，production），workspace `remote:wsl:default:/home/dev`。
-证据材料：用户日志 bundle `zcode-logs-20260821-202010-wsl-status`（含 4 天桌面日志、Windows 侧 CLI 日志、tasks-index.sqlite）。
+Ambiente do incidente：ZCode 3.9.0（commit cb07e825、Windows 11、production）, workspace `remote:wsl:default:/home/dev`.
+Material de evidência：bundle de logs do usuário `zcode-logs-20260821-202010-wsl-status`（com 4 dias de logs do desktop, logs da CLI do lado Windows e tasks-index.sqlite）.
 
-## 结论
+## Conclusão
 
-**probable（根因机制已确认）**。左侧任务栏与聊天区来自同一份 CLI 权威状态的**两条独立订阅链路**
-（sessions-index topic vs conversation topic），分叉发生在发布门禁 / 传输 / 恢复层，
-由两处违反"已声明不变量"的实现 bug 固化成持续不一致：
+**probable（o mecanismo da causa raiz foi confirmado）**. A barra lateral de tarefas e a área de chat vêm de **duas cadeias de assinatura independentes** sobre o mesmo estado autoritativo da CLI
+（topic sessions-index vs topic conversation）, e a bifurcação acontece nas camadas de portão de publicação／transporte／recuperação,
+tornando-se uma inconsistência persistente graças a dois bugs de implementação que violam «invariantes já declarados»：
 
-1. **消费侧（T1）**：renderer `SessionsIndexStore` 进入 `status="error"` 后保留旧投影、
-   消费方不检查 status、且 error 是无自愈终态——旧 `phase=running` 无 live 证明却继续渲染转圈；
-   订阅死亡后新 turn 的 running 帧也永远到不了。
-2. **权威侧（T2）**：CLI 网关在无订阅者窗口用 `hasSubscribers()` 门禁静默丢弃 phase 迁移，
-   且重订阅命中已存在 publisher 时不重放 live 投影种子——之后任何 subscribe/resync
-   拿到的 snapshot phase 停留旧值。
+1. **Lado do consumo（T1）**：o `SessionsIndexStore` do renderer, ao entrar em `status="error"`, mantém a projeção antiga,
+   os consumidores não verificam o status e o `error` é um estado terminal sem autocura — o antigo `phase=running`, sem prova viva, continua renderizando o spinner;
+   depois que a assinatura morre, as quadros de running de novos turnos também nunca chegam.
+2. **Lado autoritativo（T2）**：o gateway da CLI descarta silenciosamente as migrações de phase na janela sem assinantes por meio do portão `hasSubscribers()`,
+   e, ao ressinar, quando encontra um publisher já existente, não reproduz a semente da projeção viva — depois disso, qualquer subscribe／resync
+   obtém um snapshot cujo phase fica no valor antigo.
 
-聊天区没有这两个缺陷（conversation store 每次打开会话全新建立；hydration 把未收口 turn
-强制合成 `TurnComplete(cancelled)` 收口），所以两个 surface 分道扬镳。WSL 场景高频触发
-进入条件：事发当天 WSL Agent CLI 换代 3 次（用户重开工作区即硬杀重启）、sessions-index
-订阅抖动 7 轮（19:33–19:36）、同传输栈 SSH 桥 ECONNRESET 1 次。
+A área de chat não tem esses dois defeitos（o conversation store é reconstruído do zero a cada abertura de sessão; a hydration força um turn não fechado
+a ser sintetizado como `TurnComplete(cancelled)`）, então as duas surfaces divergiram. O cenário WSL dispara a condição de entrada com alta frequência: no dia do incidente o WSL Agent CLI foi substituído 3 vezes（ao reabrir o workspace o usuário mata o processo na força）, a assinatura de sessions-index oscilou por 7 rodadas（19:33–19:36）e a ponte SSH do mesmo stack de transporte teve 1 ECONNRESET.
 
-判级为 probable 而非 confirmed 的唯一原因：生产构建下 renderer 全部日志是 no-op
-（`packages/ui/src/logger.ts:38`），截图时刻两个 store 的状态序列无法回放。
+O único motivo de classificar como probable em vez de confirmed é que, na build de produção, todos os logs do renderer são no-op
+（`packages/ui/src/logger.ts:38`）, então a sequência de estados dos dois stores no momento da captura não pode ser reproduzida.
 
-## 被违反的不变量（均为代码/spec 已声明）
+## Invariantes violados（todos já declarados em código／spec）
 
-- "任务列表的 loading 必须由当前 runtime 明确证明"
-  （`packages/ui/src/lib/taskListItemPresentation.ts:28` 注释；
-  `packages/ui/src/v4/sessionsIndexStore.ts:585` dormant 分支注释）。
-- "断线按 snapshot 恢复 / 冷订阅用当前在册 live projection 覆盖"
-  （`docs/v4-refactor/14-sessions-index.md:15,54`）。
-- "CLI runtime restart 时现有 listener 收到 restart 信号后，各活跃 store 恰好 full re-subscribe 一次"
-  （`docs/v4-refactor/04-sync-and-recovery.md:204,215-216`）。
+- «O loading da lista de tarefas precisa ser explicitamente provado pelo runtime atual»
+  （comentário em `packages/ui/src/lib/taskListItemPresentation.ts:28`; comentário do branch dormant em `packages/ui/src/v4/sessionsIndexStore.ts:585`）.
+- «Restaurar por snapshot após desconexão／a assinatura a frio sobrescreve com a projeção viva atualmente registrada»
+  （`docs/v4-refactor/14-sessions-index.md:15,54`）.
+- «Quando o runtime da CLI reinicia, os listeners existentes recebem o sinal de restart e cada store ativo faz exatamente um full re-subscribe»
+  （`docs/v4-refactor/04-sync-and-recovery.md:204,215-216`）.
 
-## 因果链与事件序
+## Cadeia causal e ordem dos eventos
 
 ```
 触发：WSL 桥抖动 / 用户重开 WSL 工作区（CLI 换代）
@@ -85,7 +82,7 @@ CLI(WSL)              renderer sessionsIndexStore           任务列表      �
   │                     status=live, phase=真值                与聊天区一致 ✓
 ```
 
-## 事发日志事件链（本地时间 UTC+8，2026-08-21）
+## Cadeia de eventos nos logs do incidente（hora local UTC+8、2026-08-21）
 
 ```
 17:35:22  连接 WSL(target=wsl:Ubuntu:dev) → WSL 内 remote host pid 1061
@@ -103,191 +100,181 @@ CLI(WSL)              renderer sessionsIndexStore           任务列表      �
 20:19:58  用户导出日志（bundle 截止 20:20:10）
 ```
 
-红信号脚本（只读断言，连续两次运行一致 CONFIRMED）：
+Script de sinais vermelhos（asserções somente leitura, CONFIRMED de forma consistente em duas execuções consecutivas）：
 `A1(agent gen2 退出)=1  A2(gen3 启动)=1  A3(running+activeTurn 残留快照)=1  B(renderer 日志行)=0  C(远程桥断连)=1  D(WSL 手动重连)=5`
 
-## 关键证据索引
+## Índice de evidências principais
 
-| #   | 事实                                                                                   | 位置                                                                                                 |
+| #   | Fato                                                                                   | Local                                                                                                 |
 | --- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| 1   | 列表 spinner 只采信 sessions-index 实时 phase，持久化 status 不采信                    | `packages/ui/src/v4/taskListRowActivity.ts:35`、`packages/ui/src/lib/taskListItemPresentation.ts:24` |
-| 2   | error 态保留旧投影且无出口；dormant 分支才正确清空                                     | `packages/ui/src/v4/sessionsIndexStore.ts:522-527,459-468`（对照 :585-590）                          |
-| 3   | 消费方不查 status，error 排除在 hydrating 外                                           | `packages/ui/src/v4/useWorkspaceSessionsIndexItems.ts:85-91,177-191`                                 |
-| 4   | store 是 workspace 级长命对象，切 tab/关面板不重建，error 卡死无用户可救               | `packages/ui/src/v4/sessionsIndexRegistry.ts:88-142`                                                 |
-| 5   | CLI 无订阅者门禁 + existing publisher 不重放种子                                       | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts:816,932-960`                  |
-| 6   | `flushIndex` 对空订阅自 no-op、deltaLog 有界（去门禁安全）                             | `v4-gateway.ts:845-850`、`sessions-index-publisher.ts:93-99`                                         |
-| 7   | sessions-index 是 conversation 投影的下游窄投影（两 surface 同源）                     | `v4-gateway.ts:817-822`                                                                              |
-| 8   | 冷启动种子无条件 completedSuccess（不会发布 running）                                  | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts:1239-1250`                        |
-| 9   | hydration 把未收口 turn 合成 cancelled 收口（聊天区自愈）                              | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts:786-788`            |
-| 10  | 远程 lifecycle/restart 靠两跳 RPC 隐式透传，无显式 relay；RepoWiki 有失效前科          | `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts:173,300-307`                          |
-| 11  | conversation 侧换代走 ReplaceableConversationTransport.replace()，每次打开会话全新建立 | `packages/ui/src/v4/workspaceConnectionRegistry.ts:167-189`                                          |
-| 12  | 生产构建 renderer 全部日志 no-op（本次定位最大盲区）                                   | `packages/ui/src/logger.ts:38-41`                                                                    |
+| 1   | O spinner da lista só confia no phase em tempo real do sessions-index e não confia no status persistido | `packages/ui/src/v4/taskListRowActivity.ts:35`、`packages/ui/src/lib/taskListItemPresentation.ts:24` |
+| 2   | O estado de error mantém a projeção antiga e não tem saída; apenas o branch dormant limpa corretamente | `packages/ui/src/v4/sessionsIndexStore.ts:522-527,459-468`（comparar com :585-590） |
+| 3   | O consumidor não consulta o status e error fica de fora do hydrating                     | `packages/ui/src/v4/useWorkspaceSessionsIndexItems.ts:85-91,177-191`                                 |
+| 4   | O store é um objeto de longa duração em nível de workspace; trocar de tab ou fechar o painel não o reconstrói, e o error travado não tem salvação por parte do usuário | `packages/ui/src/v4/sessionsIndexRegistry.ts:88-142` |
+| 5   | Portão de sem assinantes na CLI + publisher existente não reproduz a semente             | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts:816,932-960`                  |
+| 6   | `flushIndex` é naturalmente no-op para assinaturas vazias e o deltaLog é limitado（seguro para remover o portão） | `v4-gateway.ts:845-850`、`sessions-index-publisher.ts:93-99` |
+| 7   | sessions-index é uma projeção estreita a jusante da projeção de conversation（as duas surfaces têm a mesma origem） | `v4-gateway.ts:817-822` |
+| 8   | A semente de cold start é incondicionalmente completedSuccess（não publica running）      | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts:1239-1250`                        |
+| 9   | A hydration sintetiza o fechamento do turn não finalizado como cancelled（autocura da área de chat） | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts:786-788` |
+| 10  | O lifecycle／restart remoto é repassado implicitamente por um RPC de dois saltos, sem relay explícito; o RepoWiki já tem antecedente de falha | `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts:173,300-307` |
+| 11  | A troca do lado conversation passa por ReplaceableConversationTransport.replace(), e toda abertura de sessão é construída do zero | `packages/ui/src/v4/workspaceConnectionRegistry.ts:167-189` |
+| 12  | Todos os logs do renderer são no-op na build de produção（o maior ponto cego desta investigação） | `packages/ui/src/logger.ts:38-41` |
 
-## 已排除的候选原因
+## Causas candidatas já descartadas
 
-- CLI 冷启动把持久化 running 原样发布 → 反证：冷种子强制 `completedSuccess`（v4-bridge.ts:1239）。
-- sqlite tasks-index 的 `status=running` 残留直接导致转圈 → 反证：UI 明确不采信持久化 status。
-- 两 surface 在 CLI 侧就是两个状态机 → 反证：sessions-index 是 conversation snapshot 的下游投影。
-- conversation 帧 30–150ms debounce 时差 → 亚秒级，解释不了可截图的持续不一致。
-- 手机远控链路干扰 → 截图为桌面端，web-remote bridge 日志全部指向本地 test-00x 工作区。
-- 远程 lifecycle 事件完全不转发 → 反证：per-remote-session attachment 通道 + ProxyChannel
-  延迟发现分支可透传（`packages/rpc/src/proxy-channel.ts:64-80`），Local Host 自身消费到了
-  remote lifecycle（`zcodeAgentConnectionScope.ts:627-645`）。可靠性未被 e2e 覆盖，列为后续项。
+- A CLI publica o running persistido como está no cold start → contra-prova：a semente a frio força `completedSuccess`（v4-bridge.ts:1239）.
+- Resíduo de `status=running` no sqlite tasks-index causa diretamente o spinner → contra-prova：a UI explicitamente não confia no status persistido.
+- As duas surfaces já são duas máquinas de estado do lado da CLI → contra-prova：sessions-index é uma projeção a jusante do snapshot de conversation.
+- Diferença de debounce de 30–150ms nas quadros de conversation → é de escala subsegundo, não explica uma inconsistência persistente e capturável em screenshot.
+- Interferência da cadeia de controle remoto do celular → a captura é do desktop, e os logs do web-remote bridge apontam todos para o workspace local test-00x.
+- Eventos de lifecycle remoto não são repassados de forma alguma → contra-prova：o canal de attachment per-remote-session e o branch de descoberta tardia do ProxyChannel conseguem repassar（`packages/rpc/src/proxy-channel.ts:64-80`）, e o próprio Local Host consumiu o remote lifecycle（`zcodeAgentConnectionScope.ts:627-645`）. A confiabilidade não é coberta por e2e e fica como item posterior.
 
-## 推荐修复（最小连贯变更，两处互补，均为根因修复）
+## Correção recomendada（mudança mínima e coerente, dois pontos complementares, ambos correções de causa raiz）
 
-### R-A：`packages/ui/src/v4/sessionsIndexStore.ts` —— 恢复"loading 必须有 live 证明 + 最终收敛"
+### R-A：`packages/ui/src/v4/sessionsIndexStore.ts` —— restaurar «loading precisa de prova viva + convergência final»
 
-1. `failRecovery`、resync 失败分支、`connect` 非瞬态失败分支：进入 `error` 时与 `dormant`
-   一致清空投影（`this.state = EMPTY_SESSIONS_INDEX_STATE; this.cachedList = null`）。
-2. `error` 不再是终态：进入后以有界退避（如 5s/15s/60s 封顶循环）自动发起 fresh
-   `connect(transport, { forceSnapshot: true })`；撞到 runtime-unavailable 错误时沿既有分支
-   转 `dormant`（防重连风暴，dormant 由 lifecycle available 唤醒）。
+1. `failRecovery`, o branch de falha de resync e o branch de falha não transitória de `connect`：ao entrar em `error`, limpar a projeção de forma consistente com `dormant`
+   （`this.state = EMPTY_SESSIONS_INDEX_STATE; this.cachedList = null`）.
+2. `error` deixa de ser terminal: depois de entrar nele, disparar automaticamente um fresh
+   `connect(transport, { forceSnapshot: true })` com backoff limitado（por exemplo, ciclo com teto de 5s／15s／60s）; ao esbarrar em um erro de runtime-unavailable, seguir pelo branch existente
+   para `dormant`（evitando tempestade de reconexão; o dormant é acordado pelo lifecycle available）.
 
-### R-B：`apps/zcode-cli/.../v4-gateway.ts` `publishCurrentSummaryToIndex` —— 恢复"归约态忠实"
+### R-B：`apps/zcode-cli/.../v4-gateway.ts` `publishCurrentSummaryToIndex` —— restaurar «fidelidade do estado reduzido»
 
-- 把 `!indexPublisher.hasSubscribers()` 从早退条件移除（保留 `!indexPublisher`）；
-  `flushIndex` 对空订阅集自然 no-op，帧语义/seq 记账/schema 全部不变。
-  此后任何时刻的 subscribe/resync snapshot 都反映权威当前 phase。
+- Remover `!indexPublisher.hasSubscribers()` da condição de early return（mantendo `!indexPublisher`）;
+  o `flushIndex` é naturalmente no-op para um conjunto de assinantes vazio, e a semântica de quadros／contabilização de seq／schema permanece inalterada.
+  A partir daí, qualquer snapshot de subscribe／resync reflete o phase autoritativo atual.
 
-### R-C（defense in depth，强烈建议但不属于本症状修复）
+### R-C（defesa em profundidade, fortemente recomendado mas fora da correção deste sintoma）
 
-- renderer `logger.ts` 生产构建至少放行 `warn/error` 经 bridge 落盘——本次定位最大盲区，
-  也是验证修复效果、把 probable 升级为 confirmed 的前提。
+- O `logger.ts` do renderer, na build de produção, deve pelo menos deixar `warn/error` passarem e serem persistidos via bridge — foi o maior ponto cego desta investigação
+  e também é pré-requisito para verificar o efeito da correção e elevar probable para confirmed.
 
-### 需架构决策（不自作主张，独立于本修复）
+### Decisões de arquitetura necessárias（sem decisão própria, independentes desta correção）
 
-- 远程两跳事件透传缺显式 relay 契约（RepoWiki 有前科）：建议补跨桥 lifecycle 事件的 e2e 断言。
-- sessions-index 无 keepalive/水位校验帧：R-A+R-B 落地后增量价值有限，可缓。
-- workspace-dispose 硬杀 agent 导致 running+activeTurnId 持久化残留：聊天区 hydration 已收口、
-  冷种子已 completedSuccess，属卫生改进非本症状根因。
+- O repasse de eventos remotos de dois saltos não tem contrato explícito de relay（o RepoWiki já tem antecedente）：recomenda-se adicionar asserções e2e de lifecycle entre pontes.
+- sessions-index não tem keepalive／quadro de verificação de marca d'água: depois que R-A e R-B forem aplicados, o valor incremental é limitado e pode ser adiado.
+- O descarte duro de workspace por workspace-dispose deixa resíduo persistido de running+activeTurnId: a hydration da área de chat já fecha o turn e a semente a frio já é completedSuccess, então é uma melhoria de higiene e não a causa raiz deste sintoma.
 
-## 根因消除证明（repair-sufficiency gate）
+## Prova de eliminação da causa raiz（gate de suficiência da correção）
 
-1. 被消除的 cause-producing transition：T1 = "恢复失败后 store 停留在携带旧 running 的无自愈终态"
-   （R-A 使其不可再产生：无证明即清空，且必然重试）；T2 = "无订阅者窗口的 phase 迁移永久缺席于
-   归约态"（R-B 使归约态无条件跟随 live 投影）。
-2. 不变量在任何恢复/兜底运行之前即恢复为真：R-A 在进入 error 的同一同步路径清空（先于重试）；
-   R-B 在事件 ingest 点修正（先于任何订阅/resync 读取）。
-3. 关闭新增重试也依然成立：仅 R-A 清空已消除"陈旧 running 转圈"；仅 R-B 后任何一次 snapshot
-   都是当时真值。
-4. 不把可见失败变成静默腐败：`status=error` 仍保留可观测；清空只撤销"无证明的 running 宣称"，
-   持久任务行由 tasks-index 继续显示，不丢行。
-5. 两者组合才完整：只修 R-A，重试可能拿到 stale snapshot（T2 场景）；只修 R-B，error 终态
-   卡死 + 旧 running 渲染依旧（T1 场景）。
+1. Transições produtoras de causa eliminadas：T1 = «após a falha de recuperação, o store fica em um estado terminal sem autocura carregando o running antigo»
+   （R-A a torna impossível de novo ocorrer:：sem prova, limpa; e sempre há retry）；T2 = «a migração de phase na janela sem assinantes está permanentemente ausente do estado reduzido»
+   （R-B faz o estado reduzido seguir a projeção viva sem condição）.
+2. O invariante volta a ser verdadeiro antes de qualquer execução de recuperação／fallback：R-A limpa no mesmo caminho síncrono em que entra em error（antes do retry）;
+   R-B corrige no ponto de ingest do evento（antes de qualquer leitura por assinatura／resync）.
+3. Continua valendo mesmo se as novas retentativas forem desligadas：apenas R-A já elimina «running obsoleto com spinner»; apenas R-B já faz com que qualquer snapshot seja o valor real da hora.
+4. Não se transforma uma falha visível em corrupção silenciosa：`status=error` continua observável; a limpeza apenas revoga a «declaração de running sem prova»,
+   e as linhas persistentes de tarefa continuam sendo exibidas pelo tasks-index, sem perder linhas.
+5. Só a combinação dos dois é completa：corrigir apenas R-A pode fazer o retry obter um snapshot obsoleto（cenário de T2）; corrigir apenas R-B deixa o error terminal
+   travado e o rendering do running antigo（cenário de T1）.
 
-## 风险评估
+## Avaliação de risco
 
-- 协议、schema、持久化格式、公共 RPC 契约零变化；两处改动互相独立、可单独 revert。
-- R-A 只收紧 `error` 分支并新增退避重试，`live/connecting/dormant` 路径不动；重试失败落入既有
-  dormant 分支，无风暴。
-- R-B 行为差仅是无订阅者时归约态照常推进：CPU 为 summariesEqual 级比较（ModelStreaming 已排除），
-  内存受 `maxDeltaLog` 上限约束；host syncer 与手机链路同样受益。
-- 桌面 continuous 与手机 replayable 边界不受触碰（不改 stream/snapshot/队列语义）。
+- Zero mudança em protocolo、schema、formato de persistência e contrato público de RPC; as duas mudanças são independentes entre si e podem ser revertidas separadamente.
+- R-A apenas endurece o branch `error` e adiciona retry com backoff; os caminhos `live/connecting/dormant` não são tocados; uma falha de retry cai no branch dormant existente, sem tempestade.
+- A única diferença de comportamento de R-B é que, sem assinantes, o estado reduzido avança normalmente: o custo de CPU é uma comparação do nível de summariesEqual（ModelStreaming já excluído）,
+  a memória é limitada pelo teto de `maxDeltaLog`; o host syncer e ocadeia do celular se beneficiam igualmente.
+- O limite entre continuous do desktop e replayable do celular não é tocado（não altera semântica de stream／snapshot／fila）.
 
-## 验证方案（先写测试，后改代码）
+## Plano de verificação（escrever o teste primeiro, depois mudar o código）
 
-1. 回归测试 1（修复前必红）：`packages/ui/test/sessionsIndexStore.test.ts`
-   —— store live 且含 `phase=running` → 注入 recovery fail-closed → 断言投影清空、无 running；
-   推进 fake timer → 断言自动 fresh subscribe 成功后 `status=live` 且投影为新 snapshot。
-2. 回归测试 2（修复前必红）：`apps/zcode-cli/packages/bootstrap/tests/v4-gateway-sessions-index.test.ts`
-   —— 首次订阅→全部退订→无订阅者窗口注入 TurnStarted+TurnComplete→重订阅
-   → 断言 snapshot phase 为当前真值而非窗口前旧值。
-3. 不变量测试：error 进入路径全枚举（failRecovery/resync 失败/connect 非瞬态失败）均不残留
-   sessions；无订阅者 ingest 不发帧、deltaLog 不超上限。
-4. 邻接测试：`notOwned` 自愈分支、dormant→available 唤醒、重试撞 runtime-unavailable 转 dormant
-   不循环。
-5. 门禁：`pnpm typecheck`、`pnpm lint`、`pnpm test:unit:affected`。
-6. 运行时回放（修复后必绿）：连接 WSL → 发长任务 → 运行中重开工作区（复现 19:32 换代序列）
-   → 断言 30s 内列表 spinner 与聊天区收敛一致；R-C 落盘后在日志断言 store 走 fresh subscribe
-   收敛而非兜底路径。
+1. Teste de regressão 1（tem de falhar antes da correção）：`packages/ui/test/sessionsIndexStore.test.ts`
+   —— store live com `phase=running` → injetar recovery fail-closed → afirmar que a projeção foi limpa e não há running;
+   avançar o fake timer → afirmar que, após o sucesso do fresh subscribe automático, `status=live` e a projeção é o novo snapshot.
+2. Teste de regressão 2（tem de falhar antes da correção）：`apps/zcode-cli/packages/bootstrap/tests/v4-gateway-sessions-index.test.ts`
+   —— primeira assinatura → desassinar tudo → injetar TurnStarted+TurnComplete na janela sem assinantes → ressinar
+   → afirmar que o phase do snapshot é o valor real atual e não o valor antigo de antes da janela.
+3. Teste de invariantes：enumeração completa dos caminhos de entrada em error（failRecovery／falha de resync／falha não transitória de connect）não deixam
+   sessions para trás; o ingest sem assinantes não emite quadros e o deltaLog não ultrapassa o limite.
+4. Testes adjacentes：branch de autocura `notOwned`, despertar dormant→available e retry que esbarra em runtime-unavailable indo para dormant
+   sem ciclo.
+5. Portões：`pnpm typecheck`、`pnpm lint`、`pnpm test:unit:affected`。
+6. Reprodução em runtime（tem de ficar verde após a correção）：conectar no WSL → enviar uma tarefa longa → reabrir o workspace durante a execução（reproduz a sequência de troca das 19:32）
+   → afirmar que em até 30s o spinner da lista converge com a área de chat; depois que R-C for persistido, afirmar nos logs que o store converge pelo fresh subscribe
+   e não pelo caminho de fallback.
 
-## 剩余风险与后续材料
+## Riscos restantes e materiais posteriores
 
-- 截图时刻端内状态不可回放（renderer 无日志），判级 probable；R-C 落地后可闭环。
-- 下次复现请让用户额外导出 WSL 内 `~/.zcode/cli/log`（当前 bundle 只含 Windows 侧 CLI 日志）。
-- 远程两跳事件隐式透传可靠性未被 e2e 覆盖，独立跟进。
+- O estado interno do cliente no momento da captura não pode ser reproduzido（sem logs do renderer）, então a classificação é probable; com R-C aplicado o ciclo fecha.
+- Na próxima reprodução, pedir ao usuário que exporte também `~/.zcode/cli/log` de dentro do WSL（o bundle atual contém apenas logs da CLI do lado Windows）.
+- A confiabilidade do repasse implícito de eventos remotos de dois saltos não é coberta por e2e e é acompanhada separadamente.
 
-## 修复实施记录
+## Registro da implementação da correção
 
-本次核对确认 R-A/R-B 与当前实现和回归现象一致，新增修复如下：
+Esta verificação confirma que R-A／R-B são consistentes com a implementação atual e com o fenômeno de regressão, e as seguintes correções foram acrescentadas：
 
-- `SessionsIndexStore` 在 recovery 或非瞬态 subscribe 失败时立即清空 sessions-index 投影，撤销无
-  live 证明的 `running` 状态；随后以 5s/15s/60s 封顶的有界退避发起 `forceSnapshot` fresh
-  subscribe。runtime-unavailable 继续进入 `dormant`，不启动轮询。
-- `ConversationV4Gateway.publishCurrentSummaryToIndex` 去除 `hasSubscribers()` 早退。无订阅者时
-  `SessionsIndexPublisher` 仍归约并记账，`flushIndex` 自然 no-op；下一次 subscribe/resync 的
-  snapshot 因而反映窗口内的当前 phase。
+- O `SessionsIndexStore` limpa imediatamente a projeção de sessions-index quando a recovery ou uma assinatura não transitória falha, revogando o estado
+  `running` sem prova viva; em seguida dispara um fresh subscribe com `forceSnapshot` e backoff limitado com teto de 5s／15s／60s. O runtime-unavailable continua indo para
+  `dormant` e não inicia polling.
+- `ConversationV4Gateway.publishCurrentSummaryToIndex` remove o early return de `hasSubscribers()`. Sem assinantes, o
+  `SessionsIndexPublisher` ainda reduz e contabiliza, e o `flushIndex` é naturalmente no-op; com isso, o snapshot do próximo subscribe／resync
+  reflete o phase atual dentro da janela.
 
-回归测试覆盖：
+Cobertura dos testes de regressão：
 
-- `packages/ui/test/sessionsIndexStore.test.ts`：recovery fail-closed 清空与 fresh subscribe、非瞬态
-  subscribe 的 5s/15s 退避。
-- `apps/zcode-cli/packages/bootstrap/tests/v4-gateway-sessions-index.test.ts`：无订阅者窗口内
-  `TurnStarted` 后重订阅 snapshot 返回 `phase=running`。
+- `packages/ui/test/sessionsIndexStore.test.ts`：limpeza por recovery fail-closed e fresh subscribe, e backoff de 5s／15s para assinatura não transitária.
+- `apps/zcode-cli/packages/bootstrap/tests/v4-gateway-sessions-index.test.ts`：após `TurnStarted` na janela sem assinantes, o snapshot do ressubscribe retorna `phase=running`.
 
-R-C（生产 renderer 放行 `warn/error`）以及远程 lifecycle e2e 仍是独立后续项，本次未改变。
+R-C（deixar `warn/error` passarem no renderer de produção）e o e2e de lifecycle remoto continuam itens posteriores independentes e não foram alterados nesta rodada.
 
-## 修复审查记录（2026-08-21，审查对象 commit `41ef87616e`）
+## Registro da revisão da correção（2026-08-21、commit revisado `41ef87616e`）
 
-结论：**修复方向正确、实现质量高，可以保留；发现 1 处同类遗漏，已在后续修复中补齐。**
+Conclusão：**a direção da correção está correta e a qualidade de implementação é alta, pode ser mantida; foi encontrada 1 omissão da mesma natureza, já completada na correção seguinte.**
 
-### 已验证正确
+### Verificado como correto
 
-- **R-B**（`v4-gateway.ts` `publishCurrentSummaryToIndex`）：与方案一致，仅移除
-  `hasSubscribers()` 门禁、保留 `!indexPublisher` 早退；`flushIndex` 对空订阅自 no-op、
-  deltaLog 有界（`sessions-index-publisher.ts` `record()` 以 `maxDeltaLog` shift 截断），改动安全。
-- **R-A**（`sessionsIndexStore.ts`）：实现比方案更细致，竞态点逐条核对通过：
-  - `failAndScheduleRecovery` 清空投影 + 置 error + best-effort 退订旧订阅 + 5s/15s/60s
-    封顶循环重试；重试回调带 `closed / transport 引用 / generation` 三重守卫，任何外部
-    connect / replaceTransport / 换代都会令旧计时器失效；
-  - 清空后 `subscriptionId = null`，`handleFrame` 自然拒收死订阅迟到帧，无"error 态吸帧"中间态；
-  - 重试链以 `errorRecoveryRetryAttempt` 线程化传递，外部 connect 才重置计数，
-    与瞬态重试（EBUSY 等）两套退避互不干扰；
-  - connect / resync 失败中新增 runtime-unavailable 分流统一走 `handleRuntimeUnavailable()`
-    转 dormant（不对已死 runtime 空转），并顺带修复了原"connect 失败进 dormant 但不清投影"
-    的隐性残留；
-  - `notOwned` 特判、dormant→available 唤醒、restart 退避等既有路径未被破坏。
+- **R-B**（`v4-gateway.ts` `publishCurrentSummaryToIndex`）：consistente com o plano, apenas remove
+  o portão `hasSubscribers()` e mantém o early return `!indexPublisher`; o `flushIndex` é naturalmente no-op para assinaturas vazias e o
+  deltaLog é limitado（o `record()` em `sessions-index-publisher.ts` trunca com shift por `maxDeltaLog`）, então a mudança é segura.
+- **R-A**（`sessionsIndexStore.ts`）：implementação mais detalhada que o plano, com todos os pontos de corrida verificados um a um：
+  - `failAndScheduleRecovery` limpa a projeção + coloca em error + tenta cancelar a assinatura antiga no besten Effort + retry em ciclo com teto de 5s／15s／60s;
+    o callback de retry tem as três guardas `closed / referência de transport / generation`, e qualquer connect／replaceTransport／troca de geração externo invalida o timer antigo；
+  - depois da limpeza, `subscriptionId = null`, de modo que o `handleFrame` naturalmente rejeita quadros atrasados de assinatura morta, sem estado intermediário de «error atraindo quadros»；
+  - a cadeia de retry transporta `errorRecoveryRetryAttempt` de forma encadeada e só um connect externo reseta a contagem,
+    e assim as duas séries de backoff（retry transitório como EBUSY） não se atrapalham；
+  - o novo desvio para runtime-unavailable dentro das falhas de connect／resync segue unificado por `handleRuntimeUnavailable()`
+    indo para dormant（sem girar à toa sobre um runtime já morto）, e de passagem corrigiu o resíduo implícito original «connect falhou e foi para dormant, mas não limpou a projeção»；
+  - os caminhos existentes de `notOwned`, de despertar dormant→available e de backoff de restart não foram quebrados.
 
-### 非回归证明（红→绿）
+### Prova de não regressão（vermelho → verde）
 
-- 红验证：在父提交 `dc810f6df8` 源码上仅保留新测试运行——
-  `sessionsIndexStore.test.ts` 2 条新用例失败、`v4-gateway-sessions-index.test.ts`
-  1 条新用例失败（新测试确实抓得住原缺陷）。
-- 绿验证：修复代码上两文件全绿（28 + 16 通过）。
-- 门禁：根 `pnpm typecheck` 通过；`pnpm lint` 0 errors（39 个 warnings 均不涉及本次改动文件）。
-  `apps/zcode-cli/packages/bootstrap` 局部 `tsc --noEmit` 有 3 个存量/环境错误
-  （`product-projection.ts:2457`、`workspace-model-catalog.ts:22-23`），均不在本次改动文件内，
-  以 CI 为准复核。
+- Verificação vermelha：no código do commit pai `dc810f6df8`, rodando apenas os novos testes —
+  2 novos casos de `sessionsIndexStore.test.ts` falham e 1 novo caso de `v4-gateway-sessions-index.test.ts`
+  falha（os testes novos realmente pegam o defeito original）.
+- Verificação verde：com o código da correção, os dois arquivos ficam todos verdes（28 + 16 passando）.
+- Portões：`pnpm typecheck` da raiz passou; `pnpm lint` com 0 erros（39 warnings, nenhum envolvendo os arquivos alterados nesta rodada）.
+  O `tsc --noEmit`local de `apps/zcode-cli/packages/bootstrap` tem 3 erros de estoque／ambiente
+  （`product-projection.ts:2457`、`workspace-model-catalog.ts:22-23`）, todos fora dos arquivos alterados nesta rodada,
+  e devem ser reconferidos pelo CI.
 
-### 遗漏（已补修）
+### Omissão（já corrigida）
 
-- `v4-gateway.ts` `cleanupSessionRuntime` 的会话删除路径（审查时位于 :1927）仍保留同款门禁：
-  `if (indexPublisher?.hasSubscribers() && indexPublisher.removeSession(sessionId))`。
-  这是"归约态忠实"不变量的另一个写点：无订阅者窗口内被删除的会话不执行 `removeSession`，
-  归约态残留 → 重订阅 snapshot 中已删除任务"复活"（可能带旧 phase=running 转圈）。
-  已按 R-B 同样移除 `hasSubscribers() &&`，并补充退订窗口内 cleanup 后重订阅 snapshot
-  不含该 session 的回归测试。
-- 同文件 :1898 的 `hasConversationSubscribers` 是 conversation 侧驻留回收判定，与本修复无关，已排除。
+- O caminho de exclusão de sessão de `cleanupSessionRuntime` em `v4-gateway.ts`（na revisão, em :1927）ainda mantinha o portão equivalente：
+  `if (indexPublisher?.hasSubscribers() && indexPublisher.removeSession(sessionId))`.
+  Esse é outro ponto de escrita do invariante «fidelidade do estado reduzido»: uma sessão excluída na janela sem assinantes não executa `removeSession`,
+  e sobra resíduo no estado reduzido → no snapshot do ressubscribe a tarefa excluída «renasce»（podendo ainda exibir spinner com o antigo phase=running）.
+  O `hasSubscribers() &&` foi removido da mesma forma que em R-B, e foi acrescentado um teste de regressão de que, após o cleanup dentro da janela de
+  desassinatura, o snapshot do ressubscribe não contém aquela session.
+- O `hasConversationSubscribers` em :1898 do mesmo arquivo é o julgamento de coleta de residência do lado conversation e não tem relação com esta correção; foi excluído.
 
-### 其他观察（不阻塞）
+### Outras observações（não bloqueiam）
 
-- R-C 未实施：线上"probable → confirmed"的观测闭环尚未建立，复现时仍看不到 store 状态迁移。
-- 既有 dormant 测试已通过 stale running 预置间接覆盖首次进入 dormant 后的清空；未增加额外
-  生产行为变更。
+- R-C não foi implementado：o ciclo de observação «probable → confirmed» em produção ainda não foi estabelecido, e na reprodução continua impossível ver as transições de estado do store.
+- O teste de dormant já existente cobre indiretamente, pela pré-configuração de um running obsoleto, a limpeza na primeira entrada em dormant; nenhuma mudança adicional de comportamento de produção foi acrescentada.
 
-> Todo103：以下保留 staging T3 历史调查与裁决；本轮证据另记整合账本，不把历史验证当成本轮通过。
+> Todo103：abaixo permanece a investigação histórica e as decisões do T3 de staging; as evidências desta rodada são registradas à parte em um livro-razão consolidado, e a validação histórica não é tratada como aprovação desta rodada.
 
-## 第二次事故（2026-09-04，ZCode 3.11.1）：Settings 覆盖远程 workspace 顶掉侧栏 sessions-index 订阅（T3）
+## Segundo incidente（2026-09-04、ZCode 3.11.1）：Settings cobrindo o workspace remoto tomba a assinatura de sessions-index da barra lateral（T3）
 
-### 症状与判级
+### Sintomas e classificação
 
-同一用户在 3.11.1（commit 87a07145）再次反馈"左侧任务转圈、聊天区已完成"，本次只有症状①且只影响
-一个任务。判级 **confirmed**：Windows 桌面日志 + WSL 侧 CLI 日志 + 代码路径三方吻合。R-A/R-B 已经落地，
-但它们只覆盖"有 error"与"无订阅者门禁"两类失效；本次是第三条机制 **T3：订阅被静默替换**，全程不产生
-任何 error，因此 R-A 的退避重试链路根本不会被触发。
+O mesmo usuário voltou a relatar na 3.11.1（commit 87a07145）que «a barra lateral de tarefas fica carregando e a área de chat já concluiu», desta vez apenas com o sintoma① e afetando
+uma única tarefa. Classificado como **confirmed**：logs do desktop no Windows + logs da CLI do lado WSL + o caminho de código convergem nos três lados. R-A／R-B já foram aplicados,
+mas eles cobrem apenas as duas classes de falha «com error» e «portão sem assinantes»; desta vez é o terceiro mecanismo **T3: a assinatura é silenciosamente substituída**, sem produzir
+nenhum error ao longo do caminho, então a cadeia de retry com backoff do R-A nem chega a ser disparada.
 
-### 因果链
+### Cadeia causal
 
 ```
 远程 workspace（remote:wsl:default:root:/root/src/plancov，remoteSessionId df0312a2…）激活态下打开 Settings tab
@@ -303,50 +290,48 @@ R-C（生产 renderer 放行 `warn/error`）以及远程 lifecycle e2e 仍是独
     之后新建的任务在 store 里不存在，行退回 tasks-index → 运行中不转圈、待输入无徽标
 ```
 
-事发日志锚点（本地时间 UTC+8）：12:50:41 侧栏订阅 plancov（583ms）；12:50:54 EDGES 任务续跑；
-**12:51:03 打开 Settings → 第二条 subscribe（11ms，远程往返）**；12:51:53 关闭 Settings → 远程 unsubscribe；
-之后 12:56/13:39/14:04/14:32 四次同样的开关；15:36:56 CLI `turn.completed` 且远端 syncer 广播终态
-（tasks-index 已写 completed、用户点开任务前先 mark-read）；≈16:21 截图侧栏仍 running + "3小时"
-（冻结的 lastActivityAt≈12:51）。WSL CLI 日志确认单进程、单工作区键、无 agent 重启，排除 CLI 投影停更。
+Âncoras nos logs do incidente（hora local UTC+8）：12:50:41 assinatura da barra lateral de plancov（583ms）；12:50:54 a tarefa EDGES continua rodando;
+**12:51:03 abertura de Settings → segunda subscribe（11ms、ida e volta remota）**; 12:51:53 fechamento de Settings → unsubscribe remoto;
+depois, quatro aberturas e fechamentos iguais às 12:56／13:39／14:04／14:32; 15:36:56 CLI `turn.completed` e o syncer remoto transmitindo o estado terminal
+（o tasks-index já escreveu completed, e o usuário marcou como lido antes de abrir a task）; ≈16:21 a captura ainda mostra running na barra lateral com «3 horas»
+（lastActivityAt congelado em ≈12:51). Os logs da CLI do WSL confirmam um único processo, uma única chave de workspace e nenhuma reinicialização de agent, o que descarta uma projeção da CLI parada de atualizar.
 
-### 修复（root-cause repair，最小连贯变更）
+### Correção（root-cause repair, mudança mínima e coerente）
 
-- `packages/ui/src/root/rootWorkspaceShellTarget.ts`：`resolveRootWorkspaceShellTarget` 新增 `workspaceTabs`
-  入参；Settings 覆盖时按 `workspaceKey` 找回被覆盖的 workspace tab，回填其 `remoteSessionId`，使外壳目标与
-  tab 激活态完全一致。tab 未连接或已关闭时保持 `undefined`（与激活态语义相同）。
-- `packages/ui/src/Root.tsx`：调用点传入窗口内全部 workspace tab（复用既有 memo，改名 `windowWorkspaceTabs`）。
-- 未改注册表、facade、CLI publisher、UI 展示规则：通知 hook 与侧栏在 Settings 模式下得到同一个注册表键，
-  `acquireSessionsIndex` 走 `refCount++` 分支，第二条订阅从源头不再产生。
+- `packages/ui/src/root/rootWorkspaceShellTarget.ts`：`resolveRootWorkspaceShellTarget` recebe um novo parâmetro `workspaceTabs`;
+  quando Settings cobre a tela, ele recupera pela `workspaceKey` o workspace tab coberto e preenche de volta o `remoteSessionId` dele, deixando o alvo do shell
+  completamente consistente com o estado de ativação do tab. Quando o tab não está conectado ou já foi fechado, mantém `undefined`（mesma semântica do estado de ativação）.
+- `packages/ui/src/Root.tsx`：o ponto de chamada passa todos os workspace tabs da janela（aproveitando o memo existente, renomeado para `windowWorkspaceTabs`）.
+- Registro, facade, publisher da CLI e regras de exibição da UI não foram alterados: o hook de notificações e a barra lateral obtêm a mesma chave de registro no modo Settings,
+  e o `acquireSessionsIndex` segue o branch de `refCount++`, de modo que a segunda assinatura não nasce mais na origem.
 
-### 根因消除证明
+### Prova de eliminação da causa raiz
 
-1. 被消除的转换：外壳目标在 Settings 覆盖时输出不完整身份（identity 有、remoteSessionId 无）。
-2. 不变量在任何恢复逻辑之前成立：acquire 时即命中同一条目，CLI 的替换语句永不执行。
-3. 不依赖兜底：即便 R-A 重试、心跳、UI 覆盖规则都不存在，原场景也不再出现。
-4. 不引入静默腐败：Settings 关闭只是 refCount 减一，侧栏订阅持续存活。
+1. Conversão eliminada：o alvo do shell emitia uma identidade incompleta quando Settings cobria a tela（identity presente, remoteSessionId ausente）.
+2. O invariante vale antes de qualquer lógica de recuperação：o acquire já acerta a mesma entrada, e a instrução de substituição da CLI nunca é executada.
+3. Não depende de fallback：mesmo que o retry do R-A, o heartbeat e as regras de cobertura da UI não existissem, o cenário original deixa de ocorrer.
+4. Não introduz corrupção silenciosa：fechar Settings é apenas um decremento de refCount, e a assinatura da barra lateral continua viva.
 
-### 测试
+### Testes
 
-- `packages/ui/test/rootWorkspaceShellTarget.test.ts`：修正原用例（它曾把 `workspaceRemoteSessionId: undefined`
-  锁成预期），新增按 identity 匹配、tab 未连接、tab 已关闭、本地 tab 四例。修前 2 红。
-- `packages/ui/test/rootSettingsSessionsIndexSubscription.test.ts`：单连接 CLI 替换语义 mock；侧栏 scope +
-  Root 解析出的通知 scope 只产生 1 次 subscribe；关闭 Settings 后侧栏仍收到 running→completedSuccess。修前红
-  （第二 store 订阅为 `six-2`，`six-1` 被替换）。
-- e2e `SSH-P0-TASK-03`（pending，`manual-review/pending/conversation-session-ssh-remote-settings-overlay-sidebar-status.test.ts`）：
-  续发响应延迟 15s，运行中开关设置页，断言侧栏先转圈、完成后收敛；fixture 合同检查通过，待真实 SSH 运行。
+- `packages/ui/test/rootWorkspaceShellTarget.test.ts`：corrige o caso original（ele havia fixado `workspaceRemoteSessionId: undefined` como expectativa）e acrescenta quatro casos: correspondência por identity、tab não conectado、tab já fechado e tab local. Antes da correção, 2 vermelhos.
+- `packages/ui/test/rootSettingsSessionsIndexSubscription.test.ts`：mock da semântica de substituição do CLI em conexão única; o scope da barra lateral +
+  o scope de notificações resolvido pelo Root produzem apenas 1 subscribe; depois de fechar Settings, a barra lateral ainda recebe running→completedSuccess. Antes da correção, vermelho
+  （a assinatura do segundo store era `six-2`, e `six-1` era substituída）.
+- e2e `SSH-P0-TASK-03`（pending、`manual-review/pending/conversation-session-ssh-remote-settings-overlay-sidebar-status.test.ts`）：
+  resposta do envio subsequente com atraso de 15s, abre e fecha a página de configurações durante a execução e afirma que a barra lateral primeiro fica carregando e depois converge; a verificação de contrato do fixture passou, aguardando uma execução real por SSH.
 
-### 本次修复之外（不属于本症状修复，需单独决策）
+### Fora desta correção（não faz parte da correção deste sintoma e exige decisão separada）
 
-- D1 观测（已实施，独立提交）：`acquireSessionsIndex` 入口按 agentService 对象身份反查它所属的远程 session
-  （`findRemoteWorkspaceSessionIdForAgentService`），scope 的 `endpointKey`（缺省即 `__base__`）与之不一致时用
-  `logger.lifecycle.warn` 落盘 `v4.sessions_index.scope_endpoint_mismatch`（带 endpointKey / remoteSessionId /
-  workspaceKey / workspacePath），同一 scope 只记一条。只记录、不改键、不改订阅——本次生产日志里没有任何
-  renderer 痕迹，只能靠 RPC 指纹（`system.listIntegratedTerminalShells` ±3s）反推，这条日志把同类键不一致
-  直接暴露在用户日志里。测试：`packages/ui/test/sessionsIndexRegistryEndpointMismatch.test.ts`。
-- D2 设计决策：CLI "每连接单订阅、替换不通知"（10 §3.1）+ attachment facade 统一 connectionId，使任何绕过
-  注册表的二次订阅都能静默杀死第一份；上文把 keepalive 判为"可缓"的前提（失败会表现为 error）已被推翻。
-  候选：CLI 替换时向旧订阅所在连接发 `subscription.replaced` fault（可直接接入 R-A 的 error→fresh subscribe），
-  或 facade 在 `remember()` 驱逐 owned entry 时通知旧 owner。
-- D3 mitigation（不建议）：让 tasks-index 中更新且已终态的行覆盖陈旧 running activity，会掩盖症状且与
-  "loading 必须由 runtime 证明"方向相反。
-- 顺带发现（另开工单）：14:50:36–14:51:38 十二次 `zcode-agent.createSession FAIL`，本地工作区键被路由到 WSL 远端服务。
+- D1 observação（já implementada, commit independente）：a entrada de `acquireSessionsIndex` procura, pela identidade do objeto agentService, a qual sessão remota ele pertence
+  （`findRemoteWorkspaceSessionIdForAgentService`）e, quando o `endpointKey` do scope（default `__base__`）é inconsistente com isso, persiste com `logger.lifecycle.warn` o
+  `v4.sessions_index.scope_endpoint_mismatch`（com endpointKey／remoteSessionId／workspaceKey／workspacePath）, registrando apenas uma linha por scope. Apenas registra, não muda chave nem assinatura — nos logs de produção deste incidente não havia nenhuma
+  rastro do renderer, e só era possível deduzir pela impressão digital do RPC（`system.listIntegratedTerminalShells` ±3s）; esse log expõe a inconsistência de chaves
+  diretamente nos logs do usuário. Teste：`packages/ui/test/sessionsIndexRegistryEndpointMismatch.test.ts`.
+- D2 decisão de design：o «uma única assinatura por conexão na CLI, substituição sem notificação»（10 §3.1）+ o facade de attachment com connectionId unificado fazem com que qualquer segunda assinatura
+  que contorne o registro possa matar silenciosamente a primeira; a premissa de que o keepalive pode ser adiado (a falha se manifestaria como error) foi refutada.
+  Candidatos：a CLI envia um fault `subscription.replaced` para a conexão da assinatura antiga quando substitui（podendo ser ligado diretamente ao error→fresh subscribe do R-A）,
+  ou o facade notifica o owner antigo quando `remember()` expulsa uma owned entry.
+- D3 mitigação（não recomendada）：fazer as linhas do tasks-index que foram atualizadas e já estão em estado terminal sobrescreverem a atividade de running obsoleta;
+  isso esconderia o sintoma e iria na direção oposta de «loading deve ser provado pelo runtime».
+- Descoberta incidental（aberta como ticket separado）：14:50:36–14:51:38, doze `zcode-agent.createSession FAIL`, com a chave do workspace local roteada para o serviço remoto do WSL.

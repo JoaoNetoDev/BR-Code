@@ -1,215 +1,212 @@
-# Conversation Session Compact Decision Worksheet
+# Folha de Trabalho de Decisões de Compact da Conversation Session
 
-## `/compact` 队列裁决（2026-07-13）
+## Adjudicação da fila de `/compact` (2026-07-13)
 
-用户确认 running 输出过程中 `/compact` 不能丢弃，必须进入队列；随后确认 goal verifier
-过程中的普通消息也必须进入同一 future queue。实现按以下边界收口：
+O usuário confirmou que `/compact` não pode ser descartado durante a saída em running e precisa entrar na fila; em seguida confirmou que mensagens comuns durante o processo do goal verifier também precisam entrar na mesma future queue. A implementação foi fechada nas seguintes fronteiras:
 
-| 边界 | 裁决 | 分类 |
+| Fronteira | Adjudicação | Classificação |
 | --- | --- | --- |
-| running primary/tool/foreground subagent/goal continuation/goal verifier | `/compact` 作为第三种 `kind=compact` 意图追加 CLI FIFO，不打断 active work | accepted |
-| completed + held queue | compact 追加队尾，保持 `autoDrain=false`；不绕过既有 future intent | accepted |
-| active 或 queued compact 已存在 | 后续 compact 显式 `failed(compactOperationLock)` 并 toast，不重复排队 | accepted |
-| queue 操作 | 可删除、重排、立即执行；compact 不可编辑为普通文本 | accepted |
-| auto compact 已刚完成 | queued manual compact 仍执行，允许 runtime 产出 noop；禁止静默消费 | accepted |
-| queued compact 失败/Stop | 后续 queue 保持 held，不越过失败/取消自动消费 | accepted |
-| desktop/mobile | 两端共享 Host/CLI CommandInbox；保留各自 `deliveryKind`，不在 relay/main 建第二队列 | accepted |
-| goal verifier | text/goal/compact 都是 future intent；单次 verifier terminal 不触发 drain，等待 target complete | accepted |
+| running primary/tool/foreground subagent/goal continuation/goal verifier | `/compact` é anexado à FIFO da CLI como um terceiro tipo de intenção `kind=compact`, sem interromper o trabalho ativo | accepted |
+| completed + held queue | o compact é anexado ao fim da fila, mantendo `autoDrain=false`; não contorna a future intent existente | accepted |
+| já existe compact active ou enfileirado | o compact seguinte falha explicitamente com `failed(compactOperationLock)` e mostra um toast, sem enfileirar de novo | accepted |
+| operações de fila | pode remover, reordenar e executar imediatamente; o compact não pode ser editado como texto comum | accepted |
+| auto compact acabou de terminar | o compact manual enfileirado ainda é executado, permitindo que o runtime produza noop; consumo silencioso é proibido | accepted |
+| compact enfileirado falhou/parou com Stop | a fila subsequente permanece held, sem consumir automaticamente para além da falha/cancelamento | accepted |
+| desktop/mobile | os dois lados compartilham o CommandInbox do Host/CLI; cada um mantém seu próprio `deliveryKind`, sem criar uma segunda fila no relay/main | accepted |
+| goal verifier | text/goal/compact são todas future intents; um único verifier terminal não dispara drain, aguardando o target complete | accepted |
 
 ```text
 desktop-continuous ─┐
                     ├─> shared Host / CLI FIFO: [text, compact, goal]
 web-remote-replayable ┘                    │
-                                          └─> 按 kind 分派，compact 只写 timeline
+                                          └─> despacho por kind, compact só escreve na timeline
 ```
 
-状态 owner 是 CLI runtime `CommandInbox` 与 session queue；UI 只渲染 projection，relay/main
-只透传。核心证据层为 command ACK、queue snapshot kind/order、compact lifecycle marker、provider
-request 次序以及 goal target terminal 状态。
+O owner do estado é o `CommandInbox` do CLI runtime e a fila de sessão; a UI apenas renderiza a projection, e o relay/main apenas repassa. A camada central de evidências é o ACK de comandos, o kind/order do snapshot da fila, o marcador de lifecycle do compact, a ordem das requisições ao provider e o estado terminal do goal target.
 
-目标：把 `F09/G11/G12` 三个 compact undefined case 变成可确认、可回写、可自动化的产品合同。本文不替产品做决定，只把必须确认的分叉拆到足够具体。
+Objetivo: transformar os três casos compact undefined `F09/G11/G12` em um contrato de produto confirmável, reescrevível e automatizável. Este documento não toma decisões pelo produto, apenas detalha as bifurcações que precisam ser confirmadas o suficiente.
 
-关联文档：
+Documentos relacionados:
 
-- 主路径 catalog：[conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
-- 覆盖矩阵：[conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
-- 决策 backlog：[conversation-session-decision-backlog.md](./conversation-session-decision-backlog.md)
-- compact 回放用例：`packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact*.test.ts`
+- catálogo do caminho principal: [conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
+- matriz de cobertura: [conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
+- backlog de decisões: [conversation-session-decision-backlog.md](./conversation-session-decision-backlog.md)
+- casos de replay do compact: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact*.test.ts`
 
-## 当前缺口
+## Lacunas atuais
 
-已清零。`F09 / G11 / G12`（含 fault alias `C01-C03`）于 2026-07-05 全部裁决并回写（catalog accepted、coverage missing、roadmap ready-to-write），本工作单转为归档；12 个协议题的逐项结论见下文「裁决归档」。
+Zeradas. `F09 / G11 / G12` (incluindo os fault alias `C01-C03`) foram todos adjudicados e reescritos em 2026-07-05 (catalog accepted, coverage missing, roadmap ready-to-write), e esta folha de trabalho passou a ser arquivada; as conclusões item a item dos 12 itens de protocolo estão em «Arquivo de adjudicações» abaixo.
 
-## 当前统计
+## Estatísticas atuais
 
-| 指标 | 数量 |
+| Métrica | Quantidade |
 | --- | ---: |
-| Compact case | 0 |
-| Compact 协议题 | 0 |
+| Caso de compact | 0 |
+| Item de protocolo de compact | 0 |
 | answered | 0 |
 | unanswered | 0 |
 
-> 统计口径是「审计面上仍待处理的题目」，裁决完成的批次已退役，全部归零。裁决记录：2026-07-05 用户逐项确认（v4 重构 M0 决策清收）；催生本轮裁决的协议影响见 `docs/v4-refactor/10-protocol-spec.md`（compact marker 终态枚举、switchModelConfig CAS）。
+> O critério de contagem é "itens ainda pendentes na superfície auditada"; lotes já adjudicados foram aposentados, e tudo zera. Registro de adjudicações: confirmação item a item pelo usuário em 2026-07-05 (fechamento das decisões M0 da refatoração v4); o impacto de protocolo que motivou este ciclo de adjudicação está em `docs/v4-refactor/10-protocol-spec.md` (enumeração de estado terminal do compact marker, switchModelConfig CAS).
 
-## 裁决归档（2026-07-05）
+## Arquivo de adjudicações (2026-07-05)
 
-> 编号加 ✅ 前缀以避免被审计脚本再次统计为待决协议题。
+> O prefixo ✅ no número evita que o script de auditoria volte a contar o item como questão de protocolo pendente.
 
-| 题目 | 产品结论 |
+| Item | Conclusão de produto |
 | --- | --- |
-| ✅ F09.1 | 保持 completed（回到 compact 前原状态）+ failed marker；不 error、不 interrupted |
-| ✅ F09.2 | 保留原 queue 且不自动消费；不改 autoDrain、不清空 |
-| ✅ F09.3 | 全部操作恢复（文本 / `/goal` / fork / edit / 再次 compact），无按钮锁定 |
-| ✅ F09.4 | failed marker 展示失败结果 + retry compact 入口（点击 = 重新发起手动 compact） |
-| ✅ G11.1 | 继续无压缩执行 pendingAction（第 4 个请求是主模型请求；与现状一致） |
-| ✅ G11.2 | 继续 running（进入正常主请求流） |
-| ✅ G11.3 | 保留 retrying 历史与最终 failed marker，不阻塞后续输出 |
-| ✅ G11.4 | circuit breaker 生效（阈值后一段时间跳过）；手动 compact 成功后重置计数 |
-| ✅ G12.1 | 保留为当前轮 interrupted user message（时间线可 edit/retry），不复制回 queue、不丢弃 |
-| ✅ G12.2 | completed(interrupted)，与普通 stop 完全一致 |
-| ✅ G12.3 | marker 置 cancelled（v4 枚举复用；等价旧表述 interrupted） |
-| ✅ G12.4 | 显式追加的 queue 全部保留且不自动消费（held queue，autoDrain=false） |
+| ✅ F09.1 | manter completed (volta ao estado anterior ao compact) + failed marker; nem error nem interrupted |
+| ✅ F09.2 | manter a queue original sem consumo automático; não mexer em autoDrain nem limpar |
+| ✅ F09.3 | todas as operações restauradas (texto / `/goal` / fork / edit / compact de novo), sem bloqueio de botões |
+| ✅ F09.4 | o failed marker mostra o resultado da falha + entrada de retry compact (clique = reiniciar compact manual) |
+| ✅ G11.1 | continuar executando o pendingAction sem compressão (a 4ª requisição é a requisição do modelo principal; igual ao estado atual) |
+| ✅ G11.2 | continuar em running (entra no fluxo normal de requisição principal) |
+| ✅ G11.3 | manter o histórico de retrying e o failed marker final, sem bloquear a saída posterior |
+| ✅ G11.4 | o circuit breaker vale (pula por um tempo depois de atingir o limite); a contagem é reiniciada após sucesso do compact manual |
+| ✅ G12.1 | manter como interrupted user message do turno atual (editável/retry na timeline), sem copiar de volta para a queue e sem descartar |
+| ✅ G12.2 | completed(interrupted), idêntico a um stop normal |
+| ✅ G12.3 | marker em cancelled (reutilizando a enumeração v4; equivalente à antiga descrição interrupted) |
+| ✅ G12.4 | toda a queue explicitamente anexada é mantida e não consumida automaticamente (held queue, autoDrain=false) |
 
-## P0 协议题索引
+## Índice de itens de protocolo P0
 
-本批次协议题已全部裁决并退役（见上文「裁决归档」），审计脚本不再统计。历史上这张表是给审计脚本读的最小协议面：`Status=unanswered` 表示还不能回写 catalog；产品确认后先写产品结论、改 `answered`、再回写源 catalog / fault catalog / coverage matrix、最后从审计面退役。
+Os itens de protocolo deste lote foram todos adjudicados e aposentados (ver «Arquivo de adjudicações» acima), e o script de auditoria não os conta mais. Historicamente esta tabela era a superfície mínima de protocolo lida pelo script de auditoria: `Status=unanswered` indica que ainda não é possível reescrever o catalog; após a confirmação do produto, escreve-se primeiro a conclusão de produto, muda-se `answered` e só então se reescreve o catalog de origem / fault catalog / coverage matrix, e por fim o item é aposentado da superfície auditada.
 
-确认后回写规则：
+Regras de reescrita após a confirmação:
 
-1. 更新 `docs/conversation-session-case-catalog.md` 中 `F09/G11/G12` 的期望结果和 Review。
-2. 更新 `docs/testing/conversation-session-environment-fault-catalog.md` 中 `C01/C02/C03` 的 Review。
-3. 更新 `docs/testing/conversation-session-e2e-coverage-matrix.md`：先从 `undefined` 改为 `missing`，等 E2E 有独立断言后改为 `covered`。
-4. 从 `docs/testing/conversation-session-decision-backlog.md` 移除对应待确认行。
-5. 写对应 WDIO spec，并让 `pnpm audit:conversation-session-coverage` 重新通过。
+1. Atualizar os resultados esperados e o Review de `F09/G11/G12` em `docs/conversation-session-case-catalog.md`.
+2. Atualizar o Review de `C01/C02/C03` em `docs/testing/conversation-session-environment-fault-catalog.md`.
+3. Atualizar `docs/testing/conversation-session-e2e-coverage-matrix.md`: primeiro mudar de `undefined` para `missing` e, quando o E2E tiver asserção independente, mudar para `covered`.
+4. Remover a linha correspondente de pendência em `docs/testing/conversation-session-decision-backlog.md`.
+5. Escrever o spec WDIO correspondente e fazer `pnpm audit:conversation-session-coverage` passar novamente.
 
-## 已有事实
+## Fatos já existentes
 
-这些是当前代码和已确认产品规则给出的边界，不代表还未确认的产品结论。
+Estes são limites dados pelo código atual e por regras de produto já confirmadas; não representam conclusões de produto ainda não confirmadas.
 
-| 事实 | 含义 |
+| Fato | Significado |
 | --- | --- |
-| 手动 compact 不自动重试 | 手动 compact 失败只发生一个逻辑 compact attempt；该 attempt 内可包含 streaming 主腿与 non-stream fallback 腿，不应期待自动第 2 个逻辑 attempt |
-| 自动 compact 最多重试 3 次 | G08/G09/G10 已覆盖第 1、2 个逻辑 attempt 失败后重试，以及第 3 个成功后继续 pendingAction；物理 provider request 数不固定 |
-| compacting 中允许普通文本和 `/goal` 入队 | 已确认 `F04/F05/G05/G06`，所以失败/stop 后 queue 是否保留必须定义 |
-| compacting 中重复 `/compact` 被拒绝 | 已确认 `F06/G07`，失败/stop 用例必须断言不会产生额外逻辑 compact attempt |
-| compacting 中不能 fork | 已确认 `E06/CA`，失败/stop 后何时恢复 fork 能力必须定义 |
-| stop 后 queue 默认保留且不自动消费 | 已确认 `B02-B04/F07`，但 auto compact stop 的 pendingAction 是否算 queue 仍需确认 |
+| compact manual não faz retry automático | uma falha de compact manual gera apenas um compact attempt lógico; esse attempt pode conter uma perna principal em streaming e uma perna de fallback non-stream, e não se deve esperar um 2º attempt lógico automático |
+| compact automático faz no máximo 3 retries | G08/G09/G10 já cobrem o retry depois da falha do 1º e do 2º attempt lógico e a continuação do pendingAction após o sucesso do 3º; o número físico de requisições ao provider não é fixo |
+| texto comum e `/goal` podem entrar na fila durante compacting | `F04/F05/G05/G06` já confirmados, então é preciso definir se a queue é mantida depois de falha/stop |
+| `/compact` repetido durante compacting é rejeitado | `F06/G07` já confirmados, e os casos de falha/stop precisam afirmar que não surge attempt lógico de compact adicional |
+| não é possível fazer fork durante compacting | `E06/CA` já confirmados, e é preciso definir quando a capacidade de fork é restaurada depois de falha/stop |
+| depois do stop a queue é mantida por padrão e não é consumida automaticamente | `B02-B04/F07` já confirmados, mas ainda precisa ser confirmado se o pendingAction de um auto compact parado conta como queue |
 
-## F09：手动 Compact 失败
+## F09: falha de Compact manual
 
-前置状态：`compacting(origin=manual)`。
+Estado inicial: `compacting(origin=manual)`.
 
-事件：compact streaming 主腿失败后进入 non-stream fallback，fallback 仍失败。
+Evento: a perna principal de streaming do compact falha e entra no fallback non-stream, e o fallback também falha.
 
-当前代码观察：runtime 写入 `CompactFailed` timeline payload，UI projection 可生成 failed 横条和 retry 入口；`executeManualCompact` 仍会抛 `Compact failed`。
+Observação do código atual: o runtime grava o payload de timeline `CompactFailed`, e a projection de UI consegue gerar a faixa failed e a entrada de retry; `executeManualCompact` ainda lança `Compact failed`.
 
-### 必须确认
+### O que precisa ser confirmado
 
-| 决策点 | 选项 | 影响 |
+| Ponto de decisão | Opções | Impacto |
 | --- | --- | --- |
-| F09.1 最终 task/session 状态 | A. `completed(success)` + failed marker；B. `completed(interrupted)` + failed marker；C. `error/failed` + failed marker；D. 其他 | 决定输入框、toolbar、列表状态、错误 banner 和后续发送行为 |
-| F09.2 queue 处理 | A. 保留原 queue，`autoDrain=false`；B. 清空 queue；C. 保留并允许手动立即发送；D. 其他 | 决定是否复用 held queue 断言 |
-| F09.3 操作恢复 | A. 允许继续发普通文本/`/goal`/fork/edit/再次 compact；B. 只允许 retry compact；C. 进入错误态，仅允许修复/重试；D. 其他 | 决定按钮 disabled 和后续 action case |
-| F09.4 failed marker 交互 | A. 展示 retry compact；B. 只展示失败结果；C. 展示日志/详情入口；D. 其他 | 决定 UI test-id 和点击断言 |
+| F09.1 estado final de task/session | A. `completed(success)` + failed marker; B. `completed(interrupted)` + failed marker; C. `error/failed` + failed marker; D. outro | decide a caixa de entrada, a toolbar, o estado da lista, o banner de erro e o comportamento de envio seguinte |
+| F09.2 tratamento da queue | A. manter a queue original, `autoDrain=false`; B. limpar a queue; C. manter e permitir envio manual imediato; D. outro | decide se as asserções de held queue são reutilizadas |
+| F09.3 restauração das operações | A. permitir continuar enviando texto comum/`/goal`/fork/edit/compact de novo; B. permitir apenas retry compact; C. entrar em estado de erro, permitindo apenas corrigir/tentar de novo; D. outro | decide os botões desabilitados e os casos de action seguinte |
+| F09.4 interação do failed marker | A. exibir retry compact; B. exibir apenas o resultado da falha; C. exibir entrada de log/detalhes; D. outro | decide o test-id de UI e as asserções de clique |
 
-### E2E 断言草案
+### Rascunho de asserções de E2E
 
-| 层 | 应采集信号 |
+| Camada | Sinal a coletar |
 | --- | --- |
-| UI | compact marker 从 `running` 变 `failed`；输入框/按钮状态符合 F09.1-F09.4 |
-| Network | 只发生 1 个手动 compact 逻辑 attempt；物理请求包含 SSE/HTTP legs 及各自 adapter retry，数量不写死；不会产生主模型请求 |
-| Queue | compact 前已存在的 queue 是否按 F09.2 保留 |
-| Runtime/Log | task runtime 状态、compact failure trace、activeInputId 清理 |
-| Files | session timeline 中保留 compact started 和 failed marker |
+| UI | o compact marker muda de `running` para `failed`; o estado da caixa de entrada/botões corresponde a F09.1-F09.4 |
+| Network | ocorre apenas 1 compact attempt lógico manual; as requisições físicas incluem pernas SSE/HTTP e seus respectivos adapter retry, sem número fixado; nenhuma requisição ao modelo principal é gerada |
+| Queue | se a queue existente antes do compact é mantida conforme F09.2 |
+| Runtime/Log | estado do task runtime, trace da falha de compact, limpeza de activeInputId |
+| Files | na timeline da sessão são mantidos o marker de compact iniciado e o de falha |
 
-建议 spec：`packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact-failure.test.ts`。
+Spec sugerido: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact-failure.test.ts`.
 
-## G11：自动 Compact 三次失败
+## G11: três falhas do Compact automático
 
-前置状态：`compacting(origin=auto)`，存在触发 auto compact 的 pendingAction。
+Estado inicial: `compacting(origin=auto)`, com um pendingAction que dispara o auto compact.
 
-事件：auto compact 第 1、2、3 次均失败。
+Evento: o auto compact falha nas 1ª, 2ª e 3ª tentativas.
 
-当前代码观察：retryable compact 失败会写 `retrying` 横条；第 3 次失败写 `failed` 横条。当前实现会吞掉非取消错误，并继续无压缩执行原 pendingAction；连续失败计数增加，达到阈值后后续 auto compact 可能被 circuit breaker 跳过。
+Observação do código atual: uma falha de compact retentável grava a faixa `retrying`; a falha da 3ª tentativa grava a faixa `failed`. A implementação atual engole erros que não sejam de cancelamento e continua executando o pendingAction original sem compressão; o contador de falhas consecutivas aumenta e, ao atingir o limite, o auto compact seguinte pode ser pulado pelo circuit breaker.
 
-### 必须确认
+### O que precisa ser confirmado
 
-| 决策点 | 选项 | 影响 |
+| Ponto de decisão | Opções | Impacto |
 | --- | --- | --- |
-| G11.1 pendingAction 处理 | A. 继续无压缩执行；B. 回到 held queue 且不自动消费；C. 丢弃并提示；D. 进入错误态等待用户决定；E. 其他 | 决定第 4 个请求是否应该是主模型请求 |
-| G11.2 task/session 状态 | A. pendingAction 若继续则进入 `running`；B. 若保留 queue 则回到 `completed/interrupted`；C. 进入 `error/failed`；D. 其他 | 决定 toolbar、composer 和列表状态 |
-| G11.3 marker 展示 | A. 保留 failed marker，同时继续原请求；B. failed marker 阻塞后续请求；C. 只展示 retrying 历史，最终不展示 failed；D. 其他 | 决定 timeline UI 断言 |
-| G11.4 后续 auto compact 策略 | A. circuit breaker 生效，后续一段时间跳过 auto compact；B. 下一轮仍可继续尝试；C. 需要用户手动 compact 成功后重置；D. 其他 | 决定跨轮状态和后续 e2e |
+| G11.1 tratamento do pendingAction | A. continuar sem compressão; B. voltar à held queue sem consumo automático; C. descartar com aviso; D. entrar em estado de erro aguardando decisão do usuário; E. outro | decide se a 4ª requisição deve ser uma requisição ao modelo principal |
+| G11.2 estado de task/session | A. se o pendingAction continuar, entra em `running`; B. se a queue for mantida, volta a `completed/interrupted`; C. entra em `error/failed`; D. outro | decide o estado da toolbar, do composer e da lista |
+| G11.3 exibição do marker | A. manter o failed marker e ao mesmo tempo continuar a requisição original; B. o failed marker bloqueia as requisições seguintes; C. exibir apenas o histórico de retrying e no final não exibir failed; D. outro | decide as asserções de UI da timeline |
+| G11.4 política de auto compact seguinte | A. o circuit breaker vale e o auto compact é pulado por um tempo; B. a próxima rodada ainda pode tentar; C. é preciso que um compact manual bem-sucedido do usuário reinicie; D. outro | decide o estado entre turnos e o e2e seguinte |
 
-### E2E 断言草案
+### Rascunho de asserções de E2E
 
-| 层 | 应采集信号 |
+| Camada | Sinal a coletar |
 | --- | --- |
-| UI | auto compact marker attempt=1/2/3 的 retrying/failed 表达；最终状态符合 G11.2 |
-| Network | 精确 3 个逻辑 compact attempt；物理 SSE/HTTP 请求数不写死；是否有后续主模型请求取决于 G11.1 |
-| Queue | pendingAction 是消失、回到队列，还是被执行 |
-| Runtime/Log | retry count、circuit breaker、activeTurnKind 清理或切换 |
-| Files | timeline marker 和触发 pendingAction 的 user message 是否持久化 |
+| UI | expressão retrying/failed do auto compact marker com attempt=1/2/3; o estado final corresponde a G11.2 |
+| Network | exatamente 3 compact attempts lógicos; o número de requisições físicas SSE/HTTP não é fixado; a existência de uma requisição posterior ao modelo principal depende de G11.1 |
+| Queue | se o pendingAction desaparece, volta para a fila ou é executado |
+| Runtime/Log | retry count, circuit breaker, limpeza ou troca de activeTurnKind |
+| Files | se o marker da timeline e a user message que disparou o pendingAction são persistidos |
 
-建议 spec：`packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact-auto-failure.test.ts`。
+Spec sugerido: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact-auto-failure.test.ts`.
 
-## G12：自动 Compact 被 Stop
+## G12: Compact automático parado com Stop
 
-前置状态：`compacting(origin=auto)`，存在触发 auto compact 的 pendingAction；用户在 compact 请求未完成时点击 stop。
+Estado inicial: `compacting(origin=auto)`, com um pendingAction que dispara o auto compact; o usuário clica em stop enquanto a requisição de compact não terminou.
 
-事件：stop/abort auto compact。
+Evento: stop/abort do auto compact.
 
-当前代码观察：auto compact 发生在当前 user turn 的主请求之前；当前 user message 已经进入 runtime history / 持久化。stop 会让 `autoCompactIfNeeded` 重新抛 cancellation，主模型请求不会继续；turn 按 cancelled 收口。runtime 内部 pending steer inputs 会被 discard，但 UI 可见 queue 是否保留还不是协议事实。
+Observação do código atual: o auto compact acontece antes da requisição principal do user turn atual; a user message atual já entrou no histórico do runtime / na persistência. O stop faz `autoCompactIfNeeded` relançar o cancellation, a requisição ao modelo principal não continua e o turno é fechado como cancelled. Os pending steer inputs internos do runtime são descartados, mas ainda não é fato de protocolo se a queue visível na UI é mantida.
 
-### 必须确认
+### O que precisa ser confirmado
 
-| 决策点 | 选项 | 影响 |
+| Ponto de decisão | Opções | Impacto |
 | --- | --- | --- |
-| G12.1 pendingAction 处理 | A. 回到 held queue，`autoDrain=false`；B. 保留为当前轮 interrupted user message，不再进入 queue；C. 丢弃并提示；D. 保持待执行但不自动消费；E. 其他 | 决定 stop 后用户能否看到并编辑这条待执行输入 |
-| G12.2 task/session 状态 | A. `completed(interrupted)`；B. `completed(success)` + interrupted marker；C. `error/failed`；D. 其他 | 决定与普通 stop 的一致性 |
-| G12.3 compact marker 状态 | A. `interrupted`；B. `failed`；C. 移除 running marker；D. 其他 | 决定 timeline 展示 |
-| G12.4 compact 期间追加 queue | A. 全部保留且不自动消费；B. 只保留用户显式追加项，不保留原 pendingAction；C. stop 后清空；D. 其他 | 决定 queue count 和顺序断言 |
+| G12.1 tratamento do pendingAction | A. voltar à held queue, `autoDrain=false`; B. manter como interrupted user message do turno atual, sem entrar na queue; C. descartar com aviso; D. manter pendente de execução mas sem consumo automático; E. outro | decide se, depois do stop, o usuário consegue ver e editar essa entrada pendente |
+| G12.2 estado de task/session | A. `completed(interrupted)`; B. `completed(success)` + interrupted marker; C. `error/failed`; D. outro | decide a consistência com o stop normal |
+| G12.3 estado do compact marker | A. `interrupted`; B. `failed`; C. remover o marker running; D. outro | decide a exibição na timeline |
+| G12.4 queue anexada durante o compact | A. tudo é mantido e não é consumido automaticamente; B. só é mantido o que o usuário anexou explicitamente, não o pendingAction original; C. é limpa depois do stop; D. outro | decide as asserções de contagem e de ordem da queue |
 
-### E2E 断言草案
+### Rascunho de asserções de E2E
 
-| 层 | 应采集信号 |
+| Camada | Sinal a coletar |
 | --- | --- |
-| UI | 点击 stop 后退出 streaming/compacting；marker 状态符合 G12.3；输入框和按钮恢复符合 G12.2 |
-| Network | auto compact 请求被中止；不会发起 pendingAction 的主模型请求 |
-| Queue | 原 pendingAction 和 compact 期间追加项按 G12.1/G12.4 处理 |
-| Runtime/Log | activeInputId 清理；stopRequested 与 autoDrain 状态符合普通 stop 或新定义 |
-| Files | interrupted marker、user message、queue snapshot 是否持久化 |
+| UI | sair de streaming/compacting após o clique em stop; o estado do marker corresponde a G12.3; a restauração da caixa de entrada e dos botões corresponde a G12.2 |
+| Network | a requisição de auto compact é abortada; nenhuma requisição ao modelo principal do pendingAction é iniciada |
+| Queue | o pendingAction original e os itens anexados durante o compact são tratados conforme G12.1/G12.4 |
+| Runtime/Log | limpeza de activeInputId; stopRequested e estado de autoDrain correspondem ao stop normal ou à nova definição |
+| Files | se o interrupted marker, a user message e o snapshot da queue são persistidos |
 
-建议 spec：`packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact-auto-stop.test.ts`。
+Spec sugerido: `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-compact-auto-stop.test.ts`.
 
-## 回答模板
+## Modelo de resposta
 
-产品确认时只需要按下面格式回答即可：
+Na confirmação do produto basta responder no formato abaixo:
 
 ```text
 F09:
-- F09.1 = A/B/C/D，补充：
-- F09.2 = A/B/C/D，补充：
-- F09.3 = A/B/C/D，补充：
-- F09.4 = A/B/C/D，补充：
+- F09.1 = A/B/C/D, complemento：
+- F09.2 = A/B/C/D, complemento：
+- F09.3 = A/B/C/D, complemento：
+- F09.4 = A/B/C/D, complemento：
 
 G11:
-- G11.1 = A/B/C/D/E，补充：
-- G11.2 = A/B/C/D，补充：
-- G11.3 = A/B/C/D，补充：
-- G11.4 = A/B/C/D，补充：
+- G11.1 = A/B/C/D/E, complemento：
+- G11.2 = A/B/C/D, complemento：
+- G11.3 = A/B/C/D, complemento：
+- G11.4 = A/B/C/D, complemento：
 
 G12:
-- G12.1 = A/B/C/D/E，补充：
-- G12.2 = A/B/C/D，补充：
-- G12.3 = A/B/C/D，补充：
-- G12.4 = A/B/C/D，补充：
+- G12.1 = A/B/C/D/E, complemento：
+- G12.2 = A/B/C/D, complemento：
+- G12.3 = A/B/C/D, complemento：
+- G12.4 = A/B/C/D, complemento：
 ```
 
-## 确认后的落地顺序
+## Ordem de implementação após a confirmação
 
-1. 先只处理 `F09`，因为它不涉及 pendingAction，是最小闭环。
-2. 再处理 `G11`，它决定 auto compact 失败是否继续原请求。
-3. 最后处理 `G12`，它同时牵涉 stop、pendingAction、queue 和 marker。
-4. 每完成一条，先让 catalog 从 `undefined` 到 `accepted`，coverage 从 `undefined` 到 `missing`。
-5. 写 WDIO 后再把 coverage 改为 `covered`，并运行 `pnpm audit:conversation-session-coverage`。
+1. Tratar primeiro apenas `F09`, porque não envolve pendingAction e é o menor ciclo fechado.
+2. Depois tratar `G11`, que decide se a falha do auto compact continua a requisição original.
+3. Por fim tratar `G12`, que envolve ao mesmo tempo stop, pendingAction, queue e marker.
+4. A cada item concluído, primeiro fazer o catalog ir de `undefined` para `accepted` e o coverage de `undefined` para `missing`.
+5. Só depois de escrever o WDIO mudar o coverage para `covered` e rodar `pnpm audit:conversation-session-coverage`.

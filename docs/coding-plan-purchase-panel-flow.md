@@ -1,12 +1,16 @@
-# Coding Plan 购买/升级页面交互
+# Interação das páginas de Compra/Upgrade do Coding Plan
 
-日期：2026-06-14
+Data: 2026-06-14
 
-## 背景
+## Contexto
 
-Family provider 详情页已经把 Z.ai / BigModel 收敛为用户可见的 provider family，内部仍按 API Key / Start Plan / Coding Plan provider id 解析运行时目标。购买或升级 Coding Plan 时，用户需要保持在当前 family provider 上下文内完成操作，不应跳转到独立设置页或外部页面后丢失 provider 上下文。
+A página de detalhes do family provider já consolida Z.ai / BigModel em um provider family visível ao
+usuário, mantendo internamente a resolução do alvo de runtime por API Key / Start Plan / Coding Plan
+provider id. Ao comprar ou fazer upgrade de um Coding Plan, o usuário precisa concluir a operação dentro
+do contexto atual do family provider, sem saltar para uma página de configurações separada ou uma página
+externa e perder o contexto do provider.
 
-购买/升级入口统一来自 family provider 的 Plan Card：
+As entradas de compra/upgrade vêm uniformemente do Plan Card do family provider:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -18,27 +22,49 @@ Family provider 详情页已经把 Z.ai / BigModel 收敛为用户可见的 prov
 └──────────────────────────────────────────────────────────────┘
 ```
 
-点击 `Buy plan` / `Upgrade` / `Change plan` 后进入购买页面。购买页面仍由当前 family provider 详情页触发和关闭，但视觉上不再是居中弹窗；它以覆盖当前设置内容的 page surface 承载完整 Pricing / Plan / Payment 状态机，不展示步骤条。
+Ao clicar em `Buy plan` / `Upgrade` / `Change plan`, entra-se na página de compra. A página de compra
+continua sendo acionada e fechada pela página de detalhes do family provider atual, mas visualmente não
+é mais um dialog centralizado: ela é uma page surface que cobre o conteúdo de configurações atual e
+hospeda a máquina de estados completa de Pricing / Plan / Payment, sem exibir barra de passos.
 
-## 目标
+## Objetivos
 
-- 购买/升级流程保留在当前 provider family 详情页上下文中，不跳转外部页面，也不丢失当前 provider family。
-- 购买页面不展示 `Step 1/4` 这类步骤文案，用户只看到当前页标题、返回和关闭。
-- 购买页面 header 不吸顶，随页面内容自然滚动，且不额外设置顶部外边距；返回/关闭图标按钮使用 `size-8` 和 `rounded-xl`；底部不设置固定 footer，页面动作放在内容区。
-- 流程拆成五个状态：选 Plan、选周期、确认支付、支付、支付成功。
-- `Personal` 与 `Team` 在选 Plan 页直接上下铺开，不再使用 tabs；个人与团队仍进入各自独立的后续购买路径。
-- 支付成功与权益同步成功是两个状态，成功页必须能表达“支付已成功，但权益仍在同步”。
-- 团队套餐支付成功页必须提示成员分配：标题为“团队套餐需要分配成员”，正文为“请先在 BigModel 团队套餐管理页添加自己或其他成员，完成后即可在 ZCode 使用团队额度。”提示卡片提供“管理团队套餐”入口，跳转 BigModel 团队套餐管理页。
-- 用户点击关闭即退出购买流程；成功页关闭后还要触发权益刷新。
+- O fluxo de compra/upgrade permanece no contexto da página de detalhes do provider family atual, sem
+  saltar para páginas externas e sem perder o provider family atual.
+- A página de compra não exibe textos de passo como `Step 1/4`; o usuário vê apenas o título da página
+  atual, voltar e fechar.
+- O header da página de compra não fica fixo, rola naturalmente com o conteúdo e não recebe margem
+  superior extra; os botões de ícone de voltar/fechar usam `size-8` e `rounded-xl`; não há footer fixo
+  no rodapé, e as ações da página ficam na área de conteúdo.
+- O fluxo é dividido em cinco estados: escolher Plan, escolher ciclo, confirmar pagamento, pagamento,
+  pagamento concluído.
+- `Personal` e `Team` são exibidos empilhados verticalmente na página de escolha de Plan, sem tabs;
+  pessoal e equipe continuam entrando em seus caminhos de compra independentes.
+- Pagamento bem-sucedido e sincronização de entitlement bem-sucedida são dois estados distintos, e a
+  página de sucesso precisa expressar "o pagamento teve sucesso, mas o entitlement ainda está
+  sincronizando".
+- A página de sucesso do plano de equipe precisa lembrar a atribuição de membros: o título é
+  "团队套餐需要分配成员" e o corpo é "请先在 BigModel 团队套餐管理页添加自己或其他成员，完成后即可在 ZCode
+  使用团队额度。". O card de aviso oferece a entrada "管理团队套餐", que leva à página de gestão de
+  planos de equipe da BigModel.
+- Ao clicar em fechar, o usuário sai do fluxo de compra; após a página de sucesso, o refresh de
+  entitlement também é disparado.
 
-## 非目标
+## Não Objetivos
 
-- 不新增 provider id。运行时身份仍使用现有 `builtin:zai-start-plan` / `builtin:zai-coding-plan` / `builtin:bigmodel-start-plan` / `builtin:bigmodel-coding-plan`。
-- 不把团队套餐强行接入个人支付链路。团队未来可能涉及席位、组织、发票和企业支付，应独立建模。
-- 不在 family provider 导航、header 或无明确套餐语义的位置新增促销徽标。
-- 不改变现有 BigModel 支付宝、Z.ai Stripe / PayPal 的后端接口协议。Z.ai Coding Plan 产品流程不再展示 PayPal 支付入口；为保持旧版本协议兼容，本次不删除已有 PayPal 能力。
+- Não criar novos provider id. A identidade de runtime continua usando os ids existentes
+  `builtin:zai-start-plan` / `builtin:zai-coding-plan` / `builtin:bigmodel-start-plan` /
+  `builtin:bigmodel-coding-plan`.
+- Não forçar planos de equipe na cadeia de pagamento pessoal. Equipes podem envolver no futuro
+  assentos, organização, faturas e pagamento corporativo, e devem ser modelados de forma independente.
+- Não adicionar emblemas promocionais na navegação, header ou em posições sem semântica clara de
+  plano do family provider.
+- Não alterar o protocolo de interface de backend existente de Alipay da BigModel nem de Stripe / PayPal
+  da Z.ai. O fluxo de produto do Z.ai Coding Plan deixa de exibir a entrada de pagamento PayPal; para
+  manter compatibilidade de protocolo com versões antigas, a capacidade PayPal existente não é removida
+  agora.
 
-## 状态机
+## Máquina de Estados
 
 ```text
 purchasePanel.closed
@@ -50,32 +76,46 @@ purchasePanel.closed
   -> purchasePanel.closed
 ```
 
-返回和关闭规则：
+Regras de voltar e fechar:
 
-- `planSelect`：只有关闭，关闭即退出购买流程。
-- `billingCycleSelect`：返回到 `planSelect`，关闭即退出购买流程。
-- `paymentConfirm`：返回到 `billingCycleSelect`，关闭即退出购买流程。
-- `payment`：返回到 `paymentConfirm` 并取消当前支付状态，关闭即退出购买流程。
-- `success`：不提供返回，只提供关闭；关闭后退出流程并刷新权益。
+- `planSelect`: apenas fechar, e fechar sai do fluxo de compra.
+- `billingCycleSelect`: volta para `planSelect`, e fechar sai do fluxo de compra.
+- `paymentConfirm`: volta para `billingCycleSelect`, e fechar sai do fluxo de compra.
+- `payment`: volta para `paymentConfirm` cancelando o estado de pagamento atual, e fechar sai do fluxo de
+  compra.
+- `success`: não oferece voltar, apenas fechar; após fechar, sai do fluxo e atualiza o entitlement.
 
-关闭弹出面板不应修改当前已保存的 provider family mode。用户已在面板内选择但尚未支付的 plan / 周期只保存在面板局部状态中。
+Fechar o painel não deve modificar o provider family mode já salvo. O plan / ciclo escolhido pelo usuário
+dentro do painel mas ainda não pago fica apenas no estado local do painel.
 
-## 入口文案
+## Textos das Entradas
 
-Plan Card 根据当前权益状态展示不同主操作：
+O Plan Card exibe uma ação principal diferente conforme o estado atual do entitlement:
 
-- 无付费权益：`Buy plan`
-- Start Plan：`Upgrade`
-- 已有付费权益且存在更高档套餐：`Upgrade`
-- 已有付费权益但主要操作是换套餐或换周期：`Change plan`
+- Sem entitlement pago: `Buy plan`
+- Start Plan: `Upgrade`
+- Já com entitlement pago e existindo um plano de nível superior: `Upgrade`
+- Já com entitlement pago, mas em que a ação principal é trocar de plano ou de ciclo: `Change plan`
 
-当前套餐状态显示在套餐卡片内容内部，不只依赖按钮文案表达；如果当前套餐内仍有更高周期可买，卡片继续允许进入周期页。已订阅用户不能从 Plan 页进入低等级或同等级无更高周期的套餐。
+O estado atual do plano é exibido dentro do conteúdo do card de plano, sem depender apenas do texto do
+botão; se ainda houver um ciclo superior dentro do plano atual, o card continua permitindo entrar na
+página de ciclo. Usuários já inscritos não podem, pela página de Plan, entrar em planos de nível inferior
+ou de mesmo nível sem ciclo superior.
 
-Family provider 详情页里的套餐入口 banner 按 provider 区分：BigModel 未连接或无权益时可以展示 Start/个人/团队入口，帮助用户选择国内个人或团队购买路径；Z.ai 未连接或已连接但无权益时展示 Start（仅远端 preview 存在时）和个人套餐入口，但不展示团队套餐入口。Z.ai 没有团队购买入口。
+O banner de entrada de planos na página de detalhes do family provider é diferenciado por provider: a
+BigModel, quando não conectada ou sem entitlement, pode exibir as entradas Start/pessoal/equipe,
+ajudando o usuário a escolher o caminho de compra doméstico pessoal ou de equipe; a Z.ai, quando não
+conectada ou conectada mas sem entitlement, exibe Start (apenas quando existe preview remoto) e a entrada
+de plano pessoal, mas não exibe a entrada de plano de equipe. A Z.ai não tem entrada de compra de
+equipe.
 
-## 页面框架
+## Moldura da Página
 
-购买流程使用页面级覆盖层，而不是居中 dialog 或右侧 sheet。该覆盖层由当前 provider 详情页入口控制 `open` 状态；关闭后回到原详情页位置。这样可以把购买体验变成 page，同时保留 family provider 里的授权、当前套餐和权益刷新上下文。页面通用结构：
+O fluxo de compra usa uma overlay de nível de página, e não um dialog centralizado nem um sheet lateral.
+Essa overlay é controlada pelo estado `open` da entrada da página de detalhes do provider atual; após
+fechar, volta-se à posição original da página de detalhes. Isso permite transformar a experiência de
+compra em uma page, preservando o contexto de autorização, plano atual e refresh de entitlement do
+family provider. Estrutura genérica da página:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -86,30 +126,94 @@ Family provider 详情页里的套餐入口 banner 按 provider 区分：BigMode
 └──────────────────────────────────────────────────────────────┘
 ```
 
-首屏 `planSelect` 不展示返回按钮，也不展示额外 Pricing 说明或 More Info 外链。成功页不展示返回按钮。
+A tela inicial `planSelect` não exibe o botão de voltar, nem explicações adicionais de Pricing ou link
+externo de More Info. A página de sucesso também não exibe o botão de voltar.
 
-实现尺寸约束：
+Restrições de dimensionamento na implementação:
 
-- 桌面和宽屏 Web 使用整页覆盖层，根容器使用 `bg-background` 与 `pt-12`，根容器本身不滚动；根容器内部使用独立滚动包裹承载 header 和内容区，内容区使用 `max-w-5xl` 并居中。
-- 移动端使用同一页面覆盖层，Plan 卡片和周期卡片单列展示，header 同样不吸顶。
-- 不再用固定 `48rem x 32rem` 外框限制 planSelect；选择 Plan、个人选择周期、个人确认支付按内容自然高度展示，不强制撑满页面；支付、团队配置和成功等需要沉浸或 sticky 动作的状态仍可占用剩余高度；团队配置 sticky 底部操作区背景使用 `bg-background`，顶部边框只切换颜色、不增减边框盒模型，避免连续订阅和单次采购来回切换时页面抖动。团队配置的服务方式标题行需要保留自动续费授权文案占位，切到单次采购时只隐藏文案，不改变标题行高度。
+- Desktop e Web em tela larga usam a overlay de página inteira; o contêiner raiz usa `bg-background` e
+  `pt-12`, e o próprio contêiner raiz não rola; dentro do contêiner raiz há um wrapper de rolagem
+  independente que abriga o header e a área de conteúdo, e a área de conteúdo usa `max-w-5xl`
+  centralizado.
+- Mobile usa a mesma overlay de página, com os cards de plano e de ciclo em coluna única, e o header
+  igualmente sem comportamento fixo.
+- Não se usa mais um frame fixo `48rem x 32rem` para planSelect; a escolha de plano, a escolha de ciclo
+  pessoal e a confirmação de pagamento pessoal têm altura natural conforme o conteúdo e não são forçadas
+  a preencher a página; estados que precisam de imersão ou ações sticky, como pagamento, configuração
+  de equipe e sucesso, ainda podem ocupar a altura restante; a área de ações sticky inferior da
+  configuração de equipe usa `bg-background` de fundo, e a borda superior alterna apenas a cor, sem
+  alterar o box model de borda, evitando que a página oscile ao alternar entre assinatura recorrente e
+  compra avulsa. A linha de título do método de serviço na configuração de equipe precisa preservar o
+  placeholder de texto de autorização de renovação automática; ao alternar para compra avulsa, apenas o
+  texto é ocultado, sem mudar a altura da linha de título.
 
-## 页面 1：选择 Plan
+## Página 1: Escolher Plan
 
-选 Plan 页不展示额外 Pricing 说明与 More Info 外链。页面内容直接按活动 banner、`For Individuals`、Start Plan 卡片、个人套餐列表、`For Teams`、团队套餐列表的顺序铺开，不再展示 audience tabs；团队套餐进入团队/企业页，不复用个人周期和支付页。section 标题使用比卡片标题更大的字号，形成页面级分组。
-首屏只承担选择动作，不放解释性标题和长说明；套餐卡片按固定信息层级展示：Plan name、当前套餐状态、起始价格、带 150% 活动 banner 图标的用量额度、分割线、关键权益列表、底部满宽圆角按钮。Plan name 使用普通正文大小并保持 medium 权重，价格使用更大的字号作为视觉重点；中文价格只放大金额本体，例如 `¥49.00`，金额在 light 使用黑色、dark 使用白色，`人民币 起` 保持正常字号并使用低一档文字色。套餐卡片本身不展示选中态，也不响应整卡点击，只有底部按钮进入下一页；当前套餐状态用卡片内胶囊标识，不只放在按钮里；如果当前 plan 仍有更高周期可买，按钮继续作为升级入口，否则禁用。选 Plan 卡片使用产品营销文案，不直接复用支付接口的权益字段；接口权益和价格仍以周期页、支付页和后端 preview 为准。BigModel 个人套餐卡片内容固定显示中文，以匹配国内购买场景；Z.ai 个人套餐卡片内容固定显示英文，以匹配海外购买场景。Start Plan 是否展示由远端 `startPlanPreview` 决定：preview 存在时展示，preview 关闭或缺失时隐藏；Start Plan 的标题优先使用远端 `name`。BigModel 星星图标旁的汇总额度和权益列表数值均来自远端 `entitlements`，前端只固定中文格式：汇总展示为 `GLM 模型每日 500万 tokens`，权益列表展示为 `GLM-5.2 每日 300万 tokens` 和 `GLM-5-Turbo 每日 200万 tokens`；远端字段缺失时才回退到本地 provider 文案。Z.ai Start Plan 卡片也由远端 `entitlements` 生成汇总额度和权益列表，前端只固定英文格式：汇总展示为 `5M GLM tokens daily`，权益列表展示为 `GLM-5.2 · 3M tokens daily` 和 `GLM-5-Turbo · 2M tokens daily`；远端字段缺失时本地 provider 文案也使用同一组英文 fallback。当前 Start 权益有效时标记当前，用户已登录但无有效 Start 权益时只在状态胶囊和按钮标记已过期，星星图标旁不展示状态说明，过期态不降低整张卡片透明度，避免权益列表变成 disabled 文案。BigModel 和 Z.ai 使用独立文案来源，不能把 BigModel 的支付宝/协议说明和 Z.ai 的 PayPal/Stripe/海外订阅说明共用。
+A página de escolha de plano não exibe explicações adicionais de Pricing nem link externo de More Info. O
+conteúdo da página é empilhado diretamente na ordem banner de campanha, `For Individuals`, card do Start
+Plan, lista de planos pessoais, `For Teams`, lista de planos de equipe, sem exibir tabs de audiência; os
+planos de equipe levam à página de equipe/empresa e não reutilizam as páginas de ciclo e pagamento
+pessoais. Os títulos de seção usam corpo de fonte maior que o título dos cards, formando agrupamento de
+nível de página.
 
-150% 配额活动的 Info 弹窗由远端 `codingPlanBillingDiscount` 当前语言节点提供
-`infoTitle` 和 `infoBody`；`infoBody` 使用 Markdown。前端不保留本地权益规则正文，
-任一字段缺失时不展示 Info 入口，避免展示过期或不完整的活动规则。
+A primeira tela carrega apenas a ação de escolha, sem título explicativo nem descrição longa; os cards de
+plano seguem uma hierarquia de informação fixa: Plan name, estado do plano atual, preço inicial, cota de
+uso com o ícone de banner de 150%, linha divisória, lista de benefícios-chave e botão de largura total
+com bordas arredondadas no rodapé. Plan name usa corpo de texto normal e mantém peso medium, e o preço usa
+corpo de fonte maior como destaque visual; o preço em Chinese amplia apenas o valor em si, por exemplo
+`¥49.00`, com o valor em preto no light e branco no dark, e `人民币 起` mantendo corpo normal com uma cor
+de texto um nível abaixo. O card de plano em si não exibe estado selecionado e não responde a clique no
+card inteiro; apenas o botão do rodapé leva à próxima página; o estado do plano atual é identificado por
+uma cápsula dentro do card, e não apenas dentro do botão; se o plan atual ainda tiver um ciclo superior à
+venda, o botão continua sendo a entrada de upgrade; caso contrário, fica desabilitado. Os cards de
+escolha de plano usam textos de marketing de produto e não reutilizam diretamente os campos de entitlement
+da interface de pagamento; os entitlements e preços de interface continuam_makecidos pela página de
+ciclo, pela página de pagamento e pelo preview do backend. Os cards de plano pessoal da BigModel exibem
+conteúdo sempre em chinês, para combinar com o cenário de compra doméstico; os cards de plano pessoal da
+Z.ai exibem conteúdo sempre em inglês, para combinar com o cenário de compra overseas. A exibição do Start
+Plan é decidida pelo `startPlanPreview` remoto: mostra quando o preview existe e esconde quando o preview
+está desligado ou ausente; o título do Start Plan prioriza o `name` remoto. O total ao lado do ícone de
+estrela da BigModel e os valores da lista de benefícios vêm todos do `entitlements` remoto, e o frontend
+apenas fixa o formato em chinês: o resumo é exibido como `GLM 模型每日 500万 tokens` e a lista de
+benefícios como `GLM-5.2 每日 300万 tokens` e `GLM-5-Turbo 每日 200万 tokens`; o texto local do provider é
+usado como fallback apenas quando falta um campo remoto. O card do Start Plan da Z.ai também gera o
+resumo e a lista de benefícios a partir do `entitlements` remoto, e o frontend apenas fixa o formato em
+inglês: o resumo é exibido como `5M GLM tokens daily` e a lista de benefícios como `GLM-5.2 · 3M tokens
+daily` e `GLM-5-Turbo · 2M tokens daily`; quando falta um campo remoto, o texto local do provider também
+usa o mesmo conjunto de fallbacks em inglês. Quando o entitlement Start atual é válido, o item é marcado
+como atual; quando o usuário está logado mas sem entitlement Start válido, o estado expirado é marcado
+apenas na cápsula de status e no botão, sem exibir texto de status ao lado do ícone de estrela, e o estado
+expirado não reduz a opacidade de todo o card, para que a lista de benefícios não vire texto com
+aparência de disabled. BigModel e Z.ai usam fontes de texto independentes, e o texto de Alipay/protocolo
+da BigModel não pode ser compartilhado com o texto de PayPal/Stripe/assinatura overseas da Z.ai.
 
-Plan Select 中只有 `unavailable` 状态调整展示语义：按钮文案统一显示“立即订阅”但保持
-禁用，hover 或键盘 focus 时显示“当前套餐不可购买，查看详情”；“查看详情”必须是
-可操作链接，Tooltip 与按钮间距为 `4px`。Z.ai 打开 `https://z.ai/subscribe`，BigModel 打开
-`https://bigmodel.cn/glm-coding`。disabled 按钮由可聚焦包裹层承接 Tooltip 事件；当前套餐、
-已包含、已售罄和订阅服务繁忙等其他禁用状态的文案与行为保持不变。个人套餐和团队套餐
-共用这套 unavailable 展示规则。
-宽屏下 Plan 卡片区域在页面内容区内横向铺开，Start Plan 作为个人区域第一张卡展示，个人区域响应式列数按宽到窄为 `4 -> 2 -> 1`：`xs` 以下单列，`xs`（480px）起双列，`md` 起四列。断点提前切换列数，不额外限制卡片宽度，让卡片继续自然填满当前内容区。付费套餐卡高度一致，但不强制撑满页面剩余高度；Start Plan 是免费体验档，只展示权益和当前/已有状态，不进入个人付费周期与支付链路。团队套餐可用时按远端返回数量展示，团队区域宽屏固定使用 4 列栅格；如果只有 2 个团队套餐，只显示前两列卡片，后两列保持为空。团队套餐卡片不展示 hover 或 selected 视觉状态，点击后直接进入团队配置页。窄屏继续按内容自然高度滚动。Plan 卡片使用 `bg-card`，从页面底色中分离出来。
+O dialog de Info da campanha de cota de 150% é fornecido pelo nó de `codingPlanBillingDiscount` remoto no
+idioma atual, com `infoTitle` e `infoBody`; o `infoBody` usa Markdown. O frontend não mantém um corpo
+local de regras de entitlement, e quando qualquer um dos campos falta a entrada de Info não é exibida,
+evitando apresentar regras de campanha desatualizadas ou incompletas.
+
+Em Plan Select, apenas o estado `unavailable` ajusta a semântica de exibição: o texto do botão é
+uniformemente "立即订阅", mas permanece desabilitado, e no hover ou keyboard focus exibe "当前套餐不可购买，查看详情";
+"查看详情" precisa ser um link operável, e o espaçamento entre Tooltip e botão é de `4px`. A Z.ai abre
+`https://z.ai/subscribe` e a BigModel abre `https://bigmodel.cn/glm-coding`. O botão disabled recebe os
+eventos de Tooltip por uma camada focusable envolvente; os textos e comportamentos de outros estados
+desabilitados, como plano atual, já incluído, esgotado e serviço de assinatura ocupado, permanecem
+inalterados. Planos pessoais e de equipe compartilham essa regra de exibição de unavailable.
+
+Em tela larga, a área de cards de Plan se espalha horizontalmente dentro da área de conteúdo da página, e
+o Start Plan é exibido como o primeiro card da área pessoal; o número de colunas da área pessoal em
+resposta à largura vai de `4 -> 2 -> 1`: coluna única abaixo de `xs`, duas colunas a partir de `xs` (480px)
+e quatro colunas a partir de `md`. Os breakpoints mudam a contagem de colunas antecipadamente, sem
+limitar adicionalmente a largura dos cards, deixando que continuem preenchendo naturalmente a área de
+conteúdo atual. Os cards de planos pagos têm altura igual, mas não são forçados a preencher a altura
+restante da página; o Start Plan é um nível de experiência gratuito, exibe apenas benefícios e o estado
+atual/já existente, e não entra na cadeia de ciclo e pagamento dos planos pessoais pagos. Quando
+disponíveis, os planos de equipe são exibidos conforme a quantidade retornada remotamente, e a área de
+equipe usa sempre uma grade de 4 colunas em tela larga; se houver apenas 2 planos de equipe, somente os
+dois primeiros cards são exibidos e as duas últimas colunas ficam vazias. Os cards de plano de equipe não
+exibem estado visual de hover ou selected e, ao clicar, entram diretamente na página de configuração de
+equipe. Em tela estreita, o scroll continua com altura natural conforme o conteúdo. Os cards de Plan usam
+`bg-card`, separando-se da cor de fundo da página.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -131,15 +235,19 @@ Plan Select 中只有 `unavailable` 状态调整展示语义：按钮文案统�
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Plan 卡片只比较能力和权益，不在这一页让用户选择月 / 季 / 年。价格可展示弱提示；中文视觉拆分为大字号金额 + 正常字号币种和 `起`，英文使用 `{price}+`，例如 `CN¥49.00+`，整段保持大字号并在 light 使用黑色、dark 使用白色；真实支付金额以周期页和支付页为准。
+Os cards de Plan comparam apenas capacidades e benefícios; nesta página o usuário não escolhe mensal /
+trimestral / anual. O preço pode exibir uma dica fraca; a divisão visual em chinês separa valor em corpo
+maior + moeda e `起` em corpo normal, e o inglês usa `{price}+`, por exemplo `CN¥49.00+`, mantendo o
+trecho inteiro em corpo grande e em preto no light e branco no dark; o valor real do pagamento é
+determinado pela página de ciclo e pela página de pagamento.
 
-Plan 卡片文案：
+Textos dos Plan cards:
 
-| Plan | 中文短定位               | 中文关键权益                                                                            |
-| ---- | ------------------------ | --------------------------------------------------------------------------------------- |
-| Lite | 基础用量额度             | 适合小型 Repo 轻量级迭代；逐步开放最新旗舰模型及功能；支持多款编程工具                  |
-| Pro  | 5x Lite 额度 + Lite 权益 | 适合中型 Repo 日常开发；优先体验最新旗舰模型及功能；覆盖多款精选 MCP 工具；更快生成速度 |
-| Max  | 20x Lite 额度 + Pro 权益 | 适合高阶用户中大型 Repo 深度开发；首发接入最新旗舰模型及功能；高峰期专属资源优先保障    |
+| Plan | Posicionamento curto em chinês         | Benefícios-chave em chinês                                                                     |
+| ---- | ------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Lite | 基础用量额度                           | 适合小型 Repo 轻量级迭代；逐步开放最新旗舰模型及功能；支持多款编程工具                          |
+| Pro  | 5x Lite 额度 + Lite 权益               | 适合中型 Repo 日常开发；优先体验最新旗舰模型及功能；覆盖多款精选 MCP 工具；更快生成速度         |
+| Max  | 20x Lite 额度 + Pro 权益               | 适合高阶用户中大型 Repo 深度开发；首发接入最新旗舰模型及功能；高峰期专属资源优先保障            |
 
 | Plan | English summary     | English key benefits                                                 |
 | ---- | ------------------- | -------------------------------------------------------------------- |
@@ -168,11 +276,34 @@ Plan 卡片文案：
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Team section 的核心约束是直接展示团队套餐入口；团队区域宽屏固定使用 4 列栅格，有几个团队套餐就渲染几张卡，少于 4 个时后续列位自然留空。团队套餐当前只服务 BigModel 国内购买场景，选 Plan 页团队卡片的套餐名与描述固定展示中文，不随应用 locale 切到英文；后续团队配置、确认和支付页仍保留各自金额格式与流程文案规则。点击团队套餐后仍进入团队独立配置、确认和支付链路，不复用个人周期与支付模型。
+A restrição central da Team section é exibir diretamente a entrada de planos de equipe; a área de equipe
+usa sempre uma grade de 4 colunas em tela larga, renderizando um card por plano de equipe existente e
+deixando naturalmente vazias as posições restantes quando houver menos de 4. Os planos de equipe atendem
+hoje apenas ao cenário de compra doméstico da BigModel, e o nome e a descrição do plano nos cards da
+página de escolha de plano são sempre exibidos em chinês, sem mudar para inglês conforme o locale do app;
+as páginas posteriores de configuração, confirmação e pagamento de equipe mantêm suas próprias regras de
+formato de valor e de textos de fluxo. Ao clicar em um plano de equipe, o usuário ainda entra na cadeia
+independente de configuração, confirmação e pagamento de equipe, sem reutilizar o modelo de ciclo e
+pagamento pessoal.
 
-## 页面 2：选择周期
+## Página 2: Escolher Ciclo
 
-选择周期页只处理已选个人 plan 的计费周期，不额外展示“当前套餐/新套餐”摘要行。个人周期卡片列表按内容自然高度展示，卡片保持等高但不强制占满页面剩余高度；窄屏继续按内容自然高度滚动。周期卡片使用 `bg-card`，周期标题使用正常字号 medium。中文实付价格保留两位小数和币种名，币种名与周期单位紧密相连，例如 `¥538.00 人民币/月`；金额本体使用大字号，在 light 使用黑色、dark 使用白色，`人民币/月` 保持正常字号并使用低一档文字色；英文实付价格整段保持大字号黑/白。原价、价格单位、第二行辅助说明使用低一档文字色；月付第二行显示“按月灵活订阅”，季付/年付第二行显示折合月价。周期卡片本身不展示选中态，也不触发购买，右侧胶囊按钮才是动作入口；如果当前登录态或购买 token 已失效，则点击按钮后进入连接/登录恢复流程，不先进入支付页。已订阅用户不能向下购买：低于当前套餐等级，或同等级但周期不高于当前周期的商品，按钮展示已有权益/当前套餐，不允许点击。
+A página de escolha de ciclo trata apenas do ciclo de cobrança do plan pessoal já escolhido, sem exibir
+uma linha de resumo adicional de "plano atual/novo plano". A lista de cards de ciclo pessoal é exibida
+com altura natural conforme o conteúdo, os cards mantêm altura igual sem serem forçados a ocupar a
+altura restante da página, e em tela estreita o scroll continua com altura natural. Os cards de ciclo usam
+`bg-card`, e o título do ciclo usa corpo normal medium. O preço efetivo em chinês mantém duas casas
+decimais e o nome da moeda, com o nome da moeda apertado junto da unidade do ciclo, por exemplo `¥538.00
+人民币/月`; o valor em si usa corpo grande, em preto no light e branco no dark, e `人民币/月` mantém corpo
+normal com uma cor de texto um nível abaixo; o preço efetivo em inglês mantém o trecho inteiro em corpo
+grande preto/branco. O preço original, a unidade de preço e a segunda linha de texto auxiliar usam uma
+cor de texto um nível abaixo; a segunda linha do pagamento mensal mostra "按月灵活订阅", e a do
+trimestral/anual mostra o preço mensal equivalente. O card de ciclo em si não exibe estado selecionado e
+não dispara a compra; o botão em cápsula à direita é a entrada de ação; se o estado de login atual ou o
+token de compra estiver expirado, clicar no botão leva ao fluxo de conexão/login em vez de ir direto para a
+página de pagamento. Usuários já inscritos não podem comprar para baixo: abaixo do nível do plano atual,
+ou no mesmo nível mas com ciclo não superior ao ciclo atual, o botão mostra o entitlement já existente/o
+plano atual e não permite clique.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -202,50 +333,90 @@ Team section 的核心约束是直接展示团队套餐入口；团队区域宽�
 └──────────────────────────────────────────────────────────────┘
 ```
 
-生效时间、剩余价值抵扣、续费金额等只展示后端 preview 能确认的内容。后端未返回明确语义时，不写“立即生效”或“下周期生效”。
+Tempo de vigência, abatimento de valor restante e valor de renovação exibem apenas o que o preview do
+backend consegue confirmar. Quando o backend não retorna semântica explícita, não se escreve "立即生效"
+nem "下周期生效".
 
-## 页面 3：确认支付
+## Página 3: Confirmar Pagamento
 
-确认支付页负责调用 `preview({ productId, ... })` 取得支付金额明细，展示 provider 对应的续费/账号/协议确认信息，但不生成二维码、不创建 Stripe/PayPal 支付动作。个人确认支付页按内容自然高度展示，不强制撑满页面。preview 加载中或金额明细不可用时，只展示加载/不可用提示，不展示续费政策、账号规范、协议确认和继续支付按钮。用户勾选同意并点击确认后才进入支付页。确认页不再额外展示 Plan / Billing cycle 摘要，金额明细用独立卡片展示，至少包含套餐原价、活动折扣、当前套餐抵扣和实付金额；后端未返回的折扣或抵扣行不展示。活动折扣与当前套餐抵扣默认收起到一行 `抵扣费用` / `Deductions`，收起态右侧展示总抵扣金额，点击后展开逐条展示多个优惠活动和当前套餐剩余价值。BigModel 个人确认支付页固定使用中文页面标题、金额标签、周期、续费政策、账号规范和协议确认文案，以匹配国内支付宝签约场景；Z.ai 继续使用 `overseasPayment.*` 文案，不能共用条款、扣费渠道和账号规范说明。用户需要返回上一页才能修改周期，返回两次才能修改 plan。
+A página de confirmação de pagamento é responsável por chamar `preview({ productId, ... })` para obter o
+detalhamento do valor, exibir as informações de renovação/conta/acordo correspondentes ao provider, mas sem
+gerar QR code e sem criar ações de pagamento Stripe/PayPal. A página de confirmação pessoal tem altura
+natural conforme o conteúdo e não é forçada a preencher a página. Enquanto o preview carrega ou quando o
+detalhamento de valores está indisponível, exibe-se apenas o aviso de carregando/indisponível, sem
+mostrar política de renovação, normas de conta, confirmação de acordo nem botão de continuar para o
+pagamento. O usuário só entra na página de pagamento depois de marcar a concordância e clicar em
+confirmar. A página de confirmação não exibe mais um resumo de Plan / Billing cycle, e o detalhamento de
+valores é exibido em um card independente, contendo no mínimo o preço original do plano, o desconto da
+campanha, o abatimento do plano atual e o valor efetivo; linhas de desconto ou abatimento não retornadas
+pelo backend não são exibidas. O desconto da campanha e o abatimento do plano atual vêm recolhidos em uma
+linha `抵扣费用` / `Deductions`, mostrando o total abatido no lado direito do estado recolhido e, ao
+clicar, expandindo item a item os múltiplos descontos e o valor restante do plano atual. A página de
+confirmação pessoal da BigModel usa fixamente os textos em chinês de título da página, rótulos de valor,
+ciclo, política de renovação, normas de conta e confirmação de acordo, para combinar com o cenário
+nacional de assinatura via Alipay; a Z.ai continua usando os textos `overseasPayment.*`, sem compartilhar
+cláusulas, canais de cobrança nem explicações de normas de conta. O usuário precisa voltar à página
+anterior para mudar o ciclo e voltar duas vezes para mudar o plan.
 
-BigModel 续费政策按当前选中周期动态展示金额周期，但“本次实付金额”和“未来续费金额”必须分开处理。金额明细卡里的实付金额来自 preview 的本次结算结果，可受首购优惠、活动折扣、当前套餐抵扣、赠金、余额和第三方支付拆分影响；续费政策里的自动扣费金额只能使用后端明确返回的续费金额语义，例如 `renewAmount`。如果后端没有明确续费金额，不展示固定扣费金额，改为提示后续按所选周期自动续费，实际扣费以续费时账单为准。
+A política de renovação da BigModel exibe dinamicamente o ciclo de valor conforme o ciclo selecionado
+atual, mas o "本次实付金额" (valor efetivo desta compra) e o "未来续费金额" (valor de renovação futura)
+precisam ser tratados separadamente. O valor efetivo no card de detalhamento vem do resultado de
+liquidação deste preview e pode ser afetado por desconto de primeira compra, desconto de campanha,
+abatimento do plano atual, créditos de bônus, saldo e divisão em pagamentos de terceiros; o valor de
+cobrança automática na política de renovação só pode usar a semântica explícita de valor de renovação
+retornada pelo backend, por exemplo `renewAmount`. Se o backend não tiver um valor de renovação explícito,
+não se exibe um valor fixo de cobrança; em vez disso, informa-se que a renovação seguirá automaticamente
+no ciclo escolhido e que a cobrança real segue a fatura da renovação.
 
-- 有明确续费金额：`续订将按照「￥{renewAmount}/{月|季|年}」发起自动扣费。`
-- 无明确续费金额：`后续将按所选套餐周期自动续费，实际扣费以续费时账单为准。`
+- Com valor de renovação explícito: `续订将按照「￥{renewAmount}/{月|季|年}」发起自动扣费。`
+- Sem valor de renovação explícito: `后续将按所选套餐周期自动续费，实际扣费以续费时账单为准。`
 - `扣费优先级：优先扣除赠金，再扣余额，再采用支付宝扣费。`
 - `{每月|每季|每年}将持续定期扣款，直至您根据我们的服务条款取消服务。`
 - `您可在续费日前至少3天，前往「个人套餐概览页」关闭自动续费。`
 
-BigModel 账号使用规范展示为可展开模块，默认收起并露出总则文案，展开后按小标题展示限制、风控和退款说明：
+As normas de uso de conta da BigModel são exibidas como um módulo expansível, recolhido por padrão e
+mostrando o texto do princípio geral; ao expandir, exibe restrições, controle de risco e informações de
+reembolso por subtítulo:
 
-- 总则：`仅限订阅人在官方许可的产品范围内使用。严禁将账号出借、转让或以任何形式提供给第三方使用，亦不得用于非正当或违反法律法规及平台规则的行为。如发现平台将限制或封禁账号，且不予退款。`
-- 专享限制：`套餐仅限订阅人个人在 Coding 工具中使用。若发现账号出现多人使用等异常情形，用于非编程开发、非正当的或违反法律法规及平台规则的用途，将限制账号权益。`
-- 风控处置：`违反《用户协议》、《服务协议》、《订阅服务协议》及平台上其他相关规则及约定的，将触发限流或冻结。累计 3 次违规将被永久封禁。`
-- 退款说明：`因违规使用导致账号被封禁的，已支付的套餐费用一律不予退款。`
+- Princípio geral: `仅限订阅人在官方许可的产品范围内使用。严禁将账号出借、转让或以任何形式提供给第三方使用，亦不得用于非正当或违反法律法规及平台规则的行为。如发现平台将限制或封禁账号，且不予退款。`
+- Restrição exclusiva: `套餐仅限订阅人个人在 Coding 工具中使用。若发现账号出现多人使用等异常情形，用于非编程开发、非正当的或违反法律法规及平台规则的用途，将限制账号权益。`
+- Controle de risco: `违反《用户协议》、《服务协议》、《订阅服务协议》及平台上其他相关规则及约定的，将触发限流或冻结。累计 3 次违规将被永久封禁。`
+- Informações de reembolso: `因违规使用导致账号被封禁的，已支付的套餐费用一律不予退款。`
 
-金额下方信息按 provider 区分：
+As informações abaixo do valor são diferenciadas por provider:
 
-- BigModel：展示旧版支付宝支付弹窗里的中文续费说明、账号使用规范提示块，以及底部《服务协议》《订阅及自动续费协议》同意确认；退款相关说明只出现在账号使用规范展开内容里，底部协议勾选区不重复展示退款文案。
-- Z.ai：展示固定英文的 Renewal Policy、Account Usage Policy，以及银行卡/订阅授权条款勾选确认；即使应用 locale 为中文，Z.ai 确认支付和海外支付条款也保持英文。
+- BigModel: exibe a explicação de renovação em chinês do antigo dialog de pagamento Alipay, o bloco de
+  aviso das normas de uso de conta e a confirmação de concordância com 《服务协议》 e 《订阅及自动续费协议》
+  no rodapé; o texto sobre reembolso aparece apenas no conteúdo expandido das normas de uso de conta, e a
+  área de concordância de acordos do rodapé não repete o texto de reembolso.
+- Z.ai: exibe Renewal Policy e Account Usage Policy fixos em inglês, além da confirmação de concordância
+  dos termos de cartão/assinatura; mesmo com o locale do app em chinês, a confirmação de pagamento e os
+  termos de pagamento overseas da Z.ai permanecem em inglês.
 
-Z.ai Renewal Policy 同样不能把本次 Amount due 当作未来 recurring charge。只有 `renewAmount` 明确存在时才展示固定续费金额；否则使用不承诺具体金额的 fallback 文案。
+A Renewal Policy da Z.ai também não pode tratar o Amount due desta compra como futura cobrança
+recorrente. O valor fixo de renovação só é exibido quando `renewAmount` existe explicitamente; caso
+contrário, usa-se o texto de fallback que não promete um valor específico.
 
-- 有明确续费金额：`{renewAmount} will be charged automatically per {month|quarter|year}.`
-- 无明确续费金额：`Future renewals will follow your selected subscription cycle. The actual renewal amount is subject to your renewal invoice.`
+- Com valor de renovação explícito: `{renewAmount} will be charged automatically per {month|quarter|year}.`
+- Sem valor de renovação explícito: `Future renewals will follow your selected subscription cycle. The actual renewal amount is subject to your renewal invoice.`
 - `Payments will be deducted first from bonus credits, then from your account balance, and finally via credit card.`
 - `Please note that a small minimum applies when charging your credit card. If the remaining amount is less, we will round up the deduction to meet this minimum.`
 - `{Monthly|Quarterly|Yearly} charges will continue on a recurring basis until you cancel in accordance with our Terms of Service.`
 - `You may disable auto-renewal at least 1 day before the renewal date in your subscription setting.`
 
-Z.ai Account Usage Policy 文案：
+Texto da Account Usage Policy da Z.ai:
 
 - `The GLM Coding Plan is strictly limited to use by the subscriber within officially supported products. Any sharing, resale, transfer, or third-party access is strictly prohibited. Any improper, unauthorized, or policy-violating use may result in immediate account restriction or suspension with no refunds. Please comply with our Terms and Policy.`
 
-Z.ai 银行卡/订阅授权勾选文案：
+Texto de concordância de cartão/assinatura da Z.ai:
 
 - `You agree that Z.ai will charge your card the above amount now and on a recurring basis according to your subscription plan until you cancel in accordance with our [terms](https://docs.z.ai/legal-agreement/subscription-terms).`
 
-支付页必须继承确认支付页这一次 `preview`，不再重新拉取金额明细，但支付页不展示金额明细卡。支付页只把 preview 的实付金额用于支付控件文案，并继续调用后续支付接口：BigModel 根据同一个 `bizId` 生成二维码签约内容；Z.ai 根据同一个 `bizId` 展示并提交 Stripe 银行卡支付表单。
+A página de pagamento precisa herdar o mesmo `preview` desta confirmação, sem buscar novamente o
+detalhamento de valores, mas a página de pagamento não exibe o card de detalhamento. A página de
+pagamento usa o valor efetivo do preview apenas no texto dos controles de pagamento e continua chamando
+as interfaces de pagamento seguintes: a BigModel gera o conteúdo de assinatura por QR code a partir do
+mesmo `bizId`; a Z.ai exibe e envia o formulário de pagamento com cartão Stripe a partir do mesmo `bizId`.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -270,9 +441,13 @@ Z.ai 银行卡/订阅授权勾选文案：
 └──────────────────────────────────────────────────────────────┘
 ```
 
-## 页面 4：支付
+## Página 4: Pagamento
 
-支付页负责展示真实支付渠道，不再允许修改 plan 或周期。BigModel 支付宝二维码与 Z.ai 海外支付主收银台都必须直接嵌入当前购买面板内容区，不使用额外外层卡片/边框包裹，也不能再额外打开主支付弹窗；只有信用卡新增/管理这类支付方式子流程允许继续使用独立弹窗。
+A página de pagamento é responsável por exibir o canal de pagamento real e não permite mais modificar o
+plan ou o ciclo. O QR code do Alipay da BigModel e o caixa principal de pagamento overseas da Z.ai precisam
+ser embutidos diretamente na área de conteúdo do painel de compra atual, sem um card/bordura externa
+adicional e sem abrir um pop-up de pagamento principal extra; somente subfluxos de método de pagamento,
+como adicionar/gerenciar cartão de crédito, podem continuar usando um pop-up independente.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -288,13 +463,34 @@ Z.ai 银行卡/订阅授权勾选文案：
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Z.ai 海外支付继续使用确认式收银台，但支付方式入口只展示 Credit Card / Debit Card（Stripe），不展示 PayPal。本次只下线界面入口，现有 PayPal service、deep-link 回调和协议定义保持不变。真正扣款发生在用户点击 `Pay` / `Confirm` 后。Z.ai 支付页的 `Payment method` 标题、错误提示和银行卡支付内容直接放在支付页内容区，不使用额外 section/card 容器包裹。Z.ai 支付页和添加信用卡子流程的主按钮需要与购买面板其它流程一致，使用 `h-10`、`rounded-full`、`text-ui-base`；已保存卡片和添加信用卡表单使用 `rounded-xl`，添加信用卡弹窗 header 不使用分割线。
+O pagamento overseas da Z.ai continua usando o caixa confirmatório, mas a entrada de método de pagamento
+exibe apenas Credit Card / Debit Card (Stripe) e não exibe PayPal. Esta rodada remove apenas a entrada de
+interface, mantendo inalterados o serviço PayPal existente, o callback de deep-link e as definições de
+protocolo. A cobrança real acontece quando o usuário clica em `Pay` / `Confirm`. O título `Payment method`,
+as mensagens de erro e o conteúdo do pagamento com cartão da página de pagamento da Z.ai são colocados
+diretamente na área de conteúdo da página, sem contêineres de section/card adicionais. O botão principal da
+página de pagamento da Z.ai e do subfluxo de adicionar cartão de crédito precisa ser consistente com os
+outros fluxos do painel de compra, usando `h-10`, `rounded-full`, `text-ui-base`; cards salvos e o
+formulário de adicionar cartão usam `rounded-xl`, e o header do pop-up de adicionar cartão não usa linha
+divisória.
 
-当 Plan 首页的套餐 preview 返回系统繁忙时，保留页面上的系统繁忙提示，但 Plan Card 主按钮继续显示“升级” / `Upgrade`，且允许点击。点击后不能直接使用失败的 preview 进入周期页，而是复用原有未登录升级链路重新登录；登录成功后只重开个人套餐 Plan 首页，不恢复登录前点击的具体 plan，由用户基于刷新后的套餐状态重新选择。
+Quando o preview de planos da página inicial de Plan retorna sistema ocupado, o aviso de sistema ocupado
+da página é mantido, mas o botão principal do Plan Card continua exibindo "升级" / `Upgrade` e pode ser
+clicado. Após o clique, não se pode usar o preview que falhou para ir direto à página de ciclo; em vez
+disso, reutiliza-se a cadeia de upgrade de não logado existente para fazer login novamente; após o login
+bem-sucedido, reabre-se apenas a página inicial de planos pessoais em Plan Select, sem restaurar o plan
+específico clicado antes do login, e o usuário escolhe novamente com base no estado de planos atualizado.
 
-### BigModel 支付宝支付
+### Pagamento Alipay da BigModel
 
-BigModel 支付宝二维码仍属于支付页的一种支付状态。宽屏下使用左右结构且不使用外层卡片包裹：二维码与右侧文案作为一组在弹窗剩余空间中居中；左侧二维码用 `rounded-xl` 容器独立包裹，最大约 `24rem`，二维码在容器内撑满，容器高度跟随二维码图片；右侧占据剩余宽度，展示订阅计划标题、支付宝扫码金额和等待确认状态；内容需要撑满支付页剩余高度，避免弹窗出现滚动条。窄屏下右侧说明先展示，二维码排在说明后面。
+O QR code do Alipay da BigModel continua sendo um estado de pagamento da página de pagamento. Em tela
+larga usa-se estrutura esquerda/direita sem wrapper de card externo: o QR code e o texto à direita formam
+um grupo centralizado no espaço restante do pop-up; o QR code da esquerda é envolvido por um contêiner
+`rounded-xl` independente, com no máximo cerca de `24rem`, e o QR code preenche o contêiner, cuja altura
+segue a imagem do QR code; o lado direito ocupa a largura restante e exibe o título do plano de
+assinatura, o valor de pagamento por QR do Alipay e o estado de aguardo de confirmação; o conteúdo
+precisa preencher a altura restante da página de pagamento, evitando barra de rolagem no pop-up. Em tela
+estreita, a explicação da direita aparece primeiro e o QR code vem depois da explicação.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -310,11 +506,13 @@ BigModel 支付宝二维码仍属于支付页的一种支付状态。宽屏下�
 └──────────────────────────────────────────────────────────────┘
 ```
 
-二维码过期时仍停留在支付页，展示刷新二维码操作，不退回周期页。
+Quando o QR code expira, o usuário continua na página de pagamento e vê a ação de atualizar o QR code,
+sem voltar à página de ciclo.
 
-## 页面 5：支付成功
+## Página 5: Pagamento Concluído
 
-支付成功必须进入独立成功页，不能只用 toast。成功页用于确认购买结果，并承接权益刷新延迟。
+O pagamento bem-sucedido precisa levar a uma página de sucesso independente, não apenas a um toast. A
+página de sucesso confirma o resultado da compra e absorve o atraso de refresh do entitlement.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -332,15 +530,17 @@ BigModel 支付宝二维码仍属于支付页的一种支付状态。宽屏下�
 └──────────────────────────────────────────────────────────────┘
 ```
 
-成功页关闭 / Done 后：
+Após fechar a página de sucesso / Done:
 
-1. 关闭购买面板。
-2. 触发 Coding Plan entitlement refresh。
-3. 刷新 provider registry / 当前 family provider Plan Card。
+1. Fecha o painel de compra.
+2. Dispara o refresh do entitlement do Coding Plan.
+3. Atualiza o provider registry / o Plan Card do family provider atual.
 
-### 支付成功但权益同步中
+### Pagamento bem-sucedido com entitlement ainda sincronizando
 
-支付成功和权益同步成功必须分离。支付 check 已确认成功，但 entitlement refresh 尚未完成或失败时，仍展示支付成功页：
+Pagamento bem-sucedido e sincronização de entitlement bem-sucedida precisam ser separados. Quando o check
+de pagamento confirmou sucesso, mas o refresh de entitlement ainda não terminou ou falhou, a página de
+sucesso do pagamento continua sendo exibida:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -358,19 +558,27 @@ BigModel 支付宝二维码仍属于支付页的一种支付状态。宽屏下�
 └──────────────────────────────────────────────────────────────┘
 ```
 
-成功页不使用额外容器包裹“支付成功”标题，不展示“关闭面板后刷新权益”类说明文案。宽屏下成功页内容在弹窗内容区垂直居中，两侧使用更大的水平内边距，“支付成功”标题区和下方状态内容拉开距离。权益刷新失败时，禁止把支付状态改成失败。UI 只提示 plan status 尚未刷新，并允许用户手动 `Refresh now` 或 `Done`；`Done` 和右上角关闭行为一致。
+A página de sucesso não usa contêiner adicional em volta do título de pagamento bem-sucedido e não exibe
+textos do tipo "o entitlement será atualizado após fechar o painel". Em tela larga, o conteúdo da página
+de sucesso é centralizado verticalmente na área de conteúdo do pop-up, com padding horizontal maior dos
+dois lados e o título de pagamento bem-sucedido afastado do conteúdo de status abaixo. Quando o refresh
+de entitlement falha, é proibido mudar o status de pagamento para falha. A UI apenas informa que o plan
+status ainda não foi atualizado e permite que o usuário acione manualmente `Refresh now` ou `Done`; `Done`
+tem o mesmo comportamento do fechar no canto superior direito.
 
-## 鉴权与恢复
+## Autenticação e Recuperação
 
-购买流程中遇到 OAuth required 或业务 token 过期时，面板不应直接变成错误页。当前页切换为连接态：
+Ao encontrar OAuth required ou token de negócio expirado no fluxo de compra, o painel não deve virar
+diretamente uma página de erro. A página atual muda para um estado de conexão:
 
 ```text
 Connect Z.ai to continue
 ```
 
-未登录用户在 Plan Select 点击个人或团队套餐时，购买面板必须先记录由本次点击发起的
-登录 attempt，再关闭购买面板并进入统一登录页。登录页不能覆盖一个仍处于 open 状态的
-购买面板。
+Quando um usuário não logado clica em um plano pessoal ou de equipe em Plan Select, o painel de compra
+precisa primeiro registrar o login attempt iniciado por esse clique, depois fechar o painel de compra e
+entrar na página de login unificada. A página de login não pode sobrescrever um painel de compra que
+ainda esteja em estado open.
 
 ```text
 Plan Select (unauthenticated)
@@ -382,26 +590,37 @@ Plan Select (unauthenticated)
   -> reopen Coding Plan purchase panel at Plan Select
 ```
 
-只有同一次套餐点击产生的 login attempt 成功时才自动重开。登录取消、失败或被另一条登录
-attempt 替换时必须丢弃 pending intent；普通登录成功不能打开购买面板。重开后停留在
-Plan Select，并恢复个人/团队 audience，但不自动进入周期或支付页，避免 OAuth 返回后在
-用户未确认最新价格时继续购买。
+A reabertura automática acontece somente quando o login attempt da mesma compra de plano tem sucesso. A
+intenção pendente precisa ser descartada quando o login é cancelado, falha ou substituído por outro login
+attempt; um login comum bem-sucedido não pode abrir o painel de compra. Após reabrir, o usuário permanece
+em Plan Select e a audiência pessoal/equipe é restaurada, mas ele não entra automaticamente na página de
+ciclo ou de pagamento, evitando continuar a compra após o retorno do OAuth sem o usuário ter confirmado o
+preço mais recente.
 
-已经进入周期页或支付页后遇到业务 token 过期的重新授权，仍保留当前页局部选择；该恢复
-不适用 Plan Select 的“关闭后重开”规则。
+Quando um token de negócio expirado exige reautorização depois de já estar na página de ciclo ou de
+pagamento, as escolhas locais da página atual são preservadas; essa recuperação não segue a regra de "fecha
+e reabre" do Plan Select.
 
-如果用户关闭面板，恢复状态丢弃。
+Se o usuário fechar o painel, o estado de recuperação é descartado.
 
-## 响应式约束
+## Restrições Responsivas
 
-- 桌面端：优先使用宽 dialog 或右侧 sheet，内容区允许滚动，不使用固定 footer。
-- 手机 Web：使用全屏 sheet，Plan 卡片改为单列，周期卡片单列，支付摘要和支付方式上下排列。
-- 所有按钮和标题必须预留国际化文本长度，不能依赖英文短文案。
-- 主题颜色使用现有语义 token，符合 `DESIGN.md`；不要为购买流程引入大面积品牌色背景。
+- Desktop: preferir dialog largo ou sheet lateral, permitindo scroll na área de conteúdo e sem footer
+  fixo.
+- Web no celular: usar sheet em tela cheia, cards de Plan em coluna única, cards de ciclo em coluna única,
+  e resumo de pagamento e método de pagamento empilhados verticalmente.
+- Todos os botões e títulos precisam reservar espaço para o comprimento do texto de internacionalização,
+  sem depender de textos curtos em inglês.
+- As cores de tema usam os tokens semânticos existentes e seguem `DESIGN.md`; não introduzir fundo de
+  cor de marca em grande área para o fluxo de compra.
 
-## 后续实现提示
+## Dicas para Implementação Futura
 
-- 面板状态建议命名为 `planSelect` / `billingCycleSelect` / `payment` / `success`，不要把 UI 状态命名成 `step1` / `step2`。
-- 个人购买流可以独立命名为 `personalPlanPurchaseFlow`，避免未来团队支付被迫复用个人假设。
-- 后端 preview 返回前不要承诺真实应付金额、优惠、抵扣或生效时间。
-- 支付成功页的权益刷新失败需要打 UI 日志，日志应通过 `packages/ui/src/logger.ts` 输出。
+- Sugere-se nomear os estados do painel como `planSelect` / `billingCycleSelect` / `payment` / `success`,
+  sem nomear o estado de UI como `step1` / `step2`.
+- O fluxo de compra pessoal pode ser nomeado independentemente como `personalPlanPurchaseFlow`, evitando
+  que um futuro pagamento de equipe seja forçado a reutilizar premissas pessoais.
+- Não prometer valor efetivo real, desconto, abatimento ou tempo de vigência antes de o preview do
+  backend retornar.
+- A falha de refresh de entitlement na página de sucesso do pagamento precisa emitir log de UI, e o log
+  deve passar por `packages/ui/src/logger.ts`.

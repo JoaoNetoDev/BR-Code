@@ -1,41 +1,39 @@
-# Conversation Transcript Storage
+# Armazenamento do Transcript de Conversa
 
-> **实现状态：已落地。** `0014_message_part_sequence` / `0015_message_part_sequence_backfill_and_guard`
-> 已提供稳定顺序，contracts 已声明 `MessageSemantics` / `TimelinePart`，V4 hydration 已消费 timeline part。
-> 下文 Phase 1–5 保留为实施轨迹，不再表示待实现工作。
+> **Status de implementação: já entregue.** `0014_message_part_sequence` / `0015_message_part_sequence_backfill_and_guard`
+> já fornecem ordem estável, os contracts já declaram `MessageSemantics` / `TimelinePart` e a hydration V4 já consome timeline part.
+> As fases 1–5 abaixo são preservadas como trilha de implementação e não representam mais trabalho pendente.
 
-## 背景
+## Contexto
 
-聊天 transcript 的核心模型仍然是：
+O modelo central do transcript de chat continua sendo:
 
 ```text
 session -> message -> part
 ```
 
-这条主线不能再被 `session_entry`、renderer store、text metadata、单独 timeline 表
-切开。timeline 是聊天内容流里的一个结构化片段，因此应该是 `part` 的一种：
+Essa linha principal não pode ser partida por `session_entry`, renderer store, text metadata ou uma tabela de timeline separada. A timeline é um fragmento estruturado dentro do fluxo de conteúdo do chat e, portanto, deve ser um tipo de `part`:
 
 ```text
 message.parts[] includes { type: "timeline", ... }
 ```
 
-但 `timeline` 不能是任意 JSON。它必须由 contracts 和 protocol schema 声明，
-运行时写入、snapshot 恢复、UI 渲染都只消费这个强结构。
+Mas `timeline` não pode ser um JSON arbitrário. Ele precisa ser declarado por contracts e pelo schema do protocolo, e a escrita em runtime, a restauração por snapshot e a renderização na UI consomem todos apenas essa estrutura forte.
 
-## 设计原则
+## Princípios de Design
 
-| 原则 | 说明 |
-| --- | --- |
-| timeline 是 part | compact、fork、goal verification、model change 都写成 `part.type="timeline"`。 |
-| JSON 不是兜底袋子 | timeline 字段仍在 `part.data` JSON 里，但由 TypeScript 类型和 Zod protocol schema 约束。 |
-| role 和产品语义分离 | `message.role` 只表示 provider role；真实用户、model-only reminder、command、timeline 由显式字段声明。 |
-| 顺序显式 | message 和 part 的渲染顺序不能依赖 id 字典序。 |
-| 老数据可读 | 新版本必须能从 legacy compaction part、fork text metadata、goal session_entry、renderer-only model_change 语义中恢复。 |
+| Princípio | Descrição |
+| --------- | --------- |
+| timeline é part | compact, fork, goal verification e model change são gravados como `part.type="timeline"`. |
+| JSON não é um saco de reserva | os campos de timeline continuam no JSON `part.data`, mas são restritos por tipos TypeScript e pelo schema de protocolo Zod. |
+| role e semântica de produto são separados | `message.role` indica apenas o role do provider; usuário real, model-only reminder, command e timeline são declarados por campos explícitos. |
+| Ordem explícita | a ordem de renderização de message e part não pode depender da ordem lexicográfica de id. |
+| Dados antigos legíveis | a nova versão precisa conseguir se recuperar de legacy compaction part, fork text metadata, goal session_entry e da semântica model_change que existia só no renderer. |
 
-## 数据库结构
+## Estrutura do Banco de Dados
 
-现有 `message` / `part` 表保留，核心数据仍存 `data` JSON。
-本次只对排序和查询稳定性做必要加法。
+As tabelas existentes `message` / `part` são mantidas, e os dados centrais continuam em JSON `data`.
+Desta vez apenas se acrescentam os elementos necessários para a estabilidade de ordenação e consulta.
 
 ### message.sequence
 
@@ -46,13 +44,13 @@ create index if not exists message_session_sequence_idx
   on message(session_id, sequence, time_created, id);
 ```
 
-语义：
+Semântica:
 
-- `sequence` 是 session 内 message 的稳定渲染顺序。
-- 新 message 写入时，在事务内按该 session 的 `max(sequence) + 1` 分配。
-- 更新同一 message 时保持原 sequence。
-- 老数据 backfill 时按现有顺序固化：`time_created, rowid`。
-- 读路径 fallback：`sequence is null, sequence, time_created, rowid`。
+- `sequence` é a ordem de renderização estável das messages dentro de uma session.
+- Ao gravar uma nova message, a atribuição ocorre dentro da transação como `max(sequence) + 1` daquela session.
+- Ao atualizar a mesma message, a sequence original é preservada.
+- No backfill de dados antigos, a ordem existente é fixada por `time_created, rowid`.
+- Fallback do caminho de leitura: `sequence is null, sequence, time_created, rowid`.
 
 ### part.sequence
 
@@ -65,18 +63,18 @@ create index if not exists part_session_sequence_idx
   on part(session_id, message_id, sequence);
 ```
 
-语义：
+Semântica:
 
-- `sequence` 是 message 内 part 的稳定顺序。
-- 新 part 写入时，在事务内按该 message 的 `max(sequence) + 1` 分配。
-- 更新同一 part 时保持原 sequence。
-- 老数据 backfill 时按旧顺序固化：`message_id, time_created, rowid/id`。
-- 读路径 fallback：`sequence is null, sequence, time_created, id`。
+- `sequence` é a ordem estável dos parts dentro de uma message.
+- Ao gravar um novo part, a atribuição ocorre dentro da transação como `max(sequence) + 1` daquela message.
+- Ao atualizar o mesmo part, a sequence original é preservada.
+- No backfill de dados antigos, a ordem antiga é fixada por `message_id, time_created, rowid/id`.
+- Fallback do caminho de leitura: `sequence is null, sequence, time_created, id`.
 
-## Message 语义
+## Semântica de Message
 
-`UserMessageInfo` 和 `AssistantMessageInfo` 增加可选 `semantics` 字段。该字段存入
-`message.data`，不是额外表；因为它描述的是 message 自身，不需要跨 message 查询。
+`UserMessageInfo` e `AssistantMessageInfo` recebem um campo opcional `semantics`. Esse campo é gravado em
+`message.data` e não em uma tabela extra; como ele descreve a própria message, não há necessidade de consulta entre messages.
 
 ```ts
 interface MessageSemantics {
@@ -101,33 +99,33 @@ interface MessageSemantics {
 }
 ```
 
-兼容期内继续保留旧字段：
+Durante o período de compatibilidade, os campos antigos continuam mantidos:
 
 - `synthetic`
 - `source`
 - `visibility`
-- text part metadata 中的 `source` / `visibility` / `runtimeMessage`
+- `source` / `visibility` / `runtimeMessage` no metadata de text parts
 
-新写入必须同时写 `semantics`；旧字段只用于 legacy fallback 和降级兼容。
+Novas gravações precisam escrever `semantics` simultaneamente; os campos antigos servem apenas para fallback legacy e compatibilidade degradada.
 
-核心映射：
+Mapeamento principal:
 
-| 数据 | origin | kind | uiVisibility | providerVisibility |
-| --- | --- | --- | --- | --- |
-| 用户普通输入 | real_user | user_prompt | visible | visible |
-| `/goal xxx` 可见命令 | real_user | slash_command | visible | visible |
-| `/compact` 操作 | real_user | slash_command | hidden | hidden |
-| goal continuation | agent_runtime | system_reminder | hidden | visible |
-| background task notification | agent_runtime | background_notification | hidden | visible |
-| subagent notification | agent_runtime | subagent_notification | hidden | visible |
-| todo reminder | agent_runtime | todo_reminder | hidden | visible |
-| timeline carrier | system | timeline_event | visible | hidden |
-| compact summary context | agent_runtime | compact_summary | hidden | visible |
-| assistant 正文 | agent_runtime | assistant_response | visible | visible |
+| Dado                                | origin       | kind                  | uiVisibility | providerVisibility |
+| ----------------------------------- | ------------ | --------------------- | ------------ | ------------------ |
+| Entrada comum do usuário            | real_user    | user_prompt           | visible      | visible            |
+| Comando visível `/goal xxx`         | real_user    | slash_command         | visible      | visible            |
+| Operação `/compact`                 | real_user    | slash_command         | hidden       | hidden             |
+| Continuação de goal                 | agent_runtime | system_reminder      | hidden       | visible            |
+| Notificação de background task      | agent_runtime | background_notification | hidden     | visible            |
+| Notificação de subagent             | agent_runtime | subagent_notification | hidden       | visible            |
+| Todo reminder                       | agent_runtime | todo_reminder        | hidden       | visible            |
+| Portador de timeline                | system       | timeline_event        | visible      | hidden             |
+| Contexto de resumo de compactação   | agent_runtime | compact_summary      | hidden       | visible            |
+| Corpo da resposta do assistant      | agent_runtime | assistant_response   | visible      | visible            |
 
 ## Timeline Part
 
-新增 `MessagePart` 类型：
+Novo tipo `MessagePart`:
 
 ```ts
 type TimelinePart =
@@ -225,167 +223,162 @@ interface ModelChangeTimelinePart extends TimelinePartBase {
 }
 ```
 
-## 写入规则
+## Regras de Escrita
 
-所有 timeline 都必须挂在一个 message 上。
+Toda timeline precisa estar presa a uma message.
 
-| 场景 | message | part |
-| --- | --- | --- |
-| manual compact | synthetic assistant carrier | `timeline/context_compaction` |
-| auto compact | 当前或 synthetic assistant carrier，按现有 worklog 语义 | `timeline/context_compaction` |
-| fork notice | fork child 中 synthetic user 或 assistant carrier，兼容期保留旧 fork notice | `timeline/session_fork` |
-| goal verifier | synthetic assistant carrier，锚定被验证的 assistant | `timeline/goal_verification` |
-| model change | 下一次 accepted user input 之前插入 synthetic assistant carrier | `timeline/model_change` |
+| Cenário         | message                                                            | part                          |
+| --------------- | ------------------------------------------------------------------ | ----------------------------- |
+| manual compact  | synthetic assistant carrier                                        | `timeline/context_compaction` |
+| auto compact    | carrier assistant atual ou synthetic, conforme a semântica existente de worklog | `timeline/context_compaction` |
+| fork notice     | synthetic user ou assistant carrier no fork child, preservando o fork notice antigo durante a compatibilidade | `timeline/session_fork` |
+| goal verifier   | synthetic assistant carrier, ancorado no assistant verificado      | `timeline/goal_verification` |
+| model change    | synthetic assistant carrier inserido antes do próximo accepted user input | `timeline/model_change`       |
 
-更新规则：
+Regras de atualização:
 
-- started -> completed/failed/interrupted 更新同一个 timeline part。
-- `part.id` 是身份，`part.sequence` 是位置，更新时不能改变 sequence。
-- 同一语义 timeline 需要稳定 identity：
-  - compact：`operationId`
-  - goal verification：`targetId + goalIteration`，没有 iteration 时 `verificationId`
-  - fork：`parentSessionId + targetMessageId + targetCheckpointId`
-  - model change：`task/session + createdAt + requestId`
+- started -> completed/failed/interrupted atualiza o mesmo timeline part.
+- `part.id` é a identidade e `part.sequence` é a posição; a atualização não pode mudar a sequence.
+- A mesma timeline semântica precisa de identidade estável:
+  - compact: `operationId`
+  - goal verification: `targetId + goalIteration` e, sem iteration, `verificationId`
+  - fork: `parentSessionId + targetMessageId + targetCheckpointId`
+  - model change: `task/session + createdAt + requestId`
 
-## 兼容策略
+## Estratégia de Compatibilidade
 
-### 新版本读取旧数据
+### Nova versão lendo dados antigos
 
-新版本读 session 时做 legacy canonicalization：
+Ao ler uma session, a nova versão faz canonicalization legacy:
 
-1. 如果 message/part sequence 缺失，按旧顺序 fallback，并可后台 backfill。
-2. 如果 message semantics 缺失，从旧字段推导：
-   `synthetic/source/visibility/part.metadata/runtimeMessage`。
-3. legacy compaction part 继续识别，并投影为 `timeline/context_compaction`。
-4. legacy fork text metadata 继续识别，并投影为 `timeline/session_fork`。
-5. legacy goal verifier `session_entry` 继续识别，并投影为 `timeline/goal_verification`。
-6. legacy model change 过去只在 renderer 内存中，不做历史恢复。
+1. Se a sequence de message/part estiver ausente, usa o fallback da ordem antiga e pode fazer backfill em background.
+2. Se a semântica de message estiver ausente, a deriva dos campos antigos: `synthetic/source/visibility/part.metadata/runtimeMessage`.
+3. O legacy compaction part continua sendo reconhecido e é projetado como `timeline/context_compaction`.
+4. O legacy fork text metadata continua sendo reconhecido e é projetado como `timeline/session_fork`.
+5. O legacy goal verifier `session_entry` continua sendo reconhecido e é projetado como `timeline/goal_verification`.
+6. O legacy model change existia apenas na memória do renderer e não tem recuperação histórica.
 
-legacy fallback 只在读取侧存在；新写入必须写 `timeline` part。
+O fallback legacy existe apenas no lado de leitura; as novas gravações precisam escrever parts `timeline`.
 
-### 降级兼容
+### Compatibilidade degradada
 
-如果要求用户升级后再用旧版本打开也不崩，需要一个兼容窗口：
+Se for necessário que o usuário faça upgrade antes de abrir com uma versão antiga sem quebrar, é preciso uma janela de compatibilidade:
 
-- 兼容期内 compact 继续双写旧 `compaction` part。
-- 兼容期内 fork 继续双写旧 synthetic notice metadata。
-- 兼容期内 goal verifier 继续写 `session_entry`。
-- 老版本不认识 `part.type="timeline"` 时可能无法完整展示新 timeline；这是降级显示损失，不应影响新版本读取。
+- durante a compatibilidade, a compactação continua fazendo dual write do antigo part `compaction`;
+- durante a compatibilidade, o fork continua fazendo dual write do metadata antigo de synthetic notice;
+- durante a compatibilidade, o goal verifier continua escrevendo `session_entry`;
+- uma versão antiga que não conhece `part.type="timeline"` pode não conseguir exibir toda a nova timeline; essa é uma perda de exibição na degradação e não deve afetar a leitura pela nova versão.
 
-如果必须保证旧版本完全不遇到 unknown part type，则需要先发布一个“旧版本容忍 unknown part”
-的过渡版本，再开始写 `timeline` part。否则只能保证新版本向下读取旧数据，不能保证无限制二进制降级。
+Se for exigido que versões antigas nunca encontrem unknown part type, é preciso primeiro publicar uma versão de transição em que a versão antiga tolere unknown parts, e só então começar a gravar parts `timeline`. Caso contrário, só é possível garantir que a nova versão lê dados antigos, e não uma degradação binária ilimitada.
 
-## 当前实施边界：先夯实 CLI 和数据结构
+## Fronteira Atual de Implementação: consolidar primeiro a CLI e a estrutura de dados
 
-第一阶段不改 UI 渲染行为。目标是让 agent/CLI 写出来的数据本身已经完整、
-有序、可恢复，UI 后续只需要消费稳定 transcript。
+A primeira fase não muda o comportamento de renderização da UI. O objetivo é que os dados escritos pelo agent/CLI já estejam completos,
+ordenados e recuperáveis, de modo que a UI depois apenas consuma um transcript estável.
 
-本阶段包含：
+Esta fase inclui:
 
-1. session-store migration、sequence backfill、读写排序。
-2. contracts 和 zcode protocol 增加 `timeline` part 与 message semantics schema。
-3. CLI runtime 写入 compact、fork、goal verification、model change timeline。
-4. CLI snapshot / protocol mapper 能读写 timeline part。
-5. legacy 数据 canonicalization 放在 CLI/shared 读路径，保证老数据可读。
+1. migration do session-store, backfill de sequence e ordenação de leitura/escrita;
+2. acréscimo de `timeline` part e do schema de message semantics em contracts e no zcode protocol;
+3. gravação pelo runtime da CLI das timelines de compact, fork, goal verification e model change;
+4. leitura e escrita de timeline part pelo snapshot/mapper de protocolo da CLI;
+5. canonicalization de dados legacy no caminho de leitura da CLI/shared, garantindo que os dados antigos sejam legíveis.
 
-本阶段不包含：
+Esta fase não inclui:
 
-1. 不重写 `packages/ui` 的 timeline projection。
-2. 不删除现有 renderer fallback。
-3. 不改变当前聊天列表和 divider 的视觉表现。
-4. 不强制移除 legacy compaction part、fork text metadata、goal `session_entry`。
+1. reescrever a projeção de timeline de `packages/ui`;
+2. remover o fallback existente do renderer;
+3. mudar a aparência atual da lista de chat e dos dividers;
+4. forçar a remoção de legacy compaction part, fork text metadata ou goal `session_entry`.
 
-完成第一阶段后，UI 仍可继续按旧路径渲染；但新 snapshot 已经携带规范的
-`part.type="timeline"`，为第二阶段 UI 切换消费源做好准备。
+Depois de concluída a primeira fase, a UI pode continuar renderizando pelo caminho antigo; mas o novo snapshot já carrega o
+`part.type="timeline"` canônico, preparando o terreno para a segunda fase, em que a UI passa a consumir essa fonte.
 
-## 读路径
+## Caminho de Leitura
 
-新 snapshot 构造：
+Construção do novo snapshot:
 
-1. 从 `message` 按 `sequence` 读取。
-2. 从 `part` 按 `message_id, sequence` 读取。
-3. `mapMessagePart` 识别 `type="timeline"` 并直接映射到 protocol。
-4. 第一阶段保留现有 UI fallback，不要求 UI 立即消费 timeline part。
-5. 第二阶段再让 UI projection 优先从 timeline part 生成 render row。
+1. Lê `message` por `sequence`.
+2. Lê `part` por `message_id, sequence`.
+3. `mapMessagePart` reconhece `type="timeline"` e mapeia direto para o protocolo.
+4. A primeira fase mantém o fallback atual da UI e não exige que a UI consuma timeline parts imediatamente.
+5. Na segunda fase, a projeção da UI passa a gerar a render row priorizando timeline parts.
 
-legacy compaction/session_entry/text metadata fallback 先保留，直到 UI 完成切换并验证。
+O fallback de legacy compaction/session_entry/text metadata é mantido até que a UI conclua a troca e seja verificada.
 
-## 代码落点
+## Pontos de Código
 
-| 层 | 文件 |
-| --- | --- |
-| migration | `apps/zcode-cli/packages/adapters/src/storage/session-store/migrations.ts` |
-| rows/repositories | `apps/zcode-cli/packages/adapters/src/storage/session-store/rows.ts`、`repositories/messages.ts` |
-| contracts | `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts` |
-| runtime writes | `apps/zcode-cli/packages/core/src/runtime/methods/message-persistence.ts`、`compact-persistence.ts`、`session-fork.ts`、`events.ts`、model set path |
-| protocol | `packages/shared/src/zcode-protocol/index.ts`、`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/message-mapper.ts` |
-| shared read compatibility | `packages/shared/src/zcode-session-visible-content.ts`、`packages/shared/src/zcodePersistedMessageMerge.ts` |
-| V4 transcript hydration | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts`、`product-projection.ts` |
-| UI projection | `packages/ui/src/v4/conversationProjectionStore.ts`、`packages/ui/src/v4/sessionDataLayer.ts` |
+| Camada                      | Arquivos                                                                                                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| migration                   | `apps/zcode-cli/packages/adapters/src/storage/session-store/migrations.ts`                                                                                                                                                                                                           |
+| rows/repositories            | `apps/zcode-cli/packages/adapters/src/storage/session-store/rows.ts`、`repositories/messages.ts`                                                                                                                                                                                     |
+| contracts                   | `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts`                                                                                                                                                                                                           |
+| escritas de runtime          | `apps/zcode-cli/packages/core/src/runtime/methods/message-persistence.ts`、`compact-persistence.ts`、`session-fork.ts`、`events.ts`、caminho de model set                                                                       |
+| protocolo                   | `packages/shared/src/zcode-protocol/index.ts`、`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/message-mapper.ts`                                                                                                                                                                 |
+| compatibilidade de leitura shared | `packages/shared/src/zcode-session-visible-content.ts`、`packages/shared/src/zcodePersistedMessageMerge.ts`                                                                                                                                                                        |
+| hydration de transcript V4  | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/transcript-hydration.ts`、`product-projection.ts`                                                                                                                                                                           |
+| projeção da UI              | `packages/ui/src/v4/conversationProjectionStore.ts`、`packages/ui/src/v4/sessionDataLayer.ts`                                                                                                                                                                                       |
 
-## CLI / 数据层实施轨迹
+## Trilha de Implementação da CLI / Camada de Dados
 
-### Phase 1：稳定排序，不改变业务语义
+### Fase 1: ordenação estável, sem mudança de semântica de negócio
 
-- 增加 `message.sequence` 和 `part.sequence` migration。
-- backfill 老数据顺序。
-- repository 写入新 message/part 时分配 sequence，更新已有行时保持 sequence。
-- repository 读取改为 sequence 优先，缺失时 fallback 到旧顺序。
-- 加 session-store 单测覆盖同毫秒 message/part 的稳定顺序。
+- Adicionar as migrations `message.sequence` e `part.sequence`.
+- Fazer backfill da ordem dos dados antigos.
+- Atribuir sequence ao gravar novas messages/parts nos repositories e preservar a sequence ao atualizar linhas existentes.
+- Passar a leitura dos repositories a priorizar sequence, com fallback para a ordem antiga quando ausente.
+- Adicionar testes unitários do session-store cobrindo a ordem estável de messages/parts no mesmo milissegundo.
 
-### Phase 2：扩展 transcript schema
+### Fase 2: extensão do schema do transcript
 
-- contracts 中增加 `MessageSemantics` 和 `TimelinePart` 类型。
-- protocol 中增加 `part.type="timeline"` schema。
-- message mapper 支持 timeline part 透传。
-- reader 对 unknown legacy 字段保持兼容，避免老数据因为缺字段失败。
+- Adicionar os tipos `MessageSemantics` e `TimelinePart` nos contracts.
+- Adicionar o schema `part.type="timeline"` no protocolo.
+- Fazer o message mapper suportar o repasse de timeline part.
+- Manter a compatibilidade do reader com campos legacy desconhecidos, evitando que dados antigos falhem por campos ausentes.
 
-### Phase 3：统一 CLI timeline 写入 helper
+### Fase 3: helper unificado de escrita de timeline na CLI
 
-- 在 runtime persistence 层增加 timeline 写入/upsert helper。
-- helper 负责创建 synthetic carrier message、分配 part identity、设置 sequence。
-- started -> completed/failed/interrupted 只更新同一个 timeline part 的 data/status。
-- 所有 timeline payload 通过 contracts 类型创建，不允许业务路径手写散乱 JSON。
+- Adicionar um helper de escrita/upsert de timeline na camada de persistência do runtime.
+- O helper é responsável por criar a synthetic carrier message, atribuir a identidade do part e definir a sequence.
+- A transição started -> completed/failed/interrupted apenas atualiza data/status do mesmo timeline part.
+- Todo payload de timeline é criado pelos tipos dos contracts, e não é permitido que caminhos de negócio escrevam JSON espalhado à mão.
 
-### Phase 4：迁移核心业务写入
+### Fase 4: migração das escritas de negócio centrais
 
-- compact：写 `timeline/context_compaction`，兼容期继续写旧 `compaction` part。
-- fork：fork child session 写 `timeline/session_fork`，兼容期继续写旧 fork notice metadata。
-- goal verification：写/upsert `timeline/goal_verification`，兼容期继续写 `session_entry`。
-- model change：先记录 pending model change，在下一次 accepted user input 之前写
-  `timeline/model_change`；如果用户只是切换后不发送，不污染 transcript。
-- synthetic system reminder / command：写 `message.semantics`，兼容期继续保留旧
-  `synthetic/source/visibility` 字段。
+- compact: grava `timeline/context_compaction` e, durante a compatibilidade, continua gravando o part antigo `compaction`.
+- fork: a sessão fork child grava `timeline/session_fork` e, durante a compatibilidade, continua gravando o metadata antigo de fork notice.
+- goal verification: grava/atualiza `timeline/goal_verification` e, durante a compatibilidade, continua gravando `session_entry`.
+- model change: registra primeiro um model change pendente e grava `timeline/model_change` antes do próximo accepted user input; se o usuário apenas troca e não envia, o transcript não é poluído.
+- synthetic system reminder / command: grava `message.semantics` e, durante a compatibilidade, mantém os campos antigos `synthetic/source/visibility`.
 
-### Phase 5：CLI snapshot 和恢复验证
+### Fase 5: snapshot da CLI e verificação de recuperação
 
-- session snapshot 输出规范 timeline part。
-- compact recovery 同时识别新 timeline part 和 legacy compaction part。
-- goal verification 冷启动优先恢复 timeline part，缺失时 fallback 到 `session_entry`。
-- 确认 desktop continuous 和 web remote replayable 都从同一 session snapshot 恢复，
-  不把业务 timeline 状态下沉到 relay/main。
+- A saída do snapshot de session produz timeline parts canônicos.
+- A recuperação de compact reconhece ao mesmo tempo o novo timeline part e o legacy compaction part.
+- A goal verification em cold start prioriza a recuperação do timeline part e faz fallback para `session_entry` quando ausente.
+- Confirmar que desktop continuous e web remote replayable recuperam do mesmo snapshot de session, sem afundar o estado de timeline de negócio em relay/main.
 
-### Phase 6：第二阶段 UI 切换准备
+### Fase 6: preparação da troca de UI da segunda fase
 
-- CLI/data 阶段完成后，再单独做 UI projection 切换。
-- UI 切换时只改消费源：优先 timeline part，legacy fallback 兜底。
-- legacy write 的移除需要再开一个兼容窗口决定。
+- Depois da fase CLI/dados, a troca da projeção de UI é feita separadamente.
+- Na troca, muda-se apenas a fonte consumida: timeline part primeiro, com o fallback legacy como rede de segurança.
+- A remoção das escritas legacy exige a abertura de outra janela de compatibilidade para ser decidida.
 
-## 测试要求
+## Requisitos de Teste
 
-必须覆盖：
+É preciso cobrir:
 
-- 老 DB 没有 sequence：启动后顺序不变。
-- 老数据同毫秒 message：sequence/fallback 固化为旧 `rowid` 顺序。
-- 老数据同毫秒 part：part 顺序稳定。
-- legacy compact part：CLI/shared 读路径可识别，不破坏 snapshot。
-- legacy fork notice：CLI/shared 读路径可识别，不破坏 snapshot。
-- legacy goal verifier session_entry：CLI/shared 读路径可识别，不破坏 snapshot。
-- 新写入 compact/fork/goal/model timeline：snapshot 中都表现为 `part.type="timeline"`。
-- desktop continuous 和 web remote replayable 都只从 agent/session snapshot 恢复，不把 timeline 状态下沉到 relay/main。
+- DB antigo sem sequence: a ordem após a inicialização não muda;
+- dados antigos com messages no mesmo milissegundo: sequence/fallback fixa a antiga ordem de `rowid`;
+- dados antigos com parts no mesmo milissegundo: a ordem dos parts é estável;
+- legacy compact part: reconhecível pelo caminho de leitura da CLI/shared, sem quebrar o snapshot;
+- legacy fork notice: reconhecível pelo caminho de leitura da CLI/shared, sem quebrar o snapshot;
+- legacy goal verifier session_entry: reconhecível pelo caminho de leitura da CLI/shared, sem quebrar o snapshot;
+- novas escritas compact/fork/goal/model timeline: todas aparecem no snapshot como `part.type="timeline"`;
+- desktop continuous e web remote replayable recuperam apenas do snapshot de agent/session, sem afundar o estado de timeline em relay/main.
 
-## 开放问题
+## Questões em Aberto
 
-- 是否需要完整二进制降级兼容。如果需要，需要先让旧版本容忍 unknown part type。
-- model change 的落库时机是否固定为“下一次 accepted user input 之前”。如果改成“切换成功立即落库”，会让单纯试选模型污染历史 timeline。
-- compact 的 worklog/boundary 分类是否只影响 UI projection，还是也需要持久化。当前设计持久化 `display`，避免 UI 自行推断。
+- Se é necessária compatibilidade de degradação binária completa. Se for, é preciso primeiro fazer a versão antiga tolerar unknown part type.
+- Se o momento de gravação do model change fica fixo em «antes do próximo accepted user input». Se mudar para «gravar assim que a troca tiver sucesso», isso poluiria o histórico da timeline com simples trocas de teste de modelo.
+- Se a classificação worklog/boundary da compactação afeta apenas a projeção da UI ou também precisa ser persistida. O design atual persiste `display`, evitando que a UI deduza por conta própria.

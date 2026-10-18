@@ -1,25 +1,38 @@
-# Todo 59：模型默认选择与远端 Provisioning 失败语义纠偏
+# Todo 59: Correção da Seleção Padrão de Modelo e da Semântica de Falha no Provisioning Remoto
 
-> 状态：实现完成
+> Status: implementação concluída
 >
-> 日期：2026-09-01
+> Data: 2026-09-01
 >
-> 前置：Todo 55、Todo 56、Todo 57 已完成。本 Todo 不重做 Provider Template、Environment 级同步或 E2E 基础设施，只纠正复核中确认的两处实现漂移。
+> Pré-requisitos: Todo 55, Todo 56 e Todo 57 concluídos. Este Todo não refaz o Provider Template, a
+> sincronização em nível de Environment nem a infraestrutura de E2E; ele apenas corrige as duas derivações
+> de implementação confirmadas na revisão.
 
-## 0. 背景与目标
+## 0. Contexto e Objetivo
 
-Todo 57 为修复 Account Registry 延迟发布和旧 Start Plan 选择失效的 E2E，在 Renderer 草稿初始化中加入了“当前 Account Provider 第一个模型优先于 Host preferredSelection”的特殊回退。该规则绕过 Configured Default，使 Renderer 开始理解 Account Family/Plan，并丢失 Configured Default 携带的 reasoning options。
+O Todo 57, para corrigir o E2E de publicação atrasada do Account Registry e de seleção de Start Plan
+antigo que deixou de funcionar, adicionou na inicialização do rascunho no Renderer um fallback especial
+de "o primeiro modelo do Account Provider atual vem antes do preferredSelection do Host". Essa regra
+contorna o Configured Default, faz o Renderer passar a entender Account Family/Plan e perde as reasoning
+options carregadas pelo Configured Default.
 
-Todo 56 的首次 Remote Environment Provisioning 已经成为远程 Workspace 发布前的同步屏障，但当前收到 `failed`、`rollback_failed` 或 `unsupported` 后仍只记录 warning 并继续发布连接。这会让远端在关键模型配置没有同步成功时以旧配置或空配置继续运行。
+O primeiro Remote Environment Provisioning do Todo 56 já é uma barreira de sincronização antes da
+publicação do Workspace remoto, mas, ao receber hoje `failed`, `rollback_failed` ou `unsupported`, ele
+ainda apenas registra um warning e continua publicando a conexão. Isso deixa o remoto rodar com a
+configuração antiga ou vazia quando a configuração crítica de modelo não foi sincronizada com sucesso.
 
-本 Todo 收口为两条唯一规则：
+Este Todo converge para duas regras únicas:
 
-1. 新草稿的默认选择统一由目标 Host 的 `preferredSelection` 提供；Account Connection 只影响 Registry 可用事实，不在 Renderer 中形成第二套默认模型优先级。
-2. 首次 Provisioning 未成功时不发布远程 Workspace；已经连接后的后续同步失败不拆除 Workspace，只记录结构化 warning，并在下一次正式触发时重试。
+1. A seleção padrão de um novo rascunho é fornecida uniformemente pelo `preferredSelection` do Host
+   alvo; a Account Connection afeta apenas o fato de disponibilidade do Registry e não forma um segundo
+   conjunto de prioridade de modelo padrão no Renderer.
+2. Quando o primeiro Provisioning não tem sucesso, o Workspace remoto não é publicado; falhas de
+   sincronização posteriores, depois de já conectado, não desmontam o Workspace, apenas registram um
+   warning estruturado e tentam de novo no próximo disparo formal.
 
-## 1. 模型选择优先级
+## 1. Prioridade da Seleção de Modelo
 
-### 1.1 唯一优先级
+### 1.1 Prioridade Única
 
 ```text
 任务明确继承的 ModelSelection
@@ -37,21 +50,34 @@ Todo 56 的首次 Remote Environment Provisioning 已经成为远程 Workspace �
         `-- Registry 中第一个可见 Provider 的第一个模型
 ```
 
-Renderer 不再读取或推导当前 Account Provider，不再以 `provider.models[0]` 抢占 Configured Default。
+O Renderer deixa de ler ou derivar o Account Provider atual e não usa mais `provider.models[0]` para
+tomar a frente do Configured Default.
 
-### 1.2 职责边界
+### 1.2 Fronteira de Responsabilidades
 
-- Task/Draft 的显式选择优先，因为它表达当前交互上下文中的用户意图；
-- Recent 仅在当前目标 Host 的 Selection View 中仍然有效时使用；
-- Configured Default、Registry fallback 和模型 options 的有效性由目标 Host 原子解析为 `preferredSelection`；
-- Account Config 只约束 Account Provider 的 entitlement、成员和访问材料，并通过 Registry 间接影响“哪些选择仍然有效”；
-- Renderer 不识别 Start Plan、Individual、Team，也不根据 Family Connection Selection 推断默认模型；
-- 本 Todo 与 Todo 58 的 Option Default 退役契约共同生效：目标 Host 在标准 Model Selection 解析边界把普通缺省 reasoning 补为有序 Enum 的 `values.at(-1)`；Renderer 只消费已经完整的 `preferredSelection`；ModelFactory 只校验并冻结具体 Option，不再从 Model Config `default` 补值；
-- 新写入的 Draft、Recent、Session Selection 和 Configured Default 必须携带具体 reasoning。旧稀疏选择若需要兼容，只能在 Host 的选择持久化读取边界归一化，不能把 fallback 分散回 Renderer、Service、Model 或 Adapter。
+- A seleção explícita de Task/Draft tem prioridade, porque expressa a intenção do usuário no contexto
+  de interação atual;
+- Recent só é usado quando ainda é válido na Selection View do Host alvo atual;
+- A validade do Configured Default, do fallback do Registry e das options de modelo é resolvida
+  atomicamente pelo Host alvo como `preferredSelection`;
+- O Account Config restringe apenas entitlement, membros e material de acesso do Account Provider, e
+  influencia indiretamente, via Registry, "quais seleções ainda são válidas";
+- O Renderer não reconhece Start Plan, Individual nem Team, e não infere modelo padrão a partir de uma
+  Family Connection Selection;
+- Este Todo vale em conjunto com o contrato de aposentadoria do Option Default do Todo 58: o Host alvo
+  completa o reasoning ausente pelo padrão no limite de resolução padrão da Model Selection, usando
+  `values.at(-1)` da Enum ordenada; o Renderer consome apenas o `preferredSelection` já completo; e o
+  ModelFactory apenas valida e congela a Option concreta, sem mais completar valor a partir do `default`
+  do Model Config;
+- Draft, Recent, Session Selection e Configured Default recém-escritos precisam carregar um reasoning
+  concreto. Seleções esparsas antigas, caso precisem de compatibilidade, só podem ser normalizadas no
+  limite de leitura da persistência de seleção do Host; o fallback não pode voltar a ser distribuído
+  entre Renderer, Service, Model ou Adapter.
 
-### 1.3 保留 Registry revision 重水合
+### 1.3 Preservar a Re-hidratação por Registry revision
 
-Account Registry 延迟发布是真实时序问题，但不需要 Account-first 回退解决。
+A publicação atrasada do Account Registry é um problema real de timing, mas não precisa de um fallback
+Account-first para ser resolvida.
 
 ```text
 早期 Selection View 发布
@@ -66,21 +92,28 @@ Account Overlay 完成，Selection View revision 更新
         `-- Draft 没有用户显式模型意图 --> 使用最新 View 重新初始化
 ```
 
-保留现有 revision 驱动的空白 Draft 重建；删除 Account-first 分支后，它最终会读取最新 Host `preferredSelection`。
+Mantém-se a reconstrução existente do Draft em branco orientada por revision; depois de remover o ramo
+Account-first, ela acaba lendo o `preferredSelection` mais recente do Host.
 
-### 1.4 清理范围
+### 1.4 Escopo de Limpeza
 
-- 删除 `resolveDraftInitialModelSelection()` 的 `currentAccountProviderId` 参数和 Account Provider 首模型分支；
-- 删除 `useDraftConfigControl()` 中为该分支读取 `providerFamilyDomain`、`providerFamilyConnectionSelections` 并推导 Provider ID 的逻辑；
-- 删除仅服务于该分支的 import、memo、测试构造和注释；
-- 更新 Todo 57、Selection Design 和 E2E 说明，明确其“recent → Account 首项 → Host preferred”实施记录已被本 Todo 的后续裁决取代；
-- 不删除 Provider Family Connection Selection 产品能力本身，本 Todo 只禁止它进入通用 Draft 默认选择。
+- Remover o parâmetro `currentAccountProviderId` e o ramo de primeiro modelo do Account Provider de
+  `resolveDraftInitialModelSelection()`;
+- Remover de `useDraftConfigControl()` a lógica que, para esse ramo, lia `providerFamilyDomain` e
+  `providerFamilyConnectionSelections` e derivava o Provider ID;
+- Remover imports, memos, construções de teste e comentários que servem apenas a esse ramo;
+- Atualizar o Todo 57, o Selection Design e as explicações de E2E, deixando explícito que o registro de
+  implementação "recent → primeiro item da Account → Host preferred" foi substituído pela decisão
+  posterior deste Todo;
+- Não remover a própria capacidade de produto de Family Connection Selection; este Todo apenas proíbe
+  que ela entre na seleção padrão genérica do Draft.
 
-## 2. Remote Provisioning 失败语义
+## 2. Semântica de Falha do Provisioning Remoto
 
-### 2.1 首次连接是严格屏障
+### 2.1 A Primeira Conexão é uma Barreira Estrita
 
-Remote transport ready 不等于 Remote Workspace ready。首次 Provisioning 必须成功完成后才能发布 Workspace。
+Remote transport ready não significa Remote Workspace ready. O primeiro Provisioning precisa terminar
+com sucesso antes de publicar o Workspace.
 
 ```text
 Remote transport ready
@@ -107,18 +140,27 @@ Environment 0 -> 1 注册
              连接失败，提示远端版本不支持模型配置同步
 ```
 
-实现要求：
+Requisitos de implementação:
 
-- `ProviderProvisioningExecutionResult` 不能再对所有状态无条件 `pending.resolve()`；
-- 成功状态 resolve 首次连接屏障；失败状态沿现有 Remote Workspace 连接失败通道 reject/结束请求；
-- 连接错误保留 Environment、trigger 和 status；Target 的自由文本错误可能来自任意远端实现，不能证明脱敏，因此不转抄到 Main 日志或 Renderer 错误；
-- `unsupported` 是明确的版本/能力不兼容，不作为静默兼容模式；
-- 不增加 deadline；若同步没有返回结果，连接保持 pending，以便直接暴露协议或外部 IO 卡死；
-- 不用 timeout、sleep 或自动放行掩盖状态问题。
+- `ProviderProvisioningExecutionResult` não pode mais fazer `pending.resolve()` incondicionalmente para
+  todos os status;
+- Status de sucesso resolvem a barreira da primeira conexão; status de falha rejeitam/encerram a
+  requisição pelo canal existente de falha de conexão do Remote Workspace;
+- O erro de conexão preserva Environment, trigger e status; o texto livre de erro do Target pode vir de
+  qualquer implementação remota e não prova desensibilização, portanto não é transcrito para o log do Main
+  nem para o erro do Renderer;
+- `unsupported` é uma incompatibilidade explícita de versão/capacidade e não é tratado como modo de
+  compatibilidade silencioso;
+- Não adicionar deadline; se a sincronização não retornar resultado, a conexão permanece pending, para
+  expor diretamente travamentos de protocolo ou de IO externo;
+- Não usar timeout, sleep nem liberação automática para mascarar problemas de status.
 
-### 2.2 已连接后的同步失败不拆 Workspace
+### 2.2 Falha de Sincronização Depois de Conectado Não Desmonta o Workspace
 
-Provider 保存、Configured Default 变化、账号状态变化和 allowlist credential 变化会对已经在线的 Environment 触发后续同步。此时同步失败只证明远端模型配置没有追平，不证明 SSH、WSL、Docker 或 Server 文件连接已经失效。
+Salvamento de Provider, mudanças de Configured Default, mudanças de status de conta e mudanças de
+credencial de allowlist disparam sincronizações posteriores para um Environment já online. Nessa situação,
+uma falha de sincronização só prova que a configuração remota de modelo não alcançou o estado desejado,
+e não que a conexão SSH, WSL, Docker ou de arquivos do Server deixou de funcionar.
 
 ```text
 Remote Workspace 已连接
@@ -137,104 +179,145 @@ Environment 后续 Provisioning
               └─ 等待下一次正式 trigger 再重试
 ```
 
-边界：
+Fronteiras:
 
-- 不因后台同步失败主动关闭现有 Workspace、终端或文件操作；
-- 这套自动 Provisioning 是远程配置独立管理上线前的临时过渡能力；后续失败本轮只进入日志，不新增 Environment 错误状态、协议、Banner、设置页入口或第二份配置权威；
-- warning 包含 Environment、trigger、status 和耗时，便于从生产日志确认远端没有追平；不转抄 Target 自由文本，也不新增 UI 状态；
-- 当前轮失败且没有新 generation 时不无限自动重试；下一次正式 trigger 重新读取最新完整快照；
-- 用户断开后重新连接，重新进入严格的首次同步屏障。
+- Não fechar ativamente o Workspace, o terminal ou as operações de arquivo existentes por causa de uma
+  falha de sincronização em background;
+- Este Provisioning automático é uma capacidade de transição temporária até o lançamento do
+  gerenciamento independente de configuração remota; nesta rodada, falhas posteriores entram apenas no
+  log, sem novo estado de erro de Environment, protocolo, Banner, entrada na página de configurações ou
+  segunda autoridade de configuração;
+- O warning inclui Environment, trigger, status e duração, para confirmar a partir de logs de produção
+  que o remoto não alcançou o estado; não transcreve texto livre do Target e não adiciona estado de UI;
+- Quando a rodada atual falha e não há nova generation, não há retry automático infinito; o próximo
+  disparo formal relê o snapshot completo mais recente;
+- Quando o usuário desconecta e reconecta, a barreira estrita de primeira sincronização é reentrada.
 
-## 3. 与既有设计的关系
+## 3. Relação com os Desenhos Existentes
 
-- Todo 56 的 Environment 去重、single-flight、尾随刷新、完整快照覆盖和 Main 只调度边界全部保留；
-- Todo 56 第 5 节“失败或不支持时不阻断连接”被本 Todo 取代；
-- Todo 57 的实际 E2E 运行证据保留，但其中 Account-first 回退的实现结论被本 Todo 取代；
-- Provisioning Source 直接读取 Credential Store 物理文件继续作为已接受的 v0 临时耦合，本轮不抽象 Credential 导出接口；
-- Coordinator 的空 Environment lane 不影响正确性，本轮不处理；
-- 不改变 Desktop `continuous`、Mobile `replayable`、owner/lease、CommandInbox 或任务恢复语义。
+- A deduplicação de Environment, o single-flight, o refresh trailing, a cobertura por snapshot completo e
+  a fronteira em que o Main apenas agenda, todos do Todo 56, são preservados;
+- A seção 5 do Todo 56, "não bloquear a conexão quando falhar ou não for suportado", é substituída por
+  este Todo;
+- As evidências reais de execução de E2E do Todo 57 são preservadas, mas a conclusão de implementação
+  sobre o fallback Account-first é substituída por este Todo;
+- O Provisioning Source lendo diretamente o arquivo físico do Credential Store continua sendo um
+  acoplamento temporário v0 aceito; esta rodada não abstrai uma interface de exportação de Credential;
+- A lane vazia de Environment do Coordinator não afeta a corretude e não é tratada nesta rodada;
+- Não muda a semântica de Desktop `continuous`, Mobile `replayable`, owner/lease, CommandInbox nem de
+  recuperação de tarefa.
 
-## 4. 测试先行
+## 4. Testes Primeiro
 
-### 4.1 Model Selection 单测
+### 4.1 Testes Unitários de Model Selection
 
-- 有效 Recent 优先于 Host preferred；
-- 失效 Recent 直接回退 Host preferred，不读取当前 Account Provider；
-- Host preferred 中 Configured Default 的 reasoning options 完整保留；
-- 无 Configured Default 时继续使用 Host 的 Registry fallback；
-- Account Selection 变化本身不改变通用 Renderer fallback；
-- Selection View revision 更新时，无显式意图的空白 Draft 重水合；已有显式选择的 Draft 不受影响。
+- Recent válido tem prioridade sobre o preferred do Host;
+- Recent inválido volta direto ao preferred do Host, sem ler o Account Provider atual;
+- As reasoning options do Configured Default dentro do preferred do Host são integralmente preservadas;
+- Sem Configured Default, continua sendo usado o fallback de Registry do Host;
+- A mudança da Account Selection em si não altera o fallback genérico do Renderer;
+- Quando a revision da Selection View é atualizada, o Draft em branco sem intenção explícita é
+  re-hidratado; Drafts com seleção explícita existente não são afetados.
 
-### 4.2 Conversation E2E
+### 4.2 E2E de Conversation
 
-- 修正 I27/MP-R03、I28/MP-R04：旧 Account 模型失效后回到当前有效 Configured Default；
-- 保留 Account Registry 延迟发布场景，证明 revision 更新后 Draft 使用最新 Host preferred；
-- 断言 Provider、Model 和 reasoning options 一致，不能只检查 toolbar 文案；
-- 不恢复已删除的 selected-key/mode 兼容逻辑。
+- Corrigir I27/MP-R03 e I28/MP-R04: depois que o modelo antigo da Account fica inválido, voltar ao
+  Configured Default atualmente válido;
+- Preservar o cenário de publicação atrasada do Account Registry, provando que depois da atualização de
+  revision o Draft usa o preferred mais recente do Host;
+- Asserir que Provider, Model e reasoning options são consistentes, sem checar apenas o texto da
+  toolbar;
+- Não restaurar a lógica de compatibilidade de selected-key/mode já removida.
 
-### 4.3 Provisioning 单元与集成测试
+### 4.3 Testes Unitários e de Integração de Provisioning
 
-- 首次 `applied`、`already-applied` 后发布 Workspace ready；
-- 首次 `failed`、`rollback_failed`、`unsupported` 均不发布 Workspace ready，并通过正式连接失败结果返回错误；
-- 首次同步 pending 时连接保持 pending，不使用定时放行；
-- 已连接后的失败不注销 Environment registration、不关闭 Workspace；
-- 已连接后的失败写入一条 Environment 级结构化 warning，不产生 UI 或持久状态；
-- 下一次正式触发会重新尝试，成功后按现有成功日志记录；
-- 同步中收到新 generation 时仍遵守 single-flight + trailing refresh；
-- 日志与错误载荷不包含 API Key、OAuth Token 或完整 Credential value。
+- Primeiro `applied` ou `already-applied` publica o Workspace ready;
+- Primeiro `failed`, `rollback_failed` ou `unsupported` não publica o Workspace ready e retorna o erro pelo
+  resultado formal de falha de conexão;
+- Com a primeira sincronização pending, a conexão permanece pending, sem liberação por temporizador;
+- Falha depois de conectado não cancela o registro do Environment nem fecha o Workspace;
+- Falha depois de conectado escreve um warning estruturado de nível Environment, sem produzir UI nem
+  estado persistente;
+- O próximo disparo formal tenta de novo e, em caso de sucesso, registra pelo log de sucesso existente;
+- Ao receber uma nova generation durante a sincronização, continua obedecendo single-flight + trailing
+  refresh;
+- Logs e payloads de erro não contêm API Key, OAuth Token nem o valor completo de Credential.
 
-## 5. 文档与图谱
+## 5. Documentação e Grafo
 
-- 更新 `docs/working-memory/provider-refactor/design/interaction/selection-state.md`，删除 Account-first 默认选择，并与 Todo 58 的完整 Selection 语义对齐；
-- 更新 `docs/remote/provider-provisioning.md`，写明首次严格屏障和已连接后的降级状态；
-- 在 Todo 56/57 的实施记录中追加“由 Todo 59 后续取代”的指针，不改写历史执行事实；
-- 更新 Provider Refactor E2E 分析/覆盖矩阵中的 I27/I28 预期；
-- Feature Graph 已包含 Provider Template 和 Remote Provisioning 节点；本轮不新增失败状态 UI，因此不增加新的 surface 或状态 owner。
+- Atualizar `docs/working-memory/provider-refactor/design/interaction/selection-state.md`, removendo a
+  seleção padrão Account-first e alinhando com a semântica completa de Selection do Todo 58;
+- Atualizar `docs/remote/provider-provisioning.md`, registrando a primeira barreira estrita e o estado
+  degradado depois de conectado;
+- Acrescentar nos registros de implementação do Todo 56/57 o ponteiro "substituído posteriormente pelo
+  Todo 59", sem reescrever o fato histórico da execução;
+- Atualizar as expectativas de I27/I28 na análise/matriz de cobertura de E2E do Provider Refactor;
+- O Feature Graph já contém os nós de Provider Template e Remote Provisioning; como esta rodada não
+  adiciona UI de estado de falha, nenhum novo surface ou owner de estado é criado.
 
-## 6. 实施顺序
+## 6. Ordem de Implementação
 
-1. 先写 Model Selection 和 Provisioning 失败语义的失败测试；
-2. 删除 Renderer Account-first 回退及相关残余；
-3. 修正 I27/I28 fixture/断言并定向实跑；
-4. 将首次 Provisioning 非成功结果接入 Remote Workspace 连接失败通道；
-5. 收口已连接 Environment 的失败 warning 与下一次真实 trigger 重试语义；
-6. 更新 Design、Todo 取代关系、Feature Graph/覆盖矩阵；
-7. 运行定向单测、相关 Desktop E2E、`pnpm typecheck`、`pnpm lint` 和 `git diff --check`；
-8. 全面 review 状态所有权、错误生命周期、跨窗口 Environment 去重和 Secret 边界；
-9. 提交 Conventional Commit。
+1. Escrever primeiro os testes de falha de Model Selection e da semântica de falha de Provisioning;
+2. Remover o fallback Account-first do Renderer e os resíduos relacionados;
+3. Corrigir as fixtures/asserções de I27/I28 e executá-las de forma direcionada;
+4. Ligar o resultado não-successo do primeiro Provisioning ao canal de falha de conexão do Remote
+   Workspace;
+5. Convergir o warning de falha do Environment já conectado e a semântica de retry no próximo trigger
+   real;
+6. Atualizar o Design, a relação de substituição entre Todos, o Feature Graph e a matriz de cobertura;
+7. Rodar os testes unitários direcionados, os E2E de Desktop relacionados, `pnpm typecheck`,
+   `pnpm lint` e `git diff --check`;
+8. Revisar amplamente a propriedade de estado, o ciclo de vida dos erros, a deduplicação de Environment
+   entre janelas e a fronteira de segredos;
+9. Fazer o commit no formato Conventional Commit.
 
-## 7. 完成门禁
+## 7. Portões de Conclusão
 
-- Renderer 中不存在 Account Provider 默认选择特化；
-- Configured Default 重新成为 Recent 失效后的唯一产品默认事实；
-- Registry revision 更新不会覆盖用户已明确选择的 Draft；
-- 首次 Provisioning 未成功时 Remote Workspace 不会被发布；
-- 已连接后的同步失败不会拆 Workspace，并留下不含 Secret 的结构化 warning；
-- 不新增 Environment/Workspace 级错误状态或 UI，下一次真实 trigger 重新尝试；
-- 不新增默认模型、Registry Snapshot、Provider Config 或 Credential 的第二份权威；
-- 定向测试与仓库强制门禁通过，相关 E2E 有真实运行证据。
+- Não existe mais especialização de seleção padrão de Account Provider no Renderer;
+- O Configured Default volta a ser o único fato de produto padrão depois que Recent fica inválido;
+- Uma atualização de revision do Registry não sobrescreve um Draft em que o usuário já escolheu
+  explicitamente;
+- O Remote Workspace não é publicado quando o primeiro Provisioning não tem sucesso;
+- Uma falha de sincronização depois de conectado não desmonta o Workspace e deixa um warning estruturado
+  sem Segredos;
+- Nenhum novo estado de erro ou UI de nível Environment/Workspace, e o próximo trigger real tenta de
+  novo;
+- Não há segunda autoridade para modelo padrão, Registry Snapshot, Provider Config ou Credential;
+- Os testes direcionados e os portões obrigatórios do repositório passam, e os E2E relevantes têm
+  evidência real de execução.
 
-## 8. 非目标
+## 8. Não Objetivos
 
-- Provider Family 产品结构调整；
-- Remote Provisioning v1 双向编辑或远端管理 UI；
-- Credential Store/Keychain 重构；
-- 为旧远端增加静默兼容模式；
-- Coordinator 空 lane 回收；
-- 通过 timeout、重试风暴或断开整个已连接 Workspace 掩盖同步失败。
+- Reestruturação de produto do Provider Family;
+- Edição bidirecional do Remote Provisioning v1 ou UI de gerenciamento remoto;
+- Refatoração do Credential Store/Keychain;
+- Adicionar modo de compatibilidade silenciosa para remotos antigos;
+- Recuperação de lane vazia do Coordinator;
+- Mascara falhas de sincronização por timeout, tempestade de retries ou desligamento do Workspace já
+  conectado inteiro.
 
-## 9. 2026-09-01 实施记录
+## 9. Registro de Implementação de 2026-09-01
 
-本轮已经完成：
+Nesta rodada foi concluído:
 
-- 删除 Renderer 的 Account-first 默认选择和 Family/Plan 推导；失效 Recent 统一回到目标 Host 的 `preferredSelection`；
-- 保留 Selection View revision 驱动的空白 Draft 重水合，已有用户显式选择不会被覆盖；
-- 首次 Remote Environment Provisioning 的 `failed`、`rollback_failed` 与 `unsupported` 现在拒绝连接且不发布 Renderer service port；
-- 已连接 Environment 的后续同步失败保持 Workspace 在线，只记录 Environment、trigger、status、耗时的结构化 warning，等待下一次真实 trigger 重试；
-- 后续失败不新增 Banner、协议状态或持久化错误对象。Target 自由文本不进入 Main 日志，避免临时过渡链路引入凭据泄露面。
+- Remoção da seleção padrão Account-first do Renderer e da derivação de Family/Plan; um Recent inválido
+  volta uniformemente ao `preferredSelection` do Host alvo;
+- Preservação da re-hidratação do Draft em branco orientada pela revision da Selection View, sem
+  sobrescrever a escolha explícita do usuário;
+- `failed`, `rollback_failed` e `unsupported` no primeiro Remote Environment Provisioning agora recusam a
+  conexão e não publicam a service port do Renderer;
+- Falha de sincronização posterior em Environment já conectado mantém o Workspace online e registra
+  apenas um warning estruturado com Environment, trigger, status e duração, aguardando o próximo trigger
+  real para retry;
+- Falhas posteriores não adicionam Banner, estado de protocolo nem objeto de erro persistente. O texto
+  livre do Target não entra no log do Main, evitando que a cadeia de transição temporária introduza uma
+  superfície de vazamento de credenciais.
 
-验证证据：
+Evidências de verificação:
 
-- Model Selection、Provisioning Coordinator 与 Remote Session 定向测试通过；
-- 全量 unit、根 typecheck、lint、Desktop E2E typecheck 与修改文件机械检查均随 Todo 58 的同轮验证通过；
-- 相关正式 Provider/Remote E2E 的既有运行证据保留；本轮新增设置页图形交互 Case 的实际运行受当前 Linux 显示环境阻塞，不将未运行写成通过。
+- Os testes direcionados de Model Selection, Provisioning Coordinator e Remote Session passaram;
+- A unit suite completa, o typecheck da raiz, o lint, o typecheck de E2E de Desktop e a verificação
+  mecânica dos arquivos modificados passaram junto da verificação da mesma rodada do Todo 58;
+- As evidências de execução já existentes dos E2E formais de Provider/Remote são preservadas; a
+  execução real do novo caso de interação gráfica da página de configurações nesta rodada está bloqueada
+  pelo ambiente de display Linux atual, e o que não foi executado não é escrito como aprovado.

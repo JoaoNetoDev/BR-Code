@@ -1,141 +1,141 @@
-# Todo151：Plan 独立状态、输入框标记、Queue 提交字段保真与保存恢复
+# Todo151：estado independente do Plan, marcador na caixa de entrada, fidelidade dos campos de submissão da Queue e salvamento/restauração
 
-状态：执行中。2026-09-15 用户批准补齐讨论并开始实施。本条统一替代 Todo152 的 `prePlanMode` hotfix；文件名保留以兼容已有引用。
+Estado: em execução. Em 2026-09-15 o usuário aprovou completar a discussão e iniciar a implementação. Este item substitui uniformemente o hotfix de `prePlanMode` do Todo152; o nome do arquivo foi mantido para compatibilidade com referências existentes.
 
-## 最新裁决
+## Veredito mais recente
 
-- 用户权限为 `mode: build | edit | yolo`，Plan 单独用 `planEnabled: boolean`；Runtime 内部预留的 `auto` 不借机重构。
-- 权限和 Plan 独立，`yolo + Plan=true` 合法但仍执行现有规划工具限制。批准只关闭 Plan，不恢复／改写权限；新链路不再依赖 `prePlanMode`。
-- Plan 与 Goal 保持互斥。批准继续当前 Turn，不自动发送新用户消息。
-- 不做进入／退出 Plan 的可见历史提示，不为这些提示新增事件类型。运行状态仍需由既有配置同步链路正确送达客户端。
-- 不改系统提示词内容、MCS 传输方式或现有工具能力规则；仅调整已有规划／退出提醒的触发依据。
+- A permissão do usuário é `mode: build | edit | yolo`; o Plan usa separadamente `planEnabled: boolean`; o `auto` reservado internamente pelo Runtime não é reestruturado por causa disso.
+- Permissão e Plan são independentes; `yolo + Plan=true` é legal, mas ainda aplica as restrições existentes de ferramentas de planejamento. A aprovação desliga apenas o Plan, não restaura nem reescreve a permissão; o novo fluxo não depende mais de `prePlanMode`.
+- Plan e Goal permanecem mutuamente exclusivos. A aprovação continua o Turn atual e não envia automaticamente uma nova mensagem de usuário.
+- Não há aviso visível de histórico ao entrar/sair do Plan, e nenhum novo tipo de evento é criado para esses avisos. O estado de execução ainda precisa ser entregue corretamente ao cliente pela cadeia de sincronização de configuração existente.
+- Não se altera o conteúdo do system prompt, a forma de transporte MCS ou as regras existentes de capacidade de ferramentas; apenas se ajusta a base de disparo dos avisos de planejamento/saída já existentes.
 
-## UI 与草稿
+## UI e rascunho
 
-- 选择菜单仍保留四项：“计划”置顶，其下加分隔线，再展示三种权限（权限之间沿用现有顺序）。三种权限选项只修改权限；“计划”项按勾选状态切换：未勾选时开启 Plan，已勾选时再次点击关闭 Plan；不覆盖权限，不另放常驻入口。
-- 标记在权限右侧，以独立的 12px 高竖线分隔，竖线两侧布局间距均为 `gap-1`（4px）；图标与英文“Plan”／中文“计划”组成一个按钮，复用相邻菜单按钮的 ghost 样式、28px 高度、字号和内边距。文字沿用 `@xl/composer` 容器断点，并由工具栏按实际空间统一裁决（先收权限，再收供应商前缀、Computer 和 Plan）：窄宽度仅显示图标，权限和 Plan 两个按钮均为 28×28px 正方形（`size-7 p-0`）；宽度足够时恢复自动宽度和左右内边距，并显示 Plan／计划，整按钮始终可关闭并保留无障碍名称；宽窄态均使用工具栏共享 Tooltip，悬停或键盘聚焦显示“关闭计划模式”／“Turn off Plan mode”。按钮文字和图标统一使用次要前景色（`text-foreground-subtle`），hover 时保持该颜色。默认显示灯泡，hover／键盘聚焦时原位替换为关闭图标，不追加尾部叉号；触控端保留灯泡，点击整个按钮即可关闭 Plan。关闭仅清除草稿 Plan，不修改权限或发起模型请求。遵守 DESIGN.md、主题与国际化。
-- `/plan` 复用开启标记逻辑；权限循环快捷键只循环三种权限，其他 Agent 的模式支持不受影响。
-- 标记不因提交成功、Guide 发送或一轮结束清除。只有用户主动点叉，或本次计划批准已被处理，才关闭对应标记。
-- 拒绝／修改意见不修改草稿：原标记在则保留，用户已叉掉则不能自动补回。一般 Runtime 快照不得持续覆盖草稿。
-- 正文、附件、模型和权限不随审批清理。2026-09-15 用户明确接受简化：前一次批准结果首次到达时仍关闭标记，即使期间重新选择了 Plan；同一工具结果只应用一次。
-- 模型通过 EnterPlanMode 真正进入时，定向开启对应会话的草稿标记；结果首次到达时直接应用，不再收集忽略工具列表、不关联草稿修改版本。一般快照仍不持续覆盖草稿，拒绝／反馈不产生标记转换。
-- 菜单 Plan 为独立选中态，分隔线下的三种权限才是互斥单选。沿用老 staging V4 隐藏 EnterPlanMode 工具行的行为，不因已有“已开启 Plan Mode”组件而重新显示历史提示。
+- O menu de seleção continua com quatro itens: «Plano» no topo, com um separador abaixo, e então as três permissões (mantendo a ordem atual entre as permissões). As três opções de permissão alteram apenas a permissão; o item «Plano» alterna conforme o estado da marcação: quando desmarcado, ativa o Plan; quando marcado, um novo clique desativa o Plan; não sobrescreve a permissão e não ganha uma entrada permanente separada.
+- O marcador fica à direita da permissão, separado por uma linha vertical independente de 12px de altura, com `gap-1` (4px) de espaçamento dos dois lados da linha; o ícone e o texto «Plan»/«计划» formam um único botão, reutilizando o estilo ghost dos botões de menu vizinhos, altura de 28px, tamanho de fonte e padding. O texto segue o breakpoint do contêiner `@xl/composer` e a barra de ferramentas decide de forma unificada conforme o espaço real (primeiro encolhe a permissão, depois o prefixo de provedor, Computer e Plan): em largura estreita só o ícone é exibido e os botões de permissão e de Plan são quadrados de 28×28px (`size-7 p-0`); quando há largura suficiente, voltam a largura automática com padding lateral e exibem Plan/计划, e o botão inteiro sempre pode desligar e mantém um nome acessível; em ambos os estados (estreito e largo) usa o Tooltip compartilhado da barra, mostrando «关闭计划模式»/«Turn off Plan mode» no hover ou no foco por teclado. O texto e o ícone do botão usam uniformemente a cor secundária de primeiro plano (`text-foreground-subtle`), mantida no hover. Exibe por padrão uma lâmpada, substituída no lugar pelo ícone de desligar no hover/foco por teclado, sem acrescentar um X ao final; no toque a lâmpada é mantida e basta clicar em todo o botão para desligar o Plan. Desligar apenas limpa o rascunho de Plan, sem modificar a permissão nem disparar requisição ao modelo. Seguir DESIGN.md, tema e internacionalização.
+- `/plan` reutiliza a lógica de ativação do marcador; o atalho de ciclo de permissão alterna apenas entre as três permissões e o suporte a modos de outros Agents não é afetado.
+- O marcador não é limpo por submissão bem-sucedida, envio pelo Guide ou fim de uma rodada. Ele só é desligado quando o usuário clica ativamente no X, ou quando a aprovação deste plano já foi processada.
+- Rejeição/opiniões de modificação não alteram o rascunho: se o marcador original existir, ele é mantido; se o usuário já o tiver fechado, ele não pode ser reposto automaticamente. Snapshots comuns de Runtime não devem sobrescrever continuamente o rascunho.
+- Corpo, anexos, modelo e permissão não são limpos na aprovação. Em 2026-09-15 o usuário aceitou explicitamente a simplificação: o resultado da aprovação anterior ainda desliga o marcador quando chega pela primeira vez, mesmo que o Plan tenha sido reselecionado nesse intervalo; o mesmo resultado de ferramenta é aplicado apenas uma vez.
+- Quando o modelo realmente entra em Plan via EnterPlanMode, a marcação de rascunho da sessão correspondente é ativada de forma direcionada; quando o resultado chega pela primeira vez ele é aplicado diretamente, sem coletar listas de ferramentas ignoradas e sem associar uma versão da modificação do rascunho. Snapshots comuns ainda não sobrescrevem continuamente o rascunho, e rejeição/feedback não produzem conversão de marcador.
+- O item Plan do menu é um estado de seleção independente; abaixo do separador, as três permissões são uma única escolha mutuamente exclusiva. Mantém-se o comportamento antigo do staging V4 de ocultar a linha da ferramenta EnterPlanMode, sem reexibir o aviso de histórico pelo fato de já existir o componente «已开启 Plan Mode».
 
-## Submission 与 Runtime
-
-```text
-菜单选择权限／Plan 或点叉
-  → 仅更新输入框草稿
-  → 提交时冻结 mode + planEnabled
-  → 普通消息／队列／Guide 实际消费
-  → 分别应用 Runtime 权限与 Plan
-
-接受计划 → Agent 处理批准 → Runtime Plan=false，mode 不变
-                              → 同步清除对应草稿标记
-                              → 继续当前 Turn
-```
-
-- 新 Submission 明确携带两个值。`false` 表示关闭，不能等同字段缺失；旧请求缺字段在兼容入口处理。
-- Guide 不特殊：携带 true 就进入／保持 Plan，携带 false 就退出／保持非 Plan。点叉本身不立即改变执行；后续提交被消费时才应用关闭。
-- 已接纳的队列项保留提交时的状态，不因后来草稿或批准结果被改写。不改队列接纳、消费时机和所有权，不收回已执行操作。
-- Submission、EnterPlanMode、ExitPlanMode 使用统一 Plan 转换逻辑。首次权限判断及参数变化后的重新校验都读取它，避免 yolo 提前放行；保留原有 MCP、记忆文件等特例。
-- Runtime 状态变化与草稿变化是两件事。拒绝沿用现状结束本轮但不主动退出 Plan；修改意见继续规划；两者都不写草稿。批准请求未送达／未被处理不能冒称已批准；不等后续模型请求或整个任务成功才清标记。
-- 已有完整／简短规划提醒改读 `planEnabled`；真正退出时接上已有退出提醒，覆盖 Guide 与工具退出，避免权限已解除但模型仍按旧规划指令工作。提示内容保持不变。
-- 配套修改 SessionModePort、工具状态转换返回类型、Enter/ExitPlanMode 返回 Schema、handler 和消费方；避免状态已经切换却被旧 `mode=plan` 返回校验判为失败。历史工具结果兼容展示，不重写旧结果。
-- 旧请求在接纳边界一次性转换：显式 planEnabled（含 false）优先；仅旧 mode=plan 则开启 Plan 并保留当前基础权限；仅旧非 Plan mode 则按旧语义切权限并关闭 Plan；二者都缺失则固定当前执行状态。队列执行不得重新读取当前状态猜值。
-
-## Queue 提交字段保真：纳入本次实现
-
-2026-09-15 用户确认：修复现有 Queue 字段丢失，作为本条改动的一部分，不另留到后续修复。
-
-- 已定位根因：`product-projection.ts` 的 `onTurnSteerQueued()` 手动构造 QueueItem，遗漏 `mode`、`modelSelection`、`sharedContextRefs`、`provenance`。当前 QueueItem schema 已复用 `ConversationInputIntent`，但字段可选，因此遗漏不会被校验拒绝。队列提升执行又从 QueueItem 重建 intent，导致已提交权限／模型等事实丢失；并非仅影响队列展示。
+## Submission e Runtime
 
 ```text
-Composer 固定本次提交
-  → Command payload → Runtime intent → 待执行输入
-  → QueueItem → 提升执行时的 intent → Runtime 应用
-       全程保留同一份提交事实，不重新读取输入框
+Seleção de permissão／Plan no menu ou clique no X
+  → apenas atualiza o rascunho da caixa de entrada
+  → congela mode + planEnabled na submissão
+  → consumido de fato por mensagem comum／fila／Guide
+  → aplica separadamente a permissão e o Plan do Runtime
+
+Aceitar o plano → Agent processa a aprovação → Runtime Plan=false, mode inalterado
+                              → limpa o marcador de rascunho correspondente
+                              → continua o Turn atual
 ```
 
-- 复用现有公共输入事实及协议适配入口，集中处理 intent 与 QueueItem 的转换；不另造一份嵌套 Submission 协议，也不直接把完整 sendText payload 塞入队列。临时 `modelExecution` 鉴权材料不进入持久化队列。
-- 完整传递现有模型选择、权限、附件／共享上下文引用、来源关联及投递／顺序信息；补齐反向转换中的来源关联。新增 `planEnabled` 必须同时贯穿，明确保留 `false`，不能用 truthy 判断漏掉关闭操作。
-- 排队、原位编辑、重排、自动及手动提升执行均保留未被该操作明确修改的提交字段。只改正文的队列编辑不能清空模型／权限／Plan；不改变队列顺序、接纳／消费时机、命令去重和来源 ID 语义。
-- Queue 修复本身不需要数据库结构迁移。已有缺字段记录走原有兼容处理，不从当前草稿猜回历史选择；与本条 Plan 保存格式评估分开。
-- 普通 Guide 验证其原始 intent 消费路径；请求 Guide 但回退排队时，同样验证 Queue 往返。固定执行模型任务继续限制模型切换，但不能因此跳过本次明确要求应用的权限／Plan 状态，须拆清应用边界而不是删除固定模型保护。
+- A nova Submission carrega explicitamente os dois valores. `false` significa desligado e não pode ser equiparado a campo ausente; requisições antigas sem o campo são tratadas na entrada de compatibilidade.
+- O Guide não é especial: se carregar true, entra/mantém o Plan; se carregar false, sai/mantém o não-Plan. Clicar no X por si só não muda a execução; o desligamento só é aplicado quando a submissão seguinte for consumida.
+- Itens de fila já aceitos preservam o estado no momento da submissão e não são reescritos por rascunhos posteriores ou por resultados de aprovação. Não alteram o momento de aceitação/consumo nem a propriedade da fila, e não收回 operações já executadas.
+- Submission, EnterPlanMode e ExitPlanMode usam uma lógica de transição de Plan unificada. Tanto a primeira verificação de permissão quanto as revalidações após mudança de parâmetros a leem, evitando que o yolo libere cedo; os casos especiais existentes (MCP, arquivos de memória etc.) são preservados.
+- Mudança de estado do Runtime e mudança de rascunho são duas coisas distintas. A rejeção mantém o comportamento atual de encerrar a rodada sem sair ativamente do Plan; opiniões de modificação continuam o planejamento; nenhuma das duas escreve no rascunho. Uma requisição de aprovação não entregue/não processada não pode se dizer aprovada; não se espera uma requisição posterior ao modelo ou o sucesso da tarefa inteira para limpar o marcador.
+- Os lembretes de planejamento completo/resumido já existentes passam a ler `planEnabled`; na saída real o lembrete de saída existente é encadeado, cobrindo a saída pelo Guide e por ferramenta, evitando que a permissão já removida deixe o modelo ainda trabalhando com as instruções antigas de planejamento. O conteúdo dos avisos permanece inalterado.
+- Ajustar em conjunto SessionModePort, o tipo de retorno das transições de estado das ferramentas, o Schema de retorno de Enter/ExitPlanMode, os handlers e os consumidores; evitar que o estado já alternado seja julgado como falha pela validação de retorno de `mode=plan`. Resultados históricos de ferramentas continuam compatíveis na exibição, sem reescrever resultados antigos.
+- Requisições antigas são convertidas uma única vez na fronteira de aceitação: planEnabled explícito (incluindo false) tem precedência; apenas com mode=plan antigo, o Plan é ativado preservando a permissão base atual; apenas com mode antigo não-Plan, a permissão muda pela semântica antiga e o Plan é desligado; se ambos estiverem ausentes, o estado de execução atual é fixado. A execução da fila não pode reler o estado atual para adivinhar valores.
 
-## 持久化：不批量迁移旧数据
+## Fidelidade dos campos de submissão da Queue: incluída nesta implementação
 
-固定旧基线为 `staging_backup @ 790884b1ce4b990583ab40625b5f283e2169eb36`。已核实：`prePlanMode` 仅在内存；默认 `SessionModeChanged` 也是内存事件，不是可依赖的 SQLite 历史。`session.permission.mode` 是创建时写入的信息，`local_setting` 是项目偏好，App `tasks.mode/meta_json` 是任务索引快照；不能把它们混作最新会话状态或进入前权限。
+Em 2026-09-15 o usuário confirmou: corrigir a perda atual de campos da Queue como parte desta alteração, sem deixar para correções posteriores.
 
-- 不扫描回填／重写旧会话，不为转换旧数据新增 migration；在统一读取入口适当兼容旧格式，保留旧字段、旧值及未知内容。
-- 采用现有 session_entry 保存 `runtime/execution_state`，data 为 `{mode, planEnabled}`；同一条记录保存两个值，仅保存 Runtime 已应用状态。创建／实际状态变化时正常写入，不在启动时扫描旧会话回填。session.permission 保留原数据；补齐冷恢复与分支恢复，不拿任务索引或项目偏好覆盖新版会话记录。
-- 旧非 Plan 模式可转为同权限＋Plan=false；旧 Plan 转为 Plan=true，有可靠进入前权限才采用，无信息保守使用 build，不猜完全访问。项目偏好／过时索引不能无条件当原权限。
-- 新旧远端协议不能悄悄丢弃 Plan 再执行；兼容旧请求不等于允许新请求被旧执行端忽略。回滚验证区分“旧版任务／会话可读”与“旧版准确恢复新版 Plan”：本次保证前者及新版恢复，不额外重构旧版本身不完整的 Plan 冷恢复机制，不宣称新记录能让旧程序理解独立 Plan。若旧读取契约要求兼容写入，限于保证内容可读的必要范围并留证据。
-- 会话内容／任务在升级、回滚、再升级时都应可打开，不因新字段缺失异常；不强求恢复旧版未保存的事实。若最终确需新增表／列，另行确认结构 migration 并同步数据库负责人，不擅自扩大本条为旧数据迁移。
-- 本次以零 SQL 结构迁移、零历史批量改写为实施边界。session_input.payload、message/part JSON、任务索引和自动任务启动配置兼容旧 mode=plan，不因新枚举删值导致记录不可读；新输入正常保存新字段。Queue 保真修复不扫描历史补猜。
-- localStorage 草稿与最近选择分别兼容：已有任务旧 Plan 草稿保留规划意图；最近偏好的旧 Plan 不传给另一个新任务。新任务仍默认 Plan=false，缺乏可靠基础权限时保守处理；不得连带清正文或模型。
+- Causa raiz já localizada: `onTurnSteerQueued()` em `product-projection.ts` constrói o QueueItem manualmente e omite `mode`, `modelSelection`, `sharedContextRefs` e `provenance`. O schema atual de QueueItem já reaproveita `ConversationInputIntent`, mas como os campos são opcionais a omissão não é rejeitada na validação. A promoção para execução da fila ainda reconstrói o intent a partir do QueueItem, fazendo com que fatos já submetidos, como permissão/modelo, sejam perdidos; o efeito não se limita à exibição da fila.
 
-## 影响范围与不变量
+```text
+O Composer fixa esta submissão
+  → payload do Command → intent do Runtime → entrada pendente
+  → QueueItem → intent no momento da promoção → aplicação pelo Runtime
+       preserva os mesmos fatos de submissão de ponta a ponta, sem reler a caixa de entrada
+```
 
-- 草稿初始化、保存、切换／刷新、新建预热与首发转移；普通发送、排队、Guide；分享导入等复用新建行为的入口。
-- 共享类型与运行时 schema、命令 admission／输入事实、配置同步与快照、会话恢复和分支恢复；现有 `snapshot.plan` 是待办步骤，禁止复用为模式开关。
-- Goal 双向互斥检查；CLI 旧 Plan 参数；Subagent 权限声明／继承；定时、闲时任务保存及启动参数。保留各入口既有执行与固定模型边界，不顺便重做策略。
-- 桌面、本地／远端 workspace、手机 shared-host 语义一致；保持 desktop-continuous 与 web-remote-replayable 边界，workspaceIdentity 隔离、remoteSessionId 路由和 Runtime 队列权威不变。
-- Provider、模型解析策略、签名、用量与其他 Agent 实现不在改动范围；模型选择仅修复 Queue 传递丢失，不重新裁决默认值或固定模型策略。新任务不继承 Plan，默认关闭；权限继续沿用现有新建任务规则。
+- Reutilizar os fatos de entrada comuns e a entrada de adaptação de protocolo existentes, centralizando o tratamento da conversão entre intent e QueueItem; não criar outro protocolo de Submission aninhado nem enfiar o payload completo de sendText na fila. Material temporário de autenticação de `modelExecution` não entra na fila persistida.
+- Transmitir por completo a seleção de modelo existente, a permissão, os anexos/referências de contexto compartilhado, a associação de origem e as informações de entrega/ordem; completar a associação de origem na conversão inversa. O novo `planEnabled` precisa atravessar tudo isso, preservando explicitamente `false` — não se pode perder a operação de desligamento por um teste de truthiness.
+- Enfileiramento, edição no lugar, reordenação e promoção automática ou manual preservam os campos de submissão não modificados explicitamente por aquela operação. Editar apenas o texto do item da fila não pode limpar modelo/permissão/Plan; a ordem da fila, os momentos de aceitação/consumo, a deduplicação de comandos e a semântica dos IDs de origem não mudam.
+- A correção da Queue em si não exige migração de estrutura do banco. Registros existentes sem os campos passam pelo tratamento de compatibilidade já existente, sem adivinhar a escolha histórica a partir do rascunho atual; isso é separado da avaliação do formato de salvamento do Plan deste item.
+- O Guide comum valida seu caminho original de consumo de intent; quando há requisição de Guide mas o resultado cai em fila, valida-se igualmente o round-trip pela Queue. Tarefas com modelo de execução fixo continuam restringindo a troca de modelo, mas isso não pode fazer o processo pular os estados de permissão/Plan que esta alteração exige aplicar; é preciso separar claramente a fronteira de aplicação em vez de remover a proteção de modelo fixo.
 
-## 验收与实施顺序
+## Persistência: sem migração em massa dos dados antigos
 
-1. 先明确 JSON 保存／兼容方案并更新正式 spec、功能图、会话 case catalog 和覆盖矩阵；纠正功能图中 `/plan` 先切 mode 再发送的旧描述。
-2. 先写测试：Queue 的真实事件投影及提升执行往返，断言模型、mode、planEnabled（含 false）、附件／上下文和来源不丢；覆盖原位编辑、重排、自动／手动提升和 Guide 回退。回归运行中提交 yolo、排队后执行仍按 yolo 检查工具权限，不因字段丢失沿用 build。
-3. 再覆盖三种权限＋Plan；批准、拒绝、反馈、主动点叉；Guide true/false 切换及对应提醒／权限；同值幂等；不依赖模型变化才应用 Plan，包括固定执行模型任务。
-4. 覆盖新建首发、预热、草稿转移、排队冻结、迟到批准首次到达覆盖标记但重复结果不再次应用、旧格式缺字段、冷恢复、分支恢复、回滚可读及权限不被放宽。
-5. 补桌面交互 E2E（含 Plan 置顶、分隔线、三种权限及排队后权限生效）、触控／键盘、主题／国际化，以及手机审批／重连验证；不为测试改系统提示词。旧数据兼容使用隔离 fixture，不操作用户库。
-6. 实现后统一 review，执行 typecheck、lint、架构检查及相关单测／E2E，记录实际结果和未验证环境，再提交。
+A linha de base antiga foi fixada em `staging_backup @ 790884b1ce4b990583ab40625b5f283e2169eb36`. Verificado: `prePlanMode` existe apenas em memória; o `SessionModeChanged` padrão também é um evento em memória, não um histórico SQLite confiável. `session.permission.mode` é informação escrita na criação, `local_setting` é preferência do projeto e `tasks.mode/meta_json` do App é um snapshot do índice de tarefas; não podem ser misturados como estado mais recente da sessão nem como permissão anterior.
 
-验收须同时覆盖 `yolo + Plan=false` 排队后正确应用权限，以及 `yolo + Plan=true` 仍有规划限制和计划审批；不能把“yolo 无需审批”泛化到 Plan。
+- Não varrer, preencher novamente nem reescrever sessões antigas, e não adicionar migration para converter dados antigos; no ponto de leitura unificado se acomoda o formato antigo de forma compatível, preservando campos, valores e conteúdos desconhecidos.
+- Usar o session_entry existente para salvar `runtime/execution_state`, com data `{mode, planEnabled}`; o mesmo registro guarda os dois valores, e apenas o estado já aplicado pelo Runtime. A gravação ocorre normalmente na criação e em mudanças reais de estado, sem varrer sessões antigas no startup para preenchimento. `session.permission` mantém os dados originais; completar a restauração fria e a restauração de branch, sem deixar o índice de tarefas ou as preferências do projeto sobrescreverem o registro novo da sessão.
+- Modos antigos não-Plan podem ser convertidos para a mesma permissão + Plan=false; o Plan antigo vira Plan=true, usando a permissão anterior apenas quando confiável e, sem informação, usando build de forma conservadora, sem adivinhar acesso total. Preferências do projeto / índices desatualizados não podem servir incondicionalmente como a permissão original.
+- O protocolo remoto novo/velho não pode descartar silenciosamente o Plan e ainda assim executar; compatibilizar requisições antigas não equivale a permitir que uma requisição nova seja ignorada por um executor antigo. Na verificação de rollback, distinguir «tarefa/sessão antiga legível» de «recuperação precisa do Plan novo pela versão antiga»: esta entrega garante o primeiro item e a recuperação da versão nova, sem reestruturar o mecanismo já incompleto de recuperação fria do Plan da versão antiga, e sem alegar que o registro novo faz o programa antigo entender o Plan independente. Se o contrato de leitura antigo exigir compatibilidade de escrita, limitar-se ao necessário para a legibilidade do conteúdo e deixar evidência.
+- O conteúdo da sessão/tarefa deve continuar abrível em upgrade, rollback e novo upgrade, sem falhar por ausência de campos novos; não se exige restaurar fatos que a versão antiga não salvou. Se ao final for realmente necessária uma nova tabela/coluna, confirmar a migration de estrutura separadamente e alinhar com o responsável pelo banco, sem ampliar esta幸好 para uma migração de dados antigos.
+- desta vez a fronteira de implementação é zero migration de estrutura SQL e zero reescrita em massa de histórico. `session_input.payload`, o JSON de message/part, o índice de tarefas e a configuração de inicialização de tarefas automáticas são compatíveis com o antigo mode=plan, sem que a remoção de valores do novo enum torne registros ilegíveis; novas entradas salvam normalmente os campos novos. A correção de fidelidade da Queue não varre o histórico para adivinhar.
+- localStorage de rascunho e de seleção recente são compatíveis separadamente: um rascunho antigo de Plan em tarefa existente preserva a intenção de planejamento; um Plan antigo nas preferências recentes não é passado para outra tarefa nova. Tarefas novas continuam com Plan=false por padrão, com tratamento conservador quando não há permissão base confiável; isso não pode limpar junto o corpo nem o modelo.
 
-## 实施记录（2026-09-15，仍执行中，未完整验收）
+## Escopo de impacto e invariantes
 
-已落地到本地工作区：
+- Inicialização, salvamento, troca/atualização, pré-aquecimento e transição de lançamento de rascunhos; envio comum, enfileiramento, Guide; entrada de importação por compartilhamento e outras entradas que reutilizam o comportamento de criação.
+- Tipos compartilhados e schema de runtime, admissão de comandos/fatos de entrada, sincronização de configuração e snapshot, restauração de sessão e de branch; o `snapshot.plan` existente é um passo pendente e não pode ser reutilizado como interruptor de modo.
+- Verificação de exclusividade mútua do Goal; parâmetros antigos de Plan da CLI; declaração/herança de permissão do Subagent; salvamento e argumentos de inicialização de tarefas agendadas e ociosas. Preservar as fronteiras existentes de execução e de modelo fixo de cada entrada, sem refazer as políticas por conta própria.
+- Semântica consistente entre desktop, workspace local/remoto e shared-host do celular; manter os limites desktop-continuous e web-remote-replayable, o isolamento por workspaceIdentity, o roteamento por remoteSessionId e a autoridade da fila do Runtime inalterados.
+- Provider, estratégia de resolução de modelo, assinatura, consumo e outras implementações de Agent estão fora do escopo; a seleção de modelo apenas corrige a perda na passagem pela Queue, sem redecidir padrões nem a estratégia de modelo fixo. Novas tarefas não herdam Plan e começam desligadas por padrão; as permissões continuam seguindo as regras existentes de criação de tarefa.
 
-- 共享执行状态解析、权限与 Plan 分离、普通输入／Guide 消费、固定模型分支的权限应用。
-- Queue 投影与提升保留 Submission 中的模型、权限、Plan（含 false）、共享上下文和来源。
-- Enter／Exit 工具、首次与再次权限校验、提醒触发；不修改现有提示词正文。
-- Composer 四项菜单、独立标记、草稿保存、新任务不继承 Plan；工具转换的定向同步初版。
-- session_entry 正常保存／冷恢复，不加 SQL 结构或批量回填；历史分支的 entry 与提示消息使用同一历史状态。
-- Subagent 在继承 Plan 时保留父基础权限，不改变 Explore 与显式权限声明的既有分支。
-- 新 Host 与实际 CLI 的独立 Plan 能力确认，避免旧端剥掉字段后按完全访问执行。
-- V4 Goal 创建／恢复的互斥检查；已增加失败测试后实现。
+## Aceitação e ordem de implementação
 
-实际验证：
+1. Primeiro definir o esquema de salvamento/compatibilidade em JSON e atualizar o spec formal, o mapa de funcionalidades, o case catalog de sessões e a matriz de cobertura; corrigir no mapa de funcionalidades a descrição antiga de que `/plan` primeiro troca o mode e depois envia.
+2. Primeiro escrever testes: a projeção real de eventos da Queue e o round-trip da promoção para execução, afirmando que modelo, mode, planEnabled (incluindo false), anexos/contexto e origem não se perdem; cobrir edição no lugar, reordenação, promoção automática/manual e fallback de fila do Guide. Na regressão, submeter yolo em execução e, após o enfileiramento, continuar verificando a permissão de ferramenta conforme yolo, sem voltar a build por perda de campo.
+3. Depois cobrir as três permissões + Plan; aprovar, rejeitar, dar feedback, clicar ativamente no X; alternância true/false do Guide e os avisos/permissões correspondentes; idempotência de mesmo valor; aplicação de Plan sem depender de mudança de modelo, incluindo tarefas com modelo de execução fixo.
+4. Cobrir lançamento de tarefa nova, pré-aquecimento, transição de rascunho, congelamento na fila, aprovação atrasada cuja primeira chegada sobrescreve o marcador mas cujo resultado repetido não reaplica, formato antigo sem campos, restauração fria, restauração de branch, legibilidade em rollback e permissão não afrouxada.
+5. Complementar com E2E de interação do desktop (incluindo Plan no topo, separador, três permissões e permissão valendo após o enfileiramento), toque/teclado, tema/internacionalização, e verificação de aprovação/reconexão no celular; não alterar o system prompt para os testes. A compatibilidade com dados antigos usa fixture isolado, sem tocar no banco do usuário.
+6. Depois da implementação, fazer uma revisão unificada, executar typecheck, lint, checagem de arquitetura e os testes unitários/E2E relevantes, registrar os resultados reais e os ambientes não verificados, e então commitar.
 
-- Core 相关 9 文件、324 项通过（含真实 Runtime 的 Guide、持久化、分支和 Subagent 执行）。
-- Bootstrap 相关 5 文件、113 项通过（Queue 与原生命令）。
-- UI／草稿／分享／审批回执／服务端能力检查相关 8 文件、55 项通过；另有共享解析与传输测试通过，计数有重叠，不累计成总覆盖率。
-- 根 typecheck、CLI contracts/core/bootstrap 类型检查通过；根 lint 0 error、42 warning。
-- 根 lint 默认排除 CLI；另用无忽略配置对本条 CLI 文件运行 oxlint，0 error，不能当作全 CLI lint 已覆盖。
-- architecture:check --changed 为 0 violation，git diff --check 通过。
-- 曾运行更大范围 Core／Bootstrap 套件，有其他失败尚未全部与 HEAD 对照；不能声明全部为基线问题或全量回归通过。
-- 桌面 E2E 已增加并尝试运行，但 Electron 在 ChromeDriver 建立 session 时退出，测试正文尚未执行；不计为通过。手机、触控与重连也未实测。
+A aceitação precisa cobrir simultaneamente que `yolo + Plan=false` enfileirado aplica a permissão corretamente e que `yolo + Plan=true` ainda tem restrições de planejamento e aprovação de plano; não se pode generalizar «yolo não precisa de aprovação» para o Plan.
 
-完整验收前仍须完成（用户后续要求先推送并建 MR，不代表验收完成）：
+## Registro da implementação (2026-09-15, ainda em execução, sem aceitação completa)
 
-1. 定向草稿同步已按最新裁决简化（见下方记录）；进程重启后未收到的工具通知恢复仍须单独验证，不以普通 Runtime 状态强制覆盖已有草稿。
-2. 复核旧 Goal 控制入口与 V4 互斥的一致性，以及新旧端／回滚读取的权限边界。
-3. 补齐审批／拒绝／反馈／手动叉、Queue Guide 权限实际生效、手机重连等交互验收；当前仅新增菜单 E2E 不能代表整条链路覆盖。
-4. E2E 必须在 MacBook Pro 执行；之前 Electron 启动失败来自 Linux 工作区，不是 Pro。当前已转到 Pro 隔离副本执行，下方记录本次范围；其余交互验收和全量失败归因仍待完成。
+Entregue no workspace local:
 
-2026-09-15 用户要求先推送并新建 MR：按评审草稿交付，保留本条未完整验收状态。保留开工前用户已有的其他改动，不把本条实现标为完整交付。
+- Parsing do estado de execução compartilhado, separação entre permissão e Plan, consumo de entrada comum/Guide, aplicação de permissão no branch de modelo fixo.
+- Projeção da Queue e promoção preservando modelo, permissão, Plan (incluindo false), contexto compartilhado e origem da Submission.
+- Ferramentas Enter/Exit, primeira e segunda verificação de permissão, disparo dos avisos; sem modificar o corpo dos prompts existentes.
+- Menu de quatro itens no Composer, marcador independente, salvamento de rascunho, tarefa nova não herdando Plan; primeira versão da sincronização direcionada das conversões de ferramenta.
+- Salvamento normal/restauração fria via session_entry, sem SQL estrutural nem preenchimento em massa; entry de branches históricos e mensagens de aviso usam o mesmo estado histórico.
+- Subagent preserva a permissão base do pai ao herdar o Plan, sem alterar os branches existentes de Explore e de declaração explícita de permissão.
+- Confirmação da capacidade de Plan independente do novo Host em relação à CLI real, evitando que o lado antigo remova os campos e execute com acesso total.
+- Verificação de exclusividade mútua na criação/restauração de Goal na V4; testes de falha foram adicionados antes da implementação.
 
-### 草稿同步简化与 Pro 验证（2026-09-15）
+Verificações reais:
 
-- 已按用户确认删除 `ignoredPlanToolCallIds`、消息窗口工具 ID 收集及相关 hook 参数。
-- 新工具转换直接赋值 `planEnabled`；保留 `lastPlanTransitionId`，同一结果重复快照不再应用。
-- 已验证进入／退出首次到达覆盖手动改选、已批准后重新开启不被同一回放再清除、无转换不改草稿；4 文件 23 项通过。
-- typecheck、lint（0 error，42 warning）、E2E 类型检查、审批 fixture check 与架构检查通过。
-- E2E 转到专用 MacBook Pro（Darwin）的隔离副本 `/Users/dev/Desktop/projects/Z.AI/todo151-pro.hGJ5yI/repo`；不使用 Pro 原工作区及真实用户数据。
-- 实际审批用例新增进入／批准前后 Plan 标记变化与 yolo 不变的断言。Pro 已完成依赖安装、CLI 与 Electron 构建，并实际运行测试正文。
-- 复跑排查并修正测试同步：Plan 标记更新先于 DropdownMenu 关闭动画完成，测试须等旧菜单卸载再打开；种子会话标题请求异步发出，空 `/plan` 的请求计数须先等该标题请求。均不改产品逻辑或提示词。
-- Pro 最终运行 `desktop-e2e-20260915070056792-p63678-7820fb061f2b3987`：3 个 spec、6 项全通过（独立标记／权限／叉号 1 项，工具进入与批准同步 1 项，`/plan` 4 项），使用真实 Electron 与 CLI、模型 fixture 回放，不代表线上供应商请求验证。
-- 推送前受影响单测补齐旧断言：草稿兼容读取应拆成基础 mode 与 planEnabled，普通提交显式携带 false，`/plan` 提交携带 true；菜单测试改为验证 Dropdown 的权限单选、Plan 独立勾选及焦点恢复，不再 mock 已移除的旧组件。不改变产品代码或旧格式 fixture。
-- 产物位于上述 Pro 副本的 `packages/desktop/.e2e-artifacts/desktop-e2e-20260915070056792-p63678-7820fb061f2b3987/`。仅确认本次简化及这 6 项交互，Todo151 整体仍未完整验收；手机重连、完整 Queue／Guide 等待补，推送 MR 不代表这些项目已通过。
+- 9 arquivos de Core relacionados, 324 itens passando (incluindo Guide com Runtime real, persistência, branch e execução de Subagent).
+- 5 arquivos de Bootstrap relacionados, 113 itens passando (Queue e comandos nativos).
+- 8 arquivos relacionados a UI/rascunho/compartilhamento/recibo de aprovação/checagem de capacidade do servidor, 55 itens passando; há também testes compartilhados de parsing e transporte passando, com contagem sobreposta, e portanto não somados como cobertura total.
+- typecheck da raiz e verificações de tipo de CLI contracts/core/bootstrap passando; lint da raiz com 0 error e 42 warning.
+- O lint da raiz exclui a CLI por padrão; foi executado oxlint com uma configuração sem ignoras nos arquivos de CLI deste item, com 0 error, o que não pode ser tomado como lint completo da CLI coberto.
+- `architecture:check --changed` com 0 violation; `git diff --check` passando.
+- Foram executadas suítes de Core/Bootstrap mais amplas, com outras falhas ainda não comparadas em sua totalidade com o HEAD; não se pode declarar que todas são problema de baseline nem que a regressão completa passou.
+- O E2E de desktop foi adicionado e tentou rodar, mas o Electron saiu ao estabelecer a sessão no ChromeDriver, e o corpo dos testes não chegou a executar; não conta como aprovado. Celular, toque e reconexão também não foram testados na prática.
+
+O que ainda falta antes da aceitação completa (a 요구 posterior do usuário de primeiro fazer push e abrir MR não representa aceitação completa):
+
+1. A sincronização direcionada de rascunho foi simplificada conforme o veredito mais recente (ver registro abaixo); a restauração de notificações de ferramenta não recebidas após reinício do processo ainda precisa ser verificada separadamente, sem forçar sobrescrita de um rascunho existente por um estado comum de Runtime.
+2. Revisar a consistência entre a entrada antiga de controle de Goal e a exclusividade mútua da V4, além das fronteiras de permissão na leitura por lados novo/velho e em rollback.
+3. Completar a aceitação de interação de aprovação/rejeição/feedback/X manual, permissão real via Guide da Queue, reconexão do celular etc.; atualmente apenas o E2E de menu foi adicionado e ele não representa a cobertura de toda a cadeia.
+4. O E2E precisa ser executado no MacBook Pro; a falha anterior de inicialização do Electron veio do workspace Linux, não do Pro. A execução foi transferida para uma cópia isolada no Pro, e o registro abaixo cobre esse escopo; as demais aceitações de interação e a atribuição total das falhas seguem pendentes.
+
+Em 2026-09-15 o usuário pediu para primeiro fazer push e abrir o MR: entregar conforme o rascunho de revisão, mantendo este item com estado de aceitação incompleta. Preservar as outras alterações que o usuário já tinha antes do início e não marcar esta implementação como entrega completa.
+
+### Simplificação da sincronização de rascunho e verificação no Pro (2026-09-15)
+
+- Conforme confirmado pelo usuário, foram removidos `ignoredPlanToolCallIds`, a coleta de IDs de ferramenta na janela de mensagens e os parâmetros de hook relacionados.
+- A nova conversão de ferramenta atribui `planEnabled` diretamente; `lastPlanTransitionId` foi mantido, de modo que o mesmo resultado em um snapshot repetido não é reaplicado.
+- Verificado que a primeira chegada ao entrar/sair sobrescreve a seleção manual, que reativar após a aprovação não é limpo novamente pelo mesmo replay e que a ausência de conversão não altera o rascunho; 4 arquivos, 23 itens passando.
+- typecheck, lint (0 error, 42 warning), checagem de tipos do E2E, verificação de fixture de aprovação e checagem de arquitetura passando.
+- O E2E foi transferido para uma cópia isolada em um MacBook Pro dedicado (Darwin), em `/Users/dev/Desktop/projects/Z.AI/todo151-pro.hGJ5yI/repo`; não são usados o workspace original do Pro nem dados reais do usuário.
+- O caso de aprovação real ganhou asserções de mudança do marcador de Plan antes/depois da aprovação e de yolo inalterado. No Pro foram concluídos a instalação de dependências, o build da CLI e do Electron, e a execução real do corpo dos testes.
+- Na investigação de reexecução foram corrigidas sincronizações de teste: a atualização do marcador de Plan ocorre antes de a animação de fechamento do DropdownMenu terminar, então o teste precisa esperar a desmontagem do menu antigo antes de reabrir; a requisição assíncrona do título da sessão semente é enviada, e a contagem de requisições de `/plan` vazio precisa esperar antes essa requisição de título. Nada disso altera a lógica do produto ou os prompts.
+- A execução final no Pro foi `desktop-e2e-20260915070056792-p63678-7820fb061f2b3987`: 3 specs, 6 itens, todos passando (1 de marcador independente/permissão/X, 1 de entrada por ferramenta e sincronização da aprovação, 4 de `/plan`), usando Electron e CLI reais e replay de fixture de modelo, o que não representa verificação de requisições reais de provedores.
+- Antes do push, os testes unitários afetados completaram as asserções antigas: a leitura compatível do rascunho deve ser dividida em mode básico e planEnabled, a submissão comum deve carregar false explicitamente e a submissão de `/plan` deve carregar true; os testes de menu passaram a verificar o radio de permissão do Dropdown, a marcação independente de Plan e a restauração de foco, sem mockar o componente antigo removido. Sem alterar código de produto nem fixtures de formato antigo.
+- Os artefatos ficam na cópia do Pro em `packages/desktop/.e2e-artifacts/desktop-e2e-20260915070056792-p63678-7820fb061f2b3987/`. Foi confirmada apenas esta simplificação e esses 6 itens de interação; o Todo151 como um todo continua sem aceitação completa; reconexão de celular e o Queue/Guide completo seguem pendentes, e o push do MR não representa que esses itens passaram.

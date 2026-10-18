@@ -1,99 +1,99 @@
-# 插件 Hooks 兼容规范
+# Especificação de compatibilidade de Hooks de Plugin
 
-## 背景
+## Contexto
 
-ZCode 已经支持官方插件、inline 插件、skills、commands、MCP server 和插件级 hooks。以 `superpowers` 为代表的现有插件通常把启动上下文注入写在 `hooks/hooks.json`，并使用 shell command hook、插件根目录变量和 `SessionStart` 的 `additionalContext` 输出。
+O ZCode já suporta plugins oficiais, plugins inline, skills, commands, MCP server e hooks em nível de plugin. Plugins existentes, representados por `superpowers`, normalmente escrevem a injeção do contexto de inicialização em `hooks/hooks.json` e usam shell command hooks, variáveis do diretório raiz do plugin e a saída `additionalContext` do `SessionStart`.
 
-本规范定义 ZCode 对插件 hooks 的兼容边界，目标是让 `.zcode-plugin/plugin.json` 插件成为一等形态，同时兼容 Claude / Codex 插件 manifest 的发现顺序。
+Esta especificação define a fronteira de compatibilidade do ZCode para hooks de plugin, com o objetivo de tornar `.zcode-plugin/plugin.json` uma forma de primeira classe, mantendo compatibilidade com a ordem de descoberta de manifests de plugins Claude / Codex.
 
-## Manifest 发现顺序
+## Ordem de descoberta do Manifest
 
-插件根目录按以下顺序查找 manifest：
+O manifest é procurado na raiz do plugin na seguinte ordem:
 
 1. `.zcode-plugin/plugin.json`
 2. `.claude-plugin/plugin.json`
 3. `.codex-plugin/plugin.json`
 
-`.zcode-plugin` 始终优先；当外部插件同时包含 Claude 与 Codex manifest 时，Claude manifest 优先于 Codex manifest。这个顺序用于读取插件元数据、skills / commands / MCP / hooks 声明和插件 id。
+`.zcode-plugin` sempre tem prioridade; quando um plugin externo contém simultaneamente manifest do Claude e do Codex, o manifest do Claude tem prioridade sobre o do Codex. Essa ordem é usada para ler os metadados do plugin, as declarações de skills / commands / MCP / hooks e o id do plugin.
 
-## Hooks 发现
+## Descoberta de Hooks
 
-启用插件后，ZCode 在插件发现阶段收集插件 hooks，并把它们合并进 runtime hooks：
+Após habilitar um plugin, o ZCode coleta os hooks do plugin na etapa de descoberta de plugins e os mescla nos runtime hooks:
 
-### 信任边界
+### Fronteira de confiança
 
-- 插件 Hook 与插件本身共用启停状态；禁用插件后，新 session 不再注入其 Hook，设置页仍只读展示声明。
-- 当前已启用的第三方 marketplace 插件与官方插件一样可执行 `command` shell Hook，且子进程继承
-  Agent 进程环境。这意味着“启用插件”同时授予其执行本地命令和读取继承环境变量的能力。
-- 当前版本没有独立的 Hook trust 开关或逐插件 Hook 授权。安装来源、插件代码审查和插件启停是
-  现有安全边界；后续若引入 workspace trust，必须在 runtime 注入前统一拦截，不能只在设置页隐藏。
+- O Hook do plugin compartilha o estado de ativação do próprio plugin; após desabilitar o plugin, novas sessions não injetam mais seu Hook, e a página de configurações continua exibindo apenas em modo leitura as declarações.
+- Plugins de marketplace de terceiros atualmente habilitados podem executar shell Hooks `command`, assim como plugins oficiais, e o subprocesso herda o
+  ambiente do processo do Agent. Isso significa que "habilitar o plugin" também concede a ele a capacidade de executar comandos locais e de ler as variáveis de ambiente herdadas.
+- A versão atual não possui um interruptor de confiança de Hook independente nem autorização de Hook por plugin. A origem da instalação, a revisão do código do plugin e a ativação/desativação do plugin são as
+  fronteiras de segurança existentes; caso o workspace trust seja introduzido no futuro, ele deve ser aplicado de forma uniforme antes da injeção no runtime, e não apenas escondido na página de configurações.
 
-- 自动读取标准位置 `hooks/hooks.json`。
-- 读取 manifest 中的 `hooks` 字段作为补充；支持相对 JSON 文件路径、inline hooks 对象或二者数组。
-- `hooks/hooks.json` 使用 `{ "description"?: string, "hooks": { ... } }` 包装结构。
-- manifest inline hooks 直接使用 `{ "SessionStart": [...] }` 结构。
-- 标准 `hooks/hooks.json` 自动加载；manifest 不应重复指向同一个文件，重复时记录诊断并跳过。
-- 只加载当前 ZCode runtime 支持的 hook event；未知 event 记录 warning，不阻断插件加载。
+- Leitura automática do local padrão `hooks/hooks.json`.
+- Leitura do campo `hooks` do manifest como complemento; são suportados caminhos relativos de arquivo JSON, objetos de hooks inline ou um array com ambos.
+- `hooks/hooks.json` usa a estrutura wrapper `{ "description"?: string, "hooks": { ... } }`.
+- Hooks inline do manifest usam diretamente a estrutura `{ "SessionStart": [...] }`.
+- O `hooks/hooks.json` padrão é carregado automaticamente; o manifest não deve apontar novamente para o mesmo arquivo — em caso de duplicata, um diagnóstico é registrado e o arquivo é ignorado.
+- Somente hook events suportados pelo runtime atual do ZCode são carregados; events desconhecidos geram warning e não bloqueiam o carregamento do plugin.
 
-插件 hooks 只在插件启用后进入 runtime。用户/项目 hooks 先执行，插件 hooks 后执行。不同插件的 hook 去重必须带上插件根目录，避免多个插件使用 `${ZCODE_PLUGIN_ROOT}` 或 `${CLAUDE_PLUGIN_ROOT}` 模板时互相覆盖。
+Hooks de plugin só entram no runtime depois que o plugin é habilitado. Hooks de usuário/projeto são executados primeiro, hooks de plugin depois. A deduplicação de hooks entre plugins distintos precisa incluir a raiz do plugin, para evitar que múltiplos plugins usando os templates `${ZCODE_PLUGIN_ROOT}` ou `${CLAUDE_PLUGIN_ROOT}` se sobrescrevam.
 
-## Hook 类型
+## Tipos de Hook
 
-ZCode 保留现有 `process` hook，并新增兼容 `command` hook：
+O ZCode mantém o hook `process` existente e adiciona compatibilidade com o hook `command`:
 
-- `process`：argv 形式，`command` 是可执行文件，`args` 是参数数组。
-- `command`：shell string 形式，`command` 交给系统 shell 执行。
+- `process`: forma argv, `command` é o executável e `args` é o array de argumentos.
+- `command`: forma de string de shell, `command` é entregue ao shell do sistema para execução.
 
-`command` hook 支持字段：
+O hook `command` suporta os campos:
 
 - `command: string`
-- `timeout?: number`，单位秒，兼容 Claude hook 配置。
-- `timeoutMs?: number`，单位毫秒，ZCode 内部优先使用。
+- `timeout?: number`, em segundos, compatível com a configuração de hooks do Claude.
+- `timeoutMs?: number`, em milissegundos, usado internamente pelo ZCode com prioridade.
 - `statusMessage?: string`
 - `async?: boolean`
 
-`async: true` 使用 fire-and-forget 语义：runtime 启动命令后立即继续，不读取其 stdout 决策，
-因此后台 hook 不能阻断、修改工具输入或注入上下文；完成和失败仍发出 hook lifecycle event。
+`async: true` usa semântica de fire-and-forget: o runtime inicia o comando e continua imediatamente, sem ler o stdout dele para decisão,
+portanto um hook em segundo plano não pode bloquear, modificar entradas de ferramentas nem injetar contexto; conclusão e falha ainda emitem hook lifecycle events.
 
-## 插件变量
+## Variáveis do Plugin
 
-插件 hook 子进程注入以下环境变量：
+O subprocesso de um hook de plugin recebe as seguintes variáveis de ambiente injetadas:
 
-- `ZCODE_PLUGIN_ROOT`：当前插件安装根目录。
-- `ZCODE_PLUGIN_DATA`：当前插件持久化数据目录。
-- `ZCODE_PLUGIN_ID`：`<name>@<marketplace>`。
-- `ZCODE_PLUGIN_NAME`：插件 manifest name。
+- `ZCODE_PLUGIN_ROOT`: raiz de instalação do plugin atual.
+- `ZCODE_PLUGIN_DATA`: diretório de dados persistentes do plugin atual.
+- `ZCODE_PLUGIN_ID`: `<name>@<marketplace>`.
+- `ZCODE_PLUGIN_NAME`: name do manifest do plugin.
 
-为兼容现有插件，同时注入并替换：
+Para compatibilidade com plugins existentes, as seguintes também são injetadas e substituídas:
 
 - `CLAUDE_PLUGIN_ROOT`
 - `CLAUDE_PLUGIN_DATA`
 
-命令字符串中的 `${ZCODE_PLUGIN_ROOT}`、`${ZCODE_PLUGIN_DATA}`、`${CLAUDE_PLUGIN_ROOT}`、`${CLAUDE_PLUGIN_DATA}` 在执行前替换为对应路径。替换值来自插件发现阶段解析出的 root / data path，不从用户环境读取。
+`${ZCODE_PLUGIN_ROOT}`, `${ZCODE_PLUGIN_DATA}`, `${CLAUDE_PLUGIN_ROOT}` e `${CLAUDE_PLUGIN_DATA}` em strings de comando são substituídos pelos caminhos correspondentes antes da execução. Os valores substituídos vêm do root / data path resolvidos na etapa de descoberta do plugin, e não do ambiente do usuário.
 
-## Hook stdin 兼容字段
+## Campos de compatibilidade no stdin do Hook
 
-ZCode runtime 内部继续使用 camelCase `HookInput` 作为主契约；插件 hook 子进程收到的
-stdin 必须额外带上 Claude Marketplace 常用 snake_case alias，保证只读旧字段的脚本可
-以运行，同时不破坏 ZCode 自身字段：
+O runtime do ZCode continua usando internamente o `HookInput` em camelCase como contrato principal; o stdin recebido pelo subprocesso de um hook de plugin
+precisa trazer adicionalmente os aliases snake_case comuns do Claude Marketplace, garantindo que scripts que só leem campos antigos possam
+executar sem quebrar os campos próprios do ZCode:
 
-| ZCode 字段       | Claude 兼容 alias | 适用事件                                                                  | 说明                                      |
-| ---------------- | ----------------- | ------------------------------------------------------------------------- | ----------------------------------------- |
-| `hookEventName`  | `hook_event_name` | 全部事件                                                                  | 已有兼容字段，继续保留。                  |
-| `sessionId`      | `session_id`      | 全部事件                                                                  | 已有兼容字段，继续保留。                  |
-| `toolName`       | `tool_name`       | `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure` | 无损 alias。                              |
-| `toolInput`      | `tool_input`      | `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure` | 无损 alias，保持原始输入结构。            |
-| `toolCallId`     | `tool_use_id`     | `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure` | 无损 alias，使用当前 ZCode tool call id。 |
-| `toolResponse`   | `tool_response`   | `PostToolUse`                                                             | 成功工具的完整结构化输出。                |
-| `isInterrupt`    | `is_interrupt`    | `PostToolUseFailure`                                                      | 标记错误是否由中断产生。                  |
-| `transcriptPath` | `transcript_path` | 全部事件                                                                  | 当前 session 的临时 transcript 文件路径。 |
+| Campo do ZCode  | Alias compatível com Claude | Eventos aplicáveis                                                            | Descrição                                          |
+| --------------- | --------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------- |
+| `hookEventName` | `hook_event_name`           | Todos os eventos                                                               | Campo de compatibilidade já existente, mantido.  |
+| `sessionId`     | `session_id`                | Todos os eventos                                                               | Campo de compatibilidade já existente, mantido.  |
+| `toolName`      | `tool_name`                 | `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure`       | Alias sem perdas.                                 |
+| `toolInput`     | `tool_input`                | `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure`       | Alias sem perdas, preserva a estrutura original da entrada. |
+| `toolCallId`    | `tool_use_id`               | `PreToolUse` / `PermissionRequest` / `PostToolUse` / `PostToolUseFailure`       | Alias sem perdas, usa o tool call id atual do ZCode. |
+| `toolResponse`  | `tool_response`             | `PostToolUse`                                                                  | Saída estruturada completa da ferramenta bem-sucedida. |
+| `isInterrupt`   | `is_interrupt`              | `PostToolUseFailure`                                                           | Indica se o erro foi produzido por uma interrupção. |
+| `transcriptPath` | `transcript_path`          | Todos os eventos                                                               | Caminho do arquivo de transcript temporário da session atual. |
 
-`PostToolUse` 同时保留 ZCode 的 `toolResultPreview`，但 Claude 兼容脚本必须读取完整
-`tool_response`；preview 不能替代完整结构化结果。`PostToolUseFailure.error` 对外固定为字符串。
+`PostToolUse` também mantém o `toolResultPreview` do ZCode, mas scripts compatíveis com o Claude devem ler o
+`tool_response` completo; o preview não substitui o resultado estruturado completo. `PostToolUseFailure.error` é sempre uma string para fora.
 
-## Hook 输出
+## Saída do Hook
 
-ZCode 继续支持标准 `hookSpecificOutput`：
+O ZCode continua suportando o `hookSpecificOutput` padrão:
 
 ```json
 {
@@ -104,53 +104,54 @@ ZCode 继续支持标准 `hookSpecificOutput`：
 }
 ```
 
-为兼容其他插件运行时，同时接受：
+Para compatibilidade com outros runtimes de plugin, também são aceitos:
 
-- top-level `additionalContext`
-- Cursor hooks 输出格式的 `additional_context`
+- `additionalContext` no nível superior
+- `additional_context` no formato de saída de hooks do Cursor
 
-这两个字段会被归一化为当前 hook event 的 `additionalContext`，再注入到 runtime 的 `hook_context` system reminder。
+Esses dois campos são normalizados para o `additionalContext` do hook event atual e, em seguida, injetados no system reminder `hook_context` do runtime.
 
-## Claude Code 工具兼容
+## Compatibilidade de ferramentas com Claude Code
 
-ZCode 兼容 Claude Code 插件时，工具名转换必须落在结构化 runtime 层，而不是给单个插件追加提示文本：
+Quando o ZCode é compatível com plugins do Claude Code, a conversão de nomes de ferramentas precisa acontecer na camada estruturada do runtime, e não por meio de acréscimo de textos de prompt a plugins individuais:
 
-- `Task` 作为 Claude Code 兼容工具名暴露，底层委托 ZCode `Agent` subagent handler；两者共享 schema、权限能力、结果预算和后台任务语义。
-- 未配置 subagent port 时，`Agent` 与 `Task` 都不注册；子 agent 禁止递归 subagent 时，`Agent` 与 `Task` 都从可用工具列表中过滤。
-- tool hook stdin 中的 `toolName` 保持实际工具名；hook matcher 使用兼容 alias 匹配，`Agent` 可命中 `Task` matcher，`Task` 也可命中 `Agent` matcher。
-- 若 `ApplyPatch` 重新启用，hook matcher 可兼容 Claude Code 插件的 `Write` / `Edit` matcher，但不改变实际 toolName。
+- `Task` é exposto como nome de ferramenta compatível com Claude Code, delegando por baixo ao subagent handler `Agent` do ZCode; ambos compartilham schema, capacidades de permissão, orçamento de resultado e semântica de tarefas em segundo plano.
+- Quando não há subagent port configurado, nem `Agent` nem `Task` são registrados; quando subagents têm recursão proibida, `Agent` e `Task` são ambos filtrados da lista de ferramentas disponíveis.
+- O `toolName` no stdin de tool hooks mantém o nome real da ferramenta; o hook matcher usa aliases compatíveis, de modo que `Agent` pode casar com o matcher `Task` e `Task` também pode casar com o matcher `Agent`.
+- Caso o `ApplyPatch` seja reabilitado, o hook matcher pode ser compatível com os matchers `Write` / `Edit` de plugins do Claude Code, sem alterar o toolName real.
 
-Subagent 兼容的完整边界见 `docs/subagent-compatibility.md`。
+A fronteira completa de compatibilidade de subagents está em `docs/subagent-compatibility.md`.
 
-## 内置 Superpowers
+## Superpowers embutido
 
-`superpowers` 作为官方内置插件发布：
+`superpowers` é distribuído como plugin oficial embutido:
 
-- 使用 `.zcode-plugin/plugin.json` 作为主 manifest。
-- 默认关闭；用户显式启用后才向 runtime 注入 skills/hooks。
-- 提供 `skills/` 与 `hooks/hooks.json`。
-- `SessionStart` hook 在 `startup|clear|compact` 时注入 `using-superpowers` 上下文。
-- ZCode 不对 Superpowers `SessionStart` 输出追加专用工具映射；`Task` / `Agent` 兼容由通用工具注册与 hook matcher alias 层负责，因此外部 `.claude-plugin` 形态的 Superpowers 不需要修改原插件文件。
+- Usa `.zcode-plugin/plugin.json` como manifest principal.
+- Desabilitado por padrão; skills/hooks só são injetados no runtime depois que o usuário o habilita explicitamente.
+- Fornece `skills/` e `hooks/hooks.json`.
+- O hook `SessionStart` injeta o contexto `using-superpowers` em `startup|clear|compact`.
+- O ZCode não acrescenta um mapeamento de ferramentas dedicado à saída de `SessionStart` do Superpowers; a compatibilidade `Task` / `Agent` fica a cargo do registro geral de ferramentas e da camada de alias de hook matcher, de modo que a forma externa `.claude-plugin` do Superpowers não precisa modificar os arquivos originais do plugin.
 
-Superpowers 的 plugin skills 同时支持裸名和 fully qualified alias。模型上下文优先展示 `superpowers:<skill>`，裸名只作为兼容 alias 保留。
+Os plugin skills do Superpowers suportam tanto o nome simples quanto o alias totalmente qualificado. O contexto do modelo exibe preferencialmente `superpowers:<skill>`, e o nome simples é mantido apenas como alias de compatibilidade.
 
-官方插件打包路径必须同时覆盖 CLI SEA 和 Electron desktop runtime bundle，管理页与 runtime 的默认启用策略保持一致。
-官方插件 seed 到用户缓存时必须保留 executable bit；`hooks/` 下的可执行 wrapper/script 不能被落盘成 `0644`，否则 macOS/Linux 会在 `SessionStart` 直接执行时报 `permission denied`。
+O caminho de empacotamento dos plugins oficiais deve cobrir ao mesmo tempo o CLI SEA e o runtime bundle do Electron desktop, mantendo a política padrão de habilitação da página de gerenciamento e do runtime consistente.
 
-## 验证
+Ao fazer seed dos plugins oficiais no cache do usuário, o executable bit precisa ser preservado; wrappers/scripts executáveis sob `hooks/` não podem ser gravados como `0644`, senão macOS/Linux apresentarão `permission denied` já na execução do `SessionStart`.
 
-实现完成后必须覆盖：
+## Verificação
 
-- `.zcode-plugin`、`.claude-plugin`、`.codex-plugin` manifest 优先级。
-- `hooks/hooks.json` 自动加载。
-- manifest `hooks` 文件和 inline hooks 合并。
-- `command` hook 通过 shell 执行，并收到 ZCode / Claude 兼容环境变量。
-- `SessionStart` 的 `additionalContext` 注入到 `hook_context`。
-- `Task` 工具作为 Claude Code 兼容 alias 可调度 ZCode subagent。
-- `Agent` / `Task` hook matcher alias 互通，hook input 保留实际工具名。
-- `superpowers` official plugin 默认关闭；显式启用后暴露 skills/hooks。
-- `Skill(skill="superpowers:test-driven-development")` 可加载 Superpowers 技能，裸名仍可用。
-- Superpowers `SessionStart` 不再被注入专用 ZCode 工具映射。
-- official plugin 缓存中的 `hooks/run-hook.cmd` 等 hook wrapper 保持可执行。
+Após a implementação, é obrigatório cobrir:
+
+- Prioridade entre os manifests `.zcode-plugin`, `.claude-plugin` e `.codex-plugin`.
+- Carregamento automático de `hooks/hooks.json`.
+- Mesclagem de arquivo `hooks` do manifest e hooks inline.
+- Hook `command` executado via shell, recebendo as variáveis de ambiente compatíveis do ZCode / Claude.
+- Injeção do `additionalContext` do `SessionStart` em `hook_context`.
+- A ferramenta `Task`, como alias compatível com Claude Code, consegue agendar um subagent do ZCode.
+- Interoperabilidade de aliases de hook matcher entre `Agent` / `Task`, e o hook input preserva o nome real da ferramenta.
+- O plugin oficial `superpowers` vem desabilitado por padrão; após habilitação explícita, expõe skills/hooks.
+- `Skill(skill="superpowers:test-driven-development")` carrega a skill do Superpowers, e o nome simples continua disponível.
+- O `SessionStart` do Superpowers não recebe mais um mapeamento de ferramentas ZCode dedicado injetado.
+- Hook wrappers como `hooks/run-hook.cmd` no cache de plugins oficiais continuam executáveis.
 - `pnpm typecheck`
 - `pnpm lint`

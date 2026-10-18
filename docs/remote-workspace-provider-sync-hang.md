@@ -1,170 +1,170 @@
-# 远程 workspace 选目录卡死：RPC 永久 pending 毒化 provider 同步 in-flight 缓存
+# Travamento ao selecionar diretório em workspace remoto: RPC permanentemente pending envenena o cache de sincronização in-flight do provider
 
-> 事故取证 + 修复设计。对应分支 `fix/ssh-hang-2`。
-> 事故版本：3.8.1（commit `99f955e2`）；取证材料：用户日志包 `zcode-logs-full-20260821-100852-ssh-hang`（2026-08-21，本地时区 UTC+8）。
-> Provider Refactor 已整体删除涉案的 Registry 同步功能，因此本文只描述 3.8.1 事故和通用 RPC
-> dispose 不变量，不再适用于当前 Provider 架构。历史符号和日志原样保留用于取证。
+> Forensics do incidente + design da correção. Ramo correspondente `fix/ssh-hang-2`.
+> Versão do incidente: 3.8.1 (commit `99f955e2`); material de forensics: pacote de logs do usuário `zcode-logs-full-20260821-100852-ssh-hang` (2026-08-21, fuso local UTC+8).
+> O Provider Refactor removeu por completo a funcionalidade de sincronização do Registry envolvida no caso, portanto este documento descreve apenas o incidente da 3.8.1 e o invariante genérico de dispose de RPC,
+> e não se aplica mais à arquitetura atual de Provider. Símbolos históricos e logs são mantidos como estão para forensics.
 
-## 0. 修复分析结论（速览）
+## 0. Conclusão da análise de correção (visão rápida)
 
-**结论：confirmed —— 根因已确认，修复方案就绪。**
+**Conclusão: confirmed —— a causa raiz foi confirmada e a solução de correção está pronta.**
 
-- **问题本质**：被违反的不变量是「远程 scope 的每一次 RPC 调用，要么收到回包，要么在其传输载体终结时以错误 settle」。`ChannelClient` 在传输死亡时对挂起请求既不 fail 也不 close（`packages/rpc/src/channelClient.ts:233-242` 的 `dispose()` 不 reject pending），模块级 in-flight 缓存（`packages/ui/src/lib/remoteWorkspaceProviderSync.ts:245-248`）把一次永久 pending 放大为该 workspaceKey 所有后续打开全部静默挂死。这与 r1 架构文档已声明的契约直接冲突（`docs/architecture/r1-single-window-host-refactor.md` L109「旧 generation 的异步结果不得覆盖新连接」、L232「换代 fail-closed」）——属实现未兑现既有设计契约，不需要新的产品决策。
-- **证据**：09:57:44 `updateProviderRegistry` 已达远端后 0.3 秒连接关闭且 host 无完成记录（对照当天 11 条正常 `OK/FAIL (~2s)`）；10:01 受害流程在快照读取后零后续、同连接文件 RPC 秒级成功（排除传输故障）；`unregisterRemoteWorkspaceSession` 只清理已 bind 的 key 而 sync 先于 bind（中毒残留有代码路径级解释）；红信号断言 6 项两次通过。详见 §2。
-- **影响范围**：3.8.1 全量、SSH/WSL/Docker 通用；连接死于 provider 同步窗口即毒化该 workspaceKey，向导/侧栏重连/历史入口全部挂死，仅重启 app 可解。隔离论证：手机 `web-remote-replayable` 的 bridge session 不注入 disposer（store 改动对其 no-op）；`remote.ts` 重连走 `replaceSocket` 不触发 dispose（重放语义不变）；不触碰 `@zcode/protocol` 与持久化格式。
-- **推荐修复**（最小完整变更，两点缺一不可，详见 §4）：
-  1. **A1** `ChannelClient.dispose(reason?)` reject 全部挂起的 Promise 请求（5 处生产 dispose 调用点已逐一审计，全部是连接终结路径）；
-  2. **A2** renderer 侧补上传输终结出口：`messageport.ts` 新 helper 返回 `{services, dispose}`，`RemoteWorkspaceSession` 增可选 `dispose`，store 在 unregister/换代替换时调用，desktop 注册时注入并复用错误码 `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`。
-  - 已否决：加超时（掩盖症状、与慢链路冲突、违背"不堆兜底"准则）；仅清 in-flight map（当次流程仍挂死）；仅修 host 侧（回包路径与 attachment 同时断的竞态会漏掉 renderer 挂起）。
-- **为什么风险最低**：在不变量的所有权边界（RPC 客户端）修复，上层 sync/向导/重连的既有 catch 路径原样接管（它们本就为 rejection 设计）；`call()` 在 disposed 后本就 reject，A1 只是让 in-flight 与之一致，无 API 语义分叉；dispose 可选注入使 web/手机端零变化；无协议、无持久化、无 UI 变更；单 commit 可整体回滚。
-- **验证与剩余风险**：回归测试复刻 09:57→10:01 中毒场景（修复前必须失败），邻域单测 + 门禁 + E2E 候选见 §5；剩余风险（teardown 期 rejection 可见化、服务端早退未闭合）见 §6。
+- **Natureza do problema**: o invariante violado é «toda chamada RPC em escopo remoto ou recebe uma resposta ou faz settle com erro quando seu veículo de transporte é encerrado». O `ChannelClient`, quando o transporte morre, nem faz fail nem close das requisições pendentes (o `dispose()` em `packages/rpc/src/channelClient.ts:233-242` não rejeita as pendentes), e o cache in-flight de nível de módulo (`packages/ui/src/lib/remoteWorkspaceProviderSync.ts:245-248`) amplifica um único pending permanente em um travamento silencioso de todas as aberturas seguintes daquela workspaceKey. Isso conflita diretamente com o contrato já declarado no documento de arquitetura r1 (`docs/architecture/r1-single-window-host-refactor.md` L109 «resultados assíncronos da generation antiga não podem sobrescrever a nova conexão», L232 «troca de generation é fail-closed») — trata-se de uma implementação que não honrou um contrato de design já existente, e não de uma nova decisão de produto.
+- **Evidências**: às 09:57:44, `updateProviderRegistry` já havia chegado ao remoto e, 0,3 segundo depois, a conexão foi fechada sem registro de conclusão no host (comparado às 11 ocorrências normais `OK/FAIL (~2s)` do mesmo dia); às 10:01, o fluxo vítima ficou sem nenhuma atividade após a leitura do snapshot, enquanto RPCs de arquivo na mesma conexão concluíam em segundos (o que exclui falha de transporte); `unregisterRemoteWorkspaceSession` só limpa keys já bound, enquanto o sync ocorre antes do bind (a residência envenenada tem explicação em nível de caminho de código); 6 asserções de sinal vermelho passaram duas vezes. Detalhes em §2.
+- **Escopo de impacto**: 3.8.1 integral, SSH/WSL/Docker de forma geral; uma conexão que morre na janela de sincronização do provider envenena aquela workspaceKey, travando o assistente por completo, a reconexão pela barra lateral e a entrada via histórico, e só reiniciar o app resolve. Argumento de isolamento: a bridge session do celular `web-remote-replayable` não injeta disposer (a mudança no store é no-op para ela); a reconexão em `remote.ts` passa por `replaceSocket` e não dispara dispose (a semântica de replay permanece inalterada); não há toque em `@zcode/protocol` nem no formato de persistência.
+- **Correção recomendada** (mudança mínima completa, os dois pontos são indispensáveis, detalhes em §4):
+  1. **A1** `ChannelClient.dispose(reason?)` rejeita todas as Promise de requisição pendentes (os 5 pontos de chamada de dispose em produção foram auditados um a um, e todos são caminhos de encerramento de conexão);
+  2. **A2** no lado renderer, adiciona-se a saída de encerramento de transporte: novo helper em `messageport.ts` retornando `{services, dispose}`, `RemoteWorkspaceSession` ganha um `dispose` opcional, o store o chama no unregister/substituição de generation, e no desktop a injeção ocorre no registro reutilizando o código de erro `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`.
+  - Já rejeitados: adicionar timeout (mascara o sintoma, conflita com enlaces lentos, viola o princípio de «não acumular fallbacks»); apenas limpar o mapa in-flight (o fluxo da vez ainda fica travado); corrigir apenas o lado host (a corrida em que o caminho de resposta e o attachment caem ao mesmo tempo deixaria pendências no renderer de fora).
+- **Por que é o de menor risco**: corrigir na fronteira de propriedade do invariante (o cliente RPC) faz com que os caminhos de catch já existentes de sync/assistente/reconexão assumam como antes (eles já foram desenhados para rejection); `call()` já rejeita após o dispose, e A1 apenas torna o in-flight consistente com isso, sem bifurcar a semântica da API; a injeção opcional de dispose mantém web/mobile com zero mudanças; sem protocolo, sem persistência, sem mudança de UI; um único commit permite rollback integral.
+- **Verificação e riscos residuais**: o teste de regressão reproduz o cenário de envenenamento das 09:57→10:01 (deve falhar antes da correção); testes unitários de vizinhança + portões + candidatos a E2E em §5; riscos residuais (visibilização de rejection no teardown, saída antecipada do servidor não fechada) em §6.
 
-## 1. 症状
+## 1. Sintoma
 
-用户经远程连接向导连接 SSH 项目（`demo@203.0.113.10:22`），第 4 步「选择目录」中连接成功、目录列表正常显示，点击「选择目录」后按钮永久停在「加载中...」（`selecting=true`），持续 7 分钟以上直到用户提交反馈。关闭弹窗重试同样卡死；只有重启 app 才能恢复。
+O usuário se conecta a um projeto SSH (`demo@203.0.113.10:22`) pelo assistente de conexão remota. Na etapa 4, «选择目录», a conexão tem sucesso e a lista de diretórios aparece normalmente, mas, ao clicar em 「选择目录」, o botão fica permanentemente em 「加载中...」 (`selecting=true`) por mais de 7 minutos, até o usuário abrir um feedback. Fechar o diálogo e tentar de novo trava igualmente; só reiniciar o app recupera.
 
-## 2. 取证结论（已确认）
+## 2. Conclusões de forensics (confirmadas)
 
-### 2.1 事件链
+### 2.1 Cadeia de eventos
 
 ```
-09:57:20  旧实例退出，新实例(pid 92739)启动
-09:57:34  自动重连 demo  requestId=733d0a9a → remoteSessionId=dde16ff8
-09:57:43.914  bind workspace context (/home/demo)
+09:57:20  instância antiga sai, nova instância(pid 92739) inicia
+09:57:34  reconexão automática demo  requestId=733d0a9a → remoteSessionId=dde16ff8
+09:57:43.914  bind do contexto do workspace (/home/demo)
 09:57:43.937  getProviderRegistrySnapshot OK
-09:57:44.03   updateProviderRegistry 发出 ──► 远端已收到并开始处理
+09:57:44.03   updateProviderRegistry emitido ──► remoto já recebeu e começou a processar
                 （[remote pid 561744] "为只读会话控制面启动 ZCode agent"、
                  "开始请求 workspace/updateProviderRegistry"、agent started）
-09:57:44.499  ✗ 连接关闭（stream.onClose 路径 = 远端 zcode-server 进程退出，
-              无 backend-disconnect 详情）──► 回包永不可达
-              ├─ ChannelClient 不 reject 挂起请求 → updateProviderRegistry Promise 永久 pending
-              ├─ syncTask 永久 pending，滞留在模块级 remoteWorkspaceAppGlobalSyncInFlight
-              │  （key = remote:ssh:203.0.113.10:22:demo:/home/demo）
-              └─ unregisterRemoteWorkspaceSession 只按"已 bind 的 key"清理；
-                 该 session 死于 bind store 映射之前 → 清到 0 个 → 【中毒残留】
-10:00:00  用户移除该条目（setting 写入 + credential.delete）
-10:00:58  用户经向导重连  requestId=28bf1fee → remoteSessionId=afb4e4d9
-10:01:22.875  握手成功(3.8.1) → 第 4 步；10:01:23.6 目录列表加载正常
-10:01:25.95≈  用户点「选择目录」(/home/demo)
-10:01:25.972  file.resolvePath OK (22.1ms)   ← 新连接完全健康
-10:01:25.973  bind OK（attachment 04fe4b07 换代为 36c16718）
+09:57:44.499  ✗ conexão fechada (caminho stream.onClose = processo zcode-server remoto encerrou,
+              sem detalhe de backend-disconnect)──► resposta nunca alcançável
+              ├─ ChannelClient não rejeita requisições pendentes → Promise de updateProviderRegistry permanentemente pending
+              ├─ syncTask permanentemente pending, retido no remoteWorkspaceAppGlobalSyncInFlight de nível de módulo
+              │  (key = remote:ssh:203.0.113.10:22:demo:/home/demo)
+              └─ unregisterRemoteWorkspaceSession só limpa por "keys já bound";
+                 a session morreu antes do mapeamento do bind store → limpa 0 → 【residência envenenada】
+10:00:00  o usuário remove a entrada (escrita de setting + credential.delete)
+10:00:58  o usuário reconecta pelo assistente  requestId=28bf1fee → remoteSessionId=afb4e4d9
+10:01:22.875  handshake bem-sucedido(3.8.1) → etapa 4; 10:01:23.6 lista de diretórios carrega normalmente
+10:01:25.95≈  o usuário clica em 「选择目录」(/home/demo)
+10:01:25.972  file.resolvePath OK (22.1ms)   ← nova conexão totalmente saudável
+10:01:25.973  bind OK (attachment 04fe4b07 substituído por 36c16718)
 10:01:25.994  getProviderRegistrySnapshot OK (0.6ms)
-              ──► await 中毒的 09:57 in-flight Promise → 【永久挂起】
-              （updateProviderRegistry 从未发出：远端零接收日志；
-               commit 从未执行：10:04:25 的 lastWorkspaceSession 写入不含 demo；
-               tab 从未创建；无任何报错）
-10:08:10  用户打开反馈 → 10:08:43 工单创建 → 10:08:52 导出日志
+              ──► await da Promise envenenada de 09:57 → 【travamento permanente】
+              （updateProviderRegistry nunca foi emitido: zero logs de recebimento no remoto;
+               o commit nunca executou: a escrita lastWorkspaceSession das 10:04:25 não contém demo;
+               a tab nunca foi criada; nenhum erro reportado）
+10:08:10  o usuário abre o feedback → 10:08:43 o ticket é criado → 10:08:52 os logs são exportados
 ```
 
-### 2.2 判定依据（事实）
+### 2.2 Base da conclusão (fatos)
 
-- 正常完成的对照：当天 09:04–09:35 共 11 条 `zcode-session.updateProviderRegistry OK/FAIL (~2s)` host 完成记录；09:57 与 10:01 两次均无完成记录。
-- 卡死窗口（10:01:26 → 10:08:52）内：零 `zcode-session/zcode-task` RPC 完成、零 `[remote]` 日志、零 demo 持久化——6 项红信号断言两次运行全部通过。
-- 卡死期间同一连接上 `file.readdir`（147ms）、`file.resolvePath`（22ms）秒级成功 → 排除传输层故障。
-- renderer 侧「先注册 store 新 services、后 ACK」（`packages/desktop/src/renderer/src/main.tsx` `registerRemoteWorkspaceServicePort`，v3.8.1 同序）→ 排除"发到已换代的死端口"。
+- Controle de conclusão normal: entre 09:04–09:35 do mesmo dia houve 11 registros de conclusão do host `zcode-session.updateProviderRegistry OK/FAIL (~2s)`; tanto 09:57 quanto 10:01 não têm registro de conclusão.
+- Dentro da janela de travamento (10:01:26 → 10:08:52): zero conclusões de RPC `zcode-session/zcode-task`, zero logs `[remote]`, zero persistência de demo — as 6 asserções de sinal vermelho passaram integralmente nas duas execuções.
+- Durante o travamento, `file.readdir` (147ms) e `file.resolvePath` (22ms) na mesma conexão concluíram em segundos → falha da camada de transporte fica excluída.
+- No lado renderer, «registra os novos services no store antes do ACK» (`packages/desktop/src/renderer/src/main.tsx` `registerRemoteWorkspaceServicePort`, mesma ordem na v3.8.1) → «envio para a porta morta de uma generation já substituída» fica excluído.
 
-### 2.3 复发面
+### 2.3 Superfície de recorrência
 
-08-21 当天 27 次 bind：4 次 `updateProviderRegistry FAIL`（~2s 完成、用户可见报错，非本缺陷）；1 次确认级中毒+卡死（本事件）；另一个旧实例 的 09:32:00 / 09:37:04 两次 bind 无完成记录（疑似同型，推断级）。该服务器当天反复掉线（00:34–00:55 对 /home/demo 有 8 次重 bind），属高危触发环境。
+No dia 08-21 houve 27 binds: 4 `updateProviderRegistry FAIL` (~2s de conclusão, erro visível ao usuário, não é este defeito); 1 envenenamento confirmado + travamento (este evento); e dois binds das 09:32:00 / 09:37:04 de outra instância antiga sem registro de conclusão (provavelmente do mesmo tipo, nível de inferência). O servidor ficou se desconectando repetidamente ao longo do dia (8 rebinds de /home/demo entre 00:34–00:55), o que caracteriza um ambiente gatilho de alto risco.
 
-### 2.4 未知（客户端侧无法闭合）
+### 2.4 Desconhecidos (não fecháveis pelo lado do cliente)
 
-远端 zcode-server 在启动后 ~1 秒退出的原因（历史记录同型："远程连接已断开 exitCode=0"）。需要远端机器 `~/.zcode/server` 日志或系统日志定性；这是触发器，不是根因。
+O motivo pelo qual o zcode-server remoto encerra cerca de 1 segundo após iniciar (histórico do mesmo tipo: "远程连接已断开 exitCode=0"). São necessários os logs de `~/.zcode/server` da máquina remota ou logs do sistema para caracterizar; isso é o gatilho, não a causa raiz.
 
-## 3. 根因分层
+## 3. Camadas da causa raiz
 
-| 层级                 | 定性                                                                                                                                             | 位置                                                                                                                                                                                                           |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 触发器               | 远端 zcode-server 启动后即退（环境/服务端，本修复不处理）                                                                                        | 203.0.113.10                                                                                                                                                                                                  |
-| **根因（设计缺陷）** | RPC 挂起请求在传输终结时永不 settle：`dispose()` 不 reject pending，`send` 失败静默吞掉，全链路无超时                                            | `packages/rpc/src/channelClient.ts:233-242`                                                                                                                                                                    |
-| 放大器               | 模块级 in-flight 缓存把"一次永久 pending"放大为"该 workspaceKey 的所有后续打开全部挂死"（跨连接、跨向导/重连入口）                               | `packages/ui/src/lib/remoteWorkspaceProviderSync.ts:68-76,245-248`                                                                                                                                             |
-| 清理盲区             | `unregisterRemoteWorkspaceSession` 只清理已 bind 的 workspaceKey；sync 先于 bind（选目录与重连两条流程皆然），死于 sync 中的 session 无 key 可清 | `packages/ui/src/store/remoteWorkspaceSessionStore.ts:133-148`；流程顺序见 `packages/ui/src/root/useRemoteWorkspaceHistory.ts:582-597`、`packages/ui/src/root/reconnectRemoteWorkspaceHistoryEntry.ts:161-182` |
-| 症状载体             | `selecting` 永不复位 → 按钮永久「加载中...」；重连流程同理（spinner 永挂、finally 不执行）                                                       | `packages/ui/src/SSHDialog.tsx:372-416`、`packages/ui/src/RemoteConnectionDialogContent.tsx:486-497`                                                                                                           |
+| Camada                  | Qualificação                                                                                                                                        | Local                                                                                                                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gatilho                 | O zcode-server remoto encerra logo após iniciar (ambiente/servidor, não tratado por esta correção)                                                     | 203.0.113.10                                                                                                                                                                                                  |
+| **Causa raiz (defeito de design)** | Requisições RPC pendentes nunca fazem settle quando o transporte é encerrado: `dispose()` não rejeita as pendentes, a falha de `send` é engolida em silêncio e não há timeout em toda a cadeia | `packages/rpc/src/channelClient.ts:233-242`                                                                                                                                                                    |
+| Amplificador            | O cache in-flight de nível de módulo amplifica «um pending permanente» em «todas as aberturas seguintes daquela workspaceKey travadas» (através de conexões e das entradas de assistente/reconexão) | `packages/ui/src/lib/remoteWorkspaceProviderSync.ts:68-76,245-248`                                                                                                                                             |
+| Zona cega de limpeza    | `unregisterRemoteWorkspaceSession` só limpa workspaceKeys já bound; o sync ocorre antes do bind (tanto no fluxo de escolha de diretório quanto no de reconexão), e uma session que morre durante o sync não tem key para limpar | `packages/ui/src/store/remoteWorkspaceSessionStore.ts:133-148`; ordem do fluxo em `packages/ui/src/root/useRemoteWorkspaceHistory.ts:582-597`、`packages/ui/src/root/reconnectRemoteWorkspaceHistoryEntry.ts:161-182` |
+| Veículo do sintoma      | `selecting` nunca é resetado → o botão fica permanentemente em 「加载中...」; o fluxo de reconexão se comporta do mesmo modo (spinner preso para sempre, o finally não executa) | `packages/ui/src/SSHDialog.tsx:372-416`、`packages/ui/src/RemoteConnectionDialogContent.tsx:486-497`                                                                                                           |
 
-### 被违反的不变量
+### O invariante violado
 
-`docs/architecture/r1-single-window-host-refactor.md` 已声明：
+`docs/architecture/r1-single-window-host-refactor.md` já declara:
 
-- L109：「连接取消、late completion、重复 dispose 必须幂等；**旧 generation 的异步结果不得覆盖新连接**」
-- L232：「Host generation 换代继续 **fail-closed**」
+- L109: «cancelamento de conexão, late completion e dispose repetido devem ser idempotentes; **resultados assíncronos da generation antiga não podem sobrescrever a nova conexão**»
+- L232: «a troca de generation do Host continua **fail-closed**»
 
-当前实现对死亡传输上的挂起请求既不 fail 也不 close——**悬置**。修复即在 RPC 客户端这一所有权边界上把"悬置"改为"fail-closed"：
+A implementação atual nem faz fail nem close das requisições pendentes sobre um transporte morto — **suspensão**. A correção é trocar «suspensão» por «fail-closed» na própria fronteira de propriedade do cliente RPC:
 
-> **不变量：远程 scope 的每一次 RPC 调用，要么收到对端回包，要么在其传输载体（attachment MessagePort / SSH stream）终结时以错误 settle。**
+> **Invariante: toda chamada RPC em escopo remoto ou recebe a resposta do par, ou faz settle com erro quando seu veículo de transporte (MessagePort do attachment / stream SSH) é encerrado.**
 
-## 4. 修复设计（最小完整变更）
+## 4. Design da correção (mudança mínima completa)
 
-两个改动点恢复同一条不变量，缺一不可（只修 host 侧会因"回包路径与 attachment 同时断"的竞态而漏掉 renderer 侧挂起；只清 in-flight map 无法解除当次流程自身的挂死）。
+Os dois pontos de mudança restauram o mesmo invariante, e ambos são indispensáveis (corrigir só o lado host deixaria de fora as pendências no renderer por causa da corrida em que o caminho de resposta e o attachment caem juntos; limpar apenas o mapa in-flight não libera o travamento do próprio fluxo da vez).
 
-### 4.1 A1 — `ChannelClient.dispose()` reject 全部挂起的 Promise 请求
+### 4.1 A1 — `ChannelClient.dispose()` rejeita todas as Promise de requisição pendentes
 
-`packages/rpc/src/channelClient.ts`：
+`packages/rpc/src/channelClient.ts`:
 
-- 新增 `pendingRejections: Map<number, (err: Error) => void>`，在 `requestPromise` 入口登记（**不是**在 `doRequest` 内——覆盖 dispose 早于 Initialize 的排队请求），请求 settle 时随 `handlers.delete(id)` 一并删除。
-- `dispose(reason?: Error)`：逐一 reject（默认 `new Error("ChannelClient disposed")`，`name="ConnectionClosed"`）。签名向后兼容 `IDisposable`。
-- 事件监听 handler（`requestEvent` 注册的 emitter）不在 reject 范围内——`handlers` map 混存两类，必须用独立 map 区分。
-- `call()` 在 disposed 后本就返回 reject（`channelClient.ts:42-44`），本改动使 in-flight 语义与其一致。
+- Novo `pendingRejections: Map<number, (err: Error) => void>`, registrado na entrada de `requestPromise` (**não** dentro de `doRequest` — isso cobre as requisições enfileiradas quando o dispose ocorre antes do Initialize), removido junto com `handlers.delete(id)` quando a requisição faz settle.
+- `dispose(reason?: Error)`: rejeita uma a uma (por padrão `new Error("ChannelClient disposed")`, com `name="ConnectionClosed"`). A assinatura permanece compatível com `IDisposable`.
+- O handler de escuta de eventos (o emitter registrado por `requestEvent`) está fora do escopo da rejeição — o map `handlers` mistura os dois tipos, e é preciso um map separado para diferenciá-los.
+- `call()` já retorna reject após o dispose (`channelClient.ts:42-44`); esta mudança apenas torna a semântica in-flight consistente com isso.
 
-**dispose 调用点审计**（全部为连接终结路径，reject 语义正确）：
+**Auditoria dos pontos de chamada de dispose** (todos são caminhos de encerramento de conexão, com semântica de rejeição correta):
 
-| 调用点                                                         | 场景                                                                                                        |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `packages/server/src/remote/connect.ts:247`（`beginDisposal`） | host↔远端连接终结（本事故 09:57:44 即此路径）→ 顺带解除 host 侧代理 handler 悬置                            |
-| `packages/rpc/src/ipc.ts:138-139`                              | IPCServer 检测到 client 断开                                                                                |
-| `packages/rpc/src/ipc.ts:259-260`、`305-306`                   | IPCServer / IPCClient 整体销毁                                                                              |
-| `packages/rpc/src/remote.ts:325`                               | 重连客户端最终销毁（注意：中途重连走 `replaceSocket` 复用同一 ChannelClient，不触发 dispose，重放语义不变） |
+| Ponto de chamada                                                    | Cenário                                                                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `packages/server/src/remote/connect.ts:247`（`beginDisposal`）        | encerramento da conexão host↔remoto (às 09:57:44 deste incidente foi exatamente este caminho) → resolve de quebra a suspensão dos handlers proxy no lado host |
+| `packages/rpc/src/ipc.ts:138-139`                                     | IPCServer detecta desconexão do client                                                                       |
+| `packages/rpc/src/ipc.ts:259-260`、`305-306`                          | destruição completa de IPCServer / IPCClient                                                                   |
+| `packages/rpc/src/remote.ts:325`                                      | destruição final do client reconectado (atenção: uma reconexão no meio do caminho usa `replaceSocket` e reaproveita o mesmo ChannelClient, sem disparar dispose; a semântica de replay permanece inalterada) |
 
-### 4.2 A2 — renderer 侧 remote session 换代/注销时终结旧传输
+### 4.2 A2 — no lado renderer, encerrar o transporte antigo na substituição/desregistro da remote session
 
-现状：`connectViaMessagePort`（`packages/client/src/messageport.ts:20-29`）创建的 `ChannelClient` 与 `MessagePortProtocol` 无人持有、无释放出口；attachment 换代或 session 关闭后旧 client 永远悬置（`MessagePortProtocol.disconnect()` 已存在但无人调用，`packages/rpc/src/protocol.ts:391-396`）。
+Situação atual: o `ChannelClient` e o `MessagePortProtocol` criados por `connectViaMessagePort` (`packages/client/src/messageport.ts:20-29`) não são mantidos por ninguém e não têm saída de liberação; depois que o attachment é substituído ou a session é fechada, o client antigo fica suspenso para sempre (`MessagePortProtocol.disconnect()` já existe, mas ninguém o chama, `packages/rpc/src/protocol.ts:391-396`).
 
-- `packages/client/src/messageport.ts`：新增导出 `createMessagePortServiceConnection(port): { services: IServiceAccessor; dispose(reason?: Error): void }`，dispose = `client.dispose(reason)` + `protocol.disconnect()`。保留 `connectViaMessagePort` 供窗口生命周期的 base services 使用（不释放，非目标）。
-- `packages/ui/src/store/remoteWorkspaceSessionStore.ts`：`RemoteWorkspaceSession` 增加可选 `dispose?: (reason?: Error) => void`；`unregisterSession` 与 `registerSession`（同 sessionId 替换且对象不同——即换代）时调用**被移除条目**的 dispose。依赖注入，store 不接触传输实现。
-- `packages/desktop/src/renderer/src/main.tsx` `registerRemoteWorkspaceServicePort`：改用新 helper 并把 disposer 注入注册；reject reason 携带既有规范错误码 `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`（`packages/ui/src/lib/remoteWorkspaceServiceError.ts:1-2`；`channelClient.ts:84-97` 的 `code` 透传路径已存在），与"断连代理"对后续调用的报错保持同码。
+- `packages/client/src/messageport.ts`: nova exportação `createMessagePortServiceConnection(port): { services: IServiceAccessor; dispose(reason?: Error): void }`, com dispose = `client.dispose(reason)` + `protocol.disconnect()`. Mantém `connectViaMessagePort` para os base services do ciclo de vida da janela (sem liberação, não é o alvo).
+- `packages/ui/src/store/remoteWorkspaceSessionStore.ts`: `RemoteWorkspaceSession` ganha um `dispose?: (reason?: Error) => void` opcional; `unregisterSession` e `registerSession` (substituição com o mesmo sessionId e objeto diferente — ou seja, troca de generation) chamam o dispose da **entrada removida**. Injeção de dependência: o store não toca na implementação de transporte.
+- `packages/desktop/src/renderer/src/main.tsx` `registerRemoteWorkspaceServicePort`: passa a usar o novo helper e injeta o disposer no registro; o reason da rejeição carrega o código de erro já padronizado `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` (`packages/ui/src/lib/remoteWorkspaceServiceError.ts:1-2`; o caminho de repasse de `code` em `channelClient.ts:84-97` já existe), mantendo o mesmo código do erro reportado pelo «proxy de desconexão» nas chamadas seguintes.
 
-### 4.3 修复前后时序
+### 4.3 Sequência antes e depois da correção
 
 ```
-修复前（09:57 中毒 → 10:01 受害）：
-  sync#1: updateProviderRegistry ──► SSH stream 死亡 ──► Promise 永久 pending
-          in-flight[demoKey] 永久滞留（finally 不执行）
-  sync#2(新连接): await in-flight[demoKey] ──► 永久挂起，UI 无错误
+Antes da correção (envenenamento de 09:57 → vítima de 10:01):
+  sync#1: updateProviderRegistry ──► morte do SSH stream ──► Promise permanentemente pending
+          in-flight[demoKey] retido para sempre (o finally não executa)
+  sync#2(nova conexão): await in-flight[demoKey] ──► travamento permanente, sem erro na UI
 
-修复后：
-  sync#1: updateProviderRegistry ──► stream 死亡 ──► session 关闭事件
-          → unregisterSession → session.dispose() → ChannelClient reject
-          → syncTask reject → finally 删除 in-flight[demoKey]
-          → 重连流程 catch：落库 failed + toast（既有路径）；向导 catch：显示错误 + 复位按钮（既有路径）
-  sync#2(新连接): 无 in-flight → 正常下发 → OK → 打开 workspace
+Depois da correção:
+  sync#1: updateProviderRegistry ──► morte do stream ──► evento de fechamento de session
+          → unregisterSession → session.dispose() → ChannelClient rejeita
+          → syncTask rejeita → o finally remove in-flight[demoKey]
+          → catch do fluxo de reconexão: grava failed + toast (caminho existente); catch do assistente: mostra o erro + reseta o botão (caminho existente)
+  sync#2(nova conexão): sem in-flight → envio normal → OK → abertura do workspace
 ```
 
-### 4.4 不改什么（非目标）
+### 4.4 O que não muda (fora de escopo)
 
-- 不加 RPC 超时（掩盖症状且与慢链路合法耗时冲突，违背"不堆兜底"准则）。
-- 不改 `@zcode/protocol`、持久化格式、host 换代/attachment 时序、向导 UI。
-- 不动手机 `web-remote-replayable` 链路：`webRemoteControlWorkspaceBridgeSession.ts` 注册的 bridge session 不注入 dispose → store 改动对其为 no-op；其"同 sessionId 晚到 dispose"防护（对象身份比对）与 store 的替换判定同构，互不干扰。
-- 服务端 zcode-server 早退：需用户提供远端日志另案处理；修复后该场景从"静默永挂"变为"可见失败 + 可重试"。
+- Não se adiciona timeout de RPC (mascara o sintoma e conflita com tempos legítimos de enlaces lentos, violando o princípio de «não acumular fallbacks»).
+- Não se alteram `@zcode/protocol`, formato de persistência, temporização de troca de generation/attachment do host nem a UI do assistente.
+- Não se toca na cadeia móvel `web-remote-replayable`: a bridge session registrada em `webRemoteControlWorkspaceSession.ts` não injeta dispose → a mudança no store é no-op para ela; sua proteção contra «dispose tardio com o mesmo sessionId» (comparação de identidade do objeto) é isomórfica à decisão de substituição do store, e as duas não se interferem.
+- Saída antecipada do zcode-server no lado servidor: precisa de outro caso de tratamento com os logs remotos fornecidos pelo usuário; após a correção, esse cenário passa de «travamento silencioso eterno» para «falha visível + possível retentativa».
 
-## 5. 验证方案（先写测试再实现）
+## 5. Plano de verificação (teste antes da implementação)
 
-1. **回归测试（复刻本事故）**：`remoteWorkspaceProviderSync` 单测——首次 sync 的 RPC 永不 resolve，触发 session 注销（dispose 注入的 reject）→ 断言 syncTask reject、in-flight 条目移除、第二次 sync 对同 workspaceKey 正常下发并成功。修复前该测试必须失败（第二次 sync 挂死）。
-2. `packages/rpc` `channelClient` 单测：dispose reject in-flight；dispose 早于 Initialize 时排队请求同样 reject；事件监听不受影响；已 settle 请求不受影响；reason 透传。
-3. `remoteWorkspaceSessionStore` 单测：unregister 调用 dispose；同 sessionId 替换只 dispose 被换下的旧对象；无 dispose 的 session（web bridge 形态）为 no-op。
-4. 向导/重连边界：sync reject 时 `handleSelectDirectory` 显示错误并复位 `selecting`；`reconnectRemoteWorkspaceHistoryEntry` 落库 failed + 清理 spinner key（多为既有用例，补 poison 场景）。
-5. 门禁：`pnpm typecheck`、`pnpm lint`、`pnpm test:unit:affected`。
-6. E2E 候选（`docs/testing/ssh-remote-p0-e2e-plan.md` 追加）：SSH 连接在 provider 同步窗口内断开 → 重新打开同一远程目录成功、无残留卡死。
+1. **Teste de regressão (reproduz este incidente)**: teste unitário de `remoteWorkspaceProviderSync` — o RPC do primeiro sync nunca resolve, dispara-se o desregistro da session (rejeição injetada pelo dispose) → afirma que o syncTask rejeita, que a entrada in-flight é removida e que o segundo sync para a mesma workspaceKey é despachado normalmente e tem sucesso. Antes da correção, esse teste precisa falhar (o segundo sync fica travado).
+2. Teste unitário de `channelClient` em `packages/rpc`: o dispose rejeita as in-flight; quando o dispose ocorre antes do Initialize, as requisições enfileiradas também rejeitam; a escuta de eventos não é afetada indevidamente; requisições já settled não são afetadas; o reason é repassado.
+3. Teste unitário de `remoteWorkspaceSessionStore`: o unregister chama o dispose; a substituição com o mesmo sessionId só descarta o objeto antigo; sessions sem dispose (forma web bridge) são no-op.
+4. Fronteiras de assistente/reconexão: quando o sync rejeita, `handleSelectDirectory` mostra o erro e reseta `selecting`; `reconnectRemoteWorkspaceHistoryEntry` grava failed + limpa a key do spinner (em grande parte casos já existentes; acrescentar o cenário de envenenamento).
+5. Portões: `pnpm typecheck`、`pnpm lint`、`pnpm test:unit:affected`.
+6. Candidato a E2E (acrescentar em `docs/testing/ssh-remote-p0-e2e-plan.md`): a conexão SSH cai dentro da janela de sincronização do provider → reabrir o mesmo diretório remoto funciona, sem travamento residual.
 
-### 验证执行记录（2026-08-21）
+### Registro de execução da verificação (2026-08-21)
 
-修复提交 `a30f1f453a`（fix(remote): settle pending RPCs on workspace disconnect），验证结果：
+Commit da correção `a30f1f453a` (fix(remote): settle pending RPCs on workspace disconnect), resultados da verificação:
 
-- **测试落地**：§5.1–5.3 对应 `packages/ui/test/remoteWorkspaceProviderSync.test.ts`（毒化回归，250ms race）、`packages/rpc/test/channels.test.ts`（dispose reject in-flight / pre-Initialize / 事件订阅不误伤）、`packages/ui/test/useWorkspaceServices.test.ts`（unregister 终结、换代只终结旧代）、`packages/client/test/rendererLogging.test.ts`（disposer 幂等）；§5.4 对应 `packages/ui/test/sshDialogDirectorySelection.test.ts`（reject 后 selecting 复位 + 错误可见 + session 回收时回落设置步骤）。
-- **红-绿验证**：临时还原修复前 store → 3 例失败；还原修复前 channelClient → 2 例失败且挂满 60s 超时（即事故行为）；修复态全部通过。
-- **门禁**：`pnpm typecheck` 通过；`pnpm lint` 0 error（涉改文件无新增警告）；`pnpm test:unit:affected` 3536/3540 通过，唯一失败为 `repoWikiService.test.ts` 的 `vi.waitFor` 时序 flaky（与本改动无关，复跑及单独运行均通过）。
-- **E2E 候选**：已登记为 `SSH-P0-LIFE-03`（candidate，spec 未编写），见 `docs/testing/ssh-remote-p0-e2e-plan.md`。
+- **Testes implementados**: §5.1–5.3 correspondem a `packages/ui/test/remoteWorkspaceProviderSync.test.ts` (regressão de envenenamento, race de 250ms)、`packages/rpc/test/channels.test.ts`（dispose rejeita in-flight / pre-Initialize / assinaturas de evento não feridas）、`packages/ui/test/useWorkspaceServices.test.ts`（encerramento no unregister, troca de generation só encerra a antiga）、`packages/client/test/rendererLogging.test.ts`（idempotência do disposer）; §5.4 corresponde a `packages/ui/test/sshDialogDirectorySelection.test.ts`（reset de selecting após reject + erro visível + retorno ao passo de settings quando a session é reciclada）。
+- **Verificação vermelho-verde**: restaurando temporariamente o store pré-correção → 3 casos falham; restaurando o channelClient pré-correção → 2 casos falham e estouram o timeout de 60s (isto é, o comportamento do incidente); todos passam no estado corrigido.
+- **Portões**: `pnpm typecheck` passou; `pnpm lint` com 0 error (nenhum aviso novo nos arquivos alterados); `pnpm test:unit:affected` com 3536/3540 passando, sendo a única falha um flaky de temporização do `vi.waitFor` em `repoWikiService.test.ts` (sem relação com esta mudança; passa ao reexecutar e também em execução isolada).
+- **Candidato a E2E**: registrado como `SSH-P0-LIFE-03`（candidate, spec ainda não escrita）, em `docs/testing/ssh-remote-p0-e2e-plan.md`。
 
-## 6. 剩余风险
+## 6. Riscos residuais
 
-- dispose-reject 会让原先"静默悬置"的路径（窗口/host 销毁时的 in-flight 调用）转为可见 rejection，最坏情况是 teardown 期间多几条 warn 日志；调用点已逐一审计均为终结路径。
-- 未传 reason 的 dispose 调用点报通用错误而非 `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`——不影响 settle 语义，仅文案一致性。
-- 服务端早退根因未闭合（需远端 artifacts），修复只保证客户端 fail-closed。
+- O dispose-reject transforma caminhos antes «silenciosamente suspensos» (chamadas in-flight durante a destruição da janela/host) em rejections visíveis; no pior caso há algumas linhas de log a mais em nível warn durante o teardown; os pontos de chamada foram auditados um a um e são todos caminhos de encerramento.
+- Pontos de chamada de dispose sem reason informam um erro genérico em vez de `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` — isso não afeta a semântica de settle, apenas a consistência de texto.
+- A causa raiz da saída antecipada do servidor não foi fechada (depende de artefatos remotos); a correção apenas garante fail-closed no cliente.

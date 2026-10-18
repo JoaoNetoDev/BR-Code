@@ -1,28 +1,28 @@
-# 飞书／Lark 话题输入材料重构
+# Reestruturação dos materiais de entrada de tópico no Feishu/Lark
 
-当前接入、停止续接和迁移契约以 [话题协作](bots-feishu-group-collaboration.md#topic-collaboration-implementation-contract) 为准：首次接入准备根引用及历史附件；接入后无需 @，不重复根引用；新消息停止旧轮后续接。下文输入材料格式继续有效，旧版验证记录不代表本次重构已通过验收。
+O contrato atual de integração, parada/continuação e migração está em [协作 de tópico](bots-feishu-group-collaboration.md#topic-collaboration-implementation-contract): na primeira integração prepara-se a referência raiz e os anexos de histórico; após integrado não é preciso @, e a referência raiz não se repete; uma nova mensagem dá stop na rodada antiga e continua. O formato de materiais de entrada descrito abaixo continua válido, e os registros de validação antigos não representam a aprovação desta reestruturação.
 
-## 本次停止续接重构的手动验证
+## Validação manual da reestruturação de parar/continuar
 
-由用户自行启动本 checkout；本次实现期间不启动 dev。进入飞书测试群，开启群后按以下步骤验证：
+O usuário inicia este checkout por conta própria; durante a implementação não se inicia o dev. Entre no grupo de testes do Feishu, ative o grupo e valide seguindo os passos:
 
-1. 在用户根消息的话题内先发两条讨论，再首次 @。在 ZCode 任务列表打开对应独立任务，检查首条根引用、可打开的话题历史附件及当前附件。
-2. 在该话题直接发普通消息，不 @。应继续同一任务，显示本条真实发送者和正文，不重复根引用或首条历史。
-3. 执行中连续发送两条补充。旧运行结束后才开始下一轮；App 分别展示两条消息，附件各归原消息；合批不会显示拼接后的内部执行正文。合批输入不提供单条编辑入口，避免覆盖同一批的其他消息。
-4. 检查两条消息各自的执行表情；被中断输入不应被后续完成事件标成成功。话题不出现“等待执行／取消排队”卡片，历史遗留排队卡应失效。
-5. 回复机器人主聊天消息形成新话题，应创建独立任务。另开第二话题，确认两个任务和群默认任务不串上下文。
-6. `/stop` 后可继续普通输入；`/leave` 后普通输入不执行，再次 @ 恢复原话题任务。关闭历史或撤销权限后不得残缺执行。
-7. 在手机远控打开相同任务，检查逐条消息、材料预览及恢复结果；浅深主题分别检查。飞书、Lark、手机和跨操作系统真实验收分别记录，未操作的项目保持待验证。
+1. No tópico da mensagem raiz do usuário, envie primeiro duas discussões e só então o primeiro @. Na lista de tarefas do ZCode abra a tarefa independente correspondente e verifique a primeira referência raiz, o anexo de histórico do tópico que pode ser aberto e o anexo atual.
+2. Envie diretamente nesse tópico uma mensagem comum, sem @. Deve continuar a mesma tarefa, mostrando o remetente real e o corpo desta mensagem, sem repetir a referência raiz nem a primeira história.
+3. Durante a execução, envie duas complementações em sequência. A próxima rodada só começa depois que a execução antiga terminar; o App exibe as duas mensagens separadamente, e os anexos pertencem às mensagens originais; o batching não exibe o corpo interno de execução concatenado. O input em lote não oferece entrada de edição por mensagem, evitando sobrescrever as outras mensagens do mesmo lote.
+4. Verifique o表情 de execução de cada uma das duas mensagens; um input interrompido não deve ser marcado como sucesso por eventos de conclusão posteriores. O tópico não deve mostrar cartões de "aguardando execução / cancelar fila", e cards de fila legados devem expirar.
+5. Responder a uma mensagem principal do bot forma um novo tópico e deve criar uma tarefa independente. Abra um segundo tópico e confirme que as duas tarefas e a tarefa padrão do grupo não misturam contexto.
+6. Depois de `/stop` é possível continuar com a entrada comum; depois de `/leave` a entrada comum não é executada, e um novo @ retoma a tarefa do tópico original. Fechar o histórico ou revogar permissões não pode resultar em execução incompleta.
+7. No controle remoto do celular, abra a mesma tarefa e verifique mensagem por mensagem, a pré-visualização dos materiais e o resultado da restauração; verifique também nos temas claro e escuro. A aceitação real de Feishu, Lark, celular e entre sistemas operacionais é registrada separadamente, e itens não operados permanecem como pendentes de verificação.
 
-自动化结果与提交状态以话题协作文档的本次验收记录为准；下文旧版计数仅为历史记录。
+Os resultados automatizados e o status de commit seguem o registro de aceitação deste ciclo no documento de colaboração de tópicos; as contagens antigas abaixo são apenas registro histórico.
 
-`/enable` 权限指引同时列出 `im:chat.members:read`（查看群成员），注明它用于显示发送者用户名，属于可选权限；缺少它仍可执行任务。话题历史读取权限仍为必需，不得使用“缺少任意权限均不可执行”的笼统文案。中英文指引一致。
+O guia de permissões do `/enable` também lista `im:chat.members:read` (ver membros do grupo), observando que ela é usada para exibir o nome de usuário do remetente e é uma permissão opcional; sem ela as tarefas ainda podem ser executadas. A permissão de leitura do histórico do tópico continua obrigatória, e não se pode usar um texto genérico do tipo "sem nenhuma permissão não é possível executar". O guia é consistente em chinês e inglês.
 
-`/enable` 成功回复（首次启用、重新启用或重复执行）必须包含管理员权限指引：打开对应飞书/Lark 开放平台后台，选择机器人应用，在权限管理中开通应用身份消息读取权限（包括 im:message.group_msg），发布生效后在话题中 @。附对应平台后台链接，明确启用群不代表应用权限已经具备；不自动修改平台权限，不要求 lark-cli。中英文回复保持一致，`/disable` 不附启用指引。真实场景由用户手动验证，不启动 dev。
+A resposta de sucesso do `/enable` (primeira ativação, reativação ou execução repetida) precisa conter o guia de permissões de administrador: abrir o后台 da plataforma aberta correspondente do Feishu/Lark, selecionar a aplicação do bot, ativar na gestão de permissões a permissão de leitura de mensagens da identidade da aplicação (incluindo im:message.group_msg) e, depois de publicar e surtir efeito, fazer @ no tópico. Acompanhar com o link do后台 da plataforma correspondente, deixando claro que ativar o grupo não significa que a permissão da aplicação já exista; as permissões da plataforma não são modificadas automaticamente e não se exige lark-cli. A resposta é consistente em chinês e inglês, e o `/disable` não anexa o guia de ativação. O cenário real é validado manualmente pelo usuário, sem iniciar o dev.
 
-## 默认历史与执行前置条件（最新规则）
+## Padrão de histórico e pré-condições de execução (regra mais recente)
 
-未配置 historyEnabled 的群默认开启，显式 false 保留。话题历史读取是执行前置条件：缺权限、缺读取接口或读取失败均不创建任务、不提交输入、不推进检查点，不降级成仅引用。显式关闭时提示 `/history on` 并暂停话题执行；群主聊天、私聊及控制命令保持原行为。此规则取代下文历史缺口降级和默认关闭的旧记录。
+Grupos sem `historyEnabled` configurado têm a leitura habilitada por padrão, e um `false` explícito é mantido. A leitura do histórico do tópico é uma pré-condição de execução: falta de permissão, ausência da interface de leitura ou falha de leitura não criam tarefa, não enviam input, não avançam checkpoint e não degradam para apenas uma referência. Quando desativado explicitamente, exibe-se o aviso com `/history on` e a execução de tópico fica pausada; o chat do dono do grupo, o chat privado e os comandos de controle mantêm o comportamento original. Esta regra substitui os registros antigos de degradação por lacuna de histórico e de desativação por padrão descritos abaixo.
 
 ```text
 首次接入/缺口恢复 → 历史开关 → 原生 thread 历史读取（根消息首发也检查）
@@ -31,31 +31,31 @@
                      └ 临时失败 → 重试提示，无执行
 ```
 
-权限错误保留为类型化错误，不把普通网络失败说成缺权限。管理员在对应飞书/Lark 应用的权限管理中检查应用身份消息权限，尤其 im:message.group_msg，发布生效后重新 @；不要求 lark-cli，不自动补执行。指引链接使用对应平台开放后台。参考官方历史接口：https://open.feishu.cn/document/server-docs/im-v1/message/list 。显式读取成功后的有限历史缺口仍通过附件标记，不伪称完整。
+Erros de permissão permanecem como erros tipados, e uma falha de rede comum não pode ser descrita como falta de permissão. O administrador verifica a permissão de mensagens da identidade da aplicação na gestão de permissões do app Feishu/Lark correspondente, especialmente `im:message.group_msg`, e depois de publicar e surtir efeito faz um novo @; não se exige lark-cli nem execução automática complementar. O link do guia usa o后台 oficial da plataforma correspondente. Referência da interface oficial de histórico: https://open.feishu.cn/document/server-docs/im-v1/message/list 。Após uma leitura explícita bem-sucedida, lacunas de histórico limitadas continuam marcadas por anexo, sem alegar completude.
 
-验证：178 项相关单测、根目录 typecheck、lint、verify:pre-push 与格式检查通过。未启动 dev；真实飞书/Lark、手机及其他 OS 待用户手动验证。请在未显式关闭历史的群直接于话题内 @；缺权限应只有开通指引且无新任务，权限生效后重新 @ 才执行。主聊天及私聊保持正常。
+Validação: 178 testes unitários relacionados, typecheck da raiz, lint, verify:pre-push e a verificação de formatação passaram. O dev não foi iniciado; o Feishu/Lark real, o celular e outros OS aguardam validação manual do usuário. Faça @ diretamente no tópico em um grupo sem desligamento explícito do histórico; a falta de permissão deve produzir apenas o guia de liberação e nenhuma tarefa nova, e só após a permissão entrar em vigor um novo @ executa. O chat principal e o chat privado continuam normais.
 
-## 话题任务隔离与迁移
+## Isolamento de tarefas por tópico e migração
 
-所有话题绑定独立任务，包括用户以话题回复机器人主聊天消息的场景。
-首次触发准备完材料才建任务；已接入话题持续接收真人消息，无需重复 @。
-旧 topicAliases 在安全边界一次性迁移成独立绑定，保留旧任务记录，不复制整份上下文。
-迁移完成后不再使用 alias 运行路径。已有独立任务保持原绑定。
+Todos os tópicos são vinculados a tarefas independentes, incluindo o cenário em que o usuário responde a uma mensagem do bot no chat principal por meio do tópico.
+A tarefa só é criada quando os materiais estiverem prontos no primeiro disparo; tópicos já integrados continuam recebendo mensagens reais sem precisar de novo @.
+Os antigos `topicAliases` são migrados de uma só vez para vínculos independentes dentro da fronteira de segurança, preservando os registros das tarefas antigas e sem copiar o contexto inteiro.
+Após a migração o caminho de execução por alias não é mais usado. Tarefas independentes existentes mantêm o vínculo original.
 
-新任务标题为「飞书/Lark · 群名 · 话题标题」；用户重命名不改变绑定。
-不自动重命名旧任务，不额外发送建任务通知，不自动创建 worktree。
+O título das novas tarefas é「飞书/Lark · 群名 · 话题标题」; a renomeação pelo usuário não altera o vínculo.
+Tarefas antigas não são renomeadas automaticamente, nenhuma notificação extra de criação de tarefa é enviada e nenhum worktree é criado automaticamente.
 
-本规范取代旧方案的正文拼接引用、自动摘要和 bot_topic_context 注入方式。
-保留群／话题授权、任务绑定、唯一队列、跨端恢复和结果回推边界。
+Esta especificação substitui a referência por concatenação de corpo, o resumo automático e o modo de injeção por `bot_topic_context` do esquema anterior.
+Os limites de autorização de grupo/tópico, vínculo de tarefa, fila única, restauração cross-device e reenvio de resultado são preservados.
 
-## 输入与时序
+## Entrada e sequência
 
-| 材料               | 现有机制                               |
-| ------------------ | -------------------------------------- |
-| 消息正文             | 普通输入                               |
-| 明确引用文字       | 标准对话引用，包含真实原文             |
-| 明确引用图片／文件 | 普通附件，提交前准备完整               |
-| 话题历史           | 参考长文本粘贴机制生成可查看的文本附件 |
+| Material               | Mecanismo existente                     |
+| ---------------------- | -------------------------------------- |
+| Corpo da mensagem      | Entrada comum                          |
+| Texto citado explicitamente | Citação padrão de conversa, incluindo o original real |
+| Imagem/arquivo citado explicitamente | Anexo comum, preparado por completo antes do envio |
+| Histórico do tópico    | Gera um anexo de texto visualizável usando o mecanismo de colagem de texto longo |
 
 ```text
 可信入站 → 授权、话题及接入状态校验 → 正文＋引用＋附件准备
@@ -63,109 +63,101 @@
          → 确认后保存关联、推进增量检查点
 ```
 
-引用复用现有编码与解析，UI 还原引用入口；不显示 `[Quoted message]`、原始 JSON、裸 ID。
-引用不是命令／审批。超出现有引用容量时拒绝残缺提交，不能静默截断。
+As citações reutilizam a codificação e o parsing existentes, e a UI restaura a entrada de citação; não se exibe `[Quoted message]`, JSON bruto nem ID nu.
+Citação não é comando nem aprovação. Ao exceder a capacidade de citação existente, a submissão é rejeitada por inteiro, sem truncamento silencioso.
 
-## 历史格式与读取
+## Formato e leitura do histórico
 
-首次收集根消息和 @ 前讨论；后续只取上次已确认接收之后的增量，当前 @ 之后的消息留待
-下一次。按消息 ID 去重，排除本次正文、明确引用、已提交输入、机器人结果和状态卡。
-自动读取上限保持200条相关消息加首次根消息，记录缺口，不承诺完整历史。
-历史 API 读取失败时，仅生成缺口说明附件；该输入即使被接受，也不能推进历史读取检查点。下一次 @ 仍从最近一次成功读取并已确认接收的位置补取。
+Na primeira coleta são reunidas a mensagem raiz e as discussões anteriores ao @; depois disso apenas o incremento posterior à última recepção confirmada é tomado, e as mensagens após o @ atual ficam para a próxima vez. A deduplicação é por ID de mensagem, excluindo o corpo atual, as citações explícitas, os inputs já enviados, os resultados do bot e os cards de status.
+O limite de leitura automática permanece em 200 mensagens relevantes mais a primeira mensagem raiz, com registro das lacunas e sem promessa de histórico completo.
+Quando a API de histórico falha na leitura, gera-se apenas um anexo explicativo de lacuna; mesmo que esse input seja aceito, ele não pode avançar o checkpoint de leitura de histórico. O próximo @ continua complementando a partir da última leitura bem-sucedida e já confirmada.
 
-UTF-8 `.txt` 格式版本1：话题名、消息数量、覆盖起止时间及时区、完整性说明；按时间列出
-消息 M1、M2，每条包含发送者姓名（可用时）、open_id、时间、回复关联及原文和换行。
-历史图片／文件列出名称、类型、资源引用 A1、A2 和尚未读取状态，不嵌入二进制。
-界面显示「话题历史 · N 条消息」。没有增量且无缺口时不生成重复附件。
+Formato `.txt` UTF-8 versão 1: nome do tópico, quantidade de mensagens, intervalo de cobertura com horário e fuso, nota de completude; as mensagens M1, M2 são listadas por horário, cada uma com nome do remetente (quando disponível), open_id, horário, relação de resposta e o texto original com suas quebras de linha.
+Imagens/arquivos do histórico listam nome, tipo, referências de recurso A1, A2 e o estado ainda não lido, sem embutir binários.
+A interface exibe「话题历史 · N 条消息」. Sem incremento e sem lacunas não se gera anexo duplicado.
 
-采用独立的 topic-history 来源标记，复用粘贴附件生命周期，不受长粘贴字符阈值限制。
-模型先获得文件引用，实际读取后内容才进入上下文；不自动全文注入，不预先调用模型摘要。
-长文件分段读取与后续压缩复用既有能力。全文不能同时存在于正文和隐藏模型消息中。
+Usa-se uma marca de origem separada topic-history, reutilizando o ciclo de vida de anexos de colagem, sem o limite de caracteres de colagem longa.
+O modelo recebe primeiro a referência do arquivo e o conteúdo só entra no contexto após a leitura real; não há injeção automática de texto integral nem chamada prévia a um resumo do modelo.
+A leitura segmentada de arquivos longos e a compactação posterior reutilizam capacidades existentes. O texto integral não pode existir simultaneamente no corpo e em mensagens ocultas do modelo.
 
-## 历史附件
+## Anexos de histórico
 
-每份历史文件的 M1／A1 索引都结合该文件身份解析，服务端映射真实群、话题、消息、资源及
-授权版本，不能跨轮混用。姓名、ID 和文件正文不能充当授权来源。
-明确引用的附件本次下载并作为 V4 附件提交，不拼接 Host 路径说明。沿用单条最多 4 个附件、单个 5MB 限制；超量、超限或资源不可用时整条拒绝，不能截取前几个继续执行。其他历史附件按需通过内置能力读取，每次重新校验访问范围。
-不依赖 lark-cli，不自动加载 lark-im 或要求另行扫码来读取当前机器人会话材料。
+Os índices M1/A1 de cada arquivo de histórico são resolvidos em conjunto com a identidade desse arquivo, e o servidor mapeia o grupo, tópico, mensagem, recurso e versão de autorização reais, sem mistura entre rodadas. Nome, ID e corpo do arquivo não podem servir como fonte de autorização.
+Anexos citados explicitamente são baixados nesta rodada e enviados como anexos V4, sem juntar explicações de caminho do Host. Vale o limite de no máximo 4 anexos por mensagem e 5MB por arquivo; em caso de excesso, estouro de limite ou recurso indisponível toda a mensagem é rejeitada, e não se pode pegar os primeiros e continuar. Os demais anexos de histórico são lidos sob demanda pelas capacidades internas, com nova verificação do escopo de acesso a cada leitura.
+Não se depende de lark-cli e não se carrega automaticamente lark-im nem se exige outro escaneamento de QR code para ler os materiais da sessão atual do bot.
 
-## 队列、展示与兼容
+## Fila, exibição e compatibilidade
 
-群输入从上到下按「发送者 → 对话引用 → 图片／文件及历史附件 → 用户正文」排列，整体右对齐，复用现有 8px 间距和引用／附件组件。桌面与手机共用此顺序；普通桌面输入的材料顺序保持兼容。
-只有 @、没有正文但有引用或本次历史材料时，提交材料本身，不再补写“请回答引用消息……”等指令冒充用户正文，UI 不留下空白气泡。只有 @ 且没有可提交材料时继续提示补充需求。旧消息正文不通过字符串猜测或删除来改写。
+Os inputs de grupo são ordenados de cima para baixo como "remetente → citação de conversa → imagem/arquivo e anexos de histórico → corpo do usuário", com alinhamento geral à direita, reutilizando o espaçamento de 8px existente e os componentes de citação/anexo. Desktop e celular compartilham esta ordem; a ordem de materiais da entrada comum do desktop permanece compatível.
+Quando há apenas @, sem corpo mas com citação ou com os materiais de histórico atuais, os próprios materiais são enviados, sem escrever instruções como "请回答引用消息……" para fingir um corpo do usuário, e a UI não deixa um balão vazio. Com apenas @ e nenhum material enviável, continua-se pedindo que o usuário complete a necessidade. O corpo de mensagens antigas não é alterado por adivinhação por string nem por remoção.
 
-必需材料失败整条拒绝；可选历史缺口记录在附件中，不额外发送历史加载提示或内容消息。
-停止生成和注入 bot_topic_context，旧记录兼容读取但不重新注入、不删除用户历史。
-服务端保留原文归档、检查点和资源索引用于去重及授权，它们不是模型隐藏上下文。
-CLI 来源仅携带 topicHistory 检查点、覆盖状态、消息数量及每条资源消息的 ID／资源数量；不再传完整 topicContext 原文，避免附件之外仍有大体积 command frame。旧 topicContext 来源兼容读取。
-文本预览沿用附件分块读取：只允许当前权威对话行中标记为话题历史或粘贴文本的 text/plain 附件，继续校验行身份、附件索引和引用，不能将任意路径作为预览来源。
-来源元信息贯穿上传、命令、队列、编辑、执行、对话与恢复；仍被待处理输入引用的附件不能
-提前清理。确认丢失查询原 commandId，不新增命令补执行；已有未确认接收记录不重新提交或抓取历史，不能把期间的新讨论写入原输入。
-Desktop 保持 desktop-continuous；手机保持 web-remote-replayable。远端携带 workspaceIdentity
-与 remoteSessionId，使用目标可访问资源，不另建 Host/runtime 或第二份 accepted queue。
+Falha em material obrigatório rejeita a mensagem inteira; lacunas opcionais de histórico são registradas no anexo, sem mensagem extra de aviso de carregamento de histórico nem de conteúdo.
+A geração e a injeção de `bot_topic_context` são interrompidas; registros antigos continuam sendo lidos para compatibilidade, mas não são reinjetados e não se apaga o histórico do usuário.
+O servidor mantém o arquivo do texto original, os checkpoints e o índice de recursos para deduplicação e autorização; eles não são contexto oculto do modelo.
+A origem CLI transporta apenas o checkpoint de topicHistory, o status de cobertura, a quantidade de mensagens e o ID/quantidade de recursos de cada mensagem de recurso; o texto original completo de `topicContext` não é mais transmitido, evitando um command frame de grande volume fora dos anexos. A origem antiga `topicContext` continua sendo lida para compatibilidade.
+A pré-visualização de texto segue a leitura por blocos de anexo: são permitidos apenas anexos text/plain marcados na linha de conversa autoritativa atual como histórico de tópico ou texto colado, continua-se validando a identidade da linha, o índice do anexo e a citação, e não se pode usar qualquer caminho como fonte de pré-visualização.
+Os metadados de origem percorrem upload, comando, fila, edição, execução, conversa e restauração; anexos ainda referenciados por inputs pendentes não podem ser limpos antecipadamente. Na confirmação perdida, consulta-se o commandId original e não se adiciona reenvio de comando; registros de recepção não confirmados existentes não são reenviados nem usados para buscar histórico, e novas discussões do período não podem ser escritas no input original.
+O Desktop permanece desktop-continuous; o celular permanece web-remote-replayable. O remoto transporta `workspaceIdentity` e `remoteSessionId`, usa os recursos acessíveis ao alvo e não cria um segundo Host/runtime nem uma segunda fila de aceitação.
 
-## 验收顺序
+## Ordem de aceitação
 
-先写失败测试，再实施：引用往返及容量、文本文件姓名／ID／原文／时间与覆盖缺口、附件索引
-隔离、来源标记跨上传与队列恢复、无隐藏注入、权限撤销和确认丢失。Desktop／手机检查引用与
-附件预览、队列和历史恢复。执行类型检查、Lint、相关单测和 E2E，再用真实飞书自然语言验证
-材料读取与原话题结果；不可用服务替身冒充真实验收。未验证的 Lark／远端／其他 OS 明确记录。
+Escreva primeiro os testes de falha e depois implemente: ida e volta de citações e sua capacidade, arquivo de texto com nome/ID/texto original/horário e lacunas de cobertura, isolamento dos índices de anexo, marca de origem através de upload e restauração de fila, ausência de injeção oculta, revogação de permissão e confirmação perdida. Em Desktop/celular verifique citações, pré-visualização de anexos, fila e restauração de histórico. Execute verificação de tipos, Lint, testes unitários relacionados e E2E e então valide com Feishu real em linguagem natural a leitura de materiais e o resultado no tópico original; não se pode passar um substitute de serviço indisponível por aceitação real. Lark/remoto/outros OS não verificados são registrados explicitamente.
 
-## 本次展示调整验收
+## Aceitação dos ajustes de exibição deste ciclo
 
-群结果正文只发送结果，不追加 Desktop、Mobile Web、姓名或 open_id 前缀；来源元数据保留用于内部关联。此次排序及来源标签调整采用真实场景手动验收，不新增或扩展 E2E。检查发送者、引用、附件、正文顺序及仅引用时无空气泡，再从 Desktop 提交需求，确认飞书回复没有来源前缀。
+O corpo do resultado no grupo envia apenas o resultado, sem prefixar Desktop, Mobile Web, nome ou open_id; os metadados de origem são mantidos para correlação interna. Esta ordenação e o ajuste dos rótulos de origem usam aceitação manual em cenário real, sem adicionar nem ampliar E2E. Verifique a ordem de remetente, citação, anexo e corpo e a ausência de balão vazio quando houver apenas citação; depois envie um requisito pelo Desktop e confirme que a resposta no Feishu não tem prefixo de origem.
 
-## 真实手动验收
+## Aceitação manual real
 
-先确认测试机器人由本分支的 `pnpm dev:desktop` 持有连接；其他工作区 Dev 占用时，旧版本结果不能记为本次通过。飞书窗口由用户操作。
+Primeiro confirme que o bot de testes está com a conexão mantida pelo `pnpm dev:desktop` deste branch; quando outro workspace Dev ocupa, os resultados da versão antiga não podem ser contados como aprovação deste ciclo. A janela do Feishu é operada pelo usuário.
 
-1. 在已启用的测试群由绑定用户发送 `@机器人 /history on`。在新话题先发两条不带 @ 的讨论，确认没有执行任务。
-2. 回复其中一条文字并 @ 机器人，要求结合另一条讨论回答。正文只显示本次需求，引用入口可打开真实原文，历史文件只含未作为本次引用的背景。
-3. 再发一条普通讨论，然后 @ 机器人。新历史附件只含增量；打开可见姓名、open_id、原文换行和覆盖说明。没有增量时不重复生成附件。
-4. 上传本地测试 txt，回复该文件并 @ 机器人要求读取校验码。ZCode 必须出现普通文件附件，正文没有本机缓存路径说明，无需 lark-cli 授权即可读取。
-5. 普通发送另一张图片或文件，随后另发 @ 请求分析该历史附件。历史 txt 列出资源索引，内置 ReadSessionContext 按需读取；不得跨话题读取，不要求扫码。
-6. 在 Desktop 排队项编辑／立即发送后确认引用和附件仍在。手机远控应连接同一 Host，单独验证预览与恢复；窄窗口检查不能代替真实手机链路。
+1. No grupo de testes já ativado, o usuário vinculado envia `@机器人 /history on`. Em um novo tópico, envie primeiro duas discussões sem @ e confirme que nenhuma tarefa é executada.
+2. Responda a um dos textos e @ o robô, pedindo que a resposta considere a outra discussão. O corpo exibe apenas a necessidade atual, a entrada de citação abre o texto original real e o arquivo de histórico contém apenas o contexto que não foi citado nesta rodada.
+3. Envie outra discussão comum e então @ o robô. O novo anexo de histórico contém apenas o incremento; ao abri-lo vê-se nome, open_id, quebras de linha do original e a nota de cobertura. Sem incremento nenhum anexo duplicado é gerado.
+4. Envie um txt local de teste, responda a esse arquivo e @ o robô pedindo a leitura do código de verificação. O ZCode precisa exibir um anexo de arquivo comum, sem explicação de caminho de cache local no corpo e legível sem autorização do lark-cli.
+5. Envie normalmente outra imagem ou arquivo e depois envie um @ pedindo a análise daquele anexo de histórico. O txt de histórico lista os índices de recursos, e o `ReadSessionContext` interno lê sob demanda; não se pode ler de outro tópico nem exigir escaneamento de QR code.
+6. No Desktop, edite o item da fila ou envie imediatamente e confirme que a citação e os anexos continuam lá. O controle remoto do celular deve se conectar ao mesmo Host, com pré-visualização e restauração verificadas separadamente; janela estreita não substitui a cadeia real do celular.
 
-本次本机测试文件：`/tmp/zcode-topic-materials-20260908.txt`，包含独立校验码及多行文字。该路径仅用于开发验收，不是产品运行依赖。
-历史资源使用另一份 `/tmp/zcode-topic-history-resource-20260908.txt`，其中校验码不同，避免误把读取此前引用附件的结果当作历史资源读取成功。
+Arquivo de teste local desta rodada: `/tmp/zcode-topic-materials-20260908.txt`, com um código de verificação independente e texto de múltiplas linhas. Esse caminho serve apenas para a aceitação de desenvolvimento e não é dependência de execução do produto.
+Os recursos de histórico usam outro arquivo `/tmp/zcode-topic-history-resource-20260908.txt`, com um código de verificação diferente, evitando confundir a leitura do anexo citado anteriormente com sucesso na leitura do recurso de histórico.
 
-## 本次验证记录（2026-09-08）
+## Registro de validação desta rodada (2026-09-08)
 
-- Desktop 受控集成 `feishu-topic-runtime.test.ts` 已通过：真实 Host/CLI 的引用与文件入队、取消、历史材料出队，以及 1280／430 宽窗口的原文预览。运行记录：`desktop-e2e-20260908115301804-p96021-286ab284a6e12787`。材料来自固定测试输入，不代表原生飞书历史 API 验收。
-- 实际运行暴露并修复了群文件仍拼接旧路径、对话行 schema 剥离附件来源、预览三层仍仅允许媒体类型的问题；分别保留失败测试与修复后的协议／运行时检查。
-- 最新 `pnpm typecheck`、根目录 Lint 与变更 Agent 文件 Lint 均通过（Lint 仍有既存警告）；群服务与历史材料 64 条、附件读取运行时 30 条、预览响应协议 11 条测试通过。历史 API 失败不推进检查点已有回归断言。
-- `pnpm verify:pre-push` 与本次暂存文件格式检查通过。用户暂时无法进行手动测试，原生飞书验收保持待验证。
-- 扩展运行旧的 `session-persistence.test.ts` 未通过：原有模型替身缺少 `setModelIoFullRetentionEnabled`，并存在 MCP 启动探测未处理异常。补齐替身的排查尝试仍有超时，因此未把无关测试修复纳入本次改动；本次真实 artifact 读取使用独立的 `text-attachment-preview.test.ts`，关闭与附件读取无关的 MCP 启动。
-- 原生飞书手动输入、真实手机远控、Lark、Windows／Linux 尚未验收，不能用窄窗口或受控材料结果替代。
+- A integração controlada de Desktop `feishu-topic-runtime.test.ts` passou: referência e enfileiramento de arquivos do Host/CLI reais, cancelamento, saída de materiais de histórico e pré-visualização do texto original em janelas de 1280/430. Registro de execução: `desktop-e2e-20260908115301804-p96021-286ab284a6e12787`。Os materiais vêm de entradas de teste fixas e não representam a aceitação da API nativa de histórico do Feishu.
+- A execução real expôs e corrigiu três problemas: arquivos de grupo ainda juntando o caminho antigo, o schema da linha de conversa descartando a origem do anexo e a pré-visualização em três camadas aceitando apenas tipos de mídia; para cada um há teste de falha e checagem de protocolo/runtime após a correção.
+- O `pnpm typecheck` mais recente, o Lint da raiz e o Lint dos arquivos de Agent alterados passaram (o Lint ainda tem avisos preexistentes); 64 testes de serviço de grupo e materiais de histórico, 30 de runtime de leitura de anexos e 11 de protocolo de resposta de pré-visualização passaram. A falha da API de histórico não avançar o checkpoint já tem asserção de regressão.
+- `pnpm verify:pre-push` e a verificação de formatação dos arquivos em staging desta rodada passaram. O usuário não pôde fazer o teste manual temporariamente e a aceitação nativa do Feishu permanece pendente de verificação.
+- A execução estendida do antigo `session-persistence.test.ts` não passou: o dublê de modelo existente não tinha `setModelIoFullRetentionEnabled` e há uma exceção não tratada na detecção de startup do MCP. As tentativas de completar o dublê passaram por timeout, então a correção de testes não relacionados não foi incluída nesta mudança; a leitura de artifact real desta rodada usa o `text-attachment-preview.test.ts` independente, com o startup do MCP desativado por não ser relacionado à leitura de anexos.
+- A entrada manual nativa do Feishu, o controle remoto real do celular, o Lark e Windows/Linux ainda não foram aceitos, e não podem ser substituídos por janela estreita ou resultados de materiais controlados.
 
-### 卡片引用原文修复
+### Correção do texto original em citações de card
 
-引用机器人 Card 2.0 消息时，获取指定消息必须传 `card_msg_content_type=user_card_content`，再提取可见正文。默认返回的客户端升级占位内容不能当作原文。根因已通过同一真实消息的两种请求确认。历史当前对卡片只保留类型标记，不在此次修改中扩大历史卡片内容范围；卡片审批身份校验和附件资源读取保持原语义。手动验收：回复一条机器人卡片并 @，打开 ZCode 对话引用，应显示该卡片真实正文。
+Ao citar uma mensagem de Card 2.0 do bot, é preciso passar `card_msg_content_type=user_card_content` ao obter a mensagem especificada e então extrair o corpo visível. O conteúdo de placeholder de upgrade do cliente retornado por padrão não pode ser tratado como texto original. A causa raiz foi confirmada por meio de duas requisições para a mesma mensagem real. No histórico, cartões mantêm apenas a marca de tipo e esta modificação não amplia o escopo de conteúdo de card no histórico; a validação de identidade de aprovação de card e a leitura de recursos de anexo mantêm a semântica original. Aceitação manual: responda a um card do bot e faça @, abra a citação da conversa no ZCode e o corpo real do card deve ser exibido.
 
-验证记录：修复前 Provider 用例返回升级占位文字而失败；修复后 82 条 Provider 单测通过。用修复后的 `prepareCallbackPayload` 对真实原消息执行只读获取，解析出 2026-09-09 10:32:44 的时间正文，未提交任务或发送消息。类型检查及 Lint 通过。用户重新引用后的端到端界面验收待确认；本次未运行 E2E。
+Registro de validação: antes da correção, o caso de Provider retornava o texto de placeholder de upgrade e falhava; depois da correção, 82 testes unitários de Provider passaram. Com o `prepareCallbackPayload` corrigido foi executada uma leitura somente da mensagem original real,extraiu-se o corpo com horário de 2026-09-09 10:32:44, e nenhuma tarefa foi enviada nem mensagem enviada. A verificação de tipos e o Lint passaram. A aceitação de interface ponta a ponta após a nova citação pelo usuário ainda precisa ser confirmada; desta vez o E2E não foi executado.
 
-## 结构化对话引用
+## Citações estruturadas de conversa
 
-新输入使用可选 `conversationQuotes` 数组，与正文和附件并列；每条包含 `text`、可选 `path`、`senderName`、`senderId`、`messageId`、`sentAt`。外部发送者元信息只由接入层从消息读取结果注入，不作授权依据。姓名不可用时显示缩短的稳定 ID；机器人优先显示机器人名称。展开引用显示发送者与时间，折叠仍为引用数量。
+Novos inputs usam o array opcional `conversationQuotes`, em paralelo ao corpo e aos anexos; cada entrada contém `text`, `path` opcional, `senderName`, `senderId`, `messageId` e `sentAt`. Os metadados de remetentes externos são injetados apenas pela camada de integração a partir do resultado de leitura da mensagem e não servem como base de autorização. Quando o nome não está disponível, exibe-se um ID estável abreviado; para o robô, prefere-se exibir o nome do robô. A citação expandida exibe remetente e horário, e a recolhida continua mostrando a quantidade de citações.
 
-字段随 command → CLI CommandInbox intent → transcript → row/queue 投影原样传递；编辑、提升、恢复与重试不能丢失。纯引用也是有效输入。模型输入在 Agent 边界统一转成 `conversation_quote` 材料块，明确是引用背景而非控制命令；用户正文与持久化可见正文不拼接标签。旧 `userselect` 及 Conversation selections 文本块继续解析，不迁移或重写旧记录。Desktop continuous 与手机 replayable 保持原边界，工作区身份及 owner 路由不变。
+Os campos passam por command → CLI CommandInbox intent → transcript → projeção de row/queue sem alterações; edição, promoção, restauração e retry não podem perdê-los. Uma citação pura também é uma entrada válida. Na fronteira do Agent, o input do modelo é convertido uniformemente em um bloco de material `conversation_quote`, deixando explícito que é contexto citado e não um comando de controle; o corpo do usuário e o corpo visível persistente não recebem etiquetas. Os antigos blocos de texto `userselect` e de Conversation selections continuam sendo interpretados, sem migrar nem reescrever registros antigos. Desktop continuous e celular replayable mantêm seus limites, e a identidade do workspace e o roteamento por owner permanecem inalterados.
 
-手动验收包括：引用人类文字与机器人卡片时姓名、时间、原文正确；桌面选文首发与后续输入；纯引用、排队编辑／立即发送、历史恢复；模型收到原文及来源且不出现新 `userselect`；浅深主题与窄屏。真实手机/Lark 未验证时明确保留状态。
+A aceitação manual inclui: nome, horário e texto original corretos ao citar texto humano e card de robô; seleção de texto no desktop no primeiro envio e em inputs posteriores; citação pura, edição na fila/envio imediato e restauração de histórico; o modelo recebe o texto original e a origem sem novos `userselect`; temas claro e escuro e tela estreita. Quando o celular/Lark real não for verificado, o status é mantido explicitamente.
 
-## 历史记录：2026-09-09 历史准备与回推修复
+## Registro histórico: preparação de histórico e correção de reenvio em 2026-09-09
 
-以下默认关闭、关闭时降级和逐次 @ 的行为已被上文最新规则替代，不作为本次手动验收步骤。
+Os comportamentos abaixo de desativação padrão, degradação quando desativado e @ a cada rodada foram substituídos pelas regras mais recentes acima e não servem como passos desta aceitação manual.
 
-运行时状态确认测试群未设置 historyEnabled，因此独立话题虽然绑定成功，也不会读取历史。保留默认关闭；有正文或引用的话题输入在关闭时携带零消息的历史说明附件，注明未读取、由绑定用户通过 `/history on` 开启，不访问历史 API、不推进检查点。无有效需求的裸 @ 仍询问需求。
+Os testes de estado de runtime confirmaram que o grupo de teste não tem `historyEnabled` definido, portanto, embora o tópico independente seja vinculado com sucesso, o histórico não é lido. Mantém-se o padrão desativado; inputs de tópico com corpo ou citação carregam, quando desativado, um anexo de nota de histórico com zero mensagens, indicando que não foi lido e que pode ser habilitado pelo usuário vinculado via `/history on`, sem acessar a API de histórico nem avançar checkpoints. Um @ puro e sem necessidade válida continua perguntando a necessidade.
 
-历史 textContent 经现有目标 CLI begin/chunk/commit 存为 artifact，完成后才创建 sendText；不另造本地历史缓存。上传失败整条不提交，远程目标保留 workspaceIdentity/remoteSessionId。
+O textContent do histórico é salvo como artifact pelo begin/chunk/commit do CLI de destino já existente, e o sendText só é criado depois de concluído; nenhum cache local de histórico é inventado. Se o upload falhar, a mensagem inteira não é enviada, e o alvo remoto preserva `workspaceIdentity`/`remoteSessionId`.
 
-模型边界对可信 botGroupSource 增加常规回复由服务自动投递的说明，不把原消息 ID 当成发送任务；只有用户明确要求额外发送才使用通讯技能。引用身份仅标记来源，缺少地点等必要条件应询问，不用通讯录、IP 或机器时区猜测。此说明不包含历史原文，不恢复 bot_topic_context；引用和历史仍使用已有材料通道。
+Na fronteira do modelo, um `botGroupSource` confiável ganha a explicação de que respostas comuns são entregues automaticamente pelo serviço e de que o ID da mensagem original não deve ser tratado como uma tarefa de envio; só quando o usuário pede explicitamente um envio adicional é que a habilidade de comunicação é usada. A identidade da citação apenas marca a origem e, quando faltarem condições necessárias como o local, é preciso perguntar, sem adivinhar pelo diretório de contatos, IP ou fuso da máquina. Essa explicação não contém o texto original do histórico, não restaura `bot_topic_context`; citações e histórico continuam usando os canais de material já existentes.
 
-本次不启动 dev、不运行 UI E2E；自动化验证上传完成屏障、失败阻止提交、关闭历史明确说明、引用与发送职责，真实飞书和手机由用户手动验收。
+Nesta rodada o dev não é iniciado e o E2E de UI não é executado; a validação automatizada cobre a barreira de conclusão do upload, a falha bloqueando o envio, a explicação explícita de histórico desativado e a separação entre referência e envio, e o Feishu real e o celular são validados manualmente pelo usuário.
 
-手动验证路径：自行启动当前 checkout → 飞书测试群由绑定用户发送 `@机器人 /history on` → 在同一话题先发送城市等普通讨论，再引用问题并 @ → ZCode 对应任务打开「话题历史」附件确认原文、姓名与时间 → 确认回答由机器人服务回到原话题。随后再 @，检查只包含增量；关闭历史后再发有正文的请求，附件应明确显示未读取。不要用主聊天的普通引用代替话题验证。
+Caminho de validação manual: iniciar manualmente o checkout atual → no grupo de testes do Feishu o usuário vinculado envia `@机器人 /history on` → no mesmo tópico envia primeiro uma discussão comum como uma cidade e então cita a pergunta e faz @ → na tarefa correspondente do ZCode abrir o anexo「话题历史」 e confirmar o texto original, o nome e o horário → confirmar que a resposta volta ao tópico original pelo serviço do bot. Depois disso, fazer um novo @ e verificar que contém apenas o incremento; desativar o histórico e então enviar uma requisição com corpo, e o anexo deve mostrar claramente que não foi lido. Não use uma citação comum do chat principal no lugar da validação de tópico.
 
-附件物理存储沿用目标 CLI 的 session artifact：完整校验后由 `writePromptAttachment` 写入会话 artifact，返回 `zcode-artifact://` 引用；不是工作区根目录中的独立 `topic-history.txt`。ZCode 使用已有附件预览读取真实内容。
+O armazenamento físico dos anexos continua usando o session artifact do CLI de destino: após a validação completa, `writePromptAttachment` grava o artifact da sessão e retorna a referência `zcode-artifact://`; não é um `topic-history.txt` isolado na raiz do workspace. O ZCode usa a pré-visualização de anexos já existente para ler o conteúdo real.
 
-自动化结果：根目录 typecheck、lint（43 项既有 warning、0 error）、verify:pre-push 通过；Agent contracts/core/bootstrap 类型检查通过；本次 188 项根目录相关测试、188 项投影/冷恢复测试、59 项队列/编辑重试测试、5 项 core 引用/持久化测试及 2 项模型材料展示隔离测试通过。新增 helper 独立 lint 通过；Agent 全包独立 lint 仍存在既有 max-lines 超长文件限制，不宣称该检查通过。未启动 dev，未进行本轮真实飞书、Lark、手机或其他 OS 手动验收。
+Resultados automatizados: typecheck da raiz, lint (43 warnings preexistentes, 0 erros) e verify:pre-push passaram; a verificação de tipos dos contracts/core/bootstrap do Agent passou; 188 testes relacionados da raiz, 188 testes de projeção/restauração fria, 59 testes de fila/edição/retry, 5 testes de core de citação/persistência e 2 testes de isolamento de exibição de material do modelo passaram. O novo helper passou no lint independente; o lint independente de todos os pacotes do Agent ainda tem a limitação preexistente de arquivo acima de max-lines, e portanto não se afirma que essa verificação passou. O dev não foi iniciado e não houve aceitação manual real de Feishu, Lark, celular ou outros OS nesta rodada.

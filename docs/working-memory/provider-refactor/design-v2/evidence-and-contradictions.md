@@ -1,368 +1,346 @@
-# Provider Refactor 考证与矛盾审计
+# Auditoria de Origens e Contradições do Provider Refactor
 
-> 状态：持续维护
-> 目的：解释现行设计从何而来，记录旧材料与当前事实不一致之处；本文不是第二份设计。
+> Status: manutenção contínua
+> Objetivo: explicar de onde vem o design vigente e registrar onde os materiais antigos divergem dos fatos atuais; este documento não é um segundo design.
 
-## 1. 审计方法
+## 1. Método da auditoria
 
-本次考证同时检查：
+Esta apuração verifica simultaneamente:
 
-- 当前分支相对 `origin/staging` 的提交和文件差异；
-- `docs/working-memory/provider-refactor` 下的 `design`、`steps`、`plan`、`research`、Bugfix 和实施记录；
-- 当前 `@zcode/provider`、`@zcode/provider-node`、Services、UI、CLI Bootstrap、Adapter 和 Built-in Config；
-- 与 Provider 核心行为直接相关的测试；
-- Todo 32 的设计、实现提交和验证记录。
+- os commits e as diferenças de arquivos do branch atual em relação a `origin/staging`;
+- `design`, `steps`, `plan`, `research`, Bugfix e registros de implementação em `docs/working-memory/provider-refactor`;
+- os `@zcode/provider`, `@zcode/provider-node`, Services, UI, CLI Bootstrap, Adapter e Built-in Config atuais;
+- os testes diretamente relacionados ao comportamento central do Provider;
+- os commits de design, implementação e verificação do Todo 32.
 
-判定时区分：
+Na adjudicação, distingue-se:
 
-| 类别       | 回答的问题                         |
-| ---------- | ---------------------------------- |
-| 目标事实   | 最新裁决要求系统最终怎样工作       |
-| 实现事实   | 当前代码和测试现在怎样工作         |
-| 历史证据   | 某个设计为何出现、何时被替代       |
-| 待完成事项 | 已裁决但尚未完成，或尚待讨论的工作 |
+| Categoria         | Pergunta que responde                              |
+| ----------------- | -------------------------------------------------- |
+| Fato de objetivo  | Como o sistema deve funcionar ao final, segundo a decisão mais recente |
+| Fato de implementação | Como o código e os testes funcionam agora        |
+| Evidência histórica | Por que um design apareceu e quando foi substituído |
+| Pendência          | Trabalho já decidido e não concluído, ou ainda em discussão |
 
-不能因为旧文档写得详细就赋予其更高权威，也不能因为当前代码存在某个偶然分支就把它升级为设计。
+Não se pode dar mais autoridade a um documento antigo por ele ser detalhado, nem promover a design um ramo acidental existente no código atual.
 
-## 2. 分支与差异事实
+## 2. Fatos de branch e diferenças
 
-建立本文时采用实现基线 `e01862000f`：
+Ao estabelecer este documento foi adotada a baseline de implementação `e01862000f`:
 
-- 当前 HEAD 与 `origin/staging` 的 merge-base 为 `65fb4532d347194095cca8848e768f0fdbb28939`；
-- 该实现基线相对 staging 有 238 个独有提交，staging 有 236 个独有提交；
-- `origin/staging...HEAD` 全仓差异约 1,271 个文件，包含大量并行产品演进，不能把全量 diff 等同于 Provider Refactor；
-- Provider 核心是本分支新增的 `packages/provider`、`packages/provider-node` 和 `config/provider/zcode-builtin.json`，
-  staging 仍主要使用已经被本分支退役的旧 Model Provider Service；
-- 当前 Built-in 内容外壳为 `schemaVersion + revision + config`，内容层有 21 个 Provider、120 条 Model Rule；
-- Todo 32 已由提交 `e01862000f` 完成，相关 UI、i18n、测试和 Design 结果已纳入本次审计。
+- o merge-base entre o HEAD atual e `origin/staging` é `65fb4532d347194095cca8848e768f0fdbb28939`;
+- essa baseline de implementação tem 238 commits exclusivos em relação ao staging, e o staging tem 236 commits exclusivos;
+- a diferença de todo o repositório em `origin/staging...HEAD` é de cerca de 1.271 arquivos e contém muita evolução de produto paralela; não se pode equiparar o diff completo ao Provider Refactor;
+- o núcleo do Provider é o `packages/provider`, o `packages/provider-node` e o `config/provider/zcode-builtin.json` novos neste branch, enquanto o staging ainda usa majoritariamente o antigo Model Provider Service, já desativado neste branch;
+- o conteúdo atual do Built-in tem o invólucro `schemaVersion + revision + config`, com 21 Providers e 120 Model Rules na camada de conteúdo;
+- o Todo 32 foi concluído pelo commit `e01862000f`, e os resultados de UI, i18n, testes e Design relacionados já entraram nesta auditoria.
 
-因此 staging 独有提交必须逐项提取产品不变量，不能机械 cherry-pick 旧实现。
+Portanto, os commits exclusivos do staging precisam ter suas invariantes de produto extraídas item a item; não é possível fazer cherry-pick mecânico das implementações antigas.
 
-### 2.1 staging 独有 Provider 修复的判定
+### 2.1 Adjudicação das correções de Provider exclusivas do staging
 
-| staging 提交                                                                         | 它证明的有效问题                                                           | 对 V2 的裁定                                                                                                                                                              |
-| ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `1ccf6f906e fix(model-provider): honor selected Start Plan runtime`                  | 同一 Family 同时具备 Start 与 Coding Plan 时，用户显式选择必须进入真实执行 | 产品不变量有效；旧 `modelProviderService` 修法不可搬。新架构应由 Account Connection Resolver 把未选 Provider 置为 unavailable，并通过 Account Overlay 只启用所选 Provider |
-| `b89263389e fix(model-provider): decouple start plan selection`                      | 套餐选择、Family 导航和模型候选不应互相错误推断                            | 问题有效；归入 Account Connection、Settings View 和独立套餐投影，不恢复旧 family runtime filter                                                                           |
-| `198a013a95 fix(model-provider): avoid boundary token budget in connectivity probes` | 连通性探测使用极小 token 边界值会造成假失败                                | 连接测试产品行为有效，但旧 connectivity helper 已删除；应在正式 ModelFactory/Adapter 测试链中独立核对，不恢复旧服务                                                       |
-| `08862385c3 fix(ui): clarify pending start plan entitlements`                        | pending、unknown、unavailable 不能混为“未分配”                             | 状态语义有效；Todo 32 进一步规定套餐状态不能决定 Effective Provider/模型配置区是否存在                                                                                    |
+| Commit do staging                                                                            | Problema válido que ele demonstra                                                                  | Veredito para o V2                                                                                                                                                            |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `1ccf6f906e fix(model-provider): honor selected Start Plan runtime`                           | Quando a mesma Family tem Start e Coding Plan, a escolha explícita do usuário precisa chegar à execução real | Invariante de produto válida; a correção antiga em `modelProviderService` não pode ser portada. A nova arquitetura deve, pelo Account Connection Resolver, marcar Providers não escolhidos como unavailable e, pelo Account Overlay, habilitar apenas o Provider escolhido |
+| `b89263389e fix(model-provider): decouple start plan selection`                               | Seleção de plano, navegação por Family e candidatos de modelo não devem se inferir mutuamente de forma errada | Problema válido; entra em Account Connection, Settings View e projeção independente de plano, sem restaurar o antigo family runtime filter                                            |
+| `198a013a95 fix(model-provider): avoid boundary token budget in connectivity probes`             | Usar valores de limite de token minúsculos nos testes de conectividade causa falsos negativos        | O comportamento de produto do teste de conexão é válido, mas o helper de conectividade antigo foi removido; deve ser conferido à parte na cadeia de testes formal de ModelFactory/Adapter, sem restaurar o serviço antigo |
+| `08862385c3 fix(ui): clarify pending start plan entitlements`                                 | pending, unknown e unavailable não podem ser confundidos com "não atribuído"                     | A semântica dos estados é válida; o Todo 32 acrescenta que o estado do plano não pode determinar se a área de Provider/modelo efetivo existe                                              |
 
-当前 `AccountProviderConnectionResolver` 已按 Family 的显式 selection 只把所选模式解析为 available；
-`resolveAccountProviderConfigs` 再将其投影为 `access.entitled`，Start Plan 同时投影账号模型集合。这个落点替代旧 Registry
-投递筛选。
+O `AccountProviderConnectionResolver` atual já resolve como available apenas o modo selecionado explicitamente por Family; `resolveAccountProviderConfigs` então o projeta como `access.entitled`, e o Start Plan projeta simultaneamente o conjunto de modelos da conta. Esse ponto de chegada substitui a filtragem de entrega do Registry antigo.
 
-## 3. 当前事实的主要代码证据
+## 3. Principais evidências de código dos fatos atuais
 
-| 设计事实                                   | 主要实现证据                                                                      | 主要测试证据                                                     |
-| ------------------------------------------ | --------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Provider Schema 与 Access 联合类型         | `packages/provider/src/config/provider-config.ts`、`config/schema.ts`             | `packages/provider/test/provider-config-kinds.test.ts`           |
-| Model Schema、嵌套格式和 Rule 顺序         | `packages/provider/src/config/model-config.ts`                                    | `model-config-rules.test.ts`、`todo21-source-contracts.test.ts`  |
-| Built-in -> Account -> Personal            | `packages/provider/src/resolver.ts`                                               | `resolver.test.ts`、`todo21-resolution.test.ts`                  |
-| Settings 候选与 Registry 可执行集同源      | `resolver.ts`、`facades.ts`                                                       | `facades.test.ts`、`registry.test.ts`                            |
-| Account 只投影 entitlement 与 Start models | `account-provider-resolution.ts`、Services `accountProviderConnectionResolver.ts` | `account-provider-resolution.test.ts`、Services 对应测试         |
-| Built-in / Account revision 原子配对       | `registry-service.ts`、`account-provider-service.ts`                              | `registry-service.test.ts`、`account-provider-service.test.ts`   |
-| Personal 持久化、远端 Built-in 与 LKG      | `packages/provider-node/src/*`                                                    | `provider-node-runtime.test.ts`、`zcode-builtin-release.test.ts` |
-| ModelFactory 固定完整执行事实              | `apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts`    | Bootstrap、Core、Adapter Provider 定向测试                       |
-| Active Model 使用同结构 properties         | CLI Contracts Model 与 Adapter/Core 消费链                                        | Model input/output、媒体、Compact/Subagent 定向测试              |
-| 设置页经 Facade 读写                       | `packages/provider/src/facades.ts`、UI `useProviderSettingsView.ts`               | Provider settings / coding plan UI tests                         |
-| Built-in 正式内容                          | `config/provider/zcode-builtin.json`                                              | `packages/provider-node/test/zcode-builtin-integrity.test.ts`    |
+| Fato de design                                        | Principal evidência de implementação                                                              | Principal evidência de teste                                                |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Tipos unidos de Provider Schema e Access              | `packages/provider/src/config/provider-config.ts`、`config/schema.ts`                               | `packages/provider/test/provider-config-kinds.test.ts`                     |
+| Model Schema, formatos aninhados e ordem das Rules    | `packages/provider/src/config/model-config.ts`                                                      | `model-config-rules.test.ts`、`todo21-source-contracts.test.ts`             |
+| Built-in -> Account -> Personal                      | `packages/provider/src/resolver.ts`                                                                | `resolver.test.ts`、`todo21-resolution.test.ts`                             |
+| Candidatos de Settings e conjunto executável do Registry vêm da mesma fonte | `resolver.ts`、`facades.ts`                                                        | `facades.test.ts`、`registry.test.ts`                                       |
+| Account projeta apenas entitlement e Start models     | `account-provider-resolution.ts`、Services `accountProviderConnectionResolver.ts`                    | `account-provider-resolution.test.ts`、testes correspondentes nos Services    |
+| Emparelhamento atômico de revision Built-in / Account | `registry-service.ts`、`account-provider-service.ts`                                                 | `registry-service.test.ts`、`account-provider-service.test.ts`              |
+| Persistência Personal, Built-in remoto e LKG          | `packages/provider-node/src/*`                                                                     | `provider-node-runtime.test.ts`、`zcode-builtin-release.test.ts`            |
+| Fatos de execução completos e fixos do ModelFactory   | `apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts`                       | Testes direcionados de Bootstrap, Core e Adapter Provider                  |
+| Active Model usa properties de mesma estrutura        | CLI Contracts Model e cadeia de consumo Adapter/Core                                                | Testes direcionados de input/output de Model, mídia e Compact/Subagent      |
+| Página de configurações lê e escreve via Facade        | `packages/provider/src/facades.ts`、UI `useProviderSettingsView.ts`                                 | Testes de UI de Provider settings / coding plan                             |
+| Conteúdo oficial do Built-in                          | `config/provider/zcode-builtin.json`                                                               | `packages/provider-node/test/zcode-builtin-integrity.test.ts`               |
 
-## 4. 矛盾表述与裁定
+## 4. Afirmações contraditórias e vereditos
 
-### C01. `Official Config` 与 `ZCode Built-in Config`
+### C01. `Official Config` e `ZCode Built-in Config`
 
-**历史表述**：M2/M3 早期材料和实施日志大量使用 `Official Config`。
-**后续裁决**：Todo 10 明确进行一次性命名切换，不保留别名。
-**当前事实**：类型和文件均使用 `zcodeBuiltin*` / `zcode-builtin.json`。
-**裁定**：现行名称只有 `ZCode Built-in Provider Config` 与 `ZCode Built-in Model Config Rules`。
-旧名称只作为历史引用。
+**Formulação histórica**: materiais iniciais de M2/M3 e logs de implementação usam muito `Official Config`.
+**Decisão posterior**: o Todo 10 definiu uma troca de nomenclatura única, sem manter alias.
+**Fato atual**: tanto tipos quanto arquivos usam `zcodeBuiltin*` / `zcode-builtin.json`.
+**Veredito**: os únicos nomes vigentes são `ZCode Built-in Provider Config` e `ZCode Built-in Model Config Rules`.
+Os nomes antigos servem apenas como referência histórica.
 
-### C02. `Config Document` 是不是领域概念
+### C02. `Config Document` é um conceito de domínio?
 
-**历史表述**：早期 Provider Domain 暴露 `ProviderConfigDocument`、`ModelSelectionConfigDocument`。
-**后续裁决**：用户明确要求设计中删除 document 概念；Todo 06 将版本外壳和 migration 收回 Repository。
-**当前事实**：Domain 只处理 Config/Rules/Snapshot；`schemaVersion/revision` 属于 codec、repository 或远端发布外壳。
-**裁定**：没有 Config Document 领域中间态。物理文件仍然可以有存储外壳。
+**Formulação histórica**: o Provider Domain inicial expunha `ProviderConfigDocument` e `ModelSelectionConfigDocument`.
+**Decisão posterior**: o usuário exigiu explicitamente remover o conceito de document do design; o Todo 06 devolveu o invólucro de versão e a migration para o Repository.
+**Fato atual**: o Domain lida apenas com Config/Rules/Snapshot; `schemaVersion/revision` pertencem ao codec, ao repository ou ao invólucro de publicação remota.
+**Veredito**: não existe estado intermediário de domínio Config Document. O arquivo físico ainda pode ter um invólucro de armazenamento.
 
-### C03. Provider Overlay 顺序
+### C03. Ordem do Provider Overlay
 
-**历史冲突**：早期图把 Personal 与 Account 顺序写反，或把 Account 当成最终覆盖。
-**明确裁决**：`ZCode Built-in -> Account -> Personal`，Personal 最后。
-**当前事实**：`ProviderConfigResolver` 先得到 `effectiveBuiltinProviders`，再 Overlay Personal。
-**裁定**：现行顺序固定；Account 的职责是约束 Built-in 账号 Provider，Renderer 不再额外应用它。
+**Conflito histórico**: diagrams iniciais invertiam a ordem de Personal e Account, ou tratavam Account como sobreposição final.
+**Decisão explícita**: `ZCode Built-in -> Account -> Personal`, Personal por último.
+**Fato atual**: o `ProviderConfigResolver` obtém primeiro `effectiveBuiltinProviders` e só então aplica o Overlay de Personal.
+**Veredito**: a ordem vigente é fixa; a responsabilidade de Account é constranger os Providers de conta do Built-in, e o Renderer não a aplica adicionalmente.
 
-### C04. Model Rules 是覆盖还是拼接
+### C04. Model Rules: substituição ou concatenação?
 
-**历史冲突**：部分材料把 Personal Model Config 当单份替换。
-**明确裁决**：Built-in 与 Personal 是数组拼接，Personal 在后。
-**当前事实**：`composeEffective()` 保持 Built-in 顺序，最后放 Personal 精确规则。
-**裁定**：有序 Overlay；Personal 只允许精确 `providerId + modelId`，具有最高优先级。
+**Conflito histórico**: parte dos materiais tratava o Personal Model Config como substituição única.
+**Decisão explícita**: Built-in e Personal são concatenação de arrays, com Personal depois.
+**Fato atual**: `composeEffective()` preserva a ordem do Built-in e coloca por último as regras exatas de Personal.
+**Veredito**: Overlay ordenado; Personal só permite `providerId + modelId` exatos e tem a prioridade mais alta.
 
-### C05. Account Config 是否拥有 `accessId/productId/team scope`
+### C05. O Account Config possui `accessId/productId/team scope`?
 
-**历史表述**：Research、Todo 07、Todo 20 和早期架构评审曾把 `accessId` 作为 Config 或 Model 固定字段，并把商品/团队
-Scope 一并讨论。
-**后续裁决**：Todo 24 删除 `accessId`，Todo 26 又删除静态 `planKind` 和伪通用协议字段。
-**当前事实**：Account Provider Config Schema 只允许 `access.entitled` 与 `builtinModelIds`。账号协议、Subscription、Usage、
-Request Auth 中仍合法存在 `planKind/productId/organizationId/projectId`。
-**裁定**：这些字段可以属于账号/套餐/请求上下文，但不得回流 Provider Config、Registry Model 静态事实或 Selection。
+**Formulação histórica**: Research, Todo 07, Todo 20 e revisões de arquitetura iniciais tratavam `accessId` como campo fixo de Config ou Model e discutiam escopo de produto/equipe junto.
+**Decisão posterior**: o Todo 24 removeu `accessId`, e o Todo 26 removeu o `planKind` estático e pseudo-campos de protocolo universais.
+**Fato atual**: o Schema do Account Provider Config só permite `access.entitled` e `builtinModelIds`. `planKind/productId/organizationId/projectId` ainda existem legitimamente no protocolo de conta, em Subscription, Usage e Request Auth.
+**Veredito**: esses campos podem pertencer ao contexto de conta/plano/requisição, mas não podem voltar para o Provider Config, para os fatos estáticos do Registry Model ou para a Selection.
 
-### C06. Account 是否应该影响 Config
+### C06. Account deveria afetar o Config?
 
-**历史摇摆**：讨论中一度倾向“所有账号事实都不应与 Config 有关”。多方确认后又明确 Start Plan 模型因账号而异，
-账号 Provider 权益也必须参与最终解析。
-**当前事实**：Account 是正式第三层 Provider Overlay；只投影 `access.entitled` 和账号接口明确返回的
-`builtinModelIds`。
-**裁定**：Account 必须影响 Effective Provider，但不能成为静态 Model Properties、Endpoint 或动态凭据的来源。
+**Oscilação histórica**: em certo momento da discussão inclinou-se para "nenhum fato de conta deve ter relação com Config". Após confirmações多方, ficou explícito que os modelos do Start Plan variam por conta e que os direitos de Provider da conta também precisam participar da resolução final.
+**Fato atual**: Account é a terceira camada formal de Provider Overlay; projeta apenas `access.entitled` e os `builtinModelIds` que a interface da conta retorna explicitamente.
+**Veredito**: Account precisa afetar o Effective Provider, mas não pode virar fonte de Model Properties estáticas, Endpoint ou credenciais dinâmicas.
 
-### C07. 是否只有 Start Plan 返回模型集合
+### C07. Somente o Start Plan retorna um conjunto de modelos?
 
-**历史疑问**：早期曾假设所有账号套餐都可能返回模型，或把 `show_name` 回退成 Model ID。
-**当前事实**：Account Resolver 只消费账号接口明确返回的 `models`；没有动态成员集合时沿用 Built-in。
-Individual/Team/Start 的套餐资格统一写入 `access.entitled`，不修改顶层 `enabled`。
-Start Plan 解析只接受上游明确模型事实，不应让展示文案成为 Registry 身份。
-**裁定**：账号模型子集是 Start Plan 特例，不推广为所有 Account Provider 的通用动态成员协议。
+**Dúvida histórica**: chegou-se a supor que todos os planos de conta poderiam retornar modelos, ou degradar `show_name` para Model ID.
+**Fato atual**: o Account Resolver consome apenas os `models` que a interface de conta retorna explicitamente; sem conjunto dinâmico de membresia, vale o Built-in.
+A elegibilidade de plano de Individual/Team/Start é gravada uniformemente em `access.entitled`, sem modificar o `enabled` de topo.
+A resolução do Start Plan só aceita fatos de modelo explícitos do upstream; o texto de exibição não pode virar identidade de Registry.
+**Veredito**: o subconjunto de modelos da conta é um caso especial do Start Plan e não deve ser promovido a um protocolo universal de membresia dinâmica para todos os Account Providers.
 
-### C08. Access 类型：`request-auth`、`execution-provided` 还是账号专用类型
+### C08. Tipo de Access: `request-auth`, `execution-provided` ou tipo exclusivo de conta?
 
-**历史演进**：M4 使用 `request-auth`；Todo 24 改为通用 `execution-provided` 并增加请求协议字段；用户随后认为它过度
-泛化。Todo 26 明确取代 Todo 24。
-**当前事实**：正式 Access 只有 `api-key` 与 `zhipu-account`；Off-Peak 是 `zhipu-account + mode=off-peak`。
-**裁定**：旧两种 Access 和 `challenge/requestSigning/executionProtocol` 均为已退出中间设计。
+**Evolução histórica**: M4 usou `request-auth`; o Todo 24 mudou para o genérico `execution-provided` e adicionou campos de protocolo de requisição; o usuário depois achou a abordagem excessivamente generalizada. O Todo 26 substituiu explicitamente o Todo 24.
+**Fato atual**: o Access formal só tem `api-key` e `zhipu-account`; Off-Peak é `zhipu-account + mode=off-peak`.
+**Veredito**: os dois tipos de Access antigos e `challenge/requestSigning/executionProtocol` são designs intermediários já retirados.
 
-### C09. `family member`、`plan kind`、`group`、`mode`
+### C09. `family member`, `plan kind`, `group`, `mode`
 
-**历史冲突**：讨论中曾尝试同时保留 family member 与 plan kind，或用 Provider group 推导访问方式。
-**当前事实**：`group` 负责静态产品分组；`zhipu-account.family` 负责 Z.ai/BigModel；`mode` 负责 API Key、Start、
-Individual、Team、Off-Peak。
-**裁定**：三者正交，不能互相推导；账号运行协议可继续使用自己的 `planKind` 命名。
+**Conflito histórico**: chegou-se a tentar manter simultaneamente family member e plan kind, ou deduzir o modo de acesso pelo grupo do Provider.
+**Fato atual**: `group` cuida do agrupamento estático de produto; `zhipu-account.family` cuida de Z.ai/BigModel; `mode` cuida de API Key, Start, Individual, Team e Off-Peak.
+**Veredito**: os três são ortogonais e não podem ser deduzidos uns dos outros; o protocolo de execução da conta pode continuar usando sua própria nomenclatura `planKind`.
 
-### C10. Provider 与 Model 是否都有 Visibility
+### C10. Provider e Model têm ambos Visibility?
 
-**历史表述**：Todo 03 一度决定 Provider/Model 对称拥有 visibility；旧 `registry.md` 也残留“Provider/Model
-Visibility”措辞。
-**后续裁决**：Todo 21 明确删除 Model visibility，用户再次确认。
-**当前事实**：Schema 只有 Provider `visibility`；Model 的 `selectable` 由执行资格和 Provider visibility 计算。
-**裁定**：Model 没有独立 visibility。旧对称设计已失效。
+**Formulação histórica**: o Todo 03 chegou a decidir que Provider/Model teriam visibilidade simétrica; o antigo `registry.md` também deixou resíduo da formulação "Provider/Model Visibility".
+**Decisão posterior**: o Todo 21 removeu explicitamente a visibility de Model, e o usuário confirmou novamente.
+**Fato atual**: o Schema só tem `visibility` de Provider; o `selectable` de Model é calculado pela elegibilidade de execução e pela visibility do Provider.
+**Veredito**: Model não tem visibility independente. O design simétrico antigo está invalidado.
 
-### C11. `executionOnly` 与“受信执行”
+### C11. `executionOnly` e "execução confiável"
 
-**历史表述**：M4 前曾用 `executionOnly` 同时表达隐藏、内部执行和完整性豁免，并讨论 trusted lookup。
-**明确裁决**：用户要求只是通用可见性，不与“受信”绑定；Provider Config 层也不负责限制用户能否通过其它接口使用。
-**当前事实**：`visibility=hidden` 只影响普通 View；Registry 精确查找仍可执行，但完整性要求不放宽。
-**裁定**：删除 `executionOnly` 和 trusted 概念；内部产品入口用固定 Provider ID 精确选择。
+**Formulação histórica**: antes de M4, `executionOnly` expressava ao mesmo tempo ocultação, execução interna e isenção de integridade, e discutia-se trusted lookup.
+**Decisão explícita**: o usuário exigiu que fosse apenas visibilidade genérica, sem vínculo com "confiável"; a camada de Provider Config também não é responsável por limitar se o usuário pode usar o Provider por outras interfaces.
+**Fato atual**: `visibility=hidden` afeta apenas a View comum; a busca precisa do Registry ainda pode executar, mas os requisitos de integridade não são relaxados.
+**Veredito**: `executionOnly` e o conceito de trusted foram removidos; entradas internas de produto usam seleção precisa por Provider ID fixo.
 
-### C12. Enabled、完整性、Executable、Selectable
+### C12. Enabled, integridade, Executable, Selectable
 
-**历史混淆**：旧服务常用一个 `enabled` 或 availability 同时承担配置完整、账号可用、选择可见和执行资格。
-**当前事实**：Resolver 分开保存 `enabled`、issues、`executable`、`selectable`；Settings 保留不完整项，Registry 只收
-可执行项。
-**裁定**：四个事实正交。配置不完整可以保存但不可用；账号套餐状态不能把 Provider 配置从设置页抹掉。
+**Confusão histórica**: os serviços antigos frequentemente usavam um único `enabled` ou disponibilidade para carregar ao mesmo tempo configuração completa, conta disponível, visibilidade de seleção e elegibilidade de execução.
+**Fato atual**: o Resolver salva separadamente `enabled`, issues, `executable` e `selectable`; Settings mantém itens incompletos, e o Registry recebe apenas itens executáveis.
+**Veredito**: os quatro fatos são ortogonais. Uma configuração incompleta pode ser salva, mas não fica disponível; o estado do plano da conta não pode apagar a configuração do Provider da página de configurações.
 
-### C13. Built-in 与 Personal 模型重名
+### C13. Nomes de modelo duplicados entre Built-in e Personal
 
-**历史表述**：一度写成“冲突模型全部隔离”。
-**明确裁决**：用户要求 Built-in 与自定义重名时 Built-in 仍能运行。
-**当前事实**：Resolver 先去重 Built-in，再丢弃与 Built-in 重名的 Personal 成员。
-**裁定**：Built-in wins；冲突不拖垮 Provider，也不让 Personal 身份覆盖 Built-in。
+**Formulação histórica**: chegou-se a escrever "todos os modelos em conflito são isolados".
+**Decisão explícita**: o usuário exigiu que, quando Built-in e customizado tenham o mesmo nome, o Built-in continue funcionando.
+**Fato atual**: o Resolver primeiro deduplica o Built-in e depois descarta membros Personal com o mesmo nome do Built-in.
+**Veredito**: Built-in vence; o conflito não derruba o Provider nem deixa a identidade Personal sobrescrever a do Built-in.
 
-### C14. Reasoning Compatibility 与具体模型硬编码
+### C14. Reasoning Compatibility e hardcode de modelos específicos
 
-**历史表述**：`magic_name`、ox-alpha、GLM 特例、`adapterCompatibility`、`reasoningReplay` 等曾存在或被提议进入配置。
-**明确裁决**：所有“按具体模型识别 reasoning 强度”的生产旧代码退出；`reasoningReplay` 和 Compatibility 全面删除。
-**当前事实**：逻辑档位由 `optionSpecs.reasoningLevel` 声明，协议字段由该 Option 自身的受限 CEL `map(value)` 直接投影到最终原始 Request Body；正式 Schema 拒绝旧 `reasoningMapping` 字段。
-**裁定**：具体模型差异写成声明式 Model Rule；Runtime/Adapter 不按 Model ID 打补丁。
+**Formulação histórica**: `magic_name`, ox-alpha, casos especiais de GLM, `adapterCompatibility` e `reasoningReplay` existiram ou foram propostos para entrar na configuração.
+**Decisão explícita**: todo o código de produção antigo que identificava a intensidade de reasoning por modelo específico saiu; `reasoningReplay` e Compatibility foram removidos por completo.
+**Fato atual**: os níveis lógicos são declarados por `optionSpecs.reasoningLevel`, e os campos de protocolo são projetados diretamente para o Request Body bruto final pelo `map(value)` CEL restrito da própria Option; o Schema formal rejeita o campo antigo `reasoningMapping`.
+**Veredito**: as diferenças entre modelos específicos são escritas como Model Rules declarativas; Runtime/Adapter não aplicam patches por Model ID.
 
-### C15. 输入输出格式
+### C15. Formatos de entrada e saída
 
-**历史演进**：`modalities: { input: string[], output: string[] }`，随后出现平铺 `supportsImages/Pdf/Video`，最终裁决为
-嵌套 snake_case property。
-**当前事实**：Config、Registry、Protocol 和 Model 统一使用 `properties.input_format/output_format`；PDF/Audio 进入静态事实，
-PDF 继续运行 gating，Audio 尚无内容编码入口。
-**裁定**：旧字段只能在一次性 importer/历史测试输入中出现，不是正式事实。
+**Evolução histórica**: `modalities: { input: string[], output: string[] }`, depois `supportsImages/Pdf/Video` achatados, e finalmente a decisão por property aninhada em snake_case.
+**Fato atual**: Config, Registry, Protocol e Model usam uniformemente `properties.input_format/output_format`; PDF/Audio entram nos fatos estáticos, PDF continua com gating em runtime e Audio ainda não tem entrada de codificação de conteúdo.
+**Veredito**: os campos antigos só podem aparecer em importer pontual/entrada de teste histórico; não são fatos formais.
 
-### C16. Model 中间态：ModelRef、ConnectionPort、Capability DTO
+### C16. Estados intermediários de Model: ModelRef, ConnectionPort, Capability DTO
 
-**历史表述**：旧 CLI 设计和 trajectory 文档仍大量描述 `ModelRef`、`ModelConnectionPort`、Catalog capability。
-**后续裁决**：Todo 01、02、04、05、08、14、16 完成退役。
-**当前事实**：公共执行对象是不可变 Model，Factory 从正式 Registry 创建；媒体和选项读取 Model 自身结构。
-**裁定**：旧 CLI design/trajectory 只能说明历史，不能作为 Provider Refactor 现行接口依据。
+**Formulação histórica**: o design antigo do CLI e documentos de trajectory ainda descrevem muito `ModelRef`, `ModelConnectionPort` e capability de catálogo.
+**Decisão posterior**: os Todo 01, 02, 04, 05, 08, 14 e 16 concluíram a descontinuação.
+**Fato atual**: o objeto público de execução é o Model imutável, criado pelo Factory a partir do Registry formal; mídia e opções são lidas da própria estrutura do Model.
+**Veredito**: o design/trajectory antigo do CLI só explica a história e não pode servir de base para a interface vigente do Provider Refactor.
 
-### C17. `Document`、Snapshot、Envelope 是否都要删除
+### C17. `Document`, Snapshot e Envelope: tudo deve ser removido?
 
-**历史误解**：删除 Document 概念有时被扩展成“不应有任何快照或版本”。
-**当前事实**：领域需要只读 Config Snapshot 和 Registry Snapshot 保证原子发布；Repository/远端同步需要版本外壳。
-它们没有重新成为可编辑 Config DTO。
-**裁定**：删除的是多余领域中间态，不是原子性所需的不可变快照和物理版本信息。
+**Mal-entendido histórico**: a remoção do conceito de Document às vezes foi estendida para "não deve existir nenhum snapshot ou versão".
+**Fato atual**: o domínio precisa de Config Snapshot e Registry Snapshot somente-leitura para garantir publicação atômica; Repository/sincronização remota precisam de invólucro de versão. Eles não voltaram a ser DTO de Config editáveis.
+**Veredito**: o que foi removido são estados intermediários de domínio redundantes, não os snapshots imutáveis necessários à atomicidade nem a informação física de versão.
 
-### C18. Registry 刷新是否需要 revision handshake
+### C18. A atualização do Registry exige revision handshake?
 
-**历史方案**：曾提出 Host 保存后向 Agent 发送 revision 并等待 observed revision。用户认为过度抽象，倾向让 Host 直接测试。
-**当前实现**：各 Environment 的 Source/Registry 自己读取配置；连接测试走正式 Host Registry/ModelFactory；Worker watcher
-有失败自愈；Built-in 与 Account revision 在 Registry Service 原子配对。
-**裁定**：不引入跨进程 Registry Snapshot 或通用 revision handshake。执行入口必须等待本 Environment 的正式刷新结果。
+**Proposta histórica**: chegou-se a propor que, após o Host salvar, ele enviasse a revision ao Agent e esperasse a revision observada. O usuário achou a abstração excessiva e preferiu que o Host testasse diretamente.
+**Implementação atual**: o Source/Registry de cada Environment lê a configuração por si mesmo; o teste de conexão passa pelo Registry/ModelFactory formais do Host; o watcher do Worker tem auto-cura em caso de falha; e as revisions Built-in e Account são emparelhadas atomicamente no Registry Service.
+**Veredito**: não se introduz Registry Snapshot entre processos nem revision handshake genérico. O ponto de entrada de execução precisa esperar o resultado da atualização formal deste Environment.
 
-### C19. 设置页是否读取 Account Overlay
+### C19. A página de configurações lê o Account Overlay?
 
-**历史表述**：部分 UI 设计把 Account Overlay、套餐卡和 Provider 配置直接拼在 Renderer，甚至让 entitlement 状态控制模型区。
-**明确裁决**：设置页只读最终 Provider Settings View；套餐状态独立投影。
-**实现结果**：Todo 32 已在 `e01862000f` 完成。Team / Individual 详情按 `providerId` 从 Provider Settings View
-精确解析；套餐状态不再控制配置区和模型列表是否存在；`not-allocated` 与 `credential-unavailable` 成为显式页面状态。
-**裁定**：这一边界已进入现行事实；套餐投影不能再反向成为 Provider 配置权威。
+**Formulação histórica**: parte do design de UI compunha Account Overlay, cartões de plano e configuração de Provider direto no Renderer, e até deixava o estado de entitlement controlar a área de modelos.
+**Decisão explícita**: a página de configurações lê apenas a Provider Settings View final; o estado do plano é projetado de forma independente.
+**Resultado da implementação**: o Todo 32 foi concluído em `e01862000f`. Os detalhes de Team/Individual são resolvidos com precisão por `providerId` a partir da Provider Settings View; o estado do plano não controla mais se a área de configuração e a lista de modelos existem; `not-allocated` e `credential-unavailable` viraram estados explícitos de página.
+**Veredito**: essa fronteira já virou fato vigente; a projeção de plano não pode voltar a ser a autoridade da configuração do Provider.
 
-### C20. Endpoint/API Schema 在 Account 页面是否展示
+### C20. Endpoint/API Schema aparece na página de Account?
 
-**历史冲突**：通用设置设计要求 Built-in Endpoint/Schema 可见但只读；Todo 32 最新裁决规定 Individual/Team Coding Plan
-页面隐藏它们。
-**裁定**：一般 Built-in 仍展示只读连接事实；Individual/Team 是产品展示例外。字段从未从 Effective Config 删除，Runtime
-继续使用。
+**Conflito histórico**: o design genérico de configurações exigia Endpoint/Schema do Built-in visíveis, porém somente-leitura; a decisão mais recente do Todo 32 determina ocultá-los nas páginas de Individual/Team Coding Plan.
+**Veredito**: o Built-in em geral continua exibindo fatos de conexão somente-leitura; Individual/Team são exceção de exibição de produto. Os campos nunca foram removidos do Effective Config e continuam em uso pelo Runtime.
 
-### C21. 设置反馈位置
+### C21. Posição do feedback nas configurações
 
-**历史冲突**：旧 `settings.md` 一度写成页面/viewport 最底部全局 Toast；后续实机反馈明确要求位于右侧 Provider 详情列底部，
-使用横幅样式，新状态替换旧状态。
-**当前事实**：近期 Bugfix/Todo 已按详情列反馈收口。
-**裁定**：核心设计采用 Provider 详情列底部横幅；这只是交互投影，不改变配置权威。
+**Conflito histórico**: o antigo `settings.md` chegou a descrever um Toast global no rodapé da página/viewport; o feedback posterior em dispositivo real exigiu claramente o rodapé da coluna de detalhes do Provider à direita, com estilo de banner e substituição do estado antigo pelo novo.
+**Fato atual**: Bugfix/Todo recentes convergiram para o feedback na coluna de detalhes.
+**Veredito**: o design central adota o banner no rodapé da coluna de detalhes do Provider; isso é apenas uma projeção de interação e não muda a autoridade da configuração.
 
-### C22. `modelContextBudget.strategy` 与所谓 Official Runtime Config
+### C22. `modelContextBudget.strategy` e a suposta Official Runtime Config
 
-**历史讨论**：曾尝试把远端 `/client/configs` 中所有字段都纳入 Provider Config，或新建 Official Runtime Config。
-**明确裁决**：该字段属于 Agent 参数/产品灰度，与模型静态配置无关，本轮不动，也不创建新配置域。
-**裁定**：不属于 Provider Refactor。
+**Discussão histórica**: chegou-se a tentar incorporar todos os campos de `/client/configs` remoto ao Provider Config, ou criar uma Official Runtime Config.
+**Decisão explícita**: esse campo pertence a parâmetros do Agent/graduação gradual de produto, não tem relação com a configuração estática de modelo, não é tratado nesta rodada e nenhum novo domínio de configuração é criado.
+**Veredito**: não pertence ao Provider Refactor.
 
 ### C23. Remote Provisioning
 
-**历史计划**：部分收口计划把本地向远端同步、远程编辑和登录列为 Provider 重构未完成项。
-**明确裁决**：Remote Provisioning 是独立产品能力，不属于本次重构。
-**裁定**：Provider 只规定每个执行 Environment 拥有自己的事实源，不在本设计定义配置如何跨 Environment 分发。
+**Plano histórico**: parte dos planos de fechamento listava a sincronização local para remoto, a edição remota e o login como itens não concluídos do refactor de Provider.
+**Decisão explícita**: Remote Provisioning é uma capacidade de produto independente e não pertence a este refactor.
+**Veredito**: o Provider apenas determina que cada Environment de execução tem sua própria fonte de fatos; este design não define como a configuração é distribuída entre Environments.
 
-### C24. Built-in 完整性由谁负责
+### C24. Quem responde pela integridade do Built-in
 
-**历史争议**：Todo 18/19 讨论在客户端做大量“静态完整性”门禁，用户认为规则难维护、可能应由发布者负责。
-**明确裁决**：先不扩展完整性校验；Todo 19 的历史讨论已废弃，未来如有需要另立新的发布门禁任务。
-**当前事实**：Schema、Resolver 和现有 Built-in integrity test 保护当前可执行契约；没有新增远端发布者工作流。
-**裁定**：现有运行完整性继续保留；更强发布门禁不得在未讨论前写成现行设计。
+**Controvérsia histórica**: os Todo 18/19 discutiram a aplicação de muitos "integridade estática" gates no cliente; o usuário entendeu que as regras são difíceis de manter e que talvez devessem ficar com quem publica.
+**Decisão explícita**: não estender a verificação de integridade por enquanto; a discussão histórica do Todo 19 está descartada, e, se houver necessidade no futuro, deve ser criada uma nova tarefa de gate de publicação.
+**Fato atual**: Schema, Resolver e o built-in integrity test existente protegem o contrato executável atual; não há novo fluxo de trabalho de publicação remota.
+**Veredito**: a integridade de execução existente é mantida; um gate de publicação mais forte não pode ser escrito como design vigente sem antes ser discutido.
 
-### C25. Start 独立 Provider 与现行单连接语义
+### C25. Provider Start independente e semântica vigente de conexão única
 
-**冲突的旧表述**：Start／Individual／Team 共用唯一 current，Start 选择随当前套餐映射。讨论中又曾提出虚拟统一入口、跨品牌映射、全量选择迁移、升级连接快照、多 Provider 全局失效通知及额外鉴权竞态校验。这些候选不能作为最终契约。
+**Formulação antiga conflitante**: Start/Individual/Team compartilhavam um único current, e a escolha de Start era mapeada pelo plano corrente. A discussão também chegou a propor uma entrada unificada virtual, mapeamento entre marcas, migração total de seleções, snapshot de conexão no upgrade, notificação global de invalidação de múltiplos Providers e verificação adicional de corrida de autenticação. Esses candidatos não podem ser contrato final.
 
-**后续用户裁决（2026-09-16）**：保留两家 Start ID、统一名称和各自品牌 logo，放现有智谱分组；详情只去掉连接／断开。保留 current，允许 Start 与当前付费连接并存；Start 严格按原身份解析，付费间保持映射；JWT 复用登录，账号竞态沿用现状。用户明确“不迁移，加一个优化”：只在用户提交／创建保存时推荐有额度且思考兼容的同模型 Start；包括 Subagent 显式模型保存，最终排除立即运行。偏好跨入口、重启及同 Host 手机生效，不做账号云同步。失效时保留额度反馈，全局连接通知只处理付费套餐。
+**Decisão posterior do usuário (2026-09-16)**: manter os dois IDs de Start, o nome unificado e o logo de cada marca, colocando-os no agrupamento existente da Zhipu; nos detalhes, remover apenas conectar/desconectar. Manter o current e permitir que Start coexista com a conexão paga atual; Start é resolvido estritamente pela identidade original, e entre planos pagos o mapeamento é mantido; o JWT reaproveita o login, e a corrida de contas segue como está. O usuário foi explícito: "não migrar, adicionar uma otimização" — apenas recomendar, quando o usuário submete/cria e salva, um Start do mesmo modelo que tenha cota e seja compatível com reasoning; isso inclui o salvamento explícito de modelo do Subagent, com exclusão final de Run Now. A preferência vale entre entradas, após reinício e no celular do mesmo Host, sem sincronização nas nuvens da conta. Na invalidação, o feedback de cota é mantido, e a notificação global de conexão trata apenas de planos pagos.
 
-**实施前代码／测试事实**：current、公共账号映射和 Start 请求鉴权原先有旧连接约束，设置导航有连接副作用。普通 Session 在提交开始执行时写回本次选择，草稿在 accepted 后写回；因此“所有旧会话长期残留 Start”不成立。Automation 仅固定 run，显式 Subagent 执行不改长期配置；无迁移不等于旧有效行为完全不变。I27/MP-R03 实际注入的是 Recent，断言回退 Configured Default，不能用旧矩阵的 Start→Team 描述证明普通 Session 需要迁移。详见 [调研](../research/todo154-start-plan-independence-impact.md)。
+**Fatos de código/testes antes da implementação**: current, mapeamento público de contas e autenticação de requisição do Start tinham antes uma restrição de conexão antiga, e a navegação de configurações tinha efeitos colaterais de conexão. Uma Session comum grava de volta a escolha atual ao iniciar a execução do envio, e o rascunho grava de volta após o accepted; portanto, "todas as sessões antigas retêm Start por muito tempo" não se sustenta. Automation apenas fixa o run, e a execução explícita de Subagent não altera a configuração de longo prazo; ausência de migração não significa que todo o comportamento válido antigo permanece idêntico. I27/MP-R03 injeta de fato Recent e a asserção faz fallback para Configured Default, de modo que a descrição Start→Team da matriz antiga não prova que uma Session comum precisa de migração. Ver [pesquisa](../research/todo154-start-plan-independence-impact.md).
 
-**最终裁定**：目标进入 Design V2 §4.5，完整实施边界归 [Todo154](../steps/todo-154-start-plan-independent-provider.md)。保留现有数据并按新语义解析；不新增迁移机制、不重写历史、不因取消映射而偷偷选择付费模型。撤回上述扩大方案。用户随后于 2026-09-16 授权执行 Todo154 并全面 review；Todo101 其余内容继续延期。正式行为同步至 [Start 规格](../../../zai-start-plan-provider.md)。
+**Veredito final**: o objetivo entra no Design V2 §4.5, e o escopo completo de implementação pertence ao [Todo154](../steps/todo-154-start-plan-independent-provider.md). Preservar os dados existentes e resolvê-los pela nova semântica; não criar mecanismo de migração, não reescrever histórico e não escolher secretamente um modelo pago por remover um mapeamento. A proposta ampliada acima fica retirada. O usuário autorizou depois, em 2026-09-16, a execução do Todo154 e uma revisão completa; o restante do Todo101 continua adiado. O comportamento formal é sincronizado na [especificação de Start](../../../zai-start-plan-provider.md).
 
-**owner 与完成条件**：Todo154 负责状态／鉴权／选模／导航、提交推荐、偏好和失效反馈的实现与桌面／手机／Worker 回归。实施前的 17 项测试只作历史证据。现已实现独立 current／JWT、Start 精确身份解析、独立导航及四类入口的提交推荐；不增加数据迁移。定向单测、Pro admin SSH Electron 实跑和 review 结果统一记录在 Todo154 §8，不把窄屏模拟等同于实体手机验证。
+**owner e condições de conclusão**: o Todo154 responde pela implementação e pelas regressões em desktop/celular/Worker de estado/autenticação/seleção de modelo/navegação, recomendação na submissão, preferência e feedback de invalidação. Os 17 testes anteriores à implementação servem apenas como evidência histórica. Já foram implementados current/JWT independentes, resolução de identidade precisa do Start, navegação independente e a recomendação na submissão nas quatro entradas; não há migração de dados. Os testes direcionados, a execução real via SSH no Electron do Pro admin e o resultado da revisão estão registrados de forma unificada no Todo154 §8, sem tratar simulação de tela estreita como verificação em aparelho físico.
 
-### C26. 审批框完全访问是否可以修改已接纳队列的权限
+### C26. A caixa de aprovação de acesso total pode alterar a permissão da fila já aceita?
 
-**旧表述**：[Todo71](../steps/todo-71-persistent-composer-draft-and-submission-state.md) 和 [Todo151](../steps/todo-151-independent-plan-state-draft.md) 要求 Submission 入队后保留原配置，不因草稿或批准结果改写。
+**Formulação antiga**: [Todo71](../steps/todo-71-persistent-composer-draft-and-submission-state.md) e [Todo151](../steps/todo-151-independent-plan-state-draft.md) exigem que, após o Submission entrar na fila, a configuração original seja preservada, sem reescrita por causa do rascunho ou do resultado da aprovação.
 
-**后续裁决（2026-09-17）**：用户明确仅权限审批框新增的“完全访问”同步当前任务、Composer 和全部待执行队列消息为 `mode=yolo`；各自 `planEnabled` 及其他字段保持。普通 Composer 菜单仍只改草稿。
+**Decisão posterior (2026-09-17)**: o usuário especificou que apenas o "acesso total" recém-adicionado na caixa de aprovação de permissão sincroniza a tarefa atual, o Composer e todas as mensagens pendentes da fila com `mode=yolo`; cada `planEnabled` e os demais campos são mantidos. O menu comum do Composer ainda altera apenas o rascunho.
 
-**当前事实**：即时切换命令仍被 Bot、自动化与兼容路径使用；`app.setMode()` 还写项目权限偏好，仅传 yolo 会关闭 Plan，且不更新队列或应答已有审批。共享归一化函数的 Plan 关闭已通过最小执行复现，审批新行为未实现。
+**Fato atual**: o comando de troca imediata ainda é usado pelo Bot, pela automação e por caminhos de compatibilidade; `app.setMode()` também grava a preferência de permissão do projeto, e passar apenas yolo desliga o Plan sem atualizar a fila nem responder a uma aprovação já existente. O desligamento do Plan pela função compartilhada de normalização foi reproduzido com execução mínima; o novo comportamento de aprovação ainda não foi implementado.
 
-**最终裁定**：增加审批专用的显式权限更新例外，不推翻模型选择冻结、Plan 独立、普通队列消费或草稿 owner。由 Agent 协调任务权限、全量目标队列和当前应答，客户端定向同步对应草稿；不继承项目默认写入副作用，不全局修改旧请求归一化语义。
+**Veredito final**: adicionar uma exceção explícita de atualização de permissão exclusiva da aprovação, sem derrubar o congelamento de seleção de modelo, a independência do Plan, o consumo de fila comum nem o owner do rascunho. O Agent coordena a permissão da tarefa, a fila-alvo completa e a resposta corrente, e o cliente sincroniza o rascunho correspondente de forma direcionada; não se herda o efeito colateral de escrita do padrão do projeto nem se altera globalmente a semântica antiga de normalização de requisições.
 
-**完成状态**：已按裁定实现，验收尚未全部收口，owner 为 [Todo158](../steps/todo-158-permission-dialog-full-access-and-queued-mode.md)。SQLite、Runtime、broker、V4 与 Composer 回归证据及基线失败见其第 9 节；手机 shared-host 整链路仍未验证，不将 pending 用例视为正式准入。
+**Status de conclusão**: implementado conforme o veredito, com a aceitação ainda não totalmente consolidada; o owner é o [Todo158](../steps/todo-158-permission-dialog-full-access-and-queued-mode.md). As evidências de regressão de SQLite, Runtime, broker, V4 e Composer e as falhas de baseline estão na seção 9 dele; a cadeia completa shared-host do celular ainda não foi verificada e casos pendentes não são considerados admissão formal.
 
-## 5. 旧材料的使用等级
+## 5. Nível de uso dos materiais antigos
 
-### 5.1 可以作为现行设计证据
+### 5.1 Podem servir como evidência do design vigente
 
-- `design/design.md` 中尚未被本表修正的双路架构和核心原则；
-- `design/registry/configuration.md` 的当前字段契约；
-- `design/model/input-output-format.md`；
-- `design/registry/model-membership-and-enablement.md`；
-- Todo 21、23、26、28、29、32 的最终裁决；
-- 当前 Schema、Resolver、Registry、ModelFactory 和测试。
+- a arquitetura de dois caminhos e os princípios centrais de `design/design.md`, enquanto não corrigidos por esta tabela;
+- o contrato de campos atual de `design/registry/configuration.md`;
+- `design/model/input-output-format.md`;
+- `design/registry/model-membership-and-enablement.md`;
+- os vereditos finais dos Todo 21, 23, 26, 28, 29 e 32;
+- o Schema, Resolver, Registry, ModelFactory e os testes atuais.
 
-### 5.2 只可作为历史实施证据
+### 5.2 Só podem servir como evidência histórica de implementação
 
-- M1–M4 实施文档和 implementation log；
-- Todo 00–10、12–14、16–18、20、24、25、27、30、31；
-- Bugfix 01–06；
-- Provider MR review、architecture conformance review；
-- Research 与 dogfood 记录。
+- os documentos de implementação M1–M4 e o implementation log;
+- os Todo 00–10, 12–14, 16–18, 20, 24, 25, 27, 30 e 31;
+- os Bugfix 01–06;
+- as revisões de MR de Provider e as revisões de conformidade de arquitetura;
+- registros de Research e de dogfood.
 
-这些文档可以解释为何删除某个抽象，但其中的阶段性 Schema 不得覆盖后续裁决。
+Esses documentos podem explicar por que uma abstração foi removida, mas seus Schemas intermediários não podem sobrepor decisões posteriores.
 
-### 5.3 明确被取代的关键材料
+### 5.3 Materiais-chave explicitamente substituídos
 
-- Todo 03 中 Model visibility：被 Todo 21 取代；
-- M4、Todo 02、07、14、15 中 `request-auth/accessId`：被 Todo 24/26 取代；
-- Todo 24 的 `execution-provided + executionProtocol`：被 Todo 26 取代；
-- Research 中 `Official Config`、旧平铺能力和 `accessId` 草案：被 Todo 10、输入输出格式设计和 Todo 24/26 取代；
-- 旧 CLI v2 ModelRef/Capability 文档：被 Todo 00–16 的实际清理取代；
-- Settings 全局底部 Toast：被后续实机交互裁决取代。
+- Model visibility no Todo 03: substituído pelo Todo 21;
+- `request-auth/accessId` em M4 e nos Todo 02, 07, 14 e 15: substituídos pelos Todo 24/26;
+- `execution-provided + executionProtocol` no Todo 24: substituído pelo Todo 26;
+- `Official Config`, capacidades achatadas antigas e a proposta de `accessId` no Research: substituídos pelo Todo 10, pelo design de formatos de entrada e saída e pelos Todo 24/26;
+- documentos antigos de ModelRef/Capability do CLI v2: substituídos pela limpeza real feita nos Todo 00–16;
+- Toast global no rodapé das configurações: substituído pelas decisões posteriores de interação em dispositivo real.
 
-### 5.4 尚不能进入现行事实
+### 5.4 Ainda não podem entrar como fatos vigentes
 
-- Todo154 的旧候选：虚拟 Provider、跨品牌映射、全量迁移和新增鉴权屏障已撤回；当前实现及验证以 Todo154 §8 为准；
-- Todo 11：Draft；
-- Todo 11A：待执行；
-- Todo 15：已废弃，不再作为独立执行项；
-- Todo 19：已废弃，不再作为独立执行项；
-- Todo 22：Draft；
-- Research 报告中尚未实施的 Built-in 模型事实扩展；
-- 人工 E2E、真实账号、正式包和跨平台验证中尚未完成的项目。
+- os candidatos antigos do Todo154: Provider virtual, mapeamento entre marcas, migração total e nova barreira de autenticação foram retirados; a implementação e a verificação atuais seguem o Todo154 §8;
+- Todo 11: Draft;
+- Todo 11A: pendente de execução;
+- Todo 15: descartado, não é mais item de execução independente;
+- Todo 19: descartado, não é mais item de execução independente;
+- Todo 22: Draft;
+- as extensões de fatos de modelo Built-in do relatório de Research que ainda não foram implementadas;
+- itens ainda não concluídos na validação manual E2E, em contas reais, em pacotes oficiais e na verificação multiplataforma.
 
-## 6. 完成证据与剩余审计项
+## 6. Evidências de conclusão e auditorias restantes
 
-### 6.1 Todo 32 完成证据
+### 6.1 Evidências de conclusão do Todo 32
 
-Todo 32 已在 `e01862000f` 提交，并将文件状态更新为“已完成”。实施记录证明：
+O Todo 32 foi concluído no commit `e01862000f`, com o status dos arquivos atualizado para "concluído". O registro de implementação prova que:
 
-- 套餐状态不再控制 Provider/模型配置区存在性；
-- Team/Individual 模型来自 Provider Settings View；
-- Team 模型继续支持既有排序、启停和 Personal Model Config 编辑；
-- Endpoint/API Schema 只在产品 UI 隐藏，运行时配置不变；
-- loading、明确未分配、凭据不可用和请求失败不再通过展示文案互相反推。
+- o estado do plano não controla mais a existência da área de configuração de Provider/modelo;
+- os modelos de Team/Individual vêm da Provider Settings View;
+- os modelos de Team continuam suportando a ordenação existente, o liga/desliga e a edição do Personal Model Config;
+- Endpoint/API Schema só é ocultado na UI de produto, sem alterar a configuração de runtime;
+- loading, não atribuído explícito, credencial indisponível e falha de requisição não se deduzem mais uns dos outros pelo texto de exibição.
 
-其记录的验证结果为 Provider UI 定向测试 220 条通过、全量 unit 1470 个测试文件和 12480 条测试通过，以及根
-`typecheck`、`lint`、修改文件格式检查和 `git diff --check` 通过。该证据说明实现已经落地；真实 Team 账号和正式包
-体验仍归发布验证，不反向改变设计状态。
+Os resultados de verificação registrados são 220 testes direcionados de UI de Provider aprovados, 1470 arquivos de teste unitário com 12480 testes aprovados em execução total, além de `typecheck`, `lint`, verificação de formatação dos arquivos alterados e `git diff --check` na raiz aprovados. Essa evidência mostra que a implementação foi implantada; a experiência com contas Team reais e pacotes oficiais continua sendo verificação de publicação e não altera o status do design.
 
-### 6.2 staging 最终集成
+### 6.2 Integração final com o staging
 
-当前与 staging 大幅分叉。最终合并前应按“产品不变量迁移”而不是“旧代码保留”审查 staging 独有 Provider 提交，重点验证：
+Atualmente há uma divergência grande em relação ao staging. Antes da merge final, os commits de Provider exclusivos do staging devem ser revisados como "migração de invariantes de produto", e não como "preservação de código antigo", verificando com prioridade:
 
-1. Start/Individual/Team/API Key 显式选择进入 Account Overlay 和真实 Model 创建；
-2. 连接测试不会因极小 output token 预算产生假失败；
-3. pending/unknown 权益不会误报未分配；
-4. staging 的新业务/UI 功能不重新引入旧 Provider Service、family runtime filter、capability DTO 或具体模型 hardcode。
+1. a escolha explícita de Start/Individual/Team/API Key chega ao Account Overlay e à criação real de Model;
+2. o teste de conexão não gera falsos negativos por causa de um orçamento de output token minúsculo;
+3. entitlements pending/unknown não são reportados indevidamente como não atribuídos;
+4. as novas funcionalidades de negócio/UI do staging não reintroduzem o antigo Provider Service, o family runtime filter, Capability DTO ou hardcode de modelos específicos.
 
-### 6.3 发布验证
+### 6.3 Verificação de publicação
 
-现有自动化已经证明主要领域契约，但以下仍是上线验证而不是设计缺口：
+A automação existente já provou os principais contratos de domínio, mas os itens a seguir ainda são verificação de lançamento e não lacunas de design:
 
-- 真实 API Key、Start、Individual、Team、Off-Peak 请求；
-- Desktop/CLI 正式制品中的 Built-in 路径；
-- macOS、Windows、Linux 及历史 Personal Config importer；
-- Config 更新、进程重启和冷启动；
-- 延后的人工 E2E 与容器环境门禁。
+- requisições reais de API Key, Start, Individual, Team e Off-Peak;
+- o caminho Built-in nos artefatos oficiais de Desktop/CLI;
+- macOS, Windows, Linux e o importer histórico de Personal Config;
+- atualização de Config, reinício de processo e cold start;
+- validação manual E2E adiada e gates de ambiente em contêiner.
 
-### 6.4 非 Provider Config 的相似字段
+### 6.4 Campos semelhantes fora do Provider Config
 
-全仓仍可搜索到 `planKind`、`productId`、`modalities`、`supportsImages`、`ModelRef` 等名称。不能仅凭字符串判定回归：
+Ainda é possível pesquisar em todo o repositório por nomes como `planKind`, `productId`, `modalities`, `supportsImages` e `ModelRef`. Não se pode declarar regressão apenas pela string:
 
-- 账号、Subscription、Usage 协议中的 `planKind/productId` 是合法业务字段；
-- legacy importer/test fixture 中的 `modalities` 是兼容输入；
-- Adapter 局部转换 helper 中的 `supportsImages` 可以是函数参数，但不得成为第二份 Active Model 能力权威；
-- CLI 历史设计/trajectory 中的 `ModelRef` 是文档残留，不是当前生产接口。
+- `planKind/productId` no protocolo de conta, Subscription e Usage são campos de negócio legítimos;
+- `modalities` no legacy importer/test fixture é entrada de compatibilidade;
+- `supportsImages` em helpers de conversão local do Adapter pode ser parâmetro de função, mas não pode virar uma segunda autoridade das capacidades do Active Model;
+- `ModelRef` no design/trajectory histórico do CLI é resíduo documental, não interface de produção atual.
 
-机械归零必须限定正式 Provider Config、Registry、Model 和 Runtime 权威路径，避免误删其它领域的合法概念。
+A zeragem mecânica precisa ficar restrita aos caminhos formais de Provider Config, Registry, Model e Runtime, para evitar apagar indevidamente conceitos legítimos de outras áreas.
 
-## 7. 后续维护格式
+## 7. Formato de manutenção futura
 
-新增矛盾时追加一项 `Cxx`，至少写明：
+Ao adicionar uma contradição, acrescente um item `Cxx` documentando, no mínimo:
 
-1. 冲突的旧表述；
-2. 后续明确裁决；
-3. 当前代码/测试事实；
-4. 最终裁定；
-5. 若未完成，标明 owner Todo 和验证条件。
+1. a formulação antiga conflitante;
+2. a decisão explícita posterior;
+3. o fato atual de código/testes;
+4. o veredito final;
+5. se não concluído, o Todo owner e as condições de verificação.
 
-历史文档原则上不回写成“仿佛当时就知道最终答案”。保留原始轨迹，在本文维护裁决，才能同时满足现行设计清晰和
-历史审计可信。
+Documentos históricos não devem ser reescritos como se "na época já soubessem a resposta final". Preservar a trajetória original e manter as decisões neste documento é o que permite atender simultaneamente à clareza do design vigente e à credibilidade da auditoria histórica.

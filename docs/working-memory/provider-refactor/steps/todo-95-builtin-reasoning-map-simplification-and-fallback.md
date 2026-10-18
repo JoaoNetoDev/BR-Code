@@ -1,72 +1,72 @@
-# Todo 95：专用 Reasoning Map 等价美化与兜底增强
+# Todo 95: embelezamento equivalente e reforço do fallback do Reasoning Map dedicado
 
-> 2026-09-12 后续裁决：[Todo138](./todo-138-reasoning-level-ui-and-api-defaults.md) 将 Model 通用档位改为 disabled/enabled，三种 API 通用 map 增加 enabled → high；取代本文原先“不新增 enabled → high”的限制。专用 map、个人覆盖及规则层级仍按原语义。本文其余内容保留为当时实施记录。
+> Adjudicação posterior de 2026-09-12: [Todo138](./todo-138-reasoning-level-ui-and-api-defaults.md) mudou os níveis genéricos de Model para disabled/enabled, e os três maps genéricos de API ganharam `enabled → high`; isso substitui a restrição deste documento de "não adicionar `enabled → high`". O map dedicado, a cobertura pessoal e a hierarquia de regras mantêm a semântica original. O restante deste conteúdo é preservado como registro de implementação da época.
 
 
-> 状态：A/B/C 已完成并关闭，2026-09-09 更新。关闭档位统一及旧 Selection 最佳努力映射已实现；未上线 Personal 配置不做兼容。排版回归也已由 Todo98 修复。所有残余欠测及人工晋级只在 [Todo102](todo-102-verification-debt-closeout.md) 跟进。历史证据见 [执行记录](../research/todo94-97-execution-and-review.md)。
-> 总原则：**美化已有模型的专有 Reasoning Map，强化兜底 Reasoning Map。已有专用规则仅做等价美化，不借机更改模型行为。** 关闭档位名称整理及历史选择兼容是单列的变更，不混入“美化”。
+> Status: A/B/C concluídos e fechados, atualização de 2026-09-09. O unificação dos níveis de desligamento e o mapeamento de melhor esforço dos Selections antigos foram implementados; não há compatibilidade para configurações Personal que nunca foram publicadas. A regressão de layout também foi corrigida pelo Todo98. Todas as pendências de teste restantes e as promoções manuais são acompanhadas apenas em [Todo102](todo-102-verification-debt-closeout.md). Evidência histórica em [registro de execução](../research/todo94-97-execution-and-review.md).
+> Princípio geral: **embelezar o Reasoning Map dedicado que já existe para os modelos e reforçar o Reasoning Map de fallback. As regras dedicadas existentes recebem apenas embelezamento equivalente, sem mudar o comportamento do modelo.** A padronização dos nomes de nível desligado e a compatibilidade dos Selections históricos é uma alteração separada e não é misturada ao "embelezamento".
 
-## 1. 三条工作线与边界
+## 1. Três frentes de trabalho e fronteiras
 
-| 工作线 | 允许改变 | 必须保持 |
+| Frente de trabalho | Pode mudar | Precisa manter |
 | --- | --- | --- |
-| A：专用 Map 美化 | 表达式结构、重复分支、条件位置 | 每个合法输入对应的最终请求字段、值、缺省/删除语义、模式和预算 |
-| B：兜底 Map 增强 | 按 API Schema 提供可用的通用推理字段映射 | 专用规则覆盖能力、Personal 覆盖、模型选择校验与输出上限权威 |
-| C：关闭档位整理 | 非 API 原生的关闭名称尽量统一为 `disabled`，兼容受影响的旧选择 | 旧选择的关闭语义、用户自定义档位/Map、各业务保存边界 |
+| A: embelezamento do Map dedicado | estrutura da expressão, ramos duplicados, posição das condições | o campo final de request, o valor e a semântica de omissão/remoção para cada entrada legal, o modo e o orçamento |
+| B: reforço do Map de fallback | fornecer um mapeamento utilizável de campos de raciocínio genéricos por API Schema | a capacidade de cobertura das regras dedicadas, a cobertura Personal, a validação de seleção de modelo e a autoridade do limite de saída |
+| C: padronização do nível desligado | unificar o nome desligado não nativo da API o máximo possível para `disabled`, com compatibilidade para as seleções antigas afetadas | a semântica desligada das seleções antigas, os níveis/Map personalizados do usuário, as fronteiras de salvamento de cada negócio |
 
-- 不调整专用规则的模型匹配范围、前后缀规则、站点范围、优先级或其他模型能力。不得把专用 Map 全部替换成通用混合 Map。
-- 不改模型 ID、不新增 Provider 特判执行路径，不扩展表达式语言来追求更短代码。
-- 不修改正在运行的 Active Model、历史记录、Off-Peak Ticket 或账号连接迁移。
-- Wiki 输出预算统一属于 [Todo 94](todo-94-wiki-model-output-limit.md)，不是本项实施内容。
+- Não ajustar o escopo de correspondência de modelos das regras dedicadas, as regras de prefixo/sufixo, o escopo de site, a prioridade ou outras capacidades de modelo. Não substituir todos os Maps dedicados por um Map genérico misto.
+- Não alterar IDs de modelo, não criar novos caminhos de execução com caso especial por Provider e não expandir a linguagem de expressão para conseguir código mais curto.
+- Não modificar o Active Model em execução, o histórico, o Off-Peak Ticket ou a migração de conexão de conta.
+- O orçamento de saída do Wiki pertence uniformemente ao [Todo 94](todo-94-wiki-model-output-limit.md) e não faz parte da implementação deste item.
 
-## 2. 当前事实与表达式原则
+## 2. Fatos atuais e princípios de expressão
 
-主要配置位于 `config/provider/zcode-builtin.json`。当前通用模型规则只声明 `disabled`，Reasoning Map 为 `{}`；API Schema 兜底规则已有输出上限映射，但缺少本次讨论的推理映射。专用规则中存在逐档位返回同名字符串、重复构造相同对象的分支。
+A configuração principal está em `config/provider/zcode-builtin.json`. Atualmente as regras de modelo genéricas declaram apenas `disabled`, e o Reasoning Map é `{}`; as regras de fallback por API Schema já têm mapeamento de limite de saída, mas falta o mapeamento de raciocínio discutido aqui. Nas regras dedicadas existem ramos que retornam a mesma string por nível e ramos que constroem repetidamente o mesmo objeto.
 
-1. `values` 声明合法档位，统一校验层拒绝非法档位；Map 只负责把合法输入转换成请求字段。
-2. 相同名称直接透传，不写 `low → low / high → high / max → max` 的枚举三目。
-3. 条件尽量下沉到实际变化的字段；只有字段存在性或对象结构确实不同，才保留外层分支。
-4. 不以最后一个 `else` 将未知输入偷偷变成最高档、关闭或其他默认档。
-5. 不为了短小将省略字段改为 `null`：这里使用 JSON Merge Patch，`null` 表示删除，不能视为省略。
-6. 不机械消除所有三目；语义清楚、请求等价优先于字符数。
+1. `values` declara os níveis legais, e a camada de validação unificada rejeita níveis ilegais; o Map só converte entradas legais em campos de request.
+2. Nomes iguais passam direto, sem escrever ternários de enumeração do tipo `low → low / high → high / max → max`.
+3. As condições descem o máximo possível para o campo que realmente muda; o branch externo só é mantido quando a existência do campo ou a estrutura do objeto é realmente diferente.
+4. Não usar um `else` final para transformar entrada desconhecida secretamente no nível mais alto, em desligado ou em outro nível padrão.
+5. Não trocar campo omitido por `null` por brevidade: aqui é usado JSON Merge Patch, onde `null` significa remoção e não pode ser tratado como omissão.
+6. Não eliminar mecanicamente todos os ternários; semântica clara e request equivalente têm prioridade sobre contagem de caracteres.
 
-例如，原有合法档位本来就直接对应 API 的 effort，可以化简为：
+Por exemplo, como os níveis legais já correspondem diretamente ao effort da API, a expressão pode ser simplificada para:
 
 ```text
 {"reasoning":{"effort":reasoningLevel}}
 ```
 
-但原值为 `off/enabled` 时，不能直接把 `reasoningLevel` 透传给只接受 `disabled/enabled` 的 `thinking.type`。名称变更须先按工作线 C 处理；美化不能掩盖这个差异。
+Mas quando o valor original é `off/enabled`, não se pode passar `reasoningLevel` direto para um `thinking.type` que só aceita `disabled/enabled`. A mudança de nome precisa ser tratada antes pela frente C; o embelezamento não pode mascarar essa diferença.
 
-## 3. 兜底增强：配置分层与目标
+## 3. Reforço do fallback: camadas de configuração e objetivo
 
-用户添加未知型号、只补充它支持的推理档位时，尽量能直接使用 API Schema 层的兜底 Map，不要求普通用户先编写表达式。
+Quando o usuário adiciona um modelo desconhecido e informa apenas os níveis de raciocínio que ele suporta, o objetivo é que ele consiga usar diretamente o Map de fallback da camada de API Schema, sem precisar escrever uma expressão antes.
 
 ```text
-通用模型默认配置
+Configuração padrão do modelo genérico
       |
       v
-API Schema 兜底 Map
+Map de fallback por API Schema
       |
       v
-现有更具体的模型 / 站点 / 模板等规则（沿用现有合并顺序）
+Regras existentes mais específicas de modelo / site / template etc. (mantendo a ordem de mesclagem atual)
       |
       v
-Personal 配置覆盖
+Cobertura da configuração Personal
       |
       v
-生效 values 校验 -> Option Map -> 最终请求
+Validação dos values efetivos -> Option Map -> request final
 ```
 
-- 基于 [Todo 76](todo-76-builtin-provider-config-layering-and-site-rules.md) 的现有分层实现，不另建运行时映射系统。
-- 通用 `values` 保持保守，不因为增强 Map 就宣称所有未知模型支持 `low/high/max`。用户或更具体配置负责声明支持的档位。
-- 专用 Map 仍覆盖兜底；Personal 显式 Map、关闭“智能配置”的完整配置不被自动重写。
-- 不承诺任意自造档位都能被 API 理解；透传只是请求组织方式，不是能力探测。
-- 以下代码是计划中的受限 CEL 表达式，实施时须通过现有编译器和最终请求测试。
+- Com base na implementação de camadas existente do [Todo 76](todo-76-builtin-provider-config-layering-and-site-rules.md), sem criar outro sistema de mapeamento em runtime.
+- Os `values` genéricos permanecem conservadores, e o reforço do Map não declara que todos os modelos desconhecidos suportam `low/high/max`. Quem declara os níveis suportados é o usuário ou uma configuração mais específica.
+- O Map dedicado continua prevalecendo sobre o fallback; Map Personal explícito e a configuração completa com a "configuração inteligente" desligada não são reescritos automaticamente.
+- Não se promete que qualquer nível inventado pelo usuário seja entendido pela API; a passagem direta é apenas uma forma de organizar o request, e não uma detecção de capacidade.
+- O código abaixo são expressões CEL restritas planejadas, que devem passar pelo compilador existente e pelos testes de request final na implementação.
 
-### 3.1 Chat Completions：最大兼容的混合兜底
+### 3.1 Chat Completions: fallback misto de compatibilidade máxima
 
-按用户接受的兼容性假设，同时携带各协议常见且语义一致的控制字段：
+Adotando a premissa de compatibilidade aceita pelo usuário, carrega-se simultaneamente os campos de controle comuns a vários protocolos e com semântica consistente:
 
 ```text
 {
@@ -82,21 +82,21 @@ Personal 配置覆盖
 }
 ```
 
-- `thinking.type` 覆盖智谱等思考开关形式；`reasoning_effort` 覆盖 OpenAI 接口的参数形式；`enable_thinking` 覆盖 Qwen/SiliconFlow 接口的参数形式；`reasoning.effort` 覆盖 OpenRouter 接口的参数形式。
-- `disabled` 与原生 `none` 均表达关闭，不能出现开关关闭、另一开关开启的矛盾；其他合法具体 effort 直接透传。
-- 不加入预算、`reasoning.exclude`、`reasoning_split`、`chat_template_kwargs` 等语义不同或站点私有字段。
-- 不新增 `enabled → high/max` 的隐式映射；仅开关型模型继续由专用规则处理，通用兜底不宣称任意档位受支持。
+- `thinking.type` cobre formas de chave de pensamento como a da Zhipu; `reasoning_effort` cobre a forma de parâmetro das interfaces OpenAI; `enable_thinking` cobre a forma de parâmetro das interfaces Qwen/SiliconFlow; `reasoning.effort` cobre a forma de parâmetro das interfaces OpenRouter.
+- `disabled` e o `none` nativo ambos expressam desligamento, e não pode haver contradição de uma chave desligada com outra ligada; outros efforts concretos e legais passam direto.
+- Não incluir orçamento, `reasoning.exclude`, `reasoning_split`, `chat_template_kwargs` nem outros campos de semântica diferente ou privados de um site.
+- Não adicionar mapeamento implícito novo `enabled → high/max`; modelos apenas com chave continuam tratados pelas regras dedicadas, e o fallback genérico não declara suporte a qualquer nível.
 
-**接受的假设及其精确边界：**
+**Premissas aceitas e seus limites exatos:**
 
-1. 服务端忽略不认识的额外字段。
-2. 服务端接受多个语义一致的重复控制字段，不因组合本身拒绝请求。
-3. 对以 `thinking.type` 控制关闭的服务，在 **`type=disabled` 的前提下**，多传的 effort 不再适用，可被忽略，或该接口允许 `none`。这不是假设开启思考时也接受 `none`。
-4. 对以 effort 控制的服务，`none` 表示关闭，额外的 thinking 开关可被忽略。
+1. O servidor ignora campos extras que não reconhece.
+2. O servidor aceita múltiplos campos de controle duplicados e semanticamente consistentes, sem rejeitar o request pela própria combinação.
+3. Para serviços que controlam o desligamento por `thinking.type`, **na premissa de `type=disabled`**, o effort extra em excesso deixa de se aplicar e pode ser ignorado, ou a interface aceita `none`. Isso não é a premissa de que `none` também é aceito quando o pensamento está ligado.
+4. Para serviços que controlam por effort, `none` significa desligamento, e a chave de pensamento extra pode ser ignorada.
 
-这是一份“基于假设、尽量兼容”的兜底，不是对所有兼容站点的无损保证。严格服务端即使收到关闭开关，也可能先校验并拒绝已知字段的非法值；未知字段也可能被严格拒绝。已知差异由专用规则处理；未知情况正常报错，不自动删字段重试、换档位或改模型。
+Este é um fallback "baseado em premissas, buscando compatibilidade", e não uma garantia sem perdas para todos os sites compatíveis. Mesmo um servidor estrito pode validar e rejeitar um valor ilegal de campo conhecido ao receber a chave de desligamento; campos desconhecidos também podem ser rejeitados estritamente. Diferenças conhecidas são tratadas por regras dedicadas; situações desconhecidas reportam erro normalmente, sem remover campos e tentar de novo, trocar de nível ou mudar de modelo automaticamente.
 
-### 3.2 Anthropic Messages：关闭或 Adaptive
+### 3.2 Anthropic Messages: desligado ou Adaptive
 
 ```text
 reasoningLevel == "disabled"
@@ -107,40 +107,40 @@ reasoningLevel == "disabled"
     }
 ```
 
-- 本次兜底不适配手动 `enabled` + `budget_tokens` 模式；具体 effort 直接交给 Adaptive。
-- 讨论过的 `enabled` 分支、12,800 预算和顺带 override 最大输出的方案已撤回，**不实施**。
-- 这一撤回仅限兜底：已有专用模型的 `enabled`、预算模式保持原行为。
-- 不能仅凭 Anthropic API Schema 保证目标模型支持 Adaptive/effort；不支持者使用专用配置，不自动切模式。
+- Este fallback não se adapta ao modo manual `enabled` + `budget_tokens`; o effort concreto é entregue diretamente ao Adaptive.
+- O ramo `enabled` discutido, o orçamento de 12.800 e a ideia de sobrescrever a saída máxima em paralelo foram removidos e **não são implementados**.
+- Essa remoção vale apenas para o fallback: o `enabled` e o modo de orçamento dos modelos dedicados existentes mantêm o comportamento original.
+- Não se pode garantir suporte a Adaptive/effort apenas pelo API Schema do Anthropic; quem não suportar usa configuração dedicada, e o modo não é trocado automaticamente.
 
-### 3.3 Responses：保持自身字段结构
+### 3.3 Responses: manter a própria estrutura de campos
 
 ```text
 {"reasoning":{"effort":reasoningLevel == "disabled" ? "none" : reasoningLevel}}
 ```
 
-只使用 Responses 的 effort 结构；原生 `none` 等合法值保留，不把 Chat Completions 的四组字段复制过来。
+Usa-se apenas a estrutura de effort de Responses; valores legais nativos como `none` são mantidos, e não se copia o conjunto de quatro campos de Chat Completions.
 
-### 3.4 输出上限与默认关闭的影响
+### 3.4 Impacto no limite de saída e no desligamento padrão
 
-- Reasoning Map 不写 `max_tokens`、`max_output_tokens` 等最大输出字段；现有 maxOutputTokens Option Map 继续独立负责。不得绕过多 Map 写入冲突校验。
-- 通用模型仍只有 `disabled` 时，新兜底也会发出上述显式关闭字段，区别于原 `{}`。这是本项增强的真实行为变化，必须纳入兼容测试和风险记录。
-- 不偷偷新增“根据 values 是否增加而自动换 Map”的第二套动态规则来掩盖上述变化；若实测需要改变关闭策略，记录证据再裁决。
+- O Reasoning Map não escreve campos de saída máxima como `max_tokens` ou `max_output_tokens`; o Option Map de maxOutputTokens existente continua responsável de forma independente. Não contornar a validação de conflito de múltiplos Maps.
+- Enquanto o modelo genérico só tem `disabled`, o novo fallback também emite os campos explícitos de desligamento acima, o que difere do `{}` original. Essa é a mudança real de comportamento deste reforço e precisa entrar nos testes de compatibilidade e no registro de riscos.
+- Não adicionar silenciosamente um segundo conjunto de regras dinâmicas do tipo "trocar de Map conforme os values aumentam" para mascarar essa mudança; se a medição exigir mudar a política de desligamento, registrar a evidência e adjudicar novamente.
 
-## 4. 关闭档位名称与历史选择兼容
+## 4. Nome do nível desligado e compatibilidade das seleções históricas
 
-目标是整理项目自己发明的 `off/nothink` 等关闭名字，而不是统一改写所有厂商值。API 原生透传的 `none` 可以保留；当前并非所有用户口头提到的 `disable` 拼写都实际存在，实施时以配置清单为准。
+O objetivo é organizar os nomes de desligamento inventados pelo próprio projeto, como `off/nothink`, e não reescrever uniformemente os valores de todos os fabricantes. O `none` nativo que é apenas transmitido pode ser mantido; nem todos os `disable` que os usuários mencionam oralmente existem de fato, e a lista de configuração é a autoridade na implementação.
 
 ```text
-持久化原 Selection / 当前用户草稿
+Selection persistida original / rascunho atual do usuário
                  |
                  v
-目标 Host 生效配置与统一选择解析
+Configuração efetiva do Host alvo e resolução unificada da seleção
                  |
-       原档位仍合法？ -- 是 --> 原样保留
+       O nível original ainda é legal？ -- 是 --> 原样保留
                  |
                  否
                  v
-命中受影响规则的明确改名表，且目标档位受支持？
+A tabela de renomeação explícita das regras afetadas foi atingida e o nível alvo é suportado？
        | 是                          | 否
        v                             v
 临时 effective 档位              现有失效处理，不猜最高档
@@ -149,70 +149,70 @@ reasoningLevel == "disabled"
 业务原有成功提交 / 显式保存边界（不是读取时写回）
 ```
 
-- 改名表必须绑定受影响的 Built-in 规则/来源，不能全局把任意 `off/none/disable` 都替换成 `disabled`；不凭模型名片段猜测。
-- 原值优先：用户显式保留且仍合法的 `off`、原生 `none` 不迁；未知值不猜。
-- 每项改名验证“旧输入 + 旧 Map”与“新输入 + 新 Map”产生相同请求，而非要求输入字面相同。
-- 复用 [Todo 87](todo-87-selection-view-unified-resolution.md) 的有效选择解析和变更通知。读取返回临时结果，不覆盖持久意图；任务长期设置仍按原显式保存边界更新，本次 run 可以冻结已解析结果。
-- 不新增存储版本、不批量重写历史、不修改用户 Subagent Markdown，不解析并重写用户 Map 表达式。
-- **最新兼容边界：** 不兼容未上线的 Personal 配置，不自动改写旧个人 Map、不为这类中间格式新增迁移。当前正式的显式 values/Map 仍按覆盖规则生效；旧 Selection 的改名只在原值不合法、明确命中受影响来源且目标支持时执行，保留原意图与既定保存边界。
-- 显式 Subagent 已由 Todo99 接入 Worker 本地公共解析；C 应复用该入口验证纯档位映射，不再将缺少 Host RPC 作为阻塞。未指定模型及内部 override 保持冻结，不借改名扩展协议或更改继承语义。
-- Off-Peak 的原 Provider 和 Ticket 保持不变，纯档位兼容不得重新授权跨账号切换。
+- A tabela de renomeação precisa estar ligada às regras/-fontes Built-in afetadas, sem substituir globalmente qualquer `off/none/disable` por `disabled` e sem adivinhar por fragmentos do nome do modelo.
+- Valor original tem prioridade: um `off` explicitamente mantido pelo usuário e ainda legal não é migrado; o `none` nativo não é migrado; valores desconhecidos não são adivinhados.
+- Cada renomeação valida que "entrada antiga + Map antigo" e "entrada nova + Map novo" produzem o mesmo request, em vez de exigir que o literal da entrada seja idêntico.
+- Reaproveitar a resolução de seleção válida e a notificação de mudança do [Todo 87](todo-87-selection-view-unified-resolution.md). A leitura devolve um resultado temporário e não sobrescreve a intenção persistente; as configurações de longa duração da tarefa continuam sendo atualizadas pela fronteira de salvamento explícito original, e o run atual pode congelar o resultado já resolvido.
+- Não adicionar versão de armazenamento, não reescrever o histórico em massa, não modificar o Markdown de Subagent do usuário e não analisar nem reescrever expressões de Map do usuário.
+- **Limite de compatibilidade mais recente:** não há compatibilidade para configurações Personal que nunca foram publicadas, não se reescrevem automaticamente Maps pessoais antigos e não se adiciona migração para esse formato intermediário. Os values/Map explícitos e formais atuais continuam valendo pelas regras de cobertura; a renomeação do Selection antigo só acontece quando o valor original é ilegal, atinge explicitamente uma fonte afetada e o alvo é suportado, preservando a intenção original e as fronteiras de salvamento já estabelecidas.
+- O Subagent explícito já foi conectado pelo Todo99 à resolução comum local do Worker; C deve reutilizar essa entrada para validar o mapeamento de nível puro e não deve mais tratar a ausência de RPC do Host como bloqueio. Modelo não especificado e override interno permanecem congelados, sem usar a renomeação para estender o protocolo ou mudar a semântica de herança.
+- O Provider e o Ticket originais do Off-Peak permanecem inalterados, e a compatibilidade de nível puro não pode reautorizar troca entre contas.
 
-## 5. 影响面与唯一权威
+## 5. Superfície de impacto e autoridade única
 
-### C 执行记录：来源限定的关闭档位迁移
+### Registro de execução de C: migração de nível desligado limitada por fonte
 
-- 本轮改名清单为 25 条 `modelRules`：24 条 `off`、1 条 `nothink`；`none`、`enabled` 不改。清单保存旧规则选择器及旧关闭值，不保存第二份完整模型配置。
-- Node 统一 Facade 从同一已应用快照构造旧值域投影：只对清单中完全相同的 Built-in 规则恢复旧关闭值，规则匹配和覆盖顺序仍复用 `ModelConfigRules.resolve`。因此不是模型名片段猜测，也不会让被后续规则覆盖掉的旧值域重新生效。
-- 仅原档位不合法时尝试别名，再用现有校验检查新档位。显式 Personal 推理 values/Map 或固定配置不参与推断；仍合法的原值直接保留。此限制不是未上线配置兼容，而是避免把用户自定义值误认成内置旧值。
-- Host 与 Worker 共用 Node Facade；配置默认选择也做同一纯档位归一化。最终 Registry/Factory 保持精确校验，不新增别名。
-- 验收分层：真实 25 条规则清单与原请求等价、公共 Facade 来源/覆盖/只读测试、实际 Composer/任务入口回归。运行中请求、隐式继承及 Ticket 不增加重解析；102 的历史验证债不在本次范围。
-- 全规则/API 复审补充：专用 Map 的改名前后请求等价；继承通用兜底的组合则纠正 A/B 与 C 分步实施留下的临时错配。例如 GLM Chat 的 `off` 曾被新兜底当作开启 effort 透传，统一后正确进入关闭分支；Responses 的旧 `off/nothink` 透传改为 `none`。这是已裁决兜底关闭语义的收口，不把这些错误中间请求保留下来，也不宣称全部兜底请求字节等价。开启档位和专用预算仍保持原值。
+- A lista de renomeação deste ciclo tem 25 `modelRules`: 24 `off` e 1 `nothink`; `none` e `enabled` não mudam. A lista guarda o seletor antigo da regra e o valor desligado antigo, e não guarda uma segunda configuração completa de modelo.
+- A Facade unificada do Node constrói a projeção do domínio de valores antigo a partir do mesmo snapshot já aplicado: o valor desligado antigo só é restaurado para regras Built-in exatamente iguais às da lista, e o casamento de regras e a ordem de cobertura continuam reutilizando `ModelConfigRules.resolve`. Portanto não é adivinhação por fragmento de nome de modelo, e um domínio de valores antigo que foi sobrescrito por uma regra posterior não volta a valer.
+- O alias só é tentado quando o nível original é ilegal, e o novo nível passa pela validação existente. Values/Map de raciocínio Personal explícitos ou configuração fixa não participam da inferência; um valor original ainda legal é mantido diretamente. Essa restrição não é compatibilidade de configuração não publicada, e sim evitar que valores personalizados do usuário sejam confundidos com valores internos antigos.
+- Host e Worker compartilham a Facade do Node; a seleção padrão da configuração também passa pela mesma normalização de nível puro. O Registry/Factory final mantém a validação exata, sem novos aliases.
+- Aceitação em camadas: equivalência com o request real das 25 regras da lista, testes somente leitura de fonte/cobertura da Facade comum e regressão nas entradas reais de Composer/tarefa. Requisições em execução, herança implícita e Ticket não ganham reanálise; a dívida histórica de verificação do 102 não está no escopo desta rodada.
+- Complemento da revisão de todas as regras/APIs: equivalência de request do Map dedicado antes e depois da renomeação; para as combinações que herdam o fallback genérico, corrigiu-se o descompasso temporário deixado pela implementação em etapas separadas de A/B e C. Por exemplo, o `off` do GLM Chat chegou a ser transmitido como effort ligado pelo novo fallback e, após a unificação, entra corretamente no ramo desligado; o `off/nothink` antigo de Responses passou a transmitir `none`. Isso é o fechamento da semântica de desligamento do fallback já adjudicada, não a preservação dessas requisições intermediárias erradas, e também não se afirma que todas as requisições de fallback sejam byte a byte equivalentes. Os níveis ligados e os orçamentos dedicados mantêm os valores originais.
 
-本项为配置/请求语义与有限选择兼容，不是 UI 重新设计。边界梳理使用现有功能图的 model-capabilities、model-selection 节点；当前环境无可用 codegraph，已以配置和已知种子文件定向阅读替代，未声称完成全调用图审计。
+Este item trata de semântica de configuração/request e de compatibilidade limitada de seleção, e não é um redesenho de UI. O levantamento de fronteiras usou os nós model-capabilities e model-selection do mapa de funcionalidades existente; como não há codegraph disponível no ambiente atual, a leitura direcionada de configuração e dos arquivos-semente conhecidos foi usada como alternativa, sem afirmar que a auditoria completa do grafo de chamadas foi concluída.
 
-| 优先级 / 入口 | 公共边界及应查内容 | 提交 / 保存边界 |
+| Prioridade / entrada | Fronteira comum e o que verificar | Fronteira de commit / salvamento |
 | --- | --- | --- |
-| 必查：Built-in / Resolver | `zcode-builtin.json`、`packages/provider/src/resolver.ts`；规则层级、来源与专用覆盖 | Personal 配置不因加载改写 |
-| 必查：编译与请求 | `packages/model-option-map/src/`、Agent `model-option-map-fetch.ts`；编译、Merge Patch、与输出 Map 的冲突 | 最终 Model 构建校验与请求仍为权威 |
-| 必查：共享选择解析 | `packages/provider/src/effective-model-selection.ts`、Registry 校验 | 临时 effective 与持久意图区分 |
-| 必查：添加/编辑模型 | 共用模型草稿、`useModelSelectionView`；只加档位可继承兜底，显式 Map/固定配置保持 | 用户保存时写 Personal；不改变智能配置开关语义 |
-| 必查：Composer / 会话 | 共享 View 与草稿；旧档位解析、新选择合法性 | 原发送成功/显式选择保存边界，不修改运行中 Model |
-| 应查：定时任务 / Bot / Wiki | 复用解析的入口、显示与执行是否一致 | 各自显式保存与执行冻结边界，不批量刷记录 |
-| 条件必查：Subagent / Off-Peak | 是否绕过 Host 解析、原身份与执行锁定 | 按第 4 节限制，不改 Markdown/Ticket |
-| 不变性：桌面/Web、Local/Remote | 使用目标 Host 配置，无本地替代或发送前强制同步 | workspaceIdentity 隔离；continuous/replayable 不改变 |
+| Obrigatório: Built-in / Resolver | `zcode-builtin.json`, `packages/provider/src/resolver.ts`; hierarquia de regras, fontes e cobertura dedicada | a configuração Personal não é reescrita por causa do carregamento |
+| Obrigatório: compilação e request | `packages/model-option-map/src/`, `model-option-map-fetch.ts` do Agent; compilação, Merge Patch e conflito com o Map de saída | a validação e o request do Model final continuam sendo a autoridade |
+| Obrigatório: resolução compartilhada de seleção | `packages/provider/src/effective-model-selection.ts`, validação do Registry | distinguir o effective temporário da intenção persistente |
+| Obrigatório: adicionar/editar modelo | rascunho de modelo compartilhado, `useModelSelectionView`; só adicionar níveis pode herdar o fallback, e Map explícito/configuração fixa permanecem | o Personal é escrito quando o usuário salva; a semântica da chave de configuração inteligente não muda |
+| Obrigatório: Composer / sessão | View e rascunho compartilhados; resolução de níveis antigos e legalidade da nova seleção | fronteira original de sucesso de envio/salvamento explícito da seleção, sem modificar o Model em execução |
+| Recomendado: tarefas agendadas / Bot / Wiki | entradas que reaproveitam a resolução, e se exibição e execução são consistentes | as fronteiras explícitas de salvamento e congelamento de execução de cada um, sem reescrever registros em massa |
+| Condicionalmente obrigatório: Subagent / Off-Peak | se burlam a resolução do Host, e qual é o travamento de identidade e execução | conforme as restrições da seção 4, sem alterar Markdown/Ticket |
+| Invariantes: Desktop/Web, Local/Remote | usam a configuração do Host alvo, sem alternativa local nem sincronização forçada antes do envio | isolamento por workspaceIdentity; continuous/replayable não muda |
 
-## 6. 执行顺序与验收
+## 6. Ordem de execução e aceitação
 
-1. 先补齐规则清单：规则位置、API Schema、站点/型号范围、生效 values、旧 Map、拟改 Map、所属 A/B/C 工作线。记录改名与 Personal 覆盖的风险，不用测试条数替代覆盖证明。
-2. 按本 Todo 更新现有 Model Option Map / Built-in 配置 / Selection 规范中确实改变的契约，再先写测试、后改实现。已有规范不能被“兜底增强”误写成专用行为改变。
-3. 专用 Map：逐条覆盖所有合法档位；对于等价规则可参数化复用用例，但不能漏掉站点规则。比较最终合并请求 JSON，包括缺失、null、空对象、预算和最大输出字段。
-4. 兜底：验证 Chat 的关闭/原生 none/具体 efforts、Messages 的关闭/Adaptive、Responses 的关闭/effort；测试仅增加 values 的未知型号、已知专用型号覆盖、Personal Map 和智能配置关闭。非法值仍在统一校验层失败。
-5. 兼容：验证原值合法优先、受影响旧值映射、未知值不猜、Personal 覆盖组合、只读不落盘、已有 run 不变；覆盖实际消费方，而不是只测试一个纯函数。
-6. 交互 E2E：在 MacBook Pro 用隔离 fixture/mock 验证添加模型仅修改档位后的请求、旧选择展示/提交、个人配置不被覆盖；根据实际改动覆盖定时任务等入口。截取最终请求，不用表达式快照替代。不得依赖真实账号领取或实际消耗额度。
-7. 运行 `pnpm typecheck`、`pnpm lint`、相关单测及 E2E。实现涉及 Agent/UI 前读取对应 AGENTS/DESIGN 和测试技能；记录环境失败与产品失败，不把未运行写成通过。
-8. 最后复审差异：专用合法请求等价；只有兜底及显式改名属于语义变更；无预算 override、静默重试、额外同步或持久化副作用。按工作线记录验证证据后提交。
+1. Completar primeiro a lista de regras: posição da regra, API Schema, escopo de site/modelo, values efetivos, Map antigo, Map novo proposto e frente de trabalho A/B/C. Registrar os riscos de renomeação e de cobertura Personal, sem substituir prova de cobertura por número de testes.
+2. Atualizar os contratos que de fato mudam nas specs existentes de Model Option Map / configuração Built-in / Selection, e só então escrever os testes antes de mudar a implementação. Uma spec existente não pode ser reescrita pela linguagem de "reforço do fallback" como se o comportamento dedicado tivesse mudado.
+3. Map dedicado: cobrir todos os níveis legais um a um; para regras equivalentes é possível parametrizar e reutilizar casos, mas nenhuma regra de site pode ficar de fora. Comparar o JSON final do request mesclado, incluindo campos ausentes, null, objeto vazio, orçamento e campos de saída máxima.
+4. Fallback: validar desligamento/none nativo/efforts concretos no Chat, desligamento/Adaptive no Messages e desligamento/effort no Responses; nos testes, adicionar modelos desconhecidos que só mudam values, cobertura por modelos dedicados conhecidos, Map Personal e configuração inteligente desligada. Valores ilegais continuam falhando na camada de validação unificada.
+5. Compatibilidade: validar que o valor original legal tem prioridade, o mapeamento de valores antigos afetados acontece, valores desconhecidos não são adivinhados, as combinações de cobertura Personal funcionam, a leitura não grava em disco e runs existentes não mudam; cobrir os consumidores reais e não apenas uma função pura.
+6. E2E de interação: em um MacBook Pro, com fixture/mock isolado, validar o request ao adicionar um modelo alterando apenas os níveis, a exibição/submissão das seleções antigas e o fato de a configuração pessoal não ser sobrescrita; cobrir entradas como tarefas agendadas conforme a alteração real. Capturar o request final, sem substituir por snapshot de expressão. Não depender de resgate com conta real nem de consumo real de cota.
+7. Executar `pnpm typecheck`, `pnpm lint`, os testes unitários relacionados e os E2E. Como a implementação envolve Agent/UI, ler antes os AGENTS/DESIGN e as habilidades de teste correspondentes; registrar falhas de ambiente e falhas de produto, sem escrever "não executado" como "passou".
+8. Revisar a diferença por último: requests dedicados legais equivalentes; apenas o fallback e a renomeação explícita são mudanças de semântica; sem override de orçamento, retry silencioso, sincronização extra ou efeito colateral de persistência. Registrar a evidência de verificação por frente de trabalho e só então fazer o commit.
 
-## 7. 执行记录表
+## 7. Tabela de registro de execução
 
-| 项目 | 状态 | 证据 / 后续必须补齐 |
+| Item | Status | Evidência / o que ainda precisa ser complementado |
 | --- | --- | --- |
-| 讨论结论与三条工作线 | 已实施 | 本 Todo |
-| 全部专用规则清单及等价基线 | A 完成 | `reasoning-map-before-todo95.json` 19 种表达式、逐条规则索引/范围；每个合法档位比较最终 Merge Patch 请求，包含已存在字段/预算 |
-| 三种 API 兜底映射 | B 完成 | 未知模型仅改 values、Personal Map 覆盖、非法档位拒绝；Pro 真实 Model 请求验证 Chat high |
-| 关闭档位改名与 Personal 组合 | C 完成 | 25 条规则改名；原值合法优先、具体规则覆盖、未知值拒绝与只读原意图由真实 Built-in Facade 测试验证；不兼容未上线配置 |
-| 各消费方兼容（含 Subagent 边界） | C 完成 | Host/Worker 共用 Node Facade；Composer/任务实跑、Wiki/Bot/UI 33 条回归、显式 Subagent 9 条回归；冻结的执行、继承和 Ticket 不增加重解析 |
-| 类型/Lint/单测/Pro E2E | A/B/C 已验证 | C：Provider / provider-node / Option Map 352 条通过；全仓 typecheck、lint 通过。Pro `desktop-e2e-20260909-121842-573`：R95C-01、SR87-01、SR87-06 共 3/3 通过；pending 不自动晋级 |
-| 二次审阅与收口 | A/B/C 完成 | C 仅改 revision、25 处 values、10 处 Map 关闭字面值及公共解析；专用请求等价，兜底的临时旧名称错配按关闭语义纠正。未加预算 override、发送前同步、请求层别名或静默替换 |
+| Conclusões da discussão e três frentes de trabalho | Implementado | Este Todo |
+| Lista completa de regras dedicadas e baseline de equivalência | A concluído | `reasoning-map-before-todo95.json` com 19 tipos de expressão, índice/escopo por regra; comparação do request Merge Patch final para cada nível legal, incluindo campos já existentes e o orçamento |
+| Mapeamentos de fallback das três APIs | B concluído | modelo desconhecido alterando apenas values, cobertura por Map Personal, rejeição de nível ilegal; request de Model real no Pro validando Chat high |
+| Renomeação de nível desligado e combinação com Personal | C concluído | 25 regras renomeadas; prioridade do valor original legal, cobertura pela regra específica, rejeição de valor desconhecido e leitura somente da intenção original validados por testes reais da Facade Built-in; sem compatibilidade para configuração não publicada |
+| Compatibilidade de cada consumidor (incluindo fronteira de Subagent) | C concluído | Facade do Node compartilhada por Host/Worker; execução real de Composer/tarefa, 33 regressões de Wiki/Bot/UI, 9 regressões de Subagent explícito; execução congelada, herança e Ticket não ganham reanálise |
+| Tipos/Lint/testes unitários/E2E no Pro | A/B/C verificados | C: 352 testes de Provider / provider-node / Option Map passando; typecheck e lint de todo o repositório passando. Pro `desktop-e2e-20260909-121842-573`: R95C-01, SR87-01, SR87-06, 3/3 passando; pending não é promovido automaticamente |
+| Segunda revisão e fechamento | A/B/C concluídos | C alterou apenas revision, 25 valores, 10 literais de desligamento em Maps e a resolução comum; requests dedicados equivalentes e o descompasso temporário de nomes antigos no fallback corrigido conforme a semântica de desligamento. Sem override de orçamento, sincronização antes do envio, alias na camada de request ou substituição silenciosa |
 
-### C 实跑与测试前置纠正
+### Precorreções de execução real e de teste de C
 
-- R95C-01 验证历史 `nothink` 草稿重载后显示 `disabled`，正文编辑仍保留历史值，发送后才保存新值；捕获实际模型请求 `thinking.type=disabled`，不附错误 effort。
-- 首次运行失败定位为测试前置竞态：直接改 localStorage 后，旧页面 `beforeunload` 将内存草稿重新刷盘，覆盖注入的历史选择。临时日志证明新页面第一次读取时已是 `disabled`，不是新解析写坏持久状态。
-- 用例在 `pagehide`（退出保存之后）注入旧记录再重载；移除临时诊断，没有修改生产 Composer 保存机制。修正后整组通过。手机＋SSH 实机与其他历史欠测仍归 Todo102，不借本项冒充全端通过。
+- R95C-01 valida que um rascunho histórico `nothink` é exibido como `disabled` após o recarregamento, que a edição do texto ainda preserva o valor histórico e que o novo valor só é salvo depois do envio; captura o request de modelo real com `thinking.type=disabled`, sem effort incorreto anexado.
+- A primeira execução falha foi localizada como uma corrida de precondição do teste: ao alterar o localStorage diretamente, o `beforeunload` da página antiga regravava o rascunho em memória por cima da seleção histórica injetada. Logs temporários provaram que a primeira leitura da nova página já era `disabled`, e não que a nova resolução tivesse corrompido o estado persistente.
+- O caso injeta o registro antigo no `pagehide` (depois do salvamento de saída) e só então recarrega; o diagnóstico temporário foi removido e o mecanismo de salvamento de produção do Composer não foi modificado. Depois da correção, todo o grupo passou. O dispositivo real com celular＋SSH e as outras pendências históricas continuam no Todo102, sem usar este item para fingir aprovação em todos os clientes.
 
-## 8. 讨论依据与关联
+## 8. Base da discussão e referências
 
-- 架构基线：[Model Option Map](../design/model/model-option-map.md)、[Selection State](../design/interaction/selection-state.md)、Todo 76 / 87；智能配置交互沿用 [Todo 92](todo-92-model-smart-config-and-override-feedback.md)。
-- 协议资料：[智谱思考模式](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode)、[DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)、[Qwen OpenAI 兼容接口](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions)、[OpenRouter Reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)、[Anthropic Extended Thinking](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)、[Anthropic Effort](https://platform.claude.com/docs/en/build-with-claude/effort)。
-- 这些资料用于说明各字段来源，不证明混合字段被所有服务端接受；实际兼容假设和限制以第 3 节为准。实施时如发现协议差异，不能借最新资料悄悄改变已有专用模型行为。
+- Baseline de arquitetura: [Model Option Map](../design/model/model-option-map.md), [Selection State](../design/interaction/selection-state.md), Todo 76 / 87; a interação de configuração inteligente segue o [Todo 92](todo-92-model-smart-config-and-override-feedback.md).
+- Material de protocolo: [modo de pensamento da Zhipu](https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode), [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/), [interface compatível com OpenAI da Qwen](https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions), [OpenRouter Reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens), [Anthropic Extended Thinking](https://platform.claude.com/docs/en/build-with-claude/extended-thinking), [Anthropic Effort](https://platform.claude.com/docs/en/build-with-claude/effort).
+- Esse material serve para explicar a origem de cada campo e não prova que campos mistos sejam aceitos por todos os servidores; as premisas e limitações reais de compatibilidade são as da seção 3. Se uma diferença de protocolo for encontrada na implementação, não se pode mudar silenciosamente o comportamento de modelos dedicados existentes com base no material mais recente.

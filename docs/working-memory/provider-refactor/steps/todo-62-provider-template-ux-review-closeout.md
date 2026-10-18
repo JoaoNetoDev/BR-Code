@@ -1,25 +1,25 @@
-# Todo 62：Provider Template UX Review 收口
+# Todo 62: Encerramento do UX Review de Provider Template
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização de atribuição de verificação (2026-09-09): as pendências de teste, falhas e promoções manuais que restavam neste documento foram transferidas uniformemente para [Todo102](todo-102-verification-debt-closeout.md); a programação de verificação independente neste documento é encerrada. As evidências históricas são preservadas, e a transferência não significa que os testes passaram.
 
-> 后续 Desktop 图形 E2E 欠测统一由 Todo 78 收口，本 Todo 不再单独排期。
+> A falta de teste de E2E gráfico do Desktop que restou é encerrada uniformemente pelo Todo 78, e este Todo deixa de agendar isso separadamente.
 
-> 状态：已完成（Desktop E2E 因当前 Linux 环境缺少 Xvfb，待在具备图形环境的机器复跑）
+> Status: concluído (o E2E de Desktop depende de Xvfb, ausente no ambiente Linux atual, e precisa ser reexecutado em uma máquina com ambiente gráfico)
 >
-> 日期：2026-09-02
+> Data: 2026-09-02
 >
-> 前置：Todo 61 已完成 Provider Template 领域壳、选择页、品牌元数据与打包 Logo 的第一版实现。本 Todo 只收口 Review 中已经确认的产品问题和自动化证据，不改变 Provider、Template、Overlay、Registry 或 Model Config Rule 的状态归属。
+> Pré-requisito: o Todo 61 já entregou a primeira implementação da casca de domínio Provider Template, da página de seleção, dos metadados de marca e do Logo empacotado. Este Todo apenas encerra os problemas de produto já confirmados no Review e as evidências automatizadas, sem alterar a atribuição de estado de Provider, Template, Overlay, Registry ou Model Config Rule.
 
-## 1. 目标
+## 1. Objetivo
 
-完成 Todo 61 后剩余的四类收尾工作：
+Concluir os quatro tipos de trabalho de acabamento restantes após o Todo 61:
 
-1. 所有内建 Provider Logo 使用方形素材，替换不适合方形图标槽的阿里云横向字标；
-2. Template 创建失败在 Provider 详情区域内给出明确反馈；
-3. 将 Reasoning Level 有序枚举编辑器收紧为紧凑标签；
-4. 补齐真实 Built-in Template 创建和品牌展示的交互验证。
+1. todos os Logos de Provider embutidos usam material quadrado, substituindo o wordmark horizontal da Alibaba Cloud, que não se adapta a um slot de ícone quadrado;
+2. a falha na criação de um Template dá feedback claro dentro da área de detalhes do Provider;
+3. o editor de enumeração ordenada de Reasoning Level é compactado para etiquetas mais enxutas;
+4. completar a verificação de interação da criação real de Built-in Template e da exibição de marca.
 
-本轮保持唯一主链：
+Este ciclo mantém uma única cadeia principal:
 
 ```text
 Provider Template
@@ -36,172 +36,173 @@ Personal Provider Config
 Effective Provider / Registry
 ```
 
-不新增 Catalog、品牌 Service、Provider ID 产品映射、Logo 下载器或第二套错误通知系统。
+Não se adiciona Catalog, Service de marca, mapeamento de produto de Provider ID, downloader de Logo nem um segundo sistema de notificação de erro.
 
-## 2. 内建 Logo 的方形素材契约
+## 2. Contrato de material quadrado dos Logos embutidos
 
-### 2.1 硬性要求
+### 2.1 Requisitos obrigatórios
 
-所有 `ProviderConfig.logo.type = "builtin"` 对应的打包素材必须满足：
+Todo o material empacotado correspondente a `ProviderConfig.logo.type = "builtin"` deve atender a:
 
-- 素材画布或 SVG `viewBox` 为方形，宽高比为 `1:1`；
-- 使用适合图标槽的品牌图形标志，不使用包含完整品牌文字的横向 wordmark；
-- UI 继续通过统一方形容器和 `object-contain` 展示，不拉伸、不裁切图形；
-- 优先使用厂商公开提供的官方 SVG；没有合适 SVG 时使用官方透明 PNG；
-- 素材来源继续记录在 `model-provider-logo-sources.json`；
-- 缺失或未知远端 Logo key 仍回退通用 Provider 图标，不影响配置解析、完整性或执行。
+- o canvas ou o `viewBox` do SVG é quadrado, com proporção `1:1`;
+- usa o símbolo gráfico da marca adequado a um slot de ícone, e não um wordmark horizontal que contenha o texto completo da marca;
+- a UI continua exibindo por meio de um contêiner quadrado unificado e `object-contain`, sem esticar nem cortar o gráfico;
+- prefere-se o SVG oficial fornecido publicamente pelo fabricante; quando não há SVG adequado, usa-se o PNG oficial transparente;
+- a origem do material continua registrada em `model-provider-logo-sources.json`;
+- key de Logo remoto ausente ou desconhecida continua caindo no ícone genérico de Provider, sem afetar a resolução da configuração, a integridade nem a execução.
 
-机械校验应覆盖打包清单中的所有内建素材：PNG 检查像素宽高相等；SVG 检查方形 `viewBox` 或等价的方形固有尺寸。不能只验证 CSS 容器是方形。
+A validação mecânica deve cobrir todos os materiais embutidos do manifesto de empacotamento: para PNG, conferir que a largura e a altura em pixels são iguais; para SVG, conferir o `viewBox` quadrado ou dimensões intrínsecas quadradas equivalentes. Não basta validar que o contêiner CSS é quadrado.
 
-### 2.2 阿里云素材
+### 2.2 Material da Alibaba Cloud
 
-当前 `model-provider-alibaba-model-studio.svg` 是约 `183.8 × 22.45` 的 `Alibaba Cloud` 横向完整字标。放入 `28 × 28` 的方形槽后，按比例实际只有约 `3.4px` 高，不符合内建 Logo 契约。
+O `model-provider-alibaba-model-studio.svg` atual é o wordmark horizontal completo `Alibaba Cloud`, de cerca de `183.8 × 22.45`. Ao ser colocado em um slot quadrado de `28 × 28`, na prática fica com apenas cerca de `3.4px` de altura, o que não atende ao contrato de Logo embutido.
 
-替换要求：
+Requisitos de substituição:
 
-- 找到并打包官方的方形阿里云或阿里云百炼/Model Studio 品牌图形；
-- 中国与国际 Template 可以继续复用同一个资源 key；
-- 不从横向字标中私自裁切或重新绘制图形；
-- 替换后在 Zai Light、Zai Dark 两种实际主题中检查清晰度与视觉尺寸。
+- encontrar e empacotar o símbolo de marca quadrado oficial da Alibaba Cloud ou do Alibaba Cloud Bailian/Model Studio;
+- os Templates da China e internacional podem continuar reutilizando a mesma key de recurso;
+- não recortar nem redesenhar por conta própria o gráfico a partir do wordmark horizontal;
+- após a substituição, conferir a nitidez e o tamanho visual nos dois temas reais, Zai Light e Zai Dark.
 
-名称保持：
+Os nomes permanecem:
 
 ```text
 zh-CN：阿里云百炼（中国） / 阿里云百炼（国际）
 en-US：Alibaba Model Studio (China) / Alibaba Model Studio (International)
 ```
 
-这里连接的是 Model Studio/DashScope 模型服务，仅写“阿里云”范围过宽；Logo 使用阿里云主品牌图形不要求删除产品名称“百炼”。
+O que está sendo conectado aqui é o serviço de modelos Model Studio/DashScope, então escrever apenas "阿里云" é amplo demais; usar o símbolo da marca principal da Alibaba Cloud no Logo não exige remover o nome de produto "百炼".
 
-### 2.3 其他名称结论
+### 2.3 Conclusões para os outros nomes
 
-- `Z.AI` 中 `AI` 保持大写；
-- BigModel 保持正式英文品牌名；
-- Moonshot Template 的中英文名称统一为 `Moonshot Kimi`，不使用“月之暗面 Kimi”；
-- 其他 Template 延续当前正式英文品牌名；不在 Renderer 按 Provider ID 单独翻译。
+- em `Z.AI`, o `AI` permanece em maiúsculas;
+- BigModel mantém o nome oficial da marca em inglês;
+- os nomes em chinês e inglês do Template Moonshot são unificados como `Moonshot Kimi`, sem usar "月之暗面 Kimi";
+- os demais Templates mantêm o nome oficial atual da marca em inglês; não traduzir por Provider ID de forma isolada no Renderer.
 
-## 3. Template 创建反馈
+## 3. Feedback de criação de Template
 
-当前 `handleCreateProvider` 捕获失败后只写 UI Logger，用户没有可见反馈。目标行为：
+Atualmente `handleCreateProvider`, ao capturar uma falha, escreve apenas no UI Logger, e o usuário não recebe feedback visível. Comportamento alvo:
 
 ```text
-点击 Template / 创建自定义供应商
+Clicar em Template / criar fornecedor personalizado
               |
               v
-      Host 原子创建 Personal Provider
+      Host cria atomicamente o Personal Provider
               |
       +-------+-------+
       |               |
-    成功              失败
+    sucesso          falha
       |               |
-进入新 Provider       保持 Template 选择页
-详情页                显示失败横幅
+Entra na página de   Permanece na página de seleção de Template
+detalhes do novo     e mostra a faixa de erro
+Provider
 ```
 
-- 失败反馈复用 Provider 设置右侧详情区域底部的既有横幅样式和队列；
-- 横幅包含错误图标和可理解的真实错误消息；
-- 不在页面顶层、窗口外层或 Template 卡片内部新增另一套 Toast；
-- 失败时恢复可操作状态，允许重试或返回；
-- 成功行为维持进入新 Provider 详情，不额外弹重复成功消息；
-- 日志继续通过 `packages/ui/src/logger.ts` 记录，但日志不能替代用户反馈。
+- o feedback de falha reutiliza o estilo de faixa e a fila já existentes na base da área de detalhes à direita das configurações do Provider;
+- a faixa contém o ícone de erro e a mensagem de erro real e compreensível;
+- não adicionar outro Toast no topo da página, no nível da janela ou dentro do card do Template;
+- em caso de falha, restaurar o estado operável, permitindo tentar de novo ou voltar;
+- o comportamento de sucesso continua sendo entrar nos detalhes do novo Provider, sem mensagem de sucesso duplicada;
+- os logs continuam sendo registrados por `packages/ui/src/logger.ts`, mas o log não substitui o feedback ao usuário.
 
-## 4. Reasoning Level 编辑器紧凑化
+## 4. Compactação do editor de Reasoning Level
 
-Reasoning Level `values` 仍然是从低到高的有序数组。本轮只调整交互密度，不改变配置结构、解析、默认值或 Runtime 语义。
+Os `values` de Reasoning Level continuam sendo um array ordenado do mais baixo ao mais alto. Este ciclo ajusta apenas a densidade da interação, sem mudar a estrutura de configuração, o parsing, os defaults ou a semântica de Runtime.
 
-当前每个档位由最小高度 `36px` 的外框、较大横向留白和常驻删除区组成，视觉上过重。目标改为紧凑有序标签：
+Hoje cada nível é composto por uma moldura externa de altura mínima `36px`, padding horizontal amplo e uma área de remoção sempre visível, o que é visualmente pesado. O alvo passa a ser uma etiqueta compacta ordenada:
 
-- 档位标签采用约 `28px` 的常见紧凑高度；
-- 缩小横向 padding、标签间距和删除按钮占位；
-- 删除操作默认弱化，在 hover、focus 或编辑状态下清晰可见；
-- 保留点击编辑、添加、删除、拖动排序和键盘操作；
-- 保留 `Alt + Left/Right` 作为拖动排序的键盘替代，不显示额外快捷键文案；
-- Personal Override 的边框语义继续遵循现有布尔/配置字段样式，不新增“默认/已修改”文字；
-- 至少一个值的约束和重复值处理保持当前行为，不借 UX 调整增加新的领域校验。
+- a etiqueta do nível usa a altura compacta comum de cerca de `28px`;
+- reduzir o padding horizontal, o espaçamento entre etiquetas e o espaço ocupado pelo botão de remoção;
+- a ação de remoção fica atenuada por padrão e claramente visível no hover, no focus ou no estado de edição;
+- manter clique para editar, adicionar, remover, reordenar por arrasto e operação por teclado;
+- manter `Alt + Left/Right` como alternativa de teclado para a reordenação por arrasto, sem exibir textos de atalhos adicionais;
+- a semântica de borda do Personal Override continua seguindo o estilo existente de campos booleanos/de configuração, sem novo texto de "padrão/modificado";
+- a restrição de pelo menos um valor e o tratamento de valores duplicados mantêm o comportamento atual, sem adicionar novas validações de domínio por causa do ajuste de UX.
 
-Reasoning 编辑器测试不能再只用“紧凑标签”作为测试名称，却完全不约束呈现结构；应至少固定紧凑尺寸 class、编辑态尺寸和删除按钮可访问性。
+Os testes do editor de Reasoning não podem mais usar apenas "etiqueta compacta" como nome de teste, sem restringir de fato a estrutura apresentada; devem pelo menos fixar a class de tamanho compacto, o tamanho no estado de edição e a acessibilidade do botão de remoção.
 
-## 5. 自动化补齐
+## 5. Complementação automatizada
 
-先写失败测试，再修改实现。
+Escrever primeiro os testes que falham, depois alterar a implementação.
 
 ### 5.1 Logo
 
-- 清单内所有 Built-in Logo 均满足方形素材契约；
-- 阿里云不再引用横向 wordmark；
-- 已知 key、未知 key、缺失 key 和资源加载失败行为不变；
-- Light/Dark 选择和单素材回退继续正确；
-- Template 卡片、Provider 导航和详情标题读取同一个结构化 `logo` 事实。
+- todos os Logos Built-in do manifesto atendem ao contrato de material quadrado;
+- a Alibaba Cloud não referencia mais o wordmark horizontal;
+- o comportamento para key conhecida, key desconhecida, key ausente e falha de carregamento do recurso permanece inalterado;
+- a escolha Light/Dark e o fallback de material único continuam corretos;
+- o card de Template, a navegação de Provider e o título dos detalhes leem o mesmo fato estruturado de `logo`.
 
-### 5.2 Template 创建
+### 5.2 Criação de Template
 
-- Desktop E2E 真正点击一个 Built-in Template，验证创建后进入新 Provider 详情；
-- 验证新 Provider 继承 Template Endpoint、API Schema、模型成员和 Logo；
-- 验证创建时按当前语言生成名称种子，并由 Host 原子去重；
-- 保留纯自定义 Provider 创建覆盖；
-- 注入创建失败，验证底部错误横幅、重试能力及页面落点；
-- 不以 SSR 静态 HTML 测试替代真实点击链路。
+- o E2E de Desktop realmente clica em um Built-in Template e verifica que, após a criação, entra nos detalhes do novo Provider;
+- verificar que o novo Provider herda do Template o Endpoint, o API Schema, os membros do modelo e o Logo;
+- verificar que, na criação, o seed do nome é gerado no idioma atual e desduplicado atomicamente pelo Host;
+- manter a cobertura de criação de Provider puramente personalizado;
+- injetar falha de criação e verificar a faixa de erro na base, a capacidade de tentar de novo e o ponto de queda da página;
+- não substituir a cadeia de clique real por um teste de HTML estático de SSR.
 
-### 5.3 Reasoning 编辑器
+### 5.3 Editor de Reasoning
 
-- 紧凑标签、编辑态、添加、删除、拖动和 `Alt + Left/Right`；
-- 顺序变化继续直接写入当前 Draft，不出现先回位再跳转；
-- 中英文、键盘、Light/Dark 与窄宽度布局不溢出。
+- etiqueta compacta, estado de edição, adicionar, remover, arrastar e `Alt + Left/Right`;
+- mudanças de ordem continuam sendo escritas direto no Draft atual, sem voltar à posição antiga antes de saltar;
+- layouts em chinês e inglês, por teclado, Light/Dark e de largura estreita não transbordam.
 
-## 6. 非目标
+## 6. Não objetivos
 
-- 不修改 Reasoning `values[0]` 表示最低档位的语义；
-- 不引入 `reasoningLevelPolicy` 或其他策略抽象；
-- 不改变 Provider Template、Personal Overlay 或 Registry 解析优先级；
-- 不增加 Template 搜索；
-- 不修改 Account Provider 页面和套餐卡；
-- 不增加用户上传 Logo 或远端任意 URL Logo；
-- 不恢复 Provider `enabled` 或设置页 Provider Switch；
-- 不借本轮处理与 Provider 无关的全仓测试基线。
+- não modificar a semântica de `values[0]` do Reasoning como o nível mais baixo;
+- não introduzir `reasoningLevelPolicy` nem outra abstração de estratégia;
+- não alterar a prioridade de resolução de Provider Template, Personal Overlay ou Registry;
+- não adicionar busca de Template;
+- não modificar a página de Account Provider nem os cards de plano;
+- não adicionar upload de Logo pelo usuário nem Logo por URL remota arbitrária;
+- não restaurar o `enabled` do Provider nem o Provider Switch na página de configurações;
+- não usar este ciclo para tratar a baseline de testes de todo o repositório, sem relação com Provider.
 
-## 7. 完成标准
+## 7. Critérios de conclusão
 
-- 内建资源清单不存在非方形 Logo，阿里云使用可追溯的官方方形素材；
-- Template 创建失败有统一、可见、可重试的底部反馈；
-- Reasoning Level 编辑器明显收紧，同时完整保留有序编辑能力；
-- Built-in Template 与纯自定义 Provider 的真实交互链路均有 E2E 证据；
-- Provider、Provider Node、Services、UI 定向单测通过；
-- `pnpm --filter @zcode/desktop typecheck:e2e` 通过；
-- 受影响 Desktop E2E 在具备图形环境的机器或 CI 中实际执行通过；
-- `pnpm typecheck`、`pnpm lint` 和 `git diff --check` 通过；
-- 完成后提交 Conventional Commit，并在提交信息中加入真实的 Agent 会话 trailer。
+- o manifesto de recursos embutidos não tem Logo não quadrado, e a Alibaba Cloud usa material quadrado oficial rastreável;
+- a falha na criação de Template tem um feedback unificado, visível e com possibilidade de tentar de novo;
+- o editor de Reasoning Level fica visivelmente mais compacto, preservando por completo a capacidade de edição ordenada;
+- o Template Built-in e o Provider puramente personalizado têm evidência de E2E da cadeia de interação real;
+- passam os testes unitários direcionados de Provider, Provider Node, Services e UI;
+- `pnpm --filter @zcode/desktop typecheck:e2e` passa;
+- o E2E de Desktop afetado é executado de fato e passa em uma máquina com ambiente gráfico ou no CI;
+- `pnpm typecheck`, `pnpm lint` e `git diff --check` passam;
+- ao concluir, fazer um commit Conventional Commit e incluir o trailer real da sessão do Agent na mensagem de commit.
 
-## 8. 实施结果
+## 8. Resultado da implementação
 
-### 8.1 Logo 与名称
+### 8.1 Logo e nomes
 
-- 新增内建 Logo 素材机械校验：PNG 读取固有像素尺寸，SVG 读取 `viewBox` 或固有尺寸，清单内资源必须为 `1:1`；
-- 将阿里云横向完整字标替换为阿里云官方 GitHub 组织使用的方形品牌图形，并以 `80 × 80` 透明 PNG 随应用打包；
-- 素材来源、所有者与归一化过程继续记录在 `model-provider-logo-sources.json`；
-- Moonshot Template 的中英文名称统一为 `Moonshot Kimi`；
-- Built-in Config revision 从 `8` 提升为 `9`，确保名称更新能进入正式发布与刷新链路。
+- nova validação mecânica dos materiais de Logo embutidos: PNG lê as dimensões intrínsecas em pixels, SVG lê o `viewBox` ou as dimensões intrínsecas, e os recursos do manifesto precisam ser `1:1`;
+- o wordmark horizontal completo da Alibaba Cloud foi substituído pelo símbolo de marca quadrado usado pela organização oficial da Alibaba Cloud no GitHub, empacotado com o aplicativo como PNG transparente de `80 × 80`;
+- a origem do material, o proprietário e o processo de normalização continuam registrados em `model-provider-logo-sources.json`;
+- os nomes em chinês e inglês do Template Moonshot foram unificados como `Moonshot Kimi`;
+- a revisão do Built-in Config subiu de `8` para `9`, garantindo que a atualização de nomes entre na cadeia de publicação oficial e de refresh.
 
-### 8.2 Template 创建反馈
+### 8.2 Feedback de criação de Template
 
-- Template 与纯自定义入口都等待同一个 Host 创建 Promise；
-- 创建失败时保留 Template 选择页，并复用 Provider 详情底部的反馈横幅展示真实错误与重试操作；
-- `ModelProviderSection` 继续记录 UI 日志，同时把错误返回给交互层，不再出现“日志知道失败、用户什么也看不到”的断链；
-- 新增真实点击交互测试，固定失败横幅与重试行为；Desktop E2E 增加 Built-in DeepSeek Template 的真实创建、Endpoint、Schema、模型顺序和 Logo 断言。
+- tanto a entrada de Template quanto a puramente personalizada aguardam a mesma Promise de criação do Host;
+- em caso de falha, permanece-se na página de seleção de Template e reutiliza-se a faixa de feedback do rodapé dos detalhes do Provider para exibir o erro real e a ação de tentar de novo;
+- `ModelProviderSection` continua registrando log de UI e, ao mesmo tempo, devolve o erro à camada de interação, acabando com a quebra em que "o log sabe que falhou e o usuário não vê nada";
+- novo teste de interação com clique real, fixando o comportamento da faixa de falha e da nova tentativa; o E2E de Desktop ganhou asserções de criação real do Built-in DeepSeek Template, de Endpoint, Schema, ordem dos modelos e Logo.
 
-### 8.3 Reasoning Level 编辑器
+### 8.3 Editor de Reasoning Level
 
-- 档位标签收紧为 `28px` 级别高度，缩小间距、横向留白、编辑输入和删除按钮；
-- 删除按钮默认弱化，仅在 hover/focus 时显示，语义与可访问名称保持不变；
-- 修正原测试文件扩展名不符合当前 Vitest include、实际上从未被收集的问题；新测试真实覆盖紧凑尺寸、键盘排序、拖动、编辑、添加、删除和 Personal Override。
+- as etiquetas de nível foram compactadas para uma altura da casa de `28px`, com redução de espaçamentos, padding horizontal, input de edição e botão de remoção;
+- o botão de remoção é atenuado por padrão, aparecendo apenas no hover/focus, com semântica e nome acessível inalterados;
+- corrigido o problema em que a extensão do arquivo de teste original não atendia ao include atual do Vitest e portanto nunca era coletado; os novos testes cobrem de fato tamanho compacto, ordenação por teclado, arrasto, edição, adição, remoção e Personal Override.
 
-## 9. 验证记录
+## 9. Registro de verificação
 
-- Provider/UI 定向测试：`5` 个文件、`15` 条测试全部通过；
-- `pnpm --filter @zcode/ui exec tsc --noEmit`：通过；
-- `pnpm --filter @zcode/desktop typecheck:e2e`：通过；
-- `pnpm typecheck`：通过；
-- `pnpm lint`：通过，只有仓库既有 warning；
-- 本轮修改文件的 `oxfmt --check`：通过；全仓 `pnpm fmt:check` 仍被 `docs/electron` 的既有非法 HTML 与 `apps/zcode-cli/tests/gb2312.js` 读取失败阻塞；
-- `pnpm test:unit:affected`：因相对 staging 存在已删除文件而升级为全量 unit；`1531` 个文件通过、`1` 个跳过、`2` 个失败，合计 `13078` 条测试通过、`25` 条跳过。两条失败分别是既有 pre-push `mise-run` 断言和 E2E CLI Config 常量计数断言，均不涉及本 Todo 修改；
-- Desktop 设置 E2E：应用与 Agent 构建成功，但当前 Linux 环境缺少 `xvfb-run`，Chromedriver 在执行任何 case 前无法创建图形会话；该结果属于执行环境阻塞，不代表 case 断言失败；
-- `git diff --check`：通过。
+- testes direcionados de Provider/UI: `5` arquivos, `15` testes, todos passando;
+- `pnpm --filter @zcode/ui exec tsc --noEmit`: passou;
+- `pnpm --filter @zcode/desktop typecheck:e2e`: passou;
+- `pnpm typecheck`: passou;
+- `pnpm lint`: passou, com apenas os warnings já existentes no repositório;
+- `oxfmt --check` nos arquivos modificados neste ciclo: passou; o `pnpm fmt:check` de todo o repositório continua bloqueado pelo HTML inválido já existente em `docs/electron` e por falha de leitura de `apps/zcode-cli/tests/gb2312.js`;
+- `pnpm test:unit:affected`: foi elevado a unit completo por haver arquivos já deletados no staging relativo; `1531` arquivos passaram, `1` foi pulado e `2` falharam, totalizando `13078` testes passando e `25` pulados. As duas falhas são respectivamente a asserção de pre-push `mise-run` já existente e a asserção de contagem de constantes de CLI Config do E2E, nenhuma delas envolvendo alterações deste Todo;
+- E2E de configurações do Desktop: o aplicativo e o Agent foram construídos com sucesso, mas o ambiente Linux atual não tem `xvfb-run`, e o Chromedriver não consegue criar sessão gráfica antes de executar qualquer case; esse resultado é um bloqueio do ambiente de execução e não representa falha de asserção de case;
+- `git diff --check`: passou.

@@ -1,57 +1,57 @@
-# Web 远控页面登录校验设计
+# Design da validação de login da página de controle remoto Web
 
-> 本文只适用于 OAuth-gated `/web-remote` 登录流程。`remoteControlToken` / `relayOrigin` 是旧 `/web-remote` 行为说明，不适用于新的 `/remote` QR route；新 route 使用外部 relay `sid/hash/t/mid/name/app_version`，且不得把 `sid` 或 `hash` 写入 OAuth state。
+> Este documento se aplica somente ao fluxo de login `/web-remote` com gate OAuth. `remoteControlToken` / `relayOrigin` são a explicação do comportamento antigo de `/web-remote` e não se aplicam à nova rota QR `/remote`; a nova rota usa o relay externo `sid/hash/t/mid/name/app_version` e não pode gravar `sid` ou `hash` no state do OAuth.
 
-## 背景
+## Contexto
 
-当前 Web 远控页面（`packages/web`）打开后无需任何身份校验即可直接访问任务和聊天窗口。手机端访问远控页面时，需要与桌面端共享同一用户身份才能正常使用产品功能。
+Atualmente a página de controle remoto Web (`packages/web`), ao ser aberta, permite acessar diretamente tarefas e janelas de chat sem nenhuma verificação de identidade. Ao acessar a página de controle remoto pelo celular, é preciso compartilhar a mesma identidade de usuário do desktop para usar normalmente os recursos do produto.
 
-本次改动目标：在 Web 远控页面引入与桌面端一致的 ZAI OAuth 登录流程，仅 ZAI provider，不涉及其他登录方式。
+Objetivo desta mudança: introduzir na página de controle remoto Web o fluxo de login ZAI OAuth consistente com o desktop, apenas para o provider ZAI, sem envolver outras formas de login.
 
-## 关键约束
+## Restrições principais
 
-| 约束项 | 说明 |
-|--------|------|
-| 部署域名 | `https://zcode.z.ai`（已在 ZAI OAuth 白名单内） |
-| OAuth 提供方 | ZAI（`chat.z.ai/auth`），**不走桌面端 deep-link `zcode://`** |
-| Token 存储 | Web 的 `localStorage`，核心 key 与桌面端保持一致：`zcodejwttoken`、`oauth:zai:access_token`、`oauth:zai:user_info`、`oauth:active_provider` |
-| 生产态同域 | 远控页面部署在 `zcode.z.ai` 下，调用 `zcode.z.ai/api/v1/oauth/token` 同源，无 CORS 问题 |
-| 开发态 | 通过环境变量注入本地 origin，ZAI 回调先回到生产域名再转发回局域网 IP；本地 token 交换必须走 Vite proxy 或后端 CORS 白名单，不能假设本地 Vite origin 天然拥有 `/api/v1/oauth/token` |
+| Restrição | Descrição |
+|-----------|-----------|
+| Domínio de deploy | `https://zcode.z.ai`（já está na allowlist do ZAI OAuth） |
+| Provedor OAuth | ZAI（`chat.z.ai/auth`），**não passa pelo deep-link `zcode://` do desktop** |
+| Armazenamento de token | `localStorage` do Web, com as mesmas keys centrais do desktop: `zcodejwttoken`、`oauth:zai:access_token`、`oauth:zai:user_info`、`oauth:active_provider` |
+| Mesma origem em produção | A página de controle remoto é implantada sob `zcode.z.ai`, então a chamada a `zcode.z.ai/api/v1/oauth/token` é de mesma origem, sem problema de CORS |
+| Desenvolvimento | O origin local é injetado por variável de ambiente; o callback do ZAI volta primeiro ao domínio de produção e depois é encaminhado de volta ao IP da rede local; a troca de token local precisa passar pelo proxy do Vite ou pela allowlist de CORS do backend, e não se pode assumir que o origin local do Vite já tem `/api/v1/oauth/token` |
 
-## 本期范围与联调边界
+## Escopo desta etapa e fronteira de integração
 
-本期前端只完成以下能力：
+Nesta etapa o frontend entrega somente as seguintes capacidades:
 
-1. Web 远控页面未登录时展示登录页。
-2. 发起 ZAI OAuth 登录。
-3. 处理 ZAI OAuth callback。
-4. 将后端返回的 `zcodejwttoken` 与 ZAI OAuth 相关存储写入 `localStorage`。
+1. Exibir a página de login quando a página de controle remoto Web não está autenticada.
+2. Iniciar o login ZAI OAuth.
+3. Tratar o callback do ZAI OAuth.
+4. Gravar no `localStorage` o `zcodejwttoken` retornado pelo backend e os armazenamento relacionados ao ZAI OAuth.
 
-后端同事会补齐以下能力，本设计只预留联调边界，不在本期实现：
+Os colegas de backend completarão as seguintes capacidades; este design apenas reserva a fronteira de integração e não as implementa nesta etapa:
 
-1. 凭 `zcodejwttoken` 获取当前账号可连接的设备/远控入口列表。
-2. 设备选择后的真实远控连接建立。
-3. relay / server 侧对 `zcodejwttoken` 的鉴权与 session 绑定。
+1. Obter, com o `zcodejwttoken`, a lista de dispositivos/entradas de controle remoto aos quais a conta atual pode se conectar.
+2. Estabelecer a conexão real de controle remoto após a seleção do dispositivo.
+3. Autenticação do `zcodejwttoken` e vínculo de session no lado relay/server.
 
-因此，本期前端的 `localStorage` 登录门禁只负责 UI 入口收敛，不等价于完整服务端鉴权。登录成功后的落点按 URL 分流：
+Portanto, o gate de login por `localStorage` do frontend desta etapa cuida apenas da convergência da entrada de UI e não equivale à autenticação completa do servidor. O destino após o login bem-sucedido é dividido por URL:
 
-1. 当前 URL 带 `remoteControlToken`：保留旧远控链接能力，登录成功后回到原 URL，继续用 `remoteControlToken` / `relayOrigin` 走现有 relay bootstrap。
-2. 当前 URL 不带 `remoteControlToken`：本期不直接连接 `/ws`，先渲染已登录占位页；后端设备列表接口完成后，改为“调用设备列表接口 → 用户选择设备 → 建立远控连接”。
+1. Se a URL atual tiver `remoteControlToken`: mantém a capacidade do link de controle remoto antigo e, após o login bem-sucedido, retorna à URL original, continuando a usar `remoteControlToken` / `relayOrigin` para o relay bootstrap existente.
+2. Se a URL atual não tiver `remoteControlToken`: nesta etapa não conecta diretamente a `/ws` e renderiza primeiro uma página de espera já autenticada; quando a interface de lista de dispositivos do backend estiver pronta, passa a ser “chamar a interface de lista de dispositivos → o usuário seleciona o dispositivo → estabelecer a conexão de controle remoto”.
 
-### 现有 `remoteControlToken` / `relayOrigin` 说明
+### Explicação do `remoteControlToken` / `relayOrigin` atuais
 
-当前代码里已经存在一条“桌面端生成远控链接 → 手机打开链接直连该次远控 session”的链路：
+O código atual já contém uma cadeia “o desktop gera um link de controle remoto → o celular abre o link e conecta diretamente àquela sessão de controle remoto”:
 
-- `remoteControlToken`：relay 为一次 Web 远控会话生成的一次性 session token。Web 端会用它请求 `/api/remote-control/bootstrap/:token`，拿到 `wsUrl`、workspace 信息、初始 task 信息，然后连接 `/ws/remote-control/:token`。
-- `relayOrigin`：relay 服务的 origin。Web 页面可能部署在 `zcode.z.ai`，但 relay 可以是另一台服务；因此 Web 端需要用 `relayOrigin` 拼出 bootstrap、workspace list、workspace switch、platform proxy 等 relay API 地址。未传时默认使用 `window.location.origin`。
+- `remoteControlToken`: um token de sessão de uso único gerado pelo relay para uma sessão Web de controle remoto. O lado Web o usa para requisitar `/api/remote-control/bootstrap/:token`, obtendo `wsUrl`, informações de workspace e informações iniciais de task, e então conecta a `/ws/remote-control/:token`.
+- `relayOrigin`: o origin do serviço de relay. A página Web pode estar implantada em `zcode.z.ai`, mas o relay pode ser outro serviço; por isso o lado Web precisa usar `relayOrigin` para montar os endereços das APIs de relay de bootstrap, workspace list, workspace switch e platform proxy. Quando não informado, o padrão é `window.location.origin`.
 
-这两个参数是当前直连远控 session 的入口参数，不是 ZAI 登录 JWT，也不代表用户身份。加登录功能后它们仍然需要保留：如果用户打开的是带 `remoteControlToken` 的旧远控链接，OAuth 跳转回来后必须还能拿到原始 `remoteControlToken` / `relayOrigin`，否则旧链接会丢失要连接的 relay session。
+Esses dois parâmetros são os parâmetros de entrada da conexão direta à sessão de controle remoto atual; não são o JWT de login ZAI e não representam a identidade do usuário. Depois de adicionar a funcionalidade de login, eles ainda precisam ser mantidos: se o usuário abriu um link antigo de controle remoto com `remoteControlToken`, após o retorno do redirect OAuth ele ainda precisa obter o `remoteControlToken` / `relayOrigin` originais, caso contrário o link antigo perderia a sessão de relay à qual deveria se conectar.
 
-后续后端设备列表接口完成后，新的“登录后选设备”流程可以不依赖 URL 上预置 `remoteControlToken`，而是由后端按 `zcodejwttoken` 返回可连接设备。但这不影响本期对旧链接参数的兼容。
+Quando a interface de lista de dispositivos do backend estiver completa, o novo fluxo “escolher o dispositivo após o login” poderá não depender do `remoteControlToken` predefinido na URL e poderá ter o backend devolvendo os dispositivos conectáveis por `zcodejwttoken`. Isso, porém, não afeta a compatibilidade com os parâmetros de link antigo desta etapa.
 
-## 数据流
+## Fluxo de dados
 
-### 生产态（标准路径）
+### Produção (caminho padrão)
 
 ```
 用户访问 https://zcode.z.ai/web-remote?remoteControlToken=xxx&relayOrigin=https%3A%2F%2Frelay.example
@@ -78,7 +78,7 @@ POST https://zcode.z.ai/api/v1/oauth/token
 全屏登录页 → 继续现有 remoteControlToken relay bootstrap
 ```
 
-### 开发态（`return_to` 转发路径）
+### Desenvolvimento (caminho de encaminhamento por `return_to`)
 
 ```
 开发者电脑本地启动: VITE_DEV_ORIGIN=http://192.168.x.x:5173 pnpm dev
@@ -105,15 +105,15 @@ http://192.168.x.x:5173/web-remote/callback?code=xxx&state=yyy
 存入 localStorage → replace 到 app_return_to，保留 remoteControlToken / relayOrigin
 ```
 
-## `state` 结构设计
+## Design da estrutura de `state`
 
-### 编码格式
+### Formato de codificação
 
 `state = base64url(JSON.stringify(payload))`
 
-`base64url` 必须使用统一 codec，不允许直接 `atob(state)`。原因是 OAuth state 会出现在 URL query 中，编码需要把 `+`、`/`、`=` 转成 URL 安全形式；回调解析时也必须补回 padding。
+O `base64url` precisa usar um codec unificado, e não é permitido usar diretamente `atob(state)`. A razão é que o state do OAuth aparece na query da URL, e a codificação precisa transformar `+`, `/`, `=` em formas seguras para URL; na hora de analisar o callback o padding também precisa ser reposto.
 
-### payload 结构
+### Estrutura do payload
 
 ```typescript
 interface OAuthStatePayload {
@@ -132,41 +132,41 @@ interface OAuthStatePayload {
 }
 ```
 
-### `app_return_to` 校验
+### Validação de `app_return_to`
 
-`app_return_to` 用于登录完成后恢复原业务页面，必须用 URL API 校验，不能直接拼接跳转：
+O `app_return_to` é usado para restaurar a página de negócio original após a conclusão do login, e precisa ser validado com a API de URL, sem concatenar o redirect diretamente:
 
-1. 生产态：`app_return_to.origin === "https://zcode.z.ai"`，且 pathname 只能是 `/web-remote` 或 `/web-remote/`
-2. 开发态：`app_return_to.origin` 必须等于发起登录的本地 origin；如果同时存在 `return_to`，则必须与 `return_to` 同 origin
-3. 只允许保留业务需要的 query 参数，当前至少包括 `remoteControlToken`、`relayOrigin`；其它参数如果后续需要，必须显式列入允许列表
-4. 校验失败时回退到 `/web-remote`，不得跳转到任意外部 URL
+1. Produção: `app_return_to.origin === "https://zcode.z.ai"`, e o pathname só pode ser `/web-remote` ou `/web-remote/`
+2. Desenvolvimento: `app_return_to.origin` precisa ser igual ao origin local que iniciou o login; se `return_to` existir ao mesmo tempo, ele precisa ter a mesma origem de `return_to`
+3. Só é permitido manter os parâmetros de query necessários ao negócio, atualmente pelo menos `remoteControlToken` e `relayOrigin`; outros parâmetros, se necessários depois, precisam ser listados explicitamente na allowlist
+4. Em caso de falha de validação, há que recorrer a `/web-remote`; não é permitido redirecionar para qualquer URL externa
 
-> `remoteControlToken` / `relayOrigin` 的保留依赖 `app_return_to`。如果 OAuth 发起时没有把当前完整 URL 写入 state，登录回来后旧远控链接会丢失要连接的 relay session。
+> A manutenção de `remoteControlToken` / `relayOrigin` depende de `app_return_to`. Se a URL completa atual não for gravada no state ao iniciar o OAuth, o link antigo de controle remoto perderá a sessão de relay à qual se conectar após o retorno do login.
 
-### `return_to` 白名单校验
+### Validação de allowlist de `return_to`
 
-生产中转页解出 `return_to` 后，仅在以下条件全部满足时执行转发：
+Depois que a página intermediária de produção decodifica `return_to`, ela executa o encaminhamento somente quando todas as condições abaixo forem satisfeitas:
 
-1. `return_to` 存在
-2. `return_to` 必须先通过 `new URL(return_to)` 解析成 URL 对象
-3. `returnToUrl.origin !== window.location.origin`（目标 origin 不是当前 callback 页 origin）
-4. `return_to` 匹配私网段正则：`/^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?(\/|$)/`
-5. `return_to` pathname 必须是 `/web-remote/callback`
-6. 当前构建或部署环境显式允许开发态中转。线上正式生产构建默认关闭；如果必须让 `https://zcode.z.ai` 承担本地开发中转，需要增加后端签名或专用测试部署，不能在公开生产环境接受任意未签名的私网 `return_to`
+1. `return_to` existe
+2. `return_to` precisa ser analisado primeiro em um objeto URL por `new URL(return_to)`
+3. `returnToUrl.origin !== window.location.origin`（a origem de destino não é a origem da página de callback atual）
+4. `return_to` corresponde à regex de faixas privadas：`/^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?(\/|$)/`
+5. O pathname de `return_to` precisa ser `/web-remote/callback`
+6. O ambiente de build ou deploy atual permite explicitamente o encaminhamento de desenvolvimento. O build oficial de produção é fechado por padrão; se for realmente necessário deixar `https://zcode.z.ai` assumir o encaminhamento do desenvolvimento local, é preciso adicionar assinatura de backend ou um deploy de teste dedicado, e não se pode aceitar um `return_to` privado arbitrário sem assinatura em um ambiente de produção público
 
-不满足则不执行跨 origin 转发，继续按当前 callback 页处理：如果当前页就是本地开发 callback，因为 `returnToUrl.origin === window.location.origin`，必须进入 nonce 校验和 token 交换分支，不能再 replace 回自己；如果当前页是生产 callback 且没有有效 dev `return_to`，则按生产态正常回调直接走 token 交换流程。
+Se algo não for satisfeito, não se executa o encaminhamento entre origins e o processamento segue na página de callback atual: se a página atual for o callback de desenvolvimento local, como `returnToUrl.origin === window.location.origin`, é obrigatório entrar no ramo de validação de nonce e troca de token, sem poder dar replace de volta a si mesmo; se a página atual for o callback de produção e não houver um dev `return_to` válido, o fluxo segue o callback normal de produção e vai direto para a troca de token.
 
-生产中转页只负责 `return_to` 白名单校验和 302 转发，不读取本地 `sessionStorage`，也不执行 token 交换。最终回到本地开发页后，再由本地页读取自己 origin 下的 `sessionStorage['oauth_pending_nonce']` 做 nonce 校验。
+A página intermediária de produção é responsável apenas pela validação de allowlist de `return_to` e pelo encaminhamento 302; ela não lê o `sessionStorage` local nem executa a troca de token. Depois de retornar finalmente à página de desenvolvimento local, essa página lê o seu próprio `sessionStorage['oauth_pending_nonce']` do seu origin para fazer a validação de nonce.
 
-### CSRF 防护
+### Proteção CSRF
 
-发起登录前：
+Antes de iniciar o login:
 ```js
 const nonce = crypto.randomUUID();
 sessionStorage.setItem("oauth_pending_nonce", nonce);
 ```
 
-回调页解出 `state` 后：
+Depois que a página de callback decodifica o `state`:
 ```js
 function decodeBase64Url(value) {
   const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -198,15 +198,15 @@ sessionStorage.removeItem("oauth_pending_nonce");
 location.replace(resolveSafeAppReturnTo(payload.app_return_to) ?? "/web-remote");
 ```
 
-> 注意：`sessionStorage` 不跨 origin 共享。开发态发起页是 `http://192.168.x.x:5173`，生产中转页是 `https://zcode.z.ai`，两者不能共享 `sessionStorage`；因此 nonce 校验只能发生在最终回到本地 origin 之后。
+> Atenção: o `sessionStorage` não é compartilhado entre origins. A página que inicia em desenvolvimento é `http://192.168.x.x:5173` e a página intermediária de produção é `https://zcode.z.ai`, e as duas não podem compartilhar `sessionStorage`; portanto, a validação de nonce só pode acontecer depois de o retorno final ao origin local.
 
-## 新增文件
+## Novos arquivos
 
-新增 auth 代码按 `Providers → Repo → Service → Runtime/App Wiring` 拆分，避免把认证横切关注点直接写进 `main.tsx`。`packages/web` 是 Web 运行时入口，允许放浏览器 runtime/repo 适配；ZAI 协议细节仍放在 provider 模块中，业务编排由 service 暴露。
+O novo código de auth é dividido em `Providers → Repo → Service → Runtime/App Wiring`, evitando escrever a preocupação transversal de autenticação diretamente em `main.tsx`. `packages/web` é a entrada do runtime Web e permite adaptações de runtime/repo do navegador; os detalhes do protocolo ZAI continuam no módulo de provider e a orquestração de negócio é exposta pelo service.
 
 ### `packages/web/src/auth/oauthStateCodec.ts`
 
-纯函数模块，负责 `state` 的编解码和校验：
+Módulo de funções puras, responsável pela codificação, decodificação e validação do `state`:
 
 - `buildOAuthState(payload: OAuthStatePayload): string`
 - `parseOAuthState(state: string): OAuthStatePayload | null`
@@ -219,17 +219,17 @@ location.replace(resolveSafeAppReturnTo(payload.app_return_to) ?? "/web-remote")
 
 ### `packages/web/src/auth/webZaiOAuthConfig.ts`
 
-Web ZAI OAuth 配置：
+Configuração do ZAI OAuth no Web:
 
 - authorize URL：`https://chat.z.ai/api/oauth/authorize`
-- token URL：生产态为 `/api/v1/oauth/token`；开发态可通过 Vite proxy 指到 `https://zcode.z.ai/api/v1/oauth/token`
+- token URL：在生产态为 `/api/v1/oauth/token`；在开发态可通过 Vite proxy 指到 `https://zcode.z.ai/api/v1/oauth/token`
 - client id：复用 ZAI OAuth client id
 - redirect URI：始终使用 `https://zcode.z.ai/web-remote/callback`
-- dev return 中转开关：默认关闭；仅开发/测试部署或带后端签名的生产中转允许打开
+- 开关 de dev return 中转：默认关闭；仅开发/测试部署或带后端签名的生产中转允许打开
 
 ### `packages/web/src/auth/zaiWebOAuthProvider.ts`
 
-Provider 模块，负责 ZAI 协议细节：
+Módulo de provider, responsável pelos detalhes do protocolo ZAI:
 
 - `buildAuthorizeUrl(params)` — 构造 ZAI authorize URL
 - `parseCallbackParams(url)` — 解析 `code` / `state` / `error`
@@ -238,7 +238,7 @@ Provider 模块，负责 ZAI 协议细节：
 
 ### `packages/web/src/auth/browserOAuthCredentialRepo.ts`
 
-Repo 模块，封装浏览器存储，不允许业务层散落读写 `localStorage` / `sessionStorage`：
+Módulo de repo que encapsula o armazenamento do navegador, sem permitir que a camada de negócio espalhe leituras e escritas de `localStorage` / `sessionStorage`:
 
 - `saveTokenSet(tokenSet)` — 保存 `oauth:zai:access_token` 和 `zcodejwttoken`
 - `saveUserInfo(user)` — 保存 `oauth:zai:user_info`
@@ -246,18 +246,18 @@ Repo 模块，封装浏览器存储，不允许业务层散落读写 `localStora
 - `loadCachedSession()`
 - `clearAll()`
 
-`loadCachedSession()` 成功条件必须同时满足：
+A condição de sucesso de `loadCachedSession()` precisa satisfazer simultaneamente:
 
 1. `oauth:active_provider === "zai"`
-2. `zcodejwttoken` 存在且 trim 后非空
-3. `oauth:zai:access_token` 存在且 trim 后非空
-4. `oauth:zai:user_info` 可解析，并能映射为 `UserInfo`
+2. `zcodejwttoken` existe e não fica vazio após trim
+3. `oauth:zai:access_token` existe e não fica vazio após trim
+4. `oauth:zai:user_info` pode ser analisado e mapeado para `UserInfo`
 
-任一条件不满足时按未登录处理；如果检测到残缺登录态，应清理上述 ZAI 相关 key，避免后续误判成已登录。
+Se qualquer condição não for satisfeita, o estado é tratado como não autenticado; se for detectado um estado de login incompleto, as keys relacionadas ao ZAI acima precisam ser limpas para evitar que sejam depois interpretadas incorretamente como autenticadas.
 
 ### `packages/web/src/auth/webAuthService.ts`
 
-Service 模块，对应桌面端 `OAuthService` 在 Web runtime 的等价物，只编排 provider 与 repo：
+Módulo de service, equivalente ao `OAuthService` do desktop no runtime Web, que apenas orquestra provider e repo:
 
 - `startLogin(options?: { devReturnTo?: string; appReturnTo?: string }): void` — 生成 nonce，交给 repo 存入 sessionStorage，调用 provider 构造 authorize URL，跳转；`appReturnTo` 默认取当前完整 URL，用于保留 `remoteControlToken` / `relayOrigin`
 - `handleCallback(url: string): Promise<{ userInfo: UserInfo; appReturnTo: string | null } | null>` — 解 state，处理中转/nonce 校验，调用 provider 换 token，调用 repo 持久化
@@ -266,42 +266,42 @@ Service 模块，对应桌面端 `OAuthService` 在 Web runtime 的等价物，�
 
 ### `packages/web/src/auth/WebLoginPage.tsx`
 
-全屏登录 UI 组件，显示 ZCode logo 和“用 ZAI 登录”按钮。
+Componente de UI de login em tela cheia, exibindo o logo do ZCode e o botão “用 ZAI 登录”.
 
-UI 约束：
+Restrições de UI:
 
-- 修改或新增 UI 前必须遵守根目录 `DESIGN.md`。
-- 使用语义颜色 token（如 `bg-background`、`text-foreground`、`bg-card`、`border-border`），兼容由 Zai 接管的 Light Theme / Dark Theme。
-- 文案必须兼容 `zh-CN` / `en-US`；因为登录页发生在完整 `ZCodeIntlProvider` 之前，需要提供轻量 locale resolver 或复用已有 i18n 字典。
-- 按现有按钮体系实现主按钮，不写死临时颜色、圆角、字号。
-- 布局需要适配手机竖屏、桌面宽屏和较长英文文案。
+- Antes de modificar ou adicionar UI é obrigatório respeitar o `DESIGN.md` na raiz.
+- Usar tokens de cor semântica (como `bg-background`、`text-foreground`、`bg-card`、`border-border`), compatíveis com o Light Theme / Dark Theme assumido pelo Zai.
+- O texto precisa ser compatível com `zh-CN` / `en-US`; como a página de login acontece antes do `ZCodeIntlProvider` completo, é preciso fornecer um resolver de locale leve ou reutilizar o dicionário i18n existente.
+- Implementar o botão principal conforme o sistema de botões existente, sem codificar temporariamente cores, raios ou tamanhos de fonte.
+- O layout precisa se adaptar a celular em retrato, desktop largo e textos em inglês mais longos.
 
 ### `packages/web/src/auth/WebCallbackPage.tsx`
 
-OAuth 回调处理组件。根据 `state.return_to` 和 URL 参数判断：
+Componente de tratamento do callback do OAuth. Decide conforme `state.return_to` e os parâmetros da URL:
 
-- **有 `error`**：显示登录失败，允许用户回到登录页重试
-- **`state.return_to` 存在、可解析成 URL、目标 origin 不等于当前 origin，且指向受信任私网 origin**：生产 callback 作为开发中转页，执行 `location.replace(return_toCallbackUrl)`
-- **无 `return_to`，或 `new URL(return_to).origin === window.location.origin`**：说明当前页就是最终 callback，校验 nonce → 换 token → 持久化 → 跳转 `app_return_to`，保留旧远控链接参数
+- **com `error`**: exibe falha de login e permite que o usuário volte à página de login para tentar de novo
+- **`state.return_to` presente, analisável como URL, com origem de destino diferente da origem atual e apontando para uma origem privada confiável**: o callback de produção atua como página intermediária de desenvolvimento e executa `location.replace(return_toCallbackUrl)`
+- **sem `return_to`, ou com `new URL(return_to).origin === window.location.origin`**: significa que a página atual é o callback final; validar o nonce → trocar o token → persistir → navegar para `app_return_to`, preservando os parâmetros do link antigo de controle remoto
 
-> 中转分支不能按 `code` 有无判断；ZAI 回调到生产 callback 时会带 `code`。真正的分支条件是 `state.return_to` 是否存在、是否能解析为 URL，以及 `returnToUrl.origin` 是否与当前 callback 页 origin 不同。
+> O ramo de encaminhamento não pode ser decidido pela presença de `code`; o callback do ZAI para o callback de produção traz `code`. A condição real do ramo é se `state.return_to` existe, se pode ser analisado como URL e se `returnToUrl.origin` é diferente da origem da página de callback atual.
 
-Callback 处理只放在 `WebCallbackPage` 中，`main.tsx` 只负责根据 URL 渲染该组件，避免 `main.tsx` 和组件各自调用一遍 `handleCallback()`。
+O tratamento do callback fica apenas em `WebCallbackPage`, e `main.tsx` apenas renderiza esse componente conforme a URL, evitando que `main.tsx` e o chamem cada um `handleCallback()`.
 
 ### `packages/web/src/auth/WebLoggedInWaitingPage.tsx`
 
-已登录但 URL 不带 `remoteControlToken` 时展示的占位页。该组件是本期“后端设备列表接口未完成”的前端落点，避免在没有目标设备的情况下误连普通 `/ws`。
+Página de espera exibida quando o usuário já está autenticado mas a URL não tem `remoteControlToken`. Este componente é o ponto de chegada do frontend desta etapa para “a interface de lista de dispositivos do backend ainda não foi concluída”, evitando conectar por engano ao `/ws` comum na ausência de um dispositivo de destino.
 
-UI 约束：
+Restrições de UI:
 
-- 与 `WebLoginPage.tsx` 使用同一套 pre-bootstrap 轻量 locale resolver 和主题 token。
-- 文案必须兼容 `zh-CN` / `en-US`，说明“已登录，设备列表能力即将接入”或同义表达，不能写死中文。
-- 组件只接收 `user: UserInfo` 与 `onLogout?: () => void` 这类展示/操作参数，不直接读写 `localStorage`，不直接调用 repo。
-- 布局与登录页保持同级全屏页面，不嵌套卡片，不临时定义脱离 `DESIGN.md` 的颜色、圆角、字号。
+- Usa o mesmo resolver de locale leve de pre-bootstrap e os mesmos tokens de tema do `WebLoginPage.tsx`.
+- O texto precisa ser compatível com `zh-CN` / `en-US`, explicando “已登录，设备列表能力即将接入” ou uma expressão equivalente, sem fixar o chinês.
+- O componente recebe apenas parâmetros de exibição/ação como `user: UserInfo` e `onLogout?: () => void`; ele não lê nem escreve `localStorage` diretamente e não chama o repo diretamente.
+- O layout é uma página de tela cheia do mesmo nível da página de login, sem aninhar cards e sem definir temporariamente cores, raios ou tamanhos de fonte fora do `DESIGN.md`.
 
-### `packages/web/src/main.tsx` 改造
+### 改造 de `packages/web/src/main.tsx`
 
-在 `bootstrapWebApp()` 的 WebSocket 连接之前，插入登录校验：
+Antes da conexão WebSocket em `bootstrapWebApp()`, inserir a validação de login:
 
 ```typescript
 async function bootstrapWebApp() {
@@ -350,37 +350,37 @@ async function bootstrapWebApp() {
 }
 ```
 
-## 路由设计
+## Design de rotas
 
-远控页面 SPA 内复用 URL 参数区分"主应用"和"回调页"：
+Dentro da SPA da página de controle remoto, os parâmetros da URL são reutilizados para distinguir “aplicativo principal” e “página de callback”:
 
-| URL | 渲染内容 |
-|-----|----------|
-| `/web-remote?remoteControlToken=...&relayOrigin=...` | 旧远控链接入口；需已登录，登录后继续现有 relay bootstrap |
-| `/web-remote` 或 `/web-remote/` | 无旧远控 token 的入口；需已登录，本期显示已登录占位页，后续接设备列表 |
-| `/web-remote/callback` | 回调处理页，自动处理 token 交换或 return_to 转发 |
+| URL | Conteúdo renderizado |
+|-----|----------------------|
+| `/web-remote?remoteControlToken=...&relayOrigin=...` | entrada do link de controle remoto antigo; exige autenticação e, após o login, continua o relay bootstrap existente |
+| `/web-remote` ou `/web-remote/` | entrada sem token de controle remoto antigo; exige autenticação e, nesta etapa, exibe a página de espera autenticada; depois recebe a lista de dispositivos |
+| `/web-remote/callback` | página de tratamento de callback, que trata automaticamente a troca de token ou o encaminhamento por `return_to` |
 
-由于是 SPA，通过 `window.location.pathname` 判断，不需要额外路由库。
+Como é uma SPA, a decisão é tomada por `window.location.pathname`, sem necessidade de uma biblioteca de rotas adicional.
 
-## 存储设计
+## Design de armazenamento
 
-| localStorage key | 值 | 用途 |
-|-----------------|-----|------|
-| `zcodejwttoken` | 后端 JWT 字符串，即 `data.token` | 业务 API 鉴权；后续设备列表接口也凭它识别当前用户 |
-| `oauth:zai:access_token` | ZAI access token，即 `data.zai.access_token` | 与桌面端 ZAI OAuth token set 结构保持一致 |
-| `oauth:zai:user_info` | JSON；优先保存后端 `data.user` 原始结构，恢复展示态时映射为 `UserInfo` | 显示用户名/头像，并兼容现有 `OAuthCredentialRepo` 的 ZAI user_info 恢复逻辑 |
-| `oauth:active_provider` | `"zai"` | 标识当前登录方式 |
-| `oauth:zai:expires_at` | timestamp | token 过期判断（可选，后续迭代） |
+| localStorage key | Valor | Uso |
+|-----------------|-------|-----|
+| `zcodejwttoken` | 字符串 JWT do backend, ou seja `data.token` | autenticação das APIs de negócio; a futura interface de lista de dispositivos também a usa para identificar o usuário atual |
+| `oauth:zai:access_token` | access token do ZAI, ou seja `data.zai.access_token` | mantém consistência com a estrutura do token set do ZAI OAuth do desktop |
+| `oauth:zai:user_info` | JSON; de preferência a estrutura original `data.user` do backend, mapeada para `UserInfo` ao restaurar o estado de exibição | exibe nome/avatar e mantém compatibilidade com a lógica existente de restauração de user_info do ZAI no `OAuthCredentialRepo` |
+| `oauth:active_provider` | `"zai"` | identifica a forma de login atual |
+| `oauth:zai:expires_at` | timestamp | julgamento de expiração do token (opcional, iterações futuras) |
 
-| sessionStorage key | 值 | 用途 |
-|--------------------|-----|------|
-| `oauth_pending_nonce` | UUID | CSRF 防护 |
+| sessionStorage key | Valor | Uso |
+|--------------------|-------|-----|
+| `oauth_pending_nonce` | UUID | proteção CSRF |
 
-> 存储 key 与 `OAuthCredentialRepo` 现有命名一致。前端展示使用 `@zcode/shared` 的 `UserInfo` 类型，不从 `@zcode/ui` 反向导入类型。
+> As keys de armazenamento são coerentes com a nomenclatura existente do `OAuthCredentialRepo`. A exibição do frontend usa o tipo `UserInfo` de `@zcode/shared` e não importa tipos de volta de `@zcode/ui`.
 
-## Token 交换接口
+## Interface de troca de token
 
-### 请求
+### Requisição
 
 ```http
 POST https://zcode.z.ai/api/v1/oauth/token
@@ -393,7 +393,7 @@ Content-Type: application/json
 }
 ```
 
-### 响应（同现有桌面端行为）
+### Resposta (igual ao comportamento atual do desktop)
 
 ```json
 {
@@ -415,26 +415,26 @@ Content-Type: application/json
 }
 ```
 
-### 错误处理
+### Tratamento de erros
 
-- HTTP 非 2xx：`WebRemoteControlFailureReason` 映射到错误页（如"unexpected-error"）
-- 业务 `code !== 0`：显示"登录失败，请重试"，保留登录页
-- 缺少 `data.token` 或 `data.zai.access_token`：同上，并禁止写入半登录态
+- HTTP fora de 2xx: `WebRemoteControlFailureReason` é mapeado para a página de erro (como “unexpected-error”)
+- `code !== 0` de negócio: exibe “登录失败，请重试” e mantém a página de login
+- Ausência de `data.token` ou de `data.zai.access_token`: o mesmo tratamento, e é proibido gravar um estado parcialmente autenticado
 
-## 环境变量
+## Variáveis de ambiente
 
-### 开发态注入
+### Injeção em desenvolvimento
 
-`.env.local` 或 Vite 启动参数：
+No `.env.local` ou nos argumentos de inicialização do Vite:
 
 ```bash
 # 你的电脑局域网 IP + 端口
 VITE_DEV_ORIGIN=http://192.168.100.12:5173
 ```
 
-开发态还需要配置 token 交换路径。推荐在 Vite dev server 配置 proxy。
+Em desenvolvimento também é preciso configurar o caminho de troca de token. Recomenda-se configurar um proxy no dev server do Vite.
 
-当前 `packages/web/vite.config.ts` 已有 `/api` 通配代理到本地 `http://localhost:3030`，因此 `/api/v1/oauth/token` 专用代理必须放在 `/api` 之前；否则本地 token 交换可能被错误转发到本地 server，而不是 `https://zcode.z.ai`。
+O `packages/web/vite.config.ts` atual já tem um proxy curinga `/api` apontando para o `http://localhost:3030` local e, portanto, o proxy dedicado de `/api/v1/oauth/token` precisa ficar antes do `/api`; caso contrário, a troca de token local pode ser encaminhada incorretamente para o server local em vez de `https://zcode.z.ai`.
 
 ```typescript
 // packages/web/vite.config.ts
@@ -451,53 +451,53 @@ server: {
 }
 ```
 
-如果后续本地 `localhost:3030` server 自己实现了 `/api/v1/oauth/token` 转发，也可以不加专用 Vite proxy；但二者必须二选一写清楚，不能让浏览器直接从 Vite origin 调一个不存在的同源接口。
+Se mais adiante o server local `localhost:3030` implementar por conta própria o encaminhamento de `/api/v1/oauth/token`, o proxy dedicado do Vite pode ser omitido; mas é preciso escolher explicitamente um dos dois e escrever isso com clareza, sem deixar o navegador chamar diretamente do origin do Vite uma interface de mesma origem que não existe.
 
-`main.tsx` 或 auth config 读取：
+`main.tsx` ou a config de auth lê:
 
 ```typescript
 const DEV_RETURN_TO = import.meta.env.VITE_DEV_ORIGIN;
 ```
 
-`VITE_DEV_ORIGIN` 只负责让本地页面发起 OAuth 时把 `return_to` 写入 state。真正收到 ZAI callback 的是 `https://zcode.z.ai/web-remote/callback` 所在部署；该部署是否允许开发态 `return_to` 中转，不能由本地 `.env.local` 决定。若团队需要使用线上域名作为本地开发中转，必须在 callback 所在部署增加显式开关、专用测试部署或后端签名校验。
+O `VITE_DEV_ORIGIN` serve apenas para fazer a página local gravar `return_to` no state ao iniciar o OAuth. Quem de fato recebe o callback do ZAI é o deploy onde está `https://zcode.z.ai/web-remote/callback`; se esse deploy permite o encaminhamento de `return_to` de desenvolvimento não pode ser decidido pelo `.env.local` local. Se a equipe precisar usar o domínio online como encaminhamento do desenvolvimento local, é obrigatório adicionar no deploy do callback um switch explícito, um deploy de teste dedicado ou uma verificação de assinatura no backend.
 
-### 生产构建
+### Build de produção
 
-`VITE_DEV_ORIGIN` 未定义，`startLogin` 不传 `return_to`，`state` 中无 `return_to` 字段。正式生产构建默认不接受未签名的开发态 `return_to` 中转。
+Com `VITE_DEV_ORIGIN` indefinido, `startLogin` não passa `return_to` e o `state` não tem o campo `return_to`. O build oficial de produção não aceita por padrão o encaminhamento de `return_to` de desenvolvimento sem assinatura.
 
-生产态 token URL 使用同源 `/api/v1/oauth/token`；开发态也优先请求同一路径，由 Vite proxy 转发到 `https://zcode.z.ai`，避免浏览器 CORS 差异。
+Em produção, a token URL usa o `/api/v1/oauth/token` de mesma origem; em desenvolvimento o mesmo caminho também é priorizado, com o proxy do Vite encaminhando para `https://zcode.z.ai`, evitando divergências de CORS no navegador.
 
-## 测试计划
+## Plano de testes
 
-### 单元测试
+### Testes unitários
 
-- `oauthStateCodec.ts`：正向编解码、非法 base64/JSON 兜底、`-` / `_` / 缺 padding 的 base64url 边界覆盖、`return_to` 私网白名单、`app_return_to` 同源/路径/query allowlist 覆盖
-- `browserOAuthCredentialRepo.ts`：验证 `zcodejwttoken`、`oauth:zai:access_token`、`oauth:zai:user_info`、`oauth:active_provider` 写入/清理；缺任一关键 key 时 `loadCachedSession()` 返回 null 并清理残缺状态
-- `webAuthService.ts`：mock `fetch` 响应，验证 token 交换成功/失败路径；缺少 `data.token` 或 `data.zai.access_token` 时不得写入半登录态；登录成功后返回安全的 `appReturnTo`
-- `WebCallbackPage.tsx`：验证 `state.return_to` 中转分支不校验生产 origin 的 sessionStorage，最终本地 callback 才校验 nonce；验证同 origin `return_to` 不会 replace 回自己，而是继续 token 交换；验证 `?error=...&state=...` 能显示登录失败并允许重试
+- `oauthStateCodec.ts`: codificação/decodificação positiva, fallback para base64/JSON inválido, cobertura das bordas de base64url com `-` / `_` / ausência de padding, allowlist de rede privada de `return_to`, cobertura de origem/path/query allowlist de `app_return_to`
+- `browserOAuthCredentialRepo.ts`: verificar gravação/limpeza de `zcodejwttoken`, `oauth:zai:access_token`, `oauth:zai:user_info` e `oauth:active_provider`; quando falta qualquer key essencial, `loadCachedSession()` retorna null e limpa o estado incompleto
+- `webAuthService.ts`: mock da resposta de `fetch`, verificando os caminhos de sucesso/falha da troca de token; quando falta `data.token` ou `data.zai.access_token`, nenhum estado parcialmente autenticado pode ser gravado; após o login bem-sucedido, retorna um `appReturnTo` seguro
+- `WebCallbackPage.tsx`: verificar que o ramo de encaminhamento de `state.return_to` não valida o sessionStorage da origem de produção e que apenas o callback local final valida o nonce; verificar que um `return_to` de mesma origem não dá replace de volta a si mesmo e continua a troca de token; verificar que `?error=...&state=...` exibe falha de login e permite tentar de novo
 
-### E2E 测试（手动）
+### Testes E2E (manuais)
 
-| 场景 | 步骤 | 预期 |
-|------|------|------|
-| 生产态首次登录 | 清空 localStorage，访问远控页，点击登录，完成授权 | 跳转回主应用，进入已登录后的前端流程 |
-| 旧远控链接登录 | 清空 localStorage，访问带 `remoteControlToken` / `relayOrigin` 的远控链接，完成授权 | 登录后回到原 URL，query 中仍保留 `remoteControlToken` / `relayOrigin`，继续 relay bootstrap |
-| 无远控 token 登录 | 清空 localStorage，访问 `/web-remote`，完成授权 | 登录后显示已登录占位页，不误连普通 `/ws` |
-| 生产态回访 | 已有完整缓存登录态后刷新页面 | 不再展示登录页；带旧远控 token 时继续 relay bootstrap，无旧远控 token 时显示已登录占位页 |
-| 生产态 token 过期 | mock 后端 401 | 显示错误页或跳转登录页 |
-| 开发态登录 | 手机访问局域网 IP，点击登录 | 回调到生产页 → 转发回局域网 IP → 登录成功 |
-| 取消授权 | 在 ZAI 页点拒绝 | 留在登录页，无异常 |
+| Cenário | Passos | Esperado |
+|----------|-------|----------|
+| Primeiro login em produção | limpar o localStorage, acessar a página de controle remoto, clicar em login e concluir a autorização | volta ao aplicativo principal e entra no fluxo do frontend após o login |
+| Login por link antigo de controle remoto | limpar o localStorage, acessar o link de controle remoto com `remoteControlToken` / `relayOrigin` e concluir a autorização | após o login volta à URL original, mantendo `remoteControlToken` / `relayOrigin` na query e continuando o relay bootstrap |
+| Login sem token de controle remoto | limpar o localStorage, acessar `/web-remote` e concluir a autorização | exibe a página de espera autenticada e não conecta por engano ao `/ws` comum |
+| Retorno em produção | com o cache de login completo já existente, recarregar a página | não exibe mais a página de login; com token de controle remoto antigo continua o relay bootstrap e sem ele exibe a página de espera autenticada |
+| Token expirado em produção | mock de 401 do backend | exibe a página de erro ou redireciona para a página de login |
+| Login em desenvolvimento | acessar o IP da rede local pelo celular e clicar em login | callback na página de produção → encaminhamento de volta ao IP da rede local → login bem-sucedido |
+| Autorização cancelada | clicar em recusar na página do ZAI | permanece na página de login, sem exceção |
 
-### 机械检查
+### Verificações mecânicas
 
 - `pnpm typecheck`
 - `pnpm lint`
 
-## 后续迭代（非本次范围）
+## Iterações futuras (fora deste escopo)
 
-- JWT 过期主动刷新（后端未提供 refresh_token，暂时跳过）
-- 登出功能（清除 localStorage，回到登录页）
-- 其他 OAuth provider（如 BigModel）
-- 登录状态与桌面端同步（同一浏览器跨端）
-- 后端设备列表接口完成后，登录成功页接入“获取可连接设备 → 选择设备 → 建立远控连接”流程
-- relay / server 侧完成 `zcodejwttoken` 鉴权后，前端把 token 或后端下发的短期连接票据接入 bootstrap / WebSocket 连接流程
+- Refresh ativo do JWT expirado（o backend não fornece refresh_token, então é adiado por enquanto）
+- Funcionalidade de logout（limpar o localStorage e voltar à página de login）
+- Outros providers OAuth（como BigModel）
+- Sincronização do estado de login com o desktop（mesmo navegador entre dispositivos）
+- Quando a interface de lista de dispositivos do backend estiver completa, a página de login bem-sucedido passa a integrar o fluxo “obter dispositivos conectáveis → selecionar dispositivo → estabelecer conexão de controle remoto”
+- Depois que o lado relay/server concluir a autenticação do `zcodejwttoken`, o frontend integra o token ou um bilhete de conexão de curta duração emitido pelo backend ao fluxo de bootstrap / conexão WebSocket

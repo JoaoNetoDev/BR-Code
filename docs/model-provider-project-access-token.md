@@ -1,200 +1,201 @@
-# 第一方 Token 鉴权迁移
+# Migração da autenticação de primeira parte para Token
 
-状态：Token-only 请求入口已接入，Key ID 持久化已实现；相关本地回归通过，CLI 全量检查仍有已复现的历史基线失败，详见下方验证记录。2026-09-23 用户最终确认：保留专用 Key 查找/创建，取返回的 apiKey ID 换 Token；删除 Copy Secret 与旧 Key 回退。
-[迁移评审](https://internal-docs.example.invalid/redacted)和
-[测试交接](https://internal-docs.example.invalid/redacted)随最终实现更新。
+Status: o ponto de entrada de requisições somente-Token já foi integrado e a persistência do Key ID foi implementada; as regressões locais relacionadas passaram, mas a verificação completa do CLI ainda tem falhas de baseline históricas já reproduzidas, detalhadas no registro de validação abaixo. Em 2026-09-23 o usuário confirmou finalmente: manter a busca/criação da Key dedicada, trocar o apiKey retornado por um Token; remover o Copy Secret e o fallback para a Key antiga.
+A [revisão da migração](https://internal-docs.example.invalid/redacted) e o
+[handoff de testes](https://internal-docs.example.invalid/redacted) foram atualizados junto da implementação final.
 
-## 已确认行为
+## Comportamentos confirmados
 
-- 个人/团队/Standalone 查找专用 Key；不存在时创建。个人名称 zcode-api-key；团队名称 zcode-team-api-key，保留 keyType=2；创建显式 usageScene=1。查询不增加 usageScene 过滤。
-- 返回的 apiKey 是非 Secret 的 Key ID，作为签发路径参数。组织、项目和 Key ID 分别编码，不跨项目挑选 Key。
-- POST /api/biz/v1/organization/{org}/projects/{project}/api_keys/{id}/access_tokens，使用 Bearer 登录 JWT，body 包含 clientType=zcode 与真实 clientVersion。
-- 所有原先使用 API Key 的业务接口可使用 Token；通过逐接口测试表复测，不继续把兼容性作为实施前置阻塞。
-- 新客户端只走 Token；没有旧 Key 回退。明确 enable=false、无可用 PAT 时签发失败或畸形响应时记录脱敏日志并失败；已有未过期 PAT 的提前刷新仅按下文的临时故障规则容错；省略 enable 时按默认开启处理，但仍严格校验 Token 和有效期。
-- Project Access Token 由平台签发，仍遵守官方版本的请求安全校验准入规则，不能因使用 Token 而跳过；用户手工 Key 的既有安全校验行为保留。
-- CLI 有明确 manual 来源标记的手工 Key 保持独立语义；旧记录无来源标记且无 OAuth 时无法判定是否为旧派生 Key，须重新登录或重新选择手工 Key，不猜测来源而回退。第三方 Provider Key 保持原契约；Start Plan、官方 MCP、reset 既有 JWT 身份通道保持。
-- 不再读取/存储 OAuth 派生的长期 Secret，不删除旧客户端共享的登录态；手工 Key 不被清理。旧版本使用原服务端接口的能力不由新客户端改写。
+- Pessoal/equipe/Standalone busca a Key dedicada; cria quando ela não existe. Nome pessoal `zcode-api-key`; nome de equipe `zcode-team-api-key`, mantendo `keyType=2`; a criação define explicitamente `usageScene=1`. A consulta não acrescenta filtro por `usageScene`.
+- O `apiKey` retornado é o ID da Key, que não é Secret, e funciona como parâmetro de caminho na emissão. Organização, projeto e Key ID são codificados separadamente, sem escolher Key entre projetos.
+- POST /api/biz/v1/organization/{org}/projects/{project}/api_keys/{id}/access_tokens, usando o JWT de login como Bearer, com body contendo `clientType=zcode` e o `clientVersion` real.
+- Todos os endpoints de negócio que antes usavam API Key podem usar Token; são revalidados por uma tabela de testes por endpoint, sem manter a compatibilidade como bloqueio prévio da implementação.
+- O novo cliente usa apenas Token; sem fallback para a Key antiga. Com `enable=false` explícito, sem PAT disponível, falha na emissão ou resposta malformada, registra log redigido e falha; a renovação antecipada de um PAT válido existente só tolera falhas conforme a regra de falha transitória abaixo; quando `enable` é omitido, trata como habilitado por padrão, mas continua validando estritamente o Token e a validade.
+- O Project Access Token é emitido pela plataforma e continua obedecendo às regras de admissão de verificação de segurança de requisição da versão oficial; não pode ser pulado por usar Token; o comportamento de verificação de segurança das Keys manuais do usuário é preservado.
+- Keys manuais do CLI com marcador de origem explícito `manual` mantêm semântica independente; registros antigos sem marcador de origem e sem OAuth não permitem determinar se são Keys derivadas antigas, exigindo novo login ou nova escolha de Key manual, sem adivinhar a origem e fazer fallback. Keys de Providers de terceiros mantêm o contrato original; Start Plan, MCP oficial e o canal de identidade JWT existente no reset são preservados.
+- Não se lê nem se armazena mais o Secret de longo prazo derivado de OAuth, e não se remove o estado de login compartilhado por clientes antigos; Keys manuais não são limpas. Capacidades que usam as interfaces originais do servidor não são reescritas pelo novo cliente.
 
-## 专用 Key 管理兼容契约
+## Contrato de compatibilidade do gerenciamento de Key dedicada
 
-- 个人仍按名称复用 zcode-api-key；同名条目缺少 ID 时失败，不重复创建。团队只复用名称 zcode-team-api-key、keyType=2 且 ID 非空的条目，创建响应也必须满足这三个条件，否则禁止继续换证。无关坏条目不影响有效条目。
-- 管理接口保留旧 Authorization：个人 BigModel 用原始登录 JWT，Z.AI 用 Bearer；团队 customerInfo 同个人，团队列表/创建两 family 均用原始登录 JWT，并保留组织项目头。只有 access_tokens 统一使用 Bearer。
-- 桌面个人选择非团队项目（projectType 去空白后不为 2），跳过无组织 ID 的候选；Standalone 保留默认机构/默认项目优先、否则首项的规则，不新增项目类型过滤。团队成员归属比较继续去除 ID 两端空白。
-- 项目选择策略由调用端明确传给公共换证客户端，参与内存与持久化 ID 作用域，防止桌面和 CLI 共用记录时覆盖彼此的选择。既有 Token owner、刷新和退出失效时序不变。
-- 验收覆盖错误团队创建响应、无关坏条目、个人同名坏 ID、两 family 管理/签发请求头、混合项目选择和跨策略 ID 隔离。
+- Pessoal continua reutilizando `zcode-api-key` pelo nome; entradas de mesmo nome sem ID causam falha, sem criação duplicada. Equipe só reutiliza entradas com nome `zcode-team-api-key`, `keyType=2` e ID não vazio; a resposta de criação também precisa satisfazer essas três condições, caso contrário a troca de credencial é proibida. Entradas ruins sem relação não afetam as entradas válidas.
+- As interfaces de gerenciamento mantêm o Authorization antigo: pessoal BigModel usa o JWT de login original, Z.AI usa Bearer; `customerInfo` de equipe igual ao pessoal; listagem/criação de equipe usa o JWT de login original nas duas families, preservando os cabeçalhos de organização/projeto. Somente `access_tokens` usa Bearer de forma unificada.
+- Na seleção pessoal do desktop com projeto que não é de equipe (`projectType` diferente de 2 após remover espaços), pula candidatos sem ID de organização; Standalone mantém a regra de priorizar a organização/projeto padrão e, na falta dela, o primeiro item, sem novo filtro por tipo de projeto. A comparação de vínculo de membro da equipe continua removendo espaços nas duas pontas do ID.
+- A estratégia de seleção de projeto é passada explicitamente pelo chamador ao cliente público de troca de credencial, participando do escopo de ID em memória e persistido, evitando que desktop e CLI sobrescrevam a seleção um do outro ao compartilhar o registro. O owner existente do Token, a renovação e a sequência de invalidação no logout permanecem inalterados.
+- A aceitação cobre resposta de criação de equipe incorreta, entrada ruim sem relação, ID ruim em entrada pessoal de mesmo nome, cabeçalhos das requisições de gerenciamento/emissão nas duas families, seleção de projeto mista e isolamento de ID entre estratégias.
 
-## 旧凭据依赖检查与升级约束
+## Verificação de dependências de credenciais antigas e restrições de upgrade
 
-OAuth 账号恢复、可用性判断及请求鉴权均不得读取、解密或依赖旧 account-provider:\*:api-key；登录态有效且旧 Key 缺失或密文损坏时，仍按原账号身份换 Token。Standalone 无来源标记但有 OAuth 的旧记录自动使用 OAuth；只有明确 manual 才读取手工 Key，手工模式不依赖另存的 OAuth 是否可解密。无登录态的历史歧义记录仍要求重新选择登录方式。
-远程 Provisioning 仅同步 OAuth allowlist，远端通过自身的 Token owner 签发；不导出旧账号 Key 或短期 Token，也不跨环境复制 Key ID 缓存。schemaVersion=1 的旧 account-provider 条目仅接受格式校验后忽略，不读取、覆盖或删除现存旧/手工 Key。Personal Config 中显式手工 Provider 的 Key 仍沿原配置通道同步。
-团队 Key ID 就绪检查和请求期凭据非空校验必须保留；`apiKey` 传输字段暂保兼容，其 OAuth 值为 Token。移除无调用的 UI Key 指纹刷新函数及无效 Credential Store 注入，避免再次引入“Key 必须落盘才可用”的条件。登录 Token 失效、无权限和团队 ID 创建失败保持显式错误，不回退旧 Key。
-Desktop 附加远程工作区的用量鉴权优先复用 sourceServices 中现有 Local Host owner；旧附加入口没有 owner 时，在原本本机服务边界内使用同一换证工厂，不能保留只读旧 Key、解析回调恒为空的实现。个人/团队共用一个 Token 客户端与 ID Store，登录变更清理缓存；不改变手机 replayable 路由。
-验收：旧 Key 缺失/坏密文但 OAuth 有效可恢复；手工 Key 不受坏 OAuth 影响；本地/远端有坏旧 Key 不阻断同步且原记录不动；旧信封可接收但不应用 Key；OAuth 删除、回滚、幂等和手机/桌面既有 owner/流边界保持。
+Recuperação de conta OAuth, verificação de disponibilidade e autenticação de requisições não podem ler, descriptografar nem depender do antigo `account-provider:*:api-key`; quando o estado de login é válido e a Key antiga está ausente ou com ciphertext corrompido, ainda troca por Token usando a identidade original da conta. Registros antigos Standalone sem marcador de origem mas com OAuth usam OAuth automaticamente; apenas `manual` explícito lê a Key manual, e o modo manual não depende de o OAuth guardado separadamente ser descriptografável. Registros históricos ambíguos sem estado de login ainda exigem escolher novamente o método de login.
+O Provisioning remoto sincroniza apenas a allowlist OAuth, e o remoto emite pelo seu próprio owner de Token; não exporta Keys de contas antigas nem Tokens de curto prazo, e não copia cache de Key ID entre ambientes. Entradas antigas de `account-provider` com `schemaVersion=1` só são aceitas após validação de formato e então ignoradas, sem ler, sobrescrever ou apagar Keys antigas/manuais existentes. Keys de Providers manuais explícitos no Personal Config continuam sendo sincronizadas pelo canal de configuração original.
+A verificação de prontidão do Key ID de equipe e a validação de credencial não vazia no momento da requisição devem ser mantidas; o campo de transporte `apiKey` mantém compatibilidade temporariamente, e seu valor OAuth é o Token. Remover a função de atualização de impressão digital de Key na UI que não tem chamadas e a injeção inválida de Credential Store evita reintroduzir a condição “a Key precisa estar em disco para funcionar”. Token de login inválido, falta de permissão e falha na criação do ID de equipe mantêm erro explícito, sem fallback para a Key antiga.
+O uso na autorização do workspace remoto adicional do Desktop prioriza a reutilização do owner Local Host existente em `sourceServices`; quando a entrada antiga de anexação não tem owner, usa a mesma fábrica de troca de credencial dentro da fronteira original de serviços locais, sem manter a implementação de Key antiga somente leitura e callback de resolução sempre nulo. Pessoal/equipe compartilham um cliente de Token e um ID Store, com limpeza de cache quando o login muda; o roteamento replayable do celular não muda.
+Aceitação: Key antiga ausente/ciphertext corrompido mas com OAuth válido é recuperável; Key manual não é afetada por OAuth corrompido; Key antiga corrompida local ou remotamente não bloqueia a sincronização e o registro original não é alterado; envelopes antigos são aceitos mas não aplicam Key; exclusão de OAuth, rollback, idempotência e as fronteiras existentes de owner/fluxo celular/desktop são preservadas.
 
-本轮核查保留的判断：手工配置 `api-key` 的非空校验；团队 `apiKeyStatus` 的 ID 就绪校验；请求期 `auth.apiKey` 的非空校验（OAuth 值为 Token）。这些均不检查旧 account-provider Secret 是否存在。UI 保存时的 Key 变化比较仅作用于手工 access，OAuth 返回空值并由账号/权益事件刷新。
+Julgos mantidos nesta rodada de verificação: validação não vazia de `api-key` configurado manualmente; validação de prontidão de ID do `apiKeyStatus` de equipe; validação não vazia de `auth.apiKey` no momento da requisição (valor OAuth é o Token). Nenhum deles verifica se o Secret antigo do account-provider existe. A comparação de mudança de Key no salvamento da UI se aplica apenas ao acesso manual; o OAuth retorna valor vazio e é atualizado por eventos de conta/benefício.
 
-升级兼容范围：本版 Host 不修改旧 Key 记录；旧 Source → 新 Target 的 schema v1 信封有回归。新 Source 输出 v2，旧 Target 的 v1 校验在任何写入前拒绝，因此同步报错但不会删除已有凭据；需要升级 Target 才能继续同步；正常远程资源使用客户端版本对应 CDN 路径。
+Escopo de compatibilidade do upgrade: esta versão do Host não modifica registros de Keys antigas; há regressão do envelope schema v1 de Source antigo → Target novo. O Source novo produz v2, e a validação v1 do Target antigo rejeita antes de qualquer escrita, então a sincronização dá erro mas não apaga credenciais existentes; é preciso atualizar o Target para continuar sincronizando; o uso normal de recursos remotos usa o caminho de CDN correspondente à versão do cliente.
 
-## 状态与边界
+## Estado e fronteiras
 
 ```text
-登录态 / 稳定账号身份 → 既有账号鉴权 owner → 有效 Token → 单次 HTTP attempt
+estado de login / identidade estável da conta → owner de autenticação existente → Token válido → uma tentativa HTTP
                          │                     ↑
-                         └─ 内存缓存 / 并发合并 ┘
-退出 / 切账号 → 清缓存及失效 generation → 拒绝迟到请求结果
+                         └─ cache em memória / coalescência de concorrência ┘
+logout / troca de conta → limpa cache e generation inválida → rejeita resultados tardios
 ```
 
-Host 沿用 IAccountRequestAuthService；Standalone 沿用请求 adapter。
-Key ID 可持久化：只存 organizationId/projectId/apiKeyId，按环境、family、稳定账号、个人/团队项目隔离；短期 Token 与登录 JWT 不进入该记录。重启复用 ID 直接换证，签发端明确 404 时清除元数据，下次重新查找/创建；其他鉴权错误只报错，不回退旧 Key。
-Token 不写 Provider Config、Registry、Session、UI 快照、日志或 credentials.json。
-按签发响应有效期刷新，提前 120 秒加 0–60 秒抖动；保留已建立 SSE，新 HTTP attempt 重新检查有效期。提前刷新仅在明确的网络/超时或 HTTP 429/5xx 临时故障时复用当前仍未过期、未被模型拒绝的 PAT，最多使用到原 expiresAt，每 5 秒才允许再次刷新，并记录固定脱敏事件 project_token_refresh_deferred。缓存与 pending 仍由同一个 owner 管理，并发请求共享刷新及降级结果。401/403/404、enable=false、取消、未知异常和畸形响应立即失败并清缓存；退出或切账号期间的迟到失败不得返回旧 PAT。显式拒绝指纹匹配时先移除旧值，刷新失败不能复用它。该容错不读取长期 API Key、不延长有效期、不重放模型请求。
-签发与管理响应共用成功码契约：数字或字符串的 0/200；Token 类型、非空值和有效期仍严格校验。真实后端样例联调另行记录，兼容测试不等于已完成联调。
+O Host mantém `IAccountRequestAuthService`; Standalone mantém o adapter de requisição.
+O Key ID pode ser persistido: guarda apenas organizationId/projectId/apiKeyId, isolado por ambiente, família, conta estável e projeto pessoal/equipe; Tokens de curto prazo e o JWT de login não entram nesse registro. Reutilizar o ID após restart troca a credencial diretamente; quando o emissor responde explicitamente 404, os metadados são limpos e a busca/criação acontece de novo na próxima vez; outros erros de autenticação apenas reportam erro, sem fallback para a Key antiga.
+O Token não é escrito em Provider Config, Registry, Session, snapshot de UI, logs ou `credentials.json`.
+A renovação segue a validade da resposta de emissão, com 120 segundos de antecedência mais jitter de 0–60 segundos; SSE já estabelecido é preservado, e uma nova tentativa HTTP checa a validade novamente. A renovação antecipada só reutiliza o PAT ainda não expirado e não rejeitado pelo modelo em caso de falha de rede/timeout explícita ou falha transitória HTTP 429/5xx, no máximo até o `expiresAt` original, permitindo nova renovação apenas a cada 5 segundos e registrando o evento redigido fixo `project_token_refresh_deferred`. Cache e pendências continuam gerenciados pelo mesmo owner, e requisições concorrentes compartilham a renovação e o resultado de degradação. 401/403/404, `enable=false`, cancelamento, exceções desconhecidas e respostas malformadas falham imediatamente e limpam o cache; falhas tardias durante logout ou troca de conta não podem devolver o PAT antigo. Quando uma rejeição explícita casa com a impressão digital, o valor antigo é removido primeiro, e uma renovação falha não pode reutilizá-lo. Essa tolerância não lê API Key de longo prazo, não estende a validade e não reproduz requisições ao modelo.
+Respostas de emissão e de gerenciamento compartilham o contrato de código de sucesso: 0/200 numérico ou string; tipo do Token, valor não vazio e validade continuam sendo estritamente validados. Amostras reais de integração com o backend são registradas separadamente; teste de compatibilidade não equivale a integração concluída.
 
 ```text
-同一 PAT owner：提前刷新 → 成功替换缓存
-                         → 临时故障 + 原 PAT 有效且未拒绝 → 共享旧值，5 秒退避
-                         → 认证拒绝 / 过期 / 退出 / 无效响应 → 清除并失败
+mesmo owner de PAT: renovação antecipada → substituição do cache com sucesso
+                         → falha transitória + PAT original válido e não rejeitado → valor antigo compartilhado, backoff de 5 s
+                         → rejeição de autenticação / expiração / logout / resposta inválida → limpeza e falha
 ```
 
-账号身份不能取短期 Token 的哈希。桌面 continuous、手机 replayable 和 workspaceIdentity 隔离保持。
+A identidade da conta não pode ser o hash de um Token de curto prazo. O isolamento de desktop continuous, celular replayable e `workspaceIdentity` é mantido.
 
-## 长任务与业务登录凭据刷新
+## Longas tarefas e renovação das credenciais de login de negócio
 
-闲时模型每个物理 HTTP attempt 必须通过现有 Provider Runtime Headers 私有通道向 Host 换取当前 PAT。派发时仅冻结票据和账号作用域约束，不把派发时 PAT 当作整轮有效凭据。`requestAuth.accountScope` 是 Host 生成的不可逆作用域校验值（登录生命周期、family、个人/团队、组织/项目/产品），不作为账号身份、不包含短期 PAT、不持久化或写日志。后续请求带 `expectedAccountScope`；账号/套餐变化或换证期间作用域变化立即失败，不把原票据套到新账号。Mock 无真实 PAT，原静态注入保持。
+Em tempo ocioso, cada tentativa HTTP física do modelo precisa trocar pelo PAT atual junto ao Host pelo canal privado de Provider Runtime Headers. Na despacho, apenas o tíquete e as restrições de escopo da conta são congelados; o PAT no momento do despacho não é tratado como credencial válida para a rodada inteira. `requestAuth.accountScope` é um valor de verificação de escopo irreversível gerado pelo Host (ciclo de vida do login, família, pessoal/equipe, organização/projeto/produto); não é identidade de conta, não contém PAT de curto prazo e não é persistido nem registrado em log. Requisições seguintes carregam `expectedAccountScope`; mudança de conta/plano ou mudança de escopo durante a troca de credencial falha imediatamente, sem aplicar o tíquete original a uma conta nova. O mock não tem PAT real, e a injeção estática original é mantida.
 
 ```text
-派发 → Host 账号 owner 生成作用域校验值 + 原票据
-每次模型 attempt → 私有 runtime headers 通道（携带预期作用域）
-                 → 同一 Host owner 校验作用域 → PAT TTL 检查/换证 → 再校验作用域
-                 → CLI 仅更新 Coding Plan Token，保留原票据与该轮 JWT
-退出/切账号/切套餐 → 作用域不匹配 → 当前轮失败，不回退旧凭据
-桌面 continuous / 手机 replayable → 沿用原 task owner、workspaceIdentity 与事件顺序
+despacho → owner de conta do Host gera valor de verificação de escopo + tíquete original
+cada tentativa do modelo → canal privado de runtime headers (carregando o escopo esperado)
+                 → o mesmo owner do Host verifica o escopo → checagem de TTL do PAT/troca de credencial → verifica o escopo de novo
+                 → a CLI atualiza apenas o Token do Coding Plan, preservando o tíquete original e o JWT da rodada
+logout/troca de conta/troca de plano → escopo não casa → a rodada atual falha, sem fallback para credenciais antigas
+desktop continuous / celular replayable → mantêm o owner de task original, o workspaceIdentity e a ordem de eventos
 ```
 
-Desktop Z.AI 的 deep link 和 polling 均在 `ZaiProviderAdapter` 登录边界调用 `/api/auth/z/login`；`oauth:zai:access_token` 已是业务 JWT，个人/团队 PAT owner 直接使用该值，不能二次兑换。Standalone 存储原始 OAuth Token，因此换证位置不同。回归覆盖 polling → 业务 JWT 落盘 → 个人/团队元数据 → PAT 签发的完整顺序。
+No Desktop Z.AI, tanto o deep link quanto o polling chamam `/api/auth/z/login` na fronteira de login do `ZaiProviderAdapter`; `oauth:zai:access_token` já é um JWT de negócio, e o owner de PAT pessoal/equipe usa esse valor diretamente, sem segunda troca. Standalone armazena o Token OAuth original, portanto o ponto de troca de credencial é diferente. A regressão cobre a ordem completa polling → JWT de negócio persistido → metadados pessoal/equipe → emissão do PAT.
 
-Standalone Z.ai 的 `/api/auth/z/login` 成功结果按 `expires_in` / `expiresIn` 和 JWT `exp` 的最早值缓存，提前 120 秒刷新；无有效期元数据最多缓存 5 分钟。并发刷新合并；clear/登录变化拒绝迟到结果。业务接口 HTTP 401 时只允许重新交换业务 JWT 并重试换证一次，403/网络错误不触发此恢复；二次 401 清掉失败业务 JWT，后续调用仍可重新尝试。该恢复仅覆盖元数据/签发请求，不重放模型推理。
+O resultado de sucesso de `/api/auth/z/login` no Standalone Z.ai é cacheado pelo valor mais entre `expires_in` / `expiresIn` e o `exp` do JWT, com renovação 120 segundos antes; sem metadados de validade o cache é de no máximo 5 minutos. Renovações concorrentes são coalescidas; clear/mudança de login rejeita resultados tardios. Em HTTP 401 de um endpoint de negócio só é permitido trocar novamente o JWT de negócio e repetir a troca de credencial uma vez; 403/erros de rede não disparam essa recuperação; um segundo 401 limpa o JWT de negócio que falhou, e chamadas seguintes ainda podem tentar de novo. Essa recuperação cobre apenas requisições de metadados/emissão e não reproduz a inferência do modelo.
 
-业务 JWT 提前刷新复用 HTTP adapter 的临时故障分类（网络、超时、429、5xx）。仅当已知原始有效期尚未结束、该 JWT 未被拒绝且登录代次未变时，所有并发调用共享旧值并退避 5 秒；不延长有效期，记录固定 `project_token_business_login_refresh_deferred` 事件。缺少有效期元数据的 5 分钟缓存上限不代表真实有效期，因此不允许临时故障降级。认证拒绝、取消、未知错误、畸形响应、退出和账号切换均不降级。
+A renovação antecipada do JWT de negócio reaproveita a classificação de falha transitória do adapter HTTP (rede, timeout, 429, 5xx). Somente quando a validade original conhecida ainda não terminou, o JWT não foi rejeitado e a geração do login não mudou, todas as chamadas concorrentes compartilham o valor antigo com backoff de 5 segundos; sem estender a validade, registrando o evento fixo `project_token_business_login_refresh_deferred`. O limite de cache de 5 minutos sem metadados de validade não representa a validade real, portanto não permite degradação em falha transitória. Rejeição de autenticação, cancelamento, erro desconhecido, resposta malformada, logout e troca de conta não degradam.
 
 ```text
-CLI ZaiBusinessTokenCache（唯一 owner）
-  → 提前换证 → 成功：替换业务 JWT
-             → 临时故障 + 已知未过期 + 未拒绝 + 同一登录：共享原值，5 秒退避
-             → 其他失败：清理原值并报错
-  → clear / 登录切换：拒绝在途结果；invalidate：禁止被拒绝 JWT 降级
+ZaiBusinessTokenCache da CLI (único owner)
+  → troca antecipada → sucesso: substitui o JWT de negócio
+             → falha transitória + expiração conhecida não atingida + não rejeitado + mesmo login: compartilha o valor original, backoff de 5 s
+             → outras falhas: limpa o valor original e reporta erro
+  → clear / troca de login: rejeita resultados em trânsito; invalidate: proíbe degradação de JWT rejeitado
 ```
 
-Standalone 的 PAT、Key ID 定位与 Z.AI 业务 JWT 单飞请求由 resolver/cache owner 管理，不能继承任何单个模型请求的 AbortSignal（含 execution context 内的 abortSignal）。共享 HTTP 仅保留 trace/logger 上下文，每次请求有 15 秒超时；每个调用方在 `resolve` / `resolveMaterial` 外层独立等待，取消立即终止自己的等待并移除监听器，不清除共享缓存、不影响其他等待者。已取消的调用不启动换证；所有等待者取消后，已有换证仍受超时和登录代次约束，晚到失败被消费。logout/clear 仍使在途结果失效，不重放已建立的模型流。
+O PAT do Standalone, o posicionamento do Key ID e o single-flight do JWT de negócio Z.AI são gerenciados pelo resolver/cache owner, e não podem herdar o AbortSignal de nenhuma requisição individual de modelo (incluindo o `abortSignal` do execution context). O HTTP compartilhado mantém apenas o contexto de trace/logger, com timeout de 15 segundos por requisição; cada chamador espera de forma independente no nível externo de `resolve` / `resolveMaterial`, e o cancelamento encerra imediatamente a própria espera e remove o listener, sem limpar o cache compartilhado nem afetar outros esperadores. Chamadas já canceladas não iniciam a troca de credencial; depois que todos os esperadores cancelam, uma troca de credencial já em andamento continua sujeita ao timeout e à geração do login, e falhas tardias são consumidas. logout/clear continuam invalidando resultados em trânsito, sem reproduzir fluxos de modelo já estabelecidos.
 
 ```text
-会话 A ─ 独立等待（取消只结束 A） ─┐
-                                   ├─ resolver/cache owner → 单飞换证 HTTP（15 秒超时）
-会话 B ─ 独立等待 ─────────────────┘                       → 缓存结果 → B
+sessão A ─ espera independente (cancelar encerra apenas A) ─┐
+                                   ├─ resolver/cache owner → HTTP de troca em single-flight (timeout de 15 s)
+sessão B ─ espera independente ────────────────────────────┘                       → resultado em cache → B
 ```
 
-普通模型 HTTP 401 允许一次 PAT 恢复：仅个人/团队套餐及闲时的 OAuth PAT 请求生效，手填 Key、Start Plan 和加速卡不参与。模型调用持有一次恢复预算，复用现有 `auth_refresh` 重试状态与物理请求循环；重新签发失败或再次 401 立即失败，不回退 Key。401 是尝试恢复的触发条件，不被当作已确认的 Token 过期原因。`VERIFY_APIKEY_EXPIRED` / `VERIFY_SIGNATURE_INVALID` 属于官方版本请求安全校验自身的错误恢复，保持原有独立处理。
+Um HTTP 401 comum de modelo permite uma recuperação de PAT: vale apenas para pacotes pessoal/equipe e para requisições de PAT OAuth em tempo ocioso; Key digitada manualmente, Start Plan e cartões de aceleração não participam. A chamada de modelo mantém um orçamento de recuperação, reaproveitando o estado de retry `auth_refresh` existente e o ciclo de requisições físicas; falha na reemissão ou um novo 401 falha imediatamente, sem fallback para Key. O 401 é o gatilho para tentar a recuperação e não é tratado como causa confirmada de expiração do Token. `VERIFY_APIKEY_EXPIRED` / `VERIFY_SIGNATURE_INVALID` pertencem à recuperação de erro da própria verificação de segurança de requisição da versão oficial e mantêm o tratamento independente original.
 
 ```text
-模型 HTTP 401（未提交输出）→ 私有请求携带原账号作用域 + 失败 PAT 的 SHA-256 指纹
-→ 原鉴权 owner 核对作用域 → 仅失效指纹匹配的 PAT → 合并并发签发
-→ 新 PAT 重试一次 → 成功 / 终止报错
+HTTP 401 do modelo (sem saída submetida) → requisição privada carrega o escopo de conta original + impressão digital SHA-256 do PAT que falhou
+→ owner de autenticação original compara o escopo → invalida somente o PAT cuja impressão digital casa → coalesce emissões concorrentes
+→ um retry com o novo PAT → sucesso / erro final
 ```
 
-所有 OAuth 模型请求返回账号作用域约束；重试换证前后均校验，切账号/项目不得串用。迟到的旧 401 不能清除已更新的 PAT；指纹不进入持久化，不传到模型上游，也不记录凭据原文。SSE 已输出文本、思考或工具调用后不重放；compact 保留原 response-body 边界。取消不触发恢复。桌面 continuous 与手机 replayable 的状态 owner、会话路由和回放规则不变，SSH 仍通过原私有 Runtime Headers 通道换证。
+Todas as requisições de modelo OAuth retornam a restrição de escopo de conta; ela é validada antes e depois da troca de credencial, e trocar de conta/projeto não permite reaproveitar. Um 401 antigo tardio não pode limpar um PAT já atualizado; a impressão digital não entra na persistência, não é enviada ao upstream do modelo e não registra o texto da credencial. Depois que o SSE já emitiu texto, pensamento ou chamada de ferramenta, não há replay; o compact preserva a fronteira original de response-body. Cancelamento não dispara recuperação. Os owners de estado, o roteamento de sessão e as regras de replay do desktop continuous e do celular replayable não mudam, e o SSH continua trocando credenciais pelo canal privado original de Runtime Headers.
 
-验收：闲时同一轮跨 TTL 后新请求使用新 PAT且票据不变；切账号/项目和换证中途变化失败；无 owner 时不能沿用过期快照；Z.ai 业务 JWT 跨 TTL 与并发刷新、单次 401 恢复、403/网络不重试、退出竞态均覆盖。已建立 SSE 不重放。
+Aceitação: em tempo ocioso, na mesma rodada, um novo pedido após cruzar o TTL usa o novo PAT e o tíquete não muda; troca de conta/projeto e mudança no meio da troca de credencial falham; sem owner não é possível reaproveitar snapshot expirado; cobertura para JWT de negócio Z.ai cruzando TTL, renovação concorrente, recuperação única de 401, 403/rede sem retry e corrida de logout. SSE já estabelecido não é reproduzido.
 
-模型 PAT 恢复验收：首次 401 后实际使用新 PAT；普通请求预算为 1 时仍有一次恢复机会；二次 401 / 换证失败终止；SSE 首个错误块可恢复、文本或工具输出后不可重放；并发和迟到 401 不重复签发或清除新 PAT；取消、手工 Key、Start Plan、安全校验错误不触发 PAT 恢复；SSH 私有协议与子会话路由保留原作用域和失败指纹。
+Aceitação da recuperação de PAT do modelo: após o primeiro 401 o novo PAT é realmente usado; com orçamento 1 para requisições comuns ainda há uma chance de recuperação; segundo 401 / falha na troca encerra; o primeiro bloco de erro do SSE é recuperável, mas não há replay após saída de texto ou ferramenta; 401 tardio e concorrência não causam emissão duplicada nem limpam o PAT novo; cancelamento, Key manual, Start Plan e erros de verificação de segurança não disparam recuperação de PAT; o protocolo privado do SSH e o roteamento de subsessões preservam o escopo original e a impressão digital da falha.
 
-## 订阅查询与用途
+## Consulta de assinatura e usos
 
-企业套餐 pricing/customerInfo 保留组织项目及专用 Key 元数据预热，不 Copy Secret。
-1=套餐、2=按量、3=存量映射、-1=缓存哨兵；创建类型仅允许1/2。
-所有现有自动创建均为套餐，使用1。未发现按量自动创建入口，不虚构新增入口。
+pricing/customerInfo dos pacotes corporativos preservam o pré-aquecimento dos metadados de organização/projeto e da Key dedicada, sem Copy Secret.
+1=pacote, 2=pago por uso, 3=mapeamento de estoque, -1=sentinela de cache; o tipo de criação permite apenas 1/2.
+Todas as criações automáticas existentes são de pacote, usando 1. Nenhuma entrada de criação automática por uso foi encontrada, e nenhuma entrada nova é inventada.
 
-## 接口测试表（2026-09-23）
+## Tabela de testes de interfaces (2026-09-23)
 
-以下结果区分本地自动化与真实后端联调；mock 通过不等于线上兼容已验证。`…` 表示已确认的 `/api/biz/v1/organization/{org}` 管理路径前缀。
+Os resultados abaixo distinguem automação local de integração real com o backend; mock passando não significa compatibilidade em produção verificada. `…` representa o prefixo confirmado de caminho de gerenciamento `/api/biz/v1/organization/{org}`.
 
-| ID  | 方法 / 路径                                                  | 复测要点                                                               | 改后鉴权                                | 实际结果                                                   |
-| --- | ------------------------------------------------------------ | ---------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
-| K01 | GET /api/biz/customer/getCustomerInfo                        | 首次定位个人/团队组织项目；有持久化 ID 时跳过                          | 登录 JWT                                | 公共/服务/CLI 单测；桌面 E2E通过                           |
-| K02 | GET …/projects/{project}/api_keys                            | 仅复用专用名称的 ID；不增加 usageScene 过滤                            | 登录 JWT                                | 两 family、个人/团队、已有/缺失组合通过                    |
-| K03 | POST …/projects/{project}/api_keys                           | 缺失时创建；usageScene=1；团队另传 keyType=2                           | 登录 JWT                                | 单测 + BigModel/Z.AI 桌面 E2E通过                          |
-| T01 | POST …/api_keys/{apiKeyId}/access_tokens                     | 返回短期 Token；默认启用；显式关闭/异常失败                            | Bearer 登录 JWT                         | 单测 + 两 family 桌面 E2E通过                              |
-| T02 | 本地 ID 记录 / Token 缓存                                    | ID 可跨重启；按账号/环境/项目隔离；Token 不落盘；404 清 ID、403 不创建 | 仅 ID 持久化                            | 重启复用/隔离/失效专项通过                                 |
-| T03 | GET …/api_keys/copy/{id}                                     | 第一方 OAuth 路径不再调用                                              | 无请求                                  | 静态引用清理 + 单测/E2E Copy=0                             |
-| M01 | POST <provider-base>/v1/messages                             | 每次新 attempt 通过请求期鉴权取得 Token，沿用 SSE/续轮协议             | Project Token                           | 鉴权服务/安全校验传输单测通过；真实推理未执行              |
-| M02 | POST <provider-base>/chat/completions                        | 配置支持该协议时使用同一请求期 Token                                   | Project Token                           | 共用凭据入口；本轮无独立协议 E2E                           |
-| S01 | GET /api/v1/agent/configs；POST /api/paas/c1f3a7e2/v2/client | Project Token 遵守官方版本的请求安全校验准入；手工 Key 保持            | Project Token 进入既有安全校验          | 2026-10-09 修正此前 Token 豁免规则，回归结果见对应主题文档 |
-| U01 | GET /api/monitor/usage/quota/limit                           | 个人/团队使用 Token；团队保留 type=2 与 org/project 头                 | Project Token                           | usage/quota 服务回归通过；真实后端未执行                   |
-| U02 | GET /api/monitor/usage/model-usage                           | 时间范围和团队 type=2 保持                                             | Project Token                           | 用量服务回归通过；真实后端未执行                           |
-| U03 | GET /api/monitor/usage/tool-usage                            | 时间范围、团队隔离和空数据行为保持                                     | Project Token                           | 用量服务回归通过；真实后端未执行                           |
-| U04 | GET /api/monitor/credit-usage/activity                       | 个人 type=1、团队 type=3 保持                                          | Project Token                           | 用量服务回归通过；真实后端未执行                           |
-| U05 | GET /api/monitor/credit-usage/usage-detail                   | usageType=MODEL/MCP、时间范围、团队 type=3 保持                        | Project Token                           | 用量服务回归通过；真实后端未执行                           |
-| U06 | GET /api/monitor/usage/model-performance-day                 | 性能统计及日期参数保持                                                 | Project Token                           | 用量服务回归通过；真实后端未执行                           |
-| O01 | GET /api/v1/off-peak/ticket/availability                     | 闲时可用性使用当前套餐身份                                             | 既有 JWT + X-Coding-Plan-Api-Key: Token | 闲时 client/integration 回归通过                           |
-| O02 | POST /api/v1/off-peak/ticket                                 | 领取票据的账号项目归属保持                                             | 既有 JWT + Project Token                | 闲时回归通过；真实后端未执行                               |
-| O03 | POST /api/v1/off-peak/ticket/status                          | 状态轮询重新解析当前凭据                                               | 既有 JWT + Project Token                | 闲时回归通过；跨 TTL 真实排队未执行                        |
-| O04 | POST /api/v1/off-peak/ticket/{id}/settle                     | 结算及幂等契约保持                                                     | 既有 JWT + Project Token                | 闲时回归通过；真实后端未执行                               |
-| O05 | POST /api/v1/off-peak/anthropic/v1/messages                  | 沿用票据头及业务 Token                                                 | Project Token + 既有票据上下文          | 共用请求入口；真实推理未执行                               |
-| A01 | 加速 / Start Plan / 官方 MCP / reset                         | 保留既有登录 JWT 通道；消费套餐凭据的部分自动改用 Token                | 按既有通道解析                          | 加速/reset/鉴权服务回归通过；端到端未执行                  |
-| C01 | Standalone OAuth 登录/模型请求/退出                          | source=oauth 不读旧 Key；稳定身份；退出拒绝迟到 Token；manual 独立     | 登录 JWT → Project Token                | CLI adapters 19 + bootstrap 24 项通过                      |
-| R01 | 桌面/手机/远程 workspace 请求期鉴权                          | 同一 Host owner 和原 continuous/replayable 边界                        | 私有请求鉴权通道                        | 桌面创建/换证通过；手机端到端本轮未执行                    |
+| ID  | Método / caminho                                                  | Ponto de revalidação                                                    | Autenticação após a mudança                | Resultado real                                                            |
+| --- | ---------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------- |
+| K01 | GET /api/biz/customer/getCustomerInfo                        | Localiza pela primeira vez organização/projeto pessoal/equipe; pula quando há ID persistido | JWT de login                           | Testes unitários de comum/serviço/CLI; E2E de desktop passou              |
+| K02 | GET …/projects/{project}/api_keys                            | Reutiliza apenas o ID do nome dedicado; não acrescenta filtro por usageScene | JWT de login                           | Passou nas duas families, pessoal/equipe, combinações existente/ausente   |
+| K03 | POST …/projects/{project}/api_keys                           | Cria quando ausente; usageScene=1; equipe também envia keyType=2          | JWT de login                              | Teste unitário + E2E de desktop BigModel/Z.AI passaram                     |
+| T01 | POST …/api_keys/{apiKeyId}/access_tokens                     | Retorna Token de curto prazo; habilitado por padrão; falha explícita/erro | Bearer com JWT de login                  | Teste unitário + E2E de desktop nas duas families passaram                 |
+| T02 | Registro local de ID / cache de Token                          | ID sobrevive a restart; isolado por conta/ambiente/projeto; Token não vai para disco; 404 limpa o ID, 403 não cria | Apenas persistência de ID          | Passou nos testes específicos de reutilização após restart/isolamento/invalidação |
+| T03 | GET …/api_keys/copy/{id}                                     | O caminho OAuth de primeira parte não chama mais                          | Sem requisição                           | Limpeza de referência estática + teste unitário/E2E com Copy=0             |
+| M01 | POST <provider-base>/v1/messages                             | Cada nova tentativa obtém o Token pela autenticação da requisição, mantendo o protocolo SSE/continuação | Project Token                      | Passaram os testes do serviço de autenticação/transporte da verificação de segurança; inferência real não executada |
+| M02 | POST <provider-base>/chat/completions                        | Usa o mesmo Token de requisição quando a configuração suporta o protocolo | Project Token                           | Entrada de credencial compartilhada; sem E2E de protocolo independente neste ciclo |
+| S01 | GET /api/v1/agent/configs；POST /api/paas/c1f3a7e2/v2/client | O Project Token obedece à admissão da verificação de segurança da versão oficial; a Key manual permanece | Project Token entra na verificação de segurança existente | Em 2026-10-09 foi corrigida a regra anterior de isenção de Token; resultado da regressão no documento temático correspondente |
+| U01 | GET /api/monitor/usage/quota/limit                           | Pessoal/equipe usam Token; equipe mantém type=2 e cabeçalhos de org/projeto | Project Token                           | Regressão dos serviços de usage/quota passou; backend real não executado     |
+| U02 | GET /api/monitor/usage/model-usage                           | Intervalo de tempo e type=2 de equipe preservados                        | Project Token                           | Regressão do serviço de uso passou; backend real não executado               |
+| U03 | GET /api/monitor/usage/tool-usage                            | Intervalo de tempo, isolamento de equipe e comportamento com dados vazios preservados | Project Token                 | Regressão do serviço de uso passou; backend real não executado               |
+| U04 | GET /api/monitor/credit-usage/activity                       | Pessoal type=1, equipe type=3 preservados                                | Project Token                           | Regressão do serviço de uso passou; backend real não executado               |
+| U05 | GET /api/monitor/credit-usage/usage-detail                   | usageType=MODEL/MCP, intervalo de tempo, equipe type=3 preservados       | Project Token                           | Regressão do serviço de uso passou; backend real não executado               |
+| U06 | GET /api/monitor/usage/model-performance-day                 | Estatísticas de desempenho e parâmetros de data preservados                | Project Token                           | Regressão do serviço de uso passou; backend real não executado               |
+| O01 | GET /api/v1/off-peak/ticket/availability                     | Disponibilidade em tempo ocioso usa a identidade do pacote atual            | JWT existente + X-Coding-Plan-Api-Key: Token | Regressão de client/integration de tempo ocioso passou                   |
+| O02 | POST /api/v1/off-peak/ticket                                 | Vínculo de conta/projeto do tíquete resgatado é preservado                | JWT existente + Project Token             | Regressão de tempo ocioso passou; backend real não executado                |
+| O03 | POST /api/v1/off-peak/ticket/status                          | O polling de status resolve novamente as credenciais atuais              | JWT existente + Project Token             | Regressão de tempo ocioso passou; fila real cruzando TTL não executada       |
+| O04 | POST /api/v1/off-peak/ticket/{id}/settle                     | Contrato de liquidação e idempotência é preservado                        | JWT existente + Project Token             | Regressão de tempo ocioso passou; backend real não executado                |
+| O05 | POST /api/v1/off-peak/anthropic/v1/messages                  | Reutiliza cabeçalhos de tíquete e Token de negócio                      | Project Token + contexto de tíquete existente | Entrada de requisição compartilhada; inferência real não executada       |
+| A01 | Aceleração / Start Plan / MCP oficial / reset                | Mantém o canal de JWT de login existente; as partes que consomem credenciais de pacote passam a usar Token | Resolução pelo canal existente | Regressão de aceleração/reset/serviço de autenticação passou; ponta a ponta não executado |
+| C01 | Login OAuth/modelo/logout no Standalone                      | source=oauth não lê a Key antiga; identidade estável; logout rejeita Token tardio; manual independente | JWT de login → Project Token        | Passaram 19 testes de adapters da CLI e 24 de bootstrap                    |
+| R01 | Autenticação de requisição em desktop/celular/workspace remoto | Mesmo owner de Host e fronteiras continuous/replayable originais          | Canal privado de autenticação de requisição | Criação/troca de credencial no desktop passaram; E2E do celular não executado neste ciclo |
 
-最终接口测试表必须记录方法/路径、改前/改后凭据来源、测试数据、预期、实际结果、证据与未验证原因。
-此前批次证据：21 个公共层/服务层文件共 304 测试通过；CLI adapters 19、bootstrap 24 共 43 测试通过；桌面 Token 创建/换证 E2E 2 项通过（首次 WebDriver 启动超时，90s 启动请求上限重跑通过）。
-E2E runId：desktop-e2e-20260923035859355-p42258-c98f5ad1034a9175。
-根 typecheck/lint/architecture 与 CLI typecheck 通过。CLI 全量 lint 仍有既有 max-lines 失败；auth-login.ts 基线已超 400 行，本轮亦未消除该问题。test:unit:affected 只读已提交差异，因 HEAD 未变化而跳过，不能算作本轮单测证据。接口语义和参数由 mock 回归验证；未宣称真实线上 Token 签发/模型调用/手机端到端联调通过。
-必要验证按根与 CLI AGENTS.md 执行；当前仍有 CLI lint 基线问题，不自动提交失败的检查。
+A tabela final de testes de interfaces deve registrar método/caminho, origem das credenciais antes/depois da mudança, dados de teste, esperado, resultado real, evidências e motivo de não verificação.
+Evidências dos ciclos anteriores: 21 arquivos de camada comum/serviço com 304 testes aprovados; 19 de adapters da CLI e 24 de bootstrap, total de 43 testes aprovados; 2 E2E de criação/troca de Token no desktop aprovados (a primeira execução teve timeout de startup do WebDriver e passou na repetição com limite de 90 s para o request de startup).
+E2E runId: desktop-e2e-20260923035859355-p42258-c98f5ad1034a9175.
+typecheck/lint/architecture da raiz e typecheck da CLI aprovados. O lint completo da CLI ainda tem falhas existentes de max-lines; o baseline de auth-login.ts já passa de 400 linhas e este ciclo não eliminou o problema. `test:unit:affected` só lê as diferenças já commitadas e foi pulado porque o HEAD não mudou, portanto não vale como evidência de testes unitários deste ciclo. A semântica e os parâmetros das interfaces foram validados por regressão com mock; não se declara que a emissão de Token/chamada de modelo/E2E do celular em produção real foi aprovada.
+A validação necessária segue o AGENTS.md da raiz e da CLI; ainda há problemas de baseline de lint na CLI, então verificações com falha não são commitadas automaticamente.
 
-### 专用 Key 兼容修正复测（2026-09-23 12:34）
+### Reteste das correções de compatibilidade da Key dedicada (2026-09-23 12:34)
 
-本轮公共/服务 8 文件 145 项、CLI auth 20 项与 bootstrap 24 项，共 189 项通过；包括新增 11 项专用 Key 边界测试与 CLI 混合项目选择回归。两 family 个人/团队的已有/创建 8 个组合新增逐阶段请求头断言。
-桌面 E2E 2 项通过：desktop-e2e-20260923043115034-p70752-f786c1770da8630d。
-根 typecheck、lint、architecture 与 CLI typecheck 通过。CLI 全量 lint 仍有既有 max-lines 错误。
-适配器 test 脚本额外执行了全包：130 文件通过、4 文件失败，2015 项通过、51 项失败、4 项跳过，另有一处套件导入失败；不能视为全量通过。改前 HEAD 源码快照复现这些失败（模型配置、旧安全校验预期及缺失 catalog 模块），本轮没有扩大到修复这些基线问题。
-证据日志：/tmp/key-contract-green.log、/tmp/key-contract-cli-auth.log、/tmp/key-contract-cli-bootstrap.log、/tmp/key-contract-e2e.log、/tmp/key-contract-cli-green.log、/tmp/key-contract-baseline-tests.log、/tmp/key-contract-baseline-wire.log。
+Neste ciclo, 8 arquivos de camada comum/serviço com 145 itens, 20 itens de auth da CLI e 24 de bootstrap, total de 189 itens aprovados; inclui 11 novos testes de fronteira da Key dedicada e a regressão de seleção de projeto misto da CLI. As 8 combinações existente/criação de pessoal/equipe nas duas families ganharam asserções de cabeçalho de requisição por estágio.
 
-### 旧 Key 依赖完整检查复测（2026-09-23 15:08）
+2 E2E de desktop aprovados: desktop-e2e-20260923043115034-p70752-f786c1770da8630d.
+typecheck, lint e architecture da raiz e typecheck da CLI aprovados. O lint completo da CLI ainda tem os erros existentes de max-lines.
+O script de teste dos adapters executou ainda o pacote inteiro: 130 arquivos aprovados e 4 com falha, 2015 itens aprovados, 51 com falha e 4 pulados, mais uma falha de importação de suíte; isso não pode ser considerado aprovação total. O snapshot do código no HEAD anterior reproduz essas falhas (configuração de modelo, expectativas antigas da verificação de segurança e módulo catalog ausente), e este ciclo não ampliou o escopo para corrigir esses problemas de baseline.
+Logs de evidência: /tmp/key-contract-green.log, /tmp/key-contract-cli-auth.log, /tmp/key-contract-cli-bootstrap.log, /tmp/key-contract-e2e.log, /tmp/key-contract-cli-green.log, /tmp/key-contract-baseline-tests.log, /tmp/key-contract-baseline-wire.log.
 
-覆盖桌面 OAuth 恢复、CLI snapshot/请求期鉴权、个人与团队用量、UI 判定、远程 Provisioning、旧远程附加服务组装、Token 缓存及安全校验。31 个相关文件 506 项通过；远程服务组装追加团队场景后独立复测 10 项通过（与前批有重叠，不累加）。CLI bootstrap 3 文件 27 项通过。
+### Reteste da verificação completa de dependências de Keys antigas (2026-09-23 15:08)
 
-| 场景                                | 预期与证据                                                                      |
-| ----------------------------------- | ------------------------------------------------------------------------------- |
-| OAuth 有效、旧 Key 不存在或不可解密 | CLI snapshot/请求成功；桌面 Z.AI 冷启动恢复并换证，无重新登录，旧记录不改       |
-| 明确手工 Key、有损坏 OAuth          | 只读手工 Key，独立鉴权                                                          |
-| 远程同步、本地或远端有损坏旧 Key    | 只同步 OAuth；旧信封 Key 忽略；原旧记录不覆盖、不删除                           |
-| 远程附加个人/团队用量               | 原 owner 存在则复用；无 owner 时真实换证流程；quota header 为测试 Token，Copy=0 |
-| UI 可用性及 Token 失败              | 保留权益/ID/请求期凭据校验；无旧 Key 存在性门槛，无失败回退                     |
+Cobriu recuperação OAuth no desktop, snapshot/autenticação de requisição da CLI, uso pessoal e de equipe, decisão na UI, Provisioning remoto, montagem do serviço de anexação remota antiga, cache de Token e verificação de segurança. 31 arquivos relevantes com 506 itens aprovados; a montagem do serviço remoto, após adicionar o cenário de equipe, teve 10 itens aprovados em reteste independente (com sobreposição ao ciclo anterior, sem somar). 3 arquivos de bootstrap da CLI com 27 itens aprovados.
 
-最终桌面 E2E 2 项通过：`desktop-e2e-20260923070315610-p85476-12717808333f5136`，覆盖 BigModel 无旧 Key、Z.AI 坏旧 Key 的创建/换证和 Copy=0。根 typecheck/lint/architecture、CLI typecheck、E2E typecheck 通过。CLI lint 与前述全包测试的已复现基线失败仍未解决，因此仍不 commit/push/MR。真实后端推理、手机 E2E、混版本远端没有验证。
-日志：`/tmp/key-audit-broad.log`、`/tmp/key-audit-remote-final.log`、`/tmp/key-audit-cli-green.log`、`/tmp/key-audit-e2e-final.log`。
+| Cenário                                | Esperado e evidência                                                                                        |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| OAuth válido, Key antiga ausente ou indecifrável | Snapshot/requisição da CLI com sucesso; Z.AI do desktop recupera na cold start e troca a credencial, sem novo login, e o registro antigo não muda |
+| Key manual explícita, com OAuth corrompido | Lê apenas a Key manual, com autenticação independente                                                          |
+| Sincronização remota com Key antiga corrompida no local ou no remoto | Sincroniza apenas OAuth; Key de envelope antigo ignorada; registro antigo original não é sobrescrito nem apagado |
+| Uso pessoal/equipe com anexação remota   | Reutiliza o owner original se existir; sem owner, usa o fluxo real de troca de credencial; quota header é o Token de teste, Copy=0 |
+| Disponibilidade na UI e falha de Token  | Mantém as validações de benefício/ID/credencial da requisição; sem barreira de existência de Key antiga e sem fallback em falha |
 
-### CLI 退出复查（2026-09-23 15:23）
+2 E2E finais de desktop aprovados: `desktop-e2e-20260923070315610-p85476-12717808333f5136`, cobrindo BigModel sem Key antiga, Z.AI com Key antiga corrompida na criação/troca de credencial e Copy=0. typecheck/lint/architecture da raiz, typecheck da CLI e typecheck de E2E aprovados. O lint da CLI e as falhas de baseline de testes do pacote inteiro citadas acima continuam sem solução, portanto ainda não se faz commit/push/MR. Inferência com backend real, E2E do celular e versões mistas no remoto não foram verificadas.
+Logs: `/tmp/key-audit-broad.log`, `/tmp/key-audit-remote-final.log`, `/tmp/key-audit-cli-green.log`, `/tmp/key-audit-e2e-final.log`.
 
-新增发现并修复 logout 批量解密历史 Key 的问题：只有明确 manual 才读取和条件删除私有 Key；OAuth/无来源旧 Key 不读取、不删除。两项坏密文退出回归先失败后通过。登录文件按契约与持久化拆分，主入口 352 行，公共导出不变；本次 CLI 修改文件 lint 无错误。最终 CLI 4 文件 32 项通过，根与 CLI typecheck、根 lint/架构通过。全量 CLI 未改动文件仍有历史 max-lines 失败，前述 auth-login.ts 自身超限现已解决。
+### Revisão de logout na CLI (2026-09-23 15:23)
 
-### Rebase 后验证（2026-09-23）
+Nova descoberta e correção do problema de o logout descriptografar em lote Keys históricas: apenas `manual` explícito lê e remove condicionalmente a Key privada; Keys antigas de OAuth/sem origem não são lidas nem removidas. As duas regressões de logout com ciphertext corrompido falharam antes e passaram depois. O arquivo de login foi separado em contrato e persistência conforme a especificação, a entrada principal ficou com 352 linhas e as exportações públicas não mudaram; o lint dos arquivos da CLI modificados neste ciclo não tem erros. Ao final, 4 arquivos da CLI com 32 itens aprovados, typecheck da raiz e da CLI e lint/arquitetura da raiz aprovados. A CLI completa ainda tem falhas históricas de max-lines em arquivos não alterados; o limite excedido em auth-login.ts citado acima foi resolvido.
 
-已同步 origin/staging 至 `4f97793bc6`，恢复全部 51 个改动文件；唯一自动合并文件为 services/node.ts，上游 CUA 修正与本次 Token 组装均保留，无冲突。Rebase 后根 typecheck 和账号/远程相关 4 文件 22 项回归通过。先前批次结果与未验证项仍按上述记录区分；提交记录不表示 CLI 历史基线失败已经修复。
+### Validação após o rebase (2026-09-23)
 
-## agent/configs 的账号标识
+origin/staging foi sincronizado até `4f97793bc6`, restaurando todos os 51 arquivos alterados; o único arquivo mesclado automaticamente foi services/node.ts, e tanto a correção de CUA do upstream quanto a montagem de Token deste ciclo foram preservadas, sem conflito. Após o rebase, o typecheck da raiz e a regressão de 22 itens em 4 arquivos de conta/remoto passaram. Os resultados dos ciclos anteriores e os itens não verificados continuam separados conforme o registro acima; o commit não indica que as falhas históricas de baseline da CLI foram corrigidas.
 
-GET `/api/v1/agent/configs` 不再发送 `x-api-key` 或登录/PAT Authorization。账号套餐使用同一次换证返回的真实 `apiKeyId`，通过 `x-api-key-id` 发送；不得将 PAT 改名后塞入 ID Header，也不得从 PAT/手工 Key 解析 ID。手动 Provider 不发送 Key 或 Key ID，仍可读取公共配置。
+## Identidade de conta em agent/configs
+
+GET `/api/v1/agent/configs` não envia mais `x-api-key` nem Authorization de login/PAT. O pacote da conta usa o `apiKeyId` real retornado pela mesma troca de credencial, enviado via `x-api-key-id`; não se pode renomear o PAT e colocá-lo no Header de ID, nem derivar o ID do PAT/Key manual. Providers manuais não enviam Key nem Key ID e ainda assim podem ler a configuração pública.
 
 ```text
-本地 Host / SSH Server / 独立 CLI 的鉴权 owner
-  └─ 平台换证返回 { token, apiKeyId }
-       └─ 请求期 requestAuth（严格协议校验）
-            ├─ token → 模型鉴权
+owner de autenticação do Host local / SSH Server / CLI independente
+  └─ a troca de credencial da plataforma retorna { token, apiKeyId }
+       └─ requestAuth do momento da requisição (validação estrita de protocolo)
+            ├─ token → autenticação do modelo
             └─ apiKeyId → agent/configs: x-api-key-id
-手工 Provider → agent/configs: 无凭据 Header
+Provider manual → agent/configs: sem Header de credencial
 ```
 
-ID 仅随请求期鉴权材料传递，不写入模型静态配置、不添加到模型请求 Header；重试沿用当前 owner 的身份检查。路由缓存仍为进程级公共映射，成功五分钟、失败三十秒冷却；缓存命中不重新请求配置。上游已移除安全校验开关请求：手工 Provider 直接沿用默认安全校验逻辑，只有路由配置读取 agent/configs，且不发送手工 Key。桌面和 SSH 共用 Host/Server 鉴权服务；手机复用已有 host，continuous/replayable 消息语义不变。
+O ID é transportado apenas com o material de autenticação do momento da requisição, não é escrito na configuração estática do modelo nem adicionado aos Headers da requisição do modelo; retries reaproveitam a verificação de identidade do owner atual. O cache de roteamento continua sendo um mapa comum em nível de processo, com cooldown de cinco minutos em sucesso e trinta segundos em falha; acerto de cache não requisita a configuração novamente. O upstream removeu a requisição do interruptor de verificação de segurança: o Provider manual usa diretamente a lógica padrão de verificação de segurança, e apenas a configuração de roteamento lê agent/configs, sem enviar a Key manual. Desktop e SSH compartilham o serviço de autenticação Host/Server; o celular reaproveita o host existente, e a semântica de mensagens continuous/replayable não muda.
 
-验收：个人/团队及 BigModel/Z.AI 返回 ID 与 PAT 配对；独立 CLI OAuth 返回 ID、手工登录无 ID；协议往返保留 ID；配置请求仅含真实 ID，模型请求仍含 PAT 且没有 ID Header；手工 Provider 的路由配置请求不泄露 Key，安全校验逻辑不再请求配置开关；换证/切换账号后的新请求使用对应 ID。
+Aceitação: pessoal/equipe e BigModel/Z.AI retornam o ID pareado com o PAT; a CLI independente em OAuth retorna ID e o login manual não tem ID; o ida e volta do protocolo preserva o ID; a requisição de configuração contém apenas o ID real, e a requisição do modelo ainda contém o PAT e nenhum Header de ID; a requisição de configuração de roteamento de um Provider manual não vaza Key, e a lógica de verificação de segurança não requisita mais o interruptor de configuração; novas requisições após troca de credencial/troca de conta usam o ID correspondente.
 
-本次验证：服务/Host 回归 76 项、CLI 专项 201 项、协议 ID 透传 1 项通过（共 278 项，含本地 HTTP 实际 Header 验证）。根 typecheck、lint、architecture 检查及 CLI contracts/adapters/bootstrap 独立类型检查通过。CLI 总入口缺少 turbo；三个包的完整 lint 有 50 个既有 max-lines 错误，变更文件排除该存量规则后通过。扩大执行时另有 3 个旧安全校验测试、2 个旧协议测试失败，已用 HEAD 测试/实现复现对应失败，不计入本次通过数。真实平台及 SSH 环境尚未联调；需使用包含 apiKeyId 私有协议的配套 Host/Server 与 Agent。
+Validação desta rodada: regressão de serviço/Host com 76 itens, 201 itens específicos da CLI e 1 item de propagação de ID pelo protocolo aprovados (278 no total, incluindo verificação de Headers reais via HTTP local). typecheck da raiz, verificações de lint e architecture e a verificação de tipo independente de contracts/adapters/bootstrap da CLI passaram. A entrada principal da CLI não tem turbo; o lint completo dos três pacotes tem 50 erros existentes de max-lines, e os arquivos alterados passam quando essa regra de estoque é excluída. Na execução ampliada houve também 3 falhas de testes antigos de verificação de segurança e 2 de protocolo antigo, reproduzidas com os testes/implementação do HEAD e não contadas entre as aprovações deste ciclo. A plataforma real e o ambiente SSH ainda não foram integrados; é preciso usar o Host/Server e o Agent pareados que incluem o protocolo privado com apiKeyId.

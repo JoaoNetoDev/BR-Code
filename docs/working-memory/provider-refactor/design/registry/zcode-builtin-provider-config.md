@@ -1,18 +1,14 @@
-# ZCode Built-in Provider Config 维护设计
+# Design de manutenção da Config de Provider embutida do ZCode
 
-> 状态：当前有效设计
+> Status: design válido atualmente
 >
-> 本文规定 `config/provider/zcode-builtin.json` 的长期维护方式。字段契约、Overlay 和 Registry
-> 完整语义分别以 [`configuration.md`](./configuration.md)、
-> [`provider-and-model-configuration-overview.md`](./provider-and-model-configuration-overview.md) 为准。
+> Este documento estabelece a forma de manutenção de longo prazo de `config/provider/zcode-builtin.json`. O contrato dos campos, o Overlay e a semântica completa do Registry estão em [`configuration.md`](./configuration.md) e [`provider-and-model-configuration-overview.md`](./provider-and-model-configuration-overview.md), respectivamente.
 
-正式环境源文件沿用 `zcode-builtin.json`，测试环境使用同目录 `zcode-builtin.test.json`。
-两份遵循相同维护规范，按 `ZCODE_ENV` 打包；选择与缓存契约见
-[双环境打包](../../../../builtin-provider-config-build-environments.md)。
+O arquivo-fonte de produção continua sendo `zcode-builtin.json`; o ambiente de testes usa `zcode-builtin.test.json` no mesmo diretório. Ambos seguem a mesma norma de manutenção e são empacotados conforme `ZCODE_ENV`; o contrato de seleção e cache está em [empacotamento para os dois ambientes](../../../../builtin-provider-config-build-environments.md).
 
-## 1. 目标与边界
+## 1. Objetivo e limites
 
-ZCode Built-in Release 原子发布两类内容：
+O ZCode Built-in Release publica atomicamente dois tipos de conteúdo:
 
 ```text
 ZCode Built-in Release
@@ -22,34 +18,28 @@ ZCode Built-in Release
 └─ Model Config Rules
 ```
 
-Account Provider Config Map 声明 ZCode 维护的账号 Provider 身份与调用配置。Provider Template Map 为普通 API
-Provider 提供创建基线；每个 Template 以领域壳保存多语言 `nameMap` 和复用的 Provider Config Overlay，不进入
-Registry。Model Config Rules 声明模型事实、API/Endpoint 请求能力、Option Specs、
-per-option raw-body map 和 Provider/Model 产品事实。
+O Account Provider Config Map declara as identidades e configurações de chamada dos providers de conta mantidos pelo ZCode. O Provider Template Map fornece uma linha de base de criação para providers de API comuns; cada Template guarda um `nameMap` multilíngue e um Provider Config Overlay reutilizável em uma casca de domínio, e não entra no Registry. As Model Config Rules declaram os fatos dos modelos, as capacidades de requisição de API/Endpoint, os Option Specs, o per-option raw-body map e os fatos de produto Provider/Model.
 
-本文是发布者写作规范和评审心智模型，不新增：
+Este documento é uma norma de escrita para quem publica e um modelo mental de revisão; ele não acrescenta:
 
-- Rule `priority`、`specificity` 或排序字段；
-- Runtime Rule 重排或第二个 Resolver；
-- 按 modelId、Provider ID 或 URL 编写的业务代码分支；
-- 配置内的 evidence、provenance 或 confidence 字段；
-- Provider/Model 成员、Account 权益或 Personal 意图的新事实源。
+- campos de Rule `priority`, `specificity` ou de ordenação;
+- reordenação de Rules em Runtime ou um segundo Resolver;
+- branches de código de negócio escritos por modelId, Provider ID ou URL;
+- campos de evidence, provenance ou confidence dentro da configuração;
+- novas fontes de verdade sobre membros Provider/Model, direitos de Account ou intenção Personal.
 
-能力事实的维护还必须区分“没有查到”和“明确不支持”：
+A manutenção de fatos de capacidade também precisa distinguir "não foi possível consultar" de "não é suportado explicitamente":
 
-- 新模型没有可靠证据时，通用基线继续给出保守默认值；
-- 已发布模型能力从 `true` 降为 `false` 时，必须有当前官方资料的明确否定、目标 Endpoint 的可复现请求结果，
-  或服务发布者的明确裁决；
-- 搜索结果缺席、研究报告未记录、旧文档没有提及，都不能单独作为能力降级证据；
-- 同一模型存在多个 Endpoint/产品形态时，只能把结论写到证据真正覆盖的 Model、API 或 Endpoint 层，不能从一个
-  产品页面外推到所有线路。
+- quando um modelo novo não tem evidência confiável, a linha de base genérica continua fornecendo valores padrão conservadores;
+- quando a capacidade de um modelo já publicado desce de `true` para `false`, é necessária uma negativa explícita da documentação oficial atual, um resultado de requisição reproduzível contra o Endpoint alvo, ou uma decisão explícita do publicador do serviço;
+- ausência em resultados de busca, não registro em relatórios de pesquisa e menções ausentes em documentos antigos não servem isoladamente como evidência para rebaixar uma capacidade;
+- quando o mesmo modelo existe em múltiplos Endpoints/formatos de produto, a conclusão só pode ser escrita no nível de Model, API ou Endpoint realmente coberto pela evidência; não se pode extrapolar de uma página de produto para todas as rotas.
 
-这个不对称规则是有意的：未知模型采用保守默认值可以避免误放行；已经声明并投入使用的能力则不能因为一次资料
-刷新遗漏而被静默关闭。
+Essa regra assimétrica é intencional: um modelo desconhecido com valores padrão conservadores evita liberar o que não deve; já uma capacidade declarada e em uso não pode ser desligada silenciosamente por causa de uma atualização de documentação que a omitiu.
 
-## 2. 两种 Rule 类型
+## 2. Os dois tipos de Rule
 
-系统只有两种 Model Config Rule：
+O sistema tem apenas dois tipos de Model Config Rule:
 
 ```ts
 type ModelConfigRule =
@@ -69,20 +59,18 @@ type ModelConfigRule =
     };
 ```
 
-统一术语如下：
+Terminologia unificada:
 
-| Rule type        | 术语                      | 含义                                     |
+| Rule type        | Termo                      | Significado                                     |
 | ---------------- | ------------------------- | ---------------------------------------- |
-| `match`          | Match Rule                | 用 matcher 命中一组解析上下文            |
-| `provider-model` | Provider-Model Exact Rule | 精确命中一个 `providerId + modelId` 组合 |
+| `match`          | Match Rule                | Acerta um conjunto de contextos de resolução usando um matcher            |
+| `provider-model` | Provider-Model Exact Rule | Acerta com precisão uma combinação `providerId + modelId` |
 
-Built-in 与 Personal 都可以包含这两种类型。`Built-in`、`Personal` 只表示 Source 所有者，不产生第三种
-Rule 类型。Built-in Exact Rule 由 Release 维护；Personal Exact Rule 跟随设置页模型生命周期维护。
+Tanto Built-in quanto Personal podem conter esses dois tipos. `Built-in` e `Personal` indicam apenas o dono da Source e não criam um terceiro tipo de Rule. As Built-in Exact Rules são mantidas pelo Release; as Personal Exact Rules acompanham o ciclo de vida de modelos da página de configurações.
 
-## 3. Built-in Rule 的物理写作顺序
+## 3. Ordem física de escrita das Built-in Rules
 
-Built-in Rules 按数组顺序应用，后命中的配置项覆盖前面。以下层级只是发布文件的写作顺序和评审心智模型，
-不由代码计算优先级：
+As Built-in Rules são aplicadas na ordem do array, e os itens definidos depois sobrescrevem os anteriores. Os níveis abaixo são apenas a ordem de escrita do arquivo publicado e o modelo mental de revisão; o código não calcula prioridade a partir deles:
 
 ```text
 1. Complete Baseline Match Rule
@@ -115,12 +103,11 @@ Built-in Rules 按数组顺序应用，后命中的配置项覆盖前面。以�
    └─ 默认 enabled 和无法由 Endpoint 表达的窄产品事实
 ```
 
-同一模型家族的第 2～4 层连续放置，避免在文件不同区域维护同一模型的事实。跨模型成立的
-Provider-scoped 服务事实放在各模型事实之后、Exact Rules 之前。第 1 层只出现一次。
-Reasoning Option Spec 的 `values` 必须按推理强度从低到高书写；首项是辅助调用使用的最低公开档位，
-末项是普通缺省选择使用的最高公开档位。模型不支持关闭时不得为了统一名称伪造 `off` 或 `nothink`。
+Os níveis 2 a 4 ficam consecutivos para uma mesma família de modelos, evitando manter fatos do mesmo modelo em regiões diferentes do arquivo. Fatos de serviço Provider-scoped válidos entre modelos ficam depois dos fatos de cada modelo e antes das Exact Rules. O nível 1 aparece apenas uma vez.
 
-Resolver 继续原样遍历 Built-in 数组。Effective Rules 继续由现有领域边界组合：
+Os `values` do Reasoning Option Spec precisam ser escritos do menor para o maior nível de raciocínio; o primeiro item é o nível público mínimo usado pelas chamadas auxiliares e o último é o nível público máximo usado como seleção padrão comum. Quando o modelo não oferece desligamento, não é permitido forjar um `off` ou `nothink` só para uniformizar nomes.
+
+O Resolver continua percorrendo o array Built-in como está. As Effective Rules continuam sendo compostas pelas fronteiras de domínio existentes:
 
 ```text
 Built-in Rules（保持物理顺序）
@@ -130,130 +117,117 @@ Personal provider-model Rules（保持内部顺序）
 Personal Provider-Model Exact Rules（保持内部顺序）
 ```
 
-不得为实现上述作者规范修改 `ModelConfigRules.composeEffective()` 或增加动态 specificity 排序。
+Não é permitido modificar `ModelConfigRules.composeEffective()` nem adicionar ordenação dinâmica por specificity para implementar a norma de autoria acima.
 
-## 4. 各层负责的事实
+## 4. Fatos sob responsabilidade de cada nível
 
 ### 4.1 Complete Baseline
 
-通用基线保证任何合法 Personal Model 都能得到完整 Model Config。默认值必须保守：
+A linha de base genérica garante que qualquer Personal Model válido obtenha um Model Config completo. Os valores padrão precisam ser conservadores:
 
-- 输入输出格式仅开启明确通用的 Text；
-- 未经证明的媒体、工具、JSON Schema 输出、原生搜索和 MCS 为 `false`；
-- 提供完整 context、max output 和其他必填叶子；
-- `enabled=true`，使用户新建并明确加入 Personal 成员的模型可用。
+- apenas o formato Text, explicitamente genérico, é habilitado em entrada e saída;
+- mídia, ferramentas, saída com JSON Schema, busca nativa e MCS não comprovados são `false`;
+- são fornecidos context completo, max output e outras folhas obrigatórias;
+- `enabled=true`, para que modelos criados pelo usuário e explicitamente adicionados como membros Personal sejam utilizáveis.
 
-通用基线不能伪装成某个具体模型的真实能力。
+A linha de base genérica não pode se passar pela capacidade real de um modelo específico.
 
 ### 4.2 Model Match
 
-Model Match Rule 只表达不随 API Schema 或 Endpoint 改变的事实，例如：
+A Model Match Rule expressa apenas fatos que não mudam com o API Schema ou o Endpoint, por exemplo:
 
-- context window 和模型最大输出硬上限；
-- Text/Image/Video/Audio/PDF 输入事实；
-- Text 输出事实；
-- 可以被所有目标 Schema 可靠表达的模型级 Tool 能力。
+- context window e o limite rígido de saída máxima do modelo;
+- fatos de entrada Text/Image/Video/Audio/PDF;
+- fatos de saída Text;
+- capacidades de Tool em nível de modelo que todos os Schemas alvo conseguem expressar de forma confiável.
 
-模型名匹配对完整 Model ID 做 ASCII 大小写不敏感匹配，但不改写真实请求中的 Model ID。
+O casamento por nome de modelo faz comparação ASCII sem distinção de caixa sobre o Model ID completo, mas não reescreve o Model ID nas requisições reais.
 
 ### 4.3 Model + API Match
 
-这一层表达公开协议差异，例如：
+Este nível expressa diferenças de protocolo público, por exemplo:
 
-- reasoning level 从低到高的完整可选值；
-- `optionSpecs.reasoningLevel.map` 与 `optionSpecs.maxOutputTokens.map`；
-- `responseJsonSchema` 能否由该 Schema 编码；
-- Tool、MCS、max output 参数在该 Schema 下是否可执行；
-- `requiresMfjsToolSchema` 等确属请求编码的窄事实。
+- o conjunto completo de valores de reasoning level, do menor para o maior;
+- `optionSpecs.reasoningLevel.map` e `optionSpecs.maxOutputTokens.map`;
+- se `responseJsonSchema` pode ser codificado por aquele Schema;
+- se Tool, MCS e o parâmetro de max output são executáveis nesse Schema;
+- fatos estreitos que realmente pertencem à codificação da requisição, como `requiresMfjsToolSchema`.
 
-“覆盖三种 Schema”表示每个维护模型对三种 Schema 都有明确、可审计的解析结果；不表示厂商官方 Endpoint
-必须支持三种 Schema，也不要求把完整模型事实复制三份。缺少官方协议时使用保守结果，第三方兼容 Endpoint
-可以由下一层晋升。
+"Cobrir os três Schemas" significa que cada modelo mantido tem um resultado de resolução explícito e auditável para os três Schemas; não significa que o Endpoint oficial do fabricante precise suportar os três Schemas, nem que os fatos completos do modelo devam ser copiados três vezes. Sem protocolo oficial, usa-se um resultado conservador; Endpoints compatíveis de terceiros podem ser promovidos pelo nível seguinte.
 
 ### 4.4 Model + API + Endpoint Match
 
-Endpoint 特化优先使用：
+A especialização por Endpoint usa preferencialmente:
 
 ```text
 modelMatch + apiMatch + baseURLMatch
 ```
 
-它表达同一模型和 Schema 在某条真实服务线路上的差异。`baseURLMatch` 对规范化后的 URL 做完整正则匹配：
-Host 大小写、默认端口和尾斜杠已经规范化，Path、Query 和 Fragment 仍有语义。
+Ela expressa diferenças do mesmo modelo e Schema em uma linha de serviço real. `baseURLMatch` faz correspondência por regex completa sobre a URL normalizada: Host em caixa, porta padrão e barra final já foram normalizados; Path, Query e Fragment ainda têm semântica.
 
-适合放在此层的事实包括：
+Fatos adequados a este nível incluem:
 
-- 官方兼容 Endpoint 实际支持的 JSON Schema、MCS 或 reasoning 参数；
-- 只有该 Endpoint 提供的原生 Web Search；
-- 同一公开 Schema 在不同服务端实现上的已验证限制。
+- os JSON Schema, MCS ou parâmetros de reasoning que um Endpoint oficial compatível realmente suporta;
+- a busca Web nativa que só aquele Endpoint oferece;
+- limites verificados do mesmo Schema público em implementações de servidor diferentes.
 
-它不负责 Provider 成员、Account 权益、默认启用或访问材料。一个 Personal Provider 指向同一 Endpoint 时，
-应自然取得相同的 Endpoint 事实。
+Ela não é responsável por membros de Provider, direitos de Account, habilitação padrão nem material de acesso. Quando um Personal Provider aponta para o mesmo Endpoint, deve obter naturalmente os mesmos fatos de Endpoint.
 
 ### 4.5 Provider-scoped Match Rule
 
-当一个 Provider 的服务链为其全部当前和未来模型成员提供相同能力，而且该能力不能由 API Schema 或
-Endpoint 独立表达时，使用：
+Quando a cadeia de serviço de um Provider oferece a mesma capacidade a todos os seus membros de modelo atuais e futuros, e essa capacidade não pode ser expressa independentemente pela API Schema ou pelo Endpoint, usa-se:
 
 ```text
 providerMatch + modelMatch
 ```
 
-它仍是普通 Match Rule，不产生新的 Rule 类型。例如 Start Plan、Individual Coding Plan 和 Team Coding Plan
-会在模型 API 前使用视觉模型把 Image/Video 转成文字，因此这些 Plan Provider 的全部模型成员都可以声明：
+Continua sendo uma Match Rule comum e não cria um novo tipo de Rule. Por exemplo, Start Plan, Individual Coding Plan e Team Coding Plan usam um modelo visual antes da API do modelo para converter Image/Video em texto, portanto todos os membros de modelo desses Plan Providers podem declarar:
 
 ```ts
 properties.input_format.support_image = true;
 properties.input_format.support_video = true;
 ```
 
-这里的“多模态”只指已确认的 Image/Video 视觉输入，不推断 Audio 或 PDF。该 Rule 必须精确匹配 Plan Provider，
-不能命中由 `zai-api` / `bigmodel-api` Template 创建的普通 API Provider；后者继续使用模型 API 的原生能力。系统不存在
-`zhipu-account/mode=api-key` 的“Account API Provider”。
+Aqui "multimodal" significa apenas entrada visual Image/Video confirmada e não infere Audio nem PDF. A Rule precisa casar exatamente com o Plan Provider e não pode acertar um provider de API comum criado pelos Templates `zai-api` / `bigmodel-api`; estes continuam usando as capacidades nativas da API do modelo. O sistema não possui um "Account API Provider" do tipo `zhipu-account/mode=api-key`.
 
-Provider-scoped Rule 只用于真正对全部成员成立的服务事实。仅对一个模型成立的差异仍放在 Model/API/Endpoint
-或 Exact Rule，不能借 `modelMatch=.*` 扩散。
+Provider-scoped Rules só devem ser usadas para fatos de serviço que valem de fato para todos os membros. Diferenças que valem para um único modelo continuam em Model/API/Endpoint ou Exact Rule e não podem se espalhar usando `modelMatch=.*`.
 
 ### 4.6 Provider-Model Exact Rule
 
-每个 `builtinModelIds` 成员都必须有且只有一条 Exact Rule 明确声明默认 `enabled`，避免新增成员因通用基线
-`enabled=true` 而意外进入用户候选。除这张 enabled 矩阵外，Exact Rule 的其他字段应保持稀少，主要负责：
+Cada membro de `builtinModelIds` precisa ter exatamente uma Exact Rule declarando explicitamente o `enabled` padrão, para evitar que um novo membro entre acidentalmente nos candidatos do usuário por causa do `enabled=true` da linha de base genérica. Fora dessa matriz de enabled, os demais campos da Exact Rule devem ser poucos e ter como responsabilidade principal:
 
-- 某个 Built-in Provider 下该模型的默认 `enabled`；
-- 不能由 `model + api + baseURL` 准确表达的 Provider 产品目录事实。
+- o `enabled` padrão daquele modelo sob um Provider Built-in específico;
+- fatos de catálogo de produto do Provider que não podem ser expressos com precisão por `model + api + baseURL`.
 
-不能为了书写方便，把本可由 Endpoint Match 复用的事实复制到多个 Exact Rule。
+Não se pode, por conveniência de escrita, copiar para várias Exact Rules fatos que poderiam ser reaproveitados por um Endpoint Match.
 
-## 5. JSON Schema 输出字段
+## 5. Campo de saída com JSON Schema
 
-目标字段名固定为：
+O nome do campo alvo é fixo:
 
 ```ts
 properties.supportsJsonSchemaOutput: boolean;
 ```
 
-它只表示当前 Effective Model 能接受应用提供的 `ModelRequest.responseJsonSchema`，并由目标 Adapter/Schema
-编码为 JSON Schema 约束输出。它不表示普通 JSON、JSON Object Mode 或提示词要求返回 JSON。
+Ele indica apenas que o Effective Model atual consegue aceitar o `ModelRequest.responseJsonSchema` fornecido pelo aplicativo e que o Adapter/Schema alvo o codifica como uma restrição de saída em JSON Schema. Não significa JSON comum, JSON Object Mode nem prompt pedindo retorno em JSON.
 
-证据仅证明 `response_format={type:"json_object"}` 时，该字段必须保持 `false`。只有目标 Schema/Endpoint
-能够接受 JSON Schema 时才可设为 `true`。UI 文案使用“JSON Schema 结构化输出”。
+A evidência de que apenas `response_format={type:"json_object"}` funciona é insuficiente: nesse caso o campo precisa permanecer `false`. Só pode ser `true` quando o Schema/Endpoint alvo aceita JSON Schema. O texto de UI usa "saída estruturada em JSON Schema".
 
-当前实现中的 `supportsJsonSchemaOutput` 是待迁移旧名；迁移时 Config、Registry、Model、Runtime、Adapter、
-Protocol、Settings 和测试必须一次性改名，不保留双字段或 Runtime alias。
+O `supportsJsonSchemaOutput` da implementação atual é um nome antigo aguardando migração; na migração, Config, Registry, Model, Runtime, Adapter, Protocol, Settings e os testes precisam ser renomeados de uma só vez, sem manter campo duplo nem alias em Runtime.
 
-## 6. 证据与保守推断
+## 6. Evidência e inferência conservadora
 
-每项非显然事实在发布评审材料中归为三类之一，但分类不写进运行时 Config：
+Cada fato não óbvio é classificado em uma de três categorias nos materiais de revisão do release, mas a classificação não é escrita no Config de runtime:
 
-| 分类     | 含义                                                       | 可配置范围                               |
+| Categoria     | Significado                                                       | Escopo configurável                               |
 | -------- | ---------------------------------------------------------- | ---------------------------------------- |
-| 官方确认 | 厂商当前模型/API 文档明确声明                              | 对应 Model、Schema 或 Endpoint           |
-| 产品确认 | ZCode 产品服务、账号接口或内部正式契约明确声明             | 对应 Built-in Provider 产品事实          |
-| 协议推断 | 为第三方兼容服务提供的保守通用结果，尚无官方 Endpoint 证明 | 不确定能力为 `false`，允许 Personal 覆盖 |
+| Confirmação oficial | A documentação atual do modelo/API do fabricante declara explicitamente                              | Model, Schema ou Endpoint correspondente           |
+| Confirmação de produto | Um serviço de produto do ZCode, uma API de conta ou um contrato interno oficial declara explicitamente             | Fato de produto do Built-in Provider correspondente          |
+| Inferência de protocolo | Resultado genérico e conservador para serviços compatíveis de terceiros, ainda sem prova em Endpoint oficial | Capacidades incertas como `false`, permitindo override Personal |
 
-### 6.1 Models API 是发布证据，不是新的运行时配置层
+### 6.1 A Models API é evidência de release, não uma nova camada de configuração em runtime
 
-部分厂商在推理 Endpoint 旁提供模型发现接口：
+Alguns fabricantes oferecem interfaces de descoberta de modelos ao lado do Endpoint de inferência:
 
 ```text
 Base URL + API Schema + 当前访问材料
@@ -265,42 +239,29 @@ Base URL + API Schema + 当前访问材料
                     `--> 可选的 context / output / capability 元数据
 ```
 
-这里的查询对象不是脱离账号的 Base URL，而是 `Endpoint + API Schema + 当前访问材料`。同一 Endpoint
-在不同账号、区域、套餐或 API Key 下可能返回不同成员。Models API 的路径和认证也由协议及厂商共同决定，
-不得在任意 `baseURL` 后机械拼接 `/models`。
+O objeto consultado aqui não é uma Base URL isolada da conta, mas `Endpoint + API Schema + 当前访问材料`. O mesmo Endpoint pode devolver membros diferentes conforme a conta, a região, o plano ou a API Key. O caminho e a autenticação da Models API são determinados conjuntamente pelo protocolo e pelo fabricante; não se deve concatenar mecanicamente `/models` a qualquer `baseURL`.
 
-发布者按以下边界使用结果：
+Quem publica usa os resultados dentro dos seguintes limites:
 
-- 实时成功响应中的 Model ID 是校验该访问材料当前可见成员的强证据；文档中的示例响应只能证明响应形状，
-  不能代替实时目录；
-- 响应明确返回的 context、max output、输入能力、thinking 或 structured output 等字段，可以成为对应
-  Model/API/Endpoint Rule 的官方证据；
-- OpenAI-compatible 的基础 Models 响应通常只包含 ID、owner 和时间，不能据此推断媒体、reasoning 或
-  Option Specs；
-- Anthropic Models API 当前可以返回更丰富的 capability 与 token 上限，但第三方 Anthropic-compatible
-  Endpoint 可能只实现其中的子集；
-- Account 或 Plan 的账号特定模型集合仍归 Account Overlay；通用 Models API 不覆盖产品权益接口。
+- um Model ID em uma resposta ao vivo bem-sucedida é evidência forte dos membros visíveis para aquele material de acesso; respostas de exemplo na documentação só provam o formato da resposta e não substituem o catálogo ao vivo;
+- campos como context, max output, capacidades de entrada, thinking ou structured output explicitamente devolvidos na resposta podem se tornar evidência oficial das Model/API/Endpoint Rules correspondentes;
+- a resposta Models básica do formato OpenAI-compatible costuma conter apenas ID, owner e timestamps; não é possível inferir mídia, reasoning ou Option Specs a partir dela;
+- a Models API da Anthropic hoje pode retornar capability e limites de token mais ricos, mas Endpoints Anthropic-compatible de terceiros podem implementar apenas um subconjunto;
+- o conjunto de modelos específico de conta ou plano continua pertencendo ao Account Overlay; a Models API genérica não cobre as interfaces de direitos de produto.
 
-Models API 只进入发布验证、差异报告或用户主动导入流程。它不在应用启动或普通请求期间直接覆盖
-ZCode Built-in、Account 或 Personal Config，不形成第四层 Config，也不让瞬时网络失败改变 Registry。
+A Models API só entra na verificação de release, no relatório de diferenças ou no fluxo de importação iniciado pelo usuário. Ela não sobrescreve diretamente as Configs Built-in, Account ou Personal durante a inicialização do aplicativo ou requisições comuns, não forma uma quarta camada de Config e não deixa uma falha de rede transitória alterar o Registry.
 
-官网写“Structured Output”“Search”或“Tools”不足以跨 Schema、Endpoint 扩散。官方资料缺失时可以补齐三种
-Schema 的保守规则，但不能凭同家族、相似名称或营销术语开启高风险能力。
+O site oficial escrever "Structured Output", "Search" ou "Tools" é insuficiente para se espalhar entre Schemas e Endpoints. Quando falta documentação oficial, pode-se preencher regrasConservadoras para os três Schemas, mas não se pode habilitar capacidades de alto risco com base apenas na mesma família, em nome semelhante ou em termos de marketing.
 
-能力证据还必须区分“服务接受输入”与“模型消费输入”。请求携带未知字段、图片或其他内容而未报错，可能只是
-服务端容忍或忽略，不能据此把对应能力设为 `true`。媒体能力至少需要官方明确声明、ZCode 产品服务契约，或能证明
-内容确实参与模型回答的协议级实测。
+A evidência de capacidade também precisa distinguir "o serviço aceita a entrada" de "o modelo consome a entrada". Uma requisição que carrega campos desconhecidos, imagens ou outros conteúdos sem erro pode estar apenas sendo tolerada ou ignorada pelo servidor, e isso não permite marcar a capacidade correspondente como `true`. Uma capacidade de mídia exige, no mínimo, uma declaração oficial explícita, um contrato de serviço de produto do ZCode ou um teste em nível de protocolo que prove que o conteúdo realmente participa da resposta do modelo.
 
-官网未列出但第三方兼容服务可能提供的模型，可以有完整的保守 Model Rules；只有官方文档、实时 Models API
-或产品事实确认该模型可由目标 Endpoint 和 API Schema 调用后，才能把它作为对应官方 Built-in Provider 的
-默认启用成员。这样既为 Personal Provider 提供默认值，又不把兼容推断伪装成官方产品承诺。
+Modelos que o site oficial não lista mas que serviços compatíveis de terceiros podem oferecer podem ter Model Rules completas e conservadoras; só depois que a documentação oficial, a Models API ao vivo ou um fato de produto confirmam que o modelo pode ser chamado pelo Endpoint e API Schema alvo ele pode entrar como membro habilitado por padrão do Built-in Provider oficial correspondente. Assim se dá um padrão ao Personal Provider sem disfarçar inferências de compatibilidade como promessa oficial de produto.
 
-## 7. 模型成员、默认启用与初始顺序
+## 7. Membros de modelo, habilitação padrão e ordem inicial
 
-每个 Built-in Provider 的 `builtinModelIds` 包含保留给用户配置的完整产品目录。默认启用由该 Provider 的
-Exact Rules 表达。
+O `builtinModelIds` de cada Built-in Provider contém o catálogo de produto completo reservado à configuração do usuário. A habilitação padrão é expressa pelas Exact Rules daquele Provider.
 
-发布文件同时遵守：
+O arquivo publicado também segue:
 
 ```text
 builtinModelIds
@@ -308,31 +269,30 @@ builtinModelIds
 └─ enabled=false 的旧型号、重复别名或被替代模型
 ```
 
-这只是 Built-in 初始成员顺序。系统不增加 enabled-first 动态排序，也不重写 Personal `modelOrder`。
-Account Overlay 返回模型子集时按该 Built-in 顺序投影；用户产生完整 `modelOrder` 后继续由现有成员顺序算法负责。
+Isso é apenas a ordem inicial dos membros Built-in. O sistema não adiciona ordenação dinâmica enabled-first nem reescreve o `modelOrder` Personal. Quando o Account Overlay devolve um subconjunto de modelos, a projeção segue essa ordem Built-in; depois que o usuário produz um `modelOrder` completo, o algoritmo de ordem de membros existente volta a ser o responsável.
 
-默认启用评审至少回答：
+A revisão de habilitação padrão precisa responder pelo menos:
 
-1. 它是否是当前主力型号；
-2. 它是否提供其他已启用型号没有的速度、价格、视觉、超长上下文或 Coding 能力；
-3. 它是否只是另一个型号的 alias；
-4. 它是否已经弃用、下线或被明确替代；
-5. 当前 Built-in Endpoint 是否真的提供该 Model ID。
+1. ele é o modelo principal atual?
+2. ele oferece velocidade, preço, visão, contexto ultralongo ou capacidade de Coding que outros modelos habilitados não têm?
+3. ele é apenas um alias de outro modelo?
+4. ele já foi descontinuado, desativado ou substituído explicitamente?
+5. o Endpoint Built-in atual realmente oferece aquele Model ID.
 
-## 8. 发布检查
+## 8. Checklist de release
 
-每次维护 Built-in Release 至少验证：
+A cada manutenção do Built-in Release, valide no mínimo:
 
-- Provider Map 和 Rules 仍作为一个原子 Release；
-- 每个 `builtinModelIds` 成员都能解析出完整 Model Config；
-- 每个维护模型在三种 API Schema 下都有明确解析结果；
-- Endpoint 差异优先使用 `baseURLMatch`，Exact Rule 保持产品事实边界；
-- Provider-scoped Match Rule 只表达对全部当前/未来成员成立的服务能力；
-- Built-in Rule 物理顺序符合本文层级，没有依赖动态优先级；
-- Exact Rule 中的 `enabled` 与同 Provider 的初始成员顺序一致；
-- retired/alias 模型保留时默认 disabled；
-- Personal Exact Rule 仍可后置覆盖；
-- Runtime、Adapter 和 UI 不按具体 modelId/Provider ID 重新推断事实；
-- 非显然能力有官方、产品或可复现 Endpoint 证据。
+- o Provider Map e as Rules continuam sendo um release atômico;
+- cada membro de `builtinModelIds` resolve um Model Config completo;
+- cada modelo mantido tem um resultado de resolução explícito nos três API Schemas;
+- diferenças de Endpoint usam preferencialmente `baseURLMatch` e as Exact Rules mantêm a fronteira dos fatos de produto;
+- Provider-scoped Match Rules expressam apenas capacidades de serviço válidas para todos os membros atuais/futuros;
+- a ordem física das Built-in Rules segue os níveis deste documento, sem depender de prioridade dinâmica;
+- o `enabled` das Exact Rules é consistente com a ordem inicial dos membros do mesmo Provider;
+- modelos retired/alias mantidos ficam disabled por padrão;
+- Personal Exact Rules ainda podem sobrescrever depois;
+- Runtime, Adapter e UI não reinferem fatos por modelId/Provider ID específicos;
+- capacidades não óbvias têm evidência oficial, de produto ou de Endpoint reproduzível.
 
-发布检查可以使用模型 ID 验证配置事实；生产业务代码不得据此分支。
+O checklist de release pode usar IDs de modelo para verificar fatos de configuração; o código de negócio de produção não pode fazer branch com base neles.

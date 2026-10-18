@@ -1,61 +1,61 @@
 # Chat Input Context
 
-> **当前状态**：本文已按 V4 composer 接线校准。上下文用量来自 V4 conversation snapshot，
-> 不再读取 legacy task runtime/store。
+> **Estado atual**: este documento foi calibrado conforme a fiação do composer do V4. O uso de contexto vem do conversation snapshot do V4,
+> e não é mais lido do legacy task runtime/store.
 
-## 目标
+## Objetivo
 
-把聊天输入栏底部的上下文用量，从静态文本改成 AI Elements 的 `Context` compound component。
+Mudar o uso de contexto no rodapé da barra de entrada do chat, de texto estático para o componente composto `Context` do AI Elements.
 
-## 当前实现
+## Implementação Atual
 
 - `packages/ui/src/v4/composer/V4ComposerToolbar.tsx`
-  - 把 snapshot 的 `usage.contextWindow.usedTokens` / `maxTokens` / cache / breakdown 转成输入栏展示模型
-  - 复用 `packages/ui/src/chat-input-toolbar/contextUsage.tsx` 的 `ChatContextUsage`
-  - 复用已加载的 Z.ai / BigModel Coding Plan entitlement，不在 context 菜单里重复发起 quota 请求
-  - Coding Plan `Usage Remaining` 复用 paid Coding Plan 的 entitlement/state 解析工具，但展示入口只保留在输入框 context 和 Usage 页
-  - footer badge 与输入框 context 的 Coding Plan entitlement 使用同一套 provider/apiKey 指纹缓存，并对齐 paid plan 查询参数，避免同源额度拆成两份缓存
-  - 使用 `ContextTrigger` 作为上下文入口
-  - 使用 `ContextContentBody` 展示上下文窗口占用、breakdown、cache hit rate，以及 Coding Plan `Usage Remaining`
-  - cache hit rate 只有在主轮累计命中率大于等于 78% 时展示；低于 78% 的值不在紧凑 context 面板中显示
-  - 输入框 context 内的 Coding Plan 用量独立渲染，不复用 sidebar 菜单面板 UI
+  - Converte `usage.contextWindow.usedTokens` / `maxTokens` / cache / breakdown do snapshot no modelo de exibição da barra de entrada
+  - Reutiliza o `ChatContextUsage` de `packages/ui/src/chat-input-toolbar/contextUsage.tsx`
+  - Reutiliza o entitlement de Coding Plan Z.ai / BigModel já carregado, sem repetir requisições de quota no menu de context
+  - O `Usage Remaining` do Coding Plan reutiliza as ferramentas de parsing de entitlement/state do Coding Plan pago, mas o ponto de exibição permanece apenas no context da caixa de entrada e na página de Usage
+  - O badge do footer e o entitlement de Coding Plan do context da caixa de entrada usam o mesmo cache de impressão de provider/apiKey e alinham os parâmetros de consulta do plano pago, evitando que a cota de mesma origem seja dividida em dois caches
+  - Usa `ContextTrigger` como entrada de contexto
+  - Usa `ContextContentBody` para exibir a ocupação da janela de contexto, o breakdown, o cache hit rate e o `Usage Remaining` do Coding Plan
+  - O cache hit rate só é exibido quando a taxa de acerto acumulada do turno principal é maior ou igual a 78%; valores abaixo de 78% não aparecem no painel compacto de context
+  - O uso do Coding Plan dentro do context da caixa de entrada é renderizado de forma independente, sem reutilizar a UI do painel de menu da sidebar
 - `packages/ui/src/components/ai-elements/context.tsx`
-  - 增加了 0 上限保护，避免进度百分比出现无效值
-  - 改为跟随当前环境 locale 格式化百分比、compact 数字和货币
+  - Acrescentou proteção contra limite superior zero, evitando valores inválidos na porcentagem de progresso
+  - Passou a formatar porcentagem, números compactos e moeda conforme o locale do ambiente atual
 - `packages/ui/src/CodingPlanUsageRemainingPanel.tsx`
-  - 承载 Usage 页/输入框 context 复用的剩余额度数字行展示与 provider 切换
-  - 导出 entitlement/state 解析工具供输入框 context 复用数据语义
-  - 输入框 context 菜单中的 Coding Plan 三条额度进度条按顺序使用 usage chart 蓝、绿、紫，即 `--color-usage-chart-1` / `--color-usage-chart-2` / `--color-usage-chart-3`
-  - 输入框 context 菜单中的 Coding Plan 额度进度条使用设置页 Start Plan 的紧凑高度，使用 `h-1.5`
-  - 输入框 context 菜单中的 Coding Plan 进度条文字上下排列：subtle label、`percent · reset`，其中百分比使用 mono，重置时间使用 `text-ui-xs` 且不使用 mono
-  - 输入框 context 菜单中的 Coding Plan 用量按实际可展示额度数自适应列数：1 条显示 1 列，2 条显示 2 列，3 条显示 3 列；单条内部保持 label、剩余百分比、进度条上下排列的紧凑结构
-  - 输入框 context 菜单中的 Coding Plan 区块跟随 body 内边距，不再使用 footer 式外扩边距和上边框分隔
-  - 输入框 context 菜单中的 Coding Plan 标题行复用 `Context window` 的紧凑标题样式，不再使用独立 header 分隔层
-  - 输入框 context 菜单中的 Start Plan `Today's balance` 独立渲染，不复用设置页 `StartPlanBalanceCard` 或 Coding Plan 面板组件；布局参考 Coding Plan 的紧凑标题、meter 和分隔节奏
-  - 输入框 context 菜单中的 Start Plan `Today's balance` 只在当前模型属于 Start Plan provider 时展示，标题右侧提供 `Upgrade` 按钮直达对应 Start Plan provider 的套餐升级入口
-  - 输入框 context 菜单中的 Start Plan `Upgrade` 按钮参考设置页 Start Plan 升级按钮：活动折扣时使用 gradient 圆角胶囊样式，并展示折扣 badge
-  - 输入框 context 菜单中的 Start Plan `Today's balance` 展示剩余百分比、renew 时间和进度条，其中 renew 时间优先来自 `subscription.details[0].renewTime`，兜底使用余额项的 `nextResetTime`；今天只显示时间，格式为 `99% · 23:02`，非今天显示日期和时间，格式为 `99% · Jun 15 23:02`；不展示已用量、剩余量或总量文案，进度条高度使用 `h-1.5`，进度条保持 `success` 绿色
-  - 输入框 context 菜单中的 Start Plan 余额按实际可展示模型额度数自适应列数：1 条显示 1 列，2 条显示 2 列，3 条显示 3 列；单条内部保持模型 label、剩余百分比、进度条上下排列的紧凑结构
-  - `Context windows` 与 `Coding Plan` 两个 section 标题统一使用 `text-ui-base`
-  - `Context windows` 标题右侧的 used / total 摘要使用本地化紧凑 token 单位；英文使用大写 `K` / `M` / `B`，中文使用 `万` / `亿`
-  - `Context windows` 进度分段色阶以 Coding Plan 蓝色 `--color-usage-chart-1` 为基准，按占比顺序逐级变浅
-  - 输入框 context 菜单中的 Coding Plan 详情入口显示为 link 风格的 `More` 文案加右箭头
-  - 输入框 context 菜单中的 Coding Plan `More` 入口点击时先关闭 context 面板，再打开 usage 详情，避免跳转后浮层残留
-  - 输入框 context 菜单中的 Coding Plan 只有前面已展示 `Context windows` 用量区块时，才显示上分隔线和顶部间距
-  - Coding Plan 出现可用重置机会时，context 触发器复用项目统一的 `ControlHintTooltip` 及其默认 offset，并启用封装内的 `standalone` Provider 边界以支持独立 SSR/测试渲染；Tooltip 立即常驻显示礼物图标与 `{count} 次重置额度`；用户 hover、focus 或 tap 打开 context 面板后，本窗口收起首次提醒；业务层只控制展示状态与富内容，不直接组合底层 Tooltip primitives
-  - 同一机会最早到期时间进入最后 3 分钟时，Tooltip 再次常驻显示闹钟图标与实时倒计时 `重置额度过期 {time}`；如果首次提醒尚未收起，则原地切换为临期提醒
-  - 礼物图标使用主题语义成功色，临期闹钟使用主题语义警告色；临期文案中的倒计时 `{time}` 使用固定 `h-3.5`（14px）、`text-ui-xs px-1.5`、浅 warning 背景、warning 文字和 `tabular-nums` 的紧凑 pill 样式；闹钟持续左右摆动，`prefers-reduced-motion` 下静止；临期提醒被查看后同一机会不再重复，机会失效、额度已满或过期时立即收起
-  - Context 圆形触发按钮独立表达当前机会状态：存在有效机会且剩余时间大于 3 分钟时只使用 success 前景色、不增加状态背景，进入最后 3 分钟后切换为淡 warning 背景与 warning 前景色；用户关闭 Tooltip 不清除按钮状态色，机会失效或过期后恢复默认色
-  - context 触发器 Tooltip 同时只展示一种状态，优先级为「正在重置/已重置」>「临期机会」>「首次机会」；Tooltip 仅提醒，重置操作仍在 context 面板完成
-  - 初次与临期机会 Tooltip 右侧均提供圆形关闭按钮；关闭只标记当前阶段已读，不打开 context 面板、不影响机会本身；已读状态由当前 renderer 窗口共享，因此切换会话或会话组件重新挂载后，同一 `sourceKey + earliestExpiresAt` 机会的同一阶段不会再次显示；该状态不落盘、不跨窗口，新过期时间仍按新机会提醒；按钮复用共享 `Button` 的 `icon-xs` 尺寸并覆盖为 `rounded-full`，不使用负 margin，使用 `关闭提醒` / `Dismiss reminder` 无障碍标签
-  - 临期提醒中闹钟与文案保持 `gap-1.5`，倒计时文案组与关闭按钮使用 `gap-0`，避免右侧出现多余空隙
-  - 机会提醒内容沿用模型 Tooltip 的 `text-ui-sm` 字号；由于圆形关闭按钮固定为 `20px`，提醒 Tooltip 使用 `bg-background py-0.5 pr-0.5`，使整体尺寸与模型 Tooltip 对齐并使用页面背景色
+  - Hospeda a exibição da linha de número de cota restante reutilizada pela página de Usage e pelo context da caixa de entrada, além da troca de provider
+  - Exporta as ferramentas de parsing de entitlement/state para o context da caixa de entrada reutilizar a semântica dos dados
+  - As três barras de progresso de cota do Coding Plan no menu de context da caixa de entrada usam em ordem as cores azul, verde e roxa do usage chart, isto é, `--color-usage-chart-1` / `--color-usage-chart-2` / `--color-usage-chart-3`
+  - As barras de progresso de cota do Coding Plan no menu de context da caixa de entrada usam a altura compacta do Start Plan da página de configurações, com `h-1.5`
+  - O texto das barras de progresso do Coding Plan no menu de context da caixa de entrada é empilhado verticalmente: label sutil e `percent · reset`, com a porcentagem em mono, o horário de reset em `text-ui-xs` e sem mono
+  - O uso do Coding Plan no menu de context da caixa de entrada adapta as colunas ao número real de cotas exibíveis: 1 item mostra 1 coluna, 2 itens mostram 2 colunas e 3 itens mostram 3 colunas; dentro de um único item mantém a estrutura compacta com label, porcentagem restante e barra de progresso empilhados
+  - O bloco de Coding Plan no menu de context da caixa de entrada segue o padding do body, sem usar mais margem externa de estilo footer nem separador de borda superior
+  - A linha de título do Coding Plan no menu de context da caixa de entrada reaproveita o estilo compacto de título de `Context window`, sem usar mais uma camada de header separada
+  - O `Today's balance` do Start Plan no menu de context da caixa de entrada é renderizado de forma independente, sem reaproveitar o `StartPlanBalanceCard` da página de configurações nem os componentes do painel de Coding Plan; o layout referencia o título compacto, o meter e o ritmo de separação do Coding Plan
+  - O `Today's balance` do Start Plan no menu de context da caixa de entrada só é exibido quando o modelo atual pertence a um provider do Start Plan, e o lado direito do título oferece um botão `Upgrade` que vai direto para a entrada de upgrade de plano do provider Start Plan correspondente
+  - O botão `Upgrade` do Start Plan no menu de context da caixa de entrada referencia o botão de upgrade do Start Plan da página de configurações: em desconto ativo usa o estilo de cápsula arredondada com gradiente e exibe um badge de desconto
+  - O `Today's balance` do Start Plan no menu de context da caixa de entrada exibe a porcentagem restante, o horário de renovação e a barra de progresso, em que o horário de renovação vem preferencialmente de `subscription.details[0].renewTime`, com fallback para o `nextResetTime` do item de saldo; hoje mostra apenas a hora, no formato `99% · 23:02`, e em outro dia mostra data e hora, no formato `99% · Jun 15 23:02`; não exibe textos de uso, saldo restante ou total, a altura da barra de progresso usa `h-1.5` e a barra mantém o verde `success`
+  - O saldo do Start Plan no menu de context da caixa de entrada adapta as colunas ao número real de cotas de modelo exibíveis: 1 item mostra 1 coluna, 2 itens mostram 2 colunas e 3 itens mostram 3 colunas; dentro de um único item mantém a estrutura compacta com o label do modelo, a porcentagem restante e a barra de progresso empilhados
+  - Os títulos dos dois sections `Context windows` e `Coding Plan` usam uniformemente `text-ui-base`
+  - O resumo used / total à direita do título `Context windows` usa a unidade de token compacta localizada; em inglês usa `K` / `M` / `B` maiúsculos e em chinês usa `万` / `亿`
+  - A escala de cores dos segmentos de progresso de `Context windows` parte do azul de Coding Plan `--color-usage-chart-1` e clareia progressivamente conforme a proporção
+  - A entrada de detalhes do Coding Plan no menu de context da caixa de entrada é exibida como texto de link `More` com uma seta para a direita
+  - Ao clicar na entrada `More` do Coding Plan no menu de context da caixa de entrada, fecha-se primeiro o painel de context e depois abre-se o detalhe de uso, evitando que a camada flutuante persista após a navegação
+  - O Coding Plan no menu de context da caixa de entrada só exibe a linha de separação superior e o espaçamento no topo quando o bloco de uso de `Context windows` já foi exibido antes
+  - Quando o Coding Plan tem uma oportunidade de reset disponível, o gatilho de context reaproveita o `ControlHintTooltip` unificado do projeto e seu offset padrão, e habilita a fronteira de Provider `standalone` encapsulada para suportar renderização independente em SSR/testes; o Tooltip exibe imediatamente e de forma persistente o ícone de presente e `{count} 次重置额度`; quando o usuário passa o mouse, foca ou toca e abre o painel de context, esta janela recolhe o primeiro lembrete; a camada de negócio controla apenas o estado de exibição e o conteúdo rico, sem compor diretamente as primitivas de Tooltip
+  - Quando o horário mais próximo de expiração da mesma oportunidade entra nos últimos 3 minutos, o Tooltip volta a exibir de forma persistente o ícone de alarme e a contagem regressiva em tempo real `重置额度过期 {time}`; se o primeiro lembrete ainda não tiver sido recolhido, ele troca no lugar pelo lembrete de iminência
+  - O ícone de presente usa a cor semântica de sucesso do tema e o alarme de iminência usa a cor semântica de aviso; o `{time}` da contagem regressiva do texto de iminência usa o estilo compacto de pill com `h-3.5` fixo (14px), `text-ui-xs px-1.5`, fundo de warning claro, texto de warning e `tabular-nums`; o alarme balança continuamente para os lados e fica parado sob `prefers-reduced-motion`; depois de o lembrete de iminência ser visto, a mesma oportunidade não se repete, e o lembrete recolhe imediatamente quando a oportunidade expira, a cota está cheia ou o prazo passou
+  - O botão circular do gatilho de Context expressa de forma independente o estado atual da oportunidade: quando existe uma oportunidade válida com mais de 3 minutos restantes, usa apenas a cor de foreground success e não adiciona fundo de estado; ao entrar nos últimos 3 minutos, passa para um fundo de warning claro com foreground de warning; o usuário fechar o Tooltip não limpa a cor de estado do botão, e a cor padrão é restaurada quando a oportunidade expira ou fica inválida
+  - O Tooltip do gatilho de context exibe apenas um estado por vez, com prioridade «正在重置/已重置» > «临期机会» > «首次机会»; o Tooltip é apenas um lembrete e a operação de reset continua sendo concluída no painel de context
+  - Tanto o Tooltip inicial quanto o de iminência oferecem um botão de fechar circular à direita; fechar apenas marca a etapa atual como lida, sem abrir o painel de context e sem afetar a própria oportunidade; o estado de leitura é compartilhado pela janela atual do renderer e, portanto, depois de trocar de sessão ou de remontar o componente de sessão, a mesma etapa da mesma oportunidade `sourceKey + earliestExpiresAt` não aparece de novo; esse estado não é gravado em disco nem compartilhado entre janelas, e um novo horário de expiração continua gera um lembrete novo; o botão reaproveita o tamanho `icon-xs` do `Button` compartilhado e é sobrescrito como `rounded-full`, sem usar margem negativa, com rótulos de acessibilidade `关闭提醒` / `Dismiss reminder`
+  - Na mensagem de iminência, o alarme e o texto mantêm `gap-1.5`, e o grupo de texto da contagem regressiva e o botão de fechar usam `gap-0`, evitando espaço extra à direita
+  - O conteúdo do lembrete de oportunidade mantém o tamanho de fonte `text-ui-sm` do Tooltip de modelo; como o botão circular de fechar é fixo em `20px`, o Tooltip do lembrete usa `bg-background py-0.5 pr-0.5`, fazendo o tamanho total ficar alinhado ao Tooltip de modelo e usando a cor de fundo da página
 - `packages/ui/src/i18n/locales/en-US.ts`
 - `packages/ui/src/i18n/locales/zh-CN.ts`
-  - 补充了 hover card 的说明文案
+  - Acrescentaram os textos explicativos do hover card
 
-## 结果
+## Resultado
 
-- 输入栏底部仍保留简洁的 context 入口
-- 用户悬停后可以看到更完整的上下文解释与当前 Coding Plan 剩余额度
-- 组件形式与 `elements.ai-sdk` 的 context 文档保持一致
+- O rodapé da barra de entrada mantém uma entrada de context enxuta
+- Ao passar o mouse, o usuário vê uma explicação mais completa do contexto e a cota restante atual do Coding Plan
+- A forma do componente permanece consistente com a documentação de context do `elements.ai-sdk`

@@ -1,72 +1,71 @@
-# Todo 104：上线前持久化 Schema 梳理与精修
+# Todo 104: Levantamento e refinamento do schema de persistência antes do lançamento
 
-> 后续裁决（2026-09-11）：[Todo130](todo-130-manual-model-config-editable-field-boundary.md) 已取代本文中“推荐未就绪禁用开关／手动整份配置固化与完整校验”的相关规则：仅保存中禁用，手动只要求可编辑字段，系统字段继续解析。**Todo130 待执行**；下文旧实现与验收保留为历史，不代表新语义已经落地。
+> Decisões posteriores (2026-09-11): o [Todo130](todo-130-manual-model-config-editable-field-boundary.md) substituiu as regras deste documento sobre "desabilitar a chave enquanto a configuração não está pronta / fixar e validar a configuração manual inteira": só desabilita durante o salvamento, o modo manual exige apenas os campos editáveis e os campos de sistema continuam sendo resolvidos. **O Todo130 ainda precisa ser executado**; a implementação antiga e os critérios de aceitação abaixo são preservados como histórico e não representam a semântica nova já implementada.
 
-> 2026-09-10 后续数据库专项：[Todo109](./todo-109-database-migration-consolidation-and-rollback-readability.md) 承接全库 migration 收口及回滚内容可读性。沿用已裁决转换语义，保留旧字段/值；未执行本次 migration 时可按明确旧来源重建目标新字段，不兼容未上线中间态。已完成 migration 不重跑，缺新配置不得阻碍内容读取。尽量不双写，内容不可读时最小必要双写。本文既有实现证据保留，冲突的迁移/兼容条款在数据库范围内以后续专项为准；不影响非数据库裁决。
+> Especial de banco de dados posterior, 2026-09-10: o [Todo109](./todo-109-database-migration-consolidation-and-rollback-readability.md) assume o fechamento de todas as migrations do repositório e a legibilidade do conteúdo de rollback. Mantém a semântica de conversão já decidida e preserva campos/valores antigos; enquanto esta migration não for executada, é possível reconstruir o novo campo alvo a partir de uma origem antiga explícita, sem compatibilidade para estados intermediários não lançados. Migrations já concluídas não são reexecutadas e a falta de configuração nova não pode impedir a leitura do conteúdo. Evite ao máximo a double write; quando o conteúdo estiver ilegível, faça a double write mínima necessária. As evidências de implementação já existentes neste documento são preservadas, e os termos de migration/compatibilidade conflitantes têm, no escopo de banco de dados, a precedence dos especiais posteriores; isso não afeta as decisões fora do banco de dados.
+> Status: a implementação funcional e a revisão completa do lote foram fechadas, mas a aceitação do artefato final ainda tem limitações; 2026-09-10. As três snapshots de rollback da 6.18, o schema central, as regras externas, nomes e templates, a seleção e distribuição padrão do Personal no mesmo arquivo, os caminhos de execução e a identificação de origem já foram implementados. 155 arquivos e 1296 testes, 156 testes de Wiki/idle e a verificação de settings Pro/recuperação de sessão passaram; os testes de migration do CLI passaram depois de corrigir o seeding de dados reais antigos. Os problemas de empacotamento preexistentes de Server/SEA e as limitações de máquina real no Windows estão no razão; não se afirma que todos os artefatos podem ir para produção. Os 13 itens de suporte da 6.19 foram revisados um a um; o Markdown de Subagent segue o Todo97 e este Todo não muda.
+> Autorização atual (atualizada em 2026-09-10): o usuário autorizou explicitamente a execução do que for correto e puder ser decidido pelas decisões já existentes; o que realmente exige uma nova decisão foi preservado. Os trechos "apenas discutido / não autorizado / não implementado" abaixo são preservados como histórico de origem e não representam a autorização nem o estado de conclusão deste rodada.
+> Origem: Todo99 do m2, commit fixo 02dfc1b45819626dc6d1614a8e528c72eaed31af; para evitar colisão de numeração com o Worker corrigindo o Todo99 e com a investigação já concluída do Todo100, o número passou a ser Todo104 na integração. O estado de implementação e as evidências estão unificados em [Razão de implementação do Todo104](../research/todo104-schema-implementation-ledger.md).
+> Entrada atual do design: [Design V2](../design-v2/design.md). Este documento preserva o contexto desta rodada, as decisões e a estrutura-alvo, sem escrever renomeações não implementadas como um fato do código vigente.
 
-> 状态：功能实现与整批复审已收口，最终制品验收仍有限制；2026-09-10。6.18 三项回滚快照、核心 Schema/规则外层/名称/模板、Personal 同文件默认选择及分发、运行路径和来源标识均已实现。155 文件 1296 测试、Wiki/闲时 156 测试及 Pro 设置/会话恢复验证通过；CLI 迁移测试修正真实旧数据播种后通过。Server/SEA 的既有打包问题和 Windows 实机限制见账本，不宣称所有制品均可上线。6.19 的 13 项配套内容逐项复核；Subagent Markdown 沿用 Todo97，本 Todo 不改。
-> 当前授权（2026-09-10 更新）：用户已明确授权执行正确且可按既有裁决决定的部分；真正需要新裁决的部分保留。下文“仅讨论／尚未授权／未实施”保留为来源历史，不代表本轮授权或完成状态。
-> 来源：m2 原 Todo99，固定提交 02dfc1b45819626dc6d1614a8e528c72eaed31af；为避免与 Worker 修复 Todo99、已完成调查 Todo100 重号，合入时改编号为 Todo104。实施状态与证据统一见 [实施账本](../research/todo104-schema-implementation-ledger.md)。
-> 当前设计入口：[Design V2](../design-v2/design.md)。本文保留本轮背景、裁决和目标结构，不把未实施的改名写成现行代码事实。
+### Complemento sobre granularidade de execução (2026-09-10, exigência mais recente do usuário)
 
-### 执行粒度补充（2026-09-10，最新用户要求）
+Não executar regressões de larga escala e verificações Pro a cada campo ou ponto pequeno alterado. Os commits já concluídos e suas evidências são preservados; daqui em diante a implementação é feita em lotes por cadeia funcional completa, sem mais desmembrar as pequenas renomeações dentro de B2 em um conjunto de aceitação completo cada.
 
-不要每改一个字段或小点就执行大规模回归和 Pro 验证。已完成提交及证据保留，后续按完整功能链批量实施，不再把 B2 内的细小改名拆成各自一套完整验收。
+- Durante o desenvolvimento: primeiro escrever testes discriminantes e rodar os testes direcionados que cobrem diretamente a mudança atual; fazer verificação de tipos local quando necessário. Passos pequenos como propagação de campo e atualização de fixtures não disparam novamente testes de todo o repositório, verificação de tipos de todo o repositório, build compartilhado ou reconstrução Pro.
+- Divisão em lotes: as regras restantes de Provider/Model em sua estrutura final, a atribuição de nomes/templates e os pontos de leitura e escrita correspondentes avançam como um lote completo de regras; a seleção e o armazenamento/distribuição padrão no mesmo arquivo, fortemente acoplados ao novo envelope do Personal, são ligados juntos antes de serem aceitos. O caminho de execução e a revision de origem são outro lote de cadeia completa. É permitido unir lotes por acoplamento real, sem dividir o trabalho só para obter muitos commits pequenos.
+- Fechamento de lote: rodar em conjunto a verificação de tipos necessária, o lint, a checagem de arquitetura e as regressões relevantes entre domínios, e revisar de novo todos os termos e o que está acima e abaixo; evidências que já passaram e não foram afetadas por mudanças posteriores não são refeitas.
+- Pro/E2E: ficam para quando as cadeias completas de settings/execução envolvidas estiverem estáveis, com build compartilhado e verificação em lote; não reconstruir e rodar o mesmo conjunto de casos para cada campo de estrutura. Primeiro concluir a verificação estática e direcionada e só então iniciar a verificação cara, evitando reconstruções repetidas por rodar Pro enquanto se checam tipos.
+- Classificar as falhas primeiro. Só rerodar a checagem correspondente para mudanças novas, correções ou fronteiras críticas ainda não provadas; problemas preexistentes ficam registrados e cada falha não vira uma correção independente. Defeitos reais de interação podem ser reproduzidos de forma direcionada antes, mas isso não reinicia a regressão completa.
+- O escopo completo do Goal, spec/testes primeiro, a revisão completa final e os requisitos de aceitação crítica permanecem inalterados; apenas a granularidade de execução e verificação é ajustada, sem omitir cobertura necessária e sem escrever como aprovado o que não foi testado.
 
-- 开发中：先写有区分力的测试，运行直接覆盖当前改动的定向测试；必要时做局部类型检查。字段传播、fixture 更新等小步骤不重复触发全仓测试、全仓类型检查、共享构建或 Pro 重建。
-- 批次划分：剩余 Provider/Model 规则最终结构、名称/模板归属及对应读写入口作为完整规则批次推进；与 Personal 新 envelope 强耦合的默认选择同文件保存/分发配套一起接通后再验收。运行路径与来源 revision 作为另一完整链路批次。允许因实际耦合合并批次，不为了小提交数拆分工作。
-- 批次收口：统一运行所需类型检查、lint、架构检查和相关跨域回归，复审所有条款及上下游；已通过且未受后续变更影响的证据不重复制作。
-- Pro/E2E：留到涉及的完整设置/执行链路稳定后共享构建、批量验证；不为每个结构字段分别重建跑同一套用例。先完成静态及定向验证，再启动昂贵验证，避免边查类型边跑 Pro 导致重复重建。
-- 失败先分类。只有新变更、修复或尚未证明的关键边界才重跑对应检查；既有问题记录，不将每次失败扩成独立修复。真实交互缺陷可提前定向复现，但不以此重新启动全套回归。
-- Goal 全部范围、先 spec/测试、最终完整复审与关键验收要求不变；仅调整执行与验证粒度，不省略必要覆盖，不将未测写成通过。
+## 1. Contexto e modo de discussão
 
-## 1. 背景与讨论方式
+Esta rodada começa por "quais schemas que podem ser persistidos que este branch adicionou em comparação com staging". O usuário quer deixar claros os nomes e a estrutura dos campos antes do lançamento, para não descobrir problemas depois do release e ser forçado a migrar dados de usuário. Model Selection, Provider Config e Model Config são as estruturas centrais de primeira preocupação; o escopo da revisão não se limita a esses três nomes, e as outras estruturas novas ainda precisam ser levantadas ao longo das localizações reais de armazenamento.
 
-本轮从“相比 staging，本分支新增了哪些可能持久化的 schema”开始。用户希望在上线前把字段名字和结构设计清楚，避免正式发布后才发现问题、被迫迁移用户数据。Model Selection、Provider Config、Model Config 是首先关注的核心结构；审阅范围不止这三个名称，后续仍要沿实际存储位置梳理其他新增结构。
+O usuário permite renomear e reorganizar em conjunto os schemas deste branch que ainda não foram oficialmente publicados, tomando o design de longo prazo como referência; a compatibilidade de upgrade dos dados já publicados em staging é preservada à parte. Isso não equivale a ter decidido todas as compatibilidades, rollbacks ou estratégias de nomeação, nem representa autorização para modificar a implementação imediatamente.
 
-用户允许对本分支尚未正式发布的 schema 整体重命名、重组，以长期设计为准；staging 已发布数据的升级兼容单独保留。这不等于已经裁决所有兼容、回滚或命名策略，也不代表授权立即修改实现。
+Acordos de collaboration explícitos nesta rodada:
 
-本轮明确的协作约定：
+- Primeiro levanta-se, e só então se discute item a item começando pelas estruturas centrais. O usuário já corrigiu explicitamente: "não é para você mudar direto, é para nós dois discutirmos como mudar".
+- "Lançar em disco" atualiza apenas o documento de decisões. Umainterpretation anterior tratou "seria melhor corrigir os dois primeiros" como autorização de implementação, e todas as modificações de código, testes e documentos temporários daquela rodada foram revertidas; não houve commit de produto. O que foi lançado em disco desta vez são decisões de correção pendente, não correções concluídas.
+- Foco no schema. Campos, tipos, opcionalidade, null, aninhamento etc. são ângulos de discussão, sem aplicar mecanicamente um checklist genérico.
+- Problemas concretos com base em código podem ser levantados, mas palpites e sugestões não confirmadas não podem ser escritos como defeito encontrado ou decisão do usuário.
+- Quando o usuário perguntar sobre a chamada de um campo, responder primeiro sobre a chamada real e não expandir automaticamente em uma tarefa de correção arquitetural.
+- O usuário pediu explicitamente depois "não seja tão agressivo": renomeações puras e envelope enxuto sem benefício claro não continuam sendo ampliados; os registros de refresh/distribuição seguem o esquema de redução de 6.13, sem restaurar as sugestões já revertidas.
+- A avaliação de risco parte principalmente da verificabilidade: o usuário disse explicitamente que "tudo que é fácil de verificar não é risco alto". Volume de trabalho e amplitude de impacto não são, sozinhos, motivo para reverter um design; é preciso explicar se o cenário pode ser construído de forma estável, se o resultado é verificável e qual é a diferença entre os testes existentes e a verificação ainda a ser acrescentada. A reavaliação completa está em 6.17.
+- A discussão e o lançamento em disco mostram o schema por camada através de interfaces: primeiro o nível superior, depois as estruturas de membros separadamente; cada camada é explicada em uma frase e só então o código da camada é apresentado. Os campos da interface são expandidos diretamente, sem esconder a estrutura da camada com Omit ou tipos Identity intermediários; na implementação os schemas continuam sendo reutilizados e os tipos derivados, sem copiar a interface de exibição para outra definição de implementação. Campos comuns do mesmo nível não recebem explicações longas um a um, e não se enfia de uma vez uma estrutura aninhada completa.
+- O resumo de cada rodada cobre apenas a estrutura em discussão naquele momento e não repete de carona outras estruturas já confirmadas antes; no lançamento em disco, todas as decisões históricas são preservadas.
+- Arquivos/tabelas, schemaVersion e revision são discutidos separadamente item a item; o escopo se limita às estruturas de persistência novas ou alteradas em comparação com staging, sem expandir mecanismos preexistentes e não relacionados.
+- As estruturas de ajuste já determinadas estão nas seções 3, 5 e 6 respectivamente; registrar uma decisão não equivale a autorizar a implementação, e outras estruturas também não passam a ser implementadas automaticamente por estarem listadas neste Todo.
+- Redução de escopo mais recente: o usuário só decidiu o conteúdo que este Todo deve alterar; outros Todos e comportamentos já existentes neste branch que este Todo não altera deixaram de ser tarefas de revisão. É permitido deixar de fora e registrar isso; o importante é que as mudanças autorizadas não quebrem comportamentos existentes, e não é preciso ampliar escopo só para perseguir cobertura total.
 
-- 先梳理，再从核心结构开始逐项讨论。用户明确纠正过“不是让你直接改，而是咱俩讨论怎么改”。
-- “落盘”只更新裁决文档。此前误把“前两个最好修复一下”当成实施授权，已撤回当轮全部代码、测试及临时文档修改；没有产品提交。本次重新落盘的是待修裁决，不是修复完成。
-- 聚焦 schema。字段、类型、可选性、null、嵌套等是讨论角度，不机械套一份通用 checklist。
-- 发现有代码依据的具体问题可以提出，但不能把猜测、未确认的建议写成已发现缺陷或用户裁决。
-- 用户询问字段调用时，先回答实际调用；不自动扩展成架构整改任务。
-- 用户随后明确要求“别太激进”：没有明确收益的纯命名和包裹精简不继续扩大；刷新 / 分发记录按 6.13 的收缩方案实施，不恢复已经撤回的建议。
-- 风险判断以可验证性为主：用户明确“容易验证的都不算高风险”。工作量大、影响面广不单独作为撤回设计的理由；需要说明场景能否稳定构造、结果能否判定，以及现有测试与待补验证的区别。全面复评见 6.17。
-- 讨论和落盘统一用接口按层展示 schema：先顶层，再分别展示成员结构；每层用一句话说明修改点，再给该层代码。接口字段直接展开，不用 Omit 或中间 Identity 类型遮住本层结构；实施时仍复用 schema 并推导类型，不把展示接口复制成另一套实现定义。同一层的普通字段不逐个长篇解释，不一次塞进一个完整嵌套大结构。
-- 每轮总结只覆盖当前讨论的结构，不重复捎带前面已确认的其他结构；落盘时则保留全部历史裁决。
-- 文件 / 数据表、schemaVersion、revision 分开逐项讨论；范围限于相比 staging 新增或改变的持久化结构，不展开无关的既有机制。
-- 已确定的结构调整分别见第 3、5、6 节；记录裁决不等于授权实施，其他结构也不能因为列入本 Todo 就自动实施。
-- 最新范围收缩：用户只裁决本 Todo 要改的内容，其他 Todo 及本分支已有但本 Todo 不改的行为不再列为复审任务。允许遗漏另记，重点是已授权改动不要破坏既有行为；不能为了追求全覆盖顺手扩项。
+### 1.1 Schema e tipo como fonte única de verdade (princípio novo desta rodada)
 
-### 1.1 Schema 与类型的唯一事实来源（本轮新增原则）
+Para as estruturas de dados de persistência/protocolo abrangidas por este Todo, o schema é a fonte única de verdade de campos, aninhamento e restrições. É proibido ter um schema existente e ainda escrever à mão uma lista independente de interface/type com a mesma semântica; o tipo é derivado do schema ou reutilizado por meio de tipos derivados.
 
-对本 Todo 涉及的持久化 / 协议数据结构，schema 是字段、嵌套及约束的唯一事实来源。禁止已有 schema，却再独立手写一份同语义 interface / type 字段清单；类型从 schema 推导，或通过派生类型复用。
+- Tipos de dados comuns usam `z.infer` / `z.output`; quando o schema tem transform e é preciso expressar a entrada antes da transformação, usa-se `z.input`, e não se mistura os dados de entrada com a classe transformada no mesmo tipo.
+- Variantes como completa, cobertura esparsa e esquema fixo reutilizam o schema base e são combinadas por extend / pick / omit, tratando explicitamente das restrições de obrigatoriedade aninhada, sem recopiar campos. Tornar apenas o top-level required não torna completos todos os membros aninhados.
+- A validação de salvamento e a de parse reutilizam o schema correspondente e as restrições de conteúdo compartilhadas, sem manter uma lista paralela de campos de integridade. Ao editar, primeiro se determina a qual conjunto a regra inteligente/manual pertence e só então se valida a regra completa com o schema correspondente; o useRecommendedConfig do código atual e a solução intermediária useSmartConfig não entram na estrutura de persistência final.
+- Classes com comportamento como `overlay` e `toJSON` podem ser mantidas; a existência de uma classe não equivale a duplicar o schema de dados. A entrada de construção, a forma serializada e os estreitamentos de tipo necessários continuam reutilizando os tipos derivados.
+- O módulo de schema atual depende de classes; na implementação o schema de dados base e as classes de comportamento devem manter dependência unidirecional, sem criar referências circulares para derivar tipos e sem fingir a derivação concluída com any / asserções de tipo.
+- Os blocos de interface deste documento servem para comunicar a estrutura-alvo camada a camada e não significam que a implementação exija escrever à mão um segundo conjunto de definições de tipo.
 
-- 普通数据类型使用 `z.infer` / `z.output`；schema 带 transform 且需要表达解析前输入时，使用 `z.input`，不能把输入数据与转换后的 class 混成同一类型。
-- 完整、稀疏覆盖、固定模式等变体复用基础 schema，通过 extend / pick / omit 等组合并明确处理嵌套必填约束，不分别抄写字段。只对顶层 required 并不能使全部嵌套成员完整。
-- 保存校验和解析校验复用相应 schema 及共享内容约束，不再维护平行的完整性字段清单。编辑时先确定智能 / 手动规则所属集合，再用对应 schema 校验完整规则；当前代码的 useRecommendedConfig 及中间方案 useSmartConfig 不进入最终持久化结构。
-- `overlay`、`toJSON` 等有行为的 class 可以保留；class 的存在不等于重复数据 schema。构造输入、序列化形状以及必要的类型收紧仍须复用推导类型。
-- 当前 schema 模块依赖 class；实施时基础数据 schema 与行为类应保持单向依赖，不能为推导类型制造循环引用，也不能靠 any / 类型断言假装已完成推导。
-- 本文 interface 代码块用于逐层沟通目标结构，不代表实施时要求手写第二套类型定义。
+Este princípio já foi incorporado ao Todo por exigência do usuário; até agora só foram feitas a verificação direcionada e o registro, sem alterar a implementação.
 
-本原则已获用户要求纳入 Todo；当前只完成定向核查和记录，未改实现。
+### 1.2 Base de leitura e de implementação
 
-### 1.2 阅读与实施依据
+A estrutura-alvo final deste Todo tem precedência sobre as explicações históricas deste documento marcadas explicitamente como "proposta anterior" ou "código atual"; nomes históricos servem apenas para localizar o ponto de entrada da transformação e não constituem um segundo formato aceitável. Ao entrar na implementação, as decisões deste documento substituem as partes conflitantes do design antigo, e a descrição vigente do Design V2 é atualizada em conjunto. Comportamentos não tratados seguem o estado atual; "não haver outra decisão" não equivale a poder inventar um mecanismo novo.
 
-本 Todo 的最终目标结构优先于本文明确标为“此前方案”“当前代码”的历史说明；历史名称只用于定位改造入口，不作为第二套可接受格式。进入实施后，本文裁决取代旧设计中对应的冲突部分，并同步更新 Design V2 的现行描述。未涉及的行为沿用现状；“没有另作裁决”不等于可以自行补一套新机制。
+As interfaces deste documento mostram apenas a forma dos campos; as restrições de runtime existentes que não estão expressas em TypeScript precisam ser preservadas, por exemplo ID não vazio, teto de inteiros positivos, array de opções não vazio, regex válido e map compilável. Não se pode afrouxar a validação só porque a interface foi escrita como string / number, nem transformar todos os schemas de cobertura esparsa em schemas de configuração completa.
 
-本文接口只展示字段形状，未在 TypeScript 中表达的现有运行时约束仍须保留，例如非空 ID、正整数上限、非空选项数组、合法正则和可编译 map。不能因为接口写成 string / number 就放宽校验，也不能把稀疏覆盖 schema 全部改成完整配置 schema。
+## 2. ModelSelection: confirmado
 
-## 2. ModelSelection：已确认
+O usuário aceita a seguinte estrutura geral:
 
-用户接受以下通用结构：
+### 2.1 Nível superior
 
-### 2.1 顶层
-
-保留 Provider、模型身份和可选的 options。
+Mantém o Provider, a identidade do modelo e as options opcionais.
 
 ```ts
 interface ModelSelection {
@@ -78,7 +77,7 @@ interface ModelSelection {
 
 ### 2.2 options
 
-只保留 reasoningLevel；此处命名接口仅用于分层展示，不新增类型改造裁决。
+Mantém apenas reasoningLevel; o nome de interface aqui serve só para exibição em camadas e não constitui uma decisão de transformação de tipos.
 
 ```ts
 interface ModelSelectionOptions {
@@ -86,38 +85,38 @@ interface ModelSelectionOptions {
 }
 ```
 
-### 2.3 裁决背景
+### 2.3 Contexto das decisões
 
-具体裁决：
+Decisões específicas:
 
-1. “未选择 / 跟随默认”的表达属于使用者的上层 schema，不给通用 ModelSelection 新增区分字段。
-2. `maxOutputTokens` 不属于模型选择，故意不放进 `options`。后续确认的 ModelConfig 选项定义见第 5 节，与选择值保持区分。
-3. 执行时完整性属于运行校验，不因此扩张本轮 ModelSelection schema 讨论。
-4. 本轮没有要求为 `reasoningLevel` 新增 enum、改名或改变可选性，也没有授权补其他 options 字段。
+1. A expressão "não selecionado / seguir o padrão" pertence ao schema de nível superior do usuário e não adiciona um campo discriminante novo ao ModelSelection genérico.
+2. `maxOutputTokens` não faz parte da seleção de modelo e deliberadamente não entra em `options`. A definição das opções de ModelConfig confirmada depois está na seção 5 e permanece distinta do valor de seleção.
+3. A completude em tempo de execução é uma validação de execução e não expande por isso a discussão do schema de ModelSelection desta rodada.
+4. Nesta rodada não foi pedido um novo enum para `reasoningLevel`, nem renomeação, nem mudança de opcionalidade, nem autorização de preencher outros campos em options.
 
-后续用户统一通过了“在已有结构上接入这一份 ModelSelection”的设计，不再逐个讨论消费位置；具体范围见 6.14。通过的是结构取舍，旧数据迁移和消费者适配仍需在实施时验证。
+Depois disso o usuário aprovou de forma unificada o design de "ligar esta ModelSelection à estrutura já existente", sem discutir mais os pontos de consumo um a um; o escopo está em 6.14. O que foi aprovado foi a escolha estrutural, e a migração de dados antigos e a adaptação dos consumidores ainda precisam ser verificadas na implementação.
 
-## 3. ProviderConfig：已确认的变更与保留项
+## 3. ProviderConfig: alterações confirmadas e itens mantidos
 
-| 项目                               | 最终裁决                                            | 背景                                                                                                                                          |
-| ---------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `modelIds`                         | 改为 `personalModelIds`                             | 原字段只表示用户添加的模型，与 `builtinModelIds` 并列时容易被误解为全量模型集合。                                                             |
-| `api.baseURL`                      | 改为 `api.baseUrl`                                  | 与 `apiKeyManagementUrl` 的缩写命名风格保持一致。裁决限于当前讨论的 schema，不是全仓所有 SDK 参数的机械改名。                                 |
-| `label`                            | 从 ProviderConfig 删除，外层规则改用 `providerName` | 模板只保留 templateNameMap；默认 Provider 名称创建时按当前语言生成、去重并保存，见 6.5。                                                      |
-| `api` / `ProviderApiConfig`        | 保留嵌套和独立结构                                  | 最初质疑是否需要这一层，随后讨论过顶层 `apiType`、`baseUrl`、`headers`。用户想起原先有未来 OAuth 的考虑，明确要求恢复 `api`。拍平建议已撤回。 |
-| `access`                           | 保留现有联合结构                                    | 本轮未裁决新增 OAuth 类型或具体 OAuth 字段；“未来可能搞 OAuth”是保留分组的理由，不是现在实现 OAuth。                                          |
-| `entitled`                         | 保留名字、位置与现有语义                            | Provider Config 可以包含动态事实，且不是最终授权方；详见下一节。                                                                              |
-| `group`、`logo`、`visibility`      | 保留现有设计                                        | 已解释含义和调用，本轮没有确认改名、改类型或扩展字段。                                                                                        |
-| `ProviderConfigOverlay` 等类型命名 | 不继续纠结，不安排改名                              | 用户明确结束该命名讨论。                                                                                                                      |
-| 字段可选性与 `null`                | 本轮保持现状                                        | 没有形成改变这些字段可选性或清除语义的新裁决。                                                                                                |
+| Item                               | Decisão final                                            | Contexto                                                                                                                                        |
+| ---------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modelIds`                         | passa a `personalModelIds`                                | O campo original só representa os modelos adicionados pelo usuário e, ao lado de `builtinModelIds`, era facilmente entendido como o conjunto total de modelos. |
+| `api.baseURL`                      | passa a `api.baseUrl`                                     | Fica consistente com o estilo abreviado de `apiKeyManagementUrl`. A decisão se limita ao schema em discussão, e não é uma renomeação mecânica de todos os parâmetros de SDK do repositório. |
+| `label`                            | removido de ProviderConfig; a regra externa passa a usar `providerName` | O template mantém apenas templateNameMap; o nome de Provider padrão é gerado na criação conforme o idioma atual, deduplicado e salvo, ver 6.5.                        |
+| `api` / `ProviderApiConfig`        | mantém o aninhamento e a estrutura independente           | No início questionou-se a necessidade desta camada, e depois discutiram-se `apiType`, `baseUrl` e `headers` no nível superior. O usuário lembrou da consideração original de um OAuth futuro e exigiu explicitamente restaurar `api`. A proposta de achatar foi revertida. |
+| `access`                           | mantém a união de estruturas atual                       | Esta rodada não decidiu novos tipos OAuth nem campos OAuth concretos; "talvez haja OAuth no futuro" é motivo para manter o agrupamento, não para implementar OAuth agora. |
+| `entitled`                         | mantém o nome, a posição e a semântica atual              | O Provider Config pode conter fatos dinâmicos e não é o autorizador final; ver a próxima seção.                                               |
+| `group`, `logo`, `visibility`      | mantém o design atual                                     | Significado e chamadas já foram explicados e esta rodada não confirmou renomeação, mudança de tipo ou extensão de campos.                        |
+| `ProviderConfigOverlay` e nomes de tipos alike | não se insistir, nenhuma renomeação é planejada              | O usuário encerrou explicitamente a discussão de nomenclatura.                                                                            |
+| Opcionalidade de campos e `null`    | mantém o estado nesta rodada                              | Nenhuma decisão nova alterando a opcionalidade desses campos ou a semântica de limpeza foi formada.                                          |
 
-最初保留 providerId 为外层 map key、templateId 位于 ProviderConfig 内；这一阶段方案已被第 6.4 节最终外层结构取代：providerId 和 templateId 都进入实例规则，ProviderConfig 只承载配置内容。`builtinModelIds` 和 `modelOrder` 保留现名。
+Inicialmente se manteve providerId como chave do map externo e templateId dentro do ProviderConfig; essa proposta desta fase foi substituída pela estrutura externa final da seção 6.4: providerId e templateId passam ambos para as regras da instância, e o ProviderConfig carrega apenas o conteúdo de configuração. `builtinModelIds` e `modelOrder` mantêm os nomes atuais.
 
-### 3.1 目标结构（讨论结果，尚未落地）
+### 3.1 Estrutura-alvo (resultado da discussão, ainda não implementada)
 
-以下接口只表达本轮讨论的 schema 形状，不要求将当前 class、ID 类型或 readonly 实现改写为这些接口。
+As interfaces abaixo expressam apenas a forma do schema discutida nesta rodada e não exigem reescrever a implementação atual de classes, tipos de ID ou readonly como essas interfaces.
 
-**顶层**：`modelIds` 改为 `personalModelIds`；templateId 移到外层规则，label 移出并改为外层 providerName，其余字段及分组保持。
+**Nível superior**: `modelIds` passa a `personalModelIds`; templateId vai para a regra externa, label sai e passa a ser o providerName externo, e os demais campos e agrupamentos permanecem.
 
 ```ts
 interface ProviderConfig {
@@ -135,13 +134,13 @@ interface ProviderConfig {
 }
 ```
 
-**group**：保留现有三个取值。
+**group**: mantém os três valores atuais.
 
 ```ts
 type ProviderGroup = "standard-personal" | "zai-family" | "bigmodel-family";
 ```
 
-**logo**：保留内置资源引用结构。
+**logo**: mantém a estrutura de referência a recurso embutido.
 
 ```ts
 interface ProviderLogoRef {
@@ -150,7 +149,7 @@ interface ProviderLogoRef {
 }
 ```
 
-**api**：保留嵌套，`baseURL` 改为 `baseUrl`。
+**api**: mantém o aninhamento, com `baseURL` passando a `baseUrl`.
 
 ```ts
 interface ProviderApiConfig {
@@ -160,19 +159,19 @@ interface ProviderApiConfig {
 }
 ```
 
-**API 类型**：保留现有三个取值。
+**Tipo de API**: mantém os três valores atuais.
 
 ```ts
 type ProviderApiType = "anthropic-messages" | "openai-chat-completions" | "openai-responses";
 ```
 
-**access**：保留两种访问结构，不新增 OAuth 分支。
+**access**: mantém as duas estruturas de acesso, sem novo ramo OAuth.
 
 ```ts
 type ProviderAccessConfig = ApiKeyAccessConfig | ZhipuAccountAccessConfig;
 ```
 
-**API Key 访问**：字段保持。
+**Acesso por API Key**: campos mantidos.
 
 ```ts
 interface ApiKeyAccessConfig {
@@ -182,7 +181,7 @@ interface ApiKeyAccessConfig {
 }
 ```
 
-**账号访问**：字段保持，包括 entitled。
+**Acesso por conta**: campos mantidos, incluindo entitled.
 
 ```ts
 interface ZhipuAccountAccessConfig {
@@ -193,17 +192,17 @@ interface ZhipuAccountAccessConfig {
 }
 ```
 
-**外层规则集合**：统一见第 6.4 节，不再以 Record key 承载序列化的 Provider 身份；内部查询仍可建立 Map 索引。
+**Conjunto de regras externas**: unificado na seção 6.4, sem carregar mais a identidade serializada do Provider por uma chave de Record; as consultas internas ainda podem construir índices Map.
 
-### 3.2 已解释的字段背景
+### 3.2 Contexto dos campos já explicado
 
-- `group` 是产品分组：`standard-personal` 对应普通个人 Provider（包括从模板创建的 API Key Provider），`zai-family` / `bigmodel-family` 对应账号套餐 Provider。当前用于分组排序、设置导航、删除限制和保存分组校验；本轮未决定重构这些调用。
-- `logo` 已有 schema：`{ type: "builtin", key: string }`，运行时校验 key 非空，未限制为固定 key enum。UI 将 key 映射到内置图标，未知 key 有兜底；没有在本轮增加 URL、自定义上传或其他 logo 类型。
-- `visibility` 控制普通设置和模型选择入口是否展示，不等于关闭执行。hidden 的 Off-Peak Provider 仍可由专门执行入口使用。
+- `group` é o agrupamento de produto: `standard-personal` corresponde a Providers pessoais comuns (incluindo API Key Providers criados a partir de templates), e `zai-family` / `bigmodel-family` correspondem a Providers de pacotes de conta. Hoje é usado para ordenar agrupamentos, navegar nas settings, restringir exclusões e validar agrupamentos ao salvar; esta rodada não decidiu refatorar essas chamadas.
+- `logo` já tem schema: `{ type: "builtin", key: string }`, com validação de runtime de que a key não é vazia, sem restrição a um enum de keys fixas. A UI mapeia a key para ícones embutidos e tem um fallback para keys desconhecidas; nesta rodada não foram adicionados URL, upload customizado ou outros tipos de logo.
+- `visibility` controla se a entrada aparece nas settings comuns e no seletor de modelo, e não equivale a desativar a execução. Um Provider Off-Peak hidden ainda pode ser usado pela entrada de execução dedicada.
 
-## 4. entitled 的裁决与调用背景
+## 4. Decisão sobre entitled e contexto de chamadas
 
-用户的最终解释：这份 Config 决定 ZCode 认为能不能用这个模型、请求时怎么用；最终是否有资格使用，仍由账号和远端等共同决定。因此 `entitled` 放在 Provider Config 中说得通。
+Explicação final do usuário: esta Config decide o que o ZCode acha que pode usar este modelo e como usá-lo na requisição; se há qualificação no final para usá-lo continua sendo decidido em conjunto pela conta e pelo lado remoto. Por isso faz sentido `entitled` estar no Provider Config.
 
 ```text
 内置 / 账号 / 个人配置
@@ -218,57 +217,57 @@ ZCode 本地可用性判断与请求装配
 账号服务提供请求期访问材料 -> 模型服务端最终鉴权 / 授权
 ```
 
-明确撤回的推论：
+Inferências explicitamente revertidas:
 
-- 不能因为名字叫 Config，就断言它只允许静态事实、必须等同于用户落盘配置。
-- 不能仅凭 `entitled` 会动态变化，就认为它放错位置、需要移到别处。
-- 之前从 App/CLI 赋值差异、状态投影及埋点用法推导出的“设计问题”未获用户认同，不列为待修缺陷。
-- 本轮没有授权更改 `entitled`、`accountState`、协议访问对象或相关消费者。
+- Não se pode afirmar, só porque o nome é Config, que ele só permite fatos estáticos e precisa ser igual à configuração salva pelo usuário.
+- Não se pode concluir, só porque `entitled` muda dinamicamente, que ele está no lugar errado e precisa ser movido.
+- Os "problemas de design" derivados antes de diferenças de atribuição entre App/CLI, projeção de estado e uso de telemetria não foram reconhecidos pelo usuário e não viram defeito pendente.
+- Esta rodada não autorizou alterar `entitled`, `accountState`, o objeto de acesso do protocolo ou consumidores relacionados.
 
-以下仅保存本次静态调用梳理，便于后续理解字段，不是整改清单：
+A seguir fica apenas o levantamento das chamadas estáticas desta vez, para facilitar a compreensão posterior dos campos, e não é uma lista de correções:
 
-| 路径                         | 当前作用                                                                                                                                                        |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Account 结果解析             | `available` 生成 true，`pending` / `unavailable` 生成 false；unknown 可沿用同身份旧结果，没有旧结果则为 false。初次账号事实未到达时为 false。                   |
-| App Off-Peak                 | 从当前选中的同账号体系个人 / 团队套餐是否 available 推导值。                                                                                                    |
-| 独立 CLI                     | 根据本地账号身份及对应 API Key 是否存在生成值；配置检查判断是否存在 entitled 的账号 Provider。                                                                  |
-| Provider Resolver / Registry | 账号 Provider 的执行资格要求 entitled 为 true，同时检查 current、配置完整性等；可选择性还受 visibility 影响。                                                   |
-| 设置页                       | 参与导航项账号状态、套餐卡片、Start Plan 可见性、连接 / 重新授权完成判断和首次补同步。                                                                          |
-| 额度及套餐查询               | 侧栏、设置页、输入框和套餐身份快照，通过公共 helper 获取账号访问对象及刷新指纹。                                                                                |
-| 套餐只读查询                 | 专用 inspection helper 允许部分尚未 entitled 的状态查询权益；没有 accountState 时才回退到 entitled 判断。用于设置详情、权益 hook、手动领取横幅及 OAuth 后刷新。 |
-| 购买入口埋点                 | 用 entitled Provider 推断进入购买入口时的套餐状态，供 Automations、Off-Peak 新建等入口使用。                                                                    |
-| 类型与投影                   | 字段出现在 Provider Access Config、AccountProviderState 投影以及协议账号访问对象；本轮不改变这些结构。                                                          |
+| Caminho                         | Papel atual                                                                                                                                                      |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Parse do resultado de Account   | `available` gera true, `pending` / `unavailable` gera false; unknown pode reaproveitar um resultado antigo da mesma identidade e, sem resultado antigo, é false. Antes de o fato de conta inicial chegar, é false. |
+| App Off-Peak                   | Valor derivado de o pacote pessoal/equipe da mesma família de conta selecionado estar ou não available.                                                          |
+| CLI independente                | Valor gerado conforme a identidade de conta local e a existência da API Key correspondente; a checagem de configuração verifica se existe um Provider de conta entitled.         |
+| Resolver / Registry do Provider | A elegibilidade de execução de um Provider de conta exige entitled true, além de verificar current, completude da configuração etc.; a opcionalidade também é afetada por visibility. |
+| Página de settings              | Participa do status de conta dos itens de navegação, dos cartões de plano, da visibilidade do Start Plan, da verificação de conclusão de conexão/reautorização e da primeira sincronização complementar. |
+| Consulta de cota e de plano     | Barra lateral, página de settings, caixa de entrada e snapshot de identidade do plano, obtendo o objeto de acesso da conta e a impressão digital de atualização pelo helper comum.            |
+| Consulta de plano somente leitura | Um helper de inspeção dedicado permite consultar benefícios em alguns estados ainda não entitled; só sem accountState é que ele recorre à verificação de entitled. Usado em detalhes de settings, hooks de benefícios, banner de resgate manual e na atualização após OAuth. |
+| Telemetria da entrada de compra  | Usa o Provider entitled para inferir o estado do plano ao entrar na compra, usado por entradas como Automations e criação de Off-Peak.                                                |
+| Tipos e projeção                | O campo aparece no Provider Access Config, na projeção AccountProviderState e no objeto de acesso de conta do protocolo; esta rodada não muda essas estruturas.                        |
 
-主要代码证据（记录时字段仍是原名）：
+Principais evidências de código (no momento do registro o campo ainda tinha o nome original):
 
-- [ProviderConfig 与 Access 类型](../../../../packages/provider/src/config/provider-config.ts)
-- [运行时 Schema](../../../../packages/provider/src/config/schema.ts)
-- [Account 结果解析与状态投影](../../../../packages/provider/src/account-provider-resolution.ts)
-- [执行资格判断](../../../../packages/provider/src/resolver.ts)
-- [App 账号连接解析](../../../../packages/services/src/model-provider/accountProviderConnectionResolver.ts)
-- [独立 CLI 账号配置](../../../../apps/zcode-cli/packages/bootstrap/src/app/standalone-account-provider-runtime.ts)
-- [UI Account Access helpers](../../../../packages/ui/src/lib/accountProviderAccess.ts)
-- [Provider 设置页](../../../../packages/ui/src/settings/ModelProviderSection.tsx)
-- [套餐状态计算](../../../../packages/ui/src/settings/model-provider-section/providerFamilyConnectionVisibility.ts)
-- [套餐身份快照](../../../../packages/ui/src/hooks/usePlanIdentitySnapshot.ts)
-- [购买入口埋点](../../../../packages/ui/src/lib/codingPlanFunnelTelemetry.ts)
-- [协议账号访问对象](../../../../packages/shared/src/zcode-protocol/index.ts)
+- [ProviderConfig e tipos de Access](../../../../packages/provider/src/config/provider-config.ts)
+- [Schema de runtime](../../../../packages/provider/src/config/schema.ts)
+- [Parse de resultado de Account e projeção de estado](../../../../packages/provider/src/account-provider-resolution.ts)
+- [Verificação de elegibilidade de execução](../../../../packages/provider/src/resolver.ts)
+- [Resolução de conexão de conta do App](../../../../packages/services/src/model-provider/accountProviderConnectionResolver.ts)
+- [Configuração de conta do CLI independente](../../../../apps/zcode-cli/packages/bootstrap/src/app/standalone-account-provider-runtime.ts)
+- [Helpers de Account Access da UI](../../../../packages/ui/src/lib/accountProviderAccess.ts)
+- [Página de settings de Provider](../../../../packages/ui/src/settings/ModelProviderSection.tsx)
+- [Cálculo do status do plano](../../../../packages/ui/src/settings/model-provider-section/providerFamilyConnectionVisibility.ts)
+- [Snapshot da identidade do plano](../../../../packages/ui/src/hooks/usePlanIdentitySnapshot.ts)
+- [Telemetria da entrada de compra](../../../../packages/ui/src/lib/codingPlanFunnelTelemetry.ts)
+- [Objeto de acesso de conta do protocolo](../../../../packages/shared/src/zcode-protocol/index.ts)
 
-## 5. ModelConfig：已确认的变更与分层目标结构
+## 5. ModelConfig: alterações confirmadas e estrutura-alvo em camadas
 
-本轮用户已确认以下三项，尚未修改实现：
+O usuário já confirmou os três pontos abaixo nesta rodada, e a implementação ainda não foi modificada:
 
-- `properties.input_format` / `output_format` 改为 `inputFormat` / `outputFormat`，内部 `support_text`、`support_image`、`support_video`、`support_audio`、`support_pdf` 分别改为 `supportsText`、`supportsImage`、`supportsVideo`、`supportsAudio`、`supportsPdf`。
-- `requiresMfjsToolSchema` 从 ModelConfig 顶层移入 `properties`，与其他模型能力及约束放在一起。
-- 删除 `optionSpecs.reasoningLevel.type` 和 `optionSpecs.maxOutputTokens.type`。用户先要求查看实际 schema，确认成员名已经分别绑定 enum / limit 结构后，明确同意删除。
+- `properties.input_format` / `output_format` passam a `inputFormat` / `outputFormat`, e dentro delas `support_text`, `support_image`, `support_video`, `support_audio` e `support_pdf` passam respectivamente a `supportsText`, `supportsImage`, `supportsVideo`, `supportsAudio` e `supportsPdf`.
+- `requiresMfjsToolSchema` sai do nível superior do ModelConfig e entra em `properties`, junto das demais capacidades e restrições do modelo.
+- Removidos `optionSpecs.reasoningLevel.type` e `optionSpecs.maxOutputTokens.type`. O usuário pediu primeiro para ver o schema real, confirmou que os nomes de membro já estão vinculados a estruturas enum / limit respectivamente e então concordou explicitamente com a remoção.
 
-删除 `type` 的依据是当前 schema 已将 `reasoningLevel` 绑定到 `enumOptionSpecSchema`，将 `maxOutputTokens` 绑定到 `limitOptionSpecSchema`；并非靠 `type` 在不同成员形态之间分派。`map` 的变量名也分别绑定到这两个选项。本阶段先确认删除两个选项 type；随后 6.6 又单独确认删除按集合分类的规则 type。Provider Access 等仍需要成员形态区分的 type 保留，不做全仓机械删除。
+A base para remover `type` é que o schema atual já vincula `reasoningLevel` a `enumOptionSpecSchema` e `maxOutputTokens` a `limitOptionSpecSchema`; o `type` não estava sendo usado para desambiguar entre diferentes formas de membro. Os nomes de variável de `map` também estão vinculados a essas duas opções. Nesta fase confirma-se primeiro a remoção do type das duas opções; depois, em 6.6, confirma-se separadamente a remoção do type das regras classificadas por conjunto. O type continua onde ainda é necessário distinguir formas de membro, como em Provider Access, e não há remoção mecânica em todo o repositório.
 
-其余字段、可选性和 null 保持现状；`enabled` 仍是模型启停配置。下列接口用于表达目标形状，不要求替换当前 class / readonly 实现。普通字段不另加通用设计检查清单。
+Os demais campos, a opcionalidade e os nulls mantêm o estado atual; `enabled` continua sendo a configuração de ligar/desligar o modelo. As interfaces abaixo servem para expressar a forma-alvo e não exigem substituir a implementação atual de classes / readonly. Campos comuns não recebem um checklist genérico de design adicional.
 
-### 5.1 顶层
+### 5.1 Nível superior
 
-`requiresMfjsToolSchema` 移出顶层，放入 properties。
+`requiresMfjsToolSchema` sai do nível superior e entra em properties.
 
 ```ts
 interface ModelConfig {
@@ -280,7 +279,7 @@ interface ModelConfig {
 
 ### 5.2 properties
 
-加入 `requiresMfjsToolSchema`，输入输出格式字段改为驼峰命名。
+Adiciona `requiresMfjsToolSchema`, e os campos de formato de entrada e saída passam a nomenclatura camelCase.
 
 ```ts
 interface ModelPropertiesConfig {
@@ -295,9 +294,9 @@ interface ModelPropertiesConfig {
 }
 ```
 
-### 5.3 输入输出格式
+### 5.3 Formatos de entrada e saída
 
-内部字段统一为 `supportsXxx`。
+Campos internos unificados em `supportsXxx`.
 
 ```ts
 interface ModelInputFormatConfig {
@@ -315,7 +314,7 @@ interface ModelOutputFormatConfig {
 
 ### 5.4 optionSpecs
 
-这一层不变。
+Esta camada não muda.
 
 ```ts
 interface ModelOptionSpecsConfig {
@@ -324,11 +323,11 @@ interface ModelOptionSpecsConfig {
 }
 ```
 
-### 5.5 选项定义
+### 5.5 Definição de opções
 
-删除 enum / limit 结构中的两个 `type` 字段。
+Remove os dois campos `type` das estruturas enum / limit.
 
-> 实施进度（2026-09-10）：本项已由 B2c 接入 schema、行为类、Built-in、CLI 合同、设置保存及测试；第5节媒体改名/MFJS移动也已由 B2d 完成。Pro SC90/F98 通过。后续规则归组/手动配置独立集合仍未完成，不能把第5节字段收口视为整个 Todo 完成。完整证据见实施账本。
+> Progresso da implementação (2026-09-10): este item já foi conectado por B2c ao schema, às classes de comportamento, ao Built-in, ao contrato do CLI, ao salvamento das settings e aos testes; a renomeação de mídia e a movimentação de MFJS da seção 5 também foram concluídas por B2d. SC90/F98 do Pro passaram. O agrupamento das regras seguintes e o conjunto independente da configuração manual ainda não foram concluídos, e não se pode considerar o fechamento dos campos da seção 5 como a conclusão de todo o Todo. As evidências completas estão no razão de implementação.
 
 ```ts
 interface EnumOptionSpecConfig {
@@ -342,17 +341,17 @@ interface LimitOptionSpecConfig {
 }
 ```
 
-`values` 保留有序档位语义，`max` 保留支持上限语义，`map` 保留转换请求参数的表达式字符串。本轮未决定重命名 `EnumOptionSpecConfig` / `LimitOptionSpecConfig`，也未新增选项。
+`values` mantém a semântica de níveis ordenados, `max` mantém a semântica de teto suportado e `map` mantém a string de expressão que converte em parâmetro de requisição. Esta rodada não decidiu renomear `EnumOptionSpecConfig` / `LimitOptionSpecConfig` nem adicionou opções.
 
-稀疏覆盖语义保持：字段缺省表示沿用前层，null 表示显式清除；配置对象按现有规则递归覆盖，数组和 headers 等普通值整体替换。改名和移动字段时不能把 null 转成缺省，也不能顺手改成数组追加或 headers 深合并。ManualModelConfig 的完整参数约束是单独的例外，见 6.2。
+A semântica de cobertura esparsa é mantida: campo ausente significa herdar da camada anterior e null significa limpeza explícita; objetos de configuração são sobrescritos recursivamente pelas regras atuais, e valores comuns como arrays e headers são substituídos inteiros. Ao renomear e mover campos não se pode transformar null em ausente, nem aproveitar para mudar para append de array ou deep merge de headers. A restrição completa de parâmetros do ManualModelConfig é uma exceção à parte, ver 6.2.
 
-代码依据：[ModelConfig 类型与选项定义](../../../../packages/provider/src/config/model-config.ts)、[字段绑定的运行时 schema](../../../../packages/provider/src/config/schema.ts)。记录时实现仍保留旧命名、顶层 `requiresMfjsToolSchema` 和两个 `type` 字段。
+Base de código: [tipos ModelConfig e definição de opções](../../../../packages/provider/src/config/model-config.ts) e [schema de runtime com o vínculo de campos](../../../../packages/provider/src/config/schema.ts). No momento do registro a implementação ainda mantinha a nomenclatura antiga, o `requiresMfjsToolSchema` no nível superior e os dois campos `type`.
 
-## 6. 本轮规则结构讨论与状态
+## 6. Discussão das regras desta rodada e status
 
-### 6.1 Match 字段改名：已确认
+### 6.1 Renomeação dos campos Match: confirmada
 
-`baseURLMatch` 改为 `baseUrlMatch`，`apiMatch` 改为 `apiTypeMatch`。随后进一步确认删除 providerMatch 字段及对应匹配逻辑；下列只展示可复用的公共字段，不是允许直接写入文件的第四种 Match 规则。文件各集合必须使用 6.3 的具体严格 schema，不能以此宽泛结构接受越层条件。
+`baseURLMatch` passa a `baseUrlMatch` e `apiMatch` passa a `apiTypeMatch`. Depois ficou confirmado ainda eliminar o campo providerMatch e a lógica de correspondência correspondente; abaixo só são mostrados os campos comuns reutilizáveis, e não uma quarta regra Match genérica para ser escrita diretamente em arquivo. Os conjuntos do arquivo precisam usar os schemas estritos concretos de 6.3 e não podem aceitar condições que atravessam camadas por causa dessa estrutura ampla.
 
 ```ts
 interface MatchModelConfigRule {
@@ -363,15 +362,15 @@ interface MatchModelConfigRule {
 }
 ```
 
-### 6.2 智能配置与手动配置：两种规则、两个集合，已确认
+### 6.2 Configuração inteligente e manual: duas regras, dois conjuntos, confirmados
 
-用户提出按智能配置模式区分 config 的完整程度，避免关闭智能配置时仍能保存不完整参数，并要求实施时派生复用而非抄写结构。讨论先从 useRecommendedConfig 改名 useSmartConfig，随后明确改成 ProviderModelConfigRule / ManualProviderModelConfigRule 两种规则，分别放入两个集合。最后确认持久化规则不再保存重复 type，模式由所属集合表达，useSmartConfig 也不再持久化。UI 概念仍叫“智能配置”。
+O usuário propôs distinguir o grau de completude do config conforme o modo de configuração inteligente, evitando que ainda seja possível salvar parâmetros incompletos ao desativar a configuração inteligente, e exigiu que a implementação derive e reutilize em vez de copiar a estrutura. A discussão começou renomeando useRecommendedConfig para useSmartConfig, e depois ficou explícito usar dois tipos de regra, ProviderModelConfigRule / ManualProviderModelConfigRule, colocados em dois conjuntos separados. Por fim confirmou-se que a regra persistida não guarda mais um type duplicado, o modo passa a ser expresso pelo conjunto ao qual pertence, e useSmartConfig também deixa de ser persistido. O conceito na UI continua sendo chamado de "configuração inteligente".
 
-关闭后的完整配置叫 ManualModelConfig，对应 manualModelConfigSchema，取代此前方案中的 FixedModelConfig / fixedModelConfigSchema。智能配置开启时仍允许局部覆盖，“手动配置”专指关闭智能配置后的完整配置模式。
+A configuração completa após desativar chama-se ManualModelConfig, correspondente a manualModelConfigSchema, substituindo o FixedModelConfig / fixedModelConfigSchema da proposta anterior. Com a configuração inteligente ligada, continua sendo permitida uma cobertura parcial, e "configuração manual" designa especificamente o modo de configuração completa depois de desligar a configuração inteligente.
 
-当前代码 schema 仅声明 useRecommendedConfig 可选 boolean + 稀疏 ModelConfig；新增 / 编辑入口通过 `assertFixedModelConfigComplete` 调用 `validateComplete` 并排除 enabled 缺失项，固定模式解析也不会从推荐配置补缺，最终 Registry 再检查完整性。
+O schema de código atual declara apenas useRecommendedConfig como boolean opcional + ModelConfig esparso; as entradas de criação/edição chamam `validateComplete` via `assertFixedModelConfigComplete` e excluem os itens com enabled ausente, o parse do modo fixo também não completa lacunas a partir da configuração recomendada, e o Registry final verifica a completude.
 
-个人集合层：两种规则分为两个成员，不混在一个 union 数组中。
+Camada do conjunto personal: os dois tipos de regra são dois membros, sem mistura em um único array de união.
 
 ```ts
 interface PersonalModelConfigRules {
@@ -380,7 +379,7 @@ interface PersonalModelConfigRules {
 }
 ```
 
-普通精确规则层：参与前层配置叠加，个人集合中表示智能配置；内置精确规则复用这一类型。
+Camada das regras exatas comuns: participa da sobreposição da configuração da camada anterior e, no conjunto pessoal, representa a configuração inteligente; as regras exatas embutidas reutilizam este tipo.
 
 ```ts
 interface ProviderModelConfigRule {
@@ -390,7 +389,7 @@ interface ProviderModelConfigRule {
 }
 ```
 
-手动精确规则层：模型参数完整，不从推荐配置补缺。
+Camada das regras exatas manuais: parâmetros do modelo completos, sem completar lacunas a partir da configuração recomendada.
 
 ```ts
 interface ManualProviderModelConfigRule {
@@ -400,9 +399,9 @@ interface ManualProviderModelConfigRule {
 }
 ```
 
-同一个 providerId + modelId 在个人配置中只能属于其中一组，不允许同时声明智能和手动配置。切换模式改变条目所属集合，不维护第二份模式布尔值；保存校验复用所属集合的规则 schema。
+O mesmo providerId + modelId só pode pertencer a um dos dois grupos na configuração pessoal, e não é permitido declarar configuração inteligente e manual ao mesmo tempo. Trocar de modo muda o conjunto ao qual a entrada pertence e não mantém um segundo booleano de modo; a validação de salvamento reutiliza o schema de regras do conjunto ao qual pertence.
 
-手动配置层：除独立管理的 enabled，模型参数及嵌套必要成员均完整。完整类型名用于展示职责，实施时复用基础 schema。
+Camada de configuração manual: exceto o enabled gerenciado de forma independente, os parâmetros do modelo e os membros aninhados obrigatórios estão completos. O nome de tipo completo existe para exibir a responsabilidade; na implementação, o schema base é reutilizado.
 
 ```ts
 interface ManualModelConfig {
@@ -412,7 +411,7 @@ interface ManualModelConfig {
 }
 ```
 
-与完整配置的关系：完整配置用于描述已齐备的模型配置，enabled 也必填；手动配置只放宽 enabled，其余成员复用。下列是目标数据形状，当前实现没有可直接复用的独立 completeModelConfigSchema，需要从共享字段 schema 派生，而不是假定它已经存在。
+Relação com a configuração completa: a configuração completa descreve uma configuração de modelo já completa, com enabled também obrigatório; a configuração manual só flexibiliza o enabled e os demais membros são reutilizados. Abaixo está a forma-alvo dos dados; a implementação atual não tem um completeModelConfigSchema independente diretamente reutilizável, e é preciso derivá-lo dos schemas de campos compartilhados em vez de assumir que ele já existe.
 
 ```ts
 interface CompleteModelConfig {
@@ -422,9 +421,9 @@ interface CompleteModelConfig {
 }
 ```
 
-手动规则参与解析时保留前层 enabled，再应用手动规则自己的 enabled 覆盖；properties / optionSpecs 则使用完整手动值，不从智能配置补缺。不能因关闭智能配置而丢掉原来的模型启停状态。这延续当前固定模式行为，不新增第三种模式或额外状态字段。
+Quando uma regra manual participa do parse, o enabled da camada anterior é preservado e só então o enabled próprio da regra manual é aplicado por cima; properties / optionSpecs usam os valores manuais completos, sem completar lacunas a partir da configuração inteligente. Não se pode perder o estado original de liga/desliga do modelo só porque a configuração inteligente foi desligada. Isso estende o comportamento atual do modo fixo, sem criar um terceiro modo nem campos de estado extras.
 
-完整属性层：叶子字段必填且非 null。
+Camada de propriedades completa: campos folha obrigatórios e não nulos.
 
 ```ts
 interface CompleteModelProperties {
@@ -439,7 +438,7 @@ interface CompleteModelProperties {
 }
 ```
 
-完整输入输出格式层：各能力显式声明。
+Camada completa de formatos de entrada e saída: cada capacidade é declarada explicitamente.
 
 ```ts
 interface CompleteModelInputFormat {
@@ -455,7 +454,7 @@ interface CompleteModelOutputFormat {
 }
 ```
 
-完整选项层：两个选项的必要字段全部齐全。
+Camada de opções completa: todos os campos necessários das duas opções estão presentes.
 
 ```ts
 interface CompleteModelOptionSpecs {
@@ -464,7 +463,7 @@ interface CompleteModelOptionSpecs {
 }
 ```
 
-选项成员层：复用相应选项 schema 的完整版本，不恢复已删除的选项 type。
+Camada dos membros de opção: reutiliza a versão completa do schema da opção correspondente, sem restaurar o type de opção já removido.
 
 ```ts
 interface EnumOptionSpec {
@@ -478,17 +477,17 @@ interface LimitOptionSpec {
 }
 ```
 
-实施层复用约定：从已有精确规则基础 schema 派生手动版本，仅替换 config 为 manualModelConfigSchema，再分别 infer 类型；manualModelConfigSchema 从完整配置 schema 派生，仅放宽 enabled。不新增 ProviderModelRuleIdentity，也不保留此前的 PersonalProviderModelConfigRule 条件类型作为第二套持久化结构。
+Convenção de reutilização na implementação: derivar a versão manual a partir do schema base da regra exata já existente, substituindo apenas config por manualModelConfigSchema, e então inferir os tipos separadamente; manualModelConfigSchema é derivado do schema de configuração completa, flexibilizando apenas o enabled. Não se cria um novo ProviderModelRuleIdentity nem se mantém o tipo condicional PersonalProviderModelConfigRule anterior como uma segunda estrutura de persistência.
 
-保存时可直接用对应规则 schema 解析整条规则，替代单独维护的固定模式完整性检查；数值范围、数组内容和 Map 等约束也需一并复用。普通智能规则仍可稀疏，手动规则必须完整，不能一并放宽或收紧。文件读取目前允许不完整配置；未来手动规则校验失败时沿用所属个人文件的错误处理边界，本轮没有授权新增删除整份文件、自动补齐参数或偷偷改回智能模式的行为。若实施时现有错误处理无法适配，应报告具体冲突。
+Na gravação é possível usar diretamente o schema da regra correspondente para fazer o parse da regra inteira, substituindo a checagem de completude do modo fixo mantida à parte; restrições de faixa numérica, de conteúdo de arrays e de Map também precisam ser reutilizadas. As regras inteligentes comuns continuam podendo ser esparsas e as regras manuais precisam ser completas, sem flexibilizar ou apertar as duas em conjunto. A leitura de arquivo hoje permite configuração incompleta; no futuro, quando a validação de uma regra manual falhar, vale a fronteira de tratamento de erro do arquivo pessoal ao qual ela pertence, e esta rodada não autorizou adicionar a exclusão do arquivo inteiro, o preenchimento automático de parâmetros ou voltar silenciosamente ao modo inteligente. Se, na implementação, o tratamento de erro atual não der conta, o conflito concreto precisa ser reportado.
 
-证据：[新增 / 编辑及固定模式校验](../../../../packages/provider/src/config-service.ts)、[规则 schema](../../../../packages/provider/src/config/schema.ts)、[固定模式解析](../../../../packages/provider/src/config/model-config.ts)。
+Evidências: [criação/edição e validação do modo fixo](../../../../packages/provider/src/config-service.ts), [schema das regras](../../../../packages/provider/src/config/schema.ts) e [parse do modo fixo](../../../../packages/provider/src/config/model-config.ts).
 
-### 6.3 各层 Model Rule：边界及内置成员命名已确认
+### 6.3 Model Rule de cada camada: limites e nomenclatura dos membros embutidos confirmados
 
-当前代码中 modelRules、modelApiRules、providerSiteRules 全部复用宽泛的 matchModelConfigRuleSchema，序列化按 API / URL 字段是否存在重新分组。本轮确认各层建立独立严格 schema，通过 extend 复用公共定义；三个 Match 层都禁止 providerMatch，实例身份只通过精确规则的 providerId + modelId 表达。
+No código atual, modelRules, modelApiRules e providerSiteRules reutilizam todos o amplo matchModelConfigRuleSchema, e a serialização reagrupa conforme a presença de campos de API / URL. Esta rodada confirma que cada camada tem um schema estrito próprio, reutilizando as definições comuns via extend; nas três camadas de Match, providerMatch é proibido e a identidade da instância só é expressa pelo providerId + modelId das regras exatas.
 
-集合层：内置成员 providerModelRules 改为 builtinProviderModelRules，仅加 builtin 前缀；不采用之前误提的 providerInstanceModelRules / ProviderInstanceModelConfigRule 改名。个人集合的 providerModelRules 不加 builtin 前缀，规则类型保持 ProviderModelConfigRule。
+Camada dos conjuntos: o membro embutido providerModelRules passa a builtinProviderModelRules, apenas com o prefixo builtin; não se adota a renomeação antes levantada por engano como providerInstanceModelRules / ProviderInstanceModelConfigRule. O providerModelRules do conjunto pessoal não recebe prefixo builtin e o tipo de regra permanece ProviderModelConfigRule.
 
 ```ts
 interface BuiltinModelConfigRules {
@@ -500,7 +499,7 @@ interface BuiltinModelConfigRules {
 }
 ```
 
-Model 层：modelMatch 必填，不接受 Provider、API、URL 条件。
+Camada de Model: modelMatch é obrigatório e condições de Provider, API ou URL não são aceitas.
 
 ```ts
 interface ModelMatchConfigRule {
@@ -509,7 +508,7 @@ interface ModelMatchConfigRule {
 }
 ```
 
-Model + API 层：复用 Model 层，增加必填 apiTypeMatch，不接受 Provider、URL 条件。
+Camada de Model + API: reutiliza a camada de Model e acrescenta apiTypeMatch obrigatório, sem aceitar condições de Provider ou URL.
 
 ```ts
 interface ModelApiMatchConfigRule {
@@ -519,7 +518,7 @@ interface ModelApiMatchConfigRule {
 }
 ```
 
-Site 层：复用 Model 层，增加必填 baseUrlMatch 和可选 apiTypeMatch，不接受 Provider 条件。
+Camada de Site: reutiliza a camada de Model e acrescenta baseUrlMatch obrigatório e apiTypeMatch opcional, sem aceitar condições de Provider.
 
 ```ts
 interface ProviderSiteMatchConfigRule {
@@ -530,11 +529,11 @@ interface ProviderSiteMatchConfigRule {
 }
 ```
 
-三层 modelMatch 均必填；整个站点通用时显式写 `".*"`。已有 Z.ai / BigModel Anthropic 站点的搜索、中途 System 规则就是这一用法，用户已确认保留。以上接口用于分层展示，实际类型仍须由相应 schema 推导；不能仅删 TypeScript 字段而让运行时 schema 接受未知 providerMatch。
+modelMatch é obrigatório nas três camadas; quando a regra vale para o site inteiro, escreve-se explicitamente `".*"`. As regras de busca e de System no meio da conversa já existentes para os sites Anthropic da Z.ai / BigModel são exatamente esse uso, e o usuário confirmou a manutenção. As interfaces acima servem para exibição em camadas e os tipos reais continuam devendo ser derivados dos schemas correspondentes; não se pode simplesmente apagar um campo TypeScript e deixar o schema de runtime aceitar um providerMatch desconhecido.
 
-匹配字段仍为正则表达式字符串，apiTypeMatch 不改成单个 API 枚举值。保留当前整串匹配、modelMatch 忽略大小写及 URL 规范化语义；不要把改名顺带变成相等判断或子串匹配。站点路径中的点等字符需要按正则语义正确转义。
+Os campos de correspondência continuam sendo strings de expressão regular, e apiTypeMatch não vira um único valor de enum de API. Mantêm-se a semântica atual de correspondência da string inteira, de modelMatch ignorar maiúsculas/minúsculas e de normalização de URL; não se deve transformar a renomeação em comparação de igualdade ou em correspondência de substring. Caracteres como pontos no caminho do site precisam ser escapados corretamente conforme a semântica de regex.
 
-各数组内部保留原顺序，模型配置仍按下图逐层覆盖；分组和删除 type 不改变优先级，也不允许序列化时再次根据字段猜回集合。普通与手动个人规则按 6.2 互斥，不依赖两组谁排在后面解决冲突。
+A ordem original dentro de cada array é preservada, e a configuração do modelo continua sendo sobrescrita camada a camada conforme o diagrama abaixo; o agrupamento e a remoção de type não alteram a prioridade e também não permitem que a serialização adivinhe de novo o conjunto a partir dos campos. As regras pessoais comuns e manuais são mutuamente exclusivas conforme 6.2, sem depender de qual dos dois grupos vier depois para resolver o conflito.
 
 ```text
 modelRules -> modelApiRules -> providerSiteRules
@@ -542,7 +541,7 @@ modelRules -> modelApiRules -> providerSiteRules
     -> 个人普通规则 或 个人手动规则
 ```
 
-模板精确模型规则层：由 templateModelRules 集合确定类别，不再保存重复 type。
+Camada das regras exatas de modelo de template: a categoria é determinada pelo conjunto templateModelRules e o type duplicado deixa de ser salvo.
 
 ```ts
 interface TemplateModelConfigRule {
@@ -552,39 +551,39 @@ interface TemplateModelConfigRule {
 }
 ```
 
-Provider 精确模型规则见 6.2；内置集合只接受普通 ProviderModelConfigRule，不混入手动规则。
+As regras exatas de modelo de Provider estão em 6.2; o conjunto embutido só aceita ProviderModelConfigRule comuns, sem misturar regras manuais.
 
-### 6.3.1 现有四条越层规则：全部归入 Site 层，已确认
+### 6.3.1 As quatro regras existentes que atravessavam camadas: todas movidas para a camada Site, confirmado
 
-本轮通过实际配置及提交记录核查发现：Model 层有一条账号 Provider 通配规则，Model + API 层有三条 Provider 条件规则。此前以“当前已有用法”为由建议保留 providerMatch，用户明确否决；schema 应按层职责约束，不能为越层规则放宽。
+A verificação feita nesta rodada com as configurações reais e os registros de commit encontrou: na camada Model há uma regra curinga de Provider de conta, e na camada Model + API há três regras com condição de Provider. Antes se havia sugerido manter o providerMatch com o argumento de "já existe uso atual disso", e o usuário vetou explicitamente; o schema deve ser restringido pela responsabilidade de cada camada, sem flexibilização por causa de regras que atravessam camadas.
 
-| 原位置及条件                                                       | 覆盖内容                      | 确认后的处理                                                                                         |
-| ------------------------------------------------------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Model：账号个人 / 团队 / Start Plan Provider，modelMatch 为 `".*"` | 图片、视频输入为 true         | 改为 Endpoint 条件，移入 providerSiteRules；保留 modelMatch `".*"`                                   |
-| Model + API：anthropic，Claude 模型，Anthropic Messages            | 原生搜索、中途 System 为 true | 移入 providerSiteRules，按 Anthropic Endpoint 匹配，保留模型及 API 条件                              |
-| Model + API：moonshot-kimi，K3 系列，Anthropic Messages            | MFJS 工具 Schema 为 true      | 移入 providerSiteRules，按 Moonshot Endpoint 匹配，保留 K3 模型及 API 条件，不提升为所有站点通用规则 |
-| Model + API：deepseek，所有模型，Anthropic Messages                | 原生搜索、中途 System 为 true | 移入 providerSiteRules，按 DeepSeek Endpoint 匹配，保留 modelMatch `".*"` 及 API 条件                |
+| Posição e condição originais                                                       | O que cobre                    | Tratamento após a confirmação                                                                                     |
+| ------------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| Model: Provider de conta pessoal / equipe / Start Plan, modelMatch `".*"`        | entrada de imagem e vídeo = true | Passa a ser condição de Endpoint e é movida para providerSiteRules; mantém modelMatch `".*"`                     |
+| Model + API: anthropic, modelos Claude, Anthropic Messages                      | busca nativa e System no meio = true | Movida para providerSiteRules, casando pelo Endpoint da Anthropic e mantendo as condições de modelo e API       |
+| Model + API: moonshot-kimi, série K3, Anthropic Messages                        | schema de ferramenta MFJS = true | Movida para providerSiteRules, casando pelo Endpoint da Moonshot e mantendo a condição de modelo K3 e de API, sem ser elevada a regra comum a todos os sites |
+| Model + API: deepseek, todos os modelos, Anthropic Messages                      | busca nativa e System no meio = true | Movida para providerSiteRules, casando pelo Endpoint da DeepSeek e mantendo modelMatch `".*"` e a condição de API |
 
-Endpoint 依据当前配置 / 模板记录，实施时按对应路径生成匹配条件，不因转换成 Site 规则随意放大到整个域名：
+Os Endpoints vêm da configuração/registro de templates atual e, na implementação, a condição de correspondência é gerada conforme o caminho correspondente, sem ser arbitrariamente ampliada para o domínio inteiro só por virar uma regra de Site:
 
-- 图片 / 视频对应当前个人、团队、Start Plan 使用的三个 Endpoint：`https://api.z.ai/api/anthropic`、`https://open.bigmodel.cn/api/anthropic`、`https://zcode.z.ai/api/v1/zcode-plan/anthropic`。
-- Anthropic：`https://api.anthropic.com/v1`。
-- Moonshot：`https://api.moonshot.cn/anthropic`。
-- DeepSeek：`https://api.deepseek.com/anthropic`。
+- Imagem e vídeo correspondem aos três Endpoints usados hoje por pessoal, equipe e Start Plan: `https://api.z.ai/api/anthropic`, `https://open.bigmodel.cn/api/anthropic` e `https://zcode.z.ai/api/v1/zcode-plan/anthropic`.
+- Anthropic: `https://api.anthropic.com/v1`.
+- Moonshot: `https://api.moonshot.cn/anthropic`.
+- DeepSeek: `https://api.deepseek.com/anthropic`.
 
-用户明确同意图片 / 视频按 Endpoint 声明：同 Endpoint 的普通 API Key 实例与账号实例得到相同站点能力。此前“账号能力必须留在 builtinProviderModelRules，以避免普通 API Key 实例命中”的建议已被本裁决取代，不能继续作为约束实施。原账号规则未包含 Off-Peak，本次不额外把其独立 Endpoint 加进来。
+O usuário concordou explicitamente em declarar imagem e vídeo por Endpoint: instâncias comuns de API Key e instâncias de conta do mesmo Endpoint passam a ter a mesma capacidade de site. A sugestão anterior de que "a capacidade de conta precisa ficar em builtinProviderModelRules, para evitar que uma instância comum de API Key seja atingida" foi substituída por esta decisão e não pode continuar sendo implementada como restrição. As regras de conta originais não incluíam Off-Peak e, desta vez, o Endpoint separado dele não é acrescentado.
 
-已有匹配 Z.ai / BigModel 上述两个普通 Anthropic Endpoint 的站点规则保留：modelMatch 为 `".*"`、API 为 Anthropic Messages，声明 supportsNativeWebSearch 与 supportsMidConversationSystem 为 true。本次不将这条已有搜索规则无依据扩大到 Start Plan Endpoint；不要因图片 / 视频规则含 Start Plan 而把不同规则的 URL 条件混在一起。
+As regras de site já existentes que casam com os dois Endpoints comuns da Anthropic da Z.ai / BigModel acima são mantidas: modelMatch `".*"`, API Anthropic Messages, declarando supportsNativeWebSearch e supportsMidConversationSystem como true. Nesta rodada a regra de busca existente não é ampliada sem fundamento até o Endpoint do Start Plan; não se deve misturar as condições de URL de regras diferentes só porque a regra de imagem/vídeo inclui o Start Plan.
 
-最终删除 providerMatch 字段及对应解析、匹配、序列化逻辑；四条原规则改为站点规则，不以兼容新格式为由保留第二套 Provider 正则匹配入口。按 providerId + modelId 的精确实例规则仍保留。
+No fim o campo providerMatch é removido, junto com a lógica de parse, correspondência e serialização correspondente; as quatro regras originais viram regras de site e não se mantém uma segunda entrada de correspondência por regex de Provider em nome da compatibilidade com o formato novo. As regras de instância exatas por providerId + modelId continuam sendo mantidas.
 
-证据：[当前 Built-in 配置](../../../../config/provider/zcode-builtin.json)、[规则解析及序列化](../../../../packages/provider/src/config/model-config.ts)。账号媒体通配规则在模板重构提交 `9d3289240d4` 中加入；这些是静态实现事实和本轮设计裁决，不宣称已完成真实服务端能力验证。
+Evidências: [configuração Built-in atual](../../../../config/provider/zcode-builtin.json) e [parse e serialização das regras](../../../../packages/provider/src/config/model-config.ts). A regra curinga de mídia da conta foi adicionada no commit de refatoração de templates `9d3289240d4`; estes são fatos estáticos de implementação e decisões de design desta rodada, e não se afirma que a verificação real da capacidade do servidor foi concluída.
 
-### 6.4 Provider 模板、实例与规则集合：已确认
+### 6.4 Templates, instâncias e conjuntos de regras de Provider: confirmados
 
-用户认为 templateId 放在 ProviderConfig 内别扭；最初 ProviderDefinition 外壳方案被指出“多一层、身份仍分散、命名不对称”。后续把 providerId 一并放入外层，命名与 ModelConfigRule 对称，再将 Template 合入规则体系。用户进一步指出 Provider 使用 Rule[]、Model 使用 Rules 不对称，最终统一为规则集合对象，内部按类别放数组。
+O usuário achou estranho templateId dentro do ProviderConfig; a proposta inicial de um invólucro ProviderDefinition foi apontada como "mais uma camada, identidade ainda espalhada e nomenclatura assimétrica". Depois providerId também foi colocado na camada externa, ficando simétrico em relação a ModelConfigRule, e o Template foi absorvido no sistema de regras. O usuário apontou ainda que Provider usa Rule[] e Model usa Rules de forma assimétrica, e no fim tudo foi unificado em um objeto de conjuntos de regras, com arrays internos por categoria.
 
-内置配置内容层：两边都使用规则集合对象。
+Camada de conteúdo da configuração embutida: ambos os lados usam um objeto de conjuntos de regras.
 
 ```ts
 interface BuiltinProviderConfig {
@@ -593,7 +592,7 @@ interface BuiltinProviderConfig {
 }
 ```
 
-Provider 规则集合层：模板与实例分别归组，取代原先独立 providerTemplates 和 providers 的包装。
+Camada dos conjuntos de regras de Provider: templates e instâncias ficam em grupos separados, substituindo os invólucros providers e providerTemplates que existiam antes.
 
 ```ts
 interface BuiltinProviderConfigRules {
@@ -602,7 +601,7 @@ interface BuiltinProviderConfigRules {
 }
 ```
 
-模板规则层：承载模板身份、展示名称和配置内容。
+Camada das regras de template: carrega a identidade do template, o nome de exibição e o conteúdo de configuração.
 
 ```ts
 interface ProviderTemplateConfigRule {
@@ -612,7 +611,7 @@ interface ProviderTemplateConfigRule {
 }
 ```
 
-实例规则层：承载具体 Provider 身份及可选模板关系。
+Camada das regras de instância: carrega a identidade concreta do Provider e a relação opcional com o template.
 
 ```ts
 interface ProviderConfigRule {
@@ -623,18 +622,18 @@ interface ProviderConfigRule {
 }
 ```
 
-类型名明确恢复为 ProviderConfigRule，不采用此前误加的 ProviderInstanceConfigRule。用户要求的 builtin 前缀只针对 Model 规则集合的 builtinProviderModelRules 成员，不改变这些规则类型的命名。
+O nome de tipo volta explicitamente a ser ProviderConfigRule e não se adota o ProviderInstanceConfigRule acrescentado antes por engano. O prefixo builtin pedido pelo usuário se aplica apenas ao membro builtinProviderModelRules do conjunto de regras de Model e não altera a nomenclatura desses tipos de regra.
 
-内部 ProviderConfig 移除 templateId 和 label。两种规则虽然复用配置内容，具体运行时 schema 仍限制各自允许字段，例如模板不允许保存 API Key。个人配置只允许实例规则，不因此增加用户自定义模板功能；个人文件包装已确认，见 6.7。来源专用配置的进一步展开要求见 6.8。名称最终裁决见 6.5。
+O ProviderConfig interno remove templateId e label. Embora os dois tipos de regra reutilizem o conteúdo de configuração, o schema de runtime concreto continua restringindo os campos permitidos em cada um, por exemplo um template não pode gravar API Key. A configuração pessoal só permite regras de instância e isso não acrescenta a funcionalidade de templates definidos pelo usuário; o invólucro do arquivo pessoal está confirmado em 6.7. A Os requisitos de configuração específicos de origem estão em 6.8. A decisão final de nomenclatura está em 6.5.
 
-结构转换边界：
+Limites de conversão da estrutura:
 
-- 原 Record key 移到规则 providerId，原 config.templateId 移到规则 templateId，实例原 label 转为外层 providerName，其余配置字段保留在 config；模板原 config.label 不再作为第二份默认名来源。
-- 已处于新 Provider 身份体系的 providerId、modelId 保持，不因本次外移更换已保存 ModelSelection 的身份。staging 的旧身份仍按既有 importer / 身份转换规则迁入新体系；不能把“外移不改 ID”误解为取消旧身份迁移。
-- 原 Provider / Template 映射的同层身份唯一性随 Record 转数组保留：同一来源的 providerRules 不重复 providerId，templateRules 不重复 templateId；不同来源对同一 Provider 的覆盖仍合法。不能先转 Map 再悄悄用末项吞掉重复条目。此约束不推广成禁止多条 Match 规则命中同一模型。
-- providerOrder 继续独立表达展示顺序，不自动改为数组顺序。
-- 解析时先建立模板索引，不要求模板和实例按引用先后排列。
-- 旧 staging 数据的升级入口应输出最终结构；本分支未发布中间格式不要求过渡迁移，版本边界见 6.11，已有迁移入口及实施核对位置见 6.16。
+- A chave do Record original passa para o providerId da regra, o config.templateId original passa para o templateId da regra e o label original da instância vira o providerName externo; os demais campos de configuração permanecem no config, e o config.label original do template deixa de ser uma segunda origem de nome padrão.
+- providerId e modelId que já estão no novo sistema de identidade de Provider são mantidos, e a mudança para fora não troca a identidade de uma ModelSelection já salva. As identidades antigas do staging ainda migram para o novo sistema pelas regras existentes de importer / conversão de identidade; não se pode entender "mover para fora não muda o ID" como cancelar a migração de identidades antigas.
+- A unicidade de identidade na mesma camada do mapeamento original de Provider / Template é preservada na conversão de Record em array: os providerRules da mesma origem não repetem providerId e os templateRules não repetem templateId; a sobrescrita do mesmo Provider por origens diferentes continua legítima. Não se pode converter primeiro em Map e depois engolir silenciosamente entradas duplicadas com o último item. Essa restrição não se generaliza para proibir várias regras de Match atingindo o mesmo modelo.
+- providerOrder continua expressando a ordem de exibição de forma independente e não passa automaticamente a ser a ordem do array.
+- No parse o índice de templates é construído primeiro, sem exigir que templates e instâncias venham ordenados por referência.
+- O ponto de entrada de upgrade dos dados antigos do staging deve produzir a estrutura final; o formato intermediário não publicado neste branch não exige uma migração de transição, e o limite de versão está em 6.11, com os pontos de entrada de migração existentes e de conferência da implementação em 6.16.
 
 ```text
 providerConfigRules
@@ -642,11 +641,11 @@ providerConfigRules
     +-- providerRules -> 按 templateId 查模板 -> 合成实例配置
 ```
 
-此前 ProviderDefinition、ProviderConfigRules = ProviderConfigRule[] 以及模板另放 providerTemplates 的方案均被上述结构取代，不作为并行实施方案。
+As propostas anteriores de ProviderDefinition, de ProviderConfigRules = ProviderConfigRule[] e de templates em um providerTemplates separado foram substituídas pela estrutura acima e não servem como plano de implementação paralelo.
 
-### 6.5 模板名称与 Provider 名称：已确认
+### 6.5 Nome do template e nome do Provider: confirmados
 
-模板只保留多语言名称：nameMap 改为 templateNameMap，不采纳此前提议的 displayNames。模板不再另存 name 或 config.label 作为实例默认名。
+O template guarda apenas nomes multilíngues: nameMap passa a templateNameMap e displayNames não é adotado. O template deixa de gravar separadamente name ou config.label como nome padrão da instância.
 
 ```ts
 interface ProviderTemplateNameMap {
@@ -655,13 +654,13 @@ interface ProviderTemplateNameMap {
 }
 ```
 
-Provider 名称在外层 ProviderConfigRule 中叫 providerName，可选性和 null 暂保持前述形状；取代中间方案中的 name。用户手动指定名称时使用用户名称；本轮明确的默认名称生成契约如下：
+O nome do Provider se chama providerName na ProviderConfigRule externa, e a opcionalidade e o null mantêm temporariamente a forma descrita acima, substituindo o name da proposta intermediária. Quando o usuário especifica um nome manualmente, é usado o nome do usuário; o contrato de geração do nome padrão decidido nesta rodada é:
 
-1. 创建时从 templateNameMap 取当前语言的非空名称，缺少时回退到 en-US，再回退到 templateId。
-2. 与已有 Provider 名称去重，比较时去除首尾空白、忽略大小写。
-3. 已占用时依次尝试 `名称 2`、`名称 3` 等，取第一个未占用的名称。例如已有 Anthropic、Anthropic 2，再创建得到 Anthropic 3。
-4. 结果实际保存到外层 providerName；切换语言或模板名称更新不自动修改已创建实例名称。默认名不是每次展示时临时从模板读取。
-5. 读取已有名称、生成可用名称和保存放在同一次配置更新中，避免并发创建得到重复名称。
+1. Na criação, o nome não vazio do idioma atual é buscado em templateNameMap, com fallback para en-US e depois para templateId.
+2. O nome é deduplicado contra os nomes de Provider já existentes, ignorando espaços nas pontas e maiúsculas/minúsculas na comparação.
+3. Quando já está ocupado, tenta-se em sequência `Nome 2`, `Nome 3` etc., tomando o primeiro nome livre. Por exemplo, existindo Anthropic e Anthropic 2, a criação seguinte resulta em Anthropic 3.
+4. O resultado é realmente salvo no providerName externo; trocar o idioma ou atualizar o nome do template não altera o nome de uma instância já criada. O nome padrão não é lido temporariamente do template a cada exibição.
+5. Ler o nome existente, gerar um nome disponível e salvar ficam na mesma atualização de configuração, evitando que criações concorrentes obtenham nomes duplicados.
 
 ```text
 创建 Provider（当前语言）
@@ -671,33 +670,33 @@ Provider 名称在外层 ProviderConfigRule 中叫 providerName，可选性和 n
     -> 后续展示读取已保存名称
 ```
 
-本轮确认的是模板默认名与创建去重；不额外推导出全仓名称统一规范。保留历史裁决背景：先提出 label 改 name 并外移，随后用户明确模板只用名称 map、默认实例名也从该 map 生成，最终要求实例字段更明确地叫 providerName，并确认创建时去重后保存。
+O que esta rodada confirma é o nome padrão do template e a deduplicação na criação; não se deriva disso uma especificação de uniformização de nomes de todo o repositório. Preserva-se o contexto das decisões históricas: primeiro propôs-se mudar label para name e movê-lo para fora, depois o usuário deixou claro que o template usa apenas um mapa de nomes e que o nome padrão da instância também é gerado a partir desse mapa, e por fim exigiu que o campo da instância se chamasse providerName de forma mais explícita, confirmando a deduplicação na criação antes de salvar.
 
-现状依据：[创建与名称去重](../../../../packages/provider/src/config-service.ts)、[模板名称语言回退](../../../../packages/provider/src/config/provider-config.ts)。当前代码创建仍取 template.config.label；将默认名称源改为当前语言 templateNameMap 是本 Todo 待实施的变更。
+Base no estado atual: [criação e deduplicação de nomes](../../../../packages/provider/src/config-service.ts) e [fallback de idioma do nome do template](../../../../packages/provider/src/config/provider-config.ts). O código atual ainda usa template.config.label na criação; mudar a origem do nome padrão para o templateNameMap do idioma atual é a alteração ainda a implementar neste Todo.
 
-### 6.6 规则集合确定类别，删除持久化规则的 type：已确认
+### 6.6 O conjunto de regras determina a categoria; type é removido das regras persistidas: confirmado
 
-每种规则已独占一个数组，因此模板、Provider、Model Match、Model + API Match、Site Match、模板精确模型、Provider 精确模型和手动模型规则都不再保存重复 type。前面各层目标接口已同步删除，而不是只在文字中记录。
+Como cada tipo de regra já ocupa um array próprio, as regras de template, de Provider, de Match de Model, de Match de Model + API, de Match de Site, de modelo exato de template, de modelo exato de Provider e de modelo manual deixam de gravar o type duplicado. As interfaces-alvo de cada camada anteriores já foram ajustadas de forma sincronizada, e não ficou só registrado no texto.
 
-| 所属集合                                        | 成员类型                      |
-| ----------------------------------------------- | ----------------------------- |
-| providerConfigRules.templateRules               | ProviderTemplateConfigRule    |
-| providerConfigRules.providerRules               | ProviderConfigRule            |
-| modelConfigRules.modelRules                     | ModelMatchConfigRule          |
-| modelConfigRules.modelApiRules                  | ModelApiMatchConfigRule       |
-| modelConfigRules.providerSiteRules              | ProviderSiteMatchConfigRule   |
-| modelConfigRules.templateModelRules             | TemplateModelConfigRule       |
-| 内置 modelConfigRules.builtinProviderModelRules | ProviderModelConfigRule       |
-| 个人 modelConfigRules.providerModelRules        | ProviderModelConfigRule       |
-| 个人 modelConfigRules.manualProviderModelRules  | ManualProviderModelConfigRule |
+| Conjunto ao qual pertence                                      | Tipo do membro                   |
+| ------------------------------------------------------------- | -------------------------------- |
+| providerConfigRules.templateRules                             | ProviderTemplateConfigRule       |
+| providerConfigRules.providerRules                             | ProviderConfigRule               |
+| modelConfigRules.modelRules                                   | ModelMatchConfigRule             |
+| modelConfigRules.modelApiRules                                | ModelApiMatchConfigRule          |
+| modelConfigRules.providerSiteRules                            | ProviderSiteMatchConfigRule      |
+| modelConfigRules.templateModelRules                           | TemplateModelConfigRule          |
+| modelConfigRules.builtinProviderModelRules embutido           | ProviderModelConfigRule          |
+| modelConfigRules.providerModelRules pessoal                   | ProviderModelConfigRule          |
+| modelConfigRules.manualProviderModelRules pessoal             | ManualProviderModelConfigRule    |
 
-内部执行若需要合并处理，可以从所属集合补出内部类别标签；不能要求文件再保存一份类别，也不能通过 Map/API/URL 字段猜回规则所属集合而丢失其来源边界。UI 智能配置开关对应个人规则所属的普通 / 手动集合，不另存 useSmartConfig。
+Se a execução interna precisar de um tratamento combinado, ela pode deduzir um rótulo de categoria interno a partir do conjunto ao qual pertence; não se pode exigir que o arquivo grave uma segunda categoria nem adivinhar o conjunto de origem da regra a partir de campos Map/API/URL e, com isso, perdendo a fronteira de origem. A chave de configuração inteligente da UI corresponde ao conjunto comum/manual das regras pessoais e não grava useSmartConfig em separado.
 
-本裁决只删除规则对象中由集合确定的 type。Provider API 的协议 type、Access 的 api-key / zhipu-account type、Logo 资源 type 保持；不要全仓机械删除 type 字段。历史先按 type 拆智能 / 手动规则，随后分两个数组，最终又去掉重复 type；最终版本以本节及 6.2 为准。
+Esta decisão remove apenas o type dos objetos de regra que é determinado pelo conjunto. O type de protocolo da API do Provider, os types api-key / zhipu-account do Access e o type do recurso de Logo são mantidos; não remover mecanicamente campos type em todo o repositório. Historicamente as regras inteligente / manual foram primeiro separadas por type, depois divididas em dois arrays e por fim o type duplicado foi removido; a versão final é a desta seção e a de 6.2.
 
-### 6.7 内置 / 个人配置文件包装：已确认
+### 6.7 Invólucro dos arquivos de configuração embutido / pessoal: confirmado
 
-内置文件层：保留版本、发布 revision 和 config 内容层。用户已确认本分支新增、未发布的内置格式从当前 schemaVersion: 3 收口为 schemaVersion: 1；发布 revision 的规则及 review 见 6.12。
+Camada do arquivo embutido: mantém a versão, a revision publicada e a camada de conteúdo config. O usuário confirmou que o formato embutido novo e não publicado deste branch é consolidado do schemaVersion: 3 atual para schemaVersion: 1; as regras da revision publicada e a review estão em 6.12.
 
 ```ts
 interface ZCodeBuiltinRelease {
@@ -707,9 +706,9 @@ interface ZCodeBuiltinRelease {
 }
 ```
 
-内置内容层与两种规则集合复用 6.3 / 6.4 的完整定义。
+A camada de conteúdo embutida e os dois conjuntos de regras reutilizam as definições completas de 6.3 / 6.4.
 
-个人文件层：增加 config 层，与内置文件保持版本与内容分离。
+Camada do arquivo pessoal: acrescenta uma camada config, mantendo a separação de versão e de conteúdo do arquivo embutido.
 
 ```ts
 interface PersonalProviderConfigFile {
@@ -718,7 +717,7 @@ interface PersonalProviderConfigFile {
 }
 ```
 
-个人内容层：保存独立的展示顺序、两类规则集合和默认模型选择。原 providers 改为 providerConfigRules，原 Record 转为规则数组分组；默认选择合并裁决见 6.9。
+Camada de conteúdo pessoal: grava a ordem de exibição independente, os dois conjuntos de regras e a seleção de modelo padrão. O providers original passa a providerConfigRules e o Record original é convertido em arrays de regras agrupados; a decisão da seleção padrão está em 6.9.
 
 ```ts
 interface PersonalProviderConfig {
@@ -729,7 +728,7 @@ interface PersonalProviderConfig {
 }
 ```
 
-个人 Provider 集合层：只声明具体 Provider，不包含模板集合。
+Camada dos conjuntos de Provider pessoal: declara apenas Providers concretos e não inclui o conjunto de templates.
 
 ```ts
 interface PersonalProviderConfigRules {
@@ -737,9 +736,9 @@ interface PersonalProviderConfigRules {
 }
 ```
 
-个人 Model 集合层：完整定义见 6.2，分别保存 providerModelRules 和 manualProviderModelRules，禁止同一模型身份同时出现在两组中。
+Camada dos conjuntos de Model pessoal: a definição completa está em 6.2, gravando providerModelRules e manualProviderModelRules separadamente, e é proibido que a mesma identidade de modelo apareça nos dois grupos ao mesmo tempo.
 
-接口中未标问号的集合在最终文件中必须存在，无条目时写空数组；例如个人配置同时保留 providerRules、providerModelRules、manualProviderModelRules 三个数组。providerOrder 和 defaultModelSelection 仍可缺省，不为了凑齐字段写 null。这是上述接口的读写约定，不新增另一种空配置格式。
+Conjuntos da interface sem ? precisam existir no arquivo final, com um array vazio quando não houver entradas; por exemplo, a configuração pessoal mantém os três arrays providerRules, providerModelRules e manualProviderModelRules. providerOrder e defaultModelSelection continuam opcionais e não se escreve null neles só para completar os campos. Essa é a convenção de leitura e escrita das interfaces acima, e não um novo formato de configuração vazia.
 
 ```text
 内置文件
@@ -768,34 +767,34 @@ interface PersonalProviderConfigRules {
     `-- defaultModelSelection?
 ```
 
-providerOrder 继续独立表达展示顺序，不用规则数组顺序代替。此前个人文件直接把 providerOrder / providerConfigRules / modelConfigRules 放在根层的方案已被替代；个人文件是否加 config 不再是待确认项。文件版本见 6.11，迁移实现与验证见 6.15。
+providerOrder continua expressando a ordem de exibição de forma independente e não é substituído pela ordem dos arrays de regras. A proposta anterior de colocar providerOrder / providerConfigRules / modelConfigRules diretamente na raiz do arquivo pessoal foi substituída, e a questão de adicionar config ao arquivo pessoal deixou de ser pendente. A versão do arquivo está em 6.11 e a implementação e a verificação da migração em 6.15.
 
-### 6.8 来源专用配置 schema：保留现有边界，审阅通过
+### 6.8 Schema de configuração específico de origem: mantém os limites atuais, revisão aprovada
 
-仅把所有规则的 config 标成公共 ProviderConfig 会掩盖来源差异。它们表示同一个公共配置在不同写入口允许的字段不同，不是新增配置文件或另一套 Provider 领域结构。用户最初同意展开讨论，随后要求只检查明显问题、无大问题就保留；定向核查未发现需要重做的结构问题，本项通过。
+Marcar o config de todas as regras simplesmente como o ProviderConfig comum esconderia as diferenças entre origens. Elas indicam que o mesmo conteúdo de configuração comum tem campos permitidos diferentes em cada ponto de escrita, e não um novo arquivo de configuração nem outra estrutura de domínio de Provider. O usuário concordou inicialmente em discutir isso em detalhe e depois pediu para verificar apenas problemas evidentes, mantendo o que não tivesse problema grave; a verificação direcionada não encontrou nenhum problema estrutural que exigisse refazer algo, e este item foi aprovado.
 
-当前代码已有如下边界，结合本轮名称 / 身份外移后需要继续贯彻：
+O código atual já tem os limites abaixo, que precisam continuar valendo após a movimentação de nomes/identidade feita nesta rodada:
 
-| 来源     | 已核实的允许 / 限制背景                                                                                                                                                                             |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Template | 目前提供 logo、api、builtinModelIds 及不含 apiKey 的 API Key Access 元数据；不声明个人模型。旧 label 按本轮裁决删除，模板名称只在外层 templateNameMap。                                             |
-| Built-in | group 必填且限 zai-family / bigmodel-family；允许 logo、api、access、builtinModelIds、visibility，不声明 personalModelIds / modelOrder。身份与名称按 6.4 / 6.5 移到外层。                           |
-| Personal | 不允许 builtinModelIds；group 只允许 standard-personal 的覆盖值；固定 Account Provider 的 access 不能由个人层覆盖。个人 Endpoint 目前允许保留尚未完成编辑的字符串，由最终完整性校验决定是否可执行。 |
-| Account  | 目前只提供 builtinModelIds，以及 zhipu-account Access 的 entitled 覆盖；不是任意 ProviderConfig 字段的写入口。Access 的 type 仍保留。                                                               |
+| Origem    | Contexto de permissões/restrições já verificado                                                                                                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Template  | Hoje oferece logo, api, builtinModelIds e metadados de API Key Access sem apiKey; não declara modelos pessoais. O label antigo é removido por decisão desta rodada, e o nome do template só existe no templateNameMap externo. |
+| Built-in  | group é obrigatório e limitado a zai-family / bigmodel-family; permite logo, api, access, builtinModelIds e visibility, e não declara personalModelIds / modelOrder. Identidade e nome vão para fora conforme 6.4 / 6.5. |
+| Personal  | Não permite builtinModelIds; group só aceita o valor de cobertura standard-personal; o access do Account Provider fixo não pode ser sobrescrito pela camada pessoal. O Endpoint pessoal permite manter por enquanto strings de edição não concluída, e é a validação final de completude que decide se a execução é possível. |
+| Account   | Hoje só oferece builtinModelIds, além da cobertura entitled do Access zhipu-account; não é um ponto de escrita para campos arbitrários de ProviderConfig. O type do Access é mantido. |
 
-实施时保留这些已有字段限制，通过基础 schema 派生，配合已确认的改名和身份 / 名称外移；不追加来源重组或专用类型命名工程。6.4 / 6.7 用公共 ProviderConfig / ProviderConfigRule 展示共同形状，不表示各来源可无差别写入全部字段。固定 Account Provider 的个人 access 禁写等依赖 providerId 的校验，在 ID 外移后仍须保留在外层规则校验，不能只搬字段而丢失约束。
+Na implementação essas restrições de campos já existentes são preservadas por meio de schemas derivados da base, junto com as renomeações confirmadas e a movimentação de identidade/nome; não se acrescenta engenharia de reagrupamento por origem nem de nomes de tipos dedicados. 6.4 / 6.7 mostram a forma comum com ProviderConfig / ProviderConfigRule compartilhados, o que não significa que todas as origens possa escrever todos os campos sem distinção. Validações que dependem do providerId, como a proibição de gravar access no Provider de conta fixo na camada pessoal, precisam continuar na validação da regra externa mesmo após a movimentação dos IDs, e não podem ser perdidas só por mover os campos.
 
-验证依据：provider-config-kinds、config-overlay、config-service、todo21-source-contracts 四个现有测试文件共 66 个用例通过。此处验证的是当前限制和合并行为，不代表目标结构已经实现；产品代码未修改。
+Base da verificação: 66 casos nos quatro arquivos de teste existentes provider-config-kinds, config-overlay, config-service e todo21-source-contracts passaram. O que se verifica aqui são as restrições e o comportamento de mesclagem atuais, e não se afirma que a estrutura-alvo já esteja implementada; o código de produto não foi modificado.
 
-证据：[当前来源专用 schema](../../../../packages/provider/src/config/schema.ts)、[个人文件 codec](../../../../packages/provider-node/src/provider-config-file-codec.ts)、[内置发布外壳](../../../../packages/provider-node/src/zcode-builtin-release.ts)。本轮没有实现这些结构改造或数据迁移。
+Evidências: [schemas específicos de origem atuais](../../../../packages/provider/src/config/schema.ts), [codec do arquivo pessoal](../../../../packages/provider-node/src/provider-config-file-codec.ts) e [invólucro de publicação embutida](../../../../packages/provider-node/src/zcode-builtin-release.ts). Esta rodada não implementou essas transformações de estrutura nem a migração de dados.
 
-### 6.9 默认模型选择合并进个人配置文件：已确认
+### 6.9 A seleção de modelo padrão é fundida ao arquivo de configuração pessoal: confirmado
 
-背景：当前代码另外创建 model-selection.json，保存 schemaVersion 和 configuredDefault。用户认为单独新开文件没有必要，接受合并到个人配置，并进一步确认字段的位置和名字。逻辑结构独立不要求物理文件独立；本裁决取代此前文档要求 model-selection.json 保持独立的方案，尚未改动当前实现。
+Contexto: o código atual cria separadamente model-selection.json, guardando schemaVersion e configuredDefault. O usuário achou desnecessário abrir um arquivo novo separado, aceitou a fusão na configuração pessoal e confirmou em seguida a posição e o nome dos campos. Uma estrutura lógica independente não exige um arquivo físico independente; esta decisão substitui a exigência anterior do documento de manter model-selection.json separado, e a implementação atual ainda não foi alterada.
 
-最新裁决：风险讨论中用户曾暂时取消合并；随后确认并发、通知、分发和回滚均能构造明确的验证场景，明确要求“恢复吧”。因此本节的文件合并、config.defaultModelSelection、分发信封随之合并和统一回滚方案全部恢复；五处 schemaVersion 边界保持。临时取消未进入产品代码，也不作为最终方案保留。
+Decisão mais recente: durante a discussão de riscos o usuário cancelou temporariamente a fusão; em seguida confirmou que concorrência, notificação, distribuição e rollback permitem construir cenários de verificação claros e pediu explicitamente para "restaurar". Por isso a fusão de arquivos desta seção, o config.defaultModelSelection, o envelope de distribuição correspondente e o plano de rollback unificado foram todos restaurados; os cinco limites de schemaVersion permanecem. O cancelamento temporário nunca entrou no código de produto e não é mantido como solução final.
 
-文件层：复用 6.7 的 PersonalProviderConfigFile，schemaVersion 管理整份文件格式，config 保存用户配置内容；默认选择不放到文件元数据层，也不保留自己的版本外壳。
+Camada do arquivo: reutiliza o PersonalProviderConfigFile de 6.7, com schemaVersion gerenciando o formato do arquivo inteiro e config guardando o conteúdo de configuração do usuário; a seleção padrão não vai para a camada de metadados do arquivo e não mantém seu próprio invólucro de versão.
 
 ```ts
 interface PersonalProviderConfigFile {
@@ -804,7 +803,7 @@ interface PersonalProviderConfigFile {
 }
 ```
 
-内容层：默认选择与 Provider / Model 规则和排序同层，字段定名 defaultModelSelection。configuredDefault 沿用的是运行时术语，在配置内容中 configured 重复，default 又没有指明对象，因此不采用该名称。
+Camada de conteúdo: a seleção padrão fica no mesmo nível das regras de Provider / Model e da ordenação, com o nome de campo defaultModelSelection. configuredDefault é um termo de runtime em que configured fica repetido no conteúdo de configuração e default não especifica o objeto, por isso o nome não é adotado.
 
 ```ts
 interface PersonalProviderConfig {
@@ -815,13 +814,13 @@ interface PersonalProviderConfig {
 }
 ```
 
-选择成员层：复用第 2 节已经确认的 ModelSelection，包含 providerId、modelId 和可选 options，不再新增一层包装或往通用 ModelSelection 塞入默认语义。defaultModelSelection 缺省表示用户没有指定环境默认模型选择；这是环境级偏好，不是会话选择历史集合。
+Camada do membro de seleção: reutiliza o ModelSelection já confirmado na seção 2, com providerId, modelId e options opcionais, sem acrescentar uma camada de invólucro nem colocar semântica de default no ModelSelection genérico. defaultModelSelection ausente significa que o usuário não especificou uma seleção de modelo padrão do ambiente; trata-se de uma preferência de nível de ambiente, e não de um histórico de escolhas de sessão.
 
-实施时将当前独立文件的读写入口接到个人文件中的 config.defaultModelSelection。文件名统一风格尚未裁决，不把 provider_config.json 改为 provider-config.json 的建议顺带写成已确认。具体版本见 6.11；合并后的保存冲突标识范围及已发布数据迁移安排仍需落实。本节只确认物理文件合并、字段位置和命名，不额外决定删除旧文件的行为；未发布中间格式不要求兼容的边界见 6.10。
+Na implementação os pontos de entrada de leitura e escrita do arquivo separado atual são ligados ao config.defaultModelSelection dentro do arquivo pessoal. O estilo unificado de nome de arquivo ainda não foi decidido, e a sugestão de trocar provider_config.json por provider-config.json não é registrada como confirmada por efeito colateral. A versão específica está em 6.11; o escopo do identificador de conflito de salvamento após a fusão e o arranjo de migração de dados já publicados ainda precisam ser implementados. Esta seção só confirma a fusão do arquivo físico, a posição e o nome do campo, sem decidir o comportamento de exclusão do arquivo antigo; o limite de compatibilidade dos formatos intermediários não publicados está em 6.10.
 
-合并后的读写必须完整承载这个字段：保存 Provider、Model 或排序时保留当前默认选择；设置 / 清除默认选择时保留其他个人配置。清除默认选择只移除该可选成员，不能删除整份 provider_config.json。当前默认选择 Repository 在独立文件解码失败时会 rm 文件，这段处理不能原样接到合并后的个人文件上，否则会连同 Provider 和 API Key 配置一起删除；合并后由个人文件 Repository 统一处理文件错误。
+A leitura e a escrita após a fusão precisam carregar esse campo por completo: ao salvar Provider, Model ou ordenação, a seleção padrão atual é preservada; ao definir ou limpar a seleção padrão, as demais configurações pessoais são preservadas. Limpar a seleção padrão remove apenas esse membro opcional e não pode excluir o provider_config.json inteiro. O Repository atual da seleção padrão faz rm do arquivo quando a decodificação do arquivo separado falha, e esse tratamento não pode ser ligado como está ao arquivo pessoal fundido, sob pena de apagar também a configuração de Provider e de API Key; após a fusão, o Repository do arquivo pessoal passa a tratar os erros de arquivo de forma unificada.
 
-同一物理文件的更新复用个人配置持锁读改写与冲突检查，持久化 revision 覆盖文件中的默认选择，变更通知也必须到达默认选择消费者。不指定额外的 revision 字段或新锁协议，运行时各视图是否发布继续由其实际内容决定。
+A atualização do mesmo arquivo físico reaproveita a leitura-modificação-escrita com lock da configuração pessoal e a verificação de conflito, a revision persistente cobre a seleção padrão do arquivo e a notificação de mudança precisa chegar aos consumidores da seleção padrão. Não se especifica um campo revision extra nem um novo protocolo de lock, e se cada visão publica continua ou não continua a ser determinado pelo seu conteúdo real.
 
 ```text
 Provider / Model / 排序修改 --+
@@ -831,17 +830,17 @@ Provider / Model / 排序修改 --+
                                 -> 原子写入并通知对应消费者
 ```
 
-有最终个人文件但缺少 defaultModelSelection 时表示未指定默认；不能仅凭这一成员缺省，每次启动又从旧配置恢复用户已清除的选择。旧数据导入与最终文件是否存在的判断需要一起适配。
+Um arquivo pessoal final sem defaultModelSelection significa que nenhum padrão foi especificado; não se pode, só porque esse membro está ausente, restaurar a cada inicialização uma escolha que o usuário já limpou. A importação de dados antigos e a verificação da existência do arquivo final precisam ser adaptadas em conjunto.
 
-证据：[当前默认选择文件 codec](../../../../packages/provider-node/src/model-selection-config-file-codec.ts)、[当前默认选择 Repository](../../../../packages/provider-node/src/model-selection-config-repository.ts)、[当前独立文件装配](../../../../packages/services/src/node.ts)。
+Evidências: [codec do arquivo de seleção padrão atual](../../../../packages/provider-node/src/model-selection-config-file-codec.ts), [Repository da seleção padrão atual](../../../../packages/provider-node/src/model-selection-config-repository.ts) e [montagem atual do arquivo separado](../../../../packages/services/src/node.ts).
 
-### 6.10 新增文件取舍与程序维护目录：已确认
+### 6.10 Escolha dos arquivos novos e diretório de manutenção do programa: confirmado
 
-背景：用户要求只看相比 staging 新增的文件和数据表，并逐份确认必要性，不把文件、schemaVersion 和 revision 混在一轮解释。本轮 Provider / ModelSelection 改造未新增数据库文件或数据表，但在现有 tasks-index.sqlite 的 automations、automation_runs、off_peak_tasks 三个表分别新增 model_selection TEXT 列，不能把“没有新表”理解为“没有新列或迁移”。这些列和其他既有结构接入 ModelSelection 的设计已统一通过，见 6.14。以下只记录本轮确认的文件取舍，不对全仓既有文件发起目录重构。
+Contexto: o usuário pediu para ver apenas os arquivos e tabelas novos em comparação com o staging e confirmar a necessidade de cada um, sem misturar arquivos, schemaVersion e revision numa mesma rodada de explicação. A transformação de Provider / ModelSelection desta rodada não adicionou arquivos nem tabelas de banco, mas nas três tabelas existentes automations, automation_runs e off_peak_tasks do tasks-index.sqlite atual foi adicionada uma coluna model_selection TEXT cada, e não se pode ler "sem tabela nova" como "sem coluna ou migração nova". O design dessas colunas e das outras estruturas existentes que passam a usar ModelSelection foi aprovado de forma unificada, ver 6.14. Aqui ficam registradas apenas as escolhas de arquivos desta rodada, sem iniciar uma refatoração de catálogo de todo o repositório.
 
-用户配置层：保留 provider_config.json，集中保存个人 Provider / Model 配置、排序及 6.9 的默认模型选择。旧综合 config.json 仍承担其他配置，旧 Provider 内容仅作升级输入。尚未确认全局文件命名风格，不顺带将 provider_config.json 改为中划线。
+Camada de configuração do usuário: mantém provider_config.json, que concentra a configuração pessoal de Provider / Model, a ordenação e a seleção de modelo padrão de 6.9. O config.json综合 antigo continua cuidando das demais configurações e o conteúdo antigo de Provider serve apenas como entrada de upgrade. O estilo global de nomenclatura de arquivos ainda não foi confirmado e provider_config.json não é trocado por hífens por efeito colateral.
 
-程序维护层：统一放进环境目录下 runtime/provider/。runtime 在这里表示程序维护的数据，不表示可随意清空的临时文件。此前讨论的 cache/、state/ 两套顶层目录方案均被替代。
+Camada de manutenção do programa: tudo unificado no diretório runtime/provider/ sob o diretório do ambiente. Aqui runtime representa os dados mantidos pelo programa, e não arquivos temporários que se pode apagar à vontade. As duas propostas anteriores de diretórios de topo cache/ e state/ foram substituídas.
 
 ```text
 ~/.zcode/v2/
@@ -858,64 +857,64 @@ Provider / Model / 排序修改 --+
             `-- zcode-builtin.json
 ```
 
-图中用户目录是默认环境示意，实际路径继续由所属环境的路径解析和宿主注入决定，不能硬编码用户主目录。下载配置及刷新记录继续保留现有平台 / 应用版本 / 服务端地址的隔离维度。
+O diretório de usuário no diagrama é uma representação do ambiente padrão; o caminho real continua sendo determinado pela resolução de caminhos do ambiente e pela injeção do host, e não pode ter o diretório principal do usuário fixado no código. A configuração baixada e o registro de refresh continuam mantendo as dimensões de isolamento de plataforma / versão do aplicativo / endereço do servidor.
 
-各文件裁决：
+Decisões por arquivo:
 
-| 当前实现或资源                                  | 已确认的目标                                       | 理由                                                                                                           |
-| ----------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| provider_config.json                            | 保留                                               | 个人 Provider / Model 配置集中保存，不占用旧综合 config.json                                                   |
-| model-selection.json                            | 合并进 config.defaultModelSelection                | 逻辑成员独立不要求再开物理文件，见 6.9                                                                         |
-| active.json                                     | runtime/provider/隔离目录/zcode-builtin.json       | 名字直接说明配置内容；作为下载后当前采用的内置配置，缺失时可用随包配置重建                                     |
-| refresh-control.json                            | 与下载文件同目录的 zcode-builtin-refresh.json      | 记录多进程刷新占用、刷新时间和失败重试信息；不是用户配置                                                       |
-| provider-provisioning-state.json                | runtime/provider/provisioning.json                 | 保存已成功执行的分发请求 ID 和结果，避免重发请求重复覆盖目标配置；不是完整配置副本，丢失后去重历史不能直接重建 |
-| bot-config.v3.json                              | 保留当前新文件方案                                 | 从 staging 的 bot-config.json 导入，旧文件保持；不持续双写，不改回原文件覆盖                                   |
-| bot-state.v3.json                               | 保留当前新文件方案                                 | 从 staging 的 bot-state.v2.json 等既有输入导入，旧文件保持；不改回原文件覆盖                                   |
-| 随包 zcode-builtin.json                         | 保留随包资源                                       | 为首次启动和离线提供内置基线；与远端下载内容使用同一种发布 schema                                              |
-| 内嵌资源释放出的 zcode-builtin-<内容 hash>.json | 固定为 runtime/provider/bundled/zcode-builtin.json | 单文件 CLI / Server 等形态复用文件读取链路；是资源副本，不是新的用户配置 schema                                |
+| Implementação ou recurso atual                       | Alvo confirmado                                                | Razão                                                                                                              |
+| --------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| provider_config.json                                | mantido                                                        | concentra a configuração pessoal de Provider / Model sem ocupar o config.json综合 antigo                        |
+| model-selection.json                                | fundido em config.defaultModelSelection                        | um membro lógico independente não exige outro arquivo físico, ver 6.9                                            |
+| active.json                                         | runtime/provider/<diretório de isolamento>/zcode-builtin.json   | o nome diz diretamente o conteúdo; como configuração embutida adotada após o download, pode ser reconstruída a partir da configuração que acompanha o pacote quando ausente |
+| refresh-control.json                                | zcode-builtin-refresh.json no mesmo diretório do arquivo baixado | registra a ocupação de refresh por múltiplos processos, o horário do refresh e a informação de retentativa de falha; não é configuração do usuário |
+| provider-provisioning-state.json                    | runtime/provider/provisioning.json                             | guarda o ID e o resultado das requisições de distribuição bem-sucedidas, evitando que o reenvio sobrescreva a configuração alvo; não é uma cópia completa da configuração e, depois de perdida, o histórico de deduplicação não pode ser reconstruído diretamente |
+| bot-config.v3.json                                  | mantém o esquema atual de arquivo novo                          | importa do bot-config.json do staging e o arquivo antigo é preservado; sem double write contínuo e sem voltar a sobrescrever o arquivo original |
+| bot-state.v3.json                                   | mantém o esquema atual de arquivo novo                          | importa das entradas existentes como o bot-state.v2.json do staging e o arquivo antigo é preservado; sem voltar a sobrescrever o arquivo original |
+| zcode-builtin.json que acompanha o pacote           | mantém o recurso que acompanha o pacote                        | fornece a base embutida para a primeira inicialização e para o uso offline; usa o mesmo schema de publicação que o conteúdo baixado do remoto |
+| zcode-builtin-<hash do conteúdo>.json liberado do recurso embutido | fixado em runtime/provider/bundled/zcode-builtin.json      | CLI / Server e formas de arquivo único reutilizam a cadeia de leitura de arquivos; é uma cópia do recurso, e não um novo schema de configuração do usuário |
 
-资源副本的覆盖语义：用户随后明确要求覆盖，不保留按 hash 命名的历史副本。因此固定使用 runtime/provider/bundled/zcode-builtin.json，新程序启动时比较包内配置，内容不同则写临时文件后原子替换；内容相同可以复用。该裁决取代此前按 hash 保留历史副本的方案，下载配置与随包资源仍分开。讨论以正常退出旧程序及子进程后升级为前提，不再要求并行的新旧程序各自保留旧基线；若旧进程仍在运行，之后重读固定路径会看到新内容。替换由程序启动完成，不要求安装器额外处理。
+Semântica de sobrescrita da cópia do recurso: o usuário depois exigiu explicitamente sobrescrita, sem manter cópias históricas nomeadas por hash. Usa-se portanto fixamente runtime/provider/bundled/zcode-builtin.json, e na inicialização do novo programa a configuração do pacote é comparada: se o conteúdo for diferente, grava-se um arquivo temporário e a substituição é atômica; se for igual, pode-se reutilizar. Esta decisão substitui o plano anterior de manter cópias históricas por hash, e a configuração baixada continua separada do recurso que acompanha o pacote. A discussão pressupõe a atualização após a saída normal do programa antigo e dos subprocessos e não exige mais que programas novos e antigos em paralelo mantenham cada um sua base antiga; se um processo antigo ainda estiver rodando, uma releitura posterior do caminho fixo verá o conteúdo novo. A substituição é feita pela inicialização do programa e não exige tratamento adicional do instalador.
 
-兼容边界：staging 已发布数据需要升级到最终格式；本分支开发过程中产生的未发布中间格式不要求兼容或迁移。不把“保留不支持格式的文件”与“支持读取该格式”混为一谈；非法文件、未来版本文件的处理没有在本节扩展成新的实现要求。
+Limite de compatibilidade: os dados já publicados no staging precisam ser atualizados para o formato final; os formatos intermediários não produzidos durante o desenvolvimento deste branch não exigem compatibilidade nem migração. Não se confunde "preservar um arquivo de formato não suportado" com "suportar a leitura desse formato"; o tratamento de arquivos inválidos ou de versões futuras não foi estendido nesta seção a novas exigências de implementação.
 
-Bot 误记纠正：此前本文将“沿用原文件迁移”写成用户裁决，并据此提出改变迁移触发条件，这是记录错误。用户明确指出本来就要换文件，要求撤销误记；不是用户撤回原本认可的方案。最终保留当前 bot-config.v3.json / bot-state.v3.json 及其 version: 3，新文件不存在时从旧文件导入，不再实施原路径覆盖或相应触发条件重构。图中只展示当前写入文件，旧文件继续作为导入输入保留；不把既有 Bot version 纳入 6.11 的五处新增 schemaVersion 重置。
+Correção de um registro errado sobre Bot: este documento antes escreveu "continuar usando o arquivo original para migração" como se fosse uma decisão do usuário e, com base nisso, propôs mudar a condição de disparo da migração, o que é um erro de registro. O usuário apontou que a troca de arquivo já estava prevista e pediu a revogação do registro errado; não se trata de o usuário retirando um plano que havia aprovado. Mantêm-se no final os arquivos atuais bot-config.v3.json / bot-state.v3.json e seus version: 3, com importação dos arquivos antigos quando os novos não existem e sem implementar sobrescrita do caminho original ou uma reestruturação da condição de disparo correspondente. O diagrama mostra apenas os arquivos gravados hoje, e os antigos continuam preservados como entrada de importação; o version de Bot existente não entra nas cinco redefinições de schemaVersion da 6.11.
 
-证据：[既有独立个人文件裁决](./todo-33-personal-provider-config-file-cutover.md)、[当前下载路径](../../../../packages/provider-node/src/zcode-builtin-cache-paths.ts)、[分发状态记录](../../../../packages/services/src/model-provider/providerProvisioningTarget.ts)、[Bot 文件与迁移入口](../../../../packages/services/src/bots/repo.ts)、[内置资源释放](../../../../packages/provider-node/src/zcode-builtin-provider-config-materializer.ts)、[CLI 内嵌资源释放](../../../../apps/zcode-cli/packages/cli/src/provider-runtime-env.ts)。本轮仅记录目标，文件移动、改名等尚未实施；Bot 继续使用已有 v3 文件方案。
+Evidências: [decisão anterior do arquivo pessoal separado](./todo-33-personal-provider-config-file-cutover.md), [caminho de download atual](../../../../packages/provider-node/src/zcode-builtin-cache-paths.ts), [registro de estado de distribuição](../../../../packages/services/src/model-provider/providerProvisioningTarget.ts), [arquivos de Bot e entrada de migração](../../../../packages/services/src/bots/repo.ts), [liberação do recurso embutido](../../../../packages/provider-node/src/zcode-builtin-provider-config-materializer.ts) e [liberação do recurso embutido no CLI](../../../../apps/zcode-cli/packages/cli/src/provider-runtime-env.ts). Esta rodada registra apenas o alvo; a movimentação e a renomeação de arquivos ainda não foram implementadas, e o Bot continua usando o esquema de arquivos v3 existente.
 
-### 6.11 schemaVersion 的范围与用途：已确认
+### 6.11 Escopo e uso do schemaVersion: confirmado
 
-文件层：合并独立 Model Selection 文件后，本轮新增的版本边界从六处减少为五处，其中四种文件格式、一种传输格式。各自从版本 1 收口；版本号用于识别格式、选择迁移或拒绝不支持的输入，不随普通配置值的修改而递增。
+Camada de arquivo: depois de fundir o arquivo separado de Model Selection, os limites de versão novos desta rodada caem de seis para cinco, sendo quatro formatos de arquivo e um formato de transporte. Cada um é consolidado na versão 1; o número de versão serve para identificar o formato, escolher uma migração ou recusar entradas não suportadas, e não é incrementado por causa da modificação de um valor de configuração comum.
 
-| 版本边界                   | 目标版本         | 管理范围                                                          |
-| -------------------------- | ---------------- | ----------------------------------------------------------------- |
-| PersonalProviderConfigFile | schemaVersion: 1 | 个人文件的整份 config，包括 defaultModelSelection                 |
-| ZCodeBuiltinRelease        | schemaVersion: 1 | 随包、释放副本、下载内容共用的内置发布格式；当前实现的 3 收口为 1 |
-| 内置刷新记录               | schemaVersion: 1 | 刷新占用、时间、失败计数等记录                                    |
-| Provider 分发状态文件      | schemaVersion: 1 | 已完成请求及结果的保存格式                                        |
-| Provider 分发信封          | schemaVersion: 1 | 发往目标环境的整包配置、设置、凭据等内容                          |
+| Limite de versão                | Versão-alvo      | Escopo gerenciado                                                                 |
+| ------------------------------ | ---------------- | --------------------------------------------------------------------------------- |
+| PersonalProviderConfigFile     | schemaVersion: 1 | o config inteiro do arquivo pessoal, incluindo defaultModelSelection              |
+| ZCodeBuiltinRelease            | schemaVersion: 1 | formato de publicação embutida compartilhado pelo conteúdo que acompanha o pacote, pela cópia liberada e pelo conteúdo baixado; o 3 da implementação atual é consolidado em 1 |
+| Registro de refresh embutido    | schemaVersion: 1 | registros de ocupação, horário e contagem de falhas                              |
+| Arquivo de estado de distribuição de Provider | schemaVersion: 1 | formato de gravação de requisições concluídas e seus resultados |
+| Envelope de distribuição de Provider | schemaVersion: 1 | a configuração completa, as settings e as credenciais enviadas ao ambiente alvo |
 
-成员层：ProviderConfig、ModelConfig、ModelSelection 不另设版本，由所在文件或信封管理。独立 Model Selection 文件及其版本外壳取消；Bot 的 version 字段 staging 已有，不算新增版本边界。
+Camada de membros: ProviderConfig, ModelConfig e ModelSelection não têm versão própria e são gerenciados pelo arquivo ou envelope onde estão. O arquivo separado de Model Selection e seu invólucro de versão são cancelados; o campo version de Bot já existe no staging e não conta como um limite de versão novo.
 
-版本字段本身不执行迁移。用户配置通常通过迁移保留数据，可重建刷新记录可以重建，下载内容或传输信封可以拒绝不支持的格式。用户认可用途及上述版本边界；不因此为未发布中间格式补迁移，也不把每一处现有错误处理策略都算成已审完。
+O campo de versão em si não executa migrações. A configuração do usuário costuma preservar os dados por migração, os registros de refresh podem ser reconstruídos e o conteúdo baixado ou o envelope de transporte pode recusar formatos não suportados. O usuário aprovou o uso e os limites acima; isso não leva a adicionar migrações para formatos intermediários não publicados nem a considerar cada estratégia existente de tratamento de erro como já revisada.
 
-开发中间格式可能同样写着 schemaVersion: 1，不能只凭数字相同就认定它是最终格式；仍须按最终 schema 解码。不要求为这些中间文件补迁移。staging 的旧配置文件及 Bot 原文件则是已发布升级输入，不能因为新的 Provider 文件从 1 开始就跳过它们的导入。
+Formatos intermediários de desenvolvimento também podem escrever schemaVersion: 1, e não se pode concluir que o formato final só pelo fato de o número ser igual; a decodificação continua seguindo o schema final. Não é preciso adicionar migração para esses arquivos intermediários. Já os arquivos de configuração antigos do staging e os arquivos originais de Bot são entradas de upgrade publicadas, e o fato de os novos arquivos de Provider começarem em 1 não permite pular a importação deles.
 
-### 6.12 内置发布 revision 与定向 review：裁决及待实施修复
+### 6.12 Revision de publicação embutida e review direcionado: decisões e correções a implementar
 
-发布层：用户主要关注内置配置的发布 revision。对会被同一客户端在同一配置来源内比较的随包 / 在线内容，采用统一的发布序号规则，不让打包和在线发布各自独立编号：
+Camada de publicação: o usuário se preocupa principalmente com a revision de publicação da configuração embutida. Para o conteúdo que acompanha o pacote / online, comparado pelo mesmo cliente dentro da mesma origem de configuração, adota-se uma regra unificada de número de publicação, sem deixar o empacotamento e a publicação online numerarem de forma independente:
 
-- 配置内容发生变化，发布 revision 必须增大。
-- 相同 revision 必须对应相同内容；内容未变的重新打包可复用原序号。
-- 回滚到旧内容也作为更大的 revision 重新发布，否则客户端会按旧发布忽略。
-- schemaVersion 管格式，与发布 revision 分开；本轮 schemaVersion 收口为 1 不意味着重置发布序号。
+- Quando o conteúdo da configuração muda, a revision de publicação precisa aumentar.
+- A mesma revision precisa corresponder ao mesmo conteúdo; um novo empacotamento sem mudança de conteúdo pode reutilizar o número original.
+- Reverter para conteúdo antigo também é publicado de novo como uma revision maior, caso contrário o cliente ignoraria por ser uma publicação antiga.
+- schemaVersion cuida do formato e é separado da revision de publicação; consolidar o schemaVersion em 1 nesta rodada não significa reiniciar o número de publicação.
 
-revision 保留当前非负安全整数约束（不大于 Number.MAX_SAFE_INTEGER）；改为 schema 推导类型时不能放宽成任意 number。
+A revision mantém a restrição atual de inteiro seguro não negativo (no máximo Number.MAX_SAFE_INTEGER); ao passar a ser um tipo derivado do schema, não pode ser flexibilizada para um number qualquer.
 
-运行时层：代码生成的内容标识、组合标识、视图计数不需要用户手动维护。staging 已有整份 Provider Registry 的内容 hash，本轮增加了分层标识和新的视图计数实现；不能把同一标识的传递字段都算成独立版本系统。
+Camada de runtime: o identificador de conteúdo, o identificador combinado e a contagem de views gerados pelo código não exigem manutenção manual pelo usuário. O staging já tem o hash de conteúdo do Registry de Provider inteiro, e esta rodada acrescenta identificadores em camadas e uma nova implementação de contagem de views; não se pode contar todos os campos passados do mesmo identificador como sistemas de versão independentes.
 
-Review 结论：内置新旧序号比较、同序号内容冲突检查、个人配置在文件锁内校验保存依据的主路径暂未发现问题。另有一个行为问题已用真实文件 Source / ConfigService / RegistryService 组合复现，两处字段精简 / 命名问题已核实。用户询问的是三个修复方向本身是否有明显问题，并在无明显设计障碍的前提下要求落盘；以下记录为待实施方案，不表示当前实现已修好。
+Conclusão da review: a comparação entre números novos e antigos da configuração embutida, a verificação de conflito de conteúdo no mesmo número e o caminho principal de validar e salvar a configuração pessoal dentro do lock de arquivo não apresentaram problemas por enquanto. Há também um problema de comportamento já reproduzido com a combinação real de Source / ConfigService / RegistryService e duas questões de simplificação de campos/nomenclatura já verificadas. O que o usuário perguntou foi se os três rumos de correção têm algum problema evidente e, não havendo obstáculo de design evidente, pediu que fossem registrados; abaixo ficam registrados como um plano de correções a implementar, e não indicam que a implementação atual já esteja corrigida.
 
-1. 运行时内置标识包含来源范围。当前 snapshotFromRelease 仅产生 zcode-builtin:<发布序号>，不同 Endpoint 有独立缓存且可出现相同发布序号。两个地址的配置序号相同、内容不同时，切换后 Source 已读取新内容，Registry 却因组合标识未变而跳过发布。运行时标识应纳入规范化 Endpoint 来源，并贯穿内置、组合配置及 Account 的依据标识；文件里的数值发布 revision 和比较规则保持。直接文件 Source / Worker 的来源传递也需一起核对，不能只在一个界面补刷新。
+1. O identificador embutido de runtime inclui o escopo da origem. Hoje o snapshotFromRelease só produz zcode-builtin:<número de publicação>, e Endpoints diferentes têm caches independentes e podem ter o mesmo número de publicação. Quando os dois endereços têm o mesmo número de configuração e conteúdos diferentes, depois da troca a Source já leu o conteúdo novo, mas o Registry pula a publicação porque o identificador combinado não mudou. O identificador de runtime deve incluir a origem de Endpoint normalizada e atravessar o embutido, a configuração combinada e o identificador de base da Account; a revision numérica de publicação do arquivo e as regras de comparação permanecem. A passagem de origem do Source / Worker de arquivo direto precisa ser conferida junto, e não é possível complementar a refresh apenas em uma tela.
 
 ```text
 地址 A：revision 20，model-a
@@ -928,21 +927,21 @@ Review 结论：内置新旧序号比较、同序号内容冲突检查、个人�
 修复目标：来源改变后运行时标识改变，Registry 发布 model-b
 ```
 
-2. 删除 Provider 分发信封的 sourceRevision。当前字段计算后仅传输，没有消费者用它做判断；目标端去重使用 syncId。同步删除对应 schema / 推导类型成员和专用计算逻辑，保留实际使用的 syncId 去重，以及个人配置读取一致性校验所需的内容 hash。
+2. Remover o sourceRevision do envelope de distribuição de Provider. Hoje o campo é apenas calculado e transmitido, sem nenhum consumidor usá-lo para decidir; a deduplicação no destino usa o syncId. Remover em conjunto o membro correspondente do schema / do tipo derivado e a lógica de cálculo dedicada, mantendo a deduplicação pelo syncId que é de fato usada e o hash de conteúdo necessário para a verificação de consistência da leitura da configuração pessoal.
 
-3. Provider 分发结果的 registryRevision 改名为 configRevision。当前实际值是 snapshot.sourceRevisions.config，语义为配置来源组合标识，不是 Registry 的整数计数。同步调整共享结果 schema、结果写入、状态文件中的结果成员及相关消费者 / 用例；不额外增加另一份 revision 字段。
+3. Renomear o registryRevision do resultado da distribuição de Provider para configRevision. O valor atual é na verdade snapshot.sourceRevisions.config, cuja semântica é o identificador combinado da origem da configuração e não a contagem inteira do Registry. Ajustar em conjunto o schema de resultado compartilhado, a gravação do resultado, o membro de resultado no arquivo de estado e os consumidores/casos relacionados; sem acrescentar uma segunda revision.
 
-验证依据：8 个现有相关测试文件共 95 个用例通过；额外临时测试确认了同序号跨 Endpoint 切换后 Registry 不更新的问题。临时复现文件已从工作区移除，产品代码没有修改。修复实施时应把该场景补成正式回归测试，并验证真实 Host / Worker 的来源传递。以上三个方案没有发现明显的设计障碍，仍需实施后的验证，不能将本节理解成“现有实现全部无问题”。
+Base da verificação: 95 casos em 8 arquivos de teste existentes relacionados passaram; um teste temporário adicional confirmou o problema de o Registry não atualizar depois da troca de Endpoint com o mesmo número. O arquivo temporário de reprodução foi removido do workspace e o código de produto não foi modificado. Na implementação das correções, esse cenário deve virar um teste de regressão oficial, e a passagem de origem do Host / Worker reais precisa ser verificada. Nenhum dos três planos apresentou obstáculo de design evidente, mas ainda exigem verificação depois da implementação, e esta seção não deve ser lida como "a implementação atual não tem problema nenhum".
 
-证据：[内置运行时标识](../../../../packages/provider-node/src/zcode-builtin-provider-config-source.ts)、[Endpoint 切换](../../../../packages/provider-node/src/endpoint-scoped-zcode-builtin-source.ts)、[Registry 依据标识去重](../../../../packages/provider/src/registry-service.ts)、[分发标识生成](../../../../packages/services/src/model-provider/providerProvisioningSource.ts)、[分发结果写入](../../../../packages/services/src/model-provider/providerProvisioningTarget.ts)、[共享分发 schema](../../../../packages/shared/src/provider-provisioning.ts)。
+Evidências: [identificador de runtime da configuração embutida](../../../../packages/provider-node/src/zcode-builtin-provider-config-source.ts), [troca de Endpoint](../../../../packages/provider-node/src/endpoint-scoped-zcode-builtin-source.ts), [deduplicação por identificador de base do Registry](../../../../packages/provider/src/registry-service.ts), [geração do identificador de distribuição](../../../../packages/services/src/model-provider/providerProvisioningSource.ts), [gravação do resultado da distribuição](../../../../packages/services/src/model-provider/providerProvisioningTarget.ts) e [schema de distribuição compartilhado](../../../../packages/shared/src/provider-provisioning.ts).
 
-### 6.13 刷新 / 分发记录：按最小必要改动收口
+### 6.13 Registro de refresh / distribuição: fechado com a menor mudança necessária
 
-背景：用户起初接受第四组刷新 / 分发记录的建议，随后询问改动规模并要求“别太激进”。核对实际读写范围后，收缩为两个明确的小调整，以及默认选择文件合并所需的分发适配；不再为命名或少一层包裹单独改格式。本节为最终方案，取代曾提出的 endpointOrigin 和 results 数组方案。
+Contexto: o usuário inicialmente aceitou a quarta proposta de refresh / registro de distribuição e depois perguntou o tamanho da mudança e pediu "não seja tão agressivo". Depois de conferir o escopo real de leitura e escrita, a solução foi reduzida a dois ajustes claros e pequenos, mais a adaptação de distribuição necessária para a fusão do arquivo de seleção padrão; não se muda mais o formato só por nomenclatura ou por remover uma camada de invólucro. Esta seção é a solução final e substitui as propostas de endpointOrigin e de array results já levantadas.
 
-#### 6.13.1 刷新文件
+#### 6.13.1 Arquivo de refresh
 
-保留原字段及形状；文件目录 / 名称仍按 6.10 调整。endpointKey 当前对应规范化的配置服务来源，名字虽可更精确，本轮不改为 endpointOrigin。
+Mantém os campos e a forma originais; o diretório / nome do arquivo continuam sendo ajustados conforme 6.10. O endpointKey atual corresponde à origem normalizada do serviço de configuração e, embora o nome possa ser mais preciso, nesta rodada ele não passa a endpointOrigin.
 
 ```ts
 interface RefreshControl {
@@ -955,11 +954,11 @@ interface RefreshControl {
 }
 ```
 
-leaseId 标识一次刷新占用，leaseUntil 和 nextEligibleAt 为毫秒时间戳；保留现有锁、占用及重试机制，不借 schema 精修重写刷新流程。
+leaseId identifica uma ocupação de refresh, e leaseUntil e nextEligibleAt são timestamps em milissegundos; os mecanismos atuais de lock, ocupação e retentativa são mantidos, sem reescrever o fluxo de refresh por causa do refinamento do schema.
 
-#### 6.13.2 分发信封
+#### 6.13.2 Envelope de distribuição
 
-删除无消费者的 sourceRevision（同 6.12）；personalConfig 随既定文件合并采用最终 PersonalProviderConfig 内容，包含 defaultModelSelection，去掉外层 configuredDefault。不为传输再保存一份默认选择。
+Remove o sourceRevision sem consumidores (igual a 6.12); o personalConfig, com a fusão de arquivos já decidida, adota o conteúdo final de PersonalProviderConfig, incluindo defaultModelSelection e sem o configuredDefault externo. Não se guarda uma segunda cópia da seleção padrão só para transporte.
 
 ```ts
 interface ProviderProvisioningEnvelope {
@@ -971,11 +970,11 @@ interface ProviderProvisioningEnvelope {
 }
 ```
 
-personalConfig 的具体层次复用 6.7；代码复用数据 schema 时保持包依赖单向，不因展示接口而要求 shared 反向依赖 provider 的行为实现。
+As camadas concretas de personalConfig reutilizam 6.7; ao reutilizar um schema de dados no código, a dependência entre pacotes continua unidirecional, e a interface de exibição não pode exigir que shared dependa inversamente da implementação de comportamento de provider.
 
-#### 6.13.3 分发成员
+#### 6.13.3 Membros da distribuição
 
-账号设置和凭据项保持；账号连接选择不在本轮继续改名或重组。
+As settings de conta e os itens de credencial são mantidos; a seleção de conexão de conta não continua sendo renomeada nem reestruturada nesta rodada.
 
 ```ts
 interface ProviderProvisioningAccountSettings {
@@ -992,11 +991,11 @@ interface ProviderProvisioningCredentialEntry {
 }
 ```
 
-继续保留当前凭据范围校验及数组数量约束；不扩大可分发凭据的种类。
+Continuam em vigor a verificação atual de escopo de credenciais e as restrições de quantidade do array; a lista de tipos de credencial distribuíveis não é ampliada.
 
-#### 6.13.4 分发状态文件
+#### 6.13.4 Arquivo de estado da distribuição
 
-保留 records 包裹及记录层 syncId；不改成 results: ProviderProvisioningResult[]。现有结构虽有重复 ID，但没有发现必须为此改格式的行为问题。
+Mantém o invólucro records e o syncId da camada de registro; não passa a results: ProviderProvisioningResult[]. Embora a estrutura atual tenha IDs repetidos, não foi encontrado nenhum problema de comportamento que obrigasse a mudar o formato por causa disso.
 
 ```ts
 interface ProvisioningStateFile {
@@ -1012,9 +1011,9 @@ interface ProvisioningStateRecord {
 }
 ```
 
-#### 6.13.5 分发结果
+#### 6.13.5 Resultado da distribuição
 
-仅将 registryRevision 改为 configRevision，准确表达已有值；状态、计数和回滚字段保持。当前状态文件保存成功结果，失败结果可返回给调用方，不因此增加失败历史持久化。
+Apenas o registryRevision passa a configRevision, expressando com precisão o valor existente; os campos de status, contagem e rollback são mantidos. O arquivo de estado atual grava os resultados bem-sucedidos e o resultado de falha pode ser devolvido ao chamador, e por isso não se acrescenta persistência de histórico de falhas.
 
 ```ts
 interface ProviderProvisioningResult {
@@ -1028,9 +1027,9 @@ interface ProviderProvisioningResult {
 }
 ```
 
-默认选择合并不是单纯改名，需要随个人文件合并调整写入、校验和失败回滚，避免仍按两份独立文件处理；保留目标端 syncId 去重及已有防止回滚覆盖新值的检查。不另外重构分发状态机。
+A fusão da seleção padrão não é uma simples renomeação: a gravação, a validação e o rollback de falha precisam ser ajustados junto com a fusão do arquivo pessoal, para não continuar tratando dois arquivos separados; a deduplicação por syncId no destino e a verificação existente que impede que um rollback sobrescreva um valor novo são mantidas. A máquina de estados de distribuição não é reestruturada à parte.
 
-此处 personalConfig 表示源端的整份个人配置快照，不是局部 patch；源端没有 defaultModelSelection 时，目标应用后也不保留旧的默认选择。对应回滚以合并后的个人文件作为同一份写入前 / 写入后快照，保留“期间被其他操作修改就不覆盖”的现有保护；不能再分别回滚规则和默认选择两次，造成整文件相互覆盖。这与普通字段编辑时保留未修改成员的语义不同。
+Aqui personalConfig representa o snapshot inteiro da configuração pessoal da origem e não um patch parcial; quando a origem não tem defaultModelSelection, o destino também não preserva o padrão antigo após aplicar. O rollback correspondente usa o arquivo pessoal fundido como um único snapshot antes/depois da escrita, mantendo a proteção existente de "se foi modificado por outra operação no meio, não sobrescreve"; não se pode reverter regras e seleção padrão em dois rollbacks separados, o que faria uma sobrescrita do arquivo inteiro pela outra. Isso difere da semântica de preservar membros não modificados na edição comum de campos.
 
 ```text
 源端个人配置（含 defaultModelSelection）
@@ -1045,19 +1044,19 @@ interface ProviderProvisioningResult {
                                       `-- 失败：按实际写入范围回滚
 ```
 
-证据：[刷新控制](../../../../packages/provider-node/src/zcode-builtin-remote-synchronizer.ts)、[共享分发 schema](../../../../packages/shared/src/provider-provisioning.ts)、[发送](../../../../packages/services/src/model-provider/providerProvisioningSource.ts)、[接收 / 回滚 / 状态记录](../../../../packages/services/src/model-provider/providerProvisioningTarget.ts)。
+Evidências: [controle de refresh](../../../../packages/provider-node/src/zcode-builtin-remote-synchronizer.ts), [schema de distribuição compartilhado](../../../../packages/shared/src/provider-provisioning.ts), [envio](../../../../packages/services/src/model-provider/providerProvisioningSource.ts) e [recebimento / rollback / registro de estado](../../../../packages/services/src/model-provider/providerProvisioningTarget.ts).
 
-### 6.14 明确通过或不调整的其他结构
+### 6.14 Outras estruturas explicitamente aprovadas ou não ajustadas
 
-#### 6.14.1 既有结构接入 ModelSelection：统一通过
+#### 6.14.1 Estruturas existentes passando a usar ModelSelection: aprovação unificada
 
-用户明确裁决：“所有在原有基础上新增一个 model selection 的，就都 pass 吧”。因此不逐一重新讨论会话 / 消息、最近选择、Subagent 状态、Wiki、Bot、Automation、Off-Peak 等消费位置的选择字段。它们复用第 2 节的通用选择；各入口原有的未选择 / 跟随默认语义属于上层，不扩张 ModelSelection 本身。
+O usuário decidiu explicitamente: "tudo que acrescentar um model selection sobre o que já existe, pode passar". Por isso não se rediscutem um a um os pontos de consumo de sessão / mensagem, seleção recente, estado de Subagent, Wiki, Bot, Automation e Off-Peak. Todos reutilizam a seleção genérica da seção 2, e a semântica de "não selecionado / seguir o padrão" já existente em cada entrada pertence à camada superior e não expande o ModelSelection em si.
 
-用户随后明确“pass 就是认可”：不得把这些项改标为跳过、未确认或要求重新批准。后续又明确旧字段不能删除，Off-Peak / Wiki 两处保留旧值的补充按 6.18 记录，不以此推翻已通过的 ModelSelection 结构。
+O usuário esclareceu em seguida que "passar é reconhecer": não se pode reetiquetar esses itens como pulados, não confirmados ou dependentes de nova aprovação. Depois deixou claro que campos antigos não podem ser removidos, e a supplementação de preservar os valores antigos nos dois pontos Off-Peak / Wiki está registrada em 6.18, sem que isso derrube a estrutura de ModelSelection já aprovada.
 
-本轮数据库改动清单补正如下；三列均位于既有 tasks-index.sqlite，不新增数据库或表：
+A lista de alterações de banco desta rodada fica corrigida abaixo; as três colunas estão no tasks-index.sqlite existente e nenhum banco ou tabela nova é adicionada:
 
-| 既有表          | 新增列               | 本轮裁决                  |
+| Tabela existente | Nova coluna          | Decisão desta rodada           |
 | --------------- | -------------------- | ------------------------- |
 | automations     | model_selection TEXT | 复用 ModelSelection，通过 |
 | automation_runs | model_selection TEXT | 复用 ModelSelection，通过 |

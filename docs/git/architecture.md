@@ -1,54 +1,54 @@
-# Git 架构设计
+# Arquitetura de Git
 
-## 相关文档
+## Documentos relacionados
 
-- [Git 分支切换与创建底层能力设计](./branch-switching-service-design.md)
+- [Design das capacidades subjacentes de troca/criação de branch do Git](./branch-switching-service-design.md)
 
-## 背景
+## Contexto
 
-当前项目已经具备一套比较清晰的分层和跨端通信骨架：
+O projeto atual já possui um conjunto relativamente claro de camadas e de esqueleto de comunicação multiplataforma:
 
-- UI 通过 hooks 消费服务，不直接访问底层实现
-- Desktop / Web / Remote 都通过 `IServiceAccessor` + RPC 服务链路访问业务能力
-- `IPlatformService` 只承载必须经过宿主环境的动作，不承载常规业务逻辑
+- A UI consome serviços por hooks, sem acessar diretamente as implementações subjacentes
+- Desktop / Web / Remote acessam capacidades de negócio por meio de `IServiceAccessor` + cadeia de serviços via RPC
+- `IPlatformService` carrega apenas ações que precisam obrigatoriamente passar pelo ambiente host, e não lógica de negócio comum
 
-Git 功能如果要长期可维护，应该复用现有服务架构，而不是走新的直连路径。
+Se as funcionalidades de Git devem ser mantidas por longo tempo, o caminho certo é reutilizar a arquitetura de serviços existente, em vez de criar um novo caminho de conexão direta.
 
-## 设计目标
+## Objetivos de design
 
-- Git 能力在本地、远程、Web 三种运行方式下保持统一抽象
-- Git 相关逻辑严格落在 `Types -> Config -> Repo -> Service -> Runtime -> UI` 依赖方向内
-- Git 能读取用户环境里的真实 Git 配置，而不是维护一套项目自己的伪 Git 配置
-- UI 能复用现有右侧 side pane、diff 渲染、文件树组件，避免再造一套壳
+- Manter uma abstração unificada para as capacidades de Git nos três modos de execução: local, remoto e web
+- Manter estritamente a lógica de Git dentro da direção de dependência `Types -> Config -> Repo -> Service -> Runtime -> UI`
+- Permitir que o Git leia a configuração real de Git do ambiente do usuário, em vez de manter uma configuração de Git fictícia própria do projeto
+- Permitir que a UI reutilize o side pane à direita, a renderização de diff e os componentes de árvore de arquivos existentes, evitando recriar uma casca paralela
 
-## 非目标
+## Não objetivos
 
-- v1 不做完整 Git 客户端
-- v1 不做 rebase / cherry-pick / stash / submodule 管理
-- v1 不接管用户的全局 Git 安装、SSH、GPG 或 credential helper 生命周期
-- 会话级回滚与基于 Git 的撤销能力不在本文讨论范围内
+- A v1 não é um cliente Git completo
+- A v1 não implementa rebase / cherry-pick / stash / gerenciamento de submódulos
+- A v1 não assume o ciclo de vida da instalação global de Git do usuário, SSH, GPG ou credential helper
+- Rollback em nível de sessão e capacidade de undo baseada em Git estão fora do escopo deste documento
 
-## 核心判断
+## Julgamento central
 
-### 1. Git 应该是标准业务服务，不应放进 `IPlatformService`
+### 1. Git deve ser um serviço de negócio padrão, e não algo dentro de `IPlatformService`
 
-推荐新增 `IGitService`，走现有 RPC 服务链路。
+Recomenda-se adicionar um `IGitService`, usando a cadeia de serviços via RPC já existente.
 
-原因：
+Motivos:
 
-- Git 不是只在 Electron main 才能做的宿主动作，而是常规业务能力
-- Remote 模式下 Git 必须在远端工作区所在环境执行，不能绑定到本机平台层
-- Web 模式本质上也是通过服务端工作区提供 Git 能力，仍然适合放在 service 层
+- Git não é uma ação de host que só pode ser feita no main do Electron, e sim uma capacidade de negócio comum
+- No modo Remote, o Git precisa ser executado no ambiente onde está o workspace remoto, e não pode ficar preso à camada de plataforma local
+- O modo Web, na essência, também oferece capacidades de Git por meio do workspace do servidor, e portanto continua adequado à camada de service
 
-这也符合当前 `IPlatformService` 的职责边界：它只放 native dialog、窗口控制、外链打开之类“必须穿越宿主边界”的操作。
+Isso também está de acordo com o limite de responsabilidade atual de `IPlatformService`: ele só hospeda operações que "precisam atravessar a fronteira do host", como dialog nativo, controle de janela e abertura de link externo.
 
-## 推荐方案
+## Solução recomendada
 
-### 方案 A：新增独立 `GitService`，本地 / 远程都走同一服务协议
+### Opção A: adicionar um `GitService` independente, com local e remoto usando o mesmo protocolo de serviço
 
-这是推荐方案。
+Esta é a opção recomendada.
 
-#### 高层结构
+#### Estrutura de alto nível
 
 ```mermaid
 flowchart LR
@@ -60,20 +60,20 @@ flowchart LR
   Provider --> Git["System Git CLI"]
 ```
 
-#### 为什么推荐
+#### Por que é recomendada
 
-- 完全贴合现有项目的服务化架构
-- 本地与远程只是在服务实现来源上不同，不会把 UI 设计绑死在某个平台
-- Git 命令、解析、容错、日志都能在服务层统一收口
-- 后续要扩展 staged/unstaged、branch、commit、discard 等能力时不会散到 UI
+- Encaixa perfeitamente na arquitetura orientada a serviços do projeto atual
+- Local e remoto diferem apenas na origem da implementação do serviço, sem prender o design da UI a uma plataforma específica
+- Comandos do Git, parsing, tolerância a falhas e logs podem ser centralizados na camada de serviço
+- Extensões futuras como staged/unstaged, branch, commit e discard não se espalharão pela UI
 
-## 分层设计
+## Design em camadas
 
 ### Types
 
-建议新增 Git 领域 DTO，放到 `packages/shared/src/git.ts`，并在 `packages/shared/src/index.ts` 导出。
+Recomenda-se adicionar DTOs do domínio Git em `packages/shared/src/git.ts`, exportados em `packages/shared/src/index.ts`.
 
-建议至少包含：
+Recomenda-se incluir pelo menos:
 
 - `GitRepositorySummary`
   - `workspacePath`
@@ -106,42 +106,42 @@ flowchart LR
 
 ### Config
 
-建议新增 Git 领域配置层，负责：
+Recomenda-se adicionar uma camada de configuração do domínio Git, responsável por:
 
-- Git binary 解析策略
-- 命令默认参数
-- 超时、输出大小、日志脱敏规则
-- repo root 与 workspace 子路径关系的判定策略
+- Estratégia de resolução do binário do Git
+- Argumentos padrão dos comandos
+- Timeout, tamanho de saída e regras de mascaramento em log
+- Estratégia de decisão da relação entre repo root e subcaminho do workspace
 
-建议文件：
+Arquivo sugerido:
 
 - `packages/services/src/git/config.ts`
 
 ### Providers
 
-为了符合项目里“横切关注点通过 Providers 进入”的原则，Git 域内部建议显式引入 Provider 层。
+Para seguir o princípio do projeto de que "questões transversais entram por Providers", recomenda-se introduzir explicitamente uma camada de Provider dentro do domínio Git.
 
-建议至少拆成两个 provider：
+Recomenda-se dividir em pelo menos dois providers:
 
 - `GitCommandProvider`
-  - 负责统一执行 `git` 命令
-  - 负责 cwd、env、timeout、stderr、exit code、日志
+  - Responsável por executar comandos `git` de forma unificada
+  - Responsável por cwd, env, timeout, stderr, exit code e log
 - `GitEnvironmentProvider`
-  - 负责发现 Git binary
-  - 负责补齐安全环境变量
-  - 负责平台差异适配
+  - Responsável por descobrir o binário do Git
+  - Responsável por completar variáveis de ambiente seguras
+  - Responsável por adaptar diferenças de plataforma
 
-Provider 层只做“如何执行”和“如何适配环境”，不做 Git 业务语义。
+A camada de Provider cuida apenas de "como executar" e "como adaptar o ambiente", e não da semântica de negócio do Git.
 
 ### Repo
 
-Repo 层是对 Git CLI 的薄封装，不承载 UI 语义。
+A camada de Repo é um encapsulamento fino sobre a Git CLI e não carrega semântica de UI.
 
-建议文件：
+Arquivo sugerido:
 
 - `packages/services/src/git/repo/gitCliRepo.ts`
 
-建议职责：
+Responsabilidades sugeridas:
 
 - `resolveRepository(workspacePath)`
 - `getStatus(workspacePath)`
@@ -154,14 +154,14 @@ Repo 层是对 Git CLI 的薄封装，不承载 UI 语义。
 
 ### Service
 
-Service 层对 UI 暴露稳定语义，并隐藏 Git CLI 细节。
+A camada de Service expõe semântica estável para a UI e oculta os detalhes da Git CLI.
 
-建议文件：
+Arquivos sugeridos:
 
 - `packages/services/src/git/git.ts`
 - `packages/services/src/git/gitService.ts`
 
-建议对外接口：
+Interfaces externas sugeridas:
 
 - `getRepositorySummary`
 - `getChanges`
@@ -174,21 +174,21 @@ Service 层对 UI 暴露稳定语义，并隐藏 Git CLI 细节。
 - `getIdentity`
 - `refresh`
 
-如果后续需要订阅式刷新，再补动态事件：
+Se depois for necessário refresh por assinatura, adicionar eventos dinâmicos:
 
 - `onDynamicRepositoryEvent(workspacePath)`
 
 ### Runtime / UI
 
-UI 层只通过 hooks 消费 `IGitService`。
+A camada de UI consome `IGitService` apenas por hooks.
 
-当前 hooks：
+Hooks atuais:
 
 - `packages/ui/src/hooks/useGitRepository.ts`
 - `packages/ui/src/hooks/useGitActions.ts`
 - `packages/ui/src/hooks/useGitAutoRefresh.ts`
 
-UI 组件建议：
+Componentes de UI sugeridos:
 
 - `GitPane`
 - `GitRepositoryHeader`
@@ -197,184 +197,184 @@ UI 组件建议：
 - `GitDiffPanel`
 - `GitCommitPanel`
 
-### Git pane 内部的数据来源切换
+### Troca da origem dos dados dentro do Git pane
 
-Git pane 左侧建议有一个变更来源下拉，不同模式切换不同的数据来源。
+Recomenda-se que o Git pane tenha à esquerda um dropdown de origem das mudanças, e que cada modo troque a origem dos dados.
 
-建议支持四种模式：
+Recomenda-se suportar quatro modos:
 
 - `未暂存`
-  - 数据来源：Git worktree 相对 index 的改动
-  - 主要接口：`getChanges` / `getDiff`
+  - Origem dos dados: alterações do Git worktree em relação ao index
+  - Interfaces principais: `getChanges` / `getDiff`
 - `已暂存`
-  - 数据来源：Git index 相对 `HEAD` 的改动
-  - 主要接口：`getChanges` / `getDiff`
+  - Origem dos dados: alterações do Git index em relação a `HEAD`
+  - Interfaces principais: `getChanges` / `getDiff`
 - `全部分支更改`
-  - 数据来源：当前分支相对远端跟踪分支的差异
-  - 主要接口：`getBranchComparison`
+  - Origem dos dados: diferenças entre a branch atual e a branch de rastreamento remota
+  - Interface principal: `getBranchComparison`
 - `上一轮更改`
-  - 数据来源：当前 active task 最近一轮的文件变更快照
-  - 主要接口：优先复用现有 task/per-turn 变更数据，不强行塞进 `IGitService`
+  - Origem dos dados: snapshot das alterações de arquivo da rodada mais recente da task ativa
+  - Interface principal: preferir a reutilização dos dados de mudança de task/per-turn já existentes, sem forçá-los para dentro do `IGitService`
 
-这里建议把“Git pane”理解为“统一的改动审阅面板”，而不是把每一种视图都硬塞成 Git service 的职责。
+Aqui recomenda-se entender "Git pane" como um "painel unificado de revisão de mudanças", e não como a obrigação de transformar cada visão em responsabilidade do Git service.
 
-其中：
+Neles:
 
-- 前三种模式属于 Git 领域，走 `IGitService`
-- `上一轮更改` 属于会话级改动审阅，只在 Git pane 里共用一套树和 diff 展示壳，保持只读
+- Os três primeiros modos pertencem ao domínio Git e passam pelo `IGitService`
+- `上一轮更改` pertence à revisão de mudanças em nível de sessão e apenas compartilha a mesma casca de árvore e de exibição de diff dentro do Git pane, mantendo-se somente leitura
 
-这样做的好处是：
+Os benefícios dessa abordagem são:
 
-- 保持 Git service 的边界清晰
-- `上一轮更改` 不需要为了 UI 入口位置而伪装成 Git 数据
-- 变更树、diff 面板、右侧审阅体验仍然可以复用一套组件
+- Manter as fronteiras do Git service claras
+- `上一轮更改` não precisa se passar por dados de Git só por causa da posição de entrada na UI
+- A árvore de mudanças, o painel de diff e a experiência de revisão à direita ainda podem reutilizar um conjunto de componentes
 
-## 本地、远程、Web 的执行位置
+## Local de execução em local, remoto e Web
 
-### 本地 Desktop
+### Desktop local
 
-- `createLocalServices()` 注册本地 `GitService`
-- Git 命令在本机工作区执行
+- `createLocalServices()` registra o `GitService` local
+- Os comandos de Git são executados no workspace da máquina local
 
-### Remote Desktop
+### Desktop remoto
 
-- Git 必须像 `file/system/terminal` 一样，来自远端服务
-- 不能在本机 host 里替远端 workspace 执行 Git
-- 远端窗口只保留本地的 setting / credential / broadcast；Git 应归入远端服务集合
+- O Git precisa vir do serviço remoto, assim como `file/system/terminal`
+- Não é permitido executar Git no host local para o workspace remoto
+- A janela remota mantém apenas setting / credential / broadcast locais; Git deve entrar no conjunto de serviços remotos
 
 ### Web
 
-- Web 端不单独做 Git 实现
-- 仍通过 websocket 后端服务提供 Git 能力
+- O lado web não faz uma implementação de Git separada
+- As capacidades de Git continuam sendo fornecidas pelo serviço de backend via websocket
 
-结论：
+Conclusão:
 
-- Git 的执行位置必须和 workspace 的真实落点一致
-- Git 服务的归属应该和 `file/system/terminal` 对齐，而不是和 `setting` 对齐
+- O local de execução do Git precisa coincidir com o local real do workspace
+- A atribuição do serviço de Git deve estar alinhada com `file/system/terminal`, e não com `setting`
 
-## 命令策略
+## Estratégia de comandos
 
-推荐坚持使用系统 Git CLI，而不是引入 JS Git 实现。
+Recomenda-se usar a Git CLI do sistema em vez de introduzir uma implementação de Git em JS.
 
-原因：
+Motivos:
 
-- 能自然复用用户现有的 Git 安装与配置
-- 兼容 `includeIf`、平台默认路径、Git for Windows 等真实环境
-- 后续遇到 SSH、credential helper、换行符策略时更不容易偏离用户认知
+- Reutiliza naturalmente a instalação e a configuração de Git já existentes no usuário
+- É compatível com ambientes reais como `includeIf`, caminhos padrão por plataforma e Git for Windows
+- Ao encontrar mais adiante casos de SSH, credential helper ou política de fim de linha, é menos provável desviar do entendimento do usuário
 
-建议命令：
+Comandos sugeridos:
 
-- 仓库检测
+- Detecção de repositório
   - `git rev-parse --show-toplevel`
-- 状态
+- Status
   - `git status --porcelain=v2 --branch -z`
-- 读取身份
+- Leitura de identidade
   - `git config --get user.name`
   - `git config --get user.email`
-  - 需要来源时再用 `git config --list --show-origin --null`
+  - quando for necessária a origem, usar `git config --list --show-origin --null`
 - diff
   - `git diff --no-ext-diff -- <path>`
   - `git diff --cached --no-ext-diff -- <path>`
-- 分支比较
+- Comparação de branches
   - `git diff @{upstream}...HEAD --`
 - stage
   - `git add -- <path...>`
 - unstage
   - `git restore --staged -- <path...>`
-- 丢弃工作树改动
+- Descartar alterações do worktree
   - `git restore --worktree -- <path...>`
-- 提交
+- Commit
   - `git commit -m <message>`
 
-## 仓库根目录与 workspace 路径
+## Repo root e caminho do workspace
 
-`workspacePath` 不一定等于 `repoRoot`。
+`workspacePath` não é necessariamente igual a `repoRoot`.
 
-例如：
+Por exemplo:
 
-- 用户打开的是 monorepo 根目录
-- 用户打开的是 monorepo 下某个 package 子目录
+- O usuário abriu a raiz do monorepo
+- O usuário abriu um subdiretório de package dentro do monorepo
 
-因此 Git 域必须同时保留三类路径：
+Por isso, o domínio Git precisa manter três tipos de caminho:
 
 - `workspacePath`
 - `repoRoot`
 - `workspaceInRepoPath`
 
-推荐行为：
+Comportamento recomendado:
 
-- 服务层始终基于 `repoRoot` 执行 Git
-- UI 默认展示“当前 workspace 作用域内”的文件
-- 后续如果需要，再增加“显示整个仓库”开关
+- A camada de serviço sempre executa o Git com base em `repoRoot`
+- A UI exibe por padrão os arquivos "dentro do escopo do workspace atual"
+- Se for necessário depois, adicionar uma opção "mostrar o repositório inteiro"
 
-这样能避免 workspace 打开的是子目录时，直接看到整仓库其它区域变更而产生困惑。
+Isso evita a confusão de, ao abrir um subdiretório do workspace, ver de imediato alterações de outras regiões do repositório inteiro.
 
-## 日志与可观测性
+## Log e observabilidade
 
-根据项目约束，涉及交互和复杂状态切换的能力需要补日志。
+Pelas restrições do projeto, capacidades que envolvem interação e troca de estado complexa precisam de log.
 
-建议：
+Sugestões:
 
-- UI 层统一使用 `packages/ui/src/logger.ts`
-- `GitCommandProvider` 不默认打印每条 Git 命令；Git 探测和状态查询属于高频内部细节，
-  需要排查时优先在上层一次性生命周期、失败分支或专门调试入口补充有边界的日志。
+- A camada de UI usa uniformemente `packages/ui/src/logger.ts`
+- O `GitCommandProvider` não imprime cada comando de Git por padrão; a detecção de Git e as consultas de status são detalhes internos de alta frequência,
+  e, quando for preciso investigar, prioritize logs delimitados no ciclo de vida de alto nível, nos ramos de falha ou em uma entrada de debug dedicada.
 
-不要记录：
+Não registrar:
 
-- 完整环境变量
-- 敏感 token
-- credential helper 的敏感输出
+- Variáveis de ambiente completas
+- Tokens sensíveis
+- Saídas sensíveis do credential helper
 
-## 与现有 side pane 的结合
+## Integração com o side pane existente
 
-当前右侧共享 pane 已经统一承载 `browser` 和 `code-viewer`。
+O pane compartilhado à direita já hospeda `browser` e `code-viewer` de forma unificada.
 
-推荐扩展为：
+Recomenda-se estender para:
 
 - `browser`
 - `code-viewer`
 - `git`
 
-而不是在左侧 `WorkspaceSidebar` 再新增一个与 task 并列的大导航区。
+Em vez de adicionar mais uma grande área de navegação paralela às tasks na `WorkspaceSidebar` à esquerda.
 
-原因：
+Motivos:
 
-- 当前左侧栏已经明确承担 workspace / task 导航
-- Git 更像“当前工作区的操作上下文”，适合在右侧展开
-- 可以直接复用现有可调宽度、面板切换、关闭逻辑
+- A barra à esquerda atual já tem a responsabilidade clara de navegação de workspace / task
+- Git se parece mais com um "contexto operacional do workspace atual", adequado para ser expandido à direita
+- Permite reutilizar diretamente a largura ajustável, a troca de painéis e a lógica de fechamento já existentes
 
-## 实施顺序建议
+## Ordem sugerida de implementação
 
-### Phase 1
+### Fase 1
 
-- 新增 `IGitService`
-- 本地 / 远程链路打通
-- 仓库检测、状态、diff、stage/unstage、discard、commit
-- UI 右侧 Git pane
+- Adicionar o `IGitService`
+- Fazer o caminho local / remoto funcionar de ponta a ponta
+- Detecção de repositório, status, diff, stage/unstage, discard, commit
+- Git pane à direita na UI
 
-### Phase 2
+### Fase 2
 
-- 支持按 hunk 操作
-- 支持更精细的 repo/workspace 范围切换
-- 支持动态刷新与文件变化订阅
+- Suporte a operações por hunk
+- Suporte a trocas de escopo repo/workspace mais refinadas
+- Suporte a refresh dinâmico e a assinatura de mudanças de arquivo
 
-## 风险与待讨论项
+## Riscos e itens em discussão
 
-- workspace 打开子目录时，Git 默认展示范围是“当前子树”还是“整个仓库”
-- remote 模式下 Git 用户身份是展示远端有效配置，还是同时展示本地与远端来源
-- Web 端是否需要完整提交能力，还是先只读
-- v1 是否允许直接提交，还是先只做查看和暂存
+- Quando o workspace abre um subdiretório, o escopo padrão de exibição do Git é a "subárvore atual" ou o "repositório inteiro"
+- No modo remoto, a identidade de usuário do Git é a configuração efetiva remota exibida, ou também exibe as origens local e remota
+- Se o lado web precisa de capacidade completa de commit, ou se começa apenas em leitura
+- Se a v1 permite commit direto, ou se primeiro faz apenas visualização e staging
 
 ## TODO
 
-- 会话级回滚能力的边界与交互，后续单独设计
-- 是否需要“基于 Git 的撤销”能力，后续单独评估
-- 如果未来引入 Git checkpoint，再补独立设计文档
-- Git pane 中 `上一轮更改` 的数据复用方式，后续结合现有 task store 再细化
+- Limites e interação da capacidade de rollback em nível de sessão, a serem desenhados separadamente depois
+- Se é necessária a capacidade de "undo baseado em Git", avaliada separadamente depois
+- Se checkpoints de Git forem introduzidos no futuro, adicionar um documento de design independente
+- Como os dados de `上一轮更改` são reutilizados no Git pane, refinado depois junto com o task store existente
 
-## 当前推荐结论
+## Conclusão recomendada atual
 
-- 架构上新增独立 `GitService`
-- 执行位置跟随 workspace 所在环境
-- Git UI 优先挂在右侧共享 pane
-- 先做 Git pane 的仓库级基础能力，再逐步扩展更细粒度 Git 功能
+- Arquiteturalmente, adicionar um `GitService` independente
+- O local de execução acompanha o ambiente onde o workspace está
+- A UI de Git deve ficar prioritariamente no pane compartilhado à direita
+- Fazer primeiro as capacidades básicas de nível de repositório no Git pane e depois expandir gradualmente funcionalidades de Git mais granulares

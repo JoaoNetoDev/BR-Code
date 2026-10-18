@@ -1,37 +1,34 @@
-# Helper lifecycle 不得影响 Agent runtime 规范
+# Especificação: o ciclo de vida do Helper não pode afetar o runtime do Agent
 
-## 状态
+## Status
 
-- 状态：P0/P1/P2 已实现；默认装配的定时健康探测与其自动 recovery 已移除
-- 日期：2026-09-02
-- 最近更新：2026-09-03
-- 适用范围：Desktop 本地 Host、Computer Use Helper、ZCode Agent runtime、`zcode-cua` MCP broker
-- 关联问题：`ZCT-2094300783841067008`、`ZCT-2095050283542110208`
-- 替代关系：本规范确认后，替代“Helper ready/recovery 必须 recycle persistent Agent”的旧约定；
-  [CUA Helper 恢复期 Agent 启动准入规范](./cua-agent-recovery-admission-gate.md)中的 Agent recycle
-  部分需要按本规范收敛。旧规范中的 fail-closed、进程身份校验和 spawn 代际 fence 仍然保留。
-- 被替代条款（2026-09-21）：本规范 §3.1「2026-09-10 spawn 快路」与 §3.3 中「Agent spawn env
-  需要决定是否可以注入当前 broker tuple」的有界探针入口，已被
-  [CUA Helper 懒启动规范](./2026-09-21-cua-helper-lazy-startup-spec.md)取代——spawn env
-  注入凭据不再做任何健康判定；本规范其余条款继续有效。
+- Status: P0/P1/P2 implementados; a sonda de saúde periódica da montagem padrão e sua recovery automática foram removidas
+- Data: 2026-09-02
+- Última atualização: 2026-09-03
+- Escopo de aplicação: Host local do Desktop, Computer Use Helper, runtime do ZCode Agent, broker MCP `zcode-cua`
+- Problemas relacionados: `ZCT-2094300783841067008`, `ZCT-2095050283542110208`
+- Relação de substituição: depois de confirmada esta especificação, ela substitui a convenção antiga de que "Helper ready/recovery precisa reciclar o Agent persistente";
+  a parte de Agent recycle de [CUA Helper 恢复期 Agent 启动准入规范](./cua-agent-recovery-admission-gate.md) precisa ser
+  consolidada conforme esta especificação. O fail-closed, a verificação de identidade de processo e o fence de geração do spawn da especificação antiga continuam mantidos.
+- Cláusulas substituídas (2026-09-21): o §3.1 desta especificação, "2026-09-10 spawn 快路", e a entrada de sonda limitada de §3.3, "Agent spawn env
+  precisa decidir se pode injetar o tuple atual do broker", foram substituídas por
+  [CUA Helper 懒启动规范](./2026-09-21-cua-helper-lazy-startup-spec.md) — a injeção de credenciais no spawn env
+  não faz mais nenhuma verificação de saúde; as demais cláusulas desta especificação continuam válidas.
 
-## 一、产品不变量
+## I. Invariantes de produto
 
-Computer Use Helper 是 CUA 的能力提供者，不是 Agent runtime 的生命周期 owner。
+O Computer Use Helper é o provedor de capacidade da CUA, não o owner do ciclo de vida do runtime do Agent.
 
-必须永久成立：
+Deve valer permanentemente:
 
-1. Helper 冷启动、延迟 ready、health probe 失败、权限恢复、进程重启，都不得主动终止或重启 Agent。
-2. Helper 的生命周期事件不得阻塞其他模块的启动或恢复，包括模型 provider、MCP、task index、session
-   hydration、对话订阅和普通 Agent turn。
-3. Helper 不可用时，只降低 CUA 工具的可用性；不得让非 CUA 对话、普通 MCP 或 Agent runtime 进入
-   `workspace-dispose`。
-4. Agent 是否重启只能由 Agent 自身崩溃、workspace 关闭、用户显式操作或 Agent runtime 自己的恢复策略决定。
-5. “Helper ready”不是“Agent 必须重新 spawn”的隐式信号。
-6. Host 不得通过定时器轮询 Helper 健康状态；健康检查只能发生在 CUA 启动、解析、调用、权限确认等
-   明确的按需边界，且检查失败不得触发 Agent runtime 生命周期动作。
+1. Cold start do Helper, ready atrasado, falha de health probe, recuperação de permissão e restart de processo não podem terminar nem reiniciar ativamente o Agent.
+2. Eventos de ciclo de vida do Helper não podem bloquear a inicialização ou recuperação de outros módulos, incluindo model provider, MCP, task index, session hydration, assinatura de conversas e turnos comuns do Agent.
+3. Quando o Helper está indisponível, apenas a disponibilidade das ferramentas CUA diminui; conversas não CUA, MCP comuns ou o runtime do Agent não podem entrar em `workspace-dispose`.
+4. Se o Agent reinicia, isso só pode ser decidido por crash do próprio Agent, fechamento do workspace, operação explícita do usuário ou pela própria política de recuperação do runtime do Agent.
+5. "Helper ready" não é um sinal implícito de "o Agent precisa fazer spawn de novo".
+6. O Host não pode fazer polling da saúde do Helper por timer; a verificação de saúde só pode acontecer em fronteiras sob demanda explícitas, como inicialização, resolução, chamada e confirmação de permissão da CUA, e a falha da verificação não pode disparar ação de ciclo de vida do runtime do Agent.
 
-目标状态：
+Estado-alvo:
 
 ```text
 Helper lifecycle:  STARTING -> READY -> DEGRADED -> READY/STOPPED
@@ -46,100 +43,88 @@ Agent lifecycle:   STARTING -> RUNNING ------------------------------> STOPPED
                  Helper events --+-- never call disposeWorkspace ------+
 ```
 
-## 二、当前问题与证据
+## II. Problema atual e evidências
 
-历史实现存在两条 Helper → Agent 的反向控制链（本次 P0 已切断 Agent 回收副作用）：
+A implementação histórica possuía duas cadeias de controle reversas Helper → Agent (o P0 atual já cortou o efeito colateral de reciclagem do Agent):
 
 ```text
 resolveSpawnEnv
   -> buildCuaProductHelperAgentEnv
   -> start/checkHealth Helper
-  -> 可能等待或返回 BROKER_UNAVAILABLE
+  -> pode aguardar ou retornar BROKER_UNAVAILABLE
 
-Helper 定时 liveness/recovery（历史路径，现已移除）
+Helper liveness/recovery periódico (caminho histórico, já removido)
   -> resolver.restart() / reconcileRecoveredHelper()
   -> recycleUntilStable()
   -> disposeWorkspace()
   -> cleanupManagedProcessWithRetry("workspace-dispose")
-  -> Agent SIGTERM + 新 Agent spawn
+  -> SIGTERM do Agent + novo spawn do Agent
 ```
 
-相关事实：
+Fatos relacionados:
 
-- Agent spawn 环节在 [node.ts](../../packages/services/src/node.ts) 中等待 Helper env 解析；
-- `reconcileRecoveredHelper()` 历史上会执行 persistent-agent recycle；当前仅清理后续 spawn
-  admission marker，见
-  [cuaProductMcpResolver.ts](/Users/dev/zcode-cua/src/broker/server/cuaProductMcpResolver.ts)；
-- `disposeWorkspace()` 最终以 `workspace-dispose` 清理 Agent，见
-  [zcodeAgentProcessManager.ts](../../packages/services/src/zcode-agent/zcodeAgentProcessManager.ts)；
-- 两张工单均出现 `Helper unreachable -> Helper ready -> Agent SIGTERM(workspace-dispose) -> 新 Agent`。
+- A etapa de spawn do Agent aguarda a resolução do Helper env em [node.ts](../../packages/services/src/node.ts);
+- historicamente `reconcileRecoveredHelper()` executava recycle do agent persistente; atualmente apenas limpa markers posteriores de spawn admission, conforme
+  [cuaProductMcpResolver.ts](/Users/dev/zcode-cua/src/broker/server/cuaProductMcpResolver.ts);
+- `disposeWorkspace()` finalmente limpa o Agent com `workspace-dispose`, conforme
+  [zcodeAgentProcessManager.ts](../../packages/services/src/zcode-agent/zcodeAgentProcessManager.ts);
+- Nos dois tickets aparece `Helper unreachable -> Helper ready -> Agent SIGTERM(workspace-dispose) -> novo Agent`.
 
-### 冷启动预占与恢复回收不是同一条路径
+### Pré-ocupação no cold start e reciclagem na recuperação não são o mesmo caminho
 
-冷启动时 Host 可以先预占 socket/token，Agent 使用预占 tuple，Helper ready 后原子让渡 transport；
-这条路径的设计目标是不重启 Agent。
+No cold start o Host pode pré-ocupar socket/token, o Agent usa o tuple pré-ocupado e, quando o Helper fica ready, o transport é cedido de forma atômica;
+o objetivo de design desse caminho é não reiniciar o Agent.
 
-但以下情况会落入旧的回收路径：
+Porém, os seguintes casos caem no caminho antigo de reciclagem:
 
-- Agent spawn 超过 grace 后被标记为 `BROKER_UNAVAILABLE`；
-- Helper liveness watchdog 每 10 秒探测并直接调用 `resolver.restart()`；
-- Helper restart 生成 fresh socket/token，旧 Agent 仍持有旧凭据；
-- `reconcileRecoveredHelper()` 按 workspace registry 批量调用 `disposeWorkspace()`。
+- O spawn do Agent ultrapassa o grace e é marcado como `BROKER_UNAVAILABLE`;
+- O watchdog de liveness do Helper sonda a cada 10 segundos e chama `resolver.restart()` diretamente;
+- O restart do Helper gera socket/token novos, e o Agent antigo ainda mantém as credenciais antigas;
+- `reconcileRecoveredHelper()` chama `disposeWorkspace()` em lote por workspace registry.
 
-因此，单纯删除某一处 `disposeWorkspace()` 不够：P0 同时移除了 recovery callback 的 Agent 副作用，
-并让普通 Helper restart 优先复用 host transport；后续 P1 继续解决 Agent spawn 的完全非阻塞与长期
-稳定 facade。
+Portanto, apenas remover um `disposeWorkspace()` não basta: o P0 removeu simultaneamente o efeito colateral de Agent no callback de recovery e fez com que um restart comum do Helper preferisse reutilizar o transport do host; o P1 seguinte continua resolvendo o spawn do Agent totalmente não bloqueante e uma facade de longo prazo estável.
 
-## 三、规范性行为
+## III. Comportamentos normativos
 
-### 3.1 Helper 启动
+### 3.1 Inicialização do Helper
 
-- 2026-09-10 spawn 快路：完整 startup 继续交给原 tracker；已有安全 `reservedTransport`
-  且无 unavailable marker 时立即返回，不再先等 1s 才读取同一 tuple。Windows 仍先等待
-  `transport_ready`；无预留、warm health 失败与后台启动失败保留原有准入规则。
-- Helper 启动必须是 Host 内部的 detached/background 操作。
-- 通用服务初始化、Agent spawn、session resume、task index 和普通 MCP 初始化不得等待 Helper
-  完全 ready。
-- Host 应尽早生成并占住 broker transport 的 admission tuple；生成 tuple 本身不得等待 Helper
-  native backend、TCC 或完整 health probe。
-- 如果 tuple 已可安全预占，Agent 可以携带该 tuple 启动；broker client 在 Helper 尚未 ready 时使用
-  有界、可取消的 retry。
-- 如果 tuple 暂时不可用，Agent 仍可启动，但 CUA 工具必须以 retryable `broker_not_ready` 失败；
-  不得因为该状态登记一个稍后会触发 Agent recycle 的 workspace。
+- Fast path de spawn de 2026-09-10: o startup completo continua delegado ao tracker original; havendo já um `reservedTransport` seguro e sem marker de unavailable, retorna imediatamente, sem esperar 1 segundo para ler o mesmo tuple. No Windows ainda se espera primeiro por `transport_ready`; ausência de reserva, falha de warm health e falha de inicialização em segundo plano mantêm as regras de admissão originais.
+- A inicialização do Helper deve ser uma operação detached/background interna do Host.
+- A inicialização de serviços comuns, o spawn do Agent, o resume de session, o task index e a inicialização de MCP comuns não podem aguardar o Helper ficar totalmente ready.
+- O Host deve gerar e ocupar o admission tuple do broker transport o quanto antes; a geração do tuple em si não pode aguardar o backend nativo do Helper, TCC ou o health probe completo.
+- Se o tuple já pode ser pré-ocupado com segurança, o Agent pode iniciar carregando esse tuple; o broker client usa retry limitado e cancelável enquanto o Helper ainda não está ready.
+- Se o tuple estiver temporariamente indisponível, o Agent ainda pode iniciar, mas a ferramenta CUA deve falhar com `broker_not_ready` retryable;
+  não se pode registrar por causa desse estado um workspace que mais tarde dispare recycle de Agent.
 
 ### 3.2 Helper ready
 
-Helper ready 只允许完成以下动作：
+Helper ready só permite as seguintes ações:
 
-- 发布当前 Helper readiness、generation、socket/transport 可用性；
-- 清理 Helper 自己的 startup marker；
-- 唤醒等待中的 CUA tool retry；
-- 记录一次低频生命周期 telemetry。
+- publicar a readiness, generation e disponibilidade de socket/transport atuais do Helper;
+- limpar o próprio startup marker do Helper;
+- acordar as tentativas de retry de ferramenta CUA que aguardam;
+- registrar uma telemetria de ciclo de vida de baixa frequência.
 
-Helper ready 禁止：
+Helper ready é proibido de:
 
-- 调用 `disposeWorkspace()`；
-- 调用 `recycleUntilStable()`；
-- 关闭或重建 Agent protocol client；
-- 触发 session resume 作为 Helper ready 的副作用；
-- 触发其他 workspace 的任何 Agent 操作。
+- chamar `disposeWorkspace()`;
+- chamar `recycleUntilStable()`;
+- fechar ou reconstruir o protocol client do Agent;
+- disparar resume de session como efeito colateral do Helper ready;
+- disparar qualquer operação de Agent em outros workspaces.
 
-### 3.3 按需健康检查与 Helper recovery/restart
+### 3.3 Health check sob demanda e recovery/restart do Helper
 
-默认产品装配不得创建周期性 Helper liveness timer，也不得因为空闲时段的一次探测失败自动调用
-`resolver.restart()`。允许的健康检查入口必须由明确需求触发：
+A montagem padrão de produto não pode criar timer periódico de liveness do Helper, nem chamar automaticamente `resolver.restart()` por causa de uma falha de sonda no período ocioso. As entradas de health check permitidas devem ser disparadas por necessidade explícita:
 
-- Agent spawn env 需要决定是否可以注入当前 broker tuple；
-- CUA MCP server resolve/request boundary 需要确认当前 Helper 可用；
-- 用户完成权限授权，需要显式 verify/restart；
-- Host 启动、关闭或收到 Helper process-exit 事件，只完成自身状态收口；不因退出事件主动 restart，
-  下一次 CUA demand boundary 再按需启动/恢复。
+- O Agent spawn env precisa decidir se pode injetar o tuple atual do broker;
+- A fronteira de resolve/request do servidor MCP CUA precisa confirmar que o Helper atual está disponível;
+- O usuário concluiu a autorização de permissão e precisa de verify/restart explícito;
+- O Host inicia, fecha ou recebe um evento de process-exit do Helper, apenas fechando o próprio estado; não restart proativamente por causa do evento de saída, e sim na próxima fronteira de demanda CUA iniciar/recuperar sob demanda.
 
-因此，空闲期间即使 Helper 已卡死，也不会有后台定时任务主动探测或重启它；下一次 CUA 按需边界才会
-执行有界 `checkHealth`，失败时只恢复 Helper 或返回 CUA-only 的 retryable/fail-closed 结果。非 CUA
-模块、Agent runtime、session 和 task 状态均不参与这次恢复。
+Assim, mesmo que o Helper tenha travado durante o período ocioso, não haverá tarefa de fundo periódica que o sonde ou reinicie; só a próxima fronteira sob demanda da CUA executa um `checkHealth` limitado, e na falha recupera apenas o Helper ou retorna um resultado retryable/fail-closed exclusivo de CUA. Módulos não CUA, runtime do Agent, session e estado de task não participam dessa recuperação.
 
-Helper recovery 必须拆成两个互不耦合的结果：
+A recuperação do Helper deve ser dividida em dois resultados sem acoplamento:
 
 ```text
 Helper recovery result
@@ -148,36 +133,34 @@ Helper recovery result
   └─ agentInvalidationRequired: false
 ```
 
-本规范下 `agentInvalidationRequired` 默认恒为 `false`。Helper recovery 不得隐式触发 Agent restart。
+Sob esta especificação, `agentInvalidationRequired` é sempre `false` por padrão. A recuperação do Helper não pode disparar implicitamente restart do Agent.
 
-如果 Helper 进程确实退出：
+Se o processo do Helper realmente sair:
 
-- Host 负责回收和重新验证 Helper 进程身份；
-- Host broker facade 保持 Agent 侧连接契约不变；
-- 当前 CUA 请求按 delivery-safety 规则返回 retryable 或 `possibly_sent`；
-- 新的 CUA 请求在 Helper ready 后重试；
-- 普通 Agent turn、session event、task index 和其他 MCP 继续使用原 runtime。
+- O Host é responsável por recolher e revalidar a identidade do processo do Helper;
+- A broker facade do Host mantém inalterado o contrato de conexão do lado do Agent;
+- A requisição CUA atual retorna retryable ou `possibly_sent` conforme as regras de delivery-safety;
+- Uma nova requisição CUA é retentada depois que o Helper ficar ready;
+- Turnos comuns do Agent, eventos de session, task index e outros MCP continuam usando o runtime original.
 
-### 3.4 凭据与 transport
+### 3.4 Credenciais e transport
 
-最终实现必须满足以下任一等价条件：
+A implementação final precisa satisfazer qualquer uma das seguintes condições equivalentes:
 
-1. Agent 看到的是 Host lifetime 内稳定的 broker facade socket/token，Helper 只是 facade 的下游实现；
-2. Agent 侧 MCP client 支持在 Helper generation 变化时原地重连，并通过 Host 获取当前有效凭据，
-   不需要重启 Agent 或重建 session。
+1. O Agent vê um socket/token de broker facade estável durante todo o lifetime do Host, e o Helper é apenas a implementação a jusante dessa facade;
+2. O MCP client do lado do Agent suporta reconectar no lugar quando a generation do Helper muda e obtém as credenciais válidas atuais pelo Host, sem precisar reiniciar o Agent nem reconstruir a session.
 
-不能采用的方案：
+Abordagens não aceitáveis:
 
-- 只删除 Agent recycle，但仍给每次普通 Helper restart 生成全新的 socket/token；
-- 让 Agent 继续持有旧 bearer token，再期望旧 MCP 连接自动获得新凭据；
-- 把新 token 写入全局 Agent env、普通 MCP env、hooks 或 Bash 子进程环境。
+- apenas remover o recycle do Agent, mas ainda gerar socket/token totalmente novos a cada restart comum do Helper;
+- deixar o Agent continuar com o bearer token antigo e esperar que a antiga conexão MCP obtenha credenciais novas sozinha;
+- escrever o novo token no env global do Agent, no env de MCP comum, em hooks ou no ambiente de subprocessos Bash.
 
-凭据仍必须保持原有安全边界：仅注入官方 CUA MCP server，Helper 进程身份、peer、generation 和
-旧进程退出证据必须继续 fail-closed 校验。
+As credenciais devem continuar mantendo as fronteiras de segurança originais: injeção somente no servidor MCP CUA oficial, e a identidade de processo do Helper, peer, generation e as evidências de saída do processo antigo devem continuar sendo verificadas de forma fail-closed.
 
-### 3.5 Helper 不可用时的 CUA 行为
+### 3.5 Comportamento da CUA quando o Helper está indisponível
 
-CUA 工具调用按以下顺序处理：
+Chamadas de ferramenta CUA são tratadas na seguinte ordem:
 
 ```text
 CUA tool request
@@ -189,12 +172,11 @@ CUA tool request
                 └─ possibly_sent: 禁止自动重放，交给现有安全语义
 ```
 
-`broker_not_ready` 只影响该次 CUA tool call，不得升级成 `workspace-dispose`、session error 或 Agent
-runtime restart。重试必须有绝对 deadline，不得在 Host 内无限后台重试。
+`broker_not_ready` afeta apenas aquela chamada de ferramenta CUA e não pode escalar para `workspace-dispose`, session error ou restart do runtime do Agent. O retry precisa ter um deadline absoluto, sem retry infinito em segundo plano dentro do Host.
 
-### 3.6 CUA 插件开关的启动时门控
+### 3.6 Gateamento por tempo de inicialização do interruptor do plugin CUA
 
-插件设置页将 CUA 从启用切换为禁用并完成配置提交时，该提交只写入启动配置，不触碰当前运行时：
+Quando a página de configurações do plugin muda CUA de habilitado para desabilitado e conclui a submissão da configuração, essa submissão escreve somente a configuração de inicialização, sem tocar no runtime atual:
 
 ```text
 plugin disable committed
@@ -208,115 +190,105 @@ next session create/resume (including the same workspace Agent process)
   -> do not start or consume Helper
 ```
 
-这条链路不得依赖周期 watchdog、后台 health probe 或 Agent restart。正在运行的 Agent 进程、session、
-已有 CUA MCP、Helper、普通 MCP 和非 CUA 子进程保持不变；因此设置关闭后已有对话需要重启 ZCode
-才能完全切换到新的启动配置。Agent 子进程可以继续按 workspace 复用，但每个新建或重新 materialize 的
-session runtime 都必须重新读取插件门控；禁用后新开对话不得注入 CUA MCP，也不得因为后台仍有 Helper
-就重新获得 CUA 能力。Helper 可继续驻留到 Host/App 生命周期结束，但不被新 session 消费。
+Essa cadeia não pode depender de watchdog periódico, health probe de fundo ou restart do Agent. O processo de Agent em execução, a session, o MCP CUA existente, o Helper, os MCP comuns e os subprocessos não CUA permanecem inalterados; portanto, após desligar o ajuste, conversas existentes precisam reiniciar o ZCode para mudar completamente para a nova configuração de inicialização. O subprocesso do Agent pode continuar sendo reutilizado por workspace, mas todo session runtime novo ou rematerializado precisa reler o gateamento do plugin; depois de desabilitado, uma nova conversa não deve receber injeção de MCP CUA nem recuperar capacidade CUA só porque ainda há um Helper em segundo plano. O Helper pode continuar residindo até o fim do lifetime do Host/App, mas não é consumido por novas sessions.
 
-## 四、边界与状态 owner
+## IV. Fronteiras e owners de estado
 
-| 状态/事实 | 权威 owner | Helper 能否修改 | Agent 能否被影响 |
+| Estado/fato | Owner autoritativo | O Helper pode modificar | O Agent pode ser afetado |
 | --- | --- | --- | --- |
-| Helper process/readiness | Host + Helper lifecycle | 是 | 只能影响 CUA tool readiness |
-| Broker transport facade | Host | 是 | Agent 连接契约保持不变 |
-| Agent process/runtime | Agent process manager | 否 | 仅 Agent 自身生命周期策略可修改 |
-| Session messages/active turn | Agent runtime/session store | 否 | Helper 不得清空或重建 |
-| Task index metadata | Host task index syncer | 否 | Helper ready 不得触发 Agent dispose |
-| CUA tool retry state | CUA broker client/facade | 是 | 只影响当前 CUA 请求 |
-| Desktop realtime | `desktop-continuous` attachment | 否 | 不插入 Helper 专用 replay 消息 |
-| Mobile remote realtime | `web-remote-replayable` attachment | 否 | 继续走 snapshot/gap 恢复，不创建独立 Helper |
+| Processo/readiness do Helper | Host + ciclo de vida do Helper | Sim | Só pode afetar a readiness da ferramenta CUA |
+| Facade do broker transport | Host | Sim | O contrato de conexão do Agent permanece inalterado |
+| Processo/runtime do Agent | Agent process manager | Não | Só a política de ciclo de vida do próprio Agent pode modificar |
+| Mensagens/turno ativo da session | Runtime do Agent/session store | Não | O Helper não pode limpar nem reconstruir |
+| Metadados do task index | Host task index syncer | Não | Helper ready não pode disparar dispose do Agent |
+| Estado de retry da ferramenta CUA | CUA broker client/facade | Sim | Afeta apenas a requisição CUA atual |
+| Realtime do Desktop | attachment `desktop-continuous` | Não | Não insere mensagens de replay exclusivas do Helper |
+| Realtime remoto do mobile | attachment `web-remote-replayable` | Não | Continua usando recuperação por snapshot/gap e não cria Helper independente |
 
-Workspace 隔离继续使用 `workspaceIdentity?.trim() || workspacePath`；Helper recovery 不能按裸
-`workspacePath` 把不同 remote workspace 误认为同一 Agent。
+O isolamento por workspace continua usando `workspaceIdentity?.trim() || workspacePath`; a recuperação do Helper não pode confundir workspaces remotos diferentes por `workspacePath` puro como se fossem o mesmo Agent.
 
-## 五、实现分阶段
+## V. Fases de implementação
 
-### P0：切断反向生命周期控制（止血）
+### P0: cortar o controle reverso de ciclo de vida (contção de sangramento)
 
-- 从 Helper ready、liveness recovery 和 `reconcileRecoveredHelper` 路径移除 `disposeWorkspace` 副作用。
-- `CuaProductHelperWorkspaceRegistry` 不再作为 Agent recycle 目标集合；如暂时保留，只用于 readiness
-  观测和 telemetry。
-- `resolveSpawnEnv` 不等待完整 Helper readiness；改为消费已预占 tuple、stable facade tuple 或立即
-  返回 CUA-only 的 `broker_not_ready` 状态。
-- 保留旧的 process identity、generation fence 和 fail-closed 检查，避免以“解耦”为名放行旧 token。
+- Remover o efeito colateral de `disposeWorkspace` dos caminhos de Helper ready, liveness recovery e `reconcileRecoveredHelper`.
+- `CuaProductHelperWorkspaceRegistry` deixa de ser o conjunto alvo de recycle do Agent; se mantido temporariamente, serve apenas para observação de readiness e telemetria.
+- `resolveSpawnEnv` não aguarda mais a readiness completa do Helper; passa a consumir o tuple já pré-ocupado, um tuple de facade estável ou retornar imediatamente o estado CUA-only `broker_not_ready`.
+- Manter as verificações antigas de process identity, generation fence e fail-closed, para não deixar passar token antigo sob pretexto de "desacoplamento".
 
-### P1：建立稳定 broker facade
+### P1: estabelecer uma broker facade estável
 
-- Host 持有稳定的 Agent-facing socket/capability；Helper 连接是可替换的 downstream。
-- Helper 进程换代只更新 facade 的 downstream handle。
-- facade 对 CUA 请求执行有界 retry、取消传播和 delivery-state 分类。
-- 普通 Helper restart 不再 mint 一个必须通过 Agent respawn 才能消费的新 Agent-facing tuple。
+- O Host mantém um socket/capability estável voltado para o Agent; a conexão do Helper é um downstream substituível.
+- A troca do processo do Helper apenas atualiza o handle downstream da facade.
+- A facade executa retry limitado, propagação de cancelamento e classificação de delivery-state para as requisições CUA.
+- Um restart comum do Helper não gera mais um novo tuple Agent-facing que só pode ser consumido via respawn do Agent.
 
-### P2：删除旧的 Agent recycle 契约
+### P2: remover o contrato antigo de recycle do Agent
 
-- 删除 `onHelperCredentialsRotated -> recycleUntilStable -> disposeWorkspace` 的产品语义。
-- 将 admission gate 限制为 Helper 自身启动/transport admission，不再阻塞 Agent spawn。
-- 更新旧 recovery spec、注释、测试名和 telemetry 字段，避免“recovery 必须回收 Agent”的错误文档继续
-  诱导实现。
+- Remover a semântica de produto de `onHelperCredentialsRotated -> recycleUntilStable -> disposeWorkspace`.
+- Restringir o admission gate ao próprio admission de startup/transport do Helper, sem bloquear mais o spawn do Agent.
+- Atualizar a especificação antiga de recovery, comentários, nomes de teste e campos de telemetria, para evitar que a documentação errada de que "recovery precisa reciclar o Agent" continue induzindo a implementação.
 
-## 六、验证矩阵
+## VI. Matriz de verificação
 
-| Case | 初始状态 | 事件 | 预期结果 |
+| Case | Estado inicial | Evento | Resultado esperado |
 | --- | --- | --- | --- |
-| HLR-01 | Helper cold-start，普通 Agent spawn | Helper 延迟 ready | Agent 立即启动；PID/runtime generation 不变 |
-| HLR-02 | Helper cold-start，预占 tuple 已发布 | Helper ready | Agent 不重启；同一 CUA MCP 连接最终可用 |
-| HLR-03 | Helper cold-start，tuple 暂不可用 | CUA tool request | bounded retry 或 `broker_not_ready`；不回收 Agent |
-| HLR-04 | Agent 有 active CUA turn | Helper health probe 失败 | 不 restart Helper-induced Agent；当前请求按安全 delivery 状态收口 |
-| HLR-05 | Agent 有普通非 CUA turn | Helper recovery | 对话继续；非 CUA MCP、model provider、task index 不受影响 |
-| HLR-06 | Helper 空闲后卡死或进程退出，但没有 CUA 请求 | 等待超过历史 watchdog 周期 | 不发生定时 probe/restart 或退出事件自动 recovery；Agent PID/session 不变，下一次 CUA demand 再按需恢复 |
-| HLR-07 | 多 workspace 并行 | 单一 Helper recovery | 不产生跨 workspace Agent dispose；workspace identity 隔离保持 |
-| HLR-08 | Desktop continuous | Helper ready/recovery | 不注入 replayable 恢复消息，不改变 continuous cursor |
-| HLR-09 | Mobile remote/replayable | Desktop Helper recovery | 手机只通过 shared-host attachment 恢复，不创建第二个 Helper/runtime |
-| HLR-10 | Helper recovery 与 Agent spawn 并发 | generation 交错 | 不下发旧 tuple；也不因代际检查失败而 dispose 已运行 Agent |
-| HLR-11 | Helper token/identity 校验失败 | recovery 完成 | CUA fail-closed；Agent 与普通模块继续运行 |
-| HLR-12 | 用户关闭 workspace / Agent 自身崩溃 | 非 Helper 事件 | 允许既有 Agent dispose/restart 语义；不得归因于 Helper recovery |
-| HLR-13 | Helper 已不可用 | 下一次 CUA resolve/spawn 边界 | 执行一次有界按需 probe/recovery；不启动周期 timer，不回收 Agent |
-| HLR-14 | CUA 插件已运行且存在活动 Agent | 设置页提交禁用 | 只写启动配置；不关闭已有 CUA MCP/Helper，不重启 Agent；已有对话保持原能力，新开对话不注入 CUA MCP；提示已有对话需重启 ZCode 后生效 |
+| HLR-01 | Cold start do Helper, spawn de Agent comum | Helper fica ready atrasado | O Agent inicia imediatamente; PID/runtime generation inalterados |
+| HLR-02 | Cold start do Helper, tuple pré-ocupado já publicado | Helper ready | O Agent não reinicia; a mesma conexão MCP CUA fica finalmente disponível |
+| HLR-03 | Cold start do Helper, tuple temporariamente indisponível | Requisição de ferramenta CUA | Retry limitado ou `broker_not_ready`; sem reciclagem do Agent |
+| HLR-04 | Agent com turno CUA ativo | Falha de health probe do Helper | Sem restart do Agent induzido pelo Helper; a requisição atual fecha conforme o estado de delivery seguro |
+| HLR-05 | Agent com turno comum não CUA | Recovery do Helper | A conversa continua; MCP não CUA, model provider e task index não são afetados |
+| HLR-06 | Helper trava ou o processo sai após ficar ocioso, sem requisição CUA | Espera por mais de um ciclo do watchdog histórico | Nenhuma sonda/restart periódico nem recovery automático por evento de saída; PID/session do Agent inalterados, e a próxima demanda CUA recupera sob demanda |
+| HLR-07 | Vários workspaces em paralelo | Recovery de um único Helper | Nenhum dispose de Agent entre workspaces; o isolamento por identidade de workspace é mantido |
+| HLR-08 | Desktop continuous | Helper ready/recovery | Nenhuma mensagem de recuperação replayable é injetada e o cursor continuous não muda |
+| HLR-09 | Mobile remote/replayable | Recovery do Helper do Desktop | O celular se recupera apenas pelo attachment shared-host e não cria um segundo Helper/runtime |
+| HLR-10 | Recovery do Helper concorrente com spawn do Agent | Interleaving de generation | Não é emitido tuple antigo; e também não há dispose de um Agent já em execução por falha na verificação de geração |
+| HLR-11 | Falha na verificação de token/identidade do Helper | Recovery concluído | CUA em fail-closed; Agent e módulos comuns continuam rodando |
+| HLR-12 | Usuário fecha o workspace / o próprio Agent crasha | Evento não relacionado ao Helper | A semântica existente de dispose/restart do Agent é permitida e não pode ser atribuída ao recovery do Helper |
+| HLR-13 | Helper já indisponível | Próxima fronteira de resolve/spawn da CUA | Executa uma única sonda/recovery sob demanda e limitada; não inicia timer periódico e não recicla o Agent |
+| HLR-14 | Plugin CUA em execução e com Agent ativo | Submissão de desativação na página de ajustes | Escreve apenas a configuração de inicialização; não fecha o MCP CUA/Helper existente nem reinicia o Agent; conversas existentes mantêm as capacidades originais, novas conversas não recebem injeção de MCP CUA e o usuário é avisado de que conversas existentes precisam reiniciar o ZCode para a mudança ter efeito |
 
-必须断言：
+Asserções obrigatórias:
 
-- Helper 生命周期日志中不得出现由 readiness/recovery 直接引起的 `workspace-dispose`；
-- 同一 Agent 的 `runtimeIdentity`、session event sequence 和 active turn 不因 Helper ready 改变；
-- CUA 请求失败必须携带 retryable/delivery-state 事实，不能伪装成 Agent crash；
-- 非 CUA 模块启动耗时不包含 Helper 完整 health budget；
-- desktop 与 mobile 的 delivery profile 不互相扩散。
+- Nos logs de ciclo de vida do Helper não pode aparecer `workspace-dispose` causado diretamente por readiness/recovery;
+- O `runtimeIdentity`, a sequência de eventos de session e o turno ativo do mesmo Agent não mudam por causa do Helper ready;
+- Uma falha de requisição CUA precisa carregar o fato de retryable/delivery-state e não pode se disfarçar de crash do Agent;
+- O tempo de inicialização de módulos não CUA não inclui o budget de health completo do Helper;
+- Os perfis de delivery de desktop e mobile não se espalham um para o outro.
 
-## 七、观测与故障归因
+## VII. Observabilidade e atribuição de falhas
 
-新增或保留以下低频生命周期字段：
+Adicionar ou manter os seguintes campos de ciclo de vida de baixa frequência:
 
-- `helperGeneration`、`helperProcessIdentity`、`readiness`；
-- `agentRuntimeIdentity`（仅用于关联，不作为 Helper 的控制权）；
-- `recoveryCause`：`cold-start`、`health-degraded`、`process-exit`、`permission-refresh`；
-- `agentInvalidationRequired`：规范实现必须为 `false`；
-- CUA request 的 `retryable`、`request_delivery_state`、`possibly_sent`。
+- `helperGeneration`, `helperProcessIdentity`, `readiness`;
+- `agentRuntimeIdentity` (apenas para correlação, não como controle do Helper);
+- `recoveryCause`: `cold-start`, `health-degraded`, `process-exit`, `permission-refresh`;
+- `agentInvalidationRequired`: a implementação da especificação precisa ser `false`;
+- `retryable`, `request_delivery_state` e `possibly_sent` das requisições CUA.
 
-以下现象应直接判为回归：
+Os seguintes fenômenos devem ser classificados diretamente como regressão:
 
-- Helper ready/recovery 后出现 Agent `SIGTERM`、`workspace-dispose` 或新 runtime generation；
-- session resume 仅由 Helper ready 触发；
-- 普通 Agent spawn 等待 Helper 完整启动；
-- Helper token 进入 Agent 全局 env 或非 CUA 子进程。
+- SIGTERM do Agent, `workspace-dispose` ou nova runtime generation depois de Helper ready/recovery;
+- resume de session disparado apenas pelo Helper ready;
+- Spawn comum do Agent aguardando a inicialização completa do Helper;
+- Token do Helper entrando no env global do Agent ou em subprocessos não CUA.
 
-## 八、Spec 变更后的实现顺序
+## VIII. Ordem de implementação após a mudança da spec
 
-1. 先新增/更新 service 与 producer resolver 的契约测试，锁定“Helper 事件不得 dispose Agent”。
-2. 再实现 P0，确认 Agent startup/recovery 与 CUA readiness 解耦。
-3. 然后实现 P1 stable broker facade；涉及 broker 协议时同步更新 producer 与 shared 类型/运行时校验。
-4. 最后删除旧 recycle 语义，并更新 conversation/CUA E2E case catalog 与 coverage matrix。
-5. 完成后运行 `pnpm typecheck`、`pnpm lint`、受影响 unit tests，以及 desktop CUA E2E；无法实机验证的
-   平台必须在 MR 中列出风险和待补证据。
+1. Primeiro adicionar/atualizar os testes de contrato de service e do producer resolver, travando que "eventos do Helper não podem dispor do Agent".
+2. Depois implementar o P0, confirmando o desacoplamento entre startup/recovery do Agent e readiness da CUA.
+3. Em seguida implementar a facade de broker estável do P1; ao envolver o protocolo do broker, atualizar em sincronia o producer e os tipos/com validação de runtime do shared.
+4. Por fim remover a semântica antiga de recycle e atualizar o catálogo de cases de E2E de conversation/CUA e a matriz de cobertura.
+5. Depois de concluir, executar `pnpm typecheck`, `pnpm lint`, os unit tests afetados e o E2E de CUA do desktop; plataformas que não puderem ser verificadas em máquina real precisam listar riscos e evidências pendentes na MR.
 
-本规范不允许用“延长 Helper 等待时间”作为最终方案。等待时间只能缓解冷启动观感，不能改变 Helper
-与 Agent runtime 的错误 ownership。
+Esta especificação não permite usar "prolongar o tempo de espera do Helper" como solução final. O tempo de espera só atenua a percepção de cold start e não muda o ownership de erro entre o Helper e o runtime do Agent.
 
-## 九、本次实现状态
+## IX. Estado da implementação atual
 
-### Todo103 整合补充：显式停止与迟到的 transport 消息
+### Suplemento de integração da Todo103: parada explícita e mensagens de transport tardias
 
-Windows Host 是 transport tuple 的唯一所有者。异常退出可保留 tuple 供按需恢复；显式 stop 则清除它。
-stop 已开始但旧子进程尚未退出时，迟到的 ready/transport_ready 不得重新发布已失效 tuple，下一次冷启动必须产生新 tuple。
+O Host do Windows é o único owner do transport tuple. Uma saída anormal pode preservar o tuple para recuperação sob demanda; uma parada explícita o limpa.
+Quando o stop já começou mas o subprocesso antigo ainda não saiu, mensagens tardias de ready/transport_ready não podem republicar um tuple já invalidado, e o próximo cold start precisa produzir um tuple novo.
 
 ```text
 显式 stop -> 失效当前 generation、清除 tuple -> 等待旧进程退出 -> 新 generation
@@ -324,23 +296,12 @@ stop 已开始但旧子进程尚未退出时，迟到的 ready/transport_ready �
                      `-> 旧 ready/transport_ready：忽略，不发布 tuple 或 health handle
 ```
 
-这不新增 Agent 生命周期或同步机制，仅补齐 source 新增 tuple 缓存与现有 stop epoch 的组合边界。
+Isso não adiciona mecanismo novo de ciclo de vida ou sincronização do Agent, apenas completa a fronteira de combinação entre o cache de tuple novo do source e o stop epoch existente.
 
-- P0 已实现：`reconcileRecoveredHelper` 与普通 Helper recovery 不再调用 Agent recycle callback；Desktop
-  recovery admission 不再关闭，也不再通过 `disposeWorkspace` 重建 Agent。
-- macOS product Host 的普通 recovery 优先复用已验证 transport；因此 Helper 进程可重启，而既有 Agent
-  继续使用同一 socket/token。
-- Windows recovery 现在也复用既有 named pipe/token；Helper 进程可替换，既有 Agent 的 host-facing
-  transport 不变。无已验证 handle 的 cold/fresh fallback 仍只影响后续 spawn admission，不触发 Agent
-  recycle。
-- P1 stable facade 已按“Host-owned facade”落地：macOS/Windows Host 在普通 recovery 中复用同一
-  Agent-facing socket/token，Helper 进程仅作为可替换 downstream；broker client 继续通过现有 bounded
-  warmup retry 与 delivery-state 处理 Helper 短暂退出，不需要新增独立常驻进程。
-- P2 已收口：默认 services 装配不再注入 `CuaAgentAdmissionGate`，`recycleUntilStable` 与
-  `onHelperCredentialsRotated` 已删除；`CuaAgentAdmissionGate` 类型仍保留为兼容导出，但不再参与
-  默认 Agent spawn。
-- 默认 services 装配不再启动 `startCuaHelperLivenessWatchdog`，因此不存在每 10 秒 probe 失败后自动
-  `resolver.restart()` 的链路；spawn env 与 Producer resolver 中的有界 `checkHealth` 仍保留为按需检查。
-- CUA 插件开关与 BUA 对齐为启动时门控：显式禁用只写配置，不处理已运行 Agent、已有 CUA MCP
-  或 Helper；新 Host/Agent/App 启动时读取 disabled 后不注入 CUA MCP，也不启动 Helper。设置页需提示
-  已有对话需重启 ZCode 后生效。
+- P0 implementado: `reconcileRecoveredHelper` e o recovery comum do Helper não chamam mais o callback de recycle do Agent; o recovery admission do Desktop não fecha mais o Agent nem o reconstrói via `disposeWorkspace`.
+- No product Host do macOS o recovery comum prioriza reutilizar o transport já validado; assim o processo do Helper pode reiniciar enquanto o Agent existente continua usando o mesmo socket/token.
+- O recovery do Windows agora também reutiliza o named pipe/token existentes; o processo do Helper pode ser substituído e o transport host-facing do Agent existente não muda. O fallback cold/fresh sem handle validado afeta apenas o spawn admission posterior e não dispara recycle do Agent.
+- A facade estável do P1 foi implementada como "facade pertencente ao Host": os Hosts macOS/Windows reutilizam o mesmo socket/token Agent-facing no recovery comum, o processo do Helper é apenas um downstream substituível; o broker client continua tratando a saída breve do Helper pelo warmup retry limitado e pelo delivery-state já existentes, sem precisar de um novo processo residente separado.
+- P2 consolidado: a montagem padrão de services não injeta mais `CuaAgentAdmissionGate`; `recycleUntilStable` e `onHelperCredentialsRotated` foram removidos; o tipo `CuaAgentAdmissionGate` é mantido como export de compatibilidade, mas não participa mais do spawn padrão do Agent.
+- A montagem padrão de services não inicia mais `startCuaHelperLivenessWatchdog`, portanto não existe mais a cadeia de `resolver.restart()` automático após falha de sonda a cada 10 segundos; o `checkHealth` limitado no spawn env e no Producer resolver é mantido como verificação sob demanda.
+- O interruptor do plugin CUA foi alinhado ao BUA como gateamento por tempo de inicialização: a desativação explícita escreve apenas a configuração, sem tratar Agent já em execução, MCP CUA existente ou Helper; no início de um novo Host/Agent/App, após ler disabled, não se injeta MCP CUA nem se inicia o Helper. A página de ajustes precisa avisar que conversas existentes exigem reiniciar o ZCode para a mudança ter efeito.

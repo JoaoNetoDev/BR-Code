@@ -10,133 +10,133 @@
   background up to its own message. Requires real Feishu CUA evidence in addition to
   provider/service tests. No fixture can prove tenant permissions or native routing.
 
-本文记录 Bot 渠道的端到端行为合同。Bot 用例独立于 conversation-session：它们复用 ZCode task stream，但入口、状态所有者和外部证据位于 `BotsService` 与 provider API。
+Este documento registra o contrato de comportamento de ponta a ponta do canal de Bot. Os casos de Bot são independentes de conversation-session: eles reutilizam o task stream do ZCode, mas o ponto de entrada, o dono do estado e a evidência externa ficam em `BotsService` e na API do provider.
 
-## 范围决策
+## Decisões de escopo
 
-| 边界               | 决策                                      | 理由                                                          |
+| Limite               | Decisão                                      | Motivo                                                          |
 | ------------------ | ----------------------------------------- | ------------------------------------------------------------- |
-| 本轮主范围         | Feishu/Lark `streaming_card` 完整生命周期 | 这是分支中用户可见且跨层风险最高的行为                        |
-| Provider 环境      | CI 使用 mock Feishu HTTP API              | 避免真实租户、凭据和网络造成不稳定                            |
-| Task 时序          | `controlled-stream`                       | 必须观察运行态展开与终态收起，`fast-text` 无法证明中间状态    |
-| 客户端语义         | `bot-channel-continuous`                  | Bot stream 不进入手机 `web-remote-replayable` 恢复语义        |
-| 多 host runtime 锁 | 后续独立 process E2E                      | 当前已有 service integration 回归；多进程夹具不与卡片语义混跑 |
-| Plan approval UI   | 排除                                      | 与 Bot 渠道生命周期无直接状态交叉                             |
+| Escopo principal desta rodada         | Ciclo de vida completo de `streaming_card` do Feishu/Lark | É o comportamento visível ao usuário e de maior risco entre camadas nesta branch                        |
+| Ambiente de provider      | CI usa mock da HTTP API do Feishu              | Evita instabilidade causada por tenant, credenciais e rede reais                            |
+| Temporização de task          | `controlled-stream`                       | É preciso observar a expansão em execução e o recolhimento no estado terminal; `fast-text` não prova estados intermediários    |
+| Semântica do cliente         | `bot-channel-continuous`                  | O stream de Bot não entra na semântica de recuperação `web-remote-replayable` do celular        |
+| Lock de runtime multi-host | Depois, como process E2E independente                      | Já existe regressão de service integration; fixtures de múltiplos processos não são misturados à semântica de card |
+| Plan approval UI   | Excluído                                      | Não tem cruzamento de estado direto com o ciclo de vida do canal de Bot                             |
 
-## 接受用例
+## Casos aceitos
 
-### BOT-E2E-MN-03：无原生 ID 的名字提及
+### BOT-E2E-MN-03: menção por nome sem ID nativo
 
-- Setup：已授权群/话题，群成员目录与历史可信机器人 mention；输入仅包含文字名字。
-- Action：ReplyToChannel 按名字包含查询；唯一候选或唯一完整匹配直接发送，多人分别解析。
-- Assert：英文名保留空格；全部未解决名字一次返回，不能将未查询说成成功。
-- Assert：唯一目标为原生 at；重名/无结果/无权限时零发送；同一 toolCall 只投递一次。
-- Evidence：MN-01 服务/平台 E2E 覆盖双渠道与群/话题；MN-02 真实 CLI 续聊通过名字查群成员。
-- Status：formal；`bots/feishu-channel-mention.test.ts`，用户于 2026-10-08 确认转正。真实租户权限与手机 UI 待验证，不把平台替身当生产证明。
+- Setup: grupo/tópico já autorizado, com diretório de membros do grupo e histórico de menções confiáveis a bots; a entrada contém apenas o nome em texto.
+- Action: ReplyToChannel faz consulta por nome com correspondência inclusiva; candidato único ou correspondência completa única envia direto, múltiplos são resolvidos separadamente.
+- Assert: nomes em inglês preservam os espaços; todos os nomes não resolvidos são retornados de uma vez, e não se pode relatar sucesso para o que não foi consultado.
+- Assert: alvo único vira at nativo; em homônimos/sem resultado/sem permissão, zero envios; o mesmo toolCall é entregue apenas uma vez.
+- Evidence: MN-01 cobre os dois canais e grupo/tópico via E2E de serviço/plataforma; MN-02 busca membros do grupo por nome na continuação de conversa via CLI real.
+- Status: formal; `bots/feishu-channel-mention.test.ts`,(o usuário confirmou a promoção em 2026-10-08. Permissões de tenant reais e UI de celular ainda aguardam validação, e o substituto de plataforma não é tratado como prova de produção.
 
-### BOT-E2E-SR87：草稿有效选择与首次派发
+### BOT-E2E-SR87: seleção válida no rascunho e primeiro despacho
 
-- Setup：已绑定 Bot 保存个人套餐模型/high；目标选择服务返回同模型/high 的 Team 有效选择。
-- Action：查看 `/model`、`/think`，再发送首条普通消息；另以失效结果尝试修改档位和派发。
-- Assert：菜单显示有效身份和档位，但不改草稿；首条任务采用有效选择；失效原意图不被默认模型替代，不创建任务。
-- Evidence：受控选择服务和任务服务调用、Bot 状态写入。公共解析算法由 Provider 集成测试覆盖；不宣称该用例发送了真实模型请求。
-- Status：manual-review pending；范围依据 Todo87，外部飞书网络不参与。
+- Setup: Bot vinculado com modelo/high do plano pessoal salvo; o serviço de seleção de destino retorna a seleção válida de Team do mesmo modelo/high.
+- Action: consultar `/model`, `/think` e então enviar a primeira mensagem comum; em outro momento, tentar alterar o nível e despachar com um resultado expirado.
+- Assert: o menu mostra a identidade e o nível válidos, mas não altera o rascunho; a primeira task adota a seleção válida; a intenção original expirada não é substituída pelo modelo padrão e nenhuma task é criada.
+- Evidence: chamadas ao serviço de seleção controlado e ao serviço de tasks, e escrita do estado do Bot. O algoritmo público de resolução é coberto por testes de integração do Provider; não se afirma que este caso enviou uma requisição real de modelo.
+- Status: manual-review pending; escopo baseado no Todo87, sem participação da rede externa do Feishu.
 
-### BOT-E2E-SR99：绑定 Session 的后续选择
+### BOT-E2E-SR99: seleção seguinte da Session vinculada
 
-- Setup：Bot 已绑定空闲 Session；Session 原选择为个人套餐模型/high，公共 View 返回 Team 同模型/high 或不可用；Bot 不存绑定后的第二份选型。
-- Action：从 Bot 收到下一条普通消息。
-- Assert：只用 Session 原选择调用公共 View，可用时把完整有效选择送入实际发送参数；不可用时不发送、不默认替换、不改写原选择或 Bot 草稿。
-- Evidence：synthetic harness 证明 Bot 消费边界；W99-E03/E06 已在 Pro 通过生产 Task adapter 与实际 stdio Worker 请求及冷恢复。IM API 仍是隔离替身，不宣称真实飞书租户；见 Todo99 复审账本。
-- Status：accepted，manual-review pending。`/model` 已裁决为立即修改/保存同一 Session，完整链路合同见 W99-E06。
+- Setup: Bot já vinculado a uma Session ociosa; a seleção original da Session é o modelo/high do plano pessoal, a View pública retorna o mesmo modelo/high de Team ou indisponível; o Bot não guarda uma segunda seleção após a vinculação.
+- Action: o Bot recebe a próxima mensagem comum.
+- Assert: usa apenas a seleção original da Session para chamar a View pública e, quando disponível, leva a seleção válida completa para os parâmetros reais de envio; quando indisponível, não envia, não substitui por padrão e não reescreve a seleção original nem o rascunho do Bot.
+- Evidence: harness sintético prova a fronteira de consumo do Bot; W99-E03/E06 já passaram em Pro com o Task adapter de produção, requisições reais via stdio Worker e recuperação a frio. A API de IM ainda é um substituto isolado e não representa um tenant real do Feishu; ver o registro de revisão do Todo99.
+- Status: accepted, manual-review pending. `/model` já foi decidido como modificação imediata e gravação na mesma Session; o contrato completo do caminho está em W99-E06.
 
-### BOT-E2E-SC-01 Feishu 单卡时间线生命周期
+### BOT-E2E-SC-01 ciclo de vida de timeline de card único do Feishu
 
-- Setup：已绑定的 Feishu 私聊 Bot，`replyMode=streaming_card`，中文 locale；mock provider 返回固定 token、message id 与 reaction id。
-- Action：Feishu callback 提交带 `E2E_BOT_STREAMING_CARD_LIFECYCLE` 标记的普通消息；task 依次产生文本、工具开始/完成、文本、工具开始/完成、最终文本和 `task_complete`。
-- Assert：
-  - callback 进入公共业务管线并创建一个 task；
-  - provider 只创建一张 Card JSON 2.0，后续只 PATCH 同一 message id；
-  - 时间线严格为 `message → tools → message → tools → message → terminal status`；
-  - 最新运行中工具块展开，终态所有工具块收起；
-  - 工具只展示紧凑摘要；允许摘要 formatter 提取安全的路径/命令提示，但不展开完整 input 对象，也不泄露 output、stdout、stderr 或 raw JSON 标记；
-  - Typing reaction 在运行阶段建立，并在 terminal event 后删除；
-  - 订阅使用 `bot-channel-continuous`，不请求 replayable snapshot/gap 恢复。
-- Evidence：task service 调用、stream subscription 参数、Feishu mock HTTP 请求序列和最终 Card JSON。
-- Fixture：`packages/desktop/test/e2e/fixtures/bots/feishu-streaming-card-lifecycle.json`。
-- Status：`formal`。
+- Setup: Bot de conversa privada do Feishu vinculado, com `replyMode=streaming_card` e locale chinês; o mock do provider devolve token, message id e reaction id fixos.
+- Action: o callback do Feishu envia uma mensagem comum marcada com `E2E_BOT_STREAMING_CARD_LIFECYCLE`; a task produz sucessivamente texto, início/fim de ferramenta, texto, início/fim de ferramenta, texto final e `task_complete`.
+- Assert:
+  - o callback entra no pipeline de negócio comum e cria uma task;
+  - o provider cria um único Card JSON 2.0 e depois apenas faz PATCH no mesmo message id;
+  - a timeline é estritamente `message → tools → message → tools → message → terminal status`;
+  - o bloco de ferramenta em execução mais recente fica expandido e, no estado terminal, todos os blocos de ferramenta ficam recolhidos;
+  - as ferramentas mostram apenas um resumo compacto; é permitido que o formatter do resumo extraia dicas seguras de caminho/comando, mas sem expandir o objeto input completo e sem vazar output, stdout, stderr ou marcadores JSON brutos;
+  - a reaction de digitação é criada na fase de execução e removida após o evento terminal;
+  - a assinatura usa `bot-channel-continuous`, sem solicitar recuperação por snapshot/gap replayable.
+- Evidence: chamadas ao task service, parâmetros da assinatura de stream, sequência de requests HTTP do mock do Feishu e o Card JSON final.
+- Fixture: `packages/desktop/test/e2e/fixtures/bots/feishu-streaming-card-lifecycle.json`.
+- Status: `formal`.
 
-## 接受并已自动化的补充用例
+## Casos complementares aceitos e já automatizados
 
-| Case ID       | 候选                                         | 状态   | 原因                                                    |
+| Case ID       | Candidato                                         | Status   | Motivo                                                    |
 | ------------- | -------------------------------------------- | ------ | ------------------------------------------------------- |
-| BOT-E2E-AQ-01 | AskUserQuestion 多选/自定义在同卡更新        | formal | controlled elicitation 与 callback fixture              |
-| BOT-E2E-IL-01 | 阻塞交互切断流式卡并保留最终交互卡           | formal | controlled stream + Feishu HTTP 请求序列                |
-| BOT-E2E-RT-01 | 两个本地 host 争用相同 Feishu runtime lock   | formal | 真实文件锁的 owner/contender/takeover 证据              |
-| BOT-E2E-RT-02 | attached remote host 不启动 provider runtime | formal | 启动状态与零 provider 网络请求证据                      |
-| BOT-E2E-PV-01 | Feishu/Lark domain 隔离                      | formal | 同一 HTTP mock 的完整 origin 断言                       |
-| BOT-E2E-RW-01 | 远程 workspace 断开时不重连、不本地 fallback | formal | remote service 调用计数与零 task 调用证据               |
-| BOT-E2E-CR-01 | Bot 创建定时任务后执行结果回推原会话         | formal | Host 注入、持久化重开、先订阅后派发与 provider 出站证据 |
-| BOT-E2E-CF-01 | 已绑定 Feishu 长连接失败时展示可诊断状态     | formal | Desktop 真实 UI、runtime 状态与绑定关系联合证据         |
+| BOT-E2E-AQ-01 | AskUserQuestion com múltipla escolha/customizado atualizado no mesmo card | formal | elicitation controlado e fixture de callback              |
+| BOT-E2E-IL-01 | Interação bloqueante interrompe o card em streaming e preserva o card final de interação | formal | stream controlado + sequência de requests HTTP do Feishu                |
+| BOT-E2E-RT-01 | Dois hosts locais disputam o mesmo runtime lock do Feishu   | formal | evidência de owner/contender/takeover com lock real de arquivo              |
+| BOT-E2E-RT-02 | remote host anexado não inicia o runtime do provider | formal | evidência do estado de startup e de zero requests de rede do provider                      |
+| BOT-E2E-PV-01 | Isolamento de domínio Feishu/Lark                      | formal | asserções completas de origin no mesmo mock HTTP                       |
+| BOT-E2E-RW-01 | Sem reconexão e sem fallback local quando o workspace remoto desconecta | formal | contagem de chamadas do remote service e evidência de zero chamadas de task               |
+| BOT-E2E-CR-01 | Resultado da execução de task agendada criada pelo Bot é devolvido à conversa original | formal | injeção do Host, reabertura por persistência, assinar antes de despachar e evidência de saída do provider |
+| BOT-E2E-CF-01 | Exibe estado diagnosticável quando a conexão longa do Feishu falha     | formal | UI real do Desktop, estado de runtime e vínculo de binding combinados         |
 
-## 剪枝
+## Podas
 
-| Decision     | 组合                                           | 分类    | 依据                                                                              |
+| Decision     | Combinação                                           | Classificação    | Base                                                                              |
 | ------------ | ---------------------------------------------- | ------- | --------------------------------------------------------------------------------- |
-| BOT-PRUNE-01 | streaming card × Telegram/Weixin               | pruned  | `streaming_card` 是 Feishu/Lark provider 能力；其他 provider 保持原回复语义       |
-| BOT-PRUNE-02 | streaming card × mobile replayable recovery    | pruned  | Bot task stream 固定为 `bot-channel-continuous`                                   |
-| BOT-PRUNE-03 | 单卡渲染 × 多 host runtime lock                | pruned  | 两者状态所有者和故障证据不同，合并会降低失败定位能力                              |
-| BOT-PRUNE-04 | Bot lifecycle × plan approval dialog rendering | ignored | 本分支中的相邻提交，不属于 Bot provider 交付合同                                  |
-| BOT-PRUNE-05 | automation 回推 × 中间流式消息                 | pruned  | 定时任务仅回推 `summary_changes` 终态，避免群聊或私聊被工具过程刷屏               |
-| BOT-PRUNE-06 | automation 回推 × mobile replayable recovery   | pruned  | 回推继续订阅 `bot-channel-continuous`，不进入手机 gap/snapshot 恢复链路           |
-| BOT-PRUNE-07 | 连接失败 UI × 未绑定 Bot 的 Desktop 重复覆盖   | pruned  | 未绑定分支已有组件合同；Desktop E2E 聚焦绑定关系与 runtime error 同时存在的冲突态 |
+| BOT-PRUNE-01 | streaming card × Telegram/Weixin               | pruned  | `streaming_card` é uma capacidade do provider Feishu/Lark; os demais providers mantêm a semântica de resposta original       |
+| BOT-PRUNE-02 | streaming card × mobile replayable recovery    | pruned  | O task stream de Bot é fixado em `bot-channel-continuous`                                   |
+| BOT-PRUNE-03 | Renderização de card único × lock de runtime multi-host                | pruned  | Os dois têm donos de estado e evidências de falha diferentes; combiná-los reduziria a capacidade de localizar falhas                              |
+| BOT-PRUNE-04 | Bot lifecycle × plan approval dialog rendering | ignored | Commits adjacentes nesta branch, não pertencem ao contrato de entrega do provider de Bot                                  |
+| BOT-PRUNE-05 | automation de retorno × mensagens intermediárias de streaming                 | pruned  | Tarefas agendadas apenas devolvem o estado terminal `summary_changes`, evitando que o grupo ou a conversa privada sejam inundados pelo processo das ferramentas               |
+| BOT-PRUNE-06 | automation de retorno × mobile replayable recovery   | pruned  | O retorno continua assinando `bot-channel-continuous` e não entra na cadeia de recuperação gap/snapshot do celular           |
+| BOT-PRUNE-07 | UI de falha de conexão × cobertura repetida do Desktop para Bot não vinculado   | pruned  | O ramo não vinculado já tem contrato de componente; o E2E de Desktop foca no estado de conflito em que a relação de vínculo e o runtime error coexistem |
 
-### BOT-E2E-CF-01 已绑定 Feishu 长连接失败状态
+### BOT-E2E-CF-01 estado de falha da conexão longa do Feishu vinculado
 
-当前用例从 case-local `bot-config.v3.json` 加载；通过真实 UI 启用后核对 v3 写入及绑定保留。
-旧文件一次性导入、旧 strict Reader 和回滚字节保持由 `botsStorageV3.test.ts` 验证。
+O caso atual carrega a partir de um `bot-config.v3.json` local do caso; após habilitar pela UI real, verifica-se a escrita v3 e a preservação do vínculo.
+A importação única do arquivo antigo, o Reader estrito antigo e os bytes de rollback continuam verificados por `botsStorageV3.test.ts`.
 
-- Setup：在隔离的 Desktop E2E 配置中准备一个已有 `providerUserId` 的 Feishu Bot，但不提供其 credential，使 provider runtime 可确定地进入 error；不访问真实飞书网络。
-- Action：从“移动端远程控制 → 机器人管理”进入真实 Desktop 弹窗，启用 Bot，等待 runtime 刷新后重新打开弹窗。
-- Assert：左侧摘要显示飞书连接失败；右侧状态显示“连接中断”而不是“已连通”；错误详情提示长连接上限或飞书服务繁忙，并建议持续失败时绑定新的机器人，同时保留“解绑”入口。
-- Evidence：隔离 HOME 下的 Bot 配置、真实 Host runtime status、Desktop renderer DOM 与失败截图。
-- Boundary：只验证 Desktop `desktop-continuous` 管理界面的 runtime 投影，不创建手机 `web-remote-replayable` session，不依赖真实 Feishu WebSocket。
-- Status：`formal`，已通过 Desktop 人工验收并转正。
+- Setup: em uma configuração isolada de Desktop E2E, preparar um Bot do Feishu que já tenha `providerUserId`, mas sem fornecer sua credencial, de modo que o runtime do provider entre em error de forma determinística; sem acessar a rede real do Feishu.
+- Action: entrar no dialog real do Desktop por "controle remoto do celular → gerenciamento de bots", habilitar o Bot e, após a atualização do runtime, reabrir o dialog.
+- Assert: o resumo à esquerda mostra falha de conexão com o Feishu; o status à direita mostra "conexão interrompida" em vez de "conectado"; os detalhes do erro indicam limite de conexão longa ou serviço do Feishu ocupado e sugerem vincular um novo bot em caso de falhas persistentes, mantendo a entrada de "desvincular".
+- Evidence: configuração de Bot sob HOME isolado, status real de runtime do Host, DOM do renderer do Desktop e screenshot da falha.
+- Boundary: valida apenas a projeção de runtime da interface de gerenciamento `desktop-continuous` do Desktop, sem criar session `web-remote-replayable` no celular e sem depender de WebSocket real do Feishu.
+- Status: `formal`, aprovado por aceite manual no Desktop e promovido.
 
-### BOT-E2E-CR-01 Bot 来源定时任务终态回推
+### BOT-E2E-CR-01 retorno do estado terminal de task agendada originada de Bot
 
-- Setup：准备已绑定的 Feishu 私聊 Bot，在真实 workspace 中发送会触发 `CronCreate` 的消息；mock Feishu provider 记录所有出站请求。Weixin 复用相同的 delivery target / watcher 合同，由 provider service integration test 单独证明 `/sendmessage` 终态出站。
-- Action：创建 automation，关闭并重新打开 automation repository 证明目标已落盘；scheduler 恢复绑定 task，注册 Bot watcher 后发送一次 controlled automation prompt，分别注入 `task_complete` 与 `task_error`。
-- Assert：
-  - Bot prompt turn 携带 Host 注入的 `{ provider, botId, providerUserId, chatType }`，普通 UI prompt 不携带；
-  - `CronCreate` 参数不暴露 Bot 目标，automation protocol 只从 active turn 读取并持久化；
-  - repository 重开后仍能按 `automationId + workspaceKey` 读取目标，脏 JSON 按无目标降级；
-  - scheduler 在 `sendPrompt` 前完成 `bot-channel-continuous` 订阅；
-  - completion 只向原会话发送最终结果与变更摘要，error 只发送一次失败消息；
-  - Bot 删除、禁用、provider 不匹配或 provider 出站失败只记录 warning，不改变 automation run 的派发与结算；
-  - `workspaceIdentity` 贯穿远程 workspace，不能只按 `workspacePath` 匹配。
-- Evidence：正式 Desktop E2E 证明 V4/legacy 协议 payload、sqlite 重开读取、task service 调用顺序、stream subscription 参数和 mock Feishu provider HTTP 请求；Weixin `/sendmessage` 由 `packages/services/test/botsService.messageFlow.test.ts` 的 provider service integration test 证明。
-- Boundary：Bot 回推不创建独立 runtime；desktop 仍是 `desktop-continuous`，手机远控仍是 `web-remote-replayable`。
-- Status：`formal`。
+- Setup: preparar um Bot de conversa privada do Feishu vinculado e, em um workspace real, enviar uma mensagem que dispare `CronCreate`; o mock do provider do Feishu registra todas as requisições de saída. O Weixin reutiliza o mesmo contrato de delivery target / watcher, com a saída de estado terminal em `/sendmessage` provada separadamente por provider service integration test.
+- Action: criar a automation, fechar e reabrir o repository de automations para provar que o destino foi persistido; o scheduler retoma a task vinculada e, após registrar o watcher de Bot, envia um único prompt de automation controlado, injetando `task_complete` e `task_error` separadamente.
+- Assert:
+  - o turno de prompt de Bot carrega o `{ provider, botId, providerUserId, chatType }` injetado pelo Host, enquanto um prompt comum de UI não carrega;
+  - os parâmetros de `CronCreate` não expõem o destino do Bot, e o protocolo de automation lê e persiste apenas a partir do turno ativo;
+  - após reabrir o repository, o destino ainda pode ser lido por `automationId + workspaceKey`, e JSON sujo degrada para "sem destino";
+  - o scheduler conclui a assinatura `bot-channel-continuous` antes do `sendPrompt`;
+  - a conclusão envia apenas o resultado final e o resumo de mudanças para a conversa original, e o erro envia uma única mensagem de falha;
+  - exclusão, desativação do Bot, provider incompatível ou falha de saída do provider apenas registram warning e não alteram o despacho nem a liquidação da execução da automation;
+  - `workspaceIdentity` atravessa o workspace remoto, e a correspondência não pode ser feita apenas por `workspacePath`.
+- Evidence: E2E de Desktop formal prova o payload dos protocolos V4/legacy, a leitura ao reabrir o sqlite, a ordem das chamadas ao task service, os parâmetros da assinatura de stream e os requests HTTP do mock do provider do Feishu; o `/sendmessage` do Weixin é provado pelo provider service integration test em `packages/services/test/botsService.messageFlow.test.ts`.
+- Boundary: o retorno de Bot não cria um runtime independente; o desktop continua `desktop-continuous` e o controle remoto do celular continua `web-remote-replayable`.
+- Status: `formal`.
 
-### BOT-E2E-IL-01 Feishu/Lark 交互与流式卡分段生命周期
+### BOT-E2E-IL-01 ciclo de vida segmentado de interação e card em streaming no Feishu/Lark
 
-- Setup：Feishu/Lark 私聊 Bot，`replyMode=streaming_card`；task 先产生普通 Agent 正文，再产生 AskUserQuestion 或 Plan approval。
-- Action：用户推进问题并完成交互，Agent 随后继续输出正文；另覆盖交互等待期间 task error/stop。
-- Assertions：旧流式卡只保留交互前的 Agent 内容并进入无 Running 状态的封口态；AskUserQuestion 进行中按“已提交问答 → 分隔线 → 当前待回答问题”累积展示，当前题草稿不进入已回答区；WebSocket action handler 必须用业务回调返回的完整 outbound 同步生成唯一 `card.raw`，其中包含新题 token，不得再执行 `card_update_token`、message PATCH、POST 或 DELETE；完成、取消或任务终止后交互卡保留为无按钮只读卡；交互后的 Agent 内容创建新的流式卡；任何问题、答案或 Plan 正文都不回填旧/新流式卡。
-- Evidence：Feishu message POST/PATCH/DELETE 顺序、Card JSON 2.0 payload、message id 分段与 task stream 事件。
-- Boundary：Bot 固定使用 `bot-channel-continuous`；不扩展到 desktop `desktop-continuous` 或 mobile `web-remote-replayable` 的会话恢复语义。
+- Setup: Bot de conversa privada do Feishu/Lark, com `replyMode=streaming_card`; a task produz primeiro o corpo normal do Agent e depois um AskUserQuestion ou um Plan approval.
+- Action: o usuário avança a pergunta e conclui a interação, e o Agent continua emitindo o corpo; cobre-se também task error/stop durante a espera pela interação.
+- Assertions: o card em streaming antigo mantém apenas o conteúdo do Agent anterior à interação e entra em um estado de fechamento sem status Running; durante o AskUserQuestion, a exibição acumula como "resposta já enviada → separador → pergunta atualmente pendente", e o rascunho da pergunta atual não entra na área já respondida; o action handler de WebSocket precisa gerar um único `card.raw` de forma síncrona a partir do outbound completo retornado pelo callback de negócio, contendo o token da nova pergunta, sem executar novamente `card_update_token`, PATCH de message, POST ou DELETE; após a conclusão, o cancelamento ou o término da task, o card de interação permanece como um card somente leitura e sem botões; o conteúdo do Agent após a interação cria um novo card em streaming; nenhuma pergunta, resposta ou corpo de Plan é preenchido de volta no card em streaming antigo/novo.
+- Evidence: sequência de POST/PATCH/DELETE de message do Feishu, payload de Card JSON 2.0, segmentação por message id e eventos do task stream.
+- Boundary: o Bot usa sempre `bot-channel-continuous`; não se estende à semântica de recuperação de sessão de `desktop-continuous` no desktop ou `web-remote-replayable` no celular.
 
-## BOT-E2E-DT-01 已删除任务自动新建（ZCT-2096089929570893824）
+## BOT-E2E-DT-01 criação automática de task excluída (ZCT-2096089929570893824)
 
-- Status: pending；用例 `packages/desktop/test/e2e/bots/manual-review/pending/bot-deleted-task-recovery.test.ts`。
-- Setup: 已绑定 Feishu Bot 指向删除 tombstone 中的旧 task，保留旧交互状态；mock provider 记录通知请求。
-- Action: 普通消息进入 provider callback，随后重投相同 message id。
-- Assert: 不恢复旧 task；同工作区只新建并绑定一个 task；清理旧交互；一次提示说明已删除、新建和上下文不继承；只派发一次原消息；Desktop created 广播指向新 task；订阅仍为 bot-channel-continuous。
-- Fixture: case-local synthetic metadata，删除状态及 provider HTTP 由确定性夹具提供；不访问用户机器人。
-- Unit boundary: 本地/远端 identity、未删除但列表不可见（含归档/置顶）、索引读失败、新建失败、通知失败及中英文。仅归档行为保持原样。
+- Status: pending; caso `packages/desktop/test/e2e/bots/manual-review/pending/bot-deleted-task-recovery.test.ts`.
+- Setup: Bot do Feishu vinculado apontando para a task antiga no tombstone de exclusão, preservando o estado de interação antigo; o mock do provider registra as requisições de notificação.
+- Action: uma mensagem comum entra pelo callback do provider e, em seguida, o mesmo message id é reenviado.
+- Assert: a task antiga não é restaurada; apenas uma task é criada e vinculada no mesmo workspace; a interação antiga é limpa; um único aviso explica a exclusão, a criação e a não herança de contexto; a mensagem original é despachada uma única vez; o broadcast de criação do Desktop aponta para a nova task; a assinatura continua sendo bot-channel-continuous.
+- Fixture: metadados sintéticos locais do caso, com estado de exclusão e HTTP do provider fornecidos por fixtures determinísticos; sem acessar o bot do usuário.
+- Unit boundary: identidade local/remota, não excluída mas invisível na lista (incluindo arquivada/pinada), falha de leitura de índice, falha de criação, falha de notificação e zh/en. Apenas o comportamento de arquivamento permanece como está.
 
-### BOT-E2E-DF-01 Feishu reply delivery failure and recovery
+### BOT-E2E-DF-01 falha e recuperação de entrega de reply no Feishu
 
 - Status: pending. Spec: `packages/desktop/test/e2e/bots/manual-review/pending/feishu-delivery-error.test.ts`.
 - Setup: bound private Feishu bot; synthetic HTTP business failure with code/msg/log_id.
@@ -144,98 +144,100 @@
 - Assert: status exposes deliveryError without misreporting a WebSocket failure; error clears after successful delivery; private outbound uses open_id; group creates no task.
 - Evidence: service/provider HTTP and status projection; UI rendering is separately unit-tested. No claim of live Feishu tenant reproduction, mobile device validation, or DOM end-to-end coverage.
 
-DF-01 verification (2026-09-07): macOS Desktop WDIO passed (`desktop-e2e-20260907040958265-p60496-c535b8967f7e59a1`). HTTP 200/400 business failures, body/header log ID, update rejection, streaming circuit status, and localized error rendering are covered by 124 passing unit tests. Typecheck, Desktop E2E typecheck, and lint passed (43 warnings, 0 errors). Pending case is not promoted. Live Feishu, Windows/Linux, mobile devices, and delivery-failure DOM interaction remain unverified; existing connection-error DOM regression CF-01 passed in macOS Desktop WDIO.
+Verificação de DF-01 (2026-09-07): o WDIO de Desktop no macOS passou (`desktop-e2e-20260907040958265-p60496-c535b8967f7e59a1`). Falhas de negócio HTTP 200/400, log ID de body/header, rejeição de atualização, status do circuito de streaming e renderização de erro localizada são cobertos por 124 testes unitários passando. Typecheck, typecheck de Desktop E2E e lint passaram (43 warnings, 0 errors). O caso pendente não é promovido. Feishu real, Windows/Linux, dispositivos móveis e interação de DOM com falha de entrega permanecem não verificados; a regressão de DOM de erro de conexão existente CF-01 passou no WDIO de Desktop no macOS.
 
-## Feishu group collaboration (accepted, pending automation)
+## Colaboração em grupo do Feishu (aceito, automação pendente)
 
-- BOT-E2E-GR-01: two enabled groups and private chat retain separate task/configuration; member commands cannot switch tasks or approve. Group prompts carry trusted source to canonical admission; no legacy sendPrompt.
-- BOT-E2E-GR-02: owner/member inputs queue during execution; cancellation affects the CLI item only; busy task switching reports running/queue/interaction reasons. After Desktop stop, stale Bot approval records do not block a new draft. Desktop and mobile show source/attachments from the same canonical rows and queue.
-- BOT-E2E-GR-03: final summaries persist per delivery segment; unknown outcomes are not replayed; disabled/switched groups reject saved-result resend. No tool or streaming output enters group.
-- BOT-E2E-GR-04: completed reply action bar shows compact recovery only for its own unresolved deliveries; clicking opens actions without repeating the result body, and resolving hides the icon; no persistent group-sync/shared-workspace banner. Saved-result retry never resubmits a prompt. Source labels support zh-CN/en-US and narrow layouts.
-- BOT-E2E-GR-05: CLI-confirmed queue admission shows OneSecond, start replaces it with OnIt, completion/error replaces it with CheckMark/CrossMark, and cancellation/stop removes it. Late admission cannot overwrite terminal state; other members' reactions remain. Queue cards have one localized waiting/cancel row. Provider payload/service transition assertions and actual Feishu visual evidence must be reported separately.
+- BOT-E2E-GR-01: dois grupos habilitados e a conversa privada mantêm task/configuração separadas; comandos de membros não podem trocar de task nem aprovar. Prompts de grupo carregam a origem confiável até a admissão canônica; sem sendPrompt legado.
+- BOT-E2E-GR-02: entradas de owner/membro entram na fila durante a execução; o cancelamento afeta apenas o item da CLI; a troca para uma task ocupada reporta motivos de running/queue/interaction. Após o stop no Desktop, registros antigos de aprovação de Bot não bloqueiam um novo rascunho. Desktop e mobile mostram origem/anexos a partir das mesmas linhas canônicas e da mesma fila.
+- BOT-E2E-GR-03: resumos finais são persistidos por segmento de entrega; resultados desconhecidos não são reproduzidos; grupos desativados/trocados rejeitam o reenvio de resultado salvo. Nenhuma saída de ferramenta ou de streaming entra no grupo.
+- BOT-E2E-GR-04: a barra de ações de reply concluída mostra recuperação compacta apenas para as suas próprias entregas não resolvidas; clicar abre as ações sem repetir o corpo do resultado e resolver oculta o ícone; sem banner persistente de sync de grupo/workspace compartilhado. O retry de resultado salvo nunca reenvia um prompt. Os rótulos de origem suportam zh-CN/en-US e layouts estreitos.
+- BOT-E2E-GR-05: a admissão de fila confirmada pela CLI mostra OneSecond, o start a substitui por OnIt, a conclusão/erro a substitui por CheckMark/CrossMark, e o cancelamento/stop a remove. Admissão tardia não pode sobrescrever o estado terminal; as reações dos demais membros permanecem. Cards de fila têm uma única linha localizada de espera/cancelamento. As asserções de payload do provider e de transição de serviço e a evidência visual real do Feishu devem ser reportadas separadamente.
 
-GR-05 queue-card correction: persist the card's message ID and follow the input
-through running and terminal states on the same card, removing cancel controls
-after queue admission ends. Verify normal queue promotion to completion, delayed
-card creation after completion, duplicate/late events, persisted target reuse and
-revoked-group no-op. Live acceptance must let the second input execute normally;
-cancelling the second input alone does not cover this regression.
+Correção do queue card em GR-05: persistir o message ID do card e acompanhar a
+entrada pelos estados running e terminal no mesmo card, removendo os controles de
+cancelamento depois que a admissão de fila terminar. Verificar a promoção normal da
+fila até a conclusão, a criação tardia do card após a conclusão, eventos duplicados/tardios,
+o reuso do destino persistido e o no-op de grupo revogado. O aceite real precisa deixar a
+segunda entrada executar normalmente; cancelar apenas a segunda entrada não cobre esta
+regressão.
 
-These cases implement the accepted `bots-feishu-group-collaboration.md` contract. Synthetic provider HTTP and controlled task events are permitted for deterministic service integration evidence. Real CLI admission and renderer DOM assertions must be reported separately; mock task methods are not evidence of CommandInbox behavior. Real Feishu tenant permissions, mentions, attachment references, removal, and message restrictions require a real test group.
+Estes casos implementam o contrato aceito de `bots-feishu-group-collaboration.md`. HTTP de provider sintético e eventos de task controlados são permitidos como evidência determinística de integração de serviço. A admissão pela CLI real e as asserções de DOM do renderer precisam ser reportadas separadamente; métodos de task com mock não são evidência do comportamento do CommandInbox. Permissões de tenant reais do Feishu, menções, referências de anexo, remoção e restrições de mensagem exigem um grupo de teste real.
 
-Group member display revision: GR-02/04 also checks the queue sender's name and
-click-to-view full identifier. Provider tests cover paginated directories and
-Feishu/Lark domains; UI tests cover historical name overlays and group isolation.
-Live tenant permission and actual member-name rendering require separate evidence.
+Revisão de exibição de membro de grupo: GR-02/04 também verifica o nome de quem enviou
+da fila e o identificador completo exibido ao clicar. Os testes de provider cobrem
+diretórios paginados e os domínios Feishu/Lark; os testes de UI cobrem sobreposições de
+nome histórico e isolamento de grupo. Permissão de tenant real e a renderização real do
+nome de membro exigem evidência separada.
 
-### BOT-UI-TP-PREPARATION：准备态消息气泡
+### BOT-UI-TP-PREPARATION: bubble de mensagem em estado de preparação
 
-- Setup：真实准备态组件与共用正式气泡，包含普通正文、超长文本、空白正文、等待停止及失败。
-- Action：切换中英文/深浅主题及桌面/手机宽度；将准备输入切为失败；先发布正式消息，再清除准备状态。
-- Assert：准备消息属于 ConversationTurnGroup；来源行显示渠道、姓名和 loading，hover/focus tooltip 显示准备状态，气泡内只保留正文；复用正式正文折叠/展开，不产生空气泡/水平溢出；失败临时行整体移除，不显示错误、重试、孤立来源或空白轮次；同 ID 正式消息到达后准备态隐藏，其他输入保留。
-- Status：浏览器组件候选；不代表真实 Desktop、手机 replayable 或飞书平台 E2E。
+- Setup: componente real de estado de preparação e o bubble formal compartilhado, incluindo corpo comum, texto muito longo, corpo em branco, aguardando parada e falha.
+- Action: alternar zh/en e tema claro/escuro e larguras desktop/mobile; mudar a entrada de preparação para falha; publicar primeiro a mensagem formal e depois limpar o estado de preparação.
+- Assert: a mensagem de preparação pertence ao ConversationTurnGroup; a linha de origem mostra canal, nome e loading, e o tooltip de hover/focus mostra o estado de preparação, com apenas o corpo dentro do bubble; reutiliza o colapso/expansão do corpo formal, sem gerar bubble vazio nem overflow horizontal; a linha temporária de falha é removida por inteiro, sem exibir erro, retry, origem órfã ou turno em branco; quando a mensagem formal com o mesmo ID chega, o estado de preparação some e as outras entradas são preservadas.
+- Status: candidato de componente no navegador; não representa E2E de Desktop real, de replayable do celular ou da plataforma Feishu.
 
-### BOT-E2E-PS-01 单聊跨输入端持续回传
+### BOT-E2E-PS-01 retorno contínuo entre entradas na conversa privada
 
-- Setup：隔离的飞书、Telegram、微信 provider HTTP；持久 task 绑定与 bot-channel-continuous 服务订阅。
-- Action：同一 task 依次接收 IM、desktop、mobile 轮次，完成后再运行；禁用后注入迟到输出。
-- Assert：每轮一次回复，飞书卡片不覆写前轮，终态后保留订阅，禁用后无出站。
-- Evidence：controlled-stream 服务到 provider HTTP 的 Desktop runner 用例；不将合成 inputOrigin 当作真实手机/CLI 输入证据。
-- Status：pending，`bots/manual-review/pending/bot-private-task-sync.test.ts`。
+- Setup: HTTP de provider de Feishu, Telegram e WeChat isolados; vínculo de task persistente e assinatura de serviço via bot-channel-continuous.
+- Action: a mesma task recebe sucessivamente turnos de IM, desktop e mobile, roda de novo após a conclusão e, após desativação, recebe saída tardia injetada.
+- Assert: uma resposta por turno, o card do Feishu não sobrescreve o turno anterior, a assinatura é mantida após o estado terminal e não há saída após a desativação.
+- Evidence: casos de runner do Desktop do serviço controlado até o HTTP do provider; inputOrigin sintético não vale como evidência de entrada real de celular/CLI.
+- Status: pending, `bots/manual-review/pending/bot-private-task-sync.test.ts`.
 
-### BOT-E2E-MN-01 原生渠道 mention 回复
+### BOT-E2E-MN-01 reply de menção em canal nativo
 
-- Status：formal；`bots/feishu-channel-mention.test.ts`，用户于 2026-10-08 确认转正。
-- Setup：Feishu/Lark 已启用群；确定性原生目标节点与任务 admission。
-- Action：显式额外回复引用该输入的 refId，重复同一 toolCallId，再请求未知 ref。
-- Assert：同群/话题原生 quote + 正文 at；稳定回执，重复调用不增加 HTTP；未知目标无发送。
-- Evidence：service → durable delivery → provider HTTP；不代表模型自行选用工具或真实飞书客户端通知。
+- Status: formal; `bots/feishu-channel-mention.test.ts`, o usuário confirmou a promoção em 2026-10-08.
+- Setup: grupo do Feishu/Lark habilitado; nó de alvo nativo determinístico e admissão de task.
+- Action: citar explicitamente o refId dessa entrada em um reply adicional, repetir o mesmo toolCallId e depois solicitar um ref desconhecido.
+- Assert: no mesmo grupo/tópico, quote nativo + at no corpo; recibo estável, chamadas repetidas não aumentam o HTTP; alvo desconhecido não gera envio.
+- Evidence: service → entrega durável → HTTP do provider; não representa o modelo escolhendo a ferramenta por conta própria nem notificação de cliente real do Feishu.
 
-BOT-UI-MN：真实正式气泡、准备气泡与队列组件在 390/1200px、深浅主题显示渠道 chip；
-普通 @ 文本无渠道节点，无横向溢出、不显示平台 ID。组件浏览器测试不等于手机 replayable 真机验证。
+BOT-UI-MN: bubble formal real, bubble de preparação e componente de fila mostram o chip de canal em 390/1200px e nos temas claro/escuro;
+texto @ comum não tem nó de canal, sem overflow horizontal e sem exibir o ID da plataforma. Teste de componente no navegador não equivale a validação em aparelho real com replayable do celular.
 
-## 分支验收补齐（2026-09-23，accepted）
+## Complemento de aceite da branch (2026-09-23, aceito)
 
-范围：飞书群协作分支相对 staging 的群聊、话题、材料、回传、设置 UI 与渠道工具。
-用户已确认实施整个分支的覆盖补齐；重复成功回执保持现状，不增加去重断言。
-状态 owner：CLI CommandInbox 管 admission/执行，Bot Host 管绑定、材料及 delivery，UI 只投影；不另建队列。
+Escopo: grupo, tópico, materiais, retorno, UI de configurações e ferramentas de canal da branch de colaboração em grupo do Feishu, em relação à staging.
+O usuário confirmou a implementação da cobertura de toda a branch; o recibo de sucesso repetido é mantido como está, sem adicionar asserções de deduplicação.
+Dono do estado: o CLI CommandInbox cuida da admissão/execução, o Bot Host cuida do vínculo, dos materiais e da delivery, e a UI apenas projeta; nenhuma fila adicional é criada.
 
-| Case | Setup → Action → Assert | 证据与状态 |
+| Case | Setup → Action → Assert | Evidência e status |
 | --- | --- | --- |
-| BOT-E2E-TP-04 | 真实 CLI 话题运行中 → Bot 接收新消息 → 自动停止旧 run，权威终态后续接，零排队，旧输出不冒充新轮 | Host/CLI/模型 HTTP，pending |
-| BOT-E2E-TP-05 | 已接收历史文件索引 → 真实 ReadSessionContext → Host 验证并下载，CLI 收到正确文件；其他任务/失效授权不下载 | Host/CLI/模拟平台 HTTP，pending |
-| BOT-E2E-FN-01 | 工具输出后终态含完整正文 → adapter 对账 → 完整结果仅回传一次；普通对话仍正常 | adapter/真实 stream/平台出站，pending |
-| BOT-E2E-MN-02 | 真实 CLI 触发 ReplyToChannel → 原生提及成功 → 客户端续聊按名字查询新目标，无 botGroupSource，不弹默认审批 | Host/CLI/模拟平台 HTTP，pending |
-| BOT-E2E-GR-02 | 运行中接收群输入 → 取消及正常晋升分别执行 → FIFO、原始来源、同卡终态与不重复输入 | 调整已有 runtime case |
-| BOT-E2E-GR-UI-01 | 两机器人/两群 → 设置开关、失败及恢复 → 隔离、持久化、不补发 | 新增 UI 候选 |
-| BOT-E2E-PS-01 | 私聊绑定 task → IM/desktop/mobile 连续轮次与重启 → 一轮一回传，失败显式重试 | 扩展已有候选，模拟 origin 不计手机 UI |
-| BOT-E2E-MN-01/TP-03 | 群/话题与多个身份 → 回复和管理员操作 → quote、条件 @、管理员提醒及幂等 | 扩展现有服务候选 |
+| BOT-E2E-TP-04 | Execução real de CLI em tópico → Bot recebe nova mensagem → para automaticamente o run antigo, o estado terminal autoritativo retoma, zero enfileiramento, saída antiga não se passa por turno novo | Host/CLI/HTTP do modelo, pending |
+| BOT-E2E-TP-05 | Índice de arquivos históricos recebido → ReadSessionContext real → Host verifica e baixa, a CLI recebe o arquivo correto; outras tasks/autorizações inválidas não baixam | Host/CLI/HTTP de plataforma simulada, pending |
+| BOT-E2E-FN-01 | Estado terminal com corpo completo após saída de ferramenta → conciliação pelo adapter → o resultado completo é devolvido apenas uma vez; a conversa comum continua normal | adapter/stream real/saída de plataforma, pending |
+| BOT-E2E-MN-02 | CLI real dispara ReplyToChannel → menção nativa bem-sucedida → a continuação pelo cliente busca o novo alvo por nome, sem botGroupSource e sem diálogo padrão de aprovação | Host/CLI/HTTP de plataforma simulada, pending |
+| BOT-E2E-GR-02 | Entrada de grupo recebida durante a execução → cancelamento e promoção normal executados separadamente → FIFO, origem original, estado terminal no mesmo card e entrada sem duplicidade | Ajuste de runtime case existente |
+| BOT-E2E-GR-UI-01 | Dois bots/dois grupos → toggle de configuração, falha e recuperação → isolamento, persistência, sem reenvio | Novo candidato de UI |
+| BOT-E2E-PS-01 | Task de conversa privada vinculada → turnos contínuos de IM/desktop/mobile e reinício → um retorno por turno, falha com retry explícito | Extende candidato existente, origin simulado não conta como UI de celular |
+| BOT-E2E-MN-01/TP-03 | Grupo/tópico e múltiplas identidades → reply e ações de administrador → quote, @ condicional, lembrete ao administrador e idempotência | Estende candidatos de serviço existentes |
 
-剪枝：Feishu/Lark 平台差异由服务候选双平台覆盖，真实 CLI 主链路优先 Feishu；不机械交叉所有平台与主题。
-主题/宽度由组件浏览器验证；真实手机 replayable、SSH 身份、平台租户通知分别记录，不能以窄屏或 stub 代替。
-初始验证阶段新增用例保持 manual-review/pending；2026-09-23 用户确认后，下列四份新增 spec 已转正，未进入 Docker/CI。
-先完成 case-local fixture 与 canonical manifest，再跑受控回放；平台请求全部隔离，不使用用户 Bot。
+Podas: as diferenças de plataforma Feishu/Lark são cobertas pelos candidatos de serviço nas duas plataformas, e o caminho principal real de CLI prioriza o Feishu; não se cruza mecanicamente todas as plataformas com todos os temas.
+Tema/largura são verificados por componente no navegador; replayable em celular real, identidade SSH e notificações de tenant de plataforma são registrados separadamente e não podem ser substituídos por tela estreita ou stub.
+Os casos novos da fase inicial de validação permanecem em manual-review/pending; após a confirmação do usuário em 2026-09-23, as quatro specs novas abaixo foram promovidas e ainda não entraram no Docker/CI.
+Concluir primeiro o fixture local do caso e o manifesto canônico, depois executar a reprodução controlada; todas as requisições de plataforma ficam isoladas, sem usar o Bot do usuário.
 
-本轮新增正式用例（2026-09-23 用户确认）：
+Novos casos formais desta rodada (confirmação do usuário em 2026-09-23):
 
-- `conversation-session/conversation-session-bot-channel-worker.test.ts`：MN-02 + FN-01，真实 CLI 原生提及、无来源的客户端续聊、丢失 text delta 的终态补齐。
-- `conversation-session/conversation-session-bot-topic-worker.test.ts`：TP-04 + TP-05，真实运行中自动停止续接、工具结果及受管理附件字节校验。
-- `conversation-session/conversation-session-bot-continuous-worker.test.ts`：GR-02 正常晋升 + PS-01 IM/desktop 持续订阅。
-- `bots/feishu-bound-groups-ui.test.ts`：GR-UI-01 实际 Desktop RPC/持久化与群/机器人隔离。
+- `conversation-session/conversation-session-bot-channel-worker.test.ts`: MN-02 + FN-01, menção nativa pela CLI real, continuação pelo cliente sem origem e preenchimento do estado terminal com text delta perdido.
+- `conversation-session/conversation-session-bot-topic-worker.test.ts`: TP-04 + TP-05, parada automática e retomada durante a execução real, resultado de ferramenta e verificação de bytes de anexos gerenciados.
+- `conversation-session/conversation-session-bot-continuous-worker.test.ts`: GR-02 promoção normal + assinatura contínua PS-01 de IM/desktop.
+- `bots/feishu-bound-groups-ui.test.ts`: GR-UI-01 com RPC real do Desktop, persistência e isolamento de grupo/bot.
 
-上述路径均相对 `packages/desktop/test/e2e/`。新 worker 正式用例使用真实 CLI/生产 Host 服务，Bot repo 与平台 HTTP 为隔离夹具，不能称为 Electron UI 或真实租户验证。
-PS-01 的重启、失败重试及换绑继续由 `botsService.privateSync.test.ts` 覆盖；mobile 来源模拟不升级为实际手机证明。
-GR-UI-01 的失败/并发/迟到回调、禁用机器人继续由 `botBoundGroupsInteraction.test.ts` 覆盖，本轮 Desktop 用例只证明实际成功保存路径。
-MN-01 增加同任务桌面续聊和跨任务拒绝；TP-03 扩展飞书/Lark × 条件 @ 四场景，覆盖当前消息引用、审批提醒管理员与普通问答条件提醒；模型继承继续由 `botsService.groups.test.ts` 验证。
+Todos os caminhos acima são relativos a `packages/desktop/test/e2e/`. Os novos casos formais de worker usam CLI real e serviços de Host de produção; o repo de Bot e o HTTP de plataforma são fixtures isolados, e não podem ser chamados de validação de UI Electron ou de tenant real.
+O reinício, o retry de falha e a troca de vínculo do PS-01 continuam cobertos por `botsService.privateSync.test.ts`; origem mobile simulada não é elevada a prova de celular real.
+As falhas/concorrências/callbacks tardios e o bot desativado do GR-UI-01 continuam cobertos por `botBoundGroupsInteraction.test.ts`; o caso de Desktop desta rodada só prova o caminho real de sucesso ao salvar.
+MN-01 ganha continuação de desktop na mesma task e rejeição entre tasks; TP-03 é estendido para quatro cenários de Feishu/Lark × @ condicional, cobrindo referência à mensagem atual, lembrete de aprovação ao administrador e lembrete condicional em perguntas comuns; a herança de modelo continua verificada por `botsService.groups.test.ts`.
 
-### BOT-E2E-TP-06：其他机器人话题输入
+### BOT-E2E-TP-06: entrada de tópico de outro bot
 
-- Setup：真人已接入话题并开始受控流式任务。
-- Action：经真实 Provider 解析其他机器人的话题消息，随后发送当前机器人的自身消息。
-- Assert：其他机器人消息停止旧运行后提交到相同任务并回复；自身消息不产生输入。
-- Evidence：复用 TP-04 的真实 Host/CLI、受控模型和平台替身；原生推送与真实租户权限待人工验证。
-- Status：accepted；实现与回归证据见覆盖矩阵。
+- Setup: uma pessoa real já entrou no tópico e iniciou uma task em streaming controlada.
+- Action: as mensagens de tópico de outro bot são resolvidas pelo Provider real e, em seguida, a própria mensagem do bot atual é enviada.
+- Assert: a mensagem de outro bot para a execução antiga e então é submetida à mesma task, com resposta; a mensagem do próprio bot não gera entrada.
+- Evidence: reutiliza o Host/CLI reais, o modelo controlado e o substituto de plataforma do TP-04; push nativo e permissões de tenant reais aguardam validação manual.
+- Status: aceito; implementação e evidências de regressão estão na matriz de cobertura.
 
-机器人接收事件回归：真实事件 sender_type=bot 映射为内部 app；已启用普通群原生 @
-可提交，未启用/无 @ 不提交；话题延续保持 active 校验、去重、自身回声与控制命令隔离。
-TP-04 使用 bot 事件穿过 Provider → Host → CLI → 平台回复；历史接口仍使用 app。
+Regressão de eventos recebidos por bot: o evento real com sender_type=bot é mapeado para app interno; @ nativo em grupo comum habilitado
+pode ser submetido, não habilitado/sem @ não é submetido; a continuação de tópico mantém validação de active, deduplicação, eco do próprio bot e isolamento de comandos de controle.
+TP-04 usa eventos de bot atravessando Provider → Host → CLI → reply da plataforma; a interface histórica continua usando app.

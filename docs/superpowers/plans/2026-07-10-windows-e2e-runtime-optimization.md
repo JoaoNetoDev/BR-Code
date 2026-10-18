@@ -1,240 +1,240 @@
-# Windows E2E Runtime Optimization Implementation Plan
+# Plano de Implementação da Otimização do Runtime de E2E no Windows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 把 Windows `pnpm test:e2e` 从当前超过 60 分钟且容易被外层超时截断，降低到串行 40 分钟以内、双 shard 25 分钟以内，同时保留跨 spec 状态隔离和关键时间边界覆盖。
+**Objetivo:** reduzir o `pnpm test:e2e` no Windows, hoje com mais de 60 minutos e facilmente truncado pelo timeout externo, para menos de 40 minutos em serial e menos de 25 minutos com dois shards, preservando ao mesmo tempo o isolamento de estado entre specs e a cobertura dos limites de tempo críticos.
 
-**Architecture:** 先让 reporter 直接记录 WDIO 生命周期阶段，随后用 A/B 证明并修复稳定的 session 退出长尾；再压缩非必要 replay 延迟，并在清理逻辑具备 run 隔离后引入两个独立 HOME 的 Windows shard。CI 增加轻量健康门和基础设施熔断，避免同一种启动错误重复消耗所有 spec 的 timeout。
+**Arquitetura:** primeiro fazer o reporter registrar diretamente as fases do ciclo de vida do WDIO e então provar com A/B e corrigir a longa cauda de saída da session; em seguida comprimir os atrasos de replay não necessários e, depois que a lógica de limpeza tiver isolamento por run, introduzir dois shards do Windows com HOME independente. A CI ganha um portão leve de saúde e um disjuntor de infraestrutura, para evitar que o mesmo erro de inicialização consuma de novo o timeout de todos os specs.
 
-**Tech Stack:** WebdriverIO 9、Mocha、Electron、`wdio-electron-service`、TypeScript、Node.js、PowerShell、GitLab CI。
+**Stack tecnológico:** WebdriverIO 9, Mocha, Electron, `wdio-electron-service`, TypeScript, Node.js, PowerShell, GitLab CI.
 
-## Global Constraints
+## Restrições Globais
 
-- 不直接把 `ZCODE_E2E_MAX_INSTANCES` 从 `1` 调大；当前 worker 共用 `.e2e-home`，并会在 `beforeSession` 递归删除。
-- 不牺牲 Windows/macOS/Linux 兼容；Windows 优化必须保留 POSIX 平台现有清理路径。
-- 不降低 conversation case 的产品断言；有意覆盖 45 秒边界的 case 进入显式 slow lane，而不是静默缩短。
-- 每项优化都先运行定向 spec，最终只运行一次完整 `pnpm test:e2e`，不做无证据的全量循环。
-- 完成前执行 `pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm typecheck` 和 `pnpm lint`。
-- 当前工作区已有未提交的 DeepSeek V4 与 edit E2E 修改；实施时只提交本计划对应文件，不覆盖或夹带这些改动。
+- Não aumentar `ZCODE_E2E_MAX_INSTANCES` diretamente de `1`; hoje os workers compartilham `.e2e-home` e o deletam recursivamente em `beforeSession`.
+- Não sacrificar a compatibilidade Windows/macOS/Linux; a otimização no Windows precisa preservar os caminhos de limpeza existentes da plataforma POSIX.
+- Não reduzir as asserções de produto dos conversation cases; um case que cobre de propósito o limite de 45 segundos entra em uma slow lane explícita em vez de ser encurtado silenciosamente.
+- Cada otimização roda primeiro o spec direcionado e, ao final, roda uma única vez o `pnpm test:e2e` completo, sem ciclos de full run sem evidência.
+- Antes de concluir, executar `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm typecheck` e `pnpm lint`.
+- O workspace atual já tem modificações não commitadas de DeepSeek V4 e de E2E de edit; na implementação, commitar apenas os arquivos deste plano, sem sobrescrever nem carregar essas mudanças junto.
 
 ---
 
-## 耗时分析报告
+## Relatório de Análise de Tempo
 
-### 1. 数据范围
+### 1. Escopo dos dados
 
-主样本：
+Amostra principal:
 
-- artifact：`packages/desktop/.e2e-artifacts/desktop-e2e-20260710-035131-341`
-- 环境：Windows `10.0.26100`、Node `v24.18.0`、x64、32 GB 内存、Intel Xeon Platinum 8269CY
-- 配置：`maxInstances=1`，默认全量 glob
-- worker：67 个 spec，其中 conversation 62 个、general 5 个
-- 已记录结果：111 个 case，其中 conversation 102 个、general 8 个、container 1 个
+- artifact: `packages/desktop/.e2e-artifacts/desktop-e2e-20260710-035131-341`
+- ambiente: Windows `10.0.26100`, Node `v24.18.0`, x64, 32 GB de memória, Intel Xeon Platinum 8269CY
+- configuração: `maxInstances=1`, glob full padrão
+- workers: 67 specs, sendo 62 de conversation e 5 general
+- resultados registrados: 111 cases, sendo 102 de conversation, 8 general e 1 container
 
-对照样本：
+Amostras de comparação:
 
-- 最近定向成功：`desktop-e2e-20260710-053440-746`
-- 历史 Windows CI：`C:/gitlab-runner/builds/yH1yP9nW3/1/codegeex/z-code/packages/desktop/.e2e-artifacts/ci-conversation-windows-232902-632167/ci-desktop-e2e.log`
+- sucesso direcionado mais recente: `desktop-e2e-20260710-053440-746`
+- CI Windows histórico: `C:/gitlab-runner/builds/yH1yP9nW3/1/codegeex/z-code/packages/desktop/.e2e-artifacts/ci-conversation-windows-232902-632167/ci-desktop-e2e.log`
 
-### 2. 口径与限制
+### 2. Convenções e limitações
 
-`test-results.ndjson` 的 `durationMs` 只覆盖 Mocha test body，不覆盖构建、`beforeSession`、Electron 启动、WDIO hook 和 session 删除。因此本报告用相邻 `workers.ndjson` 时间戳还原 spec 墙钟时间，再用首个 test 的推算开始时间和最后一个 test 的结束时间拆分生命周期。
+O `durationMs` de `test-results.ndjson` cobre apenas o corpo do teste Mocha; não cobre build, `beforeSession`, inicialização do Electron, hooks do WDIO nem a remoção da session. Por isso este relatório reconstrói o wall clock de cada spec a partir dos timestamps do `workers.ndjson` vizinho e decompõe o ciclo de vida usando o horário de início estimado do primeiro teste e o horário de término do último.
 
-最新全量没有 `summary.json`：
+O full run mais recente não tem `summary.json`:
 
-- run 开始：`03:51:31.341Z`
-- 首个 worker：`03:53:13.810Z`
-- 第 67 个 worker：`04:51:18.376Z`
-- 第 67 个 worker 的唯一进程采样：`04:51:23.224Z`
-- 第 67 个 worker 没有 test result
+- início do run: `03:51:31.341Z`
+- primeiro worker: `03:53:13.810Z`
+- 67º worker: `04:51:18.376Z`
+- única amostragem de processo do 67º worker: `04:51:23.224Z`
+- o 67º worker não tem nenhum test result
 
-最后一次采样恰好位于 run 开始后的第 59 分 52 秒，且 summary 缺失。高置信度推断是外层 60 分钟执行上限截断了最后一个 spec。因此当前完整耗时只能报告为“超过 60 分钟”，不能把 59 分钟误写成正常完成时间。
+A última amostragem cai exatamente no minuto 59 e 52 segundo após o início do run, e o summary está ausente. A inferência de alta confiança é que o limite externo de 60 minutos de execução truncou o último spec. Portanto o tempo completo atual só pode ser reportado como "mais de 60 minutos"; não se deve escrever 59 minutos como tempo de conclusão normal.
 
-### 3. 当前基线
+### 3. Baseline atual
 
-| 指标 | 结果 |
-| --- | ---: |
-| 完整耗时 | `> 60 min`，第 67 个 spec 被截断 |
-| 首个 worker 前准备 | `102.5 s` |
-| 可完整计算的 spec | 66 |
-| 66 个 spec 墙钟时间 | `3484.4 s` / `58.07 min` |
-| test body 合计 | `1320.1 s` / `22.00 min` |
-| worker 启动合计 | `470.0 s` / `7.83 min` |
-| test 间隙合计 | `5.5 s` |
-| worker 退出/换 session 合计 | `1689.1 s` / `28.15 min` |
-| raw failure | 4 |
+| Métrica                          | Resultado                                  |
+| -------------------------------- | ------------------------------------------: |
+| Tempo completo                   | `> 60 min`, com o 67º spec truncado          |
+| Preparação antes do 1º worker    | `102.5 s`                                   |
+| Specs computáveis por completo  | 66                                          |
+| Wall clock dos 66 specs          | `3484.4 s` / `58.07 min`                    |
+| Soma dos test bodies             | `1320.1 s` / `22.00 min`                    |
+| Soma das inicializações de worker| `470.0 s` / `7.83 min`                      |
+| Soma dos intervalos entre testes | `5.5 s`                                      |
+| Soma das saídas/troca de session de worker | `1689.1 s` / `28.15 min`     |
+| raw failure                      | 4                                           |
 
-66 个完整 spec 的时间构成：
+Composição de tempo dos 66 specs completos:
 
-| 阶段 | 时间 | 占比 |
-| --- | ---: | ---: |
-| test body | 22.00 min | 37.9% |
-| worker 启动 | 7.83 min | 13.5% |
-| test 间隙 | 0.09 min | 0.2% |
-| worker 退出/换 session | 28.15 min | 48.5% |
+| Fase                        | Tempo      | Proporção |
+| --------------------------- | ---------: | --------: |
+| test body                   | 22.00 min  |    37.9%  |
+| inicialização de worker     |  7.83 min  |    13.5%  |
+| intervalos entre testes    |  0.09 min  |     0.2%  |
+| saída/troca de session de worker | 28.15 min |    48.5%  |
 
-关键结论：退出/换 session 比全部测试断言本身还多 6.15 分钟，是第一主因；测试之间几乎没有空转。
+Conclusão-chave: a saída/troca de session custa 6.15 minutos a mais do que todas as asserções de teste juntas e é a primeira causa; praticamente não há ociosidade entre os testes.
 
-### 4. 分位数
+### 4. Quantis
 
-| 维度 | P50 | P90 | P95 | Max |
-| --- | ---: | ---: | ---: | ---: |
-| case test body | 10.2 s | 19.6 s | 36.1 s | 94.7 s |
-| spec 墙钟 | 44.0 s | 72.4 s | 95.3 s | 247.0 s |
+| Dimensão         |    P50 |    P90 |    P95 |      Max |
+| ---------------- | -----: | -----: | -----: | -------: |
+| test body do case| 10.2 s | 19.6 s | 36.1 s |  94.7 s  |
+| wall clock do spec| 44.0 s | 72.4 s | 95.3 s | 247.0 s  |
 
-多数 spec 在 test body 之外稳定多出约 30 到 32 秒。进一步拆分后，普通 spec 的启动通常为 4 到 7 秒，退出通常为 25.8 到 26.6 秒。
+A maioria dos specs soma de forma consistente cerca de 30 a 32 segundos fora do test body. Com uma decomposição adicional, a inicialização de um spec comum costuma levar de 4 a 7 segundos e a saída de 25.8 a 26.6 segundos.
 
-### 5. 最慢 spec
+### 5. Specs mais lentos
 
-| spec | case 数 | 墙钟 | test body | 非 test 时间 |
-| --- | ---: | ---: | ---: | ---: |
-| `conversation-session-background.test.ts` | 18 | 247.0 s | 211.2 s | 35.8 s |
-| `conversation-session-model-switch-queue.test.ts` | 2 | 147.0 s | 103.6 s | 43.4 s |
-| `coding-plan-team-usage.test.ts` | 5 | 95.7 s | 65.6 s | 30.1 s |
-| `conversation-session-read-session-context-timeout.test.ts` | 1 | 95.3 s | 63.9 s | 31.4 s |
-| `conversation-session-edit.test.ts` | 2 | 87.4 s | 55.9 s | 31.5 s |
-| `conversation-session-model-switch-restore-repro.test.ts` | 2 | 77.0 s | 48.5 s | 28.5 s |
-| `conversation-session-compact-actions.test.ts` | 1 | 72.4 s | 41.0 s | 31.4 s |
-| `conversation-session-config-and-multisession.test.ts` | 1 | 67.5 s | 36.4 s | 31.1 s |
-| `conversation-session-new-session-inherits-model.test.ts` | 1 | 64.2 s | 14.1 s | 50.1 s |
-| `conversation-session-fork.test.ts` | 3 | 64.1 s | 33.7 s | 30.4 s |
+| spec                                                            | nº de cases | Wall clock | test body | Tempo fora do test |
+| --------------------------------------------------------------- | ----------: | ---------: | --------: | ------------------: |
+| `conversation-session-background.test.ts`                       |          18 |   247.0 s  |   211.2 s |             35.8 s  |
+| `conversation-session-model-switch-queue.test.ts`               |           2 |   147.0 s  |   103.6 s |             43.4 s  |
+| `coding-plan-team-usage.test.ts`                                 |           5 |    95.7 s  |    65.6 s |             30.1 s  |
+| `conversation-session-read-session-context-timeout.test.ts`      |           1 |    95.3 s  |    63.9 s |             31.4 s  |
+| `conversation-session-edit.test.ts`                             |           2 |    87.4 s  |    55.9 s |             31.5 s  |
+| `conversation-session-model-switch-restore-repro.test.ts`       |           2 |    77.0 s  |    48.5 s |             28.5 s  |
+| `conversation-session-compact-actions.test.ts`                  |           1 |    72.4 s  |    41.0 s |             31.4 s  |
+| `conversation-session-config-and-multisession.test.ts`          |           1 |    67.5 s  |    36.4 s |             31.1 s  |
+| `conversation-session-new-session-inherits-model.test.ts`        |           1 |    64.2 s  |    14.1 s |             50.1 s  |
+| `conversation-session-fork.test.ts`                             |           3 |    64.1 s  |    33.7 s |             30.4 s  |
 
-`background.test.ts` 虽然总耗时最高，但 18 个 case 共用一次 session，固定成本只有约 36 秒，摊销效率很好。它不是优先拆分对象。
+Embora `background.test.ts` tenha o maior tempo total, seus 18 cases compartilham uma única session, de modo que o custo fixo é de cerca de 36 segundos e a amortização é muito boa. Ele não é um alvo prioritário de divisão.
 
-### 6. 最慢 case 与时间语义
+### 6. Cases mais lentos e semântica de tempo
 
-| case | test body | 分类 |
-| --- | ---: | --- |
-| queued text 消费前切模型并 auto drain | 94.7 s | 非必要的 fixture 长延迟 |
-| ReadSessionContext lite 抽取超过 45 秒 | 63.9 s | 有意覆盖时间边界 |
-| edit + held queue | 45.2 s | 失败后吃满等待窗口 |
-| compacting actions | 41.0 s | 失败/竞态放大 |
-| 多 session 并发切换 | 36.4 s | 真实交互成本 |
-| background queue drain | 36.1 s | 受控后台流程 |
+| case                                              | test body | Classificação                          |
+| ------------------------------------------------- | --------: | -------------------------------------- |
+| Trocar modelo e auto drain antes do consumo de texto enfileirado | 94.7 s | Atraso longo de fixture desnecessário  |
+| Extração lite de ReadSessionContext acima de 45 s | 63.9 s    | Cobertura intencional de limite de tempo |
+| edit + held queue                                | 45.2 s    | Consome toda a janela de espera após falha |
+| compacting actions                               | 41.0 s    | Amplificação por falha/condição de corrida |
+| Troca concorrente entre múltiplas sessions        | 36.4 s    | Custo de interação real                 |
+| background queue drain                           | 36.1 s    | Fluxo de background controlado         |
 
-`conversation-session-model-switch-queue.json` 的两个 controlled stream 都把尾部事件放在 `90000/90100/90200 ms`。第二个 case 必须等首轮结束后验证 auto drain，因此 94.7 秒几乎全部由 90.2 秒 fixture 时钟决定。这里不需要 90 秒才能证明“切换发生在 running 窗口”。
+Os dois controlled streams de `conversation-session-model-switch-queue.json` colocam os eventos de cauda em `90000/90100/90200 ms`. O segundo case precisa esperar o fim da primeira rodada para validar o auto drain, então os 94.7 segundos são quase todos determinados pelo relógio de fixture de 90.2 segundos. Não são necessários 90 segundos para provar que "a troca acontece na janela running".
 
-`conversation-session-read-session-context-timeout.test.ts` 则明确设置：
+`conversation-session-read-session-context-timeout.test.ts`, por outro lado, define explicitamente:
 
-- lite fixture `delayMs = 55000`
-- 第 46 秒断言仍在 streaming
-- 目标是覆盖历史 45 秒 timeout
+- fixture lite `delayMs = 55000`
+- asserção no segundo 46 de que ainda está streaming
+- o objetivo é cobrir o timeout histórico de 45 segundos
 
-这个 63.9 秒不能通过普通“加快 fixture”处理；应保留语义并明确放入 slow-time-boundary 类别。
+Esses 63.9 segundos não podem ser tratados com um simples "acelerar o fixture"; a semântica deve ser preservada e o case colocado explicitamente na categoria slow-time-boundary.
 
-### 7. 固定构建成本
+### 7. Custo fixo de build
 
-最近定向成功 artifact 的总耗时为 `97.7 s`，WDIO spec 输出为 `29.3 s`，test body 仅 `1 ms`。约 `68.4 s` 消耗在 worker 前的 build/prepare。最新全量冷启动到首个 worker 为 `102.5 s`。
+O artifact do sucesso direcionado mais recente teve tempo total de `97.7 s`, com saída de spec do WDIO de `29.3 s` e test body de apenas `1 ms`. Cerca de `68.4 s` foram consumidos no build/prepare antes do worker. No full run mais recente, a partida a frio até o primeiro worker levou `102.5 s`.
 
-当前 `onPrepare` 每次运行都会执行：
+O `onPrepare` atual executa a cada run:
 
-1. 遗留 Electron 清理
-2. desktop `build:no-runtime-assets`
-3. agent server build
+1. limpeza de processos Electron remanescentes
+2. `build:no-runtime-assets` do desktop
+3. build do agent server
 
-这对一次完整全量只占约 1.7 分钟，但对定向调试非常显著。默认入口继续保证 fresh build；另提供显式 reuse-build 入口更合适。
+Isso representa cerca de 1.7 minuto de um full run completo, mas é muito significativo para depuração direcionada. A entrada padrão deve continuar garantindo fresh build; é mais adequado fornecer uma entrada explícita de reuse-build.
 
-### 8. session 退出主因
+### 8. Causa principal da saída de session
 
-`packages/desktop/wdio.conf.ts` 在 WDIO 自己删除 WebDriver session 之前执行：
+`packages/desktop/wdio.conf.ts` executa, antes de o próprio WDIO remover a WebDriver session:
 
 1. `quitCurrentElectronApp("after")`
 2. `electron.app.quit()`
-3. 最多等待主进程 1 秒
-4. WDIO 随后执行 session 删除
-5. `afterSession` 再扫描并强杀遗留进程
+3. espera pelo main process por no máximo 1 segundo
+4. o WDIO então executa a remoção da session
+5. `afterSession` varre novamente e mata à força os processos remanescentes
 
-该逻辑由 `f93a38d3c fix(desktop-e2e): clean up leftover electron processes` 引入，用于保证 Electron `before-quit` 能回收 host/agent。代码注释同时承认：Chromedriver 持有 session 时，Electron 可能要等 `deleteSession` 才真正退出。
+Essa lógica foi introduzida por `f93a38d3c fix(desktop-e2e): clean up leftover electron processes`, para garantir que o `before-quit` do Electron consiga recolher host/agent. O comentário do código também admite: enquanto o Chromedriver mantém a session, o Electron pode só sair de verdade no `deleteSession`.
 
-已确认事实：
+Fatos confirmados:
 
-- 66 个 spec 的退出阶段合计 28.15 分钟
-- 普通 spec 稳定约 26 秒
-- `wdio-electron-service@9.2.1` 自身 `after()` 只清 Puppeteer session cache，没有 25 秒显式 sleep
+- a fase de saída dos 66 specs soma 28.15 minutos
+- um spec comum leva de forma consistente cerca de 26 segundos
+- o próprio `after()` do `wdio-electron-service@9.2.1` só limpa o cache de session do Puppeteer, sem nenhum sleep explícito de 25 segundos
 
-待 A/B 证明的单一假设：在 `deleteSession` 之前调用 `app.quit()`，使 ChromeDriver 进入慢关闭路径。不能直接删除这段清理，因为它原本解决 orphan host/agent；必须同时验证退出耗时和遗留进程为零。
+Hipótese única a ser provada por A/B: chamar `app.quit()` antes de `deleteSession` coloca o ChromeDriver no caminho de encerramento lento. Não se pode simplesmente remover esse trecho de limpeza, porque ele resolvia orphan host/agent; é preciso validar simultaneamente o tempo de saída e que os processos remanescentes são zero.
 
-### 9. 串行 session 数放大固定成本
+### 9. O número de sessions em série amplifica o custo fixo
 
-111 个 case 分布在 67 个 spec：
+111 cases distribuídos em 67 specs:
 
-| 每 spec case 数 | spec 数 |
-| ---: | ---: |
-| 1 | 51 |
-| 2 | 8 |
-| 3 | 3 |
-| 5 | 1 |
-| 6 | 2 |
-| 18 | 1 |
+| Cases por spec | Nº de specs |
+| ------------: | ----------: |
+|             1 |          51 |
+|             2 |           8 |
+|             3 |           3 |
+|             5 |           1 |
+|             6 |           2 |
+|            18 |           1 |
 
-51 个单 case spec 意味着绝大多数 case 都单独支付一次 Electron 启动与退出成本。WDIO 本地文档支持把嵌套 spec 数组顺序放进同一 worker，但本项目 `beforeSession` 会按 spec 注入 HOME、启动配置和 replay fixture，分组必须先验证 fixture 冲突与状态清理，不能全量粗暴合并。
+Os 51 specs de um único case significam que a imensa maioria dos cases paga isoladamente um custo de inicialização e saída do Electron. A documentação local do WDIO suporta colocar arrays de specs aninhados em ordem no mesmo worker, mas neste projeto o `beforeSession` injeta HOME, configuração de inicialização e replay fixture por spec; o agrupamento precisa validar primeiro conflitos de fixture e limpeza de estado, e não pode ser feito de forma bruta e total.
 
-### 10. 并行化边界
+### 10. Limite da paralelização
 
-虽然配置暴露 `ZCODE_E2E_MAX_INSTANCES`，但当前：
+Embora a configuração exponha `ZCODE_E2E_MAX_INSTANCES`, hoje:
 
-- `E2E_HOME_DIR` 在 config 加载时只计算一次
-- 每个 `beforeSession` 都删除同一个 HOME
-- cleanup marker 还包含共享 `APP_ENTRY_POINT` 和 `out/main`
+- `E2E_HOME_DIR` é calculado apenas uma vez, no carregamento da config
+- cada `beforeSession` apaga o mesmo HOME
+- o marcador de cleanup ainda inclui o `APP_ENTRY_POINT` compartilhado e `out/main`
 
-因此直接 `maxInstances=2` 会出现 worker 互删 HOME，且一个 worker 的 cleanup 可能强杀另一个 worker。安全并行必须先做到 shard 独立 HOME、artifact、run id，并把进程清理收窄到 shard 自己的 HOME/run token。
+Portanto, usar `maxInstances=2` diretamente faz os workers se apagarem o HOME um do outro, e o cleanup de um worker pode matar o outro. A paralelização segura exige primeiro HOME, artifact e run id independentes por shard, e estreitar a limpeza de processos para o HOME/run token do próprio shard.
 
-### 11. 历史 CI 放大效应
+### 11. Efeito de amplificação da CI histórica
 
-用户提供的历史 Windows CI 日志：
+Log histórico de CI no Windows fornecido pelo usuário:
 
-- 62 个 spec，0 passed，62 failed
-- 总耗时 `01:27:15`
-- worker P50 `125.9 s`、P90 `126.9 s`、P95 `127.4 s`
-- 40 个 worker 耗时至少 120 秒
-- 后 22 个 worker 少于 15 秒即启动崩溃
+- 62 specs, 0 passed, 62 failed
+- tempo total `01:27:15`
+- worker P50 `125.9 s`, P90 `126.9 s`, P95 `127.4 s`
+- 40 workers levaram pelo menos 120 segundos
+- os 22 workers seguintes crasharam em menos de 15 segundos
 
-日志前段同一基础设施错误反复吃满 120 秒 case timeout；随后积累的 Electron 进程导致 `DevToolsActivePort file doesn't exist`，剩余 worker 快速崩溃。当前 Windows 稳定性提交已经修复其中一部分，但 CI 仍需要“健康门失败即停止派发”的机制，避免下一种基础设施错误再次放大到 2 小时 job timeout。
+No início do log, o mesmo erro de infraestrutura se repetiu, consumindo o case timeout de 120 segundos por completo; em seguida, os processos Electron acumulados causaram `DevToolsActivePort file doesn't exist` e os workers restantes quebraram rapidamente. Os commits atuais de estabilidade no Windows já corrigiram parte disso, mas a CI ainda precisa de um mecanismo de "parar o despacho quando o portão de saúde falhar", para que o próximo erro de infraestrutura não seja amplificado novamente até o job timeout de 2 horas.
 
-### 12. 优化方案比较
+### 12. Comparação das opções de otimização
 
-| 方案 | 预计收益 | 风险 | 建议 |
-| --- | --- | --- | --- |
-| 修复 26 秒 session 退出 | 串行节省约 18 到 22 分钟 | 可能重新引入 orphan host/agent | 第一优先，必须 A/B |
-| 把 90.2 秒 replay 缩到 15.2 秒 | 单次节省约 75 秒 | running 窗口过短会竞态 | 快速收益，定向验证 |
-| 兼容 spec 分组复用 session | 视分组数节省 10 到 20 分钟 | HOME/fixture/启动态串扰 | canary 后逐步扩大 |
-| 两个独立 HOME 的 shard | 墙钟接近减半 | 资源翻倍、cleanup 互杀 | cleanup 隔离后启用 |
-| 直接提高 `maxInstances` | 表面接近减半 | 当前必然互删 HOME | 禁止 |
-| 将 55 秒边界 case 移出默认 MR lane | 默认 lane 节省约 64 秒 | 降低每次 MR 的边界覆盖 | 保留 nightly/slow lane |
-| 基础设施健康门/熔断 | 正常运行增加约 30 秒 | 多一个入口和 artifact | CI 必做 |
+| Opção                                     | Ganho esperado                        | Risco                        | Recomendação                       |
+| ----------------------------------------- | ------------------------------------- | ---------------------------- | --------------------------------- |
+| Corrigir a saída de session de 26 s      | Economia de cerca de 18 a 22 min em série | Reintroduzir orphan host/agent | Primeira prioridade, exige A/B   |
+| Reduzir o replay de 90.2 s para 15.2 s  | Economia de cerca de 75 s por execução | Janela running curta demais vira corrida | Ganho rápido, validar direcionado |
+| Agrupar specs compatíveis e reutilizar session | Economia de 10 a 20 min dependendo dos grupos | Cross-talk de HOME/fixture/estado inicial | Ampliar gradualmente após canary |
+| Dois shards com HOME independente        | Wall clock perto da metade             | Recursos dobrados, cleanup se matando | Habilitar após isolar o cleanup  |
+| Aumentar `maxInstances` diretamente      | Parece reduzir pela metade             | Hoje necessariamente apaga o HOME um do outro | Proibido                           |
+| Tirar o case de limite de 55 s da lane padrão de MR | Economia de cerca de 64 s na lane padrão | Reduz cobertura de limite a cada MR | Manter nightly/slow lane          |
+| Portão de saúde / disjuntor de infraestrutura | Cerca de 30 s a mais em execução normal | Mais uma entrada e mais um artifact | Obrigatório na CI                 |
 
-### 13. 目标预算
+### 13. Budget alvo
 
-第一阶段完成标准：
+Critérios de conclusão da primeira etapa:
 
 - `worker teardown P50 <= 8 s`
-- 串行完整 Windows E2E `<= 42 min`
-- `model-switch-queue` 第二个 case `<= 30 s`
-- 运行结束无残留 `ZCode E2E`、host、agent 和 Chromedriver 进程
+- E2E completo no Windows em série `<= 42 min`
+- segundo case de `model-switch-queue` `<= 30 s`
+- nenhum processo residual `ZCode E2E`, host, agent ou Chromedriver ao fim da execução
 
-第二阶段完成标准：
+Critérios de conclusão da segunda etapa:
 
-- 两 shard Windows E2E `<= 25 min`
-- 每个 shard 都产生独立 summary，合并后 case 总数与未分片一致
-- 同一基础设施错误最多消耗一个健康门，不再派发 62 个 spec
+- E2E no Windows com dois shards `<= 25 min`
+- cada shard gera um summary independente e, após a mesclagem, o total de cases é igual ao não fragmentado
+- um mesmo erro de infraestrutura consome no máximo um portão de saúde, sem despachar 62 specs
 
-## 实施计划
+## Plano de Implementação
 
-### Task 1: 记录 WDIO 生命周期耗时
+### Task 1: Registrar os tempos do ciclo de vida do WDIO
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/e2e-report/src/shared/types.ts`
 - Modify: `packages/e2e-report/src/node/index.ts`
 - Modify: `packages/desktop/wdio.conf.ts`
 - Create: `packages/e2e-report/test/node-index.test.ts`
 
 **Interfaces:**
-- Consumes: WDIO 的 `onPrepare`、`beforeSession`、`before`、`after`、`afterSession`、`onComplete` hooks。
-- Produces: `lifecycle-events.ndjson` 和 summary 中的 `lifecycle` 聚合，后续退出 A/B、预算门和 shard 合并都依赖这些字段。
+- Consumes: os hooks `onPrepare`, `beforeSession`, `before`, `after`, `afterSession` e `onComplete` do WDIO.
+- Produces: `lifecycle-events.ndjson` e a agregação `lifecycle` no summary, das quais dependem o A/B de saída posterior, o portão de budget e a mesclagem de shards.
 
-- [ ] **Step 1: 为 lifecycle event 写失败测试**
+- [ ] **Step 1: Escrever o teste falhando do lifecycle event**
 
-测试固定事件模型：
+O teste fixa o modelo de eventos:
 
 ```ts
 export type E2ELifecyclePhase =
@@ -255,23 +255,23 @@ export interface E2ELifecycleEvent {
 }
 ```
 
-测试应断言 NDJSON 可追加、同一 `cid + phase` 可聚合、缺少正常 `onComplete` 时已写事件仍保留。
+O teste deve afirmar que o NDJSON pode ser acrescido, que o mesmo `cid + phase` pode ser agregado e que, na falta de um `onComplete` normal, os eventos já escritos são preservados.
 
-- [ ] **Step 2: 运行 reporter 单测并确认失败**
+- [ ] **Step 2: Executar o teste unitário do reporter e confirmar a falha**
 
 Run: `pnpm exec vitest run packages/e2e-report/test/node-index.test.ts`
 
-Expected: FAIL，提示 lifecycle writer/summary 字段尚不存在。
+Expected: FAIL, indicando que o lifecycle writer/campos do summary ainda não existem.
 
-- [ ] **Step 3: 实现 lifecycle writer 与聚合**
+- [ ] **Step 3: Implementar o lifecycle writer e a agregação**
 
-在 node reporter 返回对象上增加：
+Adicionar no objeto retornado pelo reporter de node:
 
 ```ts
 recordLifecycleEvent(event: E2ELifecycleEvent): void;
 ```
 
-summary 至少输出：
+O summary precisa pelo menos gerar:
 
 ```ts
 lifecycle: {
@@ -284,9 +284,9 @@ lifecycle: {
 }
 ```
 
-- [ ] **Step 4: 在 WDIO hooks 中统一计时**
+- [ ] **Step 4: Unificar a medição nos hooks do WDIO**
 
-`onPrepare` 先调用 `e2eReporter.prepare(configuredSpecs)` 创建 artifact，再进入计时；增加一个 helper，保证成功和异常都落事件：
+O `onPrepare` chama primeiro `e2eReporter.prepare(configuredSpecs)` para criar o artifact e só então entra na medição; adicionar um helper que garanta que o evento seja gravado tanto no sucesso quanto na exceção:
 
 ```ts
 async function measureE2ELifecyclePhase<T>(
@@ -311,17 +311,17 @@ async function measureE2ELifecyclePhase<T>(
 }
 ```
 
-- [ ] **Step 5: 运行单测和 E2E typecheck**
+- [ ] **Step 5: Executar os testes unitários e o typecheck de E2E**
 
 Run: `pnpm exec vitest run packages/e2e-report/test/node-index.test.ts`
 
-Expected: PASS。
+Expected: PASS.
 
 Run: `pnpm --filter @zcode/desktop typecheck:e2e`
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 6: 用两个定向 spec 验证 artifact**
+- [ ] **Step 6: Validar o artifact com dois specs direcionados**
 
 PowerShell:
 
@@ -330,54 +330,54 @@ $env:ZCODE_E2E_SPEC='./test/e2e/container-boot.test.ts,./test/e2e/conversation-s
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts
 ```
 
-Expected: summary 包含 prepare、before-session、before、after、after-session、complete；case 数与原 spec 一致。
+Expected: o summary contém prepare, before-session, before, after, after-session e complete; o número de cases é igual ao dos specs originais.
 
-- [ ] **Step 7: 提交可观测性改动**
+- [ ] **Step 7: Commitar as mudanças de observabilidade**
 
 ```bash
 git add packages/e2e-report/src/shared/types.ts packages/e2e-report/src/node/index.ts packages/e2e-report/test/node-index.test.ts packages/desktop/wdio.conf.ts
 git commit -m "test(desktop): record e2e lifecycle timings"
 ```
 
-### Task 2: A/B 验证并修复 26 秒 session 退出
+### Task 2: Provar por A/B e corrigir a saída de session de 26 segundos
 
-**Files:**
+**Arquivos:**
 - Create: `packages/desktop/test/e2e/helpers/e2e-process-cleanup.ts`
 - Modify: `packages/desktop/wdio.conf.ts`
 - Create: `packages/desktop/test/e2e-process-cleanup.test.ts`
 
 **Interfaces:**
-- Consumes: Task 1 的 `after`、`after-session` lifecycle 指标。
-- Produces: 一个经证据验证的退出策略，要求 teardown P50 不超过 8 秒且无 orphan process。
+- Consumes: as métricas de lifecycle `after` e `after-session` da Task 1.
+- Produces: uma estratégia de saída validada por evidência, exigindo teardown P50 de no máximo 8 segundos e nenhum processo órfão.
 
-- [ ] **Step 1: 为进程筛选边界写失败测试**
+- [ ] **Step 1: Escrever o teste falhando do limite de filtragem de processos**
 
-测试至少包含两个并发 HOME：
+O teste inclui pelo menos dois HOMEs concorrentes:
 
 ```ts
 const ownHome = "C:/repo/packages/desktop/.e2e-home-shard-1";
 const otherHome = "C:/repo/packages/desktop/.e2e-home-shard-2";
 ```
 
-断言 cleanup 只返回命令行含 `ownHome` 的 Electron 根进程及其子进程，不因共享 `out/main` 或 app entry point 选中 `otherHome`。
+Afirmar que o cleanup devolve somente os processos raiz do Electron cuja linha de comando contém `ownHome` e seus filhos, sem selecionar `otherHome` por causa do `out/main` compartilhado ou do app entry point.
 
-- [ ] **Step 2: 运行测试并确认当前实现失败**
+- [ ] **Step 2: Executar o teste e confirmar que a implementação atual falha**
 
 Run: `pnpm exec vitest run packages/desktop/test/e2e-process-cleanup.test.ts`
 
-Expected: FAIL，因为当前 marker 包含共享 `APP_ENTRY_POINT` 和 `out/main`。
+Expected: FAIL, porque o marcador atual inclui o `APP_ENTRY_POINT` compartilhado e `out/main`.
 
-- [ ] **Step 3: 抽出纯进程筛选函数并收窄 marker**
+- [ ] **Step 3: Extrair uma função pura de filtragem de processos e estreitar o marcador**
 
-筛选规则固定为：
+A regra de filtragem fica fixa:
 
 ```ts
 isOwnE2EProcess = commandIncludesExactHome(item.command, e2eHomeDir);
 ```
 
-然后从选中的根进程沿 PPID 收集子树。`onPrepare`、`afterSession`、`onComplete` 都复用同一规则。
+Depois, coletar a subárvore a partir dos processos raiz selecionados, seguindo o PPID. `onPrepare`, `afterSession` e `onComplete` reutilizam a mesma regra.
 
-- [ ] **Step 4: 增加退出策略 A/B 开关**
+- [ ] **Step 4: Adicionar a chave de A/B da estratégia de saída**
 
 ```ts
 type E2EQuitStrategy = "app-quit-before-delete" | "webdriver-owned";
@@ -388,9 +388,9 @@ const e2eQuitStrategy: E2EQuitStrategy =
     : "app-quit-before-delete";
 ```
 
-`webdriver-owned` 只跳过 `after` 中的 `electron.app.quit()`；`afterSession` 仍执行精确 HOME 清理。
+`webdriver-owned` apenas pula `electron.app.quit()` em `after`; `afterSession` continua fazendo a limpeza pelo HOME exato.
 
-- [ ] **Step 5: 对同一组 spec 各运行一次 A/B**
+- [ ] **Step 5: Rodar o A/B uma vez cada para o mesmo conjunto de specs**
 
 ```powershell
 $env:ZCODE_E2E_SPEC='./test/e2e/container-boot.test.ts,./test/e2e/conversation-session/conversation-session-first-send.test.ts,./test/e2e/conversation-session/conversation-session-running-actions.test.ts'
@@ -401,99 +401,99 @@ $env:ZCODE_E2E_QUIT_STRATEGY='webdriver-owned'
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts
 ```
 
-比较两个 summary 的 `after`、`after-session` P50/P95，并检查进程列表。
+Comparar o P50/P95 de `after` e `after-session` dos dois summaries e verificar a lista de processos.
 
-- [ ] **Step 6: 按证据选择最终实现**
+- [ ] **Step 6: Escolher a implementação final com base na evidência**
 
-决策规则：
+Regra de decisão:
 
-- 若 `webdriver-owned` 的 teardown P50 `<= 8 s`，全部 spec 通过，main 日志能证明 host/agent 正常关闭，且 `afterSession` 后无 own HOME 进程，则移除永久 A/B 开关并采用 `webdriver-owned`。
-- 若 orphan 或 host/agent 未走清理，则保留当前 `app.quit` 策略，不做猜测式删除；转而优先执行 Task 4 的 session 分组与 Task 5 的 shard，并把 ChromeDriver 慢关闭记录为待上游处理。
+- Se o teardown P50 de `webdriver-owned` for `<= 8 s`, todos os specs passarem, o log do main provar o fechamento normal de host/agent e não houver processo do own HOME após `afterSession`, então remover a chave de A/B permanente e adotar `webdriver-owned`.
+- Se houver órfãos ou host/agent não passarem pela limpeza, manter a estratégia atual de `app.quit` e não fazer remoção por suposição; priorizar o agrupamento de sessions da Task 4 e os shards da Task 5, e registrar o encerramento lento do ChromeDriver como algo a ser tratado upstream.
 
-- [ ] **Step 7: 运行测试**
+- [ ] **Step 7: Executar os testes**
 
 Run: `pnpm exec vitest run packages/desktop/test/e2e-process-cleanup.test.ts`
 
-Expected: PASS。
+Expected: PASS.
 
 Run: `pnpm --filter @zcode/desktop typecheck:e2e`
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 8: 提交退出优化**
+- [ ] **Step 8: Commitar a otimização de saída**
 
 ```bash
 git add packages/desktop/test/e2e/helpers/e2e-process-cleanup.ts packages/desktop/wdio.conf.ts packages/desktop/test/e2e-process-cleanup.test.ts
 git commit -m "test(desktop): reduce windows e2e session teardown"
 ```
 
-### Task 3: 压缩非必要的 90.2 秒 controlled stream
+### Task 3: Comprimir o controlled stream não essencial de 90.2 segundos
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-model-switch-queue.json`
 - Modify: `packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-model-switch-queue.json`
 
 **Interfaces:**
-- Consumes: `conversation-session-model-switch-queue.test.ts` 现有 running、queue、model capture 断言。
-- Produces: 仍可稳定完成切模型动作，但尾部事件在 15.2 秒结束的 controlled stream。
+- Consumes: as asserções existentes de running, queue e captura de modelo em `conversation-session-model-switch-queue.test.ts`.
+- Produces: um controlled stream que ainda permite concluir de forma estável a ação de troca de modelo, mas termina os eventos de cauda em 15.2 segundos.
 
-- [ ] **Step 1: 保留失败前基线**
+- [ ] **Step 1: Preservar a baseline anterior à falha**
 
-从 artifact 记录当前第二个 case `durationMs = 94706`，作为优化前基线；不再额外运行旧 90 秒 case。
+Registrar a partir do artifact o `durationMs = 94706` atual do segundo case como baseline pré-otimização; não rodar de novo o case antigo de 90 segundos.
 
-- [ ] **Step 2: 缩短两个 case-local stream 的 event offsets**
+- [ ] **Step 2: Encurtar os offsets de eventos dos dois streams case-local**
 
-把两组：
+Mudar os dois grupos:
 
 ```json
 [0, 250, 8000, 16000, 24000, 90000, 90100, 90200]
 ```
 
-改为：
+para:
 
 ```json
 [0, 250, 1500, 3000, 5000, 15000, 15100, 15200]
 ```
 
-15 秒仍明显大于启动 request、发送 queue 和切 model 的正常交互窗口，同时节省约 75 秒。
+15 segundos ainda é claramente maior que a janela normal de interação de iniciar request, enviar queue e trocar o model, e ao mesmo tempo economiza cerca de 75 segundos.
 
-- [ ] **Step 3: 更新 fixture metadata**
+- [ ] **Step 3: Atualizar o metadata do fixture**
 
-在 case manifest 的 `syntheticReason` 中写明：该时序只需要覆盖“动作发生时仍为 running”，不覆盖 90 秒 timeout；真实超时边界由专用 slow-time-boundary case 负责。
+No `syntheticReason` do case manifest, escrever que: essa temporização só precisa cobrir "ainda está running quando a ação acontece", não cobre o timeout de 90 segundos; o limite real de timeout é de responsabilidade do case dedicado slow-time-boundary.
 
-- [ ] **Step 4: 校验 fixture**
+- [ ] **Step 4: Validar o fixture**
 
 Run: `pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-model-switch-queue.test.ts`
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 5: 运行一次定向 E2E**
+- [ ] **Step 5: Executar um E2E direcionado**
 
 Run: `pnpm --filter @zcode/desktop test:e2e -- --spec ./test/e2e/conversation-session/conversation-session-model-switch-queue.test.ts`
 
-Expected: 2 passing；第二个 case不超过 30 秒；request capture 仍为 secondary model/thought。
+Expected: 2 passing; o segundo case não passa de 30 segundos; a captura de request continua sendo secondary model/thought.
 
-- [ ] **Step 6: 提交 fixture 优化**
+- [ ] **Step 6: Commitar a otimização do fixture**
 
 ```bash
 git add packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-model-switch-queue.json packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-model-switch-queue.json
 git commit -m "test(desktop): shorten model switch queue replay"
 ```
 
-### Task 4: 用兼容 spec 分组摊薄 session 固定成本
+### Task 4: Diluir o custo fixo de session com agrupamento de specs compatíveis
 
-**Files:**
+**Arquivos:**
 - Create: `packages/desktop/test/e2e/spec-groups.ts`
 - Create: `packages/desktop/test/spec-groups.test.ts`
 - Modify: `packages/desktop/wdio.conf.ts`
 
 **Interfaces:**
-- Consumes: WDIO 嵌套 `specs` 数组能力和现有 `beforeSession(specs)` fixture 合并逻辑。
-- Produces: 显式、可审计的兼容组；默认定向 `--spec` 行为不变。
+- Consumes: a capacidade de arrays `specs` aninhados do WDIO e a lógica existente de merge de fixture em `beforeSession(specs)`.
+- Produces: grupos compatíveis explícitos e auditáveis; o comportamento padrão de `--spec` direcionado não muda.
 
-- [ ] **Step 1: 写分组选择失败测试**
+- [ ] **Step 1: Escrever o teste falhando da seleção de grupos**
 
-第一批 canary 固定为纯 UI/展示类：
+O primeiro canary é fixado como sendo só de UI/apresentação:
 
 ```ts
 export const WINDOWS_E2E_COMPATIBLE_SPEC_GROUPS = [
@@ -505,34 +505,34 @@ export const WINDOWS_E2E_COMPATIBLE_SPEC_GROUPS = [
 ] as const;
 ```
 
-测试断言：targeted specs 默认不分组；显式开关为 `1` 且 requested specs 完整命中 canary 时允许分组；只命中 canary 子集时保持独立；未分组 spec 顺序与数量不变。
+O teste afirma que: specs direcionados não são agrupados por padrão; com a chave explícita em `1` e os specs solicitados atingindo o canary por completo, o agrupamento é permitido; ao atingir apenas um subconjunto do canary, tudo permanece separado; e a ordem e a quantidade de specs não agrupados não muda.
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [ ] **Step 2: Executar o teste e confirmar a falha**
 
 Run: `pnpm exec vitest run packages/desktop/test/spec-groups.test.ts`
 
-Expected: FAIL，分组函数尚不存在。
+Expected: FAIL, pois a função de agrupamento ainda não existe.
 
-- [ ] **Step 3: 实现 opt-in 分组**
+- [ ] **Step 3: Implementar o agrupamento opt-in**
 
 ```ts
 const groupCompatibleSpecs =
   process.env.ZCODE_E2E_GROUP_COMPATIBLE_SPECS === "1";
 ```
 
-分组函数只在某个 group 的全部成员都包含于 configured specs 时生成嵌套数组；只命中部分成员时保持独立。reporter 的 configured spec 计数使用 flatten 后的文件列表；WDIO `config.specs` 保留嵌套数组。
+A função de agrupamento só gera arrays aninhados quando todos os membros de um group estão contidos nos configured specs; quando só parte dos membros é atingida, tudo permanece separado. A contagem de configured specs do reporter usa a lista de arquivos após o flatten; `config.specs` do WDIO mantém os arrays aninhados.
 
-- [ ] **Step 4: 运行单测与 typecheck**
+- [ ] **Step 4: Executar os testes unitários e o typecheck**
 
 Run: `pnpm exec vitest run packages/desktop/test/spec-groups.test.ts`
 
-Expected: PASS。
+Expected: PASS.
 
 Run: `pnpm --filter @zcode/desktop typecheck:e2e`
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 5: 运行一次 canary 分组 E2E**
+- [ ] **Step 5: Executar um E2E de canary com agrupamento**
 
 ```powershell
 $env:ZCODE_E2E_GROUP_COMPATIBLE_SPECS='1'
@@ -540,29 +540,29 @@ $env:ZCODE_E2E_SPEC='./test/e2e/conversation-session/conversation-session-markdo
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts
 ```
 
-Expected: 三个文件在一个 worker 内顺序执行，case 总数一致，只有一次 before-session/after-session，无 fixture mismatch 或状态串扰。
+Expected: os três arquivos executam em sequência dentro de um worker, o total de cases é o mesmo, há apenas um before-session/after-session e não há fixture mismatch nem cross-talk de estado.
 
-- [ ] **Step 6: 扩大分组的准入规则**
+- [ ] **Step 6: Ampliar as regras de admissão do agrupamento**
 
-只有同时满足以下条件的 spec 才能加入后续 group：
+Um spec só pode entrar em groups posteriores se atender simultaneamente a:
 
-- `after` 会 `clearAppData()` 或等价恢复
-- 不依赖互斥的 seed startup state
-- case-local fixture 合并后无同优先级通用 matcher 冲突
-- 单独运行与分组运行的 request capture 数一致
+- o `after` faz `clearAppData()` ou restauração equivalente
+- não depende de estados iniciais de seed mutuamente exclusivos
+- não há conflito de matcher genérico de mesma prioridade após o merge de fixtures case-local
+- a contagem de capturas de request é a mesma rodando separado e rodando agrupado
 
-每新增一个 group 单独提交，不一次性合并 51 个单 case spec。
+Cada novo group é commitado separadamente; não é permitido mesclar de uma vez os 51 specs de um único case.
 
-- [ ] **Step 7: 提交 canary**
+- [ ] **Step 7: Commitar o canary**
 
 ```bash
 git add packages/desktop/test/e2e/spec-groups.ts packages/desktop/test/spec-groups.test.ts packages/desktop/wdio.conf.ts
 git commit -m "test(desktop): group compatible windows e2e specs"
 ```
 
-### Task 5: 增加安全的双 shard Windows 入口
+### Task 5: Adicionar uma entrada segura de dois shards no Windows
 
-**Files:**
+**Arquivos:**
 - Create: `packages/desktop/scripts/run-windows-e2e-shards.mjs`
 - Create: `packages/desktop/test/windows-e2e-shards.test.ts`
 - Modify: `packages/desktop/package.json`
@@ -570,12 +570,12 @@ git commit -m "test(desktop): group compatible windows e2e specs"
 - Modify: `.gitlab/ci/20-test.yml`
 
 **Interfaces:**
-- Consumes: Task 2 的 HOME 精确进程清理、WDIO `--shard=x/y`、动态 mock/replay 端口。
-- Produces: 两个独立 HOME、run id、artifact 的并行 shard；任一失败时总入口返回非零。
+- Consumes: a limpeza precisa de processos por HOME da Task 2, o `--shard=x/y` do WDIO e as portas dinâmicas de mock/replay.
+- Produces: dois shards paralelos com HOME, run id e artifact independentes; a entrada total retorna não zero se qualquer um falhar.
 
-- [ ] **Step 1: 写 shard 环境生成失败测试**
+- [ ] **Step 1: Escrever o teste falhando da geração de ambiente dos shards**
 
-每个 shard 必须生成：
+Cada shard precisa gerar:
 
 ```ts
 {
@@ -585,84 +585,84 @@ git commit -m "test(desktop): group compatible windows e2e specs"
 }
 ```
 
-测试断言两个 shard 的 HOME、artifact 和 run id 均不同，命令分别包含 `--shard=1/2` 与 `--shard=2/2`。
+O teste afirma que o HOME, o artifact e o run id dos dois shards são diferentes e que os comandos contêm respectivamente `--shard=1/2` e `--shard=2/2`.
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [ ] **Step 2: Executar o teste e confirmar a falha**
 
 Run: `pnpm exec vitest run packages/desktop/test/windows-e2e-shards.test.ts`
 
-Expected: FAIL，runner 尚不存在。
+Expected: FAIL, pois o runner ainda não existe.
 
-- [ ] **Step 3: 实现 build-once + two-shard runner**
+- [ ] **Step 3: Implementar o runner build-once + two-shard**
 
-runner 顺序固定为：
+A ordem do runner é fixa:
 
-1. 执行 `pnpm --filter @zcode/e2e-report build:node`
-2. 执行 `pnpm --filter @zcode/desktop build:no-runtime-assets`
-3. 执行 `node scripts/build-desktop-agent-cli.mjs`
-4. 并行启动两个 `wdio run wdio.conf.ts --shard=x/2`
-5. 等待两个子进程
-6. 任一非零则总入口非零
-7. 输出两个 artifact 路径，不覆盖各自 summary
+1. Executar `pnpm --filter @zcode/e2e-report build:node`
+2. Executar `pnpm --filter @zcode/desktop build:no-runtime-assets`
+3. Executar `node scripts/build-desktop-agent-cli.mjs`
+4. Iniciar em paralelo dois `wdio run wdio.conf.ts --shard=x/2`
+5. Aguardar os dois subprocessos
+6. Se qualquer um for não zero, a entrada total é não zero
+7. Exibir os dois caminhos de artifact, sem sobrescrever os summaries individuais
 
-- [ ] **Step 4: 增加脚本入口**
+- [ ] **Step 4: Adicionar as entradas de script**
 
-`packages/desktop/package.json`：
+`packages/desktop/package.json`:
 
 ```json
 "test:e2e:windows:sharded": "node scripts/run-windows-e2e-shards.mjs"
 ```
 
-根 `package.json`：
+`package.json` raiz:
 
 ```json
 "test:e2e:windows:sharded": "pnpm --filter @zcode/desktop test:e2e:windows:sharded"
 ```
 
-- [ ] **Step 5: 运行 runner 单测**
+- [ ] **Step 5: Executar o teste unitário do runner**
 
 Run: `pnpm exec vitest run packages/desktop/test/windows-e2e-shards.test.ts`
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 6: GitLab Windows job 使用两个 shard**
+- [ ] **Step 6: Fazer o job Windows do GitLab usar dois shards**
 
-job 增加：
+Adicionar ao job:
 
 ```yaml
 parallel: 2
 ```
 
-run id 必须包含 `$env:CI_NODE_INDEX`，WDIO 命令增加：
+O run id precisa conter `$env:CI_NODE_INDEX`, e o comando do WDIO ganha:
 
 ```powershell
 --shard=$env:CI_NODE_INDEX/$env:CI_NODE_TOTAL
 ```
 
-每个 GitLab job checkout 天然隔离 HOME；artifact 目录仍包含 shard index，避免上传覆盖。
+Cada checkout de job do GitLab isola o HOME de forma natural; o diretório de artifact continua incluindo o shard index para evitar sobrescrita no upload.
 
-- [ ] **Step 7: 提交 shard 入口**
+- [ ] **Step 7: Commitar a entrada de shards**
 
 ```bash
 git add packages/desktop/scripts/run-windows-e2e-shards.mjs packages/desktop/test/windows-e2e-shards.test.ts packages/desktop/package.json package.json .gitlab/ci/20-test.yml
 git commit -m "ci(desktop): shard windows conversation e2e"
 ```
 
-### Task 6: 增加 CI 健康门、slow lane 与耗时预算
+### Task 6: Adicionar portão de saúde, slow lane e budget de tempo na CI
 
-**Files:**
+**Arquivos:**
 - Create: `packages/desktop/scripts/check-e2e-duration-budget.mjs`
 - Create: `packages/desktop/test/e2e-duration-budget.test.ts`
 - Modify: `.gitlab/ci/20-test.yml`
 - Modify: `packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-read-session-context-timeout.json`
 
 **Interfaces:**
-- Consumes: Task 1 lifecycle summary、Task 5 shard summaries。
-- Produces: 基础设施失败快速停止、慢 case 显式分类、性能回归预算。
+- Consumes: o lifecycle summary da Task 1 e os shard summaries da Task 5.
+- Produces: parada rápida em falha de infraestrutura, classificação explícita de cases lentos e budget de regressão de performance.
 
-- [ ] **Step 1: 写预算检查失败测试**
+- [ ] **Step 1: Escrever o teste falhando da verificação de budget**
 
-预算固定为：
+O budget é fixado como:
 
 ```ts
 const WINDOWS_E2E_BUDGET = {
@@ -672,29 +672,29 @@ const WINDOWS_E2E_BUDGET = {
 };
 ```
 
-允许 `timingPolicy: "slow-time-boundary"` 的 case 超过 case P95 普通预算，但它们必须单独计数并输出原因。
+Cases com `timingPolicy: "slow-time-boundary"` podem ultrapassar o budget normal de case P95, mas precisam ser contados separadamente e com a razão de saída.
 
-- [ ] **Step 2: 运行测试并确认失败**
+- [ ] **Step 2: Executar o teste e confirmar a falha**
 
 Run: `pnpm exec vitest run packages/desktop/test/e2e-duration-budget.test.ts`
 
-Expected: FAIL，预算脚本尚不存在。
+Expected: FAIL, pois o script de budget ainda não existe.
 
-- [ ] **Step 3: 标记 ReadSessionContext slow-time-boundary**
+- [ ] **Step 3: Marcar ReadSessionContext como slow-time-boundary**
 
-manifest 原因写明：`55s` replay 用于证明超过历史 `45s` timeout 后仍继续同一 turn，不能由普通 fast lane 替代。
+A razão no manifest escreve: o replay de `55s` serve para provar que o mesmo turn continua depois de ultrapassar o timeout histórico de `45s`, e não pode ser substituído pela fast lane comum.
 
-- [ ] **Step 4: 在 Windows CI 主 suite 前运行健康门**
+- [ ] **Step 4: Executar o portão de saúde antes da suite principal na CI do Windows**
 
-健康门只运行：
+O portão de saúde roda apenas:
 
 ```text
 ./test/e2e/container-boot.test.ts
 ```
 
-健康门负责完成 fresh build；主 suite 设置 `ZCODE_E2E_SKIP_BUILD=1`。健康门失败时直接退出，不派发后续 conversation spec。
+O portão de saúde é responsável por completar o fresh build; a suite principal define `ZCODE_E2E_SKIP_BUILD=1`. Se o portão de saúde falhar, sair imediatamente e não despachar os conversation specs seguintes.
 
-PowerShell 中保存主 artifact，再给健康门使用独立目录：
+Em PowerShell, salvar o artifact principal e então dar ao portão de saúde um diretório independente:
 
 ```powershell
 $mainArtifactDir = $env:ZCODE_E2E_ARTIFACT_DIR
@@ -713,7 +713,7 @@ $env:ZCODE_E2E_SPEC = $mainSpecs
 $env:ZCODE_E2E_SKIP_BUILD = '1'
 ```
 
-- [ ] **Step 5: 主 shard 完成后执行预算脚本**
+- [ ] **Step 5: Executar o script de budget após o shard principal terminar**
 
 PowerShell:
 
@@ -721,128 +721,128 @@ PowerShell:
 node packages/desktop/scripts/check-e2e-duration-budget.mjs "$env:ZCODE_E2E_ARTIFACT_DIR\summary.json"
 ```
 
-Expected: summary 完整、普通 case P95 和 teardown P50 在预算内；slow-time-boundary 单独报告。
+Expected: summary completo, case P95 comum e teardown P50 dentro do budget; slow-time-boundary reportado separadamente.
 
-- [ ] **Step 6: 运行单测**
+- [ ] **Step 6: Executar os testes unitários**
 
 Run: `pnpm exec vitest run packages/desktop/test/e2e-duration-budget.test.ts`
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 7: 提交 CI 防护**
+- [ ] **Step 7: Commitar as proteções da CI**
 
 ```bash
 git add packages/desktop/scripts/check-e2e-duration-budget.mjs packages/desktop/test/e2e-duration-budget.test.ts .gitlab/ci/20-test.yml packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-read-session-context-timeout.json
 git commit -m "ci(desktop): add windows e2e runtime budgets"
 ```
 
-### Task 7: 最终验证与基线更新
+### Task 7: Verificação final e atualização da baseline
 
-**Files:**
+**Arquivos:**
 - Modify: `docs/superpowers/plans/2026-07-10-windows-e2e-runtime-optimization.md`
 
 **Interfaces:**
-- Consumes: Tasks 1-6 的 artifact 和 summary。
-- Produces: 完整的新基线、实际节省和残余风险。
+- Consumes: os artifacts e summaries das Tasks 1-6.
+- Produces: uma nova baseline completa, o ganho real e os riscos residuais.
 
-- [x] **Step 1: 执行机械检查**
+- [x] **Step 1: Executar as verificações mecânicas**
 
 Run: `pnpm --filter @zcode/desktop typecheck:e2e`
 
-Expected: PASS。
+Expected: PASS.
 
 Run: `pnpm typecheck`
 
-Expected: PASS。
+Expected: PASS.
 
 Run: `pnpm lint`
 
-Expected: PASS；已有 warning 与新 failure 分开报告。
+Expected: PASS; warnings existentes e novas falhas são reportados separadamente.
 
-- [x] **Step 2: 运行一次完整 Windows E2E**
-
-Run: `pnpm test:e2e`
-
-Result: Windows 默认入口已切换为 build-once + two-shard。只运行一次，两个 shard 都生成完整 summary；结束后无 E2E orphan process。
-
-- [x] **Step 3: 验证双 shard E2E**
+- [x] **Step 2: Executar uma vez o E2E completo do Windows**
 
 Run: `pnpm test:e2e`
 
-Result: 最新用户约束要求全量后不再循环，因此没有再运行第二次 alias。默认 Windows `pnpm test:e2e` 本身已经执行 two-shard，并产出两个独立 summary 和父 manifest。
+Result: a entrada padrão do Windows já foi trocada para build-once + two-shard. Rodado uma única vez, os dois shards geram summaries completos e, ao final, não há processo órfão de E2E.
 
-- [x] **Step 4: 更新本报告的实测结果**
+- [x] **Step 3: Validar o E2E com dois shards**
 
-把预测值替换为串行与双 shard artifact 的 run id、总耗时、prepare、startup、test body、teardown、slow lane 和失败分类；保留旧基线用于对比。
+Run: `pnpm test:e2e`
 
-- [x] **Step 5: 提交最终基线**
+Result: a restrição mais recente do usuário pede que não se rode de novo em ciclo após o full run, então não foi executada uma segunda vez pelo alias. O `pnpm test:e2e` padrão do Windows já executa two-shard e produz dois summaries independentes e um manifest pai.
+
+- [x] **Step 4: Atualizar os resultados medidos deste relatório**
+
+Substituir as previsões pelo run id dos artifacts serial e de dois shards, tempo total, prepare, startup, test body, teardown, slow lane e classificação de falhas; manter a baseline antiga para comparação.
+
+- [x] **Step 5: Commitar a baseline final**
 
 ```bash
 git add docs/superpowers/plans/2026-07-10-windows-e2e-runtime-optimization.md
 git commit -m "docs(testing): record optimized windows e2e baseline"
 ```
 
-## 2026-07-11 实施与全量实测
+## 2026-07-11 Implementação e medição do full run
 
-### 已实施内容
+### O que foi implementado
 
-1. lifecycle reporter 记录 `prepare`、`before-session`、`before`、`after`、`after-session`、`worker` 和 `complete`。
-2. `app.quit` 与 WebDriver-owned teardown 做了同 spec A/B：worker 分别为 `34,911 ms` 和 `34,959 ms`。跳过 `app.quit` 只会移动等待位置，没有收益，因此保留原关闭语义。
-3. Windows cleanup 改为只匹配当前 run/shard HOME marker，并递归回收其子进程；不再使用共享产品名、app entry 或 `out/main` 作为根 marker。
-4. Windows `pnpm test:e2e` 改为先构建 desktop/agent 一次，再并发启动两个独立 WDIO shard。每个 shard 使用独立 HOME、run id、artifact 和 network capture 目录。
-5. GitLab Windows conversation job 增加 `parallel: 2`，每个 job 继续保留独立 summary 契约。
+1. O lifecycle reporter registra `prepare`, `before-session`, `before`, `after`, `after-session`, `worker` e `complete`.
+2. Foi feito um A/B com os mesmos specs entre `app.quit` e o teardown WebDriver-owned: os workers ficaram em `34,911 ms` e `34,959 ms`, respectivamente. Pular `app.quit` apenas move o ponto de espera e não gera ganho, então a semântica de fechamento original foi mantida.
+3. O cleanup do Windows passou a casar apenas o marcador de HOME do run/shard atual, reciclando recursivamente seus subprocessos; o nome de produto compartilhado, o app entry e `out/main` não são mais usados como marcador raiz.
+4. O `pnpm test:e2e` do Windows passou a construir desktop/agent uma vez e depois iniciar em paralelo dois shards WDIO independentes. Cada shard usa HOME, run id, artifact e diretório de captura de rede próprios.
+5. O job de conversation no Windows do GitLab ganhou `parallel: 2`, e cada job continua preservando o contrato de summary independente.
 
-### 全量结果
+### Resultados do full run
 
 Run id: `desktop-e2e-optimized-full-20260711-final`
 
 Artifact: `packages/desktop/.e2e-artifacts/desktop-e2e-optimized-full-20260711-final`
 
-| 指标 | 实测 |
-| --- | ---: |
-| 父 runner 墙钟 | `2,926,331 ms`（48 分 46 秒） |
-| shard 1 | `2,608,448 ms`（43 分 28 秒），42 spec workers |
-| shard 2 | `2,824,532 ms`（47 分 05 秒），41 spec workers |
-| 完整范围 | 83 spec workers，184 tests |
-| 通过 / 失败 | 177 / 7，pass rate `96.20%` |
-| infra / flaky | 0 / 0 |
-| test body 合计 | `2,581,448 ms`（43 分 01 秒） |
-| 可见 worker hooks 合计 | `203,017 ms`（3 分 23 秒） |
-| 未归因 session/WebDriver 成本 | `2,632,773 ms`（43 分 53 秒） |
-| worker 合计 | `5,417,238 ms`（90 分 17 秒） |
-| 两个 child 串行估算 | `5,432,980 ms`（90 分 33 秒） |
-| build-once + parent 固定成本 | `101,799 ms`（1 分 42 秒） |
-| 相对同范围串行估算 | 节省 `2,506,649 ms`（41 分 47 秒），墙钟下降约 `46.1%` |
+| Métrica                                   | Medido |
+| ----------------------------------------- | -----: |
+| Wall clock do runner pai                 | `2,926,331 ms` (48 min 46 s) |
+| shard 1                                   | `2,608,448 ms` (43 min 28 s), 42 spec workers |
+| shard 2                                   | `2,824,532 ms` (47 min 05 s), 41 spec workers |
+| Escopo completo                          | 83 spec workers, 184 tests |
+| Passando / falhando                       | 177 / 7, pass rate `96.20%` |
+| infra / flaky                             | 0 / 0   |
+| Soma dos test bodies                      | `2,581,448 ms` (43 min 01 s) |
+| Soma dos hooks de worker visíveis         | `203,017 ms` (3 min 23 s) |
+| Custos de session/WebDriver não atribuídos | `2,632,773 ms` (43 min 53 s) |
+| Soma dos workers                          | `5,417,238 ms` (90 min 17 s) |
+| Estimativa serial dos dois children       | `5,432,980 ms` (90 min 33 s) |
+| Custo fixo de build-once + pai            | `101,799 ms` (1 min 42 s) |
+| Em relação à estimativa serial do mesmo escopo | Economia de `2,506,649 ms` (41 min 47 s), queda de wall clock de cerca de `46.1%` |
 
-旧基线在 60 分钟外层超时时只完成 66 个 spec，且最后一个 spec 被截断。新结果覆盖 83 个 spec workers 并完整收尾，因此不能把 `48:46` 直接当作同范围的 `60 -> 49`；按本次两个 child 的实际累计时长估算，同范围串行约 `90:33`，two-shard 已接近理论减半。
+A baseline antiga completava apenas 66 specs antes do timeout externo de 60 minutos, e o último spec foi truncado. O novo resultado cobre 83 spec workers e encerra por completo, portanto `48:46` não pode ser lido diretamente como `60 -> 49` do mesmo escopo; pela duração cumulativa real dos dois children desta rodada, o serial do mesmo escopo seria cerca de `90:33`, e o two-shard já está próximo da metade teórica.
 
-### 失败清单
+### Lista de falhas
 
-本次 7 个失败都被 reporter 分类为产品/断言失败，`infraFailureCount=0`：
+As 7 falhas desta rodada foram todas classificadas pelo reporter como falhas de produto/asserção, com `infraFailureCount=0`:
 
-| Spec | 原因摘要 |
-| --- | --- |
-| `conversation-session-background.test.ts` | background child completion notification 未进入父模型请求 |
-| `conversation-session-compact-actions.test.ts` | 未捕获到预期 DeepSeek 请求 body |
-| `conversation-session-composer-prefix-routing.test.ts` | `/` skill 候选面板未打开 |
-| `conversation-session-deepseek-v4-reasoning-request-shape.test.ts` | 当前思考档位仍为 `high`，未切到 `max` |
-| `conversation-session-edit.test.ts` | stop 后 active turn 未释放到 completed |
-| `conversation-session-markdown-table-enhanced-scroll.test.ts` | resize 前未进入左借位状态 |
-| `conversation-session-model-switch-restore-repro.test.ts` | session 重建后任务列表缺少目标 task |
+| Spec                                                       | Resumo da causa                                              |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| `conversation-session-background.test.ts`                  | A notificação de conclusão do background child não entrou na requisição do modelo pai |
+| `conversation-session-compact-actions.test.ts`             | O body de requisição esperado do DeepSeek não foi capturado  |
+| `conversation-session-composer-prefix-routing.test.ts`     | O painel de candidatos de skill `/` não abriu                 |
+| `conversation-session-deepseek-v4-reasoning-request-shape.test.ts` | O nível de pensamento atual ainda era `high`, sem trocar para `max` |
+| `conversation-session-edit.test.ts`                        | Após o stop, o active turn não foi liberado para completed   |
+| `conversation-session-markdown-table-enhanced-scroll.test.ts` | Não entrou no estado de escorregamento pela esquerda antes do resize |
+| `conversation-session-model-switch-restore-repro.test.ts`  | Depois de reconstruir a session, a lista de tarefas perdeu a task alvo |
 
-其中 DeepSeek V4 和 edit spec 是运行前工作树里已有的未提交修改；本优化没有修改或提交这两个 case。
+Os specs de DeepSeek V4 e de edit eram modificações não commitadas que já existiam na working tree antes da execução; esta otimização não modificou nem commitou esses dois cases.
 
-### 运行时结论
+### Conclusões de runtime
 
-- 两个 shard 全程同时运行，均完成 summary；结束后未发现 Electron、Chromedriver、host 或 agent 残留进程。
-- 两个 child 只相差约 3 分 37 秒，native shard 的耗时平衡已较接近。即使完全加权，理论上也只能再减少约 1 分 49 秒，无法单独达到 25 分钟目标。
-- 原计划假设 teardown P50 可从约 26 秒降到 8 秒；A/B 否定了删除 `app.quit` 这条路径。本次数据进一步显示未归因 session/WebDriver 成本约 43.9 分钟，与 test body 43.0 分钟相当，是下一阶段的主成本。
-- `tool-cross-product` 单 spec worker 为 `556,880 ms`，但它包含 51 个真实 case；不能通过改变其断言或 fixture 语义来压缩。
+- Os dois shards rodaram simultaneamente durante toda a execução e ambos completaram o summary; ao final não foi encontrado processo residual de Electron, Chromedriver, host ou agent.
+- Os dois children diferiram em cerca de 3 min 37 s, então o balanceamento de tempo do shard nativo já está relativamente próximo. Mesmo com ponderação total, a teoria só permitiria reduzir mais cerca de 1 min 49 s, sem alcançar sozinho a meta de 25 minutos.
+- O plano original assumia que o teardown P50 poderia cair de cerca de 26 s para 8 s; o A/B refutou o caminho de remover `app.quit`. Os dados desta rodada mostram ainda que os custos de session/WebDriver não atribuídos somam cerca de 43.9 min, comparáveis aos 43.0 min de test body, e essa é a próxima grande fonte de custo.
+- O spec worker `tool-cross-product` levou `556,880 ms`, mas ele contém 51 cases reais; não pode ser comprimido mudando a semântica de suas asserções ou de seus fixtures.
 
-### 2026-07-16 GitLab Windows 四分片晋级
+### 2026-07-16 Promoção para quatro shards no GitLab Windows
 
-Windows conversation-session 自动回归从两个 GitLab 原生 shard 提升为四个。正式链路只使用
-GitLab `parallel: 4` 和 WDIO 原生 `--shard=$env:CI_NODE_INDEX/$env:CI_NODE_TOTAL`：
+A regressão automática de conversation-session no Windows foi promovida de dois shards nativos do GitLab para quatro. O caminho oficial usa apenas
+o `parallel: 4` do GitLab e o `--shard=$env:CI_NODE_INDEX/$env:CI_NODE_TOTAL` nativo do WDIO:
 
 ```text
 GitLab parallel: 4
@@ -852,16 +852,14 @@ GitLab parallel: 4
   └─ CI_NODE_INDEX=4 ──> WDIO --shard=4/4 ──> 独立 run id / artifact
 ```
 
-本次晋级不修改正式 spec、fixture、产品代码或 WDIO session 生命周期，也不把本地 canary 使用的
-资源采样、历史权重、显式 spec 分区和评估报表带入 CI。`CI_NODE_INDEX/CI_NODE_TOTAL` 继续参与
-run id，保证四个 job 的 summary、network capture 和失败证据互不覆盖。聚焦 CI 契约测试必须同时
-断言 `parallel: 4`、分片参数和 shard 身份隔离；如果 runner 容量导致基础设施失败率上升，回滚点
-仅为该 job 的 `parallel` 数量，不改变 conversation-session 测试合同。
+Esta promoção não modifica specs oficiais, fixtures, código de produto nem o ciclo de vida de session do WDIO, e não leva para a CI a amostragem de recursos, os pesos históricos, a partição explícita de specs nem o relatório de avaliação usados no canary local. `CI_NODE_INDEX/CI_NODE_TOTAL` continuam participando do
+run id, garantindo que o summary, a captura de rede e as evidências de falha dos quatro jobs não se sobrescrevam. Os testes de contrato de CI focados precisam afirmar ao mesmo tempo
+`parallel: 4`, os parâmetros de shard e o isolamento de identidade de shard; se a capacidade do runner elevar a taxa de falhas de infraestrutura, o ponto de rollback
+é apenas a quantidade de `parallel` desse job, sem alterar o contrato de teste de conversation-session.
 
-分片后的 summary 覆盖门禁必须使用与 WDIO 9.27 相同的有序分配，不能让单个 summary 继续对照
-完整 `ZCODE_E2E_SPEC`。预检仍展开完整 glob，运行后则按配置中的 glob 顺序、每个 glob 内排序，
-再使用 `specsPerShard = max(round(totalSpecs / shardTotal), 1)` 和连续 `slice` 得到当前 shard 的
-精确期望集合：
+O portão de cobertura dos summaries após o fragmentado precisa usar a mesma alocação ordenada do WDIO 9.27, e não pode deixar que um summary isolado continue sendo comparado
+com o `ZCODE_E2E_SPEC` completo. O preflight continua expandindo o glob completo; após a execução, usa-se a ordem dos globs da configuração, a ordenação dentro de cada glob,
+e então `specsPerShard = max(round(totalSpecs / shardTotal), 1)` com `slice` contínuos para obter o conjunto esperado exato do shard atual:
 
 ```text
 完整 formal spec glob ──> WDIO 有序 spec 列表 ──> shard i/N ──> summary i
@@ -870,33 +868,33 @@ run id，保证四个 job 的 summary、network capture 和失败证据互不覆
                                              精确集合比较
 ```
 
-每个 shard 必须至少执行一个 test，并且 summary 既不能漏掉本 shard spec，也不能混入其他 shard。
-四个 GitLab parallel job 全部通过时，四个互斥 shard 的并集即为预检得到的完整 formal 集合；因此
-当前阶段不增加只负责合并 summary 的第五个 job。
+Cada shard precisa executar pelo menos um test, e o summary não pode deixar de fora o spec do próprio shard nem misturar specs de outros shards.
+Quando os quatro jobs parallel do GitLab passam, a união dos quatro shards mutuamente exclusivos é exatamente o conjunto formal completo obtido no preflight; portanto
+nesta fase não se adiciona um quinto job responsável apenas por mesclar summaries.
 
-### 后续优化计划
+### Plano de otimizações seguintes
 
-1. 基于本次 `worker` event 建立历史 spec 权重，仅用于稳定分片分配；不修改 case 内容。预计收益约 1 到 2 分钟。
-2. 对 WebDriver session 创建与 `deleteSession` 增加更细粒度事件，区分 Chromedriver、CDP bridge、Electron process exit 和 host/agent exit，定位 43.9 分钟未归因成本。
-3. 只对状态契约明确兼容的 spec 做 session reuse canary；每组仍必须执行原 case、原 assertion 和组间强制 HOME reset。收益需要用 case 总数和通过率机械校验后再扩大。
-4. CI 增加单独的 `container-boot` 健康门，基础设施失败时不再派发完整 shard；该项降低失败放大，不改变正常 case 语义。
-5. 保留 `ReadSessionContext >45s`、title sidecar `>15s` 和 90 秒 model-switch 等时间边界 case，不通过缩短 fixture 改变通过性判断。
+1. Construir pesos históricos de spec a partir do `worker` event desta rodada, usados apenas para estabilizar a alocação de shards; o conteúdo dos cases não muda. Ganho estimado de cerca de 1 a 2 minutos.
+2. Adicionar eventos mais granulares à criação da WebDriver session e ao `deleteSession`, distinguindo Chromedriver, CDP bridge, saída do processo Electron e saída de host/agent, para localizar os 43.9 minutos de custo não atribuído.
+3. Fazer canary de session reuse apenas para specs com contrato de estado explicitamente compatível; cada grupo ainda precisa executar os cases originais, as assertions originais e um reset obrigatório de HOME entre grupos. O ganho só pode ser ampliado depois de validação mecânica pelo total de cases e pela taxa de aprovação.
+4. Adicionar na CI um portão de saúde separado de `container-boot`, para que uma falha de infraestrutura não despache mais o shard completo; isso reduz a amplificação de falhas sem mudar a semântica dos cases normais.
+5. Preservar os cases de limite de tempo como `ReadSessionContext >45s`, title sidecar `>15s` e o model-switch de 90 segundos, sem mudar a decisão de aprovação encurtando o fixture.
 
-## 预期收益
+## Ganhos Esperados
 
-按当前 66 个完整 spec 估算：
+Estimando com os 66 specs completos atuais:
 
-1. teardown P50 从约 26 秒降到 8 秒：节省约 19 到 20 分钟。
-2. model-switch queue 从 90.2 秒缩到 15.2 秒：节省约 75 秒。
-3. canary 分组扩大后，每减少一个 session 可继续节省约 15 到 33 秒，取决于 teardown A/B 结果。
-4. 两个安全 shard：在串行优化基础上把墙钟再降到约一半。
+1. teardown P50 caindo de cerca de 26 s para 8 s: economia de cerca de 19 a 20 minutos.
+2. model-switch queue caindo de 90.2 s para 15.2 s: economia de cerca de 75 segundos.
+3. com a ampliação do canary de agrupamento, cada session eliminada continua economizando cerca de 15 a 33 segundos, dependendo do resultado do A/B de teardown.
+4. dois shards seguros: sobre a base da otimização serial, levam o wall clock a cerca da metade.
 
-初始目标是串行 38 到 42 分钟、双 shard 20 到 25 分钟。实测 two-shard 为 48 分 46 秒，未达到 25 分钟目标；原因是当前完整范围扩大到 83 spec workers，且退出 A/B 证明 `app.quit` 不能移除。下一阶段必须优先减少 session/WebDriver 固定成本，不能只继续增加 shard 或缩短 case fixture。
+A meta inicial era 38 a 42 minutos em serial e 20 a 25 minutos com dois shards. O two-shard medido deu 48 min 46 s e não atingiu a meta de 25 minutos; a razão é que o escopo completo atual cresceu para 83 spec workers e o A/B de saída provou que `app.quit` não pode ser removido. A próxima etapa precisa priorizar a redução do custo fixo de session/WebDriver, e não apenas continuar aumentando shards ou encurtando fixtures de case.
 
-## 自检
+## Auto-verificação
 
-- 已覆盖正常全量、定向调试、历史 CI 基础设施失败和 slow-time-boundary case。
-- 没有建议直接提高 `maxInstances`。
-- 没有把 55 秒边界 case 当作普通慢 fixture 删除。
-- 所有性能结论都区分“日志已证实”和“需要 A/B 证明”。
-- 实施任务包含精确文件、接口、验证命令、成功标准和提交边界。
+- Foram cobertos o full run normal, a depuração direcionada, a falha de infraestrutura histórica da CI e o case slow-time-boundary.
+- Não foi sugerido aumentar `maxInstances` diretamente.
+- O case de limite de 55 segundos não foi tratado como um fixture lento comum e removido.
+- Todas as conclusões de performance distinguem "já provado pelo log" de "precisa de prova por A/B".
+- As tarefas de implementação incluem arquivos exatos, interfaces, comandos de verificação, critérios de sucesso e limites de commit.

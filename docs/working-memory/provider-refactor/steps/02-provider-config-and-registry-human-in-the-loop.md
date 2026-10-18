@@ -1,28 +1,28 @@
-# M2：Provider 配置与 Registry Human in the Loop
+# M2: Configuração de Provider e Registry Human in the Loop
 
-> 状态：持续维护
+> Status: manutenção contínua
 >
-> 最近更新：2026-08-20
+> Atualizado recentemente: 2026-08-20
 
-本篇记录 M2 实施过程中交由人裁决的架构、产品和公共契约问题。它不同于 implementation log：后者保存 Agent 为继续推进而自主作出的可逆决定；本篇保存会改变目标抽象或实施边界、必须由人确认的决定。
+Este documento registra as questões de arquitetura, produto e contrato público que foram submetidas à decisão humana durante a implementação de M2. Ele difere de um implementation log: este guarda as decisões reversíveis tomadas autonomamente pelo Agent apenas para seguir avançando; este guarda as decisões que alteram a abstração-alvo ou o limite de implementação e que precisam de confirmação humana.
 
-每项记录说明提出问题时的背景、人的裁决、目标设计和实施影响。确认后的结论同步进入对应 Design 节点；本篇保留裁决背景和当前实现与目标之间的距离。
+Cada registro explica o contexto no momento em que a questão foi levantada, a decisão humana, o design alvo e o impacto na implementação. As conclusões confirmadas são sincronizadas para o nó de Design correspondente; este documento mantém o contexto da decisão e a distância entre a implementação atual e o alvo.
 
-## 1. Account Access 复用 Provider Config Overlay
+## 1. Account Access reaproveita o Provider Config Overlay
 
-> 裁决状态：已确认并落地；普通长期 Provider 已退出旧 Snapshot 来源
+> Status da decisão: confirmada e implementada; o Provider comum de longo prazo saiu da fonte antiga de Snapshot
 
-### 背景
+### Contexto
 
-Provider 的访问方式与公开 API 是两个独立维度：`access.type = "api-key"` 使用静态 API Key，`access.type = "zhipu-account"` 使用当前登录、套餐或团队连接；`api.type` 则描述 Anthropic Messages、OpenAI Responses 或 OpenAI Chat Completions。不同访问方式可以使用同一种 API。
+O modo de acesso de um Provider e sua API pública são duas dimensões independentes: `access.type = "api-key"` usa uma API Key estática, `access.type = "zhipu-account"` usa o login atual, um plano ou uma conexão de equipe; `api.type` descreve, por sua vez, Anthropic Messages, OpenAI Responses ou OpenAI Chat Completions. Modos de acesso diferentes podem usar a mesma API.
 
-最初的新 Registry 仍把账号状态放在独立的 `AccountProviderAccessEntry[]` 中，再由 Resolver 按 `providerId` 拼接 `modelIds` 和 `accessId`。第一次调整虽然把它改称 Runtime Overlay，却又建立了 `AccountProviderOverlay`、`AccountProviderAccess` 和 `allowedModelIds`，本质上仍是第二套 Provider 数据结构。
+O Registry novo inicialmente mantinha o estado de conta em uma lista separada `AccountProviderAccessEntry[]`, e o Resolver montava `modelIds` e `accessId` por `providerId`. A primeira ajusteção renomeou aquilo para Runtime Overlay, mas criou `AccountProviderOverlay`, `AccountProviderAccess` e `allowedModelIds` — essencialmente um segundo conjunto de estruturas de dados de Provider.
 
-这与 Config Overlay 的目标相冲突：Official、Personal 和账号状态都在为同一个 Provider 补充字段，不需要三套形态和一条特殊过滤算法。
+Isso conflita com o objetivo do Config Overlay: Official, Personal e o estado de conta estão todos complementando campos do mesmo Provider, sem necessidade de três formas e um algoritmo de filtro especial.
 
-### 裁决
+### Decisão
 
-账号状态直接产出第三层稀疏 `ProviderConfigMap`，与 Official、Personal 使用完全相同的 Provider Config Overlay 数据结构和算法：
+O estado de conta produz diretamente uma terceira camada esparsa `ProviderConfigMap`, usando exatamente a mesma estrutura de dados e o mesmo algoritmo do Provider Config Overlay de Official e Personal:
 
 ```text
 Official ProviderConfigMap
@@ -39,11 +39,11 @@ Account ProviderConfigMap
 最终 ProviderConfigMap
 ```
 
-三层的所有权仍然不同：Official 由官方管理，Personal 由用户管理，Account 由账号和套餐状态实时生成。Account 层不持久化，也不由设置页面编辑；这些差异由 Source 和生命周期表达，不再用另一套领域类型表达。
+A posse das três camadas continua diferente: Official é gerenciado pela equipe oficial, Personal é gerenciado pelo usuário e Account é gerado em tempo real pelo estado da conta e do plano. A camada Account não é persistida nem editada pela página de configurações; essas diferenças são expressas pela Source e pelo ciclo de vida, e não por outro conjunto de tipos de domínio.
 
 ### Access Config
 
-Account Access 是 `ProviderConfig.access` 的一种判别分支：
+Account Access é um ramo discriminante de `ProviderConfig.access`:
 
 ```ts
 class ProviderConfig extends ConfigOverlay {
@@ -63,11 +63,11 @@ class ZhipuAccountAccessConfig extends ConfigOverlay {
 }
 ```
 
-`accessId` 是非敏感的账号连接身份，用来区分 Start Plan、Personal Coding Plan 和具体 Team Plan。它不是 JWT、API Key 或 Header。
+`accessId` é a identidade de conexão de conta não sensível, usada para distinguir Start Plan, Personal Coding Plan e um Team Plan específico. Não é um JWT, uma API Key nem um Header.
 
-### Account 层提供模型成员
+### A camada Account fornece a composição de modelos
 
-Official Account Provider 负责 `api.type`、`api.baseURL`、静态 Header 等受管理定义，不必提前列出当前账号最终可用的模型。Account 层同时提供当前连接的账号级 `accessId` 和 `models`：
+O Account Provider oficial responde por `api.type`, `api.baseURL`, Headers estáticos e outras definições gerenciadas, sem precisar listar antecipadamente os modelos que a conta atual terá disponíveis. A camada Account também fornece o `accessId` em nível de conta e os `models` da conexão atual:
 
 ```text
 Official
@@ -96,11 +96,11 @@ A -> {
 }
 ```
 
-`models` 遵循普通字段 Overlay 规则：Account 层提供该字段时整体覆盖前层，并直接决定最终成员和顺序。不再存在 `allowedModelIds`，也不再计算“配置模型与允许模型的交集”。模型 Properties、Option Specs 和 Reasoning Mapping 继续由 ModelConfigRules 解析，与 Provider 的模型成员列表是两个问题。
+`models` segue as regras normais de Overlay de campo: quando a camada Account fornece o campo, ela sobrescreve por completo a camada anterior e determina diretamente a composição e a ordem finais. Não existe mais `allowedModelIds`, nem se calcula a "interseção entre modelos configurados e modelos permitidos". Model Properties, Option Specs e Reasoning Mapping continuam sendo resolvidos por ModelConfigRules, o que é uma questão diferente da lista de composição de modelos do Provider.
 
-### Registry 与鉴权边界
+### Limites de Registry e autenticação
 
-Registry 只处理 Config：
+O Registry lida apenas com Config:
 
 ```text
 三层 ProviderConfigMap
@@ -110,9 +110,9 @@ Registry 只处理 Config：
 Provider Registry
 ```
 
-最终 `ProviderConfig` 具有完整的 `access.type`、账号级 `accessId` 和 `models` 时即可进入 Registry。Registry 不验证 `accessId` 是否对应真实权益，也不根据 Account Source 的成员关系建立额外的 `accessAllowed` 门禁。
+O `ProviderConfig` final pode entrar no Registry assim que tiver `access.type` completo, `accessId` em nível de conta e `models`. O Registry não valida se o `accessId` corresponde a um benefício real, nem estabelece uma trava adicional de `accessAllowed` com base na relação de composição da Account Source.
 
-即使有人手工写入一个无效 `accessId`，它也不会获得实际凭据。请求鉴权的最终权威是 Account Request Auth Service：
+Mesmo que alguém escreva manualmente um `accessId` inválido, ele não receberá credenciais reais. A autoridade final da autenticação da requisição é o Account Request Auth Service:
 
 ```text
 Provider.config.access.accessId
@@ -129,11 +129,11 @@ Account Request Auth Service
         └─ 无法解析或无权限             -> 请求失败
 ```
 
-Registry 和 Model 不保存账号 Secret。账号身份内部的 Token 或 Runtime Key 可以刷新，但已经创建的 Model 不跟随全局当前连接切换到另一份 Personal 或 Team Plan。
+Registry e Model não guardam segredos de conta. O Token ou a Runtime Key internos à identidade da conta podem ser renovados, mas um Model já criado não acompanha a troca da conexão global atual para outro Personal ou Team Plan.
 
-### 最终 Provider
+### Provider final
 
-最终 Provider 不再嵌套另一份 Account Access 对象：
+O Provider final não aninha mais outro objeto de Account Access:
 
 ```ts
 interface Provider {
@@ -143,29 +143,29 @@ interface Provider {
 }
 ```
 
-当 `provider.config.access.type === "zhipu-account"` 时，TypeScript 将 Access Config 收窄为 `ZhipuAccountAccessConfig`，ModelFactory 直接读取 `provider.config.access.accessId`。`ProviderRegistryProvider` 改为领域名称 `Provider`。
+Quando `provider.config.access.type === "zhipu-account"`, o TypeScript estreita o Access Config para `ZhipuAccountAccessConfig`, e o ModelFactory lê diretamente `provider.config.access.accessId`. `ProviderRegistryProvider` passa a usar o nome de domínio `Provider`.
 
-### 对当前实施的影响
+### Impacto na implementação atual
 
-- Account Source 的输出改为稀疏 `ProviderConfigMap`，不再输出 `AccountProviderAccessEntry[]` 或 `AccountProviderOverlay[]`。
-- Provider Config Snapshot 增加 Account Provider Config 层；Resolver 按 Official、Personal、Account 顺序调用同一 Overlay。
-- 删除 Registry 中的 `AccountProviderAccess`、`allowedModelIds`、`accessAllowed` 和平铺 `accountAccessId`。请求协议仍使用 `accountAccessId` 把 Model 已固定的身份传给动态鉴权 Service。
-- `ZhipuAccountAccessConfig` 包含 `accessId`；最终完整性校验要求账号 Provider 具备执行所需的 Config 字段。
-- ModelFactory 从最终 `ProviderConfig.access` 固定 `accessId`；现有请求期动态鉴权链路保持不变。
-- 该裁决落地早期曾允许旧 Snapshot 暂时投影正式的 Account `ProviderConfigMap`。M2.8 随后已经删除这条生产兼容链；当前 Account Source 直接产生正式 Config，本文不再把 Snapshot 投影视为可用实施方案。
+- A saída da Account Source passa a ser um `ProviderConfigMap` esparso, e não mais `AccountProviderAccessEntry[]` nem `AccountProviderOverlay[]`.
+- O Provider Config Snapshot ganha uma camada de Account Provider Config; o Resolver chama o mesmo Overlay na ordem Official, Personal, Account.
+- São removidos do Registry `AccountProviderAccess`, `allowedModelIds`, `accessAllowed` e o `accountAccessId` achatado. O protocolo de requisição continua usando `accountAccessId` para passar ao Service de autenticação dinâmica a identidade já fixada no Model.
+- `ZhipuAccountAccessConfig` contém `accessId`; a validação final de completude exige que o Provider de conta tenha os campos de Config necessários à execução.
+- O ModelFactory fixa o `accessId` a partir do `ProviderConfig.access` final; a cadeia existente de autenticação dinâmica em tempo de requisição permanece inalterada.
+- No início da implementação desta decisão, foi permitido que o Snapshot antigo projetasse temporariamente um `ProviderConfigMap` oficial de conta. A M2.8 já removeu essa cadeia de compatibilidade de produção; hoje a Account Source produz Config diretamente, e este documento deixa de considerar a projeção de Snapshot como uma solução aplicável.
 
-## 2. Source 刷新失败时保留 Last-known-good View
+## 2. Manter a View de Last-known-good quando a atualização de uma Source falha
 
-> 裁决状态：已确认；人复核并批准实现阶段已经自主采用的策略
+> Status da decisão: confirmada; a pessoa revisou e aprovou a estratégia adotada autonomamente pela implementação
 
-### 背景
+### Contexto
 
-Registry 将 Official、Personal 和 Account 三路 Provider Config 聚合为一份完整 View。任一路变化时，Registry 会在旁边重新读取、解析和校验全部输入，成功后再原子发布新 View。
+O Registry agrega as três rotas de Provider Config — Official, Personal e Account — em uma View completa. Quando qualquer rota muda, o Registry relê, reparseia e revalida todas as entradas ao lado, e só publica a nova View de forma atômica depois de tudo dar certo.
 
 ```text
 当前完整 View v1
         |
-Source 发生变化
+        | Source 发生变化
         |
         v
 读取 Official / Personal / Account
@@ -178,15 +178,15 @@ Source 发生变化
 原子发布 v2
 ```
 
-Source 刷新可能因为文件暂时不可读、JSON 或 Schema 解析失败、Official 来源异常、账号与套餐服务超时而失败。此时系统只能确认“无法取得最新事实”，不能据此推断用户删除了 Personal Config、官方下线了 Provider，或者账号已经退出。
+A atualização de uma Source pode falhar porque o arquivo está temporariamente ilegível, o parse do JSON ou do Schema falha, a origem oficial está com problema, ou o serviço de conta e de plano dá timeout. Nesse momento o sistema só consegue confirmar que "não foi possível obter o fato mais recente"; ele não pode concluir, a partir disso, que o usuário apagou a Personal Config, que o oficial tirou o Provider do ar ou que a conta saiu.
 
-Overlay 各层通常只保存自己负责的字段。发布去掉失败 Source 的部分结果，会把读取异常错误解释为业务删除：Personal 失败可能让 API Key 和用户 Provider 消失；Official 失败可能使稀疏 Personal Config 无法形成完整 Provider；Account 失败可能使全部 Plan 模型瞬间消失。
+Cada camada do Overlay normalmente guarda apenas os campos de que é responsável. Publicar o resultado parcial sem a Source que falhou transforma um erro de leitura em uma deleção de negócio: uma falha em Personal pode fazer a API Key e o Provider do usuário sumirem; uma falha em Official pode impedir que uma Personal Config esparsa forme um Provider completo; uma falha em Account pode fazer todos os modelos de plano sumirem de repente.
 
-实现阶段为了继续推进，`ProviderRegistryService` 已经自主采用 Last-known-good：刷新读取或解析失败时不替换当前 Snapshot，拒绝本次显式刷新并发出刷新错误事件；下一次成功刷新仍可以正常发布新 View。对应测试已经覆盖失败后旧 View 保持可用以及后续恢复。Design 当时仍将“保留旧 View还是发布部分结果”标为待裁决，因此需要由人复核这项实现选择是否成为正式设计。
+Para poder seguir avançando, a implementação já adotou Last-known-good de forma autônoma: quando a leitura ou o parse da atualização falha, o Snapshot atual não é substituído, a atualização explícita é recusada e um evento de erro de atualização é emitido; a próxima atualização bem-sucedida ainda pode publicar normalmente a nova View. Os testes correspondentes já cobrem a manutenção da View antiga utilizável após a falha e a recuperação posterior. Na época, o Design ainda marcava "manter a View antiga ou publicar o resultado parcial" como pendente de decisão, então era necessário que uma pessoa revisasse se essa escolha de implementação passaria a ser o design formal.
 
-### 裁决
+### Decisão
 
-人同意保留当前实现采用的 Last-known-good 策略，并将其升级为正式设计：Registry 已经拥有成功 View 后，任一 Source 的读取、解析或刷新失败都保留上一份完整 View，不发布缺少该 Source 的部分结果。
+Concorda-se em manter a estratégia Last-known-good adotada pela implementação atual e promovê-la a design formal: depois que o Registry possui uma View bem-sucedida, qualquer falha de leitura, parse ou atualização em qualquer Source mantém a View completa anterior, sem publicar um resultado parcial que falte essa Source.
 
 ```text
 刷新成功
@@ -198,13 +198,13 @@ Overlay 各层通常只保存自己负责的字段。发布去掉失败 Source �
 └─ 等待 watcher、主动刷新或后续状态变化恢复
 ```
 
-“刷新失败”和“成功取得空状态”必须严格区分。Source 成功返回删除、禁用、空 Config Map 或账号失效状态时，这些都是明确的新事实，Registry 必须正常构建并发布新 View；Last-known-good 不能阻止有效状态变化。
+"Falha na atualização" e "obtenção bem-sucedida de um estado vazio" precisam ser estritamente distinguidos. Quando uma Source retorna com sucesso uma deleção, desativação, Config Map vazio ou estado de conta inválido, todos esses são fatos novos explícitos, e o Registry precisa construir e publicar a nova View normalmente; o Last-known-good não pode bloquear mudanças de estado válidas.
 
-首次启动没有可保留的成功 View。首次构建失败时，Registry 启动失败并暴露错误，不能把未知状态伪装成一份确定的空 View。
+Na primeira inicialização não há View bem-sucedida a preservar. Se a primeira construção falhar, o Registry falha ao iniciar e expõe o erro, sem disfarçar um estado desconhecido como uma View vazia determinada.
 
-### 与请求鉴权的关系
+### Relação com a autenticação de requisições
 
-Last-known-good View 可能短暂保留一个已经显示在模型列表中的 Account Provider，但它不会延长账号权限。Account Request Auth Service 仍在每次请求时按 Model 固定的 `accessId` 取得当前凭据，并且是账号权限的最终权威：
+A View de Last-known-good pode manter por um instante curto um Account Provider que já aparecia na lista de modelos, mas isso não estende a permissão da conta. O Account Request Auth Service continua obtendo as credenciais atuais a cada requisição conforme o `accessId` fixado no Model, e continua sendo a autoridade final sobre a permissão da conta:
 
 ```text
 旧 Registry View 中仍有 Account Provider
@@ -218,23 +218,23 @@ Account Request Auth Service
 └─ 已退出或无权限 -> 请求失败
 ```
 
-Registry 的 Last-known-good 负责避免投影因瞬时故障发生剧烈抖动；它不缓存、恢复或伪造 JWT、Runtime Key、一次性安全校验 Header 等请求鉴权材料。
+O Last-known-good do Registry existe para evitar que a projeção oscile violentamente por falhas instantâneas; ele não armazena em cache, não recupera e não forja materiais de autenticação de requisição como JWT, Runtime Key ou Headers de verificação de segurança de uso único.
 
-### 对当前实施的影响
+### Impacto na implementação atual
 
-- Registry 每次只发布全部 Source 共同构建并通过校验的完整 View。
-- 刷新失败保留当前 revision 和 View，同时通过错误事件与日志暴露失败原因。
-- 主动刷新、文件 watcher 和 Account Source 更新继续进入同一刷新链路；revision 去重避免同一次变化重复发布。
-- 成功的空状态、删除、禁用和账号失效必须发布，不能归类为刷新失败。
-- Design 中“保留旧 View 还是发布部分结果”的待裁决表述应改为本结论。
+- O Registry publica somente Views completas construídas e validadas por todas as Sources em conjunto.
+- Uma falha na atualização mantém a revision e a View atuais, expondo a causa da falha por evento de erro e log.
+- Atualização explícita, file watcher e atualizações da Account Source continuam entrando na mesma cadeia de atualização; a deduplicação de revision evita publicar duas vezes a mesma mudança.
+- Estados vazios bem-sucedidos, deleções, desativações e invalidação de conta precisam ser publicados e não podem ser classificados como falha de atualização.
+- A formulação pendente de decisão no Design, "manter a View antiga ou publicar o resultado parcial", deve ser substituída por esta conclusão.
 
-## 3. 不再支持任意 Model Options
+## 3. Não dar mais suporte a Model Options arbitrários
 
-> 裁决状态：已确认；Agent 自主兼容方案已退出实现
+> Status da decisão: confirmada; o esquema de compatibilidade autônomo do Agent saiu da implementação
 
-### 背景
+### Contexto
 
-旧 CLI 配置与 Desktop Provider 配置都采用同一套旧版底层格式（`provider` → `models` 嵌套），因此两者都允许在模型配置中写入任意 `options`：
+A configuração antiga do CLI e a configuração de Provider do Desktop usavam o mesmo formato subjacente antigo (`provider` → `models` aninhado), de modo que ambas permitiam escrever `options` arbitrários na configuração do modelo:
 
 ```json
 {
@@ -248,34 +248,34 @@ Registry 的 Last-known-good 负责避免投影因瞬时故障发生剧烈抖动
 }
 ```
 
-这个共同的底层格式容易造成误判：它既不是 CLI 独有格式，也不代表 CLI 或 Desktop 已经把任意 Model Options 建立为正式产品能力。
+Esse formato subjacente em comum provoca um erro fácil de julgamento: ele não é um formato exclusivo do CLI, nem significa que o CLI ou o Desktop já tenha estabelecido Model Options arbitrários como uma capacidade formal de produto.
 
-旧 CLI 会把部分 `model.options` 作为 Provider 参数带入模型请求。Desktop 的物理配置 Schema 同样接受并保留 `model.options`，但正式的 `ModelProviderModelConfig` 和设置页面没有提供任意 Options 能力；Desktop 当前明确解释的兼容字段主要是 `options.max_tokens`，并将其收敛为正式的 `maxOutputTokens`。现有内部评测配置也只使用 Provider 级 `apiKey`、`baseURL` 和模型容量字段，没有依赖任意 `model.options`。
+O CLI antigo levava parte de `model.options` como parâmetros de Provider para a requisição do modelo. O Schema de configuração físico do Desktop também aceita e preserva `model.options`, mas o `ModelProviderModelConfig` formal e a página de configurações não oferecem capacidade de Options arbitrários; o campo de compatibilidade explicitamente interpretado pelo Desktop hoje é principalmente `options.max_tokens`, converto em `maxOutputTokens` formal. As configurações de avaliação interna existentes também só usam `apiKey`, `baseURL` em nível de Provider e campos de capacidade do modelo, sem depender de `model.options` arbitrário.
 
-因此，任意 Model Options 属于底层格式遗留的扩展口，而不是需要由新 Provider 架构继承的公共契约。
+Portanto, Model Options arbitrários são uma válvula de extensão herdada do formato subjacente, e não um contrato público que a nova arquitetura de Provider precise herdar.
 
-### Agent 自主方案
+### Esquema autônomo do Agent
 
-为了避免旧 CLI 配置迁移后丢失任意 `model.options`，Agent 在实现过程中增加了：
+Para evitar que a migração da configuração antiga do CLI perca `model.options` arbitrários, o Agent adicionou durante a implementação:
 
 ```ts
 ModelConfig.requestParameters?: Record<string, unknown>;
 ```
 
-该字段会经过 Config Overlay、Personal Config 投影和 Model 创建链路，最终重新形成一条任意 Provider 请求参数通道。这个方案提高了旧配置的兼容程度，但绕过了 `ModelOptionSpecs`、`ModelOptions` 和 `reasoningMapping` 已经建立的强类型边界，也会把尚未形成产品承诺的历史扩展能力固化到新架构中。
+Esse campo passa pelo Config Overlay, pela projeção da Personal Config e pela cadeia de criação de Model, voltando a formar um canal arbitrário de parâmetros de requisição ao Provider. A solução aumenta a compatibilidade com configurações antigas, mas contorna os limites fortemente tipados já estabelecidos por `ModelOptionSpecs`, `ModelOptions` e `reasoningMapping`, e também cristaliza na nova arquitetura uma capacidade de extensão histórica que ainda não virou um compromisso de produto.
 
-### 裁决
+### Decisão
 
-人否决上述兼容方案。新 Provider 架构不再支持任意 Model Options，也不保留通用 `requestParameters`。
+A solução de compatibilidade acima é rejeitada. A nova arquitetura de Provider não dá mais suporte a Model Options arbitrários e também não mantém um `requestParameters` genérico.
 
-新模型配置只承载经过正式定义的通用选项：
+A nova configuração de modelo só carrega opções genéricas formalmente definidas:
 
 ```text
 reasoningLevel
 maxOutputTokens
 ```
 
-它们分别通过 `ModelOptionSpecs`、`ModelOptions` 和 `reasoningMapping` 完成能力声明、用户选择、请求级覆盖及 Provider 协议转换。旧配置中具有明确正式语义的字段可以迁移：
+Elas passam, respectivamente, por `ModelOptionSpecs`, `ModelOptions` e `reasoningMapping` para realizar a declaração de capacidade, a escolha do usuário, a sobrescrita em nível de requisição e a conversão para o protocolo do Provider. Campos da configuração antiga que tenham semântica formal clara podem ser migrados:
 
 ```text
 options.max_tokens
@@ -284,24 +284,24 @@ options.max_tokens
 maxOutputTokens
 ```
 
-其他任意 `model.options` 不迁移、不透传，也不进入新的 Model Config。内部评测使用者可以调整尚未对外发布的 CLI 配置，不需要为这条历史扩展通道设计无损迁移。
+Outros `model.options` arbitrários não são migrados nem repassados, e também não entram na nova Model Config. Usuários internos de avaliação podem ajustar configurações da CLI que ainda não foram publicadas; não é preciso desenhar uma migração sem perdas para esse canal de extensão histórico.
 
-### 对当前实施的影响
+### Impacto na implementação atual
 
-- 删除 `ModelConfig.requestParameters` 及其 Schema、Overlay、投影、测试和运行时传递逻辑。
-- 删除旧 CLI Personal Config 导入器对任意 `model.options` 的迁移。
-- 保留 `options.max_tokens` 到正式 `maxOutputTokens` 的语义迁移。
-- Desktop 旧存储可以暂时原样保留未知 `model.options`，但新的 Config、Registry 和 Model 执行链不读取它们。
-- Provider 级 `options` 中历史保存的 `apiKey`、`baseURL` 与本裁决无关；它们应迁移到正式的 Provider Config 字段。
-- 后续新增模型选项时，先定义固定字段、Option Spec、校验规则和 Adapter 映射，再作为公共能力进入新架构。
+- Remover `ModelConfig.requestParameters` e sua lógica de Schema, Overlay, projeção, testes e passagem em tempo de execução.
+- Remover a migração de `model.options` arbitrários do importador de Personal Config do CLI antigo.
+- Manter a migração semântica de `options.max_tokens` para o `maxOutputTokens` formal.
+- O armazenamento antigo do Desktop pode manter temporariamente `model.options` desconhecidos como estão, mas a nova cadeia de Config, Registry e execução de Model não os lê.
+- O `apiKey` e o `baseURL` historicamente guardados no `options` de nível de Provider não têm relação com esta decisão; eles devem migrar para campos formais de Provider Config.
+- Ao adicionar novas opções de modelo no futuro, definir primeiro os campos fixos, o Option Spec, as regras de validação e o mapeamento do Adapter, e só então entrar na nova arquitetura como capacidade pública.
 
-## 4. 静态 Header 只属于 Provider Config
+## 4. Header estático pertence apenas ao Provider Config
 
-> 裁决状态：已确认；Agent 自主兼容方案已退出实现
+> Status da decisão: confirmada; o esquema de compatibilidade autônomo do Agent saiu da implementação
 
-### 背景
+### Contexto
 
-旧 CLI 与 Desktop 都采用同一套旧版底层 Provider 配置格式，因此同时允许 Provider 级 Header 和 Model 级 Header：
+O CLI antigo e o Desktop usavam o mesmo formato antigo de configuração de Provider subjacente, e por isso ambos permitiam Headers em nível de Provider e em nível de Model:
 
 ```text
 Provider 级 Header
@@ -312,15 +312,15 @@ Model 级 Header
 └─ provider.models.<modelId>.headers
 ```
 
-旧 CLI 会将这些 Header 按层合并并用于模型请求。Desktop 的物理配置格式也接受模型级 Header，但正式模型类型和设置页面没有将其建立为产品能力。当前 Official Config、内部评测配置及主要产品链路均未使用模型级 Header。
+O CLI antigo combinava esses Headers por camada e os usava nas requisições de modelo. O formato de configuração físico do Desktop também aceita Headers em nível de modelo, mas o tipo de modelo formal e a página de configurações não os estabeleceram como capacidade de produto. A Config oficial atual, as configurações de avaliação internas e as principais cadeias de produto não usam Headers em nível de modelo.
 
-Provider 级 Header 有明确的连接语义：访问某个 Provider 时，每次请求都需要携带的固定 HTTP Header。它可以表达企业代理的租户和项目路由、额外组织身份、客户端来源及协议版本。它是一个受约束的 `Record<string, string>`，与没有公共语义的任意 Provider Options 不同。
+O Header em nível de Provider tem uma semântica de conexão clara: um Header HTTP fixo que precisa ser enviado a cada_req ao acessar um Provider. Ele pode expressar o roteamento de tenant e projeto de um proxy corporativo, uma identidade organizacional adicional, a origem do cliente e a versão do protocolo. É um `Record<string, string>` restrito, diferente das opções arbitrárias de Provider que não têm semântica pública.
 
-动态账号鉴权 Header 属于另一类数据。JWT、一次性安全校验材料和动态 Runtime Header 由 Account Request Auth Service 在每次请求时取得，不进入持久 Provider Config。
+Headers dinâmicos de autenticação de conta são outra categoria de dados. JWT, materiais de verificação de segurança de uso único e Headers Runtime dinâmicos são obtidos pelo Account Request Auth Service a cada requisição e não entram no Provider Config persistente.
 
-### Agent 自主方案
+### Esquema autônomo do Agent
 
-为了兼容旧 CLI 的 `model.headers`，Agent 在实施过程中增加了：
+Para compatibilizar com o `model.headers` do CLI antigo, o Agent adicionou durante a implementação:
 
 ```ts
 class ModelConfig {
@@ -328,11 +328,11 @@ class ModelConfig {
 }
 ```
 
-Registry 创建 Model 时将这组 Header 固定到 Adapter 内部，并覆盖同名 Provider Header。公共 `Model` 和 `ModelRequest` 不暴露 Header。这个方案在抽象封装上没有泄露请求细节，但把尚未形成正式产品用例的模型级连接差异带入了新的 Model Config。
+Ao criar o Model, o Registry fixa esse conjunto de Headers internamente no Adapter e sobrescreve Headers de Provider com o mesmo nome. O `Model` e o `ModelRequest` públicos não expõem Headers. A solução não vaza detalhes da requisição no nível de abstração, mas traz diferenças de conexão em nível de modelo — que ainda não têm caso de uso formal de produto — para a nova Model Config.
 
-### 裁决
+### Decisão
 
-人确认保留 Provider 级静态 Header，并删除 Model 级 Header：
+Confirma-se manter o Header estático em nível de Provider e remover o Header em nível de Model:
 
 ```text
 ProviderConfig.headers
@@ -345,11 +345,11 @@ ModelConfig
 └─ 不包含 Header
 ```
 
-旧配置中的 `provider.headers` 与 `provider.options.headers` 统一迁移到 `ProviderConfig.headers`。旧配置中的 `provider.models.<modelId>.headers` 不迁移，也不进入新的 Config、Registry 或 Model 执行链。
+O `provider.headers` e o `provider.options.headers` da configuração antiga migram unificados para `ProviderConfig.headers`. O `provider.models.<modelId>.headers` da configuração antiga não é migrado nem entra na nova cadeia de Config, Registry ou execução de Model.
 
-如果两个模型确实需要不同的固定连接 Header，应分别配置为两个 Provider。未来出现无法通过 Provider 边界表达的真实模型级路由需求时，再基于具体用例重新设计。
+Se dois modelos realmente precisarem de Headers de conexão fixos diferentes, eles devem ser configurados como dois Providers separados. Quando surgir uma necessidade real de roteamento em nível de modelo que não possa ser expressa pelo limite de Provider, o design será refeito com base no caso concreto.
 
-请求执行时，动态鉴权材料可以覆盖同名静态字段：
+Na execução da requisição, materiais de autenticação dinâmicos podem sobrescrever campos estáticos com o mesmo nome:
 
 ```text
 ProviderConfig.headers
@@ -362,23 +362,23 @@ Account Request Auth Service headers
 最终 HTTP 请求 Header
 ```
 
-### 对当前实施的影响
+### Impacto na implementação atual
 
-- 保留 `ProviderConfig.headers` 及其 Schema、Overlay、迁移和 Adapter 投影。
-- 将旧 `provider.headers` 与 `provider.options.headers` 合并迁移到 `ProviderConfig.headers`。
-- 删除 `ModelConfig.headers` 及其 Schema、Overlay、投影和测试。
-- 删除旧 CLI Personal Config 导入器对 `model.headers` 的迁移。
-- 删除设置页迁移桥对模型级 Header 的隐式保留。
-- 保留 Account Request Auth Service 的请求期动态 Header 机制。
-- Provider 静态 Header 暂时可以只通过配置文件提供；设置页面无需立即增加高级 Header 编辑器。
+- Manter `ProviderConfig.headers` e seu Schema, Overlay, migração e projeção no Adapter.
+- Migrar e combinar o `provider.headers` e o `provider.options.headers` antigos em `ProviderConfig.headers`.
+- Remover `ModelConfig.headers` e seu Schema, Overlay, projeção e testes.
+- Remover a migração de `model.headers` do importador de Personal Config do CLI antigo.
+- Remover a preservação implícita de Headers em nível de modelo pela ponte de migração da página de configurações.
+- Manter o mecanismo de Headers dinâmicos em tempo de requisição do Account Request Auth Service.
+- Por enquanto, o Header estático de Provider pode ser fornecido apenas pelo arquivo de configuração; a página de configurações não precisa adicionar imediatamente um editor avançado de Headers.
 
-## 5. OpenAI Compatible 固定请求流式 Usage
+## 5. OpenAI Compatible fixa o streaming de Usage na requisição
 
-> 裁决状态：已确认并落地；Config 中的关闭开关已经退出
+> Status da decisão: confirmada e implementada; a chave de desligamento no Config saiu
 
-### 背景
+### Contexto
 
-OpenAI Compatible 的流式协议需要在请求中携带：
+O protocolo de streaming do OpenAI Compatible precisa carregar na requisição:
 
 ```json
 {
@@ -388,44 +388,44 @@ OpenAI Compatible 的流式协议需要在请求中携带：
 }
 ```
 
-Provider 才会在流结束时返回准确的 Token Usage。Usage 是模型执行结果的一部分，后续会用于用量统计、Trace 和上下文预算等系统能力。
+Só assim o Provider retorna um Token Usage preciso no fim do stream. Usage faz parte do resultado da execução do modelo e depois é usado em capacidades de sistema como estatísticas de consumo, Trace e orçamento de contexto.
 
-历史代码考虑到部分兼容服务可能不接受 `stream_options.include_usage`，在 Provider 配置中增加了：
+O código histórico adicionei, temendo que alguns serviços compatíveis não aceitassem `stream_options.include_usage`, o seguinte na configuração do Provider:
 
 ```ts
 includeUsage?: boolean;
 ```
 
-当配置为 `false` 时，Adapter 不发送该字段。仓库中没有发现具体 Provider、正式产品用例或用户配置依赖这一关闭能力。
+Quando configurado como `false`, o Adapter não envia esse campo. Não foi encontrado no repositório nenhum Provider, caso de uso formal de produto ou configuração de usuário que dependa dessa capacidade de desligamento.
 
-### Agent 自主方案
+### Esquema autônomo do Agent
 
-M2 实施过程中，Agent 将旧 `includeUsage` 作为兼容字段纳入新的 `ProviderConfig`，并沿配置迁移、Overlay、Registry 和 Model 创建链路继续传递。
+Durante a implementação de M2, o Agent incorporou o antigo `includeUsage` como campo de compatibilidade no novo `ProviderConfig` e continuou passando-o pela cadeia de migração de configuração, Overlay, Registry e criação de Model.
 
-该方案保留了旧配置的表达能力，但同时把“是否请求 Usage”变成了用户可以关闭的 Provider 配置。关闭后，系统可能无法取得准确的实际用量，与 Usage 在执行链中的基础语义不一致。
+A solução preserva a capacidade de expressão da configuração antiga, mas ao mesmo tempo transforma "solicitar Usage ou não" em uma configuração de Provider que o usuário pode desligar. Uma vez desligada, o sistema pode não conseguir obter o consumo real preciso, o que é inconsistente com a semântica fundamental de Usage na cadeia de execução.
 
-### 裁决
+### Decisão
 
-人确认 OpenAI Compatible 请求始终显式启用 `includeUsage: true`。Usage 是执行结果的一部分，不属于用户可关闭的 Provider 配置。新的 Provider Config 不包含 `includeUsage`，旧配置中的该字段不迁移。不支持 `stream_options.include_usage` 的兼容服务不在正式支持范围内，也不提供删除该字段后重试的降级路径。
+Confirma-se que as requisições OpenAI Compatible sempre habilitam explicitamente `includeUsage: true`. Usage é parte do resultado da execução e não pertence à configuração de Provider que o usuário possa desligar. A nova Provider Config não contém `includeUsage`, e esse campo das configurações antigas não é migrado. Serviços compatíveis que não suportam `stream_options.include_usage` estão fora do suporte formal, e também não é oferecido um caminho de degradação que remova o campo e tente novamente.
 
-## 6. Plan Entitlement 缓存需要账号级非敏感身份
+## 6. O cache de Plan Entitlement precisa de uma identidade de conta não sensível
 
-> 裁决状态：已确认；`accessId` 标识具体账号连接
+> Status da decisão: confirmada; `accessId` identifica uma conexão de conta concreta
 
-### 背景
+### Contexto
 
-Usage / Entitlement 已经使用 Account Provider 的非敏感 `accessId` 构造缓存身份，不再把 API Key 或 JWT 投影到 Renderer。当前 Personal 与 Start Plan 的 `accessId` 只表达连接种类：
+Usage / Entitlement já usam o `accessId` não sensível do Account Provider para construir a identidade de cache, sem projetar API Key ou JWT no Renderer. Atualmente o `accessId` de Personal e de Start Plan só expressa o tipo de conexão:
 
 ```text
 start-plan:<providerId>
 coding-plan:<providerId>
 ```
 
-它不包含具体账号身份。同一台机器先后登录两个账号时，两者会得到相同缓存键。Usage 页面会先显示十分钟短 TTL 缓存，再静默刷新；若新账号刷新失败，为避免网络抖动清空页面，现有 Hook 会继续保留已经显示的旧缓存。因此单靠后台刷新不能保证账号隔离。
+Ele não contém a identidade da conta concreta. Quando duas contas são logadas em sequência na mesma máquina, ambas recebem a mesma chave de cache. A página de Usage exibe primeiro um cache curto com TTL de dez minutos e depois atualiza silenciosamente; se a atualização da nova conta falhar, o Hook existente continua preservando o cache antigo já exibido para não limpar a página por causa de oscilação de rede. Portanto, apenas a atualização em background não garante o isolamento de contas.
 
-### 裁决
+### Decisão
 
-`accessId` 标识一份具体的账号连接，而不只是 Start Plan、Personal Coding Plan 或 Team Plan 这种连接种类。具体登录账号变化时，`accessId` 必须变化；同一账号内部的 JWT、API Key、Runtime Key 或 OAuth Token 刷新不改变 `accessId`。
+O `accessId` identifica uma conexão de conta concreta, e não apenas o tipo de conexão como Start Plan, Personal Coding Plan ou Team Plan. Quando a conta logada efetivamente muda, o `accessId` precisa mudar; a renovação do JWT, da API Key, da Runtime Key ou do OAuth Token dentro da mesma conta não altera o `accessId`.
 
 ```text
 账号 A 的连接
@@ -443,38 +443,32 @@ coding-plan:<providerId>
    └─ 新创建 Model 的请求身份
 ```
 
-Account Source 使用账号服务提供的非敏感稳定身份生成 `accessId`。它不能包含 JWT、API Key、动态 Header，也不使用 Secret 哈希充当 Renderer 身份。Team Plan 继续包含具体组织与项目连接；若相同组织/项目在不同账号下不应共享连接身份，则同时纳入账号作用域。
+A Account Source usa a identidade estável não sensível fornecida pelo serviço de contas para gerar o `accessId`. Ele não pode conter JWT, API Key ou Header dinâmico, nem usar hash de Secret como identidade no Renderer. O Team Plan continua incluindo a organização e o projeto concretos; se a mesma organização/projeto não deve compartilhar a identidade de conexão entre contas diferentes, o escopo de conta também entra nela.
 
-登录、登出和连接切换时仍可主动清理旧 Usage 缓存，但清理只是减少陈旧数据和存储占用的辅助措施，不承担身份隔离正确性。
+No login, logout e troca de conexão ainda é possível limpar proativamente o cache de Usage antigo, mas a limpeza é apenas uma medida auxiliar para reduzir dados obsoletos e consumo de armazenamento; ela não garante a correção do isolamento de identidade.
 
-### 实施影响
+### Impacto na implementação
 
-- Account Source 必须在生成 Personal、Start 和 Team `accessId` 时取得非敏感账号身份。
-- Usage / Entitlement 缓存继续使用 `providerId + accessId`，不增加平行的 `accountCacheIdentity`。
-- Account Credential Store 按新的账号级 `accessId` 隔离凭据。当前 provider 级稳定 key 属于尚未发布的 M2 中间实现，不为它设计迁移；Personal Coding Plan Key 按当前账号重新取得，Team Key 按账号与 organization/project 重新取得或缓存。
-- 已创建 Model 固定旧 `accessId`。账号切换后，它不能静默使用新账号凭据；新 Agent Loop 从最新 Account Config 创建新 Model。
-- Account Provider Config、Usage Source、Credential Store 与 Model Request Auth 共用同一个连接身份。
-- Request Auth 除了按 `accessId` 查找凭据，还要核对当前凭据所属账号。旧 Model 的 `accessId(account-A)` 不能与切换后的 `credential(account-B)` 组合发起请求。
+- A Account Source precisa obter uma identidade de conta não sensível ao gerar os `accessId` de Personal, Start e Team.
+- O cache de Usage / Entitlement continua usando `providerId + accessId`, sem introduzir um `accountCacheIdentity` paralelo.
+- O Account Credential Store isola credenciais pelo novo `accessId` em nível de conta. A chave estável em nível de Provider que existe hoje é uma implementação intermediária de M2 ainda não publicada, e não se desenha migração para ela; a Personal Coding Plan Key é obtida novamente para a conta atual, e a Team Key é obtida novamente ou armazenada em cache por conta e organização/projeto.
+- Um Model já criado fixa o `accessId` antigo. Depois da troca de conta, ele não pode usar silenciosamente credenciais da nova conta; um novo Agent Loop cria um novo Model a partir da Account Config mais recente.
+- Account Provider Config, Usage Source, Credential Store e Model Request Auth compartilham a mesma identidade de conexão.
+- O Request Auth, além de buscar a credencial pelo `accessId`, também confere a qual conta a credencial atual pertence. O `accessId(account-A)` de um Model antigo não pode se combinar com uma `credential(account-B)` após a troca para disparar uma requisição.
 
-## 7. desktop-attached remote 使用远端 Provider Authority
+## 7. `desktop-attached remote` usa a autoridade de Provider remota
 
-> 裁决状态：已确认；第一步纳入 M2.8，持续同步与远程设置操作分别作为后续功能
+> Status da decisão: confirmada; o primeiro passo entra em M2.8, e a sincronização contínua e as operações remotas de configuração são funcionalidades posteriores
 
-### 背景
+### Contexto
 
-线上 `desktop-attached-remote` 由 Desktop 读取本地完整 Provider Registry Snapshot，再通过
-`workspace/updateProviderRegistry` 下发给 Remote Host/Worker。Snapshot 可以携带 API Key、JWT、
-Team Plan Key 和 Header；远端 Agent 的启动门禁也读取 Desktop base Host 的模型 View。
+O `desktop-attached-remote` em produção funciona assim: o Desktop lê o Snapshot completo local do Provider Registry e o envia ao Remote Host/Worker através de `workspace/updateProviderRegistry`. O Snapshot pode carregar API Key, JWT, Team Plan Key e Headers; e o portão de inicialização do agente remoto também lê a View de modelos do Host base do Desktop.
 
-M2 一度把剩余问题表述为“Remote Worker 如何跨 Host 请求 Desktop Account Request Auth”，候选是
-Renderer 中转或 Local Host 到 Remote Host 的 Auth Broker。两种方案都默认 Remote Worker 属于
-Desktop Provider Environment。
+Por um tempo, M2 formulou a questão restante como "como um Remote Worker solicita o Desktop Account Request Auth através de Host", com candidatos como o relay pelo Renderer ou um Auth Broker de Local Host para Remote Host. As duas opções assumem por padrão que o Remote Worker pertence ao Desktop Provider Environment.
 
-### 裁决
+### Decisão
 
-Remote Environment 是独立 Provider Environment。它拥有自己的 Config、Credential、Account Source、
-Registry 和 ModelFactory。Desktop 只远程控制 Session、显示 Remote View 和提交 ModelSelection，不提供
-Remote Worker 的 Provider 事实或请求凭据。
+O Remote Environment é um Provider Environment independente. Ele tem Config, Credential, Account Source, Registry e ModelFactory próprios. O Desktop apenas controla remotamente a Session, exibe a Remote View e envia o ModelSelection; não fornece fatos de Provider nem credenciais de requisição ao Remote Worker.
 
 ```text
 Desktop Entry
@@ -489,38 +483,33 @@ Remote Host
 └─ Remote Worker
 ```
 
-### 分阶段迁移
+### Migração por fases
 
-第一步先切换运行时权威并删除 Desktop -> Remote 的完整 Registry、runtimeModel、Account Config 与
-Secret Snapshot 注入。若 Remote Environment 尚无可用配置，产品应明确报告远端尚未配置 Provider，
-不能回退 Desktop 事实。
+O primeiro passo troca a autoridade em tempo de execução e remove a injeção de Snapshot completo, runtimeModel, Account Config e Secret de Desktop → Remote. Se o Remote Environment ainda não tiver Config utilizável, o produto deve reportar claramente que o Provider remoto ainda não foi configurado, sem recorrer aos fatos do Desktop.
 
-第二步由独立同步功能持续把本地 Config 与 Credential 写入 Remote Store。同步功能只负责 Provisioning；
-Remote Source 监听自己的 Store、发布新 revision 并重建 Remote Registry。Registry 对象、Account Overlay、
-Model 和请求 Header 不通过该同步链路传输。
+O segundo passo é uma funcionalidade de sincronização independente que escreve continuamente a Config e as Credentials locais no Remote Store. A funcionalidade de sincronização cuida apenas de Provisioning; a Remote Source escuta o próprio Store, publica novas revisions e reconstrói o Remote Registry. Objetos de Registry, Account Overlay, Models e Headers de requisição não são transmitidos por essa cadeia de sincronização.
 
-第三步允许 App 直接调用 Remote Settings / OAuth Service，远程编辑 Remote Personal Config、发起远端
-登录并查看 Remote Settings / Selection View。凭据交换和持久化发生在 Remote Environment。
+O terceiro passo permite que o App chame diretamente o Remote Settings / OAuth Service, edite remotamente a Remote Personal Config, inicie um login remoto e veja a Remote Settings / Selection View. A troca e a persistência de credenciais acontecem no Remote Environment.
 
-### 实施影响
+### Impacto na implementação
 
-- 删除 `desktop-attached-remote` 禁用自身 Provider Registry 的 authority 特例。
-- 远端 Workspace 的 readiness、模型菜单和设置读取 Remote Facade。
-- Remote Worker 只从 Remote Registry 创建长期 Model。
-- Remote Request Auth 只读取 Remote Credential Store。
-- 删除 Renderer Auth 中转与 Host-to-Host Auth Broker 课题。
-- `provider/updateAccountConfig` 只在同一 Environment 的 Host 与 Worker 之间使用。
-- 本地到远端的持续同步与 App 远程设置能力不阻塞第一步的权威切换。
+- Remover o caso especial de autoridade em que `desktop-attached-remote` desativa o próprio Provider Registry.
+- O readiness, o menu de modelos e as configurações de um Workspace remoto leem a Remote Facade.
+- O Remote Worker cria Models de longo prazo apenas a partir do Remote Registry.
+- O Remote Request Auth lê apenas o Remote Credential Store.
+- Remover os tópicos de relay de auth pelo Renderer e de Auth Broker de Host para Host.
+- `provider/updateAccountConfig` é usado apenas entre Host e Worker do mesmo Environment.
+- A sincronização contínua de local para remoto e a capacidade de configuração remota pelo App não bloqueiam a troca de autoridade do primeiro passo.
 
-## 8. Usage / Entitlement 退出旧 Provider Config 与 Provider Service
+## 8. Usage / Entitlement saem do Provider Config e do Provider Service antigos
 
-> 裁决状态：已确认并落地；Usage 已退出旧 Provider Service，内部抽象后续再整理
+> Status da decisão: confirmada e implementada; o Usage saiu do Provider Service antigo, e a abstração interna será organizada depois
 
-### 当前行为
+### Comportamento atual
 
-设置页 Usage 会列出当前账号能够查询的 Personal Coding Plan 和所有已订阅 Team Project，允许用户分别查看；侧栏与 Composer 只展示当前模型连接对应的额度。这个产品行为保持不变。
+A página de configurações de Usage lista o Personal Coding Plan e todos os Team Projects assinados que a conta atual consegue consultar, permitindo que o usuário veja cada um separadamente; a barra lateral e o Composer mostram apenas a cota da conexão de modelo atual. Esse comportamento de produto permanece inalterado.
 
-目前来源列表已经主要由 `ProviderSettingsView` 中的 Account Config、Entitlement 和 Team Products 产生，但 Host 的 `BigModelUsageQuotaProvider` 仍会读取旧 `ModelProviderService.getAllCached()`，再从 `ModelProviderConfig[]` 中重新查找 Provider、判断启用状态、读取 API Key、推断请求地址并刷新 Coding Plan Key。它使已经退出 UI 主链的旧 Provider 大对象继续成为 Usage 的执行事实源，也阻塞旧 Config 和旧 Provider Service 的删除。
+Hoje a lista de origens já é produzida principalmente pelo Account Config, pelo Entitlement e pelos Team Products dentro do `ProviderSettingsView`, mas o `BigModelUsageQuotaProvider` do Host ainda lê o antigo `ModelProviderService.getAllCached()`, e depois procura novamente o Provider dentro de `ModelProviderConfig[]`, verifica o estado de habilitação, lê a API Key, infere o endereço da requisição e renova a Coding Plan Key. Isso faz com que o grande objeto antigo de Provider, que já saiu da cadeia principal da UI, continue sendo a fonte de fato da execução do Usage, e também bloqueia a remoção da Config antiga e do Provider Service antigo.
 
 ```text
 当前 UI 已选择的 Usage Source
@@ -538,11 +527,11 @@ BigModelUsageQuotaProvider
 └─ 再次猜测查询来源与请求凭据
 ```
 
-### 裁决
+### Decisão
 
-Usage / Entitlement 必须退出旧 `ModelProviderService`、旧 `ModelProviderConfig` 和旧 Config。此次迁移以打平事实来源为第一目标：只要调用链完整使用新的 Provider Config、Account Config 和 Credential 事实，就不为等待最终 Usage 领域抽象而保留旧依赖；迁移后发现的内部职责问题可以作为独立重构继续处理。
+Usage / Entitlement precisam sair do `ModelProviderService`, do `ModelProviderConfig` e da Config antigos. Esta migração tem como primeiro objetivo achatar a fonte dos fatos: desde que a cadeia de chamada use por completo os fatos de Provider Config, Account Config e Credential novos, não se mantém dependências antigas apenas para esperar a abstração final de domínio do Usage; problemas de responsabilidade interna encontrados após a migração podem ser tratados como um refactor separado.
 
-UI 已经选定 Usage Source 时，请求应携带完整、非敏感的来源身份：
+Quando a UI já tiver escolhido a Usage Source, a requisição deve carregar a identidade de origem completa e não sensível:
 
 ```text
 Usage Source
@@ -564,33 +553,33 @@ UsageStatsService
 Usage / Entitlement API
 ```
 
-Host 不再根据旧 Provider 数组重新选择来源。Provider 是否被用于模型选择、是否在 Registry 中 selectable，以及当前 Session 正在使用哪个模型，都不作为设置页 Usage Source 的过滤条件。Account Provider 被用户关闭模型入口时，只要账号连接仍然存在，Usage 仍可查询。
+O Host não escolhe mais a origem com base no array antigo de Providers. Se um Provider está sendo usado para seleção de modelos, se é selecionável no Registry e qual modelo a Session atual está usando não servem como filtro para a Usage Source da página de configurações. Quando o usuário desativa a entrada de modelos de um Account Provider, o Usage ainda pode ser consultado desde que a conexão da conta continue existindo.
 
-普通 API Provider 如果仍需参加 monitor/usage 查询，只读取新的 Effective API Provider Config；Account Provider 的 Secret 始终由请求期 Credential/Account 服务取得。任何迁移适配器都只能从新的 Config、Account 和 Credential 事实投影窄输入，不能回读旧 Config 或旧 Provider Snapshot。
+Um API Provider comum que ainda precise participar de consultas de monitor/usage lê apenas a nova Effective API Provider Config; o Secret do Account Provider é sempre obtido em tempo de requisição pelo serviço de Credential/Account. Qualquer adaptador de migração só pode projetar entradas estreitas a partir dos fatos novos de Config, Account e Credential, e não pode reler a Config antiga nem o Snapshot antigo de Provider.
 
-已知 Account Plan 的 Usage 路由在本轮可以继续使用现有 providerId/family 与服务地址构造逻辑，但不再通过模型 Endpoint 猜测账号套餐类型。Usage 路由是否进一步进入 Official Config，留给 Usage 领域后续重构，不阻塞旧 Provider 事实源退出。
+O roteamento de Usage dos Account Plans conhecidos pode continuar usando, nesta rodada, a lógica existente de construção de providerId/family e de endereço de serviço, mas sem adivinhar o tipo de plano da conta pelo Endpoint do modelo. Se o roteamento de Usage deve entrar no Official Config é algo para o refactor futuro do domínio de Usage, e não bloqueia a saída da fonte antiga de fatos de Provider.
 
-### 本轮实施边界
+### Limite de implementação desta rodada
 
-- 为 Coding Plan Usage / Entitlement 请求补齐 `accessId`，保留现有 Team organization/project 上下文。
-- `BigModelUsageQuotaProvider` 删除 `IModelProviderService` 依赖，以及 `getAllCached()`、`refreshCodingPlanApiKey()` 和 `ModelProviderConfig[]` 读取。
-- Personal、Team、Start Plan 分别复用现有 Credential Store、Team Key Resolver 和 OAuth Token Store；不复制新的 Secret 缓存。
-- 保持设置页、侧栏、Composer、套餐重置和现有缓存刷新行为。
-- 本轮不要求先形成完美、通用的 Usage Source/Authorization 框架。打平完成后，若 `BigModelUsageQuotaProvider` 仍混合过多职责，再单独拆分。
+- Completar o `accessId` nas requisições de Coding Plan Usage / Entitlement, preservando o contexto atual de organização/projeto do Team.
+- `BigModelUsageQuotaProvider` remove a dependência de `IModelProviderService`, bem como as leituras de `getAllCached()`, `refreshCodingPlanApiKey()` e `ModelProviderConfig[]`.
+- Personal, Team e Start Plan reutilizam respectivamente o Credential Store existente, o Team Key Resolver e o OAuth Token Store; nenhum novo cache de Secret é copiado.
+- Preservar o comportamento da página de configurações, da barra lateral, do Composer, do reset de plano e da atualização dos caches existentes.
+- Esta rodada não exige formar primeiro um framework perfeito e genérico de Usage Source/Authorization. Depois do achatamento, se o `BigModelUsageQuotaProvider` ainda misturar responsabilidades demais, ele é separado em um passo próprio.
 
-完成标准是：删除旧 Provider Config 与 Provider Service 时，Usage / Entitlement 不再构成阻塞，也不会通过兼容 fallback 重新引入旧事实源。
+O critério de conclusão é: ao remover a Provider Config e o Provider Service antigos, Usage / Entitlement não constituem mais um bloqueio nem reintroduzem a fonte antiga de fatos por meio de fallback de compatibilidade.
 
-## 9. Provider Access、API 与 Model API Adapter 分层
+## 9. Camadas de Provider Access, API e Model API Adapter
 
-> 裁决状态：部分被取代；Provider `access/api` 分层继续有效，`ModelConfig.apiAdapter` 由第 11 项裁决撤回
+> Status da decisão: parcialmente substituída; as camadas `access/api` do Provider continuam válidas, e `ModelConfig.apiAdapter` foi retirado pela decisão do item 11
 
-### 背景
+### Contexto
 
-此前 Provider Config 用一个 `kind` 同时表达 API Key 或账号访问方式，又把 `apiFormat`、`baseURL` 平铺在 Provider 上；模型侧则把 `reasoningMapping` 直接放在 ModelConfig。这样会把“如何获得调用资格”“使用哪种公开 API”“该模型在该 API 上有哪些固定适配行为”混成一层。
+A Provider Config anterior expressava com um único `kind` tanto o modo de acesso por API Key quanto por conta, e ainda achatava `apiFormat` e `baseURL` no Provider; do lado do modelo, `reasoningMapping` era colocado diretamente no ModelConfig. Isso mistura "como obter elegibilidade para chamada", "qual API pública usar" e "quais comportamentos fixos de adaptação aquele modelo tem naquela API" em uma única camada.
 
-### 裁决
+### Decisão
 
-Provider Config 拆成两个正交子配置：
+A Provider Config é dividida em duas sub-configurações ortogonais:
 
 ```text
 ProviderConfig
@@ -603,13 +592,9 @@ ProviderConfig
    └─ openai-chat-completions
 ```
 
-判别字段统一使用 `type`。`access` 表达调用资格来源，`api` 表达公开请求协议；内部 Adapter 类型仍是执行实现，不进入对外 Config。
+O campo discriminante usa uniformemente `type`. `access` expressa a origem da elegibilidade para chamada e `api` expressa o protocolo público de requisição; os tipos internos de Adapter continuam sendo implementação de execução e não entram na Config exposta.
 
-本项当时进一步决定把模型与 API 组合相关的固定行为收敛到
-`ModelConfig.apiAdapter`。后续对 AI SDK、GLM 真实接口以及各厂商官方 Anthropic
-兼容接口的审计表明，这一层混合了协议固有行为、厂商推理参数映射和消息回放，且最终只剩
-`reasoningMapping` 一个需要配置的字段。该部分裁决已经撤回，以下结构仅保留为裁决演进轨迹，
-当前设计以第 11 项为准：
+Este item decidiu, na época, concentrado ainda mais os comportamentos fixos da combinação modelo + API em `ModelConfig.apiAdapter`. Auditorias posteriores da AI SDK, das interfaces reais do GLM e das interfaces oficiais de compatibilidade Anthropic dos various fornecedores mostraram que essa camada misturava comportamento inerente ao protocolo, mapeamento de parâmetros de inferência do fabricante e replay de mensagens, e que no fim restava apenas um campo que precisava ser configurado, o `reasoningMapping`. Essa parte da decisão foi retirada; a estrutura abaixo permanece apenas como rastro da evolução da decisão, e o design atual segue o item 11:
 
 ```ts
 interface ModelConfigRule {
@@ -632,31 +617,31 @@ class ModelApiAdapterConfig extends ConfigOverlay {
 }
 ```
 
-`apiMatch` 与 `providerMatch`、`modelMatch` 使用相同的模式匹配语义，规则按顺序执行，后面的命中项继续 Overlay 前面的结果。`preserveThinking` 与 `reasoningContentField` 是固定 API 适配行为，不是用户可选的 Model Option。
+`apiMatch` usa a mesma semântica de casamento de padrão de `providerMatch` e `modelMatch`; as regras são executadas em ordem e os itens posteriores continuam aplicando Overlay sobre o resultado anterior. `preserveThinking` e `reasoningContentField` são comportamentos fixos de adaptação de API, não Model Options opcionais pelo usuário.
 
-Provider Config 把旧的 `kind/apiFormat/baseURL` 结构收敛到 `access/api`，把 `apiFormatMatch/reasoningMapping` 收敛到 `apiMatch/apiAdapter`。Official、Personal 与 Account 仍然复用同一种 ProviderConfig Overlay；Account 层只补充账号连接和当前模型成员，不持久化请求凭据。开发分支中间使用的 Schema 版本不构成发布契约，最终版本号由下一项裁决统一处理。
+A Provider Config consolida a antiga estrutura `kind/apiFormat/baseURL` em `access/api`, e `apiFormatMatch/reasoningMapping` em `apiMatch/apiAdapter`. Official, Personal e Account continuam reutilizando o mesmo ProviderConfig Overlay; a camada Account apenas complementa a conexão de conta e a composição atual de modelos, sem persistir credenciais de requisição. A versão de Schema usada intermediariamente no branch de desenvolvimento não constitui contrato de publicação; o número de versão final é tratado uniformemente pela próxima decisão.
 
-GLM-5.2 与 GLM-5.3 的 Anthropic API 按标准 adaptive thinking + effort 表达，不发送 budget。GLM-5-Turbo 暂时保留现有 1024 fixed-budget 兼容行为。OpenAI Chat 下的 reasoning 方言和推理回放通过精确 `apiMatch` 规则写入 `apiAdapter`；Anthropic Messages 与 OpenAI Responses 优先遵循各自官方协议。
+A API Anthropic de GLM-5.2 e GLM-5.3 expressa adaptive thinking + effort conforme o padrão, sem enviar budget. GLM-5-Turbo mantém temporariamente o comportamento de compatibilidade existente de 1024 fixed-budget. O dialeto de reasoning e o replay de inferência sob OpenAI Chat são escritos em `apiAdapter` por regras de `apiMatch` precisas; Anthropic Messages e OpenAI Responses priorizam seus respectivos protocolos oficiais.
 
-## 10. Personal Config 保持原路径，并以 Schema Version 1 首次发布
+## 10. Personal Config mantém o caminho original e é publicado pela primeira vez com Schema Version 1
 
-> 裁决状态：已确认；取代开发阶段的独立文件路径和版本迁移链
+> Status da decisão: confirmada; substitui o caminho de arquivo separado e a cadeia de migração de versões da fase de desenvolvimento
 
-### 背景
+### Contexto
 
-M2 开发阶段曾把新的 Personal Provider Config 写入独立的 `provider-config.json`，并随着内部 Schema 调整连续使用 v1、v2、v3、v4，下一轮结构还准备使用 v5。这样可以在开发过程中验证相邻版本迁移，但这些格式从未正式上线，不需要成为产品未来长期维护的历史版本。
+Na fase de desenvolvimento de M2, a nova Personal Provider Config era gravada em um `provider-config.json` separado, e usava sucessivamente v1, v2, v3 e v4 conforme o Schema interno mudava, com v5 preparado para a próxima rodada de estrutura. Isso permite validar migrações entre versões adjacentes durante o desenvolvimento, mas esses formatos nunca foram oficialmente lançados e não precisam se tornar versões de histórico mantidas pelo produto a longo prazo.
 
-同时，Desktop 正式用户原有的模型 Provider 配置已经位于：
+Ao mesmo tempo, a configuração de Provider de modelos dos usuários oficiais do Desktop já está em:
 
 ```text
 ~/.zcode/v2/config.json
 ```
 
-新建 `provider-config.json` 会改变用户熟悉的物理路径，并产生新旧两个文件的权威切换问题。最终架构不需要通过改文件名表达领域边界。
+Criar um `provider-config.json` mudaria o caminho físico ao qual os usuários estão habituados e criaria um problema de troca de autoridade entre o arquivo novo e o antigo. A arquitetura final não precisa expressar limites de domínio trocando o nome do arquivo.
 
-### 裁决
+### Decisão
 
-Personal Provider/Model Config 继续使用原来的 `config.json` 文件名和路径，不引入正式的 `provider-config.json`：
+A Personal Provider/Model Config continua usando o nome de arquivo e o caminho `config.json` originais, sem introduzir um `provider-config.json` formal:
 
 ```text
 旧格式 ~/.zcode/v2/config.json
@@ -667,9 +652,9 @@ Personal Provider/Model Config 继续使用原来的 `config.json` 文件名和�
 └─ 新 ProviderConfigDocument
 ```
 
-迁移开始前必须把用户的原始配置完整复制为同目录备份。备份成功是修改原文件的前置条件；备份失败则停止迁移，不覆盖原配置。备份文件不得静默覆盖已有备份，具体后缀和冲突命名可以由 Repository 在实现中确定。
+Antes de iniciar a migração, a configuração original do usuário precisa ser copiada por inteiro como um backup no mesmo diretório. O sucesso do backup é pré-requisito para modificar o arquivo original; se o backup falhar, a migração é interrompida e a configuração original não é sobrescrita. O arquivo de backup não pode sobrescrever silenciosamente um backup já existente; o sufixo específico e a resolução de conflitos de nome podem ser determinados pelo Repository durante a implementação.
 
-完成 M2、准备首次发布时，新的 Provider Config 文档使用：
+Ao concluir M2 e preparar o primeiro lançamento, o novo documento de Provider Config usa:
 
 ```json
 {
@@ -677,40 +662,29 @@ Personal Provider/Model Config 继续使用原来的 `config.json` 文件名和�
 }
 ```
 
-开发阶段出现的 v1–v5 都属于未发布中间格式。M2 收尾时删除为这些内部版本保留的长期兼容分支和公开版本叙述，以最终完整 Schema 作为正式 v1。后续真正发布后的格式变化才从 v1 迁移到 v2。
+As versões v1–v5 surgidas no desenvolvimento são formatos intermediários não publicados. No fechamento de M2, removem-se os ramos de compatibilidade de longo prazo reservados a essas versões internas e a narrativa de versões públicas, adotando o Schema completo final como o v1 oficial. Mudanças de formato após um lançamento real passam a migrar de v1 para v2.
 
-这项裁决不要求为未正式开放的 Standalone CLI 历史格式设计无损兼容。内部评测使用者可以调整配置；若 Entry 对既有文件执行迁移，也必须遵守“先备份、后原子替换”的数据安全顺序。
+Esta decisão não exige desenhar compatibilidade sem perdas para o formato histórico do Standalone CLI que nunca foi oficialmente aberto. Usuários internos de avaliação podem ajustar a configuração; e se o Entry executar migração sobre arquivos existentes, ele também precisa obedecer à ordem segura de dados "backup primeiro, substituição atômica depois".
 
-## 11. 撤回 Model API Adapter 配置层，Reasoning Mapping 直接属于 ModelConfig
+## 11. Retirada da camada de configuração Model API Adapter; Reasoning Mapping pertence diretamente ao ModelConfig
 
-> 裁决状态：部分被第 12、13 项补充；撤回 `ModelConfig.apiAdapter` 的结论继续有效，`reasoningMapping` 的必填条件与语义以第 12 项为准，GLM-5-Turbo 的具体档位以第 13 项为准
+> Status da decisão: parcialmente complementada pelos itens 12 e 13; a conclusão de retirar `ModelConfig.apiAdapter` continua válida, as condições de obrigatoriedade e a semântica de `reasoningMapping` seguem o item 12, e os patamares concretos do GLM-5-Turbo seguem o item 13
 
-### 背景
+### Contexto
 
-第 9 项裁决曾在 `ModelConfig` 中增加 `apiAdapter`，并计划由它承载
-`reasoningMapping`、`preserveThinking` 和 `reasoningContentField`。继续审计后确认，
-三者实际属于不同问题：
+A decisão do item 9 havia adicionado `apiAdapter` ao `ModelConfig` e planejava usá-lo para carregar `reasoningMapping`, `preserveThinking` e `reasoningContentField`. Auditorias posteriores confirmaram que os três realmente pertencem a questões diferentes:
 
-- `reasoningMapping` 描述用户选择的 Reasoning 档位如何形成特定 Provider/Model/API
-  所需的请求参数；
-- Anthropic Thinking Block、Signature 与 OpenAI Responses Reasoning Item 的保存和回放是
-  对应协议的固有行为；
-- GLM OpenAI Chat 的 `clear_thinking` 是具体请求参数，可以直接成为
-  `reasoningMapping` 的输出。
+- `reasoningMapping` descreve como o patamar de Reasoning escolhido pelo usuário forma os parâmetros de requisição exigidos por um Provider/modelo/API específico;
+- o salvamento e o replay dos Thinking Blocks, Signatures do Anthropic e Reasoning Items do OpenAI Responses são comportamentos inerentes aos respectivos protocolos;
+- o `clear_thinking` do GLM OpenAI Chat é um parâmetro de requisição concreto, que pode virar diretamente a saída do `reasoningMapping`.
 
-AI SDK 已经能够在 OpenAI Compatible 消息和标准 Reasoning Part 之间转换
-`reasoning_content`，Anthropic Adapter 也负责 Thinking Block 与 Signature 的协议回放。
-因此，配置层不需要再声明响应字段名或重复表达消息回放策略。
+A AI SDK já consegue converter `reasoning_content` entre mensagens OpenAI Compatible e Reasoning Parts padrão, e o Adapter do Anthropic também cuida do replay de protocolo dos Thinking Blocks e Signatures. Portanto, a camada de configuração não precisa declarar nomes de campos de resposta nem repetir a estratégia de replay de mensagens.
 
-对各厂商官方 Anthropic 接口的核对同时表明，基础 Messages 结构已经较为统一，但 Reasoning
-控制并未统一：DeepSeek、Kimi、MiniMax、Qwen 和 MiMo 分别采用不同的开关、档位或 budget
-语义。`reasoningMapping` 因而仍有价值，但它是按 Model Config Rule 选择的协议参数映射，
-不是一个独立 Model API Adapter 配置对象。
+A verificação das interfaces Anthropic oficiais dos vários fornecedores mostrou ao mesmo tempo que a estrutura básica de Messages já é relativamente unificada, mas o controle de Reasoning não é: DeepSeek, Kimi, MiniMax, Qwen e MiMo adotam, respectivamente, semânticas distintas de interruptor, patamar ou budget. `reasoningMapping` portanto ainda tem valor, mas é um mapeamento de parâmetros de protocolo selecionado por Model Config Rule, e não um objeto de configuração independente de Model API Adapter.
 
-### 裁决
+### Decisão
 
-撤回尚未发布的 `ModelConfig.apiAdapter` 和 `ModelApiAdapterConfig`。`ModelConfig` 保持展平，
-可选的 `reasoningMapping` 直接放在其中：
+São retirados o `ModelConfig.apiAdapter` e o `ModelApiAdapterConfig`, ainda não publicados. O `ModelConfig` permanece achatado, com o `reasoningMapping` opcional diretamente dentro dele:
 
 ```ts
 class ModelConfig extends ConfigOverlay {
@@ -720,8 +694,7 @@ class ModelConfig extends ConfigOverlay {
 }
 ```
 
-`ModelConfigRule.apiMatch` 继续保留。它与 `providerMatch`、`modelMatch` 一起确定某条
-`reasoningMapping` 适用于哪个 Provider、模型和公开 API：
+`ModelConfigRule.apiMatch` é mantido. Junto de `providerMatch` e `modelMatch`, ele determina a qual Provider, modelo e API pública um determinado `reasoningMapping` se aplica:
 
 ```text
 providerMatch + modelMatch + apiMatch
@@ -733,32 +706,23 @@ providerMatch + modelMatch + apiMatch
              reasoningMapping
 ```
 
-运行时 Provider Adapter 继续存在。此次撤回的是配置 Schema 中的 `apiAdapter` 包装层，
-不改变 Anthropic、OpenAI Responses 和 OpenAI Compatible Adapter 的执行边界。
+O Provider Adapter em tempo de execução continua existindo. O que foi retirado é a camada de wrapper `apiAdapter` do Schema de configuração; isso não muda os limites de execução dos Adapters de Anthropic, OpenAI Responses e OpenAI Compatible.
 
-第 12 项进一步确认：标准 OpenAI Responses、Anthropic Messages 和 OpenAI Compatible 的
-Reasoning 参数映射也应由 Official Config 明确给出。运行时 Adapter 继续负责协议执行与消息
-回放，不再隐藏一套从 `reasoningLevel` 生成请求参数的默认策略。
+O item 12 confirma ainda mais: o mapeamento dos parâmetros de Reasoning para OpenAI Responses padrão, Anthropic Messages e OpenAI Compatible também deve ser fornecido explicitamente pela Official Config. O Adapter em tempo de execução continua responsável pela execução do protocolo e pelo replay de mensagens, e não esconde mais uma estratégia padrão que gera parâmetros de requisição a partir de `reasoningLevel`.
 
-`preserveThinking` 和 `reasoningContentField` 退出目标 Config：
+`preserveThinking` e `reasoningContentField` saem da Config alvo:
 
-- GLM OpenAI Chat 需要的 `clear_thinking` 直接写入对应档位的 `reasoningMapping`；
-- Reasoning 内容的解析和回放由消息模型与 Adapter 完成，不由 Config 指定字段名；
-- 历史 DeepSeek/MiMo 空 `reasoning_content` 兼容补丁继续单独审计，不通过上述字段表达。
+- o `clear_thinking` de que o GLM OpenAI Chat precisa é escrito diretamente no `reasoningMapping` do patamar correspondente;
+- a interpretação e o replay do conteúdo de Reasoning são feitos pelo modelo de mensagem e pelo Adapter, e não por um nome de campo especificado na Config;
+- os patches históricos de compatibilidade de `reasoning_content` vazio do DeepSeek/MiMo continuam sendo auditados separadamente, e não são expressos pelos campos acima.
 
-GLM-5.2 与 GLM-5.3 的 Anthropic API 使用现代 `adaptive thinking + effort`。GLM-5-Turbo
-同样使用 adaptive thinking，但不对外承诺 effort 档位；具体依据和映射见第 13 项。三者均不发送
-fixed budget。GLM-5-Turbo 已通过 BigModel Coding Plan 真实接口验证，覆盖单轮请求、当前
-AI SDK 解析、Tool Call、Thinking Block、Signature 以及 Tool Result 后的第二轮回放。因此撤回
-第 9 项中为 GLM-5-Turbo 保留 `1024 fixed budget` 的临时结论。
+A API Anthropic de GLM-5.2 e GLM-5.3 usa o `adaptive thinking + effort` moderno. O GLM-5-Turbo também usa adaptive thinking, mas não promete externamente patamares de effort; a base e o mapeamento concretos estão no item 13. Nenhum dos três envia fixed budget. O GLM-5-Turbo já foi validado pela interface real do BigModel Coding Plan, cobrindo requisição de turno único, o parsing atual da AI SDK, Tool Call, Thinking Block, Signature e o segundo round de replay após um Tool Result. Por isso a conclusão temporária do item 9 de manter `1024 fixed budget` para o GLM-5-Turbo fica retirada.
 
-## 12. Reasoning Mapping 是必填的 AI SDK Provider Options 映射
+## 12. Reasoning Mapping é um mapeamento obrigatório de AI SDK Provider Options
 
-> 裁决状态：已确认；模型声明 `reasoningLevel` 时必须提供完整的 `reasoningMapping`
+> Status da decisão: confirmada; quando o modelo declara `reasoningLevel`, ele deve fornecer um `reasoningMapping` completo
 
-ZCode 内部使用 AI SDK 调用模型。OpenAI Responses、Anthropic Messages 和 OpenAI Compatible
-分别由对应的 AI SDK Provider 执行。用户选择统一的 `reasoningLevel`，`reasoningMapping`
-负责把这个档位转换成当前 AI SDK Provider 接收的 Options：
+O ZCode usa a AI SDK internamente para chamar os modelos. OpenAI Responses, Anthropic Messages e OpenAI Compatible são executados pelos AI SDK Providers correspondentes. O usuário escolhe um `reasoningLevel` unificado, e `reasoningMapping` converte esse patamar nas Options que o AI SDK Provider atual recebe:
 
 ```text
 reasoningLevel
@@ -774,11 +738,9 @@ AI SDK Provider
 模型 API
 ```
 
-当 `ModelConfig.optionSpecs.reasoningLevel` 声明了可选档位时，最终生效的 `ModelConfig`
-必须同时提供 `reasoningMapping`，并覆盖所有可选档位。标准 API 的默认映射也写入 Official
-Config，不隐藏在 Adapter 代码中。
+Quando `ModelConfig.optionSpecs.reasoningLevel` declara patamares opcionais, o `ModelConfig` final em vigor precisa fornecer simultaneamente um `reasoningMapping` que cubra todos os patamares opcionais. O mapeamento padrão das APIs padrão também é escrito na Official Config, e não escondido no código do Adapter.
 
-例如：
+Por exemplo:
 
 ```jsonc
 // OpenAI Responses
@@ -811,12 +773,9 @@ Config，不隐藏在 Adapter 代码中。
 }
 ```
 
-`reasoningMapping[level]` 是交给当前运行时 Provider Adapter 的、与 Reasoning 有关的 AI SDK
-Provider Options 内层对象。它不包含 `openai`、`anthropic` 等 AI SDK namespace，也不是最终的
-HTTP Request Body。运行时 Adapter 根据当前 API 类型把它放进正确的 Provider Options
-namespace，再由 AI SDK Provider 编码成实际协议字段。
+`reasoningMapping[level]` é o objeto interno de AI SDK Provider Options, relacionado a Reasoning, entregue ao Provider Adapter em tempo de execução atual. Ele não contém namespaces de AI SDK como `openai` e `anthropic`, e também não é o HTTP Request Body final. O Adapter em tempo de execução o coloca no namespace de Provider Options correto conforme o tipo de API atual, e o AI SDK Provider o codifica nos campos reais do protocolo.
 
-`reasoningMapping` 直接属于 `ModelConfig`：
+`reasoningMapping` pertence diretamente ao `ModelConfig`:
 
 ```ts
 class ModelConfig extends ConfigOverlay {
@@ -826,54 +785,40 @@ class ModelConfig extends ConfigOverlay {
 }
 ```
 
-该映射只承载 Reasoning 相关的 Provider Options，例如 `reasoningEffort`、`effort`、`thinking`、
-`enable_thinking` 和 `clear_thinking`。API Key、Header、Base URL 和其他模型请求参数不属于该映射。
+Esse mapeamento carrega apenas Provider Options relacionados a Reasoning, como `reasoningEffort`, `effort`, `thinking`, `enable_thinking` e `clear_thinking`. API Key, Header, Base URL e outros parâmetros de requisição do modelo não pertencem a esse mapeamento.
 
-## 13. GLM-5-Turbo 只提供 Thinking 开关
+## 13. GLM-5-Turbo oferece apenas o interruptor de Thinking
 
-> 裁决状态：已确认；取代第 11 项中“GLM-5-Turbo 使用 effort”的部分
+> Status da decisão: confirmada; substitui a parte do item 11 que dizia que o GLM-5-Turbo usaria effort
 
-智谱官方文档明确声明 GLM-5-Turbo 支持 `thinking.type = enabled | disabled`，默认开启；开启时
-由模型动态判断是否需要思考。`reasoning_effort` 的正式支持范围从 GLM-5.2 开始，未包含
-GLM-5-Turbo。真实接口能够接受某个参数，不等同于该参数已经成为模型的公开契约。
+A documentação oficial da Zhipu declara explicitamente que o GLM-5-Turbo suporta `thinking.type = enabled | disabled`, com o padrão ligado; quando ligado, o próprio modelo decide dinamicamente se precisa pensar. O escopo formal de suporte a `reasoning_effort` começa no GLM-5.2 e não inclui o GLM-5-Turbo. A interface real conseguir aceitar um parâmetro não equivale a esse parâmetro já ter se tornado um contrato público do modelo.
 
-因此 GLM-5-Turbo 的 `reasoningLevel` 只包含：
+Portanto, o `reasoningLevel` do GLM-5-Turbo contém apenas:
 
 ```text
 enabled
 disabled
 ```
 
-OpenAI Compatible API 的映射使用 `thinking.type`。ZCode 作为长链 Coding Agent，在开启思考时
-同时使用 `clear_thinking: false`，并由消息模型与 Adapter 完整、原样、按顺序回放历史
-`reasoning_content`。该行为是固定协议配置，不作为用户 Option 暴露。
+O mapeamento da API OpenAI Compatible usa `thinking.type`. Como o ZCode é um Coding Agent de cadeia longa, ao ativar o pensamento ele também usa `clear_thinking: false` e faz o modelo de mensagem e o Adapter reproduzirem de forma completa, fiel e em ordem todo o `reasoning_content` histórico. Esse comportamento é uma configuração de protocolo fixa e não é exposto como Option ao usuário.
 
-Anthropic Messages API 的映射为 `adaptive` 与 `disabled`。开启时不发送 `effort`，由服务端采用
-默认推理策略；同时不发送 fixed budget。此前用于兼容旧 AI SDK 的 `budgetTokens: 1024` 不进入
-新的 Official Config。
+O mapeamento para a API Anthropic Messages é `adaptive` e `disabled`. Quando ligado, `effort` não é enviado e o servidor adota a estratégia de inferência padrão; ao mesmo tempo, nenhum fixed budget é enviado. O `budgetTokens: 1024` que antes existia para compatibilidade com a antiga AI SDK não entra na nova Official Config.
 
-GLM-5.2 与 GLM-5.3 继续按照各自官方支持范围提供 effort 档位，不受本项裁决影响。
+GLM-5.2 e GLM-5.3 continuam oferecendo patamares de effort conforme seu próprio escopo oficial de suporte e não são afetados por esta decisão.
 
-## 14. 闲时任务使用 Builtin Provider 与按 Turn 传入的鉴权材料
+## 14. Tarefas ociosas usam Builtin Provider e materiais de autenticação passados por Turn
 
-> 裁决状态：已确认；普通 Account 鉴权与闲时任务鉴权采用不同来源边界
+> Status da decisão: confirmada; a autenticação de Account comum e a de tarefas ociosas adoptam limites de origem diferentes
 
-### 背景
+### Contexto
 
-当前闲时任务由 Host 在每次派发前组装一份 `turnRuntimeModel`。它同时包含
-Provider 与 Model 的静态配置，以及本次执行使用的 API Key、Ticket 和 Headers。
-Core Worker 把它临时加入 Registry Overlay，为当前 Turn 创建执行 Model，Turn 结束后
-再恢复先前的 Runtime Model 并清理 Overlay。
+Hoje o Host monta um `turnRuntimeModel` antes de cada dispatch de tarefa ociosa. Ele contém ao mesmo tempo a Config estática do Provider e do modelo, e a API Key, o Ticket e os Headers usados nesta execução. O Core Worker adiciona isso temporariamente ao Registry Overlay, cria o Model de execução para o Turn atual e, no fim do Turn, restaura o Runtime Model anterior e limpa o Overlay.
 
-这条链路已经具有“每个 Turn 使用一份固定鉴权快照”的运行语义，但它把静态
-Provider 事实与动态鉴权材料一起组装和传输，并依赖临时 `setModel`/恢复逻辑。
+Essa cadeia já tem a semântica de execução de "um snapshot de autenticação fixo por Turn", mas ela monta e transmite juntos os fatos estáticos do Provider e os materiais de autenticação dinâmicos, e depende de lógica temporária de `setModel`/restauração.
 
-### 裁决
+### Decisão
 
-普通 Account Provider 的鉴权以 Core Worker / CLI 进程自己的 Account Request Auth Service
-为事实来源。Host 或其他 Entry 只提交 `ModelSelection`，不随 Submission 传入或覆盖普通
-Account Provider 的 API Key、Headers、Provider Config 或 Model Config。CLI 根据自己的
-Registry 创建 Model，并在真实请求发生时由自己的鉴权 Service 取得当前连接的动态凭据。
+A autenticação de um Account Provider comum tem como fonte de fato o próprio Account Request Auth Service do processo Core Worker / CLI. O Host ou outro Entry apenas envia `ModelSelection`; ele não passa nem sobrescreve, junto do Submission, a API Key, os Headers, a Provider Config ou a Model Config de um Account Provider comum. O CLI cria o Model a partir do próprio Registry e, quando a requisição real ocorre, o seu próprio serviço de autenticação obtém as credenciais dinâmicas da conexão atual.
 
 ```text
 Host / Entry
@@ -889,14 +834,11 @@ CLI Account Request Auth Service
 Model Request
 ```
 
-当前 Desktop Worker 通过协议回调 Host 取得普通 Account 鉴权材料，属于需要退出的迁移期
-链路；它不构成目标架构中的第二事实来源。
+Hoje o Desktop Worker obtém materiais de autenticação de Account comuns por um callback de protocolo ao Host, o que é uma cadeia de período de migração que precisa sair; ela não constitui uma segunda fonte de fato na arquitetura alvo.
 
-闲时任务的 Provider 改为 Official Config 管理的 Builtin Provider。它的 Provider 身份、
-API 类型、Base URL、模型列表、Model Properties 和 Option Specs 等静态事实进入正式
-Registry。该 Provider 供闲时任务执行使用，不出现在普通模型选择和设置交互中。
+O Provider das tarefas ociosas passa a ser um Builtin Provider gerenciado pela Official Config. Sua identidade de Provider, tipo de API, Base URL, lista de modelos, Model Properties e Option Specs entram no Registry oficial. Esse Provider é usado para a execução de tarefas ociosas e não aparece na seleção de modelos nem nas interações de configuração comuns.
 
-Host 每次派发闲时 Turn 时，只额外传入本次执行所需的动态鉴权材料：
+A cada dispatch de um Turn ocioso, o Host passa adicionalmente apenas os materiais de autenticação dinâmicos necessários a esta execução:
 
 ```text
 Builtin Provider（Official Config / Worker Registry）
@@ -912,9 +854,7 @@ Host 派发 Turn
    └─ 本次执行需要的其他 Header
 ```
 
-Core Worker 使用 Registry 中的 Builtin Provider、本次 `ModelSelection` 和传入的鉴权材料
-创建普通 `Model`。该 Model 被显式交给当前 Agent Loop，Loop 内的 Model Step 和自动
-Compact 继续使用同一份 Model 与鉴权材料。
+O Core Worker usa o Builtin Provider do Registry, o `ModelSelection` desta vez e os materiais de autenticação passados para criar um `Model` comum. Esse Model é entregue explicitamente ao Agent Loop atual, e dentro do Loop os Model Steps e o Compact automático continuam usando o mesmo Model e os mesmos materiais de autenticação.
 
 ```text
 Worker Registry 中的 Builtin Provider
@@ -930,13 +870,11 @@ ModelSelection
    Agent Loop
 ```
 
-鉴权材料不写入 Official Config、Personal Config、Registry View 或 Session 持久状态。它只对
-本次 Turn 有效，Turn 结束后不得被后续执行继续使用。闲时 Model 也不修改用户的
-Session Model Selection 或 App Recent。
+Os materiais de autenticação não são escritos na Official Config, na Personal Config, na Registry View nem no estado persistente da Session. Eles só valem para este Turn e não podem continuar em uso por execuções posteriores depois que o Turn termina. O Model ocioso também não altera o Session Model Selection do usuário nem o App Recent.
 
-### Ticket 过期与续跑
+### Expiração do Ticket e retomada
 
-当前 `3102` Ticket 过期语义保留：
+A semântica atual de expiração do Ticket `3102` é mantida:
 
 ```text
 当前 Turn 收到 3102
@@ -957,16 +895,11 @@ Host 重新取得 Ticket
 新 Turn 使用新传入的 API Key / Headers 创建新 Model
 ```
 
-这是同一闲时任务和同一 Session 中的新 Turn / Agent Loop，不是在正在运行的 Model
-内替换 Ticket。普通 JWT 或 API Key 鉴权失败不自动等同于 `3102`；其是否需要自动
-续跑不在本项裁决中。
+Esse é um novo Turn / Agent Loop dentro da mesma tarefa ociosa e na mesma Session, e não a substituição do Ticket dentro de um Model que já está em execução. Uma falha de autenticação comum por JWT ou API Key não equivale automaticamente a `3102`; se ela precisa de retomada automática não está no escopo desta decisão.
 
-### 执行模型切换横幅
+### Banner de troca de modelo do modelo em execução
 
-模型切换横幅由相邻执行段实际使用的 Model 决定。每个 Agent Loop 持有自己的
-Execution Model；Guide 在 Loop 内切换 Model 时会形成新的执行段。新执行段开始时，
-系统将它的 `providerId/modelId` 与上一个执行段比较：身份不同则显示模型切换横幅，
-身份相同则不显示。reasoning 档位变化不单独视为模型身份变化。
+O banner de troca de modelo é determinado pelo Model realmente usado por segmentos de execução adjacentes. Cada Agent Loop mantém seu próprio Execution Model; quando o Guide troca o Model dentro do Loop, forma-se um novo segmento de execução. No início de um novo segmento, o sistema compara o `providerId/modelId` dele com o do segmento anterior: identidades diferentes exibem o banner de troca de modelo; identidades iguais não exibem. Uma mudança de patamar de reasoning não é vista sozinha como mudança de identidade de modelo.
 
 ```text
 上一执行段的 Execution Model
@@ -979,7 +912,7 @@ Execution Model；Guide 在 Loop 内切换 Model 时会形成新的执行段。�
               `-- 不同：显示模型切换横幅
 ```
 
-闲时模型按照同一规则进入执行模型序列，不需要闲时任务专属的横幅状态：
+O Model ocioso entra na sequência de modelos em execução pela mesma regra, e não precisa de um estado de banner exclusivo para tarefas ociosas:
 
 ```text
 普通 Turn A
@@ -991,16 +924,11 @@ Execution Model；Guide 在 Loop 内切换 Model 时会形成新的执行段。�
 下一普通 Turn B      -> Idle 与 B 不同，显示 Idle -> B
 ```
 
-如果闲时任务结束后尚未开始新的执行段，系统不会提前显示“恢复到 A”。此时没有 Model
-正在执行；下一轮真正创建 A 或 B 后，再根据实际 Execution Model 生成横幅。这样用户在
-闲时任务期间把 Session Selection 从 A 改为 B 时，时间线自然显示 `Idle -> B`，不会经过
-没有真正执行过的 A。
+Se, após o fim de uma tarefa ociosa, nenhum novo segmento de execução começou, o sistema não exibe antecipadamente o "restaurado para A". Nesse momento não há Model em execução; só depois que A ou B for realmente criado na próxima rodada o banner é gerado a partir do Execution Model real. Assim, quando o usuário muda o Session Selection de A para B durante uma tarefa ociosa, a linha do tempo mostra naturalmente `Idle -> B`, sem passar por um A que nunca chegou a executar.
 
-Session Model Selection 只负责为后续执行创建 Model，不作为横幅的事实来源。每个 Turn
-需要持久化实际 Execution Model 身份；实时投影与冷恢复都从同一执行序列归约横幅。
-`lastExecutionModel` 只表示上一个实际执行模型，不承担 Session Selection 的持久状态。
+O Session Model Selection serve apenas para criar Models para execuções futuras e não é a fonte de fato do banner. Cada Turn precisa persistir a identidade do Execution Model real; tanto a projeção em tempo real quanto a recuperação fria reduzem o banner a partir da mesma sequência de execução. `lastExecutionModel` representa somente o último Execution Model realmente executado e não carrega o estado persistente do Session Selection.
 
-横幅使用一个明确的公共入口：
+O banner usa uma entrada pública explícita:
 
 ```ts
 recordExecutionModelChangeMarker({
@@ -1009,54 +937,36 @@ recordExecutionModelChangeMarker({
 });
 ```
 
-该入口只比较本 Session 的当前 Execution Model 与 `lastExecutionModel`，在
-`providerId/modelId` 变化时持久化 `model_change` Marker。普通主 Agent Loop 开始、闲时
-主 Agent Loop 开始，以及 Guide 的新 Model 真正从下一 Model Step 生效时调用它。
-Subagent 若复用该入口，只写入自己的 Child Session。Title、Memory、Wiki、Verifier 等
-独立模型任务不调用它。
+Essa entrada compara apenas o Execution Model atual desta Session com o `lastExecutionModel` e persiste um Marker `model_change` quando o `providerId/modelId` muda. Ela é chamada no início do Agent Loop principal comum, no início do Agent Loop principal ocioso e quando o novo Model do Guide passa a valer de fato a partir do próximo Model Step. Um Subagent que reutiliza essa entrada escreve apenas na própria Child Session. Tarefas de modelo independentes como Title, Memory, Wiki e Verifier não a chamam.
 
-该入口不创建或切换 Model，也不修改 Session Selection、Provider Config 或 Registry。
+Essa entrada não cria nem troca Model, e não modifica Session Selection, Provider Config nem Registry.
 
-Execution Model 在 Model 创建成功并正式进入主 Agent Loop，或在 Guide 后正式进入新的
-Model Step 时生效。此时调用 `recordExecutionModelChangeMarker()`。如果 Model 创建失败，
-或者 Submission 在进入 Agent Loop 前被 Admission、Hook 等边界阻止，则不建立新的执行
-模型基线。进入 Loop 后即使在首个 Model Request 发出前被取消，该 Model 仍然是本执行段
-已经生效的 Execution Model，可以产生横幅。
+O Execution Model passa a valer quando o Model é criado com sucesso e entra formalmente no Agent Loop principal, ou quando, após o Guide, ele entra formalmente em um novo Model Step. Nesse momento se chama `recordExecutionModelChangeMarker()`. Se a criação do Model falhar, ou se o Submission for bloqueado antes de entrar no Agent Loop por Admission, Hook ou outros limites, nenhuma nova linha de base de modelo em execução é estabelecida. Depois de entrar no Loop, mesmo que seja cancelado antes do primeiro Model Request, o Model continua sendo o Execution Model em vigor deste segmento e pode gerar um banner.
 
-`3102` 续跑是同一闲时任务的新 Turn。如果新 Turn 继续使用相同 Idle Model，执行模型
-身份没有变化，不增加中间横幅；整个闲时任务之后真正开始的下一执行段再与 Idle 比较。
+A retomada do `3102` é um novo Turn da mesma tarefa ociosa. Se o novo Turn continuar usando o mesmo Idle Model, a identidade do modelo em execução não muda e nenhum banner intermediário é adicionado; o próximo segmento de execução que realmente começar depois da tarefa ociosa é comparado com o Idle.
 
-### 鉴权边界
+### Limites de autenticação
 
-闲时任务不扩展普通 Account Request Auth Service 的职责。它首先复用 CLI Registry 中的
-Builtin Provider 静态事实；如果现阶段难以由 CLI 自己取得闲时服务要求的整套动态材料，
-Host 可以随本次 Turn 传入 execution-scoped Request Auth。该输入只表达这次闲时执行的
-鉴权材料和 Ticket，不携带 Provider 或 Model 静态配置。
+As tarefas ociosas não ampliam a responsabilidade do Account Request Auth Service comum. Primeiro elas reutilizam os fatos estáticos do Builtin Provider do CLI Registry; e se, neste momento, for difícil para o CLI obter por conta própria todo o conjunto de materiais dinâmicos exigido pelo serviço ocioso, o Host pode passar um Request Auth em escopo de execução junto deste Turn. Essa entrada expressa apenas os materiais de autenticação e o Ticket desta execução ociosa, sem carregar Config estática de Provider ou de modelo.
 
-后续如果 CLI 能自然取得 JWT、Coding Plan Key 等材料，可以继续缩小 Host 输入；这项优化
-不改变已经确认的边界，也不阻塞当前迁移。Off-Peak Ticket 由 Host 调度服务取得，继续随
-本次 Turn 传入。
+Se mais tarde o CLI conseguir obter JWT, Coding Plan Key e materiais desse tipo de forma natural, a entrada do Host pode continuar sendo reduzida; essa otimização não muda os limites já confirmados e não bloqueia a migração atual. O Off-Peak Ticket é obtido pelo serviço de dispatch do Host e continua sendo passado junto deste Turn.
 
-执行期鉴权需要满足：
+A autenticação em tempo de execução precisa satisfazer:
 
-- 普通 Account Provider 始终使用 CLI Account Request Auth Service，不接受外部鉴权覆盖；
-- 闲时任务允许 Host 随本次 Turn 传入 API Key、Headers 与 Ticket；
-- 不同 Turn 和并发执行之间的鉴权材料必须隔离；
-- Model 在一个 Agent Loop 内使用固定的鉴权材料；
-- Turn 结束、失败或取消后，本次鉴权材料必须退出可用状态；
-- Provider 和 Model 仍然通过统一 ModelFactory 与 Adapter 链路执行，不建立闲时任务专属的
-  模型请求协议。
+- um Account Provider comum sempre usa o CLI Account Request Auth Service e não aceita sobrescrita de autenticação externa;
+- tarefas ociosas permitem que o Host passe API Key, Headers e Ticket junto deste Turn;
+- os materiais de autenticação entre Turns diferentes e execuções concorrentes precisam estar isolados;
+- um Model usa materiais de autenticação fixos dentro de um Agent Loop;
+- depois que o Turn termina, falha ou é cancelado, os materiais de autenticação desta execução precisam ficar indisponíveis;
+- Provider e Model continuam sendo executados pela cadeia unificada de ModelFactory e Adapter, sem criar um protocolo de requisição de modelo exclusivo para tarefas ociosas.
 
-## 15. 进程 Registry 启用后，旧 Workspace Catalog 退出 Provider Authority
+## 15. Com o Registry de processo ativado, o Workspace Catalog antigo sai da autoridade de Provider
 
-> 裁决状态：已确认并完成
+> Status da decisão: confirmada e concluída
 
-进程 Registry 已经从 Official、Personal 与 Account Config 构建 Provider 和 Model。此时旧
-Workspace Catalog 继续参与成员判断、属性同步或投影合并，会让 Host Snapshot 重新成为第二
-事实源。该问题不能因为代码位于旧协议兼容层就整体推迟；凡是会影响普通长期 Provider 的部分，
-都属于 M2 当前高优收口范围。
+O Registry de processo já constrói Providers e Models a partir das Config oficial, Personal e de conta. Nesse momento, o Workspace Catalog antigo continuar participando da decisão de composição, da sincronização de propriedades ou da merge de projeções faria com que o Host Snapshot voltasse a ser uma segunda fonte de fato. Esse problema não pode ser adiado por completo só porque o código está na camada de compatibilidade do protocolo antigo; tudo que afetaria um Provider comum de longo prazo faz parte do fechamento de alta prioridade atual de M2.
 
-确认后的边界是：
+Os limites confirmados são:
 
 ```text
 进程 Registry 已启用
@@ -1070,69 +980,49 @@ Workspace Settings
 └─ Workspace default / last-used / mode 等交互状态
 ```
 
-Host 随旧协议携带的 `runtimeModel` 在 Registry 进程中不再写入 Workspace Catalog，也不再用来
-补充普通长期 Provider。迁移期的闲时 `runtimeModel` 由后续切片收窄为 ModelSelection、Request Auth
-与 Ticket；它不成为保留普通 Workspace Provider Snapshot 的理由。
+O `runtimeModel` que o Host carrega junto do protocolo antigo deixa de ser gravado no Workspace Catalog dentro do processo de Registry, e deixa de ser usado para complementar Providers comuns de longo prazo. O `runtimeModel` ocioso do período de migração é estreitado pela fatia seguinte para ModelSelection, Request Auth e Ticket; ele não se torna um motivo para manter um Snapshot de Workspace Provider comum.
 
-本项同时确认以下实施原则：
+Este item também confirma os seguintes princípios de implementação:
 
-- `syncAppWorkspaceModelCatalog()` 在进程 Registry 模式下不再安装旧 Overlay 或覆盖 Runtime；
-- App 初始化不再由旧 Workspace Catalog 生成 `bootstrapModelConfig`；
-- Session preflight 与跨 Provider 切换从 Registry-backed `app.listModels()` 判断当前成员；
-- `workspace/readState` 只返回 `settings.model`，旧 `modelCatalog` 协议字段、Provider 投影与
-  revision 已删除；
-- App 不再公开 `setModelCatalogOverlay`，也不再保存 Workspace 级 Provider/Model Overlay；
-  闲时等单次执行仍通过独立的 Turn Overlay 进入，不会恢复长期 Workspace Catalog；
-- `createZCodeApp` 必须注入进程 Registry；测试与内部工具使用显式测试 Registry，不再通过缺少
-  可选参数进入旧 Runtime Model Config 装配；
-- 冷恢复 usage 的 context window 使用当前 App Runtime 已固定的模型属性；
-- `workspace/readState` 是纯投影接口，不接收 `runtimeModel`，也不修改 Active Session；
-- `workspace/setDefaultModel` 只写 ModelSelection，不接收 Provider 运行快照；
-- V4 `createSession` 与 `switchModelConfig` 只提交 ModelSelection；目标 Provider 由 Worker
-  Registry 校验，不再接受 Host `runtimeModel` 回落；
-- Repo Snapshot 旁路只使用本次命令明确携带的 Selection 或 execution-scoped Model；缺少时
-  允许模型元数据为空，不再读取 `workspace/readState` 猜测 Provider；
-- default、last-used、mode 等选择/交互状态仍可留在 Workspace Settings 中，后续由 Interaction 设计
-  继续收敛，不与 Provider 静态事实混为一谈。
+- `syncAppWorkspaceModelCatalog()` deixa de instalar o Overlay antigo ou de sobrescrever o Runtime no modo de Registry de processo;
+- a inicialização do App deixa de gerar `bootstrapModelConfig` a partir do Workspace Catalog antigo;
+- o preflight de Session e a troca entre Providers julgam a composição atual a partir do `app.listModels()` apoiado no Registry;
+- `workspace/readState` retorna apenas `settings.model`; o campo de protocolo antigo `modelCatalog`, as projeções de Provider e a revision já foram removidos;
+- o App deixa de expor `setModelCatalogOverlay` e também deixa de guardar Overlays de Provider/Model em nível de Workspace; execuções isoladas como as ociosas ainda entram por um Turn Overlay separado e não restauram um Workspace Catalog de longo prazo;
+- `createZCodeApp` precisa injetar o Registry de processo; testes e ferramentas internas usam um Registry de teste explícito e não entram mais na montagem do Runtime Model Config antigo pela ausência de um parâmetro opcional;
+- o context window usado na recuperação fria de usage usa os atributos de modelo já fixados pelo App Runtime atual;
+- `workspace/readState` é uma interface de projeção pura: não recebe `runtimeModel` nem modifica a Active Session;
+- `workspace/setDefaultModel` grava apenas o ModelSelection e não recebe snapshot de execução do Provider;
+- o `createSession` e o `switchModelConfig` do V4 enviam apenas ModelSelection; o Provider alvo é validado pelo Worker Registry e não aceita mais o fallback do `runtimeModel` do Host;
+- o bypass de Repo Snapshot usa somente a Selection ou o Model em escopo de execução trazidos explicitamente por este comando; na ausência deles, é permitido que os metadados do modelo fiquem vazios, e não se lê mais `workspace/readState` para adivinhar o Provider;
+- estados de seleção/interação como default, last-used e mode ainda podem ficar nas Workspace Settings e são convergidos adiante pelo design de Interaction, sem se confundirem com fatos estáticos de Provider.
 
-不直接影响当前 Registry Authority 的清理可以后排，例如删除已经没有调用者的旧热更新辅助
-函数、重构闲时鉴权、原子 Submission 与 Guide/Loop 内切换语义。判断标准是能否减少当前双轨，
-而不是原先被标记在哪个阶段。
+Limpezas que não afetam diretamente a autoridade atual do Registry podem ficar para depois, como remover funções auxiliares antigas de hot update que já não têm chamadores, refatorar a autenticação ociosa e a Submission atômica e a semântica de troca dentro de Guide/Loop. O critério é se isso reduz o atualTracks duplo, e não em qual fase estava marcado antes.
 
-## 16. M1/M2 自主决策的产品语义追认
+## 16. Ratificação das decisões autônomas de M1/M2 em termos de semântica de produto
 
-> 裁决状态：已确认
+> Status da decisão: confirmada
 
-实施和复核过程中出现的五项自主决定，现按产品语义正式追认。
+As cinco decisões autônomas surgidas durante a implementação e a revisão são agora ratificadas formalmente em termos de semântica de produto.
 
-### Model Property 是请求发送前的统一检查
+### Model Property é a verificação unificada antes do envio da requisição
 
-调用方可以提前读取 Property 选择执行策略；Model 在发送请求前仍会再次检查实际 Request。请求使用
-模型明确声明为不支持的图片、PDF、视频、Tool Call 或 Structured Output 时，Model 返回明确错误。
+O chamador pode ler uma Property antecipadamente para escolher a estratégia de execução; o Model verifica novamente a Request real antes de enviá-la. Quando a requisição usa imagens, PDF, vídeo, Tool Call ou Structured Output que o modelo declara explicitamente não suportar, o Model retorna um erro claro.
 
-目标 Registry 的 ModelConfig 必须完整，最终不保留 `unknown`。当前图片、PDF 和视频字段允许
-`undefined`，只是因为默认配置和用户主动设置能力尚未完善：过渡期仅有明确 `false` 会阻止请求，
-缺省值暂时放行。相应配置迁移完成后，字段改为必填并删除该兼容语义。
+A ModelConfig do Registry alvo precisa ser completa e não mantém `unknown` no final. Os campos atuais de imagem, PDF e vídeo permitem `undefined` apenas porque a capacidade de configuração padrão e a capacidade de configuração ativa do usuário ainda não estão prontas: no período de transição, apenas um `false` explícito bloqueia a requisição, enquanto o valor ausente é temporariamente liberado. Depois que a migração de configuração correspondente for concluída, os campos passam a ser obrigatórios e essa semântica de compatibilidade é removida.
 
-### 独立模型任务延续已有 reasoning 行为
+### Tarefas de modelo independentes mantêm o comportamento de reasoning já existente
 
-Title、Git Commit Message 和 Memory Selector 在重构前已经关闭 reasoning，因此继续使用关闭
-reasoning 的派生 Model。此次重构不改变这些任务的产品策略，也不允许它们绕过 Model 直接修改
-Provider 参数。
+Title, Git Commit Message e Memory Selector já desligavam o reasoning antes do refactor, e portanto continuam usando o Model derivado com reasoning desligado. Este refactor não muda a estratégia de produto dessas tarefas e também não permite que elas contornem o Model para modificar diretamente parâmetros de Provider.
 
-### Account 查询按 Provider 保留 last-known-good
+### Consultas de Account mantêm last-known-good por Provider
 
-Start Plan、Personal Coding Plan 和 Team Plan 的远端查询分别产生 `available`、`unavailable` 或
-`unknown`。某一路为 `unknown` 时，只保留该 Provider 的上一份成功结果；其他 Provider 已经得到的
-确定结果继续发布。明确 `unavailable` 会删除对应 Provider。
+As consultas remotas de Start Plan, Personal Coding Plan e Team Plan produzem, respectivamente, `available`, `unavailable` ou `unknown`. Quando uma rota é `unknown`, apenas o último resultado bem-sucedido daquele Provider é mantido; os resultados determinados já obtidos para outros Providers continuam sendo publicados. Um `unavailable` explícito remove o Provider correspondente.
 
-### 目标设计不保留临时 Provider
+### O design alvo não mantém Providers temporários
 
-闲时任务从 CLI Registry 选择 Official Builtin Provider，并随 Turn 接收必要的 Request Auth 与
-Off-Peak Ticket。Submission 不携带完整 ProviderConfig 或 ModelConfig。M2 中仍存在的闲时
-`runtimeModel` 是待收窄的兼容输入，不构成新的事实来源。
+As tarefas ociosas selecionam o Official Builtin Provider do CLI Registry e recebem junto do Turn o Request Auth necessário e o Off-Peak Ticket. O Submission não carrega ProviderConfig nem ModelConfig completos. O `runtimeModel` ocioso que ainda existe em M2 é uma entrada de compatibilidade a ser estreitada e não constitui uma nova fonte de fato.
 
-### Account Provider 的用户可见行为保持现状
+### O comportamento visível ao usuário do Account Provider permanece como está
 
-此次重构保持当前 Provider 数量、Personal/Team 连接切换和模型可见性，不引入多个 Team 与 Personal
-同时出现在模型选择器等新的产品形态。Config、Registry 和 Request Auth 的内部收敛不得改变这一行为。
+Este refactor mantém a quantidade atual de Providers, a troca entre conexões Personal/Team e a visibilidade de modelos, e não introduz novas formas de produto como vários Teams e Personal aparecendo simultaneamente no seletor de modelos. A convergência interna de Config, Registry e Request Auth não pode mudar esse comportamento.

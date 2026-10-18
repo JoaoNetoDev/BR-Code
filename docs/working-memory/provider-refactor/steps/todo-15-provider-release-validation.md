@@ -1,43 +1,41 @@
-# 15 Provider Refactor 统一发布验证
+# 15 Validação de release unificada do Provider Refactor
 
-> 状态：已废弃（不再作为独立 Todo）
+> Status: descontinuado (não é mais um Todo independente)
 >
-> 日期：2026-08-25
+> Data: 2026-08-25
 >
-> 当前裁决：只集中保存上线前验证范围，暂不执行；不阻塞 Todo 12–14 的结构收口。
+> Decisão atual: apenas guardar de forma centralizada o escopo de validação pré-release, sem executar por enquanto; não bloqueia a convergência estrutural dos Todos 12–14.
 >
-> 相关计划：[`../plan/plan.md`](../plan/plan.md)、
+> Planos relacionados: [`../plan/plan.md`](../plan/plan.md),
 > [`../plan/02-provider-automation-proof.md`](../plan/02-provider-automation-proof.md)
 >
-> 相关设计：[`../design/design.md`](../design/design.md)、
-> [`../design/registry/configuration.md`](../design/registry/configuration.md)、
+> Designs relacionados: [`../design/design.md`](../design/design.md),
+> [`../design/registry/configuration.md`](../design/registry/configuration.md),
 > [`../design/registry/runtime.md`](../design/registry/runtime.md)
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-本文件保留历史上的发布验证范围记录，但不再作为独立执行入口。当前不为它安排实现或验证；后续若需要上线门禁，
-应基于当时的发布流程和最终 staging 基线重新建立专门的 Release Checklist/Todo，而不是恢复本文件。
+Este arquivo preserva o registro histórico do escopo de validação de release, mas deixa de ser um ponto de entrada de execução independente. Hoje não há implementação nem validação agendada para ele; se no futuro for necessário um gate de lançamento, deve-se criar um Release Checklist/Todo dedicado com base no processo de release da época e na baseline final de staging, em vez de restaurar este arquivo.
 
-历史上曾约定验证中若发现问题，按以下规则处理：
+Historicamente, ficou acordado que, se a validação encontrasse problemas, eles seriam tratados assim:
 
-1. 既有设计明确、实现不符合：先固定失败测试，再做最小 Bugfix；
-2. 设计未定义或真实服务无法满足既有契约：停止验证并请求裁决；
-3. 环境、账号或外部服务故障：保存证据并标记 blocker，不把它伪装成产品失败或绿色结果；
-4. 未取得真实证据的项目保持 pending，不以类型检查、fixture check 或 mock 结果代替。
+1. O design existente é explícito e a implementação não segue: primeiro fixar o teste que falha e depois fazer o bugfix mínimo;
+2. O design não define algo, ou um serviço real não consegue satisfazer o contrato existente: parar a validação e solicitar uma decisão;
+3. Falha de ambiente, de conta ou de serviço externo: salvar a evidência e marcar como blocker, sem disfarçar como falha de produto nem como resultado verde;
+4. Itens sem evidência real permanecem pending, sem substituí-los por type check, verificação de fixture ou resultado de mock.
 
-## 1. 验证范围
+## 1. Escopo de validação
 
-### 1.1 Provider 关键 E2E
+### 1.1 E2E críticos de Provider
 
-以下四条 pending case 保持现状，恢复本 Todo 时再完成人工 review、正式 replay、promotion 和 Docker
-admission：
+As quatro pending cases abaixo são mantidas como estão e concluem o review manual, o replay formal, a promoção e a admissão em Docker quando este Todo for retomado:
 
-- 同一 modelId、不同 Provider ID/Base URL 的身份隔离；
-- Provider Registry 冷启动 prewarm 与首个请求 Endpoint；
-- Off-Peak foreground Subagent 的 Provider/Request Auth 继承；
-- Provider visibility、Model enabled/完整性过滤，以及 Built-in-wins 重名与顺序投影。
+- Isolamento de identidade do mesmo modelId com Provider ID/Base URL diferentes;
+- Prewarm de cold start do Provider Registry e Endpoint da primeira requisição;
+- Herança de Provider/Request Auth de Subagent Off-Peak em foreground;
+- Visibility de Provider, filtro de enabled/completude de Model, e projeção de Built-in-wins para nomes duplicados e ordenação.
 
-验证顺序固定为：
+A ordem de validação é fixa:
 
 ```text
 fixture contract check
@@ -61,82 +59,78 @@ single-spec Docker admission
 conversation Docker preset
 ```
 
-### 1.2 三类真实访问链路
+### 1.2 Três cadeias reais de acesso
 
 #### API Key
 
-- Personal API Key 和 Endpoint 覆盖最后生效；
-- Effective Provider 的 `api.type/baseURL/access` 原样进入 ModelFactory/Adapter；
-- 缺少 API Key 的 Provider 不进入可执行 Registry；
-- 更新 Config 只影响后来创建的 Model，已创建 Model 保持冻结；
-- 请求不回读 Legacy Provider Store 或旧 CLI Config。
+- A Personal API Key e o Endpoint têm precedência final;
+- `api.type/baseURL/access` do Effective Provider entram as-is no ModelFactory/Adapter;
+- Um Provider sem API Key não entra no Registry executável;
+- Atualizar o Config afeta apenas Models criados depois, e Models já criados permanecem congelados;
+- A requisição não relê o Legacy Provider Store nem o Config antigo da CLI.
 
 #### Account
 
-- Account Built-in Overlay 只处理 ZCode Built-in 声明的账号 Provider；
-- Start、Individual、Team Plan 使用结构化 `family/planKind/accessId`，Team Scope 按既有契约补齐；
-- 权益接口确实返回模型集合时才覆盖 `builtinModelIds`；未返回时继续使用 Built-in 成员；
-- Personal Overlay 继续最后生效；
-- 动态凭据按请求解析，不写入 Provider Config，服务端继续承担最终授权裁决。
+- O Account Built-in Overlay trata apenas os Providers de conta declarados pelo ZCode Built-in;
+- Start, Individual e Team Plan usam `family/planKind/accessId` estruturados, e o Team Scope é completado conforme o contrato existente;
+- `builtinModelIds` só é sobrescrito quando a interface de benefícios de fato retorna um conjunto de modelos; quando não retorna, os membros Built-in continuam em uso;
+- O Personal Overlay continua tendo precedência final;
+- Credenciais dinâmicas são resolvidas por requisição, não gravadas no Provider Config, e o servidor continua sendo o responsável pela decisão final de autorização.
 
 #### Request Auth
 
-- Config 只保存 `access.type = "request-auth"`；
-- Request Auth Source 只作为本次 Model 执行依赖装配；
-- 缺少执行期材料时在网络 IO 前返回类型化鉴权错误；
-- Request Auth 不进入 Personal Config、Registry View、Session Snapshot、持久化或日志。
+- O Config só guarda `access.type = "request-auth"`;
+- A Request Auth Source é montada apenas como dependência de execução do Model daquela execução;
+- Quando falta material do período de execução, um erro de autenticação tipado é retornado antes da IO de rede;
+- A Request Auth não entra no Personal Config, na Registry View, no Session Snapshot, na persistência nem nos logs.
 
-#### Reasoning 回放验证
+#### Validação por replay do Reasoning
 
-- 验证 DeepSeek Anthropic 续轮使用 canonical reasoning 标准回放；
-- 不保留 synthetic empty-thinking、模型 ID hardcode 或 Compatibility Config；
-- 若服务端存在独立协议问题，作为新的 Adapter 契约问题重新裁决，不恢复已删除的通用兼容容器。
+- Validar que a continuação de turno do DeepSeek Anthropic usa replay do padrão canônico de reasoning;
+- Não manter synthetic empty-thinking, hardcode de model ID nem Compatibility Config;
+- Se houver um problema de protocolo isolado no servidor, ele é decidido de novo como problema de contrato do Adapter, sem restaurar o contêiner de compatibilidade genérico já removido.
 
-### 1.3 历史配置与持久化
+### 1.3 Configuração histórica e persistência
 
-- 全新安装使用 Built-in + 空 Personal + 当前 Account 正常建立 Registry；
-- 旧 `.zcode/v2/config.json` 在同路径迁移前创建内容哈希备份，再原子替换为正式版本化 Personal Config；
-- 旧 `model-providers.json` 只作为一次性只读来源，不被修改，也不重新进入稳态 Registry；
-- Custom Provider 的明确用户事实完整迁入 Personal；Built-in Provider 只迁移用户显式差异；
-- Legacy `modalities` 和已发布平铺能力字段只在 importer 私有边界转换，不进入当前 Config/Runtime；
-- Catalog enrichment、Preset、远端静态模型事实和具体模型 hardcode 不被固化成 Personal；
-- 迁移、备份、解析或完整性校验失败时保留原文件，不产生半份新配置；
-- 已有正式 `schemaVersion` 文件只走相邻版本 migration，不重新进入无版本 Legacy importer；
-- 重复启动不重复迁移，旧文件残留不覆盖已经建立的 Personal Config；
-- Account Personal Coding Plan Key 的一次性 Credential Store 迁移与 Provider Config 迁移保持职责分离。
+- Uma instalação nova monta o Registry normalmente com Built-in + Personal vazio + Account atual;
+- O antigo `.zcode/v2/config.json` recebe um backup de hash de conteúdo antes da migração no mesmo caminho e é substituído atomicamente pelo Personal Config oficial versionado;
+- O antigo `model-providers.json` serve apenas como fonte única e somente leitura, não é modificado e não retorna ao Registry estável;
+- Os fatos explícitos do usuário de um Custom Provider migram integralmente para o Personal; de um Built-in Provider só migram as diferenças explícitas do usuário;
+- `modalities` legadas e campos de capacidade achatados já publicados são convertidos apenas na fronteira privada do importer, sem entrar no Config/Runtime atual;
+- Catalog enrichment, Preset, fatos remotos de modelos estáticos e hardcodes de modelos específicos não são cristalizados em Personal;
+- Em falha de migração, backup, parsing ou verificação de completude, o arquivo original é preservado e nenhuma configuração nova pela metade é produzida;
+- Arquivos oficiais com `schemaVersion` seguem apenas a migration de versão adjacente e não voltam ao importer Legacy sem versão;
+- Inicializações repetidas não repetem a migração, e sobras de arquivos antigos não sobrescrevem um Personal Config já estabelecido;
+- A migração única do Key do Account Personal Coding Plan no Credential Store permanece com responsabilidade separada da migração do Provider Config.
 
-### 1.4 发布制品与跨平台启动
+### 1.4 Artefatos de release e inicialização multiplataforma
 
-- Desktop 开发环境和发布包都能定位 `config/provider/zcode-builtin.json`；
-- CLI/TUI/SEA 能从嵌入资产或显式路径物化并读取同一 Built-in Config；
-- Server 构建能使用嵌入资产或受支持的显式环境变量启动；
-- macOS、Windows、Linux 都使用当前 Environment 的 `.zcode/v2/config.json`，并验证路径、权限、文件锁、
-  原子写和 watcher 行为；
-- `ZCODE_DATA_BASE_DIR`、测试隔离目录和显式 Built-in/Personal 路径不产生跨 Environment 污染；
-- 冷启动、正常重启、配置更新和失败后恢复都得到一致的 Config/Registry 生命周期；
-- 打包产物不遗漏 Built-in Config，也不携带真实 API Key 或测试凭据。
+- Tanto o ambiente de desenvolvimento do Desktop quanto o pacote de release localizam `config/provider/zcode-builtin.json`;
+- CLI/TUI/SEA conseguem materializar e ler o mesmo Built-in Config a partir de ativos embarcados ou de um caminho explícito;
+- A build do Server consegue iniciar usando ativos embarcados ou variáveis de ambiente explícitas suportadas;
+- macOS, Windows e Linux usam o `.zcode/v2/config.json` do Environment atual, com validação de caminho, permissões, file lock, escrita atômica e comportamento do watcher;
+- `ZCODE_DATA_BASE_DIR`, diretórios de teste isolados e caminhos explícitos de Built-in/Personal não geram contaminação entre Environments;
+- Cold start, restart normal, atualização de Config e recuperação após falha dão um ciclo de vida de Config/Registry consistente;
+- Os artefatos empacotados não deixam de fora o Built-in Config nem carregam API Keys reais ou credenciais de teste.
 
-### 1.5 最终发布门禁
+### 1.5 Gate final de release
 
-- Provider、Provider Node、Services、Bootstrap、Core、Adapters、Shared、Desktop/UI 定向测试；
-- 根 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check` 和 `pnpm test:unit`；
-- 受影响发布构建与平台 smoke；
-- 已晋升 E2E 的正式 replay 和 Docker suite；
-- Legacy/Hardcode/第二事实源机械归零检查；
-- Release Candidate 记录汇总提交、环境、命令、artifact、已知限制和 blocker。
+- Testes direcionados de Provider, Provider Node, Services, Bootstrap, Core, Adapters, Shared e Desktop/UI;
+- `pnpm typecheck`, `pnpm lint`, `pnpm fmt:check` e `pnpm test:unit` da raiz;
+- Build de release afetado e smoke por plataforma;
+- Replay formal e suite Docker dos E2E promovidos;
+- Verificações mecânicas de zeragem de Legacy/Hardcode/segunda fonte de fatos;
+- O registro do Release Candidate resume commits, ambiente, comandos, artefatos, limitações conhecidas e blockers.
 
-## 2. 等价性口径
+## 2. Enquadramento de equivalência
 
-“全新安装与历史升级一致”不表示二者无条件产生完全相同的配置。历史用户可能拥有 API Key、自定义
-Provider、自定义模型和显式覆盖。正确口径是：
+“Uma instalação nova é consistente com a atualização histórica” não significa que ambas produzam incondicionalmente exatamente a mesma configuração. Um usuário histórico pode ter API Key, Custom Provider, modelo customizado e sobrescritas explícitas. O enquadramento correto é:
 
-> 在 Built-in 版本、账号状态和用户显式意图相同的前提下，直接写入当前 Personal Config 与从已发布旧
-> 配置迁移得到的 Personal Config，应解析出等价的 Effective Provider/Model，并形成等价的请求装配。
+> Com a mesma versão Built-in, o mesmo estado de conta e a mesma intenção explícita do usuário, o Personal Config gravado diretamente e o Personal Config obtido por migração de uma configuração antiga publicada devem resolver Providers/Models efetivos equivalentes e formar uma montagem de requisição equivalente.
 
-迁移只保留旧文件明确表达且归属于用户的事实，不追求复制旧系统曾经通过 Catalog、Preset、远端同步或
-模型名 hardcode 推导出的偶然 Effective Snapshot。
+A migração preserva apenas os fatos que o arquivo antigo expressava explicitamente e que pertencem ao usuário, sem buscar reproduzir o Effective Snapshot acidental que o sistema antigo deduzia por Catalog, Preset, sincronização remota ou hardcode de nome de modelo.
 
-## 3. 与其他 Todo 的关系
+## 3. Relação com os demais Todos
 
 ```text
 Todo 12：Selection 最终校验归位
@@ -151,38 +145,38 @@ Todo 14：Factory、MCS、Legacy DTO 和死代码机械归零
 Todo 15：统一真实验证与发布证据（历史草案，已废弃）
 ```
 
-- Todo 11 仍是独立草案；是否实施需要另行裁决，不由本验证 Todo 偷偷决定；
-- 本节只保留当时的阶段关系，不能作为当前执行顺序或验收承诺；
-- Todo 12–14 的单元测试和机械验收已经分别收口；
-- 后续发布验证不恢复本文件，改由最终 Release Checklist 按当时基线定义。
+- O Todo 11 continua como rascunho independente; se será implementado exige uma decisão à parte, e não é decidido sorrateiramente por este Todo de validação;
+- Esta seção preserva apenas a relação entre fases daquela época, e não pode servir como ordem de execução atual nem como promessa de aceitação;
+- Os testes unitários e a aceitação mecânica dos Todos 12–14 já foram fechados separadamente;
+- A validação de release futura não restaura este arquivo; quem a define passa a ser o Release Checklist final, com base na baseline da época.
 
-## 4. 明确排除
+## 4. Exclusões explícitas
 
-- Remote Provisioning、远程设置编辑与配置同步；
-- 新的 Provider/Model 产品能力或 Access Type；
-- `modelContextBudget.strategy` 等 Agent 参数；
-- 修改 Account 套餐、权益接口或服务端鉴权产品语义；
-- Queue、Goal、Background、恢复状态机或 mobile replayable 新设计；
-- 改变已经确认的 PDF/Audio Built-in 配置事实；
-- 为了让验证通过而恢复 Legacy Catalog、Preset、远端模型事实或具体模型运行时 hardcode。
+- Remote Provisioning, edição remota de Settings e sincronização de Config;
+- Novas capacidades de produto de Provider/Model ou Access Type;
+- Parâmetros de Agent como `modelContextBudget.strategy`;
+- Alterar a semântica de produto de pacotes de conta, interface de benefícios ou autenticação do servidor;
+- Novos designs de Queue, Goal, Background, máquina de estados de recuperação ou mobile replayable;
+- Alterar fatos de configuração Built-in de PDF/Audio já confirmados;
+- Restaurar Legacy Catalog, Preset, fatos remotos de modelos ou hardcode de runtime de modelos específicos só para fazer a validação passar.
 
-## 5. 恢复执行条件
+## 5. Condições para retomar a execução
 
-只有满足以下条件后，才把本 Todo 从“Draft”改为“待执行”：
+Só depois de atender às condições abaixo este Todo passa de “Draft” para “pendente de execução”:
 
-1. Todo 12–14 已完成，或已明确本次发布不包含其中某项并记录风险；
-2. 待上线分支已经合入目标 staging 基线，结构改动进入冻结期；
-3. Desktop 图形环境、Docker daemon、平台构建机和必要测试账号/凭据可用；
-4. 四条 pending E2E 的人工 review 人员和 artifact 保存位置明确；
-5. 真实服务验证使用的账号、额度、环境和脱敏日志规则已确认；
-6. 验证失败的 Bugfix 与设计裁决流程有人负责，不在结果出来后临时改变口径。
+1. Os Todos 12–14 estão concluídos, ou foi decidido explicitamente que esta release não inclui algum deles e o risco foi registrado;
+2. O branch candidato já foi integrado à baseline de staging alvo e as mudanças estruturais entraram em congelamento;
+3. O ambiente gráfico do Desktop, o daemon do Docker, a máquina de build de plataforma e as contas/credenciais de teste necessárias estão disponíveis;
+4. As pessoas responsáveis pelo review manual das quatro E2E pending e o local de guardado dos artefatos estão definidos;
+5. As contas, cotas, ambientes e regras de log redigido usados na validação com serviços reais foram confirmados;
+6. Há alguém responsável pelo bugfix em caso de falha de validação e pelo fluxo de decisão de design, sem mudar o enquadramento depois que os resultados aparecem.
 
-## 6. 完成定义
+## 6. Definição de conclusão
 
-1. 三类 Access 均有真实或等价隔离环境的请求证据；
-2. 全新安装、历史升级、重启和配置更新均有可复核结果；
-3. Desktop、CLI/TUI/SEA、Server 与目标平台发布制品能够装载同一份 Provider/Model 事实；
-4. 四条 Provider E2E 完成人工确认、正式 replay 和约定的 Docker admission；
-5. 完整发布门禁通过，所有失败都有明确归因；
-6. 没有把环境问题、pending case 或未执行项目写成绿色；
-7. Release Candidate 验收记录能够支持上线、回滚和后续删除 Legacy importer 的决策。
+1. Os três tipos de Access têm evidência de requisição real ou de ambiente isolado equivalente;
+2. Instalação nova, atualização histórica, restart e atualização de Config têm resultados revisáveis;
+3. Desktop, CLI/TUI/SEA, Server e os artefatos de release da plataforma alvo conseguem carregar o mesmo conjunto de fatos de Provider/Model;
+4. As quatro E2E de Provider concluem a confirmação manual, o replay formal e a admissão em Docker combinada;
+5. O gate de release completo passa, e todas as falhas têm atribuição clara;
+6. Nenhum problema de ambiente, pending case ou item não executado foi escrito como verde;
+7. O registro de aceitação do Release Candidate sustenta a decisão de lançamento, de rollback e de remoção posterior do importer Legacy.

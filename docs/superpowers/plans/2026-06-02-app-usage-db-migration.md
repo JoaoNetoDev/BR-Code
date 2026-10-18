@@ -1,83 +1,83 @@
-# 应用用量数据源迁移到 agent 数据库 — 实现计划
+# Migração da fonte de dados de uso do aplicativo para o banco de dados do agent — plano de implementação
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIO: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano task por task. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 把「应用用量」面板的数据源从「本地 session JSON 文件 + 字符估算」整条替换为 zcode agent SQLite 库（`model_usage` / `turn_usage` / `tool_usage`）的真实统计，并新增真实 token 拆分、可靠性指标、工具使用区块。
+**Goal:** substituir inteiramente a fonte de dados do painel "Uso do aplicativo", hoje "arquivo JSON local de session + estimativa por caracteres", pelas estatísticas reais do banco SQLite do zcode agent (`model_usage` / `turn_usage` / `tool_usage`), e adicionar o split real de tokens, métricas de confiabilidade e um bloco de uso de ferramentas.
 
-**Architecture:** agent 子进程内用 SQL 聚合（adapters repo）→ 纯函数 builder 组装快照（bootstrap）→ 新增 ZCode Protocol 方法 `usage/stats`（shared schema + bootstrap handler）→ 宿主 `usageStatsService` 经 `zcodeAgentService` 走协议取数（packages/services）→ UI 重绘 4 个区块（packages/ui）。聚合放在 agent 侧，天然受 30 天保留期约束。
+**Architecture:** agregação em SQL dentro do subprocesso do agent (repo em adapters) → builder de função pura monta o snapshot (bootstrap) → novo método do ZCode Protocol `usage/stats` (shared schema + handler do bootstrap) → serviço do host `usageStatsService` obtém os dados pelo protocolo via `zcodeAgentService` (packages/services) → UI redesenha 4 blocos (packages/ui). A agregação fica do lado do agent, ficando naturalmente sujeita ao período de retenção de 30 dias.
 
-**Tech Stack:** TypeScript, Node.js `node:sqlite` (`DatabaseSync`), zod, React, vitest, lucide-react, recharts。
+**Tech Stack:** TypeScript, Node.js `node:sqlite` (`DatabaseSync`), zod, React, vitest, lucide-react, recharts.
 
 **Spec:** `docs/superpowers/specs/2026-06-02-app-usage-db-migration-design.md`
 
 ---
 
-## 关键约定（贯穿全计划，命名必须一致）
+## Convenções principais (perpassam todo o plano; a nomenclatura precisa ser consistente)
 
-- 新时间范围类型：`AppUsageRange = "7d" | "30d"`（App Usage 专用，**不复用** `UsageStatsRange`，后者仍服务 Coding Plan/monitor 路径）。
-- 新协议方法常量名：`usageStats`，方法字符串 `"usage/stats"`。
-- agent 侧只读聚合端口方法：`UsageStorePort.queryAppUsage(input: AppUsageQueryInput): Promise<AppUsageQueryResult>`。
-- 纯函数 builder：`buildAppUsageSnapshot(result, opts): AppUsageSnapshot`，位于 `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts`。
-- 时区按「固定偏移」归日：`tzOffsetMs`（由 handler 用 Intl 计算并下传），`dayIndex = floor((started_at + tzOffsetMs) / 86400000)`。DST 边界有微小误差，可接受（注释里写明）。
+- Novo tipo de intervalo de tempo: `AppUsageRange = "7d" | "30d"` (exclusivo do App Usage, **não reutiliza** `UsageStatsRange`, que continua servindo ao Coding Plan/monitor).
+- Novo nome da constante de método de protocolo: `usageStats`, string de método `"usage/stats"`.
+- Método de porta de agregação somente leitura no lado do agent: `UsageStorePort.queryAppUsage(input: AppUsageQueryInput): Promise<AppUsageQueryResult>`.
+- Builder de função pura: `buildAppUsageSnapshot(result, opts): AppUsageSnapshot`, em `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts`.
+- Fuso horário por dia calculado com "offset fixo": `tzOffsetMs` (calculado pelo handler com Intl e repassado), `dayIndex = floor((started_at + tzOffsetMs) / 86400000)`. Há um pequeno erro nas bordas de DST, o que é aceitável (registrado nos comentários).
 
-## 文件结构图（创建 / 修改）
+## Mapa de arquivos (criar / modificar)
 
-**Phase 0 — DTO**
-- Modify `packages/shared/src/usage-stats.ts` — 删字符估算类型，新增 App Usage zod schema + 类型 + `AppUsageRange`。
+**Fase 0 — DTO**
+- Modify `packages/shared/src/usage-stats.ts` — remover os tipos de estimativa por caracteres, adicionar o zod schema de App Usage + tipos + `AppUsageRange`.
 
-**Phase 1 — agent 读层**
-- Modify `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts` — 新增 `AppUsageQueryInput` / `AppUsageQueryResult` 等 raw 类型 + `queryAppUsage` 端口方法。
-- Modify `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts` — 新增 `queryAppUsage(db, input)` 的 SQL 聚合。
-- Modify `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts` — 代理 `queryAppUsage`。
-- Test `apps/zcode-cli/packages/adapters/tests/usage-query.test.ts` — repo 聚合断言。
+**Fase 1 — camada de leitura no agent**
+- Modify `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts` — adicionar os tipos raw `AppUsageQueryInput` / `AppUsageQueryResult` e o método de porta `queryAppUsage`.
+- Modify `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts` — adicionar a agregação SQL de `queryAppUsage(db, input)`.
+- Modify `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts` — fazer o proxy de `queryAppUsage`.
+- Test `apps/zcode-cli/packages/adapters/tests/usage-query.test.ts` — asserções da agregação no repo.
 
-**Phase 2 — builder + 协议**
-- Create `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts` — 纯函数 builder + `tzOffsetMs` 助手。
-- Test `apps/zcode-cli/packages/bootstrap/tests/usage-stats-builder.test.ts`。
-- Modify `packages/shared/src/zcode-protocol/index.ts` — 注册 `usageStats` 方法 + 入参/结果 schema。
-- Modify `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts` — `usageStats` handler。
-- Modify `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts` — dispatch case。
-- Modify `packages/services/src/zcode-agent/zcodeAgentService.ts` (+ 其类型/接口文件) — `getAppUsageStats` 方法。
+**Fase 2 — builder + protocolo**
+- Create `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts` — builder de função pura + helper `tzOffsetMs`.
+- Test `apps/zcode-cli/packages/bootstrap/tests/usage-stats-builder.test.ts`.
+- Modify `packages/shared/src/zcode-protocol/index.ts` — registrar o método `usageStats` + schemas de entrada/resultado.
+- Modify `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts` — handler de `usageStats`.
+- Modify `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts` — case no dispatch.
+- Modify `packages/services/src/zcode-agent/zcodeAgentService.ts` (+ seus arquivos de tipos/interfaces) — método `getAppUsageStats`.
 
-**Phase 3 — 宿主服务**
-- Modify `packages/services/src/usage-stats/usageStatsService.ts` — 重写 `getAppUsageSnapshot` 走协议。
-- Modify `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts` — 注入 `zcodeAgentService`。
-- Delete `packages/services/src/usage-stats/usageStatsAggregator.ts`、`repo/sessionUsageRepo.ts`、`usageStatsSeries.ts`（若存在）。
-- Modify `packages/services/src/usage-stats/usageStats.ts` — `getAppUsageSnapshot` 入参类型改 `AppUsageRequest`（range: AppUsageRange）。
+**Fase 3 — serviço do host**
+- Modify `packages/services/src/usage-stats/usageStatsService.ts` — reescrever `getAppUsageSnapshot` passando pelo protocolo.
+- Modify `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts` — injetar `zcodeAgentService`.
+- Delete `packages/services/src/usage-stats/usageStatsAggregator.ts`、`repo/sessionUsageRepo.ts`、`usageStatsSeries.ts` (se existirem).
+- Modify `packages/services/src/usage-stats/usageStats.ts` — o tipo de entrada de `getAppUsageSnapshot` passa a ser `AppUsageRequest` (range: AppUsageRange).
 
-**Phase 4 — UI**
-- Modify `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`、`usageStatsUiParts.tsx`、`AppUsageDailyModelBarChart.tsx`、`packages/ui/src/hooks/useUsageStats.ts`、i18n messages 文件。
+**Fase 4 — UI**
+- Modify `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`、`usageStatsUiParts.tsx`、`AppUsageDailyModelBarChart.tsx`、`packages/ui/src/hooks/useUsageStats.ts`、arquivos de i18n messages.
 
 ---
 
-## Phase 0 — 共享 DTO
+## Fase 0 — DTO compartilhado
 
-### Task 0: 新增 App Usage DTO（zod schema + 类型）
+### Task 0: adicionar o DTO de App Usage (zod schema + tipos)
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/shared/src/usage-stats.ts`
 
-- [ ] **Step 1: 在文件顶部确认 zod 可用并新增 schema 段**
+- [ ] **Passo 1: confirmar que o zod está disponível no topo do arquivo e adicionar a seção de schema**
 
-在 `packages/shared/src/usage-stats.ts` **顶部**加导入（若已存在 `import { z } from "zod"` 则跳过）：
+Adicione o import no **topo** de `packages/shared/src/usage-stats.ts` (pule se já existir `import { z } from "zod"`):
 
 ```typescript
 import { z } from "zod";
 ```
 
-- [ ] **Step 2: 删除字符估算相关导出**
+- [ ] **Passo 2: remover as exportações relacionadas à estimativa por caracteres**
 
-删除这些（它们属于旧本地估算管线，迁移后无来源）：
-- `export const ESTIMATED_TOKEN_CHAR_DIVISOR = 3;`（第 1 行）
-- `export function estimateTokensFromCharacterCount(...) { ... }`（文件末尾整段）
-- 接口 `UsageStatsDailyModelUsage` / `UsageStatsDailyModelUsageItem`（被新 App Usage 类型取代）
-- `AppUsageSnapshot` 旧定义（第 130-134 行）与旧 `AppUsageRequest`（第 24-27 行）
+Remova estes itens (eles pertencem à antiga pipeline de estimativa local e ficam sem fonte após a migração):
+- `export const ESTIMATED_TOKEN_CHAR_DIVISOR = 3;` (linha 1)
+- `export function estimateTokensFromCharacterCount(...) { ... }` (o bloco inteiro no fim do arquivo)
+- As interfaces `UsageStatsDailyModelUsage` / `UsageStatsDailyModelUsageItem` (substituídas pelos novos tipos de App Usage)
+- A definição antiga de `AppUsageSnapshot` (linhas 130-134) e o antigo `AppUsageRequest` (linhas 24-27)
 
-> `UsageStatsSnapshot` / `UsageStatsSummary` / `UsageStatsHeatmap*` / `UsageStatsModelUsage` 等仍被 Coding Plan/monitor 与 `getSnapshot` 使用，**保留不动**。`UsageStatsRange` 保留。
+> `UsageStatsSnapshot` / `UsageStatsSummary` / `UsageStatsHeatmap*` / `UsageStatsModelUsage` etc. ainda são usados pelo Coding Plan/monitor e por `getSnapshot`, portanto **permanecem intactos**. `UsageStatsRange` permanece.
 
-- [ ] **Step 3: 新增 App Usage 的 zod schema 与类型**
+- [ ] **Passo 3: adicionar o zod schema e os tipos de App Usage**
 
-在文件中（Coding Plan 段之前）插入：
+Insira no arquivo (antes da seção do Coding Plan):
 
 ```typescript
 // ── App Usage（agent 数据库真实统计）────────────────────────────────
@@ -186,16 +186,16 @@ export interface AppUsageRequest {
 }
 ```
 
-- [ ] **Step 4: 确认 shared barrel 导出**
+- [ ] **Passo 4: confirmar a exportação no barrel do shared**
 
-确认 `packages/shared/src/usage-stats.ts` 已被 `packages/shared/src/index.ts` 重导出（搜索 `usage-stats`）。若是 `export * from "./usage-stats.js"` 则无需改。
+Confirme que `packages/shared/src/usage-stats.ts` já é reexportado por `packages/shared/src/index.ts` (busque por `usage-stats`). Se for `export * from "./usage-stats.js"`, nada precisa ser alterado.
 
-- [ ] **Step 5: 编译验证**
+- [ ] **Passo 5: verificação de compilação**
 
 Run: `cd packages/shared && npx tsc --noEmit`
-Expected: PASS（若有引用旧 `estimateTokensFromCharacterCount` / 旧 `AppUsageSnapshot` 的下游报错，属预期，将在后续 Task 修掉；本步只需 shared 包自身类型自洽）。
+Expected: PASS (erros a jusante referenciando o antigo `estimateTokensFromCharacterCount` / o antigo `AppUsageSnapshot` são esperados e serão corrigidos nas Tasks seguintes; neste passo basta que os tipos do próprio pacote shared sejam coerentes).
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commit**
 
 ```bash
 git add packages/shared/src/usage-stats.ts
@@ -204,16 +204,16 @@ git commit -m "feat(usage): add app usage db-backed DTO schemas"
 
 ---
 
-## Phase 1 — agent 数据库读层
+## Fase 1 — camada de leitura do banco do agent
 
-### Task 1: contracts 增加 raw 查询类型与端口方法
+### Task 1: contracts ganha os tipos raw de consulta e o método de porta
 
-**Files:**
+**Arquivos:**
 - Modify: `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts`
 
-- [ ] **Step 1: 在 `UsageStorePort` 之前插入 raw 查询类型**
+- [ ] **Passo 1: inserir os tipos raw de consulta antes de `UsageStorePort`**
 
-在 `export interface UsageStorePort {`（约第 595 行）**之前**插入：
+Insira **antes** de `export interface UsageStorePort {` (cerca da linha 595):
 
 ```typescript
 export interface AppUsageQueryInput {
@@ -287,9 +287,9 @@ export interface AppUsageQueryResult {
 }
 ```
 
-- [ ] **Step 2: 在端口接口中加只读方法**
+- [ ] **Passo 2: adicionar o método somente leitura na interface de porta**
 
-修改 `UsageStorePort`（第 595-600 行），加一行：
+Modifique `UsageStorePort` (linhas 595-600) e acrescente uma linha:
 
 ```typescript
 export interface UsageStorePort {
@@ -301,12 +301,12 @@ export interface UsageStorePort {
 }
 ```
 
-- [ ] **Step 3: 编译验证**
+- [ ] **Passo 3: verificação de compilação**
 
 Run: `cd apps/zcode-cli/packages/contracts && npx tsc --noEmit`
-Expected: PASS（实现类 `SqliteSessionStore` 未实现新方法的报错会在它的包里出现，不在 contracts 包内，本步 PASS）。
+Expected: PASS (os erros da classe de implementação `SqliteSessionStore` por não implementar o novo método aparecerão no pacote dela, não dentro do pacote contracts; então PASS neste passo).
 
-- [ ] **Step 4: Commit**
+- [ ] **Passo 4: Commit**
 
 ```bash
 git add apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts
@@ -315,16 +315,16 @@ git commit -m "feat(contracts): add app usage read port + raw query types"
 
 ---
 
-### Task 2: adapters 实现 SQL 聚合 + 代理（先写测试）
+### Task 2: adapters implementa a agregação SQL + proxy (escreva o teste primeiro)
 
-**Files:**
+**Arquivos:**
 - Test: `apps/zcode-cli/packages/adapters/tests/usage-query.test.ts`
 - Modify: `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts`
 - Modify: `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Passo 1: escrever o teste que falha**
 
-创建 `apps/zcode-cli/packages/adapters/tests/usage-query.test.ts`：
+Crie `apps/zcode-cli/packages/adapters/tests/usage-query.test.ts`:
 
 ```typescript
 import { mkdtemp, rm } from "node:fs/promises";
@@ -460,14 +460,14 @@ describe("queryAppUsage", () => {
 });
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [ ] **Passo 2: rodar para confirmar a falha**
 
 Run: `cd apps/zcode-cli && npx vitest run packages/adapters/tests/usage-query.test.ts`
-Expected: FAIL（`store.queryAppUsage is not a function`）。
+Expected: FAIL (`store.queryAppUsage is not a function`).
 
-- [ ] **Step 3: 在 repo 实现 `queryAppUsage`**
+- [ ] **Passo 3: implementar `queryAppUsage` no repo**
 
-在 `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts` 末尾（`function integer` 之前）加：
+Adicione ao final de `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts` (antes de `function integer`):
 
 ```typescript
 import type {
@@ -670,9 +670,9 @@ export async function queryAppUsage(
 }
 ```
 
-- [ ] **Step 4: 在 sqlite-session-store 代理新方法**
+- [ ] **Passo 4: fazer o proxy do novo método no sqlite-session-store**
 
-在 `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts` 的 usage 代理段（约 203-217 行，`pruneUsage` 之后）加：
+Adicione na seção de proxy de usage de `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts` (cerca das linhas 203-217, depois de `pruneUsage`):
 
 ```typescript
 async queryAppUsage(
@@ -682,14 +682,14 @@ async queryAppUsage(
 }
 ```
 
-> 若该文件顶部已 `import * as usageRepository from "./repositories/usage.js";` 并集中 import 了 contracts 类型，则改用顶部已有的具名 import 风格，与相邻方法保持一致。
+> Se o topo do arquivo já tiver `import * as usageRepository from "./repositories/usage.js";` e concentrarem os tipos de contracts, use o estilo de import nomeado já existente no topo, mantendo a consistência com os métodos vizinhos.
 
-- [ ] **Step 5: 运行测试至通过**
+- [ ] **Passo 5: rodar o teste até passar**
 
 Run: `cd apps/zcode-cli && npx vitest run packages/adapters/tests/usage-query.test.ts`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commit**
 
 ```bash
 git add apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts \
@@ -700,17 +700,17 @@ git commit -m "feat(adapters): aggregate app usage from sqlite usage tables"
 
 ---
 
-## Phase 2 — builder + 协议
+## Fase 2 — builder + protocolo
 
-### Task 3: 纯函数 builder（先写测试）
+### Task 3: builder de função pura (escreva o teste primeiro)
 
-**Files:**
+**Arquivos:**
 - Test: `apps/zcode-cli/packages/bootstrap/tests/usage-stats-builder.test.ts`
 - Create: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts`
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Passo 1: escrever o teste que falha**
 
-创建 `apps/zcode-cli/packages/bootstrap/tests/usage-stats-builder.test.ts`：
+Crie `apps/zcode-cli/packages/bootstrap/tests/usage-stats-builder.test.ts`:
 
 ```typescript
 import { describe, expect, it } from "vitest";
@@ -823,14 +823,14 @@ describe("buildAppUsageSnapshot", () => {
 });
 ```
 
-- [ ] **Step 2: 运行确认失败**
+- [ ] **Passo 2: rodar para confirmar a falha**
 
 Run: `cd apps/zcode-cli && npx vitest run packages/bootstrap/tests/usage-stats-builder.test.ts`
-Expected: FAIL（模块不存在）。
+Expected: FAIL (módulo inexistente).
 
-- [ ] **Step 3: 实现 builder**
+- [ ] **Passo 3: implementar o builder**
 
-创建 `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts`：
+Crie `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts`:
 
 ```typescript
 import type { AppUsageQueryResult } from "@zcode/contracts";
@@ -1039,12 +1039,12 @@ export function buildAppUsageSnapshot(
 }
 ```
 
-- [ ] **Step 4: 运行测试至通过**
+- [ ] **Passo 4: rodar o teste até passar**
 
 Run: `cd apps/zcode-cli && npx vitest run packages/bootstrap/tests/usage-stats-builder.test.ts`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commit**
 
 ```bash
 git add apps/zcode-cli/packages/bootstrap/src/zcode-protocol/usage-stats-builder.ts \
@@ -1054,25 +1054,25 @@ git commit -m "feat(bootstrap): pure app usage snapshot builder"
 
 ---
 
-### Task 4: 协议方法 `usage/stats`（schema + handler + dispatch + 宿主 agentService）
+### Task 4: método de protocolo `usage/stats` (schema + handler + dispatch + agentService do host)
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/shared/src/zcode-protocol/index.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts`
-- Modify: `packages/services/src/zcode-agent/zcodeAgentService.ts`（及其参数/接口类型定义文件）
+- Modify: `packages/services/src/zcode-agent/zcodeAgentService.ts`（e os arquivos de definição de tipos/parâmetros/interfaces对应）
 
-- [ ] **Step 1: 在 shared 协议文件加方法与 schema**
+- [ ] **Passo 1: adicionar o método e o schema no arquivo de protocolo do shared**
 
-在 `packages/shared/src/zcode-protocol/index.ts`：
+Em `packages/shared/src/zcode-protocol/index.ts`:
 
-(a) `zcodeProtocolMethods` 对象（约第 1687 行）内，在 `promptEnhance` 行附近加一项：
+(a) Dentro do objeto `zcodeProtocolMethods` (cerca da linha 1687), adicione uma entrada perto da linha `promptEnhance`:
 
 ```typescript
   usageStats: "usage/stats",
 ```
 
-(b) 在 schema 定义区（与 `zcodeSessionListParamsSchema` 同段，约第 1255 行附近）加入参 schema，并引用 Task 0 的 `appUsageSnapshotSchema`：
+(b) Na região de definição de schemas (na mesma seção de `zcodeSessionListParamsSchema`, perto da linha 1255) adicione o schema de parâmetros, referenciando o `appUsageSnapshotSchema` da Task 0:
 
 ```typescript
 import { appUsageSnapshotSchema, APP_USAGE_RANGES } from "../usage-stats.js";
@@ -1089,9 +1089,9 @@ export const zcodeUsageStatsResultSchema = appUsageSnapshotSchema;
 export type ZCodeUsageStatsResult = z.infer<typeof zcodeUsageStatsResultSchema>;
 ```
 
-> 若 `index.ts` 已从 `../usage-stats.js` 导入其它符号，合并到同一条 import。
+> Se `index.ts` já importar outros símbolos de `../usage-stats.js`, mescle no mesmo import.
 
-(c) 在方法→schema 契约映射对象（约第 1731 行，`[zcodeProtocolMethods.sessionList]: {...}` 同款）加：
+(c) No objeto de mapeamento método→schema do contrato (cerca da linha 1731, no mesmo formato de `[zcodeProtocolMethods.sessionList]: {...}`) adicione:
 
 ```typescript
 [zcodeProtocolMethods.usageStats]: {
@@ -1100,9 +1100,9 @@ export type ZCodeUsageStatsResult = z.infer<typeof zcodeUsageStatsResultSchema>;
 },
 ```
 
-- [ ] **Step 2: 写 handler**
+- [ ] **Passo 2: escrever o handler**
 
-在 `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`，仿 `listSessions`（约第 114 行）加：
+Em `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`, modelando `listSessions` (cerca da linha 114) adicione:
 
 ```typescript
 import {
@@ -1165,22 +1165,22 @@ export async function getUsageStats(
 }
 ```
 
-> 确认 `context.deps.sessionStore` 的类型已包含 `queryAppUsage`（Task 1 已在 `UsageStorePort` 加）。若 `sessionStore` 的类型是组合接口，确保它继承/包含 `UsageStorePort`。
+> Confirme que o tipo de `context.deps.sessionStore` já inclui `queryAppUsage` (a Task 1 já o adicionou ao `UsageStorePort`). Se o tipo de `sessionStore` for uma interface composta, certifique-se de que ela herda/contém `UsageStorePort`.
 
-- [ ] **Step 3: 在 dispatch switch 加 case**
+- [ ] **Passo 3: adicionar o case no switch de dispatch**
 
-在 `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts` 的 `dispatchRequest` switch（约第 99 行）内，仿 `sessionList` 加：
+Dentro do switch de `dispatchRequest` em `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts` (cerca da linha 99), modelando `sessionList` adicione:
 
 ```typescript
     case zcodeProtocolMethods.usageStats:
       return await getUsageStats(this.context, request.params);
 ```
 
-并在该文件顶部从 `./server-operations.js` 的具名 import 中加入 `getUsageStats`。
+E inclua `getUsageStats` nos imports nomeados do topo do arquivo, vindos de `./server-operations.js`.
 
-- [ ] **Step 4: 宿主 zcodeAgentService 加 `getAppUsageStats`**
+- [ ] **Passo 4: adicionar `getAppUsageStats` no zcodeAgentService do host**
 
-在 `packages/services/src/zcode-agent/zcodeAgentService.ts`，仿 `listSessions`（约第 382 行）加方法：
+Em `packages/services/src/zcode-agent/zcodeAgentService.ts`, modelando `listSessions` (cerca da linha 382) adicione o método:
 
 ```typescript
 async getAppUsageStats(params: ZCodeAgentAppUsageParams) {
@@ -1193,9 +1193,9 @@ async getAppUsageStats(params: ZCodeAgentAppUsageParams) {
 },
 ```
 
-在该文件顶部 import 加 `zcodeUsageStatsResultSchema`（来自 `@zcode/shared`）。
+Adicione `zcodeUsageStatsResultSchema` aos imports do topo do arquivo (vindo de `@zcode/shared`).
 
-定义参数类型 `ZCodeAgentAppUsageParams`（放在该 service 现有参数类型旁，复用其 `ZCodeAgentWorkspaceTarget` 基类）：
+Defina o tipo de parâmetros `ZCodeAgentAppUsageParams` (ao lado dos tipos de parâmetros existentes desse service, reutilizando a base `ZCodeAgentWorkspaceTarget`):
 
 ```typescript
 export interface ZCodeAgentAppUsageParams extends ZCodeAgentWorkspaceTarget {
@@ -1204,22 +1204,22 @@ export interface ZCodeAgentAppUsageParams extends ZCodeAgentWorkspaceTarget {
 }
 ```
 
-并在 `IZCodeAgentService` 接口（该 service 的接口声明文件）加：
+E adicione na interface `IZCodeAgentService` (no arquivo de declaração de interface desse service):
 
 ```typescript
 getAppUsageStats(params: ZCodeAgentAppUsageParams): Promise<AppUsageSnapshot>;
 ```
 
-> `AppUsageRange` / `AppUsageSnapshot` 从 `@zcode/shared` 导入。
+> `AppUsageRange` / `AppUsageSnapshot` são importados de `@zcode/shared`.
 
-> **架构说明（实现者必读）**：usage 表位于全局 session 库（`~/.zcode/sessions/default.db`），任意 workspace 的 agent client 查询到的都是全应用范围数据。`getAppUsageStats` 沿用 `getClient(params)` 拿到当前活动 workspace 的 client 即可；它需要一个 `ZCodeAgentWorkspaceTarget`。宿主服务（Task 5）会传入当前活动 workspace 目标，与其它 `zcodeAgentService` 调用一致。
+> **Nota de arquitetura (leitura obrigatória por quem implementa)**: as tabelas de usage ficam no store global de sessions (`~/.zcode/sessions/default.db`), então o agent client de qualquer workspace consulta dados de escopo de todo o aplicativo. `getAppUsageStats` pode simplesmente reutilizar `getClient(params)` para obter o client do workspace ativo atual; ele precisa de um `ZCodeAgentWorkspaceTarget`. O serviço do host (Task 5) vai passar o alvo do workspace ativo atual, de forma consistente com as demais chamadas de `zcodeAgentService`.
 
-- [ ] **Step 5: 类型编译验证**
+- [ ] **Passo 5: verificação de compilação de tipos**
 
 Run: `cd /Users/dev/workspace/z-code && npx tsc --noEmit -p packages/shared && npx tsc --noEmit -p apps/zcode-cli/packages/bootstrap`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commit**
 
 ```bash
 git add packages/shared/src/zcode-protocol/index.ts \
@@ -1231,25 +1231,25 @@ git commit -m "feat(protocol): add usage/stats method end to end"
 
 ---
 
-## Phase 3 — 宿主服务换源
+## Fase 3 — troca de fonte no serviço do host
 
-### Task 5: 重写 `usageStatsService.getAppUsageSnapshot` 走协议 + 删旧管线
+### Task 5: reescrever `usageStatsService.getAppUsageSnapshot` passando pelo protocolo + remover a pipeline antiga
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/services/src/usage-stats/usageStats.ts`
 - Modify: `packages/services/src/usage-stats/usageStatsService.ts`
 - Modify: `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts`
-- Delete: `packages/services/src/usage-stats/usageStatsAggregator.ts`、`packages/services/src/usage-stats/repo/sessionUsageRepo.ts`、`packages/services/src/usage-stats/usageStatsSeries.ts`（存在则删）
+- Delete: `packages/services/src/usage-stats/usageStatsAggregator.ts`、`packages/services/src/usage-stats/repo/sessionUsageRepo.ts`、`packages/services/src/usage-stats/usageStatsSeries.ts`（exclua se existirem）
 
-- [ ] **Step 1: 更新接口入参类型**
+- [ ] **Passo 1: atualizar o tipo de entrada da interface**
 
-`packages/services/src/usage-stats/usageStats.ts` 第 15 行 `getAppUsageSnapshot` 的入参 `AppUsageRequest` 现已是新类型（range: AppUsageRange，Task 0 已改）。确认该文件 import 的 `AppUsageRequest` / `AppUsageSnapshot` 来自 `@zcode/shared` 的新定义即可，无需改签名文字。
+Na linha 15 de `packages/services/src/usage-stats/usageStats.ts`, a entrada `AppUsageRequest` de `getAppUsageSnapshot` já é o novo tipo (range: AppUsageRange, alterado na Task 0). Basta confirmar que o `AppUsageRequest` / `AppUsageSnapshot` importado nesse arquivo vem das novas definições de `@zcode/shared`; não é preciso alterar o texto da assinatura.
 
-- [ ] **Step 2: 改 `createUsageStatsService` 依赖与方法体**
+- [ ] **Passo 2: alterar as dependências e o corpo do método em `createUsageStatsService`**
 
-`packages/services/src/usage-stats/usageStatsService.ts`：
+Em `packages/services/src/usage-stats/usageStatsService.ts`:
 
-(a) 依赖接口加 `zcodeAgentService`：
+(a) Adicione `zcodeAgentService` à interface de dependências:
 
 ```typescript
 interface UsageStatsServiceDependencies {
@@ -1263,13 +1263,13 @@ interface UsageStatsServiceDependencies {
 }
 ```
 
-(b) 顶部 import：
+(b) Import no topo:
 
 ```typescript
 import type { IZCodeAgentService, ZCodeAgentWorkspaceTarget } from "../zcode-agent/zcodeAgentService.js";
 ```
 
-(c) 重写 `getAppUsageSnapshot`（替换第 45-52 行）：
+(c) Reescreva `getAppUsageSnapshot` (substituindo as linhas 45-52):
 
 ```typescript
 async getAppUsageSnapshot(request: AppUsageRequest): Promise<AppUsageSnapshot> {
@@ -1284,9 +1284,9 @@ async getAppUsageSnapshot(request: AppUsageRequest): Promise<AppUsageSnapshot> {
 },
 ```
 
-(d) 删除文件顶部对 `readPersistedSessionFiles` / `buildUsageStatsSnapshot` 的 import。
+(d) Remova do topo do arquivo os imports de `readPersistedSessionFiles` / `buildUsageStatsSnapshot`.
 
-- [ ] **Step 3: 删除旧本地聚合管线文件**
+- [ ] **Passo 3: remover os arquivos da antiga pipeline de agregação local**
 
 ```bash
 git rm packages/services/src/usage-stats/usageStatsAggregator.ts \
@@ -1294,11 +1294,11 @@ git rm packages/services/src/usage-stats/usageStatsAggregator.ts \
        packages/services/src/usage-stats/usageStatsSeries.ts
 ```
 
-> 若某文件不存在，跳过该条。再 `grep -rn "usageStatsAggregator\|sessionUsageRepo\|usageStatsSeries\|estimateTokensFromCharacterCount\|buildUsageStatsSnapshot" packages/` 清理所有残留 import/引用（含旧测试文件，一并删除或改写）。
+> Se algum arquivo não existir, pule essa linha. Em seguida, rode `grep -rn "usageStatsAggregator\|sessionUsageRepo\|usageStatsSeries\|estimateTokensFromCharacterCount\|buildUsageStatsSnapshot" packages/` e limpe todos os imports/Referências restantes (incluindo arquivos de teste antigos, que devem ser deletados ou reescritos).
 
-- [ ] **Step 4: 在 host 注入依赖**
+- [ ] **Passo 4: injetar a dependência no host**
 
-`packages/desktop/src/host/remoteWorkspaceServiceCollection.ts` 第 98-105 行改为：
+Em `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts`, as linhas 98-105 passam a ser:
 
 ```typescript
       .register(
@@ -1313,14 +1313,14 @@ git rm packages/services/src/usage-stats/usageStatsAggregator.ts \
       )
 ```
 
-> `params.resolveActiveWorkspaceTarget` 若当前 params 未提供：在 `createRemoteWorkspaceServiceCollection` 的入参里加该函数，由调用方（已持有当前 workspace 上下文处）传入。沿用 `buildWorkspaceRef` / 现有 workspace target 构造逻辑——搜索本文件其它 `params.connectionServices.zcodeAgentService` 的调用上游，确认 workspace 目标来源后接入。
+> Se `params.resolveActiveWorkspaceTarget` ainda não for fornecido nos params atuais: adicione essa função aos parâmetros de `createRemoteWorkspaceServiceCollection`, passando-a do chamador (o lugar que já detém o contexto do workspace atual). Reutilize a lógica existente de construção de workspace target — `buildWorkspaceRef` / os constructs atuais de workspace target: busque neste arquivo os pontos a montante que já usam `params.connectionServices.zcodeAgentService`, confirme a origem do alvo de workspace e faça a conexão.
 
-- [ ] **Step 5: 编译验证**
+- [ ] **Passo 5: verificação de compilação**
 
 Run: `cd /Users/dev/workspace/z-code && npx tsc --noEmit -p packages/services && npx tsc --noEmit -p packages/desktop`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commit**
 
 ```bash
 git add packages/services/src/usage-stats packages/desktop/src/host/remoteWorkspaceServiceCollection.ts
@@ -1329,43 +1329,43 @@ git commit -m "feat(services): app usage reads agent db via protocol; drop local
 
 ---
 
-## Phase 4 — UI 重绘
+## Fase 4 — redesenho da UI
 
-> 说明：UI 改动以 `AppUsageSnapshot` 新结构为准。所有 `formatCompactNumber` / `formatPercent` / `UsageMetricCard` / `UsageEmptyState` / `resolveModelLabel` 复用 `usageStatsUiParts.tsx` 现有导出。
+> Observação: as alterações de UI seguem a nova estrutura de `AppUsageSnapshot`. Todos os `formatCompactNumber` / `formatPercent` / `UsageMetricCard` / `UsageEmptyState` / `resolveModelLabel` reutilizam as exportações existentes de `usageStatsUiParts.tsx`.
 
-### Task 6: 时间范围改 7d/30d + hook 类型
+### Task 6: intervalo de tempo passa a 7d/30d + tipos do hook
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/settings/usage-stats/usageStatsUiParts.tsx`
 - Modify: `packages/ui/src/hooks/useUsageStats.ts`
 - Modify: `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`
 
-- [ ] **Step 1: `RANGE_OPTIONS` 改为 App Usage 范围**
+- [ ] **Passo 1: mudar `RANGE_OPTIONS` para as faixas do App Usage**
 
-在 `usageStatsUiParts.tsx` 找到 `RANGE_OPTIONS` 定义，改为：
+Em `usageStatsUiParts.tsx`, encontre a definição de `RANGE_OPTIONS` e altere para:
 
 ```typescript
 import type { AppUsageRange } from "@zcode/shared";
 export const RANGE_OPTIONS: AppUsageRange[] = ["7d", "30d"];
 ```
 
-- [ ] **Step 2: `useAppUsageStats` 形参类型改 `AppUsageRange`**
+- [ ] **Passo 2: mudar o tipo de parâmetro de `useAppUsageStats` para `AppUsageRange`**
 
-`packages/ui/src/hooks/useUsageStats.ts`：把 `useAppUsageStats(range: UsageStatsRange)`（第 163 行）改为 `range: AppUsageRange`，并在顶部 import 加 `AppUsageRange`（来自 `@zcode/shared`）。`useUsageStats` / `useCodingPlanUsageStats` 保持 `UsageStatsRange` / `CodingPlanUsageRange` 不动。
+Em `packages/ui/src/hooks/useUsageStats.ts`: troque `useAppUsageStats(range: UsageStatsRange)` (linha 163) por `range: AppUsageRange` e acrescente `AppUsageRange` (vindo de `@zcode/shared`) aos imports do topo. `useUsageStats` / `useCodingPlanUsageStats` continuam com `UsageStatsRange` / `CodingPlanUsageRange` sem alteração.
 
-- [ ] **Step 3: 面板默认值与 tabs 类型**
+- [ ] **Passo 3: valor padrão do painel e tipo dos tabs**
 
-`AppUsagePanel.tsx`：
-- 第 32 行 `useState<UsageStatsRange>("all")` → `useState<AppUsageRange>("30d")`。
-- import（第 17 行）`UsageStatsRange` → `AppUsageRange`。
-- `AppUsageRangeTabs` 的 props 类型 `UsageStatsRange` → `AppUsageRange`（第 209-211 行）。
+Em `AppUsagePanel.tsx`:
+- Linha 32: `useState<UsageStatsRange>("all")` → `useState<AppUsageRange>("30d")`.
+- Import (linha 17): `UsageStatsRange` → `AppUsageRange`.
+- Tipo das props de `AppUsageRangeTabs`: `UsageStatsRange` → `AppUsageRange` (linhas 209-211).
 
-- [ ] **Step 4: 编译验证（局部）**
+- [ ] **Passo 4: verificação de compilação (parcial)**
 
 Run: `cd /Users/dev/workspace/z-code && npx tsc --noEmit -p packages/ui`
-Expected: 仍会因后续 Task 未完成而报概要/热力图字段错误——本步只确认 range 相关无类型错误（忽略 summary/heatmap 字段类错误，下一 Task 修）。
+Expected: ainda haverá erros de campos de summary/heatmap porque as Tasks seguintes não estão concluídas — neste passo confirme apenas que não há erros de tipo relacionados a range (ignore os erros de campos summary/heatmap, que serão corrigidos na próxima Task).
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commit**
 
 ```bash
 git add packages/ui/src/hooks/useUsageStats.ts packages/ui/src/settings/usage-stats/usageStatsUiParts.tsx packages/ui/src/settings/usage-stats/AppUsagePanel.tsx
@@ -1374,21 +1374,21 @@ git commit -m "feat(ui): app usage range 7d/30d"
 
 ---
 
-### Task 7: 概要卡片改用真实指标
+### Task 7: cards de resumo passam a usar métricas reais
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`
 
-- [ ] **Step 1: 替换概要卡片网格**
+- [ ] **Passo 1: substituir a grade de cards de resumo**
 
-把第 75-76 行 `favoriteModel` / `peakHour` 取值改为：
+Troque a atribuição de `favoriteModel` / `peakHour` nas linhas 75-76 por:
 
 ```typescript
   const summary = snapshot.summary;
   const favoriteModel = summary.favoriteModel;
 ```
 
-把第 87-168 行整个 `<div className="grid ...">…</div>` 概要卡网格替换为下列 8 张卡（图标从 lucide-react 取，已在第 1-10 行导入；新增 `Wrench`、`AlertTriangle`、`Timer`、`Database` 到 import）：
+Substitua toda a grade de cards de resumo `<div className="grid ...">…</div>` das linhas 87-168 pelos 8 cards a seguir (os ícones vêm do lucide-react, já importados nas linhas 1-10; adicione `Wrench`, `AlertTriangle`, `Timer`, `Database` aos imports):
 
 ```tsx
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1463,7 +1463,7 @@ git commit -m "feat(ui): app usage range 7d/30d"
       </div>
 ```
 
-更新第 1-10 行 import：
+Atualize o import das linhas 1-10:
 
 ```typescript
 import {
@@ -1478,14 +1478,14 @@ import {
 } from "lucide-react";
 ```
 
-> 移除不再使用的 `CalendarDays`、`Gauge`、`TrendingUp`、`Zap`（除非热力图/趋势仍用到，按 tsc 报错为准）。
+> Remova `CalendarDays`, `Gauge`, `TrendingUp`, `Zap` que não forem mais usados (a menos que heatmap/tendência ainda os usem; siga os erros do tsc).
 
-- [ ] **Step 2: 编译验证**
+- [ ] **Passo 2: verificação de compilação**
 
 Run: `cd /Users/dev/workspace/z-code && npx tsc --noEmit -p packages/ui`
-Expected: 概要相关字段错误消失；剩余热力图/趋势错误在后续 Task 修。
+Expected: os erros de campos do resumo desaparecem; os erros restantes de heatmap/tendência são corrigidos nas Tasks seguintes.
 
-- [ ] **Step 3: Commit**
+- [ ] **Passo 3: Commit**
 
 ```bash
 git add packages/ui/src/settings/usage-stats/AppUsagePanel.tsx
@@ -1494,17 +1494,17 @@ git commit -m "feat(ui): real-token summary cards for app usage"
 
 ---
 
-### Task 8: 热力图改 30 天（字段适配）
+### Task 8: heatmap passa a 30 dias (adaptação de campos)
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/settings/usage-stats/usageStatsUiParts.tsx`
 - Modify: `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`
 
-- [ ] **Step 1: `UsageHeatmap` props 与单元格字段适配**
+- [ ] **Passo 1: adaptar as props de `UsageHeatmap` e os campos da célula**
 
-`usageStatsUiParts.tsx` 中 `UsageHeatmap` 组件：
-- props `weeks` 类型从 `UsageStatsHeatmapWeek[]` 改为 `AppUsageHeatmapWeek[]`（import 自 `@zcode/shared`）。
-- 单元格 tooltip 与配色：用 `cell.totalTokens`（替换原 `totalEstimatedTokens`/`activityScore`），tooltip 文案改用新 i18n：
+No componente `UsageHeatmap` de `usageStatsUiParts.tsx`:
+- O tipo das props `weeks` muda de `UsageStatsHeatmapWeek[]` para `AppUsageHeatmapWeek[]` (importado de `@zcode/shared`).
+- Tooltip e cores da célula: use `cell.totalTokens` (substituindo o antigo `totalEstimatedTokens`/`activityScore`), com o texto do tooltip passando a usar o novo i18n:
 
 ```tsx
 title={intl.formatMessage(
@@ -1517,19 +1517,19 @@ title={intl.formatMessage(
 )}
 ```
 
-- `level` 字段语义不变（0-4），配色映射保留。
-- 删除对 `monthLabels` 的依赖（新结构无该字段）；若现组件渲染月份标签，改为不渲染或基于 `weeks[i].days[0]?.date` 自行推导（可选，30 天范围下月份标签意义不大，建议直接移除月份标签块）。
+- A semântica do campo `level` não muda (0-4) e o mapeamento de cores é preservado.
+- Remova a dependência de `monthLabels` (a nova estrutura não tem esse campo); se o componente atual renderiza rótulos de mês, passe a não renderizá-los ou derive-os de `weeks[i].days[0]?.date` (opcional: no intervalo de 30 dias os rótulos de mês têm pouco sentido, recomenda-se simplesmente remover o bloco de rótulos de mês).
 
-- [ ] **Step 2: 面板渲染处不变**
+- [ ] **Passo 2: ponto de renderização no painel permanece inalterado**
 
-`AppUsagePanel.tsx` 第 170-176 行 `<UsageHeatmap weeks={snapshot.heatmap.weeks} .../>` 保持；确认 `snapshot.heatmap.weeks` 现为新结构（已是）。
+Manter `<UsageHeatmap weeks={snapshot.heatmap.weeks} .../>` nas linhas 170-176 de `AppUsagePanel.tsx`; confirme que `snapshot.heatmap.weeks` agora tem a nova estrutura (já tem).
 
-- [ ] **Step 3: 编译验证**
+- [ ] **Passo 3: verificação de compilação**
 
 Run: `cd /Users/dev/workspace/z-code && npx tsc --noEmit -p packages/ui`
-Expected: 热力图字段错误消失。
+Expected: os erros de campos do heatmap desaparecem.
 
-- [ ] **Step 4: Commit**
+- [ ] **Passo 4: Commit**
 
 ```bash
 git add packages/ui/src/settings/usage-stats/usageStatsUiParts.tsx packages/ui/src/settings/usage-stats/AppUsagePanel.tsx
@@ -1538,29 +1538,29 @@ git commit -m "feat(ui): 30-day token heatmap"
 
 ---
 
-### Task 9: 趋势图改真实 token + 模型排行字段适配
+### Task 9: gráfico de tendência passa a usar tokens reais + adaptação dos campos do ranking de modelos
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/settings/usage-stats/AppUsageDailyModelBarChart.tsx`
 - Modify: `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`
 
-- [ ] **Step 1: 趋势图取值改 `totalTokens`**
+- [ ] **Passo 1: o gráfico de tendência passa a ler `totalTokens`**
 
-`AppUsageDailyModelBarChart.tsx`：把读取 `snapshot.dailyModelUsage[].models[].totalEstimatedTokens` 的地方改为 `totalTokens`（新 `AppUsageDailyModelItem` 字段）。分桶/堆叠逻辑不变。`snapshot.dailyModelUsage` 类型现为 `AppUsageDailyModelUsage[]`。
+Em `AppUsageDailyModelBarChart.tsx`: troque as leituras de `snapshot.dailyModelUsage[].models[].totalEstimatedTokens` por `totalTokens` (novo campo de `AppUsageDailyModelItem`). A lógica de bucketing/stacking permanece. O tipo de `snapshot.dailyModelUsage` agora é `AppUsageDailyModelUsage[]`.
 
-- [ ] **Step 2: 模型排行字段适配**
+- [ ] **Passo 2: adaptar os campos do ranking de modelos**
 
-`AppUsagePanel.tsx` 的 `AppUsageModelRanking`（第 235-274 行）：
+Em `AppUsageModelRanking` de `AppUsagePanel.tsx` (linhas 235-274):
 - `model.inputEstimatedTokens` → `model.inputTokens`
 - `model.outputEstimatedTokens` → `model.outputTokens`
-- `model.share` 不变；`resolveModelLabel(intl, model.modelId)` 不变。
+- `model.share` permanece; `resolveModelLabel(intl, model.modelId)` permanece.
 
-- [ ] **Step 3: 编译验证**
+- [ ] **Passo 3: verificação de compilação**
 
 Run: `cd /Users/dev/workspace/z-code && npx tsc --noEmit -p packages/ui`
-Expected: 趋势/排行字段错误消失。
+Expected: os erros de campos de tendência/ranking desaparecem.
 
-- [ ] **Step 4: Commit**
+- [ ] **Passo 4: Commit**
 
 ```bash
 git add packages/ui/src/settings/usage-stats/AppUsageDailyModelBarChart.tsx packages/ui/src/settings/usage-stats/AppUsagePanel.tsx
@@ -1569,14 +1569,14 @@ git commit -m "feat(ui): real-token trend and model ranking"
 
 ---
 
-### Task 10: 新增「工具使用」区块
+### Task 10: novo bloco "Uso de ferramentas"
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/ui/src/settings/usage-stats/AppUsagePanel.tsx`
 
-- [ ] **Step 1: 加 `AppUsageToolUsageSection` 组件**
+- [ ] **Passo 1: adicionar o componente `AppUsageToolUsageSection`**
 
-在 `AppUsagePanel.tsx` 末尾加：
+Ao final de `AppUsagePanel.tsx` adicione:
 
 ```tsx
 function AppUsageToolUsageSection({ snapshot }: { snapshot: AppUsageSnapshot }) {
@@ -1632,20 +1632,20 @@ function AppUsageToolUsageSection({ snapshot }: { snapshot: AppUsageSnapshot }) 
 }
 ```
 
-- [ ] **Step 2: 在面板渲染处插入区块**
+- [ ] **Passo 2: inserir o bloco no ponto de renderização do painel**
 
-在 `AppUsagePanel` return 内，第 179 行 `<AppUsageModelRanking snapshot={snapshot} />` 之后加：
+Dentro do return de `AppUsagePanel`, após `<AppUsageModelRanking snapshot={snapshot} />` na linha 179, adicione:
 
 ```tsx
       <AppUsageToolUsageSection snapshot={snapshot} />
 ```
 
-- [ ] **Step 3: 编译验证**
+- [ ] **Passo 3: verificação de compilação**
 
 Run: `cd /Users/dev/workspace/z-code && npx tsc --noEmit -p packages/ui`
-Expected: PASS（UI 包无类型错误）。
+Expected: PASS (sem erros de tipo no pacote de UI).
 
-- [ ] **Step 4: Commit**
+- [ ] **Passo 4: Commit**
 
 ```bash
 git add packages/ui/src/settings/usage-stats/AppUsagePanel.tsx
@@ -1654,19 +1654,19 @@ git commit -m "feat(ui): tool usage section"
 
 ---
 
-### Task 11: i18n 文案（增删）
+### Task 11: textos de i18n (adições e remoções)
 
-**Files:**
-- Modify: UI 的中英文 message 文件（搜索 `settings.usage.totalTokens` 定位，通常 `packages/ui/src/i18n/messages/{zh,en}.*`）
+**Arquivos:**
+- Modify: os arquivos de messages zh/en da UI (busque por `settings.usage.totalTokens` para localizar, normalmente `packages/ui/src/i18n/messages/{zh,en}.*`)
 
-- [ ] **Step 1: 定位 messages 文件**
+- [ ] **Passo 1: localizar os arquivos de messages**
 
 Run: `grep -rln "settings.usage.totalTokens" packages/ui/src`
-记下中/英两个文件路径。
+Anote os caminhos dos dois arquivos, zh e en.
 
-- [ ] **Step 2: 新增 key（中文 + 英文都要加）**
+- [ ] **Passo 2: adicionar novas keys (tanto em chinês quanto em inglês)**
 
-新增以下 key（中文示例，英文文件填对应英文）：
+Adicione as keys a seguir (exemplo em chinês; preencha o arquivo em inglês com o texto correspondente):
 
 ```
 "settings.usage.tokenBreakdown": "输入 {input} · 输出 {output}",
@@ -1681,7 +1681,7 @@ Run: `grep -rln "settings.usage.totalTokens" packages/ui/src`
 "settings.usage.toolCallsUnit": "次",
 ```
 
-英文文件对应：
+O arquivo em inglês correspondente:
 
 ```
 "settings.usage.tokenBreakdown": "{input} in · {output} out",
@@ -1696,19 +1696,19 @@ Run: `grep -rln "settings.usage.totalTokens" packages/ui/src`
 "settings.usage.toolCallsUnit": "calls",
 ```
 
-- [ ] **Step 3: 删除不再引用的 key**
+- [ ] **Passo 3: remover as keys que não são mais referenciadas**
 
-删除（确认无其它引用后）：`settings.usage.messages`、`settings.usage.currentStreak`、`settings.usage.longestStreak`、`settings.usage.peakHour`、`settings.usage.peakHourTokens`、`settings.usage.range.all`。
+Remova (após confirmar que não há outras referências): `settings.usage.messages`、`settings.usage.currentStreak`、`settings.usage.longestStreak`、`settings.usage.peakHour`、`settings.usage.peakHourTokens`、`settings.usage.range.all`。
 
 Run: `grep -rn "settings.usage.range.all\|settings.usage.peakHour\|settings.usage.messages\b" packages/ui/src`
-Expected: 仅 message 文件自身命中（无组件引用），删之。
+Expected: apenas o próprio arquivo de messages é encontrado (nenhum componente referencia), então remova.
 
-- [ ] **Step 4: 编译 + lint + 全量测试**
+- [ ] **Passo 4: compilação + lint + suíte completa de testes**
 
 Run: `cd /Users/dev/workspace/z-code && npm run lint && npm test`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commit**
 
 ```bash
 git add packages/ui/src/i18n
@@ -1717,33 +1717,33 @@ git commit -m "feat(ui): app usage i18n keys"
 
 ---
 
-## 收尾验证
+## Verificação final
 
-- [ ] **Step 1: 全量 lint + test**
+- [ ] **Passo 1: lint + testes completos**
 
 Run: `cd /Users/dev/workspace/z-code && npm run lint && npm test`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 2: 残留引用扫描**
+- [ ] **Passo 2: varredura de referências residuais**
 
 Run: `grep -rn "estimateTokensFromCharacterCount\|totalEstimatedTokens\|activityScore\|readPersistedSessionFiles\|usageStatsAggregator" packages/ apps/ --include=*.ts --include=*.tsx`
-Expected: 无业务代码命中（仅 spec/plan 文档或 Coding Plan monitor 自有的 `totalEstimatedTokens` 若存在则保留判断）。
+Expected: nenhuma ocorrência em código de negócio (apenas em documentos spec/plan, ou o `totalEstimatedTokens` próprio do monitor do Coding Plan, caso exista, permanece sob julgamento).
 
-- [ ] **Step 3: 手动联调（可选，按 verify 技能）**
+- [ ] **Passo 3: verificação manual integrada (opcional, conforme a skill verify)**
 
-启动应用，打开 设置 → 使用统计 → 应用用量，确认：7d/30d 切换、概要 8 卡有真实数值、30 天热力图、趋势真实 token、工具使用区块。
+Inicie o aplicativo, abra Configurações → Estatísticas de uso → Uso do aplicativo e confirme: troca entre 7d/30d, os 8 cards de resumo com valores reais, o heatmap de 30 dias, a tendência com tokens reais e o bloco de uso de ferramentas.
 
 ---
 
-## 自检（计划 vs spec）
+## Autoverificação (plano vs spec)
 
-- **数据流（ZCode Protocol）**：Task 1-5 覆盖 contracts→adapters→bootstrap handler→shared schema→host service 全链路。✓
-- **删除字符估算管线**：Task 0（类型）+ Task 5（删文件/引用）。✓
-- **概要 8 卡（真实 token/缓存命中/会话/轮次/工具/错误率/TTFT/最常用模型）**：Task 7。✓
-- **30 天热力图**：Task 3（builder weeks）+ Task 8（UI）。✓
-- **真实 token 趋势**：Task 3（dailyModelUsage）+ Task 9。✓
-- **工具使用区块**：Task 2（SQL）+ Task 3（tools）+ Task 10（UI）。✓
-- **可靠性指标**：Task 2/3（errorRate/TTFT/durations）+ Task 7。✓
-- **时间筛选 7d/30d 去掉「全部」**：Task 6 + Task 11（删 range.all）。✓
-- **30 天保留期 / 空态**：handler 空 sessionStore 回退 + 现有 `UsageStatsErrorNotice`/`UsageEmptyState`。✓
-- **Coding Plan / monitor 不动**：仅改 App Usage 路径，`UsageStatsRange`/`getSnapshot` 保留。✓
+- **Fluxo de dados (ZCode Protocol)**: Tasks 1-5 cobrem o caminho completo contracts→adapters→handler do bootstrap→schema do shared→serviço do host. ✓
+- **Remoção da pipeline de estimativa por caracteres**: Task 0 (tipos) + Task 5 (remoção de arquivos/Referências). ✓
+- **8 cards de resumo (tokens reais/taxa de acerto de cache/sessões/turnos/ferramentas/taxa de erro/TTFT/modelo mais usado)**: Task 7. ✓
+- **Heatmap de 30 dias**: Task 3 (weeks do builder) + Task 8 (UI). ✓
+- **Tendência com tokens reais**: Task 3 (dailyModelUsage) + Task 9. ✓
+- **Bloco de uso de ferramentas**: Task 2 (SQL) + Task 3 (tools) + Task 10 (UI). ✓
+- **Métricas de confiabilidade**: Task 2/3 (errorRate/TTFT/durations) + Task 7. ✓
+- **Filtro de tempo 7d/30d removendo "todos"**: Task 6 + Task 11 (remoção de range.all). ✓
+- **Retenção de 30 dias / estado vazio**: fallback do handler para sessionStore vazio + o `UsageStatsErrorNotice`/`UsageEmptyState` existentes. ✓
+- **Coding Plan / monitor intocados**: apenas o caminho de App Usage é alterado; `UsageStatsRange`/`getSnapshot` são preservados. ✓

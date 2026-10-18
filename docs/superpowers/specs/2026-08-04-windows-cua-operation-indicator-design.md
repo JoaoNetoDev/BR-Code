@@ -1,74 +1,71 @@
-# Windows CUA 顶部操作提示设计
+# Design do aviso de operação no topo no Windows CUA
 
-> **部分被取代（2026-09-14）**：本文的**触发判定**与**10 秒安全计时器**两处已经改变。
-> 触发不再是"每次官方 CUA 工具的 `tool-started`"——node_repl + SDK 重构后动作级 tool call
-> 已不存在，现在按 cell 判定（sideband 布尔事实 `computerUse`，锚点是引导语句
-> `setupComputerUseRuntime`）；安全计时器随之从 10 秒放宽到 30 秒，并明确退为兜底，
-> 主导隐藏的是 turn 终态等显式清除路径。窗口形态、文案、位置、点击穿透、
-> `host source + cuaTurnKey` 聚合与多窗口语义均不变。
-> 见 `docs/cua/2026-09-14-windows-cua-indicator-repair-spec.md`。
+> **Parcialmente substituído (2026-09-14)**: a **decisão de disparo** e o **timer de segurança de 10 segundos** deste documento mudaram.
+> O disparo não é mais "cada `tool-started` de ferramenta oficial do CUA" — depois da refatoração de node_repl + SDK, a chamada de ferramenta em nível de ação deixou de existir, e agora a decisão é por célula (o fato booleano de sideband `computerUse`, com âncora na frase de inicialização `setupComputerUseRuntime`); o timer de segurança foi ampliado de 10 para 30 segundos e explicitamente rebaixado a fallback, sendo os caminhos de limpeza explícitos, como o estado terminal do turn, que lideram o ocultamento. A forma da janela, os textos, a posição, o clique atravessante,
+> a agregação `host source + cuaTurnKey` e a semântica de múltiplas janelas permanecem inalterados.
+> Ver `docs/cua/2026-09-14-windows-cua-indicator-repair-spec.md`.
 
-## 背景与目标
+## Contexto e objetivo
 
-Windows 用户在 ZCode 通过 Computer Use 观察或操作桌面时，当前只能从会话工具卡和操作结果判断是否仍在执行。ZCode 窗口被其他应用遮挡后，这些信息不可见，用户无法持续确认当前机器是否仍由 Agent 操作。
+Quando usuários de Windows observam ou operam a área de trabalho pelo Computer Use dentro do ZCode, hoje só é possível saber se ainda há execução em andamento olhando o cartão de ferramenta da sessão e o resultado da operação. Quando a janela do ZCode fica coberta por outros aplicativos, essas informações ficam invisíveis e o usuário não consegue confirmar continuamente se a máquina ainda está sendo operada pelo Agent.
 
-本功能在 Windows 桌面顶部显示一个不抢焦点、可点击穿透的轻量提示：
+Esta funcionalidade exibe no topo da área de trabalho do Windows um aviso leve que não rouba o foco e é atravessante por cliques:
 
-> ZCode 正在操作电脑
+> O ZCode está operando o computador
 
-提示从一个 turn 首次真正开始执行官方 Computer Use 工具时出现，在该 turn 结束或控制链路异常终止时消失。它不提供暂停、停止或接管按钮；这些控制能力不在本次范围内。
+O aviso aparece quando um turn começa realmente a executar pela primeira vez uma ferramenta oficial do Computer Use, e desaparece quando esse turn termina ou quando o link de controle é encerrado anormalmente. Ele não oferece botões de pausar, parar ou assumir o controle; essas capacidades de controle estão fora do escopo desta vez.
 
-## 设计取舍
+## Escolhas de design
 
-- 活跃状态按 `session_id + turn_id` 维护：新 turn 的第一条 Computer Use 工具调用触发提示；新 turn 替换旧 turn 时先结束旧 turn；`end_turn`、pipe/socket 关闭、dispose 都会结束活跃 turn。
-- 提示由独立的桌面浮层窗口承载，不依赖主窗口的 React 树。
-- Picture-in-Picture 仅限 macOS，不作为 Windows 实现基础；可见性收口到 CUA 工具触发级别。
+- O estado ativo é mantido por `session_id + turn_id`: a primeira chamada de ferramenta do Computer Use de um novo turn dispara o aviso; quando um novo turn substitui o antigo, o antigo é encerrado primeiro; `end_turn`, fechamento de pipe/socket e dispose encerram o turn ativo.
+- O aviso é hospedado por uma janela de overlay de desktop independente e não depende da árvore React da janela principal.
+- Picture-in-Picture é exclusivo do macOS e não serve de base para a implementação do Windows; a visibilidade é consolidada no nível de disparo da ferramenta CUA.
 
-## 范围
+## Escopo
 
-### 包含
+### Incluído
 
-- Windows desktop-local Computer Use。
-- 由桌面窗口直接发起，或由手机 `/remote` 复用同一个 desktop-local Host 发起的本机 Computer Use。
-- 当前显示器顶部的非交互式操作提示。
-- 中英文文案、亮暗主题、DPI、多显示器和 reduced-motion。
-- turn 成功、失败、停止、session 关闭、runtime 重启、Host 退出和应用退出的终态收口。
+- Computer Use desktop-local do Windows.
+- Computer Use na própria máquina iniciado diretamente pela janela do desktop, ou iniciado pelo `/remote` do celular reutilizando o mesmo Host desktop-local.
+- O aviso não interativo de operação no topo da tela atual.
+- Textos em chinês e inglês, tema claro/escuro, DPI, múltiplos monitores e reduced-motion.
+- Encerramento nos estados terminais de sucesso, falha, parada, fechamento de sessão, restart de runtime, saída do Host e saída do aplicativo.
 
-### 不包含
+### Não incluído
 
-- macOS PiP 或后台模式。
-- Linux 顶部提示。
-- Web/手机端自行渲染提示。
-- 暂停、停止、人工接管等交互按钮。
-- 实时画面、步骤列表、目标窗口标题或 per-action 文案。
-- 修改 `zcode-cua` broker/native wire protocol。
+- PiP ou modo de background no macOS.
+- Aviso no topo do Linux.
+- Renderização do aviso pelo próprio Web/celular.
+- Botões interativos como pausar, parar ou assumir manualmente o controle.
+- Imagem ao vivo, lista de passos, título da janela alvo ou texto por ação.
+- Modificação do broker/protocolo wire nativo do `zcode-cua`.
 
-## 设计原则
+## Princípios de design
 
-1. **CLI 提供权威生命周期，Host 拥有桌面投影状态。** CLI 从 runtime 原始事件发送精简的临时旁路通知；Host 维护活跃 turn，Main 只消费 Host 上报的投影状态并管理原生窗口，不从工具卡或 Renderer DOM 猜测。
-2. **tool 级触发 + 有界显示。** 每次真实 CUA 工具 `tool-started` 都重新触发提示并把可见截止时间延长 10 秒；同一工具调用期间不重复创建原生窗口。没有后续 CUA 工具时，提示最多在最近一次工具触发后保持 10 秒。
-3. **真实 CUA 工具触发。** 普通 Agent turn 和普通 MCP 工具不会显示提示。
-4. **fail closed to hidden。** Host/runtime 生命周期中断时必须移除对应活跃记录，不能留下永久浮层。
-5. **不进入截图。** 浮层必须启用 Windows capture exclusion，避免被 CUA 截图再次喂给模型。
-6. **全流程使用中划线。** 新代码只生成和判断官方 `computer-use` canonical identity，不新增 `computer_use` 命名链路。
-7. **不依赖对话投影订阅。** CUA 生命周期通知不得受旧 `session/event` 的 `deliveryKind` 或 v4 conversation subscription 是否存在影响，也不得进入 snapshot、replay、conversation frame 或持久化事件流。
+1. **A CLI fornece o ciclo de vida autoritativo e o Host possui o estado de projeção de desktop.** A CLI envia notificações de bypass temporárias e enxutas a partir dos eventos brutos do runtime; o Host mantém o turn ativo, e o Main apenas consome o estado projetado reportado pelo Host e gerencia a janela nativa, sem adivinhar a partir do cartão de ferramenta ou do DOM do Renderer.
+2. **Disparo em nível de ferramenta + exibição limitada.** Cada `tool-started` real de ferramenta CUA redispara o aviso e estende o prazo de visibilidade em 10 segundos; a janela nativa não é recriada durante a mesma chamada de ferramenta. Sem ferramentas CUA seguintes, o aviso fica no máximo 10 segundos após o disparo mais recente.
+3. **Disparo por ferramenta CUA real.** Turnos comuns de Agent e ferramentas MCP comuns não exibem o aviso.
+4. **fail closed para oculto.** Quando o ciclo de vida do Host/runtime é interrompido, o registro ativo correspondente precisa ser removido, sem deixar overlay permanente.
+5. **Não entra na captura.** O overlay precisa habilitar a exclusão de captura do Windows, evitando ser devolvido ao modelo pela captura do CUA.
+6. **Hífen em todo o fluxo.** O código novo apenas gera e verifica a identidade canônica oficial `computer-use`, sem criar nenhuma cadeia de nomenclatura `computer_use`.
+7. **Não depende de assinatura de projeção de conversation.** As notificações do ciclo de vida do CUA não podem ser afetadas pelo `deliveryKind` do antigo `session/event` nem pela existência de uma subscription de conversation do v4, e também não podem entrar em snapshot, replay, conversation frame ou fluxo de eventos persistido.
 
-## 状态与时序
+## Estado e temporização
 
-### 权威键
+### Chave autoritativa
 
-Host 内使用以下键隔离一次活跃 CUA turn：
+Dentro do Host, a seguinte chave isola um turn CUA ativo:
 
 ```text
 workspaceKey = workspaceIdentity?.trim() || workspacePath
 cuaTurnKey   = workspaceKey + NUL + sessionId + NUL + turnId
 ```
 
-除 `session-closed` 外，生命周期通知都携带 runtime 原始 `turnId`；其中 `tool-started` 允许兼容缺少 `turnId` 的 runtime 事件。此时 tracker 使用该 session 最近收到的 `turn-started` turnId；两者都缺失时不激活提示，避免把不明来源状态扩散到其他 session。
+Exceto `session-closed`, as notificações de ciclo de vida carregam o `turnId` bruto do runtime; `tool-started` permite compatibilidade com eventos de runtime sem `turnId`. Nesse caso o tracker usa o turnId do `turn-started` mais recente recebido daquela session; quando ambos faltam, o aviso não é ativado, evitando espalhar um estado de origem desconhecida para outras sessions.
 
-Tracker 同时维护 session 的单调 `sequenceNumber` watermark、已处理 `eventId` 和有界 retired turn 集合。低于已处理 watermark 的迟到事件、重复事件、已经被新 turn 替换或已经 terminal 的 turn 后续事件全部忽略，避免旧 turn 回退或在终态之后重新激活提示。runtime/workspace 清理时同时清除这些临时索引。旁路通知是 tracker 的唯一协议事件源，不与旧 `session/event` 的独立序号域混用。
+O tracker também mantém o watermark monotônico de `sequenceNumber` da session, os `eventId` já processados e um conjunto limitado de turns aposentados. Eventos atrasados abaixo do watermark já processado, eventos duplicados, eventos posteriores de um turn já substituído por um novo ou já em estado terminal são todos ignorados, evitando retrocesso do turn antigo ou reativação do aviso depois do estado terminal. A limpeza de runtime/workspace limpa também esses índices temporários. As notificações de bypass são a única fonte de eventos de protocolo do tracker e não se misturam ao domínio de numeração independente do antigo `session/event`.
 
-### 事件流
+### Fluxo de eventos
 
 ```text
 CLI runtime              CLI protocol sideband       Host tracker           Desktop Main       Overlay
@@ -92,41 +89,41 @@ v4 conversation frame -----------------------------------------------> Renderer�
 旧 session/event（无 deliveryKind 时不存在）--------------------------X Host tracker
 ```
 
-### 触发规则
+### Regras de disparo
 
-`tool-scheduled` 用于建立 `toolCallId -> toolName` 映射；`tool-started` 才能激活或刷新提示。因为 runtime started payload 中的 `toolName` 是可选字段，tracker 先读 started 自带名称，再回退 scheduled 映射。CLI 只发送工具名和调用标识，不发送 tool input、tool result、模型文本或截图内容。
+`tool-scheduled` serve para estabelecer o mapeamento `toolCallId -> toolName`; só `tool-started` ativa ou refresca o aviso. Como o `toolName` no payload de started do runtime é um campo opcional, o tracker lê primeiro o nome que veio no próprio started e depois recorre ao mapeamento do scheduled. A CLI envia apenas o nome da ferramenta e o identificador da chamada, sem tool input, tool result, texto do modelo ou conteúdo de captura de tela.
 
-识别范围：
+Escopo de reconhecimento:
 
-- 接受官方 canonical `mcp__computer-use__*` 及带 official plugin namespace 的 `computer-use` 工具名；
-- 截图、读取应用状态、点击、滚动、拖拽、键盘、输入、打开应用等都激活；
-- `wait` 和 `request_access` 不激活，因为它们不代表正在观察或操作桌面；
-- `stop_computer_control` 不激活，并在其 `tool-started` 到达时立即清理该 session 当前活跃的 CUA turn。
+- Aceita o nome canônico oficial `mcp__computer-use__*` e os nomes de ferramenta `computer-use` com o namespace do plugin oficial;
+- Captura de tela, leitura de estado de aplicativo, clique, rolagem, arrastar, teclado, digitação e abrir aplicativo ativam;
+- `wait` e `request_access` não ativam, porque não representam estar observando ou operando a área de trabalho;
+- `stop_computer_control` não ativa e, quando seu `tool-started` chega, limpa imediatamente o turn CUA atualmente ativo daquela session.
 
-### 结束规则
+### Regras de encerramento
 
-以下事件移除对应活跃键：
+Os seguintes eventos removem a chave ativa correspondente:
 
 - `turn-completed`
 - `turn-failed`
 - `session-closed`
-- `stop_computer_control` started
-- 最近一次 CUA `tool-started` 后 10 秒无新的 CUA 工具触发
-- workspace runtime restart/dispose
-- Host process exit
-- ZCode app quit
+- started de `stop_computer_control`
+- 10 segundos sem um novo disparo de ferramenta CUA após o último `tool-started` de CUA
+- restart/dispose do runtime do workspace
+- saída do processo do Host
+- saída do app do ZCode
 
-CLI 不为单个 `tool_call_result|tool_call_error` 发送旁路通知。工具结果不会主动隐藏提示；提示由最近一次 CUA `tool-started` 后的 10 秒安全计时器收口，后续 CUA 工具会重新计时。这样既不会在连续工具之间闪烁，也不会因工具失败或终态通知丢失而永久残留。
+A CLI não envia notificação de bypass para um `tool_call_result|tool_call_error` isolado. O resultado da ferramenta não oculta o aviso ativamente; o aviso é consolidado pelo timer de segurança de 10 segundos após o último `tool-started` de CUA, e ferramentas CUA seguintes reiniciam a contagem. Assim não há piscada entre ferramentas consecutivas nem resíduo permanente por falha de ferramenta ou perda de notificação terminal.
 
-Main 按 `host source + cuaTurnKey` 维护集合，并为每个活跃键维护最近一次 CUA 工具触发的 10 秒截止时间。只要集合非空就显示；终态或计时器清理最后一个键后才隐藏，从而覆盖多窗口和并行 session。
+O Main mantém o conjunto por `host source + cuaTurnKey` e, para cada chave ativa, o prazo de 10 segundos do último disparo de ferramenta CUA. O aviso é exibido enquanto o conjunto não está vazio e só é ocultado depois que um estado terminal ou o timer limpa a última chave, cobrindo assim múltiplas janelas e sessions paralelas.
 
-CLI 旁路通知和 Reporter 都是 best-effort 桌面投影旁路。通知构造、Host MessagePort 关闭竞态或上报异常只能记录 `warn`，不得截断 v4 conversation frame、普通协议通知或 CUA 工具执行。
+As notificações de bypass da CLI e o Reporter são bypass de projeção de desktop best-effort. Falhas na construção da notificação, races no fechamento do MessagePort do Host ou exceções no reporte só podem registrar `warn` e nunca podem truncar frames de conversation do v4, notificações de protocolo comuns ou a execução da ferramenta CUA.
 
-## 组件边界
+## Fronteiras de componente
 
-### App ↔ Agent：`computer-use/operation-event`
+### App ↔ Agent: `computer-use/operation-event`
 
-在 `packages/shared/src/zcode-protocol/index.ts` 新增严格校验的单向通知，method 固定为 `computer-use/operation-event`。`computer-use` 与 `operation-event` 全部使用中划线。Payload 是以下判别联合：
+Nova notificação unidirecional com validação estrita em `packages/shared/src/zcode-protocol/index.ts`, cujo method é fixado como `computer-use/operation-event`. `computer-use` e `operation-event` usam hífen em todas as partes. O payload é a seguinte união discriminada:
 
 ```ts
 type ZCodeComputerUseOperationEvent =
@@ -167,27 +164,27 @@ type ZCodeComputerUseOperationEvent =
     };
 ```
 
-CLI 在 runtime `onSessionEvent` 入口、任何 `record.deliveryKind` 判断之前，把 `TurnStarted`、`ToolCallScheduled`、`ToolCallStarted`、`TurnComplete`、`TurnError` 和 `SessionEnded` 映射为上述通知。通知保留 runtime 原始 `eventId` 与 `sequenceNumber`，允许序号有间隙但必须单调；不为普通 streaming、tool progress/result 或模型内容发通知。
+Na entrada `onSessionEvent` do runtime da CLI, antes de qualquer julgamento de `record.deliveryKind`, `TurnStarted`, `ToolCallScheduled`, `ToolCallStarted`, `TurnComplete`, `TurnError` e `SessionEnded` são mapeados para a notificação acima. A notificação preserva o `eventId` e o `sequenceNumber` brutos do runtime, permitindo lacunas de sequência mas exigindo monotonicidade; não envia notificação para streaming comum, progress/result de ferramenta ou conteúdo do modelo.
 
-该通知只沿已经存在的 App ↔ Agent stdio 连接发送。它不创建新的 Agent runtime，不写 event store，不进入 v4 topic、snapshot、replayable 恢复或远程 relay 业务状态。旧 Agent 不支持该通知时 Windows 提示保持隐藏，不能回退到 Renderer/DOM 猜测。
+Essa notificação é enviada apenas pela conexão stdio App ↔ Agent que já existe. Ela não cria um novo Agent runtime, não escreve no event store e não entra em topic do v4, snapshot, recuperação replayable nem no estado de negócio do relay remoto. Quando um Agent antigo não suporta essa notificação, o aviso do Windows permanece oculto, sem recorrer a adivinhação pelo Renderer/DOM.
 
-### Services：`CuaOperationTurnTracker`
+### Services: `CuaOperationTurnTracker`
 
-职责：
+Responsabilidades:
 
-- 消费已经通过 `zcodeComputerUseOperationEventSchema` 校验的临时生命周期通知；
-- 维护 current turn、tool name 和 active CUA turn；
-- 只在 inactive → active 或 active → inactive 时调用 reporter；
-- workspace/runtime dispose 时清理全部相关状态；
-- 生命周期通知只走 `debug` 日志，状态跃迁可走 `info`。
+- Consumir as notificações temporárias de ciclo de vida já validadas por `zcodeComputerUseOperationEventSchema`;
+- Manter o turn atual, o nome da ferramenta e o turn CUA ativo;
+- Chamar o reporter apenas nas transições inactive → active ou active → inactive;
+- Limpar todo o estado relacionado em dispose de workspace/runtime;
+- Enviar as notificações de ciclo de vida apenas para log `debug`, podendo usar `info` nas transições de estado.
 
-它不依赖 UI、Electron 或具体 Helper 实现。
+Ele não depende de UI, Electron ou de uma implementação específica de Helper.
 
-`ZCodeAgentService.wireClient` 校验 `computer-use/operation-event` 后直接交给 tracker。现有 `session/event` 仍服务旧协议消费者，但不再作为 CUA tracker 输入，避免 raw `sequenceNumber` 与协议投影 `seq` 两个序号域互相覆盖。
+Depois de validar `computer-use/operation-event`, `ZCodeAgentService.wireClient` a repassa direto para o tracker. O `session/event` existente continua servindo consumidores do protocolo antigo, mas deixa de ser entrada do tracker de CUA, evitando que o `sequenceNumber` bruto e o `seq` da projeção de protocolo se sobrescrevam mutuamente.
 
-### Host → Main 消息
+### Mensagem de Host → Main
 
-新增严格 schema 的单向消息：
+Nova mensagem unidirecional com schema estrito:
 
 ```ts
 type HostCuaOperationStateResponse = {
@@ -200,35 +197,35 @@ type HostCuaOperationStateResponse = {
 };
 ```
 
-仅 `serviceAuthorityMode="desktop-local"` 的 Host 装配 reporter。远程 workspace Host、server 和普通 Web 不发送该消息。手机 `/remote` 复用 desktop-local Host 时仍会触发物理 Windows 屏幕上的提示，但手机 Renderer 不创建另一份提示。
+Apenas o Host com `serviceAuthorityMode="desktop-local"` monta o reporter. Host de workspace remoto, server e Web comum não enviam essa mensagem. Quando o `/remote` do celular reutiliza o Host desktop-local, o aviso ainda é disparado na tela física do Windows, mas o Renderer do celular não cria uma segunda cópia do aviso.
 
-### Desktop Main：`WindowsCuaOperationIndicator`
+### Desktop Main: `WindowsCuaOperationIndicator`
 
-职责：
+Responsabilidades:
 
-- 聚合不同 Host/window 的活跃键；
-- 懒创建一个轻量 `BrowserWindow`；
-- 按当前 app locale/theme 更新文案和配色；
-- 在新一轮从空集合变为非空时，定位到当前鼠标所在 display 的 work area 顶部居中；
-- app quit 时销毁窗口。
+- Agregar as chaves ativas de diferentes Hosts/janelas;
+- Criar preguiçosamente um `BrowserWindow` leve;
+- Atualizar textos e paleta conforme o locale/tema atual do app;
+- Quando um novo round muda o conjunto de vazio para não vazio, posicionar centralizado no topo da work area do display onde o mouse está;
+- Destruir a janela no app quit.
 
-Main 不解析 `tool.updated`，不维护 session 业务状态，也不向 Host/Agent 回写。
+O Main não interpreta `tool.updated`, não mantém estado de negócio de session e não escreve de volta para Host/Agent.
 
-## Windows 浮层视觉与窗口属性
+## Visual e atributos de janela do overlay no Windows
 
-默认视觉：
+Visual padrão:
 
-- 文案：中文 `ZCode 正在操作电脑`；英文 `ZCode is controlling your computer`；
-- 顶部间距：可见卡片顶边位于 work area 顶边下方 `12px`；
-- 可见卡片高度保持 `38px`；中文/英文宽度分别保持 `234px`/`308px`；
-- 透明窗口在卡片外预留左/右 `8px`、上 `6px`、下 `12px` 的阴影安全区，因此中文/英文窗口分别为 `250px × 56px`/`324px × 56px`；窗口自身向上偏移 `6px`，保证扩大画布后可见卡片的位置不变；
-- 容器：紧凑圆角、popover 语义背景与边框；只使用 CSS 绘制的克制双层阴影，不使用 Windows 原生窗口阴影；
-- 左侧使用低对比度的三点呼吸动效，不增加品牌插画；
-- 进入：`opacity 0 -> 1`、`translateY(-6px) -> 0`，`140ms`；
-- 退出：反向动画，`120ms`；
-- `prefers-reduced-motion: reduce` 时取消位移与循环动画，仅保留直接显隐。
+- Texto: em chinês `ZCode 正在操作电脑`; em inglês `ZCode is controlling your computer`;
+- Espaçamento superior: a borda superior do cartão visível fica `12px` abaixo da borda superior da work area;
+- Altura do cartão visível mantida em `38px`; as larguras em chinês/inglês são mantidas em `234px`/`308px`;
+- A janela transparente reserva uma área segura de sombra fora do cartão, de `8px` à esquerda/direita, `6px` acima e `12px` abaixo, de modo que a janela em chinês/inglês mede `250px × 56px`/`324px × 56px`; a própria janela é deslocada `6px` para cima, garantindo que a posição do cartão visível não mude após a ampliação da tela;
+- Container: raio de canto compacto, fundo e borda com semântica de popover; usa apenas uma sombra discreta de duas camadas desenhada em CSS, sem sombra nativa de janela do Windows;
+- À esquerda usa uma animação de respiração de três pontos de baixo contraste, sem adicionar ilustração de marca;
+- Entrada: `opacity 0 -> 1`, `translateY(-6px) -> 0`, `140ms`;
+- Saída: animação inversa, `120ms`;
+- Com `prefers-reduced-motion: reduce`, o deslocamento e a animação em loop são cancelados, mantendo apenas mostrar/ocultar direto.
 
-窗口约束：
+Restrições da janela:
 
 ```ts
 {
@@ -243,11 +240,11 @@ Main 不解析 `tool.updated`，不维护 session 业务状态，也不向 Host/
 }
 ```
 
-### 置顶层级与隐藏后复用
+### Camada de always-on-top e reuso após ocultamento
 
-`BrowserWindow` 构造参数中的 `alwaysOnTop: true` 只保证首次创建时申请置顶。Windows 在透明窗口执行 `hide()` 后可能清除原生 `WS_EX_TOPMOST`；后续仅调用 `showInactive()` 只恢复可见性，不保证恢复 Z-order，因此前台普通窗口可能遮住提示条。
+O `alwaysOnTop: true` nos parâmetros de construção do `BrowserWindow` só garante o pedido de topo na primeira criação. No Windows, depois de executar `hide()` em uma janela transparente, o `WS_EX_TOPMOST` nativo pode ser removido; chamar apenas `showInactive()` depois disso só recupera a visibilidade e não garante recuperar o Z-order, de modo que uma janela comum em primeiro plano pode cobrir a barra de aviso.
 
-每次窗口显示都必须执行同一条无焦点置顶链路，包括首次 `loadURL` 完成后的显示和后续 turn 复用隐藏窗口时：
+Toda exibição de janela precisa executar a mesma cadeia de topo sem foco, inclusive a exibição após o primeiro `loadURL` concluído e o reuso da janela oculta por um turn posterior:
 
 ```text
 showInactive()
@@ -259,122 +256,122 @@ setAlwaysOnTop(true, "screen-saver")
 moveTop()
 ```
 
-- `showInactive()` 保持目标应用的键盘焦点；
-- `screen-saver` 层级让提示条保持在普通窗口、系统任务栏和常见全屏窗口之上；
-- `moveTop()` 在不激活窗口的前提下把它移动到当前层级最前方；
-- 以上调用不改变鼠标穿透、任务栏隐藏和 capture exclusion；
-- Windows 安全桌面（例如 UAC）、锁屏以及部分独占全屏程序不属于应用窗口可覆盖范围，提示条不承诺显示在这些系统表面之上。
+- `showInactive()` preserva o foco de teclado do app de destino;
+- A camada `screen-saver` mantém a barra de aviso acima de janelas comuns, da barra de tarefas do sistema e de janelas fullscreen comuns;
+- `moveTop()` move a janela para a frente da camada atual sem ativá-la;
+- Essas chamadas não alteram a travessia do mouse, a ocultação na barra de tarefas nem a exclusão de captura;
+- A área de segurança do Windows (por exemplo UAC), a tela de bloqueio e alguns programas fullscreen exclusivos não estão no alcance de cobertura de janelas de aplicativo, e a barra de aviso não promete aparecer acima dessas superfícies do sistema.
 
-### 阴影所有权与裁剪边界
+### Propriedade da sombra e fronteira de recorte
 
-旧实现把 `234px × 38px` 卡片放在 `236px × 40px` 的透明窗口里，四周只有 `1px` 余量，但 CSS 阴影为 `0 4px 12px rgba(..., 0.20)`。CSS 阴影因此被窗口边界裁掉；同时 `BrowserWindow.hasShadow` 默认开启，DWM 又按矩形窗口外框绘制第二层原生阴影。最终视觉表现为卡片底部的硬边与宽矩形灰带叠加，而不是沿圆角自然扩散。
+A implementação antiga colocava o cartão de `234px × 38px` em uma janela transparente de `236px × 40px`, com apenas `1px` de folga em volta, mas a sombra CSS era `0 4px 12px rgba(..., 0.20)`. A sombra CSS era portanto recortada pelo limite da janela e, ao mesmo tempo, `BrowserWindow.hasShadow` fica ligado por padrão, fazendo o DWM desenhar uma segunda camada de sombra nativa retangular. O resultado visual era a borda dura do fundo do cartão somada a uma faixa cinza retangular larga, em vez de uma difusão natural ao longo dos cantos arredondados.
 
-修复后的阴影 owner 只能有一个：
+Depois da correção, o dono da sombra pode ser apenas um:
 
-- `BrowserWindow` 显式设置 `hasShadow: false`，禁止 DWM 绘制矩形阴影；
-- `body` 使用 `padding: 6px 8px 12px` 提供透明安全区，`.indicator` 占满 content box；
-- 亮色阴影使用 `0 1px 2px rgba(15, 23, 42, 0.08), 0 6px 12px -6px rgba(15, 23, 42, 0.18)`；
-- 暗色阴影使用 `0 1px 2px rgba(0, 0, 0, 0.18), 0 6px 12px -6px rgba(0, 0, 0, 0.28)`；
-- 阴影、边框和透明安全区都在 capture-excluded BrowserWindow 内，不改变鼠标穿透、焦点或截图排除语义。
+- `BrowserWindow` define `hasShadow: false` explicitamente, proibindo o DWM de desenhar a sombra retangular;
+- `body` usa `padding: 6px 8px 12px` para fornecer a área segura transparente, e `.indicator` ocupa todo o content box;
+- A sombra clara usa `0 1px 2px rgba(15, 23, 42, 0.08), 0 6px 12px -6px rgba(15, 23, 42, 0.18)`;
+- A sombra escura usa `0 1px 2px rgba(0, 0, 0, 0.18), 0 6px 12px -6px rgba(0, 0, 0, 0.28)`;
+- A sombra, a borda e a área segura transparente ficam todas dentro do BrowserWindow com captura excluída, sem alterar a travessia do mouse, o foco ou a semântica de exclusão de captura.
 
-创建后必须调用：
+Após a criação, é obrigatório chamar:
 
 ```ts
 window.setIgnoreMouseEvents(true);
 window.setContentProtection(true);
 ```
 
-浮层不可成为 key/focused window，不阻挡鼠标，不出现在 Alt+Tab 或任务栏，也不出现在 Windows 10 2004+ 的系统截图和 WGC capture 中。
+O overlay não pode se tornar a key/focused window, não bloqueia o mouse, não aparece no Alt+Tab nem na barra de tarefas, e também não aparece nas capturas de tela do sistema nem no WGC capture do Windows 10 2004+.
 
-## 异常处理与不变量
+## Tratamento de exceções e invariantes
 
-- Host 发送重复 active/inactive 时必须幂等。
-- 未知 inactive key 直接忽略。
-- 一个 Host 退出时，Main 清理该 Host 的全部 key；不能依赖 Host 在退出前成功发送 inactive。
-- BrowserWindow 创建、安全属性配置或 loadURL 失败只记录 warn，不得影响 CUA 工具执行；同步创建/配置失败 fail-hidden，并在当前 active epoch 内最多自动重试一次，禁止形成重试死循环。
-- 浮层窗口被系统意外关闭后，活跃集合仍保留；Main 在窗口 `closed` 回调中立即调度一次 reconcile，集合非空时重新创建，避免必须等待下一条 Host 状态。
-- 每个 CUA 工具触发都设置 10 秒安全截止时间；后续工具触发会延长该键的截止时间。合法长 turn 仍可继续运行，但没有新的 CUA 工具触发时提示最多显示 10 秒。
-- desktop `continuous` 和手机 `replayable` 状态不进入该 UI 状态机；它只消费本机 Host 收到的临时生命周期通知，不持久化、不进入 snapshot、不广播给 Web。手机 `/remote` 通过 shared-host attachment 复用本机 Host 时可触发同一物理 Windows 提示，但 relay 与手机端不拥有这份状态。
-- `workspaceIdentity` 只用于身份隔离，`workspacePath` 仍用于路径语义，禁止混用。
+- Quando o Host envia active/inactive repetidos, precisa ser idempotente.
+- Uma chave inactive desconhecida é ignorada diretamente.
+- Quando um Host sai, o Main limpa todas as chaves daquele Host e não pode depender de o Host ter enviado inactive com sucesso antes de sair.
+- Falha na criação do BrowserWindow, na configuração dos atributos de segurança ou no loadURL registra apenas warn e não pode afetar a execução da ferramenta CUA; falha síncrona de criação/configuração faz fail-hidden e, dentro do epoch ativo atual, permite no máximo um retry automático, proibindo formar um laço de retry.
+- Depois que a janela de overlay é fechada inesperadamente pelo sistema, o conjunto ativo é mantido; o Main agenda imediatamente um reconcile no callback `closed` e recria a janela quando o conjunto não está vazio, evitando esperar pela próxima mensagem de estado do Host.
+- Cada disparo de ferramenta CUA define um prazo de segurança de 10 segundos; disparos posteriores estendem o prazo daquela chave. Um turno longo legítimo pode continuar rodando, mas sem um novo disparo de ferramenta CUA o aviso aparece por no máximo 10 segundos.
+- O estado `continuous` do desktop e `replayable` do celular não entra nessa máquina de estado de UI; ela só consome as notificações temporárias de ciclo de vida recebidas pelo Host local, não persiste, não entra em snapshot e não é transmitido para a Web. O `/remote` do celular pode disparar o mesmo aviso físico do Windows ao reutilizar o Host local pelo shared-host attachment, mas o relay e o celular não são donos desse estado.
+- `workspaceIdentity` serve apenas para isolamento de identidade, enquanto `workspacePath` continua sendo usado para a semântica de caminho; é proibido misturar os dois.
 
-## 测试策略
+## Estratégia de testes
 
-### Shared/CLI 协议测试
+### Testes de protocolo Shared/CLI
 
-- schema 接受六种合法生命周期 payload，拒绝空 id、负序号、缺少必填 turn/tool 字段和未知 kind。
-- CLI 在 `record.deliveryKind` 未设置、仅存在 v4 subscription 时仍发送旁路通知。
-- 只投影 turn start/terminal、tool scheduled/started；不泄露 input、result、模型文本或截图。
-- sideband notify 抛错只记录告警，不阻断既有 v4 frame 和工具执行。
+- O schema aceita os seis payloads legítimos de ciclo de vida e rejeita id vazio, sequência negativa, campos obrigatórios de turn/tool ausentes e kind desconhecido.
+- A CLI continua enviando a notificação de bypass com `record.deliveryKind` não definido e apenas com subscription do v4 presente.
+- Só projeta turn start/terminal e tool scheduled/started; não vaza input, result, texto do modelo nem captura de tela.
+- Um erro no notify do sideband registra apenas um aviso e não bloqueia os frames do v4 existentes nem a execução da ferramenta.
 
-### Services 单元测试
+### Testes unitários de Services
 
-- 普通 turn 和普通 MCP 工具不激活。
-- `tool-scheduled` 记录名称，`tool-started` 激活 canonical `computer-use`。
-- 每个 canonical CUA `tool-started` 都向 Main 发送一次 active 刷新，供浮层重置 10 秒计时器；重复 `eventId` 仍必须去重。
-- started 自带 toolName 时不依赖 scheduled。
-- 同 turn 多个 CUA 工具分别上报 active 刷新，但不重复创建原生窗口。
-- tool result/error 不隐藏。
-- turn completed/failed 各上报一次 inactive。
-- session close、stop tool、runtime/workspace clear 都清理。
-- 缺少可确定 turnId 时不激活。
-- 多 session、多 workspace、`workspaceIdentity` fallback 相互隔离。
-- 低 `sequenceNumber` 的迟到 `turn-started` 不得替换当前 turn，terminal/retired turn 的迟到工具事件不得复活提示。
-- 重复 `eventId` 不得产生重复跃迁。
-- Reporter 抛错不得影响状态机或主 v4/协议事件投递。
-- runtime `unavailable`（协议关闭、进程崩溃、请求超时）必须清理对应 workspace 的 tracker 活跃状态，即使没有后续 runtime restart。
+- Turnos comuns e ferramentas MCP comuns não ativam.
+- `tool-scheduled` registra o nome e `tool-started` ativa o `computer-use` canônico.
+- Cada `tool-started` de CUA canônico envia uma vez um refresh de active para o Main, para o overlay reiniciar o timer de 10 segundos; `eventId` repetido ainda precisa ser deduplicado.
+- Com toolName no próprio started, não depende do scheduled.
+- Várias ferramentas CUA no mesmo turno reportam o refresh de active separadamente, sem recriar a janela nativa.
+- Result/error de ferramenta não oculta.
+- Turn completed/failed reportam inactive uma vez cada.
+- Fechamento de sessão, ferramenta de parada e limpeza de runtime/workspace limpam o estado.
+- Sem um turnId determinável, não ativa.
+- Múltiplas sessions, múltiplos workspaces e o fallback de `workspaceIdentity` ficam isolados entre si.
+- Um `turn-started` atrasado com `sequenceNumber` baixo não pode substituir o turn atual, e eventos de ferramenta atrasados de um turn terminal/aposentado não podem ressuscitar o aviso.
+- `eventId` repetido não pode produzir transições duplicadas.
+- Um erro do Reporter não pode afetar a máquina de estado nem a entrega dos eventos principais do v4/protocolo.
+- `unavailable` do runtime (protocolo fechado, processo crashed, request com timeout) precisa limpar o estado ativo do tracker do workspace correspondente, mesmo sem um restart de runtime posterior.
 
-### Shared/Host 单元测试
+### Testes unitários Shared/Host
 
-- `computer-use/operation-event` 和 `cua-operation-state` schema 接受完整合法 payload。
-- 缺 sessionId/turnId、非法 active 或空 workspacePath 时拒绝。
-- 只有 local Host 注入 reporter；remote workspace 不上报。
+- Os schemas `computer-use/operation-event` e `cua-operation-state` aceitam payloads legíveis completos.
+- Rejeitam sessionId/turnId ausente, active inválido ou workspacePath vazio.
+- Apenas o Host local injeta o reporter; workspace remoto não reporta.
 
-### Desktop Main 单元测试
+### Testes unitários do Desktop Main
 
-- 第一个 active 创建并显示窗口。
-- 重复 active 幂等。
-- 多 Host/turn 聚合，最后一个 inactive 才隐藏。
-- Host exit 清理其全部活跃键。
-- 窗口具备 always-on-top、不可聚焦、任务栏隐藏、鼠标穿透和 content protection。
-- 首次显示和隐藏后复用都按 `showInactive -> setAlwaysOnTop(true, "screen-saver") -> moveTop` 顺序恢复系统级置顶，且不激活窗口。
-- 窗口显式关闭原生 `hasShadow`，透明画布具备 `6px 8px 12px` 安全区，CSS 阴影不再被稳定态窗口边界裁剪。
-- 以鼠标所在 display 的 work area 顶部居中定位，并遵守 DPI 坐标。
-- 扩大透明画布后，可见卡片仍保持原尺寸，且卡片顶边仍为 work area `+12px`。
-- 每次 aggregate 从空变为非空时重新按当前鼠标 display 定位；并行 source 加入时不跳屏。
-- 每次 active 刷新都把对应键的安全计时器延长至 10 秒；计时器到期后即使没有 inactive 也必须隐藏该键，后续 CUA 工具可重新显示。
-- 窗口创建或安全属性配置异常 fail-hidden，仅做一次有界重试。
-- locale/theme 更新刷新内容，不重新抢焦点。
+- O primeiro active cria e exibe a janela.
+- Active repetido é idempotente.
+- Agregação de múltiplos Hosts/turns, e somente o último inactive oculta.
+- A saída de um Host limpa todas as suas chaves ativas.
+- A janela tem always-on-top, foco impossível, barra de tarefas oculta, travessia de mouse e content protection.
+- Tanto a primeira exibição quanto o reuso após ocultação restauram o topo em nível de sistema na ordem `showInactive -> setAlwaysOnTop(true, "screen-saver") -> moveTop`, sem ativar a janela.
+- A janela desliga explicitamente o `hasShadow` nativo, a tela transparente tem a área segura de `6px 8px 12px` e a sombra CSS não é mais recortada pelo limite da janela no estado estável.
+- Posicionamento centralizado no topo da work area do display onde está o mouse, respeitando as coordenadas de DPI.
+- Após ampliar a tela transparente, o cartão visível mantém o tamanho original e sua borda superior continua em `+12px` da work area.
+- Cada vez que a agregação muda de vazio para não vazio, o reposicionamento pelo display atual do mouse acontece de novo; a entrada de uma source paralela não salta de tela.
+- Cada refresh de active estende o timer de segurança da chave correspondente para 10 segundos; quando o timer expira, a chave precisa ser ocultada mesmo sem inactive, e uma ferramenta CUA seguinte pode exibir de novo.
+- Exceção na criação da janela ou na configuração dos atributos de segurança faz fail-hidden, com apenas um retry limitado.
+- Atualização de locale/tema refresca o conteúdo sem roubar o foco de novo.
 
-### Windows 运行时验证
+### Verificação em runtime no Windows
 
-1. 启动开发版 ZCode，前台打开记事本。
-2. 发起包含截图、点击和输入的 CUA turn。
-3. 观察提示在首个 CUA 工具开始后出现，连续操作期间不闪烁。
-4. 验证目标应用始终保持焦点，提示不可点击。
-5. 验证 CUA screenshot 中不包含提示。
-6. 分别验证成功、工具失败、Stop、关闭 task、重启 Host 和退出应用后的隐藏行为。
-7. 在双显示器上从两个显示器分别开始新 turn，验证定位到当时鼠标所在显示器。
-8. 在浅色和深色背景上观察圆角四周阴影，确认没有矩形 DWM 灰带、硬裁剪边或双重阴影。
-9. 验证单次 CUA 工具触发后 10 秒自动隐藏，以及 10 秒内后续工具触发会从新的时间点重新计时。
-10. 验证 Agent 进程崩溃、协议关闭、请求超时且没有 runtime restart 时，提示最多 10 秒后隐藏且 tracker 不残留。
+1. Iniciar a versão de desenvolvimento do ZCode e abrir o Bloco de Notas em primeiro plano.
+2. Iniciar um turno de CUA contendo captura de tela, clique e digitação.
+3. Observar o aviso aparecendo depois que a primeira ferramenta CUA começa e sem piscar durante operações consecutivas.
+4. Verificar que o app alvo mantém o foco o tempo todo e que o aviso não é clicável.
+5. Verificar que a captura de tela do CUA não contém o aviso.
+6. Verificar separadamente o comportamento de ocultamento após sucesso, falha de ferramenta, Stop, fechamento de task, restart do Host e saída do app.
+7. Em dois monitores, iniciar um novo turno a partir de cada um dos monitores e verificar o posicionamento no display em que o mouse estava no momento.
+8. Observar a sombra ao redor dos cantos em fundos claro e escuro e confirmar que não há faixa cinza retangular do DWM, borda com recorte duro nem sombra dupla.
+9. Verificar que o aviso se oculta sozinho 10 segundos após um único disparo de ferramenta CUA e que um disparo posterior dentro desses 10 segundos reinicia a contagem.
+10. Verificar que, com o processo do Agent crashed, o protocolo fechado e o request em timeout e sem restart de runtime, o aviso se oculta em no máximo 10 segundos e o tracker não fica com resíduo.
 
-## 文档与能力图更新
+## Atualização de documentos e do mapa de capacidades
 
-实现时同步更新：
+Atualizar junto com a implementação:
 
-- `docs/product-capability-map-office-computer-use.md`：移除 Windows CUA 仍未解析的旧描述；
-- capability graph 中 `surface.computer-use-task-experience`：增加 Windows desktop operation indicator producer/consumer；
-- 能力图中的状态链更新为 `CLI runtime lifecycle -> computer-use/operation-event -> desktop-local Host tracker -> cua-operation-state -> Desktop Main overlay`；
-- dedicated live control/takeover 仍保持 planned，本次只增加只读状态提示，不宣称已经支持接管。
+- `docs/product-capability-map-office-computer-use.md`: remover a descrição antiga de que o CUA do Windows ainda não foi resolvido;
+- `surface.computer-use-task-experience` no capability graph: acrescentar o producer/consumer do indicador de operação de desktop do Windows;
+- A cadeia de estados no mapa de capacidades passa a ser `CLI runtime lifecycle -> computer-use/operation-event -> desktop-local Host tracker -> cua-operation-state -> Desktop Main overlay`;
+- O controle/takeover live dedicado continua como planned; aqui só se acrescenta um aviso de estado somente leitura, sem alegar que o takeover já é suportado.
 
-## 验收标准
+## Critérios de aceite
 
-- Windows CUA turn 首个真实 Computer Use 工具 started 后，顶部提示可见。
-- 每次真实 CUA 工具触发都显示或刷新提示；连续工具不闪烁，最近一次触发 10 秒后自动消失，turn 终态可提前收口。
-- 仅使用 v4 conversation、没有旧 `session/event` 订阅时行为一致。
-- 普通 Agent/MCP turn 永不显示。
-- 提示不抢焦点、不阻挡输入、不进入 CUA 截图。
-- 顶部卡片尺寸和位置不变，阴影只由 CSS 绘制且不出现矩形系统阴影或稳定态裁剪。
-- 多窗口、多 session 不会提前隐藏或永久残留。
-- macOS、Linux、Web、手机 replayable 语义和现有 Helper/PiP 行为不变。
-- 定向测试、`pnpm typecheck` 与 `pnpm lint` 全部通过。
+- Depois que a primeira ferramenta real do Computer Use de um turno de CUA do Windows começa, o aviso no topo fica visível.
+- Cada disparo real de ferramenta CUA exibe ou refresca o aviso; ferramentas consecutivas não piscam, o aviso desaparece sozinho 10 segundos após o disparo mais recente, e o estado terminal do turno pode consolidar antes.
+- O comportamento é o mesmo quando se usa apenas conversation do v4, sem assinatura do antigo `session/event`.
+- Turnos comuns de Agent/MCP nunca exibem o aviso.
+- O aviso não rouba o foco, não bloqueia a entrada e não entra na captura do CUA.
+- O tamanho e a posição do cartão do topo não mudam, a sombra é desenhada apenas por CSS e não aparece sombra retangular do sistema nem recorte no estado estável.
+- Múltiplas janelas e múltiplas sessions não causam ocultamento prematuro nem resíduo permanente.
+- A semântica de macOS, Linux, Web, celular replayable e o comportamento existente de Helper/PiP permanecem inalterados.
+- Os testes direcionados, `pnpm typecheck` e `pnpm lint` passam todos.

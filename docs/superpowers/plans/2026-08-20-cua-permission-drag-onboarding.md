@@ -1,66 +1,66 @@
-# CUA 无系统弹窗授权引导（拖拽 + 吸附）实施计划
+# CUA sem pop-up de autorização do sistema (arrastar + ímã) — plano de implementação
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 ZCode CUA 首次授权全程不弹 macOS 系统权限弹窗，改为「主窗内权限清单模态 → 打开系统设置页 → 吸附浮窗把 Helper.app 拖进权限列表」的拖拽式引导。
+**Goal:** Fazer com que a primeira autorização do ZCode CUA não abra nenhum pop-up de permissão do sistema macOS, trocando por um onboarding do tipo arrastar-e-soltar: "modal de lista de permissões na janela principal → abrir a página de Ajustes do sistema → janela flutuante ímã faz o usuário arrastar o Helper.app para a lista de permissões".
 
-**Architecture:** 删除 onboarding 中触发 native prompt 的 `requestHelper*PermissionViaLaunchServices` 调用，并把它承载的同步指纹终检迁移到 dragstart 前；恢复 2026-08 审计（`663f58e7e7`）删除的 `Prepare/StartCuaHelperPermissionDrag` IPC 链（预热已验证路径+指纹缓存，dragstart 只做微秒级同步比对再 `startDrag`）；新增一个 Electron 无焦点置顶浮窗承载可拖拽 tile，位置由一个常驻 Swift CLI 提供的系统设置窗口 bounds 驱动。会话协调器、验签链、授权后重启 Helper 机制全部保留。
+**Architecture:** Remover do onboarding as chamadas `requestHelper*PermissionViaLaunchServices`, que disparam o native prompt, e migrar para antes do dragstart a verificação final síncrona de assinatura que elas carregavam; restaurar a cadeia de IPC `Prepare/StartCuaHelperPermissionDrag` removida pela auditoria de 2026-08 (`663f58e7e7`) (pré-aquecimento do caminho já verificado + cache de fingerprint, e o dragstart faz apenas uma comparação síncrona de microssegundos antes do `startDrag`); adicionar uma nova janela flutuante Electron sem foco e sempre no topo para hospedar o tile arrastável, com posição comandada pelos bounds da janela de Ajustes do sistema fornecidos por uma CLI Swift persistente. O coordenador de sessão, a cadeia de verificação de assinatura e o mecanismo de reinício do Helper após a autorização são todos mantidos.
 
-**Tech Stack:** Electron 41.0.3（`webContents.startDrag`）、TypeScript、React、Vitest、Swift（`CGWindowListCopyWindowInfo`）、electron-builder extraResources
+**Tech Stack:** Electron 41.0.3 (`webContents.startDrag`), TypeScript, React, Vitest, Swift (`CGWindowListCopyWindowInfo`), electron-builder extraResources
 
-**Spec:** 本文档「设计依据」段（brainstorming 在会话内确认，未单独出 spec 文件）
+**Spec:** a seção "Base de design" deste documento (brainstorming confirmado na sessão; não houve arquivo de spec separado)
 
 ---
 
-## 设计依据
+## Base de design
 
-### 为什么拖拽是必需的，不是装饰
+### Por que arrastar é obrigatório, e não decoração
 
-系统弹窗的**唯一实质作用**是让 app 出现在 TCC 权限列表里。不弹窗 → 全新用户的列表里没有这个 app → 无从勾选。拖拽是唯一替代路径。
+A **única função substantiva** do pop-up do sistema é fazer o app aparecer na lista de permissões do TCC. Sem pop-up → a lista de um usuário novo não tem este app → não há como marcar. Arrastar é o único caminho alternativo.
 
-**已实测验证**（2026-08-20，本机 macOS Darwin 25.5.0）：用 Electron `webContents.startDrag({file, icon})` 把 `Calculator.app`（基线：TCC 中零条目）拖入「辅助功能」列表后：
+**Validado empiricamente** (2026-08-20, macOS Darwin 25.5.0 nesta máquina): depois de usar `webContents.startDrag({file, icon})` do Electron para arrastar `Calculator.app` (baseline: zero entradas no TCC) para a lista de "Acessibilidade":
 
 ```
 kTCCServiceAccessibility | com.apple.calculator | auth_value=2 | 17:34:58
 ```
 
-条目**凭空创建且直接为 granted(2)**，比系统弹窗少一步（弹窗只创建条目，仍需用户自己找到并勾选）。验证后已 `tccutil reset` 清理。
+A entrada foi **criada do nada e já diretamente como granted(2)**, um passo a menos que o pop-up do sistema (que apenas cria a entrada, e o usuário ainda precisa encontrá-la e marcá-la). Após a verificação, foi limpo com `tccutil reset`.
 
-### 弹窗触发源（本次要摘掉的）
+### Fontes de disparo de pop-up (a remover nesta mudança)
 
 | API | 弹窗 |
 |---|---|
-| `AXIsProcessTrustedWithOptions({prompt: true})` | **弹** — 上游 `ax_macos.mm:2967` `PromptTrust` |
-| `CGRequestScreenCaptureAccess()` | **弹** |
-| `AXIsProcessTrusted()` / `{prompt: false}` | 不弹 — 上游 `FreshAXIsTrusted` |
-| `CGPreflightScreenCaptureAccess()` | 不弹 |
+| `AXIsProcessTrustedWithOptions({prompt: true})` | **弹出** — a montante `ax_macos.mm:2967` `PromptTrust` |
+| `CGRequestScreenCaptureAccess()` | **弹出** |
+| `AXIsProcessTrusted()` / `{prompt: false}` | Não弹出 — a montante `FreshAXIsTrusted` |
+| `CGPreflightScreenCaptureAccess()` | Não弹出 |
 
-链路：`openCuaPermissionOnboarding` → `requestHelper*PermissionViaLaunchServices`（上游 `dist/broker/server/helperLauncher.js:563`）→ `/usr/bin/open` 拉起 Helper 到一次性权限请求模式 → Helper 进程内命中上述弹窗 API。
+Cadeia: `openCuaPermissionOnboarding` → `requestHelper*PermissionViaLaunchServices` (a montante `dist/broker/server/helperLauncher.js:563`) → `/usr/bin/open` sobe o Helper no modo de requisição de permissão único → dentro do processo do Helper as APIs de pop-up acima são atingidas.
 
-### 为什么浮窗不能做进 Helper
+### Por que a janela flutuante não pode ser feita dentro do Helper
 
-Helper 是 **Node SEA + `LSUIElement=true`**（实测 `NODE_SEA_BLOB` 命中、Info.plist `LSUIElement=true`），"原生"部分只是 `Resources/ax_native.node` 这个 Node 扩展，不是 AppKit app。`ax_macos.mm` 注释原文：*"does not run a normal NSApplication event loop"*。NSPanel 显示与 `beginDraggingSession` 都需要 run loop。更关键的是**循环依赖**：授权 UI 的目的就是给 Helper 授权，若 UI 由 Helper 承载，则 Helper 起不来时引导一并瘸掉 —— 这正是 macOS ≤14 `lockf` 事故的形态（`broker_unavailable` → 工具不注册 → 授权引导永不弹）。
+O Helper é **Node SEA + `LSUIElement=true`** (`NODE_SEA_BLOB` presente, `LSUIElement=true` no Info.plist, verificado); a parte "nativa" é apenas a extensão Node `Resources/ax_native.node`, não é um app AppKit. Comentário original de `ax_macos.mm`: *"does not run a normal NSApplication event loop"*. Exibição de NSPanel e `beginDraggingSession` exigem run loop. Mais crítico é a **dependência circular**: o propósito da UI de autorização é autorizar o Helper; se a UI for hospedada pelo Helper, quando o Helper não sobe o onboarding cai junto — exatamente a forma do incidente `lockf` no macOS ≤14 (`broker_unavailable` → ferramenta não registrada → o onboarding de autorização nunca aparece).
 
-### 吸附为什么需要新二进制
+### Por que o ímã precisa de um novo binário
 
-`CGWindowListCopyWindowInfo` 拿窗口 bounds **不需要任何权限**，但 Electron 无绑定。三条路排除结果：`osascript`+System Events 需要辅助功能权限（死结，正是此刻缺的）；`desktopCapturer` 只给窗口名不给 bounds；`koffi` 这类 FFI 自身是 native addon，要 electron-rebuild。故用常驻 Swift CLI。已实测：57KB 产物、1.5s 编译、无权限拿到 `{"w":723,"x":134,"h":752,"y":157,"owner":"System Settings","layer":0}`。
+`CGWindowListCopyWindowInfo` obtém os bounds das janelas **sem nenhuma permissão**, mas o Electron não tem binding. Resultado da exclusão de três caminhos: `osascript` + System Events exige permissão de Acessibilidade (beco sem saída, exatamente o que falta agora); `desktopCapturer` só dá o nome da janela, não os bounds; FFI como `koffi` é ele mesmo um native addon e exige electron-rebuild. Por isso, uma CLI Swift persistente. Validado: artefato de 57KB, compilação em 1,5s, sem permissão, obtendo `{"w":723,"x":134,"h":752,"y":157,"owner":"System Settings","layer":0}`.
 
 ---
 
 ## Global Constraints
 
-- **平台**：全部新增能力仅 `darwin`；非 darwin 分支必须 fail-safe 返回而非抛错。
-- **核心不变量**：onboarding 全流程**绝不**调用 `requestHelperAccessibilityPermissionViaLaunchServices` / `requestHelperScreenRecordingPermissionViaLaunchServices`，也绝不调用上游 `promptTrust`。这是本次改造的目的，必须有测试锁死。
-- **权限展示态**：任何常驻 UI 的权限判定用 `isCuaPermissionTccGranted`（`packages/ui/src/lib/cuaPermissionStatusStore.ts`），**禁止**使用带 `includeFunctionalProbes` 的判定 —— 只读刷新的 `screenCaptureProbeOk` 恒为 `false`，用它会让已授权用户恒显「待授权」。
-- **dragstart 同步约束**：`event.sender.startDrag()` 必须在 dragstart 事件链路里**同步**调用，其间**禁止** `await` 任何 I/O，否则错过 OS 拖拽手势窗口，用户拖不出任何文件。install/verify 必须预先在 prepare 阶段完成并缓存。
-- **TOCTOU 门**：拖拽前必须同步比对 `cuaHelperBundleFingerprintUnchanged`（`ino:ctimeNs:size`，ctime 用户态不可回拨）；不符即拒拖并清缓存，绝不把可能被替换的 bundle 拖进权限列表。
-- **fail-closed vs fail-open**：验签/指纹相关一律 fail-closed（拒绝操作）；窗口 bounds 获取失败一律 fail-open（退回屏幕底部居中），吸附是增强不是可用性前提。
-- **授权后生效**：两项权限都必须重启 Helper 才生效（SR 对已运行进程不生效；accessibility 有 `AXIsProcessTrusted` 进程级缓存）。保留 `restartHelperAfterReturn` 机制。
-- **语言跟随 ZCode**：权限拖拽浮窗不得自行读取浏览器 `localStorage` 或操作系统语言；每次 `show(permission)` 都从 main 进程的 `currentApplicationLocale` 读取当前 ZCode 界面语言，并通过浮窗 state IPC 传给 renderer。renderer 只支持 shared `Locale` 已声明的 `zh-CN` / `en-US`，同步更新说明文案、拖拽 tooltip、`document.title` 与 `<html lang>`。state 必须在 `showInactive()` 前发送，避免英文界面先闪出中文 fallback。
-- **git**：禁用 `--no-verify`。上游 `@zcode/zcode-cua` 本次**不修改**，全部改动在下游仓库。
-- **macOS API 版本**：`CGWindowListCopyWindowInfo` 自 10.5 起可用，安全。新增任何系统命令前必须核最低支持版本（`/usr/bin/lockf` 是 15+ 曾致 macOS ≤14 全线不可用）。
+- **Plataforma**: todas as novas capacidades são apenas `darwin`; ramos não-darwin devem retornar de forma fail-safe em vez de lançar erro.
+- **Invariante central**: o onboarding em nenhum momento **nunca** chama `requestHelperAccessibilityPermissionViaLaunchServices` / `requestHelperScreenRecordingPermissionViaLaunchServices`, e também nunca chama o `promptTrust` do upstream. Esse é o objetivo desta mudança e precisa ser travado por testes.
+- **Estado de exibição de permissão**: qualquer verificação de permissão em UI persistente usa `isCuaPermissionTccGranted` (`packages/ui/src/lib/cuaPermissionStatusStore.ts`); é **proibido** usar a verificação com `includeFunctionalProbes` — o `screenCaptureProbeOk`, atualizado apenas por leitura, é恒 `false`, e usá-lo faria todo usuário autorizado aparecer恒 como "aguardando autorização".
+- **Restrição síncrona do dragstart**: `event.sender.startDrag()` precisa ser chamado **sincronamente** dentro da cadeia de eventos dragstart, e é **proibido** fazer `await` de qualquer I/O no meio, senão a janela de gesto de arrasto do OS é perdida e o usuário não arrasta arquivo nenhum. install/verify precisam estar previamente concluídos e em cache na etapa de prepare.
+- **Portão TOCTOU**: antes de arrastar é obrigatório comparar sincronamente `cuaHelperBundleFingerprintUnchanged` (`ino:ctimeNs:size`, o ctime não pode ser revertido pelo espaço de usuário); se não bater, o arrasto é recusado e o cache é limpo — jamais arrastar para a lista de permissões um bundle que possa ter sido substituído.
+- **fail-closed vs fail-open**: tudo relacionado a verificação de assinatura/fingerprint é fail-closed (recusa da operação); falha na obtenção dos bounds da janela é sempre fail-open (cai para centralizado na parte inferior da tela), já que o ímã é um ganho, não um requisito de usabilidade.
+- **Efeito após autorização**: ambas as permissões só passam a valer depois de reiniciar o Helper (o SR não vale para processos em execução; accessibility tem cache de nível de processo em `AXIsProcessTrusted`). O mecanismo `restartHelperAfterReturn` é mantido.
+- **Idioma seguindo o ZCode**: a janela flutuante de arrasto de permissão não pode ler por conta própria o `localStorage` do navegador nem o idioma do sistema operacional; a cada `show(permission)` o idioma atual da interface do ZCode é lido de `currentApplicationLocale` no processo main e passado ao renderer via IPC de state da janela. O renderer só suporta `zh-CN` / `en-US`, já declarados no `Locale` compartilhado, e atualiza sincronamente os textos explicativos, o tooltip de arrasto, o `document.title` e o `<html lang>`. O state precisa ser enviado antes de `showInactive()`, para evitar que a interface em inglês pisque primeiro um fallback em chinês.
+- **git**: `--no-verify` é proibido. O upstream `@zcode/zcode-cua` **não** é modificado nesta mudança; todas as alterações ficam no repositório a jusante.
+- **Versão de API macOS**: `CGWindowListCopyWindowInfo` está disponível desde a 10.5, é seguro. Antes de adicionar qualquer comando de sistema é obrigatório verificar a versão mínima suportada (`/usr/bin/lockf` existe desde a 15+ e já deixou todo o macOS ≤14 indisponível).
 
-语言状态链路：
+Cadeia de estado de idioma:
 
 ```text
 ZCode 设置 / System default
@@ -97,7 +97,7 @@ zcode:cua-permission-panel-state { permission, locale, iconDataUrl }
 
 ---
 
-## Task 1: shared 契约 —— 恢复两个 IPC 通道与结果类型
+## Task 1: contrato shared — restaurar os dois canais IPC e o tipo de resultado
 
 **Files:**
 - Modify: `packages/shared/src/cuaAccessibilitySettings.ts`

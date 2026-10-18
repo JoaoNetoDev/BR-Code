@@ -1,47 +1,46 @@
-# MCP Dual-Era 客户端版本协商规格
+# Especificação de Negociação de Versão de Cliente MCP Dual-Era
 
-> 状态：已实现。
-> 日期：2026-08-04。
-> 协议依据：MCP `2026-07-28` Versioning and Compatibility、stdio/Streamable HTTP
-> Backward Compatibility。
+> Status: implementado.
+> Data: 2026-08-04.
+> Base de protocolo: MCP `2026-07-28` Versioning and Compatibility, Backward Compatibility de stdio/Streamable HTTP.
 
-## 1. 目标
+## 1. Objetivo
 
-ZCode MCP client 同时支持两类 server：
+O cliente MCP do ZCode suporta simultaneamente duas classes de server:
 
-- modern：MCP `2026-07-28` 及以后，使用逐请求 `_meta` 和 `server/discover`，不发送
-  `initialize` / `initialized`；
-- legacy：MCP `2025-11-25` 及以前，使用 `initialize` / `initialized` 握手。
+- modern: MCP `2026-07-28` e posteriores, usando `_meta` por requisição e `server/discover`, sem enviar
+  `initialize` / `initialized`;
+- legacy: MCP `2025-11-25` e anteriores, usando o handshake `initialize` / `initialized`.
 
-普通 MCP server 默认由 client 自动识别 era；内置 `node_repl` 固定使用 modern
-`2026-07-28`，保持 per-call execution stateless 和 workspace-scoped process sharing。
+Em servidores MCP comuns, o client identifica a era automaticamente; o `node_repl` embutido usa modern
+`2026-07-28` de forma fixa, mantendo execução stateless por chamada e compartilhamento de processo com escopo de workspace.
 
-## 2. 配置语义
+## 2. Semântica de Configuração
 
 ```ts
 protocolVersion?: "legacy" | "auto" | "2026-07-28";
 ```
 
-| 配置                                        | client 行为                                                                  | 用途                                   |
-| ------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------- |
-| 未配置，`stdio` / `http`                    | 等价于 `auto`                                                                | 普通第三方 MCP，自动兼容两个 era       |
-| `auto`                                      | 先探测 modern；只有确定为 legacy 才回退 `initialize`                         | 显式声明 dual-era                      |
-| `legacy`                                    | 不发送 modern probe，直接走旧握手                                            | 已知旧 server、避免 stdio sibling      |
-| `2026-07-28`                                | pin modern；server 不支持时失败，不允许回退                                  | 内置无状态 `node_repl`                 |
-| 未配置或任意非 modern 配置，`sse` transport | 直接走 legacy；旧 HTTP+SSE transport 不承载 MCP `2026-07-28` per-request era | 已经显式选中的 deprecated SSE endpoint |
+| Configuração                                     | Comportamento do client                                                                             | Uso                                              |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| Não configurada, `stdio` / `http`                | Equivalente a `auto`                                                                                | MCP de terceiros comum, compatibilidade automática com as duas eras |
+| `auto`                                           | Sonda modern primeiro; só volta para `initialize` se for determinado que é legacy                   | Declaração explícita de dual-era                 |
+| `legacy`                                         | Não envia a sonda modern e vai direto para o handshake antigo                                       | Server antigo conhecido, evita sibling de stdio |
+| `2026-07-28`                                     | fixa modern; falha se o server não suportar, sem permitir fallback                                  | `node_repl` embutido e stateless                  |
+| Não configurada ou qualquer configuração não modern, transport `sse` | Vai direto para legacy; o transport HTTP+SSE antigo não carrega a era modern de MCP `2026-07-28` por requisição | Endpoint SSE deprecated já escolhido explicitamente |
 
-内置 server 固定配置：
+Configuração fixa dos servers embutidos:
 
-- `node_repl`：`protocolVersion="2026-07-28"`、`isolation="workspace"`；每次 `js` 使用一次性 worker/kernel；
-- 不再注册独立的内置 `browser_use` server。
+- `node_repl`: `protocolVersion="2026-07-28"`, `isolation="workspace"`; cada `js` usa um worker/kernel descartável;
+- não se registra mais um server embutido `browser_use` separado.
 
-版本协商只决定 wire era，不改变 process sharing。普通第三方 MCP 即使协商到 modern，也继续使用
-默认 session isolation；只有内置 `node_repl` 显式选择 workspace isolation。
+A negociação de versão decide apenas a era no wire e não altera o compartilhamento de processo. Um MCP de terceiros comum, mesmo tendo negociado modern, continua usando
+o session isolation padrão; apenas o `node_repl` embutido escolhe explicitamente o isolamento por workspace.
 
-配置文件入口必须接受并原样保留上述三个 `protocolVersion` 枚举值，覆盖 stdio/http/sse；省略时不注入默认值。
-非法枚举值或未知字段仍按单个 server 记录 diagnostics 并跳过，不影响其他 server 或插件配置。
+A entrada de configuração do arquivo precisa aceitar e preservar como estão os três valores de enumeração de `protocolVersion` acima, cobrindo stdio/http/sse; quando omitido, nenhum valor padrão é injetado.
+Valores de enumeração inválidos ou campos desconhecidos continuam sendo registrados como diagnostics de um único server e ignorados, sem afetar outros servers nem a configuração de plugins.
 
-## 3. 连接时序
+## 3. Sequência de Conexão
 
 ```text
 普通 stdio/http server（protocolVersion 未配置或 auto）
@@ -70,82 +69,83 @@ pin 2026-07-28 -> server/discover
         `-- 不支持或无法确认 ----> 连接失败；禁止 legacy fallback
 ```
 
-stdio 的 `auto` / pin probe 由 MCP TypeScript SDK 在 disposable sibling process 中执行。ZCode
-必须给 probe 设置有界预算：不超过 5 秒，且不超过 server 总连接预算的一半；剩余预算用于 legacy
-server 的真实 session child 启动和 `initialize`。总连接超时仍由现有 `timeoutMs` 控制。
+A sonda `auto`/pin de stdio é executada pelo MCP TypeScript SDK em um processo irmão descartável. O ZCode
+precisa dar à sonda um orçamento limitado: no máximo 5 segundos, e no máximo metade do orçamento total de conexão do server; o orçamento restante é usado para a inicialização do
+session child real do server legacy e para o `initialize`. O timeout total de conexão continua sendo controlado pelo `timeoutMs` já existente.
 
-HTTP probe 超时表示网络故障，不能据此把 server 判断为 legacy；SDK 应返回连接失败。只有收到符合规范的
-legacy HTTP 响应才允许回退。
+Um timeout na sonda HTTP significa falha de rede e não permite concluir que o server é legacy; o SDK deve retornar falha de conexão. Só uma resposta HTTP legacy conforme a especificação
+autoriza o fallback.
 
-## 4. 状态和缓存边界
+## 4. Limites de Estado e Cache
 
-- 当前连接协商结果通过 `McpServerStatus.protocolEra` 暴露为 `modern` / `legacy`，仅用于诊断和
-  control-plane 展示，不作为 tool catalog readiness 的替代事实。
-- 每次成功连接的生产日志事件 `mcp.server.connected` 必须同时记录：
-  - `mcpClientName` / `mcpClientVersion`：发送给 server 的 MCP client identity；
-  - `mcpVersionNegotiationMode`：配置实际采用的 `auto` / `legacy` / `2026-07-28` 策略；
-  - `mcpProtocolEra` / `mcpProtocolVersion`：SDK 握手完成后的实际协商结果。
-  - `mcpConnectionId` / `mcpIsolation` / `workspaceKey`：连接池中的稳定连接标识、隔离范围和
-    workspace 身份；session isolation 连接还必须记录 `sessionId`。
-  - `mcpTransportPid`：stdio 最终会话 transport 的直接子进程 PID；HTTP/SSE 不记录该字段。
-- 配置策略不是协商结果；排障时必须以 `mcpProtocolVersion` 为准。
-- 连接归属和 session 租约必须分开记录。`mcp.pool.lease.acquired` /
-  `mcp.pool.lease.released` 使用相同 `mcpConnectionId`，并记录 `sessionId`、`workspaceKey`、
-  `mcpIsolation` 和 `refCount`。workspace isolation 的共享连接不得在
-  `mcp.server.connected` 上伪造唯一 `sessionId`；应通过 lease 事件表达多 session 共享关系。
-- `mcp.pool.connection.created` 和 `mcp.server.closed` 必须携带同一个 `mcpConnectionId`，使日志可以
-  沿 `sessionId -> lease -> connection -> stdio PID` 追踪创建、复用与回收。
-- 一个 client connection 的 era 在 connect 完成后不可切换；重连重新协商。
-- probe 协商失败（`SdkError(EraNegotiationFailed)` / `UnsupportedProtocolVersionError`）在
-  `McpServerStatus.failureKind` 上映射为 `protocol_negotiation_failed`（adapter 按结构化错误类型
-  识别，不匹配错误文本）；settings UI 据此展示"将协议版本切换为「兼容旧版」"的失败引导，而不是
-  误导性的"网络不可达"。协议版本可在 MCP server 编辑表单（`protocolVersion` 下拉，sse 形态隐藏）
-  或 JSON 配置中手工设置。
-- ZCode 不新增跨 session 的 era 持久化。SDK/transport 内部可缓存当前连接结果，但不得把一个 server 的
-  结果复用于不同 server config、workspace identity 或 remote runtime。
-- desktop `desktop-continuous` 与 mobile `web-remote-replayable` 只承载既有 session/tool 事件；版本协商
-  不进入 relay、snapshot、queue 或 owner state。
+- O resultado da negociação da conexão atual é exposto em `McpServerStatus.protocolEra` como `modern` / `legacy`, usado apenas para diagnóstico e
+  exibição no control-plane, e não como substituto do fato de prontidão do tool catalog.
+- O evento de log de produção `mcp.server.connected` de cada conexão bem-sucedida precisa registrar simultaneamente:
+  - `mcpClientName` / `mcpClientVersion`: a identidade do cliente MCP enviada ao server;
+  - `mcpVersionNegotiationMode`: a estratégia `auto` / `legacy` / `2026-07-28` efetivamente adotada pela configuração;
+  - `mcpProtocolEra` / `mcpProtocolVersion`: o resultado real da negociação depois que o handshake do SDK foi concluído.
+  - `mcpConnectionId` / `mcpIsolation` / `workspaceKey`: o identificador estável de conexão no pool, o escopo de isolamento e a identidade do
+    workspace; conexões com session isolation também precisam registrar `sessionId`.
+  - `mcpTransportPid`: o PID do subprocesso direto do transport da sessão final em stdio; HTTP/SSE não registram esse campo.
+- A política de configuração não é o resultado da negociação; ao investigar problemas, é preciso se guiar por `mcpProtocolVersion`.
+- A atribuição de conexão e a lease de sessão precisam ser registradas separadamente. `mcp.pool.lease.acquired` /
+  `mcp.pool.lease.released` usam o mesmo `mcpConnectionId` e registram `sessionId`, `workspaceKey`,
+  `mcpIsolation` e `refCount`. Uma conexão compartilhada com workspace isolation não pode forjar um `sessionId` único em
+  `mcp.server.connected`; o compartilhamento entre múltiplas sessões deve ser expresso pelos eventos de lease.
+- `mcp.pool.connection.created` e `mcp.server.closed` precisam carregar o mesmo `mcpConnectionId`, para que os logs permitam
+  rastrear criação, reuso e reciclagem ao longo de `sessionId -> lease -> connection -> stdio PID`.
+- A era de uma conexão de client fica imutável após a conclusão do connect; um reconexo renegocia.
+- Falha na negociação da sonda (`SdkError(EraNegotiationFailed)` / `UnsupportedProtocolVersionError`) é
+  mapeada em `McpServerStatus.failureKind` como `protocol_negotiation_failed` (o adapter identifica pelo tipo estruturado do
+  erro, sem casar texto de erro); a UI de settings usa isso para exibir aorientação de falha “将协议版本切换为「兼容旧版」”, em vez da
+  mensagem enganosa de “网络不可达”. A versão de protocolo pode ser definida manualmente no formulário de edição de MCP server
+  (dropdown `protocolVersion`, oculto no formato sse) ou na configuração JSON.
+- O ZCode não adiciona persistência de era entre sessões. O SDK/transport pode cachear o resultado da conexão atual, mas não pode reaproveitar o resultado de um server para
+  outro server config, outra identidade de workspace ou outro runtime remoto.
+- O desktop `desktop-continuous` e o mobile `web-remote-replayable` carregam apenas os eventos de session/tool já existentes; a negociação de versão
+  não entra em relay, snapshot, queue nem owner state.
 
-## 5. 失败与安全规则
+## 5. Regras de Falha e Segurança
 
-1. 不得把所有 JSON-RPC error 都视为 legacy。`UnsupportedProtocolVersionError` 等 recognized modern
-   error 证明 server 属于 modern，client 只能修正版本或失败。
-2. stdio legacy 判定不得绑定单一错误码；旧 server 可能返回 `-32601`、`-32602`、关闭 probe child
-   或在合理时限内无响应。
-3. `protocolVersion="2026-07-28"` 是严格 pin，不得为了“可用”静默降级；这保证共享 `node_repl`
-   不会退回 legacy 持久 session/kernel 语义。
-4. `protocolVersion="legacy"` 必须保持 byte-compatible 旧握手，不新增 modern header 或 `_meta`。
-5. Browser Use 的 broker token、session registry 和 workspace identity 校验不受协商结果影响；modern
-   `_meta` 只提供宿主路由上下文，不能脱离私有 child/broker 与 `requireSession` 单独成为授权事实。
+1. Não é permitido tratar todo erro de JSON-RPC como legacy. Erros modern reconhecidos, como
+   `UnsupportedProtocolVersionError`, provam que o server é modern, e o client só pode corrigir a versão ou falhar.
+2. A determinação de legacy em stdio não pode ficar presa a um único código de erro; um server antigo pode retornar
+   `-32601`, `-32602`, fechar o child da sonda ou simplesmente não responder dentro de um prazo razoável.
+3. `protocolVersion="2026-07-28"` é um pin estrito e não pode rebaixar silenciosamente por “disponibilidade”; isso garante que o
+   `node_repl` compartilhado não volte para a semântica de sessão/kernel persistente do legacy.
+4. `protocolVersion="legacy"` precisa manter o handshake antigo byte-compatible, sem adicionar header modern nem `_meta`.
+5. O broker token, o session registry e a validação de workspace identity do Browser Use não são afetados pelo resultado da
+   negociação; o `_meta` modern fornece apenas o contexto de roteamento do host e não pode, sozinho e sem o child/broker privado
+   e o `requireSession`, virar um fato de autorização.
 
-## 6. 验收用例
+## 6. Casos de Aceitação
 
-| ID    | 配置/Server                      | 期望                                                                                                           |
-| ----- | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| MVN01 | 普通 stdio，未配置版本，modern   | 默认 `auto`，协商 `modern`，不发送 legacy initialize                                                           |
-| MVN02 | 普通 stdio，未配置版本，legacy   | sibling probe 判定 legacy，真实 child 完成 initialize，工具可用                                                |
-| MVN03 | 普通 Streamable HTTP，未配置版本 | 默认 `auto`；recognized modern error 不降级，legacy response 才降级                                            |
-| MVN04 | 任意 transport，显式 `legacy`    | 不 probe，保持旧 initialize 行为                                                                               |
-| MVN05 | 内置 `node_repl`                 | pin `2026-07-28`、`protocolEra=modern`，server 不支持时连接失败；workspace 可共享连接                          |
-| MVN06 | 显式 legacy / `sse`              | 固定 legacy，不产生 disposable modern probe                                                                    |
-| MVN07 | auto stdio server 不响应 probe   | probe 在有界预算内结束；fallback/总连接超时后无残留 sibling process 或其派生进程                               |
-| MVN08 | 任意 server 成功连接             | `mcp.server.connected` 同时包含 client identity、协商策略、实际 era 和精确协议版本                             |
-| MVN09 | session/workspace isolation 连接 | 连接、lease 与关闭日志可用 `mcpConnectionId` 关联；stdio 连接记录 PID，共享连接通过多条 lease 日志关联 session |
+| ID    | Configuração/Server                      | Expectativa                                                                                                       |
+| ----- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| MVN01 | stdio comum, sem versão configurada, modern | `auto` por padrão, negociação `modern`, sem enviar initialize legacy                                          |
+| MVN02 | stdio comum, sem versão configurada, legacy | A sonda sibling determina legacy, o child real completa o initialize e as ferramentas ficam disponíveis            |
+| MVN03 | Streamable HTTP comum, sem versão configurada | `auto` por padrão; erro modern reconhecido não rebaixa, apenas resposta legacy rebaixa                           |
+| MVN04 | Qualquer transport, `legacy` explícito   | Sem sonda, mantendo o comportamento antigo de initialize                                                         |
+| MVN05 | `node_repl` embutido                      | Pin `2026-07-28`, `protocolEra=modern`, falha de conexão quando o server não suporta; o workspace pode compartilhar a conexão |
+| MVN06 | legacy explícito / `sse`                  | Fixo em legacy, sem gerar sonda modern descartável                                                               |
+| MVN07 | server stdio auto que não responde à sonda | A sonda termina dentro do orçamento limitado; após o fallback/timeout total não sobra sibling process nem processo derivado |
+| MVN08 | Qualquer server conectado com sucesso    | `mcp.server.connected` contém ao mesmo tempo a identidade do client, a estratégia de negociação, a era real e a versão exata do protocolo |
+| MVN09 | Conexão com session/workspace isolation   | Os logs de conexão, lease e fechamento podem ser correlacionados por `mcpConnectionId`; conexões stdio registram PID e conexões compartilhadas relacionam a sessão por vários logs de lease |
 
-focused adapter/process tests 证明协商与清理；Browser Use bundle smoke test 继续证明真实 modern stdio
-server。该变更不改变 conversation UI/product state，不新增 conversation E2E 状态组合。
+Testes focados de adapter/process provam a negociação e a limpeza; o smoke test do bundle do Browser Use continua provando um server stdio modern real.
+Essa mudança não altera a UI de conversa nem o estado de produto, e não adiciona combinações de estado de E2E de conversa.
 
-另增 Desktop 真实进程 E2E `packages/desktop/test/e2e/settings/mcp-dual-era-version-negotiation.test.ts`，
-用隔离 HOME 中的真实 CLI 配置启动 modern/legacy stdio fixture，并从 worker 专属
-`ZCODE_LOG_DIR` 读取 `mcp.server.connected` JSONL。这条 E2E 必须同时锁定：
+Foi adicionado também o E2E de processo real no Desktop `packages/desktop/test/e2e/settings/mcp-dual-era-version-negotiation.test.ts`,
+que sobe fixtures stdio modern/legacy com a configuração real do CLI em um HOME isolado e lê o JSONL de `mcp.server.connected` a partir do
+`ZCODE_LOG_DIR` exclusivo do worker. Esse E2E precisa travar ao mesmo tempo:
 
-- modern fixture 实际协商 `2026-07-28`，无 legacy `initialize`；
-- legacy fixture 经 disposable probe 后由真实 session child 完成 `initialize`；
-- 配置文件显式指定 `legacy` 的独立 fixture 被保留，日志策略为 `legacy`，wire 只有旧握手、没有 `server/discover`；
-- 日志中的配置策略、era 和精确协议版本与 fixture wire 记录一致；
-- probe child 退出后，每个 active consumer 只保留自己的真正会话进程；Desktop 同时存在 settings 与
-  draft/session consumer 时，E2E 通过 wire 中缺少 `tools/list` 的存活 PID 识别残留 probe，不再把
-  fixture 的全局存活进程数错误限定为 1。
+- a fixture modern realmente negocia `2026-07-28`, sem initialize legacy;
+- a fixture legacy passa pela sonda descartável e depois tem o `initialize` concluído pelo session child real;
+- uma fixture independente cujo arquivo de configuração especifica explicitamente `legacy` é preservada, com estratégia de log `legacy` e apenas o handshake antigo no wire, sem `server/discover`;
+- a estratégia de configuração, a era e a versão exata do protocolo nos logs são coerentes com o registro de wire da fixture;
+- depois que o child da sonda termina, cada consumer ativo mantém apenas o seu próprio processo de sessão verdadeiro; quando existem simultaneamente settings e
+  draft/session consumer no Desktop, a E2E identifica PIDs de sonda residuais pela ausência de `tools/list` no wire, em vez de limitar incorretamente
+  a 1 o número global de processos vivos da fixture.
 
-该用例不发送 provider 请求；真实性来自 Electron -> Local Host -> ZCode Agent -> MCP
-client -> stdio server 的完整产品进程链。
+Esse caso não envia requisições ao provider; a realismo vem da cadeia completa de processos de produto Electron -> Local Host -> ZCode Agent -> MCP
+client -> stdio server.

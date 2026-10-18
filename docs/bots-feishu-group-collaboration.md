@@ -1,7 +1,10 @@
 # Feishu group collaboration
 
-话题输入材料的新实现以 [话题输入材料重构](bots-topic-input-materials.md) 为准；
-下文历史记录中的正文拼接引用与 bot_topic_context 自动注入将由标准引用和文本附件替代。
+A nova implementação dos materiais de entrada de tópico segue
+[Talk input materials refactor](bots-topic-input-materials.md);
+as referências por concatenação de corpo de texto e a injeção automática de
+bot_topic_context mentioned nos registros históricos abaixo serão substituídas por
+referências padrão e anexos de texto.
 
 ## Identity and activation
 
@@ -24,31 +27,47 @@ and dedicated topic groups are supported. Other providers are excluded.
 
 ## Topic collaboration (implementation contract)
 
-本节是话题行为的当前实施契约，替代旧的逐次 @、默认任务 alias、queue 和 Steer 路径。
-普通群默认会话及私聊保持原语义。
+Esta seção é o contrato de implementação atual do comportamento de tópico, substituindo
+os caminhos antigos de @ turno a turno, alias de task padrão, queue e Steer.
+A sessão padrão de grupos comuns e os chats privados mantêm a semântica original.
 
-### 接入、隔离与退出
+### Onboarding, isolamento e saída
 
-普通用户根消息的话题首次 @ 当前机器人后接入；用户以话题回复当前机器人
-在主聊天的消息时自动接入。必须核验真实 sender、chat 和 native thread ID，
-不能通过显示名或正文推断机器人身份。已接入话题接收后续所有真人消息，
-未接入话题的普通讨论不执行。已接入话题也接收其他机器人的原生消息，触发与真人
-相同的处理、运行中中断续接和回复；当前机器人自身消息按原生 open_id 排除，
-不能靠名称判等。其他机器人不能首次接入或重新激活已退出话题；已启用普通群的主聊天仅在原生 @ 当前机器人时接收。
-接收事件 sender_type 为 bot（兼容旧 app 测试/历史输入），Provider 统一映射为内部 app。
-历史接口的 app 与接收事件的 bot 不可混淆。专用话题群无 thread_id 的机器人事件仍不接入。
-应用需要开通 im:message.group_at_msg.include_bot:readonly 接收机器人 @，或
-im:message.group_msg.include_bot:read 接收包含机器人的群消息，并发布生效；普通
-im:message.group_msg 不能证明机器人消息推送权限已开通。
-机器人正文（包括 slash 命令和审批文字）只作为普通输入，不能执行控制命令或提交
-交互响应。消息 ID 去重、授权撤销和停止屏障沿用现有流程，不建立第二份队列。
-历史保留真人和机器人消息（含原生 senderType）；历史内容仍不触发独立执行。
-状态回调不作为普通输入。每个 `(botId, chatId, threadId)`（主聊天单独计数）连续
-最多接收 5 条其他机器人的新消息，第 6 条起静默忽略，不停止当前运行、不准备材料、
-不提交 CLI。通过现有接入门禁的真人新消息清零；卡片/状态回调不恢复计数。
-重复消息（包括旧真人消息）不消耗次数、不清零。Bot Host 在现有串行状态写入中
-持久化计数与已接收消息 ID，再进入停止/准备流程；并发回调、迟到状态回写和重启不能
-绕过上限。接收后准备失败仍占一次，避免失败重投重新触发。旧 v3 状态无字段时从零开始。
+Um tópico é onboarded quando um usuário comum faz a primeira menção @ ao bot atual em uma
+mensagem raiz; ele também é onboarded automaticamente quando o usuário responde em forma de
+tópico a uma mensagem do bot atual no chat principal. É preciso verificar o sender, o chat e
+o native thread ID reais; a identidade do bot não pode ser inferida pelo nome de exibição nem
+pelo corpo do texto. Um tópico onboarded recebe todas as mensagens posteriores de pessoas
+reais, e discussões comuns em tópicos não onboarded não são executadas. Tópicos onboarded
+também recebem mensagens nativas de outros bots, disparando o mesmo tratamento, o mesmo
+retomada após interrupção em execução e as mesmas respostas das pessoas reais; as próprias
+mensagens do bot atual são excluídas pelo open_id nativo, e a igualdade não pode ser decidida
+pelo nome. Outros bots não podem fazer o primeiro onboarding nem reativar um tópico do qual se
+saiu; o chat principal de um grupo comum já habilitado só recebe mensagens quando há um @
+nativo do bot atual. Eventos recebidos com sender_type igual a bot (compatibilidade com
+testes antigos do app e entradas históricas) são mapeados uniformemente pelo Provider para o
+app interno. O app da interface histórica não pode ser confundido com o bot do evento recebido.
+Eventos de bot sem thread_id em um grupo de tópico dedicado continuam não sendo onboarded.
+O aplicativo precisa ter `im:message.group_at_msg.include_bot:readonly` habilitado para receber
+@ de bots, ou `im:message.group_msg.include_bot:read` para receber mensagens de grupo que
+incluem bots, e publicado para valer; o `im:message.group_msg` comum não prova que a permissão
+de push de mensagens de bot está habilitada.
+O corpo das mensagens de bot (incluindo comandos slash e textos de aprovação) serve apenas como
+entrada comum e não pode executar comandos de controle nem submeter respostas de interação. A
+deduplicação por ID de mensagem, a revogação de autorização e a barreira de parada seguem o
+fluxo existente, sem criar uma segunda fila. O histórico retém mensagens de pessoas e de bots
+(inclusive o senderType nativo); o conteúdo do histórico continua não disparando execução
+independente. Callbacks de estado não são entradas comuns. Cada `(botId, chatId, threadId)`
+(contado separadamente para o chat principal) recebe no máximo 5 mensagens novas consecutivas
+de outros bots; a partir da 6ª são silenciosamente ignoradas, sem parar a execução atual, sem
+preparar materiais e sem submeter à CLI. Uma mensagem nova de pessoa real que passa pelo portão
+de onboarding existente zera a contagem; callbacks de cartão/estado não restauram a contagem.
+Mensagens duplicadas (incluindo mensagens antigas de pessoas reais) não consomem tentativas nem
+zeram a contagem. O Bot Host persiste a contagem e os IDs das mensagens recebidas na escrita de
+estado serializada existente, e só então entra no fluxo de parada/preparo; callbacks concorrentes,
+writes de estado atrasados e reinícios não podem contornar o limite. Uma falha de preparo após o
+recebimento ainda conta como uma tentativa, evitando que um reenvio por falha dispare tudo de
+novo. Estados antigos v3 sem o campo começam do zero.
 
 ```text
 真人首次接入 → active 话题
@@ -57,21 +76,30 @@ im:message.group_msg 不能证明机器人消息推送权限已开通。
 inactive / leave 后的机器人消息 → 丢弃（即使 @）
 ```
 
-验收：Feishu/Lark 的其他机器人消息能在原话题提交并回复、重复回调只处理一次；
-自身消息、未接入话题和退出后的机器人消息静默忽略；机器人 `/stop`、`/reconnect`
-及审批文字不执行控制操作；历史机器人正文及授权附件可读。仅处理平台实际推送的
-消息，受应用权限和平台事件范围限制；合成事件测试不证明真实租户的推送能力。
+Aceitação: mensagens de outros bots do Feishu/Lark podem ser submetidas e respondidas no
+tópico original, e callbacks duplicados são processados apenas uma vez; mensagens do próprio
+bot, tópicos não onboarded e mensagens de bot após a saída são silenciosamente ignorados;
+`/stop`, `/reconnect` e textos de aprovação de bots não executam operações de controle; o corpo
+das mensagens de bot no histórico e os anexos autorizados são legíveis. Apenas mensagens
+realmente enviadas pela plataforma são processadas, limitadas pelas permissões do aplicativo e
+pelo escopo de eventos da plataforma; testes com eventos sintéticos não provam a capacidade de
+push de um tenant real.
 
-每个 `(botId, chatId, threadId)` 绑定独立任务，包括机器人回复形成的话题。
-首次冻结边界、读取历史并准备必需材料，成功后才创建任务与提交。继承群配置
-快照，不继承其他任务上下文或审批；同工作区仍共享文件，不自动建 worktree。
-接入期间并发消息不能丢失或重复建任务。未知话题身份拒绝，不回退主聊天。
+Cada `(botId, chatId, threadId)` vincula uma task independente, inclusive tópicos formados por
+respostas de bots. A fronteira é congelada na primeira vez, o histórico é lido e os materiais
+necessários são preparados; só depois de sucesso a task é criada e submetida. Um snapshot da
+configuração do grupo é herdado, mas não o contexto nem as aprovações de outras tasks; arquivos
+continuam compartilhados no mesmo workspace e nenhum worktree é criado automaticamente.
+Mensagens concorrentes durante o onboarding não podem ser perdidas nem criar tasks duplicadas.
+Identidade de tópico desconhecida é rejeitada, sem fallback para o chat principal.
 
-`/stop` 停止当前轮并取消未提交输入，保持接入；绑定用户 `/leave` 停止并退出。
-再次 @ 恢复原任务并补历史。`/history off` 暂停话题；历史权限缺失阻止接入，
-给出应用权限链接和发布说明。群停用/解绑/退群撤销接入、卡片和投递授权。
+`/stop` para o turno atual e cancela entradas não submetidas, mantendo o onboarding; `/leave`
+do usuário vinculado para e sai. Um novo @ restaura a task original e completa o histórico.
+`/history off` pausa o tópico; a falta da permissão de histórico bloqueia o onboarding,
+apresentando o link de permissões do aplicativo e as instruções de publicação. Desabilitar o
+grupo, desvincular ou sair do grupo revoga o onboarding, os cartões e as autorizações de entrega.
 
-### 停止后续接
+### Parada e retomada do onboarding
 
 ```text
 inactive --首次触发--> preparing initial materials --成功--> active/idle
@@ -81,53 +109,87 @@ stopping --停止已确认 AND 全部材料就绪--> running(nextRunId)
 active --/leave--> inactive（保留任务）
 ```
 
-收到新消息立即请求停止，材料准备可并行。停止请求使用既有协议 expectedForegroundExecutionId 绑定旧运行（来自 activeWorks），不能把日志 traceId 当执行身份；等待权威
-终态后才提交下一轮。停止期间所有消息按接入顺序合并，原始消息各自保留；
-同一 run 只停止一次。自然完成与停止竞争只推进一次；迟到通知不影响新轮。
-已完成工具副作用不回滚，不能承诺强制抢占工具。
+Uma nova mensagem solicita a parada imediatamente, e o preparo dos materiais pode correr em
+paralelo. A solicitação de parada usa o protocolo existente expectedForegroundExecutionId para
+amarrar à execução antiga (vinda de activeWorks); o traceId dos logs não pode ser usado como
+identidade de execução; a próxima rodada só é submetida após um estado terminal autoritativo.
+Durante a parada todas as mensagens são agrupadas na ordem de onboarding, e cada mensagem
+original é preservada; a mesma run é parada apenas uma vez. Uma corrida entre conclusão natural
+e parada avança apenas uma vez; notificações atrasadas não afetam a nova rodada. Efeitos colaterais
+de ferramentas já concluídos não são revertidos e não se promete otomada de controle forçada de ferramentas.
 
-合批在既有 botGroupSource.messages 保存各条 messageId、senderId、senderName、正文、引用和扁平附件索引；最后一条消息作为接收边界，消息 ID 不得重复。UI 从这些结构化原文逐条展示，不解析拼接正文。
+O agrupamento salva em botGroupSource.messages o messageId, senderId, senderName, o corpo, as
+referências e o índice achatado de anexos de cada mensagem; a última mensagem é a fronteira de
+recebimento e os IDs de mensagem não podem se repetir. A UI exibe essas estruturas de texto
+original uma a uma, sem analisar corpos concatenados.
 
-准备缓存只保存未接受输入，CLI CommandInbox 仍是唯一接受队列。禁止 Bot 层
-建立 accepted queue。提交使用稳定 commandId；确认丢失查询原命令，不重复执行。
-Host 在冷恢复/附件上传前记录任务与 remoteSessionId 隔离的取消代次，上传完成后再次校验；/stop、/leave 递增代次，阻止旧输入迟到接收。此代次不保存 accepted input。
+O cache de preparo guarda apenas entradas não aceitas, e o CLI CommandInbox continua sendo a
+única fila de aceitação. É proibido criar uma accepted queue na camada de Bot. A submissão usa um
+commandId estável; numa confirmação perdida consulta-se o comando original, sem reexecutar. O
+Host registra antes da recuperação a frio e do upload de anexos uma geração de cancelamento
+isolada por task e remoteSessionId e revalida após o upload; `/stop` e `/leave` incrementam a
+geração, impedindo que entradas antigas cheguem atrasadas. Essa geração não guarda entradas
+aceitas.
 
-取消与命令发送共用 task/workspace/remoteSessionId 级串行屏障。发送取得屏障时复核准备代次；取消立即使尚未发送的旧代次失效，并等待已开始发送的命令及 ACK 对账收口后才返回。已开始发送的命令先于取消线性化，不能承诺撤回；后续 stop 读取收口后的权威运行态。屏障只管理 Host 在途调用，不保存 accepted input，也不代替 CLI CommandInbox。
+O cancelamento e o envio de comandos compartilham uma barreira serial em nível de
+task/workspace/remoteSessionId. O envio revalida a geração de preparo ao obter a barreira; o
+cancelamento invalida imediatamente as gerações antigas ainda não enviadas e só retorna depois de
+esperar o fechamento reconciliado das ordens de comando já iniciadas e de seus ACKs. Ordens já
+iniciadas são linearizadas antes do cancelamento e não se promete revogá-las; um stop posterior lê
+o estado de execução autoritativo após o fechamento. A barreira gerencia apenas as chamadas em
+voo do Host, não guarda entradas aceitas e não substitui o CLI CommandInbox.
 
 ```text
 准备(代次 N) → 串行屏障内复核 N → 发送/ACK 对账 → 释放屏障
 取消 → 代次 N+1（拒绝未发送的 N）→ 等待在途发送收口 → 取消完成 → 权威 stop
 ```
 
-回归须覆盖无附件发送内部挂起时取消不能提前完成、等待屏障的旧代次被拒绝、发送失败后屏障释放、新代次输入和相同 commandId 的 CLI 幂等透传，以及远端会话身份隔离。
-控制命令/审批/问答走专用通道，不触发普通消息中断，也不被材料准备阻塞。
-旧轮中断后未投递结果不得作为最终结果发送，已发送内容保留。
+A regressão precisa cobrir: cancelamento não pode concluir cedo enquanto um envio sem anexo está
+suspenso internamente; uma geração antiga à espera da barreira é rejeitada; a barreira é liberada
+após uma falha de envio; uma entrada de nova geração e a idempotência de passagem com o mesmo
+commandId na CLI; e o isolamento da identidade de sessão remota.
+Comandos de controle, aprovações e perguntas e respostas usam um canal dedicado, não
+disparam interrupção de mensagens comuns e não são bloqueados pelo preparo dos materiais.
+Resultados não entregues após a interrupção de uma rodada antiga não podem ser enviados como
+resultado final; o conteúdo já enviado é preservado.
 
-### 输入材料与展示
+### Materiais de entrada e exibição
 
-首次展示根引用（真实原文、发送者、时间）和可打开的话题历史文本附件。
-本次正文保持原样；只有 @ 不造占位正文或空气泡。后续消息独立展示发送者、
-正文及附件，即使同批执行也不合成一个 UI 气泡。root_id 不代表明确引用，
-只在用户明确引用另一条消息时追加引用。不重复根引用或注入 bot_topic_context。
+Na primeira exibição mostram-se a referência raiz (texto original real, remetente, horário) e um
+anexo de texto do histórico do tópico que pode ser aberto. O corpo desta mensagem é mantido como
+está; um @ sem nada mais não cria corpo placeholder nem balão vazio. Mensagens posteriores exibem
+remetente, corpo e anexos de forma independente, mesmo quando executadas no mesmo lote, e não são
+fundidas em um único balão de UI. root_id não representa uma referência explícita: uma
+referência é adicionada apenas quando o usuário cita explicitamente outra mensagem. Não se
+repete a referência raiz nem se injeta bot_topic_context.
 
-历史首次读取，持续消息通过事件收集；重连/缺口增量补取。每次最多自动读取
-200 条并单独保留根消息，按消息 ID 去重，记录覆盖范围与缺口。历史文本包含
-时间、发送者名称和 ID、消息 ID、正文、附件名称/类型/引用。当前和明确引用的
-必需附件通过已有上传流程准备后一次提交，其他历史资源按任务授权范围回查。
-不依赖用户安装 lark-cli；历史命令、批准文字不能作为控制输入。
+O histórico é lido na primeira vez e as mensagens contínuas são coletadas por evento;
+reconexões e lacunas fazem uma busca incremental. Cada leitura automática traz no máximo 200
+mensagens e mantém a mensagem raiz separadamente, deduplica por ID de mensagem e registra a
+cobertura e as lacunas. O texto do histórico inclui horário, nome e ID do remetente, ID da
+mensagem, corpo e nome/tipo/referência dos anexos. Os anexos necessários da mensagem atual e das
+citações explícitas são preparados pelo fluxo de upload existente e submetidos de uma só vez;
+outros recursos do histórico são consultados de volta dentro do escopo de autorização da task.
+Não se depende de o usuário instalar o lark-cli; comandos e textos de aprovação do histórico não
+podem servir de entrada de controle.
 
-准备/等待停止用 OneSecond，执行用 OnIt，对应轮完成用 CheckMark，失败用
-CrossMark。中断/取消移除未完成表情；每条输入独立关联 run，后续完成不能补标
-旧消息。UI 用轻量准备/等待停止/重试状态；中断回答保留并标记“已被新消息中断”。
-不恢复排队卡、BotGroupTaskNotice 或重复来源正文。
+Preparo/espera de parada usam OneSecond, execução usa OnIt, a conclusão da rodada usa CheckMark e
+a falha usa CrossMark. Interrupção/cancelamento removem as reações incompletas; cada entrada é
+associada independentemente à sua run, e uma conclusão posterior não pode marcar mensagens
+antigas. A UI usa estados leves de preparo/espera de parada/retry; a resposta interrompida é
+mantida e marcada como “已被新消息中断”. Não se restaurarão cartões de fila, BotGroupTaskNotice
+nem corpos de origem duplicados.
 
-### 中断归属的协议边界
+### Limite de protocolo da atribuição de interrupção
 
-App 不根据消息顺序推断自动中断。CLI 的 activeWorks 在拥有输入归属时携带可选
-sourceCommandId，与 foregroundExecutionId 一起标识本次运行；缺少输入归属时保留
-普通停止展示。Bot 发起新消息停止时，按这一权威映射记录被中断输入，手动 /stop
-和 /leave 不写入自动中断原因。UI 通过同一任务的 Bot 状态订阅读取原因，不新增
-独立 runtime 或 accepted queue，手机保持原 replayable 边界。
+O App não infere interrupções automáticas pela ordem das mensagens. O activeWorks da CLI carrega
+um sourceCommandId opcional quando há atribuição de entrada, identificando esta execução junto
+com o foregroundExecutionId; sem atribuição de entrada a exibição de parada comum é mantida.
+Quando o Bot solicita a parada por uma nova mensagem, ele registra a entrada interrompida
+conforme esse mapeamento autoritativo; `/stop` manual e `/leave` não escrevem o motivo da
+interrupção automática. A UI lê o motivo pela mesma assinatura de estado de Bot da task, sem
+criar runtime independente nem accepted queue, e o celular mantém sua fronteira replayable
+original.
 
 ```text
 CLI activeWorks(executionId, sourceCommandId)
@@ -136,20 +198,30 @@ CLI activeWorks(executionId, sourceCommandId)
   → App 对应 sourceCommandId 的停止标签
 ```
 
-### 准备状态展示边界
+### Limite de exibição do estado de preparo
 
-Bot 服务临时保存未提交消息及准备状态，getBotStates 只投影 messageId、发送者、正文和
-preparing/waitingStop/failed 状态，不传附件二进制或凭据。App 将准备消息投影到会话流，失败后移除临时行，不显示错误块或重试。CLI 接收后立即移除临时展示，正式
-消息由 CLI 行显示；取消、退出、撤权、关闭清除临时状态。该缓存不持久化、不自动重跑，
-也不是 accepted queue；服务重启后按既有历史边界重建材料。
+O serviço de Bot mantém temporariamente as mensagens não submetidas e o estado de preparo;
+getBotStates projeta apenas messageId, remetente, corpo e o estado
+preparing/waitingStop/failed, sem transmitir binários de anexo nem credenciais. O App projeta as
+mensagens em preparo no fluxo da conversa e, após uma falha, remove a linha temporária sem
+mostrar bloco de erro nem retry. A CLI remove imediatamente a exibição temporária assim que
+recebe, e a mensagem formal é exibida pela linha da CLI; cancelamento, saída, revogação e
+fechamento limpam o estado temporário. Esse cache não é persistido, não roda automaticamente e
+não é uma accepted queue; após reiniciar o serviço, os materiais são reconstruídos conforme os
+limites de histórico existentes.
 
-### 准备中输入的消息气泡
+### Balão das mensagens em preparo
 
-准备中的每条真人输入属于会话流。来源行显示「飞书/Lark · 发送者」与不收缩的加载图标，
-悬停或键盘聚焦图标时，tooltip 显示「正在准备材料」或「等待当前执行停止」。
-不在气泡内或下方常驻显示准备文字。正文仍复用完整正式消息组件和折叠/展开；
-空正文只显示来源与状态图标，不造空气泡。材料准备失败后移除该临时展示行，不显示红色错误块、重试按钮或孤立来源标签；不改动服务端失败记录、执行与飞书侧回复。
-长姓名截断，不挤掉状态图标。provider 来自当前绑定机器人的配置或已接收来源，不猜测 Lark 为飞书。
+Cada entrada de pessoa real em preparo pertence ao fluxo da conversa. A linha de origem mostra
+「飞书/Lark · 发送者」 e um ícone de carregamento que não encolhe; ao passar o mouse ou focar o
+ícone pelo teclado, o tooltip mostra 「正在准备材料」 ou 「等待当前执行停止」. Nenhum texto de
+preparo fica permanente dentro ou abaixo do balão. O corpo continua reutilizando o componente
+completo de mensagem formal com contração/expansão; um corpo vazio mostra apenas a origem e o
+ícone de estado, sem criar balão vazio. Quando o preparo dos materiais falha, a linha temporária
+é removida, sem bloco de erro vermelho, botão de retry ou rótulo de origem órfão; o registro de
+falha no servidor, a execução e a resposta no lado do Feishu não são alterados. Nomes longos são
+truncados sem empurrar o ícone de estado. O provider vem da configuração do bot vinculado
+atualmente ou da origem já recebida, e não se presume que Lark seja Feishu.
 
 ```text
 Bot 未接受材料（messageId） → 时间线 render unit → 正式正文组件 + 来源行加载图标
@@ -157,37 +229,77 @@ CLI 正式消息（botGroupSource.messageId / messages[].messageId） → 正式
                            └→ 同 ID 准备气泡不再展示
 ```
 
-准备消息接入 ConversationTurnGroup，参与现有消息流测高/滚动，不在 Timeline 底部另挂提示。保留 running live tail，不能为准备态把执行中的轮次移入历史虚拟列表。
-仅从当前时间线和 Bot 状态派生展示，不增加缓存或 accepted queue；消息仍由各自 owner
-发布。相同原始 ID 的正式消息到达后隐藏迟到准备状态，不能按正文匹配去重。
-复用同一气泡组件不代表跨 owner 保留同一个 DOM 节点。桌面 continuous 和手机 replayable
-保持原链路。验收覆盖多条输入、空白正文、准备/等待/失败、重试、正式消息先到的重叠窗口，
-以及中英文、深浅主题、桌面/手机宽度；组件浏览器证据不代替真实飞书和手机远控端到端。
+As mensagens em preparo entram no ConversationTurnGroup e participam da medição de altura e da
+rolagem existentes no fluxo de mensagens, sem pendurar um aviso no fim da Timeline. O
+running live tail é preservado e um turno em execução não é movido para a lista virtual de
+histórico por causa do estado de preparo. A exibição deriva apenas da timeline atual e do estado
+de Bot, sem adicionar cache nem accepted queue; as mensagens continuam publicadas por seus
+respectivos owners. Quando a mensagem formal com o mesmo ID original chega, o estado de preparo
+atrasado é ocultado e a deduplicação não é feita por correspondência de corpo. Reutilizar o mesmo
+componente de balão não significa manter o mesmo nó DOM entre owners. Desktop continuous e
+celular replayable mantêm o caminho original. A aceitação cobre múltiplas entradas, corpo em
+branco, preparo/espera/falha, retry, a janela de sobreposição em que a mensagem formal chega
+primeiro, além de chinês/inglês, temas claro/escuro e larguras desktop/celular; evidência de
+navegador do componente não substitui a validação ponta a ponta no Feishu real e no controle
+remoto do celular.
 
-### 本次实现与验收记录
+### Registro de implementação e aceitação desta rodada
 
-- 服务 dispose、机器人被移出群、更换绑定用户时的迟到材料取消已有群服务回归测试；完整跨端验证仍待手动验收。
-- App 已接入轻量准备/等待停止/失败重试状态，并区分自动中断与手动停止；组件和服务测试通过，真实 Desktop/手机展示仍待手动验证。
-- 重试必须匹配当前 taskId 与 workspaceIdentity；等待停止阶段覆盖稍后完成授权的消息，取消后的旧回调不能更新新一代状态。
-- 首次根引用及其附件在提交时统一去重，重新计算原消息附件索引；后续消息自身附件保留。回归测试覆盖已提前准备的根资源。
-- 旧话题排队/Steer 丢弃事件只更新原输入状态，不发送排队提示；话题中断不再重复发送停止通知。
-- 专用话题根通过原生消息接口校验 thread_id 与同群根消息；旧 alias 仅在空闲迁移时读取，成功后删除并保存独立绑定。现有服务/Provider 测试覆盖这些路径。
-- Agent 事件回放测试验证原始发送者、引用及附件索引通过 snapshot schema 后保留；真实持久化重启与手机 replayable 展示仍待手动验收。
-- 自动化：群服务 81 项、Agent 投影 177 项；停止协调器、运行时停止屏障、准备状态、原始消息展示与中断标签另有专项测试。根目录、Agent bootstrap、E2E 类型检查通过。
-- 提交前检查：`NODE_OPTIONS=--max-old-space-size=8192 pnpm verify:pre-push` 通过（Lint 43 项既有 warning、0 error）。脚本只枚举已提交差异，因此另行检查本次暂存内容：15 个修改测试文件通过；24 个修改源文件的完整关联集使用 `vitest related --run --pool=forks --maxWorkers=2`，893 个测试文件、9,916 项测试通过，4 项跳过。
-- 环境记录：Node 24.14.0 的 threads 测试池多次在 V8 内存回收线程发生 SIGSEGV（macOS 原生报告可查），提高堆上限仍偶发；最终改用独立进程隔离，同一关联测试范围完整通过，未关闭检查规则。
-- 未启动 dev、未运行 UI E2E。真实飞书/Lark、Desktop/手机、跨系统及真实重启恢复均待用户按材料文档步骤手动验收，自动测试不代替这些结果。
+- O cancelamento de materiais atrasados no dispose do serviço, na remoção do bot do grupo e na
+  troca do usuário vinculado já tem testes de regressão do serviço de grupo; a validação
+  completa entre pontas ainda depende de aceitação manual.
+- O App já passou a expor os estados leves de preparo/espera de parada/retry de falha e distingue
+  interrupção automática de parada manual; os testes de componente e de serviço passam, mas a
+  exibição real em Desktop/celular ainda depende de validação manual.
+- O retry precisa casar com o taskId e o workspaceIdentity atuais; a fase de espera de parada
+  cobre mensagens cuja autorização é concluída depois, e callbacks antigos após o cancelamento
+  não podem atualizar o estado de uma nova geração.
+- A referência raiz inicial e seus anexos são deduplicados de forma unificada na submissão, e o
+  índice de anexos da mensagem original é recalculado; os anexos das mensagens seguintes são
+  preservados. Os testes de regressão cobrem recursos raiz preparados antecipadamente.
+- Eventos antigos de descarte de fila/Steer de tópico atualizam apenas o estado da entrada
+  original e não enviam aviso de fila; a interrupção de tópico não envia mais notificações de
+  parada duplicadas.
+- A raiz de tópico dedicado valida thread_id e a mensagem raiz do mesmo grupo pela interface de
+  mensagens nativas; o alias antigo só é lido na migração em tempo ocioso e, após o sucesso, é
+  removido e o vínculo independente é salvo. Os testes de serviço/Provider existentes cobrem
+  esses caminhos.
+- Os testes de replay de eventos do Agent verificam que remetente original, referências e índice
+  de anexos são preservados após passarem pelo schema de snapshot; a persistência real com
+  reinício e a exibição no celular replayable ainda dependem de aceitação manual.
+- Automação: 81 itens do serviço de grupo, 177 itens da projeção do Agent; o coordenador de
+  parada, a barreira de parada do runtime, o estado de preparo, a exibição de mensagens originais
+  e os rótulos de interrupção têm testes dedicados. Typecheck da raiz, do bootstrap do Agent e do
+  E2E passam.
+- Verificação antes do commit: `NODE_OPTIONS=--max-old-space-size=8192 pnpm verify:pre-push`
+  passou (43 warnings de Lint já existentes, 0 erros). O script apenas enumera diferenças já
+  commitadas, então o conteúdo staged desta rodada foi verificado separadamente: 15 arquivos de
+  teste modificados passaram; o conjunto completo relacionado aos 24 arquivos de código-fonte
+  modificados usou `vitest related --run --pool=forks --maxWorkers=2`, com 893 arquivos de teste
+  e 9.916 testes passando e 4 pulados.
+- Registro de ambiente: o pool de testes com threads do Node 24.14.0 sofreu SIGSEGV várias vezes
+  na thread de coleta de memória do V8 (com relatório nativo do macOS disponível); aumentar o
+  limite de heap ainda reproduz sporadicamente; ao final passou-se a isolamento por processos
+  independentes, e o mesmo escopo de testes relacionado passou por completo, sem desativar
+  nenhuma regra de verificação.
+- O dev não foi iniciado e o E2E de UI não foi executado. Feishu/Lark real, Desktop/celular,
+  entre sistemas e recuperação com reinício real permanecem pendentes de aceitação manual pelo
+  usuário conforme os passos do documento de materiais; os testes automatizados não substituem
+  esses resultados.
 
-### 迁移与验证边界
+### Limites de migração e verificação
 
-旧独立任务保留；指向默认任务的 topicAliases 仅用于一次性迁移，在安全空闲
-边界创建独立任务，保存独立绑定并删除旧 alias，作为迁移完成记录。保留原任务，不复制完整旧上下文。
-移除常驻 alias 路由，不维护两套话题执行实现。
+As tasks independentes antigas são preservadas; topicAliases que apontam para a task padrão são
+usados apenas para uma migração única, criando uma task independente num limite ocioso seguro,
+salvando o vínculo independente e removendo o alias antigo como registro de migração concluída. A
+task original é preservada, sem copiar todo o contexto antigo. O roteamento de alias residente é
+removido e não se mantêm duas implementações de execução de tópico.
 
-Desktop continuous、手机 replayable、owner/lease、workspaceIdentity 和
-remoteSessionId 保持既有边界。自动验证包含停止竞争、并发接入、消息去重、
-材料失败、撤权及迁移；真实飞书/Lark、Desktop 和手机展示由用户手动验收，
-本次不启动 dev。未完成的真实验证必须在交付中明确列出。
+Desktop continuous, celular replayable, owner/lease, workspaceIdentity e remoteSessionId mantêm
+os limites existentes. A validação automática inclui corrida de parada, onboarding concorrente,
+deduplicação de mensagens, falha de materiais, revogação e migração; Feishu/Lark real, Desktop e
+exibição no celular são aceitos manualmente pelo usuário, e o dev não é iniciado nesta rodada. A
+verificação real incompleta precisa ser listada explicitamente na entrega.
 
 ### Historical attachment retrieval (local/stdio/WebSocket integration under verification, 2026-09-08)
 
@@ -407,11 +519,21 @@ Host/CLI restart and remote boundaries; mobile, themes and locales. Implement te
 before code. Run typecheck, lint, focused unit/integration and Desktop E2E. Real
 Feishu and cross-platform results must be reported separately from fixture tests.
 
-### 飞书接口权限核对（2026-09-07）
+### Conferência das permissões de interface do Feishu (2026-09-07)
 
-接收群 @ 事件使用 `im:message.group_at_msg:readonly`。读取明确引用的消息及其附件还需应用身份的 `im:message:readonly` 或 `im:message`；这与订阅全群消息事件的 `im:message.group_msg` 是不同权限。仅配置 @ 事件权限不能保证附件下载成功。机器人必须仍在原消息所属群中，并通过服务端同群校验；权限不足、消息不可见或附件不可下载时整条输入失败，不执行剩余文字。
+O recebimento de eventos de @ em grupo usa `im:message.group_at_msg:readonly`. Ler uma
+mensagem explicitamente citada e seus anexos exige também, para a identidade do aplicativo,
+`im:message:readonly` ou `im:message`; isso é uma permissão diferente de
+`im:message.group_msg`, usada para assinar eventos de todas as mensagens do grupo. Configurar
+apenas a permissão de @ não garante o download de anexos. O robô precisa continuar no grupo da
+mensagem original e passar na validação de mesmo grupo no servidor; quando falta permissão, a
+mensagem não está visível ou o anexo não pode ser baixado, a entrada inteira falha e o texto
+restante não é executado.
 
-依据：[获取指定消息内容](https://open.feishu.cn/document/server-docs/im-v1/message/get)（2026-04-10 更新）、[获取消息中的资源文件](https://open.feishu.cn/document/server-docs/im-v1/message/get-2)（2026-08-27 更新）。未使用全群历史查询接口。
+Base: [Obter o conteúdo de uma mensagem especificada](https://open.feishu.cn/document/server-docs/im-v1/message/get)
+(atualizado em 2026-04-10) e
+[Obter arquivos de recursos em mensagens](https://open.feishu.cn/document/server-docs/im-v1/message/get-2)
+(atualizado em 2026-08-27). A interface de consulta do histórico completo do grupo não foi usada.
 
 ### Delivery reconciliation
 
@@ -502,21 +624,52 @@ Conversation attribution has an 8px gap before the message bubble, using the
 shared spacing scale. This applies to Desktop and mobile conversation rows;
 queue attribution retains its compact layout.
 
-# 话题原文回查实现契约
+# Contrato de implementação da consulta do texto original de tópicos
 
-Agent 复用 `ReadSessionContext` 的 `topic` 策略回查已接收输入中保存的话题原文；只能读取当前 session，按消息 ID 或关键词筛选并分页。原文来自可信 `conversationInputIntent.botGroupSource.topicContext`，仅在权威字段不存在时兼容旧 `inputIntent`；不从正文解析身份，也不把摘要当作原文。读取上限、缺口与截断必须返回给模型；尚未获取的消息不声称已归档。下一次 @ 的有限原生 API 读取继续负责新增归档。
+O Agent reutiliza a estratégia `topic` do `ReadSessionContext` para consultar o texto original
+de tópicos salvo nas entradas já recebidas; só pode ler a sessão atual, filtrando por ID de
+mensagem ou palavra-chave e paginando. O texto original vem do confiável
+`conversationInputIntent.botGroupSource.topicContext`, com compatibilidade com o antigo
+`inputIntent` apenas quando o campo autoritativo não existe; a identidade não é analisada a
+partir do corpo do texto e um resumo nunca é tratado como texto original. Limites de leitura,
+lacunas e truncamentos precisam ser devolvidos ao modelo; mensagens ainda não obtidas não podem
+ser declaradas como arquivadas. A leitura limitada pela API nativa no próximo @ continua
+responsável por arquivar o que for novo.
 
-该策略不额外调用模型，不执行历史中的命令或审批，不改变队列，沿用既有只读工具权限、取消、trace、结果预算与 tool result 投影。任务摘要来自 model-only `bot_topic_context` 记录，原文与摘要都保留引用依据。
+Essa estratégia não chama modelos adicionais, não executa comandos ou aprovações do histórico,
+não altera a fila e mantém as permissões de ferramenta somente leitura, o cancelamento, o trace,
+o orçamento de resultados e a projeção de tool result já existentes. O resumo da task vem dos
+registros model-only de bot_topic_context, e tanto o texto original quanto o resumo preservam a
+base da referência.
 
-实现边界：覆盖范围以已归档消息 ID、当前唤起检查点及 `hasGap` 表示，不推断无法读取区间的消息数量。回复操作栏不提供话题详情入口或摘要弹窗；移除此 UI 不改变服务端话题归档及原文回查能力。原文查询只覆盖已读取、已接收的输入背景；未读取的早期历史不会由该工具自动联网补取。真实租户及跨平台验收状态记录于 `docs/testing/bots-e2e-coverage-matrix.md`。
+Limites de implementação: a cobertura é representada por IDs de mensagens arquivadas, pelo
+checkpoint atual de chamada e por `hasGap`, e não se infere a quantidade de mensagens em
+intervalos ilegíveis. A barra de ações de resposta não oferece entrada de detalhes do tópico nem
+popup de resumo; remover essa UI não altera o arquivamento de tópicos no servidor nem a
+capacidade de consultar o texto original. A consulta de texto original cobre apenas o contexto de
+entradas já lidas e recebidas; o histórico inicial ainda não lido não é buscado automaticamente
+pela rede por essa ferramenta. O estado de aceitação em tenants reais e entre plataformas está
+registrado em `docs/testing/bots-e2e-coverage-matrix.md`.
 
-## 明确引用与仅提及（2026-09-08）
+## Citações explícitas e apenas menções (2026-09-08)
 
-- 主聊天普通消息不触发执行。主聊天只有 @、无引用或附件时，返回补充需求提示，不创建任务或执行表情。
-- 明确引用文字后只 @：当前需求为处理引用消息，原文保留为带消息 ID 的引用材料。@ 后有新要求时，以新要求为准。引用中的命令不经过命令解析器。
-- 引用的文字、富文本及附件必须可读且属于同群同话题；不可读、撤回、格式不支持时明确拒绝，不静默忽略引用。
-- 话题内只有 @：仅在群已开启历史读取并有可用话题背景时提交“结合讨论处理明确问题，意图不明则询问”；没有可用背景时提示补充需求。历史读取失败不执行空需求。
-- 显式引用不依赖历史开关；主聊天 `@ hello` 不隐式读取相邻消息。附件与引用正文一次入队，CLI 确认前不显示执行／排队表情。
+- Uma mensagem comum no chat principal não dispara execução. Quando o chat principal tem apenas
+  @, sem citação nem anexo, retorna-se um aviso pedindo Complementar a necessidade, sem criar task
+  nem reação de execução.
+- Depois de citar explicitamente um texto e fazer apenas @: a necessidade atual é tratar a mensagem
+  citada, e o texto original é preservado como material de referência com ID de mensagem. Se
+  houver uma nova exigência depois do @, a nova exigência prevalece. Comandos dentro da citação
+  não passam pelo parser de comandos.
+- O texto, o rich text e os anexos citados precisam ser legíveis e pertencer ao mesmo grupo e ao
+  mesmo tópico; quando ilegíveis, revogados ou em formato não suportado, a citação é rejeitada
+  explicitamente e nunca ignorada em silêncio.
+- Dentro de um tópico, quando há apenas @: a necessidade “结合讨论处理明确问题，意图不明则询问”
+  só é submetida se o grupo já tiver a leitura de histórico habilitada e houver contexto de tópico
+  utilizável; sem contexto disponível, avisa-se para complementar a necessidade. Uma falha na
+  leitura do histórico não executa uma necessidade vazia.
+- A citação explícita não depende da chave de histórico; um `@ hello` no chat principal não lê
+  implicitamente mensagens vizinhas. Anexos e o corpo citado entram na fila de uma só vez, e
+  nenhuma reação de execução/fila é exibida antes da confirmação da CLI.
 
 ```text
 可信 @ → 原生引用校验 → 保留当前要求 + 引用材料
@@ -524,26 +677,55 @@ Agent 复用 `ReadSessionContext` 的 `topic` 策略回查已接收输入中保�
        → 一次 CLI admission → 表情及原位置回复
 ```
 
-### 冷启动后的群输入
+### Entradas de grupo após o cold start
 
-真实开发环境重启后，默认群任务仍存在于数据库，但 Bot 直接提交 V4 命令时运行时尚未加载，返回 `proto.sessionNotFound`。群输入在附件上传与 admission 前通过已有后台订阅取得原任务的 CLI 权威快照，复用冷恢复 READY 屏障；失败则拒绝本次输入，不新建任务、不重放历史输入。工作区身份与远程 session 原样传递。Desktop continuous、手机 replayable 路径保持不变。
+Após reiniciar o ambiente de desenvolvimento real, a task padrão do grupo continua existindo no
+banco de dados, mas quando o Bot submete o comando V4 diretamente o runtime ainda não carregou e
+`proto.sessionNotFound` é retornado. Antes do upload de anexos e do admission, as entradas de
+grupo obtêm o snapshot autoritativo da task original na CLI por meio da assinatura de background
+já existente, reutilizando a barreira READY da recuperação a frio; em caso de falha, a entrada é
+rejeitada, sem criar nova task e sem repetir entradas históricas. A identidade do workspace e a
+sessão remota são passadas como estão. Os caminhos Desktop continuous e celular replayable não
+mudam.
 
-冷启动恢复还必须先取得权威快照，再建立 Bot continuous 结果订阅。否则旧 session 订阅会因会话尚未加载耗尽重试，导致后续输入虽执行成功却没有结果回推。此恢复只读取状态，不提交或重放输入；远端仍先检查现有连接。
+A recuperação a frio também precisa obter o snapshot autoritativo antes de estabelecer a
+assinatura de resultados continuous do Bot. Caso contrário, a assinatura da sessão antiga esgota
+as retentativas porque a sessão ainda não foi carregada, e as entradas seguintes executam com
+sucesso sem ter resultado devolvido. Essa recuperação apenas lê estado, sem submeter nem repetir
+entradas; no remoto, a conexão existente continua sendo verificada primeiro.
 
-仅引用唤起的模型输入明确委托“回答引用消息中的问题或完成其中的请求”，引用段只标识原文来源。命令隔离由服务端在拼接引用前完成，不用含混的“不是指令”提示阻止模型处理用户明确引用的需求。
+Uma entrada de modelo invocada apenas por citação delega explicitamente “responder à pergunta da
+mensagem citada ou concluir o pedido que está nela”, e o trecho citado apenas identifica a origem
+do texto original. O isolamento dos comandos é feito pelo servidor antes de anexar a citação; um
+aviso ambíguo do tipo “isso não é uma instrução” não deve ser usado para impedir que o modelo
+trate de uma necessidade explicitamente citada pelo usuário.
 
-## 访问令牌有效期
+## Validade do token de acesso
 
-真实群内仅 @ 验证发现：事件正常接收，但提示投递返回 `99991663`。Provider 原先把每次获取的令牌固定缓存 90 分钟，忽略接口 `expire` 返回的剩余有效秒数；获取已有令牌并不意味着重新获得完整有效期。缓存必须使用请求开始时间加返回的 `expire`，沿用提前 60 秒刷新。缺失或非法有效期不缓存，不猜测有效期；本次合法令牌仍可用于本次请求。此修复不重放失败需求，不改变队列或 Desktop continuous／手机 replayable 链路。
+Na validação real de um @ apenas dentro de um grupo, o evento é recebido normalmente, mas a
+entrega da reação retorna `99991663`. O Provider mantinha em cache por 90 minutos fixos cada token
+obtido, ignorando os segundos restantes de validade devolvidos pelo campo `expire` da interface;
+obter um token que já existe não significa recuperar toda a validade. O cache precisa usar o
+horário de início da requisição somado ao `expire` devolvido, mantendo a renovação 60 segundos antes.
+Uma validade ausente ou inválida não é cacheada e não se adivinha a validade; o token legítimo
+desta requisição ainda pode ser usado nesta requisição. Esta correção não repete a necessidade que
+falhou e não altera a fila nem a cadeia Desktop continuous/celular replayable.
 
 ```text
 读取缓存 → 剩余有效期超过 60 秒 → 使用
          → 否 → 获取令牌 → 按 expire 保存有效期 → 本次调用
 ```
 
-### Bot 附件 admission 连接身份修复（2026-09-08）
+### Correção da identidade de conexão no admission de anexos do Bot (2026-09-08)
 
-原生富文本消息触发 `fault.attachment.connectionUntrusted`：Bot task adapter 直接调用裸 Agent 附件接口，未经过现有 V4 connection scope 注入可信连接身份。修复按工作区身份及 remoteSessionId 为 Bot 接入复用独立 connection scope，同一目标的 Bot snapshot、附件、admission、命令对账与取消共享连接；不增加 runtime 或队列，不修改 Desktop continuous／手机 replayable 各自 attachment。工作区身份和 remoteSessionId 继续透传。
+Uma mensagem nativa de rich text dispara `fault.attachment.connectionUntrusted`: o task adapter
+do Bot chamava a interface de anexos do Agent diretamente, sem passar pelo connection scope V4
+existente que injeta a identidade de conexão confiável. A correção passa a reutilizar um
+connection scope próprio para o onboarding do Bot, conforme a identidade do workspace e o
+remoteSessionId, de modo que snapshot, anexos, admission, reconciliação de comandos e
+cancelamento do Bot para o mesmo alvo compartilhem a mesma conexão; não se adicionam runtime nem
+fila, e os anexos próprios do Desktop continuous e do celular replayable não são modificados. A
+identidade do workspace e o remoteSessionId continuam sendo repassados.
 
 ```text
 Bot task adapter → Bot trusted connection scope → existing Agent client → CLI CommandInbox
@@ -551,13 +733,17 @@ Bot task adapter → Bot trusted connection scope → existing Agent client → 
 Desktop / mobile → existing own connection scopes ────────────────────┘
 ```
 
-### 2026-09-08 话题交互卡投递回归
+### Regressão na entrega de cartões de interação de tópico (2026-09-08)
 
-真实 CEDAR 话题中审批卡出现在群主聊天。临时审批／问答卡必须与普通回复使用相同的
-话题锚点解析：优先 replyToMessageId，其次 rootMessageId；有 threadId 但没有锚点时
-发送失败，不能回退到群主聊天。创建卡片必须传 reply_in_thread，后续更新保持同一卡片。
-创建与更新交互卡都保留 groupCard 中的群、话题、任务及授权版本，临时卡路径不能绕过
-普通群卡的身份约束；权限模式归一化为 streaming_card 不应丢掉这些字段。
+Em um tópico CEDAR real, o cartão de aprovação aparece no chat do dono do grupo. Cartões
+temporários de aprovação/pergunta devem usar a mesma resolução de âncora de tópico das respostas
+comuns: replyToMessageId tem prioridade, depois rootMessageId; quando há threadId mas não há
+âncora, o envio falha e não pode recorrer ao chat do dono do grupo. A criação do cartão precisa
+passar reply_in_thread, e atualizações posteriores mantêm o mesmo cartão. Tanto a criação quanto
+a atualização dos cartões de interação preservam no groupCard o grupo, o tópico, a task e a versão
+de autorização; o caminho de cartão temporário não pode contornar as restrições de identidade dos
+cartões comuns de grupo, e a normalização do modo de permissão para streaming_card não deve perder
+esses campos.
 
 ### Standalone Server reverse resource regression
 
@@ -567,42 +753,61 @@ Two simultaneous Desktop connections with different remoteSessionId values must 
 only their own reverse validation requests. Closing one connection removes its route
 without removing the other. These tests use synthetic resource readers, not a live tenant.
 
-## App 已绑定群聊（第一期）
+## Grupos já vinculados ao aplicativo (primeira fase)
 
-机器人设置中，飞书/Lark 当前机器人的工作区访问范围下方展示扁平群列表。
-视觉复用机器人设置的 SettingsGroupCard，标题与行统一 px-4/py-3，边框、背景和圆角与相邻设置一致。
-每群仅一行：群名（长名称截断并保留 title）、已记录话题数量、群级开关；
-不展示任务、话题明细、展开箭头或详情入口。话题数是当前绑定用户下已记录的
-不同 threadId 数量，包含已退出话题，不表示飞书全群的实际话题总数。
-只展示当前 botId、当前 ownerId 的群默认记录，按 chatId 聚合话题，私聊不计入。
+Nos configurações do bot, abaixo do escopo de acesso ao workspace do bot atual do
+Feishu/Lark, exibe-se uma lista plana de grupos. O visual reaproveita o SettingsGroupCard das
+configurações do bot, com título e linhas unificados em px-4/py-3 e borda, fundo e raio
+consistentes com as configurações vizinhas. Cada grupo ocupa uma única linha: nome do grupo (nome
+longo truncado com title preservado), quantidade de tópicos registrados e interruptor de grupo;
+não são exibidos tasks, detalhes de tópicos, seta de expansão ou entrada de detalhes. A
+quantidade de tópicos é o número de threadId distintos já registrados sob o usuário vinculado
+atualmente, incluindo tópicos dos quais se saiu, e não representa o total real de tópicos do grupo
+no Feishu. Apenas os registros padrão de grupo do botId e do ownerId atuais são exibidos, com os
+tópicos agregados por chatId e chats privados não entram.
 
 ```text
 群列表 hook -> getBotStates -> 群默认记录 + 去重话题计数
 群开关 -> setGroupEnabled -> 既有群授权 owner -> bots:group-state -> 重新读取
 ```
 
-UI 不乐观修改授权状态；保存期间禁用开关，失败显示可重试错误。切换机器人或
-关闭页面后，迟到读取不更新新页面。接收群状态广播后刷新，重新开启不补发历史。
-关闭群保留任务，沿用 /disable 的输入、卡片与回推失效语义。机器人总开关关闭时
-保留群配置但禁用群开关并说明原因；不会借群开关自动开启机器人。
-无绑定群时引导在群中 @机器人发送 /enable。加载失败不能显示成空群列表。
-复用既有 services/RPC，不改变 desktop continuous 和 mobile replayable 任务链路。
+A UI não modifica o estado de autorização de forma otimista; o interruptor fica desabilitado
+durante o salvamento e uma falha mostra um erro que pode ser repetido. Após trocar de bot ou
+fechar a página, leituras atrasadas não atualizam a nova página. A lista é renovada ao receber o
+broadcast de estado do grupo, e reativar não reenvia histórico. Desligar o grupo preserva as
+tasks e mantém a semântica de invalidação de entradas, cartões e retornos push de `/disable`.
+Quando o interruptor geral do bot está desligado, a configuração dos grupos é preservada, mas o
+interruptor de grupo fica desabilitado com o motivo explicado; o bot nunca é ligado
+automaticamente por meio do interruptor de grupo. Sem grupos vinculados, orienta-se a fazer @ do
+bot no grupo para enviar /enable. Uma falha de carregamento não pode ser exibida como lista de
+grupos vazia. Os services/RPC existentes são reutilizados e a cadeia de tasks desktop continuous
+e mobile replayable não muda.
 
-手动验收：中英文、深浅主题、窄屏单行截断；两个机器人/两个群不串行；0/多个话题
-计数；切换与重开页面状态同步；关闭/重新开启不删任务、不补发；失败恢复可重试。
-本期按用户要求不启动 dev，真实界面及手机远控由用户手动验证。
+Aceitação manual: chinês/inglês, temas claro/escuro, truncamento de linha única em tela estreita;
+dois robôs/dois grupos sem serialização; contagem de 0/vários tópicos; sincronização de estado ao
+trocar e reabrir a página; desligar/religar sem apagar tasks e sem reenvio; recuperação de falha
+com repetição. Nesta fase o dev não é iniciado, conforme pedido do usuário, e a interface real e o
+controle remoto do celular são verificados manualmente pelo usuário.
 
-## 群回复引用与发送者提醒（2026-09-23）
+## Citações nas respostas de grupo e lembretes de remetente (2026-09-23)
 
-群内直接回复（任务结果、命令、补充需求、错误提示、审批和问答卡）使用飞书原生引用，
-并在卡片开头以真实用户 ID @ 本次提问者。用户引用他人再提问时，引用与 @ 均指向
-当前提问者，不取被引用材料的作者。话题内仅在触发消息明确 @ 机器人时才 @ 发送者；
-普通话题消息只引用、不 @。群主会话与私聊保持原行为。
+Respostas diretas dentro do grupo (resultado de task, comando, necessidade complementar, aviso
+de erro, cartões de aprovação e de pergunta/resposta) usam a citação nativa do Feishu e
+mencionam no início do cartão o autor desta pergunta com o ID real de usuário. Quando o usuário
+cita outra pessoa e faz uma nova pergunta, tanto a citação quanto o @ apontam para o autor
+atual da pergunta, e não para o autor do material citado. Dentro de um tópico, o remetente só é
+mencionado quando a mensagem que disparou o comportamento faz @ explícito ao robô; mensagens
+comuns de tópico apenas são citadas, sem @. A conversa do dono do grupo e os chats privados
+mantêm o comportamento original.
 
-每轮根据可信 inputId 读取既有 inputs.source；不得使用最近发言者、群 owner 或上一轮
-来源猜测对象。话题合批引用 source.messageId（该批最后一条），首条正文回复按输入
-顺序 @ 本批明确 @ 机器人的去重发送者，未明确提及的参与者不提醒。长回答每段引用同一消息，仅首段 @；独立交互卡单独提醒，
-PATCH 原卡不新增提醒消息。@ 只用于展示，不改变原有审批/问答权限。
+A cada rodada, o inputs.source existente é lido conforme o inputId confiável; não se adivinha o
+alvo pelo último participante, pelo owner do grupo ou pela origem da rodada anterior. O agrupamento
+de tópico cita source.messageId (a última mensagem do lote), e a resposta do primeiro corpo @
+com os remetentes distintos que mencionaram explicitamente o robô no lote, na ordem de entrada;
+participantes sem menção explícita não são alertados. Respostas longas citam a mesma mensagem em
+cada trecho e mencionam apenas no primeiro; cartões de interação independentes geram um alerta
+separado, e um PATCH no cartão original não cria novas mensagens de alerta. O @ é apenas para
+exibição e não altera as permissões originais de aprovação/pergunta.
 
 ```text
 群消息 → 既有输入来源（消息/发送者/合批列表）→ CLI 接受输入
@@ -610,39 +815,59 @@ PATCH 原卡不新增提醒消息。@ 只用于展示，不改变原有审批/�
       → 同一群/话题授权检查 → 飞书原生 reply + 卡片 at
 ```
 
-输入与队列仍由现有 owner 管理；delivery 仅保存已生成结果的引用、mentionedUserIds、
-分段和稳定投递 ID。重试从该记录恢复，不重新解析当前群状态中的发送者。
-桌面/远端任务继续使用 bot-channel-continuous，手机 replayable 边界不变。
-无可信群输入的客户端或定时任务结果不生成个人引用或 @；话题位置仍使用原话题锚点。
-旧投递无 mentionedUserIds 时保持原行为，不猜测、不补发历史提醒。
+As entradas e a fila continuam sendo geridas pelo owner existente; a delivery guarda apenas a
+referência do resultado gerado, mentionedUserIds, os trechos e o ID estável de entrega. Um retry
+parte desse registro e não reinterpreta o remetente no estado atual do grupo. Tasks de
+Desktop/remoto continuam usando bot-channel-continuous, e a fronteira replayable do celular não
+muda. Resultados de clientes sem entrada de grupo confiável ou de tarefas agendadas não geram
+citação pessoal nem @; a posição no tópico continua usando a âncora original do tópico. Entregas
+antigas sem mentionedUserIds mantêm o comportamento original, sem adivinhar nem reenviar lembretes
+de histórico.
 
-原消息失效仅在明确拒绝后降级：普通群去掉引用，在原群保留 @；话题先尝试不同且
-有效的根锚点一次，根锚点也被拒绝则失败，不能降级到群主聊天或循环重试。
-超时等不确定结果维持 unknown，不自动重发；限流、重启后的允许重试保留原回复
-对象；停用/换绑继续由原授权版本使投递失效。命令和临时卡沿用同样的引用降级规则。
+A invalidação da mensagem original só sofre downgrade após uma rejeição explícita: em um grupo
+comum a citação é removida e o @ é mantido no grupo original; em um tópico tenta-se uma única vez
+uma âncora raiz diferente e válida, e se a âncora raiz também for rejeitada a operação falha, sem
+degradar para o chat do dono do grupo nem entrar em repetição. Resultados incertos, como timeout,
+permanecem unknown e não são reenviados automaticamente; com rate limit ou após reinício, o retry
+permitido mantém o destinatário original; desativação ou rebinding continuam invalidando a
+entrega pela versão de autorização original. Comandos e cartões temporários seguem as mesmas
+regras de downgrade de citação.
 
-验收：单人、多人交错、引用他人、话题合批、长回答分段、命令与独立交互卡均正确
-关联；无来源和私聊不增加提醒；撤回/根锚点失效/限流/超时/重启不会串人、循环或
-重复投递。单测断言路由、卡片和持久化；真实飞书客户端的引用跳转、@ 展示及通知
-需独立实测，不能由 mock 通过推断。
+Aceitação: uma pessoa, várias pessoas intercaladas, citação de outra pessoa, agrupamento de
+tópico, respostas longas em trechos, comandos e cartões de interação independentes são associados
+corretamente; ausência de origem e chats privados não geram alertas; revogação, âncora raiz
+inválida, rate limit, timeout e reinício não misturam pessoas, não dão laço e não duplicam
+entregas. Os testes unitários verificam roteamento, cartões e persistência; o salto de citação, a
+exibição do @ e as notificações no cliente real do Feishu precisam ser medidos de forma
+independente e não podem ser inferidos de um mock aprovado.
 
-### 话题模型继承边界（2026-09-23 修复）
+### Limite de herança de modelo do tópico (correção em 2026-09-23)
 
-新话题从群当前任务的 getTaskModelSelection 读取结构化模型快照，保留 providerId、
-modelId 和 options.reasoningLevel；不得从 model 配置菜单或 task.model 显示值反推。
-例如显示值 GLM-5.3-Flash$max 应继承模型 GLM-5.3-Flash 和独立的 max 思考等级。
-群仍为草稿时继承其明确 draftOptions；话题创建后保持自己的快照，不随群后续选模
-自动变动。已有错误草稿需明确修复，本次不引入执行时对错误 modelId 的兼容。
+Um tópico novo lê o snapshot estruturado de modelo do getTaskModelSelection da task atual do
+grupo, preservando providerId, modelId e options.reasoningLevel; não é permitido derivá-los do
+menu de configuração de modelo nem do valor de exibição de task.model. Por exemplo, o valor de
+exibição GLM-5.3-Flash$max deve herdar o modelo GLM-5.3-Flash e o nível de raciocínio max
+independente. Quando o grupo ainda é um rascunho, os draftOptions explícitos dele são herdados;
+depois que o tópico é criado, ele mantém o próprio snapshot e não muda automaticamente com a
+seleção de modelo posterior do grupo. Rascunhos existentes e errados precisam de uma correção
+explícita, e esta rodada não introduz compatibilidade em tempo de execução para um modelId errado.
 
-## 管理员待办提醒（2026-09-23）
+## Lembretes de pendências de administrador (2026-09-23)
 
-群聊和话题需要管理员处理时，以绑定的 bot.providerUserId 为唯一收件人生成真实 @：
-管理员专属操作被拒绝、权限审批、计划审批、群未启用、历史关闭、模型选择不可解析、
-工作区不可用或越界、远端断连/重连失败。普通问答、任务结果、一般工具错误不升级为管理员待办。
-飞书应用权限不足只给应用管理员配置指引，不推断绑定用户有应用管理权限。
+Quando um chat de grupo ou um tópico precisa de ação do administrador, um @ real é gerado usando
+o bot.providerUserId vinculado como único destinatário: rejeição de uma operação exclusiva de
+administrador, aprovação de permissão, aprovação de plano, grupo não habilitado, histórico
+desabilitado, seleção de modelo não resolvível, workspace indisponível ou fora dos limites,
+desconexão remota ou falha de reconexão. Perguntas comuns, resultados de task e erros de ferramentas
+gerais não são promovidos a pendência de administrador. Falta de permissão do aplicativo Feishu
+fornece apenas instruções de configuração para o administrador do aplicativo e não implica que o
+usuário vinculado tenha permissão de administração do aplicativo.
 
-管理员提醒替换普通发送者提醒，保留原生引用和原话题位置。未经授权的卡片点击仍只 toast，
-首次需要管理员协助时另发独立通知，不更新共享审批卡或授予点击者权限。
+O lembrete de administrador substitui o lembrete comum de remetente, preservando a citação nativa
+e a posição original no tópico. Cliques em cartões não autorizados continuam gerando apenas um
+toast, e a primeira vez que for necessária a assistência do administrador uma notificação
+independente é enviada, sem atualizar o cartão de aprovação compartilhado e sem conceder
+permissões a quem clicou.
 
 ```text
 服务识别管理员待办 → 当前绑定身份 + 群/话题 + 原因/审批请求
@@ -650,62 +875,98 @@ modelId 和 options.reasoningLevel；不得从 model 配置菜单或 task.model 
 成功接收新输入/对应阻塞恢复 → 清除阻塞提醒记录 → 后续再次阻塞可重新提醒
 ```
 
-去重仅是有界的内存通知记录，不新增任务/输入队列；服务重启或记录被容量淘汰后允许再次提醒。
-同一阻塞持续期间后续提示保留文字但不再 @；不同话题、管理员或审批请求相互独立。
-审批卡 PATCH 不生成新提醒，普通补充问题不占用管理员提醒记录。
-验收覆盖上述正反场景、多人重复操作、话题隔离、恢复后再次提醒，以及按钮拒绝不修改原卡。
+A deduplicação é apenas um registro de notificação em memória e limitado, sem criar filas de
+task/entrada; reiniciar o serviço ou a expulsão do registro por capacidade permite um novo aviso.
+Durante a mesma pendência, avisos posteriores mantêm o texto, mas não repetem o @; tópicos,
+administradores ou solicitações de aprovação diferentes são independentes. Um PATCH do cartão de
+aprovação não gera novo lembrete, e uma pergunta complementar comum não ocupa o registro de
+lembrete de administrador.
+A aceitação cobre os cenários positivos e negativos acima, operações repetidas por várias
+pessoas, isolamento entre tópicos, novo lembrete após a recuperação e a rejeição por botão que
+não modifica o cartão original.
 
-## 原生 mention 节点与渠道回复（2026-09-23）
+## Nós nativos de menção e respostas por canal (2026-09-23)
 
-本次不增加避让规则。可信飞书 mention 在 BotGroupInputSource.contentParts 中按原顺序保存，
-合批逐条保存；appId 与既有 botId/chatId/threadId/messageId 一起界定应用与会话。
-text 仍是兼容投影，必须等于节点拼接结果；客户端只根据可信节点渲染，不从 @name 文本恢复身份。
-普通文本、名字及引用材料本身不构成发送地址；名字须经下述 Host 查询解析才可发送。
-未知目标类型允许原生提及，@所有人不进入个人节点。
+Esta rodada não acrescenta regras de desvio. Menções nativas confiáveis do Feishu são salvas em
+BotGroupInputSource.contentParts na ordem original e, no agrupamento, mensagem a mensagem; o
+appId, junto com os existentes botId/chatId/threadId/messageId, delimita o aplicativo e a
+sessão. O text continua sendo uma projeção de compatibilidade e precisa ser igual ao resultado da
+concatenação dos nós; o cliente renderiza apenas a partir dos nós confiáveis e não recupera a
+identidade a partir do texto @name. Texto comum, nomes e o próprio material citado não constituem
+endereço de envio; um nome só pode ser enviado depois de resolvido pela consulta do Host
+descrita abaixo. Tipos de alvo desconhecidos podem receber menção nativa, e @todos não entra em
+nós pessoais.
 
 输入 → Provider 节点 → 既有 inputs.source / canonical intent → queue / transcript / desktop continuous / mobile replayable
 执行 → ReplyToChannel(refId, text parts) → CLI 执行输入标识 → 已鉴权 Host 反向请求 → Bot 任务绑定检查 → 既有 delivery → 飞书回执
 
-ReplyToChannel 仅用于用户明确要求的额外原生回复，不能指定任意群、机器人或裸 ID。
-服务以工作区和 task 唯一解析当前绑定的群聊/话题，验证授权版本与 appId；不要求当前输入携带 botGroupSource。
-引用节点可来自该任务在同一有效绑定下已接收的原生消息，支持桌面及手机续聊“再 @ 一下他”。
-结果区分 sent/failed/unknown/invalidated，只有 sent 才确认发送；稳定 toolCallId 对应一个投递记录。
-节点化正文按顺序生成原生 at，不能解析模型普通输出里的 @name 或 Markdown 为发送命令。
-系统发起人/管理员提醒与正文 mention 去重，正文 mention 不改变审批权限。
-旧消息没有节点时保持文本，不猜 ID；其他任务、群聊、话题、旧授权或换绑应用的节点不能成为发送目标。
+ReplyToChannel é usado apenas para respostas nativas extras solicitadas explicitamente pelo
+usuário e não pode especificar um grupo, robô ou ID cru arbitrário. O serviço resolve de forma
+única o chat de grupo/tópico vinculado atual conforme o workspace e a task, validando a versão de
+autorização e o appId; não é exigido que a entrada atual carregue botGroupSource. Os nós de
+citação podem vir de mensagens nativas já recebidas por essa task sob o mesmo vínculo válido,
+suportando no Desktop e no celular a continuação “再 @ 一下他”. O resultado distingue
+sent/failed/unknown/invalidated e apenas sent confirma o envio; um toolCallId estável corresponde
+a um registro de entrega. O corpo nodulizado gera ats nativos em ordem e não pode interpretar
+@name ou Markdown da saída comum do modelo como comando de envio. Os lembretes de
+iniciador/administrador são deduplicados em relação às menções do corpo, e as menções do corpo
+não alteram as permissões de aprovação. Mensagens antigas sem nós mantêm o texto, sem adivinhar
+IDs; nós de outras tasks, chats de grupo, tópicos, autorizações antigas ou de outro aplicativo
+vinculado não podem ser destino de envio.
 
-工具按已落盘 toolCall 所属 assistant.parentID 取执行 inputId，渠道绑定与目标解析由 Bot Host 独占；
-后到队列输入不能替换正在执行的发送对象。发送前还检查输入未停止/取消、应用未换绑。
-正文限制 1–2000 字符，单条投递；同一 toolCall 重试返回持久回执，不确定结果不自动重发。
-取消在发出 Host 请求前阻止提交；请求发出后无法撤回已送达消息，调用方取消/断连不能当作未发送。
-trace 随反向请求、远端转发和投递记录保留。
+A ferramenta obtém o inputId de execução pelo assistant.parentID do toolCall já gravado, e o
+vínculo de canal e a resolução de destino são exclusivos do Bot Host; uma entrada de fila que
+chega depois não pode substituir o destinatário de um envio em execução. Antes do envio, também
+se verifica que a entrada não foi parada/cancelada e que o aplicativo não foi revinculado. O
+corpo é limitado a 1–2000 caracteres, com entrega única; um retry do mesmo toolCall devolve o
+recibo persistido e resultados incertos não são reenviados automaticamente. O cancelamento impede
+a submissão antes do pedido ao Host; depois que o pedido saiu, não é possível revogar uma
+mensagem já entregue, e um cancelamento/desconexão do chamador não pode ser tratado como não
+enviado. O trace é preservado na requisição reversa, no encaminhamento remoto e nos registros de
+entrega.
 
-客户端正式消息、准备态和队列共享渠道 chip（@姓名 + Feishu/Lark）；无节点的旧消息保持原展示。
-复制或撤回到普通文本编辑器后不携带渠道发送授权，不从字符串重新构造可发送身份。
-显示层文本与节点投影不一致时回退普通正文，避免编辑后仍展示过期的目标关联。
+As mensagens formais do cliente, o estado de preparo e a fila compartilham o chip de canal
+(@nome + Feishu/Lark); mensagens antigas sem nós mantêm a exibição original. Depois de copiadas
+ou revertidas para um editor de texto comum, não carregam autorização de envio por canal e não
+reconstroem uma identidade enviável a partir da string. Quando o texto da camada de exibição é
+inconsistente com a projeção de nós, o corpo comum é usado como fallback, evitando exibir uma
+associação de alvo obsoleta após uma edição.
 
-ReplyToChannel 默认免工具审批：build、edit 和 plan 模式下，回复既有授权会话无需再次弹出权限请求；
-仍标记为真实 network 副作用，不伪装成只读工具。显式项目 deny/ask 规则保留优先级。
-免审批仅适用于此内置工具及其 channel.reply 契约，其他网络发送工具保持原规则；
-发送前仍由 Host 校验任务绑定、会话、应用和 refId，缺失、歧义或失效绑定直接失败并返回可解释错误。
+ReplyToChannel é isento de aprovação de ferramenta por padrão: nos modos build, edit e plan,
+responder a uma sessão já autorizada não abre um novo pedido de permissão; ainda assim é marcado
+como um efeito de rede real e não se passa por ferramenta somente leitura. Regras explícitas de
+deny/ask do projeto mantêm a precedência. A isenção vale apenas para esta ferramenta embutida e
+seu contrato channel.reply; as demais ferramentas de envio de rede mantêm as regras atuais. Antes
+do envio, o Host continua validando vínculo de task, sessão, aplicativo e refId, e um vínculo
+ausente, ambíguo ou inválido falha diretamente com um erro explicável.
 
-验收：飞书原生 @ 成功后，从客户端/手机追加“再 @ 一下他”仍向同一群/话题发送；
-无绑定、多个绑定、换绑、停用、其他任务/话题引用和取消输入均不能发送。
+Aceitação: após um @ nativo bem-sucedido no Feishu, acrescentar “再 @ 一下他” pelo
+cliente/celular continua enviando para o mesmo grupo/tópico; ausência de vínculo, múltiplos
+vínculos, rebinding, desativação, referências de outras tasks/tópicos e entradas canceladas não
+podem enviar.
 CLI → 已鉴权反向请求 → Bot 状态唯一 owner 解析绑定及历史节点 → 既有 delivery 幂等投递。
-不新增缓存或 accepted queue；desktop continuous 与 mobile replayable 的输入及恢复链路保持不变。
+Não se adicionam cache nem accepted queue, e as cadeias de entrada e recuperação de desktop
+continuous e mobile replayable permanecem inalteradas.
 
-### 按名字提及（2026-10-08）
+### Menção por nome (2026-10-08)
 
-用户明确要求“@某人/某机器人”但没有原生节点时，ReplyToChannel 接受
-`{type: "mentionName", name, candidateRef?}`。普通最终输出的 @ 文本不自动触发发送。
-Host 用当前任务有效绑定的群成员目录（完整分页，沿用 60 秒缓存）与该任务同一授权下
-已接收的可信 mention 节点形成候选，名字按 Unicode NFKC、去首尾空白及大小写归一化
-后作包含匹配；候选唯一则直接发送，候选多个时优先唯一的完整名字匹配，否则请求选择。
-不解析或接收模型给出的平台 ID。保留英文名内部空格；顿号、逗号、换行等明确名单分隔
-形成多个 mentionName，不仅凭空格拆名。全部名字均须查询；澄清结果列出全部未解决项，
-不因第一个失败而跳过后续名字，也不将未查询或未发送说成成功。
-群成员接口不包含机器人；未曾原生提及、没有可信身份的机器人须请用户原生 @ 一次。
-目录查询失败不得假定“没有其他同名人”并发送。
+Quando o usuário pedir explicitamente “@pessoa/robô” e não houver um nó nativo, o
+ReplyToChannel aceita `{type: "mentionName", name, candidateRef?}`. O texto @ de uma saída final
+comum não dispara envio automaticamente. O Host forma candidatos usando o diretório de membros
+do grupo vinculado validamente à task atual (paginação completa, reaproveitando o cache de 60
+segundos) e os nós de menção confiáveis já recebidos sob a mesma autorização da task; os nomes
+são normalizados por Unicode NFKC, remoção de espaços nas pontas e normalização de caixa, e a
+correspondência é por substring; com um único candidato o envio é direto, e com vários candidatos
+prevalece a correspondência de nome completo e única, ou então a seleção é solicitada. IDs de
+plataforma vindos do modelo não são analisados nem aceitos. Espaços internos de nomes em inglês
+são preservados; vírgulas, vírgulas chinesas, quebras de linha e outros separadores explícitos de
+lista formam múltiplos mentionName, e nomes não são separados apenas por espaços. Todos os
+nomes precisam ser consultados; o resultado da esclarecimento lista todos os itens não resolvidos,
+não pula os nomes seguintes porque o primeiro falhou e nunca descreve como sucesso algo não
+consultado ou não enviado.
+A interface de membros do grupo não inclui robôs; um robô nunca mencionado nativamente e sem
+identidade confiável precisa que o usuário o mencione nativamente uma vez. Uma falha na consulta
+do diretório não pode pressupor “não há outras pessoas com o mesmo nome” e enviar.
 
 ```text
 用户明确要求 → CLI ReplyToChannel(名字) → Host 校验任务绑定 → 查询群成员 + 可信节点
@@ -715,41 +976,62 @@ Host 用当前任务有效绑定的群成员目录（完整分页，沿用 60 �
 用户选择 → 新 toolCall，名字 + candidateRef → 重新查询并核验候选 → 发送
 ```
 
-不允许模型自行选择重名候选。候选仅绑定当前应用、凭据、群和授权，不能跨群/跨授权复用；
-选择标识不包含裸 ID，不新增待确认队列。多目标中任意一个未解决则整条不发送。
-候选最多展示 10 个，超出时要求原生 @。普通候选名单不产生 @ 通知。
-同一 toolCall 的请求指纹与解析后的节点随现有 delivery 保存；回执重读不再按新目录
-重解析接收人，也不重发；同一 toolCall 改名字或正文拒绝。旧投递记录保持兼容。
-发送前的异步查询不能绕过换绑、停用、停止输入及 workspaceIdentity 隔离。
-App/CLI 共享严格 schema；普通桌面 continuous、手机 replayable 与 Bot 投递 owner 不变。
+Não é permitido que o modelo escolha sozinho entre candidatos com o mesmo nome. Os candidatos
+vinculam-se apenas ao aplicativo, às credenciais, ao grupo e à autorização atuais e não podem ser
+reaproveitados entre grupos ou autorizações; o identificador de escolha não contém IDs crus e
+nenhuma fila de confirmação pendente é criada. Se qualquer alvo múltiplo ficar sem resolução, nada
+é enviado. São exibidos no máximo 10 candidatos; ao exceder isso, é preciso um @ nativo. Uma lista
+comum de candidatos não gera notificação de @.
+A impressão digital da requisição e os nós resolvidos do mesmo toolCall são salvos com a
+delivery existente; uma releitura do recibo não resolve novamente o destinatário pelo diretório
+atual e não reenvia; o mesmo toolCall com outro nome ou outro corpo é rejeitado. Registros de
+entrega antigos permanecem compatíveis. Consultas assíncronas antes do envio não podem contornar
+rebinding, desativação, parada de entrada e o isolamento por workspaceIdentity. App e CLI
+compartilham um schema estrito; desktop continuous, celular replayable e o owner de entrega do
+Bot permanecem inalterados.
 
-验收：唯一用户、已知机器人、重名与明确选择、无结果、无权限、分页失败、同名不同 ID、
-查询期间撤销授权、同一调用目录改名后的重放、跨应用/群/工作区候选拒绝；Feishu/Lark
-和群/话题均覆盖。真实平台权限与未提供机器人目录的限制在交付证据中说明。
+Aceitação: usuário único, robô conhecido, nomes duplicados e escolha explícita, sem resultado,
+sem permissão, falha de paginação, mesmo nome com IDs diferentes, revogação de autorização durante
+a consulta, replay após renomeação no diretório para a mesma chamada e rejeição de candidatos de
+outro aplicativo/grupo/workspace; Feishu/Lark e grupo/tópico são cobertos. As permissões reais da
+plataforma e a limitação de diretórios sem robôs são explicadas nas evidências de entrega.
 
-### 引用准备与投递重放边界（2026-10-09）
+### Limite de preparação de citações e replay de entrega (2026-10-09)
 
-普通群中其他机器人原生 @ 并引用父消息时，引用准备与消息解析均透传真实 sender open_id；
-无 thread_id 也保留被引用的文字和附件，自身机器人仍不接收。
-同指纹 ReplyToChannel 重放若存在活跃发送，必须加入既有 delivery owner 的等待，平台只发送一次，
-两次调用获得最终回执。落盘 unknown 是崩溃恢复标记；仅在没有活跃发送时返回 unknown，
-不得因重放自动重发。此处不增加队列，不改变 desktop continuous / mobile replayable 边界。
+Quando um outro robô faz um @ nativo e cita a mensagem pai em um grupo comum, tanto a preparação da
+citação quanto a análise da mensagem repassam o open_id real do sender; sem thread_id, o texto e
+os anexos citados são preservados, e o próprio robô continua não recebendo. Um replay de
+ReplyToChannel com a mesma impressão digital, havendo um envio ativo, precisa entrar na espera do
+owner de delivery existente: a plataforma envia apenas uma vez e as duas chamadas recebem o recibo
+final. Um unknown gravado é uma marca de recuperação de crash e só é devolvido quando não há envio
+ativo; um replay nunca dispara reenvio automático. Nenhuma fila é adicionada aqui, e a fronteira
+desktop continuous / mobile replayable não muda.
 
-### 多机器人身份与指派边界（2026-10-09）
+### Limite de identidade multi-robô e atribuição (2026-10-09)
 
-Host 每轮注入当前 Bot 配置名字及 Provider 核验的自身 open_id（旧输入缺失 ID 时不猜），
-并保留逐条 mentionedBot 和其他原生 mention。身份由可信元数据确定，名字只作展示，
-不由正文、历史发言或机器人的自称改变。CLI 模型上下文明确共享讨论不代表共享任务：
-明确 @ 自己才接下分给自己的部分；多人 @ 各自遵循明确分工；无 @ 的续聊只延续自身任务，
-无关时不调用工具、不输出回复；不要为别人的任务宣布完成。普通手打 @ 无可信节点时不硬过滤。
+A cada rodada o Host injeta o nome da configuração atual do Bot e o próprio open_id verificado
+pelo Provider (sem adivinhar quando uma entrada antiga não tem ID), preservando mentionedBot e
+mentioned nativas.message a message. A identidade é determinada por metadados confiáveis; o nome
+serve apenas para exibição e não muda por corpo de texto, falas anteriores ou autodenominação do
+robô. O contexto de modelo na CLI explicita que compartilhar uma discussão não significa
+compartilhar uma task: só se assume a parte atribuída quando há um @ explícito de si mesmo; com
+várias pessoas se seguindo, cada uma respeita a divisão explícita; uma continuação sem @ apenas
+estende a própria task e, quando irrelevante, não chama ferramentas nem produz resposta; e não se
+anuncia a conclusão da task de outra pessoa. Um @ digitado manualmente sem nó confiável não passa
+por filtragem rígida.
 
-只含其他原生 mention、未 @ 当前 Bot 的消息在 Host 入口作为背景：不执行 slash 控制、
-不停止当前 run、不准备材料或提交 CLI、不重置或消耗互答额度。当前已接入话题只保存
-一个 backgroundHistory 检查点和版本标记（不是输入队列），下次实际输入补读原生历史。
-检查点固定为首次背景到达前最后已接收消息；后续背景更新版本但不推进检查点，避免
-正在准备/提交的输入跳过背景。只有接收成功且补读版本仍匹配才清除标记；失败与重启保留。
-非活跃话题不因背景激活。未 @ 的模型轮次无可见输出时不补发“任务已完成”；显式 @、
-错误及实际产出保持原有回传。无新协调机器人或独立分工数据库，既有对话保存职责。
+Mensagens que contêm apenas outras menções nativas e não mencionam o Bot atual entram na entrada
+do Host como contexto: não executam controle slash, não param o run atual, não preparam materiais
+nem submetem à CLI, e não resetam nem consomem a cota de resposta mútua. Um tópico já onboarded
+guarda apenas um checkpoint de backgroundHistory e um marcador de versão (não é uma fila de
+entrada), e a próxima entrada real relê o histórico nativo. O checkpoint é fixado na última
+mensagem recebida antes da chegada do primeiro contexto; atualizações posteriores de contexto mudam
+a versão sem avançar o checkpoint, evitando que uma entrada em preparação/submissão pule o
+contexto. O marcador só é limpo quando o recebimento tem sucesso e a versão relida ainda
+corresponde; falhas e reinícios o preservam. Tópicos inativos não são ativados por causa do
+contexto. Rodadas de modelo sem @ e sem saída visível não recebem um “任务已完成” adicional; @ 
+explícitos, erros e a produção real mantêm o retorno original. Não há novo robô coordenador nem
+banco de dados de divisão de trabalho, e o diálogo existente guarda a responsabilidade.
 
 ```text
 Provider 身份与原生 mention → Host 入口
@@ -757,58 +1039,87 @@ Provider 身份与原生 mention → Host 入口
   @ 自己 / 无 @ 续聊 → 补读待处理背景 → CLI 注入身份与逐条指向 → 处理自己的职责或静默
 ```
 
-desktop continuous / mobile replayable、workspaceIdentity 和唯一 CLI admission owner 不变。
-验收覆盖同名不同 ID、纯文本 @、多人 @、并发历史准备、重启恢复、未接入话题及空回复。
+desktop continuous / mobile replayable, workspaceIdentity e o owner único de admission da CLI
+permanecem inalterados. A aceitação cobre o mesmo nome com IDs diferentes, @ apenas em texto,
+@ de várias pessoas, preparação de histórico concorrente, recuperação após reinício, tópicos não
+onboarded e respostas vazias.
 
-### 原文中的自身 mention 保留（2026-10-09）
+### Preservação das menções ao próprio robô no texto original (2026-10-09)
 
-原生消息中的所有 mention（包括当前机器人）都保留为有序 channelMention，保持姓名、位置、
-目标 ID 和 refId；供界面、输入持久化和模型使用。此前把自身 mention 换成空字符串，
-实际多人分工输入因此丢失了每段工作的指派对象。
-Provider 另提供临时 commandText，只移除开头连续的自身原生 mention 和相邻空白；
-控制命令及纯唤醒识别使用该副本，普通消息始终使用原文。正文中间、其他收件人及手打 @ 不剥离。
-text/post 两种入站格式都遵守同一规则；不改变自身回声过滤、机器人互答上限和群聊身份验证。
+Todas as menções em mensagens nativas (inclusive as do robô atual) são preservadas como
+channelMention ordenadas, mantendo nome, posição, ID de alvo e refId, para uso da interface, da
+persistência de entrada e do modelo. Antes, a menção ao próprio robô era trocada por string
+vazia, o que fazia com que entradas reais de divisão de trabalho entre várias pessoas perdessem o
+destinatário atribuído a cada trecho de trabalho.
+O Provider passa a fornecer um commandText temporário que remove apenas as menções nativas
+consecutivas ao próprio robô no início e os espaços adjacentes; o reconhecimento de comandos de
+controle e de wake-up puro usa essa cópia, enquanto mensagens comuns sempre usam o texto original.
+Menções no meio do corpo, outros destinatários e @ digitados manualmente não são removidos. Os
+dois formatos de entrada, text e post, seguem a mesma regra; o filtro de eco do próprio robô, o
+limite de resposta mútua entre robôs e a validação de identidade de grupo não mudam.
 
-### 机器人交互卡片排除（2026-10-09）
+### Exclusão dos cartões interativos de robô (2026-10-09)
 
-仅带按钮、选择器、输入框、表单等操作控件的机器人卡片不作为自动回复输入。interactive
-只是飞书卡片载体，纯 markdown/text 对话卡片仍正常参与讨论。机器人引用操作卡片的确认
-消息同样过滤；引用普通对话卡片的回复不被过滤。不依赖中英文确认文案。
-Provider 使用原生 mentions 和卡片中的有序 at 节点恢复可信 mention；发送端正文 ID 与
-接收端 ID 不同的情况使用平台提供的有序 mentions，不能把原始正文 ID 当成本端身份。
-卡片事件若只包含客户端升级占位内容，通过同群同话题的原生消息接口读取真实卡片；
-读取失败不提交 CLI。历史通过可选 controlCard 分类过滤操作卡片及本批次中引用它的
-机器人确认回复，普通对话卡片保留，扫描边界和检查点不变。真人主动引用卡片、真人点击
-仍走现有授权流程。自身回声、连续五条上限、桌面 continuous 和手机 replayable 不变。
+Cartões de robô que carregam apenas controles de operação como botões, seletores, campos de
+entrada e formulários não servem como entrada de resposta automática. `interactive` é apenas o
+portador do cartão do Feishu, e cartões de conversa em markdown/text puro continuam participando
+normalmente da discussão. Mensagens de confirmação de robôs que citam um cartão operacional também
+são filtradas; respostas que citam um cartão de conversa comum não são filtradas. Isso não depende
+do texto de confirmação em chinês ou inglês.
+O Provider usa as menções nativas e os nós at ordenados dentro do cartão para recuperar menções
+confiáveis; quando os IDs do corpo no lado de envio e no lado de recebimento são diferentes, usam-
+se as menções ordenadas fornecidas pela plataforma, e o ID do corpo original nunca é tratado como a
+identidade local. Quando um evento de cartão contém apenas conteúdo placeholder de upgrade do
+cliente, o cartão real é lido pela interface de mensagens nativas do mesmo grupo e tópico; se a
+leitura falhar, nada é submetido à CLI. O histórico filtra cartões operacionais, por meio da
+classificação opcional controlCard, e também as respostas de confirmação de robôs que os citam
+neste lote; cartões de conversa comuns são preservados, e os limites de varredura e o checkpoint
+permanecem iguais. Citações ativas de cartões por pessoas reais e cliques de pessoas reais
+continuam pelo fluxo de autorização existente. Eco do próprio robô, o limite de cinco mensagens
+consecutivas, desktop continuous e celular replayable não mudam.
 
-### 群聊停止静默（2026-10-09）
+### Silêncio ao parar uma tarefa no grupo (2026-10-09)
 
-群主聊天与话题内成功停止任务（包括取消、打断）后不发送停止通知或状态卡。
-停止执行、输入状态、表情与任务列表更新仍正常完成；停止失败和无活动任务保留错误提示。
-私人会话行为不变，不改变 CLI admission、桌面 continuous 或手机 replayable 链路。
+Depois de uma parada bem-sucedida de uma task no chat do dono do grupo ou em um tópico (incluindo
+cancelamento e interrupção), nenhuma notificação de parada ou cartão de estado é enviado. A
+execução da parada, o estado da entrada, as reações e a atualização da lista de tasks continuam
+sendo concluídos normalmente; falhas de parada e a ausência de task ativa mantêm a mensagem de
+erro. O comportamento de sessões privadas não muda, e a cadeia de admission da CLI, desktop
+continuous ou celular replayable não é alterada.
 
-### 跨任务名字查找（2026-10-09）
+### Busca de nomes entre tasks (2026-10-09)
 
-名字候选复用当前群绑定中同 bot、同 app、同 provider、同 chat/thread、同授权的已接收
-历史输入原生 mention，不按 taskId 或结束状态删除候选。旧任务身份只参与 mentionName
-解析，旧 refId 不能用于直接发送；当前任务的发送授权、撤销、并发复核和目录失败策略不变。
-不读取其他群或其他授权，也不把本地 bot 配置里的 ID 当成本端原生 ID。
+Os candidatos de nome reaproveitam as menções nativas de entradas históricas já recebidas com o
+mesmo bot, app, provider, chat/thread e autorização no vínculo de grupo atual, e candidatos não
+são removidos por taskId nem por estado final. A identidade de uma task antiga participa apenas da
+resolução de mentionName, e um refId antigo não pode ser usado para envio direto; a autorização de
+envio da task atual, a revogação, a revalidação concorrente e a política de falha do diretório não
+mudam. Não se lêem outros grupos nem outras autorizações, e IDs da configuração local do robô não
+são tratados como IDs nativos locais.
 
-### 评审回归边界（2026-10-09）
+### Limite de regressão da revisão (2026-10-09)
 
-历史分页先用原生元数据确定调用边界/checkpoint，并排除删除消息，再展开窗口内卡片。
-窗口外卡片读取失败不得阻断输入；窗口内必要材料读取失败仍禁止提交。
-停止期间合并批次的有效性逐条判断 commandText/正文、引用与附件，不用尾条的命令副本
-代表整个批次，不重新解析合并正文为控制命令。模型的可信 mention 投影按原生目标 ID
-计算 isCurrentBot，让同名收件人的具体位置可以关联自身身份，不暴露其他收件人 ID。
+A paginação do histórico usa primeiro os metadados nativos para determinar o limite/checkpoint da
+chamada e excluir mensagens excluídas, e só então expande os cartões dentro da janela. Uma falha
+de leitura de um cartão fora da janela não pode bloquear a entrada; uma falha de leitura de
+material necessário dentro da janela continua proibindo a submissão. Durante a parada, a validade
+de um lote agrupado é julgada mensagem a mensagem pelo commandText/corpo, pelas citações e pelos
+anexos, sem usar a cópia de comando da última mensagem para representar o lote inteiro e sem
+reanalisar o corpo agrupado como comando de controle. A projeção de menções confiáveis do modelo
+calcula isCurrentBot pelo ID de alvo nativo, permitindo que a posição concreta de um destinatário
+homônimo seja associada à própria identidade e sem expor os IDs dos outros destinatários.
 
 ```text
 历史元数据 → 边界筛选 → 必要卡片展开 → CLI admission
 逐条输入 → 停止屏障 → 全批次有效性判断 → 保留原始消息提交
 原生 mention targetId + 当前 bot openId → isCurrentBot → 模型分工
 ```
-当前授权、Host 持久化 owner、CLI 单一 admission、desktop continuous/mobile replayable 不变。
 
-模型身份定位补充：除 mention 清单外，逐条输入投影有序 text/channelMention 节点，
-让原生 @ 与外观相同的手打文本可区分；每个 mention 仅含 ref、名字、渠道及 isCurrentBot。
-批次按 messageId 分组，重复 mention 保留每次出现位置；canonical 原文和持久化结构不变。
+A autorização atual, o owner de persistência do Host, a admission única da CLI e
+desktop continuous/mobile replayable permanecem inalterados.
+
+Complemento de localização de identidade para o modelo: além da lista de menções, cada entrada
+projeta nós ordenados text/channelMention, de modo que um @ nativo possa ser distinguido de um
+texto digitado à mão com aparência idêntica; cada menção contém apenas ref, nome, canal e
+isCurrentBot. Os lotes são agrupados por messageId e menções repetidas preservam cada posição de
+ocorrência; o texto canônico e a estrutura persistida não mudam.

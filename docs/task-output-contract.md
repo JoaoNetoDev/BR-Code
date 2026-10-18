@@ -1,19 +1,19 @@
-# TaskOutput 工具契约
+# Contrato da ferramenta TaskOutput
 
-## 范围
+## Escopo
 
-- 本规范只覆盖 provider-visible `TaskOutput`、兼容别名、运行状态读取、输出投影和完成通知去重。
-- 不新增 `TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`remote_agent` runtime 或 ToolSearch/deferred-loading 基建。
+- Esta especificação cobre apenas a `TaskOutput` visível ao provider, seus aliases de compatibilidade, a leitura de estado de execução, a projeção de saída e a deduplicação da notificação de conclusão.
+- Não adiciona `TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`, runtime de `remote_agent` nem a infraestrutura de ToolSearch/deferred-loading.
 
-## Provider-visible contract
+## Contrato visível ao provider
 
-Provider 只接收一个 canonical tool：
+O provider recebe apenas uma tool canônica:
 
 ```text
 TaskOutput
 ```
 
-以下名称只作为本地调用别名，不重复进入 provider tools：
+Os nomes abaixo existem somente como aliases de chamada local e não entram novamente nas tools do provider:
 
 ```text
 AgentOutputTool
@@ -22,7 +22,7 @@ AgentOutput
 BashOutput
 ```
 
-Provider-visible description 必须逐字等于：
+A descrição visível ao provider deve ser literalmente igual a:
 
 ```text
 DEPRECATED: Background tasks return their output file path in the tool result, and you receive a <task-notification> with the same path when the task completes.
@@ -39,93 +39,84 @@ DEPRECATED: Background tasks return their output file path in the tool result, a
 - Works with all task types: background shells, async agents, and remote sessions
 ```
 
-输入 schema 是 strict object：
+O schema de entrada é um objeto strict:
 
-| 字段      | Provider schema                                                       | Runtime                             |
-| --------- | --------------------------------------------------------------------- | ----------------------------------- |
-| `task_id` | required string，`The task ID to get output from`                              | 空字符串报 `Task ID is required`    |
-| `block`   | required boolean，default `true`，`Whether to wait for completion`              | 省略时仍补默认值；额外兼容字符串 `"true"` / `"false"` |
-| `timeout` | required number，default `30000`，min `0`，max `600000`，`Max wait time in ms` | 省略时仍补默认值；单位毫秒          |
+| Campo | Schema do provider | Runtime |
+| --- | --- | --- |
+| `task_id` | string obrigatório, `The task ID to get output from` | String vazia gera `Task ID is required` |
+| `block` | boolean obrigatório, default `true`, `Whether to wait for completion` | O default ainda é aplicado quando omitido; há compatibilidade adicional com as strings `"true"` / `"false"` |
+| `timeout` | number obrigatório, default `30000`, min `0`, max `600000`, `Max wait time in ms` | O default ainda é aplicado quando omitido; unidade em milissegundos |
 
-Provider `input_schema.required` 固定为
-`["task_id", "block", "timeout"]`。其中 `block`、`timeout` 同时保留 runtime default；
-required 约束模型生成的 wire input，default 继续兼容本地别名、历史调用和手工调用。
+O `input_schema.required` do provider é fixo em
+`["task_id", "block", "timeout"]`. Nele, `block` e `timeout` mantêm também o default do runtime;
+a restrição required governa o wire input gerado pelo modelo, enquanto o default continua compatibilizando aliases locais, chamadas históricas e chamadas manuais.
 
-工具只读、并发安全、无需审批。不声明 deferred-loading（`shouldDefer`），ZCode 当前不实现 ToolSearch 发现机制。
+A ferramenta é somente leitura, segura para uso concorrente e não requer aprovação. Ela não declara deferred-loading (`shouldDefer`), já que o ZCode atualmente não implementa o mecanismo de descoberta do ToolSearch.
 
-Provider-facing 输入错误分为两层：
+Os erros de entrada voltados ao provider são divididos em duas camadas:
 
-- 缺少 `task_id` 字段或字段类型错误：沿用通用初始 schema validation，返回
-  `<tool_use_error>InputValidationError: ...</tool_use_error>`，并标记 `is_error:true`。
-- `task_id` 是空字符串：返回
-  `<tool_use_error>Task ID is required</tool_use_error>`，并标记 `is_error:true`。
-- `task_id` 非空但 registry 中不存在：返回
-  `<tool_use_error>No task found with ID: <task_id></tool_use_error>`，并标记
-  `is_error:true`。
+- Campo `task_id` ausente ou com tipo errado: usa a validação de schema inicial genérica, retornando
+  `<tool_use_error>InputValidationError: ...</tool_use_error>` e marcando `is_error:true`.
+- `task_id` é uma string vazia: retorna
+  `<tool_use_error>Task ID is required</tool_use_error>` e marca `is_error:true`.
+- `task_id` não vazio, mas inexistente no registry: retorna
+  `<tool_use_error>No task found with ID: <task_id></tool_use_error>` e marca
+  `is_error:true`.
 
-后两项由 `TaskOutput` 的 `validateInput` 在初始 schema validation 之后、
-`PreToolUse` 之前返回 `{ result:false, errorCode:1|2, message }`。失败时不运行
-`PreToolUse`、权限判断、handler 或 `PostToolUseFailure`。executor 不识别具体 tool
-name，只负责统一组装失败结果并结束 tool event；provider-facing `modelContent` 使用
-`<tool_use_error>`，UI、日志和结构化错误继续保留不带标签的原始 message。
+Os dois últimos casos são retornados pelo `validateInput` da `TaskOutput` depois da validação de schema inicial e antes do `PreToolUse`, como `{ result:false, errorCode:1|2, message }`. Em caso de falha, `PreToolUse`, a verificação de permissões, o handler e o `PostToolUseFailure` não são executados. O executor não reconhece o nome específico da tool; ele apenas monta uniformemente o resultado de falha e encerra o evento da tool. O `modelContent` voltado ao provider usa `<tool_use_error>`, enquanto a UI, os logs e o erro estruturado continuam preservando a message original sem a tag.
 
-handler 在实际读取前仍重新检查 registry，覆盖校验后任务被删除或 hook 修改输入的竞态；
-该防御性检查不改变正常任务读取和等待路径。
+O handler continua reverificando o registry antes da leitura real, cobrindo a corrida em que a tarefa é removida após a validação ou em que um hook modifica a entrada; essa verificação defensiva não altera o caminho normal de leitura e espera.
 
-## 状态与通知
+## Estado e notificações
 
-`RuntimeTaskRegistry` 是唯一任务存在性和状态来源：
+O `RuntimeTaskRegistry` é a única fonte de existência e estado das tarefas:
 
 ```text
-running / pending + block=false -> not_ready + 当前 task
-running / pending + block=true  -> 每 100ms 轮询
-                                   terminal -> success + 当前 task
-                                   timeout  -> timeout + 最新 task
+running / pending + block=false -> not_ready + atual task
+running / pending + block=true  -> polling a cada 100ms
+                                   terminal -> success + atual task
+                                   timeout  -> timeout + task mais recente
                                    removed  -> timeout + task:null
-terminal                         -> success + 当前 task
+terminal                         -> success + atual task
 ```
 
-- 初次查找不到任务：`No task found with ID: <task_id>`。
-- `block=true` 在等待前发出一次标准 `ToolCallProgress`。ZCode 复用现有 progress
-  schema，不新增 TaskOutput 专属 Protocol 字段；该内部投影不影响
-  provider-visible result。
-- `timeout=0` 不 sleep，直接返回当前快照。
-- abort 抛出 AbortError。
-- 终态输出投影成功后再原子写入 `notified:true`；投影失败或 abort 不得消费通知 claim。
-- 完成通知入队前同样检查并写入 `notified`，保证 TaskOutput 与 completion 的竞争最多产生一次 `<task-notification>`。
+- Task não encontrada na primeira busca: `No task found with ID: <task_id>`.
+- `block=true` emite um `ToolCallProgress` padrão antes de começar a espera. O ZCode reaproveita o schema de progress existente e não adiciona campos de Protocol exclusivos de TaskOutput; essa projeção interna não afeta o result visível ao provider.
+- `timeout=0` não dorme e retorna diretamente o snapshot atual.
+- O abort lança AbortError.
+- `notified:true` é gravado de forma atômica somente depois de a projeção de saída do estado final ter sucesso; falha de projeção ou abort não pode consumir a claim de notificação.
+- Antes de enfileirar a notificação de conclusão, a mesma verificação e escrita de `notified` é feita, garantindo que a corrida entre TaskOutput e a conclusão produza no máximo um `<task-notification>`.
 
-## 输出来源
+## Fontes de saída
 
-- `local_bash`：语义上优先取活动 shell task output 的 stdout、stderr，以单个 `\n` 拼接；不可用时读取任务输出文件；`exitCode` 来自执行结果。
-  - 新 Bash 任务的 stdout/stderr 直接写同一个 canonical output file，
-    flags、软上限和生命周期见 `docs/bash-background-parity.md`。运行中 TaskOutput 仍从
-    offset 0 读取最多 30000 bytes，不添加前部省略提示，不新增环境变量覆盖；文件不可用
-    时回退到执行结果 inline text / progress tail。终态或活动 snapshot 不可用时沿用
-    通用 task output 文件读取，最多读取末尾 8 MiB。
-  - root shell exit 即结算，不等待后代关闭输出句柄。registry 终态不承诺文件稳定，
-    后代仍可继续写；再次查询可读到晚到内容，但不重新激活任务或重复发送完成通知。
-    头部超过预算后，运行中重复查询可能保持相同内容；最新进度来自 Bash 的有界尾读。
-  - framework error、timeout/cancel 文本仍可能存在于结构化 stderr。TaskOutput 将其追加到 canonical command output 后；由于 canonical file 不包含这部分文本，此时不得把该文件描述为完整合并输出。
-  - 历史 split-path snapshot 仍可按 stdout 后 stderr 读取，但两个不同文件共同组成结果时，不新增合并 artifact，也不把任一单流路径伪装成 `Full output`。超大文本交给 TaskOutput 自身的 100000 字符持久化边界处理。
-- `local_agent`：终态优先取 Agent result content blocks，以单个 `\n` 拼接；否则读取任务输出文件。输出文件缺失不影响任务存在性或状态。
-- 其他已注册 ZCode task type：读取 registry 记录的通用输出文件。
-- 输出文件读取失败或不存在时返回空字符串。
-- 通用及终态输出文件最多读取末尾 8 MiB；省略前部时添加
-  `[NKB of earlier output omitted]\n`。运行中 Bash 使用上述独立的文件头部读取规则。
+- `local_bash`: semanticamente, prioriza o stdout e o stderr da task shell ativa, concatenados com um único `\n`; quando indisponível, lê o arquivo de saída da tarefa; `exitCode` vem do resultado de execução.
+  - O stdout/stderr das novas tasks Bash é escrito diretamente no mesmo canonical output file,
+    com flags, soft limit e ciclo de vida descritos em `docs/bash-background-parity.md`. Em execução, a TaskOutput continua lendo a partir do offset 0 no máximo 30000 bytes, sem adicionar aviso de omissão no início e sem novas variáveis de ambiente de override; quando o arquivo está indisponível,
+    recorre ao texto inline do resultado de execução ou à cauda do progress. Quando o estado final ou o snapshot da task ativa não estão disponíveis, usa a leitura genérica do arquivo de saída da task, lendo no máximo os últimos 8 MiB.
+  - O exit do shell root já liquida a execução, sem esperar os descendentes fecharem o handle de saída. O estado final do registry não promete um arquivo estável,
+    e os descendentes podem continuar escrevendo; uma nova consulta pode ler conteúdo tardio, mas sem reativar a tarefa nem reenviar a notificação de conclusão.
+    Depois que o cabeçalho estoura o orçamento, consultas repetidas em execução podem manter o mesmo conteúdo; o progresso mais recente vem da leitura de cauda limitada do Bash.
+  - Texto de framework error, timeout/cancel ainda pode existir no stderr estruturado. A TaskOutput o adiciona ao final do canonical command output; como o canonical file não contém esse texto, o arquivo não pode ser descrito como saída completa e unificada nesse momento.
+  - Snapshots históricos de split-path ainda podem ser lidos como stdout seguido de stderr, mas quando dois arquivos diferentes compõem o resultado, não se cria um artefato unificado nem se faz nenhum caminho de fluxo único passar por `Full output`. Textos muito grandes ficam a cargo do limite de persistência de 100000 caracteres da própria TaskOutput.
+- `local_agent`: no estado final, prioriza os blocos de conteúdo do resultado do Agent, concatenados com um único `\n`; caso contrário, lê o arquivo de saída da tarefa. A ausência do arquivo de saída não afeta a existência nem o estado da tarefa.
+- Outros tipos de task do ZCode já registrados: lê o arquivo de saída genérico registrado no registry.
+- Quando a leitura do arquivo de saída falha ou ele não existe, retorna string vazia.
+- O arquivo de saída genérico e o de estado final são lidos no máximo nos últimos 8 MiB; ao omitir o início, é adicionado
+  `[NKB of earlier output omitted]\n`. O Bash em execução usa a regra independente de leitura do início do arquivo descrita acima.
 
-`TASK_MAX_OUTPUT_LENGTH` 默认 `32000` 字符，最大 `160000` 字符；使用十进制 `parseInt` 解析，因此带合法数字前缀的字符串按该数字生效；空值、无法解析的值或非正数使用默认值。超限输出必须变为：
+`TASK_MAX_OUTPUT_LENGTH` tem padrão `32000` caracteres e máximo de `160000` caracteres; é analisado com `parseInt` decimal, portanto strings com um prefixo numérico válido têm efeito conforme esse número; valores vazios, não analisáveis ou não positivos usam o padrão. A saída acima do limite precisa virar:
 
 ```text
 [Truncated. Full output: <task-output-path>]
 
-<保留的尾部>
+<tail preservado>
 ```
 
-当有效限制不小于前缀长度时，前缀与尾部总字符数等于有效限制。有效限制小于前缀长度时，保留原始负数 `slice` 边界行为，不额外修正。
+Quando o limite efetivo não for menor que o comprimento do prefixo, o total de caracteres do prefixo mais a cauda é igual ao limite efetivo. Quando o limite efetivo for menor que o comprimento do prefixo, o comportamento original de slice com limites negativos é preservado, sem correção adicional.
 
-## Provider-visible result
+## Result visível ao provider
 
-普通结果是纯文本。各块以两个换行分隔，且不做 XML escaping：
+O resultado comum é texto puro. Cada bloco é separado por duas quebras de linha e não há XML escaping:
 
 ```text
 <retrieval_status>success|not_ready|timeout</retrieval_status>
@@ -145,37 +136,33 @@ terminal                         -> success + 当前 task
 <error>...</error>
 ```
 
-- `task` 为 `null` 时只输出 `retrieval_status`。
-- `exit_code` 仅在值不是 `null` / `undefined` 时输出。
-- `output.trim()` 为空时省略整个 output 标签；正文使用 `trimEnd()`。
-- `error` 仅在 truthy 时输出。
-- 禁止输出 `description`、`prompt`、`result`、`output_file`、`truncated` 或 JSON wrapper。
+- Quando `task` é `null`, apenas o `retrieval_status` é emitido.
+- `exit_code` só é emitido quando o valor não é `null` / `undefined`.
+- Quando `output.trim()` fica vazio, a tag output inteira é omitida; o corpo usa `trimEnd()`.
+- `error` só é emitido quando for truthy.
+- É proibido emitir `description`, `prompt`, `result`, `output_file`, `truncated` ou um wrapper JSON.
 
-映射后的完整文本超过 100000 字符时，以 `text/plain` 保存完整文本（本地 artifact 使用 `.txt`），并向 provider 返回 `<persisted-output>` envelope；持久化失败时保留原始文本。ZCode 通用 `resultBudget` 不得再次改写 TaskOutput 文本。
+Quando o texto completo mapeado excede 100000 caracteres, o texto completo é salvo como `text/plain` (o artefato local usa `.txt`) e um envelope `<persisted-output>` é devolvido ao provider; quando a persistência falha, o texto original é preservado. O `resultBudget` genérico do ZCode não pode reescrever novamente o texto da TaskOutput.
 
-## UI display projection
+## Projeção de exibição na UI
 
-UI 专属卡片使用独立的 completed tool metadata，不解析或改写上述 provider-visible 文本：
+O card exclusivo da UI usa metadata de tool concluída separado, sem fazer parse nem reescrever o texto visível ao provider descrito acima:
 
-- `task_id` 直接读取 tool input。
-- Core 从 handler result 生成 `task_output` display，只保留 `retrievalStatus`、最长 64 字符的
-  可选 `taskStatus`、最长 2000 字符的可选 `output` 和可选 `truncated`。
-- output 使用 `trimEnd()` 后保留前 2000 字符；空白 output 不进入 display，运行中已读取的部分
-  output 可以展示。
-- display 不包含 task type、description、error、prompt、result、output path 或 provider XML；这些字段也不进入卡片摘要正文或展开内容。真实 tool execution failure 的错误原因只通过 `ToolCallRow.error` 形成的 `context.errorText` 进入 `ToolLayout` 通用失败状态 tooltip，允许用户 hover/copy，且不写回 `task_output` display。
-- display 通过现有 completed metadata 和 V4 `ToolCallRow.display` 进入共享 UI；旧记录缺失 display
-  时只展示 task id 和通用 tool lifecycle，不增加 XML/JSON fallback 或持久化迁移。
+- `task_id` é lido direto do input da tool.
+- O Core gera o display `task_output` a partir do resultado do handler, mantendo apenas `retrievalStatus`, um `taskStatus` opcional de no máximo 64 caracteres, um `output` opcional de no máximo 2000 caracteres e `truncated` opcional.
+- O output passa por `trimEnd()` e mantém os primeiros 2000 caracteres; output em branco não entra no display, e a parte de output já lida enquanto a execução está em andamento pode ser exibida.
+- O display não inclui task type, description, error, prompt, result, output path nem XML do provider; esses campos também não entram no corpo do resumo do card nem no conteúdo expandido. O motivo de uma falha real de execução da tool entra apenas pelo `context.errorText` formado por `ToolCallRow.error` no estado de falha genérico do `ToolLayout`, permitindo hover/copy pelo usuário, e não é gravado de volta no display `task_output`.
+- O display chega à UI compartilhada pelos metadata de concluída existentes e pelo `ToolCallRow.display` do V4; quando um registro antigo não tem display,
+  apenas o task id e o ciclo de vida genérico da tool são exibidos, sem fallback de XML/JSON e sem migração de persistência.
 
-该投影仅用于桌面、普通 Web 和手机远控共用的渲染组件，不改变 TaskOutput handler、状态机、
-provider adapters 或 desktop continuous / web remote replayable 的交付语义。
+Essa projeção é usada apenas pelo componente de renderização compartilhado pelo desktop, pela Web comum e pelo controle remoto do celular, e não altera o handler da TaskOutput, a máquina de estados, os adapters do provider nem a semântica de entrega de desktop continuous / web remote replayable.
 
-## 验收
+## Aceitação
 
-- provider tool name、description、input schema 与上述 golden 完全相等。
-- 两条 provider adapter 链路都原样传递 TaskOutput result 文本。
-- running Agent 即使尚无输出文件，仍返回 `not_ready` 和 `running`。
-- TaskOutput 读取终态与 completion notification 的两种竞争顺序都只产生一次通知。
-- 默认、最大、非法、数字前缀和小于截断前缀的 `TASK_MAX_OUTPUT_LENGTH`、8 MiB 文件尾读、100000 字符文本持久化均有 focused test。
-- Bash focused test 必须覆盖 canonical output file、运行中固定读取 30000 bytes 文件头部、
-  timeout 后仍运行的投影、inline/tail 回退、framework stderr、历史 split-path 兼容，以及
-  canonical file 对应的真实 `Full output` 路径。
+- O provider tool name, a descrição e o input schema são exatamente iguais ao golden acima.
+- As duas cadeias de provider adapter passam o texto do resultado da TaskOutput sem alteração.
+- Um Agent em execução, mesmo sem arquivo de saída ainda, retorna `not_ready` e `running`.
+- As duas ordens de corrida entre a leitura de estado final da TaskOutput e a notificação de conclusão produzem apenas uma notificação.
+- Valores padrão, máximo, inválido, com prefixo numérico e menor que o prefixo de truncamento de `TASK_MAX_OUTPUT_LENGTH`, a leitura de cauda de 8 MiB e a persistência de texto de 100000 caracteres têm teste focado.
+- O teste focado de Bash precisa cobrir o canonical output file, a leitura fixa de 30000 bytes do início do arquivo durante a execução,
+  a projeção de processo ainda rodando após timeout, o fallback inline/tail, o framework stderr, a compatibilidade com split-path histórico e o caminho real de `Full output` correspondente ao canonical file.

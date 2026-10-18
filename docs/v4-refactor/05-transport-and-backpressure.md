@@ -1,8 +1,8 @@
-# 传输与背压：subscriber 隔离、1 MiB 物理帧与原子 resync
+# Transporte e contrapressão: isolamento de subscriber, frame físico de 1 MiB e resync atômico
 
-> 当前事实（V4 wire v3）：profile filter、coalesce、有界 subscriber buffer、物理分片和恢复是同一条发送管线。任何限额都按 UTF-8 序列化后的真实 wire bytes 计算，不能按 JavaScript 字符数估算。
+> Fato atual (V4 wire v3): profile filter, coalesce, buffer de subscriber limitado, fragmentação física e recuperação formam o mesmo pipeline de envio. Qualquer limite é calculado sobre os bytes reais de wire após serialização UTF-8, nunca por estimativa de contagem de caracteres JavaScript.
 
-## 1. 分层边界
+## 1. Fronteiras de camadas
 
 ```text
 CLI 权威 event log / projection
@@ -28,15 +28,14 @@ connection transport
 owning attachment port only
 ```
 
-触发信号在 connection/transport 级，conversation 的降级裁决在 subscription publisher 级：
+O sinal de disparo fica no nível de connection/transport, e a decisão de degradação de conversation fica no nível de subscription publisher:
 
-- transport 只报告 `onSaturated/onDrained`，不解析 topic、seq 或 snapshot；
-- publisher 知道哪些 delta 可合并、何时必须 snapshot；
-- relay/main 只透传流控信号和 payload，不持有 conversation buffer 或恢复状态；
-- 一个 subscription 的 buffer、resync 或 assembly 永远不能阻塞另一个 subscription。
+- o transport apenas reporta `onSaturated/onDrained` e não interpreta topic, seq ou snapshot;
+- o publisher sabe quais deltas podem ser combinados e quando um snapshot é obrigatório;
+- relay/main apenas repassa sinais de flow control e payload, sem manter buffer de conversation nem estado de recuperação;
+- o buffer, o resync ou a montagem de uma subscription nunca podem bloquear outra subscription.
 
-publisher 不在“生成 logical frame”时推进水位。它必须保留一个稳定
-reservation，只在全部 physical envelopes 被 transport 接受后 commit：
+O publisher não avança a marca d'água ao "gerar o frame lógico". Ele precisa manter uma reserva estável e só fazer commit depois que todos os envelopes físicos forem aceitos pelo transport:
 
 ```text
 committed sentSeq=N
@@ -47,35 +46,23 @@ committed sentSeq=N
        all admitted to this connection queue: commit R, sentSeq becomes M
 ```
 
-同一 reservation 在 commit 前重试必须保持 `logicalFrameId` 和 logical JSON 不变。
-新事件进入 post-reservation buffer；旧 reservation 不得引用可变 buffer。退订或
-重订通过 generation token 使迟到 commit 失效。`Writable.write() === false` 只表示
-背压，不表示拒收；enqueue 后才出现的异步 EPIPE 会直接终结 connection epoch，旧
-subscription 不会在新 attachment 继续发送，新连接从 subscribe/resync 恢复。
+A mesma reserva, ao ser tentada novamente antes do commit, precisa manter `logicalFrameId` e o JSON lógico inalterados. Eventos novos entram no buffer pós-reserva; a reserva antiga não pode referenciar buffer mutável. Cancelar assinatura ou assiná-la de novo invalida commits tardios por meio de um generation token. `Writable.write() === false` indica apenas contrapressão, não recusa; um EPIPE assíncrono que só apareça depois do enqueue encerra diretamente o epoch da connection, e a subscription antiga não continua enviando no novo attachment — a nova conexão se recupera por subscribe/resync.
 
-### 1.1 每订阅编码与 workflowRuns 的增长上界
+### 1.1 Codificação por subscription e limite superior de crescimento de workflowRuns
 
-保留日志里存 native op。每个 subscription 记住自己握手时是否声明了 `workflowRunDeltas`
-（[10-protocol-spec.md](./10-protocol-spec.md) §2），编码在扇出时按订阅决定，与 profile 正交：
+O log retido armazena op nativas. Cada subscription registra se declarou `workflowRunDeltas` no seu handshake ([10-protocol-spec.md](./10-protocol-spec.md) §2), e a codificação é decidida por subscription no momento do fan-out, ortogonal ao profile:
 
-- 声明方直接收 `workflowRun.updated / workflowRun.removed`（同文档 §4.5）。
-- 未声明方在每批里被抹平：该批全部 `workflowRun.*` op 丢弃，并在其中最后一个的位置放入一条整键
-  `state.updated{workflowRuns}`，值取当前权威投影并按旧界钳位——每个 run 只保留前 256 个 node 和前
-  256 个 actor，裁到任何东西就置 `truncated: true`。「前 N 个」正是旧 reducer 拒新语义的产物，旧读端
-  的 `.max(256)` 因此恰好通过。发给未声明方的 snapshot 帧套用同一个钳位。
-- 从保留日志重放时，被取用的「当前」状态比历史 op 新：可接受——终态一致，只是跳过中间态，与 coalesce
-  一贯的做法相同。
+- quem declara recebe diretamente `workflowRun.updated / workflowRun.removed` (mesmo documento §4.5).
+- quem não declara é achatado em cada lote: todos os op `workflowRun.*` do lote são descartados, e na posição do último deles é inserido um único `state.updated{workflowRuns}` de chave completa, com valor vindo da projeção autoritativa atual e limitado pelos limites antigos — cada run mantém apenas os primeiros 256 nodes e os primeiros 256 actors, e qualquer corte define `truncated: true`. "Os primeiros N" é justamente o produto da semântica antiga de rejeição de novos termos do reducer, de modo que o `.max(256)` dos leitores antigos passa exatamente. O frame de snapshot enviado a quem não declara aplica o mesmo limite.
+- Na reprodução a partir do log retido, o estado "atual" consultado é mais novo que os op históricos: isso é aceitável — o estado terminal é consistente e apenas os estados intermediários são pulados, exatamente como o coalesce sempre fez.
 
-两端的差别在编码而不在 profile：同一编码下 continuous 与 replayable 的终态仍逐字段一致（§2）。
+A diferença entre as duas pontas está na codificação, não no profile: sob a mesma codificação, continuous e replayable continuam consistentes campo a campo no estado terminal (§2).
 
-publisher ingest 一条 workflow 进度事件时不必整份 `JSON.stringify` 权威 snapshot 才能判断 16 MiB 上限：
-`snapshot 字节上界 + 本次 op 的 UTF-8 字节 + 常数 <= 上限` 时按上界放行并就地累加（一次 upsert/patch 最多
-让 snapshot 涨自身那么多字节，上界因此成立），否则回落到精确计量的慢路径，由它重新校准上界。这是既有
-流式追加快路径的同一条口径，不是第二套记账。
+Quando o publisher ingere um evento de progresso de workflow, não precisa fazer `JSON.stringify` de todo o snapshot autoritativo para decidir o limite de 16 MiB: enquanto `limite superior de bytes do snapshot + bytes UTF-8 do op atual + constante <= limite`, ele deixa passar pelo limite superior e acumula no local (um upsert/patch aumenta o snapshot no máximo em tantos bytes quanto o próprio op, então o limite se sustenta); caso contrário, cai no caminho lento de medição precisa, que recalibra o limite superior. É o mesmo critério do caminho rápido de append em streaming já existente, não um segundo sistema de contabilidade.
 
-## 2. Delivery profile 由可信连接注入
+## 2. Delivery profile injetado pela conexão confiável
 
-UI 和 subscribe 参数不包含 profile。connection-scoped facade 根据 host 注入的可信 `clientMode` 选择唯一 profile：
+A UI e os parâmetros de subscribe não contêm profile. A facade de escopo de connection escolhe um único profile conforme o `clientMode` confiável injetado pelo host:
 
 ```ts
 const DELIVERY_PROFILES = {
@@ -96,40 +83,33 @@ const DELIVERY_PROFILES = {
 } satisfies Record<string, DeliveryProfile>;
 ```
 
-profile 只影响中间帧，不影响 schema、command/ACK、guard、恢复算法或终态。相同权威事件序列跑 continuous/replayable，允许中间帧不同，但最终客户端状态必须逐字段一致。被 profile 过滤的流式事件必须被不可过滤的完成态 `row.upserted` 或 snapshot 收口。
+O profile afeta apenas os frames intermediários, não o schema, command/ACK, guard, algoritmo de recuperação ou estado terminal. Dada a mesma sequência autoritativa de eventos, continuous/replayable podem ter frames intermediários diferentes, mas o estado final do cliente precisa ser consistente campo a campo. Eventos de streaming filtrados pelo profile precisam ser fechados pelo estado de conclusão não filtrável `row.upserted` ou por um snapshot.
 
-## 3. Subscriber buffer 的硬边界
+## 3. Limites rígidos do buffer de subscriber
 
-每个 subscription 独立维护易失 buffer；计数时机固定为 **profile filter 之后、coalesce 之后**：
+Cada subscription mantém um buffer volátil independente; o momento da contagem é fixo como **depois do profile filter, depois do coalesce**:
 
 ```ts
 const MAX_BUFFER_OPS = 500;
 const MAX_BUFFER_BYTES = 1_048_576; // 1 MiB
 ```
 
-正常 drain 的充要条件是两个边界同时满足：
+A condição necessária e suficiente para um drain normal é que os dois limites sejam satisfeitos ao mesmo tempo:
 
 ```text
 coalescedOps <= 500
 AND serializedLogicalPayloadUtf8Bytes <= min(max(1 MiB, wireSnapshotBytesUpperBound), 16 MiB - 64 KiB)
 ```
 
-`500/501 op` 与字节上限的 `前一字节/正好/后一字节` 均按上式机械裁决。多字节 UTF-8 字符必须用编码后的 byte length；禁止用 `string.length`。
+Os casos `500/501 op` e `byte anterior/ exato /byte seguinte` do limite de bytes são decididos mecanicamente pela fórmula acima. Caracteres UTF-8 multibyte precisam usar o byte length após codificação; é proibido usar `string.length`.
 
-字节上限取 `min(max(1 MiB, wireSnapshotBytesUpperBound), 16 MiB - 64 KiB)`（2026-09-30 修订）：
+O limite de bytes é `min(max(1 MiB, wireSnapshotBytesUpperBound), 16 MiB - 64 KiB)` (revisão de 2026-09-30):
 
-- `wireSnapshotBytesUpperBound` 是 publisher 为 16 MiB assembly 闸门维护的当前 wire snapshot
-  （尾部 60 行）logical frame 保守上界。外层再钳到 `16 MiB - 64 KiB`（即
-  `PROJECTION_TERMINAL_RESERVE_BYTES` 预留），保证 buffer 加上帧外壳后打出的 deltas logical frame
-  仍 `<= 16 MiB` assembly 上限；超过物理帧时照常走 fragment。
-- 修订原因：overflow 的全部意义是“用一份更小的 snapshot 换掉积压的 delta”。单条大 delta（例如 3 MiB
-  bash 输出的 tool row upsert）本身就超过 1 MiB 时，替换它的 snapshot 只会更大（同一行还在尾部窗口里），
-  却会让客户端整份替换、丢掉已分页加载的历史行，turn navigator 随即重新全量分页；长 session 中每轮都
-  这样循环（实测 host CPU 100%，每轮 15 s+）。snapshot 不比 buffer 小时降级没有收益，只有代价。
-- 只有 buffer 真正大于 snapshot 上界（例如积压的更新落在尾部窗口之外的大量行上）时才降级。op 上限
-  不变。
+- `wireSnapshotBytesUpperBound` é o limite superior conservador atual, mantido pelo publisher para o portão de montagem de 16 MiB, do logical frame de wire snapshot (as últimas 60 linhas). Por fora ele é ainda limitado a `16 MiB - 64 KiB` (isto é, a reserva `PROJECTION_TERMINAL_RESERVE_BYTES`), garantindo que o logical frame de deltas emitido pelo buffer mais o envelope do frame ainda fique `<= 16 MiB`, o teto de montagem; acima do frame físico, segue-se normalmente para fragment.
+- Razão da revisão: todo o sentido do overflow é "trocar um backlog de deltas por um snapshot menor". Quando um único delta grande (por exemplo, o upsert de um tool row com 3 MiB de saída de bash) já ultrapassa 1 MiB, o snapshot que o substituiria seria ainda maior (a mesma linha ainda está na janela final), mas faria o cliente substituir tudo, perdendo linhas de histórico já carregadas por paginação, e o turn navigator em seguida recarrega tudo por paginação; em sessões longas isso se repete a cada rodada (medido: CPU do host a 100%, mais de 15 s por rodada). Degradar quando o snapshot não é menor que o buffer não traz benefício, só custo.
+- A degradação só ocorre quando o buffer é realmente maior que o limite superior do snapshot (por exemplo, um backlog de atualizações caindo sobre uma grande quantidade de linhas fora da janela final). O limite de op não muda.
 
-任一边界超限时执行一个原子状态迁移：
+Quando qualquer um dos limites é excedido, executa-se uma transição de estado atômica:
 
 ```text
 draining
@@ -145,11 +125,11 @@ needsResync
 draining（新水位之后续流）
 ```
 
-这里的“丢弃”发生在进入 RPC transport 之前，并由 snapshot 恢复；transport 已接受的 physical frame 不做语义丢弃。若连接持续 saturated，publisher 只保留 `needsResync` 标志，不为它积压多个 snapshot。
+O "descarte" aqui ocorre antes de entrar no RPC transport e é recuperado por snapshot; physical frames já aceitos pelo transport não sofrem descarte semântico. Se a conexão permanecer saturada, o publisher mantém apenas a flag `needsResync` e não acumula múltiplos snapshots por causa dela.
 
-## 4. TopicWireFrame：logical 与 physical 分离
+## 4. TopicWireFrame: separação entre logical e physical
 
-`TopicFrame<S,D>` 仍表达一个可原子 apply 的 logical frame。wire v3 使用 `TopicWireFrame` 物理信封：
+`TopicFrame<S,D>` continua expressando um logical frame aplicável atomicamente. O wire v3 usa o envelope físico `TopicWireFrame`:
 
 ```ts
 type TopicWireFrame<S, D> =
@@ -177,22 +157,21 @@ type TopicWireFrame<S, D> =
     };
 ```
 
-规范性限额：
+Limites normativos:
 
-- 每个物理 JSON/RPC frame **连同完整 envelope** 的 UTF-8 序列化大小必须 `<= 1_048_576` bytes。计量值取三条实际承载的最大值：CLI NDJSON notification（含换行）、Channel/Socket event binary、mobile relay `data.payload.rpc-frame` 外层 JSON（Channel bytes 再 base64）。
-- mobile relay 是目前最严格的外层。encoder 必须用真实 envelope meter/二分搜索决定分片；`bridgeSessionId/recoveryId` 等 transport id 最长 256 字符，计量使用该上限和最坏数字宽度。
-- encoder 必须先计算 envelope 开销，再决定 `dataBase64` 分片长度；不能先切 1 MiB payload 再套信封。
-- 正常 delta logical frame 由 subscriber buffer 的字节上限约束：通常 `<=1 MiB` 发 `complete`；单条大 delta 使 buffer 超过 1 MiB（但不超过 snapshot 上界）时与超大 snapshot 一样走 `fragment`。
-- 超大 snapshot 或 resume logical frame 使用 `fragment`；fragment 只改变物理承载，不改变 `(fromSeq,toSeq]` 或 apply 语义。
-- 单个 logical frame 最多包含 `1_024` 个 fragment；schema、encoder 与 reassembler 都必须 fail closed，避免伪造 `fragmentCount` 触发无界 missing-index/assembly 分配。
-- publisher 为每个 subscription 分配从 1 开始严格递增的 `logicalFrameOrdinal`；同一 reservation 重试 ordinal/id 均不变。低于已接纳 ordinal 的迟到 wire 静默丢弃；同 ordinal 换 `logicalFrameId` 是 typed protocol fault。
-- 同一 logical frame 的 fragment 必须具有相同 `logicalFrameId/logicalFrameOrdinal/topic/subscriptionId/fragmentCount/logicalBytes/checksum`。
-- encoder 可以在 logical UTF-8 byte stream 的 code point 中间切片；每片独立做合法 base64，客户端必须先拼回原始 bytes 再一次性 UTF-8 decode，禁止逐片解码文本。
+- O tamanho serializado em UTF-8 de cada physical frame JSON/RPC **junto com o envelope completo** precisa ser `<= 1_048_576` bytes. O valor medido é o maior entre os três carregamentos reais: notificação NDJSON do CLI (incluindo a quebra de linha), binário de Channel/Socket event e o JSON externo do mobile relay `data.payload.rpc-frame` (com os bytes de Channel em base64 por dentro).
+- O mobile relay é hoje o envelope externo mais restritivo. O encoder precisa decidir a fragmentação usando o medidor de envelope real/busca binária; ids de transport como `bridgeSessionId/recoveryId` têm no máximo 256 caracteres, e a medição usa esse teto e a largura numérica pessimista.
+- O encoder precisa calcular primeiro o overhead do envelope e só então decidir o comprimento de cada fragmento de `dataBase64`; não pode partir 1 MiB de payload e depois encaixar o envelope.
+- O logical frame de delta normal é limitado pelo teto de bytes do buffer de subscriber: normalmente `<=1 MiB` envia `complete`; quando um único delta grande faz o buffer passar de 1 MiB (mas não ultrapassar o limite superior do snapshot), ele segue `fragment` tal como um snapshot gigante.
+- Logical frame de snapshot gigante ou de resume usa `fragment`; fragment só muda o transporte físico, não muda `(fromSeq,toSeq]` nem a semântica de apply.
+- Um único logical frame pode conter no máximo `1_024` fragments; schema, encoder e reassembler devem todos falhar de forma fechada (fail closed), evitando alocações ilimitadas de missing-index/assembly por `fragmentCount` forjado.
+- O publisher atribui a cada subscription um `logicalFrameOrdinal` estritamente crescente começando em 1; ao repetir a mesma reserva, ordinal e id permanecem. Wires tardios com ordinal abaixo do já aceito são descartados silenciosamente; trocar `logicalFrameId` no mesmo ordinal é uma typed protocol fault.
+- Os fragments do mesmo logical frame precisam ter o mesmo `logicalFrameId/logicalFrameOrdinal/topic/subscriptionId/fragmentCount/logicalBytes/checksum`.
+- O encoder pode fatiar no meio de um code point do stream lógico de bytes UTF-8; cada fatia faz base64 válido de forma independente, e o cliente precisa remontar os bytes originais e só então fazer um único decode UTF-8 — é proibido decodificar texto fatia a fatia.
 
-## 5. Assembly 的原子性与 16 MiB 上限
+## 5. Atomicidade da montagem e o limite de 16 MiB
 
-客户端按 `(topic, subscriptionId)` 保持唯一 active assembly，并以
-`(logicalFrameOrdinal, logicalFrameId)` 识别 logical frame，最大允许：
+O cliente mantém uma única montagem ativa por `(topic, subscriptionId)`, identificando o logical frame por `(logicalFrameOrdinal, logicalFrameId)`, com no máximo:
 
 ```ts
 const MAX_LOGICAL_ASSEMBLY_BYTES = 16 * 1_048_576;
@@ -210,23 +189,15 @@ fragment 1 ─┘        │
                      └─ 缺片/冲突/超限/校验失败 ─────> 丢整个 assembly ─> resync
 ```
 
-以下行为一律禁止：先 apply 部分 snapshot、把 fragment 当独立 seq 帧、assembly 超限后截断、checksum 失败仍尝试 merge。
+São sempre proibidos: aplicar parte do snapshot antes, tratar fragment como frame de seq independente, truncar depois de a montagem exceder o limite e ainda tentar merge quando o checksum falha.
 
-incremental assembler 每个 fragment 只 base64 decode 一次，用固定分片槽累计，
-最终只拼接一次，因此总复杂度为 O(n)。超时从首片计时，重复片不延长；
-完成、fault、超时与 consumer fail-closed abort 都必须保留该 route 的 ordinal
-tombstone，直到 unsubscribe/代际清理，禁止迟到旧片复活。更高 ordinal 可淘汰旧 active
-assembly；之后迟到的低 ordinal 不能反向 supersede。
-相同重复片 no-op，冲突重复片释放该 assembly 并产生 typed fault。同
-`topic/subscriptionId` 到达新 `logicalFrameId` 时，旧 assembly 以
-`proto.frameAssemblySuperseded` 显式收口；并发数、总 staging budget 或单 logical
-上限超限都 fail closed，禁止默默驱逐健康 assembly。
+O assembler incremental faz base64 decode de cada fragment exatamente uma vez, acumula em slots fixos de fragmento e só concatena uma vez no final, de modo que a complexidade total é O(n). O timeout é contado desde a primeira fatia e fatias repetidas não o estendem; conclusão, fault, timeout e abort fail-closed do consumer devem manter o tombstone de ordinal daquela rota até o unsubscribe/limpeza de geração, proibindo que fatias antigas tardias ressuscitem. Um ordinal mais alto pode despejar uma montagem ativa antiga; depois disso, um ordinal baixo tardio não pode superseder de volta. Fragmento idêntico repetido é no-op, e fragmento repetido conflitante libera aquela montagem e produz uma typed fault. Quando um novo `logicalFrameId` chega para o mesmo `topic/subscriptionId`, a montagem antiga é encerrada explicitamente com `proto.frameAssemblySuperseded`; exceder o número concorrente, o budget total de staging ou o limite de um único logical frame falha de forma fechada, proibindo despejar silenciosamente uma montagem saudável.
 
-新输入/附件 admission 会使可传输权威 projection 超过 16 MiB 时，CLI 必须在接纳前明确返回 `rejected` 或 `failed`（`proto.payloadTooLarge` 或对应 fault）。运行中产生的大 tool/model output 不能靠截断整个 snapshot 兜底：tool output 转 artifact ref 并保留协议规定的 head/tail，模型文本若仍突破上限则以明确 protocol fault 终止该 turn。任何路径都不能生成不可传输的半截权威状态。
+Quando nova entrada/admissão de attachment faz a projeção autoritativa transmitível ultrapassar 16 MiB, o CLI precisa retornar explicitamente `rejected` ou `failed` antes de admitir (`proto.payloadTooLarge` ou o fault correspondente). Saídas grandes de tool/model geradas em execução não podem ser contornadas truncando o snapshot inteiro: a saída de tool vira referência de artifact e mantém o head/tail previsto no protocolo; se o texto do modelo ainda romper o limite, o turno termina com uma protocol fault explícita. Nenhum caminho pode gerar metade de um estado autoritativo não transmitível.
 
-## 6. Gap 与自动 resync
+## 6. Gap e resync automático
 
-`v4/conversation/resync` 是生产路径，不是测试辅助方法：
+`v4/conversation/resync` é o caminho de produção, não um método auxiliar de teste:
 
 ```ts
 interface ConversationResyncParams {
@@ -236,24 +207,18 @@ interface ConversationResyncParams {
 }
 ```
 
-触发条件包括 seq gap、fragment assembly 失败、publisher overflow 与 transport 重建。客户端规则：
+As condições de disparo incluem gap de seq, falha de montagem de fragments, overflow do publisher e reconstrução do transport. Regras do cliente:
 
-1. `toSeq <= localSeq` 静默丢弃。
-2. 首个 gap 只发起一次 resync；在途期间不重复请求。
-3. resume 后再次 gap，升级 `forceSnapshot=true`。
-4. attachment 重建或 CLI epoch 变化后自动重新 subscribe；新 subscriptionId 生效前不接收旧流。
-5. snapshot 完整 assembly 后整体替换；任何 fragment 到齐前 store 不变。
-6. `proto.frameAssemblyInvalidPayload`（schema 拒收）是**确定性内容失败**，不套用规则 2/3 的瞬态
-   阶梯：直接发一次 `forceSnapshot=true`，仍被内容拒绝即停手并写
-   `fault.subscription.contentRejected`。完整语义见 04-sync-and-recovery 封闭规则 11。
+1. `toSeq <= localSeq` é descartado silenciosamente.
+2. O primeiro gap dispara apenas um resync; não se pede de novo enquanto ele está em trânsito.
+3. Se houver gap novamente após o resume, sobe-se para `forceSnapshot=true`.
+4. Depois da reconstrução do attachment ou de mudança de epoch do CLI, reassina-se automaticamente; não se recebe o fluxo antigo até que o novo subscriptionId entre em vigor.
+5. Snapshot é substituído por inteiro após montagem completa; o store não muda antes de todos os fragments chegarem.
+6. `proto.frameAssemblyInvalidPayload` (recusa de schema) é uma **falha determinística de conteúdo**, e não se submete à escala transiente das regras 2/3: envia-se direto um `forceSnapshot=true`; se ainda houver recusa de conteúdo, para-se e escreve-se `fault.subscription.contentRejected`. A semântica completa está na regra fechada 11 de 04-sync-and-recovery.
 
-## 7. Mobile raw RPC 物理信封
+## 7. Envelope físico de RPC raw do mobile
 
-topic wire 的 1 MiB 承诺不能替代 mobile raw Channel transport 自己的物理边界。
-04D-3 已把 desktop main 与 mobile web 原子切到 shared acknowledged adapter：一个 Channel
-message 在进入外部 relay 前必须先编码为以下 transport-only payload；全局 app parser 只接受
-新 strict fragment/ACK，legacy 单片 `rpc-frame` 不再是 production 兼容分支。relay 继续只把它
-当作不透明的 `data.payload`：
+A promessa de 1 MiB do wire de topic não substitui os limites físicos próprios do transport Channel raw do mobile. 04D-3 já migrou atomicamente o desktop main e o mobile web para o shared acknowledged adapter: uma mensagem de Channel precisa ser codificada no seguinte payload exclusivo de transport antes de entrar no relay externo, e o parser global do app só aceita o novo fragment/ACK strict; o `rpc-frame` legacy de fatia única não é mais um branch de compatibilidade de produção. O relay continua tratando-o apenas como `data.payload` opaco:
 
 ```ts
 type WebRemoteControlRpcTransportPayload =
@@ -279,32 +244,21 @@ type WebRemoteControlRpcTransportPayload =
     };
 ```
 
-规范性边界：
+Fronteiras normativas:
 
-- schema 必须 strict；多余字段、非安全整数、非法 transport id/base64/checksum 一律拒绝；
-- `bridgeSessionId/recoveryId` 最长 256 个 JSON-safe ASCII 字符；
-- encoder 对最终、未压缩的
-  `{type:"data",payload,client_ts,server_ts}` JSON 做真实 UTF-8 计量，并用二分搜索决定
-  decoded chunk 大小；transport id 和数字都按协议最大宽度计量；
-- 每个 final relay JSON `<=1_048_576` bytes；raw logical Channel message
-  `<=16 MiB` 且 `<=64` fragments；
-- 接收侧每个方向只允许一个 active raw message assembly，首片起 30s 超时；identity
-  不匹配的 payload 在占用/推进 assembly 前拒绝；
-- active/last-settled 的相同 fragment duplicate 是 no-op，冲突 duplicate、physical gap、
-  metadata/length/base64/CRC 不符或超限均产生 typed transport fault；更早的 physical seq 只按累计
-  delivery 水位 no-op，永不二次交付。只有全片校验成功后才原子交付一次 logical bytes。
-- `seq/messageSeq` 到达 `Number.MAX_SAFE_INTEGER` 后只允许当前单片/消息收口；任何新片或新消息都以
-  typed exhaustion fault 要求新 bridge generation，禁止在不安全整数上回绕或继续累加。
+- O schema precisa ser strict; campos extras, inteiros não seguros e transport id/base64/checksum ilegais são rejeitados.
+- `bridgeSessionId/recoveryId` têm no máximo 256 caracteres ASCII JSON-safe.
+- O encoder faz medição UTF-8 real do JSON final e não comprimido `{type:"data",payload,client_ts,server_ts}` e usa busca binária para decidir o tamanho do chunk decodificado; ids de transport e números são medidos na largura máxima do protocolo.
+- Cada JSON final de relay `<=1_048_576` bytes; mensagem lógica Channel raw `<=16 MiB` e `<=64` fragments.
+- No lado receptor, apenas uma montagem de mensagem raw ativa por direção, com timeout de 30s a partir da primeira fatia; payload com identity incompatível é rejeitado antes de ocupar/avançar a montagem.
+- Fragmento duplicado idêntico active/last-settled é no-op; duplicado conflitante, physical gap, divergência em metadata/length/base64/CRC ou excedente produzem typed transport fault; physical seq mais antigo é apenas no-op conforme a marca d'água cumulativa de delivery e nunca é entregue duas vezes. Só após a verificação bem-sucedida de todas as fatias os bytes lógicos são entregues atomicamente uma única vez.
+- Depois que `seq/messageSeq` alcança `Number.MAX_SAFE_INTEGER`, só é permitido encerrar a fatia/mensagem atual; qualquer nova fatia ou nova mensagem exige uma nova bridge generation por meio de typed exhaustion fault, e é proibido dar wrap ou continuar acumulando em inteiros não seguros.
 
-raw `rpc-frame-ack` 只确认完整 Channel message 已交给对端 parser/enqueue。它不是 V4
-command ACK，也不能证明输入已 admission、清理 pending-command registry 或替代 topic resync。
-首条 message 尚未完整交付时，active duplicate 只返回 no-op 且不产生 wire ACK；已有完成消息时才
-重发最新的 positive cumulative `ackMessageSeq`。
+O `rpc-frame-ack` raw confirma apenas que a mensagem Channel completa foi entregue ao parser/enqueue do par. Não é um ACK de command do V4, não prova que a entrada foi admitida, não limpa o registro de pending commands e não substitui o resync de topic. Enquanto a primeira mensagem ainda não foi entregue por completo, um duplicado ativo apenas retorna no-op e não gera ACK de wire; só quando já existe mensagem concluída se reenvia o último `ackMessageSeq` positivo cumulativo.
 
 ### 7.1 Production acknowledged adapter
 
-同一个 adapter 同时承载一个方向的 TX replay 与另一个方向的 RX assembly，但仍只保存 transport
-事实。desktop main 与 mobile web 都直接把 owning bridge 的 MessagePort/Channel 接到该 adapter：
+O mesmo adapter carrega simultaneamente o replay de TX de uma direção e a montagem de RX da outra direção, mas continua guardando apenas fatos de transport. Tanto o desktop main quanto o mobile web conectam diretamente o MessagePort/Channel da bridge proprietária ao adapter:
 
 ```text
 Channel send(raw)
@@ -319,30 +273,19 @@ rpc-frame fragments
   -> queue latest cumulative ACK (ACK always flushes before data)
 ```
 
-- TX 先对整批最终 relay JSON bytes 做 admission，再保留 immutable batch；`send=false` 不改变
-  `seq/messageSeq`，same-bridge resume 从未 ACK batch 的首片重放，且不刷新最老 reservation 时间。
-- transport 为每个 payload 只创建一次 immutable final relay JSON；`measureFrameBytes` 与
-  `sendFrame` 引用同一个 serializer/cache，未 ACK 重放复用同一字节串，禁止“计量一个 JSON、
-  实际发送另一个 JSON”或因时间戳漂移改变账本。
-- `unacknowledgedBytes` 是所有未累计 ACK batch 的最终未压缩 outer JSON bytes；默认 high/low 为
-  `1 MiB / 256 KiB`，只在 `> high` 和 `<= low` 的状态边沿各通知一次。
-- replay 同时受 `8 MiB` 与首条未 ACK 后 `45s` 限制；越界在发送半条 logical message 前进入 typed
-  degraded。reserve/flush/replay 入口及每个 physical payload 发送前都必须同步检查 age，不能只依赖
-  timer callback。RX 首片后的 `30s` assembly deadline 独立存在，duplicate 不续期。
-- `8MiB / 45s / 30s` 是 hard upper bounds；测试或调用方 options 只能收紧，不能放宽。
-- ACK `K` 一次释放所有 `messageSeq <= K`；旧 ACK no-op，超过“整批 physical frames 已被本地
-  transport 接纳”的最大 messageSeq 是 typed fault。ACK payload 本身不进入 replay accounting。
-- complete bytes 只有在同步 `onMessage` delivery 正常返回后才可排队 ACK；delivery 抛错、fragment
-  fault、future ACK、byte/age overflow 都只触发一次 terminal degraded。
-- queued ACK 只保留最大 positive cumulative value并优先于 data flush；首个 pending ACK 同样受 45s
-  age deadline 约束，后续更高累计值不得续期。send callback 可同步回入 ACK，adapter 必须串行处理
-  该可重入路径，不能误判 future ACK 或删除正在发送的 batch。
-- new bridge identity、terminal degraded 和 dispose 清掉旧 timer、assembly 引用、pending ACK 与 unacked
-  batch；不得跨 bridge generation 自动 replay。
+- O TX faz admissão sobre os bytes finais de todo o lote de relay JSON e só então mantém o lote imutável; `send=false` não altera `seq/messageSeq`, o resume na mesma bridge reproduz desde a primeira fatia o lote nunca ACKado e não renova o tempo da reserva mais antiga.
+- O transport cria uma única vez o JSON final de relay imutável por payload; `measureFrameBytes` e `sendFrame` referenciam o mesmo serializer/cache, e o replay não ACKado reaproveita a mesma string de bytes — é proibido "medir um JSON e enviar outro" ou alterar a contabilidade por deriva de timestamp.
+- `unacknowledgedBytes` são os bytes finais não comprimidos do JSON externo de todos os lotes sem ACK cumulativo; os limiares default high/low são `1 MiB / 256 KiB`, e a notificação ocorre uma única vez em cada borda de estado `> high` e `<= low`.
+- O replay é limitado simultaneamente por `8 MiB` e por `45s` após a primeira mensagem sem ACK; sair dessas bordas entra em degraded tipado antes de enviar meia mensagem lógica. As entradas de reserve/flush/replay e o envio de cada payload físico precisam checar a idade sincronamente, sem depender apenas de callback de timer. O deadline de montagem de `30s` após a primeira fatia em RX existe de forma independente, e duplicados não renovam.
+- `8MiB / 45s / 30s` são limites superiores rígidos; options de teste ou de chamador só podem apertar, nunca afrouxar.
+- Um ACK `K` libera de uma vez todos os `messageSeq <= K`; ACK antigo é no-op, e exceder o maior messageSeq para o qual "todos os physical frames do lote foram aceitos pelo transport local" é typed fault. O payload de ACK em si não entra na contabilidade de replay.
+- Os bytes completos só podem enfileirar ACK depois que a entrega `onMessage` síncrona retornar normalmente; erro na entrega, fault de fragment, ACK futuro e overflow de bytes/idade disparam apenas uma vez o terminal degraded.
+- O ACK enfileirado guarda apenas o maior valor positivo cumulativo e tem prioridade sobre o flush de dados; o primeiro ACK pendente também fica sujeito ao deadline de idade de 45s, e valores cumulativos posteriores mais altos não renovam. O callback de send pode reentrar de forma síncrona para o ACK, e o adapter precisa tratar esse caminho reentrável serialmente, sem classificar por engano um ACK futuro ou remover um lote em envio.
+- Nova identidade de bridge, terminal degraded e dispose limpam timers antigos, referências de montagem, ACK pendente e lotes sem ACK; não é permitido replay automático entre bridge generations.
 
-## 8. Connection 流控
+## 8. Flow control da connection
 
-transport 暴露只读拥塞接口：
+O transport expõe uma interface de congestion somente leitura:
 
 ```ts
 interface ConnectionFlowControl {
@@ -352,13 +295,13 @@ interface ConnectionFlowControl {
 }
 ```
 
-- `onSaturated`：暂停该 connection 的 publisher drain，继续在各 subscription 自己的限额内 coalesce；超限的 subscription 转 `needsResync`。
-- `onDrained`：公平恢复 drain；`needsResync` subscription 优先发一个最新 snapshot，其他 subscription 不被重置。
-- 手机 relay 把信号穿透到 shared-host attachment；relay/main 不保存未 ACK conversation 事件。
-- 本地 MessagePort 可退化为永不 saturated 的直通实现，但仍使用相同接口和 owned routing。
-- port close 必须清理 connection registry、buffer、assembly 和 listener。
-- `PersistentProtocol` 仅声明结构满足公共 `ConnectionFlowControl`，production mobile 不改接它。
-- production mobile flow edge 使用严格 sideband 贯穿到 CLI，不进入 Channel deserialize：
+- `onSaturated`: pausa o drain dos publishers daquela connection e continua fazendo coalesce dentro dos limites próprios de cada subscription; subscriptions excedidas passam a `needsResync`.
+- `onDrained`: retoma o drain de forma justa; uma subscription em `needsResync` envia primeiro um snapshot atual, e as outras subscriptions não são reiniciadas.
+- O relay do celular repassa o sinal até o attachment do shared host; relay/main não guardam eventos de conversation sem ACK.
+- O MessagePort local pode degradar para uma implementação passante que nunca fica saturada, mas ainda usando a mesma interface e o roteamento com dono.
+- O fechamento da port precisa limpar o registry de connections, buffers, montagens e listeners.
+- `PersistentProtocol` apenas declara uma estrutura que satisfaz o `ConnectionFlowControl` público; o mobile de produção não se reconecta a ele.
+- A borda de flow do mobile de produção percorre um sideband estrito até o CLI, sem entrar no deserialize de Channel:
 
 ```text
 raw adapter SAT/DRN
@@ -370,24 +313,16 @@ raw adapter SAT/DRN
   -> 只 pause/resume 该 connection 的 conversation/index/config subscriptions
 ```
 
-- sideband 只有 `saturated|drained`；host 在 port close 时补一次 `closed`。terminal RPC caller 不能直接
-  调 transport-control method；remote trusted-host-relay 继续对下游 connectionId 做无歧义 namespace。
-- `saturated` 清该 connection 的 pending flush timer，ingest/coalesce 继续；`drained` 只立即 drain
-  该 connection，`needsResync` subscription 由 publisher 自然优先产最新 snapshot；`closed` 只清 pause
-  state，owned facade dispose 继续负责 unsubscribe/registry 清理。
-- 同一 scope 的快速 SAT→DRN→close 以 promise chain 串行，重复 state 不发 RPC；已 saturated 时新
-  subscription ACK 后立即把当前 state 同步到其 trusted connection/workspace route。
-- desktop main 的 50 项 pending buffer 只保留 bootstrap/workspace/platform 等小型 app payload；
-  `rpc-frame`/ACK 由 adapter 独占 replay ownership，永不进入第二层 buffer。
-- 两端在 `JSON.parse` 前按 raw UTF-8 bytes 做 `<=1 MiB` 硬闸。永久 oversize 与临时
-  socket unavailable 是不同结果；oversize 立即 typed fault/hard bridge recovery，不能反复 buffer。
-- desktop 通知 mobile 重建 bridge 时只发送通用 `bridge-degraded: rpc-transport-fault`；checksum、gap、
-  future ACK、oversize 等具体 typed reasonCode 只写安全本地日志，不能统一伪装成 frame gap。
+- O sideband só tem `saturated|drained`; o host injeta um `closed` quando a port fecha. Um caller de RPC terminal não pode chamar diretamente o método de transport-control; o remote trusted-host-relay continua aplicando um namespace inequívoco ao connectionId do downstream.
+- `saturated` limpa o pending flush timer daquela connection e ingest/coalesce continuam; `drained` faz drain imediato apenas daquela connection, e subscriptions em `needsResync` recebem naturalmente prioridade do publisher para produzir o snapshot mais atual; `closed` limpa apenas o estado de pausa, e o dispose da facade proprietária continua responsável pelo unsubscribe/limpeza do registry.
+- Um SAT→DRN→close rápido no mesmo scope é serializado por promise chain, e states repetidos não geram RPC; enquanto já saturated, uma nova subscription sincroniza o state atual imediatamente para a rota confiável de connection/workspace assim que seu ACK chega.
+- O pending buffer de 50 itens do desktop main guarda apenas payloads pequenos de app, como bootstrap/workspace/platform; `rpc-frame`/ACK têm ownership de replay exclusivo do adapter e nunca entram num buffer de segunda camada.
+- As duas pontas aplicam um portão rígido `<=1 MiB` por bytes UTF-8 raw antes do `JSON.parse`. Oversize permanente e socket indisponível temporário são resultados diferentes; oversize dispara imediatamente typed fault/hard bridge recovery, sem buffer repetido.
+- Quando o desktop notifica ao mobile que deve reconstruir a bridge, envia apenas o genérico `bridge-degraded: rpc-transport-fault`; reasonCodes tipados específicos como checksum, gap, ACK futuro e oversize vão apenas para o log local seguro, sem se disfarçar uniformemente como frame gap.
 
-### 8.1 附件上传不是 logical frame 分片
+### 8.1 Upload de attachment não é fragmentação de logical frame
 
-附件 bytes 走独立业务事务，不能把 20 MiB `dataBase64` 塞进一次 Channel/NDJSON request 后再指望
-mobile raw adapter 二次分片：那只能约束 relay outer，不能约束 host→CLI NDJSON。
+Os bytes de attachment seguem uma transação de negócio separada; não se pode enfiar 20 MiB de `dataBase64` em uma única requisição Channel/NDJSON e depois esperar que o mobile raw adapter fragmente de novo: isso só restringiria o envelope externo do relay, não o NDJSON host→CLI.
 
 ```text
 UI high-level put(bytes)
@@ -397,39 +332,30 @@ UI high-level put(bytes)
   -> artifact ref
 ```
 
-- UI transport 的默认片长为 384 KiB（可被 3 整除，除末片外 base64 无 padding），给 workspace、
-  Channel method/header 和 trusted carrier 留足 envelope 空间；协议硬上限仍是 512 KiB decoded。
-- renderer→host Channel request 与 host→CLI NDJSON request 都按实际参数计量；任一超过 1 MiB 立即
-  `proto.frameTooLarge`，不能把 oversized request 交给下层 relay 再拆。
-- CLI staging 只持 decoded bytes，受 `20 MiB/upload`、active upload 数量和全局 staged bytes 三个硬限额；
-  duplicate chunk 只保留 digest/既有 bytes，不重复计账。
-- trusted `connectionId` 参与 upload key。`closed` 清该 connection，`disposeSession` 清该 session，
-  TTL 清过期 transaction，CLI restart 由进程内存自然清空；这些清理都不生成 artifact。
-- commit 校验完整 chunk count、totalBytes 与 SHA-256 后一次性写 session artifact；artifact 内容保持
-  既有 provider 可读的 data-URL 形态，但该 base64 只在 CLI 内存/存储边界产生，不再经过 RPC。成功
-  结果保留为 idempotency tombstone，commit ACK 丢失重试返回同 ref，不重复落盘。
-- abort 幂等；上传失败由 composer 调用栈向上抛出，已提交 command 尚未发生，因此文本和附件必须保留。
+- O comprimento padrão de fatia do transport da UI é 384 KiB (divisível por 3, sem padding em base64 exceto na última), deixando espaço de envelope suficiente para workspace, method/header de Channel e trusted carrier; o teto rígido do protocolo continua sendo 512 KiB decodificado.
+- Requests Channel renderer→host e requests NDJSON host→CLI são medidos pelos parâmetros reais; qualquer um acima de 1 MiB dispara imediatamente `proto.frameTooLarge`, e não se entrega requisição oversized ao relay inferior para que ele aquebre.
+- O staging do CLI só guarda bytes decodificados e obedece a três limites rígidos: `20 MiB/upload`, quantidade de uploads ativos e bytes staged globais; chunk duplicado mantém apenas digest/bytes já existentes, sem contar duas vezes.
+- O `connectionId` confiável participa da upload key. `closed` limpa aquela connection, `disposeSession` limpa aquela session, o TTL limpa transactions expiradas, e o restart do CLI limpa naturalmente pela memória do processo; nenhuma dessas limpezas gera artifact.
+- O commit valida a contagem completa de chunks, totalBytes e SHA-256 e então escreve o artifact da session de uma só vez; o conteúdo do artifact mantém a forma de data-URL legível pelos providers existentes, mas esse base64 só é gerado na fronteira de memória/storage do CLI e não passa mais por RPC. O resultado bem-sucedido é mantido como tombstone de idempotência, e repetir o commit cujo ACK se perdeu devolve a mesma ref sem gravar de novo em disco.
+- Abort é idempotente; falha de upload é lançada para cima pela pilha de chamadas do composer, e como o command commitado ainda não ocorreu, o texto e o attachment precisam ser preservados.
 
-RPC 的 ACK、心跳与短断重放只负责探测和换管道：同一条卡死 TCP/ws 上不原地重发；新 socket 上用同 msgId 重放未 ACK physical frame，对端去重。长断或宽限窗越界仍回到 subscribe/resync。
+ACK, heartbeat e replay de queda curta do RPC servem apenas para sondar e trocar de pipeline: nunca se reenvia no lugar na mesma TCP/ws travada; em um novo socket, reproduz-se o physical frame não ACKado com o mesmo msgId e o par deduplica. Queda longa ou estouro da janela de tolerância ainda volta a subscribe/resync.
 
-## 9. 验收边界
+## 9. Fronteiras de aceite
 
-协议黄金测试至少机械覆盖：
+Os testes de ouro do protocolo cobrem mecanicamente, no mínimo:
 
-- continuous/replayable 中间帧不同而终态逐字段一致；
-- `workflowRunDeltas` 声明方的终态等于权威投影，未声明方的终态等于旧整键编码（钳位后），同一订阅的
-  snapshot 与续流用同一份钳位；
-- buffer `500/501 op`；
-- physical JSON/RPC `1 MiB-1 / 1 MiB / 1 MiB+1`；
-- mobile raw RPC 的 1/2/多片原子还原、duplicate tombstone、identity mismatch、
-  `16 MiB/+1`、`64/65` 片与 30s timeout；
-- 多字节 UTF-8 恰跨边界；
-- fragment 乱序到达、重复同片、缺片、字段冲突、checksum 失败；
-- assembly `16 MiB` 正好与超一字节；
-- overflow 后只发最新 snapshot；
-- 单条大 delta 超过 1 MiB 但不超过 snapshot 上界时继续发 deltas（不整份替换），客户端终态与全量重放一致；buffer 超过 snapshot 上界时仍降级；
-- 两个 connection 同订阅同 session 时，慢手机 resync 不影响桌面，且手机链路从不出现桌面 `subscriptionId`。
-- attachment 20 MiB exactly、20 MiB+1 pre-admission reject、逐片 Channel/NDJSON envelope `<=1 MiB`，
-  以及 empty/missing/future/duplicate-conflict/checksum/ACK-loss/abort/TTL/close/restart 清理。
+- frames intermediários diferentes em continuous/replayable com estado terminal consistente campo a campo;
+- o estado terminal de quem declara `workflowRunDeltas` é igual à projeção autoritativa, o de quem não declara é igual à codificação antiga de chave completa (após o limite), e o snapshot e o fluxo seguinte da mesma subscription usam o mesmo conjunto de limites;
+- buffer `500/501 op`;
+- physical JSON/RPC `1 MiB-1 / 1 MiB / 1 MiB+1`;
+- restauração atômica de 1/2/muitas fatias de RPC raw do mobile, tombstone de duplicado, incompatibilidade de identity, `16 MiB/+1`, `64/65` fatias e timeout de 30s;
+- UTF-8 multibyte exatamente cruzando o limite;
+- fragments chegando fora de ordem, repetição da mesma fatia, fatia faltante, conflito de campos e falha de checksum;
+- montagem em `16 MiB` exatos e com um byte a mais;
+- após overflow, enviar apenas o snapshot mais atual;
+- quando um único delta grande passa de 1 MiB mas não ultrapassa o limite superior do snapshot, continuar enviando deltas (sem substituição integral), com estado terminal do cliente consistente com a reprodução completa; e ainda degradar quando o buffer ultrapassa o limite superior do snapshot;
+- com duas connections assinando a mesma subscription na mesma session, o resync do celular lento não afeta o desktop, e o link do celular nunca mostra o `subscriptionId` do desktop.
+- attachment de 20 MiB exatos, rejeição pré-admissão de 20 MiB+1, envelope por fatia Channel/NDJSON `<=1 MiB`, e limpeza de empty/missing/future/duplicate-conflict/checksum/ACK-loss/abort/TTL/close/restart.
 
-这些边界是协议正确性门禁，不是性能调优项。
+Essas fronteiras são portões de correção do protocolo, não itens de ajuste de performance.

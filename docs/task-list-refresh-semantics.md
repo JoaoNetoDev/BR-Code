@@ -1,109 +1,134 @@
-# 任务列表刷新语义（workspace_task_list_changed reason 分类学）
+# Semântica de atualização da lista de tarefas (taxonomia do reason `workspace_task_list_changed`)
 
-> 2026-07 定稿。背景：M5 把左侧列表数据源迁到 sessions-index 后，出现"输入框操作（切模型）/
-> 任务收口 / 打开历史任务都会让左侧任务列表整刷、任务跳到列表顶部"的一串症状。根因是两个
-> 消费语义从未被定义成契约：① `workspace_task_list_changed` 的 reason 分类学；② sessions-index
-> `lastActivityAt` 的"活动"定义。本文是这两个语义的事实源；策略实现在
-> `packages/ui/src/lib/taskListRefreshPolicy.ts`，守护测试在 `packages/ui/test/taskListRefreshPolicy.test.ts`。
+> Fechado em 2026-07. Contexto: depois que M5 migrou a fonte de dados da lista lateral para o sessions-index, apareceu uma sequência de sintomas em que "operar o campo de entrada (trocar de modelo) / concluir uma tarefa / abrir uma tarefa histórica" faz a lista lateral de tarefas recarregar por inteiro e a tarefa pular para o topo da lista. A causa raiz é que as duas semânticas de consumo nunca foram definidas como contrato: ① a taxonomia de reason de `workspace_task_list_changed`; ② a definição de "atividade" do `lastActivityAt` do sessions-index. Este documento é a fonte de verdade dessas duas semânticas; a implementação de política está em `packages/ui/src/lib/taskListRefreshPolicy.ts` e os testes de guarda em `packages/ui/test/taskListRefreshPolicy.test.ts`.
 
-## 1. reason → UI 刷新级别矩阵
+## 1. Matriz reason → nível de atualização na UI
 
-发射面：`taskIndexSyncer.emitWorkspaceTaskListChanged(target, meta, reason)`——**reason 必填**（设计修正：
-曾经的缺省值 `task_meta_changed` 让所有不表态的发射点静默落入最重的刷新语义，是整串缺陷的根）。
+Ponto de emissão: `taskIndexSyncer.emitWorkspaceTaskListChanged(target, meta, reason)` — **reason é obrigatório** (correção de design: o valor padrão ausente `task_meta_changed` fazia com que todo ponto de emissão que não se manifestasse caísse silenciosamente na semântica de atualização mais pesada, o que foi a raiz de toda a sequência de defeitos).
 
-| reason                                           | 语义                                                     | 整表刷新¹        | membership 重拉² | meta 增量回写³      | 典型发射点                                        |
-| ------------------------------------------------ | -------------------------------------------------------- | ---------------- | ---------------- | ------------------- | ------------------------------------------------- |
-| `task_pinned` / `task_unpinned`                  | 置顶归属翻转                                             | ✅               | ✅               | —                   | setTaskPinned                                     |
-| `task_archived` / `task_unarchived`              | 归档归属翻转                                             | ✅               | ✅               | —                   | archiveTask/unarchiveTask                         |
-| `task_meta_changed`                              | 归属相关 meta（unread）或无更细分类的兜底                | ❌（带 meta）    | ✅               | preserve-membership | setTaskUnread、group 操作、批量归档、首发广播     |
-| `task_status_changed`                            | 状态/快照收敛（收口、回源、打开/恢复任务、compact/goal） | ❌               | ❌               | preserve-membership | applyTerminalTransition、resync、resumeSession    |
-| `task_model_changed`                             | 切模型（纯配置）                                         | ❌               | ❌               | preserve-membership | zcodeSessionService.setModel                      |
-| `task_title_changed`                             | 标题（首条消息/自动标题/手动重命名）                     | ❌               | ❌               | preserve-membership | applyTitleChange、renameTask                      |
-| `task_created`                                   | 新任务（tasks-index 正向行集合增加）                     | ✅（无 meta 时） | ✅               | insert-active       | adapter/create、首次 grouped 顺序提交             |
-| `user_message_saved` / `assistant_message_saved` | 消息落盘                                                 | ❌（带 meta）    | ❌               | preserve-membership | 旧协议路径                                        |
-| `task_deleted`                                   | 删除 tombstone                                           | ✅               | ✅               | —                   | deleteTask；立即移除缓存并换代 deleted membership |
-| `stream_mirror_*`                                | 流恢复兜底                                               | ✅               | ❌               | —                   | 远控恢复路径                                      |
-| `auto_archive`                                   | 自动归档提示                                             | ❌               | ❌               | —                   | 兼容保留                                          |
+| reason                                           | Semântica                                                   | Recarrega a tabela inteira¹ | Refaz o membership² | Reescrita incremental de meta³ | Ponto de emissão típico                             |
+| ------------------------------------------------ | ----------------------------------------------------------- | -------------------------- | ------------------- | ------------------------------ | --------------------------------------------------- |
+| `task_pinned` / `task_unpinned`                  | Inversão de pertencimento de fixo                          | ✅                          | ✅                   | —                              | setTaskPinned                                       |
+| `task_archived` / `task_unarchived`              | Inversão de pertencimento de arquivamento                  | ✅                          | ✅                   | —                              | archiveTask/unarchiveTask                           |
+| `task_meta_changed`                              | Meta relacionada a pertencimento (unread) ou fallback sem categoria mais fina | ❌ (com meta)                | ✅                   | preserve-membership            | setTaskUnread, operações de grupo, arquivamento em massa, difusão inicial |
+| `task_status_changed`                            | Convergência de status/snapshot (conclusão, resync, abrir/retomar tarefa, compact/goal) | ❌                            | ❌                   | preserve-membership            | applyTerminalTransition, resync, resumeSession       |
+| `task_model_changed`                             | Troca de modelo (puramente configuração)                   | ❌                            | ❌                   | preserve-membership            | zcodeSessionService.setModel                        |
+| `task_title_changed`                             | Título (primeira mensagem/título automático/renomeação manual) | ❌                            | ❌                   | preserve-membership            | applyTitleChange, renameTask                        |
+| `task_created`                                   | Nova tarefa (o conjunto de linhas diretas do tasks-index cresce) | ✅ (sem meta)                | ✅                   | insert-active                  | adapter/create, primeiro envio de ordem agrupada     |
+| `user_message_saved` / `assistant_message_saved` | Gravação de mensagem em disco                              | ❌ (com meta)                | ❌                   | preserve-membership            | Caminho do protocolo antigo                         |
+| `task_deleted`                                   | Tombstone de exclusão                                     | ✅                          | ✅                   | —                              | deleteTask; remove do cache na hora e gera nova geração do membership deleted |
+| `stream_mirror_*`                                | Fallback de recuperação de stream                         | ✅                          | ❌                   | —                              | Caminho de recuperação do controle remoto            |
+| `auto_archive`                                   | Aviso de arquivamento automático                          | ❌                            | ❌                   | —                              | Mantido por compatibilidade                         |
 
-¹ `shouldRefreshTaskListForWorkspaceEvent`；² `shouldRefetchTaskListMembershipForWorkspaceEvent` →
-`bumpTaskListMembershipVersion`（全局版本号，一次 bump 所有列表实例重拉 pin/archive/unread join 面，
-且按事件内容去重防双订阅链路重复投递）；³ `getTaskMetaWorkspaceEventSyncMode`。
+¹ `shouldRefreshTaskListForWorkspaceEvent`; ² `shouldRefetchTaskListMembershipForWorkspaceEvent` →
+`bumpTaskListMembershipVersion` (um número de versão global; um único bump faz todas as instâncias de
+lista refazerem o join de pin/archive/unread, com deduplicação pelo conteúdo do evento para evitar
+entrega duplicada pelas duas cadeias de assinatura); ³ `getTaskMetaWorkspaceEventSyncMode`.
 
-`task_status_changed` 还可携带可选的 `unreadSignal="background_terminal"`。v4 sessions-index 的
-host syncer 不知道每个窗口正在查看哪个 task，所以 Host 只负责判定“这个终态是否值得
-提醒”，renderer 再执行 active-task guard。普通后台终态、Goal `verified` 和真实 error 携带
-signal；Goal `active/paused/verifying/notSatisfied/failed` 不携带。打开/恢复历史任务、compact/goal
-快照收敛等普通 status 广播也不携带，禁止仅根据 terminal status 猜测新完成。renderer 收到
-signal 且 task 非当前 active task 时调用 `setTaskUnread(true)`；这次归属变更会再发出
-`task_meta_changed`，由它触发 unread membership join 重拉。
+`task_status_changed` também pode carregar o sinal opcional `unreadSignal="background_terminal"`. O host
+syncer do sessions-index v4 não sabe qual task cada janela está visualizing, então o Host é responsável
+apenas por decidir "vale a pena lembrar sobre este estado terminal"; o renderer executa depois o active-task
+guard. Estados terminais comuns de background, `verified` do Goal e erros reais carregam o sinal; os
+estados `active/paused/verifying/notSatisfied/failed` do Goal não carregam. Broadcasts comuns de status,
+como abrir/retomar tarefa histórica e convergência de snapshot de compact/goal, também não carregam, e é
+proibido adivinhar uma nova conclusão apenas com base no status terminal. Quando o renderer recebe o sinal e
+a task não é a active task atual, ele chama `setTaskUnread(true)`; essa mudança de pertencimento emite um
+`task_meta_changed`, que por sua vez dispara o refetch do join de membership de unread.
 
-`task_deleted` 的整表刷新仍是隐藏项 `total/hasMore` 的兜底；对已命中可见缓存的任务可以先做增量移除。
-无论是否命中可见缓存，它都必须 bump membership version，因为 sessions-index 仍可能在后续 live frame 或
-冷启动 seed 中返回同一个 CLI session，只有 tasks-index 的 deleted id 负向集合能阻止其重新进入普通列表。
+O recarregamento integral da tabela em `task_deleted` continua sendo a salvaguarda dos campos ocultados
+`total/hasMore`; para uma task que já atingiu o cache visível, pode-se antes fazer a remoção incremental.
+Independentemente de atingir ou não o cache visível, ele precisa fazer bump da versão de membership, porque o
+sessions-index ainda pode devolver a mesma CLI session em frames live posteriores ou no seed de cold start, e
+só o conjunto negativo de ids deletados do tasks-index impede que ela volte para a lista comum.
 
-`task_created` 也必须 bump membership version。tasks-index 现在是 Project/Timeline/Pinned/Archived/Grouped
-持久行的左表；即使事件携带 `taskMeta`、sessions-index 已经发布 activity，也不能再沿用旧的“只增量回写
-meta”策略。事件发生在 task row 与初始 grouped 顺序提交之后，换代读取才能完成
-`optimistic -> persisted row` 的收敛，并让其它窗口/手机创建的任务进入当前列表。
+`task_created` também precisa fazer bump da versão de membership. O tasks-index agora é a tabela à esquerda
+das linhas persistidas de Project/Timeline/Pinned/Archived/Grouped; mesmo que o evento carregue `taskMeta` e o
+sessions-index já tenha publicado atividade, não se pode manter a antiga política de "apenas reescrever meta
+incrementalmente". O evento ocorre depois que a task row e a ordem agrupada inicial foram enviadas, e só a
+leitura de nova geração completa a convergência `optimistic -> persisted row` e permite que tarefas criadas por
+outras janelas ou pelo celular entrem na lista atual.
 
-**新增发射点的判定规则**：变更是否影响 pin/archive/unread 归属？否 → 绝不用 `task_meta_changed`，
-选精确 reason 或新增 reason 并更新本矩阵与守护测试。高频路径（每次消息/收口/打开都会走的）落错
-分类的代价 = 全部列表实例 × membership RPC × 整列表重渲染。
+**Regra de decisão para novos pontos de emissão**: a mudança afeta o pertencimento de pin/archive/unread?
+Se não → nunca use `task_meta_changed`; escolha um reason preciso ou crie um novo reason e atualize esta
+matriz e os testes de guarda. O custo de classificar errado um caminho de alta frequência (que roda a cada
+mensagem/conclusão/abertura) é = todas as instâncias de lista × RPC de membership × re-renderização da
+lista inteira.
 
-## 2. lastActivityAt："什么算任务活动"
+## 2. lastActivityAt: "o que conta como atividade da tarefa"
 
-sessions-index 的 `lastActivityAt` = CLI `record.updatedAt`（v4-bridge `getSessionIndexMeta`），UI 侧栏按它
-降序排序。**只有用户可感的会话活动才允许 bump**：
+O `lastActivityAt` do sessions-index = `record.updatedAt` do CLI (`getSessionIndexMeta` do v4-bridge), e a barra
+lateral da UI ordena por ele em ordem decrescente. **Somente atividade de sessão perceptível pelo usuário pode
+fazer bump**:
 
-- ✅ 计入活动：消息收发、turn 生命周期、工具执行、后台任务，以及新产生的 permission/userInput 阻塞请求等用户可感 SessionEvent。
-- ❌ 不计入（`isNonActivitySessionEvent`，server-operations.ts）：
-  - `ModelSelected` / `SessionModeChanged`：纯配置变更（切模型/切模式）；
-  - `SessionResumed`：打开/恢复会话是读取不是活动（冷恢复路径刚回填 store 真实时间，不得被冲掉）。
-- ❌ refresh/snapshot/resume/replay 同一 pending interaction 不产生新的活动；只有新的阻塞请求事件可以 bump 一次。
-- ❌ 配置类 mutation（`CONFIG_ONLY_MUTATION_REASONS`：model/thought_level/mode changed）与
-  `updateRuntimeModelConfig` 不 bump `record.updatedAt`。
-- ❌ tasks-index membership/meta mutation（unread、pin/archive、group、rename）不得把其 SQLite `updatedAt`
-  合并回 sessions-index `lastActivityAt`。Updated 排序只认后者；grouped 视图只认显式 `sort_order`。
+- ✅ Conta como atividade: envio e recebimento de mensagens, ciclo de vida de turn, execução de ferramentas,
+  tarefas em background, e os SessionEvents de bloqueio de permission/userInput recém-produzidos e perceptíveis
+  pelo usuário.
+- ❌ Não conta (`isNonActivitySessionEvent`, server-operations.ts):
+  - `ModelSelected` / `SessionModeChanged`: mudança puramente de configuração (trocar modelo/trocar modo);
+  - `SessionResumed`: abrir/retomar sessão é leitura, não atividade (o caminho de cold recovery acabou de
+    preencher o store com o tempo real; isso não pode ser sobreposto).
+- ❌ refresh/snapshot/resume/replay da mesma interação pendente não produz atividade nova; apenas um novo evento
+  de requisição de bloqueio pode fazer bump uma vez.
+- ❌ Mutations de configuração (`CONFIG_ONLY_MUTATION_REASONS`: model/thought_level/mode changed) e
+  `updateRuntimeModelConfig` não fazem bump de `record.updatedAt`.
+- ❌ Mutations de membership/meta do tasks-index (unread, pin/archive, group, rename) não podem mesclar o seu
+  `updatedAt` do SQLite de volta no `lastActivityAt` do sessions-index. A ordenação por Updated só reconhece
+  este último; a visão agrupada só reconhece o `sort_order` explícito.
 
-违反后果：配置操作/打开任务把任务顶到列表最前并触发整列重排。
+Consequência de violar: operações de configuração/abertura de task empurram a task para o topo da lista e
+disparam um reordenamento completo da coluna.
 
-## 3. sessions-index 冷恢复降级防御（seed↔live 切换窗口）
+## 3. Defesa contra degradação no cold recovery do sessions-index (janela seed↔live)
 
-冷启动时列表种子来自 store（`getStoredSessionSummaries`）；打开任务后 live 投影覆盖种子。hydration
-完成前 live 投影是半成品，以下字段不得用降级值覆盖非空基线（`SessionsIndexProjection.upsertFromConversation`）：
+No cold start o seed da lista vem do store (`getStoredSessionSummaries`); ao abrir uma task a projeção live
+sobrescreve o seed. Antes da conclusão da hydration a projeção live está incompleta, então os campos abaixo não
+podem ser sobrescritos com valores degradados sobre uma linha de base não vazia
+(`SessionsIndexProjection.upsertFromConversation`):
 
-- `title` 空 → 保基线；`createdAt` 更新 → 保更早值；`lastAssistantPreview` 空 → 保基线；
-- `phase === "draft"` 而基线非 draft → 保基线 phase/sessionEnded/goalStatus（会话一旦有内容不可能退回 draft）。
+- `title` vazio → manter a linha de base; `createdAt` atualizado → manter o valor mais antigo;
+  `lastAssistantPreview` vazio → manter a linha de base;
+- `phase === "draft"` com linha de base não draft → manter o phase/sessionEnded/goalStatus da linha de base
+  (uma sessão que já tem conteúdo não pode voltar a draft).
 
-防御完备时，"打开一个没有变化的历史任务"产生零 delta（守护测试：sessions-index-projection.test.ts
-「冷恢复 draft 窗口快照与基线等价时不产 delta」）。
+Com a defesa completa, "abrir uma tarefa histórica sem mudanças" produz delta zero (teste de guarda:
+sessions-index-projection.test.ts「冷恢复 draft 窗口快照与基线等价时不产 delta」).
 
-## 4. renderer 差量管道（防"一帧变化放大成全列表刷新"）
+## 4. Pipeline diferencial no renderer (impede que "uma mudança em um frame" vire recarregamento da lista toda)
 
-当前形态是"内存全量重算 + 引用等价短路 + IO 按版本缓存"（千级会话量下重算 ~ms；
-真正的实体化差量 store 是后续重构方向，见 §6）：
+A forma atual é "recálculo integral em memória + curto-circuito por equivalência de referência + cache de IO por
+versão" (com milhares de sessões o recálculo leva ~ms; um store diferencial materializado de verdade é a
+direção do refactor seguinte, ver §6):
 
-- `useWorkspaceSessionsIndexItems`：聚合层逐条字段比对，等价复用旧对象；整表等价复用旧数组——
-  下游依赖数组身份的 effect（grouped refresh、workspace 缓存失效、republish）自然短路。
-- `useWorkspaceTaskLists`：sessions-index 变化只标脏 diff 出的有变化 workspace scope，不再全量 invalidate。
-- **刷新展示语义**：已有 query cache 的 workspace 采用 stale-while-revalidate——只把命中 scope 标记为
-  `stale` 并保留当前任务行，后台重算完成后原位替换；只有 query cache 完全缺失的首次 hydration 才进入
-  blocking loading。禁止用“清空已有列表 → loading → 回填”表达普通 sessions-index / membership 刷新，
-  否则一次任务选择或恢复仍会被用户感知成整个侧边栏重新加载。
-- `useGroupedTaskView`：`stabilizeGroupedView` 节点级复用，整树等价时 setState 拿同引用直接 bail。
-- `taskQueryCacheStore.setQueryResult(s)`：结果与现缓存等价时跳过 setState；`mergeIncomingTaskListItem`
-  内容等价保留旧引用。
-- **IO 差量**：membership（pin/archive/unread）与 grouped structure 均不随 sessions-index 内容帧变化，
-  按 `membershipVersion + 签名` 缓存（`fetchTaskListMembershipSetsForEndpointsCached`、grouped
-  `remoteDataCacheRef`），内容帧（title/status/lastActivity）只做内存 join，零 RPC；
-  分组 mutation 路径显式失效缓存。
+- `useWorkspaceSessionsIndexItems`: a camada de agregação compara campo a campo e reaproveita o objeto antigo
+  quando equivalente; quando a tabela inteira é equivalente, reaproveita o array antigo — assim os effects
+  dependentes da identidade do array (grouped refresh, invalidação de cache do workspace, republish) fazem curto
+  natural.
+- `useWorkspaceTaskLists`: mudanças no sessions-index apenas marcam como sujo o escopo de workspace em que o
+  diff encontrou mudança, em vez de invalidar tudo.
+- **Semântica de exibição do refresh**: workspaces que já têm query cache usam stale-while-revalidate — apenas
+  marca como `stale` o escopo atingido e mantém as linhas de task atuais, substituindo no lugar quando o
+  recálculo em background termina; apenas a primeira hydration, quando o query cache está totalmente ausente,
+  entra em blocking loading. É proibido expressar um refresh comum de sessions-index/membership como
+  "limpar a lista existente → loading → preencher de volta", senão uma simples seleção ou retomada de tarefa
+  ainda seria percebida pelo usuário como recarregar a barra lateral inteira.
+- `useGroupedTaskView`: `stabilizeGroupedView` reaproveita em nível de nó; quando a árvore inteira é
+  equivalente, o setState recebe a mesma referência e faz bail.
+- `taskQueryCacheStore.setQueryResult(s)`: pula o setState quando o resultado equivale ao cache atual;
+  `mergeIncomingTaskListItem` preserva a referência antiga quando o conteúdo é equivalente.
+- **IO diferencial**: membership (pin/archive/unread) e estrutura agrupada não mudam com os frames de conteúdo
+  do sessions-index; ficam em cache por `membershipVersion + assinatura`
+  (`fetchTaskListMembershipSetsForEndpointsCached`, `remoteDataCacheRef` do grouped), enquanto os frames de
+  conteúdo (title/status/lastActivity) fazem apenas join em memória, com zero RPC; o caminho de mutation de
+  grupo invalida o cache explicitamente.
 
-### 4.1 workspace scope 订阅隔离
+### 4.1 Isolamento de assinatura por escopo de workspace
 
-`useWorkspaceSessionsIndexItems` 消费的是多个 workspace 的集合，但订阅所有权必须落到单个
-`endpoint + workspaceKey`。scope 集合变化只能按 key 做增量 reconcile，禁止把数组签名变化直接解释成
-“释放全部旧订阅，再重新订阅全部新 scope”。否则删除一个 workspace 会清空其余 workspace 已经持有的
-snapshot、水位和任务行，把局部导航操作放大成跨 workspace 状态重建。
+`useWorkspaceSessionsIndexItems` consome o conjunto de vários workspaces, mas a posse da assinatura precisa
+cair em um único `endpoint + workspaceKey`. Mudanças no conjunto de escopos só podem ser reconciliadas de
+forma incremental por key; é proibido interpretar diretamente a mudança de assinatura do array como
+"liberar todas as assinaturas antigas e reassinar todos os escopos novos". Caso contrário, remover um workspace
+esvaziaria o snapshot, a marca d'água e as linhas de task dos demais workspaces, amplificando uma operação
+local de navegação em uma reconstrução de estado entre workspaces.
 
 ```text
 before = [A, B, C]             after = [B, C]
@@ -114,112 +139,142 @@ before = [A, B, C]             after = [B, C]
                                        └─ retain C store/subscription/watermark
 ```
 
-| scope 变化                            | 允许的副作用                | 禁止的副作用                       | 分类                 |
-| ------------------------------------- | --------------------------- | ---------------------------------- | -------------------- |
-| 删除 A                                | unsubscribe/release A       | 重建或清空 B/C                     | accepted             |
-| 新增 D                                | acquire D；D 独立 hydration | 清空已有 A/B/C 行等待 D            | accepted             |
-| 仅重排 scopes                         | 无                          | 任意 subscribe/unsubscribe         | pruned：集合身份不变 |
-| B 的 endpoint/service generation 换代 | 只替换 B                    | 重建相同 endpoint 的其它 workspace | accepted             |
-| hook 真正卸载                         | release 全部当前 entry      | 保留泄漏引用                       | accepted             |
+| Mudança de escopo                             | Efeito colateral permitido      | Efeito colateral proibido                  | Classificação          |
+| --------------------------------------------- | ------------------------------- | ------------------------------------------ | ---------------------- |
+| Remover A                                    | unsubscribe/release de A        | reconstruir ou esvaziar B/C                  | accepted               |
+| Adicionar D                                  | adquirir D; hydration independente de D | esvaziar as linhas A/B/C existentes e esperar por D | accepted               |
+| Apenas reordenar escopos                     | nenhum                          | qualquer subscribe/unsubscribe              | pruned: identidade do conjunto inalterada |
+| Geração de endpoint/service de B troca       | substituir apenas B             | reconstruir outros workspaces do mesmo endpoint | accepted               |
+| Desmontagem real do hook                     | liberar todas as entradas atuais | manter referências vazadas                 | accepted               |
 
-关键不变量：从 `[A, B, C]` 变为 `[B, C]` 后，B/C 的 `SessionsIndexStore` 实例、subscription、
-watermark 与 session 集合必须保持原值；renderer 不得发布 B/C 的空中间态。桌面仍使用
-`desktop-continuous`，手机远控 scope 仍使用所属 endpoint 的 `web-remote-replayable`；本次改动只隔离
-订阅生命周期，不改变两种 delivery 语义。identity key 继续使用
-`workspaceIdentity?.trim() || workspacePath`，`workspacePath` 只用于传输参数和展示/执行。
+Invariante principal: depois de ir de `[A, B, C]` para `[B, C]`, as instâncias de `SessionsIndexStore`, a
+assinatura, a marca d'água e o conjunto de sessões de B/C precisam manter seus valores; o renderer não pode
+publicar um estado intermediário vazio para B/C. O desktop continua usando `desktop-continuous`, e o escopo de
+controle remoto do celular continua usando o `web-remote-replayable` do endpoint correspondente; esta mudança
+apenas isola o ciclo de vida de assinatura, sem alterar nenhuma das duas semânticas de entrega. A chave de
+identidade continua sendo `workspaceIdentity?.trim() || workspacePath`; `workspacePath` é usado apenas como
+parâmetro de transporte e para exibição/execução.
 
-### 4.2 grouped 视图的空白帧禁令（2026-08）
+### 4.2 Proibição de frames em branco na visão grouped (2026-08)
 
-`Grouped` 是唯一把「权威列表」放在组件实例 `useState` 里、并且带首屏门禁的侧栏视图；
-timeline/pinned/archived 都从模块级 `taskQueryCacheStore` 渲染。因此同一条内容帧下，
-只有 grouped 会把「刷新中」表达成整块空白——用户感知为「左侧分组列表整块闪一下」。
-四条不变量：
+`Grouped` é a única visão da barra lateral que mantém a "lista autoritativa" em `useState` de instância de
+componente e ainda tem gate de primeira tela; timeline/pinned/archived renderizam a partir do
+`taskQueryCacheStore` de nível de módulo. Portanto, dentro do mesmo frame de conteúdo, apenas grouped expressa
+"atualizando" como um bloco em branco — o usuário percebe "a lista agrupada da esquerda pisca inteira".
+Quatro invariantes:
 
-- **门禁只拦首屏**：`isGroupedTaskViewInitialized` 必须是一次性闩锁。禁止直接读当前
-  Controller 列表的 `loading`——运行中任务每个流式节点（发 prompt、首个 tool、输出完成）
-  都会让它重查一轮，门禁会随之回关并卸载整棵 grouped 子树。
-- **画过一次就不得回空白**：`shouldHideGroupedTaskContent` 必须接受 `hasPaintedOnce`。
-  已经渲染过非空列表之后，任何 loading / 未初始化 / 瞬时空态帧都继续渲染上一份列表。
-- **权威视图跨挂载存活**：最后一份权威视图按 scope 签名缓存在模块级
-  （`useGroupedTaskView` 的 `groupedViewCacheBySignature`），祖先重挂载 / HMR 后立即接着画，
-  RPC 只负责收敛；初始化闩锁一并从缓存种下，否则重挂载第一帧仍会关门。
-- **scope memo 必须用值签名**：`scopes` / `sessionsIndexScopes` 禁止 memo 在 tabs 数组身份上。
-  父级重建同值数组会换掉 `refresh` 的身份，而「`refresh` 变化即刷新」的 effect 又会 setState
-  触发下一次渲染——形成自激刷新环，每帧发 RPC 并给门禁/空态制造闪动窗口。口径与
-  `useGlobalTaskList` 的 `workspaceSignature` 保持一致。
+- **O gate só barra a primeira tela**: `isGroupedTaskViewInitialized` precisa ser um latch de uso único. É
+  proibido ler diretamente o `loading` da lista atual do Controller — em uma tarefa em execução, cada nó de
+  streaming (envio do prompt, primeira tool, conclusão da saída) dispara uma nova busca, o gate voltaria a
+  fechar e a árvore inteira de grouped seria desmontada.
+- **Uma vez desenhado, não pode voltar a branco**: `shouldHideGroupedTaskContent` precisa aceitar
+  `hasPaintedOnce`. Depois de renderizar uma lista não vazia, qualquer frame de loading / não inicializado /
+  estado vazio transitório continua renderizando a lista anterior.
+- **A visão autoritativa sobrevive ao remontagem**: a última visão autoritativa é cacheada por assinatura de
+  escopo em nível de módulo (`groupedViewCacheBySignature` em `useGroupedTaskView`), de forma que um
+  remontagem de ancestral ou um HMR já desenhe em seguida; o RPC fica só com a convergência; o latch de
+  inicialização também é semeado a partir do cache, senão o primeiro frame após o remontagem ainda fecharia a
+  porta.
+- **O memo de escopo precisa usar assinatura por valor**: `scopes` / `sessionsIndexScopes` é proibido fazer
+  memo pela identidade do array de tabs. O pai reconstruindo um array de mesmo valor troca a identidade do
+  `refresh`, e o effect "`refresh` mudou, então atualiza" faz setState e dispara o próximo render — formando um
+  ciclo de refresh autoexcitado que emite RPC a cada frame e cria janelas de piscada para o gate e para o
+  estado vazio. A convenção é a mesma de `workspaceSignature` em `useGlobalTaskList`.
 
 ```txt
-Controller activity 帧（phase/lastActivityAt 变化）
+Controller activity frame（phase/lastActivityAt 变化）
    │
    ├─ timeline/pinned/archived ─> 模块级 query cache ─> stale-while-revalidate，无空白
    └─ grouped ─> 实例 state + 首屏门禁 ─> 闩锁/hasPaintedOnce/模块缓存 缺一即整块空白
 ```
 
-验证提示：这类修复依赖「挂载时种初始状态 + 组件内闩锁」，vite HMR 会保留已挂载组件的旧状态，
-必须**完整重启应用**复测，热替换下的观察结果不作为结论。
+Dica de verificação: esse tipo de correção depende de "semear o estado inicial na montagem + latch dentro do
+componente"; o vite HMR preserva o estado antigo dos componentes já montados, então é preciso **reiniciar o
+aplicativo por completo** para retestar, e observações feitas sob hot reload não servem como conclusão.
 
-## 5. 历史根因链（2026-07 修复对账）
+## 5. Cadeia histórica de causas raiz (reconciliação das correções de 2026-07)
 
-同一症状（左侧列表闪/整刷/任务跳顶）由四层独立缺陷叠加，修复分别位于：
+O mesmo sintoma (piscar/recarregar/pular para o topo na lista da esquerda) era resultado de quatro defeitos
+independentes sobrepostos, com correções em:
 
-1. reason 缺省值蹭用 → reason 必填 + 高频路径精确分类（本文 §1）；
-2. 配置/恢复被计成活动 → §2 非活动事件集合；
-3. 冷恢复 draft 降级 → §3 phase 防御；
-4. 聚合层/查询缓存引用不稳定 → §4 稳定化。
+1. reaproveitamento indevido do valor padrão de reason → reason obrigatório + classificação precisa dos caminhos
+   de alta frequência (este §1);
+2. configuração/retomada contada como atividade → o conjunto de eventos não-atividade do §2;
+3. degradação para draft no cold recovery → defesa de phase do §3;
+4. referência instável na camada de agregação/no query cache → estabilização do §4.
 
-### 5.1 grouped 整块闪（2026-08 修复对账）
+### 5.1 flash de bloco inteiro em grouped (reconciliação das correções de 2026-08)
 
-症状与上面同源但只出现在 `Group` 视图：切到 Group 跑一个多 tool 任务，
-**发出 prompt、首个 tool 展示、最终输出完成**这三个时刻各闪一次；切到 Project/Timeline 不闪。
+O sintoma tem a mesma origem do acima, mas aparece apenas na visão `Group`: trocando para Group e rodando uma
+tarefa com várias tools, há um flash **no envio do prompt, na exibição da primeira tool e na conclusão da saída
+final**; trocando para Project/Timeline não há flash.
 
-已用测试复现并确认的三条独立缺陷（`packages/ui/test/groupedTaskViewStreamingStability.test.ts`）：
+Três defeitos independentes reproduzidos e confirmados por testes
+(`packages/ui/test/groupedTaskViewStreamingStability.test.ts`):
 
-1. **门禁跟随瞬时 loading**：`initialized` 直接由 Controller 列表的 `loading` 推导，
-   每个流式节点重查一轮就关门 → 整棵 grouped 子树卸载重挂载。
-2. **自激刷新环**：`scopes` memo 在数组身份上，父级重建数组即触发 render→refresh→setState→render
-   （护栏用例在改前会跑到 200+ 次渲染）。
-3. **重挂载退回空态**：权威视图只存在于组件实例 state，重挂载后回到「空视图 + 门禁关门」，
-   要等两个 RPC 才恢复；这也是「只有 grouped 闪」的结构性原因。
+1. **O gate acompanha um loading transitório**: `initialized` é derivado diretamente do `loading` da lista do
+   Controller, e cada nó de streaming refaz uma busca e fecha o gate → a árvore inteira de grouped é
+   desmontada e remontada.
+2. **Ciclo de refresh autoexcitado**: o memo de `scopes` fica na identidade do array, e o pai reconstruindo o
+   array dispara render→refresh→setState→render (o caso de guarda chegaria a 200+ renders antes da mudança).
+3. **Remontagem volta ao estado vazio**: a visão autoritativa existe apenas no state da instância do componente,
+   então depois de remontar volta-se para "visão vazia + gate fechado", e é preciso esperar por dois RPCs para
+   recuperar; essa é também a razão estrutural de "só grouped pisca".
 
-同期还排除了两条曾被怀疑的路径：顶层/组内虚拟化（实测 `nodeCount 67 < 80` 阈值，未启用）、
-侧栏宽度被右侧内容挤压（侧栏面板是 `flex-none` + CSS 变量宽度）。
+Na mesma época foram descartados dois caminhos antes suspeitos: virtualização de topo/grupo (medido
+`nodeCount 67 < 80`, ou seja, o limiar não foi atingido e não está ativo) e compressão da largura da barra lateral
+pelo conteúdo da direita (o painel da barra lateral é `flex-none` + largura por variável CSS).
 
-反面教材（不要再引入）：曾用「live Controller 仍报告该 task」当作「行不该消失」的证据来抵消
-瞬时丢行。该判据的口径是 `kind:"active"` = `!archived`，**包含 pinned task**，而 grouped 的口径是
-「非 pinned 非 archived」，结果置顶任务会被守卫复活并赖在分组里。约束见
-`docs/ui/task-grouped-view.md` 的「可见性真相源与删除收敛」。
+Contraexemplo (não introduzir de novo): outrora alguém usou "o Controller live ainda reporta a task" como
+evidência de que "a linha não deveria sumir", para compensar a perda transitória de linhas. O critério daquela
+abordagem é `kind:"active"` = `!archived`, o que **inclui tasks fixadas**, enquanto o critério de grouped é
+"não fixada e não arquivada"; o resultado é que tasks fixadas eram ressuscitadas pelo guard e ficavam presas no
+grupo. A restrição está em `docs/ui/task-grouped-view.md`, em「可见性真相源与删除收敛」.
 
-## 6. 后续方向：实体化差量 store
+## 6. Direção futura: store diferencial materializado
 
-当前管道每帧全量重建再做等价短路，正确但有 O(N) 重算与比对成本。终局形态是实体化差量：
-sessions-index delta 直接落 by-id 实体 store（renderer 已是 Map），各视图（timeline/pinned/grouped/
-workspace 分组）维护自己的有序索引并按 delta 增量维护（插入/移动/删除单条），彻底移除全量
-map/sort/比对。改造涉及所有列表 hook 的数据面重排，应作为独立重构立项（先补本矩阵的 e2e 守护再动）。
+O pipeline atual reconstrói tudo a cada frame e depois faz curto por equivalência, o que é correto, mas tem custo
+de recálculo e comparação O(N). A forma final é a diferencial e materializada: o delta do sessions-index cai
+direto em um store de entidades por id (o renderer já é um Map), e cada visão (timeline/pinned/grouped/agrupamento
+por workspace) mantém seu próprio índice ordenado e o mantém incrementalmente a partir do delta
+(inserção/movimentação/remoção de um item por vez), removendo de vez o map/sort/comparação integrais. A mudança
+envolve reorganizar o plano de dados de todos os hooks de lista, e deve ser um refactor independente (primeiro
+escrever os testes de guarda e2e desta matriz, e só depois mexer).
 
-## 7. 被动观察与 runtime 生命周期
+## 7. Observação passiva e ciclo de vida do runtime
 
-`workspace_task_list_changed` 监听和 sessions-index scope acquire 都是观察行为，不是 workspace 使用意图。
-它们必须满足：
+A escuta de `workspace_task_list_changed` e a aquisição de escopo do sessions-index são comportamentos de
+observação, não intenção de uso do workspace. Elas precisam satisfazer:
 
-- `onDynamicWorkspaceEvent` 只返回 workspace emitter，不建立上游订阅；
-- task-list sessions-index 与 Host task-index syncer 只以 `existing-only` 方式 subscribe/resync；
-- runtime 缺失时进入 dormant，不记录生产级错误、不启动退避 timer、不触发 Agent；
-- runtime available 后只为匹配 workspaceKey 的 observer 建立一代订阅；Host task-index 的 dormant state
-  第一次激活时必须先幂等安装 workspace frame listener、再发送 subscribe，确保同一次 stdio read 内在
-  ACK promise resolve 后、await continuation/subscription ownership 生效前到达的 initial frame 不丢失；
-  runtime 换代只重订阅，不重复安装 listener；
-- unavailable 后清理 ownership、pending frame 与 retry，并隐藏失去 live 证明的 running activity；
-- renderer reload 可以复用 Host 中已经存在的 runtime，但不得为其它 restored workspace 补启动。
+- `onDynamicWorkspaceEvent` devolve apenas o emitter do workspace, sem estabelecer assinatura upstream;
+- o sessions-index de task-list e o syncer de task-index do Host assinam/resincronizam apenas na forma
+  `existing-only`;
+- quando o runtime está ausente, entra em dormante: não registra erro de nível de produção, não inicia timer de
+  backoff e não dispara Agent;
+- quando o runtime fica disponível, cria uma única geração de assinatura apenas para os observers cujo
+  workspaceKey corresponde; quando o estado dormante do task-index do Host é ativado pela primeira vez, precisa
+  instalar de forma idempotente o listener de frames do workspace antes de enviar o subscribe, garantindo que um
+  initial frame que chegue dentro da mesma leitura de stdio, depois do resolve da promise de ACK e antes do await
+  continuation / da posse de assinatura assumir, não seja perdido; a troca de runtime apenas reassina, sem
+  reinstalar o listener;
+- após ficar indisponível, limpa a posse, os frames pendentes e as tentativas, e esconde as atividades em running
+  que perderam a prova de vida;
+- um reload do renderer pode reutilizar um runtime que já existe no Host, mas não deve fazer warm-up de outros
+  workspaces restaurados.
 
-App 冷启动预热是 Main 明确发出的启动意图，不属于上述被动观察。单窗口恢复多个本地 workspace 时，Main
-只选择上次激活的 workspace 作为唯一 target（上限 1），并在首次 `InitLocal` 中交给 Host 走既有完整
-`initializeWorkspace` 预热路径；`recentProjects` 中的其它 workspace 不再预热，保持 dormant，直到用户显式
-打开/发送/后台任务入口才启动。没有可恢复 session、显式 open-workspace/deep-link 冷启动等单 workspace
-入口同样只预热自己的 target；预热失败不扫描其它 workspace 补位。该名单只在 Host 首次创建时计算，
-renderer reload 复用原 Host，不重新扩大名单。
+O warm-up de cold start do app é uma intenção de inicialização explicitamente emitida pelo Main e não pertence à
+observação passada acima. Ao restaurar vários workspaces locais em uma única janela, o Main escolhe apenas o
+workspace ativado da última vez como target único (limite 1) e o entrega ao Host no primeiro `InitLocal` para
+seguir o caminho de warm-up completo já existente `initializeWorkspace`; os outros workspaces de `recentProjects`
+não são aquecidos e permanecem dormentes até o usuário abrir explicitamente / enviar / acionar uma entrada de
+tarefa em background. Entradas de workspace único, como não ter sessão recuperável ou cold start por
+open-workspace/deep-link explícito, também aquecem apenas o próprio target; uma falha no warm-up não varre
+outros workspaces para substituir. Essa lista é calculada apenas quando o Host é criado pela primeira vez; um
+reload do renderer reutiliza o Host original e não amplia a lista novamente.
 
-> 2026-09-30 由最多 3 个收敛为 1 个：会话 CLI 没有 idle 回收，启动即拉起 3 个 Agent 进程会让每个
-> 窗口常驻 3 份 CLI 内存，而切换到最近项目的冷启动收益不足以抵消这部分常驻成本。
+> Em 2026-09-30 isso foi reduzido de no máximo 3 para 1: a CLI de sessão não tem coleta por ociosidade, então
+> subir 3 processos de Agent no start deixa 3 cópias de memória da CLI residentes por janela, e o ganho de
+> cold start ao trocar para o projeto recente não compensa esse custo de permanência.
 
 ```text
 startup restore ─> explicit warmup target (active only, max 1) ─> Agent runtime available
@@ -230,5 +285,6 @@ runtime available(workspaceKey) ──────┴─────────
 runtime unavailable(workspaceKey) ─────────────────────────> dormant; no retry spawn
 ```
 
-生产日志只保留 runtime available/unavailable 与真实订阅生命周期；observer reconcile、dormant 命中和逐帧
-细节使用 `debug`，避免 workspace 数量乘以列表消费者形成新的日志风暴。
+Em log de produção, mantém-se apenas runtime available/unavailable e o ciclo de vida real de assinatura; o
+reconcile de observers, acertos de dormente e detalhes por frame usam `debug`, evitando que a quantidade de
+workspaces multiplicada pelos consumidores de listas forme uma nova enxurrada de log.

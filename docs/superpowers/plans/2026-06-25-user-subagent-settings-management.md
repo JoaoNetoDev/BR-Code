@@ -1,94 +1,94 @@
-# User Subagent Settings Management Implementation Plan
+# Plano de Implementação de Gerenciamento de User Subagents
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 在 Settings 面板新增用户级 subagent 管理界面，支持全局 user agents 的查看、创建、编辑、删除、启用和禁用，并保证 GUI 写出的 Markdown 被当前 zcode-cli runtime 真实加载和消费。
+**Objetivo:** adicionar ao painel de Settings uma interface de gerenciamento de subagents em nível de usuário, com suporte a visualizar, criar, editar, excluir, habilitar e desabilitar user agents globais, garantindo que o Markdown gravado pela GUI seja realmente carregado e consumido pelo runtime zcode-cli atual.
 
-**Architecture:** 先把 subagent 的用户级文件路径、profile 字段、启用状态从 UI/service 的临时实现收敛到 runtime 实际消费的边界，再接入 Settings UI。P0 只管理 global/user agents；workspace/project agents、plugin agents、structured MCP object editor 和 provider-visible agent 列表载体调整都不进入本计划。
+**Arquitetura:** primeiro convergir o caminho de arquivo de subagent em nível de usuário, os campos de profile e o estado de habilitação, hoje implementados de forma temporária na UI/service, para a fronteira efetivamente consumida pelo runtime; só então conectar a UI de Settings. O P0 gerencia apenas agents global/user; agents de workspace/project, agents de plugin, o editor de objetos MCP estruturado e o ajuste dotransportador de dados interno da lista de agents visível ao provider não entram neste plano.
 
-**Tech Stack:** TypeScript、React、Zustand、@zcode/services、@zcode/shared、zcode-cli bootstrap/core、Vitest、Tailwind semantic tokens、现有 Settings 页面组件。
+**Stack tecnológico:** TypeScript、React、Zustand、@zcode/services、@zcode/shared、zcode-cli bootstrap/core、Vitest、Tailwind semantic tokens、componentes existentes das páginas de Settings.
 
-## Global Constraints
+## Restrições Globais
 
-- P0 只支持用户级/global subagent 管理；不支持工作区级创建/编辑。
-- 用户级 agent Markdown 的默认运行时根目录是 `~/.zcode/agents`，不是 `~/.zcode/cli/agents`。
-- GUI 的 enabled/disabled 状态必须被 zcode-cli runtime 启动时消费；不能只影响 Settings 列表或 mention 面板。
-- built-in agents `general-purpose` 和 `Explore` 在 P0 只读展示，不支持编辑/删除。
-- workspace/project agents 如果需要继续供 mention 使用，必须从 runtime 实际路径 `<workspace>/.zcode/agents` 读取；Settings P0 不提供编辑入口。
-- 不让 `packages/services` 直接依赖 `@zcode/core` 或 runtime 具体实现。
-- 涉及 `packages/ui` 必须遵守根目录 `DESIGN.md`：使用 semantic color tokens、现有 Button/Input/Switch/Select/Dialog primitives、紧凑 settings 布局、支持 Zai Light/Dark 和响应式。
-- UI 文案必须走 i18n：`packages/ui/src/i18n/locales/zh-CN.ts` 与 `packages/ui/src/i18n/locales/en-US.ts` 同步补齐。
-- 不自动提交；执行本计划时只有用户明确允许后才提交 commit。
+- O P0 suporta apenas gerenciamento de subagents em nível de usuário/global; criação/edição em nível de workspace não é suportada.
+- A raiz de runtime padrão do Markdown de agent em nível de usuário é `~/.zcode/agents`, e não `~/.zcode/cli/agents`.
+- O estado enabled/disabled da GUI precisa ser consumido pelo runtime do zcode-cli na inicialização; não pode afetar apenas a lista de Settings ou o painel de menções.
+- Os built-in agents `general-purpose` e `Explore` são apenas exibidos em modo somente leitura no P0, sem suporte a edição/exclusão.
+- Se os agents de workspace/project precisarem continuar disponíveis para menção, eles precisam ser lidos do caminho real do runtime, `<workspace>/.zcode/agents`; o P0 de Settings não oferece entrada de edição.
+- Não deixar `packages/services` depender diretamente de `@zcode/core` ou de implementações concretas do runtime.
+- Tudo que envolver `packages/ui` precisa obedecer ao `DESIGN.md` da raiz: usar semantic color tokens, os primitives existentes de Button/Input/Switch/Select/Dialog, layout compacto de settings, suporte a Zai Light/Dark e responsividade.
+- Os textos de UI precisam passar por i18n: `packages/ui/src/i18n/locales/zh-CN.ts` e `packages/ui/src/i18n/locales/en-US.ts` precisam ser completados em sincronia.
+- Não commitar automaticamente; ao executar este plano, só fazer commit quando o usuário permitir explicitamente.
 
 ---
 
-## 当前事实基线
+## Linha de Base de Fatos Atual
 
-- CLI runtime 加载 profile 的入口是 `apps/zcode-cli/packages/bootstrap/src/subagents.ts`。
-- CLI runtime 当前读取：
+- A entrada de carregamento de profiles no CLI runtime é `apps/zcode-cli/packages/bootstrap/src/subagents.ts`.
+- O CLI runtime atualmente lê:
   - user root: `join(storageRoot, "agents")`
   - project root: `join(workingDirectory, ".zcode", "agents")`
-- `storageRoot` 默认来自 `DefaultRuntimeConfig.storage.dir = "~/.zcode"`。
-- App service 当前 `packages/services/src/subagents/subagentsService.ts` 仍用 `ZCODE_AGENT_RUNTIME.nativeConfigDir` 推导 `~/.zcode/cli/agents` 和 `<workspace>/.zcode/cli/agents`，这和 runtime loader 不一致。
-- App service 当前只解析/写回 `name`、`description`、`color`、`model`、`tools`、body；runtime profile 还支持 `disallowedTools`、`skills`、`permissionMode`、`maxTurns`、`background`、`mcpServers`。
-- `agents-state.json` 当前只被 service 读写，runtime 不消费。
+- `storageRoot` vem por padrão de `DefaultRuntimeConfig.storage.dir = "~/.zcode"`.
+- O App service atual, em `packages/services/src/subagents/subagentsService.ts`, ainda deriva `~/.zcode/cli/agents` e `<workspace>/.zcode/cli/agents` a partir de `ZCODE_AGENT_RUNTIME.nativeConfigDir`, o que é inconsistente com o loader do runtime.
+- O App service atual apenas resolve/grava `name`, `description`, `color`, `model`, `tools` e body; o profile de runtime também suporta `disallowedTools`、`skills`、`permissionMode`、`maxTurns`、`background`、`mcpServers`.
+- O `agents-state.json` hoje é lido e gravado apenas pelo service; o runtime não o consome.
 
-## File Structure
+## Estrutura de Arquivos
 
-### Data and service boundary
+### Fronteira de dados e service
 
 - Modify: `packages/shared/src/subagents-types.ts`
-  - 扩展 Settings P0 需要的 `AgentSummary` / `SubAgentConfig` 字段。
-  - 保留旧字段兼容，但把 `tools` 等字段转为 string array 语义。
+  - Estender os campos de `AgentSummary` / `SubAgentConfig` necessários ao P0 de Settings.
+  - Manter a compatibilidade dos campos antigos, mas passar campos como `tools` para a semântica de string array.
 - Create: `packages/services/src/subagents/subagentMarkdown.ts`
-  - Service 侧 Markdown parse/serialize helper。
-  - 不依赖 `@zcode/core`。
+  - Helper de parse/serialize de Markdown do lado do service.
+  - Não depende de `@zcode/core`.
 - Create: `packages/services/src/subagents/subagentStorage.ts`
-  - 统一解析 user/global agent root、project agent root、state file path。
-  - 读取 `~/.zcode/cli/config.json` 中的 `storage.dir`，fallback 到 `~/.zcode`。
+  - Resolver de forma unificada o user/global agent root, o project agent root e o caminho do state file.
+  - Ler o `storage.dir` de `~/.zcode/cli/config.json`, com fallback para `~/.zcode`.
 - Modify: `packages/services/src/subagents/subagents.ts`
-  - 扩展 service interface，支持 settings user-only list、create/update/delete 的 user scope。
+  - Estender a interface do service, com list user-only de settings e create/update/delete no escopo de usuário.
 - Modify: `packages/services/src/subagents/subagentsService.ts`
-  - 使用新 storage helper，读取 runtime-aligned roots。
-  - 列表支持 built-in readonly + user editable + optional workspace readonly。
-  - create/update/delete 只写 user/global root。
-  - enabled state 写入 runtime 会读取的 state file。
+  - Usar o novo storage helper, lendo as roots alinhadas ao runtime.
+  - A listagem suporta built-in readonly + user editable + workspace readonly opcional.
+  - create/update/delete escrevem apenas no user/global root.
+  - O estado enabled é gravado no state file consumido pelo runtime.
 
-### Runtime consumption
+### Consumo pelo runtime
 
 - Modify: `apps/zcode-cli/packages/bootstrap/src/subagents.ts`
-  - 读取同一份 disabled state。
-  - 加载 user/project Markdown 后过滤 disabled user profiles。
-  - 保持 project profiles 继续加载，但 P0 UI 不管理它们。
+  - Ler o mesmo estado de desabilitação.
+  - Filtrar os user profiles desabilitados depois de carregar o Markdown de user/project.
+  - Manter o carregamento dos project profiles, que não são gerenciados pela UI do P0.
 - Modify: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
-  - 如果需要，把 state file path 或 disabled set 传入 `loadZCodeAgentProfiles`。
+  - Se necessário, passar o caminho do state file ou o conjunto de desabilitados para `loadZCodeAgentProfiles`.
 - Modify: `apps/zcode-cli/packages/core/src/subagent/profile.ts`
-  - 如需暴露 builtin summary helper，保持 core 内部，不让 service 依赖 core。
+  - Se for preciso expor um helper de summary dos builtins, mantê-lo interno ao core, sem deixar o service depender do core.
 
 ### Settings UI
 
 - Create: `packages/ui/src/settings/SubagentsSection.tsx`
-  - Settings 分区主入口，列表、搜索、刷新、打开目录、新建入口。
+  - Entrada principal da seção de Settings: lista, busca, refresh, abrir diretório e entrada de novo agente.
 - Create: `packages/ui/src/settings/SubagentForm.tsx`
-  - 创建/编辑 user agent 的 form view。
+  - Form view de criação/edição de user agent.
 - Create: `packages/ui/src/settings/SubagentCard.tsx`
-  - 列表 row/card：颜色点、名称、描述、model/tools/background/permission badges、enabled switch、edit/delete actions。
+  - Row/card da lista: ponto de cor, nome, descrição, badges de model/tools/background/permission, switch de enabled e ações de edição/exclusão.
 - Modify: `packages/ui/src/settings/settingsPageConfig.ts`
-  - 加入 `subagents` sidebar section。
+  - Adicionar a seção de sidebar `subagents`.
 - Modify: `packages/ui/src/lib/settingsNavigation.ts`
-  - 增加 `SettingsSectionId = "subagents"`。
+  - Adicionar `SettingsSectionId = "subagents"`.
 - Modify: `packages/ui/src/SettingsPage.tsx`
-  - 渲染 `<SubagentsSection />`。
+  - Renderizar `<SubagentsSection />`.
 - Modify: `packages/ui/src/store/subagentsStore.ts`
-  - 若现有 store 够用则扩展；否则保持 hook-local state，避免把 form draft 放进全局 store。
+  - Se a store existente bastar, estendê-la; caso contrário, manter estado local do hook, evitando colocar o rascunho do form no store global.
 - Modify: `packages/ui/src/hooks/useSubagents.ts`
-  - 支持 settings 场景传入 list mode。
+  - Suportar a passagem de um list mode no cenário de settings.
 - Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
 - Modify: `packages/ui/src/i18n/locales/en-US.ts`
 - Modify: `packages/shared/src/test-ids.ts`
-  - 增加 Settings subagents 页面和关键交互 test id。
+  - Adicionar test ids para a página de subagents nas Settings e para as interações principais.
 
-### Tests
+### Testes
 
 - Create or modify: `packages/services/test/subagentsService.test.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`
@@ -102,7 +102,7 @@
 
 ## Interfaces
 
-### Shared types
+### Tipos compartilhados
 
 ```ts
 export type AgentScope = "built-in" | "workspace" | "user";
@@ -169,7 +169,7 @@ export interface SubAgentConfig {
 export type SubagentsListMode = "allRuntimeScopes" | "settingsUserOnly";
 ```
 
-### Service list params
+### Parâmetros de listagem do service
 
 ```ts
 interface SubagentsListParams {
@@ -180,12 +180,12 @@ interface SubagentsListParams {
 }
 ```
 
-Semantics:
+Semântica:
 
-- `allRuntimeScopes`: mention provider and future runtime-aware surfaces use this. Includes built-in, user, and workspace readonly profiles.
-- `settingsUserOnly`: Settings P0 uses this. Includes built-in readonly and user editable profiles only. Workspace profiles are intentionally hidden.
+- `allRuntimeScopes`: é usado pelo mention provider e por futuras superfícies cientes do runtime. Inclui profiles built-in, user e workspace em modo somente leitura.
+- `settingsUserOnly`: é usado pelo P0 de Settings. Inclui apenas built-in readonly e user editable. Os workspace profiles são ocultados de forma intencional.
 
-### Stable state id
+### State id estável
 
 ```ts
 function createAgentStateId(input: {
@@ -197,26 +197,26 @@ function createAgentStateId(input: {
 }
 ```
 
-P0 runtime consumes disabled user state ids. Built-in ids are stable for future use but not toggled in P0 UI.
+O runtime do P0 consome os state ids de user desabilitados. Os ids de built-in são estáveis para uso futuro, mas não são alternados na UI do P0.
 
 ---
 
-### Task 1: 扩展 shared subagent 类型
+### Tarefa 1: Estender os tipos de subagent compartilhados
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/shared/src/subagents-types.ts`
 
 **Interfaces:**
 
-- Produces: `AgentProfileModel`、`AgentPermissionMode`、`AgentColor`、`SubagentsListMode`、扩展后的 `AgentSummary` 和 `SubAgentConfig`。
-- Consumes: 现有 service/store/hook 的 `AgentSummary`、`SubAgentConfig`。
+- Produces: `AgentProfileModel`、`AgentPermissionMode`、`AgentColor`、`SubagentsListMode` e o `AgentSummary` e `SubAgentConfig` estendidos.
+- Consumes: os `AgentSummary` e `SubAgentConfig` existentes nos service/store/hook.
 
-- [ ] **Step 1: 修改 shared 类型**
+- [ ] **Passo 1: Modificar os tipos compartilhados**
 
-将 `packages/shared/src/subagents-types.ts` 调整为支持完整 P0 profile 字段。保留 `AgentScope` 中的 `workspace`，因为 mention provider 仍可能需要展示 runtime project profiles；Settings P0 只传 `settingsUserOnly`。
+Ajustar `packages/shared/src/subagents-types.ts` para suportar o conjunto completo de campos de profile do P0. Manter `workspace` em `AgentScope`, porque o mention provider ainda pode precisar exibir os project profiles do runtime; o P0 de Settings passa apenas `settingsUserOnly`.
 
-核心形状：
+Forma central:
 
 ```ts
 export type AgentScope = "built-in" | "workspace" | "user";
@@ -241,21 +241,21 @@ export type AgentColor =
 export type SubagentsListMode = "allRuntimeScopes" | "settingsUserOnly";
 ```
 
-- [ ] **Step 2: 修复 TypeScript 调用点**
+- [ ] **Passo 2: Corrigir os pontos de chamada do TypeScript**
 
-更新编译错误最小集合：
+Atualizar o conjunto mínimo de erros de compilação:
 
 - `packages/ui/src/mentions/providers/subagentsMentionProvider.ts`
 - `packages/ui/src/store/subagentsStore.ts`
 - `packages/services/src/subagents/subagentsService.ts`
 
-对于旧的 `tools?: string` 读取，改成：
+Para as leituras antigas de `tools?: string`, trocar por:
 
 ```ts
 const toolSummary = agent.tools?.length ? agent.tools.join(", ") : "";
 ```
 
-- [ ] **Step 3: 运行类型检查**
+- [ ] **Passo 3: Executar a verificação de tipos**
 
 Run:
 
@@ -266,28 +266,28 @@ pnpm --filter @zcode/ui test -- --run test/subagentsMentionProvider.test.ts
 
 Expected:
 
-- `@zcode/shared lint` PASS。
-- mention provider test 如有 fixture 编译错误，更新 fixture 字段后 PASS。
+- `@zcode/shared lint` PASS.
+- O teste do mention provider passa após atualizar os campos de fixture, caso haja erros de compilação.
 
 ---
 
-### Task 2: 新增 service 侧 Markdown profile helper
+### Tarefa 2: Adicionar o helper de Markdown de profile no lado do service
 
-**Files:**
+**Arquivos:**
 
 - Create: `packages/services/src/subagents/subagentMarkdown.ts`
 - Test: `packages/services/test/subagentsService.test.ts`
 
 **Interfaces:**
 
-- Consumes: `SubAgentConfig` from `@zcode/shared`。
+- Consumes: `SubAgentConfig` de `@zcode/shared`。
 - Produces:
   - `parseSubagentMarkdown(content: string, path: string, scope: AgentScope): AgentSummary | SubagentMarkdownDiagnostic`
   - `serializeSubagentMarkdown(config: SubAgentConfig): string`
 
-- [ ] **Step 1: 写 failing parser/serializer test**
+- [ ] **Passo 1: Escrever o teste failing de parser/serializer**
 
-在 `packages/services/test/subagentsService.test.ts` 增加 helper-level tests，覆盖数组字段和 body 保真：
+Adicionar em `packages/services/test/subagentsService.test.ts` testes no nível de helper, cobrindo campos de array e fidelidade do body:
 
 ```ts
 it("serializes user subagent markdown with runtime profile fields", () => {
@@ -316,9 +316,9 @@ it("serializes user subagent markdown with runtime profile fields", () => {
 });
 ```
 
-- [ ] **Step 2: 实现 serializer**
+- [ ] **Passo 2: Implementar o serializer**
 
-`serializeSubagentMarkdown` 使用 YAML frontmatter 风格，但不引入 service->core 依赖。推荐复用 `yaml` package，避免手写转义遗漏。
+`serializeSubagentMarkdown` usa estilo YAML frontmatter, mas não introduz uma dependência de service para core. Recomenda-se reutilizar o package `yaml`, evitando escapes escritos à mão que deixem casos de fora.
 
 ```ts
 import YAML from "yaml";
@@ -343,9 +343,9 @@ export function serializeSubagentMarkdown(config: SubAgentConfig): string {
 }
 ```
 
-- [ ] **Step 3: 实现 parser**
+- [ ] **Passo 3: Implementar o parser**
 
-Parser 要接受 runtime 当前 loose parser 能接受的格式。P0 不支持嵌套 MCP object editor，但 parser 可以把 `mcpServers` array 保留下来。
+O parser precisa aceitar os formatos que o loose parser atual do runtime aceita. O P0 não suporta o editor de objetos MCP aninhados, mas o parser pode preservar o array `mcpServers`.
 
 ```ts
 export interface SubagentMarkdownDiagnostic {
@@ -355,9 +355,9 @@ export interface SubagentMarkdownDiagnostic {
 }
 ```
 
-解析失败时不要 throw；返回 diagnostic，让 Settings 页能展示诊断。
+Não lançar exceção em caso de falha de parsing; devolver o diagnostic para que a página de Settings consiga exibi-lo.
 
-- [ ] **Step 4: 运行 service 测试**
+- [ ] **Passo 4: Executar os testes do service**
 
 Run:
 
@@ -367,8 +367,8 @@ pnpm --filter @zcode/services test -- --run test/subagentsService.test.ts
 
 Expected:
 
-- 新增 parser/serializer tests PASS。
-- 如果 `@zcode/services` 当前没有 test script，用根命令运行：
+- Os novos testes de parser/serializer passam.
+- Caso `@zcode/services` ainda não tenha script de teste, usar o comando da raiz:
 
 ```bash
 pnpm test -- --run packages/services/test/subagentsService.test.ts
@@ -376,9 +376,9 @@ pnpm test -- --run packages/services/test/subagentsService.test.ts
 
 ---
 
-### Task 3: 统一 service 的 user root 与 runtime root
+### Tarefa 3: Unificar o user root do service com o root do runtime
 
-**Files:**
+**Arquivos:**
 
 - Create: `packages/services/src/subagents/subagentStorage.ts`
 - Modify: `packages/services/src/subagents/subagentsService.ts`
@@ -390,11 +390,11 @@ pnpm test -- --run packages/services/test/subagentsService.test.ts
   - `resolveUserSubagentRoot(): Promise<string>`
   - `resolveWorkspaceSubagentRoot(workspacePath: string): string`
   - `resolveSubagentStateFile(): Promise<string>`
-- Consumes: `~/.zcode/cli/config.json` 的 `storage.dir`，fallback `~/.zcode`。
+- Consumes: o `storage.dir` de `~/.zcode/cli/config.json`, com fallback `~/.zcode`.
 
-- [ ] **Step 1: 写 failing root resolution test**
+- [ ] **Passo 1: Escrever o teste failing de resolução de root**
 
-使用临时 HOME，创建 `~/.zcode/cli/config.json`：
+Usar um HOME temporário e criar `~/.zcode/cli/config.json`:
 
 ```ts
 it("uses runtime storage.dir agents root for user subagents", async () => {
@@ -413,9 +413,9 @@ it("uses runtime storage.dir agents root for user subagents", async () => {
 });
 ```
 
-- [ ] **Step 2: 实现 storage helper**
+- [ ] **Passo 2: Implementar o storage helper**
 
-`subagentStorage.ts` 不直接使用 `ZCODE_AGENT_RUNTIME.nativeConfigDir` 推导 agent root。它只用 native config path 读取 config 文件：
+`subagentStorage.ts` não deriva o agent root diretamente de `ZCODE_AGENT_RUNTIME.nativeConfigDir`. Ele usa o native config path apenas para ler o arquivo de config:
 
 ```ts
 const DEFAULT_STORAGE_DIR = "~/.zcode";
@@ -436,13 +436,13 @@ export async function resolveSubagentStateFile(): Promise<string> {
 }
 ```
 
-- [ ] **Step 3: 更新 service list/create/update/delete 使用新 root**
+- [ ] **Passo 3: Atualizar list/create/update/delete do service para usar a nova root**
 
-`createAgent` / `updateAgent` 只写 `resolveUserSubagentRoot()`。`list` 默认可以读 workspace root，但 Settings P0 通过 `mode: "settingsUserOnly"` 隐藏 workspace。
+`createAgent` / `updateAgent` escrevem apenas em `resolveUserSubagentRoot()`. O `list` pode ler a workspace root por padrão, mas o P0 de Settings oculta o workspace via `mode: "settingsUserOnly"`.
 
-- [ ] **Step 4: 保留兼容迁移读取**
+- [ ] **Passo 4: Manter leitura de compatibilidade para migração**
 
-为了不让已有 `~/.zcode/cli/agents` 用户立刻消失，P0 可以只读 legacy root 但不再写 legacy root。实现为：
+Para não fazer os usuários existentes de `~/.zcode/cli/agents` desaparecerem de imediato, o P0 pode ler o legacy root, mas parar de gravar nele. Implementado como:
 
 ```ts
 const roots = [
@@ -451,9 +451,9 @@ const roots = [
 ];
 ```
 
-同名时 runtime root 优先，legacy root 被 shadow，不可编辑。若产品决定不迁移旧路径，可以删掉这一步；但要在最终说明中明确。
+Em caso de mesmo nome, a runtime root tem prioridade e a legacy root fica sombreada e não editável. Se o produto decidir não migrar o caminho antigo, esta etapa pode ser removida; mas isso precisa ficar explícito na nota final.
 
-- [ ] **Step 5: 运行 service 测试**
+- [ ] **Passo 5: Executar os testes do service**
 
 Run:
 
@@ -463,14 +463,14 @@ pnpm test -- --run packages/services/test/subagentsService.test.ts
 
 Expected:
 
-- root resolution test PASS。
-- create/update/delete 写入 `${storage.dir}/agents/<name>.md`。
+- O teste de resolução de root passa.
+- create/update/delete gravam em `${storage.dir}/agents/<name>.md`.
 
 ---
 
-### Task 4: Runtime 消费 disabled user agents
+### Tarefa 4: O runtime consome user agents desabilitados
 
-**Files:**
+**Arquivos:**
 
 - Modify: `apps/zcode-cli/packages/bootstrap/src/subagents.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
@@ -479,11 +479,11 @@ Expected:
 **Interfaces:**
 
 - Consumes: `${storageRoot}/v2/agents-state.json`
-- Produces: `loadZCodeAgentProfiles(...)` 返回已过滤 disabled user profiles。
+- Produces: `loadZCodeAgentProfiles(...)` retornando os user profiles desabilitados já filtrados.
 
-- [ ] **Step 1: 写 failing runtime disabled test**
+- [ ] **Passo 1: Escrever o teste failing de desabilitado no runtime**
 
-在 `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts` 增加：
+Adicionar em `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`:
 
 ```ts
 it("does not load disabled user agent profiles into runtime config", async () => {
@@ -513,9 +513,9 @@ review prompt`,
 });
 ```
 
-- [ ] **Step 2: 实现 state reader**
+- [ ] **Passo 2: Implementar o leitor de state**
 
-在 bootstrap 侧新增本地 pure helper，避免依赖 app service：
+Adicionar um helper puro local no lado do bootstrap, evitando depender do app service:
 
 ```ts
 function readDisabledAgentIds(storageRoot: string): Set<string> {
@@ -533,9 +533,9 @@ function readDisabledAgentIds(storageRoot: string): Set<string> {
 }
 ```
 
-- [ ] **Step 3: 过滤 user profiles**
+- [ ] **Passo 3: Filtrar os user profiles**
 
-加载 profile 后计算：
+Após carregar o profile, calcular:
 
 ```ts
 const stateId = `${result.profile.source}:${result.profile.source === "project" ? "workspace" : "user"}:${result.profile.name.trim().toLowerCase()}`;
@@ -544,11 +544,11 @@ if (result.profile.source === "user" && disabledAgentIds.has(stateId)) {
 }
 ```
 
-P0 只让 user disabled 影响 runtime。Project disabled 留给 P1。
+No P0, apenas user disabled afeta o runtime. Project disabled fica reservado para o P1.
 
-- [ ] **Step 4: 确认 provider-visible list 不包含 disabled**
+- [ ] **Passo 4: Confirmar que a lista visível ao provider não inclui os desabilitados**
 
-在 `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts` 增加或更新测试：传入 profiles 不包含 disabled user 时，`formatAgentProfilesForPrompt` 不输出该 agent。
+Adicionar ou atualizar em `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`: ao passar profiles sem os user desabilitados, `formatAgentProfilesForPrompt` não deve exibir aquele agent.
 
 Run:
 
@@ -559,14 +559,14 @@ pnpm --filter @zcode/core test -- --run tests/subagent-profile.test.ts
 
 Expected:
 
-- disabled user profile 不进入 runtime profiles。
-- provider prompt formatter 不输出 disabled profile。
+- O user profile desabilitado não entra nos runtime profiles.
+- O formatter de prompt do provider não exibe o profile desabilitado.
 
 ---
 
-### Task 5: 完善 SubagentsService 行为
+### Tarefa 5: Aprimorar o comportamento do SubagentsService
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/services/src/subagents/subagents.ts`
 - Modify: `packages/services/src/subagents/subagentsService.ts`
@@ -574,11 +574,11 @@ Expected:
 
 **Interfaces:**
 
-- `list({ mode: "settingsUserOnly" })` 返回 built-in readonly + user editable。
-- `list({ mode: "allRuntimeScopes" })` 返回 built-in + user + workspace readonly。
-- `createAgent` / `updateAgent` / `deleteAgent` 只允许 user scope。
+- `list({ mode: "settingsUserOnly" })` retorna built-in readonly + user editable.
+- `list({ mode: "allRuntimeScopes" })` retorna built-in + user + workspace readonly.
+- `createAgent` / `updateAgent` / `deleteAgent` permitem apenas o escopo de usuário.
 
-- [ ] **Step 1: 写 list mode tests**
+- [ ] **Passo 1: Escrever os testes de list mode**
 
 ```ts
 it("settings user-only list hides workspace agents", async () => {
@@ -594,9 +594,9 @@ it("settings user-only list hides workspace agents", async () => {
 });
 ```
 
-- [ ] **Step 2: 添加 built-in readonly summaries**
+- [ ] **Passo 2: Adicionar summaries de built-in em somente leitura**
 
-Service 不能依赖 `@zcode/core`。在 service 内定义与 runtime built-ins 同名的 summary 常量：
+O service não pode depender de `@zcode/core`. Definir dentro do service as constantes de summary com os mesmos nomes dos built-ins do runtime:
 
 ```ts
 const BUILT_IN_AGENT_SUMMARIES: AgentSummary[] = [
@@ -628,11 +628,11 @@ const BUILT_IN_AGENT_SUMMARIES: AgentSummary[] = [
 ];
 ```
 
-If duplication becomes uncomfortable later, move built-in metadata to a shared pure package. Do not make services import runtime core in this task.
+Se a duplicação ficar desconfortável mais adiante, mover os metadados de built-in para um package puro compartilhado. Não fazer o services importar o runtime core nesta tarefa.
 
-- [ ] **Step 3: create/update/delete validation**
+- [ ] **Passo 3: Validação de create/update/delete**
 
-P0 validation:
+Validação do P0:
 
 ```ts
 const NAME_REGEX = /^[a-zA-Z0-9-]+$/;
@@ -640,20 +640,20 @@ const MIN_NAME_LENGTH = 3;
 const MAX_NAME_LENGTH = 50;
 ```
 
-Validate:
+Validar:
 
-- name length 3..50
-- letters/numbers/hyphen only
-- description non-empty
-- systemPrompt non-empty
-- model must be `inherit/main/lite` when present
-- maxTurns must be positive integer when present
+- name com comprimento de 3..50
+- apenas letras/números/hífen
+- description não vazia
+- systemPrompt não vazio
+- model precisa ser `inherit/main/lite` quando presente
+- maxTurns precisa ser inteiro positivo quando presente
 
-- [ ] **Step 4: enabled state writes runtime-consumed ids**
+- [ ] **Passo 4: O estado enabled grava os ids consumidos pelo runtime**
 
-`setEnabled({ agentId, enabled })` should store ids like `user:user:code-reviewer`. For backwards compatibility, when reading old `user:code-reviewer`, normalize it to new id once on write.
+`setEnabled({ agentId, enabled })` deve armazenar ids como `user:user:code-reviewer`. Por compatibilidade com o passado, ao ler um `user:code-reviewer` antigo, normalizá-lo uma vez para o novo id na gravação.
 
-- [ ] **Step 5: Run tests**
+- [ ] **Passo 5: Executar os testes**
 
 Run:
 
@@ -664,15 +664,15 @@ pnpm --filter @zcode/ui test -- --run test/subagentsMentionProvider.test.ts
 
 Expected:
 
-- Settings list hides workspace agents.
-- Mention provider can still receive workspace agents when service called with default/all mode.
-- enabled state ids match runtime test from Task 4.
+- A lista de Settings oculta os agents de workspace.
+- O mention provider ainda recebe os agents de workspace quando o service é chamado com o modo default/all.
+- Os ids de estado enabled correspondem ao teste de runtime da Tarefa 4.
 
 ---
 
-### Task 6: 更新 subagents hook/store 支持 Settings mode
+### Tarefa 6: Atualizar o hook/store de subagents para suportar o modo de Settings
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/ui/src/hooks/useSubagents.ts`
 - Modify: `packages/ui/src/store/subagentsStore.ts`
@@ -683,7 +683,7 @@ Expected:
 - Produces: `useSubagents(workspacePath, provider, { mode })`
 - Consumes: `ISubagentsService.list({ mode })`
 
-- [ ] **Step 1: 扩展 hook signature**
+- [ ] **Passo 1: Estender a assinatura do hook**
 
 ```ts
 export function useSubagents(
@@ -695,9 +695,9 @@ export function useSubagents(
 }
 ```
 
-- [ ] **Step 2: store cache key 加 mode**
+- [ ] **Passo 2: Adicionar o mode à chave de cache do store**
 
-Current key is workspace + provider。改为：
+A chave atual é workspace + provider. Mudar para:
 
 ```ts
 function getAgentLoadKey(
@@ -710,11 +710,11 @@ function getAgentLoadKey(
 }
 ```
 
-- [ ] **Step 3: mention provider 保持 allRuntimeScopes**
+- [ ] **Passo 3: O mention provider permanece em allRuntimeScopes**
 
-`useSubagentsMentionProvider` 不传 mode 或显式传 `allRuntimeScopes`，确保 workspace readonly profiles 不被 Settings P0 隐藏逻辑影响。
+`useSubagentsMentionProvider` não passa mode ou passa explicitamente `allRuntimeScopes`, garantindo que os workspace readonly profiles não sejam afetados pela lógica de ocultação do P0 de Settings.
 
-- [ ] **Step 4: run tests**
+- [ ] **Passo 4: Executar os testes**
 
 Run:
 
@@ -724,14 +724,14 @@ pnpm --filter @zcode/ui test -- --run test/subagentsMentionProvider.test.ts
 
 Expected:
 
-- Existing mention tests PASS。
-- 新增一个 test 确认 disabled agents 仍不进入 mention items。
+- Os testes de menção existentes passam.
+- Acrescentar um teste confirmando que agents desabilitados continuam fora dos mention items.
 
 ---
 
-### Task 7: 新增 Settings sidebar section
+### Tarefa 7: Adicionar a seção de sidebar em Settings
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/ui/src/settings/settingsPageConfig.ts`
 - Modify: `packages/ui/src/lib/settingsNavigation.ts`
@@ -747,21 +747,21 @@ Expected:
 - Produces: settings section id `"subagents"`。
 - Consumes: existing Settings section rendering branch。
 
-- [ ] **Step 1: 写 failing config tests**
+- [ ] **Passo 1: Escrever os testes failing de config**
 
-Update `settingsPageConfig.test.ts`:
+Atualizar `settingsPageConfig.test.ts`:
 
 ```ts
 expect(SETTINGS_SECTIONS.map((section) => section.id)).toContain("subagents");
 ```
 
-Update `settingsNavigation.test.ts`:
+Atualizar `settingsNavigation.test.ts`:
 
 ```ts
 expect(navigation.resolveSettingsSection("subagents", "general")).toBe("subagents");
 ```
 
-- [ ] **Step 2: 更新 SettingsSectionId**
+- [ ] **Passo 2: Atualizar SettingsSectionId**
 
 `packages/ui/src/lib/settingsNavigation.ts`:
 
@@ -781,11 +781,11 @@ export type SettingsSectionId =
   | "hooks";
 ```
 
-同步更新 `isSettingsSectionId`。
+Atualizar `isSettingsSectionId` em sincronia.
 
-- [ ] **Step 3: 增加 sidebar config**
+- [ ] **Passo 3: Adicionar a config da sidebar**
 
-`packages/ui/src/settings/settingsPageConfig.ts` 引入 lucide icon，推荐 `Bot` 或 `UsersRound`：
+`packages/ui/src/settings/settingsPageConfig.ts` importa um ícone lucide, recomendando `Bot` ou `UsersRound`:
 
 ```ts
 {
@@ -795,11 +795,11 @@ export type SettingsSectionId =
 }
 ```
 
-位置建议放在 `skills` 之后、`mcp` 之前。
+A posição recomendada é depois de `skills` e antes de `mcp`.
 
-- [ ] **Step 4: SettingsPage 渲染占位 section**
+- [ ] **Passo 4: Renderizar a seção placeholder no SettingsPage**
 
-先接入 `<SubagentsSection />`，Task 8 实现组件。
+Conectar primeiro `<SubagentsSection />`; o componente é implementado na Tarefa 8.
 
 ```tsx
 ) : activeSection === "subagents" ? (
@@ -807,7 +807,7 @@ export type SettingsSectionId =
 ) : activeSection === "skills" ? (
 ```
 
-- [ ] **Step 5: i18n**
+- [ ] **Passo 5: i18n**
 
 `zh-CN.ts`:
 
@@ -823,7 +823,7 @@ export type SettingsSectionId =
 "settings.subagents.description": "Manage global user subagents. Subagents are defined by Markdown files and are consumed by the Agent tool at runtime.",
 ```
 
-- [ ] **Step 6: run tests**
+- [ ] **Passo 6: Executar os testes**
 
 Run:
 
@@ -835,9 +835,9 @@ Expected: PASS。
 
 ---
 
-### Task 8: 实现 SubagentsSection 列表页
+### Tarefa 8: Implementar a página de lista SubagentsSection
 
-**Files:**
+**Arquivos:**
 
 - Create: `packages/ui/src/settings/SubagentsSection.tsx`
 - Create: `packages/ui/src/settings/SubagentCard.tsx`
@@ -848,11 +848,11 @@ Expected: PASS。
 **Interfaces:**
 
 - Consumes: `useSubagents(activeWorkspacePath, ZCODE_AGENT_PROVIDER, { mode: "settingsUserOnly" })`
-- Produces: search/filter/list/toggle/edit/delete entry points。
+- Produces: pontos de entrada de busca/filtro/lista/toggle/edição/exclusão。
 
-- [ ] **Step 1: 写 failing render test**
+- [ ] **Passo 1: Escrever o teste failing de render**
 
-Use existing UI test pattern. Mock `useServices().subagentsService.list` to return built-in + user:
+Usar o padrão de teste de UI existente. Fazer mock de `useServices().subagentsService.list` para retornar built-in + user:
 
 ```tsx
 it("renders built-in and user subagents in settings user-only mode", async () => {
@@ -864,29 +864,29 @@ it("renders built-in and user subagents in settings user-only mode", async () =>
 });
 ```
 
-- [ ] **Step 2: 实现 section header**
+- [ ] **Passo 2: Implementar o header da seção**
 
-UI shape:
+Forma da UI:
 
-- description text left
-- icon buttons right: new, open folder, refresh
-- compact search input below
+- texto de descrição à esquerda
+- botões de ícone à direita: novo, abrir pasta, refresh
+- input de busca compacto abaixo
 
-Use:
+Usar:
 
 - `Button` variant `ghost` size `icon-sm`
 - `Input` size `lg`
 - `ControlHintTooltip`
 - `Plus`, `FolderOpen`, `RefreshCw`
 
-- [ ] **Step 3: 实现 grouped list**
+- [ ] **Passo 3: Implementar a lista agrupada**
 
-Group order:
+Ordem dos grupos:
 
 1. Built-in
 2. User agents
 
-`SubagentCard` props:
+Props de `SubagentCard`:
 
 ```ts
 interface SubagentCardProps {
@@ -898,22 +898,22 @@ interface SubagentCardProps {
 }
 ```
 
-Rules:
+Regras:
 
-- `agent.readOnly === true`: hide edit/delete, disable switch or hide switch for built-ins.
-- User agent: show switch, edit icon, delete icon.
-- Display badges for model/tools/background/permissionMode if present.
-- Use color swatch only from runtime enum; fallback to neutral dot.
+- `agent.readOnly === true`: ocultar editar/excluir, desabilitar o switch ou ocultá-lo nos built-ins.
+- User agent: exibir switch, ícone de edição e ícone de exclusão.
+- Exibir badges de model/tools/background/permissionMode quando presentes.
+- Usar a amostra de cor apenas a partir do enum do runtime, com fallback para um ponto neutro.
 
-- [ ] **Step 4: open user folder**
+- [ ] **Passo 4: Abrir a pasta de user agents**
 
-Use existing `subagentsService.getPrimaryUserAgentsDirectory({ provider: ZCODE_AGENT_PROVIDER })` then `platform.openInFileManager(path)`。Failure toast uses existing `appHeader.openInFileManagerFailed`。
+Usar o `subagentsService.getPrimaryUserAgentsDirectory({ provider: ZCODE_AGENT_PROVIDER })` existente e então `platform.openInFileManager(path)`. O toast de falha usa o `appHeader.openInFileManagerFailed` existente。
 
-- [ ] **Step 5: toggle enabled**
+- [ ] **Passo 5: Alternar enabled**
 
-Call store/hook `setEnabled(agent.id, enabled)`。On failure show toast and keep list refreshed from service.
+Chamar `setEnabled(agent.id, enabled)` no store/hook. Em caso de falha, exibir toast e manter a lista atualizada a partir do service.
 
-- [ ] **Step 6: run UI tests**
+- [ ] **Passo 6: Executar os testes de UI**
 
 Run:
 
@@ -923,16 +923,16 @@ pnpm --filter @zcode/ui test -- --run test/subagentsSettingsSection.test.tsx
 
 Expected:
 
-- Built-ins render readonly.
-- User agent renders editable actions.
-- Workspace fixture is hidden in settings mode.
-- Toggle calls `subagentsService.setEnabled` with expected id.
+- Os built-ins são renderizados como somente leitura.
+- O user agent renderiza ações editáveis.
+- A fixture de workspace fica oculta no modo de settings.
+- O toggle chama `subagentsService.setEnabled` com o id esperado。
 
 ---
 
-### Task 9: 实现 SubagentForm 创建/编辑页
+### Tarefa 9: Implementar a página de criação/edição SubagentForm
 
-**Files:**
+**Arquivos:**
 
 - Create: `packages/ui/src/settings/SubagentForm.tsx`
 - Modify: `packages/ui/src/settings/SubagentsSection.tsx`
@@ -943,9 +943,9 @@ Expected:
 **Interfaces:**
 
 - Consumes: `SubAgentConfig`
-- Produces: validated `SubAgentConfig` for `createAgent` / `updateAgent`
+- Produces: `SubAgentConfig` validado para `createAgent` / `updateAgent`
 
-- [ ] **Step 1: 写 failing create form test**
+- [ ] **Passo 1: Escrever o teste failing do form de criação**
 
 ```tsx
 it("creates a user subagent from the settings form", async () => {
@@ -969,31 +969,31 @@ it("creates a user subagent from the settings form", async () => {
 });
 ```
 
-- [ ] **Step 2: 表单字段**
+- [ ] **Passo 2: Campos do formulário**
 
-P0 fields:
+Campos do P0:
 
 - name
 - description
 - model select: inherit/main/lite
-- color swatches: red/blue/green/yellow/purple/orange/pink/cyan
-- tools editor:
-  - quick toggles for common tools: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite
-  - advanced comma/newline text field preserving custom patterns like `Bash(git diff *)`
-- background switch
-- permissionMode select
-- maxTurns number input
-- systemPrompt textarea
+- amostras de cor: red/blue/green/yellow/purple/orange/pink/cyan
+- editor de tools:
+  - toggles rápidos para ferramentas comuns: Read, Grep, Glob, Bash, Edit, Write, WebFetch, WebSearch, TodoWrite
+  - campo de texto avançado por vírgula/nova linha preservando padrões customizados como `Bash(git diff *)`
+- switch de background
+- select de permissionMode
+- input numérico de maxTurns
+- textarea de systemPrompt
 
-P0 advanced collapsed fields:
+Campos avançados recolhidos no P0:
 
-- disallowedTools text field
-- skills text field
-- mcpServers text field as comma/newline string only
+- campo de texto de disallowedTools
+- campo de texto de skills
+- campo de texto de mcpServers apenas como string separada por vírgula/nova linha
 
-- [ ] **Step 3: validation**
+- [ ] **Passo 3: Validação**
 
-Validation:
+Validação:
 
 ```ts
 const NAME_REGEX = /^[a-zA-Z0-9-]+$/;
@@ -1001,45 +1001,45 @@ const MIN_NAME_LENGTH = 3;
 const MAX_NAME_LENGTH = 50;
 ```
 
-Errors:
+Erros:
 
-- name required and length 3..50
-- name only letters/numbers/hyphen
-- description required
-- systemPrompt required
-- maxTurns positive integer if set
+- name obrigatório e com comprimento de 3..50
+- name apenas com letras/números/hífen
+- description obrigatória
+- systemPrompt obrigatório
+- maxTurns inteiro positivo, se definido
 
-- [ ] **Step 4: save behavior**
+- [ ] **Passo 4: Comportamento de gravação**
 
-Create:
+Criação:
 
 ```ts
 await createAgent(config, ZCODE_AGENT_PROVIDER, subagentsService);
 ```
 
-Edit:
+Edição:
 
 ```ts
 await updateAgent(agent.id, config, agent.path, ZCODE_AGENT_PROVIDER, subagentsService);
 ```
 
-After success:
+Após o sucesso:
 
-- close form view
-- refresh list
-- toast saved
+- fechar a form view
+- atualizar a lista
+- exibir o toast de salvo
 
-- [ ] **Step 5: responsive layout**
+- [ ] **Passo 5: Layout responsivo**
 
-Follow `DESIGN.md`:
+Seguir `DESIGN.md`:
 
-- Form container: `rounded-xl border border-border bg-card p-4`
-- Use `text-sm`
-- `grid gap-3 md:grid-cols-2` for top fields
-- `Textarea` min height for prompt, no raw color values
-- No nested cards
+- container do form: `rounded-xl border border-border bg-card p-4`
+- usar `text-sm`
+- `grid gap-3 md:grid-cols-2` para os campos do topo
+- altura mínima do `Textarea` para o prompt, sem valores de cor brutos
+- sem cards aninhados
 
-- [ ] **Step 6: run tests**
+- [ ] **Passo 6: Executar os testes**
 
 Run:
 
@@ -1049,15 +1049,15 @@ pnpm --filter @zcode/ui test -- --run test/subagentsSettingsSection.test.tsx
 
 Expected:
 
-- Create form calls service with normalized arrays.
-- Edit form pre-populates fields.
-- Validation errors are localized.
+- O form de criação chama o service com arrays normalizados.
+- O form de edição pré-preenche os campos.
+- Os erros de validação são localizados.
 
 ---
 
-### Task 10: 删除和错误态
+### Tarefa 10: Exclusão e estados de erro
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/ui/src/settings/SubagentsSection.tsx`
 - Modify: `packages/ui/src/settings/SubagentCard.tsx`
@@ -1070,7 +1070,7 @@ Expected:
 - Consumes: existing `useConfirmDialog` pattern from `CommandsSection`。
 - Produces: delete confirm flow and diagnostics/error display。
 
-- [ ] **Step 1: 写 delete confirmation test**
+- [ ] **Passo 1: Escrever o teste de confirmação de exclusão**
 
 ```tsx
 it("confirms before deleting a user subagent", async () => {
@@ -1088,9 +1088,9 @@ it("confirms before deleting a user subagent", async () => {
 });
 ```
 
-- [ ] **Step 2: implement confirmation**
+- [ ] **Passo 2: Implementar a confirmação**
 
-Use:
+Usar:
 
 ```ts
 const confirmed = await confirmDialog({
@@ -1103,17 +1103,17 @@ const confirmed = await confirmDialog({
 });
 ```
 
-- [ ] **Step 3: diagnostics display**
+- [ ] **Passo 3: Exibição de diagnostics**
 
-If service returns diagnostics for invalid Markdown, show collapsible warning block near top:
+Se o service retornar diagnostics para Markdown inválido, exibir um bloco de aviso expansível perto do topo:
 
-- count summary
-- code label
-- path in mono
+- resumo com a contagem
+- label do code
+- path em fonte mono
 
-Do not block valid agents from rendering.
+Não bloquear a renderização dos agents válidos.
 
-- [ ] **Step 4: run tests**
+- [ ] **Passo 4: Executar os testes**
 
 Run:
 
@@ -1123,15 +1123,15 @@ pnpm --filter @zcode/ui test -- --run test/subagentsSettingsSection.test.tsx
 
 Expected:
 
-- Delete needs confirmation.
-- Built-in delete button not rendered.
-- Diagnostics block renders without hiding valid user agents.
+- A exclusão exige confirmação.
+- O botão de excluir não é renderizado nos built-ins.
+- O bloco de diagnostics renderiza sem ocultar os user agents válidos。
 
 ---
 
-### Task 11: Provider-visible/runtime regression coverage
+### Tarefa 11: Cobertura de regressão visível ao provider / de runtime
 
-**Files:**
+**Arquivos:**
 
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`
 - Modify: `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`
@@ -1142,9 +1142,9 @@ Expected:
 - Consumes: service-written markdown shape from Task 2.
 - Produces: confidence that GUI-created profiles are runtime-loadable and disabled profiles are provider-invisible.
 
-- [ ] **Step 1: Add GUI markdown compatibility test in bootstrap**
+- [ ] **Passo 1: Adicionar um teste de compatibilidade de Markdown da GUI no bootstrap**
 
-Use a Markdown fixture generated by service serializer format:
+Usar uma fixture de Markdown gerada pelo formato do serializer do service:
 
 ```ts
 await writeFile(
@@ -1171,7 +1171,7 @@ color: cyan
 );
 ```
 
-Expect:
+Esperar:
 
 ```ts
 expect(result.profiles[0]).toMatchObject({
@@ -1187,19 +1187,19 @@ expect(result.profiles[0]).toMatchObject({
 });
 ```
 
-- [ ] **Step 2: Add provider-visible list test**
+- [ ] **Passo 2: Adicionar o teste da lista visível ao provider**
 
-`formatAgentProfilesForPrompt` with loaded profiles should include enabled user agent and omit disabled one.
+`formatAgentProfilesForPrompt` com os profiles carregados deve incluir o user agent habilitado e omitir o desabilitado.
 
-- [ ] **Step 3: Optional docs update**
+- [ ] **Passo 3: Atualização opcional de documentação**
 
-If implementation changes current diff facts, update 历史差异审计文档（已删除）:
+Se a implementação mudar os fatos atuais de diff, atualizar 历史差异审计文档（已删除）:
 
-- Service/UI now writes runtime-aligned user root.
-- GUI P0 intentionally excludes workspace editing.
-- enabled state now affects runtime profile load.
+- O Service/UI agora grava no user root alinhado ao runtime.
+- A GUI do P0 exclui de propósito a edição de workspace.
+- O estado enabled agora afeta o carregamento de profiles do runtime.
 
-- [ ] **Step 4: run tests**
+- [ ] **Passo 4: Executar os testes**
 
 Run:
 
@@ -1212,9 +1212,9 @@ Expected: PASS。
 
 ---
 
-### Task 12: Full validation
+### Tarefa 12: Validação completa
 
-**Files:**
+**Arquivos:**
 
 - No new files unless prior tasks require snapshots.
 
@@ -1223,7 +1223,7 @@ Expected: PASS。
 - Consumes: all prior tasks.
 - Produces: final verification evidence.
 
-- [ ] **Step 1: Targeted tests**
+- [ ] **Passo 1: Testes direcionados**
 
 Run:
 
@@ -1237,7 +1237,7 @@ pnpm --filter @zcode/ui test -- --run \
 
 Expected: PASS。
 
-- [ ] **Step 2: Service/runtime tests**
+- [ ] **Passo 2: Testes de service/runtime**
 
 Run:
 
@@ -1249,7 +1249,7 @@ pnpm --filter @zcode/core test -- --run tests/subagent-profile.test.ts
 
 Expected: PASS。
 
-- [ ] **Step 3: Repo required checks**
+- [ ] **Passo 3: Verificações obrigatórias do repo**
 
 Run:
 
@@ -1260,44 +1260,44 @@ pnpm lint
 
 Expected: PASS。
 
-- [ ] **Step 4: Manual smoke**
+- [ ] **Passo 4: Smoke manual**
 
-Start the app using the repo's normal dev command for this worktree. Then:
+Iniciar o app usando o comando de dev normal do repo para este worktree. Depois:
 
-1. Open Settings.
-2. Open Subagents section.
-3. Create user agent `code-reviewer`.
-4. Confirm file exists at `~/.zcode/agents/code-reviewer.md` or configured `${storage.dir}/agents/code-reviewer.md`.
-5. Disable `code-reviewer`.
-6. Start a new agent session.
-7. Inspect model-io/provider-visible request and confirm `code-reviewer` is absent from available agent list.
-8. Enable `code-reviewer`.
-9. Start another new agent session and confirm `code-reviewer` appears in provider-visible agent list.
+1. Abrir Settings.
+2. Abrir a seção Subagents.
+3. Criar o user agent `code-reviewer`.
+4. Confirmar que o arquivo existe em `~/.zcode/agents/code-reviewer.md` ou no `${storage.dir}/agents/code-reviewer.md` configurado.
+5. Desabilitar `code-reviewer`.
+6. Iniciar uma nova sessão de agent.
+7. Inspecionar o request model-io/visível ao provider e confirmar que `code-reviewer` está ausente da lista de agents disponíveis.
+8. Habilitar `code-reviewer`.
+9. Iniciar outra nova sessão de agent e confirmar que `code-reviewer` aparece na lista de agents visível ao provider.
 
 Expected:
 
-- Settings list and runtime provider-visible body agree.
-- No workspace agent editing UI is exposed.
-- Built-in agents are visible but readonly.
+- A lista de Settings e o corpo visível ao provider do runtime concordam.
+- Nenhuma UI de edição de agent de workspace é exposta.
+- Os built-in agents são visíveis, mas somente leitura。
 
 ---
 
-## Risks and Non-goals
+## Riscos e Não-objetivos
 
-- This plan does not change the separate provider-visible carrier question: ZCode currently injects the agent list through `context_prefix` rather than the Agent tool prompt.
-- This plan does not add workspace/project agent creation or editing.
-- This plan does not add plugin agents.
-- This plan does not implement nested YAML object editing for `mcpServers`; P0 preserves simple array values and can expose raw text only.
-- This plan does not change `Agent` / `Task` tool schema or SendMessage behavior.
+- Este plano não altera a questão separada dotransportador de dados visível ao provider: o ZCode hoje injeta a lista de agents por `context_prefix` e não pelo prompt da ferramenta Agent.
+- Este plano não adiciona criação ou edição de agents de workspace/project.
+- Este plano não adiciona agents de plugin.
+- Este plano não implementa edição de objetos YAML aninhados para `mcpServers`; o P0 preserva valores de array simples e pode expor apenas texto bruto.
+- Este plano não altera o schema da ferramenta `Agent` / `Task` nem o comportamento do SendMessage.
 
-## Self-Review Checklist
+## Checklist de Self-Review
 
-- [ ] Every P0 requirement maps to at least one task.
-- [ ] Settings GUI writes runtime-consumed user agent root.
-- [ ] Runtime consumes disabled state.
-- [ ] Mention provider is not accidentally narrowed to settings user-only mode.
-- [ ] Workspace editing is not exposed in UI.
-- [ ] Built-in agents are readonly.
-- [ ] No service import from `@zcode/core`.
-- [ ] i18n keys exist in both zh-CN and en-US.
-- [ ] `pnpm typecheck` and `pnpm lint` are included in validation.
+- [ ] Cada requisito do P0 mapeia para pelo menos uma tarefa.
+- [ ] A GUI de Settings grava no user agent root consumido pelo runtime.
+- [ ] O runtime consome o estado de desabilitação.
+- [ ] O mention provider não é restringido por engano ao modo settings user-only.
+- [ ] A edição de workspace não é exposta na UI.
+- [ ] Os built-in agents são somente leitura.
+- [ ] Nenhum import de `@zcode/core` no service.
+- [ ] As chaves de i18n existem em zh-CN e en-US.
+- [ ] `pnpm typecheck` e `pnpm lint` estão incluídos na validação.

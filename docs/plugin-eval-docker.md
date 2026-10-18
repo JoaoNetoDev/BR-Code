@@ -1,21 +1,21 @@
-# Docker 全自动插件评测教程（从 GitLab 源码开始）
+# Tutorial de Avaliação de Plugins em Docker totalmente automatizada (a partir do código-fonte no GitLab)
 
-> 状态：配套 `zcode plugins` 子命令 MR（`docs/cli-plugins-command-parity.md`）。
-> 目录：`docker/plugin-eval/`。评测编排、判分口径都在这里，CLI 内核不感知评测。
+> Status: acompanha o MR do subcomando `zcode plugins` (`docs/cli-plugins-command-parity.md`).
+> Diretório: `docker/plugin-eval/`. A orquestração da avaliação e o critério de pontuação ficam aqui; o núcleo do CLI não tem ciência da avaliação.
 
-## 目标与边界
+## Objetivo e Limites
 
-- 用 headless CLI（`zcode --prompt ... --output-format stream-json`）在 Docker 里全自动评测插件：
-  内置插件 + zcode 官方市场全量，每个任务一个一次性容器，真模型。
-- 镜像从 GitLab 源码构建，构建期把官方市场全部插件装进镜像；运行期按任务白名单只开被评测插件。
-- 不做：多轮对话、人工打分、结果入库。判分只到「skill 是否被调用、文件是否产出、回复是否含关键词」这一层，
-  更细的质量判分由外围读取 `events.jsonl` 自行扩展。
+- Avaliar plugins de forma totalmente automatizada dentro do Docker usando o CLI headless (`zcode --prompt ... --output-format stream-json`):
+  plugins embutidos + todos os plugins do mercado oficial do zcode, um container descartável por tarefa, modelo real.
+- A imagem é construída a partir do código-fonte no GitLab, e na fase de build todos os plugins do mercado oficial são instalados na imagem; em tempo de execução, apenas os plugins avaliados são habilitados, conforme a allowlist da tarefa.
+- O que não é feito: conversa de múltiplos turnos, pontuação manual, armazenamento de resultados em banco. A pontuação chega apenas ao nível de “o skill foi chamado, o arquivo foi produzido, a resposta contém a palavra-chave”;
+  uma pontuação de qualidade mais fina fica a cargo de quem, por fora, ler o `events.jsonl` e estender por conta própria.
 
-## 整体流程
+## Fluxo Geral
 
 ```mermaid
 flowchart LR
-  subgraph build[镜像构建（一次）]
+  subgraph build[构建镜像（一次）]
     A[GitLab 源码<br/>ref = staging / MR 分支] --> B[pnpm install<br/>--filter @zcode/cli...]
     B --> C[构建 zcode.cjs]
     C --> D[runtime 镜像<br/>node + zcode.cjs]
@@ -35,17 +35,17 @@ flowchart LR
   L --> M[summarize.py suite<br/>report.md]
 ```
 
-## 前置条件
+## Pré-requisitos
 
-| 项 | 要求 |
+| Item | Requisito |
 |---|---|
-| Docker | 20.10+，启用 BuildKit（默认）；能拉 `node:24-bookworm-slim` 并访问 GitLab、npm registry、`cdn-zcode.z.ai` |
-| 主机工具 | bash、jq、node ≥ 20（运行 `prepare-auth.mjs`）、python3（汇总报告） |
-| GitLab 访问 | 私有仓库需要一个只读 PAT（`read_repository`）；未给 `--token-file` 时脚本依次尝试 `GITLAB_TOKEN` 环境变量 → `glab` 已登录的 PAT → `git credential fill` 取本机已保存的凭据 |
-| ZCode 登录态 | 本机 ZCode 已登录且选好可用 provider/模型；评测容器复用这份凭据 |
-| 被测源码 | ref 必须已包含 `zcode plugins install / disable --all` 子命令（子命令 MR 合入后的 staging，或该 MR 分支） |
+| Docker | 20.10+, com BuildKit habilitado (padrão); precisa conseguir baixar `node:24-bookworm-slim` e acessar o GitLab, o npm registry e `cdn-zcode.z.ai` |
+| Ferramentas no host | bash, jq, node ≥ 20 (para rodar `prepare-auth.mjs`), python3 (para consolidar o relatório) |
+| Acesso ao GitLab | repositórios privados exigem um PAT somente leitura (`read_repository`); sem `--token-file`, o script tenta, nesta ordem, a variável de ambiente `GITLAB_TOKEN` → o PAT de quem já está logado no `glab` → `git credential fill` para pegar as credenciais já salvas na máquina |
+| Estado de login do ZCode | o ZCode local já está logado e com um provider/modelo utilizável escolhido; o container de avaliação reaproveita essas credenciais |
+| Código sob teste | o ref precisa já conter os subcomandos `zcode plugins install / disable --all` (o staging após o merge do MR dos subcomandos, ou o branch desse MR) |
 
-## 第一步：构建镜像
+## Primeiro Passo: construir a imagem
 
 ```bash
 # 默认 ref=staging，镜像 tag = zcode-plugin-eval:<ref>
@@ -56,23 +56,23 @@ docker/plugin-eval/bin/build-image.sh --ref feat-cli-plugins-parity \
   --proxy http://127.0.0.1:7890 --token-file ~/.secrets/gitlab-ro-token
 ```
 
-构建做了什么：
+O que a construção faz:
 
-1. `source` 阶段 `git clone --depth 1 --branch <ref>`。PAT 通过 BuildKit secret 传入，以 `git config http.<host>/.extraheader`
-   的 Basic 头（`oauth2:<token>`）只在该条 RUN 内存在，不进镜像层；克隆后删除 `.git` 与 `.gitconfig`。
-2. `builder` 阶段 `pnpm install --frozen-lockfile --filter "@zcode/cli..." --filter zcode`，然后按仓库脚本
-   `scripts/build-desktop-agent-cli.mjs` 的顺序构建 shared-types → contracts → core → adapters → i18n → telemetry → bootstrap → cli。
-3. `runtime` 阶段只带 `node + zcode.cjs + jq/python3/git/ripgrep`，以 uid 10001 的 `zcode` 用户运行；
-   `HOME=/data`、`ZCODE_DATA_BASE_DIR=/data`、`ZCODE_STORAGE_DIR=/data/.zcode`、`ZCODE_BASE_URL=https://zcode.z.ai`。
-   内置插件不在 `zcode.cjs` 里，CLI 在入口文件同级的 `packages/<name>-plugin` 找根目录，所以 builder 阶段把
-   document-skills、zcode-guide、skill-creator、restore-legacy-sessions 四个纯内容型内置插件 stage 到 `/opt/zcode/packages/`；
-   同理 CLI 启动必读的内置 provider 目录 `config/provider/zcode-builtin.json` 放到 `/opt/zcode/provider/`。
-4. 构建期执行 `zcode plugins marketplace update zcode-plugins-official`，再把 `list --available --json` 中
-   `installed == false` 的条目逐个 `plugins install`，基线清单落在 `/data/plugins-baseline.json`。
+1. O estágio `source` executa `git clone --depth 1 --branch <ref>`. O PAT entra pelo secret do BuildKit, na forma de um cabeçalho Basic (`oauth2:<token>`) em `git config http.<host>/.extraheader`,
+   presente apenas naquele RUN e nunca em uma camada da imagem; após o clone, `.git` e `.gitconfig` são removidos.
+2. O estágio `builder` executa `pnpm install --frozen-lockfile --filter "@zcode/cli..." --filter zcode` e depois constrói, na ordem do script do repositório
+   `scripts/build-desktop-agent-cli.mjs`: shared-types → contracts → core → adapters → i18n → telemetry → bootstrap → cli.
+3. O estágio `runtime` traz apenas `node + zcode.cjs + jq/python3/git/ripgrep`, rodando com o usuário `zcode` de uid 10001;
+   `HOME=/data`, `ZCODE_DATA_BASE_DIR=/data`, `ZCODE_STORAGE_DIR=/data/.zcode`, `ZCODE_BASE_URL=https://zcode.z.ai`.
+   Os plugins embutidos não ficam dentro do `zcode.cjs`; o CLI procura o diretório raiz em `packages/<name>-plugin`, no mesmo nível do arquivo de entrada, então o estágio builder faz stage
+   dos quatro plugins embutidos puramente de conteúdo — document-skills, zcode-guide, skill-creator, restore-legacy-sessions — em `/opt/zcode/packages/`;
+   pelo mesmo motivo, o diretório de provider embutido que o CLI lê obrigatoriamente na inicialização, `config/provider/zcode-builtin.json`, fica em `/opt/zcode/provider/`.
+4. Na fase de build é executado `zcode plugins marketplace update zcode-plugins-official` e, em seguida, cada entrada de `list --available --json` com
+   `installed == false` é instalada via `plugins install`; a lista de base fica em `/data/plugins-baseline.json`.
 
-构建结束脚本会打印被测源码 ref@sha 和烘进镜像的插件数（当前 CDN 市场 19 个 + 内置 4 个 = 23）。
+Ao final da construção o script imprime o ref@sha do código sob teste e a quantidade de plugins assados na imagem (atualmente 19 do mercado CDN + 4 embutidos = 23).
 
-## 第二步：准备凭据目录
+## Segundo Passo: preparar o diretório de credenciais
 
 ```bash
 # 看本机有哪些 provider 可选
@@ -84,18 +84,18 @@ node docker/plugin-eval/bin/prepare-auth.mjs --out ./.zcode-eval-auth \
 # 末尾会打印：export ZCODE_EVAL_CREDENTIAL_SECRET=...   （复制执行）
 ```
 
-为什么不能直接把 `~/.zcode/v2` 拷进容器：
+Por que não é possível simplesmente copiar `~/.zcode/v2` para o container:
 
-- `credentials.json` 的值用 aes-256-gcm 加密，默认密钥由 `platform:homedir:username` 派生。容器里三者全变，直接拷贝必然解密失败。
-  脚本在主机上用本机密钥解密，再用 `ZCODE_EVAL_CREDENTIAL_SECRET` 重加密；容器运行时以 `ZCODE_CREDENTIAL_SECRET` 传入同一个值。
-- headless 的模型选择只读 `provider_config.json` 的 `config.defaultModelSelection`，且必须是
-  `{providerId, modelId, options.reasoningLevel}` 全形态。缺 `reasoningLevel` 时 CLI 会静默回退到第一个 provider 的第一个模型，
-  表现为莫名其妙的 422 或模型名不对。脚本把选择写死，杜绝这一类漂移。
-- `provider_config.json` 里自建 provider 的 API key 是明文。输出目录按 0700/0600 落盘，只读挂进一次性容器；不要提交、不要 `COPY` 进镜像。
+- Os valores de `credentials.json` são cifrados com aes-256-gcm, e a chave padrão é derivada de `platform:homedir:username`. No container os três mudam, então a cópia direta falharia ao descriptografar.
+  O script descriptografa no host com a chave local e recifra com `ZCODE_EVAL_CREDENTIAL_SECRET`; em tempo de execução o container recebe o mesmo valor em `ZCODE_CREDENTIAL_SECRET`.
+- A escolha de modelo no headless só lê o `config.defaultModelSelection` de `provider_config.json`, e ele precisa estar na forma completa
+  `{providerId, modelId, options.reasoningLevel}`. Sem `reasoningLevel`, o CLI volta silenciosamente para o primeiro modelo do primeiro provider,
+  o que se manifesta como um 422 inexplicável ou um nome de modelo errado. O script fixa a escolha, eliminando essa classe de deriva.
+- No `provider_config.json`, a API key de providers auto-hospedados fica em texto puro. O diretório de saída é gravado com 0700/0600 e montado somente para leitura em um container descartável; não comite e não faça `COPY` para dentro da imagem.
 
-## 第三步：写任务文件
+## Terceiro Passo: escrever os arquivos de tarefa
 
-每个任务一个 JSON，放在一个目录下（示例见 `docker/plugin-eval/tasks/`）：
+Um JSON por tarefa, colocado em um diretório (exemplos em `docker/plugin-eval/tasks/`):
 
 ```json
 {
@@ -110,21 +110,21 @@ node docker/plugin-eval/bin/prepare-auth.mjs --out ./.zcode-eval-auth \
 }
 ```
 
-| 字段 | 含义 |
+| Campo | Significado |
 |---|---|
-| `id` | 任务 id，同时是结果子目录名与容器名后缀 |
-| `plugins` | 白名单。裸 name 或 `name@marketplace`；容器会 `disable --all` 后逐个 `enable`，并断言实际启用集合与此完全一致 |
-| `prompt` | 传给 `zcode --prompt` 的任务文本 |
-| `timeoutSeconds` | 单次运行硬超时（默认 900），超时按失败处理 |
-| `expect.skills` | 期望出现在 `tool.updated` 里的 `Skill` 调用（`payload.input.skill`） |
-| `expect.mcpTools` | 期望被调用的 MCP 工具名子串 |
-| `expect.files` | 期望在工作目录里产出的文件（相对路径） |
-| `expect.responseContains` | 最终回复必须包含的字符串 |
-| `xfail` | 写了原因就把失败记为 `xfail`（预期失败），不算套件失败 |
+| `id` | id da tarefa, que também é o nome do subdiretório de resultado e o sufixo do nome do container |
+| `plugins` | allowlist. `name` puro ou `name@marketplace`; o container faz `disable --all` e depois `enable` item por item, e assere que o conjunto realmente habilitado corresponde exatamente a esta lista |
+| `prompt` | o texto da tarefa passado para `zcode --prompt` |
+| `timeoutSeconds` | timeout rígido de uma execução (padrão 900); ao estourar, conta como falha |
+| `expect.skills` | chamadas de `Skill` esperadas em `tool.updated` (`payload.input.skill`) |
+| `expect.mcpTools` | substring dos nomes de ferramentas MCP que se espera ver sendo chamadas |
+| `expect.files` | arquivos que se espera ver produzidos no diretório de trabalho (caminhos relativos) |
+| `expect.responseContains` | strings que a resposta final deve conter |
+| `xfail` | se houver um motivo informado, a falha é registrada como `xfail` (falha esperada) e não conta como falha da suíte |
 
-同名目录 `<id>.workspace/` 存在时，会只读挂到 `/task/workspace` 并拷进容器的 `/work` 作为模型 cwd，用来放 Excel、PDF 等夹具。
+Quando existe um diretório homônimo `<id>.workspace/`, ele é montado somente para leitura em `/task/workspace` e copiado para `/work` no container como cwd do modelo, para servir de espaço de fixtures como Excel e PDF.
 
-## 第四步：跑套件
+## Quarto Passo: rodar a suíte
 
 ```bash
 export ZCODE_EVAL_CREDENTIAL_SECRET=...   # 第二步打印的值
@@ -136,7 +136,7 @@ docker/plugin-eval/bin/run-suite.sh \
   --jobs 2                       # 可选并行度；--filter 'finance-*' 只跑一部分
 ```
 
-每个容器内部（`docker/plugin-eval/entrypoint.sh`）：
+Dentro de cada container (`docker/plugin-eval/entrypoint.sh`):
 
 ```mermaid
 sequenceDiagram
@@ -155,9 +155,9 @@ sequenceDiagram
   C-->>R: 退出码 0=pass/xfail，1=fail
 ```
 
-## 第五步：读结果
+## Quinto Passo: ler os resultados
 
-`--out` 目录结构：
+Estrutura do diretório `--out`:
 
 ```text
 eval-results/
@@ -172,52 +172,51 @@ eval-results/
     └── workspace/       # 模型工作目录快照（排除 node_modules/.git）
 ```
 
-判定口径：`exitCode == 0` 且有 `turn.completed`，再逐条核对 `expect.*`。任一失败即 `fail`；带 `xfail` 的任务失败记 `xfail`。
-插件是否真被用到看 `events.skillsInvoked`，形如 `run-fpa:budget-variance`。
+Critério de veredito: `exitCode == 0` e haver um `turn.completed`; depois disso, conferir item a item `expect.*`. Qualquer falha resulta em `fail`; em tarefas com `xfail`, a falha é registrada como `xfail`.
+Para saber se o plugin foi realmente usado, veja `events.skillsInvoked`, no formato `run-fpa:budget-variance`.
 
-## 已知限制
+## Limitações Conhecidas
 
-- **官方 MCP 在 headless 不可用（待 CLI 侧补齐）**：金融十件套和 document-skills 的 `image_search` 声明的是
-  `zcode_official` 鉴权 MCP，当前只有桌面 host 拉起的 agent 会注入信任源注册表与身份头，独立 CLI 全部 fail closed。
-  结果是这些插件在容器里只有 skill 文本能力，没有行情/企业数据工具。示例任务 `finance-close-recap-mcp` 因此标 `xfail`。
-- **模型会绕过限制**：headless 默认 yolo 权限。一次冒烟里模型在拿不到 MCP 工具时，自行用 Bash 解密了容器内的
-  `credentials.json` 并手动 curl 数据接口。评测容器必须视为可读到全部注入凭据的环境：只注入评测账号、用完即弃、
-  不要复用生产账号；判分时用 `mcpToolsInvoked` 而不是最终答案来判断插件能力是否真的被使用。
-- **`ZCODE_BASE_URL` 必须显式设置**：插件 manifest 里的 MCP 地址写作 `${ZCODE_BASE_URL}/api/v1/mcp/...`，
-  独立 CLI 不注入该变量时 `plugins list --json` 会出现 `plugin_variable_missing`，对应 MCP 直接被丢弃。镜像已内置生产值，
-  打测试环境时用 `docker run -e ZCODE_BASE_URL=...` 覆盖。
-- **代理**：CLI 自己的网络只认 `ZCODE_HTTP_PROXY`，不读 `http_proxy`；构建用 `--proxy`，运行用 `run-suite.sh --proxy`。
-- **依赖桌面底座的内置插件不纳入**：browser-use、computer-use、ios-simulator、android-emulator 需要桌面 WebView、
-  独立 MCP runtime 或模拟器，headless 容器里没有对应底座，镜像不 stage 它们，`plugins list` 也看不到。
-- **`--plugin-dir`（会话级加载本地插件）尚未落地**：评测未发布插件请先 `zcode plugins marketplace add <本地目录>` 再 `install`。
+- **MCP oficial indisponível no headless (pendente do lado do CLI)**: o `image_search` do conjunto financeiro e do document-skills declara o
+  MCP autenticado `zcode_official`, e hoje apenas o agent iniciado pelo host desktop injeta o registro de fontes confiáveis e os cabeçalhos de identidade; o CLI independente falha de forma fechada em todos os casos.
+  O resultado é que esses plugins têm no container apenas a capacidade de texto do skill, sem ferramentas de mercado/dados corporativos. Por isso a tarefa de exemplo `finance-close-recap-mcp` está marcada como `xfail`.
+- **O modelo contorna as restrições**: as permissões yolo são o padrão no headless. Em um smoke test, ao não conseguir as ferramentas MCP, o modelo descriptografou por conta própria o
+  `credentials.json` dentro do container com Bash e chamou a API de dados via curl na mão. O container de avaliação precisa ser tratado como um ambiente capaz de ler todas as credenciais injetadas: injete apenas a conta de avaliação, descarte-a depois do uso e
+  não reutilize contas de produção; ao pontuar, use `mcpToolsInvoked` em vez da resposta final para julgar se a capacidade do plugin foi realmente usada.
+- **`ZCODE_BASE_URL` precisa ser definido explicitamente**: o endereço MCP no manifest do plugin é escrito como `${ZCODE_BASE_URL}/api/v1/mcp/...`;
+  quando o CLI independente não injeta essa variável, `plugins list --json` mostra `plugin_variable_missing` e o MCP correspondente é descartado. A imagem já traz o valor de produção embutido;
+  ao apontar para um ambiente de testes, sobrescreva com `docker run -e ZCODE_BASE_URL=...`.
+- **Proxy**: a rede do próprio CLI só reconhece `ZCODE_HTTP_PROXY` e não lê `http_proxy`; na construção use `--proxy` e na execução `run-suite.sh --proxy`.
+- **Plugins embutidos que dependem da base desktop ficam de fora**: browser-use, computer-use, ios-simulator e android-emulator precisam do WebView desktop, de um MCP runtime independente ou de emulador, e não há essa base no container headless; a imagem não faz stage deles e eles também não aparecem no `plugins list`.
+- **`--plugin-dir` (carregamento de plugin local em nível de sessão) ainda não existe**: para avaliar um plugin ainda não publicado, use antes `zcode plugins marketplace add <diretório local>` e só então `install`.
 
-## 排障
+## Diagnóstico de Problemas
 
-| 现象 | 看哪里 | 常见原因 |
+| Sintoma | Onde olhar | Causa comum |
 |---|---|---|
-| 构建卡在 clone / 401 | `build-image.sh` 输出 | 无 PAT 或 PAT 无 `read_repository`；`--token-file` 显式传 |
-| `pnpm install` 拉 git 依赖失败 | builder 阶段日志 | `pnpm-workspace.yaml` catalog 里的 git+https 依赖同样需要 GitLab 凭据 |
-| 容器退出 64 | `container.log` | task.json 缺 `id`/`prompt`，或路径没挂对 |
-| 容器退出 65 | `plugins.json`、`plugins-enable.log` | 白名单里的插件名拼错、同名多市场需要写 `name@marketplace` |
-| 422 / 模型不对 | `stderr.log`、`summary.json.source` | `defaultModelSelection` 不完整，重跑 `prepare-auth.mjs` 显式给 `--model --reasoning` |
-| 全部 401 / auth_failed | `stderr.log` | `ZCODE_EVAL_CREDENTIAL_SECRET` 与生成时不一致，或本机登录态已过期 |
-| `plugin_variable_missing` | `plugins.json` diagnostics | 运行时覆盖了 `ZCODE_BASE_URL` 为空 |
-| skill 没被调用 | `events.jsonl` 中 `tool.updated` | prompt 没点名插件/skill；或插件未在白名单 |
+| A construção trava no clone / 401 | saída de `build-image.sh` | sem PAT, ou o PAT não tem `read_repository`; passe explicitamente com `--token-file` |
+| O `pnpm install` falha ao buscar dependências git | log do estágio builder | dependências git+https do catálogo em `pnpm-workspace.yaml` também exigem credenciais do GitLab |
+| Container sai com 64 | `container.log` | task.json sem `id`/`prompt`, ou caminho montado errado |
+| Container sai com 65 | `plugins.json`, `plugins-enable.log` | nome de plugin digitado errado na allowlist, ouplugins de mesmo nome em vários mercados exigindo `name@marketplace` |
+| 422 / modelo errado | `stderr.log`, `summary.json.source` | `defaultModelSelection` incompleto; rode `prepare-auth.mjs` de novo passando `--model --reasoning` explicitamente |
+| Tudo retornando 401 / auth_failed | `stderr.log` | `ZCODE_EVAL_CREDENTIAL_SECRET` diferente do usado na geração, ou o estado de login local expirou |
+| `plugin_variable_missing` | diagnostics em `plugins.json` | em tempo de execução `ZCODE_BASE_URL` foi sobrescrito com valor vazio |
+| O skill não foi chamado | `tool.updated` em `events.jsonl` | o prompt não cita o plugin/skill, ou o plugin não está na allowlist |
 
-## 验证记录
+## Registro de Validação
 
-2026-09-14，macOS arm64 + OrbStack Docker 29，被测源码 `feat-cli-plugins-parity@bf05821832`：
+2026-09-14, macOS arm64 + OrbStack Docker 29, código sob teste `feat-cli-plugins-parity@bf05821832`:
 
-| 步骤 | 结果 |
+| Passo | Resultado |
 |---|---|
-| `build-image.sh --ref feat-cli-plugins-parity` | 成功；pnpm install 约 12 分钟，镜像 427 MB，烘入 23 个插件（CDN 19 + 内置 4），`plugins list --json` 无 error 诊断，121 个 skill |
-| `prepare-auth.mjs --provider ZAPI --model GLM-5.3-Highspeed --reasoning max` | 重加密 23 个凭据值，模型选择写入成功 |
-| `run-suite.sh --jobs 3`（三任务并行） | `finance-budget-variance` pass 22s，`builtin-docx-smoke` pass 38s（smoke.docx 9.4 KB 落盘），`finance-close-recap-mcp` xfail 32s |
+| `build-image.sh --ref feat-cli-plugins-parity` | sucesso; pnpm install levou cerca de 12 minutos, imagem de 427 MB, 23 plugins assados (19 do CDN + 4 embutidos), `plugins list --json` sem diagnóstico de erro, 121 skills |
+| `prepare-auth.mjs --provider ZAPI --model GLM-5.3-Highspeed --reasoning max` | 23 valores de credencial recifrados, escolha de modelo gravada com sucesso |
+| `run-suite.sh --jobs 3` (três tarefas em paralelo) | `finance-budget-variance` pass 22s, `builtin-docx-smoke` pass 38s (smoke.docx de 9.4 KB gravado), `finance-close-recap-mcp` xfail 32s |
 
-xfail 任务的模型回复明确说明 MCP 行情工具不可用并停止，没有用 Bash / curl 绕过；`toolCalls` 只有 Skill 与 Agent，无 MCP 工具，与「官方 MCP 在 headless 不可用」的已知限制一致。
+Na resposta do modelo da tarefa xfail ficou explícito que a ferramenta MCP de dados de mercado estava indisponível e o modelo parou, sem contornar com Bash/curl; `toolCalls` contém apenas Skill e Agent, sem ferramentas MCP, o que é coerente com a limitação conhecida de que o MCP oficial não funciona no headless.
 
-## 评测脚本复用
+## Reuso dos Scripts de Avaliação
 
-镜像内命令面兼容 `claude plugin`：`zcode plugins install|uninstall|enable|disable --all|update|validate|marketplace ...`，
-`zcode plugin` 为别名。参数与行为说明见 `docs/cli-plugins-command-parity.md`。同一套 task.json 换 CLI 二进制即可复用，
-差别只在 stream-json 事件字段名。
+A superfície de comandos dentro da imagem é compatível com `claude plugin`: `zcode plugins install|uninstall|enable|disable --all|update|validate|marketplace ...`,
+e `zcode plugin` é um alias. A descrição dos argumentos e do comportamento está em `docs/cli-plugins-command-parity.md`. O mesmo conjunto de task.json pode ser reaproveitado trocando o binário do CLI;
+a única diferença é o nome dos campos dos eventos stream-json.

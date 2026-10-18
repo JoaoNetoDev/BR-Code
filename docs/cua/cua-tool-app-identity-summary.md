@@ -1,15 +1,18 @@
-# CUA Tool App Identity Summary
+# Resumo da Identidade de App na Ferramenta CUA
 
-## 目标
+## Objetivo
 
-CUA 工具摘要在 Agent 已经通过 `list_apps` 观察到 App 身份、且后续调用显式携带 PID 时，
-从执行开始阶段显示目标 App 名称和图标，降低连续 CUA 操作的辨识成本。
+O resumo da ferramenta CUA exibe o nome e o ícone do App-alvo desde a fase de início da execução,
+quando o Agent já observou a identidade do App via `list_apps` e as chamadas seguintes carregam
+explicitamente o PID, reduzindo o custo de identificação de operações CUA consecutivas.
 
-## node_repl 时代的身份来源（2026-09-17）
+## Origem da identidade na era `node_repl` (2026-09-17)
 
-Computer Use 收成 `node_repl` 的 JS 面之后，模型可见的工具名只有 `mcp__node_repl__js`，
-本文下面「事实来源与时序」「CUA Tool Call Group」两节依赖的 `mcp__computer-use__*` 工具名判据
-全部失效，只对**历史会话回放**继续成立。新会话按本节投影。
+Depois que o Computer Use foi concolhido à superfície JS do `node_repl`, o único nome de ferramenta
+visível ao modelo passou a ser `mcp__node_repl__js`, e todo o critério baseado em nomes de ferramenta
+`mcp__computer-use__*` do qual as seções "Fontes de Fato e Temporalidade" e "CUA Tool Call Group"
+abaixo dependem deixou de valer, permanecendo válido apenas para **replay de sessões históricas**.
+Novas sessões seguem a projeção desta seção.
 
 ```text
 Helper application_info / capture
@@ -31,45 +34,55 @@ Core display `node_repl_images.app`
 Node REPL 工具卡 leading icon -> IPlatformService.getApplicationIcon(locator)
 ```
 
-- **信任边界**：身份只能由 node-repl-host 的 CUA bridge 在收到 broker 响应时记录。
-  `nodeRepl.setResponseMeta` 与 `nodeRepl.emitStructuredResult` 都挂在模型可见的 sandbox
-  globals 上，因此经这两条通道到达的 `zcode.cua/app-associations-v1` 一律**丢弃**，不得参与展示
-  （同 `zcode/nodeReplBrowserScreenshotContentIndices` 的既有处置）。宿主自己写的
-  `zcode/nodeReplCuaApp` 是唯一被 Core 消费的键。
-- **一个 cell 多次调用**：最后一个产生 `primary` 的 CUA 方法胜出，与 `_meta` 既有的
-  last-write-wins 语义一致。`request_access`、`stop_computer_control` 声明 `none`，
-  `list_apps` 声明 `items`，三者都不产生 `primary`，因此不会把前面的身份覆盖掉。
-- **图标解析**：`appKey` 按前缀派生 locator——`darwin:` → `darwin-bundle-id`，
-  `windows-aumid:` → `windows-aumid`，`windows-exe:` → `windows-executable-path`。
-  `linux-exe:` 没有对应 locator，与 Web/手机远控一样回退通用 Node REPL 图标。
-  producer `_meta` 里的内联 `icon` PNG **不投影**：会话协议不承载 data URL（见下节「协议与展示」），
-  且同一个 app 的图标会在长会话里逐步重复几十次。
-- **不在本次范围**：`app` 名称不进摘要行（`js` 的 `title` 已由模型描述本次动作，再拼一次 App 名会
-  重复）；`list_apps` 的 `items` 不投影（node_repl 下没有逐条列表卡）；CUA Group 分组仍然只对
-  历史会话成立。
+- **Fronteira de confiança**: a identidade só pode ser registrada pela CUA bridge do node-repl-host ao
+  receber a resposta do broker. `nodeRepl.setResponseMeta` e `nodeRepl.emitStructuredResult` estão
+  montados em globals de sandbox visíveis ao modelo, portanto qualquer `zcode.cua/app-associations-v1`
+  que chegue por esses dois canais é **descartado** e não pode participar da exibição (o mesmo
+  tratamento já aplicado a `zcode/nodeReplBrowserScreenshotContentIndices`). A chave
+  `zcode/nodeReplCuaApp`, escrita pelo próprio host, é a única consumida pelo Core.
+- **Múltiplas chamadas em uma mesma cell**: o último método CUA a produzir `primary` vence, coerente
+  com a semântica last-write-wins já existente em `_meta`. `request_access`,
+  `stop_computer_control` declaram `none` e `list_apps` declara `items`; nenhum dos três produz
+  `primary`, portanto não sobrescrevem a identidade anterior.
+- **Resolução de ícone**: o `appKey` deriva o locator por prefixo — `darwin:` →
+  `darwin-bundle-id`, `windows-aumid:` → `windows-aumid`, `windows-exe:` →
+  `windows-executable-path`. `linux-exe:` não tem locator correspondente e, assim como no controle
+  remoto Web/mobile, cai no ícone genérico do Node REPL. O PNG `icon` embutido no `_meta` do producer
+  **não é projetado**: o protocolo de sessão não transporta data URL (ver "Protocolo e Exibição"
+  abaixo), e o ícone do mesmo app se repetiria dezenas de vezes ao longo de uma sessão longa.
+- **Fora do escopo desta vez**: o nome `app` não entra na linha de resumo (o `title` do `js` já foi
+  descrito pelo modelo para esta ação, e repetir o nome do App seria redundante); os `items` de
+  `list_apps` não são projetados (não há card de listagem item a item sob `node_repl`); o agrupamento
+  CUA Group continua válido apenas para sessões históricas.
 
-## 事实来源与时序
+## Fontes de Fato e Temporalidade
 
-> 本节及「CUA Tool Call Group」按 `mcp__computer-use__*` 工具名分流，只对历史会话回放成立；
-> 新会话见上节。
+> Esta seção e "CUA Tool Call Group" são desviadas pelo nome de ferramenta `mcp__computer-use__*` e
+> valem apenas para replay de sessões históricas; para novas sessões, ver a seção acima.
 
 ```text
 list_apps #1 success ── snapshot #1 ── pid tool ── pid tool
 list_apps #2 success ── snapshot #2 ── pid tool ── ...
 ```
 
-- 快照范围是单个 task 的有序事件流；不得跨 task/session 复用。
-- 只有官方 CUA `list_apps` 成功结果整体替换快照；失败结果保留旧快照。
-- 后续官方 CUA tool scheduled 时，优先从输入中已有的 `app_ref.pid` 查询当前快照；没有
-  PID 时，再以 `bundle_id` 完全相等查询。`name` 不作为查询键。
-- `app_ref` / 等价 AppRef 位置同时接受结构化对象与可解析为对象的 JSON 字符串，与 CUA
-  执行层输入归一化保持一致；无效字符串不参与匹配。
-- 不从 `state_id` 反查，不为摘要隐式调用 `list_apps`，也不猜测截图、等待等全局操作的 App。
-- 冷恢复按同一事件日志重建快照；continuous 与 replayable 消费相同 `ToolCallRow` 事实。
+- O escopo do snapshot é o fluxo ordenado de eventos de uma única task; não pode ser reutilizado
+  entre tasks/sessões.
+- Apenas um resultado de sucesso do `list_apps` oficial do CUA substitui o snapshot por inteiro;
+  um resultado de falha preserva o snapshot antigo.
+- Quando uma tool CUA oficial seguinte é agendada, consulta-se primeiro o snapshot atual a partir do
+  `app_ref.pid` já presente na entrada; sem PID, consulta-se por `bundle_id` exatamente igual. `name`
+  não é usado como chave de busca.
+- `app_ref` / posição equivalente de AppRef aceita tanto objetos estruturados quanto strings JSON
+  parseáveis como objeto, mantendo consistência com a normalização de entrada da camada de execução
+  do CUA; strings inválidas não participam do casamento.
+- Não há busca reversa a partir de `state_id`, nenhuma chamada implícita a `list_apps` por causa do
+  resumo, e nenhuma adivinhação do App para operações globais como screenshot e espera.
+- A recuperação a frio reconstrói o snapshot pelo mesmo log de eventos; consumo continuous e replayable
+  consomem os mesmos fatos de `ToolCallRow`.
 
-## 协议与展示
+## Protocolo e Exibição
 
-`ToolCallRow` 可选携带：
+`ToolCallRow` pode carregar opcionalmente:
 
 ```ts
 cuaApp?: {
@@ -79,30 +92,44 @@ cuaApp?: {
 };
 ```
 
-展示身份优先采用同一次工具完成结果中的 App，其次采用 scheduled 时固化的 `cuaApp`，最后
-回退 `Computer Use`。匹配成功时显示 `App Icon + App Name + Action`；图标通过平台服务按
-`bundleId` 异步解析，不把 data URL 写入会话协议。平台不支持、无 bundle id 或图标读取失败时
-保留 CUA Icon，但仍显示 App 名称。
+A identidade exibida prioriza o App presente no resultado de conclusão da própria chamada, em
+segundo lugar o `cuaApp` fixado no momento do agendamento e, por fim, o fallback `Computer Use`. Em
+caso de match, exibe-se `App Icon + App Name + Action`; o ícone é resolvido de forma assíncrona pelo
+serviço de plataforma a partir do `bundleId`, sem gravar data URL no protocolo de sessão. Quando a
+plataforma não suporta, não há bundle id ou a leitura do ícone falha, o CUA Icon é mantido, mas o nome
+do App continua sendo exibido.
 
-### 元素动作目标标签
+### Rótulo de alvo da ação de elemento
 
-- 动作目标 tag 统一使用 `text-ui-sm`，作为 App/动作正文的次级紧凑信息。
-- `left_click`、`right_click` 和 `type` 完成后优先使用结果状态中目标元素的可读名称作为摘要 tag。
-- 若目标元素自身只有与 index 相同的数字占位名，可在结果状态的扁平元素列表中，读取其后到下一个可操作元素之前的连续文本节点并组合为标签。例如 `[59] 59 (pressable)` 后的“智谱 / 快速 / 订餐”显示为“智谱快速订餐”。
-- 该读取必须在下一个 `pressable` 或 `editable` 元素处停止，不能跨搜索结果拼接无关文本；无法得到可靠文本时继续回退到元素 index。
-- 最终只能回退到纯数字 index 时，摘要 tag 必须显示本地化的 `元素 #57` / `Element #57`，
-  不直接裸露 `57`；已解析出的可读元素名称保持不变。
+- A tag de alvo da ação usa uniformemente `text-ui-sm`, como informação secundária compacta do
+  corpo App/ação.
+- Após `left_click`, `right_click` e `type`, prioriza-se o nome legível do elemento-alvo no estado do
+  resultado como tag de resumo.
+- Se o elemento-alvo tiver apenas um nome-placeholder numérico igual ao index, é possível ler, na
+  lista plana de elementos do estado do resultado, os nós de texto contínuos do seu final até o
+  próximo elemento acionável e combiná-los em um rótulo. Por exemplo, após `[59] 59 (pressable)`, o
+  trecho "智谱 / 快速 / 订餐" é exibido como "智谱快速订餐".
+- Essa leitura deve parar no próximo elemento `pressable` ou `editable` e não pode concatenar textos
+  alheios atravessando resultados de busca; quando não for possível obter texto confiável, continua
+  recurrendo ao index do elemento.
+- Ao recorrer apenas ao index numérico puro, a tag de resumo deve exibir o `元素 #57` /
+  `Element #57` localizado, sem expor `57` diretamente; nomes legíveis de elementos já resolvidos
+  permanecem inalterados.
 
-### 展开时机
+### Momento da Expansão
 
-- 所有 CUA 工具在 `pending` / `running` 阶段只显示摘要，不提供展开入口，也不响应上层 `forceOpen`。
-- 工具进入完成态后，才允许按现有详情规则展开；失败截图没有图片数据时不渲染截图项目。
+- Todas as ferramentas CUA, nas fases `pending` / `running`, exibem apenas o resumo, sem oferecer
+  entrada de expansão e sem responder a `forceOpen` da camada superior.
+- Só após a ferramenta entrar no estado de conclusão é permitido expandir pelas regras de detalhe
+  existentes; screenshots de falha sem dados de imagem não renderizam o item de screenshot.
 
 ## CUA Tool Call Group
 
-CUA Group 是 V4 renderer-only 展示投影，但分组所需的 response 归属是协议事实。V4
-`ReasoningRow`、`AssistantTextRow` 与 `ToolCallRow` 通过可选 `assistantResponseId` 指向 runtime 已有的
-`assistantMessageId`；桌面 continuous 与手机 replayable 从同一有序 row 事实确定性构造 Group。
+O CUA Group é uma projeção de exibição renderer-only do V4, mas a atribuição de response necessária
+para o agrupamento é um fato de protocolo. No V4, `ReasoningRow`, `AssistantTextRow` e `ToolCallRow`
+apontam, via `assistantResponseId` opcional, para o `assistantMessageId` já existente no runtime;
+o continuous do desktop e o replayable do mobile constroem o Group de forma determinística a partir
+dos mesmos fatos ordenados de rows.
 
 ```text
 Assistant response start
@@ -119,76 +146,109 @@ turn / work segment / user boundary
                  ── 强制关闭 Group
 ```
 
-- 单个官方 CUA 也形成 Group；第三方同名 MCP 不参与。
-- Group 的稳定身份与位置锚定首个含官方 CUA 的 Assistant response，key 使用其
-  `assistantResponseId`，不再锚定 tool call。tool-only response 才以第一条 CUA 作为视觉 fallback。
-- response start 时 reasoning 与正文始终在原位流式显示，不创建、关闭或暂挂进 CUA Group；
-  同 response 的官方 CUA 到达后，reasoning、正文与容器才从外部移除并整体进入 Group。
-- 非 CUA到达时正文保持外部并关闭旧 Group；response 完成且仍无 tool 时才确认 text-only
-  并关闭旧 Group。未分类 streaming message 不进入滚动摘要。
-- response 确认为纯 CUA 后，外部 Assistant render item 必须整体删除，包括 RowShell、间距和
-  actions 容器；展开 Group 时由同一 row 在内部渲染一份完整 message 容器，不允许只搬正文而留下空壳。
-- 外层 flow 投影中的 history chunk 还必须经过内层可见性与工具分组投影；若投影后没有
-  任何可渲染项，则不得创建 `CollapsibleContent`、内边距或 work-items 容器。这保证
-  CUA 消费 message 或运行中工具延迟分类时，不会在 Group 外留下可占据间距的空 history 结构。
-- `request_access`、`list_apps` 与其他官方 `mcp__computer-use__*` 一视同仁。第三方同名 MCP 按
-  非 CUA tool 处理。marker、todo/status 不加入且不主动关闭 Group。
-- 旧快照缺少 `assistantResponseId` 时只聚合 CUA tools，不猜相邻 reasoning/message，保持兼容降级。
-- 活动 Group 和关闭后的 Group 都允许用户点击或键盘展开全部 CUA children；活动 Group 仍忽略
-  上层 `forceOpen`，避免运行中被动自动展开，但不再禁用手动展开入口。
-- 展开明细使用固定最大高度的内部滚动视口；首次展开、追加 child 或明细高度变化时始终滚动
-  到底部，让最新 CUA 事件保持可见，且不推动外层 conversation 无限增高。
-- 内部滚动视口复用 Thinking 的条件式上下边缘 mask：只有对应方向仍有隐藏内容时才显示
-  24px 渐隐，滚动到顶部或底部时移除该侧 mask，明暗主题使用同一透明度语义。
-- 运行中的折叠摘要为 `<滚动内容> · N events[, M messages]`；完成后固定收敛为
-  `<CUA Icon> Computer Use · N events, M messages`，不再保留最后一次 App/动作内容。完成态始终
-  产品名走 locale，英文显示 `Computer Use`、中文显示 `电脑控制`；并显示 message 计数，包括 `M=0`。
-  `N` 统计 Group 内当前可见的 reasoning、CUA 与 Assistant
-  message；被“显示思考过程”隐藏的 reasoning 不计数，首条 reasoning 仍沿用全局可见性合同。
-  `M` 只统计 Assistant message；单复数和中文量词走 i18n。分隔点和计数不用空格字符拼接，
-  而是按独立布局节点展示。
-- 完成态 CUA Icon 走普通 tool summary 的 leading icon 槽位，颜色与其他 tool icon 一致使用
-  `text-foreground-subtlest`；完成态不再经过滚动摘要容器，避免空 primary slot 在产品名和分隔点
-  之间叠加额外间距。运行态 App/CUA icon 仍属于滚动内容，不参与文字渐变。
-- 滚动内容只投影终态 CUA：无 App 身份时显示 `CUA Icon + Computer Use + Action`；有身份时
-  显示 `App Icon + App Name + Action`。Assistant message 不进入滚动候选、不触发滚动动画；它仍
-  计入 events/messages，并在展开时间线用次要文字色显示正文、不重复显示图标。App 图标
-  失败只回退图标，不丢失 App 名称。
-- CUA 摘要中的动态动作文案必须使用已声明的中英文 locale key。`key` 与 `hold_key`
-  在输入包含组合键时显示本地化动作加组合键 tag；`list_windows` 在完成结果可解析数量时
-  显示本地化窗口数量，任何渲染路径都不得向用户泄露 message id。
-- Group summary 的 App/CUA 图标统一放入
-  `shrink-0 size-4 flex items-center justify-center [&_svg]:size-4` 容器：CUA fallback SVG
-  保持 `size-4`；真实 App Icon 由 `CuaAppSummaryIcon` 在 Group 投影时显式接收 `size-5`，
-  不使用父级 descendant selector 覆盖其默认 `size-4`。两者都不参与文字压缩；
-  图标容器与滚动文字之间使用 `gap-2`。
-- Group 展开后的子 CUA tool 同样通过明确的 render context 传入 App Icon `size-5`；
-  子 tool renderer 同时为图标增加 `shrink-0 size-4 flex items-center justify-center`
-  固定父容器，让 20px App Icon 以 16px 占位居中显示。普通独立 CUA tool 仍使用
-  默认 `size-4`，不额外包裹该容器；两者都不使用 CSS descendant selector 覆盖图片尺寸。
-- 虚拟父节点为 `in_progress` 时，滚动摘要中的 App 名称与动作使用 CUA 专属旧版快速
-  宽光带：`1s / 200% / 40%–60% 弱色带 / 0.5s delay`。图标、分隔符、计数和失败状态不参与
-  动画；reduced-motion 下关闭滚动和渐变。
-- 滚动项只消费终态 CUA child：`success / error / cancelled` 经 legacy adapter 分别对应
-  `completed / failed / stopped`。Assistant message 的 streaming、完成或失败状态都不产生滚动
-  key；其他活动 CUA 和 message 都不覆盖上一条终态工具摘要。
-- 业务失败属于终态并进入滚动队列，但长错误只出现在 tooltip 和详情中。
-- 滚动复用 Explore 的实时更新播放语义；冷恢复直接显示最后一个终态项，不补播历史动画。
-- 展开明细按 response/part 原始顺序混合显示：reasoning 复用现有折叠式 Reasoning 组件和
-  可见性规则，但 Group 已承担父级边界，因此展开的子思考内容不重复显示左导线与左缩进；CUA
-  复用现有工具详情；Assistant message 使用无图标轻量正文行，不附带最终正文的
-  copy/fork/retry/preview actions。
-- 主 turn flow 与 history/background-result 兼容工作项路径必须向同一个 CUA Group renderer
-  传递完整 `events`。兼容路径不能只传虚拟父节点，否则其中的 Assistant message 会在被
-  外层投影消费后从展开时间线消失。
-- CUA 子工具详情中的“原始数据”必须展示完整 `toolCall` JSON，而不是只拆出 input/output；
-  `toolId`、工具名称、状态、`raw.display`、`v4Status` 和流式元数据属于排障所需事实。
-  完整数据放在二级 disclosure 中，默认保持折叠，避免影响常规详情的可读性。
-- Group 不跨 user input、turn、work segment、workspace 或 session。
+- Um único CUA oficial também forma um Group; MCP de terceiros com o mesmo nome não participa.
+- A identidade estável do Group e seu positionamento são ancorados no primeiro Assistant response que
+  contenha CUA oficial, usando o `assistantResponseId` dele como key; deixa de ser ancorado na tool
+  call. Apenas responses somente de tools usam a primeira CUA como fallback visual.
+- No início do response, o reasoning e o corpo sempre aparecem em fluxo no lugar original, sem criar,
+  fechar ou suspender dentro de um CUA Group; quando a CUA oficial do mesmo response chega, o
+  reasoning, o corpo e o contêiner são removidos de fora e entram inteiramente no Group.
+- Quando chega algo não-CUA, o corpo permanece fora e o Group antigo é fechado; o text-only só é
+  confirmado e o Group antigo fechado quando o response é concluído e ainda não tem tools. Mensagens
+  em streaming não classificadas não entram no resumo de rolagem.
+- Depois que o response é confirmado como CUA puro, o item de render Assistant externo deve ser
+  removido por inteiro, incluindo RowShell, espaçamentos e contêiner de actions; ao expandir o Group, a
+  mesma row renderiza internamente um contêiner de mensagem completo, não sendo permitido mover
+  apenas o corpo e deixar uma casca vazia.
+- O history chunk na projeção de flow externo também deve passar pela projeção interna de
+  visibilidade e agrupamento de ferramentas; se após a projeção não houver nenhum item renderizável,
+  não se deve criar `CollapsibleContent`, padding nem contêiner de work-items. Isso garante que o
+  consumo CUA de uma message ou o atraso de classificação de ferramenta em execução não deixe uma
+  estrutura de history vazia capaz de ocupar espaçamento fora do Group.
+- `request_access`, `list_apps` e os demais `mcp__computer-use__*` oficiais são tratados por igual. MCP
+  de terceiros com o mesmo nome é tratado como tool não-CUA. Marker e todo/status não entram no
+  Group nem o fecham ativamente.
+- Quando snapshots antigos não têm `assistantResponseId`, apenas as CUA tools são agregadas, sem
+  adivinhar reasoning/message adjacentes, mantendo o fallback de compatibilidade.
+- Tanto o Group ativo quanto o Group já fechado permitem que o usuário expanda todos os filhos CUA por
+  clique ou teclado; o Group ativo continua ignorando `forceOpen` da camada superior, evitando a
+  expansão automática passiva durante a execução, mas sem desabilitar mais a entrada de expansão
+  manual.
+- Os detalhes expandidos usam um viewport interno de rolagem com altura máxima fixa; na primeira
+  expansão, ao adicionar um filho ou quando a altura dos detalhes muda, a rolagem sempre vai ao fim,
+  mantendo o evento CUA mais recente visível e sem fazer a conversation externa crescer sem limite.
+- O viewport interno de rolagem reaproveita a máscara condicional de bordas superior/inferior do
+  Thinking: o gradiente de 24px só aparece quando ainda há conteúdo oculto naquela direção, e é
+  removido ao rolar até o topo ou o fim; os temas claro e escuro usam a mesma semântica de opacidade.
+- O resumo recolhido em execução é `<conteúdo rolável> · N events[, M messages]`; após a conclusão,
+  converge de forma fixa para `<CUA Icon> Computer Use · N events, M messages`, sem manter o último
+  conteúdo de App/ação. No estado concluído o nome de produto sempre segue o locale: em inglês exibe
+  `Computer Use`, em chinês exibe `电脑控制`; e exibe a contagem de messages, incluindo `M=0`. `N`
+  conta o reasoning, o CUA e as Assistant messages atualmente visíveis dentro do Group; reasoning
+  oculto por "mostrar processo de pensamento" não conta, e o primeiro reasoning continua seguindo o
+  contrato global de visibilidade. `M` conta apenas Assistant messages; plural e quantificador chinês
+  passam por i18n. O ponto separador e as contagens não são concatenados com caractere de espaço, mas
+  exibidos como nós de layout independentes.
+- O CUA Icon no estado concluído ocupa o slot de leading icon do resumo comum de tool, com cor igual
+  à dos demais tool icons usando `text-foreground-subtlest`; o estado concluído não passa mais pelo
+  contêiner de resumo rolável, evitando que um primary slot vazio adicione espaçamento extra entre o
+  nome de produto e o ponto separador. No estado em execução, o App/CUA icon continua pertencendo ao
+  conteúdo rolável e não participa do gradiente de texto.
+- O conteúdo rolável projeta apenas CUA em estado final: sem identidade de App exibe
+  `CUA Icon + Computer Use + Action`; com identidade exibe `App Icon + App Name + Action`. Assistant
+  messages não entram como candidatas de rolagem nem disparam animação de rolagem; continuam
+  contando em events/messages e são exibidas na linha do tempo expandida com cor de texto secundária,
+  sem repetir o ícone. Falha no App icon só recorre ao ícone, sem perder o nome do App.
+- O texto de ação dinâmico no resumo CUA deve usar as locale keys de zh/en já declaradas. `key` e
+  `hold_key`, quando a entrada contém teclas combinadas, exibem a ação localizada mais a tag de teclas
+  combinadas; `list_windows` exibe a contagem localizada de janelas quando a quantidade é parseável no
+  resultado, e nenhum caminho de renderização pode vazar message id para o usuário.
+- Os ícones App/CUA do Group summary são colocados uniformemente em um contêiner
+  `shrink-0 size-4 flex items-center justify-center [&_svg]:size-4`: o SVG de fallback do CUA
+  mantém `size-4`; o App Icon real recebe explicitamente `size-5` de `CuaAppSummaryIcon` no momento da
+  projeção do Group, sem usar o descendant selector do pai para sobrescrever seu `size-4` padrão.
+  Nenhum dos dois participa da compressão de texto; usa-se `gap-2` entre o contêiner do ícone e o texto
+  rolável.
+- As CUA tools filhas depois de o Group ser expandido também recebem o App Icon `size-5` por meio de
+  um render context explícito; o renderer da tool filha adiciona ao ícone um contêiner pai fixo
+  `shrink-0 size-4 flex items-center justify-center`, para que o App Icon de 20px seja exibido
+  centralizado em um slot de 16px. A tool CUA isolada comum continua usando o `size-4` padrão, sem
+  esse contêiner extra; nenhuma das duas usa descendant selector de CSS para sobrescrever o tamanho
+  da imagem.
+- Quando o pai virtual está `in_progress`, o nome do App e a ação no resumo rolável usam a faixa de
+  brilho rápida legada exclusiva do CUA: `1s / 200% / faixa fraca 40%–60% / 0.5s delay`. Ícones,
+  separadores, contagens e estados de falha não participam da animação; com reduced-motion a rolagem e
+  o gradiente são desligados.
+- Itens de rolagem consomem apenas filhos CUA em estado final: `success / error / cancelled` correspondem,
+  via adaptadores legados, a `completed / failed / stopped`. Os estados de streaming, conclusão ou falha
+  de Assistant messages não geram chave de rolagem; outras CUA ativas e messages não sobrescrevem o
+  resumo da última tool em estado final.
+- Falha de negócio é estado final e entra na fila de rolagem, mas erros longos aparecem apenas em
+  tooltip e detalhes.
+- A rolagem reaproveita a semântica de reprodução de atualizações ao vivo do Explore; a recuperação a
+  frio exibe diretamente o último item final, sem reproduzir animações históricas.
+- Os detalhes expandidos exibem em ordem original de response/part: o reasoning reaproveita o
+  componente de Reasoning existente e as regras de visibilidade, mas como o Group já atua como
+  fronteira de pai, o conteúdo de pensamento expandido não repete o fio e a indentação à esquerda; o
+  CUA reaproveita os detalhes de tool existentes; Assistant messages usam uma linha leve de corpo sem
+  ícone e sem as actions de copy/fork/retry/preview do corpo final.
+- O fluxo principal de turn e o caminho de work items de compatibilidade history/background-result
+  devem passar ao mesmo renderer de CUA Group os `events` completos. O caminho de compatibilidade não
+  pode passar apenas o pai virtual, senão as Assistant messages desaparecem da linha do tempo expandida
+  após serem consumidas pela projeção externa.
+- Os "dados brutos" nos detalhes das CUA subferramentas devem exibir o JSON `toolCall` completo, e não
+  apenas input/output separados; `toolId`, nome da ferramenta, status, `raw.display`, `v4Status` e os
+  metadados de streaming são fatos necessários para diagnóstico. Os dados completos ficam em uma
+  disclosure de segundo nível, colapsados por padrão, para não comprometer a legibilidade do detalhe
+  comum.
+- O Group não atravessa user input, turn, work segment, workspace nem session.
 
-## 兼容与失败语义
+## Compatibilidade e Semântica de Falha
 
-- 旧快照没有 `cuaApp` 时保持现有摘要。
-- Linux 的 `bundle_id` 可为空，名称仍可使用；Windows 的 `bundle_id` 可能是 AUMID。
-- PID 在两次显式 `list_apps` 之间被视为 Agent 最近观察到的事实；系统变化不会触发隐式刷新。
-- 第三方 MCP 即使工具名相似，也不得获得官方 CUA 身份投影。
+- Quando o snapshot antigo não tem `cuaApp`, o resumo atual é mantido.
+- No Linux, `bundle_id` pode ser vazio e o nome ainda pode ser usado; no Windows, `bundle_id` pode ser
+  um AUMID.
+- O PID é tratado, entre dois `list_apps` explícitos, como o fato mais recentemente observado pelo
+  Agent; mudanças no sistema não disparam refresh implícito.
+- MCP de terceiros, mesmo com nome de ferramenta semelhante, não pode receber a projeção de identidade
+  oficial do CUA.

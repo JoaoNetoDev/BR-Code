@@ -1,52 +1,52 @@
-# Todo 90：统一添加、编辑模型的智能配置与草稿行为
+# Todo 90: unificação da configuração inteligente e do comportamento de rascunho ao adicionar/editar modelos
 
-> 后续裁决（2026-09-11）：[Todo130](todo-130-manual-model-config-editable-field-boundary.md) 已取代本文中“推荐未就绪禁用开关／手动整份配置固化与完整校验”的相关规则：仅保存中禁用，手动只要求可编辑字段，系统字段继续解析。**Todo130 待执行**；下文旧实现与验收保留为历史，不代表新语义已经落地。
+> Decisão posterior (2026-09-11): o [Todo130](todo-130-manual-model-config-editable-field-boundary.md) substituiu neste documento as regras de "desabilitar o interruptor enquanto a recomendação não está pronta / congelar e validar integralmente a configuração manual": apenas desabilita durante o salvamento, o manual exige somente os campos editáveis e os campos de sistema continuam sendo resolvidos. **O Todo130 ainda precisa ser executado**; a implementação e a aceitação antigas abaixo são preservadas como histórico e não representam a semântica nova já em vigor.
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização da atribuição de verificação (2026-09-09): a dívida de testes remanescentes, falhas e promoções manuais deste documento foram transferidas de forma unificada para o [Todo102](todo-102-verification-debt-closeout.md), encerrando a escala de verificação independente aqui; as evidências históricas são preservadas, e a transferência não significa que os testes passaram.
 
-> 状态：已实现并完成 Pro 联合验收，见第 8 节。推荐提示文案已完成（`8fba2cb9dc`）。2026-09-08。
+> Status: implementado e com aceitação conjunta no Pro, veja a seção 8. O texto do aviso de recomendação foi concluído (`8fba2cb9dc`). 2026-09-08.
 >
-> 核对基线：`c3e5fb37c2`，`provider-refactor-e2e-recovery`。
+> Baseline de conferência: `c3e5fb37c2`, `provider-refactor-e2e-recovery`.
 
-## 1. 目标与现状
+## 1. Objetivo e situação atual
 
-添加模型也能选择“智能配置”（原“跟随推荐配置”）。添加和编辑共用配置草稿及交互，不再因入口不同出现不同的推荐配置行为。
+A adição de modelos também pode escolher a "configuração inteligente" (antes "seguir a configuração recomendada"). Adicionar e editar compartilham o rascunho de configuração e a interação, e não devem mais apresentar comportamentos diferentes de configuração recomendada por causa de entradas distintas.
 
-2026-09-08 最终补充：保留开关，不替换成“恢复默认”；关闭后不再按模型 ID 匹配推荐，所有配置必填，不显示个人覆盖边框。模式、完整性与保存由本项负责，最终控件样式见 [Todo92](todo-92-model-smart-config-and-override-feedback.md)。本段及下文更新替代此前“固定模式仍先按新 ID 解析”的方案。
+Complemento final de 2026-09-08: manter o interruptor, sem substituí-lo por "restaurar padrões"; após desligá-lo, não há mais correspondência de recomendação por ID de modelo, todos os campos de configuração passam a ser obrigatórios e a borda de cobertura pessoal não é exibida. Modo, integridade e salvamento são responsabilidade deste item; o estilo final dos controles está no [Todo92](todo-92-model-smart-config-and-override-feedback.md). Este parágrafo e as atualizações abaixo substituem a proposta anterior de "no modo fixo ainda resolver primeiro pelo novo ID".
 
-当前已确认三个缺口：
+Três lacunas estão confirmadas hoje:
 
-1. `ProviderModelMetadataDialog.tsx` 只在 `mode === "edit" && inheritedConfig` 时显示开关，添加即使命中推荐配置也看不到。
-2. 添加链路只传模型配置，没有贯穿保存 `useRecommendedConfig`。不能只显示开关而不保存模式。
-3. 添加时修改 ID 会无条件清空 Context、Max Output 输入；编辑时没有这一步。两处草稿更新逻辑分离，需要按统一规则收口。
+1. `ProviderModelMetadataDialog.tsx` só mostra o interruptor quando `mode === "edit" && inheritedConfig`; na adição, mesmo atingindo uma configuração recomendada, ele não aparece.
+2. O fluxo de adição só passa a configuração do modelo, sem propagar o salvamento de `useRecommendedConfig`. Não se pode exibir o interruptor sem salvar o modo.
+3. Alterar o ID na adição limpa incondicionalmente os campos Contexto e Max Output; na edição não há esse passo. As duas lógicas de atualização de rascunho estão separadas e precisam ser fechadas por uma regra unificada.
 
-个人新增模型在编辑时允许改 ID；继承模型才只读。因此“修改模型 ID”不是添加独有的场景。此前讨论中“添加独有”的说法作废。
+Modelos pessoais novos podem ter o ID alterado na edição; apenas modelos herdados são somente leitura. Portanto, "alterar o ID do modelo" não é um cenário exclusivo da adição. A afirmação de que isso é "exclusivo da adição", feita em discussões anteriores, fica sem efeito.
 
-## 2. 已确认的产品规则
+## 2. Regras de produto confirmadas
 
-### 2.1 只保留必要差异
+### 2.1 Manter apenas as diferenças necessárias
 
-| 内容     | 添加                                     | 编辑                                 |
-| -------- | ---------------------------------------- | ------------------------------------ |
-| 初始化   | 新模型草稿，默认跟随推荐                 | 已保存的个人配置、模式和本次编辑基线 |
-| 模型 ID  | 必须输入，保存时检查重复                 | 个人成员可改；继承成员只读           |
-| 保存效果 | 创建个人成员及其配置、模式，保留已有排序 | 更新配置、模式；改 ID 时原子重命名   |
+| Conteúdo    | Adicionar                                                                 | Editar                                          |
+| ----------- | ------------------------------------------------------------------------- | ----------------------------------------------- |
+| Inicialização | Rascunho do novo modelo, por padrão seguindo a recomendação               | Config pessoal salva, modo e baseline desta edição |
+| ID do modelo | Obrigatório, com verificação de duplicidade ao salvar                    | Membro pessoal editável; membro herdado somente leitura |
+| Efeito do salvamento | Cria o membro pessoal com sua configuração e modo, preservando a ordenação existente | Atualiza configuração e modo; renomeação atômica ao mudar o ID |
 
-推荐配置解析、切换模式、字段编辑、校验、取消和失败保留草稿，全部共用。保留必要的 `add/edit` 身份信息，不把它作为推荐开关或配置转换的分叉条件。
+A resolução da configuração recomendada, a troca de modo, a edição de campos, a validação, o cancelamento e a preservação do rascunho em caso de falha são todos compartilhados. Mantém-se a informação de identidade `add/edit` necessária, sem usá-la como condição de bifurcação para o interruptor de recomendação ou para a conversão de configuração.
 
-### 2.2 开关与草稿
+### 2.2 Interruptor e rascunho
 
-- 开关继续放在保存、取消同一操作行，复用现有国际化 key 与 Switch，名称改为“智能配置”（`Smart configuration`），不恢复“全部重置”按钮。说明为“根据模型 ID 自动匹配推荐配置，允许单独修改。”，英文见 Todo92。
-- 是否可用取决于当前 ID 是否已解析出推荐基线，不取决于添加还是编辑，也不按 Provider 品牌判断。
-- 新增尚无 ID、解析尚未就绪时，显示默认开启但禁用的开关；确认没有推荐基线时，不提供此开关。暂未加载不能误当作“确定无推荐”。
-- 关闭跟随：把当前草稿的有效配置完整填入编辑器管理字段，保留已编辑内容，不复制整份 Provider/Account 配置。
-- 关闭后所有模型配置必须完整：显示真实填写值，不再显示推荐 placeholder；数值/Mapping 为空不借 inheritedConfig 补齐。false 是有效值，合法 {} 也有效。隐藏能力和已有效的请求配置保持完整；字段未就绪时不伪造完整快照。
-- 固定模式不按模型 ID 查找或更新推荐配置，改 ID 不重新匹配。推荐更新不能影响固定字段；服务端保存和运行解析同样不能把缺字段的固定配置悄悄用推荐值补成完整。
-- 重新开启：清除编辑器管理范围内的个人覆盖，恢复当前 ID 的推荐配置；随后新编辑的字段仍应正常保存，不能被“恢复推荐”动作一并清掉。
-- 只修改草稿。点击保存才持久化；取消不写入，失败保留草稿。沿用 Todo 89 的版本冲突、保存期间禁止重复提交/关闭等规则。
-- 模型启停不属于这个开关：编辑保留原 enabled，添加沿用创建时 enabled=true；不借模式切换修改启停。
+- O interruptor continua na mesma linha de ação de salvar/cancelar, reutilizando a chave de i18n existente e o Switch; o nome passa a ser "Configuração inteligente" (`Smart configuration`), sem restaurar o botão "redefinir tudo". A descrição é "Compara automaticamente com a configuração recomendada pelo ID do modelo e permite modificações individuais.", em inglês no Todo92.
+- A disponibilidade depende de o ID atual já ter resolvido uma baseline recomendada, e não de ser adição ou edição, nem da marca do Provider.
+- Para um modelo novo, ainda sem ID, com a resolução pendente, exibe-se o interruptor ligado por padrão, porém desabilitado; quando se confirma que não há baseline recomendada, o interruptor nem é oferecido. "Ainda não carregado" não pode ser confundido com "com certeza não há recomendação".
+- Ao desligar o acompanhamento: preenche integralmente os campos gerenciados pelo editor com a configuração efetiva atual do rascunho, preservando o conteúdo já editado, sem copiar a configuração inteira de Provider/Account.
+- Depois de desligado, toda a configuração do modelo precisa estar completa: exibe-se o valor realmente preenchido, e não mais o placeholder da recomendação; valores numéricos e Mapping vazios não são completados via inheritedConfig. `false` é um valor válido, e um `{}` legítimo também é válido. Capacidades ocultas e requisições de configuração já válidas permanecem completas; quando um campo ainda não está pronto, não se fabrica um snapshot completo.
+- No modo fixo não se busca nem se atualiza a configuração recomendada por ID de modelo, e mudar o ID não refaz a correspondência. Uma atualização da recomendação não pode afetar campos fixos; da mesma forma, o salvamento no servidor e a resolução em execução não podem completar silenciosamente uma configuração fixa incompleta com valores recomendados.
+- Ao religar: limpa as coberturas pessoais dentro do escopo gerenciado pelo editor e restaura a configuração recomendada do ID atual; os campos editados depois disso devem continuar sendo salvos normalmente, sem serem apagados pela ação de "restaurar recomendação".
+- Apenas o rascunho é modificado. A persistência ocorre ao clicar em salvar; cancelar não escreve nada, e uma falha preserva o rascunho. Reutilizam-se as regras do Todo 89 para conflito de versão, proibição de envio duplicado/fechamento durante o salvamento etc.
+- Ativar/desativar o modelo não faz parte deste interruptor: na edição o `enabled` original é preservado, e na adição vale `enabled=true` da criação; a troca de modo não altera a ativação.
 
-### 2.3 修改模型 ID 的统一规则
+### 2.3 Regra unificada para alterar o ID do modelo
 
 ```text
 添加 / 编辑个人模型：ID 从 A 改成 B
@@ -60,11 +60,11 @@
   保留明确的个人覆盖          不自动重新开启智能配置
 ```
 
-“改 ID”与“主动重新开启跟随”不是同一个动作：前者保留个人覆盖，后者清除覆盖。不要把个人覆盖恰好等于 A 推荐值当作没有覆盖；依据是个人草稿，而不是对 Effective 值反向猜测。
+"Trocar o ID" e "reativar conscientemente o acompanhamento" não são a mesma ação: a primeira preserva as coberturas pessoais, a segunda as limpa. Não se deve considerar que uma cobertura pessoal sem override apenas porque ela coincide com o valor recomendado de A; o critério é o rascunho pessoal, e não inferir retroativamente a partir do valor efetivo.
 
-两个入口都不得因改 ID 无条件清空 Context、Max Output 或其他已填写字段。固定模式只有完整配置通过校验才允许保存；不得偷偷用 B 的推荐值补成“固定配置”。
+Nenhuma das duas entradas pode limpar incondicionalmente Contexto, Max Output ou outros campos já preenchidos ao mudar o ID. No modo fixo, só é permitido salvar após a configuração completa passar pela validação; é proibido completar às escondidas a "configuração fixa" com os valores recomendados de B.
 
-异步处理共用现有 `useModelConfigResolution`，不用第二套计时或重试机制：
+O tratamento assíncrono reutiliza o `useModelConfigResolution` existente, sem um segundo mecanismo de temporização ou retentativa:
 
 ```text
 请求 A -> 改为 B -> 请求 B -> B 返回：应用
@@ -75,111 +75,111 @@
 关闭模式保存 -> 校验完整个人草稿/身份/版本 -> 原子提交
 ```
 
-覆盖 A→B→A、返回原 ID、同 ID 但 Provider 不同及开启→关闭→开启等边界。旧回包、旧推荐或之前一次弹窗的结果不能参与当前保存；开启模式解析失败保留输入并允许重试/取消，不使用过期结果假装成功。固定模式不因推荐服务失败而阻止完整个人配置保存，但正式身份、权限、重复成员和版本校验保持不变。
+Cobrir os casos A→B→A, retorno ao ID original, mesmo ID com Provider diferente e ligar→desligar→ligar, entre outros. Respostas antigas, recomendações antigas ou o resultado de uma abertura anterior do diálogo não podem participar do salvamento atual; se a resolução no modo ligado falhar, preserva-se a entrada e são permitidos retentativa/cancelamento, sem usar resultado vencido para fingir sucesso. O modo fixo não bloqueia o salvamento de uma configuração pessoal completa por falha do serviço de recomendação, mas as validações de identidade oficial, permissões, membro duplicado e versão permanecem inalteradas.
 
-### 2.4 推荐配置匹配提示文案
+### 2.4 Texto do aviso de correspondência da configuração recomendada
 
-- 2026-09-08 文案追加裁决：中文统一为“已匹配到智能配置”，替代“已为模型匹配到推荐配置”。
-- 英文同步为 `Smart configuration matched for this model`。
-- 复用现有国际化 key `settings.modelProvider.modelDefaultsLoaded`，不因文案变化增加新的状态或判断。
-- 此子项只修改提示文案，不改变推荐配置解析、提示出现/消失时机、跟随模式或保存行为。
+- Decisão adicional de texto em 2026-09-08: em chinês, unificar como "已匹配到智能配置", substituindo "已为模型匹配到推荐配置".
+- Em inglês, sincronizar para `Smart configuration matched for this model`.
+- Reutilizar a chave de i18n existente `settings.modelProvider.modelDefaultsLoaded`; a mudança de texto não adiciona novos estados ou verificações.
+- Este subtipo altera apenas o texto do aviso; não muda a resolução da configuração recomendada, o momento de exibição/ocultação do aviso, o modo de acompanhamento nem o comportamento de salvamento.
 
-## 3. 实现范围与状态归属（Impact Brief）
+## 3. Escopo de implementação e atribuição de estado (Impact Brief)
 
-模式：planning。改动层：presentation、draft-default、validation、commit-effect、persistence；不涉及会话恢复。
+Modo: planning. Camadas alteradas: presentation, draft-default, validation, commit-effect, persistence; não envolve restauração de sessão.
 
-| 入口                | 共享实现/草稿所有者                                       | 推荐与校验来源                                         | 提交及持久化                                                               | 端与隔离                             |
-| ------------------- | --------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------- | ------------------------------------ |
-| Provider 内添加模型 | ProviderModelsSection → 公共配置编辑逻辑/弹窗；本次新草稿 | 目标 Host resolveModelConfig；公共草稿转换和服务端校验 | addPersonalModel 贯穿配置模式，ConfigService 单次 Personal Repository 更新 | Desktop/Web 共用；写目标 Environment |
-| 编辑个人模型        | ModelRowInput → 同一公共编辑逻辑/弹窗；已有配置初始化     | 同上；保留基线 revision 和重命名校验                   | savePersonalModelDraft；配置、模式及必要重命名原子提交                     | 不能影响其他 Provider/其他模型       |
-| 编辑继承模型        | 同上，ID 只读                                             | 当前继承基线；成员权限独立判断                         | 同一模型配置保存；不修改继承成员身份                                       | Account、模板继承均遵守成员归属      |
+| Entrada                | Implementação compartilhada / dono do rascunho                                    | Origem da recomendação e da validação                            | Commit e persistência                                                                        | Plataforma e isolamento                             |
+| ----------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Adicionar modelo no Provider | ProviderModelsSection → lógica/diálogo comum de edição de configuração; novo rascunho nesta rodada | resolveModelConfig do Host de destino; conversão de rascunho comum e validação do servidor | addPersonalModel propaga o modo de configuração; ConfigService faz uma única atualização do Personal Repository | Desktop/Web compartilhado; escreve no Environment de destino |
+| Editar modelo pessoal   | ModelRowInput → mesma lógica/diálogo comum de edição; inicialização a partir da configuração existente | Igual acima; preserva o revision de baseline e a validação de renomeação | savePersonalModelDraft; commit atômico de configuração, modo e renomeação necessária           | Não pode afetar outros Providers / outros modelos   |
+| Editar modelo herdado    | Igual acima, com ID somente leitura                                                 | Baseline herdado atual; permissão de membro verificada de forma independente | Mesmo salvamento de configuração do modelo; não altera a identidade do membro herdado       | Respeita a atribuição de membro em Account e herança de template |
 
-### 3.1 公共逻辑与保存边界
+### 3.1 Lógica comum e fronteira de salvamento
 
-- 提取真实重复的草稿初始化、模式转换、ID 变化后的推荐投影和提交校验；保留创建/更新的薄入口，不做通用 CRUD 或庞大的表单框架。
-- 运行时的推荐事实归目标 Host；Renderer 只维护个人编辑意图和展示草稿，不建立另一个 Registry/Overlay 解析器。
-- 添加链路从 UI callback、hook、Settings Service、Facade 到 ConfigService 贯穿可选模式字段；旧调用缺省仍按跟随处理。
-- 复用已有模式元数据和完整性校验。创建成员、顺序、配置和模式在一次事务里完成，失败不得留下半份成员。
-- 不改 `provider_config.json` 格式，不新增迁移，不要求清配置。不把模式放入 ModelConfig、请求参数或账号状态。
-- 该功能尚未上线，不增加“旧固定配置”的兼容工程；可保留并复用 useRecommendedConfig 等底层字段/逻辑，无需因 UI 文案重命名它们。
+- Extrair a inicialização de rascunho, a conversão de modo, a projeção da recomendação após mudança de ID e a validação de commit que realmente se repetem; manter entradas finas de criação/atualização, sem criar um CRUD genérico nem um framework de formulários gigantesco.
+- O fato da recomendação em execução pertence ao Host de destino; o Renderer mantém apenas a intenção de edição pessoal e o rascunho de exibição, sem criar outro Registry/Overlay de resolução.
+- O fluxo de adição propaga o campo de modo opcional desde o callback de UI, passando por hook, Settings Service, Facade e ConfigService; chamadas antigas sem o campo continuam sendo tratadas como acompanhamento.
+- Reutilizar os metadados de modo e a validação de integridade já existentes. Criação do membro, ordem, configuração e modo acontecem em uma única transação, e uma falha não pode deixar metade do membro.
+- Não alterar o formato de `provider_config.json`, não adicionar migração e não exigir limpeza de configuração. Não colocar o modo dentro de ModelConfig, de parâmetros de requisição ou do estado da conta.
+- A functionality ainda não foi publicada, então não se adiciona compatibilidade para "configuração fixa antiga"; campos e lógicas de baixo nível como useRecommendedConfig podem ser mantidos e reutilizados, sem necessidade de renomeá-los por causa do texto de UI.
 
-### 3.2 代码简化是交付要求
+### 3.2 Simplificação de código é um requisito de entrega
 
-用户补充裁决：统一行为时，把不必要的代码清理干净，不仅增加功能。
+Decisão adicional do usuário: ao unificar o comportamento, limpar o código desnecessário, e não apenas adicionar funcionalidades.
 
-- 删除添加/编辑重复的推荐字段投影、模式切换与草稿转换；调用公共逻辑后不能留下旧实现或并行兼容路径。
-- 移除没有产品语义依据的 add/edit 判断，包括开关只在编辑显示、添加改 ID 强制清空数值等。保留初始化、成员权限、创建/更新这些必要区别。
-- 清理因此失去用途的 touched 状态、Effect、ref、callback、参数、类型、导出和测试夹具。逐项确认职责已被公共逻辑接替；不能为减行数删掉真实的个人覆盖记录、过期回包隔离、版本校验或保存保护。
-- 一个事实保留一份来源；不同时维护草稿、已解析配置和本地 Effective 副本作为三份可写状态。解析结果只用于基线/展示，个人草稿表达用户修改。
-- 共用逻辑优先用少量清晰的转换函数；只在确实共享生命周期时提取 hook。不引入通用 CRUD、策略注册、插件式表单或为旧分叉新建兼容层。
-- 复审时列出删除/合并了哪些重复逻辑、哪些分支必须保留及原因。验收目标是单一规则和更少的重复，不以净删行数为指标，也不顺带重构整个设置模块。
+- Remover as projeções de campos de recomendação, a troca de modo e a conversão de rascunho duplicadas entre adição e edição; depois de chamar a lógica comum, não podem sobrar implementações antigas nem caminhos de compatibilidade paralelos.
+- Remover verificações add/edit sem base semântica de produto, incluindo exibir o interruptor apenas na edição e limpar valores ao mudar o ID na adição. Manter as diferenças realmente necessárias: inicialização, permissão de membro e criação/atualização.
+- Limpar os estados touched, Effects, refs, callbacks, parâmetros, tipos, exports e fixtures de teste que perderam utilidade. Confirmar item a item que a responsabilidade foi assumida pela lógica comum; não é possível remover registros reais de cobertura pessoal, isolamento de respostas vencidas, validação de versão ou proteção de salvamento só para reduzir linhas.
+- Um fato mantém uma única fonte; não manter ao mesmo tempo rascunho, configuração resolvida e cópia local efetiva como três estados graváveis. O resultado da resolução serve apenas de baseline/exibição, e o rascunho pessoal expressa a modificação do usuário.
+- A lógica compartilhada deve usar preferencialmente poucas funções de conversão claras; extrair hooks apenas quando o ciclo de vida for realmente compartilhado. Não introduzir CRUD genérico, registro de estratégias, formulários em plugin ou camadas de compatibilidade para bifurcações antigas.
+- Na revisão, listar quais lógicas duplicadas foram removidas/mescladas, quais ramos precisam ser mantidos e por quê. O alvo da aceitação é uma regra única e menos repetição, não a contagem líquida de linhas removidas, e sem refatorar todo o módulo de configurações por conta própria.
 
-### 3.3 分级影响、代码证据与图谱
+### 3.3 Impacto gradual, evidências de código e grafo
 
-| 级别           | 关系/检查点                            | 原因与代码证据                                                                                                                                 |
-| -------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| must-inspect   | 两种入口 → 同一配置编辑逻辑            | ProviderCardSections、ProviderFormControls、ProviderModelMetadataDialog；当前存在模式显示与 ID 更新分叉                                        |
-| must-inspect   | 草稿 → 推荐解析/提交转换               | useModelConfigResolution、ProviderModelMetadata；不能只合 UI 而留下两套字段转换                                                                |
-| must-inspect   | 添加/编辑 → Settings 写入链            | InlineEditableProviderCard → useModelProviders → providerFacadeServices → ProviderSettingsFacade → ProviderConfigService → Personal Repository |
-| should-inspect | 模式保存 → 有效配置、排序、enabled     | 复用现有固定配置完整性检查和 Todo 89 写入边界，不复制继承成员                                                                                  |
-| conditional    | 共享 UI → 窄屏、主题、语言、目标 Host  | 开关同一行合理换行；使用目标服务，不写错环境                                                                                                   |
-| invariant-only | Settings 保存 → Selection/Session/账号 | 只沿用保存后的刷新，不改已有模型选择、连接切换、执行协议或 continuous/replayable                                                               |
-| evidence-only  | 单测与 Electron                        | 证明新规则，不因测试调用而扩成其他业务改造                                                                                                     |
+| Nível            | Relação / ponto de verificação                                               | Motivo e evidência de código                                                                                                                                       |
+| ---------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| must-inspect     | As duas entradas → mesma lógica de edição de configuração                   | ProviderCardSections, ProviderFormControls, ProviderModelMetadataDialog; hoje há bifurcação na exibição do modo e na atualização de ID                          |
+| must-inspect     | Rascunho → resolução de recomendação / conversão de commit                   | useModelConfigResolution, ProviderModelMetadata; não é possível unir só a UI e deixar duas conversões de campo                                              |
+| must-inspect     | Adição/edição → cadeia de escrita das Settings                               | InlineEditableProviderCard → useModelProviders → providerFacadeServices → ProviderSettingsFacade → ProviderConfigService → Personal Repository                        |
+| should-inspect   | Salvamento do modo → configuração efetiva, ordenação, enabled                | Reutiliza a verificação de integridade da configuração fixa existente e a fronteira de escrita do Todo 89, sem copiar membros herdados                           |
+| conditional      | UI compartilhada → tela estreita, tema, idioma, Host de destino              | Interruptor quebrando linha de forma razoável na mesma linha; usar o serviço de destino, sem escrever no ambiente errado                                         |
+| invariant-only  | Salvamento das Settings → Selection/Session/conta                           | Segue apenas o refresh pós-salvamento; não altera seleção de modelo, troca de conexão, protocolo de execução ou continuous/replayable                                 |
+| evidence-only   | Testes unitários e Electron                                                  | Provam as novas regras; não expandir a outras mudanças de negócio só por causa de chamadas de teste                                                                    |
 
-codegraph 当前不可用，使用精确搜索与直接调用链核对到写入边界；按共享组件/服务深度约两层检查，不展开无关运行域。图谱既有 `surface.provider-settings → service.provider-settings` 与推荐解析关系可复用；增加本 Todo 来源链接，不增加第二个设置 surface。当前实现分叉记录为 bug-candidate，不以它改写上述裁决。
+O codegraph não está disponível no momento; a conferência até a fronteira de escrita é feita por busca precisa e cadeia de chamadas direta, examinando cerca de dois níveis de profundidade em componentes/serviços compartilhados, sem expandir domínios de execução irrelevantes. O grafo já tem a relação `surface.provider-settings → service.provider-settings` e a relação de resolução de recomendação, que podem ser reaproveitadas; adicionar o link de origem deste Todo sem criar um segundo surface de configurações. A bifurcação de implementação atual é registrada como bug-candidate, sem usá-la para reescrever as decisões acima.
 
-## 4. 验收计划与剪枝
+## 4. Plano de aceitação e podas
 
-主要维度：添加/编辑、个人/继承成员、跟随/固定、推荐就绪/缺失/失败、ID 变化、提交成功/失败。只选会改变行为的组合；不做 Provider 品牌、所有套餐、操作系统的全排列。
+Dimensões principais: adicionar/editar, membro pessoal/herdado, acompanhamento/fixo, recomendação pronta/ausente/com falha, mudança de ID, commit com sucesso/falha. Escolher apenas as combinações que alteram o comportamento; não fazer a permutação completa de marcas de Provider, todos os planos e todos os sistemas operacionais.
 
-| 编号   | 前置与操作                                                            | 必须验证                                                                                                                                    | 状态/证据层                                     |
-| ------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| M90-01 | 添加输入 ID，解析出推荐配置                                           | 开关出现于保存/取消行；默认跟随，尚未就绪不能关闭固定                                                                                       | accepted；DOM + Pro Electron                    |
-| M90-02 | 添加时关闭跟随、编辑字段、保存重开                                    | 配置完整、模式为 false；后续推荐变化不改变固定字段；成员及排序只写一次                                                                      | accepted；服务/配置单测 + Electron 读盘         |
-| M90-03 | 添加/编辑：固定切回跟随，再编辑一个字段并保存                         | 旧覆盖清除，新编辑保留；取消不保存；原 enabled 不被模式修改                                                                                 | accepted；参数化单测 + Electron 代表            |
-| M90-04 | 添加及编辑个人模型，跟随状态 A 改 B                                   | 未覆盖字段跟随 B；明确覆盖保留，包括与 A 推荐值恰好相同的覆盖                                                                               | accepted；公共逻辑 + DOM                        |
-| M90-05 | 同上，固定状态 A 改 B，或清空必填项                                   | 配置与模式保持；不调用按名称推荐，不显示推荐 placeholder/覆盖样式；不完整固定配置在 UI/Host 均明确拒绝，不用 B 隐式补齐；false/合法 {} 可用 | accepted；公共逻辑 + 服务单测                   |
-| M90-06 | 延迟 A 回包，切 B；再覆盖 A→B→A、关闭重开、换 Provider、切关闭/再开启 | 只接受当前编辑/身份/模式代次的结果；固定草稿不被迟到推荐覆盖；保存不使用旧解析                                                              | accepted；可控 Promise/hook/DOM，不靠睡眠碰时序 |
-| M90-07 | 无推荐、解析失败、重复 ID、版本冲突或写入失败                         | 无基线不伪造固定配置；错误保留草稿；没有部分落盘；继承 ID 仍只读                                                                            | accepted；DOM + 服务故障测试                    |
-| M90-08 | 两种模式保存取消，窄屏/中英/深浅主题                                  | 同一交互组件可用；写目标 Host，其他环境不受影响                                                                                             | accepted；代表 Electron + 服务隔离测试          |
+| Número | Precondição e operação                                                                                                          | O que deve ser verificado                                                                                                                                                                                                                            | Status / camada de evidência                        |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| M90-01 | Adicionar com ID informado, resolvendo a configuração recomendada                                                             | O interruptor aparece na linha de salvar/cancelar; por padrão acompanha, e antes de estar pronto não pode ser desligado para fixo                                                                                                              | accepted; DOM + Pro Electron                       |
+| M90-02 | Adicionar desligando o acompanhamento, editar campos, salvar e reabrir                                                      | Configuração completa e modo false; mudanças posteriores na recomendação não alteram campos fixos; membro e ordenação são escritos uma única vez                                                                                          | accepted; testes de serviço/configuração + Electron em disco |
+| M90-03 | Adicionar/editar: voltar de fixo para acompanhamento, editar um campo e salvar                                            | Cobertura antiga é limpa e a nova edição é preservada; cancelar não salva; o `enabled` original não é modificado pelo modo                                                                                                               | accepted; testes unitários parametrizados + Electron representativo |
+| M90-04 | Adicionar e editar modelo pessoal, mudando de A para B no estado de acompanhamento                                        | Campos não cobertos acompanham B; coberturas explícitas são preservadas, inclusive as que coincidem exatamente com o valor recomendado de A                                                                                            | accepted; lógica comum + DOM                        |
+| M90-05 | O mesmo, no estado fixo mudando de A para B, ou limpando campos obrigatórios                                               | Configuração e modo se mantêm; não há chamada de recomendação por nome, nem placeholder/estilo de cobertura; a configuração fixa incompleta é recusada explicitamente na UI e no Host, sem preenchimento implícito por B; false e `{}` legítimo funcionam    | accepted; lógica comum + testes de serviço         |
+| M90-06 | Adiar a resposta de A e trocar para B; cobrir A→B→A, desligar/religar, trocar de Provider, desligar e religar             | Só são aceitos resultados da geração atual de edição/identidade/modo; o rascunho fixo não é sobrescrito por recomendações atrasadas; o salvamento não usa resolução antiga                                                                     | accepted; Promises/hooks/DOM controláveis, sem depender de sleep |
+| M90-07 | Sem recomendação, falha de resolução, ID duplicado, conflito de versão ou falha de escrita                                   | Sem baseline, não se fabrica configuração fixa; o erro preserva o rascunho; não há gravação parcial; o ID herdado continua somente leitura                                                                                                  | accepted; DOM + testes de falha de serviço          |
+| M90-08 | Cancelar o salvamento nos dois modos, tela estreita / PT e EN / temas claro e escuro                                        | O mesmo componente de interação funciona; escreve no Host de destino e os demais ambientes não são afetados                                                                                                                            | accepted; Electron representativo + teste de isolamento de serviço |
 
-剪枝：
+Podas:
 
-- 继承模型重命名：pruned，现有 ID 只读/服务端成员保护；检查保护未退化，不设计新权限。
-- 各 Account 套餐和普通 Provider 全组合：pruned，共用成员写入与草稿规则；选择 Account 添加和个人模型编辑代表。
-- 真实 API/账单/Selection 自动切换：ignored，本项没有这些行为变化，E2E 不发真实模型请求。
-- 新的全局形式化状态枚举：pruned，本项是局部表单事务，参数化测试和受控异步足够。
-- 未定义且需要用户裁决的范围：当前无；如必须改格式、账号权限或新增自动保存，停下讨论。
+- Renomear modelo herdado: podado, pois o ID existente já é somente leitura e o servidor protege o membro; verificar que a proteção não regrediu, sem desenhar novas permissões.
+- Combinação completa de planos de Account e Providers comuns: podada, pois a escrita de membro e as regras de rascunho são compartilhadas; escolher a adição em Account e a edição de modelo pessoal como representativas.
+- API/fatura reais e troca automática de Selection: ignoradas, pois este item não muda esses comportamentos, e o E2E não envia requisições reais de modelo.
+- Nova enumeração global de estados formalizados: podada, pois isto é uma transação de formulário local, e testes parametrizados com assincronismo controlado são suficientes.
+- Escopo indefinido que exigiria decisão do usuário: atualmente nenhum; se for obrigatório mudar o formato, permissões de conta ou adicionar salvamento automático, parar e discutir.
 
-## 5. 执行与交接
+## 5. Execução e passagem de bastão
 
-1. 将已确认规则同步到当前有效 `design/registry/settings.md`，补测试先复现上述分叉。
-2. 共用配置草稿与推荐开关；补添加模式保存，保持两种入口的成员权限及原子写入差异。同时删除被取代的重复逻辑和无效代码，不能只接新代码不清旧代码。
-3. 集中复审 ID 变化、模式切换、取消、提交失败和迟到回包，再执行最终验证，避免边提交边补分叉。
-4. 更新 `docs/testing/ui-polish-e2e-coverage-matrix.md` 的 M90 场景；按现有 E2E 生命周期写/扩用例，新增 pending 人工审阅后才晋级。当前表是验收计划，不是通过记录。
-5. MacBook Pro 隔离配置验证添加→切换模式→保存→重开及编辑改 ID；使用差异明确的 A/B 推荐 fixture，不用真实账号数据。类型检查、Lint 和受影响单测通过后提交，记录命令、结果、提交与未验证范围。
+1. Sincronizar as regras confirmadas no `design/registry/settings.md` vigente; reproduzir primeiro as bifurcações acima com testes.
+2. Compartilhar o rascunho de configuração e o interruptor de recomendação; adicionar o salvamento de modo na adição, mantendo as diferenças de permissão de membro e escrita atômica entre as duas entradas. Remover ao mesmo tempo a lógica duplicada substituída e o código morto, não apenas conectar código novo sem limpar o antigo.
+3. Revisar de forma concentrada a mudança de ID, a troca de modo, o cancelamento, a falha de commit e as respostas atrasadas, e só então executar a verificação final, evitando descobrir bifurcações durante o envio.
+4. Atualizar os cenários M90 em `docs/testing/ui-polish-e2e-coverage-matrix.md`; escrever/expandir os casos seguindo o ciclo de vida de E2E existente, e só promover após revisão manual pendente. A tabela atual é um plano de aceitação, não um registro de aprovação.
+5. Verificar no MacBook Pro, com configuração isolada, adicionar → trocar de modo → salvar → reabrir e editar mudando o ID; usar fixtures de recomendação A/B com diferenças claras, sem dados reais de conta. Após a verificação de tipos, o lint e os testes unitários afetados passarem, fazer o commit registrando comandos, resultados, commit e o que ficou sem verificação.
 
-E2E 时序用正常 UI 条件等待；解析乱序用可控 Promise 单测证明，不新增固定延时。手机/远端未实测时明确记录，不以桌面窄视口代替远控通过。
+O timing do E2E deve usar condições normais de UI para espera; desordem de resolução é provada por testes unitários com Promises controláveis, sem novos atrasos fixos. Quando celular/remoto não forem testados na prática, registrar isso claramente, sem substituir a validação do controle remoto por um viewport estreito de desktop.
 
-## 6. 与已有 Todo 的关系
+## 6. Relação com os Todos existentes
 
-- [Todo 82](todo-82-model-config-follow-recommended-draft.md)：保留已有模式字段及草稿保存语义；本项补齐添加入口，并以最终裁决收紧固定模式“不按名称匹配/不借继承补齐”。
-- [Todo 88](todo-88-provider-audit-regression-repair.md)：保留跟随模式修复、配置完整性以及底部布局，不把修复重新分叉。
-- [Todo 89](todo-89-provider-settings-write-boundary-cleanup.md)：沿用稀疏成员写入、窄 enabled 操作、草稿事务和失败恢复；不重做已验证链路。
-- [Todo 92](todo-92-model-smart-config-and-override-feedback.md)：负责最终覆盖边框、Hover/聚焦、MFJS 和布局；不实现第二套模式或保存规则。
+- [Todo 82](todo-82-model-config-follow-recommended-draft.md): mantém o campo de modo existente e a semântica de salvamento do rascunho; este item completa a entrada de adição e endurece, com a decisão final, o modo fixo de "não corresponder por nome / não completar via herança".
+- [Todo 88](todo-88-provider-audit-regression-repair.md): mantém a correção do modo de acompanhamento, a integridade da configuração e o layout inferior, sem bifurcar as correções novamente.
+- [Todo 89](todo-89-provider-settings-write-boundary-cleanup.md): segue a escrita esparsa de membros, a operação estreita de enabled, a transação de rascunho e a recuperação de falha; não refaz cadeias já verificadas.
+- [Todo 92](todo-92-model-smart-config-and-override-feedback.md): responsável pela borda final de cobertura, Hover/foco, MFJS e layout; não implementa um segundo conjunto de regras de modo ou salvamento.
 
-## 7. 实施记录
+## 7. Registro de implementação
 
-| 子项                                                | 状态   | 提交与验证                                                                                                                                                                                           |
-| --------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 推荐配置匹配提示文案（2.4）                         | 已完成 | `8fba2cb9dc`：中英文文案、有效 Settings spec、相关测试及 E2E 注释已同步。`pnpm exec vitest run packages/ui/test/providerModelMaxOutputLookup.test.ts` 12/12 通过；`pnpm typecheck`、`pnpm lint` 通过 |
-| 添加/编辑共用草稿、智能配置、添加模式保存及代码清理 | 已实现 | 第 8 节记录真实公共入口、写入装配、回归证据及剪枝边界                                                                                                                                                |
+| Subtipo                                                     | Status       | Commit e verificação                                                                                                                                                                              |
+| ----------------------------------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Texto do aviso de correspondência da configuração recomendada (2.4) | Concluído    | `8fba2cb9dc`: textos em PT/EN, spec de Settings válido, testes relacionados e comentários de E2E sincronizados. `pnpm exec vitest run packages/ui/test/providerModelMaxOutputLookup.test.ts` 12/12 aprovado; `pnpm typecheck` e `pnpm lint` aprovados |
+| Rascunho compartilhado entre adicionar/editar, configuração inteligente, salvamento de modo na adição e limpeza de código | Implementado | A seção 8 registra a entrada comum real, a montagem da escrita, as evidências de regressão e os limites de poda                                                                             |
 
-文案子项已先通过测试复现旧文案不符合要求，再修改实现并验证；未重新运行 Electron E2E，不宣称桌面或手机交互已完成本项整体验收。本次补录仅修改 Todo，不重复修改产品代码。
+O subtipo de texto foi validado primeiro com testes reproduzindo o texto antigo fora do requisito, só então a implementação foi modificada e verificada; o E2E de Electron não foi reexecutado, e não se afirma que a interação de desktop ou celular já passou pela aceitação integral deste item. Este registro adicional altera apenas o Todo, sem modificar novamente o código de produto.
 
-## 8. 2026-09-08 主体执行、复审与验收
+## 8. Execução principal, revisão e aceitação em 2026-09-08
 
-### 已落地的单一链路
+### Cadeia única efetivamente implantada
 
 ```text
 添加 / 编辑（仅初始化、权限和创建/更新不同）
@@ -190,36 +190,36 @@ E2E 时序用正常 UI 条件等待；解析乱序用可控 Promise 单测证明
        -> Settings Service -> Facade -> Runtime 装配 -> ConfigService 单次事务
 ```
 
-- 智能模式只请求当前 Provider/ID 的基线；数值输入及显式来源不因与推荐相等而删除。未覆盖控件随 ID 变化，已覆盖值保留。
-- 固定模式物化当下草稿，保留 Audio、Tool Call、最大输出 Mapping 等隐藏事实；停止名称推荐请求。空数值/Map 在 UI 拒绝，Host 使用同一完整性检查拒绝添加和编辑的不完整配置；模型运行解析不再从 Built-in 补缺。enabled 独立，不被模式开关改写。
-- 开启时清除旧模型覆盖（包括隐藏的最大输出 Mapping）；后续新编辑保留。模式贯穿新增成员的全部转发，配置/成员/模式原子保存。没有文件格式或迁移变化。
-- 使用现有 idle/flush 入口，增加编辑代次身份及请求代次校验；覆盖 A→B→A、关闭重开、换 Provider、关闭再开启。旧响应不写当前草稿；完整固定配置保存不依赖推荐接口成功。保存期间正文 inert、页脚提交锁定。
+- O modo inteligente só solicita a baseline do Provider/ID atual; entradas numéricas e a origem explícita não são removidas por coincidirem com a recomendação. Controles não cobertos acompanham a mudança de ID, e valores já cobertos são preservados.
+- O modo fixo materializa o rascunho do momento, preservando fatos ocultos como Audio, Tool Call e o Mapping de saída máxima; interrompe as requisições de recomendação por nome. Valores numéricos e Maps vazios são recusados na UI, e o Host usa a mesma verificação de integridade para recusar configurações incompletas na adição e na edição; a resolução em execução do modelo não preenche mais lacunas a partir do Built-in. O `enabled` é independente e não é reescrito pelo interruptor de modo.
+- Ao ligar, as coberturas antigas do modelo são limpas (incluindo o Mapping de saída máxima oculto); edições posteriores são preservadas. O modo atravessa todo o repasse ao criar o membro, e configuração/membro/modo são salvos atomicamente. Não há mudança de formato de arquivo nem de migração.
+- Usa-se a entrada existente de idle/flush, com identidade de geração de edição e verificação da geração da requisição; cobrindo A→B→A, desligar/religar, trocar de Provider e desligar e religar. Respostas antigas não escrevem no rascunho atual; o salvamento de uma configuração fixa completa não depende do sucesso da interface de recomendação. Durante o salvamento, o corpo fica inert e o envio no rodapé é bloqueado.
 
-### 删除与保留清单
+### Lista de remoções e preservações
 
-| 项目                                                                                 | 处理及原因                                                       |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| 添加专用 touched ref、推荐字段投影 Effect、改 ID 清数值、createProviderModelAddDraft | 删除；由公共草稿/来源记录取代，按引用检查并保留真实添加 DOM 测试 |
-| 编辑专用 resolveCurrentDraft、模式切换、整表验证后倒推覆盖                           | 删除；两入口消费同一个 hook 和提交转换                           |
-| 添加/编辑创建与更新分支                                                              | 保留；成员权限、重命名和 revision 校验不是重复逻辑               |
-| useModelConfigResolution、idle 调度、服务完整性校验                                  | 复用，未引入第二套重试/本地 Registry                             |
-| 不再使用的 API format 参数及冗余默认值相等分支                                       | 删除；实际格式匹配仍由 Host 负责                                 |
-| BooleanSwitchField 包装和无 icon 复选框视觉分支                                      | 删除（Todo92）；MFJS 直接使用同一个 BooleanModelOption           |
+| Item                                                                                  | Tratamento e motivo                                                                 |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| ref touched exclusivo da adição, Effect de projeção de campos de recomendação, limpeza de valores ao mudar o ID, createProviderModelAddDraft | Removidos; substituídos pelo rascunho comum e pelo registro de origem, verificados por referência e mantendo os testes reais de DOM da adição |
+| resolveCurrentDraft exclusivo da edição, troca de modo, retroação de coberturas após validar a tabela inteira | Removidos; as duas entradas consomem o mesmo hook e a mesma conversão de commit   |
+| Ramos de criação e atualização em adicionar/editar                                    | Preservados; permissão de membro, renomeação e validação de revision não são lógica duplicada |
+| useModelConfigResolution, agendamento idle, validação de integridade do serviço       | Reutilizados; nenhum segundo mecanismo de retentativa ou Registry local foi introduzido |
+| Parâmetro de API format não mais usado e ramos redundantes de igualdade com valor padrão | Removidos; o casamento real de formato continua a cargo do Host                     |
+| Encapsulamento BooleanSwitchField e ramo visual de checkbox sem ícone                 | Removidos (Todo92); o MFJS usa diretamente o mesmo BooleanModelOption               |
 
-### 执行中发现并修正的缺口
+### Lacunas encontradas e corrigidas durante a execução
 
-1. Pro 实测发现 Runtime 装配仍只转发旧四参数，丢掉新增模式。已改为绑定完整方法签名，并用真实 ProviderRuntime→文件→Registry 的 undefined/true/false 参数化测试覆盖；不靠 Facade mock 证明整条链。
-2. 推荐预览不能继承旧固定模式标记；设置 Facade 的智能预览显式覆盖该模式，正式存储不变。
-3. 仅聚焦后原样离开档位不能创建个人覆盖；新增回归测试并避免无变化 onChange。
-4. Pro 首轮测试的 WebDriver clear 未触发 React 输入事件；改为真实键盘删除，随后验证空输入确实阻止保存。未为通过测试放宽生产校验。
-5. Todo92 窄屏截图发现聚焦后标题被裁切，诊断及修复见该 Todo。
+1. O teste no Pro revelou que a montagem em Runtime ainda só repassava os quatro parâmetros antigos, perdendo o novo modo. Passou a ser vinculada a assinatura completa do método, com testes parametrizados de undefined/true/false usando o caminho real ProviderRuntime → arquivo → Registry; a cadeia inteira não é comprovada por mock de Facade.
+2. A pré-visualização da recomendação não pode herdar a marcação antiga do modo fixo; a pré-visualização inteligente do Facade de Settings sobrescreve esse modo explicitamente, e o armazenamento oficial permanece inalterado.
+3. Apenas focar e depois sair do nível sem alteração não pode criar uma cobertura pessoal; foi adicionado teste de regressão e evitado um onChange sem mudança.
+4. Na primeira rodada de testes no Pro, o clear do WebDriver não disparou o evento de input do React; foi trocado por remoção real via teclado e depois se verificou que a entrada vazia de fato impede o salvamento. A validação de produção não foi afrouxada para fazer o teste passar.
+5. A captura de tela em tela estreita do Todo92 revelou o título cortado após o foco; o diagnóstico e a correção estão naquele Todo.
 
-### 证据与验收边界
+### Evidências e limites de aceitação
 
-- 受影响单测 24 文件 **317/317**：Provider 全包、草稿/编辑/推荐/样式及真实 Runtime/Settings Service。覆盖 M90-01～07 的主要分支，不只检查 UI 回调。
-- `pnpm typecheck` 通过；`pnpm lint` 0 errors，40 项既有 warnings；`git diff --check` 通过。knip 全仓仍有历史清理项，本次新增公共实现均有生产调用；未借机清理无关代码。
-- Pro `desktop-e2e-20260908-105813-546`：SC90-01 与 MP-UI-06 两项通过。新用例实际验证添加固定配置、无效草稿、取消不落盘、保存重开、再次开启后编辑、保留 enabled=false；旧用例继续验证编辑、排序与 Model Selection 消费能力。
-- Pro `desktop-e2e-20260908-110410-575`：增加窄屏焦点/标题断言后的 MP-UI-06 通过；双主题中英文截图已阅读，不使用此前试验预览作证据。
-- 新用例位于 `settings/manual-review/pending/provider-model-smart-config.test.ts`，未擅自转正。Account 成员由共用写入边界及 Provider 全包测试覆盖，Electron 选个人 Provider 代表；不做所有账号品牌的排列。
-- 390px 是 Electron 的窄视口，不冒充真实手机远控验证；未运行真实 Windows UI/账号接口。未修改目标 Host 路由、continuous/replayable、会话或账号自动选择，也未修改真实用户数据。
-- 最终扩大回归 `desktop-e2e-20260908-110541-867`：3 个 spec **9/9**（SC90-01、UP-01、MP-UI-01～06、Todo89 写入修复入口）。包含本次最后的公共组件清理及窄屏修正；最终样式/视觉证据见 Todo92 §7。
+- Testes unitários afetados, 24 arquivos, **317/317**: pacote completo de Provider, rascunho/edição/recomendação/estilos e os serviços reais de Runtime/Settings. Cobrem os principais ramos de M90-01 a 07, e não apenas callbacks de UI.
+- `pnpm typecheck` aprovado; `pnpm lint` com 0 erros e 40 warnings já existentes; `git diff --check` aprovado. O knip do repositório ainda tem itens históricos de limpeza; toda a implementação comum nova tem chamada em produção; nenhuma limpeza de código alheio foi feita de passagem.
+- Pro `desktop-e2e-20260908-105813-546`: SC90-01 e MP-UI-06 aprovados. O caso novo verifica de fato a adição de configuração fixa, rascunho inválido, cancelamento sem gravação, salvar e reabrir, editar após religar e preservar `enabled=false`; o caso antigo continua verificando edição, ordenação e o consumo de Model Selection.
+- Pro `desktop-e2e-20260908-110410-575`: MP-UI-06 aprovado após adicionar as asserções de foco/título em tela estreita; as capturas nos dois temas e em PT/EN foram lidas, e pré-visualizações de tentativas anteriores não foram usadas como evidência.
+- Os casos novos estão em `settings/manual-review/pending/provider-model-smart-config.test.ts` e não foram promovidos por conta própria. Membros de Account são cobertos pela fronteira de escrita compartilhada e pelos testes do pacote completo de Provider, com Electron escolhendo um Provider pessoal como representativo; não se faz a permutação de todas as marcas de conta.
+- 390px é o viewport estreito do Electron e não se passa por validação real de controle remoto em celular; não foi executada UI real do Windows nem a interface de contas. Não foram alterados o roteamento do Host de destino, continuous/replayable, sessão ou seleção automática de conta, nem dados reais de usuário.
+- Regressão ampliada final `desktop-e2e-20260908-110541-867`: 3 specs, **9/9** (SC90-01, UP-01, MPUI-01 a 06, entrada de correção de escrita do Todo89). Inclui a limpeza final de componente comum e a correção de tela estreita desta rodada; a evidência final de estilo/visual está no Todo92 §7.

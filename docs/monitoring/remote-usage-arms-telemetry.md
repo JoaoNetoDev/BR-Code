@@ -1,39 +1,39 @@
-# 远程工作区连接 ARMS 自定义事件埋点
+# Telemetria de eventos personalizados ARMS para conexões de workspace remoto
 
-> 状态：已实现，待测试环境 ARMS 验收
-> 关联分支：`fix/add-arms-for-remote`
-> 关联规范：[远程场景使用量埋点 V1](./remote-usage-telemetry-v1.md)（数仓 `/report` 通道；本文档是其 ARMS 通道补充，不取代 V1）
+> Status: implementado, aguardando aceitação ARMS no ambiente de testes
+> Branch relacionada: `fix/add-arms-for-remote`
+> Spec relacionada: [Telemetria de uso em cenários remotos V1](./remote-usage-telemetry-v1.md) (canal `/report` do data warehouse; este documento é o complemento de canal ARMS e não substitui a V1)
 
-## 目标与产品问题
+## Objetivo e pergunta de produto
 
-本埋点用于在 ARMS（阿里云 RUM）上回答两个产品问题：
+Esta telemetria responde no ARMS (RUM da Alibaba Cloud) a duas perguntas de produto:
 
-1. **哪些桌面设备使用了远程工作区** —— 查询 `remote_active_session_count` 且 `custom.value > 0`，按 `device_mid` 去重。ARMS 的 `user.name` 已固定为 `device_mid`，也可直接使用用户维度检索；按 remote kind 拆分显式连接使用量时改查 `remote_connect_result`。
-2. **每台桌面设备同时打开了多少个远程工作区连接** —— `remote_active_session_count` 的 `custom.value` 是当前活跃逻辑 remote workspace session 数。先按 `device_mid` 取时间范围内的 max，再对设备级 max 计算分布。
+1. **Quais dispositivos desktop usaram workspace remoto** — consultar `remote_active_session_count` com `custom.value > 0`, deduplicando por `device_mid`. O `user.name` do ARMS já está fixado como `device_mid`, então também é possível usar diretamente a busca por dimensão de usuário; ao quebrar o volume de uso de conexões explícitas por remote kind, consultar `remote_connect_result`.
+2. **Quantas conexões de workspace remoto cada dispositivo desktop mantém abertas simultaneamente** — o `custom.value` de `remote_active_session_count` é o número atual de sessões lógicas remotas de workspace ativas. Primeiro pegar o max no intervalo de tempo por `device_mid`, depois calcular a distribuição sobre o max em nível de dispositivo.
 
-口径约定：
+Convenções de escopo:
 
-- 范围：**由桌面 `ConnectRemote` 发起的远程工作区连接**（SSH/WSL/Docker/Server），不把手机 Web Remote Control 的 relay、bridge 或 replayable attachment 计为新的远程连接。
-- `ConnectRemote` handler 必须显式把本次 Main-local route 标记为 `remoteUsageTelemetryEligible=true`；其他内部调用默认 false。stats、gauge、disconnect 与 periodic sampling 只处理 eligible route，以机械保证范围不会随 manager 新增调用方而扩大。
-- “同时远程连接数”的主口径是**活跃逻辑 session 数**，即用户同时打开的远程 workspace 数；不是物理 TCP/SSH 连接池条目数，也不是远端物理设备数。
-- 用户口径：**仅 `device_mid`**（与现有 ARMS 事件一致；ARMS SDK 屏蔽 `user.id`，账号 uid 无法注入 user 字段。账号级分析继续使用 V1 数仓通道的 `user_id`）。
-- 事件范围：显式桌面连接成功/失败、活跃 session gauge、断开与可观测连接时长。
+- Escopo: **conexões de workspace remoto iniciadas pelo `ConnectRemote` do desktop** (SSH/WSL/Docker/Server); relay, bridge ou attachment replayable do Remote Control via celular não contam como nova conexão remota.
+- O handler `ConnectRemote` deve marcar explicitamente a rota Main-local desta conexão como `remoteUsageTelemetryEligible=true`; outras chamadas internas têm false por padrão. stats, gauge, disconnect e periodic sampling tratam somente de rotas elegíveis, garantindo mecanicamente que o escopo não cresce à medida que o manager ganha novos chamadores.
+- Adefinição principal de "conexões remotas simultâneas" é o **número de sessões lógicas ativas**, isto é, quantos workspaces remotos o usuário mantém abertos ao mesmo tempo; não é a contagem de entradas no pool físico de conexões TCP/SSH, nem o número de dispositivos físicos remotos.
+- Identidade do usuário: **somente `device_mid`** (consistente com os eventos ARMS existentes; o SDK do ARMS bloqueia `user.id`, então o uid da conta não pode ser injetado no campo de usuário. Análises em nível de conta continuam usando o `user_id` do canal do data warehouse da V1).
+- Escopo de eventos: sucesso/falha de conexão explícita do desktop, gauge de sessões ativas, desconexão e duração observável da conexão.
 
-## 与 V1 数仓通道的关系
+## Relação com o canal do data warehouse da V1
 
-|                  | V1 数仓 `/report`                 | 本文档 ARMS                                     |
-| ---------------- | --------------------------------- | ----------------------------------------------- |
-| 显式桌面连接终态 | `remote_workspace_connect_result` | `remote_connect_result`（触发点相同，字段超集） |
-| 断开事件         | 无（V1 剪枝）                     | `remote_disconnect`                             |
-| 并发 gauge       | 无（V1 剪枝）                     | `remote_active_session_count` 的 `custom.value` |
-| 连接时长         | 无（V1 剪枝）                     | `remote_disconnect` 的 `custom.value`           |
-| 用户标识         | `user_id`（登录时）/ `device_mid` | 仅 `device_mid`                                 |
+|                  | V1 data warehouse `/report`        | ARMS deste documento                          |
+| ---------------- | ---------------------------------- | --------------------------------------------- |
+| Estado final de conexão explícita do desktop | `remote_workspace_connect_result` | `remote_connect_result` (mesmo ponto de disparo, superconjunto de campos) |
+| Evento de desconexão          | ausente (podado na V1)                    | `remote_disconnect`                             |
+| Gauge de concorrência         | ausente (podado na V1)                    | `custom.value` de `remote_active_session_count`  |
+| Duração da conexão         | ausente (podado na V1)                    | `custom.value` de `remote_disconnect`             |
+| Identificação do usuário        | `user_id` (no login) / `device_mid` | apenas `device_mid`                                 |
 
-两通道的连接结果事件**刻意不同名**：按 event name 检索（告警配置、对账、全文搜索）时避免两套字段集混淆。先例：数仓 `message_completion` ↔ ARMS `perf_ui_message_complete`。
+Os eventos de resultado de conexão dos dois canais são **deliberadamente nomeados de forma diferente**: isso evita confundir dois conjuntos de campos ao buscar por nome de evento (configuração de alertas, reconciliação, busca de texto livre). Precedente: data warehouse `message_completion` ↔ ARMS `perf_ui_message_complete`.
 
-`remote_connect_result` 描述显式桌面连接尝试的终态；“是否使用远程工作区”的 ARMS 主口径使用统一 gauge，以便同时覆盖状态变化和跨查询时间范围的周期样本。
+`remote_connect_result` descreve o estado final de tentativas de conexão explícita do desktop; adefinição principal no ARMS para "se usa workspace remoto" usa um gauge unificado, de modo a cobrir tanto mudanças de estado quanto amostras periódicas que cruzam o intervalo consultado.
 
-## 架构与事件流
+## Arquitetura e fluxo de eventos
 
 ```text
  Renderer                Main 进程                                      Window Host (UtilityProcess)
@@ -77,248 +77,249 @@
   所有事件经 dispatchFinalArmsCustomEvent -> e2eController.record -> armsRum.sendCustom
 ```
 
-- 远程连接权威仍在 Window Host 的 `windowRemoteConnectionRegistry`。Main 的 `routesBySessionId` 只保留已有连接的请求/session/attachment 路由；本方案只从该既有路由表派生低频 telemetry gauge，不新增 session/task/stream/queue/snapshot 业务状态。
-- `remoteUsageTelemetryEligible` 只属于 Main 内存中的 telemetry 范围标记，不进入 `RemoteTarget`、Host descriptor、`workspaceIdentity`、跨进程消息或持久化数据；默认 false，只有 `ConnectRemote` handler 显式打开。
-- 手机 `/remote` 仍只 attach 到桌面窗口已存在的 remote session。bridge attach/detach、手机重连和 replayable 恢复不改变 `routesBySessionId`，因此不改变 gauge。
-- Main 进程拥有最终 ARMS custom-event dispatch；无需向 Host、CLI、relay 或 Web bundle 增加 reporter 或协议字段。
-- 5 分钟 periodic gauge 用于覆盖“连接在查询时间范围之前建立，范围内没有状态变化”的长连接。系统休眠期间不补发历史样本，恢复后由下一次 timer 或状态变化继续采样。
+- A autoridade das conexões remotas continua sendo o `windowRemoteConnectionRegistry` no Window Host. O `routesBySessionId` do Main mantém apenas as rotas de request/session/attachment de conexões já existentes; esta solução deriva apenas do gauge de telemetria de baixa frequência a partir dessa tabela de rotas existente, sem adicionar estado de negócio de session/task/stream/queue/snapshot.
+- `remoteUsageTelemetryEligible` é somente uma marcação de escopo de telemetria em memória do Main; não entra em `RemoteTarget`, descritor de Host, `workspaceIdentity`, mensagens entre processos ou dados persistidos; o padrão é false e apenas o handler `ConnectRemote` o habilita explicitamente.
+- O `/remote` do celular continua apenas fazendo attach em sessões remotas que já existem na janela do desktop. Attach/detach de bridge, reconexão pelo celular e recuperação replayable não alteram `routesBySessionId`, portanto não alteram o gauge.
+- O processo Main possui o dispatch final dos custom events do ARMS; não é preciso adicionar reporter nem campos de protocolo ao Host, CLI, relay ou bundle Web.
+- O gauge periódico de 5 minutos cobre conexões longas em que "a conexão foi estabelecida antes do intervalo consultado e não houve mudança de estado dentro dele". Durante a suspensão do sistema não se reenviam amostras históricas; após a retomada, a amostragem continua pelo próximo timer ou por mudança de estado.
 
-## 事件定义
+## Definição dos eventos
 
-group：`remote_usage`。公共维度（`event_name` / `app_version` / `arms_env` / `device_mid` / `platform` / `renderer_id` / `metric_value`）由 `buildFinalArmsCustomEventPayload` 自动注入，properties 全部 `String()` 化。
+group: `remote_usage`. As dimensões comuns (`event_name` / `app_version` / `arms_env` / `device_mid` / `platform` / `renderer_id` / `metric_value`) são injetadas automaticamente por `buildFinalArmsCustomEventPayload`; todas as properties são convertidas com `String()`.
 
-ARMS Custom 表只有一个主数值度量 `custom.value`。因此连接结果用它表示计数、disconnect 用它表示时长、并发 gauge 用它表示活跃逻辑 session 数；不能直接拿字符串 property 充当并发分布的数值度量。
+A tabela Custom do ARMS tem apenas uma medida numérica principal, `custom.value`. Por isso o resultado de conexão a usa para representar contagem, o disconnect a usa para representar duração e o gauge de concorrência a usa para representar o número de sessões lógicas ativas; não se pode usar diretamente uma property de string como medida numérica para a distribuição de concorrência.
 
 ### `remote_connect_result`
 
-触发点：显式 `ConnectRemote` IPC 得到成功或失败终态时（与 V1 数仓事件同一插桩点）。
+Ponto de disparo: quando o IPC explícito `ConnectRemote` obtém um estado final de sucesso ou falha (o mesmo ponto de instrumentação do evento do data warehouse da V1).
 
-| 字段              | 值                                  | 说明                            |
+| Campo              | Valor                                 | Descrição                          |
 | ----------------- | ----------------------------------- | ------------------------------- |
-| value             | `1`                                 | 显式连接尝试计数                |
-| `result`          | `success` / `failure`               | 连接结果                        |
-| `remote_kind`     | `ssh` / `wsl` / `docker` / `server` | 远程类型                        |
-| `connect_trigger` | `new` / `reconnect` / `restore`     | 与 V1 同口径                    |
-| `error_category`  | V1 七枚举；成功为空字符串           | `classifyRemoteUsageError` 产出 |
+| value             | `1`                                 | contagem de tentativas de conexão explícita       |
+| `result`          | `success` / `failure`               | resultado da conexão                        |
+| `remote_kind`     | `ssh` / `wsl` / `docker` / `server` | tipo de remoto                        |
+| `connect_trigger` | `new` / `reconnect` / `restore`     | mesmadefinição da V1                    |
+| `error_category`  | sete enumerações da V1; string vazia em caso de sucesso           | produzido por `classifyRemoteUsageError` |
 
 ### `remote_active_session_count`
 
-触发点：活跃 route 集合发生变化后，以及每 5 分钟的非零 periodic 采样。
+Ponto de disparo: após uma mudança no conjunto de rotas ativas, e nas amostragens periódicas não nulas a cada 5 minutos.
 
-| 字段                  | 值                                                                                                       | 说明                                                               |
+| Campo                  | Valor                                                                                                        | Descrição                                                              |
 | --------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| value                 | `active_session_count`                                                                                   | ARMS `custom.value` 数值度量；变化后的活跃逻辑 session 数，可为 0  |
-| `sample_reason`       | `state-change` / `periodic`                                                                              | 状态变化或低频补点                                                 |
-| `transition`          | `connected` / `connection-closed` / `disposed` / `window-closed` / `host-exit` / `app-shutdown` / `none` | periodic 使用 `none`                                               |
-| `remote_kind`         | 四种 kind / 空字符串                                                                                     | 状态变化对应 route 的 kind；periodic 为空                          |
-| `active_target_count` | 数字字符串                                                                                               | 脱敏 remote target identity 去重数，仅作诊断维度，不作为主并发指标 |
+| value                 | `active_session_count`                                                                                    | medida numérica `custom.value` do ARMS; número de sessões lógicas ativas após a mudança, pode ser 0  |
+| `sample_reason`       | `state-change` / `periodic`                                                                              | mudança de estado ou ponto de baixa frequência                                               |
+| `transition`          | `connected` / `connection-closed` / `disposed` / `window-closed` / `host-exit` / `app-shutdown` / `none` | `none` é usado no periódico                                               |
+| `remote_kind`         | quatro kinds / string vazia                                                                                     | kind da rota correspondente à mudança de estado; vazio no periódico                          |
+| `active_target_count` | string numérica                                                                                               | contagem deduplicada de identidades de target remoto anonimizadas, apenas dimensão diagnóstica, não é a métrica principal de concorrência |
 
-状态变化样本的 `renderer_id` 使用对应 route 的 `webContentsId`。telemetry 模块保存最近一次有效的 gauge `rendererId`，periodic 样本复用该值；`active_session_count > 0` 却没有最近 rendererId 在状态机上不可达，因为每个活跃 route 首次 finalize 时必先产生状态变化样本。
+A `renderer_id` das amostras de mudança de estado usa o `webContentsId` da rota correspondente. O módulo de telemetria guarda o último `rendererId` de gauge válido e as amostras periódicas reutilizam esse valor; `active_session_count > 0` sem um rendererId recente é inalcançável na máquina de estados, porque toda rota ativa produz primeiro uma amostra de mudança de estado ao ser finalized pela primeira vez.
 
 ### `remote_disconnect`
 
-触发点：已进入活跃集合的 route 退出集合时。必须在 route 从统计源移除/标记 closed 后读取 after-state stats；同一路由只上报一次。
+Ponto de disparo: quando uma rota que já entrou no conjunto ativo sai do conjunto. É obrigatório ler as stats de after-state depois de remover a rota da fonte de estatísticas/marcá-la como closed; a mesma rota só é reportada uma vez.
 
-| 字段                | 值                                                                                | 说明                                                     |
-| ------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| value               | `duration_ms`                                                                     | 可观测连接存活时长，使用单调时钟差值并 clamp ≥ 0         |
-| `remote_kind`       | 同上                                                                              |                                                          |
-| `disconnect_reason` | `connection-closed` / `disposed` / `window-closed` / `host-exit` / `app-shutdown` | 见下表                                                   |
-| `duration_ms`       | 数字字符串                                                                        | 与 value 相同，便于明细检索；数值聚合使用 `custom.value` |
+| Campo                | Valor                                                                               | Descrição                                                    |
+| ------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------- |
+| value               | `duration_ms`                                                                    | tempo de vida observável da conexão, usando diferença de relógio monotônico com clamp ≥ 0         |
+| `remote_kind`       | idem                                                                             |                                                          |
+| `disconnect_reason` | `connection-closed` / `disposed` / `window-closed` / `host-exit` / `app-shutdown` | ver tabela abaixo                                                   |
+| `duration_ms`       | string numérica                                                                         | igual ao value, facilita busca de detalhe; agregação numérica usa `custom.value` |
 
-`disconnect_reason` 语义：
+Semântica de `disconnect_reason`:
 
-| 值                  | 含义                                                                   |
+| Valor               | Significado                                                                   |
 | ------------------- | ---------------------------------------------------------------------- |
-| `connection-closed` | 传输层异常断开（SSH keepalive 半开、网络中断、远端进程退出）           |
-| `disposed`          | 用户主动释放（关 tab、取消已连接的对话框、Host 主动 dispose 防御路径） |
-| `window-closed`     | 关闭窗口带走该窗口全部连接                                             |
-| `host-exit`         | 窗口 Host UtilityProcess 崩溃/退出兜底                                 |
-| `app-shutdown`      | 正常退出或更新安装进入 shutdown barrier                                |
+| `connection-closed` | desconexão anormal na camada de transporte (SSH keepalive meio aberto, queda de rede, saída de processo remoto)           |
+| `disposed`          | liberação ativa pelo usuário (fechar tab, cancelar diálogo já conectado, caminho defensivo de dispose pelo Host) |
+| `window-closed`     | fechar a janela leva junto todas as conexões daquela janela                                             |
+| `host-exit`         | fallback para crash/saída do UtilityProcess do Window Host                                 |
+| `app-shutdown`      | saída normal ou instalação de atualização entrando no shutdown barrier                                |
 
-时长口径：`connectedAtMonotonicMs` 在 Main 收到 `RemoteWorkspaceConnected` 时记录，默认使用 `performance.now()`；bind context / renderer reload 重挂不重置计时。正常 app shutdown 会 best effort 上报；Main 突然崩溃、kill -9 或断电仍属于右删失样本，不进入平均时长。
+definição de duração: `connectedAtMonotonicMs` é registrado quando o Main recebe `RemoteWorkspaceConnected`, usando `performance.now()` por padrão; rebind de contexto do renderer / reload do renderer não zera a contagem. Um shutdown normal do app reporta em best effort; crash súbito do Main, `kill -9` ou queda de energia continuam sendo amostras com censura à direita e não entram na duração média.
 
-## 并发数与 target 口径
+## Contagem de concorrência edefinição de target
 
-`getRemoteConnectionStats()`（新增于 `createRemoteWorkspaceSessionManager`）只统计 `remoteUsageTelemetryEligible && attachmentState === "attachable" && connectFinalized` 的 route：
+`getRemoteConnectionStats()` (novo em `createRemoteWorkspaceSessionManager`) conta apenas rotas com `remoteUsageTelemetryEligible && attachmentState === "attachable" && connectFinalized`:
 
-- `active_session_count`：route 条数，即活跃逻辑 remote workspace session 数。它是“同时远程连接数”的唯一主口径；同一远端 target 打开两个 workspace = 2。
-- `active_target_count`：按脱敏 target identity key 去重后的条数，仅作诊断属性。key 只存在于 Main 内存，永不上报：
+- `active_session_count`: número de rotas, isto é, sessões lógicas remotas de workspace ativas. É a únicadefinição principal de "conexões remotas simultâneas"; abrir dois workspaces no mesmo target remoto = 2.
+- `active_target_count`: número de entradas após deduplicação pela chave de identidade de target anonimizada, apenas como atributo diagnóstico. A chave existe somente na memória do Main e nunca é reportada:
   - ssh → `"ssh:" + buildSshRemoteHostKey(target)`
   - wsl → `"wsl:" + (distro?.trim() || "default") + "\0" + (user?.trim() ?? "")`
   - docker → `"docker:" + container`
   - server → `"server:" + normalizeServerRemoteUrlForComparison(url)`
-- server URL 只做同安全级别协议归一：`ws:// == http://`、`wss:// == https://`；`ws:// != https://`。
-- manager 是全应用单例，因此 gauge 跨窗口汇总；这不代表 Host 物理连接池跨窗口共享。
-- route target 已由 Host `stripRemoteTargetSecrets` 去掉密码/token，SSH password auth 可能在 Main key 中表现为 `agent`。因此 `active_target_count` 既不是物理设备数，也不是物理 transport 数，不用于产品 KPI。
+- A URL de server só sofre normalização de protocolo no mesmo nível de segurança: `ws:// == http://`, `wss:// == https://`; `ws:// != https://`.
+- O manager é um singleton de aplicação, portanto o gauge agrega entre janelas; isso não significa que o pool físico de conexões do Host seja compartilhado entre janelas.
+- O target da rota já teve senha/token removidos pelo `stripRemoteTargetSecrets` do Host, então a autenticação SSH por senha pode aparecer como `agent` na chave do Main. Assim, `active_target_count` não é nem o número de dispositivos físicos nem de transportes físicos, e não é usado para KPI de produto.
 
-## 状态变化与幂等不变量
+## Mudanças de estado e invariantes de idempotência
 
-所有退出路径必须复用一个 atomic retire helper，不能分别判断后直接上报：
+Todos os caminhos de saída devem reutilizar um único retire helper atômico, sem decidir separadamente e reportar direto:
 
 ```text
 wasActive = route.remoteUsageTelemetryEligible
             && route.attachmentState == attachable
             && route.connectFinalized
     |
-    +-> false: 仅执行幂等清理，不发 gauge，不发 disconnect
+    +-> false: apenas executa limpeza idempotente, não envia gauge, não envia disconnect
     |
     +-> true:
-          1. mark closed 或从 routesBySessionId 删除
-          2. 读取 after-state stats
-          3. 发 remote_active_session_count
-          4. 发 remote_disconnect
+          1. marca closed ou remove de routesBySessionId
+          2. lê as stats de after-state
+          3. envia remote_active_session_count
+          4. envia remote_disconnect
 ```
 
-由此保证：
+Isso garante:
 
-- `connection-closed` 把 route 标记为 closed 后，后续 tab dispose 不重复上报。
-- attach 未确认的 route 从未进入活跃集合，因此不产生 gauge/disconnect；ConnectRemote catch 负责上报 failure。
-- 未显式标记 eligible 的内部 route 即使连接成功，也不进入 stats，不产生 gauge/disconnect，不更新 periodic gauge 的 rendererId。
-- host exit、window close、app shutdown 任意先后到达都只会让每个活跃 route 退出一次。
-- reporter/getStats/sendCustom 抛错都不能回滚 route 状态或阻断连接与清理流程。
+- `connection-closed` marca a rota como closed e um dispose posterior de tab não reporta de novo.
+- Uma rota cujo attach não foi confirmado nunca entrou no conjunto ativo, portanto não gera gauge/disconnect; o catch do ConnectRemote responde reportando a falha.
+- Rotas internas não marcadas explicitamente como eligible, mesmo conectadas com sucesso, não entram nas stats, não geram gauge/disconnect e não atualizam o rendererId do gauge periódico.
+host exit, window close e app shutdown chegando em qualquer ordem fazem cada rota ativa sair apenas uma vez.
 
-## 隐私边界
+- reporter/getStats/sendCustom lançando erro não pode reverter o estado da rota nem bloquear o fluxo de conexão e limpeza.
 
-沿用 V1 禁止清单（[remote-usage-telemetry-v1.md](./remote-usage-telemetry-v1.md)“错误分类与隐私”节）：任何事件禁止上传 `workspacePath` / `workspaceIdentity` / `remoteSessionId` / SSH host、用户名、端口 / Docker container / WSL distro / Server URL / 原始错误消息或堆栈。
+## Limite de privacidade
 
-上报字段只包含受控枚举、聚合计数和时长；不上传任何远端身份原文。`active_target_count` 的去重 key 只存在于 Main 内存，事件只携带聚合后的数字字符串。
+Segue a lista de proibições da V1 (seção "Classificação de erros e privacidade" de [remote-usage-telemetry-v1.md](./remote-usage-telemetry-v1.md)): nenhum evento pode enviar `workspacePath` / `workspaceIdentity` / `remoteSessionId` / host SSH, usuário, porta / container Docker / distro WSL / URL de Server / mensagem de erro original ou stack trace.
 
-## 剪枝与已知边界
+Os campos reportados contêm apenas enums controlados, contagens agregadas e durações; nenhum texto bruto de identidade remota é enviado. A chave de deduplicação de `active_target_count` existe apenas na memória do Main e o evento carrega somente a string numérica agregada.
 
-- `remote_connect_result` 保持“显式桌面连接尝试”语义；并发与实际使用设备数统一从 gauge 计算。
-- telemetry eligibility 默认 false，只有 `ConnectRemote` handler 显式打开；后续新增 manager 调用方不会自动进入本指标范围。
-- renderer reload / bind workspace context / attachment 换代不改变 route 活跃集合，不产生状态变化事件，也不重置时长。
-- 建连中取消、建连失败不产生 disconnect 或 gauge，由 `remote_connect_result failure` 覆盖。
-- periodic gauge 固定 5 分钟，目标是支撑日/周窗口；小于 5 分钟且期间没有状态变化的临时查询可能需要向前扩展查询范围。
-- 正常 app shutdown best effort 上报；主进程崩溃、强杀或断电无法补报 disconnect，连接时长指标必须标注为“可观测完成样本”。
-- 本功能不修改 desktop `continuous` 或 mobile `replayable` 链路，不新增 conversation/session E2E，不更新 conversation case catalog/coverage matrix。
+## Poda e limites conhecidos
 
-## 指标计算示例
+- `remote_connect_result` mantém a semântica de "tentativa de conexão explícita do desktop"; concorrência e número real de dispositivos em uso são calculados uniformemente a partir do gauge.
+- A elegibilidade de telemetria é false por padrão e só o handler `ConnectRemote` a habilita; novos chamadores do manager não entram automaticamente no escopo desta métrica.
+- Reload do renderer / bind do workspace context / troca de attachment não alteram o conjunto de rotas ativas, não geram eventos de mudança de estado e não zeram a duração.
+- Cancelar durante a conexão e falha de conexão não geram disconnect nem gauge; são cobertos por `remote_connect_result failure`.
+- O gauge periódico é fixo em 5 minutos, com o objetivo de sustentar janelas diárias/semanais; consultas temporárias menores que 5 minutos e sem mudança de estado no período podem precisar estender a janela para trás.
+- Shutdown normal do app reporta em best effort; crash do processo principal, kill forçado ou queda de energia não conseguem reportar o disconnect, portanto a métrica de duração de conexão deve ser rotulada como "amostras de conclusão observável".
+- Esta funcionalidade não modifica os caminhos `continuous` do desktop nem `replayable` do mobile, não adiciona E2E de conversation/session e não atualiza o catálogo de casos de conversation / matriz de cobertura.
 
-| 指标                          | 计算                                                                          |
+## Exemplos de cálculo de métricas
+
+| Métrica                          | Cálculo                                                                          |
 | ----------------------------- | ----------------------------------------------------------------------------- |
-| 远程工作区使用设备数（日/周） | `remote_active_session_count` 且 `custom.value > 0`，按 `device_mid` 去重     |
-| 显式连接成功设备数            | `remote_connect_result` 且 `result=success`，按 `device_mid` 去重             |
-| 各显式连接类型使用设备数      | 同上按 `remote_kind` 分组                                                     |
-| 每设备同时连接数峰值          | 对 `remote_active_session_count` 先按 `device_mid` 聚合 `max(custom.value)`   |
-| 同时连接数峰值分布            | 对上一步的设备级 max 再计算 P50/P90/max；禁止直接对所有事件行做直方图         |
-| 可观测平均连接时长            | `remote_disconnect` 的 `custom.value`；看板注明不含主进程突然终止的右删失样本 |
-| 传输异常断开占比              | `disconnect_reason=connection-closed` / 全部 `remote_disconnect`              |
+| Dispositivos usando workspace remoto (dia/semana) | `remote_active_session_count` com `custom.value > 0`, deduplicado por `device_mid`     |
+| Dispositivos com conexão explícita bem-sucedida            | `remote_connect_result` com `result=success`, deduplicado por `device_mid`             |
+| Dispositivos por tipo de conexão explícita      | o mesmo agrupado por `remote_kind`                                                     |
+| Pico de conexões simultâneas por dispositivo          | agregar `max(custom.value)` por `device_mid` em `remote_active_session_count`   |
+| Distribuição do pico de conexões simultâneas            | calcular P50/P90/max sobre o max em nível de dispositivo do passo anterior; é proibido fazer histograma direto sobre todas as linhas de evento        |
+| Duração média observável da conexão            | `custom.value` de `remote_disconnect`; o painel deveregistrar que que exclui amostras com censura à direita por terminação súbita do processo principal |
+| Proporção de desconexões anormais de transporte              | `disconnect_reason=connection-closed` / todos os `remote_disconnect`              |
 
-## 实施计划
+## Plano de implementação
 
-### 状态所有权与修改文件
+### Propriedade do estado e arquivos modificados
 
-| 状态 / 事实                                      | Owner                                               | 文件                                                                 |
+| Estado / fato                                      | Owner                                               | Arquivo                                                                 |
 | ------------------------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------- |
-| ARMS payload / configure / periodic gauge / 上报 | 新模块（复用 `desktopArmsCustomEvent.ts` 最终派发） | （新）`packages/desktop/src/main/desktopRemoteUsageArmsTelemetry.ts` |
-| 显式连接终态                                     | ConnectRemote IPC handler                           | `packages/desktop/src/main/desktopMainIpcRemote.ts`                  |
-| route 生命周期 / atomic retire / 并发统计        | RemoteWorkspaceSessionManager                       | `packages/desktop/src/main/desktopRemoteSessions.ts`                 |
-| 装配与 shutdown timer 收口                       | Main 入口                                           | `packages/desktop/src/main/index.ts`                                 |
+| Payload / configure / gauge periódico / reporte do ARMS | novo módulo (reusando o dispatch final de `desktopArmsCustomEvent.ts`) | (novo) `packages/desktop/src/main/desktopRemoteUsageArmsTelemetry.ts` |
+| Estado final de conexão explícita                                     | Handler do IPC ConnectRemote                           | `packages/desktop/src/main/desktopMainIpcRemote.ts`                  |
+| Ciclo de vida da rota / retire atômico / estatísticas de concorrência        | RemoteWorkspaceSessionManager                       | `packages/desktop/src/main/desktopRemoteSessions.ts`                 |
+| Montagem e encerramento do timer de shutdown                       | Entrada do Main                                           | `packages/desktop/src/main/index.ts`                                 |
 
-#### 1.（新）`desktopRemoteUsageArmsTelemetry.ts`
+#### 1. (novo) `desktopRemoteUsageArmsTelemetry.ts`
 
-- 常量：`REMOTE_USAGE_ARMS_GROUP = "remote_usage"`、三个 event name、`REMOTE_USAGE_GAUGE_INTERVAL_MS = 300_000`。
-- 类型：`RemoteDisconnectReason`、`RemoteGaugeTransition`、`RemoteConnectionStats { activeSessionCount; activeTargetCount }`。
-- 纯 builder：
+- Constantes: `REMOTE_USAGE_ARMS_GROUP = "remote_usage"`, três nomes de evento, `REMOTE_USAGE_GAUGE_INTERVAL_MS = 300_000`.
+- Tipos: `RemoteDisconnectReason`, `RemoteGaugeTransition`, `RemoteConnectionStats { activeSessionCount; activeTargetCount }`.
+- Builders puros:
   - `buildRemoteConnectResultArmsPayload(params)`
-  - `buildRemoteActiveSessionCountArmsPayload(params, stats)`，`value = stats.activeSessionCount`
-  - `buildRemoteDisconnectArmsPayload(params)`，`value = durationMs`
-- `configureRemoteUsageArmsTelemetry({ armsCustomContext, getRemoteConnectionStats, sendCustom, e2eController?, logger, setInterval?, clearInterval? })`：模块级单例；启动 5 分钟 timer，仅在 count > 0 且已有最近 rendererId 时发送 periodic gauge。
-- `reportRemoteConnectResultToArms` / `reportRemoteConnectionStateChangedToArms` / `reportRemoteDisconnectToArms`：未 configure no-op；内部 try/catch 永不抛；统一经 `dispatchFinalArmsCustomEvent` 落地。
-- `stopRemoteUsageArmsPeriodicSampling()`：只停止 timer，不清空 reporter 配置；app shutdown 后续仍可发送 final gauge/disconnect。
-- `resetRemoteUsageArmsTelemetryForTest()`：停止 timer并清空模块状态。
-- 复用 shared 的 `RemoteUsageRemoteKind` / `RemoteWorkspaceConnectTrigger` / `RemoteUsageErrorCategory` / `RemoteUsageResult`，不新增协议或 shared runtime schema。
+  - `buildRemoteActiveSessionCountArmsPayload(params, stats)`, com `value = stats.activeSessionCount`
+  - `buildRemoteDisconnectArmsPayload(params)`, com `value = durationMs`
+- `configureRemoteUsageArmsTelemetry({ armsCustomContext, getRemoteConnectionStats, sendCustom, e2eController?, logger, setInterval?, clearInterval? })`: singleton em nível de módulo; inicia o timer de 5 minutos e envia o gauge periódico somente quando count > 0 e já existe um rendererId recente.
+- `reportRemoteConnectResultToArms` / `reportRemoteConnectionStateChangedToArms` / `reportRemoteDisconnectToArms`: no-op quando não configurado; try/catch interno que nunca lança; todos passam por `dispatchFinalArmsCustomEvent`.
+- `stopRemoteUsageArmsPeriodicSampling()`: apenas para o timer, sem limpar a configuração do reporter; após o shutdown do app ainda é possível enviar o gauge/disconnect final.
+- `resetRemoteUsageArmsTelemetryForTest()`: para o timer e limpa o estado do módulo.
+- Reusa `RemoteUsageRemoteKind` / `RemoteWorkspaceConnectTrigger` / `RemoteUsageErrorCategory` / `RemoteUsageResult` do shared, sem novo protocolo ou schema de runtime compartilhado.
 
-#### 2. `desktopRemoteSessions.ts`（canonical gauge + disconnect + stats）
+#### 2. `desktopRemoteSessions.ts` (gauge canônico + disconnect + stats)
 
-- `PendingConnect` 与 `RemoteAttachmentRoute` 增加 `remoteUsageTelemetryEligible: boolean`；route 另加 `connectedAtMonotonicMs: number`、`connectFinalized: boolean`。字段放 route 顶层，避免 bindContext 替换 descriptor 时丢失。
-- `createRemoteWorkspaceSession` 增加第五个 Main-local lifecycle 参数 `{ remoteUsageTelemetryEligible?: boolean }`，默认 false；该参数只写入 pending/route，不转发给 Host。
-- options 增加可选 `reportRemoteConnectionStateChanged`、`reportRemoteDisconnect`、`monotonicNowMs`（测试注入，默认 `performance.now`）。只做 type-only import，避免 runtime 环依赖。
-- `confirmRendererAttachmentReady` 对首次 connect 在 resolve 前设置 `connectFinalized = true`；仅 eligible route 随后上报 `transition=connected` 的 after-state gauge。bind/reattach 的 ready ACK 不重复 finalize。
-- 新增统一 `retireActiveRoute(route, transition, mutate)`：先按 `eligible && attachable && connectFinalized` 捕获 `wasActive`，执行 mark/delete，再读取 stats；仅 `wasActive` 时依次上报 gauge 与 disconnect。
-- `handleClosed` / `disposeRemoteWorkspaceSession` / `disposeRemoteWorkspaceSessionsForWindow` / `child.once("exit")` / `disposeAllAndWaitForAppShutdown` 全部复用 retire helper。
-- app shutdown 使用 `app-shutdown`，先逐条 retire 再 clear；不能像当前实现一样直接 `routesBySessionId.clear()`。
-- return 对象增加 `getRemoteConnectionStats()`。
+- `PendingConnect` e `RemoteAttachmentRoute` ganham `remoteUsageTelemetryEligible: boolean`; a rota ganha também `connectedAtMonotonicMs: number` e `connectFinalized: boolean`. Os campos ficam no nível superior da rota para evitar perda quando o bindContext substitui o descritor.
+- `createRemoteWorkspaceSession` ganha um quinto parâmetro de lifecycle Main-local `{ remoteUsageTelemetryEligible?: boolean }`, com padrão false; esse parâmetro é escrito apenas em pending/route e não é repassado ao Host.
+- As opções ganham `reportRemoteConnectionStateChanged`, `reportRemoteDisconnect` e `monotonicNowMs` (injetados em teste, padrão `performance.now`) opcionais. Apenas import type-only, para evitar dependência circular em runtime.
+- `confirmRendererAttachmentReady` define `connectFinalized = true` para a primeira conexão antes do resolve; somente rotas elegíveis reportam em seguida o gauge de after-state com `transition=connected`. O ready ACK de bind/reattach não finaliza de novo.
+- Novo helper unificado `retireActiveRoute(route, transition, mutate)`: captura `wasActive` por `eligible && attachable && connectFinalized`, executa mark/delete, depois lê as stats; somente quando `wasActive` reporta gauge e disconnect, nessa ordem.
+- `handleClosed` / `disposeRemoteWorkspaceSession` / `disposeRemoteWorkspaceSessionsForWindow` / `child.once("exit")` / `disposeAllAndWaitForAppShutdown` reutilizam o retire helper.
+- O shutdown do app usa `app-shutdown`, retirement registro a registro antes do clear; não pode simplesmente chamar `routesBySessionId.clear()` como na implementação atual.
+- O objeto de retorno ganha `getRemoteConnectionStats()`.
 
-#### 3. `desktopMainIpcRemote.ts`（显式连接结果 + configure）
+#### 3. `desktopMainIpcRemote.ts` (resultado de conexão explícita + configure)
 
-- options 增加必选 `getRemoteConnectionStats: () => RemoteConnectionStats`。
-- `createRemoteWorkspaceSession` option 签名增加 Main-local lifecycle 参数；`ConnectRemote` 调用时显式传 `{ remoteUsageTelemetryEligible: true }`。
-- `finalArmsCustomEventE2E` 创建后调用 `configureRemoteUsageArmsTelemetry`；register 早于首窗创建，连接事件不可能早于 configure。
-- `ConnectRemote` 成功/失败返回前各调用一次 `reportRemoteConnectResultToArms`。该事件不再携带并发 property；并发只来自 canonical gauge。
-- reporter 外层保留 safe try/catch，保证任何埋点异常都不会把成功连接改写成失败。
+- As opções ganham o obrigatório `getRemoteConnectionStats: () => RemoteConnectionStats`.
+- A assinatura da option `createRemoteWorkspaceSession` ganha o parâmetro de lifecycle Main-local; a chamada `ConnectRemote` passa explicitamente `{ remoteUsageTelemetryEligible: true }`.
+- Depois de criar `finalArmsCustomEventE2E`, chama `configureRemoteUsageArmsTelemetry`; o register ocorre antes da criação da primeira janela, então um evento de conexão não pode ocorrer antes do configure.
+- Antes dos retornos de sucesso/falha de `ConnectRemote`, chama uma vez `reportRemoteConnectResultToArms`. Esse evento não carrega mais property de concorrência; a concorrência vem somente do gauge canônico.
+- O reporter externo mantém um safe try/catch, garantindo que nenhuma exceção de telemetria transforme uma conexão bem-sucedida em falha.
 
-#### 4. `index.ts`（装配与退出顺序）
+#### 4. `index.ts` (montagem e ordem de saída)
 
-- manager options 注入 `reportRemoteConnectionStateChangedToArms` 与 `reportRemoteDisconnectToArms`。
-- `registerRemoteIpcHandlers` 注入 `getRemoteConnectionStats`。
-- `prepareAppQuit` 在调用 `remoteSessionManager.disposeAllAndWaitForAppShutdown` 前同步执行 `stopRemoteUsageArmsPeriodicSampling()`；manager 随后发送 `app-shutdown` gauge/disconnect，ARMS SDK 使用现有 Host shutdown barrier 提供的时间窗口 best effort flush，实际到达率必须通过测试环境验收。
+- As opções do manager recebem `reportRemoteConnectionStateChangedToArms` e `reportRemoteDisconnectToArms`.
+- `registerRemoteIpcHandlers` recebe `getRemoteConnectionStats`.
+- `prepareAppQuit` executa `stopRemoteUsageArmsPeriodicSampling()` de forma síncrona antes de chamar `remoteSessionManager.disposeAllAndWaitForAppShutdown`; o manager envia em seguida o gauge/disconnect `app-shutdown` e o SDK do ARMS faz um flush best effort usando a janela de tempo fornecida pelo barrier de shutdown do Host existente — a taxa real de chegada precisa ser aceita no ambiente de testes.
 
-#### 5. 文档索引
+#### 5. Índice de documentação
 
-- `docs/monitoring/README.md` 产品专项节加本文档索引。
-- `docs/monitoring/business-monitoring.md` 引用 V1 处补充并发/时长见本文档。
-- `docs/monitoring/remote-usage-telemetry-v1.md`“本期剪枝”节补注：逻辑 session 并发数与可观测连接时长由 ARMS 通道承接。
-- 不登记 `performance-telemetry-catalog.md`：该文件是性能事件字典，usage 类 group 如 `plan_usage` / `send_funnel` 均不进入。
+- Adicionar o índice deste documento na seção de iniciações de produto de `docs/monitoring/README.md`.
+- Em `docs/monitoring/business-monitoring.md`, na referência à V1, acrescentar que concorrência/duração estão neste documento.
+- Na seção "Podas deste ciclo" de `docs/monitoring/remote-usage-telemetry-v1.md`: registrar que a concorrência de sessões lógicas e a duração de conexão observável são assumidas pelo canal ARMS.
+- Não registrar em `performance-telemetry-catalog.md`: esse arquivo é o dicionário de eventos de performance e groups de usage como `plan_usage` / `send_funnel` não entram nele.
 
-### 测试计划（先写测试再实现）
+### Plano de testes (escrever os testes antes da implementação)
 
-**A（新）`packages/desktop/test/desktopRemoteUsageArmsTelemetry.test.ts`**
+**A (novo) `packages/desktop/test/desktopRemoteUsageArmsTelemetry.test.ts`**
 
-- 三个 builder 的字段集与 `custom.value`：connect=1、gauge=active session、disconnect=duration。
-- failure 缺省 `errorCategory -> unknown`；properties 不含任何 target/path/session identity。
-- 未 configure 不抛不发；configure 后经真实 `createFinalArmsCustomEventE2EController` 断言公共维度与 suppress。
-- fake timer：count=0 不发 periodic；count>0 每 5 分钟发一次；使用最近 rendererId；stop/reset 后不再发。
-- getStats / sendCustom 抛错时吞掉并 `logger.warn`；每个 case reset 隔离。
+- Conjunto de campos e `custom.value` dos três builders: connect=1, gauge=sessão ativa, disconnect=duração.
+- `errorCategory -> unknown` como padrão em falha; as properties não contêm nenhuma identidade de target/path/session.
+- Sem configure, não lança nem envia; após configure, afirmar dimensões comuns e supressão usando um `createFinalArmsCustomEventE2EController` real.
+- Fake timer: count=0 não envia periódico; count>0 envia a cada 5 minutos; usa o rendererId mais recente; após stop/reset não envia mais.
+- Quando getStats / sendCustom lança, engole e faz `logger.warn`; cada caso é isolado por reset.
 
-**B（扩展）`packages/desktop/test/desktopRemoteSessions.test.ts`**
+**B (extensão) `packages/desktop/test/desktopRemoteSessions.test.ts`**
 
-- stats：两个 eligible 的同 SSH target 逻辑 session -> session=2 / target=1；四 kind 混合去重。
-- server 归一化：`ws:// == http://`、`wss:// == https://`、`ws:// != https://`。
-- attach 未确认不计入、不发 gauge；首次 ready 后发一次 `connected` gauge；bind/reattach ready 不重复发。
-- 未传 lifecycle 参数或显式 eligible=false 的内部连接成功后仍不进入 stats，不发 gauge；其后 disconnect/app shutdown 也不发事件。
-- connection-closed 报一次；closed 后再 dispose 不重报。
-- dispose / window close / host exit 分别产生对应 transition + disconnect，并断言每次 gauge 都是 after-state。
-- app shutdown 逐条报 `app-shutdown`，最后一个 gauge value=0；attach 未确认 route 不报。
-- callback 抛错不中断 route 清理；duration 使用注入单调时钟得到精确值。
+- stats: duas sessões lógicas eligible no mesmo target SSH -> session=2 / target=1; deduplicação com os quatro kinds misturados.
+- Normalização de server: `ws:// == http://`, `wss:// == https://`, `ws:// != https://`.
+- Attach não confirmado não conta nem envia gauge; envia uma vez o gauge `connected` após o primeiro ready; bind/reattach ready não reenvia.
+- Conexões internas sem parâmetro de lifecycle ou com eligible=false explícito, mesmo bem-sucedidas, não entram nas stats e não enviam gauge; o disconnect/app shutdown posterior também não envia eventos.
+- `connection-closed` reporta uma vez; dispose após closed não reporta de novo.
+- dispose / window close / host exit geram respectively transition + disconnect correspondentes, e-segurar que cada gauge é de after-state.
+- App shutdown reporta `app-shutdown` registro a registro, com o último gauge value=0; rota com attach não confirmado não reporta.
+- Erro lançado pelo callback não interrompe a limpeza da rota; a duração usa o relógio monotônico injetado para obter valor exato.
 
-**C（扩展）`packages/desktop/test/desktopMainIpcRemoteTelemetry.test.ts`**
+**C (extensão) `packages/desktop/test/desktopMainIpcRemoteTelemetry.test.ts`**
 
-- configure 被调用并透传 `getRemoteConnectionStats` / E2E controller / sendCustom。
-- 显式连接成功/失败的参数与四种 remote kind；断言 `createRemoteWorkspaceSession` 收到 `remoteUsageTelemetryEligible=true`；connect-result 不再携带并发字段。
-- ARMS reporter 抛错不改写 `{ success: true }` 返回值。
+- configure é chamado e repassa `getRemoteConnectionStats` / E2E controller / sendCustom.
+- Parâmetros de sucesso/falha de conexão explícita e os quatro remote kinds; afirmar que `createRemoteWorkspaceSession` recebeu `remoteUsageTelemetryEligible=true`; connect-result não carrega mais campo de concorrência.
+- Erro lançado pelo reporter ARMS não reescreve o valor de retorno `{ success: true }`.
 
-**D（回归）**
+**D (regressão)**
 
-- `packages/desktop/test/e2eProcessCleanup.test.ts`：覆盖 index.ts shutdown barrier 装配。
-- 现有 remote session / window lifecycle 单测全量回归。
-- 本功能不修改 conversation 状态、V4 wire 或 replayable/continuous 边界，不新增 conversation E2E case。
+- `packages/desktop/test/e2eProcessCleanup.test.ts`: cobre a montagem do shutdown barrier em index.ts.
+- Regressão completa dos testes unitários existentes de remote session / window lifecycle.
+- Esta funcionalidade não modifica estado de conversation, o wire da V4 nem os limites replayable/continuous, e não adiciona casos de E2E de conversation.
 
-### 必须完成的 ARMS 验收
+### Aceitação ARMS obrigatória
 
-E2E bridge 在 `sendCustom` 前记录 payload，只能证明客户端组装正确，不能证明 SDK flush、ARMS 入库和查询口径。因此以下测试环境验收是发布前置条件，不是可选冒烟：
+A ponte E2E registra o payload antes do `sendCustom` e só prova que a montagem do cliente está correta; não prova o flush do SDK, a entrada no ARMS nem adefinição de consulta. Portanto a seguinte aceitação no ambiente de testes é pré-requisito de release, não um smoke opcional:
 
-1. 开启 E2E bridge 双门禁，连接两个 WSL/Docker remote workspace，断开一个，确认本地最终 payload 的 gauge 序列为 `1 -> 2 -> 1`。
-2. 保持至少一个连接跨过 5 分钟，确认 periodic gauge 入库。
-3. 正常退出 App，确认 `app-shutdown` disconnect 与最终 gauge 0 在 ARMS test 环境可查询。
-4. 在 ARMS Custom 表验证：`custom.value` 是 number、`user.name` 与 `device_mid` 一致、设备级 `max(custom.value)` 和二阶段 P50/P90 查询结果符合预期。
-5. 验证任何事件均不含禁止上传的 target/path/identity/error 原文。
+1. Ativar o gate duplo da ponte E2E, conectar dois workspaces remotos WSL/Docker, desconectar um e confirmar que a sequência de gauges no payload local final é `1 -> 2 -> 1`.
+2. Manter pelo menos uma conexão por mais de 5 minutos e confirmar que o gauge periódico entrou no ARMS.
+3. Sair do App normalmente e confirmar que o disconnect `app-shutdown` e o gauge final 0 são consultáveis no ambiente de teste do ARMS.
+4. Validar na tabela Custom do ARMS: `custom.value` é number, `user.name` é igual a `device_mid`, e o `max(custom.value)` em nível de dispositivo e a consulta P50/P90 em duas fases batem com o esperado.
+5. Verificar que nenhum evento contém texto bruto proibido de target/path/identity/error.
 
-若当前开发机缺少真实 WSL/Docker/SSH 环境，提交说明必须列出未完成项，且不能把 ARMS 数据口径标记为已验收。
+Se a máquina de desenvolvimento atual não tiver um ambiente real de WSL/Docker/SSH, a mensagem de commit deve listar os itens não concluídos e não pode marcar adefinição de dados do ARMS como aceita.
 
-### 实施顺序与验证
+### Ordem de implementação e verificação
 
-1. 本 spec 文档与二次评审。
-2. 测试 A -> 实现 `desktopRemoteUsageArmsTelemetry.ts` -> 绿。
-3. 测试 B -> 修改 `desktopRemoteSessions.ts` -> 绿。
-4. 测试 C -> 修改 `desktopMainIpcRemote.ts` 与 `index.ts` -> 绿。
-5. 更新三处文档索引。
-6. 完成测试环境 ARMS 验收并记录查询口径。
-7. 提交 Conventional Commit。
+1. Este documento de spec e a segunda revisão.
+2. Teste A -> implementação de `desktopRemoteUsageArmsTelemetry.ts` -> verde.
+3. Teste B -> alteração de `desktopRemoteSessions.ts` -> verde.
+4. Teste C -> alteração de `desktopMainIpcRemote.ts` e `index.ts` -> verde.
+5. Atualizar os três índices de documentação.
+6. Concluir a aceitação ARMS no ambiente de testes e registrar adefinição de consulta.
+7. Enviar um Conventional Commit.
 
-验证命令（仓库根目录）：
+Comandos de verificação (raiz do repositório):
 
 ```bash
 pnpm typecheck

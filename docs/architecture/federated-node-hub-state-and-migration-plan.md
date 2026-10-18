@@ -1,91 +1,116 @@
-# Federated ZCode Node / Hub 状态与迁移规划
+# Estado e Plano de Migração do Federated ZCode Node / Hub
 
-## 状态
+## Estado
 
-- 文档状态：架构草案，等待产品裁决。
-- 范围：同一 Desktop 或 Browser Web 同时管理本机与多个 ZCode Lite / Server Node。
-- 本文规划统一进程模型、通信栈、状态权威、任务聚合、扩展能力和旧数据迁移；不修改现有产品代码。
-- 已确认的上层架构边界：
-  - Desktop UI 和 Browser Web 都是统一 UI。
-  - TUI 是 Node 本地能力，不作为跨远端 UI。
-  - SSH / WSL / Docker 负责 bootstrap、发现和 transport；业务协议最终连接同一个 Node Runtime。
-  - 手机 `/remote` 是现有 Hub 的远程 UI attachment，不独立创建 Node runtime。
-  - Desktop `desktop-continuous` 与 Browser / 手机 replayable 继续保持不同 delivery 语义；
-    目标态再把 Browser 与手机拆成不同的可信连接角色。
+- Estado do documento: rascunho de arquitetura, aguardando decisão de produto.
+- Escopo: o mesmo Desktop ou Browser Web gerindo simultaneamente a máquina local e múltiplos ZCode
+  Lite / Server Node.
+- Este documento planeja o modelo de processos unificado, a pilha de comunicação, a autoridade de
+  estado, a agregação de tarefas, as capacidades de extensão e a migração de dados legados; não
+  modifica o código de produto existente.
+- Fronteiras de arquitetura de camada superior já confirmadas:
+  - Desktop UI e Browser Web são ambos uma UI unificada.
+  - A TUI é uma capacidade local do Node, não uma UI remota entre máquinas.
+  - SSH / WSL / Docker são responsáveis por bootstrap, descoberta e transport; o protocolo de negócio acaba
+    conectando o mesmo Node Runtime.
+  - O `/remote` do celular é um attachment de UI remoto do Hub existente e não cria um Node runtime
+    próprio.
+  - Desktop `desktop-continuous` e Browser / celular replayable continuam com semânticas de delivery
+    distintas; o estado-alvo separará Browser e celular em papéis de conexão confiáveis distintos.
 
 ## Feature Impact Brief
 
-### 变更层
+### Camadas Alteradas
 
-| 层            | 本规划的变化                                                                       |
-| ------------- | ---------------------------------------------------------------------------------- |
-| option-source | 模型目录改为账户级期望配置；Skill / Plugin / Subagent 候选改为目标 Node 实际能力。 |
-| draft-default | 新任务模型默认值来自账户级模型 Profile；已有 Session 继续使用自己的运行时配置。    |
-| validation    | 创建和发送前校验目标 Node 的模型与凭据 readiness；扩展操作校验目标 Node 能力。     |
-| commit-effect | Task / Session 命令只路由到任务来源 Node；Hub 不执行业务命令。                     |
-| persistence   | 引入稳定 Node / Workspace 身份、跨节点视图配置、Hub 目录缓存和迁移 ledger。        |
-| recovery      | 多 Node 游标、节点离线、拓扑变化、双数据库迁移和旧 identity alias 都需要恢复协议。 |
+| Camada         | Mudança deste planejamento                                                                                         |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| option-source  | O catálogo de modelos passa a ser configuração desejada em nível de conta; candidatos de Skill / Plugin / Subagent passam a ser a capacidade real do Node alvo. |
+| draft-default  | O valor padrão do novo modelo de tarefa vem do Model Profile em nível de conta; Sessions existentes continuam usando sua própria configuração de runtime. |
+| validation     | Antes de criar e enviar, validar a readiness de modelo e credenciais do Node alvo; operações de extensão validam a capacidade do Node alvo. |
+| commit-effect  | Commands de Task / Session são roteados apenas para o Node de origem da tarefa; o Hub não executa commands de negócio. |
+| persistence    | Introduzir identidade estável de Node / Workspace, configuração de visão cross-node, cache de catálogo do Hub e ledger de migração. |
+| recovery       | Cursor de múltiplos Nodes, node offline, mudanças de topologia, migração de duplo banco e aliases de identidade legados exigem protocolo de recuperação. |
 
-### 当前事实
+### Fatos Atuais
 
-1. Task 列表持久行来自各 endpoint 的 `tasks-index.sqlite`，Session runtime 和正文仍由 CLI
-   Session Store 权威持有。当前 UI 会把每个 endpoint 的 active / pinned / archived 全量拉回，
-   再在 renderer 合并、排序和裁剪。
-2. `ZCodeTaskListQuery` 只有 `limit`，没有 cursor；当前“显示更多”仍会重新读取完整前缀。
-3. 自定义分组当前存于单个 `tasks-index.sqlite` 的
-   `task_groups / task_group_members / task_group_view_node_orders`，排序是用户显式顺序，
-   不是时间排序；当前 Grouped 视图明确不聚合 remote endpoint。
-4. App 模型配置权威文件为 `~/.zcode/v2/config.json`。当前 Provider metadata、Base URL 和
-   自定义 API Key 仍混在同一配置 / registry snapshot 中。
-5. SSH / WSL 当前是混合权威：
-   - 文件、Git、Terminal、Agent、Task、Skills、Plugins 在远端；
-   - Settings、Credential、Model Provider 在 Desktop；
-   - Subagent 设置服务仍在 Desktop，但远端 CLI runtime 实际读取远端定义和状态，存在事实源分裂。
-6. 旧 SSH Task 数据实际同时落在目标机的两套数据库：
+1. As linhas persistidas da lista de Tasks vêm do `tasks-index.sqlite` de cada endpoint; o runtime e
+   o corpo das Sessions continuam sendo autoritativamente mantidos pelo Session Store do CLI. hoje
+   a UI traz active / pinned / archived completos de cada endpoint e então combina, ordena e corta
+   no renderer.
+2. `ZCodeTaskListQuery` só tem `limit`, sem cursor; hoje o "mostrar mais" ainda relê o prefixo
+   completo.
+3. Os agrupamentos personalizados hoje ficam em um único `tasks-index.sqlite` nas tabelas
+   `task_groups / task_group_members / task_group_view_node_orders`; a ordenação é a ordem explícita
+   do usuário, não ordenação temporal; a visão Grouped atual explicitamente não agrega remote
+   endpoint.
+4. O arquivo autoritativo de configuração de modelos do App é `~/.zcode/v2/config.json`. Hoje o
+   Provider metadata, o Base URL e a custom API Key ainda ficam misturados no mesmo snapshot de
+   configuração / registry.
+5. SSH / WSL hoje têm autoridade mista:
+   - arquivo, Git, Terminal, Agent, Task, Skills e Plugins ficam no remoto;
+   - Settings, Credential e Model Provider ficam no Desktop;
+   - o serviço de configurações de Subagent ainda fica no Desktop, mas o CLI runtime remoto lê na
+     verdade as definições e o estado remotos, o que produz uma divisão da fonte de fatos.
+6. Os dados legados de Task SSH realmente caem em dois bancos na máquina alvo:
    - `~/.zcode/v2/tasks-index.sqlite`
    - `~/.zcode/cli/db/db.sqlite`
-7. 旧 SSH workspace key 的格式为：
+7. O formato da workspace key legada de SSH é:
 
 ```text
 remote:ssh:<host>:<port>:<username>:<workspacePath>
 ```
 
-同一目标机经不同 hostname、端口、用户名或 SSH alias 连接，会形成不同 key。
+Conectar à mesma máquina alvo por hostname, porta, username ou alias SSH diferentes forma keys
+diferentes.
 
-8. 当前 SSH / WSL / Docker 虽已复用
-   `IRemoteBackend -> deployServer -> connectRemote -> zcode-server`，进程复用和回收仍不一致：
-   - SSH：同窗口、同 SSH 身份共享 Host，通常留到窗口关闭；
-   - WSL：同窗口、同 distro / user 共享 Host，使用 workspace generation 和 60 秒 idle TTL；
-   - Docker：每个 remote session 独立 Host，session 关闭即回收整套 runtime。
-9. 当前 SSH / WSL / Docker 启动的是前台 stdio `zcode-server`。它由 Desktop Host 持有生命周期，
-   不监听长期端口；连接 EOF 或 Host 退出会触发 Server 和 Agent 清理。
-10. 当前 ZCode Lite 使用 `entry-http.js` 创建另一种长期 HTTP / WebSocket Server；它与 stdio Server
-    都调用 `createLocalServices()`，但入口、认证、连接复用和生命周期仍是两套。
-11. 当前手机 `/remote` 经 relay 附着 Desktop 窗口已有 Local / Remote Host；relay 和 Desktop main
-    只透传 `rpc-frame` 与 attachment 控制，不拥有 task / session / stream / queue / snapshot。
+8. Hoje SSH / WSL / Docker já reutilizam
+   `IRemoteBackend -> deployServer -> connectRemote -> zcode-server`, mas o reúso e a reciclagem de
+   processos ainda são inconsistentes:
+   - SSH: Host compartilhado para a mesma janela e a mesma identidade SSH, normalmente mantido até
+     o fechamento da janela;
+   - WSL: Host compartilhado para a mesma janela e o mesmo distro / user, usando workspace
+     generation e idle TTL de 60 segundos;
+   - Docker: Host independente por remote session, com reciclagem de todo o runtime no fechamento da
+     session.
+9. Hoje SSH / WSL / Docker iniciam um `zcode-server` stdio em foreground. Seu ciclo de vida é mantido
+   pelo Desktop Host, não escuta portas de longa duração; EOF da conexão ou saída do Host acionam a
+   limpeza de Server e Agent.
+10. Hoje o ZCode Lite usa `entry-http.js` para criar outro tipo de Server HTTP / WebSocket de longa
+    duração; tanto o Server stdio quanto ele chamam `createLocalServices()`, mas a entrada,
+    autenticação, reúso de conexão e ciclo de vida continuam sendo dois conjuntos distintos.
+11. Hoje o `/remote` do celular se anexa via relay ao Local / Remote Host existente da janela do
+    Desktop; o relay e o Desktop main apenas repassam `rpc-frame` e o controle de attachment, e não
+    possuem task / session / stream / queue / snapshot.
 
-### 必须保留的不变量
+### Invariantes que Precisam Ser Preservados
 
-1. Task / Session / Stream / Queue / Snapshot 的业务真相只在任务来源 Node。
-2. Hub、relay 和 Desktop main 不持有 conversation 业务状态。
-3. 全局 Task 身份不能再只用 `taskId`，至少使用：
+1. A verdade de negócio de Task / Session / Stream / Queue / Snapshot está somente no Node de
+   origem da tarefa.
+2. Hub, relay e Desktop main não mantêm estado de negócio de conversation.
+3. A identidade global de Task não pode usar apenas `taskId`; precisa usar no mínimo:
 
 ```text
 GlobalTaskRef = { nodeId, workspaceId, taskId }
 ```
 
-4. `workspacePath` 只用于目标 Node 上的 IO 和展示，不能继续承担跨机器永久身份。
-5. 已有 Session 的 provider / model / thought 仍由该 Session runtime 权威持有；账户模型配置只提供
-   目录、默认值和新 Session 种子，不能批量改写历史 Session。
-6. Node 本地 Skill / Plugin / Subagent 不得被多个节点的候选并集伪装成“当前任务可用”。
-7. 手机 `/remote` 只看到已配对 Hub 已连接或已缓存的 Node；不能绕过 Hub attachment 直接创建
-   Node runtime。
-8. UI 不得自行声明可信 `clientMode`；Desktop continuous、Browser / Mobile replayable 都必须由
-   Hub / Node attachment 依据已认证的连接角色注入。
-9. SSH / WSL / Docker bootstrap 只负责“到达 Node”，不得拥有 workspace、Agent 或 conversation
-   生命周期。
+4. `workspacePath` serve apenas para IO e exibição no Node alvo e não pode continuar carregando
+   identidade permanente entre máquinas.
+5. O provider / model / thought de uma Session existente continuam sendo autoritativamente mantidos
+   pelo Session runtime daquela Session; a configuração de modelos da conta só fornece catálogo,
+   valores padrão e seed para novas Sessions e não pode reescrever em massa Sessions históricas.
+6. Skill / Plugin / Subagent locais do Node não podem ser falsificados como "disponível para a tarefa
+   atual" pela união de candidatos de múltiplos nodes.
+7. O `/remote` do celular só enxerga Nodes conectados ou em cache do Hub já pareado; não pode
+   contornar o attachment do Hub para criar um Node runtime diretamente.
+8. A UI não pode declarar um `clientMode` confiável por conta própria; Desktop continuous e
+   Browser / Mobile replayable precisam ser injetados pelo Hub / Node attachment conforme o papel
+   de conexão já autenticado.
+9. O bootstrap SSH / WSL / Docker só é responsável por "chegar ao Node" e não pode possuir ciclo de
+   vida de workspace, Agent ou conversation.
 
-## 目标架构
+<!-- CHUNK-2 -->
+
+## Arquitetura Alvo
 
 ```text
                          Account Control Plane
@@ -113,18 +138,22 @@ Mobile /remote
   -> 已连接的 Node A / B / C
 ```
 
-约束：
+Restrições:
 
-- Hub 只连接 Node plane，不递归连接另一个 Hub，避免环路、重复聚合和身份歧义。
-- Browser Web 的 Hub 位于它所连接的 Lite / Server 进程；Desktop 的 Hub 是由 Electron Main 监督、
-  供多个窗口共享的 app-wide 独立进程，不属于任一 per-window Host。
-- Node 是本机 workspace、task、session、file、git、terminal、resource 和 extension inventory 的权威。
-- Account Control Plane 是一个逻辑接口，可以由 ZCode 账户服务、自托管同步服务或离线本地 Profile
-  实现；不把云实现细节写死到 Node RPC。
+- O Hub só se conecta ao plano de Nodes e não se conecta recursivamente a outro Hub, evitando ciclos,
+  agregação duplicada e ambiguidade de identidade.
+- O Hub do Browser Web fica no processo Lite / Server ao qual ele se conecta; o Hub do Desktop é um
+  processo independente app-wide supervisionado pelo Electron Main e compartilhado por várias
+  janelas, e não pertence a nenhum Host per-window.
+- O Node é a autoridade do workspace local, task, session, file, git, terminal, resource e
+  extension inventory da máquina.
+- O Account Control Plane é uma interface lógica, que pode ser implementada pelo serviço de conta
+  ZCode, por um serviço de sincronização self-hosted ou por um Profile local offline; os detalhes
+  de implementação em nuvem não ficam fixados no Node RPC.
 
-## 统一进程与通信模型
+## Modelo Unificado de Processo e Comunicação
 
-### 一句话模型
+### Modelo em Uma Frase
 
 ```text
 Desktop / Browser / Mobile UI 只连接 Hub
@@ -135,21 +164,22 @@ Node 按 workspaceKey 懒启动 ZCode Agent
 SSH / WSL / Docker 只是 bootstrap + tunnel adapter
 ```
 
-目标不是把所有东西塞进一个进程，而是让不同部署形态复用同一组逻辑角色和协议合同。
+O objetivo não é enfiar tudo em um único processo, mas fazer com que diferentes formas de
+implantação reutilizem o mesmo conjunto de papéis lógicos e contratos de protocolo.
 
-### 逻辑角色
+### Papéis Lógicos
 
-| 角色                       | 数量与位置                                           | 职责                                                                                                  | 明确不负责                                                          |
-| -------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| UI Client                  | Desktop Renderer、Browser Web、Mobile Web            | 展示统一 Node / Workspace / Task 视图，提交用户意图                                                   | 不持有业务权威，不直接 SSH，不直接启动 Agent                        |
-| ZCode Hub                  | 每个 Desktop 实例一个；每个 Lite Web origin 一个     | Node registry、连接管理、Task Summary 聚合、离线目录缓存、账户 Profile 同步、UI attachment            | 不执行文件命令，不拼 conversation，不拥有 queue / stream / snapshot |
-| ZCode Node                 | 每台目标机器、WSL distro 或容器一个稳定实例          | Workspace Registry、file/git/terminal、Task Index、Resource Store、Agent manager、extension inventory | 不聚合其他 Node，不递归充当远端 Hub                                 |
-| ZCode Agent                | 每个活跃 workspaceKey 最多一个主聊天 runtime         | Session、V4 CommandInbox、projection、stream、permission、tool、model runtime                         | 不管理跨 Node 连接或 UI 布局                                        |
-| Bootstrap / Tunnel Adapter | 每条 SSH / WSL / Docker 连接一个短生命周期 connector | 安装、升级、发现 Node，建立到 Node endpoint 的字节隧道                                                | 不创建第二套 ServiceCollection，不保存业务状态                      |
-| Relay                      | 外部可选基础设施                                     | 手机与 Hub 的鉴权、配对、心跳、opaque frame 透传                                                      | 不解析 Node / task / session，不做 replayable snapshot              |
-| Account Control Plane      | 账户服务、自托管服务或离线实现                       | Model Profile、Credential policy、Federated View revision                                             | 不承载实时 conversation                                             |
+| Papel                     | Quantidade e posição                                          | Responsabilidade                                                                                            | O que explicitamente não faz                                                              |
+| ------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| UI Client                 | Desktop Renderer, Browser Web, Mobile Web                    | Exibir a visão unificada de Node / Workspace / Task e submeter intenções do usuário                        | Não tem autoridade de negócio, não faz SSH direto, não inicia Agent diretamente         |
+| ZCode Hub                 | Um por instância de Desktop; um por Lite Web origin           | Node registry, gestão de conexões, agregação de Task Summary, cache de catálogo offline, sincronização de Profile da conta, attachment de UI | Não executa comandos de arquivo, não monta conversation, não possui queue / stream / snapshot |
+| ZCode Node                | Uma instância estável por máquina alvo, distro WSL ou container | Workspace Registry, file/git/terminal, Task Index, Resource Store, Agent manager, extension inventory     | Não agrega outros Nodes e não atua recursivamente como Hub remoto                         |
+| ZCode Agent               | No máximo um runtime de chat principal por workspaceKey ativo  | Session, V4 CommandInbox, projection, stream, permission, tool, model runtime                               | Não gerencia conexões entre Nodes nem layout de UI                                       |
+| Bootstrap / Tunnel Adapter | Um connector de vida curta por conexão SSH / WSL / Docker     | Instalar, atualizar, descobrir o Node e estabelecer o túnel de bytes até o endpoint do Node                 | Não cria um segundo ServiceCollection e não guarda estado de negócio                     |
+| Relay                     | Infraestrutura externa opcional                               | Autenticação, pareamento e heartbeat entre celular e Hub, repasse de frames opacos                          | Não faz parsing de Node / task / session e não faz snapshot replayable                  |
+| Account Control Plane     | Serviço de conta, serviço self-hosted ou implementação offline | Model Profile, Credential policy, revisão da Federated View                                                | Não hospeda conversation em tempo real                                                   |
 
-### Desktop 进程模型
+### Modelo de Processo do Desktop
 
 ```text
 Desktop machine C
@@ -173,11 +203,13 @@ Desktop machine C
                       Node A                  Node B                 Node C
 ```
 
-目标态不再按窗口为每个 SSH / Docker workspace 创建一套业务 Remote Host。Desktop main 只监督一个
-app-wide Hub；多个窗口和手机 attachment 都复用 Hub 的 Node connection pool。每个 UI attachment
-仍有独立 connection / subscription scope，不能因物理连接复用而共享 delivery buffer。
+No estado-alvo não se cria mais um conjunto de Remote Hosts de negócio por janela para cada
+workspace SSH / Docker. O Desktop main supervisiona apenas um Hub app-wide; múltiplas janelas e o
+attachment do celular reutilizam o Node connection pool do Hub. Cada attachment de UI ainda tem
+seu próprio escopo de connection / subscription e não pode compartilhar delivery buffer por causa
+do reúso da conexão física.
 
-Desktop 本机能力也通过同一个 Node 合同访问：
+As capacidades locais do Desktop também são acessadas pelo mesmo contrato de Node:
 
 ```text
 Desktop Hub
@@ -187,10 +219,11 @@ Desktop Hub
   -> Local Node Core
 ```
 
-Node 数据目录必须有 single-owner lock。若用户已经通过 ZCode Lite 启动同一数据目录的 Node，
-Desktop 必须复用它，不能再启动第二个 SQLite / Agent owner。
+O diretório de dados do Node precisa ter um lock de single-owner. Se o usuário já iniciou via ZCode
+Lite um Node para o mesmo diretório de dados, o Desktop precisa reutilizá-lo e não pode iniciar um
+segundo owner de SQLite / Agent.
 
-### ZCode Lite / Browser Web 进程模型
+### Modelo de Processo do ZCode Lite / Browser Web
 
 ```text
 zcode-lite serve
@@ -212,7 +245,8 @@ zcode-lite serve
    Browser Web on A                   Desktop Hub C
 ```
 
-Lite 对外可以只暴露一个端口，但端口内必须按角色分开：
+O Lite pode expor externamente apenas uma porta, mas dentro da porta os papéis precisam ser
+separados:
 
 ```text
 Browser UI role  -> Hub endpoint
@@ -220,30 +254,33 @@ Remote Hub role  -> Node endpoint
 Admin/bootstrap  -> 有限的 Node discovery / pairing endpoint
 ```
 
-同一个 HTTP listener 不等于同一个权限。Browser session cookie 不能自动获得 Hub-to-Node 的可信权限；
-Desktop Hub 需要独立 token、mTLS 或一次性 capability。
+Um mesmo HTTP listener não equivale a uma mesma permissão. O cookie de session do Browser não obtém
+automaticamente a permissão confiável de Hub-to-Node; o Hub do Desktop precisa de um token próprio,
+mTLS ou capability de uso único.
 
-MVP 可以让 Node Core、Hub Core 和 HTTP Gateway 同处一个 Node.js 进程以降低安装复杂度，但必须使用
-独立 service collection、身份和生命周期接口。长期可以拆进程而不改变协议。
+No MVP o Node Core, o Hub Core e o HTTP Gateway podem ficar no mesmo processo Node.js para reduzir a
+complexidade de instalação, mas precisam usar service collections, identidades e interfaces de
+ciclo de vida independentes. No longo prazo é possível separar processos sem mudar o protocolo.
 
-### 当前入口到目标入口的映射
+### Mapeamento da Entrada Atual para a Entrada Alvo
 
-| 当前实现                                  | 当前语义                                        | 目标迁移                                                  |
-| ----------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
-| `entry-http.ts -> createLocalServices()`  | Lite HTTP 进程直接持有 Node services            | 抽出 Node Core；同 listener 增加独立 Hub Gateway          |
-| `/ws`                                     | Browser 直接连接 Node services，固定 replayable | Browser 改连 Hub endpoint；Hub 再路由 local / remote Node |
-| `/ws/host`                                | Desktop Node Host 以一次性 capability 直连 Node | 保留为 Hub-to-Node trusted endpoint，并扩展稳定身份与重连 |
-| `entry-stdio.ts -> createLocalServices()` | SSH / WSL / Docker 每次连接启动一套业务 Server  | 迁为 bootstrap / tunnel shim；业务只在稳定 Node daemon    |
-| per-window Remote Host                    | 窗口级 SSH / WSL pool，Docker dedicated         | app-wide Hub connector pool                               |
-| Desktop Main mobile bridge                | relay frame 接到某个窗口已有 Host               | relay device transport 接到 Hub logical attachment        |
+| Implementação atual                          | Semântica atual                                          | Migração alvo                                                            |
+| --------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `entry-http.ts -> createLocalServices()`     | O processo HTTP do Lite mantém Node services diretamente | Extrair o Node Core; adicionar um Hub Gateway independente no mesmo listener |
+| `/ws`                                         | O Browser conecta direto aos Node services, replayable fixo | O Browser passa a conectar ao Hub endpoint; o Hub roteia o Node local / remoto |
+| `/ws/host`                                    | O Desktop Node Host conecta direto ao Node com capability de uso único | Manter como endpoint confiável Hub-to-Node e estender identidade estável e reconexão |
+| `entry-stdio.ts -> createLocalServices()`    | SSH / WSL / Docker inicia um Server de negócio por conexão | Migrar para shim de bootstrap / tunnel; o negócio fica só no Node daemon estável |
+| per-window Remote Host                        | Pool de SSH / WSL por janela, Docker dedicado            | Connector pool do Hub app-wide                                         |
+| Desktop Main mobile bridge                    | O frame do relay chega ao Host existente de alguma janela | O device transport do relay chega ao attachment lógico do Hub           |
 
-当前 Browser Web 只读取一个 `ZCODE_SERVER_WORKSPACE`，不能管理动态 workspace catalog；普通 Web
-也不能完整处理长文本临时附件。目标 Hub / Workspace Registry 和 Resource Store 必须先补齐这些合同，
-再开放跨 Node Web 管理，不能只把 UI 入口显示出来。
+Hoje o Browser Web só lê um `ZCODE_SERVER_WORKSPACE` e não consegue gerenciar um catálogo dinâmico de
+workspaces; a Web comum também não processa completamente anexos temporários de texto longo. O Hub /
+Workspace Registry e o Resource Store alvo precisam preencher esses contratos primeiro, antes de
+abrir a gestão Web cross-node, e não basta exibir a entrada na UI.
 
 ### TUI
 
-TUI 是 Lite / Node 安装包的本机客户端，不参与跨 Node 聚合：
+A TUI é o cliente local do pacote de instalação Lite / Node e não participa da agregação cross-Node:
 
 ```text
 TUI on A
@@ -252,11 +289,13 @@ TUI on A
   -> workspace Agent
 ```
 
-它可以复用 Node API 和 V4 conversation protocol，但不提供 SSH 管理入口，也不作为其他机器的 Hub。
+Ela pode reutilizar a Node API e o conversation protocol da V4, mas não oferece entrada de
+gerenciamento SSH e não atua como Hub de outras máquinas.
 
-### 一个二进制，多种角色
+### Um Binário, Vários Papéis
 
-建议最终发布同一套 runtime，以子命令区分角色：
+Recomenda-se publicar finalmente o mesmo conjunto de runtime, distinguindo os papéis por
+subcomando:
 
 ```text
 zcode node serve       # 长期 Node daemon
@@ -266,12 +305,13 @@ zcode lite serve       # 监督 local Node + Hub + Web 静态入口
 zcode tui              # 本机 UI，直接连接 local Node
 ```
 
-`zcode node connect` 不调用 `createLocalServices()`，也不启动 Agent；它只是 SSH / WSL / Docker
-无法直接转发本地 socket 时的 transport shim。
+`zcode node connect` não chama `createLocalServices()` nem inicia Agent; ele é apenas um transport
+shim para quando SSH / WSL / Docker não conseguem encaminhar o socket local diretamente.
 
-### Authority 与 Transport 正交
+### Authority e Transport Ortogonais
 
-`ssh`、`direct URL` 或 `local socket` 只说明如何到达 Node，不能继续隐式决定模型、凭据和设置的权威。
+`ssh`, `direct URL` ou `local socket` apenas dizem como chegar ao Node e não podem continuar
+decidindo implicitamente a autoridade de modelos, credenciais e settings.
 
 ```text
 Transport:
@@ -283,15 +323,18 @@ Authority profile:
   node-standalone
 ```
 
-- `account-managed`：账户 Model Profile 是期望配置，Node 使用自己的 credential binding / lease。
-- `hub-attached-compat`：仅表示已经退出的历史 Desktop Registry 下发方案，不是当前兼容模式。
-- `node-standalone`：离线或自托管 Node 使用本机 Profile / vault。
+- `account-managed`: o Model Profile da conta é a configuração desejada e o Node usa seu próprio
+  credential binding / lease.
+- `hub-attached-compat`: representa apenas o esquema legado de Desktop Registry já desativado; não
+  é o modo de compatibilidade atual.
+- `node-standalone`: um Node offline ou self-hosted usa Profile / vault locais.
 
-同一个 Node 从 SSH tunnel 改为 direct WSS 后，不得因此换一套 task、workspace、model 或 extension 身份。
+Depois que o mesmo Node passa de SSH tunnel para direct WSS, ele não pode trocar de conjunto de
+identidades de task, workspace, model ou extension por causa disso.
 
-## 通信栈
+## Pilha de Comunicação
 
-### 协议层与载体层分离
+### Separação entre Camada de Protocolo e Camada de Transporte
 
 ```text
 业务层
@@ -325,31 +368,35 @@ Transport adapter
 └─ mobile relay acknowledged rpc-frame
 ```
 
-“SSH 发送的内容和 WS 差不多”应落实为：两者承载完全相同的 Node RPC / V4 frame，
-而不是在 SSH 代码里维护另一套 service 方法。WebSocket 是一种 carrier；SSH / Docker 的 stdio
-也只是 carrier。业务 schema、connection scope、命令幂等、资源协议和恢复语义必须相同。
+"O que o SSH envia é parecido com o WS" deve se concretizar assim: os dois carregam exatamente os
+mesmos frames de Node RPC / V4, e não no código de SSH manter outro conjunto de métodos de serviço.
+WebSocket é um carrier; o stdio de SSH / Docker também é apenas um carrier. O schema de negócio, o
+escopo de conexão, a idempotência de commands, o protocolo de recursos e a semântica de recuperação
+precisam ser iguais.
 
-### 各链路推荐 Transport
+### Transport Recomendado por Enlace
 
-| 链路                              | 物理 Transport                                       | 逻辑协议                  | 默认 delivery              |
-| --------------------------------- | ---------------------------------------------------- | ------------------------- | -------------------------- |
-| Desktop Renderer -> Desktop Hub   | Electron MessagePort                                 | Hub RPC                   | `desktop-continuous`       |
-| Browser Web -> Lite Hub           | same-origin WSS                                      | Hub RPC                   | `browser-replayable`       |
-| Mobile -> Hub                     | WSS relay + acknowledged opaque `rpc-frame`          | Hub RPC                   | `mobile-remote-replayable` |
-| Desktop / Lite Hub -> direct Node | authenticated WSS                                    | Node RPC + multiplexed V4 | 由 logical attachment 决定 |
-| Hub -> local embedded Node        | MessagePort / named pipe / local socket              | Node RPC + multiplexed V4 | 由 logical attachment 决定 |
-| Hub -> SSH Node                   | SSH tunnel 中的 socket frames                        | 与 direct Node 完全相同   | 由 logical attachment 决定 |
-| Hub -> WSL Node                   | stdio connector -> distro local socket               | 与 direct Node 完全相同   | 由 logical attachment 决定 |
-| Hub -> Docker Node                | `docker exec -i` connector -> container local socket | 与 direct Node 完全相同   | 由 logical attachment 决定 |
-| Node -> Agent                     | child-process stdio NDJSON                           | ZCode Protocol V4         | Node 内部连接              |
+| Enlace                            | Transporte físico                                      | Protocolo lógico             | Delivery padrão                       |
+| --------------------------------- | ------------------------------------------------------ | ---------------------------- | ------------------------------------- |
+| Desktop Renderer -> Desktop Hub   | Electron MessagePort                                  | Hub RPC                     | `desktop-continuous`                  |
+| Browser Web -> Lite Hub           | same-origin WSS                                       | Hub RPC                     | `browser-replayable`                  |
+| Mobile -> Hub                     | WSS relay + acknowledged opaque `rpc-frame`           | Hub RPC                     | `mobile-remote-replayable`            |
+| Desktop / Lite Hub -> direct Node | authenticated WSS                                     | Node RPC + multiplexed V4   | determinado pelo logical attachment   |
+| Hub -> local embedded Node        | MessagePort / named pipe / local socket               | Node RPC + multiplexed V4   | determinado pelo logical attachment   |
+| Hub -> SSH Node                   | socket frames dentro do SSH tunnel                    | idêntico ao do Node direto  | determinado pelo logical attachment   |
+| Hub -> WSL Node                   | stdio connector -> socket local do distro             | idêntico ao do Node direto  | determinado pelo logical attachment   |
+| Hub -> Docker Node                | `docker exec -i` connector -> socket local do container | idêntico ao do Node direto | determinado pelo logical attachment   |
+| Node -> Agent                     | child-process stdio NDJSON                            | ZCode Protocol V4           | conexão interna do Node               |
 
-`browser-replayable` 和 `mobile-remote-replayable` 可以复用同一种 replayable 算法，但必须保留不同
-client role，避免把手机 pairing、Hub attachment 和 Browser same-origin 权限混成一个模式。
-迁移期可以映射到现有 `web-remote-replayable`。
+`browser-replayable` e `mobile-remote-replayable` podem reutilizar o mesmo algoritmo replayable, mas
+precisam manter client roles diferentes, evitando misturar em um único modo o pareamento do celular,
+o attachment do Hub e as permissões same-origin do Browser. Durante a migração eles podem ser
+mapeados para o `web-remote-replayable` existente.
 
-### 一个物理 Node link，多个逻辑 attachment
+### Um Link Físico de Node, Vários Attachments Lógicos
 
-Hub 与同一 Node 只需维护少量物理连接，但物理复用不能吞掉现有 connection 隔离：
+O Hub precisa manter apenas poucas conexões físicas para o mesmo Node, mas o reúso físico não pode
+engolir o isolamento de conexão existente:
 
 ```text
 Hub C == one authenticated physical link ==> Node A
@@ -370,7 +417,7 @@ Hub C == one authenticated physical link ==> Node A
               connectionId=node-assigned-3
 ```
 
-每个 logical attachment 必须独立拥有：
+Cada attachment lógico precisa ter em propriedade, de forma independente:
 
 - `connectionId`
 - subscription registry
@@ -379,15 +426,16 @@ Hub C == one authenticated physical link ==> Node A
 - resync flight
 - permission / elicitation visibility
 
-Node 只接受已认证 Hub 打开的 attachment role；UI payload 不能直接指定 `clientMode`。MVP 可先为每个
-attachment 打开独立 WebSocket，等合同稳定后再做物理 multiplex。
+O Node só aceita attachment roles abertos por um Hub autenticado; o payload da UI não pode especificar
+`clientMode` diretamente. No MVP é possível abrir um WebSocket separado por attachment e só fazer
+multiplexação física depois que o contrato estiver estável.
 
-Hub 只路由 frame 和管理 connection；conversation 的 seq、snapshot、queue 和 command lookup
-仍由来源 Node / Agent 权威持有。
+O Hub apenas roteia frames e gerencia conexões; o seq, snapshot, queue e command lookup da
+conversation continuam sendo autoritativamente mantidos pelo Node / Agent de origem.
 
-## SSH / WSL / Docker bootstrap 与 tunnel
+## Bootstrap e Tunnel de SSH / WSL / Docker
 
-### 统一时序
+### Sequência Unificada
 
 ```text
 Hub Connector        Bootstrap Adapter          Target Node
@@ -405,7 +453,7 @@ Hub Connector        Bootstrap Adapter          Target Node
      |<== Node RPC / V4 / resource frames ===========>|
 ```
 
-Bootstrap 返回至少包含：
+O retorno de bootstrap contém no mínimo:
 
 ```ts
 interface NodeBootstrapResult {
@@ -422,7 +470,8 @@ interface NodeBootstrapResult {
 }
 ```
 
-`connectionChallenge` 只能兑换短期 Hub-to-Node capability，不能成为长期明文凭据。
+`connectionChallenge` só pode ser trocado por uma capability Hub-to-Node de curta duração e não pode
+se tornar uma credencial clara de longo prazo.
 
 ### SSH
 
@@ -435,8 +484,10 @@ ssh2
   5. tunnel 上运行与 direct WSS 相同的 Node frame
 ```
 
-若目标环境无法使用 direct-tcpip，则执行 `zcode node connect`，把 SSH stdio 纯转发到 Node local
-socket。旧 `entry-stdio.ts -> createLocalServices()` 只保留一个迁移周期，不作为长期架构。
+Se o ambiente alvo não puder usar direct-tcpip, executa-se `zcode node connect`, encaminhando o stdio
+do SSH puramente para o Node local socket. O legado
+`entry-stdio.ts -> createLocalServices()` é mantido por apenas um ciclo de migração e não é a
+arquitetura de longo prazo.
 
 ### WSL
 
@@ -446,8 +497,8 @@ wsl.exe ... zcode node connect
   -> persistent Node daemon
 ```
 
-这样 Windows localhost forwarding 差异只影响 adapter，不影响 Node RPC。WSL distro 不因 Desktop
-窗口关闭而被 terminate。
+Dessa forma as diferenças de forwarding de localhost do Windows afetam apenas o adapter e não o Node
+RPC. Um distro WSL não é terminado por causa do fechamento de uma janela do Desktop.
 
 ### Docker
 
@@ -457,25 +508,29 @@ docker exec -i <container> zcode node connect
   -> persistent Node daemon
 ```
 
-如果容器已显式暴露并保护 Node HTTPS / WSS 端口，Hub 可以 direct URL 连接；否则默认使用 exec
-tunnel，不要求用户重建容器增加 `-p`。Node 生命周期跟随容器，workspace / Agent 生命周期由统一
-`WorkspaceLeaseManager` 决定，不再每个 UI session 重启整套 Server。
+Se o container já expõe e protege explicitamente a porta HTTPS / WSS do Node, o Hub pode conectar por
+direct URL; caso contrário usa-se por padrão o exec tunnel, sem exigir que o usuário recrie o
+container adicionando `-p`. O ciclo de vida do Node segue o container, e o ciclo de vida de
+workspace / Agent é decidido pelo `WorkspaceLeaseManager` unificado, sem reiniciar todo o Server a
+cada session de UI.
 
-### 手动安装的 Lite / Headless Node
+### Lite / Headless Node Instalado Manualmente
 
-用户通过 `zcode lite serve` 或 `zcode node serve` 启动后：
+Depois que o usuário inicia via `zcode lite serve` ou `zcode node serve`:
 
-- Browser Web 连接本机 Hub endpoint；
-- Desktop 使用 direct URL 连接同端口的 Node endpoint；
-- 本机 TUI 走 local socket；
-- SSH / Docker bootstrap 发现相同 NodeId 时直接复用，不启动第二个 runtime。
+- o Browser Web conecta ao Hub endpoint local;
+- o Desktop conecta por direct URL ao Node endpoint da mesma porta;
+- a TUI local usa o local socket;
+- o bootstrap SSH / Docker reutiliza diretamente quando encontra o mesmo NodeId e não inicia um
+  segundo runtime.
 
-连接 URL、SSH alias、Docker container name 和 WSL distro 只进入 `ConnectionProfile`，不进入 Node /
-Workspace / Task 永久身份。
+URL de conexão, alias SSH, nome de container Docker e distro WSL só entram no `ConnectionProfile` e
+não entram na identidade permanente de Node / Workspace / Task.
 
-## 文件与外部资源传输
+## Transferência de Arquivos e Recursos Externos
 
-长文本自动转文件、拖入图片和任意外部资源必须走同一个目标 Node Resource Store：
+Conversão automática de texto longo em arquivo, arrastar imagens e quaisquer recursos externos
+precisam passar pelo mesmo Resource Store do Node alvo:
 
 ```text
 Desktop / Browser / Mobile bytes
@@ -498,24 +553,28 @@ Prompt 只携带 ResourceRef
 目标 Node materialize / stream 给 workspace Agent
 ```
 
-规则：
+Regras:
 
-1. UI 本地路径永远不能直接发给远端 Agent。
-2. Hub 不把资源落成业务权威文件；它只流式路由并维护传输进度。
-3. Node 在 `commit` 前校验长度、hash、配额和目标 workspace lease。
-4. ResourceRef 必须包含 `nodeId + workspaceId`，禁止在 Node 之间误复用。
-5. 连接中断后按 upload id / committed chunks 恢复；禁止在 conversation RPC 中 base64 整个大文件。
-6. 长文本临时文件、截图、拖拽图片、浏览器 `File` 对象共享同一 API。
-7. Node 负责生成 Agent 可读的本地路径或 byte stream；CLI 不感知原文件来自 Desktop、Web 还是手机。
+1. Um caminho local da UI nunca pode ser enviado diretamente a um Agent remoto.
+2. O Hub não transforma recursos em arquivos autoritativos de negócio; ele apenas roteia em stream e
+   mantém o progresso da transferência.
+3. O Node valida comprimento, hash, cota e lease do workspace alvo antes do `commit`.
+4. O ResourceRef precisa conter `nodeId + workspaceId`; é proibido reutilizar por engano entre Nodes.
+5. Após uma interrupção de conexão, a retomada usa upload id / committed chunks; é proibido enviar um
+   arquivo grande inteiro em base64 dentro do conversation RPC.
+6. Arquivos temporários de texto longo, screenshots, imagens arrastadas e objetos `File` do browser
+   compartilham a mesma API.
+7. O Node é responsável por gerar o caminho local ou o byte stream legível pelo Agent; o CLI não
+   precisa saber se o arquivo original veio do Desktop, da Web ou do celular.
 
-因此 Browser A 管理 Node B 时，资源链路是
-`Browser A -> Hub A -> Node B Resource Store`，不是把 Node A 的临时路径写进 prompt。
+Portanto, quando o Browser A gerencia o Node B, o caminho de recurso é
+`Browser A -> Hub A -> Node B Resource Store`, e não escrever o caminho temporário do Node A no prompt.
 
-## 手机 Remote Controller
+## Controle Remoto pelo Celular
 
-### 架构位置
+### Posição na Arquitetura
 
-手机是 Hub 的远程 UI attachment：
+O celular é um attachment de UI remoto do Hub:
 
 ```text
 Mobile Browser
@@ -526,20 +585,27 @@ Mobile Browser
   -> source workspace Agent
 ```
 
-目标态把 relay device transport 和 shared attachment manager 收敛到 Hub Gateway。Desktop main
-只保留二维码、窗口和进程调度；Lite Hub 也可以在用户显式开启后注册 relay device role。
+O estado-alvo converge o relay device transport e o shared attachment manager para o Hub Gateway. O
+Desktop main mantém apenas QR code, janelas e agendamento de processos; o Lite Hub também pode
+registrar o relay device role depois que o usuário o habilita explicitamente.
 
-### 能力边界
+### Limites de Capacidade
 
-- 手机可以浏览 Hub 已知的 Node A / B / C 和聚合 Task Summary。
-- 手机打开 Task 时，Hub 向来源 Node 创建 `mobile-remote-replayable` logical attachment。
-- 手机断线、刷新或 relay 重连只重建 attachment，不停止 Hub、Node 或 Agent。
-- relay 继续只看 opaque `rpc-frame`；replay / gap / snapshot 在 Node / Agent 与手机 UI 两端。
-- 第一阶段手机不能安装 Node、输入 SSH 凭据或启动新的 SSH / WSL / Docker bootstrap。
-- Hub 已有连接离线时，手机只能看到 stale summary；是否允许 Hub 按预授权 profile 自动重连是独立产品策略。
-- 手机命令与 Desktop / Browser 命令进入同一个来源 Agent `CommandInbox`；不新增 mobile queue。
+- O celular pode navegar pelos Nodes A / B / C conhecidos pelo Hub e pelo Task Summary agregado.
+- Quando o celular abre uma Task, o Hub cria um logical attachment `mobile-remote-replayable` no Node
+  de origem.
+- Queda de conexão, refresh ou reconexão do relay no celular apenas reconstroem o attachment e não
+  param o Hub, o Node ou o Agent.
+- O relay continua enxergando apenas frames `rpc-frame` opacos; replay / gap / snapshot acontecem
+  entre Node / Agent e a UI do celular.
+- Na primeira fase o celular não pode instalar Node, inserir credenciais SSH nem iniciar novos
+  bootstraps SSH / WSL / Docker.
+- Quando um Hub já conectado fica offline, o celular só vê resumos stale; se o Hub pode reconectar
+  automaticamente conforme um profile pré-autorizado é uma política de produto separada.
+- Commands do celular e do Desktop / Browser entram no mesmo `CommandInbox` do Agent de origem; não há
+  nova mobile queue.
 
-### 与 Browser Web 的区别
+### Diferenças em Relação ao Browser Web
 
 ```text
 Browser Web:
@@ -549,9 +615,10 @@ Mobile Remote:
   relay WSS -> 已配对 Hub -> one or more Nodes
 ```
 
-两者可以渲染同一套 UI 组件，也都使用 replayable delivery，但认证、入口和连接 owner 不同。
+Os dois podem renderizar o mesmo conjunto de componentes de UI e ambos usam delivery replayable, mas
+a autenticação, a entrada e o owner da conexão são diferentes.
 
-## 生命周期与故障边界
+## Ciclo de Vida e Fronteiras de Falha
 
 ```text
 UI attachment lifetime       = 页面 / 窗口 / 手机 bridge
@@ -563,44 +630,52 @@ Agent lifetime               = workspaceKey 级，由 Node WorkspaceLeaseManager
 Conversation lifetime        = Agent session store，不等于任何进程连接
 ```
 
-必须满足：
+É preciso satisfazer:
 
-1. 关闭一个 UI tab 只释放自己的 logical attachment。
-2. Browser refresh / Mobile reconnect 不重启 Node 或 Agent。
-3. Hub 崩溃重启后，从 Node registry、Task Summary、V4 snapshot 恢复；不重放私有业务日志。
-4. SSH tunnel 断开不立即杀死 Node daemon；Agent 是否继续由 running task / lease policy决定。
-5. 容器 stop、WSL shutdown 或机器关机导致 Node `bootId` 变化；Hub 必须使旧 attachment /
-   subscription / cursor 失效并重新握手。
-6. Node shutdown 先停止新命令、关闭 attachment、等待 Agent process tree 和数据库 checkpoint，
-   再退出。
-7. Account Control Plane、relay 或 Hub 暂时不可用不能破坏 Node 本地 Task / Session 数据。
+1. Fechar uma aba de UI libera apenas o seu attachment lógico.
+2. Um refresh do Browser ou uma reconexão do celular não reinicia Node nem Agent.
+3. Depois que o Hub crasha e reinicia, ele se recupera a partir do Node registry, do Task Summary e do
+   snapshot V4; não reproduz logs privados de negócio.
+4. Uma queda do SSH tunnel não mata imediatamente o Node daemon; se o Agent continua é decidido pelo
+   running task / lease policy.
+5. Parar o container, shutting down do WSL ou desligar a máquina mudam o `bootId` do Node; o Hub
+   precisa invalidar os attachments / subscriptions / cursors antigos e refazer o handshake.
+6. O shutdown do Node primeiro interrompe novos commands, fecha os attachments, aguarda o process
+   tree do Agent e o checkpoint dos bancos, e só então sai.
+7. Account Control Plane, relay ou Hub temporariamente indisponíveis não podem corromper os dados
+   locais de Task / Session do Node.
 
-### 安全边界
+### Fronteiras de Segurança
 
-- Node 默认只监听 loopback / Unix socket / named pipe；公开地址必须显式开启 TLS 和 token / mTLS。
-- UI token、Hub-to-Node capability、bootstrap credential、账户 credential 使用不同 audience。
-- Node 分配 `connectionId`，并根据已认证 role 注入 delivery profile。
-- Hub 只保存 Connection Profile 和可撤销 credential 引用，不把 SSH 密码、API Key 写入 task catalog。
-- direct URL、SSH tunnel 和 relay 都必须进行协议版本与 capability negotiation。
-- 资源上传、terminal、file write、bootstrap 和账户 Secret 下发分别授权，不能只靠“已连上 Node”。
+- Por padrão o Node só escuta loopback / Unix socket / named pipe; endereços públicos precisam
+  habilitar TLS e token / mTLS explicitamente.
+- UI token, capability Hub-to-Node, credencial de bootstrap e credencial de conta usam audiences
+  diferentes.
+- O Node atribui o `connectionId` e injeta o delivery profile conforme o role autenticado.
+- O Hub guarda apenas Connection Profiles e referências de credenciais revogáveis e não escreve
+  senhas SSH ou API Keys no task catalog.
+- direct URL, SSH tunnel e relay precisam fazer negotiation de versão de protocolo e de capabilities.
+- Upload de recursos, terminal, escrita de arquivos, bootstrap e entrega de Secrets da conta são
+  autorizados separadamente; não se pode depender apenas de "já conectou no Node".
 
-## 状态作用域
+## Escopo de Estado
 
-| Scope      | 权威数据                                                                              | 同步语义                                                            |
-| ---------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| account    | Provider / Model metadata、展示顺序、默认模型、全局最近显式模型元组、可选跨端分组视图 | revision 化，同一账户各 Hub / Node 收敛                             |
-| credential | API Key、OAuth token、Coding Plan key、runtime header                                 | 与 metadata 分离；按策略使用 E2E 同步、Node 本地 vault 或短期 lease |
-| hub/device | Node connection profile、连接状态、UI 布局、持久化离线目录缓存                        | 设备本地；不能成为 Task / Session 权威                              |
-| node       | Plugin 实际安装、user Skill / Subagent、工具链、Node capability、runtime cache        | 每台机器独立，可显式复制，不自动求并或覆盖                          |
-| workspace  | Repo 内 `.zcode/*` / `.agents/*`、workspace extension、项目设置                       | 位于目标 Node 的 workspace；由 Git / 文件系统自然传播               |
-| session    | 当前 provider / model / thought / mode、消息、queue、owner、stream、permission        | 只在执行该 Session 的 Node runtime                                  |
+| Escopo     | Dados autoritativos                                                                                     | Semântica de sincronização                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| account    | Provider / Model metadata, ordem de exibição, modelo padrão, tupla global do último modelo explícito, visão de agrupamento cross-end opcional | versionada por revision, convergindo entre Hub / Node da mesma conta |
+| credential | API Keys, OAuth tokens, Coding Plan keys, runtime headers                                               | separado do metadata; usa sync E2E por política, vault local do Node ou lease de curta duração |
+| hub/device | Connection Profiles de Node, estado de conexão, layout de UI, cache de catálogo offline persistente       | local do dispositivo; não pode ser a autoridade de Task / Session                  |
+| node       | Plugins realmente instalados, user Skills / Subagents, toolchain, Node capability, runtime cache       | independente por máquina, copiável explicitamente, sem união automática nem sobrescrita |
+| workspace  | `.zcode/*` / `.agents/*` dentro do repo, workspace extensions, configurações do projeto                  | fica no workspace do Node alvo e se propaga naturalmente por Git / sistema de arquivos |
+| session    | provider / model / thought / mode atuais, mensagens, queue, owner, stream, permission                   | apenas no Node runtime que executa aquela Session                                  |
 
-## 模型配置
+## Configuração de Modelos
 
-### 目标拆分
+### Divisão Alvo
 
-历史 `ZCodeProviderRegistrySnapshot` 曾同时包含 metadata 和 raw secret；该快照链已经删除。多 Node
-目标设计仍需把期望配置、Credential Binding 和执行时 Lease 保持为三条独立链：
+O `ZCodeProviderRegistrySnapshot` legado continha ao mesmo tempo metadata e raw secrets; essa cadeia
+de snapshots já foi removida. O design alvo multi-Node ainda precisa manter configuração desejada,
+Credential Binding e Lease de execução como três cadeias independentes:
 
 ```text
 Account Model Profile
@@ -620,7 +695,7 @@ Credential Plane
   - credentialRevision / expiry / revocation
 ```
 
-建议类型：
+Tipos sugeridos:
 
 ```ts
 interface ModelProfile {
@@ -645,50 +720,63 @@ interface NodeModelReadiness {
 }
 ```
 
-规则：
+Regras:
 
-1. 所有端展示同一 `ModelProfile`。
-2. Node 单独上报 readiness；“配置相同”与“目标 Node 已能执行”不混成一个字段。
-3. 新建 Session 前，Node 必须先应用目标 Profile revision，再解析默认模型。
-4. 已有 Session 保留自己的 provider / model / thought；打开历史 Session 不反写全局偏好。
-5. 目标 Node 缺凭据时，默认阻止创建 / 发送并给出明确修复入口，不静默切换成另一台机器可用的模型。
-6. 当前 Desktop-attached SSH 的“把完整 registry 和 raw secret 一起下发”只作为迁移期兼容路径；
-   新协议只下发 catalog revision 和 credential binding / lease。
+1. Todas as pontas exibem o mesmo `ModelProfile`.
+2. O Node reporta readiness separadamente; "configuração igual" e "o Node alvo já consegue executar"
+   não viram um único campo.
+3. Antes de criar uma nova Session, o Node precisa aplicar a revision do Profile alvo e só então
+   resolver o modelo padrão.
+4. Sessions existentes mantêm seu próprio provider / model / thought; abrir uma Session histórica não
+   reescreve preferências globais.
+5. Quando o Node alvo está sem credenciais, por padrão a criação / envio é bloqueada com uma entrada
+   clara de correção, sem trocar silenciosamente para um modelo disponível em outra máquina.
+6. O "enviar o registry completo junto com raw secrets" do SSH attached ao Desktop atual existe apenas
+   como caminho de compatibilidade durante a migração; o novo protocolo envia apenas catalog revision
+   e credential binding / lease.
 
-### 待裁决
+### Pendente de Decisão
 
-- 自定义 API Key 是否必须做到跨端 E2E 加密同步：
-  - 推荐：Provider metadata 强同步；Secret 支持账户 E2E 同步，并允许 Provider 级设置为 Node-local。
-  - 简化方案：Secret 全部 Node-local；此时各端模型目录相同，但 readiness 可能不同。
+- As custom API Keys precisam obrigatoriamente de sync E2E criptografado entre as pontas:
+  - Recomendado: Provider metadata fortemente sincronizado; Secret com suporte a sync E2E de conta e
+    com opção de definir por Provider como Node-local.
+  - Solução simplificada: todos os Secrets Node-local; nesse caso o catálogo de modelos é igual em
+    todas as pontas, mas a readiness pode diferir.
 
 ## Skill / Plugin / Subagent
 
-### 产品语义
+### Semântica de Produto
 
-1. Extension inventory 按 `nodeId + workspaceId` 查询，不能使用所有 Node 的并集作为当前任务候选。
-2. 当前任务来自 Node B 时：
-   - Composer / Slash command / Agent picker 使用 B 的能力；
-   - Settings 中的 Skill / Plugin / Subagent 编辑也提交给 B；
-   - Node A / C 的安装状态不能影响 B 的 runtime。
-3. 全局设置页需要 Node 选择器；可提供“所有节点”矩阵，但矩阵只用于比较，不可作为执行目录。
-4. 用户级 Skill / Plugin / Subagent 是 Node-local。
-5. Repo 内 workspace Skill / Subagent 随目标 Node 上的 checkout 发现。
-6. “复制到其他节点”是显式动作，需要 preview、目标选择和冲突处理；不做后台自动同步。
-7. Subagent profile 里引用的是账户 Model Profile 的 model ref，但 profile 文件和 enabled / override
-   状态仍属于 Node 或 Workspace。
+1. O extension inventory é consultado por `nodeId + workspaceId` e não pode usar a união de todos os
+   Nodes como candidato da tarefa atual.
+2. Quando a tarefa atual vem do Node B:
+   - o Composer / Slash command / Agent picker usam as capacidades de B;
+   - a edição de Skill / Plugin / Subagent em Settings também é submetida a B;
+   - o estado de instalação de A / C não pode afetar o runtime de B.
+3. A página de Settings global precisa de um seletor de Node; é possível oferecer uma matriz "todos os
+   nodes", mas a matriz serve apenas para comparação e não como diretório de execução.
+4. Skill / Plugin / Subagent de nível de usuário são Node-local.
+5. Workspace Skills / Subagents dentro do repo são descobertos no checkout do Node alvo.
+6. "Copiar para outros nodes" é uma ação explícita, que precisa de preview, seleção de destino e
+   tratamento de conflitos; não há sincronização automática em background.
+7. O Subagent profile referencia o model ref do Model Profile da conta, mas o arquivo de profile e o
+   estado de enabled / override continuam pertencendo ao Node ou ao Workspace.
 
-### 当前实现差距
+### Lacunas da Implementação Atual
 
-- SSH / WSL 的 Skills / Plugins 已走远端服务。
-- SSH / WSL 的 Subagents 设置服务仍指向 Desktop 本地，而 runtime 读取远端文件；统一架构前必须先消除
-  这条 UI / runtime 分裂。
-- Plugin 的 `workspace` 字段当前还没有形成完整的 workspace 隔离语义，不能直接当作目标设计已完成。
+- Os Skills / Plugins de SSH / WSL já passam pelo serviço remoto.
+- O serviço de configurações de Subagents de SSH / WSL ainda aponta para o Desktop local, enquanto o
+  runtime lê arquivos remotos; antes da arquitetura unificada é preciso eliminar essa divisão entre
+  UI e runtime.
+- O campo `workspace` de Plugin ainda não forma uma semântica completa de isolamento por workspace e
+  não pode ser tratado como design alvo concluído.
 
-## Session / Task 聚合
+## Agregação de Session / Task
 
-### 不拉取所有 Session 正文
+### Não Trazer o Corpo de Todas as Sessions
 
-Hub 只聚合 Task Summary；用户打开任务后才从来源 Node 读取 snapshot / conversation page。
+O Hub só agrega Task Summaries; o usuário abre uma task e só então o snapshot / página de
+conversation é lido do Node de origem.
 
 ```text
 Node A sorted TaskSummary page ─┐
@@ -701,7 +789,7 @@ select {nodeId, workspaceId, taskId}
   -> on-demand session snapshot and rows
 ```
 
-### 新查询协议
+### Novo Protocolo de Consulta
 
 ```ts
 interface FederatedTaskQuery {
@@ -725,12 +813,13 @@ interface NodeTaskSummaryPage {
 }
 ```
 
-协议要求每个 Node 使用完全相同的 total order。全局 tie-break 必须包含
-`nodeId + workspaceId + taskId`，不能继续假设 `taskId` 跨 endpoint 不冲突。
+O protocolo exige que cada Node use exatamente a mesma ordem total. O tie-break global precisa conter
+`nodeId + workspaceId + taskId` e não se pode continuar assumindo que `taskId` não colide entre
+endpoints.
 
-### Running 与历史分页分离
+### Separação entre Running e Paginação de Histórico
 
-推荐把易变的 running task 从历史 cursor 中拆出：
+Recomenda-se tirar as running tasks, que mudam com frequência, do cursor de histórico:
 
 ```text
 有界、实时、全量的 running overlay
@@ -738,15 +827,15 @@ interface NodeTaskSummaryPage {
 稳定 keyset 分页的 terminal / history rows
 ```
 
-当前排序语义保持：
+A semântica de ordenação atual é mantida:
 
-- running 整体置顶；
-- running 内按 `createdAt DESC`，再按全局 Task ref；
-- 非 running：
-  - created：`createdAt DESC, updatedAt DESC, GlobalTaskRef`
-  - updated：`updatedAt DESC, createdAt DESC, GlobalTaskRef`
+- running fica no topo como um todo;
+- dentro de running, por `createdAt DESC` e depois pelo Global Task ref global;
+- não running:
+  - created: `createdAt DESC, updatedAt DESC, GlobalTaskRef`
+  - updated: `updatedAt DESC, createdAt DESC, GlobalTaskRef`
 
-历史页 cursor 至少绑定：
+O cursor de página de histórico precisa estar vinculado a pelo menos:
 
 ```text
 queryHash
@@ -755,43 +844,49 @@ nodeId -> taskIndexRevision / sessionIndexRevision / shardCursor
 after -> primaryTime / secondaryTime / GlobalTaskRef
 ```
 
-节点集合或 revision 变化时返回 `cursor-stale` 并刷新，不静默跳项。
+Quando o conjunto de nodes ou as revisions mudam, retorna `cursor-stale` e recarrega, sem pular
+itens silenciosamente.
 
-### 跨机器时间
+### Tempo Entre Máquinas
 
-MVP 可以沿用 `createdAt / updatedAt`，并以全局 Task ref 做稳定 tie-break；这只能保证确定性，
-不能消除机器时钟漂移。
+No MVP é possível manter `createdAt / updatedAt` e usar o Global Task ref como tie-break estável; isso
+só garante determinismo e não elimina a deriva de relógios entre máquinas.
 
-长期建议增加：
+No longo prazo recomenda-se adicionar:
 
 ```text
 ActivityStamp = { physicalMs, logical, nodeId }
 ```
 
-旧数据迁移为 `{ updatedAt, 0, nodeId }`。Node 握手时交换时钟诊断，严重漂移时在 UI 标记，
-不能用 Hub 收到消息的时间篡改历史创建时间。
+Dados legados são migrados como `{ updatedAt, 0, nodeId }`. O Node troca diagnósticos de relógio no
+handshake e, em caso de deriva grave, marca isso na UI; não se pode alterar o histórico de criação
+usando o horário em que o Hub recebeu a mensagem.
 
-### 离线
+### Offline
 
-当前 renderer cache 不持久化。Federated Hub 需要一个只读 materialized catalog：
+O cache do renderer hoje não é persistido. O Federated Hub precisa de um catálogo materializado
+read-only:
 
-- key：`GlobalTaskRef`
-- 内容：Task Summary、membership、tombstone、来源 revision、lastSeenAt
-- Node 离线时显示 stale / offline
-- 离线目录只允许浏览摘要；打开正文、发送、stop、permission 等命令必须等待来源 Node 在线
-- Node 回来后按 revision / tombstone 增量收敛
+- key: `GlobalTaskRef`
+- conteúdo: Task Summary, membership, tombstone, revision de origem, lastSeenAt
+- quando o Node está offline, exibe stale / offline
+- o catálogo offline permite apenas navegar resumos; abrir o corpo, enviar, stop, permission e
+  comandos semelhantes precisam esperar o Node de origem ficar online
+- quando o Node volta, converge incrementalmente por revision / tombstone
 
-## “分组”视图
+## Visão de "Grupos"
 
-### 两种分组不能混用
+### Os Dois Tipos de Agrupamento Não Podem Ser Misturados
 
-1. Workspace 分组：由 `GlobalWorkspaceRef` 派生，任务仍按时间分页。
-2. 用户自定义“分组”：是 UI 组织数据，排序来自显式 `sortOrder`，不是 Task 时间。
+1. Agrupamento por Workspace: derivado de `GlobalWorkspaceRef`, com as tarefas ainda paginadas por
+   tempo.
+2. "Grupos" personalizados pelo usuário: são organização de dados da UI, e a ordenação vem de um
+   `sortOrder` explícito, não do tempo da Task.
 
-### 推荐权威
+### Autoridade Recomendada
 
-跨 Node 的自定义分组不能把每个 Node 的 `task_groups` 直接求并。推荐由账户级
-`FederatedTaskViewProfile` 单一持有：
+Os agrupamentos personalizados cross-Node não podem simplesmente unir os `task_groups` de cada Node.
+Recomenda-se que um `FederatedTaskViewProfile` em nível de conta seja o único detentor:
 
 ```ts
 interface FederatedTaskViewProfile {
@@ -814,25 +909,29 @@ interface FederatedTaskViewProfile {
 }
 ```
 
-所有成员和顶层节点必须持久化显式顺序；新架构不能再依赖客户端扫描全量后用
-`max + 1000` 补序。
+Todos os membros e os nós de nível superior precisam persistir uma ordem explícita; a nova arquitetura
+não pode mais depender de o cliente varrer tudo e completar a ordem com `max + 1000`.
 
-因此：
+Portanto:
 
-- Timeline 不需要拉全量，走 Node 分页 + Hub k-way merge。
-- 自定义 Group 先读取轻量 View Profile，再按可见 `GlobalTaskRef` 向对应 Node 批量取 Summary。
-- Group 分页 cursor 使用 `viewRevision + groupId + sortOrder + GlobalTaskRef`。
-- Node 离线时成员仍保留，显示离线摘要，不从 Group 自动删除。
+- A Timeline não precisa trazer tudo; usa paginação por Node + Hub k-way merge.
+- O Group personalizado lê primeiro o View Profile leve e depois busca em lote os Summaries dos
+  `GlobalTaskRef` visíveis nos Nodes correspondentes.
+- O cursor de paginação do Group usa `viewRevision + groupId + sortOrder + GlobalTaskRef`.
+- Quando um Node está offline, os membros permanecem e mostram o resumo offline, sem remoção automática
+  do Group.
 
-### 待裁决
+### Pendente de Decisão
 
-- A Web 与 C Desktop 是否必须共享完全相同的自定义 Group / 手工顺序：
-  - 推荐：账户级同步，所有 UI 相同。
-  - 可选：Hub-device-local，各 UI 可有不同布局，但不再满足严格的“大一统分组”。
+- A Web em A e o Desktop em C precisam compartilhar exatamente os mesmos Groups / ordens manuais
+  personalizados:
+  - Recomendado: sincronizado em nível de conta, idêntico em todas as UIs.
+  - Opcional: Hub-device-local, permitindo layouts diferentes por UI, mas deixando de satisfazer um
+    "agrupamento único" estrito.
 
-## 身份模型
+## Modelo de Identidade
 
-### 目标
+### Alvo
 
 ```text
 NodeId       = Node 数据目录中一次生成并持久化的 UUID
@@ -842,27 +941,33 @@ GlobalWorkspaceRef = { nodeId, workspaceId }
 GlobalTaskRef      = { nodeId, workspaceId, taskId }
 ```
 
-- Node URL、hostname、SSH alias、端口、用户名是 connection route，不是 NodeId。
-- `workspacePath` 是 Workspace Registry 的可变属性，不是 WorkspaceId。
-- `remoteSessionId` 仍是某个 Hub attachment 的短期句柄，不进入全局身份。
-- SSH / WSL / Docker / direct URL adapter 在 Node ingress 把旧 `workspaceIdentity` 翻译成
-  Node-local WorkspaceId；Node 数据库不应因为访问方式不同产生多套 Task。
+- URL de Node, hostname, alias SSH, porta e username são connection route, não NodeId.
+- `workspacePath` é um atributo mutável do Workspace Registry, não o WorkspaceId.
+- `remoteSessionId` continua sendo um handle de curta duração de um attachment do Hub e não entra na
+  identidade global.
+- Os adapters SSH / WSL / Docker / direct URL traduzem o antigo `workspaceIdentity` em um WorkspaceId
+  local do Node no ingress do Node; o banco do Node não deve produzir múltiplos conjuntos de Tasks
+  por causa do modo de acesso.
 
-渐进式 MVP 可以先用 Node 内规范化路径作为 canonical workspace key，但 RPC 必须先引入
-`WorkspaceRef`，给稳定 WorkspaceId 留出升级位置。
+Um MVP progressivo pode usar primeiro o caminho normalizado dentro do Node como workspace key
+canônico, mas o RPC precisa introduzir `WorkspaceRef` primeiro, abrindo espaço para um WorkspaceId
+estável.
 
-### Stable NodeId 前置
+### Pré-requisito do NodeId Estável
 
-当前 HTTP serverId 可能回退 hostname，SSH stdio hello 也没有 serverId。迁移前必须：
+O serverId HTTP atual pode recorrer ao hostname, e o hello do SSH stdio também não tem serverId.
+Antes da migração é preciso:
 
-1. 在 Node 数据目录生成并持久化 UUID。
-2. HTTP、SSH stdio、WSL、Docker bootstrap handshake 返回同一个 NodeId。
-3. Hub 检测重复 NodeId；VM 克隆后不得静默把两台机器当成同一 Node。
-4. 重装时提供“认领旧 Node”流程，不用 hostname 自动合并。
+1. Gerar e persistir um UUID no diretório de dados do Node.
+2. Os handshakes de bootstrap HTTP, SSH stdio, WSL e Docker retornarem o mesmo NodeId.
+3. O Hub detectar NodeIds duplicados; após o clone de uma VM não se pode tratar silenciosamente duas
+   máquinas como o mesmo Node.
+4. Oferecer na reinstalação um fluxo de "reivindicar o Node antigo", sem merge automático por
+   hostname.
 
-## 旧数据迁移
+## Migração de Dados Legados
 
-### 迁移面
+### Superfície de Migração
 
 ```text
 目标 Node
@@ -880,11 +985,12 @@ GlobalTaskRef      = { nodeId, workspaceId, taskId }
 └─ Hub / Desktop lastWorkspaceSession 与 connection credentials
 ```
 
-`messages / parts / todos / targets` 等通过 `session_id` 关联，无需改 workspace key。
+Campos como `messages / parts / todos / targets` são relacionados por `session_id` e não exigem
+alterar a workspace key.
 
-### Alias 与 ledger
+### Alias e Ledger
 
-先上兼容层，再搬数据：
+Primeiro entra a camada de compatibilidade, depois os dados são movidos:
 
 ```text
 workspace_registry(
@@ -911,12 +1017,13 @@ migration_run(
 )
 ```
 
-旧客户端继续传 `remote:ssh:*` 时，ingress alias 必须先把它解析到 canonical workspace；
-否则迁移后旧客户端会再次写出旧 key。
+Quando clientes legados continuam passando `remote:ssh:*`, o alias de ingress precisa resolvê-lo
+primeiro para o workspace canônico; caso contrário, depois da migração os clientes legados escreveriam
+a key antiga novamente.
 
-### 幂等 saga
+### Saga Idempotente
 
-两个 SQLite 不能跨库事务，迁移必须可恢复：
+Dois SQLite não podem ter transação entre bancos, então a migração precisa ser recuperável:
 
 ```text
 prepared
@@ -927,167 +1034,185 @@ prepared
 ```
 
 1. `prepared`
-   - handshake 获取稳定 NodeId；
-   - 只接受能够证明属于当前 Node 的精确 legacy alias；
-   - 校验 identity path 与行内 workspace path；
-   - 对两个 WAL 数据库分别做一致性备份；
-   - 写 alias 和 migration ledger。
+   - o handshake obtém um NodeId estável;
+   - só são aceitos aliases legados exatos que provem pertencer ao Node atual;
+   - valida o identity path contra o workspace path da linha;
+   - faz backups consistentes dos dois bancos WAL separadamente;
+   - escreve o alias e o migration ledger.
 2. `task_index_done`
-   - 合并 `tasks`，同步改标量列与 `meta_json`；
-   - 更新 group member；
-   - 解析并重写 top-level `node_key` 的新旧格式；
-   - 更新 bootstrap workspace key，但保留既有 `group_id`、标题、颜色和顺序；
-   - 更新 automation / automation run；
-   - 不删除旧 alias。
+   - mescla `tasks`, atualizando colunas escalares e `meta_json`;
+   - atualiza os group members;
+   - resolve e reescreve o `node_key` de nível superior nos formatos novo e antigo;
+   - atualiza a workspace key de bootstrap, preservando `group_id`, título, cor e ordem já existentes;
+   - atualiza automations / automation runs;
+   - não apaga aliases antigos.
 3. `session_store_done`
-   - 只更新迁移清单中的精确 `session.id`；
-   - 同时验证 `directory == canonicalPath` 和 `old workspace_id == source alias`；
-   - 禁止按目录全表更新。
+   - só atualiza os `session.id` exatos da lista de migração;
+   - valida simultaneamente `directory == canonicalPath` e `old workspace_id == source alias`;
+   - é proibido atualizar a tabela inteira por diretório.
 4. `files_and_settings_done`
-   - legacy hash 目录先 copy / alias 并校验，不移动或删除原目录；
-   - `lastWorkspaceSession` 改为 GlobalWorkspaceRef；
-   - SSH 地址和认证信息迁到 Connection Profile，不再混入 workspace identity；
-   - 不因为 Task identity 迁移而复制、删除或记录明文 secret。
+   - diretórios de hash legado são copiados / mapeados como alias e validados primeiro, sem mover nem
+     apagar o diretório original;
+   - `lastWorkspaceSession` passa a ser GlobalWorkspaceRef;
+   - endereço SSH e informações de migração vão para o Connection Profile e deixam de se misturar na
+     workspace identity;
+   - não copia, não apaga e não registra secrets em texto claro por causa da migração da identidade de
+     Task.
 5. `verified`
-   - Task 列表行都能打开对应 Session；
-   - Group、pin、archive、deleted、unread、automation 均可对账；
-   - 冷启动、本机 Web、TUI、Desktop 远程使用同一 WorkspaceRef；
-   - 至少保留一个版本周期的 legacy alias 和备份。
+   - todas as linhas da lista de Tasks abrem a Session correspondente;
+   - Group, pin, archive, deleted, unread e automation podem ser reconciliados;
+   - cold start, Web local, TUI e Desktop remoto usam o mesmo WorkspaceRef;
+   - aliases legados e backups são mantidos por pelo menos um ciclo de versão.
 
-### 冲突
+### Conflitos
 
-同一 canonical workspace 下出现相同 `taskId` 时：
+Quando o mesmo `taskId` aparece sob o mesmo workspace canônico:
 
-1. Session 内容摘要相同：视为同一 Task，合并 shell metadata。
-2. Session 内容不同：不得覆盖；写入 migration conflict，保留两份并要求人工选择或给其中一份生成
-   新 Task identity。
-3. 自动字段：
-   - `createdAt` 取最早；
-   - `updatedAt / unreadAt` 取最新；
-   - title 优先用户手工覆盖版本；
-   - terminal / model / searchable text 取最新合法 Session 投影。
-4. 产品字段不能直接 OR：
-   - pinned / archived / deleted 冲突必须按明确的 membership 规则裁决；
-   - Group 与顺序冲突必须按 View Profile revision 裁决；
-   - 在规则确认前记录 conflict，不自动复活 deleted Task。
+1. Se o resumo do conteúdo da Session for igual, trata-se como a mesma Task e os metadados de shell
+   são mesclados.
+2. Se o conteúdo da Session for diferente, não se pode sobrescrever; grava-se um migration conflict,
+   mantêm-se as duas cópias e exige-se escolha manual, ou dá-se a uma delas uma nova identidade de
+   Task.
+3. Campos automáticos:
+   - `createdAt` pega o mais antigo;
+   - `updatedAt / unreadAt` pegam o mais recente;
+   - o título prioriza a versão com override manual do usuário;
+   - terminal / model / searchable text usam a projeção da Session legal mais recente.
+4. Campos de produto não podem ser combinados por OR direto:
+   - conflitos de pinned / archived / deleted precisam ser arbitrados por regras explícitas de
+     membership;
+   - conflitos de Group e ordem precisam ser arbitrados pela View Profile revision;
+   - até as regras serem confirmadas, registra-se o conflict e não se ressuscita automaticamente uma
+     Task deletada.
 
-### 旧 Group 导入
+### Importação de Groups Antigos
 
-各 Hub / Node 可能已经有不同的本地 Group 布局。推荐：
+Cada Hub / Node pode já ter layouts locais de Group diferentes. Recomenda-se:
 
-- 每个旧布局以独立 `legacyViewOrigin` 导入；
-- 不按同名 Group 自动合并；
-- 只有一个来源时可直接采用；
-- 多来源默认保留为“来自 <设备>”的独立分组，用户确认后再合并；
-- Task ref 先经过 workspace alias 映射，再进入账户 View Profile。
+- importar cada layout antigo com um `legacyViewOrigin` independente;
+- não mesclar Groups de mesmo nome automaticamente;
+- com apenas uma origem, pode-se adotar diretamente;
+- com múltiplas origens, mantém-se por padrão como um agrupamento separado "de <dispositivo>", e a
+  mesclagem ocorre depois da confirmação do usuário;
+- o task ref passa pelo mapeamento de workspace alias antes de entrar no View Profile da conta.
 
-## 分阶段落地
+## Implantação por Fases
 
-### Phase 0：合同、身份和观察能力
+### Phase 0: Contratos, Identidade e Observabilidade
 
-- 稳定 NodeId handshake。
-- Workspace Registry / WorkspaceRef / alias schema。
-- 所有 Task key、日志和诊断改为 GlobalTaskRef。
-- 定义 Hub Protocol、Node Protocol、Bootstrap Protocol 和 Resource Transfer Protocol。
-- 在协议层引入可信 connection role 与 logical attachment，先不改变现有 transport。
-- 先做只读 inventory 和 migration dry-run。
+- handshake de NodeId estável.
+- Workspace Registry / WorkspaceRef / schema de alias.
+- Todas as keys de Task, logs e diagnósticos passam a usar GlobalTaskRef.
+- Definir Hub Protocol, Node Protocol, Bootstrap Protocol e Resource Transfer Protocol.
+- Introduzir no nível de protocolo o connection role confiável e o logical attachment, sem alterar os
+  transports existentes.
+- Começar com inventory read-only e migration dry-run.
 
-### Phase 1：Node Core 与 Hub Core
+### Phase 1: Node Core e Hub Core
 
-- 从 `entry-http` / `entry-stdio` 抽出唯一 Node Core 组合根。
-- 实现 local Node single-owner lock、daemon discovery 和 embedded fallback。
-- Desktop 改为 app-wide Hub Process，多窗口通过独立 MessagePort attachment 复用。
-- Lite 增加逻辑独立的 Hub Core；Browser UI 只连 Hub endpoint。
-- 保留现有 per-window Host 作为兼容路径，先做双栈观测，不立即删除。
+- Extrair um único root de composição de Node Core a partir de `entry-http` / `entry-stdio`.
+- Implementar lock de single-owner do Node local, descoberta de daemon e fallback embedded.
+- O Desktop passa a um Hub Process app-wide, com múltiplas janelas reusando-o via attachments MessagePort
+  independentes.
+- O Lite ganha um Hub Core logicamente independente; a UI do Browser conecta apenas ao Hub endpoint.
+- Manter o Host per-window existente como caminho de compatibilidade e observar em dual stack primeiro,
+  sem remover imediatamente.
 
-### Phase 2：统一 bootstrap、tunnel 与资源传输
+### Phase 2: Bootstrap, Tunnel e Transferência de Recursos Unificados
 
-- SSH / WSL / Docker 只负责安装、启动、升级、发现和连接 Node daemon。
-- Direct URL、Browser Web、Desktop 和 TUI 使用同一 Node API。
-- SSH 使用 direct-tcpip，WSL / Docker 使用 `zcode node connect` 到 local socket。
-- 引入统一 `WorkspaceLeaseManager`，消除三种不同 Host / Agent 回收语义。
-- 长文本、图片和外部文件统一进入 Node Resource Store。
-- 旧 stdio business server 保留一个兼容周期；compat shim 只做 transport。
+- SSH / WSL / Docker ficam responsáveis apenas por instalar, iniciar, atualizar, descobrir e conectar o
+  Node daemon.
+- Direct URL, Browser Web, Desktop e TUI usam a mesma Node API.
+- SSH usa direct-tcpip; WSL / Docker usam `zcode node connect` até o local socket.
+- Introduzir um `WorkspaceLeaseManager` unificado, eliminando as três semânticas diferentes de reciclagem
+  de Host / Agent.
+- Textos longos, imagens e arquivos externos entram unificados no Node Resource Store.
+- O business server stdio legado é mantido por um ciclo de compatibilidade; o compat shim faz apenas
+  transport.
 
-### Phase 3：Node API 与聚合目录
+### Phase 3: Node API e Catálogo Agregado
 
-- Node Task Summary keyset API。
-- Running overlay 与历史分页拆分。
-- Hub k-way merge、拓扑 epoch、持久离线 catalog。
-- 打开 Task 时按来源 Node 路由；conversation delivery 语义不变。
+- Node Task Summary keyset API.
+- Separação entre running overlay e paginação de histórico.
+- Hub k-way merge, epoch de topologia e catálogo offline persistente.
+- Ao abrir uma Task, rotear pelo Node de origem; a semântica de delivery da conversation não muda.
 
-### Phase 4：模型与 Extension 作用域
+### Phase 4: Escopo de Modelos e Extensions
 
-- 拆 ProviderCatalog 与 Credential Binding。
-- Account Model Profile revision 同步。
-- Node readiness。
-- 修正 SSH / WSL Subagent UI / runtime 分裂。
-- Extension Settings 增加 Node selector。
+- Separar ProviderCatalog e Credential Binding.
+- Sync de Account Model Profile por revision.
+- Node readiness.
+- Corrigir a divisão de Subagent UI / runtime em SSH / WSL.
+- Adicionar um seletor de Node em Extension Settings.
 
-### Phase 5：Federated Group
+### Phase 5: Federated Group
 
-- Account View Profile。
-- 旧 Group dry-run / import / conflict UI。
-- 所有 sortOrder 权威持久化。
-- 分组成员按 GlobalTaskRef 查询。
+- Account View Profile.
+- UI de dry-run / import / conflict para Groups antigos.
+- Persistência autoritativa de todos os sortOrder.
+- Consulta dos membros de grupo por GlobalTaskRef.
 
-### Phase 6：旧数据迁移和旧链路退出
+### Phase 6: Migração de Dados Legados e Saída dos Caminhos Antigos
 
-- 两库 migration saga。
-- 文件 hash alias。
-- Desktop history / credential route 拆分。
-- 灰度读双写单、校验、回滚和版本期后清理。
-- 删除 `entry-stdio -> createLocalServices()` 远端主路径。
-- 删除 per-window SSH / Docker business Host；保留 bootstrap / tunnel adapter。
+- saga de migração dos dois bancos.
+- alias de hash de arquivos.
+- Separação entre history e credential route no Desktop.
+- Leitura em canário, escrita dupla unificada, validação, rollback e limpeza após o ciclo de versão.
+- Remover o caminho principal remoto `entry-stdio -> createLocalServices()`.
+- Remover os business Hosts SSH / Docker per-window, mantendo os adapters de bootstrap / tunnel.
 
-## Case Planning
+## Planejamento de Cases
 
-### 主要维度
+### Dimensões Principais
 
-| 维度       | 代表值                                                                           |
-| ---------- | -------------------------------------------------------------------------------- |
-| UI         | Browser Web / Desktop / Mobile remote                                            |
-| Node       | local / direct server / SSH bootstrap / offline                                  |
-| delivery   | desktop-continuous / browser-replayable / mobile-remote-replayable               |
-| transport  | MessagePort / direct WSS / SSH tunnel / WSL connector / Docker connector / relay |
-| config     | Profile current / Node stale / missing credential                                |
-| task state | running / terminal / archived / deleted                                          |
-| list       | timeline / workspace / pinned / grouped                                          |
-| resource   | long-paste file / image / browser File / mobile attachment                       |
-| migration  | clean / duplicate alias / same task same content / same task divergent           |
+| Dimensão   | Valores representativos                                                                      |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| UI         | Browser Web / Desktop / Mobile remote                                                        |
+| Node       | local / direct server / SSH bootstrap / offline                                              |
+| delivery   | desktop-continuous / browser-replayable / mobile-remote-replayable                           |
+| transport  | MessagePort / direct WSS / SSH tunnel / WSL connector / Docker connector / relay             |
+| config     | Profile current / Node stale / missing credential                                            |
+| task state | running / terminal / archived / deleted                                                      |
+| list       | timeline / workspace / pinned / grouped                                                      |
+| resource   | long-paste file / image / browser File / mobile attachment                                   |
+| migration  | clean / duplicate alias / same task same content / same task divergent                       |
 
-### 首批候选 cases
+### Primeiros Cases Candidatos
 
-| ID     | Setup                                                | Action                         | Assertion                                                                         | 状态             |
-| ------ | ---------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------- | ---------------- |
-| FED-01 | A Web 连接 Node A/B，C Desktop 连接 A/B/C            | 各 Node 创建 Task              | 两个 UI 都以 GlobalTaskRef 展示，不因 taskId / path 相同去重错误                  | accepted         |
-| FED-02 | 三个 Node 各有多页 terminal Task 和 running Task     | 滚动 timeline                  | running overlay 置顶；历史 k-way merge 不重不漏；不拉正文                         | proposed         |
-| FED-03 | Node B 离线，Hub 有旧目录缓存                        | 打开统一列表                   | B 的 Task 显示 stale/offline；命令被阻止；A/C 可正常操作                          | proposed         |
-| FED-04 | Account Profile revision N，Node B 仍是 N-1          | 在 B 新建 Task                 | 先同步到 N；缺 credential 时明确阻止，不静默换模型                                | proposed         |
-| FED-05 | A/B 的 Skill / Plugin / Subagent 不同                | 在 B 的 Task 打开候选菜单      | 只展示 B workspace + B node inventory；全局矩阵不参与执行                         | accepted         |
-| FED-06 | Account Group 跨 A/B Task                            | A Web 拖拽排序，C Desktop 刷新 | 两端按同一 View Profile revision 收敛                                             | pending-decision |
-| FED-07 | 旧 SSH alias 与新 Node WorkspaceRef 指向同一数据     | 运行迁移并冷启动               | Task、Session、Group、automation 可对账；旧 alias 不再产生新行                    | proposed         |
-| FED-08 | 两个旧 alias 有同 taskId、不同 Session 内容          | 运行迁移                       | 不覆盖；生成 conflict，原数据和备份均保留                                         | proposed         |
-| FED-09 | 手机附着 C Desktop Hub                               | 切换查看 A/B/C Task            | 只使用已有 attachment；不新建 Node runtime；replayable 恢复边界不变               | accepted         |
-| FED-10 | Node B 已由 Lite 启动，Desktop 又通过 SSH 发现 B     | Desktop 连接同一 workspace     | 复用同一 NodeId / WorkspaceId；不创建第二个 Server、Task Index 或 Agent owner     | proposed         |
-| FED-11 | Desktop 与 Browser 同时操作 Node A 的同一 Task       | 两端订阅并发送                 | logical connection 隔离；continuous / replayable 各自恢复；命令进入同一 CLI inbox | proposed         |
-| FED-12 | Node B running task，SSH tunnel 断开                 | Hub 重连 tunnel                | Node / Agent 不因 tunnel 断开退出；按新 bootId / logEpoch 恢复或明确失败          | proposed         |
-| FED-13 | Docker 未暴露端口                                    | Desktop 连接容器               | `docker exec` connector 只转发 local socket；业务 RPC 与 direct WSS 同 schema     | proposed         |
-| FED-14 | Desktop 长文本转文件、Browser 拖图片到 Node B        | 发送 prompt                    | 资源先 commit 到 B Resource Store；prompt 只含 B 的 ResourceRef；Agent 可读       | proposed         |
-| FED-15 | 手机连接 Hub C，Node B 离线                          | 打开 B 历史 Task               | 只展示 stale summary；不由手机触发 SSH / Docker bootstrap                         | accepted         |
-| FED-16 | Lite Node 与 Desktop embedded Node 竞争同一 data dir | 两端并发启动                   | single-owner lock 保证一个 Node owner，另一端发现并连接或明确失败                 | proposed         |
-| FED-17 | 普通 Browser 伪造 desktop clientMode                 | 建立 Node 连接                 | Node 忽略客户端自报值，按认证 role 注入 replayable profile                        | accepted         |
+| ID     | Setup                                                      | Action                         | Assertion                                                                                       | Status           |
+| ------ | ---------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------- | ---------------- |
+| FED-01 | A Web conecta em Node A/B, o Desktop C em A/B/C             | Criar Task em cada Node        | Ambas as UIs exibem por GlobalTaskRef, sem deduplicar errado por taskId / path iguais           | accepted         |
+| FED-02 | Três Nodes com várias páginas de terminal Task e running Task | Rolar a timeline                | Running overlay no topo; k-way merge do histórico sem duplicar nem perder; não traz o corpo      | proposed         |
+| FED-03 | Node B offline, Hub com cache de catálogo antigo             | Abrir a lista unificada         | Tasks de B aparecem stale/offline; commands bloqueados; A/C funcionam normalmente               | proposed         |
+| FED-04 | Account Profile revision N, Node B ainda em N-1              | Criar Task em B                | Sincroniza primeiro até N; sem credencial bloqueia explicitamente, sem trocar de modelo em silêncio | proposed         |
+| FED-05 | Skills / Plugins / Subagents diferentes entre A/B            | Abrir o menu de candidatos no Task de B | Mostra só o workspace de B + o inventory do node de B; a matriz global não participa da execução | accepted         |
+| FED-06 | Account Group com Tasks de A/B                              | Arrastar e soltar na Web A, refresh no Desktop C | As duas pontas convergem pela mesma View Profile revision                     | pending-decision |
+| FED-07 | Alias SSH antigo e novo Node WorkspaceRef apontando para os mesmos dados | Executar a migração e fazer cold start | Tasks, Sessions, Groups e automations reconciliáveis; o alias antigo não gera mais linhas | proposed         |
+| FED-08 | Dois aliases antigos com o mesmo taskId e conteúdos de Session diferentes | Executar a migração | Sem sobrescrita; conflict gerado, dados originais e backups preservados             | proposed         |
+| FED-09 | Celular se anexa ao Hub do Desktop C                        | Alternar e ver Tasks de A/B/C  | Usa apenas attachments existentes; não cria Node runtime; fronteiras de recuperação replayable inalteradas | accepted         |
+| FED-10 | Node B já iniciado pelo Lite, e o Desktop o descobre via SSH  | Desktop conecta no mesmo workspace | Reusa o mesmo NodeId / WorkspaceId; não cria um segundo Server, Task Index ou Agent owner | proposed         |
+| FED-11 | Desktop e Browser operando a mesma Task do Node A           | Ambas as pontes assinam e enviam | Isolamento de logical connection; continuous / replayable se recuperam cada um; commands entram no mesmo CLI inbox | proposed         |
+| FED-12 | Running task no Node B, SSH tunnel cai                      | Hub reconecta o tunnel          | Node / Agent não saem por causa da queda do tunnel; recupera pelo novo bootId / logEpoch ou falha explicitamente | proposed         |
+| FED-13 | Docker sem porta exposta                                    | Desktop conecta no container    | O connector `docker exec` só encaminha o local socket; o RPC de negócio tem o mesmo schema do direct WSS | proposed         |
+| FED-14 | Desktop converte texto longo em arquivo, Browser arrasta imagem no Node B | Envia o prompt | Recurso é commitado primeiro no Resource Store de B; o prompt contém só o ResourceRef de B; legível pelo Agent | proposed         |
+| FED-15 | Celular conecta ao Hub C, Node B offline                    | Abre uma Task histórica de B   | Mostra só o resumo stale; o celular não dispara bootstrap SSH / Docker                            | accepted         |
+| FED-16 | Lite Node e Desktop embedded Node disputando o mesmo data dir | Início concorrente nas duas pontas | O lock de single-owner garante um único Node owner; a outra ponta descobre e conecta ou falha explicitamente | proposed         |
+| FED-17 | Browser comum forja o desktop clientMode                   | Estabelece conexão com o Node  | O Node ignora o valor autodeclarado pelo cliente e injeta o profile replayable conforme o role autenticado | accepted         |
 
-### 剪枝
+### Poda
 
-- 不做 UI × Node × delivery × 所有 Task state 的全排列；Task Summary 终态由 Node API 合同证明，
-  Desktop / Web 只各取一个聚合代表。
-- Skill、Plugin、Subagent 各取一个候选隔离代表；共同不变量是 Node capability authority。
-- SSH / WSL / Docker 不分别复制业务聚合 case；只在 bootstrap / identity migration 层取代表。
-- Conversation queue / fork / compact 不与列表分页叉乘；它们仍由来源 Node 的现有协议覆盖。
-- 手机不测试创建独立 Hub / Node，因为产品合同明确禁止。
+- Não fazer o produto cartesiano de UI × Node × delivery × todos os estados de Task; o estado final do
+  Task Summary é provado pelo contrato da Node API, e Desktop / Web recebem apenas um representante
+  agregado cada.
+- Skill, Plugin e Subagent recebem um representante de isolamento cada; o invariante comum é a
+  autoridade de Node capability.
+- SSH / WSL / Docker não duplicam cases de agregação de negócio;representados apenas nas camadas de
+  bootstrap / identity migration.
+- Conversation queue / fork / compact não são cruzados com a paginação de listas; eles continuam
+  cobertos pelo protocolo existente do Node de origem.
+- O celular não é testado criando Hub / Node próprios, porque o contrato de produto proíbe isso.
 
-## 影响面
+## Superfície de Impacto
 
 ### must-inspect
 
@@ -1121,26 +1246,27 @@ prepared
 
 ### should-inspect
 
-- Model Provider storage / registry / remote sync
-- Skill / Plugin / Subagent discovery and sync
-- `lastWorkspaceSession` 与 Connection Profile persistence
-- Web remote workspace list snapshot
-- Hub persistent cache、search、pin / archive membership
-- Node daemon supervisor、single-owner lock 与 bootId
-- Hub / Node connection capability、logical attachment multiplex
-- Resource Store 的配额、断点续传、janitor 和跨 Node 防误用
+- Armazenamento / registry / sync remoto de Model Provider
+- Descoberta e sync de Skill / Plugin / Subagent
+- Persistência de `lastWorkspaceSession` e do Connection Profile
+- Snapshot da lista de workspaces remoto da Web
+- Cache persistente do Hub, busca e membership de pin / archive
+- Supervisor do Node daemon, lock de single-owner e bootId
+- Capability de conexão Hub / Node e multiplex de logical attachment
+- Cotas, retomada de upload, janitor e proteção contra uso errado entre Nodes do Resource Store
 
 ### invariant-only
 
-- V4 Session runtime / conversation projection
+- Runtime / conversation projection de Session V4
 - owner / lease / queued command
-- Desktop continuous 与 Mobile replayable
-- relay / desktop main 的纯透传边界
-- V4 CommandInbox、command ACK/query、owner/lease 和 connection-scoped subscription
+- Desktop continuous e Mobile replayable
+- Fronteira de repasse puro de relay / desktop main
+- V4 CommandInbox, command ACK/query, owner/lease e subscription com escopo de conexão
 
-## Proposed Feature Graph Delta
+## Delta Proposto do Feature Graph
 
-在产品语义确认后再更新 feature graph，建议新增：
+Depois que a semântica de produto for confirmada, o feature graph deve ser atualizado, com as
+sugestões de adição:
 
 - `capability.federated-node-hub`
 - `capability.unified-node-runtime`
@@ -1160,20 +1286,28 @@ prepared
 - `boundary.mobile-remote-replayable`
 - `invariant.global-task-ref`
 
-## 待用户裁决
+## Pendente de Decisão do Usuário
 
-1. 自定义 API Key 是否跨端 E2E 同步，还是只同步模型 metadata、Secret 保持 Node-local？
-2. A Web 与 C Desktop 的自定义 Group / 手工顺序是否必须完全一致？
-3. Node 离线时，是否要在重启 UI 后继续显示上次 Task 摘要，还是只显示“Node 离线”？
-4. 同一旧 Task 的 pin / archive / deleted 冲突，是否采用 `deleted > archived > pinned > normal`
-   的保守优先级？
-5. Node 数据目录被克隆导致 NodeId 重复时，是否默认把新发现机器视为克隆并强制生成新 NodeId？
-6. Node daemon 是否默认独立于 UI 长期运行：
-   - 推荐：Lite / 手动安装 Node 长期运行；Desktop embedded fallback 随 App 生命周期；
-   - 另一方案：所有 bootstrap Node 都在无 task / lease 后按 idle policy 退出。
-7. Lite Hub 是否允许像 Desktop Hub 一样注册手机 relay device role：
-   - 推荐：允许，但必须用户显式开启；手机仍不能直接 bootstrap 新 Node。
-8. Browser Web 是否固定使用 replayable delivery：
-   - 推荐：是；Browser tab 会刷新、休眠和断网，不应伪装成 Desktop continuous。
-9. Hub 是否允许依据预授权 Connection Profile 自动恢复离线 Node：
-   - 推荐：Desktop / Lite Hub 可以按设备策略恢复；手机 attachment 本身无权创建或修改该策略。
+1. As custom API Keys são sincronizadas E2E entre as pontas, ou só o metadata de modelo é sincronizado
+   e o Secret permanece Node-local?
+2. Os Groups / ordens manuais personalizados da Web em A e do Desktop em C precisam ser exatamente
+   iguais?
+3. Quando um Node está offline, é preciso continuar exibindo o resumo de Tasks da última vez depois de
+   reiniciar a UI, ou exibir apenas "Node offline"?
+4. Nos conflitos de pin / archive / deleted da mesma Task antiga, adota-se a prioridade conservadora
+   `deleted > archived > pinned > normal`?
+5. Quando o diretório de dados de um Node é clonado e gera NodeId duplicado, a máquina recém
+   descoberta deve ser tratada por padrão como um clone e receber obrigatoriamente um novo NodeId?
+6. O Node daemon roda de forma independente da UI e por longo prazo por padrão:
+   - Recomendado: Lite / Node instalados manualmente rodam em longo prazo; o fallback embedded do
+     Desktop segue o ciclo de vida do App;
+   - Outra opção: todos os Nodes de bootstrap saem conforme a idle policy quando não têm task / lease.
+7. O Lite Hub pode registrar o relay device role do celular como o Hub do Desktop:
+   - Recomendado: sim, mas precisa de habilitação explícita do usuário; o celular continua não
+     podendo fazer bootstrap de Node novo diretamente.
+8. O Browser Web usa delivery replayable de forma fixa:
+   - Recomendado: sim; abas de Browser são atualizadas, dormem e perdem rede e não devem se passar por
+     Desktop continuous.
+9. O Hub pode recuperar automaticamente Nodes offline com base em Connection Profiles pré-autorizados:
+   - Recomendado: Desktop / Lite Hub podem recuperar conforme a política do dispositivo; o próprio
+     attachment do celular não tem autoridade para criar ou modificar essa política.

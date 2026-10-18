@@ -1,35 +1,41 @@
-# Provider 重构迁移路线
+# Roadmap de migração da refatoração de Provider
 
-> 状态：工作规划
+> Status: planejamento de trabalho
 >
-> 最近更新：2026-08-24
+> Última atualização: 2026-08-24
 >
-> 当前阶段：M4 与已知清理 Todo 已完成；正在执行 Provider Refactor 最终全量验证
+> Fase atual: M4 e os Todos de limpeza conhecidos concluídos; em execução a verificação final em
+> escala total do Provider Refactor
 
-## 迁移策略
+## Estratégia de migração
 
-迁移沿模型调用主链逐步向上收敛：先统一模型执行接口，再整理 Registry 与 Provider 来源，随后收敛 Submission、配置和 Environment 所有权。
+A migração converge gradualmente para cima ao longo da cadeia principal de chamada de modelo: primeiro
+unifica a interface de execução do modelo, depois organiza o Registry e as fontes de Provider e,
+por fim, converge Submission, configuração e propriedade de Environment.
 
-每个阶段可以拆成多个可合并的代码切片，但阶段结束时不能保留平行业务语义。旧系统只允许通过一个明确兼容入口接入新抽象。
+Cada fase pode ser dividida em múltiplos fatias de código mescláveis, mas, ao fim da fase, não pode
+sobrar semântica de negócio paralela. O sistema antigo só pode entrar nas novas abstrações por uma
+entrada de compatibilidade explícita e única.
 
-## 阶段概览
+## Visão geral das fases
 
-| 阶段     | 主题                                  | 状态                                         | 完成标志                                                                                                 |
-| -------- | ------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| M0       | 宏观架构与现状地图                    | 已完成第一轮                                 | 工作目标和主要历史分叉已落盘                                                                             |
-| M1       | Model 与 ModelRequest                 | 已完成                                       | 所有生产模型调用使用统一 Model                                                                           |
-| M2       | Provider 配置、Registry 与 Model 创建 | 已完成，作为当前 M3 Merge Request 的基础切片 | 三层配置与普通 Model 创建已进入统一链路；旧 Snapshot、Workspace Provider Catalog fallback 和死代码已退出 |
-| M3       | Provider 架构切换与 Model 格式收口    | 已完成                                       | Config/Registry、原子 Submission、模型选择、设置页与输入输出格式形成唯一生产链路                         |
-| M4       | 模型执行链、闲时任务与 Subagent       | 已完成                                       | 闲时任务使用完整 hidden Provider、同一 Registry/ModelFactory 与请求时鉴权，不改 Session Selection        |
-| M5       | Config 存储边界与 Built-in 装配       | Provider Refactor 范围已完成                 | 存储外壳已私有化；Built-in/Personal/Selection 只通过正式 Source/Repository 装配                          |
-| M6       | Account Provider                      | Provider Refactor 范围已完成                 | 结构化选择、Account Overlay、完整 Access 与请求期鉴权形成唯一链路                                        |
-| 独立专题 | Environment 配置与 Provisioning       | 不属于本次 Provider Refactor                 | 远程设置、登录、配置同步与目标 Environment 的产品能力另行设计                                            |
+| Fase     | Tema                                          | Status                                                     | Marco de conclusão                                                                                                 |
+| -------- | --------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| M0       | Arquitetura macro e mapa da situação atual    | Primeira rodada concluída                                   | O objetivo de trabalho e os principais bifurcamentos históricos foram registrados em disco                                               |
+| M1       | Model e ModelRequest                          | Concluída                                                    | Todas as chamadas de modelo de produção usam o Model unificado                                                                     |
+| M2       | Configuração de Provider, Registry e criação de Model | Concluída, servindo de fatiabase para o Merge Request atual de M3 | A configuração de três camadas e a criação comum de Model entraram na cadeia unificada; Snapshot antigo, fallback de Workspace Provider Catalog e código morto saíram |
+| M3       | Cutover da arquitetura de Provider e fechamento do formato de Model | Concluída                                  | Config/Registry, Submission atômico, seleção de modelo, página de configurações e formato de entrada/saída formam uma cadeia de produção única                   |
+| M4       | Cadeia de execução de modelo, tarefas ociosas e Subagent | Concluída                                                | Tarefas ociosas usam o Provider hidden completo, o mesmo Registry/ModelFactory e autenticação em tempo de requisição, sem alterar o Session Selection                     |
+| M5       | Fronteira de armazenamento de Config e montagem Built-in | Escopo do Provider Refactor concluído                    | O invólucro de armazenamento foi privatizado; Built-in/Personal/Selection são montados apenas pelo Source/Repository oficial                        |
+| M6       | Account Provider                              | Escopo do Provider Refactor concluído                     | Seleção estruturada, Account Overlay, Access completo e autenticação em tempo de requisição formam uma cadeia única                            |
+| Tópico independente | Configuração de Environment e Provisioning  | Fora deste Provider Refactor                               | Configurações remotas, login, sincronização de configuração e as capacidades de produto do Environment de alvo são desenhadas à parte           |
 
-阶段顺序可以根据实现事实微调。调整时更新本路线和 Working Memory，不为保持编号而制造临时代码。
+A ordem das fases pode ser ajustada levemente conforme os fatos da implementação. Ao ajustar, atualize
+este roadmap e o Working Memory; não crie código temporário só para preservar a numeração.
 
-## M0：宏观架构与现状地图
+## M0: arquitetura macro e mapa da situação atual
 
-M0 建立了当前工作语言：
+O M0 estabeleceu a linguagem de trabalho atual:
 
 ```text
 事实来源
@@ -39,15 +45,19 @@ M0 建立了当前工作语言：
     -> ModelRequest
 ```
 
-同时完成了 Runtime、Registry、Provider Options、Reasoning、Plan、闲时任务、Subagent 和外围模型调用的第一轮调查。
+Também concluiu a primeira rodada de investigação de Runtime, Registry, Provider Options, Reasoning,
+Plan, tarefas ociosas, Subagent e chamadas de modelo periféricas.
 
-M0 后续只补充新的事实证据，不再承载实现细节。
+Depois do M0, apenas novas evidências de fato são acrescentadas, sem carregar detalhes de
+implementação.
 
-## M1：Model 与 ModelRequest
+## M1: Model e ModelRequest
 
-> 完成于 2026-08-12，已通过 MR !2006 合入 `staging`。
+> Concluído em 2026-08-12, integrado ao `staging` pelo MR !2006.
 
-M1 先把所有生产模型调用放到一个最终公共边界下。阶段目标是统一“模型如何被调用”，不要求同时完成最终 Registry 和 Provider 来源重构：
+O M1 colocou todas as chamadas de modelo de produção sob uma fronteira pública final única. O objetivo
+da fase era unificar "como o modelo é chamado", sem exigir ao mesmo tempo a refatoração final do
+Registry e das fontes de Provider:
 
 ```text
 Model
@@ -59,30 +69,41 @@ Model
 └─ streamText()
 ```
 
-主要切片：
+Principais fatias:
 
-1. M1.1：固定类型（包括 ModelResult / ModelEvent），建立 Model Adapter Wrapper 和单元测试。
-2. M1.2：迁移主 Agent Loop、Automatic Compact、Usage 与 Trace。
-3. M1.3：迁移 Child Agent、Title、Goal verifier 和 Project Memory。
-4. M1.4：迁移 Git、workspace generateText、WebFetch 与 WebSearch。
-5. M1.5：迁移 Repo Wiki。
-6. M1.6：删除业务调用方对 Runtime model state、Provider options、ModelPort 和独立 Provider 客户端的读取。
+1. M1.1: fixar os tipos (incluindo ModelResult / ModelEvent), estabelecer o Model Adapter Wrapper e
+   testes unitários.
+2. M1.2: migrar o Agent Loop principal, o Automatic Compact, o Usage e o Trace.
+3. M1.3: migrar o Child Agent, Title, o verifier de Goal e o Project Memory.
+4. M1.4: migrar Git, generateText do workspace, WebFetch e WebSearch.
+5. M1.5: migrar o Repo Wiki.
+6. M1.6: remover a leitura, pelos chamadores de negócio, do estado de model do Runtime, das options de
+   Provider, do ModelPort e dos clientes de Provider independentes.
 
-现有 Runtime、Registry、Plan 和临时模型输入通过唯一兼容 Model Factory 进入新链路。M1 不要求同时重构 Registry Service、Builtin Provider、设置页、原子 Submission 或配置刷新，但新 Model 必须能承接这些现有输入。
+O Runtime, o Registry, o Plan e as entradas temporárias de modelo existentes entram na nova cadeia
+por uma Model Factory de compatibilidade única. O M1 não exige refatorar ao mesmo tempo o Registry
+Service, o Builtin Provider, a página de configurações, o Submission atômico ou o refresh de
+configuração, mas o novo Model precisa conseguir absorver essas entradas existentes.
 
-M1 完成时，所有生产模型调用都使用 `Model.generateText()` 或 `Model.streamText()`。阶段内允许分批合并，阶段结束不保留平行业务模型客户端。
+Ao fim do M1, todas as chamadas de modelo de produção usam `Model.generateText()` ou
+`Model.streamText()`. São permitidos merges parciais dentro da fase; o fim da fase não mantém clientes
+de modelo de negócio paralelos.
 
-## M2：Provider 配置、Registry 与 Model 创建
+## M2: configuração de Provider, Registry e criação de Model
 
-M2 的实施计划见 [`02-provider-config-and-registry.md`](./02-provider-config-and-registry.md)，目标设计见
-[`../design/registry/registry.md`](../design/registry/registry.md)。普通长期 Provider 的三层 Config、Registry
-聚合、Model 创建与主要生产装配已经完成，退役结果见
-[`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md)。这些改动作为 M3
-实现分支的基础切片，与 Submission、选择状态和设置页一起完成统一切换。
+O plano de implementação do M2 está em
+[`02-provider-config-and-registry.md`](./02-provider-config-and-registry.md), e o design objetivo em
+[`../design/registry/registry.md`](../design/registry/registry.md). A Config de três camadas do
+Provider comum de longo prazo, a agregação do Registry, a criação de Model e as principais montagens
+de produção já foram concluídas, e o resultado da aposentadoria está em
+[`02-provider-config-and-registry-cleanup.md`](./02-provider-config-and-registry-cleanup.md). Essas
+mudanças servem de fatiabase para a branch de implementação do M3 e são concluídas junto com a
+Submission, o estado de seleção e a página de configurações em um cutover único.
 
-Registry 聚合、通知和 M2 开始时跨进程刷新链路的调研见 [`../research/m2-registry-aggregation-and-refresh.md`](../research/m2-registry-aggregation-and-refresh.md)。
+A investigação sobre agregação do Registry, notificação e cadeia de refresh cross-process no início
+do M2 está em [`../research/m2-registry-aggregation-and-refresh.md`](../research/m2-registry-aggregation-and-refresh.md).
 
-M2 将第一阶段的兼容装配收敛成正式 Registry：
+O M2 converte a montagem de compatibilidade da primeira fase no Registry oficial:
 
 ```text
 ProviderConfigService
@@ -104,31 +125,43 @@ ProviderConfigService
                                 Model
 ```
 
-主要问题：
+Problemas principais:
 
-- ProviderConfig 与 ModelConfigRules 的有序、逐字段覆盖语义。
-- Account Source 产生 Account Provider Config，并在 Built-in 之后、Personal 之前补入 account-kind 的
-  `accessId` 与 `models`。
-- Registry 的 Provider/ModelConfig View、查询索引、变化通知与对象生命周期。
-- 设置 Facade 与模型选择 Facade 的专用 View。
-- ModelFactory、Adapter 和动态鉴权依赖。
-- 设置写入、外部文件修改和官方更新的刷新链路。
-- 闲时任务的过渡 Runtime Model 复用解析与 ModelFactory，并把生命周期限制在单次执行。
+- Semântica de cobertura ordenada e campo a campo de ProviderConfig e ModelConfigRules.
+- O Account Source produz Account Provider Config e, após o Built-in e antes do Personal, insere o
+  `accessId` e os `models` de account-kind.
+- As Views de Provider/ModelConfig do Registry, os índices de consulta, a notificação de mudanças e o
+  ciclo de vida dos objetos.
+- Views dedicadas da Facade de configurações e da Facade de seleção de modelo.
+- ModelFactory, Adapter e dependências de autenticação dinâmica.
+- A cadeia de refresh de escrita das configurações, de modificação de arquivos externos e de
+  atualizações oficiais.
+- Reuso de resolução de Runtime Model de transição e ModelFactory para tarefas ociosas, com o ciclo de
+  vida restrito a uma única execução.
 
-M2 完成后，Agent Loop 从进程级 Registry 取得当前 Model；更新创建新对象，旧 Loop 继续持有旧 Model。
+Após o M2, o Agent Loop obtém o Model atual do Registry de nível de processo; uma atualização cria um
+objeto novo e o Loop antigo continua segurando o Model antigo.
 
-M2 只为 Account Provider 和闲时任务过渡链建立能够接入统一 ModelFactory 的边界，并保持当时行为。
-Account Provider 的身份、权益、动态凭据和刷新状态在 M6 重构；闲时任务与 Subagent 的提交和生命周期
-语义在 M4 收口，并删除这条过渡 Runtime Model 链。
+O M2 só estabelece as fronteiras necessárias para que o Account Provider e a cadeia de transição de
+tarefas ociosas possam entrar no ModelFactory unificado, preservando o comportamento da época.
+A identidade, os benefícios, as credenciais dinâmicas e o estado de refresh do Account Provider são
+refatorados no M6; a semântica de submissão e de ciclo de vida de tarefas ociosas e Subagents é fechada
+no M4, que remove essa cadeia de Runtime Model de transição.
 
-## M3：Provider 架构切换
+## M3: cutover da arquitetura de Provider
 
-完整实施计划见 [`03-provider-architecture-cutover.md`](./03-provider-architecture-cutover.md)，目标语义见 [`../design/interaction/interaction.md`](../design/interaction/interaction.md) 和 [`../design/registry/settings.md`](../design/registry/settings.md)。
+O plano de implementação completo está em
+[`03-provider-architecture-cutover.md`](./03-provider-architecture-cutover.md), e a semântica objetivo
+em [`../design/interaction/interaction.md`](../design/interaction/interaction.md) e
+[`../design/registry/settings.md`](../design/registry/settings.md).
 
-M3 把 M2 已完成的 Config/Registry 基础与原子 Submission、模型选择状态、Provider 设置页和 Model 输入
-输出格式组合成一次完整切换。实现集中在同一条集成分支，内部仍以职责清晰的提交和评审区域组织。
+O M3 combina a base Config/Registry já concluída no M2 com o Submission atômico, o estado de seleção
+de modelo, a página de configurações de Provider e o formato de entrada/saída de Model em um cutover
+completo. A implementação está concentrada na mesma branch de integração, mantendo internamente áreas
+de commit e revisão com responsabilidades claras.
 
-交互主链把当前“先切模型，再发送文本”改为一个原子 Submission：
+A cadeia principal de interação troca o atual "primeiro troca o modelo e depois envia o texto" por um
+Submission atômico:
 
 ```text
 Submission
@@ -138,68 +171,96 @@ Submission
 └─ modelSelection
 ```
 
-同时需要收敛 Composer Draft、App Recent、Session Selection、Queue、Guide/“立即”、Edit、Retry、Prompt CLI 与 TUI 的模型语义，完成设置页自动保存、调序和正式 Model 连通性测试，并删除 ModelRef、共享可变 Runtime 模型状态和独立 Connectivity Probe。
+Ao mesmo tempo é preciso convergir o Composer Draft, o App Recent, o Session Selection, a Queue,
+Guide/"立即", Edit, Retry, o Prompt CLI e a TUI na semântica de modelo, concluir o salvamento
+automático da página de configurações, a reordenação e os testes oficiais de conectividade de Model, e
+remover o ModelRef, o estado de modelo mutável compartilhado do Runtime e o Connectivity Probe
+independente.
 
-Session 只持久化 Selection。Submission 启动新 Agent Loop 时，从 Registry 取得 Model 并 bind Options。
+A Session persiste apenas a Selection. Quando o Submission inicia um novo Agent Loop, o Model é obtido
+do Registry e as Options são vinculadas.
 
-M3 以一次大 MR 完成。阶段内按 Config/Registry、Submission、CLI admission、ModelRef 退役、Settings
-Service、Settings UI、Connectivity、Model Format 和清理测试分区评审；最终没有让任一分区以长期双轨
-语义单独收尾。
+O M3 é concluído em um único MR grande. Dentro da fase a revisão é dividida por Config/Registry,
+Submission, CLI admission, aposentadoria do ModelRef, Settings Service, Settings UI, Connectivity,
+Model Format e testes de limpeza; no fim nenhuma das áreas encerra isoladamente com semântica de
+dois trilhos de longo prazo.
 
-## M4：模型执行链、闲时任务与 Subagent
+## M4: cadeia de execução de modelo, tarefas ociosas e Subagent
 
-正式阶段设计见 [`04-model-execution-cutover.md`](./04-model-execution-cutover.md)，长期目标语义见
-[`../design/execution/execution.md`](../design/execution/execution.md)。
+O design oficial da fase está em [`04-model-execution-cutover.md`](./04-model-execution-cutover.md), e
+a semântica objetivo de longo prazo em
+[`../design/execution/execution.md`](../design/execution/execution.md).
 
-M4 不新增特殊 Model 类型，而是把闲时任务收口到普通模型执行链：
+O M4 não cria tipos especiais de Model; ele fecha as tarefas ociosas na cadeia comum de execução de
+modelo:
 
-- `builtin:offpeak-idle-plan` 成为 `visibility: "hidden"` 的完整 Built-in Provider；hidden 只影响设置页与模型选择器。
-- Provider 使用 `access.type = "request-auth"`，动态鉴权在每次请求上注入，缺失时在网络请求前失败。
-- 闲时 Submission 携带标准 ModelSelection 和窄 execution context，通过同一 Registry/ModelFactory 创建 Model。
-- 闲时执行不写 App Recent、Configured Default、Session Selection 或普通 Queue，因此没有恢复步骤。
-- 权限批准或拒绝后，同一自动回合继续使用闲时 Provider，不发生 Provider handoff。
-- 闲时前台 Child Agent 使用闲时选择与访问上下文并自行创建 Model；后台 Child Agent 被明确拒绝。
-- 普通 Subagent override、Goal、Background、Guide 与 Compact 保持各自既有 Selection 所有权。
+- `builtin:offpeak-idle-plan` passa a ser um Built-in Provider completo com `visibility: "hidden"`;
+  hidden afeta apenas a página de configurações e o seletor de modelos.
+- O Provider usa `access.type = "request-auth"`, com a autenticação dinâmica injetada em cada
+  requisição e falha antes da requisição de rede quando ausente.
+- O Submission ocioso carrega uma ModelSelection padrão e um execution context estreito, criando o
+  Model pelo mesmo Registry/ModelFactory.
+- A execução ociosa não escreve App Recent, Configured Default, Session Selection nem Queue comum e,
+  portanto, não tem etapa de restauração.
+- Após a aprovação ou negação de permissão, o turno automático continua usando o Provider ocioso, sem
+  handoff de Provider.
+- O Child Agent ocioso em primeiro plano usa a seleção e o contexto de acesso ociosos e cria o Model
+  por conta própria; o Child Agent em segundo plano é explicitamente recusado.
+- Override de Subagent comum, Goal, Background, Guide e Compact mantêm sua própria posse de Selection.
 
-M4 删除未发布的 `executionOnly`、Runtime Provider Overlay 和临时 `setModel`；不建立特殊 Model 创建
-接口、第二份模型绑定或第二个 Registry。
+O M4 remove o `executionOnly` não publicado, o Provider Overlay do Runtime e o `setModel` temporário;
+não cria interface especial de criação de Model, uma segunda vinculação de modelo nem um segundo
+Registry.
 
-## M5：Config 存储边界与 Built-in 装配
+## M5: fronteira de armazenamento de Config e montagem Built-in
 
-Provider Refactor 已完成单个 Environment 内配置的物理存储边界和 Built-in 装配：
+O Provider Refactor já concluiu a fronteira de armazenamento físico e a montagem Built-in da
+configuração dentro de um único Environment:
 
-- Personal 配置的持久化与外部修改监听。
-- ZCode Built-in 配置通过唯一发布文件、Node Source、watch/revision 和 Desktop/CLI 启动装配进入 Registry。
-- Host、Prompt CLI 与 TUI 在各自目标 Environment 内使用相同配置读写实现。
-- 旧 CLI Config 与当前 Environment Config 的迁移和清理。
+- Persistência da configuração Personal e escuta de modificações externas.
+- Entrada da configuração ZCode Built-in no Registry pelo arquivo de publicação único, pelo Node
+  Source, por watch/revision e pela montagem na inicialização de Desktop/CLI.
+- Host, Prompt CLI e TUI usando a mesma implementação de leitura/escrita de configuração dentro de seu
+  próprio Environment de destino.
+- Migração e limpeza da configuração antiga do CLI e da Config do Environment atual.
 
-旧配置兼容集中在 Storage 读取边界，不进入 Registry 解析和 Model 创建。
+A compatibilidade da configuração antiga fica concentrada na fronteira de leitura do Storage e não
+entra na resolução do Registry nem na criação de Model.
 
-跨 Environment Provisioning、从本地向远端同步配置、远程编辑和远程登录属于独立产品专题，不是 M5
-或本次 Provider Refactor 的完成条件。
+O Provisioning cross-Environment, a sincronização de configuração do local para o remoto, a edição
+remota e o login remoto são um tópico de produto independente e não são condição de conclusão do M5 nem
+deste Provider Refactor.
 
-## M6：Account Provider
+## M6: Account Provider
 
-静态与动态边界见 [`../design/environment/environment.md`](../design/environment/environment.md) 和 [`../design/registry/model-creation.md`](../design/registry/model-creation.md)。
+As fronteiras estática e dinâmica estão em
+[`../design/environment/environment.md`](../design/environment/environment.md) e
+[`../design/registry/model-creation.md`](../design/registry/model-creation.md).
 
-本次重构已经完成 Start Plan、Individual Coding Plan 和 Team Plan 的身份与执行状态链：
+Esta refatoração já concluiu a cadeia de identidade e de estado de execução do Start Plan, do
+Individual Coding Plan e do Team Plan:
 
-- Settings 保存结构化 connection selection；
-- Account Resolver 按 Built-in Provider 声明的 `family + planKind` 产生 Account Overlay；
-- Registry/Active Model 固定完整 Account Access；
-- Request Auth 在每次请求解析动态材料，并校验当前账号仍与 Access 匹配；
-- Off-Peak 与 Official MCP 复用同一 Account Access，不再解析旧字符串 key；
-- Account API 返回的模型成员只约束对应 Account Provider，不成为独立 Model Config 事实源。
+- As Settings salvam uma seleção estruturada de conexão.
+- O Account Resolver produz um Account Overlay a partir do `family + planKind` declarado pelo Built-in
+  Provider.
+- O Registry/Active Model fixa o Account Access completo.
+- O Request Auth resolve o material dinâmico em cada requisição e valida que a conta atual ainda
+  corresponde ao Access.
+- Off-Peak e Official MCP reutilizam o mesmo Account Access e não resolvem mais a antiga string key.
+- Os membros de modelo retornados pela API de Account restringem apenas o Account Provider
+  correspondente e não se tornam uma fonte de fato independente de Model Config.
 
-套餐购买、额度、远端服务最终授权等产品逻辑仍各归其原有服务，不属于 Provider 静态事实。
+Lógica de produto como compra de pacote, cota e autorização final de serviços remotos continua
+pertencendo a seus serviços originais e não faz parte do fato estático de Provider.
 
-## 独立后续专题：Environment 配置与 Provisioning
+## Tópico independente posterior: configuração de Environment e Provisioning
 
-本专题不属于本次 Provider Refactor，也不作为 M4 或整个 Provider Refactor 的完成条件。
+Este tópico não pertence a este Provider Refactor e não é condição de conclusão do M4 nem de todo o
+Provider Refactor.
 
-目标语义见 [`../design/environment/environment.md`](../design/environment/environment.md)。
+A semântica objetivo está em [`../design/environment/environment.md`](../design/environment/environment.md).
 
-Local、SSH 和 Cloud Environment 最终各自保存并执行 Provider 配置：
+Os Environments Local, SSH e Cloud acabam salvando e executando cada qual sua configuração de Provider:
 
 ```text
 Entry
@@ -211,14 +272,20 @@ Target Environment
 └─ Agent execution
 ```
 
-配置同步是显式操作，不成为模型请求的在线依赖。Management Service 发布 Catalog 和管理信息，Environment 在其离线时仍能运行已有配置。
+A sincronização de configuração é uma operação explícita e não se torna uma dependência online das
+requisições de modelo. O Management Service publica o Catalog e as informações de gerenciamento, e o
+Environment continua capaz de rodar com a configuração existente mesmo quando ele está offline.
 
-## 跨阶段约束
+## Restrições entre fases
 
-- 新抽象使用最终语义，不建立长期过渡类型。
-- 兼容逻辑集中在尚未迁移的一侧。
-- 新调用方不能同时读取新 Model 与旧 Runtime/Registry 状态。
-- 每个 Model Request 的 Usage、Trace 和错误必须归因到实际 Model。
-- 共享命令协议发生变化时，只做代表性回归确认 Desktop continuous、Mobile replayable 和 Remote Workspace identity 未被误伤；这些投递与恢复机制本身不属于 Provider Refactor。
-- 每个切片先更新阶段设计和测试，再实现代码。
-- 阶段完成后更新对应阶段文档、Roadmap 和 Working Memory 总入口。
+- Novas abstrações usam a semântica final e não criam tipos de transição de longo prazo.
+- A lógica de compatibilidade fica concentrada no lado que ainda não foi migrado.
+- Um novo chamador não pode ler simultaneamente o novo Model e o estado antigo de Runtime/Registry.
+- O Usage, o Trace e os erros de cada Model Request precisam ser atribuídos ao Model real.
+- Quando o protocolo de comandos compartilhados mudar, faz-se apenas uma confirmação de regressão
+  representativa de que a Desktop continuous, a Mobile replayable e a Remote Workspace identity não
+  foram afetadas por engano; esses mecanismos de entrega e restauração não pertencem ao Provider
+  Refactor.
+- Cada fatia atualiza primeiro o design da fase e os testes e só então implementa o código.
+- Concluída a fase, atualiza-se o documento correspondente da fase, o Roadmap e a entrada geral do
+  Working Memory.

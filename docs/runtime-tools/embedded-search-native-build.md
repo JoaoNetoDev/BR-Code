@@ -1,41 +1,38 @@
-# Embedded Search Native Build Spec
+# Spec de Build Nativo do Embedded Search
 
-## 目标
+## Objetivo
 
-ZCode 的 Bash embedded search 分支最终需要消费随发行包分发的原生搜索程序，而不是依赖用户机器预装的 `find`、`grep`、`rg` 或通过 Node 子进程再次转发到系统命令。
+O branch de embedded search do Bash do ZCode precisa, no fim, consumir programas de busca nativos distribuídos junto com o pacote de release, em vez de depender de `find`, `grep`, `rg` pré-instalados na máquina do usuário ou de encaminhar novamente para comandos de sistema por subprocesso Node.
 
-本阶段完成 macOS、Linux 与 Windows 构建和执行接入：`bfs`、`ugrep` 从固定版本源码构建，所有目标的 `rg` 统一使用 Microsoft `ripgrep-prebuilt v14.1.1-1`。macOS、Linux 和 Windows x64 均提供真实 Bash embedded-search E2E 独立验证入口，但正式 desktop 打包不运行行为 E2E；Windows arm64 当前只保留既有 x64 runner 交叉构建并执行 PE 静态门禁，不冒充目标架构运行时 E2E。tool exposure 和 provider-visible prompt 不因执行 backend 切换而改变。
+Esta etapa conclui a integração de build e execução para macOS, Linux e Windows: `bfs` e `ugrep` são construídos a partir de fontes de versões fixas, e o `rg` de todos os targets usa uniformemente o Microsoft `ripgrep-prebuilt v14.1.1-1`. macOS, Linux e Windows x64 oferecem uma entrada de validação E2E independente de embedded-search real em Bash, mas o empacotamento oficial do desktop não roda E2E de comportamento; o Windows arm64, por enquanto, mantém apenas a cross-build existente no runner x64 e executa o gate estático PE, sem se passar por E2E de runtime da arquitetura alvo. A exposição de ferramentas e o prompt visível ao provider não mudam por causa da troca do backend de execução.
 
-跨平台目标能力与当前发行启用状态必须分开管理：
+A capacidade-alvo multiplataforma e o estado atual de habilitação na distribuição precisam ser gerenciados separadamente:
 
-| 平台            | 目标包内工具                                       | 当前发行启用 |
+| Plataforma          | Ferramentas-alvo no pacote                                     | Habilitado na release atual |
 | --------------- | -------------------------------------------------- | ------------ |
-| macOS arm64     | `bfs`、`ugrep`、`rg`                               | 是           |
-| macOS x64       | `bfs`、`ugrep`、`rg`                               | 是           |
-| Linux x64/arm64 | `bfs`、`ugrep`、`rg`                               | 是           |
-| Windows x64     | `ugrep.exe`、`rg.exe`；`find` 回退 Git Bash/system | 是           |
-| Windows arm64   | `ugrep.exe`、`rg.exe`；`find` 回退 Git Bash/system | 是           |
+| macOS arm64     | `bfs`、`ugrep`、`rg`                               | sim           |
+| macOS x64       | `bfs`、`ugrep`、`rg`                               | sim           |
+| Linux x64/arm64 | `bfs`、`ugrep`、`rg`                               | sim           |
+| Windows x64     | `ugrep.exe`、`rg.exe`; `find` com fallback para Git Bash/system | sim           |
+| Windows arm64   | `ugrep.exe`、`rg.exe`; `find` com fallback para Git Bash/system | sim           |
 
-Windows 不提供原生 `bfs`：ZCode 不自行移植 Windows `bfs`，也不把上游 Unix `bfs` 包装成伪原生产物。
+O Windows não oferece `bfs` nativo: o ZCode não porta o `bfs` do Windows por conta própria e também não embrulha o `bfs` Unix upstream em umpseudo-produto nativo.
 
-Linux desktop/SEA 与 Linux remote 共用同一份 native-search release plan：`bfs` 继续消费
-`v4.1.1-2`，`ugrep` 与其他平台统一消费 `v7.8.4-1`，`rg` 消费 Microsoft
-`v14.1.1-1`。Darwin remote 继续只部署历史 `rg 13.x`，不能被 Linux release plan
-隐式改写。
+O Linux desktop/SEA e o Linux remote compartilham o mesmo native-search release plan: o `bfs` continua consumindo `v4.1.1-2`, o `ugrep` e as outras plataformas unificadamente consomem `v7.8.4-1` e o `rg` consome o Microsoft `v14.1.1-1`. O Darwin remote continua implantando apenas o `rg 13.x` histórico, que não pode ser reescrito implicitamente pelo release plan do Linux.
 
-## 用户开关与 Session 生命周期
+## Switch do usuário e ciclo de vida da Session
 
-设置页「常规」的终端设置区提供 `nativeSearchEnhancementsEnabled` 开关，默认启用。该开关只控制 Bash startup prelude 是否把 `find` / `grep` 映射到 `bfs` / `ugrep`，不控制原生产物准备、`rg` fallback、Glob/Grep tool exposure 或 provider-visible tool matrix。关闭后 Bash 自然使用当前 shell 的 system `find` / `grep`；Windows 仍不提供 `bfs`。
+A área de configurações de terminal da seção "Geral" da página de configurações oferece o switch `nativeSearchEnhancementsEnabled`, habilitado por padrão. Esse switch só controla se o prelude de startup do Bash mapeia `find` / `grep` para `bfs` / `ugrep`; ele não controla a preparação dos artefatos nativos, o fallback de `rg`, a exposição das ferramentas Glob/Grep nem a matriz de ferramentas visível ao provider. Depois de desativado, o Bash usa naturalmente o system `find` / `grep` do shell atual; o Windows continua não oferecendo `bfs`.
 
-设置值是根 Session runtime 的启动偏好，不是 turn metadata，也不写入 Session history、queue、runtime snapshot 或 shell init snapshot：
+O valor de configuração é uma preferência de inicialização do runtime da Session raiz, não metadata de turno, e não é gravado em Session history, queue, runtime snapshot nem shell init snapshot:
 
-- 新建根 Session 与真正 cold resume 在 runtime 物化时，通过 `session/requestRuntimePreferences` 向所属 Host 读取一次当前值。
-- 已存在 runtime 的 active resume 不重新读取，保持当前 runtime 的值。
-- fork、selection side chat 与 subagent 继承父 runtime 的值，不再次读取 Host。
-- 开关切换不热更新正在运行或仍 active 的 Session；新建或真正 cold resume 的 Session 才使用新值。
-- `rowsRange`、`plans`、`fileChanges`、`fileRewindPreview`、`attachmentBegin` 和 `subscribe` 只是 cold resume 的触发入口，全部进入同一个 singleflight materialization，不携带设置字段。
+- uma nova Session raiz e um cold resume real leem o valor atual uma única vez do Host pertencente, via `session/requestRuntimePreferences`, durante a materialização do runtime;
+- um active resume com runtime já existente não relê o valor e mantém o valor do runtime atual;
+- fork, selection side chat e subagent herdam o valor do runtime pai e não relêem o Host;
+- alternar o switch não atualiza a quente uma Session em execução ou ainda ativa; apenas Sessions novas ou com cold resume real usam o novo valor;
+- `rowsRange`, `plans`, `fileChanges`, `fileRewindPreview`, `attachmentBegin` e `subscribe` são apenas portas de entrada do cold resume, todas entrando na mesma materialização singleflight e sem carregar campos de configuração.
 
-设置权威与远程链路固定为：
+A autoridade da configuração e o caminho remoto ficam fixos assim:
 
 ```text
 Desktop-local SettingService
@@ -50,39 +47,34 @@ desktop-attached remote Host
 Agent root runtime materialization
 ```
 
-本地 workspace 和 standalone server 由所在 Host 直接读取自己的权威 `SettingService`。desktop-attached SSH/WSL/Docker workspace 由远端 Host 把请求桥接到 desktop shared Host，再读取桌面本地设置；手机 `/remote` 复用同一个 shared-host attachment，不创建独立 runtime 或设置副本。relay 与 desktop main 只透传，不保存这项业务状态。
+O workspace local e o standalone server leem o próprio `SettingService` autoritativo do Host onde estão. Um workspace SSH/WSL/Docker attached ao desktop tem o Host remoto fazendo bridge da requisição para o desktop shared Host e lendo então as configurações locais do desktop; o `/remote` do celular reaproveita o mesmo shared-host attachment e não cria um runtime nem uma cópia de configuração independente. Relay e desktop main apenas encaminham e não guardam esse estado de negócio.
 
-`session/requestRuntimePreferences` 使用严格 schema，并以 `scope` 区分 `runtime-materialization` 与 `user-execution`。本节只消费前者的 `nativeSearchEnhancementsEnabled`。每次请求最多等待 15 秒；Host 保持连接但未响应时按超时错误阻止本次 runtime 物化。旧 Host 返回 `-32601`，或 Agent 尚未连接 Host 返回 `-32020` 时，为兼容旧版本默认启用；非法响应、设置 resolver 异常、超时和其他传输错误都不能静默改成启用。
+`session/requestRuntimePreferences` usa schema estrito e usa `scope` para distinguir `runtime-materialization` de `user-execution`. Esta seção consome apenas o `nativeSearchEnhancementsEnabled` do primeiro. Cada requisição espera no máximo 15 segundos; quando o Host mantém a conexão mas não responde, um erro de timeout bloqueia esta materialização de runtime. Quando um Host antigo retorna `-32601`, ou quando o Agent ainda não conectou ao Host e retorna `-32020`, o padrão é habilitado por compatibilidade com versões antigas; resposta inválida, exceção do resolver de configuração, timeout e outros erros de transporte não podem ser silenciosamente tratados como habilitado.
 
-## 版本基线与安全偏离
+## Baseline de versões e desvios de segurança
 
-内嵌搜索工具的版本与构建基线：
+As versões e o baseline de build das ferramentas de embedded search:
 
-- `bfs 4.1.1`。
-- `bfs` 按以下顺序使用 configure flags：`--enable-release --with-oniguruma --without-libselinux --without-libacl --without-liburing --without-libcap`，并支持固定前置参数 `-S dfs -regextype findutils-default`。
-- 早期基线是 `ugrep 7.5.0`；ZCode 有意升级到 `ugrep 7.8.4`，获得 DFA
-  state/edge 与 position-set 复杂度上限，避免恶意或意外的复杂正则在编译阶段耗尽内存。
-  这是安全偏离，不得表述为沿用早期二进制版本。
-- `ugrep --version` 必须暴露 `-z:zlib,bzip2,zstd,brotli,7z,tar/pax/cpio/zip`；macOS 使用 `-P:pcre2`，Linux 和 Windows 使用 `-P:pcre2jit`。
-- PCRE2 JIT 按平台分支配置：macOS 关闭，Linux 和 Windows 开启。`win32-x64` / `win32-arm64` 都必须包含 Windows feature 分支。
-- 所有 desktop/SEA 平台的 `rg` 统一固定为 Microsoft `ripgrep-prebuilt v14.1.1-1`，运行时版本必须为 `ripgrep 14.1.1`，并且必须暴露 `features:+pcre2` 和 PCRE2 10.43；JIT 可用性继续由目标平台能力决定。除 Linux arm64 musl 归档不暴露 revision 外，其余目标必须输出上游 revision `4649aa9700`。归档内容身份由固定 SHA-256 保证，不能为补齐展示字符串包装或修改二进制。
-- 最终产物不得依赖 Homebrew 或构建目录中的动态库。macOS 上 `bfs` 只允许链接系统 `libSystem`；`ugrep` 只允许链接系统 `libSystem` 和 `libc++`。
-- native search sidecar 沿用各平台既有打包边界：macOS 产物的 deployment target 不得高于 Electron 41 的 macOS 12.0；Linux `bfs` / `ugrep` 的最高 GLIBC symbol version 固定为 `GLIBC_2.28`，producer 必须实际运行 Node 24、glibc 2.28、GCC 12 与 G++ 12；Windows x64/arm64 产物不得动态依赖构建契约明确要求静态链接的 CRT、PCRE2 与压缩库。
+- `bfs 4.1.1`.
+- o `bfs` usa as flags de configure na ordem: `--enable-release --with-oniguruma --without-libselinux --without-libacl --without-liburing --without-libcap`, e suporta os argumentos fixos anteriores `-S dfs -regextype findutils-default`.
+- o baseline inicial era `ugrep 7.5.0`; o ZCode deliberadamente sobe para `ugrep 7.8.4`, obtendo limites de complexidade de DFA state/edge e de position-set, evitando que regex malicioso ou acidentalmente complexo esgote memória em tempo de compilação. Esse é um desvio de segurança e não deve ser descrito como uso da versão inicial de binário.
+- `ugrep --version` precisa expor `-z:zlib,bzip2,zstd,brotli,7z,tar/pax/cpio/zip`; o macOS usa `-P:pcre2`, e Linux e Windows usam `-P:pcre2jit`.
+- o PCRE2 JIT é configurado por branch de plataforma: desligado no macOS, ligado no Linux e no Windows. `win32-x64` / `win32-arm64` precisam ambos incluir o branch de features do Windows.
+- o `rg` de todas as plataformas desktop/SEA é fixado uniformemente no Microsoft `ripgrep-prebuilt v14.1.1-1`, a versão em runtime precisa ser `ripgrep 14.1.1` e precisa expor `features:+pcre2` e PCRE2 10.43; a disponibilidade de JIT continua determinada pelas capacidades da plataforma alvo. Exceto pelo arquivo musl de Linux arm64, que não expõe revision, todos os targets precisam emitir a revision upstream `4649aa9700`. A identidade do conteúdo dos arquivos é garantida por SHA-256 fixo, e não é permitido embrulhar ou modificar binários só para completar a string de exibição.
+- o artefato final não pode depender de Homebrew nem de bibliotecas dinâmicas do diretório de build. No macOS, o `bfs` só pode linkar o `libSystem` do sistema; o `ugrep` só pode linkar o `libSystem` e a `libc++` do sistema.
+- o sidecar de native search mantém as fronteiras de empacotamento já existentes de cada plataforma: o deployment target do artefato macOS não pode ser maior que macOS 12.0 do Electron 41; o maior GLIBC symbol version de `bfs` / `ugrep` no Linux é fixado em `GLIBC_2.28`, e o producer precisa realmente rodar Node 24, glibc 2.28, GCC 12 e G++ 12; os artefatos de Windows x64/arm64 não podem depender dinamicamente da CRT, do PCRE2 e das bibliotecas de compressão que o contrato de build exige linkar estaticamente.
 
-Linux 的兼容性门禁检查最终 ELF 的 `readelf --version-info`，按数字版本比较全部
-`GLIBC_x.y[.z]` 引用。`bfs` / `ugrep` 必须至少包含一个可解析的 GLIBC 引用，且最大值不得高于
-`2.28`；Microsoft musl `rg` 允许没有任何 GLIBC 引用。只检查构建容器的
-`getconf GNU_LIBC_VERSION` 不足以证明最终产物兼容，产物 gate 不能省略。
+O gate de compatibilidade do Linux checa o `readelf --version-info` do ELF final e compara numericamente todas as referências `GLIBC_x.y[.z]`. `bfs` / `ugrep` precisam conter pelo menos uma referência GLIBC resolvível e o máximo não pode ser maior que `2.28`; o `rg` musl da Microsoft pode não ter nenhuma referência GLIBC. Checar apenas o `getconf GNU_LIBC_VERSION` do contêiner de build não basta para provar compatibilidade do artefato final, e o gate do artefato não pode ser omitido.
 
-## 预编译资源分发
+## Distribuição de recursos pré-compilados
 
-普通 desktop/SEA prepare 与本地开发流程不在下载失败后现场编译 native search tools。自产 `bfs` / `ugrep` 归档与 Microsoft `ripgrep-prebuilt v14.1.1-1` 原始归档统一从 `${ZCODE_DEPS_BASE_URL}/native-search-tools` 下载。平台打包 CI 在执行 prepare 之前可运行一次 deps ensure：它根据同一份 `platform-arch` release plan 直接检查 runner 映射的共享 deps 文件系统；producer 归档缺失时，受信任流水线在当前目标 toolchain 上构建、验证、确定性打包，并以临时文件加同目录 rename 发布到共享 deps。所有 producer 归档都必须在 release plan 中配置 `archiveSha256`，并在复用、发布和下载前严格校验；摘要缺失或不匹配时立即失败，不能继续打包。ensure 默认拒绝补产，只有 protected ref 或显式设置 `ZCODE_NATIVE_SEARCH_ALLOW_PUBLISH=1` 的受信任入口才进入写入分支；仓库内 macOS、Linux、Windows 三个平台打包 template 是授权的共享 deps 写入入口。同一 `platform-arch` 的打包 job 必须使用 GitLab `resource_group` 跨 pipeline 串行，避免两个 producer 同时发布同一个固定版本路径；不同目标仍可并行。已存在的版本归档不可覆盖；若人工调用期间看到目标已出现，只能在内容摘要相同时接受。
+O prepare de desktop/SEA comum e o fluxo de desenvolvimento local não compilam as ferramentas de busca nativas on the spot após uma falha de download. Os arquivos de `bfs` / `ugrep` próprios e os arquivos originais do Microsoft `ripgrep-prebuilt v14.1.1-1` são baixados uniformemente de `${ZCODE_DEPS_BASE_URL}/native-search-tools`. O CI de empacotamento por plataforma pode rodar uma vez um deps ensure antes de executar o prepare: ele consulta diretamente o sistema de arquivos de deps compartilhado mapeado pelo runner, conforme o mesmo release plan de `platform-arch`; quando o arquivo do producer está ausente, um pipeline confiável constrói, verifica e empacota de forma determinística no toolchain do target atual e publica no deps compartilhado usando arquivo temporário mais rename no mesmo diretório. Todos os arquivos de producer precisam ter `archiveSha256` configurado no release plan e ser estritamente verificados antes do reaproveitamento, da publicação e do download; quando o digest está ausente ou não bate, a falha é imediata e o empacotamento não pode continuar. O ensure recusa a produção por padrão, e só uma ref protegida ou uma entrada confiável com `ZCODE_NATIVE_SEARCH_ALLOW_PUBLISH=1` explícito entra no ramo de escrita; os templates de empacotamento de macOS, Linux e Windows no repositório são as entradas autorizadas de escrita no deps compartilhado. Jobs de empacotamento do mesmo `platform-arch` precisam usar o `resource_group` do GitLab para serializar entre pipelines e evitar que dois producers publiquem ao mesmo tempo no mesmo caminho de versão fixa; alvos diferentes ainda podem rodar em paralelo. Um arquivo de versão já existente não pode ser sobrescrito; se durante uma chamada manual o alvo já tiver aparecido, só se aceita quando o digest de conteúdo for o mesmo.
 
-上述 ensure 不是 downloader fallback：Microsoft `rg` 缺失必须立即失败，不能改为自产或重新打包；HTTP 超时、非 200、SHA-256 缺失或不匹配、解压失败或二进制校验失败也必须终止当前构建，不能触发 producer。Microsoft `rg` 与自产 `bfs` / `ugrep` 的全部正式归档都必须在 release plan 中固定 SHA-256，并在解包前校验。尚未准备且未由受信任 CI 补产的 producer 资源，其默认 URL 必须 404，不能用其他平台的产物补位。内网 `rg` 只镜像 Microsoft release 的原始字节，不重命名、不重新打包。
+Esse ensure não é um fallback do downloader: a ausência do Microsoft `rg` precisa falhar imediatamente, sem virar produção própria nem reempacotamento; timeout HTTP, resposta não 200, SHA-256 ausente ou divergente, falha de extração ou falha de verificação do binário também precisam encerrar o build atual e não podem disparar o producer. Todos os arquivos oficiais do Microsoft `rg` e do `bfs` / `ugrep` próprios precisam ter SHA-256 fixado no release plan e ser verificados antes da extração. Recursos de producer que ainda não foram preparados e não foram produzidos por CI confiável precisam ter a URL padrão retornando 404, e não podem ser preenchidos com o artefato de outra plataforma. O `rg` da rede interna espelha somente os bytes originais do release da Microsoft, sem renomear nem reempacotar.
 
-下载器默认直连 `${ZCODE_DEPS_BASE_URL}` 内网镜像。只有 `github.com` 与其 `githubusercontent.com` release 重定向主机允许读取构建环境的 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY`；其他主机不隐式进入代理。所有下载都必须在连接长期无响应时明确失败，不能让无法直连 GitHub 的构建机无限等待，也不能让内网依赖地址被外部代理劫持。
+O downloader acessa por padrão direto o espelho interno `${ZCODE_DEPS_BASE_URL}`. Somente `github.com` e seus release redirect hosts do `githubusercontent.com` podem ler o `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` do ambiente de build; nenhum outro host entra em proxy implicitamente. Todos os downloads precisam falhar explicitamente quando a conexão ficar sem resposta por muito tempo, sem deixar a build machine que não alcança o GitHub esperando indefinidamente e sem deixar endereços de dependência internos sequestrados por um proxy externo.
 
-新增资源统一放在 `${ZCODE_DEPS_BASE_URL}/native-search-tools` 下，并按工具独立版本化：
+Os novos recursos ficam unificados em `${ZCODE_DEPS_BASE_URL}/native-search-tools` e são versionados por ferramenta de forma independente:
 
 ```text
 native-search-tools/
@@ -108,15 +100,15 @@ native-search-tools/
     ripgrep-v14.1.1-1-x86_64-pc-windows-msvc.zip
 ```
 
-Microsoft 预编译归档的上游下载地址为 `https://github.com/microsoft/ripgrep-prebuilt/releases/download/v14.1.1-1/`。内网静态服务的目标目录固定为：
+O endereço de download upstream dos arquivos pré-compilados da Microsoft é `https://github.com/microsoft/ripgrep-prebuilt/releases/download/v14.1.1-1/`. O diretório alvo do serviço estático interno é fixado em:
 
 ```text
 /Users/dev/shared/zcode/deps/native-search-tools/ripgrep-v14.1.1-1/
 ```
 
-对应默认 HTTP base URL 为 `http://intranet.example.invalid:12345/zcode/deps/native-search-tools/ripgrep-v14.1.1-1/`。需要原样镜像的归档为：
+O base URL HTTP padrão correspondente é `http://intranet.example.invalid:12345/zcode/deps/native-search-tools/ripgrep-v14.1.1-1/`. Os arquivos que precisam ser espelhados como são são:
 
-| 目标          | Microsoft 归档                                        | SHA-256                                                            |
+| Alvo          | Arquivo da Microsoft                                        | SHA-256                                                            |
 | ------------- | ----------------------------------------------------- | ------------------------------------------------------------------ |
 | macOS arm64   | `ripgrep-v14.1.1-1-aarch64-apple-darwin.tar.gz`       | `84ff9b227b9aad651be0ac4cf7802a190015bfba3dfa6b015cc7aa89dd8c5c2b` |
 | macOS x64     | `ripgrep-v14.1.1-1-x86_64-apple-darwin.tar.gz`        | `cfedd7993342bc5f90310ce73a00cbf5d3b5237654c9bfc18b383f0e829f3b11` |
@@ -125,9 +117,9 @@ Microsoft 预编译归档的上游下载地址为 `https://github.com/microsoft/
 | Windows x64   | `ripgrep-v14.1.1-1-x86_64-pc-windows-msvc.zip`        | `ede1d7f533f30d7e2870f77139d0fb9d7591daad5260b80d6a525e0bb5bd440e` |
 | Windows arm64 | `ripgrep-v14.1.1-1-aarch64-pc-windows-msvc.zip`       | `88660d96f822d2e0329e254031068e82028f9c13efcec9b2d78c5a19d3f9ac47` |
 
-自产归档已固定或待 producer 回填的摘要为：
+Os digests dos arquivos próprios já fixados ou aguardando preenchimento pelo producer são:
 
-| 目标          | 自产归档                                          | SHA-256                                                            |
+| Alvo          | Arquivo próprio                                          | SHA-256                                                            |
 | ------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
 | macOS arm64   | `bfs-v4.1.1-1-aarch64-apple-darwin.tar.gz`        | `696f73eaff50d3c3de8a8ee36746a89693dd6ff0d010b05cd3b4b3eb2a369781` |
 | macOS arm64   | `ugrep-v7.8.4-1-aarch64-apple-darwin.tar.gz`      | `01ea803e3fc3b94e796a9376e4d062a5490fe08e5760c6173e72b8f31546a4f3` |
@@ -140,113 +132,105 @@ Microsoft 预编译归档的上游下载地址为 `https://github.com/microsoft/
 | Windows arm64 | `ugrep-v7.8.4-1-aarch64-pc-windows-msvc.zip`      | `e9de73f1b542105203d586b19b4d57b8ecf2bf780f23e86c66a0fb7f56d51024` |
 | Windows x64   | `ugrep-v7.8.4-1-x86_64-pc-windows-msvc.zip`       | `7bbd8e56540d2019a343688f1fc0ddb2ff5f0988090c577d2b9d6f4a8a86be21` |
 
-`<tool>-v<version>-<revision>` 中的 revision 只在同一个上游版本下因编译方式或二进制内容变化时递增，不随 ZCode CLI 版本变化。`bfs 4.1.1` 的 Linux 产物因 GLIBC 构建基线变化保留 `-2`；`ugrep` 上游版本升级后，所有平台从新的 `v7.8.4-1` namespace 开始，Linux 不继承旧版 `v7.5.0-2` 的 revision。历史 remote `rg` resource 仍单独消费 `${ZCODE_DEPS_BASE_URL}/ripgrep-v13.0.0-10`；该兼容资源不属于新的 desktop/SEA embedded-search release plan，也不能作为其版本 fallback。
+A revision em `<tool>-v<version>-<revision>` só é incrementada quando, sob a mesma versão upstream, a forma de compilação ou o conteúdo do binário mudam; ela não muda junto com a versão do ZCode CLI. O artefato Linux do `bfs 4.1.1` mantém o `-2` por causa da mudança de baseline GLIBC; depois do upgrade da versão upstream do `ugrep`, todas as plataformas partem do novo namespace `v7.8.4-1`, e o Linux não herda a revision da antiga `v7.5.0-2`. O resource histórico `rg` do remote continua consumindo `${ZCODE_DEPS_BASE_URL}/ripgrep-v13.0.0-10` separadamente; esse recurso de compatibilidade não faz parte do novo release plan de embedded-search do desktop/SEA nem serve como fallback de versão para ele.
 
-固定归档摘要用于确认下载内容身份；下载后的二进制仍必须通过版本、feature、架构、动态依赖校验，Linux producer 产物还必须通过 GLIBC 2.28 ceiling 校验。`.bundle-meta.json` 同时记录归档摘要和实际二进制摘要：前者使摘要变化后的旧缓存失效，后者用于本地缓存一致性；两者不能互相替代。
+Os digests fixos servem para confirmar a identidade do conteúdo baixado; mesmo assim, os binários baixados precisam passar pela verificação de versão, feature, arquitetura e dependências dinâmicas, e os artefatos do producer no Linux também pela verificação de teto GLIBC 2.28. O `.bundle-meta.json` registra tanto o digest do arquivo quanto o digest do binário real: o primeiro invalida caches antigos depois de uma mudança de digest, e o segundo serve para consistência do cache local; um não substitui o outro.
 
-下载或 producer 构建成功后，每个工具目录写入与预编译 release 对应的 `.bundle-meta.json`。后续 prepare 只有在二进制存在、实际 SHA-256 与 metadata 一致，且 metadata 中的工具、版本、release、目标平台和文件名全部匹配时才能跳过；Unix 主机上的目标二进制还必须保留可执行权限，若仅权限丢失则原地恢复后复用，不重复下载。历史 rg 13 等无 metadata、内容校验失败或 metadata 不匹配的残留必须按当前 release 重新下载，不能仅凭固定输出路径存在就复用。
+Após um download bem-sucedido ou um build do producer, cada diretório de ferramenta recebe o `.bundle-meta.json` correspondente ao release pré-compilado. Um prepare posterior só pode ser pulado quando o binário existe, o SHA-256 real bate com o metadata e todos os campos de ferramenta, versão, release, plataforma alvo e nome de arquivo do metadata correspondem; em hosts Unix o binário alvo também precisa manter o bit de execução e, se apenas a permissão foi perdida, ele é restaurado no lugar e reaproveitado, sem novo download. Resíduos sem metadata, como o rg 13 histórico, ou com falha de verificação de conteúdo ou metadata divergente precisam ser baixados de novo conforme a release atual, e não podem ser reaproveitados só porque o caminho de saída fixo existe.
 
-producer 仍可作为显式人工流程使用：在对应平台的 producer runner 上执行 `pnpm run pack:native-search`，默认从锁定源码构建、验证并打包当前 host 的 `platform-arch` 自产集合，然后在 `dist/native-search-tools-deps/native-search-tools` 生成与上述静态目录完全一致的文件树。平台打包 CI 通过 `pnpm run ci:ensure-native-search-deps` 复用同一 producer；它只在共享 deps 缺少当前目标归档时构建，并先输出到 job 临时目录，再发布缺失文件。后续正式 prepare 必须重新从内网 HTTP 路径下载刚发布的归档，使首次补产流水线也覆盖真实分发与解包路径，不能直接复用 producer 的本地 binary 输出跳过下载。
+O producer ainda pode ser usado como fluxo manual explícito: executar `pnpm run pack:native-search` no producer runner da plataforma correspondente, que por padrão constrói a partir das fontes travadas, verifica e empacota o conjunto próprio de `platform-arch` do host atual, e então gera em `dist/native-search-tools-deps/native-search-tools` uma árvore de arquivos idêntica ao diretório estático acima. O CI de empacotamento por plataforma reaproveita o mesmo producer via `pnpm run ci:ensure-native-search-deps`; ele só constrói quando os deps compartilhados não têm o arquivo do target atual e primeiro escreve no diretório temporário do job, publicando depois apenas os arquivos que faltam. O prepare oficial posterior precisa baixar novamente dos arquivos recém-publicados pelo caminho HTTP interno, de modo que a primeira pipeline de produção também cubra o caminho real de distribuição e extração, sem poder reutilizar diretamente a saída de binário local do producer e pular o download.
 
-所有 producer 都只处理 `bfs` / `ugrep`，不构建或重新打包 Microsoft `rg`。Linux 必须在目标架构原生构建，macOS 必须在 macOS 上构建；Windows 沿用既有 x64 MSVC runner，并通过 CMake `-A x64` / `-A ARM64` 生成对应架构的 `ugrep.exe`。已支持的显式目标可通过 `pnpm run pack:native-search -- --platform <platform> --arch <arch>` 选择。发布前由 prepare 从内网镜像下载 Microsoft `rg` 并对所有 Windows 目标执行 PE machine/import 静态校验；仅 host/target 同架构时执行完整运行时 E2E。普通 `prepare:native-search` 只负责下载，不能调用 producer 或写入共享 deps。
+Todos os producers tratam apenas `bfs` / `ugrep` e não constroem nem reempacotam o Microsoft `rg`. O Linux precisa ser construído nativamente na arquitetura alvo, e o macOS precisa ser construído no macOS; o Windows segue o runner MSVC x64 existente e gera o `ugrep.exe` da arquitetura correspondente via CMake `-A x64` / `-A ARM64`. Alvos explícitos já suportados podem ser selecionados com `pnpm run pack:native-search -- --platform <platform> --arch <arch>`. Antes da publicação, o prepare baixa o Microsoft `rg` do espelho interno e executa a verificação estática PE machine/import para todos os targets Windows; o E2E completo de runtime roda apenas quando host e target têm a mesma arquitetura. O `prepare:native-search` comum só faz o download e não pode chamar o producer nem escrever nos deps compartilhados.
 
-`rg` 的来源按目标固定，不做运行时探测：macOS arm64/x64 使用仅依赖系统库、deployment target 分别为 11.0/10.12 的 Microsoft 归档；Linux arm64/x64 使用无 glibc 动态依赖的 Microsoft musl 静态归档；Windows x64/arm64 使用通过 PE machine/import gate 的 Microsoft MSVC 归档。`rg` 与 `find` / `grep` 的 shell 策略不同：`find` / `grep` 在 embedded branch 中无条件 shadow 为 `bfs` / `ugrep`，`rg` 只在当前 shell 找不到可执行 `rg` 时补随包原生实现，不能覆盖用户已有的系统 `rg`。
+A origem do `rg` é fixa por target, sem detecção em runtime: macOS arm64/x64 usam os arquivos da Microsoft que só dependem de bibliotecas do sistema, com deployment target 11.0/10.12 respectivamente; Linux arm64/x64 usam os arquivos musl estáticos da Microsoft sem dependência dinâmica de glibc; Windows x64/arm64 usam os arquivos MSVC da Microsoft que passam pelo gate PE machine/import. A política de shell do `rg` é diferente da de `find` / `grep`: `find` / `grep` são shadowed incondicionalmente como `bfs` / `ugrep` no embedded branch, enquanto o `rg` só recebe a implementação nativa embutida quando o shell atual não encontra um executável `rg`, sem sobrescrever o `rg` de sistema que o usuário já tenha.
 
-### 归档来源：内网镜像与仓库内置归档
+### Origem dos arquivos: espelho interno e arquivos embutidos no repositório
 
-`scripts/prepare-native-search-tools.mjs` 是 desktop `prepare:native-search`、SEA、server-cli staging 与 remote 资产准备共用的唯一入口。来源由 `resolveNativeSearchArtifactSource(env)` 一次判定，调用方不自行判断：
+`scripts/prepare-native-search-tools.mjs` é a única entrada compartilhada pelo `prepare:native-search` do desktop, pelo SEA, pelo staging do server-cli e pela preparação dos assets remotos. A origem é decidida uma única vez por `resolveNativeSearchArtifactSource(env)`, e os chamadores não decidem por conta própria:
 
-| 条件 | 来源 | 行为 |
+| Condição | Origem | Comportamento |
 | --- | --- | --- |
-| 设置了 `NATIVE_SEARCH_TOOLS_DOWNLOAD_BASE_URL`，或 `resolveIntranetDepsBaseUrl(env)` 能解析出地址 | `intranet` | 原样调用 `downloadNativeSearchTools`：URL、代理、SHA-256、bundle meta 与缓存跳过语义均不变；remote Linux/macOS 仍分别执行既有的 `download-native-search-tools.mjs` 与 legacy rg13 `download-ripgrep.mjs` 命令 |
-| 内网依赖源未配置（解析抛错或为空） | `repository` | 先校验 `apps/zcode-cli/dependencies/native-search` 中本次 plan 全部归档的 SHA-256，再逐个解包、做目标架构校验并写 bundle meta；不下载、不回退镜像 |
+| `NATIVE_SEARCH_TOOLS_DOWNLOAD_BASE_URL` está definido, ou `resolveIntranetDepsBaseUrl(env)` consegue resolver um endereço | `intranet` | chama `downloadNativeSearchTools` como está: URL, proxy, SHA-256, bundle meta e semântica de pulo de cache permanecem iguais; o remote Linux/macOS continua executando respectivamente os comandos existentes `download-native-search-tools.mjs` e de rg13 legado `download-ripgrep.mjs` |
+| A origem de dependências interna não está configurada (a resolução lança erro ou vem vazia) | `repository` | primeiro verifica o SHA-256 de todos os arquivos deste plan em `apps/zcode-cli/dependencies/native-search`, depois extrai um a um, faz a verificação de arquitetura alvo e escreve o bundle meta; não baixa e não recorre ao espelho |
 
-- 本仓库的 `intranetDefaults.mjs` 带默认内网地址，因此默认总是 `intranet`，内网构建与 CI 行为不变；仓库归档只在依赖源确实未配置的环境（例如导出后的开源树）生效。
-- 仓库归档与内网镜像同名、同 SHA-256，release plan 同时给出 `downloadUrl`（仅 `intranet`）与 `archivePath`；两种来源不能混用或互为失败兜底，任一路径校验失败都直接终止。
-- remote 资产使用 `resolveRemoteNativeSearchPrebuiltPlan`：Linux 与 desktop/SEA 同一 plan，macOS 保留 rg13；legacy rg13 的版本与摘要仍由 `native-search-tools-config.mjs` 唯一持有。
-- 两种来源在返回前都通过 `stageNativeSearchNotices` 在每个工具目录写入 `THIRD-PARTY-NOTICES.txt` 与 `SOURCES.json`（`binary.origin` 分别为 `intranet-mirror` / `repository-archive`），缓存命中也刷新；remote 组件在计算内容哈希前完成写入，因此组件归档自带材料。
-- 解包、定位与归档验真只有 `prebuilt-binary-extract.mjs` 一份实现，下载链路复用它；Windows 上 tar 参数统一使用正斜杠并优先相对 cwd 的归档路径，避免 GNU tar 把盘符当成远程主机。
-- producer 打包（`pack:native-search` / `ci:ensure-native-search-deps`）仍只打入二进制，保持与已固定 SHA-256 的归档逐字节可复现。
+- O `intranetDefaults.mjs` deste repositório traz o endereço interno padrão, então o padrão é sempre `intranet` e o comportamento de build/CI interno não muda; os arquivos do repositório só valem em ambiente em que a origem de dependências realmente não está configurada (por exemplo, uma árvore open source exportada).
+- Os arquivos do repositório e do espelho interno têm o mesmo nome e o mesmo SHA-256, e o release plan fornece simultaneamente `downloadUrl` (apenas `intranet`) e `archivePath`; as duas origens não podem ser misturadas nem servir uma como fallback de falha da outra, e qualquer falha de verificação em um dos caminhos encerra diretamente o processo.
+- Os assets remotos usam `resolveRemoteNativeSearchPrebuiltPlan`: Linux e desktop/SEA usam o mesmo plan, e o macOS mantém o rg13; a versão e o digest do rg13 legado continuam sendo mantidos em um único lugar, `native-search-tools-config.mjs`.
+- Ambas as origens escrevem, via `stageNativeSearchNotices`, um `THIRD-PARTY-NOTICES.txt` e um `SOURCES.json` em cada diretório de ferramenta antes de retornar (`binary.origin` sendo `intranet-mirror` / `repository-archive`), e o refresh também acontece em cache命中; os componentes remotos concluem a escrita antes de calcular o hash de conteúdo, portanto os arquivos de componente já carregam o material.
+- A extração, o localização e a verificação de integridade dos arquivos existem em uma única implementação, `prebuilt-binary-extract.mjs`, reutilizada pelo caminho de download; no Windows os argumentos de tar usam uniformemente barra normal e priorizam o caminho do arquivo relativo ao cwd, evitando que o GNU trate a letra de unidade como um host remoto.
+- O empacotamento do producer (`pack:native-search` / `ci:ensure-native-search-deps`) só embute binários, mantendo reprodutibilidade byte a byte com os arquivos de SHA-256 já fixado.
 
-## 源码与依赖
+## Fontes e dependências
 
-构建入口必须固定源码提交或 release 版本，并在解包前校验 SHA-256。三平台构建共享以下版本源：
+A entrada de build precisa fixar o commit de origem ou a versão de release e verificar o SHA-256 antes da extração. As três plataformas de build compartilham as seguintes fontes de versão:
 
-| 组件      | 固定版本                                           | 用途                        |
+| Componente   | Versão fixa                                           | Uso                         |
 | --------- | -------------------------------------------------- | --------------------------- |
-| bfs       | 4.1.1 / `f220fb5afd8dd7f46b1d1a2ae9c36261eaccf3cd` | `find` backend              |
-| ugrep     | 7.8.4 / `550599a6434fc5315fb6ecd415a5d859e6d846a8` | `grep` backend              |
-| Oniguruma | 6.9.10                                             | bfs 的 GNU find regex 语义  |
-| PCRE2     | 10.43                                              | ugrep `-P`                  |
-| zlib      | 1.3.1                                              | ugrep gzip/zip/archive 支持 |
-| bzip2     | 1.0.8                                              | ugrep bzip2 支持            |
-| zstd      | 1.5.6                                              | ugrep zstd 支持             |
-| Brotli    | 1.1.0                                              | ugrep Brotli 支持           |
+| bfs       | 4.1.1 / `f220fb5afd8dd7f46b1d1a2ae9c36261eaccf3cd` | backend de `find`              |
+| ugrep     | 7.8.4 / `550599a6434fc5315fb6ecd415a5d859e6d846a8` | backend de `grep`              |
+| Oniguruma | 6.9.10                                             | semântica de regex GNU find do bfs  |
+| PCRE2     | 10.43                                              | `-P` do ugrep                  |
+| zlib      | 1.3.1                                              | suporte a gzip/zip/archive do ugrep |
+| bzip2     | 1.0.8                                              | suporte a bzip2 do ugrep            |
+| zstd      | 1.5.6                                              | suporte a zstd do ugrep             |
+| Brotli    | 1.1.0                                              | suporte a Brotli do ugrep           |
 
-这些依赖只参与构建并静态链接到目标程序，不作为最终 runtime sidecar 单独分发。
+Essas dependências participam apenas do build e são linkadas estaticamente ao programa alvo, não sendo distribuídas separadamente como sidecar de runtime.
 
-GitHub commit archive 不携带 `.git`，bfs 4.1.1 的 `build/version.sh` 会因此回退成 `4.1`。producer 必须通过构建环境 `VERSION=4.1.1` 固定 patch version，不能传 `./configure --version=4.1.1`；后者会污染 `bfs --version` 的 `CONFFLAGS` 输出。
+O archive de commit do GitHub não traz `.git`, e por isso o `build/version.sh` do bfs 4.1.1 regride para `4.1`. O producer precisa fixar a patch version pelo ambiente de build com `VERSION=4.1.1` e não pode passar `./configure --version=4.1.1`; isso poluiria a saída de `CONFFLAGS` em `bfs --version`.
 
-TODO：全部平台的 native build 与 E2E 接入完成后，将上述锁定源码归档同步到 ZCode 内部依赖源，并为 source downloader 增加专用镜像地址解析；在镜像产物准备完成前继续使用官方 URL 与 SHA-256 校验，不能把源码文件名直接假设为现有 `ZCODE_DEPS_BASE_URL` 下的资源。
+TODO: depois que o build nativo e a integração E2E estiverem completos em todas as plataformas, sincronizar os arquivos de fontes travados acima para a fonte de dependências interna do ZCode e adicionar resolução de endereço de espelho dedicado ao source downloader; até que os artefatos do espelho estejam prontos, continuar usando as URLs oficiais e a verificação de SHA-256, sem assumir que o nome do arquivo de fonte é um recurso já existente sob o `ZCODE_DEPS_BASE_URL` atual.
 
-可观察基线只覆盖 `bfs` / `ugrep` 顶层版本、Oniguruma 开关、`ugrep` feature set，以及 ripgrep/PCRE2 能力。Microsoft 归档来自同一 ripgrep 14.1.1 上游版本，不要求 build identity 逐字节一致；当前目标是相同版本、feature set、参数行为和动态依赖边界。表中的传递依赖版本是为可复现构建固定的兼容版本。
+O baseline observável cobre apenas a versão de topo de `bfs` / `ugrep`, a flag do Oniguruma, o feature set do `ugrep` e as capacidades de ripgrep/PCRE2. Os arquivos da Microsoft vêm da mesma versão upstream de ripgrep 14.1.1 e não exigem identidade de build byte a byte; o alvo atual é a mesma versão, o mesmo feature set, o mesmo comportamento de argumentos e a mesma fronteira de dependências dinâmicas. As versões de dependências transitivas na tabela são versões compatíveis fixadas para um build reproduzível.
 
-## 构建边界
+## Fronteiras de build
 
-- source manifest、SHA-256 校验、下载/解压、CLI 参数解析、输出 plan 和行为 E2E 属于跨平台共享层。
-- `bfs`、`ugrep`、`rg` 的版本号只能在共享 manifest 中声明一次；各平台 builder、Microsoft 归档映射、产物 verifier 和各平台 source plan 必须复用该版本源，不能维护互相漂移的版本常量。
-- macOS/Linux 的静态依赖、`bfs` 和 `ugrep` 构建属于 Unix 共享层；平台只提供 compiler toolchain、预处理 flags 和原生依赖校验。
-- Microsoft `rg` 不参与任何 producer，也不复用 ugrep 的 PCRE2 build。Linux 继续使用固定 SHA-256 的 musl 归档。
-- Windows `ugrep.exe` 使用独立 MSVC/CMake builder，并通过 `-A x64` / `-A ARM64` 选择目标；固定的 ugrep 源码是无 BOM UTF-8，MSVC 必须显式使用 `/utf-8`，不能依赖 runner 当前用户代码页解释源码。`rg.exe` 直接来自固定 SHA-256 的 Microsoft 对应架构 MSVC 归档。两者复用下载 plan 与 PE 静态 verifier；x64 目标保留独立行为 E2E，arm64 目标沿用既有 x64 Windows 交叉构建链。
-- Windows 构建固定使用静态 MSVC runtime，并静态链接 PCRE2、zlib、bzip2、zstd、Brotli 和 ugrep 自带的 7zip decoder。最终 PE 必须拒绝 `VCRUNTIME*.dll`、`MSVCP*.dll` 和 `ucrtbase.dll` 等动态 CRT，以及上述本应静态链接的构建依赖。
-- Linux producer 的放行依据是实际工具链能力，不是具体镜像身份：构建脚本必须在下载源码前检查 Node major 为 24、builder glibc 为 2.28、`CC` 的 GCC major 与 `CXX` 的 G++ major 都为 12，最终产物再通过 GLIBC symbol gate。macOS 的 Apple Silicon runner 允许使用系统 clang 的 `-arch x86_64` 构建 x64 sidecar，并通过 Rosetta 执行 configure probe；独立 E2E 入口同样可通过 Rosetta 验证 x64 产物，但不嵌入正式打包 job。ugrep configure 必须显式使用 `x86_64-apple-darwin` host，避免把 arm64 runner 身份写入 x64 产物。x64 继续由上游 compiler probe 启用 baseline SSE2 并禁用 AVX2。其他未经验证的 Unix 交叉编译继续拒绝。
-- Linux seed/rebuild 由开发机本地 Docker 分别以 `--platform linux/arm64` / `--platform linux/amd64` 启动目标架构容器，并在容器内使用统一入口 `pnpm pack:native-search -- --platform linux --arch <arm64|x64>`；当前可复现基线是 Rocky Linux 8 的 glibc 2.28、Node 24 与 GCC Toolset 12。macOS 与 Windows 仍由各自平台打包机产出。`ci:ensure-native-search-deps` 在当前 runner 满足 Node 24 / glibc 2.28 / GCC 12 / G++ 12 门禁时复用同一打包实现补产，不要求仓库提供额外 Dockerfile 或平台专用 wrapper；镜像名称本身不替代上述运行时门禁与固定归档 SHA-256。
-- macOS 自产 `bfs` / `ugrep` sidecar 的 deployment target 固定为 `12.0`；Microsoft `rg` 的 deployment target 可以更低但不得高于 `12.0`。构建校验必须同时读取 Mach-O `LC_BUILD_VERSION.minos` 与旧式 `LC_VERSION_MIN_MACOSX.version`，禁止任何工具提高 Electron 41 的最低 macOS 版本。
-- macOS `bfs` 必须屏蔽 macOS 26 SDK 新增的标准 `posix_spawn_file_actions_addfchdir()`，让上游继续选择从 macOS 10.15 可用的 `posix_spawn_file_actions_addfchdir_np()`；同时注入 `-Dfdclosedir=__bfs_poison_fdclosedir_macos_26_4`。两者都用于防止新版 SDK 的 configure probe 让 deployment target 为 12.0 的产物弱导入更高系统版本才存在的符号。
-- Linux `ugrep` 必须静态链接 GCC/C++ runtime；最终依赖白名单不得接受
-  `libstdc++.so`、`libgcc_s.so`、`libc++.so` 或 `libc++abi.so`，避免构建参数回归后仍通过
-  verifier，并把 GLIBCXX/CXXABI 兼容性风险带入发行包。
-- x64 `ugrep` 使用 baseline CPU 配置，禁用 AVX2/AVX512；arm64 使用目标编译器的 NEON 路径。
-- macOS 构建依赖 Xcode Command Line Tools、系统 `make`、`curl` 和 `tar`，不要求 Cargo/Rust 或 Homebrew library。Linux 构建依赖 binutils、`make`、`curl`、`file` 和 `tar`，同样不要求 Cargo/Rust；`CC` / `CXX` 可显式覆盖，但脚本必须分别执行实际 compiler 的版本探测，两个 major 都必须是 12。Windows producer 只构建 `ugrep.exe`，依赖 VS 2022 Build Tools、CMake、`curl` 和 `tar`；arm64 target 还要求对应的 MSVC ARM64 toolset。
-- 默认输出位置沿用 desktop runtime asset 结构：
-  - `packages/desktop/bundled-tools/darwin-<arch>/{bfs,ugrep,ripgrep}` 由 native search 预编译下载链路准备。
-  - `packages/desktop/bundled-tools/linux-<arch>/{bfs,ugrep,ripgrep}` 由 native search 预编译下载链路准备。
-  - `packages/desktop/bundled-tools/win32-<arch>/{ugrep,ripgrep}` 由 native search 预编译下载链路准备。
-- desktop host 和 Linux remote server 通过现有 runtime tool resolver 发现各平台已启用的产物，并把绝对路径投影为对应的 `ZCODE_BFS_BINARY`、`ZCODE_UGREP_BINARY`、`ZCODE_RG_BINARY`。Windows 不生成也不投影 `ZCODE_BFS_BINARY`，`find` 继续走 Git Bash/system；已发现工具的所在目录追加到 Agent runtime 的 `PATH`，保留用户命令优先级。
-- SEA 仍按 target 交付单一可执行文件，不能把 `bfs`、`ugrep`、`rg` 作为同目录 sidecar 交付。构建时把当前 target 已启用的原生工具及 manifest 写入 SEA assets；运行时首次读取 asset 并解压到 `ZCODE_STORAGE_DIR`（默认 `~/.zcode`）下的 `cache/runtime_tools`。
-- `pnpm build:sea` 保持既有 all-target 契约并显式传入 `--all`。各目标平台的 producer 必须先构建、验证并发布预编译归档；SEA 构建再按同一 release plan 为每个 target 下载、校验并准备 `packages/desktop/bundled-tools/<platform>-<arch>` 后统一消费。缺少 foreign target 工具时必须 fail-closed，不能把公开命令降级成 host-only。host E2E 使用底层 `sea --target <host-target>`，不改变发行入口。
-- SEA runtime tool 缓存必须按 `<target>/<tool>/<tool-version>-<binary-sha256>` 定位，不能包含 CLI 版本。多个 CLI 版本携带完全相同的工具版本和二进制内容时必须复用同一份缓存；单个工具升级时也不能迫使其他未变化工具重复解压。
-- SEA 解压必须逐文件校验 manifest 中的 SHA-256，写入同级临时目录后原子替换，并恢复可执行权限。并发首次启动必须收敛到同一缓存目录；已完成且 marker、文件大小、实际 SHA-256 和可执行权限均有效的缓存直接复用。
-- SEA runtime tool manifest 只描述目标平台、工具 id、工具版本、二进制名称、大小和 SHA-256。缓存路径和 manifest 均不得依赖 ZCode/CLI 版本；非 SEA 的 desktop、源码 CLI 和 remote runtime 继续沿用各自现有发现链路。
-- Windows x64/arm64 SEA 内置 `ugrep 7.8.4` 和 `ripgrep 14.1.1`；`find` 继续回退 Git Bash/system。两个架构都必须通过 PE 目标格式和静态依赖校验，x64 另有独立真实运行时 E2E；arm64 在可用的目标机器上完成同等 E2E 前仍是明确的待验证项，不能因为 SEA 支持解压任意工具就宣称已完成目标架构运行验证。
-- runtime tool resolver 接受的 env 必须贯穿显式二进制路径、server runtime root 和 PATH 查找，不能一部分读取参数、一部分隐式读取全局 `process.env`。
-- desktop 本地二进制定位信息与 remote resource package 的部署版本是两类 metadata。Linux remote manifest 显式复用同一份 native-search release plan，发布 `bfs-v4.1.1-2`、`ugrep-v7.8.4-1` 和 Microsoft `ripgrep-v14.1.1-1`；Darwin remote 继续发布历史 `ripgrep-v13.0.0-10`。remote producer 必须按目标平台显式选择这两条依赖链，不能让 desktop release plan 隐式改写 Darwin remote，也不能删除历史 release 资产。
-- Agent 默认 embedded-search backend 直接持有 `bfs` / `ugrep` / `rg` 三个原生程序路径。Bash prelude 不再通过 `__internal-search` 启动 Node 转发层；`bfs` / `ugrep` 不可执行时分别回退系统 `find` / `grep`；shell 已有可执行 `rg` 时保持不变，缺失时才补直接执行随包 `rg` 的函数。
-- `find` 固定参数必须按 `-S dfs -regextype findutils-default "$@"` 排列。
-- `grep` 固定参数必须按 `-G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude-dir=.jj --exclude-dir=.sl "$@"` 排列；默认参数在前，用户参数在后。
-- `grep` 遇到 `-*-filter*`、`-*-pager*`、`-*-view*`、`-*-format-open*`、`-*-config*`、`---*`、`-@*`、`-*-save-config*`、`-[Zz]*`、`-[!-]*[Zz]*`、`--null` 或 `--null-data` 时绕过 `ugrep`，直接调用系统 `grep`；后四组用于保留 GNU grep 的 null-data/短选项语义，与 ugrep 的压缩选项不同。
-- 需要通过 embedded `grep` 触发 ugrep 解压时使用 `--decompress`；`-z` / `-Z` 及 `--null` / `--null-data` 保留给 system grep 兼容路径。
-- Bash 中的 `rg` fallback 不添加默认 flags，只把用户 `"$@"` 原样交给包内 ripgrep；内部文件搜索调用使用的 `--no-config` 等参数不属于 Bash shell function contract。
-- E2E 可以通过 `--output-dir` 写入临时目录，不能污染正式 runtime asset。
-- 下载、编译和中间依赖都位于独立临时工作目录；成功或失败后默认清理。写入二进制元数据的依赖 flags 必须使用稳定的相对路径，不能记录随机临时目录，否则同一 target、同一工具版本的 SHA-256 会发生漂移；仅显式调试参数可以保留工作目录。
-- 构建产物不提交到 Git。开发态 `pre-dev` 通过与发行构建相同的版本、feature、架构、ABI
-  verifier 判断本地 native-search sidecar 是否有效；文件缺失或校验失败时重新准备产物，不能
-  只按路径存在判定 ready。desktop 出包流程在构建阶段准备产物；已安装应用的 runtime 不做
-  源码下载或现场编译。
-- desktop prepare、缺失资产检测和 `extraResources` 必须读取同一份 `platform-arch` release plan。新增目标通常只有在真实构建与独立 E2E 验证通过后才能加入发行启用集合，不能因为同一 OS 的另一个架构通过就整体启用；已启用目标的每次正式打包不重复运行行为 E2E。Windows arm64 是本轮明确恢复的既有交叉发布分支；它的 PE 静态门禁不能被记录为已完成运行时 E2E，后续仍需在目标机器补验。
-- 预编译产物必须先在临时解包路径通过 Mach-O / ELF / PE 格式和目标架构静态校验，再覆盖正式路径并写入 bundle metadata。bundle metadata 只校验本地文件后续是否变化，不能把下载文件自身计算出的 SHA-256 当作来源可信证明；已有 metadata 的缓存也必须重新通过目标校验才能跳过下载。
-- release plan 必须显式区分 native build 输出与 Electron 动态打包的 sidecar；desktop/SEA 调用方不能再拼接平台特有的 legacy ripgrep 下载分支。
-- macOS arm64/x64 desktop 发行包都通过 `extraResources` 携带对应架构的 `bfs` / `ugrep` / `rg` sidecar，并统一复用 bundled-tools 签名与公证链路。两个 macOS 出包 job 只执行资产 verifier、签名和公证，不在签名前运行 Bash toolcall E2E。第三方 license notice 仍属于正式发行前的合规清单；临时 E2E 产物不进入发行包。
-- 所有平台的 prepare 都必须下载固定 SHA-256 的 Microsoft `rg 14.1.1` 归档；producer 不得产出 `rg`。desktop prepare 与缺失资产修复不得调用 legacy `prepare:rg` 下载链路。
-- Linux x64/arm64 CI job 必须分别进入与目标架构一致的执行环境；可以是原生 runner，也可以是
-  `docker --platform` 明确选择的目标架构环境。runner tag 或镜像名称本身不作为放行依据，
-  构建进程看到的 arch、实际 Node/glibc/CC/CXX 门禁以及最终 ELF 架构/ABI 校验必须全部匹配。
-- 正式 `build:windows:x64` / `build:windows:arm64` 继续复用既有 `windows` runner；当前 x64 runner 交叉生成 arm64 Electron/NSIS 与 native-search 产物。两个目标都必须直接读取 PE header 和 import table 校验 machine 与静态 runtime，但打包 job 不执行完整运行时 E2E。
+- source manifest, verificação SHA-256, download/extração, parsing de argumentos de CLI, saída do plan e E2E de comportamento pertencem à camada compartilhada multiplataforma.
+- O número de versão de `bfs`, `ugrep` e `rg` só pode ser declarado uma vez no manifest compartilhado; os builders de cada plataforma, o mapeamento dos arquivos da Microsoft, o verifier de artefatos e o source plan de cada plataforma precisam reaproveitar essa fonte de versão, sem manter constantes de versão que derivem umas das outras.
+- As dependências estáticas de macOS/Linux e o build de `bfs` e `ugrep` pertencem à camada Unix compartilhada; a plataforma só fornece o compiler toolchain, os flags de pré-processamento e a verificação das dependências nativas.
+- O Microsoft `rg` não participa de nenhum producer e não reaproveita o build de PCRE2 do ugrep. O Linux continua usando os arquivos musl com SHA-256 fixo.
+- O `ugrep.exe` do Windows usa um builder MSVC/CMake independente e seleciona o alvo via `-A x64` / `-A ARM64`; o código-fonte travado do ugrep é UTF-8 sem BOM e o MSVC precisa usar `/utf-8` explicitamente, sem depender da code page do usuário atual do runner para interpretar o fonte. O `rg.exe` vem direto do arquivo MSVC da Microsoft da arquitetura correspondente com SHA-256 fixo. Ambos reaproveitam o download plan e o verifier estático PE; o alvo x64 mantém um E2E de comportamento independente e o alvo arm64 segue a cadeia de cross-build Windows x64 já existente.
+- O build no Windows usa runtime MSVC estático fixo e linka estaticamente PCRE2, zlib, bzip2, zstd, Brotli e o decoder 7zip que acompanha o ugrep. O PE final precisa rejeitar a CRT dinâmica como `VCRUNTIME*.dll`, `MSVCP*.dll` e `ucrtbase.dll`, bem como as dependências de build que deveriam ser linkadas estaticamente.
+- A liberação do producer Linux se baseia na capacidade real do toolchain, não em uma identidade específica de imagem: o script de build precisa checar antes de baixar o fonte que o Node major é 24, o glibc do builder é 2.28 e que o GCC major de `CC` e o G++ major de `CXX` são ambos 12, e o artefato final passa depois pelo gate de símbolo GLIBC. O runner Apple Silicon do macOS pode usar o `-arch x86_64` do clang do sistema para construir o sidecar x64 e executar o configure probe via Rosetta; a entrada de E2E independente também pode verificar o artefato x64 via Rosetta, mas não é embutida no job oficial de empacotamento. O configure do ugrep precisa usar explicitamente o host `x86_64-apple-darwin`, evitando gravar a identidade do runner arm64 no artefato x64. O x64 continua habilitando o baseline SSE2 e desabilitando AVX2 pelo compiler probe do upstream. Outras cross-compilações Unix não verificadas continuam recusadas.
+- O seed/rebuild do Linux é iniciado pela máquina de desenvolvimento com o Docker local, subindo contêineres da arquitetura alvo com `--platform linux/arm64` / `--platform linux/amd64` e usando dentro do contêiner a entrada unificada `pnpm pack:native-search -- --platform linux --arch <arm64|x64>`; o baseline reproduzível atual é o Rocky Linux 8 com glibc 2.28, Node 24 e GCC Toolset 12. macOS e Windows continuam sendo produzidos pelas respectivas máquinas de empacotamento. `ci:ensure-native-search-deps` reaproveita a mesma implementação de empacotamento para produzir o que falta quando o runner atual satisfaz os gates de Node 24 / glibc 2.28 / GCC 12 / G++ 12, sem exigir que o repositório forneça um Dockerfile extra ou um wrapper específico de plataforma; o nome da imagem em si não substitui os gates de runtime acima nem o SHA-256 dos arquivos fixos.
+- O deployment target dos sidecars próprios de `bfs` / `ugrep` no macOS é fixado em `12.0`; o deployment target do Microsoft `rg` pode ser menor, mas não maior que `12.0`. A verificação de build precisa ler tanto o `LC_BUILD_VERSION.minos` do Mach-O quanto o `LC_VERSION_MIN_MACOSX.version` do formato antigo, e é proibido que qualquer ferramenta aumente a versão mínima de macOS do Electron 41.
+- O `bfs` no macOS precisa bloquear o `posix_spawn_file_actions_addfchdir()` padrão novo do SDK do macOS 26, deixando o upstream escolher o `posix_spawn_file_actions_addfchdir_np()` disponível desde o macOS 10.15; ao mesmo tempo injeta `-Dfdclosedir=__bfs_poison_fdclosedir_macos_26_4`. Ambos servem para impedir que o configure probe do SDK novo faça o artefato com deployment target 12.0 importar fracamente símbolos que só existem em versões de sistema mais altas.
+- O `ugrep` no Linux precisa linkar estaticamente o runtime GCC/C++; a allowlist final de dependências não pode aceitar `libstdc++.so`, `libgcc_s.so`, `libc++.so` nem `libc++abi.so`, evitando que uma regressão de flags de build ainda passe pelo verifier e leve riscos de compatibilidade GLIBCXX/CXXABI para o pacote de release.
+- O `ugrep` x64 usa configuração de CPU baseline, desabilitando AVX2/AVX512; o arm64 usa o caminho NEON do compilador alvo.
+- O build no macOS depende de Xcode Command Line Tools, `make` do sistema, `curl` e `tar`, e não exige Cargo/Rust nem bibliotecas do Homebrew. O build no Linux depende de binutils, `make`, `curl`, `file` e `tar`, também sem Cargo/Rust; `CC` / `CXX` podem ser sobrescritos explicitamente, mas o script precisa executar a detecção de versão do compilador real separadamente, e os dois majors precisam ser 12. O producer do Windows só constrói `ugrep.exe` e depende de VS 2022 Build Tools, CMake, `curl` e `tar`; o target arm64 exige ainda o toolset MSVC ARM64 correspondente.
+- O local de saída padrão segue a estrutura de asset de runtime do desktop:
+  - `packages/desktop/bundled-tools/darwin-<arch>/{bfs,ugrep,ripgrep}` preparado pela cadeia de download de native search pré-compilado.
+  - `packages/desktop/bundled-tools/linux-<arch>/{bfs,ugrep,ripgrep}` preparado pela cadeia de download de native search pré-compilado.
+  - `packages/desktop/bundled-tools/win32-<arch>/{ugrep,ripgrep}` preparado pela cadeia de download de native search pré-compilado.
+- O host do desktop e o servidor remote Linux descobrem os artefatos habilitados de cada plataforma pelo runtime tool resolver existente e projetam os caminhos absolutos como `ZCODE_BFS_BINARY`, `ZCODE_UGREP_BINARY` e `ZCODE_RG_BINARY`. O Windows não gera nem projeta `ZCODE_BFS_BINARY` e o `find` continua passando pelo Git Bash/system; o diretório das ferramentas descobertas é acrescentado ao `PATH` do runtime do Agent, preservando a prioridade dos comandos do usuário.
+- O SEA continua entregando um único executável por target e não pode entregar `bfs`, `ugrep` e `rg` como sidecars no mesmo diretório. No build, as ferramentas nativas habilitadas do target atual e o manifest são escritos nos assets do SEA; em runtime o asset é lido na primeira vez e extraído para `cache/runtime_tools` sob `ZCODE_STORAGE_DIR` (padrão `~/.zcode`).
+- `pnpm build:sea` mantém o contrato all-target existente e passa `--all` explicitamente. O producer de cada plataforma alvo precisa primeiro construir, verificar e publicar os arquivos pré-compilados; o build do SEA então baixa, verifica e prepara `packages/desktop/bundled-tools/<platform>-<arch>` para cada target conforme o mesmo release plan e consome tudo de forma unificada. Ferramentas de target externo ausentes precisam falhar de forma fechada, sem degradar comandos públicos para only-host. O E2E de host usa o `sea --target <host-target>` de baixo nível e não altera a entrada de distribuição.
+- O cache de runtime tool do SEA precisa ser localizado por `<target>/<tool>/<tool-version>-<binary-sha256>` e não pode conter a versão do CLI. Quando várias versões do CLI carregam exatamente a mesma versão de ferramenta e o mesmo conteúdo binário, a mesma cache precisa ser reaproveitada; a atualização de uma única ferramenta também não pode obrigar as demais ferramentas inalteradas a extrair de novo.
+- A extração no SEA precisa verificar o SHA-256 do manifest arquivo a arquivo, escrever em um diretório temporário no mesmo nível e substituir de forma atômica, além de restaurar a permissão de execução. Inicializações concorrentes na primeira vez precisam convergir para o mesmo diretório de cache; um cache já concluído e com marker, tamanho de arquivo, SHA-256 real e permissão de execução válidos é reaproveitado diretamente.
+- O manifest de runtime tool do SEA descreve apenas a plataforma alvo, o id da ferramenta, a versão da ferramenta, o nome do binário, o tamanho e o SHA-256. O caminho do cache e o manifest não podem depender da versão do ZCode/CLI; o desktop não-SEA, o CLI de código-fonte e o runtime remote continuam usando suas próprias cadeias de descoberta.
+- O Windows x64/arm64 do SEA embute `ugrep 7.8.4` e `ripgrep 14.1.1`; o `find` continua com fallback para Git Bash/system. As duas arquiteturas precisam passar pela verificação de formato PE alvo e de dependências estáticas, e o x64 tem um E2E de runtime real independente; o arm64 continua sendo um item explicitamente pendente de validação até completar o E2E equivalente em uma máquina alvo disponível, e não se pode alegar que a validação de runtime da arquitetura alvo foi concluída só porque o SEA suporta extrair ferramentas arbitrárias.
+- O env aceito pelo runtime tool resolver precisa atravessar o caminho de binário explícito, o server runtime root e a busca no PATH, sem ler parte por argumento e parte por leitura implícita do `process.env` global.
+- A informação de localização de binários local do desktop e a versão de implantação do pacote de recursos remote são dois tipos distintos de metadata. O manifest do remote Linux reaproveita explicitamente o mesmo native-search release plan e publica `bfs-v4.1.1-2`, `ugrep-v7.8.4-1` e o Microsoft `ripgrep-v14.1.1-1`; o remote Darwin continua publicando o histórico `ripgrep-v13.0.0-10`. O producer remote precisa escolher explicitamente essas duas cadeias de dependências por plataforma alvo, sem deixar o release plan do desktop reescrever o Darwin remote implicitamente e sem apagar assets de release históricos.
+- O backend de embedded-search padrão do Agent segura diretamente os caminhos dos três programas nativos `bfs` / `ugrep` / `rg`. O prelude do Bash não inicia mais a camada de forwarding Node via `__internal-search`; quando `bfs` / `ugrep` não são executáveis, ele recorre respectivamente ao system `find` / `grep`; quando o shell já tem um `rg` executável, nada muda, e quando falta, uma função é adicionada para executar diretamente o `rg` embutido.
+- Os argumentos fixos de `find` precisam estar na ordem `-S dfs -regextype findutils-default "$@"`.
+- Os argumentos fixos de `grep` precisam estar na ordem `-G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclude-dir=.bzr --exclude-dir=.jj --exclude-dir=.sl "$@"`; os argumentos padrão vêm antes e os argumentos do usuário depois.
+- O `grep` contorna o `ugrep` e chama direto o system `grep` ao encontrar `-*-filter*`, `-*-pager*`, `-*-view*`, `-*-format-open*`, `-*-config*`, `---*`, `-@*`, `-*-save-config*`, `-[Zz]*`, `-[!-]*[Zz]*`, `--null` ou `--null-data`; os últimos quatro grupos servem para preservar a semântica de null-data/opções curtas do GNU grep, que difere das opções comprimidas do ugrep.
+- Para acionar a extração do ugrep por meio do `grep` embutido, usa-se `--decompress`; `-z` / `-Z` e `--null` / `--null-data` ficam reservados ao caminho de compatibilidade do system grep.
+- O fallback de `rg` no Bash não adiciona flags padrão e apenas entrega o `"$@"` do usuário como é ao ripgrep do pacote; argumentos como `--no-config`, usados por chamadas internas de busca de arquivos, não fazem parte do contrato da shell function do Bash.
+- O E2E pode escrever em um diretório temporário via `--output-dir`, sem poluir o asset de runtime oficial.
+- Download, compilação e dependências intermediárias ficam em um diretório de trabalho temporário separado e são limpos por padrão depois de sucesso ou falha. As flags de dependência gravadas nos metadados do binário precisam usar caminhos relativos estáveis e não podem registrar diretórios temporários aleatórios, senão o SHA-256 da mesma versão de ferramenta do mesmo target sofreria drift; apenas argumentos de debug explícitos podem preservar o diretório de trabalho.
+- Artefatos de build não são commitados no Git. O `pre-dev` de desenvolvimento usa os mesmos verificadores de versão, feature, arquitetura e ABI do build de release para decidir se o sidecar local de native search é válido; quando o arquivo está ausente ou a verificação falha, o artefato é preparado de novo, e o estado ready não pode ser decidido apenas pela existência do caminho. O fluxo de pacote do desktop prepara os artefatos na etapa de build; o runtime do aplicativo instalado não faz download de fonte nem compilação on the spot.
+- O prepare do desktop, a detecção de asset ausente e o `extraResources` precisam ler o mesmo release plan de `platform-arch`. Um novo alvo normalmente só entra no conjunto habilitado para release depois de um build real e de uma validação E2E independente bem-sucedidos, e não pode ser habilitado inteiro só porque a outra arquitetura do mesmo OS passou; cada empacotamento oficial de um alvo já habilitado não repete o E2E de comportamento. O Windows arm64 é o branch de publicação cruzada existente explicitamente retomado nesta rodada; seu gate estático PE não pode ser registrado como E2E de runtime concluído, e continua precisando de validação posterior na máquina alvo.
+- Os artefatos pré-compilados precisam passar pela verificação estática de formato Mach-O / ELF / PE e de arquitetura alvo em um caminho de extração temporário, antes de sobrescrever o caminho oficial e escrever o bundle metadata. O bundle metadata só verifica se o arquivo local mudou depois, e não pode usar o SHA-256 calculado do próprio arquivo baixado como prova de confiabilidade da origem; um cache que já tem metadata também precisa passar de novo pela verificação alvo para poder pular o download.
+- O release plan precisa distinguir explicitamente a saída de build nativo do sidecar empacotado dinamicamente pelo Electron; os chamadores de desktop/SEA não podem mais montar à mão branches de download do ripgrep legado específicos de plataforma.
+- Os pacotes de release do desktop macOS arm64/x64 carregam via `extraResources` os sidecars `bfs` / `ugrep` / `rg` da arquitetura correspondente e reaproveitam uniformemente a cadeia de assinatura e notarização dos bundled-tools. Os dois jobs de pacote do macOS executam apenas o verifier de asset, a assinatura e a notarização, sem rodar o E2E de toolcall do Bash antes da assinatura. O aviso de licença de terceiros continua pertencendo à lista de compliance antes da release oficial; artefatos temporários de E2E não entram no pacote de release.
+- O prepare de todas as plataformas precisa baixar o arquivo fixo com SHA-256 do Microsoft `rg 14.1.1`; o producer não pode produzir `rg`. O prepare do desktop e a correção de asset ausente não podem chamar a cadeia de download legada `prepare:rg`.
+- Os jobs de CI do Linux x64/arm64 precisam entrar em ambientes de execução consistentes com a arquitetura alvo; podem ser runners nativos ou um ambiente de arquitetura alvo explicitamente escolhido com `docker --platform`. A tag do runner ou o nome da imagem em si não servem como critério de liberação: o arch visto pelo processo de build, os gates reais de Node/glibc/CC/CXX e a verificação final de arquitetura/ABI do ELF precisam corresponder todos.
+- O `build:windows:x64` / `build:windows:arm64` oficiais continuam reaproveitando o runner `windows` existente; o runner x64 atual gera cross os artefatos arm64 de Electron/NSIS e de native search. Os dois alvos precisam ler diretamente o PE header e a import table para verificar machine e runtime estático, mas o job de empacotamento não executa o E2E completo de runtime.
 
-## Linux remote 与 WSL 资源边界
+## Fronteiras de recursos do Linux remote e do WSL
 
-Linux x64/arm64 的 producer、共享归档和打包消费链验证完成后，Linux remote
-（WSL、Linux SSH、Linux Docker）与 desktop/SEA 复用同一份 native-search release plan：
+Depois que a cadeia de producer, os arquivos compartilhados e o consumo de empacotamento do Linux x64/arm64 estiverem validados, o Linux remote (WSL, SSH Linux, Docker Linux) reaproveita o mesmo native-search release plan do desktop/SEA:
 
 ```text
 Linux x64/arm64 producer
@@ -274,39 +258,36 @@ Darwin remote asset manifest
 legacy ripgrep 13 component
 ```
 
-remote resource id、manifest mount 白名单、部署循环与 runtime descriptor 必须在同一个变更中
-接通，不能只让 Bash prelude 看见不存在的路径。该接入复用既有 shared host 和 Agent runtime，
-不创建新的 WSL Agent runtime，不改变 workspace identity，也不触碰桌面
-`desktop-continuous` 与手机 `web-remote-replayable` 的交付边界。
+O remote resource id, a allowlist de montagem do manifest, o loop de implantação e o runtime descriptor precisam ser conectados na mesma mudança, sem deixar apenas o prelude do Bash vendo um caminho inexistente. Essa integração reaproveita o shared host e o runtime do Agent já existentes, não cria um novo runtime de Agent para WSL, não muda a identidade do workspace e não toca na fronteira de entrega do `desktop-continuous` do desktop nem do `web-remote-replayable` do celular.
 
-## E2E 契约
+## Contrato E2E
 
-macOS/Linux/Windows x64 E2E 是独立验证入口，默认从空临时目录调用真实 prepare。外层 runner 只负责按目标构建 producer 集合、下载 Microsoft `rg`、执行版本/feature/ABI 校验和启动一次真实 Bash toolcall E2E，不得再维护一套重复的 fixture 与行为断言。Linux 验证可以先在对应架构 producer 中生成并校验自产 `bfs` / `ugrep`，再由 prepare 补齐 Microsoft musl `rg`，最终通过 `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY` / `ZCODE_RG_BINARY` 把同一组正式产物交给运行 E2E；不能在两个阶段重复编译同一工具。Windows 使用自产 `ugrep` 与 Microsoft `rg`，并让 `find` 走 Git Bash/system。Windows arm64 的跨 target fixture 与 PE verifier 只证明编译、收集和静态依赖契约，不冒充目标架构运行时 E2E。toolcall E2E 必须从根 workspace 按 `@zcode/bootstrap` 的真实依赖关系构建前置 package，不能依赖工作区中预存的 `dist`。完整链路至少覆盖：
+O E2E de macOS/Linux/Windows x64 é uma entrada de validação independente que, por padrão, chama o prepare real a partir de um diretório temporário vazio. O runner externo só é responsável por construir o conjunto de producer do alvo, baixar o Microsoft `rg`, executar a verificação de versão/feature/ABI e iniciar uma única execução real de E2E de toolcall do Bash, sem manter um conjunto duplicado de fixtures e asserções de comportamento. A validação no Linux pode primeiro gerar e verificar o `bfs` / `ugrep` próprios no producer da arquitetura correspondente, deixando o prepare completar o Microsoft musl `rg`, e então entregar o mesmo conjunto de artefatos oficiais ao E2E de runtime por `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY` / `ZCODE_RG_BINARY`; não se pode compilar a mesma ferramenta em dois estágios. O Windows usa o `ugrep` próprio e o Microsoft `rg`, deixando o `find` com o Git Bash/system. O fixture cross-target e o verifier PE do Windows arm64 provam apenas o contrato de compilação, coleta e dependências estáticas e não se passam por E2E de runtime da arquitetura alvo. O E2E de toolcall precisa construir os packages prévios do workspace raiz conforme as dependências reais de `@zcode/bootstrap`, sem depender de um `dist` pré-existente no workspace. A cadeia completa cobre pelo menos:
 
-`pnpm test:sea-runtime-tools:e2e` 是 SEA 单文件交付的 host E2E：它构建当前 target 的 SEA，把产物复制到不含 sidecar 的隔离目录，验证首次解压、二次复用、版本/SHA/执行权限，再把解压路径交给同一套真实 Bash toolcall E2E。该命令不得在用户默认 storage root 留下 runtime-tool 缓存或临时目录，也不得作为 desktop Electron 打包的前置步骤。
+`pnpm test:sea-runtime-tools:e2e` é o E2E de host da entrega de arquivo único do SEA: ele constrói o SEA do target atual, copia o artefato para um diretório isolado sem sidecars, verifica a primeira extração, o reuso na segunda, versão/SHA/permissão de execução e então entrega o caminho extraído para o mesmo E2E real de toolcall do Bash. Esse comando não pode deixar cache de runtime-tool nem diretório temporário no storage root padrão do usuário e não pode ser um passo anterior ao empacotamento Electron do desktop.
 
-SEA 单测中的跨 target fixture 只验证 manifest 和 asset 收集契约；它不能替代各目标平台的真实 native build、host SEA E2E 或跨平台产物聚合门禁。package-script 回归必须证明 `build:sea` 始终传入 `--all`；后续新增但尚未完成的 target 可以让发行构建明确失败，但不能改变既有命令行为。
+Os fixtures cross-target dos testes unitários do SEA verificam apenas o contrato de manifest e de coleta de assets; eles não substituem o build nativo real de cada plataforma, o E2E de host do SEA ou o gate de agregação de artefatos multiplataforma. A regressão de package-script precisa provar que `build:sea` sempre passa `--all`; um target novo e ainda incompleto pode fazer o build de release falhar de forma explícita, mas não pode mudar o comportamento dos comandos existentes.
 
-正式 desktop 打包只由 `prepare:desktop-runtime` 生成 `bundled-tools/<platform>-<arch>` 产物，并执行版本、feature、架构、ABI、签名等机械校验后进入 Electron 打包；macOS、Linux、Windows 的打包 template 都不得调用 `pnpm test:native-search:e2e` 或 `pnpm test:sea-runtime-tools:e2e`。需要验证行为时，由独立 E2E 入口以绝对路径消费同一 release plan 生成的产物。
+O empacotamento oficial do desktop gera os artefatos `bundled-tools/<platform>-<arch>` apenas por `prepare:desktop-runtime` e só entra no empacotamento do Electron depois das verificações mecânicas de versão, feature, arquitetura, ABI e assinatura; os templates de empacotamento de macOS, Linux e Windows não podem chamar `pnpm test:native-search:e2e` nem `pnpm test:sea-runtime-tools:e2e`. Quando for preciso validar comportamento, a entrada de E2E independente consome por caminho absoluto os artefatos gerados pelo mesmo release plan.
 
-1. macOS/Linux 校验 `bfs --version`，Windows 校验 system `find --version`；所有平台校验 `ugrep --version` 的版本及能力串。
-2. `file` 加平台检查工具校验最终随包分发的 `bfs`、`ugrep`、`rg` 的目标架构与动态依赖边界：macOS 使用 `otool -L` / `vtool -show-build`，Linux 使用 `readelf -d` 校验动态依赖并使用 `readelf --version-info` 断言 `bfs` / `ugrep` 的最大 GLIBC 引用不高于 2.28，Windows 直接读取 PE header / import table 校验 machine，并拒绝动态 CRT 与本应静态链接的 PCRE2、压缩库。
-3. `bfs -S dfs -regextype findutils-default` 的目录、深度、类型、名称和 regex 查询。
-4. `ugrep -G --ignore-files --hidden -I` 加 VCS 排除参数的递归搜索。
-5. hidden 文件可搜索、ignore 文件和 VCS 目录被排除、binary 文件被 `-I` 排除。
-6. stdin-only 搜索、无匹配退出码、非法 regex 退出码和管道被 `head` 提前关闭。
-7. 用户参数中的 `-E`、`-F`、`-P` 能覆盖默认 `-G`，并验证 PCRE2 以及 gzip、bzip2、zstd、Brotli、zip/archive 解压搜索能力。
-8. 默认 backend 从 `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY` / `ZCODE_RG_BINARY` 解析三个原生程序，并从真实 Bash tool entry 的 handler 进入 `NodeExecutionAdapter`，不能由测试手工构造 `ExecutionRequest` 跳过 toolcall 边界。
-9. 至少一个完整 Bash toolcall 必须同时证明实际命中 `bfs 4.1.1`（Windows 为 system find）/ `ugrep 7.8.4` / `ripgrep 14.1.1`，并覆盖 ZCode 对 embedded search 承诺的完整集成能力：`bfs` 的目录、深度、类型、名称和 GNU find regex；`ugrep` 的递归、hidden/ignore/VCS/binary 过滤、stdin、`-E` / `-F` / `-P`、特殊参数 system grep 绕行、压缩文件和 archive、退出码及提前关闭管道；`rg` 的文件/glob、hidden、stdin、fixed string、PCRE2、退出码及提前关闭管道。
-10. shell 中已有可执行 `rg` 时不得被随包 `rg` 覆盖；shell 缺少 `rg` 时直接执行 `ZCODE_RG_BINARY`，不能退回 Node、WASM 或 internal CLI 转发层。
-11. toolcall E2E 必须显式关闭 execution adapter、删除 fixture/output 临时目录，并启用 Vitest async-leak 检测；构建入口成功或失败后都不能残留 build/E2E workdir、child process、timer 或未完成 promise。
+1. macOS/Linux validam `bfs --version`, Windows valida `find --version` do system; todas as plataformas validam a versão e a string de capacidades de `ugrep --version`.
+2. `file` mais as ferramentas de verificação da plataforma validam a arquitetura alvo e a fronteira de dependências dinâmicas do `bfs`, `ugrep` e `rg` finais distribuídos com o pacote: o macOS usa `otool -L` / `vtool -show-build`, o Linux usa `readelf -d` para validar dependências dinâmicas e `readelf --version-info` para afirmar que a maior referência GLIBC de `bfs` / `ugrep` não é maior que 2.28, e o Windows lê diretamente o PE header / import table para verificar machine, rejeitando a CRT dinâmica e as libs PCRE2 e de compressão que deveriam estar linkadas estaticamente.
+3. Consultas de diretório, profundidade, tipo, nome e regex de `bfs -S dfs -regextype findutils-default`.
+4. Busca recursiva de `ugrep -G --ignore-files --hidden -I` com parâmetros de exclusão de VCS.
+5. Arquivos hidden podem ser buscados, arquivos de ignore e diretórios de VCS são excluídos e arquivos binários são excluídos por `-I`.
+6. Busca apenas por stdin, código de saída sem match, código de saída de regex inválido e fechamento prematuro do pipe por `head`.
+7. `-E`, `-F` e `-P` nos argumentos do usuário conseguem sobrescrever o `-G` padrão, validando o PCRE2 e a capacidade de busca com descompactação gzip, bzip2, zstd, Brotli, zip/archive.
+8. O backend padrão resolve os três programas nativos por `ZCODE_BFS_BINARY` / `ZCODE_UGREP_BINARY` / `ZCODE_RG_BINARY` e entra no `NodeExecutionAdapter` pelo handler da entrada real de tool do Bash, sem que o teste construa manualmente um `ExecutionRequest` para pular a fronteira de toolcall.
+9. Pelo menos um toolcall Bash completo precisa provar simultaneamente o acerto real de `bfs 4.1.1` (system find no Windows) / `ugrep 7.8.4` / `ripgrep 14.1.1` e cobrir toda a capacidade de integração que o ZCode promete para o embedded search: diretório, profundidade, tipo, nome e regex GNU find do `bfs`; recursão, filtros hidden/ignore/VCS/binary, stdin, `-E` / `-F` / `-P`, desvio para o system grep em argumentos especiais, arquivos compactados e archive, códigos de saída e fechamento prematuro de pipe do `ugrep`; arquivos/glob, hidden, stdin, fixed string, PCRE2, códigos de saída e fechamento prematuro de pipe do `rg`.
+10. Um `rg` já executável no shell não pode ser sobrescrito pelo `rg` do pacote; quando o shell não tem `rg`, ele executa `ZCODE_RG_BINARY` diretamente e não pode recorrer a Node, WASM ou à camada de forwarding de CLI interna.
+11. O E2E de toolcall precisa desativar explicitamente o execution adapter, apagar os diretórios temporários de fixture/output e habilitar a detecção de async-leak do Vitest; o build não pode deixar workdir de build/E2E, child process, timer ou promise pendente, tanto em caso de sucesso quanto de falha.
 
-这里的完整集成能力以 ZCode 实际注入的参数及其对应行为为边界，不要求穷举 `bfs`、`ugrep`、`rg` 上游 CLI 的全部独立参数。`ugrep --version` 仍需断言完整编译 feature set；行为测试至少分别执行 gzip、bzip2、zstd、Brotli，并以 zip 和 tar 代表 archive 搜索路径。
+A capacidade de integração completa aqui é delimitada pelos parâmetros que o ZCode realmente injeta e pelos comportamentos correspondentes, sem exigir uma enumeração de todos os parâmetros independentes da CLI upstream de `bfs`, `ugrep` e `rg`. `ugrep --version` ainda precisa afirmar o feature set completo compilado; os testes de comportamento precisam executar pelo menos gzip, bzip2, zstd e Brotli, e usar zip e tar como representantes do caminho de busca em archive.
 
-上游测试只作为源码版本升级或构建链调整时的补充证据，可通过显式构建参数运行 `ugrep make test` 和 `bfs` unit tests，不属于每次 release build 的强制 gate。正式打包门禁以固定源码/归档 SHA 和版本/feature/架构/ABI verifier 为准；目标架构上的真实 ZCode Bash toolcall E2E 作为独立验证证据，不随每次安装包构建重复执行。当前 Windows arm64 交叉构建仅通过 PE 静态校验，是提交代码后的待补发布验证，不是已完成的 E2E 证据。macOS 自带 Bash 3.2 不支持 bfs 集成测试 harness 使用的 `coproc`，因此仓库 E2E 不能依赖该 harness，而应直接覆盖 ZCode 实际使用的参数组合。
+Os testes upstream servem apenas como evidência complementar em upgrades de versão de fonte ou ajustes da cadeia de build e podem ser executados via flags de build explícitas com `ugrep make test` e os unit tests do `bfs`; não são um gate obrigatório de cada release build. O gate de empacotamento oficial tem como referência os SHA fixos de fonte/arquivo e os verificadores de versão/feature/arquitetura/ABI; o E2E real de toolcall do Bash na arquitetura alvo é evidência de validação independente e não é repetido a cada build de instalador. O cross-build atual do Windows arm64 passa apenas pela verificação estática PE e é uma validação de release pendente após o commit do código, e não evidência de E2E concluída. O Bash 3.2 que acompanha o macOS não tem `coproc`, usado pelo harness de teste de integração do bfs, então o E2E do repositório não pode depender desse harness e deve cobrir diretamente as combinações de parâmetros que o ZCode realmente usa.
 
-## 后续接入
+## Integrações seguintes
 
-macOS arm64/x64 已接入 desktop 本地 runtime asset，并分别提供对应架构的独立 Bash toolcall E2E。Linux 的 `bfs` / `ugrep` 由通过 Node 24 / glibc 2.28 / GCC 12 / G++ 12 门禁的 producer 构建，两个架构的 `rg` 均使用 Microsoft musl 静态归档；组合产物在 desktop/SEA 和 Linux remote 打包时执行版本、feature、架构、动态依赖与 GLIBC 2.28 ceiling 检查，完整 Bash toolcall E2E 独立运行。Windows x64/arm64 CI 通过 MSVC/CMake builder 生成 `ugrep.exe`、从 Microsoft release 下载对应架构的 `rg.exe`；两个目标都必须通过 PE 静态依赖检查，x64 的 Git Bash toolcall 和 SEA E2E 保留为独立验证，arm64 沿用既有交叉构建发布链。Darwin remote 暂时保留历史 rg13 component，后续迁移必须作为独立变更完成。
+macOS arm64/x64 já está integrado ao asset de runtime local do desktop e oferece um E2E de toolcall Bash independente para a arquitetura correspondente. O `bfs` / `ugrep` do Linux são construídos por um producer que passa nos gates de Node 24 / glibc 2.28 / GCC 12 / G++ 12, e o `rg` das duas arquiteturas usa o arquivo musl estático da Microsoft; os artefatos combinados passam por verificações de versão, feature, arquitetura, dependências dinâmicas e teto GLIBC 2.28 no empacotamento de desktop/SEA e de Linux remote, e o E2E completo de toolcall do Bash roda de forma independente. O CI de Windows x64/arm64 gera `ugrep.exe` pelo builder MSVC/CMake e baixa o `rg.exe` da arquitetura correspondente do Microsoft release; os dois alvos precisam passar pela verificação estática de dependências PE, o Git Bash toolcall e o E2E de SEA do x64 permanecem como validação independente e o arm64 segue a cadeia de publicação cross-build existente. O Darwin remote mantém temporariamente o componente histórico rg13, e a migração posterior precisa ser feita como uma mudança separada.
 
-未携带原生产物的平台继续由 Bash prelude 回退系统 `find` / `grep`，不能回退到 Node 转发层。后续平台接入不得改变 provider-visible embedded branch 的既有契约。
+Plataformas sem artefatos nativos continuam com o prelude do Bash recorrer ao system `find` / `grep`, e não podem recorrer à camada de forwarding Node. A integração de novas plataformas não pode mudar o contrato existente do embedded branch visível ao provider.

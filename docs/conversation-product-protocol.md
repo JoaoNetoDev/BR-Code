@@ -788,4 +788,352 @@ Essa atomicidade não amplia a semântica de rewind do workspace: um fork estáv
 apenas de conversa e não restaura checkpoint do workspace compartilhado; o comportamento de
 checkpoint existente para fork completed/idle não muda nesta rodada.
 
+### Edit e Retry
+
+- O `editUserQuery` unificado só permite a última entrada real do usuário
+  (`humanAuthored=true`) do active branch atual; ela pode ser uma query de texto comum ou um goal
+  input submetido pelo usuário. Entradas reais de usuário mais antigas, resultados
+  synthetic/model-only/background, assistant, tool e timeline não oferecem edit.
+- O latest real-user input, independentemente de já ter sido coberto por um compact summary, é
+  rewindado na session original por um branch cut append-only até aquele intent e então reexecutado
+  com o intent completo editado; texto continua passando por `sendText` e goal continua passando
+  por `sendGoalCommand`. As mensagens/partes antigas não são fisicamente removidas, mas deixam de
+  pertencer à projection ativa, ao contexto do modelo ou ao branch de cold recovery; o
+  `forkAssistant` explícito é a única entrada que cria uma child.
+- O branch cut precisa ser aplicado antes do escopo de compact: primeiro se obtém o `kept prefix +
+  as novas mensagens após o branch cut`, e só então se escolhe, dentro desse active branch, o
+  último compact boundary para construir o histórico do modelo. Todos os compact summaries
+  cruzados e o estado derivado de full/microcompact ficam inválidos; o compact mais recente que
+  ainda está no active branch antes do alvo é preservado.
+- O conversation rewind não acrescenta um `rewind_notice` visível ao provider; o modelo só vê o
+  prefixo preservado e o intent canônico substituído. A camada de persistência usa
+  `branchCutAfterMessageID + branchGeneration` para identificar o novo branch e mantém
+  compatibilidade com dados antigos de `createdMessageID`.
+- `editUserQuery.workspaceMode=preserve|rewind` distingue "apenas resetar a conversa" de
+  "conversa + arquivos". O modo combinado revalida no mesmo command e restaura checkpoints em
+  ordem inversa; qualquer coisa unsafe, ignored shell, unsupported ou sem checkpoint seguro
+  retorna um blocked estruturado, e arquivo, conversa e requisição ao provider permanecem
+  inalterados.
+- Quando o primary turn, a goal continuation ou o goal verifier está em execução, o edit do
+  latest real-user input (inclusive do latest goal input) entra primeiro na stop barrier; o rewind
+  na session original só é executado depois que todo o trabalho antigo bloqueante de conclusão
+  chega a um estado terminal. Se a barrier falhar, não pode haver rewind, não pode ser iniciada uma
+  nova intenção de text/goal, e o active work antigo, a entrada original e o branch atual precisam
+  ser preservados, sem enviar a requisição editada ao provider.
+- `activeWork.kind=compact` é o lock de operações do edit unificado, do fork, do retry e do
+  `sendQueuedNow`; todos essas ações são rejected, e não podem parar o compact, não podem entrar
+  na fila e não podem produzir efeitos colaterais parciais de command target.
+- O retry precisa restaurar a partir da causa canônica do product turn alvo o
+  `ConversationInputIntent` original completo (kind, text, attachments, goal intent,
+  delivery/fallback e a causa de origem); é proibido remontar a requisição a partir do texto de
+  usuário visível; a nova identidade de command produzida pelo command de retry não pode
+  sobrescrever a causa/proveniência do intent original. Um retry-de-retry precisa reutilizar o
+  `provenance.sourceCommandId/queueItemId/clientId` iniciais e não pode ser sobrescrito pela
+  queue/client de um retry intermediário.
+- A row action é a única fonte de elegibilidade para o handler: em running comum o edit pode
+  passar pela stop barrier e o fork de histórico estável está disponível; retry e rewind de
+  arquivos ficam indisponíveis em qualquer active work bloqueante de conclusão; compact como
+  active work bloqueia totalmente edit/fork/retry/rewind de arquivos. O handler não pode fazer uma
+  segunda arbitragem por `activeAbortController`.
+- A admissão de command `startNow` precisa segurar o gate do CommandInbox da mesma session até
+  que o `TurnStarted` canônico tenha sido persistido, o raw reorder buffer tenha sido drenado
+  continuamente, a aplicação da projection tenha sido concluída e a mesma materialização tenha
+  avançado revision, active work e row actions, antes de devolver o ACK. O input facade ver um
+  evento de runtime significa apenas "notificado" e não pode servir de prova de commit da
+  projection; a camada de command precisa aguardar o commit waiter, independente de conexão, por
+  `{sessionId,eventId}`. Assim, mesmo com delta ainda não entregue/aplicado na UI, um retry ou
+  rewind de arquivo com `baseRevision` antigo só pode retornar stale; é proibido executar
+  conversation/workspace rewind na janela em que o runtime controller já está active mas a
+  projection ainda está idle.
+- Uma falha antes do `TurnStarted` precisa limpar primeiro o active lock do runtime, depois
+  encerrar o command como failed e cancelar a admissão durável de input; é proibido retornar
+  accepted deixando um ghost input sem fato canônico de usuário. Se a barreira de commit passar de
+  25 segundos sem produzir `TurnStarted`, é obrigatório um abort fail-closed, limpar os locks e
+  retornar uma falha explícita de timeout.
+- Quando o renderer encontra erro de transporte no envio de `sendText` para cima, ele só pode
+  concluir que o resultado do command é desconhecido; não pode tratar isso como "não admitido de
+  forma explícita" e reenviar automaticamente com um novo command/session. É preciso preservar os
+  vestígios de recuperação do commandId original e convergir via `commands/query` ou via
+  queue/guide/transcript projection com o mesmo `sourceCommandId`; antes que o resultado
+  autoritativo seja determinado, um único envio do usuário pode produzir no máximo um admission
+  de Agent.
+- Uma vez que a barreira de commit do `TurnStarted` dá timeout e o command entra em estado final
+  failed/cancelled, o eventId e o sourceCommandId correspondentes precisam entrar em um estado
+  terminal não committable. Mesmo que um raw reorder gap seja preenchido depois, não se deve mais
+  aplicar aquele `TurnStarted` à projection canônica; caso contrário o renderer reenviaria com base
+  no ACK failed, o turno antigo apareceria atrasado e a restrição de conservação de "um único
+  resultado autoritativo de input por envio do usuário" seria quebrada.
+- O commit waiter de event da projection precisa satisfazer: eventId já aplicado resolve com
+  sucesso imediatamente; raw gap pendente não resolve com sucesso; só resolve após o seq ausente
+  chegar e o drain/apply contínuo ser concluído; e projection apply error, rehydrate,
+  session/gateway dispose, abort ou timeout de 25 segundos rejeitam explicitamente e limpam
+  timer/listener/waiter. O point-of-no-return do timeout é determinado pelo commit real da
+  projection e não pode ser marcado como committed só porque o sink do runtime já viu o evento.
+- Quando um row command ou uma file changes/preview query encontra stale revision, stale epoch ou
+  stale entity target, o cliente precisa disparar a recuperação/resync da projection da mesma
+  subscription; a ação só pode ser submetida de novo sob a nova authority de
+  revision/epoch/entity, e é proibido continuar reutilizando o target da projection antiga.
+- O `accepted` do ACK de fork navega igual ao `duplicate` com resultado de child já existente; o
+  ACK de edit é sempre vinculado à session atual e não navega para child. failed/rejected/stale
+  não navegam; um blocked de arquivo mantém o rascunho na linha e permite degradar para
+  `workspaceMode=preserve` com um novo commandId.
+- A UI só consome `visibility/origin/marker/actions` do CLI. É proibido esconder action/row por
+  posição no array, por `lastFlowRow` ou por texto raw de `/compact`; quando o histórico antigo não
+  tem campos canônicos, a normalização é feita pela hydration do CLI.
+
+### Objeto Alvo
+
+| Valor | Significado |
+| --- | --- |
+| `composer` | o conteúdo submetido pelo campo de entrada atual |
+| `queueItem` | um item do painel de queue |
+| `latestUserQuery` | o latest real-user input; pode ser uma query de texto comum ou um goal input submetido pelo usuário |
+| `oldUserQuery` | um real-user input histórico não latest (text/goal) |
+| `latestAssistantTurn` | o assistant turn mais recente |
+| `oldAssistantTurn` | um assistant turn histórico |
+| `toolMessage` | bloco de ferramenta ou resultado de ferramenta |
+| `timelineMarker` | marker de timeline como compact, fork, goal verification, model change etc. |
+
+O alvo de fork só é definido sobre assistant message/turn. O alvo de edit só é definido sobre
+user query. Tool message e timeline marker não oferecem entrada de fork/edit, a menos que o
+protocolo os defina separadamente mais adiante.
+
+## Eventos de Entrada
+
+### Eventos de Usuário
+
+| Event ID | Superfície | Payload | Alvo comum |
+| --- | --- | --- | --- |
+| `sendText` | composer | texto comum | `composer` |
+| `sendGoalCommand` | composer ou controle de goal | `/goal xxx` ou texto de goal | `composer` |
+| `sendCompactCommand` | composer | `/compact` | `composer` |
+| `clickCompact` | toolbar ou action menu | intenção de compact | session atual |
+| `stop` | toolbar | parar a atividade da session atual | active work da session atual |
+| `forkAssistant` | turn actions | intenção de fork | assistant turn latest/old |
+| `retryTurn` | entrada de compatibilidade do protocolo (oculta na UI de produto) | intenção de retry | assistant turn mais recente |
+| `editUserQuery` | real-user row actions | texto de text/goal editado; preserva o kind original do intent | latest real-user input |
+| `sendQueuedNow` | queue actions | id do queue item | `queueItem` |
+| `editQueueItem` | queue actions | conteúdo da queue editado | `queueItem` |
+| `reorderQueueItem` | queue actions | nova ordem | `queueItem` |
+| `deleteQueueItem` | queue actions | id do queue item | `queueItem` |
+| `switchModelConfig` | toolbar/seletor de modelo | config de provider/model/thought | session atual |
+
+### Eventos de Sistema
+
+| Event ID | Origem | Contextos aplicáveis |
+| --- | --- | --- |
+| `assistantComplete` | runtime/model stream | `running` |
+| `assistantFailed` | runtime/model stream | `running` |
+| `compactStarted` | runtime | compact auto/manual |
+| `compactComplete` | runtime | `activeWork.kind=compact` |
+| `compactNoop` | runtime | `activeWork.kind=compact` ou compact novamente após completed |
+| `compactFailed` | runtime | `activeWork.kind=compact` |
+| `goalVerifyStart` | goal runtime | entrada no verifier após o goal ficar active |
+| `goalVerifyPass` | goal runtime | `activeWork.kind=goalVerifier` |
+| `goalVerifyNotSatisfied` | goal runtime | `activeWork.kind=goalVerifier`, verifier retorna normalmente "objetivo ainda não atingido" |
+| `goalVerifyFailed` | goal runtime | `activeWork.kind=goalVerifier`, verifier cancelado, falha de interface, timeout ou exceção interna |
+| `foregroundSubagentStarted` | runtime/tool | `running`, sub agent em foreground derivado do primary turn |
+| `foregroundSubagentComplete` | runtime/tool | `running`, encerramento do active work do foreground subagent correspondente |
+| `foregroundSubagentFailed` | runtime/tool | `running`, o active work do foreground subagent correspondente falhou ou foi encerrado por stop |
+| `backgroundWorkStarted` | runtime/tool | início de background bash/subagent; não bloqueia `sessionEnded` |
+| `backgroundWorkComplete` | runtime/tool | conclusão de background bash/subagent; produz um background result ou um no-op |
+| `backgroundWorkFailed` | runtime/tool | falha de background bash/subagent ou cancelamento em background |
+| `backgroundResultQueued` | runtime/tool | o background result já entrou no continuation inbox ou na queue deferida |
+| `sessionRestored` | restore/snapshot | app reload, troca de session, remote replayable |
+
+## Tipos de Decision
+
+| Decision | Significado | O que precisa ser explicado |
+| --- | --- | --- |
+| `allow` | a ação passa a valer imediatamente | o próximo estado, a requisição de protocolo gerada ou a mudança de estado local |
+| `reject` | a ação foi explicitamente rejeitada | o feedback ao usuário, os efeitos colaterais proibidos e o que permanece sem mudança de estado |
+| `enqueue` | a ação não executa imediatamente e entra na queue | o deferred input event, o payload, a ordem e se há autoDrain |
+| `noop` | a ação pode ser disparada, mas não muda o estado de negócio | o feedback ao usuário e por que nenhuma ação é necessária |
+| `system-transition` | um evento de sistema avança o estado | a atribuição do evento, o próximo estado e se dispara ações seguintes |
+| `undefined` | a semântica de produto não está definida | as perguntas a confirmar e as interpretações candidatas |
+| `bug-candidate` | a implementação atual parece violar um protocolo já confirmado | o protocolo confirmado, o conflito observado e o ponto de entrada da evidência |
+
+`reject` não é um erro genérico de fallback. Cada reject precisa declarar o feedback e os efeitos
+colaterais proibidos, por exemplo "não entra na fila, não vira user message comum, não envia
+requisição de compact".
+
+`undefined` não pode virar um E2E estável. Precisa entrar no decision worksheet ou no backlog e
+só depois da confirmação o resultado é escrito de volta na rule table e no case catalog.
+
+## Invariantes Globais
+
+Esses invariantes têm prioridade sobre qualquer case individual. Se o effect de uma rule violar um
+invariante, ela deve ser marcada como `bug-candidate` ou `undefined` e não pode ser tratada como um
+case accepted comum.
+
+| Invariant ID | Descrição | Estado atual |
+| --- | --- | --- |
+| `sameSessionActiveTurnExclusive` | a mesma session não pode executar dois active turns ao mesmo tempo; entradas seguintes na mesma session precisam passar por queue, turn-steer ou regras explícitas de stop/drain | accepted |
+| `sessionCompletionRequiresNoForegroundWork` | `completed(success/interrupted)` exige que primary turn, foreground subagent, compact, goal verifier, goal continuation e turn-steer tenham todos encerrado; background work não participa do completion gate | accepted |
+| `foregroundSubagentKeepsSessionBusy` | depois que o assistant stream ou o turno principal termina localmente, enquanto houver um foreground subagent pertencente à session atual em execução, a session não pode entrar em completed | accepted |
+| `backgroundWorkDoesNotBlockSessionEnd` | com background bash/subagent em execução, a session ainda pode entrar em completed depois que o foreground work é esvaziado e pode abrir as operações exclusivas de completed | accepted |
+| `sessionEndedDrivesImmediateStart` | só um contexto completed com `sessionEnded=true` permite que a entrada comum do composer se torne imediatamente o próximo active turn; com `sessionEnded=false` é obrigatório acertar um guard de queue, guide, reject ou stop/drain | accepted |
+| `runtimeFactsAreAuthoritative` | `sessionEnded`, `canStop`, `stopState` e `stopTargetKind` devem vir dos fatos do CLI/runtime ou da projeção normalizada do host/service; a UI não pode adivinhar apenas pelo message stream, timeline ou estado `streaming` local | accepted |
+| `persistentConversationFactsAreAuthoritative` | message, part, session metadata e goal são a autoridade persistente; live/cold devem ser normalizados primeiro para os mesmos fatos canônicos e só então gerar o projection | accepted |
+| `rowIdentityIsDisplayOnly` | `rowId` serve apenas para exibição; as actions e command targets de edit/retry/fork precisam estar vinculados a `entityId/productTurnId` | accepted |
+| `trustedDeliveryBoundary` | desktop (incluindo SSH/WSL/Docker) é continuous fixo; mobile/Web remote é replayable fixo; o profile é injetado de forma confiável pelo host attachment e não é selecionável pela UI | accepted |
+| `subscriptionOwnedByConnection` | cada conexão tem um registry de subscription próprio; o frame vai apenas para a porta proprietária e um assinante lento não pode contaminar outras conexões | accepted |
+| `acceptedInputHasSingleAuthority` | todas as entradas já submetidas em busy/running em qualquer ponta entram no mesmo FIFO pela ordem de admissão do CLI; host/runtime/UI não mantêm uma segunda fila autoritativa | accepted |
+| `acceptedInputAlwaysAccountedFor` | cada entrada submetida precisa estar, de forma única e exclusiva, em um destes estados: queue, guided row, transcript, rejected/failed/discarded explícito | accepted |
+| `sourceCommandIdEndToEnd` | queue item, evento de drain/guided, user row, âncora de mensagem, marker e metadata de fork child preservam o sourceCommandId original | accepted |
+| `restartDiscardRespectsDeliveryLifetime` | após restart do CLI, a entrada admitted incompleta é explicitamente discarded; o `queue/guide` do runtime antigo e o `unknown` sem conclusão autoritativa são liquidados silenciosamente sem erro na UI, e apenas o `startNow` que não entrou no transcript pede confirmação de reenvio, com reenvio automático proibido | accepted |
+| `stopButtonStableAcrossActiveWork` | em transições entre active work como assistant, compact, goal verifier, goal continuation e foreground subagent, desde que a session ainda possa ser parada, o botão de stop da UI precisa permanecer estável e não pode pisar por causa da troca de fase interna | accepted |
+| `stopPausesActiveGoalTarget` | quando o goal target está active, o stop do usuário, seja acting sobre assistant, compact, goal verifier ou goal continuation, precisa colocar o target num estado de pausa não ativo | accepted |
+| `cancelledTurnColdHydrationParity` | o cancelamento typed/legacy do ZCode gerado pelo stop do usuário precisa ser reduzido como `TurnComplete(cancelled)` tanto no live quanto após o cold hydration; é proibido gerar `TurnError`, `phase=error` ou `control.lastError` | accepted |
+| `followupInputModeExplicit` | uma entrada comum seguinte durante o running precisa ser arbitrada pelo modo `queue` ou `guide`; o padrão é `queue` | accepted |
+| `runningPromptQueues` | com `running` e follow-up mode `queue`, o texto comum entra na queue sem interromper a requisição in-flight atual | accepted |
+| `unfinishedSessionPromptQueues` | com `sessionEnded=false` e sem acertar o guide allow, o texto comum entra na queue e não inicia um segundo active turn | accepted |
+| `unfinishedSessionGoalQueues` | com `sessionEnded=false`, `/goal xxx` entra na queue e define ou atualiza o goal no consumo; essa é a rule específica do `/goal` e não significa que todo command pode ser enfileirado | accepted |
+| `guideModeEligibilityGuard` | o modo `guide` só vale quando as condições de turn-steer são satisfeitas; quando não são, é obrigatório reverter para a queue | accepted |
+| `guideModePreservesMessage` | em modo `guide`, o texto seguinte precisa ser preservado no turn-steer/guided history ou na queue de fallback, sem perda | accepted |
+| `runningCompactQueues` | em `running`, `/compact` entra no FIFO unificado como typed maintenance intent; não pode virar mensagem comum nem iniciar compact em paralelo | accepted |
+| `runningStableAssistantForkAllowed` | em `running` é possível fazer fork do último segmento completed assistant de um turno `completedSuccess` mais antigo; partial de streaming/interrupted/failed e segmentos intermediários de assistant não podem ser forked | accepted |
+| `latestQueryEditPreemptsActiveTurn` | apenas a última entrada real do usuário (text ou goal) pode ser editada; em running, submeter o edit equivale a parar primeiro o active work atual e reexecutar a partir daquela entrada preservando o kind original do intent | accepted |
+| `compactCoveredLatestEditRewindsInPlace` | quando o latest real-user input já foi coberto por um compact summary estável, a session original faz branch cut append-only, reseta o estado derivado de compact atravessado e reproduz com o kind original; não cria child nem acrescenta lembrete de rewind | accepted |
+| `latestAssistantRetryOnly` | a capacidade de baixo nível primeiro fixa a última row `assistantText` de toda a timeline na projection atual e depois exige que o mesmo product turn tenha uma entrada de usuário canônica com `origin=realUser`; turnos synthetic como background result/goal continuation/mailbox e turnos anteriores de usuários reais não obtêm a capacidade. A UI de produto esconde uniformemente a entrada de retry de assistant comum no desktop, Web e celular, e `canRetry`/`retryTurn` permanecem apenas por compatibilidade de protocolo | accepted |
+| `retryPreservesFullIntent` | o retry restaura a partir da causa canônica o kind do input, o texto, os attachments, a intenção de goal, o delivery/fallback e a causa de origem, sendo proibido reconstruir apenas a partir do texto visível | accepted |
+| `goalInputUsesUnifiedEditTarget` | o lifecycle `goalSet` não produz marker; o goal input do usuário produz uma real-user row canônica visível e compartilha o target `editUserQuery` com a text query; o reenvio continua sendo `sendGoalCommand` | accepted |
+| `stopHighestPriorityCancelsForegroundWork` | o stop tem a maior prioridade e precisa encerrar o primary turn, o foreground subagent, o compact, o goal verifier, a goal continuation e o turn-steer não confirmado da session atual | accepted |
+| `stopEndsAsInterruptedCompleted` | depois que o stop encerra todo active work bloqueante de conclusão, a session entra em `completed(interrupted)`, e não existe estado de produto paused | accepted |
+| `stopKeepsQueueAndDisablesAutoDrain` | após o stop a queue é preservada e `autoDrain=false` | accepted |
+| `lateTerminalEventsAfterStopDoNotRevive` | estados terminais tardios de assistant/foreground subagent/compact/verifier após o stop não podem devolver o trabalho antigo a success nem sobrescrever uma nova entrada ativa | accepted |
+| `heldQueueInputRequiresChoice` | em `completed` com held queue (queue>0 + autoDrain=false), a nova entrada do composer não entra silenciosamente na fila: o usuário escolhe entre "limpar a queue e enviar" ou "manter a queue e enviar agora" (rearbitragem de 2026-07-05, que substitui o antigo heldQueueCapturesNewInput) | accepted |
+| `queueContentIndependence` | a queue é intenção futura e não fica presa a um trecho de histórico concluído; edit, compact e fork não reescrevem a queue | accepted |
+| `forkAssistantOnly` | só assistant message pode ser forked; user/tool/timeline não oferecem fork | accepted |
+| `forkDoesNotCopyQueue` | a nova session de fork não copia a queue do pai; a queue do pai é preservada | accepted |
+| `forkStableHistoryOnly` | a child herda apenas o último segmento completed assistant de um turno `completedSuccess` e o histórico estável anterior; o running da session pai não proíbe fork automaticamente, mas o partial atual, o assistant intermediário e o lock de operação de compact não podem servir de fronteira estável de fork | accepted |
+| `runningForkDoesNotRewindWorkspace` | um fork em running é apenas de conversa; não restaura checkpoint do workspace compartilhado e a session pai continua rodando; o comportamento de workspace existente para completed/idle não é ampliado | accepted |
+| `forkDoesNotCopyBackgroundWork` | o fork não copia o live background bash/subagent, o background result pendente nem o continuation inbox da session pai; só copia o background result que já entrou no transcript antes do ponto do fork | accepted |
+| `forkInheritsSessionFutureState` | a child herda o provider/model/profundidade de pensamento persistidos no ponto do fork e o estado do goal anterior a ele, mas não herda a config nem a queue posteriores da session pai | accepted |
+| `forkTimelineIsBoundary` | o fork notice é uma fronteira de turno e não entra no recolhimento do histórico de trabalho do assistant | accepted |
+| `editUserOnly` | só o latest real-user input (text query ou goal input do usuário) pode ser editado; assistant/tool/timeline não oferecem edit | accepted |
+| `editKeepsQueue` | editar o latest real-user input reexecuta o branch com o kind original do intent, mas a queue é preservada como está | accepted |
+| `sessionConfigScoped` | modelo, provider e profundidade de pensamento são configuração futura no nível da session e não podem vazar entre sessions | accepted |
+| `queuedSubmissionPreservesSelection` | a queue guarda a Submission completa; no consumo continuam sendo usados o Provider, o Model e a profundidade de pensamento fixados no momento do enfileiramento, e a config do Provider é lida dos fatos mais recentes ao criar o Model | accepted |
+| `crossSessionUnlimitedConcurrency` | sessions diferentes podem rodar realmente em paralelo, com queue/model/sidebar isolados entre si | accepted |
+| `autoCompactIsSystemTurnPrefix` | o auto compact é um passo de manutenção preparatória do pendingAction e, após o sucesso, continua com o pendingAction | accepted |
+| `goalVerificationOutcomeSeparation` | um veredito normal do verifier de "não atingido" precisa ser marcado como `notSatisfied`; só cancelamento, falha de interface, timeout ou exceção interna geram `failed` | accepted |
+| `compactActiveWorkOperationLock` | `activeWork.kind=compact` é um estado de manutenção interno do running; texto comum e `/goal` entram na fila, e compact, fork, edit, retry e sendQueuedNow precisam ser rejected | accepted |
+| `goalVerifierBusyRouting` | `activeWork.kind=goalVerifier` é um estado de verificação interno do running; texto comum, `/goal` e `/compact` entram todos como intenção futura na fila, o stop pode interromper o verifier; o edit do latest user query passa pela stop barrier e reexecuta, fork de histórico estável é permitido e sendQueuedNow passa pela stop barrier e drena | accepted |
+| `backgroundWakeStartsIndependentProductTurn` | um background model-only wake cria um product turn independente tanto em live quanto em cold; não tem row de trigger user visível e não pode ser unido ao turno real de usuário anterior | accepted |
+| `stableForkIsAtomicAndFullyRemapped` | o fork estável só é publicado depois que os child metadata, o histórico, o goal/provenance e todas as referências child-local foram escritos atomicamente e remapeados; na falha não sobra uma child pela metade | accepted |
+
+## Guards Estáveis Conhecidos
+
+Esses guards têm consenso estável nos documentos atuais e podem servir de primeira fonte para a
+rule table futura.
+
+| Guard ID | Casamento | Decision | Effect principal |
+| --- | --- | --- | --- |
+| `firstSend` | `draft + sendText` | `allow` | cria a session, entra na página de detalhe e a primeira user message fica visível |
+| `runningPromptQueues` | `running + followupInput.mode=queue + sendText` | `enqueue` | o `sendText` deferido cresce em FIFO, sem enviar um segundo active turn da mesma session |
+| `guideModeTurnSteer` | `running + followupInput.mode=guide + sendText + guide eligible` | `allow` | o texto seguinte entra no turn-steer ou em uma guided user message e não dispara um novo turno comum |
+| `guideModeFallbackPreservesMessage` | `running + followupInput.mode=guide + sendText + guide ineligible` | `enqueue` | reverte para `sendText` deferido sem perder a entrada do usuário |
+| `unfinishedSessionPromptQueues` | `sessionEnded=false + sendText + guide ineligible/not applicable` | `enqueue` | o `sendText` deferido cresce em FIFO, sem iniciar um segundo active turn |
+| `unfinishedSessionGoalQueues` | `sessionEnded=false + sendGoalCommand` | `enqueue` | o `sendGoalCommand` deferido preserva a intenção de goal e define/atualiza o goal no consumo |
+| `runningCompactQueues` | `running + sendCompactCommand/clickCompact` | `enqueue` | anexa um queue item com kind=`compact`; não vira user message comum; é executado estritamente em FIFO após o fim do trabalho atual |
+| `runningStableAssistantForkAllowed` | `running + forkAssistant + stable historical assistant target` | `allow` | cria a child; o active work atual, a queue e o background work da session pai permanecem na session pai |
+| `latestQueryEditPreemptsActiveTurn` | `running + editUserQuery + latest real-user input(text/goal)` | `allow` | executa primeiro a stop barrier; depois que o trabalho antigo é esvaziado, rewind e reexecuta com o kind original; se a barrier falhar, preserva o trabalho/entrada/branch antigo e não inicia text/goal |
+| `compactCoveredLatestEditRewindsInPlace` | `editUserQuery + latest real-user input + coveredByStableCompact` | `allow` | branch cut append-only na session original; reseta o estado de compact/microcompact atravessado, reproduz com o kind original e não cria nem navega para child |
+| `goalInputUsesUnifiedEditTarget` | `editUserQuery + latest real-user input(kind=goal)` | `allow` | rewind pelo target de entidade estável; reenvia o intent `sendGoalCommand`, a row do goal input continua visível e nenhum marker `goalSet` é gerado |
+| `latestQueryEditOnly` | `editUserQuery + non-latest real-user input` | `reject` | inputs text/goal históricos não oferecem edit, evitando que o active branch retroceda a um contexto antigo |
+| `latestAssistantRetryOnly` | `retryTurn + non-latest assistantText row`, ou o turno do assistant mais recente não tem entrada de usuário canônica com `origin=realUser` | `reject` | respostas históricas de assistant e turnos de resultado background/synthetic não obtêm a capacidade de retry; é proibido pular o assistant synthetic mais recente para voltar a um contexto antigo. Nenhuma capability de retry de assistant comum é renderizada como entrada de UI de produto |
+| `activeWorkBlocksCompletion` | `assistantComplete + activeWork!=empty` | `system-transition` | encerra o trabalho já concluído, mas a session continua busy e não abre operações exclusivas de completed |
+| `controlProjectionKeepsStopVisible` | `canStop=true OR stopState=stopping` | `system-transition` | a UI mantém o mesmo botão de parada; mudanças em `stopTargetKind` só atualizam o texto de detalhe |
+| `stopBusySessionCancelsForegroundWork` | `prewarming/running/activeWork!=empty + stop` | `allow` | encerra o active work bloqueante de conclusão da session atual; ao esvaziar, entra em `completed(interrupted)`, com a queue preservada e `autoDrain=false` |
+| `sendQueuedNowStopsBeforeDrain` | `running + queue>0 + sendQueuedNow` | `allow` | reserva o item alvo e executa a stop barrier; só remove se o início for bem-sucedido, e em caso de falha libera a reservation mantendo o item no lugar |
+| `compactActiveWorkOperationLock` | `activeWork.kind=compact + sendCompactCommand/clickCompact/forkAssistant/editUserQuery/retryTurn/sendQueuedNow` | `reject` | está compactando; não é possível iniciar um segundo compact, nem fazer fork/edit/retry, nem precipar o drain da queue |
+| `goalVerifierBusyRouting` | `activeWork.kind=goalVerifier + sendText/sendGoalCommand/sendCompactCommand` | `enqueue` | está verificando o goal; a entrada do usuário e a intenção de manutenção são salvas como typed queue item, sem iniciar um segundo active turn e sem interromper o verifier |
+| `goalVerifierStopBarrierDrain` | `activeWork.kind=goalVerifier + sendQueuedNow` | `allow` | para primeiro o verifier (marker failed/cancelled, goal paused) e depois drena o item alvo conforme as regras explícitas de consumo da queue |
+| `completedCanStartNextTurn` | `completed + sendText + queue=0` | `allow` | inicia imediatamente o próximo turno |
+| `backgroundOnlyCompletedCanForkOrCompact` | `completed + backgroundWork!=empty + forkAssistant/clickCompact` | `allow` | o background work não bloqueia as operações exclusivas de completed; fork/compact continuam agindo apenas sobre o transcript estável |
+| `heldQueueInputRequiresChoice` | `completed + queue>0 + autoDrain=false + sendText/sendGoalCommand` | `choice` | o cliente apresenta a escolha: `clearQueueAndSend` (limpar a queue e enviar) ou `keepQueueAndSend` (manter a queue e enviar agora); a repetição do command carrega a disposition escolhida |
+| `manualCompact` | `completed + clickCompact/sendCompactCommand` | `allow` | entra em `running + activeWork.kind=compact` e insere o timeline de compact |
+| `forkAssistantOnly` | `stable assistant target + forkAssistant` | `allow/reject` | assistant permite fork; user/tool/timeline são proibidos |
+| `editUserOnly` | `editUserQuery` | `allow/reject` | o latest real-user input (text/goal) permite edit; real-user input que não é o último, assistant/tool/timeline são proibidos |
+| `forkDoesNotCopyQueue` | `forkAssistant` | `allow` | a child herda o histórico estável e a configuração do ponto do fork e não copia a queue do pai |
+| `forkDoesNotCopyBackgroundWork` | `forkAssistant` | `allow` | a child não copia o live background work nem o background result pendente da session pai |
+| `queueContentIndependence` | `editQueueItem/reorderQueueItem/deleteQueueItem` | `allow` | altera apenas a queue e não dispara consumo |
+
+## Fronteiras de Produto Pendentes
+
+Os quatro limites foram todos arbitrados em 2026-07-05 (fechamento das decisões M0 do refactor
+v4); esta seção preserva o registro das arbitragens. As conclusões dos subproblemas detalhados
+estão em [decision-answers](./testing/conversation-session-decision-answers.md) e no compact
+decision worksheet.
+
+| Boundary ID | Conclusão da arbitragem | Origem |
+| --- | --- | --- |
+| `PB-COMP-FAIL-F09` | mantém completed (volta ao estado original anterior ao compact) + failed marker (com entrada de retry); a queue é preservada e não é consumida automaticamente, e autoDrain não muda; todas as operações são restauradas | compact worksheet F09.1–F09.4 |
+| `PB-AUTO-COMP-FAIL-G11` | continua executando o pendingAction sem compressão (mantém running, o 4º request é o request ao modelo principal); o histórico retrying e o failed marker são preservados mas não bloqueiam; o circuit breaker passa a valer e a contagem é resetada após um compact manual bem-sucedido | compact worksheet G11.1–G11.4 |
+| `PB-AUTO-COMP-STOP-G12` | idêntico ao stop comum: o pendingAction é preservado como a user message interrupted do turno atual (editável/retryable na timeline, sem copiar de volta para a queue e sem descartar); a session fica `completed(interrupted)`; o marker de compact vai para cancelled; todos os itens de queue explicitamente adicionados são preservados e não consumidos automaticamente | compact worksheet G12.1–G12.4 |
+| `PB-AUTO-COMP-MODEL-N06` | troca permitida: não interrompe o compact já emitido e a config passa a valer imediatamente; a fronteira de corrida é a leitura da config snapshot mais recente no instante do consumo do pendingAction (o switchModelConfig do v4 usa revision CAS) | case catalog N06 |
+
+## Contrato de Evidências
+
+Cada rule ou case posterior precisa declarar ao menos uma evidência visível ao usuário e uma
+evidência fora da UI.
+
+| Camada | Uso |
+| --- | --- |
+| UI | a mensagem realmente vista pelo usuário, a queue, botões disabled, toast, timeline marker |
+| Runtime/Store | `sessionId`, phase, queue, target, activeInputId, activeWork, backgroundWork, sessionEnded, canStop, stopState, stopTargetKind, autoDrain, model config |
+| Protocol | commands de app/agent, como send, compact, goal, fork, stop, activity terminal event, runtime facts snapshot, product control projection |
+| Network/SSE | requisições ao provider, requisições de compact, timing do stream, retry |
+| Files | session snapshot, task index, compact summary, fork history |
+| Logs | UI logger, service logger, agent log, obrigatoriamente com atribuição de case/session/input |
+
+Para rules da classe reject, a evidência precisa provar simultaneamente que os efeitos colaterais
+proibidos não ocorrem. Por exemplo, um `/compact` em running rejeitado precisa mostrar não só o
+toast, mas também provar que a queue não mudou, que não houve user message comum e que nenhuma
+requisição de compact foi enviada.
+
+Para rules da classe completed, a evidência precisa provar que o active work bloqueante de
+conclusão pertencente à session foi esvaziado. Por exemplo, não basta afirmar que a assistant
+message aparece concluída; é preciso também provar que não há foreground subagent, goal verifier,
+compact, goal continuation não encerrado ou turn-steer ainda em execução. Background
+bash/subagent precisam ser provados separadamente como fato de `backgroundWork` ou pelo background
+drawer; eles podem continuar pendentes, mas não podem voltar a colocar `sessionEnded` como
+`false`.
+
+Para rules da classe control projection, a evidência precisa provar que a cadeia dos fatos do
+CLI/runtime até a projection do host/service e até a UI é consistente. Por exemplo, enquanto
+`canStop=true` ou `stopState=stopping`, o botão de parada não pode desaparecer brevemente por
+causa da troca interna de fase `assistant -> compact -> goalVerifier`; mudanças em
+`stopTargetKind` só podem alterar tooltip, log ou texto auxiliar.
+
+Para rules da classe `sessionEnded=false` com enfileiramento, a evidência precisa provar que a
+entrada do usuário foi salva como queue item e que nenhuma segunda active turn foi iniciada. Se o
+contexto atual for `activeWork.kind=compact` ou `activeWork.kind=goalVerifier`, é preciso também
+provar que o active work de compact/verifier existente não foi interrompido e que a queue só
+drena no momento posterior em que o consumo é permitido.
+
+Para rules da classe fork, a evidência precisa provar que o alvo do fork é uma fronteira de
+transcript estável do último segmento completed assistant de um product turn `completedSuccess` e
+que a child não copiou a queue do pai, o live background bash/subagent, o background result
+pendente nem o continuation inbox. Se a session pai ainda estiver running no momento do fork, a
+evidência precisa ainda provar que o active work do pai continua pertencendo à session pai, que o
+workspace compartilhado não sofreu rewind e que a child recebeu apenas o histórico estável
+anterior ao ponto do fork.
+
+Para rules da classe stop do usuário, a evidência precisa provar que o command de stop foi aplicado
+a todo active work bloqueante de conclusão, especialmente incluindo o foreground subagent; quando
+o goal target está active, precisa provar também que o target foi colocado em pausa; e que os
+estados terminais tardios de assistant/foreground subagent/compact/verifier após o stop não
+reviveram a session como success, não dispararam pendingAction e não sobrescreveram uma nova
+entrada ativa. O cancelamento somente de background passa pelo background task control e não
+serve como evidência de session stop.
+
+## Próximo Passo
+
+Se for criado um `docs/conversation-session-rule-table.md`, ele deve expandir em regras apenas os
+invariantes com status `accepted` e os guards estáveis deste arquivo. Esse arquivo ainda não
+existe; as fronteiras marcadas `needs-decision` entram primeiro em confirmações de pequenos lotes
+e não entram como rule accepted.
+
 <!-- SECTION-EDIT-AND-RETRY -->

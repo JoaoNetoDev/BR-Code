@@ -1,148 +1,142 @@
-# Rewards 奖励中心内嵌接入
+# Integração embutida do centro de recompensas Rewards
 
-## 范围与归属
+## Escopo e responsabilidade
 
-Windows/Linux 的奖励页及其登录入口必须保留顶部窗口按钮，关闭网页与关闭窗口是独立操作。
-`marketing-touch-rewards.test.ts` 打开奖励及登录后断言窗控可见且不被遮挡；macOS 沿用原生红绿灯。
+A página de recompensas em Windows/Linux e sua entrada de login devem manter os botões de janela no topo; fechar a página web e fechar a janela são operações independentes.
+`marketing-touch-rewards.test.ts` abre as recompensas e o login e então afirma que os controles da janela estão visíveis e não encobertos; no macOS os controles nativos de semáforo são mantidos.
+A entrada do menu do centro de recompensas (Rewards) usa o ícone Lucide `Gift` de caixa de presente, mantendo `size-4` e herdando a cor do texto; o ícone `User` do avatar da conta permanece inalterado.
+A entrada do centro de recompensas só é exibida quando o estado de login do usuário existente não está vazio; quando deslogado ou após logout, a linha inteira não é renderizada. Desktop e Web compartilham a mesma condição, sem criar uma cópia do estado de login.
+O navigate de marketing com page=rewards compartilha o RewardsProvider. A página web só aceita /{cn|en}/rewards; tanto o antigo page=referrals quanto o antigo /{cn|en}/referrals são rejeitados. O Provider é o único detentor do attempt ID retomado após o login; cancelar/falhar/substituir descarta o ID, e em caso de sucesso com o usuário pronto ele abre apenas uma vez, independentemente da reconstrução por troca de conta da instância de marketing. Veja marketing-touch-actions.md.
+A entrada do menu mantém 「邀请好友 [奖励] / Refer a friend [Rewards]」 e o título da página embutida é 「奖励中心 / Rewards」. O texto da entrada e o título usam chaves i18n de rewards independentes. A largura do menu se adapta ao conteúdo em chinês e inglês, preservando os temas claro/escuro e o suporte a mobile. A funcionalidade real de indicar amigo, link de convite e histórico de convites dentro da página continua usando a semântica de referral/invite.
+O menu do avatar no canto inferior esquerdo exibe 「邀请好友 [奖励]」 abaixo de "assinar". O Rewards Provider de nível de janela é o único detentor do estado aberto, sem depender do estoque de planos, sem alterar a navegação de tarefas, modelos ou configurações. App e website compartilham o contrato de URL/bridge; os dados de indicação e as recompensas pertencem ao servidor, e o exemplo estático atual da página web não conta como conclusão da funcionalidade. A conclusão da compra do Coding Plan, os canais e o contrato original de tema permanecem compatíveis.
 
-奖励中心（Rewards）菜单入口使用 Lucide `Gift` 礼物盒图标，保持 `size-4`、继承文字颜色；账户头像的 `User` 图标不变。
+## Verificação da troca para Rewards em 2026-09-15
 
-奖励中心入口仅在现有 user 登录状态非空时显示；未登录或退出登录后整行不渲染。桌面和 Web 共用同一条件，不新增登录状态副本。
+- 88 testes unitários relacionados do App, typecheck completo, lint e verificação de arquitetura aprovados; o menu mantém a indicação de amigo e o selo de recompensas.
+- 3 E2E em Electron no macOS aprovados (navegação de marketing/relato único, menu/tema/idioma/fechamento, cancelamento de login). A execução final desktop-e2e-20260915-094821-908 reportou um timeout de processo na limpeza de saída, e o PID correspondente já havia encerrado; asserções funcionais aprovadas não equivalem a ausência de anomalias na etapa de saída.
+- 5 testes unitários do Website, build de produção, verificação de tipos, lint dos arquivos afetados, verificação no navegador dos novos caminhos em chinês/inglês retornando 200 e da página inicial antiga retornando 404, verificação das subrotas reais de convite e do layout claro/escuro em 390/900/1440px aprovados. O lint completo do Website ainda tem erros pré-existentes em arquivos não relacionados, sem ampliação das modificações.
+- Não foram verificados nesta entrega o deploy de produção, a emissão real de recompensas pelo servidor, nem a execução nativa em Windows/Linux; a cadeia em tempo real de tarefas e o protocolo do Coding Plan não são alterados.
 
-营销 navigate 的 page=rewards 共用 RewardsProvider。网页仅接受 /{cn|en}/rewards；旧 page=referrals 与旧 /{cn|en}/referrals 均拒绝。Provider 唯一持有登录后续接的尝试 ID，取消/失败/替换即丢弃，成功且用户就绪后仅打开一次，独立于营销实例的账号切换重建。详见 marketing-touch-actions.md。
+## Endereços e modos
 
-菜单入口保留「邀请好友 [奖励] / Refer a friend [Rewards]」，内嵌页面标题为「奖励中心 / Rewards」。入口文案与标题使用独立的 rewards i18n key。菜单宽度适配中英文内容，保留明暗主题与移动端支持。页面内真正的邀请好友、邀请链接、邀请记录仍使用 referral/invite 语义。
+A entrada exibe o selo de recompensas, preservando o tamanho original do selo de plugin, o espaçamento de texto de 6px e o estilo do ícone de presente.
 
-左下角头像菜单在升级下方显示「邀请好友 [奖励]」。窗口级 Rewards Provider 唯一持有打开状态，不依赖套餐库存，不更改任务、模型或设置导航。App 与 website 共用 URL/bridge 契约；邀请数据和奖励由服务端拥有，网页当前静态样例不算业务完成。Coding Plan 购买完成、渠道与主题原协议保持兼容。
+O EmbeddedWebsiteHeader compartilhado (página de indicar amigo e página de upgrade) tem padding inferior igual a 0, preservando py-4 no topo e px-6 nas laterais / max-sm:px-4.
 
-## 2026-09-15 Rewards 切换验证
+Restrições de layout: o WebView do App ocupa toda a largura disponível da janela, com a barra de rolagem da página no lado direito da janela; dentro do site, a centralização e o limite de largura do conteúdo ficam a cargo da página web. A navegação do topo fica fixa fora da área visível de rolagem, sem adicionar um contêiner de rolagem externo no App. Esta correção não altera o Coding Plan nem os caminhos de abertura externa Web/mobile.
 
-- App 88 项相关单测、全量 typecheck、lint、architecture 检查通过；菜单保留邀请好友和奖励徽标。
-- macOS Electron 实测 3 项 E2E 通过（营销导航/单次上报、菜单/主题/语言/关闭、取消登录）。最终运行 desktop-e2e-20260915-094821-908 的退出清理曾报告进程超时，该 PID 随后已退出；功能断言通过不等于退出阶段无异常。
-- Website 5 项单测、生产构建、类型检查、受影响文件 lint、浏览器中英文新路径 200/旧主页 404、真实邀请子路由与 390/900/1440px 明暗布局检查通过。全量 Website lint 仍有无关文件的既有错误，未扩展修改。
-- 本次未验证生产部署、真实服务端奖励发放、Windows/Linux 原生运行；不更改任务实时链路和 Coding Plan 协议。
+- Desenvolvimento/integração local explícita: http://localhost:3000; teste: https://zcode.z.ai; produção: https://zcode.z.ai.
+- `pnpm dev:desktop:test` usa por padrão o domínio de teste; `pnpm dev:desktop` usa por padrão o domínio de produção, e o modo de desenvolvimento não muda automaticamente para localhost.
+- Integração local explícita do Website: `VITE_REWARDS_WEBVIEW_ORIGIN=http://localhost:3000 pnpm dev:desktop:test`. Isso sobrescreve apenas o endereço da página web de recompensas; as APIs do App continuam usando o ambiente de teste; não altera idioma, tema ou protocolo de autenticação.
+- URL: /{cn|en}/rewards?embedded=app&theme={zai-light|zai-dark}; zh-CN mapeia para cn, en-US mapeia para en.
+- O endereço local só é permitido em desenvolvimento/E2E; os deploys de produção e de teste validam a origem HTTPS, o caminho exato e o marcador embedded. Rejeitam informação de usuário, subdomínios forjados e caminhos semelhantes.
+- O Desktop usa um WebView isolado; Web/mobile usam páginas externas HTTPS e o login do site, sem colocar o token do App na URL nem passá-lo a um navegador externo. Não altera desktop-continuous / web-remote-replayable, host attachment nem o estado autoritativo de tarefas.
 
-## 地址与模式
+## Estado e sequenciamento
 
-入口展示奖励徽标，保留原有插件徽标尺寸、6px 文案间距和礼物图标样式。
+### Cabeçalhos de requisição da página de recompensas (2026-09-16)
 
-共用 EmbeddedWebsiteHeader（邀请好友与升级页）的底部内边距为 0，保留顶部 py-4 和左右 px-6 / max-sm:px-4。
-
-布局约束：App WebView 撑满窗口可用宽度，页面滚动条位于窗口右侧；网站内部负责内容限宽居中。顶部导航位于滚动视口外固定显示，不增加 App 外层滚动容器。此修复不改变 Coding Plan 或 Web/mobile 外部打开路径。
-
-- 本地显式开发联调：http://localhost:3000；测试：https://zcode.z.ai；正式：https://zcode.z.ai。
-- `pnpm dev:desktop:test` 默认使用测试域名；`pnpm dev:desktop` 默认使用正式域名，开发模式不自动切换到 localhost。
-- 本地 Website 联调显式启动：`VITE_REWARDS_WEBVIEW_ORIGIN=http://localhost:3000 pnpm dev:desktop:test`。仅覆盖奖励网页地址，App 接口仍使用测试环境；不改变语言、主题或鉴权协议。
-- URL：/{cn|en}/rewards?embedded=app&theme={zai-light|zai-dark}；zh-CN 映射 cn，en-US 映射 en。
-- 本地地址只允许开发/E2E；正式和测试部署校验 HTTPS origin、精确路径和 embedded 标识。拒绝用户信息、伪造子域及相似路径。
-- Desktop 使用隔离 WebView；Web/mobile 使用 HTTPS 外部网页和网站登录，不把 App token 放进 URL 或传给外部浏览器。不改 desktop-continuous / web-remote-replayable、host attachment、任务权威状态。
-
-## 状态与时序
-
-### 奖励页请求头（2026-09-16）
-
-最终决定：访问奖励页面不注入 App 公共请求头或 Authorization。此前请求头方案撤销；完整公共头与 Bearer JWT 仅用于 App 自身 `/event/report`，见 [上报投递合同](monitoring/event-report-delivery-reliability.md)。
+Decisão final: acessar a página de recompensas não injeta os cabeçalhos comuns do App nem o Authorization. O plano anterior de cabeçalhos foi revogado; os cabeçalhos comuns completos e o Bearer JWT são usados apenas para o próprio `/event/report` do App, veja [Contrato de entrega de telemetria](monitoring/event-report-delivery-reliability.md).
 
 ```text
-打开 WebView（普通网页请求） → dom-ready → 原 bridge 注入/状态同步（保留）
+Abertura do WebView (requisição web comum) → dom-ready → injeção do bridge original/sincronização de estado (preservados)
 ```
 
-删除奖励页专用请求上下文 IPC、hook、Main 网络拦截器及对应 schema；网页加载不再等待请求头准备。
+Removem-se o IPC de contexto de requisição exclusivo da página de recompensas, o hook, o interceptador de rede do Main e o schema correspondente; o carregamento da página não espera mais pela preparação dos cabeçalhos.
+O Bridge mantém a injeção do estado de login, tema, idioma e armazenamento necessário à página atual, além da validação de navegação/geração de conta. A abertura externa Web/mobile continua não repassando o token do App, sem alterar task continuous/replayable.
 
-Bridge 保留登录状态、主题、语言及当前网页所需存储注入和导航/账号代次校验。Web/mobile 外部打开仍不转交 App token，不改变 task continuous/replayable。
+Aceitação REW-17: a primeira requisição/o refresh não carregam parâmetros comuns extras do App nem Authorization; o bridge original, o menu, o tema, o idioma e o link externo do celular permanecem inalterados. O registro de verificação inicial de cabeçalhos no fim deste documento é apenas evidência histórica do plano já revogado e não representa o protocolo atual.
 
-验收 REW-17：首个请求/刷新不携带额外 App 通参或 Authorization；原 bridge/菜单/主题/语言与手机外链不变。文末早期请求头验证记录仅为已撤销方案的历史证据，不代表当前协议。
-
-最终回归：本机 Electron `desktop-e2e-20260916-043702-139` 3/3 通过，同时确认 App `/event/report` 的登录/匿名请求头；未使用 Docker。移除专用 IPC/hook 后不再出现“请求头上下文准备”前置步骤。
+Regressão final: Electron local `desktop-e2e-20260916-043702-139` com 3/3 aprovados, confirmando ao mesmo tempo os cabeçalhos de login/anônimo do `/event/report` do App; sem uso de Docker. Após a remoção do IPC/hook exclusivo, o passo prévio de "preparação do contexto de cabeçalhos" não ocorre mais.
 
 ```mermaid
 sequenceDiagram
   participant App
   participant Bridge
   participant Website
-  App->>Website: 打开含语言路径和首屏 theme 的地址
-  Website->>Bridge: 订阅后读取当前快照
-  App->>App: dom-ready 后校验地址并读取当前账号凭据
-  App->>Bridge: 确认导航/账号代次未变化，清旧凭据并注入新凭据与上下文
-  Bridge->>Website: auth/theme/lang 通知
-  App->>Bridge: 实际主题变化
-  Bridge->>Website: 原地更新 data-theme，不重载
-  App->>Bridge: 语言变化
-  Bridge->>Website: 替换语言路由，保留 embedded/theme
+  App->>Website: abre o endereço com o caminho de idioma e o theme da primeira tela
+  Website->>Bridge: lê o snapshot atual após assinar
+  App->>App: valida o endereço após dom-ready e lê as credenciais da conta atual
+  App->>Bridge: confirma que navegação/geração de conta não mudaram, limpa as credenciais antigas e injeta as novas e o contexto
+  Bridge->>Website: notificação auth/theme/lang
+  App->>Bridge: mudança real de tema
+  Bridge->>Website: atualiza data-theme no lugar, sem recarregar
+  App->>Bridge: mudança de idioma
+  Bridge->>Website: substitui a rota de idioma, preservando embedded/theme
 ```
 
 ## Bridge v1
 
-### 2026-09-15 直接切换决定
+### Decisão de troca direta em 2026-09-15
 
-- 改动层级：presentation / validation / commit-effect / persistence；既有状态归属不变。
-- 页面级目录、组件、函数、类型、i18n、日志、测试标识与构建入口统一 Rewards/rewards；本地环境配置改为 VITE_REWARDS_WEBVIEW_ORIGIN，不读取旧变量。
-- 新分区为 persist:zcode-rewards，新上下文事件为 zcode-rewards-context；window.zcodeBridge、OAuth/JWT key 不变。
-- 不迁移、不读取、不自动清理旧 persist:zcode-referrals 分区，不订阅旧事件、不导出旧别名、不兼容旧路径，不添加重定向或切换失败时回旧页。现有非法配置校验、安全拒绝及普通 Web 无 bridge 行为不属于迁移兜底，继续保留。
-- Website 的 /invite、/invite/accept、/invite/unavailable 与 /referrals/unavailable 是实际邀请业务，不属于被移除的奖励主页，保持原语义；仅旧 /{cn|en}/referrals 根页面返回 404。
-- 升级、领取、营销上报、任务/session、手机 replayable 与桌面 continuous 均不改变。用户数据/奖励仍归服务端，页面展示状态归 Website，登录续接归窗口 Provider。
+- Camadas alteradas: presentation / validation / commit-effect / persistence; a atribuição de estado existente não muda.
+- Diretórios, componentes, funções, tipos, i18n, logs, identificadores de teste e entradas de build da página são unificados em Rewards/rewards; a configuração de ambiente local passa a ser VITE_REWARDS_WEBVIEW_ORIGIN, sem ler a variável antiga.
+- A nova partição é persist:zcode-rewards e o novo evento de contexto é zcode-rewards-context; window.zcodeBridge e as chaves OAuth/JWT permanecem inalteradas.
+- Não se migra, não se lê e não se limpa automaticamente a antiga partição persist:zcode-referrals, não se assina o evento antigo, não se exporta alias antigo, não há compatibilidade com caminhos antigos, e não se adiciona redirecionamento nem retorno à página antiga em caso de falha na troca. As validações de configuração inválida existentes, as rejeições de segurança e o comportamento de Web comum sem bridge não fazem parte de um fallback de migração e continuam mantidos.
+- /invite, /invite/accept, /invite/unavailable e /referrals/unavailable no Website são a funcionalidade real de indicação e não pertencem à página inicial de recompensas removida, mantendo a semântica original; apenas a antiga página raiz /{cn|en}/referrals retorna 404.
+- Upgrade, resgate, telemetria de marketing, tarefas/sessões, replayable no celular e continuous no desktop não mudam. Os dados do usuário e as recompensas continuam pertencendo ao servidor, o estado de exibição da página pertence ao Website e a retomada do login pertence ao Provider da janela.
 
-| 验收项 | 设置/动作 | 断言/证据 |
+| Item de aceitação | Configuração/ação | Asserção/evidência |
 | --- | --- | --- |
-| REW-13 | 三环境、cn/en、明暗构造并校验 URL | 仅 rewards 精确路径；旧路径、相似路径、旧配置拒绝/不读取，单测 |
-| REW-14 | 安装 bridge 后分别派发新旧事件 | 旧事件不更新状态，新事件生效；分区只使用新名称，单测/桌面 E2E |
-| REW-15 | 登录菜单及营销按钮打开 | Gift + 邀请好友 [奖励] / Refer a friend [Rewards]；rewards 路由、鉴权、语言主题与单次上报正常，真实 Electron E2E |
-| REW-16 | Website 普通/embedded 新旧主页与邀请页 | 新页 200、旧主页 404；邀请路由不变，中英明暗与 390/900/1440px，无横向溢出，浏览器测试 |
+| REW-13 | Construir e validar a URL nos três ambientes, cn/en, claro/escuro | Apenas o caminho exato rewards; caminhos antigos, semelhantes e configuração antiga rejeitados/não lidos, teste unitário |
+| REW-14 | Após instalar o bridge, despachar eventos antigo e novo separadamente | O evento antigo não atualiza o estado, o novo tem efeito; a partição usa apenas o novo nome, teste unitário/E2E desktop |
+| REW-15 | Abrir pelo menu de login e pelo botão de marketing | Gift + 邀请好友 [奖励] / Refer a friend [Rewards]; rota rewards, autenticação, idioma, tema e relato único funcionando, E2E real em Electron |
+| REW-16 | Páginas inicial nova/antiga e de convite no Website, comum/embedded | Página nova 200, página inicial antiga 404; rotas de convite inalteradas, chinês/inglês, claro/escuro e 390/900/1440px, sem overflow horizontal, teste no navegador |
 
-以上用例已按用户决定 accepted；迁移/旧版本兼容组合 pruned，不增加迁移测试。沿用 REF-01…12 的原登录/桥接隔离用例 ID；初始新增 E2E 保持 pending，2026-09-16 转正决定见下文，不使用 Docker。图谱保留稳定 capability ID，增加 Rewards 别名及营销入口关系；codegraph 不可用，采用二层静态调用核对，不声称完整索引扫描。
+Os casos acima foram aceitos conforme a decisão do usuário; as combinações de migração/compatibilidade de versões antigas foram podadas, sem novos testes de migração. Reutiliza-se os IDs de caso originais de login/isolamento do bridge REF-01…12; os novos E2E iniciais permanecem pendentes, e a decisão de promoção de 2026-09-16 está abaixo, sem uso de Docker. O grafo mantém os capability IDs estáveis, ganha o alias Rewards e as relações de entrada de marketing; o codegraph não está disponível, adotando-se uma verificação estática de chamadas em dois níveis, sem reivindicar varredura completa do índice.
 
-window.zcodeBridge 提供 getTheme/onThemeChange、getLang/onLangChange、getAuthState/onAuthChange。订阅返回取消函数；读取在尚未就绪时返回 null。theme 为 zai-light/zai-dark，locale 为 zh-CN/en-US。AuthState 为 {status: ready|anonymous, provider: zai|bigmodel|null, revision: number}，ready 仅表示注入完成，不等于服务端验签成功。事件不携带 token。禁止购买完成能力出现在邀请页。
+window.zcodeBridge oferece getTheme/onThemeChange, getLang/onLangChange, getAuthState/onAuthChange. A assinatura retorna uma função de cancelamento; a leitura retorna null quando ainda não está pronta. theme é zai-light/zai-dark, locale é zh-CN/en-US. AuthState é {status: ready|anonymous, provider: zai|bigmodel|null, revision: number}, onde ready indica apenas a conclusão da injeção e não equivale à validação de assinatura pelo servidor. Os eventos não carregam token. É proibido que a capacidade de conclusão de compra apareça na página de convite.
 
-凭据 key 与购买页一致：当前渠道 oauth:zai:access_token 或 oauth:bigmodel:access_token，以及 zcodejwttoken。切账号和关闭时清除旧值；每次注入前与异步读取后都检查当前 URL、组件生命周期和账号代次，旧结果不能写进新页面。不添加主动邀请提交或鉴权失败自动业务重试。
+As chaves de credencial são as mesmas da página de compra: o canal atual oauth:zai:access_token ou oauth:bigmodel:access_token, além de zcodejwttoken. Valores antigos são limpos na troca de conta e no fechamento; antes de cada injeção e após a leitura assíncrona, verificam-se a URL atual, o ciclo de vida do componente e a geração da conta, e resultados antigos não podem ser escritos em uma nova página. Não se adiciona envio ativo de indicação nem nova retentativa automática de negócio em caso de falha de autenticação.
 
-## 影响面（静态核对）
+## Superfície de impacto (verificação estática)
 
-| 层级 | 入口/共享实现 | 归属/约束 |
+| Camada | Entrada/implementação compartilhada | Responsabilidade/restrição |
 | --- | --- | --- |
-| must-inspect | WorkspaceSidebar 头像菜单、Root | Rewards 打开独立于 Coding Plan inventory |
-| must-inspect | 网页外壳、Rewards Provider | 复用展示控件，鉴权和回传分开 |
-| must-inspect | desktop will-attach-webview、preload、分区清理 | 可信页面限定桥权限，不扩散到普通浏览器 |
-| should-inspect | CodingPlanEmbeddedWebviewDialog | 购买导航、关闭、刷新与回传保持原行为 |
-| invariant-only | 手机远控、任务流 | 不改变 runtime、队列、workspace identity |
-| evidence-only | UI 单测、Electron WebView E2E、website 单测 | 断言设置、动作和结果，不以静态样例代表服务端联调 |
+| must-inspect | Menu do avatar no WorkspaceSidebar, Root | Abertura de Rewards independente do inventário do Coding Plan |
+| must-inspect | Casca da página web, Rewards Provider | Reutiliza controles de exibição, com autenticação e retorno separados |
+| must-inspect | will-attach-webview do desktop, preload, limpeza de partições | Página confiável delimita as permissões do bridge, sem propagação ao navegador comum |
+| should-inspect | CodingPlanEmbeddedWebviewDialog | Navegação de compra, fechamento, refresh e retorno mantêm o comportamento original |
+| invariant-only | Controle remoto do celular, fluxo de tarefas | Não altera runtime, filas nem workspace identity |
+| evidence-only | Testes unitários de UI, E2E de WebView no Electron, testes unitários do website | Asserções sobre configuração, ação e resultado, sem tomar o exemplo estático como integração com o servidor |
 
-codegraph 不可用，以上是源码静态核对而非完整调用图扫描；语义图已补 Rewards 节点及购买壳展示复用、远控边界关系。
+O codegraph não está disponível; o quadro acima é uma verificação estática do código-fonte, não uma varredura completa do grafo de chamadas; o grafo semântico já recebeu o nó Rewards e as relações de reuso de exibição na casca de compra e de fronteira do controle remoto.
 
-## 验收与交接
+## Aceitação e entrega
 
-| Case | 设置与动作 | 断言 |
+| Case | Configuração e ação | Asserção |
 | --- | --- | --- |
-| REF-01 | cn/en、三环境、明暗构建 URL | 域名、精确路径、embedded/theme 正确 |
-| REF-02 | 菜单点击、重复打开、关闭 | 升级下方入口；独立容器；原任务不变 |
-| REF-03 | bridge 先/后就绪，切主题 | 快照可读、通知一次、无页面重载、退订有效 |
-| REF-04 | 切语言 | 路由替换并保留 theme/embedded，不携带 token |
-| REF-05 | 注入/切账号/关闭/异步迟到 | 清旧值、只保留当前渠道、旧注入不生效 |
-| REF-06 | 外域、相似路径、恶意 URL | 无桥/无凭据注入 |
-| REF-07 | 加载失败、刷新、重开 | 可恢复且旧事件不串入新页面 |
-| REF-08 | 普通网页/手机 | 无 bridge 不崩溃；不转交 App token |
-| REF-09 | 回归 Coding Plan | 原购买桥与完成刷新不变 |
-| REF-10 | 明暗主题下滚动邀请页 | WebView 左右边界与窗口一致；页面可滚动，顶部导航位置不变 |
-| REF-11 | Banner / 独立弹窗下发 navigate rewards | 打开既有邀请页，每次 confirm 只上报一次，不触发领取 |
-| REF-12 | 未登录导航后成功、取消、失败、替换登录尝试 | 同 ID 且 user 就绪才续接；取消/失败/替换后不因其他登录补跳；Web 外链只打开一次 |
+| REF-01 | cn/en, três ambientes, claro/escuro construindo a URL | Domínio, caminho exato, embedded/theme corretos |
+| REF-02 | Clicar no menu, abrir repetidamente, fechar | Entrada abaixo do upgrade; contêiner independente; tarefas originais inalteradas |
+| REF-03 | Bridge antes/depois de pronto, troca de tema | Snapshot legível, notificado uma vez, sem recarregamento da página, cancelamento válido |
+| REF-04 | Trocar idioma | Rota substituída preservando theme/embedded, sem token |
+| REF-05 | Injeção/troca de conta/fechamento/atraso assíncrono | Limpa valores antigos, mantém apenas o canal atual, injeção antiga sem efeito |
+| REF-06 | Domínio externo, caminho semelhante, URL maliciosa | Sem bridge/sem injeção de credenciais |
+| REF-07 | Falha de carregamento, refresh, reabertura | Recuperável e eventos antigos não vazam para a nova página |
+| REF-08 | Página web comum/celular | Sem bridge não quebra; não repassa o token do App |
+| REF-09 | Regressão do Coding Plan | Bridge de compra e refresh de conclusão inalterados |
+| REF-10 | Rolagem na página de convite em tema claro/escuro | Bordas esquerda/direita do WebView iguais às da janela; página rolável, posição da navegação do topo inalterada |
+| REF-11 | Banner / popup independente despachando navigate rewards | Abre a página de convite existente, cada confirm gera um único relato e não dispara resgate |
+| REF-12 | Navegação sem login bem-sucedida, cancelamento, falha, substituição da tentativa de login | Retomada apenas com o mesmo ID e usuário pronto; sem salto extra por outro login após cancelar/falhar/substituir; link externo do Web abre apenas uma vez |
 
-2026-09-16 用户确认转正：3 条 Rewards E2E 移至 `packages/desktop/test/e2e/ui-shell/marketing-touch-rewards.test.ts`，纳入默认 spec 扫描，不使用 Docker。标准 promotion dry run 不支持 ui-shell，沿用营销领域手动迁移。正式运行由 runner 在构建前启动隔离网页 fixture 并配置随机 loopback origin，不依赖手动启动 localhost:3000；fixture 只实现网页侧 bridge 消费协议和长页滚动，不替代真实 Website 业务或视觉验收。保留之前真实 Website 联调证据，真实服务端验签、部署和发奖不在本用例范围。
+Confirmação do usuário em 2026-09-16 sobre a promoção: os 3 E2E de Rewards foram movidos para `packages/desktop/test/e2e/ui-shell/marketing-touch-rewards.test.ts`, incluídos na varredura de spec padrão, sem uso de Docker. O dry run padrão de promoção não suporta ui-shell, mantendo-se a migração manual do domínio de marketing. A execução oficial é feita pelo runner iniciando antes da build uma fixture de página web isolada e configurando uma origem loopback aleatória, sem depender de localhost:3000 iniciado manualmente; a fixture implementa apenas o protocolo de consumo do bridge no lado da página web e a rolagem de páginas longas, sem substituir a funcionalidade real do Website ou a aceitação visual. As evidências anteriores de integração com o Website real são preservadas; validação de assinatura pelo servidor, deploy e emissão de recompensas não estão no escopo deste caso.
 
-转正验证：本机 macOS Electron `desktop-e2e-20260916-033102-475`，正式路径、无 MANUAL_REVIEW 开关、无网页地址手动覆盖，3/3 通过，runner exit 0。Fixture HTTP 单测 16/16、根 typecheck、desktop typecheck:e2e、lint（47 warnings / 0 errors）、architecture check 通过。未进行 Docker 准入或运行远端 CI，不将单测覆盖的账号竞态、安全边界及环境选择声称为新增 E2E。
+Verificação de promoção: Electron local no macOS `desktop-e2e-20260916-033102-475`, caminho oficial, sem flag MANUAL_REVIEW e sem sobrescrita manual do endereço da página, 3/3 aprovados, runner exit 0. Teste unitário da fixture HTTP 16/16, typecheck da raiz, typecheck:e2e do desktop, lint (47 warnings / 0 errors) e verificação de arquitetura aprovados. Não foi feita admissão com Docker nem execução do CI remoto, e as condições de corrida de conta, fronteiras de segurança e seleção de ambiente cobertas por teste unitário não são reivindicadas como novo E2E.
 
-## 2026-09-15 验证记录
+## Registro de verificação de 2026-09-15
 
-- 营销 rewards 导航增量：8 个单测文件 113 项通过；3 条 macOS Electron E2E 通过，包含 Banner/独立弹窗各一次 confirm、匿名引导登录/取消且上报不带 Authorization，以及原嵌入流程。登录成功续接、用户就绪时序、取消/失败/替换和 Web 单次打开由 Provider 单测覆盖，未执行真实 OAuth 授权。E2E 退出清理有一次超时警告，检查时对应进程已退出。
+- Incremento de navegação de rewards no marketing: 8 arquivos de teste unitário com 113 casos aprovados; 3 E2E de Electron no macOS aprovados, incluindo um confirm cada no Banner e no popup independente, login anônimo orientado/cancelado e sem Authorization no relato, além do fluxo embutido original. A retomada após login bem-sucedido, o sequenciamento de usuário pronto, cancelar/falhar/substituir e a abertura única no Web são cobertos por testes unitários do Provider, sem execução de autorização OAuth real. A limpeza de saída do E2E teve um aviso de timeout, e o processo correspondente já havia encerrado no momento da verificação.
 
-- macOS Electron 实际嵌入 localhost:3000：入口位于升级下方、OAuth/JWT 注入且另一渠道清空、明暗切换不重载、中英文往返、刷新和关闭重开通过；截图在本地 E2E artifacts。
-- Coding Plan 现有 BigModel 与 Z.ai 购买完成通知、关闭及 Provider 刷新两条 E2E 通过，未执行真实支付。
-- URL/bridge/窗口导航/启动鉴权及 Coding Plan 相关 85 条单测、桌面命令与分区清理 18 条单测通过；website 3 条协议单测及生产构建通过。
-- App typecheck、lint 与 architecture check 通过；lint 有仓库既存警告。图谱既存 4 条悬空边，本次未新增，新增源码种子已校验；codegraph 运行时索引不可用。
-- 未验证：Windows/Linux 实机、手机浏览器实机、真实邀请 API、真实令牌失效响应、生产/测试环境网站部署。网站目前只订阅鉴权就绪状态，不声称服务端已验证登录或发放奖励。
+- Incorporação real em localhost:3000 no Electron do macOS: entrada abaixo do upgrade, injeção de OAuth/JWT e limpeza do outro canal, troca claro/escuro sem recarregamento, ida e volta entre chinês e inglês, refresh e fechamento/reabertura aprovados; as capturas de tela estão nos artefatos locais do E2E.
+- As duas E2E de notificação de conclusão de compra do Coding Plan existente com BigModel e Z.ai, fechamento e refresh do Provider passaram, sem execução de pagamento real.
+- 85 testes unitários de URL/bridge/navegação de janela/autenticação de inicialização e Coding Plan relacionados, e 18 testes unitários de comandos de desktop e limpeza de partições aprovados; 3 testes unitários de protocolo do website e o build de produção aprovados.
+- typecheck do App, lint e architecture check aprovados; o lint tem avisos pré-existentes no repositório. O grafo já tinha 4 arestas penduradas, nenhuma nova nesta entrega, e as novas sementes de código-fonte foram verificadas; o índice de runtime do codegraph não está disponível.
+- Não verificado: Windows/Linux em aparelho real, navegador do celular em aparelho real, API real de indicação, resposta real de token inválido, deploy do site em produção/teste. O site hoje só assina o estado de autenticação pronta e não reivindica que o servidor já validou o login ou Liberou recompensas.
 
-## 2026-09-16 请求头验证记录
+## Registro de verificação de cabeçalhos de 2026-09-16
 
-- 6 个相关单测文件共 22 项通过：覆盖请求范围、窗口身份隔离、重定向撤销、无所属窗口请求、匿名请求、账号切换迟到结果丢弃、刷新重读 JWT 及既有 bridge/导航行为。
-- macOS Electron 3 条 E2E 通过，运行标识 `desktop-e2e-20260916-024814-751`。实际观察初次加载和刷新发出的请求，确认通参及无 Bearer 的 Authorization；同时回归主题、语言、关闭重开、营销导航与匿名取消。测试只记录请求头存在性，不输出凭据。
-- 根 `pnpm typecheck`、desktop `typecheck:e2e`、`pnpm lint`（47 个警告，0 个错误）、`pnpm architecture:check --changed` 通过。桌面模块尚未纳入 managed 架构契约，不能将此视为完整边界证明。
-- 额外对独立 main/preload/renderer TypeScript 配置作 HEAD 对照：仍有既存配置/类型诊断，未出现新的文件、错误码与消息组合；该额外检查不宣称通过。
-- 本轮未验证真实服务端验签、生产/测试网站部署、Windows/Linux 及手机实机。网页业务 API 不在当前精确页面路由的请求头注入范围；bridge 保持原行为。
+- 6 arquivos de teste unitário relacionados com 22 casos aprovados: cobrem o escopo de aplicação dos cabeçalhos, o isolamento de identidade da janela, a revogação no redirecionamento, requisições sem janela proprietária, requisições anônimas, descarte de resultado tardio na troca de conta, releitura do JWT no refresh e o comportamento existente do bridge/navegação.
+- 3 E2E de Electron no macOS aprovados, identificação da execução `desktop-e2e-20260916-024814-751`. As requisições realmente observadas no carregamento inicial e no refresh confirmaram os parâmetros comuns e o Authorization sem Bearer; também houve regressão de tema, idioma, fechamento/reabertura, navegação de marketing e cancelamento anônimo. O teste apenas registra a existência dos cabeçalhos, sem imprimir credenciais.
+- `pnpm typecheck` na raiz, `typecheck:e2e` do desktop, `pnpm lint` (47 avisos, 0 erros) e `pnpm architecture:check --changed` aprovados. O módulo do desktop ainda não faz parte do contrato de arquitetura gerenciado, portanto isto não pode ser tratado como prova completa de fronteiras.
+- Foi feita uma comparação HEAD adicional das configurações TypeScript separadas de main/preload/renderer: permanecem diagnósticos de configuração/tipos pré-existentes, sem surgir nenhuma combinação nova de arquivo, código de erro e mensagem; essa verificação adicional não é declarada como aprovada.
+- Nesta rodada não foram verificados a validação real de assinatura pelo servidor, o deploy do site em produção/teste, Windows/Linux e o celular em aparelho real. As APIs de negócio da página web não estão no escopo de injeção de cabeçalhos da rota de página exata atual; o bridge mantém o comportamento original.

@@ -1,115 +1,113 @@
-# Windows CUA 源码开发运行时设计
+# Design do Runtime de Desenvolvimento a partir do Código-fonte do Windows CUA
 
-> 日期：2026-07-28
+> Data: 2026-07-28
 >
-> 状态：已确认
+> Status: confirmado
 >
-> 范围：Windows 本地桌面源码开发环境
+> Escopo: ambiente de desenvolvimento de código-fonte do desktop local no Windows
 >
-> 关联仓库：`z-code`、`C:\Users\dev\zcode-cua`
+> Repositórios relacionados: `z-code`, `C:\Users\dev\zcode-cua`
 
-## 1. 背景
+## 1. Contexto
 
-ZCode 当前的 Computer Use 产品链路以 macOS 为主：
+A cadeia atual de produto Computer Use do ZCode é centrada no macOS:
 
 ```text
 ZCode Host
-  -> 安装、校验并启动独立 Helper.app
-  -> 生成 socket + bearer token
-  -> 向官方 zcode-cua plugin 注入凭据
-  -> plugin 通过 MCP 向 Agent 暴露工具
-  -> Helper.app 通过 AX / ScreenCaptureKit / CGEvent 执行
+  -> instala, verifica e inicia um Helper.app independente
+  -> gera socket + bearer token
+  -> injeta credenciais no plugin oficial zcode-cua
+  -> o plugin expõe ferramentas ao Agent via MCP
+  -> o Helper.app executa via AX / ScreenCaptureKit / CGEvent
 ```
 
-外部 `@zcode/zcode-cua` 仓库已经包含 Windows UIA、named pipe、基础
-`SendInput` 点击/键盘以及部分元素语义动作，但当前还没有形成 ZCode 本地桌面的完整运行链路：
+O repositório externo `@zcode/zcode-cua` já contém UIA do Windows, named pipe, cliques/teclado básicos com `SendInput` e parte das ações semânticas de elemento, mas ainda não forma uma cadeia completa de execução para o desktop local do ZCode:
 
-- ZCode 默认 Product Helper 只允许 `darwin`；
-- Windows standalone 会错误进入 macOS Helper 启动逻辑；
-- 当前安装中没有可加载的 `ax_native.node`；
-- Windows 截图、剪贴板、应用启动和完整鼠标动作没有闭环；
-- UIA 采集仍可能同步阻塞 V8 主线程；
-- 坐标输入主要按主屏计算，未完整覆盖虚拟桌面和混合 DPI；
-- Windows 测试仍混入 POSIX 路径、Unix socket 和文件 mode 假设。
+- O Product Helper padrão do ZCode só permite `darwin`;
+- O standalone do Windows entra incorretamente na lógica de inicialização do Helper do macOS;
+- A instalação atual não tem `ax_native.node` carregável;
+- Captura de tela, área de transferência, lançamento de aplicativo e ações completas de mouse no Windows não formam um ciclo fechado;
+- A coleta por UIA ainda pode bloquear a thread principal do V8 de forma síncrona;
+- As coordenadas de entrada são calculadas principalmente pelo monitor principal, sem cobrir totalmente desktop virtual e DPI misto;
+- Os testes do Windows ainda misturam suposições de caminho POSIX, Unix socket e modo de arquivo.
 
-本设计先解决“源码开发环境真实可运行”，不在同一个里程碑内解决安装包、
-预编译二进制、代码签名、自动更新或正式发布。
+Este design resolve primeiro o "ambiente de desenvolvimento a partir do código-fonte realmente executável", e não resolve no mesmo milestone pacote instalador, binário pré-compilado, assinatura de código, atualização automática ou lançamento oficial.
 
-## 2. 进程与目标校验原则
+## 2. Princípios de Processo e Validação de Alvo
 
-Windows Computer Use 遵循以下进程、截图和目标校验原则：
+O Computer Use no Windows segue os seguintes princípios de processo, captura de tela e validação de alvo:
 
-- Windows Helper 是独立原生进程，由宿主按需启动；
-- Helper 监视 `--parent-pid`；
-- pipe 名包含随机 UUID；
-- 最后一个客户端关闭后 Helper 和 pipe 一起退出；
-- 截图使用 Windows Graphics Capture，可获取被遮挡窗口；
-- 输入绑定明确的窗口，并校验窗口、bounds、截图和用户输入状态；
-- UIA element index 与当前 observation snapshot 绑定；
-- 物理 Escape 可以中断当前 Computer Use turn。
+- O Helper do Windows é um processo nativo independente, iniciado pelo host sob demanda;
+- O Helper monitora `--parent-pid`;
+- O nome do pipe contém um UUID aleatório;
+- Depois que o último cliente fecha, o Helper e o pipe saem juntos;
+- A captura de tela usa Windows Graphics Capture, capaz de obter janelas ocluídas;
+- A entrada é vinculada a uma janela explícita e valida janela, bounds, captura e estado de entrada do usuário;
+- O índice de elemento UIA é vinculado ao snapshot de observação atual;
+- O Escape físico pode interromper o turn de Computer Use atual.
 
-实现不复用任何第三方专有二进制或未公开协议。
+A implementação não reutiliza nenhum binário proprietário de terceiros nem protocolo não publicado.
 
-## 3. 目标
+## 3. Objetivos
 
-第一里程碑必须达到：
+O primeiro milestone precisa alcançar:
 
-1. 在 Windows 登录用户的交互桌面中，从源码构建并加载 `ax_native.node`。
-2. ZCode 本地 Host 按需启动独立 Windows Computer Use Helper。
-3. Host 生成随机 named pipe 和 bearer token，并只向官方 CUA plugin 注入。
-4. Helper 就绪后，官方 plugin 才能启动 MCP server；Helper 不可用时 fail closed。
-5. Agent 能在记事本等普通桌面应用中完成：
-   - 应用和窗口枚举；
-   - UIA 树观察；
-   - 窗口激活；
-   - 元素或窗口坐标点击；
-   - 文本输入和快捷键；
-   - 已支持的 UIA 语义动作。
-6. Helper 崩溃、退出、ZCode 关闭或客户端关闭时，不留下可继续接受请求的孤儿进程。
-7. Windows 源码开发失败必须给出可诊断原因，不能把 native 编译或加载失败静默伪装成成功。
+1. Na área de trabalho interativa do usuário Windows conectado, compilar e carregar `ax_native.node` a partir do código-fonte.
+2. O Host local do ZCode inicia, sob demanda, um Helper de Computer Use do Windows independente.
+3. O Host gera um named pipe aleatório e um bearer token, injetando-os somente no plugin CUA oficial.
+4. Só depois que o Helper está pronto o plugin oficial pode iniciar o servidor MCP; quando o Helper está indisponível, falha fechada.
+5. O Agent consegue completar, em aplicativos de desktop comuns como o Bloco de Notas:
+   - enumeração de aplicativos e janelas;
+   - observação da árvore UIA;
+   - ativação de janela;
+   - clique por coordenada de elemento ou de janela;
+   - entrada de texto e teclas de atalho;
+   - ações semânticas UIA já suportadas.
+6. Quando o Helper crasha, sai, o ZCode fecha ou o cliente fecha, não sobra processo órfão capaz de continuar aceitando requisições.
+7. Uma falha do desenvolvimento no Windows a partir do código-fonte precisa dar um motivo diagnosticável; falhas de compilação ou carregamento nativo não podem ser silenciosamente falsificadas como sucesso.
 
-完成第一里程碑后，继续在同一架构上补齐：
+Depois de concluir o primeiro milestone, continuar na mesma arquitetura completando:
 
-- Windows Graphics Capture；
-- 窗口快照和 stale action 防护；
-- 完整鼠标动作；
-- 多屏、负坐标和混合 DPI；
-- 剪贴板与应用启动；
-- UIA 工作线程、取消和超时；
-- 中文、emoji、组合键与焦点竞争验证。
+- Windows Graphics Capture;
+- snapshot de janela e proteção contra ações stale;
+- ações completas de mouse;
+- múltiplos monitores, coordenadas negativas e DPI misto;
+- área de transferência e lançamento de aplicativo;
+- worker de UIA, cancelamento e timeout;
+- validação de Chinês, emoji, teclas de combinação e disputa de foco.
 
-## 4. 非目标
+## 4. Não objetivos
 
-本阶段明确不包含：
+Esta fase exclui explicitamente:
 
-- SSH、WSL、Docker 或任意 remote workspace CUA；
-- 手机 Web 远控或 replayable realtime 链路；
-- Windows 安装包、预编译 addon、代码签名、SmartScreen、自动更新；
-- macOS Helper 安装、TCC、签名或 notarization 改造；
-- Linux AT-SPI 或 Linux broker host 改造；
-- Windows 权限设置 UI 或应用级授权 UI；
-- 复用、调用或重新分发第三方专有 Computer Use 二进制；
-- 改变现有 30 个 MCP 工具名称；
-- 新建一套绕过 Broker 的 Host capability router。
+- SSH, WSL, Docker ou qualquer CUA de remote workspace;
+- controle remoto Web pelo celular ou cadeia realtime replayable;
+- pacote instalador do Windows, addon pré-compilado, assinatura de código, SmartScreen, atualização automática;
+-Reformulação da instalação, TCC, assinatura ou notarização do Helper do macOS;
+-Redesenho do AT-SPI do Linux ou do broker host do Linux;
+- UI de configuração de permissões do Windows ou UI de autorização por aplicativo;
+- reuso, chamada ou redistribuição de binários Computer Use proprietários de terceiros;
+- mudar os nomes dos 30 ferramentas MCP existentes;
+- criar um novo roteador de capability do Host que contorne o Broker.
 
-## 5. 核心决策
+## 5. Decisões Centrais
 
-### 5.1 独立 Windows Helper
+### 5.1 Helper independente do Windows
 
-Windows 使用独立 Helper 子进程，不把 UIA/native backend 运行在：
+O Windows usa um subprocesso Helper independente e não roda o backend UIA/native em:
 
-- ZCode Host 业务进程；
-- Agent 主进程；
-- 官方 CUA MCP plugin 进程。
+- o processo de negócio do ZCode Host;
+- o processo principal do Agent;
+- o processo do plugin CUA MCP oficial.
 
-原因：
+Motivos:
 
-- 原生崩溃不会拖垮 session、terminal、file 等 Host 服务；
-- UIA 阻塞不会阻塞 Agent MCP stdio；
-- 生命周期和凭据注入可以复用 macOS 控制面；
-- 后续从 Node Helper 迁移为 SEA 或原生可执行文件时，上层协议不变。
+- Um crash nativo não derruba serviços do Host como session, terminal e file;
+- O bloqueio de UIA não bloqueia o stdio MCP do Agent;
+- O ciclo de vida e a injeção de credenciais podem reutilizar o plano de controle do macOS;
+- Mais adiante, ao migrar de um Helper em Node para SEA ou executável nativo, o protocolo da camada superior não muda.
 
-第一阶段 Helper 形态为：
+Na primeira fase a forma do Helper é:
 
 ```text
 Node.js child process
@@ -117,39 +115,39 @@ Node.js child process
   + ax_native.node
 ```
 
-正式产品阶段可以替换为：
+Na fase de produto oficial ela pode ser substituída por:
 
 ```text
 SEA / signed native executable
 ```
 
-但不得要求 MCP plugin 或 Agent 感知该替换。
+Mas o plugin MCP ou o Agent não podem ser obrigados a perceber essa substituição.
 
-### 5.2 Host 只管理生命周期和凭据
+### 5.2 O Host gerencia apenas ciclo de vida e credenciais
 
-ZCode Host 负责：
+O ZCode Host é responsável por:
 
-- 判断本地 Windows 开发态是否启用；
-- 解析受控的本地 `zcode-cua` 源码根目录；
-- 启动、停止和健康检查 Helper；
-- 生成 pipe、token 和 capability generation；
-- 仅向官方 CUA plugin authority 注入凭据；
-- Helper generation 失效后阻止旧凭据继续进入新 Agent；
-- 使用现有 active-turn 和 Agent recycle 边界完成安全恢复。
+- determinar se o modo de desenvolvimento local do Windows está habilitado;
+- resolver a raiz de código-fonte local e controlada de `zcode-cua`;
+- iniciar, parar e fazer health check do Helper;
+- gerar pipe, token e generation de capability;
+- injetar credenciais somente na authority do plugin CUA oficial;
+- bloquear credenciais antigas de continuarem entrando em um novo Agent depois que o Helper generation fica inválido;
+- usar as fronteiras existentes de active-turn e de recycle do Agent para uma recuperação segura.
 
-ZCode Host 不负责：
+O ZCode Host não é responsável por:
 
-- UIA 树采集；
-- 屏幕或窗口截图；
-- 鼠标、键盘注入；
-- HWND、element token 或 screenshot revision 管理；
-- CUA 工具参数到平台动作的解释。
+- coleta da árvore UIA;
+- captura de tela ou de janela;
+- injeção de mouse e teclado;
+- gestão de HWND, element token ou screenshot revision;
+- interpretação dos parâmetros das ferramentas CUA em ações de plataforma.
 
-这些业务能力全部留在 `zcode-cua` Helper/backend。
+Todas essas capacidades de negócio ficam no Helper/backend do `zcode-cua`.
 
 ### 5.3 Windows Graphics Capture
 
-Windows 截图正式实现使用：
+A implementação oficial de captura de tela no Windows usa:
 
 ```text
 Windows.Graphics.Capture
@@ -159,14 +157,14 @@ Windows.Graphics.Capture
   -> existing zcode-cua image pipeline
 ```
 
-不把 `BitBlt`、PowerShell `System.Drawing` 或外部截图命令作为正式主路径。
+`BitBlt`, `System.Drawing` do PowerShell ou comandos externos de captura de tela não são o caminho principal oficial.
 
-如果 WGC 暂时没有完成，第一里程碑允许 `includeScreenshot=false` 的 UIA 闭环先通过，
-但 screenshot capability 必须真实报告为 unavailable，不能返回伪造或空白成功结果。
+Se o WGC ainda não estiver concluído, o primeiro milestone permite que o ciclo fechado de UIA com `includeScreenshot=false` passe primeiro,
+mas a capability de screenshot precisa relatar de verdade que está unavailable, sem devolver resultado forjado ou de sucesso em branco.
 
-### 5.4 窗口级输入
+### 5.4 Entrada no nível da janela
 
-Windows action 不再只表达“向当前前台窗口发送全局输入”。每个窗口级动作必须解析为：
+A ação no Windows deixa de expressar apenas "enviar entrada global para a janela em primeiro plano atual". Cada ação no nível da janela precisa ser resolvida em:
 
 ```text
 WindowIdentity {
@@ -178,20 +176,20 @@ WindowIdentity {
 }
 ```
 
-动作执行前至少校验：
+Antes de executar a ação, é preciso validar pelo menos:
 
-- HWND 仍存在；
-- HWND 仍属于相同 pid；
-- 目标不是锁屏、不可交互桌面或已拒绝的高完整性进程；
-- 窗口 bounds 没有脱离当前 observation 允许的范围；
-- 坐标从窗口空间正确映射到虚拟桌面空间；
-- 目标窗口可以被安全激活或已经是预期前台窗口。
+- o HWND ainda existe;
+- o HWND ainda pertence ao mesmo pid;
+- o alvo não é a tela de bloqueio, uma área de trabalho não interativa ou um processo de alta integridade que já recusou;
+- os bounds da janela não saíram do permitido pela observação atual;
+- as coordenadas são mapeadas corretamente do espaço da janela para o espaço do desktop virtual;
+- a janela alvo pode ser ativada com segurança ou já é a janela em primeiro plano esperada.
 
-校验失败必须要求重新观察，不得将输入发送给“恰好处于前台”的其他应用。
+Uma falha de validação precisa exigir nova observação; a entrada não pode ser enviada para "outro aplicativo que por acaso está em primeiro plano".
 
-### 5.5 Observation snapshot
+### 5.5 Snapshot de observação
 
-逐步将现有 `state_id` 强化为 Windows observation revision：
+Reforçar gradualmente o `state_id` atual como uma revisão de observação do Windows:
 
 ```text
 ObservationSnapshot {
@@ -205,15 +203,15 @@ ObservationSnapshot {
 }
 ```
 
-规则：
+Regras:
 
-- element index 只在生成它的 accessibility revision 内有效；
-- screenshot/state-image 坐标只在生成它的 screenshot revision 内有效；
-- 任何可能改变窗口布局、焦点或 modal 状态的 action 后，旧 revision 不再用于下一次 action；
-- stale、unknown 或窗口不匹配时 fail closed，并返回“重新观察”诊断；
-- post-write transport failure 继续保留 `possibly_sent`，不得因为需要重新观察而自动重放 action。
+- O índice de elemento só é válido dentro da accessibility revision que o gerou;
+- As coordenadas de screenshot/state-image só são válidas dentro da screenshot revision que as gerou;
+- Depois de qualquer action capaz de mudar o layout da janela, o foco ou o estado modal, a revision antiga deixa de ser usada para a próxima action;
+- Em caso de stale, unknown ou janela incompatível, falha fechada e retorna o diagnóstico "observar novamente";
+- Uma falha de transporte pós-escrita continua preservando `possibly_sent`; não é permitido reenviar a action automaticamente só porque é preciso observar novamente.
 
-## 6. 运行架构
+## 6. Arquitetura de Execução
 
 ```text
 ZCode renderer / Agent request
@@ -245,7 +243,7 @@ official zcode-cua MCP plugin
 ZCode Agent
 ```
 
-禁止形成以下路径：
+É proibido formar os seguintes caminhos:
 
 ```text
 UI -> native addon
@@ -255,7 +253,7 @@ remote Host -> local Windows Helper
 ordinary MCP server -> broker credentials
 ```
 
-## 7. 启动时序
+## 7. Sequência de Inicialização
 
 ```text
 ZCode local Host starts
@@ -285,9 +283,9 @@ ZCode local Host starts
       -> Agent sees CUA tools
 ```
 
-Helper 通过健康检查前，不得向 Agent 暴露一个能够启动但无法连接的 CUA server。
+Antes de o Helper passar pelo health check, não se pode expor ao Agent um servidor CUA que até inicia mas não consegue se conectar.
 
-## 8. 生命周期状态机
+## 8. Máquina de Estados do Ciclo de Vida
 
 ```text
 DISABLED
@@ -309,38 +307,38 @@ DRAINING
 STOPPED
 ```
 
-约束：
+Restrições:
 
-- 同一 Host lifecycle 同时最多一个 Windows Helper generation；
-- STARTING/READY 使用 singleflight；
-- FAILED 不保留可注入的旧 tuple；
-- READY 才能返回 resolver credentials；
-- DRAINING 后拒绝新 action；
-- action 已写入 broker 后连接断开，仍按 `possibly_sent` 处理；
-- ZCode Host 退出时先停止 admission，再结束 Helper；
-- Helper 监视 parent pid，父进程消失后自行退出；
-- 停止或重启时必须释放本 Helper 按下的所有键和鼠标按钮。
+- No máximo uma generation de Windows Helper por ciclo de vida do Host;
+- STARTING/READY usam singleflight;
+- FAILED não mantém tuples antigas injetáveis;
+- Só READY pode retornar credenciais do resolver;
+- Após DRAINING, novas actions são recusadas;
+- Se a conexão cair depois que a action já foi escrita no broker, ela continua sendo tratada como `possibly_sent`;
+- Quando o ZCode Host sai, ele primeiro para a admission e só então encerra o Helper;
+- O Helper monitora o pid do processo pai e sai sozinho quando o pai desaparece;
+- Ao parar ou reiniciar, é preciso liberar todas as teclas e botões de mouse que este Helper estiver segurando.
 
-## 9. 开发态源目录
+## 9. Diretório de Origem no Modo de Desenvolvimento
 
-新增显式开发配置：
+Nova configuração explícita de desenvolvimento:
 
 ```text
 ZCODE_CUA_DEV_ROOT=C:\Users\dev\zcode-cua
 ```
 
-语义：
+Semântica:
 
-- 只在 `win32` + 本地 Host + Product Helper 显式启用时读取；
-- 必须解析为绝对、存在的目录；
-- 必须包含预期 `package.json`、Helper 入口和 native build 产物；
-- 路径只用于代码/构建产物解析，不作为 workspace identity；
-- 不写入用户 workspace 配置；
-- 不允许被 remote host 透传；
-- 未配置或无效时返回明确开发诊断，不回退到 macOS Helper；
-- 正式产品构建不依赖该变量。
+- Só é lida em `win32` + Host local + Product Helper explicitamente habilitado;
+- Precisa resolver para um diretório absoluto e existente;
+- Precisa conter o `package.json`, a entrada do Helper e o artefato de build nativo esperados;
+- O caminho é usado apenas para resolução de código/artefatos de build e não como workspace identity;
+- Não é gravado na configuração de workspace do usuário;
+- Não pode ser repassado por um remote host;
+- Quando não configurado ou inválido, retorna um diagnóstico de desenvolvimento explícito, sem fazer fallback para o Helper do macOS;
+- O build de produto oficial não depende dessa variável.
 
-建议开发命令：
+Comandos de desenvolvimento sugeridos:
 
 ```text
 cd C:\Users\dev\zcode-cua
@@ -353,275 +351,262 @@ set ZCODE_CUA_DEV_ROOT=C:\Users\dev\zcode-cua
 pnpm dev:desktop
 ```
 
-实际脚本名称可在实施时调整，但配置边界和 fail-closed 语义不得改变。
+Os nomes reais dos scripts podem ser ajustados na implementação, mas os limites de configuração e a semântica de fail-closed não podem mudar.
 
-## 10. Windows native/backend 设计
+## 10. Design do Backend Nativo do Windows
 
-### 10.1 UIA 线程
+### 10.1 Thread de UIA
 
-- COM/UIA 运行在独立 MTA 工作线程；
-- Node/V8 主线程只做参数校验、排队和 Promise 完成；
-- 每个请求携带 deadline 或取消信号；
-- 大型 UIA 树必须有节点数、深度、文本长度和时间预算；
-- Helper 关闭时等待或取消 worker，不能让 worker 使用已销毁的 N-API handle；
-- UIA element token 绑定 snapshot/revision，并有容量上限和淘汰策略。
+- COM/UIA roda em uma thread de trabalho MTA independente;
+- A thread principal Node/V8 faz apenas validação de parâmetros, enfileiramento e conclusão de Promise;
+- Cada requisição carrega um deadline ou sinal de cancelamento;
+- Árvores UIA grandes precisam ter limites de número de nós, profundidade, tamanho de texto e orçamento de tempo;
+- Ao fechar o Helper, é preciso aguardar ou cancelar o worker para que ele não use handles N-API já destruídos;
+- Os element tokens de UIA são vinculados a snapshot/revision e têm limite de capacidade e política de descarte.
 
-### 10.2 输入执行
+### 10.2 Execução de Entrada
 
-- 使用虚拟桌面坐标：
+- Usar coordenadas de desktop virtual:
   - `SM_XVIRTUALSCREEN`
   - `SM_YVIRTUALSCREEN`
   - `SM_CXVIRTUALSCREEN`
   - `SM_CYVIRTUALSCREEN`
   - `MOUSEEVENTF_VIRTUALDESK`
-- 坐标统一在物理/逻辑空间边界处显式转换；
-- 每次输入前校验目标 HWND/PID；
-- 激活失败、UIPI 拒绝或非交互 session 均 fail closed；
-- `hold_key`、drag 和 mouse-down/up 必须有终止清理；
-- 用户或 stop signal 中断时优先释放输入状态。
+- As coordenadas são convertidas explicitamente nas fronteiras entre espaço físico e lógico;
+- Validar o HWND/PID alvo antes de cada entrada;
+- Falha de ativação, recusa por UIPI ou sessão não interativa resultam em fail closed;
+- `hold_key`, drag e mouse-down/up precisam de limpeza de término;
+- Quando o usuário ou um stop signal interrompe, o estado de entrada é liberado primeiro.
 
-### 10.3 Windows system surface
+### 10.3 Superfície de sistema do Windows
 
-Windows system surface 最终负责：
+A superfície de sistema do Windows é responsável por:
 
-- 应用启动；
-- 剪贴板读取/写入；
-- 窗口截图；
-- 屏幕/显示器信息；
-- 光标信息。
+- lançamento de aplicativo;
+- leitura/escrita da área de transferência;
+- captura de tela de janela;
+- informações de tela/monitor;
+- informações de cursor.
 
-不得让 Windows 默认落入 macOS 的 `screencapture`、`pbcopy`、`open` 命令路径。
+Não se pode deixar o Windows cair por padrão no caminho de comandos `screencapture`, `pbcopy` e `open` do macOS.
 
-## 11. Broker 与安全边界
+## 11. Broker e Fronteiras de Segurança
 
-源码开发阶段仍保留：
+A fase de desenvolvimento a partir do código-fonte ainda mantém:
 
-- 随机 named pipe；
-- 高熵 bearer token；
-- token constant-time comparison；
-- 官方 plugin authority 限定；
-- 普通工具子进程 env sanitation；
-- token 日志脱敏；
-- Helper generation；
-- action delivery state；
-- interactive-session 和 UIPI 检查。
+- named pipe aleatório;
+- bearer token de alta entropia;
+- comparação do token em tempo constante;
+- authority limitada ao plugin oficial;
+- sanitização de env dos sub-processos de ferramentas comuns;
+- mascaramento de token nos logs;
+- generation do Helper;
+- estado de entrega da action;
+- verificações de interactive-session e de UIPI.
 
-源码开发阶段不宣称已经完成：
+A fase de desenvolvimento a partir do código-fonte não declara como concluídos:
 
-- current-user-only named pipe DACL；
-- Windows 可执行文件签名；
-- 安装包身份校验；
-- SmartScreen；
-- 应用级用户授权。
+- DACL de named pipe somente current-user;
+- assinatura de executável do Windows;
+- verificação de identidade do pacote instalador;
+- SmartScreen;
+- autorização de usuário no nível do aplicativo.
 
-这些未完成项必须在诊断和文档中明确，不能用“Windows security complete”描述。
+Esses itens incompletos precisam ficar explícitos nos diagnósticos e na documentação; não podem ser descritos como "Windows security complete".
 
-Bearer token 不得出现在：
+O bearer token não pode aparecer em:
 
-- 日志；
-- error message；
-- telemetry；
-- process title；
-- 可复制的 UI 文本。
+- logs;
+- mensagens de erro;
+- telemetria;
+- título do processo;
+- texto de UI copiável.
 
-优先复用现有 one-shot token 或受控继承机制；token 不应作为普通 argv 出现。
+Prioriza-se reutilizar o token one-shot existente ou um mecanismo de herança controlada; o token não deve aparecer como argv comum.
 
-## 12. 错误和恢复语义
+## 12. Semântica de Erro e Recuperação
 
-| 场景                             | 必须行为                                             |
-| -------------------------------- | ---------------------------------------------------- |
-| Visual Studio C++ toolchain 缺失 | 构建失败并给出明确依赖提示                           |
-| `ax_native.node` 缺失            | dev preflight 失败，不静默 `available=false`         |
-| addon ABI 不匹配                 | 输出 Node ABI、addon 路径和重建提示                  |
-| 非交互 session / 锁屏            | Helper unavailable，不注入输入                       |
-| Helper 启动超时                  | 终止本次 child，清理 pipe，不发布 tuple              |
-| 健康检查失败                     | 不向官方 plugin 注入凭据                             |
-| Helper action 后断线             | `possibly_sent`，不自动重试                          |
-| HWND/PID/revision stale          | 返回重新观察诊断，不执行输入                         |
-| UIPI 拒绝高权限应用              | 明确 permission denied，不自动提权                   |
-| Helper 崩溃                      | generation 失效，按现有 active-turn/recycle 边界恢复 |
-| ZCode 关闭                       | 停止 admission、释放输入、关闭 pipe、退出 child      |
+| Cenário                              | Comportamento obrigatório                                            |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| Visual Studio C++ toolchain ausente  | O build falha com uma dica explícita de dependência                   |
+| `ax_native.node` ausente             | O preflight de dev falha, sem `available=false` silencioso            |
+| ABI do addon incompatível            | Saída com o ABI do Node, o caminho do addon e a dica de rebuild       |
+| Sessão não interativa / tela de bloqueio | Helper unavailable, sem injeção de entrada                        |
+| Timeout na inicialização do Helper   | Encerrar este child, limpar o pipe, não publicar o tuple              |
+| Falha no health check                | Não injetar credenciais no plugin oficial                            |
+| Queda de conexão após action do Helper | `possibly_sent`, sem retry automático                                 |
+| HWND/PID/revision stale              | Retornar diagnóstico de observar novamente, sem executar entrada     |
+| UIPI recusa aplicação privilegiada   | permission denied explícito, sem elevação automática                  |
+| Crash do Helper                      | generation fica inválida, recuperação pelas fronteiras existentes de active-turn/recycle |
+| Fechamento do ZCode                  | Parar a admission, liberar a entrada, fechar o pipe, encerrar o child |
 
-## 13. 仓库职责
+## 13. Responsabilidades dos Repositórios
 
 ### `z-code`
 
-- Windows 本地 Helper admission；
-- `WindowsCuaHelperHost` 生命周期实现；
-- dev root resolver；
-- credential injection；
-- active-turn/restart/recycle 集成；
-- Windows Host 单测与集成测试；
-- 开发启动说明。
+- admission de Helper local do Windows;
+- implementação do ciclo de vida de `WindowsCuaHelperHost`;
+- resolver de dev root;
+- injeção de credenciais;
+- integração de active-turn/restart/recycle;
+- testes unitários e de integração do Host no Windows;
+- instruções de inicialização para desenvolvimento.
 
 ### `zcode-cua`
 
-- Windows Helper CLI/entry；
-- Windows named-pipe broker host；
-- `ax_native.node` 构建和严格加载；
-- UIA worker；
-- WGC screenshot；
-- window identity / revision；
-- Windows system surface；
-- Windows 输入和多屏坐标；
-- 跨平台测试修复；
-- native 与 live desktop 验收。
+- CLI/entrada do Helper do Windows;
+- broker host de named pipe do Windows;
+- build e carregamento estrito de `ax_native.node`;
+- worker de UIA;
+- screenshot por WGC;
+- window identity / revision;
+- superfície de sistema do Windows;
+- entrada do Windows e coordenadas multi-monitor;
+- correções de testes multiplataforma;
+- aceitação nativo e no desktop real.
 
-### 官方 `zcode-cua-plugin`
+### Plugin `zcode-cua-plugin` oficial
 
-- 继续作为 broker-only 薄壳；
-- 缺 socket/token 时继续 fail closed；
-- 不在 plugin 内启动第二个 Windows broker；
-- 只在必要时修正 Windows artifact 名称和测试。
+- continua sendo uma casca fina broker-only;
+- continua falhando fechada quando falta socket/token;
+- não inicia um segundo broker do Windows dentro do plugin;
+- só corrige nomes de artefato do Windows e testes quando realmente necessário.
 
-## 14. 分阶段实施
+## 14. Implementação por Fases
 
-### Phase 0：构建与测试基线
+### Fase 0: baseline de build e teste
 
-- 补齐 Windows C++ build prerequisites 文档和检查；
-- 让 native build failure 在开发命令中显式失败；
-- 修正未声明的 lint 依赖；
-- 修正 Windows 上的 POSIX path/Unix socket 测试假设；
-- native addon 缺失时测试应明确 skip 或 fail，不得 null dereference；
-- 保持 macOS/Linux 测试语义不变。
+- Completar a documentação e as verificações de pré-requisitos de build C++ no Windows;
+- Fazer a falha de build nativo falhar explicitamente nos comandos de desenvolvimento;
+- Corrigir dependências de lint não declaradas;
+- Corrigir suposições de caminho POSIX/Unix socket nos testes do Windows;
+- Quando o addon nativo faltar, os testes devem fazer skip ou fail explícito, sem null dereference;
+- Manter inalterada a semântica dos testes de macOS/Linux.
 
-### Phase 1：开发态运行闭环
+### Fase 1: ciclo fechado de execução no modo de desenvolvimento
 
-- 新增 Windows Helper entry；
-- Host 按需启动独立 child；
-- named pipe + token + health；
-- 官方 plugin credential injection；
-- UIA list/capture；
-- 窗口绑定点击、输入、按键和已支持语义动作；
-- Notepad live smoke；
-- stop/restart/orphan cleanup。
+- Nova entrada do Helper do Windows;
+- O Host inicia um child independente sob demanda;
+- named pipe + token + health;
+- injeção de credenciais no plugin oficial;
+- list/capture de UIA;
+- clique com vínculo de janela, entrada, teclas e ações semânticas já suportadas;
+- smoke live no Bloco de Notas;
+- stop/restart/limpeza de órfãos.
 
-### Phase 2：视觉与完整指针
+### Fase 2: visual e ponteiro completo
 
-- WGC window capture；
-- screenshotId/revision；
-- `state_image`/window coordinate mapping；
-- move、scroll、drag、mouse-down、mouse-up；
-- 虚拟桌面、多屏、负坐标、DPI；
-- clipboard、launch app。
+- captura de janela por WGC;
+- screenshotId/revision;
+- mapeamento de coordenadas de `state_image`/janela;
+- move, scroll, drag, mouse-down, mouse-up;
+- desktop virtual, múltiplos monitores, coordenadas negativas, DPI;
+- clipboard, launch app.
 
-### Phase 3：可靠性
+### Fase 3: confiabilidade
 
-- UIA MTA worker、deadline、cancel；
-- stale token LRU；
-- foreground/bounds/user-input guard；
-- physical Escape 或等价明确中断；
-- CJK、emoji、dead key、键盘布局；
-- modal、minimized、occluded window；
-- 高完整性应用和锁屏行为；
-- named pipe DACL。
+- worker MTA de UIA, deadline, cancel;
+- LRU de tokens stale;
+- guard de foreground/bounds/user-input;
+- Escape físico ou interrupção explícita equivalente;
+- CJK, emoji, dead key, layout de teclado;
+- janela modal, minimizada, ocluída;
+- comportamento de aplicativo de alta integridade e da tela de bloqueio;
+- DACL de named pipe.
 
-### 后续产品闭环
+### Fechamento de produto posterior
 
-- 预编译 x64/arm64 artifact；
-- SEA 或原生 Helper；
-- 安装包 staging；
-- 签名、版本、hash 和身份校验；
-- release CI 与 Windows 实机门禁；
-- 用户设置和 readiness UI。
+- artefatos pré-compilados x64/arm64;
+- SEA ou Helper nativo;
+- staging do pacote instalador;
+- assinatura, versão, hash e verificação de identidade;
+- CI de release e portão em máquina Windows real;
+- configurações de usuário e UI de readiness.
 
-## 15. 验收标准
+## 15. Critérios de Aceitação
 
-### 自动化
+### Automatizado
 
-`zcode-cua`：
-
-- `pnpm typecheck`
-- `pnpm lint`
-- Windows platform/path/pipe/native targeted tests
-- broker delivery-state tests
-- Helper lifecycle tests
-- Windows screenshot/input contract tests
-
-`z-code`：
+`zcode-cua`:
 
 - `pnpm typecheck`
 - `pnpm lint`
-- services Windows Helper host tests
-- official plugin credential injection tests
-- Agent recycle/generation regression tests
+- testes direcionados de plataforma/path/pipe/nativo no Windows
+- testes de delivery-state do broker
+- testes de ciclo de vida do Helper
+- testes de contrato de screenshot/entrada do Windows
 
-平台专属测试必须显式分类。macOS POSIX mode、Unix socket 或 `.app` 测试可以在 Windows
-按明确理由 skip，但平台中立测试不得为了获得绿色结果而整体跳过。
+`z-code`:
 
-Broker 的 live transport 测试必须使用当前平台真实支持的地址：Windows 使用每例唯一的
-`\\.\pipe\zcode-cua-test-<random>` named pipe，macOS/Linux 使用受控临时目录中的
-Unix socket。认证、NDJSON、dispatch、超时与 graceful-stop 等平台中立契约必须在
-Windows named pipe 上继续执行；只有依赖 socket 文件节点的 `0600/0700`、symlink、
-stale-file 与 unlink 断言允许在 Windows 跳过，并由独立 Windows named-pipe 分支测试
-守住“不得触碰 POSIX 文件系统节点”的边界。
+- `pnpm typecheck`
+- `pnpm lint`
+- testes do Host de Helper do Windows nos services
+- testes de injeção de credenciais do plugin oficial
+- testes de regressão de recycle/generation do Agent
 
-### Windows 实机
+Os testes específicos de plataforma precisam ser classificados explicitamente. Testes de POSIX mode, Unix socket ou `.app` do macOS podem ser pulados no Windows por um motivo explícito, mas testes neutros de plataforma não podem ser pulados inteiros só para obter um resultado verde.
 
-在登录用户 Session 中验证：
+Os testes de transporte live do Broker precisam usar um endereço realmente suportado na plataforma atual: no Windows, um named pipe `\\.\pipe\zcode-cua-test-<random>` único por caso; no macOS/Linux, um Unix socket em um diretório temporário controlado. Contratos neutros de plataforma como autenticação, NDJSON, dispatch, timeout e graceful-stop precisam continuar sendo executados no named pipe do Windows; somente as asserções que dependem do nó de arquivo de socket — `0600/0700`, symlink, stale-file e unlink — podem ser puladas no Windows, e a fronteira de "não tocar em nós do sistema de arquivos POSIX" é protegida por testes de branch separados, específicos do Windows named pipe.
 
-1. 启动 ZCode，Helper 按需出现。
-2. Agent 能看到官方 CUA 工具。
-3. 枚举记事本窗口。
-4. 获取 UIA tree。
-5. 点击编辑区域并确认目标 HWND。
-6. 输入中文、英文和 emoji。
-7. 执行 `Ctrl+A`、替换文本和 Enter/Tab。
-8. 通过 UIA action 操作按钮或菜单。
-9. 重启 Helper 后重新建立 generation。
-10. 关闭 ZCode 后没有残留 Helper。
-11. Phase 2 完成后验证遮挡窗口截图。
-12. Phase 2 完成后验证副屏、负坐标和不同 DPI。
+### Máquina Windows real
 
-每次实机验收必须记录：
+Validar na Session de um usuário conectado:
 
-- Windows 版本；
-- Node 版本和 ABI；
-- addon 构建架构；
-- ZCode commit；
-- zcode-cua commit；
-- 测试应用；
-- 是否本地交互 session；
-- 失败日志路径；
-- 未覆盖场景。
+1. Iniciar o ZCode; o Helper aparece sob demanda.
+2. O Agent enxerga as ferramentas CUA oficiais.
+3. Enumerar a janela do Bloco de Notas.
+4. Obter a árvore UIA.
+5. Clicar na área de edição e confirmar o HWND alvo.
+6. Digitar Chinês, inglês e emoji.
+7. Executar `Ctrl+A`, substituir texto e Enter/Tab.
+8. Operar um botão ou menu por ação UIA.
+9. Após reiniciar o Helper, restabelecer a generation.
+10. Depois de fechar o ZCode, não sobra Helper.
+11. Depois da Fase 2, validar screenshot de janela ocluída.
+12. Depois da Fase 2, validar monitor secundário, coordenadas negativas e DPI diferente.
 
-## 16. 兼容性约束
+Cada aceitação em máquina real precisa registrar:
 
-- macOS `desktop-continuous` 主链路保持不变；
-- Web remote replayable 链路完全不进入本设计；
-- local/remote 判断必须在 Helper admission 前完成；
-- 不新增 `workspaceIdentity` 与 `workspacePath` 混用；
-- 不修改 Agent 与 App 的 `@zcode/protocol`，除非后续确实出现新的跨进程产品协议；
-- broker method/schema 变化在 `@zcode/zcode-cua` 内严格校验并保持旧调用兼容；
-- IO 使用异步 API；
-- services 日志使用 `createServiceLogger(scope)`；
-- UI 未包含在本阶段；若后续修改 `packages/ui`，实施前必须读取 `DESIGN.md`。
+- versão do Windows;
+- versão do Node e ABI;
+- arquitetura de build do addon;
+- commit do ZCode;
+- commit do zcode-cua;
+- aplicativo de teste;
+- se é uma sessão local interativa;
+- caminho dos logs de falha;
+- cenários não cobertos.
 
-## 17. 风险
+## 16. Restrições de Compatibilidade
 
-1. **工具链风险**：当前机器缺少 Visual Studio C++ workload，native 实机验证被阻塞。
-2. **ABI 风险**：系统 Node、ZCode bundled Node 和 Electron ABI 可能不同。独立 Node Helper
-   必须明确使用哪个 Node runtime，并针对该 ABI 构建。
-3. **UIA 阻塞风险**：当前同步 BFS 可能卡住 Helper，需要 worker 化。
-4. **截图复杂度**：WGC 涉及 WinRT、D3D11、窗口关闭和设备重建，不应作为小型补丁处理。
-5. **焦点竞争风险**：只调用 `SetForegroundWindow` 不能证明输入目标正确。
-6. **测试债务**：现有大量测试将 macOS/POSIX 假设写死，Windows 绿色基线需要先分类。
-7. **版本漂移**：ZCode compile-time `@zcode/zcode-cua`、Helper runtime alias 和 plugin 版本
-   当前不完全一致，开发闭环必须记录实际服务端/客户端版本。
+- A cadeia principal `desktop-continuous` do macOS permanece inalterada;
+- A cadeia Web remote replayable não entra neste design;
+- A decisão local/remote precisa ser concluída antes da admission do Helper;
+- Não introduzir mistura de `workspaceIdentity` com `workspacePath`;
+- Não modificar o `@zcode/protocol` entre Agent e App, a menos que apareça de fato um novo protocolo de produto entre processos;
+- Mudanças de método/schema do broker são validadas estritamente dentro de `@zcode/zcode-cua` e mantêm compatibilidade com as chamadas antigas;
+- IO usa APIs assíncronas;
+- Logs de services usam `createServiceLogger(scope)`;
+- A UI não está incluída nesta fase; se `packages/ui` for modificado depois, é preciso ler `DESIGN.md` antes da implementação.
 
-## 18. 已确认项与开放项
+## 17. Riscos
 
-第 1 项已通过本次 resolver 契约确认；其余问题留到实施计划中用 spike/测试关闭，
-不改变本设计的进程边界：
+1. **Risco de toolchain**: a máquina atual não tem o Visual Studio C++ workload, e a validação nativa em máquina real fica bloqueada.
+2. **Risco de ABI**: o Node do sistema, o Node empacotado do ZCode e o ABI do Electron podem ser diferentes. O Helper em Node independente precisa definir explicitamente qual runtime de Node usa e ser compilado para esse ABI.
+3. **Risco de bloqueio de UIA**: a BFS síncrona atual pode travar o Helper, exigindo torná-la worker.
+4. **Complexidade da captura**: o WGC envolve WinRT, D3D11, fechamento de janela e reconstrução de dispositivo, e não deve ser tratado como um patch pequeno.
+5. **Risco de disputa de foco**: chamar apenas `SetForegroundWindow` não prova que o alvo de entrada está correto.
+6. **Dívida de testes**: uma grande quantidade de testes atuais fixa suposições de macOS/POSIX, então a baseline verde no Windows precisa ser classificada antes.
+7. **Drift de versão**: o `@zcode/zcode-cua` em tempo de compilação do ZCode, o alias de runtime do Helper e a versão do plugin não estão hoje completamente alinhados; o ciclo de desenvolvimento precisa registrar as versões reais de servidor/cliente.
 
-1. **已确认：Windows dev Helper 使用当前进程的 Node runtime。** resolver 固定返回
-   `command = process.execPath`，并在 child 环境中设置
-   `ELECTRON_RUN_AS_NODE = "1"`。Desktop Host 已对 zcode-agent 使用相同模式；
-   CLI/test host 的 `process.execPath` 自然指向 Node。`ax_native.node` 为 N-API addon，
-   必须在目标 Windows 机器针对该 runtime 重建。该 resolver 阶段不注入 broker token。
-2. WGC native 层返回 BGRA buffer 还是直接返回 JPEG/PNG。
-3. 现有 `state_id` 能否兼容扩展为 revision，还是需要新增字段。
-4. one-shot token 文件在 Windows dev 阶段采用何种最小 ACL 实现。
-5. physical Escape 放在 Phase 2 还是 Phase 3。
+## 18. Itens Confirmados e Itens Abertos
 
-默认原则是选择最小但可继续产品化的实现，并通过 TDD/spike 获取运行时证据后再关闭开放项。
+O item 1 foi confirmado pelo contrato de resolver desta rodada; as demais questões ficam para serem fechadas no plano de implementação com spike/testes, sem alterar as fronteiras de processo deste design:
+
+1. **Confirmado: o Helper dev do Windows usa o runtime Node do processo atual.** O resolver fixa o retorno de `command = process.execPath` e define `ELECTRON_RUN_AS_NODE = "1"` no ambiente do child. O Desktop Host já usa o mesmo padrão para o zcode-agent; o `process.execPath` do host CLI/test aponta naturalmente para o Node. `ax_native.node` é um addon N-API e precisa ser reconstruído na máquina Windows alvo para esse runtime. Essa fase de resolver não injeta o broker token.
+2. Se a camada nativa do WGC devolve um buffer BGRA ou devolve diretamente JPEG/PNG.
+3. Se o `state_id` existente pode ser estendido de forma compatível para virar revision, ou se é preciso adicionar um campo novo.
+4. Qual implementação mínima de ACL é usada para o arquivo de token one-shot na fase de dev do Windows.
+5. Se o Escape físico fica na Fase 2 ou na Fase 3.
+
+O princípio padrão é escolher a implementação mínima que ainda possa serLevada adiante como produto, e fechar os itens abertos só depois de obter evidência de runtime via TDD/spike.

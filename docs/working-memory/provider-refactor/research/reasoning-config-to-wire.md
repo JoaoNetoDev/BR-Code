@@ -1,14 +1,14 @@
-# Reasoning：从模型配置到最终请求
+# Reasoning：da configuração do modelo até a requisição final
 
-> 状态：现状调研完成，目标边界已形成；具体迁移方案尚未实施
-> 日期：2026-08-10
-> 对应阶段设计：[`../steps/01-model-and-request.md`](../steps/01-model-and-request.md)
+> Status: pesquisa da situação atual concluída, fronteira alvo formada; o plano concreto de migração ainda não foi implementado
+> Data：2026-08-10
+> Design da etapa correspondente：[`../steps/01-model-and-request.md`](../steps/01-model-and-request.md)
 >
-> 术语说明：本文调研时使用 `ModelBinding` 表示连续执行持有的模型对象；当前设计已经收敛为可调用 `Model`，并以 `model.bind(options)` 表达不可变派生。本文中的旧术语仅用于还原当时的代码链路。
+> Nota terminológica：nesta pesquisa, `ModelBinding` representa o objeto de modelo mantido por uma execução contínua; o design atual já convergiu para um `Model` chamável, com `model.bind(options)` expressando a derivação imutável. A terminologia antiga neste documento serve apenas para reconstituir a cadeia de código da época.
 
-## 结论
+## Conclusão
 
-Reasoning 在产品层可以保持一个很简单的模型：模型声明自己支持哪些档位，用户选择其中一个档位，一段连续执行固定这个选择，Adapter 再把它写成目标接口接受的请求字段。
+Na camada de produto, Reasoning pode manter um modelo bem simples: o modelo declara quais níveis suporta, o usuário escolhe um deles, uma execução contínua fixa essa escolha e o Adapter a escreve nos campos de requisição aceitos pela interface de destino.
 
 ```text
 模型声明 levels
@@ -26,24 +26,24 @@ Model.bind() 固定 reasoningLevel
 Provider HTTP 请求
 ```
 
-当前实现还没有形成这条干净的边界。系统先把逻辑档位转换成一份任意结构的 `providerOptions`，再把这份对象从 Catalog、Bootstrap、Runtime 一直传到 Adapter。转换逻辑同时分布在 App 配置投影、CLI Catalog 默认策略、动态 Provider overlay、历史兼容和辅助模型任务中。
+A implementação atual ainda não formou essa fronteira limpa. O sistema primeiro converte o nível lógico em um `providerOptions` de estrutura arbitrária e depois passa esse objeto do Catalog, do Bootstrap e do Runtime até o Adapter. A lógica de conversão está distribuída ao mesmo tempo na projeção de configuração do App, na política de defaults do Catalog da CLI, no overlay dinâmico de Provider, na compatibilidade histórica e nas tarefas auxiliares de modelo.
 
-这项调研原本只是 M1 ModelBinding 设计中的一个参数问题。代码展开后可以确认，它已经形成独立的迁移主题：仓库 Catalog 保存过明确参数映射，App 侧会剥离映射而只保留档位，CLI 随后又分别通过动态 `first-match-wins` 规则和 Standalone CLI `last-match-wins` 默认策略重建参数，Title、Git、Compact 与 Memory 还会在调用前再次修改结果。
+Esta pesquisa originalmente era apenas uma questão de parâmetro dentro do design de M1 ModelBinding. Com o código aberto, é possível confirmar que ela já virou um tema de migração independente: o Catalog do repositório guardou mapas explícitos de parâmetros, o lado App descarta o mapa e guarda apenas o nível, e a CLI em seguida reconstrói os parâmetros separadamente por meio de uma regra dinâmica `first-match-wins` e de uma política de defaults `last-match-wins` do Standalone CLI; Title, Git, Compact e Memory ainda modificam o resultado de novo antes da chamada.
 
-因此本轮调研在这里划定停止点。M1 在公开边界中只保留通用 `reasoningLevel`：Selection 保存用户选择，`Model.bind(options)` 固定连续执行使用的档位，Request 可以在受 Option Specs 校验的范围内覆盖。现有 `providerOptionsByLevel` 解析集中到兼容装配和 Adapter 路径，不再暴露给业务调用方。统一 Catalog、删除名称推导、统一优先级和重做 Adapter 方言属于后续独立迁移。本文继续作为该课题的现状行为基线。
+Por isso, esta rodada de pesquisa delimita aqui o ponto de parada. M1 mantém, no limite público, apenas o `reasoningLevel` genérico: a Selection salva a escolha do usuário, `Model.bind(options)` fixa o nível usado na execução contínua e a Request pode sobrescrever dentro do range validado pelos Option Specs. A resolução existente de `providerOptionsByLevel` fica concentrada na montagem de compatibilidade e no caminho do Adapter, sem mais ser exposta aos chamadores de negócio. Unificar o Catalog, apagar a dedução por nome, unificar as prioridades e refazer os dialetos do Adapter são migrações independentes posteriores. Este documento segue como a linha de base comportamental da situação atual nesse tema.
 
-最容易混淆的几个名字可以先这样理解：
+Os nomes mais fáceis de confundir podem ser lidos assim:
 
-- `thoughtLevel`、`reasoningLevel` 和 `ModelRef.variant` 表达用户选择的逻辑档位，例如 `high`。
-- `providerOptionsByLevel` 是“档位到供应商参数”的查询表，它不会原样发送给模型接口。
-- `providerOptions` 是某次运行准备交给 AI SDK 的中间对象，里面还混有 reasoning、transport、输出预算和其他 Provider 参数。
-- `reasoning_effort`、`enable_thinking`、`thinking`、`output_config.effort` 才是最终 HTTP 请求中的字段。
+- `thoughtLevel`, `reasoningLevel` e `ModelRef.variant` expressam o nível lógico escolhido pelo usuário, como `high`.
+- `providerOptionsByLevel` é a tabela de consulta «nível → parâmetro do fornecedor»; ela não é enviada como está para a interface do modelo.
+- `providerOptions` é o objeto intermediário que uma execução prepara para entregar ao AI SDK, contendo ainda reasoning, transport, orçamento de saída e outros parâmetros do Provider.
+- `reasoning_effort`, `enable_thinking`, `thinking` e `output_config.effort` são os campos Effective na requisição HTTP final.
 
-同一个 OpenAI-compatible 协议下，这些最终字段并不统一。当前代码主要依据显式映射、`provider.kind`、`providerId`、`modelId` 和档位列表选择方言；Base URL 不参与 reasoning 方言判断。因此，两个相同 kind、相同 modelId、不同 URL 的 Provider，在没有显式映射时会得到相同参数。这是当前实现的一项明确限制。
+Sob o mesmo protocolo OpenAI-compatible, esses campos finais não são uniformes. O código atual escolhe o dialeto principalmente com base em mapas explícitos, `provider.kind`, `providerId`, `modelId` e listas de níveis; o Base URL não participa do julgamento de dialeto de reasoning. Portanto, dois Providers com o mesmo kind, o mesmo modelId e URLs diferentes recebem os mesmos parâmetros quando não há mapa explícito. Essa é uma limitação explícita da implementação atual.
 
-### `apiFormat`、`defaultKind` 与 `kind`
+### `apiFormat`、`defaultKind` e `kind`
 
-设置页对用户暴露的是 `apiFormat`：
+O que a página de configurações expõe ao usuário é `apiFormat`:
 
 ```text
 anthropic-messages
@@ -51,7 +51,7 @@ openai-chat-completions
 openai-responses
 ```
 
-保存 Provider Config 时，页面同时写入由它派生的 `defaultKind`。Host 生成运行态 Registry 时先解析出最终 `apiFormat`，再派生 CLI 使用的 `kind`：
+Ao salvar o Provider Config, a página também escreve o `defaultKind` derivado dele. Quando o Host gera o Registry de runtime, ele resolve primeiro o `apiFormat` final e então deriva o `kind` usado pela CLI:
 
 ```text
 apiFormat                    defaultKind / kind
@@ -60,13 +60,13 @@ openai-responses          <-> openai
 openai-chat-completions   <-> openai-compatible
 ```
 
-内置 Provider 进入 `ModelProviderConfig` 时通常也同时填充 `apiFormat` 和 `defaultKind`。硬编码 Start Plan 直接写入这对值；远端 builtin schema 通常先给出 `primaryKind`，加载时再派生 `apiFormat`。
+Quando um Provider embutido entra no `ModelProviderConfig`, ele normalmente preenche `apiFormat` e `defaultKind` ao mesmo tempo. O Start Plan hardcoded escreve diretamente esse par de valores; o schema builtin remoto normalmente fornece primeiro o `primaryKind`, e o `apiFormat` é derivado no carregamento.
 
-在当前三种协议下，这些字段没有表达独立信息。运行态协议同时允许 `kind` 和 `apiFormat`，却没有从类型上排除不一致组合。拟定的演进方向是让 `apiFormat` 成为配置和协议中的单一事实；Adapter factory 内部可以继续使用自己的实现枚举，但该枚举不再进入 Provider Config 或跨进程协议。这个方向还需要在实施前验证 Standalone CLI 的 `provider.kind` 迁移，以及一个 Provider 存在多个 endpoint 时如何显式选择当前协议。
+Sob os três protocolos atuais, esses campos não expressam informação independente. O protocolo de runtime permite ao mesmo tempo `kind` e `apiFormat`, mas não exclui combinações inconsistentes no tipo. A direção de evolução proposta é fazer de `apiFormat` o fato único na configuração e no protocolo; o interior do Adapter factory pode continuar usando sua própria enumeração de implementação, mas essa enumeração deixa de entrar no Provider Config ou no protocolo entre processos. Essa direção ainda precisa, antes da implementação, validar a migração de `provider.kind` no Standalone CLI e como escolher explicitamente o protocolo atual quando um Provider tem vários endpoints.
 
-## 一条完整链路
+## Uma cadeia completa
 
-下面这张图先把现状中的主要对象摆在同一条线上：
+O diagrama abaixo coloca primeiro os principais objetos da situação atual na mesma linha:
 
 ```text
 App config / CLI config / builtin Catalog
@@ -100,7 +100,7 @@ AI SDK providerOptions
 HTTP request body
 ```
 
-`ModelCapability.reasoning` 当前既描述可供用户选择的能力，又保存供应商参数映射：
+Hoje `ModelCapability.reasoning` descreve ao mesmo tempo a capacidade que o usuário pode escolher e o mapa de parâmetros do fornecedor:
 
 ```ts
 interface ModelReasoningCapability {
@@ -111,7 +111,7 @@ interface ModelReasoningCapability {
 }
 ```
 
-例如：
+Por exemplo：
 
 ```ts
 {
@@ -125,7 +125,7 @@ interface ModelReasoningCapability {
 }
 ```
 
-用户选择 `high` 后，Runtime 得到的是：
+Depois que o usuário escolhe `high`, o Runtime recebe:
 
 ```ts
 {
@@ -135,7 +135,7 @@ interface ModelReasoningCapability {
 }
 ```
 
-OpenAI-compatible Adapter 最终把它发成：
+O Adapter OpenAI-compatible acaba enviando:
 
 ```json
 {
@@ -143,11 +143,11 @@ OpenAI-compatible Adapter 最终把它发成：
 }
 ```
 
-## 配置从哪里来
+## De onde vem a configuração
 
-### App 的持久配置
+### A configuração persistida do App
 
-App 的权威文件是 `~/.zcode/v2/config.json`。目前持久化的 reasoning 只描述档位，不保存供应商请求参数：
+O arquivo autoritativo do App é `~/.zcode/v2/config.json`. Hoje o reasoning persistido descreve apenas níveis e não guarda os parâmetros de requisição do fornecedor:
 
 ```jsonc
 {
@@ -172,7 +172,7 @@ App 的权威文件是 `~/.zcode/v2/config.json`。目前持久化的 reasoning 
 }
 ```
 
-这份配置读入 App 后会转换成内部 `ModelProviderReasoningSpec`。每个 level 暂时只有名字，没有 patch：
+Depois de ser lida pelo App, essa configuração é convertida no `ModelProviderReasoningSpec` interno. Cada level tem, por enquanto, apenas um nome, sem patch:
 
 ```ts
 {
@@ -184,13 +184,13 @@ App 的权威文件是 `~/.zcode/v2/config.json`。目前持久化的 reasoning 
 }
 ```
 
-App 保存配置时会清理旧的 `model.variants`、`reasoningSpec` 和 `zcode.reasoning` 参数映射。换句话说，普通用户通过 App 设置页保存的配置无法直接规定 `high` 最终使用 `reasoning_effort` 还是 `enable_thinking`；zcode-cli 会在运行时补出映射。
+Quando o App salva a configuração, ele limpa os antigos mapas de parâmetros `model.variants`, `reasoningSpec` e `zcode.reasoning`. Ou seja, a configuração salva por um usuário comum pela página de configurações do App não consegue determinar diretamente se `high` acaba usando `reasoning_effort` ou `enable_thinking`; o zcode-cli completa o mapa em runtime.
 
-相关转换位于 `modelProviderServiceStorage.ts` 的 `openCodeReasoningToModelReasoning()` 与 `modelReasoningToOpenCodeReasoning()`。
+As conversões relacionadas ficam em `openCodeReasoningToModelReasoning()` e `modelReasoningToOpenCodeReasoning()`, em `modelProviderServiceStorage.ts`.
 
-### Standalone CLI 的配置
+### A configuração do Standalone CLI
 
-Standalone CLI 读取 `~/.zcode/cli/config.json`。它接受更接近 Runtime 的结构，可以显式保存 `providerOptionsByLevel`：
+O Standalone CLI lê `~/.zcode/cli/config.json`. Ele aceita uma estrutura mais próxima do Runtime e pode salvar `providerOptionsByLevel` explicitamente:
 
 ```jsonc
 {
@@ -216,7 +216,7 @@ Standalone CLI 读取 `~/.zcode/cli/config.json`。它接受更接近 Runtime �
 }
 ```
 
-因为 Provider kind 是 `openai-compatible`，CLI schema 会把未带 namespace 的参数包装成：
+Como o kind do Provider é `openai-compatible`, o schema da CLI embrulha em namespace os parâmetros que não trazem namespace:
 
 ```ts
 {
@@ -229,13 +229,13 @@ Standalone CLI 读取 `~/.zcode/cli/config.json`。它接受更接近 Runtime �
 }
 ```
 
-如果配置已经带有 `anthropic`、`openai` 或 `openaiCompatible` namespace，则保持原样。
+Se a configuração já tiver o namespace `anthropic`, `openai` ou `openaiCompatible`, ela é mantida como está.
 
-这意味着 App 配置和 Standalone CLI 配置当前并不对称：App 只保存档位；CLI 可以同时保存档位和发送参数。
+Isso significa que a configuração do App e a do Standalone CLI não são simétricas hoje: o App guarda apenas níveis; a CLI pode guardar níveis e parâmetros de envio ao mesmo tempo.
 
-### Model Catalog 与内置 Provider
+### Model Catalog e Providers embutidos
 
-历史 Model Catalog 和远端 builtin 配置使用 patch 描述每种 transport 的参数：
+O Model Catalog histórico e a configuração builtin remota usam patches para descrever os parâmetros de cada transport:
 
 ```ts
 interface ModelProviderReasoningSpec {
@@ -247,7 +247,7 @@ interface ModelProviderReasoningSpec {
 }
 ```
 
-Kimi K3 的一条真实 Catalog 配置是：
+Uma configuração real de Catalog do Kimi K3 é：
 
 ```jsonc
 {
@@ -265,7 +265,7 @@ Kimi K3 的一条真实 Catalog 配置是：
 }
 ```
 
-App 向 zcode-cli 投影当前 transport 时，只取相应 kind 的 patch。假设当前 kind 是 `openai-compatible`，上面会变成：
+Quando o App projeta o transport atual para o zcode-cli, ele pega apenas o patch do kind correspondente. Supondo que o kind atual seja `openai-compatible`, o acima vira:
 
 ```ts
 {
@@ -277,11 +277,11 @@ App 向 zcode-cli 投影当前 transport 时，只取相应 kind 的 patch。假
 }
 ```
 
-普通 App 持久配置会清掉这些 patch，但内置 Coding Plan、Start Plan 和远端 client config 可以在内存中携带完整 `ModelProviderReasoningSpec`，再经过同一个协议投影函数进入 zcode-cli。
+A configuração persistida comum do App limpa esses patches, mas o Coding Plan embutido, o Start Plan e o client config remoto podem carregar em memória o `ModelProviderReasoningSpec` completo e entrar no zcode-cli pela mesma função de projeção do protocolo.
 
-Plan 的登录态、权益判断、运行时 API Key 和一次性安全校验 Header 不参与 reasoning 方言选择。它们先形成当前可调用的 Provider；reasoning 仍由这个 Provider 的 `kind` 与模型定义决定。当前 ZCode 内置 Plan 主要按 Anthropic runtime 投影，因此 GLM 等模型会走 `anthropic.effort` / `anthropic.thinking` 路径。请求前刷新 Token 或 Header 只改变鉴权材料，不改变已经选择的 reasoning level。
+O estado de login do Plan, o julgamento de entitlement, a API Key de runtime e os Headers de verificação de segurança pontual não participam da escolha do dialeto de reasoning. Eles primeiro formam o Provider atualmente chamável; o reasoning continua sendo determinado pelo `kind` desse Provider e pela definição do modelo. Hoje os Plans embutidos do ZCode são projetados principalmente como runtime Anthropic, então modelos como GLM seguem o caminho `anthropic.effort` / `anthropic.thinking`. Atualizar Token ou Header antes da requisição muda apenas o material de autenticação, não o nível de reasoning já escolhido.
 
-当前本地 Catalog 中实际出现的 reasoning patch 路径只有五类：
+No Catalog local atual, os caminhos de patch de reasoning que realmente aparecem são apenas cinco:
 
 ```text
 anthropic
@@ -294,13 +294,13 @@ openai-compatible
 └─ thinking.type
 ```
 
-Catalog 的 patch 结构是配置层表达；最终是否能直接被 SDK 接受，还会经过 zcode-cli 的模型特例和 Adapter 归一化。例如 Kimi K3 会在 CLI overlay 中重新生成 `anthropic.effort`，不会直接把 Catalog 的 `anthropic.output_config.effort` 交给 SDK。
+A estrutura de patch do Catalog é a expressão da camada de configuração; se ela é aceita diretamente pelo SDK ainda passa pela normalização de casos especiais de modelo e do Adapter no zcode-cli. Por exemplo, o Kimi K3 regenera `anthropic.effort` no overlay da CLI e não entrega diretamente ao SDK o `anthropic.output_config.effort` do Catalog.
 
-## zcode-cli 如何形成 `providerOptionsByLevel`
+## Como o zcode-cli forma o `providerOptionsByLevel`
 
-### 动态 App Provider
+### Provider dinâmico do App
 
-App 通过协议下发 Provider 后，`workspace-model-catalog.ts` 为每个模型创建运行时 capability。顺序大致如下：
+Depois que o App envia o Provider pelo protocolo, `workspace-model-catalog.ts` cria a capability de runtime para cada modelo. A ordem é aproximadamente a seguinte：
 
 ```text
 Kimi K3 模型特例
@@ -320,7 +320,7 @@ Kimi K3 模型特例
 ModelCapability.reasoning
 ```
 
-没有入站 reasoning 时，CLI 再尝试按模型名和 Provider kind 补默认值。主要判断字段是：
+Sem reasoning de entrada, a CLI tenta completar defaults pelo nome do modelo e pelo kind do Provider. Os campos de julgamento principais são：
 
 ```text
 provider.kind
@@ -330,22 +330,22 @@ model.reasoning.levels
 model.reasoning.providerOptionsByLevel
 ```
 
-Base URL 不在这组判断中。
+O Base URL não está nesse conjunto de julgamentos.
 
-当前有几类硬编码识别：
+Hoje há várias categorias de reconhecimento hardcoded：
 
-- `gpt` 模型按 `provider.kind` 选择 OpenAI、OpenAI-compatible 或 Anthropic 参数。
-- `qwen` 通过 providerId 前缀或 modelId 判断，使用 `enable_thinking`。
-- `glm` 根据模型名和档位判断是开关还是深度档位。
-- `deepseek-v4` 同时使用 `thinking.type` 与 `reasoningEffort`。
-- Kimi、MiMo 等模型按 providerId/modelId 家族使用 `thinking.type` 开关。
-- Kimi K3 强制使用 `low/high/max`，并按 transport 使用 effort。
+- modelos `gpt` escolhem parâmetros OpenAI, OpenAI-compatible ou Anthropic conforme `provider.kind`；
+- `qwen` é julgado pelo prefixo de providerId ou pelo modelId e usa `enable_thinking`；
+- `glm` decide, pelo nome do modelo e pelo nível, se é um interruptor ou um nível de profundidade；
+- `deepseek-v4` usa simultaneamente `thinking.type` e `reasoningEffort`；
+- modelos como Kimi e MiMo usam o interruptor `thinking.type` conforme a família de providerId／modelId；
+- Kimi K3 força `low/high/max` e usa effort conforme o transport.
 
-同名模型接入两个不同 URL 时，只要 kind、providerId/modelId 规则相同，就会产生相同映射。要表达不同方言，当前只能让上游显式携带不同的 reasoning patch，或者增加新的代码特例。
+Quando o mesmo nome de modelo é conectado em duas URLs diferentes, desde que as regras de kind, providerId／modelId sejam as mesmas, o mesmo mapeamento é gerado. Para expressar dialetos diferentes, hoje só é possível fazer o upstream carregar patches de reasoning explicitamente diferentes, ou adicionar novos casos especiais no código.
 
-### Standalone CLI 默认策略
+### Política de defaults do Standalone CLI
 
-Standalone CLI 的静态 Catalog 使用另一组默认规则，核心位于 `default-policy.ts` 和 `reasoning-policy.ts`：
+O Catalog estático do Standalone CLI usa outro conjunto de regras padrão, com o núcleo em `default-policy.ts` e `reasoning-policy.ts`:
 
 ```text
 Kimi K3                 -> low / high / max
@@ -357,13 +357,13 @@ Claude Opus 4.7          -> low / medium / high / xhigh / max
 GPT                      -> low / medium / high / xhigh
 ```
 
-这里同样按 `providerId` 和 `modelId` 选择默认映射。对于没有显式 reasoning 的自定义 `openai-compatible` 模型，当前配置解析还会补一个通用的 `thinking.type = enabled/disabled` 开关。这一规则覆盖面较宽，无法保证适合所有 OpenAI-compatible 服务。
+Aqui também o mapa padrão é escolhido por `providerId` e `modelId`. Para modelos `openai-compatible` customizados sem reasoning explícito, a resolução atual de configuração ainda completa um interruptor genérico `thinking.type = enabled/disabled`. Essa regra tem cobertura ampla e não é garantida como adequada para todos os serviços OpenAI-compatible.
 
-### 档位名称如何归一化
+### Como os nomes de nível são normalizados
 
-正常选择先做精确匹配，再做大小写不敏感匹配。没有显式选择时，使用合法的 `defaultLevel`；缺少合法默认值时，使用 `levels[0]`。
+Uma escolha normal primeiro faz correspondência exata e depois correspondência sem distinção de maiúsculas e minúsculas. Sem escolha explícita, usa-se o `defaultLevel` válido; sem um default válido, usa-se `levels[0]`.
 
-当前还有两组模型专用别名：
+Hoje existem ainda dois grupos de apelidos específicos de modelo:
 
 ```text
 DeepSeek V4
@@ -375,11 +375,11 @@ thinking toggle
 └─ disabled/off  -> disabled
 ```
 
-App UI 会把 `off`、`disabled`、`none`、`nothink` 等值翻译成适合展示的文案，但展示别名本身不会自动改变 Provider 参数。真正的执行归一化仍由 Catalog/Bootstrap 规则完成。
+A UI do App traduz valores como `off`, `disabled`, `none` e `nothink` para textos adequados à exibição, mas o próprio apelido de exibição não muda automaticamente os parâmetros do Provider. A normalização efetiva da execução continua sendo feita pelas regras de Catalog／Bootstrap.
 
-### 静态 options 与档位 options 如何合并
+### Como options estáticas e options de nível são mescladas
 
-模型 target 可以先带一份静态 `providerOptions`，例如 API format、structured-output 选项或用户配置的自定义字段。Bootstrap 再把选中档位对应的 options 深度合入，档位 options 覆盖同路径的静态值：
+O target do modelo pode trazer primeiro um conjunto estático de `providerOptions`, por exemplo formato de API, opções de structured output ou campos customizados configurados pelo usuário. Depois o Bootstrap faz merge profundo das options do nível selecionado por cima, e as options do nível sobrescrevem os valores estáticos do mesmo caminho：
 
 ```text
 target.providerOptions
@@ -391,35 +391,35 @@ providerOptionsByLevel[selectedLevel]
 Runtime.modelProviderOptions
 ```
 
-如果静态 options 使用旧 `extra_body` reasoning 路径，Bootstrap 会先移除已经识别的旧 reasoning 字段，再合入 canonical 档位 options；其他自定义字段继续保留。
+Se as options estáticas usarem o caminho de reasoning antigo `extra_body`, o Bootstrap primeiro remove os campos de reasoning antigos já reconhecidos e então mescla as options canônicas do nível; os demais campos customizados continuam preservados.
 
-到了 Adapter runner，Provider Registry 上的静态 options 与 `ModelTextRequest.providerOptions` 还会再合并一次。这一层是顶层合并，请求对象的同名顶层 namespace 优先。正常主链在进入这里前已经由 Bootstrap 合成了完整 namespace，但直接调用 ModelPort 的外围路径仍可能依赖这层行为。
+Ao chegar no runner do Adapter, as options estáticas do Provider Registry e o `ModelTextRequest.providerOptions` são mesclados mais uma vez. Essa camada é um merge de nível superior, e o namespace de topo de mesmo nome do objeto de requisição tem prioridade. O caminho principal normal já entra aqui com o namespace completo sintetizado pelo Bootstrap, mas caminhos periféricos que chamam o ModelPort diretamente ainda podem depender desse comportamento.
 
-## 当前所有主要参数方言
+## Todos os principais dialetos de parâmetros hoje
 
-这里不存在一个有限枚举的“reasoning 状态机”。当前本地 Catalog 只有五种 patch 路径；经过 CLI 默认策略与 SDK namespace 转换后，形成下表七类主要字段形态，并允许 effort 与 thinking 组合出现。
+Aqui não existe uma «máquina de estados de reasoning» com enumeração finita. O Catalog local atual tem apenas cinco caminhos de patch; depois das políticas de defaults da CLI e da conversão de namespace do SDK, surgem as sete classes principais de formato de campo abaixo, e é permitido que effort e thinking apareçam combinados.
 
-| 运行接口                    | 中间 canonical 字段                  | 典型最终请求字段           |
-| --------------------------- | ------------------------------------ | -------------------------- |
-| OpenAI Responses            | `openai.reasoningEffort`             | `reasoning.effort`         |
-| OpenAI-compatible effort    | `openaiCompatible.reasoningEffort`   | `reasoning_effort`         |
-| Qwen compatible             | `openaiCompatible.enable_thinking`   | `enable_thinking`          |
-| Kimi/MiMo compatible toggle | `openaiCompatible.thinking.type`     | `thinking.type`            |
-| Anthropic effort            | `anthropic.effort`                   | `output_config.effort`     |
-| Anthropic fixed thinking    | `anthropic.thinking.budgetTokens`    | `thinking.budget_tokens`   |
-| Anthropic adaptive thinking | `anthropic.thinking.type = adaptive` | `thinking.type = adaptive` |
+| Interface de execução                | Campo canônico intermediário          | Campo típico da requisição final |
+| ------------------------------------ | -------------------------------------- | -------------------------------- |
+| OpenAI Responses                      | `openai.reasoningEffort`              | `reasoning.effort`               |
+| OpenAI-compatible effort             | `openaiCompatible.reasoningEffort`    | `reasoning_effort`               |
+| Qwen compatible                      | `openaiCompatible.enable_thinking`    | `enable_thinking`                |
+| Kimi/MiMo compatible toggle          | `openaiCompatible.thinking.type`      | `thinking.type`                  |
+| Anthropic effort                     | `anthropic.effort`                    | `output_config.effort`           |
+| Anthropic fixed thinking             | `anthropic.thinking.budgetTokens`     | `thinking.budget_tokens`         |
+| Anthropic adaptive thinking          | `anthropic.thinking.type = adaptive`  | `thinking.type = adaptive`       |
 
-下面按最终接口分组。每一节都给出逻辑档位、中间 `providerOptions` 和最终请求体。
+Abaixo, agrupado pela interface final. Cada seção dá o nível lógico, o `providerOptions` intermediário e o corpo final da requisição.
 
 ### OpenAI Responses：`reasoning.effort`
 
-OpenAI Provider 当前使用 AI SDK Responses model。逻辑档位通常是：
+O Provider da OpenAI usa hoje o model Responses do AI SDK. Os níveis lógicos costumam ser：
 
 ```text
 low / medium / high / xhigh
 ```
 
-动态 App Provider 形成的中间值：
+O valor intermediário formado pelo Provider dinâmico do App：
 
 ```ts
 {
@@ -429,7 +429,7 @@ low / medium / high / xhigh
 }
 ```
 
-Standalone 默认策略有时仍产生顶层 canonical 字段：
+A política de defaults do Standalone às vezes ainda produz o campo canônico de topo:
 
 ```ts
 {
@@ -437,7 +437,7 @@ Standalone 默认策略有时仍产生顶层 canonical 字段：
 }
 ```
 
-`runner-options.ts` 会把顶层字段包装进 `openai` namespace。最终 OpenAI Responses 请求是：
+O `runner-options.ts` embrulha os campos de topo no namespace `openai`. A requisição final de OpenAI Responses fica：
 
 ```json
 {
@@ -447,7 +447,7 @@ Standalone 默认策略有时仍产生顶层 canonical 字段：
 }
 ```
 
-关闭 reasoning 时，支持 `none` 的模型会得到：
+Ao desligar o reasoning, modelos que suportam `none` recebem：
 
 ```ts
 {
@@ -457,7 +457,7 @@ Standalone 默认策略有时仍产生顶层 canonical 字段：
 }
 ```
 
-最终请求：
+Requisição final：
 
 ```json
 {
@@ -467,13 +467,13 @@ Standalone 默认策略有时仍产生顶层 canonical 字段：
 }
 ```
 
-AI SDK 只会为它识别出的 reasoning model 生成 `reasoning` 对象。某个 level 是否被具体模型接受，仍由 OpenAI API 判定；例如 `none` 和 `xhigh` 并非所有 GPT 型号都支持。
+O AI SDK só gera o objeto `reasoning` para os reasoning models que ele reconhece. Se um level específico é aceito por determinado modelo continua sendo julgado pela API da OpenAI; por exemplo, `none` e `xhigh` não são suportados por todos os modelos GPT.
 
 ### OpenAI-compatible effort：`reasoning_effort`
 
-Kimi K3、GLM 5.2、通过兼容接口调用的 GPT，以及部分 DeepSeek 使用这条路径。
+Kimi K3、GLM 5.2、GPT chamado por interface compatível e alguns DeepSeek usam esse caminho.
 
-中间值：
+Valor intermediário：
 
 ```ts
 {
@@ -483,7 +483,7 @@ Kimi K3、GLM 5.2、通过兼容接口调用的 GPT，以及部分 DeepSeek 使�
 }
 ```
 
-Adapter 会把 `openaiCompatible` 内容复制到 AI SDK 实际使用的动态 Provider namespace。AI SDK 再把 camelCase 转为 snake_case：
+O Adapter copia o conteúdo de `openaiCompatible` para o namespace dinâmico de Provider realmente usado pelo AI SDK, e o AI SDK converte camelCase em snake_case:
 
 ```json
 {
@@ -491,7 +491,7 @@ Adapter 会把 `openaiCompatible` 内容复制到 AI SDK 实际使用的动态 P
 }
 ```
 
-GLM 5.2 的 `nothink` 映射为：
+O `nothink` do GLM 5.2 é mapeado para:
 
 ```ts
 {
@@ -501,7 +501,7 @@ GLM 5.2 的 `nothink` 映射为：
 }
 ```
 
-最终是：
+O resultado final é：
 
 ```json
 {
@@ -509,7 +509,7 @@ GLM 5.2 的 `nothink` 映射为：
 }
 ```
 
-Kimi K3 在兼容接口下的完整档位是：
+Os níveis completos do Kimi K3 na interface compatível são：
 
 ```text
 low  -> reasoning_effort: "low"
@@ -517,9 +517,9 @@ high -> reasoning_effort: "high"
 max  -> reasoning_effort: "max"
 ```
 
-### Qwen 开关：`enable_thinking`
+### Interruptor do Qwen：`enable_thinking`
 
-Qwen 的 OpenAI-compatible 接口使用布尔字段：
+A interface OpenAI-compatible do Qwen usa um campo booleano：
 
 ```ts
 // enabled
@@ -537,7 +537,7 @@ Qwen 的 OpenAI-compatible 接口使用布尔字段：
 }
 ```
 
-AI SDK 将未识别的兼容字段直接透传，因此最终请求分别是：
+Como o AI SDK repassa diretamente os campos compatíveis não reconhecidos, as requisições finais são:
 
 ```json
 { "enable_thinking": true }
@@ -547,11 +547,11 @@ AI SDK 将未识别的兼容字段直接透传，因此最终请求分别是：
 { "enable_thinking": false }
 ```
 
-当前 Qwen 识别依赖 providerId 以 `qwen-alibaba-model-studio` 开头，或 modelId 以 `qwen` 开头。
+Hoje o reconhecimento do Qwen depende de o providerId começar com `qwen-alibaba-model-studio`, ou de o modelId começar com `qwen`.
 
-### Kimi K2、MiMo 与通用兼容开关：`thinking.type`
+### Kimi K2、MiMo e o interruptor compatível genérico：`thinking.type`
 
-另一批 OpenAI-compatible 服务使用对象开关：
+Outro lote de serviços OpenAI-compatible usa um interruptor em forma de objeto：
 
 ```ts
 // enabled
@@ -573,7 +573,7 @@ AI SDK 将未识别的兼容字段直接透传，因此最终请求分别是：
 }
 ```
 
-最终请求保持同样的形状：
+A requisição final mantém a mesma forma：
 
 ```json
 { "thinking": { "type": "enabled" } }
@@ -583,11 +583,11 @@ AI SDK 将未识别的兼容字段直接透传，因此最终请求分别是：
 { "thinking": { "type": "disabled" } }
 ```
 
-当前默认规则还会把部分没有显式映射的 GLM、DeepSeek 和未知 OpenAI-compatible 模型归入这种方言。
+A regra padrão atual também coloca nesse dialeto parte dos modelos GLM, DeepSeek e OpenAI-compatible desconhecidos que não têm mapa explícito.
 
-### DeepSeek V4：effort 与 thinking 同时出现
+### DeepSeek V4：effort e thinking aparecem juntos
 
-DeepSeek V4 的 `high/max` 同时携带深度和开启状态：
+Os `high/max` do DeepSeek V4 carregam simultaneamente profundidade e estado de ativação：
 
 ```ts
 // high
@@ -599,7 +599,7 @@ DeepSeek V4 的 `high/max` 同时携带深度和开启状态：
 }
 ```
 
-最终请求：
+Requisição final：
 
 ```json
 {
@@ -608,7 +608,7 @@ DeepSeek V4 的 `high/max` 同时携带深度和开启状态：
 }
 ```
 
-当前本地 Catalog 还声明了 `off`：
+O Catalog local atual também declara `off`：
 
 ```ts
 {
@@ -620,11 +620,11 @@ DeepSeek V4 的 `high/max` 同时携带深度和开启状态：
 }
 ```
 
-Catalog patch 会同时 unset `reasoningEffort`。动态 overlay 接收入站 `off` 时也会生成 disabled thinking。静态默认策略本身只列出 `high/max`，因此不同来源对 DeepSeek V4 可选档位的覆盖范围并不完全一致。
+O patch do Catalog também remove `reasoningEffort`. O overlay dinâmico também gera thinking desabilitado quando recebe o `off` de entrada. A política estática de defaults em si só lista `high/max`, então a cobertura de níveis disponíveis para o DeepSeek V4 não é completamente igual entre as diferentes origens.
 
 ### Anthropic effort：`output_config.effort`
 
-通过 Anthropic Messages 调用 Kimi K3、GPT 等只需要深度档位的模型时，中间值是：
+Ao chamar via Anthropic Messages modelos que só precisam de nível de profundidade, como Kimi K3 e GPT, o valor intermediário é：
 
 ```ts
 {
@@ -634,7 +634,7 @@ Catalog patch 会同时 unset `reasoningEffort`。动态 overlay 接收入站 `o
 }
 ```
 
-Anthropic SDK 最终生成：
+O SDK da Anthropic finalmente gera：
 
 ```json
 {
@@ -644,11 +644,11 @@ Anthropic SDK 最终生成：
 }
 ```
 
-Kimi K3 的 `low/high/max` 也走这一形态，不携带 `thinking`。
+O `low/high/max` do Kimi K3 também segue essa forma, sem carregar `thinking`.
 
 ### Anthropic fixed thinking：effort + budget
 
-普通 Claude 默认策略当前把档位转换成固定预算：
+A política padrão do Claude comum hoje converte os níveis em um orçamento fixo:
 
 ```text
 low    -> 4,000 tokens
@@ -657,7 +657,7 @@ high   -> 16,000 tokens
 xhigh  -> 32,000 tokens
 ```
 
-例如 `high`：
+Por exemplo, `high`:
 
 ```ts
 {
@@ -671,7 +671,7 @@ xhigh  -> 32,000 tokens
 }
 ```
 
-最终请求：
+Requisição final：
 
 ```json
 {
@@ -685,11 +685,11 @@ xhigh  -> 32,000 tokens
 }
 ```
 
-固定 thinking budget 还会影响输出预算。Adapter 会先让 reasoning budget 落在本次 `maxOutputTokens` 以内，再交给 Anthropic SDK；最终线上的 `max_tokens` 保持本次请求的总输出预算，而不是在其上额外无限增加 thinking tokens。
+O thinking budget fixo também afeta o orçamento de saída. O Adapter primeiro deixa o reasoning budget caber dentro do `maxOutputTokens` desta requisição e só então entrega ao SDK da Anthropic; o `max_tokens` final em produção mantém o orçamento total de saída desta requisição, em vez de aumentar sem limite os thinking tokens por cima dele.
 
 ### Anthropic adaptive thinking
 
-Opus 4.7 当前使用 adaptive thinking，并支持 `max`：
+O Opus 4.7 usa hoje adaptive thinking e suporta `max`:
 
 ```ts
 {
@@ -702,7 +702,7 @@ Opus 4.7 当前使用 adaptive thinking，并支持 `max`：
 }
 ```
 
-最终请求：
+Requisição final：
 
 ```json
 {
@@ -715,9 +715,9 @@ Opus 4.7 当前使用 adaptive thinking，并支持 `max`：
 }
 ```
 
-### Anthropic 开关
+### Interruptor do Anthropic
 
-通过 Anthropic Messages 调用只提供开关的模型时，启用状态通常使用一个 1,024-token 兼容预算：
+Ao chamar via Anthropic Messages modelos que oferecem apenas um interruptor, o estado de ativação normalmente usa um orçamento de compatibilidade de 1.024 tokens:
 
 ```ts
 {
@@ -730,7 +730,7 @@ Opus 4.7 当前使用 adaptive thinking，并支持 `max`：
 }
 ```
 
-最终请求：
+Requisição final：
 
 ```json
 {
@@ -741,7 +741,7 @@ Opus 4.7 当前使用 adaptive thinking，并支持 `max`：
 }
 ```
 
-关闭状态的中间值是：
+O valor intermediário do estado desligado é：
 
 ```ts
 {
@@ -753,11 +753,11 @@ Opus 4.7 当前使用 adaptive thinking，并支持 `max`：
 }
 ```
 
-当前 AI SDK 会在最终请求中省略 `thinking`，同时不生成 `output_config`。它不会发送 `{ "thinking": { "type": "disabled" } }`。仓库中的 wire test 已明确锁定这一行为。
+Hoje o AI SDK omite `thinking` na requisição final e também não gera `output_config`. Ele não envia `{ "thinking": { "type": "disabled" } }`. O wire test do repositório já fixa explicitamente esse comportamento.
 
-### GLM / DeepSeek 通过 Anthropic Messages
+### GLM / DeepSeek via Anthropic Messages
 
-GLM 5.2 的 `high/max` 同时带 effort 和固定预算：
+O `high/max` do GLM 5.2 traz effort e orçamento fixo ao mesmo tempo:
 
 ```ts
 // max
@@ -772,7 +772,7 @@ GLM 5.2 的 `high/max` 同时带 effort 和固定预算：
 }
 ```
 
-最终请求与 Claude fixed thinking 相同：
+A requisição final é igual à do Claude com fixed thinking:
 
 ```json
 {
@@ -786,13 +786,13 @@ GLM 5.2 的 `high/max` 同时带 effort 和固定预算：
 }
 ```
 
-`nothink` 产生 `thinking: disabled` 的中间值，最终省略 `thinking` 和 `output_config`。
+O `nothink` produz o valor intermediário `thinking: disabled`, e o resultado final omite `thinking` e `output_config`.
 
-DeepSeek V4 通过 Anthropic Messages 时，`high/max` 使用相应 effort，并固定 `thinking.budgetTokens = 1024`。
+O DeepSeek V4, quando chamado via Anthropic Messages, usa o effort correspondente em `high/max` e fixa `thinking.budgetTokens = 1024`.
 
-## `extra_body` 与历史兼容
+## `extra_body` e compatibilidade histórica
 
-早期配置为了把非标准字段塞进 OpenAI-compatible 请求，使用过多层包装：
+Configurações antigas usavam várias camadas de embrulho para enfiar campos não padronizados em requisições OpenAI-compatible:
 
 ```ts
 {
@@ -807,7 +807,7 @@ DeepSeek V4 通过 Anthropic Messages 时，`high/max` 使用相应 effort，并
 }
 ```
 
-当前 Bootstrap 能识别以下旧路径：
+O Bootstrap atual reconhece os seguintes caminhos antigos:
 
 ```text
 openaiCompatible.extra_body.chat_template_kwargs.reasoning_effort
@@ -817,7 +817,7 @@ openaiCompatible.extra_body.enable_thinking
 openaiCompatible.thinking
 ```
 
-如果当前 Catalog 能把这些字段匹配到一个 level，Bootstrap 会移除旧 reasoning 子路径，再合入 canonical 映射。例如：
+Se o Catalog atual conseguir casar esses campos com um level, o Bootstrap remove os subcaminhos antigos de reasoning e então mescla o mapa canônico. Por exemplo:
 
 ```text
 extra_body.chat_template_kwargs.reasoning_effort = "high"
@@ -826,9 +826,9 @@ extra_body.chat_template_kwargs.reasoning_effort = "high"
 openaiCompatible.reasoningEffort = "high"
 ```
 
-如果模型无法识别，原始 `extra_body` 会被保留，避免破坏用户自定义参数。
+Se o modelo não for reconhecido, o `extra_body` original é preservado, para não quebrar parâmetros customizados do usuário.
 
-到了 Adapter 边界，仍然存在的 `openaiCompatible.extra_body` 会被展开一次：
+Na fronteira do Adapter, um `openaiCompatible.extra_body` que ainda exista é expandido uma vez:
 
 ```ts
 {
@@ -841,7 +841,7 @@ openaiCompatible.reasoningEffort = "high"
 }
 ```
 
-最终请求：
+Requisição final：
 
 ```json
 {
@@ -850,15 +850,15 @@ openaiCompatible.reasoningEffort = "high"
 }
 ```
 
-新的本地 Catalog 已经不再保存 `extra_body` reasoning patch；当前 source catalog 的 OpenAI-compatible patch 都使用 direct canonical 字段。
+O novo Catalog local já não salva patches de reasoning em `extra_body`; hoje todos os patches OpenAI-compatible do source catalog usam campos canônicos diretos.
 
-## 用户选择如何进入 Runtime
+## Como a escolha do usuário chega ao Runtime
 
-### App 与协议
+### App e protocolo
 
-UI 中该选项的 ID 是 `thought_level`。模型 capability 提供可选值，Composer、Draft、Workspace default、Task meta 和 Session snapshot 会在各自作用域保存一个字符串。
+O ID dessa opção na UI é `thought_level`. A capability do modelo oferece os valores possíveis, e Composer, Draft, Workspace default, Task meta e Session snapshot guardam uma string cada no seu próprio escopo.
 
-切换档位时，当前协议调用 `session/setThoughtLevel`。CLI 的 `setThoughtLevel()` 会：
+Ao trocar de nível, o protocolo atual chama `session/setThoughtLevel`. O `setThoughtLevel()` da CLI:
 
 ```text
 读取当前 modelRef
@@ -878,7 +878,7 @@ UI 中该选项的 ID 是 `thought_level`。模型 capability 提供可选值，
 持久化 Session model selection
 ```
 
-Session 持久条目保存的是：
+O item persistente da Session guarda:
 
 ```ts
 {
@@ -888,13 +888,13 @@ Session 持久条目保存的是：
 }
 ```
 
-Runtime 当前保存的是“逻辑选择 + 已展开参数”两份事实。系统恢复和遥测中出现大量反向推导，根源就在这里。
+O Runtime hoje guarda dois fatos ao mesmo tempo: «escolha lógica + parâmetros já expandidos». É daí que vem a enorme quantidade de dedução inversa na recuperação de sistema e na telemetria.
 
-### TUI 与 Standalone CLI
+### TUI e Standalone CLI
 
-TUI 的 `/effort` 和 `/variant` 命令先读取当前模型的 `listThoughtLevels()`，再调用同一个 `app.setThoughtLevel()`。它不会自行拼接供应商参数。
+Os comandos `/effort` e `/variant` da TUI leem primeiro o `listThoughtLevels()` do modelo atual e então chamam o mesmo `app.setThoughtLevel()`. Eles não montam parâmetro de fornecedor por conta própria.
 
-Standalone CLI 还保存一份全局最近 reasoning level，位置在 Session SQLite 的 local setting：
+O Standalone CLI também guarda um reasoning level global recente, no local setting do SQLite da Session:
 
 ```text
 namespace = "model"
@@ -904,15 +904,15 @@ scopeID   = "default"
 value     = { level: "high" }
 ```
 
-这份全局值参与新 Runtime 或临时 Turn 模型的首选档位。Session 本身仍然持久化自己的 `thoughtLevel`。
+Esse valor global participa do nível preferido de um novo Runtime ou do modelo de um Turn temporário. A Session continua persistindo o seu próprio `thoughtLevel`.
 
-当前一次性 Prompt CLI 没有独立的 `--reasoning` / `--thought-level` 参数。调用方没有通过 Runtime config 明确提供 `modelProviderOptions` 时，启动装配会读取上面的全局值；已有 Session 的恢复链路还会用 Session 自己保存的 `thoughtLevel` 恢复当前选择。
+O CLI de Prompt pontual de hoje não tem um parâmetro `--reasoning` / `--thought-level` independente. Quando o chamador não fornece explicitamente `modelProviderOptions` pela config do Runtime, a montagem de inicialização lê o valor global acima; a cadeia de recuperação de uma Session existente ainda restaura a escolha atual com o `thoughtLevel` salvo pela própria Session.
 
-### Automation、Bot 与闲时任务
+### Automation、Bot e tarefas ociosas
 
-Automation、Bot、OffPeak Task 都可以携带 `thoughtLevel` 字符串。普通 Automation/Bot 最终通过创建或恢复 Session 的参数应用档位，之后仍走 `setThoughtLevel()`。
+Automation、Bot e OffPeak Task podem carregar a string `thoughtLevel`. Automation／Bot comuns aplicam o nível pelos parâmetros de criação ou recuperação da Session e depois continuam passando por `setThoughtLevel()`.
 
-闲时任务还携带一份完整的 `turnRuntimeModel`：
+As tarefas ociosas também carregam um `turnRuntimeModel` completo:
 
 ```ts
 {
@@ -927,13 +927,13 @@ Automation、Bot、OffPeak Task 都可以携带 `thoughtLevel` 字符串。普�
 }
 ```
 
-Host 把临时 Provider 作为 turn overlay 注入，CLI 再生成 `TurnExecutionModel`，其中已经包含 `modelRef` 和 `modelProviderOptions`。这个对象是当前最接近未来 ModelBinding 输入的结构。
+O Host injeta o Provider temporário como overlay do turn, e a CLI gera o `TurnExecutionModel`, que já contém `modelRef` e `modelProviderOptions`. Esse objeto é a estrutura hoje mais próxima da entrada do futuro ModelBinding.
 
-这里存在一个值得迁移时修正的差异：`ZCodeModelRuntimeConfig.thoughtLevel` 会随闲时任务传入，但当前 `resolveTurnExecutionModel()` 解析参数时读取的是 CLI 全局 reasoning preference，并没有直接把 `runtimeModel.thoughtLevel` 作为 preferred level 传入。只有两者恰好一致，或模型默认值一致时，本轮实际档位才与 Host 指定值一致。
+Há aqui uma diferença que vale corrigir na migração: `ZCodeModelRuntimeConfig.thoughtLevel` chega com tarefas ociosas, mas o `resolveTurnExecutionModel()` atual, ao resolver os parâmetros, lê a preferência de reasoning global da CLI e não passa diretamente `runtimeModel.thoughtLevel` como preferred level. Só quando os dois coincidem por acaso, ou quando o default do modelo coincide, o nível efetivo do turno é igual ao valor especificado pelo Host.
 
-## Model Step 如何使用参数
+## Como o Model Step usa os parâmetros
 
-主 Agent Loop 在每个 Model Step 开始时选择：
+No início de cada Model Step, o Agent Loop principal escolhe:
 
 ```text
 存在 turnExecutionModel
@@ -947,7 +947,7 @@ Host 把临时 Provider 作为 turn overlay 注入，CLI 再生成 `TurnExecutio
 └─ providerOptions     <- Runtime config.modelProviderOptions
 ```
 
-随后 `ModelTextRequest` 同时携带：
+Depois o `ModelTextRequest` carrega simultaneamente:
 
 ```ts
 {
@@ -958,21 +958,21 @@ Host 把临时 Provider 作为 turn overlay 注入，CLI 再生成 `TurnExecutio
 }
 ```
 
-Adapter Registry 再用 `model` 查询 Provider factory、endpoint、credential 和 SDK model。`runner-options.ts` 合并 Provider 静态 options 与请求 options，并执行最终 namespace 转换。
+O Adapter Registry usa `model` para consultar o factory do Provider, o endpoint, a credencial e o model do SDK. O `runner-options.ts` mescla as options estáticas do Provider com as options da requisição e executa a conversão final de namespace.
 
-这条链路中，模型身份和 reasoning 参数来自 Runtime/Turn 快照，Provider client 来自 Adapter Registry，capability 又来自 Catalog。目标 `Model` 的职责是把三者收进同一个可调用对象。
+Nessa cadeia, a identidade do modelo e os parâmetros de reasoning vêm do snapshot de Runtime／Turn, o client do Provider vem do Adapter Registry e a capability vem do Catalog. A responsabilidade do `Model` alvo é reunir os três em um único objeto chamável.
 
-## 特殊模型调用如何处理 reasoning
+## Como as chamadas especiais de modelo tratam o reasoning
 
 ### Automatic Compact
 
-Automatic Compact 当前默认继承主 Loop 的 `modelRef` 和 `providerOptions`。`ENABLE_COMPACT_SUMMARY_THINKING` 目前为 true，所以摘要请求继续使用主 Loop 的 reasoning。
+O Automatic Compact herda por padrão o `modelRef` e o `providerOptions` do Loop principal. `ENABLE_COMPACT_SUMMARY_THINKING` está hoje como true, então a requisição de resumo continua usando o reasoning do Loop principal.
 
-代码仍保留关闭 Compact reasoning 的分支。该分支会删除 effort，并把 Anthropic/OpenAI-compatible thinking 改为 disabled。它属于历史可切策略，当前默认路径不会触发。
+O código ainda mantém o branch que desliga o reasoning do Compact. Esse branch remove o effort e muda o thinking de Anthropic／OpenAI-compatible para disabled. Ele pertence a uma política comutável histórica e o caminho padrão atual não o dispara.
 
-### Session Title 与 Goal Summary Title
+### Session Title e Goal Summary Title
 
-标题任务固定关闭 reasoning。当前实现先继承 Runtime 的 `providerOptions`，然后根据模型和方言修改对象：
+As tarefas de título desligam o reasoning de forma fixa. A implementação atual herda primeiro o `providerOptions` do Runtime e então modifica o objeto conforme o modelo e o dialeto:
 
 ```text
 Anthropic              -> thinking disabled，删除 effort
@@ -981,15 +981,15 @@ OpenAI-compatible      -> enable_thinking=false / thinking disabled / effort non
 MiniMax M3             -> 再按 apiFormat 补专用关闭字段
 ```
 
-这段逻辑位于 `title-provider-options.ts`，它必须同时理解模型名、Provider namespace 和三种 API format。目标设计若保留“标题不思考”，应通过通用 Model Options 表达 `reasoningLevel = disabled`；究竟在任务开始时 `bind()`，还是作为单次 Request 覆盖，由该任务的生命周期决定。Core 不再直接修改供应商参数对象。
+Essa lógica está em `title-provider-options.ts`, e precisa entender ao mesmo tempo o nome do modelo, o namespace do Provider e os três formatos de API. Se o design alvo mantiver «o título não pensa», isso deve ser expresso pelo Model Options genérico como `reasoningLevel = disabled`; se o `bind()` acontece no início da tarefa ou se é um override de uma requisição única depende do ciclo de vida da tarefa. O Core deixa de modificar diretamente o objeto de parâmetros do fornecedor.
 
 ### Git Commit Message
 
-`workspace/generateText` 的普通调用继承当前 Provider options；Git Commit Message 复用标题任务的 no-thinking 投影，因此具有相同的方言分支。
+A chamada comum de `workspace/generateText` herda as options atuais do Provider; o Git Commit Message reaproveita a projeção sem pensamento da tarefa de título e portanto tem os mesmos branches de dialeto.
 
 ### Repo Wiki
 
-Repo Wiki 目前没有走 `ModelPort`、`workspace/generateText` 或上述 `providerOptions` 链路。它从 workspace 对应的 Provider Registry 中读取 provider、model、endpoint、API Key、headers 与 `apiFormat`，随后在 `packages/services` 内直接构造三种 HTTP 请求：
+O Repo Wiki hoje não passa pelo `ModelPort`, por `workspace/generateText` nem pela cadeia de `providerOptions` acima. Ele lê, do Provider Registry correspondente ao workspace, o provider, model, endpoint, API Key, headers e `apiFormat`, e em seguida constrói diretamente três requisições HTTP dentro de `packages/services`:
 
 ```text
 openai-chat-completions
@@ -1002,15 +1002,15 @@ anthropic-messages
 └─ model / max_tokens / messages / temperature
 ```
 
-这些请求都没有携带 reasoning level，也没有发送 `reasoning_effort`、`enable_thinking`、`thinking` 或 `output_config`。因此 Repo Wiki 当前既不继承 Session 的档位，也没有自己的 reasoning 策略。它是 Provider 重构必须收拢的独立模型调用链：未来应先创建自己的 Selection/Binding，再通过 Binding 发起请求；是否使用默认档位或明确关闭 reasoning，需要由 Repo Wiki 的产品语义决定。
+Nenhuma dessas requisições carrega um nível de reasoning, nem envia `reasoning_effort`, `enable_thinking`, `thinking` ou `output_config`. Portanto, hoje o Repo Wiki nem herda o nível da Session nem tem uma política própria de reasoning. Ele é uma cadeia de chamada de modelo independente que a reestruturação de Providers precisa consolidar: no futuro, deve criar primeiro sua própria Selection／Binding e então disparar a requisição pelo Binding; se usa o nível padrão ou se desliga o reasoning explicitamente precisa ser decidido pela semântica de produto do Repo Wiki.
 
 ### Bot
 
-Bot 没有另一套模型请求 Adapter。Bot 的 `/thoughtLevel` 配置、草稿状态和任务参数保存逻辑 level，创建或恢复 ZCode Task 后仍进入标准 Session/Agent 执行链。因此 Bot 需要统一的是 Selection、Submission 与 Session 恢复语义，不需要新增 reasoning wire 方言。
+O Bot não tem outro Adapter de requisição de modelo. A configuração `/thoughtLevel` do Bot, o estado do rascunho e a lógica de salvar os parâmetros da tarefa guardam o nível lógico e, depois de criar ou recuperar a ZCode Task, continuam entrando na cadeia padrão de execução de Session／Agent. Portanto, o que o Bot precisa unificar são as semânticas de Selection, Submission e recuperação de Session, e não um novo dialeto de reasoning no wire.
 
 ### Project Memory
 
-Project Memory Recall selector 使用 Lite 模型或主模型，只生成 256-token structured output。当前代码仅把 `anthropic` namespace 清空，以免固定 thinking 消耗预算：
+O seletor de Project Memory Recall usa o modelo Lite ou o modelo principal e só gera structured output de 256 tokens. O código atual apenas limpa o namespace `anthropic`, para que o thinking fixo não consuma o orçamento:
 
 ```ts
 {
@@ -1019,17 +1019,17 @@ Project Memory Recall selector 使用 Lite 模型或主模型，只生成 256-to
 }
 ```
 
-它没有为 OpenAI 和 OpenAI-compatible 做同等处理，也没有形成一个明确的 logical reasoning choice。这是一条局部修补链路。
+Ele não faz o mesmo tratamento para OpenAI e OpenAI-compatible, nem forma uma escolha lógica de reasoning explícita. Essa é uma cadeia de conserto local.
 
-Project Memory Extraction 与 Dream 会捕获模型和 Provider options，再运行自己的小型 Agent Loop。
+Project Memory Extraction e Dream capturam o modelo e as options do Provider e então executam seu próprio pequeno Agent Loop.
 
 ### Goal Completion Verification
 
-Goal verifier 使用当前 Runtime 的模型和 `modelProviderOptions`，没有独立 reasoning 策略。重试期间模型 ref 会被捕获，但 Provider options 仍从 Runtime config 读取。
+O goal verifier usa o modelo e o `modelProviderOptions` do Runtime atual e não tem política própria de reasoning. Durante as retentativas o model ref é capturado, mas as options do Provider continuam sendo lidas da config do Runtime.
 
 ### Subagent
 
-Subagent profile 可以同时声明 model 和 `thoughtLevel`。只有 profile 指定了具体模型时，当前代码才调用 `resolveModelProviderOptions(modelRef, profile.thoughtLevel)` 为 Child Runtime 解析参数。
+O perfil de Subagent pode declarar model e `thoughtLevel` ao mesmo tempo. Só quando o perfil especifica um modelo concreto o código atual chama `resolveModelProviderOptions(modelRef, profile.thoughtLevel)` para resolver os parâmetros do Child Runtime.
 
 ```text
 profile 指定具体模型与 thoughtLevel
@@ -1042,11 +1042,11 @@ profile 使用 inherit / main
 └─ 强制 Child 使用整个 TurnExecutionModel 快照
 ```
 
-这已经体现了正确的产品语义：Child 选择改变模型或 reasoning 时，应形成自己的 Binding；继承时复用父选择。当前实现仍通过 `modelRef + providerOptions` 分别传递。
+Isso já expressa a semântica de produto correta: quando o Child muda de modelo ou de reasoning, ele deve formar seu próprio Binding; quando herda, reutiliza a escolha do pai. A implementação atual ainda passa `modelRef + providerOptions` separadamente.
 
-## 反向推导与遥测
+## Dedução inversa e telemetria
 
-当前 Runtime 经常只有 `providerOptions`，因此系统还需要反向回答“这到底是哪个档位”。`runtime-thought-level.ts` 会把当前 options 与 `providerOptionsByLevel` 逐项深度匹配：
+O Runtime atual frequentemente só tem `providerOptions`, então o sistema ainda precisa responder de forma inversa «qual é o nível afinal». O `runtime-thought-level.ts` compara item a item, por merge profundo, as options atuais com `providerOptionsByLevel`:
 
 ```text
 Runtime providerOptions
@@ -1056,7 +1056,7 @@ Runtime providerOptions
 推回 effective thought level
 ```
 
-它还会识别以下控制类型：
+Ele também reconhece os seguintes tipos de controle:
 
 ```text
 fixed_level   reasoningEffort / reasoning_effort / effort
@@ -1065,19 +1065,19 @@ adaptive      thinking.type = adaptive
 toggle        enable_thinking / reasoning_enabled / thinking.type
 ```
 
-遥测只检查当前 Adapter 真正消费的 namespace，避免一个对象里同时存在 `anthropic` 和 `openaiCompatible` 时误判。OpenAI-compatible 的实际 namespace 又由 `providerOptionsName` 决定。
+A telemetria verifica apenas o namespace que o Adapter atual realmente consome, evitando erros quando `anthropic` e `openaiCompatible` coexistem no mesmo objeto. O namespace efetivo do OpenAI-compatible é por sua vez determinado por `providerOptionsName`.
 
-这套反向推导服务于 Session 恢复、UI current level、Trace 与 telemetry 归因。未来 Binding 直接持有 `ModelSelection.reasoningLevel` 后，正常执行链可以直接记录逻辑选择；Adapter 仍可记录最终线上的有效参数，用于排查供应商行为，但无需再靠任意对象猜回用户选择。
+Essa dedução inversa serve à recuperação de Session, ao nível atual na UI, ao Trace e à atribuição de telemetria. Depois que o futuro Binding passar a guardar diretamente `ModelSelection.reasoningLevel`, a cadeia normal de execução poderá registrar a escolha lógica; o Adapter ainda poderá registrar os parâmetros efetivos finais no wire, úteis para investigar o comportamento do fornecedor, sem precisar adivinhar de volta a escolha do usuário a partir de um objeto arbitrário.
 
-## 当前问题集中在哪里
+## Onde estão concentrados os problemas atuais
 
-### 能力声明与序列化规则混在一起
+### Declaração de capacidade e regra de serialização misturadas
 
-`ModelCapability.reasoning` 同时告诉 UI “有 high 档位”，又告诉 Adapter “high 要传什么对象”。Renderer 只需要前半部分，Core 也不应理解后半部分。
+`ModelCapability.reasoning` diz ao mesmo tempo à UI «existe o nível high» e ao Adapter «o que high deve enviar». O Renderer só precisa da primeira metade, e o Core também não deveria entender a segunda.
 
-### 同一条规则有多个生成位置
+### A mesma regra tem vários pontos de geração
 
-目前至少有以下生成或修正点：
+Existem hoje pelo menos estes pontos de geração ou correção:
 
 ```text
 App Catalog patch 投影
@@ -1089,31 +1089,31 @@ Title / Git / Compact / Memory 请求修补
 Adapter runner namespace normalization
 ```
 
-一项新模型方言经常需要在多处增加特例。
+Um novo dialeto de modelo frequentemente exige casos especiais em vários lugares.
 
-### OpenAI-compatible 的方言识别依赖名称
+### O reconhecimento de dialeto OpenAI-compatible depende de nome
 
-当前使用 kind、providerId、modelId 和 levels 推断；URL 不参与。名称能覆盖官方已知模型，但无法可靠表达私有网关、代理服务或“相同 modelId、不同兼容实现”。
+Hoje a inferência usa kind, providerId, modelId e levels; a URL não participa. O nome cobre os modelos oficiais conhecidos, mas não consegue expressar de forma confiável gateways privados, serviços de proxy ou «mesmo modelId, implementação compatível diferente».
 
-### App 与 CLI 配置表达不同
+### App e CLI expressam a configuração de formas diferentes
 
-App 只保存 variants；Standalone CLI 可保存完整 `providerOptionsByLevel`。Builtin 内存配置又可以携带 transport patch。三种来源进入同一 Runtime 前需要多次补齐和转换。
+O App guarda apenas variants; o Standalone CLI pode guardar o `providerOptionsByLevel` completo. E a config embutida em memória pode carregar patch de transport. As três origens precisam de múltiplas complementações e conversões antes de entrar no mesmo Runtime.
 
-### Runtime 同时保存选择和展开结果
+### O Runtime guarda a escolha e o resultado expandido
 
-`modelRef.variant` 是逻辑选择，`modelProviderOptions` 是展开结果。两者可能被不同入口分别更新，因此代码需要大量同步、恢复和反向匹配。
+`modelRef.variant` é a escolha lógica e `modelProviderOptions` é o resultado expandido. Os dois podem ser atualizados por entradas diferentes, e por isso o código precisa de muita sincronização, recuperação e correspondência inversa.
 
-### 辅助任务直接修改任意参数
+### Tarefas auxiliares modificam parâmetros arbitrários diretamente
 
-Title、Git、Compact 和 Memory 根据各自需要删除或补写 Provider 字段。每个调用点都必须了解供应商差异，Adapter 的职责被泄漏到了 Core。
+Title、Git、Compact e Memory removem ou escrevem campos do Provider conforme sua necessidade. Cada ponto de chamada precisa conhecer as diferenças entre fornecedores, e a responsabilidade do Adapter vazou para o Core.
 
-## 对 Model 与 ModelRequest 设计的约束
+## Restrições ao design de Model e ModelRequest
 
-公共 Option 的语义已经进一步明确：`reasoningLevel` 是用户期望的推理强度，属于软约束；`maxOutputTokens` 是 reasoning 与最终回答共享的总生成 Token 上限，属于硬约束。Model 分别校验两者，不理解 thinking budget，也不承担 Provider 特有的组合校验。
+A semântica das Options públicas ficou mais precisa：`reasoningLevel` é a intensidade de raciocínio esperada pelo usuário e é uma restrição suave; `maxOutputTokens` é o teto total de tokens de geração compartilhado entre o reasoning e a resposta final e é uma restrição rígida. O Model valida os dois separadamente, não entende thinking budget e não assume a validação de combinações específicas de Provider.
 
-第一阶段保持现有 Adapter 行为。即使部分 Anthropic 新模型的官方推荐已经转向 adaptive thinking，只要当前 fixed-budget 请求仍然能够工作，本轮不改变模型识别、档位映射和 wire request。现有 fixed thinking 继续使用 `min(levelBudget, maxOutputTokens - 1)` 保证总预算。未来 Adapter 专题再评估原生 effort/adaptive 迁移，并把仍需 fixed budget 的方言调整为 `min(levelDefaultBudget, floor(maxOutputTokens * 3 / 4))`，为最终回答保留稳定空间。
+A primeira fase mantém o comportamento atual dos Adapter. Mesmo que a recomendação oficial de parte dos novos modelos da Anthropic já tenha virado adaptive thinking, desde que a requisição fixed budget atual ainda funcione, esta rodada não muda o reconhecimento de modelo, o mapeamento de níveis nem a wire request. O fixed thinking existente continua usando `min(levelBudget, maxOutputTokens - 1)` para garantir o orçamento total. O tópico futuro de Adapter avalia a migração para effort／adaptive nativos e ajusta os dialetos que ainda precisam de fixed budget para `min(levelDefaultBudget, floor(maxOutputTokens * 3 / 4))`, reservando espaço estável para a resposta final.
 
-这次调研支持下面这条目标链路：
+Esta pesquisa sustenta a seguinte cadeia alvo:
 
 ```text
 Model
@@ -1134,22 +1134,22 @@ Model
 Adapter 私有序列化
 ```
 
-目标边界需要满足：
+A fronteira alvo precisa satisfazer:
 
-- UI、Session、Submission、Automation 和 Subagent 保存逻辑 level，不保存供应商参数。
-- 派生 Model 固定 provider、model 和 reasoning level；连续执行中不再重新读取可变 Runtime 选项。
-- Adapter 路径拥有 reasoning 方言。OpenAI-compatible 的差异不能继续泄漏给 Core。
-- `providerOptionsByLevel` 在迁移期由一个兼容边界读取，随后封装进 Model/Adapter，不再暴露给 ModelRequest。
-- Title、Git 等确实改变 reasoning 的任务，使用 `bind()` 或 Request Options 表达通用档位，不再修改供应商参数对象。
-- Compact 只改变消息和预算时复用当前 Model。
-- Usage、Trace 和消息历史从实际发起请求的 Model 记录 provider/model/reasoning。
-- 最终线上的 Header、Token 刷新、路由、重试和字段序列化继续留在 Adapter 内部。
+- UI、Session、Submission、Automation e Subagent guardam o nível lógico e não guardam parâmetros do fornecedor.
+- O Model derivado fixa provider, model e reasoning level; durante a execução contínua não se relêem opções mutáveis do Runtime.
+- O caminho do Adapter é dono do dialeto de reasoning. As diferenças do OpenAI-compatible não podem continuar vazando para o Core.
+- `providerOptionsByLevel` é lido por uma fronteira de compatibilidade durante a migração e depois encapsulado no Model／Adapter, sem ser mais exposto ao ModelRequest.
+- Tarefas que de fato mudam o reasoning, como Title e Git, expressam níveis genéricos por `bind()` ou Request Options, sem modificar mais o objeto de parâmetros do fornecedor.
+- Compact reutiliza o Model atual quando só muda mensagens e orçamento.
+- Usage、Trace e o histórico de mensagens registram provider／model／reasoning a partir do Model que efetivamente fez a requisição.
+- Header final em produção, refresh de Token, roteamento, retry e serialização de campos continuam dentro do Adapter.
 
-具体采用“更细的 Adapter 类型”还是“一个 Adapter 加强类型 reasoning strategy”，仍需在后续 Adapter 设计中裁决。无论字段最终叫什么，它必须成为 Provider/Adapter 路径中的显式事实，能够区分相同 modelId 接在不同兼容服务上的情况。
+A escolha entre «tipos de Adapter mais finos» e «um Adapter com uma estratégia de reasoning fortemente tipada» ainda precisa ser decidida no design futuro do Adapter. Seja qual for o nome final do campo, ele precisa se tornar um fato explícito no caminho Provider／Adapter, capaz de distinguir o mesmo modelId conectado a diferentes serviços compatíveis.
 
-## 实施前需要锁定的测试
+## Testes que precisam ser travados antes da implementação
 
-迁移不能只验证中间 `providerOptions`。至少要保留三层测试：
+A migração não pode validar apenas o `providerOptions` intermediário. É preciso manter pelo menos três camadas de teste:
 
 ```text
 配置/Definition 测试
@@ -1162,26 +1162,26 @@ Wire 测试
 └─ 捕获真实 SDK 请求 body，验证最终字段
 ```
 
-现有 wire tests 已覆盖 OpenAI Responses `none`、Anthropic effort、Anthropic thinking budget、OpenAI-compatible `reasoning_effort`、`enable_thinking`、`thinking.type` 和 legacy `extra_body` 展开。它们应成为迁移时的行为基线。
+Os wire tests existentes já cobrem OpenAI Responses `none`、Anthropic effort、Anthropic thinking budget、OpenAI-compatible `reasoning_effort`、`enable_thinking`、`thinking.type` e a expansão de `extra_body` legado. Eles devem se tornar a linha de base comportamental da migração.
 
-## 主要代码证据
+## Principais evidências de código
 
-- 能力类型：`apps/zcode-cli/packages/contracts/src/model/catalog.ts`
-- App provider/config 类型：`packages/shared/src/model-provider-types.ts`
-- App config 读写：`packages/services/src/model-provider/modelProviderServiceStorage.ts`
-- App 到协议的 reasoning patch 投影：`packages/shared/src/zcode-protocol/index.ts`
-- 动态 App Provider 映射：`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`
-- CLI 静态默认规则：`apps/zcode-cli/packages/adapters/src/model/default-policy.ts`
-- 各种内置映射：`apps/zcode-cli/packages/adapters/src/model/reasoning-policy.ts`
-- Standalone CLI 配置归一化：`apps/zcode-cli/packages/adapters/src/config/schema.ts`
-- level 解析与遥测反推：`apps/zcode-cli/packages/adapters/src/model/runtime-thought-level.ts`
-- Runtime options 合并与旧配置迁移：`apps/zcode-cli/packages/bootstrap/src/runtime-model-metadata.ts`
-- Session 档位切换：`apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts`
-- Model Step 使用点：`apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step.ts`
-- Adapter 最终归一化：`apps/zcode-cli/packages/adapters/src/model/runner-options.ts`
-- OpenAI-compatible wire tests：`apps/zcode-cli/packages/adapters/tests/openai-compatible-extra-body-wire.test.ts`
-- Anthropic wire tests：`apps/zcode-cli/packages/adapters/tests/anthropic-effort-wire.test.ts`
-- disabled wire tests：`apps/zcode-cli/packages/adapters/tests/reasoning-disabled-wire.test.ts`
-- 特殊调用策略：`apps/zcode-cli/packages/core/src/runtime/methods/title-provider-options.ts`、`compact-active.ts`、`workspace-generate-text.ts` 和 `project-memory-recall.ts`
-- Repo Wiki 直连请求：`packages/services/src/repo-wiki/repoWikiModelClient.ts` 与 `repoWikiProviderRegistryModelConfig.ts`
-- Bot 档位选择与任务派发：`packages/services/src/bots/botsService.ts`
+- Tipos de capacidade：`apps/zcode-cli/packages/contracts/src/model/catalog.ts`
+- Tipos de provider／config do App：`packages/shared/src/model-provider-types.ts`
+- Leitura e escrita da config do App：`packages/services/src/model-provider/modelProviderServiceStorage.ts`
+- Projeção de patch de reasoning do App para o protocolo：`packages/shared/src/zcode-protocol/index.ts`
+- Mapeamento de Provider dinâmico do App：`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`
+- Regras estáticas de defaults da CLI：`apps/zcode-cli/packages/adapters/src/model/default-policy.ts`
+- Vários mapas embutidos：`apps/zcode-cli/packages/adapters/src/model/reasoning-policy.ts`
+- Normalização da config do Standalone CLI：`apps/zcode-cli/packages/adapters/src/config/schema.ts`
+- Resolução de level e dedução inversa de telemetria：`apps/zcode-cli/packages/adapters/src/model/runtime-thought-level.ts`
+- Merge das options de Runtime e migração de config antiga：`apps/zcode-cli/packages/bootstrap/src/runtime-model-metadata.ts`
+- Troca de nível da Session：`apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts`
+- Ponto de uso do Model Step：`apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step.ts`
+- Normalização final do Adapter：`apps/zcode-cli/packages/adapters/src/model/runner-options.ts`
+- Wire tests do OpenAI-compatible：`apps/zcode-cli/packages/adapters/tests/openai-compatible-extra-body-wire.test.ts`
+- Wire tests da Anthropic：`apps/zcode-cli/packages/adapters/tests/anthropic-effort-wire.test.ts`
+- Wire tests de disabled：`apps/zcode-cli/packages/adapters/tests/reasoning-disabled-wire.test.ts`
+- Políticas de chamadas especiais：`apps/zcode-cli/packages/core/src/runtime/methods/title-provider-options.ts`、`compact-active.ts`、`workspace-generate-text.ts` e `project-memory-recall.ts`
+- Requisições diretas do Repo Wiki：`packages/services/src/repo-wiki/repoWikiModelClient.ts` e `repoWikiProviderRegistryModelConfig.ts`
+- Seleção de nível e despacho de tarefas do Bot：`packages/services/src/bots/botsService.ts`

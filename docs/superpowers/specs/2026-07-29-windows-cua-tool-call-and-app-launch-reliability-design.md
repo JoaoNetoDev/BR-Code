@@ -1,112 +1,128 @@
-# Windows CUA 工具调用与应用启动可靠性设计
+# Design de confiabilidade de chamadas de ferramentas CUA e de lançamento de apps no Windows
 
-> 日期：2026-07-29（2026-07-30 修订工具名方案）
+> Data: 2026-07-29 (2026-07-30, revisão do esquema de nomes de ferramenta)
 >
-> 状态：已确认
+> Estado: confirmado
 >
-> 范围：Windows 本地 desktop continuous 源码开发链路
+> Escopo: cadeia de desenvolvimento de código-fonte do desktop continuous local no Windows
 >
-> 关联仓库：`z-code`、`C:\Users\dev\zcode-cua`
+> Repositórios relacionados: `z-code`, `C:\Users\dev\zcode-cua`
 
-## 1. 运行时证据与根因
+## 1. Evidência de runtime e causa raiz
 
-失败会话 `sess_4acdf746-a6c2-4518-8ed9-bd9f587a6cea` 和
-`sess_f89ac19d-ceb1-4bf5-bcdd-07504d226bb2` 的模型 I/O 与 Agent 日志共同证明：
+As sessões com falha `sess_4acdf746-a6c2-4518-8ed9-bd9f587a6cea` e
+`sess_f89ac19d-ceb1-4bf5-bcdd-07504d226bb2`, junto com os logs de I/O do modelo e do Agent, provam em conjunto que:
 
-- 官方 `zcode-cua` MCP 已连接，30 个工具全部注册，Helper 和 plugin-host 都不是本次
-  失败根因；
-- 当前远端上游基线通过通用 MCP descriptor 生成 provider-visible 规范名称
-  `mcp__plugin_zcode-cua_computer-use__*`；请求中注入的名称保留 `zcode-cua` 和
-  `computer-use` 两个连字符片段；
-- provider/model 返回了未在请求工具集合中声明的
-  `mcp__plugin_zcode_cua_computer_use__*`，把两个连字符片段都改成了下划线；
-- registry 按精确工具名查找，因此在 permission、hook 和 MCP dispatch 之前返回
-  `Tool not found`；
-- `e04766f2a9` 后由 Windows 移植增加的 alias 假设规范名称是
-  `mcp__computer-use__*`，既不符合当前完整 namespaced descriptor，也没有从生产 runtime
-  传入它要求的 authority 集合，因此该分支是未生效的死代码；
-- 上游维护者在 `babdbd5e4c` 中曾使用短名称 `mcp__computer-use__*`，但该实现属于后来被
-  `9a80589fbd` 明确回滚的 stabilization merge；当前基线是 `0b0a27f92a` 及其后的远端提交，
-  本修订不从已回滚提交中单独摘取旧 descriptor 特例；
-- `open_application({app:{name:"calc"}})` 已真实启动计算器，但启动器 PID 最终对应的
-  可见窗口由 `ApplicationFrameHost.exe` 承载；现有 Windows resolver 只允许 launcher
-  完整 executable identity 与 GUI candidate 完全一致，因此安全地拒绝了错误换绑；
-- `Microsoft.WindowsCalculator_8wekyb3d8bbwe!App` 是可精确使用的 AUMID，但当前
-  Windows system surface 只接受 `name`，尚无 AUMID 原生激活与 HWND 身份证据。
+- o MCP oficial `zcode-cua` está conectado, com as 30 ferramentas registradas; o Helper e o plugin-host não
+  são a causa raiz desta falha;
+- a linha de base remota atual gera, pelo descriptor MCP genérico, o nome provider-visible canônico
+  `mcp__plugin_zcode-cua_computer-use__*`; os nomes injetados na requisição preservam os dois trechos com
+  hífen de `zcode-cua` e `computer-use`;
+- o provider/model devolveu `mcp__plugin_zcode_cua_computer_use__*`, que não foi declarado no conjunto de
+  ferramentas da requisição, com os dois trechos de hífen trocados por sublinhado;
+- o registry faz a busca pelo nome exato da ferramenta, então retornou `Tool not found` antes de permission,
+  hook e dispatch do MCP;
+- o alias adicionado na portabilidade para Windows depois de `e04766f2a9` assume que o nome canônico é
+  `mcp__computer-use__*`, o que não corresponde ao descriptor namespaced completo atual, além de não receber do
+  runtime de produção o conjunto de autoridades que ele exige — portanto esse ramo é código morto inativo;
+- o mantenedor upstream já usou o nome curto `mcp__computer-use__*` em `babdbd5e4c`, mas essa implementação
+  pertence ao stabilization merge que foi explicitamente revertido depois por `9a80589fbd`; a linha de base
+  atual é `0b0a27f92a` e os commits remotos posteriores, e esta revisão não extrai o caso especial do descriptor
+  antigo a partir de um commit revertido;
+- `open_application({app:{name:"calc"}})` realmente iniciou a calculadora, mas a janela visível correspondente ao
+  PID do launcher acabou sendo hospedada por `ApplicationFrameHost.exe`; o resolver atual do Windows só permite
+  que a identidade completa do executable do launcher seja exatamente igual ao candidato de GUI, e por isso
+  recusou com segurança a rebind incorreta;
+- `Microsoft.WindowsCalculator_8wekyb3d8bbwe!App` é um AUMID que pode ser usado com precisão, mas a superfície de
+  sistema do Windows atual aceita apenas `name` e ainda não há ativação nativa por AUMID nem evidência de
+  identidade de HWND.
 
-这不是 MCP 连接故障，而是两个独立缺口：
+Isto não é uma falha de conexão do MCP, e sim duas lacunas independentes:
 
-1. provider/model 返回了请求契约之外的工具名，而当前模型响应边界只校验“非空”，没有校验
-   “必须是本次请求中声明的精确名称”；
-2. Windows packaged app 缺少 AUMID 启动与精确窗口解析分支。
+1. o provider/model devolveu um nome de ferramenta fora do contrato da requisição, enquanto o limite atual de
+   resposta do modelo só valida "não vazio" e não valida "tem de ser exatamente um nome declarado nesta
+   requisição";
+2. o Windows packaged app não tem ramo de lançamento por AUMID nem de resolução exata de janela.
 
-## 2. 目标
+## 2. Objetivos
 
-1. 以当前远端上游实现为唯一基线：provider-visible 名称继续由通用 descriptor
-   生成，当前官方 CUA 名称为 `mcp__plugin_zcode-cua_computer-use__*`。
-2. 删除 Windows 移植增加的短名称/下划线 Registry alias；任何未在本次请求工具集合中精确声明的
-   名称都不能进入 permission、hook、event、history 或 MCP dispatch。
-3. 当且仅当错误名称通过“仅用于诊断的比较”唯一对应某个规范名称时，允许在没有提交任何
-   model/tool 可见事件的前提下发起一次纠正重试；重试响应仍必须精确命中请求工具集合。
-4. 无法唯一对应、已经越过流式提交边界或第二次仍错误时，按可恢复的非法模型响应 fail closed，
-   不做 alias 路由。
-5. Windows `open_application` 接受 AUMID，以原生
-   `IApplicationActivationManager` 激活 packaged app。
-6. 通过窗口的 `PKEY_AppUserModel_ID` 精确解析目标 HWND/PID；无候选或多 PID 候选时
-   fail closed。
-7. Windows 对少量内置 packaged app 提供大小写不敏感的精确名称别名；第一批只包含
-   Calculator 的 `Calculator`、`Windows Calculator`、`calc`、`calc.exe` 和 `计算器`，
-   并统一收敛到 `Microsoft.WindowsCalculator_8wekyb3d8bbwe!App` 后再进入同一条
-   AUMID 激活与回读链路。
-8. 保留现有 Win32 executable name 启动、完整路径校验、prelaunch snapshot、live
-   revalidation 和唯一新候选规则。
-9. 修正 Windows skill 文案：AUMID 是 packaged app 的启动身份；后续动作优先使用
-   `open_application` 返回的 PID，不能把 `ApplicationFrameHost.exe` 当作 AUMID。
+1. Tomar a implementação remota upstream atual como única linha de base: o nome provider-visible continua sendo
+   gerado pelo descriptor genérico, e o nome CUA oficial atual é `mcp__plugin_zcode-cua_computer-use__*`.
+2. Remover o alias de registry de nome curto/sublinhado adicionado na portabilidade para Windows; nenhum nome
+   que não esteja exatamente declarado no conjunto de ferramentas desta requisição pode entrar em permission,
+   hook, event, history ou dispatch do MCP.
+3. Permitir uma única tentativa de retry corretivo, sem submeter nenhum evento visível de model/tool, somente
+   quando o nome incorreto corresponder de forma única a um nome canônico por meio de uma "comparação usada
+   apenas para diagnóstico"; a resposta do retry ainda precisa acertar exatamente o conjunto de ferramentas da
+   requisição.
+4. Em caso de correspondência não única, de ter já cruzado a fronteira de submissão de streaming, ou de a segunda
+   resposta ainda estar errada, falhar de forma fechada (fail closed) como resposta de modelo inválida
+   recuperável, sem roteamento por alias.
+5. Fazer o `open_application` do Windows aceitar AUMID, ativando packaged apps de forma nativa via
+   `IApplicationActivationManager`.
+6. Resolver o HWND/PID alvo de forma exata pelo `PKEY_AppUserModel_ID` da janela; falhar de forma fechada quando
+   não houver candidato ou houver candidatos com múltiplos PIDs.
+7. No Windows, fornecer aliases de nome exato insensíveis a maiúsculas/minúsculas para um pequeno conjunto de
+   packaged apps integrados; o primeiro lote contém apenas `Calculator`, `Windows Calculator`, `calc`, `calc.exe`
+   e `计算器` da Calculadora, todos convergindo uniformemente para
+   `Microsoft.WindowsCalculator_8wekyb3d8bbwe!App` antes de entrar na mesma cadeia de ativação por AUMID e de
+   leitura de retorno.
+8. Preservar a inicialização por nome de executable Win32 existente, a validação de caminho completo, o
+   prelaunch snapshot, a revalidação live e a regra de novo candidato único.
+9. Corrigir o texto da skill do Windows: o AUMID é a identidade de lançamento de um packaged app; as ações
+   seguintes devem preferir o PID retornado por `open_application`, e não se pode tratar `ApplicationFrameHost.exe`
+   como um AUMID.
 
-## 3. 非目标
+## 3. Não objetivos
 
-- 不把 `computer-use` 的规范名称改成 `computer_use`；
-- 不对任意 MCP server 做连字符/下划线全局归一化；
-- 不把下划线错误名称直接改写成规范名称后执行；
-- 不修改上游维护者在 `packages/ui` 的 CUA renderer、Core result display、当前通用
-  MCP descriptor、manifest 或运行时 authority 设计；
-- 不按窗口标题、运行中应用显示名、basename、active 状态或枚举顺序猜测应用；内置
-  packaged app 名称只允许走代码内显式维护的 exact alias → AUMID 表，未知名称不猜测；
-- 不改变 30-tool manifest、MCP schema、macOS 或 Linux 启动语义；
-- 不引入 shell、PowerShell、`explorer.exe shell:AppsFolder` 或桌面快捷方式 fallback；
-- 不修改 SSH、WSL、Docker、remote workspace、手机 `/remote` 或 replayable 链路；
-- 不做安装包、签名、自动更新或发布闭环。
+- Não mudar o nome canônico de `computer-use` para `computer_use`;
+- Não fazer normalização global de hífen/linha-underscore para qualquer servidor MCP;
+- Não reescrever diretamente um nome incorreto com sublinhado para o nome canônico e então executá-lo;
+- Não modificar o renderer CUA do mantenedor upstream em `packages/ui`, o Core result display, o descriptor MCP
+  genérico atual, o manifest ou o desenho de autoridade em runtime;
+- Não adivinhar aplicações por título de janela, nome de exibição de app em execução, basename, estado ativo ou
+  ordem de enumeração; nomes de packaged app integrados só podem passar por uma tabela de alias exatos
+  mantida explicitamente em código, mapeando alias → AUMID, e nomes desconhecidos não são adivinhados;
+- Não mudar o manifest de 30 ferramentas, o schema MCP, nem a semântica de lançamento de macOS ou Linux;
+- Não introduzir shell, PowerShell, `explorer.exe shell:AppsFolder` nem fallback por atalho da área de trabalho;
+- Não modificar SSH, WSL, Docker, remote workspace, `/remote` do celular ou a cadeia replayable;
+- Não fazer pacote de instalação, assinatura, atualização automática nem ciclo completo de publicação.
 
-## 4. 方案选择
+## 4. Escolha da abordagem
 
-### 4.1 工具名称
+### 4.1 Nomes de ferramenta
 
-#### 方案 A：保留 Windows 移植的 Registry alias
+#### Opção A: manter o alias de registry da portabilidade para Windows
 
-不采用。现有 alias 建立在短名称 `mcp__computer-use__*` 假设上，无法命中当前远端
-`mcp__plugin_zcode-cua_computer-use__*`；生产 runtime 也没有传入它要求的 authority 集合。
-即使补齐匹配，Registry 直接 alias 仍会把请求契约外的模型输出变成可执行调用，掩盖
-provider/model 契约错误。
+Não adotada. O alias existente se apoia na premissa de nome curto `mcp__computer-use__*`, que não acerta o
+`mcp__plugin_zcode-cua_computer-use__*` remoto atual; e o runtime de produção também não passou o conjunto de
+autoridades que ele exige. Mesmo que a correspondência fosse completada, um alias direto no registry ainda
+transformaria uma saída de modelo fora do contrato da requisição em uma chamada executável, mascarando um
+erro de contrato do provider/model.
 
-#### 方案 B：恢复已回滚的上游短名称 descriptor
+#### Opção B: restaurar o descriptor upstream de nome curto que foi revertido
 
-不采用。`babdbd5e4c` 的短名称 descriptor 属于 `9a80589fbd` 明确回滚的 stabilization
-merge；当前上游基线 `0b0a27f92a` 没有重新引入该特例。只 cherry-pick descriptor
-会绕过回滚边界，并让同一远端基线出现两套互相矛盾的命名事实。
+Não adotada. O descriptor de nome curto de `babdbd5e4c` pertence ao stabilization merge revertido explicitamente
+por `9a80589fbd`; a linha de base upstream atual `0b0a27f92a` não reintroduziu esse caso especial. Um
+cherry-pick apenas do descriptor contornaria a fronteira da reversão e criaria duas versões contraditórias de
+fato sobre nomes dentro da mesma linha de base remota.
 
-#### 方案 C：请求契约精确校验与一次无副作用纠正重试
+#### Opção C: validação exata do contrato da requisição e um retry corretivo sem efeito colateral
 
-采用。模型 adapter 在构造请求时已经持有本次精确 `tools[].name` 集合；响应中的每个
-tool name 必须与集合成员字节级一致。连字符转下划线比较只用于判断是否存在唯一的纠正候选，
-不得改变 tool call、不得查询 Registry、不得形成 permission 或持久化名称。
+Adotada. O adapter do modelo já possui, ao montar a requisição, o conjunto exato de `tools[].name` desta
+requisição; cada tool name da resposta precisa ser idêntico byte a byte a um membro do conjunto. A comparação
+de hífen contra sublinhado é usada só para verificar se existe um único candidato de correção, e não pode mudar a
+tool call, não pode consultar o Registry e não pode formar permissão nem nome persistido.
 
-第一次响应若在任何可见正文、reasoning、tool block 或 provider retry boundary 提交前命中唯一
-候选，则中止并清理原物理请求，以一条不持久化的系统纠正指令重新发起一次请求。纠正指令只列出
-允许的精确规范名称，不包含工具参数。第二次响应不再享有拼写纠正预算，必须精确命中；否则按
-`InvalidModelResponse` 失败。
+Se a primeira resposta acertar o único candidato antes de qualquer submissão de texto visível, de reasoning, de bloco
+de tool ou de fronteira de retry do provider, abortar e limpar a requisição física original e refazer uma única
+requisição com uma instrução corretiva de sistema que não é persistida. A instrução corretiva lista apenas os
+nomes canônicos exatos permitidos e não contém parâmetros de ferramenta. A segunda resposta não tem mais
+orçamento de correção ortográfica e precisa acertar exatamente; caso contrário, falha com `InvalidModelResponse`.
 
-如果流式响应已经提交了不可重放事件，则不做自动重试，直接失败，避免正文或 tool block 重复。
-非流式响应尚未对外提交，可以使用同一条一次性纠正规则。
+Se a resposta em streaming já tiver submetido um evento não replayável, não há retry automático e a chamada
+falha direto, evitando duplicação de texto ou de bloco de tool. Uma resposta não-streaming que ainda não foi
+exposta externamente pode usar a mesma regra corretiva de uso único.
 
 ```text
 上游当前 descriptor
@@ -136,28 +152,32 @@ model/provider response
     +-- 只处理已经接受的规范 tool event，不参与路由，保持不变
 ```
 
-### 4.2 Windows packaged app
+### 4.2 Packaged app no Windows
 
-#### 方案 A：启动后按 name/title/basename 匹配
+#### Opção A: casar por name/title/basename após o lançamento
 
-不采用。窗口标题可本地化、可重复，也可由目标应用控制；`ApplicationFrameHost.exe`
-又同时承载多个 packaged app，无法作为 Calculator 的稳定身份。
+Não adotada. O título da janela pode ser localizado, pode se repetir e pode ser controlado pelo app alvo;
+além disso, `ApplicationFrameHost.exe` hospeda vários packaged apps ao mesmo tempo, então não serve como
+identidade estável da Calculadora.
 
-#### 方案 B：直接接受 launcher PID 或第一个 active candidate
+#### Opção B: aceitar diretamente o PID do launcher ou o primeiro candidato ativo
 
-不采用。launcher 可能退出、转交或被复用；active/枚举第一项不能证明它属于本次调用。
+Não adotada. O launcher pode sair, passar a responsabilidade ou ser reutilizado; e o primeiro item
+ativo da enumeração não prova que pertence a esta chamada.
 
-#### 方案 C：AUMID 原生激活与 HWND 属性精确查找
+#### Opção C: ativação nativa por AUMID e busca exata por propriedade de HWND
 
-采用。native addon 增加两个 Windows-only 内部 ABI：
+Adotada. O addon nativo acrescenta duas ABIs internas exclusivas do Windows:
 
-- `activateApplicationByAumid(aumid)`：调用
-  `IApplicationActivationManager::ActivateApplication`；
-- `applicationInfoByAumid(aumid)`：枚举可见顶层 HWND，读取
-  `PKEY_AppUserModel_ID`，按 AUMID 大小写不敏感精确匹配并按 PID 去重。
+- `activateApplicationByAumid(aumid)`: chama
+  `IApplicationActivationManager::ActivateApplication`;
+- `applicationInfoByAumid(aumid)`: enumera HWNDs top-level visíveis, lê
+  `PKEY_AppUserModel_ID`, faz correspondência exata e insensível a maiúsculas/minúsculas por AUMID e
+  deduplica por PID.
 
-已有同 AUMID 的唯一可见应用可以直接返回；否则激活后在有界预算内轮询。0 个候选继续
-等待，多个 PID 候选或预算耗尽返回失败。该分支不把 AUMID 与 executable path 混为一谈。
+Um único app visível já com o mesmo AUMID pode ser devolvido diretamente; caso contrário, faz-se polling com
+orçamento limitado após a ativação. Com 0 candidatos, continua esperando; com candidatos de múltiplos PIDs ou
+com o orçamento esgotado, retorna falha. Esse ramo não confunde AUMID com caminho de executable.
 
 ```text
 open_application({bundle_id: AUMID})
@@ -181,94 +201,112 @@ open_application({name: "notepad.exe"})
 existing Win32 full-executable identity path remains unchanged
 ```
 
-#### Calculator 精确名称别名
+#### Aliases de nome exato da Calculadora
 
-采用受限的 exact alias 表，而不是启动后猜窗口。`Calculator`、`Windows Calculator`、
-`calc`、`calc.exe` 和 `计算器` 在 Windows broker 产生副作用前先规范化为 Calculator
-AUMID；之后完全复用方案 C。这样既修复模型把展示名当 executable 的首次失败，也避免
-`calc.exe` 已打开窗口后因 launcher executable 与 `ApplicationFrameHost.exe` 不一致而
-误报失败。
+Adota-se uma tabela limitada de aliases exatos, em vez de adivinhar a janela depois do lançamento.
+`Calculator`, `Windows Calculator`, `calc`, `calc.exe` e `计算器` são normalizados para o AUMID da Calculadora
+antes de qualquer efeito colateral no broker do Windows; depois disso, a opção C é totalmente reaproveitada.
+Isso corrige tanto a primeira falha, em que o modelo trata o nome de exibição como executable, quanto evita o
+falso relatório de falha quando `calc.exe` já está com uma janela aberta, mas o executable do launcher
+difere de `ApplicationFrameHost.exe`.
 
-别名比较只做 trim 与大小写折叠，不做子串、编辑距离、窗口标题搜索或枚举顺序 fallback。
-未知名称继续进入普通 Win32 executable 分支并保留原有校验。
+A comparação de aliases faz apenas trim e dobra de caixa; não há substring, distância de edição, busca por
+título de janela nem fallback por ordem de enumeração. Nomes desconhecidos continuam indo para o ramo normal de
+executable Win32 e mantêm as validações existentes.
 
-## 5. 组件边界
+## 5. Limites dos componentes
 
 ### `z-code`
 
-- MCP descriptor 和 provider-visible contract 保持当前上游 namespaced 连字符名称；
-- `registerMcpTools` 不为模型拼写错误设置 alias；
-- allow/deny 继续针对规范 descriptor name 判定；
-- adapter 以本次 request tools 精确集合校验流式与非流式 tool call；
-- 一次性纠正提示只存在于物理重试请求，不写入 conversation history；
-- UI renderer 和 Core result display 的上游比较逻辑不参与执行路由并保持不变。
+- O descriptor MCP e o contrato provider-visible mantêm o nome namespaced com hífen do upstream atual;
+- `registerMcpTools` não define alias para erros de digitação do modelo;
+- allow/deny continuam decidindo pelo nome canônico do descriptor;
+- o adapter valida tool calls de streaming e não-streaming contra o conjunto exato de tools da requisição;
+- o prompt corretivo de uso único existe apenas na requisição física do retry e não é gravado no histórico de
+  conversa;
+- a lógica de comparação do renderer de UI e do Core result display do upstream não participa do roteamento de
+  execução e permanece inalterada.
 
 ### `zcode-cua`
 
-- `windowsSystemSurface` 负责区分 executable name 与 AUMID；
-- Windows broker 在 launch 前负责把受支持的内置 packaged app exact name alias 规范化
-  为 AUMID；该表不读取窗口状态，也不改变非 Windows 语义；
-- `helperMain` 只把当前进程已经加载的 Windows native ABI 注入 system surface；
-- native addon 负责 Windows COM 激活和 HWND property-store 查询；
-- backend/resolver 继续负责有界等待、唯一性、live revalidation 和统一结果；
-- public MCP schema 不新增 Windows 专用字段，沿用 `app.bundle_id` 承载 AUMID 输入。
+- `windowsSystemSurface` é responsável por distinguir nome de executable de AUMID;
+- o broker do Windows normaliza, antes do lançamento, os aliases de nome exato de packaged apps integrados
+  suportados para AUMID; essa tabela não lê estado de janela nem muda a semântica fora do Windows;
+- `helperMain` apenas injeta no system surface as ABIs nativas do Windows já carregadas pelo processo atual;
+- o addon nativo responde pela ativação COM do Windows e pelas consultas ao property store do HWND;
+- backend/resolver continuam responsáveis pela espera limitada, unicidade, revalidação live e resultado
+  unificado;
+- o schema MCP público não ganha campo exclusivo do Windows; o AUMID continua entrando por `app.bundle_id`.
 
-## 6. 安全与兼容不变量
+## 6. Invariantes de segurança e compatibilidade
 
-- 任何 CUA 或第三方 MCP 都没有连字符/下划线执行 alias；
-- 请求契约外名称不能进入 allow/deny、permission、hook、scheduler、event、history 或 MCP；
-- 诊断比较出现多个候选时不得猜测，必须失败；
-- 纠正重试最多一次，而且只允许发生在尚未提交不可重放事件的 attempt；
-- 日志只记录错误名称、唯一候选和请求/trace 标识，不记录 tool input 或凭据；
-- AUMID 必须是非空、无控制字符的单个标识；不得拼进 shell 命令；
-- exact name alias 只能映射到代码内固定 AUMID；不能根据窗口标题、当前 active app 或
-  `ApplicationFrameHost.exe` 推导身份；
-- AUMID lookup 只接受精确属性证据；`ApplicationFrameHost.exe` 路径本身不算成功证据；
-- Win32 path 分支不降低既有完整路径、snapshot、唯一性与 TOCTOU 防护；
-- Windows AUMID 激活可能由操作系统把窗口带到前台；实现不额外发送鼠标键盘或焦点事件，
-  也不承诺 macOS `open -g` 等价的后台启动；
-- `urls` 与 AUMID 的参数映射本阶段不猜测，组合出现时 fail closed；
-- 工具名校验属于共享模型 adapter，desktop continuous、subagent 和 web remote
-  replayable 都必须保持同一精确契约；本次不修改 snapshot、queue、owner、lease、
-  workspace identity 或 remote transport 语义。
+- Nenhum CUA ou MCP de terceiros tem alias de execução por hífen/linha-underscore;
+- Nomes fora do contrato da requisição não entram em allow/deny, permission, hook, scheduler, event, history ou
+  MCP;
+- Quando a comparação de diagnóstico apresenta múltiplos candidatos, não se pode adivinhar: é preciso falhar;
+- O retry corretivo acontece no máximo uma vez, e apenas em um attempt que ainda não submeteu evento não
+  replayável;
+- Os logs registram apenas o nome incorreto, o candidato único e os identificadores de requisição/trace, nunca
+  tool input ou credenciais;
+- O AUMID precisa ser um único identificador não vazio e sem caracteres de controle; ele não pode ser
+  concatenado em um comando de shell;
+- Um alias de nome exato só pode mapear para um AUMID fixo em código; a identidade não pode ser deduzida por
+  título de janela, app ativo atual ou `ApplicationFrameHost.exe`;
+- A busca por AUMID só aceita evidência exata de propriedade; o caminho `ApplicationFrameHost.exe` em si não
+  conta como evidência de sucesso;
+- O ramo de caminho Win32 não reduz as proteções existentes de caminho completo, snapshot, unicidade e TOCTOU;
+- A ativação de AUMID no Windows pode fazer o sistema operacional trazer a janela para o primeiro plano; a
+  implementação não envia eventos extras de mouse, teclado ou foco, nem promete um lançamento em background
+  equivalente ao `open -g` do macOS;
+- O mapeamento de parâmetros entre `urls` e AUMID não é adivinhado nesta fase; quando os dois aparecem
+  juntos, falha de forma fechada;
+- A validação de nome de ferramenta pertence ao adapter de modelo compartilhado, e desktop continuous,
+  subagent e web remote replayable devem manter o mesmo contrato exato; esta mudança não modifica as
+  semânticas de snapshot, queue, owner, lease, workspace identity ou remote transport.
 
-## 7. 测试
+## 7. Testes
 
-### RED：模型工具名精确契约
+### RED: contrato exato de nome de ferramenta do modelo
 
-- 当前上游 descriptor 继续生成
-  `mcp__plugin_zcode-cua_computer-use__list_apps`，本次不修改该实现；
-- 请求工具集合中的精确名称可正常通过流式与非流式响应校验；
-- `mcp__plugin_zcode_cua_computer_use__list_apps` 在 Registry、permission、hook、event、
-  history 和 MCP 调用前被拒绝；
-- 唯一候选且尚未提交事件时只重试一次，第二次返回精确名称后只执行一次；
-- 第二次仍错误、无候选、多个候选或已提交不可重放事件时 fail closed；
-- 第三方 MCP 同样精确校验，不获得 CUA 特例或 alias；
-- main agent 与 subagent 使用相同校验，desktop continuous 与 web remote replayable
-  不增加新的同步状态。
+- O descriptor upstream atual continua gerando
+  `mcp__plugin_zcode-cua_computer-use__list_apps`, e esta mudança não altera essa implementação;
+- Os nomes exatos do conjunto de ferramentas da requisição passam normalmente na validação de respostas de
+  streaming e não-streaming;
+- `mcp__plugin_zcode_cua_computer_use__list_apps` é rejeitado antes de Registry, permission, hook, event,
+  history e chamada do MCP;
+- Com candidato único e sem evento já submetido, há exatamente um retry, e depois de a segunda resposta devolver
+  o nome exato a execução acontece uma única vez;
+- Em caso de segunda resposta ainda errada, ausência de candidato, múltiplos candidatos ou evento não
+  replayável já submetido, falha de forma fechada;
+- MCP de terceiros também é validado de forma exata, sem ganhar caso especial nem alias do CUA;
+- main agent e subagent usam a mesma validação, e desktop continuous e web remote replayable não recebem novo
+  estado de sincronização.
 
-### RED：Windows AUMID
+### RED: AUMID no Windows
 
-- `windowsSystemSurface` 接受 bundle ID/AUMID 并调用注入的 native activator；
-- Calculator 的五个 exact name alias 都进入相同 AUMID 分支，且不会调用 Win32
-  `openRunner(["calc"])`；
-- 大小写与首尾空白可以规范化；子串、未知名称和其他相似名称不能命中；
-- AUMID + URLs、空 AUMID、缺 native activator 都明确失败；
-- backend 优先复用 exact AUMID 唯一 live app；
-- 新激活后只接受 exact AUMID 唯一 PID；
-- 0 个、多 PID、属性读取失败都 fail closed；
-- 原有 Win32 full executable identity 测试保持通过；
-- compiled addon 导出与 source contract 一致。
+- `windowsSystemSurface` aceita bundle ID/AUMID e chama o activator nativo injetado;
+- Os cinco aliases de nome exato da Calculadora entram no mesmo ramo de AUMID e não chamam o
+  `openRunner(["calc"])` do Win32;
+- Maiúsculas/minúsculas e espaços nas pontas podem ser normalizados; substring, nomes desconhecidos e outros
+  nomes parecidos não podem acertar;
+- AUMID + URLs, AUMID vazio e activator nativo ausente falham explicitamente;
+- O backend prioriza reaproveitar o app live único de AUMID exato;
+- Após uma nova ativação, só se aceita o PID único de AUMID exato;
+- 0 candidatos, múltiplos PIDs e falha de leitura de propriedade falham de forma fechada;
+- Os testes existentes de full executable identity do Win32 continuam passando;
+- As exportações do addon compilado são coerentes com o contrato do source.
 
-## 8. 验收
+## 8. Aceitação
 
-- 删除 Windows 移植增加的无效 CUA alias、短名称常量用途及对应错误测试；
-- 两个仓库的定向测试、`pnpm typecheck`、`pnpm lint` 通过；
-- `zcode-cua` Windows native addon 在本机重新构建；
-- source desktop 启动后，最新模型请求只声明上游 namespaced 连字符名称；若第一次返回
-  下划线错误名称，日志显示一次无副作用纠正重试，最终不再落入 Registry 的
-  `Tool not found`；
-- 直接 broker smoke 能通过 Calculator AUMID 打开或复用计算器，并用返回 PID 成功读取
-  `get_app_state`；
-- 清理只终止本轮自启测试进程，不影响用户原有应用；
-- 不启动或修改 SSH、WSL、Docker、remote workspace 和手机远控。
+- Os aliases CUA inválidos, os usos de constantes de nome curto e os testes de erro correspondentes
+  adicionados na portabilidade para Windows são removidos;
+- Os testes direcionados dos dois repositórios, `pnpm typecheck` e `pnpm lint` passam;
+- O addon nativo do Windows do `zcode-cua` é reconstruído localmente;
+- Após subir o desktop a partir do source, a requisição mais recente ao modelo declara apenas os nomes
+  namespaced com hífen do upstream; se a primeira resposta devolver o nome incorreto com sublinhado, o log
+  mostra um retry corretivo sem efeito colateral, e o resultado não cai mais no `Tool not found` do Registry;
+- Um smoke test direto do broker consegue abrir ou reaproveitar a calculadora pelo AUMID da Calculadora e ler
+  `get_app_state` com sucesso usando o PID retornado;
+- A limpeza encerra apenas os processos de teste iniciados nesta rodada, sem afetar as aplicações originais do
+  usuário;
+- Nada de SSH, WSL, Docker, remote workspace ou controle remoto do celular é iniciado ou modificado.

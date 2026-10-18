@@ -1,39 +1,37 @@
-# Todo 36：Provider Family 权益对称性与失败语义收口
+# Todo 36：Simetria de entitlement da Provider Family e consolidação da semântica de falha
 
-> 状态：已完成（后续 Todo 57 已完成全仓回归与 macOS Provider E2E 实跑）
+> Status: concluído（o Todo 57 posterior já concluiu a regressão de todo o repositório e a execução real do E2E de Provider no macOS）
 >
-> 日期：2026-08-28
+> Data: 2026-08-28
 >
-> 来源：Provider Refactor 合并后代码 Review、Start Plan/Team Plan 实机问题复盘
+> Origem: revisão de código após a merge do Provider Refactor, e retrospectiva dos problemas reais com Start Plan／Team Plan
 >
-> 关联文档：[`Z.AI / BigModel Start Plan Provider`](../../../zai-start-plan-provider.md)、
+> Documentos relacionados: [`Z.AI / BigModel Start Plan Provider`](../../../zai-start-plan-provider.md)、
 > [`Todo 32`](./todo-32-team-plan-settings-effective-provider-boundary.md)、
 > [`Provider Family Merge`](../../../model-provider-family-merge.md)
 
-## 1. 背景与结论
+## 1. Contexto e conclusão
 
-当前实现已经确立了正确的产品语义：Z.AI 与 BigModel 是结构对称的 Provider Family；每个 Family 都包含 API
-Key、Start Plan、Individual Coding Plan 和 Team Coding Plan Provider。Start Plan 是可与付费 Coding Plan
-并存并由用户显式选择的独立连接，不是 Coding Plan 查询失败后的 fallback。
+A implementação atual já estabeleceu a semântica de produto correta: Z.AI e BigModel são Provider Families estruturalmente simétricas; cada Family contém Providers de API
+Key, Start Plan, Individual Coding Plan e Team Coding Plan. Start Plan é uma conexão independente que pode coexistir com um Coding Plan pago e ser escolhida explicitamente pelo usuário, não um fallback após falha de consulta do Coding Plan.
 
-但实现仍带有多轮历史修复的形状：同一组 Family Provider ID 在 UI、OAuth 恢复和权益查询中反复通过
-`family === "zai" ? ... : ...` 映射；Z.AI/BigModel 查询被复制成四条 Hook 链路；旧注释仍宣称 Coding Plan
-会禁用 Start fallback；部分页面甚至通过展示名称反推 Family。失败状态在设置页与启动恢复链路中的解释也不一致。
+Mas a implementação ainda carrega a forma de várias rodadas de correções históricas: o mesmo conjunto de Family Provider IDs é mapeado repetidamente via
+`family === "zai" ? ... : ...` na UI, na recuperação de OAuth e na consulta de entitlement; as consultas Z.AI/BigModel foram duplicadas em quatro cadeias de Hook; comentários antigos ainda afirmam que o Coding Plan
+desabilita o fallback do Start; e algumas páginas até deduzem a Family pelo nome de exibição. A interpretação dos estados de falha também não é consistente entre a página de configurações e a cadeia de recuperação do startup.
 
-本 Todo 不改变既有套餐产品设计，而是完成以下收口：
+Este Todo não altera o design de produto dos planos existente, mas conclui o seguinte:
 
-1. Z.AI 与 BigModel 的编排完全由 `ModelProviderFamilySpec` 驱动；
-2. Start、Individual、Team 使用同一套确定/未知/失效状态语义；
-3. 真实 API、鉴权材料和 Team scope 差异继续留在 Service/Adapter 边界；
-4. 只有权威结果明确证明无权益时才破坏已有选择；
-5. UI 不再从名称、文案或 BigModel 常量反推 Provider Family。
+1. A orquestração de Z.AI e BigModel é inteiramente conduzida por `ModelProviderFamilySpec`;
+2. Start, Individual e Team usam o mesmo conjunto de semânticas de estado confirmado／desconhecido／inválido;
+3. As diferenças de API reais, material de autenticação e scope de Team continuam na fronteira de Service／Adapter;
+4. Somente um resultado autoritativo que prove explicitamente a ausência de entitlement destrói uma escolha existente;
+5. A UI não infere mais a Provider Family a partir de nome, texto ou constante BigModel.
 
-## 2. 已裁决的领域模型
+## 2. Modelo de domínio já decidido
 
-### 2.1 Family 是静态拓扑
+### 2.1 Family é topologia estática
 
-`packages/shared/src/model-provider-family.ts` 中的 `MODEL_PROVIDER_FAMILY_SPECS` 是 Family 到各 Provider 身份的
-唯一映射：
+O `MODEL_PROVIDER_FAMILY_SPECS` em `packages/shared/src/model-provider-family.ts` é o mapeamento único de Family para as identidades de cada Provider:
 
 ```text
 ModelProviderFamilySpec
@@ -46,13 +44,11 @@ ModelProviderFamilySpec
 └─ teamCodingPlanProviderId
 ```
 
-UI、OAuth 恢复、套餐导航、权益查询和 Team item 构造不得另建 Z.AI/BigModel Provider ID 对照表，也不得使用
-二选一三元表达式重复这份映射。
+UI, recuperação de OAuth, navegação de planos, consulta de entitlement e construção de itens de Team não podem criar outra tabela de correspondência de Provider IDs de Z.AI／BigModel nem repetir esse mapeamento com expressões ternárias de dois caminhos.
 
-Family 特定的购买、管理、注册等页面地址同样属于 Family 展示/产品元数据。它们应进入单一 Family 元数据来源，
-不能藏在通用 Team item 构造函数中。
+Endereços de página específicos de cada Family — compra, gestão, registro — também são metadados de exibição／produto da Family. Devem entrar em uma única fonte de metadados de Family e não ficar escondidos no construtor genérico de itens de Team.
 
-### 2.2 Plan 是独立连接，不是 fallback 链
+### 2.2 Plan é uma conexão independente, não uma cadeia de fallback
 
 ```text
 一个 Provider Family
@@ -61,16 +57,16 @@ Family 特定的购买、管理、注册等页面地址同样属于 Family 展�
 └─ Team Coding Plan
 ```
 
-- Start entitlement 在存在对应 Account Access 时独立查询；
-- Individual 与当前所选 Team 使用各自稳定 Provider ID；
-- Team 查询额外携带 `productId / organizationId / projectId`；
-- Coding Plan 有效不能隐藏 Start、禁止 Start 查询或覆盖用户已选 Start；
-- Start 有效也不能覆盖用户显式选择的 Individual/Team；
-- 自动选择只用于没有可保留选择或当前选择已经被权威结果明确判定失效的场景。
+- O entitlement de Start é consultado de forma independente quando existe o Account Access correspondente;
+- Individual e o Team atualmente selecionado usam seus Provider IDs estáveis próprios;
+- A consulta de Team carrega adicionalmente `productId / organizationId / projectId`;
+- Coding Plan válido não pode esconder o Start, proibir a consulta do Start nem sobrescrever o Start já escolhido pelo usuário;
+- Start válido também não pode sobrescrever a escolha explícita de Individual／Team do usuário;
+- A escolha automática só é usada quando não há escolha preservável ou quando a escolha atual já foi explicitamente julgada inválida por um resultado autoritativo.
 
-### 2.3 状态语义必须对称
+### 2.3 A semântica de estado deve ser simétrica
 
-所有套餐连接统一区分三类事实：
+Todas as conexões de plano distinguem uniformemente três categorias de fato:
 
 ```text
 确定可用
@@ -86,32 +82,28 @@ Family 特定的购买、管理、注册等页面地址同样属于 Family 展�
 └─ 不完整或无法归类的快照
 ```
 
-暂时未知不能投影成“未购买”，也不能破坏当前已保存的连接选择。只有“确定无权益”可以移除 Start 入口或触发自动
-回退。
+「Temporariamente desconhecido» não pode ser projetado como «não comprado» nem destruir a escolha de conexão já salva. Somente «confirmadamente sem entitlement» pode remover a entrada do Start ou disparar o fallback automático.
 
-`not_authenticated/not_configured` 不在这套套餐证据状态机中独立决定连接选择：Account Source 已确认未连接时，
-外层 `accountConnected` 直接投影为 `disconnected`；主动 logout 由 OAuth、Account Source 与 Provider Family 清理链路
-负责。Entitlement 不能根据这两个错误反推用户是否已经退出，也不能把它们误报成“未购买”。
+`not_authenticated/not_configured` não decide de forma independente a escolha de conexão dentro desta máquina de estados de evidência de plano: quando o Account Source já confirmou que não está conectado, o `accountConnected` externo é projetado diretamente como `disconnected`; o logout explícito é de responsabilidade da cadeia de limpeza de OAuth, Account Source e Provider Family. Entitlement não pode inferir se o usuário já saiu com base nesses dois erros nem reportá-los como «não comprado».
 
-### 2.4 对称不等于抹掉协议差异
+### 2.4 Simetria não significa apagar as diferenças de protocolo
 
-以下差异是正常事实，必须保留：
+As seguintes diferenças são fatos normais e devem ser preservadas:
 
-- Start Plan 使用 balance/权益接口，并可能返回当前账号专属模型成员；
-- Individual 使用个人账号访问上下文；
-- Team 需要完整的产品、组织和项目上下文；
-- Z.AI 与 BigModel 可以具有不同 Endpoint、OAuth、注册页、购买页和管理页；
-- 具体请求 Header、凭据获取和服务端错误协议由 Service/Adapter 负责。
+- Start Plan usa interface de balance／entitlement e pode retornar membros de modelo exclusivos da conta atual;
+- Individual usa o contexto de acesso da conta pessoal;
+- Team exige o contexto completo de produto, organização e projeto;
+- Z.AI e BigModel podem ter Endpoint, OAuth, página de registro, página de compra e página de gestão diferentes;
+- Headers de requisição específicos, obtenção de credenciais e protocolo de erros do servidor ficam a cargo do Service／Adapter.
 
-正确边界是“上层编排和状态机对称，差异通过 Spec/Access Context 输入，底层协议实现各自处理”，而不是让 UI 到处
-判断 Family 或 Plan Kind。
+A fronteira correta é «orquestração e máquina de estados simétricas nos níveis superiores, diferenças entra como entrada via Spec／Access Context, e cada implementação de protocolo cuida da sua parte por baixo», e não fazer a UI julgar Family ou Plan Kind em todo lugar.
 
-## 3. 已发现的问题
+## 3. Problemas encontrados
 
-### 3.1 Start 临时不可用会在恢复链路中被当成失效
+### 3.1 Start temporariamente indisponível é tratado como inválido na cadeia de recuperação
 
-设置页导航已经正确保留 `checking/unavailable` 的已选 Start，但
-`resolvePreservedStartPlanSelection()` 对所有非空且非 active 的快照统一返回“不保留”。Service 在网络失败时会返回：
+A navegação da página de configurações já preserva corretamente o Start selecionado em `checking/unavailable`, mas
+`resolvePreservedStartPlanSelection()` retorna uniformemente «não preservar» para todos os snapshots não nulos e não active. Em caso de falha de rede, o Service devolve:
 
 ```ts
 {
@@ -122,26 +114,21 @@ Family 特定的购买、管理、注册等页面地址同样属于 Family 展�
 }
 ```
 
-该快照不是 `null`，因此登录或启动恢复可能把已选 Start 改写成 Individual/Team。这与“只有明确 `no_plan` 才允许
-切走”相冲突。
+Esse snapshot não é `null`, então a recuperação de login ou de startup pode reescrever o Start escolhido como Individual／Team. Isso conflita com «somente um `no_plan` explícito permite trocar».
 
-目标修复：建立一个最小纯函数判断 entitlement 证据，只在明确 `no_plan` 时返回 inactive；已有权威权益事实时返回
-active；`null`、异常、`unavailable` 和不完整快照返回 unknown，并保留已有选择。该函数不处理 logout，也不拥有
-Account 连接状态。
+Correção alvo: estabelecer uma função pura mínima que avalia a evidência de entitlement, retornando inactive somente em `no_plan` explícito; active quando já existe um fato de entitlement autoritativo; e unknown para `null`, exceção, `unavailable` e snapshot incompleto, preservando a escolha existente. Essa função não trata logout nem possui o estado de conexão da Account.
 
-### 3.2 `notPurchased` 兜底违反注释与协议
+### 3.2 O fallback `notPurchased` viola o comentário e o protocolo
 
-`resolveCodingPlanEntitlementState()` 的注释声明“只有服务端明确返回 `no_plan` 才展示未购买”，但未命中已知分支时
-仍无条件返回 `notPurchased`。这会把 `not_authenticated` 或未来新增/不完整状态误报成未购买。
+O comentário de `resolveCodingPlanEntitlementState()` declara «só se mostra não comprado quando o servidor retorna explicitamente `no_plan`», mas, ao não encontrar nenhum branch conhecido, ainda retorna `notPurchased` incondicionalmente. Isso reporta `not_authenticated` ou estados futuros／incompletos como não comprado.
 
-目标修复：对 `UsageEntitlementSnapshot.unavailableReason` 做穷尽、类型安全的投影；默认未知状态只能进入
-`unavailable/checking/disconnected` 中符合上下文的一种，不能进入 `notPurchased`。
+Correção alvo: fazer uma projeção exaustiva e type-safe de `UsageEntitlementSnapshot.unavailableReason`; o estado desconhecido padrão só pode cair em uma das opções `unavailable/checking/disconnected` que faz sentido no contexto, nunca em `notPurchased`.
 
-其中 `disconnected` 必须由 `accountConnected` 或其他权威 Account 状态决定，不能仅凭 entitlement 快照清理连接。
+Nele, `disconnected` precisa ser determinado por `accountConnected` ou por outro estado autoritativo da Account, e não pela limpeza de conexão baseada apenas no snapshot de entitlement.
 
-### 3.3 Family Provider ID 映射被重复硬编码
+### 3.3 O mapeamento de Family Provider IDs está duplicado e hardcoded
 
-当前多个模块重复以下模式：
+Vários módulos repetem hoje o padrão:
 
 ```ts
 family === "zai"
@@ -149,22 +136,21 @@ family === "zai"
   : BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan;
 ```
 
-已确认至少分布在：
+Confirmado pelo menos em:
 
-- `modelProviderFamilyConnectionSelection.ts`；
-- `providerFamilyConnectionVisibility.ts` 的 Individual/Team 查找、构造和 quota 判断；
-- `useEnterpriseCodingPlanProducts.ts`；
-- `oauthProviderFamilySelectionRefresh.ts` 的 OAuth 到 Provider ID 数组转换。
+- `modelProviderFamilyConnectionSelection.ts`;
+- as buscas, construções e julgamento de quota de Individual／Team em `providerFamilyConnectionVisibility.ts`;
+- `useEnterpriseCodingPlanProducts.ts`;
+- a conversão de array de OAuth para Provider IDs em `oauthProviderFamilySelectionRefresh.ts`.
 
-目标修复：统一使用 `getModelProviderFamilySpec(family)` 或
-`resolveModelProviderFamilySpecByProviderId(providerId)`；删除重复映射和基于数组位置的 `[0]/[1]` 读取。
+Correção alvo: usar uniformemente `getModelProviderFamilySpec(family)` ou
+`resolveModelProviderFamilySpecByProviderId(providerId)`; remover os mapeamentos duplicados e as leituras `[0]/[1]` baseadas na posição do array.
 
-### 3.4 权益 Hook 复制为四条链路
+### 3.4 O Hook de entitlement foi copiado em quatro cadeias
 
-`useCodingPlanEntitlements()` 手工维护 Z.AI Coding、Z.AI Start、BigModel Coding、BigModel Start 四套 Access、
-Fingerprint、Query、Refresh、Result 和依赖数组。代码虽然当前行为基本对称，但任何后续修复都容易只落到其中一侧。
+`useCodingPlanEntitlements()` mantém manualmente quatro conjuntos de Access, Fingerprint, Query, Refresh, Result e arrays de dependência: Coding Z.AI, Start Z.AI, Coding BigModel e Start BigModel. Embora o comportamento atual seja basicamente simétrico, qualquer correção posterior tende a tocar apenas um dos lados.
 
-目标结构：
+Estrutura alvo:
 
 ```text
 useProviderFamilyEntitlements(familySpec, selection, settingsView)
@@ -180,76 +166,65 @@ useCodingPlanEntitlements
 └─ 合并结果与 refresh
 ```
 
-外层必须显式调用两个自定义 Hook，不能在动态循环中调用 React Hook。抽取只消除 Family 复制，不建立第二份权益缓存、
-Provider DTO 或状态权威。
+A camada externa precisa chamar explicitamente os dois Hooks customizados; não se pode chamar React Hooks dentro de um laço dinâmico. A extração elimina apenas a duplicação de Family e não cria um segundo cache de entitlement, DTO de Provider ou autoridade de estado.
 
-### 3.5 OAuth 恢复使用无名称的位置数组和冗余门禁
+### 3.5 A recuperação de OAuth usa arrays posicionais sem nome e portões redundantes
 
-`resolveCodingPlanProviderIdsFromOAuth()` 返回 `[individual, start, team]`，调用方再用下标读取。这使第三个 Team ID
-容易被忽略，也掩盖了现有 Family Spec。
+`resolveCodingPlanProviderIdsFromOAuth()` retorna `[individual, start, team]`, e o chamador lê por índice. Isso torna o terceiro ID de Team fácil de ignorar e também encobre o Family Spec existente.
 
-`ProviderFamilyDomain` 已限定为 `zai | bigmodel`，启动恢复中再次写
-`if (domain === "bigmodel" || domain === "zai")` 没有新的保护意义。
+`ProviderFamilyDomain` já está restrito a `zai | bigmodel`, então escrever novamente
+`if (domain === "bigmodel" || domain === "zai")` na recuperação de startup não acrescenta proteção real.
 
-目标修复：OAuth Provider 先规范化为 Family，再读取具名 Family Spec；删除位置数组和冗余 Family 白名单。
+Correção alvo: normalizar primeiro o OAuth Provider em uma Family e só então ler o Family Spec nomeado; remover o array posicional e a lista branca redundante de Families.
 
-### 3.6 Team 管理地址错误依赖 BigModel 常量
+### 3.6 O endereço de gestão de Team depende incorretamente de uma constante BigModel
 
-通用 Team item 构造当前对 Z.AI 和 BigModel 都写入 `BIGMODEL_CODING_PLAN_TEAM_MANAGE_URL`。这意味着 Z.AI Team
-的“管理/升级”操作也可能打开 BigModel 页面。
+A construção genérica de item de Team escreve hoje `BIGMODEL_CODING_PLAN_TEAM_MANAGE_URL` tanto para Z.AI quanto para BigModel. Isso significa que a ação «管理/升级» do Team de Z.AI também pode abrir a página do BigModel.
 
-目标修复：
+Correção alvo:
 
-- BigModel Team 使用 BigModel Team 管理地址；
-- Z.AI Team 使用 Z.AI 对应的管理地址；
-- 地址从 Family 产品元数据取得；
-- 若当前只有 Z.AI 通用订阅管理地址，则显式配置该地址，不允许用 BigModel 常量作为 fallback；
-- 增加两 Family 的点击目标测试。
+- o Team de BigModel usa o endereço de gestão de Team do BigModel;
+- o Team de Z.AI usa o endereço de gestão correspondente do Z.AI;
+- o endereço vem dos metadados de produto da Family;
+- se hoje só existe um endereço genérico de gestão de assinatura do Z.AI, configure esse endereço explicitamente e não permita usar a constante BigModel como fallback;
+- adicionar testes de alvo de clique para as duas Families.
 
-### 3.7 UI 从 `providerName` 反推 Family
+### 3.7 A UI infere a Family a partir de `providerName`
 
-`StatusCards.tsx` 当前使用：
+`StatusCards.tsx` usa atualmente:
 
 ```ts
 providerName.toLowerCase() === "bigmodel" ? "bigmodel" : "zai"
 ```
 
-这会把任何不是精确 `BigModel` 的展示名称都解释为 Z.AI，并让本地化或文案调整改变业务行为。由该结果控制的图标、
-账号提示和注册提示都可能错误。
+Isso interpreta qualquer nome de exibição que não seja exatamente `BigModel` como Z.AI e faz com que ajustes de localização ou de texto mudem o comportamento do produto. Ícones, dicas de conta e dicas de registro controlados por esse resultado podem ficar errados.
 
-目标修复：状态卡接收明确 `providerId` 或 `family`，通过 Family Spec 解析身份；`providerName` 只用于展示，不参与任何
-状态、路由或交互判断。
+Correção alvo: o card de status recebe um `providerId` ou `family` explícito e resolve a identidade pelo Family Spec; `providerName` serve apenas para exibição e não participa de nenhum julgamento de estado, rota ou interação.
 
-### 3.8 旧注释与已删除 fallback 语义冲突
+### 3.8 Comentários antigos conflitam com a semântica de fallback já removida
 
-`useCodingPlanEntitlements.ts`、`V4ComposerToolbar.tsx` 和相关测试仍存在“Coding Plan 激活后 Start Plan fallback
-查询被禁用”的注释。实现已经改为 Start 独立查询，这些注释会误导后续维护者重新引入互斥逻辑。
+`useCodingPlanEntitlements.ts`, `V4ComposerToolbar.tsx` e testes relacionados ainda contêm comentários de que «a consulta de fallback do Start Plan é desabilitada depois que o Coding Plan é ativado». A implementação já passou a consultar o Start de forma independente, e esses comentários vão induzir mantenedores futuros a reintroduzir uma lógica mutuamente exclusiva.
 
-目标修复：删除或改写所有旧 fallback 注释、测试名称和变量说明。`enabledStartPlanProviderIds` 若仍有真实调用价值，应只
-表达“当前具备查询身份的 Start Provider”，不得继续用 fallback 解释。
+Correção alvo: remover ou reescrever todos os comentários antigos de fallback, nomes de teste e explicações de variáveis. Se `enabledStartPlanProviderIds` ainda tiver valor real de chamada, ele deve expressar apenas «os Start Providers que atualmente têm identidade para consulta», e não continuar sendo explicado como fallback.
 
-### 3.9 无生产调用的选择 Resolver
+### 3.9 Resolver de seleção sem chamadas em produção
 
-`resolveMissingModelProviderFamilyConnectionSelection()` 目前只有测试引用，没有生产调用，并且与实际使用的
-`resolveLatestModelProviderFamilyConnectionSelection()` 具有不同优先级。两套相似算法会让设计看起来存在两种默认选择
-规则。
+`resolveMissingModelProviderFamilyConnectionSelection()` hoje é referenciado apenas por testes, não tem chamada em produção e tem uma prioridade diferente da `resolveLatestModelProviderFamilyConnectionSelection()` realmente usada. Dois algoritmos semelhantes fazem o design parecer ter duas regras de escolha padrão.
 
-目标修复：再次使用静态引用检查确认后删除无调用 Resolver 及其孤立测试；保留的 Resolver 按真实使用语境重新命名，
-明确它只用于“无法保留当前选择后的自动选择”，不要用含义模糊的 `Latest/Missing`。
+Correção alvo: após confirmar novamente por verificação estática de referências, remover o Resolver sem chamadas e seus testes órfãos; renomear o Resolver mantido conforme seu contexto real de uso, deixando claro que ele serve apenas para «a escolha automática após não ser possível preservar a escolha atual», sem usar o nome ambíguo `Latest/Missing`.
 
-### 3.10 Team Family 列表和 legacy 默认散落在业务流程
+### 3.10 A lista de Team Families e o default legacy estão espalhados pelo fluxo de negócio
 
-`providerFamilyConnectionVisibility.ts` 另建 `TEAM_PLAN_DOMAINS = ["bigmodel", "zai"]`，部分商品数据还在深层
-使用 `product.family ?? "bigmodel"`。这些都是潜在的扩展断点。
+`providerFamilyConnectionVisibility.ts` cria à parte `TEAM_PLAN_DOMAINS = ["bigmodel", "zai"]`, e parte dos dados de produto ainda usa `product.family ?? "bigmodel"` em camadas profundas. Esses são potenciais pontos de ruptura de extensão.
 
-目标修复：
+Correção alvo:
 
-- Team Family 遍历直接来源于 `MODEL_PROVIDER_FAMILY_SPECS`；
-- 历史商品缺失 `family` 的 BigModel 兼容只允许存在于 importer/normalizer 边界；
-- 进入导航与状态构造前，产品必须已经具有明确 Family；
-- 不改变现有历史数据的兼容结果。
+- a iteração das Team Families vem diretamente de `MODEL_PROVIDER_FAMILY_SPECS`;
+- a compatibilidade BigModel para produtos históricos sem `family` só pode existir na fronteira de importer／normalizer;
+- antes de entrar na navegação e na construção de estado, o produto já precisa ter uma Family explícita;
+- não alterar o resultado de compatibilidade dos dados históricos existentes.
 
-## 4. 目标实现结构
+## 4. Estrutura alvo de implementação
 
 ```text
 MODEL_PROVIDER_FAMILY_SPECS
@@ -283,143 +258,136 @@ Z.AI Family Context               BigModel Family Context
                                        `─ unavailable/disconnected
 ```
 
-Account 连接和主动退出位于图外：Account Source 决定 Provider 是否连接、启用和可执行；logout 链路负责清理账号、
-凭据与当前 Family。Entitlement outcome 不参与这两项所有权裁决。
+A conexão da Account e a saída explícita ficam fora do diagrama: o Account Source decide se o Provider está conectado, habilitado e executável; a cadeia de logout cuida da limpeza da conta, das credenciais e da Family atual. O entitlement outcome não participa dessas duas decisões de ownership.
 
-不得新增：
+Não se deve adicionar:
 
-- 第二套 Provider Family 注册表；
-- Renderer 自己维护的 Account Overlay；
-- Plan capability DTO；
-- 用显示文案、URL 或 Provider 名称反推身份的 helper；
-- 具体模型 ID 或 Provider ID 的运行时业务硬编码。
+- um segundo registro de Provider Families;
+- um Account Overlay mantido pelo próprio Renderer;
+- DTO de capacidade de plano;
+- helpers que deduzem identidade a partir de texto de exibição, URL ou nome de Provider;
+- hardcode de negócio em runtime de IDs de modelo ou de Provider específicos.
 
-## 5. 实施顺序
+## 5. Ordem de implementação
 
-### 5.1 先写失败测试
+### 5.1 Escrever primeiro os testes que falham
 
-1. 已选 Start 收到 `unavailable` 快照时，登录和启动恢复均保留选择且不写 Settings；
-2. 已选 Start 查询抛错或返回 `null` 时继续保留；
-3. 已选 Start 明确返回 `no_plan` 时允许自动选择其他连接；
-4. `not_authenticated/not_configured/unavailable` 均不投影为 `notPurchased`；前两者的连接语义由
-   `accountConnected`/Account Source 决定；
-5. Z.AI 与 BigModel 使用参数化测试共享同一状态矩阵；
-6. Z.AI/BigModel Start、Individual、Team 均从 Family Spec 取得 Provider ID；
-7. Z.AI Team 管理按钮打开 Z.AI 地址，BigModel Team 打开 BigModel 地址；
-8. 修改 Provider 展示名称或本地化文案不会改变 Family、图标和交互；
-9. 当前用户选择优先于自动选择；只有明确失效才执行自动选择；
-10. entitlement refresh 继续按 Provider/Team scope 使用独立 cache key，并保持 in-flight 合并。
+1. Quando o Start selecionado recebe um snapshot `unavailable`, tanto a recuperação de login quanto a de startup preservam a seleção e não escrevem em Settings;
+2. Quando a consulta do Start selecionado lança erro ou retorna `null`, a seleção continua preservada;
+3. Quando o Start selecionado retorna explicitamente `no_plan`, a escolha automática de outra conexão é permitida;
+4. `not_authenticated/not_configured/unavailable` não são projetados como `notPurchased`; a semântica de conexão dos dois primeiros é determinada por
+   `accountConnected`／Account Source;
+5. Z.AI e BigModel compartilham a mesma matriz de estado com testes parametrizados;
+6. Start, Individual e Team de Z.AI／BigModel obtêm o Provider ID pelo Family Spec;
+7. O botão de gestão do Team de Z.AI abre o endereço do Z.AI, e o do Team do BigModel abre o do BigModel;
+8. Alterar o nome de exibição do Provider ou o texto de localização não muda Family, ícone nem interação;
+9. A escolha atual do usuário tem prioridade sobre a escolha automática; a escolha automática só ocorre em invalidação explícita;
+10. O refresh de entitlement continua usando cache key separada por Provider／scope de Team e mantém a mesclagem de requests em voo.
 
-### 5.2 修正失败语义
+### 5.2 Corrigir a semântica de falha
 
-- 建立最小纯函数将套餐证据归一为 `active | inactive | unknown`：只有明确 `no_plan` 是 inactive，已有权威权益事实
-  是 active，其余是 unknown；
-- 设置页状态和选择恢复共同复用该判断，不得各自解释一次；
-- 修正 Start preservation 和 `notPurchased` 兜底；
-- 对联合类型使用穷尽检查，使未来新增状态在编译或测试中暴露。
-- 不把 logout、Account 连接或凭据清理并入该函数。
+- Estabelecer uma função pura mínima que normalize a evidência de plano em `active | inactive | unknown`: apenas `no_plan` explícito é inactive, um fato de entitlement autoritativo existente é active e o resto é unknown;
+- o estado da página de configurações e a recuperação de seleção reutilizam em conjunto esse julgamento, sem interpretar cada um por sua conta;
+- corrigir a preservação do Start e o fallback `notPurchased`;
+- usar checagem exaustiva em uniões de tipo, para que estados novos no futuro apareçam na compilação ou nos testes.
+- não incorporar logout, conexão da Account ou limpeza de credenciais a essa função.
 
-### 5.3 收敛 Family 编排
+### 5.3 Convergir a orquestração de Family
 
-- 使用既有 `ModelProviderFamilySpec` 替代所有重复 Provider ID 三元映射；
-- 抽取对称的 Family Entitlement Hook；
-- OAuth/启动恢复读取具名 Spec 字段；
-- Team 导航与 quota 判断统一按 Spec 工作；
-- legacy Family 缺省值移到单一规范化边界。
+- Usar o `ModelProviderFamilySpec` existente no lugar de todos os mapeamentos ternários duplicados de Provider ID;
+- extrair um Hook de entitlement de Family simétrico;
+- fazer a recuperação de OAuth／startup ler campos nomeados do Spec;
+- unificar a navegação de Team e o julgamento de quota por Spec;
+- mover o default de Family legacy para uma única fronteira de normalização.
 
-### 5.4 修正 UI 身份和管理链接
+### 5.4 Corrigir identidade na UI e links de gestão
 
-- 状态卡改为接收显式 Provider/Family 身份；
-- 删除 `providerName` 身份推断；
-- Family 元数据补齐各自 Team 管理地址；
-- 删除通用 Team item 对 BigModel URL 的硬编码；
-- 保持多语言展示名称只承担文案职责。
+- Fazer o card de status receber a identidade explícita de Provider／Family;
+- remover a inferência de identidade por `providerName`;
+- completar os metadados de Family com os respectivos endereços de gestão de Team;
+- remover o hardcode da URL BigModel no item de Team genérico;
+- manter os nomes de exibição multilíngues apenas com função de texto.
 
-### 5.5 删除残留
+### 5.5 Remover resíduos
 
-- 删除无生产调用的 Resolver；
-- 删除失真的 fallback 注释和测试说明；
-- 删除已被 Family Spec 替代的映射 helper、常量列表和分支；
-- 使用 `rg`、`pnpm dep:refs` 和 `pnpm knip` 检查孤立导出与旧语义残留。
+- Remover o Resolver sem chamadas em produção;
+- remover comentários de fallback distorcidos e descrições de teste;
+- remover helpers de mapeamento, listas de constantes e branches substituídos pelo Family Spec;
+- usar `rg`, `pnpm dep:refs` e `pnpm knip` para verificar exports órfãos e resíduos da semântica antiga.
 
-## 6. 验证矩阵
+## 6. Matriz de verificação
 
-### 6.1 Family 对称性
+### 6.1 Simetria de Family
 
-以下矩阵对 Z.AI 与 BigModel 使用同一组参数化断言：
+A matriz abaixo usa o mesmo conjunto de asserções parametrizadas para Z.AI e BigModel:
 
-| 连接 | Access 条件 | 查询目标 | 额外上下文 |
-| --- | --- | --- | --- |
-| Start | Start Account Access 存在 | `startPlanProviderId` | 无 Team scope |
-| Individual | Individual Access 存在 | `individualCodingPlanProviderId` | Personal |
-| Team | 已选有效 Team connection | `teamCodingPlanProviderId` | product/org/project |
+| Conexão  | Condição de Access                | Alvo da consulta                  | Contexto adicional |
+| -------- | --------------------------------- | --------------------------------- | ----------------- |
+| Start    | Existe Start Account Access        | `startPlanProviderId`            | Sem scope de Team |
+| Individual | Existe Individual Access        | `individualCodingPlanProviderId` | Personal          |
+| Team     | Conexão de Team válida selecionada | `teamCodingPlanProviderId`     | produto/org/projeto |
 
-### 6.2 失败状态
+### 6.2 Estados de falha
 
-| Entitlement 结果 | 已有选择 | 是否保留 | UI 状态 |
-| --- | --- | --- | --- |
-| active | 任意匹配连接 | 是 | purchased |
-| no_plan | 对应连接 | 否，可自动回退 | notPurchased |
-| unavailable | 对应连接 | 是 | unavailable |
-| not_authenticated | 由 Account Source 决定 | Entitlement 不单独裁决 | disconnected/unavailable |
-| not_configured | 由 Account Source 决定 | Entitlement 不单独裁决 | disconnected/unavailable |
-| 请求抛错 / null | 对应连接 | 是 | unavailable/checking |
-| 不完整未知快照 | 对应连接 | 是 | unavailable |
+| Resultado de Entitlement | Escolha existente | Preserva?    | Estado de UI                    |
+| ------------------------ | ----------------- | ------------ | ------------------------------- |
+| active                   | Qualquer conexão correspondente | Sim      | purchased                       |
+| no_plan                  | Conexão correspondente | Não, fallback automático permitido | notPurchased        |
+| unavailable              | Conexão correspondente | Sim      | unavailable                     |
+| not_authenticated         | Determinado pelo Account Source | Entitlement não decide sozinho | disconnected/unavailable |
+| not_configured            | Determinado pelo Account Source | Entitlement não decide sozinho | disconnected/unavailable |
+| Exceção na requisição／null | Conexão correspondente | Sim     | unavailable／checking           |
+| Snapshot desconhecido incompleto | Conexão correspondente | Sim   | unavailable                     |
 
-### 6.3 回归
+### 6.3 Regressão
 
-- Start 与 Coding 同时有效时均可见，用户选择不被刷新覆盖；
-- Team 与 Individual 同时有效时，已选 Team 不因启动恢复被个人套餐覆盖；
-- Team pricing 暂时失败仍保留已选 Team；
-- Account Provider Settings 继续读取 `ProviderSettingsView`，不重新应用 Overlay；
-- Start 账号模型成员覆盖、Team scope 和 Request Auth 行为不变；
-- Settings、Composer、Sidebar 使用同一 entitlement cache identity；
-- 主动 logout 继续由既有 OAuth/Account/Family 清理链路彻底退出，不由 entitlement 状态机兜底；
-- Desktop、Web、手机远控不新增状态 Owner，不改变 continuous/replayable 语义。
+- Quando Start e Coding estão válidos ao mesmo tempo, ambos ficam visíveis e a escolha do usuário não é sobrescrita pelo refresh;
+- Quando Team e Individual estão válidos ao mesmo tempo, o Team selecionado não é sobrescrito pelo plano pessoal na recuperação de startup;
+- Quando o pricing de Team falha temporariamente, o Team selecionado continua preservado;
+- As Account Provider Settings continuam lendo o `ProviderSettingsView`, sem reaplicar Overlay;
+- A sobreposição de membros de modelo da conta Start, o scope de Team e o comportamento de Request Auth permanecem inalterados;
+- Settings, Composer e Sidebar usam a mesma identidade de cache de entitlement;
+- O logout explícito continua saindo por completo pela cadeia de limpeza existente de OAuth／Account／Family, e não pelo fallback da máquina de estados de entitlement;
+- Desktop, Web e controle remoto do celular não ganham novo owner de estado nem alteram a semântica continuous／replayable.
 
-## 7. 自动化要求
+## 7. Requisitos de automação
 
-执行并通过：
+Executar e passar:
 
-1. UI entitlement、Provider Family navigation、OAuth callback/startup restore 定向单测；
-2. Services usage entitlement 与 Team scope 定向单测；
-3. Account Provider Settings 相关交互 E2E；
-4. `pnpm typecheck`；
-5. `pnpm lint`；
-6. `pnpm test:unit`；
-7. `pnpm fmt:check` 与 `git diff --check`。
+1. testes unitários direcionados de entitlement de UI, navegação de Provider Family e callback de OAuth／restauração de startup;
+2. testes unitários direcionados de usage entitlement do Service e de scope de Team;
+3. E2E de interação relacionados às Account Provider Settings;
+4. `pnpm typecheck`;
+5. `pnpm lint`;
+6. `pnpm test:unit`;
+7. `pnpm fmt:check` e `git diff --check`.
 
-当前 Review 基线的四个相关测试文件共 49 条测试全部通过，但缺少 `unavailable` 非空快照下的 Start selection
-preservation，以及 `not_authenticated` 不得投影为 `notPurchased` 的证明。本 Todo 必须先补这两类失败测试，不能用
-现有绿灯代替边界验证。
+No baseline de review atual, os quatro arquivos de teste relacionados passam em 49 casos no total, mas falta a prova da preservação da seleção de Start sob um snapshot não nulo `unavailable` e da proibição de projetar `not_authenticated` como `notPurchased`. Este Todo precisa primeiro acrescentar esses dois tipos de teste que falham; o verde existente não pode substituir a verificação de fronteira.
 
-## 8. 完成标准
+## 8. Critérios de conclusão
 
-- Z.AI/BigModel 的 Provider ID、Team 管理地址和 OAuth 身份均来自单一 Family Spec/元数据；
-- UI 业务代码不再通过展示名推断 Family；
-- Family 编排不存在重复的 Z.AI/BigModel 查询实现；
-- Start/Individual/Team 对 active、inactive、unknown 的处理一致；
-- `notPurchased` 只由明确无权益产生；
-- 临时请求失败不会破坏已保存连接；
-- 旧 fallback 注释、位置数组、冗余 Family 门禁和无调用 Resolver 清理完成；
-- 相关单测、交互验证、全仓 typecheck/lint/unit 均通过；
-- 最终提交遵循 Conventional Commit，并在实施记录中列出实际删除的旧分支与验证证据。
+- Os Provider IDs de Z.AI／BigModel, o endereço de gestão de Team e a identidade de OAuth vêm de um único Family Spec／metadados;
+- O código de negócio da UI não infere mais a Family pelo nome de exibição;
+- Não há implementação duplicada de consultas Z.AI／BigModel na orquestração de Family;
+- Start／Individual／Team tratam active, inactive e unknown de forma consistente;
+- `notPurchased` só é produzido por ausência explícita de entitlement;
+- Falhas temporárias de requisição não destroem a conexão salva;
+- A limpeza dos comentários antigos de fallback, arrays posicionais, portões redundantes de Family e do Resolver sem chamadas está concluída;
+- Os testes unitários relacionados, a validação de interação, o typecheck／lint／unit de todo o repositório passam;
+- O commit final segue o Conventional Commit e lista no registro de implementação os branches antigos realmente removidos e as evidências de verificação.
 
-## 9. 实施记录（2026-08-28）
+## 9. Registro de implementação（2026-08-28）
 
-- 新增 `active | inactive | unknown` 套餐证据归一：仅 `no_plan` 为 inactive；未知快照不再误报未购买，
-  也不再越权解释 Account 断开状态。
-- 登录与启动恢复只在 Start 明确 inactive 时破坏已有选择；`unavailable`、请求异常和不完整快照均保留。
-- OAuth、Team 导航、Sidebar、Composer 与企业套餐查询改为读取具名 `ModelProviderFamilySpec`，删除位置数组、
-  Family Provider ID 三元映射和无生产调用的第二套选择 Resolver。
-- Z.AI/BigModel Team 管理地址进入 Family Spec；状态卡按 `providerId` 解析 Family，不再读取展示名称。
-- 四条手写 entitlement Hook 链收口为一个 Family Hook，并显式调用 Z.AI、BigModel 两次；Start 与 Coding
-  继续使用独立 Provider ID、Account Access 和 cache key。
-- 历史商品缺失 Family 的 BigModel 解释集中到单一规范化函数，导航和使用量投影不再各自写 fallback。
-- 删除“Coding 激活后禁用 Start fallback”的失真注释；Start 现在明确是独立查询目标。
+- Adicionada a normalização de evidência de plano `active | inactive | unknown`: apenas `no_plan` é inactive; snapshots desconhecidos não são mais reportados como não comprados e também não interpretam de forma indevida o estado de desconexão da Account.
+- A recuperação de login e de startup só destrói a escolha existente quando o Start está explicitamente inactive; `unavailable`, exceções de requisição e snapshots incompletos são preservados.
+- OAuth, navegação de Team, Sidebar, Composer e a consulta de planos empresariais passaram a ler o `ModelProviderFamilySpec` nomeado, removendo o array posicional, os mapeamentos ternários de Family Provider ID e o segundo Resolver de escolha sem chamadas em produção.
+- Os endereços de gestão de Team de Z.AI／BigModel entraram no Family Spec; o card de status resolve a Family por `providerId` e não lê mais o nome de exibição.
+- As quatro cadeias de Hook de entitlement escritas à mão foram consolidadas em um Hook de Family, chamado explicitamente duas vezes para Z.AI e BigModel; Start e Coding continuam usando Provider ID, Account Access e cache key independentes.
+- A interpretação de BigModel para produtos históricos sem Family foi concentrada em uma única função de normalização, e a navegação e a projeção de uso não escrevem mais fallbacks próprios.
+- Removido o comentário distorcido «desabilita o fallback do Start depois que o Coding é ativado»; o Start agora é explicitamente um alvo de consulta independente.
 
-阶段 Review 证据：相关 6 个 UI 测试文件共 278 条测试通过；`pnpm typecheck` 通过；`pnpm lint` 0 error
-（33 条均为本阶段外既存 warning）；`git diff --check` 通过。最终 `test:unit/fmt:check` 随全部阶段统一执行。
+Evidências de review de fase: 6 arquivos de teste de UI relacionados passam em 278 casos no total; `pnpm typecheck` passou; `pnpm lint` com 0 erro
+（33 warnings, todos preexistentes e fora desta fase）; `git diff --check` passou. O `test:unit/fmt:check` final foi executado de forma unificada com todas as fases.
 
-后续回归证据：Todo 57 已在同一 Provider Refactor 最终基线上完成根 `typecheck`、`lint`、全量 unit
-（12,797 条通过）以及 macOS Provider/Account/Selection WDIO 实跑。Todo 36 不再保留独立的“等待最终回归”状态。
+Evidências de regressão posteriores: o Todo 57 concluiu, no mesmo baseline final do Provider Refactor, o `typecheck` da raiz, o `lint`, o unit completo
+（12.797 casos aprovados）e a execução real de WDIO de Provider／Account／Selection no macOS. O Todo 36 não mantém mais um estado independente de «aguardando a regressão final».

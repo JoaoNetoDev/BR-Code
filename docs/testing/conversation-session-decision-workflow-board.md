@@ -1,156 +1,156 @@
 # Conversation Session Decision Workflow Board
 
-目标：把每个尚未 covered 的 case 放到同一张状态板里，追踪 answer draft、decision worksheet、source coverage、roadmap 和下一步动作。
+Objetivo: colocar cada case ainda não coberto em um único quadro de status, rastreando answer draft, decision worksheet, source coverage, roadmap e a próxima ação.
 
-生成命令：
+Comando de geração:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --workflow-board-md
 ```
 
-## 当前状态
+## Estado atual
 
-| 指标 | 当前值 |
+| Métrica | Valor atual |
 | --- | ---: |
-| Workflow case | 89 |
-| Draft-ready case | 0 |
-| Worksheet-ready case | 0 |
-| Source-backfill-needed case | 0 |
-| Roadmap ready-to-write | 35 |
-| Roadmap implemented | 18 |
+| Workflow cases | 89 |
+| Cases draft-ready | 0 |
+| Cases worksheet-ready | 0 |
+| Cases que precisam de backfill na fonte | 0 |
+| Roadmap prontos para escrever | 35 |
+| Roadmap implementados | 18 |
 
-## Next Action Counts
+## Contagem por Next Action
 
-| Next action | Case count |
+| Next action | Número de cases |
 | --- | ---: |
-| 填写 N01.1 | 1 |
-| 填写 N02.1 | 1 |
-| 填写 N03.1 | 1 |
-| 填写 N04.1 | 1 |
-| 补齐 | 53 |
-| 填写 N06.1 | 1 |
-| 填写 N07.1 | 1 |
-| 填写 N08.1 | 1 |
-| 填写 N09.1 | 1 |
-| 填写 S01.1 | 1 |
-| 填写 S02.1 | 1 |
-| 填写 S03.1 | 1 |
-| 填写 S04.1 | 1 |
-| 填写 S05.1 | 1 |
-| 填写 S06.1 | 1 |
-| 填写 S07.1 | 1 |
-| 填写 D01.1 | 1 |
-| 填写 D02.1 | 1 |
-| 填写 D03.1 | 1 |
-| 填写 D04.1 | 1 |
-| 填写 D05.1 | 1 |
-| 填写 L01.1 | 1 |
-| 填写 L02.1 | 1 |
-| 填写 L03.1 | 1 |
-| 填写 L04.1 | 1 |
-| 填写 L05.1 | 1 |
-| 填写 L06.1 | 1 |
-| 填写 L07.1 | 1 |
-| 填写 L08.1 | 1 |
-| 填写 W01.1 | 1 |
-| 填写 W02.1 | 1 |
-| 填写 W03.1 | 1 |
-| 填写 W04.1 | 1 |
-| 填写 W05.1 | 1 |
-| 填写 X01.1 | 1 |
-| 填写 X02.1 | 1 |
-| 填写 X03.1 | 1 |
+| Preencher N01.1 | 1 |
+| Preencher N02.1 | 1 |
+| Preencher N03.1 | 1 |
+| Preencher N04.1 | 1 |
+| Completar | 53 |
+| Preencher N06.1 | 1 |
+| Preencher N07.1 | 1 |
+| Preencher N08.1 | 1 |
+| Preencher N09.1 | 1 |
+| Preencher S01.1 | 1 |
+| Preencher S02.1 | 1 |
+| Preencher S03.1 | 1 |
+| Preencher S04.1 | 1 |
+| Preencher S05.1 | 1 |
+| Preencher S06.1 | 1 |
+| Preencher S07.1 | 1 |
+| Preencher D01.1 | 1 |
+| Preencher D02.1 | 1 |
+| Preencher D03.1 | 1 |
+| Preencher D04.1 | 1 |
+| Preencher D05.1 | 1 |
+| Preencher L01.1 | 1 |
+| Preencher L02.1 | 1 |
+| Preencher L03.1 | 1 |
+| Preencher L04.1 | 1 |
+| Preencher L05.1 | 1 |
+| Preencher L06.1 | 1 |
+| Preencher L07.1 | 1 |
+| Preencher L08.1 | 1 |
+| Preencher W01.1 | 1 |
+| Preencher W02.1 | 1 |
+| Preencher W03.1 | 1 |
+| Preencher W04.1 | 1 |
+| Preencher W05.1 | 1 |
+| Preencher X01.1 | 1 |
+| Preencher X02.1 | 1 |
+| Preencher X03.1 | 1 |
 
 ## Board
 
 | Case | Group | Answer draft | Worksheet | Source coverage | Roadmap | Next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| N01 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N01.1 |
-| N02 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N02.1 |
-| N03 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N03.1 |
-| N04 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N04.1 |
-| N05 | P0-2 模型/API 请求故障 | missing | not-in-decision-protocol | missing | ready-to-write | 补齐 |
-| N06 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N06.1 |
-| N07 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N07.1 |
-| N08 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N08.1 |
-| N09 | P0-2 模型/API 请求故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 N09.1 |
-| S01 | P0-3 SSE 流式故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 S01.1 |
-| S02 | P0-3 SSE 流式故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 S02.1 |
-| S03 | P0-3 SSE 流式故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 S03.1 |
-| S04 | P0-3 SSE 流式故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 S04.1 |
-| S05 | P0-3 SSE 流式故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 S05.1 |
-| S06 | P0-3 SSE 流式故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 S06.1 |
-| S07 | P0-3 SSE 流式故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 S07.1 |
-| D01 | P1-1 文件系统/存储故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 D01.1 |
-| D02 | P1-1 文件系统/存储故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 D02.1 |
-| D03 | P1-1 文件系统/存储故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 D03.1 |
-| D04 | P1-1 文件系统/存储故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 D04.1 |
-| D05 | P1-1 文件系统/存储故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 D05.1 |
-| L01 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L01.1 |
-| L02 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L02.1 |
-| L03 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L03.1 |
-| L04 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L04.1 |
-| L05 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L05.1 |
-| L06 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L06.1 |
-| L07 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L07.1 |
-| L08 | P1-2 App 生命周期/进程故障 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 L08.1 |
-| W01 | P2-1 Workspace / Tool 外部变化 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 W01.1 |
-| W02 | P2-1 Workspace / Tool 外部变化 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 W02.1 |
-| W03 | P2-1 Workspace / Tool 外部变化 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 W03.1 |
-| W04 | P2-1 Workspace / Tool 外部变化 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 W04.1 |
-| W05 | P2-1 Workspace / Tool 外部变化 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 W05.1 |
-| X01 | P2-2 跨 Session 故障隔离 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 X01.1 |
-| X02 | P2-2 跨 Session 故障隔离 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 X02.1 |
-| X03 | P2-2 跨 Session 故障隔离 | placeholder-only | blocked | decision-needed | blocked-by-product-decision | 填写 X03.1 |
-| A08 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| A09 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| A10 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| A11 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| A12 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| B06 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| B07 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| B08 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| B09 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| B13 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| B14 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| B16 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| C05 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| C08 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| C09 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| D06 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| D11 | 未分组 | missing | not-in-decision-protocol | missing | ready-to-write | 补齐 |
-| E06 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| E08 | 未分组 | missing | not-in-decision-protocol | missing | ready-to-write | 补齐 |
-| F01 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| F03 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| F07 | 未分组 | missing | not-in-decision-protocol | missing | ready-to-write | 补齐 |
-| F09 | 未分组 | missing | not-in-decision-protocol | missing | ready-to-write | 补齐 |
-| G11 | 未分组 | missing | not-in-decision-protocol | missing | ready-to-write | 补齐 |
-| G12 | 未分组 | missing | not-in-decision-protocol | missing | ready-to-write | 补齐 |
-| H08 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| H09 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| H12 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| H15 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| H16 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| I43 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I44 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I45 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I46 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I47 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I48 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I49 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I50 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I51 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I52 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I53 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I54 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I56 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I57 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I58 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I59 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I60 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I61 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I62 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I63 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
-| I64 | 未分组 | missing | not-in-decision-protocol | partial | implemented | 补齐 |
-| I65 | 未分组 | missing | not-in-decision-protocol | planned | ready-to-write | 补齐 |
+| N01 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N01.1 |
+| N02 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N02.1 |
+| N03 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N03.1 |
+| N04 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N04.1 |
+| N05 | P0-2 Falhas de requisição de modelo/API | missing | not-in-decision-protocol | missing | ready-to-write | Completar |
+| N06 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N06.1 |
+| N07 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N07.1 |
+| N08 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N08.1 |
+| N09 | P0-2 Falhas de requisição de modelo/API | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher N09.1 |
+| S01 | P0-3 Falhas de streaming SSE | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher S01.1 |
+| S02 | P0-3 Falhas de streaming SSE | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher S02.1 |
+| S03 | P0-3 Falhas de streaming SSE | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher S03.1 |
+| S04 | P0-3 Falhas de streaming SSE | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher S04.1 |
+| S05 | P0-3 Falhas de streaming SSE | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher S05.1 |
+| S06 | P0-3 Falhas de streaming SSE | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher S06.1 |
+| S07 | P0-3 Falhas de streaming SSE | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher S07.1 |
+| D01 | P1-1 Falhas de sistema de arquivos/armazenamento | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher D01.1 |
+| D02 | P1-1 Falhas de sistema de arquivos/armazenamento | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher D02.1 |
+| D03 | P1-1 Falhas de sistema de arquivos/armazenamento | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher D03.1 |
+| D04 | P1-1 Falhas de sistema de arquivos/armazenamento | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher D04.1 |
+| D05 | P1-1 Falhas de sistema de arquivos/armazenamento | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher D05.1 |
+| L01 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L01.1 |
+| L02 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L02.1 |
+| L03 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L03.1 |
+| L04 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L04.1 |
+| L05 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L05.1 |
+| L06 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L06.1 |
+| L07 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L07.1 |
+| L08 | P1-2 Falhas de ciclo de vida do app/processo | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher L08.1 |
+| W01 | P2-1 Mudanças externas em Workspace / Tool | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher W01.1 |
+| W02 | P2-1 Mudanças externas em Workspace / Tool | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher W02.1 |
+| W03 | P2-1 Mudanças externas em Workspace / Tool | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher W03.1 |
+| W04 | P2-1 Mudanças externas em Workspace / Tool | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher W04.1 |
+| W05 | P2-1 Mudanças externas em Workspace / Tool | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher W05.1 |
+| X01 | P2-2 Isolamento de falhas entre Sessions | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher X01.1 |
+| X02 | P2-2 Isolamento de falhas entre Sessions | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher X02.1 |
+| X03 | P2-2 Isolamento de falhas entre Sessions | placeholder-only | blocked | decision-needed | blocked-by-product-decision | Preencher X03.1 |
+| A08 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| A09 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| A10 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| A11 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| A12 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| B06 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| B07 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| B08 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| B09 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| B13 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| B14 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| B16 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| C05 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| C08 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| C09 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| D06 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| D11 | Não agrupado | missing | not-in-decision-protocol | missing | ready-to-write | Completar |
+| E06 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| E08 | Não agrupado | missing | not-in-decision-protocol | missing | ready-to-write | Completar |
+| F01 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| F03 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| F07 | Não agrupado | missing | not-in-decision-protocol | missing | ready-to-write | Completar |
+| F09 | Não agrupado | missing | not-in-decision-protocol | missing | ready-to-write | Completar |
+| G11 | Não agrupado | missing | not-in-decision-protocol | missing | ready-to-write | Completar |
+| G12 | Não agrupado | missing | not-in-decision-protocol | missing | ready-to-write | Completar |
+| H08 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| H09 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| H12 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| H15 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| H16 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| I43 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I44 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I45 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I46 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I47 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I48 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I49 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I50 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I51 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I52 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I53 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I54 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I56 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I57 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I58 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I59 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I60 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I61 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I62 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I63 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |
+| I64 | Não agrupado | missing | not-in-decision-protocol | partial | implemented | Completar |
+| I65 | Não agrupado | missing | not-in-decision-protocol | planned | ready-to-write | Completar |

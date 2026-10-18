@@ -1,253 +1,253 @@
-# Todo 109：全库数据库迁移收口与回滚内容可读性
+# Todo 109：Consolidação das migrações de banco de dados de todo o repositório e legibilidade do rollback
 
-> 2026-09-11 后续发现：0020 无 entry 的消息回填会遗漏旧 user 已记录、assistant 未记录的思考档位。已复现，修复由 [Todo121](./todo-121-repair-backfilled-session-reasoning-level.md) 承接，尚待实施；保留原完成记录，但不将该遗漏算作已修。仅追加迁移，不改冻结的 0020。
+> 2026-09-11 descoberta posterior: o backfill de mensagens sem `entry` em 0020 omite o nível de pensamento já registrado para usuário antigo e não registrado para assistente. Foi reproduzido; a correção fica a cargo de [Todo121](./todo-121-repair-backfilled-session-reasoning-level.md), ainda não implementada; mantém-se o registro original de conclusão, mas essa lacuna não é contada como corrigida. Apenas acrescente migrações; não alterar a 0020 congelada.
 
-> 状态：2026-09-10 已实现并完成存储、协议与 Pro 本地桌面关键验收；手机/真实远程联合实机仍未覆盖，外部协调尚未确认，详见[实施账本](../research/todo109-database-implementation-ledger.md)。不宣称全平台全绿；没有修改真实用户数据库，不自动推送。
-> 固定旧版基线：`staging_backup @ 790884b1ce4b990583ab40625b5f283e2169eb36`。实施前固定当前分支 HEAD 并记录，不用 main 或持续移动的 staging 代替旧基线。
-> 实施前合入 staging：`aaa486ed47ed08e522b7554d5e7d265c2475e2f1`，合并前本分支 `db5dfb7d401d1c8698d246cc04ed85e520cc7547`。上游已占用 `0019_dwf_journal`，其编号、内容和 checksum 原样保留；会话库本轮 migration 从 `0020` 起追加，提交前再检查编号，不重编号、不修改上游已存在的 migration。App 库独立编号，不机械套用会话库序号。
+> Status: em 2026-09-10 implementado e concluído com as aceitações-chave de armazenamento, protocolo e Pro desktop local; celular/telemetria conjunta em dispositivo real ainda não coberta, coordenação externa ainda não confirmada, ver [ledger de implementação](../research/todo109-database-implementation-ledger.md). Não se declara verde em todas as plataformas; nenhum banco de dados real de usuário foi modificado, nada é enviado automaticamente.
+> Baseline antigo fixado: `staging_backup @ 790884b1ce4b990583ab40625b5f283e2169eb36`. Fixar o HEAD da branch atual antes da implementação e registrar; não usar main nem staging em movimento contínuo como substituto do baseline antigo.
+> Mesclado em staging antes da implementação: `aaa486ed47ed08e522b7554d5e7d265c2475e2f1`; antes da mesclagem esta branch era `db5dfb7d401d1c8698d246cc04ed85e520cc7547`. O upstream já ocupou `0019_dwf_journal`; seu número, conteúdo e checksum são preservados como estão; as migrações do banco de sessões desta rodada são acrescentadas a partir de `0020`, verificando a numeração de novo antes do commit, sem renumerar e sem modificar migrações já existentes no upstream. O banco App tem numeração independente; não aplicar mecanicamente os números do banco de sessões.
 
-## 1. 目标、优先级与非目标
+## 1. Objetivos, prioridade e não objetivos
 
-2026-09-10 复审补修已完成：以“回滚、回滚后再升级均可丢模型选择，但会话/任务必须可打开，读取展示不得因配置缺失/非法报告异常”为最高验收标准。两项缺口为 User 无效 Selection 穿透协议，以及 restore 插件绕过最小兼容写入；同类 Timeline/Subtask 结构校验一并覆盖。旧值不动、migration 不改写、不重跑，不恢复旧字段读取。真实 SQL / Reader / 协议及冻结旧 Reader 合批 106 条通过，Pro 补充冷启动复跑通过；首次发送前置失败及未覆盖平台如实记录于实施账本 E 节，不能以仅写盘成功代替验收。
+Revisão de 2026-09-10 concluída: o critério de aceitação mais alto é "rollback e reupgrade após rollback podem perder a seleção de modelo, mas sessão/tarefa devem abrir, e leitura/exibição não deve reportar erro por configuração ausente/inválida". As duas lacunas são Selection inválida de User vazando pelo protocolo, e o plugin de restore contornando a escrita mínima de compatibilidade; validações estruturais equivalentes de Timeline/Subtask são cobertas junto. Valores antigos não são mexidos, migrações não são reescritas, não se reexecuta, não se restaura leitura de campos antigos. SQL / Reader / protocolo reais e Reader antigo congelado passaram em um lote de 106 casos; as repetições complementares da Pro com cold start passaram; falhas de pré-envio e plataformas não cobertas foram registradas com fidelidade na seção E do ledger de implementação; não se pode substituir a aceitação por "apenas gravar em disco com sucesso".
 
-将整个 Provider 重构涉及的数据库结构和内容迁移收进正式、版本化的 migration。所有相关自有数据库、所有数据表都要有审计结论，不限于先前列出的四张会话表。迁移保留旧字段及旧值；升级、回滚、再升级后，任务内容、会话历史和消息不能因为模型配置格式变化而打不开。
+Consolidar em migrações formais e versionadas toda a estrutura e a migração de conteúdo de banco de dados envolvida na refatoração do Provider. Todo banco de dados próprio relacionado e todas as tabelas precisam de uma conclusão de auditoria, não apenas as quatro tabelas de sessão listadas anteriormente. A migração preserva campos antigos e valores antigos; após upgrade, rollback e novo upgrade, o conteúdo de tarefas, o histórico de sessões e as mensagens não podem ficar inacessíveis por mudança no formato de configuração de modelo.
 
-**首要约束：搬进 migration，不等于重新设计迁移语义。** 沿用已裁决的 Provider 身份、Selection、推理档位等转换规则；不能借规范迁移重新决定 Provider 应该映射成谁。仅当旧实现违反本轮明确原则（丢字段、打不开内容、运行读取重复补迁等）时调整，并记录原因。新产品歧义隔离裁决，不擅自改成个人、Team、继承或其他模型。
+**Restrição primordial: mover para migração não equivale a redesenhar a semântica da migração.** Reutilizar as regras de conversão já decididas para identidade de Provider, Selection, níveis de raciocínio etc.; não se pode usar a migração padronizada para decidir novamente a que um Provider deve mapear. Só ajustar quando a implementação antiga violar princípios explícitos desta rodada (perder campos, deixar conteúdo inacessível, leitura em execução repetir a migração etc.), e registrar o motivo. Novas decisões de ambiguidade de produto ficam isoladas para pergunta; não se muda por conta própria para pessoal, Team, herdado ou outro modelo.
 
-不做：
+Não fazer:
 
-- 不建设完整的新旧版本双向同步，不保证回滚期间的所有配置修改再次升级后恢复；模型选择丢失、需要重选可以接受。
-- 不一概禁止双写，也不全面双写；是否需要由旧版内容读取契约决定，见第 4 节。
-- 不合并不同物理数据库，不建设跨库分布式事务，不把 App 服务直接耦合到 Agent 的具体存储实现。
-- 不借机改 Account/Provider 架构、effective Selection、运行中模型绑定、权限或 Ticket 策略。
-- 不改外部软件数据库（如浏览器 Cookie 库）。Provider JSON、Bot 文件、Wiki 文件、Subagent Markdown 等非数据库迁移不在本轮实施范围；数据库的导入边界仍须核对。
-- 不清理无关旧数据、不修无关既有 bug、不对真实用户目录做升级/降级演练，不自动发布或推送。
+- Não construir sincronização bidirecional completa entre versões nova e antiga, nem garantir que toda modificação de configuração durante o rollback seja restaurada no reupgrade; perder a seleção de modelo e precisar reselecionar é aceitável.
+- Não proibir dual-write de forma absoluta, nem fazer dual-write em tudo; a necessidade é decidida pelo contrato de leitura de conteúdo da versão antiga, ver seção 4.
+- Não mesclar bancos de dados físicos diferentes, não construir transações distribuídas entre bancos, não acoplar o serviço App diretamente à implementação concreta de armazenamento do Agent.
+- Não aproveitar para mudar a arquitetura de Account/Provider, effective Selection, vínculo de modelo em execução, permissões ou política de Ticket.
+- Não alterar bancos de dados de software externo (ex.: base de cookies do navegador). Migração de Provider JSON, arquivos de Bot, arquivos de Wiki, Markdown de Subagent etc. que não sejam banco de dados estão fora do escopo desta rodada; as fronteiras de importação do banco de dados ainda precisam ser conferidas.
+- Não limpar dados antigos sem relação, não corrigir bugs preexistentes sem relação, não fazer ensaio de upgrade/downgrade no diretório real de usuário, não publicar nem enviar automaticamente.
 
-本 Todo 在数据库范围内补充/取代 Todo69、Todo104 中冲突的旧迁移与回滚要求；保留它们的历史实现证据，不扩大到非数据库领域。尤其不再接受“单条新版消息/任务打不开也没关系”，允许退化的是可重建配置，不是内容可访问性。
+Este Todo complementa/substitui, dentro do escopo de banco de dados, os requisitos conflitantes antigos de migração e rollback de Todo69 e Todo104; preserva-se a evidência histórica de implementação deles, sem estender para áreas fora de banco de dados. Em especial não se aceita mais "não importa se uma mensagem/tarefa nova não abre"; o que pode degradar é configuração reconstruível, não a acessibilidade do conteúdo.
 
-## 2. 已确认事实与全库审计清单
+## 2. Fatos confirmados e lista de auditoria de todo o repositório
 
-调查方式：当前代码、固定旧基线 diff、原始库/真实 Reader 测试及生产方/消费方定向搜索。初始调查与下述种子列表保留作为历史记录；最终逐表结论和验证以实施账本为准。代码图工具本环境不可用，不声称 codegraph 通过。
+Método de investigação: código atual, diff contra o baseline antigo fixado, testes com banco original/Reader real e buscas direcionadas de produtor/consumidor. A investigação inicial e a lista-semente abaixo são preservadas como registro histórico; as conclusões finais por tabela e a verificação estão no ledger de implementação. A ferramenta de grafo de código não está disponível neste ambiente; não se afirma que codegraph passou.
 
-### 2.1 Agent 会话库
+### 2.1 Banco de sessões do Agent
 
-默认路径 `~/.zcode/cli/db/db.sqlite`，以实际配置解析路径为准。已有 0001–0018 migration 及 `schema_migration` 记录；这些 SQL 与执行器相对固定旧基线没有差异。执行器使用 IMMEDIATE 事务、checksum、成功后记录与错误回滚。表结构没变化不代表 JSON 内容没变化。
+Caminho padrão `~/.zcode/cli/db/db.sqlite`, prevalecendo o caminho resolvido pela configuração real. Já existem migrações 0001–0018 e registros em `schema_migration`; esse SQL e o executor não têm diferenças em relação ao baseline antigo fixado. O executor usa transação IMMEDIATE, checksum, registro após sucesso e rollback em erro. O fato de a estrutura da tabela não ter mudado não significa que o conteúdo JSON não tenha mudado.
 
-内存执行确认 18 张业务表，另加迁移记录表。下列每一行都必须产出“迁移/保持不变/明确待裁决”的结论及证据；表名列表不是完成声明。
+Execução em memória confirmou 18 tabelas de negócio, mais a tabela de registros de migração. Cada linha abaixo deve produzir uma conclusão "migrar/manter inalterado/explicitamente pendente de decisão" com evidência; a lista de nomes de tabela não é declaração de conclusão.
 
-上句为 staging_backup / 合并前事实。2026-09-10 合入 staging 后另有 `dwf_run`、`dwf_actor`、`dwf_node`、`dwf_event` 四张业务表，共 22 张；SQLite 自带的 `sqlite_sequence` 不算业务表。四张新表同样纳入审计，保留上游 durable journal 设计，不提前实现动态工作流功能，不执行其注释提到的内部预览库删表操作。
+A frase acima é fato do staging_backup / pré-mesclagem. Após mesclar em staging em 2026-09-10 há ainda quatro tabelas de negócio `dwf_run`, `dwf_actor`, `dwf_node`, `dwf_event`, totalizando 22; o `sqlite_sequence` próprio do SQLite não conta como tabela de negócio. As quatro tabelas novas entram também na auditoria, preservando o design de durable journal do upstream, sem implementar antecipadamente a funcionalidade de workflow dinâmico e sem executar a operação de remoção de tabela da base de preview interna mencionada em seus comentários.
 
-| 表                  | 必查内容                                                   |
-| ------------------- | ---------------------------------------------------------- |
-| session             | 元数据、摘要、恢复相关结构；内容和身份关联保持             |
-| session_entry       | 全部 type，包括 runtime/model_selection；不能只查当前选择  |
-| message             | 用户选择、助手实际来源、输入意图、嵌套 metadata            |
-| part                | 全部 Part 类型，特别是模型切换、Subtask 及工具结果关联     |
-| session_input       | 输入 payload、排队/Guide 等持久输入事实；缺失模型/模式不猜 |
-| session_target      | 目标、运行关联、恢复信息                                   |
-| session_task_link   | 父子任务关系及 model 等字段                                |
-| workflow_definition | 定义和 meta_json                                           |
-| workflow_run        | args_json、stats_json、failure_json 及关联                 |
-| workflow_activity   | opts_json、result_json、error_json 及子会话关联            |
-| workflow_event      | 事件类型、payload_json、顺序                               |
-| model_usage         | 模型来源、档位、原始用量/供应商 metadata                   |
-| turn_usage          | 用量与 Turn 关联                                           |
-| tool_usage          | 工具用量与调用关联                                         |
-| local_setting       | namespace/key/value，废弃记录原值保留                      |
-| permission          | 本轮是否影响旧权限结构，不顺便删除无关兼容机制             |
-| input_history       | 输入及附件结构                                             |
-| todo                | 内容、状态和排序                                           |
-| schema_migration    | 历史 ID/checksum/记录不改，只追加新迁移                    |
+| Tabela              | Conteúdo obrigatório de verificação                              |
+| ------------------- | ----------------------------------------------------------------- |
+| session             | Metadados, resumo, estruturas de recuperação; conteúdo e vínculo de identidade preservados |
+| session_entry       | Todos os type, incluindo runtime/model_selection; não basta verificar só a seleção atual |
+| message             | Seleção do usuário, origem real do assistente, intenção de entrada, metadata aninhada |
+| part                | Todos os tipos de Part, especialmente troca de modelo, Subtask e vínculo de resultado de ferramenta |
+| session_input       | Payload de entrada, fatos persistidos de entrada (fila/Guide etc.); não adivinhar modelo/modo ausente |
+| session_target      | Alvo, vínculo de execução, informação de recuperação                 |
+| session_task_link   | Relação pai-filho de tarefas e campos como model                   |
+| workflow_definition | Definição e meta_json                                               |
+| workflow_run        | args_json, stats_json, failure_json e vínculos                      |
+| workflow_activity   | opts_json, result_json, error_json e vínculo de subsessão           |
+| workflow_event      | Tipo de evento, payload_json, ordem                                 |
+| model_usage         | Origem do modelo, nível, uso bruto/metadata de fornecedor           |
+| turn_usage          | Uso e vínculo com Turn                                               |
+| tool_usage          | Uso de ferramenta e vínculo de chamada                              |
+| local_setting       | namespace/key/value; registros obsoletos mantêm o valor original   |
+| permission          | Se esta rodada afeta estruturas antigas de permissão, sem apagar de passagem mecanismos de compatibilidade não relacionados |
+| input_history       | Entradas e estrutura de anexos                                       |
+| todo                | Conteúdo, estado e ordenação                                        |
+| schema_migration    | IDs/checksums/registros históricos não mudam; apenas acrescentar novas migrações |
 
-已知待收口种子：`codecs.ts` 读取时转换 User/Assistant/Timeline/Subtask；`repositories/model-selection-migration.ts` 恢复时迁移选择；`session-entries.ts` 已有新成员包装和旧字段保留。`usage.ts` 部分只是 TS 名称变化，不能据此重命名 SQL 列或历史事实。
+Sementes conhecidas a consolidar: `codecs.ts` converte User/Assistant/Timeline/Subtask na leitura; `repositories/model-selection-migration.ts` migra a seleção na recuperação; `session-entries.ts` já tem empacotamento de novos membros e preservação de campos antigos. Parte de `usage.ts` é apenas mudança de nome TS; não se pode renomear colunas SQL nem fatos históricos com base nisso.
 
-### 2.2 App 任务库及其他库
+### 2.2 Banco de tarefas do App e outros bancos
 
-默认 `~/.zcode/v2/tasks-index.sqlite`。TaskIndexRepo、AutomationRepo、OffPeakTaskRepo 共用该库，不能误认为三个独立数据库或各维护一套迁移版本。
+Padrão `~/.zcode/v2/tasks-index.sqlite`. TaskIndexRepo, AutomationRepo e OffPeakTaskRepo compartilham esse banco; não se pode confundir com três bancos independentes nem com um conjunto próprio de versões de migração.
 
-| 表/范围                                                      | 已知情况与审计要求                                                                   |
+| Tabela/escopo                                                      | Situação conhecida e exigência de auditoria                                                       |
 | ------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| tasks                                                        | 列、meta_json、搜索内容、workspace 身份；相对旧基线无变化也要给出结论                |
-| task_groups、task_group_members                              | 分组及成员关系；迁移不得丢失列表入口                                                 |
-| task_group_view_node_orders、task_group_workspace_bootstraps | 顺序和工作区关联                                                                     |
-| automations                                                  | 新 model_selection 与旧 model/provider/thought_level；分散导入入口                   |
-| automation_runs                                              | 新 model_selection；历史执行来源不能随当前账号重解释                                 |
-| off_peak_tasks                                               | 新 model_selection；旧模型/档位及 Ticket 关联，读取时 repair 路径                    |
-| 新增迁移记录表                                               | 库级唯一账本，名称/实现按最终设计确定                                                |
-| 其他自有数据库                                               | 搜索建库、驱动、路径及写入入口，补入清单；无关库明确排除理由，不以这两库作为漏查理由 |
+| tasks                                                        | Colunas, meta_json, conteúdo de busca, identidade de workspace; mesmo sem mudança em relação ao baseline antigo é preciso dar conclusão                |
+| task_groups、task_group_members                              | Agrupamentos e relação de membros; a migração não pode perder a entrada de listagem                                                 |
+| task_group_view_node_orders、task_group_workspace_bootstraps | Ordenação e vínculo de workspace                                                                     |
+| automations                                                  | Novo model_selection contra antigo model/provider/thought_level; entradas de importação dispersas                   |
+| automation_runs                                              | Novo model_selection; a origem histórica de execução não pode ser reinterpreta pela conta atual                                 |
+| off_peak_tasks                                               | Novo model_selection; modelo/nível antigos e vínculo de Ticket, caminho de repair na leitura                    |
+| Nova tabela de registro de migrações                         | Ledger único por banco; nome/implementação conforme o design final                                                |
+| Outros bancos próprios                                               | Buscar criação de banco, driver, caminho e entradas de escrita, e incluir na lista; bancos sem relação com motivo explícito de exclusão, sem usar estes dois bancos como desculpa para deixar de verificar algo |
 
-当前 App Repo 存在各自 CREATE TABLE / ensureColumn，Automation 在初始化链路导入旧选择，Off-Peak 在 list/get 等路径修复旧选择。实施需归并机制，但不得丢失其他必要建表/补列行为。
+Hoje os Repos do App têm cada um seu próprio CREATE TABLE / ensureColumn; Automation importa a seleção antiga na cadeia de inicialização, e Off-Peak corrige a seleção antiga em caminhos como list/get. A implementação precisa unificar o mecanismo, mas não pode perder outros comportamentos necessários de criação de tabela / adição de coluna.
 
-### 2.3 审计方法与账本字段
+### 2.3 Método de auditoria e campos do ledger
 
-每库记录：真实路径来源、owner、打开入口、驱动、已有 migration、版本/锁、全部表及测试入口。每表/字段记录：旧 producer → 磁盘格式 → 现有转换 → 新 consumer，来源提交、目标新字段、保留字段、转换规则来源、是否最小兼容写入、测试证据、实施/验证状态。
+Por banco registrar: origem do caminho real, owner, entrada de abertura, driver, migrações existentes, versão/lock, todas as tabelas e entradas de teste. Por tabela/campo registrar: produtor antigo → formato em disco → conversão existente → consumidor novo, commit de origem, novo campo de destino, campos preservados, origem da regra de conversão, se há escrita mínima de compatibilidade, evidência de teste, estado de implementação/verificação.
 
-必须查 producer 和恢复/复制/导入/普通更新入口，不仅 diff Repository。普通 JSON 仓库没有改动也可能写入新形状。必要的应用层修复仅限保证格式收口与内容可读；UI 不直接访问 Repo。
+É obrigatório verificar produtor e entradas de recuperação/cópia/importação/atualização comum, não apenas fazer diff de Repository. Repositórios JSON comuns podem gravar novas formas mesmo sem alteração. Correções de camada de aplicação são permitidas apenas para garantir a consolidação do formato e a legibilidade do conteúdo; a UI não acessa Repos diretamente.
 
-## 3. 正式 migration 执行契约
-
-```text
-打开实际所属数据库
-    -> 库级 migration 入口取得事务锁
-    -> 依次检查 migration ID
-         已记录 -> 校验 checksum -> 不重跑
-         未记录 -> 结构及数据转换 -> 成功记录
-    -> 同一事务提交数据与迁移记录
-    -> 向 Repo / 业务开放已迁移数据库
-
-真实执行/写入失败 -> 回滚，不留下半迁移成功记录
-回滚旧版后再升级 -> 已完成 migration 不重跑；缺新配置按缺失处理
-```
-
-1. 复用会话库已有机制；其他库补齐相同保证。历史 migration 不编辑、不重编号，新增 ID 实施前检查冲突。checksum 不符明确失败。
-2. 每个物理库独立版本、独立事务；同库多个 Repo 的任何先后初始化顺序都必须安全。多窗口/多进程通过数据库锁及事务内重新检查版本协调，不靠内存布尔值或猜等待时间。
-3. 新库、完整旧库、原先分散 Repo 只初始化过部分表的库都应安全接入。迁移记录不存在不代表表/列必定不存在：初始化迁移核查真实结构，不捕获所有 SQL 错误后伪装成功，也不直接补一个“全迁完”的假版本。
-4. 建表、补列、本轮历史格式转换收口到 migration，Repo 不再自行重复升级。原有更早版本升级行为需保留或证明等价，不借机删除本轮无关的必要迁移。
-5. 事务由执行器持有，不直接嵌套调用会自行 BEGIN/COMMIT 的旧转换入口。优先清楚、可测的 SQL；确需本地代码步骤时只做最小扩展，固定步骤校验/版本，不依赖可随业务变化而改写历史语义的在线 Resolver。
-6. 不在事务内查 OAuth、权益、Provider Registry 或远端服务。大库采用有界遍历/批处理，保持所需原子性，不全量加载进内存。
-7. 正常业务 Reader 不再用本轮旧字段重复补迁。明确的旧数据导入入口可以复用确定性转换，但必须标明导入边界，不把每次启动/读取包装成导入，不另建降级检测和自动重迁机制。
-8. 已记录完成的 migration 不因新字段缺失而重跑；新版清空选择后不能被旧值复活。
-
-## 4. 旧数据保留与最小兼容写入
-
-### 4.1 迁移只增加新版表达
-
-- 所有原有列、旧字段及旧值保留，不原位改名、不删除、不用新 Provider ID 覆盖旧 Provider 值。未知附加字段也保留。
-- 不用会去旧字段的业务 Decoder 输出覆盖整行。新旧格式占同名对象时，存储层采用不冲突的新成员；例如 Timeline 可考虑另存 fromModelSelection/toModelSelection，Subtask 可考虑 modelSelection，最终命名先写存储 spec。这些是实现候选，不是要求修改全链路协议字段名。
-- 新逻辑 Port 可以保持当前形状，adapter 负责磁盘映射；不为了兼容新增另一套业务 Selection 权威。
-- ID、外键、顺序、时间等不因格式迁移被无故改变；若既有语义需要新增派生记录，沿用已裁决规则并明确来源，不篡改旧记录。
-- 保留指字段存在性与值/内容保持，不要求添加 JSON 成员后整列文本字节相同；未修改的行应保持不变，数组顺序、正文和附件引用不能变化。
-- 尚未执行本 migration 时，对有明确旧来源的记录，允许重建并覆盖本次目标新字段；不适配未上线的错误中间态，也不无差别改写缺少旧来源的新记录。migration 版本决定执行与否，不能把“新字段存在一律跳过”重新当本轮普遍规则。
-
-### 4.2 尽量不双写，内容可访问性优先
+## 3. Contrato de execução da migração formal
 
 ```text
-新版迁移 / 新增 / 修改记录 -> staging_backup 的真实 Reader
-    内容可打开，只丢模型配置 -> 不双写
-    因缺旧字段而内容打不开   -> 补最小必要兼容字段，必要时双写
+abrir o banco de dados real proprietário
+    -> entrada de migração em nível de banco obtém o lock de transação
+    -> verificar os IDs de migração em sequência
+         já registrado -> validar checksum -> não reexecutar
+         não registrado -> conversão de estrutura e dados -> registrar após sucesso
+    -> commit dos dados e do registro de migração na mesma transação
+    -> liberar o banco migrado para Repos / uso de negócio
 
-旧版继续使用后再升级 -> 不重跑已完成 migration
-    缺新配置 -> 内容照常打开；执行前重选/补配置
+falha real de execução/gravação -> rollback, sem deixar registro de sucesso parcial
+rollback para versão antiga e novo upgrade -> migrações concluídas não reexecutam; configuração nova ausente é tratada como ausente
 ```
 
-- 不要求所有新旧字段持续一致，不要求恢复回滚期间模型配置修改；不因单纯模型不匹配就双写。
-- 如果旧版因缺少必需字段导致单条任务、消息或会话内容打不开，必须修，不仅防整库或整列表失败。
-- 逐项用冻结旧版实际 Reader 和后续展示路径验证。不能只证明 JSON.parse 成功或字段存在，也不能只验证迁移前旧记录而遗漏新版新增/修改记录。
-- 普通保存、复制/fork 的整对象替换不得顺带抹掉已保留的旧快照。保留原旧值与持续反向更新是两件事；必要双写应记录触发路径、字段及不可再缩减的理由，不建立通用全域双写框架。
-- 新版业务仍只读新结构；兼容旧字段仅用于迁移和旧版读取，不恢复旧字段运行兜底。不构造误导性的历史身份只为填字段；若最小兼容值无法按现有裁决确定，隔离提问。
+1. Reutilizar o mecanismo já existente no banco de sessões; completar as mesmas garantias nos outros bancos. Migrações históricas não são editadas nem renumeradas; conflitos de novos IDs são conferidos antes da implementação. Checksum divergente falha explicitamente.
+2. Cada banco físico tem versão e transação independentes; qualquer ordem de inicialização entre vários Repos do mesmo banco precisa ser segura. Multi-janela/multi-processo se coordena por lock de banco e nova verificação da versão dentro da transação, sem depender de boolean em memória nem de adivinhar tempo de espera.
+3. Bancos novos, bancos antigos completos e bancos onde Repos antes dispersos só inicializaram parte das tabelas devem entrar com segurança. A ausência do registro de migração não significa que tabela/coluna necessariamente não exista: a migração de inicialização verifica a estrutura real, não captura todos os erros de SQL para fingir sucesso, nem simplesmente acrescenta uma falsa versão "tudo migrado".
+4. Criação de tabela, adição de coluna e consolidação das conversões de formato histórico desta rodada vão para a migração; os Repos deixam de repetir a atualização por conta própria. Comportamentos de upgrade de versões anteriores precisam ser preservados ou provados equivalentes, sem apagar de passagem migrações necessárias e sem relação com esta rodada.
+5. A transação é mantida pelo executor; não chamar diretamente dentro dela entradas antigas de conversão que fazem BEGIN/COMMIT por conta própria. Preferir SQL claro e testável; quando for realmente necessário um passo em código local, fazer apenas a extensão mínima, fixando a verificação de passos/versão, sem depender de um Resolver online que possa reescrever a semântica histórica conforme o negócio muda.
+6. Não consultar OAuth, benefícios, Registry de Providers ou serviços remotos dentro da transação. Bancos grandes usam travessia limitada/batch, mantendo a atomicidade necessária, sem carregar tudo em memória.
+7. Readers de negócio normais não repetem a migração usando campos antigos desta rodada. Entradas explícitas de importação de dados antigos podem reutilizar conversões determinísticas, mas devem marcar a fronteira de importação, sem envolver cada inicialização/leitura como importação e sem criar mecanismo extra de detecção de degradação e re-migração automática.
+8. Migração já registrada como concluída não reexecuta por causa de campo novo ausente; depois que a nova versão limpa a seleção, ela não pode ser ressuscitada pelo valor antigo.
 
-## 5. 转换语义与配置缺失的处理
+## 4. Preservação de dados antigos e escrita mínima de compatibilidade
 
-1. 既有明确的 Provider ID / 档位确定性映射可以用；改表示格式不等于改变业务事实。沿用已裁决规则，不为搬入 migration 重新设计。
-2. 区分“保存的下次执行选择”与“历史实际执行来源”。前者按所属领域规则迁；后者不能按现在登录的账号、Team 或当前可执行名单改写来源。
-3. 旧记录没模型/模式就不猜，无法可靠恢复的可重建配置允许保持缺失。保留旧来源，给出明确处理结果，允许 migration 正常完成；完成表示按规则处理完，不表示每条模型配置都恢复成功。
-4. 配置缺失不能令整条 message/task/session 解析失败，不能吞掉内容后返回假空记录。内容展示/浏览与执行校验分开：需执行且必要配置不足时明确提示补配置，不偷偷选模型。历史已经有的合法缺省/继承语义不借此重设计。
-5. 真正的数据库执行失败、会损坏内容或破坏结构的转换失败必须回滚，不能一概 catch 后跳过。畸形 JSON 等问题要按受影响内容和原行为分类，不能扩成重建空库，也不能把正常缺少模型配置升级为全库启动失败。
-6. 闲时已有 repair 依赖账号解析：先查清已有裁决和 Ticket 绑定。能确定的部分搬入迁移；确实无事实可恢复的配置按缺失处理，不重绑 Ticket、不把补迁藏回 list/get。若现有有效裁决要求另一种自动恢复行为，保留该项冲突请求裁决，不自行撤销。
-7. 迁移不检查执行资格，不代表迁后任务必定能运行。Provider/权益/模型/Ticket 的既有执行校验继续留在执行边界。
+### 4.1 A migração apenas acrescenta a nova expressão
 
-## 6. 影响面、owner 与抽象保护（Impact Brief）
+- Todas as colunas, campos e valores antigos existentes são preservados: sem renomeação no lugar, sem remoção e sem sobrescrever valor antigo de Provider com novo Provider ID. Campos extras desconhecidos também são preservados.
+- Não sobrescrever a linha inteira com a saída de um Decoder de negócio que remove campos antigos. Quando o formato novo e o antigo ocupam objetos de mesmo nome, a camada de armazenamento usa membros novos sem conflito; por exemplo, Timeline pode considerar guardar fromModelSelection/toModelSelection, e Subtask pode considerar modelSelection — a nomeação final vem primeiro na spec de armazenamento. São candidatos de implementação, não exigência de mudar os nomes de campos do protocolo em toda a cadeia.
+- A nova porta lógica pode manter a forma atual, e o adapter é responsável pelo mapeamento em disco; não criar outra autoridade de Selection de negócio só por compatibilidade.
+- ID, chaves estrangeiras, ordem e tempo não são alterados sem motivo por causa da migração de formato; se a semântica existente exigir novos registros derivados, seguir as regras já decididas e deixar a origem explícita, sem adulterar registros antigos.
+- Preservar significa manter a existência do campo e seu valor/conteúdo; não exige que o texto bruto da coluna inteira seja byte a byte idêntico após adicionar um membro JSON; linhas não modificadas devem permanecer inalteradas, e ordem de arrays, corpo do texto e referências de anexos não podem mudar.
+- Enquanto esta migração não tiver sido executada, para registros com origem antiga clara é permitido reconstruir e sobrescrever os novos campos de destino desta rodada; não adaptar estados intermediários errados que nunca foram lançados, nem reescrever indiscriminadamente registros novos que não têm origem antiga. A versão da migração decide se executa; não se pode voltar a tratar "campo novo existe, sempre pula" como regra geral desta rodada.
 
-模式 planning；改动层级 persistence / recovery，非 UI 重新设计。数据库迁移由所属进程的存储层负责，UI/Host 投影不能成为第二份内容权威。
+### 4.2 Evitar dual-write na medida do possível; acessibilidade do conteúdo primeiro
 
-| 用户入口/状态                    | 共享实现与权威落点                                  | 草稿/默认与提交边界                                           | 必须保持的模式/隔离                                    |
+```text
+migração nova / criação / alteração de registro -> Reader real do staging_backup
+    conteúdo abre, só perde configuração de modelo -> não dual-write
+    conteúdo não abre por falta de campo antigo    -> acrescentar campos mínimos de compatibilidade, dual-write se necessário
+
+uso da versão antiga e novo upgrade -> não reexecutar migrações concluídas
+    configuração nova ausente -> conteúdo abre normalmente; reselecionar/completar config antes de executar
+```
+
+- Não se exige que todos os campos novos e antigos fiquem continuamente consistentes, nem recuperar modificações de configuração de modelo feitas durante o rollback; não fazer dual-write só por simples divergência de modelo.
+- Se a versão antiga não consegue abrir o conteúdo de uma tarefa, mensagem ou sessão por falta de um campo obrigatório, é obrigatório corrigir — não basta evitar falha de banco inteiro ou de lista inteira.
+- Verificar item a item com o Reader real da versão antiga congelada e com os caminhos de exibição posteriores. Não basta provar que o JSON.parse deu certo ou que o campo existe, nem validar só registros antigos pré-migração esquecendo registros novos criados/alterados.
+- Substituição do objeto inteiro em salvamento comum e em cópia/fork não pode apagar de passagem o snapshot antigo já preservado. Preservar o valor antigo original e atualizar continuamente no sentido inverso são coisas diferentes; dual-write necessário deve registrar o caminho gatilho, os campos e o motivo de não poder mais reduzir; não construir um framework genérico de dual-write de domínio inteiro.
+- O negócio da nova versão continua lendo só a estrutura nova; campos antigos servem apenas para migração e leitura pela versão antiga, sem restaurar fallback de execução em campo antigo. Não construir identidade histórica enganosa só para preencher campo; se um valor mínimo de compatibilidade não puder ser determinado pelas decisões existentes, isolar e perguntar.
+
+## 5. Semântica de conversão e tratamento de configuração ausente
+
+1. Mapeamentos determinísticos existentes de Provider ID / nível podem ser usados; mudar o formato de representação não muda o fato de negócio. Seguir as regras já decididas, sem redesenhar por causa da migração.
+2. Distinguir "seleção salva para a próxima execução" de "origem real histórica de execução". A primeira migra conforme a regra do domínio; a segunda não pode ter a origem reescrita pela conta, Team ou lista de executáveis atuais.
+3. Se um registro antigo não tem modelo/modo, não adivinhar; configuração reconstruível que não possa ser recuperada com reliability pode continuar ausente. Preservar a origem antiga, dar um resultado de tratamento explícito e permitir que a migração conclua normalmente; "concluída" significa tratamento conforme a regra, não que cada configuração de modelo foi recuperada com sucesso.
+4. Configuração ausente não pode fazer a message/task/session inteira falhar ao ser analisada, nem engolir o conteúdo e devolver um registro vazio falso. Separação entre exibição/navegação do conteúdo e validação de execução: quando for necessário executar e faltarem configurações obrigatórias, pedir explicitamente a complementação, sem escolher modelo escondidamente. Semântica legítima de default/herança já existente no histórico não é redesenhada com esse pretexto.
+5. Falha real de execução de banco, falha de conversão que corrompe conteúdo ou quebra estrutura deve dar rollback; não se pode simplesmente capturar e pular. Problemas como JSON malformado devem ser classificados pelo conteúdo afetado e pelo comportamento original, sem escalar para recriar um banco vazio nem promover a falta normal de configuração de modelo a falha de inicialização de todo o banco.
+6. O repair em tempo ocioso já depende de resolução de conta: primeiro verificar as decisões existentes e o vínculo de Ticket. A parte determinável vai para a migração; configuração realmente sem fato a recuperar é tratada como ausente, sem revincular Ticket e sem esconder a complementação de volta em list/get. Se alguma decisão válida existente exigir outro comportamento automático de recuperação, manter esse item conflitante como pergunta; não revogar sozinho.
+7. A migração não verifica elegibilidade de execução, o que não significa que a tarefa migrada obrigatoriamente rodará. As validações de execução existentes de Provider/benefício/modelo/Ticket continuam na fronteira de execução.
+
+## 6. Superfície de impacto, owner e proteção de abstrações (Impact Brief)
+
+Modo planning; camada alterada persistence / recovery, sem redesenho de UI. A migração de banco é responsabilidade da camada de armazenamento do processo proprietário; a projeção de UI/Host não pode ser uma segunda autoridade de conteúdo.
+
+| Entrada/estado do usuário                    | Implementação compartilhada e ponto de autoridade                          | Limite de rascunho/padrão e commit                                                        | Padrão/isolamento que precisa ser mantido                                  |
 | -------------------------------- | --------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------ |
-| 任务列表、搜索、分组             | TaskIndexRepo / tasks-index.sqlite；列表元数据权威  | 不因浏览启动所有 Agent，不改用户草稿                          | workspaceIdentity 与路径不混用                         |
-| 打开会话、历史消息、子任务、目标 | Agent SessionStore；UI 消费协议投影                 | 阅读不要求模型可执行；执行仍用现有选择/绑定                   | 本地/SSH/WSL/Docker 的数据库由实际 owner 迁移          |
-| 自动化列表、编辑、运行记录       | AutomationRepo / tasks-index.sqlite                 | 编辑写自动化配置，不改 Session 草稿；缺配置在既有执行入口处理 | 不改变自动运行、计划及启停状态                         |
-| 闲时列表、编辑、Ticket           | OffPeakTaskRepo 与既有 Service / tasks-index.sqlite | 不通过普通读取自动更换账号或 Ticket                           | 保留已绑定 Ticket 的执行语义                           |
-| 手机打开以上内容                 | 同一 shared-host 和所属 SessionStore/Repo           | 不新增手机独立迁移或独立运行时                                | desktop-continuous 与 web-remote-replayable 不互相扩散 |
+| Lista de tarefas, busca, agrupamentos             | TaskIndexRepo / tasks-index.sqlite; autoridade dos metadados de listagem  | Não iniciar todos os Agents por navegar; não alterar rascunhos do usuário                          | workspaceIdentity e caminho não podem ser confundidos                         |
+| Abrir sessão, mensagens históricas, subtarefas, alvos | Agent SessionStore; a UI consome a projeção do protocolo                 | Ler não exige modelo executável; a execução segue usando seleção/vínculo existentes                   | Bancos de dados locais/SSH/WSL/Docker são migrados pelo owner real          |
+| Lista de automações, edição, registros de execução       | AutomationRepo / tasks-index.sqlite                 | Editar grava config da automação, não altera rascunho de Session; config ausente é tratada na entrada de execução existente | Não alterar autorun, agendamento nem estado de liga/desliga                         |
+| Listas ociosas, edição, Ticket                   | OffPeakTaskRepo e Service existente / tasks-index.sqlite | Não trocar conta ou Ticket automaticamente em leitura comum                           | Preservar a semântica de execução do Ticket já vinculado                           |
+| Abrir os mesmos conteúdos no celular                 | O mesmo shared-host e o SessionStore/Repo proprietário           | Não adicionar migração nem runtime separados para celular                                | desktop-continuous e web-remote-replayable não se espalham um no outro |
 
-共享的是迁移保证和存储转换；不同的是每库 owner、表契约、Selection 含义、各业务提交/执行时机。保持 API/Model 的公共校验，不改候选生成、默认/继承来源；不把存储兼容变成运行兜底。
+O que se compartilha são as garantias de migração e a conversão de armazenamento; o que difere é o owner de cada banco, o contrato das tabelas, o significado de Selection e o momento de commit/execução de cada negócio. Preservar a validação pública de API/Model, sem mudar geração de candidatos nem origem de default/herança; não transformar compatibilidade de armazenamento em fallback de execução.
 
-影响分级与代码种子（均相对仓库根）：
+Graduação de impacto e sementes de código (todas relativas à raiz do repositório):
 
-- must-inspect：`apps/zcode-cli/packages/adapters/src/storage/session-store/{migrations,migration-runner,codecs,sqlite-session-store}.ts`、`repositories/{session-entries,model-selection-migration,messages,usage}.ts`；本次格式、事务及读写 owner。
-- must-inspect：`packages/services/src/session/{taskIndexRepo,automationRepo,automationSelectionMigration,offPeakTaskRepo,offPeakTaskService}.ts`；同库打开入口及分散补迁。
-- must-inspect：Session 消息/Part/输入 producer、恢复、fork、导入等直接消费者；需在实施账本补齐实际符号与路径，不以当前种子替代全审计。
-- should-inspect：任务投影、会话历史 hydration、自动化和闲时派发；证明配置缺失不阻碍内容，且不改变执行语义。
-- conditional：桌面/手机 shared-host、远程 workspace、不同 OS 文件锁；按路径差异选代表性验证，不重做协议。
-- invariant-only：Main/relay 不承担迁移或业务状态；存储边界不依赖 Runtime 具体实现；不改 model selection 草稿提交时机。
-- evidence-only：现有 Session migration、Repo、回滚 reader 测试只作可复用证据，不因存在测试便宣称全面覆盖。
+- must-inspect: `apps/zcode-cli/packages/adapters/src/storage/session-store/{migrations,migration-runner,codecs,sqlite-session-store}.ts`, `repositories/{session-entries,model-selection-migration,messages,usage}.ts`; owner de formato, transação e leitura/escrita desta rodada.
+- must-inspect: `packages/services/src/session/{taskIndexRepo,automationRepo,automationSelectionMigration,offPeakTaskRepo,offPeakTaskService}.ts`; entradas de abertura do mesmo banco e complementações de migração dispersas.
+- must-inspect: produtores de mensagens/Part/entrada de Session e consumidores diretos de recuperação, fork, importação etc.; é preciso completar no ledger de implementação os símbolos e caminhos reais, sem usar a semente atual como substituto da auditoria completa.
+- should-inspect: projeção de tarefas, hydration do histórico de sessão, dispatch de automações e ociosas; provar que configuração ausente não impede o conteúdo e que a semântica de execução não muda.
+- conditional: shared-host desktop/celular, workspace remoto, locks de arquivo em diferentes OS; escolher validação representativa conforme a diferença de caminho, sem refazer o protocolo.
+- invariant-only: Main/relay não assumem migração nem estado de negócio; a fronteira de armazenamento não depende da implementação concreta do Runtime; não mudar o momento de commit do rascunho de model selection.
+- evidence-only: migrações de Session, Repos e testes de reader de rollback existentes servem só como evidência reutilizável; a existência de testes não autoriza alegar cobertura total.
 
-图谱：为 capability.task-persistence 增加本 Todo 的规划入口；保留原 owner 关系。图中的旧 defaultModelRef/旧队列 owner 说明可能过时，列为 graph-drift-candidate，不作为本轮重设计依据；无 codegraph 可用，当前不声称已遍历全部调用链，实施需补精确调用方核对。
+Grafo: adicionar a entrada de planejamento deste Todo para capability.task-persistence; manter as relações de owner existentes. O antigo defaultModelRef/owner de fila antiga no grafo pode estar desatualizado, listados como graph-drift-candidate e não como base de redesenho nesta rodada; sem codegraph disponível, não se afirma ter percorrido todas as cadeias de chamada — a implementação precisa completar a verificação precisa dos chamadores.
 
-## 7. 裁决记录、状态组合与测试计划
+## 7. Registro de decisões, combinações de estado e plano de testes
 
-### 7.1 已确认边界
+### 7.1 Limites confirmados
 
-| 裁决         | 最终要求                                        | 被剪除的方案                         |
+| Decisão      | Requisito final                                              | Opções descartadas                              |
 | ------------ | ----------------------------------------------- | ------------------------------------ |
-| D01 范围     | 所有相关数据库/全部表，对照固定 staging_backup  | 只查四张会话表或只看 SQL diff        |
-| D02 迁移语义 | 收口机制，不重设计已裁决映射                    | 借迁移自动选个人/Team/其他 Provider  |
-| D03 保留     | 原旧字段及值保留，新格式另存                    | 原位改名、Decoder 全对象覆盖         |
-| D04 中间态   | 不兼容未上线中间态，未执行迁移可重建目标新字段  | 新字段存在就一律禁止转换             |
-| D05 回滚往返 | 内容可读，配置允许重选，已完成 migration 不重跑 | 为回滚后修改构建自动再迁移系统       |
-| D06 双写     | 能不双写就不双写；内容打不开时最小必要双写      | 一概禁止/全面反向同步                |
-| D07 缺配置   | 可成功完成迁移，浏览正常，执行单独处理          | 一条模型配置缺失阻断全库或丢整条内容 |
+| D01 Escopo   | Todos os bancos de dados relacionados/todas as tabelas, contra o staging_backup fixado  | Verificar só as quatro tabelas de sessão ou só o diff de SQL        |
+| D02 Semântica da migração | Consolidar o mecanismo, não redesenhar mapeamentos já decididos                    | Escolher automaticamente pessoal/Team/outro Provider pela migração |
+| D03 Preservação | Campos e valores antigos preservados, novo formato guardado à parte             | Renomeação no lugar, cobertura do objeto inteiro pelo Decoder |
+| D04 Estado intermediário | Não compatibilizar estados intermediários não lançados; com migração não executada, reconstruir o novo campo de destino | Proibir toda conversão só porque o campo novo existe      |
+| D05 Ida e volta do rollback | Conteúdo legível, configuração pode ser reselecionada, migrações concluídas não reexecutam | Construir sistema de re-migração automática para alterações pós-rollback |
+| D06 Dual-write | Se der para não fazer dual-write, não fazer; quando o conteúdo não abre, dual-write mínimo necessário      | Proibição absoluta/sincronização reversa total               |
+| D07 Configuração ausente | A migração pode concluir com sucesso, navegação normal, execução tratada à parte      | Uma configuração de modelo ausente bloqueia o banco todo ou perde o registro inteiro |
 
-测试维度：数据库/Repo 初始顺序；新库/完整旧库/部分初始化旧库；migration 未执行/已执行/失败重试；旧记录/新版新增/新版修改；配置完整/缺失/不可确定；单进程/多进程；本地/远程内容 owner。不展开全型号全账号笛卡尔积：转换不依赖当前权益，以离线/空 Provider 的代表场景证明。
+Dimensões de teste: ordem de inicialização de banco/Repo; banco novo / banco antigo completo / banco antigo parcialmente inicializado; migração não executada/executada/falha com nova tentativa; registro antigo / novo criado / novo alterado; configuração completa/ausente/indeterminada; processo único/múltiplos processos; owner de conteúdo local/remoto. Não expandir para o produto cartesiano completo de modelos e contas: a conversão não depende do benefício atual, e prova-se com cenários representativos offline/com Provider vazio.
 
-### 7.2 接受的场景与覆盖行
+### 7.2 Cenários aceitos e linhas de cobertura
 
-下表为验收定义；2026-09-10 的实际结果见实施账本 D 节。DB109-01～13 已完成关键断言；DB109-14 部分验证，手机/真实远程联合实机不计为通过。ID 保持稳定。
+A tabela abaixo é a definição de aceitação; os resultados reais de 2026-09-10 estão na seção D do ledger de implementação. DB109-01～13 concluíram as asserções-chave; DB109-14 teve verificação parcial, e celular/telemetria conjunta em dispositivo real não conta como aprovado. Os IDs permanecem estáveis.
 
-| ID       | Setup → Action                                                     | 核心断言                                                                      | 证据层                            |
+| ID       | Setup → Action                                                     | Asserção central                                                                      | Camada de evidência                            |
 | -------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------- | --------------------------------- |
-| DB109-01 | 固定旧基线各库全部表播种 → 升级                                    | 全表有结论；应转换的新字段正确；旧字段/未知字段/正文/附件引用不丢；无关行不变 | 原始 SQL/JSON + 当前 Reader       |
-| DB109-02 | 全新库、部分表/列已存在但无账本的库 → 初始化                       | 收敛正确结构和记录，不误覆盖内容、不忽略真实 SQL 错误                         | SQLite 集成                       |
-| DB109-03 | 已迁库改选/清空 → 多次重开                                         | 不重跑、不复活旧选择，不依赖新字段存在与否决定版本                            | 账本 + Reader                     |
-| DB109-04 | 未执行的 migration，有旧来源和未上线目标值 → 升级                  | 按旧来源及确定规则重建目标新字段；旧值不改；无旧来源不硬套                    | 转换单测 + 原始数据               |
-| DB109-05 | 原子迁移注入中途写入错误 → 重开重试                                | 数据和记录同时回滚，成功重试只执行一次                                        | SQLite 故障注入                   |
-| DB109-06 | 多进程同时打开，Repo 初始化顺序变化                                | 同库只应用一次，不暴露半迁状态，锁等待/错误符合既有边界                       | 多连接/进程集成                   |
-| DB109-07 | 已应用 migration 改 checksum → 打开                                | 明确拒绝，不静默重跑/改账本                                                   | 执行器测试                        |
-| DB109-08 | 离线/未登录/Provider 空，含可转及不可确定选择 → 升级/浏览          | 确定性转换不变；缺配置不阻碍内容；无账号网络调用                              | 存储 + Service                    |
-| DB109-09 | 新版迁移/新增/修改代表记录 → 旧版真实读取及展示                    | 每条任务/消息/会话内容能访问；模型配置允许丢失；双写与否有具体证据            | 冻结 Reader + 内容投影 + 集中 E2E |
-| DB109-10 | 升级后回滚旧版新增/修改数据 → 再升级                               | 已完成 migration 不重跑；缺新配置不导致内容失败；可重选后继续                 | 双版本临时库 + UI/协议            |
-| DB109-11 | 有历史 Timeline/Subtask/输入/目标/Workflow/Usage → 迁移并恢复/复制 | 关联/顺序/原实际执行来源保留；不以当前账号重解释                              | 原始库 + 恢复消费者               |
-| DB109-12 | 新版选择更新/复制/fork/旧备份导入 → 正常读取                       | 不顺带抹旧快照；正常 Reader 不读旧字段兜底，显式导入边界不扩散                | Writer/Reader + 导入集成          |
-| DB109-13 | 闲时旧记录含 Ticket、身份不足 → 迁移/列表/执行检查                 | 不重绑、不在 list/get 写补迁；依既有裁决处理缺配置，不启动真实任务            | Service/Repo fixture              |
-| DB109-14 | 桌面本地及远程同路径不同身份，手机 attachment → 打开历史           | 身份隔离；手机复用 owner；不更改 continuous/replayable 语义                   | 集中端到端                        |
+| DB109-01 | Semear todas as tabelas de todos os bancos do baseline antigo fixado → upgrade | Toda tabela tem conclusão; campos novos que deveriam ser convertidos estão corretos; campos antigos/desconhecidos/corpo/referências de anexos não se perdem; linhas sem relação não mudam | SQL/JSON original + Reader atual       |
+| DB109-02 | Banco novo, banco onde parte das tabelas/colunas já existe mas sem ledger → inicialização                       | Converge para estrutura e registro corretos, sem sobrescrever conteúdo nem ignorar erros SQL reais                         | Integração SQLite                       |
+| DB109-03 | Banco migrado, troca/limpeza de seleção → várias reaberturas                                         | Não reexecuta, não ressuscita seleção antiga, não depende da existência do campo novo para decidir a versão                            | Ledger + Reader                     |
+| DB109-04 | Migração não executada, com origem antiga e valor de destino ainda não lançado → upgrade                  | Reconstrói o novo campo de destino pela origem antiga e pelas regras determinadas; valor antigo não muda; sem origem antiga não força nada                    | Teste unitário de conversão + dados originais               |
+| DB109-05 | Injetar erro de escrita no meio da migração atômica → reabrir e tentar de novo                                | Dados e registro dão rollback juntos; nova tentativa bem-sucedida executa só uma vez                                        | Injeção de falha SQLite                   |
+| DB109-06 | Múltiplos processos abrindo ao mesmo tempo, ordem de inicialização de Repos varia                               | Aplicado uma única vez no mesmo banco, sem expor estado meio migrado; espera por lock/erro conforme os limites existentes                       | Integração multi-conexão/processo                   |
+| DB109-07 | Migration já aplicada com checksum alterado → abrir                                                        | Rejeição explícita, sem reexecutar em silêncio nem alterar o ledger                                                   | Teste do executor                        |
+| DB109-08 | Offline/sem login/Provider vazio, com seleção convertível e indeterminada → upgrade/navegação          | Conversões determinísticas não mudam; configuração ausente não impede o conteúdo; sem chamadas de rede por conta                              | Armazenamento + Service                    |
+| DB109-09 | Registros representativos novos migrados/criados/alterados → leitura e exibição reais na versão antiga                    | Conteúdo de cada tarefa/mensagem/sessão acessível; configuração de modelo pode ser perdida; dual-write ou não tem evidência concreta            | Reader congelado + projeção de conteúdo + E2E centralizado |
+| DB109-10 | Após upgrade, rollback e dados novos criados/alterados na versão antiga → novo upgrade                               | Migrações concluídas não reexecutam; configuração nova ausente não causa falha de conteúdo; dá para continuar após reselecionar                 | Banco temporário de duas versões + UI/protocolo            |
+| DB109-11 | Timeline/Subtask/entrada/alvo/Workflow/Usage históricos → migrar e recuperar/copiar | Vínculos/ordem/origem real de execução preservados; não reinterpreta pela conta atual                              | Banco original + consumidores de recuperação               |
+| DB109-12 | Atualização/cópia/fork de seleção nova/importação de backup antigo → leitura normal                       | Não apaga snapshot antigo de passagem; Reader normal não usa campo antigo como fallback; fronteira explícita de importação não se espalha                | Writer/Reader + integração de importação          |
+| DB109-13 | Registros ociosos antigos com Ticket, identidade insuficiente → migração/lista/checagem de execução                 | Não revincula, não grava complementação em list/get; trata configuração ausente pelas decisões existentes, sem iniciar tarefa real            | Fixture de Service/Repo              |
+| DB109-14 | Mesmo caminho no desktop local e remoto com identidades diferentes, anexo no celular → abrir histórico           | Isolamento de identidade; o celular reutiliza o owner; não muda a semântica continuous/replayable                   | ponta a ponta centralizado                        |
 
-剪枝：不要求全模型配置往返一致，不请求真实模型以验证数据库，不做跨库原子升级，不覆盖本轮无关所有旧格式。已有产品合法默认/继承行为不作为 bug 重写。
+Podas: não se exige consistência de ida e volta para toda configuração de modelo, não se pede um modelo real para validar o banco, não se faz upgrade atômico entre bancos e não se cobrem todos os formatos antigos sem relação com esta rodada. Comportamentos legítimos de produto já existentes de default/herança não são reescritos como bug.
 
-### 7.3 实施前资料回填及 E2E 交接
+### 7.3 Preenchimento de materiais antes da implementação e entrega de E2E
 
-- 对实际发现的结构变更先更新 `apps/zcode-cli/docs/design/v2/local-setting-migrations.md`、`apps/zcode-cli/docs/design/v2/session-persistence.md`、`docs/task/task-sqlite-index.md` 等对应 spec；不把本 Todo 的候选字段名写成既成事实。
-- 实施前按 Agent 指令完成数据库结构变更的 CLI 负责人同步；本次没有向外部发送消息。
-- 编写交互 E2E 前读取当前 conversation 声明、case catalog、coverage matrix 和 E2E workflow，按 DB109 场景补对应需求/覆盖行，使用 e2e-case-lifecycle；实施阶段复用并扩展既有 pending 冷历史用例，不自动转正。
-- 文件 fixture：临时库按固定旧基线生成，必要旧 Reader 冻结来源 SHA；不用真实账号/用户库。Provider 使用离线 fixture，模型执行非必需；确需验证补选后执行可用可控 replay/测试模型。
-- 时序使用事务故障注入、进程握手和明确屏障，不靠任意 sleep。先完成核心整批存储测试，再共享构建做桌面/远程代表验证；手机环境限制如实记录。
-- 现有 `apps/zcode-cli/packages/adapters/tests/session-model-selection-migration.test.ts` 等可复用；执行器、Repo、旧 Reader 测试在实施账本中列明具体文件及结果。
+- Para mudanças de estrutura realmente encontradas, atualizar primeiro as specs correspondentes, como `apps/zcode-cli/docs/design/v2/local-setting-migrations.md`, `apps/zcode-cli/docs/design/v2/session-persistence.md`, `docs/task/task-sqlite-index.md`; não escrever os nomes de campo candidatos deste Todo como fato consumado.
+- Antes da implementação, fazer a sincronização com o responsável de CLI sobre mudanças de estrutura de banco, conforme a instrução do Agent; desta vez nenhuma mensagem foi enviada externamente.
+- Antes de escrever o E2E interativo, ler a declaração atual de conversation, o case catalog, a coverage matrix e o E2E workflow, e acrescentar as linhas de requisito/cobertura correspondentes aos cenários DB109, usando e2e-case-lifecycle; na fase de implementação reutilizar e estender os casos pendentes já existentes de histórico frio, sem promoção automática.
+- Fixtures de arquivo: bancos temporários gerados pelo baseline antigo fixado, com SHA da origem congelada do Reader antigo quando necessário; não usar contas reais/biblioteca de usuário real. Usar fixture de Provider offline; execução de modelo não é obrigatória; se for realmente preciso validar que a execução funciona após reseleção, usar replay/modelo de teste controlável.
+- Usar injeção de falha de transação, handshake de processos e barreiras explícitas no sequenciamento, em vez de sleep arbitrário. Concluir primeiro o lote central de testes de armazenamento e só então fazer a validação representativa desktop/remota na build compartilhada; registrar com fidelidade as limitações do ambiente de celular.
+- Podem ser reutilizados `apps/zcode-cli/packages/adapters/tests/session-model-selection-migration.test.ts` etc.; o ledger de implementação lista arquivos e resultados concretos dos testes de executor, Repos e Reader antigo.
 
-## 8. 执行批次、待确认项与完成标准
+## 8. Lotes de execução, itens pendentes e critérios de conclusão
 
-### 执行批次
+### Lotes de execução
 
-- [x] A：固定新旧基线，完成数据库/表/字段/producer/consumer 全量账本；先 spec 和测试，确定最小兼容写入清单。
-- [x] B：按库收口版本化迁移入口，处理既有库无账本、部分初始化和并发；迁入本轮结构/数据转换，保持规则语义。
-- [x] C：统一新存储 Reader/Writer/恢复/复制/导入边界，删除被替代旧逻辑，补最小必要兼容写入；配置缺失与内容读取分离。
-- [x] D：整批冻结双版本 Reader、类型检查、lint、架构及 Pro 集中 E2E；全表双向 review 和提交收口。既有失败与跨端实机限制在账本中单列，不写成通过。
+- [x] A: fixar baselines novo e antigo; completar o ledger total de bancos/tabelas/campos/produtores/consumidores; fazer spec e testes primeiro; determinar a lista de escrita mínima de compatibilidade.
+- [x] B: consolidar a entrada de migração versionada por banco; tratar banco existente sem ledger, inicialização parcial e concorrência; mover para a migração as conversões de estrutura/dados desta rodada, preservando a semântica das regras.
+- [x] C: unificar Reader/Writer/recuperação/cópia/importação do novo armazenamento; remover lógica antiga substituída; acrescentar escrita mínima de compatibilidade necessária; separar configuração ausente da leitura de conteúdo.
+- [x] D: Reader congelado das duas versões em lote, checagem de tipos, lint, arquitetura e E2E centralizado da Pro; review bidirecional de todas as tabelas e fechamento do commit. Falhas preexistentes e limitações de dispositivo em múltiplas plataformas ficam em item separado no ledger, não escritas como aprovados.
 
-### 待确认项处理
+### Tratamento de itens pendentes
 
-总体产品原则已裁决，不再重复询问。待代码审计确定的内容包括：各库是否还有漏项、同名字段的新存储名称、哪些旧 Reader 真正需要最小双写、闲时身份是否存在与当前裁决冲突的既有规则。可依据本 Todo 决定的直接落实；需要新产品语义或不可逆真实数据操作时隔离说明，不能借“待迁移”无限保留读取旁路。
+Os princípios gerais de produto já foram decididos e não serão perguntados de novo. Depende da auditoria de código determinar: se ainda faltam itens em algum banco, o novo nome de armazenamento de campos homônimos, quais Readers antigos realmente exigem dual-write mínimo, e se as regras existentes de identidade em tempo ocioso conflitam com as decisões atuais. O que puder ser decidido com base neste Todo é implementado direto; quando for preciso nova semântica de produto ou operação irreversível em dados reais, isolar e explicar, sem usar "pendente de migração" para manter bypass de leitura indefinidamente.
 
-### 完成标准
+### Critérios de conclusão
 
-- [x] 所有相关自有库、全部表和本轮持久化内容变化有可追踪结论；无未解释遗漏。
-- [x] 正式 migration 覆盖必要结构/数据转换，旧入口被删除或说明明确导入/无关保留理由。
-- [x] 原旧字段/旧值及内容保留；新版正常读取不再以本轮旧字段为数据源。
-- [x] 升级、回滚、再升级内容可访问；覆盖新版新增/修改数据。允许配置重选，不允许以空列表/空消息掩盖内容失败。
-- [x] 所有双写均为最小必要且有旧 Reader 证据；不双写项目也有可读证据。
-- [x] 一次执行、失败回滚、checksum、并发、缺配置及离线场景通过；执行资格校验与迁移分离。
-- [x] 全面 review 已裁决转换语义、Provider/Selection/owner 抽象及跨端隔离；未测和真正待裁决项如实记录，不把文档或局部测试当交付完成。
-- [ ] 发布前补确认：CLI 负责人协调；DB109-14 手机 shared-host/真实远程联合实机。该项不影响已完成的代码实施声明，但不能称为完成全端验证。
+- [x] Todos os bancos próprios relacionados, todas as tabelas e todas as mudanças de conteúdo persistido desta rodada têm conclusão rastreável; sem lacunas inexplicadas.
+- [x] A migração formal cobre as conversões necessárias de estrutura/dados; as entradas antigas foram removidas ou a razão explícita de importação/relevância está registrada.
+- [x] Campos/valores antigos e conteúdo preservados; a leitura normal da nova versão não usa mais os campos antigos desta rodada como fonte de dados.
+- [x] Upgrade, rollback e novo upgrade com conteúdo acessível, cobrindo dados novos criados/alterados. Resseleção de configuração é permitida; mascarar falha de conteúdo com lista/mensagem vazia não é.
+- [x] Todos os dual-writes são o mínimo necessário e têm evidência de Reader antigo; os itens sem dual-write também têm evidência de legibilidade.
+- [x] Passaram execução única, rollback em falha, checksum, concorrência, configuração ausente e cenário offline; validação de elegibilidade para execução separada da migração.
+- [x] A revisão completa cobriu a semântica de conversão decidida, as abstrações de Provider/Selection/owner e o isolamento entre plataformas; itens não testados e realmente pendentes de decisão estão registrados com fidelidade, sem tomar documento ou teste parcial como entrega concluída.
+- [ ] Confirmação antes de publicar: coordenação com o responsável de CLI; DB109-14, shared-host de celular/telemetria conjunta em dispositivo real. Isso não afeta a declaração de implementação de código já concluída, mas não se pode chamar de verificação em todos os dispositivos concluída.
 
-## 9. 当前落盘记录
+## 9. Registro atual em disco
 
-2026-09-10：根据用户最新裁决建立 Todo；仅记录规划，尚未实施。初步核实会话库 18 张业务表及原迁移机制、App 三个 Repo 同库及分散迁移入口。全量审计、双版本 Reader、故障/并发和实机验证均待执行。
+2026-09-10: Todo criado com base na decisão mais recente do usuário; apenas planejamento registrado, ainda não implementado. Verificação inicial das 18 tabelas de negócio do banco de sessões e do mecanismo de migração original, dos três Repos do App no mesmo banco e das entradas de migração dispersas. Auditoria completa, Reader das duas versões, falhas/concorrência e validação em dispositivo real continuam pendentes.
 
-2026-09-10 实施启动：固定 staging `aaa486ed47` 已在独立整合分支正常 merge，无显式冲突、无双方共同修改文件；当前独有七个文档提交全部保留。上游主要为 0019 DWF journal、分享附件/预检、Start 额度提醒去重、workspace 样式及开发启动/架构工具改进，不移植重做上游提交。整批 22 文件 328 条 App 单测、3 文件 68 条 Agent 存储/选择迁移/附件单测、根 typecheck、lint（42 warnings/0 errors）及架构检查通过。用真实 runner 在内存库验证固定旧基线 18 条 → 19 条，原 18 条 SQL/账本/旧表结构及样本数据不变、四张新表存在、重复打开账本不变、外键检查通过。未做桌面/手机实机，不将这些合并验证当 Todo109 已实施或全量验收。
+2026-09-10 início da implementação: o staging fixado `aaa486ed47` foi mesclado normalmente numa branch de integração separada, sem conflito explícito e sem arquivo modificado por ambos os lados; os sete commits de documento exclusivos do branch atual foram todos mantidos. O upstream trouxe principalmente o journal DWF 0019, compartilhamento de anexos/pré-checagem, remoção de duplicação do lembrete de cota do Start, estilo de workspace e melhorias de inicialização de desenvolvimento/ferramentas de arquitetura; não se portam nem refazem commits do upstream. Passaram o lote de 328 testes unitários do App em 22 arquivos, 68 testes de armazenamento do Agent/migração de seleção/anexos em 3 arquivos, typecheck da raiz, lint (42 warnings/0 erros) e verificação de arquitetura. Com o runner real, validação em banco em memória do baseline antigo fixado: 18 → 19; o SQL/ledger/estrutura de tabela antiga e os dados de exemplo dos 18 originais inalterados, as quatro tabelas novas presentes, ledger inalterado em aberturas repetidas e verificação de chaves estrangeiras aprovada. Não foi feita validação em desktop/celular; essas validações combinadas não são tratadas como implementação do Todo109 nem aceitação total.
 
-2026-09-10 实施收口：新增 Agent 0020 和 App 0001/0002；全表保护覆盖 Agent 22 表与 App 8 表。移除逐读取/恢复的旧转换与闲时补迁写入，补有冻结旧 Reader 证据的 User/timeline 最小兼容对象及 fork 快照保护。Agent 整批 195 条、App 整批 123 条及补充 14 条通过；Pro 隔离桌面用例串联四个冷启动/重选场景通过。具体命令范围、旧错误文案断言/Agent lint/knip 既有失败及远程/手机限制见实施账本，不合并计数、不隐去未测。
+2026-09-10 fechamento da implementação: novas Agent 0020 e App 0001/0002; a proteção de todas as tabelas cobre 22 tabelas do Agent e 8 do App. Removidas as conversões antigas por leitura/recuperação e as escritas de complementação em tempo ocioso; acrescentados objetos mínimos de compatibilidade para User/timeline com evidência de Reader antigo congelado e proteção de snapshot de fork. Passaram o lote de 195 do Agent, o lote de 123 do App e 14 casos complementares; o caso de desktop isolado da Pro, encadeando quatro cenários de cold start/resseleção, passou. Faixas de comando específicas, asserções de texto de erro antigo, falhas preexistentes de lint/knip do Agent e as limitações remotas/celular estão no ledger de implementação, sem somar contagens nem esconder o que não foi testado.

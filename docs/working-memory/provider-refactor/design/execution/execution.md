@@ -1,34 +1,32 @@
-# Model 执行与继承
+# Execução e herança de Model
 
-本篇规定 Submission 进入 Core 后，各类执行如何取得、保持或切换 Model。Selection 状态见
-[`../interaction/interaction.md`](../interaction/interaction.md)，Model 创建和鉴权见
-[`../registry/model-creation.md`](../registry/model-creation.md)。
+Este documento especifica como, depois que uma Submission entra no Core, cada tipo de execução obtém, mantém ou troca o Model. O estado da Selection está em [`../interaction/interaction.md`](../interaction/interaction.md), e a criação e autenticação do Model em [`../registry/model-creation.md`](../registry/model-creation.md).
 
-## 总原则
+## Princípios gerais
 
-1. 一次执行先确定 ModelSelection，再从 Registry/ModelFactory 创建 Model。
-2. 每个 Agent Loop 持有自己的 Active Model。
-3. Active Model 创建后保持不可变，直到 Loop 结束或 Guide 在明确 Step 边界切换。
-4. Automatic Compact 使用当前 Loop Active Model。
-5. Subagent 根据最终 Selection 创建自己的 Model。
-6. Background/Goal 的新主 Loop 使用启动时的 Session Selection。
-7. 特殊执行只附加 Request Auth、Ticket、attribution 或 override，不携带 Provider/Model 静态 Config。
+1. Uma execução primeiro determina a ModelSelection e só então cria o Model a partir do Registry/ModelFactory.
+2. Cada Agent Loop mantém seu próprio Active Model.
+3. Depois de criado, o Active Model permanece imutável até o fim do Loop ou até o Guide trocar em uma fronteira explícita de Step.
+4. O Automatic Compact usa o Active Model atual do Loop.
+5. O Subagent cria seu próprio Model a partir da Selection final.
+6. Um novo Loop principal de Background/Goal usa a Session Selection do momento da inicialização.
+7. Execuções especiais apenas anexam Request Auth, Ticket, attribution ou override, sem carregar Config estático de Provider/Model.
 
-## 执行分类
+## Classificação das execuções
 
-| 执行                    | Selection 来源                        | Model 生命周期      | Session Selection |
+| Execução                   | Origem da Selection                    | Ciclo de vida do Model  | Session Selection |
 | ----------------------- | ------------------------------------- | ------------------- | ----------------- |
-| 普通 start-now          | 当前 Submission                       | 新 Agent Loop       | 接收时更新        |
-| 普通 Queue drain        | Queue item 保存的 Submission          | 新 Agent Loop       | 出队启动时更新    |
-| Guide / “立即”          | Guide Submission                      | 当前 Loop 后续 Step | Guide 接收时更新  |
-| Automatic Compact       | 当前 Loop Active Model                | 当前 Loop           | 不更新            |
-| 手动 Compact            | Compact Submission                    | 新 Loop             | 普通规则          |
-| Subagent                | override > Profile > Parent Selection | Child 生命周期      | 不更新父 Session  |
-| Background              | 启动时确定的 Selection                | Background 生命周期 | 不反向更新        |
-| Goal continuation       | 续轮发生时的 Session Selection        | 每轮新的主 Loop     | 不额外保存        |
-| Off-Peak automatic turn | idle Submission 的 ModelSelection     | 当前自动 Loop       | 不更新            |
+| start-now comum          | Submission atual                       | novo Agent Loop       | atualizada ao receber        |
+| Queue drain comum        | Submission guardado no item da Queue   | novo Agent Loop       | atualizada ao iniciar o dequeue |
+| Guide / «立即»           | Submission do Guide                    | Steps seguintes do Loop atual | atualizada ao receber o Guide |
+| Automatic Compact        | Active Model do Loop atual             | Loop atual           | não atualizada       |
+| Compact manual           | Submission do Compact                  | novo Loop             | regras comuns     |
+| Subagent                 | override > Profile > Parent Selection  | ciclo de vida do Child | não atualiza a Session do pai |
+| Background               | Selection definida na inicialização     | ciclo de vida do Background | não atualiza retroativamente |
+| Goal continuation        | Session Selection no momento da continuação | novo Loop principal por rodada | não salva nada extra |
+| Turn automático off-Peak | ModelSelection da Submission idle      | Loop automático atual | não atualizada       |
 
-## 普通 Agent Loop
+## Agent Loop comum
 
 ```text
 Core Submission
@@ -44,12 +42,11 @@ Agent Loop Active Model
 └─ Automatic Compact
 ```
 
-Composer 切换、普通 Session 配置变化或 Registry 刷新不改变当前 Active Model。下一次创建 Model 时才读取
-新配置。
+Trocas no Composer, mudanças comuns na configuração da Session ou refresh do Registry não alteram o Active Model atual. A nova configuração só é lida na próxima criação de Model.
 
-## Guide / “立即”
+## Guide / «立即»
 
-Guide 是当前 Loop 内的明确切换事件：
+O Guide é um evento de troca explícito dentro do Loop atual:
 
 ```text
 Active Loop: Model A
@@ -57,23 +54,21 @@ Active Loop: Model A
 Guide Submission: Selection B
         |
         v
-Registry 创建 Model B 并完成 admission
+Registry cria Model B e completa o admission
         |
         v
-Context 加入 Guide input
+Context recebe o Guide input
 Session Selection A -> B
-Active Model A -> B（下一个 Model Step）
+Active Model A -> B (no próximo Model Step)
 ```
 
-已经发出的请求继续使用 A，后续 Step 和后续 Automatic Compact 使用 B。Context 注入、Session
-Selection 更新和 Active Model 切换构成一次原子接收结果；任一步失败时完整 Guide 转入普通 Queue，
-不能只提交其中一部分。
+Requisições já enviadas continuam usando A; os Steps seguintes e o próximo Automatic Compact usam B. A injeção no Context, a atualização da Session Selection e a troca do Active Model constituem um resultado de recepção atômico; se qualquer etapa falhar, o Guide inteiro passa para a Queue comum, e não é permitido submeter apenas uma parte.
 
 ## Compact
 
 ### Automatic Compact
 
-Automatic Compact 是当前 Loop 内部行为：
+O Automatic Compact é um comportamento interno do Loop atual:
 
 ```text
 Current Active Model
@@ -86,17 +81,15 @@ Current Active Model
 Automatic Compact request
 ```
 
-它不读取 Composer 或 Session Selection，不建立另一套 Provider/Capability DTO。Guide 切换后，后续
-Automatic Compact 使用新 Active Model。
+Ele não lê o Composer nem a Session Selection e não estabelece outro conjunto de Provider/Capability DTO. Depois de uma troca por Guide, o próximo Automatic Compact usa o novo Active Model.
 
-### 手动 Compact
+### Compact manual
 
-手动 Compact 是新的 Submission/Loop，按自己的 Selection 创建 Model。它不继承已结束 Loop 的临时
-执行上下文。
+O Compact manual é uma nova Submission/Loop e cria o Model a partir da própria Selection. Ele não herda o contexto de execução temporário de um Loop já encerrado.
 
 ## Subagent
 
-Subagent Selection 优先级固定：
+A prioridade da Selection do Subagent é fixa:
 
 ```text
 Core Server Submission override
@@ -106,7 +99,7 @@ Subagent Profile Selection
 Parent Loop Active Selection
 ```
 
-确定 Selection 后，Child 从 Registry 创建自己的 Model：
+Depois de determinar a Selection, o Child cria seu próprio Model a partir do Registry:
 
 ```text
 Final Child Selection
@@ -118,54 +111,50 @@ Registry / ModelFactory
 Child-owned Active Model
 ```
 
-Fresh/Fork 定义 Context 初始化，Foreground/Background 定义调度，不改变模型继承规则。Core Server
-override 是通用执行选项，可以要求本次 Submission 派生的所有 Child 使用指定 Selection；它不是闲时
-专属字段，也不进入 Agent tool 的 provider-visible input。
+Fresh/Fork definem a inicialização do Context e Foreground/Background definem o agendamento; nenhum dos dois altera as regras de herança de modelo. O override do Core Server é uma opção de execução comum e pode exigir que todos os Children derivados desta Submission usem uma Selection específica; não é um campo exclusivo de off-peak e não entra no input provider-visible da tool Agent.
 
-普通 Profile 显式模型和 reasoning 继续按 Subagent 设置语义解析。Profile 没有模型时继承 Parent Active
-Selection；Child 不共享 Parent 的同一个可变 Model 对象。
+O modelo e o reasoning explícitos de um Profile comum continuam sendo resolvidos conforme a semântica de configuração do Subagent. Quando o Profile não tem modelo, ele herda a Active Selection do pai; o Child não compartilha o mesmo objeto mutável de Model do pai.
 
 ## Goal
 
-Goal 每次自动续跑都是新的主 Agent Loop：
+Cada retomada automática do Goal é um novo Agent Loop principal:
 
 ```text
-Goal Loop 1 使用 Selection A
+Goal Loop 1 usa Selection A
         |
-用户普通 Submission 使用 Selection B
+Submission comum do usuário usa Selection B
         |
 Session Selection = B
         |
-Goal Loop 2 启动
-        `-- 使用 Selection B
+Goal Loop 2 inicia
+        `-- usa Selection B
 ```
 
-Goal 不保存额外 continuation Selection。新的 Loop 使用续跑发生时的 Session Selection，并通过 Registry
-创建新 Model。
+O Goal não salva uma Selection de continuation adicional. O novo Loop usa a Session Selection do momento da retomada e cria um novo Model pelo Registry.
 
 ## Background
 
-Background 启动时创建自己的 Model，并在自身生命周期内保持：
+O Background cria seu próprio Model na inicialização e o mantém durante o próprio ciclo de vida:
 
 ```text
-Turn 1: Selection A，启动 Background A
-Turn 2: 用户 Submission 使用 Selection B
-Background A 完成
-Turn 3: 唤醒主 Agent，读取 Session Selection B
+Turn 1: Selection A, inicia Background A
+Turn 2: Submission do usuário usa Selection B
+Background A conclui
+Turn 3: acorda o Agent principal, lê a Session Selection B
 ```
 
-Background 自身继续使用 A；完成后只触发新的主 Loop。Background Model 不反向修改 Session Selection。
+O próprio Background continua usando A; ao concluir, apenas dispara um novo Loop principal. O Model do Background não modifica retroativamente a Session Selection.
 
-## 闲时任务
+## Tarefas off-peak
 
-闲时任务根据当前账号 Family 使用用户不可见但完整的 Built-in Provider：
+Tarefas off-peak usam, conforme o Family da conta atual, um Built-in Provider invisível ao usuário mas completo:
 
 ```text
 Z.ai      -> account:zai-offpeak-idle-plan
 BigModel  -> account:bigmodel-offpeak-idle-plan
 ```
 
-两个 Provider 拥有各自固定的 Endpoint、Access 与模型成员，不在执行期互相切换：
+Os dois Providers têm Endpoint, Access e membros de modelo fixos próprios e não alternam entre si em tempo de execução:
 
 ```text
 Host / Scheduler
@@ -185,12 +174,11 @@ Host / Scheduler
       Idle Active Model
 ```
 
-Provider 的 Visibility、Access、Endpoint、models 和 Model Config 都来自正常 Config/Rules。Host 只提供
-本次有效派发的动态 Request Auth、Ticket 和归因，不提供完整 Provider/Model Config。
+Visibility, Access, Endpoint, models e Model Config do Provider vêm todos do Config/Rules normal. O Host fornece apenas o Request Auth dinâmico, o Ticket e a atribuição do despacho válido desta rodada, e não o Config completo de Provider/Model.
 
-### Session 状态
+### Estado da Session
 
-闲时任务不修改再恢复用户 Session Selection：
+Tarefas off-peak não modificam e depois restauram a Session Selection do usuário:
 
 ```text
 Session Selection = U
@@ -204,37 +192,28 @@ Idle Loop terminal
 └─ Session Selection = U
 
 Next user Submission
-└─ Registry 根据 U 创建 Model
+└─ Registry cria Model a partir de U
 ```
 
-不存在 `previousModel`、临时 `setModel` 或 restore `finally`。
+Não existem `previousModel`, `setModel` temporário nem `finally` de restore.
 
-### Busy 与 Queue
+### Busy e Queue
 
-闲时派发只在当前 Session 能 start-now 时接收。遇到 busy race 返回类型化 admission rejection，由
-Scheduler 稍后重新派发；Request Auth/Ticket 不进入普通 Queue、Guide、held queue 或 replayable pending
-input。
+O despacho off-peak só é aceito quando a Session atual pode executar start-now. Diante de uma corrida busy, retorna um admission rejection tipado, e o Scheduler despacha novamente mais tarde; Request Auth/Ticket não entram na Queue comum, no Guide, na held queue nem em pending input replayable.
 
-运行中用户补发的普通 Submission 进入唯一 CLI Queue。Idle Turn terminal 后，队列项使用自己保存的
-Selection/Session 普通语义执行，不继承 idle Access、Ticket 或 attribution。
+Uma Submission comum enviada pelo usuário durante a execução entra na Queue única da CLI. Depois que o Turn idle chega ao terminal, os itens da fila são executados com a Selection/regra comum guardada por eles próprios, sem herdar Access, Ticket ou attribution de idle.
 
 ### Automatic Compact
 
-闲时 Automatic Compact 直接使用 Idle Active Model 和当前有效 Request Auth/Ticket，不读取 Session
-Selection，也不接收 Turn Runtime Model 快照。
+O Automatic Compact off-peak usa diretamente o Idle Active Model e o Request Auth/Ticket válido do momento, sem ler a Session Selection e sem receber snapshot do Turn Runtime Model.
 
 ### Foreground Subagent
 
-闲时 Submission 的通用 Subagent override 把允许的 Foreground Child 固定到 idle Selection。每个 Child
-仍通过 Registry/ModelFactory 创建自己的 Model，并使用当前闲时执行的 Request Auth/Ticket context。
-Explore、general-purpose 和 custom Profile 中其他 Provider/model override 均被本轮 Core override 压过。
-
-Background Child 在发出模型请求前由 Tool Policy fail-closed。这个禁止属于闲时调度策略，不写入
-Provider Config 或 Registry。
+O override comum de Subagent da Submission off-peak fixa os Foreground Children permitidos na idle Selection. Cada Child ainda cria seu próprio Model pelo Registry/ModelFactory e usa o contexto de Request Auth/Ticket da execução off-peak atual. Outros overrides de Provider/model nos Profiles Explore, general-purpose e custom são sobrepostos por esse override do Core desta rodada. Background Children são barrados pela Tool Policy em modo fail-closed antes de emitir qualquer requisição de modelo. Essa proibição pertence à política de agendamento off-peak e não é escrita no Provider Config nem no Registry.
 
 ### Permission / elicitation
 
-保持 D44：
+Mantém-se D44:
 
 ```text
 Idle Turn
@@ -245,38 +224,33 @@ Idle Turn
               └─ 同一个 Turn 继续，仍使用 Idle Model
 ```
 
-不增加 `awaiting_approval` 闲时状态，不在 approve 后切用户 Provider，不建立 mid-turn Provider handoff。
+Não é adicionado um estado off-peak `awaiting_approval`, não há troca para o Provider do usuário após o approve e não se estabelece um handoff de Provider no meio do Turn.
 
-### Ticket 与续跑
+### Ticket e retomada
 
-Ticket 过期、取消、失败、成功或进程重启会结束当前有效执行上下文。Scheduler 保留 Task、Session 和
-transcript，重新取得 Ticket 后发送新的 idle Submission，并创建新的 Idle Model。Ticket、排队、3 小时
-时间盒、continuation 和 settle 属于 Off-Peak 领域，不进入 Registry。
+Expiração, cancelamento, falha, sucesso do Ticket ou reinício do processo encerram o contexto de execução válido atual. O Scheduler preserva Task, Session e transcript, obtém um novo Ticket e envia uma nova Submission idle, criando um novo Idle Model. Ticket, fila, timebox de 3 horas, continuation e settle pertencem ao domínio de Off-Peak e não entram no Registry.
 
-## 独立模型任务
+## Tarefas de modelo independentes
 
-Title、Repo Wiki、Memory、WebFetch/WebSearch 和其他一次性模型任务都应显式接收 ModelSelection 或
-Model，不读取全局可变 Runtime Model。它们根据自己的产品语义选择：
+Title, Repo Wiki, Memory, WebFetch/WebSearch e outras tarefas de modelo pontuais devem receber explicitamente uma ModelSelection ou um Model, e não ler o Runtime Model global mutável. Elas escolhem conforme a própria semântica de produto:
 
-- 属于当前 Loop：使用当前 Active Model；
-- 独立执行：从明确 Selection 创建自己的 Model；
-- 后续唤醒主 Loop：使用届时 Session Selection。
+- pertencem ao Loop atual: usam o Active Model atual;
+- execução independente: criam seu próprio Model a partir de uma Selection explícita;
+- despertar posterior do Loop principal: usam a Session Selection vigente naquele momento.
 
-## 归因
+## Atribuição
 
-每次 ModelRequest 的 Usage、Trace 和错误归因到实际 `providerId + modelId`。Compact、Subagent、Goal、
-Background、Off-Peak taskId 和 request source 是额外执行维度，不替代 Model 身份。已经发出的请求不能
-在事后归因到新的 Active Model。
+Usage, Trace e erros de cada ModelRequest são atribuídos ao `providerId + modelId` efetivo. Compact, Subagent, Goal, Background, taskId de off-peak e request source são dimensões de execução adicionais e não substituem a identidade do Model. Requisições já enviadas não podem ser atribuídas a posteriori a um novo Active Model.
 
-## 不变量
+## Invariantes
 
-- 一个 Loop 在任一 Model Step 只有一个 Active Model。
-- Config/Composer 变化不热改 Active Model。
-- Guide 只在 Step 边界原子切换。
-- Automatic Compact 使用当前 Active Model。
-- 每个 Subagent 创建自己的 Model。
-- Goal/Background 不反向修改 Session Selection。
-- 闲时任务不修改再恢复 Session Selection。
-- 闲时 permission response 后同一 Turn 继续使用 idle Model。
-- 动态 Request Auth/Ticket 不进入 Config、Registry View、普通 Queue 或持久化。
-- 特殊执行不建立临时 Provider、第二个 Registry 或第二种 Model。
+- Um Loop tem um único Active Model em qualquer Model Step.
+- Mudanças de Config/Composer não fazem hot patch no Active Model.
+- O Guide troca atomicamente apenas em fronteiras de Step.
+- O Automatic Compact usa o Active Model atual.
+- Cada Subagent cria seu próprio Model.
+- Goal/Background não modificam retroativamente a Session Selection.
+- Tarefas off-peak não modificam e depois restauram a Session Selection.
+- Após a resposta de permissão off-peak, o mesmo Turn continua usando o idle Model.
+- Request Auth/Ticket dinâmicos não entram no Config, na Registry View, na Queue comum nem na persistência.
+- Execuções especiais não criam um Provider temporário, um segundo Registry nem um segundo tipo de Model.

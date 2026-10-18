@@ -1,222 +1,140 @@
-# CUA 截图像素与 Zoom 回归测试记录
+# Registro de testes de regressão de pixels de captura de tela e Zoom do CUA
 
-状态：producer、独立 MCP、ZCode Agent 与可见 Desktop 的 Kimi K3 真机链路均通过；Skill 精简候选待 MR/CI 复验；透明覆盖窗像素归属修复已在 producer 落地，catalog pin 待 bump
+Status: o producer, o MCP independente, o ZCode Agent e a cadeia em dispositivo real do Kimi K3 no Desktop visível passaram; o candidato de enxugamento do Skill aguarda reverificação por MR/CI; a correção de atribuição de pixels da janela de sobreposição transparente já foi implementada no producer, e o pin do catalog aguarda bump
 
-## 0.5.8 透明覆盖窗静默截走坐标点击
+## 0.5.8 A janela de sobreposição transparente rouba cliques de coordenadas silenciosamente
 
-0.5.6 把 capture 与 dispatch 的像素归属统一到了 WindowServer 快照，这部分按预期工作；本轮暴露
-的是**归属候选本身**的缺口。坐标点击的投递是 `SLEventPostToPid` 定向钉到解析出的 owner 窗口，
-背后没有 OS 命中判定，所以「front_to_back 第一个 bounds 含点的窗口」就是命中判定本身。任何盖住
-该点的 on-screen 窗口都会截走点击——无论它有没有在那里画过像素，而且工具照样返回 success。
+A 0.5.6 unificou a atribuição de pixels de capture e dispatch no snapshot do WindowServer, e essa parte funcionou como esperado; o que esta rodada expôs foi uma lacuna nos **próprios candidatos de atribuição**. A entrega do clique por coordenada é um `SLEventPostToPid` direcionado e fixado na janela owner resolvida, sem nenhuma verificação de hit test do OS, então "a primeira janela front_to_back cujos bounds contêm o ponto" é a própria verificação de acerto. Qualquer janela on-screen que cubra esse ponto rouba o clique — independentemente de ter desenhado algum pixel ali — e a ferramenta ainda retorna success.
 
-轨迹 `model-io-sess_364a4761`（2026-08-19 19:19–19:53，Helper 3.8.1 / producer 0.5.7）连丢三次
-点击，返回体 `resolved_app_ref` 如实记录了投递目标：
+A trajetória `model-io-sess_364a4761` (2026-08-19 19:19–19:53, Helper 3.8.1 / producer 0.5.7) perdeu cliques três vezes, e o corpo de retorno `resolved_app_ref` registrou com fidelidade o destino da entrega:
 
-| 请求# | 实际收到点击的窗口 | layer | bounds |
+| Requisição# | Janela que realmente recebeu o clique | layer | bounds |
 | --- | --- | --- | --- |
-| 18 | `com.electron.lark.iron`（飞书屏幕共享提示层 LarkSSPromptWindow） | 非零 | `[0,0,1512,982]` |
-| 25 | `com.volcengine.corplink.networkextension-wrapper`（飞连网络扩展） | 25 | `[0,0,1512,982]` |
-| 31 | `now.typeless.desktop`（Typeless "Status"） | 1001 | `[381,482,750,500]` |
+| 18 | `com.electron.lark.iron` (LarkSSPromptWindow, camada de aviso de compartilhamento de tela do Feishu) | não-zero | `[0,0,1512,982]` |
+| 25 | `com.volcengine.corplink.networkextension-wrapper` (extensão de rede do Feilian) | 25 | `[0,0,1512,982]` |
+| 31 | `now.typeless.desktop` ("Status" do Typeless) | 1001 | `[381,482,750,500]` |
 
-三次 `isError=false`。22 个工具调用耗在定位和挪走这些看不见的窗口上。装了飞连的机器上主屏**任意
-一点**都归属到它的包装窗，坐标点击不是偶发出错而是整屏不可用。
+Três `isError=false`. 22 chamadas de ferramenta foram gastas localizando e movendo essas janelas invisíveis. Em máquinas com o Feilian instalado, **qualquer** ponto da tela principal pertence à sua janela wrapper, de modo que o clique por coordenada não é uma falha ocasional e sim a tela inteira inutilizável.
 
-排除法和几个显而易见的替代判据都不成立（单机 26 个 on-screen 窗口全量实测）：
+A exclusão por eliminação e alguns critérios alternativos óbvios não se sustentam (medição real de todos os 26 janelas on-screen de uma única máquina):
 
-- `kCGWindowIsOnscreen` 三者都为 true，本来就是快照的前置条件；
-- 窗口级 `kCGWindowAlpha` 是 1.0——内容透明只体现在逐像素 alpha（飞连那个窗口整幅 239 万像素
-  均匀 4/255），现有 `alpha<=0` 过滤看不见；
-- 按 `layer!=0` 排除会误杀 13 个 layer-25 的 `com.apple.controlcenter` 菜单栏项和 3 个通知中心
-  桌面小组件，并且漏掉飞书那个与真窗同 bounds、排在真窗**之前**的 layer-0 幽灵窗；
-- `SLSFindWindowByGeometry` 只做几何/形状查询，对同一批点返回同一个覆盖窗；
-- per-window `CGWindowListCreateImage` 抓 alpha 能分开，但每个候选 75–85ms，投递路径上不可用。
+- `kCGWindowIsOnscreen` é true nas três, já que é pré-condição do snapshot;
+- o `kCGWindowAlpha` em nível de janela é 1.0 — a transparência do conteúdo só aparece no alpha por pixel (naquela janela do Feilian os 2,39 milhões de pixels são uniformemente 4/255), e o filtro `alpha<=0` atual não enxerga isso;
+- excluir por `layer!=0` mataria por engano 13 itens da barra de menus `com.apple.controlcenter` de layer-25 e 3 widgets do centro de notificações, e deixaria passar a janela fantasma de layer-0 do Feishu que tem os mesmos bounds da janela real e vem **antes** dela;
+- `SLSFindWindowByGeometry` faz apenas consulta geométrica/de forma e devolve a mesma janela de sobreposição para o mesmo conjunto de pontos;
+- `CGWindowListCreateImage` por janela capturando o alpha separa os casos, mas leva 75–85ms por candidato e é impraticável no caminho de entrega.
 
-判据改为窗口自己向 WindowServer 声明的事件掩码：`SLSGetWindowEventMask` 的
-`kCGEventLeftMouseDown` 位。覆盖窗实测 `0x00005c28` / `0x00005c08`（该位为 0），所有真实点击
-目标实测 `0xee5cffde` 或 `0xee5efffe`（该位为 1）。这也解释了用户为什么没察觉——覆盖窗是点击
-穿透的，真实点击本来就穿过去了，只有钉窗口的合成投递会把事件硬塞给一个已声明不收点击的窗口。
+O critério passou a ser a máscara de eventos que a própria janela declara ao WindowServer: o bit `kCGEventLeftMouseDown` de `SLSGetWindowEventMask`. As janelas de sobreposição mediram `0x00005c28` / `0x00005c08` (esse bit em 0), e todos os alvos reais de clique mediram `0xee5cffde` ou `0xee5efffe` (esse bit em 1). Isso também explica por que o usuário não percebeu — a janela de sobreposição é atravessada por cliques, e o clique real realmente a atravessava; só a entrega composta que fixa a janela força o evento dentro de uma janela que já declarou não receber cliques.
 
-投递机制未改动，只是既有 `SLEventPostToPid` 路径之前的候选筛选，后台操作、不抢焦点、不动系统
-光标的性质全部保持。fail-closed 报错现在带出被跳过窗口的身份，recovery 指向
-`open_application(activate=true)` 抬升目标窗口，而不是去挪用户环境里的覆盖窗。
+O mecanismo de entrega não foi alterado; mudou apenas a filtragem de candidatos que já existia antes do caminho `SLEventPostToPid`, e todas as propriedades — operação em segundo plano, não roubar foco e não mover o cursor do sistema — foram preservadas. O erro fail-closed agora traz a identidade da janela pulada, e o recovery aponta para `open_application(activate=true)` para elevar a janela alvo, em vez de mexer nas janelas de sobreposição do ambiente do usuário.
 
-producer 侧契约与实测数据见上游 `docs/frame-pixel-zoom-regression.md` §v0.5.8。producer 提交
-`baa016908`，已随 `da7cbaf241cc2c279fdc4cbd30df9a990db559ec` 合入上游 main，catalog pin 已 bump
-到该 sha。真机复验用例：在飞连（或任一透明全屏覆盖窗）在位时对其覆盖区域做纯坐标点击，修复前
-静默错投给覆盖窗并返回 success，修复后应命中下方 layer-0 的可见窗口，且 layer-25 的菜单栏状态项
-仍可被坐标点击命中。飞书那个与真窗同 bounds、排在真窗之前的 layer-0 幽灵窗是同一类的第二个活体
-用例，只按 layer 过滤的方案在它上面仍是死点击。
+O contrato do lado do producer e os dados medidos estão no `docs/frame-pixel-zoom-regression.md` §v0.5.8 do upstream. O commit do producer `baa016908` foi incorporado ao main do upstream com `da7cbaf241cc2c279fdc4cbd30df9a990db559ec`, e o pin do catalog foi elevado para esse sha. Caso de reverificação em dispositivo real: com o Feilian (ou qualquer janela de sobreposição transparente em tela cheia) presente, fazer um clique só por coordenada na sua área de cobertura; antes da correção ele era entregue silenciosamente à janela de sobreposição e retornava success, e depois deve acertar a janela visível de layer-0 abaixo, mantendo os itens de status da barra de menus de layer-25 acertáveis por clique de coordenada. A janela fantasma de layer-0 do Feishu, com os mesmos bounds da janela real e vindo antes dela, é um segundo caso vivo da mesma classe, e uma solução que filtre só por layer continua sendo um clique morto nela.
 
-## 0.5.7 Skill 精简与 Zoom 使用边界
+## 0.5.7 Enxugamento do Skill e limite de uso do Zoom
 
-官方 Computer Use Skill 是模型决策指南，不是 producer 开发手册。运行时契约保持
-`AX element -> visual fallback -> verify`：只要 AX tree 能定位并表达动作，就使用 element
-target，保持后台安全且不抢焦点；只有 AX 无法定位或表达目标时，才请求最终 raster 并使用
-coordinate target。
+O Skill oficial de Computer Use é um guia de decisão do modelo, não um manual de desenvolvimento do producer. O contrato de runtime mantém `AX element -> visual fallback -> verify`: sempre que a árvore AX conseguir localizar e expressar a ação, usa-se o element target, mantendo a segurança em segundo plano e sem roubar foco; só quando o AX não consegue localizar ou expressar o alvo é que se pede o raster final e se usa coordinate target.
 
-模型只从当前工具结果交付的 raster 读取整数 `(x,y)`，并原样携带相邻的 `frame_id`。所有
-resize、byte-budget、Retina/DPI、crop、window/display origin 和 native dispatch 投影均由
-`@zcode/zcode-cua` 内部完成，不得要求模型计算。
+O modelo lê apenas os inteiros `(x,y)` do raster entregue pelo resultado da ferramenta atual e carrega o `frame_id` adjacente sem alteração. Todos os resize, byte-budget, Retina/DPI, crop, origem de janela/display e projeções de dispatch nativo são feitos internamente por `@zcode/zcode-cua` e não podem ser exigidos do modelo.
 
-Zoom 不属于常规流程。当前 raster 中的目标清晰可辨时必须直接点击；只有目标过小或存在
-歧义、无法可靠选点时，才把 Zoom 作为最后手段。C07 模型提示与工具 description 使用相同
-边界，避免把 `screenshot` 与 `zoom` 并列成默认步骤。
+Zoom não faz parte do fluxo regular. Quando o alvo no raster atual é nitidamente identificável é obrigatório clicar diretamente; só quando o alvo é pequeno demais ou ambíguo e não é possível escolher um ponto de forma confiável é que o Zoom entra como último recurso. O prompt de modelo do C07 e a description da ferramenta usam o mesmo limite, evitando que `screenshot` e `zoom` virem passos padrão lado a lado.
 
-对应 producer 候选为
-`52da434158df32f6d0825db6af1c3d263754c44c`（`v0.5.7`）。可见 Dev App 使用 Kimi K3
-在不泄露几何坐标的 C07 Canvas fixture 上执行
-`list_apps -> get_app_state(include_screenshot=true) -> left_click(strategy=event)`；没有调用
-Zoom、没有重复截图，首击由 authenticated DOM oracle 证明 `trusted=true`、`matched=true`。
+O candidato correspondente do producer é `52da434158df32f6d0825db6af1c3d263754c44c` (`v0.5.7`). O Dev App visível executou com Kimi K3, em um fixture C07 Canvas que não vaza coordenadas geométricas, a sequência `list_apps -> get_app_state(include_screenshot=true) -> left_click(strategy=event)`; não chamou Zoom, não repetiu a captura de tela, e o primeiro acerto foi provado pelo oráculo DOM autenticado com `trusted=true` e `matched=true`.
 
-## 0.5.6 无 AX 截图点击回归
+## 0.5.6 Regressão de clique em captura sem AX
 
-本轮根因是截图 owner 与点击 owner 使用了两套权威：capture provenance 来自
-WindowServer，dispatch 前却使用 AX hit-test。全屏 Dock layer-20 管理窗口因此在 capture
-侧被误认成 owner，而 AX 命中下层 Chrome，即时点击也被拒绝为
-`frame_live_owner_changed`。
+A causa raiz desta rodada é que o owner da captura e o owner do clique usavam duas autoridades diferentes: a proveniência de captura vinha do WindowServer, mas antes do dispatch era usado um hit test por AX. Por isso a janela de gerenciamento do Dock em tela cheia, de layer-20, era confundida como owner na captura, enquanto o AX acertava o Chrome abaixo, e o clique imediato também era recusado como `frame_live_owner_changed`.
 
-修复后的像素链路统一为 WindowServer snapshot。只穿透
-`com.apple.dock + 非零 layer + 覆盖完整目标 display` 的管理 surface；小型 Dock、菜单、
-弹窗和其他 overlay 均继续阻挡。全图、`get_app_state(include_screenshot=true)` 窗口图与
-Zoom 子图都在 Helper 最终派发前比较 capture/live owner、window bounds 和 display
-topology，不使用 AX `elementAtPoint`/`captureApp`。element target/AXPress 不变。
+Depois da correção, a cadeia de pixels fica unificada no snapshot do WindowServer. Só a superfície de gerenciamento de `com.apple.dock + layer não-zero + cobertura completa do display alvo` é atravessada; o Dock pequeno, o menu, os diálogos e outros overlays continuam bloqueando. A imagem completa, a imagem de janela de `get_app_state(include_screenshot=true)` e a subimagem do Zoom comparam owner de captura/live, bounds de janela e topologia de displays antes da dispensa final pelo Helper, sem usar AX `elementAtPoint`/`captureApp`. element target/AXPress permanece inalterado.
 
-C07 保持 canvas 内部目标不可由 AX tree 定位，并补齐 direct MCP 与 ZCode Agent 两层证据。
-marker-grid 覆盖 window/full/zoom，记录 raster hash/尺寸、frame id、crop、像素、独立投影点、
-capture/live owner、raw dispatch method 和 authenticated DOM hit。该变更不进入 conversation
-状态、snapshot/replay 或手机 remote 链路，因此不修改 conversation catalog/matrix。
-macOS Accessibility/Screen Recording 已授权；像素实现 producer `625b32ad` 的 direct C07 与
-Calculator AX 回归均为 100 分。独立 marker-grid 的窗口帧、全图、Zoom 与 stale-frame
-门禁全部通过；可见 ZCode Desktop 中 Kimi K3 也使用窗口截图的精确 `frame_id` 完成了
-无 AX canvas 点击。
+O C07 mantém o alvo interno do canvas não localizável pela árvore AX, e a evidência das duas camadas — MCP direto e ZCode Agent — foi completada. O marker-grid cobre window/full/zoom e registra hash/dimensões do raster, frame id, crop, pixels, ponto projetado independente, owner de captura/live, método de dispatch bruto e acerto DOM autenticado. Essa mudança não entra no estado de conversation, em snapshot/replay nem na cadeia mobile remote, portanto não modifica o catalog/matrix de conversation. Accessibility/Screen Recording do macOS já estão autorizados; o producer de pixels `625b32ad` teve 100 pontos tanto no C07 direto quanto na regressão AX do Calculator. O marker-grid independente passou em todos os gates de frame de janela, imagem completa, Zoom e stale-frame; no ZCode Desktop visível o Kimi K3 tambémcompletou um clique em canvas sem AX usando o `frame_id` exato da captura de janela.
 
-可见 Desktop 首次回归还暴露了一个独立的开发缓存问题：MCP bundle 正确将原生 `sharp`
-保留为 external，但开发态 `~/.zcode/cli/plugins/cache` 只同步 JS 时无法解析该依赖，导致
-截图和 Zoom 报 `Cannot find module 'sharp'`。开发缓存现在复用产品打包的 sharp runtime
-staging，并有真实 native load smoke；同步后新 MCP 进程上的同一 K3 用例通过。产品包与
-开发缓存因此使用同一条原生媒体依赖链路，不再依赖仓库根的 hoist 偶然可见。
+A primeira regressão no Desktop visível também expôs um problema independente de cache de desenvolvimento: o bundle do MCP mantinha corretamente o `sharp` nativo como external, mas o cache de desenvolvimento `~/.zcode/cli/plugins/cache`, ao sincronizar apenas JS, não conseguia resolver essa dependência, fazendo screenshot e Zoom falharem com `Cannot find module 'sharp'`. O cache de desenvolvimento agora reutiliza o staging do runtime sharp do empacotamento do produto e tem um smoke real de carregamento nativo; após a sincronização, o mesmo caso K3 passou em um novo processo MCP. O pacote do produto e o cache de desenvolvimento passam a usar a mesma cadeia de dependência de mídia nativa e não dependem mais da visibilidade acidental do hoist da raiz do repositório.
 
-## 背景与基线
+## Contexto e baseline
 
-2026-08-13 的 Godot 国际象棋轨迹来自旧坐标协议。轨迹中，模型在收到
-`756×485` 的 Zoom 图后仍提交 `(295,623)`，旧实现拒绝截图坐标后又允许模型改用
-屏幕坐标执行；另一次把 `state_id/index` 当作 Zoom 目标，产生了无业务意义的
-`12×14` 图像。这两条旧行为现在都必须作为负向回放，而不是成功基准。
+A trajetória de xadrez do Godot de 2026-08-13 vem do protocolo de coordenadas antigo. Nela, o modelo ainda enviava `(295,623)` depois de receber uma imagem de Zoom de `756×485`, e a implementação antiga, depois de recusar as coordenadas da captura, deixava o modelo usar coordenadas de tela para executar; em outro momento, `state_id/index` foi tomado como alvo de Zoom, produzindo uma imagem `12×14` sem significado de negócio. Os dois comportamentos antigos agora têm de serreplay negativo, e não uma base de sucesso.
 
-像素完整性的最低 producer 基线是
-`72a8487d5a1bf1dfa2a31b282aafc4093a997b3e`。候选 producer 必须是该基线的
-后继，并保留 `./frame-contract` 导出、不可变 `frame_id`、最终栅格裁剪和 Helper
-provenance 门禁。仅提升 package/tag 版本不能替代实现证明。
+O baseline mínimo de producer para integridade de pixels é `72a8487d5a1bf1dfa2a31b282aafc4093a997b3e`. O producer candidato precisa ser sucessor desse baseline e preservar a exportação de `./frame-contract`, o `frame_id` imutável, o recorte do raster final e o gate de proveniência do Helper. Apenas elevar a versão de package/tag não substitui a prova de implementação.
 
-本轮最终集成候选为
-`52da434158df32f6d0825db6af1c3d263754c44c`（`v0.5.7`）。它继承
-`611304ccccc92e10cd97635a8cc886e0e2e3519e` 的完整稳定点击基线，并合并
-`2fdac16ebef758d7866586d1a9de0fb3ae74e8b4` 的截图点击、Ghost Cursor 和 active HTTP
-request lifetime 修复，以及 `d55c5f3a7713a3499bfd7102fd7d2842b53e71ec` 的 producer surface
-简化。前者继承
-`a0d4eaca6342b3cbff41b444309726873d0f5b11` 的最终栅格与旧棋盘轨迹负向回放，
-补齐子 Agent runtime-scope 拒绝的稳定 `structuredContent.code`，并统一 WindowServer
-截图/派发 owner 权威与 retained-raster Zoom crop。ZCode catalog
-使用精确 commit 锁定，wrapper、bundled skill、Helper runtime contract 与 producer
-最终 package 版本统一为 `0.5.7`。
+O candidato final de integração desta rodada é `52da434158df32f6d0825db6af1c3d263754c44c` (`v0.5.7`). Ele herda o baseline de clique estável completo de `611304ccccc92e10cd97635a8cc886e0e2e3519e` e incorpora as correções de clique por captura de tela, Ghost Cursor e ciclo de vida de requisição HTTP ativa de `2fdac16ebef758d7866586d1a9de0fb3ae74e8b4`, além da simplificação da superfície do producer de `d55c5f3a7713a3499bfd7102fd7d2842b53e71ec`. O primeiro herda o raster final e a reprodução negativa da trajetória antiga de xadrez de `a0d4eaca6342b3cbff41b444309726873d0f5b11`, completa o `structuredContent.code` estável para a recusa de runtime-scope do subagente e unifica a autoridade de owner de captura/dispatch do WindowServer com o crop de Zoom de raster retido. O catalog do ZCode usa o commit exato travado, e o wrapper, a skill empacotada, o contrato de runtime do Helper e a versão final de package do producer ficam unificados em `0.5.7`.
 
-标准 `pnpm dev:desktop` 构建必须无条件把 CUA plugin 视为开发态 filesystem seed，
-将 `sharp` 及当前平台 native closure 写入 seed source 后再构建 agent。不能要求调用者额外设置
-`ZCODE_CUA_DEV_MODE=1`；否则 bootstrap 会用不含 `sharp` 的同版本 seed 原子替换缓存，
-`screenshot`、`zoom` 与 `get_app_state(include_screenshot=true)` 会在真实模型回合中同时失效。
+O build padrão `pnpm dev:desktop` precisa tratar incondicionalmente o plugin CUA como seed de filesystem em modo de desenvolvimento, escrever o `sharp` e o closure nativo da plataforma atual no source do seed e só então construir o agente. Não se pode exigir que quem chama defina `ZCODE_CUA_DEV_MODE=1`; caso contrário o bootstrap substitui atomicamente o cache por um seed da mesma versão sem `sharp`, e `screenshot`, `zoom` e `get_app_state(include_screenshot=true)` falham simultaneamente em um turno real de modelo.
 
-模型可见的 `frame_id` 使用短不透明 token（例如 `frame-a1b2c3d4`），不公开可被模型
-猜测的代次。`get_app_state` 按 `image_ref -> image -> frame hint -> AX tree` 返回；提示在
-图片旁重复精确 token，并要求在下一次视觉观测前先动作，避免长 AX tree 把 frame
-provenance 挤出有界 transcript。该提示不签发 authority，唯一权威仍是紧邻最终 raster
-的结构化 `image_ref`。私有 session/generation、latest/supersession、TTL、digest 与 Helper
-native provenance gate 均保持不变。
+O `frame_id` visível ao modelo usa um token curto e opaco (por exemplo `frame-a1b2c3d4`), sem expor a geração que o modelo poderia adivinhar. `get_app_state` retorna em ordem `image_ref -> image -> frame hint -> AX tree`; o prompt repete o token exato ao lado da imagem e exige agir antes da próxima observação visual, evitando que uma árvore AX longa empurre a proveniência do frame para fora do transcript limitado. Esse prompt não emite autoridade, e a única autoridade continua sendo o `image_ref` estruturado adjacente ao raster final. Session/generation privados, latest/supersession, TTL, digest e o gate de proveniência nativa do Helper permanecem inalterados.
 
-## 契约与时序
+## Contrato e sequência
 
 ```text
-capture/zoom -> final raster + frame_id -> model {frame_id, x, y}
+capture/zoom -> raster final + frame_id -> model {frame_id, x, y}
                                               |
                                               v
-                           registry live/bounds check
-                              | current       | stale/invalid
+                           verificação de registry live/bounds
+                              | current       | stale/inválido
                               v               v
-                     Helper provenance       reject
+                     proveniência do Helper   rejeição
                               |               broker calls = 0
                               v
-                           actuate once
+                           atuação única
 ```
 
-- 坐标目标只接受 `{type:"coordinate", frame_id, x, y}`，`x/y` 必须是整数。
-- `space:"screen"`、`space:"screenshot"`、`state_id/index` 坐标兼容格式全部拒绝。
-- Zoom 从模型实际收到的 raster 裁剪，不重新截图，不泄漏源屏幕几何。
-- stale、越界、窗口/owner/topology 变化必须在原生动作前 fail closed。
-- 成功以夹具业务标记变化为准，不能只以 CGEvent/AX 调用成功为准。
+- O target por coordenada só aceita `{type:"coordinate", frame_id, x, y}`, e `x/y` precisam ser inteiros.
+- `space:"screen"`, `space:"screenshot"` e os formatos de compatibilidade de coordenadas por `state_id/index` são todos recusados.
+- O Zoom recorta a partir do raster que o modelo realmente recebeu, sem nova captura de tela e sem vazar a geometria da tela de origem.
+- Stale, fora de limites e mudanças de janela/owner/topologia precisam falhar de forma fechada antes da ação nativa.
+- O sucesso é definido pela mudança da marca de negócio do fixture e não apenas pelo sucesso da chamada CGEvent/AX.
 
-## 自动化用例
+## Casos automatizados
 
-1. **旧轨迹负向回放**
-   - `756×485` 帧上的 `(295,623)` 越界拒绝，broker 调用为零。
-   - 旧 `space` 与 `state_id/index` 目标在 schema 阶段拒绝。
-   - screenshot A -> zoom B 后引用 A，返回 stale/superseded，broker 调用为零。
-2. **C07 顺序压力**
-   - screenshot -> zoom -> click 命中唯一 canvas 标记。
-   - screenshot -> zoom -> screenshot -> 旧帧 click 拒绝。
-   - Retina、奇数尺寸、负屏幕原点、部分越界裁剪保持像素中心投影。
-   - resize/move、owner 或 display topology 改变后拒绝旧帧。
-3. **ZCode 最后一公里**
-   - `image_ref` 与 image 相邻，字节、MIME、宽高不变。
-   - 无效、重复、跨 session frame 在 action broker RPC 前拒绝。
-   - producer 候选缺失 frame-contract 导出时，版本一致性门禁失败；最低基线合入关系另记入
-     immutable provenance，不能由 semver 推断。
+1. **Reprodução negativa da trajetória antiga**
+   - `(295,623)` em um frame `756×485` é recusado por estar fora dos limites, com zero chamadas ao broker.
+   - Targets antigos com `space` e `state_id/index` são recusados na fase de schema.
+   - Após screenshot A -> zoom B, referenciar A devolve stale/superseded, com zero chamadas ao broker.
+2. **Pressão de sequência C07**
+   - screenshot -> zoom -> click acerta o único marcador do canvas.
+   - screenshot -> zoom -> screenshot -> click no frame antigo é recusado.
+   - Retina, dimensões ímpares, origem de tela negativa e recorte parcialmente fora dos limites mantêm a projeção do centro do pixel.
+   - Depois de resize/move ou mudança de owner ou topologia de display, o frame antigo é recusado.
+3. **Última milha do ZCode**
+   - `image_ref` é adjacente à imagem, com bytes, MIME e dimensões inalterados.
+   - Frames inválidos, duplicados ou de outra session são recusados antes do RPC do action broker.
+   - Quando o producer candidato não tem a exportação frame-contract, o gate de consistência de versão falha; a relação de mesclagem com o baseline mínimo é registrada em provenance imutável e não pode ser inferida pelo semver.
 
-## macOS 实机验收
+## Aceitação em dispositivo real no macOS
 
-- 先运行确定性 marker-grid/C07 replay，再分别运行 direct MCP、ZCode Agent 和可见
-  ZCode Desktop 真模型链路。
-- 每次保留 raster SHA-256/尺寸、frame_id、模型像素、投影点、窗口/显示器 provenance、
-  点击前后业务标记及截图；不保存 provider 请求中的完整图片字节。
-- 确定性 window/full/Zoom 必须全部正确命中；真模型链路必须正确命中或在原生动作前
-  安全拒绝，不能以工具返回成功替代 fixture 业务结果。
-- 模型选错区域但投影正确归类为视觉/语义失败；错帧、错坐标系或错误物理点才归类为
-  像素坐标回归。
+- Executar primeiro o marker-grid determinístico e o replay do C07 e, em seguida, rodar separadamente as cadeias de MCP direto, ZCode Agent e ZCode Desktop visível com modelo real.
+- A cada execução, preservar SHA-256/dimensões do raster, frame_id, pixel do modelo, ponto projetado, provenance de janela/display, marcador de negócio antes e depois do clique e a captura de tela; os bytes completos de imagem da requisição ao provider não são salvos.
+- Os casos determinísticos window/full/Zoom precisam acertar corretamente todos; a cadeia com modelo real precisa acertar corretamente ou recusar com segurança antes da ação nativa, e a ferramenta retornar success não pode substituir o resultado de negócio do fixture.
+- Modelo escolhendo a região errada mas com projeção correta é classificado como falha visual/semântica; apenas frame errado, sistema de coordenadas errado ou ponto físico errado é classificado como regressão de coordenadas de pixel.
 
-## 当前证据
+## Evidência atual
 
-| 层级                                  | 结果                     | 说明                                                                                                                                                                                              |
+| Camada                                  | Resultado                     | Observação                                                                                                                                                                                              |
 | ------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 历史 `v0.5.3/6d02fc3c`                | 拒绝                     | 与 `72a8487d` 分叉，缺少 frame-contract；证明相同版本号不足以证明实现                                                                                                                             |
-| producer frame 基线 `v0.5.4/a0d4eaca` | 2750 passed、38 skipped  | 225 个文件通过、3 个文件跳过；包含 frame、Zoom、Retina、stale、native gate                                                                                                                        |
-| 最终 producer `v0.5.5/372cbac9`       | 2766 passed、23 skipped  | 227 个文件通过、1 个文件跳过；补齐 30-tool subagent 稳定错误码和 package/plugin 版本一致性门禁，Node 24.14.0 下完整 socket suite 通过                                                             |
-| 像素点击实现 `v0.5.6/625b32ad`        | 2786 passed、23 skipped  | 228 个文件通过、1 个文件跳过；zge evaluator 472/472、Python 32/32，通过统一 WindowServer owner、无 AX window/full/Zoom 点击、本地化 AX 回归、K3 模型证据判定与 Helper LaunchServices TCC 归属门禁 |
-| 最终 producer `v0.5.6/c863cff9`       | 2814 passed、23 skipped  | 合并最新 `main` 的 AX authoritative-state 屏障后，230 个文件通过、1 个文件跳过；build/typecheck/lint、evaluator 472/472、Python 32/32 通过                                                        |
-| 最终 producer `v0.5.6/07a6dca8`       | 2814 passed、23 skipped  | frame hint 固定在图片与 AX tree 之间，trace 在截断前只记录已交付 frame provenance；230 个文件通过、1 个跳过，evaluator 474/474、Python 32/32，Kimi K3 direct/app-server 通过                      |
-| producer 轨迹/坐标重点集              | 77/77 通过               | 12 个文件；旧棋盘轨迹新增 3 个 fail-closed 用例                                                                                                                                                   |
-| ZCode consumer 完整性                 | 124/124 通过             | 6 个文件；最终依赖固定为 `07a6dca8`/`0.5.6`，提交前完整门禁与 MR pipeline 仍需复验                                                                                                                |
-| wrapper 版本/skill/contract 门禁      | 13/13 通过               | 缺少 Windows Helper 或 final-raster frame-contract 均直接拒绝                                                                                                                                     |
-| wrapper host authority                | 1/1 通过                 | 产品包 host 权限路径保持一致                                                                                                                                                                      |
-| CUA eval 判定器                       | 474/474 通过             | Node evaluator 全集；另有 Python 32/32，覆盖 C07、region、K3 model-I/O 与 frame-id 恢复                                                                                                           |
-| CUA eval definition                   | 31/31 通过               | definition-only quality 100                                                                                                                                                                       |
-| ZCode 全量单测                        | 11476 passed、12 skipped | 1309 个文件通过、1 个文件跳过；本地对 consumer 最终树执行完整 `test:unit`，提交后再由 affected/pre-push 门禁按 commit range 复验                                                                  |
-| ZCode Node 24.14.0                    | 通过                     | `typecheck`；`lint` 0 error、38 条既有 warning                                                                                                                                                    |
-| producer Node 24.14.0                 | 通过                     | `typecheck`；`lint` 0 error、14 条既有 warning                                                                                                                                                    |
-| 插件产品包校验                        | 通过                     | bundled skill provenance、producer SHA、版本与 contract 一致                                                                                                                                      |
-| 独立 `zcode-cua` MCP                  | 通过                     | Node `24.14.0` 以 stdio 启动 `v0.5.6`；canvas marker-grid 的 window 5/5、full、strict-interior Zoom、drag 均由 authenticated DOM oracle 证明命中，全部报告 `window_event`；stale frame 零派发     |
-| Chrome                                | 已安装                   | `151.0.7922.138`；C07 fixture 可启动并置前台                                                                                                                                                      |
-| Godot                                 | 已安装                   | `4.7.1.stable.official.a13da4feb`；应用可启动                                                                                                                                                     |
-| CUA Helper dev 包装                   | 构建通过                 | 使用 Node `24.14.0` SEA base 与同 ABI `ax_native.node`，provenance `arm64/node_abi=137` 通过并安装到 `~/.zcode/computer-use/dev`                                                                  |
-| macOS C07 runtime                     | 通过                     | 最新 Dev Helper 的 Accessibility/Screen Recording 均为 granted；final-SHA direct C07 与 Calculator M02 AX 均为 100 分                                                                             |
-| Kimi K3 app-server                    | 通过                     | final-SHA gate 的 direct 与 `zcode_agent_core` 两条 lane 均通过；product/release score 100，模型请求确实携带并识别截图                                                                            |
-| Kimi K3 可见 ZCode Desktop            | 通过                     | session `sess_be30c6a3-2ce7-4574-aaac-2fe821e311ed`；窗口 raster `1280×900`、`frame-0c9a96ea`、模型像素 `(641,496)`，DOM oracle 为 `Marker placed at 450, 280`，canvas 无 AX 子元素               |
-| Desktop 插件缓存 sharp                | 通过                     | 首次运行稳定复现缺少 sharp；`sync:cache` 复用产品 staging 后，sharp `0.34.5`/libvips `8.17.3` native load smoke 与全新 MCP/K3 C07 均通过                                                          |
+| Histórico `v0.5.3/6d02fc3c`                | Recusado                     | Bifurcou de `72a8487`, sem frame-contract; prova que o mesmo número de versão não prova a implementação                                                                                                                             |
+| Baseline de frame do producer `v0.5.4/a0d4eaca` | 2750 passaram, 38 ignorados  | 225 arquivos passaram e 3 foram ignorados; inclui frame, Zoom, Retina, stale e native gate                                                                                                                        |
+| Producer final `v0.5.5/372cbac9`       | 2766 passaram, 23 ignorados  | 227 arquivos passaram e 1 foi ignorado; completa o código de erro estável de subagente de 30 ferramentas e o gate de consistência de versão de package/plugin, e a suíte completa de socket passou sob Node 24.14.0                                                             |
+| Implementação de clique por pixel `v0.5.6/625b32ad`        | 2786 passaram, 23 ignorados  | 228 arquivos passaram e 1 foi ignorado; zge evaluator 472/472, Python 32/32, aprovado com owner unificado do WindowServer, clique sem AX em window/full/Zoom, regressão AX localizada, julgamento de evidência do modelo K3 e gate de atribuição TCC do LaunchServices do Helper |
+| Producer final `v0.5.6/c863cff9`       | 2814 passaram, 23 ignorados  | Após mesclar a barreira de estado autoritativo AX do `main` mais recente, 230 arquivos passaram e 1 foi ignorado; build/typecheck/lint, evaluator 472/472 e Python 32/32 passaram                                                        |
+| Producer final `v0.5.6/07a6dca8`       | 2814 passaram, 23 ignorados  | O frame hint fica fixo entre a imagem e a árvore AX, e o trace registra antes do truncamento apenas a proveniência de frame entregue; 230 arquivos passaram e 1 foi ignorado, evaluator 474/474, Python 32/32, Kimi K3 direct/app-server passou                      |
+| Conjunto focado em trajetória/coordenadas do producer              | 77/77 passaram               | 12 arquivos; a trajetória antiga de xadrez ganhou 3 casos fail-closed                                                                                                                                                   |
+| Integridade do consumer do ZCode                 | 124/124 passaram             | 6 arquivos; a dependência final está travada em `07a6dca8`/`0.5.6`, e o gate completo pré-commit e o pipeline do MR ainda precisam de reverificação                                                                                                                |
+| Gate de versão/skill/contract do wrapper      | 13/13 passaram               | A falta de Helper no Windows ou de frame-contract do final-raster recusa diretamente                                                                                                                                     |
+| Autoridade de host do wrapper                | 1/1 passou                 | O caminho de permissão de host do pacote de produto permanece consistente                                                                                                                                                                      |
+| Julgador de avaliação do CUA                       | 474/474 passaram             | Conjunto completo do evaluator Node; mais Python 32/32, cobrindo C07, região, I/O de modelo K3 e recuperação de frame-id                                                                                                           |
+| Definição de avaliação do CUA                   | 31/31 passaram               | definition-only quality 100                                                                                                                                                                       |
+| Testes unitários completos do ZCode                        | 11476 passaram, 12 ignorados | 1309 arquivos passaram e 1 foi ignorado; `test:unit` completo executado localmente na árvore final do consumer e reverificado depois do commit pelos gates affected/pre-push por commit range                                                                  |
+| ZCode Node 24.14.0                    | Passou                     | `typecheck`; `lint` com 0 error e 38 warnings existentes                                                                                                                                                    |
+| Producer Node 24.14.0                 | Passou                     | `typecheck`; `lint` com 0 error e 14 warnings existentes                                                                                                                                                    |
+| Validação do pacote de plugin                        | Passou                     | Proveniência da skill empacotada, SHA do producer, versão e contrato consistentes                                                                                                                                      |
+| MCP `zcode-cua` independente                  | Passou                     | Node `24.14.0` iniciando `v0.5.6` por stdio; window 5/5 do canvas marker-grid, full, Zoom de strict-interior e drag todos provados como acerto pelo oráculo DOM autenticado, todos reportando `window_event`; zero dispatch de stale frame     |
+| Chrome                                | Instalado                   | `151.0.7922.138`; o fixture C07 inicia e vai para primeiro plano                                                                                                                                                      |
+| Godot                                 | Instalado                   | `4.7.1.stable.official.a13da4feb`; o app inicia                                                                                                                                                     |
+| Wrapper dev do CUA Helper                   | Build passou                 | Usa a base SEA do Node `24.14.0` e o `ax_native.node` de mesmo ABI, com provenance `arm64/node_abi=137` aprovado e instalado em `~/.zcode/computer-use/dev`                                                                  |
+| Runtime C07 no macOS                     | Passou                     | Accessibility/Screen Recording do Dev Helper mais recente estão granted; o C07 direto de final-SHA e o AX M02 do Calculator estão ambos em 100 pontos                                                                             |
+| app-server do Kimi K3                    | Passou                     | As duas lanes, direct e `zcode_agent_core`, do gate de final-SHA passaram; product/release score 100 e a requisição de modelo realmente carrega e reconhece a captura de tela                                                                            |
+| Kimi K3 no ZCode Desktop visível            | Passou                     | session `sess_be30c6a3-2ce7-4574-aaac-2fe821e311ed`; raster de janela `1280×900`, `frame-0c9a96ea`, pixel do modelo `(641,496)`, oráculo DOM `Marker placed at 450, 280`, canvas sem subelementos AX               |
+| sharp no cache de plugin do Desktop                | Passou                     | A falta de sharp foi reproduzida de forma estável na primeira execução; depois que `sync:cache` reutiliza o staging do produto, o smoke de carregamento nativo do sharp `0.34.5`/libvips `8.17.3` e o C07 com MCP/K3 totalmente novo passaram                                                          |
 
-最终 Kimi K3 真机记录绑定 producer `07a6dca8`：direct C07 为 100 分；ZCode
-app-server lane 为 `vision-pass`、product score 100。模型实际收到窗口图
-`frame-8ce8ecf9`，提交整数像素 `(641,469)`，Helper 以 `window_event` 派发，DOM
-oracle 返回 `Marker placed at 450, 280`。同一候选的 direct C07 还覆盖 retained-raster
-Zoom，Calculator M02 AX 回归同为 100 分。
+O registro final em dispositivo real do Kimi K3 está vinculado ao producer `07a6dca8`: o C07 direto marcou 100 pontos; a lane app-server do ZCode foi `vision-pass`, com product score 100. O modelo realmente recebeu a imagem de janela `frame-8ce8ecf9`, enviou o pixel inteiro `(641,469)`, o Helper despachou como `window_event` e o oráculo DOM retornou `Marker placed at 450, 280`. O C07 direto do mesmo candidato também cobre o Zoom de raster retido, e a regressão AX do Calculator M02 ficou igualmente em 100 pontos.
 
-以上正式自动化证据均使用 Node `24.14.0`；macOS TCC 两项权限已经生效。provider 密钥和
-完整 provider 图片未写入仓库或 MR。外接二级显示器不属于本轮真机环境，负原点和 topology
-变化由确定性测试覆盖；若后续提供双屏环境，再补一条实机 topology 证据，不影响当前单屏
-window/full/Zoom 的验收结论。
+Toda a evidência formal de automação acima usou o Node `24.14.0`; as duas permissões TCC do macOS já estão em vigor. A chave do provider e as imagens completas do provider não foram gravadas no repositório nem no MR. Um monitor secundário externo não faz parte do ambiente real desta rodada, e a origem negativa e as mudanças de topologia são cobertas por testes determinísticos; caso um ambiente de duas telas seja fornecido depois, será acrescentada uma evidência real de topologia, sem afetar a conclusão de aceitação atual de window/full/Zoom em tela única.

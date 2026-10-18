@@ -1,37 +1,35 @@
-# 对话埋点新旧版本差分与回归测试计划
+# Plano de testes de regressão e diferencial da telemetria de conversa entre versões antiga e nova
 
-本文定义 `z-code-2` 与 V4 conversation 主链路的运行时埋点差分方法，以及差分确认后必须保留的
-自动化回归合同。目标不是只做一次人工抓包，而是把旧版兼容口径转成可重复执行的 golden、integration
-和 Electron E2E，防止后续再次因 conversation 重构删除埋点或业务触发入口。
+Este documento define o método diferencial de telemetria de runtime entre `z-code-2` e o caminho principal de conversation do V4, além do contrato de regressão automatizada que precisa sobreviver depois da confirmação do diferencial. O objetivo não é apenas fazer uma captura manual única, mas converter a compatibilidade legada em golden, integration e Electron E2E repetíveis, para impedir que uma futura refatoração de conversation apague novamente pontos de telemetria ou entradas de disparo de negócio.
 
-## 变更摘要
+## Resumo da mudança
 
-| 字段 | 结论 |
+| Campo | Conclusão |
 | --- | --- |
-| 变更性质 | V4 conversation 重构后的兼容恢复与回归保护 |
-| 兼容基准 | `~/workspace/z-code-2` 的实际桌面运行行为；已确认的 V4 spec 例外优先 |
-| 主要 surface | V4 composer、session pane、assistant feedback、quota banner、错误 banner |
-| 实际上报端 | `/event/report` 与 ARMS custom event |
-| 客户端范围 | desktop `desktop-continuous` 实际上报；Web/手机仅验证 no-op 和隔离 |
-| Provider 范围 | 通用埋点使用任意 scripted provider；quota 使用 Start Plan 等价类；官方版本安全校验 case 使用 `zcode-plan` endpoint 等价类 |
-| 非目标 | 购买产品/周期/支付/结果、启动性能、输入框卡顿、ARMS 全局稳定性/资源/网络 |
+| Natureza da mudança | Recuperação de compatibilidade e proteção de regressão após a refatoração de conversation do V4 |
+| Base de compatibilidade | O comportamento real de desktop de `~/workspace/z-code-2`; as exceções já confirmadas do spec do V4 têm prioridade |
+| Superfícies principais | composer do V4, session pane, assistant feedback, quota banner, banner de erro |
+| Relatórios efetivamente usados | `/event/report` e o custom event do ARMS |
+| Escopo de cliente | `desktop-continuous` no desktop reporta de fato; Web/celular apenas validam no-op e isolamento |
+| Escopo de provider | Telemetria genérica usa qualquer scripted provider; quota usa a classe equivalente do Start Plan; o case de verificação de segurança da versão oficial usa a classe equivalente do endpoint `zcode-plan` |
+| Não objetivos | Compra de produto/ciclo/pagamento/resultado, performance de inicialização, travamento da caixa de entrada, estabilidade/recursos/rede globais do ARMS |
 
-## 澄清记录
+## Registro de esclarecimentos
 
-| 轮次 | 问题 | 用户确认 | 固定边界 |
+| Rodada | Pergunta | Confirmação do usuário | Limite fixado |
 | --- | --- | --- | --- |
-| 1 | 是否通过同一 case 启动新旧应用并比较最终上报 | 是 | 建立运行时差分，不以静态代码交集代替 |
-| 2 | 时间戳、版本号等动态值是否要求逐值相同 | 否 | 字段存在、类型和关系必须正确；仅显式动态值允许归一化 |
-| 3 | 是否先构造覆盖场景的 case | 是 | case catalog 与剪枝先于差分 runner 和 E2E 代码 |
-| 4 | 是否需要恢复购买流程 | 否，只恢复对话相关入口 | quota 只验证对话 banner、提交 guard、Upgrade 面板打开和上下文交接 |
-| 5 | 是否必须使用 GLM | 否 | 核心埋点 provider-neutral；只有 quota 与官方版本安全校验使用业务等价类 |
-| 6 | 是否必须留下回归代码 | 是，单测或 E2E 均可 | 每个 accepted case 必须绑定至少一层自动化合同 |
+| 1 | Se deve iniciar a aplicação antiga e a nova com o mesmo case e comparar o relato final | Sim | Estabelecer um diferencial de runtime, sem substituir a interseção de código estático |
+| 2 | Se valores dinâmicos como timestamps e número de versão precisam ser idênticos valor a valor | Não | Existência do campo, tipo e relações precisam estar corretos; apenas valores dinâmicos explicitamente declarados podem ser normalizados |
+| 3 | Se devem ser construídos primeiro os cases que cobrem os cenários | Sim | O catálogo de cases e a poda vêm antes do runner diferencial e do código de E2E |
+| 4 | Se o fluxo de compra precisa ser restaurado | Não, só restaurar as entradas relacionadas a conversa | Em quota só se validam o banner de conversa, o guard de envio, a abertura do painel de Upgrade e a passagem de contexto |
+| 5 | Se é obrigatório usar GLM | Não | A telemetria principal é provider-neutral; apenas quota e a verificação de segurança da versão oficial usam classes equivalentes de negócio |
+| 6 | Se é obrigatório deixar código de regressão | Sim, teste unitário ou E2E | Cada case aceito precisa estar vinculado a pelo menos uma camada de contrato automatizado |
 
-## 范围
+## Escopo
 
-### 必须比较并回归
+### O que precisa ser comparado e ter regressão
 
-`/event/report`：
+`/event/report`:
 
 - `send_btn`
 - `message_completion`
@@ -39,7 +37,7 @@
 - `context_compaction`
 - `assistant_message_feedback`
 
-ARMS：
+ARMS:
 
 - `perf_ui_first_token`
 - `perf_ui_message_complete`
@@ -50,22 +48,22 @@ ARMS：
 - `plan_ttft`
 - `chat_error_banner`
 
-对话业务入口：
+Entradas de negócio de conversa:
 
-- assistant feedback 的 like、dislike、toggle none、失败回滚和重开持久化。
-- session quota banner 的展示、dismiss、提交 guard、entitlement refresh 和打开已有 Upgrade 面板。
-- 官方版本安全校验在模型调用内的有界恢复（仅官方版本适用）。
+- like, dislike, toggle none do assistant feedback, rollback em caso de falha e persistência ao reabrir.
+- exibição, dismiss, guard de envio, refresh de entitlement e abertura do painel de Upgrade já existente do quota banner de sessão.
+- recuperação limitada da verificação de segurança da versão oficial dentro da chamada de modelo (apenas para a versão oficial).
 
-### 明确不纳入
+### Explicitamente fora do escopo
 
-- `purchase_product_select_ck`、`purchase_billing_cycle_select_ck`、`purchase_pay_ck`、
-  `purchase_result` 及其支付后端行为。购买 telemetry 实现未因 V4 conversation 重构缺失。
-- `perf_ui_launch_*`、`perf_ui_input_lag`、ARMS main stability/resource/network。
-- Web/手机真实网络上报。
-- 真实模型输出质量、供应商 SLA、线上账号 entitlement 正确性。
-- 对历史 session 补报，或把 telemetry 状态写入 snapshot/transcript。
+- `purchase_product_select_ck`, `purchase_billing_cycle_select_ck`, `purchase_pay_ck`,
+  `purchase_result` e o comportamento do backend de pagamento. A implementação de telemetry de compra não está ausente por causa da refatoração de conversation do V4.
+- `perf_ui_launch_*`, `perf_ui_input_lag`, e ARMS main stability/resource/network.
+- Relato de rede real em Web/celular.
+- Qualidade de saída real dos modelos, SLA dos fornecedores, corretude de entitlement de contas em produção.
+- Reenvio de telemetria para sessões históricas, ou gravar o estado de telemetria em snapshot/transcript.
 
-## 状态与证据链
+## Estado e cadeia de evidências
 
 ```text
 case-local provider fixture / synthetic fault
@@ -92,151 +90,143 @@ case-local provider fixture / synthetic fault
  inventory -> keys -> types -> values -> relations -> order
                     |
                     v
-        approved legacy golden + regression tests
+         approved legacy golden + regression tests
 ```
 
-状态 owner 与证据：
+Owner de estado e evidências:
 
-| 状态/事实 | 权威 owner | 镜像/缓存 | 回归证据 |
+| Estado/fato | Owner autoritativo | Espelho/cache | Evidência de regressão |
 | --- | --- | --- | --- |
-| session/turn/tool/terminal | CLI V4 runtime | host live fact、renderer supervisor | provider replay、protocol fact、最终 payload |
-| prompt seed/sourceCommandId | renderer workspace supervisor | 仅内存 | command ACK、talk/message 关系、exactly-once |
-| foreground session refs | renderer workspace supervisor | pane visibility refs | UI/pane 状态、ARMS 有无 |
-| `/event/report` body | telemetry service 最终 fetch | 无业务持久化 | Electron `net.fetch` mock calls |
-| ARMS custom body | desktop main IPC bridge | E2E-only bounded buffer | `armsRum.sendCustom` 调用参数 |
-| feedback | assistant row + CLI 持久化 | UI optimistic state | command ACK、row、重开、event body |
-| quota | usage entitlement service + session provider/error | hook local dismiss state | banner DOM、composer guard、dialog context |
+| session/turn/tool/terminal | CLI V4 runtime | fato vivo do host, supervisor do renderer | replay de provider, fato de protocolo, payload final |
+| prompt seed/sourceCommandId | supervisor de workspace do renderer | apenas em memória | ACK de command, relação talk/message, exactly-once |
+| refs de sessão em foreground | supervisor de workspace do renderer | refs de visibilidade de pane | estado de UI/pane, presença em ARMS |
+| body de `/event/report` | fetch final do serviço de telemetria | sem persistência de negócio | chamadas mockadas de `net.fetch` do Electron |
+| body de custom do ARMS | IPC bridge do desktop main | buffer limitado apenas para E2E | argumentos da chamada `armsRum.sendCustom` |
+| feedback | linha do assistant + persistência no CLI | estado otimista na UI | ACK de command, linha, reabertura, body do evento |
+| quota | usage entitlement service + provider/error da sessão | estado local de dismiss do hook | DOM do banner, guard do composer, contexto do dialog |
 
-## 状态维度与等价类
+## Dimensões de estado e classes de equivalência
 
-| 维度 | 纳入值/等价类 | 剪枝方式 |
+| Dimensão | Valores/classe equivalentes incluídos | Forma de poda |
 | --- | --- | --- |
-| prompt admission | draft create ACK、direct、queued、promotion、rejected | rejected 不产生 send；promotion 与原 command 合并 |
-| terminal | success、failed、interrupted、stop 无 terminal | stop 无 terminal 只做零上报负向 case |
-| stream shape | text、thought、generation、tool success、tool failed、permission wait、parented child chunk | 工具名不全排列，以 lifecycle/perf 等价类代表 |
-| visibility | foreground、background、pane closed、split pane | 同 session 多 pane折叠为一次；不同 session 可独立前台 |
-| delivery | live、duplicate live、initial、hydration、recovery | 只有 live 可产生 fact |
-| timing | first token 负值、stall 3000/3001、tool 清除 stall、permission wait | 精确边界用 fake clock/recorded stream，不复制所有耗时值 |
-| model network | started、completed、failed、retry_scheduled、stream_stalled | 不从 accepted/queued/apiRetry 推断 |
-| provider | generic、custom hostname、Start Plan、`zcode-plan` endpoint | 不按具体模型名或供应商品牌全排列 |
-| compaction | success、failed、interrupted、non-terminal、duplicate | terminal status 做 golden；前后台做代表 E2E |
-| error banner | visible、suppressed、same-key duplicate、new key、3007 | mount 内去重；不可见不报 |
-| workspace | local、相同 path 不同 identity/remoteSession、service generation replacement | 路径展示不与身份隔离混用 |
-| client | desktop continuous、web remote replayable | Web/手机只做 no-op/不可订阅负向证明 |
+| prompt admission | draft create ACK, direct, queued, promotion, rejected | rejected não gera send; promotion é mesclada com o command original |
+| terminal | success, failed, interrupted, stop sem terminal | stop sem terminal só gera o case negativo de relato zero |
+| stream shape | text, thought, generation, tool success, tool failed, permission wait, chunk filho com parent | Não se enumeram todos os nomes de ferramenta; representam-se por lifecycle/perf equivalentes |
+| visibility | foreground, background, pane closed, split pane | vários panes da mesma sessão são colapsados em um; sessões diferentes podem ter foreground independente |
+| delivery | live, duplicate live, initial, hydration, recovery | Só live pode produzir fato |
+| timing | first token negativo, stall 3000/3001, limpeza de stall por ferramenta, permission wait | Limites exatos usam fake clock/stream gravado, sem replicar todos os valores de duração |
+| model network | started, completed, failed, retry_scheduled, stream_stalled | Não inferir a partir de accepted/queued/apiRetry |
+| provider | generic, custom hostname, Start Plan, endpoint `zcode-plan` | Não enumerar todos os nomes de modelo ou marcas de fornecedor |
+| compaction | success, failed, interrupted, non-terminal, duplicate | status terminal vira golden; foreground/background vira E2E representativa |
+| error banner | visible, suppressed, duplicate com a mesma chave, chave nova, 3007 | Deduplicação dentro do mount; invisível não reporta |
+| workspace | local, mesmo path com identity/remoteSession diferente, substituição por geração do serviço | Exibição de caminho não se mistura com isolamento de identidade |
+| client | desktop continuous, web remote replayable | Web/celular só fazem a prova negativa de no-op/não assinável |
 
-## 剪枝决定
+## Decisões de poda
 
-| ID | 剪枝组合 | 不变量/原因 | 代表覆盖 |
+| ID | Combinação podada | Invariante/motivo | Cobertura representativa |
 | --- | --- | --- | --- |
-| TDP-P01 | 所有具体 provider × 所有模型 | conversation telemetry 对模型品牌无业务 guard | generic + custom hostname；quota/官方版本安全校验专项等价类 |
-| TDP-P02 | theme × locale × terminal | 不改变事件状态机；locale/timezone 字段由 builder golden 覆盖 | 单一 E2E locale，context golden |
-| TDP-P03 | OS × 每个 Electron case | payload 平台字段由 shared normalizer 负责 | 当前平台 E2E + shared 单测/CI 平台矩阵 |
-| TDP-P04 | tool family 全排列 | 埋点只关心 lifecycle、permission、perf allowlist 和父子关系 | tool success/fail/permission/parented 代表 |
-| TDP-P05 | Web/手机重复所有桌面 case | 旧口径不在 Web/手机网络上报 | reporter no-op + telemetry subscription guard |
-| TDP-P06 | purchase product/cycle/pay/result | 购买实现未缺失，不属于 conversation 重构恢复 | quota dialog context 交接即停止 |
-| TDP-P07 | background UI ARMS、background compaction | 已确认旧口径为零上报 | 专门负向 case |
-| TDP-P08 | accepted/queued 推断 `plan_request` | V4 spec 已明确只消费真实模型网络状态 | network status case + 辅助状态零上报 |
+| TDP-P01 | Todos os providers concretos × todos os modelos | A telemetria de conversa não tem guard de negócio por marca de modelo | generic + custom hostname; classes equivalentes específicas de quota/segurança da versão oficial |
+| TDP-P02 | theme × locale × terminal | Não altera a máquina de estados dos eventos; campos de locale/timezone são cobertos pelo golden do builder | Um único locale de E2E, golden de contexto |
+| TDP-P03 | SO × cada case de Electron | Os campos de plataforma do payload são responsabilidade do normalizador shared | E2E na plataforma atual + testes unitários shared/matriz de plataformas do CI |
+| TDP-P04 | Enumeração completa de famílias de ferramenta | A telemetria só se importa com lifecycle, permission, allowlist de perf e relação pai-filho | tool success/fail/permission/parented representativos |
+| TDP-P05 | Repetir no Web/celular todos os cases de desktop | A especificação legada não prevê relato de rede em Web/celular | reporter no-op + guard de assinatura de telemetria |
+| TDP-P06 | purchase product/cycle/pay/result | A implementação de compra não está ausente e não faz parte da recuperação da refatoração de conversation | A passagem de contexto do dialog de quota já encerra |
+| TDP-P07 | ARMS de UI em background, compaction em background | Confirmado que a especificação legada é de relato zero | Case negativo dedicado |
+| TDP-P08 | Inferir `plan_request` a partir de accepted/queued | O spec do V4 já define que só estados reais de rede do modelo são consumidos | Case de status de rede + relato zero dos estados auxiliares |
 
-## Accepted 回归 case
+## Cases de regressão aceitos
 
-以下 `TDP` 是 `TEL01-TEL09` 的原子化执行 case。2026-07-18 已为 TDP01-TDP19 每条启动旧版/current
-两个真实 Electron 实例，使用同一受控事实序列并比较最终 `/event/report` HTTP body 与 main ARMS
-payload。这里的“已验证”不等于 formal E2E 晋升：新差分 spec 仍保留在 pending review。
+Os `TDP` abaixo são cases de execução atomizados dos `TEL01-TEL09`. Em 2026-07-18, para cada TDP01-TDP19 já foram iniciadas duas instâncias Electron reais (legada e current),
+usando a mesma sequência de fatos controlada e comparando o body HTTP final de `/event/report` com o payload
+final de ARMS do main. 「Já verificado」 aqui não equivale a promoção para E2E formal: os novos specs diferenciais continuam em pending review.
 
-| ID | 对应 TEL | Setup / Action | 关键断言 | 自动化合同 |
+| ID | TEL correspondente | Setup / Action | Asserções-chave | Contrato automatizado |
 | --- | --- | --- | --- | --- |
-| TDP01 | TEL01 | 新 draft 首次发送，create ACK 后完成纯文本 | send 保留原动作时间；talkId 在 ACK 后确定；send/completion/step 共用 sourceCommandId；各一次 | Electron E2E + full-payload golden |
-| TDP02 | TEL01 | 同一 session 连续两轮纯文本 | talkId 相同、messageId 不同；第二轮 step/count 不累计首轮 | 新旧差分 Electron E2E；复用现有 TEL01 fixture |
-| TDP03 | TEL03 | running 时提交 queued prompt，再 promotion | send 只在首次接纳时一次；promotion 不重发；terminal 前无 completion | controlled-stream E2E + supervisor fake clock |
-| TDP04 | TEL01 | prompt success，包含 usage/model request/文本终态 | completion success 完整旧字段；token/model/provider/hostname 正确 | builder golden + service integration |
-| TDP05 | TEL01 | prompt failed，终态带/不带 usage 与 error detail | fail 字段、空字符串、累计 usage 与旧版一致；无 success-only 字段污染 | full-payload golden |
-| TDP06 | TEL01 | interrupted terminal；另一路 stop 后无 terminal | interrupted completion 按旧口径；无 terminal 时不合成 completion | full-payload golden + controlled-stream E2E |
-| TDP07 | TEL05 | thought -> text -> terminal | reasoning 与 generation step 次序、loop_index、duration、tail finalize 正确 | fake-clock golden |
-| TDP08 | TEL05 | tool-first、tool success、tool failed、permission wait、parented child text/thought、terminal | 首个主工具可成为 first token；tool step status/waiting；completion 汇总；有 perf 才发 tool detail；parented text 不算 generation 但保留旧 TTFT/stall，parented thought 保留旧 reasoning/TTFT/stall | fake-clock golden + representative tool E2E |
-| TDP09 | TEL02 | A 流式运行，切到 B、关闭 A pane、超过 keep-warm，A terminal，再重开 | completion/step 后台各一次；UI ARMS 为零；重开 initial 不回补 | controlled-stream Electron E2E |
-| TDP10 | TEL05 | text/tool/no-token first token、3000/3001ms gap、tool clear、split pane | first token 负数归零；无 token 的旧 `-1` 仍镜像 UI value=0 但不发 plan TTFT；3000 不报、3001 报；tool 清 tracker；同 session 多 pane一次 | fake-clock + recorded-stream Electron E2E |
-| TDP11 | TEL04 | compact success/failed/interrupted/non-terminal/duplicate；custom model；仅 compactReason；前后台切换 | 三种 terminal 完整 payload；custom model 使用旧 UI 编码；compactReason 不回填旧 reason；non-terminal/duplicate/background 零额外事件 | full-payload golden + representative Electron E2E |
-| TDP12 | TEL05/TEL09 | 五类真实 model network status，前后台各到达；辅助 accepted/queued/apiRetry | `plan_request` 次数、status/value/脱敏 hostname 正确；辅助状态零上报 | full-payload golden + host live integration |
-| TDP13 | TEL05 | plan TTFT 正常、负值、provider 缺失、后台 | 仅前台有效值上报；负值/缺 provider/background 不报 | fake-clock golden |
-| TDP14 | TEL06 | 普通错误可见、被 quota/本地错误抑制、same key 重渲染、新 key | 真实可见一次；抑制零次；同 mount 同 key 一次；trace/detail 截断与类型正确 | component test + Electron E2E |
-| TDP15 | TEL07 | like、dislike、同 reaction toggle none、command failure、重开 | 即时旧 payload；entityId messageId；失败回滚；成功持久化 | component + command/projection integration + reopen E2E |
-| TDP16 | TEL08 | Start Plan quota snapshot/错误触发 banner，dismiss、阻断/非阻断、refresh、Upgrade | 阈值/优先级与旧版一致；dialog 真正打开；`upgradeSource=session_quota_alert`；不验证下游购买事件 | state/component integration + Electron E2E |
-| TDP17 | TEL06 | 内置 Start Plan 的模型调用返回 3007（官方版本安全校验拒绝） | 仅官方版本适用；断言随官方版本的安全校验规格维护 | adapter/service integration + fault-stream E2E |
-| TDP18 | TEL09 | live 与 duplicate/initial/hydration/recovery 并存；renderer reload | live exactly-once；其它来源零上报；reload 不补发历史 seed/terminal | gateway/service integration + Electron reload E2E |
-| TDP19 | TEL09 | 相同 workspacePath 的不同 identity/remoteSession；service generation replace；Web reporter | supervisor 隔离、旧 generation 销毁；Web/手机 reporter no-op 且不可订阅真实 feed | service integration + desktop/remote boundary test |
+| TDP01 | TEL01 | Primeiro envio de um novo draft, create ACK e conclusão em texto puro | send preserva o horário original da ação; talkId é definido após o ACK; send/completion/step compartilham sourceCommandId; uma ocorrência cada | Electron E2E + golden de payload completo |
+| TDP02 | TEL01 | Dois turnos consecutivos de texto puro na mesma sessão | talkId igual, messageId diferente; step/count do segundo turno não acumulam o primeiro | E2E diferencial Electron novo/antigo; reusa a fixture existente de TEL01 |
+| TDP03 | TEL03 | Enviar um prompt queued enquanto está em running e então fazer promotion | send acontece uma única vez, só na primeira aceitação; promotion não reenvia; não há completion antes do terminal | E2E de stream controlado + fake clock do supervisor |
+| TDP04 | TEL01 | prompt success, com usage/model request e estado final de texto | completion success com todos os campos legados; token/model/provider/hostname corretos | golden do builder + integração de serviço |
+| TDP05 | TEL01 | prompt failed, estado final com e sem usage e com detalhe de erro | campos de fail, string vazia e usage acumulado iguais aos da versão antiga; sem poluição por campos só de success | golden de payload completo |
+| TDP06 | TEL01 | terminal interrupted; em outro caminho, stop sem terminal | completion interrupted conforme a especificação legada; sem terminal não se sintetiza completion | golden de payload completo + E2E de stream controlado |
+| TDP07 | TEL05 | thought -> text -> terminal | ordem de reasoning e generation step, loop_index, duration e finalização do tail corretos | golden com fake clock |
+| TDP08 | TEL05 | tool-first, tool success, tool failed, permission wait, text/thought filho com parent, terminal | A primeira ferramenta principal pode ser o first token; status/waiting do tool step; agregação no completion; tool detail só quando há perf; text com parent não conta como generation mas preserva TTFT/stall legados; thought com parent preserva reasoning/TTFT/stall legados | golden com fake clock + E2E representativa de ferramentas |
+| TDP09 | TEL02 | Fluxo A em streaming, troca para B, fecha o pane de A, passa do keep-warm, A terminal e reabertura | completion/step em background uma vez cada; ARMS de UI zerado; o initial de reabertura não reenvia | Electron E2E de stream controlado |
+| TDP10 | TEL05 | first token de text/tool/sem token, gap de 3000/3001ms, limpeza por ferramenta, split pane | first token negativo vira zero; o `-1` legado sem token ainda espelha o valor de UI=0 mas não envia plan TTFT; 3000 não reporta, 3001 reporta; ferramenta limpa o tracker; múltiplos panes da mesma sessão contam uma vez | fake clock + Electron E2E de stream gravado |
+| TDP11 | TEL04 | compact success/failed/interrupted/non-terminal/duplicate; modelo custom; apenas compactReason; alternância foreground/background | payload completo dos três terminais; modelo custom usa a codificação antiga de UI; compactReason não preenche o reason antigo; non-terminal/duplicate/background sem eventos extras | golden de payload completo + Electron E2E representativa |
+| TDP12 | TEL05/TEL09 | Os cinco status reais de model network, alcançados em foreground e background; auxiliares accepted/queued/apiRetry | Contagem de `plan_request`, status/value/hostname anonimizado corretos; estados auxiliares sem relato | golden de payload completo + integração de fato vivo do host |
+| TDP13 | TEL05 | plan TTFT normal, negativo, provider ausente, background | Só o valor válido em foreground é reportado; negativo/provider ausente/background não reportam | golden com fake clock |
+| TDP14 | TEL06 | Erro comum visível, suprimido por quota/erro local, re-render com a mesma chave, chave nova | Real visível uma vez; suprimido zero vezes; mesma chave no mesmo mount uma vez; truncamento de trace/detail e tipos corretos | teste de componente + Electron E2E |
+| TDP15 | TEL07 | like, dislike, toggle none da mesma reação, falha de command, reabertura | Payload legado imediato; entityId é o messageId; rollback em falha; persistência em sucesso | componente + integração de command/projeção + E2E de reabertura |
+| TDP16 | TEL08 | Snapshot de quota do Start Plan/gatilho de erro exibindo banner, dismiss, bloqueio/não bloqueio, refresh, Upgrade | Limite/prioridade iguais aos da versão antiga; o dialog realmente abre; `upgradeSource=session_quota_alert`; não valida os eventos de compra subsequentes | integração de estado/componente + Electron E2E |
+| TDP17 | TEL06 | Chamada de modelo do Start Plan embutido retorna 3007 (recusa da verificação de segurança da versão oficial) | Aplicável apenas à versão oficial; as asserções são mantidas junto com a especificação de verificação de segurança da versão oficial | integração de adapter/service + E2E de stream com falha |
+| TDP18 | TEL09 | live convivendo com duplicate/initial/hydration/recovery; reload do renderer | live exactly-once; demais fontes sem relato; reload não reenvia seed/terminal histórico | integração de gateway/service + Electron E2E de reload |
+| TDP19 | TEL09 | identity/remoteSession diferentes com o mesmo workspacePath; substituição de geração do serviço; reporter Web | Isolamento do supervisor e destruição da geração antiga; reporter de Web/celular no-op e sem assinatura do feed real | integração de serviço + teste de fronteira desktop/remote |
 
-## Provider 与账号策略
+## Estratégia de Provider e conta
 
-- TDP01-TDP15、TDP18-TDP19 默认使用本地 scripted provider；不需要真实账号、API key 或 GLM。
-- custom provider case 只需要 endpoint hostname/path 的 fixture，用于证明只上报 hostname、不泄漏 path/query。
-- TDP16 使用 Start Plan provider ID 与 entitlement fixture；不依赖真实 quota 账号。
-- TDP17 使用 endpoint 以 `/zcode-plan` 或 `/zcode-plan/anthropic` 结尾的 provider fixture；
-  安全校验配置与 3007 由本地服务模拟，不要求模型名为 GLM（仅官方版本适用）。
-- 真实账号/模型只用于全部自动化通过后的可选 production smoke，不进入 CI 合同。
+- TDP01-TDP15, TDP18-TDP19 usam por padrão um scripted provider local; não exigem conta real, API key ou GLM.
+- Os cases de provider custom precisam apenas de uma fixture de hostname/path de endpoint, para provar que só o hostname é reportado e que path/query não vazam.
+- TDP16 usa o provider ID do Start Plan e uma fixture de entitlement; não depende de uma conta real com quota.
+- TDP17 usa uma fixture de provider cujo endpoint termina em `/zcode-plan` ou `/zcode-plan/anthropic`;
+  a configuração da verificação de segurança e o 3007 são simulados por um serviço local, sem exigir que o modelo se chame GLM (aplicável apenas à versão oficial).
+- Contas/modelos reais são usados só em um smoke de produção opcional depois que toda a automação passa, e não entram no contrato de CI.
 
-## 双版本捕获与比较合同
+## Contrato de captura e comparação entre as duas versões
 
-### 隔离运行
+### Execução isolada
 
-旧版和当前版本使用独立的 `ZCODE_E2E_HOME_DIR`、network capture、artifact 和 runtime log 目录。
-同一 case 配对串行运行，避免端口、协议注册、provider replay 与机器负载互相干扰。每次 artifact 记录：
+As versões antiga e atual usam diretórios independentes de `ZCODE_E2E_HOME_DIR`, captura de rede, artefatos e log de runtime.
+Os pares do mesmo case rodam em série, evitando interferência mútua entre portas, registro de protocolo, replay de provider e carga da máquina. Cada artefato registra:
 
-- legacy/current git SHA、构建版本和 case ID。
-- fixture SHA 与 timing strategy。
-- OS、locale、timezone、screen size。
-- 捕获到的目标事件 inventory。
+- SHA de git legacy/current, versão de build e ID do case.
+- SHA da fixture e estratégia de timing.
+- SO, locale, timezone, tamanho da tela.
+- O inventário dos eventos-alvo capturados.
 
-### 捕获点
+### Pontos de captura
 
-- `/event/report`：Electron `net.fetch` mock 的最终 request body。
-- ARMS renderer：当前测试构建已有的有界 ring buffer，用于定位 builder/IPC 前差异。
-- ARMS main：在 `armsRum.sendCustom` 前增加 E2E-only 有界捕获，比较 main 补齐公共维度后的最终参数。
-- 旧仓库只使用临时 E2E instrumentation；运行后恢复干净，不把测试钩子当旧行为修改。
+- `/event/report`: o request body final do mock de `net.fetch` do Electron.
+- ARMS no renderer: o ring buffer limitado que o build de teste atual já tem, usado para localizar diferenças antes do builder/IPC.
+- ARMS no main: captura limitada apenas para E2E adicionada antes de `armsRum.sendCustom`, comparando os parâmetros finais depois que o main completa as dimensões comuns.
+- O repositório antigo usa apenas instrumentação E2E temporária; é restaurado limpo depois da execução e ganchos de teste não são tratados como modificação do comportamento antigo.
 
-生产构建不得创建捕获全局变量、持久化 buffer 或暴露读取 IPC。测试捕获不得真正发送到线上
-`/event/report`/ARMS。
+Builds de produção não podem criar globais de captura, buffers persistentes ou expor IPC de leitura. A captura de teste não pode enviar de verdade para o
+`/event/report`/ARMS de produção.
 
-### 归一化白名单
+### Whitelist de normalização
 
-允许值不同但字段必须存在、类型必须正确：
+Valores diferentes são permitidos desde que o campo exista e o tipo esteja correto:
 
-- event/request UUID、capture timestamp。
-- `app_version`、build/git SHA。
-- `device_mid`、`renderer_id`。
-- session/message/turn/tool/request 等不透明 ID。
-- 独立双进程实际执行产生的正墙钟耗时，包括 tool `total_ms` 和 recorded-stream
-  `stall_ms`；仍逐份验证 `> 3000ms`、`value=metric_value`、分项不超过 total 等公式。
-- compaction 的 runtime context token 水位；新旧 runtime prompt/template 可导致少量 token
-  差异，字段、非负类型、`post/pre` ratio 与 `true_post` 关系仍必须验证。普通 main-turn
-  `message_completion` usage 不归一，sidecar/title 泄漏仍按失败处理。
+- UUID de event/request, timestamp de captura.
+- `app_version`, SHA de build/git.
+- `device_mid`, `renderer_id`.
+- IDs opacos como session/message/turn/tool/request.
+- Durações reais de relógio de parede produzidas pela execução de dois processos independentes, incluindo `total_ms` de tool e `stall_ms` de stream gravado; ainda se validam fórmula a fórmula `> 3000ms`, `value=metric_value`, itens parciais não excedendo o total, etc.
+- O nível de token do runtime context na compaction; runtimes prompt/template antigos e novos podem gerar uma pequena diferença de tokens, mas campo, tipo não negativo e a relação `post/pre` e `true_post` ainda precisam ser validados. O usage de `message_completion` do main-turn comum não é normalizado, e vazamento por sidecar/title continua sendo tratado como falha.
 
-ID 不删除，按首次出现映射为 `SESSION_1`、`MESSAGE_1`、`TOOL_1` 等稳定别名，继续验证跨事件关系。
-`input_id`、`query_id`、`request_id` 各用独立别名空间，分别验证 started/completed 间稳定；
-不比较三种 ID 是否彼此相等。旧版分别生成 UI message/input/query ID，而已批准的 V4 command
-协议以同一 `sourceCommandId` 作为 input/query 锚点，这属于不透明值生成策略变化，不是上报字段或
-触发关系变化。
-未知字段不会自动加入白名单；新增归一化规则必须更新本 spec 并说明原因。
+IDs não são removidos: são mapeados pela primeira ocorrência para aliases estáveis como `SESSION_1`, `MESSAGE_1`, `TOOL_1`, continuando a validar as relações entre eventos.
+`input_id`, `query_id` e `request_id` usam espaços de alias independentes, validando-se a estabilidade entre started/completed de cada um;
+não se compara se esses três IDs são iguais entre si. A versão antiga gerava separadamente os IDs de UI de message/input/query, enquanto o protocolo de command do V4 aprovado usa o mesmo `sourceCommandId` como âncora de input/query; isso é uma mudança na estratégia de geração de valores opacos, não nos campos reportados nem nas relações de disparo.
+Campos desconhecidos não entram automaticamente na whitelist; qualquer nova regra de normalização precisa atualizar este spec e explicar o motivo.
 
-以下差异一律失败：
+As seguintes diferenças são sempre falha:
 
-- 事件缺失、重复或目标范围内意外新增。
-- key set、字段名、string/number/boolean 类型不同。
-- `""`、missing、`null`、固定零值不同。
-- status/result/model/provider、event region/type/text 不同。
-- talk/message/tool/sourceCommand 关联或稳定业务顺序不同。旧版同一 terminal 的
-  `agent_step`/`message_completion` 通过两个 fire-and-forget 异步调用发送，二者网络完成的相对顺序
-  本来就不稳定；差分按事件名与同名 occurrence 配对，不把这类异类 terminal 交错当成口径差异。
-  同名事件内部的业务阶段顺序（例如 `plan_request started → completed`）仍必须一致。
-- foreground/background、live/recovery、3000/3001 等触发边界不同。
-- 旧版固定零值被 V4 runtime 新字段改成非零，或 `compactReason` 等新字段改变旧空字符串。
+- Evento ausente, duplicado ou novo inesperado dentro do escopo-alvo.
+- key set, nome de campo ou tipo string/number/boolean diferentes.
+- `""`, missing, `null` ou valores zero fixos diferentes.
+- status/result/model/provider, região/tipo/texto do evento diferentes.
+- Associação talk/message/tool/sourceCommand ou ordem de negócio estável diferentes. Na versão antiga, o `agent_step`/`message_completion` do mesmo terminal era enviado por duas chamadas assíncronas fire-and-forget, então a ordem relativa de conclusão na rede já era instável; o diferencial casa pelo nome do evento e pela ocorrência de mesmo nome, e não trata esse tipo de intercalação de terminales diferentes como diferença de especificação. A ordem das fases de negócio dentro do mesmo evento (por exemplo `plan_request started → completed`) ainda precisa ser idêntica.
+- Limites de disparo diferentes em foreground/background, live/recovery, 3000/3001, etc.
+- Valores zero fixos da versão antiga virarem não zero por campos novos do runtime V4, ou campos novos como `compactReason` alterando a string vazia antiga.
 
-耗时字段不整体擦除。受调度影响的 duration 使用 fixture 窗口与不变量比较；固定零值、负值钳制、
-分项和总项关系、stall threshold 和 permission waiting 必须精确满足旧公式。controlled fixture
-会给 reasoning phase 显式留出正间隔；但双版本重复实跑证明旧 renderer 的两次 `Date.now()` 仍可能
-被事件循环压到同一毫秒，所以仅 `reasoning agent_step.duration_ms` 允许在非负整数范围内归一。
-`generation`、`tool_call` 等 step 的零值/正值差异仍然失败。
+Campos de duração não são apagados por completo. Durações afetadas por agendamento são comparadas por janela de fixture e invariantes; valores zero fixos, clamp de negativos,
+relações entre itens parciais e o total, stall threshold e permission waiting precisam satisfazer exatamente as fórmulas antigas. A fixture controlada
+deixa um intervalo positivo explícito para a fase de reasoning; mas execuções repetidas nas duas versões provaram que as duas chamadas de `Date.now()` do renderer antigo ainda podem ser
+comprimidas no mesmo milissegundo pelo event loop, então apenas `reasoning agent_step.duration_ms` pode ser normalizado dentro da faixa de inteiros não negativos.
+Diferenças de zero/valor positivo em steps como `generation` e `tool_call` continuam falhando.
 
-### 差分产物
+### Artefatos do diferencial
 
 ```text
 packages/desktop/.e2e-artifacts/telemetry-parity/<run-id>/<case-id>/
@@ -249,57 +239,51 @@ packages/desktop/.e2e-artifacts/telemetry-parity/<run-id>/<case-id>/
 └── legacy|current/{home,network,wdio}/
 ```
 
-`capture.raw.json` 同时保存目标 `/event/report`、final ARMS 与捕获阶段；`diff.json` 保存 case/run、
-legacy/current commit、capture path、捕获阶段和结构化 differences，因此不再重复生成独立 manifest。
+`capture.raw.json` salva simultaneamente o `/event/report`-alvo, o ARMS final e a fase de captura; `diff.json` salva case/run,
+commit legacy/current, caminho de captura, fase de captura e as diferenças estruturadas, portanto não se gera mais um manifest separado.
 
-Diff 分类固定为：`MISSING_EVENT`、`EXTRA_EVENT`、`MISSING_FIELD`、`EXTRA_FIELD`、
-`TYPE_MISMATCH`、`VALUE_MISMATCH`、`RELATION_MISMATCH`、`ORDER_MISMATCH`、
-`TIMING_INVARIANT_MISMATCH`。
+As categorias de diff são fixas: `MISSING_EVENT`, `EXTRA_EVENT`, `MISSING_FIELD`, `EXTRA_FIELD`,
+`TYPE_MISMATCH`, `VALUE_MISMATCH`, `RELATION_MISMATCH`, `ORDER_MISMATCH`,
+`TIMING_INVARIANT_MISMATCH`.
 
-原始 artifact 只留本地且不得提交。经隐私检查、ID 别名化的 legacy normalized payload 才能晋升为
-当前仓库的 golden。prompt 正文、tool input/output、URL path/query、token/header 若出现在 fact 或 golden，
-测试直接失败。
+Os artefatos brutos ficam só localmente e não podem ser commitados. Só o payload normalized legado, passado por alias de IDs e verificado quanto a privacidade, pode ser promovido a
+golden do repositório atual. Corpo de prompt, input/output de tool, path/query de URL, token/header, se aparecerem em algum fato ou golden, fazem o teste falhar diretamente.
 
-## 实施与晋升顺序
+## Ordem de implementação e promoção
 
-1. **Vertical slice**：以 TDP02 建立双仓 runner、最终捕获点、归一化器和结构化 diff。
-2. **Golden 完整性**：完成 TDP04-TDP08、TDP10-TDP13 的完整 payload/fake-clock 测试。
-3. **生命周期 E2E**：完成 TDP01-TDP03、TDP09、TDP11、TDP14-TDP19 的 pending specs。
-4. **旧版认证**：逐 case 运行 `z-code-2` 与当前版本，处理所有非白名单 diff。
-5. **Legacy golden**：人工 review 后提交脱敏 normalized golden；日常 CI 只跑当前版本，不依赖
-   `~/workspace/z-code-2`。
-6. **正式晋升**：pending fixture check -> explicit replay -> default replay -> isolated Docker ->
-   human review/promotion -> Docker preset admission。
-7. **最终验证**：运行 focused tests、desktop E2E typecheck、`pnpm typecheck`、`pnpm lint`，再做一次
-   production desktop runtime smoke，并记录仍无法覆盖的外部条件。
+1. **Fatia vertical**: com TDP02, estabelecer o runner de dois repositórios, os pontos de captura finais, o normalizador e o diff estruturado.
+2. **Completude do golden**: concluir os testes de payload completo/fake clock de TDP04-TDP08, TDP10-TDP13.
+3. **E2E de ciclo de vida**: concluir os specs pending de TDP01-TDP03, TDP09, TDP11, TDP14-TDP19.
+4. **Certificação da versão antiga**: rodar `z-code-2` e a versão atual case a case, tratando todos os diffs fora da whitelist.
+5. **Golden legado**: após review humano, commitar o golden normalized anonimizado; o CI diário roda apenas a versão atual e não depende de `~/workspace/z-code-2`.
+6. **Promoção formal**: verificação de fixture pending -> replay explícito -> replay default -> Docker isolado -> review/promoção humana -> admissão do preset Docker.
+7. **Verificação final**: rodar os testes focados, o typecheck do E2E de desktop, `pnpm typecheck`, `pnpm lint`, e então fazer mais um smoke de runtime de desktop em produção, registrando as condições externas que ainda não podem ser cobertas.
 
-### 2026-07-18 执行结果
+### Resultado da execução de 2026-07-18
 
-- `20260718-tdp-all-final/TDP01..TDP19`：19 个 case 均从 Electron `net.fetch` 捕获最终
-  `/event/report` HTTP body，并从 main process 的 `armsRum.sendCustom` 前捕获最终 ARMS payload；19 份
-  `diff.json` 均为 `equal=true`、`differences=[]`。
-- 覆盖 direct/queued/terminal、thought/text/tool/permission、foreground/background、3000/3001ms
-  stall、compact 三终态、model request 五态、可见/抑制错误、feedback、quota、官方版本安全校验、live-only/
-  recovery、workspace/remote/Web no-op。TDP16/TDP17/TDP19 另外执行 production quota/安全校验/Web 状态
-  正断言，禁止用“两侧都为空”冒充通过。
-- `20260718-tdp02-final/TDP02` 与 `20260718-core-i/TDP-CORE` 继续作为真实 provider/replay 代表性运行
-  证据，覆盖连续两轮、工具成功、compact success、reasoning、3001ms stall 与 interrupt，diff 仍为 0。
-  原子 case 使用受控事实序列，是为了稳定制造失败、权限等待和精确毫秒边界等 provider 不稳定条件。
-- 目标 inventory 与旧仓 production 调用点审计一致：`/event/report` 只有 `send_btn`、
-  `message_completion`、`agent_step`、`context_compaction`、`assistant_message_feedback`；ARMS 只有五项
-  `perf_ui_*`、`plan_request`、`plan_ttft`、`chat_error_banner`。购买模块内部事件不属于本轮范围。
-- focused 回归 14 个文件、152 项通过；fixture check、全量 typecheck、全量 lint 均通过。
+- `20260718-tdp-all-final/TDP01..TDP19`: os 19 cases capturaram o body HTTP final de
+  `/event/report` a partir do `net.fetch` do Electron, e o payload final de ARMS a partir de antes do
+  `armsRum.sendCustom` no processo main; os 19 `diff.json` tiveram `equal=true`, `differences=[]`.
+- Cobertura de direct/queued/terminal, thought/text/tool/permission, foreground/background, stall de 3000/3001ms,
+  três terminais de compact, cinco estados de model request, erro visível/suprimido, feedback, quota, verificação de segurança da versão oficial, live-only/
+  recovery, workspace/remote/Web no-op. TDP16/TDP17/TDP19 executaram ainda as asserções positivas de estado de quota/segurança/Web em produção, proibindo que 「vazio dos dois lados」 sirva de aprovação.
+- `20260718-tdp02-final/TDP02` e `20260718-core-i/TDP-CORE` continuam como evidência de execução representativa com provider/replay real,
+  cobrindo dois turnos consecutivos, sucesso de ferramenta, compact success, reasoning, stall de 3001ms e interrupt, com diff ainda 0.
+  Os cases atômicos usam sequências de fatos controladas para fabricar de forma estável condições instáveis de provider como falha, espera de permissão e limites exatos em milissegundos.
+- O inventário-alvo confere com a auditoria dos pontos de chamada de produção do repositório antigo: `/event/report` tem apenas `send_btn`,
+  `message_completion`, `agent_step`, `context_compaction`, `assistant_message_feedback`; o ARMS tem apenas os cinco
+  `perf_ui_*`, `plan_request`, `plan_ttft` e `chat_error_banner`. Eventos internos do módulo de compra não fazem parte deste escopo.
+- A regressão focada passou em 14 arquivos e 152 itens; a verificação de fixtures, o typecheck completo e o lint completo passaram.
 
-双轮抓包也证明旧版 `agent_step`/`message_completion` 的网络完成顺序会在相邻轮次间互换，因此 runner
-只比较稳定业务顺序，不把 fire-and-forget 并发抖动误判为口径差异。差分 spec 仍位于
-`manual-review/pending`，只计已执行自动化证据，不提前计 formal gate。原始 artifact 只留本地。
+A captura em duas rodadas também provou que a ordem de conclusão na rede de `agent_step`/`message_completion` da versão antiga troca entre turnos adjacentes, então o runner
+compara apenas a ordem de negócio estável e não confunde a flutuação concorrente de fire-and-forget com uma diferença de especificação. Os specs diferenciais continuam em
+`manual-review/pending`, contando apenas evidências automatizadas já executadas e não antecipando um gate formal. Os artefatos brutos ficam só localmente.
 
-## 完成定义
+## Definição de conclusão
 
-- TDP01-TDP19 每条都有旧版/current 双 Electron 最终出口捕获与独立 diff；预期零上报的 case 还有
-  production 状态确实到达的正向断言。
-- `/event/report` 与 ARMS 的旧版目标事件在当前版本无缺失、无重复、无字段/类型/关系错误。
-- Web/手机、initial/hydration/recovery、background UI ARMS 等负向边界有自动化证明。
-- quota 回归止于 conversation Upgrade 入口交接，不把购买流程伪装成本次恢复成果。
-- case catalog、coverage matrix、fixture manifest 与实际 spec 状态同步；pending 不计 formal gate。
-- 原始差分 artifact 不提交，脱敏 golden 通过隐私测试。
+- Cada um de TDP01-TDP19 tem captura da saída final Electron dupla (legada/current) e um diff independente; os cases com relato esperado zero ainda têm asserções positivas de que o estado de produção de fato foi alcançado.
+- Os eventos-alvo legados de `/event/report` e do ARMS não têm ausência, duplicação nem erro de campo/tipo/relação na versão atual.
+- As fronteiras negativas (Web/celular, initial/hydration/recovery, ARMS de UI em background) têm prova automatizada.
+- A regressão de quota para na passagem da entrada de Upgrade da conversa e não disfarça o fluxo de compra como resultado desta recuperação.
+- O catálogo de cases, a matriz de cobertura, o manifest de fixtures e o estado real dos specs ficam sincronizados; pending não conta como gate formal.
+- Os artefatos brutos do diferencial não são commitados e o golden anonimizado passa nos testes de privacidade.

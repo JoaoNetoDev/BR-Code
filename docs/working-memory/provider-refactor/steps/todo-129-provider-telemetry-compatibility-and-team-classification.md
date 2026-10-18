@@ -1,71 +1,71 @@
-# Todo129：Provider 埋点适配与 Team 套餐识别修复
+# Todo129: Adaptação da telemetria de Provider e correção da classificação do plano Team
 
-> 状态：**本地实现、定向验证与 review 完成；真实 Electron/手机验收待整批执行**。2026-09-11 Goal 授权后完成：Team 分类、BigModel 标签、事件构造边界恢复旧统计 ID。报表、真实身份与历史数据未改。原规划中的“待补”由下方执行记录更新，不代表已经完成真实上线验收。
+> Status: **implementação local, verificação direcionada e review concluídos; aceitação real em Electron/mobile ainda pendente para a execução do lote completo**. Concluído após a autorização do Goal de 2026-09-11: classificação de Team, rótulos BigModel e restauração dos IDs de estatística antigos na construção de eventos. Relatórios, identidades reais e dados históricos não foram alterados. Os itens "pendentes" do planejamento original foram atualizados pelo registro de execução abaixo e isso não representa aceitação real já concluída.
 >
-> 用户已确认：Coding Plan 的本轮套餐识别统一包含 Individual 与 Team；顺便修复首页闲时入口对 Team 的误拦。除此之外，改动限定在埋点适配，不动 Provider 核心与持久化。
+> O usuário confirmou: o reconhecimento de plano desta rodada para o Coding Plan unifica Individual e Team; de quebra corrigir o bloqueio indevido de Team na entrada de off-peak da home. Além disso, as mudanças ficam limitadas à adaptação de telemetria, sem tocar no núcleo de Provider nem na persistência.
 
-> 最新要求：能够从旧代码和当前已有事实确定的映射直接实施；尽力对齐各事件原来真实发出的值，不为了新身份更漂亮而保留可避免的报表断层。无法可靠还原的少数项保留真实 ID、记录差异及原因，不伪造组织／项目身份，不阻塞其他项，也不把残余差异说成完全兼容。
+> Requisito mais recente: implementar diretamente os mapeamentos que puderem ser determinados pelo código antigo e pelos fatos já existentes; alinhar ao máximo os valores que cada evento realmente emitia, sem manter avoidabledescontinuidade de relatórios só para deixar a nova identidade mais bonita. Os poucos itens que não puderem ser revertidos com segurança mantêm o ID real, com a diferença e o motivo registrados; não se forja identidade de organização/projeto, não se bloqueia o resto e não se chama a diferença residual de compatibilidade completa.
 >
-> 关联：[Todo128 启动契约与闲时资格刷新](./todo-128-provider-start-contract-and-offpeak-eligibility.md)。本 Todo 修“最新状态也漏认 Team”，Todo128 修“状态读旧、刷新与乱序覆盖”，两者不相互替代。
+> Relacionado: [Todo128 contrato de start e renovação de elegibilidade de off-peak](./todo-128-provider-start-contract-and-offpeak-eligibility.md). Este Todo corrige "Team não é reconhecido mesmo no estado mais atual"; o Todo128 corrige "estado lido é antigo, refresh e sobrescrita fora de ordem"; os dois não se substituem.
 
-## 1. 背景、核查事实与证据边界
+## 1. Contexto, fatos verificados e limite das evidências
 
-### 2026-09-11 执行与复审
+### Execução e revisão de 2026-09-11
 
-- 对照旧 staging `790884b1ce`，落实 §3 的十个精确 ID 映射；Team 与个人共用旧 Coding Plan 桶有旧模型选项／连接解析代码依据；UUID、未知、已经旧 ID 均保留。只在 UI 事件构造层引用纯映射，不向 Registry、请求或持久化回流。
-- T119-01～05：两家 Team-only/无权益、已有 Start/null 混合分类、成功事件真实 builder、升级一次上报与 WebView bootstrap 共用冻结上下文；单测覆盖。BigModel Team/Start 标签已补齐。
-- T119-06～07：新增真实 `OffPeakNewTaskEntry` 浏览器用例（不是 helper 替身），两家 Team-only 可产生创建草稿并导航，no-plan/明确 inactive/灰度关闭/dismiss 仍拦截。服务使用受控 fixture，不申请真实 Ticket；下游资格保护沿用 Todo128 的测试。
-- T119-08～11：发送/压缩/自动化/闲时 builder 和真实报告调用；V4 Supervisor 两套新旧身份同事实序列，逐字段成对比较换模后 step/completion（仅排除随机 step_id），重复终态不重复上报。前台子任务使用独立实际身份，token 归因不混入主模型；原始 fact 冻结不改。
-- T119-12：已有 Supervisor 与 attachment 隔离、历史不补报、远程作用域测试纳入合批；真实 Electron/手机/SSH 仍待最终验收，不以浏览器 fixture 代替。
-- 失败先复现：15 个针对性断言失败；修复后扩展至 11 文件 229 用例。旧闲时期望值 3 处按已裁决的旧桶更新，未弱化事件数量和 payload 断言。证据 `/tmp/provider129-{red,final-unit,boundary,browser}.log`，最终合批补跑见执行账本。
-- 根 typecheck、lint（0 errors / 42 warnings）、architecture（0 violations）通过。首页浏览器用例通过；官网真实购买网络事件未请求、不污染生产报表。
-- Review：没有新增业务状态、缓存、轮询或报告字段；hostname 先按真实 Provider 读取，映射不影响查询。实际业务 ID/模型/登录事件、Personal 配置、Core、协议与数据迁移无改动。未发现本地要求遗漏；真实端限制保留。
+- Confrontando o staging antigo `790884b1ce`, foram aplicados os dez mapeamentos exatos de ID da §3; Team e individual compartilham o antigo balde do Coding Plan, com base em código antigo de opções de modelo / resolução de conexão; UUID, desconhecidos e IDs já antigos foram preservados. O mapeamento puro é referenciado apenas na camada de construção de eventos da UI, sem refluir para o Registry, para as requisições ou para a persistência.
+- T119-01～05: duas empresas Team-only/sem direito, classificação mista Start/null já existente, builder real de evento de sucesso, relatório único de upgrade e bootstrap do WebView compartilhando o contexto congelado; cobertura por testes unitários. Os rótulos BigModel Team/Start já foram completados.
+- T119-06～07: novo caso de navegador real de `OffPeakNewTaskEntry` (não um substituto helper), em que duas empresas Team-only conseguem produzir um rascunho e navegar; sem plano/inativo explícito/gray desativado/dismiss continuam bloqueando. O serviço usa fixture controlada e não solicita Ticket real; a proteção de elegibilidade a jusante segue os testes do Todo128.
+- T119-08～11: builders de envio/compressão/automação/off-peak e chamadas reais de relatório; Supervisor da V4 com as duas identidades nova e antiga gerando a mesma sequência de fatos, comparando campo a campo step/completion após a troca de modelo (excluindo apenas o step_id aleatório), sem reenvio de estado terminal repetido. Subtarefas em primeiro plano usam uma identidade real independente e a atribuição de tokens não se mistura à do modelo principal; o fact bruto congelado não muda.
+- T119-12: isolamento já existente entre Supervisor e attachment, ausência de backfill histórico e testes de escopo remoto incluídos no lote; Electron/mobile/SSH reais ainda aguardam a aceitação final e fixtures de navegador não os substituem.
+- Reproduzir falhas primeiro: 15 asserções direcionadas falharam; após a correção o escopo foi ampliado para 229 casos em 11 arquivos. Três valores esperados de off-peak antigos foram atualizados conforme o balde antigo já decidido, sem enfraquecer as contagens de eventos nem as asserções de payload. Evidências em `/tmp/provider129-{red,final-unit,boundary,browser}.log`; a rodada final conjunta está no ledger de execução.
+- typecheck da raiz, lint (0 errors / 42 warnings) e architecture (0 violations) passaram. Os casos de navegador da home passaram; os eventos de rede de compra reais do site oficial não foram solicitados e não poluem a produção de relatórios.
+- Review: nenhum novo estado de negócio, cache, polling ou campo de relatório; o hostname é lido primeiro pelo Provider real e o mapeamento não afeta as consultas. IDs de negócio/modelo/login reais, configuração Personal, Core, protocolo e migração de dados não foram alterados. Nenhum requisito local esquecido foi encontrado; as limitações reais da ponta remota foram preservadas.
 
-详细影响与案例：[Todo129 实施边界](./todo-129-impact-and-cases.md)。
+Impacto detalhado e casos: [fronteiras de implementação do Todo129](./todo-129-impact-and-cases.md).
 
-同事反馈 Provider 重构可能破坏报表：新的 Provider ID 进入旧事件维度，Team 拆分后部分漏斗和成功事件分类遗漏。用户要求按同事列出的上下文调查，不扩大到索取报表 SQL 或另查全部监控系统。
+Um colega relatou que o refactor de Provider pode quebrar relatórios: os novos Provider IDs entram em dimensões antigas de eventos e, após a separação de Team, alguns funis e a classificação do evento de sucesso ficam faltando. O usuário pediu investigar conforme o contexto listado pelo colega, sem ampliar para pedir SQL de relatórios nem investigar todo o sistema de monitoramento.
 
-2026-09-11 已核对 fetch 后的 `origin/staging = 7a01923f58`。相关合并点为 `279907140b`、`beb9751d9f`；旧分支 tip `a0b07bc685` 已是远端祖先。历史基线取 `279907140b` 的第一父提交，不把重构中的中间提交当作旧版对外契约。
+Em 2026-09-11 foi verificado que `origin/staging = 7a01923f58` após o fetch. Os pontos de merge relevantes são `279907140b` e `beb9751d9f`; o tip antigo do branch `a0b07bc685` já é ancestral remoto. A linha de base histórica é o primeiro pai de `279907140b`, sem tratar commits intermediários do refactor como contrato público antigo.
 
-本地 `HEAD = 6454504b90`；新鲜度检查提示落后远端 5 个提交，本地另有 7 个文档提交，不能直接 fast-forward。本轮仅记录规划，没有 merge/rebase；已比较相关埋点、分类与入口实现，本地和远端一致。实施时必须重新检查并对齐开发基线，不能把本记录当作跳过检查的许可。
+O `HEAD = 6454504b90` local; a checagem de frescor indica 5 commits atrás do remoto, e há localmente outros 7 commits de documentação, então não dá para fazer fast-forward direto. Esta rodada apenas registra o planejamento, sem merge/rebase; a telemetria, a classificação e a implementação de entrada relevantes foram comparadas e local e remoto estão iguais. Na implementação é obrigatório checar e alinhar novamente a linha de base de desenvolvimento; este registro não é permissão para pular a checagem.
 
-### 1.1 已确认的问题
+### 1.1 Problemas confirmados
 
-| 项目                 | 当前事实                                                                                                                                    | 影响                                                                                                            |
+| Item                 | Fato atual                                                                                                                                    | Impacto                                                                                                            |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| 核心事件维度         | `send_btn` 用 `custom:<编码后的 providerId>:<model>`；completion/step 正常请求路径用 `<providerId>/<model>`；`model_provider` 都用实际新 ID | 固定旧 ID 过滤会漏新版数据，直接分组会拆成新旧组；不等于事件未发送                                              |
-| Team 入口套餐状态    | `resolveCodingPlanEntryPlanStateFromProviderSettings()` 只找 Individual，再找 Start，漏两家 Team                                            | Team-only 返回 `no_plan`；若另有 Start 可能返回 `start_plan`。旧 Registry helper 已识别两家 Team connection key |
-| BigModel Team family | `resolveCodingPlanProviderFamily()` 缺 Team 分支                                                                                            | `unknown` 和空 channel，正确应为 `bigmodel` / `MaaS`；Z.ai Team 正常                                            |
-| 成功事件标签         | `resolveProviderTelemetryLabel()` 缺 BigModel Team / Start                                                                                  | `add_model_success` 直接带原始 ID；Start 旧版已有遗漏，Team 是新增暴露面                                        |
-| 首页闲时模板         | `OffPeakNewTaskEntry` 用同一套餐状态 helper 作点击准入                                                                                      | `codingPlanActive` 未明确给定且 view 已加载时，Team-only 被错误阻止导航                                         |
+| Dimensão dos eventos centrais         | `send_btn` usa `custom:<providerId codificado>:<model>`; completion/step no caminho normal de requisição usam `<providerId>/<model>`; `model_provider` usa o ID novo real | Filtrar por IDs antigos fixos perde dados da nova versão, e o agrupamento direto divide em grupos novo e antigo; isso não equivale a o evento não ter sido enviado                                              |
+| Estado de plano na entrada de Team    | `resolveCodingPlanEntryPlanStateFromProviderSettings()` procura apenas Individual e depois Start, perdendo as duas Team                                            | Team-only retorna `no_plan`; se houver Start, pode retornar `start_plan`. O helper antigo do Registry já reconhecia a connection key das duas Team |
+| Family BigModel Team | `resolveCodingPlanProviderFamily()` não tem o branch Team                                                                                            | `unknown` e channel vazio; o correto seria `bigmodel` / `MaaS`; Z.ai Team funciona normalmente                                            |
+| Rótulo do evento de sucesso         | `resolveProviderTelemetryLabel()` não cobre BigModel Team / Start                                                                                  | `add_model_success` carrega o ID bruto; Start já era uma omissão na versão antiga e Team é uma nova superfície exposta                                        |
+| Template de off-peak da home         | `OffPeakNewTaskEntry` usa o mesmo helper de estado de plano como critério de clique                                                              | com `codingPlanActive` não explicitamente definido e a view já carregada, Team-only é bloqueado indevidamente na navegação                                         |
 
-### 1.2 实际验证与限制
+### 1.2 Verificação real e limitações
 
-- 调用了仓库真实 helper：两家 Team-only 均得到 `no_plan`；BigModel Team family/channel 为 `unknown` / 空字符串；BigModel Team/Start label 为原始 ID。
-- BigModel Start + GLM-5.2，同一个 baseURL：旧 `send_btn.model_name` 为 `custom:builtin%3Abigmodel-start-plan:GLM-5.2`，新为 `custom:account%3Abigmodel-start-plan:GLM-5.2`；`provider_name` 都为 `zcode.z.ai`。
-- 6 个现有测试文件合计 **82 个用例通过**：codingPlanFunnelTelemetry、messageTelemetry、automationTelemetry、offPeakTelemetry、codingPlanEmbeddedWebview、shared/zcodeNetworkDebugStatus。现有通过结果没有覆盖本次遗漏，不是修复验收。
-- WebView bootstrap 确实携带错误漏斗上下文；官网协议约定四个 purchase 事件使用该上下文。本轮没有抓取官网真实购买上报，不能写成四个线上事件都已实测错误。
-- `entry_plan_status` 与核心事件的 `plan_status / plan_product_id` 是两条来源；后者 `usePlanIdentitySnapshot` 已选择 Team Provider 查询，不顺手重构。
-- hostname 依赖地址可得性；completion/step 缺少请求开始 fact 时可能沿用 seed，不承诺所有事件都来自实际请求。
-- 没有向真实 `/event/report` 发送验证事件，没有修改真实账户或创建任务。
+- Foram chamados os helpers reais do repositório: as duas Team-only deram `no_plan`; family/channel de BigModel Team ficou `unknown` / string vazia; o label de BigModel Team/Start ficou como ID bruto.
+- BigModel Start + GLM-5.2, no mesmo baseURL: o antigo `send_btn.model_name` era `custom:builtin%3Abigmodel-start-plan:GLM-5.2` e o novo é `custom:account%3Abigmodel-start-plan:GLM-5.2`; `provider_name` é `zcode.z.ai` nos dois.
+- 6 arquivos de teste existentes somaram **82 casos aprovados**: codingPlanFunnelTelemetry, messageTelemetry, automationTelemetry, offPeakTelemetry, codingPlanEmbeddedWebview e shared/zcodeNetworkDebugStatus. Os resultados que já passavam não cobriam estas omissões e não são aceitação da correção.
+- O bootstrap do WebView realmente carrega o contexto de funil errado; o protocolo do site oficial prevê quatro eventos de compra usando esse contexto. Esta rodada não capturou o relatório real de compra do site e não pode ser escrita como se os quatro eventosem produção fossem comprovadamente errados.
+- `entry_plan_status` e o `plan_status / plan_product_id` dos eventos centrais são duas fontes; este último já consulta o Team Provider em `usePlanIdentitySnapshot` e não é refatorado por aqui.
+- O hostname depende da disponibilidade do endereço; quando completion/step não têm o fact de início da requisição, podem seguir o seed; não se promete que todos os eventos venham de uma requisição real.
+- Nenhum evento de verificação foi enviado para o `/event/report` real, nenhuma conta real foi modificada e nenhuma tarefa foi criada.
 
-## 2. 已确认边界与非目标
+## 2. Fronteiras confirmadas e não objetivos
 
-1. 修复两家 Team 的套餐识别；对本轮“是否有 Coding Plan”的判断，Individual 和 Team 同属 Coding Plan。Start 仍独立，不能把所有 account Provider 或 Off-Peak 当成 Coding Plan。
-2. 保持 `access.type === "zhipu-account" && entitled === true` 的事实门槛；用户关闭模型/Provider 不等于退订。不改 Account 对 entitled 的计算、凭据状态和套餐查询。
-3. 修复首页闲时模板的误拦，但保留灰度、关闭入口、表单资格、当前连接、凭据、额度与提交校验。明确 `codingPlanActive=false` 仍按现有门控阻止；不为了 Team 绕开灰度。
-4. family/channel 与成功事件 label 补齐 BigModel；两家行为对称，名称仍遵守各事件已有值，不统一改成一种标签。
-5. ID 兼容只允许作用于既有埋点输出；不倒改 Registry、ModelSelection、CLI 实际请求事实、鉴权身份、配置文件、数据库、历史消息或迁移脚本。
-6. 不新增埋点事件/重复发送新旧事件，不擅自增加报表字段，不改 token、耗时、成功率公式、事件触发与去重机制。不扩大到 ARMS 全面改造。
-7. **旧 `zcodeTaskNetworkDebugStatusFromPayload` parser 不并入本 Todo**。它的顶层身份适配属于旧投影链路问题；当前 V4 核心埋点有独立转换。只保留发现，不以“顺手修”夹带修改。
-8. Todo128 的 start/Registry 通知/资格刷新/并发协调独立执行；不改 Composer，也不借本轮抽取一套新的通用套餐服务或建立另一份权益缓存。
-9. 本轮只落盘。不能把“写一个 Todo”当作开始改产品代码的授权。
+1. Corrigir o reconhecimento de plano das duas Team; para o julgamento "há Coding Plan" desta rodada, Individual e Team pertencem ao Coding Plan. Start continua separado; não se pode tratar todo account Provider ou Off-Peak como Coding Plan.
+2. Manter o limiar de fato `access.type === "zhipu-account" && entitled === true`; desligar um modelo/Provider pelo usuário não equivale a cancelar assinatura. Não alterar o cálculo de entitled do Account, o estado das credenciais nem a consulta de plano.
+3. Corrigir o bloqueio indevido do template de off-peak da home, mas preservar gray release, entrada desativada, elegibilidade do formulário, conexão atual, credenciais, cota e validação de envio. `codingPlanActive=false` explícito continua bloqueando pelo gate atual; não se contorna o gray por causa de Team.
+4. Completar BigModel em family/channel e no label do evento de sucesso; o comportamento das duas empresas é simétrico, os nomes continuam respeitando os valores já existentes em cada evento e não são unificados em um único rótulo.
+5. A compatibilidade de IDs só pode agir sobre a saída de telemetria já existente; não alterar retroativamente o Registry, o ModelSelection, os fatos reais de requisição da CLI, a identidade de autenticação, arquivos de configuração, banco de dados, mensagens históricas ou scripts de migração.
+6. Não criar novos eventos de telemetria nem reenviar eventos antigos e novos, não adicionar campos de relatório por conta própria e não alterar fórmulas de token, duração, taxa de sucesso, disparo e deduplicação de eventos. Não ampliar para uma reformulação completa do ARMS.
+7. **O parser antigo `zcodeTaskNetworkDebugStatusFromPayload` não é incorporado a este Todo.** A adaptação de identidade do nível superior dele é um problema da antiga cadeia de projeção; a telemetria central da V4 atual tem conversão própria. Fica apenas o registro, sem "corrigir de passagem" porgrafia.
+8. O start/Registry/refresh de elegibilidade/coordenação de concorrência do Todo128 são executados de forma independente; não se altera o Composer nem se extrai nesta rodada um novo serviço genérico de planos ou outro cache de direitos.
+9. Esta rodada é apenas de documentação. Não se pode tomar "escrever um Todo" como autorização para começar a mexer no código de produto.
 
-## 3. 第一层：统计 ID 兼容方案
+## 3. Camada 1: plano de compatibilidade de IDs de estatística
 
-### 3.1 推荐放置边界
+### 3.1 fronteira de colocação recomendada
 
-在 **App 侧各事件字段构造的边界**复用一个小型纯转换函数，输入真实 Provider 身份及该事件已有的必要事实，输出经旧版核对的统计 ID。实际请求／选择事实保持原样，不在转换函数内查询账号或读取可变全局状态。具体文件和导出在实施时按架构门禁与实际引用确定；不把全局 `/event/report` 传输层变成猜测任意字符串内容的替换器。
+Reutilizar, na **fronteira de construção de campos de cada evento no lado do app**, uma pequena função pura de conversão, com entrada da identidade real do Provider mais os fatos necessários já existentes para aquele evento, e saída do ID de estatística conferido contra a versão antiga. Os fatos reais de requisição/seleção permanecem como estão; a função de conversão não consulta conta nem lê estado global mutável dentro dela. Os arquivos e exports concretos são determinados na implementação conforme o portão de arquitetura e as referências reais; não se transforma a camada global de transporte `/event/report` em um substitutor que adivinha o conteúdo de strings arbitrárias.
 
 ```text
 真实 ModelSelection / CLI 请求事实
@@ -81,44 +81,44 @@
 映射结果不得回流到 Registry、模型选择、请求、持久化或鉴权
 ```
 
-映射必须针对 Provider 身份部分：先取得结构化的 provider/model，再按事件编码；不能在整个 `model_name` 中正则替换 `account:`、`builtin:`，不能改动模型 ID 内的 `/`、`:` 或百分号。不凭 hostname、显示名称或用户选中的其他账户猜 Provider。
+O mapeamento precisa mirar a parte de identidade do Provider: primeiro obter o provider/model estruturado e só então codificar por evento; não é permitido substituir por regex `account:` / `builtin:` no `model_name` inteiro, nem alterar `/`, `:` ou porcentagem dentro do ID do modelo. Não adivinhar o Provider por hostname, nome de exibição ou outra conta selecionada pelo usuário.
 
-### 3.2 旧口径对照表与实施核实
+### 3.2 Tabela de correspondência com a semântica antiga e verificação na implementação
 
-**最终采用埋点侧恢复旧值，报表、SQL、数仓及历史上报数据均不改。** 以下为核对起点，不代替旧版真实事件输出证据。实施时以本次重构前的旧 staging 为对照，记录具体提交和逐事件输入／输出；按证据直接落实能还原的映射，尤其核对 Team，不把“最大努力”缩成只修个人套餐。
+**Adota-se final restauração do valor antigo no lado da telemetria; relatórios, SQL, data warehouse e dados históricos reportados não mudam.** A tabela abaixo é o ponto de partida da conferência e não substitui a evidência da saída real dos eventos da versão antiga. Na implementação usa-se o staging anterior a este refactor como referência, registrando commits e entradas/saídas evento a evento; aplica-se diretamente o que a evidência permitir reconstruir, conferindo em especial Team, e não encolhe o "melhor esforço" para corrigir apenas o plano individual.
 
-| 当前真实 ID                                              | 可核对的旧身份/候选输出                                          | 状态                                                                                                  |
+| ID real atual                                              | Identidade antiga / saída candidata verificável                                          | Estado                                                                                                  |
 | -------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `zai-api` / `bigmodel-api` 相关历史身份                  | `builtin:zai` / `builtin:bigmodel`                               | 核实旧事件与实例来源后恢复；模板 ID 不等于当前实例 ID，不能把所有模板创建的 UUID 实例强行并入旧内置桶 |
-| `account:zai-individual-coding-plan`                     | `builtin:zai-coding-plan`                                        | 候选恢复旧统计值                                                                                      |
-| `account:bigmodel-individual-coding-plan`                | `builtin:bigmodel-coding-plan`                                   | 候选恢复旧统计值                                                                                      |
-| `account:zai-start-plan` / `account:bigmodel-start-plan` | 对应 `builtin:*-start-plan`                                      | 候选恢复旧统计值                                                                                      |
-| 两家 `account:*-team-coding-plan`                        | 旧链路包含套餐连接 key 与旧 Coding Plan 身份；按事件分别查旧输出 | 优先还原旧真实口径；旧事件确实共用 Coding Plan 桶则沿用，不能无依据冒充 Individual 或编造旧 key       |
-| 两家 `account:*-offpeak-idle-plan`                       | 旧共同值 `offpeak-idle-plan`                                     | 旧事件确实共用此值则恢复原桶，不为新 family 区分改变旧报表口径                                        |
-| 自定义 Provider / 未知 ID / 已是旧 ID                    | 原样保留                                                         | 保护约束；不可按名称或地址误归官方                                                                    |
+| Identidades históricas relacionadas a `zai-api` / `bigmodel-api`                  | `builtin:zai` / `builtin:bigmodel`                               | Restaurar depois de conferir a origem dos eventos e das instâncias antigas; o ID de template não é igual ao ID de instância atual, e não se pode forçar todas as instâncias UUID criadas por template para o balde builtin antigo |
+| `account:zai-individual-coding-plan`                     | `builtin:zai-coding-plan`                                        | Restauração candidata do valor estatístico antigo                                                                                      |
+| `account:bigmodel-individual-coding-plan`                | `builtin:bigmodel-coding-plan`                                   | Restauração candidata do valor estatístico antigo                                                                                      |
+| `account:zai-start-plan` / `account:bigmodel-start-plan` | o `builtin:*-start-plan` correspondente                                      | Restauração candidata do valor estatístico antigo                                                                                      |
+| Os dois `account:*-team-coding-plan`                        | a cadeia antiga contém connection key de plano e a identidade antiga do Coding Plan; consultar a saída antiga de cada evento | Priorizar a recuperação da semântica antiga real; se os eventos antigos de fato compartilhavam o balde do Coding Plan, mantê-lo, sem se passar sem base por Individual nem inventar keys antigas       |
+| Os dois `account:*-offpeak-idle-plan`                       | valor antigo comum `offpeak-idle-plan`                                     | Restaurar o balde original se os eventos antigos de fato o compartilhavam, sem mudar a semântica antiga de relatório só para separar a nova family                                        |
+| Provider customizado / ID desconhecido / já é um ID antigo                    | preservar como está                                                         | Restrição de proteção; não pode ser atribuído a um oficial por nome ou endereço                                                                    |
 
-恢复旧口径可能将新版本拆开的统计身份重新聚合，这是本次过渡目标，不要求维护新分桶。Team 若旧事件依赖连接身份，只能使用该事件已有且可信的对应事实；不能拿当前 UI 的其他连接补历史请求，不能为统计新增敏感身份查询、协议或持久化。确实无法还原时原样保留并列出残余项，只有必须改变产品语义或超出局部适配范围时才另提裁决。
+Restaurar a semântica antiga pode reagrupar identidades estatísticas que a nova versão separou; esse é o objetivo desta transição, e não se exige manter o novo agrupamento. Se Team depender de identidade de conexão nos eventos antigos, só pode ser usado o fato correspondente que aquele evento já possui e em que se confia; não se pode usar outras conexões da UI atual para completar requisições históricas, nem adicionar consulta de identidade sensível, protocolo ou persistência só por estatísticas. Quando realmente não for possível reconstruir, manter como está e listar os itens residuais; só pedir outra decisão quando for necessário mudar a semântica de produto ou ultrapassar o escopo da adaptação local.
 
-不要求给报表侧新增交付，不建设通用兼容框架，不重复发送新旧事件。成对构造旧版／新版事件证明兼容程度；不能只看 helper 返回一个旧 ID 就宣布报表口径已经全部恢复。
+Não se exige nenhuma entrega nova para o lado dos relatórios, não se constrói um framework genérico de compatibilidade e não se reenviam eventos antigos e novos. Constrói-se o par evento antigo/novo para provar o grau de compatibilidade; não se pode anunciar que a semântica de relatório já está totalmente restaurada só porque um helper devolveu um ID antigo.
 
-### 3.3 每种事件保持自己的字段语义
+### 3.3 Cada evento mantém a própria semântica de campo
 
-| 事件                                                 | model_provider          | model_name                                             | provider_name / 其他                                             |
+| Evento                                                 | model_provider          | model_name                                             | provider_name / outros                                             |
 | ---------------------------------------------------- | ----------------------- | ------------------------------------------------------ | ---------------------------------------------------------------- |
-| `send_btn`                                           | 使用经旧版核对的统计 ID | `custom:<编码后的统计 ID>:<model>`                     | 保持发送时 UI 地址 hostname；地址缺失不新造值                    |
-| `message_completion` / `agent_step`                  | 使用经旧版核对的统计 ID | 正常请求 `<统计 ID>/<model>`；保留无请求事实的既有回退 | 仍来自对应实际请求；不能拿修复后的统计 ID 去查 Registry          |
-| `context_compaction`                                 | 同上                    | 保持既有 Provider 前缀规则                             | 不新增 provider_name                                             |
-| `automation_create_result` / `automation_run_now_ck` | 同上                    | 保持纯模型 ID                                          | 保持 standard-personal、无模板、API-key 才取 hostname 的现有规则 |
-| `off_peak_task_create_result`                        | 按闲时行已裁决映射      | 保持纯模型 ID                                          | 保持结果对象提供的 provider_name                                 |
-| `app_login_success`                                  | 不适用                  | 不适用                                                 | 不改 OAuth `login_provider`，继续 `z.ai` / `bigmodel`            |
+| `send_btn`                                           | usa o ID de estatística conferido na versão antiga | `custom:<ID de estatística codificado>:<model>`                     | mantém o hostname do endereço da UI no momento do envio; não inventa valor quando falta o endereço                    |
+| `message_completion` / `agent_step`                  | usa o ID de estatística conferido na versão antiga | requisição normal `<ID de estatística>/<model>`; mantém o fallback existente quando não há fato de requisição | continua vindo da requisição real correspondente; não se usa o ID de estatística corrigido para consultar o Registry          |
+| `context_compaction`                                 | idem                    | mantém a regra de prefixo de Provider já existente                             | não adiciona provider_name                                             |
+| `automation_create_result` / `automation_run_now_ck` | idem                    | mantém o ID de modelo puro                                          | mantém a regra existente de que só standard-personal, sem template e com API-key usam hostname |
+| `off_peak_task_create_result`                        | segue o mapeamento já decidido para a linha de off-peak      | mantém o ID de modelo puro                                          | mantém o provider_name fornecido pelo objeto de resultado                                 |
+| `app_login_success`                                  | não se aplica                  | não se aplica                                                 | não altera o `login_provider` do OAuth, continua `z.ai` / `bigmodel`            |
 
-ID 适配不得改变事件关联和计数：send 仍是提交选择快照，step/completion 仍按实际请求事实更新；多个请求或步骤中换模型不能被首个/当前 UI 选择覆盖。多个 Workspace、后台/前台和重连的既有采集规则不变。
+A adaptação de IDs não pode mudar a correlação e a contagem dos eventos: send continua sendo o snapshot da seleção enviada, step/completion continuam sendo atualizados pelos fatos da requisição real; trocar de modelo entre múltiplas requisições ou etapas não pode ser sobrescrito pela primeira seleção da UI. As regras existentes de coleta para múltiplos Workspaces, foreground/background e reconexão não mudam.
 
-## 4. 第二层：套餐识别、漏斗与首页准入
+## 4. Camada 2: reconhecimento de plano, funil e elegibilidade na home
 
-### 4.1 套餐识别
+### 4.1 Reconhecimento de plano
 
-在 `resolveCodingPlanEntryPlanStateFromProviderSettings()` 中补齐两家 Team ID，保持简单显式判断或复用语义准确的现有 helper。**不要直接使用含 Start 的宽泛 isCodingPlan helper** 把 Start 误分成 Coding Plan。
+Em `resolveCodingPlanEntryPlanStateFromProviderSettings()`, completar os dois IDs de Team, mantendo o 판단 simples e explícito ou reaproveitando um helper existente de semântica precisa. **Não usar diretamente o helper amplo isCodingPlan que inclui Start**, que classificaria Start por engano como Coding Plan.
 
 ```text
 ProviderSettingsView 尚未就绪 → unknown（沿用原逻辑）
@@ -137,20 +137,20 @@ ProviderSettingsView 尚未就绪 → unknown（沿用原逻辑）
            no_plan
 ```
 
-不新增套餐等级推断。原 helper 拿不到真实 level 时仍为空；已有入口直接从 Usage snapshot 取得的 level 保留，不能因修 Team 统一清空。`entry_plan_list` 的权威查询、冻结时机和内容不改。
+Não se adiciona inferência de nível de plano. Quando o helper original não consegue obter o level real, ele continua vazio; as entradas que já obtêm o level direto do Usage snapshot são preservadas e não podem ser esvaziadas uniformemente por causa da correção de Team. A consulta autoritativa de `entry_plan_list`, o momento de congelamento e o conteúdo não mudam.
 
-### 4.2 family/channel 与成功标签
+### 4.2 family/channel e rótulo de sucesso
 
-- `resolveCodingPlanProviderFamily()`：BigModel Team 返回 `bigmodel`，对应 channel `MaaS`；Z.ai Team 保持 `zai` / `Z_AI`。
-- `resolveProviderTelemetryLabel()`：BigModel Individual / Team / Start 都返回 `bigmodel`；Z.ai 对应值仍为 `z.ai`。未知 ID 保持原值。
-- 不为了统一函数而混淆 `provider_family=zai`、成功标签 `z.ai` 与 hostname `api.z.ai`。
-- 沿实际调用检查设置套餐卡、团队入口、Composer/侧栏升级、闲时资格提示；它们的 entry state 来源与 purchase audience 不完全一样，只改错误归因，不重设为统一入口。
-- `coding_plan_upgrade_ck` 与 WebView bootstrap 应来自同一个 funnelContext，确保 family/channel/status 一致；不重生成 funnel ID，不改购买产品、周期、金额等网站字段。
-- 四个官网 purchase 事件仅验证 App 注入契约和可获得的运行证据，不默认扩大到官网仓库改动。
+- `resolveCodingPlanProviderFamily()`: BigModel Team retorna `bigmodel`, com channel correspondente `MaaS`; Z.ai Team mantém `zai` / `Z_AI`.
+- `resolveProviderTelemetryLabel()`: BigModel Individual / Team / Start retornam todos `bigmodel`; os valores correspondentes de Z.ai continuam `z.ai`. IDs desconhecidos mantêm o valor original.
+- Não confundir `provider_family=zai`, o rótulo de sucesso `z.ai` e o hostname `api.z.ai` só para unificar a função.
+- Verificar nas chamadas reais o cartão de plano nas configurações, a entrada de time, o upgrade no Composer/sidebar e o aviso de elegibilidade de off-peak; a origem do entry state e a purchase audience deles não são exatamente iguais, então se corrigem apenas as atribuições erradas, sem redefinir tudo como uma entrada unificada.
+- `coding_plan_upgrade_ck` e o bootstrap do WebView devem vir do mesmo funnelContext, garantindo family/channel/status consistentes; não se regenera o funnel ID nem se alteram campos do site como produto, ciclo ou valor da compra.
+- Nos quatro eventos de compra do site oficial, verifica-se apenas o contrato de injeção do app e as evidências de runtime disponíveis, sem ampliar por padrão para mudanças no repositório do site.
 
-### 4.3 首页闲时入口
+### 4.3 Entrada de off-peak na home
 
-`OffPeakNewTaskEntry` 继续消费同一个修正后的事实，不在组件另加 `providerId.includes("team")` 兜底。
+`OffPeakNewTaskEntry` continua consumindo o mesmo fato corrigido, sem adicionar no componente um fallback `providerId.includes("team")`.
 
 ```text
 两家 Team entitled=true + 灰度允许
@@ -164,91 +164,91 @@ ProviderSettingsView 尚未就绪 → unknown（沿用原逻辑）
 仅全部满足才允许创建与执行
 ```
 
-“统一包含 Team”不等于给任意团队账户发放权益，也不等于持有另一个 family 的 Team 就能替换当前连接。只修当前已确认的漏识别，保留后续精确鉴权。
+"Unificar incluindo Team" não significa conceder direito a qualquer conta de equipe, nem significa que ter um Team de outra family permita substituir a conexão atual. Só se corrige o não reconhecimento já confirmado, preservando a autorização precisa posterior.
 
-## 5. 影响面、数据源与代码入口
+## 5. Superfície de impacto, fontes de dados e pontos de entrada de código
 
-| 优先级         | 场景/入口                             | 共享实现与权威来源                                                                                                                       | 本轮改动边界                                                    |
+| Prioridade         | Cenário/entrada                             | Implementação compartilhada e fonte autoritativa                                                                                                                       | Fronteira de mudança desta rodada                                                    |
 | -------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| must-inspect   | Composer 发送、completion、step、压缩 | `v4/telemetry/conversationPromptTelemetry.ts`、`conversationTelemetrySupervisor.ts`、`lib/messageTelemetry.ts`；选择快照与 CLI live fact | 只改字段构造的统计身份，不改 normalized fact 协议或事件生命周期 |
-| must-inspect   | 设置、侧栏、Composer、闲时的升级入口  | `lib/codingPlanFunnelTelemetry.ts`；各入口已有 settings/usage 快照                                                                       | Team 分类、family/channel                                       |
-| must-inspect   | 官网购买面板                          | `settings/model-provider-section/codingPlanEmbeddedWebview.ts`；已冻结 funnelContext                                                     | 验证注入值，不新增 WebView 状态 owner                           |
-| must-inspect   | 首页闲时模板                          | `v4/OffPeakNewTaskEntry.tsx`；gray config + settings view                                                                                | 修复 Team 误拦，提交规则不改                                    |
-| must-inspect   | Provider 订阅成功反馈                 | `lib/appTelemetry.ts`、`settings/model-provider-section/oauthActions.ts`                                                                 | 成功标签归一                                                    |
-| should-inspect | 自动化/闲时创建与立即运行             | `lib/automationTelemetry.ts`、`lib/offPeakTelemetry.ts`、`settings/AutomationsSection.tsx`；提交快照                                     | 按裁决适配 provider 字段，保持纯模型名                          |
-| invariant-only | 登录、核心事件套餐快照                | `root/useRootOAuthEffects.ts`、`hooks/usePlanIdentitySnapshot.ts`                                                                        | 回归不变；不修改登录流程或另查套餐                              |
-| invariant-only | 实际请求、Service 上报、跨端同步      | CLI fact producer、`services/src/telemetry/telemetryCore.ts`                                                                             | 请求用真实 ID，上报不增加 IO/全局字符串替换；不动 shared-host   |
-| excluded       | 旧网络状态投影                        | shared parser、旧 Service/UI projection                                                                                                  | 独立问题，本轮不修                                              |
+| must-inspect   | Envio pelo Composer, completion, step, compactação | `v4/telemetry/conversationPromptTelemetry.ts`, `conversationTelemetrySupervisor.ts`, `lib/messageTelemetry.ts`; snapshot de seleção e CLI live fact | Alterar apenas a identidade estatística da construção de campos, sem mexer no protocolo de fact normalizado nem no ciclo de vida dos eventos |
+| must-inspect   | Entradas de upgrade em configurações, sidebar, Composer e off-peak  | `lib/codingPlanFunnelTelemetry.ts`; snapshots de settings/usage já existentes em cada entrada                                                                       | Classificação de Team, family/channel                                       |
+| must-inspect   | Painel de compra do site oficial                          | `settings/model-provider-section/codingPlanEmbeddedWebview.ts`; funnelContext já congelado                                                     | Verificar valores injetados, sem criar novo owner de estado do WebView                           |
+| must-inspect   | Template de off-peak da home                          | `v4/OffPeakNewTaskEntry.tsx`; gray config + settings view                                                                                | Corrigir o bloqueio indevido de Team, sem mudar as regras de envio                                    |
+| must-inspect   | Feedback de sucesso de assinatura de Provider                 | `lib/appTelemetry.ts`, `settings/model-provider-section/oauthActions.ts`                                                                 | Normalização do rótulo de sucesso                                                    |
+| should-inspect | Criação/execução imediata de automação e off-peak             | `lib/automationTelemetry.ts`, `lib/offPeakTelemetry.ts`, `settings/AutomationsSection.tsx`; snapshot de envio                                     | Adaptar o campo de provider conforme a decisão, mantendo o nome de modelo puro                          |
+| invariant-only | Login, snapshot de plano dos eventos centrais                | `root/useRootOAuthEffects.ts`, `hooks/usePlanIdentitySnapshot.ts`                                                                        | Regressão sem mudanças; não alterar o fluxo de login nem consultar plano em outro lugar                              |
+| invariant-only | Requisições reais, reporte do Service, sincronização multiplataforma      | CLI fact producer, `services/src/telemetry/telemetryCore.ts`                                                                             | Requisições usam o ID real, o reporte não ganha IO nem substituição global de strings; não mexer no shared-host   |
+| excluded       | Projeção antiga de status de rede                        | shared parser, projeção antiga de Service/UI                                                                                                  | Problema separado, não corrigido nesta rodada                                              |
 
-以上 UI 路径相对 `packages/ui/src/`。架构实现位置以实施时门禁结果为准，不为兼容小表增加跨域依赖。
+Os caminhos de UI acima são relativos a `packages/ui/src/`. A posição real da implementação segue o resultado do portão na implementação, sem adicionar dependência entre domínios só por causa da tabela de compatibilidade.
 
-当前没有可用 codegraph 工具，已用 rg、Git 历史和实际函数执行核查一至两跳调用链；不声称完成 codegraph 扫描。影响面层级为埋点输出 commit-effect 与首页 validation，不涉及 persistence/recovery。图谱补充候选为“漏斗状态 helper 同时供首页闲时准入使用”；本轮只落盘 Todo，不改正式系统事实或扩展架构治理。
+Não há ferramenta de codegraph disponível; a verificação das cadeias de chamada de um ou dois saltos foi feita com rg, histórico do Git e execução real das funções, sem alegar uma varredura de codegraph. Os níveis da superfície de impacto são commit-effect de saída de telemetria e validação da home, sem envolver persistence/recovery. O candidato a complemento do grafo é "o helper de estado do funil também é usado na elegibilidade de off-peak da home"; esta rodada apenas documenta o Todo, sem mudar fatos formais do sistema nem ampliar a governança de arquitetura.
 
-## 6. 实施顺序与验收用例
+## 6. Ordem de implementação e casos de aceitação
 
-### 6.1 分步执行
+### 6.1 Execução por etapas
 
-1. 重新检查基线与调用引用；本 Todo 先作为 Working Memory 中的 NL 设计依据。实现稳定后再同步正式埋点文档，不提前把候选统计口径写成已生效事实。
-2. **先补测试，再修明确的分类遗漏**：两家 Team 套餐识别、BigModel family/channel、成功标签；首页通过共享函数自然修复。附中文原因注释。
-3. 跑隔离入口 E2E，验证 Team 正常导航且保留无权益/灰度/提交门禁。不把 Todo128 尚未修复的旧快照问题混入本轮成功结论。
-4. 按第 3.2 节对照旧版逐事件核实映射，先补成对输出测试再实施埋点侧适配；可确定项直接推进，少数无法还原项留差异记录，不等待报表侧修改。
-5. 核对完整上报 payload 与 WebView bootstrap，不仅测纯 helper；最后执行架构、类型、Lint、受影响单测和必要 E2E。
-6. 回填修改文件、真实结果、未验证项和提交信息。三处分类修复完成不等于统计兼容子项完成，不把该 Todo 提前关闭。
+1. Checar novamente a linha de base e as referências das chamadas; este Todo serve primeiro como base de design em NL no Working Memory. Depois que a implementação estabilizar, sincronizar a documentação formal de telemetria, sem escrever antes a semântica estatística candidata como fato já vigente.
+2. **Primeiro adicionar testes, depois corrigir as omissões de classificação claras**: reconhecimento de plano das duas Team, family/channel de BigModel e rótulo de sucesso; a home é corrigida naturalmente pela função compartilhada. Anexar comentários explicativos em chinês.
+3. Rodar o E2E da entrada isolada, verificando a navegação normal de Team e a preservação dos gates de sem direito/gray/envio. Não misturar nestas conclusões de sucesso o problema de snapshot antigo que o Todo128 ainda não corrigiu.
+4. Conferir os mapeamentos evento a evento contra a versão antiga conforme a seção 3.2, adicionando primeiro os testes de saída em par e só então implementando a adaptação no lado da telemetria; avançar direto nos itens determináveis e deixar registro de diferença nos poucos irreconstituíveis, sem esperar mudanças do lado dos relatórios.
+5. Conferir o payload completo de envio e o bootstrap do WebView, e não apenas os helpers puros; por fim executar architecture, tipos, Lint, testes unitários afetados e o E2E necessário.
+6. Preencher os arquivos modificados, os resultados reais, os itens não verificados e a informação de commit. As três correções de classificação concluídas não significam que a subitem de compatibilidade estatística esteja concluída; não encerrar este Todo cedo demais.
 
-### 6.2 维度与裁剪
+### 6.2 Dimensões e cortes
 
-主维度仅取：family（Z.ai/BigModel）、套餐（Individual/Team/Start/无权益）、入口（首页/设置/其他漏斗/事件构造）、身份（旧/新/自定义/未知）、事实来源（发送 seed/真实请求）、端（桌面本地/远程工作区/手机）。
+A dimensão principal inclui apenas: family (Z.ai/BigModel), plano (Individual/Team/Start/sem direito), entrada (home/configurações/outros funis/construção de eventos), identidade (antiga/nova/customizada/desconhecida), origem do fato (send seed/requisição real) e ponta (desktop local/workspace remoto/mobile).
 
-- accepted：两家 Team 识别、归因、现有权限边界，以及在埋点侧最大努力恢复旧口径的成对事件验证。
-- evidence-pending：第 3.2 节逐事件精确旧值；从旧版输出确定测试预期，不能按新实现倒填。恢复方向已确认，普通事实核实不再作为待用户裁决。
-- pruned：所有 OS × 主题 × 套餐 × 事件的全组合。纯字段映射用参数化单测；代表性交互覆盖桌面与手机既有入口，不为无布局改动重复排列主题。
-- excluded：旧 parser、Todo128 时序修复、后台网站实现、历史回填、新 schema、产品请求路径改造。
+- accepted: reconhecimento das duas Team, atribuição, limites de permissão existentes e verificação em par de eventos com recuperação de melhor esforço da semântica antiga no lado da telemetria.
+- evidence-pending: os valores antigos exatos por evento da seção 3.2; os resultados de teste são determinados a partir da saída da versão antiga e não preenchidos retroativamente a partir da nova implementação. A direção da recuperação já está confirmada e fatos comuns deixam de ser pendência de decisão do usuário.
+- pruned: todas as combinações de OS × tema × plano × evento. Mapeamentos puramente de campo usam testes unitários parametrizados; interações representativas cobrem as entradas existentes de desktop e mobile, sem repetir combinações de tema sem mudança de layout.
+- excluded: parser antigo, correções de timing do Todo128, implementação do site em segundo plano, backfill histórico, novo schema e alterações no caminho de requisição de produto.
 
-### 6.3 接受的场景与验证层
+### 6.3 Cenários aceitos e camada de verificação
 
-| Case ID | Setup → Action                                                                         | 必须断言                                                                       | 证据层/状态                             |
+| Case ID | Setup → Ação                                                                         | Asserções obrigatórias                                                                       | Camada de evidência/status                             |
 | ------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------- |
-| T119-01 | 两家分别仅有 Team，entitled=true → 读取入口套餐状态                                    | `coding_plan`，不需要伪造 Individual 权益                                      | 参数化单测，待补                        |
-| T119-02 | Individual/Team + Start 混合 → 分类；只有 Start/无权益/null view → 分类                | Coding Plan 优先；其余分别 start_plan/no_plan/unknown；关闭模型不否定 entitled | 单测，待补                              |
-| T119-03 | 两家 Individual/Team/Start 与未知 ID → 创建漏斗上下文                                  | family/channel 正确，Start 仍独立；未知保持未知，不按名字猜                    | 单测，待补                              |
-| T119-04 | BigModel Team/Start 成功 → 真实 add_model_success builder                              | label=bigmodel；Z.ai=z.ai；登录事件值/次数不变                                 | 事件构造/调用测试，待补                 |
-| T119-05 | Team 入口创建同一 funnelContext → App upgrade 与 WebView bootstrap                     | 相同 funnel ID、status/family/channel；audience、level/list 原值保留           | builder + WebView 注入测试，待补        |
-| T119-06 | 两家 Team-only，页面 view 已就绪且灰度允许、codingPlanActive 未给定 → 点击首页闲时模板 | 进入创建页，不弹“没有 Coding Plan”；捕获当前 settings/路由事实                 | APP E2E，待补，不能只调用 helper        |
-| T119-07 | 无权益或 codingPlanActive=false → 同入口点击；后续提交资格失败                         | 保持禁止/提示；有 Team 不绕过后续当前连接、凭据、额度检查                      | 单测 + 代表性 APP E2E，待补             |
-| T119-08 | 经旧版核对的官方映射、已有旧 ID、自定义/未知 ID、含特殊字符模型 → 逐类构造事件         | provider 与 model_name 的身份一致，编码正确，未知原样；实际 model ID 不变      | 单测，旧版对照预期实施时补齐            |
-| T119-09 | 发送 seed → 模型请求开始 → step/完成；再测多请求与无请求早失败                         | send 保持选择快照；运行事件用对应请求；缺 fact 保留既有回退，不增加/丢失事件   | V4 telemetry 集成测试，旧版对照预期待补 |
-| T119-10 | 自动化/闲时创建成功和失败、立即运行、压缩 → 捕获 payload                               | 纯模型名/前缀规则各自保持；失败同样适配；hostname 的现有填充条件不变           | 事件 builder/调用测试，旧版对照预期待补 |
-| T119-11 | 使用测试 reporter 完成一轮代表性对话与一次漏斗打开                                     | 最终 eventExtraDetail 正确且只上报一次；不向生产端点发送探针                   | 截获 transport 的集成/E2E，待补         |
-| T119-12 | 桌面远程 workspace、手机已有入口、历史恢复/重连                                        | 不跨 workspace 污染身份，不新增手机实际遥测请求，不从恢复历史补发              | 现有隔离测试 + 定向跨端复核，待执行     |
+| T119-01 | Cada uma das duas empresas apenas com Team, entitled=true → ler o estado de plano da entrada                                    | `coding_plan`, sem precisar forjar direito de Individual                                      | teste unitário parametrizado, a adicionar                        |
+| T119-02 | Mistura Individual/Team + Start → classificação; apenas Start/sem direito/view null → classificação                | Coding Plan tem prioridade; os demais respectivamente start_plan/no_plan/unknown; desligar o modelo não nega entitled | teste unitário, a adicionar                              |
+| T119-03 | Individual/Team/Start das duas empresas e ID desconhecido → criar contexto de funil                                  | family/channel corretos, Start continua separado; desconhecido continua desconhecido, sem adivinhar pelo nome                    | teste unitário, a adicionar                              |
+| T119-04 | Sucesso BigModel Team/Start → builder real de add_model_success                              | label=bigmodel; Z.ai=z.ai; valores/contagem dos eventos de login inalterados                                 | teste de construção/chamada de evento, a adicionar                 |
+| T119-05 | Entrada de Team cria o mesmo funnelContext → upgrade do App e bootstrap do WebView                     | mesmo funnel ID, status/family/channel; audience, level/list com valores originais preservados           | teste de builder + injeção no WebView, a adicionar        |
+| T119-06 | Duas empresas Team-only, view da página já pronta e gray permitido, codingPlanActive não definido → clicar no template de off-peak da home | entra na página de criação, sem o aviso "sem Coding Plan"; captura os fatos atuais de settings/rota                 | APP E2E, a adicionar; não basta chamar o helper        |
+| T119-07 | Sem direito ou codingPlanActive=false → mesmo clique na entrada; falha de elegibilidade depois do envio                         | mantém o bloqueio/aviso; ter Team não contorna as verificações posteriores de conexão atual, credenciais e cota                      | teste unitário + APP E2E representativo, a adicionar             |
+| T119-08 | Mapeamentos oficiais conferidos contra a versão antiga, IDs antigos existentes, IDs customizados/desconhecidos, modelos com caracteres especiais → construir eventos por categoria         | identidade consistente entre provider e model_name, codificação correta, desconhecidos intactos; o ID real do modelo não muda      | teste unitário, expectativas da versão antiga a completar na implementação            |
+| T119-09 | send seed → início da requisição de modelo → step/completion; e então múltiplas requisições e falha antecipada sem requisição                         | send mantém o snapshot da seleção; eventos de execução usam a requisição correspondente; sem fact, mantém o fallback existente, sem adicionar/perder eventos   | teste de integração de telemetria V4, expectativas da versão antiga a adicionar |
+| T119-10 | Sucesso e falha de criação de automação/off-peak, execução imediata, compactação → capturar o payload                               | regras de nome puro/prefixo mantidas cada uma; falha também é adaptada; condições existentes de preenchimento de hostname inalteradas           | testes de builder/chamada de evento, expectativas da versão antiga a adicionar |
+| T119-11 | Completar uma conversa representativa e uma abertura de funil com um reporter de teste                                     | eventExtraDetail final correto e reportado apenas uma vez; nenhuma sonda enviada ao endpoint de produção                   | integração/E2E interceptando o transporte, a adicionar         |
+| T119-12 | Workspace remoto desktop, entradas existentes em mobile, recuperação histórica/reconexão                                        | sem poluir a identidade entre workspaces, sem nova requisição de telemetria real em mobile, sem reenvio a partir do histórico recuperado              | testes de isolamento existentes + revisão direcionada multiplataforma, a executar     |
 
-正式回归用例首先覆盖当前会失败的场景，不能仅沿用“82 项通过”。表中“待补/待执行”不表示现有测试已经提供证明。
+Os casos de regressão formais cobrem primeiro os cenários que hoje falham, e não apenas repetir "82 casos aprovados". "A adicionar/a executar" na tabela não significa que os testes existentes já forneçam prova.
 
-### 6.4 E2E 交接与运行证据
+### 6.4 Handoff de E2E e evidências de execução
 
-- 先读 `DESIGN.md`（若改 UI 组件）、`e2e-case-lifecycle` 及当前 conversation case/coverage 工作流，再增补对应场景；不直接将 pending 用例当正式已验收。
-- 复用 `off-peak-create-manage.test.ts`、`off-peak-limit-pre-gate.test.ts` 和现有 telemetry parity / Team Plan 场景的基础设施；实施前核对其实际覆盖，不以文件名判通过。
-- Provider fixture 用明确的 family、Team-only、entitled、gray config；不读取真实凭据。页面视图应在点击前由正常服务/Store 路径就绪，不把人工设置 helper 返回值当 UI 验证。
-- 同步等待用可观察的就绪/路由/事件条件，不新增固定 sleep。复现误拦时捕获脱敏的 settings 条件、页面行为与 reporter 调用；UI 日志走现有 logger。
-- 验证 transport 时注入测试 sink/拦截器，避免污染生产报表。官网只能验证 bootstrap 时，明确保留实际 purchase 网络事件未验证的限制。
-- 新用例回填相关目录的 case catalog、coverage matrix；本 Todo 的 T119 ID 作为需求追溯来源。具体 Docker preset 按现有 E2E workflow 选择，不凭空创建测试预设。
-- 桌面保持 continuous；手机保持 replayable/shared-host，继续沿用既有不上报规则。不为报表启动第二套 Agent/Host，不改 owner、队列或 workspaceIdentity。
+- Ler primeiro o `DESIGN.md` (se houver mudança em componente de UI), o `e2e-case-lifecycle` e o workflow atual de case/coverage de conversation antes de adicionar cenários; não tratar casos pendentes como formalmente aceitos.
+- Reaproveitar a infraestrutura de `off-peak-create-manage.test.ts`, `off-peak-limit-pre-gate.test.ts` e dos cenários existentes de parity de telemetria / Team Plan; conferir a cobertura real antes da implementação e não declarar aprovação pelo nome do arquivo.
+- O fixture de Provider precisa de family explícita, Team-only, entitled e gray config, sem ler credenciais reais. A view da página deve estar pronta antes do clique pelo caminho normal de serviço/Store, sem tratar o retorno de helpers de configuração manual como verificação de UI.
+- Esperas síncronas usam condições observáveis de prontidão/rota/evento, sem novo sleep fixo. Ao reproduzir o bloqueio indevido, capturar as condições de settings anonimizadas, o comportamento da página e as chamadas ao reporter; logs de UI passam pelo logger existente.
+- Ao validar o transporte, injetar sink/interceptor de teste para não poluir a produção de relatórios. Quando só se puder validar o bootstrap do site oficial, registrar explicitamente a limitação de que os eventos de rede reais de compra não foram verificados.
+- Novos casos preenchem o case catalog e a coverage matrix dos diretórios relevantes; os IDs T119 deste Todo servem como fonte de rastreabilidade de requisitos. O preset Docker específico segue o workflow de E2E existente, sem criar predefinições de teste do nada.
+- O desktop continua continuous; o mobile continua replayable/shared-host e segue a regra existente de não reportar. Não se inicia um segundo conjunto de Agent/Host por causa de relatórios e não se altera owner, fila ou workspaceIdentity.
 
-## 7. 完成标准、风险与回退
+## 7. Critérios de conclusão, riscos e reversão
 
-- 已最大努力恢复可由旧版及当前已有事实确定的映射并逐事件验证；只修分类不算完成埋点适配。无法还原的少数项必须明确列出旧值、现值、缺失事实和保留理由，不假称所有报表已完全兼容。
-- Team-only 既得到正确报表分类，又能通过首页原本应允许的入口；无权益及明确灰度禁止仍不能通过。
-- BigModel Team family/channel 与两家成功标签符合现有事件契约；下游 bootstrap 值一致。
-- 已验证实际 Provider ID、模型请求身份、选择和持久化未被统计映射污染。
-- 不引入重复上报、历史补报、额外权限或新文件/字段/表；旧 parser 不夹带修改。
-- 实施按仓库要求跑 `pnpm architecture:check --changed`、`pnpm typecheck`、`pnpm lint`、受影响单测与必要 E2E；无法验证的真实端或官网范围如实留账。
+- As mapeamentos recuperáveis a partir da versão antiga e dos fatos já existentes foram recuperados no melhor esforço e verificados evento a evento; corrigir apenas a classificação não conta como concluir a adaptação de telemetria. Os poucos itens irreconstituíveis precisam listar explicitamente valor antigo, valor atual, fato ausente e motivo da preservação, sem alegar compatibilidade total de todos os relatórios.
+- Team-only obtém a classificação correta de relatório e também passa pela entrada da home que originalmente deveria permitir; sem direito e bloqueio explícito de gray continuam não passando.
+- family/channel de BigModel Team e os rótulos de sucesso das duas empresas seguem o contrato existente dos eventos; os valores do bootstrap a jusante são consistentes.
+- Foi verificado que o ID real do Provider, a identidade da requisição de modelo, a seleção e a persistência não foram poluídos pelo mapeamento estatístico.
+- Não se introduz reenvio, backfill histórico, permissão extra ou arquivo/campo/tabela novos; o parser antigo não sofre modificação de passagem.
+- A implementação segue os requisitos do repositório executando `pnpm architecture:check --changed`, `pnpm typecheck`, `pnpm lint`, testes unitários afetados e o E2E necessário; escopos reais ou do site oficial que não puderem ser verificados ficam registrados como tal.
 
-主要风险是**统计口径误合并或适配不全**，不是存储迁移。使用同一个 Provider ID 的事件必须按各自语义验证，不能把 hostname 与 family/Provider ID 混为一谈。修复仅影响新产生的事件，不承诺修正已经进入数仓的新 ID 数据；历史数据是否归一属单独消费侧工作。
+O principal risco é **união indevida da semântica estatística ou adaptação incompleta**, e não migração de armazenamento. Eventos que usam o mesmo ID de Provider precisam ser verificados conforme a semântica de cada um, sem misturar hostname com family/Provider ID. A correção afeta apenas eventos novos e não promete corrigir dados com o novo ID que já entraram no data warehouse; se dados históricos serão normalizados é um trabalho separado do lado do consumidor.
 
-建议分类修复与 ID 适配形成可独立审查的提交。必要时可单独撤回埋点映射，保留 Team 正确识别；无需恢复旧配置或跑数据库迁移。统计回退本身也会影响之后的维度值，发布记录必须说明版本边界。
+Recomenda-se que as correções de classificação e a adaptação de IDs formem commits revisáveis de forma independente. Se necessário, o mapeamento de telemetria pode ser revertido sozinho, preservando o reconhecimento correto de Team; não é preciso restaurar configuração antiga nem rodar migração de banco. A própria reversão estatística afeta os valores de dimensão posteriores, então o registro de lançamento precisa informar o limite de versão.
 
-## 8. 本轮交付
+## 8. Entregas desta rodada
 
-- 已完成：调查上下文、用户裁决、具体实现边界、候选映射、调用影响面与 T119 验证计划落盘。
-- 最新完成：用户确认报表侧不动、埋点侧最大努力恢复旧 ID，方向裁决已收口。
-- 未完成：逐事件旧口径核实、正式测试和任何产品实现/运行验收；未改报表、旧 parser、Todo128 或 Composer。
-- 实施结束后追加真实测试结果和提交记录，不覆盖本节历史调查结果，也不把候选映射追记为用户已经确认。
+- Concluído: contexto de investigação, decisões do usuário, fronteiras concretas de implementação, mapeamentos candidatos, superfície de impacto das chamadas e plano de verificação T119 documentados.
+- Concluído mais recentemente: o usuário confirmou que o lado dos relatórios não muda e que a telemetria recupera os IDs antigos no melhor esforço; a decisão de direção foi fechada.
+- Não concluído: verificação da semântica antiga evento a evento, testes formais e qualquer implementação de produto/aceitação de execução; relatórios, parser antigo, Todo128 e Composer não foram alterados.
+- Após o fim da implementação, acrescentar os resultados reais de teste e o registro de commits sem sobrescrever o histórico desta investigação e sem registrar os mapeamentos candidatos como se já tivessem sido confirmados pelo usuário.

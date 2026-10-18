@@ -1,16 +1,16 @@
-# Provider 重构 E2E 回归分析（2026-08-31）
+# Análise de regressão E2E do Refactor de Provider (2026-08-31)
 
-## 1. 结论摘要
+## 1. Resumo das conclusões
 
-在 MacBook Pro 的标准仓库目录、当前分支提交 `21c38683e1` 上，问题清单中的 37 个 Case 已全部稳定复现：
+No diretório padrão do repositório em um MacBook Pro, no commit `21c38683e1` do branch atual, os 37 Cases da lista de problemas foram reproduzidos de forma estável:
 
-- 没有 flaky；
-- 没有 Electron、WebDriver、构建或机器环境失败；
-- 37 个表面失败可归并为 7 类共同根因；
-- 当前证据没有证明 37 个产品行为都发生了回归。绝大多数 Case 在进入它真正要证明的业务行为之前，就被过时的 E2E 夹具、已删除的旧持久化字段或错误的 Account Config 注入方式拦住了；
-- 这些测试不能简单删除。除 3 个明确验证“未上线旧格式迁移”的 Case 外，其余业务目标仍有价值，需要迁到当前 Provider/Account/Registry 契约后重新运行，才能判断是否还存在真实产品 Bug。
+- não há flaky;
+- não há falha de Electron, WebDriver, build ou de ambiente de máquina;
+- as 37 falhas de superfície podem ser agrupadas em 7 classes de causa raiz comuns;
+- as evidências atuais não provam que os 37 comportamentos de produto realmente regrediram. A grande maioria dos Cases foi bloqueada por fixtures E2E obsoletas, campos de persistência antigos já removidos ou uma forma incorreta de injeção de Account Config antes mesmo de alcançar o comportamento de negócio que realmente precisam provar;
+- esses testes não podem simplesmente ser removidos. Exceto por 3 Cases que verificam explicitamente a “migração de formato antigo nunca lançado”, os demais objetivos de negócio ainda têm valor e precisam ser migrados para o contrato atual de Provider/Account/Registry e reexecutados, para só então determinar se ainda existe algum Bug real de produto.
 
-当前正式事实链是：
+A cadeia de fatos oficial atual é:
 
 ```text
 ZCode Built-in Provider Config
@@ -37,7 +37,7 @@ Process-owned Provider Registry
 Model Selection / Active Model
 ```
 
-失败测试中仍反复使用的旧链路则是：
+A cadeia antiga, ainda usada repetidamente nos testes que falham, é:
 
 ```text
 legacy family mode / selectedKey
@@ -50,89 +50,89 @@ legacy family mode / selectedKey
 旧测试认为 Provider 已可用
 ```
 
-这条旧链路已经不再存在，所以出现了大量“页面没有 Coding Plan”“实际回退 DeepSeek”“Registry revision 未应用”等级联失败。
+Essa cadeia antiga não existe mais, e por isso surgiram muitas falhas em cascata do tipo “a página não tem Coding Plan”, “houve fallback para DeepSeek” e “a revision do Registry não foi aplicada”.
 
-## 2. 复现基线与产物
+## 2. Baseline de reprodução e artefatos
 
-### 2.1 基线
+### 2.1 Baseline
 
-- Samantha 工作区：独立 worktree
-- MacBook Pro 标准仓库：`/Users/dev/Desktop/projects/Z.AI/z-code`
-- 两端提交：`21c38683e1 test(ui): remove stale built-in model label assertion`
-- MacBook Pro 使用已有标准 bootstrap/build 结果；执行时设置 `ZCODE_E2E_SKIP_BUILD=1`、`ZCODE_E2E_SKIP_AGENT_BUILD=1`，没有修改系统配置。
+- Workspace Samantha: worktree independente
+- Repositório padrão do MacBook Pro: `/Users/dev/Desktop/projects/Z.AI/z-code`
+- Commit nos dois lados: `21c38683e1 test(ui): remove stale built-in model label assertion`
+- O MacBook Pro usou o resultado de bootstrap/build padrão já existente; na execução foram definidos `ZCODE_E2E_SKIP_BUILD=1` e `ZCODE_E2E_SKIP_AGENT_BUILD=1`, sem modificar configuração de sistema.
 
-### 2.2 四轮原生 Desktop E2E
+### 2.2 Quatro rodadas nativas de Desktop E2E
 
-| 运行 | 范围                                                        | 结果                                     | Artifact                          |
-| ---- | ----------------------------------------------------------- | ---------------------------------------- | --------------------------------- |
-| A    | 4 个 Bot 目标 Case + 1 个同 spec 对照 Case                  | 1 pass / 4 fail                          | `desktop-e2e-20260831-093430-761` |
-| B    | Coding Plan、Quota Reset、Upgrade Webview                   | 1 pass / 19 fail；清单中的 15 条全部失败 | `desktop-e2e-20260831-093509-202` |
-| C    | I20、CW、OTB、I08                                           | 0 pass / 4 fail                          | `desktop-e2e-20260831-095111-677` |
-| D    | Restart、Selected-key migration、Settings transition、Turbo | 1 pass / 15 fail；清单中的 14 条全部失败 | `desktop-e2e-20260831-095400-329` |
+| Rodada | Escopo                                                          | Resultado                                  | Artefato                      |
+| ------ | --------------------------------------------------------------- | ------------------------------------------ | ----------------------------- |
+| A      | 4 Cases de alvo de Bot + 1 Case de controle do mesmo spec      | 1 pass / 4 fail                           | `desktop-e2e-20260831-093430-761` |
+| B      | Coding Plan, Quota Reset, Upgrade Webview                      | 1 pass / 19 fail; as 15 da lista falharam todas | `desktop-e2e-20260831-093509-202` |
+| C      | I20, CW, OTB, I08                                              | 0 pass / 4 fail                           | `desktop-e2e-20260831-095111-677` |
+| D      | Restart, Selected-key migration, Settings transition, Turbo   | 1 pass / 15 fail; as 14 da lista falharam todas | `desktop-e2e-20260831-095400-329` |
 
-Artifact 根目录：
+Diretório raiz dos artefatos:
 
 ```text
 /Users/dev/Desktop/projects/Z.AI/z-code/packages/desktop/.e2e-artifacts/
 ```
 
-四轮报告均显示 `0 flaky`、`0 infra failure`。
+Os quatro relatórios mostram `0 flaky` e `0 infra failure`.
 
-## 3. 七类共同根因
+## 3. Sete classes de causa raiz comuns
 
-### R1. Bot 合成 Harness 没有提供目标 Host 的 preferred selection
+### R1. O Harness sintético do Bot não fornece a preferred selection do Host de destino
 
-当前 Bot 首次提交必须在 Submission 边界固定目标 Host 的模型：未显式选择时读取 `ModelSelectionView.preferredSelection`，无法解析就拒绝创建任务。生产边界位于 `packages/services/src/bots/botsService.ts`。
+Atualmente o primeiro envio do Bot precisa fixar o modelo do Host de destino na fronteira de Submission: sem seleção explícita, ele lê `ModelSelectionView.preferredSelection`, e se não conseguir resolver rejeita a criação da task. A fronteira de produção está em `packages/services/src/bots/botsService.ts`.
 
-但两个 Bot E2E Harness 都仍返回空 View：
+Mas os dois Harnesses E2E de Bot ainda devolvem uma View vazia:
 
 ```ts
 getView: async () => ({ revision: 0, providers: [] });
 ```
 
-位置：
+Localizações:
 
 - `packages/desktop/test/e2e/bots/helpers/bots-service-harness.ts`
 - `packages/desktop/test/e2e/bots/feishu-streaming-card-lifecycle.test.ts`
 
-因此消息处理在创建 Task、建立订阅以前就抛出“Bot 无法从目标 Host 解析 Submission 模型”。后面的 terminal event、AskUserQuestion 卡片、streaming card 生命周期自然全部不存在。
+Por isso o processamento da mensagem lança “Bot não consegue resolver o modelo de Submission a partir do Host de destino” antes de criar a Task e estabelecer a assinatura. Naturalmente, os eventos terminais, os cards de AskUserQuestion e o ciclo de vida do streaming card posteriores nem existem.
 
-判断：测试 Harness 过时，不是四个独立的 Bot 产品回归。
+Julgamento: o Harness de teste está desatualizado; não se trata de quatro regressões independentes de produto no Bot.
 
-正确处理：Harness 注入一个最小但真实的 `ModelSelectionView`（含 Provider、Model 和 preferred selection），继续验证原来的 Bot 行为；不能恢复旧 fallback 或绕开正式 Model Selection。
+Tratamento correto: o Harness injeta um `ModelSelectionView` mínimo mas real (com Provider, Model e preferred selection) e continua verificando o comportamento original do Bot; não se pode restaurar o fallback antigo nem contornar o Model Selection oficial.
 
-### R2. Coding Plan E2E 仍以旧 family mode / selectedKey 作为权威
+### R2. O E2E de Coding Plan ainda trata o antigo family mode / selectedKey como autoridade
 
-`coding-plan-team-usage.test.ts` 的场景准备仍写入：
+O preparo de cenário de `coding-plan-team-usage.test.ts` ainda grava:
 
 ```ts
 modelProviderFamilyModes;
 modelProviderFamilySelectedKeys;
 ```
 
-当前正式字段只有：
+Os únicos campos oficiais atuais são:
 
 ```ts
 providerFamilyConnectionSelections;
 ```
 
-其结构化 union 定义在 `packages/shared/src/provider-family-connection-selection.ts`。旧字段及其迁移在提交 `8c55290f1f refactor(provider): finish model abstraction cleanup` 中被明确删除；原因是它们尚未发布，不再背负兼容迁移。
+cuja união estruturada está definida em `packages/shared/src/provider-family-connection-selection.ts`. Os campos antigos e sua migração foram removidos explicitamente no commit `8c55290f1f refactor(provider): finish model abstraction cleanup`; a razão é que ainda não tinham sido publicados e por isso não carregam migração de compatibilidade.
 
-App Settings 的严格解析会丢弃旧字段。测试随后仍以旧字段断言 Team Plan identity，于是出现：
+A análise estrita das App Settings descarta os campos antigos. O teste em seguida ainda afirma o Team Plan identity com os campos antigos, o que produz:
 
-- 连接方式没有个人 / Team Coding Plan；
-- Usage 页面没有 Coding Plan tab；
-- Context usage trigger 和 quota reminder 没有出现；
-- OAuth 恢复后“selectedKey 被覆盖”；
-- I29/I30 实际已经写入新的结构化 selection，但测试仍断言旧 `mode=oauth`，所以误报失败。
+- o modo de conexão não tem Coding Plan pessoal / de Team;
+- a página de Usage não tem a tab Coding Plan;
+- o trigger de context usage e o lembrete de quota não aparecem;
+- após a recuperação do OAuth, “selectedKey foi sobrescrito”;
+- I29/I30 na verdade já gravaram a nova selection estruturada, mas o teste ainda afirma o antigo `mode=oauth`, reportando falha indevidamente.
 
-判断：这是同一套旧设置夹具造成的级联失败。
+Julgamento: são falhas em cascata causadas pelo mesmo conjunto de fixtures de configurações antigas.
 
-正确处理：场景输入和断言都只使用 `providerFamilyConnectionSelections`；Team Plan 直接断言完整的 `productId/organizationId/projectId`，不再生成或检查字符串 selectedKey。
+Tratamento correto: tanto a entrada de cenário quanto as afirmações usam apenas `providerFamilyConnectionSelections`; o Team Plan afirma diretamente o `productId/organizationId/projectId` completo e não gera nem verifica mais a selectedKey em string.
 
-### R3. E2E 把 Account Provider 当成 Personal API-Key Provider
+### R3. O E2E trata o Account Provider como um Personal API-Key Provider
 
-当前 Account Provider 的职责边界是：
+A fronteira de responsabilidade atual do Account Provider é:
 
 ```text
 Built-in：声明 Provider 静态身份、API、模型成员
@@ -140,38 +140,38 @@ Account Overlay：声明 access.entitled、账号动态成员/访问事实
 Personal Overlay：不拥有 Account access，也不能用 enabled 伪装 entitlement
 ```
 
-Resolver 只有在 `access.type !== zhipu-account` 或 `access.entitled === true` 时，才认为 Provider 可执行。
+O Resolver só considera o Provider executável quando `access.type !== zhipu-account` ou `access.entitled === true`.
 
-失败测试仍采用旧注入方式：
+Os testes que falham ainda usam a forma antiga de injeção:
 
-- `coding-plan-team-usage.test.ts` 为 `account:bigmodel-individual-coding-plan` 写 Personal `apiKey`、`enabled`、Endpoint 和模型；
-- Restart/Turbo helpers 用 `seedReplayProvider()` 给 `account:*` 写 Personal Provider，却没有建立 Account Overlay entitlement；
-- Upgrade Webview 测试通过 `readModelProvider()` 读取 Personal Config，并期待 Account Provider 中出现 `apiKey` 和 `enabled`。
+- `coding-plan-team-usage.test.ts` grava Personal `apiKey`, `enabled`, Endpoint e modelos para `account:bigmodel-individual-coding-plan`;
+- os helpers de Restart/Turbo usam `seedReplayProvider()` para gravar um Personal Provider em `account:*`, sem estabelecer entitlement de Account Overlay;
+- o teste de Upgrade Webview lê o Personal Config por `readModelProvider()` e espera ver `apiKey` e `enabled` em um Account Provider.
 
-结果有两种：
+O resultado é um de dois:
 
-1. Account Provider 因 `entitled !== true` 不可执行，Selection 合法回退到 DeepSeek；
-2. 测试读取的是 Personal Source，自然看不到属于 Account/凭据链的动态 Key 或 entitlement。
+1. o Account Provider não é executável por `entitled !== true` e a Selection recai legitimamente para DeepSeek;
+2. o teste está lendo a Personal Source e, naturalmente, não vê a Key dinâmica nem o entitlement que pertencem à cadeia Account/de credenciais.
 
-判断：这是测试越过配置分层后的错误夹具/错误观察点，不应通过放宽生产 Schema 修复。
+Julgamento: são fixtures erradas e pontos de observação errados depois que o teste atravessou a estratificação de configurações; não devem ser corrigidos afrouxando o Schema de produção.
 
-正确处理：
+Tratamento correto:
 
-- Account Case 在 Account Source/账号 API mock 边界提供 `entitled=true` 和对应模型成员；
-- OAuth/业务凭据继续由 Credential fixture 提供；
-- Personal Config 只保留真正允许的 Personal Model Overlay；
-- 测试 Provider 可用性时读取 Effective Settings/Selection View 或正式请求结果，不读 Personal 文件猜 Account 状态。
+- os Cases de Account fornecem `entitled=true` e os membros de modelo correspondentes na fronteira da Account Source/mock da API de conta;
+- credenciais de OAuth/negócio continuam vindo da fixture de credenciais;
+- o Personal Config mantém apenas o Personal Model Overlay realmente permitido;
+- ao testar a disponibilidade do Provider, o teste lê a Effective Settings/Selection View ou o resultado oficial da requisição, em vez de ler o arquivo Personal para adivinhar o estado de Account.
 
-### R4. I20 已写入新 agents-state 结构，但 E2E 仍读取旧字段
+### R4. I20 já grava a nova estrutura agents-state, mas o E2E ainda lê os campos antigos
 
-Subagent Service 当前可以读取旧：
+Atualmente o Subagent Service ainda pode ler como entrada de compatibilidade:
 
 ```text
 builtInModelOverrides
 builtInThoughtLevelOverrides
 ```
 
-作为兼容输入，但保存时统一写：
+mas ao salvar grava uniformemente:
 
 ```text
 builtInModelSelectionOverrides[agentName] = {
@@ -181,118 +181,118 @@ builtInModelSelectionOverrides[agentName] = {
 }
 ```
 
-I20 在选择 `high` 后仍轮询原始 JSON 的 `builtInThoughtLevelOverrides.Explore`，因此报“没有写入”。这并不能证明保存失败；它只证明保存后文件已经不再维持旧双 map 结构。
+Após escolher `high`, o I20 continua fazendo polling do `builtInThoughtLevelOverrides.Explore` no JSON original e por isso reporta “não foi gravado”. Isso não prova que a gravação falhou; prova apenas que, depois da gravação, o arquivo não mantém mais a estrutura antiga de dois maps.
 
-判断：观察断言过时。该 Case 尚未运行到冷启动 child request 的真正核心断言。
+Julgamento: a afirmação de observação está obsoleta. Esse Case ainda nem executou até a afirmação central realmente sobre a child request de cold start.
 
-正确处理：E2E 读取并断言 `builtInModelSelectionOverrides`；如需验证旧文件输入兼容，应另设一次性 importer/reader 单测，不让正常 E2E 继续要求写回旧格式。
+Tratamento correto: o E2E lê e afirma `builtInModelSelectionOverrides`; se for preciso verificar a compatibilidade de entrada de arquivo antigo, deve haver um teste unitário separado de importer/reader, sem exigir que um E2E normal continue gravando o formato antigo.
 
-### R5. CW / OTB / I08 等待一个已经删除的 workspace Registry push 日志
+### R5. CW / OTB / I08 esperam um log de push de Registry do workspace que já foi removido
 
-三项测试都把下面的日志当成 readiness barrier：
+Os três testes tratam o log abaixo como barreira de readiness:
 
 ```text
 zcode_protocol.workspace_update_provider_registry.completed
 ```
 
-当前生产代码已经没有这个事件，仓库中只剩这三个 E2E 在搜索它。Provider 重构后 Registry 是 process-owned runtime，启动事件是：
+O código de produção atual já não tem esse evento, e no repositório restam apenas esses três E2E procurando por ele. Depois do refactor de Provider, o Registry é um runtime process-owned e o evento de inicialização é:
 
 ```text
 zcode_protocol.provider_registry.ready
 ```
 
-Personal Config 的更新也由正式 Runtime/Registry source 处理，不再向每个 workspace 推一份 Registry snapshot。
+As atualizações do Personal Config também passaram a ser tratadas pela Runtime/Registry source oficial, sem mais enviar um snapshot de Registry para cada workspace.
 
-因此三项测试均在旧日志轮询处超时，尚未检查 context window、output token budget 或新增 Provider 首发请求。
+Por isso os três testes dão timeout na polling do log antigo e ainda nem verificam context window, output token budget ou a primeira requisição com o novo Provider.
 
-判断：测试同步屏障过时，不代表 Registry 更新真的没有应用。
+Julgamento: a barreira de sincronização do teste está obsoleta; isso não significa que a atualização do Registry realmente não foi aplicada.
 
-正确处理：删除 workspace Registry push 的日志解析 helper，改用当前正式的 Registry ready/Selection View/最终请求捕获作为可观察完成条件。不能为了 E2E 恢复已删除的 workspace Registry 协议。
+Tratamento correto: remover o helper de parsing de log do push de Registry do workspace e usar como condição observável de conclusão o Registry ready/Selection View oficial atual ou a captura da requisição final. Não se pode restaurar, por causa do E2E, o protocolo de Registry de workspace que já foi removido.
 
-### R6. I32-I34 专门验证了已裁决删除的未发布迁移
+### R6. I32-I34 verificavam especificamente uma migração não publicada cuja remoção já foi decidida
 
-这三个 Case 的标题和实现都要求启动时修复：
+O título e a implementação desses três Cases exigem que a inicialização corrija:
 
 ```text
 modelProviderFamilyModes + modelProviderFamilySelectedKeys
                          -> 新 selectedKey
 ```
 
-但当前设计不再有“新 selectedKey”；目标是结构化 `providerFamilyConnectionSelections`。旧迁移又已按“未上线，不兼容读取”裁决删除。
+Mas o design atual não tem mais um “novo selectedKey”; o alvo é o `providerFamilyConnectionSelections` estruturado. E a migração antiga já foi removida pela decisão de “não publicado, sem leitura de compatibilidade”.
 
-判断：这 3 个 Case 的目标已失效，不应修生产代码使其重新通过。
+Julgamento: o objetivo desses 3 Cases ficou inválido e o código de produção não deve ser corrigido para fazê-los passar de novo.
 
-正确处理：删除这三个旧迁移 Case。若仍需启动恢复覆盖，替换为“结构化 selection JSON round-trip 后 identity 不变”，不要测试旧字符串修复。
+Tratamento correto: remover esses três Cases de migração antiga. Se ainda for necessária cobertura de restauração na inicialização, substituí-los por “após o round-trip de um selection JSON estruturado, a identity permanece inalterada”, sem testar a correção de strings antigas.
 
-### R7. CPUW-03 的 Webview mock 假设也已过时
+### R7. A suposição do mock de Webview do CPUW-03 também está obsoleta
 
-`triggerCodingPlanWebviewPurchaseComplete()` 先读取可见 Webview origin，再把这个 origin 当作本地 upgrade mock server 调用“标记购买完成”。当前实际 Webview URL 是正式 ZCode Endpoint：
+`triggerCodingPlanWebviewPurchaseComplete()` lê primeiro a origem visível do Webview e depois usa essa origem como se fosse o mock server local de upgrade para “marcar a compra como concluída”. A URL real do Webview atual é o Endpoint oficial do ZCode:
 
 ```text
 https://zcode.z.ai/coding-plan...
 ```
 
-它不是本地 mock server，所以 CPUW-03 在触发 bridge 以前就失败。该 Case 同时还在购买后读取 Personal Provider 的 `enabled`，与 R3 相同。
+Ela não é um mock server local e, por isso, o CPUW-03 falha antes mesmo de disparar o bridge. Esse Case também continua lendo o `enabled` do Personal Provider depois da compra, o que é a mesma questão de R3.
 
-判断：当前失败点是 Webview E2E mock 接线和 Account 状态断言过时；尚未证明购买完成 bridge 或刷新逻辑失败。
+Julgamento: o ponto de falha atual é a fiação do mock E2E de Webview e a afirmação de estado de Account desatualizadas; ainda não se prova que o bridge de conclusão de compra ou a lógica de refresh falham.
 
-正确处理：mock 控制面地址必须来自 WDIO 启动的 upgrade mock，而不是从 Webview 可见 origin 反推；Webview 页面/导航可继续使用受信 ZCode Endpoint fixture。购买后通过正式 Provider Settings/Account entitlement 观察刷新结果。
+Tratamento correto: o endereço do plano de controle do mock precisa vir do mock de upgrade iniciado pelo WDIO, e não ser deduzido da origem visível do Webview; as páginas/navegação do Webview podem continuar usando fixtures de Endpoint confiáveis do ZCode. Depois da compra, o resultado do refresh é observado pelas Settings oficiais de Provider/entitlement de Account.
 
-## 4. 37 条逐项结论
+## 4. Conclusões item a item das 37 entradas
 
-|   # | Case                            | 实际最早失败点                                        | 根因    | 判断与下一步                                               |
-| --: | ------------------------------- | ----------------------------------------------------- | ------- | ---------------------------------------------------------- |
-|   1 | BOT-E2E-CR-01                   | terminal event 为 false                               | R1      | Harness 补 preferred selection 后重跑 terminal delivery    |
-|   2 | BOT-E2E-AQ-01                   | AskUserQuestion card 不存在                           | R1      | Task 尚未创建；补 Harness 后重跑卡片聚合                   |
-|   3 | BOT-E2E-IL-01                   | completed interaction card 不存在                     | R1      | Task 尚未创建；补 Harness 后重跑 sealing                   |
-|   4 | Feishu streaming card lifecycle | callback/stream/typing/terminal 未合卡                | R1      | 同一 standalone Harness 为空；补模型后重跑                 |
-|   5 | CTP-02                          | 连接方式选项断言失败                                  | R2 + R3 | 用结构化 selection + Account entitlement 重建 fixture      |
-|   6 | CTP-04B                         | 无法进入 Coding Plan tab                              | R2 + R3 | 尚未触达 activity/detail/performance 断言                  |
-|   7 | CTP-05                          | 无法进入 Coding Plan tab                              | R2 + R3 | 尚未触达个人/团队组合展示                                  |
-|   8 | CTP-06                          | 旧 selectedKey 未保留                                 | R2      | 改断言结构化 Team identity；不恢复 selectedKey             |
-|   9 | CTP-09                          | 无法进入 Coding Plan tab                              | R2 + R3 | 尚未触达 activity failure isolation                        |
-|  10 | CTP-10                          | Context usage trigger 不存在                          | R2 + R3 | 当前没有可用 Coding Plan source；重建后再验 freshness      |
-|  11 | CTP-11                          | 无法进入 Coding Plan tab                              | R2 + R3 | 尚未触达 quota fatal/recovery                              |
-|  12 | QR-E2E-01                       | 无法进入 Coding Plan tab                              | R2 + R3 | 尚未触达 opportunity/status 权威关系                       |
-|  13 | QR-E2E-02                       | 无法进入 Coding Plan tab                              | R2 + R3 | 尚未触达多类型机会展示                                     |
-|  14 | QR-E2E-09                       | initial reminder 不存在                               | R2 + R3 | source 未成立；重建后再验常驻/hover                        |
-|  15 | QR-E2E-10                       | urgent reminder 不存在                                | R2 + R3 | source 未成立；重建后再验三分钟边界                        |
-|  16 | QR-E2E-04                       | Context usage trigger 不存在                          | R2 + R3 | 尚未触达 HoverCard/Dialog 生命周期                         |
-|  17 | QR-E2E-03                       | 无法进入 Coding Plan tab                              | R2 + R3 | 尚未触达 `used_at` 完成条件                                |
-|  18 | CPUW-01                         | Personal reader 中 Account apiKey 缺失                | R3      | 改为正式凭据/Account 刷新观察点后重跑                      |
-|  19 | CPUW-03                         | 对正式 Webview origin 调本地 mock 标记失败            | R7 + R3 | 修 mock 控制面接线，并移除 Personal enabled 断言           |
-|  20 | I20                             | 旧 `builtInThoughtLevelOverrides` 不再出现            | R4      | 改读 structured selection；随后才验证冷启动 child request  |
-|  21 | CW01-CW04                       | 等不到已删除的 workspace registry 日志                | R5      | 换正式 readiness/request barrier 后重跑 limits/compact     |
-|  22 | OTB01-OTB03/06-07               | 等不到已删除的 workspace registry 日志                | R5      | 换 barrier 后重跑 request/compact/runtime budget           |
-|  23 | I08                             | 等不到已删除的 workspace registry 日志                | R5      | 换 barrier 后重跑设置新增、选择和首发                      |
-|  24 | I26/MP-R02                      | Account 模型不可执行，回退 DeepSeek                   | R3      | 在 Account Source seed entitlement 后验证非首模型恢复      |
-|  25 | I27/MP-R03                      | 旧模型不可执行，回到目标 Host preferredSelection      | R3      | seed 当前 Coding Plan entitlement 后验证 Host 当前有效选择 |
-|  26 | I28/MP-R04                      | Recent 选择不可用，回到目标 Host preferredSelection   | R3      | seed 当前连接 entitlement 后验证 Host 当前有效选择         |
-|  27 | I32/MP-M01                      | 旧 selectedKey 不再迁移                               | R6      | 删除；如有需要改为 structured api-key selection round-trip |
-|  28 | I33/MP-M02                      | 旧 Team selectedKey 不再迁移                          | R6      | 删除；改为 structured Team identity round-trip             |
-|  29 | I34/MP-M03                      | 不再修复残缺旧 key                                    | R6      | 删除；严格 Schema 对残缺 identity 的行为放单测             |
-|  30 | I29/MP-S01                      | 实际已写新 selection，旧 `mode=oauth` 断言失败        | R2      | 改断言 structured selection，再继续验证 DeepSeek draft     |
-|  31 | I30/MP-S02                      | 实际已写新 selection，旧 `mode=oauth` 断言失败        | R2      | 同上；不是 transition 本身的失败证据                       |
-|  32 | I31/MP-S03                      | 目标 Account Plan 不可执行，仍为 DeepSeek             | R3      | seed entitlement 后重跑 reconciliation/highspeed           |
-|  33 | I35/MP-T01                      | Individual Plan/Turbo 模型不在可选集合                | R3      | 当前只出现 Team Account models；修 Account fixture 后重跑  |
-|  34 | I36/MP-T02                      | Individual Plan/Turbo 模型不在可选集合                | R3      | 尚未发送首个 Plan request                                  |
-|  35 | I38/MP-T04                      | 实际选中 Team GLM-5.3，非 fixture 的 Individual Turbo | R3      | Account identity/entitlement 不一致；尚未验证迟到回包      |
-|  36 | I39/MP-T05                      | Individual Turbo 模型不在可选集合                     | R3      | 尚未验证原子切换和 last-selected                           |
-|  37 | I42/MP-T06                      | Individual GLM-5.2 不在目标可选集合                   | R3      | 尚未验证 thought 丢弃                                      |
+|   # | Case                            | Ponto real de falha mais precoce                         | Causa   | Julgamento e próximo passo                                          |
+| --: | ------------------------------- | ------------------------------------------------------- | ------- | ------------------------------------------------------------------- |
+|   1 | BOT-E2E-CR-01                   | terminal event é false                                   | R1      | Rodar de novo a entrega terminal depois de completar o Harness com preferred selection |
+|   2 | BOT-E2E-AQ-01                   | o card de AskUserQuestion não existe                     | R1      | A Task ainda não foi criada; rodar de novo a agregação de cards depois de completar o Harness |
+|   3 | BOT-E2E-IL-01                   | o card de completed interaction não existe               | R1      | A Task ainda não foi criada; rodar de novo o sealing depois de completar o Harness |
+|   4 | Feishu streaming card lifecycle | callback/stream/typing/terminal não foram agrupados no card | R1      | O mesmo Harness standalone está vazio; rodar de novo depois de adicionar o modelo |
+|   5 | CTP-02                          | falha na afirmação das opções de modo de conexão         | R2 + R3 | Reconstruir a fixture com selection estruturada + entitlement de Account |
+|   6 | CTP-04B                         | não é possível entrar na tab Coding Plan                 | R2 + R3 | Ainda não alcançou as afirmações de activity/detail/performance      |
+|   7 | CTP-05                          | não é possível entrar na tab Coding Plan                 | R2 + R3 | Ainda não alcançou a exibição das combinações pessoal/equipe         |
+|   8 | CTP-06                          | o selectedKey antigo não foi preservado                   | R2      | Mudar a afirmação para identity estruturada de Team; não restaurar selectedKey |
+|   9 | CTP-09                          | não é possível entrar na tab Coding Plan                 | R2 + R3 | Ainda não alcançou o isolamento de falha de activity                 |
+|  10 | CTP-10                          | o trigger de context usage não existe                    | R2 + R3 | Não há source de Coding Plan utilizável; reconstruir e só então verificar freshness |
+|  11 | CTP-11                          | não é possível entrar na tab Coding Plan                 | R2 + R3 | Ainda não alcançou quota fatal/recovery                              |
+|  12 | QR-E2E-01                       | não é possível entrar na tab Coding Plan                 | R2 + R3 | Ainda não alcançou a relação de autoridade opportunity/status         |
+|  13 | QR-E2E-02                       | não é possível entrar na tab Coding Plan                 | R2 + R3 | Ainda não alcançou a exibição de oportunidades de múltiplos tipos    |
+|  14 | QR-E2E-09                       | o lembrete inicial não existe                            | R2 + R3 | A source não se estabeleceu; reconstruir e só então verificar persistente/hover |
+|  15 | QR-E2E-10                       | o lembrete urgente não existe                            | R2 + R3 | A source não se estabeleceu; reconstruir e só então verificar a fronteira de três minutos |
+|  16 | QR-E2E-04                       | o trigger de context usage não existe                    | R2 + R3 | Ainda não alcançou o ciclo de vida de HoverCard/Dialog                |
+|  17 | QR-E2E-03                       | não é possível entrar na tab Coding Plan                 | R2 + R3 | Ainda não alcançou a condição de conclusão `used_at`                  |
+|  18 | CPUW-01                         | apiKey de Account ausente no Personal reader             | R3      | Rodar de novo depois de mudar para o ponto de observação oficial de credenciais/refresh de Account |
+|  19 | CPUW-03                         | falha ao chamar o mock local na origem Webview oficial   | R7 + R3 | Corrigir a fiação do plano de controle do mock e remover a afirmação de Personal enabled |
+|  20 | I20                             | o `builtInThoughtLevelOverrides` antigo não aparece mais  | R4      | Ler a selection estruturada; só então verificar a child request de cold start |
+|  21 | CW01-CW04                       | o log de workspace registry removido nunca chega         | R5      | Trocar pela barreira oficial de readiness/request e rodar de novo limits/compact |
+|  22 | OTB01-OTB03/06-07               | o log de workspace registry removido nunca chega         | R5      | Trocar a barreira e rodar de novo request/compact/runtime budget      |
+|  23 | I08                             | o log de workspace registry removido nunca chega         | R5      | Trocar a barreira e rodar de novo a adição nas configurações, a seleção e o primeiro envio |
+|  24 | I26/MP-R02                      | o modelo de Account não é executável e há fallback para DeepSeek | R3      | Validar a recuperação para um modelo não-padrão depois de semear entitlement na Account Source |
+|  25 | I27/MP-R03                      | o modelo antigo não é executável e volta à preferredSelection do Host de destino | R3      | Semear o entitlement atual do Coding Plan e validar a seleção válida atual do Host |
+|  26 | I28/MP-R04                      | a seleção Recent está indisponível e volta à preferredSelection do Host de destino | R3      | Semear o entitlement da conexão atual e validar a seleção válida atual do Host |
+|  27 | I32/MP-M01                      | o selectedKey antigo não é mais migrado                   | R6      | Remover; se necessário, substituir por round-trip de structured api-key selection |
+|  28 | I33/MP-M02                      | o selectedKey antigo de Team não é mais migrado           | R6      | Remover; substituir por round-trip de structured Team identity         |
+|  29 | I34/MP-M03                      | a key antiga incompleta não é mais reparada              | R6      | Remover; o comportamento do Schema estrito diante de identity incompleta vira teste unitário |
+|  30 | I29/MP-S01                      | a nova selection já foi gravada, mas a afirmação antiga `mode=oauth` falhou | R2      | Afirmar a structured selection e então continuar verificando o draft de DeepSeek |
+|  31 | I30/MP-S02                      | a nova selection já foi gravada, mas a afirmação antiga `mode=oauth` falhou | R2      | O mesmo; não é evidência de falha da transition em si                  |
+|  32 | I31/MP-S03                      | o Account Plan de destino não é executável e continua DeepSeek | R3      | Semear o entitlement e rodar de novo reconciliation/highspeed           |
+|  33 | I35/MP-T01                      | os modelos do Individual Plan/Turbo não estão no conjunto selecionável | R3      | Só aparecem modelos de Team Account; corrigir a fixture de Account e rodar de novo |
+|  34 | I36/MP-T02                      | os modelos do Individual Plan/Turbo não estão no conjunto selecionável | R3      | Ainda não enviou a primeira requisição de Plan                        |
+|  35 | I38/MP-T04                      | o selecionado real foi o Team GLM-5.3, e não o Individual Turbo da fixture | R3      | A identity/entitlement de Account é inconsistente; a resposta tardia ainda não foi verificada |
+|  36 | I39/MP-T05                      | o modelo Individual Turbo não está no conjunto selecionável | R3      | A troca atômica e o last-selected ainda não foram verificados           |
+|  37 | I42/MP-T06                      | o Individual GLM-5.2 não está no conjunto selecionável de destino | R3      | O descarte de thought ainda não foi verificado                         |
 
-## 5. 建议修复顺序
+## 5. Ordem sugerida de correção
 
-### 阶段 1：先修测试基础事实，不碰生产语义
+### Fase 1: corrigir primeiro os fatos básicos de teste, sem tocar na semântica de produção
 
-1. Bot Harness 提供正式 `ModelSelectionView`。
-2. 建立统一的 Account E2E fixture：从 Account Source/账号 API mock 发布 `access.entitled` 和动态模型；禁止再把 Account access 写入 Personal Config。
-3. Coding Plan 场景全面切到 `providerFamilyConnectionSelections`。
-4. Subagent E2E 改读 `builtInModelSelectionOverrides`。
-5. 删除三个旧 selectedKey 迁移 Case，或改为结构化 round-trip。
-6. 删除三个 E2E 内对 `workspace_update_provider_registry.completed` 的依赖，使用当前正式观察点。
-7. 修正 Upgrade Webview mock 控制面与状态观察点。
+1. O Harness de Bot passa a fornecer o `ModelSelectionView` oficial.
+2. Estabelecer uma fixture E2E de Account unificada: publicar `access.entitled` e modelos dinâmicos pela Account Source/mock da API de conta; é proibido gravar Account access no Personal Config.
+3. Migrar todos os cenários de Coding Plan para `providerFamilyConnectionSelections`.
+4. Fazer o E2E de Subagent ler `builtInModelSelectionOverrides`.
+5. Remover os três Cases de migração de selectedKey antigos, ou convertê-los em round-trip estruturado.
+6. Remover a dependência dos três E2E em `workspace_update_provider_registry.completed` e usar os pontos de observação oficiais atuais.
+7. Corrigir o plano de controle do mock de Upgrade Webview e o ponto de observação de estado.
 
-### 阶段 2：逐组重跑，才裁定产品 Bug
+### Fase 2: rerodar por grupo, para só então arbitrar Bugs de produto
 
 ```text
 基础 fixture 修正
@@ -309,18 +309,18 @@ Case 到达原始业务断言了吗？
             `-- 失败 --> 固定为真实产品回归，再最小修生产代码
 ```
 
-重跑优先级：
+Prioridade de rerodada:
 
-1. Bot 4 条（修改最小、反馈最快）；
-2. CW / OTB / I08（只先替换 readiness barrier）；
-3. Restart / Settings Transition / Turbo（共用 Account fixture）；
-4. Coding Plan / Quota Reset（共用结构化 selection + Account fixture）；
-5. Upgrade Webview；
-6. I20 完整冷启动 child request。
+1. os 4 de Bot (menor mudança e retorno mais rápido);
+2. CW / OTB / I08 (trocando apenas a barreira de readiness);
+3. Restart / Settings Transition / Turbo (compartilham a fixture de Account);
+4. Coding Plan / Quota Reset (compartilham structured selection + fixture de Account);
+5. Upgrade Webview;
+6. a child request completa de cold start do I20.
 
-## 6. 本轮未做事项
+## 6. O que não foi feito nesta rodada
 
-- 没有修改任何生产代码；
-- 没有为了让测试通过恢复 legacy settings、workspace Registry snapshot 或 Personal Account access；
-- 没有把失败用例标记 skip/pending；
-- 没有宣称底层业务行为已经通过。当前报告只裁定“目前最早失败点及其根因”，测试迁移后仍必须完整重跑原始断言。
+- Nenhum código de produção foi modificado;
+- Nenhuma configuração legada, snapshot de Registry de workspace ou Account access Personal foi restaurada para fazer os testes passarem;
+- Nenhum caso que falhou foi marcado como skip/pending;
+- Não se afirma que o comportamento de negócio subjacente já passou. Este relatório apenas arbitra “o ponto de falha mais precoce atual e sua causa raiz”, e as afirmações originais ainda precisam ser completamente rerodadas depois da migração dos testes.

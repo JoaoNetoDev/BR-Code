@@ -1,20 +1,19 @@
-# Coding Plan 购买漏斗埋点设计
+# Design da telemetria do funil de compra do Coding Plan
 
-> 当前入口归属以 [购买埋点](./coding-plan-purchase-telemetry.md) 的 2026-09-09 规则为准：
-> App 显式入口点击上报一次；下文原生面板打开及 OAuth 恢复时上报的描述为历史语义。
+> A atribuição atual das entradas segue a regra de 2026-09-09 de [telemetria de compra](./coding-plan-purchase-telemetry.md): o clique na entrada explícita do App reporta uma vez; as descrições abaixo de abertura do painel nativo e de reporte na recuperação OAuth são semântica histórica.
 
-日期：2026-06-29
-状态：草案
+Data: 2026-06-29
+Status: rascunho
 
-## 1. 目标
+## 1. Objetivo
 
-补齐以下三个点击事件：
+Preencher os três eventos de clique a seguir:
 
-1. `coding_plan_upgrade_ck`：进入 Coding Plan 产品选择页。
-2. `purchase_product_select_ck`：选择个人或团队产品。
-3. `purchase_billing_cycle_select_ck`：确认购买周期/方式并进入支付确认页。
+1. `coding_plan_upgrade_ck`: entrada na página de seleção de produto do Coding Plan.
+2. `purchase_product_select_ck`: seleção do produto pessoal ou de equipe.
+3. `purchase_billing_cycle_select_ck`: confirmação do ciclo/método de compra e entrada na página de confirmação de pagamento.
 
-与已有事件组成完整客户端链路：
+Junta-se aos eventos existentes para formar a cadeia completa do cliente:
 
 ```text
 coding_plan_upgrade_ck
@@ -24,7 +23,7 @@ coding_plan_upgrade_ck
 -> purchase_result
 ```
 
-事件统一使用以下结构，`eventRegion` 按事件发生位置填写：
+Os eventos usam uniformemente a estrutura abaixo, com `eventRegion` preenchido conforme o local de ocorrência do evento:
 
 ```json
 {
@@ -36,51 +35,41 @@ coding_plan_upgrade_ck
 }
 ```
 
-约束：
+Restrições:
 
-- `eventText` 是顶层字段，对应上报结果中的 `event_text`。
-- `eventText` 使用用户点击时实际看到的本地化文本，如“升级”“订阅”“个人套餐”。
-- `coding_plan_upgrade_ck` 发生在购买流程入口，`eventRegion` 使用用户点击入口时所在的
-  `app.profile`、`app.session` 或 `app.setting`；具体入口由 `upgrade_source` 区分。
-- 除 `coding_plan_upgrade_ck` 外，购买面板内的 `purchase_product_select_ck`、
-  `purchase_billing_cycle_select_ck` 和已有 `purchase_pay_ck` 均发生在
-  `app.purchase`，其 `eventRegion` 必须固定为 `app.purchase`。
-- 业务维度放在 `eventExtraDetail`，不重复写点击文案。
-- `eventExtraDetail` 的值全部为字符串；空值写 `""`。
-- 使用标准拼写 `purchase_billing_cycle_select_ck`，不使用 `biling`。
+- `eventText` é um campo de topo e corresponde ao `event_text` do resultado de reporte.
+- `eventText` usa o texto localizado que o usuário realmente viu ao clicar, como "Upgrade", "Assinar", "Plano pessoal".
+- `coding_plan_upgrade_ck` acontece na entrada do fluxo de compra, e seu `eventRegion` usa o `app.profile`, `app.session` ou `app.setting` em que o usuário estava ao clicar na entrada; a entrada concreta é distinguida por `upgrade_source`.
+- Exceto `coding_plan_upgrade_ck`, os eventos `purchase_product_select_ck`, `purchase_billing_cycle_select_ck` e o já existente `purchase_pay_ck` dentro do painel de compra ocorrem em `app.purchase`, e seu `eventRegion` precisa ser fixado como `app.purchase`.
+- As dimensões de negócio vão em `eventExtraDetail`, sem repetir o texto do clique.
+- Todos os valores de `eventExtraDetail` são string; valor vazio se escreve `""`.
+- Usa a grafia padrão `purchase_billing_cycle_select_ck`, e não `biling`.
 
-## 2. 关联 ID
+## 2. ID de correlação
 
-现有 `purchase_attempt_id` 在点击支付时才生成，无法关联前三个事件。
+O `purchase_attempt_id` existente só é gerado no clique de pagamento, o que impede correlacionar os três primeiros eventos.
 
-新增：
+Novo:
 
 ```text
 purchase_funnel_id
 ```
 
-规则：
+Regras:
 
-- 能直接打开购买面板的入口点击时创建 pending UUID；购买面板确认打开后，
-  该 UUID 才成为本次 `purchase_funnel_id`，并上报 `coding_plan_upgrade_ck`。
-- 未连接时个人/团队入口当前只发起 OAuth，不会自动打开购买面板；该点击不创建
-  `purchase_funnel_id`，也不上报 `coding_plan_upgrade_ck`。用户登录后再次打开购买面板时
-  再开始新的 funnel。
-- 已经先打开购买面板、再由面板内套餐选择触发 OAuth 的入口（包括闲时任务 Upgrade）在面板
-  打开时开始 funnel。OAuth 登录期间必须保留原 `purchase_funnel_id`、`upgrade_source` 和
-  入口套餐快照；登录成功后恢复套餐选择并继续原 funnel，禁止重新生成 ID 或把来源改写为登录入口。
-- 三个新增事件及已有 `purchase_pay_ck`、`purchase_result` 使用同一个 ID。
-- 用户进入 `app.purchase` 后，本次购买流程只生成一个 `purchase_funnel_id`。在流程内返回
-  上一步、重新选择并再次进入后续页面时继续沿用，不得因子页面卸载或重新挂载而生成新 ID。
-- 关闭购买面板后结束；再次打开生成新 ID。
-- `purchase_attempt_id` 继续表示一次真实支付尝试，不改变现有含义。
+- Ao clicar em uma entrada que abre diretamente o painel de compra, cria-se um UUID pending; só depois que o painel de compra confirma a abertura é que esse UUID passa a ser o `purchase_funnel_id` desta vez e `coding_plan_upgrade_ck` é reportado.
+- Quando desconectado, as entradas pessoal/equipe hoje apenas disparam o OAuth e não abrem automaticamente o painel de compra; esse clique não cria `purchase_funnel_id` nem reporta `coding_plan_upgrade_ck`. Quando o usuário abrir de novo o painel de compra após o login, começa-se um novo funil.
+- Entradas que já abriram o painel de compra primeiro e só então dispararam OAuth a partir da seleção de plano dentro do painel (incluindo o Upgrade de tarefa off-peak) começam o funil no momento da abertura do painel. Durante o login OAuth é preciso preservar o `purchase_funnel_id`, o `upgrade_source` e o snapshot do plano de entrada originais; após o login bem-sucedido, a seleção de plano é restaurada e o funil original continua, e é proibido gerar um novo ID ou reescrever a origem como sendo a entrada de login.
+- Os três eventos novos e o já existente `purchase_pay_ck` e `purchase_result` usam o mesmo ID.
+- Depois que o usuário entra em `app.purchase`, só um `purchase_funnel_id` é gerado para este fluxo de compra. Ao voltar ao passo anterior dentro do fluxo, escolher de novo e entrar novamente nas páginas seguintes, o mesmo ID continua sendo usado, e ele não pode ser gerado de novo por unload ou remontagem de subpágina.
+- Fechar o painel de compra encerra; abrir de novo gera um novo ID.
+- `purchase_attempt_id` continua representando uma tentativa real de pagamento, sem mudar de significado.
 
-支付成功页是购买流程终态，只提供“关闭/完成”，不提供“返回”。用户不能从成功页回到
-此前购买步骤；关闭成功页后结束本次 funnel。
+A página de sucesso do pagamento é o estado final do fluxo de compra: oferece apenas "Fechar/Concluir", sem "Voltar". O usuário não consegue voltar da página de sucesso aos passos anteriores da compra; fechar a página de sucesso encerra este funil.
 
 ## 3. `coding_plan_upgrade_ck`
 
-用户点击任何能够进入 Coding Plan 产品选择页的入口时上报。
+É reportado quando o usuário clica em qualquer entrada que consiga levar à página de seleção de produto do Coding Plan.
 
 ```json
 {
@@ -100,74 +89,63 @@ purchase_funnel_id
 }
 ```
 
-字段：
+Campos:
 
-| 字段 | 含义 | 值 |
+| Campo | Significado | Valor |
 | --- | --- | --- |
-| `eventText` | 实际点击文本 | `升级`、`订阅`、`个人套餐`、`团队套餐`，英文界面取对应英文 |
-| `upgrade_source` | 点击位置 | 见下表 |
-| `entry_plan_status` | 进入购买漏斗时的套餐状态 | `no_plan` / `start_plan` / `coding_plan` / `unknown` |
-| `entry_plan_level` | 进入购买漏斗时的套餐级别 | 后端/权益快照原值；无法获取时为 `""` |
-| `entry_plan_list` | 进入购买漏斗时用户已有的套餐列表 | `start_plan__{planId}`、`coding_plan__personal_{tier}`、`coding_plan__team_{tier}`，逗号拼接 |
-| `purchase_audience` | 购买对象 | `personal` / `team`；尚未选择时为 `""` |
+| `eventText` | Texto realmente clicado | `升级`、`订阅`、`个人套餐`、`团队套餐`; na interface em inglês, o equivalente em inglês |
+| `upgrade_source` | Local do clique | Ver tabela abaixo |
+| `entry_plan_status` | Estado do plano ao entrar no funil de compra | `no_plan` / `start_plan` / `coding_plan` / `unknown` |
+| `entry_plan_level` | Nível do plano ao entrar no funil de compra | Valor original do snapshot de backend/entitlement; `""` quando não disponível |
+| `entry_plan_list` | Lista de planos que o usuário já tem ao entrar no funil de compra | `start_plan__{planId}`, `coding_plan__personal_{tier}`, `coding_plan__team_{tier}`, unidos por vírgula |
+| `purchase_audience` | Alvo da compra | `personal` / `team`; `""` enquanto ainda não escolhido |
 | `provider_family` | Provider | `bigmodel` / `zai` / `unknown` |
-| `channel` | 渠道 | `MaaS` / `Z_AI` / `""` |
+| `channel` | Canal | `MaaS` / `Z_AI` / `""` |
 
-入口枚举：
+Enumeração de entradas:
 
-| `eventRegion` | `upgrade_source` | 位置 | 当前代码 |
+| `eventRegion` | `upgrade_source` | Local | Código atual |
 | --- | --- | --- | --- |
-| `app.profile` | `profile_menu` | 用户头像菜单 Upgrade | `WorkspaceSidebar.tsx`、`SettingsPage.tsx` |
-| `app.session` | `session_quota_alert` | Session 配额提醒中的 Upgrade | `ChatView.tsx` |
-| `app.session` | `session_token_usage` | 输入框 Token 用量区域 Upgrade | `ChatInputToolbar.tsx` |
-| `app.session` | `session_idle_time` | New task 首页与 Automations 闲时任务资格提示中的 Upgrade | `OffPeakNewTaskEntry.tsx`、`AutomationsSection.tsx` |
-| `app.setting` | `setting_plan_card` | 模型设置页 Coding Plan Upgrade/Subscribe | `StatusCards.tsx` |
-| `app.setting` | `setting_start_plan_card` | 模型设置页当前链接方式为 Start Plan 的 Upgrade/Subscribe | `StatusCards.tsx` |
-| `app.setting` | `setting_personal_plan_banner` | 模型设置页个人套餐入口 | `Detail.tsx` |
-| `app.setting` | `setting_team_plan_banner` | 模型设置页团队套餐入口 | `Detail.tsx` |
+| `app.profile` | `profile_menu` | Upgrade no menu do avatar do usuário | `WorkspaceSidebar.tsx`、`SettingsPage.tsx` |
+| `app.session` | `session_quota_alert` | Upgrade no lembrete de quota da Session | `ChatView.tsx` |
+| `app.session` | `session_token_usage` | Upgrade na área de uso de tokens da caixa de entrada | `ChatInputToolbar.tsx` |
+| `app.session` | `session_idle_time` | Upgrade na página inicial de New task e no aviso de elegibilidade de tarefas off-peak de Automations | `OffPeakNewTaskEntry.tsx`、`AutomationsSection.tsx` |
+| `app.setting` | `setting_plan_card` | Upgrade/Subscribe do Coding Plan na página de configurações de modelo | `StatusCards.tsx` |
+| `app.setting` | `setting_start_plan_card` | Upgrade/Subscribe na página de configurações de modelo quando o modo de vínculo atual é Start Plan | `StatusCards.tsx` |
+| `app.setting` | `setting_personal_plan_banner` | Entrada de plano pessoal na página de configurações de modelo | `Detail.tsx` |
+| `app.setting` | `setting_team_plan_banner` | Entrada de plano de equipe na página de configurações de modelo | `Detail.tsx` |
 
-V4 conversation 使用同一事件契约，但入口由 V4 session quota banner 承载。banner 必须真实可见，
-并保留 dismiss、提交阻断和 entitlement refresh；只有购买面板确认打开后才开始 funnel。Web/手机
-可以展示权威 quota 状态，但旧桌面口径的网络上报只允许 `desktop-continuous` reporter 执行。
+O conversation do V4 usa o mesmo contrato de evento, mas a entrada é carregada pelo session quota banner do V4. O banner precisa estar realmente visível e preservar dismiss, bloqueio de envio e refresh de entitlement; o funil só começa depois que o painel de compra confirma a abertura. Web/celular pode exibir o estado autoritativo de quota, mas o reporte de rede do contrato antigo de desktop é executado apenas pelo reporter `desktop-continuous`.
 
-场景由事实字段组合表达，不单独上报推断型场景字段：
+Os cenários são expressos por combinações de campos factuais, sem campos de cenário inferidos reportados em separado:
 
-| 场景 | 字段组合 |
+| Cenário | Combinação de campos |
 | --- | --- |
-| Start Plan 升级 | `entry_plan_status=start_plan` |
-| 首次购买 Coding Plan | `entry_plan_status=no_plan` |
-| 已有 Coding Plan 升级 | `entry_plan_status=coding_plan`，并携带 `entry_plan_level` |
+| Upgrade do Start Plan | `entry_plan_status=start_plan` |
+| Primeira compra do Coding Plan | `entry_plan_status=no_plan` |
+| Upgrade com Coding Plan já existente | `entry_plan_status=coding_plan`, carregando `entry_plan_level` |
 
-代码取值：
+Valores no código:
 
-- 新增纯函数 `resolveCodingPlanEntryPlanState(...)`，统一输出
-  `entryPlanStatus` 和 `entryPlanLevel`；所有入口复用，禁止组件各写一套判断。
-- Settings：输入已有 `displayStatus`、`providerId` 和 `planLevel`。Start provider
-  可能承载付费 Coding Plan 权益，不能只根据 providerId 判断；`purchased` 状态下应先判断
-  `planLevel` 是否是真实 Start Plan，非 Start 权益归为 `coding_plan`。
-- Session/Token：入口代码已有 Start Plan providerId 和 entitlement snapshot，直接写
-  `start_plan`。
-- 用户头像菜单：复用已经加载的 entitlement snapshot；`unavailableReason=no_plan`
-  写 `no_plan`，存在 quota/subscription/remaining 时写 `coding_plan`。
-- 闲时任务：复用已经加载完成的 provider registry。存在未被系统判定失效的 Coding Plan
-  provider 时写 `coding_plan`；仅存在 Start Plan 时写 `start_plan/start`；registry 已加载且
-  两类套餐都不存在时写 `no_plan`；加载中或无法可靠判断时写 `unknown/""`。不得因
-  selected-connection 门禁失败直接推断用户没有套餐。
-- 缺少可靠快照时写 `unknown`/`""`，不根据按钮文案猜测。
-- 不新增接口请求；状态在现有 render/state 派生阶段计算，点击时直接读取。
+- Nova função pura `resolveCodingPlanEntryPlanState(...)`, que uniformemente produz `entryPlanStatus` e `entryPlanLevel`; todas as entradas reutilizam, e é proibido que cada componente escreva o seu próprio julgamento.
+- Settings: recebe `displayStatus`, `providerId` e `planLevel` já existentes. Um provider Start pode carregar benefícios pagos do Coding Plan, portanto não se pode julgar só pelo providerId; no estado `purchased` é preciso primeiro verificar se `planLevel` é um Start Plan real, e benefício que não é Start é classificado como `coding_plan`.
+- Session/Token: o código da entrada já tem o providerId de Start Plan e o snapshot de entitlement, então escreve-se `start_plan` diretamente.
+- Menu do avatar do usuário: reaproveita o snapshot de entitlement já carregado; `unavailableReason=no_plan` escreve `no_plan`, e a existência de quota/subscription/remaining escreve `coding_plan`.
+- Tarefa off-peak: reaproveita o provider registry já carregado por completo. Existindo um provider de Coding Plan que o sistema não marcou como inválido, escreve-se `coding_plan`; existindo apenas Start Plan, escreve-se `start_plan/start`; com o registry já carregado e nenhum dos dois tipos de plano presente, escreve-se `no_plan`; durante o carregamento ou sem julgamento confiável, escreve-se `unknown/""`. Não se pode inferir que o usuário não tem plano só porque o portão de selected-connection falhou.
+- Na falta de um snapshot confiável, escreve-se `unknown`/`""`, sem adivinhar pelo texto do botão.
+- Nenhuma requisição nova de interface; o estado é calculado na fase de derivação de render/state existente e lido direto no clique.
 
-触发规则：
+Regras de disparo:
 
-- 只在用户点击后购买面板实际打开时上报。
-- 未连接时只触发 OAuth 的个人/团队入口不报；继续使用现有登录事件。
-- disabled、自动打开、关闭购买面板不报。
-- Settings 的个人/团队入口分别填写 `purchase_audience`。
-- 闲时任务入口默认打开个人套餐页，`coding_plan_upgrade_ck.purchase_audience=personal`；
-  用户后续改选团队套餐时，下游产品/周期/支付事件按实际选择写 `team`。
+- Só reporta quando o painel de compra realmente abre após o clique do usuário.
+- Quando desconectado, a entrada pessoal/equipe que só dispara OAuth não reporta; continua-se usando o evento de login existente.
+- Desabilitado, abertura automática e fechamento do painel de compra não reportam.
+- As entradas pessoal/equipe de Settings preenchem `purchase_audience` separadamente.
+- A entrada de tarefa off-peak abre por padrão a página de plano pessoal, com `coding_plan_upgrade_ck.purchase_audience=personal`; quando o usuário trocar depois para o plano de equipe, os eventos downstream de produto/ciclo/pagamento escrevem `team` conforme a escolha real.
 
 ## 4. `purchase_product_select_ck`
 
-用户在产品选择页点击可用产品卡片，并进入周期选择页时上报。
+É reportado quando o usuário clica em um cartão de produto disponível na página de seleção de produto e entra na página de seleção de ciclo.
 
 ```json
 {
@@ -191,31 +169,31 @@ V4 conversation 使用同一事件契约，但入口由 V4 session quota banner 
 }
 ```
 
-字段：
+Campos:
 
-| 字段 | 含义 | 值 |
+| Campo | Significado | Valor |
 | --- | --- | --- |
-| `eventText` | 产品卡片实际按钮文本 | `选择套餐` / `订阅` / `升级`，英文界面取对应英文 |
-| `purchase_audience` | 产品类型 | `personal` / `team` |
+| `eventText` | Texto real do botão do cartão de produto | `选择套餐` / `订阅` / `升级`; na interface em inglês, o equivalente em inglês |
+| `purchase_audience` | Tipo de produto | `personal` / `team` |
 | `provider_family` | Provider | `bigmodel` / `zai` / `unknown` |
-| `channel` | 渠道 | `MaaS` / `Z_AI` / `""` |
-| `product_group_id` | 产品组稳定 key | 代码中的 plan group key |
-| `product_id` | 具体 SKU | 本阶段还未选周期，写 `""` |
-| `product_name` | 产品名 | 如 `GLM Coding Pro` |
-| `plan_tier` | 套餐档位 | `lite` / `pro` / `max` / `team_standard` / `team_advanced` / `unknown` |
+| `channel` | Canal | `MaaS` / `Z_AI` / `""` |
+| `product_group_id` | Key estável do grupo de produto | Plan group key do código |
+| `product_id` | SKU específico | Nesta fase o ciclo ainda não foi escolhido, então escreve-se `""` |
+| `product_name` | Nome do produto | Como `GLM Coding Pro` |
+| `plan_tier` | Faixa do plano | `lite` / `pro` / `max` / `team_standard` / `team_advanced` / `unknown` |
 
-触发规则：
+Regras de disparo:
 
-- 个人产品在 `PlanChoiceCard` 点击后上报。
-- 团队产品在 `TeamPlanChoiceCard` 点击后上报。
-- 当前套餐、免费 Start Plan、disabled 产品不报。
-- 不使用产品组中的第一个 SKU 伪造 `product_id`。
+- Produto pessoal é reportado após o clique em `PlanChoiceCard`.
+- Produto de equipe é reportado após o clique em `TeamPlanChoiceCard`.
+- Plano atual, Start Plan gratuito e produtos desabilitados não reportam.
+- Não se forja `product_id` usando o primeiro SKU do grupo de produto.
 
 ## 5. `purchase_billing_cycle_select_ck`
 
-用户确认最终周期/购买方式，并从配置页进入支付确认页时上报。
+É reportado quando o usuário confirma o ciclo/método de compra final e sai da página de configuração para a de confirmação de pagamento.
 
-### 个人示例
+### Exemplo pessoal
 
 ```json
 {
@@ -245,7 +223,7 @@ V4 conversation 使用同一事件契约，但入口由 V4 session quota banner 
 }
 ```
 
-### 团队示例
+### Exemplo de equipe
 
 ```json
 {
@@ -275,83 +253,81 @@ V4 conversation 使用同一事件契约，但入口由 V4 session quota banner 
 }
 ```
 
-字段：
+Campos:
 
-| 字段 | 含义 | 值 |
+| Campo | Significado | Valor |
 | --- | --- | --- |
-| `eventText` | 实际点击文本 | 个人为 `订阅` / `升级`；团队为 `继续支付`；英文界面取对应英文 |
-| `product_id` | 最终 SKU | 直接使用当前选中商品的 `selectedProduct.productId` |
-| `product_name` | 产品及周期名 | 与支付事件保持一致 |
-| `plan_tier` | 套餐档位 | 与产品选择事件一致 |
-| `billing_period` | 周期 | `month` / `quarter` / `year` / `unknown` |
-| `purchase_method` | 购买方式 | `continuous` / `one_time` / `unknown` |
-| `payment_method` | 支付方式 | `alipay` / `paypal` / `stripe` / `unknown` / `""` |
-| `seat_count` | 团队席位 | 个人为 `""` |
-| `duration_months` | 一次性采购时长 | 非一次性采购为 `""` |
-| `currency` | 币种 | `CNY` / `USD` / 后端值 / `""` |
-| `amount` | 当前展示金额 | 纯数字字符串 |
+| `eventText` | Texto realmente clicado | Pessoal: `订阅` / `升级`; equipe: `继续支付`; na interface em inglês, o equivalente em inglês |
+| `product_id` | SKU final | Usa diretamente o `selectedProduct.productId` do produto selecionado atual |
+| `product_name` | Nome do produto e do ciclo | Consistente com o evento de pagamento |
+| `plan_tier` | Faixa do plano | Consistente com o evento de seleção de produto |
+| `billing_period` | Ciclo | `month` / `quarter` / `year` / `unknown` |
+| `purchase_method` | Método de compra | `continuous` / `one_time` / `unknown` |
+| `payment_method` | Método de pagamento | `alipay` / `paypal` / `stripe` / `unknown` / `""` |
+| `seat_count` | Lugares da equipe | `""` no caso pessoal |
+| `duration_months` | Duração da compra única | `""` quando não for compra única |
+| `currency` | Moeda | `CNY` / `USD` / valor do backend / `""` |
+| `amount` | Valor exibido no momento | String puramente numérica |
 
-触发规则：
+Regras de disparo:
 
-- 个人：点击月/季/年卡片并进入支付确认页时上报。
-- 团队：点击“继续支付”时上报最终产品、周期、席位和时长。
-- `product_id` 必须取商品接口返回值，禁止按 provider、套餐和周期自行拼接。
-- 团队只切换配置但未继续时不报。
-- Z.ai 在本阶段尚未选择 PayPal/Stripe 时，`payment_method=""`。
+- Pessoal: reporta ao clicar no cartão mensal/trimestral/anual e entrar na página de confirmação de pagamento.
+- Equipe: reporta produto, ciclo, lugares e duração finais ao clicar em "继续支付".
+- `product_id` precisa vir do retorno da interface de produtos; é proibido montá-lo por conta própria a partir de provider, plano e ciclo.
+- Equipe que apenas troca a configuração sem continuar não reporta.
+- Quando o Z.ai ainda não tiver escolhido PayPal/Stripe nesta fase, `payment_method=""`.
 
-## 6. 渠道差异
+## 6. Diferenças de canal
 
-| Provider | `provider_family` | `channel` | 产品 | 支付 |
+| Provider | `provider_family` | `channel` | Produto | Pagamento |
 | --- | --- | --- | --- | --- |
-| BigModel | `bigmodel` | `MaaS` | 个人和团队 | 当前为支付宝 |
-| Z.ai | `zai` | `Z_AI` | 当前仅个人 | PayPal/Stripe 在支付确认阶段确定 |
+| BigModel | `bigmodel` | `MaaS` | Pessoal e equipe | Atualmente Alipay |
+| Z.ai | `zai` | `Z_AI` | Atualmente apenas pessoal | PayPal/Stripe são determinados na etapa de confirmação de pagamento |
 
-映射只根据 `providerId`，不根据语言、币种或域名猜测。
+O mapeamento é feito só com base no `providerId`, e não por adivinhação de idioma, moeda ou domínio.
 
-## 7. 代码实现
+## 7. Implementação no código
 
-### 7.1 支持 `eventText`
+### 7.1 Suporte a `eventText`
 
-当前客户端没有传递 `eventText`，需要修改：
+O cliente atual não passa `eventText`, então é preciso modificar:
 
-- `packages/shared/src/telemetry.ts`：`TelemetryEventPayload` 增加 `eventText?: string`。
-- `packages/shared/src/validation.ts`：IPC schema 增加 `eventText: z.string().optional()`。
-- `packages/ui/src/lib/appTelemetry.ts`：payload 支持 `eventText`。
-- `packages/desktop/src/preload/index.ts`：bridge 类型支持 `eventText`。
-- `packages/services/src/telemetry/telemetryCore.ts`：
-  `reportEvent` 和 `sendReport` 透传，并在请求体写入
-  `event_text: payload.eventText ?? ""`。
+- `packages/shared/src/telemetry.ts`: `TelemetryEventPayload` ganha `eventText?: string`.
+- `packages/shared/src/validation.ts`: o schema IPC ganha `eventText: z.string().optional()`.
+- `packages/ui/src/lib/appTelemetry.ts`: o payload suporta `eventText`.
+- `packages/desktop/src/preload/index.ts`: o tipo do bridge suporta `eventText`.
+- `packages/services/src/telemetry/telemetryCore.ts`: `reportEvent` e `sendReport` repassam e escrevem no corpo da requisição `event_text: payload.eventText ?? ""`.
 
-现有事件不传该字段时保持 `event_text=""`，兼容旧调用。
+Quando os eventos existentes não passam o campo, `event_text=""` é mantido, mantendo compatibilidade com as chamadas antigas.
 
-### 7.2 新增漏斗模块
+### 7.2 Novo módulo de funil
 
-新建：
+Novo:
 
 ```text
 packages/ui/src/lib/codingPlanFunnelTelemetry.ts
 ```
 
-统一负责：
+Responsável uniformemente por:
 
-- 三个新增事件的 payload。
-- `purchase_funnel_id`。
-- `resolveCodingPlanEntryPlanState(...)` 套餐状态纯函数。
-- Provider/channel、套餐、周期和购买方式归一化。
-- 字段字符串化。
-- 调用 `reportAppTelemetryEvent`；失败不阻断 UI。
+- os payloads dos três eventos novos;
+- o `purchase_funnel_id`;
+- a função pura de estado de plano `resolveCodingPlanEntryPlanState(...)`;
+- normalização de provider/channel, plano, ciclo e método de compra;
+- stringificação dos campos;
+- chamada de `reportAppTelemetryEvent`; falha não bloqueia a UI.
 
-### 7.3 入口接线
+### 7.3 Ligação das entradas
 
-| 场景 | 代码 |
+| Cenário | Código |
 | --- | --- |
-| 左下角头像菜单 | `WorkspaceSidebar.tsx`、`SettingsPage.tsx` |
-| Session 配额提醒 | `ChatView.tsx` |
-| Token 用量 Upgrade | `ChatInputToolbar.tsx` |
-| Settings Upgrade/Subscribe/个人/团队入口 | `StatusCards.tsx`、`CodingPlanStatusActions.tsx`、`Detail.tsx` |
-| 产品和周期选择 | 官网 webview 页（原 `CodingPlanPurchasePanel.tsx` 已于 2026-09 删除，App 侧不再有产品和周期选择的原生交互） |
+| Menu do avatar no canto inferior esquerdo | `WorkspaceSidebar.tsx`、`SettingsPage.tsx` |
+| Lembrete de quota da Session | `ChatView.tsx` |
+| Upgrade de uso de tokens | `ChatInputToolbar.tsx` |
+| Entradas Upgrade/Subscribe/pessoal/equipe de Settings | `StatusCards.tsx`、`CodingPlanStatusActions.tsx`、`Detail.tsx` |
+| Seleção de produto e de ciclo | Página webview do site oficial (o antigo `CodingPlanPurchasePanel.tsx` foi removido em 2026-09 e o App não tem mais interação nativa de seleção de produto e ciclo) |
 
-跨页面跳转需要扩展 `packages/ui/src/lib/settingsNavigation.ts`，携带：
+A navegação entre páginas precisa estender `packages/ui/src/lib/settingsNavigation.ts`, carregando:
 
 ```ts
 {
@@ -362,16 +338,14 @@ packages/ui/src/lib/codingPlanFunnelTelemetry.ts
 }
 ```
 
-该 intent 只服务“点击后直接打开购买面板”的跨页面入口。购买面板消费 intent 并确认
-`open=true` 后上报 `coding_plan_upgrade_ck`；OAuth-only 入口不写入该 intent。
+Essa intent serve apenas às entradas entre páginas que abrem diretamente o painel de compra após o clique. O painel de compra consome a intent e, depois de confirmar `open=true`, reporta `coding_plan_upgrade_ck`; entradas apenas-OAuth não escrevem essa intent.
 
-### 7.4 贯通已有支付事件
+### 7.4 Integração com os eventos de pagamento existentes
 
-> 2026-09 起本节为历史方案：`codingPlanPurchaseTelemetry.ts` 已随原生购买面板删除，
-> `purchase_pay_ck` / `purchase_result` 改由官网 webview 侧上报，字段约定仍适用。
+> Desde 2026-09 esta seção é uma proposta histórica: `codingPlanPurchaseTelemetry.ts` foi removido junto com o painel de compra nativo,
+> e `purchase_pay_ck` / `purchase_result` passaram a ser reportados pelo lado do webview do site oficial; a convenção de campos continua valendo.
 
-修改 `codingPlanPurchaseTelemetry.ts`。`purchase_pay_ck` 和
-`purchase_result` 必须同时增加并复用同一个 `purchase_funnel_id`：
+Modificar `codingPlanPurchaseTelemetry.ts`. `purchase_pay_ck` e `purchase_result` precisam ganhar e reutilizar o mesmo `purchase_funnel_id`:
 
 ```json
 {
@@ -392,20 +366,19 @@ packages/ui/src/lib/codingPlanFunnelTelemetry.ts
 }
 ```
 
-硬约束：
+Restrições rígidas:
 
-- 两个事件的 `purchase_funnel_id` 必须来自当前购买面板的 funnel context，结果事件不得重新生成。
-- 两个事件的 `upgrade_source` 必须来自同一 funnel context，支付阶段和结果阶段不得丢失或重写。
-- 两个事件继续复用同一次支付的 `purchase_attempt_id`。
-- 两个事件复用进入漏斗时已经记录的 `entry_plan_status` 和
-  `entry_plan_level`，支付阶段不得重新查询或重新判断。
-- `purchase_funnel_id` 串联从升级入口到支付结果的完整流程；
-  `purchase_attempt_id` 只串联一次支付点击及其结果。
-- 现有支付状态、商品和错误字段不变。
+- O `purchase_funnel_id` dos dois eventos precisa vir do funnel context do painel de compra atual, e o evento de resultado não pode gerar um novo.
+- O `upgrade_source` dos dois eventos precisa vir do mesmo funnel context, sem se perder ou ser reescrito entre a etapa de pagamento e a de resultado.
+- Os dois eventos continuam reutilizando o `purchase_attempt_id` do mesmo pagamento.
+- Os dois eventos reutilizam o `entry_plan_status` e o `entry_plan_level` já registrados ao entrar no funil, e a etapa de pagamento não pode consultar ou julgar de novo.
+- `purchase_funnel_id` liga todo o fluxo, da entrada de upgrade ao resultado do pagamento;
+  `purchase_attempt_id` liga apenas um clique de pagamento e seu resultado.
+- Os campos existentes de status de pagamento, produto e erro não mudam.
 
-### 7.5 闲时任务入口与登录连续性
+### 7.5 Entrada de tarefa off-peak e continuidade do login
 
-New task 首页和 Automations 闲时任务资格提示统一创建：
+A página inicial de New task e o aviso de elegibilidade de tarefas off-peak de Automations criam uniformemente:
 
 ```json
 {
@@ -419,8 +392,7 @@ New task 首页和 Automations 闲时任务资格提示统一创建：
 }
 ```
 
-英文界面 `eventText` 使用用户实际看到的 `Upgrade`。Provider、渠道、入口套餐状态和
-`purchase_funnel_id` 继续由 `codingPlanFunnelTelemetry` 的统一逻辑填充。
+Na interface em inglês, `eventText` usa o `Upgrade` que o usuário realmente viu. Provider, canal, estado do plano de entrada e `purchase_funnel_id` continuam sendo preenchidos pela lógica unificada de `codingPlanFunnelTelemetry`.
 
 ```text
 闲时 Upgrade 点击
@@ -435,45 +407,32 @@ New task 首页和 Automations 闲时任务资格提示统一创建：
   -> 用户关闭购买面板后结束 funnel
 ```
 
-登录成功、用户状态刷新和购买 token 刷新都只能更新鉴权/商品状态，不得替换 dialog target。
-`purchase_product_select_ck`、`purchase_billing_cycle_select_ck`、`purchase_pay_ck` 和
-`purchase_result` 必须从该 target 中继续读取原 `purchase_funnel_id` 与
-`upgrade_source=session_idle_time`。
+Login bem-sucedido, refresh do estado do usuário e refresh do token de compra só podem atualizar o estado de autenticação/produtos e não podem substituir o dialog target.
+`purchase_product_select_ck`, `purchase_billing_cycle_select_ck`, `purchase_pay_ck` e `purchase_result` precisam continuar lendo o `purchase_funnel_id` original e `upgrade_source=session_idle_time` desse target.
 
-## 8. 验证
+## 8. Verificação
 
-自动测试：
+Testes automáticos:
 
-- 三个事件的名称、`eventText` 和字段枚举。
-- 未连接 OAuth-only 点击不生成 funnel，也不报 `coding_plan_upgrade_ck`。
-- 购买面板实际打开后才上报一次 `coding_plan_upgrade_ck`。
-- `coding_plan_upgrade_ck` 使用实际入口区域；`purchase_product_select_ck`、
-  `purchase_billing_cycle_select_ck`、`purchase_pay_ck` 的 `eventRegion` 均为
-  `app.purchase`。
-- Start provider 承载付费 Coding Plan 权益时归为 `coding_plan`，不误报
-  `start_plan`。
-- BigModel -> `bigmodel/MaaS`。
-- Z.ai -> `zai/Z_AI`。
-- 产品组阶段 `product_id=""`。
-- 团队只在“继续支付”时上报最终配置。
-- 三个新增事件、`purchase_pay_ck`、`purchase_result` 五个事件复用同一个
-  `purchase_funnel_id`。
-- 闲时任务两个 Upgrade 入口均固定上报
-  `eventRegion=app.session`、`upgrade_source=session_idle_time`，并使用本地化
-  `eventText`。
-- 闲时任务入口的 provider registry 套餐判定覆盖
-  `coding_plan` / `start_plan` / `no_plan` / `unknown`，不把 selected-connection
-  失败误报为 `no_plan`。
-- OAuth 登录前后的 dialog target 保留同一个 funnel context；登录成功后恢复套餐选择时，
-  `purchase_funnel_id` 和 `upgrade_source` 不变。
-- 在 `app.purchase` 内返回上一步并重新进入后续页面时，继续复用原
-  `purchase_funnel_id`，不生成新 ID。
-- `purchase_pay_ck` 和对应 `purchase_result` 同时复用
-  `purchase_funnel_id` 与 `purchase_attempt_id`，结果事件不生成新 ID。
-- 支付成功页不展示返回入口，只允许关闭或完成；关闭后结束本次 funnel。
-- 上报失败不影响跳转和支付。
+- Os nomes, `eventText` e as enumerações de campos dos três eventos.
+- Clique apenas-OAuth quando não conectado não gera funil nem reporta `coding_plan_upgrade_ck`.
+- `coding_plan_upgrade_ck` só é reportado uma vez, depois que o painel de compra realmente abriu.
+- `coding_plan_upgrade_ck` usa a região real da entrada; `purchase_product_select_ck`, `purchase_billing_cycle_select_ck` e `purchase_pay_ck` têm todos `eventRegion` igual a `app.purchase`.
+- Quando um provider Start carrega benefícios pagos do Coding Plan, ele é classificado como `coding_plan` e não é reportado errado como `start_plan`.
+- BigModel -> `bigmodel/MaaS`.
+- Z.ai -> `zai/Z_AI`.
+- `product_id=""` na etapa de grupo de produto.
+- Equipe reporta a configuração final apenas em "继续支付".
+- Os três eventos novos, `purchase_pay_ck` e `purchase_result` — cinco eventos no total — reutilizam o mesmo `purchase_funnel_id`.
+- As duas entradas de Upgrade de tarefa off-peak sempre reportam `eventRegion=app.session` e `upgrade_source=session_idle_time`, usando o `eventText` localizado.
+- O julgamento de plano via provider registry da entrada de tarefa off-peak cobre `coding_plan` / `start_plan` / `no_plan` / `unknown`, sem reportar a falha de selected-connection como `no_plan`.
+- O dialog target antes e depois do login OAuth preserva o mesmo funnel context; ao restaurar a seleção de plano depois do login bem-sucedido, `purchase_funnel_id` e `upgrade_source` não mudam.
+- Ao voltar ao passo anterior dentro de `app.purchase` e entrar novamente nas páginas seguintes, o `purchase_funnel_id` original é reutilizado e nenhum novo ID é gerado.
+- `purchase_pay_ck` e o `purchase_result` correspondente reutilizam ao mesmo tempo `purchase_funnel_id` e `purchase_attempt_id`, e o evento de resultado não gera ID novo.
+- A página de sucesso do pagamento não mostra entrada de voltar e só permite fechar ou concluir; depois de fechar, o funil encerra.
+- Falha de reporte não afeta a navegação nem o pagamento.
 
-执行：
+Execução:
 
 ```bash
 pnpm --filter @zcode/ui test
@@ -481,4 +440,4 @@ pnpm typecheck
 pnpm lint
 ```
 
-运行时核对一次 Desktop 上报请求，确认 `event_text`、事件顺序和两个关联 ID。
+Verifica-se uma vez, em runtime, a requisição de reporte no Desktop, confirmando `event_text`, a ordem dos eventos e os dois IDs de correlação.

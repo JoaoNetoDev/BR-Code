@@ -31,7 +31,7 @@ Esses fatos de desvio não entram em task/session, CommandInbox, snapshot nem fl
 
 ### Cadeia implementada e limites de compatibilidade
 
-- O main coleta de forma unificada, através de um registro de origens, os sete papéis do Chromium, os dois papéis da CLI e o MCP; as origens em nível de dispositivo leem os totais exatos de cada origem na segunda fase do mesmo tique. Leituras de heap, amostras recentes de CLI/MCP e eventos instantâneos de Bash convergem pelo único链路 de owner descrito abaixo.
+- O main coleta de forma unificada, através de um registro de origens, os sete papéis do Chromium, os dois papéis da CLI e o MCP; as origens em nível de dispositivo leem os totais exatos de cada origem na segunda fase do mesmo tique. Leituras de heap, amostras recentes de CLI/MCP e eventos instantâneos de Bash convergem pelo único caminho de owner descrito abaixo.
 - O host e o renderer principal reutilizam o temporizador existente de log de memória; o gating de escrita em disco não afeta a telemetria. O main só aceita heap de webContents de janela principal já registrado; leituras do gerenciador de recursos, about, DevTools e webview guest são descartadas.
   O heap é limpo na entrega; se não houver amostra completa de papel no tique, é descartado. Como os temporizadores das janelas têm fases diferentes, o heap mean do renderer é a média da maior leitura entre as janelas que chegaram em cada tique, e o peak é a maior leitura de janela única.
 - A CLI entrega a cada 60 segundos o total recente das instâncias vivas; apenas novas leituras contam como amostra. A saída normal complementa com `flushPending` os fatos recebidos mas não entregues. O `instanceToken` só distingue instâncias na memória do main, não entra no ARMS; a lane é marcada pelos services conforme o gerenciador de processos, a CLI em si não carrega lane. A constante de tique é declarada em um único ponto no shared.
@@ -50,7 +50,7 @@ O gating de todo o repositório corrige simultaneamente um falso positivo em um 
 
 ## Declaração do Problema
 
-Hoje os times de produto e desenvolvimento não conseguem responder em uma frase "qual processo do ZCode, em qual versão, em que tipo de máquina consome quanto de CPU e memória, e se piorou". Os pontos de埋 de recursos existentes no ARMS estão dispersos em três eventos (`perf_resource_window`, `perf_resource_agent`, `perf_mcp_memory`), com três schemas, três cadeias, e apresentam os seguintes defeitos:
+Hoje os times de produto e desenvolvimento não conseguem responder em uma frase "qual processo do ZCode, em qual versão, em que tipo de máquina consome quanto de CPU e memória, e se piorou". Os pontos de instrumentação de recursos existentes no ARMS estão dispersos em três eventos (`perf_resource_window`, `perf_resource_agent`, `perf_mcp_memory`), com três schemas, três cadeias, e apresentam os seguintes defeitos:
 
 - O detalhe por papel de processo é coletado apenas em 10% dos dispositivos; problemas de baixa frequência (um certo plugin comendo memória em um certo tipo de máquina) são quase invisíveis.
 - No Linux, a CPU do ARMS é medida em núcleo único, enquanto a UI do gerenciador de recursos é medida na máquina inteira — o mesmo métrico com dois números.
@@ -59,11 +59,11 @@ Hoje os times de produto e desenvolvimento não conseguem responder em uma frase
 - Quando o usuário reclama que "a ferramenta Bash é muito lenta e muito travada", nenhum dado distingue se o comando em si é pesado, se a máquina não tem memória, ou se a própria CLI está ocupada.
 - Para contornar o limite de 20 atributos por evento do ARMS, o mesmo evento usa dois layouts de atributos mutuamente exclusivos quando "acerta a amostragem de papel" e quando "não acerta", tornando o painel difícil de consultar diretamente.
 
-Houve também um incidente histórico: um ponto de埋 de processo fez máquinas de usuários Windows chamarem PowerShell a cada poucos segundos, degradando significativamente o computador. Telemetria de performance prejudicando a performance é exatamente o que esta spec precisa eliminar.
+Houve também um incidente histórico: um ponto de instrumentação de processo fez máquinas de usuários Windows chamarem PowerShell a cada poucos segundos, degradando significativamente o computador. Telemetria de performance prejudicando a performance é exatamente o que esta spec precisa eliminar.
 
 ## Solução
 
-Um conjunto unificado de pontos de埋 de recursos de processo, cobrindo todos os papéis de processo do desktop, três eventos, um schema:
+Um conjunto unificado de pontos de instrumentação de recursos de processo, cobrindo todos os papéis de processo do desktop, três eventos, um schema:
 
 - `perf_process_window`: um registro por papel de processo a cada 5 minutos, com mean / p95 / peak de CPU e memória; papéis multiprocesso carregam simultaneamente o total e o maior processo individual, além de tempo de execução e proporção foreground/background. Todos os dispositivos, todos os papéis, sem amostragem.
 - `perf_system_window`: um registro por dispositivo a cada 5 minutos, com CPU da máquina inteira, memória livre restante, total da aplicação e o próprio custo da telemetria.
@@ -414,7 +414,7 @@ Lista de isenções (escrita em `TELEMETRY_GUARD_EXEMPTIONS` do script de gating
 
 A contagem de custo de cada ponto de coleta está na tabela abaixo, que fundamenta as linhas vermelhas.
 
-| Ponto de coleta                  | Processo | Forma                             | Frequência                      | Processo externo      | Comparação com o现状                   |
+| Ponto de coleta                  | Processo | Forma                             | Frequência                      | Processo externo      | Comparação com o status atual                   |
 | ------------------------------- | -------- | --------------------------------- | ------------------------------- | --------------------- | ------------------------------------- |
 | CPU e RSS do sistema Chromium    | main     | getAppMetrics                     | 10 segundos                     | Não                   | Inalterado                             |
 | Contagem de threads do main      | main     | ps                                | Removido                        | Removido              | Redução líquida                        |
@@ -471,7 +471,7 @@ A contagem de custo de cada ponto de coleta está na tabela abaixo, que fundamen
   - `ProcessResourceHardwareOverride` e `processResourceHardwareKey` (em `processResourceWindowAggregator.ts`): as informações da máquina de execução autodeclaradas pela amostra passam a ter campos opcionais, e a saída `{ ...desktopHardware, ...report.hardware }` sobrescreve campo a campo — quando a CLI antiga só traz platform / arch / núcleo, `total_memory_gb` continua vindo da máquina desktop; a identidade de ambiente de execução do Host e a impressão digital de hardware entram juntas na chave da janela, e um evento descreve apenas um ambiente de execução
   - `ProcessResourceSampleSource.flushPending`: na drenagem de saída, preenche a janela com as leituras «recebidas mas não entregues»; as amostras MCP de 08 reaproveitam o mesmo hook
   - remoção de `desktop/src/main/agentResourceTelemetryWindow.ts` e da saída `perf_resource_agent`
-- **Documentação**: o dicionário de eventos ganha os três eventos e anota a versão de descontinuação dos eventos antigos; a seção de recursos do documento de monitoramento de performance, o documento de上报 de recursos da CLI e a seção de memória do documento do MCP passam a apontar para este documento; o documento de log de diagnóstico de memória complementa com «a fonte de amostragem é compartilhada com a telemetria de recursos».
+- **Documentação**: o dicionário de eventos ganha os três eventos e anota a versão de descontinuação dos eventos antigos; a seção de recursos do documento de monitoramento de performance, o documento de envio de recursos da CLI e a seção de memória do documento do MCP passam a apontar para este documento; o documento de log de diagnóstico de memória complementa com «a fonte de amostragem é compartilhada com a telemetria de recursos».
 
 ## Decisões de Teste
 

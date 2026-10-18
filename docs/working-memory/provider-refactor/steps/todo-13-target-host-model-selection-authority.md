@@ -1,23 +1,20 @@
-# 13 目标 Host 模型选择权威与旧准备链退役
+# 13 Autoridade de Seleção de Modelo no Host Alvo e Aposentadoria da Cadeia de Preparo Antiga
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-25
+> Data: 2026-08-25
 >
-> 前置任务：[`todo-12-model-selection-validation-boundary-cutover.md`](./todo-12-model-selection-validation-boundary-cutover.md)
+> Pré-requisito: [`todo-12-model-selection-validation-boundary-cutover.md`](./todo-12-model-selection-validation-boundary-cutover.md)
 >
-> 相关设计：[`../design/interaction/selection-state.md`](../design/interaction/selection-state.md)、
-> [`../design/environment/environment.md`](../design/environment/environment.md)、
+> Designs relacionados: [`../design/interaction/selection-state.md`](../design/interaction/selection-state.md),
+> [`../design/environment/environment.md`](../design/environment/environment.md),
 > [`../design/registry/registry.md`](../design/registry/registry.md)
 
-## 0. 任务目标
+## 0. Objetivo da tarefa
 
-模型选择的用户候选、模型 Option Specs、Configured Default 与新 Session 初始选择，统一来自**目标
-Environment 的 Host**：本地 Workspace 使用 Local Host，远程 Workspace 使用 Remote Host。Renderer 不再从
-Base Host 全局快照、临时 Agent App、Session Runtime Catalog 或 `configOptions` 反向推导目标 Environment 的
-模型选择事实。
+Os candidatos de modelo apresentados ao usuário, as Model Option Specs, o Default Configurado e a seleção inicial de novas Sessions passam a vir, de forma unificada, do **Host do Environment alvo**: um Workspace local usa o Local Host e um Workspace remoto usa o Remote Host. O Renderer deixa de derivar retroativamente os fatos de seleção de modelo do Environment alvo a partir do Snapshot global do Base Host, de um App Agent temporário, do Catalog do Session Runtime ou de `configOptions`.
 
-正式链路固定为：
+A cadeia formal fica fixa em:
 
 ```text
                          Target Workspace
@@ -44,53 +41,45 @@ Base Host 全局快照、临时 Agent App、Session Runtime Catalog 或 `configO
                          Active Model
 ```
 
-Host 负责选择事实，并在同一 View 中给出 Configured Default/Fallback 解析后的 `preferredSelection`；Renderer
-只叠加 Composer/Draft 与 workspace App Recent。Worker Registry / ModelFactory 继续负责最终执行校验和 Model
-创建。Host 不是第二个执行 Registry，Renderer 也不因取得 Host View 而获得构造或猜测 Model 的权限。
+O Host é responsável pelos fatos de seleção e entrega, na mesma View, o `preferredSelection` já resolvido com Default/Fallback configurados; o Renderer apenas sobrepõe Composer/Draft e o workspace App Recent. Worker Registry / ModelFactory continuam responsáveis pela validação final de execução e pela criação do Model. O Host não é um segundo Registry de execução, e o Renderer não ganha permissão de construir ou adivinhar Models por obter a Host View.
 
-## 1. 已确认裁决
+## 1. Decisões confirmadas
 
-### 1.1 模型选择读取目标 Host
+### 1.1 A leitura da seleção de modelo vem do Host alvo
 
-- 本地 Workspace 的模型候选读取 Local Host `IModelSelectionService`；
-- SSH、WSL、Docker 与 Server Workspace 的模型候选读取对应 Remote Host
-  `IModelSelectionService`；
-- `remote-waiting`、断连或目标 Host 不可用时保持 loading/unavailable，绝不回退 Base/Local Host；
-- Remote Host 返回自己的 Provider/Model View，Desktop 不向远端注入本地 Registry Snapshot；
-- Worker 在执行时仍使用所属 Environment 的 Registry/ModelFactory 重新校验 Selection，Host 选择结果不能
-  绕过最终 fail-closed。
+- Os candidatos de modelo de um Workspace local são lidos do `IModelSelectionService` do Local Host;
+- Os candidatos de modelo de Workspaces SSH, WSL, Docker e Server são lidos do `IModelSelectionService` do Remote Host correspondente;
+- Em `remote-waiting`, desconexão ou Host alvo indisponível, o estado permanece loading/unavailable e nunca há fallback para Base/Local Host;
+- O Remote Host retorna sua própria Provider/Model View, e o Desktop não injeta no remote um Snapshot local do Registry;
+- Na execução, o Worker ainda revalida a Selection usando o Registry/ModelFactory do Environment ao qual pertence; o resultado da seleção do Host não pode contornar o fail-closed final.
 
-### 1.2 Workspace Key 与 App Recent
+### 1.2 Workspace Key e App Recent
 
-App Recent 的隔离范围固定为：
+O escopo de isolamento do App Recent fica fixado como:
 
 ```text
 workspaceKey = workspaceIdentity?.trim() || workspacePath
 App Recent scope = App x workspaceKey
 ```
 
-- 本轮不新增 `environmentId`，也不建立新的 Host identity repository；
-- 远程 Workspace 必须贯穿现有 `workspaceIdentity`，本地 Workspace 允许 fallback 到 `workspacePath`；
-- `remoteSessionId` 仍用于远程连接/会话路由，但不代替稳定的 Workspace identity；
-- 相同 `workspacePath` 但不同 `workspaceIdentity` 的远程 Workspace 不能串用 Recent；
-- `workspacePath` 继续只承担文件、命令、Git 和路径展示语义。
+- Esta rodada não adiciona `environmentId` nem cria um novo repositório de identidade de Host;
+- Workspaces remotos precisam atravessar o `workspaceIdentity` existente, e Workspaces locais podem recorrer a `workspacePath`;
+- `remoteSessionId` continua sendo usado para roteamento de conexão/sessão remota, mas não substitui a Workspace identity estável;
+- Workspaces remotos com o mesmo `workspacePath` mas `workspaceIdentity` diferentes não podem compartilhar Recent;
+- `workspacePath` continua cobrindo apenas arquivos, comandos, Git e exibição de caminhos.
 
-App Recent 保存结构化且稀疏的 `ModelSelection`，只在 App 接受普通用户 Submission 时更新。菜单浏览、模型
-点击、Goal 自动续轮、Background、Off-Peak 和 Subagent 不写 App Recent。
+O App Recent guarda uma `ModelSelection` estruturada e esparsa, e só é atualizado quando o App aceita um Submission normal do usuário. Navegação de menu, clique em modelo, Goal com rodadas automáticas, Background, Off-Peak e Subagent não escrevem no App Recent.
 
-### 1.3 Host View 原子返回候选与首选 Selection
+### 1.3 A Host View retorna candidatos e Selection preferida de forma atômica
 
-- Configured Default 继续属于目标 Workspace；
-- Desktop/Web Renderer 不直接读取 `.zcode/v2/model-selection.json`；
-- 目标 Host 读取 Workspace 自己的 Configured Default，并与当前用户可见 View 原子解析首选 Selection；
-- Prompt CLI 与 TUI 不需要启动 Host/RPC，但必须复用同一 provider-domain preferred resolver 和 Workspace
-  repository；
-- Fallback 只使用当前 Host View 中 visible、enabled、selectable 的模型，hidden Provider/Model 不参与；
-- Fallback 只初始化本次 Draft/Session，不覆盖持久 Configured Default。
+- O Default Configurado continua pertencendo ao Workspace alvo;
+- O Renderer Desktop/Web não lê diretamente `.zcode/v2/model-selection.json`;
+- O Host alvo lê o Default Configurado do próprio Workspace e resolve atomicamente a Selection preferida com a View visível ao usuário atual;
+- Prompt CLI e TUI não precisam iniciar Host/RPC, mas precisam reutilizar o mesmo preferred resolver do domínio de provider e o mesmo repositório de Workspace;
+- O Fallback usa apenas modelos visible, enabled e selectable na View atual do Host; Providers/Models ocultos não participam;
+- O Fallback inicializa apenas o Draft/Session desta vez e não sobrescreve o Default Configurado persistente.
 
-Host 不新增独立 `resolveInitialSelection()` RPC，而是在同一份 `ModelSelectionView` 中返回候选、Option Specs
-和 `preferredSelection`。`preferredSelection` 已经完成 Host Configured Default 与 Fallback 的解析；Renderer
-只叠加自己拥有的 Composer/Draft 和 workspace App Recent：
+O Host não adiciona um RPC independente `resolveInitialSelection()`; ele retorna candidatos, Option Specs e `preferredSelection` na mesma `ModelSelectionView`. O `preferredSelection` já tem a resolução do Default Configurado e do Fallback do Host feita; o Renderer apenas sobrepõe o próprio Composer/Draft e o workspace App Recent:
 
 ```text
 App 新 Session
@@ -105,21 +94,21 @@ Prompt CLI / TUI 新 Session
   > domain preferredSelection
 ```
 
-恢复已有 Session 不读取 Configured Default，继续以持久 Session Selection 为准。
+Retomar uma Session existente não lê o Default Configurado e continua tendo a Session Selection persistente como referência.
 
-### 1.4 正式选择与持久化统一使用稀疏、结构化 `ModelSelection`
+### 1.4 Seleção formal e persistência passam a usar uma `ModelSelection` esparsa e estruturada de forma unificada
 
-以下正式状态、协议与持久化不再用 `model` 字符串和独立 `thoughtLevel` 拼装选择：
+Os seguintes estados, protocolos e persistências formais deixam de montar a seleção com a string `model` e um `thoughtLevel` separado:
 
-- Composer Draft、App Recent 与 Session Selection；
-- Automation record；
-- Repo Wiki generation settings；
-- Bot model preference/config；
-- Off-Peak task selection；
-- Custom、Workspace 与 Built-in Subagent model override；
-- 其他会在未来创建 Model 的产品配置。
+- Composer Draft, App Recent e Session Selection;
+- registro de Automation;
+- settings de geração do Repo Wiki;
+- preferência/config de modelo do Bot;
+- seleção de tarefa Off-Peak;
+- override de modelo de Subagent Custom, Workspace e Built-in;
+- outras configurações de produto que criarão Models no futuro.
 
-目标结构唯一为：
+A estrutura alvo é única:
 
 ```ts
 interface ModelSelection {
@@ -132,20 +121,17 @@ interface ModelSelection {
 }
 ```
 
-- `ModelSelection.options` 只保存用户或调用者显式指定的 option；没有显式指定时不复制 Option Spec 默认值；
-- `options` 和每个叶子都可缺省；`options: {}` 归一化为字段缺失；正式 Selection 不保存 option `null`；
-- patch/update API 可以用 `null` 表达“清除显式覆盖”，repository 必须删除相应叶子而不是持久化 `null`；
-- 用户显式选择一个恰好等于当前默认值的 option，仍是明确 pin，必须保存；只有“使用默认值”才删除叶子；
-- `inherit` 使用外层字段缺失或明确的产品 union 表达，不作为伪模型字符串；
-- picker 可以在组件内部使用 string key/value，但 `onSelect` 边界立即还原为 `ModelSelection`；
-- CLI 参数和已发布 Legacy importer 可以解析字符串，正式 Domain、RPC、Registry、Runtime 与新写入不再保存
-  字符串选择；
-- `modelSelectionSchema` 是结构化对象的唯一严格 Schema。UI、Services、Provider Node 与 Bootstrap 不各自
-  复制 parser；
-- 已发布持久格式如需兼容，只在对应 repository/importer 边界单向转换；分支内未发布格式不保留双读、双写或
-  所谓 v1/v2 兼容。
+- `ModelSelection.options` guarda apenas as options especificadas explicitamente pelo usuário ou chamador; quando não há especificação explícita, os valores padrão do Option Spec não são copiados;
+- `options` e cada folha podem faltar; `options: {}` é normalizado para campos ausentes; a Selection formal não salva `null` de option;
+- APIs de patch/update podem usar `null` para expressar "remover a sobrescrita explícita"; o repositório precisa remover a folha correspondente em vez de persistir `null`;
+- Quando o usuário seleciona explicitamente uma option exatamente igual ao valor padrão atual, isso ainda é um pin explícito e precisa ser salvo; somente "usar o padrão" remove a folha;
+- `inherit` é expresso pela ausência do campo externo ou por uma união de produto explícita, e não como uma pseudo string de modelo;
+- O picker pode usar string key/value internamente ao componente, mas a fronteira `onSelect` converte imediatamente de volta para `ModelSelection`;
+- Argumentos de CLI e importers Legacy já publicados podem fazer parse de strings; o Domain, RPC, Registry, Runtime e as novas escritas formais não salvam mais seleções em string;
+- `modelSelectionSchema` é o único Schema estrito do objeto estruturado. UI, Services, Provider Node e Bootstrap não duplicam parsers;
+- Se um formato persistente já publicado precisar de compatibilidade, a conversão é unidirecional e fica apenas na fronteira do repository/importer correspondente; formatos não publicados dentro do branch não mantêm leitura dupla, escrita dupla nem um suposto "compat v1/v2".
 
-ModelFactory 是默认值解析边界：
+O ModelFactory é a fronteira de resolução de valores padrão:
 
 ```text
 产品 Draft / Config / Record
@@ -164,13 +150,11 @@ Target Worker ModelFactory
 Active Model.options：完整、不可变的执行事实
 ```
 
-解析出的默认值不得反写 Composer、Session、App Recent 或产品 record。Config 默认值变化只影响以后根据
-稀疏 Selection 创建的新 Model，不热改已有 Active Model。历史审计若需要证明实际 option，应保存 Active
-Model/execution facts，而不是日后用新默认值重新解释旧 Selection。
+Os valores padrão resolvidos não podem ser reescrita no Composer, na Session, no App Recent ou no record do produto. Mudanças nos valores padrão da Config afetam apenas os Models novos criados depois a partir da Selection esparsa, e não alteram a quente um Active Model existente. Se uma auditoria histórica precisar provar qual option foi realmente usada, ela deve salvar os fatos de Active Model/execução, em vez de reinterpretar Selection antiga com os valores padrão novos.
 
-### 1.5 Subagent 配置属于各自 Environment，本轮 UI 只管理本地
+### 1.5 A configuração de Subagents pertence a cada Environment; nesta rodada a UI gerencia apenas a local
 
-每个 Environment 独立拥有和落盘自己的 Subagent 配置：
+Cada Environment possui e persiste sua própria configuração de Subagents de forma independente:
 
 ```text
 Local Environment
@@ -184,21 +168,19 @@ Remote Environment
 `- Remote built-in overrides
 ```
 
-本轮 Settings UI 的边界固定为：
+O limite da UI de Settings nesta rodada fica fixado como:
 
-- 只通过 Local Host `ISubagentsService` 管理 Local Environment 配置；
-- 候选模型与 Option Specs 只读取 Local Host Model Selection View；
-- 不列出远程 Workspace 作为 Subagent 配置编辑 scope；
-- 激活远程 Workspace 时不能让用户误以为正在编辑远程 Subagent；入口必须保持明确的“本地配置”语义，或在
-  远程上下文中显示远程管理暂不支持；
-- 不通过 Desktop 把本地 Subagent Markdown/state 写入 Remote Environment；
-- Remote Agent 执行时继续读取 Remote Environment 已经存在的 Subagent 配置，并用 Remote
-  Registry/ModelFactory 校验和创建 child Model；
-- 远程 Subagent 配置浏览、编辑、同步和冲突处理是后续独立产品能力，不在本 Todo 中设计。
+- A configuração do Local Environment é gerenciada apenas pelo `ISubagentsService` do Local Host;
+- Modelos candidatos e Option Specs são lidos apenas da Model Selection View do Local Host;
+- Workspaces remotos não são listados como escopo de edição de configuração de Subagent;
+- Ao ativar um Workspace remoto, o usuário não pode achar que está editando Subagents remotos; a entrada precisa manter o sentido explícito de "configuração local", ou mostrar que o gerenciamento remoto ainda não é suportado no contexto remoto;
+- Subagent Markdown/state local não é gravado no Remote Environment através do Desktop;
+- Na execução, o Remote Agent continua lendo a configuração de Subagents que já existe no Remote Environment e usa o Registry/ModelFactory remotos para validar e criar o child Model;
+- Navegação, edição, sincronização e tratamento de conflitos de configuração remota de Subagents são uma capacidade de produto separada e posterior, e não são projetadas neste Todo.
 
-### 1.6 与 Todo 12 的校验边界
+### 1.6 Relação com os limites de validação do Todo 12
 
-本 Todo 不恢复通用 `IModelSelectionService.validate()`：
+Este Todo não restaura o `IModelSelectionService.validate()` genérico:
 
 ```text
 Host 用户选择面
@@ -217,38 +199,29 @@ Target Worker Registry
 ModelFactory 最终完整校验
 ```
 
-- Conversation 将结构化 Selection 提交给 Worker，最终失败由 ModelFactory 报告；
-- Renderer 可以根据 Host View 展示 unavailable，但不复制一套权威 option validator；
-- Automation、Repo Wiki、Bot、Off-Peak 与 Subagent 在各自 Host 产品 Service 的保存/派发边界进行必要的窄
-  提前检查，防止保存明显无效配置或浪费产品资源；
-- 产品提前检查不进入公共用户 Facade，也不替代 Worker 最终校验；
-- hidden Off-Peak 继续使用 Host 内部 Registry/scoped View，不进入普通用户 View。
+- Conversation envia a Selection estruturada ao Worker, e a falha final é reportada pelo ModelFactory;
+- O Renderer pode exibir unavailable com base na Host View, mas não copia um conjunto autoritativo de validadores de option;
+- Automation, Repo Wiki, Bot, Off-Peak e Subagent fazem as verificações antecipadas estreitas necessárias na fronteira de save/dispatch de cada Service de produto no Host, evitando salvar configurações obviamente inválidas ou desperdiçar recursos do produto;
+- As verificações antecipadas de produto não entram no Facade público do usuário nem substituem a validação final do Worker;
+- O Off-Peak oculto continua usando o Registry/scoped View interno do Host e não entra na View comum do usuário.
 
-### 1.7 与既有阶段性文档的关系
+### 1.7 Relação com documentos de fase já existentes
 
-本 Todo 记录的是后续已经确认的新裁决，以下旧文档中的阶段性范围不能阻止本 Todo 收口：
+Este Todo registra novas decisões confirmadas depois; os escopos de fase em documentos antigos não podem impedir o fechamento deste Todo:
 
-- Todo 09 的“暂不改 Task 数据库形态”只约束 Todo 09 当时的实施范围。本 Todo 已确认正式产品持久化统一使用
-  结构化 `ModelSelection`，因此 Off-Peak repository/API 在本 Todo 中一起迁移，不再长期保留
-  `model + thoughtLevel` 投影；
-- `docs/subagents-built-in-model-overrides.md` 中通过 `workspace/readState` Runtime Catalog 对账模型候选和
-  reasoning 的表述属于旧实现事实。本 Todo 实施时必须改为：Settings 读取 Local Host View，Remote
-  Subagent 执行读取 Remote Environment 自己的 Registry；
-- Todo 12 的最终校验边界继续有效。本 Todo 只增加目标 Host 路由和 Host View preferred 解析，不恢复通用
-  `IModelSelectionService.validate()`。
+- O "não alterar por enquanto a forma do banco de dados de Task" do Todo 09 restringe apenas o escopo de implementação do próprio Todo 09. Este Todo confirmou que a persistência formal de produto usa de forma unificada a `ModelSelection` estruturada, de modo que o repository/API de Off-Peak é migrado junto neste Todo e não mantém mais por muito tempo a projeção `model + thoughtLevel`;
+- A descrição em `docs/subagents-built-in-model-overrides.md` de reconciliar candidatos de modelo e reasoning pelo Runtime Catalog de `workspace/readState` é um fato da implementação antiga. Na implementação deste Todo é preciso mudar para: Settings lê a Local Host View e a execução do Subagent remoto lê o Registry do próprio Remote Environment;
+- O limite de validação final do Todo 12 continua válido. Este Todo apenas acrescenta o roteamento para o Host alvo e a resolução de preferred na Host View, sem restaurar o `IModelSelectionService.validate()` genérico.
 
-这些覆盖关系只针对模型选择来源、持久化形态和校验边界，不顺带修改 Todo 09 的 Ticket/调度语义，也不设计
-远程 Subagent 配置管理。
+Essas relações de sobreposição afetam apenas a origem da seleção de modelo, a forma de persistência e o limite de validação; elas não modificam de passagem a semântica de Ticket/agendamento do Todo 09 nem projetam o gerenciamento remoto de configuração de Subagents.
 
-## 2. 当前问题
+## 2. Problemas atuais
 
-### 2.1 全局 Base Host View 污染远程选择
+### 2.1 A View global do Base Host contamina a seleção remota
 
-当前 Root 只连接一次 `modelSelectionService`，普通会话、Automation、Subagent 与 Repo Wiki 通过全局
-`useModelSelectionView()` 读取同一 Snapshot。`SessionPane` 的 readiness gate 还显式绑定
-`baseWorkspaceServices.modelSelectionService`。
+O Root conecta hoje uma única vez o `modelSelectionService`, e conversas comuns, Automation, Subagent e Repo Wiki leem o mesmo Snapshot pelo `useModelSelectionView()` global. O gate de readiness do `SessionPane` ainda está explicitamente amarrado a `baseWorkspaceServices.modelSelectionService`.
 
-这会形成：
+Isso produz:
 
 ```text
 Desktop Base Host Registry
@@ -260,40 +233,32 @@ Remote Workspace picker
 Remote Worker Registry / execution
 ```
 
-两边配置不同时可能展示不存在的模型、漏掉远端模型，或在发送时才被 Remote Worker 拒绝。
+Quando as duas pontas têm configurações diferentes, podem ser exibidos modelos inexistentes, omitidos modelos remotos, ou a requisição só ser rejeitada pelo Remote Worker no momento do envio.
 
-### 2.2 临时 App 被当作无 Session 模型投影器
+### 2.2 App temporário é usado como projetor de modelo sem Session
 
-`workspace/readState` 在没有活动 Session 时创建完整临时 `ZCodeApp`，注入 state-only 假 Adapter，再通过
-`mapSessionSettings()` 生成 `model + thought + configOptions`。Conversation 首条消息只是最常见入口；同一
-链路还被 Automation preview、Repo Wiki、Subagent reconciliation、Bot、Off-Peak 用户模型与 Git Commit
-sidecar 使用。
+`workspace/readState` cria um `ZCodeApp` temporário completo quando não há Session ativa, injeta Adapters falsos apenas de estado e então gera `model + thought + configOptions` por `mapSessionSettings()`. A primeira mensagem da conversa é apenas a entrada mais comum; a mesma cadeia é usada também pelo preview de Automation, Repo Wiki, reconciliação de Subagent, Bot, modelo de usuário do Off-Peak e sidecar de Git Commit.
 
-Host View 已经包含 Model Config 与 Option Specs，不应再启动 Agent App/Session 来查询模型静态事实。
+A Host View já contém Model Config e Option Specs, e não deveria mais iniciar App/Session de Agent para consultar fatos estáticos de modelo.
 
-### 2.3 默认值存在重复 owner
+### 2.3 Valores padrão têm owners duplicados
 
-当前同时存在：
+Existem hoje simultaneamente:
 
-- Renderer 全局 `localStorage` 模型与 thought 偏好；
-- Agent Server `workspaceModelPreferences.defaultModel/lastUsedModel/defaultThoughtLevel`；
-- Environment `.zcode/v2/model-selection.json` Configured Default；
-- Active/temporary App 当前模型投影。
+- preferências globais de modelo e thought no `localStorage` do Renderer;
+- `workspaceModelPreferences.defaultModel/lastUsedModel/defaultThoughtLevel` no Agent Server;
+- Default Configurado no `model-selection.json` do Environment `.zcode/v2`;
+- projeção do modelo atual do App active/temporário.
 
-这些状态分别模拟 App Recent、Configured Default 和 Session Selection，导致初始化优先级、远程隔离和恢复
-语义无法机械证明。
+Esses estados simulam, respectivamente, App Recent, Default Configurado e Session Selection, o que impede provar mecanicamente a prioridade de inicialização, o isolamento remoto e a semântica de recuperação.
 
-### 2.4 字符串选择与重复 Schema 仍在扩散
+### 2.4 A seleção em string e o Schema duplicado continuam se espalhando
 
-`provider/model$reasoning` 无法 round-trip `maxOutputTokens`，且 UI、Services、Provider Node、Contracts 与
-Bootstrap 存在重复 format/parse/Schema。即使当前普通发送已使用结构化 Selection，产品配置、预览和兼容
-mutation 仍会把完整 Selection 拆散后重新猜测。
+`provider/model$reasoning` não consegue fazer round-trip de `maxOutputTokens`, e existem format/parse/Schema duplicados na UI, nos Services, no Provider Node, nos Contracts e no Bootstrap. Mesmo que hoje o envio comum já use Selection estruturada, configurações de produto, prévias e mutations de compatibilidade ainda desmontam a Selection completa e depois a reestimam.
 
-### 2.5 Effective Option 被反写成显式 Selection
+### 2.5 Effective Option é reescrito como Selection explícita
 
-当前 ModelFactory 已经可以在 Selection 未提供 option 时使用 Model Config 默认值，但部分恢复和切换链路会
-先解析 Effective Option，再把结果写回 Selection。例如 Session restore 会把缺省
-`maxOutputTokens` 物化进 Selection，使“跟随默认值”悄悄变成“固定旧值”。
+O ModelFactory atual já consegue usar os valores padrão do Model Config quando a Selection não fornece uma option, mas algumas cadeias de recuperação e troca primeiro resolvem a Effective Option e depois escrevem o resultado de volta na Selection. Por exemplo, o restore de Session materializa o `maxOutputTokens` ausente dentro da Selection, fazendo "seguir o padrão" virar silenciosamente "fixar o valor antigo".
 
 ```text
 错误
@@ -315,101 +280,91 @@ Sparse Selection --------------------------> 原样保持
 Active Model.options ----------------------> 本次执行完整事实
 ```
 
-同类风险必须检查 Session restore、Model switch、Automation/Off-Peak dispatch、Compact/Memory/Subagent、
-CLI 参数、RPC round-trip 和 Draft 持久化。UI 展示当前默认值不等于用户显式选择；只有真实编辑动作才产生
-option override。
+O mesmo risco precisa ser verificado em Session restore, Model switch, dispatch de Automation/Off-Peak, Compact/Memory/Subagent, argumentos de CLI, round-trip de RPC e persistência de Draft. A UI exibir o valor padrão atual não equivale a uma seleção explícita do usuário; apenas ações reais de edição produzem um override de option.
 
-### 2.6 同一个类型不等于同一个产品 owner
+### 2.6 O mesmo tipo não equivale ao mesmo owner de produto
 
-统一 `ModelSelection` 只统一“如何引用未来 Model”，不能把各产品状态并成一个共享 Selection Store：
+Unificar `ModelSelection` unifica apenas "como referenciar um Model futuro"; não permite transformar os estados de cada produto em um Selection Store compartilhado:
 
-| 产品状态          | `modelSelection` 缺失的含义                                   | 解析时机/owner                  |
-| ----------------- | ------------------------------------------------------------- | ------------------------------- |
-| Composer / Draft  | 按初始化优先级取得初值                                        | Renderer Draft                  |
-| Session           | 新 Session 首次执行前可缺省；执行后必须保存已接受的 Selection | Session Store/Core              |
-| Automation        | 创建表单时解析目标 Host preferred，并固化具体 Selection       | Automation record/service       |
-| Repo Wiki         | 未指定时使用目标 Workspace 首选                               | 每次 generation 提交边界        |
-| Bot               | 未指定时使用 Bot context 对应 Workspace 的产品默认规则        | Bot config/task submission      |
-| Subagent override | 继承 Parent Active Model，不重新查询 Workspace 默认           | Parent/child execution boundary |
-| Off-Peak          | 创建任务时形成自己的精确 provider/model Selection             | Off-Peak record/dispatcher      |
+| Estado de produto   | Significado de `modelSelection` ausente                          | Momento de resolução / owner                     |
+| ------------------ | -------------------------------------------------------------- | ------------------------------------------------ |
+| Composer / Draft   | obtém valor inicial pela prioridade de inicialização            | Renderer Draft                                   |
+| Session            | pode faltar antes da primeira execução de nova Session; após executar, precisa salvar a Selection aceita | Session Store/Core             |
+| Automation         | no formulário de criação resolve o preferred do Host alvo e fixa uma Selection concreta | registro/service de Automation   |
+| Repo Wiki          | quando não especificado usa o preferido do Workspace alvo       | fronteira de envio de cada generation            |
+| Bot                | quando não especificado usa as regras padrão de produto do Workspace correspondente ao contexto do Bot | config/task submission do Bot |
+| Subagent override  | herda o Parent Active Model e não consulta o default do Workspace | fronteira de execução parent/child               |
+| Off-Peak           | forma sua própria Selection precisa de provider/model na criação da tarefa | registro/dispatcher do Off-Peak   |
 
-`modelSelection` 整体缺失与 `modelSelection.options` 缺失是两个不同状态：前者表示产品没有固定模型，后者表示
-模型身份已经固定但 option 跟随 Model Config 默认值。实现不得用同一个空字符串、`inherit` 伪 ID 或全局
-fallback helper 混淆它们。
+A ausência completa de `modelSelection` e a ausência de `modelSelection.options` são dois estados diferentes: o primeiro significa que o produto não fixou um modelo, e o segundo significa que a identidade do modelo está fixada mas as options seguem os valores padrão do Model Config. A implementação não pode confundir os dois com uma mesma string vazia, um pseudo ID `inherit` ou um helper de fallback global.
 
-Automation UI 不保留“跟随 Workspace”或“默认模型”虚拟态。创建表单、缺少 Selection 的旧记录以及切换目标
-Workspace 时，使用目标 Host `preferredSelection` 初始化具体 provider/model，并按目标模型 Option Spec 解析出
-具体 reasoning；保存时始终写入完整 `modelSelection`。后续 Workspace preferred 改变不影响已经保存的
-Automation。
+A UI de Automation não mantém estados virtuais de "seguir o Workspace" ou "modelo padrão". O formulário de criação, os registros antigos sem Selection e a troca de Workspace alvo inicializam provider/model concreto usando o `preferredSelection` do Host alvo e resolvem o reasoning concreto a partir das Option Specs do modelo alvo; ao salvar, sempre grava uma `modelSelection` completa. Mudanças posteriores no preferred do Workspace não afetam a Automation já salva.
 
 ## 3. Impact Brief
 
-### 3.1 Feature Summary
+### 3.1 Resumo do Recurso
 
-| 字段             | 结论                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------- |
-| Developer intent | 模型选择读取目标 Host，统一稀疏结构化意图，删除 Base Host 全局候选、临时 App 目录和字符串选择旁路             |
-| Capability       | Model Selection、Provider Registry、Environment、Conversation、Automation、Repo Wiki、Bot、Off-Peak、Subagent |
-| Change layer     | `option-source`、`draft-default`、`validation`、`persistence`、`recovery`                                     |
-| Operating mode   | planning / implementation-handoff                                                                             |
-| Primary seeds    | `IModelSelectionService`、`useModelSelectionView`、`workspace/readState`、`ModelConfigSelect`                 |
-| Out of scope     | Provider Provisioning、Access/Auth、模型请求编码、Queue/Goal 状态机、远程 Subagent 配置管理                   |
+| Campo             | Conclusão                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Intenção do desenvolvedor | a seleção de modelo lê o Host alvo, unifica a intenção esparsa e estruturada, e remove os candidatos globais do Base Host, o catálogo do App temporário e o desvio da seleção em string |
+| Capability       | Model Selection, Provider Registry, Environment, Conversation, Automation, Repo Wiki, Bot, Off-Peak, Subagent        |
+| Camada de mudança | `option-source`, `draft-default`, `validation`, `persistence`, `recovery`                                           |
+| Modo de operação | planning / implementation-handoff                                                                                   |
+| Seeds principais | `IModelSelectionService`, `useModelSelectionView`, `workspace/readState`, `ModelConfigSelect`                        |
+| Fora de escopo   | Provider Provisioning, Access/Auth, codificação de requisição de modelo, máquina de estados de Queue/Goal, gerenciamento remoto de configuração de Subagents |
 
-### 3.2 UI Surface Matrix
+### 3.2 Matriz de Superfície de UI
 
-| 用户场景                  | 候选/默认来源                  | 草稿 owner            | Commit sink                | 最终权威                            | 本 Todo 结果                        |
-| ------------------------- | ------------------------------ | --------------------- | -------------------------- | ----------------------------------- | ----------------------------------- |
-| Conversation 本地         | Local Host View/preferred      | Composer Draft        | Submission command         | Local Worker Registry/ModelFactory  | 删除临时 App 目录                   |
-| Conversation 远程         | Remote Host View/preferred     | Composer Draft        | Remote Submission command  | Remote Worker Registry/ModelFactory | 禁止 Local fallback                 |
-| Automation                | 表单选中 Workspace 的目标 Host | Automation form       | Automation Service/record  | 执行 Environment ModelFactory       | 结构化持久化；取消不改 Conversation |
-| Repo Wiki                 | 当前项目目标 Host              | generation settings   | Repo Wiki Service          | 目标 Environment ModelFactory       | 删除 deferred Session preview       |
-| Bot                       | Bot context 对应目标 Host      | Bot command draft     | Bot config/Task submission | 目标 Environment ModelFactory       | 删除 workspace state 模型投影       |
-| Off-Peak                  | Local Host scoped hidden View  | Off-Peak form         | Off-Peak Service/record    | Local Worker ModelFactory           | 保持本地产品边界；结构化持久化      |
-| Subagent Settings         | Local Host View                | Subagent form         | Local `ISubagentsService`  | Local Environment config            | 不管理 Remote config                |
-| Remote Subagent execution | 无本轮 UI                      | Remote profile/config | Agent tool                 | Remote Worker ModelFactory          | 读取远端自有配置                    |
-| Git Commit sidecar        | 请求目标 Host 初始/显式选择    | 单次请求              | text generation service    | 目标 Environment ModelFactory       | 不再读 temporary App                |
+| Cenário do usuário            | Origem de candidatos/padrão            | Owner do draft           | Sink do commit                   | Autoridade final                      | Resultado deste Todo                       |
+| ----------------------------- | -------------------------------------- | ------------------------ | -------------------------------- | ------------------------------------- | ------------------------------------------ |
+| Conversation local            | Local Host View/preferred              | Composer Draft          | Submission command               | Local Worker Registry/ModelFactory     | remoção do catálogo do App temporário       |
+| Conversation remoto           | Remote Host View/preferred             | Composer Draft          | Remote Submission command        | Remote Worker Registry/ModelFactory    | proibido fallback local                    |
+| Automation                    | Host alvo do Workspace escolhido       | Automation form         | Automation Service/record         | ModelFactory do Environment de execução | persistência estruturada; cancelar não muda a Conversation |
+| Repo Wiki                     | Host alvo do projeto atual             | generation settings     | Repo Wiki Service                | ModelFactory do Environment alvo       | remoção do preview de Session diferido     |
+| Bot                           | Host alvo do contexto do Bot           | Bot command draft       | Bot config/Task submission       | ModelFactory do Environment alvo       | remoção da projeção de modelo do workspace state |
+| Off-Peak                      | Local Host scoped hidden View          | Off-Peak form           | Off-Peak Service/record          | Local Worker ModelFactory              | mantém o limite de produto local; persistência estruturada |
+| Subagent Settings             | Local Host View                        | Subagent form           | Local `ISubagentsService`        | Config do Local Environment            | não gerencia Remote config                 |
+| Execução remota de Subagent   | sem UI nesta rodada                    | Remote profile/config   | Agent tool                       | Remote Worker ModelFactory             | lê a configuração própria do remote         |
+| Git Commit sidecar            | seleção inicial/explícita do Host alvo | requisição única        | text generation service          | ModelFactory do Environment alvo       | deixa de ler o App temporário               |
 
-### 3.3 State Owners And Commit Sinks
+### 3.3 Owners de Estado e Sinks de Commit
 
-| 状态/事实            | 权威 owner                            | 镜像/缓存                              | 写入事件                             |
-| -------------------- | ------------------------------------- | -------------------------------------- | ------------------------------------ |
-| Model Selection View | 目标 Host Provider Registry Facade    | 按 Host service 实例缓存的 UI Snapshot | Registry revision 变化               |
-| Composer Draft       | Entry/Renderer                        | Draft persistence                      | 用户编辑                             |
-| App Recent           | App x workspaceKey                    | Renderer memory/local persistence      | App 接受普通 Submission              |
-| Configured Default   | 目标 Workspace repository             | Host View 解析 preferredSelection      | 独立配置写入                         |
-| Session Selection    | Session Store/Core                    | UI projection                          | Submission 启动 Loop / Guide 接受    |
-| Active Model         | Agent Loop                            | 无持久化                               | ModelFactory 创建                    |
-| 产品选择             | 各产品 Service/Repo                   | 各自表单 draft                         | 用户保存或产品创建                   |
-| Subagent Config      | 各 Environment 的 Subagent repository | Settings 本轮只看 Local                | Local UI 保存或 Environment 自己写入 |
+| Estado/fato               | Owner autoritativo                        | Espelho/cache                                      | Evento de escrita                                  |
+| ------------------------- | ----------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
+| Model Selection View      | Provider Registry Facade do Host alvo      | Snapshot de UI em cache por instância de serviço de Host | Mudança de revision do Registry              |
+| Composer Draft            | Entry/Renderer                            | Persistência de Draft                              | Edição do usuário                                   |
+| App Recent                | App x workspaceKey                        | memória/persistência local do Renderer             | App aceita um Submission normal                    |
+| Configured Default        | repositório do Workspace alvo              | Host View resolve preferredSelection              | escrita de configuração independente              |
+| Session Selection         | Session Store/Core                        | projeção de UI                                     | Submission inicia o Loop / Guide aceita            |
+| Active Model              | Agent Loop                                | sem persistência                                   | criação pelo ModelFactory                          |
+| Seleção de produto        | Service/Repo de cada produto              | draft de cada formulário                           | salvamento do usuário ou criação pelo produto      |
+| Subagent Config           | repositório de Subagents de cada Environment | Settings nesta rodada vêem apenas o Local        | salvamento pela UI local ou escrita pelo próprio Environment |
 
-### 3.4 Feature Relationships
+### 3.4 Relações entre Features
 
-| 等级           | 关系                                               | 要求                                          |
-| -------------- | -------------------------------------------------- | --------------------------------------------- |
-| must-inspect   | Workspace target -> Host service resolution        | local/remote 精确路由，断连不回退             |
-| must-inspect   | Host View -> Conversation/Automation/Repo Wiki/Bot | 候选与 Option Specs 不再读取 temporary App    |
-| must-inspect   | App Recent -> workspaceKey                         | 远程 identity 隔离，不按 path 或 session 串用 |
-| must-inspect   | Product persistence -> ModelSelection Schema       | 新写入只保留显式 options，不用字符串拼接      |
-| must-inspect   | Selection -> ModelFactory defaults                 | 默认值只进入 Active Model，不反写 Selection   |
-| must-inspect   | Subagent UI -> Local Host                          | UI 不读取或覆盖 Remote Environment config     |
-| must-inspect   | Submission -> Worker ModelFactory                  | Host 选择不替代最终校验                       |
-| should-inspect | Configured Default -> Host resolver                | invalid default 进入 fallback，不覆写文件     |
-| invariant-only | Queue/Guide/Edit/Retry                             | 保持当前结构化 Selection 与 admission 顺序    |
-| invariant-only | desktop continuous/mobile replayable               | 不新增 runtime、queue 或恢复 owner            |
-| invariant-only | Provider Provisioning                              | 不借选择路由实现配置/凭据同步                 |
+| Nível           | Relação                                                  | Requisito                                                    |
+| --------------- | -------------------------------------------------------- | ------------------------------------------------------------ |
+| must-inspect   | Workspace target -> resolução de serviço do Host        | roteamento preciso local/remote e sem fallback em desconexão |
+| must-inspect   | Host View -> Conversation/Automation/Repo Wiki/Bot      | candidatos e Option Specs deixam de ler o App temporário      |
+| must-inspect   | App Recent -> workspaceKey                               | isolamento por identity remota, sem mistura por path ou sessão |
+| must-inspect   | Persistência de produto -> ModelSelection Schema         | novas escritas guardam apenas options explícitas, sem concatenação de strings |
+| must-inspect   | Selection -> defaults do ModelFactory                    | valores padrão entram apenas no Active Model e não são reescritos na Selection |
+| must-inspect   | Subagent UI -> Local Host                                | a UI não lê nem sobrescreve a config do Remote Environment   |
+| must-inspect   | Submission -> Worker ModelFactory                        | a seleção do Host não substitui a validação final           |
+| should-inspect | Configured Default -> resolver do Host                   | default inválido entra em fallback sem sobrescrever o arquivo |
+| invariant-only | Queue/Guide/Edit/Retry                                   | mantém a Selection estruturada atual e a ordem de admission |
+| invariant-only | desktop continuous/mobile replayable                     | sem novo owner de runtime, queue ou recuperação             |
+| invariant-only | Provider Provisioning                                    | sem sincronização de config/credenciais via roteamento de seleção |
 
 ### 3.5 Graph Drift
 
-当前 Feature Graph 仍把部分模型候选边连接到旧 `useModelProviders`/app-global metadata，并把 Workspace
-Subagent reasoning 描述为 `workspace/readState` Runtime Catalog。本 Todo 的确认语义是：普通产品候选来自目标
-Host；Subagent Settings 只来自 Local Host。实施时更新这些 code seed 和旧条件，不把尚未实现的符号伪装成
-当前代码事实。
+O Feature Graph atual ainda conecta algumas arestas de candidatos de modelo ao antigo `useModelProviders`/metadata global do app e descreve o reasoning de Subagents de Workspace como Runtime Catalog de `workspace/readState`. A semântica confirmada deste Todo é: candidatos comuns de produto vêm do Host alvo e Subagent Settings vêm apenas do Local Host. Na implementação, atualize esses code seeds e as condições antigas, sem disfrazar símbolos ainda não implementados como fatos do código atual.
 
-## 4. Host Contract 目标
+## 4. Contrato alvo do Host
 
-### 4.1 用户 View
+### 4.1 View do usuário
 
-`ModelSelectionView` 至少提供：
+`ModelSelectionView` oferece no mínimo:
 
 ```ts
 interface ModelSelectionView {
@@ -419,13 +374,11 @@ interface ModelSelectionView {
 }
 ```
 
-Model View 中的完整 Model Config 已包含 `properties` 与 `optionSpecs`。UI 直接读取这些事实展示输入格式、
-reasoning 与 max output 选项，不创建 Session 获取同一事实。`preferredSelection` 必须属于同一 revision 的
-visible、enabled、selectable View；空 View 时允许缺失。
+A Model Config completa na Model View já contém `properties` e `optionSpecs`. A UI lê esses fatos diretamente para exibir os formatos de entrada e as opções de reasoning e max output, sem criar Session para obter o mesmo fato. O `preferredSelection` precisa pertencer a uma View visible, enabled e selectable da mesma revision; em uma View vazia, ele pode faltar.
 
-### 4.2 初始选择解析
+### 4.2 Resolução da seleção inicial
 
-Host Service 不增加第二个 resolver RPC：
+O Host Service não ganha um segundo RPC de resolução:
 
 ```ts
 interface IModelSelectionService {
@@ -434,14 +387,11 @@ interface IModelSelectionService {
 }
 ```
 
-Host 在构造 View 时原子解析 Configured Default 与 fallback，得到 `preferredSelection`。Entry 自己持有的
-workspace App Recent 不上传给 Host：Renderer 只检查它是否仍属于当前 View；有效则优先，无效或不存在则采用
-`view.preferredSelection`。这种 candidate matching 只服务初始展示，不解析 hidden 精确执行选择，也不成为
-ModelFactory 的替代 validator。
+O Host resolve atomicamente o Default Configurado e o fallback ao construir a View, obtendo o `preferredSelection`. O workspace App Recent que o Entry mantém por conta própria não é enviado ao Host: o Renderer apenas verifica se ele ainda pertence à View atual; se for válido, tem prioridade, e se for inválido ou inexistente, adota-se `view.preferredSelection`. Esse casamento de candidatos serve apenas à exibição inicial, não resolve uma Selection de execução precisa e oculta, nem se torna um validator substituto do ModelFactory.
 
-### 4.3 Target-scoped UI Hook
+### 4.3 Hook de UI em escopo de target
 
-目标 UI 入口统一通过 workspace target 解析 Service：
+A entrada de UI alvo resolve uniformemente o Service pelo target do workspace:
 
 ```text
 workspacePath + workspaceIdentity + remoteSessionId + remoteTarget
@@ -454,198 +404,193 @@ useWorkspaceServicesResolution
         `-- remote-waiting/disconnected -> unavailable（不回退）
 ```
 
-Snapshot/cache 按 target service 实例与 `workspaceKey` 隔离。切换 target 时取消旧订阅并丢弃迟到 View；
-不同 Host 即使 revision 数字相同也不能相互覆盖。
+Snapshot/cache são isolados por instância de serviço de target e por `workspaceKey`. Na troca de target, a assinatura antiga é cancelada e Views atrasadas são descartadas; Hosts diferentes não podem sobrescrever um ao outro mesmo que o número de revision seja o mesmo.
 
-## 5. 删除与修改范围
+## 5. Escopo de remoção e modificação
 
-### 5.1 UI 与 Services
+### 5.1 UI e Services
 
-- 删除 Root 单例 `modelSelectionSnapshot` 与 `useRootModelSelectionSnapshot`；
-- 将无 target 的 `useModelSelectionView()` 改为 target-scoped 读取；
-- `SessionPane` readiness gate 使用当前 pane 的 target Host，而不是 `baseWorkspaceServices`；
-- `ModelConfigSelect` 内部 value 与业务 `ModelSelection` 分离，调用方不再重复 decode；
-- Automation 在表单切换 Workspace 时原子切换 Host View，迟到结果不得写回新 target；
-- Repo Wiki 使用当前项目 Host View；删除 deferred draft Session reasoning preview；
-- Bot 使用 Bot context 的目标 Host；远程连接缺失时 fail-closed；
-- Git Commit sidecar 由目标 Host 初始/显式 Selection 提供选择，不读取 workspace App 投影；
-- Subagent Settings 固定注入 Local Host Model Selection/Subagents Service，并移除远程 scope。
+- Remover o singleton do Root `modelSelectionSnapshot` e o `useRootModelSelectionSnapshot`;
+- Mudar o `useModelSelectionView()` sem target para uma leitura em escopo de target;
+- O gate de readiness do `SessionPane` usa o Host alvo do pane atual, e não `baseWorkspaceServices`;
+- O value interno do `ModelConfigSelect` é separado da `ModelSelection` de negócio, e o chamador não repete o decode;
+- O Automation troca atomicamente a Host View ao trocar de Workspace no formulário, e resultados atrasados não podem escrever no novo target;
+- O Repo Wiki usa a Host View do projeto atual; remover o preview diferido de reasoning de uma Session de draft;
+- O Bot usa o Host alvo do contexto do Bot; quando falta conexão remota, é fail-closed;
+- O sidecar de Git Command recebe a seleção do Host alvo inicial/explícita e não lê a projeção de App do workspace;
+- O Subagent Settings injeta de forma fixa o Local Host Model Selection/Subagents Service e remove o escopo remoto.
 
-### 5.2 Agent Protocol 与临时 App
+### 5.2 Agent Protocol e App temporário
 
-- `workspace/readState` 不再返回或承担 Model Selection/Model Option Specs；
-- 删除 `workspaceModelPreferences.defaultModel/lastUsedModel/defaultThoughtLevel`；
-- 删除 `workspace/setDefaultModel`、`workspace/setDefaultThoughtLevel` 及其 RPC、adapter、mock 和测试；
-- 保留非模型的 mode/slash command 需求，但通过自己的最小接口读取；
-- 无其他消费者后删除 `createWorkspaceStateOnlyModelAdapter()` 和仅为读取状态创建临时 `ZCodeApp` 的路径；
-- Session active projection 继续报告本 Session 实际 Selection，不再兼任 Workspace 默认目录。
+- `workspace/readState` deixa de retornar ou assumir Model Selection/Model Option Specs;
+- Remover `workspaceModelPreferences.defaultModel/lastUsedModel/defaultThoughtLevel`;
+- Remover `workspace/setDefaultModel`, `workspace/setDefaultThoughtLevel` e seus RPCs, adapters, mocks e testes;
+- Manter as necessidades não relacionadas a modelo, como mode/slash commands, mas lendo-as por sua própria interface mínima;
+- Remover `createWorkspaceStateOnlyModelAdapter()` e o caminho que cria um `ZCodeApp` temporário apenas para ler estado, depois que não houver outros consumidores;
+- A projeção ativa de Session continua reportando a Selection real desta Session e deixa de atuar como catálogo de defaults do Workspace.
 
-### 5.3 结构化持久化
+### 5.3 Persistência estruturada
 
-- App Recent 使用 `workspaceKey -> ModelSelection`；
-- Automation、Repo Wiki、Bot、Off-Peak 与 Subagent 的 shared types、strict schema、RPC 和 repository 使用
-  `ModelSelection`；
-- 正式 repository 只保存显式 option；空 `options` 和清除后的空叶子必须归一化掉；
-- 删除任何把 ModelFactory/Option Spec 解析出的默认值反写 Selection 的恢复、预览或保存 helper；
-- Custom Subagent Markdown frontmatter 与 Built-in override state 使用一个结构化 Selection 字段，删除
-  model/thought 双 map；
-- 已发布旧存储只在 repository/importer 读取边界转换，写回只产生新结构；
-- `formatModelSelection()` 只保留 CLI/picker/legacy 边界所需的明确变体；不得由业务 barrel 继续诱导正常代码
-  round-trip；
-- 删除重复 `modelSelectionSchema`、`parseModelSelectionValue` 和业务层 local parser。
+- O App Recent usa `workspaceKey -> ModelSelection`;
+- Shared types, strict schema, RPC e repository de Automation, Repo Wiki, Bot, Off-Peak e Subagent usam `ModelSelection`;
+- O repository formal guarda apenas options explícitas; `options` vazio e folhas vazias depois da remoção precisam ser normalizados;
+- Remover qualquer helper de recuperação, preview ou salvamento que reescreva na Selection os valores padrão resolvidos pelo ModelFactory/Option Spec;
+- O frontmatter do Markdown de Custom Subagent e o estado de override Built-in usam um único campo de Selection estruturada, removendo o par de maps model/thought;
+- O armazenamento antigo já publicado é convertido apenas na fronteira de leitura do repository/importer, e a escrita produz somente a estrutura nova;
+- `formatModelSelection()` mantém apenas as variantes explícitas necessárias nas fronteiras CLI/picker/legacy; um barrel de negócio não pode continuar inducindo round-trip em código normal;
+- Remover `modelSelectionSchema`, `parseModelSelectionValue` duplicados e parsers locais da camada de negócio.
 
-### 5.4 明确保留
+### 5.4 Preservado explicitamente
 
-- Provider Registry、ModelFactory、Active Model 和 Adapter 执行主链；
-- Session Submission、Queue、Guide、Edit、Retry 当前结构化 intent；
-- hidden Off-Peak Provider 的 scoped View 与派发前窄检查；
-- App Recent、Configured Default、Session Selection、Active Model 不同写入时机；
-- Prompt CLI/TUI 的 in-process Entry，不强制为它们启动 Host RPC。
+- A cadeia principal de execução de Provider Registry, ModelFactory, Active Model e Adapter;
+- O intent estruturado atual de Session Submission, Queue, Guide, Edit e Retry;
+- A View com escopo e as verificações antecipadas estreitas antes do dispatch do hidden Off-Peak Provider;
+- Os momentos de escrita distintos de App Recent, Configured Default, Session Selection e Active Model;
+- A Entry in-process de Prompt CLI/TUI, sem obrigá-la a iniciar Host RPC.
 
-## 6. 实施顺序
+## 6. Ordem de implementação
 
-### Step A：先同步正式 Design、Feature Graph 与失败测试
+### Step A: sincronizar primeiro o Design formal, o Feature Graph e os testes de falha
 
-1. 更新 `selection-state.md`、`environment.md`、`interaction.md` 和相关 Subagent/Automation/Repo Wiki spec；
-2. 执行 Todo 12 或与其原子协调，先确保不会重新引入通用 Facade `validate()`；
-3. 更新 Feature Graph 中目标 Host、workspaceKey、Local-only Subagent 管理和产品持久化关系；
-4. 先写 Host View preferred、远程 target 路由、App Recent 隔离、稀疏 option 和结构化 repository 的失败测试。
+1. Atualizar `selection-state.md`, `environment.md`, `interaction.md` e as specs relacionadas de Subagent/Automation/Repo Wiki;
+2. Executar o Todo 12 ou coordenar-se com ele de forma atômica, garantindo primeiro que nenhum Facade `validate()` genérico seja reintroduzido;
+3. Atualizar no Feature Graph as relações de Host alvo, workspaceKey, gerenciamento de Subagent local-only e persistência de produto;
+4. Escrever primeiro os testes de falha de preferred da Host View, roteamento de target remoto, isolamento de App Recent, option esparsa e repository estruturado.
 
-### Step B：Host View 首选 Selection
+### Step B: Selection preferida na Host View
 
-1. 将 Configured Default repository 注入 Host Model Selection Service；
-2. 在同一 revision 的 `ModelSelectionView` 中原子返回候选、Option Specs 和 `preferredSelection`；
-3. Renderer 用 `workspaceKey` 读取 App Recent，并在当前 View 中匹配后决定是否覆盖 Host preferred；
-4. Prompt CLI/TUI 复用同一纯 domain preferred resolver；
-5. 验证 hidden/disabled、不合法 options、空 View 与 Registry revision 变化；
-6. 机械证明没有新增 `environmentId` 或独立 `resolveInitialSelection()` RPC。
+1. Injetar o repositório de Default Configurado no Host Model Selection Service;
+2. Retornar atomicamente candidatos, Option Specs e `preferredSelection` na `ModelSelectionView` da mesma revision;
+3. O Renderer lê o App Recent por `workspaceKey` e, após casá-lo na View atual, decide se cobre o preferred do Host;
+4. Prompt CLI/TUI reutilizam o mesmo pure domain preferred resolver;
+5. Validar hidden/disabled, options inválidas, View vazia e mudanças de revision do Registry;
+6. Provar mecanicamente que não foi adicionado `environmentId` nem um RPC independente `resolveInitialSelection()`.
 
-### Step C：Target-scoped View 基础设施
+### Step C: infraestrutura de View em escopo de target
 
-1. 实现按目标 Services 订阅的 hook/store；
-2. 本地连接 Local Host，远程连接 Remote Host；
-3. 切换 Environment 时清除旧 Snapshot，迟到事件按 connection generation 丢弃；
-4. remote-waiting/disconnected 不回退；
-5. 删除 Root 全局 Snapshot。
+1. Implementar o hook/store que assina pelos Services alvo;
+2. Conectar ao Local Host em caso local e ao Remote Host em caso remoto;
+3. Limpar o Snapshot antigo ao trocar de Environment e descartar eventos atrasados por connection generation;
+4. remote-waiting/disconnected sem fallback;
+5. Remover o Snapshot global do Root.
 
-### Step D：Conversation 与 App Recent
+### Step D: Conversation e App Recent
 
-1. Composer、Toolbar、readiness gate 切到 target Host；
-2. Draft 初始化使用 workspace-scoped Recent + Host View preferredSelection；
-3. App 接受普通 Submission 后写结构化稀疏 Selection；
-4. Registry 更新导致 Draft 失效时保留并展示 unavailable；
-5. 验证第一条消息与后续消息使用同一目标 Host/Worker 组合。
+1. Composer, Toolbar e gate de readiness passam para o Host alvo;
+2. A inicialização do Draft usa o Recent com escopo de workspace e o `preferredSelection` da Host View;
+3. Após o App aceitar um Submission normal, gravar a Selection estruturada e esparsa;
+4. Quando uma atualização do Registry invalida o Draft, preservá-lo e exibir unavailable;
+5. Validar que a primeira mensagem e as seguintes usam a mesma combinação de Host/Worker alvo.
 
-### Step E：Selection 稀疏 Option 语义
+### Step E: semântica de option esparsa da Selection
 
-1. 先为 Schema/repository 增加缺省叶子、partial options、空对象归一化、patch `null` 清除测试；
-2. 证明 ModelFactory 对每个缺省叶子使用当前 Model Config 默认值，并在 Active Model 中冻结完整 options；
-3. 删除 Session restore 和 Model switch 中把 Effective Option 反写 Selection 的逻辑；
-4. UI 将“显示默认值”与“显式选择值”分开；选择“默认”删除叶子，显式选择与默认相同的值仍保存；
-5. 切换 provider/model 时不无脑继承源模型 options；新模型只接收用户针对它显式确认且通过 Option Specs 的值；
-6. execution history 需要实际 option 时读取/保存 Active Model facts，不物化 Selection 默认值。
+1. Escrever primeiro, para Schema/repository, os testes de folha ausente, options parciais, normalização de objeto vazio e remoção por patch `null`;
+2. Provar que o ModelFactory usa o valor padrão atual do Model Config para cada folha ausente e congela as options completas no Active Model;
+3. Remover de Session restore e Model switch a lógica que reescreve a Effective Option na Selection;
+4. A UI separa "mostrar o valor padrão" de "valor selecionado explicitamente": escolher "padrão" remove a folha, e uma escolha explícita igual ao padrão continua sendo salva;
+5. Não herdar cegamente as options do modelo de origem ao trocar provider/model; o novo modelo recebe apenas os valores que o usuário confirmou explicitamente para ele e que passaram pelas Option Specs;
+6. Quando o histórico de execução precisar da option real, ler/salvar os fatos do Active Model em vez de materializar valores padrão na Selection.
 
-### Step F：Automation、Repo Wiki、Bot、Off-Peak 与 sidecar
+### Step F: Automation, Repo Wiki, Bot, Off-Peak e sidecar
 
-1. 按各自 target 切换 Host View；
-2. reasoning/output options 直接读取 View Model Config；
-3. 删除 Automation/Repo Wiki deferred Session preview；
-4. 将产品 Service/Repo 改为结构化 Selection；
-5. Automation 表单把目标 Host preferred 解析成具体 Selection；没有 preferred 时明确不可提交，不引入
-   `inherit`、空字符串或“默认模型”伪 ID；
-6. 保持各产品 Draft、取消、保存、调度和执行 owner 不变。
+1. Trocar a Host View conforme o target de cada um;
+2. Ler as options de reasoning/output direto da Model Config da View;
+3. Remover o preview de Session diferido de Automation/Repo Wiki;
+4. Migrar os Services/Repos de produto para Selection estruturada;
+5. O formulário de Automation resolve o preferred do Host alvo em uma Selection concreta; sem preferred, fica explicitamente não submissível, sem introduzir `inherit`, string vazia ou pseudo ID de "modelo padrão";
+6. Manter inalterados os owners de Draft, cancelamento, salvamento, agendamento e execução de cada produto.
 
-### Step G：Subagent 本地配置边界
+### Step G: limite de configuração local de Subagent
 
-1. Settings 只注入 Local Host Model Selection 与 Subagents Service；
-2. 从 scope 列表排除 Remote Workspace，补充本地配置/远程暂不支持展示；
-3. Local user/workspace/built-in 配置结构化落盘；
-4. Remote runtime 继续读取远端已有配置，不新增 Desktop 同步；
-5. 删除 Subagent `workspace/readState` catalog reconciliation。
+1. Settings injeta apenas o Local Host Model Selection e o Subagents Service;
+2. Excluir o Workspace remoto da lista de escopos e acrescentar a exibição de configuração local / remoto ainda não suportado;
+3. Persistir de forma estruturada as configurações local user/workspace/built-in;
+4. O runtime remoto continua lendo a configuração que já existe no remote, sem nova sincronização pelo Desktop;
+5. Remover a reconciliação de catalog de Subagent via `workspace/readState`.
 
-### Step H：旧准备链与字符串归零
+### Step H: zerar a cadeia de preparo antiga e as strings
 
-1. 删除 model/thought workspace defaults 与相关 RPC；
-2. 将 mode、slash commands 从 `workspace/readState` 中拆到最小非模型接口；
-3. 删除 temporary App/state-only Adapter；
-4. 删除 Model/Thought `configOptions` 目录依赖；
-5. 删除重复 Schema/parser/format helper；
-6. 用 `rg`、`dep:refs`、Knip 与 TypeScript 确认无生产残留。
+1. Remover os defaults de model/thought do workspace e os RPCs relacionados;
+2. Tirar mode e slash commands de `workspace/readState` para uma interface mínima não relacionada a modelo;
+3. Remover o App temporário / Adapter state-only;
+4. Remover a dependência de catálogo de Model/Thought em `configOptions`;
+5. Remover Schema/parser/format helper duplicados;
+6. Confirmar com `rg`, `dep:refs`, Knip e TypeScript que não há resíduo em produção.
 
-### Step I：验证、回写与提交
+### Step I: validação, reescrita e commit
 
-1. 执行受影响 Provider、Services、Shared、UI、Bootstrap、Desktop 与 Web 单测；
-2. 执行 local/remote、同路径不同 workspaceIdentity、重连、首发/后续发送和产品表单代表 E2E；
-3. 执行 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check` 和 `pnpm knip`；
-4. 回写本 Todo 状态、实现结果、删除清单和未覆盖风险；
-5. 以 Conventional Commit 提交。
+1. Executar os testes unitários afetados de Provider, Services, Shared, UI, Bootstrap, Desktop e Web;
+2. Executar E2E representativos de local/remoto, mesmo path com workspaceIdentity diferente, reconexão, primeiro envio/envios seguintes e formulários de produto;
+3. Executar `pnpm typecheck`, `pnpm lint`, `pnpm fmt:check` e `pnpm knip`;
+4. Reescrever neste Todo o status, o resultado da implementação, a lista de remoções e os riscos não cobertos;
+5. Submeter com um Conventional Commit.
 
-## 7. 已接受用例与剪枝
+## 7. Casos aceitos e podas
 
-| Case ID | Setup                                                       | Action                       | Assertions                                                     |
-| ------- | ----------------------------------------------------------- | ---------------------------- | -------------------------------------------------------------- |
-| HMS-01  | Local Workspace，Local Host 有模型 A                        | 打开新 Draft                 | 候选和初始 Selection 来自 Local Host                           |
-| HMS-02  | Remote Host 只有模型 B，Local Host 只有 A                   | 打开远程 Draft               | 只显示 B；不显示或 fallback 到 A                               |
-| HMS-03  | Remote Host waiting/disconnected                            | 打开模型菜单/发送            | loading/unavailable；不调用 Local Host                         |
-| HMS-04  | 两个远程 Workspace path 相同但 workspaceIdentity 不同       | 分别接受 Submission          | App Recent 按 workspaceKey 隔离                                |
-| HMS-05  | App Recent 在目标 Host View 已失效，preferred 有效          | 创建新 Draft                 | 采用 Host preferred，不覆写 Recent/Default                     |
-| HMS-06  | Recent 失效且 Host View 无 preferred                        | 创建新 Draft                 | 保持 unavailable；Renderer 不自行选择首项                      |
-| HMS-07  | Draft 创建后 Registry 删除当前模型                          | 继续编辑                     | 保留原 Selection 并显示 unavailable，不静默换首项              |
-| HMS-08  | 已有 Session Selection 失效                                 | 恢复/下一次执行              | 保留 Session 意图；ModelFactory 明确失败，不读 Default         |
-| HMS-09  | Queue/Guide/Edit/Retry 携带部分显式 options                 | admission/执行               | Selection 不丢显式叶子，也不补写缺省叶子                       |
-| HMS-10  | Automation 在本地与远程项目间切换                           | 切 target、选模型、取消/保存 | View 随 Host 切换；取消不改 Conversation；保存结构化 Selection |
-| HMS-11  | Repo Wiki 选择 reasoning 模型                               | 打开/生成                    | Option Specs 来自目标 Host；不创建 preview Session             |
-| HMS-12  | Settings 在远程 Workspace 上下文打开 Subagent               | 查看/编辑入口                | 只表达本地配置或远程不支持；不读写 Remote config               |
-| HMS-13  | Remote Agent 已有自己的 Subagent config                     | 触发 child                   | 读取 Remote config，由 Remote ModelFactory 创建 Model          |
-| HMS-14  | 产品旧存储含 model + thought                                | repository 读取后保存        | 单向转成 ModelSelection，新写入不再拆分字段                    |
-| HMS-15  | Desktop continuous 与 Mobile replayable 控制同一远程任务    | 选择并发送                   | 使用同一 Remote Host；不改变 queue/snapshot/replay owner       |
-| HMS-16  | Selection 只固定 provider/model，Model Config 有默认 option | 创建 Model                   | Active Model 得到完整默认值；Selection 保持无 options          |
-| HMS-17  | 用户显式选择与当前默认相同的 reasoning                      | 保存并重载                   | 显式叶子保留；后续默认变化不改变该 pin                         |
-| HMS-18  | patch 清除最后一个显式 option                               | 保存并重载                   | 不持久化 `null` 或 `options: {}`                               |
-| HMS-19  | Session restore 遇到缺省 maxOutputTokens                    | 恢复并创建 Model             | 默认值只进入 Active Model，不反写 Session Selection            |
-| HMS-20  | 从模型 A 切到 Option Specs 不同的模型 B                     | 选择 B                       | 不继承 A 的 option；只保存针对 B 的显式选择                    |
-| HMS-21  | Automation 新建表单，目标 Host 存在 preferredSelection      | 不手动选模直接保存           | 保存具体 provider/model/reasoning；按钮可提交                  |
-| HMS-22  | Automation 已保存具体 modelSelection                        | 修改 Host preferred 并派发   | 继续使用保存的 Selection，不随 Workspace preferred 漂移        |
+| Case ID | Setup                                                              | Ação                          | Asserções                                                                    |
+| ------- | ------------------------------------------------------------------ | ----------------------------- | ---------------------------------------------------------------------------- |
+| HMS-01  | Workspace local, Local Host com o modelo A                          | abrir novo Draft              | candidatos e Selection inicial vêm do Local Host                            |
+| HMS-02  | Remote Host só tem o modelo B, Local Host só tem A                 | abrir Draft remoto            | só B é exibido; A não é exibido nem usado como fallback                      |
+| HMS-03  | Remote Host em waiting/disconnected                                | abrir menu de modelos/enviar  | loading/unavailable; o Local Host não é chamado                             |
+| HMS-04  | dois Workspaces remotos com o mesmo path e workspaceIdentity diferentes | aceitar Submissions respectivamente | App Recent isolado por workspaceKey                                    |
+| HMS-05  | App Recent inválido na View do Host alvo e preferred válido         | criar novo Draft               | adota o preferred do Host, sem sobrescrever Recent/Default                    |
+| HMS-06  | Recent inválido e Host View sem preferred                            | criar novo Draft               | permanece unavailable; o Renderer não escolhe o primeiro item sozinho         |
+| HMS-07  | Registry remove o modelo atual depois da criação do Draft           | continuar editando             | mantém a Selection original e exibe unavailable, sem trocar de item em silêncio |
+| HMS-08  | Session Selection existente fica inválida                           | retomar/próxima execução      | mantém a intenção da Session; o ModelFactory falha explicitamente e não lê Default |
+| HMS-09  | Queue/Guide/Edit/Retry carregam algumas options explícitas          | admission/execução            | a Selection não perde folhas explícitas nem preenche folhas ausentes        |
+| HMS-10  | Automation alterna entre projeto local e remoto                     | trocar target, escolher modelo, cancelar/salvar | a View troca com o Host; cancelar não muda a Conversation; salvar Selection estruturada |
+| HMS-11  | Repo Wiki escolhe um modelo com reasoning                           | abrir/gerar                   | Option Specs vêm do Host alvo; nenhuma Session de preview é criada          |
+| HMS-12  | Settings abre Subagent no contexto de um Workspace remoto          | ver/editar entrada             | expressa apenas configuração local ou remoto não suportado; não lê nem grava Remote config |
+| HMS-13  | Remote Agent já tem sua própria Subagent config                     | disparar child                | lê a Remote config e o Remote ModelFactory cria o Model                      |
+| HMS-14  | armazenamento de produto antigo contém model + thought              | ler do repository e salvar     | converte unilateralmente para ModelSelection; a nova escrita não separa mais campos |
+| HMS-15  | Desktop continuous e Mobile replayable controlam a mesma tarefa remota | selecionar e enviar          | usa o mesmo Remote Host; não altera owner de queue/snapshot/replay           |
+| HMS-16  | Selection fixa só provider/model e o Model Config tem option padrão | criar Model                    | o Active Model recebe os defaults completos; a Selection segue sem options  |
+| HMS-17  | o usuário seleciona explicitamente um reasoning igual ao default atual | salvar e recarregar          | a folha explícita é mantida; mudanças futuras de default não alteram esse pin |
+| HMS-18  | patch remove a última option explícita                              | salvar e recarregar           | não persiste `null` nem `options: {}`                                       |
+| HMS-19  | Session restore encontra maxOutputTokens ausente                     | retomar e criar Model          | o default entra apenas no Active Model e não é reescrito na Session Selection |
+| HMS-20  | troca do modelo A para o modelo B com Option Specs diferentes       | selecionar B                  | não herda a option de A; salva apenas a escolha explícita para B             |
+| HMS-21  | novo formulário de Automation com preferredSelection no Host alvo   | salvar sem escolher modelo     | salva provider/model/reasoning concretos; o botão fica submissível           |
+| HMS-22  | Automation já salvou um modelSelection concreto                     | mudar o preferred do Host e despachar | continua usando a Selection salva, sem derivar do preferred do Workspace |
 
-明确剪枝：
+Podas explícitas:
 
-- 不展开 Provider API 类型组合；本 Todo 不改变 Adapter 编码；
-- 不实现远程 Subagent Settings CRUD、同步或冲突处理；
-- 不把 Off-Peak hidden View 合并进普通 View；
-- 不改变 Queue、Goal、Compact、Background、权限或恢复状态机；
-- 不为 Prompt CLI/TUI 启动额外 Host 进程；
-- 不为未发布分支内格式建立兼容版本矩阵。
+- Não expandir as combinações de tipos de API de Provider; este Todo não muda a codificação do Adapter;
+- Não implementar CRUD, sincronização ou tratamento de conflitos de Remote Subagent Settings;
+- Não fundir a hidden View do Off-Peak na View comum;
+- Não mudar Queue, Goal, Compact, Background, permissões ou a máquina de estados de recuperação;
+- Não iniciar processos de Host extras para Prompt CLI/TUI;
+- Não estabelecer uma matriz de compatibilidade de versões para formatos ainda não publicados dentro do branch.
 
-## 8. 测试计划
+## 8. Plano de testes
 
 ### 8.1 Unit / Service
 
-- workspaceKey fallback、相同 path 不同 remote identity 隔离；
-- 同一 Host View 的 preferred/default/fallback/unavailable 优先级与 revision 一致性；
-- visible/hidden、enabled/disabled、invalid options 与 revision 变化；
-- target services local/remote/remote-waiting 路由；
-- 旧订阅迟到、相同 revision 跨 Host 和 target 快速切换；
-- App Recent 结构化 round-trip 与 workspaceKey；
-- Selection partial options、空对象归一化、patch `null` 清除和显式 default-value pin；
-- ModelFactory 缺省 option 解析、Active Model 冻结，以及 restore/switch 不反写 Selection；
-- Automation/Repo Wiki/Bot/Off-Peak/Subagent repository 结构化 round-trip；
-- Automation preferred 初始化、具体 Selection 保存、展示和派发一致性；
-- legacy importer 只读转换与新写入零字符串选择；
-- Subagent Settings Local-only scope。
+- fallback de workspaceKey e isolamento de mesmo path com identity remota diferente;
+- prioridade preferred/default/fallback/unavailable dentro da mesma Host View e consistência de revision;
+- visible/hidden, enabled/disabled, options inválidas e mudanças de revision;
+- roteamento de target services local/remote/remote-waiting;
+- assinatura antiga atrasada, mesma revision entre Hosts e troca rápida de target;
+- round-trip estruturado do App Recent e workspaceKey;
+- options parciais da Selection, normalização de objeto vazio, remoção por patch `null` e pin explícito de valor padrão;
+- resolução de option ausente pelo ModelFactory, congelamento do Active Model e restore/switch sem reescrever a Selection;
+- round-trip estruturado dos repositories de Automation/Repo Wiki/Bot/Off-Peak/Subagent;
+- inicialização por preferred da Automation, salvamento de Selection concreta, exibição e consistência no dispatch;
+- conversão somente de leitura do legacy importer e ausência de seleção em string nas novas escritas;
+- escopo Local-only do Subagent Settings.
 
 ### 8.2 Integration / E2E
 
-- Local Host A / Remote Host B 的差异候选与真实首发请求；
-- 远程重连后 workspaceIdentity、Recent、View 与 Selection 保持；
-- 不同 workspaceKey 的 Workspace 不共享 Recent；
-- 首条消息与已有 Session 后续消息均由目标 Worker 创建 Model；
-- Automation、Repo Wiki、Bot 与 Git Commit 使用请求目标 Environment；
-- Subagent 本地 CRUD 与 Remote runtime 自有配置隔离；
-- Desktop continuous 和 Web/Mobile replayable 代表路径。
+- candidatos diferentes e primeira requisição real entre Local Host A e Remote Host B;
+- manutenção de workspaceIdentity, Recent, View e Selection após reconexão remota;
+- Workspaces com workspaceKeys diferentes não compartilhando Recent;
+- primeira mensagem e mensagens seguintes de uma Session existente ambas criando Model pelo Worker alvo;
+- Automation, Repo Wiki, Bot e Git Commit usando o Environment alvo da requisição;
+- CRUD local de Subagent isolado da configuração própria do runtime remoto;
+- caminhos representativos de Desktop continuous e Web/Mobile replayable.
 
-### 8.3 机械门禁
+### 8.3 Portões mecânicos
 
-实施完成后以下生产概念必须归零或只剩明确兼容边界：
+Após a implementação, os conceitos de produção abaixo precisam zerar ou restar apenas como limites de compatibilidade explícitos:
 
 ```text
 modelSelectionSnapshot
@@ -662,61 +607,47 @@ prepareRepoWikiThoughtCatalog
 useSubagentWorkspaceCatalogReconciliation
 ```
 
-`formatModelSelection`、`parseModelSelection`、`model` + `thoughtLevel` 不能简单按名称全局归零；CLI 参数、历史
-importer、非模型业务字段可能合法存在。必须逐消费者确认它是否表达未来 Model 选择，只有正式选择才强制迁移。
+`formatModelSelection`, `parseModelSelection` e `model` + `thoughtLevel` não podem simplesmente ser zerados globalmente por nome; argumentos de CLI, importers históricos e campos de negócio não relacionados a modelo podem existir legitimamente. É preciso confirmar consumidor por consumidor se ele expressa uma seleção de Model futuro, e só a seleção formal deve ser migrada à força.
 
-## 9. 完成定义
+## 9. Definição de conclusão
 
-1. 所有普通模型候选和 Option Specs 来自目标 Host；
-2. Remote Workspace 的 UI、默认值和产品入口不再读取 Local/Base Host Registry；
-3. App Recent 按 `workspaceKey` 隔离并保存稀疏结构化 Selection，不新增 `environmentId`；
-4. Configured Default 与 fallback 由目标 Host 解析并随同一 View 返回 `preferredSelection`，不增加第二个
-   resolver RPC；Prompt CLI/TUI 复用同一纯 domain 解析；
-5. Conversation、Automation、Repo Wiki、Bot、Off-Peak 与 Subagent 的正式选择使用结构化
-   `ModelSelection`，并只持久化显式 option；
-6. Subagent 配置由各 Environment 独立落盘，本轮 Settings 只管理 Local Environment；
-7. `workspace/readState`、临时 App 和 `configOptions` 不再承担模型目录、模型能力或模型默认值；
-8. Todo 12 的 ModelFactory 最终校验边界保持成立，不恢复通用用户 Facade validator；
-9. local/remote、重连和跨 workspaceKey 缓存不存在 Local fallback 或身份串用；
-10. Desktop continuous、Mobile replayable、Queue、Goal、Session 恢复与 Provider Provisioning 不变；
-11. 相关 Design、Feature Graph、测试、实现日志与删除审计已经回写；
-12. `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check` 和相关测试全部通过，并完成 Conventional Commit。
+1. Todos os candidatos de modelo comuns e as Option Specs vêm do Host alvo;
+2. A UI, os valores padrão e as entradas de produto de um Remote Workspace deixam de ler o Registry do Local/Base Host;
+3. O App Recent é isolado por `workspaceKey` e guarda Selection estruturada esparsa, sem adicionar `environmentId`;
+4. O Default Configurado e o fallback são resolvidos pelo Host alvo e devolvem `preferredSelection` na mesma View, sem um segundo RPC de resolução; Prompt CLI/TUI reutilizam a mesma resolução de domínio puro;
+5. A seleção formal de Conversation, Automation, Repo Wiki, Bot, Off-Peak e Subagent usa `ModelSelection` estruturada e persiste apenas options explícitas;
+6. A configuração de Subagents é persistida de forma independente por Environment, e nesta rodada o Settings gerencia apenas o Local Environment;
+7. `workspace/readState`, o App temporário e `configOptions` deixam de servir como catálogo de modelos, fonte de capacidade de modelo ou de defaults de modelo;
+8. O limite de validação final do ModelFactory do Todo 12 continua valendo, sem restaurar um validator genérico no Facade do usuário;
+9. não há fallback local nem mistura de identidade nos caches local/remoto, de reconexão e entre workspaceKeys;
+10. Desktop continuous, Mobile replayable, Queue, Goal, recuperação de Session e Provider Provisioning permanecem inalterados;
+11. Design, Feature Graph, testes, log de implementação e auditoria de remoções já foram reescritos;
+12. `pnpm typecheck`, `pnpm lint`, `pnpm fmt:check` e os testes relevantes passam, e o Conventional Commit foi concluído.
 
-## 10. 非目标
+## 10. Não objetivos
 
-- 不实现远程 Provider/凭据 Provisioning；
-- 不实现远程 Subagent 配置 UI、同步或冲突合并；
-- 不改变 Account Access、Request Auth 或服务端最终授权；
-- 不改变 Adapter 请求编码、Retry、Stream Recovery 或 Telemetry；
-- 不改变 Model Properties、Provider 成员、enabled/visibility 语义；
-- 不把 Host View、workspaceKey 或 remoteSessionId 写入 Session Selection；
-- 不建立新的 Model Catalog、Runtime capability DTO、Execution Registry 或 ModelIdentity。
+- Não implementar Provisioning remoto de Provider/credenciais;
+- Não implementar UI, sincronização ou merge de conflitos de configuração remota de Subagent;
+- Não mudar Account Access, Request Auth ou a autorização final do servidor;
+- Não mudar a codificação de requisição do Adapter, Retry, Stream Recovery ou Telemetry;
+- Não mudar a semântica de Model Properties, composição de Provider nem enabled/visibility;
+- Não gravar Host View, workspaceKey ou remoteSessionId na Session Selection;
+- Não criar um novo Model Catalog, DTO de capability de runtime, Execution Registry ou ModelIdentity.
 
-## 11. 实施结果
+## 11. Resultado da implementação
 
-本 Todo 已按最终裁决完成，补充裁决文档中的 Select/Submission 两阶段也已吸收进实现：
+Este Todo foi concluído conforme as decisões finais, e o complemento de duas fases Select/Submission do documento de decisões também foi absorvido pela implementação:
 
-- `ModelSelectionView` 由目标 Local/Remote Host 提供候选、Option Specs 与
-  `preferredSelection`；Remote unavailable 不回退 Local Host；
-- Conversation 在 `SessionPane` 只解析一次目标 Host View，Composer、行展示与提交共享该事实；App Recent
-  按 `workspaceKey` 保存稀疏 Selection，并且只在普通用户 Submission 被接受后更新；
-- Workspace presentation 只保留 mode 与 slash commands，删除临时 Session/App 模型准备、Runtime Catalog
-  对账和 Renderer 侧第二套默认值推导；
-- Automation、Repo Wiki、Bot、Off-Peak 与 Subagent 的正式配置、协议和 repository 已迁为结构化
-  `ModelSelection`。旧字符串仅在各自已发布持久格式 importer 内单向读取；
-- Automation record 仍是可缺模型的 Select；每个 `automation_runs` row 在首次派发时原子固定 Submission
-  Selection，调度重试只能读回该值，不会再次读取 Host preferred；
-- Subagent Settings 只连接 Local Host；无 override 的 Child Submission 继承 Parent Active Model，显式
-  override 通过 Worker ModelFactory 创建并冻结自己的 Model；
-- `modelSelectionSchema` 只在 Shared 定义；Provider Node、Contracts、Protocol 与产品 schema 均复用它；
-- 同一模型编辑保留未展示但已显式保存的 option 叶子；跨模型切换重新构造 Selection，不继承旧 options；
-- Todo 12 的边界保持不变：用户 Facade 不承担通用执行校验，Target Worker Registry/ModelFactory 最终
-  fail-closed。
+- `ModelSelectionView` é fornecida pelo Local/Remote Host alvo com candidatos, Option Specs e `preferredSelection`; um remote unavailable não faz fallback para o Local Host;
+- Conversation resolve a Host View alvo apenas uma vez no `SessionPane`, e Composer, exibição de linhas e envio compartilham esse fato; o App Recent guarda a Selection esparsa por `workspaceKey` e só é atualizado depois que um Submission normal do usuário é aceito;
+- A apresentação de Workspace mantém apenas mode e slash commands, removendo a preparação temporária de modelo de Session/App, a reconciliação de Runtime Catalog e a segunda derivação de defaults do lado do Renderer;
+- A configuração formal, o protocolo e os repositories de Automation, Repo Wiki, Bot, Off-Peak e Subagent migraram para `ModelSelection` estruturada. Strings antigas são lidas apenas de forma unilateral nos importers dos respectivos formatos persistentes já publicados;
+- O registro de Automation continua sendo um Select que pode não ter modelo; cada row de `automation_runs` fixa atomicamente a Selection do Submission no primeiro dispatch, e uma nova tentativa de agendamento apenas lê esse valor de volta, sem ler de novo o preferred do Host;
+- O Subagent Settings conecta apenas ao Local Host; um Child Submission sem override herda o Parent Active Model, e um override explícito cria e congela seu próprio Model pelo Worker ModelFactory;
+- `modelSelectionSchema` é definido apenas em Shared; Provider Node, Contracts, Protocol e schemas de produto o reutilizam;
+- Editar o mesmo modelo preserva folhas de option já salvas explicitamente mesmo sem serem exibidas; trocar de modelo reconstrói a Selection sem herdar as options antigas;
+- O limite do Todo 12 permanece: o Facade do usuário não assume validação de execução genérica, e o Target Worker Registry/ModelFactory continua fail-closed no final.
 
-已删除的旧生产入口包括 Root 全局 Snapshot、Workspace 模型偏好、Draft Global Seed、Repo Wiki Runtime
-Thought Catalog、Subagent Workspace Catalog reconciliation，以及相应 helper、tests 和 exports。Feature Graph
-和正式 Design 已同步到目标 Host、workspaceKey、稀疏 Selection 与 Select/Submission owner。
+As entradas de produção antigas removidas incluem o Snapshot global do Root, as preferências de modelo do Workspace, o Global Seed de Draft, o Runtime Thought Catalog do Repo Wiki, a reconciliação de Workspace Catalog do Subagent e os helpers, testes e exports correspondentes. O Feature Graph e o Design formal foram sincronizados para o Host alvo, o workspaceKey, a Selection esparsa e o owner Select/Submission.
 
-验证证据包括 Provider/Services/UI/Desktop 的目标 Host、App Recent、Automation retry、产品 repository、
-Subagent 继承与显式 override、CLI Contracts/Bootstrap/Core 的结构化解析和执行测试；最终门禁结果记录在本
-Todo 所在提交中。
+As evidências de validação incluem os testes de Host alvo, App Recent, retry de Automation, repositories de produto, herança e override explícito de Subagent em Provider/Services/UI/Desktop, bem como os testes de parsing estruturado e execução de CLI Contracts/Bootstrap/Core; o resultado final dos portões está registrado no commit deste Todo.

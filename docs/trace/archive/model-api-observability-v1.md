@@ -1,74 +1,97 @@
-# CLI Agent 模型 API 可观测性设计（历史 V1）
+# Design de Observabilidade da Model API do Agente CLI (V1 histórico)
 
-> 状态：已被
-> [CLI Agent OpenTelemetry 最终架构规范](../cli-agent-telemetry.md)
-> 取代。本文只保留早期决策背景，不再作为字段、接口、隐私或报表实现依据。
+> Status: substituído pela
+> [Especificação Final de Arquitetura OpenTelemetry do Agente CLI](../cli-agent-telemetry.md).
+> Este documento mantém apenas o contexto das decisões iniciais e não serve mais como base de
+> implementação para campos, interfaces, privacidade ou relatórios.
 >
-> 新实现已经删除本文中的 Endpoint/Error Fingerprint、`cache_observation`、
-> `had_error/recovered_after_retry` Trace 摘要等设计；请勿据此新增查询或代码。
+> A nova implementação já removeu os designs de Endpoint/Error Fingerprint, `cache_observation`,
+> resumos de Trace `had_error/recovered_after_retry` presentes aqui; não crie novas consultas ou código a partir deles.
 >
-> 后续 Agent 执行主干见
-> [CLI Agent Turn Trace 可观测性设计](./turn-trace-observability-v2.md)。本文已有
-> `zcode.model.call` / `zcode.model.attempt` 不废弃；它们将从当前短 Trace 迁移为
-> Turn / Step / Compaction / Tool 下的子 Span。
+> O tronco principal posterior da execução do Agente está em
+> [Design de Observabilidade do Turn Trace do Agente CLI](./turn-trace-observability-v2.md). O
+> `zcode.model.call` / `zcode.model.attempt` aqui existente não é descontinuado; eles migrarão do
+> curto Trace atual para Spans filhos sob Turn / Step / Compaction / Tool.
 
-## 1. 结论
+## 1. Conclusão
 
-本功能采用两层设计：
+Este recurso adota um design de duas camadas:
 
-1. 建立通用 `TelemetryRuntime`，只负责队列、批量、限流告警、Flush 和 Exporter 生命周期；P0 全量记录，后续采样由这一层扩展。
-2. 在通用运行时之上建立强类型 `ModelApiTelemetry`，专门理解模型调用的 Logical Call、Physical Attempt、Provider、Model、Thought Level、Token、Cache、Retry、Fallback 和错误。
+1. Estabelecer um `TelemetryRuntime` genérico, responsável apenas por fila, batching, limitação de
+   alertas, Flush e ciclo de vida do Exporter; no P0 tudo é registrado, e o amostragem posterior
+   é estendida por essa camada.
+2. Sobre o runtime genérico, estabelecer um `ModelApiTelemetry` fortemente tipado, que entende
+   especificamente Logical Call, Physical Attempt, Provider, Model, Thought Level, Token, Cache,
+   Retry, Fallback e erros de chamadas de modelo.
 
-不向业务代码暴露任意属性的 `track(name, properties)`，不让模型领域直接依赖 ARMS SDK。
+Não se expõe ao código de negócio um `track(name, properties)` com atributos arbitrários, e o
+domínio de modelo não depende diretamente do SDK do ARMS.
 
-CLI 是模型调用事实的权威生产者。App 只负责在启动 CLI 时注入 OTLP、运行环境和身份配置；CLI 也支持在 Standalone 场景读取同一套配置并自行初始化。App 现有 RUM 和 CLI 新增 OTel 使用同一阿里云账号/Workspace，但不共用 SDK、Endpoint 或 `service.name`。
+O CLI é o produtor autoritativo dos fatos de chamadas de modelo. O App apenas injeta OTLP,
+ambiente de execução e configuração de identidade ao iniciar o CLI; o CLI também suporta ler o
+mesmo conjunto de configurações e se inicializar sozinho no cenário Standalone. O RUM existente
+do App e o novo OTel do CLI usam a mesma conta/Workspace da Alibaba Cloud, mas não compartilham
+SDK, Endpoint ou `service.name`.
 
-短期不删除现有 `plan_request`、`/event/report`、SQLite Usage、UI 性能和本地日志。新链路先双写和对账；长期让 CLI Model API Facts 成为请求级唯一事实源，再逐步替换重复的 `plan_request` 生产链路。
+No curto prazo não removemos `plan_request`, `/event/report`, o Usage no SQLite, a performance de
+UI e os logs locais existentes. O novo caminho faz double write e reconciliação primeiro; no longo
+prazo os Fatos de Model API do CLI tornam-se a única fonte de fato em nível de requisição,
+substituindo progressivamente a cadeia de produção duplicada de `plan_request`.
 
-## 2. 目标与非目标
+## 2. Objetivos e não objetivos
 
-### 2.1 目标
+### 2.1 Objetivos
 
-- 覆盖 CLI 内部所有可区分的模型 API 调用，包括主 Agent、Subagent、Workflow Child、Compaction、标题、Goal Verifier、Git Commit 和工具内部模型调用。
-- 区分一次模型调用与它下面的物理 Provider 请求、Adapter Retry、流式恢复和 Transport Fallback。
-- 统计调用量、物理请求放大率、成功率、取消率、Retry 恢复率、耗时、TTFT、Token 和 Prompt Cache。
-- 记录实际 Provider、清洗后的 Endpoint、Model、请求与最终生效的 Thought Level。
-- 失败时记录 ZCode 错误码、Provider 错误码、HTTP 状态码、脱敏错误信息、错误阶段、是否可重试和 Provider Request ID。
-- 所有记录携带 UID、设备、Session、Turn、Trace、Logical Call 和 Request 等关联 ID。
-- App-launched 和 Standalone CLI 共享同一 Schema 和 Exporter 逻辑。
-- Telemetry 失败、拥塞或未配置时不得阻塞或改变 Agent 行为。
+- Cobrir todas as chamadas de Model API distinguíveis dentro do CLI, incluindo Agente principal,
+  Subagent, Workflow Child, Compaction, título, Goal Verifier, Git Commit e chamadas de modelo
+  internas às ferramentas.
+- Distinguir uma chamada de modelo das requisições físicas ao Provider abaixo dela, do Retry do
+  Adapter, da recuperação de streaming e do Fallback de Transport.
+- Estatísticas de volume de chamadas, taxa de amplificação de requisições físicas, taxa de sucesso,
+  taxa de cancelamento, taxa de recuperação por Retry, duração, TTFT, Token e Prompt Cache.
+- Registrar o Provider real, o Endpoint sanitizado, o Model e o Thought Level solicitado e
+  efetivamente final.
+- Em caso de falha, registrar o código de erro ZCode, o código de erro do Provider, o status HTTP,
+  a mensagem de erro desidentificada, a fase do erro, se é retryable e o Provider Request ID.
+- Todos os registros carregam IDs de correlação como UID, dispositivo, Session, Turn, Trace,
+  Logical Call e Request.
+- CLI iniciado pelo App e CLI Standalone compartilham o mesmo Schema e a mesma lógica de Exporter.
+- Falha, congestão ou ausência de configuração da Telemetria não pode bloquear nem alterar o
+  comportamento do Agente.
 
-### 2.2 非目标
+### 2.2 Não objetivos
 
-- 不上传 Prompt、Message 正文、Tool 输入输出、文件内容、Header、Cookie、API Key 或完整 Provider Options。
-- 不逐 Token、逐 SSE Delta 或逐 Streaming Chunk 上报。
-- 不用 CLI Provider TTFT 替代 Renderer 用户可见 TTFT。
-- 不把业务转化、购买、反馈等 `/event/report` 事件迁到本链路。
-- 不把 Telemetry 状态写入 conversation snapshot、relay、desktop main 或 renderer store。
-- 第一阶段不创建 ARMS 关系型“表”，不创建本地 `model_attempt_usage` 表。
-- 第一阶段不删除或改变现有 RUM、业务埋点和本地 Usage 对外行为。
+- Não enviar Prompt, corpo de Message, entrada/saída de Tool, conteúdo de arquivos, Header,
+  Cookie, API Key ou Provider Options completos.
+- Não reportar por Token, por Delta SSE ou por Streaming Chunk.
+- Não usar o TTFT do Provider do CLI no lugar do TTFT visível ao usuário no Renderer.
+- Não migrar para este caminho eventos de `/event/report` como conversão de negócio, compra ou feedback.
+- Não gravar estado de Telemetria em conversation snapshot, relay, desktop main ou renderer store.
+- Na primeira fase não criar "tabelas" relacionais no ARMS nem criar a tabela local `model_attempt_usage`.
+- Na primeira fase não remover nem alterar o comportamento externo do RUM, do business tracking e do
+  Usage local existentes.
 
-## 3. 已确认边界
+## 3. Limites confirmados
 
-| 边界              | 决策                                                                                                     |
-| ----------------- | -------------------------------------------------------------------------------------------------------- |
-| 监控抽象          | 通用 Telemetry 运行时 + 模型专用强类型 Schema/Recorder                                                   |
-| 模型调用分类      | 使用稳定的点分 `operation` 路径，不另设 `operation_phase`                                                |
-| Feature 定制字段  | 使用 discriminated union 和命名空间字段，不允许任意属性 Map                                              |
-| Provider Endpoint | 客户端内部自动清洗；用户无配置、无 UI、无感知                                                            |
-| Path 清洗         | 删除 URL 凭证/query/fragment，再用轻量正则替换邮箱、UUID、长数字和 Token/Hash 风格 segment；不过度模板化 |
-| Endpoint 缓存     | 在进程内按 `providerKind + baseURL` 记忆化；不持久化                                                     |
-| Thought Level     | 复用现有 Model Catalog、UI `thoughtLevel` 和最终 Provider Options 映射，不另造供应商无关档位             |
-| App ARMS          | 同账号/Workspace，App RUM 与 CLI OTel 分 Service、分 Endpoint                                            |
-| 兼容策略          | 短期双写不破坏；中期对账；长期替代重复 request-level 链路                                                |
-| 性能策略          | 业务线程只更新小型状态和入有界队列；真实网络由后台 Batch Exporter 执行                                   |
-| UID/RID/SID       | Schema 使用明确名称；Exporter 可按后端约定映射为 `uid/rid/sid`，领域层不使用含糊缩写                     |
+| Limite              | Decisão                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| Abstração de monitoramento | runtime de Telemetria genérico + Schema/Recorder fortemente tipado e específico de modelo            |
+| Classificação da chamada de modelo | usar um caminho `operation` pontuado e estável, sem criar `operation_phase` separado                    |
+| Campos customizados da Feature | usar discriminated union e campos com namespace, sem permitir Map de atributos arbitrários           |
+| Endpoint do Provider | sanitização automática interna do cliente; sem configuração, sem UI, sem感知 do usuário                     |
+| Sanitização de Path | remover credenciais/query/fragment da URL e depois substituir com regex leve e-mail, UUID, números longos e segmentos estilo Token/Hash; sem template excessivo |
+| Cache de Endpoint   | memoizado no processo por `providerKind + baseURL`; sem persistência                                      |
+| Thought Level       | reutilizar o Model Catalog existente, o `thoughtLevel` da UI e o mapeamento final de Provider Options, sem criar níveis independentes de fornecedor |
+| ARMS do App         | mesma conta/Workspace; RUM do App e OTel do CLI em Services e Endpoints separados                       |
+| Estratégia de compatibilidade | double write no curto prazo sem quebrar; reconciliação no médio prazo; substituição da cadeia request-level duplicada no longo prazo |
+| Estratégia de performance | a thread de negócio apenas atualiza estado pequeno e enfileira em fila limitada; a rede real é feita pelo Batch Exporter em background |
+| UID/RID/SID         | o Schema usa nomes explícitos; o Exporter pode mapear para `uid/rid/sid` conforme a convenção do backend, e a camada de domínio não usa abreviações ambíguas |
 
-## 4. 当前事实与重合链路
+## 4. Fatos atuais e caminhos sobrepostos
 
-### 4.1 当前模型请求主路径
+### 4.1 Caminho principal atual das requisições de modelo
 
-所有生产模型请求最终集中到 AiSdk Model Adapter：
+Todas as requisições de modelo de produção terminam convergindo no AiSdk Model Adapter:
 
 ```text
 Core / Tool / Sidecar
@@ -86,7 +109,7 @@ AiSdkModelAdapter
           Provider HTTP / SSE
 ```
 
-Adapter 已产生以下 `ModelNetworkStatusEvent`：
+O Adapter já produz os seguintes `ModelNetworkStatusEvent`:
 
 - `model_request_started`
 - `model_request_completed`
@@ -94,9 +117,10 @@ Adapter 已产生以下 `ModelNetworkStatusEvent`：
 - `model_retry_scheduled`
 - `model_stream_stalled`
 
-事件已经包含 Trace/Query/Session/Turn、Request、Provider、Model、Base URL、Transport、Attempt、Duration、Usage、Failure Reason、Message 和 HTTP Status 的大部分基础事实。
+Os eventos já contêm a maior parte dos fatos básicos de Trace/Query/Session/Turn, Request, Provider,
+Model, Base URL, Transport, Attempt, Duration, Usage, Failure Reason, Message e HTTP Status.
 
-### 4.2 当前监控/Usage 链路
+### 4.2 Cadeia atual de monitoramento/Usage
 
 ```text
 CLI model status
@@ -116,42 +140,42 @@ Desktop main
   +----> RUM crash / resource / HTTP / RPC / longTask
 ```
 
-### 4.3 重合评审
+### 4.3 Revisão de sobreposição
 
-| 机制                               | 与新方案关系                        | 短期                                         | 长期                                         |
-| ---------------------------------- | ----------------------------------- | -------------------------------------------- | -------------------------------------------- |
-| `ModelNetworkStatusEvent`          | 物理 Attempt 的最佳事实源           | 复用并补字段                                 | 保持为 Runtime/UI 投影和 Recorder 输入       |
-| `ModelStatusSink`                  | 已有状态消费抽象                    | 修复 request/global 二选一问题，支持 fan-out | 保持，或下沉为统一 Composite Sink            |
-| SQLite `model_usage`               | 逻辑调用 Token/耗时本地事实         | 保持表和查询不变                             | 改为消费同一个 Model Call Terminal Fact      |
-| RUM `plan_request`                 | 与请求级 Attempt 高度重复           | 双写用于对账                                 | OTel 稳定后停止或仅保留兼容 Exporter         |
-| RUM `plan_ttft`                    | Renderer 用户可见耗时               | 保持                                         | 保持，不与 Provider TTFT 合并                |
-| `/event/report message_completion` | 用户 Turn/业务质量                  | 保持                                         | 保持，通过 Session/Turn ID 关联              |
-| `/event/report agent_step`         | UI/业务步骤，不是 Model API Request | 保持                                         | 保持；名称需要在文档中避免与 Model Call 混淆 |
-| Desktop RUM 网络监控               | Main/Renderer HTTP、RPC、WS         | 保持                                         | 保持，不能替代 CLI 子进程模型语义            |
-| 本地日志                           | 单机诊断                            | 保持                                         | 保持；允许比 ARMS 更详细但仍需脱敏           |
+| Mecanismo                             | Relação com o novo plano                        | Curto prazo                                  | Longo prazo                                        |
+| ------------------------------------- | ----------------------------------------------- | -------------------------------------------- | -------------------------------------------------- |
+| `ModelNetworkStatusEvent`             | melhor fonte de fato do Physical Attempt        | reutilizado e completado com campos         | permanece como projeção Runtime/UI e entrada do Recorder |
+| `ModelStatusSink`                     | abstração de consumo de estado já existente     | corrigir o problema de escolha entre request/global e suportar fan-out | mantido, ou rebaixado a um Composite Sink unificado |
+| SQLite `model_usage`                  | fato local de Token/duração da chamada lógica   | tabela e consultas inalteradas              | passa a consumir o mesmo Model Call Terminal Fact   |
+| RUM `plan_request`                    | altamente duplicado com o Attempt em nível de requisição | double write para reconciliação    | interrompido ou mantido apenas como Exporter compatível após o OTel estabilizar |
+| RUM `plan_ttft`                       | duração visível ao usuário no Renderer          | mantido                                       | mantido, sem ser fundido com o TTFT do Provider    |
+| `/event/report message_completion`    | Turn do usuário / qualidade de negócio          | mantido                                       | mantido, correlacionado por Session/Turn ID        |
+| `/event/report agent_step`            | passo de UI/negócio, não uma Request de Model API | mantido                                     | mantido; o nome precisa evitar confusão com Model Call na documentação |
+| monitoramento de rede RUM do Desktop  | HTTP, RPC, WS de Main/Renderer                  | mantido                                       | mantido, não pode substituir a semântica de modelo do subprocesso do CLI |
+| logs locais                           | diagnóstico em máquina única                    | mantido                                       | mantido; pode ser mais detalhado que o ARMS, mas ainda precisa de desidentificação |
 
-核心原则是“合并事实生产，不强行合并所有消费端”。
+O princípio central é "consolidar a produção de fatos, sem forçar a consolidação de todos os consumidores".
 
-## 5. 状态所有权
+## 5. Propriedade do estado
 
-| 事实                              | 权威来源                                            | 镜像/消费端                        |
-| --------------------------------- | --------------------------------------------------- | ---------------------------------- |
-| Provider/Model/Base URL/Transport | Model Adapter 最终解析结果                          | ARMS OTel、UI 安全投影、日志       |
-| Physical Attempt 生命周期         | `runGenerateText` / `runStreamText`                 | ModelApiTelemetry、UI retry/debug  |
-| Token/Cache/Finish Reason         | Adapter Normalization 的最终 Usage                  | ModelApiTelemetry、SQLite Usage    |
-| Operation 语义                    | Core/Tool/Sidecar 调用点                            | ModelApiTelemetry                  |
-| Compaction/Verifier 最终业务结果  | 对应 Operation 调用方                               | Operation Record、现有业务事件     |
-| Thought Level 请求值              | Session/Model Ref/调用方覆盖                        | ModelApiTelemetry                  |
-| Thought Level 生效值              | 最终 merge 后 Provider Options + Model Catalog 反查 | ModelApiTelemetry                  |
-| UID                               | App Host 当前 OAuth 身份快照；Standalone 可缺失     | Telemetry Context                  |
-| Device MID                        | 现有 `telemetry-state.json`                         | App RUM、CLI OTel、`/event/report` |
-| Session/Turn/Trace/Query          | CLI Runtime Trace Context                           | 所有模型记录                       |
+| Fato                                     | Fonte autoritativa                                          | Espelho/consumidor                          |
+| ---------------------------------------- | ------------------------------------------------------------ | ------------------------------------------- |
+| Provider/Model/Base URL/Transport        | resultado final de resolução do Model Adapter                | OTel do ARMS, projeção segura de UI, logs  |
+| Ciclo de vida do Physical Attempt        | `runGenerateText` / `runStreamText`                           | ModelApiTelemetry, retry/debug da UI        |
+| Token/Cache/Finish Reason                | Usage final da Normalization do Adapter                       | ModelApiTelemetry, Usage no SQLite         |
+| Semântica da Operation                   | pontos de chamada em Core/Tool/Sidecar                        | ModelApiTelemetry                           |
+| Resultado de negócio final de Compaction/Verifier | o chamador da Operation correspondente              | Operation Record, eventos de negócio atuais |
+| Valor solicitado do Thought Level        | Session/Model Ref/override do chamador                        | ModelApiTelemetry                           |
+| Valor efetivo do Thought Level           | Provider Options após o merge final + reversão do Model Catalog | ModelApiTelemetry                         |
+| UID                                      | snapshot da identidade OAuth atual do App Host; pode faltar no Standalone | Telemetry Context            |
+| Device MID                               | `telemetry-state.json` existente                              | RUM do App, OTel do CLI, `/event/report`    |
+| Session/Turn/Trace/Query                 | Trace Context do CLI Runtime                                 | todos os registros de modelo                |
 
-Renderer、Desktop Main 和 Relay 不重新推导 Provider 请求事实。
+Renderer, Desktop Main e Relay não rederivam fatos de requisição ao Provider.
 
-## 6. 记录模型
+## 6. Modelo de registros
 
-### 6.1 三层记录
+### 6.1 Registros em três camadas
 
 ```text
 Model Operation
@@ -166,23 +190,30 @@ Model Operation
          +--> Physical Attempt #1
 ```
 
-三层定义：
+Definição das três camadas:
 
-1. Operation：由 `operation_id` 和稳定 `operation` 路径表达，例如一次完整 Compaction 或 Goal Verification；已实现的 Model Phase 不额外发送 Operation Span。Agent Turn Trace 阶段会为 Compaction 等真正有独立生命周期的 Operation 增加父 Span。
-2. `ModelApiCallRecord`：一次 `ModelPort.generateText()` 或 `streamText()` 调用。
-3. `ModelApiAttemptRecord`：一次真实 Provider HTTP/SSE/WebSocket 请求。
+1. Operation: expressa por `operation_id` e um caminho `operation` estável, por exemplo uma Compaction
+   completa ou uma Goal Verification; Model Phases já implementadas não enviam Operation Span
+   adicional. A fase de Agent Turn Trace añadirá Spans pai para Operations que de fato têm ciclo de
+   vida próprio, como a Compaction.
+2. `ModelApiCallRecord`: uma chamada a `ModelPort.generateText()` ou `streamText()`.
+3. `ModelApiAttemptRecord`: uma requisição HTTP/SSE/WebSocket real ao Provider.
 
-普通 Agent Step 通常 Operation 与 API Call 一一对应。Compaction 的 SSE -> HTTP Fallback 是同一个 Operation 下的两个 API Call；Adapter 内部 Retry 是同一个 API Call 下的多个 Attempt。
+Um Agent Step normal costuma ter correspondência um-para-um entre Operation e API Call. O fallback
+SSE -> HTTP da Compaction são duas API Calls na mesma Operation; o Retry interno do Adapter são
+vários Attempts na mesma API Call.
 
-### 6.2 Trace 边界的后续演进
+### 6.2 Evolução futura dos limites de Trace
 
-Agent Session 可能持续很久，并包含不受限的 Step、Tool 和 Compaction。把整个 Session 做成一个长 Trace 会造成 Span 数量、内存、采样和查询边界不稳定。
+Uma Agent Session pode durar muito e conter Step, Tool e Compaction ilimitados. Transformar a Session
+inteira em um Trace longo tornaria instáveis a quantidade de Spans, a memória, a amostragem e os
+limites de consulta.
 
-Phase 1 已实现为每个 `ModelApiCallRecord` 对应一个短 Trace/Root Span，Physical Attempt 是
-Child Span；通过 ZCode 自己的 `session_id`、`turn_id`、`operation_id` 和
-`logical_call_id` 跨 Trace 关联。
+A Fase 1 já foi implementada com um curto Trace/Root Span por `ModelApiCallRecord`, sendo o
+Physical Attempt um Child Span; a correlação entre Traces usa o próprio `session_id`, `turn_id`,
+`operation_id` e `logical_call_id` do ZCode.
 
-目标结构不是 Session Trace，也不继续停留在孤立 Model Trace，而是：
+A estrutura alvo não é um Session Trace, nem permanecer em Model Traces isolados, mas sim:
 
 ```text
 一个 Agent Turn = 一条 Trace
@@ -191,17 +222,18 @@ Turn -> Step -> Model Call -> Physical Attempt
 Turn -> Compaction -> Model Call -> Physical Attempt
 ```
 
-异步 Sidecar、Background Subagent 和 Workflow Child 仍使用独立 Trace + OTel Link。
-完整父子关系、生命周期和迁移方案以
-[CLI Agent Turn Trace 可观测性设计](./turn-trace-observability-v2.md) 为准。
+Sidecar assíncrono, Subagent em background e Workflow Child continuam usando Trace independente + OTel Link.
+O relações completo pai-filho, o ciclo de vida e o plano de migração seguem o
+[Design de Observabilidade do Turn Trace do Agente CLI](./turn-trace-observability-v2.md).
 
-## 7. Operation 分类
+## 7. Classificação de Operations
 
-### 7.1 稳定路径
+### 7.1 Caminhos estáveis
 
-本节记录 Phase 1 当前已经发出的 v1 值。新增链路不得继续扩展
-`sidecar.*` 等旧命名；v2 规范值、兼容别名和迁移顺序以
-[CLI Agent Turn Trace 可观测性设计](./turn-trace-observability-v2.md) 为准。
+Esta seção registra os valores v1 que a Fase 1 já emite. Novos caminhos não devem continuar
+expandindo nomes antigos como `sidecar.*`; os valores v2, aliases compatíveis e a ordem de migração
+seguem o
+[Design de Observabilidade do Turn Trace do Agente CLI](./turn-trace-observability-v2.md).
 
 ```text
 agent.step
@@ -217,19 +249,19 @@ tool.read_session_context.synthesize
 other
 ```
 
-`operation_family` 从路径第一段派生，调用方不得手写。
+`operation_family` é derivado do primeiro segmento do caminho e não pode ser escrito à mão.
 
-### 7.2 路径准入规则
+### 7.2 Regras de admissão no caminho
 
-只有有限、稳定、具有业务语义的分支才能进入路径：
+Apenas ramos limitados, estáveis e com semântica de negócio podem entrar no caminho:
 
-- `extract` / `synthesize` 可以进入路径。
-- `attempt_2`、`failed`、模型名、Provider ID、Chunk Index 不能进入路径。
-- 动态值必须使用字段。
+- `extract` / `synthesize` podem entrar no caminho.
+- `attempt_2`, `failed`, nome do modelo, ID de Provider e índice de chunk não podem entrar no caminho.
+- Valores dinâmicos devem usar campos.
 
-### 7.3 执行角色
+### 7.3 Papel de execução
 
-`actor_kind` 与 Operation 正交：
+`actor_kind` é ortogonal à Operation:
 
 ```text
 main_agent
@@ -239,13 +271,16 @@ system
 tool
 ```
 
-`agent.step + actor_kind=subagent` 表示 Subagent 的正常模型 Step，不再使用 `query_source=subagent` 同时表达功能和角色。
+`agent.step + actor_kind=subagent` representa um Step de modelo normal de um Subagent; não se usa mais
+`query_source=subagent` para expressar ao mesmo tempo função e papel.
 
-迁移期保留原始 `query_source` 作为 Trace 兼容字段，由一个严格 Registry 映射到 `operation + actor_kind`；未知值映射为 `operation=other`，不得直接成为 Metrics Label。
+Durante a migração, o `query_source` original é mantido como campo de compatibilidade de Trace,
+mapeado por um Registry estrito para `operation + actor_kind`; valores desconhecidos viram
+`operation=other` e nunca viram Metrics Label diretamente.
 
 ## 8. Schema
 
-### 8.1 公共身份与关联字段
+### 8.1 Identidade e campos de correlação comuns
 
 ```text
 schema_version
@@ -273,20 +308,24 @@ deployment_environment
 runtime_surface
 ```
 
-约束：
+Restrições:
 
-- `record_id`：每条事实唯一，用于幂等和去重。
-- `logical_call_id`：一次 Model API Call。
-- `request_id`：每个 Physical Attempt 唯一；Adapter Retry 必须生成新值。
-- `provider_request_id`：Provider 响应 Header/Body 中的请求 ID，存在时记录。
-- OAuth/账号原始 UID 不进入 Record、OTLP Resource 或 Agent 子进程公共环境；App Host 只注入 SHA-256。
-- `user_id_hash` 用于 ARMS 用户关联；Exporter 同时映射为既有查询约定的 `uid`；`identity_state=authenticated|anonymous|unavailable`。
-- Standalone 无 ZCode 账号身份时，UID 留空，不使用字符串 `unknown` 冒充用户。
-- Exporter 映射 `uid/rid/sid = user_id_hash/request_id/session_id`；领域 Schema 仍使用完整名称。
+- `record_id`: único por fato, usado para idempotência e deduplicação.
+- `logical_call_id`: uma Model API Call.
+- `request_id`: único por Physical Attempt; um Retry do Adapter precisa gerar um novo valor.
+- `provider_request_id`: ID de requisição do Header/Body da resposta do Provider; registrado quando existir.
+- O UID OAuth/conta original não entra em Record, no Resource OTLP nem no ambiente comum do
+  subprocesso do Agente; o App Host injeta apenas SHA-256.
+- `user_id_hash` é usado para correlação de usuário no ARMS; o Exporter também o mapeia como o `uid`
+  da convenção de consulta existente; `identity_state=authenticated|anonymous|unavailable`.
+- No Standalone, sem identidade de conta ZCode, o UID fica vazio; não se usa a string `unknown` para
+  fingir um usuário.
+- O Exporter mapeia `uid/rid/sid = user_id_hash/request_id/session_id`; o Schema de domínio continua
+  usando os nomes completos.
 
-上述 ID 只用于 Trace/SLS 详情查询，不作为 Metrics Label。
+Esses IDs servem apenas para consultas de detalhe de Trace/SLS, não como Metrics Label.
 
-### 8.2 调用来源
+### 8.2 Origem da chamada
 
 ```text
 operation
@@ -297,9 +336,10 @@ step_index
 runtime_surface
 ```
 
-`agent_name`、`step_index` 只放 Trace；`operation`、`actor_kind`、`runtime_surface` 可作为受控 Metrics 维度。
+`agent_name` e `step_index` ficam apenas no Trace; `operation`, `actor_kind` e `runtime_surface` podem
+ser dimensões controladas de Metrics.
 
-### 8.3 Provider 与模型
+### 8.3 Provider e modelo
 
 ```text
 provider_id
@@ -312,15 +352,17 @@ model_id
 model_role
 ```
 
-- `provider_id`：用户/系统配置的 Provider 实例，例如 `company-prod`。
-- `provider_kind`：实际 Adapter/协议类型，例如 `anthropic`、`openai-compatible`。
-- `provider_id` 可能高基数，默认只放 Trace；`provider_kind` 可用于 Metrics。
+- `provider_id`: instância de Provider configurada pelo usuário/sistema, por exemplo `company-prod`.
+- `provider_kind`: tipo real de Adapter/protocolo, por exemplo `anthropic`, `openai-compatible`.
+- `provider_id` pode ter cardinalidade alta e por padrão fica apenas no Trace; `provider_kind` pode ser
+  usado em Metrics.
 
 ### 8.4 Reasoning
 
-首版 Schema 尚未上线，不保留 `thought*` / `reasoningEnabled` 兼容字段。公共领域和
-Telemetry 统一使用 `reasoning`；`thinking`、`reasoning_effort`、`enable_thinking`
-等供应商原生命名只允许存在于 Provider Adapter 和 wire request。
+O Schema da primeira versão ainda não foi lançado, e campos de compatibilidade `thought*` /
+`reasoningEnabled` não são mantidos. Domínio comum e Telemetria usam uniformemente `reasoning`;
+nomes nativos dos fornecedores como `thinking`, `reasoning_effort`, `enable_thinking` só podem
+existir no Provider Adapter e na requisição de wire.
 
 ```text
 reasoning_capability = supported | unsupported | unknown
@@ -331,22 +373,22 @@ reasoning_effective_level
 reasoning_effective_budget_tokens
 ```
 
-含义：
+Significado:
 
-- `capability`：是否有证据证明模型支持 Reasoning；Catalog 缺失不能写成
-  `unsupported`。
-- `state`：本次最终 Provider 请求是否实际开启 Reasoning。
-- `control_type`：供应商控制机制；`disabled` 是状态，不是控制机制。
-- `requested_level`：Session/调用方请求的档位。
-- `effective_level`：从最终 merge 后的 Provider Options 和 Model Catalog 反查的档位。
-- `effective_budget_tokens`：最终发给 Provider 的固定预算，不记录原始 Provider
-  Options。
-- Adapter 必须先按本次实际 `provider_kind` 和 SDK `provider_options_name` 投影出唯一
-  Provider namespace，再解析 `state`、`control_type`、`effective_level` 和
-  `effective_budget_tokens`。同一对象中其他 Provider 的 namespace 只能作为未消费配置，
-  不得参与本次请求事实判定。
+- `capability`: se há evidência de que o modelo suporta Reasoning; a ausência no Catalog não pode
+  ser escrita como `unsupported`.
+- `state`: se o Reasoning foi de fato ativado na requisição final ao Provider nesta execução.
+- `control_type`: mecanismo de controle do fornecedor; `disabled` é um estado, não um mecanismo.
+- `requested_level`: o nível pedido por Session/chamador.
+- `effective_level`: nível reversado a partir dos Provider Options após o merge final e do Model Catalog.
+- `effective_budget_tokens`: o orçamento fixo enviado ao Provider; os Provider Options originais não
+  são registrados.
+- O Adapter precisa primeiro projetar um único namespace de Provider a partir do `provider_kind`
+  real e do `provider_options_name` do SDK, e só então resolver `state`, `control_type`,
+  `effective_level` e `effective_budget_tokens`. Namespaces de outros Providers no mesmo objeto contam
+  apenas como configuração não consumida e não podem participar da判定 dos fatos desta requisição.
 
-这三个字段是正交事实：
+Esses três campos são fatos ortogonais:
 
 ```text
 capability：Catalog/显式配置是否证明模型具备能力
@@ -354,23 +396,28 @@ state：最终请求是否实际开启
 control_type：最终请求或模型配置使用哪种控制方式
 ```
 
-因此自定义模型缺少 Catalog 时，可以出现
-`capability=unknown, state=enabled, control_type=fixed_budget`；这表示“无法证明模型
-能力，但本次请求明确携带了固定预算”，不能把它改写为 `unsupported` 或
-`disabled`。如果模型声明与最终请求冲突，也保留两边的真实值，供监控发现配置问题。
+Assim, quando um modelo customizado não tem Catalog, pode aparecer
+`capability=unknown, state=enabled, control_type=fixed_budget`; isso significa "não é possível provar a
+capacidade do modelo, mas esta requisição carregava explicitamente um orçamento fixo" e não pode ser
+reescrito como `unsupported` ou `disabled`. Se a declaração do modelo entrar em conflito com a
+requisição final, os dois valores reais são mantidos para que o monitoramento detecte problemas de configuração.
 
-要求：
+Requisitos:
 
-- 不把 GLM `enabled`、OpenAI `high`、Anthropic `xhigh` 强制归一成虚假的供应商无关档位。
-- Sidecar 显式关闭 Reasoning 时，Requested 与 Effective 必须不同。
-- 无法反查自定义 Provider Options 时记录 `unknown`，不得猜测或写成 `disabled`。
-- 多个 Provider namespace 同时存在且互相冲突时，只记录当前 Adapter 实际消费的
-  namespace；禁止递归扫描整个 `providerOptions`。
-- `false` 只表示有明确关闭证据；未知事实不得伪造成 `false` 或 `0`。
-- OTel 不接受 `null` Attribute；未知数值省略，低基数状态使用显式 `unknown`。
-- 禁止上传完整 Provider Options。
+- Não normalizar à força `enabled` do GLM, `high` da OpenAI ou `xhigh` da Anthropic para níveis
+  independentes de fornecedor que não existem.
+- Quando o Sidecar desliga o Reasoning explicitamente, Requested e Effective precisam ser diferentes.
+- Quando não for possível reverter Provider Options customizados, registrar `unknown`; nunca adivinhar
+  nem escrever `disabled`.
+- Quando existem múltiplos namespaces de Provider simultâneos e conflitantes, registrar apenas o
+  namespace realmente consumido pelo Adapter atual; é proibido varrer recursivamente todo o `providerOptions`.
+- `false` só indica evidência explícita de desligamento; fatos desconhecidos não podem ser forjados como
+  `false` ou `0`.
+- O OTel não aceita Attribute `null`; valores numéricos desconhecidos são omitidos, e estados de
+  baixa cardinalidade usam `unknown` explícito.
+- É proibido enviar os Provider Options completos.
 
-### 8.5 Attempt 与 Transport
+### 8.5 Attempt e Transport
 
 ```text
 transport
@@ -392,12 +439,12 @@ call_cause = initial | transport_fallback | model_fallback | provider_fallback |
 attempt_cause = initial | retry
 ```
 
-Transport/Model/Provider Fallback 在本设计里会创建新的 `ModelApiCallRecord`，通过
-`previous_logical_call_id` 与前一个 Call 关联；Adapter 内部 Retry 才是在同一个 Call 下创建新的
-Physical Attempt，并通过 `previous_request_id` 关联。这样不会把 Core Fallback 和 Adapter Retry
-统计成同一种重试。
+Fallback de Transport/Model/Provider cria um novo `ModelApiCallRecord` neste design, relacionado ao
+Call anterior por `previous_logical_call_id`; somente o Retry interno do Adapter cria novos Physical
+Attempts na mesma Call, relacionados por `previous_request_id`. Assim, o Fallback do Core e o Retry do
+Adapter não são contabilizados como o mesmo tipo de repetição.
 
-Compaction 等 Feature 专有字段放入命名空间，不污染公共 Schema：
+Campos exclusivos de Features como Compaction ficam em namespace e não poluem o Schema comum:
 
 ```text
 zcode.compaction.trigger
@@ -406,7 +453,7 @@ zcode.compaction.stream_output_committed
 zcode.compaction.fallback_eligible
 ```
 
-### 8.6 耗时
+### 8.6 Duração
 
 ```text
 duration_ms
@@ -418,9 +465,10 @@ stream_stall_count
 retry_delay_ms
 ```
 
-Provider Event、内容和用户可见文字是三个不同时间点；CLI 不宣称 `time_to_first_text_ms` 等价于 Renderer UI TTFT。
+Provider Event, conteúdo e texto visível ao usuário são três instantes diferentes; o CLI não afirma
+que `time_to_first_text_ms` equivale ao TTFT da UI no Renderer.
 
-### 8.7 Token 与 Cache
+### 8.7 Token e Cache
 
 ```text
 input_tokens
@@ -437,9 +485,10 @@ cache_observation
 cache_observation = hit | hit_and_write | write | miss | unknown
 ```
 
-当 Provider 没有返回 Usage 或请求在 Usage 前失败时必须是 `unknown`，不能误记为 `miss`。
+Quando o Provider não devolve Usage ou a requisição falha antes do Usage, o valor precisa ser `unknown`;
+não pode ser registrado erroneamente como `miss`.
 
-### 8.8 成功、取消和错误
+### 8.8 Sucesso, cancelamento e erro
 
 ```text
 status
@@ -465,32 +514,35 @@ status = completed | error | cancelled | abandoned
 error_phase = prepare | connect | response | stream | parse | postprocess
 ```
 
-约束：
+Restrições:
 
-- `error_code` 使用 ZCode `ModelErrorCode`。
-- `provider_error_code` 保存 Provider 业务码，不能覆盖统一错误码。
-- `error_message` 是 ZCode 归一化安全消息。
-- `provider_error_message` 必须脱敏和截断，最大 1024 字符。
-- 错误消息和 Stack 不得成为 Metrics Label。
-- 成功调用不采集 Stack；错误 Stack 仅在明确开启且通过脱敏时进入详细 Trace。
-- Cancellation 单列，不计入模型失败率分母。
-- `abandoned` 只用于 shutdown、idle TTL 或容量保护导致的观测 terminal 缺失；它不等于
-  Provider 错误，必须通过 `telemetry_abandon_reason` 单独统计。
-- Retry 后成功的 Call：`status=completed`，同时记录 `had_error=true`、`recovered_after_retry=true`。
-- Operation 后处理失败不能改写模型调用成功：分别记录 `call_status` 与 `operation_status`。
+- `error_code` usa o `ModelErrorCode` do ZCode.
+- `provider_error_code` guarda o código de negócio do Provider e não pode sobrescrever o código de erro unificado.
+- `error_message` é a mensagem segura normalizada pelo ZCode.
+- `provider_error_message` precisa ser desidentificada e truncada, no máximo 1024 caracteres.
+- Mensagem de erro e stack não podem ser Metrics Label.
+- Chamadas bem-sucedidas não coletam stack; o stack de erro só entra no Trace detalhado quando
+  explicitamente habilitado e aprovado pela desidentificação.
+- Cancelamento é contabilizado separadamente e não entra no denominador da taxa de falha de modelo.
+- `abandoned` só é usado quando o terminal de observação falta por shutdown, idle TTL ou proteção
+  de capacidade; não equivale a erro de Provider e precisa ser estatizado separadamente por `telemetry_abandon_reason`.
+- Call que teve sucesso após Retry: `status=completed`, com `had_error=true` e `recovered_after_retry=true`
+  registrados.
+- Falha no pós-processamento da Operation não pode reescrever o sucesso da chamada de modelo: `call_status`
+  e `operation_status` são registrados separadamente.
 
-## 9. Provider Endpoint 清洗
+## 9. Sanitização do Endpoint do Provider
 
-### 9.1 产品边界
+### 9.1 Limite de produto
 
-Endpoint 清洗完全是内部实现：
+A sanitização de Endpoint é totalmente interna:
 
-- 不增加用户配置。
-- 不增加 `telemetryRouteTemplate`。
-- 不在设置页暴露。
-- 不要求用户理解或维护监控 Route。
+- Não adiciona configuração de usuário.
+- Não adiciona `telemetryRouteTemplate`.
+- Não expõe nada na página de configurações.
+- Não exige que o usuário entenda ou mantenha a Route de monitoramento.
 
-### 9.2 轻量规则
+### 9.2 Regras leves
 
 ```text
 原始 Base URL
@@ -509,7 +561,7 @@ Endpoint 清洗完全是内部实现：
   +--> 生成 origin / route / fingerprint
 ```
 
-例如：
+Por exemplo:
 
 ```text
 https://user:pass@gateway.example.com/team-a/v1/messages?api_key=secret
@@ -518,11 +570,13 @@ provider_origin = https://gateway.example.com
 provider_route  = /team-a/v1/messages
 ```
 
-如果 `team-a` 不符合敏感正则就保留。这里接受低风险，不增加复杂的租户词典或 Provider 专用模板系统。
+Se `team-a` não casar com a regex de conteúdo sensível, ele é preservado. Aqui se aceita risco baixo,
+sem adicionar dicionários de tenant ou sistemas de templates específicos de Provider.
 
-### 9.3 性能与缓存
+### 9.3 Performance e cache
 
-清洗复杂度是 `O(URL 长度)`，相比一次模型网络请求可以忽略，但仍按 Provider 配置记忆化：
+A complexidade da sanitização é `O(length of URL)`, desprezível em comparação a uma requisição de
+rede de modelo, mas mesmo assim é memoizada por configuração de Provider:
 
 ```text
 cache key = provider_kind + "\0" + raw_base_url
@@ -530,15 +584,18 @@ cache value = ProviderEndpointIdentity
 cache limit = 256
 ```
 
-结果存放在 Resolved Provider/进程内 LRU，不持久化到 SQLite 或配置文件。原因：计算便宜、规则可能升级、Base URL 可能变化、持久化容易留下旧版本结果。
+O resultado fica no LRU do Resolved Provider/dentro do processo, sem persistência em SQLite ou arquivo
+de configuração. Motivo: o cálculo é barato, as regras podem evoluir, a Base URL pode mudar e a
+persistência deixaria resultados de versões antigas.
 
-记录 `endpoint_sanitizer_version`，规则升级时自然重新计算。
+Registra-se `endpoint_sanitizer_version`, para que uma evolução das regras dispare o recálculo.
 
-Fingerprint 基于清洗后的 `origin + route`，不对仍含秘密的原始 URL 做无密钥 Hash。
+O Fingerprint é baseado no `origin + route` já sanitizados; não se faz Hash sem chave da URL original,
+que ainda contém segredos.
 
-## 10. 通用运行时与模型专用 Recorder
+## 10. Runtime genérico e Recorder específico do modelo
 
-### 10.1 通用层
+### 10.1 Camada genérica
 
 ```ts
 interface TelemetryRuntime {
@@ -548,25 +605,25 @@ interface TelemetryRuntime {
 }
 ```
 
-职责：
+Responsabilidades:
 
-- 有界内存队列。
-- Batch Export。
-- Export 超时和失败隔离。
-- P1 的采样策略和 P0 的告警速率限制。
-- Resource Attributes。
-- 本地 Exporter health snapshot 和限频警告；远端 self-telemetry 指标留到 P1。
-- 测试 Memory Sink 和生产 No-op Sink。
+- Fila em memória limitada.
+- Batch Export.
+- Timeout de exportação e isolamento de falhas.
+- Estratégia de amostragem do P1 e limitação de taxa de alertas do P0.
+- Resource Attributes.
+- Snapshot local de saúde do Exporter e avisos com limitação de frequência; a métrica de self-telemetry remota fica para o P1.
+- Memory Sink de teste e No-op Sink de produção.
 
-不负责：
+Não é responsável por:
 
-- 判断模型错误。
-- 解析 Token/Cache。
-- 识别 Compaction。
-- 解析 Provider Options。
-- 清洗模型领域字段。
+- Julgar erros de modelo.
+- Interpretar Token/Cache.
+- Identificar Compaction.
+- Interpretar Provider Options.
+- Sanitizar campos do domínio de modelo.
 
-### 10.2 模型层
+### 10.2 Camada de modelo
 
 ```ts
 class ModelApiTelemetryStatusSink implements ModelStatusSink {
@@ -574,9 +631,11 @@ class ModelApiTelemetryStatusSink implements ModelStatusSink {
 }
 ```
 
-Recorder 在内存里维护极小状态，直到 Call/Attempt 收口后生成不可变 Terminal Record。OTel Sink 再把 Terminal Record 映射成具有明确 start/end timestamp 的 Span。
+O Recorder mantém um estado mínimo em memória até Call/Attempt fecharem, gerando então um Terminal
+Record imutável. O OTel Sink mapeia o Terminal Record em um Span com timestamps explícitos de início e fim.
 
-这种设计避免 Core/Adapter 持有 OTel Span 对象，也避免 OTel Context 穿过 Async Generator、Tool 和 Fallback 后污染领域代码。
+Esse design evita que Core/Adapter segurem objetos Span do OTel e evita que o Context do OTel atravesse
+Async Generator, ferramentas e Fallback e contamine o código de domínio.
 
 ### 10.3 TelemetryRecord
 
@@ -584,9 +643,9 @@ Recorder 在内存里维护极小状态，直到 Call/Attempt 收口后生成不
 type TelemetryRecord = ModelApiCallRecord | ModelApiAttemptRecord | TelemetryExporterHealthRecord;
 ```
 
-不是 `Record<string, unknown>`。
+Não é `Record<string, unknown>`.
 
-## 11. App 注入与 Standalone 初始化
+## 11. Injeção pelo App e inicialização pelo Standalone
 
 ```text
 App-launched
@@ -605,7 +664,8 @@ Standalone ------> async identity prepare
                     +--> OTLP Exporter
 ```
 
-Standalone 的文件身份初始化属于 CLI 启动 I/O，不属于同步 Telemetry 工厂：
+A inicialização de identidade de arquivo do Standalone pertence ao I/O de inicialização do CLI, e
+não à fábrica síncrona de Telemetria:
 
 ```text
 headless / TUI / protocol async entry
@@ -629,19 +689,21 @@ headless / TUI / protocol async entry
          +--> synchronous createModelTelemetry()（只消费已准备的 env）
 ```
 
-同一进程对同一 state 文件的并发 prepare 共享一个 Promise；跨进程继续复用
-`telemetry-state.lock`、stale owner 检测和原子 rename。身份 I/O 失败必须旁路，最多让
-`identity_state=unavailable`，不能阻断 App 创建或首个模型请求。直接嵌入并调用同步
-`createZCodeApp()` 的宿主负责注入身份；官方 headless、TUI、protocol 入口统一执行异步 prepare。
+Preparações concorrentes no mesmo processo para o mesmo arquivo de estado compartilham um Promise; entre
+processos continua-se reutilizando `telemetry-state.lock`, a detecção de owner obsoleto e o rename
+atômico. Falha de I/O de identidade precisa ficar em bypass, no máximo resultando em
+`identity_state=unavailable`, sem bloquear a criação do App ou a primeira requisição de modelo. Hosts
+que incorporam e chamam o `createZCodeApp()` síncrono diretamente são responsáveis por injetar a
+identidade; as entradas oficiais headless, TUI e de protocolo executam a preparação assíncrona de forma unificada.
 
-配置优先级：
+Prioridade de configuração:
 
-1. 显式注入的 `TelemetryRuntime`/Sink，供测试或进程内嵌入。
-2. App 注入的 OTLP 配置。
-3. Standalone CLI 环境变量/配置。
-4. No-op。
+1. `TelemetryRuntime`/Sink injetado explicitamente, para teste ou incorporação no processo.
+2. Configuração OTLP injetada pelo App.
+3. Variáveis de ambiente/configuração do CLI Standalone.
+4. No-op.
 
-Phase 1 使用标准 OTel 环境变量，不增加用户设置 UI：
+A Fase 1 usa as variáveis de ambiente padrão do OTel, sem adicionar UI de configuração ao usuário:
 
 ```text
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT   # 优先，完整 /v1/traces 地址
@@ -652,14 +714,26 @@ OTEL_RESOURCE_ATTRIBUTES
 ZCODE_MODEL_TELEMETRY_ENABLED        # false/0/off/disabled 可强制关闭
 ```
 
-Desktop main 只把 allowlist 内的 OTLP 配置定向传给 host，并丢弃外部传入的 UID hash、Identity State、Device MID 和 Runtime Surface，避免环境变量伪造身份。Host 初始化 services 时立即捕获 OTLP 配置并从公共 `process.env` 删除；启动 Agent 时再注入，CLI bootstrap 捕获后同样删除。因此认证 Header 不会进入 Bash、MCP 或 Tool 子进程。Desktop UID 从 OAuth Profile 读取后在 Host 内做 SHA-256 伪名化，原值不跨 Agent 边界；该散列仍是可关联标识符，并非匿名数据。Device MID 复用 App 已有 `telemetry-state.json`。
+O Desktop main só repassa de forma direcionada a configuração OTLP dentro da allowlist ao host e
+descarta o UID hash, Identity State, Device MID e Runtime Surface vindos de fora, evitando falsificação
+de identidade por variáveis de ambiente. O Host captura a configuração OTLP imediatamente ao
+inicializar os services e a remove do `process.env` comum; na inicialização do Agente ela é injetada
+novamente e o bootstrap do CLI a captura e também a remove. Assim, Headers de autenticação não chegam a
+Bash, MCP ou subprocessos de ferramentas. O UID do Desktop, lido do Perfil OAuth, é pseudonimizado com
+SHA-256 dentro do Host, e o valor original não cruza a fronteira do Agente; esse hash continua sendo um
+identificador correlacionável, não um dado anônimo. O Device MID reaproveita o `telemetry-state.json`
+já existente no App.
 
-当前 App 内置的 `ZCODE_ARMS_RUM_ENDPOINT` 是 `/rum/web/v2`，不能推导 OTLP 地址或复用 RUM 鉴权。部署环境必须另外提供目标 ARMS Workspace 的 OTLP Endpoint/Header；缺失时新链路明确 No-op，原 RUM、SQLite 和 `/event/report` 均保持运行。
+O `ZCODE_ARMS_RUM_ENDPOINT` embutido hoje no App é `/rum/web/v2` e não permite deduzir o endereço OTLP
+nem reutilizar a autenticação do RUM. O ambiente de implantação precisa fornecer separadamente o
+Endpoint/Header OTLP do Workspace ARMS de destino; na ausência deles o novo caminho é explicitamente
+No-op, e o RUM original, o SQLite e o `/event/report` continuam rodando.
 
-### 11.1 Desktop 正式安装包配置交付
+### 11.1 Entrega de configuração do pacote oficial do Desktop
 
-正式安装包不能依赖用户从 Terminal 启动，也不能读取开发仓库的 `.env`。构建流水线通过
-以下专用变量向 Desktop Main 注入部署默认值：
+O pacote oficial não pode depender de o usuário iniciar pelo Terminal nem ler o `.env` do repositório de
+desenvolvimento. O pipeline de build injeta os valores padrão de implantação no Desktop Main por meio
+das variáveis dedicadas abaixo:
 
 ```text
 ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT
@@ -667,8 +741,9 @@ ZCODE_PACKAGED_AGENT_OTEL_HEADERS
 ZCODE_PACKAGED_AGENT_OTEL_SERVICE_NAME   # 可选，默认 zcode-cli-agent
 ```
 
-它们只用于构建 Desktop Main，不直接作为通用 `OTEL_*` 变量暴露给 pnpm、
-electron-builder 或其他构建子进程。运行时再映射为 Agent 已支持的标准字段：
+Elas são usadas apenas para construir o Desktop Main e não são expostas como variáveis genéricas
+`OTEL_*` para o pnpm, o electron-builder ou outros subprocessos de build. Em tempo de execução são
+mapeadas para os campos padrão já suportados pelo Agente:
 
 ```text
 ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT     -> OTEL_EXPORTER_OTLP_ENDPOINT
@@ -692,30 +767,40 @@ GitLab CI variables（Header 必须 masked）
                                      +--> OTLP/HTTP -> ARMS
 ```
 
-配置约束：
+Restrições de configuração:
 
-- Endpoint 与 Headers 必须同时存在；只配置一个时构建失败，禁止发布“看似启用、实际无法鉴权”的安装包。
-- 普通开发/MR 构建在完全未配置时保持 No-op；`release/current` 和 Tag 构建完全缺失配置时也会失败，
-  防止正式安装包静默退回 No-op。
-- Endpoint 必须是 HTTP(S) URL；正式发布使用 HTTPS。
-- 打包默认值优先级低于显式运行时 `OTEL_*`，方便运维诊断和隔离环境覆盖。
-- 构建变量只允许产生 Endpoint、Headers 和 Service Name，不能携带 UID、Device MID、Session 等运行时身份。
-- CI Header 必须使用 masked variable，不写入仓库、构建日志或 artifact 清单；目标发布分支启用
-  GitLab protected branch 后，再同步将变量设为 protected。
-- Desktop 客户端中的 ingestion credential 最终可被本机用户提取，因此它只能是低权限、可轮换的
-  写入凭证，不能拥有查询或管理权限。长期方案应迁移到受控 Collector/Gateway 和短期凭证。
-- Standalone CLI 继续只读取标准 `OTEL_*`；不会隐式继承 Desktop 安装包的部署默认值。
+- Endpoint e Headers precisam existir juntos; ao configurar apenas um, o build falha, proibindo publicar
+  um pacote que "parece habilitado, mas na verdade não consegue autenticar".
+- Builds comuns de desenvolvimento/MR permanecem No-op quando nada é configurado; builds de
+  `release/current` e de Tag também falham quando falta completamente a configuração, evitando que o
+  pacote oficial caia silenciosamente em No-op.
+- O Endpoint precisa ser uma URL HTTP(S); a publicação oficial usa HTTPS.
+- Os valores padrão do pacote têm prioridade menor que o `OTEL_*` explícito em tempo de execução, para
+  facilitar diagnóstico de operação e sobrescrita em ambientes isolados.
+- As variáveis de build só podem produzir Endpoint, Headers e Service Name; não podem carregar UID,
+  Device MID, Session ou outra identidade de runtime.
+- O Header no CI precisa ser uma masked variable, nunca gravada no repositório, no log de build ou no
+  manifesto de artefatos; depois que a branch de release alvo ativar protected branch no GitLab, as
+  variáveis também passam a ser protected.
+- A credencial de ingestão no cliente Desktop pode ser extraída pelo usuário local, portanto só pode ser
+  uma credencial de escrita de baixo privilégio e rotacionável, sem permissão de consulta ou
+  administração. A solução de longo prazo deve migrar para um Collector/Gateway controlado com credenciais de curta duração.
+- O CLI Standalone continua lendo apenas o `OTEL_*` padrão e não herda implicitamente os valores padrão
+  de implantação do pacote do Desktop.
 
-约束：
+Restrições:
 
-- 一次 CLI 运行只能有一个 OTel Exporter Owner。
-- App 的 Main 只传 Endpoint/Auth/Resource 配置，Host 再注入可信 Identity；注入结果是配置而不是 Electron RUM SDK 对象。
-- CLI 直接向 ARMS OTel 发送，不经 Renderer，不逐条经过 Host/Main IPC。
-- UID 身份是启动快照；若产品要求不重启 CLI 即支持账号切换，后续通过严格协议增加 Identity Update，不在 P0 猜测。
-- Remote SSH/WSL/Docker 必须显式、安全地传递配置；不假设本地进程环境自动到达远端。
-- Relay/Main 不持有 Model Call 状态。
+- Uma execução do CLI só pode ter um Owner do OTel Exporter.
+- O Main do App só passa configuração de Endpoint/Auth/Resource, e o Host injeta a Identidade confiável;
+  o resultado da injeção é configuração, não um objeto do SDK RUM do Electron.
+- O CLI envia direto ao ARMS OTel, sem passar pelo Renderer e sem IPC item a item pelo Host/Main.
+- A identidade UID é um snapshot de inicialização; se o produto exigir troca de conta sem reiniciar o
+  CLI, um Identity Update será adicionado depois por um protocolo estrito, sem adivinhações no P0.
+- SSH/WSL/Docker remotos precisam transmitir a configuração de forma explícita e segura; não se assume
+  que o ambiente do processo local chegue sozinho ao remoto.
+- Relay/Main não mantêm estado de Model Call.
 
-## 12. App ARMS 与 CLI ARMS
+## 12. ARMS do App e ARMS do CLI
 
 ```text
 同一个阿里云账号 / ARMS Workspace
@@ -731,7 +816,7 @@ GitLab CI variables（Header 必须 masked）
          范围: Model API / Agent Runtime
 ```
 
-两边共享关联属性：
+Os dois lados compartilham atributos de correlação:
 
 ```text
 device_mid
@@ -744,13 +829,13 @@ deployment_environment
 runtime_surface
 ```
 
-不得把 CLI 数据发送到现有 RUM `/rum/web/v2` Endpoint。
+É proibido enviar dados do CLI para o Endpoint RUM `/rum/web/v2` existente.
 
-## 13. 性能、内存、CPU 与网络评审
+## 13. Revisão de performance, memória, CPU e rede
 
-### 13.1 热路径事件数量
+### 13.1 Quantidade de eventos no caminho quente
 
-正常成功模型调用：
+Uma chamada de modelo bem-sucedida:
 
 ```text
 1 个 ModelApiCall Terminal Record
@@ -758,44 +843,47 @@ runtime_surface
 0 个逐 Chunk Record
 ```
 
-OTel Span 在本地开始/收口后只导出一次。现有 `started/completed` 状态仍可服务 UI，但新 OTel 不把它们各自转换为独立网络 Custom Event。
+Um Span do OTel é exportado uma única vez, depois de iniciar e fechar localmente. Os estados
+`started/completed` atuais ainda podem atender a UI, mas o novo OTel não os converte individualmente
+em Custom Events de rede separados.
 
-Retry 一次只线性增加一个 Attempt Span；`retry_scheduled`、`stream_stalled` 优先作为 Attempt Span Event/聚合字段，不单独创建 Trace。
+Um Retry acrescenta apenas um Attempt Span de forma linear; `retry_scheduled` e `stream_stalled` são
+preferidos como Event do Attempt Span ou campo agregado, sem criar um Trace separado.
 
-### 13.2 同步 CPU
+### 13.2 CPU síncrona
 
-业务线程允许：
+Permitido na thread de negócio:
 
-- 单调时钟/墙钟读取。
-- 少量整数计数。
-- 小对象字段复制。
-- Map 查找。
-- Endpoint Identity 缓存读取。
-- Terminal Record 入队。
+- Leitura de relógio monotônico/de parede.
+- Poucas contagens inteiras.
+- Cópia de campos de objetos pequenos.
+- Busca em Map.
+- Leitura do cache de Endpoint Identity.
+- Enfileiramento do Terminal Record.
 
-业务线程禁止：
+Proibido na thread de negócio:
 
-- 网络请求。
-- 文件 I/O。
-- 大对象 JSON stringify。
-- Prompt/Message/Tool Payload 遍历。
-- 成功调用 Stack 生成。
-- 每个 SSE Chunk 分配 Telemetry Record。
+- Requisições de rede.
+- I/O de arquivo.
+- JSON stringify de objetos grandes.
+- Varredura de Payload de Prompt/Message/Tool.
+- Geração de stack em chamada bem-sucedida.
+- Alocar Telemetry Record para cada SSE Chunk.
 
-设计验收目标：
+Metas de aceitação do design:
 
-| 项目                     | 目标        |
-| ------------------------ | ----------- |
-| `record()` 同步耗时 P95  | `< 0.5ms`   |
-| `record()` 同步耗时 P99  | `< 1ms`     |
-| 10 calls/s 稳态 CPU 增量 | `< 1%` 单核 |
-| TTFT 额外同步延迟        | `< 1ms`     |
+| Item                          | Meta        |
+| ----------------------------- | ----------- |
+| Tempo síncrono de `record()` P95 | `< 0.5ms`   |
+| Tempo síncrono de `record()` P99 | `< 1ms`     |
+| Incremento de CPU em regime estável com 10 calls/s | `< 1%` de um core |
+| Atraso síncrono adicional de TTFT | `< 1ms`     |
 
-这些是验收预算。当前实现的实测结果见 13.7。
+Esses são orçamentos de aceitação. Os resultados medidos da implementação atual estão em 13.7.
 
-### 13.3 内存
+### 13.3 Memória
 
-建议双重上限：
+Sugestão de limite duplo:
 
 ```text
 completed record queue: 2000 records 或 4 MiB，先到者生效
@@ -803,7 +891,7 @@ active call/attempt state: 1000 handles
 endpoint identity cache: 256 entries
 ```
 
-队列满时：
+Quando a fila está cheia:
 
 ```text
 丢弃 Telemetry
@@ -812,21 +900,25 @@ endpoint identity cache: 256 entries
 继续 Agent 业务
 ```
 
-普通主流的 Consumer Close 为保持既有 direct-continuous 生命周期，不会新增 abort/terminal；Recorder 通过 30 分钟惰性清理和 1000 条上限时淘汰最旧悬挂 Call，防止永久增长。Compact 隐藏流仍会在 Consumer Close 时 abort 并收口。
+O Consumer Close comum da mainstream, para preservar o ciclo de vida direct-continuous existente, não
+adiciona abort/terminal novo; o Recorder evita crescimento permanente com limpeza preguiçosa de 30
+minutos e um teto de 1000 entradas, descartando a Call pendente mais antiga. O fluxo Compact oculto
+continua abortando e fechando no Consumer Close.
 
-设计验收目标：
+Metas de aceitação do design:
 
-| 项目                         | 目标                                                        |
-| ---------------------------- | ----------------------------------------------------------- |
-| Queue/Recorder 稳态 RSS 增量 | `< 10 MiB`                                                  |
-| Exporter 故障 30 分钟        | 内存仍受硬上限约束                                          |
-| 一次成功 Call 的状态         | 不保存 Prompt、Response、Header 或 Provider Metadata 原对象 |
+| Item                                  | Meta                                                       |
+| ------------------------------------- | ---------------------------------------------------------- |
+| Incremento de RSS em regime estável de Queue/Recorder | `< 10 MiB`                                                  |
+| 30 minutos com Exporter em falha      | a memória continua limitada pelo teto rígido               |
+| Estado de uma chamada bem-sucedida    | não guarda os objetos originais de Prompt, Response, Header ou Provider Metadata |
 
-OTel SDK 自身基线内存必须单独测量，不与 Queue 指标混淆。
+A memória de baseline do próprio SDK do OTel precisa ser medida separadamente, sem confundir com as
+métricas de Queue.
 
-### 13.4 网络
+### 13.4 Rede
 
-默认 Batch 建议：
+Sugestão padrão de Batch:
 
 ```text
 max_batch_size = 100 spans
@@ -835,23 +927,25 @@ export_timeout = 3s
 shutdown_flush_timeout = 1~2s
 ```
 
-必须启用 OTLP 批量和压缩；禁止每条 Record 发一次 HTTP。
+O batching e a compressão OTLP precisam estar habilitados; é proibido enviar um HTTP por Record.
 
-设计目标：
+Metas do design:
 
-- 成功路径只包含标量和短字符串。
-- 不发送 Prompt、Headers、Body、Raw Usage JSON 和 Raw Provider Metadata。
-- 正常一次 Model API Call 的未压缩 Telemetry 目标 `< 4 KiB`；错误/Retry Call 目标 `< 8 KiB`。
-- 实际压缩率、日调用量和 ARMS 账单通过灰度采样测量，不用静态猜测代替。
+- O caminho de sucesso contém apenas escalares e strings curtas.
+- Não enviar Prompt, Headers, Body, Raw Usage JSON nem Raw Provider Metadata.
+- Meta de Telemetria não comprimida de uma Model API Call normal: `< 4 KiB`; para Call com erro/Retry: `< 8 KiB`.
+- A taxa real de compressão, o volume diário de chamadas e a fatura do ARMS são medidos por amostragem
+  em canário, não por suposição estática.
 
-容量公式：
+Fórmula de capacidade:
 
 ```text
 daily_raw_bytes ~= call_count * avg_call_record_bytes
                 + attempt_count * avg_attempt_record_bytes
 ```
 
-Phase 1 在进程内 `health()` 暴露，P1 再发送到独立 Metrics/Health 通道：
+Na Fase 1 isso é exposto em `health()` dentro do processo, e no P1 enviado para um canal separado de
+Metrics/Health:
 
 ```text
 telemetry_export_bytes_total
@@ -861,26 +955,31 @@ telemetry_dropped_total
 telemetry_queue_size
 ```
 
-### 13.5 启动与包体
+### 13.5 Inicialização e tamanho do pacote
 
-当前 CLI/SEA 没有生产直接依赖的完整 OTel SDK。实现时必须显式添加依赖，不能依赖 Vitest 或 AI SDK 的传递依赖。
+O CLI/SEA atual não tem o SDK completo do OTel como dependência direta de produção. Na implementação
+é preciso adicionar a dependência explicitamente, sem depender de dependências transitivas do Vitest
+ou do AI SDK.
 
-推荐使用最小包集合和手工 Span，不启用 Node 全量 Auto Instrumentation：
+Recomenda-se usar o conjunto mínimo de pacotes e Spans manuais, sem habilitar a Auto Instrumentation
+completa do Node:
 
-- 避免重复采集 AI SDK/fetch 请求。
-- 避免把文件、DNS、HTTP 等无关自动 Span 带入。
-- 降低 CLI/SEA 包体、启动 CPU 和内存。
+- Evita coletar duas vezes requisições do AI SDK/fetch.
+- Evita trazer Spans automáticos irrelevantes de arquivo, DNS, HTTP etc.
+- Reduz o tamanho do pacote/CLI SEA, a CPU e a memória de inicialização.
 
-Telemetry 未配置时延迟初始化或保持 No-op，不创建 Batch Worker。实现 MR 必须报告：
+Quando a Telemetria não está configurada, a inicialização é adiada ou permanece No-op, sem criar
+Batch Worker. O MR de implementação precisa reportar:
 
-- `dist/zcode.cjs` minified 大小变化。
-- SEA 二进制大小变化。
-- Standalone `zcode --help` 和首次 Prompt 启动耗时变化。
-- Telemetry disabled/enabled 的 RSS 基线。
+- Variação do tamanho minificado de `dist/zcode.cjs`.
+- Variação do tamanho do binário SEA.
+- Variação do tempo de inicialização de `zcode --help` standalone e do primeiro Prompt.
+- Baseline de RSS com Telemetry disabled/enabled.
 
-不建议为减小包体自行实现一套非标准 OTLP 协议；先用最小官方 SDK，只有测量证明包体不可接受时再评估替代。
+Não é recomendável implementar um protocolo OTLP não padrão para reduzir o tamanho; use primeiro o SDK
+oficial mínimo e só avalie alternativas se a medição mostrar que o tamanho é inaceitável.
 
-### 13.6 ARMS 故障行为
+### 13.6 Comportamento em falha do ARMS
 
 ```text
 ARMS timeout/down/rate limit
@@ -891,51 +990,60 @@ ARMS timeout/down/rate limit
   +--> Agent 模型调用完全不受影响
 ```
 
-Exporter 禁止无限重试、无限落盘、阻塞进程退出或把异常抛到模型调用方。Phase 1
-不在 CLI 外层重复实现 SDK 内部重试；失败批次丢弃，剩余队列留到下一次 Flush，shutdown 时按总超时收口。
+O Exporter não pode fazer retry infinito, gravar em disco sem limite, bloquear a saída do processo ou
+lançar exceção para quem chamou o modelo. A Fase 1 não reimplementa o retry interno do SDK na camada
+externa do CLI; batches com falha são descartados, o restante da fila fica para o próximo Flush e, no
+shutdown, o fechamento respeita um timeout total.
 
-### 13.7 Phase 1 实测结果
+### 13.7 Resultados medidos da Fase 1
 
-测试环境：macOS arm64、Node.js 24.14.0；时间与 RSS 是本机微基准，CI/生产机器需继续灰度复测。
+Ambiente de teste: macOS arm64, Node.js 24.14.0; tempos e RSS são microbenchmarks locais, e CI/máquinas
+de produção precisam continuar com reavaliação em canário.
 
-| 项目                                                          |                                                      实测 | 结论                                                       |
-| ------------------------------------------------------------- | --------------------------------------------------------: | ---------------------------------------------------------- |
-| 10,000 次完整 Call（started + completed + 2 records）同步 P50 |                                           `0.0022ms/call` | 低于预算                                                   |
-| 同上 P95 / P99                                                |                                   `0.0046ms` / `0.0095ms` | 低于 `0.5ms` / `1ms` 预算                                  |
-| 默认 2,000 条模型 Record 队列 RSS / heap 增量                 |                                     `6.20MiB` / `2.16MiB` | 低于 Queue/Recorder `10MiB` 预算                           |
-| Telemetry 模块冷 import / disabled create                     |                                      `26.6ms` / `0.089ms` | OTel 已延迟到首批真实 Export，不在 disabled 热路径初始化   |
-| Enabled create（身份已注入）                                  |                                                 `0.234ms` | 只创建有界 Runtime/Recorder，不做网络                      |
-| Standalone device state 首次创建 P50/P95                      |                                     `0.286ms` / `0.354ms` | 历史同步基线；现已移至异步入口，复用既有锁且不覆盖业务状态 |
-| Standalone device state warm read P50/P95                     |                                     `0.014ms` / `0.017ms` | 历史同步基线；现为异步启动 I/O，不在模型热路径             |
-| 首批 OTel 加载 + 两 Span Export + shutdown                    |                                  `93.0ms`，RSS `+18.0MiB` | 发生在后台 Flush/退出，不进入模型 TTFT                     |
-| 1 Call + 1 Attempt OTLP protobuf                              |                            未压缩 `3,456B`，gzip `1,159B` | 单 Call 批次约 `1.13KiB` 网络载荷                          |
-| `dist/zcode.cjs`                                              |   `19,037,591B -> 20,146,129B`，`+1,108,538B`（`+5.82%`） | 官方最小 OTel SDK 是主要增量                               |
-| darwin-arm64 SEA                                              | `181,513,504B -> 182,629,792B`，`+1,116,288B`（`+0.62%`） | SEA 总体增幅可控                                           |
-| `--help` 冷启动 P50（30 次）                                  |                            `290.2ms -> 295.0ms`，`+4.8ms` | 调度噪声较大，平均值未退化；继续在 CI 追踪                 |
+| Item                                                             | Medido | Conclusão |
+| ---------------------------------------------------------------- | -----: | --------- |
+| 10.000 Calls completas (started + completed + 2 records), P50 síncrono | `0.0022ms/call` | abaixo do orçamento |
+| o mesmo P95 / P99                                              | `0.0046ms` / `0.0095ms` | abaixo dos orçamentos `0.5ms` / `1ms` |
+| RSS / incremento de heap da fila padrão de 2.000 model Records | `6.20MiB` / `2.16MiB` | abaixo do orçamento de Queue/Recorder `10MiB` |
+| import a frio do módulo Telemetry / create com disabled        | `26.6ms` / `0.089ms` | OTel adiado até o primeiro Export real, sem inicialização no caminho quente disabled |
+| Create enabled (identidade já injetada)                        | `0.234ms` | cria apenas Runtime/Recorder limitado, sem rede |
+| Primeira criação do device state standalone, P50/P95            | `0.286ms` / `0.354ms` | baseline síncrono histórico; hoje movido para a entrada assíncrona, reutilizando o lock existente e sem sobrescrever estado de negócio |
+| Leitura quente do device state standalone, P50/P95              | `0.014ms` / `0.017ms` | baseline síncrono histórico; hoje é I/O de inicialização assíncrono, fora do caminho quente do modelo |
+| Primeiro carregamento do OTel + Export de 2 Spans + shutdown    | `93.0ms`, RSS `+18.0MiB` | ocorre em Flush/saída em background, sem entrar no TTFT do modelo |
+| Protobuf OTLP de 1 Call + 1 Attempt                             | `3,456B` sem compressão, gzip `1,159B` | carga de rede de um batch com 1 Call fica em torno de `1.13KiB` |
+| `dist/zcode.cjs`                                                | `19,037,591B -> 20,146,129B`, `+1,108,538B` (`+5.82%`) | o SDK oficial mínimo do OTel é o principal incremento |
+| SEA darwin-arm64                                                | `181,513,504B -> 182,629,792B`, `+1,116,288B` (`+0.62%`) | incremento geral do SEA é aceitável |
+| Inicialização a frio de `--help`, P50 (30 execuções)              | `290.2ms -> 295.0ms`, `+4.8ms` | ruído de agendamento elevado, sem regressão da média; continuar rastreando no CI |
 
-10 calls/s 下，仅按 P95 同步 Recorder 耗时折算约 `0.046ms CPU/s`，即单核 `0.0046%`；这只是热路径估算，不替代线上 CPU 与后台 protobuf/gzip 观测。
+A 10 calls/s, apenas o tempo síncrono do Recorder em P95 equivale a cerca de `0.046ms CPU/s`, ou seja,
+`0.0046%` de um core; essa é apenas uma estimativa do caminho quente e não substitui a observação de CPU
+e de protobuf/gzip em background em produção.
 
-为控制 disabled 成本，`LazyOtlpTelemetryRecordExporter` 只在首个非空 Batch 时动态加载 OTel。Exporter Down 时每个 5 秒 Flush 周期最多发起一次失败请求；队列按 2,000 条或 4MiB 先到者丢弃，shutdown 的 Flush + SDK shutdown 共用一个总超时。
+Para controlar o custo com disabled, o `LazyOtlpTelemetryRecordExporter` só carrega o OTel
+ dinamicamente no primeiro Batch não vazio. Com o Exporter fora do ar, cada ciclo de Flush de 5 segundos
+inicia no máximo uma requisição com falha; a fila descarta por 2.000 entradas ou 4MiB, o que vier
+primeiro, e o Flush de shutdown mais o shutdown do SDK compartilham um timeout total.
 
-## 14. 代码侵入性评审
+## 14. Revisão de intrusividade no código
 
-### 14.1 实际改动
+### 14.1 Mudanças reais
 
-| 层                 | 主要改动                                                                     | 侵入性                              |
-| ------------------ | ---------------------------------------------------------------------------- | ----------------------------------- |
-| `@zcode/contracts` | Operation Registry、Typed Observation、Call/Attempt/Error Records、Sink 接口 | 已完成；纯类型/Schema，无 ARMS 依赖 |
-| Model Adapter      | Attempt 生命周期、最终 Provider/Endpoint/Thought/Usage、错误补全             | 中；集中在 runner/status/options    |
-| Core Runtime       | 主 Step/Compaction/Verifier/Title 等调用点补 `operation` 和 Operation 结果   | 低到中；约十个语义入口              |
-| Tool Handlers      | WebSearch/WebFetch/ReadSessionContext 补严格 Operation                       | 低                                  |
-| Bootstrap          | 创建 TelemetryRuntime/Recorder/Composite Sink；注入 Adapter/Runtime          | 中                                  |
-| CLI Entry          | Standalone 配置、Flush/Shutdown                                              | 低到中                              |
-| Services Host      | App spawn 配置和身份注入                                                     | 低；P0 不需要逐事件协议转发         |
-| Desktop/UI         | 双写期保持现状；增加迁移 Feature Flag/对账                                   | 低                                  |
-| SQLite             | P0 不迁表；接入保持当前写入                                                  | 低                                  |
+| Camada               | Principais mudanças                                                                  | Intrusividade                        |
+| -------------------- | ----------------------------------------------------------------------------------- | ------------------------------------ |
+| `@zcode/contracts`   | Operation Registry, Typed Observation, Call/Attempt/Error Records, interface de Sink  | concluída; só tipos/Schema, sem dependência de ARMS |
+| Model Adapter        | ciclo de vida do Attempt, Provider/Endpoint/Thought/Usage finais, complemento de erros | média; concentrada em runner/status/options |
+| Core Runtime         | pontos de chamada de Step/Compaction/Verifier/Title passam a informar `operation` e o resultado da Operation | baixa a média; cerca de dez entradas semânticas |
+| Tool Handlers        | WebSearch/WebFetch/ReadSessionContext passam a ter Operation estrita                | baixa                                 |
+| Bootstrap            | cria TelemetryRuntime/Recorder/Composite Sink; injeta Adapter/Runtime               | média                                 |
+| CLI Entry            | configuração standalone, Flush/Shutdown                                             | baixa a média                         |
+| Services Host        | configuração de spawn do App e injeção de identidade                               | baixa; o P0 não precisa de encaminhamento de protocolo por evento |
+| Desktop/UI           | permanece como está durante o double write; adiciona Feature Flag/reconciliação de migração | baixa                       |
+| SQLite               | sem migração de tabela no P0; a integração mantém a escrita atual                   | baixa                                 |
 
-### 14.2 避免侵入的关键设计
+### 14.2 Designs-chave que evitam intrusividade
 
-Phase 1 调用点只声明语义；v2 接入后 `actorKind` 由当前 Scope 自动继承：
+Na Fase 1, os pontos de chamada apenas declaram semântica; após a integração do v2, o `actorKind` é
+herdado automaticamente do Scope atual:
 
 ```ts
 model.generateText({
@@ -946,32 +1054,41 @@ model.generateText({
 });
 ```
 
-公共事实由 Adapter 统一补齐，调用点不重复处理 Provider、Endpoint、Thought、Token、Cache 和错误。
+Fatos comuns são preenchidos de forma centralizada pelo Adapter, e os pontos de chamada não processam
+Provider, Endpoint, Thought, Token, Cache e erros de forma duplicada.
 
-`modelCall` 是 ZCode 内部字段，Adapter 在构造 AI SDK 请求时必须剥离，不能发送给 Provider。
+`modelCall` é um campo interno do ZCode e precisa ser removido pelo Adapter ao construir a requisição do
+AI SDK, sem ser enviado ao Provider.
 
-### 14.3 Phase 1 结构问题处理结果
+### 14.3 Resultado do tratamento dos problemas estruturais da Fase 1
 
-1. `publishModelStatus()` 已改为 request/global sink 独立 fan-out；任一 sink 抛错都会被旁路记录，另一个仍收到事件。
-2. 流式完成事件已补齐最终 Usage、Finish Reason、首 Provider Event/Content/Text、Stall 与 Output Commit。
-3. Failed Status Event 已携带统一 `error_code`、Provider 业务码/消息、HTTP Status、Request ID、阶段和异常类型。
-4. `query_source` 通过严格 Registry 映射；未知值只进入 `other`。
-5. Tool 内部模型调用已覆盖 ARMS Call/Attempt；SQLite logical usage 的长期统一仍留到 Phase 3。
-6. Title/Git Commit 显式标记 Effective Disabled；其他调用复用最终 Provider Options + Model Catalog。
-7. Adapter Retry 用多个 Request ID；Compaction Transport Fallback 用 `previous_logical_call_id` 关联；Stream Recovery 用 `stream_recovered_from_request_id`、恢复序号及同一 Session/Turn 关联。
+1. `publishModelStatus()` passou a fazer fan-out independente para sinks de request/global; o erro de
+   qualquer um dos sinks é registrado em bypass e o outro ainda recebe o evento.
+2. O evento de conclusão de streaming foi completado com Usage final, Finish Reason, primeiros
+   Provider Event/Content/Text, Stall e Output Commit.
+3. O evento de status Failed passou a carregar o `error_code` unificado, o código/mensagem de negócio do
+   Provider, o status HTTP, o Request ID, a fase e o tipo da exceção.
+4. `query_source` é mapeado por um Registry estrito; valores desconhecidos só entram em `other`.
+5. Chamadas de modelo internas às ferramentas já geram Call/Attempt no ARMS; a unificação de longo prazo
+   do logical usage no SQLite continua para a Fase 3.
+6. Title/Git Commit marcam explicitamente Effective Disabled; outras chamadas reutilizam os Provider
+   Options finais e o Model Catalog.
+7. Retry do Adapter usa múltiplos Request IDs; o Transport Fallback da Compaction se relaciona por
+   `previous_logical_call_id`; o Stream Recovery usa `stream_recovered_from_request_id`, o número de
+   recuperação e a correlação pela mesma Session/Turn.
 
-### 14.4 不建议的实现
+### 14.4 Implementações não recomendadas
 
-- 在每个 Call Site 手写 `arms.sendCustom()`。
-- 把完整 Telemetry Event 通过 Renderer/Main IPC 再发送。
-- 让 SQLite Row 直接充当 OTel Schema。
-- 让 Model Adapter 依赖 Electron、ARMS RUM 或 Host Service。
-- 用任意 `metadata: Record<string, unknown>` 承载所有 Telemetry 定制字段。
-- 在业务路径 `await` 真实 Export。
+- Escrever `arms.sendCustom()` à mão em cada Call Site.
+- Reenviar o Evento de Telemetria completo por IPC do Renderer/Main.
+- Fazer a Row do SQLite servir diretamente como Schema do OTel.
+- Fazer o Model Adapter depender do Electron, do ARMS RUM ou de um Service do Host.
+- Carregar todos os campos customizados de Telemetria em um `metadata: Record<string, unknown>` arbitrário.
+- Fazer `await` do Export real no caminho de negócio.
 
-## 15. Metrics 与统计口径
+## 15. Metrics e critérios estatísticos
 
-### 15.1 基础计数
+### 15.1 Contagens básicas
 
 ```text
 model_api_calls_total
@@ -986,7 +1103,7 @@ model_api_cache_read_tokens_total
 model_api_cache_write_tokens_total
 ```
 
-### 15.2 公式
+### 15.2 Fórmulas
 
 ```text
 Logical Call 成功率 = completed / (completed + error)
@@ -1002,11 +1119,11 @@ Cache Call 命中率 = hit calls / cache-observable calls
 Cache Token 命中率 = sum(cache_read_tokens) / sum(input_tokens)
 ```
 
-Cancellation 单列，不进入默认失败率分母。
+O cancelamento é contabilizado separadamente e não entra no denominador da taxa de falha padrão.
 
 ### 15.3 Metrics Label
 
-允许：
+Permitido:
 
 ```text
 operation
@@ -1020,7 +1137,7 @@ runtime_surface
 deployment_environment
 ```
 
-默认不允许：
+Não permitido por padrão:
 
 ```text
 user_id_hash / uid
@@ -1037,11 +1154,12 @@ error_message
 provider_route
 ```
 
-`model_id` 只有经过已知模型白名单/基数预算后才能进入 Metrics；否则只用于 Trace/SLS 查询。
+`model_id` só pode entrar em Metrics depois de passar por uma allowlist de modelos conhecidos/orçamento
+de cardinalidade; caso contrário, serve apenas para consultas de Trace/SLS.
 
-## 16. ARMS 数据组织
+## 16. Organização dos dados no ARMS
 
-不按 `step/compact/title/tool` 创建独立表。使用一个 OTel Service：
+Não criar tabelas separadas para `step/compact/title/tool`. Usa-se um único OTel Service:
 
 ```text
 service.name = zcode-cli-agent
@@ -1050,263 +1168,280 @@ span.name = zcode.model.attempt
 span.name = zcode.model.operation
 ```
 
-通过 `operation`、`actor_kind`、`transport` 等字段分类。Trace 数据由 ARMS 托管存储；若未来需要长期宽表或固定离线分析，再通过 SLS Scheduled SQL 生成派生 Logstore，不作为 P0 前置条件。
+A classificação é feita por campos como `operation`, `actor_kind` e `transport`. Os dados de Trace ficam
+no armazenamento hospedado pelo ARMS; se no futuro for preciso uma tabela larga de longo prazo ou análise
+offline fixa, gera-se um Logstore derivado por SLS Scheduled SQL, o que não é pré-requisito do P0.
 
-## 17. Dashboard 与告警
+## 17. Dashboards e alertas
 
-### 17.1 Dashboard
+### 17.1 Dashboards
 
-1. 总览：Call/Attempt 量、Logical/Attempt 成功率、P50/P95/P99、TTFT、Token。
-2. Provider/Model：Provider Kind、Provider ID、Model、Thought Level。
-3. Compaction：SSE 成功、HTTP Fallback、Outer Retry、Operation Commit。
-4. Retry/Error：统一错误码、Provider 错误码、HTTP Status、Retry 恢复率。
-5. Cache：Call 命中、Token 命中、Cache Write。
-6. Surface：Desktop、Standalone、Remote、Automation。
-7. Telemetry Health：Queue、Drop、Export Failure、Export Bytes。
+1. Visão geral: volume de Call/Attempt, sucesso Logical/Attempt, P50/P95/P99, TTFT, Token.
+2. Provider/Model: Provider Kind, Provider ID, Model, Thought Level.
+3. Compaction: sucesso SSE, HTTP Fallback, Outer Retry, commit da Operation.
+4. Retry/Error: códigos de erro unificados, códigos de erro do Provider, status HTTP, taxa de recuperação de Retry.
+5. Cache: acerto em Call, acerto em Token, Cache Write.
+6. Surface: Desktop, Standalone, Remote, Automation.
+7. Telemetry Health: Queue, Drop, falha de Export, bytes exportados.
 
-### 17.2 告警
+### 17.2 Alertas
 
-- 告警必须带最小样本量，避免低流量误报。
-- 成功率、P95、429、5xx、Timeout、Context Exceeded 分开告警。
-- Exporter 故障只告警监控链路，不触发 Agent 失败。
-- 第一阶段先采集基线，不在无数据时拍脑袋确定业务 SLO。
+- Os alertas precisam ter tamanho mínimo de amostra, para evitar falso positivo em tráfego baixo.
+- Taxa de sucesso, P95, 429, 5xx, Timeout e Context Exceeded geram alertas separados.
+- Falha do Exporter alerta apenas a cadeia de monitoramento e não provoca falha do Agente.
+- A primeira fase coleta a baseline, sem definir SLO de negócio no escuro.
 
-## 18. 采样与成本
+## 18. Amostragem e custo
 
-P0：
+P0:
 
-- Logical Call Terminal、Error、Cancel、Retry、Fallback 100%。
-- Attempt Terminal 100%，用于先建立真实基线和与 `plan_request` 对账。
-- 不上报逐 Chunk。
+- Logical Call Terminal, Error, Cancel, Retry e Fallback em 100%.
+- Attempt Terminal em 100%, para primeiro estabelecer uma baseline real e reconciliar com `plan_request`.
+- Sem relatório por Chunk.
 
-基线稳定后：
+Com a baseline estável:
 
-- 精确 Calls/Errors/Duration/Token 使用不采样 Metrics 或完整 Terminal Facts。
-- 详细成功 Trace 可采样。
-- Error/Cancel/Retry/Fallback Trace 继续 100%。
-- 不能用已采样成功 Trace 直接计算精确成功率。
+- Chamadas/Erros/Duração/Tokens exatos usam Metrics sem amostragem ou Fatos Terminais completos.
+- Traces de sucesso detalhados podem ser amostrados.
+- Traces de Error/Cancel/Retry/Fallback continuam em 100%.
+- Não se pode calcular taxa de sucesso exata a partir de Traces de sucesso já amostrados.
 
-## 19. 迁移路线
+## 19. Roteiro de migração
 
-### Phase 0：Spec 与契约（已完成）
+### Fase 0: Spec e contrato (concluída)
 
-- 冻结 Operation Registry、Schema、隐私和性能预算。
-- 增加 Golden Schema/Privacy Tests。
+- Congelar Operation Registry, Schema, privacidade e orçamentos de performance.
+- Adicionar Golden Schema/Privacy Tests.
 
-### Phase 1：旁路接入（代码已完成，待 ARMS 灰度）
+### Fase 1: integração em bypass (código concluído, aguardando canário no ARMS)
 
-- 新增 TelemetryRuntime 和 ModelApiTelemetry。
-- 从现有 Model Status/Usage 旁路采集。
-- 保持 RUM `plan_request`、SQLite、`/event/report` 不变。
-- ARMS OTel 使用独立 Service。
+- Adicionar TelemetryRuntime e ModelApiTelemetry.
+- Coletar em bypass a partir do Model Status/Usage existente.
+- Manter inalterados o `plan_request` do RUM, o SQLite e o `/event/report`.
+- O OTel do ARMS usa um Service separado.
 
-### Phase 2：双写对账
+### Fase 2: double write e reconciliação
 
-对比：
+Comparar:
 
-- Started/Terminal/Attempt 数量。
-- Provider/Model/Transport。
-- Completed/Error/Cancelled。
-- Duration/TTFT。
-- Token/Cache。
-- Retry/Fallback。
+- Quantidade de Started/Terminal/Attempt.
+- Provider/Model/Transport.
+- Completed/Error/Cancelled.
+- Duration/TTFT.
+- Token/Cache.
+- Retry/Fallback.
 
-按 1% -> 10% -> 100% 灰度，观察 Exporter Drop、CPU、RSS、网络和账单。
+Escalar em canário 1% -> 10% -> 100%, observando Drop do Exporter, CPU, RSS, rede e fatura.
 
-### Phase 3：统一事实生产
+### Fase 3: unificação da produção de fatos
 
-- SQLite `model_usage` 改由统一 Model Call Terminal Fact 驱动。
-- RUM `plan_request` 改为兼容 Exporter，或停止上报。
-- UI retry/debug 继续消费安全投影，不依赖 ARMS。
+- O SQLite `model_usage` passa a ser dirigido pelo Model Call Terminal Fact unificado.
+- O RUM `plan_request` vira Exporter compatível ou para de reportar.
+- O retry/debug da UI continua consumindo a projeção segura, sem depender do ARMS.
 
-### Phase 4：移除重复链路
+### Fase 4: remoção de cadeias duplicadas
 
-- 对账稳定并确认旧看板迁移后，停止 Renderer 重新生产 `plan_request`。
-- 保留 `plan_ttft`、UI Perf、业务 `/event/report` 和本地日志。
-- 评估 Tool/RPC 等领域是否复用通用 TelemetryRuntime，但不强行共用 Model Schema。
+- Depois que a reconciliação estabilizar e a migração dos dashboards antigos for confirmada, parar de
+  reprodzir `plan_request` no Renderer.
+- Manter `plan_ttft`, UI Perf, `/event/report` de negócio e logs locais.
+- Avaliar se domínios como Tool/RPC reutilizam o TelemetryRuntime genérico, sem forçar um Schema de
+  Modelo compartilhado.
 
-## 20. 失败和降级状态矩阵
+## 20. Matriz de estados de falha e degradação
 
-| 场景                      | Agent 行为          | Telemetry 行为                                |
-| ------------------------- | ------------------- | --------------------------------------------- |
-| 未配置 OTLP               | 正常运行            | No-op；SQLite 保持                            |
-| ARMS 网络超时             | 正常运行            | 每个 Flush 周期至多一次失败请求，失败批次丢弃 |
-| Queue 满                  | 正常运行            | 丢弃新/旧记录按实现策略，增加 Drop Counter    |
-| Endpoint 清洗失败         | 正常运行            | 保留 Provider Kind/ID，Endpoint 字段缺失      |
-| Thought 反查失败          | 正常运行            | Effective=`unknown`                           |
-| Provider Usage 缺失       | 正常运行            | Token 可缺失，Cache=`unknown`                 |
-| UID 缺失                  | 正常运行            | Identity=`anonymous/unavailable`              |
-| Span/Record 收口失败      | 正常运行            | 限频本地日志，不抛到调用方                    |
-| CLI 异常退出              | 进程退出            | 只做有界 Flush，不阻止退出                    |
-| Remote 无法获得 OTLP 配置 | 远端 Agent 正常运行 | No-op/本地 Usage，不回传 Main 代发            |
+| Cenário                              | Comportamento do Agent     | Comportamento da Telemetria                              |
+| ------------------------------------ | -------------------------- | --------------------------------------------------------- |
+| OTLP não configurado                 | funcionamento normal       | No-op; SQLite mantido                                     |
+| Timeout de rede do ARMS              | funcionamento normal       | no máximo uma requisição com falha por ciclo de Flush; batches com falha descartados |
+| Fila cheia                           | funcionamento normal       | descartar registros novos/velhos conforme a política da implementação; incrementar Drop Counter |
+| Falha na sanitização do Endpoint     | funcionamento normal       | manter Provider Kind/ID; campos de Endpoint ausentes      |
+| Falha na reversão do Thought         | funcionamento normal       | Effective=`unknown`                                       |
+| Usage do Provider ausente            | funcionamento normal       | Token pode faltar; Cache=`unknown`                        |
+| UID ausente                          | funcionamento normal       | Identity=`anonymous/unavailable`                         |
+| Falha no fechamento de Span/Record   | funcionamento normal       | log local com limitação de frequência, sem lançar ao chamador |
+| Saída anormal do CLI                 | o processo sai             | apenas Flush limitado, sem impedir a saída               |
+| Remoto semconfiguração OTLP          | Agente remoto funciona normalmente | No-op/Usage local, sem retransmitir pelo Main |
 
-Phase 1 没有新增 ARMS “表”：`zcode.model.call` 与 `zcode.model.attempt` 是同一 `service.name=zcode-cli-agent` 下的两类 Span，流量、成功率、耗时分位、Token/Cache 都从 Span 属性聚合。需要固定宽表时才在 SLS 侧创建派生 Logstore/定时 SQL，不改变 CLI Schema。
+A Fase 1 não adiciona "tabelas" no ARMS: `zcode.model.call` e `zcode.model.attempt` são dois tipos de
+Span sob o mesmo `service.name=zcode-cli-agent`, e volume, taxa de sucesso, percentis de duração e
+Token/Cache são agregados a partir dos atributos do Span. Uma tabela larga fixa só é criada no lado SLS,
+via Logstore derivado/SQL agendado, sem mudar o Schema do CLI.
 
-## 21. 维度与剪枝
+## 21. Dimensões e podagem
 
-### 21.1 主要领域
+### 21.1 Domínios principais
 
-| 领域                       | 是否纳入 | 原因                                               |
-| -------------------------- | -------- | -------------------------------------------------- |
-| Model/Provider Runtime     | 是       | 模型、Thought、Transport、Retry 的事实源           |
-| Monitoring/Telemetry/Usage | 是       | ARMS、SQLite、RUM、`/report` 的边界                |
-| Architecture/Process       | 是       | App 注入、CLI 自初始化、Remote 边界                |
-| Persistence                | 代表覆盖 | P0 不迁表，只验证现有 SQLite 不回归                |
-| Conversation/UI            | 代表覆盖 | 只验证安全投影和现有事件不破坏，不展开全部状态组合 |
+| Domínio                      | Incluído   | Motivo                                              |
+| ---------------------------- | ---------- | ---------------------------------------------------- |
+| Model/Provider Runtime       | sim        | fonte de fato de modelo, Thought, Transport e Retry  |
+| Monitoring/Telemetry/Usage   | sim        | limites de ARMS, SQLite, RUM e `/report`            |
+| Architecture/Process         | sim        | injeção do App, auto-inicialização do CLI, fronteira remota |
+| Persistence                  | cobertura representativa | sem migração de tabela no P0; apenas garantir que o SQLite existente não regrida |
+| Conversation/UI              | cobertura representativa | só validar a projeção segura e que os eventos atuais não quebrem, sem explorar todas as combinações de estado |
 
-### 21.2 关键维度
+### 21.2 Dimensões-chave
 
-| 维度            | 值                                                       |
-| --------------- | -------------------------------------------------------- |
-| Operation       | `agent.*` / `context.*` / `sidecar.*` / `tool.*`         |
-| Actor           | main / subagent / workflow / system / tool               |
-| Transport       | HTTP / SSE / WebSocket                                   |
-| Outcome         | completed / error / cancelled                            |
-| Attempt         | initial / retry / recovery / fallback                    |
-| Cache           | hit / write / miss / unknown                             |
-| Thought         | disabled / toggle / effort / budget / adaptive / unknown |
-| Surface         | Desktop / Standalone / Remote / Automation               |
-| Telemetry State | enabled / disabled / exporter down / queue full          |
+| Dimensão        | Valores                                                       |
+| --------------- | ------------------------------------------------------------- |
+| Operation       | `agent.*` / `context.*` / `sidecar.*` / `tool.*`             |
+| Actor           | main / subagent / workflow / system / tool                   |
+| Transport       | HTTP / SSE / WebSocket                                       |
+| Outcome         | completed / error / cancelled                                |
+| Attempt         | initial / retry / recovery / fallback                        |
+| Cache           | hit / write / miss / unknown                                 |
+| Thought         | disabled / toggle / effort / budget / adaptive / unknown     |
+| Surface         | Desktop / Standalone / Remote / Automation                   |
+| Telemetry State | enabled / disabled / exporter down / queue full              |
 
-### 21.3 剪枝原则
+### 21.3 Princípios de podagem
 
-- 不做 Operation × 所有 Provider × 所有 Model 的全笛卡尔积；按 Provider 协议族和 Thought 控制类型选代表。
-- 不做所有 Session/Turn ID 值组合；只验证存在、关联和高基数不进入 Metrics。
-- 不逐 Streaming Chunk 枚举；只覆盖首内容、Stall、自然结束、前置失败和已提交后失败。
-- UI `desktop-continuous` 与 `web-remote-replayable` 不共享真实网络上报语义；CLI 自身模型请求事实独立于 UI replay。
-- Endpoint Path 只覆盖明显敏感模式与普通稳定 Path，不建立复杂租户模板矩阵。
+- Não fazer o produto cartesiano Operation × todos os Providers × todos os Models; escolher
+  representantes por família de protocolo de Provider e por tipo de controle de Thought.
+- Não combinar todos os valores de Session/Turn ID; apenas verificar existência, correlação e que alta
+  cardinalidade não entra em Metrics.
+- Não enumerar cada Streaming Chunk; cobrir apenas primeiro conteúdo, Stall, término natural, falha
+  anterior à saída e falha após commit.
+- `desktop-continuous` e `web-remote-replayable` da UI não compartilham a semântica de reporte de rede
+  real; os fatos de requisição de modelo do próprio CLI são independentes do replay da UI.
+- O Path do Endpoint cobre apenas padrões obviamente sensíveis e Path comum estável, sem construir uma
+  matriz complexa de templates de tenant.
 
-## 22. 验证清单
+## 22. Checklist de verificação
 
-### 22.1 单元测试
+### 22.1 Testes unitários
 
-- Operation Registry 和 Query Source 映射。
-- Endpoint 清洗：userinfo/query/fragment、邮箱、UUID、长数字、Hash、普通 Path 保留。
-- Endpoint Cache 命中、上限和版本。
-- Requested/Effective Thought：OpenAI、OpenAI-compatible、Anthropic Fixed/Adaptive、GLM Toggle、DeepSeek/Kimi、Sidecar Disabled。
-- Error Code、Provider Code、HTTP Status、Message 脱敏和截断。
-- Cache `hit/write/miss/unknown`。
-- Metrics Label Allowlist。
-- Queue 上限、Drop、限频日志、Flush Timeout。
+- Operation Registry e mapeamento de Query Source.
+- Sanitização de Endpoint: userinfo/query/fragment, e-mail, UUID, números longos, Hash, preservação de Path comum.
+- Acerto, limite e versão do cache de Endpoint.
+- Requested/Effective Thought: OpenAI, OpenAI-compatible, Anthropic Fixed/Adaptive, GLM Toggle, DeepSeek/Kimi, Sidecar Disabled.
+- Error Code, Provider Code, status HTTP, desidentificação e truncamento de Message.
+- `hit/write/miss/unknown` de Cache.
+- Allowlist de Metrics Label.
+- Limite de Queue, Drop, log com limitação de frequência e Flush Timeout.
 
-### 22.2 Adapter 测试
+### 22.2 Testes do Adapter
 
-- Generate Success/Error/Cancel/Retry。
-- Stream Success、TTFT、Usage、Stall、Consumer Close。
-- 每个 Physical Attempt 使用新 Request ID。
-- Request Sink 和 Global Telemetry Sink 同时收到事件且不重复。
-- Exporter 失败不影响模型结果。
+- Generate Success/Error/Cancel/Retry.
+- Stream Success, TTFT, Usage, Stall, Consumer Close.
+- Cada Physical Attempt usa um novo Request ID.
+- O Request Sink e o Global Telemetry Sink recebem o evento simultaneamente e sem duplicação.
+- Falha do Exporter não afeta o resultado do modelo.
 
-### 22.3 Operation 测试
+### 22.3 Testes de Operation
 
-- Main/Subagent/Workflow Child 使用同一个 `agent.step`，Actor 不同。
-- Compaction SSE 成功。
-- Compaction 首内容前失败后 HTTP Fallback。
-- Compaction 已提交内容后失败且不 Fallback。
-- Goal Verifier 模型失败与 Fail-open Operation 结果分离。
-- Title/Git Commit 的 Effective Thought Disabled。
-- WebSearch/WebFetch/ReadSessionContext 全部产生 Call/Attempt Facts。
+- Main/Subagent/Workflow Child usam o mesmo `agent.step`, com Atores diferentes.
+- Sucesso de Compaction via SSE.
+- Falha da Compaction antes do primeiro conteúdo com HTTP Fallback.
+- Falha da Compaction depois de conteúdo já submetido e sem fallback.
+- Falha de modelo do Goal Verifier separada do resultado de Operation fail-open.
+- Effective Thought Disabled em Title/Git Commit.
+- WebSearch/WebFetch/ReadSessionContext gerando todos Call/Attempt Facts.
 
-### 22.4 集成测试
+### 22.4 Testes de integração
 
-- Fake OTLP Collector 接收批量 Span。
-- App 注入与 Standalone 初始化只能启用一个 Exporter。
-- Disabled 时不加载 Worker、不发网络。
-- ARMS Down、Timeout、429、Queue Full 时 Agent 正常完成。
-- App RUM `plan_request` 与 OTel 双写数量对账。
-- SQLite Usage 结果不回归。
-- 本地/SSH/WSL/Docker 的配置和身份边界。
-- Windows/macOS/Linux 的 URL、Shutdown、Signal 行为。
-- Desktop Agent 必须在不存在 `apps/zcode-cli/packages/telemetry/dist` 的干净环境中完成
-  `prepare:desktop-runtime`；普通 pnpm 构建和 `bootstrap:with-remote` 直跑 tsc 构建必须共享
-  `scripts/build-desktop-agent-cli.mjs` 中同一份 `cliWorkspaceBuilds` 依赖清单，顺序保持
-  `@zcode/contracts -> @zcode/telemetry -> @zcode/bootstrap`。禁止依赖开发机残留的 dist。
+- Fake OTLP Collector recebendo Spans em batch.
+- Injeção pelo App e inicialização pelo Standalone só podem habilitar um Exporter.
+- Com disabled, nenhum Worker é carregado e nenhuma requisição é enviada.
+- Com ARMS fora do ar, timeout, 429 e fila cheia, o Agent completa normalmente.
+- Reconciliação de contagem do double write entre `plan_request` do RUM do App e o OTel.
+- Resultados de Usage no SQLite sem regressão.
+- Limites de configuração e identidade em local/SSH/WSL/Docker.
+- Comportamento de URL, shutdown e signal em Windows/macOS/Linux.
+- O Agente do Desktop precisa concluir `prepare:desktop-runtime` em um ambiente limpo sem
+  `apps/zcode-cli/packages/telemetry/dist`; o build pnpm comum e o build tsc de
+  `bootstrap:with-remote` precisam compartilhar a mesma lista de dependências de `cliWorkspaceBuilds` em
+  `scripts/build-desktop-agent-cli.mjs`, mantendo a ordem
+  `@zcode/contracts -> @zcode/telemetry -> @zcode/bootstrap`. É proibido depender de dist residual da máquina de desenvolvimento.
 
-### 22.5 性能测试
+### 22.5 Testes de performance
 
-- 10 calls/s 成功路径 CPU/RSS。
-- 高 Retry/Error 风暴。
-- 30 分钟 Exporter Down。
-- 1000 个活跃/悬挂 Handle 清理。
-- CLI disabled/enabled 启动耗时和包体。
-- 真实 OTLP Batch 大小、压缩率和日流量估算。
+- CPU/RSS do caminho de sucesso com 10 calls/s.
+- Tempestade de Retry/Error.
+- 30 minutos de Exporter fora do ar.
+- Limpeza de 1000 handles ativos/pendentes.
+- Tempo de inicialização e tamanho de pacote do CLI com disabled/enabled.
+- Tamanho real de batch OTLP, taxa de compressão e estimativa de volume diário.
 
-### 22.6 Phase 1 本地验证结果
+### 22.6 Resultados da verificação local da Fase 1
 
-2026-07-22 使用 Node.js 24.14.0 验证：
+Validado em 2026-07-22 com Node.js 24.14.0:
 
-- `@zcode/telemetry`：6 files / 21 tests 通过，包含 Call/Attempt 父子 Span、真实本地 Fake OTLP Collector、gzip protobuf、队列、锁、错误脱敏和 Endpoint 清洗。
-- `@zcode/adapters`：55 files / 775 tests 通过，2 skipped；包含 Provider Thought 映射、request/global sink fan-out 与完整 runner 回归。
-- `@zcode/contracts`：22 files / 179 tests 通过；Operation Registry 和 Schema 测试通过。
-- Core 本次相关 Compaction/Streaming：2 files / 104 tests 通过。
-- Bootstrap Workflow/Model Catalog：3 files / 10 tests 通过。
-- Shared/Services/Desktop 配置注入：3 files / 29 tests 通过。
-- 根仓库 `pnpm typecheck` 通过；`pnpm lint` 0 error（52 个既有 warning）。
-- CLI CJS 和 darwin-arm64 SEA 构建/启动 smoke test 通过。
+- `@zcode/telemetry`: 6 arquivos / 21 testes passando, incluindo Span pai-filho de Call/Attempt, Fake
+  OTLP Collector local real, protobuf com gzip, fila, lock, desidentificação de erro e sanitização de Endpoint.
+- `@zcode/adapters`: 55 arquivos / 775 testes passando, 2 ignorados; incluindo mapeamento de Thought por
+  Provider, fan-out de sink request/global e regressão completa do runner.
+- `@zcode/contracts`: 22 arquivos / 179 testes passando; testes de Operation Registry e Schema passando.
+- Compaction/Streaming relevantes do Core: 2 arquivos / 104 testes passando.
+- Workflow/Model Catalog do Bootstrap: 3 arquivos / 10 testes passando.
+- Injeção de configuração de Shared/Services/Desktop: 3 arquivos / 29 testes passando.
+- `pnpm typecheck` da raiz do repositório passando; `pnpm lint` com 0 erro (52 warnings pré-existentes).
+- Smoke test de build/inicialização do CLI CJS e do SEA darwin-arm64 passando.
 
-Core 全量当前仍有 8 个与本功能无关的仓库基线失败，包含硬编码的外部本机路径、既有
-I/O/模块行数边界、Subagent/WebFetch/Workflow 断言以及三个持久化/时序断言；本次相关的定向用例均通过。
+O Core completo ainda tem 8 falhas de baseline do repositório sem relação com este recurso, incluindo
+caminhos externos de máquina local fixados no código, limites existentes de I/O/número de linhas de
+módulo, asserções de Subagent/WebFetch/Workflow e três asserções de persistência/timing; todos os casos
+direcionais relevantes a esta rodada passaram.
 
 ## 23. Accepted Cases
 
 | Case ID       | Setup                                        | Action                              | Assertions                                                                          | Evidence                           |
 | ------------- | -------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------- |
-| MODEL-OBS-001 | Standalone，OTLP enabled                     | Main Agent 完成一次模型调用         | 1 Call + 1 Attempt；Provider/Model/Thought/Token/ID 完整                            | Fake Collector + Memory Sink       |
-| MODEL-OBS-002 | Adapter Retry 一次                           | 首次 429，第二次成功                | Logical completed；Attempt error+success；recovered=true                            | Span + Error Fields                |
-| MODEL-OBS-003 | Compaction SSE 失败                          | 首内容前失败并 HTTP Fallback        | 同 Operation 下两个 Calls；最终 Operation committed                                 | Span + Runtime Event               |
-| MODEL-OBS-004 | Stream 已有内容                              | 中途连接失败                        | `stream_output_committed=true`，不错误重放                                          | Span + Provider Fixture            |
-| MODEL-OBS-005 | Goal Verifier                                | 模型失败且 Fail-open                | Call error；Operation fail_open                                                     | Span + Runtime Result              |
-| MODEL-OBS-006 | Sidecar Title                                | Session Thought=high                | Requested=high，Effective=disabled                                                  | Span + Final Provider Options      |
-| MODEL-OBS-007 | Exporter Down                                | 模型正常返回                        | 业务成功，Queue 有界，Exporter Failure 增长                                         | Result + Health Metrics            |
-| MODEL-OBS-008 | App-launched                                 | Host 注入配置和身份                 | CLI OTel 生效，RUM 仍工作，无双 Exporter                                            | Process Env + Collector + RUM Ring |
-| MODEL-OBS-009 | Standalone 无账号                            | 发起模型调用                        | UID 空、Identity anonymous、Device MID 存在                                         | Span                               |
-| MODEL-OBS-010 | 敏感 Base URL                                | URL 含 userinfo/query/email/hash    | ARMS 仅见清洗 origin/route，无秘密                                                  | Privacy Test                       |
-| MODEL-OBS-011 | WebFetch/ReadSessionContext                  | 工具内部调用模型                    | Operation 路径正确且不漏 Call                                                       | Span + Tool Result                 |
-| MODEL-OBS-012 | Queue Full                                   | 持续产生 Terminal Records           | Agent 不阻塞，Drop Counter 增长，内存有界                                           | Benchmark + Health Metrics         |
-| MODEL-OBS-013 | App 启动且 OTLP enabled，尚无 active session | Host 预热调用 `workspace/readState` | state-only adapter 接受 telemetry sink 注入且不创建模型请求；workspace 状态正常返回 | Protocol Test + Desktop Runtime    |
-| MODEL-OBS-014 | 干净 checkout，无 telemetry dist             | 构建 Desktop Agent runtime          | 两种构建模式均先产出 telemetry，再编译 bootstrap；桌面 bundle 成功生成              | Script Contract + Clean Build      |
+| MODEL-OBS-001 | Standalone, OTLP enabled                     | Main Agent conclui uma chamada de modelo | 1 Call + 1 Attempt; Provider/Model/Thought/Token/ID completos                      | Fake Collector + Memory Sink       |
+| MODEL-OBS-002 | um Retry do Adapter                          | primeiro 429, segundo com sucesso  | Logical completed; Attempt error+success; recovered=true                            | Span + Error Fields                |
+| MODEL-OBS-003 | falha de SSE na Compaction                   | falha antes do primeiro conteúdo e HTTP Fallback | dois Calls na mesma Operation; Operation final committed                | Span + Runtime Event               |
+| MODEL-OBS-004 | Stream já com conteúdo                       | falha de conexão no meio           | `stream_output_committed=true`, sem replay incorreto                                | Span + Provider Fixture            |
+| MODEL-OBS-005 | Goal Verifier                                | falha de modelo com fail-open      | Call error; Operation fail_open                                                     | Span + Runtime Result              |
+| MODEL-OBS-006 | Title de Sidecar                             | Session Thought=high               | Requested=high, Effective=disabled                                                  | Span + Final Provider Options      |
+| MODEL-OBS-007 | Exporter fora do ar                          | o modelo retorna normalmente       | negócio bem-sucedido, Queue limitado, falha de Export crescendo                    | Result + Health Metrics            |
+| MODEL-OBS-008 | iniciado pelo App                            | Host injeta configuração e identidade | OTel do CLI ativo, RUM ainda funcionando, sem Exporter duplicado                   | Process Env + Collector + RUM Ring |
+| MODEL-OBS-009 | Standalone sem conta                         | dispara uma chamada de modelo      | UID vazio, Identity anonymous, Device MID presente                                 | Span                               |
+| MODEL-OBS-010 | Base URL sensível                            | URL com userinfo/query/email/hash   | o ARMS só vê origin/route sanitizados, sem segredos                                | Privacy Test                       |
+| MODEL-OBS-011 | WebFetch/ReadSessionContext                  | ferramenta chama o modelo internamente | caminho de Operation correto e sem Call faltando                                  | Span + Tool Result                 |
+| MODEL-OBS-012 | fila cheia                                   | produção contínua de Terminal Records | Agent não bloqueia, Drop Counter cresce, memória limitada                        | Benchmark + Health Metrics         |
+| MODEL-OBS-013 | App iniciado com OTLP enabled, sem session ativa | Host aquece chamando `workspace/readState` | adapter state-only aceita a injeção do telemetry sink e não cria requisição de modelo; estado do workspace retorna normalmente | Protocol Test + Desktop Runtime |
+| MODEL-OBS-014 | checkout limpo, sem telemetry dist           | constrói o runtime do Agente Desktop | os dois modos de build produzem telemetry antes de compilar o bootstrap; bundle desktop gerado com sucesso | Script Contract + Clean Build |
 
-## 24. 未决项
+## 24. Pendências
 
-| 项目                    | 默认决策                                                      | 实施前动作                                                                    |
-| ----------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `rid` 后端精确定义      | 按 Physical `request_id` 映射                                 | 与 ARMS/数仓字段负责人确认；若实际是 Run/Resource ID，改用明确 Canonical 字段 |
-| 原始 UID 是否进入 ARMS  | 已决：永不进入；只上传 SHA-256 `user_id_hash/uid`             | 若未来要改，必须重新做隐私评审                                                |
-| OTel Metrics Endpoint   | Phase 1 用全量 Terminal Span 在 ARMS 聚合；独立 Metrics 为 P1 | 在目标 ARMS Workspace 验证 OTLP Metrics/Prometheus 接入和权限                 |
-| `plan_request` 兼容期限 | 一个完整灰度/对账周期后停止                                   | 确认旧 Dashboard Owner 和迁移完成标准                                         |
-| OTel SDK 包体预算       | 已测：CJS `+5.82%`，darwin-arm64 SEA `+0.62%`                 | 灰度继续观察启动/RSS，必要时再优化                                            |
+| Item                         | Decisão padrão                                                  | Ação antes da implementação                                                              |
+| ---------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Definição precisa de `rid` no backend | mapeado pelo Physical `request_id`                     | confirmar com os responsáveis pelos campos do ARMS/data warehouse; se for de fato Run/Resource ID, usar um campo canônico explícito |
+| O UID original entra no ARMS  | decidido: nunca; só enviar o SHA-256 `user_id_hash/uid`        | se mudar no futuro, é preciso refazer a revisão de privacidade                        |
+| Endpoint de OTel Metrics     | Fase 1 agrega no ARMS usando Terminal Spans completos; Metrics separados são P1 | validar a integração e as permissões de OTLP Metrics/Prometheus no Workspace ARMS de destino |
+| Prazo de compatibilidade de `plan_request` | parar após um ciclo completo de canário/reconciliação   | confirmar o Owner dos dashboards antigos e o critério de conclusão da migração        |
+| Orçamento de tamanho do pacote do SDK OTel | medido: CJS `+5.82%`, SEA darwin-arm64 `+0.62%` | continuar observando startup/RSS em canário e otimizar se necessário                   |
 
-## 25. 实现入口索引
+## 25. Índice de pontos de entrada da implementação
 
-- Telemetry Contract：`apps/zcode-cli/packages/contracts/src/telemetry/index.ts`
-- Runtime/Recorder：`apps/zcode-cli/packages/telemetry/src/runtime.ts`、`model-api-recorder.ts`
-- OTLP Bootstrap/Exporter：`apps/zcode-cli/packages/telemetry/src/bootstrap.ts`、`lazy-otlp-exporter.ts`、`otlp-exporter.ts`
-- Endpoint 清洗：`apps/zcode-cli/packages/telemetry/src/provider-endpoint.ts`
-- Model Adapter：`apps/zcode-cli/packages/adapters/src/model/runner.ts`
-- Attempt Status：`apps/zcode-cli/packages/adapters/src/model/runner-status.ts`
-- Generate：`apps/zcode-cli/packages/adapters/src/model/runner-generate.ts`
-- Stream：`apps/zcode-cli/packages/adapters/src/model/runner-stream.ts`
-- Failure Classifier：`apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`
-- Thought Catalog：`apps/zcode-cli/packages/contracts/src/model/catalog.ts`
-- Thought Policies：`apps/zcode-cli/packages/adapters/src/model/reasoning-policy.ts`
-- Runtime Thought Mapping：`apps/zcode-cli/packages/adapters/src/model/runtime-thought-level.ts`（Bootstrap 保留兼容 re-export）
-- App/Standalone Bootstrap：`apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
-- Local Usage：`apps/zcode-cli/packages/core/src/runtime/methods/usage-observability.ts`
-- SQLite Usage：`apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts`
-- App ARMS：`packages/desktop/src/main/appARMSBootstrap.ts`
-- RUM Plan Usage：`packages/ui/src/lib/planUsageArmsTelemetry.ts`
-- Host Spawn：`packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`
-- Host OTLP 身份注入：`packages/services/src/zcode-agent/agentTelemetryEnv.ts`
-- Business Telemetry：`packages/services/src/telemetry/telemetryCore.ts`
+- Telemetry Contract: `apps/zcode-cli/packages/contracts/src/telemetry/index.ts`
+- Runtime/Recorder: `apps/zcode-cli/packages/telemetry/src/runtime.ts`、`model-api-recorder.ts`
+- Bootstrap/Exporter OTLP: `apps/zcode-cli/packages/telemetry/src/bootstrap.ts`、`lazy-otlp-exporter.ts`、`otlp-exporter.ts`
+- Sanitização de Endpoint: `apps/zcode-cli/packages/telemetry/src/provider-endpoint.ts`
+- Model Adapter: `apps/zcode-cli/packages/adapters/src/model/runner.ts`
+- Status de Attempt: `apps/zcode-cli/packages/adapters/src/model/runner-status.ts`
+- Generate: `apps/zcode-cli/packages/adapters/src/model/runner-generate.ts`
+- Stream: `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts`
+- Classificador de Falhas: `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`
+- Thought Catalog: `apps/zcode-cli/packages/contracts/src/model/catalog.ts`
+- Políticas de Thought: `apps/zcode-cli/packages/adapters/src/model/reasoning-policy.ts`
+- Mapeamento de Thought do Runtime: `apps/zcode-cli/packages/adapters/src/model/runtime-thought-level.ts`（Bootstrap 保留兼容 re-export）
+- Bootstrap App/Standalone: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
+- Usage local: `apps/zcode-cli/packages/core/src/runtime/methods/usage-observability.ts`
+- Usage no SQLite: `apps/zcode-cli/packages/adapters/src/storage/session-store/repositories/usage.ts`
+- ARMS do App: `packages/desktop/src/main/appARMSBootstrap.ts`
+- RUM Plan Usage: `packages/ui/src/lib/planUsageArmsTelemetry.ts`
+- Spawn do Host: `packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`
+- Injeção de identidade OTLP pelo Host: `packages/services/src/zcode-agent/agentTelemetryEnv.ts`
+- Telemetria de negócio: `packages/services/src/telemetry/telemetryCore.ts`
 
-## 26. 关联文档
+## 26. Documentos relacionados
 
-- [性能埋点事件字典](../../monitoring/performance-telemetry-catalog.md)
-- [性能监控](../../monitoring/performance-monitoring.md)
-- [Plan Usage ARMS 自定义事件](../../monitoring/plan-usage-arms-telemetry.md)
-- [ARMS Electron 监控](../../monitoring/arms-browser-monitoring.md)
-- [V4 对话埋点兼容规范](../../monitoring/conversation-telemetry-v4.md)
+- [Dicionário de eventos de performance](../../monitoring/performance-telemetry-catalog.md)
+- [Monitoramento de performance](../../monitoring/performance-monitoring.md)
+- [Eventos customizados de Plan Usage no ARMS](../../monitoring/plan-usage-arms-telemetry.md)
+- [Monitoramento ARMS no Electron](../../monitoring/arms-browser-monitoring.md)
+- [Especificação de compatibilidade de telemetria de conversa V4](../../monitoring/conversation-telemetry-v4.md)
 - [CLI Usage Observability](../../../apps/zcode-cli/docs/design/v2/usage-observability.md)
-- [模型实现设计](../../../apps/zcode-cli/docs/design/v2/model/README.md)
-- [ARMS OpenTelemetry Node.js 接入](https://help.aliyun.com/zh/opentelemetry/user-guide/use-managed-service-for-opentelemetry-to-submit-the-trace-data-of-a-node-js-application)
-- [ARMS 可观测数据存储](https://help.aliyun.com/zh/opentelemetry/developer-reference/arms-observable-data-storage-overview)
+- [Design de implementação do modelo](../../../apps/zcode-cli/docs/design/v2/model/README.md)
+- [Integração do ARMS OpenTelemetry com Node.js](https://help.aliyun.com/zh/opentelemetry/user-guide/use-managed-service-for-opentelemetry-to-submit-the-trace-data-of-a-node-js-application)
+- [Armazenamento de dados observáveis do ARMS](https://help.aliyun.com/zh/opentelemetry/developer-reference/arms-observable-data-storage-overview)

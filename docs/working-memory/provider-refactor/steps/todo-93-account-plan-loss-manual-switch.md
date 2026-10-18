@@ -1,32 +1,32 @@
-# Todo 93：套餐失效只提示一次，用户点击后切换
+# Todo 93: aviso único de plano indisponível, com troca feita pelo usuário ao clicar
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Transferência da responsabilidade de validação (2026-09-09): toda a dívida de testes restante, falhas e promoções manuais deste documento foram repassadas ao [Todo102](todo-102-verification-debt-closeout.md), e o cronograma de validação independente neste documento foi encerrado; as evidências históricas são preservadas, mas a transferência não significa que os testes passaram.
 
-> 状态：已实现、已 review，单测与 Pro 核心 E2E 已复验通过；全端视觉未实测项见末尾。2026-09-08。
-> 本项替代 Todo88 R06 中“发现当前连接不可用便自动保存替代连接”的产品裁决；旧实现和旧测试通过记录保留为历史。
+> Status: implementado e revisado; testes unitários e o E2E do núcleo Pro foram revalidados com sucesso; os itens de validação visual em todas as plataformas estão no fim do documento. 2026-09-08.
+> Este item substitui a decisão de produto “ao detectar que a conexão atual está indisponível, salvar automaticamente uma conexão substituta” do Todo88 R06; a implementação antiga e o registro de aprovação dos testes antigos são preservados como histórico.
 
-## 1. 问题与最终裁决
+## 1. Problema e decisão final
 
-Air 已有运行证据：2026-09-08 14:06:35.055 保存个人套餐，14:06:35.990 又保存 Team；同日多次重复。当前根层观察器只判断 `current && availability === unavailable`，手动选未开通套餐也触发自动回退。
+Já existem evidências de execução no Air: em 2026-09-08 às 14:06:35.055 o plano pessoal foi salvo e às 14:06:35.990 o Team foi salvo; houve várias repetições no mesmo dia. Hoje o observador na raiz só verifica `current && availability === unavailable`, o que faz com que a escolha manual de um plano não contratado também dispare o fallback automático.
 
-最终规则：同一账号、同一当前连接从 available / pending 变为明确 unavailable 时，提示一次，并提供指向具体替代套餐的按钮。没有点击就不切换，不写设置。用户手动选择未开通的个人套餐可以停留，不被后台抢回。
+Regra final: quando a mesma conta e a mesma conexão atual passam de available / pending para unavailable de forma explícita, um aviso é exibido uma única vez, com um botão apontando para o plano substituto concreto. Sem clique, não há troca nem escrita de configuração. Se a pessoa usuária escolher manualmente um plano pessoal não contratado, pode permanecer nele sem ser devolvida pelo backend.
 
-| 边界                             | 已确认处理                                                                                          |
-| -------------------------------- | --------------------------------------------------------------------------------------------------- |
-| 提示形式                         | 复用现有 Toast，例：“当前体验套餐已不可用。”＋“切换至「具体团队名」”；不是先打开设置或菜单再选      |
-| 重复刷新                         | 同一次失效只提示一次，关闭提示、打开设置、普通 Provider 配置刷新不重新提示                          |
-| 恢复后再次失效                   | 属于新一次状态变化，可以再次提示                                                                    |
-| unknown / 查询失败               | 不当成明确失效，不清除上一份确定状态，不凭旧账号事实判定新账号                                      |
-| 手动切换 / 换账号 / 换 Team 身份 | 新身份建立新基线；不能把旧 Team 的 available 与新个人的 unavailable 相比较                          |
-| 启动                             | 首次确定状态只建立基线；启动即 unavailable 不弹“发生变化”提示，也不自动替换已保存连接               |
-| 首次没有保存选择                 | 保留既有初始化规则；待迁移旧连接不是首次无选择，继续保留原迁移保护                                  |
-| 无可用替代                       | 同次失效只提示状态，不提供虚假的切换按钮，不自动选择购买入口                                        |
-| 持久化                           | 只有用户点击并成功提交才写现有 providerFamilyConnectionSelections；不增加去重字段、迁移或新配置文件 |
-| Start 隐藏                       | 设置页现有 Start 入口过滤不改；本项不新增 invisible，也不改 ProviderConfig.visibility               |
+| Limite                            | Tratamento já confirmado                                                                                         |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Forma do aviso                    | Reutiliza o Toast existente, por exemplo: “当前体验套餐已不可用。” + “切换至「具体团队名」”; não é abrir primeiro as configurações ou um menu e escolher dali |
+| Refresca repetida                 | Uma mesma indisponibilidade gera o aviso apenas uma vez; fechar o aviso, abrir as configurações ou um refresh comum da configuração do Provider não avisa de novo |
+| Nova indisponibilidade após recuperação | É uma nova mudança de estado e pode gerar um novo aviso                                               |
+| unknown / falha de consulta       | Não conta como indisponibilidade explícita, não limpa o último estado determinado e não usa fatos da conta antiga para julgar a conta nova |
+| Troca manual / troca de conta / troca de identidade de Team | A nova identidade estabelece uma nova linha de base; não se pode comparar o available do Team antigo com o unavailable da nova pessoa                                     |
+| Startup                           | O primeiro estado determinado só estabelece a linha de base; um unavailable já no startup não gera o aviso “ocorreu uma mudança” nem substitui automaticamente a conexão salva |
+| Primeira execução sem escolha salva | Mantém-se a regra de inicialização existente; uma conexão antiga aguardando migração não é a primeira execução sem escolha e continua protegida pela migração |
+| Sem alternativa disponível         | Na mesma indisponibilidade, só avisa o estado, sem oferecer botão de troca falso e sem selecionar automaticamente a entrada de compra |
+| Persistência                       | Só grava em providerFamilyConnectionSelections quando a pessoa usuária clica e o envio tem sucesso; sem campo de deduplicação, migração ou novo arquivo de configuração |
+| Start oculto                      | O filtro da entrada Start existente nas configurações não muda; este item não adiciona invisibilidade nem altera ProviderConfig.visibility |
 
-这里保留“设置页手动选择即保存连接”的已有动作，本项不实施上一轮讨论过的“浏览套餐与实际连接拆成两套选择”。通过取消自动回退解决弹回；没有权益依然不能执行。
+Aqui se preserva a ação já existente de “escolher manualmente nas configurações salva a conexão”; este item não implementa a “separação entre navegar planos e conexão efetiva” discutida na rodada anterior. O problema do salto de volta é resolvido cancelando o fallback automático; sem entitlement, a execução continua igualmente bloqueada.
 
-## 2. 状态、观察与提交边界
+## 2. Estado, Observação e Limites de Envio
 
 ```text
 现有账号 / 连接设置 + Provider Settings View 变更
@@ -50,96 +50,96 @@ App 根层观察器（内存；不随设置页开关卸载）
              既有 Provider 刷新
 ```
 
-- 观察身份至少区分账号主体、Family、完整连接选择；Team 包含 productId / organizationId / projectId。不能只用 account Provider ID，两个 Team 共用 Provider ID 不代表同一连接。
-- 提示去重针对“本观察代次的一次失效”，不是整个 View 的 JSON fingerprint，也不单靠 Toast 的短期 dedupeKey。请求开始前记住代次，旧账号 / 旧选择的迟到结果不得生成提示或写入。
-- 对重复 unavailable 不重复处理；unknown 保留上次确定状态。若第一次是 unknown，则等首份确定状态建立基线。available → unknown → unavailable 仍是一次可识别的失效。
-- 观察器生命周期跟随 App 账号观察，不跟随页面。实现时检查 React effect 依赖，不能因普通设置更新/语言变化意外重建基线。登出/账号变化才隔离旧事实；不另建轮询或重试系统。
-- 原连接已恢复、用户已切换账号/连接、或者按钮对应目标已失效时，旧按钮不得提交。重复点击不得产生并发切换。
-- 按钮绑定具体目标及完整身份，展示 Team 的真实名称。候选优先级尽量复用原逻辑，但必须确认可用；团队列表中存在不等于已通过目标 Team 权益校验。不得把按钮的 Team A 换成 Team B，也不得仅凭“有模型”判断有权益。
-- 将旧协调方法的“计算备选”和“写入选择”拆开。异步查询在写入队列外，提交时复用设置服务的条件写入，并检查账号/选择未变化；不建立新 Repo 或持久化锁。
-- 写入失败保留实际原选择，显示操作失败，不宣称已切换；写入成功但后续刷新失败时承认设置已保存，不假装回滚。旧建议失效后关闭/更新提示，不后台重选目标继续提交。
-- 不点击不会修改原选择；现有权益、Registry/Model 准入与 Effective Selection 解析仍生效，不允许借“保留选择”绕过执行检查。
+- A identidade observada precisa distinguir pelo menos o titular da conta, a Family e a seleção completa de conexão; um Team inclui productId / organizationId / projectId. Não se pode usar apenas o account Provider ID, já que dois Teams podem compartilhar o Provider ID sem representar a mesma conexão.
+- A deduplicação do aviso vale para “uma indisponibilidade nesta geração de observação”, e não para o fingerprint JSON de toda a View, nem depende apenas do dedupeKey curto prazo do Toast. A geração é memorizada antes de iniciar a requisição, e resultados atrasados da conta ou seleção antiga não podem gerar aviso nem escrita.
+- Indisponibilidades repetidas não são processadas de novo; unknown preserva o último estado determinado. Se a primeira for unknown, espera-se o primeiro estado determinado para estabelecer a linha de base. available → unknown → unavailable continua sendo uma indisponibilidade identificável.
+- O ciclo de vida do observador acompanha a observação de conta do App, não a página. Na implementação é preciso conferir as dependências dos effects do React, para que uma atualização comum de configurações ou uma mudança de idioma não reconstrua a linha de base por acidente. Somente logout/troca de conta isola fatos antigos; não se cria outro sistema de polling ou retry.
+- Quando a conexão original já foi recuperada, a pessoa usuária já trocou de conta/conexão, ou o alvo do botão também está indisponível, o botão antigo não pode enviar. Cliques repetidos não podem produzir trocas concorrentes.
+- O botão fica vinculado a um alvo concreto e à identidade completa, exibindo o nome real do Team. A prioridade dos candidatos reaproveita ao máximo a lógica existente, mas a disponibilidade precisa ser confirmada; existir na lista de times não equivale a ter passado pela validação de entitlement do Team alvo. Não se pode trocar o Team A do botão por Team B, nem concluir que há entitlement apenas porque “existe um modelo”.
+- Separe “calcular a alternativa” do “gravar a seleção” no método de coordenação antigo. A consulta assíncrona fica fora da fila de escrita; no envio, reaproveita-se a escrita condicional do serviço de configurações, verificando que conta/seleção não mudaram; sem novo Repo e sem trava de persistência.
+- Se a escrita falhar, mantém-se a seleção original real, exibe-se a falha da operação e não se declara a troca; se a escrita tiver sucesso mas o refresh subsequente falhar, reconhece-se que a configuração foi salva e não se finge um rollback. Depois que uma sugestão antiga é invalidada, fecha-se/atualiza-se o aviso, sem escolher outro alvo em segundo plano e continuar enviando.
+- Não clicar não modifica a seleção original; entitlement atual, Registry/Model e a resolução de Effective Selection continuam valendo, e não é permitido contornar as verificações de execução com o argumento de “preservar a seleção”.
 
 ## 3. Impact Brief
 
-模式为 planning；改动层级是 presentation、validation、commit-effect 和 startup recovery，涉及账号连接/设置领域。持久化结构不变。
+O modo é planning; a camada alterada é presentation, validation, commit-effect e startup recovery, envolvendo o domínio de conta/conexão/configurações. A estrutura de persistência não muda.
 
-| 场景 / UI 入口                  | 共享实现与状态 owner                                                      | 来源、校验、提交落点                                                     | 模式及隔离                                   |
-| ------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------- |
-| 运行中当前套餐失效 / 根层 Toast | useRootOAuthEffects → accountConnectionRefreshObserver；内存基线/失效事件 | Account View 确定状态；点击前只读，点击后 settingService.update 条件写入 | Desktop/Web 使用各自注入服务；不新增远端同步 |
-| 设置页手动选个人/Team/Start     | ModelProviderSection → persistProviderFamilyModeForNavItem                | 继续保存用户显式连接；观察器换代建基线                                   | 不因无权益回退；Start 可见性规则不扩展       |
-| 启动恢复已有连接                | refreshRestoredOAuthProviderFamilyAfterStartup                            | 刷新事实、保留已有设置；不再自动保存替代项                               | 与首次无选择初始化及旧数据迁移区分           |
-| 点击提示建议                    | 现有 Toast actionLabel / onAction；复用备选解析                           | 同账号/原选择/目标重新校验，现有设置服务权威写入                         | 不批量改 Session、任务、Bot 或 Markdown      |
+| Cenário / entrada de UI                 | Implementação compartilhada e owner de estado                                                        | Origem, validação e ponto de envio                                                        | Modo e isolamento                                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| Plano atual fica indisponível em runtime / Toast na raiz | useRootOAuthEffects → accountConnectionRefreshObserver; linha de base/indisponibilidade em memória | Estado determinado pelo Account View; somente leitura antes do clique e escrita condicional com settingService.update depois | Desktop/Web usam seus serviços injetados; sem nova sincronização remota |
+| Seleção manual de pessoal/Team/Start nas configurações | ModelProviderSection → persistProviderFamilyModeForNavItem         | Continua salvando a conexão explícita da pessoa usuária; o observador cria a linha de base na troca de geração | Sem fallback por falta de entitlement; a regra de visibilidade do Start não é estendida |
+| Restauração de uma conexão existente no startup | refreshRestoredOAuthProviderFamilyAfterStartup                       | Atualiza o fato e preserva a configuração existente; não salva mais substitutos automaticamente  | Distinta da inicialização de primeira execução sem escolha e da migração de dados antigos |
+| Clique na sugestão do aviso             | actionLabel / onAction do Toast existente; reaproveita a resolução de alternativa | Revalida conta/seleção original/alvo; a escrita autoritativa continua sendo a do serviço de configurações existente | Sem alteração em massa de Session, tarefas, Bot ou Markdown |
 
-| 级别           | 检查对象与语义关系                                                                                                                                    |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| must-inspect   | accountConnectionRefreshObserver.ts 的状态检测；useRootOAuthEffects.ts 的订阅/Toast/生命周期                                                          |
-| must-inspect   | oauthProviderFamilySelectionRefresh.ts 的启动与后续协调共享写入路径，防止只改观察器、启动仍自动切                                                     |
-| must-inspect   | lib/modelProviderFamilyConnectionSelection.ts 的备选计算；Team 的完整身份与实际可用性校验                                                             |
-| should-inspect | ModelProviderSection.tsx 手动连接写入、pending selection 与已保存设置的交接；Toast 的按钮和失败反馈                                                   |
-| invariant-only | Account State/Overlay/Registry 分层、Off-Peak/Ticket、模型请求与历史选择不改；不新增发送前远端同步，不改变 desktop-continuous / web-remote-replayable |
-| evidence-only  | accountConnectionRefreshObserver.test.ts、Root OAuth 恢复相关测试、Toast 测试、旧 SPMC-08 的失效切换场景                                              |
+| Nível            | O que inspecionar e qual relação semântica importa                                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| must-inspect     | a detecção de estado de accountConnectionRefreshObserver.ts; a assinatura/Toast/ciclo de vida de useRootOAuthEffects.ts                     |
+| must-inspect     | o caminho de escrita compartilhado no startup e na coordenação subsequente de oauthProviderFamilySelectionRefresh.ts, evitando mexer só no observador e ainda trocar automaticamente no startup |
+| must-inspect     | o cálculo de alternativas de lib/modelProviderFamilyConnectionSelection.ts; a identidade completa do Team e a validação de disponibilidade efetiva                          |
+| should-inspect   | a escrita de conexão manual, a pending selection e a passagem para a configuração salva em ModelProviderSection.tsx; o botão e o feedback de falha do Toast |
+| invariant-only  | as camadas de Account State/Overlay/Registry, Off-Peak/Ticket, a requisição de modelo e a seleção histórica não mudam; sem nova sincronização remota antes do envio e sem alterar desktop-continuous / web-remote-replayable |
+| evidence-only   | accountConnectionRefreshObserver.test.ts, os testes de recuperação do Root OAuth, os testes de Toast e os cenários de troca por indisponibilidade do SPMC-08 antigo                     |
 
-状态权威仍分三层：持久化 Family Connection Selection 是用户选择；AccountProviderState 是实时事实；Account Config Overlay 是配置投影。观察器只消费事实并提出建议，不成为权益来源。旧备选计算与写入耦合需要拆分，设置页显式选择和失效提示的提交触发刻意不同。
+A autoridade de estado continua dividida em três camadas: a Family Connection Selection persistida é a escolha da pessoa usuária; o AccountProviderState é o fato em tempo real; o Account Config Overlay é a projeção de configuração. O observador apenas consome fatos e propõe sugestões, não se tornando fonte de entitlement. O cálculo de alternativas e a escrita ainda estão acoplados e precisam ser separados, e o gatilho de envio da escolha explícita nas configurações e o do aviso de indisponibilidade são deliberadamente diferentes.
 
-codegraph 当前无可调用工具，以精确 imports/callers 阅读至深度 2 核对上述路径，没有宣称全域扫描。Graph drift：现有 surface.provider-settings 未记录根层套餐协调 seed；本次补充来源/seed 与“待实现”的不变量，不新增一套 Provider 状态实体。所列测试尚未按本项新语义执行。
+O codegraph não tem ferramenta chamável no momento, então os caminhos acima foram conferidos por leitura de imports/callers precisos até a profundidade 2, sem alegar varredura de todo o domínio. Graph drift: a surface.provider-settings existente não registra a semente de coordenação de planos na raiz; esta rodada adiciona a origem/semente e o invariante de “ainda não implementado”, sem criar um novo conjunto de entidades de estado de Provider. Os testes listados ainda não foram executados com a nova semântica deste item.
 
-## 4. 裁决记录与测试计划
+## 4. Registro de Decisões e Plano de Testes
 
-2026-09-08：用户要求取消自动跳转、仅变化时提示一次；明确选定“切换至具体目标”的按钮，不是打开菜单。本轮确认启动首份仅建基线、无持久化去重、Start 过滤不动。没有待产品裁决的阻塞项。
+2026-09-08: a pessoa usuadora pediu para cancelar o salto automático e exibir o aviso uma única vez, apenas quando houver mudança; foi escolhido explicitamente o botão “切换至具体目标”, e não abrir um menu. Esta rodada confirmou que no startup o primeiro estado apenas cria a linha de base, sem deduplicação persistida, e que o filtro de Start não é tocado. Não há bloqueios aguardando decisão de produto.
 
-维度采用状态转移 × 身份代次 × 点击时机 × 写入结果，BigModel/Z.ai 做对称代表用例，不枚举所有品牌/模型。主题与语言只验证既有 Toast 的可读性和目标名称；不重设计 Toast 样式。
+A dimensão usada é transição de estado × geração de identidade × momento do clique × resultado da escrita, com BigModel/Z.ai como caso representativo e simétrico, sem enumerar todas as marcas/modelos. Tema e idioma verificam apenas a legibilidade do Toast existente e o nome do alvo; o estilo do Toast não é redesenhado.
 
-| Case   | 前置 / 操作                                                   | 必须断言                                                    | 证据 / 状态                                  |
-| ------ | ------------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------- |
-| C93-01 | 当前可用套餐变 unavailable，有合法备选                        | 一次提示包含具体目标；点击前设置不变                        | accepted；观察器单测 + Electron/读盘，待执行 |
-| C93-02 | 重复同状态刷新、开关设置页、关闭 Toast                        | 不再提示，不写设置；设置页打开不是基线重置                  | accepted；单测 + Electron，待执行            |
-| C93-03 | unavailable → available → unavailable                         | 第二次真实失效再次提示                                      | accepted；状态序列单测，待执行               |
-| C93-04 | available → unknown → unavailable；初始 unknown → unavailable | 前者只在确定失效时提示，后者首份建基线不提示                | accepted；单测，待执行                       |
-| C93-05 | Team 手动切未开通个人；切另一个 Team；换账号                  | 不跨身份比较；个人页面停留，无自动回写；旧异步结果废弃      | accepted；单测 + Electron/读盘，待执行       |
-| C93-06 | 启动即已保存 unavailable；首次无选择；旧连接待迁移            | 前者不弹不替换；后两者维持各自初始化/迁移边界               | accepted；启动单测 + 冷启动 E2E，待执行      |
-| C93-07 | pending → unavailable；pending → available                    | 前者提示，后者不当失效；待生效不是无权益                    | accepted；单测，待执行                       |
-| C93-08 | 点击具体 Team 按钮并重复点击                                  | 只写按钮所指完整身份一次；成功后 View/实际连接一致          | accepted；服务条件写入 + Electron，待执行    |
-| C93-09 | 提示后手动切走/切回、换账号、原套餐恢复、目标失效             | 旧建议不能覆盖新意图；不自动换另一个建议目标并提交          | accepted；可控异步单测 + 代表 E2E，待执行    |
-| C93-10 | 无备选，或备选查询失败                                        | 不提供伪可用目标，不保存购买入口，不循环提示/后台重试       | accepted；单测，待执行                       |
-| C93-11 | 点击后保存失败；保存成功但刷新失败                            | 正确区分实际设置是否改变，错误可见、不虚假成功/回滚         | accepted；单测 + 操作失败 E2E，待执行        |
-| C93-12 | 中英、深浅、窄屏提示和键盘操作                                | 目标明确、按钮可访问；注入同一设置服务，不改手机/桌面消息流 | accepted；Toast/布局代表用例，待执行         |
+| Case   | Pré-condição / ação                                                              | Asserções obrigatórias                                                       | Evidência / status                                     |
+| ------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------- |
+| C93-01 | O plano disponível atual vira unavailable, com alternativa legítima            | Um aviso contendo o alvo concreto; nada é gravado antes do clique              | accepted; teste unitário do observador + Electron/leitura de disco, pendente |
+| C93-02 | Refresh repetido do mesmo estado, abrir/fechar as configurações, fechar o Toast | Nenhum novo aviso e nenhuma escrita; abrir as configurações não reseta a linha de base | accepted; teste unitário + Electron, pendente |
+| C93-03 | unavailable → available → unavailable                                           | A segunda indisponibilidade real avisa de novo                                | accepted; teste unitário da sequência de estados, pendente |
+| C93-04 | available → unknown → unavailable; unknown inicial → unavailable               | O primeiro só avisa na indisponibilidade determinada; o segundo cria a linha de base sem avisar | accepted; teste unitário, pendente |
+| C93-05 | Troca manual de um Team para um pessoal não contratado; troca para outro Team; troca de conta | Sem comparação entre identidades; permanece na página pessoal, sem reescrita automática; resultados assíncronos antigos descartados | accepted; teste unitário + Electron/leitura de disco, pendente |
+| C93-06 | unavailable já salvo no startup; primeira execução sem escolha; conexão antiga aguardando migração | O primeiro não avisa nem substitui; os dois outros mantêm seus limites de inicialização/migração | accepted; teste unitário de startup + E2E de cold start, pendente |
+| C93-07 | pending → unavailable; pending → available                                    | O primeiro avisa; o segundo não é tratado como indisponibilidade; pendente não é falta de entitlement | accepted; teste unitário, pendente |
+| C93-08 | Clicar no botão de um Team concreto e clicar de novo                          | Grava uma única vez a identidade completa apontada pelo botão; depois View e conexão efetiva coincidem | accepted; escrita condicional do serviço + Electron, pendente |
+| C93-09 | Depois do aviso, trocar manualmente, trocar de volta, trocar de conta, recuperar o plano original, alvo ficar indisponível | Uma sugestão antiga não pode sobrescrever a nova intenção nem trocar de alvo e enviar sozinha | accepted; teste unitário assíncrono controlado + E2E representativo, pendente |
+| C93-10 | Sem alternativa, ou falha na consulta de alternativas                          | Não oferece alvo falsamente disponível, não salva entrada de compra e não gera aviso em ciclo nem retry em segundo plano | accepted; teste unitário, pendente |
+| C93-11 | Falha ao salvar depois do clique; sucesso ao salvar e falha no refresh            | Distingue corretamente se a configuração real mudou, com erro visível e sem falso sucesso nem falso rollback | accepted; teste unitário + E2E de falha de operação, pendente |
+| C93-12 | Chinês/inglês, tema claro/escuro, tela estreita e operação por teclado          | Alvo claro e botão acessível; injeta-se o mesmo serviço de configurações e o fluxo de mensagens de celular/desktop não muda | accepted; casos representativos de Toast/layout, pendente |
 
-剪枝：普通配置 revision、持续 unavailable 不构成新事件；网络 unknown 不构成失效；非 current 套餐不触发本提示；Off-Peak 无 current，不加入自动建议；数据迁移、模型重映射、Start 入口改版与领取“立即体验”不在本项内。
+Podas: revisão comum de configuração e indisponibilidade contínua não constituem evento novo; unknown de rede não constitui indisponibilidade; um plano que não é o current não dispara este aviso; Off-Peak não tem current e não entra em sugestão automática; migração de dados, remapeamento de modelos, reformulação da entrada Start e o resgate de “立即体验” estão fora deste item.
 
-E2E 交接：实施前按 e2e-case-lifecycle 复核既有账号 fixture/人工审阅流程；在隔离数据与可控账号响应下测试，不消费真实账号额度。扩展旧 SPMC-08，撤销其“刷新即自动切换”预期，不删除失效链路覆盖。以事件/调用完成和读盘断言控制时序，不用固定 sleep；Mac Electron 验证点击与真实持久化，窄视口不冒充完整手机远控验收。
+Entrega de E2E: antes da implementação, revisar com o e2e-case-lifecycle os fixtures de conta já existentes e o processo de revisão manual; testar com dados isolados e respostas de conta controláveis, sem consumir cota de conta real. Estender o SPMC-08 antigo, revogando sua expectativa de “troca automática ao refrescar”, sem remover a cobertura da cadeia de indisponibilidade. O timing é controlado por eventos/chamadas concluídas e asserções de leitura de disco, sem sleep fixo; o Mac Electron valida o clique e a persistência reais, e um viewport estreito não substitui a aceitação completa do controle remoto no celular.
 
-## 5. 执行与审阅记录
+## 5. Registro de Execução e Revisão
 
-- [x] 确认 Air 现象与当前代码路径，记录本次产品裁决。
-- [x] 新建本 Todo；回链 Todo88 R06、当前设置 spec、覆盖矩阵和功能图。
-- [x] 先写状态/启动/点击竞态测试，确认旧实现失败。
-- [x] 分离备选查询与提交，修改观察器、启动边界和 Toast 动作；清理被替代的自动写入逻辑。
-- [x] 执行受影响单测、typecheck、lint；隔离 Electron 验证 C93 关键交互与读盘。
-- [x] Review：查全写入调用方、检查旧 Toast 闭包/账号身份/Team 身份竞态；复核无新增迁移、无 Start 可见性变化。
-- [x] 填写测试证据、未覆盖项；提交与本记录同一 commit。
+- [x] Confirmar o fenômeno no Air e os caminhos de código atuais, registrando esta decisão de produto.
+- [x] Criar este Todo; referenciar de volta o Todo88 R06, a spec de configurações atual, a matriz de cobertura e o mapa de funcionalidades.
+- [x] Escrever primeiro os testes de estado/startup/corrida do clique, confirmando que a implementação antiga falha.
+- [x] Separar a consulta de alternativas do envio, modificando o observador, a fronteira de startup e a ação do Toast; limpar a lógica de escrita automática que foi substituída.
+- [x] Executar os testes unitários afetados, typecheck e lint; validar em Electron isolado as interações-chave de C93 e a leitura de disco.
+- [x] Revisão: verificar todos os chamadores de escrita, procurar corridas no closure antigo do Toast/identidade de conta/identidade de Team; conferir que não houve nova migração nem mudança de visibilidade do Start.
+- [x] Preencher as evidências de teste e os itens não cobertos; o commit foi junto deste registro.
 
-### 2026-09-08 实施与 Review
+### 2026-09-08 Implementação e Revisão
 
-- AccountProviderState.connectionKey 是同轮账号主体、Family、完整连接的摘要，不含明文身份/凭据，不进入 Config、不持久化。普通 API/Off-Peak 不增加 current。单测验证摘要稳定、换账号变化、Config 不包含摘要。
-- 独立根层 hook 订阅 View，语言/页面重绘不重建基线。设置/账号意图变化立即废弃旧闭包；unknown 保留确定基线。没有轮询、持久化去重或额外配置文件。
-- 移除 startup/observer 共用自动回退。已有选择启动不重选；首次无选择复用原初始化和待迁移 unknown 保护。主动 OAuth 登录及其条件写入回归保留。
-- 建议按个人、具体 Team、Start 的既有优先级检查；Team 按完整项目验证权益，保存固定目标。用户点击前不写，旧建议/已恢复原套餐/已失效目标不写，重复点击不并发写。
-- 写入失败给同一建议的显式重试；保存成功后的刷新失败不伪装回滚。长 Team 名称沿用 Toast 并允许按钮文案换行。
-- 清理旧 onConnectionReplaced / onlyIfProviderId 参数、自动切换文案与旧自动替换测试预期；启动用例收拢为两 Family × 三种连接，独立登录竞态覆盖保留。
+- AccountProviderState.connectionKey é um resumo do titular da conta, da Family e da conexão completa da mesma rodada, sem identidade/credencial em texto puro, sem entrar no Config e sem ser persistido. API/Off-Peak comuns não acrescentam current. O teste unitário verifica a estabilidade do resumo, a mudança ao trocar de conta e a ausência do resumo no Config.
+- Um hook raiz independente assina o View, e redesenhos de idioma/página não reconstroem a linha de base. Mudanças de intenção de configuração/conta descartam imediatamente o closure antigo; unknown preserva a linha de base determinada. Sem polling, sem deduplicação persistida e sem arquivo de configuração extra.
+- O fallback automático compartilhado entre startup e observador foi removido. Uma escolha existente não é reescolhida no startup; a primeira execução sem escolha reaproveita a inicialização original e a proteção de unknown da migração pendente. O login OAuth ativo e sua escrita condicional permanecem com regressão preservada.
+- As sugestões verificam pela prioridade já existente de pessoal, Team concreto e Start; o Team é validado pelo projeto completo e o alvo salvo é fixo. Nada é gravado antes do clique da pessoa usuária; sugestão antiga/plano original já recuperado/alvo já indisponível não são gravados, e cliques repetidos não geram escritas concorrentes.
+- Uma falha de escrita oferece retentativa explícita para a mesma sugestão; uma falha de refresh após um save bem-sucedido não é disfarçada como rollback. Nomes longos de Team seguem no Toast e permitem quebra de linha no texto do botão.
+- Limpeza do antigo onConnectionReplaced / parâmetro onlyIfProviderId, dos textos de troca automática e das expectativas dos testes antigos de substituição automática; os casos de startup foram agrupados em duas Families × três tipos de conexão, preservando a cobertura da corrida de login independente.
 
-验证：6 个定向文件 57 条通过，Toast 两文件 11 条通过；根 typecheck 通过，lint 0 errors / 40 个既有 warnings。
+Validação: 57 asserções em 6 arquivos direcionados passaram, 11 em dois arquivos de Toast passaram; o typecheck raiz passou e o lint ficou com 0 erros / 40 warnings já existentes.
 
-Pro 隔离目录：/Users/dev/zcode-todo93-e2e.88xgST。SPMC 第二轮 4/4 通过，run desktop-e2e-20260908-100921-925。SPMC-08 实测失效不写、点击保存失败、恢复目录权限后手动重试成功及读盘；日常账号目录未动。
+Diretório Pro isolado: /Users/dev/zcode-todo93-e2e.88xgST. A segunda rodada do SPMC passou 4/4, run desktop-e2e-20260908-100921-925. O SPMC-08 mediu em ambiente real que a indisponibilidade não grava, que o clique com falha de save é tratado, que a retentativa manual após restaurar as permissões do diretório tem sucesso e a leitura de disco; o diretório de conta do dia a dia não foi tocado.
 
-第一轮 desktop-e2e-20260908-100502-105 为 3/4：93 的 SPMC-08 通过，旧 SPMC-02 发布余额后找不到刷新按钮。日志确认后台已取得新余额、按钮正常消失；改为先验证卡片刷新请求，再发布余额并用稳定的全局刷新验证收敛。只调整 fixture 顺序，不改产品、不吞失败；第二轮完整领取/导航/动态模型编辑/选择变化覆盖保留。
+A primeira rodada desktop-e2e-20260908-100502-105 deu 3/4: o SPMC-08 do 93 passou, mas o SPMC-02 antigo não encontrou o botão de refresh depois de publicar o saldo. Os logs confirmam que o backend já havia obtido o novo saldo e que o botão desapareceu normalmente; a mudança foi verificar primeiro a requisição de refresh do cartão e só então publicar o saldo, usando um refresh global estável para verificar a convergência. Apenas a ordem do fixture foi ajustada, sem mudar o produto e sem engolir a falha; a cobertura completa de resgate/navegação/edição dinâmica de modelo/mudança de seleção da segunda rodada foi preservada.
 
-未覆盖：真实账号权益失效、实际手机远控、Windows UI；假账号/billing fixture 不消耗用户额度。C93-12 完整中英深浅/手机视觉仍需人工审阅，不以桌面通过冒充全端通过。
+Não coberto:invalidação de entitlement em conta real, controle remoto real no celular e UI no Windows; fixtures de conta falsa/billing não consomem cota da pessoa usuária. O C93-12 completo em chinês/inglês, tema claro/escuro e visual no celular ainda exige revisão manual, e a aprovação no desktop não é apresentada como aprovação em todas as plataformas.
 
-最终复验（包含 Toast 长名称换行改动）：Pro run desktop-e2e-20260908-101239-586，4/4 通过。执行命令：ZCODE_E2E_MANUAL_REVIEW=1 ZCODE_E2E_SKIP_AGENT_BUILD=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec ./test/e2e/start-plan-manual-claim-experience.test.ts。两次完整通过均保留真实点击与文件断言；不使用旧自动切换结果作为新规则证据。
+Revalidação final (incluindo a mudança de quebra de linha em nomes longos do Toast): run Pro desktop-e2e-20260908-101239-586, 4/4 aprovado. Comando executado: ZCODE_E2E_MANUAL_REVIEW=1 ZCODE_E2E_SKIP_AGENT_BUILD=1 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec ./test/e2e/start-plan-manual-claim-experience.test.ts. As duas aprovações completas preservam cliques e asserções de arquivo reais; resultados antigos de troca automática não são usados como evidência da nova regra.
 
-### 推送前补充审阅（2026-09-08）
+### Revisão complementar antes do push (2026-09-08)
 
-推送钩子的扩大关联测试发现一项遗漏：`rootAccountRefreshLifecycle.test.ts` mock React 后仅手动执行第一个 effect；订阅拆入独立 hook 后，它实际只运行意图失效 effect，因此错误报告没有订阅。首次关联回归为 469 文件通过、1 文件失败（4721 条通过、1 条失败、7 条跳过）。
+O teste de associação ampliado pelo hook de push encontrou uma lacuna: `rootAccountRefreshLifecycle.test.ts`, depois de mockar o React, executa manualmente apenas o primeiro effect; como a assinatura foi movida para um hook separado, ele executava de fato apenas o effect de invalidação de intenção e por isso reportava ausência de assinatura indevidamente. A primeira regressão de associação deu 469 arquivos aprovados e 1 arquivo reprovado (4721 asserções aprovadas, 1 reprovada, 7 puladas).
 
-只调整该测试：改用真实 `renderHook` 挂载完整生命周期，补齐平台/广播依赖和账号意图；确认启动刷新错误已经捕获、订阅仍存在且只建立一次，卸载准确清理。不放宽断言、不修改生产行为、不按 effect 序号重绑测试。定向两文件 7/7 通过；原有 Pro E2E 证据仍对应未变化的产品代码。
+Apenas esse teste foi ajustado: passou a usar o `renderHook` real para montar o ciclo de vida completo, completando as dependências de plataforma/difusão e a intenção de conta; confirmou que o erro de refresh de startup já foi capturado, que a assinatura continua existindo e é estabelecida apenas uma vez, e que a desmontagem limpa corretamente. Sem afrouxar asserções, sem modificar comportamento de produção e sem religar o teste por índice de effect. Os dois arquivos direcionados passaram 7/7; as evidências de E2E Pro existentes continuam correspondendo a um código de produto inalterado.

@@ -1,33 +1,46 @@
-# BigModel Coding Plan 用量配额接入
+# Integração de cota de uso do BigModel Coding Plan
 
-日期：2026-05-14
+Data: 2026-05-14
 
-## 背景
+## Contexto
 
-ZCode 的「Plan usage」需要展示用户当前 GLM Coding Plan 的真实用量，而不是本地 session 的估算值。当前接入方式改为直接使用用户已配置的 Z.AI / BigModel provider API key 查询 BigModel quota 接口，不再依赖 Z.AI OAuth token，也不改动现有登录鉴权流程。
+O「Plan usage」do ZCode precisa exibir o uso real atual do GLM Coding Plan do usuário, e não o
+valor estimado da session local. A integração atual passou a consultar diretamente a interface de
+quota do BigModel usando a API key de provider Z.AI / BigModel já configurada pelo usuário, sem
+depender do token OAuth da Z.AI e sem alterar o fluxo de login e autenticação existente.
 
-## 接口
+## Interface
 
 ```http
 GET <host>/api/monitor/usage/quota/limit
 authorization: <完整 API key>
 ```
 
-注意：
+Atenção:
 
-- 国内 host 可使用 `https://bigmodel.cn` 或 `https://open.bigmodel.cn`。
-- 海外 / Z.AI host 可使用 `https://api.z.ai`。
-- 国内与海外接口路径、请求方式、返回结构一致；同一个 key 两个 host 都能查，主要差异是 `msg` 文案语言可能不同。
-- `authorization` header 直接传完整 API key，格式为 `<id>.<secret>`。
-- 不要加 `Bearer` 前缀；该接口加 `Bearer` 会鉴权失败。
-- ZCode 默认优先读取当前模型供应商配置里的 `builtin:zai` API key，其次读取 `builtin:bigmodel`，再尝试 endpoint 指向 `bigmodel.cn` 或 `api.z.ai` 的自定义供应商。
-- `builtin:zai` 或 endpoint 指向 `api.z.ai` 的供应商默认请求 `https://api.z.ai/api/monitor/usage/quota/limit`；其他 BigModel 供应商默认请求当前环境的 BigModel API 主域名，生产为 `https://bigmodel.cn/api/monitor/usage/quota/limit`，`ZCODE_ENV=test` 为 `https://bigmodel.cn/api/monitor/usage/quota/limit`。
-- 本地调试可通过 `ZCODE_BIGMODEL_USAGE_API_KEY` 或 `BIGMODEL_USAGE_API_KEY` 覆盖。
-- 接口地址可通过 `ZCODE_BIGMODEL_USAGE_QUOTA_URL` 或 `BIGMODEL_USAGE_QUOTA_URL` 覆盖。
+- O host doméstico pode usar `https://bigmodel.cn` ou `https://open.bigmodel.cn`.
+- Hosts 海外 / Z.AI podem usar `https://api.z.ai`.
+- O caminho, o método e a estrutura de retorno das interfaces doméstica e overseas são
+  idênticos; a mesma key funciona nos dois hosts, e a principal diferença é que o texto de `msg`
+  pode estar em idiomas diferentes.
+- O header `authorization` recebe a API key completa diretamente, no formato `<id>.<secret>`.
+- Não adicione o prefixo `Bearer`; com `Bearer` a autenticação dessa interface falha.
+- Por padrão o ZCode lê primeiro a API key `builtin:zai` da configuração de provider de modelo
+  atual, depois `builtin:bigmodel` e, por fim, tenta providers customizados cujo endpoint aponte
+  para `bigmodel.cn` ou `api.z.ai`.
+- Providers `builtin:zai` ou cujo endpoint aponte para `api.z.ai` requisitam por padrão
+  `https://api.z.ai/api/monitor/usage/quota/limit`; os demais providers BigModel requisitam por
+  padrão o domínio principal da API BigModel do ambiente atual, sendo
+  `https://bigmodel.cn/api/monitor/usage/quota/limit` em produção e
+  `https://bigmodel.cn/api/monitor/usage/quota/limit` com `ZCODE_ENV=test`.
+- Em depuração local é possível sobrescrever com `ZCODE_BIGMODEL_USAGE_API_KEY` ou
+  `BIGMODEL_USAGE_API_KEY`.
+- O endereço da interface pode ser sobrescrito com `ZCODE_BIGMODEL_USAGE_QUOTA_URL` ou
+  `BIGMODEL_USAGE_QUOTA_URL`.
 
-## 返回解析
+## Parse da resposta
 
-成功响应示例：
+Exemplo de resposta bem-sucedida:
 
 ```json
 {
@@ -64,148 +77,182 @@ authorization: <完整 API key>
 }
 ```
 
-字段语义：
+Semântica dos campos:
 
-| 字段 | 说明 |
+| Campo | Descrição |
 |---|---|
-| `data.level` | GLM Coding Plan 套餐等级，例如 `lite`、`pro`、`max` |
-| `unit=3` | 小时维度，`number` 表示小时数 |
-| `unit=5` | 月维度，`number` 表示月数 |
-| `unit=6` | 周维度，`number` 表示周数 |
-| `TOKENS_LIMIT + unit=3 + number=5` | 5 小时 prompt 池 |
-| `TOKENS_LIMIT + unit=6 + number=1` | 1 周 prompt 池；部分账号不会返回，前端应隐藏缺失项 |
-| `TIME_LIMIT + unit=5 + number=1` | MCP / 工具类月额度池 |
-| `TIME_LIMIT.remaining` | 工具类剩余额度 |
-| `TIME_LIMIT.percentage` | 工具类额度已用比例 |
-| `TIME_LIMIT.nextResetTime` | 工具类额度下次重置时间，毫秒时间戳 |
-| `TIME_LIMIT.usageDetails` | 工具类额度的分项用量，例如联网搜索、网页读取、开源仓库 MCP |
+| `data.level` | Nível do pacote GLM Coding Plan, por exemplo `lite`, `pro`, `max` |
+| `unit=3` | Dimensão de horas, `number` representa a quantidade de horas |
+| `unit=5` | Dimensão mensal, `number` representa a quantidade de meses |
+| `unit=6` | Dimensão semanal, `number` representa a quantidade de semanas |
+| `TOKENS_LIMIT + unit=3 + number=5` | Pool de prompt de 5 horas |
+| `TOKENS_LIMIT + unit=6 + number=1` | Pool de prompt de 1 semana; algumas contas não retornam este item e o frontend deve ocultar os itens ausentes |
+| `TIME_LIMIT + unit=5 + number=1` | Pool mensal de cota de MCP / ferramentas |
+| `TIME_LIMIT.remaining` | Cota restante de ferramentas |
+| `TIME_LIMIT.percentage` | Proporção da cota de ferramentas já usada |
+| `TIME_LIMIT.nextResetTime` | Próxima data de reset da cota de ferramentas, em milissegundos |
+| `TIME_LIMIT.usageDetails` | Uso detalhado por item da cota de ferramentas, por exemplo busca na web, leitura de páginas e MCP de repositórios open source |
 
-`nextResetTime` 是可选字段。前端不能用它判断额度项是否有效；字段缺失时仅隐藏该项的重置时间。
+`nextResetTime` é um campo opcional. O frontend não pode usá-lo para decidir se um item de cota é
+válido; quando o campo estiver ausente, apenas oculta-se a data de reset daquele item.
 
-## 套餐等级展示
+## Exibição do nível do pacote
 
-前端只把接口返回的 `level` 作为当前真实套餐等级。套餐说明用于帮助用户理解，不作为接口返回值的替代来源：
+O frontend usa exclusivamente o `level` retornado pela interface como o nível real atual do
+pacote. A descrição dos pacotes serve para ajudar o usuário a entender e não substitui a origem do
+valor retornado pela interface:
 
-| 等级 | 每 5 小时 prompt 池 | MCP / 工具类月额度 | 并发优先级 |
+| Nível | Pool de prompt a cada 5 horas | Cota mensal de MCP / ferramentas | Prioridade de concorrência |
 |---|---:|---:|---|
-| Lite | 约 120 次 | 100 次/月 | 低 |
-| Pro | 约 600 次 | 1000 次/月 | 中 |
-| Max | 约 2400 次 | 4000 次/月 | 高 |
+| Lite | cerca de 120 usos | 100 usos/mês | baixa |
+| Pro | cerca de 600 usos | 1000 usos/mês | média |
+| Max | cerca de 2400 usos | 4000 usos/mês | alta |
 
-这些数值可能随平台策略调整，最新说明以 Z.AI / BigModel 官方用量说明为准。
+Esses valores podem ser ajustados conforme a estratégia da plataforma; a descrição mais recente
+deve ser consultada na documentação oficial de uso da Z.AI / BigModel.
 
-## 前端展示
+## Exibição no frontend
 
-Coding Plan 剩余额度在 Model Provider、侧边栏和输入框 context 面板里必须使用同一套展示口径：
+A cota restante do Coding Plan precisa usar o mesmo critério de exibição no Model Provider, na
+barra lateral e no painel de context da caixa de entrada:
 
-- 当前套餐等级：来自 `data.level`
-- 5 小时池：来自 `TOKENS_LIMIT + unit=3 + number=5` 的 `percentage` 和 `nextResetTime`
-- 周池：来自 `TOKENS_LIMIT + unit=6 + number=1` 的 `percentage` 和 `nextResetTime`
-- 工具调用：来自 `TIME_LIMIT + unit=5 + number=1` 的 `remaining / usage` 和 `nextResetTime`
+- Nível atual do pacote: vem de `data.level`
+- Pool de 5 horas: vem do `percentage` e `nextResetTime` de
+  `TOKENS_LIMIT + unit=3 + number=5`
+- Pool semanal: vem do `percentage` e `nextResetTime` de
+  `TOKENS_LIMIT + unit=6 + number=1`
+- Chamadas de ferramentas: vem de `remaining / usage` e `nextResetTime` de
+  `TIME_LIMIT + unit=5 + number=1`
 
-前端只展示接口返回且能按上述 `type + unit + number` 识别的额度项。某项缺失时必须隐藏该项，不得用 `limits` 数组下标兜底展示，也不得固定渲染三张空卡。这样 Model Provider、侧边栏和 context 面板在同一份 quota 数据下显示的条目数量保持一致。
+O frontend exibe apenas os itens de quota retornados pela interface e reconhecíveis pelo
+`type + unit + number` acima. Quando um item está ausente, ele deve ser ocultado; não se pode usar
+o índice do array `limits` como fallback de exibição nem renderizar três cartões vazios fixos.
+Assim o Model Provider, a barra lateral e o painel de context continuam exibindo a mesma
+quantidade de itens para os mesmos dados de quota.
 
-设置页「使用统计」展示：
+A página de configurações「使用统计」exibe:
 
-- 工具剩余额度
-- 套餐等级
-- 下次重置时间
-- 5 小时 prompt 池已用比例
-- MCP / 工具类额度说明
-- `usageDetails` 分项用量
-- 本地 session 使用统计
+- cota restante de ferramentas
+- nível do pacote
+- próxima data de reset
+- proporção usada do pool de prompt de 5 horas
+- descrição da cota de MCP / ferramentas
+- uso detalhado por item de `usageDetails`
+- estatísticas de uso das sessions locais
 
-当 Z.AI 与 BigModel 两个来源都已启用并配置 API key 时，设置页「使用统计」会展示来源切换控件。权益卡、模型用量、工具用量和刷新操作都跟随当前选中的来源读取，避免两边都配置时只隐式展示第一家 provider 的数据。
+Quando as duas origens Z.AI e BigModel estão habilitadas e com API key configurada, a página de
+configurações「使用统计」exibe um controle de troca de origem. Os cartões de benefício, o uso de
+modelos, o uso de ferramentas e a ação de refresh seguem a origem atualmente selecionada, evitando que
+com as duas configuradas apenas os dados do primeiro provider sejam exibidos implicitamente.
 
-Coding Plan 的「用量统计」继续复用 `getCodingPlanUsageSnapshot` / `useCodingPlanUsageStats`
-这条入口和缓存策略，但内部数据源对齐 BigModel 官方个人用量页：
+O「用量统计」do Coding Plan continua reutilizando a entrada e a estratégia de cache de
+`getCodingPlanUsageSnapshot` / `useCodingPlanUsageStats`, mas a fonte de dados interna é alinhada
+à página oficial de uso pessoal do BigModel:
 
-| 页面区域 | 接口 | 说明 |
+| Área da página | Interface | Descrição |
 |---|---|---|
-| 剩余额度卡 | `/api/monitor/usage/quota/limit` | 只用于 5 小时、周、MCP 月额度。`percentage` 表示已使用百分比；ZCode 的 `Usage remaining` 视图必须统一反转成剩余百分比。 |
-| Token 活动 | `/api/monitor/credit-usage/activity` | 返回 365 天活动序列和累计统计。用于「Token 活动」热力图，以及累计 Tokens、峰值 Tokens、累计使用时长、连续天数等概览。 |
-| 用量趋势 / 使用详情 | `/api/monitor/credit-usage/usage-detail` | 按 `usageType=MODEL/MCP` 分别返回模型与工具的积分/Token/调用序列、Cache 命中率、积分总数、日均积分。 |
-| 系统健康度 | `/api/monitor/usage/model-performance-day` | 返回 Max&Pro / Lite 高峰期平均 Decode 速度，用于系统健康度折线图。 |
+| Cartão de cota restante | `/api/monitor/usage/quota/limit` | Usado apenas para as cotas de 5 horas, semanal e mensal de MCP. `percentage` representa a porcentagem usada; a visão `Usage remaining` do ZCode precisa invertê-la de forma unificada para porcentagem restante. |
+| Atividade de tokens | `/api/monitor/credit-usage/activity` | Retorna a série de atividade de 365 dias e as estatísticas acumuladas. Usada no mapa de calor「Token 活动」e nos resumos de tokens acumulados, tokens de pico, tempo de uso acumulado e dias consecutivos. |
+| Tendência de uso / detalhes de uso | `/api/monitor/credit-usage/usage-detail` | Retorna separadamente por `usageType=MODEL/MCP` as séries de créditos/tokens/chamadas de modelos e ferramentas, a taxa de acerto de cache, o total de créditos e a média diária de créditos. |
+| Saúde do sistema | `/api/monitor/usage/model-performance-day` | Retorna a velocidade média de Decode no horário de pico de Max&Pro / Lite, usada no gráfico de linhas de saúde do sistema. |
 
-旧 `/api/monitor/usage/model-usage` 和 `/api/monitor/usage/tool-usage` 不再作为
-Coding Plan 设置页主数据源。它们最多只能作为后端未返回新版 credit 数据时的兼容 fallback，
-不能继续覆盖 Token 活动、Cache 命中率或积分统计。
+As antigas `/api/monitor/usage/model-usage` e `/api/monitor/usage/tool-usage` não são mais a
+principal fonte de dados da página de configurações do Coding Plan. No máximo podem servir como
+fallback de compatibilidade quando o backend não retorna os novos dados de crédito, e não podem
+continuar sobrescrevendo a atividade de tokens, a taxa de acerto de cache ou as estatísticas de
+créditos.
 
-Coding Plan 不跟随设置页顶部 `All / 30d / 7d` 这个 App Usage 分析维度。该维度只用于本地使用统计视图；Coding Plan 使用独立的「使用详情」范围：
+O Coding Plan não segue a dimensão de análise `All / 30d / 7d` do topo da página de configurações.
+Essa dimensão é usada apenas na visão de estatísticas de uso locais; o Coding Plan usa um escopo
+próprio de「使用详情」:
 
-| 使用详情范围 | 请求时间范围 | 服务层返回 `granularity` | 服务层返回 `x_time` |
+| Escopo de 使用详情 | Intervalo de tempo da requisição | `granularity` retornado pelo service | `x_time` retornado pelo service |
 |---|---|---|---|
-| 当日 | 当天 00:00:00 至 23:59:59 | `hour` | `00:00:00` 至 `23:00:00` |
-| 7日 | 最近 7 个自然日 | `day` | 连续 `YYYY-MM-DD` 日期 |
-| 30日 | 最近 30 个自然日 | `day` | 连续 `YYYY-MM-DD` 日期 |
-| 自定义日期 | 用户选中的自然日范围，最长 30 天 | `day` | 连续 `YYYY-MM-DD` 日期 |
+| Dia atual | das 00:00:00 às 23:59:59 do dia | `hour` | de `00:00:00` a `23:00:00` |
+| 7 dias | os últimos 7 dias naturais | `day` | datas `YYYY-MM-DD` consecutivas |
+| 30 dias | os últimos 30 dias naturais | `day` | datas `YYYY-MM-DD` consecutivas |
+| Datas personalizadas | o intervalo de dias naturais escolhido pelo usuário, no máximo 30 dias | `day` | datas `YYYY-MM-DD` consecutivas |
 
-服务层会按返回的 `x_time` 对齐模型和工具 series；monitor 缺少某个时间桶时补 0，前端图表只按 `x_time` 的 index 消费数据，不再自行推断时间轴。
+O service alinha as séries de modelos e ferramentas conforme o `x_time` retornado; quando o monitor
+não devolve um determinado bucket de tempo, ele completa com 0, e os gráficos do frontend consomem
+os dados apenas pelo index de `x_time`, sem deixar de inferir o eixo de tempo por conta própria.
 
-「使用详情」图表必须按 BigModel 官方个人用量页拆成两级 tab：
+O gráfico「使用详情」precisa ser dividido em dois níveis de tab, igual à página oficial de uso
+pessoal do BigModel:
 
-| 一级 tab | 二级 tab | 图表口径 | 数据来源 |
+| Tab de primeiro nível | Tab de segundo nível | Critério do gráfico | Origem dos dados |
 |---|---|---|---|
-| 积分消耗 | 模型 | 模型积分消耗 | `usageType=MODEL` 的 `totalCreditsUsage`，缺失时合并 cached / uncached / output credits |
-| 积分消耗 | 工具 | 工具积分消耗 | `usageType=MCP` 的 `creditsUsage` |
-| 用量消耗 | 模型 | Token 用量 | `usageType=MODEL` 的 `totalTokensUsage`，缺失时合并 cached / uncached / output tokens |
-| 用量消耗 | 工具 | 调用次数 | `usageType=MCP` 的 `mcpCallCount` / `usageCount` |
+| 积分消耗 | 模型 | Consumo de créditos de modelos | `totalCreditsUsage` de `usageType=MODEL`; quando ausente, combina cached / uncached / output credits |
+| 积分消耗 | 工具 | Consumo de créditos de ferramentas | `creditsUsage` de `usageType=MCP` |
+| 用量消耗 | 模型 | Uso de tokens | `totalTokensUsage` de `usageType=MODEL`; quando ausente, combina cached / uncached / output tokens |
+| 用量消耗 | 工具 | Número de chamadas | `mcpCallCount` / `usageCount` de `usageType=MCP` |
 
-「使用详情」图表形态对齐 BigModel 官方个人用量页：
+O formato do gráfico「使用详情」deve acompanhar a página oficial de uso pessoal do BigModel:
 
-- 使用柱状图，不使用折线图。
-- 模型维度的柱子按 cached input / uncached input / output 三段堆叠；模型名称仍作为图例开关，不把“缓存 / 未缓存 / 输出”当成独立模型。
-- 工具维度没有 cached / uncached / output 拆分，按工具系列直接渲染柱状图。
+- usa gráfico de barras, e não de linhas.
+- na dimensão de modelos, as barras são empilhadas em três segmentos: cached input / uncached
+  input / output; o nome do modelo continua sendo um interruptor de legenda, e
+  "cached / uncached / output" não são tratados como modelos independentes.
+- a dimensão de ferramentas não tem divisão cached / uncached / output e renderiza barras
+  diretamente por série de ferramenta.
 
-图表上方展示图例：
+A legenda acima do gráfico exibe:
 
-- 「消耗总量」为当前可见系列的合计，点击后恢复显示全部系列。
-- 每个模型 / 工具分项显示名称和当前口径合计，点击可隐藏或显示该系列。
-- 当只剩一个系列可见时，不能再隐藏最后一个系列。
-- 当范围内无数据时显示空态，不渲染空图。
+-「消耗总量」é a soma das séries visíveis, e clicar nela restaura a exibição de todas as séries.
+- cada item de modelo / ferramenta exibe o nome e a soma da métrica atual, e clicar oculta ou
+  exibe aquela série.
+- quando resta apenas uma série visível, não é possível ocultar a última série.
+- quando não há dados no intervalo, exibe-se um estado vazio, sem renderizar gráfico vazio.
 
-「使用详情」KPI 来自当前二级 tab 对应接口返回的 `summary`，展示：
+Os KPI de「使用详情」vêm do `summary` retornado pela interface correspondente ao tab de segundo
+nível atual e exibem:
 
-- Cache 命中率
-- 积分总数
-- 日均积分
-- 如果接口返回 `trend`，在卡片标题旁展示涨跌百分比。
+- taxa de acerto de cache
+- total de créditos
+- média diária de créditos
+- se a interface retornar `trend`, a variação percentual é exibida ao lado do título do cartão
 
-`credit-usage/activity` 不受 `当日 / 7日 / 30日` 范围影响，固定读取最近 365 个自然日，
-由前端在同一份 52 周网格上切换：
+`credit-usage/activity` não é afetada pelo intervalo `当日 / 7日 / 30日` e sempre lê os últimos 365
+dias naturais, com o frontend alternando sobre a mesma grade de 52 semanas:
 
-| Token 活动 tab | 单元格口径 | Hover 文案 |
+| Tab de Token 活动 | Critério da célula | Texto de hover |
 |---|---|---|
-| 每日 | 当日 Token 与消息/调用轮次 | `{date}\n{tokens} tokens · {turns} 轮消息` |
-| 每周 | 单列 7 天合计，第一行为周日 | `{date} 当周\n{tokens} tokens · {turns} 轮消息` |
-| 累计 | 截至该周的累计值，hover 仍高亮整列 | `截至 {date} 当周累计\n{tokens} tokens · {turns} 轮消息` |
+| Diário | tokens e rodadas de mensagem/chamada do dia | `{date}\n{tokens} tokens · {turns} 轮消息` |
+| Semanal | total de uma coluna de 7 dias, com domingo na primeira linha | `{date} 当周\n{tokens} tokens · {turns} 轮消息` |
+| Acumulado | valor acumulado até a semana, mantendo o destaque da coluna inteira no hover | `截至 {date} 当周累计\n{tokens} tokens · {turns} 轮消息` |
 
-「系统健康度」使用独立范围，不跟随「使用详情」：
+「系统健康度」usa um intervalo próprio e não segue「使用详情」:
 
-| 系统健康度范围 | 请求时间范围 | 页面展示 |
+| Intervalo de 系统健康度 | Intervalo de tempo da requisição | Exibição na página |
 |---|---|---|
-| 近7天 | 最近 7 个自然日 | 默认选中 |
-| 近30天 | 最近 30 个自然日 | 用户手动切换 |
+| Últimos 7 dias | os últimos 7 dias naturais | selecionado por padrão |
+| Últimos 30 dias | os últimos 30 dias naturais | troca manual pelo usuário |
 
-系统健康度折线图展示两条 series：
+O gráfico de linhas de saúde do sistema exibe duas séries:
 
-- `proMaxDecodeSpeed`：Max&Pro 高峰期平均 Decode 速度
-- `liteDecodeSpeed`：Lite 高峰期平均 Decode 速度
-- y 轴单位为 `tokens/s`
-- tooltip 按官方页面展示每条 series 的 `tokens/s` 数值。
+- `proMaxDecodeSpeed`: velocidade média de Decode no horário de pico de Max&Pro
+- `liteDecodeSpeed`: velocidade média de Decode no horário de pico de Lite
+- a unidade do eixo y é `tokens/s`
+- o tooltip exibe, conforme a página oficial, o valor em `tokens/s` de cada série
 
-所有日期边界按调用端传入的 `timeZone` 生成。Desktop 本地、Web、手机远控都通过同一个
-UsageStatsService 依赖注入入口读取，服务层不得使用 host 默认时区替代请求时区。
+Todos os limites de data são gerados conforme o `timeZone` passado pelo chamador. O Desktop local,
+a Web e o controle remoto do celular leem tudo pela mesma entrada de injeção de dependência do
+UsageStatsService, e o service não pode usar o fuso horário padrão do host no lugar do fuso da
+requisição.
 
-## 错误处理
+## Tratamento de erros
 
-- 未配置 Z.AI / BigModel API key：展示“未找到可查询 quota 的 API key”。
-- 接口返回“当前用户不存在 coding plan”：展示“暂无有效 Coding Plan”。
-- 其他错误：展示接口错误信息，允许用户手动刷新。
+- Sem API key da Z.AI / BigModel configurada: exibe "未找到可查询 quota 的 API key".
+- A interface retorna "当前用户不存在 coding plan": exibe "暂无有效 Coding Plan".
+- Outros erros: exibe a mensagem de erro da interface e permite que o usuário faça a atualização
+  manualmente.
 
-## 架构边界
+## Limites de arquitetura
 
-- UI 层只通过 `useUsageEntitlement` hook 获取数据。
-- 服务层通过 `BigModelUsageQuotaProvider` 访问 BigModel quota 接口。
-- API key 来源仍然走现有模型供应商配置服务，不改 Z.AI OAuth 登录、退出、刷新或用户鉴权逻辑。
-- Desktop 本地流程和远程 workspace 流程都通过依赖注入传入同一个 usage stats service，避免 UI 直接访问本地文件或 credential。
+- A camada de UI obtém os dados apenas pelo hook `useUsageEntitlement`.
+- A camada de serviço acessa a interface de quota do BigModel pelo
+  `BigModelUsageQuotaProvider`.
+- A origem da API key continua sendo o serviço existente de configuração de provider de modelo,
+  sem alterar a lógica de login, logout, atualização ou autenticação do usuário via OAuth da Z.AI.
+- O fluxo local do Desktop e o fluxo de workspace remoto passam o mesmo usage stats service por
+  injeção de dependência, evitando que a UI acesse arquivos locais ou credenciais diretamente.

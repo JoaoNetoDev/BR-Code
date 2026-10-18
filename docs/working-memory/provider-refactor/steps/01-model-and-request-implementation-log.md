@@ -1,42 +1,42 @@
-# M1 实施记录
+# Registro de implementação M1
 
-> 状态：完成阶段审计与缺口修复
+> Status: auditoria de conclusão e correção de lacunas concluídas
 >
-> 开始日期：2026-08-11
+> Data de início: 2026-08-11
 >
-> 实施目标：[`01-model-and-request.md`](./01-model-and-request.md)
+> Objetivo da implementação: [`01-model-and-request.md`](./01-model-and-request.md)
 >
-> 目标设计：[`../design/model/model.md`](../design/model/model.md)
+> Design alvo: [`../design/model/model.md`](../design/model/model.md)
 >
-> 后续裁决：Guide/“立即”已经确定为在当前 Loop 内生效，见 [`../design/interaction/interaction.md`](../design/interaction/interaction.md)。正文保留实施当时的未决状态。
+> Decisão posterior: Guide/“立即” já foi definido como valendo dentro do Loop atual, conforme [`../design/interaction/interaction.md`](../design/interaction/interaction.md). O corpo do texto preserva o estado pendente da época da implementação.
 
-本文主要记录实现过程中超出原计划、但为了继续推进而自主作出的决策。开始基线、验证结果和进度清单作为 M1 当时的实施证据保留；后续阶段的 implementation log 不再逐项记录正常提交和常规命令输出。
+Este documento registra principalmente as decisões tomadas de forma autônoma durante a implementação que fugiram do plano original, mas foram necessárias para dar continuidade ao trabalho. A baseline inicial, os resultados de validação e a lista de progresso são preservados como evidência de implementação do M1; os implementation logs das fases seguintes não registram mais item a item os commits normais e as saídas de comando de rotina.
 
-Implementation log 不修改已有设计；发现冲突时，以阶段设计为准，并把冲突交给阶段复核或后续 Design 讨论。
+O implementation log não altera designs já existentes; ao encontrar conflito, vale o design da fase, e o conflito é levado à revisão da fase ou a uma discussão de Design posterior.
 
-## 完成审计后的继续实施
+## Continuação da implementação após a auditoria de conclusão
 
-2026-08-12 按阶段完成条件重新审计后，确认模型调用入口已经收敛，但下面几条语义尚未闭环：
+Em 2026-08-12, após reauditar conforme a condição de conclusão da fase, confirmou-se que o ponto de entrada de chamada de modelo já estava convergido, mas as semânticas abaixo ainda não estavam fechadas:
 
-- Microcompact 和 Reactive Compact 没有完整继承当前 Agent Loop 持有的 Model。
-- 未显式选择模型的 Child Agent 仍可能从可变 Session 默认值重新选模。
-- Context Usage、Compact 持久化和部分 Sidecar Usage 仍可能记录请求前的 ModelRef，而非实际 Model。
-- `workspace/generateText` 创建目标 Model 时仍混入当前 Runtime 的模型属性。
-- Repo Wiki 迁移后需要重新确认错误边界：既要保留可公开的错误分类，又不能把 Provider 回显的源码写入日志或持久化任务。
+- Microcompact e Reactive Compact não herdavam por completo o Model mantido pelo Agent Loop atual.
+- Um Child Agent sem escolha explícita de modelo ainda poderia escolher o modelo novamente a partir do padrão mutável da Session.
+- Context Usage, a persistência de Compact e parte do Sidecar Usage ainda poderiam registrar o ModelRef anterior à requisição, e não o Model real.
+- `workspace/generateText` ainda misturava atributos do modelo do Runtime atual ao criar o Model alvo.
+- Após a migração do Repo Wiki, era preciso reconfirmar a fronteira de erro: preservar a classificação de erro publicável sem escrever em log ou persistir na task o código-fonte ecoado pelo Provider.
 
-这些问题都由 `01-model-and-request.md` 已有实施约束直接裁决，本轮继续实现，不新增阶段设计。
+Todos esses problemas são decididos diretamente pelas restrições de implementação já existentes em `01-model-and-request.md`, e esta rodada continua a implementação sem adicionar design de fase.
 
-Guide/“立即”是否在当前 Loop 内替换 Model 仍是阶段文档明确保留的待裁决项。当前实现固定 Loop Model，已经与旧的逐 Step 读取行为不同；本轮不会借修复其他生命周期问题擅自选择 Guide 语义，只保留现状并将差异继续记录在这里。
+Se o Guide/“立即” substitui o Model dentro do Loop atual ainda é o item pendente que o documento da fase preserva explicitamente. A implementação atual fixa o Loop Model e já difere do comportamento antigo de leitura a cada Step; esta rodada não vai escolher a semântica de Guide sob pretexto de corrigir outros problemas de ciclo de vida, apenas mantém o estado atual e continua registrando a diferença aqui.
 
-请求前 Property 校验已经按阶段设计实施。校验失败时采用错误、降级还是仅记录可观测事件仍未统一裁决；本轮只补充继承与归因，不扩展这一策略。
+A validação de Property antes da requisição já foi implementada conforme o design da fase. O que fazer em caso de falha — erro, degradação ou apenas registro de um evento de observabilidade — ainda não tem uma decisão unificada; esta rodada só complementa herança e atribuição, sem estender essa estratégia.
 
-## 开始基线
+## Baseline inicial
 
-实施前已将 `origin/staging` 的 `38d37ca50a` 合并到 `provider-refactor`，合并提交为 `07e4ba350f`。合并没有产生冲突。
+Antes da implementação, o `38d37ca50a` de `origin/staging` já havia sido mergeado em `provider-refactor`, com o commit de merge `07e4ba350f`. O merge não gerou conflitos.
 
-实施完成审计时，`origin/staging` 已继续前进到 `d8cf5a49a7`。当前分支再次完成合并，工作区改动通过 Git autostash 原样恢复；新增的 Core token estimate 修复与 M1 的 Model 调用边界没有设计冲突。
+Na auditoria de conclusão da implementação, `origin/staging` já havia avançado para `d8cf5a49a7`. O branch atual fez o merge novamente e as alterações do workspace de trabalho foram restauradas como estavam pelo Git autostash; as novas correções de estimativa de token do Core não têm conflito de design com a fronteira de chamada de modelo do M1.
 
-最新 staging 删除了部分请求形状与工具准入辅助逻辑，并简化了若干模型调用测试。主链仍然保留以下事实：
+O staging mais recente removeu parte da lógica auxiliar de formato de requisição e de admissão de tools e simplificarou alguns testes de chamada de modelo. O caminho principal ainda preserva os seguintes fatos:
 
 ```text
 业务调用方
@@ -46,141 +46,141 @@ Guide/“立即”是否在当前 Loop 内替换 Model 仍是阶段文档明确�
     -> Provider SDK
 ```
 
-因此 M1 的目标不需要调整。实现需要避免把刚删除的旧辅助抽象重新引入，并直接以最终 `Model` / `ModelRequest` 契约建立新边界。
+Portanto, o objetivo do M1 não precisa de ajuste. A implementação precisa evitar reintroduzir as abstrações auxiliares recém-removidas e estabelecer a nova fronteira diretamente sobre o contrato final de `Model` / `ModelRequest`.
 
-## 实施中的自主决策
+## Decisões autônomas durante a implementação
 
-### 1. 现有 Adapter 作为第一版 Model 的执行内核
+### 1. O Adapter existente como núcleo de execução do Model da primeira versão
 
-M1 不重写 Provider SDK、流恢复、Header 刷新和错误归一。第一版 Model 在 Adapter 包内封装现有 `AiSdkModelAdapter`，业务调用方只接触新的 Model 接口。旧 `ModelTextRequest` 暂时成为 Adapter 内部兼容输入，并随 M1 调用方迁移逐步退出业务边界。
+O M1 não reescreve o SDK do Provider, a retomada de stream, a atualização de Headers nem a normalização de erros. O Model da primeira versão encapsula o `AiSdkModelAdapter` existente dentro do pacote de Adapter, e os chamadores de negócio tocam apenas a nova interface de Model. O antigo `ModelTextRequest` se torna temporariamente uma entrada de compatibilidade interna do Adapter e sai da fronteira de negócio à medida que os chamadores do M1 migram.
 
-### 2. Model 创建时固定普通 Registry 解析结果
+### 2. O Model fixa na criação o resultado da resolução do Registry comum
 
-普通 Model 在创建时解析一次 Provider、model、capability 和连接信息。Agent Loop 持有该 Model 后，后续 Step 不再从可变 Registry 重新决定模型身份或普通 API Key。配置变化只影响以后创建的 Model。
+O Model comum resolve Provider, model, capability e informação de conexão uma vez na criação. Depois que o Agent Loop mantém esse Model, os Steps seguintes não decidem mais a identidade do modelo nem a API Key comum a partir do Registry mutável. Mudanças de configuração afetam apenas Models criados depois.
 
-Start Plan 等现有动态 Header 链路仍允许 Adapter 在明确执行 Header 刷新后更新请求级认证材料。该例外不得改变 Model 的 `providerId`、`modelId`、Properties 和 Options。
+Cadeias de Header dinâmico já existentes, como a do Start Plan, ainda permitem que o Adapter atualize o material de autenticação de nível de requisição após uma atualização explícita de Header na execução. Essa exceção não pode mudar `providerId`, `modelId`, Properties nem Options do Model.
 
-### 3. 传输控制留在 Model 实现内部
+### 3. O controle de transporte fica dentro da implementação de Model
 
-`statusSink`、Trace、流恢复、idle timeout、Provider stream boundary 和运行时 Header 刷新不进入公开 `ModelRequest`。第一版实现通过创建 Model 时注入的内部执行上下文承接这些能力。业务调用方不能逐请求自由拼装传输参数。
+`statusSink`, Trace, retomada de stream, idle timeout, fronteira de stream do Provider e atualização de Header em runtime não entram na `ModelRequest` pública. A implementação da primeira versão acolhe essas capacidades por meio do contexto de execução interno injetado na criação do Model. O chamador de negócio não pode montar livremente parâmetros de transporte por requisição.
 
-### 4. ModelResult 与 ModelEvent 先收敛语义，再清理旧名字
+### 4. ModelResult e ModelEvent primeiro convergem a semântica, depois os nomes antigos são limpos
 
-M1.1 以当前已经归一化的 `ModelTextResult` 和 `ModelStreamEvent` 字段为迁移基础，定义最终公开名字并移除业务侧不应控制的输入。Provider SDK 原始类型仍由 Adapter 隔离。完成调用方迁移后，再删除只为旧 `ModelPort` 服务的别名和请求类型。
+O M1.1 usa como base de migração os campos já normalizados de `ModelTextResult` e `ModelStreamEvent`, define os nomes públicos finais e remove as entradas que o lado de negócio não deve controlar. Os tipos brutos do SDK do Provider continuam isolados pelo Adapter. Depois que a migração dos chamadores terminar, são removidos os aliases e tipos de requisição que existiam apenas para o antigo `ModelPort`.
 
-### 5. Properties 从现有能力与连接判断形成
+### 5. Properties são formadas a partir das capacidades e dos 판단 de conexão existentes
 
-`contextWindow`、图片、PDF、Tool Call 和 Structured Output 先复用现有 `ModelCapability` 事实；Native Web Search 与 Mid-conversation System 在 Model 创建时复用当前判断逻辑计算。Core 后续只读取 Model Properties，不再读取 Provider kind、URL 或 model name 推断能力。
+`contextWindow`, imagem, PDF, Tool Call e Structured Output reutilizam primeiro os fatos existentes de `ModelCapability`; Native Web Search e Mid-conversation System são calculados com a lógica de 판단 atual, no momento da criação do Model. O Core passa a ler apenas as Model Properties e não deduce mais capacidade lendo Provider kind, URL ou nome de modelo.
 
-### 6. Repo Wiki 走统一 Model，不保留独立 Provider 客户端
+### 6. O Repo Wiki usa o Model unificado e não mantém cliente de Provider próprio
 
-Repo Wiki 的接入方式要根据当前 Services 与 Core 的实际依赖方向选择。无论最终通过现有 workspace 协议取得 Model 能力，还是复用更低层的 Model 实现，它在 M1 结束时都必须使用同一 `ModelRequest` 语义，不再自行解析 API Key、Endpoint 和协议请求。
+O modo de integração do Repo Wiki precisa ser escolhido conforme a direção real de dependência entre Services e Core. Seja finalmente pela obtenção das capacidades de Model pelo protocolo de workspace já existente, seja pela reutilização de uma implementação de Model de nível mais baixo, no fim do M1 ele precisa usar a mesma semântica de `ModelRequest` e não pode mais resolver por conta própria API Key, Endpoint e requisição de protocolo.
 
-实际实现沿用了已有进程边界：Services 通过 `workspace/generateText` 请求 CLI，CLI 内部创建 Model 并执行。Repo Wiki 原先自行处理 API Key、Endpoint、OpenAI/Anthropic 请求、Tool loop 和 Usage 的客户端已经删除。为保持取消语义，workspace 请求增加 operation id；Host 的 AbortSignal 会同时结束本地等待并通知 CLI 中止对应模型任务。
+A implementação efetiva aproveitou a fronteira de processo existente: os Services pedem à CLI via `workspace/generateText`, e a CLI cria o Model e executa por dentro. O cliente do Repo Wiki que antes tratava API Key, Endpoint, requisições OpenAI/Anthropic, o Tool loop e o Usage por conta própria foi removido. Para preservar a semântica de cancelamento, a requisição de workspace ganhou um operation id; o AbortSignal do Host encerra ao mesmo tempo a espera local e avisa a CLI a abortar a task de modelo correspondente.
 
-### 7. 内部调用上下文使用 AsyncLocalStorage
+### 7. O contexto interno de chamada usa AsyncLocalStorage
 
-Trace、status sink、stream recovery、Header 刷新等传输控制没有进入公开 `ModelRequest`。Core 在模型调用边界写入 invocation context，Adapter 在同一异步链读取。流式调用额外包裹 AsyncIterator 的 `next`、`return` 和 `throw`，避免只在创建 iterator 时建立上下文、实际消费时丢失。
+Trace, status sink, recuperação de stream e atualização de Header não entraram na `ModelRequest` pública. O Core grava o invocation context na fronteira de chamada de modelo e o Adapter o lê na mesma cadeia assíncrona. Chamadas com streaming envolvem adicionalmente o `next`, o `return` e o `throw` do AsyncIterator, evitando que o contexto exista apenas na criação do iterador e se perca no consumo real.
 
-### 8. 辅助任务的“关闭推理”先作为 Model 构造意图
+### 8. O “desligar reasoning” de tarefas auxiliares começa como intenção de construção do Model
 
-Title、Git Commit Message 和 Memory Selector 过去在业务代码中直接改写 Anthropic、OpenAI 和 OpenAI-compatible 参数。M1 将调用方收敛为 `reasoningMode: "disabled"` 的兼容工厂输入。正式 Bootstrap 工厂把该意图交给 Adapter 转换；旧的 Provider 方言逻辑只在唯一兼容 Model Factory 中保留，供直接构造 Core 的旧测试和迁移调用使用。
+Title, Git Commit Message e Memory Selector antes reescreviam diretamente parâmetros de Anthropic, OpenAI e OpenAI-compatible no código de negócio. O M1 converteu os chamadores para uma entrada de fábrica compatível com `reasoningMode: "disabled"`. A fábrica oficial do Bootstrap entrega essa intenção ao Adapter para conversão; a lógica antiga de dialeto do Provider permanece apenas na única Model Factory de compatibilidade, para uso dos testes antigos que constroem o Core diretamente e das chamadas em migração.
 
-这没有新增公开 Reasoning level，也没有改变现有用户可选档位。完整 Reasoning 配置模型仍按既有专项调研留给后续 Provider/Registry 阶段。
+Isso não adiciona nenhum nível público de Reasoning e não altera as faixas escolhíveis pelo usuário. O modelo completo de configuração de Reasoning continua reservado, conforme a pesquisa especializada existente, para a fase futura de Provider/Registry.
 
-### 9. Properties 在 Model 创建时形成
+### 9. Properties são formados na criação do Model
 
-Native Web Search 与 Mid-conversation System 的旧 Provider kind、URL 和 model name 判断已移到 Model 创建路径。主 Agent、Compact、Project Memory 和模型型工具读取 Model Properties。工具目录的非执行预览仍可在没有 Model 时使用旧连接判断；该路径不发起模型请求，等 M2 的 Registry/Descriptor 成为正式查看来源后再删除。
+Os julgamento antigos por Provider kind, URL e nome de modelo de Native Web Search e Mid-conversation System foram movidos para o caminho de criação do Model. O Agent principal, o Compact, a Project Memory e as tools baseadas em modelo leem as Model Properties. A pré-visualização não-executiva do catálogo de tools ainda pode usar o julgamento de conexão antigo sem Model; esse caminho não dispara requisição de modelo e será removido depois que o Registry/Descriptor do M2 virar a fonte oficial de consulta.
 
-### 10. 旧 ModelPort 只剩唯一兼容入口
+### 10. O antigo ModelPort tem apenas uma entrada de compatibilidade
 
-生产调用方均使用 `Model.generateText()` 或 `Model.streamText()`。Core 中对旧 `modelAdapter.generateText/streamText` 的直接调用只存在于 `runtime-model.ts` 的兼容工厂，用于尚未通过 Bootstrap 装配、直接构造 `AgentRuntime` 的测试和旧嵌入调用。第二阶段替换 Model 来源时，可以整体删除这一个入口。
+Todos os chamadores de produção usam `Model.generateText()` ou `Model.streamText()`. As chamadas diretas ao antigo `modelAdapter.generateText/streamText` no Core existem apenas na fábrica de compatibilidade de `runtime-model.ts`, para os testes que constroem `AgentRuntime` diretamente sem passar pelo Bootstrap e para chamadas antigas embarcadas. Na segunda fase, ao substituir a origem do Model, essa entrada pode ser removida por inteiro.
 
-### 11. Agent Loop、Compact 与 Child Agent 共用不可变 Model
+### 11. Agent Loop, Compact e Child Agent compartilham um Model imutável
 
-普通 Agent Loop 在开始时创建 Model，后续 Step、自动 Compact、Microcompact、Reactive Compact 和未显式选模的 Child Agent 都沿用该对象。Child Agent 显式选择模型时创建自己的 Model。Session 默认模型、Config 或 Registry 在 Loop 运行期间变化，不会改写已经被引用的普通 Model；Start Plan 等动态 Header Provider 仍按既有请求前刷新链路更新认证材料，但不得更换 Model 身份。
+O Agent Loop comum cria o Model no início, e os Steps seguintes, o Compact automático, o Microcompact, o Reactive Compact e o Child Agent sem escolha explícita de modelo seguem usando esse objeto. Um Child Agent que escolhe modelo explicitamente cria seu próprio Model. Mudanças no modelo padrão da Session, no Config ou no Registry durante a execução do Loop não reescrevem o Model comum já referenciado; Providers com Header dinâmico, como o Start Plan, continuam atualizando o material de autenticação pela cadeia existente de atualização antes da requisição, mas não podem trocar a identidade do Model.
 
-### 12. 运行历史与 Usage 以实际 Model 归因
+### 12. O histórico de execução e o Usage são atribuídos ao Model real
 
-Assistant 消息、Compact 记录、Tool 持久化诊断、Context Usage、Usage Fact 和 Trace 不再在请求完成后读取可变 `defaultModelRef`。这些路径都接收实际发起请求的 Model 或由它形成的 ModelRef。Title 等关闭推理的独立任务会形成 `reasoningLevel: "disabled"` 的 Model，Usage 因而记录真实执行选项，而不是 Session 的旧推理档位。
+Mensagens de assistant, registros de Compact, diagnósticos de persistência de tool, Context Usage, Usage Fact e Trace deixam de ler o `defaultModelRef` mutável depois que a requisição termina. Esses caminhos recebem o Model que realmente fez a requisição, ou o ModelRef formado a partir dele. Tarefas independentes com reasoning desligado, como Title, formam um Model com `reasoningLevel: "disabled"`, e o Usage registra as opções realmente executadas em vez da faixa antiga de reasoning da Session.
 
-### 13. 输出预算由调用方选择、Model 严格校验
+### 13. O orçamento de saída é escolhido pelo chamador e validado estritamente pelo Model
 
-复核发现，最初实现把 Provider fixed thinking 的最小预算投影为 `maxOutputTokens.min`，并提供公共 clamp 帮助调用方静默调整请求。这让 Provider 方言泄漏进了通用 Model 契约，也让 `workspace/generateText` 等通用入口改变调用方输入。
+A revisão mostrou que a implementação inicial projetava o orçamento mínimo do fixed thinking do Provider como `maxOutputTokens.min` e oferecia um clamp público para o chamador ajustar a requisição silenciosamente. Isso fazia o dialeto do Provider vazar para o contrato comum de Model e fazia entradas genéricas como `workspace/generateText` alterarem a entrada do chamador.
 
-纠正后的公共 Option 只声明默认值和最大值。`maxOutputTokens` 表示 reasoning 与最终回答共享的总生成硬上限；Model 只接受不超过上限的正整数。Compact、Memory、WebFetch、WebSearch 和 ReadSessionContext 的固定预算属于各自任务策略，由调用方显式选择任务预算与模型上限中的较小值。`workspace/generateText` 不再静默调整输入，越界时由 Model 返回错误。
+Depois da correção, a Option pública declara apenas o valor padrão e o máximo. `maxOutputTokens` representa o limite rígido total de geração, compartilhado entre reasoning e resposta final; o Model só aceita inteiros positivos que não ultrapassem o teto. Os orçamentos fixos de Compact, Memory, WebFetch, WebSearch e ReadSessionContext pertencem à política de cada tarefa, e o chamador escolhe explicitamente o menor entre o orçamento da tarefa e o teto do modelo. `workspace/generateText` não ajusta mais a entrada silenciosamente, e o Model devolve um erro quando o valor estoura.
 
-现有 Adapter reasoning 映射和 wire request 保持不变。fixed thinking 继续在 Adapter 内把档位预算限制到 `maxOutputTokens - 1`，不会把关联约束暴露为公共 Option Spec。原生 effort/adaptive 迁移和 fixed-budget 的 `3/4` 分配策略留给后续 Adapter 专题。
+O mapeamento de reasoning existente do Adapter e a wire request permanecem inalterados. O fixed thinking continua, dentro do Adapter, limitando o orçamento da faixa a `maxOutputTokens - 1`, sem expor a restrição correlata como Option Spec pública. A migração de effort/adaptive nativo e a estratégia de distribuição `3/4` do fixed-budget ficam para um tópico futuro de Adapter.
 
-### 14. Repo Wiki 保留安全错误边界
+### 14. O Repo Wiki preserva a fronteira de erro segura
 
-Repo Wiki 已通过 `workspace/generateText` 使用 CLI 内的 Model。Provider 返回的原始异常可能含有请求正文，Repo Wiki 又会把失败原因持久化到 task，因此 Services 边界只保留可安全公开的 HTTP 状态，其余错误正文归一化为通用失败信息。Abort 与 Repo Wiki 自身的 Deadline 错误继续保留原有控制语义。
+O Repo Wiki já usa o Model da CLI via `workspace/generateText`. A exceção original retornada pelo Provider pode conter o corpo da requisição, e o Repo Wiki persiste o motivo da falha na task; por isso, a fronteira de Services só mantém o status HTTP seguro para publicação, e os demais corpos de erro são normalizados em uma mensagem de falha genérica. Abort e o próprio Deadline do Repo Wiki continuam preservando a semântica de controle original.
 
-### 15. 兼容旧的最小 Model Adapter 注入
+### 15. Compatibilidade com a injeção do Model Adapter mínimo antigo
 
-正式生产 Adapter 提供 `createModel()` 与 `resolveConnection()`，Bootstrap 使用正式 Model Factory。部分单元测试和旧嵌入调用只注入最小 `generateText/streamText` Adapter；Bootstrap 对这类对象不安装正式工厂，让它们统一落到 Core 的唯一兼容工厂。该分支不新增第二套生产调用链。
+O Adapter oficial de produção oferece `createModel()` e `resolveConnection()`, e o Bootstrap usa a Model Factory oficial. Alguns testes unitários e chamadas antigas embarcadas injetam apenas um Adapter mínimo de `generateText/streamText`; o Bootstrap não instala a fábrica oficial para esse tipo de objeto, deixando tudo cair na única fábrica de compatibilidade do Core. Esse ramo não adiciona um segundo conjunto de cadeia de chamada de produção.
 
-### 16. Repo Wiki 的截断恢复属于业务策略
+### 16. A recuperação de truncamento do Repo Wiki é política de negócio
 
-Repo Wiki 迁入 `workspace/generateText` 后，统一 Model 已经能够产生结构化的 `finishReason` 和 Usage，但第一版 workspace 协议只返回文本与模型身份。旧 Wiki 客户端删除时，依赖 `finish_reason=max_tokens` 的截断升级重试也随之丢失：目录可能因半截 JSON 失败，页面则可能把半截 Markdown 当作成功结果保存。
+Depois que o Repo Wiki migrou para `workspace/generateText`, o Model unificado já produz `finishReason` estruturado e Usage, mas a primeira versão do protocolo de workspace devolvia apenas texto e identidade do modelo. Quando o cliente antigo de Wiki foi removido, a retry de escalonamento que dependia de `finish_reason=max_tokens` se perdeu junto: o catálogo podia falhar por JSON truncado, e a página podia salvar Markdown truncado como resultado de sucesso.
 
-修复后的 workspace 结果透传 `finishReason` 与 Usage。Repo Wiki 在自己的调用边界把 `length`、`max_tokens` 和 `max_output_tokens` 归一为截断错误，并由现有 Catalog/Page 重试策略提高一次请求预算：Catalog 从 16384 提高到 32768，Page 从 8192 提高到 16384。升级最多发生一次，不计入用户配置的普通重试次数，最终请求仍由 Model 按模型的 `maxOutputTokens` 上限校验。
+Depois da correção, o resultado de workspace repassa `finishReason` e Usage. O Repo Wiki normaliza `length`, `max_tokens` e `max_output_tokens` em erro de truncamento na sua própria fronteira de chamada, e a política de retry existente de Catalog/Page aumenta o orçamento da requisição em um degrau: Catalog vai de 16384 para 32768, e Page de 8192 para 16384. O escalonamento acontece no máximo uma vez e não conta dentro dos retries normais configurados pelo usuário, e a requisição final continua sendo validada pelo Model conforme o teto `maxOutputTokens` do modelo.
 
-这项策略继续属于 Repo Wiki。Model 只返回真实调用结果并校验请求，不感知 Wiki 的预算升级，也不恢复 Wiki 旧有的 Provider、Endpoint 或协议客户端。
+Essa política continua pertencendo ao Repo Wiki. O Model só devolve o resultado real da chamada e valida a requisição, sem perceber o escalonamento de orçamento do Wiki e sem restaurar o cliente antigo de Provider, Endpoint ou protocolo do Wiki.
 
-`finishReason` 在 workspace wire schema 中保持可选，使其他不依赖结束原因的调用仍能读取旧 app-server 响应。Repo Wiki 无法安全兼容缺少该字段的结果：半截 Markdown 在结构上仍然合法，Services 无法从正文恢复完整性事实。因此 Wiki 遇到旧响应时明确失败并提示更新或重启 ZCode，不进行工具降级或普通重试，也不保存本次 Catalog/Page。
+`finishReason` permanece opcional no schema de wire do workspace, para que outras chamadas que não dependem do fim da execução continuem conseguindo ler respostas antigas do app-server. O Repo Wiki não consegue compatibilizar com segurança resultados sem esse campo: Markdown truncado continua estruturalmente válido, e os Services não conseguem recuperar o fato de completude a partir do corpo. Por isso, ao encontrar uma resposta antiga, o Wiki falha explicitamente pedindo a atualização ou reinício do ZCode, sem degradação de tool nem retry normal, e sem salvar o Catalog/Page desta vez.
 
-## 实施后复核结论
+## Conclusões da revisão pós-implementação
 
-- Property 冲突第一版返回 `InvalidModelRequest`，暂未增加 OTEL invariant；产品降级策略仍待后续按 Property 分别决定。
-- 调用上下文采用 AsyncLocalStorage，并覆盖 Promise 与 AsyncIterable 的消费边界。
-- 动态 Header Provider 可以在 Adapter retry 前刷新认证材料；刷新后的模型身份必须与当前 Model 一致。
-- Repo Wiki 通过既有 Host -> CLI workspace 协议接入，分层问题没有扩散到公开 Model 接口。
-- 旧 `ModelPort` 与 `ModelTextRequest` 仍是 Adapter/兼容工厂内部迁移对象；业务调用方已不再构造它们。
-- 全仓生产调用扫描没有发现遗留的 Repo Wiki/OpenAI/Anthropic 直连模型客户端；脚本、测试工具与历史文档不计入生产调用方。
-- Embedded Search 仍通过旧 Connection 信息判断分支，但它本身不发起模型请求，已经记录为后续 Provider/Capability 清理项，不阻塞 M1。
-- Guide/“立即”统一为 Loop 内生效：成功进入当前 Loop 时，同时切换该 Loop 后续 Step 使用的 Model Selection 与 Model。普通 Submission 仍在新 Loop 开始时固定自己的 Model。
+- O conflito de Property da primeira versão retorna `InvalidModelRequest`, e ainda não foi adicionado invariant de OTEL; a estratégia de degradação de produto continua pendente de decisão por Property.
+- O contexto de chamada usa AsyncLocalStorage e cobre o limite de consumo de Promise e de AsyncIterable.
+- Um Provider com Header dinâmico pode renovar o material de autenticação antes do retry do Adapter; a identidade do modelo depois da renovação precisa ser igual à do Model atual.
+- O Repo Wiki se integra pelo protocolo de workspace Host -> CLI já existente, e o problema de estratificação não se espalhou para a interface pública de Model.
+- O antigo `ModelPort` e o `ModelTextRequest` continuam sendo objetos de migração internos do Adapter/fábrica de compatibilidade; os chamadores de negócio já não os constroem.
+- A varredura de chamadores de produção de todo o repositório não encontrou clientes de modelo Repo Wiki/OpenAI/Anthropic conectados diretamente remanescentes; scripts, ferramentas de teste e documentos históricos não contam como chamadores de produção.
+- O Embedded Search ainda usa a informação de Connection antiga para decidir o ramo, mas ele mesmo não dispara requisição de modelo e já está registrado como item de limpeza futuro de Provider/Capability, sem bloquear o M1.
+- Guide/“立即” unificado como valendo dentro do Loop: ao entrar com sucesso no Loop atual, alterna ao mesmo tempo a Model Selection e o Model usados pelos Steps seguintes daquele Loop. Uma Submission comum continua fixando seu próprio Model quando o novo Loop começa.
 
-### 17. 视频输入进入统一 Model Property
+### 17. Entrada de vídeo entra na Model Property unificada
 
-设计文档已经把 `supportsVideo` 定义为 Model Property，但 M1 的可执行契约最初只实现了图片与 PDF。M2 准备接入 Registry Model Factory 时发现并补齐该缺口：
+O documento de design já define `supportsVideo` como Model Property, mas o contrato executável do M1 inicialmente implementava apenas imagem e PDF. Ao preparar a integração com a Registry Model Factory do M2, a lacuna foi descoberta e completada:
 
-- `ModelProperties` 明确携带 `supportsVideo`；
-- Model 在 Provider 调用前校验视频文件输入；
-- Core 的媒体投影在模型明确不支持视频时移除原始视频数据，并保留可追踪的文本占位；
-- 旧 Factory 尚未提供该字段时保守按 `false` 处理，新 Registry 创建的 Model 必须从完整 Model Config 显式提供。
+- `ModelProperties` carrega explicitamente `supportsVideo`;
+- O Model valida a entrada de arquivo de vídeo antes da chamada ao Provider;
+- A projeção de mídia do Core remove os dados bruts de vídeo quando o modelo não dá suporte explícito a vídeo, preservando um placeholder de texto rastreável;
+- Enquanto a Factory antiga não fornece o campo, o tratamento conservador é `false`, e um Model criado pelo novo Registry precisa fornecer o valor explicitamente a partir do Model Config completo.
 
-这项改动补全既有 Model 契约，不改变 Provider Config、Registry 或 Adapter 的分层。
+Essa mudança completa o contrato de Model já existente e não altera a estratificação de Provider Config, Registry ou Adapter.
 
-## 验证记录
+## Registro de validação
 
-已通过：
+Aprovados:
 
-- 根工作区 `pnpm typecheck`。
-- ZCode CLI 的 Contracts、Adapters、Core、Bootstrap、CLI 等 23 个包 typecheck。
-- 根工作区 `pnpm lint`（0 error；现有 warning 保持不变）。
-- 合并最终 staging 前的根工作区全量单元测试：1148 个文件、9831 项通过，8 项跳过。
-- Adapter 全量测试：75 个文件、1159 个通过、3 个跳过。
-- M1 Core 重点测试：Model 生命周期、Compact、Memory、WebFetch、WebSearch、ReadSessionContext 等。
-- Services 重点测试：Git Commit Message、Repo Wiki、ZCode Protocol Client。
-- Bootstrap workspace model generation 与取消协议测试。
-- 本轮缺口修复后的 Contracts 全量测试及新增流式调用上下文回归：28 个文件、202 项通过。
-- 本轮缺口修复后的 Adapter 全量测试：77 个文件、1191 项通过、3 项跳过。
-- 本轮缺口修复后的 Services 重点测试：5 个文件、82 项通过。
-- 本轮缺口修复后的根工作区 `pnpm typecheck` 与 `pnpm lint`；lint 为 0 error，35 个既有 warning。
+- `pnpm typecheck` do workspace da raiz.
+- Typecheck de 23 pacotes da ZCode CLI, incluindo Contracts, Adapters, Core, Bootstrap e CLI.
+- `pnpm lint` do workspace da raiz (0 error; os warnings existentes permanecem inalterados).
+- Testes unitários completos do workspace da raiz antes do merge final do staging: 1148 arquivos, 9831 itens aprovados, 8 pulados.
+- Testes completos do Adapter: 75 arquivos, 1159 aprovados, 3 pulados.
+- Testes-chave de Core do M1: ciclo de vida do Model, Compact, Memory, WebFetch, WebSearch, ReadSessionContext etc.
+- Testes-chave de Services: Git Commit Message, Repo Wiki, ZCode Protocol Client.
+- Testes de geração de model de workspace e de protocolo de cancelamento do Bootstrap.
+- Testes completos de Contracts após as correções de lacuna desta rodada e nova regressão de contexto de chamada com streaming: 28 arquivos, 202 itens aprovados.
+- Testes completos do Adapter após as correções de lacuna desta rodada: 77 arquivos, 1191 itens aprovados, 3 pulados.
+- Testes-chave de Services após as correções de lacuna desta rodada: 5 arquivos, 82 itens aprovados.
+- `pnpm typecheck` e `pnpm lint` do workspace da raiz após as correções de lacuna desta rodada; lint com 0 error e 35 warnings existentes.
 
-最终合并 `d8cf5a49a7` 后再次运行根工作区全量单元测试：1171 个文件、9989 项通过，4 项失败，8 项跳过。失败全部来自本轮 staging 新合入的 Settings 源码文本断言；当前分支与 `origin/staging` 在相关实现和测试文件上没有差异。Provider/Core 相关的 155 项合并后回归测试全部通过。
+Após o merge final de `d8cf5a49a7`, os testes unitários completos do workspace da raiz foram executados novamente: 1171 arquivos, 9989 itens aprovados, 4 falhas e 8 pulados. Todas as falhas vêm de asserções de texto de código-fonte de Settings recém-entregues pelo staging nesta rodada; o branch atual e `origin/staging` não têm diferença nos arquivos de implementação e de teste relevantes. Os 155 testes de regressão pós-merge relacionados a Provider/Core passaram integralmente.
 
-完成审计后的最终根工作区全量单元测试为 1170 个文件通过、4 个文件失败、1 个文件跳过；9989 项通过、5 项失败、8 项跳过。四项 Settings 源码文本断言和一项 Web Remote 重连时序测试均位于未修改文件，其中 Settings 失败可在 staging 代码上直接确认，Web Remote 为本次全量运行中的独立时序失败。Bootstrap 全量测试的 steering、resume title、marketplace、v4 boundary 与 telemetry mock 失败也已在 staging 或未修改文件上复核，不属于 Provider 迁移回归。
+O teste unitário completo final do workspace da raiz após a auditoria de conclusão ficou com 1170 arquivos aprovados, 4 arquivos com falha e 1 arquivo pulado; 9989 itens aprovados, 5 falhas e 8 pulados. As quatro asserções de texto de código-fonte de Settings e o teste de sequência de reconexão do Web Remote estão todos em arquivos não modificados; as falhas de Settings podem ser confirmadas diretamente no código do staging, e o Web Remote é uma falha de sequência independente desta execução completa. As falhas de steering, resume title, marketplace, v4 boundary e telemetry mock nos testes completos do Bootstrap também foram revisadas no staging ou em arquivos não modificados, e não são regressões da migração de Provider.
 
-ZCode CLI 的 Core 全量测试中的若干既有失败已在未修改的 staging 工作区复现，包括旧 steering 测试与本地 cc-run 路径依赖；这些失败不由本次迁移引入。CLI 全量 lint 仍会命中仓库已有的 max-lines 基线，改动文件单独 lint 为 0 error。
+Algumas falhas existentes nos testes completos de Core da ZCode CLI foram reproduzidas no workspace de staging não modificado, incluindo o teste antigo de steering e a dependência de caminho do cc-run local; essas falhas não foram introduzidas por esta migração. O lint completo da CLI ainda atinge a baseline de max-lines já existente no repositório, e o lint isolado dos arquivos alterados dá 0 error.
 
-## 进度
+## Progresso
 
-- [x] 合并最新 staging 并检查模型调用相关变化。
-- [x] M1.1：公共类型、兼容 Model Wrapper、单元测试。
-- [x] M1.2：主 Agent Loop、Automatic Compact、Usage、Trace。
-- [x] M1.3：Child Agent、Title、Goal verifier、Project Memory。
-- [x] M1.4：Git、workspace generateText、WebFetch、WebSearch。
-- [x] M1.5：Repo Wiki。
-- [x] M1.6：删除业务侧旧读取，完成可执行门禁；仓库既有基线失败单独记录。
+- [x] Merge do staging mais recente e verificação das mudanças relacionadas à chamada de modelo.
+- [x] M1.1: tipos públicos, Wrapper de Model compatível, testes unitários.
+- [x] M1.2: Agent Loop principal, Compact automático, Usage, Trace.
+- [x] M1.3: Child Agent, Title, Goal verifier, Project Memory.
+- [x] M1.4: Git, generateText de workspace, WebFetch, WebSearch.
+- [x] M1.5: Repo Wiki.
+- [x] M1.6: remoção das leituras antigas do lado de negócio e portão executável; falhas de baseline já existentes do repositório registradas separadamente.

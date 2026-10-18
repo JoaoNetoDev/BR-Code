@@ -1,62 +1,87 @@
 # Bots E2E Coverage Matrix
 
-## MN-01 / MN-03 转正（2026-10-08）
+## Promoção de MN-01 / MN-03 (2026-10-08)
 
-用户确认将 Feishu/Lark × 群/话题 4 项用例转正，正式入口为 `bots/feishu-channel-mention.test.ts`。
-沿用 Bot 域 `fixtures/bots/feishu-channel-mention.json` 的 synthetic/fast-text 合同，覆盖原生
-提及、包含匹配、多目标、澄清零发送、幂等及普通群机器人原生 @ 回调。无真实模型请求，
-平台 HTTP 在 case 内记录并断言；不将合成环境转正等同于真实租户或手机验证。
-通用 promotion dry-run 仅支持 conversation-session，故按现有 Bot 正式目录规范迁移并修正 helper 路径。
-默认 Desktop WDIO 是正式入口，未新增 Docker admission。
-验证：隔离 common-only 回放 `desktop-e2e-20261008-102803-871` 与默认回放
-`desktop-e2e-20261008-102907-909` 均为 4 passing；无 manual-review 开关。
-根 typecheck、E2E typecheck、lint（67 项既有警告）、架构检查、差异格式检查通过。
-首次 skip-build 因普通开发构建缺少测试开关未启动测试，重新构建后上述两次回放通过。
+O usuário confirmou a promoção dos 4 casos Feishu/Lark × grupo/tópico, com entrada formal em
+`bots/feishu-channel-mention.test.ts`. Reutiliza-se o contrato synthetic／fast-text do domínio de Bot
+`fixtures/bots/feishu-channel-mention.json`, cobrindo menção nativa, correspondência por conteúdo,
+múltiplos alvos, esclarecimento com zero envio, idempotência e o callback nativo de @ em grupo comum.
+Sem requisições reais de modelo; o HTTP de plataforma é registrado e asseverado dentro do case; não
+se promove um ambiente sintético a equivalente de um tenant real ou de validação em celular. O dry-run
+genérico de promoção só suporta conversation-session, então a migração segue a convenção de diretório
+formal de Bot existente e corrige o caminho do helper. O WDIO Desktop padrão é a entrada formal e
+nenhum Docker admission foi adicionado.
+Verificação: o replay isolado apenas-common `desktop-e2e-20261008-102803-871` e o replay padrão
+`desktop-e2e-20261008-102907-909` deram 4 passing; sem toggle de manual-review.
+O typecheck raiz, o typecheck de E2E, o lint（67 warnings existentes）、a verificação de arquitetura e a
+verificação de formatação do diff passaram.
+O primeiro skip-build não iniciou os testes porque o build de desenvolvimento comum não tinha o toggle
+de teste; após reconstruir, os dois replays acima passaram.
 
-## 机器人接收事件修复（2026-10-08）
+## Correção do recebimento de eventos de robô (2026-10-08)
 
-接收回调 sender_type=bot（内部归一化为 app）；历史接口保留 app。普通群须已启用且原生 @，
-已接入话题继续处理所有平台实际推送的机器人消息；自身回声、重复事件、未启用及已退出话题均被拦截。
-主聊天与话题中的机器人 slash/选择文字都只作为消息，不进入控制分发。
+O callback de recebimento com sender_type=bot（normalizado internamente como app）; as APIs históricas
+mantêm app. Um grupo comum precisa já estar habilitado e com @ nativo; tópicos já integrados continuam
+processando todas as mensagens de bot realmente enviadas pela plataforma; eco próprio, eventos
+duplicados, grupo não habilitado e tópico já abandonado são todos bloqueados.
+Mensagens slash／de seleção de bot no chat principal e em tópicos contam apenas como mensagens e não
+entram na distribuição de comandos.
 
-- Provider/群服务/mention gate 共 205 项单测通过；初始沙箱内文件测试失败，允许既有测试临时目录后通过。
-- `desktop-e2e-20261008-095311-834`：2 项真实 CLI 话题回归通过，原生 bot 事件触发停止旧轮、续接与回复。
-- `desktop-e2e-20261008-095707-065`：4 项 Feishu/Lark × 群/话题回归通过，普通群 bot 回调、命令正文与去重通过。
-  首次新增群回调检查因测试替身遗漏 bot/v3/info 身份响应失败，补齐后通过。
-- 根 typecheck、E2E typecheck、lint（67 项既有警告）、架构门禁、话题 fixture checker 通过。
-- 平台与模型网络为替身；真实租户机器人事件权限及 live 通知仍需验证。群启用消息已补充 include_bot 权限说明。
-- 未更改桌面 continuous、手机 replayable、远程工作区身份隔离、投递 owner 或输入队列；未实测手机及 Windows/Linux。
+- 205 testes unitários de Provider／serviço de grupo／mention gate passaram; os testes de arquivo falharam
+  inicialmente no sandbox, e passaram após ser permitido o diretório temporário de teste já existente.
+- `desktop-e2e-20261008-095311-834`: 2 regressões reais de CLI em tópico passaram; o evento nativo de bot
+  acionou o encerramento da rodada antiga, a continuação e a resposta.
+- `desktop-e2e-20261008-095707-065`: 4 regressões Feishu/Lark × grupo/tópico passaram; callback de bot em
+  grupo comum, corpo de comando e deduplicação passaram.
+  A primeira verificação de callback de grupo recém-adicionada falhou porque o substituto de teste omitia as
+  respostas de identidade bot／v3／info; passou após o preenchimento.
+- O typecheck raiz, o typecheck de E2E, o lint（67 warnings existentes）、os gates de arquitetura e o
+  fixture checker de tópicos passaram.
+- Plataforma e rede de modelo são substitutos; a permissão de eventos de bot em tenant real e a notificação
+  ao vivo ainda precisam ser verificadas. A mensagem de habilitação de grupo já complementou a explicação da
+  permissão include_bot.
+- Não foram alterados o desktop continuous, o celular replayable, o isolamento de identidade de workspace
+  remoto, o owner de entrega ou a fila de entrada; celular e Windows／Linux não foram testados.
 
 
-## MN-03 按名字解析原生提及（2026-10-08）
+## MN-03 resolvendo menções nativas por nome (2026-10-08)
 
-包含查找更新：唯一包含候选或唯一完整名字匹配直接发送，所有未解决名字一起返回。
-本次 147 项单测通过；`desktop-e2e-20261008-093912-272` 的 Feishu/Lark × 群/话题
-4 项通过，验证简称、多目标原生 at 与多个失败项零发送。根/CLI typecheck、E2E typecheck、
-根 lint、架构检查通过；CLI 全量 lint 被未改动 telemetry 文件 max-lines 阻断，
-改动 CLI 文件单独 lint 通过。Bot pending spec 不受通用 fixture checker 支持，
-当时使用现有 Bot synthetic fixture 与显式 replay，尚未转正；现已转正，见本文顶部。
-英文全名与多人分隔已更新工具提示，真实模型自然语言解析及真实租户仍待实测。
+A busca por conteúdo foi atualizada: um único candidato por conteúdo ou um único casamento de nome completo
+envia direto, e todos os nomes não resolvidos são retornados juntos.
+Nesta rodada 147 testes unitários passaram; os 4 casos Feishu/Lark × grupo／tópico de
+`desktop-e2e-20261008-093912-272` passaram, validando apelido, múltiplos alvos com at nativo e múltiplos
+itens com falha com zero envio. Typecheck raiz／CLI, typecheck de E2E, lint raiz e verificação de arquitetura
+passaram; o lint completo da CLI foi bloqueado por um erro de max-lines em um arquivo de telemetry não
+alterado, e o lint isolado dos arquivos da CLI alterados passou. A spec pending de Bot não é suportada pelo
+fixture checker genérico e, na época, usava o fixture sintético de Bot existente com replay explícito, ainda
+não promovida; agora foi promovida, ver o topo deste documento.
+O nome completo em inglês e o separador para várias pessoas foram adicionados à dica da ferramenta; a
+resolução de linguagem natural por modelo real e o tenant real ainda aguardam teste real.
 
-- 已实现：`ReplyToChannel` 的 mentionName 查询、唯一匹配发送、重名候选与用户选择、
-  无结果/查询失败零发送，以及查询期间授权复核和原请求回执重放。
-- 群成员接口不包含机器人；机器人名字仅匹配同一任务有效授权内已保存的原生 mention，
-  没有可信身份时要求原生 @。不保证枚举群内全部机器人。
-- Provider/service 4 文件 130 项、CLI 2 文件 11 项测试通过；覆盖同名用户/机器人、
-  完整分页失败、选择跨输入保留/跨凭据拒绝、整条不部分发送及目录变化后的幂等回执。
-- 真实 Host/CLI MN-02：`desktop-e2e-20261008-091311-382` 中 1 项通过，客户端无来源
-  续聊通过名字查询一个此前没有原生节点的成员并发送 at。该批另一 pending spec 因默认
-  capture 缺少测试 URL 未执行；明确 replay 后在 `desktop-e2e-20261008-091522-301`
-  的 MN-01/MN-03 Feishu/Lark × 群/话题 4 项全部通过。
-- 根 typecheck、desktop typecheck:e2e、fixture、根 lint（既有 67 warnings）、架构检查通过；
-  CLI 全量 typecheck 30 个任务通过。CLI 全量 lint 被未修改文件的既有 max-lines 错误阻断，
-  本次两个 CLI 源文件使用 CLI 规则单独检查为 0 errors / 0 warnings。
-- 模型和平台 HTTP 均为隔离替身；未验证真实租户权限、实际模型自然语言选择、手机 UI
-  及其他操作系统。桌面 continuous、手机 replayable、投递 owner 与队列均未改动。
+- Implementado: a consulta mentionName do `ReplyToChannel`, envio com casamento único, candidatos homônimos e
+  a escolha do usuário, zero envio quando não há resultado／a consulta falha, além da revalidação de autorização
+  durante a consulta e do replay do recibo da requisição original.
+- A API de membros do grupo não inclui robôs; o nome de um robô só casa menções nativas já salvas dentro da
+  autorização válida da mesma tarefa e, sem identidade confiável, exige @ nativo. Não se garante enumerar todos
+  os robôs do grupo.
+- 4 arquivos de Provider／serviço com 130 testes e 2 arquivos da CLI com 11 testes passaram; cobre usuário／robô
+  homônimos, falha de paginação completa, seleção preservada entre entradas／rejeitada entre credenciais, envio
+  de nada parcial e idempotência do recibo após mudança de diretório.
+- Host／CLI reais de MN-02: `desktop-e2e-20261008-091311-382` com 1 caso passando; o cliente continuando uma
+  conversa sem origem passou consultando por nome um membro que antes não tinha nó nativo e enviou o at. Outro
+  pending spec do mesmo lote não foi executado por falta da URL de teste no capture padrão; após replay
+  explícito, os 4 casos MN-01／MN-03 Feishu/Lark × grupo／tópico de `desktop-e2e-20261008-091522-301` passaram.
+- Typecheck raiz, desktop typecheck:e2e, fixture, lint raiz（67 warnings existentes）、verificação de arquitetura
+  passaram; o typecheck completo da CLI passou nos 30 tarefas. O lint completo da CLI foi bloqueado por erros de
+  max-lines existentes em arquivos não modificados, e os 2 arquivos-fonte da CLI desta rodada foram
+  verificados isoladamente com as regras da CLI em 0 errors／0 warnings.
+- Modelo e HTTP de plataforma são substitutos isolados; não foram verificadas permissões de tenant real, a
+  seleção por linguagem natural de um modelo real, a UI em celular nem outros sistemas operacionais. Desktop
+  continuous, celular replayable, owner de entrega e fila não foram alterados.
 
-## Input material refactor（当前边界）
+## Input material refactor (fronteira atual)
 
-TP-01 now covers topic start-now admission and original-message presentation through the real Host/CLI. Setup: a controlled streaming run; action: submit a topic batch with two original messages, one root quote and a history attachment; assertions: no queued input, separate original senders/bodies, first-only quote/history and original-text preview at Desktop and narrow viewport sizes. The material is synthetic; native Feishu history collection and Bot-service stop coordination require separate service tests and manual acceptance. TP-01 的后续运行记录见本文；旧 queue/Steer 结果只作历史。现 case 手动停止后提交，尚不证明 Bot 自动停止协调，新增 TP-04 专门覆盖。
+TP-01 now covers topic start-now admission and original-message presentation through the real Host/CLI. Setup: a controlled streaming run; action: submit a topic batch with two original messages, one root quote and a history attachment; assertions: no queued input, separate original senders/bodies, first-only quote/history and original-text preview at Desktop and narrow viewport sizes. The material is synthetic; native Feishu history collection and Bot-service stop coordination require separate service tests and manual acceptance. O registro de execuções subsequente do TP-01 está neste documento; os resultados antigos de queue／Steer servem apenas como histórico. O case atual submete após parada manual e ainda não prova a coordenação automática de parada do Bot; o novo TP-04 cobre isso especificamente.
 
 ## Topic collaboration (in progress)
 
@@ -169,9 +194,9 @@ Dedicated-topic execution was then verified through Computer Use on 2026-09-08:
 Dedicated-group history, attachment/card-control races, long history and remaining
 cross-platform cases are still pending; the broader TP-02 case is not promoted.
 
-来源：[Bots E2E Case Catalog](../bots-e2e-case-catalog.md)、[Bots](../bots.md) 与 [Bot Channel Runtime Split](../bot-channel-runtime-split.md)。
+Fonte: [Bots E2E Case Catalog](../bots-e2e-case-catalog.md)、[Bots](../bots.md) e [Bot Channel Runtime Split](../bot-channel-runtime-split.md)。
 
-## 状态维度
+## Dimensões de estado
 
 | 维度               | 等价类                                                  | 本轮处理                                                                                                               |
 | ------------------ | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -187,7 +212,7 @@ cross-platform cases are still pending; the broader TP-02 case is not promoted.
 | Persistence        | create 后同进程、repository 重开                        | CR-01 必须证明重启后仍能读取原会话目标                                                                                 |
 | Connection failure | unbound、bound                                          | CF-01 覆盖 bound 冲突态；unbound 已由组件测试覆盖并从 Desktop E2E 剪枝                                                 |
 
-## 覆盖表
+## Tabela de cobertura
 
 | Case ID       | Priority | Status | Spec                                                                     | Timing             | Setup / Action / Assertion                                                                                                                |
 | ------------- | -------- | ------ | ------------------------------------------------------------------------ | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -201,35 +226,33 @@ cross-platform cases are still pending; the broader TP-02 case is not promoted.
 | BOT-E2E-CR-01 | P0       | formal | `packages/desktop/test/e2e/bots/bot-automation-result-delivery.test.ts`  | controlled-stream  | Feishu 创建 automation；重开 repo；先订阅后派发；complete/error 回推；失效 Bot 降级；Weixin provider 出站由 service integration test 覆盖 |
 | BOT-E2E-CF-01 | P0       | formal | `packages/desktop/test/e2e/bots/feishu-runtime-error-ui.test.ts`         | controlled-process | 已绑定 Feishu 缺少 credential；启用 runtime；重开机器人弹窗并断言绑定保留、连接中断与错误详情                                             |
 
-## Fixture 合同
+## Contrato de fixtures
 
-BOT-E2E-SR87 位于 `bots/manual-review/pending/bot-effective-selection.test.ts`；synthetic、fast-text。验证菜单/首次派发使用同一有效选择，且查看菜单和无效提交不改原意图。Todo99 追加 BOT-E2E-SR99：绑定后从 Session 原选择解析下一次空闲输入，不重解释已固定执行。共用该 pending spec，未晋级；conversation W99-E03/E06 另在 Pro 验证 Bot→生产 Task adapter→实际 Worker 请求、完整 setter 与冷恢复。证据不覆盖真实 IM 网络或手机/SSH 联合环境。
+BOT-E2E-SR87 está em `bots/manual-review/pending/bot-effective-selection.test.ts`; synthetic, fast-text. Valida que o menu／o primeiro despacho usam a mesma seleção válida e que ver o menu e enviar um envio inválido não muda a intenção original. O Todo99 acrescenta BOT-E2E-SR99: após a vinculação, resolver a próxima entrada ociosa a partir da seleção original da Session, sem reinterpretar a execução já fixada. Compartilham essa pending spec e não foram promovidos; conversation W99-E03／E06 validam separadamente em Pro o adaptador Bot→Task de produção→requisição real do Worker, o setter completo e a recuperação a frio. As evidências não cobrem rede IM real nem o ambiente combinado celular／SSH.
 
-- `feishu-streaming-card-lifecycle.json` 是 case-local synthetic stream fixture。
-- 其余 5 个用例分别使用 `fixtures/bots/` 下同语义命名的 case-local synthetic metadata；所有 fixture 都声明 `syntheticReason` 与 timing 分类。
-- 分类为 `synthetic`，原因：外部 provider replay 只能提供模型 SSE，不能稳定控制 Bot 消费 task event 的逐步观察窗口；该夹具明确生成确定性的 ZCode stream events。
-- Mock Feishu API 必须记录请求而不是只返回成功，以请求次数、URL、method、reaction id 和 Card JSON 作为证据。
-- `bot-automation-result-delivery` 记录 mock Feishu 请求，并用受控 task stream 证明 scheduler 监听早于 prompt 派发；不允许用固定 sleep 代替事件闸门。Weixin `/sendmessage` 由 `packages/services/test/botsService.messageFlow.test.ts` 的共享 watcher/provider service integration test 覆盖，不虚报为 Desktop E2E。
-- 用例已通过人工 review 并移出 `manual-review/pending/`；Bot 域当前没有独立 Docker preset，默认 Desktop WDIO 是正式执行入口。
-- CF-01 使用 case-local synthetic metadata；缺失 credential 只用于确定性触发 runtime error，`syntheticReason` 必须说明它替代真实飞书故障注入；该用例已通过 Desktop 人工验收。
+- `feishu-streaming-card-lifecycle.json` é o fixture de stream sintético local ao case.
+- Os outros 5 cases usam metadata sintética local ao case com nomenclatura de mesmo significado em `fixtures/bots/`; todos os fixtures declaram `syntheticReason` e a classificação de timing.
+- Classificado como `synthetic`, porque o replay de provider externo só pode fornecer SSE de modelo e não controla de forma estável a janela de observação passo a passo do consumo de task events pelo Bot; o fixture gera explicitamente ZCode stream events determinísticos.
+- A API Feishu simulada precisa registrar as requisições em vez de apenas retornar sucesso, usando contagem de requisições, URL, method, reaction id e Card JSON como evidência.
+- `bot-automation-result-delivery` registra requisições Feishu simuladas e usa um stream de task controlado para provar que o scheduler escuta antes do despacho do prompt; não é permitido substituir a barreira de evento por um sleep fixo. O `/sendmessage` do Weixin é coberto pelo watcher／provider service integration test compartilhado em `packages/services/test/botsService.messageFlow.test.ts`, e não é reportado como Desktop E2E.
+- Os cases passaram por revisão manual e saíram de `manual-review/pending/`; o domínio de Bot hoje não tem preset Docker próprio, e o WDIO Desktop padrão é a entrada formal de execução.
+- CF-01 usa metadata sintética local ao case; a credencial ausente é usada apenas para disparar deterministicamente um erro de runtime, e o `syntheticReason` precisa explicar que ela substitui uma injeção real de falha do Feishu; este case já passou por aceitação manual no Desktop.
 
-## BOT-E2E-DT-01 已删除任务自动新建（ZCT-2096089929570893824）
+## BOT-E2E-DT-01 criação automática de task após exclusão (ZCT-2096089929570893824)
 
-- Status: pending；用例 `packages/desktop/test/e2e/bots/manual-review/pending/bot-deleted-task-recovery.test.ts`。
-- Setup: 已绑定 Feishu Bot 指向删除 tombstone 中的旧 task，保留旧交互状态；mock provider 记录通知请求。
-- Action: 普通消息进入 provider callback，随后重投相同 message id。
-- Assert: 不恢复旧 task；同工作区只新建并绑定一个 task；清理旧交互；一次提示说明已删除、新建和上下文不继承；只派发一次原消息；Desktop created 广播指向新 task；订阅仍为 bot-channel-continuous。
-- Fixture: case-local synthetic metadata，删除状态及 provider HTTP 由确定性夹具提供；不访问用户机器人。
-- Unit boundary: 本地/远端 identity、未删除但列表不可见（含归档/置顶）、索引读失败、新建失败、通知失败及中英文。仅归档行为保持原样。
+- Status: pending; case `packages/desktop/test/e2e/bots/manual-review/pending/bot-deleted-task-recovery.test.ts`.
+- Setup: o Feishu Bot vinculado aponta para a task antiga no tombstone de exclusão, preservando o estado de interação antigo; o provider simulado registra as requisições de notificação.
+- Action: uma mensagem comum entra no callback do provider e depois o mesmo message id é reenviado.
+- Assert: a task antiga não é restaurada; apenas uma task é criada e vinculada no mesmo workspace; a interação antiga é limpa; um único aviso explica exclusão, criação e não herança de contexto; a mensagem original é despachada apenas uma vez; o broadcast created do Desktop aponta para a nova task; a assinatura continua bot-channel-continuous.
+- Fixture: metadata sintética local ao case; o estado de exclusão e o HTTP do provider vêm de fixtures determinísticos; o robô do usuário não é acessado.
+- Unit boundary: identidade local/remota, não excluída mas invisível na lista (incluindo arquivada/fixada), falha de leitura do índice, falha de criação, falha de notificação e chinês/inglês. Apenas o comportamento de arquivamento permanece como estava.
 
-验证记录（2026-09-07）：DT-01 在 macOS Desktop WDIO 通过；同时通过 `feishu-provider-interactions`、`bot-remote-disconnected`、`feishu-streaming-card-lifecycle` 回归。DT-01 证据覆盖 provider callback → Bot 状态 → task service → provider HTTP 与 Desktop 广播，不冒充真实飞书租户或桌面 DOM 验证。真实远端 host、Windows/Linux、手机链路尚未实机验证；本次只使用既有 task service 与 workspaceIdentity 路由，不改 continuous/replayable 协议。用例保留 pending，未宣称已完成人工验收或 CI 转正。
+Registro de verificacao (2026-09-07): o DT-01 passou no Desktop WDIO em macOS, e tambem passaram as regressoes em `feishu-provider-interactions`、`bot-remote-disconnected`、`feishu-streaming-card-lifecycle` . A evidencia do DT-01 cobre provider callback -> estado do Bot -> task service -> HTTP do provider e broadcast do Desktop, sem se passar por tenant real do Feishu nem por validacao de DOM do desktop. Host remoto real, Windows/Linux e a cadeia em celular ainda nao foram testados em aparelho; esta rodada usa apenas o task service existente e o roteamento por workspaceIdentity, sem alterar o protocolo continuous/replayable. O case permanece pending e nao se declara concluida a aceitacao manual nem a promocao em CI.
 
 ### BOT-E2E-DF-01 Feishu reply delivery failure and recovery
 
-Todo103 补充验收：DT-01 的替代任务使用当前 Model Selection View 的完整选择并沿 V4
-创建/首发，不恢复旧字段；无可用选择时不得创建或发送。CF-01 在弹窗保持打开时
-等待后台连接状态投影，不依赖关闭重开来刷新，用于验证新增可见期串行状态轮询。
-下方 2026-09-07 记录是固定 staging 历史证据；本轮运行结果另记 Todo103 账本。
+O Todo103 acrescenta a aceitação: a task substituta do DT-01 usa a seleção completa da Model Selection View atual e segue a criação／primeiro envio em V4, sem restaurar campos antigos; sem seleção disponível não pode criar nem enviar. CF-01 espera a projeção do status de conexão em background com o popover ainda aberto, sem depender de fechar e reabrir para atualizar, para validar o novo polling serial de estado visível.
+O registro de 2026-09-07 abaixo é evidência histórica fixa de staging; o resultado da execução desta rodada é registrado no razão do Todo103.
 
 - Status: pending. Spec: `packages/desktop/test/e2e/bots/manual-review/pending/feishu-delivery-error.test.ts`.
 - Setup: bound private Feishu bot; synthetic HTTP business failure with code/msg/log_id.
@@ -616,63 +639,55 @@ pre-push run had CUA shutdown timing and mobile-layout timeout failures plus a V
 worker heap exhaustion; both files passed in isolation (79 tests). The full
 `VITEST_MAX_WORKERS=2 pnpm verify:pre-push` rerun then passed without changing those tests.
 
-# 2026-09-08 原生单独 @ 与令牌有效期回归
+# 2026-09-08 regressão de @ nativo isolado e validade de token
 
-- `pnpm dev:desktop` 实际运行时，12:37 的主聊天单独 @ 收到原生事件，但发送补充需求提示失败，飞书返回 `99991663`。代码原先忽略 `expire` 并固定缓存 90 分钟。
-- 改为按接口剩余有效期缓存；飞书／Lark provider 定时回归先失败、修复后通过，provider 共 79 项通过。真实接口本次返回 `expire=4187` 秒，小于旧实现固定的 5400 秒。
-- 重启开发版本后，Computer Use 在 `ZCode 群聊验证` 发送原生单独 @，消息 `om_x100b66cd6c1c20a4c026ae6aa5b7893`，原生回复 `om_x100b66cd6c2e3938c1c10da2d404a76`，客户端显示“请补充需求，或回复要处理的消息并 @我。”
-- 原生 API 消息 ID 对照当前群持久化输入，该消息没有 admission 记录；未新建或排入任务。之前失败的消息 `om_x100b66cd5f92d8acc322408850c60f9` 也没有自动补执行。
-- 本次真实验证确认重启后提示投递恢复；完整有效期跨越由受控时钟测试覆盖，未在真实租户等待令牌自然过期。未将该验证宣称为 Agent 历史附件读取、手机、Lark 或其他操作系统通过。
+- Com `pnpm dev:desktop` realmente em execução, o @ isolado no chat principal das 12:37 recebeu o evento nativo, mas o envio da mensagem complementar de requisitos falhou, e o Feishu retornou `99991663`. O código antes ignorava `expire` e fixava o cache em 90 minutos.
+- Alterado para cachear conforme o tempo de vida restante da interface; a regressão periódica do provider Feishu／Lark falhou antes e passou depois, com 79 testes do provider passando. Desta vez a interface real retornou `expire=4187` segundos, menor que os 5400 segundos fixos da implementação antiga.
+- Depois de reiniciar a versão de desenvolvimento, o Computer Use enviou um @ nativo isolado em `ZCode 群聊验证`, mensagem `om_x100b66cd6c1c20a4c026ae6aa5b7893`, com resposta nativa `om_x100b66cd6c2e3938c1c10da2d404a76`, e o cliente exibiu“请补充需求，或回复要处理的消息并 @我。”
+- O ID de mensagem nativo foi conferido contra a entrada persistida do grupo atual: essa mensagem não tem registro de admission; nenhuma task foi criada ou enfileirada. A mensagem que falhou antes, `om_x100b66cd5f92d8acc322408850c60f9`, também não teve execução automaticamente reabastecida.
+- Esta verificação real confirma que a entrega da mensagem deorientação se recuperou após o reinício; a travessia completa da validade é coberta por teste de relógio controlado, e não se esperou o token expirar naturalmente em um tenant real. Esta verificação não foi declarada como aprovação de leitura de anexos de histórico pelo Agent, de celular, de Lark ou de outros sistemas operacionais.
 
-### 2026-09-08 13:18 原生历史附件回查验证（未通过）
+### 2026-09-08 13:18 verificação da consulta nativa ao anexo de histórico (não aprovada)
 
-运行 `pnpm dev:desktop`，在真实专用群「ZCode 专用话题验证」的 CEDAR 话题使用原生 @Ryan Bot 发起纯文字请求。消息 `om_x100b66cde75330b0c3e499c124d58c0` 被 CLI 接收并显示 OnIt；模型选择了正确的历史文件消息 `om_x100b66ccd1ebe0a8c22a536e7f67b07`，但 `ReadSessionContext(sessionId=current, strategy=topic, attachment=...)` 被 executor 的 JSON Schema 校验错误拒绝（oneOf 同时匹配两个分支）。模型随后查询本机会话目录，不能作为附件读取成功证据。已补 executor 边界失败测试，再改为单字符串模式；12 条工具测试通过。
+ executando `pnpm dev:desktop`, foi feita uma requisição de texto puro via @ nativo do Ryan Bot no tópico CEDAR do grupo dedicado real「ZCode 专用话题验证」. A mensagem `om_x100b66cde75330b0c3e499c124d58c0` foi recebida pela CLI e exibiu OnIt; o modelo escolheu a mensagem de arquivo de histórico correta `om_x100b66ccd1ebe0a8c22a536e7f67b07`, mas `ReadSessionContext(sessionId=current, strategy=topic, attachment=...)` foi rejeitada por um erro de validação de JSON Schema do executor (oneOf casando dois ramos ao mesmo tempo). O modelo depois consultou o diretório de sessões da máquina local, o que não pode servir como evidência de leitura bem-sucedida do anexo. Foi adicionado um teste de falha na fronteira do executor e a chamada passou a usar um único modo string; 12 testes de ferramenta passaram.
 
-13:11 的另一条测试消息意外带入剪贴板图片，触发真实 Bot 附件 admission 的 `fault.attachment.connectionUntrusted`，未被 CLI 接收。13:17 已在原生界面撤回该测试消息并确认撤回状态。该入口现补接既有可信 connection scope，91 条 task adapter 测试通过；修复后的真实富文本上传仍待重测。
+Outra mensagem de teste às 13:11 carregou acidentalmente uma imagem da área de transferência, acionando o `fault.attachment.connectionUntrusted` da admission de anexo real do Bot, e ela não foi recebida pela CLI. Às 13:17 a mensagem de teste foi removida na interface nativa e o estado de remoção foi confirmado. Esse ponto de entrada agora se conecta ao connection scope confiável já existente, e 91 testes do task adapter passaram; o upload real de rich text após a correção ainda precisa ser testado novamente.
 
-继续发送 /stop 前 Mac 锁屏，Computer Use 返回无法自动解锁；未将尚未确认发送的停止命令记为成功。历史文件下载、最终字段回复及最终表情归属仍需解锁并重启新代码后重测，不能用单测或先前 Host 下载哈希验证替代端到端结果。
+Antes de continuar o envio de /stop o Mac bloqueou a tela e o Computer Use retornou que não consegue desbloquear automaticamente; o comando de parada ainda não confirmado como enviado não foi registrado como sucesso. O download do arquivo de histórico, a resposta final de campos e a atribuição final da reação ainda exigem desbloquear e reiniciar o novo código para reteste, e não podem ser substituídos por testes unitários nem pela verificação anterior de hash de download do Host.
 
-本地检查：当前资源桥、资源授权、附件上传与 task adapter 共 122 条测试通过，根目录 typecheck、lint 通过（lint 43 个 warning）。本轮完整 pre-push 曾在 `subagentsSection.test.ts` 的保存后刷新失败场景失败，单独重跑该场景通过，尚未取得新一轮完整 pre-push 成功。扩展 Agent 全量测试仍有 CUA、文件行数及外部 conformance 路径等失败；未宣称全量通过。当前修改暂未提交，远程 Host 转发、真实手机和 Lark 仍待验证／实现。
+Verificações locais: a ponte de recursos, a autorização de recursos, o upload de anexos e o task adapter somam 122 testes passando; o typecheck e o lint da raiz passaram (lint com 43 warnings). O pre-push completo desta rodada falhou no cenário de falha de refresh após salvar em `subagentsSection.test.ts`; a reexecução isolada desse cenário passou, e ainda não foi obtida uma nova rodada completa de pre-push bem-sucedida. A suíte completa de testes do Agent ainda tem falhas de CUA, de limite de linhas de arquivo e de caminhos externos de conformance; não se declara aprovação total. As alterações atuais ainda não foram commitadas, e o encaminhamento de Host remoto, o celular real e o Lark continuam pendentes de verificação／implementação.
 
-### 2026-09-08 后续代码与受控远程链路检查
+### 2026-09-08 verificações posteriores de código e da cadeia remota controlada
 
-- 话题原文回查补齐 canonical 字段优先级；冲突及无效 canonical 的两条测试先失败，修复后工具测试 14 条通过。
-- 为 SSH／WSL／Docker 现有 stdio 连接接入私有反向资源频道；测试使用受控 PassThrough transport，不是实连 SSH。改动前请求 30 秒超时，改动后原连接上反向 RPC 成功。
-- 分块传输覆盖字节数、SHA-256、群停用、来源连接、remoteSessionId、取消、超时、过载拒绝和同 ID 旧请求迟到。未建立新任务队列或 runtime。
-- 受控假 CLI 进程复现预热后反向请求遗漏 remoteSessionId，修复为每次资源请求固定同一 CLI 的当前目标；该测试验证 Host 路由，不代表真实远端 Agent 工具调用通过。
-- 最新服务／Host／stdio 回归 8 文件 86 条通过，根目录 typecheck 与 lint 通过（43 个 warning）。完整 `verify:pre-push` 的上一版提交范围重跑成功；该脚本按基线到 HEAD 取文件范围，新增未提交文件另由上述定向测试覆盖，最终提交仍需再跑提交检查。
-- Computer Use 再次确认 Mac 锁屏。旧 `pnpm dev:desktop` 执行句柄已退出（130），旧 Electron／Host PID 已不存在；因此不再保留旧代码中的失败测试进程。新的 `pnpm dev:desktop` 构建句柄仍在运行，尚未把新版本原生验证记为通过。
-- 待补：新版本本地历史文件完整读取和原话题结果、真实 SSH／WSL／Docker、WebSocket Server 私有回查通道、手机／多成员权限卡、Lark 与其他系统验证。保留原目标范围，不以受控传输测试替代这些验收。
+- A consulta do texto original do tópico completou a prioridade dos campos canônicos; os dois testes de conflito e de canônico inválido falharam antes e, após a correção, 14 testes de ferramenta passaram.
+- Um canal privado reverso de recursos foi conectado às conexões stdio existentes de SSH／WSL／Docker; os testes usam um transporte PassThrough controlado, e não uma conexão SSH real. Antes da alteração a requisição expirava em 30 segundos; depois, o RPC reverso teve sucesso na conexão original.
+- A transferência em chunks cobre contagem de bytes, SHA-256, desativação de grupo, conexão de origem, remoteSessionId, cancelamento, timeout, rejeição por sobrecarga e chegada tardia de requisições antigas com o mesmo ID. Nenhuma fila de tasks ou runtime nova foi criada.
+- Um processo CLI falso controlado reproduziu, após o pré-aquecimento, a omissão de remoteSessionId em requisição reversa; corrigido para que cada requisição de recurso use sempre o alvo atual daquela mesma CLI. Esse teste verifica o roteamento do Host e não representa uma chamada de ferramenta de Agente remoto bem-sucedida.
+- A regressão mais recente de serviço／Host／stdio passou com 8 arquivos e 86 testes; o typecheck e o lint da raiz passaram（43 warnings）. A reexecução completa de `verify:pre-push` sobre o escopo de commit da versão anterior teve sucesso; esse script usa a faixa de baseline até HEAD, e os arquivos novos não commitados são cobertos pelos testes direcionados acima; a verificação de commit ainda precisa ser rodada novamente no commit final.
+- O Computer Use confirmou novamente que o Mac está bloqueado. O handle de execução antigo de `pnpm dev:desktop` saiu（130）e os PIDs antigos de Electron／Host não existem mais; portanto os processos de teste com falha do código antigo não são mantidos. O novo handle de build de `pnpm dev:desktop` continua em execução, e a verificação nativa da nova versão ainda não foi registrada como aprovada.
+- Pendente: leitura completa de arquivo de histórico local e resultado no tópico original com a nova versão, SSH／WSL／Docker reais, canal privado de consulta via WebSocket Server, cartão de permissão de celular／multimembros, Lark e verificação em outros sistemas. O escopo original de metas é mantido e esses testes de transporte controlados não substituem essas aceitações.
 
-### BOT-E2E-TP-03 话题交互卡（pending）
+### BOT-E2E-TP-03 cartão de interação em tópico (pending)
 
-- 用例：`bots/manual-review/pending/feishu-topic-interactions.test.ts`，case-local synthetic metadata。
-- Setup：启用群并提交话题输入，使用受控 task service 与记录式 Feishu/Lark HTTP。
-- Action：发出权限与普通问答事件。
-- Assert：卡片只 POST 原话题根消息的 reply，携带 reply_in_thread；回调保留群、话题、任务和授权版本。
-- 范围：服务到 provider HTTP 的确定性回归；不代表真实租户、Agent 模型或 Desktop DOM 验证。
-- 13:53 原生重测仍未通过：模型继续之前失败后的本机查询，未调用附件工具；13:54 的审批卡出现在群主聊天。停止操作窗口后交由用户验证。修复后的原生交互卡尚未重测。
-- 私有 WebSocket 转发已接入；本机真实 WebSocket 连接的受控回归与 peer/Host 检查共 4 文件 16 条通过，未宣称真实远端附件业务链路通过。
+- Case: `bots/manual-review/pending/feishu-topic-interactions.test.ts`, com metadata sintética local ao case.
+- Setup: habilita o grupo e submete entradas de tópico, usando um task service controlado e HTTP Feishu/Lark que registra as requisições.
+- Action: emite eventos de permissão e de pergunta e resposta comuns.
+- Assert: o card faz POST apenas do reply à mensagem raiz original do tópico, com reply_in_thread; o callback preserva grupo, tópico, task e versão de autorização.
+- Escopo: regressão determinística de serviço até o HTTP do provider; não representa validação de tenant real, modelo do Agent ou DOM do Desktop.
+- O reteste nativo das 13:53 ainda não passou: o modelo continuou a consulta local após a falha anterior e não chamou a ferramenta de anexo; às 13:54 o cartão de aprovação apareceu no chat do proprietário do grupo. Depois de encerrar a janela de operação, a verificação foi entregue ao usuário. O cartão de interação nativo após a correção ainda não foi testado novamente.
+- O encaminhamento WebSocket privado já foi conectado; a regressão controlada de uma conexão WebSocket local real e as verificações de peer／Host somaram 4 arquivos e 16 testes passando, sem se declarar que a cadeia de negócio de anexos remotos reais passou.
 
-TP-03 当前服务回归：Provider 与群服务共 139 条通过；新增 Feishu/Lark 两个场景在
-Vitest 服务执行入口通过（2 条），未运行 WDIO，不记为 Desktop E2E 通过。
-根目录 typecheck 通过，lint 为 43 warnings / 0 errors。临时卡原话题路由、权限／问答
-授权字段修复尚未重启到用户正在操作的开发进程，原生验收待补。
+A regressão de serviço atual do TP-03: Provider e serviço de grupo somam 139 testes passando; os dois novos cenários Feishu／Lark passaram na entrada de execução de serviço do Vitest（2 testes）, sem executar WDIO e portanto não contados como aprovação de Desktop E2E.
+O typecheck da raiz passou, com lint em 43 warnings／0 errors. O roteamento de cartão temporário para o tópico original e a correção dos campos de autorização de pergunta／resposta ainda não foram reiniciados no processo de desenvolvimento que o usuário está operando, e a aceitação nativa está pendente.
 
-### 2026-09-08 13:57 原生工具调用触发协议关闭
+### 2026-09-08 13:57 chamada nativa de ferramenta dispara o fechamento do protocolo
 
-用户手动重测后，CEDAR 任务真实记录出现 ReadSessionContext，strategy=topic、sessionId=current、
-附件消息 `om_x100b66ccd1ebe0a8c22a536e7f67b07` 均正确，但结果为 `ZCode Protocol client connection closed`。
-Host 同时记录该工作区 CLI 协议关闭及 SIGTERM（protocol-close）。附件 port 直接发送 Core trace，
-包含严格协议 trace 不接受的 sessionId／turnId／attributes。新增完整协议帧测试先失败，复用
-既有 protocolTraceFromTraceContext 后 3 条 bootstrap port 测试通过（含读取及取消）。
-Bootstrap 类型检查、根目录 typecheck/lint 和 CLI 构建通过；lint 43 warnings、0 errors。
-用户确认可重启后，旧开发句柄退出130，旧 Electron3817／Host4058 已不存在；开始新的
-pnpm dev:desktop。修复后原生读取、返回文件内容及最终表情仍待重测，不记为已通过。
+Após o novo reteste manual do usuário, o registro real da task CEDAR passou a mostrar ReadSessionContext, com strategy=topic, sessionId=current e a mensagem de anexo `om_x100b66ccd1ebe0a8c22a536e7f67b07` corretos, mas o resultado foi `ZCode Protocol client connection closed`.
+O Host registrou simultaneamente o fechamento do protocolo da CLI desse workspace e um SIGTERM（protocol-close）. A porta de anexo envia diretamente o trace do Core, incluindo sessionId／turnId／attributes que o protocolo estrito não aceita. O novo teste de quadro completo de protocolo falhou primeiro e, após reutilizar o `protocolTraceFromTraceContext` existente, 3 testes da porta de bootstrap passaram（incluindo leitura e cancelamento）。
+Typecheck do bootstrap, typecheck／lint da raiz e o build da CLI passaram; lint com 43 warnings、0 errors.
+Após o usuário confirmar que podia reiniciar, o handle de desenvolvimento antigo saiu com 130, e o Electron 3817／Host 4058 antigos não existiam mais; foi iniciado um novo `pnpm dev:desktop`. A leitura nativa corrigida, a devolução do conteúdo do arquivo e a reação final ainda precisam de novo teste e não são registradas como aprovadas.
 
-14:06:46 新开发进程已就绪（Electron45600／Host45737，local services ready）；CLI 构建产物中
-已确认附件 port 使用转换后的协议 trace。附件桥／群／Provider 服务回归167条、既有消息流回归77条
-通过。飞书窗口由用户操作，下一轮原生工具调用及原话题结果待确认。
+14:06:46: o novo processo de desenvolvimento ficou pronto（Electron45600／Host45737, local services ready）; nos artefatos do build da CLI foi confirmado que a porta de anexo usa o trace de protocolo convertido. A regressão de ponte de anexo／grupo／serviço de Provider somou 167 testes, e a regressão existente de fluxo de mensagens somou 77 testes, ambos passando. A janela do Feishu foi operada pelo usuário, e a próxima chamada nativa de ferramenta e o resultado no tópico original aguardam confirmação.
 
 ### Standalone Core WebSocket resource routing regression
 
@@ -685,91 +700,82 @@ installing listeners; synchronously installing RPC in the `open` callback fixed 
 No production transport change was needed. Resource responses remain synthetic, so this
 is not live Feishu/Lark, remote Agent attachment, or mobile UI acceptance.
 
-附件取消／断连竞争回归：直接调用实际 abort listener，复现 requestClient 同步抛错会逃逸现有
-Promise.catch。取消通知改为 async try/catch 后，bootstrap port 共4条通过；原始读取仍以取消
-或断连失败，不新增重试。Bootstrap 与根目录类型检查、lint 通过（43 warnings / 0 errors）。
-该追加修复尚未重启到14:06启动的开发进程；正常读取的 trace 修复已在该进程中。
+Regressão de corrida entre cancelamento／desconexão de anexo: chamando diretamente o abort listener real, reproduziu-se que o erro síncrono lançado por requestClient escapava do Promise.catch existente. Depois que a notificação de cancelamento passou a usar async try/catch, a porta de bootstrap somou 4 testes passando; a leitura original continua falhando por cancelamento ou desconexão, sem novo retry. O typecheck do bootstrap e da raiz e o lint passaram（43 warnings／0 errors）.
+Esse fix adicional ainda não foi reiniciado no processo de desenvolvimento iniciado às 14:06; o fix de trace da leitura normal já está nesse processo.
 
-当前工作树受影响单测（包含未提交及新增源文件，而非仅比较 HEAD）：865 个文件通过，
-9721 条通过、4 条跳过，日志 `/tmp/topic-current-related.log`。这不包含 Agent 独立工作区
-全量测试，也不代表原生飞书验收。TP-01／TP-03 开始运行 WDIO；其构建清理共享 `out`
-导致已有开发进程退出，需在本轮测试结束后恢复开发进程，再继续用户手动验证。
+Os testes unitários afetados na árvore de trabalho atual（incluindo fontes não commitadas e novas, e não apenas a comparação com HEAD）: 865 arquivos passaram, com 9721 testes passando e 4 pulados, log em `/tmp/topic-current-related.log`. Isso não inclui a suíte completa de testes do Agent em workspace independente nem representa a aceitação nativa do Feishu. TP-01／TP-03 começaram a rodar o WDIO; sua limpeza de build removeu o `out` compartilhado e fez com que o processo de desenvolvimento existente saísse, sendo necessário restaurar o processo de desenvolvimento após o fim desta rodada de testes, antes de continuar a verificação manual do usuário.
 
-本轮 WDIO 已完成：TP-01 的真实 Host／CLI、附件队列及 Desktop DOM 场景1条通过；
-TP-03 的 Feishu／Lark 交互卡服务场景2条通过，共2个文件通过，退出0。
-日志 `/tmp/topic-desktop-wdio-current.log`。TP-03 即使由 WDIO 执行，仍是服务替身场景，
-不作为原生卡片或端到端 UI 证据；TP-01 不覆盖真实飞书文件下载。
+Esta rodada de WDIO foi concluída: o cenário de Host／CLI real, fila de anexos e DOM do Desktop do TP-01 passou com 1 teste; os 2 cenários de serviço de cartão de interação Feishu／Lark do TP-03 passaram, com 2 arquivos no total e saída 0.
+Log `/tmp/topic-desktop-wdio-current.log`. Mesmo executado pelo WDIO, o TP-03 continua sendo um cenário de serviço substituto e não serve como evidência nativa de cartão ou de UI ponta a ponta; o TP-01 não cobre download real de arquivo do Feishu.
 
-14:31:46 开发进程恢复，Host33325 记录 `local services ready, all channels registered`，
-日志 `/tmp/zcode-topic-post-wdio-dev.log`。本次重新构建包含取消／断连修复；
-提交前校验另在 `/tmp/topic-post-wdio-prepush.log` 运行，原生读取结果仍待用户重测。
+14:31:46: o processo de desenvolvimento foi restaurado, com Host33325 registrando `local services ready, all channels registered`, log `/tmp/zcode-topic-post-wdio-dev.log`. Este rebuild inclui o fix de cancelamento／desconexão;
+a verificação pré-commit foi rodada separadamente em `/tmp/topic-post-wdio-prepush.log`, e o resultado da leitura nativa ainda aguarda novo teste do usuário.
 
-该次提交前检查最终退出1：related Vitest 被 SIGSEGV 终止，未输出完整断言报告，
-不能记为通过。已重新执行检查（`/tmp/topic-post-wdio-prepush-workers2.log`）；文件名中的
-workers2 仅表示启动时传入的环境变量，仓库 Vitest 配置显式指定4个 threads，不能据此
-声称实际降低了并发。没有修改测试范围或绕过提交钩子。
+Essa verificação pré-commit terminou com saída 1: o Vitest relacionado foi terminado por SIGSEGV e não emitiu um relatório completo de asserções, portanto não pode ser registrada como aprovada. A verificação foi executada novamente（`/tmp/topic-post-wdio-prepush-workers2.log`）; o "workers2" no nome do arquivo indica apenas a variável de ambiente passada na inicialização — a configuração de Vitest do repositório especifica explicitamente 4 threads — e não se pode afirmar com base nisso que a concorrência foi de fato reduzida. Não se modificou o escopo dos testes nem se contornou o hook de commit.
 
-系统崩溃报告 `~/Library/Logs/DiagnosticReports/node-2026-09-08-143229.ips`
-匹配 Vitest PID14259，EXC_BAD_ACCESS，faultingThread5 的栈位于 V8
-ConcurrentBaselineCompiler／AssemblerBase::AddEmbeddedObject。这证明检查进程在后台编译阶段
-崩溃，尚不能确认诱因，也不能替代未完成测试的结果。
+O relatório de crash do sistema `~/Library/Logs/DiagnosticReports/node-2026-09-08-143229.ips`
+corresponde ao PID14259 do Vitest, com EXC_BAD_ACCESS e a pilha da faultingThread5 dentro de V8
+ConcurrentBaselineCompiler／AssemblerBase::AddEmbeddedObject. Isso prova que o processo de verificação
+crashou durante a fase de compilação em background; a causa ainda não pode ser confirmada e isso não
+substitui o resultado dos testes incompletos.
 
-提交前检查重跑最终退出0，changed-test 与 related 两阶段均完成；完整日志为
-`/tmp/topic-post-wdio-prepush-workers2.log`。本次通过不清除前述崩溃记录，也不扩大原生验收范围。
+A reexecução da verificação pré-commit terminou com saída 0, com as duas fases de changed-test e
+related concluídas; o log completo é `/tmp/topic-post-wdio-prepush-workers2.log`. Esta aprovação não
+apaga o registro de crash aforementioned nem amplia o escopo da aceitação nativa.
 
-## 已绑定群聊第一期（手动验收待执行）
+## Grupo vinculado fase 1 (aceitação manual pendente)
 
-BOT-E2E-GR-UI-01：机器人设置 → 当前飞书/Lark 机器人 → 工作区访问范围下方。
-用两个机器人、两个群、0/多个已记录话题验证：每群一行，只有群名、话题数和开关；
-无关联任务、展开或详情入口。切换机器人、长群名、深浅主题、中英文均检查。
-Desktop 与手机远控分别验证（窄 Desktop 不代替手机）；窄屏机器人列表在上、设置在下。
-关闭群后保留任务/话题计数，另一群不变；重开不补发，飞书 /disable 后界面同步。
-保存中不可重复操作；断连失败保持原状态并显示刷新入口；机器人关闭时禁用群开关。
-单测覆盖聚合隔离、重复话题、开关等待/失败/no-op、加载失败；不代替真实端到端验收。
-当时按用户要求未启动 dev，本项保持 pending；2026-09-23 已补 Desktop 成功保存路径（见文末），手机远控仍未验证。
-2026-09-17 收尾提交：群列表/交互及群服务共 91 条单测通过；不将单测当作真实渠道验收。
+BOT-E2E-GR-01: configurações do robô → robô Feishu／Lark atual → abaixo do escopo de acesso ao workspace.
+Validar com dois robôs, dois grupos e 0／vários tópicos já registrados: uma linha por grupo, contendo apenas nome do grupo, contagem de tópicos e interruptor;
+sem task associada, sem expansão e sem entrada de detalhe. Trocar de robô, nome de grupo longo, temas claro e escuro, chinês e inglês são todos verificados.
+Desktop e controle remoto do celular são validados separadamente（Desktop estreito não substitui o celular）; na tela estreita a lista de robôs fica em cima e as configurações embaixo.
+Depois de desabilitar o grupo, as contagens de tasks／tópicos são preservadas e o outro grupo não muda; reabrir não reenvia, e após `/disable` no Feishu a interface sincroniza.
+Enquanto salva, não é possível operar repetidamente; falha de desconexão mantém o estado original e mostra a entrada de atualização; com o robô desligado o interruptor de grupo é desabilitado.
+Testes unitários cobrem isolamento agregado, tópicos duplicados, espera／falha／no-op do interruptor e falha de carregamento; não substituem a aceitação real ponta a ponta.
+Por pedido do usuário não foi iniciado o dev naquele momento, e este item permanece pending; em 2026-09-23 foi adicionado o caminho de sucesso de salvamento no Desktop（ver o fim deste documento）, e o controle remoto do celular continua não verificado.
+Commit de encerramento de 2026-09-17: lista／interação de grupo e serviço de grupo somam 91 testes unitários passando; testes unitários não são tratados como aceitação real de canal.
 
-## BOT-UI-TP-PREPARATION：准备态消息气泡
+## BOT-UI-TP-PREPARATION: bolha de mensagem em estado de preparação
 
-- 候选：`packages/ui/test/browser/manual-review/pending/topic-preparation.test.mjs`，同目录 case-local fixture。
-- 单测：`packages/ui/test/v4BotTopicPreparation.test.ts`；覆盖原始消息 ID 去重、合批 ID、同正文不同 ID 保留、空白正文无气泡、来源行加载图标及 hover/focus tooltip。
-- 浏览器：桌面/手机宽度 × 中英文 × 深浅主题，真实组件和样式；准备、等待、失败移除及接收重叠；正文沿用正式消息折叠/展开，loading 位于渠道/姓名旁。
-- 真实 Desktop/手机远控/飞书 E2E 待验证，不将窄屏 Chrome 计为真实手机验收。
+- Candidato：`packages/ui/test/browser/manual-review/pending/topic-preparation.test.mjs`，com fixture local ao case no mesmo diretório。
+- Testes unitários：`packages/ui/test/v4BotTopicPreparation.test.ts`；cobre deduplicação por ID de mensagem original, ID de lote, corpo igual com IDs diferentes preservados, corpo em branco sem bolha, ícone de carregamento na linha de origem e tooltip de hover／focus.
+- Navegador: largura desktop／celular × chinês／inglês × tema claro／escuro, com componentes e estilos reais; preparação, espera, remoção por falha e sobreposição na recepção; o corpo reaproveita o collapse／expand da mensagem oficial, e o loading fica ao lado do canal／nome.
+- Desktop／celular reais／E2E do Feishu aguardam verificação, e o Chrome em tela estreita não conta como aceitação real de celular.
 
-本次组件验证：上述浏览器 8 组通过并人工查看深浅主题截图；准备态/原始消息展开/消息编辑 42 项单测及时间线/标记回归 33 项通过；根 typecheck、architecture:check --changed 通过，lint 0 error、48 warning。截图在系统临时目录 `zcode-topic-preparation/`。
+ Validação de componente desta rodada: os 8 grupos de navegador acima passaram e as capturas de tela dos temas claro e escuro foram inspecionadas manualmente; 42 testes unitários de preparação／expansão de mensagem original／edição de mensagem e 33 de regressão de timeline／marcas passaram; typecheck da raiz, `architecture:check --changed` passaram, lint com 0 error e 48 warnings. As capturas estão no diretório temporário do sistema `zcode-topic-preparation/`.
 
-2026-09-17 后续修正：准备消息进入 ConversationTurnGroup 消息流，共用完整正文组件，状态/失败/重试在同一气泡 DOM 内。新增 render-unit 与真实 turn-group 组件回归，覆盖未产生 CLI rows、running live tail 保留及正式输入接替；140 项相关单测通过。根 typecheck、lint（0 error，48 warning）、架构检查通过；浏览器 8 组通过。真实飞书与手机远控仍待验收。
+Correção posterior de 2026-09-17: a mensagem de preparação passou a entrar no fluxo de mensagens ConversationTurnGroup, compartilhando o componente de corpo completo, e estado／falha／retry ficam no mesmo DOM da bolha. Foram adicionados render-unit e regressões reais do componente turn-group, cobrindo ausência de rows da CLI, preservação do running live tail e substituição pela entrada oficial; 140 testes unitários relacionados passaram. Typecheck da raiz, lint（0 error, 48 warnings）、verificação de arquitetura passaram; os 8 grupos de navegador passaram. Feishu real e celular remoto continuam aguardando aceitação.
 
-2026-09-17 来源行状态调整：准备文字不再常驻显示，改为「飞书/Lark · 姓名 + loading」，hover/focus tooltip 显示状态；空正文不造气泡。119 项相关单测、8 组浏览器检查通过；覆盖首次配置解析 Lark、旧任务迟到配置隔离、长姓名、tooltip 和重试。typecheck、lint（0 error，48 warning）、架构检查通过。真实飞书/手机远控待验收。
+Ajuste da linha de origem em 2026-09-17: o texto de preparação não fica mais permanentemente visível e passa a ser「飞书/Lark · 姓名 + loading」, com o estado no tooltip de hover／focus; corpo vazio não cria bolha. 119 testes unitários relacionados e 8 grupos de navegador passaram; cobrem a resolução inicial de configuração do Lark, o isolamento de configuração tardia de tasks antigas, nome longo, tooltip e retry. Typecheck, lint (0 error, 48 warnings) e a verificacao de arquitetura passaram. Feishu real/celular remoto aguardam aceitacao.
 
-2026-09-17 删除材料准备失败展示：失败不再投影为临时消息，移除红色错误、重试按钮及孤立来源，不产生空白 render unit；服务记录/执行/飞书回复未改动。75 项单测与浏览器 8 组覆盖初始失败、准备转失败、其他消息保留；真实飞书/手机远控待验收。
+Remoção da exibição de falha na preparação de material em 2026-09-17: a falha não é mais projetada como mensagem temporária; o erro vermelho, o botão de retry e a origem órfã foram removidos, e nenhum render unit em branco é produzido; registro／execução／resposta do Feishu não foram alterados. 75 testes unitários e 8 grupos de navegador cobrem falha inicial, preparação que vira falha e preservação das outras mensagens; Feishu real／celular remoto aguardam aceitação.
 
-## 单聊持续回传
+## Retorno contínuo em conversa privada
 
 | Case          | 状态    | 用例                                                                                 | 证据边界                                                                                   |
 | ------------- | ------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | BOT-E2E-PS-01 | pending | `packages/desktop/test/e2e/bots/manual-review/pending/bot-private-task-sync.test.ts` | controlled-stream，三渠道出站 HTTP、连续 desktop/mobile 来源轮次与停用；真实 IM/手机未验证 |
 
-服务补充：多目标共享订阅、自动任务去重、微信 token 更新/重启读取/显式重试、换绑隔离。UI 补充：重试按钮仅显式触发、发送中禁用、成功隐藏及错误可见。均不替代真实渠道人工验收。
+Suplemento de serviço: assinatura compartilhada por múltiplos alvos, deduplicação de tasks automáticos, atualização／leitura após reinício／retry explícito do token do WeChat e isolamento ao trocar de vínculo. Suplemento de UI: o botão de retry só é acionado explicitamente, fica desabilitado durante o envio, some no sucesso e exibe o erro. Nada disso substitui a aceitação manual de canal real.
 
 ## Native channel mention reply
 
 BOT-E2E-MN-01: `bots/feishu-channel-mention.test.ts`，
-synthetic service/provider 验证当前输入节点、正文原生 at、固定会话、幂等及未知目标拒绝。
-CLI 工具父消息绑定、协议与客户端节点显示分别由单测覆盖；真实飞书验证由用户进行。
+servico/provider sinteticos validam o no de entrada atual, o at nativo no corpo, a sessao fixa, a idempotencia e a rejeicao de alvo desconhecido.
+A vinculacao da mensagem pai da ferramenta CLI, o protocolo e a exibicao do no no cliente sao cobertos por testes unitarios separados; a validacao real no Feishu e feita pelo usuario.
 
-2026-09-23 验证：MN-01 的 Feishu/Lark × 群/话题 4 个合成场景在 Desktop WDIO 通过
-（`desktop-e2e-20260923052447997-p75879-83688b39c0a71a8a`），当时保留 pending；2026-10-08 已转正。
-`channel-mention.test.mjs` 的 390/1200px × 深浅主题 4 个真实组件场景通过；
-CLI 工具契约、当前执行输入绑定、来源持久化、反向协议，以及 Host/远端连接隔离另有单测。
-这不构成真实租户通知、另一机器人响应或手机 replayable 真机的验证。
+Validacao de 2026-09-23: os 4 cenarios sinteticos Feishu/Lark x grupo/topico de MN-01 passaram no Desktop WDIO
+（`desktop-e2e-20260923052447997-p75879-83688b39c0a71a8a`）, permanecendo pending na epoca; em 2026-10-08 foi promovido.
+`channel-mention.test.mjs`  de `channel-mention.test.mjs` em 390/1200px x temas claro e escuro, 4 cenarios de componente reais, passaram;
+O contrato da ferramenta CLI, a vinculacao da entrada de execucao atual, a persistencia de origem, o protocolo reverso e o isolamento de conexao Host/remoto tem testes unitarios proprios.
+Isso nao constitui validacao de notificacao em tenant real, de resposta de outro robo ou de celular replayable em aparelho real.
 
-## 2026-09-23 分支覆盖补齐
+## 2026-09-23 complemento da cobertura de ramos
 
-以 case catalog 的 accepted 分支验收表为准。新增 TP-04/TP-05/FN-01/MN-02 优先真实 Host/CLI；
-既有 GR/MN/TP/PS case 扩展已定义行为，GR-UI-01 补实际组件交互。
-证据必须分别标记 service synthetic、真实 CLI、Desktop DOM、手机 replayable 与 live tenant；
-本轮证据如下，不沿用旧通过次数。没有重新开启重复成功回执修复。
+Vale como referencia a tabela de aceitacao de ramos aceitos do case catalog. Os novos TP-04/TP-05/FN-01/MN-02 priorizam Host/CLI reais;
+nos cases GR/MN/TP/PS existentes o comportamento ja definido foi estendido, e GR-UI-01 complementa com interacao real de componente.
+As evidencias precisam ser marcadas separadamente como service synthetic, CLI real, DOM do Desktop, celular replayable e tenant ao vivo;
+as evidencias desta rodada sao as abaixo, sem reaproveitar contagens de aprovacoes antigas. A correcao de recibo de sucesso duplicado nao foi reaberta.
 
 
 | Case | 当前证据 | 结论 |
@@ -781,122 +787,122 @@ CLI 工具契约、当前执行输入绑定、来源持久化、反向协议，�
 | TP-03 | 飞书/Lark × 是否明确提及共四场景：可信消息边界、真实 run 来源、引用当前提问、审批 @ 管理员、问答按提及决定 @ | passed，pending |
 | GR-02/04 旧 Desktop runtime | v3 状态文件、职业引导和新 Provider 分组夹具已更新；队列展示、取消、来源详情与已收到操作执行至通过；群草稿 `/mode yolo` 失败 | failed，不算全 case 通过 |
 
-新 worker case 的实际路径为 `packages/desktop/test/e2e/conversation-session/manual-review/pending/`；
-其他候选在 `packages/desktop/test/e2e/bots/manual-review/pending/`。
-三个 worker 的 case-local provider fixtures 与 canonical manifests 均通过 fixture checker；
-checker 对结果 marker 的提示不代表输入匹配缺失，结果 marker 只用于出站与文件内容断言。
+O caminho real dos novos cases de worker e `packages/desktop/test/e2e/conversation-session/manual-review/pending/`;
+os outros candidatos ficam em `packages/desktop/test/e2e/bots/manual-review/pending/`.
+Os fixtures de provider locais ao case dos tres workers e os manifests canonicos passaram no fixture checker;
+as hints do checker sobre markers de resultado nao indicam entrada nao correspondida: eles sao usados apenas em assercoes de saida e de conteudo de arquivo.
 
-运行证据：
+Evidencias de execucao:
 
-- `desktop-e2e-20260923072023647-p32033-0a7006ae178b1ce2`：MN-02/FN-01、GR-02 正常晋升/PS-01、GR-UI-01 共 4 tests 通过。该批 TP-05 的初版文件断言把工具文本误按完整 JSON 解析而失败，后续已按真实工具输出格式修正。
-- `desktop-e2e-20260923072235577-p39368-fb67b05b6f0e5ef6`：TP-04/05 两项通过；MN-01 四项、PS-01 三渠道三项、runtime authority 两项、remote disconnected 一项、automation result 一项、provider interactions 三项通过。GR runtime 与旧 TP-03 夹具失败分别记录，不把该批整体写成通过。
-- `pnpm typecheck`、Desktop `typecheck:e2e`、`architecture:check --changed` 通过；6 个相关单测文件共 149 tests 通过。
-- 根 `pnpm lint` 失败于本次未改文件的 max-lines：`packages/shared/src/zcode-protocol-v4/command.ts` 405，`packages/ui/src/v4/conversationTurnRenderUnits.ts` 401；本次修改的测试与 helper 定向 lint 0 error/0 warning。
+- `desktop-e2e-20260923072023647-p32033-0a7006ae178b1ce2`： MN-02/FN-01, GR-02 promocao normal/PS-01 e GR-UI-01, 4 tests no total, passaram. A primeira versao da assercao de arquivo do TP-05 nesse lote falhou por tentar interpretar o texto da ferramenta como JSON completo e depois foi corrigida para o formato real de saida da ferramenta.
+- `desktop-e2e-20260923072235577-p39368-fb67b05b6f0e5ef6`: TP-04/05, dois testes, passaram; MN-01 com quatro, PS-01 com tres canais e tres, runtime authority com dois, remote disconnected com um, automation result com um e provider interactions com tres, passaram. As falhas de GR runtime e do fixture antigo do TP-03 sao registradas separadamente e o lote nao e escrito como aprovado por inteiro.
+- `pnpm typecheck`, `typecheck:e2e` do Desktop e `architecture:check --changed` passaram; 6 arquivos de teste unitario relacionados somaram 149 tests passando.
+O `pnpm lint` da raiz falhou por max-lines em arquivos nao alterados nesta rodada:`packages/shared/src/zcode-protocol-v4/command.ts`  com 405 linhas;`packages/ui/src/v4/conversationTurnRenderUnits.ts`  com 401 linhas; o lint direcionado dos testes e helpers alterados nesta rodada ficou em 0 error/0 warning.
 
-未关闭的问题与边界：
+Questoes e limites em aberto:
 
-1. GR runtime 的 `/mode yolo` 实际返回 `Mode option not found.`，随后新 session 的权限为 `{scope:"session",mode:"build"}`。`listDraftConfigOptions` 仅返回 reasoning，mode.set 无候选；已对比 `origin/staging`，同一实现也存在于基线。保留原本 yolo 隔离断言，不修改产品实现或降低预期；因此该 case 仍失败，后续断言未执行。
-2. TP-05 调试时旧 `readSessionMessages` 接口出现当前 CLI 返回结构与旧 schema 不匹配（messageId/sessionId 对 id/sessionID 等）。最终文件核验读取隔离 CLI SQLite 的真实 completed tool result，不绕过 ReadSessionContext 下载；该旧查询接口问题未在本次测试维护中修复。
-3. 实际手机 replayable、SSH、Windows/Linux、真实飞书/Lark 租户通知与另一机器人响应未验证。成功的 Node Host/CLI 测试不冒充 Electron UI，窄窗口不冒充手机。
-4. 初始验证时所有新增 case 保持 pending；随后用户确认转正，最终状态见下节。必要检查仍有失败，因此不自动 commit。
+1. O `/mode yolo` do GR runtime realmente retorna `Mode option not found.`, e depois disso a permissão da nova session é `{scope:"session",mode:"build"}`. `listDraftConfigOptions` retorna apenas reasoning, e mode.set não tem candidatos; ao comparar com `origin/staging`, a mesma implementação já existe na baseline. Mantém-se a asserção original de isolamento do yolo, sem modificar a implementação do produto nem baixar a expectativa; portanto o case continua falhando e as asserções seguintes não foram executadas.
+2. Durante o debug de TP-05, a interface antiga `readSessionMessages` mostrou que a estrutura retornada pela CLI atual não bate com o schema antigo（messageId/sessionId contra id/sessionID 等）. A verificação final de arquivo lê o resultado real de tool completed do SQLite da CLI isolada, sem contornar o download de ReadSessionContext; esse problema da interface antiga de consulta não foi corrigido nesta manutenção de testes.
+3. Celular replayable real, SSH, Windows／Linux, notificações de tenant Feishu／Lark reais e a resposta de outro robô não foram verificados. Testes Node Host／CLI bem-sucedidos não se passam por Electron UI, e janela estreita não se passa por celular.
+4. Na verificação inicial todos os novos cases permaneceram pending; em seguida o usuário confirmou a promoção, e o estado final está na seção abaixo. Como as verificações necessárias ainda têm falhas, não há commit automático.
 
 
-GR-UI-01 最终隔离配置保留缺密钥的绑定引用，避免自动触发扫码注册；
-`desktop-e2e-20260923072504683-p46231-87bcca99bca1deb4` 中该项通过，截图可见两群开关与 2/0 话题数。
-TP-03 更新当前历史边界、从根引用改为当前消息引用，并补上真实入站字段 `mentionedBot` 与 run/input 来源；
-权限审批的管理员提醒不受该字段限制，普通问答才受限制。不能用旧夹具缺字段的失败推断实际客户端行为。
+A configuracao isolada final do GR-UI-01 mantem a referencia de vinculo sem credencial, evitando disparar automaticamente o registro por QR code;
+`desktop-e2e-20260923072504683-p46231-87bcca99bca1deb4` nesse item passou, e a captura de tela mostra os dois interruptores de grupo e as contagens 2/0 de topicos.
+TP-03 atualizou o limite de historico atual, trocou a referencia pela mensagem raiz pela referencia a mensagem atual e adicionou o campo de entrada real `mentionedBot` e a origem de run/input;
+O lembrete de administrador da aprovacao de permissao nao e limitado por esse campo; apenas a pergunta e resposta comum e. Nao se pode inferir o comportamento real do cliente a partir da falha de um fixture antigo sem esse campo.
 
-TP-03 最终四场景在 `desktop-e2e-20260923073023766-p58398-07c97a81dceae606` 全部通过。
-按最终版本去重合计：本轮新增 6 tests + 相关既有回归 18 tests 通过，GR-02/04 一个完整 case 仍失败；
-不把中间失败、重复回放计入通过数量。此处为转正前验证记录；最终目录状态见下节，上述未验证边界继续保留。
+Os quatro cenarios finais do TP-03 em `desktop-e2e-20260923073023766-p58398-07c97a81dceae606` passaram todos.
+Somando sem duplicatas conforme a versao final: 6 tests novos nesta rodada mais 18 tests de regressao relacionada passaram, e um case completo do GR-02/04 continua falhando;
+falhas intermediarias e replays repetidos nao contam como aprovacoes. Este e o registro de verificacao anterior a promocao; o estado final dos diretorios esta na secao abaixo e os limites nao verificados acima continuam valendo.
 
-### 2026-09-23 用户确认转正
+### 2026-09-23 confirmacao de promocao pelo usuario
 
-用户确认后，四份新增 spec（六条测试）进入正式目录：
+Apos a confirmacao do usuario, quatro specs novas (seis testes) entraram no diretorio formal:
 
 - `conversation-session/conversation-session-bot-channel-worker.test.ts`
 - `conversation-session/conversation-session-bot-topic-worker.test.ts`
 - `conversation-session/conversation-session-bot-continuous-worker.test.ts`
 - `bots/feishu-bound-groups-ui.test.ts`
 
-前三份采用独立 common + case-local 回放夹具；UI 用例使用隔离配置，无模型请求。已有 `/mode yolo` 失败用例仍保持 pending。此次没有 Docker 验证或 CI 准入，不代表真实飞书租户、手机或其他桌面系统验收。
+As três primeiras usam replay com common independente e fixture local ao case; o case de UI usa configuração isolada, sem requisições de modelo. O case com falha de `/mode yolo` já existente permanece pending. Não houve validação Docker nem admissão de CI nesta rodada, e isso não representa aceitação de tenant Feishu real, celular ou outros sistemas desktop.
 
-转正后验证：
+Verificacao apos a promocao:
 
-- 显式独立夹具回放：`desktop-e2e-20260923080004888-p15664-50144fe647413bfe`，4 spec / 6 tests 全部通过。
-- 默认回放：`desktop-e2e-20260923080201440-p21714-f35052aadb92370c`，4 spec / 6 tests 全部通过。Worker 自建回放服务仅加载 common 与自己的 case-local fixture。
-- 三份 fixture check、Desktop E2E typecheck、根 typecheck、架构检查和覆盖审计均通过；新增 spec/helper 定向 lint 为 0 errors / 0 warnings。Fixture check 的未匹配 marker 警告对应输出断言/附件内容，不是缺失请求。
-- 转正审计发现 Highspeed manifest 两条 syntheticReason 与 provider fixture 不一致，已机械同步说明文字，未改请求或测试语义。
-- 初次转正时根 lint 存在两个 max-lines 错误，随后由 `536dd65dce` 拆分配置 schema 和渲染类型解决，保持原有行为与导出入口。
-- `905e271182` 补齐 Highspeed 测试的 Bot 服务 mock，并等待 stdio 服务异步回收后再清理临时目录。最终 typecheck、lint（0 errors / 62 warnings）、架构检查和完整 pre-push 均通过；pre-push 覆盖 76 个变更测试文件及 196 个源文件的关联回归。此结果不替代上文尚未通过的 Desktop E2E 或 Docker/CI 准入。
+- Replay com fixture independente explicito:`desktop-e2e-20260923080004888-p15664-50144fe647413bfe`，4 spec / 6 tests passaram todos.
+- Replay padrao:`desktop-e2e-20260923080201440-p21714-f35052aadb92370c` com 4 spec / 6 tests, todos passando. O servico de replay do Worker so carrega o common e o seu proprio fixture local ao case.
+- Os tres fixture checks, o typecheck de E2E do Desktop, o typecheck raiz, a verificacao de arquitetura e a auditoria de cobertura passaram; o lint direcionado das specs/helpers novas ficou em 0 errors / 0 warnings. Os avisos de markers nao correspondidos do fixture check correspondem a assercoes de saida/conteudo de anexo e nao a requisicoes faltantes.
+- A auditoria de promocao encontrou duas syntheticReason do manifest Highspeed inconsistentes com o fixture de provider; o texto explicativo foi sincronizado mecanicamente, sem alterar requisicoes nem semantica de teste.
+- Na primeira promocao o lint raiz tinha dois erros de max-lines, resolvidos depois por `536dd65dce`, que separou o schema de configuracao dos tipos de renderizacao preservando o comportamento e a entrada de export existentes.
+- `905e271182` completou o mock do servico de Bot do teste Highspeed e passou a esperar a coleta assincrona do servico stdio antes de limpar o diretorio temporario. O typecheck final, o lint (0 errors / 62 warnings), a verificacao de arquitetura e o pre-push completo passaram; o pre-push cobriu 76 arquivos de teste alterados e a regressao relacionada de 196 arquivos-fonte. Este resultado nao substitui o Desktop E2E ou a admissao Docker/CI ainda nao aprovados acima.
 
-## 2026-10-08 话题详情入口移除
+## 2026-10-08 remocao da entrada de detalhes do topico
 
-回复操作栏不再展示话题详情按钮或弹窗；历史 TP-01 的详情展示证据不再代表当前 UI 契约。组件回归覆盖话题任务的成功投递无入口，以及失败/未知投递保留恢复按钮。组件及会话轮次回归 119 条通过；真实浏览器在 390/1200 宽度 × 中英文 × 深浅主题的 8 组检查均通过，断言详情入口消失、失败恢复弹层仍可打开。真实 Desktop 与手机 relay E2E 本次未重跑。
+A barra de acoes de resposta nao exibe mais botao nem popover de detalhes do topico; as evidencias antigas de exibicao de detalhes do TP-01 nao representam mais o contrato de UI atual. As regressoes de componente cobrem a ausencia de entrada para entrega bem-sucedida em task de topico e a manutencao do botao de recuperacao para entregas com falha/desconhecidas. As regressoes de componente e de turno de sessao somaram 119 testes passando; as 8 combinacoes no navegador real em larguras 390/1200 x chines/ingles x temas claro e escuro passaram, asseverando que a entrada de detalhes desapareceu e que a camada de recuperacao de falha ainda abre. O Desktop real e o E2E de relay em celular nao foram rodados novamente nesta rodada.
 
-## TP-06 其他机器人消息
+## TP-06 mensagens de outros robos
 
-复用 `conversation-session-bot-topic-worker.test.ts` 的 TP-04 场景，增加真实 Provider 解析的其他机器人输入和自身消息过滤断言。Provider/service 单测覆盖双渠道、未接入/退出边界、控制命令隔离、重复事件和机器人历史。
+Reaproveita o cenario TP-04 de `conversation-session-bot-topic-worker.test.ts` e acrescenta assercoes de entrada de outros robos resolvida pelo Provider real e de filtragem das proprias mensagens. Os testes unitarios de Provider/servico cobrem os dois canais, os limites de nao integrado/ saida, o isolamento de comandos de controle, eventos duplicados e o historico de robos.
 
-2026-10-08 验证：5 个单测文件共 232 项通过；桌面 E2E 2 项通过，运行记录
-`desktop-e2e-20261008-085523-181`。真实 Host/CLI 证明其他机器人消息停止旧运行后
-进入同一任务并成功回复，重复回调及自身消息不新增输入；历史资源工具回查继续通过。
-fixture 检查、根 typecheck、desktop typecheck:e2e、lint 和架构检查通过；lint 保留
-既有 warnings。平台 HTTP 与模型为隔离替身，不替代真实飞书/Lark 推送、租户权限、
-手机远控界面或其他操作系统验证。本次不修改桌面 continuous / 手机 replayable 链路。
+Validacao de 2026-10-08: 5 arquivos de teste unitario somaram 232 testes passando; 2 testes de E2E desktop passaram, com o registro de execucao em
+`desktop-e2e-20261008-085523-181`. O Host/CLI real prova que a mensagem de outro robo, apos parar a execucao antiga,
+entra na mesma task e responde com sucesso, e que callbacks duplicados e as proprias mensagens nao adicionam entradas; a consulta pela ferramenta de recursos historicos continua passando.
+A verificacao de fixture, o typecheck raiz, o desktop typecheck:e2e, o lint e a verificacao de arquitetura passaram; o lint mantem
+os warnings ja existentes. O HTTP de plataforma e o modelo sao substitutos isolados e nao substituem push real de Feishu/Lark, permissao de tenant,
+a interface de controle remoto do celular nem verificacao em outros sistemas operacionais. Esta rodada nao modifica a cadeia desktop continuous / celular replayable.
 
-## 2026-10-08 机器人自动互答上限
+## 2026-10-08 limite de respostas automaticas entre robos
 
-- TP-04：真实 Host/CLI 话题任务连续接收 5 条机器人消息；第 5 条仍运行时，第 6 条不触发 stop 或 admission；真人新消息恢复后继续接收。
-- MN-01：Feishu/Lark 原生 bot 回调在主聊天执行 5 条上限、重复不计数、真人恢复。
-- 服务单测：并发上限、旧真人重投不恢复、主聊天/话题隔离、v3 schema 序列化后新建服务保留上限。
-- 限制：平台 HTTP 使用合成夹具；不证明真实租户机器人推送权限或手机远控真机行为。guard 只影响 Bot Host 入站，不改变 desktop continuous / mobile replayable 的运行态恢复协议。
+- TP-04: uma task de topico em Host/CLI real recebe consecutivamente 5 mensagens de robo; enquanto a 5a ainda roda, a 6a nao dispara stop nem admission; apos a chegada de uma nova mensagem de pessoa real, o recebimento continua.
+- MN-01: o callback nativo de bot em Feishu/Lark no chat principal aplica o limite de 5, nao conta duplicatas e retoma com mensagem de pessoa real.
+- Testes unitarios de servico: limite de concorrencia, reenvio antigo de pessoa real nao retoma, isolamento entre chat principal e topico e preservacao do limite em um servico recriado apos serializar o schema v3.
+- Limitacoes: o HTTP de plataforma usa fixtures sinteticos; isso nao prova permissao de push de robo em tenant real nem comportamento de celular remoto em aparelho real. O guard afeta apenas o inbound do Bot Host e nao altera o protocolo de recuperacao de estado de execucao do desktop continuous / mobile replayable.
 
-验证：`desktop-e2e-20261008-113805-939` 两个正式 spec 共 6 passing；加强运行中断言后
-`desktop-e2e-20261008-114025-803` 真实 CLI 话题 2 passing；服务/Provider/存储/mention 共 216 条单测通过。
+Verificacao: `desktop-e2e-20261008-113805-939` com 6 passing nos dois specs formais; depois de reforcar as assercoes em tempo de execucao,
+`desktop-e2e-20261008-114025-803` o topico em CLI real `desktop-e2e-20261008-114025-803` deu 2 passing; servico/Provider/armazenamento/mention somaram 216 testes unitarios passando.
 
-## 2026-10-09 引用与投递重放回归
+## 2026-10-09 regressao de referencia e replay de entrega
 
-MN-01 正式用例覆盖 Feishu/Lark × 群/话题的活跃发送重放：平台响应由 Promise 屏障控制，
-重放不能提前返回，两次最终回执一致且只发送一次；普通群机器人引用会读取父消息。
-`desktop-e2e-20261009-022912-432`：4 passing。首次完整构建后 WebDriver session 创建超时，
-同一构建重试成功；该启动失败不计入用例通过。
-服务/Provider/delivery 共 138 条单测通过，覆盖 bot/app 的文字/附件父引用、自身过滤、
-活跃发送及限流重试的重放等待、重启遗留 unknown 不重发。平台 HTTP 是合成替身，
-不替代真实租户通知、手机远控及跨操作系统验证。
+O case formal MN-01 cobre o replay de envio ativo em Feishu/Lark x grupo/topico: a resposta da plataforma e controlada por uma barreira de Promise,
+o replay nao pode retornar antes, os dois recibos finais sao consistentes e ha apenas um envio; a referencia de robo em grupo comum le a mensagem pai.
+`desktop-e2e-20261009-022912-432`: 4 passing. Apos o primeiro build completo a criacao da sessao WebDriver expirou,
+e a repeticao com o mesmo build teve sucesso; essa falha de inicializacao nao conta como aprovacao de case.
+Servico/Provider/delivery somaram 138 testes unitarios passando, cobrindo a referencia pai de texto/anexo de bot/app, o filtragem da propria mensagem,
+a espera de replay no envio ativo e no retry com limite de taxa e o nao reenvio de um unknown remanescente do reinicio. O HTTP de plataforma e um substituto sintetico,
+e nao substitui notificacao em tenant real, celular remoto nem verificacao entre sistemas operacionais.
 
-## 2026-10-09 多机器人身份与指派边界
+## 2026-10-09 identidade de multiplos robos e limite de atribuicao
 
-- TP-04 扩展：真实 CLI 正在运行时，原生只 @ 其他机器人的消息不触发 stop/admission；下一条有效输入补读这条背景，携带当前机器人身份，成功接收后清理补读标记。
-- 服务单测：同名不同 ID 不抢答；重建服务保留补读检查点；补读期间的新背景保留到下一轮；无 @ 空输出保持静默，显式 @ 的空输出保留完成提示。
-- CLI 单测：模型上下文包含自身身份、逐条消息是否 @ 自己以及职责边界；无 @ 的非本人任务允许不调用工具、不回复。
+- Extensao do TP-04: com a CLI real em execucao, uma mensagem nativa que so marca outro robo nao dispara stop/admission; a proxima entrada valida le esse contexto de fundo carregando a identidade do robo atual e, apos a recepacao bem-sucedida, limpa a marca de releitura.
+- Testes unitarios de servico: nomes iguais com IDs diferentes nao disputam resposta; um servico recriado preserva o checkpoint de releitura; um novo fundo durante a releitura e guardado para a proxima rodada; saida vazia sem @ fica silenciosa e saida vazia com @ explicito mantem o aviso de conclusao.
+- Testes unitarios da CLI: o contexto do modelo contem a propria identidade, se cada mensagem marca o proprio robo e o limite de responsabilidade; em uma task de outra pessoa sem @ e permitido nao chamar ferramenta e nao responder.
 
-验证：`desktop-e2e-20261009-072256-679` TP-04/05 共 2 passing；服务 112、
-Provider 100、CLI 上下文 5 条测试通过。根 typecheck、CLI typecheck、desktop
-typecheck:e2e、根 lint、改动 CLI 文件 lint、架构与 fixture 检查通过。
-CLI 全量 lint 被既有 debug/cli/telemetry 文件的 max-lines 错误阻塞，未改动这些文件。
-平台 HTTP 与模型使用合成夹具；不证明真实模型始终正确理解无 @ 分工，也不替代真实租户、
-手机远控和其他操作系统验证。本次只改变 Bot 入口与输入上下文，不修改 desktop continuous /
-mobile replayable 的流恢复协议；未新增 Docker/CI 准入。
+Verificacao: `desktop-e2e-20261009-072256-679` com 2 passing em TP-04/05; servico 112,
+Provider 100 e contexto da CLI 5 testes passaram. Typecheck raiz, typecheck da CLI, desktop
+typecheck:e2e, lint raiz, lint dos arquivos da CLI alterados e as verificacoes de arquitetura e de fixture passaram.
+O lint completo da CLI foi bloqueado por erros de max-lines existentes nos arquivos debug/cli/telemetry, que nao foram alterados.
+O HTTP de plataforma e o modelo usam fixtures sinteticos; isso nao prova que um modelo real sempre compreende corretamente a divisao sem @ e nao substitui tenant real,
+celular remoto nem verificacao em outros sistemas operacionais. Esta rodada altera apenas a entrada do Bot e o contexto de entrada, sem modificar o protocolo de recuperacao de stream do desktop continuous /
+mobile replayable; nenhuma admissao Docker/CI foi adicionada.
 
-### 群聊停止静默（2026-10-09）
+### Silencio ao parar em grupo (2026-10-09)
 
-MN-01 的 Feishu/Lark × 群主聊天/话题四项覆盖 `/stop` 成功不返回状态卡、
-取消完成事件不投递停止通知。群服务单测验证停止表情更新和错误回复的原始收件人。
-本轮运行结果以 MR 验证记录为准，合成渠道覆盖不代表真实租户验证。
+Os quatro casos de MN-01 em Feishu/Lark x chat principal/topico cobrem o `/stop` bem-sucedido nao retornando cartao de status e
+o evento de conclusao por cancelamento nao entregar notificacao de parada. Testes unitarios do servico de grupo validam a atualizacao da reacao de parada e o destinatario original da resposta de erro.
+O resultado de execucao desta rodada segue o registro de verificacao do MR, e a cobertura de canal sintetico nao representa validacao de tenant real.
 
-### 跨任务名字候选（2026-10-09）
+### Candidatos de nome entre tasks (2026-10-09)
 
-MN-01 四种 Feishu/Lark × 群主聊天/话题组合模拟切换任务并从持久化状态恢复，
-新任务仅提供纯文字名字仍能解析同授权历史原生 mention，直接使用旧 ref 则拒绝发送。
-单测另覆盖不同授权、群、app、bot、provider 的历史节点隔离。
+As quatro combinacoes de MN-01 em Feishu/Lark x chat principal/topico simulam a troca de task e a recuperacao a partir do estado persistido, e
+na nova task, fornecer apenas o nome em texto puro ainda resolve mencoes nativas do historico sob a mesma autorizacao, enquanto usar diretamente o ref antigo rejeita o envio.
+Testes unitarios cobrem ainda o isolamento dos nos de historico entre autorizacoes, grupos, apps, bots e providers diferentes.
 
-### MR 评审回归（2026-10-09）
+### Regressao da revisao do MR (2026-10-09)
 
-TP-04 既有真实 Host/CLI 用例增加停止屏障期间「有效需求 → 纯 @」批次，检查
-原始消息均被 admission；同名原生收件人通过实际模型请求的 isCurrentBot 区分。
-Provider 单测覆盖 checkpoint 前、调用后、删除和窗口内必需卡片展开失败。
-合成平台/模型隔离不代替真实租户，desktop continuous/mobile replayable 未改变。
+O case TP-04 existente em Host/CLI real ganha um lote de requisicao valida seguida de um so @ durante a barreira de parada, verificando que
+as mensagens originais sao todas admitidas e que destinatarios nativos com o mesmo nome sao diferenciados pelo isCurrentBot da requisicao real ao modelo.
+Os testes unitarios do Provider cobrem antes do checkpoint, apos a chamada, a remocao e a falha de expansao de um cartao obrigatorio dentro da janela.
+O isolamento de plataforma/modelo sinteticos nao substitui um tenant real, e o desktop continuous/mobile replayable nao foi alterado.
 
-身份投影定位回归：CLI 单测覆盖相同正文、原生 @ 前后位置交换、同一目标重复出现和多消息
-批次；TP-04 实际模型请求断言有序 text/mention 结构及自身/他人关联，不暴露 targetId。
+Regressao de posicionamento da projecao de identidade: os testes unitarios da CLI cobrem corpos iguais, troca de posicao antes/depois do @ nativo, repeticao do mesmo alvo e lotes com varias mensagens;
+o TP-04 verifica na requisicao real ao modelo a estrutura ordena

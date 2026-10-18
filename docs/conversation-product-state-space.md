@@ -1,20 +1,20 @@
-# Conversation Product State Space
+# Espaço de Estados do Produto de Conversa
 
-目标：把对话产品里的 compact、fork、goal、消息队列、query 编辑等功能组合成可执行的产品状态空间模型。模型先枚举用户在 GUI 中可能做的下一步，再用产品规则剪枝，最后输出可人工 review、可转 E2E 的 trace case。
+Objetivo: combinar compact, fork, goal, fila de mensagens, edição de query e funcionalidades afins do produto de conversa em um modelo executável de espaço de estados de produto. O modelo primeiro enumera os próximos passos possíveis do usuário na GUI, depois poda com as regras de produto e, por fim, emite trace cases que podem ser revisados por pessoas e convertidos em E2E.
 
-协议声明的基础概念见 [Conversation Behavior Protocol Declaration](./conversation-protocol-declaration.md)。这份文档先定义节点类型、输入事件、decision、rule、不变量和 case review 语义；可视化页面只是这份协议展开后的一个视图。
+Os conceitos básicos declarados pelo protocolo estão em [Conversation Behavior Protocol Declaration](./conversation-protocol-declaration.md). Este documento define primeiro os tipos de nó, eventos de entrada, decision, rule, invariantes e a semântica de review de cases; a página de visualização é apenas uma vista dessa expansão do protocolo.
 
-## 为什么不是普通流程图
+## Por que não é um fluxograma comum
 
-对话 GUI 不是单线流程。用户在每个时刻都可能继续输入、触发 `/compact`、设置 goal、fork 某个轮次、编辑 query、点击历史轮次，系统同时还会完成运行、完成 compact、进入 goal 验证或返回异步错误。
+A GUI de conversa não é um fluxo linear. A cada momento o usuário pode continuar digitando, acionar `/compact`, definir um goal, fazer fork de algum turno, editar a query, clicar em um turno do histórico; ao mesmo tempo o sistema pode concluir a execução, concluir um compact, entrar na verificação do goal ou retornar um erro assíncrono.
 
-因此模型的基本形状是：
+Portanto a forma básica do modelo é:
 
 ```text
-产品上下文 × 用户动作 × 目标对象 × 系统阶段 -> guard -> effect -> 下一产品上下文
+Contexto de produto × Ação do usuário × Objeto alvo × Fase do sistema -> guard -> effect -> Próximo contexto de produto
 ```
 
-辅助对话参数命令是 parent-scoped 的创建动作，不是 parent 的普通输入：
+Os comandos auxiliares de parâmetros de conversa são ações de criação com escopo de parent, e não entradas comuns do parent:
 
 ```text
 parent composer `/btw <text>`
@@ -25,108 +25,106 @@ parent composer `/btw <text>`
   -> parent active turn/queue unchanged
 ```
 
-这不是纯数学笛卡尔积。笛卡尔积只负责暴露候选组合；guard 和 effect 才是产品需求本身。
+Isso não é um puro produto cartesiano de conjunto. O produto cartesiano serve apenas para expor combinações candidatas; guard e effect são a própria exigência de produto.
 
-## 第一版建模范围
+## Escopo de modelagem da primeira versão
 
-状态维度。`compacting` 与 `goalVerifying` 不再作为顶层 phase；它们是 `running` 内的
-completion-blocking active work：
+Dimensões de estado. `compacting` e `goalVerifying` deixam de ser fases de nível superior; são active work bloqueante de conclusão dentro de `running`:
 
-| 维度              | 值                                                                                              |
-| ----------------- | ----------------------------------------------------------------------------------------------- |
-| runPhase          | draft、prewarming、running、completed(success/interrupted)、error                               |
-| activeWork        | none、primaryTurn、foregroundSubagent、compact、goalVerifier、goalContinuation、turnSteer       |
-| queue             | empty、text、goal、compact、mixed                                                               |
-| queueAutoDrain    | true、false                                                                                     |
-| queueAuthority    | cliCommandInbox（desktop/mobile 共用；其他值剪枝为 invalid）                                    |
-| followupDelivery  | queue、guide、guideFallbackQueue                                                                |
-| deliveryProfile   | desktopContinuous、mobileReplayable                                                             |
-| forkTarget        | completedSuccessFinalAssistant、middleAssistant、streamingPartial、failedPartial、nonAssistant  |
-| compactMemory     | never、compactable、justCompacted、notNeeded                                                    |
-| canCompactAgain   | true、false                                                                                     |
-| goal              | none、active、paused、budgetLimited、complete                                                   |
-| verifierTerminal  | none、explicitPass、failOpenPass、failedContinue、manualCancel                                  |
-| selectedTurn      | latest、old                                                                                     |
-| toolShape         | none、singleReadonlyTool、parallelTools、activeTool、completedTool、failedTool、interactionTool |
-| toolResultBatch   | none、pending、committed                                                                        |
-| modelConfig       | native、customProvider、sameModelDifferentProvider                                              |
-| modelMarkerSource | adjacentTurnSwitch、explicitSourceLessBoundary、none                                            |
-| collaborationMode | build、edit、plan、yolo                                                                         |
+| Dimensão         | Valores                                                                                                |
+| --------------- | ------------------------------------------------------------------------------------------------------ |
+| runPhase        | draft、prewarming、running、completed(success/interrupted)、error                                       |
+| activeWork      | none、primaryTurn、foregroundSubagent、compact、goalVerifier、goalContinuation、turnSteer               |
+| queue           | empty、text、goal、compact、mixed                                                                       |
+| queueAutoDrain  | true、false                                                                                             |
+| queueAuthority  | cliCommandInbox（desktop/mobile compartilham; outros valores são podados como invalid）               |
+| followupDelivery | queue、guide、guideFallbackQueue                                                                        |
+| deliveryProfile | desktopContinuous、mobileReplayable                                                                    |
+| forkTarget      | completedSuccessFinalAssistant、middleAssistant、streamingPartial、failedPartial、nonAssistant         |
+| compactMemory   | never、compactable、justCompacted、notNeeded                                                            |
+| canCompactAgain | true、false                                                                                             |
+| goal            | none、active、paused、budgetLimited、complete                                                           |
+| verifierTerminal | none、explicitPass、failOpenPass、failedContinue、manualCancel                                          |
+| selectedTurn    | latest、old                                                                                             |
+| toolShape       | none、singleReadonlyTool、parallelTools、activeTool、completedTool、failedTool、interactionTool           |
+| toolResultBatch | none、pending、committed                                                                                |
+| modelConfig     | native、customProvider、sameModelDifferentProvider                                                      |
+| modelMarkerSource | adjacentTurnSwitch、explicitSourceLessBoundary、none                                                    |
+| collaborationMode | build、edit、plan、yolo                                                                                 |
 
-用户动作：
+Ações do usuário:
 
-| 动作          | 目标                      |
-| ------------- | ------------------------- |
-| sendText      | 当前输入框                |
-| slashCompact  | 当前输入框输入 `/compact` |
-| setGoal       | goal 控件或 prompt        |
-| compact       | compact 按钮/命令         |
-| fork          | latest turn、old turn     |
-| editQuery     | latest turn、old turn     |
-| sendQueuedNow | queue item                |
+| Ação           | Alvo                          |
+| -------------- | ----------------------------- |
+| sendText       | caixa de entrada atual        |
+| slashCompact   | digitando `/compact` na caixa de entrada atual |
+| setGoal        | controle de goal ou prompt    |
+| compact        | botão/comando de compact      |
+| fork           | latest turn、old turn         |
+| editQuery      | latest turn、old turn         |
+| sendQueuedNow  | item da fila                  |
 
-系统事件：
+Eventos do sistema:
 
-| 事件               | 适用阶段                                |
-| ------------------ | --------------------------------------- |
-| assistantComplete  | running                                 |
-| compactComplete    | activeWork=compact                      |
-| compactNoop        | activeWork=compact                      |
-| goalVerifyPass     | activeWork=goalVerifier                 |
-| goalVerifyFail     | activeWork=goalVerifier                 |
-| goalVerifyFailOpen | activeWork=goalVerifier                 |
-| goalVerifyCancel   | activeWork=goalVerifier                 |
-| toolBatchComplete  | activeWork=primaryTurn/goalContinuation |
+| Evento            | Fase aplicável                              |
+| ----------------- | ------------------------------------------- |
+| assistantComplete | running                                     |
+| compactComplete   | activeWork=compact                          |
+| compactNoop       | activeWork=compact                          |
+| goalVerifyPass    | activeWork=goalVerifier                     |
+| goalVerifyFail    | activeWork=goalVerifier                     |
+| goalVerifyFailOpen | activeWork=goalVerifier                   |
+| goalVerifyCancel  | activeWork=goalVerifier                     |
+| toolBatchComplete | activeWork=primaryTurn/goalContinuation     |
 
-## 第一批产品规则
+## Primeiro lote de regras de produto
 
-这些规则来自当前产品预期。它们在模型中不是注释，而是可执行 guard。
+Estas regras vêm das expectativas atuais do produto. No modelo elas não são comentários, mas guards executáveis.
 
-| 场景                                                            | 结果                                                                                                                                                                     |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| running + sendText                                              | 入消息队列                                                                                                                                                               |
-| running + `/compact`                                            | 以 compact 维护意图入 CLI FIFO，不打断当前 active work                                                                                                                   |
-| running + setGoal                                               | 入消息队列                                                                                                                                                               |
-| running + fork completedSuccessFinalAssistant                   | allow，conversation-only fork；父继续运行，共享 workspace 不 rewind                                                                                                      |
-| running + fork middle/streaming/failed/nonAssistant             | reject，目标不是稳定逻辑 turn 边界                                                                                                                                       |
-| running + edit latest query                                     | allow，先 stop 当前 active work，再从最后一轮 query 重跑                                                                                                                 |
-| running + edit old query                                        | reject，只允许最后一轮 real user query edit                                                                                                                              |
-| completed + fork                                                | allow                                                                                                                                                                    |
-| completed + compact                                             | allow，进入 compacting                                                                                                                                                   |
-| completed + compact after fork                                  | allow                                                                                                                                                                    |
-| activeWork=goalVerifier + compact                               | enqueue；等待整个 goal completion 链结束后再按 FIFO 执行                                                                                                                 |
-| activeWork=goalVerifier + fork stable                           | allow，可 fork 更早稳定历史；不复制 verifier                                                                                                                             |
-| activeWork=compact + compact                                    | reject，正在 compact                                                                                                                                                     |
-| activeWork=compact + sendText/setGoal                           | enqueue 到 CLI FIFO，不打断 compact                                                                                                                                      |
-| activeWork=compact + fork                                       | reject，compact operation lock                                                                                                                                           |
-| justCompacted + compact + canCompactAgain                       | allow，进入 compacting                                                                                                                                                   |
-| justCompacted + compact + !canCompactAgain                      | reject，提示刚压缩完，不需要压缩                                                                                                                                         |
-| completedTool + compact                                         | allow，工具历史作为普通 completed assistant turn 参与压缩上下文                                                                                                          |
-| completedTool + fork                                            | allow，fork 点应包含工具调用块和工具结果投影                                                                                                                             |
-| completedTool + setGoal                                         | allow，goal 更新不改写既有工具历史                                                                                                                                       |
-| activeTool + sendText/setGoal                                   | enqueue，当前工具调用归属原 active turn                                                                                                                                  |
-| sameModelDifferentProvider + session switch                     | allow，按 session 恢复 provider + model 身份，不能只按 model 名回显                                                                                                      |
-| running + apiRetry                                              | 只在当前 live turn 底部消费 `control.apiRetry`；`attempt<=2` 视为普通 loading，`attempt>=3` 才显示 retry 次数并替代 loading；有效进展/终态清除，CLI 冷启不恢复           |
-| modelMarkerSource=explicitSourceLessBoundary                    | 显式 `∅→X` 生成 source-less `modelChange`；fresh child 持久化该边界，普通 Main 首轮与旧 child 不生成                                                                     |
-| desktop/mobile busy + accepted input                            | 按 CLI 串行 admission 顺序进入同一 FIFO；不存在双队列竞态                                                                                                                |
-| guide ineligible/attachment/compact/verifier                    | 保留完整 Submission（含 ModelSelection）并 fallback CLI queue；compact 不进入 guided row；模型/provider 不参与 eligibility                                               |
-| guide + ordinary queue nonempty                                 | guide 进入当前 active turn；普通 queue 保持未来 turn FIFO，不构成 guide eligibility guard                                                                                |
-| guide + toolResultBatch=committed                               | 全部 sibling tool results 先落事实，再最多内联消费一条 guide；同一 product turn 继续，Session Selection 与下一 model step 的 Active Model 切到该 Submission 的 Selection |
-| accepted guide + current visual work segment                    | 关闭上一 segment，在同一 product turn 以 guided user entity 开启新 segment；各段工时与折叠独立                                                                           |
-| guide + parallelTools + toolResultBatch=pending                 | 不消费；单个 sibling 先完成不能构成 guide boundary                                                                                                                       |
-| guide + turn terminal + toolResultBatch=none                    | 同一 intent 原地 fallback queue；保留 IDs、payload、admission order                                                                                                      |
-| ordinary queue + session ready + goal=none/complete + autoDrain | 按 FIFO 提升一个队首，并按原 text/goal/compact kind 执行                                                                                                                 |
-| ordinary queue + goal=active/paused/budgetLimited               | 保持完整 FIFO；verification marker 或 assistant terminal 都不能提前消费                                                                                                  |
-| verifierTerminal=explicitPass/failOpenPass                      | 先 target→complete，再重新评估普通 queue guard                                                                                                                           |
-| verifierTerminal=manualCancel                                   | target→paused、autoDrain=false；不自动消费 queue                                                                                                                         |
-| activeWork=goalVerifier + stop                                  | 按投影携带的 `foregroundExecutionId` 取消同一 goal execution；verifier→continuation 阶段切换不改变 execution 身份；已切到无关新 execution 时 noop                        |
-| CLI restart + admitted nonterminal input                        | explicit discarded；`queue/guide` 静默结算，只有未进 transcript 的 `startNow`/`unknown` 提示确认重发；不自动重放                                                         |
-| accepted input ACK + projection silent                          | 宽限期后对当前 owned subscription single-flight resync；权威 queue/user row 到达后收口；不补造 UI 事实、不自动重发                                                    |
-| sendQueuedNow                                                   | reserve -> stop barrier -> promote；成功才 remove，失败原位保留                                                                                                          |
-| collaborationMode=plan + goal command                           | UI admission reject；toast；保留 composer 原文；不创建 session、不发 command                                                                                             |
+| Cenário                                                            | Resultado                                                                                                                                                                    |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| running + sendText                                                  | entra na fila de mensagens                                                                                                                                                    |
+| running + `/compact`                                                | entra no CLI FIFO com intenção de manutenção via compact, sem interromper o active work atual                                                                              |
+| running + setGoal                                                   | entra na fila de mensagens                                                                                                                                                    |
+| running + fork completedSuccessFinalAssistant                       | allow, fork somente de conversa; o pai continua rodando, o workspace compartilhado não sofre rewind                                                                       |
+| running + fork middle/streaming/failed/nonAssistant                 | reject, o alvo não é uma fronteira de turno lógico estável                                                                                                                 |
+| running + edit latest query                                         | allow, primeiro para o active work atual e depois reexecuta a partir da query do último turno                                                                              |
+| running + edit old query                                            | reject, só a edição da última query real de usuário é permitida                                                                                                            |
+| completed + fork                                                    | allow                                                                                                                                                                       |
+| completed + compact                                                 | allow, entra em compacting                                                                                                                                                    |
+| completed + compact after fork                                      | allow                                                                                                                                                                       |
+| activeWork=goalVerifier + compact                                   | enqueue; só executa por FIFO depois que toda a cadeia de conclusão do goal terminar                                                                                         |
+| activeWork=goalVerifier + fork stable                               | allow, é possível forkar um histórico estável mais antigo; o verifier não é copiado                                                                                       |
+| activeWork=compact + compact                                        | reject, já está em compact                                                                                                                                                   |
+| activeWork=compact + sendText/setGoal                               | enqueue no CLI FIFO, sem interromper o compact                                                                                                                             |
+| activeWork=compact + fork                                           | reject, compact operation lock                                                                                                                                              |
+| justCompacted + compact + canCompactAgain                           | allow, entra em compacting                                                                                                                                                    |
+| justCompacted + compact + !canCompactAgain                          | reject, avisa que acabou de compactar e não é compactar de novo                                                                                                            |
+| completedTool + compact                                             | allow, o histórico de ferramentas participa da compressão de contexto como um comum completed assistant turn                                                                  |
+| completedTool + fork                                                | allow, o ponto de fork deve conter blocos de chamada de ferramenta e a projeção dos resultados                                                                              |
+| completedTool + setGoal                                             | allow, a atualização do goal não reescreve o histórico de ferramentas existente                                                                                            |
+| activeTool + sendText/setGoal                                       | enqueue, a chamada de ferramenta atual pertence ao active turn original                                                                                                    |
+| sameModelDifferentProvider + session switch                         | allow, restaura a identidade de provider + model por session, não pode apenas reexibir pelo nome do model                                                                  |
+| running + apiRetry                                                  | consome `control.apiRetry` apenas no fim do live turn atual; `attempt<=2` é tratado como loading comum, `attempt>=3` só exibe a contagem de retentativas e substitui o loading; progresso efetivo/estado terminal limpa, e o cold start do CLI não restaura                |
+| modelMarkerSource=explicitSourceLessBoundary                        | `∅→X` explícito gera um `modelChange` sem source; child novo persiste essa fronteira, enquanto o primeiro turno do Main e children antigos não geram                                        |
+| desktop/mobile busy + accepted input                                | entram no mesmo FIFO pela ordem de admission serial do CLI; não há race de fila dupla                                                                                     |
+| guide ineligible/attachment/compact/verifier                        | mantém a Submission completa (incluindo ModelSelection) e faz fallback para a CLI queue; compact não entra em guided row; model/provider não participam da eligibility                                        |
+| guide + ordinary queue nonempty                                     | o guide entra no active turn atual; a queue comum mantém o FIFO de turnos futuros e não constitui guard de eligibility do guide                                                    |
+| guide + toolResultBatch=committed                                   | todos os tool results irmãos são primeiro fixados como fato e então, no máximo, um guide é consumido inline; o mesmo product turn continua, e Session Selection e o Active Model do próximo model step mudam para a Selection desta Submission  |
+| accepted guide + current visual work segment                        | fecha o segment anterior e abre um novo segment no mesmo product turn com a guided user entity; a duração e o colapso de cada segmento são independentes                        |
+| guide + parallelTools + toolResultBatch=pending                     | não consome; a conclusão de um único sibling não pode constituir a fronteira do guide                                                                                      |
+| guide + turn terminal + toolResultBatch=none                        | o mesmo intent sofre fallback para queue no lugar; preserva IDs, payload e ordem de admission                                                                               |
+| ordinary queue + session ready + goal=none/complete + autoDrain     | promove um item do início da fila por FIFO e executa conforme o kind original text/goal/compact                                                                            |
+| ordinary queue + goal=active/paused/budgetLimited                   | mantém o FIFO completo; verification marker ou assistant terminal não podem consumir antecipadamente                                                                       |
+| verifierTerminal=explicitPass/failOpenPass                          | primeiro target→complete, depois reavalia os guards da queue comum                                                                                                         |
+| verifierTerminal=manualCancel                                       | target→paused, autoDrain=false; não consome a queue automaticamente                                                                                                       |
+| activeWork=goalVerifier + stop                                     | cancela a mesma goal execution pelo `foregroundExecutionId` carregado na projeção; a troca de fase verifier→continuation não muda a identidade da execution; noop se já mudou para uma execution nova sem relação                                    |
+| CLI restart + admitted nonterminal input                            | explicit discarded; `queue/guide` são liquidados silenciosamente, e apenas `startNow`/`unknown` que não entraram no transcript pedem confirmação de reenvio; não há replay automático                            |
+| accepted input ACK + projection silent                              | após o período de carência faz single-flight resync da subscription owned atual; encerra quando a queue/user row autoritativa chega; não fabrica fatos de UI nem reenvia automaticamente                                           |
+| sendQueuedNow                                                      | reserve -> stop barrier -> promote; remove só em caso de sucesso, e mantém no lugar original em caso de falha                                                               |
+| collaborationMode=plan + goal command                               | admission rejeitada pela UI; toast; o texto original do composer é preservado; nenhuma session é criada e nenhum command é enviado                                                     |
 
-传输维度不是产品 guard 的自由变量。host 根据 attachment 可信注入 profile，并按 connection-owned
-subscription 路由：
+A dimensão de transporte não é uma variável livre dos guards de produto. O host injeta o profile de forma confiável conforme o attachment e roteia por subscription pertencente à conexão:
 
 ```text
 desktop attachment / continuous ── sub-a ──┐
@@ -136,10 +134,10 @@ mobile attachment  / replayable ── sub-b ──┘
 slow/gapped sub-b -> resync sub-b only -> sub-a unchanged
 ```
 
-最终不变量是：每条已提交输入必须且只能落在 `queue / guided row / transcript /
-explicit rejected|failed|discarded` 之一，并沿全链路保留原始 `sourceCommandId`。
+O invariante final é: cada entrada submetida precisa cair, e cair apenas, em um entre `queue / guided row / transcript /
+explicit rejected|failed|discarded`, preservando o `sourceCommandId` original em toda a cadeia.
 
-guide 与普通 queue 的状态层级不能折叠成一个 generic round-trip drain：
+Os níveis de estado de guide e da queue comum não podem ser colapsados em um único generic round-trip drain:
 
 ```text
 Guide inline path
@@ -151,57 +149,55 @@ Ordinary queue path
                                       \-> target noncomplete -> stay queued
 ```
 
-`deliveryProfile` 只影响事实如何到达客户端。desktop continuous 与 mobile replayable 不再与
-`followupDelivery × toolResultBatch × goal` 做业务全排列；用同一 CLI terminal projection 的 live/cold
-等价测试代表该维度。
+`deliveryProfile` afeta apenas como os fatos chegam ao cliente. desktop continuous e mobile replayable deixam de fazer a permutação completa de negócio com `followupDelivery × toolResultBatch × goal`; essa dimensão é representada por testes de equivalência live/cold sobre a mesma CLI terminal projection.
 
-模型/provider 不参与 guide eligibility，也不建立模型名白名单或 provider 叉乘。ModelSelection 属于
-Submission：guide 被接收后，runtime 在 model-step 边界追加 user history、更新 Session Selection，并为
-下一次普通 provider request 创建对应 Model；接收前已经发出的请求保持原 Model。
+Modelo/provider não participam da guide eligibility e também não estabelecem lista branca de nomes de model nem produto cartesiano com provider. ModelSelection pertence à
+Submission: depois que o guide é aceito, o runtime acrescenta o histórico de usuário no limite de model-step, atualiza a Session Selection e cria o
+Model correspondente para o próximo request comum de provider; requests já emitidos antes da aceitação mantêm o Model original.
 
-没有被规则覆盖的组合必须进入 `undefined`，由人判断是新需求、无效状态、可忽略路径还是 bug。
+Combinações não cobertas por regra precisam cair em `undefined`, para que uma pessoa decida se é um novo requisito, um estado inválido, um caminho ignorável ou um bug.
 
-## Review 输出
+## Saída de Review
 
-每个叶子 case 至少包含：
+Cada case folha contém no mínimo:
 
-- 初始上下文。
-- 用户动作或系统事件。
-- 命中的 guard。
-- effect：allow、reject、enqueue、system-transition、undefined。
-- 下一上下文。
-- 建议 E2E 断言。
+- Contexto inicial.
+- Ação do usuário ou evento do sistema.
+- O guard que foi atingido.
+- effect: allow、reject、enqueue、system-transition、undefined.
+- Próximo contexto.
+- Asserção de E2E sugerida.
 
-人工 review 状态：
+Estados de review manual:
 
-| 状态      | 含义                     |
-| --------- | ------------------------ |
-| accepted  | 产品预期正确，可以转测试 |
-| undefined | 需要补产品定义           |
-| invalid   | 这个组合应从产品入口剪掉 |
-| ignored   | 组合存在但暂不覆盖       |
-| bug       | 当前实现不符合预期       |
+| Estado     | Significado                            |
+| ---------- | -------------------------------------- |
+| accepted   | a expectativa de produto está correta e pode virar teste |
+| undefined  | falta definição de produto             |
+| invalid    | essa combinação deve ser podada da entrada de produto |
+| ignored    | a combinação existe, mas não é coberta por enquanto |
+| bug        | a implementação atual não corresponde à expectativa |
 
-## Vite 可视化
+## Visualização com Vite
 
-运行：
+Executar:
 
 ```sh
 pnpm --filter @zcode/formal-proof dev
 ```
 
-打开：
+Abrir:
 
 ```text
 http://127.0.0.1:4176/
 ```
 
-页面采用大画布优先布局：左侧固定面板承载参数枚举、语义统计和规则命中；右侧剩余空间全部用于状态空间图及其工具栏。节点详情不占独立列，点击节点后以浮层显示在画布上，避免压缩图的可视面积。
+A página adota um layout priorizando o canvas largo: um painel fixo à esquerda abriga a enumeração de parâmetros, as estatísticas semânticas e os acertos de regra; todo o espaço restante à direita é dedicado ao grafo do espaço de estados e à sua barra de ferramentas. Os detalhes de nó não ocupam uma coluna separada — ao clicar em um nó, eles são exibidos em uma camada flutuante sobre o canvas, evitando comprimir a área visual do grafo.
 
-可视化不再使用普通思维导图，而使用分层状态空间 DAG：
+A visualização não usa mais um mapa mental comum, e sim um DAG de espaço de estados em camadas:
 
-- 横向按 `State -> Action -> Guard -> Effect -> Case/Next State` 展开，下一轮枚举继续向右追加同样的语义列。
-- `State`、`Guard`、`Effect` 节点按等价语义合并，节点上的 `×N` 表示有 N 条 trace 命中同一个语义节点。
-- 用户动作和系统事件都显示在 `Action` 层，系统事件使用同一协议入口，避免把异步长任务隐藏在注释里。
-- `Guard` 层体现产品规则剪枝，`Effect` 层体现副作用或状态迁移，`Case` 层保留需要人工 review 或可转 E2E 的叶子。
-- `Reject`、`Undefined`、`Queue`、`Allow`、`System` 仍可按规则和结果过滤，高亮的是协议路径而不是布局分支。
+- Horizontalmente, expande-se na ordem `State -> Action -> Guard -> Effect -> Case/Next State`, e as próximas rodadas de enumeração continuam acrescentando à direita as mesmas colunas semânticas.
+- Os nós `State`, `Guard` e `Effect` são mesclados por equivalência semântica, e o `×N` em um nó indica que N traces atingem o mesmo nó semântico.
+- Ações do usuário e eventos do sistema são exibidos na camada `Action`, e os eventos do sistema usam a mesma entrada de protocolo, evitando esconder tarefas assíncronas longas em comentários.
+- A camada `Guard` expressa a poda por regras de produto, a camada `Effect` expressa efeitos colaterais ou migrações de estado, e a camada `Case` preserva as folhas que exigem review manual ou podem ser convertidas em E2E.
+- `Reject`、`Undefined`、`Queue`、`Allow`、`System` ainda podem ser filtrados por regra e resultado, e o que se destaca é o caminho do protocolo, e não um ramo de layout.

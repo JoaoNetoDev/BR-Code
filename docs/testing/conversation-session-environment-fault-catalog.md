@@ -1,197 +1,197 @@
-# Conversation Session Environment Fault Catalog
+# Catálogo de Falhas de Ambiente da Conversation Session
 
-目标：把会话区在外部环境异常下的状态空间单独列出来，避免把 429、503、断网、磁盘满、关闭 app 等故障混进 `A-J` 会话主路径。本文只做枚举和验证设计；除非已有产品协议明确确认，否则不擅自把结果标成 accepted。
+Objetivo: listar separadamente o espaço de estados da área de sessão sob anomalias do ambiente externo, evitando misturar falhas como 429, 503, queda de rede, disco cheio e fechamento do app no caminho principal de sessão `A-J`. Este documento faz apenas enumeração e desenho de validação; a menos que um protocolo de produto existente confirme explicitamente, não se marca nenhum resultado como accepted por conta própria.
 
-关联文档：
+Documentos relacionados:
 
-- 主路径 catalog：[conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
-- 主路径覆盖矩阵：[conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
-- Fault 覆盖矩阵：[conversation-session-fault-e2e-coverage-matrix.md](./conversation-session-fault-e2e-coverage-matrix.md)
-- SSE 录制回放协议：[e2e-sse-capture-replay.md](./e2e-sse-capture-replay.md)
-- FS 故障注入协议：[e2e-fs-fault-injection.md](./e2e-fs-fault-injection.md)
+- Catálogo do caminho principal: [conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
+- Matriz de cobertura do caminho principal: [conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
+- Matriz de cobertura de Fault: [conversation-session-fault-e2e-coverage-matrix.md](./conversation-session-fault-e2e-coverage-matrix.md)
+- Protocolo de captura/replay de SSE: [e2e-sse-capture-replay.md](./e2e-sse-capture-replay.md)
+- Protocolo de injeção de falha de FS: [e2e-fs-fault-injection.md](./e2e-fs-fault-injection.md)
 
-## 枚举边界
+## Limites da enumeração
 
-无限空间继续用等价类收敛：
+O espaço infinito continua reduzido por classes de equivalência:
 
-| 维度 | 等价类 |
+| Dimensão | Classes de equivalência |
 | --- | --- |
 | session.phase | `prewarming`、`running`、`compacting(manual)`、`compacting(auto)`、`completed(success)`、`completed(interrupted)` |
 | queue.length | `0`、`1`、`2`、`3+` |
-| active visibility | 当前 session 可见、当前 session 不可见但后台运行 |
-| network phase | 请求未发出、已发出但无响应头、已有响应头但无 SSE event、已有部分 SSE event、compact streaming 主腿、compact non-stream fallback 腿 |
+| active visibility | sessão atual visível, sessão atual invisível mas rodando em segundo plano |
+| network phase | requisição não enviada, enviada mas sem response header, com response header mas sem SSE event, com alguns SSE events, perna principal de compact streaming, perna de fallback compact non-stream |
 | retry count | `0`、`1`、`2`、`3+` |
-| storage target | workspace 文件、session history、model provider settings、日志/artifact |
-| app lifecycle | 切到其他 app、关闭窗口、退出 app、renderer reload/crash、host/agent crash、系统睡眠恢复 |
+| storage target | arquivos do workspace, session history, model provider settings, logs/artifacts |
+| app lifecycle | alternar para outro app, fechar a janela, sair do app, reload/crash do renderer, crash de host/agent, retomada do sono do sistema |
 
-Review 状态：
+Estado de Review:
 
-| 状态 | 含义 |
+| Estado | Significado |
 | --- | --- |
-| `decision-needed` | 产品预期未确认，不能写稳定 pass/fail 断言 |
-| `accepted` | 产品预期已确认，可以写自动化 |
-| `infra` | 测试基础设施行为，不是产品 case |
-| `invalid` | 组合由前置规则剪掉 |
-| `ignored` | 当前版本暂不覆盖 |
+| `decision-needed` | expectativa de produto não confirmada; não se pode escrever asserção estável de pass/fail |
+| `accepted` | expectativa de produto confirmada; a automação pode ser escrita |
+| `infra` | comportamento da infraestrutura de teste, não é um case de produto |
+| `invalid` | a combinação é podada por regras anteriores |
+| `ignored` | não coberto na versão atual |
 
-## 全局默认验收信号
+## Sinais de aceitação globais padrão
 
-这些不是替代产品定义的规则，而是每条 fault case 都要采集的证据层：
+Não são regras que substituem a definição de produto, e sim a camada de evidências que todo fault case precisa coletar:
 
-| 证据层 | 必看信号 |
+| Camada de evidência | Sinais obrigatórios |
 | --- | --- |
-| UI | `TID_CHAT_VIEW` 的 `data-state`、`data-runtime-status`、`data-queue-count`、错误条/toast、按钮 disabled 状态 |
-| Runtime/Store | `activeInputId` 是否清理、queue 是否丢失、stopRequested/autoDrain 是否符合预期 |
-| Network/SSE | 请求状态码、SSE event 顺序、是否断流、是否重试、是否重复发主请求 |
-| Protocol | `session/send`、`session/compact`、`session/goal`、`session/stop` 是否按预期出现或不出现 |
-| Log | UI/service/agent 是否有同一 `sessionId/inputId` 的错误和恢复记录 |
-| Files | session snapshot、provider settings、workspace 文件是否落盘或保留 |
+| UI | `data-state`, `data-runtime-status`, `data-queue-count` de `TID_CHAT_VIEW`, barra de erro/toast, estado disabled dos botões |
+| Runtime/Store | se `activeInputId` é limpo, se a queue se perde, se stopRequested/autoDrain está conforme o esperado |
+| Network/SSE | status code da requisição, ordem dos SSE events, se houve queda de stream, se houve retry, se a requisição principal foi reenviada |
+| Protocol | se `session/send`, `session/compact`, `session/goal`, `session/stop` aparecem ou não como esperado |
+| Log | se UI/service/agent têm registros de erro e recuperação para o mesmo `sessionId/inputId` |
+| Files | se o snapshot da sessão, as provider settings e os arquivos do workspace foram gravados em disco ou preservados |
 
-## N. 模型/API 请求故障
+## N. Falhas de requisição de modelo/API
 
-| ID | 前置状态 | 故障注入 | 需要确认的产品预期 | 建议验证 | Review |
+| ID | Estado anterior | Injeção de falha | Expectativa de produto a confirmar | Verificação sugerida | Review |
 | --- | --- | --- | --- | --- | --- |
-| N01 | `running`，queue 任意 | 主模型请求返回 401/403 | 是否进入 `error`，是否提示重新配置 API Key，queue 是否保留 | UI error + network status + session snapshot | decision-needed |
-| N02 | `draft` 或 `completed` | provider 未配置 / API Key 缺失 | 是阻止发送还是进入设置引导；用户输入是否保留 | UI disabled/error + 无模型请求 | decision-needed |
-| N03 | `running`，queue 任意 | 主模型请求返回 429 | 是否自动重试；重试期间能否继续入队；最终失败后 queue 如何处理 | network retry timeline + queue snapshot | decision-needed |
-| N04 | `running`，queue 任意 | 主模型请求返回 502/503 | 是否自动重试；失败是否可 retry/edit/fork | network status + UI runtime + action buttons | decision-needed |
-| N05 | `running`，queue 任意 | 主模型请求返回 500 JSON error | 进入 `error`；已接收的 queue 原样保留并暂停自动消费（`autoDrain=false`）；用户点击“继续”后按 FIFO 恢复，不因本轮错误静默清空 | UI error + network body + snapshot + recovery request | accepted |
-| N06 | `prewarming` | DNS/connection refused，未拿到响应头 | 是否保留 user message；是否可继续发消息；queue 如何处理 | network error + UI phase + files | decision-needed |
-| N07 | `prewarming` 或 `running` | 请求超时，长时间无响应头 | 超时阈值、是否允许 stop、是否自动失败 | timer-controlled fixture + stop action | decision-needed |
-| N08 | `running` | 200 但响应不是合法模型 JSON/SSE | 按模型错误处理还是协议错误；是否可 retry | malformed fixture + UI error | decision-needed |
-| N09 | 主轮成功 | title/sidecar 请求失败 | 是否完全不影响主会话；日志是否 warn 即可 | 主消息 completed + title 请求失败记录 | decision-needed |
+| N01 | `running`, queue arbitrária | Requisição do modelo principal retorna 401/403 | Se entra em `error`, se avisa para reconfigurar a API Key, se a queue é preservada | UI error + network status + session snapshot | decision-needed |
+| N02 | `draft` ou `completed` | provider não configurado / API Key ausente | Se bloqueia o envio ou entra no guia de configurações; se a entrada do usuário é preservada | UI disabled/error + ausência de requisição de modelo | decision-needed |
+| N03 | `running`, queue arbitrária | Requisição do modelo principal retorna 429 | Se há retry automático; se dá para continuar enfileirando durante o retry; como a queue é tratada após a falha final | network retry timeline + queue snapshot | decision-needed |
+| N04 | `running`, queue arbitrária | Requisição do modelo principal retorna 502/503 | Se há retry automático; se a falha permite retry/edit/fork | network status + UI runtime + botões de ação | decision-needed |
+| N05 | `running`, queue arbitrária | Requisição do modelo principal retorna 500 com JSON de erro | Entra em `error`; a queue já recebida é preservada como está e tem o consumo automático pausado (`autoDrain=false`); ao clicar em "continuar", a recuperação segue FIFO, sem limpeza silenciosa por causa deste erro | UI error + network body + snapshot + requisição de recuperação | accepted |
+| N06 | `prewarming` | DNS/connection refused, sem response header | Se a user message é preservada; se ainda é possível enviar mensagens; como a queue é tratada | network error + UI phase + files | decision-needed |
+| N07 | `prewarming` ou `running` | Timeout da requisição, sem response header por muito tempo | Limiar de timeout, se o stop é permitido, se há falha automática | fixture controlada por timer + ação de stop | decision-needed |
+| N08 | `running` | 200 mas a resposta não é JSON/SSE de modelo válido | Se é tratado como erro de modelo ou erro de protocolo; se há retry | fixture malformado + UI error | decision-needed |
+| N09 | Turno principal bem-sucedido | Falha na requisição de title/sidecar | Se afeta completamente a sessão principal; se basta um warn no log | mensagem principal completed + registro de falha do title | decision-needed |
 
-## S. SSE 流式故障
+## S. Falhas de streaming SSE
 
-| ID | 前置状态 | 故障注入 | 需要确认的产品预期 | 建议验证 | Review |
+| ID | Estado anterior | Injeção de falha | Expectativa de produto a confirmar | Verificação sugerida | Review |
 | --- | --- | --- | --- | --- | --- |
-| S01 | `prewarming` | 响应头已返回，但无任何 SSE event 后断开 | 是否等价于模型错误；user message 是否保留 | responseEvents 为空 + UI error | decision-needed |
-| S02 | `running` | `message_start` 后断开 | 是否生成 interrupted/error assistant；queue 是否自动 drain | partial assistant + queue snapshot | decision-needed |
-| S03 | `running` | 若干 text delta 后断开 | 部分文本是否保留；是否允许 fork/edit；queue 是否保留 | assistant text + action buttons + files | decision-needed |
-| S04 | `running` | SSE event JSON malformed | 按协议错误终止还是忽略坏 event | malformed event + log + UI error | decision-needed |
-| S05 | `running` | provider 在 SSE 中发 error event | 是否显示 provider error；是否可重试 | error event + normalized UI error | decision-needed |
-| S06 | `running` | stream stall，长时间无新 event | stall 超时阈值；是否显示“重试/停止” | delayed events + runtime status | decision-needed |
-| S07 | stop 后 | provider 继续发 late SSE event | late event 是否必须被忽略，不能污染新一轮 | stop inputId + late event + message order | decision-needed |
+| S01 | `prewarming` | Response header devolvido, mas queda sem nenhum SSE event | Se equivale a erro de modelo; se a user message é preservada | responseEvents vazio + UI error | decision-needed |
+| S02 | `running` | Queda depois de `message_start` | Se gera assistant interrupted/error; se a queue faz drain automático | assistant parcial + queue snapshot | decision-needed |
+| S03 | `running` | Queda depois de alguns text deltas | Se o texto parcial é preservado; se fork/edit são permitidos; se a queue é preservada | assistant text + botões de ação + files | decision-needed |
+| S04 | `running` | JSON de SSE event malformado | Se encerra como erro de protocolo ou ignora o event ruim | evento malformado + log + UI error | decision-needed |
+| S05 | `running` | Provider envia error event no SSE | Se exibe o erro do provider; se há retry | error event + UI error normalizado | decision-needed |
+| S06 | `running` | Stall do stream, sem event novo por muito tempo | Limiar de timeout de stall; se exibe "retry/parar" | events atrasados + runtime status | decision-needed |
+| S07 | Após stop | Provider continua emitindo SSE events atrasados | Se o event tardio precisa ser ignorado, sem poluir o novo turno | inputId do stop + event tardio + ordem das mensagens | decision-needed |
 
-### 已确认的 S02/S06 恢复子边界
+### Sub-limites de recuperação de S02/S06 já confirmados
 
-| ID | 前置与故障 | 已确认产品结论 | 证据 | 状态 |
+| ID | Pré-condição e falha | Conclusão de produto já confirmada | Evidência | Estado |
 | --- | --- | --- | --- | --- |
-| S02-R1 | `running`，尚无正文和 `tool_call`；已实时展示若干 `reasoning_delta` 后发生可重试断流或 idle timeout，且 core recovery 预算尚未耗尽 | 保持当前 turn `running`；丢弃失败 attempt 的未完成 reasoning tail，不送入 provider history；从前一个 provider-safe anchor 以新 assistant message id 自动发起 SSE recovery。queue、Stop、desktop continuous 与 mobile replayable 交付边界不变；用户取消、不可重试错误和预算耗尽不进入本子用例 | Core request/history + stream recovery events + protocol retry state | accepted |
+| S02-R1 | `running`, ainda sem corpo e sem `tool_call`; após alguns `reasoning_delta` exibidos em tempo real ocorre queda retryable ou idle timeout, e o orçamento de recovery do core ainda não foi esgotado | O turno `running` atual é mantido; a cauda de reasoning incompleta da attempt que falhou é descartada e não entra no histórico do provider; a recuperação SSE é iniciada automaticamente com um novo assistant message id a partir do anchor provider-safe anterior. Queue, Stop e as fronteiras de entrega desktop continuous e mobile replayable não mudam; cancelamento do usuário, erros não retryable e esgotamento de orçamento não entram neste sub-caso | Core request/history + stream recovery events + protocol retry state | accepted |
 
-`S02-R1` 是现有 S02/S06 的有界恢复分支，不新增顶层 fault row，也不替代 S02/S06 对最终失败、queue 和操作按钮的待裁决问题。
+`S02-R1` é um ramo de recuperação limitado dos S02/S06 existentes; não cria uma nova linha de fault de nível superior e não substitui as perguntas em aberto de S02/S06 sobre falha final, queue e botões de ação.
 
-## C. Compact 故障
+## C. Falhas de Compact
 
-这些和主路径 `F/G` 直接关联，结果定义以主 catalog 为准，此处不重复。本组已于 2026-07-05 随源 case 裁决完成。
+Estas se relacionam diretamente com o caminho principal `F/G`; as definições de resultado seguem o catálogo principal e não são repetidas aqui. Este grupo foi decizido junto com os cases de origem em 2026-07-05.
 
-| ID | 来源 | 故障注入 | 需要确认的产品预期 | Review |
+| ID | Origem | Injeção de falha | Expectativa de produto a confirmar | Review |
 | --- | --- | --- | --- | --- |
-| C01 | F09 | 手动 compact 的 streaming 主腿与 non-stream fallback 腿均失败 | 已裁决（2026-07-05）：保持 completed + failed marker（带 retry 入口）；queue 保留不自动消费；全部操作恢复 | accepted |
-| C02 | G11 | 自动 compact 连续 3 次失败 | 已裁决（2026-07-05）：继续无压缩执行 pendingAction（保持 running）；failed marker 不阻塞；circuit breaker 生效、手动 compact 成功重置 | accepted |
-| C03 | G12 | 自动 compact 被 stop | 已裁决（2026-07-05）：与普通 stop 对齐——pendingAction 保留为 interrupted user message（不回 queue）；`completed(interrupted)`；marker 置 cancelled；显式追加 queue 保留不自动消费 | accepted |
+| C01 | F09 | A perna principal de streaming e a perna de fallback non-stream do compact manual falham | Decidido (2026-07-05): manter completed + failed marker (com entrada de retry); queue preservada sem consumo automático; todas as operações recuperadas | accepted |
+| C02 | G11 | 3 falhas consecutivas do compact automático | Decidido (2026-07-05): continuar executando o pendingAction sem compactação (mantendo running); o failed marker não bloqueia; circuit breaker em vigor, reset pelo compact manual bem-sucedido | accepted |
+| C03 | G12 | Compact automático interrompido por stop | Decidido (2026-07-05): alinhado com o stop comum — pendingAction preservado como interrupted user message (não volta para a queue); `completed(interrupted)`; marker marcado cancelled; o append explícito de queue é preservado sem consumo automático | accepted |
 
-## D. 文件系统/存储故障
+## D. Falhas de sistema de arquivos/armazenamento
 
-| ID | 前置状态 | 故障注入 | 需要确认的产品预期 | 建议验证 | Review |
+| ID | Estado anterior | Injeção de falha | Expectativa de produto a confirmar | Verificação sugerida | Review |
 | --- | --- | --- | --- | --- | --- |
-| D01 | 主轮完成落盘 | session history 写入 ENOSPC | UI 是否告警；内存态是否保留；重启后如何恢复 | injected fs error + snapshot + relaunch | decision-needed |
-| D02 | tool 正在写 workspace 文件 | workspace 磁盘满 | tool error 如何展示；assistant 是否继续总结失败 | tool block status + file tree | decision-needed |
-| D03 | 设置页保存 provider | app data 目录 permission denied | 是否阻止保存并保留输入；是否写日志 | settings UI error + provider file | decision-needed |
-| D04 | 启动恢复 session | session snapshot 文件损坏 | 是否跳过坏 session、显示恢复错误，还是阻止进入 workspace | corrupt fixture + task list | decision-needed |
-| D05 | 长时间流式日志 | 日志/artifact 写入失败 | 产品流程是否继续；日志失败是否只 warn | log sink fault + main turn completed | decision-needed |
+| D01 | Turno principal concluído e gravado | Escrita da session history falha com ENOSPC | Se a UI avisa; se o estado em memória é preservado; como recuperar após reiniciar | erro de fs injetado + snapshot + relaunch | decision-needed |
+| D02 | Tool escrevendo arquivo do workspace | Disco do workspace cheio | Como o tool error é exibido; se o assistant continua resumindo a falha | status do bloco de tool + file tree | decision-needed |
+| D03 | Página de configurações salvando o provider | Permission denied no diretório de app data | Se bloqueia o salvamento e preserva a entrada; se escreve log | UI error de settings + arquivo do provider | decision-needed |
+| D04 | Recuperando sessão na inicialização | Arquivo de snapshot da sessão corrompido | Se pula a sessão ruim, mostra erro de recuperação, ou bloqueia a entrada no workspace | fixture corrompido + lista de tasks | decision-needed |
+| D05 | Streaming de logs por muito tempo | Falha na escrita de logs/artifact | Se o fluxo de produto continua; se a falha de log é só warn | falha no log sink + turno principal completed | decision-needed |
 
-## L. App 生命周期/进程故障
+## L. Falhas de ciclo de vida do app/processo
 
-| ID | 前置状态 | 用户/系统事件 | 需要确认的产品预期 | 建议验证 | Review |
+| ID | Estado anterior | Evento do usuário/sistema | Expectativa de produto a confirmar | Verificação sugerida | Review |
 | --- | --- | --- | --- | --- | --- |
-| L01 | `running` | 用户切到其他 app / 最小化 | session 是否继续运行；回来后 UI 是否追上最新流 | background + foreground snapshot | decision-needed |
-| L02 | `running` | 关闭当前窗口但不退出 app | host/agent 是否继续；重开窗口后如何恢复 | window close/open + logs | decision-needed |
-| L03 | `running` | 退出 app 后重新打开 | 当前轮是继续、恢复、还是标 interrupted | relaunch + snapshot + network | decision-needed |
-| L04 | `running` | renderer reload/crash | continuous 链路是否重接；是否丢 queue | renderer reload + store rehydrate | decision-needed |
-| L05 | `running` | host process crash/restart | 是否重建 host；session 状态如何恢复 | kill host + service logs | decision-needed |
-| L06 | `running` | agent process crash/exit | UI 是否进入 error；queue 是否保留；能否 retry | kill agent + UI error | decision-needed |
-| L07 | `running` | 系统 sleep/wake | SSE 断开后如何处理；是否自动恢复 | sleep simulation / network stall | decision-needed |
-| L08 | `compacting` | app 关闭/退出 | compact marker 重启后是 running、interrupted、failed 还是 unknown | relaunch + marker snapshot | decision-needed |
+| L01 | `running` | Usuário alterna para outro app / minimiza | Se a sessão continua rodando; se a UI追上 o stream mais recente ao voltar | background + snapshot em foreground | decision-needed |
+| L02 | `running` | Fecha a janela atual sem sair do app | Se host/agent continuam; como recuperar ao reabrir a janela | close/open de janela + logs | decision-needed |
+| L03 | `running` | Sai do app e reabre | Se o turno atual continua, é recuperado ou marcado como interrupted | relaunch + snapshot + network | decision-needed |
+| L04 | `running` | Reload/crash do renderer | Se a cadeia continuous é reconectada; se a queue se perde | reload do renderer + rehydrate do store | decision-needed |
+| L05 | `running` | Crash/restart do processo host | Se o host é reconstruído; como o estado da sessão é recuperado | kill host + service logs | decision-needed |
+| L06 | `running` | Crash/saída do processo agent | Se a UI entra em error; se a queue é preservada; se há retry | kill agent + UI error | decision-needed |
+| L07 | `running` | Sleep/wake do sistema | Como tratar a queda do SSE; se há recuperação automática | simulação de sleep / network stall | decision-needed |
+| L08 | `compacting` | App fechado/saída | Se o compact marker após restart é running, interrupted, failed ou unknown | relaunch + snapshot do marker | decision-needed |
 
-## W. Workspace / Tool 外部变化
+## W. Mudanças externas em Workspace / Tool
 
-| ID | 前置状态 | 故障注入 | 需要确认的产品预期 | 建议验证 | Review |
+| ID | Estado anterior | Injeção de falha | Expectativa de produto a confirmar | Verificação sugerida | Review |
 | --- | --- | --- | --- | --- | --- |
-| W01 | session open | workspace 目录被删除或重命名 | 是否锁住输入、提示重新选择、还是保留只读历史 | fs mutation + UI state | decision-needed |
-| W02 | tool read/write 中 | 文件被外部修改/删除 | tool error 是否准确展示；后续 assistant 是否知道失败 | tool block + file snapshot | decision-needed |
-| W03 | git 相关能力 | repo 不存在或 dirty state 改变 | 是否降级为普通文件工作区 | tool/log + UI capability state | decision-needed |
-| W04 | remote workspace | SSH/WSL/Docker 连接断开 | mobile replayable 和 desktop continuous 各自如何恢复 | remote disconnect + clientMode | decision-needed |
-| W05 | permission request pending | 用户关闭/切换 session | pending request 是否保留、过期、还是自动 reject | permission UI + protocol | decision-needed |
+| W01 | session open | Diretório do workspace é deletado ou renomeado | Se bloqueia a entrada, avisa para reselecionar, ou mantém o histórico somente leitura | mutação de fs + estado da UI | decision-needed |
+| W02 | Tool em read/write | Arquivo é modificado/deletado externamente | Se o tool error é exibido com precisão; se o assistant seguinte sabe da falha | bloco de tool + snapshot de arquivos | decision-needed |
+| W03 | Capacidade relacionada a git | Repositório inexistente ou dirty state alterado | Se degrada para um workspace de arquivos comum | tool/log + estado de capacidade da UI | decision-needed |
+| W04 | remote workspace | Conexão SSH/WSL/Docker cai | Como cada um de mobile replayable e desktop continuous se recupera | desconexão remote + clientMode | decision-needed |
+| W05 | Requisição de permissão pendente | Usuário fecha/troca de sessão | Se a requisição pendente é preservada, expira ou é rejeitada automaticamente | UI de permissão + protocol | decision-needed |
 
-## X. 跨 Session 故障隔离
+## X. Isolamento de falhas entre Sessions
 
-| ID | 前置状态 | 故障注入 | 需要确认的产品预期 | 建议验证 | Review |
+| ID | Estado anterior | Injeção de falha | Expectativa de produto a confirmar | Verificação sugerida | Review |
 | --- | --- | --- | --- | --- | --- |
-| X01 | A `running`，B active | A 主模型请求失败 | B 主视图不能被 A 错误覆盖；A 列表状态如何显示 | active DOM + task item state | decision-needed |
-| X02 | A `compacting`，B active | A compact 失败 | B toolbar/sidebar 不受 A compact marker 影响 | active DOM + A snapshot | decision-needed |
-| X03 | A error，B active | 切回 A | A 的 error、queue、可操作按钮如何恢复显示 | switch session + UI state | decision-needed |
+| X01 | A `running`, B active | Falha na requisição do modelo principal de A | A visão principal de B não pode ser sobrescrita pelo erro de A; como o estado da lista de A é exibido | DOM ativo + estado do item de task | decision-needed |
+| X02 | A `compacting`, B active | Compact de A falha | Toolbar/sidebar de B não são afetados pelo compact marker de A | DOM ativo + snapshot de A | decision-needed |
+| X03 | A em error, B active | Volta para A | Como o error, a queue e os botões de ação de A voltam a ser exibidos | troca de sessão + estado da UI | decision-needed |
 
-## T. 测试基础设施故障
+## T. Falhas da infraestrutura de teste
 
-这些不是产品 case，但必须纳入工程化测试能力，否则 fault E2E 很容易误判。
+Não são cases de produto, mas precisam entrar na capacidade de teste enginerada, senão o fault E2E acaba com falsos positivos com facilidade.
 
-| ID | 故障 | 期望 | Review |
+| ID | Falha | Expectativa | Review |
 | --- | --- | --- | --- |
-| T01 | replay fixture 缺失 | 测试应失败为 infra error，不能伪装成产品 500 | infra |
-| T02 | fixture 匹配顺序错误 | artifact 必须能看出命中的 fixture id 和请求顺序 | infra |
-| T03 | capture artifact 包含密钥 | headers/body secret 必须被 redacted | infra |
-| T04 | `replay-isolated` 容器意外出网 | 测试必须失败；CI 只能依赖 fixture | infra |
+| T01 | Fixture de replay ausente | O teste deve falhar como infra error, sem se passar por um 500 de produto | infra |
+| T02 | Ordem de correspondência de fixture errada | O artifact precisa mostrar qual fixture id foi atingido e a ordem das requisições | infra |
+| T03 | Artifact de captura contém segredos | Segredos de headers/body precisam ser redacted | infra |
+| T04 | Container `replay-isolated` sai para a rede por acidente | O teste precisa falhar; a CI só pode depender de fixtures | infra |
 
-## 当前统计
+## Estatísticas atuais
 
-| 范围 | 数量 |
+| Escopo | Quantidade |
 | --- | ---: |
-| 产品 fault row | 40 |
-| 其中：新增外部故障产品 case | 37 |
-| 其中：主路径 undefined 别名 | 3 |
-| 测试基础设施 case | 4 |
+| Linhas de fault de produto | 40 |
+| Destas: novos cases de produto de falha externa | 37 |
+| Destas: aliases undefined do caminho principal | 3 |
+| Cases de infraestrutura de teste | 4 |
 | accepted | 4 |
 | decision-needed | 36 |
 | infra | 4 |
 
-`C01-C03` 是 `F09/G11/G12` 的环境故障视角别名，不额外增加 A-J 主路径的 case 总数。`C01-C03` 已于 2026-07-05 随源 case 裁决转 accepted。N05 的 queue 口径是所有普通主 turn 终态 `TurnError` 的共同恢复不变量：错误只结束当前 turn，不撤销已经 accepted 的后续输入；错误投影把队列置为暂停态，避免错误后的自动 drain 越过用户确认。429/503 的重试次数、SSE 中途断流的部分文本展示等仍由各自 fault row 单独裁决。
+`C01-C03` são aliases da perspectiva de falha de ambiente de `F09/G11/G12` e não aumentam a contagem de cases do caminho principal A-J. `C01-C03` passaram a accepted em 2026-07-05 junto com a decisão dos cases de origem. A semântica de queue de N05 é o invariante comum de recuperação para todos os estados terminais `TurnError` de turnos principais comuns: o erro encerra apenas o turno atual e não desfaz entradas subsequentes já accepted; a projeção de erro coloca a fila em estado pausado, evitando que o auto drain pós-erro ultrapasse a confirmação do usuário. O número de retries de 429/503, a exibição de texto parcial em queda de SSE etc. continuam decizidos por suas respectivas linhas de fault.
 
-合并去重后，当前不同产品决策缺口是：新增外部故障 36 条。
+Após a consolidação e deduplicação, a lacuna atual de decisões de produto distintas é: 36 novas falhas externas.
 
-## 下一步确认顺序
+## Próxima ordem de confirmação
 
-为了尽快把 fault case 变成 E2E，建议先确认这些 P0 语义：
+Para transformar logo os fault cases em E2E, recomenda-se confirmar primeiro estas semânticas P0:
 
-1. `N03/N04`：429、503 是否重试；最终失败后 queue 和按钮状态。
-2. `S02/S03`：SSE 中途断开后，部分 assistant 文本是保留为 interrupted 还是进入 error。
-3. `D01`：session history 写入 ENOSPC 时，用户是否必须看到错误，以及重启后怎么恢复。
-4. `L03/L06`：退出 app 或 agent crash 时，running turn 的恢复/中断语义。
-5. ~~`C01/C02/C03`~~ 已裁决（2026-07-05），转入待写 E2E。
+1. `N03/N04`: se 429 e 333 fazem retry; estado da queue e dos botões após a falha final.
+2. `S02/S03`: após queda de SSE no meio, o texto parcial do assistant é preservado como interrupted ou entra em error.
+3. `D01`: em ENOSPC na escrita da session history, o usuário precisa ver um erro, e como recuperar após reiniciar.
+4. `L03/L06`: semântica de recuperação/interrupção do turno em running ao sair do app ou em crash do agent.
+5. ~~`C01/C02/C03`~~ decididos (2026-07-05), entram na fila de escrita de E2E.
 
-## E2E Spec 映射草案
+## Rascunho de mapeamento para specs de E2E
 
-这些 spec 先作为落地边界，不代表产品预期已经确认。只有对应 case 从 `decision-needed` 变成 `accepted` 后，才可以把断言写死。
+Estas specs servem primeiro como limites de implementação e não representam expectativa de produto já confirmada. Só depois que o case correspondente passar de `decision-needed` para `accepted` as asserções podem ser fixadas.
 
-| 建议 spec | 覆盖范围 | 现有基础设施 | 还缺什么 |
+| Spec sugerida | Cobertura | Infraestrutura existente | O que ainda falta |
 | --- | --- | --- | --- |
-| `conversation-session-network-fault.test.ts` | N01-N08 | DeepSeek replay 已支持 statusCode、body、delayMs | 需要产品确认 401/429/503/timeout 的 UI 与 queue 语义 |
-| `conversation-session-sidecar-fault.test.ts` | N09 | replay 可按 title 请求 body 匹配失败 | 需要确认 title failure 是否完全不影响主 turn |
-| `conversation-session-sse-fault.test.ts` | S01-S07 | replay 已支持 SSE events、offsetMs、`closeMode=destroy` 异常断开；`upstreamReplayServer.test.ts` 已固化正常 EOF / 异常断开的 artifact 差异 | 需要确认各类 SSE 断开后的产品状态 |
-| `conversation-session-compact-failure.test.ts` | C01-C03 | compact transport legs 和 auto retry fixture 已存在 | ~~产品语义~~ 已裁决（2026-07-05），可按结论写稳定断言；断言按逻辑 compact attempt 与物理 provider request 分开计数 |
-| `conversation-session-storage-fault.test.ts` | D01-D05 | 已有 fs fault injection 协议和 helper 单测，支持按 path / operation 返回 `ENOSPC`、`EACCES` 等 Node 风格错误；provider `config.json`、`setting.json`、provider display order、SQLite session DB open/write、workspace tool 的父目录创建 / 非原子写入 / 删除、tool artifact write、CLI JSONL log write、desktop main log append 已接入；workspace 默认 atomic temp/rename 路径不接入 fault hook | 需要确认产品预期，并决定是否把启动期日志目录创建失败也改为吞错 |
-| `conversation-session-lifecycle-fault.test.ts` | L01-L08 | WDIO 可控制窗口、Electron 进程、relaunch | 需要定义 relaunch 后 running/compact 的恢复语义 |
-| `conversation-session-workspace-fault.test.ts` | W01-W05 | WDIO 可修改 workspace 文件树 | remote disconnect 和 pending permission 需要额外 harness |
-| `conversation-session-cross-session-fault.test.ts` | X01-X03 | 已有多 session helper 和 replay fixture | 需要先确定单 session fault 的目标状态，再验证隔离 |
+| `conversation-session-network-fault.test.ts` | N01-N08 | Replay DeepSeek já suporta statusCode, body, delayMs | Precisa de confirmação de produto sobre a semântica de UI e de queue para 401/429/503/timeout |
+| `conversation-session-sidecar-fault.test.ts` | N09 | O replay já permite simular falha por body no request de title | Precisa confirmar se a falha de title não afeta de todo o turno principal |
+| `conversation-session-sse-fault.test.ts` | S01-S07 | O replay já suporta SSE events, offsetMs, `closeMode=destroy` para queda anormal; `upstreamReplayServer.test.ts` já fixa a diferença de artifact entre EOF normal e queda anormal | Precisa confirmar o estado de produto após cada tipo de queda de SSE |
+| `conversation-session-compact-failure.test.ts` | C01-C03 | As pernas de transporte do compact e o fixture de auto retry já existem | ~~Semântica de produto~~ decidida (2026-07-05), dá para escrever asserções estáveis conforme a conclusão; as asserções contam separadamente as tentativas lógicas de compact e as requisições físicas ao provider |
+| `conversation-session-storage-fault.test.ts` | D01-D05 | Já existe o protocolo de fs fault injection e testes unitários de helper, com suporte a retorno de erros no estilo Node (`ENOSPC`, `EACCES`) por path / operation; já estão conectados o `config.json` do provider, `setting.json`, a ordem de exibição dos providers, open/write do SQLite de sessão, criação de diretório pai / escrita não atômica / remoção das tools de workspace, escrita de artifact de tool, escrita de log JSONL do CLI e append de log do desktop main; o caminho padrão de temp/rename atômico do workspace não entra no fault hook | Precisa confirmar a expectativa de produto e decidir se a falha de criação do diretório de logs no startup também passa a ser engolida |
+| `conversation-session-lifecycle-fault.test.ts` | L01-L08 | WDIO controla janela, processo Electron e relaunch | Falta definir a semântica de recuperação de running/compact após relaunch |
+| `conversation-session-workspace-fault.test.ts` | W01-W05 | WDIO pode modificar a árvore de arquivos do workspace | A desconexão remote e a permissão pendente exigem um harness adicional |
+| `conversation-session-cross-session-fault.test.ts` | X01-X03 | Já existem helpers de múltiplas sessions e fixtures de replay | Falta determinar primeiro o estado-alvo de um fault de sessão única e então validar o isolamento |
 
-## Fixture / Harness 能力缺口
+## Lacunas de capacidade de Fixture / Harness
 
-| 能力 | 目标 case | 说明 |
+| Capacidade | Cases alvo | Descrição |
 | --- | --- | --- |
-| HTTP status fixture | N01、N03-N05 | 已支持；fixture 直接返回 401/429/503/500 JSON body |
-| response delay fixture | N07、S06 | 已支持 `delayMs` / SSE `offsetMs`；需要统一超时阈值 |
-| partial SSE fixture | S01-S05 | 已支持写有限 events 后结束，也支持 `closeMode=destroy` 模拟异常断开；单测覆盖 `complete/end` 与 `error/destroy` 两种 artifact |
-| late SSE after stop | S07 | 需要 fixture 在 stop 后继续写事件，并用 inputId 证明 UI 忽略 stale event |
-| fs fault injection | D01-D05 | 已固化 `ZCODE_E2E_FS_FAULTS` 协议和 helper，provider/config、settings、provider display order、SQLite session DB open/write、workspace tool 的父目录创建 / 非原子写入 / 删除、tool artifact write、CLI JSONL log write、desktop main log append 已接入；workspace 默认 atomic temp/rename 路径不接入 fault hook；下一步需要确认产品语义并写具体 e2e 断言 |
-| process lifecycle control | L03-L08 | 需要 WDIO helper 标准化 quit/relaunch、kill host、kill agent、renderer reload |
-| remote disconnect harness | W04 | 需要针对 SSH/WSL/Docker remote host 的连接断开模拟 |
+| Fixture de status HTTP | N01、N03-N05 | Já suportado; o fixture devolve diretamente 401/429/503/500 com JSON body |
+| Fixture de atraso de resposta | N07、S06 | Já suporta `delayMs` / SSE `offsetMs`; falta unificar os limiares de timeout |
+| Fixture de SSE parcial | S01-S05 | Já suporta escrever um conjunto limitado de events e depois encerrar, e também `closeMode=destroy` simulando queda anormal; testes unitários cobrem os artifacts de `complete/end` e `error/destroy` |
+| SSE tardio após stop | S07 | Precisa de um fixture que continue escrevendo events após o stop e use o inputId para provar que a UI ignora o event obsoleto |
+| Injeção de falha de fs | D01-D05 | Já foram fixados o protocolo `ZCODE_E2E_FS_FAULTS` e o helper; provider/config, settings, ordem de exibição dos providers, open/write do SQLite de sessão, criação de diretório pai / escrita não atômica / remoção das tools de workspace, escrita de artifact de tool, escrita de log JSONL do CLI e append de log do desktop main já estão conectados; o caminho padrão de temp/rename atômico do workspace não entra no fault hook; o próximo passo é confirmar a semântica de produto e escrever as asserções de e2e concretas |
+| Controle de ciclo de vida de processo | L03-L08 | Precisa de um helper WDIO padronizando quit/relaunch, kill host, kill agent e reload do renderer |
+| Harness de desconexão remote | W04 | Precisa de simulação de queda de conexão para hosts remotos SSH/WSL/Docker |

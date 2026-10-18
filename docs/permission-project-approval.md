@@ -1,53 +1,43 @@
-# Permission 审批与项目级允许
+# Aprovação de Permission e permissão em nível de projeto
 
-## 背景
+## Contexto
 
-桌面端权限弹窗需要支持“在该项目中一直允许”。agent 内部已经支持 `permissionUpdates`，但 app 侧只拿到 allow/deny 的简单响应，导致 UI 只能展示“仅允许这一次”和“拒绝”。
+O diálogo de permissão do desktop precisa suportar "permitir sempre neste projeto". O agent já suporta `permissionUpdates` internamente, mas o lado do app só recebe uma resposta simples de allow/deny, o que faz com que a UI só consiga mostrar "Permitir somente desta vez" e "Recusar".
 
-## 目标
+## Objetivo
 
-把权限选项建模为“展示文案 + 真实协议响应”的组合：
+Modelar as opções de permissão como uma combinação de "texto exibido + resposta real do protocolo":
 
-- `allow_once`：只允许本次工具调用。
-- `allow_project`：允许本项目后续相同工具/规则，响应里携带 `permissionUpdates`。
-- `deny`：拒绝本次工具调用。
+- `allow_once`: permite somente esta chamada de ferramenta.
+- `allow_project`: permite, neste projeto, a mesma ferramenta/regra daqui em diante, com a resposta carregando `permissionUpdates`.
+- `deny`: recusa esta chamada de ferramenta.
 
-可信官方 CUA 另有一个受限的项目级能力组语义：用户第一次为官方 CUA 选择
-`allow_project` 后，同一项目内后续官方 CUA 工具共享这一条授权，不再因为
-`get_app_state`、`left_click`、`key`、`drag` 的工具名不同而逐个弹窗。这个例外只扩大
-官方 CUA 工具族内部的匹配范围，不改变 `allow_once` 的一次性语义，也不扩大普通 MCP
-工具的权限。
+A CUA oficial confiável tem ainda uma semântica restrita de grupo de capacidade em nível de projeto: depois que o usuário escolhe `allow_project` para a CUA oficial pela primeira vez, as ferramentas oficiais de CUA subsequentes no mesmo projeto compartilham essa única autorização, sem novos diálogos só porque os nomes das ferramentas `get_app_state`, `left_click`, `key` e `drag` são diferentes. Essa exceção apenas amplia o escopo de correspondência dentro da família de ferramentas da CUA oficial; ela não altera a semência de uso único de `allow_once` nem amplia as permissões de ferramentas MCP comuns.
 
-## 协议约束
+## Restrições do protocolo
 
-`interaction/requestPermission`、`permission.requested` 事件和 pending permission snapshot 都必须携带 `options`。每个 option 必须包含：
+`interaction/requestPermission`, o evento `permission.requested` e o snapshot de permissão pendente precisam carregar `options`. Cada option precisa conter:
 
-- `optionId`：稳定选项 ID。
-- `kind`：UI 展示语义。
-- `name` / `description`：展示文案。
-- `response`：用户选择该 option 时原样回传给 agent 的 `ZCodePermissionResponse`。
+- `optionId`: ID estável da option.
+- `kind`: semântica de exibição na UI.
+- `name` / `description`: textos exibidos.
+- `response`: o `ZCodePermissionResponse` devolvido tal e qual ao agent quando o usuário escolhe aquela option.
 
-legacy app 按 option.response 透传裁决；V4 通过稳定 optionId 交给 Agent 已登记的交互处理，不根据 UI 序号推导响应。完全访问属于下述独立提交动作，不能当成普通 allow。
+O app legacy repassa a decisão conforme `option.response`; o V4 entrega ao interaction handler já registrado no Agent por meio do optionId estável e não deriva a resposta do índice de UI. O acesso total pertence à ação de submissão independente descrita abaixo e não pode ser tratado como um allow comum.
 
-## Deny with feedback（V4）
+## Deny with feedback (V4)
 
-V4 permission snapshot 可通过 `freeText: true` 声明“拒绝时允许附带反馈”。该字段是输入能力，不是
-第四种 permission 裁决，也不改变 `allow_once`、`allow_project` 和 `deny` 的协议。
+O snapshot de permissão do V4 pode declarar "feedback permitido ao recusar" por meio de `freeText: true`. Esse campo é uma capacidade de entrada, não uma quarta decisão de permission, e não altera o protocolo de `allow_once`, `allow_project` e `deny`.
 
-- Desktop、Web 和手机 `/remote` 复用同一 `PermissionDialog` 与 `resolveInteraction`；桌面保持
-  `desktop-continuous`，Web/手机保持 `web-remote-replayable`。
-- 用户提交的反馈随 `resolveInteraction.answer.freeText` 发送，并与 `optionId: "deny"` 一起进入同一
-  provider-visible denied `tool_result`；不新增真实 user message、`steer` 或 permission 事件类型。
-- 拒绝内容以稳定 Deny 文案开头；非空反馈按固定格式追加：稳定文案后接一个空格、
-  `To tell you how to proceed, the user said:`，再换行放置 `<trimmed feedback>`。
-- 空白反馈回退稳定 Deny 文案；allow 选项携带的 `freeText` 忽略；未知 option 仍 fail-closed 为 deny。
-- 输入框是独立的 UI 导航行，序号接在权限选项之后（支持完全访问时为 `5.`，旧能力组合仍为 `4.`），与 Deny 分别选中、高亮；默认仍聚焦第一个权限选项。上下键、Tab / Shift+Tab 在权限选项和输入行间循环，对应数字键（完整选项为 `5`）聚焦输入行而不提交；输入法选词不切换行。
-- 输入行与权限选项属于同一视觉分组，行间距统一为 4px；工具详情、选项分组和底部确认区之间仍保持 12px。输入框保持在权限 `listbox` 外，不改变权限选项的无障碍语义。
-- 输入行非空时 Enter 或确认提交 Deny with feedback；空白时 Enter 不提交、确认禁用。普通 Deny 确认仍附带已有非空反馈，Allow 仍忽略反馈；Escape 仍只退出输入焦点，五行上限不变。
-- PermissionDialog 的 feedback 输入是可自动换行、按内容增高的多行文本框，序号与 textarea 第一行文字的垂直中心对齐，不随输入框整体高度移动（普通权限选项仍居中），最多 5 行、4096 字符，超过行数后在输入框内滚动；共享 `resolveInteraction` schema 不限制其他
-  interaction 的 `freeText`，避免收窄 AskUserQuestion、Plan 和通用 user-input 的既有行为。未提交草稿只存在
-  renderer 内存，pending command 继续只保存敏感摘要。
-- legacy v3、TUI 和 bot 不声明该能力，继续使用普通 Deny 兼容路径。
+- Desktop, Web e `/remote` do celular reutilizam o mesmo `PermissionDialog` e o mesmo `resolveInteraction`; o desktop mantém `desktop-continuous` e Web/celular mantêm `web-remote-replayable`.
+- O feedback enviado pelo usuário viaja em `resolveInteraction.answer.freeText` e entra, junto com `optionId: "deny"`, no mesmo `tool_result` negado e provider-visible; não há nova user message real, `steer` ou novo tipo de evento de permissão.
+- O conteúdo da recusa começa com um texto Deny estável; um feedback não vazio é anexado em formato fixo: o texto estável seguido de um espaço, `To tell you how to proceed, the user said:`, e então uma quebra de linha com `<trimmed feedback>`.
+- Feedback em branco recai no texto Deny estável; o `freeText` das options de allow é ignorado; option desconhecida continua falhando de forma fechada como deny.
+- O campo de entrada é uma linha de navegação de UI independente, numerada depois das opções de permissão (`5.` quando há acesso total, `4.` nas combinações antigas de capacidades) e selecionada/highlighted separadamente do Deny; o foco padrão continua na primeira option de permissão. As setas e Tab / Shift+Tab circulam entre as opções de permissão e a linha de entrada, e a tecla numérica correspondente (`5` no conjunto completo) foca a linha de entrada sem submeter; a seleção de candidatos do IME não troca de linha.
+- A linha de entrada e as opções de permissão pertencem ao mesmo grupo visual, com espaçamento de linha uniforme de 4px; entre os detalhes da ferramenta, o grupo de opções e a área de confirmação inferior o espaçamento continua em 12px. O campo fica fora do `listbox` de permissões e não altera a semântica de acessibilidade das opções.
+- Quando a linha de entrada não está vazia, Enter ou a confirmação submete Deny with feedback; quando está vazia, Enter não submete e a confirmação fica desabilitada. A confirmação de Deny normal continua anexando o feedback não vazio existente, Allow continua ignorando o feedback; Escape continua apenas saindo do foco de input e o limite de cinco linhas permanece.
+- O input de feedback do PermissionDialog é uma textarea multilinha com quebra automática e altura crescente conforme o conteúdo; o número é alinhado ao centro vertical do texto da primeira linha da textarea e não se move junto com a altura total do campo (as opções de permissão normais continuam centralizadas), com no máximo 5 linhas e 4096 caracteres e rolagem dentro do campo quando ultrapassar as linhas; o schema compartilhado de `resolveInteraction` não restringe o `freeText` de outras interactions, evitando estreitar o comportamento já existente de AskUserQuestion, Plan e user-input genérico. Rascunhos não submetidos existem apenas na memória do renderer, e o pending command continua guardando apenas o resumo sensível.
+- legacy v3, TUI e bot não declaram essa capacidade e continuam usando o caminho de compatibilidade do Deny normal.
 
 ```text
 UI focus (fullAccess): [1 Allow once] <-> [2 Allow project] <-> [3 Full access]
@@ -59,39 +49,30 @@ UI focus (fullAccess): [1 Allow once] <-> [2 Allow project] <-> [3 Full access]
                                             existing Deny + answer.freeText
 ```
 
-## 弹窗展示语义
+## Semântica de exibição do diálogo
 
-- `reason` 继续随权限请求保留，供策略诊断、日志和恢复链路使用；UI 不应把所有策略原因都当成用户提示。
-- `High risk tools require explicit approval` 和 `Tool has side effects and requires approval` 是内部策略说明，不在权限弹窗中展示。弹窗已经通过“等待确认”、工具详情和操作选项表达审批状态，重复展示这些说明不会帮助用户决策。
-- 工具输入中的具体 `description`、命令、文件变更、URL 和其他可操作详情仍按现有规则展示。
+- O `reason` continua sendo preservado na requisição de permissão, para diagnóstico de política, logs e cadeia de recuperação; a UI não deve tratar todas as razões de política como提示 para o usuário.
+- `High risk tools require explicit approval` e `Tool has side effects and requires approval` são explicações internas de política e não são exibidas no diálogo de permissão. O diálogo já expressa o estado de aprovação por meio de "aguardando confirmação", dos detalhes da ferramenta e das opções de ação; repetir essas explicações não ajudaria o usuário a decidir.
+- O `description` concreto nas entradas da ferramenta, comandos, alterações de arquivos, URLs e outros detalhes acionáveis continuam sendo exibidos conforme as regras existentes.
 
-## 规则生成
+## Geração de regras
 
-`allow_project` 的 `permissionUpdates` 使用 `addRules`：
+Os `permissionUpdates` de `allow_project` usam `addRules`:
 
 - `behavior: "allow"`
-- `toolName` 来自权限请求。
-- 非 Bash 工具的 `ruleContent` 继续尽量从权限输入提取 URL、路径或 glob；提取不到时只记录工具名。
-- Bash 工具由 CLI 的 AST-aware rule policy 生成稳定 command prefix 或 exact rule，app、host、main、relay 和 TUI 都不得重新从 input 推导。
-- 只有通过 official plugin authority secret gate 验证的 CUA tool entry 才携带运行时
-  `permissionCapabilityGroup: "official_cua"`。其 `allow_project` 建议规则在既有
-  `{toolName, ruleContent?}` 结构中使用保留 key
-  `zcode:permission-capability:official_cua`，不增加 wire 字段，也不从可伪造的 MCP
-  server/tool 名推导。
-- 能力组保留规则不携带 `ruleContent`。它表达用户对该项目内整组官方 Computer Use
-  能力的授权，而不是某次坐标、路径或 app input 的字符串匹配。
+- `toolName` vem da requisição de permissão.
+- Para ferramentas que não são Bash, o `ruleContent` continua sendo extraído, sempre que possível, da entrada de permissão (URL, caminho ou glob); quando não é possível extrair, apenas o nome da ferramenta é registrado.
+- Para ferramentas Bash, a stable command prefix ou a rule exata é gerada pela rule policy do CLI, com AST awareness; app, host, main, relay e TUI não podem deduzir novamente a partir do input.
+- Apenas a entry de ferramenta CUA verificada pelo official plugin authority secret gate carrega `permissionCapabilityGroup: "official_cua"` em runtime. A regra sugerida de `allow_project` usa, na estrutura existente `{toolName, ruleContent?}`, a chave reservada `zcode:permission-capability:official_cua`, sem adicionar campos ao wire e sem derivar isso de nomes de server/tool de MCP falsificáveis.
+- A regra do grupo de capacidade não carrega `ruleContent`. Ela expressa a autorização do usuário para todo o grupo de capacidades oficial de Computer Use dentro do projeto, e não a correspondência por string de uma coordenada, caminho ou app input específico.
 
-Bash 稳定 prefix 使用既有 `"<prefix>:*"` 编码；无法安全归一化、包含 redirect/dynamic
-结构或高风险宽 action 时保存完整命令 exact。compound command 最多返回五条独立规则，
-超过上限回退整串 exact。只读 invocation 由 Bash readonly policy 自动允许，不写冗余规则。
+O prefixo estável de Bash usa a codificação existente `"<prefix>:*"`; quando não é possível normalizar com segurança, quando há estruturas de redirect/dynamic ou quando há uma action ampla de alto risco, o comando completo é salvo como exato. Um compound command retorna no máximo cinco regras independentes e, acima do limite, cai para a string inteira como exata. Invocações somente-leitura são permitidas automaticamente pela readonly policy do Bash, sem escrever regras redundantes.
 
-`suggestedPermissionUpdates` 必须进入 `permission.requested` durable event 和 pending
-snapshot。桌面 continuous、手机 replayable、刷新恢复和 TUI 统一展示、回传这份权威数据，
-不能分别计算出不同授权范围。
+`suggestedPermissionUpdates` precisa entrar no durable event `permission.requested` e no snapshot pendente. Desktop continuous, mobile replayable, recuperação de refresh e TUI exibem e devolvem uniformemente esses dados autoritativos, sem calcular escopos de autorização diferentes.
 
-## 官方 CUA 能力组边界
+## Limites do grupo de capacidade da CUA oficial
 
-能力组匹配同时依赖“持久化规则”和“当前 tool entry 的可信 authority”：
+A correspondência do grupo de capacidade depende simultaneamente das "regras persistidas" e da "authority confiável da entry de ferramenta atual":
 
 ```text
 official plugin config + authority secret
@@ -115,62 +96,49 @@ stored group == current trusted tool group ?
       allow                      normal ask/deny policy
 ```
 
-必须接受的组合：
+Combinações que precisam ser aceitas:
 
-- 同一 `projectId`、同一份已验证 official CUA authority 下，第一次
-  `allow_project` 后，其他 official CUA 工具命中能力组规则。
-- 旧的 exact tool、Bash prefix/wildcard 和 tool-only 规则保持原语义。
-- 权限请求从 desktop continuous 恢复到手机 `web-remote-replayable` 时，仍回放同一份
-  option response；项目规则只由 Agent 的 session store 持久化一次。
+- mesmo `projectId` e mesma authority oficial de CUA já verificada: depois do primeiro `allow_project`, as demais ferramentas da CUA oficial casam com a regra do grupo de capacidade.
+- Regras antigas de ferramenta exata, prefixo/wildcard de Bash e tool-only mantêm a semântica original.
+- Quando a requisição de permissão é recuperada do desktop continuous para o `web-remote-replayable` do celular, a mesma resposta de option ainda é reproduzida; as regras de projeto são persistidas uma única vez pelo session store do Agent.
 
-必须拒绝或回到正常询问的组合：
+Combinações que precisam ser recusadas ou voltar à pergunta normal:
 
-- `allow_once` 后的下一次调用。
-- 不同 `projectId`、缺失持久化 session 或 project identity 漂移。
-- 第三方 MCP 使用相同 server/tool 名、伪造 official plugin id、同名工具覆盖，或
-  authority 验证结果发生漂移。
-- 普通 MCP、node_repl、browser-use 等非官方 CUA 工具。
-- 手工写入保留 key 但当前 tool entry 没有可信 official CUA capability；必须回到正常
-  ask/deny，不能按普通 exact toolName 兜底。
+- a chamada seguinte após um `allow_once`.
+- `projectId` diferente, sessão persistente ausente ou drift de project identity.
+- MCP de terceiros usando o mesmo nome de server/tool, falsificando o id de plugin oficial, ferramenta homônima sobrescrevendo, ou drift no resultado da verificação de authority.
+- ferramentas que não são CUA oficial, como MCP comum, node_repl e browser-use.
+- Escrita manual da chave reservada quando a entry de ferramenta atual não tem a capability oficial de CUA confiável; é preciso voltar à pergunta/recusa normal, sem cair para o tratamento genérico por toolName exato.
 
-禁止把能力组编码为 `mcp__computer-use__*`、server-name wildcard 或 plugin-name wildcard。
-这些字符串都可被第三方 MCP 模仿，不能作为授权 authority。
+É proibido codificar o grupo de capacidade como `mcp__computer-use__*`, wildcard de server-name ou wildcard de plugin-name.
+Todas essas strings podem ser imitadas por MCP de terceiros e não servem como authority de autorização.
 
-## 存储兼容
+## Compatibilidade de armazenamento
 
-项目权限继续保存在 `local_setting` 的 `permission/ruleset` JSON 中，不新增 SQL migration，
-不修改 schema version，也不改变 `PermissionRuleValue` 的严格
-`{toolName, ruleContent?}` 形状；旧 exact、`:*`、wildcard 与 tool-only rule 原样保留。
-能力组使用一个旧 schema 可解析、旧 Agent 只会安全忽略的保留 `toolName` key；其中 Bash
-prefix/wildcard 改由 AST evaluator 按 invocation 安全匹配，避免旧宽规则吞掉 compound 的
-追加命令。没有新授权发生时不得批量重写历史 ruleset。
+As permissões de projeto continuam salvas no JSON `permission/ruleset` de `local_setting`, sem nova migração SQL, sem alteração do schema version e sem mudar o formato estrito `{toolName, ruleContent?}` de `PermissionRuleValue`; regras antigas exatas, `:*`, wildcard e tool-only são preservadas como estão.
+O grupo de capacidade usa uma chave `toolName` reservada que o schema antigo consegue analisar e que um Agent antigo ignora com segurança; o prefixo/wildcard de Bash passa a ser casado com segurança pelo evaluator de AST por invocation, evitando que uma regra ampla antiga engula comandos adicionados de um compound. Não se pode reescrever em massa o ruleset histórico quando nenhuma nova autorização tiver ocorrido.
 
-这个编码是混合版本与回滚边界：旧 desktop/mobile/bot 的严格 schema 能展示并原样回传
-该规则；新版 Agent 将它与当前可信 tool entry 的 capability 一起解释。若回滚到旧 Agent，
-保留 key 不会匹配真实工具，最坏只会再次询问，不会扩大授权或让 pending permission
-无法解析。
+Esse é o limite entre versões mistas e rollback: o desktop/mobile/bot antigo com schema estrito consegue exibir a regra e devolvê-la tal e qual; o novo Agent a interpreta em conjunto com a capability da entry de ferramenta confiável atual. Em caso de rollback para um Agent antigo, a chave reservada não casa com nenhuma ferramenta real e, no pior caso, apenas pergunta de novo, sem ampliar a autorização nem deixar uma permissão pendente impossível de analisar.
 
-这样能覆盖 shell 命令、文件路径、网络 URL 等常见权限请求，同时保留 agent 侧规则解释权。
+Isso cobre requisições de permissão comuns como comandos de shell, caminhos de arquivo e URLs de rede, preservando a autoridade de interpretação de regras no lado do agent.
 
-## 验收
+## Aceitação
 
-- 不支持完全访问能力的权限弹窗保留三项：仅允许这一次、在该项目中一直允许、拒绝；支持时使用下述四项与可选第五行反馈。
-- 点击“在该项目中一直允许”后，app 回传的 response 包含 `permissionUpdates`。
-- 后续相同规则不再重复弹出权限申请。
-- official CUA 的项目级选项明确展示“Computer Use”范围；选择后，同项目
-  `get_app_state → left_click → key → drag` 只出现第一次确认。
-- 同名第三方 MCP、不同项目和 authority drift 都不能复用 official CUA 能力组规则。
-- 权限弹窗只读展示将新增的 prefix/exact scopes，不提供可编辑 pattern input；多行或超长
-  exact 仅显示有界首行摘要，完整 rule 只随 response 透传，不进入选项 DOM。
-- refresh/replay 后 scope 文案和原始 `permissionUpdates` 与首次请求一致。
+- O diálogo de permissão sem suporte a acesso total mantém três itens: permitir somente desta vez, permitir sempre neste projeto e recusar; quando há suporte, são os quatro itens abaixo mais a quinta linha opcional de feedback.
+- Após clicar em "permitir sempre neste projeto", a response devolvida pelo app contém `permissionUpdates`.
+- A mesma regra seguinte não abre novamente uma requisição de permissão.
+- A option em nível de projeto da CUA oficial exibe explicitamente o escopo "Computer Use"; após escolhê-la, `get_app_state → left_click → key → drag` no mesmo projeto só produz a primeira confirmação.
+- Um MCP de terceiro homônimo, outro projeto e drift de authority não podem reutilizar as regras do grupo de capacidade da CUA oficial.
+- O diálogo de permissão exibe em modo somente leitura os novos escopos prefix/exact e não oferece input de pattern editável; regras exatas multilinha ou muito longas mostram apenas um resumo limitado da primeira linha, e a rule completa só é transparenciada na response, sem entrar no DOM das opções.
+- Após refresh/replay, o texto de escopo e os `permissionUpdates` originais são idênticos aos da primeira requisição.
 
-## 审批框“完全访问”（Todo158）
+## "Acesso total" no diálogo de aprovação (Todo158)
 
-普通主任务审批在 Agent 支持完整提交能力时依次提供：允许一次、始终允许此命令、完全访问、拒绝；声明 `freeText` 时反馈为第五行。命令的项目允许保留 Agent 给出的 prefix/exact 规则；文件、网络、MCP、CUA 保留自己的范围文案。
+A aprovação de task principal comum oferece, quando o Agent suporta a capacidade de submissão completa,依次: permitir uma vez, sempre permitir este comando, acesso total e recusar; quando `freeText` é declarado, o feedback é a quinta linha. A permissão de projeto do comando preserva a prefix/exact rule dada pelo Agent; arquivo, rede, MCP e CUA preservam seus próprios textos de escopo.
 
-命令审批第 2 项说明为“项目范围内，后续相同命令不再询问”；第 3 项说明为“授予 Agent 完全访问权限，不再确认。”。该文案不改变以下授权范围和 Plan 边界。
+O item 2 da aprovação de comando é descrito como "no escopo do projeto, o mesmo comando não volta a perguntar"; o item 3 é descrito como "concede ao Agent acesso total, sem novas confirmações." Esse texto não altera o escopo de autorização nem os limites de Plan descritos acima.
 
-只有审批框的完全访问动作批量切换当前任务 Runtime、该任务 Composer 和已接纳尚未执行的全部队列项（含 held/Guide）为 `yolo`。各自 `planEnabled` 分别保留，其他配置、正文、附件、顺序和投递方式不变；既有 Plan 工具限制仍生效。普通 Composer 菜单仍只改草稿。当前轮继续执行，不创建新消息，不修改项目 permission/mode、ruleset 或 Composer Recent。
+Apenas a ação de acesso total do diálogo de aprovação alterna em lote o Runtime da task atual, o Composer dessa task e todos os itens de fila já aceitos e ainda não executados (incluindo held/Guide) para `yolo`. Cada `planEnabled` é preservado individualmente; as demais configurações, o corpo, os anexos, a ordem e a forma de entrega não mudam; as limitações existentes de ferramentas de Plan continuam em vigor. O menu comum do Composer continua alterando apenas o rascunho. O turno atual segue executando, sem criar nova mensagem e sem modificar permission/mode do projeto, ruleset ou Recent do Composer.
 
 ```text
 resolveInteraction(fullAccess) → session FIFO → registry + broker claim（Hook 退赛）
@@ -180,38 +148,39 @@ resolveInteraction(fullAccess) → session FIFO → registry + broker claim（Ho
  → 当前 broker allow → 当前工具继续
 ```
 
-- `fullAccessOption` 为独立可选能力字段，原 `options` 保持旧兼容列表；新 UI 才合入第三项。旧 UI 忽略字段，旧 Agent 不声明入口。静态 response 为 deny，不能由未知客户端误当 allow。
-- AskUserQuestion、ExitPlanMode、要求独立确认的 workflow 和 child-origin 审批不声明该能力；child 继续原审批，不能只切展示所在父 Runtime 就声称子任务已获完全访问。
-- Agent registry 校验 session/interaction。事务开始前取消、Hook 已胜出、已拒绝或迟到应答不提权；同请求重复提交共享一次操作。claim 后失败保留审批，支持显式重试或拒绝。
-- SQLite 事务同时保存当前 execution state、目标队列的权限和按 interactionId 去重的 receipt，不新增表。事务失败全部回滚；提交后的重试使用原固定目标，不包含后来提交。
-- Guide 消费及 reserve/promote 与授权屏障协调；已有消费/提升中的操作先完成，审批可重试。事件发布失败时，后续模式修改/队列消费先恢复已提交事件；投影失败重试从原权威日志重建，保留后来事件顺序。工具仅在投影提交完成后放行。
-- 每次完全访问尝试独立管理等待：提交/投影失败后解除本次屏障，已到达和后来到达的 legacy 应答或超时继续按原语义收口；没有应答时保留审批供显式重试/拒绝。重试必须建立新屏障，不能复用已兑现的失败通知提前放行。
-- 冷恢复只将有效且属于当前 session 的 receipt 用作 Composer 授权标记；无效记录或未知扩展字段记诊断并跳过，清除旧内存标记，继续恢复任务。授权动作的幂等重试仍严格拒绝损坏 receipt，不按当前队列重新授权。
-- Composer 在现有 workspaceIdentity/session 草稿内持久化已处理 grant ID；普通快照和撤回编辑不能再次触发旧授权。撤回编辑同时恢复队列项已记录的 mode、Plan、模型与 reasoning；旧项缺少的字段保留当前草稿。scope 切换不修改其他任务；新提交按自己的明确配置处理。
-- 桌面 continuous 与手机 replayable 沿用各自投递/重连契约；进程重启恢复 execution state 与 grant 标记，队列仍沿用现有冷恢复丢弃规则。
+- `fullAccessOption` é um campo de capacidade opcional e independente, e o `options` original mantém a lista de compatibilidade antiga; apenas a nova UI funde o terceiro item. A UI antiga ignora o campo e o Agent antigo não declara a entrada. A response estática é deny, para que um cliente desconhecido não a confunda com allow.
+- AskUserQuestion, ExitPlanMode, workflows que exigem confirmação independente e aprovações de origem child não declaram essa capacidade; o child continua com a aprovação original e não se pode afirmar que a subtarefa ganhou acesso total só porque a UI exibida estava no Runtime pai.
+- O registry do Agent valida session/interaction. Cancelamento antes do início da transação, Hook já vencedor, respostas já recusadas ou tardias não concedem privilégio; submissões duplicadas da mesma requisição compartilham uma única operação. Uma falha após o claim preserva a aprovação e permite retry explícito ou recusa.
+- A transação SQLite salva ao mesmo tempo o execution state atual, a permissão da fila alvo e o receipt deduplicado por interactionId, sem criar tabelas novas. Uma falha da transação faz rollback completo; um retry após o commit usa os alvos fixos originais e não inclui submissões posteriores.
+- O consumo de Guide e o reserve/promote são coordenados com a barreira de autorização; operações já em consumo/promoção são concluídas primeiro e a aprovação pode ser repetida. Em caso de falha na publicação de eventos, modificações posteriores de modo/consumo de fila restauram primeiro o evento já submetido; uma falha de projeção é reconstruída a partir do log autoritativo original, preservando a ordem dos eventos posteriores. A ferramenta só é liberada depois que a projeção é submetida.
+- Cada tentativa de acesso total administra sua própria espera: após falha de submissão/projeção a barreira desta tentativa é liberada, e respostas legadas ou timeouts que já chegaram e os que chegarem depois continuam fechando conforme a semântica original; sem resposta, a aprovação é preservada para retry/recusa explícitos. Um retry precisa estabelecer uma nova barreira e não pode reutilizar a notificação de falha já honrada para liberar antes da hora.
+- A recuperação fria usa como marcador de autorização do Composer apenas receipts válidos e pertencentes à session atual; registros inválidos ou campos de extensão desconhecidos geram diagnóstico e são pulados, removendo marcadores antigos em memória e continuando a recuperação da task. O retry idempotente da ação de autorização continua recusando estritamente receipts corrompidos e não reautoriza com base na fila atual.
+- O Composer persiste os IDs de grant já processados dentro do rascunho de workspaceIdentity/session existente; um snapshot normal ou uma edição de retratação não podem disparar de novo uma autorização antiga. A edição de retratação também restaura o mode, o Plan, o modelo e o reasoning já registrados no item de fila; campos ausentes em itens antigos preservam o rascunho atual. A troca de escopo não modifica as outras tasks, e uma nova submissão é tratada conforme a própria configuração explícita.
+- Desktop continuous e mobile replayable seguem seus próprios contratos de entrega/reconexão; o restart do processo restaura o execution state e os marcadores de grant, e a fila continua seguindo as regras existentes de descarte na recuperação fria.
 
-实现及验收证据见 [Todo158](working-memory/provider-refactor/steps/todo-158-permission-dialog-full-access-and-queued-mode.md) 和 [覆盖矩阵](testing/conversation-session-e2e-coverage-matrix.md)。pending E2E 不自动视为人工准入或手机整链路通过。
+Evidências de implementação e aceitação em [Todo158](working-memory/provider-refactor/steps/todo-158-permission-dialog-full-access-and-queued-mode.md) e na [matriz de cobertura](testing/conversation-session-e2e-coverage-matrix.md). Um E2E pendente não é automaticamente considerado homologação manual nem aprovação da cadeia completa no celular.
 
-## 命令预览完整性（2026-09-28）
+## Integridade da prévia de comando (2026-09-28)
 
-- 权限卡片中的 Bash 命令默认自动换行、最多显示三行；按实际渲染溢出显示“展开命令”。
-- 展开后保留完整命令，最多占十行高度，通过纵向滚动查看末尾；支持收起、键盘操作，窄屏长路径不得撑宽页面。
-- 等待授权仅展示输入，不展示输出或“没有输出”占位。实际执行完成后的空输出提示保持原行为。
-- 展开状态仅归命令预览组件所有；不改变权限响应、执行状态、desktop continuous 或 mobile replayable 链路。
-- 浏览器回归覆盖桌面/手机宽度、深浅主题、长命令展开/收起、末尾可达、短命令无展开按钮和授权按钮仍可用。
+- O comando Bash no cartão de permissão tem quebra automática por padrão e mostra no máximo três linhas; conforme o transbordo real da renderização, exibe "expandir comando".
+- Depois de expandido, o comando completo é preservado, ocupa no máximo dez linhas de altura e o final é visto por rolagem vertical; recolher, operação por teclado e a prohibition de um caminho longo esticar a página em tela estreita são suportados.
+- Enquanto a autorização está pendente, apenas a entrada é exibida, sem saída nem placeholder de "sem saída". O aviso de saída vazia após a execução real mantém o comportamento original.
+- O estado expandido pertence apenas ao componente de prévia do comando; a resposta de permissão, o estado de execução e as cadeias desktop continuous e mobile replayable não mudam.
+- A regressão de navegador cobre larguras de desktop/celular, temas claro e escuro, expandir/recolher de comando longo, acesso ao final, comando curto sem botão de expansão e o botão de autorização ainda utilizável.
 
-验证记录：`permission-full-access.test.mjs` 共享 UI 浏览器 E2E 共 8 项通过（390/1200 宽度、深浅主题）；相关单测 14 项、`pnpm typecheck`、`pnpm lint`（0 error）和架构门禁通过。本次未运行 Electron 整链路或手机 relay 集成测试；浏览器 fixture 仍保留 pending 人工准入状态。
+Registro de verificação: 8 casos passaram no E2E de navegador da UI compartilhada de `permission-full-access.test.mjs` (larguras 390/1200, temas claro e escuro); 14 testes unitários relacionados, `pnpm typecheck`, `pnpm lint` (0 erro) e o portão de arquitetura passaram. Nesta rodada não foram executados os testes de cadeia completa no Electron nem de integração de relay no celular; a fixture de navegador mantém o status de pendente para homologação manual.
 
-展开控件使用次级文字和 text-ui-sm 字号，中文为“展开命令 / 收起”，英文为“Show full command / Collapse”，右侧显示方向箭头。使用 link 按钮，移除水平 padding 和 border，始终保持透明，hover / focus-visible 以下划线反馈；按钮文字严格与命令正文左对齐，并保留默认按钮高度作为触控区域。
+O controle de expansão usa texto secundário com o tamanho de fonte text-ui-sm, sendo "展开命令 / 收起" em chinês e "Show full command / Collapse" em inglês, com uma seta de direção exibida à direita. Usa um botão de link, removendo o padding horizontal e a borda, sempre transparente, com feedback de sublinhado em hover / focus-visible; o texto do botão é estritamente alinhado à esquerda com o corpo do comando e mantém a altura padrão do botão como área de toque.
 
-命令滚动视口延伸至卡片右侧内边缘 4px 处，正文通过视口内补齐 padding 保持原有缩进与可用宽度；收起按钮位于滚动视口外，不随命令滚动。
+O viewport de rolagem do comando se estende até 4px da borda interna direita do cartão, e o corpo mantém a indentação e a largura útil originais via padding dentro do viewport; o botão de recolher fica fora do viewport de rolagem e não rola junto com o comando.
 
-`$` 起始标记与命令正文放在同一滚动视口内，滚动离开首行后一起消失，回到顶部后重新出现；不得固定在命令中段旁。
+O marcador `$` inicial e o corpo do comando ficam no mesmo viewport de rolagem, desaparecem juntos ao rolar para longe da primeira linha e reaparecem ao voltar ao topo; ele não pode ficar fixo ao lado do meio do comando.
 
-键盘路径：存在长命令展开按钮时，默认第一项权限选项按 Shift+Tab 返回命令按钮，按钮按 Tab 回到第一项；展开后继续 Shift+Tab 可进入命令滚动视口。展开/滚动不得提交授权。短命令没有按钮时，既有选项循环保持不变。
-## Group task scope
+Caminho de teclado: quando existe o botão de expandir do comando longo, a primeira option de permissão, por padrão, retorna ao botão de comando com Shift+Tab e o botão volta à primeira opção com Tab; depois de expandir, Shift+Tab sucessivo pode entrar no viewport de rolagem do comando. Expandir ou rolar não pode submeter a autorização. Quando o comando é curto e não há botão, o ciclo de opções existente permanece inalterado.
 
-Feishu/Lark group tasks use `SessionInfo.permission.scope = "session"` before tool execution. The first trusted group input initializes an empty session ruleset; later inputs retain only that task's explicit approvals. Session-scoped tasks do not read or write project approval memory. Existing private/Desktop tasks without this marker retain project semantics. An explicit owner mode change remains session configuration; message text and model output never set the marker or grant permissions.
+## Escopo de tasks de grupo
+
+Tasks de grupo do Feishu/Lark usam `SessionInfo.permission.scope = "session"` antes da execução de ferramentas. A primeira entrada de grupo confiável inicializa um ruleset de sessão vazio; entradas posteriores retêm apenas as aprovações explícitas daquela task. Tasks com escopo de sessão não leem nem escrevem a memória de aprovação de projeto. Tasks privadas/Desktop existentes sem esse marcador mantêm a semântica de projeto. Uma mudança explícita de mode do owner continua sendo configuração de sessão; o texto da mensagem e a saída do modelo nunca definem o marcador nem concedem permissões.
 
 ```
 trusted group input → persisted session scope → tool permission check

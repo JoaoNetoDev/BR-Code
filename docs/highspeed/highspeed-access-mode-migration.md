@@ -1,67 +1,66 @@
-# Highspeed 迁移到 Provider 重构后的模型契约
+# Highspeed: migração para o contrato de modelo pós-refatoração de Provider
 
-> 状态：实施中（2026-09-14）
-> 范围：把 Highspeed 加速卡的单轮推理路由从已退役的 `turnRuntimeModel` 迁移到
-> `modelSelection` + `modelExecution{selectionScope:"execution"}`，并为加速请求新增
-> `zhipu-account` 的 `highspeed` Access mode。
-> 关联：[highspeed-card-spec.md](./highspeed-card-spec.md)、
+> Status: em implementação (2026-09-14)
+> Escopo: migrar o roteamento de inferência de turno único do cartão de aceleração Highspeed do já descontinuado `turnRuntimeModel` para
+> `modelSelection` + `modelExecution{selectionScope:"execution"}`, e adicionar para as requisições aceleradas o
+> Access mode `highspeed` da `zhipu-account`.
+> Relacionado: [highspeed-card-spec.md](./highspeed-card-spec.md),
 > `docs/working-memory/provider-refactor/steps/todo-142-start-offpeak-signing-exceptions.md`
 
-## 1. 背景与问题
+## 1. Contexto e problema
 
-Highspeed 早于 Provider 重构落地，它用 `turnRuntimeModel`（`zcodeModelRuntimeConfigSchema`）
-把「本轮用哪个模型」和「用什么端点/凭据打」打成一个包随发送下发：
+O Highspeed foi entregue antes da refatoração de Provider; ele usava `turnRuntimeModel` (`zcodeModelRuntimeConfigSchema`)
+para empacotar 「qual modelo usar neste turno」 e 「com qual endpoint/credencial chamar」 num único objeto enviado junto com a mensagem:
 
 ```ts
-// 已退役契约：静态事实与动态凭据混在一个对象里
+// contrato descontinuado: fatos estáticos e credenciais dinâmicas misturados em um objeto
 turnRuntimeModel: {
   revision: `highspeed-${cardId}`,
   model: { providerId: "highspeed", modelId: card.model },
   provider: {
     providerId: "highspeed",
     kind: "anthropic",
-    baseURL: `${origin}/api/v1/highspeed/anthropic`,  // 静态事实
-    apiKey: { source: "inline", value: jwt },          // 动态凭据
+    baseURL: `${origin}/api/v1/highspeed/anthropic`,  // fato estático
+    apiKey: { source: "inline", value: jwt },          // credencial dinâmica
     headers: { Authorization: `Bearer ${jwt}`, "X-Highspeed-Card-ID": cardId },
     models: [{ modelId: card.model }],
   },
 }
 ```
 
-Provider 重构删除了 `zcodeModelRuntimeConfigSchema` / `zcodeModelRefSchema` /
-`zcodeModelProviderInputSchema` 整族契约，取而代之的规则是**静态/动态分离**：
+A refatoração de Provider removeu toda a família de contratos `zcodeModelRuntimeConfigSchema` / `zcodeModelRefSchema` /
+`zcodeModelProviderInputSchema`, sendo substituída pela regra de **separação estático/dinâmico**:
 
-- 端点、API 形态、模型能力等**静态事实**只能来自 ZCode Built-in Provider Config；
-- 只有**单次执行的动态鉴权材料**（`apiKey` / `headers`）随发送下发。
+- Endpoint, formato de API, capacidades do modelo e demais **fatos estáticos** só podem vir do ZCode Built-in Provider Config;
+- Apenas o **material de autenticação dinâmico de uma execução isolada** (`apiKey` / `headers`) é enviado junto com a mensagem.
 
-同时官方版本请求安全校验的豁免判定从「endpoint 路径白名单」收敛到共享 Adapter 按
-Access mode 判定，Todo142 明确禁止按 Provider ID、模型名、Key 内容或 endpoint 路径判定例外。
-Highspeed 原来依赖的 endpoint 路径白名单豁免已随重构一并删除。
+Ao mesmo tempo, o critério de isenção da verificação de segurança de requisições da versão oficial foi convergido de 「lista branca de caminhos de endpoint」 para um Adapter compartilhado que decide pelo Access mode; o Todo142 proíbe explicitamente isenções decididas por Provider ID, nome de modelo, conteúdo de Key ou caminho de endpoint.
+A isenção por lista branca de caminhos de endpoint da qual o Highspeed dependia foi removida junto com a refatoração.
 
-## 2. 迁移决策
+## 2. Decisões de migração
 
-Highspeed 与 Off-Peak 是**同一类问题**：单轮、非持久、动态凭据、隐藏 Provider、
-共享 `zcode.z.ai` 网关且免于官方版本的请求安全校验。Off-Peak 已在重构中完成迁移，因此
-Highspeed 直接复用同一套机制，不新建平行管道。
+Highspeed e Off-Peak são **o mesmo tipo de problema**: turno único, não persistente, credenciais dinâmicas, Provider oculto,
+gateway compartilhado `zcode.z.ai` e isento da verificação de segurança de requisições da versão oficial. Off-Peak já concluiu a migração durante a refatoração, portanto
+Highspeed reaproveita diretamente o mesmo mecanismo, sem criar um pipeline paralelo.
 
-| 关注点                   | 旧 Highspeed                           | 迁移后（对齐 Off-Peak）                       |
-| ------------------------ | -------------------------------------- | --------------------------------------------- |
-| 端点/API 形态            | `turnRuntimeModel.provider.baseURL`    | Built-in Provider Config 的 `api.baseUrl`     |
-| 模型                     | `turnRuntimeModel.model`               | `modelSelection{providerId, modelId}`         |
-| 凭据                     | `provider.apiKey` + `provider.headers` | `modelExecution.requestAuth{apiKey, headers}` |
-| 非持久语义               | 安装 turn overlay，轮末还原            | `modelExecution.selectionScope = "execution"` |
-| 安全校验豁免（官方版本） | endpoint 路径白名单                    | 按 `access.mode` 判定                         |
+| Aspecto                    | Highspeed antigo                       | Após a migração (alinhado ao Off-Peak)          |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| Endpoint/formato de API    | `turnRuntimeModel.provider.baseURL`    | `api.baseUrl` do Built-in Provider Config        |
+| Modelo                     | `turnRuntimeModel.model`               | `modelSelection{providerId, modelId}`            |
+| Credenciais                | `provider.apiKey` + `provider.headers` | `modelExecution.requestAuth{apiKey, headers}`    |
+| Semântica não persistente  | Instala turn overlay, restaura no fim do turno | `modelExecution.selectionScope = "execution"` |
+| Isenção da verificação de segurança (versão oficial) | Lista branca de caminhos de endpoint | Decidido por `access.mode`                      |
 
-`selectionScope: "execution"` 的语义严格强于旧 overlay：它根本不写入 session 常驻选择，
-因此不存在「安装/还原成对」的时序，也不需要幂等清理。旧的
+A semântica de `selectionScope: "execution"` é estritamente mais forte que o overlay antigo: ela nunca escreve na seleção persistente da sessão,
+portanto não existe a temporalidade de 「instalar/restaurar em par」 e não é necessária limpeza idempotente. Os antigos
 `applyTurnRuntimeModelForPrompt` / `host.applyTurnRuntimeModel` /
-`host.clearTurnRuntimeModel` 一并退役。
+`host.clearTurnRuntimeModel` foram descontinuados junto.
 
-## 3. 契约变更
+## 3. Mudanças de contrato
 
-### 3.1 新增 Access mode
+### 3.1 Novo Access mode
 
-`zcodeProviderAccountAccessSchema.mode` 增加 `"highspeed"`：
+`zcodeProviderAccountAccessSchema.mode` ganha `"highspeed"`:
 
 ```ts
 mode: z.enum([
@@ -73,72 +72,69 @@ mode: z.enum([
 ]),
 ```
 
-> 命名边界：这里的 `highspeed` 指**加速卡**这一账号访问类别，与模型名
-> `GLM-5.1-Highspeed`（一个普通快速模型变体）和 E2E 夹具里的
-> `e2e-glmhighspeed` 无关，仅字面重合。
+> Limite de nomenclatura: aqui `highspeed` designa a categoria de acesso por conta do **cartão de aceleração**, sem relação com o nome de modelo
+> `GLM-5.1-Highspeed` (uma variante comum de modelo rápido) e com o
+> `e2e-glmhighspeed` das fixtures de E2E; é apenas coincidência literal.
 
-### 3.2 新增 Built-in Provider（静态事实）
+### 3.2 Novo Built-in Provider (fatos estáticos)
 
-`config/provider/zcode-builtin.json` 的 `providerConfigRules.providerRules` 按 Off-Peak
-同构新增两个隐藏 Provider。Access 的 `accountType` 是必填枚举，且加速卡是对当前账号
-Coding Plan 权益的抽取，因此**必须按账号 Family 拆分**，不跨 Family 静默迁移：
+`providerConfigRules.providerRules` em `config/provider/zcode-builtin.json` ganha, de forma isomórfica ao Off-Peak, dois Providers ocultos. O `accountType` do Access é um enum obrigatório e o cartão de aceleração é uma extração dos benefícios de Coding Plan da conta atual, portanto **é obrigatório dividir por Family da conta**, sem migração silenciosa entre Families:
 
 | providerId                        | accountType | baseUrl                                         |
 | --------------------------------- | ----------- | ----------------------------------------------- |
 | `account:zai-highspeed-card`      | `zai`       | `https://zcode.z.ai/api/v1/highspeed/anthropic` |
-| `account:bigmodel-highspeed-card` | `bigmodel`  | 同上                                            |
+| `account:bigmodel-highspeed-card` | `bigmodel`  | o mesmo                                         |
 
-两者均为 `visibility: "hidden"`、`api.type: "anthropic-messages"`，`builtinModelIds`
-与同 Family 的 Coding Plan Provider 保持一致——加速卡回显用户当前选择的模型
-（`card.model` 即请求时提交的 model），加速来自换端点而非换模型。
+Ambos têm `visibility: "hidden"`, `api.type: "anthropic-messages"`, e `builtinModelIds`
+alinhados com o Provider de Coding Plan da mesma Family — o cartão de aceleração reflete o modelo atualmente escolhido pelo usuário
+(`card.model` é justamente o model enviado na requisição), a aceleração vem da troca de endpoint e não da troca de modelo.
 
-**站点能力规则必须同步新增。** `modelConfigRules.providerSiteRules` 按 `baseUrl` 匹配，
-新端点没有规则就会静默落回 `modelRules` 的保守默认值。加速端点必须与 Coding Plan
-站点（`api.z.ai` / `open.bigmodel.cn` / `zcode-plan`）逐项对齐，因此新增两条规则：
+**As regras de capacidade do site precisam ser adicionadas junto.** `modelConfigRules.providerSiteRules` casa por `baseUrl`,
+e sem regra para o novo endpoint ele cai silenciosamente nos valores padrão conservadores de `modelRules`. O endpoint acelerado precisa ficar alinhado item a item com os sites de Coding Plan
+(`api.z.ai` / `open.bigmodel.cn` / `zcode-plan`), por isso são adicionadas duas regras:
 
-| 匹配                                                | 属性                                                                     | 与哪个站点对齐                                                   |
-| --------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| `https://zcode\.z\.ai/api/v1/highspeed/anthropic/?` | `inputFormat.supportsImage/supportsVideo = true`                         | 同 `zcode-plan`                                                  |
-| 同上 + `apiTypeMatch: anthropic-messages`           | `supportsMidConversationSystem = true`、`supportsNativeWebSearch = true` | 同 `zcode-plan`，**不同于 `off-peak`**（Todo140 只关闭闲时搜索） |
+| Casamento                                               | Propriedades                                                                | Alinhado a qual site                                                  |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `https://zcode\.z\.ai/api/v1/highspeed/anthropic/?` | `inputFormat.supportsImage/supportsVideo = true`                           | o mesmo que `zcode-plan`                                              |
+| o mesmo + `apiTypeMatch: anthropic-messages`         | `supportsMidConversationSystem = true`, `supportsNativeWebSearch = true`   | o mesmo que `zcode-plan`, **diferente de `off-peak`** (o Todo140 só desliga a busca ociosa) |
 
-理由是能力事实必须在同一会话内稳定，而不是随本轮是否加速抖动：
+A razão é que os fatos de capacidade precisam ser estáveis dentro da mesma sessão, e não oscilar conforme o turno é acelerado ou não:
 
-- `supportsMidConversationSystem` 决定 system 块能否留在对话中段。同一 transcript 里
-  普通轮为 `true`、加速轮为 `false` 会让同一段历史被两种方式改写。全部 Zhipu 站点
-  （含 `off-peak`）都是 `true`，此处没有歧义。
-- `supportsNativeWebSearch` 决定 `shouldExposeWebSearch` 是否把 WebSearch 暴露给模型
-  （`apps/zcode-cli/packages/core/src/runtime/methods/config.ts`，读的是**本轮 Active Model**）。
-  取 `false` 会让加速轮的工具集少一个工具，等于把「只改变速度」变成「顺带改变工具集」。
-- `inputFormat` 决定附件能否进入本轮。会话普通轮支持图片而加速轮不支持时，已经写好的
-  图片输入会在发送瞬间失去合法性。
+- `supportsMidConversationSystem` determina se o bloco system pode permanecer no meio da conversa. No mesmo transcript, um
+  turno normal `true` e um turno acelerado `false` fariam o mesmo trecho de histórico ser reescrito de duas formas. Todos os sites Zhipu
+  (incluindo `off-peak`) são `true`; não há ambiguidade aqui.
+- `supportsNativeWebSearch` determina se `shouldExposeWebSearch` expõe o WebSearch ao modelo
+  (`apps/zcode-cli/packages/core/src/runtime/methods/config.ts`, que lê o **Active Model deste turno**).
+  Definir como `false` faria o conjunto de ferramentas do turno acelerado perder uma ferramenta, o que equivale a transformar 「apenas mudar a velocidade」 em 「mudar o conjunto de ferramentas por efeito colateral」.
+- `inputFormat` determina se os anexos podem entrar neste turno. Se a sessão suporta imagens no turno normal mas não no acelerado, uma entrada de imagem já escrita perde a validade no instante do envio.
 
-**迁移前的旧行为与此不同**：`buildHighspeedTurnRuntimeModel` 自己拼 `baseURL`，配置里
-根本没有这个站点，于是加速轮拿到的是 `modelRules` 默认值（MCS、搜索、图片全 `false`）。
-那不是设计结论，只是没有站点规则的副作用。若后端确认加速端点确实不透传 native
-web search，只需把这一条属性改 `false`，不影响其余迁移面。
+**O comportamento antigo antes da migração era diferente**: `buildHighspeedTurnRuntimeModel` montava o `baseURL` por conta própria, a configuração não tinha esse site,
+então o turno acelerado recebia os valores padrão de `modelRules` (MCS, busca e imagens tudo `false`).
+Isso não é uma conclusão de projeto, é apenas o efeito colateral de não haver regra de site. Se o backend confirmar que o endpoint acelerado de fato não repassa native
+web search, basta mudar esta propriedade para `false`, sem impacto no restante da superfície da migração.
 
-**测试环境发布包必须同步派生。** 生产文件 `config/provider/zcode-builtin.json` 是唯一编辑源，
-`config/provider/zcode-builtin.test.json` 由 `pnpm provider:config:sync-test` 机械派生
-（`ZCODE_ENV` 选择实际加载哪个）。派生脚本按端点白名单改写 `zhipu-account` 的 `baseUrl`
-并复制站点规则，因此新增加速端点必须同时登记测试孪生端点，否则 `pnpm provider:config:check-test`
-直接抛 `Unknown account Provider endpoint`，加速卡在测试环境也拿不到 Provider：
+**O pacote de release do ambiente de teste precisa ser derivado junto.** O arquivo de produção `config/provider/zcode-builtin.json` é a única fonte de edição,
+e `config/provider/zcode-builtin.test.json` é derivado mecanicamente por `pnpm provider:config:sync-test`
+(o `ZCODE_ENV` escolhe qual é realmente carregado). O script de derivação reescreve o `baseUrl` de `zhipu-account` pela lista branca de endpoints
+e copia as regras de site, portanto o novo endpoint acelerado precisa registrar também o endpoint gêmeo de teste, senão `pnpm provider:config:check-test`
+lança direto `Unknown account Provider endpoint` e o cartão de aceleração também não obtém Provider no ambiente de teste:
 
-| 位置                                                                            | 内容                                                                                                                                               |
+| Local                                                                            | Conteúdo                                                                                                                                               |
 | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/sync-test-builtin-provider-config.mjs` 的 `accountEndpoints`           | `https://zcode.z.ai/api/v1/highspeed/anthropic` → `https://zcode.z.ai/api/v1/highspeed/anthropic`                                          |
-| `scripts/test/sync-test-builtin-provider-config.test.mjs` 的 `pairs` 与数量断言 | 该测试独立维护一份端点表，用于校验脚本的白名单没被改错；新增内置账号 Provider 后 `providerRules` 数量与派生站点规则副本数（当前 10 / 9）要一起更新 |
+| `accountEndpoints` em `scripts/sync-test-builtin-provider-config.mjs`           | `https://zcode.z.ai/api/v1/highspeed/anthropic` → `https://zcode.z.ai/api/v1/highspeed/anthropic`                                          |
+| `pairs` e as asserções de contagem em `scripts/test/sync-test-builtin-provider-config.test.mjs` | O teste mantém sua própria tabela de endpoints para validar que a lista branca do script não foi alterada errado; ao adicionar um Provider de conta embutido, a contagem de `providerRules` e a de cópias de regras de site derivadas (atualmente 10 / 9) precisam ser atualizadas juntas |
 
-### 3.3 单轮执行材料
+### 3.3 Material de execução de turno único
 
-`HighspeedPrepareTurnResult` 的 `accelerated` 分支不再返回 `turnRuntimeModel`，改为
-返回可直接投影到协议的执行材料：
+O ramo `accelerated` de `HighspeedPrepareTurnResult` deixa de retornar `turnRuntimeModel` e passa a retornar
+o material de execução que pode ser projetado diretamente no protocolo:
 
 ```ts
 | {
     kind: "accelerated";
     card: HighspeedCardSnapshot;
     nextDrawAt: number;
-    /** Mock 只保留加速业务语义；省略该字段即继续走 session 普通推理路由。 */
+    /** O mock mantém apenas a semântica de negócio da aceleração; omitir este campo faz o fluxo continuar na rota de inferência comum da sessão. */
     execution?: {
       modelSelection: ModelSelection;
       requestAuth: { apiKey: string; headers: Record<string, string> };
@@ -146,7 +142,7 @@ web search，只需把这一条属性改 `false`，不影响其余迁移面。
   }
 ```
 
-发送时按已有协议字段提交，不新增协议字段：
+No envio, submetido pelos campos de protocolo já existentes, sem adicionar campos novos:
 
 ```ts
 sendText({
@@ -155,145 +151,137 @@ sendText({
     selectionScope: "execution",
     requestAuth: execution.requestAuth,
   },
-  highspeedMeta, // 卡快照仍随输入事实进入 message.data，不含凭据
+  highspeedMeta, // o snapshot do cartão ainda entra como fato de entrada em message.data, sem credenciais
 });
 ```
 
-`highspeedMeta` 的语义不变：它是**投影用的卡快照**，不含凭据与 header，可持久化；
-凭据只在 `modelExecution.requestAuth` 里，仅 idle `startNow` 接受，不进普通
-`CommandInbox`，因此队列持久化面不变——这与旧规则「队列只持久化不含凭据的卡元数据」一致。
+A semântica de `highspeedMeta` não muda: ele é o **snapshot do cartão usado para projeção**, sem credenciais nem headers, podendo ser persistido;
+as credenciais ficam apenas em `modelExecution.requestAuth`, são aceitas somente por `startNow` ocioso e não entram no
+`CommandInbox` comum, portanto a superfície de persistência da fila não muda — o que é coerente com a regra antiga 「a fila persiste apenas metadados de cartão sem credenciais」.
 
-### 3.4 安全校验豁免
+### 3.4 Isenção da verificação de segurança
 
-官方版本的请求安全校验按 `access.mode` 判定豁免：`highspeed` 与 `start-plan`、`off-peak`
-同属免校验的账号模式。不恢复 endpoint 路径白名单——Todo142 禁止按 endpoint 路径判定例外。
-具体实现只存在于官方版本，不在本文展开。
+A verificação de segurança de requisições da versão oficial decide a isenção por `access.mode`: `highspeed`, assim como `start-plan` e `off-peak`,
+pertence aos modos de conta isentos de verificação. A lista branca de caminhos de endpoint não é restaurada — o Todo142 proíbe decidir exceções por caminho de endpoint.
+A implementação concreta existe apenas na versão oficial e não é detalhada aqui.
 
-### 3.5 声明式单轮退回：`modelExecution.selectionFallback`
+### 3.5 Fallback de turno único declarativo: `modelExecution.selectionFallback`
 
-**这是本次迁移在 staging 契约上新增的字段**（`packages/shared/src/model-execution.ts`）。
-旧实现靠 overlay 还原接口把卡过期后的剩余请求切回原模型；`selectionScope: "execution"`
-既然从不改写 Session Selection，就没有「还原」这一步，必须由发起方**声明**什么错误算
-「本轮执行凭据失效」：
+**Este é o campo novo que esta migração acrescenta ao contrato de staging** (`packages/shared/src/model-execution.ts`).
+A implementação antiga usava a interface de restauração do overlay para voltar ao modelo original nas requisições restantes depois do cartão expirar; como `selectionScope: "execution"`
+nunca reescreve a Session Selection, não existe esse passo de 「restauração」, e o solicitante precisa **declarar** qual erro conta como
+「credencial de execução inválida neste turno»:
 
 ```ts
 selectionFallback: {
   providerId: string,
-  // 按声明顺序匹配，首个命中的规则决定退回原因；providerErrorCode 缺省表示该 provider 的任何失败
+  // casados na ordem declarada; a primeira regra casada determina o motivo do fallback; providerErrorCode ausente significa qualquer falha deste provider
   rules: Array<{
     reason: "highspeed_card_expired" | "highspeed_request_failed",
     providerErrorCode?: string,
   }>,
-  // 退回目标：发起方抽卡时的提交选择（会话原模型 + 档位）。缺省才退回 runtime 会话常驻选择。
+  // alvo do fallback: a seleção enviada no momento do sorteio do cartão (modelo original da sessão + tier). Só na ausência deste é que se usa a seleção persistente da sessão do runtime.
   target?: ModelSelection,
 }
 ```
 
-加速卡声明 `[{ reason: "highspeed_card_expired", providerErrorCode: "3402" }, { reason: "highspeed_request_failed" }]`：
-卡过期按原因区分提示，其余任何失败（鉴权、限流、5xx、网络、超时、流中断）同样退回。
+O cartão de aceleração declara `[{ reason: "highspeed_card_expired", providerErrorCode: "3402" }, { reason: "highspeed_request_failed" }]`:
+cartão expirado é diferenciado por motivo na mensagem, e qualquer outra falha (autenticação, rate limit, 5xx, rede, timeout, interrupção de stream) também faz fallback.
 
-CLI 侧只做纯匹配（`turn-execution-fallback.ts`，由 `turn-model-step.ts` 调用）：本轮 execution
-Selection 的 `providerId` 命中声明值，且失败归因未指向其他 provider 时，按规则顺序取首个命中项退回一次。
-**不按 provider id 前缀、模型名或错误文案硬编码**，这是 Todo142 的同一条纪律。退回原因由命中的规则
-给出，CLI 不自行解释错误码。
+O lado do CLI faz apenas casamento puro (`turn-execution-fallback.ts`, chamado por `turn-model-step.ts`): o `providerId` da execution
+Selection deste turno casa com o valor declarado e a atribuição da falha não aponta para outro provider, e então o primeiro item casado na ordem das regras é usado para um único fallback.
+**Nada é hardcoded por prefixo de provider id, nome de modelo ou texto de erro** — é a mesma disciplina do Todo142. O motivo do fallback vem da regra casada; o CLI não interpreta códigos de erro por conta própria.
 
-退回目标先取声明的 `target`，再取 runtime 会话常驻 Session Selection。execution 作用域从不改写
-Session Selection，正常情况下两者相同；但会话常驻选择只存在于 runtime 内存，冷恢复落在 Registry
-刚就绪、账号权益未解析的窗口时它会校验失败而不绑定，之后只发加速轮也不会再绑定（见下方回归约束），
-所以发起方必须把抽卡时的提交选择作为 `target` 随声明下发。退回请求不再携带本次执行的
-`requestDependencies`，即走用户自己的常规鉴权。
+O alvo do fallback vem primeiro do `target` declarado e depois da Session Selection persistente da sessão do runtime. A seleção de escopo execution nunca reescreve a
+Session Selection, então normalmente os dois são iguais; mas a seleção persistente da sessão só existe na memória do runtime, e uma recuperação a frio caindo na janela em que o Registry acabou de ficar pronto e os benefícios da conta ainda não foram resolvidos falha na validação e não é vinculada; depois, mesmo que só hajam turnos acelerados, ela nunca mais é vinculada (ver a restrição de regressão abaixo),
+portanto o solicitante precisa enviar a seleção do momento do sorteio do cartão como `target` junto com a declaração. A requisição de fallback não carrega mais os `requestDependencies` desta execução, ou seja, usa a autenticação regular do próprio usuário.
 
-边界必须保持：
+Os limites precisam ser mantidos:
 
-- **只退一次**：退回后清空 `state.selectionFallback`；普通模型若再失败，整轮按真实错误失败。
-- **无处可退时必须失败**：声明的 `target` 与会话常驻 `modelSelection` 都缺失或都不可解析时，
-  本轮按真实错误失败。旧实现里 `if (fallbackModel)` 恒真，把这个分支掩埋成了别的错误；
-  现在按候选顺序尝试建模，候选不可解析（Registry 中不存在）只跳过不中断，全部落空时记录
-  `model.execution_selection.fallback_unavailable` 的 `warn` 并返回原错误。
-- **回归约束（2026-10-09 日志复盘）**：退回目标曾只依赖 runtime 会话常驻选择。桌面重启后冷恢复
-  在 Provider Registry ready 后 600ms 内完成，此时账号 provider 仍 `entitled:false`、未发布模型，
-  持久化选择校验 `provider-not-found` 而不绑定；之后两轮全是加速轮，runtime 一直无常驻选择，
-  3402 时降级静默跳过、整轮失败。`target` 由发起方声明后不再依赖这段时序。
-- **不降级的失败**：用户取消与上下文超窗不匹配任何规则；超窗继续交给 reactive compact。事件持久化、
-  投影等无 provider/network 归因的本地 runtime 失败也不得被兜底规则误判成加速请求失败。
-- **退回优先于同模型 stream recovery**：失败处理顺序为 声明式退回 → stream recovery →
-  Start Plan admission 重试 → 超窗 compact → 整轮失败。若失败命中退回声明但所有退回目标都不可解析，
-  必须直接按真实错误失败，不能继续在加速模型上做 stream recovery。若退回排在 recovery 之后，流中断会先在
-  加速模型上重试到预算耗尽。`TurnExecutionModelFallback` 到达投影时必须先把被废弃的 text/reasoning
-  流标记为 `interrupted`，并将尚未定稿的 `inputStreaming` 工具行标记为 `cancelled`；原模型后续输出
-  必须打开新行，不能与加速输出拼接，也不能把废弃输出误标为完成。
-- **执行句柄 0 次重试**：带 `selectionFallback` 且 Selection 指向声明 provider 的执行作用域模型句柄
-  绑定 `ModelRetryBudget.SingleAttempt`（`createTurnModel(..., { retryBudget })`），适配层把该请求的
-  `maxAttempts` 收敛为 1；退回后的会话模型句柄沿用 taskType 默认预算。
+- **Fallback apenas uma vez**: após o fallback, `state.selectionFallback` é limpo; se o modelo comum falhar de novo, o turno inteiro falha com o erro real.
+- **Falhar obrigatoriamente quando não há para onde recuar**: quando o `target` declarado e o `modelSelection` persistente da sessão estão ambos ausentes ou não resolvíveis,
+  o turno falha com o erro real. Na implementação antiga o `if (fallbackModel)` era sempre verdadeiro e enterrava esse ramo sob outro erro;
+  agora a tentativa é modelada pela ordem dos candidatos, um candidato não resolvível (inexistente no Registry) é apenas pulado sem interromper e, quando todos falham, é registrado um
+  `warn` de `model.execution_selection.fallback_unavailable` e o erro original é devolvido.
+- **Restrição de regressão (retrospectiva de logs de 2026-10-09)**: o alvo do fallback chegou a depender apenas da seleção persistente da sessão do runtime. A recuperação a frio após reiniciar o desktop
+  é concluída em até 600ms depois do Provider Registry ficar pronto; nesse momento o provider de conta ainda está `entitled:false` e sem modelos publicados, a
+  validação da seleção persistida dá `provider-not-found` e nada é vinculado; depois disso os dois turnos seguintes são turnos acelerados, o runtime nunca tem seleção persistente,
+  e no 3402 o downgrade era pulado em silêncio e o turno falhava por completo. Com o `target` declarado pelo solicitante, nada mais depende dessa temporalidade.
+- **Falhas que não fazem downgrade**: o cancelamento do usuário e o estouro da janela de contexto não casam com nenhuma regra; o estouro de janela continua sendo delegado ao reactive compact. Falhas locais do runtime sem atribuição de provider/rede, como persistência de eventos e projeção, também não podem ser jul erroneamente como falha de requisição acelerada pelas regras de fallback.
+- **O fallback tem precedência sobre o stream recovery do mesmo modelo**: a ordem de tratamento da falha é fallback declarativo → stream recovery →
+  nova tentativa de Start Plan admission → compact por estouro de janela → falha do turno inteiro. Se a falha casar com a declaração de fallback mas todos os alvos forem não resolvíveis,
+  é obrigatório falhar direto com o erro real, sem continuar fazendo stream recovery no modelo acelerado. Se o fallback viesse depois do recovery, uma interrupção de stream tentaria de novo no
+  modelo acelerado até esgotar o orçamento. Quando `TurnExecutionModelFallback` chega à projeção, os streams de text/reasoning descartados precisam ser marcados como `interrupted` primeiro,
+  e as linhas de ferramenta `inputStreaming` ainda não consolidadas como `cancelled`; a saída posterior do modelo original
+  precisa abrir uma nova linha, não pode ser concatenada com a saída acelerada nem rotular a saída descartada como concluída.
+- **Handle de execução com 0 retentativas**: um handle de modelo de escopo de execução com `selectionFallback` cuja Selection aponta para o provider declarado
+  é vinculado a `ModelRetryBudget.SingleAttempt` (`createTurnModel(..., { retryBudget })`), e a camada de adaptação reduz o `maxAttempts` dessa requisição para 1; o handle do modelo de sessão após o fallback mantém o orçamento padrão por taskType.
 
-### 3.6 协议校验：`modelExecution` 不得独立出现
+### 3.6 Validação de protocolo: `modelExecution` não pode aparecer sozinho
 
-`modelExecution` 只描述「怎么打」，Selection 才是「打谁」。二者分离后必须在协议层
-保证不会出现「带凭据但没有选型」的请求，否则执行期会拿加速卡凭据去打会话默认 Provider。
-`packages/shared/src/zcode-protocol-v4/command.ts` 的三条命令各加一条 superRefine：
+`modelExecution` só descreve 「como chamar」; a Selection é quem diz 「chamar quem」。Depois da separação dos dois, é preciso garantir na camada de protocolo
+que nunca apareça uma requisição 「com credenciais mas sem seleção」, senão a fase de execução usará as credenciais do cartão de aceleração para chamar o Provider padrão da sessão.
+Cada uma das três comandos em `packages/shared/src/zcode-protocol-v4/command.ts` ganha uma superRefine:
 
-| 命令            | 迁移前 | 迁移后                                            |
-| --------------- | ------ | ------------------------------------------------- |
-| `sendText`      | 已有   | 保持                                              |
-| `editUserQuery` | 无     | **新增** `modelExecution requires modelSelection` |
-| `sendQueuedNow` | 无     | **新增** 同上                                     |
+| Comando             | Antes da migração | Depois da migração                                  |
+| ------------------- | ----------------- | --------------------------------------------------- |
+| `sendText`          | já tinha          | mantido                                              |
+| `editUserQuery`     | não tinha         | **novo** `modelExecution requires modelSelection`   |
+| `sendQueuedNow`     | não tinha         | **novo**, o mesmo                                   |
 
-`editUserQuery` / `sendQueuedNow` 是 Highspeed 唯二能重新发起加速轮的入口，
-迁移前它们靠 `turnRuntimeModel` 自带模型所以无需校验。
+`editUserQuery` / `sendQueuedNow` são as duas únicas entradas pelas quais o Highspeed pode iniciar novamente um turno acelerado;
+antes da migração elas carregavam o modelo por conta própria via `turnRuntimeModel` e por isso não precisavam de validação.
 
-### 3.7 Access 解析：加速卡不是独立套餐
+### 3.7 Resolução de Access: o cartão de aceleração não é um plano independente
 
-`off-peak` 与 `highspeed` 都不是独立套餐，而是「已连接的个人/团队 Coding Plan」派生出的
-执行入口：请求期鉴权分别来自 ticket 与加速卡 JWT，本身没有可校验的套餐 Key。
-`accountProviderConnectionResolver.ts` 把 staging 里三处 `mode === "off-peak"` 字面判断
-抽成 `isCodingPlanDerivedMode(mode)`，同时覆盖两种派生模式：
+Tanto `off-peak` quanto `highspeed` não são planos independentes, e sim pontos de entrada de execução derivados de um 「Coding Plan pessoal/equipe já conectado」:
+a autenticação no momento da requisição vem, respectivamente, do ticket e do JWT do cartão de aceleração, e não há uma Key de plano em si validável.
+`accountProviderConnectionResolver.ts` extrai as três decisões literais de `mode === "off-peak"` que existiam em staging para `isCodingPlanDerivedMode(mode)`, cobrindo ao mesmo tempo os dois modos derivados:
 
-1. Coding Plan availability 校验的候选集合（派生模式不算已配置套餐）；
-2. availability 投影（派生 Provider 的可用性跟随当前 Coding Plan 选择）；
-3. `resolveCurrentAccountAccess`：派生模式只要求当前选择是 individual/team Coding Plan，
-   不按 `selection.kind === mode` 直接比对。
+1. O conjunto de candidatos da validação de disponibilidade do Coding Plan (modos derivados não contam como plano configurado);
+2. A projeção de disponibilidade (a disponibilidade de um Provider derivado acompanha a escolha atual de Coding Plan);
+3. `resolveCurrentAccountAccess`: modos derivados exigem apenas que a escolha atual seja um Coding Plan individual/equipe,
+   sem comparar diretamente por `selection.kind === mode`.
 
-因此加速卡 Provider 的静态 `access.mode = "highspeed"` 会被解析成用户**当前**的
-individual/team Coding Plan 访问事实，账号切换后不会冻结旧权益。
+Assim, o `access.mode = "highspeed"` estático do Provider de aceleração é resolvido como o fato de acesso **atual** do Coding Plan individual/equipe do usuário, e os benefícios antigos não ficam congelados depois de trocar de conta.
 
-### 3.8 节省时间统计：`CodingPlanRegularTpsRequest.accountAccess`
+### 3.8 Estatísticas de tempo economizado: `CodingPlanRegularTpsRequest.accountAccess`
 
-`packages/shared/src/usage-stats.ts` 的 `CodingPlanRegularTpsRequest` 从
-`organizationId` / `projectId` 改为必填 `accountAccess`：
+`CodingPlanRegularTpsRequest` em `packages/shared/src/usage-stats.ts` passa de
+`organizationId` / `projectId` para `accountAccess` obrigatório:
 
 ```ts
 accountAccess: ZCodeProviderAccountAccess | ZCodeAccountAccess;
 ```
 
-Bug 原因：此前该请求只带 org/project，请求期鉴权靠 host 自行按 provider 猜账号。
-Provider 重构后 Coding Plan 授权统一由 `accountAccess` 解析（Team scope 已内含其中），
-缺失时 `resolveAuthorization` 必定返回 `null`，「节省时间」会静默不展示。
-缓存键随之改为整个 access 对象，而不再是 org/project 二元组。
+Causa do bug: antes essa requisição só carregava org/project e a autenticação no momento da requisição dependia de o host adivinhar a conta por provider.
+Após a refatoração de Provider, a autorização do Coding Plan é resolvida uniformemente por `accountAccess` (o escopo Team já está contido nele),
+e quando ausente `resolveAuthorization` necessariamente devolve `null`, e o 「tempo economizado」 é silenciosamente não exibido.
+A chave de cache passou a ser o objeto de access inteiro, e não mais a tupla org/project.
 
-### 3.9 事件载荷：`TurnExecutionModelFallbackPayload` 字段改名
+### 3.9 Payload do evento: renomeação de campos em `TurnExecutionModelFallbackPayload`
 
-`ModelRef` 已随重构删除，退回事件的两个字段同步改名（`contracts/src/events/session.events.ts`）：
+`ModelRef` foi removido junto com a refatoração, e os dois campos do evento de fallback foram renomeados (`contracts/src/events/session.events.ts`):
 
-| 迁移前                   | 迁移后                               |
-| ------------------------ | ------------------------------------ |
-| `fromModelRef: ModelRef` | `fromModelSelection: ModelSelection` |
-| `toModelRef: ModelRef`   | `toModelSelection: ModelSelection`   |
+| Antes da migração                  | Depois da migração                        |
+| ---------------------------------- | ----------------------------------------- |
+| `fromModelRef: ModelRef`           | `fromModelSelection: ModelSelection`      |
+| `toModelRef: ModelRef`             | `toModelSelection: ModelSelection`        |
 
-这是**持久化事件载荷的形状变更**，但该事件是 Highspeed 独有且只在卡过期时产生，
-没有跨版本兼容面：迁移前的 highspeed 分支从未发布。
+Esta é uma **mudança no formato do payload de evento persistido**, mas o evento é exclusivo do Highspeed e só é produzido quando o cartão expira,
+sem superfície de compatibilidade entre versões: o ramo highspeed anterior à migração nunca foi publicado.
 
-### 3.10 Renderer 发送路径
+### 3.10 Caminho de envio do Renderer
 
-`packages/ui/src/v4/SessionPane.tsx` 的 `dispatchCommand` 在第 6 个参数
-`telemetrySeed` 之后插入第 7 个位参 `highspeedCard`，staging 原来的第 7 位
-`onEnvelopeCreated` 顺延到第 8 位。全部调用点已核对，没有把回调误传成卡快照的站点。
+O `dispatchCommand` em `packages/ui/src/v4/SessionPane.tsx` insere o 7º parâmetro posicional `highspeedCard`
+depois do 6º argumento `telemetrySeed`, e o 7º original de staging `onEnvelopeCreated` passa para a 8ª posição. Todos os pontos de chamada foram conferidos, não há nenhum local passando o callback como se fosse o snapshot do cartão.
 
-草稿会话首发不能再复用 `createSession.firstInput`：抽卡必须拿到真实 `sessionId`
-（用于 in-flight draw 归属与卡复用），因此首发统一走 `createSession` + 独立 `sendText`。
-**代价：无附件首发也多一次往返。** 这是为了让抽卡与发送共享同一个会话身份，
-避免 firstInput 路径上出现「卡已抽出但会话 id 未知」的悬挂状态。
+O primeiro envio de uma sessão em rascunho não pode mais reutilizar `createSession.firstInput`: o sorteio do cartão precisa obter o `sessionId` real
+(usado para atribuição de sorteio in-flight e reaproveitamento de cartão), portanto o primeiro envio passa uniformemente por `createSession` + um `sendText` separado.
+**Custo: mesmo um primeiro envio sem anexo ganha uma ida e volta a mais.** Isso é para fazer o sorteio e o envio compartilharem a mesma identidade de sessão,
+evitando um estado pendente no caminho firstInput do tipo 「cartão sorteado mas id da sessão desconhecido».
 
-## 4. 时序（迁移后）
+## 4. Sequência (após a migração)
 
 ```text
 Renderer                       Highspeed service            CLI admission            Adapter
@@ -306,64 +294,61 @@ Renderer                       Highspeed service            CLI admission       
    |          highspeedMeta}                                       |                     |
    |-------------------------------------------------------------->|                     |
    |                                          selectionScope=execution                   |
-   |                                          => 不写 session 常驻选择                    |
-   |                                          => 无需安装/还原 overlay                    |
+   |                                          => não escreve a seleção persistente da sessão │
+   |                                          => dispensa instalar/restaurar overlay          |
    |                                                              |                     |
    |                                          resolve provider by providerId             |
    |                                          (Built-in Config: baseUrl/api/models)      |
    |                                                              |-------------------->|
    |                                                              |  access.mode=highspeed
-   |                                                              |  => 免官方版本安全校验
-   |                                                              |  => 直接带 requestAuth 发请求
+   |                                                              |  => isento da verificação de segurança da versão oficial
+   |                                                              |  => envia a requisição direto com requestAuth
 ```
 
-## 5. 不变的语义
+## 5. Semânticas que não mudam
 
-以下既有规则不受本次迁移影响，实现时必须保持：
+As regras existentes abaixo não são afetadas por esta migração e precisam ser mantidas na implementação:
 
-- Automation 派发轮（本轮存在 `automationId`）不参与抽卡；即使错误地收到执行材料，
-  CLI 也必须忽略并继续隐藏 Automation 写工具。
-- 1 秒 fallback、`next_draw_at` 冷却权威、单 in-flight draw、外来卡静默普通发送。
-- 卡在 Turn 中过期（`HTTP 400 / provider_code=3402`）时保留上下文，剩余模型请求切回
-  发送前的原始 session 模型，并只提示一次。原始模型仍须从当前有效的 workspace model
-  catalog 解析。
-- 运行态以 Core `activeTurn` 为最终事实；携带执行材料不改变 `queue` 准入语义。
-- Mock 抽中仍只回 `accelerated` 业务状态、不带 `execution`，消息流继续走 session
-  普通 provider/model 与原推理接口。
+- O turno disparado por Automation (quando existe `automationId` neste turno) não participa do sorteio de cartão; mesmo que receba material de execução por engano,
+  o CLI precisa ignorá-lo e continuar ocultando a escrita de ferramentas da Automation.
+- Fallback de 1 segundo, autoridade do cooldown `next_draw_at`, um único sorteio in-flight, cartão externo enviado silenciosamente como comum.
+- Quando o cartão expira no meio do Turn (`HTTP 400 / provider_code=3402`), o contexto é preservado, as requisições de modelo restantes voltam ao
+  modelo de sessão original de antes do envio e há apenas uma notificação. O modelo original ainda precisa ser resolvido a partir do catálogo de modelos de workspace atualmente válido.
+- Em runtime, o Core `activeTurn` é a fonte final da verdade; carregar material de execução não muda a semântica de admissão da `queue`.
+- Quando o mock é sorteado, ele ainda devolve apenas o estado de negócio `accelerated`, sem `execution`, e o fluxo de mensagens continua pelo provider/model comum da sessão e pela interface de inferência original.
 
-## 6. 已知遗留偏差
+## 6. Desvios residuais conhecidos
 
-以下两项在本次迁移中被发现，但**属于 staging 自身的既有债务**，不在本次迁移范围内修复，
-记录在此以免后续被误当成迁移引入：
+Os dois itens abaixo foram descobertos nesta migração, mas **são dívidas já existentes do próprio staging**, não fazem parte do escopo desta migração e são registrados aqui para não serem depois Tomados como introduzidos pela migração:
 
-### 6.1 `v4-native-boundary` 无桥禁令已红
+### 6.1 A proibição de ponte do `v4-native-boundary` já está vermelha
 
-`v4-native-boundary.test.ts` 断言 `zcode-protocol-v4/` 下任何文件不得 import
-`zcode-protocol/`。staging 自身已有 3 处违反（`session-flow.ts`、`goal-compact.ts`、
-`prompt-turn.ts`）。本次迁移让 `fork-edit-retry.ts` 与 `queue.ts` 也从
-`../../../zcode-protocol/model-execution.js` 取 `createModelExecutionContext`，
-违规清单增加 2 行。
+`v4-native-boundary.test.ts` afirma que nenhum arquivo sob `zcode-protocol-v4/` pode importar
+`zcode-protocol/`. O próprio staging já tem 3 violações (`session-flow.ts`, `goal-compact.ts`,
+`prompt-turn.ts`). Esta migração faz `fork-edit-retry.ts` e `queue.ts` também buscarem
+`createModelExecutionContext` de `../../../zcode-protocol/model-execution.js`, somando 2 linhas à
+lista de violações.
 
-选择与 staging 保持同一 import 写法（`session-flow.ts` 取的就是同一个符号、同一个路径），
-不为加速路径单独造 shim；正解是把 `model-execution.ts` 搬进 v4 树并一次性修掉 5 处，
-这属于 staging 的 M4 收尾工作。
+A escolha foi manter a mesma forma de import do staging (`session-flow.ts` busca exatamente o mesmo símbolo, no mesmo caminho),
+sem criar um shim só para o caminho acelerado; a correção é mover `model-execution.ts` para a árvore v4 e corrigir as 5 ocorrências de uma vez,
+o que faz parte do trabalho de fechamento M4 do staging.
 
-### 6.2 CLI 测试文件不参与 typecheck
+### 6.2 Arquivos de teste do CLI não entram no typecheck
 
-`apps/zcode-cli/packages/bootstrap/tsconfig.json` 的 `include` 只有 `src/**/*`，
-测试文件不进 `tsc --noEmit`。后果已经实际发生过：`transcript-hydration.test.ts` 里
-Highspeed 相关夹具在 Provider 重构后仍使用已删除的 `providerID` / `modelID` 键名，
-所有 selection 静默变成 `undefined`，「加速轮不参与普通模型切换基线」这条断言长期**假通过**
-（0 个 marker 对 0 个 marker）。修键名后该测试才真正生效。
+O `include` de `apps/zcode-cli/packages/bootstrap/tsconfig.json` cobre apenas `src/**/*`,
+então arquivos de teste não entram no `tsc --noEmit`. A consequência já aconteceu de fato: em `transcript-hydration.test.ts`, as fixtures
+relacionadas ao Highspeed ainda usavam, após a refatoração de Provider, os nomes de chave removidos `providerID` / `modelID`,
+todas as selections viravam `undefined` silenciosamente e a asserção 「o turno acelerado não participa da linha de base de troca de modelo comum」 passava **falsamente** por um longo tempo
+(0 markers contra 0 markers). Só depois de corrigir os nomes de chave o teste passou a valer de fato.
 
-## 7. 验证
+## 7. Verificação
 
-- `pnpm typecheck`、`pnpm lint`
-- shared：`zcodeProtocolV4Command.test.ts`
-- services：`highspeedCardService.test.ts`
-- provider-node：`builtin-provider-build.test.ts`（含 `sync-test` 契约：生产文件与派生测试发布包一致）
-- ui：`highspeed/highspeedSend.test.ts`
-- CLI bootstrap：`v4-native-commands.test.ts`、`v4-native-queue.test.ts`、
-  `v4-native-fork-edit-retry.test.ts`、`automation-port.test.ts`、
-  `transcript-hydration.test.ts`、`session-persistence.test.ts`
-- e2e：`conversation-session-highspeed-card.test.ts`
+- `pnpm typecheck`, `pnpm lint`
+- shared: `zcodeProtocolV4Command.test.ts`
+- services: `highspeedCardService.test.ts`
+- provider-node: `builtin-provider-build.test.ts` (inclui o contrato `sync-test`: o arquivo de produção é consistente com o pacote de teste derivado)
+- ui: `highspeed/highspeedSend.test.ts`
+- CLI bootstrap: `v4-native-commands.test.ts`, `v4-native-queue.test.ts`,
+  `v4-native-fork-edit-retry.test.ts`, `automation-port.test.ts`,
+  `transcript-hydration.test.ts`, `session-persistence.test.ts`
+- e2e: `conversation-session-highspeed-card.test.ts`

@@ -1,12 +1,12 @@
-# Plugin 能力设置页
+# Página de Configuração de Capacidades de Plugin
 
-## 目标
+## Objetivo
 
-设置页只保留一个以 `plugin` 命名的入口，正式 section id 为 `plugin`，由 `PluginsSection.tsx` 集中管理已配置的 Plugins、MCPs 与 Skills；MCP、技能、命令、Hooks 是复用同一能力外壳的独立分区，详见「独立设置页收敛」。旧 `customize` id 完全移除，不参与类型、解析或迁移；历史 `plugins`、`mcp`、`skills` 导航值只用于兼容迁移。插件市场是与自动化同级的 Workspace 主页面，由 `PluginStorePage.tsx` 渲染，不属于设置页。
+A página de configurações mantém apenas uma entrada chamada `plugin`, com o section id oficial `plugin`, gerenciada de forma centralizada por `PluginsSection.tsx` para os Plugins, MCPs e Skills já configurados; MCP, habilidades, comandos e Hooks são seções independentes que reutilizam o mesmo shell de capacidades, detalhadas em «Convergência das páginas de configuração independentes». O antigo id `customize` é removido por completo e não participa de tipos, resolução ou migração; os valores de navegação históricos `plugins`, `mcp` e `skills` servem apenas para a migração de compatibilidade. O mercado de plugins é uma página principal de Workspace no mesmo nível da automação, renderizada por `PluginStorePage.tsx`, e não faz parte da página de configurações.
 
-## 信息架构
+## Arquitetura de Informação
 
-设置侧栏的 Agent capabilities 固定按 `Memory → 子智能体 → 插件 → MCP → 技能 → 命令 → Hooks` 排列；插件入口使用 `Blocks` 图标，MCP 入口使用 `Cable` 图标。MCP 列表中的直接服务器仍使用 `Server`，用于区分导航能力与具体服务实例。
+As Agent capabilities da barra lateral de configurações seguem sempre a ordem `Memory → subagentes → plugin → MCP → habilidades → comandos → Hooks`; a entrada de plugin usa o ícone `Blocks` e a entrada de MCP usa o ícone `Cable`. Os servidores diretos na lista de MCPs continuam usando `Server`, para distinguir a capacidade de navegação da instância de serviço concreta.
 
 ```text
 Plugin（设置页导航）
@@ -17,69 +17,69 @@ Plugin（设置页导航）
    └─ Skills：当前 Scope Skill，按自身与插件来源分组
 ```
 
-顶部 Scope 与能力 Tab 是两个独立状态：切换 Scope 保留当前 Tab，切换 Tab 保留当前 Scope。首次进入默认选择 User 与 Plugins。Scope 是三个 Tab 共用的严格数据边界，不展示其它 Scope 的继承项。
+O Scope no topo e as Tabs de capacidade são dois estados independentes: trocar o Scope preserva a Tab atual, e trocar a Tab preserva o Scope atual. Na primeira entrada, User e Plugins são selecionados por padrão. O Scope é uma fronteira de dados estrita compartilhada pelos três Tabs e não exibe itens herdados de outros Scopes.
 
-顶部控制行左侧排列 Scope 与能力 Tabs，右侧提供当前 Tab 的搜索框。搜索框有内容时，右侧使用 `X` 图标按钮清空当前 Tab 搜索，不使用浏览器原生文字关闭控件；按钮复用 `Button` 的 `icon-sm` 尺寸并使用 `rounded-full`，图标为 `size-3.5`。Plugins 搜索插件名与来源，MCPs 搜索服务器名及配置内容，Skills 搜索名称与简介；三个 Tab 的搜索均忽略大小写。每个 Tab 独立保留搜索词；切换 Scope 时继续用当前 Tab 的搜索词过滤新 Scope。Plugin 使用顶部搜索框时不重复显示 MCPs/Skills 原有的内部搜索框，独立 MCP 与 Skills 设置页仍保留原搜索交互。
+Na linha de controle superior, o Scope e as Tabs de capacidade ficam à esquerda, e à direita fica a caixa de busca da Tab atual. Quando a caixa tem conteúdo, o lado direito usa um botão de ícone `X` para limpar a busca da Tab atual, e não um controle nativo de fechamento de texto do navegador; o botão reaproveita o tamanho `icon-sm` do `Button` e usa `rounded-full`, com ícone `size-3.5`. Plugins busca nome e origem do plugin, MCPs busca nome do servidor e conteúdo de configuração, e Skills busca nome e descrição; a busca dos três Tabs ignora maiúsculas e minúsculas. Cada Tab mantém seu próprio termo de busca; ao trocar de Scope, a filtragem do novo Scope continua usando o termo de busca da Tab atual. Quando Plugin usa a caixa de busca do topo, ela não repete as caixas de busca internas que MCPs/Skills já tinham; as páginas independentes de MCP e Skills mantêm a interação de busca original.
 
-## Scope 语义
+## Semântica de Scope
 
-- `User` 展示用户安装的 Plugins、Built-in Plugins、用户独立 MCP/Skills，以及这些 Plugins 贡献的 MCP/Skills。Plugins Tab 中 Built-in 位于 Installed 分组下方并单独计数；Built-in 不计入 Installed 数量。
-- Workspace 展示该 Workspace 安装的 Plugins、该 Workspace 独立 MCP/Skills，以及这些 Workspace Plugins 贡献的 MCP/Skills。
-- Scope 菜单只展示当前可连接的 Workspace：本地目录不可用时隐藏；远端 identity/target 没有对应 `remoteSessionId` 时视为未连接并隐藏。可用的本地 Workspace 使用 `Folder`，已连接的远端 Workspace 使用 `Cloud`；触发按钮与菜单项必须使用同一图标语义。当前选择失效时设置页回退到 User scope。
-- Plugin 贡献资源的归属跟随所属 Plugin 的安装 scope；`Skill.scope=plugin` 或 Plugin MCP 来源本身不能绕过 Scope。
-- Built-in 以缺少 marketplace 安装记录且 runtime `source=official` 为准，属于 User Scope；存在安装记录时必须优先服从记录的 user/workspace scope，不能因使用 official cache 被误判为 Built-in。
-- Plugins 分组标题使用 base 主文字，数量使用 sm 次要文字，避免数量与分组名称争夺视觉层级。
-- Plugins 列表图标容器使用 `bg-background`，与列表的 `bg-surface` 层级区分。
-- 点击 Plugin 的插件列表项进入内联详情页，复用插件商店的 `PluginStoreDetailView`（介绍、Hero、示例提示词、能力清单与信息区），不再打开简化管理弹窗；已安装态的启停、更新、卸载和高级配置继续复用同一套动作。进入详情时隐藏 Scope/Tabs/Search，使用设置页包屑返回列表。
-- Installed 标题行的插件商店入口显示为 `New`，使用 Button 的 default variant、default 尺寸和 `rounded-lg`。
-- 顶部 Plugins、MCP、Skills Tab 以 `Name count` 展示；count 使用 sm 次要文字，并跟随当前 Scope、搜索词及列表筛选结果更新。三个内容面板通过 `forceMount` 预加载，同时以 `data-[state=inactive]:hidden` 保证只有激活项可见，确保无需点击 Tab 即可加载全部计数且不会并排显示内容。
-- 顶部 Tab 的 count 在激活项使用 `text-foreground-subtle`，未激活项使用更弱的 `text-foreground-subtlest`，名称与计数共享同一选中状态但保持文字层级。
-- MCPs 列表复用 Plugins 的列表层级：`bg-surface` 无边框容器、`bg-hover` 行悬停、`bg-background` 圆角图标容器，以及独立的 `bg-border/50` 分割线元素；MCP 状态、来源标识、授权和开关交互保持不变。
-- MCP 与 Skills、Commands 统一采用“直属 Installed + 每个 Plugin 独立分组”的信息架构。直属配置只进入 Installed；Plugin MCP 按稳定 `pluginId` 分组，标题使用规范化 Plugin display name 与过滤后的数量。同名但不同 id 的 Plugin 不合并。
-- 删除全局 Needs Attention 与扁平 Plugins 分组。授权、连接失败、停用等状态不改变资源归属；需要处理的行只在所属分组内排到正常行之前。
-- Plugin MCP 名称后不重复显示 User/Workspace、marketplace 或 `Plugin` Badge；分组标题已经表达来源。MCP 特有的状态、授权按钮、工具数量与诊断信息继续保留。
-- 插件贡献的 MCP 行首使用所属插件的商店图标，通过 pluginId 关联 listing 并复用 `PluginStoreAvatar`；没有图标或加载失败时使用该组件的统一 fallback。直接 MCP 使用 Cable 图标。
-- Plugin 的 Plugins 与 MCPs 分组标题统一使用 `h-7 items-center`，保证 Installed、Built-in、Needs Attention、Plugins 标题高度一致。
-- Plugin MCPs 不显示 “Manage MCP server configurations used by ZCode Agent.” 页面说明；Import 与 New 操作位于 Installed 分组标题右侧，两者参考 Plugins 的 New 按钮使用 default 尺寸与 `rounded-lg`。普通 MCP 设置页仍保留说明和原顶部 Import/Create 操作区，远程同步操作不随之移动。
-- 当前 Scope 真的没有直接安装项时，Plugins Installed 显示 Browse plugins 引导，MCPs Installed 显示 New MCP server 与 Import 引导；Built-in 或插件贡献资源存在时仍保留 Installed 空引导。存在搜索词时，各 Tab 只显示有匹配项的分组：直属 Installed 为 0 时连同标题、数量和 New/Import 操作一起隐藏；Built-in、Needs Attention 与各插件来源分组遵循同一规则。全部分组都无结果时，只显示统一的透明虚线“没有匹配结果”反馈，避免把搜索空结果误认为未安装。
-- Plugins、MCPs 与 Skills 共用的“尚未安装”引导容器，以及 Plugin 的无匹配/不可用空状态，均使用透明背景和 `border-border` 虚线边框，不与正常的 `bg-surface` 列表混淆；容器内操作按钮统一使用 `size="lg"`。Plugin loading 状态复用同一容器层级和留白。
-- Plugin Skills 保留“当前 Scope 直属技能 + 每个插件独立分组”的来源结构。直属技能分组统一命名为 `Installed`，Scope 只由顶部选择器表达；技能名称后不再重复显示 User、Workspace 或 Plugin 标签。分组标题、列表容器、显式分割线、图标底色与行 hover 对齐 MCPs，标题右侧只放置 Import 与 New，不提供手动刷新；导入、新建、同步或启停等数据变更完成后自动刷新列表。Skills 不提供启用状态筛选菜单，列表始终包含当前 Scope 中已启用和已停用的技能。当前 Scope 没有直属技能时显示新建或导入引导，插件技能仍按插件分组继续展示；搜索导致的空结果不显示安装引导。
-- Plugin Skills 的直属技能使用 WandSparkles 缺省图标；插件技能通过对应插件的 marketplace listing 显示插件图标，找不到匹配插件时回退到缺省图标。
-- Plugin Skills 的插件分组标题复用 `formatCanonicalPluginName` 做名称转换，与 Plugins 和 MCPs 的插件显示名保持一致；其中 `mcp`、`aws`、`zcode` token 固定显示为 `MCP`、`AWS`、`ZCode`，内部分组 key 仍使用原始规范化名称。
-- MCP 授权操作统一使用 `<ExternalLink size-4> Authenticate` 的 link variant 按钮，并明确使用 `text-sky-500 dark:text-sky-400` 及对应 hover 色；不能使用会在 Zai 主题变成黑/白的 `text-brand`。直接 MCP 与插件 MCP 保持一致。
-- 直接 MCP 的缺省图标始终为 Cable，插件 MCP 使用对应插件图标。两类 MCP 的状态 dot 统一叠放在图标容器右下角，不再占用名称行空间；父容器固定为 `size-4 bg-background` 并居中内容，静态圆点使用 `size-2.5`，确保切换到连接中旋转状态时外层尺寸不跳动。状态颜色和原因 Tooltip 保持不变。
-- 进入 MCP 新建或编辑子页面时隐藏 Plugin 的 Scope、Tabs 与 Search 工具栏，并移除列表态顶部间距；保存、删除或取消回到列表后恢复工具栏。
-- MCP 新建/编辑表单复用顶部完整 Scope 菜单（User 与当前窗口全部 Workspace），不再使用仅有 User/Workspace 的简化 Select。新建表单打开时快照父级当前 Scope；编辑表单显示资源实际归属并锁定，避免一次编辑隐式迁移配置。新建表单内切换 Scope 只改变本次保存目标，不修改父级 Scope；关闭表单后父级仍显示打开表单前的选择。
-- MCP 表单的 Form/JSON 模式切换复用自动化详情 Settings/History 的设置分段 Tabs：`bg-surface` 圆形外壳、`bg-background` 圆形激活项；两处由同一个通用组件维护，不复制视觉 class。
-- 新建 MCP 保存前必须先按表单 Scope 解析具体 workspace target，并等待对应 `workspacePath + workspaceIdentity` 的 MCP 配置加载完成；User 使用当前可用 host 的用户目录，Workspace 写入所选 Workspace 的 `.zcode/config.json`。目标切换期间不得使用上一个 workspace 的 path 或远程 directory service。
-- Workspace 不混入 User 资源；User 不混入任意 Workspace 资源；不同 Workspace 之间也不共享资源投影。
-- Workspace 列表来自当前窗口已打开的 workspace tabs，保持标签顺序并按 workspace identity 去重。
-- Workspace 显示 tab label；身份 key 必须使用 `workspaceIdentity?.trim() || workspacePath`。
-- Scope 菜单中的 User 使用 `Monitor` 图标，表达本机用户级配置；当存在用户名时，仅在下拉菜单的用户名后显示 `User` 标签。选中 User 后，顶部触发器只显示 Monitor 与用户名，不重复显示标签。没有用户名时只显示本地化的 User 文案。Workspace 继续使用 Folder 图标且不显示 User 标签。
-- 服务调用继续传递实际 `workspacePath`；远程 workspace 同时传递 `workspaceIdentity`、`remoteSessionId` 与 `remoteTarget`。
-- 关闭当前选中的 workspace 后，回退到 User；User 所依赖的 host 不可用时展示不可用空状态，不另起 runtime。
+- `User` exibe Plugins instalados pelo usuário, Built-in Plugins, MCP/Skills independentes do usuário, além dos MCP/Skills contribuídos por esses Plugins. Na Tab de Plugins, os Built-in ficam abaixo do grupo Installed e são contados separadamente; Built-in não entram na contagem de Installed.
+- Workspace exibe os Plugins instalados naquele Workspace, os MCP/Skills independentes daquele Workspace, além dos MCP/Skills contribuídos por esses Workspace Plugins.
+- O menu de Scope só exibe Workspaces que podem ser conectados no momento: diretórios locais indisponíveis são ocultados; uma identidade/target remoto sem o `remoteSessionId` correspondente é considerada não conectada e é ocultada. Workspaces locais disponíveis usam `Folder`, e Workspaces remotos conectados usam `Cloud`; o botão gatilho e os itens do menu precisam usar a mesma semântica de ícone. Quando a seleção atual fica inválida, a página de configurações retorna ao scope User.
+- A atribuição de recursos contribuídos por plugin segue o scope de instalação do plugin de destino; `Skill.scope=plugin` ou a origem de um MCP de plugin, por si só, não permite contornar o Scope.
+- Built-in é determinado pela ausência de registro de instalação no marketplace e por `source=official` no runtime, e pertence ao User Scope; quando existe registro de instalação, ele deve seguir o scope user/workspace do registro, sem que o uso do cache oficial leve a um falso Built-in.
+- O título do grupo Plugins usa texto principal em tamanho base, e a quantidade usa texto secundário em tamanho sm, evitando que a quantidade dispute o nível visual com o nome do grupo.
+- O contêiner de ícone da lista de Plugins usa `bg-background`, diferenciando-se do nível `bg-surface` da lista.
+- Clicar no item de plugin da lista entra na página de detalhes inline, reutilizando o `PluginStoreDetailView` da loja de plugins (introdução, Hero, prompt de exemplo, lista de capacidades e área de informações), e não abre mais um diálogo de gerenciamento simplificado; no estado instalado, as ações de habilitar/desabilitar, atualizar, desinstalar e configuração avançada continuam reutilizando o mesmo conjunto de ações. Ao entrar nos detalhes, o Scope/Tabs/Search são ocultados, e o breadcrumb da página de configurações retorna à lista.
+- A entrada da loja de plugins na linha de título Installed aparece como `New`, usando o variant default do Button, o tamanho default e `rounded-lg`.
+- Os Tabs superiores Plugins, MCP e Skills são exibidos como `Name count`; o count usa texto secundário em tamanho sm e é atualizado conforme o Scope atual, o termo de busca e o resultado do filtro da lista. Os três painéis de conteúdo são pré-carregados por meio de `forceMount` e, ao mesmo tempo, usam `data-[state=inactive]:hidden` para garantir que apenas o item ativo fique visível, garantindo que todas as contagens carreguem sem precisar clicar em um Tab e sem que os conteúdos fiquem lado a lado.
+- O count do Tab superior usa `text-foreground-subtle` no item ativo e o `text-foreground-subtlest`, ainda mais fraco, no item inativo; nome e contagem compartilham o mesmo estado de seleção, mas preservam a hierarquia textual.
+- A lista de MCPs reutiliza a hierarquia visual de Plugins: contêiner sem borda `bg-surface`, hover de linha `bg-hover`, contêiner de ícone arredondado `bg-background` e um elemento de divisória independente `bg-border/50`; os estados de MCP, os marcadores de origem, a autorização e as interações de switch permanecem inalterados.
+- MCP, Skills e Commands adotam de forma unificada a arquitetura de informação «Installed direto + um grupo separado por Plugin». Configurações diretas entram apenas em Installed; MCPs de plugin são agrupados pelo `pluginId` estável, com título usando o display name normalizado do Plugin e a quantidade filtrada. Plugins com o mesmo nome, mas ids diferentes, não são mesclados.
+- O Needs Attention global e o grupo plano de Plugins são removidos. Estados como autorização, falha de conexão e desativação não alteram a atribuição do recurso; as linhas que exigem ação ficam antes das linhas normais apenas dentro do seu próprio grupo.
+- Depois do nome de um MCP de plugin, não se repete User/Workspace, marketplace ou o Badge `Plugin`; o título do grupo já expressa a origem. Status, botão de autorização, contagem de ferramentas e informações de diagnóstico específicos de MCP continuam sendo mantidos.
+- A linha de um MCP contribuído por plugin usa, no início, o ícone da loja do plugin de destino, associado ao listing por pluginId e reaproveitando o `PluginStoreAvatar`; sem ícone ou em caso de falha de carregamento, usa o fallback unificado desse componente. MCPs diretos usam o ícone Cable.
+- Os títulos de grupo Plugins e MCPs do Plugin usam uniformemente `h-7 items-center`, garantindo a mesma altura nos títulos Installed, Built-in, Needs Attention e Plugins.
+- MCPs de plugin não exibem a descrição de página “Manage MCP server configurations used by ZCode Agent.”; as ações Import e New ficam à direita do título do grupo Installed e referenciam o botão New de Plugins, usando tamanho default e `rounded-lg`. A página normal de configurações de MCP mantém a descrição e a área original de operações Import/Create no topo, e as operações de sincronização remota não são movidas junto.
+- Quando o Scope atual realmente não tem instalação direta, o Installed de Plugins exibe a orientação Browse plugins, e o Installed de MCPs exibe as orientações New MCP server e Import; quando existem Built-in ou recursos contribuídos por plugin, a orientação vazia do Installed é mantida. Quando existe termo de busca, cada Tab exibe apenas os grupos com correspondências: quando o Installed direto é 0, o título, a quantidade e as ações New/Import são ocultados junto; Built-in, Needs Attention e os grupos por origem de plugin seguem a mesma regra. Quando nenhum grupo tem resultado, exibe-se apenas o feedback unificado «sem correspondências» com borda tracejada transparente, evitando que um resultado de busca vazio seja confundido com «não instalado».
+- O contêiner compartilhado de orientação «ainda não instalado» de Plugins, MCPs e Skills, assim como os estados vazios de Plugin sem correspondência ou indisponível, usam fundo transparente e borda tracejada `border-border`, sem se confundirem com a lista normal `bg-surface`; os botões de ação dentro do contêiner usam uniformemente `size="lg"`. O estado de loading do Plugin reutiliza o mesmo nível de contêiner e o mesmo respiro.
+- Plugin Skills mantém a estrutura de origem «habilidades diretas do Scope atual + um grupo separado por plugin». O grupo de habilidades diretas é uniformemente chamado de `Installed`, e o Scope é expresso apenas pelo seletor do topo; depois do nome da habilidade não se repetem mais os rótulos User, Workspace ou Plugin. Título do grupo, contêiner da lista, divisória explícita, cor de fundo do ícone e hover de linha ficam alinhados aos de MCPs; à direita do título ficam apenas Import e New, sem oferecer refresh manual, e a lista é atualizada automaticamente após importações, criações, sincronizações ou alterações de habilitação. Skills não oferecem um menu de filtro por estado de habilitação, e a lista sempre inclui as habilidades habilitadas e desabilitadas do Scope atual. Quando o Scope atual não tem habilidades diretas, exibe-se a orientação de criação ou importação, e as habilidades de plugin continuam exibidas agrupadas por plugin; um resultado de busca vazio não exibe a orientação de instalação.
+- As habilidades diretas de Plugin Skills usam o ícone padrão WandSparkles; as habilidades de plugin exibem o ícone do plugin através do marketplace listing correspondente, com fallback para o ícone padrão quando não há plugin correspondente.
+- O título dos grupos de plugin em Plugin Skills reaproveita `formatCanonicalPluginName` para a conversão de nome, mantendo consistência com o nome de exibição de plugin em Plugins e MCPs; nesse caso, os tokens `mcp`, `aws` e `zcode` são sempre exibidos como `MCP`, `AWS` e `ZCode`, enquanto a key interna do grupo continua usando o nome normalizado original.
+- A ação de autorização de MCP usa uniformemente o botão variant link `<ExternalLink size-4> Authenticate`, com `text-sky-500 dark:text-sky-400` explícito e as cores de hover correspondentes; não se pode usar `text-brand`, que no tema Zai fica preto/branco. MCPs diretos e MCPs de plugin permanecem consistentes.
+- O ícone padrão de um MCP direto é sempre Cable, e MCPs de plugin usam o ícone do plugin correspondente. O dot de status dos dois tipos de MCP é sobreposto uniformemente no canto inferior direito do contêiner de ícone e deixa de ocupar espaço na linha do nome; o contêiner pai é fixado em `size-4 bg-background` com conteúdo centralizado, e o ponto estático usa `size-2.5`, garantindo que a dimensão externa não oscile ao alternar para o estado rotativo de «conectando». As cores de status e o Tooltip com o motivo permanecem inalterados.
+- Ao entrar nas subpáginas de criação ou edição de MCP, a barra de ferramentas de Scope, Tabs e Search do Plugin é ocultada, e o espaçamento superior do estado de lista é removido; ao voltar à lista após salvar, excluir ou cancelar, a barra de ferramentas é restaurada.
+- Os formulários de criação/edição de MCP reaproveitam o menu completo de Scope do topo (User e todos os Workspaces da janela atual), e não mais o Select simplificado com apenas User/Workspace. Ao abrir, o formulário de criação captura um snapshot do Scope do pai; o formulário de edição exibe e bloqueia a atribuição real do recurso, evitando que uma edição migre a configuração implicitamente. Trocar de Scope dentro do formulário de criação altera apenas o destino desta gravação e não modifica o Scope do pai; depois de fechar o formulário, o pai continua exibindo a seleção anterior à abertura do formulário.
+- A alternância entre os modos Form/JSON do formulário de MCP reaproveita as Tabs de seção de configurações dos detalhes de automação em Settings/History, com um invólucro circular `bg-surface`, item ativo circular `bg-background`; os dois pontos são mantidos pelo mesmo componente genérico, sem duplicar classes visuais.
+- Antes de salvar um novo MCP, é obrigatório resolver o workspace target concreto conforme o Scope do formulário e aguardar o carregamento completo da configuração MCP correspondente a `workspacePath + workspaceIdentity`; User usa o diretório de usuário do host disponível, e Workspace grava no `.zcode/config.json` do Workspace escolhido. Durante a troca de destino, não se pode usar o path do workspace anterior nem o remote directory service.
+- Workspace não mistura recursos de User; User não mistura recursos de nenhum Workspace; e Workspaces diferentes também não compartilham a projeção de recursos.
+- A lista de Workspaces vem das workspace tabs abertas na janela atual, mantendo a ordem das etiquetas e deduplicando por workspace identity.
+- Workspace exibe o tab label; a key de identidade precisa usar `workspaceIdentity?.trim() || workspacePath`.
+- O User no menu de Scope usa o ícone `Monitor`, expressando a configuração de usuário da própria máquina; quando existe nome de usuário, a etiqueta `User` é exibida apenas após o nome de usuário no dropdown. Depois de selecionar User, o gatilho do topo exibe somente o Monitor e o nome de usuário, sem repetir a etiqueta. Sem nome de usuário, exibe-se apenas o texto localizado de User. Workspace continua usando o ícone Folder e não exibe a etiqueta User.
+- As chamadas de serviço continuam passando o `workspacePath` real; um workspace remoto passa também `workspaceIdentity`, `remoteSessionId` e `remoteTarget`.
+- Depois de fechar o workspace selecionado, há retorno para User; quando o host de que o User depende está indisponível, exibe-se um estado vazio de indisponibilidade, sem iniciar outro runtime.
 
-## Plugins Tab
+## Tab de Plugins
 
-- 标题为 `Installed N`，只展示当前 Scope 已安装的插件。
-- 行展示图标、插件名和来源。
-- `New` 进入插件市场入口；插件市场 Installed 区域的管理按钮也回到此 Tab。
-- 点击普通行进入复用的完整插件详情；列表行直接提供启停、更新与卸载能力，不创建第二套安装状态。
+- O título é `Installed N`, e apenas os plugins instalados no Scope atual são exibidos.
+- A linha exibe ícone, nome do plugin e origem.
+- `New` entra na entrada do mercado de plugins; os botões de gerenciamento da área Installed do mercado de plugins também retornam a esta Tab.
+- Clicar em uma linha comum entra no detalhe completo e reutilizado do plugin; a linha da lista oferece diretamente as ações de habilitar/desabilitar, atualizar e desinstalar, sem criar um segundo conjunto de estado de instalação.
 
-## MCPs Tab
+## Tab de MCPs
 
-- 需要认证、配置缺失或连接异常的项目保留在其直属或 Plugin 分组内，并在组内优先展示。
-- 插件贡献的 MCP 由具体 Plugin 分组表达来源；可认证项提供 `Authenticate` 主操作。
-- 提供 `New MCP Server / Add a Custom MCP Server` 固定入口，在当前 Scope 新建 MCP。
-- 直属 MCP 位于 Installed，Plugin MCP 按具体 Plugin display name 分组；三个页面复用同一分组标题、列表容器、间距和显式分割线组件。
+- Itens que precisam de autenticação, com configuração ausente ou com conexão anômala permanecem no seu grupo direto ou de Plugin e são exibidos primeiro dentro do grupo.
+- MCPs contribuídos por plugin expressam a origem pelo grupo do Plugin específico; itens autenticáveis oferecem a ação principal `Authenticate`.
+- Há uma entrada fixa `New MCP Server / Add a Custom MCP Server`, para criar um MCP no Scope atual.
+- MCPs diretos ficam em Installed, e MCPs de plugin são agrupados pelo display name do Plugin específico; as três páginas reutilizam o mesmo componente de título de grupo, contêiner de lista, espaçamento e divisória explícita.
 
-## Skills Tab
+## Tab de Skills
 
-- 先按 Scope 严格过滤，再按来源分组。当前 Scope 自己拥有的 Skill 位于 `User` 或 workspace 分组；插件贡献 Skill 按具体插件 display name 分组。
-- 分组标题显示数量；每行展示图标、名称、简介及更多操作。
-- `New` 只作用于当前可写 Scope，不向插件贡献分组写入文件。
+- Primeiro filtra estritamente por Scope e depois agrupa por origem. As Skills pertencentes ao próprio Scope atual ficam no grupo `User` ou do workspace; Skills contribuídas por plugin são agrupadas pelo display name do plugin específico.
+- O título do grupo exibe a quantidade; cada linha exibe ícone, nome, descrição e mais ações.
+- `New` afeta apenas o Scope gravável atual e não grava arquivos nos grupos de contribuição de plugin.
 
-## 状态与时序
+## Estado e Temporização
 
 ```text
 scope/tab change
@@ -100,46 +100,46 @@ save ────────────────────> await target 
 cancel/save ─────────────> restore unchanged parent scope
 ```
 
-桌面端保持 `desktop-continuous` 链路；手机远控保持 `web-remote-replayable` 链路。Plugin 只消费现有 shared-host 服务，不建立新的 local/remote host，不改变 snapshot、queue、owner 或重连恢复语义。
+O desktop mantém a cadeia `desktop-continuous`; o controle remoto do celular mantém a cadeia `web-remote-replayable`. Plugin só consome os serviços de shared-host existentes, não cria novos hosts local/remoto e não altera a semântica de snapshot, queue, owner ou recuperação de reconexão.
 
-## 响应式与可访问性
+## Responsividade e Acessibilidade
 
-- 桌面顶部同一行展示 Scope 与 Tabs；窄屏允许换行，Tabs 可横向滚动。
-- Scope 菜单在窄屏限制到可视宽度，长 workspace 名称截断但保留完整 accessible name。
-- 所有触发器支持键盘操作和可见焦点；图标按钮必须提供本地化 accessible label。
-- 使用语义颜色、`text-ui-*` 字号和现有 Button、Tabs、DropdownMenu 等基础组件，兼容亮色、暗色与 Zai 主题。
+- No desktop, o topo exibe Scope e Tabs na mesma linha; em telas estreitas, a quebra de linha é permitida e os Tabs podem rolar horizontalmente.
+- O menu de Scope é limitado à largura visível em telas estreitas; nomes longos de workspace são truncados, mas o accessible name completo é preservado.
+- Todos os gatilhos suportam operação por teclado e foco visível; botões de ícone devem fornecer um accessible label localizado.
+- Usar cores semânticas, tamanhos de fonte `text-ui-*` e componentes básicos existentes como Button, Tabs e DropdownMenu, compatíveis com os temas claro, escuro e Zai.
 
-## 验收
+## Aceitação
 
-1. 设置页只显示一个「插件」能力管理入口，不显示 Plugin 或旧插件市场入口。
-2. 插件设置内容默认显示 User + Plugins；Workspace Sidebar 的「插件」打开独立插件市场主页面。
-3. Scope 菜单列出 User 与所有已打开 workspace，并按 workspace identity 隔离。
-4. 三个 Tab 的选择在 Scope 切换后保持，列表只展示目标 Scope 数据；插件贡献 MCP/Skills 必须关联到当前 Scope 的 Plugin 安装记录。
-5. 顶部搜索框随 Tab 使用对应 placeholder 与过滤规则；三个 Tab 的搜索词彼此独立，Scope 切换后继续过滤当前 Scope。
-6. 桌面、手机 Web 均可操作；不新增 runtime，不破坏远程 replayable 边界。
-7. 父级选择 User 或任一 Workspace 后打开 New，表单显示同一 Scope；新建表单可选择完整 Scope 列表，切换后父级选择不变，保存写入表单所选目标。编辑表单显示 MCP 实际归属且不可迁移。
+1. A página de configurações exibe apenas uma entrada de gerenciamento de capacidade 「插件」, sem exibir Plugin nem a antiga entrada do mercado de plugins.
+2. O conteúdo de configurações de plugin exibe por padrão User + Plugins; o 「插件」 do Workspace Sidebar abre a página principal independente do mercado de plugins.
+3. O menu de Scope lista User e todos os workspaces abertos, isolando por workspace identity.
+4. A seleção dos três Tabs é mantida após a troca de Scope, a lista exibe somente os dados do Scope alvo, e MCP/Skills contribuídos por plugin precisam estar associados ao registro de instalação de plugin do Scope atual.
+5. A caixa de busca do topo acompanha a Tab com o placeholder e as regras de filtro correspondentes; os termos de busca dos três Tabs são independentes entre si, e a busca continua filtrando o Scope atual após a troca de Scope.
+6. Desktop e Web no celular funcionam; nenhum runtime novo é adicionado e a fronteira de replayable remoto não é quebrada.
+7. Depois de o pai selecionar User ou qualquer Workspace e abrir New, o formulário exibe o mesmo Scope; o formulário de criação pode selecionar a lista completa de Scopes e, após a troca, a seleção do pai permanece inalterada, com a gravação indo para o alvo escolhido no formulário. O formulário de edição exibe a atribuição real do MCP e não permite migração.
 
-## 独立设置页收敛
+## Convergência das Páginas de Configuração Independentes
 
-- 设置侧栏在 Agent capabilities 下注册 `memory`、`subagents`、`plugin`、`mcp`、`skill`、`commands`、`hooks` 七个正式分区，以 `settingsPageConfig.ts` 的注册为准；其中 `plugin`、`mcp`、`skill` 共享同一能力管理外壳。Plugin 页面继续保留 Plugins、MCPs、Skills 三个 Tab；MCP 与 Skill 独立分区分别直达相同的 MCP/Skill 列表，不复制列表、Scope、搜索或 CRUD 实现。
-- 复用同一外壳的入口共享 Scope 状态模型：User/Workspace 的过滤、插件贡献资源归属、远端 workspace identity 传递必须保持一致。独立 MCP/Skill 页面隐藏可切换的能力 Tab，但在 Scope 右侧保留竖向分隔线与只读的 `MCPs N` / `Skills N` 数量文案，右侧继续显示搜索和对应列表；数量跟随当前 Scope 与搜索结果更新。
-- 旧 `customize` 不再保留，遇到该值按非法设置分区清理并回退；历史 `plugins` 迁移到 `plugin`，历史 `skills` 迁移到 `skill`，`mcp` 直接作为正式入口。
-- `McpSettingsSection` 与 `SkillsSection` 只保留 Plugin 嵌入模式；删除独立页专属的标题说明、内部搜索、旧分组列表、Scope 标签和头部操作布局。
-- MCP/Skills 的加载、编辑、导入、新建、启停、删除、认证、诊断和远程同步能力保持不变；仍通过实际 `workspacePath` 执行，通过 `workspaceIdentity?.trim() || workspacePath` 隔离。
-- 该收敛只改变设置导航和展示组件契约，不修改 MCP/Skills 服务、协议、持久化格式，也不改变桌面 continuous 与手机 replayable 链路。
-- 插件市场 Installed 区域的管理按钮直接进入设置页「插件」的 Plugins Tab；插件市场不再维护独立的“管理已安装”二级页，避免两套已安装列表、筛选和详情入口并存。
+- A barra lateral de configurações registra sete seções oficiais sob Agent capabilities: `memory`、`subagents`、`plugin`、`mcp`、`skill`、`commands` e `hooks`, com base no registro de `settingsPageConfig.ts`; `plugin`, `mcp` e `skill` compartilham o mesmo shell de gerenciamento de capacidades. A página de Plugin continua com os três Tabs Plugins, MCPs e Skills; as seções independentes de MCP e Skill vão direto às mesmas listas de MCP/Skill, sem duplicar a implementação de lista, Scope, busca ou CRUD.
+- As entradas que reutilizam o mesmo shell compartilham o modelo de estado de Scope: o filtro User/Workspace, a atribuição de recursos contribados por plugin e a passagem da workspace identity remota precisam permanecer consistentes. As páginas independentes de MCP/Skill ocultam os Tabs de capacidade alternáveis, mas mantêm um separador vertical e o texto de contagem somente leitura `MCPs N` / `Skills N` à direita do Scope, com a busca e a lista correspondente continuando à direita; a quantidade é atualizada conforme o Scope atual e o resultado da busca.
+- O antigo `customize` deixa de existir; ao encontrar esse valor, ele é tratado como seção de configuração inválida, limpo e revertido; o histórico `plugins` migra para `plugin`, o histórico `skills` migra para `skill`, e `mcp` passa a ser diretamente a entrada oficial.
+- `McpSettingsSection` e `SkillsSection` mantêm apenas o modo embutido de Plugin; remover o título explicativo, a busca interna, a lista de grupos antigos, as etiquetas de Scope e o layout de operações do cabeçalho que eram exclusivos da página independente.
+- As capacidades de carregamento, edição, importação, criação, habilitação, exclusão, autenticação, diagnóstico e sincronização remota de MCP/Skills permanecem inalteradas; continuam sendo executadas pelo `workspacePath` real e isoladas por `workspaceIdentity?.trim() || workspacePath`.
+- Essa convergência altera apenas a navegação de configurações e o contrato dos componentes de exibição; não modifica os serviços, o protocolo nem o formato de persistência de MCP/Skills, e não altera a cadeia desktop continuous nem a cadeia mobile replayable.
+- Os botões de gerenciamento da área Installed do mercado de plugins entram diretamente na Tab de Plugins da página de configurações 「插件」; o mercado de plugins deixa de manter uma subpágina independente «gerenciar instalados», evitando duas listas de instalados, dois filtros e duas entradas de detalhe em paralelo.
 
-# Commands capability integration
+# Integração da capacidade de Commands
 
-- Plugin management exposes three capability tabs: Plugins, MCPs, and Skills. Commands is not a Plugin-page tab.
-- Commands remains an independent Settings entry and continues to reuse the shared scoped capability shell. Plugin-provided commands remain visible there in plugin groups.
-- The parent User/Workspace scope controls both visible commands and the default destination for newly created commands. User scope includes direct user commands and commands from user-scoped plugins; Workspace scope includes direct project commands and commands from workspace-scoped plugins.
-- New/Edit Command reuses the same `PluginScopeMenu` as the parent capability header. New inherits the parent scope and may select another available scope; Edit shows the command's persisted scope and disables scope migration. The form menu aligns to the end.
-- Commands use the same header, search, loading, empty-search, empty-install, grouped-list, background, separator, icon, and action sizing conventions as Skills.
-- Direct commands appear under Installed. Plugin commands are grouped by their canonical plugin display name and use the corresponding plugin icon when available.
+- O gerenciamento de Plugins expõe três Tabs de capacidade: Plugins, MCPs e Skills. Commands não é uma Tab da página de Plugin.
+- Commands continua sendo uma entrada independente das Settings e continua reutilizando o shell de capacidades com escopo compartilhado. Os commands fornecidos por plugin permanecem visíveis ali, em grupos de plugin.
+- O scope pai User/Workspace controla tanto os commands visíveis quanto o destino padrão dos novos commands criados. O scope User inclui commands diretos do usuário e commands de plugins de escopo user; o scope Workspace inclui commands diretos do projeto e commands de plugins de escopo workspace.
+- New/Edit Command reaproveita o mesmo `PluginScopeMenu` do cabeçalho de capacidades do pai. New herda o scope do pai e pode selecionar outro scope disponível; Edit exibe o scope persistido do command e desabilita a migração de scope. O menu do formulário é alinhado ao final.
+- Commands seguem as mesmas convenções de cabeçalho, busca, loading, estado vazio de busca, estado vazio de instalação, lista agrupada, fundo, divisória, ícone e dimensionamento de ações que Skills.
+- Commands diretos aparecem em Installed. Commands de plugin são agrupados pelo display name canônico do plugin e usam o ícone do plugin correspondente quando disponível.
 
-## 2026-09-16 插件本地化与添加入口
+## 2026-09-16 Localização de Plugins e entrada de adição
 
-Plugins 管理列表、启停反馈按完整 pluginId 关联商店 listing，名称和简介使用商店相同本地化解析；缺失翻译回退原文。同名不同市场不共享元数据。Plugins 搜索当前语言名称/简介及原始名称、ID、marketplace，忽略大小写；与市场共用中文名称的全拼和首字母匹配（例如 feishu、fs），英文界面亦支持，详见 [搜索约定](plugin-creator.md#插件搜索)。
+A lista de gerenciamento de Plugins e o feedback de habilitação/desabilitação são associados ao listing da loja pelo pluginId completo, e nome e descrição usam a mesma resolução localizada da loja; traduções ausentes fazem fallback para o texto original. Plugins com o mesmo nome em marketplaces diferentes não compartilham metadados. A busca de Plugins cobre nome/descrição no idioma atual e também nome original, ID e marketplace, ignorando maiúsculas e minúsculas; compartilha com o mercado a busca por pinyin completo e por iniciais do nome chinês (por exemplo feishu, fs), também suportada na interface em inglês. Veja [搜索约定](plugin-creator.md#插件搜索).
 
-User 视图原 New 按钮改为“添加”菜单，提供“创建插件”和“添加插件市场”；创建只预填官方 plugin-creator Skill 引用，添加市场通过商店统一对话框。Workspace 配置视图保持无市场入口。合同及验收见 [插件创建入口](plugin-creator.md)。
+O antigo botão New da visão User passa a ser um menu 「添加」, com 「创建插件」 e 「添加插件市场」; a criação apenas pré-preenche a referência ao Skill oficial plugin-creator, e a adição de marketplace passa pelo diálogo unificado da loja. A visão de configuração por Workspace permanece sem entrada de marketplace. O contrato e a aceitação estão em [插件创建入口](plugin-creator.md).

@@ -1,211 +1,213 @@
-# Conversation Session Decision Backlog
+# Backlog de Decisões de Sessão de Conversa
 
-> **状态：V4 迁移前的决策快照。** 产品问题与裁决轨迹保留，但“当前代码观察”中的
-> legacy hook/task-stream 路径已经失效，不能作为当前代码事实。现行产品语义与覆盖状态请以
-> [Conversation Product Protocol](../conversation-product-protocol.md)、
-> [case catalog](../conversation-session-case-catalog.md) 和
-> [coverage matrix](./conversation-session-e2e-coverage-matrix.md) 为准。
+> **Status: instantâneo de decisões antes da migração V4.** As questões de produto e o
+> rastro de decisões são preservados, mas os caminhos de legacy hook/task-stream em
+> "observações atuais do código" já estão inválidos e não servem como fato sobre o
+> código atual. Para a semântica de produto vigente e o status de cobertura, veja
+> [Conversation Product Protocol](../conversation-product-protocol.md),
+> [case catalog](../conversation-session-case-catalog.md) e
+> [coverage matrix](./conversation-session-e2e-coverage-matrix.md).
 
-目标：把会话区还不能写成稳定 E2E 的 case 变成可 review 的产品决策清单。这里不替产品做决定，只记录“必须确认什么”，确认后再回写主 catalog / fault catalog / coverage matrix。
+Objetivo: transformar os casos da área de conversa que ainda não podem ser escritos como E2E estável em uma lista de decisões de produto revisável. Aqui não decidimos pelo produto; apenas registramos "o que precisa ser confirmado", e depois de confirmado, escrevemos de volta no catalog principal / fault catalog / coverage matrix.
 
-关联文档：
+Documentos relacionados:
 
-- 主路径 catalog：[conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
-- 主路径覆盖矩阵：[conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
-- 外部环境故障 catalog：[conversation-session-environment-fault-catalog.md](./conversation-session-environment-fault-catalog.md)
-- 覆盖审计：[conversation-session-case-coverage-audit.md](./conversation-session-case-coverage-audit.md)
-- Compact 决策工作单：[conversation-session-compact-decision-worksheet.md](./conversation-session-compact-decision-worksheet.md)
-- 网络与 SSE 决策工作单：[conversation-session-network-sse-decision-worksheet.md](./conversation-session-network-sse-decision-worksheet.md)
-- 恢复与隔离决策工作单：[conversation-session-recovery-isolation-decision-worksheet.md](./conversation-session-recovery-isolation-decision-worksheet.md)
+- Catalog do caminho principal: [conversation-session-case-catalog.md](../conversation-session-case-catalog.md)
+- Matriz de cobertura do caminho principal: [conversation-session-e2e-coverage-matrix.md](./conversation-session-e2e-coverage-matrix.md)
+- Catalog de falhas de ambiente externo: [conversation-session-environment-fault-catalog.md](./conversation-session-environment-fault-catalog.md)
+- Auditoria de cobertura: [conversation-session-case-coverage-audit.md](./conversation-session-case-coverage-audit.md)
+- Planilha de decisão de Compact: [conversation-session-compact-decision-worksheet.md](./conversation-session-compact-decision-worksheet.md)
+- Planilha de decisão de rede e SSE: [conversation-session-network-sse-decision-worksheet.md](./conversation-session-network-sse-decision-worksheet.md)
+- Planilha de decisão de recuperação e isolamento: [conversation-session-recovery-isolation-decision-worksheet.md](./conversation-session-recovery-isolation-decision-worksheet.md)
 
-## 使用方式
+## Como usar
 
-1. 每次只挑一个小批次确认，比如先处理 `F09/G11/G12` 或 `N03/N04`。
-2. 运行 `pnpm audit:conversation-session-coverage`，看 `next review cases`，按审计脚本给出的顺序推进。
-3. 产品确认后，先在对应 worksheet 中把协议题写入明确 `产品结论`，并把 `Status` 改为 `answered`。
-4. 某个 case 的所有协议题都 answered 后，审计中的 `decision readiness` 会从 blocked 变 ready。
-5. ready 后再把对应 case 从本文件移出，回写源 catalog 的 `Review=accepted`。
-6. 在 coverage matrix 里把 case 标成 `missing`，直到有独立 E2E setup/action/assert 后再改成 `covered`。
-7. 若确认结果会产生新分支，需要先扩展源 catalog，再让审计脚本暴露新的缺口。
+1. Confirme apenas um lote pequeno por vez, por exemplo comece com `F09/G11/G12` ou `N03/N04`.
+2. Rode `pnpm audit:conversation-session-coverage`, veja `next review cases` e siga a ordem dada pelo script de auditoria.
+3. Após a confirmação do produto, primeiro escreva a resposta do protocolo na planilha correspondente como `产品结论` explícito e mude `Status` para `answered`.
+4. Depois que todas as questões de protocolo de um case estiverem answered, o `decision readiness` na auditoria muda de blocked para ready.
+5. Estando ready, remova o case correspondente deste arquivo e escreva `Review=accepted` de volta no catalog de origem.
+6. Na coverage matrix, marque o case como `missing` até existir um setup/action/assert E2E independente; só então mude para `covered`.
+7. Se o resultado da confirmação gerar novos ramos, primeiro estenda o catalog de origem e só então deixe o script de auditoria expor as novas lacunas.
 
-## Review 批次
+## Lotes de review
 
-建议按下面顺序确认。每一批确认完，都要同步更新源 catalog、fault coverage matrix 和本 backlog，保证审计脚本能显示剩余数量下降。
+Sugere-se confirmar na ordem abaixo. Após cada lote confirmado, atualize de forma sincronizada o catalog de origem, a fault coverage matrix e este backlog, garantindo que o script de auditoria mostre a quantidade restante caindo.
 
-| 批次 | 数量 | 入口 | 目标 |
+| Lote | Quantidade | Entrada | Objetivo |
 | --- | ---: | --- | --- |
-| ~~P0-1 Compact 故障~~ | 0 | [Compact 决策工作单](./conversation-session-compact-decision-worksheet.md) | **已完成（2026-07-05）**：`F09/G11/G12`（含 fault alias `C01-C03`）与 `N06` 全部裁决，12+1 个协议题 answered，已回写 catalog / fault catalog / coverage matrix / product-protocol PB 节 |
-| P0-2 模型/API 请求故障 | 8 | [网络与 SSE 决策工作单](./conversation-session-network-sse-decision-worksheet.md) | 确认 HTTP/auth/provider/timeout/malformed/title failure 的产品状态、queue 规则和 UI 断言 |
-| P0-3 SSE 流式故障 | 7 | [网络与 SSE 决策工作单](./conversation-session-network-sse-decision-worksheet.md) | 确认 retry boundary、partial text、stall、late event 和 stop 后污染隔离 |
-| P1-1 文件系统/存储故障 | 5 | [恢复与隔离决策工作单](./conversation-session-recovery-isolation-decision-worksheet.md) | 确认 ENOSPC/EACCES/坏 snapshot/log artifact 的用户可见结果 |
-| P1-2 App 生命周期/进程故障 | 8 | [恢复与隔离决策工作单](./conversation-session-recovery-isolation-decision-worksheet.md) | 确认后台、关窗、退出、renderer/host/agent crash、sleep/wake、compacting quit 的恢复合同 |
-| P2-1 Workspace / Tool 外部变化 | 5 | [恢复与隔离决策工作单](./conversation-session-recovery-isolation-decision-worksheet.md) | 确认 workspace 缺失、外部文件变化、git 降级、remote disconnect、pending permission |
-| P2-2 跨 Session 故障隔离 | 3 | [恢复与隔离决策工作单](./conversation-session-recovery-isolation-decision-worksheet.md) | 确认非当前 session 的失败如何影响列表、当前视图、切回恢复 |
+| ~~P0-1 Falhas de Compact~~ | 0 | [Planilha de decisão de Compact](./conversation-session-compact-decision-worksheet.md) | **Concluído (2026-07-05)**: `F09/G11/G12` (incluindo fault alias `C01-C03`) e `N06` foram todos decididos, 12+1 questões de protocolo answered, com escrita de volta em catalog / fault catalog / coverage matrix / seção PB do product-protocol |
+| P0-2 Falhas de modelo/requisição de API | 8 | [Planilha de decisão de rede e SSE](./conversation-session-network-sse-decision-worksheet.md) | Confirmar o estado de produto para falha de HTTP/auth/provider/timeout/malformed/title, as regras de fila e as asserções de UI |
+| P0-3 Falhas de streaming SSE | 7 | [Planilha de decisão de rede e SSE](./conversation-session-network-sse-decision-worksheet.md) | Confirmar retry boundary, texto parcial, stall, evento tardio e isolamento de poluição após stop |
+| P1-1 Falhas de sistema de arquivos/armazenamento | 5 | [Planilha de decisão de recuperação e isolamento](./conversation-session-recovery-isolation-decision-worksheet.md) | Confirmar o resultado visível ao usuário para ENOSPC/EACCES/snapshot corrompido/log artifact inválido |
+| P1-2 Falhas de ciclo de vida do app / processo | 8 | [Planilha de decisão de recuperação e isolamento](./conversation-session-recovery-isolation-decision-worksheet.md) | Confirmar o contrato de recuperação para background, fechamento de janela, quit, crash de renderer/host/agent, sleep/wake e quit durante compacting |
+| P2-1 Mudanças externas de Workspace / Tool | 5 | [Planilha de decisão de recuperação e isolamento](./conversation-session-recovery-isolation-decision-worksheet.md) | Confirmar workspace ausente, alteração externa de arquivos, degradação de git, desconexão de remote e pending permission |
+| P2-2 Isolamento de falhas entre Sessions | 3 | [Planilha de decisão de recuperação e isolamento](./conversation-session-recovery-isolation-decision-worksheet.md) | Confirmar como a falha de uma session que não é a atual afeta a lista, a visão atual e a recuperação ao voltar |
 
-## 当前统计
+## Estatísticas atuais
 
-| 范围 | 数量 |
+| Escopo | Quantidade |
 | --- | ---: |
-| 待产品决策 unique case | 36 |
-| 主路径 compact undefined | 0（2026-07-05 裁决完成） |
-| 模型/API 请求故障 | 8 |
-| SSE 流式故障 | 7 |
-| 文件系统/存储故障 | 5 |
-| App 生命周期/进程故障 | 8 |
-| Workspace / Tool 外部变化 | 5 |
-| 跨 Session 故障隔离 | 3 |
+| Case único aguardando decisão de produto | 36 |
+| Compact indefinido no caminho principal | 0 (decisão concluída em 2026-07-05) |
+| Falhas de modelo/requisição de API | 8 |
+| Falhas de streaming SSE | 7 |
+| Falhas de sistema de arquivos/armazenamento | 5 |
+| Falhas de ciclo de vida do app / processo | 8 |
+| Mudanças externas de Workspace / Tool | 5 |
+| Isolamento de falhas entre Sessions | 3 |
 
-## P0：Compact 未定义主路径（已裁决归档，2026-07-05）
+## P0: Compact indefinido no caminho principal (arquivado como decidido, 2026-07-05)
 
-`F09/G11/G12`（含 fault alias `C01-C03`）已全部裁决并回写，从本 backlog 移出。结论记录见：
+`F09/G11/G12` (incluindo fault alias `C01-C03`) foram todos decididos e escritos de volta, sendo removidos deste backlog. O registro das conclusões está em:
 
-- 主 catalog `F09/G11/G12` 行与 L 节（`docs/conversation-session-case-catalog.md`）
-- compact decision worksheet 的裁决记录（`conversation-session-compact-decision-worksheet.md`）
-- product-protocol「Pending Product Boundaries」节（`docs/conversation-product-protocol.md`）
+- Linhas `F09/G11/G12` e seção L do catalog principal (`docs/conversation-session-case-catalog.md`)
+- Registro de decisão da compact decision worksheet (`conversation-session-compact-decision-worksheet.md`)
+- Seção "Pending Product Boundaries" do product-protocol (`docs/conversation-product-protocol.md`)
 
-三条裁决摘要：手动 compact 失败保持 completed + failed marker（retry 入口）、queue 保留不自动消费、全部操作恢复；auto compact 三连败继续无压缩执行 pendingAction + circuit breaker；auto compact 被 stop 与普通 stop 完全对齐（pendingAction 留时间线不回 queue，marker cancelled）。下一步是按 roadmap 写三条 spec（`compact-failure` / `compact-auto-failure` / `compact-auto-stop`）。
+Resumo das três decisões: compact manual com falha mantém completed + failed marker (entrada de retry), a fila é preservada e não consumida automaticamente, todas as operações são recuperáveis; auto compact com três falhas seguidas continua sem compressão executando pendingAction + circuit breaker; auto compact interrompido por stop fica totalmente alinhado ao stop normal (pendingAction permanece na timeline e não volta para a fila, marker cancelled). O próximo passo é escrever as três specs conforme o roadmap (`compact-failure` / `compact-auto-failure` / `compact-auto-stop`).
 
-## P0：模型/API 请求故障
+## P0: Falhas de modelo/requisição de API
 
-### 当前代码观察（非产品决策）
+### Observações atuais do código (não são decisões de produto)
 
-这些是 adapter/runtime/UI 的当前故障收口方式，帮助把 E2E 断言落到具体信号上；产品是否接受这些结果仍要单独确认。
+Estas são as formas atuais de fechamento de falha em adapter/runtime/UI; ajudam a ater as asserções E2E a sinais concretos. Se o produto aceita esses resultados ainda precisa ser confirmado separadamente.
 
-| ID | 当前代码观察 | 证据入口 | 仍需产品确认 |
+| ID | Observação atual do código | Entrada de evidência | Ainda requer confirmação do produto |
 | --- | --- | --- | --- |
-| N01 | HTTP `401/403` 会归一成 `ProviderNotConfigured` / `auth_failed`，不可重试；runtime 进入 `turn.failed`，UI 收到 `task_error` 后把 task runtime 标成 `failed`。 | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | 是否要强制打开/引导设置；queue、输入草稿和错误恢复入口怎么保留 |
-| N02 | provider 不存在会在 registry resolve 阶段抛 `ProviderNotFound`；API Key 缺失会抛 `ProviderNotConfigured`，通常没有真实模型请求发出。 | `apps/zcode-cli/packages/adapters/src/model/registry.ts` | send 前禁用还是点击后失败；错误是否定位到设置页具体 provider |
-| N03 | HTTP `429` 会归一成 `ModelRateLimited` / `rate_limited`，默认可重试；retry 期间会发布 `model_request_failed` 和 `model_retry_scheduled`，当前运行 turn 底部可显示 `apiRetry`。默认 retry 配置是最多 10 次 retry，即 `maxAttempts=11`，可被 env/config 覆盖。 | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/src/model/runner-generate.ts`、`apps/zcode-cli/packages/adapters/src/model/retry-policy.ts`、`packages/ui/src/v4/ConversationTurnGroup.tsx`、`packages/ui/src/chat-input-toolbar/display.tsx` | 429 是否真的要按默认 retry；重试期间用户能否继续入队；最终失败后 queue 如何处理 |
-| N04 | HTTP `5xx` 会归一成 `ModelRequestFailed` / `server_error`，默认可重试；`503` 没有独立产品语义，和其他 `5xx` 同类。 | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | 是否区分 502/503；最终失败后是否允许 retry/edit/fork |
-| N05-code | HTTP `500` JSON error 若被 provider business parser 识别，会保留 provider message / code；否则按通用 `server_error` 处理并重试。 | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/src/model/failure-provider-business-codes.ts`、`apps/zcode-cli/packages/adapters/src/model/registry.ts` | 错误文案要展示 provider 原文还是统一文案；哪些 provider code 需要专门产品处理 |
-| N06 | DNS/connection refused/代理失败/TLS 失败等会归一到 network/proxy/tls 类 failure；其中 network/proxy 默认可重试，TLS 不可重试。 | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts` | user message 是否保留为失败轮次；断网期间是否显示专门网络状态 |
-| N07 | 非流式请求 timeout 会归一成 `ModelRequestTimeout` 并默认可重试；SSE 无 event 的 stall 是单独的 `model_stream_stalled` 状态。 | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/src/model/stream-idle-timeout.ts` | 超时阈值和 UI 文案；用户 stop 后是否等价 interrupted |
-| N08 | 200 但非法模型响应没有独立产品语义；当前通常由 AI SDK/adapter 抛错后归一为 `ModelRequestFailed` 或 provider business failure。 | `apps/zcode-cli/packages/adapters/src/model/runner-generate.ts`、`apps/zcode-cli/packages/adapters/src/model/runner-stream.ts` | malformed 是协议错误、provider 错误，还是可恢复错误 |
-| N09 | session title sidecar 是异步 fire-and-forget；失败只写 warn，不影响主 turn 完成。goal summary title 有 fallback title。 | `apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/goal-summary-title.ts` | 列表标题 fallback 文案和是否需要给用户可见提示 |
+| N01 | HTTP `401/403` são normalizados para `ProviderNotConfigured` / `auth_failed`, sem retry; o runtime entra em `turn.failed` e, ao receber `task_error`, a UI marca o task runtime como `failed`. | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | Se é preciso forçar a abertura/orientação das configurações; como preservar fila, rascunho de entrada e entrada de recuperação de erro |
+| N02 | Provider inexistente lança `ProviderNotFound` na fase de resolve do registry; API Key ausente lança `ProviderNotConfigured`, e normalmente nenhuma requisição real de modelo é enviada. | `apps/zcode-cli/packages/adapters/src/model/registry.ts` | Se desabilita antes do send ou falha ao clicar; se o erro aponta para o provider específico na página de configurações |
+| N03 | HTTP `429` é normalizado para `ModelRateLimited` / `rate_limited`, retryable por padrão; durante o retry são publicados `model_request_failed` e `model_retry_scheduled`, e o turno em execução pode exibir `apiRetry` na parte inferior. A configuração padrão de retry é no máximo 10 retries, ou seja, `maxAttempts=11`, e pode ser sobrescrita por env/config. | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/src/model/runner-generate.ts`、`apps/zcode-cli/packages/adapters/src/model/retry-policy.ts`、`packages/ui/src/v4/ConversationTurnGroup.tsx`、`packages/ui/src/chat-input-toolbar/display.tsx` | Se o 429 realmente deve seguir o retry padrão; se o usuário pode continuar enfileirando durante o retry; como tratar a fila após a falha final |
+| N04 | HTTP `5xx` é normalizado para `ModelRequestFailed` / `server_error`, retryable por padrão; `503` não tem semântica de produto própria e é da mesma categoria dos demais `5xx`. | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | Se diferenciar 502 de 503; se após a falha final é permitido retry/edit/fork |
+| N05-code | Se o erro JSON HTTP `500` for reconhecido pelo parser business do provider, a mensagem/código do provider é preservada; caso contrário é tratado como `server_error` genérico e sofre retry. | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/src/model/failure-provider-business-codes.ts`、`apps/zcode-cli/packages/adapters/src/model/registry.ts` | Se o texto de erro deve mostrar o original do provider ou texto unificado; quais códigos de provider exigem tratamento de produto específico |
+| N06 | DNS/connection refused/falha de proxy/falha de TLS são normalizados para falhas de categoria network/proxy/tls; network/proxy são retryable por padrão, TLS não é retryable. | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts` | Se a mensagem do usuário é mantida como turno com falha; se durante a queda de rede é exibido um estado de rede dedicado |
+| N07 | Timeout de requisição não-streaming é normalizado para `ModelRequestTimeout` e é retryable por padrão; stall de SSE sem event é um estado separado `model_stream_stalled`. | `apps/zcode-cli/packages/adapters/src/model/failure-classifier.ts`、`apps/zcode-cli/packages/adapters/src/model/stream-idle-timeout.ts` | O limiar de timeout e o texto de UI; se depois do stop do usuário equivale a interrupted |
+| N08 | Resposta 200 com resposta de modelo inválida não tem semântica de produto própria; hoje geralmente o AI SDK/adapter lança o erro e ele é normalizado como `ModelRequestFailed` ou provider business failure. | `apps/zcode-cli/packages/adapters/src/model/runner-generate.ts`、`apps/zcode-cli/packages/adapters/src/model/runner-stream.ts` | Se malformed é erro de protocolo, erro do provider ou erro recuperável |
+| N09 | O sidecar de título de session é assíncrono, fire-and-forget; falhas só geram warn e não afetam a conclusão do turno principal. O título de goal summary tem fallback title. | `apps/zcode-cli/packages/core/src/runtime/methods/session-title.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/goal-summary-title.ts` | O texto de fallback do título na lista e se é preciso um aviso visível ao usuário |
 
-| ID | 来源/别名 | 场景 | 必须确认的问题 | 候选口径 | 确认后下一步 |
+| ID | Origem/alias | Cenário | Questões que precisam ser confirmadas | Posições candidatas | Próximo passo após confirmação |
 | --- | --- | --- | --- | --- | --- |
-| N01 | - | 主模型请求返回 401/403 | 是否进入错误态；是否引导重新配置 API Key；queue 是否保留 | 阻止继续发送 / 保留 queue 并允许修配置后重试 / 直接失败当前轮 | 写 network fault fixture 和 UI error 断言 |
-| N02 | - | provider 未配置或 API Key 缺失 | send 前阻止还是发出后失败；输入框内容是否保留 | 发送前禁用 / 点击发送后弹设置引导 / 进入错误消息 | 写 provider 缺失 setup 和无模型请求断言 |
-| N03 | - | 主模型请求返回 429 | 是否自动重试；重试期间能否继续入队；最终失败后 queue 如何处理 | 自动重试 / 不重试直接失败 / 保留 queue 等用户手动处理 | 写 429 retry timeline 和 queue 断言 |
-| N04 | - | 主模型请求返回 502/503 | 是否自动重试；失败后能否 retry/edit/fork | 自动重试 / 不重试直接失败 / 区分 502 与 503 | 写 503 replay 和 action button 断言 |
-| N06 | - | DNS/connection refused，未拿到响应头 | user message 是否保留；是否可继续发消息；queue 如何处理 | 保留 user 并进入 error / 回退 draft / interrupted completed | 写 connection error fixture 和 snapshot 断言 |
-| N07 | - | 请求超时，长时间无响应头 | 超时阈值；是否允许 stop；是否自动失败 | 一直 running 可 stop / 到阈值自动失败 / 仅提示网络慢 | 写 timer-controlled fixture |
-| N08 | - | 200 但响应不是合法模型 JSON/SSE | 按模型错误还是协议错误；是否可 retry | protocol error / provider error / 忽略坏片段 | 写 malformed fixture 和日志断言 |
-| N09 | - | title/sidecar 请求失败 | 是否完全不影响主会话；列表标题如何显示 | 主轮成功且标题 fallback / 显示 title error / 静默 warn | 写 sidecar failure 不污染主 turn 断言 |
+| N01 | - | Requisição do modelo principal retorna 401/403 | Se entra em estado de erro; se orienta a reconfigurar a API Key; se a fila é preservada | Bloquear o envio / preservar a fila e permitir retry após corrigir a config / falhar o turno atual diretamente | Escrever fixture de falha de rede e asserções de erro de UI |
+| N02 | - | Provider não configurado ou API Key ausente | Bloquear antes do send ou falhar depois de enviar; se o conteúdo da caixa de entrada é preservado | Desabilitar antes do envio / abrir o assistente de configurações ao clicar em enviar / entrar em mensagem de erro | Escrever o setup de provider ausente e as asserções de ausência de requisição de modelo |
+| N03 | - | Requisição do modelo principal retorna 429 | Se há retry automático; se é possível continuar enfileirando durante o retry; como tratar a fila após a falha final | Retry automático / Falhar sem retry / Preservar a fila para tratamento manual do usuário | Escrever a timeline de retry de 429 e as asserções de fila |
+| N04 | - | Requisição do modelo principal retorna 502/503 | Se há retry automático; se após a falha é possível retry/edit/fork | Retry automático / Falhar sem retry / Diferenciar 502 de 503 | Escrever o replay de 503 e as asserções de botões de ação |
+| N06 | - | DNS/connection refused, sem obter headers de resposta | Se a mensagem do usuário é preservada; se é possível continuar enviando; como tratar a fila | Preservar o user e entrar em error / Voltar ao draft / interrupted completed | Escrever fixture de erro de conexão e asserções de snapshot |
+| N07 | - | Timeout de requisição, sem headers por muito tempo | Limiar de timeout; se é permitido stop; se a falha é automática | Permanecer running e permitir stop / Falhar automaticamente no limiar / Apenas avisar que a rede está lenta | Escrever fixture controlado por timer |
+| N08 | - | 200 mas a resposta não é JSON/SSE de modelo válido | Tratar como erro de modelo ou erro de protocolo; se é possível retry | protocol error / provider error / Ignorar trechos inválidos | Escrever fixture malformed e asserções de log |
+| N09 | - | Falha na requisição de título/sidecar | Se não afeta em nada a sessão principal; como o título aparece na lista | Turno principal bem-sucedido com título em fallback / Mostrar erro de título / Warn silencioso | Escrever as asserções de que falha de sidecar não polui o turno principal |
 
-## P0：SSE 流式故障
+## P0: Falhas de streaming SSE
 
-### 当前代码观察（非产品决策）
+### Observações atuais do código (não são decisões de produto)
 
-当前 adapter 对 SSE 的核心分界是“是否已经越过可见 retry boundary”。`start`、`text_start`、`text_end`、`reasoning_start/end`、`tool_input_*` 会先缓冲；一旦出现 `text_delta`、`reasoning_delta`、`tool_call` 等用户可见事件，后续失败不再自动 retry，避免重复输出或工具错序。
+A divisão central do adapter atual para SSE é "se já cruzou o retry boundary visível". `start`, `text_start`, `text_end`, `reasoning_start/end`, `tool_input_*` são bufferizados primeiro; assim que aparece um evento visível ao usuário como `text_delta`, `reasoning_delta` ou `tool_call`, falhas posteriores não fazem retry automático, evitando saída duplicada ou ferramentas fora de ordem.
 
-| ID | 当前代码观察 | 证据入口 | 仍需产品确认 |
+| ID | Observação atual do código | Entrada de evidência | Ainda requer confirmação do produto |
 | --- | --- | --- | --- |
-| S01 | 只有响应头、没有任何可见 SSE event 时，adapter 仍处在 retry-safe 区域；若错误被分类为 retryable，会走重试，否则最终 `task_error`。正常 EOF 但内容不完整可能被 suspicious empty stream 逻辑转成 provider business/model failure。 | `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts`、`apps/zcode-cli/packages/adapters/src/model/stream-retry-boundary.ts` | 是否等价模型错误；是否需要给“空响应”专门文案 |
-| S02 | `message_start` / stream `start` 属于 retry-safe prelude，不会立刻作为用户可见正文提交；断开后的结果取决于错误是否 retryable。 | `apps/zcode-cli/packages/adapters/src/model/stream-retry-boundary.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | 如果最终失败，UI 是否生成 assistant error/interrupted 占位；queue 是否保留 |
-| S03 | 一旦已有 `text_delta` 或 `reasoning_delta`，adapter 不再 retry；断流会抛模型失败，上层把 task 收口为 failed。当前已收到的可见 delta 会留在消息流里，但产品上是否算 interrupted 仍未定义。 | `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | 部分文本是否允许 fork/edit；最终状态应是 failed 还是 interrupted |
-| S04 | malformed SSE frame 如果不能被 provider business parser 识别，通常会由 AI SDK/adapter 抛为模型请求失败；没有专门的 malformed-event 产品分类。 | `apps/zcode-cli/packages/adapters/src/model/registry.ts`、`apps/zcode-cli/packages/adapters/src/model/runner-stream.ts` | 坏 event 是终止、忽略、还是尝试恢复 |
-| S05 | HTTP 200 SSE `event: error` / provider business error frame 会被 registry transform 转成 `ProviderBusinessError`，再进入 `model_request_failed`；可重试性按 provider code/status 分类。 | `apps/zcode-cli/packages/adapters/src/model/registry.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | provider error 是否展示原文；哪些业务码需要特殊 UI |
-| S06 | stream idle timeout 会先发布 `model_stream_stalled`，随后 abort 当前 attempt；如果还没越过可见 retry boundary 且可重试，会增加 30s idle timeout 后重试。默认基础 idle timeout 是 10 分钟。 | `apps/zcode-cli/packages/adapters/src/model/stream-idle-timeout.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | UI 是否显示“慢/重连中”；超时后是否自动失败或允许 stop |
-| S07 | stop 后底层 stream 即使继续发 late event，也应该因为 abort/inputId 收口被视为 stale；UI terminal handler 已按 `activeInputId` 忽略旧 terminal event。 | `apps/zcode-cli/packages/adapters/src/model/stream-idle-timeout.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts`、`packages/ui/src/lib/zcodeTaskRuntimeMonitor.ts` | 是否需要专门记录 late event warn；新一轮是否必须用 inputId 证明未污染 |
+| S01 | Quando há apenas headers de resposta e nenhum event SSE visível, o adapter ainda está na região retry-safe; se o erro for classificado como retryable, ocorre retry, senão ocorre `task_error` final. EOF normal com conteúdo incompleto pode ser convertido pela lógica de suspicious empty stream em provider business/model failure. | `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts`、`apps/zcode-cli/packages/adapters/src/model/stream-retry-boundary.ts` | Se equivale a erro de modelo; se é preciso um texto específico para "resposta vazia" |
+| S02 | `message_start` / stream `start` pertencem ao prelúdio retry-safe e não são imediatamente submetidos como texto visível ao usuário; o resultado após a desconexão depende de o erro ser retryable. | `apps/zcode-cli/packages/adapters/src/model/stream-retry-boundary.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | Se, em caso de falha final, a UI gera um placeholder assistant error/interrupted; se a fila é preservada |
+| S03 | Assim que existe `text_delta` ou `reasoning_delta`, o adapter não faz mais retry; a queda do stream lança falha de modelo e a camada superior fecha a task como failed. Os deltas visíveis já recebidos permanecem no fluxo de mensagens, mas se isso conta como interrupted no produto ainda não está definido. | `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/turn-model-step.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | Se o texto parcial permite fork/edit; se o estado final deve ser failed ou interrupted |
+| S04 | Um frame SSE malformed que não pode ser reconhecido pelo parser business do provider normalmente é lançado pelo AI SDK/adapter como falha de requisição de modelo; não há classificação de produto específica para evento malformed. | `apps/zcode-cli/packages/adapters/src/model/registry.ts`、`apps/zcode-cli/packages/adapters/src/model/runner-stream.ts` | Se o event inválido encerra, é ignorado ou se tenta recuperar |
+| S05 | `event: error` de SSE com HTTP 200 / frame de provider business error é transformado pelo registry transform em `ProviderBusinessError` e depois em `model_request_failed`; a retryabilidade é classificada por code/status do provider. | `apps/zcode-cli/packages/adapters/src/model/registry.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | Se o erro do provider exibe o texto original; quais códigos de negócio exigem UI especial |
+| S06 | O timeout de idle do stream publica primeiro `model_stream_stalled` e depois aborta a tentativa atual; se ainda não cruzou o retry boundary visível e é retryable, o retry é feito com 30s de idle timeout adicionais. O idle timeout base padrão é de 10 minutos. | `apps/zcode-cli/packages/adapters/src/model/stream-idle-timeout.ts`、`apps/zcode-cli/packages/adapters/tests/runner.test.ts` | Se a UI exibe "lento/reconectando"; se após o timeout a falha é automática ou se é permitido stop |
+| S07 | Depois do stop, mesmo que o stream subjacente continue emitindo eventos tardios, eles devem ser considerados stale por causa do fechamento por abort/inputId; o terminal handler da UI já descarta eventos terminais antigos conforme `activeInputId`. | `apps/zcode-cli/packages/adapters/src/model/stream-idle-timeout.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts`、`packages/ui/src/lib/zcodeTaskRuntimeMonitor.ts` | Se é preciso registrar um warn específico para evento tardio; se a nova rodada precisa provar ausência de poluição via inputId |
 
-| ID | 来源/别名 | 场景 | 必须确认的问题 | 候选口径 | 确认后下一步 |
+| ID | Origem/alias | Cenário | Questões que precisam ser confirmadas | Posições candidatas | Próximo passo após confirmação |
 | --- | --- | --- | --- | --- | --- |
-| S01 | - | 响应头已返回，但无任何 SSE event 后断开 | 是否等价模型错误；user message 是否保留 | error assistant / interrupted completed / 重试 | 写 empty SSE fixture |
-| S02 | - | `message_start` 后断开 | 是否生成 interrupted/error assistant；queue 是否自动 drain | interrupted assistant / error assistant / 无 assistant | 写 partial-start artifact 和 queue 断言 |
-| S03 | - | 若干 text delta 后断开 | 部分文本是否保留；是否允许 fork/edit；queue 是否保留 | 保留 partial 并 interrupted / 标 error 但保留文本 / 丢弃文本 | 写 partial text 和 action button 断言 |
-| S04 | - | SSE event JSON malformed | 坏 event 是终止还是忽略 | 立即 protocol error / 忽略该 event / 尝试恢复 | 写 malformed event fixture |
-| S05 | - | provider 在 SSE 中发 error event | 是否显示 provider error；是否可重试 | provider error message / interrupted marker / auto retry | 写 SSE error event 断言 |
-| S06 | - | stream stall，长时间无新 event | stall 超时阈值；是否显示停止或重试入口 | 一直 running / 超时失败 / 提示慢但不断开 | 写 delayed event fixture |
-| S07 | - | stop 后 provider 继续发 late SSE event | late event 是否必须忽略，不能污染新一轮 | 按 inputId 丢弃 / 记录 warn / 若同 run 继续追加 | 写 stale inputId/late event 断言 |
+| S01 | - | Headers de resposta retornados, mas desconexão sem nenhum event SSE | Se equivale a erro de modelo; se a mensagem do usuário é preservada | error assistant / interrupted completed / retry | Escrever fixture de SSE vazio |
+| S02 | - | Desconexão após `message_start` | Se gera assistant interrupted/error; se a fila é drenada automaticamente | interrupted assistant / error assistant / nenhum assistant | Escrever o artifact de partial-start e as asserções de fila |
+| S03 | - | Desconexão após alguns text delta | Se o texto parcial é preservado; se fork/edit é permitido; se a fila é preservada | Preservar parcial e interrupted / Marcar error mas manter o texto / Descartar o texto | Escrever as asserções de texto parcial e botões de ação |
+| S04 | - | JSON de event SSE malformed | Se o event inválido encerra ou é ignorado | protocol error imediato / Ignorar o event / Tentar recuperar | Escrever fixture de evento malformed |
+| S05 | - | Provider envia error event no SSE | Se exibe o erro do provider; se é retryable | provider error message / interrupted marker / auto retry | Escrever as asserções de SSE error event |
+| S06 | - | Stall do stream, muito tempo sem novos events | Limiar de timeout do stall; se exibe entrada de parar ou de retry | Permanecer running / Falhar no timeout / Avisar que está lento sem desconectar | Escrever fixture de evento atrasado |
+| S07 | - | Após stop, o provider continua emitindo events SSE tardios | Se o evento tardio precisa ser ignorado e não pode poluir a nova rodada | Descartar por inputId / Registrar warn / Continuar anexando se for o mesmo run | Escrever as asserções de inputId stale / evento tardio |
 
-## P1：文件系统/存储故障
+## P1: Falhas de sistema de arquivos/armazenamento
 
-### 当前代码观察（非产品决策）
+### Observações atuais do código (não são decisões de produto)
 
-这些观察只说明当前代码已经暴露出的存储失败边界。它们不能替代产品口径：比如用户是否看到 toast、输入是否保留、重启后如何恢复，仍需单独确认。
+Estas observações apenas descrevem os limites de falha de armazenamento já expostos pelo código atual. Elas não substituem a posição do produto: por exemplo, se o usuário vê um toast, se a entrada é preservada e como recuperar após reinício ainda precisam de confirmação separada.
 
-| ID | 当前代码观察 | 证据入口 | 仍需产品确认 |
+| ID | Observação atual do código | Entrada de evidência | Ainda requer confirmação do produto |
 | --- | --- | --- | --- |
-| D01 | SQLite session store 在 `createSession`、`saveMessage`、`savePart`、`saveSessionEntry` 等写入前都会触发 `sqliteRun` fault。注入 `ENOSPC` 时，底层写入会 reject 原始 Node 风格错误；单测证明失败前不会落入对应消息表。当前还没有产品层合同说明 runtime 是保留内存态继续、进入 task error，还是要求用户先释放磁盘。 | `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts`、`apps/zcode-cli/packages/adapters/tests/session-store.test.ts` | UI 告警形态；内存态/queue 是否保留；重启后未落盘 turn 如何标记 |
-| D02 | workspace tool 写文件走 `NodeFileSystemAdapter.writeTextFile`。当前 fault injection 只覆盖父目录创建、非原子直接写入和删除边界；默认 `atomic: true` 路径不在 temp 写入 / rename 插入 `ZCODE_E2E_FS_FAULTS`。atomic temp/chmod/sync/rename 失败后会清理 temp，并 fallback 到 `O_TRUNC` 非原子写；该 fallback 可能截断目标文件，当前作为既定行为暂时接受。文件系统端会把 `ENOSPC` 归一成 `io_error`，把 `EACCES/EPERM` 归一成 `permission_denied`。 | `apps/zcode-cli/packages/adapters/src/fs/index.ts`、`apps/zcode-cli/packages/adapters/tests/fs-context.test.ts` | tool block 展示为失败还是让 assistant 继续解释失败；当前轮是否中断；是否提供重试/打开文件入口 |
-| D03 | `setting.json` 直接写入、provider `config.json` 原子写入、provider display order 写入都接入了 fs fault。当前 service 会把 `EACCES/ENOSPC` reject 给调用方；setting 写失败不会创建目标文件，provider 原子 rename fault 会清理临时文件。 | `packages/services/src/setting/settingService.ts`、`packages/services/src/model-provider/modelProviderServiceStorage.ts`、`packages/services/test/settingService.test.ts`、`packages/services/test/atomicFileUtils.test.ts`、`packages/services/test/modelProviderServiceStorageAtomic.test.ts` | 设置页是否 inline error/toast；表单输入是否保留；UI 是否回滚到旧配置；保存失败是否阻止继续发消息 |
-| D04 | SQLite DB open 已接入 `sqliteOpen` fault；打开失败会包装成 `SqliteSessionMigrationError(kind=open_failed)`。migration checksum / SQL 失败也有结构化 `SqliteSessionMigrationError`。`openStartupSqliteSessionStore` 当前只是直接打开 DB，没有额外的坏库隔离、跳过或恢复策略。 | `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts`、`apps/zcode-cli/packages/adapters/src/storage/session-store/errors.ts`、`apps/zcode-cli/packages/adapters/src/storage/session-store/migration-runner.ts`、`apps/zcode-cli/packages/adapters/tests/session-store.test.ts` | 坏 session/坏 DB 是跳过、隔离备份、显示恢复错误，还是阻止进入 workspace；是否允许用户导出日志/重建库 |
-| D05 | 日志写入和 artifact 写入不是同一种产品语义。CLI JSONL logger 与 desktop main logger 会吞掉目录/append fault，日志失败不影响主流程；tool result artifact 写入失败时，tool executor 会回退到截断 inline 输出并保持工具调用成功；workspace checkpoint artifact 写入失败只记 warn，不阻断主轮。 | `apps/zcode-cli/packages/adapters/src/logging/index.ts`、`packages/desktop/src/main/logger.ts`、`apps/zcode-cli/packages/core/src/tool/executor/result-serialization.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/tools.ts`、`apps/zcode-cli/packages/adapters/tests/logging.test.ts`、`packages/desktop/test/logger.test.ts`、`apps/zcode-cli/packages/core/tests/tool-executor-trace.test.ts` | 哪些 artifact 失败需要用户可见提示；诊断日志缺失是否要暴露；大 tool 输出回退截断是否可接受 |
+| D01 | O session store SQLite dispara fault de `sqliteRun` antes das escritas em `createSession`, `saveMessage`, `savePart`, `saveSessionEntry` etc. Ao injetar `ENOSPC`, a escritaunderlying rejeita com o erro cru em estilo Node; os testes unitários provam que nada cai na tabela de mensagens correspondente antes da falha. Ainda não há contrato de camada de produto dizendo se o runtime mantém o estado em memória, entra em task error ou exige que o usuário libere disco antes. | `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts`、`apps/zcode-cli/packages/adapters/tests/session-store.test.ts` | A forma do alerta na UI; se o estado em memória/fila é preservado; como marcar turnos não persistidos após reinício |
+| D02 | A escrita de arquivos do workspace tool passa por `NodeFileSystemAdapter.writeTextFile`. A injeção de fault atual cobre apenas criação de diretório pai, escrita direta não atômica e limites de remoção; o caminho padrão `atomic: true` não insere `ZCODE_E2E_FS_FAULTS` na escrita em temp / rename. Após falha de temp/chmod/sync/rename atômico, o temp é limpo e há fallback para escrita não atômica com `O_TRUNC`; esse fallback pode truncar o arquivo de destino e é aceito temporariamente como comportamento definido. No lado de sistema de arquivos, `ENOSPC` é normalizado para `io_error` e `EACCES/EPERM` para `permission_denied`. | `apps/zcode-cli/packages/adapters/src/fs/index.ts`、`apps/zcode-cli/packages/adapters/tests/fs-context.test.ts` | Se o bloco de tool aparece como falha ou se o assistant continua explicando a falha; se o turno atual é interrompido; se há entrada de retry/abrir arquivo |
+| D03 | A escrita direta de `setting.json`, a escrita atômica do `config.json` do provider e a escrita da ordem de exibição de providers já têm fault de fs integrado. O service atual rejeita `EACCES/ENOSPC` para o chamador; falha de escrita de setting não cria o arquivo de destino, e fault de rename atômico do provider limpa o arquivo temporário. | `packages/services/src/setting/settingService.ts`、`packages/services/src/model-provider/modelProviderServiceStorage.ts`、`packages/services/test/settingService.test.ts`、`packages/services/test/atomicFileUtils.test.ts`、`packages/services/test/modelProviderServiceStorageAtomic.test.ts` | Se a página de configurações usa erro inline/toast; se a entrada do formulário é preservada; se a UI volta à configuração antiga; se falha ao salvar impede continuar enviando mensagens |
+| D04 | A abertura do DB SQLite já tem fault `sqliteOpen`; falha ao abrir é embrulhada em `SqliteSessionMigrationError(kind=open_failed)`. Falhas de checksum / SQL da migration também têm `SqliteSessionMigrationError` estruturado. `openStartupSqliteSessionStore` hoje apenas abre o DB diretamente, sem estratégia extra de isolamento, skip ou recuperação de banco corrompido. | `apps/zcode-cli/packages/adapters/src/storage/session-store/sqlite-session-store.ts`、`apps/zcode-cli/packages/adapters/src/storage/session-store/errors.ts`、`apps/zcode-cli/packages/adapters/src/storage/session-store/migration-runner.ts`、`apps/zcode-cli/packages/adapters/tests/session-store.test.ts` | Se session/DB corrompido é pulado, isolado em backup, mostra erro de recuperação ou impede entrar no workspace; se o usuário pode exportar log/reconstruir o banco |
+| D05 | A escrita de log e a escrita de artifact não são a mesma semântica de produto. O logger JSONL da CLI e o logger do desktop main engolem faults de diretório/append, e falha de log não afeta o fluxo principal; quando a escrita do artifact de resultado da tool falha, o tool executor volta a truncar a saída inline e mantém a chamada de tool como sucesso; falha na escrita do artifact de checkpoint do workspace apenas registra warn e não bloqueia o turno principal. | `apps/zcode-cli/packages/adapters/src/logging/index.ts`、`packages/desktop/src/main/logger.ts`、`apps/zcode-cli/packages/core/src/tool/executor/result-serialization.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/tools.ts`、`apps/zcode-cli/packages/adapters/tests/logging.test.ts`、`packages/desktop/test/logger.test.ts`、`apps/zcode-cli/packages/core/tests/tool-executor-trace.test.ts` | Quais falhas de artifact precisam de aviso visível ao usuário; se a ausência de log de diagnóstico deve ser exposta; se o fallback de truncamento para saída grande de tool é aceitável |
 
-| ID | 来源/别名 | 场景 | 必须确认的问题 | 候选口径 | 确认后下一步 |
+| ID | Origem/alias | Cenário | Questões que precisam ser confirmadas | Posições candidatas | Próximo passo após confirmação |
 | --- | --- | --- | --- | --- | --- |
-| D01 | - | session history 写入 ENOSPC | UI 是否告警；内存态是否保留；重启后如何恢复 | 立即 toast / 只日志 / 阻止继续会话 | 写 fs fault relaunch 断言 |
-| D02 | - | tool 正在写 workspace 文件时磁盘满；当前注入边界限于父目录创建、非原子写入或删除，默认 atomic temp/rename 不注入 | tool error 如何展示；assistant 是否继续总结失败 | tool block failed / assistant 继续解释失败 / 中断当前轮 | 写 workspace 父目录创建 / 非原子写入 ENOSPC 断言 |
-| D03 | - | 保存 provider 设置时 app data permission denied | 是否阻止保存并保留输入；是否写日志 | 表单错误并保留输入 / toast 后回滚 / 静默失败禁止 | 写 settings save EACCES 断言 |
-| D04 | - | 启动恢复时 session snapshot 文件损坏 | 跳过坏 session、显示恢复错误，还是阻止进入 workspace | 跳过并提示 / 显示坏 session error / 阻止进入 | 写 corrupt snapshot fixture |
-| D05 | - | 长时间流式日志/artifact 写入失败 | 产品流程是否继续；日志失败是否只 warn | 产品继续且 warn / 中断当前轮 / 提示诊断失败 | 写 log sink fault 断言 |
+| D01 | - | ENOSPC na escrita do session history | Se a UI alerta; se o estado em memória é preservado; como recuperar após reinício | Toast imediato / Apenas log / Impedir continuar a conversa | Escrever asserções de relaunch com fault de fs |
+| D02 | - | Disco cheio enquanto a tool escreve arquivo do workspace; os limites de injeção atuais cobrem criação de diretório pai, escrita não atômica ou remoção, e o atomic temp/rename padrão não é injetado | Como exibir o erro de tool; se o assistant continua resumindo a falha | tool block failed / assistant continua explicando a falha / Interromper o turno atual | Escrever as asserções de ENOSPC em criação de diretório pai / escrita não atômica do workspace |
+| D03 | - | Permission denied nos dados do app ao salvar configurações de provider | Se impede salvar e preserva a entrada; se escreve log | Erro de formulário preservando a entrada / Toast e rollback / Falha silenciosa e proibido | Escrever asserções de EACCES no save de settings |
+| D04 | - | Arquivo de snapshot de session corrompido na recuperação de startup | Pular session corrompida, mostrar erro de recuperação ou impedir entrar no workspace | Pular com aviso / Mostrar erro de session corrompida / Impedir a entrada | Escrever fixture de snapshot corrompido |
+| D05 | - | Falha prolongada na escrita de log/artifact em streaming | Se o fluxo de produto continua; se a falha de log é apenas warn | Produto continua com warn / Interromper o turno atual / Avisar falha de diagnóstico | Escrever asserções de fault no log sink |
 
-## P1：App 生命周期/进程故障
+## P1: Falhas de ciclo de vida do app / processo
 
-### 当前代码观察（非产品决策）
+### Observações atuais do código (não são decisões de produto)
 
-生命周期类 case 不能只看 React 状态。当前代码已经有窗口、host process、agent process、renderer restore 几层机制，但“用户应看到什么”和“运行中任务是否继续/恢复/中断”仍要定义成产品合同。
+Cases de ciclo de vida não podem ser avaliados apenas pelo estado do React. O código atual já tem camadas de janela, host process, agent process e renderer restore, mas "o que o usuário deve ver" e "se tasks em execução continuam/recuperam/interrompem" ainda precisam ser definidos como contrato de produto.
 
-| ID | 当前代码观察 | 证据入口 | 仍需产品确认 |
+| ID | Observação atual do código | Entrada de evidência | Ainda requer confirmação do produto |
 | --- | --- | --- | --- |
-| L01 | 切到其他 app / blur / visibility hidden 时，当前能证明的是 composer 草稿会在 `blur`、`pagehide`、`freeze`、`visibilitychange(hidden)` 时保存；没有看到 desktop main 或 UI 对 running session 做 pause 的逻辑。应用交互态只用于 telemetry。 | `packages/ui/src/hooks/useChatComposer.ts`、`packages/desktop/src/main/index.ts` | 后台时 SSE/agent 是否必须继续；回到前台是否需要追流/补快照；后台通知和 unread 如何表现 |
-| L02 | “关闭窗口”不是单一语义：macOS 点击关闭默认 hide；Windows 可配置 close-to-tray；真正 `closed` 时才 dispose 对应 host process 并清理 remote/web remote 绑定。非最后窗口关闭会真实关闭该窗口，最后窗口关闭可能触发 quit 确认。 | `packages/desktop/src/main/desktopDarwinCloseBehavior.ts`、`packages/desktop/src/main/desktopWindowLifecycle.ts`、`packages/desktop/src/main/index.ts` | 关闭当前窗口但 app 未退出时，运行中 task 是继续后台、stop，还是随 host dispose 中断；隐藏窗口是否等价继续运行 |
-| L03 | app quit 会在 `before-quit` 拦截第一次退出，调用 `prepareAppQuit` 等待所有 host process 清理；host 会 `disposeServiceResourcesAndWait`，agent process manager 会等待每个 agent `disposeAndWait`，先 stdin EOF，再进程树兜底。当前代码更像“退出时主动回收运行中 agent”，不是“退出后继续运行”。 | `packages/desktop/src/main/index.ts`、`packages/desktop/src/host/index.ts`、`packages/services/src/node.ts`、`packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`、`packages/services/src/zcode-agent/zcodeStdioTransport.ts` | 重启后 running turn 应恢复、标 interrupted、标 failed，还是保留 notReady；用户是否看到上次退出说明 |
-| L04 | renderer `dom-ready` 会检查同一 webContents 旧 host，先 dispose 旧 host，再 spawn 新 host；历史 task 打开会走 `resumeSession` / `resumeTask` / snapshot restore。restore 失败当前 UI 会把 runtime 设为 `notReady`，workspace init 标 `failed`，避免把恢复失败混成模型生成失败。 | `packages/desktop/src/main/desktopWindowLifecycle.ts`、`packages/ui/src/hooks/useTaskRestore.ts`、`packages/ui/src/lib/zcodeSessionRestore.ts`、`packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts` | renderer reload 期间本地 queue/activeInputId 是否必须保留；running continuous 是否靠 snapshot 恢复还是标 interrupted |
-| L05 | host process exit 会从 main 的 maps、broadcast hub、task realtime bus 中注销；task realtime bus 会让 pending owner command / session message delivery 失败，并释放 lease、发 snapshot invalidation。没有看到本地窗口 host crash 后自动重启并恢复同一个 running session 的主流程。 | `packages/desktop/src/main/desktopHostProcess.ts`、`packages/desktop/src/main/taskRealtimeBus.ts` | host crash 后 UI 是全局错误、workspace notReady、自动重建 host，还是要求用户 reload；queue/permission pending 如何处理 |
-| L06 | agent 子进程退出会触发 stdio transport close，protocol client reject 所有 pending request；process manager 从 workspace 进程池移除该 client。当前注释也说明 agent native crash 后 UI 常见信号是 protocol close / `Session is not active`，而不是专门的 crash 分类。UI 对 `task_error(PROCESS_EXIT/PROCESS_ERROR)` 有失败态处理，但 agent crash 是否稳定映射到这类 stream event 仍需 E2E 证明。 | `packages/services/src/zcode-agent/zcodeStdioTransport.ts`、`packages/services/src/zcode-agent/zcodeProtocolClient.ts`、`packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | agent crash 是否自动重启；当前轮/queue 是否保留；错误码是否必须统一成 `PROCESS_EXIT` |
-| L07 | 没看到 desktop `powerMonitor` / OS sleep-wake 专门处理。与 sleep/wake 最接近的是 SSE stall、transport close、restore/snapshot 机制，但它们不是系统睡眠产品语义。 | `packages/desktop/src/main/index.ts`、`packages/services/src/zcode-agent/zcodeAgentService.ts`、`packages/ui/src/hooks/useTaskRestore.ts` | sleep/wake 后应继续等待、自动失败、自动 reconnect，还是提示用户手动恢复；超时阈值如何设 |
-| L08 | compacting 时 app 退出没有独立收口路径；会走 L03 的 app quit/host dispose/agent dispose。compact marker 的最终可见状态取决于退出前是否已写入 start / failed / completed timeline，以及恢复时 snapshot 能读到什么。当前没有“compacting during quit”的专门恢复合同。 | `packages/desktop/src/main/index.ts`、`packages/desktop/src/host/index.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/compact.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`、`packages/ui/src/hooks/useTaskRestore.ts` | 重启后 compact marker 是 failed、interrupted、unknown 还是移除；触发 compact 的 pendingAction/queue 如何恢复 |
+| L01 | Ao trocar para outro app / blur / visibility hidden, o que se pode provar hoje é que o rascunho do composer é salvo em `blur`, `pagehide`, `freeze` e `visibilitychange(hidden)`; não há lógica de pause de session em execução no desktop main ou na UI. O estado de interação do app é usado apenas para telemetria. | `packages/ui/src/hooks/useChatComposer.ts`、`packages/desktop/src/main/index.ts` | Se SSE/agent devem continuar em background; se ao voltar ao foreground é preciso reconectar o stream ou completar o snapshot; como se comportam notificação de background e unread |
+| L02 | "Fechar a janela" não é uma semântica única: no macOS, clicar em fechar oculta por padrão; no Windows é configurável close-to-tray; e só no `closed` real é que o host process correspondente é descartado e as ligações remote/web remote são limpas. Fechar uma janela que não é a última realmente fecha aquela janela; fechar a última janela pode disparar a confirmação de quit. | `packages/desktop/src/main/desktopDarwinCloseBehavior.ts`、`packages/desktop/src/main/desktopWindowLifecycle.ts`、`packages/desktop/src/main/index.ts` | Ao fechar a janela atual sem sair do app, a task em execução continua em background, dá stop ou é interrompida junto com o descarte do host; se janela oculta equivale a continuar rodando |
+| L03 | O quit do app intercepta a primeira saída em `before-quit`, chama `prepareAppQuit` e espera a limpeza de todos os host processes; o host faz `disposeServiceResourcesAndWait`, o agent process manager espera cada agent `disposeAndWait`, primeiro EOF no stdin e depois a árvore de processos como rede de segurança. O código atual se parece mais com "recuperar ativamente agents em execução ao sair" do que com "continuar rodando depois de sair". | `packages/desktop/src/main/index.ts`、`packages/desktop/src/host/index.ts`、`packages/services/src/node.ts`、`packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`、`packages/services/src/zcode-agent/zcodeStdioTransport.ts` | Após reiniciar, o turno em execução deve ser recuperado, marcado interrupted, marcado failed ou mantido notReady; se o usuário vê alguma explicação sobre o último encerramento |
+| L04 | O `dom-ready` do renderer verifica o host antigo do mesmo webContents, descarta o host antigo e então cria um novo host; abrir uma task histórica passa por `resumeSession` / `resumeTask` / restauração de snapshot. Quando a restauração falha, a UI hoje define o runtime como `notReady` e marca a init do workspace como `failed`, evitando misturar falha de recuperação com falha de geração de modelo. | `packages/desktop/src/main/desktopWindowLifecycle.ts`、`packages/ui/src/hooks/useTaskRestore.ts`、`packages/ui/src/lib/zcodeSessionRestore.ts`、`packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts` | Se a fila local/activeInputId precisa ser preservada durante o reload do renderer; se continuous em execução é recuperado via snapshot ou marcado interrupted |
+| L05 | A saída do host process remove o registro nos maps do main, no broadcast hub e no task realtime bus; o task realtime bus faz falhar comandos de owner pendentes / entrega de mensagens de session e libera o lease, enviando invalidação de snapshot. Não há um fluxo principal que reinicie automaticamente o host e recupere a mesma session em execução após um crash de host local. | `packages/desktop/src/main/desktopHostProcess.ts`、`packages/desktop/src/main/taskRealtimeBus.ts` | Após um crash de host, a UI mostra erro global, workspace notReady, reconstrói o host automaticamente ou exige reload do usuário; como tratar fila/permission pending |
+| L06 | A saída do subprocesso do agent dispara o fechamento do stdio transport e o protocol client rejeita todas as requisições pendentes; o process manager remove aquele client do pool de processos do workspace. Os comentários atuais também indicam que, após um crash nativo do agent, o sinal comum na UI é protocol close / `Session is not active`, e não uma classificação de crash dedicada. A UI tem tratamento de estado de falha para `task_error(PROCESS_EXIT/PROCESS_ERROR)`, mas ainda é preciso provar via E2E se o crash do agent mapeia de forma estável para esse tipo de stream event. | `packages/services/src/zcode-agent/zcodeStdioTransport.ts`、`packages/services/src/zcode-agent/zcodeProtocolClient.ts`、`packages/services/src/zcode-agent/zcodeAgentProcessManager.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | Se o crash do agent reinicia automaticamente; se o turno atual/fila é preservado; se o código de erro precisa ser unificado em `PROCESS_EXIT` |
+| L07 | Não há tratamento dedicado de `powerMonitor` do desktop / sleep-wake do SO. O mais próximo de sleep/wake é o stall de SSE, o fechamento do transport e os mecanismos de restore/snapshot, mas eles não são semântica de produto de sono do sistema. | `packages/desktop/src/main/index.ts`、`packages/services/src/zcode-agent/zcodeAgentService.ts`、`packages/ui/src/hooks/useTaskRestore.ts` | Após sleep/wake, se deve continuar esperando, falhar automaticamente, reconectar automaticamente ou avisar o usuário para recuperar manualmente; como definir o limiar de timeout |
+| L08 | Não há caminho de fechamento dedicado para sair do app durante compacting; segue-se o caminho de quit do app / descarte do host / descarte do agent de L03. O estado final visível do compact marker depende de o timeline start / failed / completed já ter sido escrito antes da saída e do que o snapshot conseguir ler na recuperação. Hoje não há contrato de recuperação dedicado para "compacting durante quit". | `packages/desktop/src/main/index.ts`、`packages/desktop/src/host/index.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/compact.ts`、`apps/zcode-cli/packages/core/src/runtime/methods/compact-active.ts`、`packages/ui/src/hooks/useTaskRestore.ts` | Após reiniciar, o compact marker é failed, interrupted, unknown ou removido; como recuperar o pendingAction/fila que disparou o compact |
 
-| ID | 来源/别名 | 场景 | 必须确认的问题 | 候选口径 | 确认后下一步 |
+| ID | Origem/alias | Cenário | Questões que precisam ser confirmadas | Posições candidatas | Próximo passo após confirmação |
 | --- | --- | --- | --- | --- | --- |
-| L01 | - | 用户切到其他 app 或最小化 | session 是否继续运行；回来后 UI 如何追流 | 继续运行并追上 / 后台暂停 / 仅 UI 停止渲染 | 写 background/foreground 断言 |
-| L02 | - | 关闭当前窗口但不退出 app | host/agent 是否继续；重开窗口后如何恢复 | 继续后台 / stop 当前轮 / 关闭 host | 写 window close/open 断言 |
-| L03 | - | 退出 app 后重新打开 | 当前轮继续、恢复、还是标 interrupted | relaunch interrupted / replay resume / 丢弃 running | 写 quit/relaunch 断言 |
-| L04 | - | renderer reload/crash | continuous 链路是否重接；queue 是否丢失 | 重接并保留 queue / 标 interrupted / 重建详情页 | 写 renderer reload 断言 |
-| L05 | - | host process crash/restart | 是否重建 host；session 状态如何恢复 | 重建并恢复 snapshot / 全部 error / 要求重开 workspace | 写 kill host helper |
-| L06 | - | agent process crash/exit | UI 是否进入 error；queue 是否保留；能否 retry | 当前轮 error queue 保留 / interrupted completed / 自动重启 agent | 写 kill agent 断言 |
-| L07 | - | 系统 sleep/wake | SSE 断开后如何处理；是否自动恢复 | 继续等待 / 失败可重试 / 自动重连 | 写 sleep/stall 模拟 |
-| L08 | - | compacting 时 app 关闭/退出 | compact marker 重启后状态是什么 | failed / interrupted / unknown / 移除 marker | 写 compact relaunch 断言 |
+| L01 | - | Usuário troca para outro app ou minimiza | Se a session continua rodando; como a UI reconecta o stream ao voltar | Continuar rodando e acompanhar / Pausar em background / Apenas parar de renderizar na UI | Escrever asserções de background/foreground |
+| L02 | - | Fecha a janela atual sem sair do app | Se host/agent continuam; como recuperar ao reabrir a janela | Continuar em background / Parar o turno atual / Fechar o host | Escrever asserções de close/open de janela |
+| L03 | - | Sai do app e reabre | Se o turno atual continua, é recuperado ou marcado interrupted | relaunch interrupted / replay resume / Descartar o running | Escrever asserções de quit/relaunch |
+| L04 | - | Reload/crash do renderer | Se a cadeia continuous é reconectada; se a fila se perde | Reconectar preservando a fila / Marcar interrupted / Reconstruir a página de detalhe | Escrever asserções de reload do renderer |
+| L05 | - | Crash/restart do host process | Se o host é reconstruído; como o estado da session é recuperado | Reconstruir e recuperar o snapshot / Tudo em error / Exigir reabrir o workspace | Escrever o helper de kill do host |
+| L06 | - | Crash/saída do agent process | Se a UI entra em error; se a fila é preservada; se é possível retry | Turno atual em error com fila preservada / interrupted completed / Reiniciar o agent automaticamente | Escrever asserções de kill do agent |
+| L07 | - | Sleep/wake do sistema | Como tratar a desconexão do SSE; se há recuperação automática | Continuar esperando / Falhar com retry possível / Reconectar automaticamente | Escrever simulação de sleep/stall |
+| L08 | - | App fechado/saindo durante compacting | Qual é o estado do compact marker após reiniciar | failed / interrupted / unknown / Remover o marker | Escrever asserções de compact relaunch |
 
-## P2：Workspace / Tool 外部变化
+## P2: Mudanças externas de Workspace / Tool
 
-### 当前代码观察（非产品决策）
+### Observações atuais do código (não são decisões de produto)
 
-这一组的关键不是“代码是否会报错”，而是 workspace / tool / remote 的外部变化如何转成用户可理解的产品状态。当前代码已经有若干保护边界，但还没有统一的会话区产品合同。
+O ponto central deste grupo não é "o código vai gerar erro", mas como mudanças externas em workspace / tool / remote viram estados de produto compreensíveis para o usuário. O código atual já tem algumas fronteiras de proteção, mas ainda não existe um contrato de produto unificado para a área de conversa.
 
-| ID | 当前代码观察 | 证据入口 | 仍需产品确认 |
+| ID | Observação atual do código | Entrada de evidência | Ainda requer confirmação do produto |
 | --- | --- | --- | --- |
-| W01 | 文件/目录缺失主要在调用时发现：`NodeFileSystemAdapter` 会把底层 `ENOENT` 归一成 `not_found`，Git service 对 workspace missing cwd 也会降级成 `isRepository=false`。没有看到“workspace 根被删除或重命名后，整个会话区进入只读/锁输入/重选目录”的全局状态机。 | `apps/zcode-cli/packages/adapters/src/fs/index.ts`、`packages/services/src/git/repo/gitCliRepo.ts`、`packages/services/src/git/repo/gitCliHelpers.ts` | workspace 根缺失后，输入框、队列、tool 调用、历史消息和文件树各自应该是什么状态 |
-| W02 | tool 写文件有两层新鲜度保护：Write 工具要求覆盖已有文件前必须读过完整文件，否则 `write_file_not_read`；如果读后文件内容被外部修改，会抛 `write_file_stale`。底层 FileSystemPort 还支持 `expectedRevision`，revision 不匹配是 `stale_write`，目标消失是 `not_found`。 | `apps/zcode-cli/packages/core/src/tool/handlers/write.ts`、`apps/zcode-cli/packages/adapters/src/fs/index.ts`、`apps/zcode-cli/packages/core/tests/write-tool-contract.test.ts`、`apps/zcode-cli/packages/core/tests/file-tool-port.test.ts` | tool block 显示失败后，assistant 是否继续解释失败；当前轮是否算 failed；用户是否能一键重试/重新读 |
-| W03 | Git 能力有降级边界：`resolveRepository` 区分 git binary 不可用、非仓库和 missing cwd；diff 在不可用时返回 unavailable diff；Git action menu 只有 `isGitAvailable && isRepository` 才可用。agent 侧 git context 明确是“conversation start snapshot”，不会在会话中实时更新。 | `packages/services/src/git/repo/gitCliRepo.ts`、`packages/ui/src/git-action-menu/display.ts`、`apps/zcode-cli/packages/core/src/context/sections/env-info.ts` | dirty state 或 repo 状态变化后，UI 是否自动重新探测；agent 下一轮是否必须拿到新 git 状态；旧轮是否保留 snapshot 语义 |
-| W04 | remote workspace 断开时，host 会主动 dispose 并退出；main 的 realtime bus 在 host unregister 时会失败 pending owner command / session message delivery，并给 lease 发送 `task_snapshot_invalidated(stream_mirror_owner_lost)`。mobile shared-host attachment 必须携带 `workspaceIdentity`，否则拒绝建立身份隔离。 | `packages/desktop/src/host/index.ts`、`packages/desktop/src/main/taskRealtimeBus.ts`、`packages/desktop/src/main/webRemoteControlSharedHostAttachments.ts` | desktop continuous 和 mobile replayable 在远端断开后分别展示什么；是否自动重连；queue/permission pending 是否保留 |
-| W05 | 权限请求已经是 task 级队列：`permission_request` 会写入 store，多个请求顺序排队；切任务回来仍能看到待处理权限。runtime snapshot 也会先清旧 pending，再重放服务端 pending permission。client close 时 service 会清理对应 pending permission / user input / provider header。 | `packages/ui/src/hooks/taskStreamEventHandlers.ts`、`packages/ui/src/store/zcodeSessionStoreTaskSlice.ts`、`packages/ui/src/hooks/useTaskRestore.ts`、`packages/services/src/zcode-agent/zcodeAgentService.ts`、`packages/ui/src/lib/zcodeTaskRuntimeMonitor.ts` | 用户切 session、关闭窗口或断线后，pending permission 是保留、过期、自动 reject，还是只绑定 active session |
+| W01 | Arquivo/diretório ausente é descoberto principalmente na chamada: `NodeFileSystemAdapter` normaliza `ENOENT` do nível inferior para `not_found`, e o Git service degrada para `isRepository=false` quando o cwd do workspace está ausente. Não há uma máquina de estados global do tipo "a raiz do workspace foi deletada ou renomeada, então toda a área de conversa entra em somente leitura/trava de entrada/reseleção de diretório". | `apps/zcode-cli/packages/adapters/src/fs/index.ts`、`packages/services/src/git/repo/gitCliRepo.ts`、`packages/services/src/git/repo/gitCliHelpers.ts` | Depois que a raiz do workspace some, qual deve ser o estado da caixa de entrada, da fila, das chamadas de tool, das mensagens de histórico e da árvore de arquivos |
+| W02 | A escrita de arquivo pela tool tem duas camadas de proteção de frescor: a ferramenta Write exige que o arquivo existente tenha sido lido por completo antes de sobrescrever, senão `write_file_not_read`; se o conteúdo for modificado externamente após a leitura, lança `write_file_stale`. O FileSystemPort subjacente também suporta `expectedRevision`: revision divergente é `stale_write` e alvo desaparecido é `not_found`. | `apps/zcode-cli/packages/core/src/tool/handlers/write.ts`、`apps/zcode-cli/packages/adapters/src/fs/index.ts`、`apps/zcode-cli/packages/core/tests/write-tool-contract.test.ts`、`apps/zcode-cli/packages/core/tests/file-tool-port.test.ts` | Depois que o bloco de tool mostra falha, o assistant continua explicando a falha; o turno atual conta como failed; se o usuário pode retentar/reler com um clique |
+| W03 | A capacidade de Git tem limites de degradação: `resolveRepository` distingue git binary indisponível, não-repositório e cwd ausente; o diff retorna unavailable diff quando indisponível; o menu de ações Git só fica disponível com `isGitAvailable && isRepository`. O contexto de git do lado do agent é explicitamente um "conversation start snapshot" e não é atualizado em tempo real durante a sessão. | `packages/services/src/git/repo/gitCliRepo.ts`、`packages/ui/src/git-action-menu/display.ts`、`apps/zcode-cli/packages/core/src/context/sections/env-info.ts` | Depois que o dirty state ou o estado do repo muda, se a UI re-detecta automaticamente; se o agent na próxima rodada precisa obter o novo estado de git; se as rodadas antigas mantêm a semântica de snapshot |
+| W04 | Quando o workspace remoto desconecta, o host descarta a si próprio e sai; o realtime bus do main faz falhar comandos de owner pendentes / entrega de mensagens de session quando o host se desregistra e envia `task_snapshot_invalidated(stream_mirror_owner_lost)` para o lease. O attachment de shared-host mobile precisa carregar `workspaceIdentity`, senão a construção é rejeitada por falta de isolamento de identidade. | `packages/desktop/src/host/index.ts`、`packages/desktop/src/main/taskRealtimeBus.ts`、`packages/desktop/src/main/webRemoteControlSharedHostAttachments.ts` | O que o desktop continuous e o mobile replayable mostram cada um após queda remota; se há reconexão automática; se fila/permission pending é preservado |
+| W05 | O pedido de permissão já é uma fila em nível de task: `permission_request` é escrito no store e múltiplos pedidos ficam enfileirados em ordem; ao voltar para a task, as permissões pendentes continuam visíveis. O snapshot do runtime também limpa os pendentes antigos e então reproduz as pending permissions do servidor. Quando o client fecha, o service limpa a pending permission / user input / provider header correspondente. | `packages/ui/src/hooks/taskStreamEventHandlers.ts`、`packages/ui/src/store/zcodeSessionStoreTaskSlice.ts`、`packages/ui/src/hooks/useTaskRestore.ts`、`packages/services/src/zcode-agent/zcodeAgentService.ts`、`packages/ui/src/lib/zcodeTaskRuntimeMonitor.ts` | Depois que o usuário troca de session, fecha a janela ou fica offline, a pending permission é preservada, expira, é rejeitada automaticamente ou fica vinculada apenas à session ativa |
 
-| ID | 来源/别名 | 场景 | 必须确认的问题 | 候选口径 | 确认后下一步 |
+| ID | Origem/alias | Cenário | Questões que precisam ser confirmadas | Posições candidatas | Próximo passo após confirmação |
 | --- | --- | --- | --- | --- | --- |
-| W01 | - | workspace 目录被删除或重命名 | 是否锁输入、提示重选、还是保留只读历史 | 只读历史 / 阻止输入 / 允许继续但 tool 失败 | 写 workspace missing 断言 |
-| W02 | - | tool read/write 中目标文件被外部修改/删除 | tool error 如何展示；后续 assistant 是否知道失败 | tool failed / retry read / assistant 总结失败 | 写 external fs mutation 断言 |
-| W03 | - | git repo 不存在或 dirty state 改变 | 是否降级为普通文件工作区 | capability 降级 / tool error / 自动重新探测 | 写 git capability 断言 |
-| W04 | - | remote workspace SSH/WSL/Docker 连接断开 | mobile replayable 和 desktop continuous 各自如何恢复 | desktop error / mobile replayable gap / 自动重连 | 写 remote disconnect harness |
-| W05 | - | permission request pending 时用户关闭或切换 session | pending request 保留、过期，还是自动 reject | 保留到回到 session / 自动 reject / 绑定 active session | 写 pending permission 断言 |
+| W01 | - | Diretório do workspace foi deletado ou renomeado | Se trava a entrada, avisa para reselecionar ou mantém histórico em somente leitura | Histórico somente leitura / Bloquear entrada / Permitir continuar mas com falha na tool | Escrever asserções de workspace ausente |
+| W02 | - | Arquivo alvo foi modificado/deletado externamente durante read/write da tool | Como exibir o erro de tool; se o assistant seguinte sabe da falha | tool failed / retry de read / assistant resumindo a falha | Escrever asserções de mutação externa de fs |
+| W03 | - | Repositório git não existe ou o dirty state mudou | Se degrada para uma área de trabalho de arquivos comum | Degradação de capability / Erro de tool / Re-detecção automática | Escrever asserções de capability de git |
+| W04 | - | Conexão SSH/WSL/Docker do workspace remoto caiu | Como cada um de mobile replayable e desktop continuous se recupera | Erro no desktop / lacuna no mobile replayable / Reconexão automática | Escrever o harness de desconexão remota |
+| W05 | - | Usuário fecha ou troca de session com permission request pendente | Se o pedido pendente é preservado, expira ou rejeitado automaticamente | Preservar até voltar à session / Rejeitar automaticamente / Vincular à session ativa | Escrever as asserções de pending permission |
 
-## P2：跨 Session 故障隔离
+## P2: Isolamento de falhas entre Sessions
 
-### 当前代码观察（非产品决策）
+### Observações atuais do código (não são decisões de produto)
 
-跨 session 隔离需要同时看 taskId、workspaceIdentity 和 activeInputId。当前代码有隔离机制，但还需要 E2E 证明“非当前 session 的失败不会污染当前用户正在看的页面”。
+O isolamento entre sessions exige olhar simultaneamente para taskId, workspaceIdentity e activeInputId. O código atual tem mecanismos de isolamento, mas ainda é preciso provar via E2E que "a falha de uma session que não é a atual não polui a página que o usuário está vendo".
 
-| ID | 当前代码观察 | 证据入口 | 仍需产品确认 |
+| ID | Observação atual do código | Entrada de evidência | Ainda requer confirmação do produto |
 | --- | --- | --- | --- |
-| X01 | UI runtime / error / messages 都按 workspace state + taskId 写入；`task_error` handler 读取带 `workspaceIdentity` 的 workspace state，并只更新事件里的 taskId。terminal event 还会按 `activeInputId` 丢弃旧 input 的迟到失败态，避免污染新一轮。 | `packages/ui/src/store/zcodeSessionStoreTaskSlice.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | A 在后台失败时，B 是否完全无感；是否允许全局 toast；A 列表 item 是否要显示 error badge |
-| X02 | compact marker 属于 task 消息/timeline 投影，stream 与 restore 都按 taskId 回填。理论上 A compact 失败应落在 A 的消息/marker 上，不该改写 B 的 toolbar/sidebar，但当前还缺少“B active 时 A compact fail”的专门 E2E。 | `packages/ui/src/lib/zcodeSessionProjection.ts`、`packages/ui/src/hooks/taskStreamEventHandlers.ts`、`packages/ui/src/hooks/useTaskRestore.ts` | A 的 compact failed marker 是否只在切回 A 后展示；列表是否显示 compact failure；是否有全局提示 |
-| X03 | 切回历史 task 会走 restore/snapshot，把 pending permissions、runtime、messages 等按 taskId 回填；完整错误对象也已从组件本地 state 移到 task store，避免切页后丢 traceId/code。restore 失败会进入 workspace init failed，而不是混成模型生成失败。 | `packages/ui/src/hooks/useTaskRestore.ts`、`packages/ui/src/store/zcodeSessionStoreTaskSlice.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | 切回 A error 后，error banner、queue、retry/edit/fork/compact 按钮应如何恢复；restore failed 与 task failed 的 UI 区分 |
+| X01 | Runtime / error / messages da UI são escritos por workspace state + taskId; o handler de `task_error` lê o workspace state com `workspaceIdentity` e atualiza apenas o taskId do evento. O evento terminal também descarta estados de falha tardios do input antigo conforme `activeInputId`, evitando poluir a nova rodada. | `packages/ui/src/store/zcodeSessionStoreTaskSlice.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | Quando A falha em background, B fica completamente alheio; se toast global é permitido; se o item de A na lista precisa exibir badge de erro |
+| X02 | O compact marker é uma projeção de mensagens/timeline da task, e tanto stream quanto restore o preenchem por taskId. Em teoria, uma falha de compact em A deve cair nas mensagens/markers de A e não reescrever a toolbar/sidebar de B, mas ainda falta um E2E dedicado para "compact fail em A com B ativa". | `packages/ui/src/lib/zcodeSessionProjection.ts`、`packages/ui/src/hooks/taskStreamEventHandlers.ts`、`packages/ui/src/hooks/useTaskRestore.ts` | Se o compact failed marker de A só é exibido ao voltar para A; se a lista mostra falha de compact; se existe aviso global |
+| X03 | Voltar para uma task histórica passa por restore/snapshot, preenchendo pending permissions, runtime, messages etc. por taskId; o objeto de erro completo também foi movido do state local do componente para o task store, evitando perder traceId/code ao trocar de página. Falha de restore entra em workspace init failed, em vez de ser misturada com falha de geração de modelo. | `packages/ui/src/hooks/useTaskRestore.ts`、`packages/ui/src/store/zcodeSessionStoreTaskSlice.ts`、`packages/ui/src/hooks/taskStreamEventTerminalHandlers.ts` | Ao voltar para o erro de A, como restaurar o error banner, a fila e os botões retry/edit/fork/compact; como distinguir na UI restore failed de task failed |
 
-| ID | 来源/别名 | 场景 | 必须确认的问题 | 候选口径 | 确认后下一步 |
+| ID | Origem/alias | Cenário | Questões que precisam ser confirmadas | Posições candidatas | Próximo passo após confirmação |
 | --- | --- | --- | --- | --- | --- |
-| X01 | - | A running，B active，A 主模型请求失败 | B 主视图不能被 A 错误覆盖；A 列表状态如何显示 | 只 A item error / 全局 toast / 切回 A 才显示 | 写 inactive failure isolation 断言 |
-| X02 | - | A compacting，B active，A compact 失败 | B toolbar/sidebar 是否完全不受 A marker 影响 | 完全隔离 / 列表显示 A marker / 全局提示 | 写 inactive compact failure 断言 |
-| X03 | - | A error，B active，切回 A | A 的 error、queue、可操作按钮如何恢复显示 | 恢复完整 error state / 只显示历史 / 自动清 error | 写 switch-back error state 断言 |
+| X01 | - | A rodando, B ativa, requisição do modelo principal de A falha | A visão principal de B não pode ser sobrescrita pelo erro de A; como o estado de A aparece na lista | Apenas o item de A em error / Toast global / Exibir só ao voltar para A | Escrever asserções de isolamento de falha inativa |
+| X02 | - | A compactando, B ativa, compact de A falha | A toolbar/sidebar de B não pode ser afetada pelo marker de A | Isolamento total / Lista exibe o marker de A / Aviso global | Escrever asserções de falha de compact inativa |
+| X03 | - | A em error, B ativa, voltando para A | Como recuperar a exibição do error, da fila e dos botões de ação de A | Recuperar o estado de erro completo / Mostrar apenas histórico / Limpar o erro automaticamente | Escrever asserções de estado de erro ao voltar |

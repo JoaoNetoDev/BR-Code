@@ -1,63 +1,63 @@
-# Windows 官方插件缓存加固实施计划
+# Plano de Implementação de Hardening do Cache de Plugins Oficiais no Windows
 
-> **给执行该计划的 agent：** 必须使用 `superpowers:subagent-driven-development`（推荐）或 `superpowers:executing-plans` 按任务逐项执行。步骤使用 checkbox（`- [ ]`）语法追踪进度。
+> **Para o agent que executa este plano:** é obrigatório usar `superpowers:subagent-driven-development` (recomendado) ou `superpowers:executing-plans` para executar as tarefas uma a uma. O progresso é rastreado com a sintaxe de checkbox (`- [ ]`).
 
-**目标：** 修复 Windows 上内置官方插件 seed/cache 替换时 `ENOTEMPTY` / `EPERM` 留下 `0.1.0.tmp-*`，并被插件发现流程当成真实版本加载的问题。
+**Objetivo:** corrigir no Windows o problema em que a substituição do seed/cache dos plugins oficiais embutidos deixa resíduos `0.1.0.tmp-*` por causa de `ENOTEMPTY` / `EPERM`, e esses resíduos acabam sendo carregados como versões reais pelo fluxo de descoberta de plugins.
 
-**架构：** 把修复拆成两层：bootstrap seed 写入端负责有界重试、陈旧工作目录清理、seed lock 和 manifest 原子写重试；adapter 插件发现端负责忽略官方插件缓存里的工作目录，保证历史残留不会污染插件加载。bootstrap 和 adapters 分属不同包，不互相跨包导入实现辅助模块；bootstrap 放文件系统重试辅助模块，adapters 放最小扫描过滤逻辑。
+**Arquitetura:** dividir a correção em duas camadas: o lado de escrita do seed no bootstrap cuida de retry limitado, limpeza de diretórios de trabalho obsoletos, seed lock e retry de escrita atômica de manifest; o lado de descoberta de plugins no adapter cuida de ignorar diretórios de trabalho no cache dos plugins oficiais, garantindo que resíduos históricos não poluam o carregamento de plugins. bootstrap e adapters pertencem a pacotes diferentes e não importam módulos auxiliares de implementação de forma cruzada; o bootstrap hospeda o módulo auxiliar de retry do sistema de arquivos e os adapters hospedam a lógica mínima de filtragem de varredura.
 
-**技术栈：** TypeScript、Node.js `fs` 同步 API、Vitest、`@zcode/bootstrap` 官方插件 seed、`@zcode/adapters` 插件发现。
-
----
-
-## 背景与根因
-
-已确认的失败链路：
-
-- `apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts` 的 `seedBundledOfficialPlugins()` 会把官方插件先写到 `${targetRoot}.tmp-${process.pid}-${Date.now()}`，再通过 `replaceSeedRoot()` 删除正式版本目录并 `renameSync(tmp, targetRoot)`。
-- 当前 `replaceSeedRoot()` 只把 `EEXIST` / `ENOTEMPTY` 当成有限竞争重试，且 `rmSync(targetRoot)`、catch 里的 `rmSync(temporaryRoot)` 没有统一的有界重试/退避。Windows 上文件句柄、MCP 子进程、Defender/EDR 扫描都可能让目录删除或 rename 暂时失败。
-- `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts` 的 `writeTextFileAtomically()` 对 `.zcode-plugin/plugin.json` 的重写也是裸 `renameSync`，带 MCP server 的官方插件更容易碰到 Windows manifest 句柄竞争。
-- `apps/zcode-cli/packages/adapters/src/plugins/index.ts` 的 `scanOfficialCache()` 会把 `cache/zcode-plugins-official/<plugin>/` 下所有目录都当作版本候选，没有过滤 `0.1.0.tmp-*` 或 `0.1.0.seed-lock`。
-
-修复判定标准：
-
-- 不能再因为短暂 Windows 文件系统竞争直接留下大量 tmp 并启动失败。
-- 机器上已经存在的 `0.1.0.tmp-*` 不能再进入插件发现流程。
-- 桌面端 continuous / Web remote replayable 链路不应受影响；本次只改 agent bootstrap/adapters 文件系统与插件发现流程，不改 app/remote/session/task realtime 协议。
-
-## 文件结构
-
-- 新增：`apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts`
-  - bootstrap 专用的官方插件缓存文件系统辅助模块。
-  - 负责临时 Windows 错误识别、同步重试/退避、目录删除、rename、manifest 原子写、陈旧 tmp/lock 清理、seed lock。
-- 修改：`apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts`
-  - 使用辅助模块替换 `replaceSeedRoot()` 中的裸 `rmSync` / `renameSync`。
-  - seed 前清理陈旧工作目录，并用版本级 seed lock 串行化同一插件版本的替换。
-  - 获取 lock 后重新检查 `isSeedCurrent()`，避免并发进程等待期间重复 seed。
-- 修改：`apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts`
-  - 使用辅助模块的 `writeTextFileAtomicallyWithRetry()` 重写 `.zcode-plugin/plugin.json`。
-- 修改：`apps/zcode-cli/packages/adapters/src/plugins/index.ts`
-  - `scanOfficialCache()` 过滤官方插件缓存工作目录，避免把 `*.tmp-*` / `*.seed-lock` 当成插件版本目录。
-- 新增测试：`apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`
-  - 单测重试/退避、临时错误判断、陈旧工作目录清理、陈旧 seed lock 接管。
-- 修改测试：`apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts`
-  - 增加官方插件 seed 清理陈旧 `0.1.0.tmp-*` 并仍落正式版本的回归测试。
-- 修改测试：`apps/zcode-cli/packages/adapters/tests/plugins.test.ts`
-  - 增加插件发现流程忽略官方插件缓存 tmp/lock 工作目录的回归测试。
-- 新增文档：`docs/official-plugin-cache-windows-hardening.md`
-  - 记录本 bug 的原因、修复策略和 Windows 验证边界，满足 bugfix 轨迹要求。
+**Stack técnico:** TypeScript, API síncrona `fs` do Node.js, Vitest, seed de plugins oficiais do `@zcode/bootstrap`, descoberta de plugins do `@zcode/adapters`.
 
 ---
 
-### 任务 1：先锁住 adapter 发现流程的 tmp/lock 污染回归
+## Contexto e Causa Raiz
 
-**文件：**
-- 修改：`apps/zcode-cli/packages/adapters/tests/plugins.test.ts`
-- 修改：`apps/zcode-cli/packages/adapters/src/plugins/index.ts`
+Cadeia de falha já confirmada:
 
-- [ ] **步骤 1：写失败测试，证明 `.tmp-*` 和 `.seed-lock` 目前会污染插件发现**
+- O `seedBundledOfficialPlugins()` em `apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts` escreve primeiro os plugins oficiais em `${targetRoot}.tmp-${process.pid}-${Date.now()}` e depois usa `replaceSeedRoot()` para remover o diretório da versão oficial e fazer `renameSync(tmp, targetRoot)`.
+- Currently `replaceSeedRoot()` trata apenas `EEXIST` / `ENOTEMPTY` como um número limitado de retentativas de concorrência, e o `rmSync(targetRoot)` e o `rmSync(temporaryRoot)` dentro do catch não têm retry/backoff limitado unificado. No Windows, handles de arquivo, subprocessos MCP e varreduras do Defender/EDR podem fazer a remoção do diretório ou o rename falharem temporariamente.
+- O `writeTextFileAtomically()` em `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts` também usa um `renameSync` cru para reescrever `.zcode-plugin/plugin.json`, e plugins oficiais com servidor MCP têm mais facilidade de encontrar competição de handles de manifest no Windows.
+- O `scanOfficialCache()` em `apps/zcode-cli/packages/adapters/src/plugins/index.ts` trata todos os diretórios sob `cache/zcode-plugins-official/<plugin>/` como candidatos a versão, sem filtrar `0.1.0.tmp-*` nem `0.1.0.seed-lock`.
 
-在 `apps/zcode-cli/packages/adapters/tests/plugins.test.ts` 的 `describe("NodePluginAdapter", () => { ... })` 内追加：
+Critérios de aceite da correção:
+
+- Não pode mais deixar muitos diretórios tmp e falhar na inicialização por causa de uma竞争ição transitória do sistema de arquivos do Windows.
+- Os `0.1.0.tmp-*` que já existem na máquina não podem mais entrar no fluxo de descoberta de plugins.
+- Os caminhos desktop continuous / Web remote replayable não devem ser afetados; esta mudança toca apenas no sistema de arquivos e no fluxo de descoberta de plugins do bootstrap/adapters do agent, sem alterar o protocolo app/remote/session/task realtime.
+
+## Estrutura de Arquivos
+
+- Novo: `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts`
+  - Módulo auxiliar de sistema de arquivos do cache de plugins oficiais, exclusivo do bootstrap.
+  - Responsável pela identificação de erros transitórios do Windows, retry/backoff síncrono, remoção de diretórios, rename, escrita atômica de manifest, limpeza de tmp/lock obsoletos e seed lock.
+- Modificado: `apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts`
+  - Usa o módulo auxiliar para substituir os `rmSync` / `renameSync` crus dentro de `replaceSeedRoot()`.
+  - Limpa diretórios de trabalho obsoletos antes do seed e usa um seed lock em nível de versão para serializar a substituição da mesma versão de plugin.
+  - Depois de obter o lock, reavalia `isSeedCurrent()` para evitar seed duplicado enquanto processos concorrentes esperam.
+- Modificado: `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts`
+  - Usa o `writeTextFileAtomicallyWithRetry()` do módulo auxiliar para reescrever `.zcode-plugin/plugin.json`.
+- Modificado: `apps/zcode-cli/packages/adapters/src/plugins/index.ts`
+  - O `scanOfficialCache()` filtra os diretórios de trabalho do cache de plugins oficiais, evitando tratar `*.tmp-*` / `*.seed-lock` como diretórios de versão de plugin.
+- Novo teste: `apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`
+  - Testes unitários de retry/backoff, julgamento de erro transitório, limpeza de diretório de trabalho obsoleto e tomada de posse de seed lock obsoleto.
+- Teste modificado: `apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts`
+  - Adiciona um teste de regressão em que o seed de plugin oficial limpa um `0.1.0.tmp-*` obsoleto e ainda grava a versão oficial.
+- Teste modificado: `apps/zcode-cli/packages/adapters/tests/plugins.test.ts`
+  - Adiciona um teste de regressão em que o fluxo de descoberta de plugins ignora diretórios de trabalho tmp/lock do cache de plugins oficiais.
+- Nova documentação: `docs/official-plugin-cache-windows-hardening.md`
+  - Registra a causa deste bug, a estratégia de correção e o escopo de validação no Windows, atendendo ao requisito de trilha de bugfix.
+
+---
+
+### Tarefa 1: Travar primeiro a regressão de poluição por tmp/lock no fluxo de descoberta do adapter
+
+**Arquivos:**
+- Modificado: `apps/zcode-cli/packages/adapters/tests/plugins.test.ts`
+- Modificado: `apps/zcode-cli/packages/adapters/src/plugins/index.ts`
+
+- [ ] **Passo 1: escrever um teste que falha, provando que `.tmp-*` e `.seed-lock` hoje poluem a descoberta de plugins**
+
+Dentro do `describe("NodePluginAdapter", () => { ... })` em `apps/zcode-cli/packages/adapters/tests/plugins.test.ts`, acrescente:
 
 ```ts
   it("ignores official cache work directories left by interrupted seed attempts", async () => {
@@ -98,21 +98,21 @@
   });
 ```
 
-- [ ] **步骤 2：运行测试，确认它先失败**
+- [ ] **Passo 2: executar o teste e confirmar que ele falha primeiro**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/plugins.test.ts
 ```
 
-预期（实现前）：失败（FAIL）。失败点应是 `outcome.plugins` 包含 `document-skills@zcode-plugins-official`，或 diagnostics 包含 lock 目录缺少 manifest 的错误。
+Esperado (antes da implementação): falha (FAIL). O ponto de falha deve ser `outcome.plugins` contendo `document-skills@zcode-plugins-official`, ou diagnostics contendo o erro de diretório de lock sem manifest.
 
-- [ ] **步骤 3：在发现流程扫描端过滤工作目录**
+- [ ] **Passo 3: filtrar diretórios de trabalho no lado de varredura da descoberta**
 
-修改 `apps/zcode-cli/packages/adapters/src/plugins/index.ts`。
+Modifique `apps/zcode-cli/packages/adapters/src/plugins/index.ts`.
 
-在 `scanOfficialCache()` 上方新增 helper：
+Adicione um helper acima de `scanOfficialCache()`:
 
 ```ts
 function isOfficialCacheWorkDirectoryName(name: string): boolean {
@@ -120,7 +120,7 @@ function isOfficialCacheWorkDirectoryName(name: string): boolean {
 }
 ```
 
-把 `scanOfficialCache()` 内层循环改成：
+Mude o laço interno de `scanOfficialCache()` para:
 
 ```ts
       for (const versionEntry of readdirSync(pluginDir, { withFileTypes: true })) {
@@ -131,27 +131,27 @@ function isOfficialCacheWorkDirectoryName(name: string): boolean {
       }
 ```
 
-- [ ] **步骤 4：运行 adapter 测试，确认通过**
+- [ ] **Passo 4: executar o teste do adapter e confirmar que passa**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/plugins.test.ts
 ```
 
-预期（实现后）：通过（PASS），新增测试不再从 tmp/lock 目录发现插件。
+Esperado (após a implementação): passa (PASS); o novo teste não descobre mais plugins a partir de diretórios tmp/lock.
 
 ---
 
-### 任务 2：Bootstrap 新增官方插件缓存文件系统辅助模块
+### Tarefa 2: Bootstrap ganha um módulo auxiliar de sistema de arquivos para o cache de plugins oficiais
 
-**文件：**
-- 新增：`apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts`
-- 新增：`apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`
+**Arquivos:**
+- Novo: `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts`
+- Novo: `apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`
 
-- [ ] **步骤 1：写辅助模块的失败测试**
+- [ ] **Passo 1: escrever o teste que falha do módulo auxiliar**
 
-创建 `apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`：
+Crie `apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`:
 
 ```ts
 import { existsSync } from "node:fs";
@@ -253,19 +253,19 @@ describe("official plugin cache fs helpers", () => {
 });
 ```
 
-- [ ] **步骤 2：运行新测试，确认它先失败**
+- [ ] **Passo 2: executar o novo teste e confirmar que ele falha primeiro**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/official-plugin-cache-fs.test.ts
 ```
 
-预期（实现前）：失败（FAIL），原因是 `../src/app/official-plugin-cache-fs.js` 还不存在。
+Esperado (antes da implementação): falha (FAIL), porque `../src/app/official-plugin-cache-fs.js` ainda não existe.
 
-- [ ] **步骤 3：创建辅助模块实现**
+- [ ] **Passo 3: criar a implementação do módulo auxiliar**
 
-创建 `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts`：
+Crie `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts`:
 
 ```ts
 import {
@@ -456,33 +456,33 @@ function sleepSync(ms: number): void {
 }
 ```
 
-- [ ] **步骤 4：运行辅助模块测试，确认通过**
+- [ ] **Passo 4: executar o teste do módulo auxiliar e confirmar que passa**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/official-plugin-cache-fs.test.ts
 ```
 
-预期（实现后）：通过（PASS），4 个辅助模块测试全部通过。
+Esperado (após a implementação): passa (PASS); os 4 testes do módulo auxiliar passam.
 
 ---
 
-### 任务 3：Bootstrap seed 写入端增加 lock、陈旧目录清理和重试
+### Tarefa 3: Lado de escrita do seed no bootstrap ganha lock, limpeza de diretórios obsoletos e retry
 
-**文件：**
-- 修改：`apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts`
-- 修改：`apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts`
+**Arquivos:**
+- Modificado: `apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts`
+- Modificado: `apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts`
 
-- [ ] **步骤 1：写陈旧 tmp 清理回归测试**
+- [ ] **Passo 1: escrever o teste de regressão de limpeza de tmp obsoleto**
 
-在 `apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts` 顶部 import 增加 `utimes`：
+Nos imports do topo de `apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts`, acrescente `utimes`:
 
 ```ts
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 ```
 
-在 `describe("ZCode plugins", () => { ... })` 内追加：
+Dentro do `describe("ZCode plugins", () => { ... })`, acrescente:
 
 ```ts
   it("cleans stale official plugin seed work directories before reseeding", async () => {
@@ -519,29 +519,29 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
   });
 ```
 
-- [ ] **步骤 2：运行 bootstrap plugins 测试，确认新测试先失败**
+- [ ] **Passo 2: executar o teste de plugins do bootstrap e confirmar que o novo teste falha primeiro**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/plugins.test.ts
 ```
 
-预期（实现前）：失败（FAIL）。失败点应是陈旧 tmp 仍然存在。
+Esperado (antes da implementação): falha (FAIL). O ponto de falha deve ser o tmp obsoleto ainda existindo.
 
-- [ ] **步骤 3：修改 `bundled-plugins.ts` imports**
+- [ ] **Passo 3: modificar os imports de `bundled-plugins.ts`**
 
-在 `apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts` 中：
+Em `apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts`:
 
-从 `node:fs` import 移除 `renameSync` 和 `rmSync`，保留其他使用项。
+Remova `renameSync` e `rmSync` do import de `node:fs`, mantendo os demais usos.
 
-从 `node:path` import 增加 `basename`：
+Acrescente `basename` ao import de `node:path`:
 
 ```ts
 import { basename, dirname, join, resolve, sep } from "node:path";
 ```
 
-新增 helper import：
+Acrescente o import do helper:
 
 ```ts
 import {
@@ -552,9 +552,9 @@ import {
 } from "./official-plugin-cache-fs.js";
 ```
 
-- [ ] **步骤 4：给 seed 流程加版本级 lock 和 lock 后二次 current check**
+- [ ] **Passo 4: adicionar lock em nível de versão ao fluxo de seed e uma segunda checagem de current após o lock**
 
-把 `for (const plugin of source.plugins) { ... }` 中生成 tmp 和写文件的主体改成以下形态：
+Mude o corpo que gera o tmp e escreve os arquivos dentro de `for (const plugin of source.plugins) { ... }` para a forma abaixo:
 
 ```ts
   for (const plugin of source.plugins) {
@@ -602,7 +602,7 @@ import {
   }
 ```
 
-新增 `isSeedReady()`，替代原来 loop 顶部的 inline manifest rewrite 判断：
+Adicione `isSeedReady()`, que substitui o julgamento inline de reescrita de manifest que ficava no topo do laço:
 
 ```ts
 function isSeedReady(targetRoot: string, plugin: OfficialPluginSeedPluginSource): boolean {
@@ -614,9 +614,9 @@ function isSeedReady(targetRoot: string, plugin: OfficialPluginSeedPluginSource)
 }
 ```
 
-- [ ] **步骤 5：修改 `replaceSeedRoot()` 使用 retry helper**
+- [ ] **Passo 5: modificar `replaceSeedRoot()` para usar o helper de retry**
 
-把 `replaceSeedRoot()` 替换成：
+Substitua `replaceSeedRoot()` por:
 
 ```ts
 function replaceSeedRoot(
@@ -641,7 +641,7 @@ function replaceSeedRoot(
 }
 ```
 
-把 `isDirectoryReplaceRace()` 的错误码扩展为：
+Amplie os códigos de erro de `isDirectoryReplaceRace()` para:
 
 ```ts
     ["EBUSY", "EEXIST", "ENOTEMPTY", "EPERM"].includes(
@@ -649,39 +649,39 @@ function replaceSeedRoot(
     )
 ```
 
-- [ ] **步骤 6：运行 bootstrap plugins 测试，确认通过**
+- [ ] **Passo 6: executar o teste de plugins do bootstrap e confirmar que passa**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/plugins.test.ts
 ```
 
-预期（实现后）：通过（PASS），陈旧 tmp 清理回归和既有官方插件 seed 行为都通过。
+Esperado (após a implementação): passa (PASS); tanto a regressão de limpeza de tmp obsoleto quanto o comportamento existente de seed de plugin oficial passam.
 
 ---
 
-### 任务 4：Runtime manifest 重写使用带重试的原子写
+### Tarefa 4: Reescrita do manifest de runtime usa escrita atômica com retry
 
-**文件：**
-- 修改：`apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts`
-- 修改：`apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`
+**Arquivos:**
+- Modificado: `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts`
+- Modificado: `apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`
 
-- [ ] **步骤 1：给 atomic text write 加覆盖测试**
+- [ ] **Passo 1: adicionar teste de cobertura para a escrita atômica de texto**
 
-在 `apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts` import 中加入：
+Nos imports de `apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts`, acrescente:
 
 ```ts
   readFile,
 ```
 
-从 helper import 中加入：
+Ao import de helper, acrescente:
 
 ```ts
   writeTextFileAtomicallyWithRetry,
 ```
 
-追加测试：
+Acrescente o teste:
 
 ```ts
   it("writes text files atomically without leaving temporary files on success", async () => {
@@ -700,64 +700,64 @@ pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/plugin
   });
 ```
 
-- [ ] **步骤 2：运行辅助模块测试**
+- [ ] **Passo 2: executar o teste do módulo auxiliar**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/official-plugin-cache-fs.test.ts
 ```
 
-预期：通过（PASS）。
+Esperado: passa (PASS).
 
-- [ ] **步骤 3：修改 runtime manifest 原子写实现**
+- [ ] **Passo 3: modificar a implementação da escrita atômica do manifest de runtime**
 
-在 `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts` 中：
+Em `apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts`:
 
-移除 `renameSync`、`writeFileSync` import，只保留：
+Remova os imports `renameSync` e `writeFileSync`, mantendo apenas:
 
 ```ts
 import { readFileSync } from "node:fs";
 ```
 
-新增 helper import：
+Acrescente o import do helper:
 
 ```ts
 import { writeTextFileAtomicallyWithRetry } from "./official-plugin-cache-fs.js";
 ```
 
-把文件末尾的 `writeTextFileAtomically()` 删除，并把调用点：
+Remova `writeTextFileAtomically()` do final do arquivo e substitua a chamada:
 
 ```ts
   writeTextFileAtomically(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 ```
 
-替换为：
+por:
 
 ```ts
   writeTextFileAtomicallyWithRetry(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 ```
 
-- [ ] **步骤 4：运行 bootstrap plugins 测试确认 runtime rewrite 未回归**
+- [ ] **Passo 4: executar o teste de plugins do bootstrap e confirmar que a reescrita de runtime não regrediu**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/plugins.test.ts
 ```
 
-预期：通过（PASS），iOS/Android MCP server args 仍指向 official plugin cache 下的 `dist/mcp/server.js`。
+Esperado: passa (PASS); os args do MCP server de iOS/Android ainda apontam para `dist/mcp/server.js` sob o cache de plugins oficiais.
 
 ---
 
-### 任务 5：记录 bugfix 文档
+### Tarefa 5: Registrar a documentação de bugfix
 
-**文件：**
-- 新增：`docs/official-plugin-cache-windows-hardening.md`
+**Arquivos:**
+- Novo: `docs/official-plugin-cache-windows-hardening.md`
 
-- [ ] **步骤 1：写 bugfix 轨迹文档**
+- [ ] **Passo 1: escrever o documento de trilha de bugfix**
 
-创建 `docs/official-plugin-cache-windows-hardening.md`：
+Crie `docs/official-plugin-cache-windows-hardening.md`:
 
 ```md
 # Windows 官方插件缓存加固
@@ -796,97 +796,97 @@ seed 流程先写 `${version}.tmp-<pid>-<time>`，再删除正式版本目录并
 本修复只涉及 agent 侧 bootstrap/adapters 官方插件缓存文件系统逻辑，不改变 app/main/host process 职责，不改变 ZCode protocol，不改变桌面端 continuous 与 Web remote replayable 的 task realtime 语义。
 ```
 
-- [ ] **步骤 2：检查文档没有把计划写成实现承诺**
+- [ ] **Passo 2: conferir que o documento não transformou o plano em promessa de implementação**
 
-运行：
+Executar:
 
 ```bash
 PLACEHOLDER_PATTERN='T[B]D|TO[D]O|implement[ ]later|fill[ ]in[ ]details|待[补]|之后[补]'
 rg -n "$PLACEHOLDER_PATTERN" docs/official-plugin-cache-windows-hardening.md
 ```
 
-预期：无输出。
+Esperado: nenhuma saída.
 
 ---
 
-### 任务 6：完整验证并提交
+### Tarefa 6: validação completa e commit
 
-**文件：**
-- 验证任务 1-5 修改到的所有文件。
+**Arquivos:**
+- Validar todos os arquivos tocados nas Tarefas 1-5.
 
-- [ ] **步骤 1：运行 adapter 定向测试**
+- [ ] **Passo 1: executar o teste direcionado do adapter**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/adapters exec vitest run tests/plugins.test.ts
 ```
 
-预期：通过（PASS）。
+Esperado: passa (PASS).
 
-- [ ] **步骤 2：运行 bootstrap 辅助模块测试**
+- [ ] **Passo 2: executar o teste do módulo auxiliar do bootstrap**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/official-plugin-cache-fs.test.ts
 ```
 
-预期：通过（PASS）。
+Esperado: passa (PASS).
 
-- [ ] **步骤 3：运行 bootstrap plugin 测试**
+- [ ] **Passo 3: executar o teste de plugins do bootstrap**
 
-运行：
+Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/plugins.test.ts
 ```
 
-预期：通过（PASS）。
+Esperado: passa (PASS).
 
-- [ ] **步骤 4：运行仓库强制校验**
+- [ ] **Passo 4: executar as validações obrigatórias do repositório**
 
-运行：
+Executar:
 
 ```bash
 pnpm typecheck
 ```
 
-预期：通过（PASS）。
+Esperado: passa (PASS).
 
-运行：
+Executar:
 
 ```bash
 pnpm lint
 ```
 
-预期：通过（PASS）。
+Esperado: passa (PASS).
 
-- [ ] **步骤 5：检查 diff 只包含本计划列出的文件**
+- [ ] **Passo 5: conferir que o diff contém apenas os arquivos listados neste plano**
 
-运行：
+Executar:
 
 ```bash
 git diff -- apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts apps/zcode-cli/packages/adapters/src/plugins/index.ts apps/zcode-cli/packages/adapters/tests/plugins.test.ts docs/official-plugin-cache-windows-hardening.md
 ```
 
-预期：diff 只包含 Windows 官方插件缓存加固相关改动。
+Esperado: o diff contém apenas mudanças relacionadas ao hardening do cache de plugins oficiais no Windows.
 
-- [ ] **步骤 6：提交 Conventional Commit**
+- [ ] **Passo 6: fazer o commit no formato Conventional Commit**
 
-运行：
+Executar:
 
 ```bash
 git add apps/zcode-cli/packages/bootstrap/src/app/bundled-plugins.ts apps/zcode-cli/packages/bootstrap/src/app/official-plugin-runtime.ts apps/zcode-cli/packages/bootstrap/src/app/official-plugin-cache-fs.ts apps/zcode-cli/packages/bootstrap/tests/official-plugin-cache-fs.test.ts apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts apps/zcode-cli/packages/adapters/src/plugins/index.ts apps/zcode-cli/packages/adapters/tests/plugins.test.ts docs/official-plugin-cache-windows-hardening.md
 git commit -m "fix(cli): harden official plugin cache replacement on Windows"
 ```
 
-预期：commit 创建成功；如工作区存在无关 staged 文件，改用 pathspec commit 只提交上述文件。
+Esperado: o commit é criado com sucesso; se houver arquivos não relacionados já em stage na área de trabalho, use commit com pathspec para enviar somente os arquivos acima.
 
 ---
 
-## 自检
+## Autoavaliação
 
-- 需求覆盖：计划覆盖 seed 写入端重试、runtime manifest 原子写、陈旧 tmp 清理、seed lock、发现流程 tmp/lock 过滤、测试、文档和强制 `pnpm typecheck` / `pnpm lint`。
-- 占位词扫描：文档中不保留 plan 技能禁止的占位标记字符串。
-- 类型一致性：helper 名称在测试、bootstrap seed、runtime manifest 中保持一致；adapter filter 独立在 adapters 包内，不跨包导入 bootstrap 实现。
+- Cobertura de requisitos: o plano cobre retry do lado de escrita do seed, escrita atômica do manifest de runtime, limpeza de tmp obsoleto, seed lock, filtragem de tmp/lock no fluxo de descoberta, testes, documentação e as validações obrigatórias `pnpm typecheck` / `pnpm lint`.
+- Varredura de palavras de placeholder: o documento não mantém as strings de marcador de placeholder proibidas pela skill de plan.
+- Consistência de tipos: o nome do helper permanece igual nos testes, no seed do bootstrap e no manifest de runtime; o filtro do adapter é independente dentro do pacote adapters e não importa a implementação do bootstrap de forma cruzada.

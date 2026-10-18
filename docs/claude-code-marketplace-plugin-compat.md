@@ -1,76 +1,58 @@
-# Claude Code Marketplace 插件兼容实现规格
+# Especificação de implementação da compatibilidade de plugins do Claude Code Marketplace
 
-## 目标
+## Objetivo
 
-ZCode 需要最大努力兼容 Claude Code Marketplace 插件，但不能把 Claude 的
-高权限运行时语义直接带入当前 ZCode runtime。第一阶段先实现 marketplace
-生命周期、安装态、启用态、兼容诊断和低风险资源投影；缺少安全模型或运行基础
-的能力必须可识别、可展示、可诊断，但不能静默运行。
+O ZCode precisa fazer o melhor esforço de compatibilidade com plugins do Claude Code Marketplace, mas não pode trazer diretamente para o runtime atual do ZCode a semântica de runtime de alto privilégio do Claude. A primeira fase implementa o ciclo de vida do marketplace, o estado de instalação, o estado de habilitação, o diagnóstico de compatibilidade e a projeção de recursos de baixo risco; capacidades que faltem modelo de segurança ou base de execução precisam ser identificáveis, exibíveis e diagnosticáveis, mas não podem rodar silenciosamente.
 
-## 分阶段范围
+## Escopo por fases
 
-### V1a：安装闭环
+### V1a: ciclo fechado de instalação
 
-- 支持 marketplace `add/list/update/remove`。
-- 支持 plugin `install/uninstall/update`。
-- 默认注册 Claude 官方 marketplace source：`claude-plugins-official` 指向
-  `anthropics/claude-plugins-official`。默认市场只提供 catalog 来源，不自动安装、
-  不自动启用任何 Claude 插件。
-- 新增 `installed_plugins.json` 保存安装态；继续用现有 `plugins.enabledPlugins`
-  保存启用态。
-- discovery 读取 installed cache roots，并保留已有 `plugins.dirs` inline 插件。
-- 兼容 Claude Marketplace 默认结构：优先读取 `.claude-plugin/marketplace.json`，
-  同时保留根目录 `marketplace.json` 作为 ZCode/旧数据 fallback。
-- 输出 compatibility diagnostics，包含 unsupported / diagnostic-only 能力；disabled
-  插件也必须能在管理页展示这些诊断，不能只在 enabled 后才发现。
+- Suportar marketplace `add/list/update/remove`.
+- Suportar plugin `install/uninstall/update`.
+- Registrar por padrão a source de marketplace oficial da Claude: `claude-plugins-official` apontando para `anthropics/claude-plugins-official`. O mercado padrão fornece apenas a origem do catálogo, sem instalar nem habilitar automaticamente nenhum plugin da Claude.
+- Adicionar `installed_plugins.json` para guardar o estado de instalação; continuar usando o `plugins.enabledPlugins` existente para o estado de habilitação.
+- A discovery lê as raízes de cache instaladas e preserva os plugins inline já existentes em `plugins.dirs`.
+- Compatibilidade com a estrutura padrão do Claude Marketplace: ler preferencialmente `.claude-plugin/marketplace.json`, mantendo ao mesmo tempo `marketplace.json` na raiz como fallback de ZCode/dados antigos.
+- Emitir diagnostics de compatibilidade, incluindo capacidades unsupported / diagnostic-only; plugins disabled também precisam exibir esses diagnostics na página de gerenciamento, e não só descobrir depois de habilitado.
 
-### V1b：低风险运行投影
+### V1b: projeção de execução de baixo risco
 
-- 运行 `skills`、commands root、`mcpServers` 和 non-sensitive `userConfig`
-  defaults。`zcode-plugins-official` 和 `claude-plugins-official` 安装产物可注入
-  hooks；其他第三方 marketplace 插件的 `hooks` V1 默认只解析和诊断，不注入
-  runtime，后续必须有显式信任/权限门后才能启用。
-- 支持 Claude/ZCode 模板变量别名。
-- MCP server key 使用插件命名空间，避免多个插件声明同名 server 时覆盖。
-- sensitive `userConfig` 只能进入 MCP env / credential / runtime secret path，
-  不能进入模型可见 command、skill 或 markdown 内容。
+- Executar `skills`, a raiz de commands, `mcpServers` e defaults de `userConfig` não sensíveis. Artefatos instalados de `zcode-plugins-official` e `claude-plugins-official` podem injetar hooks; `hooks` de V1 de outros plugins de marketplace de terceiros são apenas analisados e diagnosticados por padrão, sem injeção no runtime, e só poderão ser habilitados depois de um gate explícito de confiança/permissão.
+- Suportar aliases de variáveis de template Claude/ZCode.
+- A key de MCP server usa o namespace do plugin, evitando que múltiplos plugins declarem servers com o mesmo nome e se sobrescrevam.
+- `userConfig` sensível só pode entrar em MCP env / credential / runtime secret path; não pode entrar em command, skill ou conteúdo markdown visível ao modelo.
 
-### V1c：增强兼容
+### V1c: compatibilidade reforçada
 
-- 支持 dependency resolver：安装时解析 closure、缺失依赖和 cycle。
-- 默认阻止跨 marketplace dependency，只有显式 allowlist 才放行。
-- 支持 Claude commands object mapping 和 inline `content`，生成文件必须位于
-  plugin cache/data root 内。
-- UI 增加 configure userConfig 入口。
+- Suportar dependency resolver: resolver closure, dependências ausentes e ciclos na instalação.
+- Bloquear por padrão dependency entre marketplaces; só um allowlist explícito deixa passar.
+- Suportar o object mapping de commands da Claude e `content` inline; os arquivos gerados precisam ficar dentro da plugin cache/data root.
+- Adicionar na UI uma entrada para configurar userConfig.
 
 ### V2
 
-- Plugin agents 完整运行。
-- LSP、outputStyles、channels、MCPB/DXT、enterprise policy、seed marketplace、
-  GCS mirror、auto-update daemon。
+- Plugin agents executando por completo.
+- LSP, outputStyles, channels, MCPB/DXT, enterprise policy, seed marketplace, GCS mirror, daemon de auto-update.
 
-## 领域模型
+## Modelo de domínio
 
-`marketplace` 和 `source` 是两条不同的轴，不能混用：
+`marketplace` e `source` são dois eixos diferentes e não podem ser misturados:
 
-- `marketplace` 表示插件身份所属的市场，例如 `zcode-plugins-official`、
-  `claude-plugins-official`、`inline` 或自定义 marketplace id。
-- `source` 表示当前本地加载位置/来源，例如 `official`、`inline`、`cache`。
+- `marketplace` representa o mercado ao qual a identidade do plugin pertence, por exemplo `zcode-plugins-official`, `claude-plugins-official`, `inline` ou um id de marketplace customizado.
+- `source` representa a posição/origem de carregamento local atual, por exemplo `official`, `inline`, `cache`.
 
-因此 V1 不把 `"marketplace"` 加入 `PluginSource`。如果后续需要区分
-“用户从 marketplace 安装的 cache 产物”，应新增语义清晰的值，例如
-`"installed"` 或 `"managed-cache"`，而不是复用 marketplace 概念。
+Por isso V1 não adiciona `"marketplace"` a `PluginSource`. Se for necessário distinguir depois um "produto em cache instalado pelo usuário a partir de um marketplace", deve-se adicionar um valor semanticamente claro, como `"installed"` ou `"managed-cache"`, em vez de reutilizar o conceito de marketplace.
 
-插件 id 仍为：
+O id do plugin continua sendo:
 
 ```text
 <plugin-name>@<marketplace>
 ```
 
-本地 inline 插件使用 marketplace `inline`。Claude Marketplace 插件使用其
-marketplace id，例如 `claude-plugins-official`。
+Plugins inline locais usam o marketplace `inline`. Plugins do Claude Marketplace usam o id do seu marketplace, por exemplo `claude-plugins-official`.
 
-## 存储布局
+## Layout de armazenamento
 
 ```text
 ~/.zcode/cli/plugins/
@@ -89,100 +71,80 @@ marketplace id，例如 `claude-plugins-official`。
     {pluginId}/
 ```
 
-`cache` 是可替换安装产物，`data` 是插件持久数据。卸载插件时默认移除安装
-产物，不删除 `data`；只有显式 purge 才删除 `data`。
+`cache` é o artefato de instalação substituível e `data` são os dados persistentes do plugin. Ao desinstalar um plugin, o artefato de instalação é removido por padrão e o `data` não é apagado; somente um purge explícito apaga o `data`.
 
-ZCode 自己的 `zcode-plugins-official` 是唯一官方市场：随安装包 seed 的内置目录分片与
-官方 CDN source 下发的目录分片按插件名合并为同一个 marketplace manifest，冲突时
-CDN 市场条目优先。Claude 官方 `claude-plugins-official` 只内置 marketplace source，
-第一次展示、安装或校验时按需刷新 catalog；刷新失败必须返回诊断并保留插件管理页可用，
-不能因为网络不可达阻断已安装插件管理。
+O `zcode-plugins-official` do próprio ZCode é o único mercado oficial: as fatias de diretório embutidas no pacote de instalação e as fatias de diretório entregues pela source CDN oficial são mescladas pelo nome do plugin em um mesmo manifest de marketplace, e em caso de conflito a entrada de mercado do CDN tem precedência. O `claude-plugins-official` oficial da Claude embute apenas a source de marketplace e atualiza o catálogo sob demanda na primeira exibição, instalação ou validação; uma falha na atualização precisa retornar diagnóstico e manter a página de gerenciamento de plugins utilizável, sem bloquear a gerenciamento de plugins instalados por indisponibilidade de rede.
 
-### Claude 官方市场弱依赖
+### Claude Official Marketplace como dependência fraca
 
-`claude-plugins-official` 是可选 catalog 来源，不得成为插件管理或其他市场操作的硬依赖：
+`claude-plugins-official` é uma origem de catálogo opcional e não pode se tornar uma dependência rígida do gerenciamento de plugins ou de outras operações de mercado:
 
-- 每次 Claude 市场 catalog 刷新使用独立的 30 秒总超时，并通过 `AbortSignal` 终止底层
-  HTTP/Archive 请求；超时后立即返回 `plugin_archive_fetch_failed`（或对应来源诊断）。
-- 全量刷新仍按已知市场逐个执行，但 Claude 超时/失败只记录
-  `lastRefreshFailure` 并保留最后一次成功快照；其他市场继续刷新，不能因 Claude 失败
-  提前中止。
-- 设置页首次加载、市场详情、校验等会懒加载 Claude catalog 的路径同样受 30 秒预算保护；
-  已有本地 manifest 时继续离线读取，不为概览读取强制联网。
-- 所有 marketplace catalog、Claude 图标和 GitHub Archive 的 HTTP 请求必须经过统一的
-  Web HTTP egress adapter，遵守 `ZCODE_HTTP_PROXY` / `ZCODE_NO_PROXY`，并在 Agent 封存
-  用户 shell 后回退使用捕获的系统代理；禁止这些路径直接调用未配置代理的原生 `fetch`。
-- 该预算只约束 Claude **marketplace catalog**。用户实际安装的第三方插件源仍按其自身
-  source 类型执行，不把 catalog 超时误当作插件安装超时。
+- Cada atualização do catálogo do mercado Claude usa um timeout total independente de 30 segundos e aborta as requisições HTTP/Archive subjacentes via `AbortSignal`; após o timeout, retorna imediatamente `plugin_archive_fetch_failed` (ou o diagnóstico da origem correspondente).
+- A atualização completa ainda é executada mercado a mercado entre os mercados conhecidos, mas timeout/falha do Claude apenas registra `lastRefreshFailure` e preserva o último snapshot bem-sucedido; os outros mercados continuam sendo atualizados e não podem ser abortados antecipadamente por causa do Claude.
+- Os caminhos que carregam o catálogo Claude de forma lazy, como o primeiro carregamento da página de configurações, os detalhes do mercado e a validação, também são protegidos pelo orçamento de 30 segundos; quando já existe manifest local, continua lendo offline e não força conexão de rede só para a leitura de visão geral.
+- Todas as requisições HTTP de catálogo de marketplace, ícones da Claude e GitHub Archive precisam passar por um adapter unificado de egress HTTP web, obedecendo a `ZCODE_HTTP_PROXY` / `ZCODE_NO_PROXY`, e caindo para o proxy de sistema capturado depois que o Agent sela o shell do usuário; é proibido que esses caminhos chamem diretamente o `fetch` nativo sem proxy configurado.
+- Esse orçamento restringe apenas o **catálogo do marketplace** da Claude. As origens de plugins de terceiros realmente instaladas pelo usuário continuam sendo executadas conforme seu próprio tipo de source, e um timeout de catálogo não pode ser tratado como timeout de instalação de plugin.
 
-状态链路：
+Cadeia de estados:
 
 ```text
-Claude catalog request
-  ├─ 30s 内完成 ──> 更新 manifest / lastUpdated
-  └─ 超时或失败 ──> abort 底层请求 -> 保留旧快照 + lastRefreshFailure
-                                      └─> 其他 marketplace 继续
+Requisição de catálogo Claude
+  ├─ concluída em 30s ──> atualiza manifest / lastUpdated
+  └─ timeout ou falha ──> aborta a requisição subjacente -> preserva o snapshot antigo + lastRefreshFailure
+                                      └─> outros marketplaces continuam
 ```
 
-注册 marketplace 时，源仓库/目录的 canonical manifest 位置是
-`.claude-plugin/marketplace.json`；ZCode 本地缓存可继续把规范化后的 manifest
-写入 `marketplaces/{marketplace}/marketplace.json`，但读取外部源时不能只认根目录
-`marketplace.json`。
+Ao registrar um marketplace, a posição canônica do manifest do repositório/diretório de origem é `.claude-plugin/marketplace.json`; o cache local do ZCode pode continuar gravando o manifest normalizado em `marketplaces/{marketplace}/marketplace.json`, mas a leitura de fontes externas não pode reconhecer apenas o `marketplace.json` da raiz.
 
-## Marketplace Source 兼容
+## Compatibilidade de Marketplace Source
 
-V1 必须识别 Claude Marketplace source schema，并按支持级别处理：
+V1 precisa reconhecer o schema de source do Claude Marketplace e tratá-lo por nível de suporte:
 
-| source | V1 行为 |
+| source | Comportamento em V1 |
 | --- | --- |
-| `url` | 支持直接读取 marketplace JSON；保留 headers 但 V1 不发送敏感 header |
-| `github` | 支持 repo/ref/path；公开 GitHub HTTPS 优先下载 Archive，无系统 Git 也可用；默认 path 为 `.claude-plugin/marketplace.json` |
-| `git` | 支持 url/ref/path；可规范化的公开 GitHub HTTPS 优先下载 Archive，其他来源用系统 Git；读取 `.claude-plugin/marketplace.json` 或 path |
-| `file` | 支持指向 marketplace JSON 文件 |
-| `directory` | 支持目录内 `.claude-plugin/marketplace.json` 和根 `marketplace.json` fallback |
-| `settings` | 可解析并规范化为 synthetic marketplace |
-| `npm` | 识别并返回 unsupported diagnostic；不执行 install |
-| `hostPattern` / `pathPattern` | 仅 enterprise policy 场景使用；V1 识别为 unsupported diagnostic |
+| `url` | Suporta leitura direta do marketplace JSON; preserva headers mas V1 não envia header sensível |
+| `github` | Suporta repo/ref/path; GitHub HTTPS público prefere baixar Archive e funciona mesmo sem Git do sistema; path padrão é `.claude-plugin/marketplace.json` |
+| `git` | Suporta url/ref/path; GitHub HTTPS público normalizável prefere baixar Archive e outras origens usam o Git do sistema; lê `.claude-plugin/marketplace.json` ou path |
+| `file` | Suporta apontar para o arquivo de marketplace JSON |
+| `directory` | Suporta `.claude-plugin/marketplace.json` dentro do diretório e o fallback do `marketplace.json` da raiz |
+| `settings` | Pode ser analisado e normalizado em marketplace sintético |
+| `npm` | Reconhecido e retorna diagnostic unsupported; não executa install |
+| `hostPattern` / `pathPattern` | Usados apenas em cenário de enterprise policy; V1 reconhece como diagnostic unsupported |
 
-默认 marketplace seed 只在 `known_marketplaces.json` 缺少同名市场时写入。若用户已有
-同名 marketplace 记录，必须保留用户记录，不能覆盖 source、`addedAt` 或
-`lastUpdated`。移除默认 marketplace 后，下次读取 marketplace 列表会再次恢复；永久隐藏
-默认市场不属于 V1。
+O seed de marketplace padrão só é escrito quando `known_marketplaces.json` não tem um mercado com o mesmo nome. Se o usuário já tiver um registro de marketplace com o mesmo nome, o registro do usuário precisa ser preservado e não pode sobrescrever `source`, `addedAt` ou `lastUpdated`. Depois de remover o marketplace padrão, a próxima leitura da lista de marketplaces o restaura; ocultar permanentemente o mercado padrão não faz parte de V1.
 
-Plugin entry `source` 的 V1 支持范围：
+Escopo de suporte de `source` da entrada de plugin em V1:
 
-| plugin source | V1 行为 |
+| plugin source | Comportamento em V1 |
 | --- | --- |
-| `"./relative"` | 支持，从 marketplace root 解析 |
-| `{source:"directory"}` | 支持本地目录 |
-| `{source:"github"}` / `{source:"git"}` / `{source:"url"}` | 支持 ref/sha；`commit` 作为 `sha` fallback；公开 GitHub HTTPS 优先按 `sha/commit > ref > HEAD` 下载 Archive，无系统 Git也可安装；当 entry 带 `path` 时只安装子目录。其他 URL 保持 legacy Git 语义 |
-| `{source:"url", type:"git"}` | 显式 Git 来源；公开 GitHub HTTPS 仍可由 Archive 物化，私有/SSH/非 GitHub 用系统 Git |
-| `{source:"url", type:"zip"}` | 支持 CDN zip 下载、`sha256` 校验、安全解压，再按现有 cache 目录安装；远端 CDN 必须 HTTPS，本地 fixture 可用 loopback HTTP |
-| `{source:"git-subdir"}` | 支持 ref/sha；`commit` 作为 `sha` fallback；公开 GitHub HTTPS 通过 Archive 安装指定子目录，其他来源用系统 Git |
-| `{source:"npm"}` / `{source:"pip"}` | 识别并返回 unsupported diagnostic；不执行 package manager |
+| `"./relative"` | Suporta, resolvendo a partir da raiz do marketplace |
+| `{source:"directory"}` | Suporta diretório local |
+| `{source:"github"}` / `{source:"git"}` / `{source:"url"}` | Suporta ref/sha; `commit` é fallback de `sha`; GitHub HTTPS público prefere baixar Archive por `sha/commit > ref > HEAD` e funciona sem Git do sistema; quando a entry traz `path`, instala só o subdiretório. Outras URLs mantêm a semântica Git legada |
+| `{source:"url", type:"git"}` | Origem Git explícita; GitHub HTTPS público ainda pode ser materializado por Archive e privados/SSH/não-GitHub usam o Git do sistema |
+| `{source:"url", type:"zip"}` | Suporta download de zip do CDN, verificação de `sha256`, extração segura e instalação segundo o diretório de cache existente; o CDN remoto precisa ser HTTPS e o fixture local pode usar HTTP loopback |
+| `{source:"git-subdir"}` | Suporta ref/sha; `commit` é fallback de `sha`; GitHub HTTPS público instala o subdiretório especificado via Archive e outras origens usam o Git do sistema |
+| `{source:"npm"}` / `{source:"pip"}` | Reconhecidos e retornam diagnostic unsupported; não executa package manager |
 
-## Manifest 兼容矩阵
+## Matriz de compatibilidade de Manifest
 
-| 字段 | V1 行为 |
+| Campo | Comportamento em V1 |
 | --- | --- |
-| `name` / `version` / `description` / `author` / `license` | 读取并展示 |
-| `skills` | V1b 运行 |
-| `commands` | V1b 支持目录；V1c 支持 object mapping / inline content |
-| `hooks` | V1 解析和诊断；第三方 marketplace 默认不运行，官方/inline 维持现有受信行为 |
-| `mcpServers` | V1b 运行；server key 强制命名空间 |
-| `userConfig` | V1b 支持 defaults 和 required；sensitive 未接 credential 前禁止明文 configure |
-| `dependencies` | V1c install-time resolver；load-time 不再报 unsupported |
-| `agents` | diagnostic-only，不注册到 Agent tool |
-| `lspServers` / `outputStyles` / `channels` / `settings` | diagnostic-only |
-| `npm` / `pip` / `hostPattern` / `pathPattern` source | V1 识别但 unsupported diagnostic |
+| `name` / `version` / `description` / `author` / `license` | Lidos e exibidos |
+| `skills` | Executa em V1b |
+| `commands` | V1b suporta diretório; V1c suporta object mapping / inline content |
+| `hooks` | V1 analisa e diagnostica; marketplaces de terceiros não rodam por padrão e oficial/inline mantêm o comportamento confiável atual |
+| `mcpServers` | Executa em V1b; server key força namespace |
+| `userConfig` | V1b suporta defaults e required; sensible não pode ter configure em texto claro antes de conectar ao credential |
+| `dependencies` | Resolver em tempo de install na V1c; em load-time deixa de reportar unsupported |
+| `agents` | Somente diagnóstico, não registrado como Agent tool |
+| `lspServers` / `outputStyles` / `channels` / `settings` | Somente diagnóstico |
+| source `npm` / `pip` / `hostPattern` / `pathPattern` | V1 reconhece mas emite diagnostic unsupported |
 
-Manifest 解析必须保留这些字段的原始信息或显式声明为 `unknown`，否则无法对
-diagnostic-only 能力做可见诊断。
+O parse do Manifest precisa preservar a informação original desses campos ou declará-los explicitamente como `unknown`; caso contrário não é possível fazer diagnóstico visível de capacidades somente-diagnóstico.
 
-## 协议接口
+## Interfaces de protocolo
 
-新增方法必须在 `packages/shared/src/zcode-protocol/index.ts` 提供 Zod runtime
-schema，并在 desktop / web / mobile 复用同一协议边界。
+Os novos métodos precisam ter schema Zod de runtime em `packages/shared/src/zcode-protocol/index.ts` e reutilizar a mesma fronteira de protocolo em desktop / web / mobile.
 
 - `plugins/overview`
 - `plugins/marketplace/list`
@@ -195,97 +157,65 @@ schema，并在 desktop / web / mobile 复用同一协议边界。
 - `plugins/configure`
 - `plugins/validate`
 
-`plugins/describe` 是插件详情页的只读组件枚举接口，用于返回单个插件的
-skills、commands、agents、hooks、MCP servers 名称与可选描述。它不启动 MCP、不执行
-hooks，也不解析运行时变量。已安装插件必须优先读本地 cache/安装目录；未安装候选才可
-按需解析 marketplace source。
+`plugins/describe` é a interface somente leitura de enumeração de componentes da página de detalhes do plugin, usada para retornar os nomes e descrições opcionais de skills, commands, agents, hooks e MCP servers de um único plugin. Ela não inicia MCP, não executa hooks e não resolve variáveis de runtime. Plugins instalados precisam ler primeiro o cache/diretório de instalação local; candidatos não instalados só podem ter a source de marketplace analisada sob demanda.
 
-Bugfix 约束：`plugins/describe` 的 MCP 与 hook 枚举口径必须对齐真实 plugin loader，
-不能只读取 `plugin.json` 内联字段。MCP server 名称需要来自插件根目录 `.mcp.json` 与
-`manifest.mcpServers` 的合并结果；Hook 事件名需要来自 `hooks/hooks.json` 与
-`manifest.hooks` 的合并结果。否则使用约定文件声明能力的 Claude Marketplace 插件（例如
-`airtable` 通过 `.mcp.json` 声明 MCP）会在市场详情里漏显示组件，而已安装详情由于
-`plugins/list` 使用 loader metadata 又能显示，造成两侧组件数量不一致。
+Restrição de correção de bug: o escopo de enumeração de MCP e hook de `plugins/describe` precisa estar alinhado ao plugin loader real e não pode ler apenas campos inline de `plugin.json`. O nome de MCP server precisa vir da união de `.mcp.json` na raiz do plugin com `manifest.mcpServers`; o nome de evento de hook precisa vir da união de `hooks/hooks.json` com `manifest.hooks`. Caso contrário, plugins do Claude Marketplace que declaram capacidades por arquivos convencionais (por exemplo `airtable`, que declara MCP via `.mcp.json`) deixariam de mostrar componentes nos detalhes do mercado, enquanto os detalhes de um plugin instalado conseguiriam mostrar por causa de `plugins/list` usar metadata do loader, produzindo uma contagem de componentes inconsistente entre os dois lados.
 
-`plugins/list` 和 `plugins/overview` 返回的已发现插件必须包含可序列化的
-`hookDetails` 明细。每条明细按单个 hook 执行项展开，至少包含：
+Os plugins descobertos retornados por `plugins/list` e `plugins/overview` precisam conter um `hookDetails` serializável. Cada detalhe é expandido por item individual de execução de hook e contém no mínimo:
 
-- `event`：Claude/ZCode Hook 事件名，例如 `PreToolUse`、`PostToolUse`、`Stop`。
-- `matcher`：可选 matcher 字符串；未声明时表示该事件下的默认 matcher。
-- `type`：`command` 或 `process`。
-- `command` / `args`：执行命令及参数。
-- `timeoutMs` / `timeout`、`async`、`shell`、`statusMessage`：原始 hook 配置中
-  ZCode 已识别的运行参数。
-- `sourcePath`：明细来自 `.claude-plugin/plugin.json`、`.zcode-plugin/plugin.json`
-  还是 `hooks/hooks.json`。
-- `runnable`：当前 runtime 是否会把该 hook 注入执行。官方 marketplace / inline
-  受信插件可以为 `true`；第三方 marketplace 在 V1 默认必须为 `false`，仅诊断展示。
+- `event`: nome do evento de Hook Claude/ZCode, por exemplo `PreToolUse`, `PostToolUse`, `Stop`.
+- `matcher`: string de matcher opcional; quando não declarada representa o matcher padrão daquele evento.
+- `type`: `command` ou `process`.
+- `command` / `args`: comando de execução e argumentos.
+- `timeoutMs` / `timeout`, `async`, `shell`, `statusMessage`: parâmetros de execução que o ZCode já reconhece na configuração original do hook.
+- `sourcePath`: se o detalhe vem de `.claude-plugin/plugin.json`, `.zcode-plugin/plugin.json` ou `hooks/hooks.json`.
+- `runnable`: se o runtime atual injeta aquele hook na execução. Plugins confiáveis de marketplace oficial / inline podem ser `true`; marketplaces de terceiros devem ser `false` por padrão em V1, apenas exibidos como diagnóstico.
 
-Hook 明细展示不能改变安全边界：解析和展示可以发生在插件未启用时，但未受信 Hook 不能
-因为详情页可见而被注入 runtime。
+A exibição de detalhes de hook não pode mudar a fronteira de segurança: análise e exibição podem ocorrer com o plugin não habilitado, mas um Hook não confiável não pode ser injetado no runtime só porque a página de detalhes o torna visível.
 
-`plugins/validate` 是只读 dry-run：不写入安装态、不启用插件、不启动 MCP、不
-执行 hooks/commands。它不能只返回静态兼容矩阵，否则 UI 会错误地宣称插件兼容。
+`plugins/validate` é um dry-run somente leitura: não grava estado de instalação, não habilita plugin, não inicia MCP e não executa hooks/commands. Ele não pode retornar apenas a matriz estática de compatibilidade, senão a UI anunciará incorretamente que o plugin é compatível.
 
-validate 的扫描深度按目标类型区分：
+A profundidade de varredura do validate é distinguida por tipo de alvo:
 
-- marketplace source validate 扫描 marketplace manifest、entry shape、dependency
-  closure 和随 marketplace 仓库一起存在的本地 plugin root。对官方 Claude
-  Marketplace 这类聚合目录，entry 可能指向数百个外部 git 仓库；source validate
-  不逐个 clone 这些远端插件，而是返回 `plugin_validation_deferred` 诊断，提示
-  install 或单插件 validate 时会按需拉取和深扫。
-- marketplace entry / installed plugin validate 必须深扫目标插件 root，返回
-  manifest、path、compatibility、userConfig、MCP namespace/variable diagnostics。
+- validate de source de marketplace varre o manifest do marketplace, o shape das entries, o closure de dependências e a plugin root local existente junto com o repositório do marketplace. Para diretórios agregadores como o Claude Marketplace oficial, uma entry pode apontar para centenas de repositórios git externos; o validate de source não clona um a um esses plugins remotos e, em vez disso, retorna o diagnóstico `plugin_validation_deferred`, indicando que no install ou no validate de um plugin isolado eles serão puxados e escaneados em profundidade sob demanda.
+- validate de entry de marketplace / plugin instalado precisa varrer profundamente a plugin root alvo, retornando manifest, path, compatibilidade, userConfig e diagnósticos de namespace/variável de MCP.
 
-这个分层保证 UI 的“添加市场前探针”不会因为官方 marketplace 的 236 个外部 source
-而卡死，同时安装闭环仍然在真正使用某个插件前做完整兼容诊断。
+Essa camada garante que a "sonda antes de adicionar o mercado" da UI não trava com as 236 sources externas do marketplace oficial, enquanto o ciclo fechado de instalação continua fazendo um diagnóstico de compatibilidade completo antes de realmente usar um plugin.
 
-## 安全边界
+## Fronteiras de segurança
 
-- Plugin agents V1 不运行。当前 ZCode Agent runtime 是 Explore-only，直接接入
-  Claude plugin agents 会绕过 tool allowlist、permission broker 和隔离策略。
-- sensitive `userConfig` 不允许替换进模型可见文本。
-- sensitive `userConfig` 未接入 credential store 前不允许通过 `plugins/configure`
-  明文写入普通 config。
-- 第三方 marketplace hooks 默认不注入 runtime；只有 ZCode 官方、Claude 官方
-  marketplace 或显式 inline trusted 插件保持 hook 行为。
-- dependency resolver 默认阻止跨 marketplace dependency。
-- inline command 生成路径必须通过 `resolveInside` 约束在 cache/data root 内。
-- Web/mobile remote 只通过 shared-host/agent protocol 读写插件状态，不在 relay
-  或 main process 下沉 ZCode session/task/plugin runtime 状态。
-- 公开 GitHub 来源的无 Git物化、系统 Git fallback 与原子 cache 激活遵循
-  [公开 GitHub 插件源无 Git安装规格](./plugin-github-archive-source.md)。已安装插件的 discovery
-  只读本地 cache，Marketplace 刷新失败不得影响既有插件运行。
+- Plugin agents não rodam em V1. O runtime de Agent atual do ZCode é somente Explore, e conectar diretamente os plugin agents da Claude contornaria o tool allowlist, o permission broker e a política de isolamento.
+- `userConfig` sensível não pode ser substituído dentro de texto visível ao modelo.
+- `userConfig` sensível não pode ser escrito em texto claro na config comum via `plugins/configure` antes de estar conectado ao credential store.
+- Hooks de marketplaces de terceiros não são injetados no runtime por padrão; apenas o marketplace oficial do ZCode, o marketplace oficial da Claude ou plugins inline explicitamente confiáveis mantêm o comportamento de hook.
+- O dependency resolver bloqueia por padrão dependency entre marketplaces.
+- O caminho de geração de command inline precisa ser restringido a cache/data root via `resolveInside`.
+- Web/mobile remote lê e escreve o estado de plugin apenas pelo shared-host/agent protocol, sem afundar o estado de runtime de session/task/plugin do ZCode no relay ou no processo main.
+- A materialização sem Git de origens públicas do GitHub, o fallback de Git do sistema e a ativação atômica de cache seguem a [Especificação de instalação de plugin source GitHub público sem Git](./plugin-github-archive-source.md). A discovery de plugins instalados lê apenas o cache local e uma falha na atualização do Marketplace não pode afetar a execução dos plugins existentes.
 
-## 验收
+## Aceitação
 
-- 单元测试覆盖 marketplace storage、installed state 迁移、manifest 兼容矩阵、
-  MCP namespace、sensitive userConfig、dependency diagnostics。
-- 协议 schema 覆盖 success/failure parse。
-- UI 覆盖 marketplace / installed / diagnostics 基础管理。
-- 运行 `pnpm typecheck` 和 `pnpm lint`。
-- 本地 dev 启动后用 CDP 验证插件管理页无 console error，基础交互可用。
-- 选取 Claude Marketplace 当前 top 插件做安装/诊断/低风险资源加载兼容测试；
-  高风险能力必须显示 diagnostic-only，而不是静默失败或执行。
+- Testes unitários cobrem marketplace storage, migração de estado instalado, matriz de compatibilidade de manifest, namespace de MCP, userConfig sensível e diagnósticos de dependência.
+- O schema de protocolo cobre parse de success/failure.
+- A UI cobre o gerenciamento básico de marketplace / installed / diagnostics.
+- Executar `pnpm typecheck` e `pnpm lint`.
+- Depois de iniciar o dev local, verificar via CDP que a página de gerenciamento de plugins não tem console error e que as interações básicas funcionam.
+- Selecionar os plugins top atuais do Claude Marketplace para teste de compatibilidade de instalação/diagnóstico/carregamento de recursos de baixo risco; capacidades de alto risco precisam exibir diagnostic-only, em vez de falhar ou executar silenciosamente.
 
-## 官方 Claude Marketplace 验证记录
+## Registro de verificação do Claude Marketplace oficial
 
-2026-06-24 选取 `claude-plugins-official` 中 5 个真实插件做临时 storage
-安装与 runtime projection 验证：
+Em 2026-06-24 foram selecionados 5 plugins reais de `claude-plugins-official` para verificação temporária de storage de instalação e projeção de runtime:
 
-| 插件 | 覆盖能力 | 验证结论 |
+| Plugin | Capacidades cobertas | Conclusão da verificação |
 | --- | --- | --- |
-| `commit-commands` | commands | 发现 `/commit`、`/commit-push-pr`、`/clean_gone` |
-| `claude-md-management` | commands、skills | 发现 `/revise-claude-md` 和 1 个 skill |
-| `hookify` | commands、skills、hooks | 发现 `/hookify`、`/configure`、`/help`、`/list`，注入 `PreToolUse` / `PostToolUse` / `Stop` / `UserPromptSubmit` hooks；`pretooluse.py` 以真实 JSON stdin 执行成功 |
-| `context7` | MCP stdio | runtime 投影 `plugin:context7:context7`；MCP SDK 连接后 `listTools` 返回 `query-docs`、`resolve-library-id` |
-| `playwright` | MCP stdio | runtime 投影 `plugin:playwright:playwright`；MCP SDK 连接后 `listTools` 返回 23 个 browser tools |
+| `commit-commands` | commands | Descobriu `/commit`, `/commit-push-pr`, `/clean_gone` |
+| `claude-md-management` | commands, skills | Descobriu `/revise-claude-md` e 1 skill |
+| `hookify` | commands, skills, hooks | Descobriu `/hookify`, `/configure`, `/help`, `/list`; injetou hooks `PreToolUse` / `PostToolUse` / `Stop` / `UserPromptSubmit`; `pretooluse.py` executou com sucesso com JSON stdin real |
+| `context7` | MCP stdio | Projeção em runtime `plugin:context7:context7`; após conectar pelo MCP SDK, `listTools` retorna `query-docs`, `resolve-library-id` |
+| `playwright` | MCP stdio | Projeção em runtime `plugin:playwright:playwright`; após conectar pelo MCP SDK, `listTools` retorna 23 browser tools |
 
-验证过程中发现并修复：
+Descobertas e correções durante a verificação:
 
-- Claude 官方命令文件名可包含 `_`，例如 `clean_gone.md`。Custom command
-  name pattern 已兼容 `_`。
-- 官方/第三方 marketplace entry 可能使用 `commit` 表示 git pin。Installer
-  将 `commit` 作为 `sha` fallback，但仍优先使用官方 schema 的 `sha`。
-- `claude-plugins-official` 安装产物中的 hooks 需要可运行；非官方第三方
-  marketplace hooks 继续 diagnostic-only。
+- Nomes de arquivo de comando oficiais da Claude podem conter `_`, por exemplo `clean_gone.md`. O padrão de nome de command customizado passou a ser compatível com `_`.
+- Entries de marketplace oficiais e de terceiros podem usar `commit` para indicar um pin git. O Installer trata `commit` como fallback de `sha`, mas continua priorizando o `sha` do schema oficial.
+- Os hooks nos artefatos instalados de `claude-plugins-official` precisam ser executáveis; hooks de marketplaces de terceiros não oficiais continuam sendo somente-diagnóstico.

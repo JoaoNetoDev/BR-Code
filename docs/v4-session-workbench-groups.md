@@ -1,41 +1,43 @@
 # v4 Session Workbench Groups
 
-状态：**已实现，2026-07-17 再次确认产品边界**。Task 列表向对话区边缘拖拽
-仍是正式分屏入口，支持跨 workspace 组合和 renderer-local group 恢复；
-2026-07-13 只下线 pane chrome 上的显式“向右拆分 / 向下拆分”按钮，不代表
-workbench 整体退役。
+Estado: **implementado; em 2026-07-17 as fronteiras de produto foram reconfirmadas**. Arrastar um item da lista
+de Tasks para a borda da área de conversa continua sendo a entrada oficial de split, com suporte a combinação
+entre workspaces e restauração de group local ao renderer;
+em 2026-07-13 foram desativados apenas os botões explícitos 「Dividir para a direita / Dividir para baixo」 no
+pane chrome, o que não significa que o workbench como um todo foi aposentado.
 
-## 功能摘要
+## Resumo da funcionalidade
 
-| Field | Value |
+| Campo | Valor |
 | --- | --- |
-| Change | 左侧 session 可拖入中间 v4 workbench，并按目标 pane 的上/下/左/右 drop zone 创建分屏；多个 session 组成可保留、可恢复的 workbench group（用户口径：“壳子”）。 |
-| User-visible surfaces | 左侧 session 列表、v4 中间聊天 workbench、workspace header、Git branch 入口、pane chrome、drag preview。 |
-| Existing docs | `docs/v4-split-pane-workbench.md`、`docs/v4-refactor/06-ui.md`、`docs/testing/conversation-session-e2e-coverage-matrix.md`。 |
-| Existing code owners | `packages/ui/src/v4/paneLayoutStore.ts`、`packages/ui/src/v4/paneLayoutTree.ts`、`packages/ui/src/v4/V4WorkspaceChatArea.tsx`、`packages/ui/src/v4/WorkbenchPane.tsx`、左侧 task/session item 相关组件。 |
-| Out of scope | 手机 Web、`/remote` web-remote replayable（必须完全绕过 group 生命周期）、agent/protocol/schema 变更、main/relay 业务状态下沉、跨设备同步 group 状态。 |
+| Mudança | Uma sessão à esquerda pode ser arrastada para o workbench v4 do meio, criando um split pelas drop zone acima/abaixo/esquerda/direita do pane de destino; múltiplas sessões formam um workbench group preservável e restaurável (termo do usuário: 「a casinha」). |
+| Superfícies visíveis ao usuário | Lista de sessões à esquerda, workbench de chat v4 do meio, workspace header, entrada de branch Git, pane chrome, drag preview. |
+| Docs existentes | `docs/v4-split-pane-workbench.md`, `docs/v4-refactor/06-ui.md`, `docs/testing/conversation-session-e2e-coverage-matrix.md`. |
+| Owners de código existentes | `packages/ui/src/v4/paneLayoutStore.ts`, `packages/ui/src/v4/paneLayoutTree.ts`, `packages/ui/src/v4/V4WorkspaceChatArea.tsx`, `packages/ui/src/v4/WorkbenchPane.tsx`, componentes relacionados aos itens de task/session da esquerda. |
+| Fora de escopo | Web no celular, `/remote` web-remote replayable (deve contornar completamente o ciclo de vida de group), mudanças em agent/protocol/schema, afundamento de estado de negócio em main/relay, sincronização de estado de group entre dispositivos. |
 
-## 产品语义
+## Semântica de produto
 
-用户要的不是单次“在分屏打开”，而是 IDE editor group 心智：
+O que o usuário quer não é um 「abrir em split」 pontual, e sim a mentalidade de editor group de uma IDE:
 
 ```text
-左侧 session 列表
+lista de sessões à esquerda
    drag session C
        |
        v
-中间当前 workbench group
+grupo workbench atual do meio
 +-------------------+-------------------+
 | session A         | session B         |
+|  drop zone        |  drop zone        |
 |  top/left/right/  |  top/left/right/  |
-|  bottom drop zone |  bottom drop zone |
+|  bottom           |  bottom           |
 +-------------------+-------------------+
        |
        v
-drop 成功后 session C 被移入这个 group，并在目标 pane 的指定方向拆出新 pane。
+Após o drop bem-sucedido, session C entra neste group e um novo pane é dividido na direção indicada do pane de destino.
 ```
 
-group 是 renderer 侧的“壳子”：
+O group é a 「casinha」 do lado do renderer:
 
 ```text
 Group G1
@@ -49,76 +51,78 @@ Group G2
 +-----------+
 ```
 
-左侧点击 session 时先查 `sessionId -> groupId`：
+Ao clicar numa sessão à esquerda, consulta-se primeiro `sessionId -> groupId`:
 
 ```text
-点击 A -> activeGroupId = G1 -> focus A 所在 pane
-点击 B -> activeGroupId = G1 -> focus B 所在 pane
-点击 C -> activeGroupId = G2/隐式单 pane -> focus C
+clicar em A -> activeGroupId = G1 -> focar o pane onde está A
+clicar em B -> activeGroupId = G1 -> focar o pane onde está B
+clicar em C -> activeGroupId = G2/pane único implícito -> focar C
 ```
 
-如果 session 不属于任何多 pane group，点击行为保持旧语义：按原来的 session 打开路径显示一个单 pane 视图。若之后把它拖入已有 group，它从原隐式单 pane 壳子迁移到目标 group。
+Se a sessão não pertencer a nenhum group de múltiplos panes, o comportamento de clique mantém a semântica antiga: uma
+vista de pane único é exibida pelo caminho de abertura de sessão original. Se depois ela for arrastada para um group existente,
+migra da casinha implícita de pane único original para o group de destino.
 
-## 澄清记录
+## Registro de esclarecimentos
 
-| Round | Question | User answer | Boundary fixed | Follow-up needed |
+| Rodada | Pergunta | Resposta do usuário | Fronteira fixada | Seguimento necessário |
 | --- | --- | --- | --- | --- |
-| 1 | 中心 drop 区域要替换当前 pane、聚焦已有 pane，还是不接受？ | 中心不接受 drop，只允许四向拆分。 | 只有上/下/左/右四个 drop zone；center 不显示可投放态。 | no |
-| 2 | 是否支持跨 workspace session？ | 支持。 | drop 使用被拖 session 自己的 `workspacePath/workspaceIdentity/remoteSessionId`。 | no |
-| 3 | 已在当前视图打开的 session 再拖一次怎么办？ | 不让拖；或拖了也不触发半透明区域。 | 同 group 已存在的 session 禁止重复加入；源头禁拖，drop target 再 guard。 | no |
-| 4 | 四向 drop anchor 是目标 pane 还是整个 workbench？ | 是目标 pane。 | drop 到哪个 pane 的边缘，就相对哪个 pane split。 | no |
-| 5 | pane 上限 4 的含义？ | 总 pane 数；满了不让分屏。 | 一个 group 最多 4 个 pane，可横向、田字或嵌套组合。 | no |
-| 6 | drop preview 形态？ | 半透明区域演示。 | 使用目标 pane 对应半区的半透明预览，不用中心替换态。 | no |
-| 7 | 启用端范围？ | 桌面能用，普通 Web App 也能用；手机和 web-remote 不要用。 | 启用 `desktop-continuous` 和普通 Web App v4；禁用 mobile 和 `/remote` web-remote replayable。 | no |
-| 8 | 拖入跨 workspace session 后 header/sidebar 是否跟随？ | 根据 active session 变化。 | `focusedPaneId` 派生当前 active context；workspace header、branch、左侧高亮跟随 focused pane。 | no |
-| 9 | “壳子”点击语义？ | A/B 在一个壳子里，点 A/B 显示这个壳子并 active 对应 session；未分屏 session 按旧逻辑新壳子打开。 | 引入 group 概念；session 点击先定位 group，再聚焦 pane。 | no |
-| 10 | group 是否保留？ | 保留。 | 切到其他 session/group 后，原 group layout 保留，可点击任一成员恢复。 | no |
-| 11 | 同一 session 是否只能属于一个 group？ | 是。 | `sessionId` 唯一归属一个 group；不能跨 group 重复打开。 | no |
-| 12 | group 什么时候解散？ | 只剩 1 个 session 退化，0 个删除。 | group 的特殊身份只在 2+ session 时保留；关闭/移出后按成员数 GC。 | no |
-| 13 | group 是否持久化？ | 可以，存在 renderer 层即可，比如 localStorage。 | renderer-local 持久化；刷新/重启恢复，不进 agent/protocol。 | no |
-| 14 | 把未分组 C 拖入 G1 后原壳子如何处理？ | C 移入 G1，原隐式单 session 壳子消失。 | session move 是唯一归属迁移；旧隐式 group 不保留。 | no |
-| 15 | subagent 行内“在右侧打开”是否会替换主 session？ | 不替换；详情属于 workspace 右侧 tab。 | child 不再创建 workbench group/pane；按 parent session 显隐，完整语义见 `subagent-session-side-tabs.md`。 | no |
-| 16 | 侧开的 subagent child 是否能继续输入？ | 不能；它是只读观察视图。 | subagent split 产生的 child binding 标记 `readOnly`，pane 不渲染 composer/input，也不提供新 prompt 入口。 | no |
-| 17 | 当前中心是草稿态时能否拖 session 进来分屏？ | 能。 | draft 不是 session，不建 workbench group；drop 后保持 primary draft，拖入 session 进入非 primary pane。 | no |
-| 18 | 只读 subagent child 聚焦时是否同步左侧 active task？ | 不同步。 | readOnly pane 只有 workbench 本地 focus；shell active task、左侧高亮、task list optimistic active 不切到 child session。 | no |
-| 19 | 关闭当前 focused pane 后外层 active task 留谁？ | 留关闭后 workbench 的可导航 focused session。 | 2-pane 关闭 child 后退回 primary/main；关闭非 focused pane 不改 shell active。 | no |
-| 20 | `Cmd/Ctrl+N` 在分屏里创建哪里的新任务？ | 当前 focused pane 的 workspace。 | subagent 已不进入 workbench；普通 focused pane 只取 `workspaceScope`，创建该 workspace 的草稿态 session。 | no |
-| 21 | `Cmd/Ctrl+N` 是否在当前分屏内再 split 一个草稿？ | 不。 | 创建后退出当前 active workbench group，pane layout 回到单 primary panel；历史 group 保留，之后点成员可恢复。 | no |
-| 22 | 删除 group 的 primary session 后显示谁？ | 回当前 workspace 草稿。 | CLI 接受删除后解散 group，并清空 shell 的已删除 session；不隐式提升 secondary。 | no |
-| 23 | `/remote` 只隐藏 group UI 是否足够？ | 不够。 | remote renderer 不得恢复、创建、持久化或消费 group；侧栏与新建任务都绕过 group store。 | no |
-| 24 | 2026-07-13 是关闭整个分屏，还是只关闭显式按钮？ | 只关闭显式按钮；Task 列表仍可拖到对话区分屏。 | pane chrome 不渲染拆分按钮；拖拽 drop zone、group 状态和跨 workspace 隔离仍是正式合同。 | no |
-| 25 | 草稿 A 旁拖入已有任务 B 后，A 首发应该如何升级？ | A 原地绑定首发创建的新 session；focus B 后 A 仍保留。 | `createSession` accepted 时先把 primary draft 绑定为 A′ 并原子提升整个布局为 group，再同步 shell active；后续 pane focus 只能改变 active context，不能让 A′ 回退成 draft。 | no |
-| 26 | 右键目标 session 已经在另一个 workbench group 时，是重复分屏还是切换？ | 切换。 | 「在分屏打开」先按 `workspaceKey + sessionId` 查已有 pane/group；命中其他 group 时激活并 focus 已有 pane，不创建副本。 | no |
-| 27 | 草稿 primary 旁已通过右键打开 B，随后普通点击未分组 C，应退出分屏还是替换某个 pane？ | 保留分屏，C 替换当前 focused 的 B，结果为 `[draft A | C]`。 | 普通 session 点击在 draft 临时布局中只重绑 focused non-primary pane；primary draft 不参与替换。 | no |
+| 1 | A área central de drop deve substituir o pane atual, focar um pane existente, ou não aceitar? | O centro não aceita drop, apenas split em quatro direções. | Existem apenas quatro drop zones (acima/abaixo/esquerda/direita); o centro não exibe estado de drop válido. | não |
+| 2 | Há suporte a sessões de workspaces diferentes? | Sim. | O drop usa o próprio `workspacePath/workspaceIdentity/remoteSessionId` da sessão arrastada. | não |
+| 3 | E se uma sessão já aberta na view atual for arrastada de novo? | Não deixar arrastar; ou, mesmo arrastando, não disparar a área semitransparente. | Sessão já existente no mesmo group não pode entrar de novo; a origem fica sem drag e o drop target faz guard novamente. | não |
+| 4 | A âncora de drop nas quatro direções é o pane de destino ou o workbench inteiro? | É o pane de destino. | Ao dropar numa borda de um pane, o split é relativo a aquele pane. | não |
+| 5 | O que significa o limite de 4 panes? | Número total de panes; cheio, não deixa dividir. | Um group tem no máximo 4 panes, podendo combinar horizontalmente, em grade ou aninhado. | não |
+| 6 | Qual a forma do drop preview? | Uma área semitransparente demonstrativa. | Usa um preview semitransparente da metade correspondente do pane de destino, e não um estado de substituição central. | não |
+| 7 | Qual o escopo de habilitação? | Funciona no desktop e também no Web App comum; não no celular nem no web-remote. | Habilita o V4 em `desktop-continuous` e no Web App comum; desabilita mobile e o `/remote` web-remote replayable. | não |
+| 8 | Depois de arrastar uma sessão de outro workspace, header/sidebar acompanham? | Acompanham conforme a sessão ativa muda. | `focusedPaneId` deriva o contexto ativo atual; workspace header, branch e o highlight da esquerda acompanham o pane focado. | não |
+| 9 | Qual a semântica de clique na 「casinha」? | A/B estão na mesma casinha; clicar em A/B mostra essa casinha e ativa a sessão correspondente; sessão sem split abre uma nova casinha pela lógica antiga. | Introduz o conceito de group; o clique numa sessão primeiro localiza o group e depois foca o pane. | não |
+| 10 | O group é preservado? | Sim. | Ao trocar para outra sessão/group, o layout do group original é preservado e clicar em qualquer membro o restaura. | não |
+| 11 | Uma sessão só pode pertencer a um group? | Sim. | `sessionId` pertence a um único group; não pode ser aberta em duplicidade entre groups. | não |
+| 12 | Quando o group se dissolve? | Degrada com 1 sessão, é removido com 0. | A identidade especial de group só é mantida com 2+ sessões; depois de fechar/remover, há GC por número de membros. | não |
+| 13 | O group é persistido? | Pode ser, já no renderer, por exemplo localStorage. | Persistência local ao renderer; restaurada em refresh/reinício, sem entrar em agent/protocol. | não |
+| 14 | Depois de arrastar o C não agrupado para G1, o que acontece com a casinha original? | C entra em G1 e a casinha implícita de sessão única original desaparece. | O move de sessão é a única migração de pertencimento; o group implícito antigo não é preservado. | não |
+| 15 | O 「abrir à direita」 inline do subagent substitui a sessão principal? | Não substitui; o detalhe pertence à tab da direita do workspace. | O child não cria mais workbench group/pane; exibe/oculta conforme a sessão pai, com a semântica completa em `subagent-session-side-tabs.md`. | não |
+| 16 | O child de subagent aberto ao lado aceita continuar digitando? | Não; é uma view de observação somente leitura. | O child binding gerado pelo split de subagent é marcado `readOnly`, o pane não renderiza composer/input e não oferece nova entrada de prompt. | não |
+| 17 | É possível arrastar uma sessão para dividir quando o centro atual está em estado de rascunho? | Sim. | O draft não é sessão e não cria workbench group; após o drop o primary draft é mantido e a sessão arrastada entra em um pane não primário. | não |
+| 18 | Ao focar um child de subagent somente leitura, a active task da esquerda é sincronizada? | Não sincroniza. | Um pane readOnly tem apenas focus local do workbench; a active task do shell, o highlight da esquerda e a active otimista da lista de tasks não mudam para a sessão child. | não |
+| 19 | Depois de fechar o pane focado atual, qual active task externa fica? | Fica a sessão focada e navegável do workbench após o fechamento. | Fechando o child em 2 panes, volta-se ao primary/main; fechar um pane não focado não altera o shell active. | não |
+| 20 | `Cmd/Ctrl+N` cria a nova task de qual lugar dentro do split? | Do workspace do pane focado atual. | O subagent já não entra no workbench; um pane focado comum só usa `workspaceScope` e cria a sessão em rascunho daquele workspace. | não |
+| 21 | `Cmd/Ctrl+N` faz split de um novo rascunho dentro do split atual? | Não. | Após criar, sai-se do group workbench ativo e o layout de panes volta a um único painel primário; o group histórico é preservado e clicar num membro o restaura. | não |
+| 22 | Depois de excluir a sessão primária do group, o que é exibido? | Volta ao rascunho do workspace atual. | Com a exclusão aceita pelo CLI, o group é dissolvido e a sessão excluída é limpa do shell; o secundário não é promovido implicitamente. | não |
+| 23 | Em `/remote`, basta esconder a UI de group? | Não basta. | O renderer remoto não pode restaurar, criar, persistir nem consumir groups; a sidebar e a criação de nova task contornam o group store. | não |
+| 24 | Em 2026-07-13, foi desativado todo o split ou só os botões explícitos? | Só os botões explícitos; a lista de Tasks ainda pode ser arrastada para a área de conversa. | O pane chrome não renderiza os botões de split; as drop zones de drag, o estado de group e o isolamento entre workspaces continuam sendo contrato oficial. | não |
+| 25 | Depois de arrastar a task B existente ao lado do rascunho A, como o primeiro envio de A deve ser promovido? | A se vincula no lugar à sessão nova criada pelo primeiro envio; após focar B, A continua lá. | No `accepted` do `createSession`, o primary draft é primeiro vinculado como A′ e todo o layout é promovido atomicamente a group, e só então o shell active é sincronizado; focar outro pane depois só muda o contexto ativo e não pode fazer A′ regredir para draft. | não |
+| 26 | Ao clicar com o botão direito numa sessão que já está em outro workbench group, é split duplicado ou troca? | Troca. | 「Abrir em split」 procura primeiro um pane/group existente por `workspaceKey + sessionId`; ao atingir outro group, ativa e foca o pane existente, sem criar cópia. | não |
+| 27 | Depois de abrir B ao lado do draft primário pelo menu de contexto e clicar normalmente na C não agrupada, deve-se sair do split ou substituir algum pane? | Preservar o split, com C substituindo o B focado, resultando em `[draft A | C]`. | O clique normal numa sessão, no layout temporário de draft, apenas revincula o pane non-primary focado; o primary draft não participa da substituição. | não |
 
-## 边界决策
+## Decisões de fronteira
 
-| Boundary | Decision | Includes | Excludes / prunes | Source |
+| Fronteira | Decisão | Inclui | Exclui / poda | Fonte |
 | --- | --- | --- | --- | --- |
-| Drop target | 只接受四向边缘区。 | top/right/bottom/left half preview and split。 | center replace、center focus、drop-to-nowhere。 | user |
-| Anchor | 相对鼠标所在 pane split。 | 在目标 pane 上/下/左/右插入新 pane。 | 整个 workbench 最外层固定插入。 | user |
-| Cross workspace | 支持。 | 本地、SSH/WSL/Docker，只要 session meta 带完整 scope。 | 用当前 shell workspace 覆盖被拖 session scope。 | user + `docs/v4-split-pane-workbench.md` |
-| Duplicate session | 一个 session 只能属于一个 group。 | 已在 group 内时源头禁拖；drop guard 不显示 preview。 | 同 session 多副本视图。 | user |
-| Group lifetime | 2+ session 形成 group；1 个退化；0 个删除。 | 点击任一成员可恢复 group。 | 保留空 group、保留只有 1 个成员的特殊 group。 | user |
-| Pane limit | 每个 group 最多 4 pane。 | 横向 4、田字 4、嵌套 4 都允许。 | 超过 4 继续分屏。 | user + current `MAX_WORKBENCH_PANES` |
-| Active context | focused pane 派生 header/sidebar。 | Workspace header、branch、sidebar 高亮跟随 focused session。 | drop 后只改 pane 不改 active context；或直接切 shell tab 破坏 group。 | user |
-| Subagent split entry | 只在当前 pane 旁边打开 child。 | child session 进入侧边 pane；primary pane 继续显示 parent session；child pane 是只读观察视图。 | 复用旧全局 split open，导致 child focus 后把 shell active session 反灌成 primary；或把 child 当普通会话显示 input。 | user |
-| Draft drop entry | 草稿 pane 也接受四向拖拽分屏。 | primary 保持 draft；拖入 session 进入 `paneLayoutStore` 的非 primary pane；之后 draft 首发仍原地绑定。 | 因 `sessionId === null` 禁止 preview/drop；或强行建 group 要求 draft 有 sessionId。 | user |
-| Drop preview layering | 半透明预览覆盖整个目标 pane。 | preview 层级高于 composer dock/input 与 pane 内容。 | 被 composer/input 的 sticky `z-20` 遮住底部。 | user |
-| Pane focus vs shell active | readOnly pane focus 不等于 shell active task。 | 普通 pane focus/关闭会同步 shell active；readOnly child focus 只改变 workbench focus。 | child session 出现在左侧列表高亮或 optimistic task active。 | user |
-| Close focus repair | 关闭 focused pane 后同步剩余可导航 session。 | focused child 关闭后回 primary/main；3+ pane 时按关闭后 workbench focus 同步。 | 关闭非 focused pane 时强行切 active。 | user |
-| New task shortcut | `Cmd/Ctrl+N` 创建 focused pane workspace 的单 panel 草稿。 | 桌面菜单 `NewTask`、普通 Web `Cmd/Ctrl+N`、顶部按钮复用 Root 创建任务入口；目标 workspace 来自 workbench focused pane，含 readOnly child。 | 在当前 group/paneLayout 中 split draft；只按 shell active tab workspace 创建。 | user |
-| Persistence | renderer-local localStorage。 | group layout、pane binding、focused pane、session-to-group 映射。 | agent/runtime/main/relay 持久化、跨设备同步。 | user |
-| Client modes | 桌面和普通 Web App 启用。 | `desktop-continuous`、普通 web v4。 | 手机、小屏、`/remote` web-remote replayable。 | user |
-| Explicit split buttons | pane chrome 拆分按钮下线。 | Task 列表 drag session 到对话区边缘。 | pane chrome 的“向右拆分 / 向下拆分”按钮。 | user |
-| Primary draft promotion | draft + existing session 的临时布局在 draft 首发时原子升级。 | primary draft 的新 session binding、secondary bindings、root/focus 一次转移到 group；shell active 随新 session 更新。 | 只更新 shell `activeTaskId` 而让 primary 继续依赖它；focus secondary 后把已发送 primary 重置为 draft。 | user |
-| Context-menu split parity | 左侧右键「在分屏打开」与拖拽共用 pane/group owner。 | 单 session 创建 group；已有 group 追加 pane；draft 使用临时 paneLayout；其他 group 的既有 session 只切换/focus。 | 菜单直接无条件写全局 paneLayout；重复打开同一 session；已有 group 时创建第二份视图。 | user |
-| Current-session guard | 当前 focused pane 已显示目标 session 时菜单项禁用。 | 普通单 pane、group focused pane、draft 临时布局的 focused secondary pane。 | 仅以 shell `activeTaskId` 判断，漏掉 group/pane local focus。 | user |
-| Draft focused replacement | draft 临时布局内普通点击未分组 session 时原位替换 focused secondary binding。 | `[draft A | B] --click C--> [draft A | C]`，workspace scope 与 sessionId 一起替换。 | 把 shell `activeTaskId=C` 直接灌给 primary；替换 draft；无意新增第三 pane。 | user |
+| Drop target | Aceita apenas as quatro áreas de borda. | Preview e split das metades top/right/bottom/left. | Substituição no centro, foco no centro, drop em lugar nenhum. | usuário |
+| Âncora | Split relativo ao pane sob o mouse. | Inserir um novo pane acima/abaixo/esquerda/direita do pane de destino. | Inserção fixa na camada mais externa do workbench inteiro. | usuário |
+| Cross workspace | Suportado. | Local, SSH/WSL/Docker, desde que o session meta tenha o scope completo. | Sobrescrever o scope da sessão arrastada com o workspace atual do shell. | usuário + `docs/v4-split-pane-workbench.md` |
+| Sessão duplicada | Uma sessão só pode pertencer a um group. | Quando já está em um group, a origem não pode ser arrastada; o guard de drop não mostra preview. | Múltiplas cópias da mesma sessão em view. | usuário |
+| Ciclo de vida do group | 2+ sessões formam group; 1 degrada; 0 é removido. | Clicar em qualquer membro restaura o group. | Preservar group vazio ou group com apenas 1 membro. | usuário |
+| Limite de panes | No máximo 4 panes por group. | 4 horizontais, 4 em grade, 4 aninhados são permitidos. | Dividir além de 4. | usuário + `MAX_WORKBENCH_PANES` atual |
+| Contexto ativo | O pane focado deriva header/sidebar. | Workspace header, branch e highlight da sidebar acompanham a sessão focada. | Depois do drop mudar só o pane e não o contexto ativo; ou trocar a tab do shell e quebrar o group. | usuário |
+| Entrada de split de subagent | Abre o child apenas ao lado do pane atual. | A sessão child entra em um pane lateral; o pane primário continua exibindo a sessão pai; o pane child é uma view de observação somente leitura. | Reutilizar o split open global antigo, que faz o foco no child reverter a sessão ativa do shell para a primária; ou tratar o child como sessão comum exibindo input. | usuário |
+| Entrada de drop de draft | O pane de draft também aceita split por drag nas quatro direções. | O primary continua como draft; a sessão arrastada entra em um pane não primário do `paneLayoutStore`; depois o primeiro envio do draft continua se vinculando no lugar. | Proibir preview/drop por causa de `sessionId === null`; ou forçar a criação de group exigindo sessionId no draft. | usuário |
+| Camadas do drop preview | O preview semitransparente cobre o pane de destino inteiro. | O preview fica acima do dock/input do composer e do conteúdo do pane. | Ser coberto na parte de baixo pelo `z-20` sticky do composer/input. | usuário |
+| Focus de pane vs shell active | Focus em pane readOnly não equivale a shell active task. | Focus/fechamento de pane comum sincroniza o shell active; focus em child readOnly só muda o focus do workbench. | A sessão child aparecer com highlight na lista da esquerda ou como active otimista de task. | usuário |
+| Reparo de foco ao fechar | Depois de fechar o pane focado, sincroniza-se a sessão navegável restante. | Fechando o child focado, volta-se ao primary/main; com 3+ panes, sincroniza pelo focus do workbench após o fechamento. | Forçar a troca de active ao fechar um pane não focado. | usuário |
+| Atalho de nova task | `Cmd/Ctrl+N` cria um rascunho de painel único no workspace do pane focado. | Menu `NewTask` do desktop, `Cmd/Ctrl+N` do Web comum e o botão do topo reutilizam a entrada de criação no Root; o workspace alvo vem do pane focado do workbench, incluindo child readOnly. | Fazer split de um rascunho dentro do group/paneLayout atual; criar apenas pelo workspace da tab ativa do shell. | usuário |
+| Persistência | localStorage local ao renderer. | Layout de group, pane binding, pane focado e mapeamento sessão-para-group. | Persistência em agent/runtime/main/relay, sincronização entre dispositivos. | usuário |
+| Modos de cliente | Habilitados no desktop e no Web App comum. | `desktop-continuous`, web v4 comum. | Celular, telas pequenas, `/remote` web-remote replayable. | usuário |
+| Botões explícitos de split | Botões de split do pane chrome desativados. | Arrastar uma sessão da lista de Tasks para a borda da área de conversa. | Os botões 「Dividir para a direita / Dividir para baixo」 do pane chrome. | usuário |
+| Promoção do primary draft | O layout temporário de draft + sessão existente é promovido atomicamente no primeiro envio do draft. | O novo session binding do primary draft, os bindings secundários e a transferência de root/focus acontecem uma única vez para o group; o shell active é atualizado com a nova sessão. | Atualizar apenas o `activeTaskId` do shell e deixar o primary depender dele; redefinir o primary já enviado como draft após focar o secundário. | usuário |
+| Paridade de split pelo menu de contexto | O 「abrir em split」 pelo menu de contexto à esquerda compartilha o owner de pane/group com o drag. | Sessão única cria group; group existente ganha pane; draft usa paneLayout temporário; sessão existente em outro group só troca/foca. | O menu escrever incondicionalmente no paneLayout global; reabrir a mesma sessão em duplicidade; criar uma segunda view quando já há group. | usuário |
+| Guard de sessão atual | O item de menu fica desabilitado quando o pane focado atual já exibe a sessão alvo. | Pane único comum, pane focado de group, pane secundário focado do layout temporário de draft. | Julgar apenas pelo `activeTaskId` do shell, perdendo o focus local de group/pane. | usuário |
+| Substituição pelo pane draft focado | Clicar normalmente numa sessão não agrupada dentro do layout temporário de draft substitui o binding secundário focado no lugar. | `[draft A | B] --clicar C--> [draft A | C]`, com workspace scope e sessionId trocados juntos. | Jogar `shell.activeTaskId=C` direto no primary; substituir o draft; criar sem querer um terceiro pane. | usuário |
 
-## 状态模型
+## Modelo de estado
 
-在现有 pane layout 的基础上增加 renderer-local group store。核心不是把 protocol 改成 group，而是在 UI 层维护“session 属于哪个可恢复 workbench group”。
+Sobre a base do pane layout existente, adiciona-se um group store local ao renderer. O essencial não é mudar o protocolo para group, e sim manter na camada de UI 「a qual workbench group restaurável uma sessão pertence」.
 
 ```text
 WorkbenchGroupState
@@ -140,281 +144,285 @@ PaneBinding
     remoteSessionId?: string
   }
   sessionId: string
-  readOnly?: boolean  // subagent 行内侧开的 child session：只读，不渲染 composer/input
+  readOnly?: boolean  // sessão child aberta inline pelo subagent: somente leitura, sem composer/input
 ```
 
-`sessionKey` 必须包含 workspace identity 边界：
+`sessionKey` precisa incluir a fronteira de identidade do workspace:
 
 ```text
 sessionKey = `${workspaceIdentity?.trim() || workspacePath}::${sessionId}`
 ```
 
-`workspacePath` 继续用于路径展示和执行；身份/隔离语义统一使用 `workspaceIdentity?.trim() || workspacePath`。
+`workspacePath` continua sendo usado para exibição de caminho e execução; a semântica de identidade/isolamento usa uniformemente `workspaceIdentity?.trim() || workspacePath`.
 
-### 单 session 与 group 的关系
+### Relação entre sessão única e group
 
-普通未分屏 session 不需要提前写入 group store。点击未分组 session 时可按旧逻辑显示单 pane。只有以下动作会创建/保留 group：
+Uma sessão comum sem split não precisa ser gravada previamente no group store. Ao clicar numa sessão não agrupada, pode-se exibir um pane único pela lógica antiga. Apenas as ações a seguir criam/preservam um group:
 
-- 拖一个未分组 session 到另一个 session/pane 旁边，形成 2 pane group。
-- 在已有 group 中继续拖入新的未分组 session，形成 3/4 pane group。
-- 恢复 localStorage 中 2+ 有效成员的 group。
+- Arrastar uma sessão não agrupada para ao lado de outra sessão/pane, formando um group de 2 panes.
+- Continuar arrastando novas sessões não agrupadas para um group existente, formando um group de 3/4 panes.
+- Restaurar do localStorage um group com 2+ membros válidos.
 
-当 group 只剩 1 个有效成员时：
+Quando um group fica com apenas 1 membro válido:
 
 ```text
 remove group
-remove remaining session from sessionIndex
-下次点击该 session 按普通单 pane 逻辑打开
+remove a sessão restante do sessionIndex
+o próximo clique nessa sessão abre pela lógica comum de pane único
 ```
 
-## 事件顺序
+## Ordem dos eventos
 
-### 左侧点击 session
+### Clique numa sessão da esquerda
 
 ```text
-User click sidebar session
+clique do usuário numa sessão da sidebar
         |
         v
 build sessionKey(workspaceIdentity?.trim() || workspacePath, sessionId)
         |
-        +-- sessionIndex 命中 group
+        +-- sessionIndex casa um group
         |       |
         |       v
         |   activeGroupId = groupId
-        |   focusedPaneId = indexed paneId
-        |   active context = focused pane binding
+        |   focusedPaneId = o paneId indexado
+        |   contexto ativo = o binding do pane focado
         |
-        +-- 未命中
+        +-- sem match
                 |
                 v
-            旧逻辑：打开单 session 视图
+            lógica antiga: abrir a view de sessão única
 ```
 
-draft 临时布局是上述“旧逻辑”的一个显式例外：它没有可写入 group index 的 draft
-sessionId，但仍必须保留 editor-group 的 focused pane 语义。
+O layout temporário de draft é uma exceção explícita a essa 「lógica antiga」: ele não tem um sessionId de draft que possa ser
+gravado no índice de groups, mas ainda precisa preservar a semântica de pane focado de editor group.
 
 ```text
 paneLayout = [draft A | B]，focused=B
         |
-        | 普通点击未分组 C
+        | clique normal na C não agrupada
         v
-原子替换 pane B 的完整 binding（workspaceScope + sessionId）
+substituição atômica do binding completo do pane B (workspaceScope + sessionId)
         |
         v
 paneLayout = [draft A | C]，focused=C
 
-禁止路径：shell.activeTaskId=C -> primary 读取 C -> [C | B]
+caminho proibido: shell.activeTaskId=C -> primary lê C -> [C | B]
 ```
 
-### 右键「在分屏打开」
+### 「Abrir em split» pelo botão direito
 
 ```text
-drag / context-menu / sidebar-select target T
+drag / context-menu / sidebar-select alvo T
         |
         v
-workbenchSessionPlacement resolver（只决策，不写 store）
+resolver workbenchSessionPlacement（apenas decide, não escreve no store）
         |
-        +-- T == 当前 focused session -> disabled / no-op
-        +-- T 已在其他 group/pane ------> context focus existing；drag reject duplicate
-        +-- 当前是普通 session A ------> create / extend group
-        +-- 当前 primary 是 draft -----> split temporary paneLayout
-        `-- draft split 普通点击 -------> replace focused secondary
+        +-- T == sessão focada atual -> disabled / no-op
+        +-- T já está em outro group/pane ------> foca o contexto existente; drag rejeita duplicata
+        +-- o atual é uma sessão comum A ------> cria / estende o group
+        +-- o primary atual é draft --------> divide um paneLayout temporário
+        `-- clique normal sobre split de draft -> substitui o secundário focado
         |
         v
-executor：先提交 pane/group owner，再同步 shell active
+executor: primeiro confirma o owner de pane/group e só então sincroniza o shell active
 ```
 
-### 拖入分屏
+### Arrastar para um split
 
 ```text
-dragstart sidebar session
+dragstart numa sessão da sidebar
         |
-        +-- session 已在任何 group -> draggable=false / no payload
-        +-- pane count full in current target group -> payload 可存在但 target 不显示 preview
+        +-- a sessão já está em algum group -> draggable=false / sem payload
+        +-- contagem de panes cheia no group alvo atual -> o payload pode existir mas o alvo não mostra preview
         v
-dragover target pane
+dragover sobre o pane de destino
         |
-        +-- client 不支持 -> ignore
-        +-- target group full -> ignore
-        +-- dragged session 已在 target/current group -> ignore
-        +-- pointer in center -> ignore
-        +-- pointer in edge zone -> show preview
+        +-- cliente não suporta -> ignore
+        +-- group alvo cheio -> ignore
+        +-- a sessão arrastada já está no group alvo/atual -> ignore
+        +-- pointer no centro -> ignore
+        +-- pointer na zona de borda -> mostra preview
         v
 drop
         |
         v
-split target pane by direction
-bind new pane to dragged session workspaceScope + sessionId
+divide o pane de destino pela direção
+vincula o novo pane ao workspaceScope + sessionId da sessão arrastada
 sessionIndex[sessionKey] = { groupId, paneId }
 activeGroupId = groupId
 focusedPaneId = newPaneId
-persist localStorage
+persiste no localStorage
 ```
 
-### 关闭 pane / 删除 session 后恢复
+### Recuperação após fechar pane / excluir sessão
 
 ```text
-close pane or restore guard removes missing session
+fecha o pane ou o guard de recuperação remove a sessão ausente
         |
         v
-remove pane binding + sessionIndex entry
+remove o binding do pane e a entrada do sessionIndex
         |
-        +-- group pane count >= 2 -> keep group
-        +-- group pane count == 1 -> collapse to ordinary single session, delete group
-        +-- group pane count == 0 -> delete group
+        +-- contagem de panes do group >= 2 -> preserva o group
+        +-- contagem de panes do group == 1 -> degrada para sessão única comum e remove o group
+        +-- contagem de panes do group == 0 -> remove o group
 ```
 
-删除 primary 是独立的会话生命周期事件：group store 的 GC 与 shell session 导航必须原子收口。
+Excluir a primária é um evento de ciclo de vida de sessão independente: o GC do group store e a navegação de sessão do shell precisam fechar de forma atômica.
 
 ```text
-delete primary A accepted
+exclusão da primária A aceita
         |
-        +-- remove group/session index
-        `-- shell.onSessionDeleted -> activeTaskId/sessionId = null -> workspace draft
+        +-- remove o group/session index
+        `-- shell.onSessionDeleted -> activeTaskId/sessionId = null -> rascunho do workspace
 ```
 
-`web-remote-replayable` 不只是隐藏 split affordance。remote shell 启用期间，所有 sidebar/new-task
-入口必须绕过 group context，renderer 不读取或写入 `workbench-groups:v1`；旧残留状态也不能成为
-workspace target。
+`web-remote-replayable` não é apenas esconder a affordance de split. Enquanto o shell remoto está habilitado, todas as entradas de sidebar/new-task
+precisam contornar o contexto de group, e o renderer não lê nem escreve `workbench-groups:v1`; um estado residual antigo também não pode virar
+alvo de workspace.
 
-### paneLayout → group 唯一所有权
+### Propriedade única de paneLayout → group
 
 ```text
-draft / ungrouped split: paneLayout:v2 owns root
+split de draft / não agrupado: paneLayout:v2 é dono do root
         |
-        | secondary pane binds a normal session and promotion succeeds
+        | o pane secundário vincula uma sessão comum e a promoção tem sucesso
         v
-session group: workbench-groups:v1 owns root
+group de sessões: workbench-groups:v1 é dono do root
         |
-        +-- consume/reset paneLayout source to single primary
-        +-- divider ratio writes group.root
-        `-- group GC falls back to the consumed single primary
+        +-- consome/reseta a origem paneLayout para um único primary
+        +-- a razão do divider escreve em group.root
+        `-- o GC do group cai para o primary único consumido
 ```
 
-promotion 不是复制布局后保留双写。成功后旧 paneLayout split 必须被消费；否则 divider 会把 ratio 写到不可见 owner，group close 后旧 secondary pane 还会复活。workspace scope/binding 在 ratio 更新中原样保留，隔离 key 仍为 `workspaceIdentity?.trim() || workspacePath`。
+A promoção não é copiar o layout e manter escrita dupla. Depois do sucesso, o split antigo do paneLayout precisa ser consumido; caso contrário o divider
+escreve a razão em um owner invisível e, após o fechamento do group, o pane secundário antigo ressuscita. O workspace scope/binding é preservado como está na atualização de
+razão, e a chave de isolamento continua sendo `workspaceIdentity?.trim() || workspacePath`.
 
-### subagent 详情迁移边界
+### Fronteira de migração do detalhe de subagent
 
 ```text
-User click "在右侧打开" on subagent child
+clique do usuário em "Abrir à direita" no child de um subagent
         |
         v
-row context provides parentSessionId + childSessionId + subagentType
+a linha fornece parentSessionId + childSessionId + subagentType
         |
         v
-open/reuse workspace side tab keyed by workspace + parent + child
+abre/reutiliza a tab lateral do workspace com chave workspace + parent + child
         |
-        +-- workbench group/pane count unchanged
-        +-- child tab is full readOnly SessionPane
+        +-- contagem de group/pane do workbench inalterada
+        +-- a tab child é um SessionPane completo somente leitura
         v
-activate child tab, but shell active task remains parent
+ativa a tab child, mas a active task do shell continua sendo a pai
         |
         v
-all open child tabs keep live leases; parent switch only filters tab triggers
+todas as tabs child abertas mantêm leases vivos; trocar a pai apenas filtra os gatilhos de tab
 ```
 
-这个入口不再进入 `paneLayoutStore` 或 workbench group。恢复历史 localStorage 时包含
-`readOnly` child binding 的旧 group 会被丢弃；普通 session group 保持原恢复语义。
-同时，child pane 不能当作普通可输入 session：subagent 的 child session 由父会话编排产生，
-行内侧开只是查看它的执行过程和结果，不应该允许用户在 child pane 继续输入新 prompt。
+Esta entrada não entra mais no `paneLayoutStore` nem em workbench group. Um group antigo que contenha um binding child `readOnly` é descartado ao restaurar o
+histórico do localStorage; groups de sessões comuns mantêm a semântica de restauração original.
+Ao mesmo tempo, o pane child não pode ser tratado como uma sessão comum em que se possa digitar: a sessão child de um subagent é produzida pela
+orquestração da sessão pai, e abri-la inline na linha é apenas ver sua execução e resultado, portanto não se deve permitir que o usuário continue digitando novos
+prompts no pane child.
 
-## UI 设计约束
+## Restrições de design da UI
 
-- Drag preview 是目标 pane 的对应半区覆盖层，使用 design token：
-  - 背景：brand/accent 的低透明度表达；
-  - 边框：brand 或 focused border；
-  - 不写死蓝色，兼容 light/dark/Zai 主题。
-- 多 pane 时，非 focused pane 使用弱遮罩表达“非 active”状态：
-  - 遮罩使用 background token 的低透明度混合，不直接降低 pane 内容 opacity，避免文字、代码块、图片一起变淡；
-  - 遮罩 `pointer-events: none`，点击/聚焦仍由 pane shell 接收；
-  - drop preview 层级必须高于非 active 遮罩，拖拽演示不能被遮住；
-  - 单 pane 不显示遮罩，避免草稿/普通单会话出现无意义的暗化。
-- Center 区域不显示 preview，也不触发 drop。
-- 已属于任何 group 的 session item 不显示可拖 affordance；若浏览器仍触发 dragover，workbench 不显示 preview。
-- 达到 4 pane 时，不显示 drop preview，不触发 split。
-- Header 和左侧高亮跟随 focused pane 的 active context：
+- O drag preview é uma camada sobre a metade correspondente do pane de destino, usando design tokens:
+  - fundo: expressão de baixa opacidade de brand/accent;
+  - borda: brand ou borda de foco;
+  - sem azul fixo, compatível com os temas light/dark/Zai.
+- Com múltiplos panes, um pane não focado usa uma máscara fraca para expressar o estado 「não active」:
+  - a máscara usa uma mistura de baixa opacidade do token de background e não reduz diretamente a opacity do conteúdo do pane, evitando que texto, blocos de código e imagens clareiem juntos;
+  - a máscara tem `pointer-events: none`, e o clique/foco continuam sendo recebidos pelo shell do pane;
+  - a camada do drop preview precisa ficar acima da máscara de não active, para que a demonstração de drag não fique encoberta;
+  - com pane único não se exibe máscara, evitando um escurecimento sem sentido no rascunho/sessão única comum.
+- A área central não exibe preview e não dispara drop.
+- Um item de sessão que já pertence a algum group não exibe affordance de drag; e, se o navegador ainda disparar dragover, o workbench não mostra preview.
+- Ao atingir 4 panes, não se exibe drop preview e não se dispara split.
+- O header e o highlight da esquerda seguem o contexto ativo do pane focado:
 
 ```text
-focused pane binding
+binding do pane focado
         |
-        +--> workspace header path/remote label
-        +--> Git branch switcher workspacePath
-        +--> sidebar workspace/session highlight
-        +--> focused pane command routing
+        +--> path/remote label do workspace header
+        +--> workspacePath do switcher de branch Git
+        +--> highlight de workspace/session da sidebar
+        +--> roteamento de comandos do pane focado
 ```
 
-- 跨 workspace pane 的 branch/status 不得复用 shell 当前 workspace 的 Git summary。若目标 workspace 的 Git summary 尚未加载，可先显示 workspace badge/path，branch 入口按该 workspace 独立加载或降级为空态。
-- 手机和 `/remote` web-remote 不启用拖拽分屏；对应入口不显示，drop target 不注册。
+- O branch/status de um pane de outro workspace não pode reaproveitar o Git summary do workspace atual do shell. Se o Git summary do workspace alvo ainda não
+  foi carregado, pode-se mostrar primeiro o badge/path do workspace, e a entrada de branch carrega de forma independente por aquele workspace ou degrada para um estado vazio.
+- Celular e o web-remote `/remote` não habilitam split por drag; a entrada correspondente não é exibida e o drop target não é registrado.
 
-## Domain Scope
+## Escopo de Domínio
 
-| Domain | Include? | Why it can change behavior | Primary sources |
+| Domínio | Incluído? | Por que pode mudar comportamento | Fontes primárias |
 | --- | --- | --- | --- |
-| UI shell/theme/locale/responsive | yes | drag affordance、drop preview、header/sidebar active context 都是 UI shell 行为。 | `DESIGN.md`、`packages/ui/src/v4/*` |
-| Conversation/session behavior | yes | session 点击、focus、pane command routing 影响当前 active session。 | `docs/conversation-protocol-declaration.md`、`packages/ui/src/v4/SessionPane.tsx` |
-| Workspace identity/remote runtime | yes | 跨 workspace group 必须保持 `workspaceIdentity` 隔离和 remote session scope。 | `docs/v4-split-pane-workbench.md`、`docs/remote-workspace-session-unified-settings.md` |
-| Persistence/index/snapshot | yes | group layout localStorage 恢复、删除/归档后清理。 | `packages/ui/src/v4/paneLayoutPersistence.ts` |
-| Mobile remote/replayable realtime | limited | 仅用于明确禁用 `/remote`，避免 replayable 语义扩散。 | `docs/web-remote-control/web-remote-control-architecture.md` |
-| Protocol/agent runtime | no | group 是 renderer-local UI 状态，不改 v4 protocol。 | `docs/v4-split-pane-workbench.md` |
+| UI shell/theme/locale/responsivo | sim | A affordance de drag, o drop preview e o contexto ativo de header/sidebar são comportamentos de UI shell. | `DESIGN.md`, `packages/ui/src/v4/*` |
+| Comportamento de conversation/session | sim | O clique em sessão, o focus e o roteamento de comandos de pane afetam a sessão ativa atual. | `docs/conversation-protocol-declaration.md`, `packages/ui/src/v4/SessionPane.tsx` |
+| Identidade de workspace/runtime remoto | sim | Um group entre workspaces precisa manter o isolamento por `workspaceIdentity` e o scope de sessão remota. | `docs/v4-split-pane-workbench.md`, `docs/remote-workspace-session-unified-settings.md` |
+| Persistência/índice/snapshot | sim | Restauração do layout de group pelo localStorage e limpeza após exclusão/arquivamento. | `packages/ui/src/v4/paneLayoutPersistence.ts` |
+| Realtime remoto mobile/replayable | limitado | Usado apenas para desabilitar explicitamente `/remote`, evitando a propagação da semântica replayable. | `docs/web-remote-control/web-remote-control-architecture.md` |
+| Protocolo/agent runtime | não | O group é estado de UI local ao renderer e não altera o protocolo v4. | `docs/v4-split-pane-workbench.md` |
 
-## High-Risk Cross-Products
+## Produtos Cruzados de Alto Risco
 
-| Cross-product | Candidate risk | Initial handling |
+| Cross-product | Risco candidato | Tratamento inicial |
 | --- | --- | --- |
-| focused pane x header/sidebar active context | Header 显示 A，但命令/高亮仍指向 B。 | active context 必须从 focused pane binding 单源派生。 |
-| cross workspace x Git branch switcher | 非当前 shell workspace pane 复用错误 Git summary。 | branch/status 读取必须按 focused pane workspace scope。 |
-| group persistence x deleted/archived session | localStorage 恢复出已不存在 session。 | 恢复后按 sessions-index 验证；无效成员移除并 GC group。 |
-| duplicate session x drag preview | 已打开 session 还能看到可投放蓝区。 | drag source 和 drop target 双 guard。 |
-| desktop/web x web-remote replayable | 把 group 状态误下沉到 replayable remote 链路。 | client gate：普通 desktop/web only；remote/mobile disabled。 |
-| pane limit x dragover | 满 4 后仍预览但 drop 失败。 | 满 4 时不显示 preview，不接受 drop。 |
-| context menu x current/group ownership | 当前 session 仍可点，或已在其他 group 的 session 被重复创建。 | focused target 禁用；其他 owner 命中时只激活/focus。 |
-| draft paneLayout x sidebar navigation | 普通点击 C 通过 shell session 单值覆盖 primary draft。 | 先原子重绑 focused secondary，再提交 shell 导航；primary draft 始终无 session binding。 |
+| pane focado x contexto ativo de header/sidebar | O header mostra A, mas o comando/highlight continua apontando para B. | O contexto ativo precisa ser derivado de uma única fonte, o binding do pane focado. |
+| cross workspace x switcher de branch Git | Um pane de outro workspace reaproveita o Git summary errado. | A leitura de branch/status precisa respeitar o workspace scope do pane focado. |
+| persistência de group x sessão excluída/arquivada | O localStorage restaura uma sessão que não existe mais. | Validar pelo sessions-index após restaurar; membros inválidos são removidos e o group sofre GC. |
+| sessão duplicada x drag preview | Uma sessão já aberta ainda mostra a área de drop azul. | Guard duplo na origem do drag e no drop target. |
+| desktop/web x web-remote replayable | Estado de group afundado por engano na cadeia remota replayable. | Gate de cliente: apenas desktop/web comum; remoto/mobile desabilitado. |
+| limite de panes x dragover | Depois de completar 4 ainda há preview, mas o drop falha. | Ao completar 4 não se mostra preview e não se aceita drop. |
+| menu de contexto x propriedade current/group | A sessão atual ainda é clicável, ou uma sessão que já está em outro group é criada em duplicidade. | Alvo focado desabilitado; quando outro owner casa, apenas ativa/foca. |
+| paneLayout de draft x navegação da sidebar | Um clique normal em C sobrescreve o primary draft pelo valor único de sessão do shell. | Revincular atomicamente o secundário focado primeiro e só então confirmar a navegação do shell; o primary draft nunca tem binding de sessão. |
 
-## Candidate Combinations
+## Combinações Candidatas
 
-| Candidate ID | State | Event | Target/surface | Expected guard/effect | Initial status | Notes |
+| Candidate ID | Estado | Evento | Alvo/superfície | Guard/efeito esperado | Status inicial | Observações |
 | --- | --- | --- | --- | --- | --- | --- |
-| SWG-01 | 单 pane session A，session B 未分组 | 拖 B 到 A 右侧 | desktop/web workbench | 创建 G1，A/B 左右分屏，focus B。 | accepted | 基础路径。 |
-| SWG-02 | G1 已有 A/B | 左侧点击 A | sidebar | 显示 G1，focus A，header/sidebar 跟随 A。 | accepted | group 恢复语义。 |
-| SWG-03 | G1 已有 A/B，C 未分组 | 拖 C 到 B 下方 | pane B bottom zone | C 移入 G1，B 下方 split，原隐式 C 壳子消失。 | accepted | 唯一归属迁移。 |
-| SWG-04 | G1 已有 A/B | 拖 A 进入 workbench | sidebar/workbench | 源头不可拖；若 dragover 发生，不显示 preview。 | accepted | duplicate guard。 |
-| SWG-05 | G1 已有 4 pane | 拖 E 进入任意 pane | workbench | 不显示 preview，不触发 split。 | accepted | pane limit。 |
-| SWG-06 | pointer 在目标 pane center | dragover | workbench | 不显示 preview，不触发 drop。 | accepted | center disabled。 |
-| SWG-07 | G1 A/B 跨 workspace | focus B | header/sidebar | Header 和 left highlight 显示 B 的 workspace/session。 | accepted | active context 派生。 |
-| SWG-08 | web-remote/mobile | 拖 session | remote shell | 无 drag split affordance，drop target 不注册。 | pruned | 明确禁用。 |
-| SWG-09 | localStorage 恢复 G1，但 B 已删除 | restore | renderer boot | 移除 B；只剩 A 则 group 退化删除。 | accepted | restore guard。 |
-| SWG-10 | session A 的 foreground subagent child B 已生成 | 点击 Agent 展开区 `Prompt` 标题旁的“在右侧打开” | Agent 工具块 | 不创建 workbench group；workspace 右侧激活 B 的完整只读 tab，A 仍为主 session。 | migrated-to-SAT | 现行语义见 `subagent-session-side-tabs.md` 与 SAT01-SAT10。 |
-| SWG-11 | primary pane 是草稿态，session B 未分组 | 拖 B 到草稿 pane 右侧 | workbench draft pane | 显示完整右半区 preview；drop 后 primary 仍是 draft，B 在右侧 pane；不创建 group。 | accepted | draft 不是 session，走 paneLayoutStore。 |
-| SWG-12 | 历史状态含 readOnly subagent child B pane | renderer restore | workbench migration | 丢弃旧 readOnly group；B 只能从父 Agent 行重新打开为右侧 tab。 | migrated-to-SAT | 普通 session group 不受影响。 |
-| SWG-13 | session A primary + session/subagent B focused pane；若 draft split 已 promote，paneLayout source 已消费 | 关闭 B pane | workbench close | workbench 退回 A；shell activeTaskId/sidebar highlight 同步回 A；group GC 后不得从 shadow paneLayout 复活 B。 | accepted | close 后不能保留已关闭 session；visible layout 同时只有一个 owner。 |
-| SWG-14 | workspace A 的 main session + 历史 workspace B readOnly subagent pane | renderer restore | migration | 旧 readOnly subagent group 不恢复，不再参与 `Cmd/Ctrl+N` focused pane 路由。 | migrated-to-SAT | 新 subagent 右侧 tab 不改变 shell active workspace/task。 |
-| SWG-15 | 当前 focused pane 已显示 session A | 右键 A | sidebar context menu | 「在分屏打开」保持可见但 disabled；不写 paneLayout/group/shell。 | accepted | current guard 必须按 focused owner 判定。 |
-| SWG-16 | session B 已属于非当前 G2 | 在当前单 pane/G1 中右键 B | sidebar context menu | 激活 G2 并 focus B 的既有 pane；pane 数与唯一 membership 不变。 | accepted | 用户确认“切换”。 |
-| SWG-17 | primary 是 draft A，B 未分组 | 右键 B 选择「在分屏打开」 | sidebar context menu | 与拖拽相同形成 `[draft A | B]` 临时 paneLayout，focus B；不创建真实 session 或重复 group。 | accepted | 菜单与拖拽共用 owner/action。 |
-| SWG-18 | 临时布局 `[draft A | B]` 且 focus B，C 未分组 | 普通点击 C | sidebar | 原位替换 focused secondary 的完整 binding，得到 `[draft A | C]`；pane 数不变，draft A 不被 shell session 覆盖。 | accepted | 本轮 bug-candidate。 |
+| SWG-01 | sessão A em pane único, sessão B não agrupada | Arrastar B para a direita de A | workbench desktop/web | Cria G1, split esquerdo/direita de A/B, foco em B. | accepted | Caminho básico. |
+| SWG-02 | G1 já tem A/B | Clicar em A na esquerda | sidebar | Mostra G1, foca A, header/sidebar acompanham A. | accepted | Semântica de restauração de group. |
+| SWG-03 | G1 já tem A/B, C não agrupada | Arrastar C para baixo de B | bottom zone do pane B | C entra no G1, split abaixo de B, a casinha implícita original de C desaparece. | accepted | Migração de pertencimento único. |
+| SWG-04 | G1 já tem A/B | Arrastar A para dentro do workbench | sidebar/workbench | A origem não é arrastável; se o dragover acontecer, não mostra preview. | accepted | Guard de duplicata. |
+| SWG-05 | G1 já tem 4 panes | Arrastar E para qualquer pane | workbench | Não mostra preview, não dispara split. | accepted | Limite de panes. |
+| SWG-06 | Pointer no centro do pane de destino | dragover | workbench | Não mostra preview, não dispara drop. | accepted | Centro desabilitado. |
+| SWG-07 | G1 A/B entre workspaces | Focar B | header/sidebar | Header e highlight da esquerda mostram o workspace/sessão de B. | accepted | Derivação do contexto ativo. |
+| SWG-08 | web-remote/mobile | Arrastar uma sessão | shell remoto | Sem affordance de drag split, drop target não registrado. | pruned | Desabilitado explicitamente. |
+| SWG-09 | localStorage restaura G1, mas B foi excluída | restore | boot do renderer | Remove B; sobrando apenas A, o group degrada e é removido. | accepted | Guard de restauração. |
+| SWG-10 | child de subagent em foreground B da sessão A já foi gerado | Clicar em 「Abrir à direita」 ao lado do título `Prompt` da área expansível do Agent | Bloco de ferramenta do Agent | Não cria workbench group; ativa à direita do workspace a tab completa somente leitura de B, e A continua sendo a sessão principal. | migrated-to-SAT | A semântica atual está em `subagent-session-side-tabs.md` e em SAT01-SAT10. |
+| SWG-11 | O pane primário está em rascunho, sessão B não agrupada | Arrastar B para a direita do pane de rascunho | pane de draft do workbench | Mostra o preview da metade direita inteira; após o drop o primary continua sendo draft, B fica no pane da direita e nenhum group é criado. | accepted | O draft não é sessão e passa pelo paneLayoutStore. |
+| SWG-12 | Estado histórico contém um pane de child de subagent readOnly B | restore do renderer | migração do workbench | Descarta o group readOnly antigo; B só pode ser reaberto como tab à direita a partir da linha do Agent pai. | migrated-to-SAT | Groups de sessões comuns não são afetados. |
+| SWG-13 | Sessão A primary + pane focado de sessão/subagent B; se o split de draft já foi promovido, a origem paneLayout já foi consumida | Fechar o pane B | fechamento do workbench | O workbench volta a A; o activeTaskId/highlight da esquerda voltam a A; após o GC do group, B não pode ressuscitar de um paneLayout sombra. | accepted | Uma sessão fechada não pode ser preservada; o layout visível tem apenas um owner por vez. |
+| SWG-14 | Sessão main do workspace A + pane histórico de subagent readOnly do workspace B | restore do renderer | migração | O group antigo de subagent readOnly não é restaurado e não participa mais do roteamento de pane focado em `Cmd/Ctrl+N`. | migrated-to-SAT | A nova tab lateral de subagent não altera o workspace/task ativo do shell. |
+| SWG-15 | O pane focado atual já exibe a sessão A | Botão direito em A | menu de contexto da sidebar | 「Abrir em split」 permanece visível, mas desabilitado; não escreve paneLayout/group/shell. | accepted | O guard de current precisa ser julgado pelo owner focado. |
+| SWG-16 | A sessão B já pertence ao G2, que não é o atual | Botão direito em B no pane único atual/em G1 | menu de contexto da sidebar | Ativa G2 e foca o pane existente de B; a contagem de panes e o membership único não mudam. | accepted | O usuário confirmou 「trocar」. |
+| SWG-17 | O primary é o draft A, B não agrupada | Botão direito em B escolhendo 「Abrir em split」 | menu de contexto da sidebar | Forma o mesmo paneLayout temporário `[draft A | B]` que o drag, com foco em B; não cria sessão real nem group duplicado. | accepted | Menu e drag compartilham owner/ação. |
+| SWG-18 | Layout temporário `[draft A | B]` com foco em B, C não agrupada | Clique normal em C | sidebar | Substitui no lugar o binding completo do secundário focado, resultando em `[draft A | C]`; a contagem de panes não muda e o draft A não é sobrescrito pela sessão do shell. | accepted | bug-candidate deste ciclo. |
 
-## Accepted Cases
+## Cases Aceitos
 
-| Case ID | Setup | Action | Assertions | Evidence layers | E2E status |
+| Case ID | Setup | Action | Assertions | Camadas de evidência | Status E2E |
 | --- | --- | --- | --- | --- | --- |
-| SWG-E2E-01 | 普通 desktop/web，A 当前单 pane，B 未分组。 | 从 sidebar 拖 B 到 A right zone。 | 出现右半区 preview；drop 后 A/B 两 pane；focus B；localStorage 有 G1。 | UI + localStorage + v4 pane testids | planned |
-| SWG-E2E-02 | G1 A/B 已存在。 | 左侧点击 A，再点击 B。 | 中间不重建 group；focused pane 切换；header/sidebar 跟随对应 session。 | UI + store probe | planned |
-| SWG-E2E-03 | G1 A/B，C 未分组。 | 拖 C 到 B bottom zone。 | 目标是 pane B 下方；G1 三 pane；C 从未分组变为 G1 成员。 | UI + localStorage | planned |
-| SWG-E2E-04 | G1 A/B。 | 尝试拖 A。 | A item 不可拖或 dragover 不显示 preview；pane 数不变。 | UI | planned |
-| SWG-E2E-05 | G1 四 pane。 | 拖 E 到任意 pane。 | 不显示 preview；drop no-op。 | UI + store | planned |
-| SWG-E2E-06 | G1 A/B persisted。 | reload renderer 后点击 A/B。 | G1 可恢复；focus 对应 pane。 | UI + localStorage restore + sessions-index guard | planned |
-| SWG-E2E-07 | mobile 或 `/remote` shell。 | 查看 session list/workbench。 | 无拖拽分屏入口；现有点击行为不变。 | UI | planned |
-| SWG-E2E-08 | session A timeline 展开 subagent child B。 | 点击“在右侧打开”。 | 不增加 workbench pane；右侧 child tab 完整只读，左侧 active task 仍为 A。 | UI + store probe | migrated-to-SAT |
-| SWG-E2E-09 | primary pane 是新会话草稿。 | 拖 session B 到草稿 pane edge zone。 | 预览不被 input 遮挡；drop 后草稿+B 两 pane；workbench group 仍为空。 | UI + store probe | planned |
-| SWG-E2E-10 | session A 右侧打开 subagent child B。 | 激活、关闭 B tab。 | 左侧始终高亮 A；关闭只释放 child tab/lease，不改变主区。 | UI + store probe | migrated-to-SAT |
-| SWG-E2E-11 | workspace B 有隐藏的 subagent child tab。 | `Cmd/Ctrl+N` / New task menu。 | 快捷键仍按 shell/workbench focused 普通 pane 路由，隐藏 child tab 不成为任务创建目标。 | UI + store probe | migrated-to-SAT |
-| SWG-E2E-12 | 当前单 pane/group focused session A。 | 右键 A。 | 「在分屏打开」disabled；pane/group snapshot 保持原引用。 | UI + store probe | planned |
-| SWG-E2E-13 | B 已在其他 group G2。 | 在当前视图右键 B 并选择「在分屏打开」。 | 直接恢复 G2、focus B；没有新增 pane/session membership。 | UI + localStorage + store probe | planned |
-| SWG-E2E-14 | primary draft A；B/C 都是同 workspace 未分组 session。 | 右键 B 在分屏打开，再普通点击 C。 | 先得到 `[draft A | B]`，再得到 `[draft A | C]`；pane 数始终 2；primary sessionId 始终为 draft。 | UI + paneLayout store + v4 pane testids + UI debug log | planned |
+| SWG-E2E-01 | Desktop/web comum, A em pane único atual, B não agrupada. | Arrastar B da sidebar para a right zone de A. | Aparece o preview da metade direita; após o drop há dois panes A/B; foco em B; o localStorage tem G1. | UI + localStorage + v4 pane testids | planned |
+| SWG-E2E-02 | G1 A/B já existe. | Clicar em A na esquerda e depois em B. | O group não é reconstruído no meio; o pane focado alterna; header/sidebar acompanham a sessão correspondente. | UI + store probe | planned |
+| SWG-E2E-03 | G1 A/B, C não agrupada. | Arrastar C para a bottom zone de B. | O alvo fica abaixo do pane B; G1 tem três panes; C passa de não agrupada para membro de G1. | UI + localStorage | planned |
+| SWG-E2E-04 | G1 A/B. | Tentar arrastar A. | O item de A não é arrastável ou o dragover não mostra preview; a contagem de panes não muda. | UI | planned |
+| SWG-E2E-05 | G1 com quatro panes. | Arrastar E para qualquer pane. | Não mostra preview; o drop é no-op. | UI + store | planned |
+| SWG-E2E-06 | G1 A/B persistido. | Recarregar o renderer e clicar em A/B. | G1 é restaurado; o pane correspondente é focado. | UI + restauração do localStorage + guard de sessions-index | planned |
+| SWG-E2E-07 | Shell mobile ou `/remote`. | Ver a lista de sessões/workbench. | Sem entrada de split por drag; o comportamento de clique existente não muda. | UI | planned |
+| SWG-E2E-08 | A sessão A expande o subagent child B na timeline. | Clicar em 「Abrir à direita」. | Não aumenta o pane do workbench; a tab child à direita é completa e somente leitura, e a active task da esquerda continua sendo A. | UI + store probe | migrated-to-SAT |
+| SWG-E2E-09 | O pane primário é o rascunho de uma nova sessão. | Arrastar a sessão B para a edge zone do pane de rascunho. | O preview não é coberto pelo input; após o drop há rascunho+B em dois panes; o workbench group continua vazio. | UI + store probe | planned |
+| SWG-E2E-10 | O subagent child B foi aberto à direita da sessão A. | Ativar e fechar a tab B. | A esquerda sempre destaca A; fechar só libera a tab/lease do child, sem mudar a área principal. | UI + store probe | migrated-to-SAT |
+| SWG-E2E-11 | O workspace B tem uma tab oculta de subagent child. | `Cmd/Ctrl+N` / menu New task. | O atalho continua roteado pelo pane comum focado do shell/workbench, e a tab child oculta não vira alvo de criação de task. | UI + store probe | migrated-to-SAT |
+| SWG-E2E-12 | Sessão A em pane único comum/focado de group. | Botão direito em A. | 「Abrir em split」 desabilitado; o snapshot de pane/group mantém a mesma referência. | UI + store probe | planned |
+| SWG-E2E-13 | B já está em outro group G2. | Botão direito em B na view atual e escolher 「Abrir em split」. | Restaura G2 diretamente e foca B; sem novo pane/session membership. | UI + localStorage + store probe | planned |
+| SWG-E2E-14 | Primary draft A; B/C são sessões não agrupadas do mesmo workspace. | Botão direito em B para abrir em split e depois clique normal em C. | Primeiro se obtém `[draft A | B]` e depois `[draft A | C]`; a contagem de panes é sempre 2; o sessionId primário é sempre o draft. | UI + store do paneLayout + v4 pane testids + log de debug da UI | planned |
 
-## 实施建议
+## Sugestões de implementação
 
-推荐方案 B：新增 `workbenchGroupStore`，不要把 group 概念塞进现有单个 `paneLayoutStore`。
+Recomenda-se o esquema B: criar um `workbenchGroupStore` novo, sem enfiar o conceito de group no `paneLayoutStore` único já existente.
 
 ```text
 packages/ui/src/v4/workbenchGroupStore.ts
@@ -428,9 +436,9 @@ packages/ui/src/v4/workbenchGroupStore.ts
   - restore/persist localStorage
 ```
 
-现有 `paneLayoutTree.ts` 的纯函数可以复用：二叉分割树、`splitPaneAt`、`closePane`、`setSplitNodeRatio`、`effectiveFocusedPaneId` 等仍然成立。实现时要把“一个全局 layout”提升为“每个 group 一份 layout”。
+As funções puras do `paneLayoutTree.ts` atual podem ser reaproveitadas: árvore binária de divisão, `splitPaneAt`, `closePane`, `setSplitNodeRatio`, `effectiveFocusedPaneId` e assim por diante continuam válidos. Na implementação, é preciso elevar 「um layout global」 para 「um layout por group」.
 
-拖拽 payload 只带 UI 所需最小事实：
+O payload de drag carrega apenas os fatos mínimos necessários à UI:
 
 ```ts
 type DraggedSessionPayload = {
@@ -441,29 +449,29 @@ type DraggedSessionPayload = {
 };
 ```
 
-drop target 必须重新从 store 校验 payload，不能信任 drag source：
+O drop target precisa revalidar o payload a partir do store e não pode confiar na origem do drag:
 
-- session 是否已经属于任何 group；
-- target group 是否存在且未满；
-- client mode 是否允许；
-- pointer 是否落在 edge zone；
-- workspace scope 是否完整。
+- se a sessão já pertence a algum group;
+- se o group alvo existe e não está cheio;
+- se o modo de cliente permite;
+- se o pointer caiu na edge zone;
+- se o workspace scope está completo.
 
 ## Matrix Backfill
 
-| File | Change |
+| Arquivo | Mudança |
 | --- | --- |
-| `docs/conversation-session-case-catalog.md` | 增加 session workbench group / drag split 的产品 case 条目。 |
-| `docs/testing/conversation-session-e2e-coverage-matrix.md` | 增加 SWG-E2E-01 至 SWG-E2E-07，初始标记 planned。 |
-| `docs/v4-split-pane-workbench.md` | 实现阶段需要把“单 workbench layout”现状更新为 group-aware workbench，并指向本文。 |
+| `docs/conversation-session-case-catalog.md` | Adicionar entradas de case de produto para session workbench group / split por drag. |
+| `docs/testing/conversation-session-e2e-coverage-matrix.md` | Adicionar SWG-E2E-01 a SWG-E2E-07, marcados inicialmente como planned. |
+| `docs/v4-split-pane-workbench.md` | Na fase de implementação, atualizar o status atual de 「layout único de workbench」 para workbench(group-aware) e apontar para este documento. |
 
-## E2E Handoff Notes
+## Notas de Handoff E2E
 
-- Provider fixture: 复用 v4 conversation fixture；不需要 provider 特殊响应。
-- File-system fixture: 至少两个 workspace，覆盖 local + remote identity 的代表用例；远程真机回归可后补。
-- Timing strategy: dragover preview 用 Playwright mouse move + data-testid 断言；drop 后等待 pane testid 和 focused state。
-- Docker preset: 非必须；remote workspace 覆盖可走现有 SSH/WSL/Docker 专项。
-- Review risks:
-  - Header/sidebar active context 不能通过修改全局 `activeTabId` 粗暴实现，否则会破坏 group 保留语义。
-  - 普通 Web App 可用，但 `/remote` 和 mobile 禁用；client gate 要可测试。
-  - localStorage 恢复必须容忍 session 删除、workspace 断连、schema 损坏。
+- Fixture de provider: reaproveitar a fixture de conversation do v4; não é necessária resposta especial de provider.
+- Fixture de sistema de arquivos: pelo menos dois workspaces, cobrindo casos representativos de identidade local + remota; a regressão em máquina remota real pode ser adicionada depois.
+- Estratégia de timing: o preview de dragover usa mouse move do Playwright com asserção por data-testid; após o drop, espera-se o testid de pane e o estado de focus.
+- Preset Docker: não obrigatório; a cobertura de workspace remoto pode seguir as especialidades existentes de SSH/WSL/Docker.
+- Riscos de review:
+  - O contexto ativo de header/sidebar não pode ser implementado alterando grosseiramente o `activeTabId` global, senão a semântica de preservação de group é quebrada.
+  - O Web App comum pode usar o recurso, mas `/remote` e mobile são desabilitados; o gate de cliente precisa ser testável.
+  - A restauração do localStorage precisa tolerar exclusão de sessão, queda de conexão do workspace e schema corrompido.

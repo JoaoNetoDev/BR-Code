@@ -1,55 +1,51 @@
-# Todo 32：Team Plan 设置页与 Effective Provider 边界收口
+# Todo 32: fechamento da fronteira entre a página de configurações do Team Plan e o Effective Provider
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-27
+> Data: 2026-08-27
 >
-> 来源：Team Plan 设置页实机体验与 Provider Refactor 边界复核
+> Origem: experiência prática da página de configurações do Team Plan e revisão de fronteiras do Provider Refactor
 >
-> 关联任务：[`Todo 27`](./todo-27-provider-settings-dogfood-closeout.md)、
+> Tarefas relacionadas: [`Todo 27`](./todo-27-provider-settings-dogfood-closeout.md),
 > [`Todo 17`](./todo-17-provider-registry-settings-authority-boundary-closure.md)
 
-## 1. 问题
+## 1. Problema
 
-Team Plan 设置页当前把导航身份、Effective Provider、账号连接、套餐权益、额度查询和错误展示压进同一个
-`ModelProviderNavItem`。详情页再使用套餐 `status` 决定是否渲染整个 Provider 配置区域：
+A página de configurações do Team Plan comprime hoje identidade de navegação, Effective Provider, conexão de conta, direitos do plano, consulta de cota e exibição de erros no mesmo `ModelProviderNavItem`. A página de detalhes usa então o `status` do plano para decidir se renderiza toda a área de configuração de Provider:
 
 ```text
-Provider 配置事实
-账号连接状态
-套餐购买状态
-Team quota 查询
-Team Project API Key 状态
-页面导航信息
+Fatos de configuração do Provider
+Status de conexão da conta
+Status de compra do plano
+Consulta de cota do Team
+Status da Team Project API Key
+Informações de navegação da página
         |
         v
 ModelProviderNavItem.status
         |
-        +-- purchased -> 套餐卡 + Provider/模型配置
-        `-- 其他状态  -> 仅套餐卡，隐藏 Provider/模型配置
+        +-- purchased -> card do plano + configuração de Provider/modelo
+        `-- outros status  -> apenas o card do plano, ocultando a configuração de Provider/modelo
 ```
 
-实际门禁要求 `dedicatedProvider !== null && status === "purchased"`。因此额度正在加载、请求失败、项目 Key
-不可用或服务端明确未分配，都会让已经存在的 Effective Provider、模型列表和 Personal Model Config 编辑入口一起
-消失。
+O gate real exige `dedicatedProvider !== null && status === "purchased"`. Portanto, enquanto a cota está carregando, quando a requisição falha, quando a Project Key está indisponível ou quando o servidor afirma explicitamente que não há alocação, o Effective Provider já existente, a lista de modelos e o ponto de entrada de edição do Personal Model Config desaparecem juntos.
 
-当前实现还通过 `statusLabelId` 反推“团队套餐未分配”，并把多种原因合并成 `unavailable`：
+A implementação atual também infere "plano do time não alocado" a partir de `statusLabelId` e combina várias causas em `unavailable`:
 
 ```text
-服务端明确未分配 ───────────────┐
-Team Project Key 不可用 ─────────┤
-quota 请求失败 / 状态未知 ───────┼─> unavailable / teamUnavailable
-quota 正在加载且没有快照 ────────┘
+Servidor afirma explicitamente que não alocou ─────────────┐
+Team Project Key indisponível ─────────────────────────┤
+Falha na requisição de quota / estado desconhecido ──────┼─> unavailable / teamUnavailable
+Quota em carregamento e sem snapshot ────────────────────┘
 ```
 
-这使“套餐状态卡显示什么”错误地成为“Provider 配置是否存在”的权威，也会把暂时未知误报成服务端已明确判定
-未分配。
+Isso faz com que "o que o card de status do plano mostra" se torne erroneamente a autoridade sobre "a configuração de Provider existe", e também reporta um desconhecido temporário como se o servidor tivesse decidido explicitamente que não há alocação.
 
-## 2. 已裁决的权威边界
+## 2. Fronteiras de autoridade já decididas
 
-### 2.1 ProviderSettingsView 的含义
+### 2.1 O significado de ProviderSettingsView
 
-`ProviderSettingsView` 不是新的配置层或第二份配置权威。它是同一次正式 Resolver 结果面向设置页的只读投影：
+`ProviderSettingsView` não é uma nova camada de configuração nem uma segunda autoridade de configuração. É uma projeção somente leitura do resultado do mesmo Resolver oficial, voltada à página de configurações:
 
 ```text
 ZCode Built-in Provider Config
@@ -67,34 +63,28 @@ Effective Provider Config
              |                         |
              v                         v
 ProviderSettingsView              Provider Registry
-完整设置投影                      仅完整且可执行的成员
+projeção completa de configuração   apenas membros completos e executáveis
 ```
 
-`ProviderSettingsView.providers[].effectiveConfig` 和 `models[].effectiveConfig` 是设置页展示 Provider/Model 的最终
-结果。`effectiveBuiltinConfig`、`personalConfig`、`personalExactConfig` 和 `issues` 只补充编辑来源、恢复默认、
-稀疏保存和修复不完整配置所需的信息，不参与第二次 Overlay。
+`ProviderSettingsView.providers[].effectiveConfig` e `models[].effectiveConfig` são o resultado final que a página de configurações usa para exibir Provider/Model. `effectiveBuiltinConfig`, `personalConfig`, `personalExactConfig` e `issues` apenas complementam as informações necessárias para fontes de edição, restaurar padrões, gravação esparsa e reparo de configurações incompletas; não participam de um segundo Overlay.
 
-设置页不能只读 Registry，因为 disabled 或不完整的 Provider/Model 会被 Registry 排除，但仍必须留在设置页供用户
-查看和修复。
+A página de configurações não pode ler apenas o Registry, porque Providers/Modelos desabilitados ou incompletos são excluídos pelo Registry, mas ainda precisam permanecer na página para o usuário visualizar e reparar.
 
-### 2.2 Renderer 不理解 Account Overlay
+### 2.2 O Renderer não entende o Account Overlay
 
-Account Provider Config 只在 Resolver 上游参与生成 Effective Provider Config：
+O Account Provider Config participa da geração do Effective Provider Config apenas a montante do Resolver:
 
 ```text
 Built-in -> Account -> Personal -> Effective
 ```
 
-Provider 设置页不得重新读取、应用或推断 Account Overlay 的 `enabled`、模型成员或 Access。页面统一读取
-`ProviderSettingsView` 中的最终 `effectiveConfig`、`models`、`enabled`、`executable` 和 `issues`。
+A página de configurações de Provider não pode reler, reaplicar ou inferir o `enabled`, os membros de modelo ou o Access do Account Overlay. A página lê uniformemente o `effectiveConfig`, `models`, `enabled`, `executable` e `issues` finais do `ProviderSettingsView`.
 
-Team entitlement/usage 请求需要的静态账号 Access 同样从所选 Effective Provider 的 `effectiveConfig.access` 取得；
-当前 Team 连接的 `productId / organizationId / projectId` 来自导航选择，只作为本次权益/额度请求上下文，不写回
-Provider Config、Account Overlay、Personal Config 或 Registry。
+O Access estático de conta necessário para as requisições de entitlement/usage do Team é obtido igualmente do `effectiveConfig.access` do Effective Provider selecionado; o `productId / organizationId / projectId` da conexão atual do Team vêm da seleção de navegação e servem apenas como contexto da requisição de entitlement/cota, sem serem gravados de volta no Provider Config, no Account Overlay, no Personal Config ou no Registry.
 
-### 2.3 套餐状态不拥有 Provider 配置可见性
+### 2.3 O status do plano não possui a visibilidade da configuração de Provider
 
-Team Plan 页面固定由两条独立投影组成：
+A página do Team Plan é composta de forma fixa por duas projeções independentes:
 
 ```text
 ProviderSettingsView
@@ -102,10 +92,10 @@ ProviderSettingsView
    ├─ effectiveConfig
    ├─ effective models
    ├─ enabled / executable
-   └─ Personal 编辑来源
+   └─ fontes de edição Personal
              |
              v
-      Provider 配置区域
+      área de configuração de Provider
 
 Team Plan selection
 ├─ productId
@@ -116,178 +106,169 @@ Team Plan selection
       entitlement / quota
              |
              v
-        套餐状态卡
+        card de status do plano
 ```
 
-两条投影只在右侧详情布局中组合。套餐查询结果可以影响状态卡、额度、重试和购买/管理操作，但不能决定 Effective
-Provider、模型列表或模型编辑入口是否存在。
+As duas projeções só se combinam no layout de detalhes à direita. O resultado da consulta do plano pode afetar o card de status, a cota, o retry e as ações de compra/gerenciamento, mas não pode decidir se o Effective Provider, a lista de modelos ou o ponto de entrada de edição de modelos existe.
 
-## 3. 目标页面结构
+## 3. Estrutura de página desejada
 
-只要 `ProviderSettingsView` 中存在当前 Team Provider，右侧始终保持同一个 Provider 页面：
+Sempre que o `ProviderSettingsView` contiver o Team Provider atual, o lado direito mantém sempre a mesma página de Provider:
 
 ```text
 ┌─────────────────────────────────────┐
-│ Provider 标题、状态与连接方式       │
+│ Título, status e modo de conexão do │
+│ Provider                            │
 ├─────────────────────────────────────┤
-│ Team Plan 状态卡                    │
-│ 组织 / 项目 / 额度 / 错误 / 重试    │
+│ Card de status do Team Plan         │
+│ Organização / projeto / cota / erro │
+│ / retry                             │
 ├─────────────────────────────────────┤
-│ Effective 模型列表                  │
-│ Model A                  [开关][编辑]│
-│ Model B                  [开关][编辑]│
+│ Lista de modelos efetivos           │
+│ Model A                  [toggle][editar]│
+│ Model B                  [toggle][editar]│
 └─────────────────────────────────────┘
 ```
 
-- Team Provider 模型显示、排序、启停和 Personal Model Config 编辑继续使用统一 Provider 设置组件；
-- Start Plan 的账号特定模型成员仍保持既有只读边界，本 Todo 不改变；
-- Individual / Team Coding Plan 页面完全隐藏 Endpoint 与 API Schema。这只是设置页产品投影：字段继续保留在
-  Effective Provider Config 并供 Registry/Runtime 使用，Renderer 不复制、不清除也不覆盖；
-- 账号 Access 同样不作为可编辑表单字段展示；
-- Provider disabled、配置不完整或套餐不可用时，模型仍可显示和编辑，但不可执行事实必须准确展示；
-- Provider 尚在加载时显示加载态；加载完成后确实缺失时显示 Provider 配置异常，不能伪装成未购买或未分配。
+- A exibição, ordenação, ativação/desativação e a edição do Personal Model Config para modelos do Team Provider continuam usando o componente unificado de configurações de Provider;
+- Os membros de modelo específicos da conta do Start Plan mantêm a fronteira somente leitura já existente, e este Todo não a altera;
+- As páginas de Individual / Team Coding Plan ocultam completamente Endpoint e API Schema. Isso é apenas a projeção de produto da página de configurações: os campos continuam existindo no Effective Provider Config e são usados pelo Registry/Runtime; o Renderer não os duplica, não os limpa e não os sobrescreve;
+- O Access de conta também não é exibido como campo de formulário editável;
+- Quando o Provider está desabilitado, com configuração incompleta ou com plano indisponível, os modelos ainda podem ser exibidos e editados, mas o fato de não serem executáveis precisa ser exibido com precisão;
+- Enquanto o Provider está carregando, exibe-se o estado de carregamento; quando o carregamento termina e o Provider realmente está ausente, exibe-se uma anomalia de configuração de Provider, sem se fingir não comprado ou não alocado.
 
-## 4. 状态语义
+## 4. Semântica de status
 
-Team Plan 状态必须保留明确原因，不能再由通用 `statusLabelId` 反向推断：
+O status do Team Plan precisa preservar a causa explícita e não pode mais ser inferido ao contrário por um `statusLabelId` genérico:
 
-| 状态                     | 套餐卡行为                           | Provider 配置区域    |
+| Status                     | Comportamento do card do plano                           | Área de configuração do Provider    |
 | ------------------------ | ------------------------------------ | -------------------- |
-| checking                 | 显示加载，清除上一 Team 的额度       | Provider 存在即显示  |
-| available                | 显示团队身份与额度                   | 显示                 |
-| explicitly-not-allocated | 明确显示“团队套餐未分配”             | 显示                 |
-| credential-unavailable   | 显示 Project Key/凭据原因和可用操作  | 显示                 |
-| request-failed / unknown | 显示获取失败并允许重试，不称为未分配 | 显示                 |
-| provider-loading         | 显示 Provider 加载                   | 暂不显示编辑器       |
-| provider-missing         | 显示独立配置异常                     | 不渲染虚假套餐购买页 |
+| checking                 | Mostra carregando e limpa a cota do Team anterior       | Exibida se o Provider existir  |
+| available                | Mostra a identidade do time e a cota                   | Exibida                 |
+| explicitly-not-allocated | Mostra explicitamente "plano do time não alocado"             | Exibida                 |
+| credential-unavailable   | Mostra o motivo da Project Key/credencial e as ações disponíveis  | Exibida                 |
+| request-failed / unknown | Mostra a falha ao obter e permite retry, sem chamar de não alocado | Exibida                 |
+| provider-loading         | Mostra o carregamento do Provider                   | O editor ainda não é exibido       |
+| provider-missing         | Mostra uma anomalia de configuração independente                     | Não renderiza uma falsa página de compra de plano |
 
-具体类型可以复用现有上游判别结果或建立页面局部的判别联合，但只能作为套餐卡 View State，不能进入 Provider Config
-或成为第二份 Account/Registry 状态。
+O tipo concreto pode reutilizar os resultados discriminados já existentes a montante ou estabelecer uma união discriminada local à página, mas só pode funcionar como View State do card do plano, nunca entrar no Provider Config nem se tornar um segundo estado de Account/Registry.
 
-## 5. 实施方案
+## 5. Plano de implementação
 
-### 5.1 先固定失败测试
+### 5.1 Primeiro fixar os testes de falha
 
-1. Provider 存在且 Team quota 正在加载时，仍渲染模型列表；
-2. Provider 存在且 quota 请求失败时，仍渲染模型列表和编辑入口；
-3. Provider 存在且服务端明确未分配时，显示未分配提示但仍渲染模型列表；
-4. Project Key 不可用时显示真实原因，不误称 quota 未分配，Provider 配置仍存在；
-5. Provider 缺失与套餐不可用使用不同 UI 状态；
-6. Team 与 Start 的模型编辑权限保持差异，不因共享组件被统一。
-7. Individual / Team Coding Plan 页面不渲染 Endpoint 与 API Schema；隐藏不能改变保存 payload 或运行时配置。
+1. Quando o Provider existe e a cota do Team está carregando, a lista de modelos ainda é renderizada;
+2. Quando o Provider existe e a requisição de cota falha, a lista de modelos e o ponto de entrada de edição ainda são renderizados;
+3. Quando o Provider existe e o servidor afirma explicitamente que não alocou, a mensagem de não alocado é exibida, mas a lista de modelos continua sendo renderizada;
+4. Quando a Project Key está indisponível, o motivo real é exibido, sem chamar a cota de não alocada, e a configuração de Provider continua existente;
+5. Provider ausente e plano indisponível usam estados de UI diferentes;
+6. As permissões de edição de modelo de Team e de Start mantêm suas diferenças e não são unificadas por causa do componente compartilhado.
+7. As páginas de Individual / Team Coding Plan não renderizam Endpoint nem API Schema; a ocultação não pode alterar o payload de gravação nem a configuração de runtime.
 
-### 5.2 解除错误门禁
+### 5.2 Remover o gate incorreto
 
-- 删除 `status === "purchased"` 对整个 `InlineEditableProviderCard` 的渲染门禁；
-- 只按当前 `providerId` 是否能在 `ProviderSettingsView` 中解析到 Provider 决定配置区域；
-- `CodingPlanStatusPanel` 始终作为 Provider 详情中的独立 `statusSection`；
-- 模型列表只消费当前 Provider View 的 `models` 和每项 `effectiveConfig`，不从 entitlement 数据构造模型成员。
-- Individual / Team Coding Plan 复用统一 Provider 编辑器时固定关闭连接事实区；不得为显示模型列表而重新暴露
-  Endpoint、API Schema，或建立删字段后的 Account Provider DTO。
+- Remover o gate de renderização `status === "purchased"` para todo o `InlineEditableProviderCard`;
+- Decidir a área de configuração apenas pelo fato de o `providerId` atual conseguir ser resolvido no `ProviderSettingsView`;
+- `CodingPlanStatusPanel` permanece sempre como um `statusSection` independente dentro dos detalhes do Provider;
+- A lista de modelos consome apenas os `models` da View do Provider atual e o `effectiveConfig` de cada item, sem construir membros de modelo a partir de dados de entitlement.
+- Ao reutilizar o editor unificado de Provider nas páginas de Individual / Team Coding Plan, a seção de fatos de conexão fica permanentemente desabilitada; não se pode reexpor Endpoint ou API Schema para conseguir exibir a lista de modelos, nem criar um DTO de Account Provider com campos removidos.
 
-### 5.3 拆开导航身份和页面事实
+### 5.3 Separar identidade de navegação e fatos da página
 
-收窄 `ModelProviderNavItem` 的职责，使其主要表达导航与连接选择：
+Restringir a responsabilidade de `ModelProviderNavItem` para que ela expresse principalmente navegação e seleção de conexão:
 
 ```text
-Navigation identity
+Identidade de navegação
 ├─ key / type / label
 ├─ providerId
 └─ Team productId / organizationId / projectId
 ```
 
-Provider 详情从 `ProviderSettingsView` 按 `providerId` 独立解析；套餐卡状态从 entitlement hook 按 Team selection
-独立解析。不得继续让一份导航 DTO 同时携带并覆盖 Provider、quota、购买状态和错误状态。
+Os detalhes do Provider são resolvidos de forma independente a partir do `ProviderSettingsView` pelo `providerId`; o status do card do plano é resolvido de forma independente a partir do entitlement hook pela seleção de Team. Um único DTO de navegação não pode continuar carregando e sobrescrevendo ao mesmo tempo Provider, cota, status de compra e status de erro.
 
-若一次性收窄类型会扩大无关 Family 页面改动，可以先建立单向页面投影并迁移调用方，最终必须删除以
-`status/statusLabelId` 控制 Provider 详情存在性的旧分支。
+Se restringir o tipo de uma vez ampliar as alterações em páginas Family sem relação, pode-se primeiro criar uma projeção de página unidirecional e migrar os chamadores; no fim, é obrigatório remover o ramo antigo que controla a existência dos detalhes do Provider via `status/statusLabelId`.
 
-### 5.4 清理状态反推
+### 5.4 Limpar a inferência reversa de status
 
-- 删除 `selectedTeamPlanUnassigned` 对 `statusLabelId` 的比较；
-- 删除把 `apiKeyStatus=unavailable` 与 `quota unavailable` 合并后再统一生成 `teamUnavailable` 的逻辑；
-- 请求失败、loading 和没有匹配快照只能表达未知，不能表达权威未分配；
-- 只有权威响应明确证明没有 Team allocation/quota 时才显示“团队套餐未分配”；
-- 状态卡操作按钮依据明确原因决定重试、重连或管理套餐，不从展示文案反推行为。
+- Remover a comparação de `selectedTeamPlanUnassigned` com `statusLabelId`;
+- Remover a lógica que combina `apiKeyStatus=unavailable` com `quota unavailable` e depois gera uniformemente `teamUnavailable`;
+- Falha de requisição, loading e ausência de snapshot correspondente só podem expressar "desconhecido", nunca uma alocação autoritativa ausente;
+- Só mostrar "plano do time não alocado" quando uma resposta autoritativa provar explicitamente que não há alocação/cota de Team;
+- Os botões de ação do card de status decidem retry, reconexão ou gerenciamento do plano pela causa explícita, sem inferir o comportamento a partir do texto exibido.
 
-## 6. 状态 Owner 与提交边界
+## 6. Donos do estado e fronteira de gravação
 
-| 事实                         | 权威 Owner                        | 页面投影                    | 是否持久化         |
+| Fato                         | Owner autoritativo                        | Projeção na página                    | Persistido?         |
 | ---------------------------- | --------------------------------- | --------------------------- | ------------------ |
-| Effective Provider/Model     | Provider Config Resolver          | `ProviderSettingsView`      | 来自正式 Config 源 |
-| Personal Provider/Model 编辑 | Personal Config Repository        | Settings Draft/Facade       | 是                 |
-| Provider 可执行性            | Resolver + Registry 完整性        | `enabled/executable/issues` | 不是独立字段       |
-| Team 当前连接身份            | Family connection selection       | 导航选择                    | 既有设置           |
-| Team 套餐、额度和错误        | Entitlement/Quota Service         | `CodingPlanStatusPanel`     | 仅既有缓存         |
-| 请求期凭据                   | Host Account Request Auth Service | 不在设置页常驻              | 否                 |
+| Effective Provider/Model     | Provider Config Resolver          | `ProviderSettingsView`      | Vem das fontes de Config oficiais |
+| Edição de Personal Provider/Model | Personal Config Repository        | Settings Draft/Facade       | Sim                 |
+| Executabilidade do Provider            | Resolver + integridade do Registry        | `enabled/executable/issues` | Não é um campo independente       |
+| Identidade atual da conexão do Team            | Family connection selection       | Seleção de navegação                    | Configurações existentes           |
+| Plano do Team, cota e erros        | Entitlement/Quota Service         | `CodingPlanStatusPanel`     | Apenas o cache existente         |
+| Credencial durante a requisição                   | Host Account Request Auth Service | Não fica residente na página de configurações              | Não                 |
 
-## 7. 不变量与范围外
+## 7. Invariantes e fora de escopo
 
-必须保持：
+Deve ser mantido:
 
-- Overlay 顺序仍为 Built-in -> Account -> Personal；
-- Model Rules 仍为 Built-in + Personal，Personal 后置；
-- Renderer 不重新执行 Overlay、完整性校验或 Registry 准入算法；
-- Account Overlay 仍可以约束 Built-in 账号 Provider，但只能通过 Resolver 反映在 Effective 结果中；
-- Team quota/entitlement UI 不直接修改 Provider `enabled`；
-- Settings 中 disabled/不完整成员可见，Registry 中仍只保留完整可执行成员；
-- Team scope 不写回 Config；连接测试和真实请求继续通过正式 Registry/ModelFactory；
-- Individual / Team 页面隐藏 Endpoint/API Schema 只影响 UI 可见性，Effective Config 和 ModelFactory 装配保持不变；
-- Desktop、Web 和手机共享设置页面行为；不改变 desktop continuous、mobile replayable、远程 workspace 或模型选择生命周期。
+- A ordem do Overlay continua sendo Built-in -> Account -> Personal;
+- Os Model Rules continuam sendo Built-in + Personal, com Personal por último;
+- O Renderer não reexecuta o Overlay, a validação de integridade nem o algoritmo de admissão do Registry;
+- O Account Overlay ainda pode restringir o Built-in e o Provider da conta, mas só pode se refletir no resultado Efetivo através do Resolver;
+- A UI de quota/entitlement do Team não modifica diretamente o `enabled` do Provider;
+- Membros desabilitados/incompletos são visíveis em Settings, e o Registry continua mantendo apenas membros completos e executáveis;
+- Escopo de Team não é gravado de volta no Config; o teste de conexão e as requisições reais continuam passando pelo Registry/ModelFactory oficiais;
+- Ocultar Endpoint/API Schema nas páginas de Individual / Team só afeta a visibilidade na UI; o Effective Config e a montagem do ModelFactory permanecem inalterados;
+- Desktop, Web e celular compartilham o comportamento da página de configurações; não muda o desktop continuous, o mobile replayable, o workspace remoto nem o ciclo de vida da seleção de modelos.
 
-本 Todo 不修改：
+Este Todo não modifica:
 
-- Account Overlay 的业务生成规则和优先级；
-- Team entitlement、quota、billing 的服务端接口契约；
-- Start Plan 的账号模型白名单语义；
-- Request Auth、Runtime Headers 和模型网络协议；
-- Remote Provisioning、发布制品或真实账号验证。
+- As regras de geração de negócio e as prioridades do Account Overlay;
+- Os contratos de interface de servidor de entitlement, quota e billing do Team;
+- A semântica da whitelist de modelos por conta do Start Plan;
+- O Request Auth, os Runtime Headers e o protocolo de rede dos modelos;
+- O Remote Provisioning, os artefatos de release ou a validação com contas reais.
 
-## 8. 验证矩阵
+## 8. Matriz de verificação
 
-| Provider View   | Team 状态                | 预期配置区                           | 预期状态卡           |
+| Provider View   | Status do Team                | Área de configuração esperada                           | Card de status esperado           |
 | --------------- | ------------------------ | ------------------------------------ | -------------------- |
-| 存在且 enabled  | available                | 完整显示，可编辑允许的 Personal 字段 | 额度正常             |
-| 存在但 disabled | available/unknown        | 显示并准确标记不可执行               | 对应状态             |
-| 存在            | checking                 | 显示，不闪退模型列表                 | 加载                 |
-| 存在            | request-failed           | 显示                                 | 获取失败 + 重试      |
-| 存在            | explicitly-not-allocated | 显示                                 | 明确未分配           |
-| 存在            | credential-unavailable   | 显示                                 | 凭据原因             |
-| 加载中          | 任意                     | Provider loading                     | 状态不得伪装成未购买 |
-| 确实缺失        | 任意                     | 配置异常                             | 可保留已知套餐事实   |
+| Existe e enabled  | available                | Exibida por completo, com edição dos campos Personal permitidos | Cota normal             |
+| Existe mas disabled | available/unknown        | Exibida e marcada com precisão como não executável               | Status correspondente             |
+| Existe            | checking                 | Exibida, sem flashing da lista de modelos                 | Carregando                 |
+| Existe            | request-failed           | Exibida                                 | Falha ao obter + retry      |
+| Existe            | explicitly-not-allocated | Exibida                                 | Não alocada explicitamente           |
+| Existe            | credential-unavailable   | Exibida                                 | Motivo da credencial             |
+| Carregando          | Qualquer                     | Provider loading                     | O status não pode se passar por não comprado |
+| Realmente ausente        | Qualquer                     | Anomalia de configuração                             | Pode preservar fatos conhecidos do plano   |
 
-自动化至少覆盖：
+A automação deve cobrir pelo menos:
 
-- Resolver 生成的 Effective Provider/Model 经过 `ProviderSettingsFacade` 原样进入设置页；
-- Account `enabled/models/access` 不在 Renderer 二次合并；
-- Personal 最后一层覆盖仍由 Effective 结果体现，保存继续生成稀疏 Overlay；
-- Team 状态变化只重渲染套餐卡，不卸载模型列表或丢失模型编辑 Draft；
-- Provider/模型排序、开关、编辑、连接测试和保存反馈不回退；
-- 中英文、明暗主题、桌面与窄屏布局可用；
-- Provider UI 定向单测、`pnpm typecheck`、`pnpm lint`、本轮文件格式检查和 `git diff --check` 通过。
+- O Effective Provider/Model gerado pelo Resolver chega à página de configurações sem alterações através do `ProviderSettingsFacade`;
+- `enabled/models/access` de Account não sofre uma segunda mesclagem no Renderer;
+- A sobreposição final de Personal ainda se reflete no resultado Efetivo, e a gravação continua gerando um Overlay esparso;
+- Uma mudança de status do Team apenas re-renderiza o card do plano, sem desmontar a lista de modelos nem perder o Draft de edição de modelos;
+- Ordenação, toggle, edição, teste de conexão e feedback de gravação de Provider/modelo não regridem;
+- Zh/en, temas claro/escuro e layouts de desktop e tela estreita funcionam;
+- Testes unitários direcionados da UI de Provider, `pnpm typecheck`, `pnpm lint`, a verificação de formatação dos arquivos desta rodada e `git diff --check` passam.
 
-## 9. 完成标准
+## 9. Critérios de conclusão
 
-- Team Plan 任意套餐查询状态都不再控制 Effective Provider 配置区域的存在；
-- 设置页只通过 `ProviderSettingsView` 消费最终 Effective Provider/Model，不理解 Account Overlay；
-- 导航身份、Provider 设置事实和套餐状态至少在页面投影上形成三条独立链路；
-- “团队套餐未分配”只由权威未分配事实产生，不再由错误、loading、凭据问题或 i18n label 反推；
-- Provider 存在时模型列表始终可见，并按既有权限支持排序、启停和 Personal Model Config 编辑；
-- Individual / Team Coding Plan 页面完全不展示 Endpoint 与 API Schema，但运行时仍使用 Effective Provider Config；
-- 不新增第二套 Config、Overlay、Registry、套餐或 Account Access 权威。
+- Nenhum status de consulta de plano do Team Plan controla mais a existência da área de configuração do Effective Provider;
+- A página de configurações consome o Effective Provider/Model final apenas via `ProviderSettingsView` e não entende o Account Overlay;
+- Identidade de navegação, fatos de configuração de Provider e status do plano formam pelo menos três caminhos independentes no nível da projeção de página;
+- "Plano do time não alocado" só é produzido por um fato autoritativo de não alocação, e nunca mais por inferência a partir de erro, loading, problema de credencial ou label de i18n;
+- A lista de modelos está sempre visível quando o Provider existe, com suporte a ordenação, ativação/desativação e edição do Personal Model Config conforme as permissões já existentes;
+- As páginas de Individual / Team Coding Plan não mostram Endpoint nem API Schema, mas o runtime continua usando o Effective Provider Config;
+- Não se cria um segundo conjunto de autoridade de Config, Overlay, Registry, plano ou Account Access.
 
-## 10. 实施结果
+## 10. Resultado da implementação
 
-- Team / Individual Provider 详情改为按 `providerId` 从 `ProviderSettingsView` 精确解析，不再把导航项中可能过期的
-  Provider 副本作为页面事实；View 已完成加载但目标 Provider 缺失时显示独立配置异常。
-- 套餐状态卡与 Provider 配置区解除渲染门禁。Team quota 加载、失败、明确未分配，以及 Project Key 不可用时，
-  已存在的 Effective Provider 和模型列表仍然显示。
-- `not-allocated` 与 `credential-unavailable` 成为显式页面状态原因；状态卡不再通过 i18n label 反推业务行为，
-  quota 恢复后同时清除旧的“团队套餐未分配”状态。
-- Team / Individual 页面继续复用统一 Provider 编辑器，但固定隐藏连接配置区与 API Key 区，因此 Endpoint 和
-  API Schema 不出现在页面中；Effective Provider Config、Registry 和 ModelFactory 数据未被删减。
-- Start Plan 保留既有只读模型及购买门禁，本次没有改变账号模型白名单语义。
+- Os detalhes de Provider de Team / Individual passaram a ser resolvidos com precisão por `providerId` a partir do `ProviderSettingsView`, sem mais usar a cópia possivelmente desatualizada do Provider no item de navegação como fato de página; quando a View já terminou o carregamento e o Provider alvo está ausente, exibe-se uma anomalia independente de configuração.
+- O card de status do plano foi desacoplado da área de configuração de Provider quanto ao gate de renderização. No carregamento de quota do Team, na falha, na não alocação explícita e quando a Project Key está indisponível, o Effective Provider já existente e a lista de modelos continuam sendo exibidos.
+- `not-allocated` e `credential-unavailable` passaram a ser causas explícitas de estado da página; o card de status não infere mais comportamento de negócio a partir de labels de i18n, e, quando a quota se recupera, o estado antigo de "plano do time não alocado" é removido junto.
+- As páginas de Team / Individual continuam reutilizando o editor unificado de Provider, mas com a seção de configuração de conexão e a seção de API Key permanentemente ocultas, de modo que Endpoint e API Schema não aparecem na página; os dados do Effective Provider Config, do Registry e do ModelFactory não foram reduzidos.
+- O Start Plan mantém os modelos somente leitura e o gate de compra já existentes; desta vez a semântica da whitelist de modelos por conta não foi alterada.
 
-验证结果：Provider UI 定向测试 220 条通过；全量 unit 1470 个测试文件、12480 条测试通过（另有仓库既有跳过项）；
-根 `typecheck`、`lint`、本轮文件格式检查和 `git diff --check` 通过。全仓 `fmt:check` 仍会被仓库既有
-Electron 示例 HTML 语法和 GB2312 fixture 阻断，本轮修改文件已单独通过格式检查。
+Resultado da verificação: 220 testes direcionados da UI de Provider passaram; a suíte completa de unit com 1470 arquivos de teste e 12480 testes passou (além de itens já ignorados pelo repositório);
+o `typecheck`, o `lint` na raiz, a verificação de formatação dos arquivos desta rodada e o `git diff --check` passaram. O `fmt:check` de todo o repositório continua sendo bloqueado pela sintaxe de HTML de exemplo do Electron já existente no repositório e por um fixture em GB2312; os arquivos modificados nesta rodada passaram individualmente na verificação de formatação.

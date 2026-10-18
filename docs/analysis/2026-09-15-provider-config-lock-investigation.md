@@ -1,222 +1,222 @@
-# ZCT-2099792881319157760：Provider 文件锁与配置消失调查
+# ZCT-2099792881319157760: investigação de lock de arquivo de Provider e desaparecimento de configuração
 
-- 调查日期：2026-09-15。
-- 主要事件：2026-09-13，Windows 桌面版 3.12.1，发布构建 `dfc10615`。
-- 材料：反馈附件 `284720`，`zcode-logs-full-20260915-173012.zip`。复核了 9 月 13–15 日六份 Desktop / CLI 运行日志，共 58,443 行。
-- 范围：调查 9 月 13 日的配置文件锁失败、个人 Provider 消失和恢复行为。9 月 15 日的配置校验失败，已由反馈跟进者确认是用户手动改坏配置，作为独立问题处理。
-- 状态：调查报告，未实施修复。配置降级与恢复缺陷已确认；现场反复锁超时的具体触发因素尚未定案。
+- Data da investigação: 2026-09-15.
+- Evento principal: 2026-09-13, desktop Windows 3.12.1, build de release `dfc10615`.
+- Material: anexo de feedback `284720`, `zcode-logs-full-20260915-173012.zip`. Foram revisados seis logs de execução Desktop / CLI dos dias 13 a 15 de setembro, somando 58.443 linhas.
+- Escopo: investigar a falha de lock de arquivo de configuração, o desaparecimento de Providers pessoais e o comportamento de recuperação do dia 13 de setembro. A falha de validação de configuração do dia 15 de setembro foi confirmada pelo acompanhaodor de feedback como alteração manual da configuração pelo usuário e tratada como problema separado.
+- Status: relatório de investigação, sem correção implementada. Os defeitos de degradação e de recuperação da configuração foram confirmados; o fator disparador específico das repetidas expirações de lock no ambiente real ainda não foi definido.
 
-结论：多个进程对同一份个人 Provider 配置进行排他轮询，存在持续的读者竞争。现场部分时段出现锁获取超时，读取层将异常转换为空个人配置，导致 Provider 从可用状态中消失，并可阻断后续消息执行。读取恢复后，又可能因磁盘内容版本未变化而漏发恢复通知。周日异常操作延迟与频繁最小化相关，但现有材料不能确定延迟来自系统调度、I/O、游戏负载或锁屏。
+Conclusão: vários processos fazem polling exclusivo do mesmo arquivo de configuração de Provider pessoal, o que gera uma corrida persistente entre leitores. No ambiente real houve, em alguns períodos, expirações no aquisição do lock, e a camada de leitura converte a exceção em configuração pessoal vazia, o que faz Providers desaparecerem do estado disponível e pode bloquear a execução de mensagens seguintes. Depois que a leitura se recupera, pode ainda faltar a notificação de recuperação porque a versão do conteúdo em disco não mudou. O atraso de operações anormais no domingo tem relação com a minimização frequente, mas os materiais existentes não permitem determinar se o atraso veio de agendamento do sistema, I/O, carga de jogo ou bloqueio de tela.
 
-## 1. 问题完整路径还原
+## 1. Reconstituição completa do caminho do problema
 
-### 1.1 涉及的文件和状态
+### 1.1 Arquivos e estados envolvidos
 
-| 对象                                     | 作用                                          | 与本次问题的关系                                                         |
+| Objeto                                     | Função                                          | Relação com este problema                                                         |
 | ---------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------ |
-| `provider_config.json`                   | 保存个人 Provider、模型规则等配置             | 出现读取失败的目标文件                                                   |
-| `provider_config.json.lock/owner-*.json` | 用目录和 owner 文件实现跨进程排他锁           | 即使纯轮询，也会创建、写入和删除这些锁元数据                             |
-| 内存中的 Provider Registry               | 为模型设置、模型选择和运行时提供可用 Provider | 可能接收空个人配置，并在故障恢复后继续保留降级状态                       |
-| `setting.json` 及其独立文件锁            | 保存应用偏好、上次工作区等信息                | 重复保存是旁路发现；不直接占用 Provider 文件的锁                         |
-| SQLite 会话库                            | 保存会话及相关数据                            | 与上述 JSON 文件目录锁属于不同机制，未发现迁移失败直接触发本次故障的证据 |
+| `provider_config.json`                   | guarda a configuração de Providers pessoais, regras de modelo etc.             | arquivo alvo das falhas de leitura                                                   |
+| `provider_config.json.lock/owner-*.json` | implementa lock exclusivo entre processos com diretório e arquivo de owner           | mesmo em polling puramente de leitura, cria, escreve e apaga esses metadados de lock                             |
+| Provider Registry em memória               | fornece os Providers disponíveis para config de modelo, seleção de modelo e runtime | pode receber uma configuração pessoal vazia e continuar com o estado degradado após a recuperação da falha                       |
+| `setting.json` e seu lock de arquivo independente | guarda preferências do aplicativo, último workspace etc.                | salvamento repetido é uma descoberta secundária; não ocupa diretamente o lock do arquivo de Provider                         |
+| Banco SQLite de sessões                            | guarda sessões e dados relacionados                            | pertence a um mecanismo diferente do lock de diretório dos arquivos JSON acima; não há evidência de que uma falha de migração tenha disparado diretamente esta falha |
 
-### 1.2 完整链路
+### 1.2 Cadeia completa
 
 ```text
-Host 和多个 Agent 使用同一个 Personal Provider 配置路径
-各 Repository 默认约每隔 1 秒安排一次轮询
+Host e múltiplos Agents usam o mesmo caminho de Personal Provider config
+Cada Repository agenda por padrão um polling a cada ~1 segundo
                          ↓
-读取与更新使用同一把排他锁，读者之间也互相等待
-每次成功获取锁都要创建目录、写 owner、复核所有权
+Leitura e atualização usam a mesma lock exclusivo, e os leitores esperam entre si
+Toda aquisição bem-sucedida precisa criar o diretório, escrever o owner e reconfirmar a propriedade
                          ↓
-部分时段操作完成明显变慢，可能放大锁竞争
-【推断：现场哪个 PID、哪一步变慢，尚未确认】
+Em alguns períodos as operações ficam claramente mais lentas, o que pode amplificar a contenção de lock
+【inferência: qual PID e qual passo ficaram lentos no ambiente real ainda não foi confirmado】
                          ↓
-某些请求在获取锁的等待预算内仍未成功，报锁超时
+Algumas requisições não têm sucesso dentro do orçamento de espera pela aquisição do lock e reportam expiração de lock
                          ↓
-轮询失败发出 poll-error，触发上层刷新和新的读取
+A falha do polling emite poll-error, o que dispara um refresh na camada superior e uma nova leitura
                          ↓
-新的 read() 也失败，捕获异常后成功返回空 Personal Overlay
+O novo read() também falha, captura a exceção e retorna com sucesso um Personal Overlay vazio
                          ↓
-Registry 按这份空个人配置发布新的可用状态
-个人 Provider / 模型消失，后续消息可能无法创建模型
+O Registry publica um novo estado disponível com base nessa configuração pessoal vazia
+Os Providers pessoais / os modelos desaparecem e as mensagens seguintes podem não conseguir criar o modelo
                          ↓
-之后轮询成功，读到原来的磁盘内容版本 R1
-Repository 仍记得 R1，认为内容未变化，不发送 change
+Depois, o polling tem sucesso e lê a mesma versão de conteúdo do disco, R1
+O Repository ainda lembra R1, considera que o conteúdo não mudou e não envia change
                          ↓
-下游可能继续保留降级视图，直到其他刷新或重启
+O downstream pode continuar mantendo a visão degradada até outro refresh ou restart
 ```
 
-默认 8 秒是一次跨进程获取锁的墙钟等待预算，不包括此前的进程内 FIFO 排队，也不是单次 `readFile` 超时或持锁操作的期限。超时不意味着另一个进程连续持锁 8 秒，也可能是多次竞争、重试或操作完成延迟累计耗尽预算。
+O padrão de 8 segundos é um orçamento de espera de relógio de parede para a aquisição de lock entre processos; não inclui o enfileiramento FIFO dentro do processo anterior, e não é o timeout de um único `readFile` nem o prazo de uma operação que segura o lock. A expiração não significa que outro processo segurou o lock por 8 segundos seguidos; o orçamento também pode ser esgotado por várias disputas, retries ou atraso acumulado de conclusão de operações.
 
-轮询完成后才安排下一轮；不能把默认 1 秒间隔换算成异常期间严格每秒固定执行次数。普通 `read()` 还包含旧配置导入、格式规范化写回；纯轮询不修改配置正文，但同样加锁。
+A próxima rodada só é agendada depois que a atual termina; não se pode converter o intervalo padrão de 1 segundo em uma execução estritamente fixa a cada segundo durante o período de anomalia. Um `read()` comum também inclui a importação de configuração antiga e a normalização de formato com escrita de volta; o polling puro não modifica o corpo da configuração, mas igualmente adquire o lock.
 
-### 1.3 时间线
+### 1.3 Linha do tempo
 
-下表使用 Host 消息内层时间。Desktop 日志中的外层时间是 Main 接收和转发时间，二者可能存在延迟。
+A tabela abaixo usa o tempo interno das mensagens do Host. O tempo externo nos logs do Desktop é o momento em que o Main recebe e encaminha, e pode haver atraso em relação ao anterior.
 
-| 时间                         | 日志事实                                                                         |
+| Hora                         | Fato registrado no log                                                                         |
 | ---------------------------- | -------------------------------------------------------------------------------- |
-| 15:44                        | 升到 3.12.1 后正常加载，Host Registry 的 `providerCount=8`                       |
-| 18:07:56–58                  | Host 30660 正常加载配置；随后四个 Agent 完成数据库迁移检查                       |
-| 18:38:10–19:08:02            | 第一轮：11 条轮询告警、16 条读取降级，共 26 次锁超时和 1 次 `mkdir EPERM`        |
-| 19:10:10                     | 新 Host 31780 加载正常，恢复为 8 个 Provider，个人配置内容版本与此前正常启动相同 |
-| 19:23:51–19:27:06            | 第二轮：1 条轮询告警、5 条读取降级，均为锁超时                                   |
-| 19:28:59                     | 新 Host 25264 加载正常，再次恢复为 8 个 Provider，个人配置内容版本相同           |
-| 20:24:48–20:28:50            | 第三轮：4 条轮询告警、4 条读取降级，均为锁超时                                   |
-| 20:34:49、20:35:03、20:35:12 | 同一个任务连续接受三条短输入，均在模型创建阶段因 `provider_not_found` 失败       |
-| 21:40、22:11                 | 后续启动仍正常加载 8 个 Provider，个人配置内容版本相同                           |
-| 22:13–22:14                  | 出现 1 次删除 Provider、2 次保存 Provider Overlay 的成功 RPC                     |
-| 22:15                        | Host 启动时加载 7 个 Provider，个人配置内容版本发生变化                          |
+| 15:44                        | após atualizar para 3.12.1, carregamento normal, com `providerCount=8` no Host Registry                       |
+| 18:07:56–58                  | o Host 30660 carrega a configuração normalmente; em seguida quatro Agents concluem a verificação de migração do banco                       |
+| 18:38:10–19:08:02            | primeira rodada: 11 alertas de polling, 16 quedas na leitura, totalizando 26 expirações de lock e 1 `mkdir EPERM`        |
+| 19:10:10                     | o novo Host 31780 carrega normalmente, voltando a 8 Providers, com a mesma versão de conteúdo da configuração pessoal que no início normal |
+| 19:23:51–19:27:06            | segunda rodada: 1 alerta de polling, 5 quedas na leitura, todas por expiração de lock                                   |
+| 19:28:59                     | o novo Host 25264 carrega normalmente, voltando novamente a 8 Providers, com a mesma versão de conteúdo           |
+| 20:24:48–20:28:50            | terceira rodada: 4 alertas de polling, 4 quedas na leitura, todas por expiração de lock                                   |
+| 20:34:49、20:35:03、20:35:12 | a mesma tarefa aceita três entradas curtas consecutivas, todas falhando na etapa de criação do modelo com `provider_not_found`       |
+| 21:40、22:11                 | as inicializações seguintes continuam carregando normalmente 8 Providers, com a mesma versão de conteúdo                           |
+| 22:13–22:14                  | há 1 RPC de sucesso de exclusão de Provider e 2 de salvamento de Provider Overlay                     |
+| 22:15                        | na inicialização do Host são carregados 7 Providers, com mudança na versão de conteúdo da configuração pessoal                          |
 
-全天合计 16 条轮询告警、25 条读取降级，即 40 次锁超时和 1 次创建锁目录失败。不能将全天计数全部归入第一轮。配置数量只比较 Host 的 `Provider Registry 已就绪` 事件，不混用其他层的 `providerCount`。
+No dia inteiro somam 16 alertas de polling e 25 quedas na leitura, ou seja, 40 expirações de lock e 1 falha ao criar o diretório do lock. Não se pode atribuir toda a contagem do dia à primeira rodada. A contagem de Providers foi comparada apenas usando o evento `Provider Registry 已就绪` do Host, sem misturar o `providerCount` de outras camadas.
 
-这条时间线支持故障期间主要发生内存配置降级，磁盘原配置仍能在重启后读回。本轮 `read()` 返回空配置本身不覆盖磁盘；`update()` 会在锁内重新读取磁盘后执行修改，不能推导“降级后任意保存都会把磁盘写空”。
+Essa linha do tempo sustenta que, durante as falhas, o que ocorreu principalmente foi degradação da configuração em memória, e que a configuração original em disco ainda pôde ser lida após um restart. O `read()` que retorna configuração vazia nesta rodada não sobrescreve o disco; o `update()` relê o disco dentro do lock antes de aplicar a modificação, e não se pode deduzir que "qualquer salvamento após a degradação escreveria o disco vazio".
 
-### 1.4 影响与恢复边界
+### 1.4 Impacto e fronteiras de recuperação
 
-- 第一轮期间仍有 31 个不同请求的模型网络完成记录，其中 24 个使用原自定义供应商模型，7 个使用账号模型。运行中的任务与配置列表可以存在不同状态，不能用任务继续输出证明配置视图健康。
-- 20:34–20:35 的三次 `provider_not_found` 表明后续消息确实可能无法执行。Host 的发送 RPC 返回 `OK` 只代表请求被接收，不代表后续任务执行成功。
-- 同一 Host 的轮询告警多次重新出现，而代码只在连续失败的第一次告警、成功读取后复位。因此中间有成功轮询，不能认定整个晚上始终被同一把残留锁挡住。
-- 40 次超时中，33 次嵌套 cause 带原生 `mkdir EEXIST` 的字段，7 次只带 `code=EEXIST`。后者高度指向建锁后的所有权复核分支，但缺少原始 message/stack，无法确认具体失败子条件。
-- 已有隔离探针验证过“读取失败后 Registry 变空、磁盘恢复读取但 Registry 不自动恢复、显式刷新后恢复”的机制。锁延迟、删除失败的故障注入只证明缺陷可发生，不证明现场经历了相同注入条件。
+- Durante a primeira rodada ainda há registros de conclusão de rede de modelo de 31 requisições diferentes, sendo 24 com o modelo do fornecedor personalizado original e 7 com o modelo da conta. Tarefas em execução e a lista de configuração podem estar em estados diferentes, e não se pode usar o fato de a tarefa continuar produzindo para provar que a visão de configuração está saudável.
+- Os três `provider_not_found` das 20:34–20:35 mostram que as mensagens seguintes realmente podem não conseguir executar. O RPC de envio do Host retornar `OK` significa apenas que a requisição foi aceita, e não que a execução posterior da tarefa teve sucesso.
+- Os alertas de polling reaparecem várias vezes no mesmo Host, enquanto o código só alerta na primeira falha consecutiva e reseta após uma leitura com sucesso. Portanto, houve polls bem-sucedidos no meio, e não se pode afirmar que a noite toda ficou bloqueada pela mesma lock residual.
+- Das 40 expirações, 33 têm no cause aninhado o campo nativo `mkdir EEXIST`, e 7 trazem apenas `code=EEXIST`. Estas últimas apontam fortemente para o ramo de reconfirmação de propriedade após a criação do lock, mas, sem a message/stack original, não é possível confirmar a subcondição específica de falha.
+- Uma sonda isolada já validou o mecanismo de "Registry fica vazio após falha de leitura, o Registry não se recupera automaticamente quando a leitura do disco se recupera, e a recuperação ocorre após um refresh explícito". A injeção de falhas de atraso de lock e de falha de exclusão apenas prova que o defeito pode ocorrer, não que o ambiente real passou pelas mesmas condições de injeção.
 
-## 2. 当时系统环境的特殊性
+## 2. Particularidades do ambiente de sistema na época
 
-### 2.1 周日与周一、周二的对照
+### 2.1 Comparação entre domingo, segunda e terça
 
-| 指标                    | 9 月 13 日，周日 | 9 月 14 日，周一 | 9 月 15 日，周二 |
+| Métrica                    | 13 de setembro, domingo | 14 de setembro, segunda | 15 de setembro, terça |
 | ----------------------- | ---------------: | ---------------: | ---------------: |
-| 最小化命令              |            21 次 |             5 次 |             2 次 |
-| 设置保存阶段配对数      |              264 |              211 |              265 |
-| 设置保存阶段中位耗时    |              7ms |              5ms |              5ms |
-| 设置保存阶段最大耗时    |         16,626ms |             26ms |             36ms |
-| 超过 1 秒的设置保存阶段 |             3 次 |             0 次 |             0 次 |
-| Provider 文件锁超时     |            40 次 |             0 次 |             0 次 |
+| Comandos de minimização              |            21 vezes |             5 vezes |             2 vezes |
+| Pares na etapa de salvamento de configurações      |              264 |              211 |              265 |
+| Duração mediana na etapa de salvamento de configurações    |              7ms |              5ms |              5ms |
+| Duração máxima na etapa de salvamento de configurações    |         16,626ms |             26ms |             36ms |
+| Etapas de salvamento de configurações acima de 1 segundo |             3 vezes |             0 vezes |             0 vezes |
+| Expiração de lock do arquivo de Provider     |            40 vezes |             0 vezes |             0 vezes |
 
-保存阶段按同一 Host 的 `writing settings` / `write done` 内层时间配对，无未配对记录。这段耗时包括目录操作、兼容字段读取、加锁、写入、替换重试和执行调度，不是物理磁盘写入时长，也不覆盖整个 `setting.update` RPC。
+A etapa de salvamento é pareada pelos tempos internos `writing settings` / `write done` do mesmo Host, sem registros sem par. Essa duração inclui operações de diretório, leitura de campos de compatibilidade, aquisição de lock, escrita, retries de substituição e agendamento de execução; não é a duração da escrita física no disco nem cobre todo o RPC `setting.update`.
 
-周一、周二仍使用 3.12.1、同一个自定义 Provider，并非通过修复升级消除了问题。周一多数启动仍有四个 Agent，另有时段多开了一个子项目 Agent；周二主要使用时段同样有四个 Agent。两天都有实际配置修改和任务执行，模型网络完成请求分别为 159、149 个。
+Segunda e terça continuaram usando a 3.12.1 e o mesmo Provider personalizado, ou seja, o problema não desapareceu por causa de uma atualização com correção. Na segunda, a maioria das inicializações ainda teve quatro Agents, e houve períodos com um Agent de subprojeto adicional; na terça, o período principal de uso também teve quatro Agents. Nos dois dias houve modificações reais de configuração e execução de tarefas, com 159 e 149 requisições de modelo concluídas na rede, respectivamente.
 
-周一存在其他模型参数、上游响应及网络错误，但没有 Provider 配置加载降级。周二 17:20 起的配置校验失败属于已确认的手动改坏配置，不能与周日文件锁问题合并。周二附件只覆盖到 17:30，之后降级版本的结果不由该附件直接证明。
+Na segunda houve outros erros de parâmetros de modelo, respostas do upstream e de rede, mas nenhuma degradação no carregamento da configuração de Provider. Na terça, a falha de validação de configuração a partir das 17:20 pertence à alteração manual já confirmada e não pode ser unida ao problema de lock de arquivo do domingo. O anexo da terça cobre apenas até 17:30, então os resultados de degradação posteriores não são comprovados diretamente por ele.
 
-### 2.2 最小化是相关线索，单独不足以触发
+### 2.2 A minimização é uma pista relacionada, mas sozinha insuficiente
 
-第三轮故障的时间关联较集中：
+A correlação de tempo da terceira rodada de falha é mais concentrada:
 
-| 最小化   | 下一次 Provider 轮询告警 |     间隔 |
+| Minimização   | Próximo alerta de polling de Provider |     Intervalo |
 | -------- | ------------------------ | -------: |
-| 20:24:30 | 20:24:48                 | 约 18 秒 |
-| 20:25:04 | 20:25:18                 | 约 14 秒 |
-| 20:26:03 | 20:26:18                 | 约 15 秒 |
-| 20:27:40 | 20:27:51                 | 约 12 秒 |
+| 20:24:30 | 20:24:48                 | cerca de 18 segundos |
+| 20:25:04 | 20:25:18                 | cerca de 14 segundos |
+| 20:26:03 | 20:26:18                 | cerca de 15 segundos |
+| 20:27:40 | 20:27:51                 | cerca de 12 segundos |
 
-但周日早些时候多次最小化正常，20:35 那次之后也未再出现锁告警。周一 09:31、14:44 及周二 12:47 同样有任务运行中最小化，后续任务完成且无锁超时。因此，“多个 Agent + 最小化”不是充分触发条件。
+Mas em vários momentos anteriores do domingo a minimização ocorreu normalmente, e depois das 20:35 não houve mais alerta de lock. Na segunda, às 09:31 e 14:44, e na terça, às 12:47, também houve minimização com tarefas em execução, e as tarefas seguintes concluíram sem expiração de lock. Portanto, "vários Agents + minimização" não é uma condição de disparo suficiente.
 
-用户行为更像运行长任务期间反复查看应用，故障后检查设置和尝试恢复：18:42–18:44 集中读取设置及 Provider 视图，18:59 打开 ZCode 内置资源管理器，19:10、19:29 重启后恢复原任务并继续输入。部分 RPC 是自动查询，不能逐条解释为点击；缺少完整 focus/restore 轨迹，也不能还原每次后台停留时长。
+O comportamento do usuário parece ser o de consultar repetidamente o aplicativo durante a execução de tarefas longas e, depois da falha, verificar as configurações e tentar recuperar: entre 18:42 e 18:44 há uma leitura concentrada das configurações e da visão de Providers, às 18:59 ele abre o explorador de arquivos embutido do ZCode, e às 19:10 e 19:29 retoma a tarefa original após o restart e continua digitando. Alguns RPCs são consultas automáticas e não podem ser interpretados um a um como cliques; como falta um rastro completo de focus/restore, também não é possível reconstruir quanto tempo cada permanência em segundo plano durou.
 
-### 2.3 当前判断及不能下的结论
+### 2.3 Julgamento atual e conclusões que não podem ser tiradas
 
-当前更有依据的方向是：周日某些时段出现了异常运行延迟，放大了多进程排他轮询的竞争；周一、周二没有再次出现相同表现。具体延迟来自哪里仍待确认。
+A direção mais bem sustentada hoje é: em alguns períodos do domingo houve um atraso anormal de execução, que amplificou a disputa do polling exclusivo de múltiplos processos; segunda e terça não voltaram a apresentar o mesmo comportamento. A origem específica do atraso continua pendente de confirmação.
 
-- 没有游戏进程、其他前台应用或全机资源负载的现场记录，不能认定用户当时玩游戏或资源被占满。
-- 3.12.1 未记录锁屏、解锁、系统休眠和唤醒事件，不能根据无日志排除这些行为。锁屏不等于系统睡眠；运行日志也不支持整个故障窗口持续处于传统系统睡眠。
-- 三天记录中的“保持电脑运行”均关闭，但不能据此推导系统实际休眠。
-- 日志没有 `ENOSPC`、`SQLITE_FULL` 等磁盘满错误，也没有故障时剩余空间数据；不能认定磁盘满，也不能声称彻底排除空间不足。
-- 最近一组数据库迁移检查在 18:07:58 完成，首次 Provider 错误在 18:38，未发现迁移失败直接触发该锁故障的证据。
+- Não há registro do ambiente real sobre processos de jogo, outros aplicativos em primeiro plano ou carga de recursos da máquina inteira, e não se pode afirmar que o usuário estava jogando ou com os recursos esgotados.
+- A 3.12.1 não registrou eventos de bloqueio de tela, desbloqueio, suspensão e retomada do sistema, e não se pode excluir esses comportamentos com base na ausência de logs. Bloqueio de tela não é o mesmo que suspensão do sistema; e o log de execução também não sustenta que toda a janela da falha permaneceu em suspensão tradicional do sistema.
+- Em todos os três dias, a opção de "manter o computador ligado" estava desligada, mas isso não permite deduzir que o sistema realmente entrou em suspensão.
+- Os logs não têm erros de disco cheio como `ENOSPC` ou `SQLITE_FULL`, nem dados de espaço livre no momento da falha; não se pode afirmar disco cheio, nem alegar que a falta de espaço foi completamente descartada.
+- O grupo mais recente de verificações de migração do banco concluiu às 18:07:58, e o primeiro erro de Provider ocorreu às 18:38; não há evidência de que uma falha de migração tenha disparado diretamente essa falha de lock.
 
-微软文档描述窗口可见性会影响进程及其后代的 QoS，最小化或完全遮挡属于 Low；部分节能策略带有电池供电条件。这提供了系统调度方面的调查方向，不能证明本案的具体延迟来源。[Windows QoS](https://learn.microsoft.com/en-us/windows/win32/procthread/quality-of-service)
+A documentação da Microsoft descreve que a visibilidade da janela afeta o QoS do processo e de seus descendentes, e que minimizar ou ocultar completamente corresponde a Low; algumas políticas de economia de energia têm condição de operação com bateria. Isso oferece uma direção de investigação do lado do agendamento do sistema, mas não prova a origem específica do atraso deste caso. [Windows QoS](https://learn.microsoft.com/en-us/windows/win32/procthread/quality-of-service)
 
-后续可用 Electron 的锁屏、解锁、休眠、恢复事件补足状态记录，无需扫描用户其他应用。[Electron powerMonitor](https://www.electronjs.org/docs/latest/api/power-monitor)
+Depois disso, é possível usar os eventos de bloqueio de tela, desbloqueio, suspensão e retomada do Electron para completar o registro de estado, sem precisar varrer outros aplicativos do usuário. [Electron powerMonitor](https://www.electronjs.org/docs/latest/api/power-monitor)
 
-## 3. Provider 的核心设计缺陷
+## 3. Defeitos de design centrais do Provider
 
-### 3.1 高频只读也使用排他锁
+### 3.1 Até a leitura somente de alta frequência usa lock exclusivo
 
-配置变化需要在 Host 和 Agent 之间同步，定期读取的功能目的合理。当前实现让多个进程独立轮询同一文件，纯读者之间互斥，并在每次成功读取前后执行锁元数据写入和删除，制造持续竞争，对异常完成延迟较敏感。
+A mudança de configuração precisa ser sincronizada entre Host e Agents, e o propósito funcional de leitura periódica é legítimo. A implementação atual faz vários processos fazerem polling do mesmo arquivo de forma independente, exclui até os leitores entre si e executa escrita e exclusão de metadados de lock antes e depois de cada leitura bem-sucedida, o que gera disputa contínua e torna o mecanismo sensível a atrasos anormais de conclusão.
 
-改进目标应是减少重复读取和不必要的读者互斥，不等价于直接指定“必须改成读写锁”。普通 `read()` 包含导入和规范化写回，必须先区分纯读取与读改写操作，再确定跨进程一致性方案。单纯取消所有读取的锁或延长超时都不是完整设计。
+O objetivo de melhoria deve ser reduzir leituras repetidas e a exclusão desnecessária entre leitores, e isso não equivale a especificar diretamente que "tem que virar um lock de leitura/escrita". Como o `read()` comum inclui importação e escrita de volta de normalização, é preciso primeiro distinguir leitura pura de operação de leitura e modificação, e só então definir o esquema de consistência entre processos. Simplesmente remover o lock de todas as leituras ou aumentar o timeout não é um design completo.
 
-### 3.2 将暂时读取失败当成有效空配置
+### 3.2 Tratar uma falha temporária de leitura como configuração vazia válida
 
-锁超时意味着没有获得最新配置，不意味着用户删除了全部个人 Provider。目前 `read()` 捕获错误后成功返回空 Personal Overlay，Registry 因而按合法配置替换原状态。
+Uma expiração de lock significa que a configuração mais recente não foi obtida, e não que o usuário apagou todos os Providers pessoais. Atualmente o `read()` captura o erro e retorna com sucesso um Personal Overlay vazio, e por isso o Registry substitui o estado anterior por uma configuração aparentemente legítima.
 
-应维护的约束：暂时不可读不能冒充真实空配置；已经有有效快照时，不应因一次临时读取失败把它清空。首次启动没有任何有效快照的情况，也应明确表达不可用，不能伪装成用户尚未配置。
+As restrições a manter: indisponibilidade temporária não pode se passar por configuração vazia real; e, quando já existe um snapshot válido, uma falha temporária de leitura não deve esvaziá-lo. No caso de primeira inicialização, sem nenhum snapshot válido, a indisponibilidade também precisa ser expressa claramente, sem se passar por "o usuário ainda não configurou nada".
 
-### 3.3 故障恢复只看文件内容，没有覆盖下游状态
+### 3.3 A recuperação da falha só olha o conteúdo do arquivo e não cobre o estado do downstream
 
-Repository 已记录内容版本 R1，读取失败后 Registry 接收空配置，但 Repository 的已观察版本仍可能保留 R1。之后轮询成功读回 R1，会因版本相同提前返回，漏发下游所需的恢复通知。
-
-```text
-正常：磁盘 R1，已观察版本 R1，Registry 正常
-失败：磁盘 R1，已观察版本 R1，Registry 降级为空
-恢复：磁盘 R1，版本未变化 → 不通知 → Registry 可能仍为空
-```
-
-应维护的约束：文件内容未变不等于服务状态未变；读取从失败恢复成功时，必须让消费方能够恢复到有效状态。UI 已订阅 Registry，不能把上游恢复事件缺失误诊为页面没有响应 Registry 变化。
-
-修复优先级：先保证读取失败不会破坏已有可用配置、恢复后正确更新；再优化读取与锁竞争。后续实现前需要单独落设计和回归场景，本报告不表示已经确定最终锁方案。
-
-## 4. 顺带发现的问题
-
-### 4.1 工作区信息未变化，也重复保存 setting.json
-
-保存工作区信息的目的是下次启动恢复上次打开的工作区、顺序和激活项。`TabStore` 同时保存工作区/设置标签、当前激活标签和侧栏展开状态；持久化监听订阅整个 store，300ms 防抖后才提取 `lastWorkspaceSession`、`lastActiveTabIndex`。
-
-监听层不比较提取结果，服务层合并后也不比较新旧设置。因此新开/关闭/重排工作区等有效变更会保存，打开设置页、收起项目、重复激活已有工作区等不改变这两个字段的操作也可能保存。
+O Repository já registrou a versão de conteúdo R1; depois da falha de leitura o Registry recebeu a configuração vazia, mas a versão observada pelo Repository pode continuar sendo R1. Quando o polling volta a ter sucesso e relê R1, ele retorna mais cedo porque a versão é a mesma e não envia a notificação de recuperação necessária ao downstream.
 
 ```text
-打开设置页或收起项目
-          ↓
-TabStore 通知 → 300ms 防抖
-          ↓
-提取的工作区列表、激活索引与之前相同
-          ↓
-仍调用 setting.update → 合并完整设置 → 临时文件替换写回
+Normal: disco R1, versão observada R1, Registry normal
+Falha: disco R1, versão observada R1, Registry degradado para vazio
+Recuperação: disco R1, versão inalterada → sem notificação → o Registry ainda pode estar vazio
 ```
 
-300ms 防抖只合并密集事件，不负责内容去重；也不是固定每 300ms 保存。最小化命令本身只调用窗口最小化，没有直接保存设置，不能把最小化后的保存日志解释成最小化动作必然写盘。
+As restrições a manter: conteúdo do arquivo inalterado não significa estado de serviço inalterado; quando a leitura se recupera de uma falha, o consumidor precisa poder voltar a um estado válido. A UI já assina o Registry, e não se pode diagnosticar uma ausência do evento de recuperação do upstream como uma página que não responde a mudanças do Registry.
 
-周日 264 次保存的日志对象中，263 对相邻对象有 261 对相同。该统计未受脱敏占位符影响，但日志缺少调用参数和调用栈，不能把全部重复写入都归到这一个监听入口；实际写盘还会合并兼容字段，也不宣称逐次磁盘字节完全相同。
+Prioridade de correção: primeiro garantir que uma falha de leitura não destrói a configuração disponível já existente e que a recuperação atualiza corretamente; depois otimizar a leitura e a disputa de lock. Antes de qualquer implementação, é preciso registrar em separado o design e os cenários de regressão; este relatório não indica que a solução final de lock já está definida.
 
-与主问题的关系只有两层：
+## 4. Problemas encontrados em passant
 
-1. 重复保存增加文件操作、锁元数据和调度负担，是可削减的额外开销。
-2. 同期保存异常缓慢，为共同运行环境出现延迟提供旁证。
+### 4.1 As informações de workspace não mudaram e mesmo assim setting.json é salvo de novo
 
-`setting.json.lock` 与 `provider_config.json.lock` 不同，普通工作区设置保存不会直接占住 Provider 的锁。没有证明重复保存导致了本次锁超时；周一、周二仍有大量重复保存但未出现该故障。
+O objetivo de salvar as informações do workspace é restaurar, na próxima inicialização, o último workspace aberto, a ordem e o item ativo. O `TabStore` salva ao mesmo tempo as abas de workspace/configurações, a aba ativa atual e o estado de expansão da barra lateral; o listener de persistência assina o store inteiro e só após um debounce de 300ms extrai `lastWorkspaceSession` e `lastActiveTabIndex`.
 
-### 4.2 底层锁释放失败被忽略，诊断不足
+A camada de listener não compara o resultado da extração, e a camada de serviço também não compara as configurações antigas e novas depois da mesclagem. Assim, mudanças efetivas como abrir/fechar/reordenar workspaces geram salvamento, mas operações que não alteram esses dois campos, como abrir a página de configurações, recolher projetos ou reativar um workspace já existente, também podem gerar salvamento.
 
-释放时删除 owner、删除锁目录的异常被忽略。如果 owner 文件残留且其 PID 仍存活，后续请求可能继续把它当作活锁，形成持续等待。该风险在底层工具中存在，但不是本次已确认的现场触发原因；唯一的 `EPERM` 明确发生在 `mkdir`，不能解释为释放时删除失败。
+```text
+Abrir a página de configurações ou recolher um projeto
+          ↓
+TabStore notifica → debounce de 300ms
+          ↓
+A lista de workspaces extraída e o índice ativo são os mesmos de antes
+          ↓
+Ainda assim chama setting.update → mescla as configurações completas → escrita de substituição em arquivo temporário
+```
 
-这属于顺带发现的公共工具问题，放在本节不意味着潜在影响很小。需要让释放错误可见，并在一次慢请求或失败结束时记录必要的汇总信息：等待者和 owner PID、存活判断、尝试次数、队列/获取/持有/释放耗时、所有权复核失败条件以及原始错误类型。必要时在失败时异步读取所在卷的可用空间。
+O debounce de 300ms apenas agrupa eventos densos e não é responsável por deduplicação de conteúdo; também não é um salvamento a cada 300ms fixamente. O próprio comando de minimização só minimiza a janela e não salva configurações diretamente, e por isso os logs de salvamento após a minimização não podem ser interpretados como prova de que a ação de minimização grava em disco.
 
-这些记录应限于慢请求、异常和系统状态切换，不逐轮打印，不包含配置正文或 API Key。文件操作的完成耗时仍不能直接命名为物理磁盘延迟。
+Dos 264 salvamentos de domingo, 263 pares de objetos adjacentes têm 261 pares iguais. Essa estatística não foi afetada por placeholders de redação, mas o log não traz argumentos de chamada nem pilha de chamadas, e não se pode atribuir todas as escritas repetidas a essa única entrada de listener; a escrita real em disco também faz merge de campos de compatibilidade, e não se afirma que os bytes em disco sejam idênticos a cada gravação.
 
-### 4.3 调查依据与后续交接
+A relação com o problema principal tem apenas duas camadas:
 
-源码已对照发布构建 `dfc10615`，下列核心文件与调查时工作区无差异：
+1. o salvamento repetido aumenta operações de arquivo, metadados de lock e carga de agendamento, e é uma sobrecarga extra que pode ser reduzida.
+2. o salvamento anormalmente lento no mesmo período serve como evidência indireta de que o ambiente de execução compartilhado apresentava atraso.
 
-| 关注点                         | 源码入口                                                                                           |
+`setting.json.lock` é diferente de `provider_config.json.lock`, e salvar configurações comuns de workspace não ocupa diretamente o lock do Provider. Não há prova de que o salvamento repetido causou esta expiração de lock; segunda e terça ainda tiveram muitos salvamentos repetidos sem a falha.
+
+### 4.2 A falha de liberação do lock na camada inferior é ignorada e o diagnóstico é insuficiente
+
+Na liberação, as exceções ao excluir o arquivo de owner e o diretório do lock são ignoradas. Se o arquivo de owner sobrar e o PID correspondente ainda estiver vivo, as requisições seguintes podem continuar tratando-o como lock ativa, formando uma espera contínua. Esse risco existe na ferramenta de baixo nível, mas não é a causa já confirmada no ambiente real; o único `EPERM` ocorreu claramente no `mkdir` e não pode ser explicado como falha de exclusão na liberação.
+
+Trata-se de um problema da ferramenta comum encontrado em passant, e colocá-lo nesta seção não significa que o impacto potencial seja pequeno. É preciso tornar visíveis os erros de liberação e registrar um resumo necessário ao final de uma requisição lenta ou com falha: PID de quem espera e do owner, juízo de vivacidade, número de tentativas, durações de fila/aquisição/held/liberação, condições de falha da reconfirmação de propriedade e o tipo original do erro. Quando necessário, ler de forma assíncrona o espaço disponível do volume na falha.
+
+Esses registros devem ficar restritos a requisições lentas, anomalias e transições de estado do sistema, sem imprimir a cada rodada e sem conter o corpo da configuração nem API Key. A duração de conclusão de uma operação de arquivo continua não devendo ser chamada diretamente de latência física de disco.
+
+### 4.3 Base da investigação e handoff seguinte
+
+O código-fonte foi conferido contra o build de release `dfc10615`, e os arquivos centrais abaixo não têm diferenças em relação ao workspace no momento da investigação:
+
+| Ponto de atenção                         | Entrada no código-fonte                                                                                           |
 | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| 个人配置读取、写入、轮询和降级 | `packages/provider-node/src/personal-provider-config-repository.ts`：`read`、`update`、`#pollOnce` |
-| 配置层转发与 Registry 发布     | `packages/provider/src/config-service.ts`、`packages/provider/src/registry-service.ts`             |
-| 进程内排队和文件锁预算         | `packages/shared/src/node/privateFilePersistence.ts`：`withFileLock`                               |
-| 跨进程所有权复核与释放         | `packages/shared/src/node/atomicFileLock.ts`：`acquireFileLock`                                    |
-| TabStore 与持久化监听          | `packages/ui/src/store/tabStore.ts`、`packages/ui/src/hooks/useTabPersistence.ts`                  |
-| 工作区序列化字段               | `packages/ui/src/root/remoteWorkspaceSessionPersistence.ts`：`buildRemoteWorkspacePersistPatch`    |
-| 设置更新和实际写盘             | `packages/services/src/setting/settingService.ts`：`update`、`writeSettings`                       |
+| Leitura, escrita, polling e degradação da configuração pessoal | `packages/provider-node/src/personal-provider-config-repository.ts`: `read`, `update`, `#pollOnce` |
+| Encaminhamento da camada de configuração e publicação do Registry     | `packages/provider/src/config-service.ts`, `packages/provider/src/registry-service.ts`             |
+| Enfileiramento dentro do processo e orçamento do lock de arquivo         | `packages/shared/src/node/privateFilePersistence.ts`: `withFileLock`                               |
+| Reconfirmação de propriedade e liberação entre processos         | `packages/shared/src/node/atomicFileLock.ts`: `acquireFileLock`                                    |
+| TabStore e listener de persistência          | `packages/ui/src/store/tabStore.ts`, `packages/ui/src/hooks/useTabPersistence.ts`                  |
+| Campos de serialização do workspace               | `packages/ui/src/root/remoteWorkspaceSessionPersistence.ts`: `buildRemoteWorkspacePersistPatch`    |
+| Atualização de configurações e escrita real em disco             | `packages/services/src/setting/settingService.ts`: `update`, `writeSettings`                       |
 
-原始附件内的关键定位点如下，行号按原文件解码后计数，不包含任何用户配置正文：
+Os pontos de localização principais dentro do anexo original estão abaixo, com números de linha contados após decodificar o arquivo original e sem qualquer conteúdo de configuração do usuário:
 
-| 文件                                    | 行号                       | 内容                                         |
+| Arquivo                                    | Número da linha                       | Conteúdo                                         |
 | --------------------------------------- | -------------------------- | -------------------------------------------- |
-| `logs/2026-09-13.log`                   | 11184、11187               | 第一条轮询锁故障及后续读取降级               |
-| `logs/2026-09-13.log`                   | 11965                      | 创建锁目录的 `EPERM`                         |
-| `logs/2026-09-13.log`                   | 14186、14189               | 16.626 秒设置保存阶段                        |
-| `logs/2026-09-13.log`                   | 14652、16404、23497、23872 | 后续启动重新加载正常配置                     |
-| `logs/2026-09-13.log`                   | 22729、22733、22734、22735 | 最小化、12.314 秒保存和同期 Provider 锁告警  |
-| `.zcode/cli/log/zcode-2026-09-13.jsonl` | 5216、5221、5226           | 三次后续消息因 `provider_not_found` 执行失败 |
+| `logs/2026-09-13.log`                   | 11184、11187               | primeira falha de lock de polling e a queda de leitura subsequente               |
+| `logs/2026-09-13.log`                   | 11965                      | o `EPERM` ao criar o diretório do lock                         |
+| `logs/2026-09-13.log`                   | 14186、14189               | etapa de salvamento de configurações de 16.626 segundos                        |
+| `logs/2026-09-13.log`                   | 14652、16404、23497、23872 | as inicializações seguintes recarregam a configuração normalmente                     |
+| `logs/2026-09-13.log`                   | 22729、22733、22734、22735 | minimização, salvamento de 12.314 segundos e alerta de lock de Provider no mesmo período  |
+| `.zcode/cli/log/zcode-2026-09-13.jsonl` | 5216、5221、5226           | três mensagens seguintes falhando na execução por `provider_not_found` |
 
-CLI 导出日志中少量裸露脱敏占位符会导致 JSON 解析失败，调查时仅在内存中规范化占位符再读取，未修改原件，也未将其作为文件损坏证据。完整用户日志不随本报告入库，后续应通过反馈工单附件获取。
+Alguns placeholders de redação expostos nos logs exportados pela CLI fazem a análise do JSON falhar; durante a investigação os placeholders só foram normalizados em memória antes da leitura, sem modificar o original e sem usar isso como evidência de arquivo corrompido. O log completo do usuário não entra no repositório junto deste relatório e deve ser obtido pelo anexo do ticket de feedback.

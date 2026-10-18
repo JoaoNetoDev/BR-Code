@@ -1,73 +1,97 @@
-# Goal State Reminder Implementation Plan
+# Plano de implementação do Goal State Reminder
 
-> **For agentic workers:** 使用 `executing-plans` 按 phase 执行；每个 phase 完成单测和 review 后再进入下一 phase。本计划不依赖 subagent 执行。
+> **Para workers agênticos:** use `executing-plans` por phase; só entre na próxima phase depois que a atual concluir testes unitários e review. Este plano não depende de execução por subagent.
 
-**Goal:** 移除 `target_continuation` 的 projection-time filter，并通过持久化、MCS-capable 的 goal state reminder 让模型稳定感知 `/goal pause|clear|resume` 状态变化。普通 `/goal set|replace` 由真实 user objective 表达，不重复写 state reminder；若 replace 同时造成 `paused -> active`，仍追加一次 resume reminder。
+**Goal:** remover o projection-time filter de `target_continuation` e, por meio de um goal state reminder
+persistido e compatível com MCS, fazer o modelo perceber de forma estável as mudanças de estado de
+`/goal pause|clear|resume`. Um `/goal set|replace` comum é expresso pela real user objective e não
+reescreve um state reminder; se o replace também provocar `paused -> active`, ainda assim um resume
+reminder é anexado.
 
-**Architecture:** 把 goal continuation 和 goal state change 都作为 append-only provider-visible history 事实。`target_continuation` 不再靠过滤隐藏；后续 goal pause/clear/resume 通过新的 persisted system reminder source 覆盖旧 continuation 语义。`/goal set|replace` 依靠真实 user objective 表达新目标；只有从 paused 状态重新变为 active 时才追加 active-again reminder。支持 MCS 的 provider 投成 mid-conversation `system`，否则 fallback 为 `<system-reminder>` user message。若 pause 发生在 active regular turn，target DB 与 `target_changed` 仍在发起该操作的 command mutation 内完成，并且早于 abort；只有 reminder 延迟到 cancelled tool results 全部持久化并进入 live history 后、turn terminal event 前物化。idle 状态变化仍立即物化。
+**Architecture:** tanto a goal continuation quanto a mudança de estado da goal passam a ser fatos
+append-only e provider-visible do histórico. `target_continuation` deixa de ser escondido por
+filtro; pause/clear/resume posteriores de goal sobrescrevem a semântica antiga de continuation por
+meio de uma nova persisted system reminder source. `/goal set|replace` expressa o novo objetivo pela
+real user objective; somente a passagem de paused de volta para active acrescenta um reminder
+active-again. Providers compatíveis com MCS recebem `system` mid-conversation; caso contrário há
+fallback para uma user message `<system-reminder>`. Se o pause ocorrer em um active regular turn, o
+target DB e o `target_changed` ainda são concluídos dentro da command mutation que originou a
+operação, e antes do abort; apenas o reminder é materializado depois que todos os cancelled tool
+results foram persistidos e entraram no live history, e antes do turn terminal event. Mudanças de
+estado em idle continuam sendo materializadas imediatamente.
 
-**Tech Stack:** TypeScript, Vitest, zcode-cli runtime message history, session store hydration, provider request projection.
+**Tech Stack:** TypeScript, Vitest, message history do runtime zcode-cli, session store hydration,
+provider request projection.
 
-## Global Constraints
+## Restrições globais
 
-- 不做过度设计，不引入新的全局状态机。
-- 不靠 projection filter 修正历史；目标是 append-only provider-visible history。
-- 不靠 provider projection 重排修复 active-turn goal reminder 的写入时机。
-- 新 reminder 必须持久化，冷恢复后仍可进入 provider history。
-- 新 reminder 必须支持 MCS；不支持 MCS 时自然 fallback。
-- `target_continuation` 继续代表 goal continuation，不再被普通请求过滤。
-- UI-facing snapshot 仍不应把 model-only synthetic notice 渲染成普通用户气泡。
-- 每个 phase 先补失败单测，再实现，再跑相关测试。
+- Não fazer over-engineering nem introduzir uma nova máquina de estados global.
+- Não corrigir o histórico com projection filter; o objetivo é um histórico provider-visible
+  append-only.
+- Não corrigir o momento de escrita do goal reminder de active turn reordenando a projection do
+  provider.
+- O novo reminder precisa ser persistido e continuar entrando no histórico do provider após a
+  restauração a frio.
+- O novo reminder precisa suportar MCS; quando não há suporte, há fallback natural.
+- `target_continuation` continua representando a goal continuation e não é mais filtrado em
+  requisições comuns.
+- O snapshot voltado à UI ainda não deve renderizar uma synthetic notice model-only como um balão
+  de usuário comum.
+- Cada phase começa com testes unitários de falha, depois implementa e então roda os testes
+  relacionados.
 
 ---
 
-## Phase 1: 新增 Goal State Change Reminder Source
+## Phase 1: nova source de Reminder de mudança de estado de goal
 
-**目标:** 增加一个专门表达 goal 状态变化的 persisted + MCS-capable system reminder source。
+**Objetivo:** adicionar uma persisted + MCS-capable system reminder source dedicada a expressar
+mudanças de estado de goal.
 
 **Files:**
 - Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/system-reminder/source.ts`
 - Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/agent/session-history-hydrator.ts`
 - Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/tests/session-history-hydrator.test.ts`
-- Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/tests/runtime-provider-request-messages.test.ts` 或现有 provider projection 测试文件
+- Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/tests/runtime-provider-request-messages.test.ts` ou o arquivo de teste de projection do provider já existente
 
 **Checklist:**
-- [x] 新增 source：`goal_state_change`
-- [x] 加入 `SYSTEM_REMINDER_PERSISTED_SOURCES`
-- [x] descriptor 使用 meta/provider-visible，建议 `descriptor("mid_turn_event", "mid_turn_event", true, "sr.goal_state_change")`
-- [x] 不加入 `NON_MID_CONVERSATION_SYSTEM_SOURCES`
-- [x] hydrate 时 synthetic notice 可恢复成 `messageHistory.addAttachment("goal_state_change", body)`
-- [x] provider projection 在 MCS capable 时输出 mid-conversation system
-- [x] provider projection 在非 MCS 时 fallback 为 `<system-reminder>`
+- [x] Nova source: `goal_state_change`
+- [x] Adicionada a `SYSTEM_REMINDER_PERSISTED_SOURCES`
+- [x] descriptor usa meta/provider-visible, sugerindo `descriptor("mid_turn_event", "mid_turn_event", true, "sr.goal_state_change")`
+- [x] Não adicionada a `NON_MID_CONVERSATION_SYSTEM_SOURCES`
+- [x] No hydrate, a synthetic notice pode ser restaurada como `messageHistory.addAttachment("goal_state_change", body)`
+- [x] A projection do provider emite system mid-conversation quando MCS é capaz
+- [x] A projection do provider faz fallback para `<system-reminder>` quando não há MCS
 
-**Suggested Tests:**
+**Testes sugeridos:**
 - [x] `hydrates persisted goal_state_change synthetic notice as runtime attachment`
 - [x] `projects goal_state_change as mid-conversation system when MCS is supported`
 - [x] `falls back goal_state_change to system-reminder user message when MCS is unsupported`
 
-**Pass Criteria:**
-- [x] 单测证明 `goal_state_change` 可持久化恢复
-- [x] 单测证明 MCS/fallback 两条 provider-visible 路径正确
-- [x] 不影响现有 `resume_goal_state`、`todo_reminder`、`queued_system_notification`
+**Critérios de aprovação:**
+- [x] Testes unitários provam que `goal_state_change` pode ser persistido e restaurado
+- [x] Testes unitários provam que os dois caminhos provider-visible, MCS e fallback, estão corretos
+- [x] Sem impacto em `resume_goal_state`, `todo_reminder` e `queued_system_notification` já existentes
 
 ---
 
-## Phase 2: 持久化 Goal 状态变化 Reminder
+## Phase 2: persistir o Reminder de mudança de estado de goal
 
-**目标:** 在 `/goal pause|clear|resume` 发生时追加 model-only synthetic notice，表达最新 goal 状态。`set|replace` 的目标正文已经是真实 user message，不再重复写 reminder。
+**Objetivo:** anexar uma synthetic notice model-only expressando o estado mais recente da goal
+quando `/goal pause|clear|resume` acontece. O corpo do objetivo em `set|replace` já é uma real user
+message, e portanto o reminder não é reescrito.
 
 **Files:**
 - Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts`
-- Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts` 如需要补 protocol 边界行为
+- Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts` se for preciso complementar o comportamento de fronteira do protocolo
 - Add: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/methods/goal-state-reminder.ts`
 - Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/methods/turn.ts`
 - Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/types.ts`
-- Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts` 如需要新增 runtime helper
-- Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts` 如需要声明 helper
+- Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/internal-methods.ts` se for preciso adicionar um helper de runtime
+- Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts` se for preciso declarar o helper
 - Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/bootstrap/tests/session-persistence.test.ts`
 - Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
 
-**Reminder 文案建议:**
+**Sugestão de texto do Reminder:**
 - pause:
   `The active session goal is paused. Do not continue pursuing it unless the user resumes or replaces the goal.`
 - resume:
@@ -76,102 +100,105 @@
   `The session goal has been cleared. Do not continue pursuing any previous goal unless the user sets a new goal.`
 
 **Checklist:**
-- [x] 新增小 helper，例如 `persistGoalStateChangeReminder(...)`
-- [x] helper 内部调用 `persistSyntheticUserNoticeForSession({ source: "goal_state_change", visibility: "model-only" })`
-- [x] idle 状态变化同步写入 `messageHistory.addAttachment("goal_state_change", body)`，保证当前 runtime 立即可见
-- [x] active regular turn 中只暂存一条 turn-local reminder，在 cancelled tool results 闭合后、terminal event 前写入 history 与 session store
-- [x] `/goal pause` 成功时写 pause reminder
-- [x] `/goal clear` 成功或显式 clear 时写 clear reminder
-- [x] `/goal resume` 成功时写 resume reminder
-- [x] `/goal set` 成功时只写真实 user objective，不写 state reminder
-- [x] `/goal replace` 写真实 user objective；仅当旧目标为 paused、replace 造成 `paused -> active` 时再写 resume reminder
-- [x] no-op 场景不写 misleading reminder，例如 “No goal to pause/resume”
+- [x] Novo helper pequeno, por exemplo `persistGoalStateChangeReminder(...)`
+- [x] O helper chama internamente `persistSyntheticUserNoticeForSession({ source: "goal_state_change", visibility: "model-only" })`
+- [x] Mudanças de estado em idle são gravadas sincronamente em `messageHistory.addAttachment("goal_state_change", body)`, garantindo visibilidade imediata no runtime atual
+- [x] Em active regular turn, apenas uma reminder turn-local é armazenada temporariamente e gravada no history e no session store depois que os cancelled tool results fecham e antes do terminal event
+- [x] `/goal pause` com sucesso grava o pause reminder
+- [x] `/goal clear` com sucesso ou no clear explícito grava o clear reminder
+- [x] `/goal resume` com sucesso grava o resume reminder
+- [x] `/goal set` com sucesso grava apenas a real user objective, sem state reminder
+- [x] `/goal replace` grava a real user objective; só grava o resume reminder quando o objetivo antigo estava paused e o replace provoca `paused -> active`
+- [x] Cenários no-op não gravam reminder enganoso, como "No goal to pause/resume"
 
-**Pass Criteria:**
-- [x] pause 后退出恢复，provider history 含 pause reminder
-- [x] clear 后退出恢复，provider history 含 clear reminder
-- [x] replace 后 provider history 保留旧 continuation，并追加新的真实 user objective；paused replace 之后再追加 resume reminder
-- [x] UI 不出现普通用户气泡
+**Critérios de aprovação:**
+- [x] Após o pause, sair e restaurar, o histórico do provider contém o pause reminder
+- [x] Após o clear, sair e restaurar, o histórico do provider contém o clear reminder
+- [x] Após o replace, o histórico do provider preserva a continuation antiga e anexa a nova real user objective; após um replace paused, um resume reminder é anexado em seguida
+- [x] A UI não exibe balão de usuário comum
 
 ---
 
-## Phase 3: 移除 target_continuation Projection Filter
+## Phase 3: remover o Projection Filter de target_continuation
 
-**目标:** 删除普通请求过滤 `target_continuation` 的特殊逻辑，让 goal continuation 成为稳定 history 事实。
+**Objetivo:** excluir a lógica especial que filtra `target_continuation` em requisições comuns, para
+que a goal continuation se torne um fato estável do histórico.
 
 **Files:**
 - Modify: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/src/runtime/helpers/runtime-provider-request-messages.ts`
 - Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
 
 **Checklist:**
-- [x] 删除 `includeTargetContinuationReminders` 分支过滤
-- [x] 删除 `withoutTargetContinuationReminderEntries`
-- [x] 清理 `includeTargetContinuationReminders` 参数，如无其它用途
-- [x] 更新旧测试 `filters stopped target continuation reminders from following user turns`
-- [x] 新测试改成：follow-up request 保留旧 continuation，但其后有 pause/clear reminder 覆盖语义；replace 依靠新的真实 user objective 覆盖语义
-- [x] 确认 goal continuation 当前 turn 仍包含 continuation prompt
+- [x] Removido o branch de filtro `includeTargetContinuationReminders`
+- [x] Removido `withoutTargetContinuationReminderEntries`
+- [x] Limpo o parâmetro `includeTargetContinuationReminders`, caso não tenha outro uso
+- [x] Atualizado o teste antigo `filters stopped target continuation reminders from following user turns`
+- [x] O novo teste passa a ser: a requisição seguinte preserva a continuation antiga, mas depois há um pause/clear reminder que sobrescreve a semântica; o replace sobrescreve a semântica pela nova real user objective
+- [x] Confirmado que a continuation prompt do turn atual da goal continua incluída
 
-**Pass Criteria:**
-- [x] 没有 projection-time 删除 `target_continuation`
-- [x] provider-visible history append-only
-- [x] pause/clear/replace 后普通 user prompt 不会被旧 continuation 误导，因为后续 state reminder 更晚且 authoritative
+**Critérios de aprovação:**
+- [x] Nenhuma remoção de `target_continuation` em projection-time
+- [x] Histórico provider-visible append-only
+- [x] Após pause/clear/replace, um user prompt comum não é enganado pela continuation antiga, porque o state reminder posterior é mais recente e autoritativo
 
 ---
 
-## Phase 4: Goal 更新与 Race 回归
+## Phase 4: atualizações de goal e regressão de race
 
-**目标:** 确认 pause/replace/clear 与正在运行的 verifier/continuation 不会串目标。
+**Objetivo:** confirmar que pause/replace/clear não se misturam aos objetivos com verifier/
+continuation em execução.
 
 **Files:**
 - Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
 - Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
 
 **Checklist:**
-- [x] verifier 返回期间用户 replace goal：旧 targetID 不继续，新 targetID 继续
-- [x] continuation 排队期间用户 pause：队列执行时读到 paused，不继续
-- [x] background notification 后 goal verifier 之前用户 clear：不再 verifier 旧 goal
-- [x] `/goal pause` abort active turn 后，cancelled tool results 先于 pause reminder 进入 history 与 session store
-- [x] `/goal resume` 后，history 有 resume reminder，并触发 continuation loop
+- [x] Usuário faz replace da goal durante o retorno do verifier: o targetID antigo não continua e o novo targetID continua
+- [x] Usuário faz pause enquanto a continuation está na fila: a fila lê paused ao executar e não continua
+- [x] Usuário faz clear depois de uma background notification e antes do goal verifier: o goal antigo não é mais verificado
+- [x] Depois que `/goal pause` aborta o active turn, os cancelled tool results entram no history e no session store antes do pause reminder
+- [x] Depois de `/goal resume`, o history tem o resume reminder e o continuation loop é disparado
 
-**Pass Criteria:**
-- [x] 所有 race case 都以 session target 权威状态为准
-- [x] 没有 stale objective 被当作 active goal 继续执行
-- [x] command queue 顺序不被绕过
+**Critérios de aprovação:**
+- [x] Todos os casos de race seguem o estado autoritativo do target da session
+- [x] Nenhuma objective obsoleta é tratada como active goal e continuada
+- [x] A ordem da command queue não é contornada
 
-### 2026-07-12 Stop / Tool Result Ordering Bugfix
+### Bugfix de Stop / Tool Result Ordering em 2026-07-12
 
-- [x] regular model/tool loop 中记录 pause 时不立即写入 `messageHistory` 或 synthetic notice
-- [x] turn-local pending reminder 不引入 cursor、history 扫描、target DB 回读、CAS 或 compact/rewind 耦合
-- [x] cancelled tool result 的 part 持久化和 `messageHistory.addToolResult(...)` 均完成后才物化 reminder
-- [x] reminder 物化发生在 success/cancel/error terminal event 之前，避免 terminal race 丢失正常收尾的状态变化
-- [x] idle pause/resume/clear 保持立即物化；重复状态变化仍不写重复 reminder
-- [x] Stop -> turn finalization -> Resume 保留 pause 与 resume 两条 append-only reminder，不做 request-boundary coalescing
-- [x] hard crash 前未 flush 的 transition reminder 允许缺失；权威 target DB 与 cold-resume current-state reminder 继续保证 paused 状态恢复
-- [x] pending reminder 物化失败时记录 warning 并继续 terminal；权威 target 与 `target_changed` 已落库，不增加 retry/cursor
+- [x] Ao registrar um pause no loop regular de model/tool, não se grava imediatamente `messageHistory` nem synthetic notice
+- [x] A reminder turn-local pendente não introduz cursor, varredura de history, releitura do target DB, CAS nem acoplamento com compact/rewind
+- [x] A materialização da reminder só ocorre depois que a persistência das parts do cancelled tool result e o `messageHistory.addToolResult(...)` estão ambos concluídos
+- [x] A materialização da reminder ocorre antes dos terminal events de success/cancel/error, evitando que a race de terminal perca a mudança de estado normal de encerramento
+- [x] pause/resume/clear em idle continuam materializando imediatamente; mudanças de estado repetidas ainda não gravam reminder duplicado
+- [x] Stop -> finalização do turn -> Resume preserva as duas reminders append-only de pause e resume, sem coalescing na fronteira de requisição
+- [x] Uma transition reminder não flushada antes de um hard crash pode faltar; o target DB autoritativo e o current-state reminder do cold-resume continuam garantindo a restauração do estado paused
+- [x] Se a materialização da reminder pendente falhar, registra-se um warning e o terminal continua; o target autoritativo e o `target_changed` já estão no banco, sem adicionar retry/cursor
 
-#### Review regression locks
+#### Locks de regressão do review
 
-- [x] Stop 发生在 assistant `tool_use` 已进入 history、tool handler 尚未启动时，仍先合成并持久化 cancelled `tool_result`，再物化 pause reminder
-- [x] Stop 发生在 file-mutation checkpoint 期间时，checkpoint cancellation 不截断后续 sibling `tool_result` 的 DB 与 live-history 闭合
-- [x] reminder deferral 仅覆盖 `runRegularTurnLoop`，并由 loop 外层唯一的 `finally` 同步关闭后物化 pending
-- [x] Stop 发生在最后一次 reminder drain 之后、`TurnComplete` 真正持久化之前时，pause reminder 不丢失，并且仍早于 terminal event 物化
-- [x] 三个竞态时序均使用确定性同步点编写回归测试，不依赖 sleep 或概率性竞态
+- [x] Quando o Stop ocorre com o `tool_use` do assistant já no history e o tool handler ainda não iniciado, o cancelled `tool_result` ainda é sintetizado e persistido antes de a reminder de pause ser materializada
+- [x] Quando o Stop ocorre durante um checkpoint de file-mutation, o cancelamento do checkpoint não trunca o fechamento no DB e no live-history dos `tool_result` siblings seguintes
+- [x] O deferral da reminder cobre apenas `runRegularTurnLoop`, e o pending é materializado depois de o único `finally` externo do loop fechá-lo de forma síncrona
+- [x] Quando o Stop ocorre após o último drain da reminder e antes de o `TurnComplete` ser realmente persistido, o pause reminder não se perde e ainda é materializado antes do terminal event
+- [x] As três sequências de race são cobertas por testes de regressão com pontos de sincronização determinísticos, sem depender de sleep ou de race probabilístico
 
-#### Integration impact audit
+#### Auditoria de impacto de integração
 
-- [x] producer 顺序保持为 target store -> pending/immediate reminder -> `target_changed`；`/goal pause` 与 `session/stop` 在 command mutation 完成后才 abort
-- [x] deferral 只属于 regular model/tool loop；idle、manual compact、rewind 和 loop 关闭后的 late pause 保持立即物化
-- [x] Stop 前尚未启动的 tool handler 不执行，但已经进入 history 的每个 `tool_use` 都会得到 cancelled result
-- [x] checkpoint cancellation 延迟抛出到 sibling results 全部写入 DB 与 live history 之后；非 cancellation checkpoint 行为不变
-- [x] synthetic persistence、cold hydration、compact selection、MCS/fallback projection 与 UI model-only 过滤均复用既有通路
-- [x] protocol active controller 在 `sendInput` 完成 finalization 后才释放，下一条 desktop/remote host prompt 不能越过 tool result 或 reminder
-- [x] compact/rewind、renderer queue、`clientMode`、`deliveryKind`、workspace identity 和远控 owner/lease 均无生产代码改动
+- [x] A ordem no producer permanece target store -> pending/immediate reminder -> `target_changed`; `/goal pause` e `session/stop` só abortam depois de a command mutation ser concluída
+- [x] O deferral pertence apenas ao loop regular de model/tool; idle, compact manual, rewind e pause tardio após o fechamento do loop continuam materializando imediatamente
+- [x] Tool handlers que ainda não começaram antes do Stop não executam, mas cada `tool_use` que já entrou no history recebe um resultado cancelled
+- [x] O cancelamento de checkpoint tem o throw adiado até que todos os resultados siblings sejam gravados no DB e no live history; o comportamento de checkpoints sem cancelamento não muda
+- [x] Synthetic persistence, cold hydration, compact selection, projection MCS/fallback e o filtro UI de model-only reutilizam todos os caminhos já existentes
+- [x] O active controller do protocolo só é liberado depois de o `sendInput` concluir a finalização, de modo que o próximo prompt do host desktop/remote não ultrapassa o tool result ou a reminder
+- [x] compact/rewind, fila do renderer, `clientMode`, `deliveryKind`, identidade de workspace e owner/lease do controle remoto não tiveram alteração de código de produção
 
 ---
 
-## Phase 5: Visible Content / UI / Compact 回归
+## Phase 5: regressão de Visible Content / UI / Compact
 
-**目标:** 确认新 synthetic reminder 对 UI、visible content、compact、session context 没有副作用。
+**Objetivo:** confirmar que a nova synthetic reminder não tem efeito colateral na UI, no visible
+content, no compact e no session context.
 
 **Files:**
 - Modify if needed: `/Users/dev/Desktop/Z/z-code/packages/shared/src/zcode-session-visible-content.ts`
@@ -181,56 +208,56 @@
 - Test: `/Users/dev/Desktop/Z/z-code/apps/zcode-cli/packages/core/tests/session-history-hydrator.test.ts`
 
 **Checklist:**
-- [x] `goal_state_change` model-only synthetic notice 不显示为普通 user bubble
-- [x] transcript/debug/history 中仍可追踪 raw notice
-- [x] compact 后 provider-visible goal state change 不丢失
-- [x] session context/read-session-context 不把 model-only reminder 当真实用户输入摘要
-- [x] non-incremental diff 中不再因为过滤 `target_continuation` 改变 assistant 邻接关系
+- [x] A synthetic notice `goal_state_change` model-only não aparece como user bubble comum
+- [x] A notice bruta continua rastreável em transcript/debug/history
+- [x] A mudança de estado de goal provider-visible não se perde após o compact
+- [x] session context/read-session-context não trata a reminder model-only como resumo de input real do usuário
+- [x] No diff non-incremental, a relação de adjacência do assistant não muda mais por causa do filtro de `target_continuation`
 
-**Pass Criteria:**
-- [x] UI 快照无新增可见噪声
-- [x] compact/resume 后模型仍能看到最近 goal 状态变化
-- [x] trajectory 转换不再因为 `target_continuation` filter 产生对应 non-incremental diff
+**Critérios de aprovação:**
+- [x] O snapshot da UI não tem novo ruído visível
+- [x] Após compact/resume, o modelo ainda vê a mudança de estado de goal mais recente
+- [x] A conversão de trajectory não gera mais o diff non-incremental correspondente por causa do filtro de `target_continuation`
 
 ---
 
-## Phase 6: Final Verification
+## Phase 6: verificação final
 
-**Commands:**
+**Comandos:**
 - [x] `pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-tool-loop.test.ts --run`
-  - 2026-07-12 全量 129 条通过，包含调度前、checkpoint 期间和 terminal 持久化窗口三个确定性 Stop 竞态。
+  - Em 2026-07-12 passaram os 129 casos no total, incluindo os três races determinísticos de Stop: antes do agendamento, durante o checkpoint e na janela de persistência de terminal.
 - [x] `pnpm --dir apps/zcode-cli exec vitest packages/core/tests/session-history-hydrator.test.ts packages/core/tests/provider-request-messages.test.ts --run`
-  - 2026-07-12 共 51 条通过，覆盖 cold hydration、MCS system 与 legacy fallback。
+  - Em 2026-07-12 passaram 51 casos no total, cobrindo cold hydration, MCS system e legacy fallback.
 - [x] `pnpm --dir apps/zcode-cli exec vitest packages/bootstrap/tests/session-persistence.test.ts --run -t 'persists model-only goal state change reminders for goal lifecycle changes|persists replacement goal objective as real user prompt without state reminders'`
-  - 2026-07-12 focused 2 条通过。
+  - Em 2026-07-12 passaram os 2 casos focados.
 - [ ] `pnpm --dir apps/zcode-cli exec vitest packages/bootstrap/tests/session-persistence.test.ts --run`
-  - 2026-07-12 全量仍有 12 个既有 system-prompt/shell/tool fixture 预期失败；本改动相关的 goal lifecycle focused 用例通过。
+  - Em 2026-07-12 a execução completa ainda tem 12 falhas de expectativa preexistentes de fixtures de system-prompt/shell/tool; os casos focados de goal lifecycle relacionados a esta mudança passam.
 - [x] `pnpm --dir apps/zcode-cli exec vitest packages/bootstrap/tests/zcode-protocol.test.ts --run`
 - [x] `pnpm --dir apps/zcode-cli exec vitest packages/bootstrap/tests/zcode-protocol.test.ts --run -t 'allows session goal pause to stop a running prompt|pauses an active goal when session stop cancels goal continuation'`
-  - 2026-07-12 focused 2 条通过，覆盖 `/goal pause` 与 Generic Stop 两个上游入口。
+  - Em 2026-07-12 passaram os 2 casos focados, cobrindo as duas entradas upstream de `/goal pause` e do Generic Stop.
 - [x] `pnpm exec vitest packages/shared/test/zcodeSessionVisibleContent.test.ts --run`
 - [x] `pnpm exec vitest packages/ui/test/zcodeSessionProjection.test.ts --run`
-  - 2026-07-12 两个文件合计 108 条通过，model-only reminder 未变成可见 user bubble。
+  - Em 2026-07-12 passaram 108 casos somando os dois arquivos, e a reminder model-only não virou um user bubble visível.
 - [x] `pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/conversation-session-stop-empty.test.ts'`
-  - 2026-07-12 B12 等 2 条通过；tool call 运行中 Stop 且 queue=0 后，下一条普通消息立即发起并完成。
+  - Em 2026-07-12 passaram 2 casos, incluindo B12; com o Stop durante um tool call em execução e queue=0, a próxima mensagem comum é iniciada e concluída imediatamente.
 - [x] `pnpm --filter @zcode/desktop typecheck:e2e`
 - [x] `pnpm typecheck`
 - [x] `pnpm --dir apps/zcode-cli typecheck`
 - [x] `pnpm lint`
-  - 根仓库 lint 通过（75 个既有 warning、0 error）；本次所有变更 TypeScript 文件的 targeted oxlint 通过。`apps/zcode-cli` 全量 lint 仍被既有 max-lines/unused 基线阻断。
+  - O lint da raiz passou (75 warnings preexistentes, 0 erros); o oxlint direcionado de todos os arquivos TypeScript alterados passou. O lint completo de `apps/zcode-cli` continua bloqueado pela baseline preexistente de max-lines/unused.
 
-**Manual / Evidence Checks:**
-- [ ] 创建 goal，跑出一次 continuation
-- [ ] pause goal，退出恢复，检查 provider-visible request 含 pause reminder
-- [ ] replace goal，检查旧 continuation 后有新的真实 user objective
-- [ ] clear goal，检查后续 prompt 不继续旧 goal
-- [ ] MCS-capable provider 下检查 role 为 `system`
-- [ ] 非 MCS provider 下检查 fallback 为 `<system-reminder>`
+**Checagens manuais / de evidência:**
+- [ ] Criar uma goal e rodar uma continuation
+- [ ] Fazer pause na goal, sair e restaurar, e conferir que a requisição provider-visible contém o pause reminder
+- [ ] Fazer replace da goal e conferir que a continuation antiga vem seguida da nova real user objective
+- [ ] Fazer clear da goal e conferir que o prompt seguinte não continua a goal antiga
+- [ ] Conferir o role `system` em provider compatível com MCS
+- [ ] Conferir o fallback para `<system-reminder>` em provider sem MCS
 
-**Done Definition:**
-- [x] `target_continuation` 不再被 projection filter 删除
-- [x] goal state change 是持久化、MCS-capable、model-only synthetic notice
-- [x] pause/clear/resume 都有 provider-visible 状态转折；set/replace 通过真实 user objective 进入 provider-visible history，paused -> active 的 replace 额外写 active-again reminder
-- [x] 冷恢复后模型仍能感知最近 goal 状态
-- [x] UI 不新增普通用户气泡
-- [x] 本次范围测试通过，且无 unrelated refactor
+**Definição de conclusão:**
+- [x] `target_continuation` não é mais removido por projection filter
+- [x] A mudança de estado de goal é uma synthetic notice persistida, compatível com MCS e model-only
+- [x] pause/clear/resume têm todas uma transição de estado provider-visible; set/replace entram no histórico provider-visible pela real user objective, e um replace de `paused -> active` grava adicionalmente um reminder active-again
+- [x] Após a restauração a frio o modelo ainda percebe o estado de goal mais recente
+- [x] A UI não ganha balão de usuário comum
+- [x] Os testes do escopo desta rodada passam e não há refactor não relacionado

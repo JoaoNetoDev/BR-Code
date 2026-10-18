@@ -1,71 +1,71 @@
-# Subagent RespondToCoordinator 实现计划
+# Plano de Implementação de Subagent RespondToCoordinator
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 为普通 ZCode subagent 增加 child-only 的 `RespondToCoordinator` 工具，使 child 收到 main 通过 `SendMessage` 注入的 coordinator 消息后，可以把回复投递回父 runtime，同时继续当前长程任务。
+**Objetivo:** adicionar ao subagent ZCode comum a ferramenta child-only `RespondToCoordinator`, para que o child, ao receber a mensagem do coordinator injetada pelo main via `SendMessage`, possa entregar a resposta de volta ao runtime pai enquanto continua a tarefa de longa duração atual.
 
-**Architecture:** 保留现有 `main -> SendMessage -> child steerTurn` 路径不变。新增 `child -> RespondToCoordinator -> CoordinatorResponsePort -> parent runtime command queue` 路径；父 runtime 使用独立的 `subagent-message` command，在 active loop 下一次合法 provider request 前合流，或在 idle 时启动 model-only turn。回复不会成为真实用户消息，不复用 background task completion 的 `task-notification` 语义，也不会直接并发调用父模型。
+**Arquitetura:** manter inalterado o caminho existente `main -> SendMessage -> child steerTurn`. Adiciona-se o caminho `child -> RespondToCoordinator -> CoordinatorResponsePort -> parent runtime command queue`; o runtime pai usa um command `subagent-message` separado, que converge antes da próxima requisição de provider legítima sob active loop, ou inicia um turno model-only quando estiver ocioso. A resposta não se torna uma mensagem real de usuário, não reutiliza a semântica de `task-notification` de conclusão de background task, e não chama o modelo pai concorrentemente.
 
-**Tech Stack:** TypeScript、Zod、Vitest、ZCode tool registry/executor、AgentRuntime command queue、ZCode Protocol、WebdriverIO provider replay E2E。
+**Tech Stack:** TypeScript, Zod, Vitest, ZCode tool registry/executor, AgentRuntime command queue, ZCode Protocol, E2E de replay de provider via WebdriverIO.
 
-## Execution Baseline
+## Baseline de Execução
 
-- 本计划基于 `e458e18b902a467251153972688ca8461eb5a418` 编写；开始 Phase 0 前先运行 `git rev-parse HEAD`。
-- 若 HEAD 已变化，先重新核对本计划列出的源码入口、测试文件和命令，再把下述 baseline 更新为实际起点；禁止在未知 branch drift 上机械执行。
-- 实现期间以 `BASE_SHA=e458e18b902a467251153972688ca8461eb5a418` 作为完整范围审查基线。最终使用 `git diff "$BASE_SHA"...HEAD` 查看已提交变更，同时单独检查 staged、unstaged 和 untracked 文件。
-- 当前 plan 文件本身是 Phase 0 deliverable，必须随 feature spec 一起纳入 Phase 0 commit，不能留在 untracked 状态。
+- Este plano foi escrito com base em `e458e18b902a467251153972688ca8461eb5a418`; rode `git rev-parse HEAD` antes de iniciar a Phase 0.
+- Se o HEAD já mudou, reconfirme primeiro as entradas de código-fonte, arquivos de teste e comandos listados neste plano e então atualize o baseline abaixo para o ponto de partida real; é proibido executar mecanicamente sobre um drift de branch desconhecido.
+- Durante a implementação, use `BASE_SHA=e458e18b902a467251153972688ca8461eb5a418` como baseline de revisão de escopo completo. Ao final, use `git diff "$BASE_SHA"...HEAD` para ver as alterações já commitadas e verifique separadamente arquivos staged, unstaged e untracked.
+- O próprio arquivo de plano atual é um deliverable da Phase 0 e precisa entrar no commit da Phase 0 junto com a feature spec, não pode ficar em estado untracked.
 
-## Global Constraints
+## Restrições Globais
 
-- Provider-visible 工具名固定为 `RespondToCoordinator`。
-- `SendMessage` 继续只暴露给 main runtime；普通 child 不获得完整 `SendMessage`、`Agent` 或 sibling routing 能力。`RespondToCoordinator` 只在 `taskType === "subagent_child"`、coordinator port 存在且未被全局 `toolDisallowlist` 禁用时注册。
-- `RespondToCoordinator` 输入只包含 `{ summary, message }`，不允许模型提供 `to`、`agentId`、`sessionId` 或 parent 标识。
-- child session identity、agent identity 和 parent 路由必须由 runtime 创建 child 时注入，模型输入、handler request 都不能覆盖。
-- P0 不增加 `replyTo` 字段，也不维护“必须先收到某条 SendMessage 才能回复”的隐藏状态机；工具允许回复 coordinator，也允许简短主动进度汇报。
-- 工具成功只表示消息已同步进入父 runtime command queue，不表示 parent model 已读取或回复。
-- 父侧 provider-visible carrier 为 user-role、`visibility: "model-only"`、`source: "subagent_message"` 的 synthetic input。
-- 父侧消息内容使用 `<subagent-message>`，不能伪装成真实用户输入，也不能复用 `<task-notification>`。
-- parent active 时，首次 model step 不读取 runtime command；只有后续 model step 在 compact/request prepare 前读取一次 command snapshot，并将其中的 `task-notification` / `subagent-message` 合流。snapshot 后到达的回复留给后续 step 或 outer queue，不增加 provider request 前的第二次扫描。parent idle 时由 runtime command queue 串行 wake。禁止新增并发 `executeTurnCommand()` 入口。
-- `subagent-message` 不触发 background task 专属的 post-command goal continuation；已有 active goal 继续遵循现有普通 turn 语义。
-- child 当前正在执行一个 tool batch 时不被中断；消息仍在该 batch 完成后、下一次 child model request 前由现有 steer drain 消费。
-- `RespondToCoordinator` 可与 `Read`、`Glob`、`Grep` 等 concurrent-safe 工具进入同一 parallel group；不得为了与 `Bash`、`Write`、`Edit` 真并行而放宽现有 scheduler 安全规则。
-- tool result 无论 enqueue 成功还是失败，都必须提醒 child 继续原任务，除非 coordinator 明确修改或终止目标；最终任务结果仍使用普通 assistant final / Agent completion 返回。
-- 工具保持 `readOnly: false`、`sideEffectScope: "session"`。为 Plan mode 增加窄 `allowedInPlanMode` capability；它只能允许非破坏、无需审批的 session-local control action，且不得绕过全局 disallow、project deny 或 project ask。
-- 回复指导只写入 `RespondToCoordinator.metadata.modelInstructions`。不得向所有 child 的 common system prompt 无条件注入一个可能不存在的工具名。
-- `subagent_message` 除普通消息列表和标题外，也不得进入 `ReadSessionContext` 的用户可见历史摘要。
-- P0 保留现有 child tool-event mirror：`RespondToCoordinator` 可作为 parent Agent card 内的嵌套 child tool block 展示以便观察；只有 synthetic reply carrier 必须禁止显示为顶层 user bubble。
-- 不新增 app-to-agent RPC 方法。只为新的 synthetic source 更新 `packages/shared/src/zcode-protocol/index.ts` 运行时 schema。
-- 桌面 `desktop-continuous` 和手机 `web-remote-replayable` 继续共享同一 host/agent runtime；本轮 E2E 只证明桌面主路径，shared protocol/visibility 单测证明 replayable payload 不被 schema 拒绝或渲染成用户气泡。
-- 不修改 workspace identity、workspace path、remote session routing 或 client command queue 语义。
-- 新增功能先写 spec 和 case/matrix，再写实现。
-- 新增 bug 原因或不明显的 runtime ordering 注释使用中文。
-- 最终必须运行 `pnpm typecheck` 和 `pnpm lint`。
-- 当前工作区可能存在用户未提交改动。执行时禁止还原、覆盖或顺手提交无关改动；提交前必须检查 staged 文件集合。
+- O nome da ferramenta visível ao provider é fixo: `RespondToCoordinator`.
+- `SendMessage` continua exposto apenas ao runtime main; o child comum não ganha `SendMessage` completo, `Agent` ou capacidade de roteamento para irmãos. `RespondToCoordinator` só é registrado quando `taskType === "subagent_child"`, a coordinator port existe e não está desabilitada pelo `toolDisallowlist` global.
+- A entrada de `RespondToCoordinator` contém apenas `{ summary, message }`; o modelo não pode fornecer `to`, `agentId`, `sessionId` ou identificador do pai.
+- A identidade da sessão do child, a identidade do agent e a rota para o pai devem ser injetadas pelo runtime ao criar o child; nem a entrada do modelo nem o request do handler podem sobrescrevê-las.
+- P0 não adiciona campo `replyTo` nem mantém uma máquina de estados oculta de "precisa ter recebido antes alguma SendMessage para poder responder"; a ferramenta permite responder ao coordinator e também permite um breve relatório de progresso proativo.
+- O sucesso da ferramenta significa apenas que a mensagem entrou de forma síncrona na fila de commands do runtime pai, e não que o modelo pai já leu ou respondeu.
+- O carrier visível ao provider no lado pai é um synthetic input de role user, `visibility: "model-only"`, `source: "subagent_message"`.
+- O conteúdo da mensagem no lado pai usa `<subagent-message>`, não pode se disfarçar de entrada real de usuário e não pode reutilizar `<task-notification>`.
+- Com o pai active, o primeiro model step não lê runtime commands; apenas os model steps seguintes leem uma vez um snapshot de commands antes do compact／prepare da requisição e mesclam nele os `task-notification` / `subagent-message` contidos. Respostas que chegam depois do snapshot ficam para o step seguinte ou para a fila externa, sem uma segunda varredura antes da requisição de provider. Quando o pai está ocioso, o runtime command queue faz o wake serialmente. É proibido adicionar uma nova entrada concorrente `executeTurnCommand()`.
+- `subagent-message` não dispara a continuação de goal pós-command exclusiva de background task; um goal já ativo continua seguindo a semântica de turno comum existente.
+- O child não é interrompido enquanto executa um lote de ferramentas; a mensagem continua sendo consumida pelo drain de steer existente após a conclusão daquele lote e antes da próxima requisição de modelo do child.
+- `RespondToCoordinator` pode entrar no mesmo parallel group junto com ferramentas concurrent-safe como `Read`, `Glob`, `Grep`; não se pode afrouxar as regras de segurança do scheduler para forçar paralelismo real com `Bash`, `Write`, `Edit`.
+- O tool result, tanto no caso de enqueue bem-sucedido quanto de falha, deve lembrar o child de continuar a tarefa original, a menos que o coordinator tenha explicitamente mudado ou encerrado o objetivo; o resultado final da task continua sendo retornado pelo assistant final／Agent completion comum.
+- A ferramenta mantém `readOnly: false`, `sideEffectScope: "session"`. Para o Plan mode, adicione uma capability estreita `allowedInPlanMode`; ela só pode permitir ações de controle session-local não destrutivas e sem necessidade de aprovação, e não pode contornar o disallow global, o project deny ou o project ask.
+- A orientação de resposta deve ficar apenas em `RespondToCoordinator.metadata.modelInstructions`. Não se deve injetar incondicionalmente um nome de ferramenta que talvez não exista no common system prompt de todos os children.
+- `subagent_message`, além da lista e do título de mensagens comuns, também não pode entrar no resumo de histórico visível ao usuário de `ReadSessionContext`.
+- P0 mantém o child tool-event mirror existente: `RespondToCoordinator` pode ser exibido como um bloco de ferramenta child aninhado dentro do card do Agent pai para observação; apenas o carrier sintético de resposta precisa ser proibido de aparecer como um bubble de usuário de nível superior.
+- Não se adiciona nenhum método RPC de app para agent. Atualiza-se apenas o runtime schema de `packages/shared/src/zcode-protocol/index.ts` para a nova synthetic source.
+- Desktop `desktop-continuous` e celular `web-remote-replayable` continuam compartilhando o mesmo host／agent runtime; neste ciclo o E2E prova apenas o caminho principal desktop, e os testes unitários de protocol／visibility compartilhados provam que o payload replayable não é rejeitado pelo schema nem renderizado como bubble de usuário.
+- Não se modifica a identidade do workspace, o path do workspace, o roteamento de sessão remota ou a semântica da fila de commands do client.
+- Novos funcionalidades devem ser especificadas primeiro com spec e case／matrix, e só depois a implementação.
+- Comentários sobre a causa de novos bugs ou sobre ordenação de runtime não óbvia devem ser escritos em chinês.
+- Ao final é obrigatório rodar `pnpm typecheck` e `pnpm lint`.
+- O workspace atual pode conter alterações não commitadas do usuário. Durante a execução é proibido reverter, sobrescrever ou commitar de passagem mudanças não relacionadas; antes de commitar é obrigatório verificar o conjunto de arquivos staged.
 
 ---
 
-## Acceptance Criteria
+## Critérios de Aceitação
 
-- [ ] 配有 subagent messaging capability 的 main provider-visible tools 包含现有 `SendMessage`，不包含 `RespondToCoordinator`。
-- [ ] coordinator port 存在且未被全局禁用时，Explore、general-purpose 和 custom child provider-visible tools 包含 `RespondToCoordinator`，且不包含完整 `SendMessage`；port 缺失或全局禁用时工具与相关指导均不存在。
-- [ ] main runtime 即使误注入 coordinator port 也不暴露 `RespondToCoordinator`；main 继续暴露 `SendMessage`。
-- [ ] Explore 的 profile allowlist 和后续 `EXPLORE_AGENT_ALLOWED_TOOLS` 投影都不会再次移除该 child control tool，direct/embedded-search 两种分支均覆盖。
-- [ ] Plan-mode child 可调用 `RespondToCoordinator`，工具仍保持非只读；全局 disallow、project deny/ask 继续优先。
-- [ ] child 收到 `Message from coordinator: <summary>` 后，可以在同一个 assistant model step 中产出 `RespondToCoordinator` 和下一项工作 tool call。
-- [ ] `RespondToCoordinator` tool result 写明“queued”而非“read/replied”，并提醒 child 继续当前任务。
-- [ ] enqueue 失败的 tool result 也明确提醒 child 继续当前任务；P0 不承诺 parent process 销毁后的 durable delivery。
-- [ ] parent active 时，`<subagent-message>` 与当前 tool results 一起进入下一次父 provider request，且 parent model request 最大并发数仍为 1。
-- [ ] parent active turn 已无后续 roundtrip 时，command 留在 outer queue，并在该 turn terminal 后启动独立 model-only turn。
-- [ ] parent idle 时，回复 command 自动启动 model-only turn。
-- [ ] parent session store 中保留 synthetic message，但普通用户消息列表、标题输入和 UI 顶层消息中不可见。
-- [ ] session hydrate 后，`subagent_message` 仍恢复为直接 user-like provider input，不被包装成旧 `queued_system_notification`。
-- [ ] child response command 和随后发生的 Agent completion notification 均为 `priority: "next"`，按 enqueue 顺序消费；既允许合流到同一 provider request，也允许进入相邻请求，但回复的首次 provider-visible 位置必须早于 completion notification。
-- [ ] coordinator port 缺失时工具不注册；异常手工调用返回明确 configuration error。
-- [ ] XML 内容完成转义，20,000 字符输入上限生效。
-- [ ] 顶层 synthetic user bubble 不可见；现有 mirror 下嵌套 `RespondToCoordinator` child tool block 可见且不结束 Agent task。
-- [ ] `BG07` 继续只证明 main-to-child steer；新增 `BG25` 单独证明 child-to-main response 和 child continuation。
+- [ ] As ferramentas main visíveis ao provider com capacidade de subagent messaging incluem o `SendMessage` existente e não incluem `RespondToCoordinator`.
+- [ ] Quando a coordinator port existe e não está desabilitada globalmente, as ferramentas child visíveis ao provider de Explore, general-purpose e custom incluem `RespondToCoordinator` e não incluem o `SendMessage` completo; quando a port está ausente ou desabilitada globalmente, a ferramenta e a orientação correspondente não existem.
+- [ ] Mesmo que uma coordinator port seja injetada por engano no runtime main, `RespondToCoordinator` não é exposta; o main continua expondo `SendMessage`.
+- [ ] O profile allowlist do Explore e a projeção posterior de `EXPLORE_AGENT_ALLOWED_TOOLS` não removem novamente essa tool de controle do child, cobrindo os dois ramos direct／embedded-search.
+- [ ] Um child em Plan-mode pode chamar `RespondToCoordinator`, e a ferramenta continua não read-only; disallow global e project deny／ask continuam com prioridade.
+- [ ] Depois de receber `Message from coordinator: <summary>`, o child pode produzir `RespondToCoordinator` e a próxima chamada de ferramenta de trabalho no mesmo assistant model step.
+- [ ] O tool result de `RespondToCoordinator` diz "queued" e não "read/replied", e lembra o child de continuar a tarefa atual.
+- [ ] O tool result de falha de enqueue também lembra explicitamente o child de continuar a tarefa atual; P0 não promete entrega durável após a destruição do processo pai.
+- [ ] Com o pai active, `<subagent-message>` entra na próxima requisição de provider do pai junto com os tool results atuais, e o número máximo de requisições de modelo concorrentes do pai continua sendo 1.
+- [ ] Quando o turno active do pai já não tem roundtrip seguinte, o command fica na fila externa e um turno model-only independente é iniciado após o término desse turno.
+- [ ] Quando o pai está ocioso, o command de resposta inicia automaticamente um turno model-only.
+- [ ] A mensagem sintética é preservada no session store do pai, mas é invisível na lista comum de mensagens de usuário, na entrada de título e nas mensagens de nível superior da UI.
+- [ ] Após o hydrate da sessão, `subagent_message` ainda é restaurado como provider input direto user-like, sem ser embrulhado no antigo `queued_system_notification`.
+- [ ] O command de resposta do child e a notificação de Agent completion subsequente são ambos `priority: "next"`, consumidos na ordem de enqueue; é permitido mesclar na mesma requisição de provider e também entrar em requisições adjacentes, mas a primeira posição visível ao provider da resposta deve ser anterior à notificação de completion.
+- [ ] Quando a coordinator port está ausente, a ferramenta não é registrada; uma chamada manual anormal retorna um configuration error claro.
+- [ ] O escape do conteúdo XML está completo e o limite de entrada de 20.000 caracteres tem efeito.
+- [ ] O bubble de usuário sintético de nível superior é invisível; sob o mirror existente o bloco de ferramenta child aninhado `RespondToCoordinator` é visível e não encerra a Agent task.
+- [ ] `BG07` continua provando apenas o steer main-to-child; o novo `BG25` prova separadamente a resposta child-to-main e a continuação do child.
 
-## Current Behavior Baseline
+## Baseline do Comportamento Atual
 
 ```text
 main model
@@ -79,16 +79,16 @@ main model
   -> provider sees "Message from coordinator: ..."
 ```
 
-当前关键事实：
+Fatos-chave atuais:
 
-- `apps/zcode-cli/packages/core/src/subagent/message-steering.ts` 已负责 coordinator 文案和 child steer。
-- `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts` 在下一次 model request 前 drain steer 和 active-loop runtime commands。
-- `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts` 已负责 command 串行执行和 idle wake。
-- `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts` 当前只处理 task notification persistence 和 active-loop intake。
-- `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` 是 child runtime、tool allowlist 和 parent closure 的组装入口。
-- `apps/zcode-cli/packages/core/src/tool/scheduler.ts` 已根据 `concurrentSafe` 决定工具执行分组，本功能不修改调度算法。
+- `apps/zcode-cli/packages/core/src/subagent/message-steering.ts` já cuida do texto do coordinator e do steer do child.
+- `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts` faz o drain do steer e dos runtime commands do active loop antes da próxima requisição de modelo.
+- `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts` já cuida da execução serial dos commands e do wake quando ocioso.
+- `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts` atualmente trata apenas da persistência de task notification e da entrada no active loop.
+- `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` é o ponto de montagem do child runtime, do tool allowlist e do closure do pai.
+- `apps/zcode-cli/packages/core/src/tool/scheduler.ts` já decide o agrupamento de execução de ferramentas com base em `concurrentSafe`; esta funcionalidade não modifica o algoritmo de agendamento.
 
-## Target Data Flow
+## Fluxo de Dados Alvo
 
 ```text
 child provider response
@@ -102,7 +102,7 @@ child provider response
   -> parent provider sees <subagent-message>...</subagent-message>
 ```
 
-Provider-visible payload：
+Payload visível ao provider:
 
 ```xml
 <subagent-message>
@@ -113,100 +113,100 @@ Provider-visible payload：
 </subagent-message>
 ```
 
-## File Structure
+## Estrutura de Arquivos
 
-### New files
+### Novos arquivos
 
 | File                                                                                                                                | Responsibility                                                                  |
 | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `docs/subagent-respond-to-coordinator.md`                                                                                           | 产品语义、状态边界、非目标和验收标准的 source-of-truth spec                     |
-| `apps/zcode-cli/packages/contracts/src/tools/respond-to-coordinator.ts`                                                             | tool input/runtime output schema 和常量                                         |
-| `apps/zcode-cli/packages/contracts/src/interfaces/coordinator-response.port.ts`                                                     | child tool 到父 runtime 的窄端口                                                |
-| `apps/zcode-cli/packages/core/src/tool/handlers/respond-to-coordinator.ts`                                                          | provider-visible tool metadata、handler 和 model result formatting              |
-| `apps/zcode-cli/packages/core/src/subagent/coordinator-response.ts`                                                                 | 绑定 authoritative child identity，并把结构化回复提交给 parent enqueue callback |
-| `apps/zcode-cli/packages/core/src/runtime/methods/subagent-messages.ts`                                                             | parent command enqueue、XML formatting、persistence                             |
-| `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-active-loop.ts`                                                   | active loop 对允许 command 类型的统一 intake                                    |
-| `apps/zcode-cli/packages/contracts/tests/respond-to-coordinator.test.ts`                                                            | schema 边界测试                                                                 |
-| `apps/zcode-cli/packages/core/tests/runtime-tool-allowlist.test.ts`                                                                 | Explore/custom child 最终 built-in allowlist 投影测试                           |
-| `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts`                       | 独立 formal BG25 replay spec，使用正常 context window                         |
-| `packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-subagent-respond-to-coordinator.json`        | BG25 case-local provider replay fixture                                         |
-| `packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-subagent-respond-to-coordinator.json`           | BG25 replay manifest                                                            |
+| `docs/subagent-respond-to-coordinator.md`                                                                                           | Spec source-of-truth com a semântica de produto, limites de estado, não objetivos e critérios de aceitação |
+| `apps/zcode-cli/packages/contracts/src/tools/respond-to-coordinator.ts`                                                             | Schemas de entrada／saída em runtime da ferramenta e constantes                    |
+| `apps/zcode-cli/packages/contracts/src/interfaces/coordinator-response.port.ts`                                                     | Porta estreita da ferramenta do child para o runtime pai                          |
+| `apps/zcode-cli/packages/core/src/tool/handlers/respond-to-coordinator.ts`                                                          | Metadata visível ao provider, handler e formatação do resultado para o modelo      |
+| `apps/zcode-cli/packages/core/src/subagent/coordinator-response.ts`                                                                 | Liga a identidade autoritativa do child e entrega a resposta estruturada ao callback de enqueue do pai |
+| `apps/zcode-cli/packages/core/src/runtime/methods/subagent-messages.ts`                                                             | Enqueue de command no pai, formatação XML e persistência                         |
+| `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-active-loop.ts`                                                   | Entrada unificada do active loop para os tipos de command permitidos               |
+| `apps/zcode-cli/packages/contracts/tests/respond-to-coordinator.test.ts`                                                            | Testes de fronteira de schema                                                     |
+| `apps/zcode-cli/packages/core/tests/runtime-tool-allowlist.test.ts`                                                                 | Testes de projeção do allowlist built-in final de Explore／custom child           |
+| `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts`                       | Spec formal BG25 independente, com context window normal                          |
+| `packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-subagent-respond-to-coordinator.json`        | Fixture de replay de provider local ao case do BG25                              |
+| `packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-subagent-respond-to-coordinator.json`           | Manifest de replay do BG25                                                        |
 
-### Modified files
+### Arquivos modificados
 
 | File                                                                           | Change                                                                            |
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| `docs/superpowers/plans/2026-07-10-subagent-respond-to-coordinator.md`         | 本可执行计划，随 Phase 0 纳入版本控制                                             |
-| `docs/conversation-session-case-catalog.md`                                    | 新增 BG25 accepted case                                                           |
-| `docs/testing/conversation-session-background-e2e-coverage-matrix.md`          | 增加 response channel 维度和 planned/covered 状态                                 |
-| `docs/testing/conversation-session-e2e-coverage-matrix.md`                     | 登记 BG25                                                                         |
-| 历史差异审计文档（已删除）                                        | 标记为 ZCode narrow extension，不误报为完整 Agent Teams 能力                      |
-| `apps/zcode-cli/packages/contracts/src/tools/index.ts`                         | 导出 tool contract                                                                |
-| `apps/zcode-cli/packages/contracts/src/index.ts`                               | 导出 coordinator port                                                             |
-| `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts`       | 增加 `subagent_message` synthetic source                                          |
-| `packages/shared/src/zcode-protocol/index.ts`                                  | 接受 `subagent_message` source/inputSource                                        |
-| `apps/zcode-cli/packages/core/src/tool/handlers/index.ts`                      | 注册 child-only tool                                                              |
-| `apps/zcode-cli/packages/core/src/tool/types.ts`                               | ToolExecutionContext 增加 coordinator port，并增加 `allowedInPlanMode` capability |
-| `apps/zcode-cli/packages/core/src/tool/executor/types.ts`                      | executor options/deps 增加 coordinator port                                       |
-| `apps/zcode-cli/packages/core/src/tool/executor/impl.ts`                       | 透传 coordinator port                                                             |
-| `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`                | 将 coordinator port 放入 handler context                                          |
-| `apps/zcode-cli/packages/core/src/permission/service.ts`                       | 在既有 deny/ask 之后允许显式 Plan-mode session capability                         |
-| `apps/zcode-cli/packages/core/src/runtime/types.ts`                            | AgentRuntimeDeps 增加 coordinator port                                            |
-| `apps/zcode-cli/packages/core/src/runtime/command-queue.ts`                    | 增加 `SubagentMessageRuntimeCommand`                                              |
-| `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`                 | 声明 enqueue/persist intake 方法                                                  |
-| `apps/zcode-cli/packages/core/src/runtime/methods/index.ts`                    | 绑定新 runtime methods                                                            |
-| `apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts`            | 条件注册工具并透传 port                                                           |
-| `apps/zcode-cli/packages/core/src/runtime/helpers/tool-allowlist.ts`           | 在 Explore 最终交集后保留 child control tool                                      |
-| `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts` | 移出 generic active-loop drain，保留 task notification 专属逻辑                   |
-| `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts`    | 执行 idle `subagent-message` command                                              |
-| `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`                 | child tool allowlist 和 coordinator port wiring                                   |
-| `apps/zcode-cli/packages/core/src/agent/session-history-hydrator.ts`           | 恢复 `subagent_message` user-like metadata                                        |
-| `apps/zcode-cli/packages/core/src/runtime/helpers/runtime-reminders.ts`        | 映射 `subagent_message` runtime metadata                                          |
-| `apps/zcode-cli/packages/core/src/session-context/parts.ts`                    | 从 ReadSessionContext 摘要中排除 internal coordinator reply                       |
-| `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`                    | provider tool exposure 和 metadata 测试                                           |
-| `apps/zcode-cli/packages/core/tests/runtime-hooks.test.ts`                     | handler/port 参数和 ack 测试                                                      |
-| `apps/zcode-cli/packages/core/tests/permission-service.test.ts`                | Plan-mode capability 优先级测试                                                   |
-| `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`                 | active/idle command、ordering 和单并发测试                                        |
-| `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`                  | child tool surface、双向消息和继续工作测试                                        |
-| `apps/zcode-cli/packages/core/tests/scheduler.test.ts`                         | concurrent-safe 分组边界回归                                                      |
-| `apps/zcode-cli/packages/core/tests/session-history-hydrator.test.ts`          | hydrate 语义测试                                                                  |
-| `apps/zcode-cli/packages/core/tests/read-session-context-tool.test.ts`         | model-only coordinator reply 不进入 session context                               |
-| `packages/shared/test/zcodeProtocol.test.ts`                                   | protocol source 解析测试                                                          |
-| `packages/shared/src/zcode-session-visible-content.ts`                         | 增加 `subagent_message` source-only visibility fallback                           |
-| `packages/shared/test/zcodeSessionVisibleContent.test.ts`                      | model-only 消息不可见测试                                                         |
-| `docs/design/v2/tool/00-tool-change-chain.md`                                  | 记录 `allowedInPlanMode` 的窄语义和禁止伪装 read-only 约束                        |
-| `scripts/test-desktop-e2e-container.sh`                                        | Docker admission 后把正式 BG25 spec 纳入 verified preset                          |
-| `docs/testing/conversation-session-docker-automation-plan.md`                  | Docker admission 工具同步准入记录                                                 |
+| `docs/superpowers/plans/2026-07-10-subagent-respond-to-coordinator.md`         | Este plano executável, entra no controle de versão na Phase 0                      |
+| `docs/conversation-session-case-catalog.md`                                    | Novo case accepted BG25                                                           |
+| `docs/testing/conversation-session-background-e2e-coverage-matrix.md`          | Nova dimensão response channel e status planned／covered                         |
+| `docs/testing/conversation-session-e2e-coverage-matrix.md`                     | Registro do BG25                                                                  |
+| Documento de auditoria de diferenças históricas (já removido)                 | Marcado como narrow extension do ZCode, sem reportar como capacidade completa de Agent Teams |
+| `apps/zcode-cli/packages/contracts/src/tools/index.ts`                         | Exporta o contrato da ferramenta                                                   |
+| `apps/zcode-cli/packages/contracts/src/index.ts`                               | Exporta a coordinator port                                                        |
+| `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts`       | Adiciona a synthetic source `subagent_message`                                    |
+| `packages/shared/src/zcode-protocol/index.ts`                                  | Aceita a source／inputSource `subagent_message`                                   |
+| `apps/zcode-cli/packages/core/src/tool/handlers/index.ts`                      | Registra a ferramenta child-only                                                   |
+| `apps/zcode-cli/packages/core/src/tool/types.ts`                               | ToolExecutionContext ganha a coordinator port e a capability `allowedInPlanMode`  |
+| `apps/zcode-cli/packages/core/src/tool/executor/types.ts`                      | Options／deps do executor ganha a coordinator port                                 |
+| `apps/zcode-cli/packages/core/src/tool/executor/impl.ts`                       | Repassa a coordinator port                                                        |
+| `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`                | Coloca a coordinator port no contexto do handler                                   |
+| `apps/zcode-cli/packages/core/src/permission/service.ts`                       | Permite a capability explícita de session em Plan mode após os deny／ask já existentes |
+| `apps/zcode-cli/packages/core/src/runtime/types.ts`                            | AgentRuntimeDeps ganha a coordinator port                                          |
+| `apps/zcode-cli/packages/core/src/runtime/command-queue.ts`                    | Adiciona `SubagentMessageRuntimeCommand`                                           |
+| `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`                 | Declara os métodos de enqueue／persist intake                                      |
+| `apps/zcode-cli/packages/core/src/runtime/methods/index.ts`                    | Liga os novos runtime methods                                                      |
+| `apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts`            | Registra a ferramenta condicionalmente e repassa a port                            |
+| `apps/zcode-cli/packages/core/src/runtime/helpers/tool-allowlist.ts`           | Preserva a tool de controle do child após a interseção final do Explore           |
+| `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts` | Remove o drain genérico do active loop e mantém a lógica exclusiva de task notification |
+| `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts`    | Executa o command `subagent-message` quando ocioso                               |
+| `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`                 | Tool allowlist do child e wiring da coordinator port                               |
+| `apps/zcode-cli/packages/core/src/agent/session-history-hydrator.ts`           | Restaura o metadata user-like de `subagent_message`                                |
+| `apps/zcode-cli/packages/core/src/runtime/helpers/runtime-reminders.ts`        | Mapeia o runtime metadata de `subagent_message`                                   |
+| `apps/zcode-cli/packages/core/src/session-context/parts.ts`                    | Exclui a resposta interna do coordinator do resumo de ReadSessionContext           |
+| `apps/zcode-cli/packages/core/tests/tool-contracts.test.ts`                    | Testes de exposição da tool do provider e de metadata                              |
+| `apps/zcode-cli/packages/core/tests/runtime-hooks.test.ts`                     | Testes de parâmetros do handler／port e de ack                                     |
+| `apps/zcode-cli/packages/core/tests/permission-service.test.ts`                | Testes de prioridade da capability de Plan mode                                   |
+| `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`                 | Testes de command active／idle, ordenação e concorrência única                    |
+| `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`                  | Testes de superfície de tool do child, mensagens bidirecionais e continuar trabalhando |
+| `apps/zcode-cli/packages/core/tests/scheduler.test.ts`                         | Regressão da fronteira de agrupamento concurrent-safe                               |
+| `apps/zcode-cli/packages/core/tests/session-history-hydrator.test.ts`          | Testes de semântica de hydrate                                                     |
+| `apps/zcode-cli/packages/core/tests/read-session-context-tool.test.ts`         | Resposta model-only do coordinator não entra no session context                    |
+| `packages/shared/test/zcodeProtocol.test.ts`                                   | Testes de parsing de source do protocol                                           |
+| `packages/shared/src/zcode-session-visible-content.ts`                         | Adiciona o fallback de visibilidade source-only para `subagent_message`            |
+| `packages/shared/test/zcodeSessionVisibleContent.test.ts`                      | Testes de que mensagens model-only são invisíveis                                  |
+| `docs/design/v2/tool/00-tool-change-chain.md`                                  | Registra a semântica estreita de `allowedInPlanMode` e a proibição de se disfarçar de read-only |
+| `scripts/test-desktop-e2e-container.sh`                                        | Inclui a spec formal BG25 no preset verified após o admission Docker               |
+| `docs/testing/conversation-session-docker-automation-plan.md`                  | Registro de admissão da ferramenta de admission Docker                             |
 
-## Phase Checklist
+## Checklist de Phases
 
-- [ ] Phase 0：锁定 spec、case 和非目标
-- [ ] Phase 1：建立 contracts、protocol source 和窄端口
-- [ ] Phase 2：实现 child-only tool 和 executor wiring
-- [ ] Phase 3：实现 parent `subagent-message` runtime command
-- [ ] Phase 4：接入 child runtime、tool-scoped guidance 和 continuation 行为
-- [ ] Phase 5：补齐 persistence、hydrate、ordering 和失败分支
-- [ ] Phase 6：完成独立 formal BG25 spec、fixture 和 replay E2E
-- [ ] Phase 7：执行全量校验、审查 diff 并提交
+- [ ] Phase 0：travar spec, case e não objetivos
+- [ ] Phase 1：estabelecer contracts, protocol source e a porta estreita
+- [ ] Phase 2：implementar a tool child-only e o wiring do executor
+- [ ] Phase 3：implementar o runtime command `subagent-message` do pai
+- [ ] Phase 4：conectar o child runtime, a guidance com escopo de tool e o comportamento de continuação
+- [ ] Phase 5：completar persistence, hydrate, ordering e ramos de falha
+- [ ] Phase 6：concluir a spec formal BG25 independente, o fixture e o E2E de replay
+- [ ] Phase 7：executar a verificação completa, revisar o diff e commitar
 
-## Acceptance Traceability
+## Rastreabilidade da Aceitação
 
 | Concern                                              | Implementation proof                                | Behavioral proof                                               |
 | ---------------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------- |
-| child-only exposure / missing port / global disallow | Phase 2 registration gate + Phase 4 final allowlist | `tool-contracts`、`runtime-tool-allowlist`、`subagent-explore` |
-| Plan mode without fake read-only                     | Phase 2 `allowedInPlanMode` capability              | `permission-service` + real executor integration               |
-| active / idle / terminal-race serialization          | Phase 3 runtime command + active-loop intake        | `runtime-tool-loop`，含 max model concurrency = 1              |
-| authoritative identity / enqueue failure             | Phase 4 closure-bound port                          | contract negative cases + adapter failure test                 |
-| same-step response + continued child work            | Phase 4 child wiring and concurrent-safe metadata   | child integration + scheduler regression                       |
-| FIFO across coalesced/separate requests              | Phase 3/5 `priority: "next"` command order          | `(requestIndex, contentIndex)` ordering tests                  |
-| persistence / hydrate / visibility                   | Phase 1 protocol source + Phase 5 mappings          | shared visibility/title、hydrate、ReadSessionContext tests     |
-| real provider/UI path                                | Phase 6 BG25                                        | capture、isolated/default replay、Docker admission             |
+| exposição child-only / port ausente / disallow global | gate de registro da Phase 2 + allowlist final da Phase 4 | `tool-contracts`、`runtime-tool-allowlist`、`subagent-explore` |
+| Plan mode sem fingir read-only                     | capability `allowedInPlanMode` da Phase 2             | `permission-service` + integração real do executor             |
+| serialização active／idle／terminal-race            | runtime command da Phase 3 + intake do active loop     | `runtime-tool-loop`, incluindo max model concurrency = 1       |
+| identidade autoritativa / falha de enqueue         | port ligada por closure na Phase 4                    | casos negativos de contrato + teste de falha do adapter        |
+| resposta no mesmo step + trabalho contínuo do child | wiring do child e metadata concurrent-safe na Phase 4  | integração do child + regressão do scheduler                   |
+| FIFO entre requisições mescladas／separadas        | ordem de command `priority: "next"` nas Phases 3／5   | testes de ordenação `(requestIndex, contentIndex)`             |
+| persistence／hydrate／visibility                   | protocol source da Phase 1 + mapeamentos da Phase 5    | visibilidade／título compartilhado, hydrate, testes de ReadSessionContext |
+| caminho real de provider／UI                        | BG25 na Phase 6                                      | capture, replay isolated／default, admission Docker            |
 
 ---
 
-## Phase 0：Spec 与覆盖边界
+## Phase 0：Spec e fronteira de cobertura
 
-### Task 1：写功能 spec 并登记 BG25
+### Task 1：escrever a feature spec e registrar o BG25
 
 **Files:**
 
@@ -215,14 +215,14 @@ Provider-visible payload：
 - Modify: `docs/conversation-session-case-catalog.md`
 - Modify: `docs/testing/conversation-session-background-e2e-coverage-matrix.md`
 - Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Modify: 历史差异审计文档（已删除）
+- Modify: documento de auditoria de diferenças históricas (já removido)
 
 **Interfaces:**
 
-- Consumes: 本计划的 Global Constraints、Acceptance Criteria 和 Target Data Flow。
-- Produces: 实现和 E2E 使用的正式产品语义；稳定 case id `BG25`。
+- Consumes: as Restrições Globais, os Critérios de Aceitação e o Fluxo de Dados Alvo deste plano.
+- Produces: a semântica formal de produto usada pela implementação e pelo E2E; id de case estável `BG25`.
 
-- [ ] **Step 0：确认 execution baseline 和工作区边界**
+- [ ] **Step 0：confirmar o baseline de execução e os limites do workspace**
 
 Run:
 
@@ -231,11 +231,11 @@ git rev-parse HEAD
 git status --short
 ```
 
-Expected: HEAD 为 `e458e18b902a467251153972688ca8461eb5a418`，除本 plan 外没有未识别改动。若 HEAD 不同，先审查 branch drift 并更新 `Execution Baseline`；若有用户改动，记录路径并在后续每次 staged-path gate 中排除。
+Expected: HEAD é `e458e18b902a467251153972688ca8461eb5a418` e, além deste plano, não há mudanças não identificadas. Se o HEAD for diferente, revise o drift do branch e atualize o `Execution Baseline`; se houver mudanças do usuário, registre os caminhos e exclua-os em cada gate de staged-path posterior.
 
-- [ ] **Step 1：创建 feature spec**
+- [ ] **Step 1：criar a feature spec**
 
-`docs/subagent-respond-to-coordinator.md` 必须完整写入以下内容：
+`docs/subagent-respond-to-coordinator.md` precisa ser escrito por inteiro com o seguinte conteúdo:
 
 ```markdown
 # Subagent RespondToCoordinator
@@ -284,17 +284,17 @@ assistant step 中继续发出下一项工作工具调用。
 - 隐藏 parent Agent card 内已有的 child tool observability。
 ```
 
-- [ ] **Step 2：在 case catalog 新增 BG25**
+- [ ] **Step 2：adicionar o BG25 no case catalog**
 
-在 BG 表追加：
+Acrescente à tabela de BG:
 
 ```markdown
 | BG25 | `running`，background Agent 正在长程任务中，且已收到 main 的 `SendMessage` coordinator input | child 在下一次 model step 调用 `RespondToCoordinator`，并同时继续普通工作 tool call | subagentBidirectionalCoordinatorMessage + modelOnlySyntheticInput | 回复通过 parent runtime command queue 投递；parent active 时合流、idle 时 wake；provider request 包含 `<subagent-message>`；UI 不显示真实 user 气泡；child 在回复后继续原任务并最终正常 completion | accepted |
 ```
 
-- [ ] **Step 3：更新 background 和主 coverage matrix**
+- [ ] **Step 3：atualizar a coverage matrix de background e a principal**
 
-新增维度与 planned row：
+Adicione a nova dimensão e a linha planned:
 
 ```markdown
 | child response channel | RespondToCoordinator + continued work | active parent in core; idle parent in E2E | 不覆盖 sibling/teammate routing |
@@ -306,16 +306,16 @@ assistant step 中继续发出下一项工作工具调用。
 | BG25 | planned | BGR、RT | BGR 验证 SendMessage -> RespondToCoordinator + continued child tool -> parent model-only `<subagent-message>` -> child completion；RT 覆盖 active/idle command intake、FIFO ordering 和单模型请求并发 |
 ```
 
-- [ ] **Step 4：更新 subagent historical gap audit**
+- [ ] **Step 4：atualizar a auditoria de gaps históricos do subagent**
 
-增加一条 scope note，明确：
+Acrescente uma scope note deixando explícito:
 
 ```markdown
 RespondToCoordinator 是 ZCode 为普通 local_agent 增加的窄 child-to-parent reply channel。
 它不表示已实现 Agent Teams，也不改变默认 main-only SendMessage 的语义。
 ```
 
-- [ ] **Step 5：运行文档覆盖审计**
+- [ ] **Step 5：rodar a auditoria de cobertura de documentação**
 
 Run:
 
@@ -323,9 +323,9 @@ Run:
 node scripts/audit-conversation-session-case-coverage.mjs --check --json
 ```
 
-Expected: exit code `0`，BG25 在 catalog 和 matrix 中能够互相映射；不存在 duplicate id 或 missing matrix row。
+Expected: exit code `0`, com o BG25 mapeando um para o outro entre catalog e matrix; sem id duplicado nem linha de matrix ausente.
 
-- [ ] **Step 6：审查 Phase 0 diff**
+- [ ] **Step 6：revisar o diff da Phase 0**
 
 Run:
 
@@ -335,24 +335,24 @@ git diff --cached --check
 git diff --cached --name-only
 ```
 
-Expected: 无 whitespace error，且 cached paths 恰好是上面六个文档。先 stage 再检查是必要的，因为本 plan 和新 spec 在 Phase 0 开始时是 untracked，普通 `git diff` 看不到它们。
+Expected: sem erro de whitespace e com os cached paths sendo exatamente os seis documentos acima. Staging antes de checar é necessário porque este plano e a nova spec estão untracked no início da Phase 0 e um `git diff` comum não os veria.
 
-- [ ] **Step 7：提交 Phase 0**
+- [ ] **Step 7：commitar a Phase 0**
 
-只有在这些文件没有混入用户未提交改动时执行：
+Execute somente se nenhum desses arquivos tiver mudanças do usuário não commitadas misturadas:
 
 ```bash
 git diff --cached --name-only
 git commit -m "docs: specify subagent coordinator responses"
 ```
 
-Expected staged paths: 仅上面六个文档。若任一文件已有不可分离的用户改动，停止该 commit，保留改动并在交付说明中列出。
+Expected staged paths: apenas os seis documentos acima. Se algum arquivo já tiver mudanças do usuário inseparáveis, interrompa esse commit, preserve as mudanças e liste-as nas notas de entrega.
 
 ---
 
-## Phase 1：Contracts 与 Protocol
+## Phase 1：Contracts e Protocol
 
-### Task 2：定义 RespondToCoordinator schema 和 CoordinatorResponsePort
+### Task 2：definir o schema RespondToCoordinator e a CoordinatorResponsePort
 
 **Files:**
 
@@ -367,7 +367,7 @@ Expected staged paths: 仅上面六个文档。若任一文件已有不可分离
 
 **Interfaces:**
 
-- Consumes: spec 中固定的 `{ summary, message }` 输入和同步 enqueue 语义。
+- Consumes: a entrada `{ summary, message }` fixada na spec e a semântica de enqueue síncrono.
 - Produces:
 
 ```ts
@@ -377,9 +377,9 @@ export interface CoordinatorResponsePort {
 }
 ```
 
-- [ ] **Step 1：先写 contracts failing tests**
+- [ ] **Step 1：escrever primeiro os testes de contracts que falham**
 
-创建 `apps/zcode-cli/packages/contracts/tests/respond-to-coordinator.test.ts`：
+Crie `apps/zcode-cli/packages/contracts/tests/respond-to-coordinator.test.ts`:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -442,7 +442,7 @@ describe("RespondToCoordinator contract", () => {
 });
 ```
 
-- [ ] **Step 2：运行 contracts test，确认先失败**
+- [ ] **Step 2：rodar o teste de contracts e confirmar que falha primeiro**
 
 Run:
 
@@ -450,11 +450,11 @@ Run:
 pnpm --filter @zcode/contracts exec vitest run tests/respond-to-coordinator.test.ts
 ```
 
-Expected: FAIL，提示 `RespondToCoordinatorInputSchema` 等 export 不存在。
+Expected: FAIL, indicando que exports como `RespondToCoordinatorInputSchema` não existem.
 
-- [ ] **Step 3：实现 tool schemas**
+- [ ] **Step 3：implementar os schemas da tool**
 
-`apps/zcode-cli/packages/contracts/src/tools/respond-to-coordinator.ts`：
+`apps/zcode-cli/packages/contracts/src/tools/respond-to-coordinator.ts`:
 
 ```ts
 import { z } from "zod";
@@ -491,9 +491,9 @@ export const RespondToCoordinatorOutputSchema = z
 export type RespondToCoordinatorOutput = z.infer<typeof RespondToCoordinatorOutputSchema>;
 ```
 
-- [ ] **Step 4：实现同步窄端口**
+- [ ] **Step 4：implementar a porta estreita síncrona**
 
-`apps/zcode-cli/packages/contracts/src/interfaces/coordinator-response.port.ts`：
+`apps/zcode-cli/packages/contracts/src/interfaces/coordinator-response.port.ts`:
 
 ```ts
 import type { TraceContext } from "../tracing/tracer.js";
@@ -520,26 +520,26 @@ export interface CoordinatorResponsePort {
 }
 ```
 
-`SessionId` 不再由 `CoordinatorResponseRequest` 导入；child session identity 在 Phase 4 的 `CreateCoordinatorResponsePortOptions` 中固定，避免 handler 或后续调用者把 identity 当作可路由字段。
+`SessionId` não é mais importado por `CoordinatorResponseRequest`; a identidade da sessão do child é fixada em `CreateCoordinatorResponsePortOptions` na Phase 4, evitando que o handler ou chamadores posteriores tratem identity como um campo roteável.
 
-在 `tools/index.ts` 导出 `./respond-to-coordinator.js`，在 contracts root `index.ts` 导出 `./interfaces/coordinator-response.port.js`。
+Exporte `./respond-to-coordinator.js` em `tools/index.ts` e `./interfaces/coordinator-response.port.js` no `index.ts` raiz dos contracts.
 
-- [ ] **Step 5：增加 synthetic source 和 protocol schema**
+- [ ] **Step 5：adicionar a synthetic source e o schema do protocol**
 
-在两个枚举中加入同一字符串：
+Acrescente a mesma string nas duas enumerações:
 
 ```ts
 "subagent_message",
 ```
 
-修改位置：
+Locais de alteração:
 
 - `apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts`
 - `packages/shared/src/zcode-protocol/index.ts`
 
-在 `packages/shared/test/zcodeProtocol.test.ts` 增加 user message 和 TurnStarted payload 对 `subagent_message` 的成功解析断言。
+Em `packages/shared/test/zcodeProtocol.test.ts`, acrescente asserções de parsing bem-sucedido de `subagent_message` no payload de user message e de TurnStarted.
 
-- [ ] **Step 6：运行 focused tests**
+- [ ] **Step 6：rodar os testes focados**
 
 Run:
 
@@ -548,9 +548,9 @@ pnpm --filter @zcode/contracts exec vitest run tests/respond-to-coordinator.test
 pnpm exec vitest run packages/shared/test/zcodeProtocol.test.ts
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 7：运行 contracts/shared typecheck**
+- [ ] **Step 7：rodar o typecheck de contracts／shared**
 
 Run:
 
@@ -559,9 +559,9 @@ pnpm --filter @zcode/contracts typecheck
 pnpm exec tsc -p packages/shared/tsconfig.json --noEmit
 ```
 
-Expected: 两条命令 exit code `0`。
+Expected: as duas comandos com exit code `0`.
 
-- [ ] **Step 8：提交 Phase 1**
+- [ ] **Step 8：commitar a Phase 1**
 
 ```bash
 git add apps/zcode-cli/packages/contracts/src/tools/respond-to-coordinator.ts apps/zcode-cli/packages/contracts/src/interfaces/coordinator-response.port.ts apps/zcode-cli/packages/contracts/src/tools/index.ts apps/zcode-cli/packages/contracts/src/index.ts apps/zcode-cli/packages/contracts/src/interfaces/session-store.port.ts apps/zcode-cli/packages/contracts/tests/respond-to-coordinator.test.ts packages/shared/src/zcode-protocol/index.ts packages/shared/test/zcodeProtocol.test.ts
@@ -569,13 +569,13 @@ git diff --cached --name-only
 git commit -m "feat(cli): define subagent coordinator response contracts"
 ```
 
-Expected staged paths: 仅 Phase 1 文件。
+Expected staged paths: apenas os arquivos da Phase 1.
 
 ---
 
-## Phase 2：Child-only Tool Surface
+## Phase 2：superfície de tool child-only
 
-### Task 3：实现 RespondToCoordinator handler 和依赖注入
+### Task 3：implementar o handler RespondToCoordinator e a injeção de dependências
 
 **Files:**
 
@@ -595,12 +595,12 @@ Expected staged paths: 仅 Phase 1 文件。
 
 **Interfaces:**
 
-- Consumes: `CoordinatorResponsePort`、tool input/output schemas。
-- Produces: `respondToCoordinatorToolEntry`；`ToolExecutionContext.coordinatorResponsePort`；conditional registration flag `includeRespondToCoordinator`；不伪装 read-only 的 `allowedInPlanMode` permission capability。
+- Consumes: `CoordinatorResponsePort`, schemas de entrada／saída da tool.
+- Produces: `respondToCoordinatorToolEntry`; `ToolExecutionContext.coordinatorResponsePort`; flag condicional de registro `includeRespondToCoordinator`; capability de permissão `allowedInPlanMode` que não finge ser read-only.
 
-- [ ] **Step 1：先写 tool exposure failing tests**
+- [ ] **Step 1：escrever primeiro os testes de exposição de tool que falham**
 
-在 `tool-contracts.test.ts` 增加：
+Acrescente em `tool-contracts.test.ts`:
 
 ```ts
 it("only exposes RespondToCoordinator when coordinator response is configured", () => {
@@ -622,16 +622,16 @@ it("only exposes RespondToCoordinator when coordinator response is configured", 
 });
 ```
 
-同时断言：
+Asserte também:
 
-- provider input schema 只有 `summary`、`message`，provider output schema 只有 `success`、`message`；
-- provider description 包含精确触发提示 `Message from coordinator:`、调用回复工具而非 assistant text、回复后继续原任务；
-- 未注册工具的 registry/provider contracts 中不存在该 description，证明没有 common prompt 残留指导；
-- `disallowedTools: ["RespondToCoordinator"]` 即使与 `includeRespondToCoordinator: true` 同时传入也会最终移除工具。
+- o schema de entrada do provider tem apenas `summary` e `message`, e o schema de saída do provider tem apenas `success` e `message`;
+- a descrição do provider contém a dica de disparo exata `Message from coordinator:`, a instrução de chamar a ferramenta de resposta em vez de usar texto de assistant, e a instrução de continuar a tarefa original após responder;
+- a descrição não existe nos contracts de registry／provider de ferramentas não registradas, provando que não há orientação residual no common prompt;
+- `disallowedTools: ["RespondToCoordinator"]` remove a ferramenta finalmente mesmo quando combinado com `includeRespondToCoordinator: true`.
 
-- [ ] **Step 2：先写 handler failing test**
+- [ ] **Step 2：escrever primeiro o teste de handler que falha**
 
-在 `runtime-hooks.test.ts` 构造一个 `CoordinatorResponsePort` spy，通过 tool executor 调用：
+Em `runtime-hooks.test.ts`, construa um spy de `CoordinatorResponsePort` e chame através do tool executor:
 
 ```ts
 {
@@ -644,18 +644,18 @@ it("only exposes RespondToCoordinator when coordinator response is configured", 
 }
 ```
 
-断言 port 收到 `childToolCallId`、`summary`、`message` 和 trace，且 request 中没有 `childSessionId`、`agentId` 或 parent route；断言 tool result 包含 `queued for the coordinator` 和 `Continue the current task`。
+Asserte que a port recebeu `childToolCallId`, `summary`, `message` e trace, e que o request não contém `childSessionId`, `agentId` nem rota do pai; asserte que o tool result contém `queued for the coordinator` e `Continue the current task`.
 
-再增加两个分支：
+Acrescente mais dois ramos:
 
-1. 强制注册工具但不给 executor coordinator port，调用后断言 `ConfigurationError` 文案为 `Coordinator response port is not configured for RespondToCoordinator`。
-2. port 返回 `{ status: "failed", responseId: "response_failed", message: "Response failed to queue.", error: "injected enqueue failure" }`，断言 provider-visible result 同时包含失败原因和 `Continue the current task`。
+1. Registrar a ferramenta à força sem dar a coordinator port ao executor; após a chamada, asserte que o texto de `ConfigurationError` é `Coordinator response port is not configured for RespondToCoordinator`.
+2. A port retorna `{ status: "failed", responseId: "response_failed", message: "Response failed to queue.", error: "injected enqueue failure" }`; asserte que o resultado visível ao provider contém simultaneamente a causa da falha e `Continue the current task`.
 
-最后让 executor 的 `getMode()` 返回 `plan`，使用真实 tool entry 和已配置 port 调用一次，断言无需 permission broker 即成功到达 port。这条 integration assertion 证明 metadata -> permission-flow -> PermissionService 的 capability 没有在透传中丢失。
+Por fim, faça o `getMode()` do executor retornar `plan`, chame uma vez usando a tool entry real e a port já configurada e asserte que a chamada chega à port com sucesso sem passar pelo permission broker. Essa asserção de integração prova que a capability metadata -> permission-flow -> PermissionService não se perdeu no repasse.
 
-- [ ] **Step 3：先写 Plan-mode capability failing tests**
+- [ ] **Step 3：escrever primeiro os testes de capability de Plan mode que falham**
 
-在 `permission-service.test.ts` 定义 `allowedInPlanMode: true`、`readOnly: false`、`sideEffectScope: "session"`、`destructive: false`、`needsApproval: false` 的 response capability，并覆盖：
+Em `permission-service.test.ts`, defina uma capability de resposta com `allowedInPlanMode: true`, `readOnly: false`, `sideEffectScope: "session"`, `destructive: false`, `needsApproval: false` e cubra:
 
 ```text
 plan + explicit session capability -> allow / mode.plan.explicitSessionCapability
@@ -666,9 +666,9 @@ plan + 非只读 session capability 但没有 allowedInPlanMode -> deny / mode.p
 plan + allowedInPlanMode 但 destructive/needsApproval/非 session -> deny / mode.plan.nonReadOnly
 ```
 
-这些断言固定优先级：新 capability 不能绕过已有显式策略。
+Essas asserções fixam a prioridade: a nova capability não pode contornar políticas explícitas já existentes.
 
-- [ ] **Step 4：运行 tests，确认先失败**
+- [ ] **Step 4：rodar os testes e confirmar que falham primeiro**
 
 Run:
 
@@ -677,17 +677,17 @@ pnpm --filter @zcode/core exec vitest run tests/tool-contracts.test.ts tests/run
 pnpm --filter @zcode/core exec vitest run tests/permission-service.test.ts -t "explicit session capability|non-read-only session"
 ```
 
-Expected: FAIL，工具尚未注册、context 缺少 port，且 permission capability 尚不存在。
+Expected: FAIL, pois a tool ainda não foi registrada, o context não tem a port e a capability de permissão ainda não existe.
 
-- [ ] **Step 5：实现 Plan-mode capability，不修改 read-only 语义**
+- [ ] **Step 5：implementar a capability de Plan mode sem modificar a semântica de read-only
 
-依次增加可选字段：
+Acrescente os campos opcionais, um a um:
 
 ```ts
 allowedInPlanMode?: boolean;
 ```
 
-修改位置：
+Locais de alteração:
 
 - `ToolMetadata`
 - `ToolRuntimePermissionCapability`
@@ -695,7 +695,7 @@ allowedInPlanMode?: boolean;
 - `ResolvedPermissionCapability`
 - `PermissionService.resolveCapability()`
 
-`checkPlanMode()` 保留现有 read-only 和 non-destructive MCP 分支，并在 generic deny 之前增加：
+`checkPlanMode()` mantém os ramos existentes de read-only e MCP não destrutivo e ganha, antes do deny genérico:
 
 ```ts
 if (
@@ -713,11 +713,11 @@ if (
 }
 ```
 
-不要改 `checkPermission()` 中现有顺序：global disallow、project deny、project ask 必须继续先于 `checkPlanMode()`。不要把 `RespondToCoordinator` 或其它 session mutation 标记为 `readOnly: true`。
+Não altere a ordem existente em `checkPermission()`: global disallow, project deny e project ask precisam continuar antes de `checkPlanMode()`. Não marque `RespondToCoordinator` nem outra mutação de session como `readOnly: true`.
 
-- [ ] **Step 6：实现 handler**
+- [ ] **Step 6：implementar o handler**
 
-`respond-to-coordinator.ts` 必须遵循 `send-message.ts` 的 provider/runtime output 分离方式：
+`respond-to-coordinator.ts` deve seguir o padrão de separação de saída provider／runtime de `send-message.ts`:
 
 ```ts
 const respondToCoordinatorHandler: ToolHandler = async (input, context) => {
@@ -751,7 +751,7 @@ const respondToCoordinatorHandler: ToolHandler = async (input, context) => {
 };
 ```
 
-provider-visible output schema 和 formatter 固定为：
+O schema de saída visível ao provider e o formatter ficam fixos como:
 
 ```ts
 const RESPOND_TO_COORDINATOR_PROVIDER_OUTPUT_SCHEMA = {
@@ -776,7 +776,7 @@ function formatRespondToCoordinatorModelContent(output: unknown): string {
 }
 ```
 
-metadata 必须包含：
+O metadata precisa conter:
 
 ```ts
 {
@@ -802,7 +802,7 @@ metadata 必须包含：
 }
 ```
 
-ToolEntry 的其余 contract policy 固定为：
+O restante da contract policy do ToolEntry fica fixo como:
 
 ```ts
 {
@@ -841,21 +841,21 @@ ToolEntry 的其余 contract policy 固定为：
 }
 ```
 
-成功 model content：
+Conteúdo de modelo em caso de sucesso:
 
 ```text
 Response <responseId> was queued for the coordinator. Continue the current task unless the coordinator explicitly changed or ended it.
 ```
 
-- [ ] **Step 7：透传 coordinator port**
+- [ ] **Step 7：repassar a coordinator port**
 
-依次增加可选字段：
+Acrescente os campos opcionais, um a um:
 
 ```ts
 coordinatorResponsePort?: CoordinatorResponsePort;
 ```
 
-修改链路：
+Cadeia de alteração:
 
 ```text
 AgentRuntimeDeps
@@ -865,7 +865,7 @@ AgentRuntimeDeps
   -> RespondToCoordinator handler
 ```
 
-`registerRuntimeBuiltInTools()` 使用：
+`registerRuntimeBuiltInTools()` usa:
 
 ```ts
 includeRespondToCoordinator:
@@ -873,11 +873,11 @@ includeRespondToCoordinator:
   Boolean(deps.coordinatorResponsePort),
 ```
 
-因此 main runtime 即使被测试错误注入 port 也不能注册工具。handler 的 `runtimeScope === "subagent"` 检查继续保留，作为 defense-in-depth。
+Assim o runtime main não consegue registrar a tool mesmo que os testes injetem a port por engano. A checagem `runtimeScope === "subagent"` do handler é mantida como defesa em profundidade.
 
-- [ ] **Step 8：条件注册工具**
+- [ ] **Step 8：registrar a ferramenta condicionalmente
 
-在 `handlers/index.ts` import `respondToCoordinatorToolEntry` 并加入 `builtInTools`，否则 registry 永远不会遍历到新工具：
+Em `handlers/index.ts`, importe `respondToCoordinatorToolEntry` e inclua-o em `builtInTools`, senão o registry nunca percorrerá a nova tool:
 
 ```ts
 import { respondToCoordinatorToolEntry } from "./respond-to-coordinator.js";
@@ -888,7 +888,7 @@ export const builtInTools: ToolEntry[] = [
 ];
 ```
 
-然后在 `RegisterBuiltInToolsOptions` 增加 `includeRespondToCoordinator?: boolean`，并在 `registerBuiltInTools()` 增加过滤：
+Depois acrescente `includeRespondToCoordinator?: boolean` em `RegisterBuiltInToolsOptions` e adicione o filtro em `registerBuiltInTools()`:
 
 ```ts
 if (
@@ -899,18 +899,18 @@ if (
 }
 ```
 
-此阶段不改变通用 allowed/disallowed filtering；`disallowedTools` 仍在 registry 最终投影生效。Phase 4 同时修正 child profile allowlist 和 Explore 最终 built-in allowlist。
+Nesta fase não se altera o filtro genérico de allowed／disallowed; `disallowedTools` continua valendo na projeção final do registry. A Phase 4 corrige simultaneamente o profile allowlist do child e o allowlist built-in final do Explore.
 
-- [ ] **Step 9：记录 capability 设计约束**
+- [ ] **Step 9：registrar as restrições de design da capability**
 
-更新 `docs/design/v2/tool/00-tool-change-chain.md`：
+Atualize `docs/design/v2/tool/00-tool-change-chain.md`:
 
-- `allowedInPlanMode` 只表示一个显式、非破坏、无需审批的 session-local control action 可在 Plan mode 执行；
-- 它不等于 read-only，也不允许网络/workspace mutation；
-- explicit disallow、project deny/ask 继续优先；
-- `RespondToCoordinator` 是首个使用者，后续工具必须单独经过 permission tests。
+- `allowedInPlanMode` significa apenas que uma ação de controle session-local explícita, não destrutiva e sem necessidade de aprovação pode ser executada em Plan mode;
+- isso não equivale a read-only e não permite mutação de rede／workspace;
+- disallow explícito e project deny／ask continuam com prioridade;
+- `RespondToCoordinator` é o primeiro usuário e as ferramentas seguintes devem passar por testes de permissão próprios.
 
-- [ ] **Step 10：运行 focused tests**
+- [ ] **Step 10：rodar os testes focados**
 
 Run:
 
@@ -919,9 +919,9 @@ pnpm --filter @zcode/core exec vitest run tests/tool-contracts.test.ts tests/run
 pnpm --filter @zcode/core exec vitest run tests/permission-service.test.ts -t "explicit session capability|non-read-only session"
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 11：提交 Phase 2**
+- [ ] **Step 11：commitar a Phase 2**
 
 ```bash
 git add apps/zcode-cli/packages/core/src/tool/handlers/respond-to-coordinator.ts apps/zcode-cli/packages/core/src/tool/handlers/index.ts apps/zcode-cli/packages/core/src/tool/types.ts apps/zcode-cli/packages/core/src/tool/executor/types.ts apps/zcode-cli/packages/core/src/tool/executor/impl.ts apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts apps/zcode-cli/packages/core/src/permission/service.ts apps/zcode-cli/packages/core/src/runtime/types.ts apps/zcode-cli/packages/core/src/runtime/helpers/runtime-tools.ts apps/zcode-cli/packages/core/tests/tool-contracts.test.ts apps/zcode-cli/packages/core/tests/runtime-hooks.test.ts apps/zcode-cli/packages/core/tests/permission-service.test.ts docs/design/v2/tool/00-tool-change-chain.md
@@ -931,9 +931,9 @@ git commit -m "feat(cli): add RespondToCoordinator tool"
 
 ---
 
-## Phase 3：Parent Runtime Command
+## Phase 3：runtime command do pai
 
-### Task 4：实现 subagent-message active intake 和 idle wake
+### Task 4：implementar o intake active de subagent-message e o wake quando ocioso
 
 **Files:**
 
@@ -949,7 +949,7 @@ git commit -m "feat(cli): add RespondToCoordinator tool"
 
 **Interfaces:**
 
-- Consumes: structured child identity/message from Phase 2 port adapter。
+- Consumes: identidade／mensagem estruturada do child vindas do port adapter da Phase 2.
 - Produces:
 
 ```ts
@@ -957,9 +957,9 @@ enqueueSubagentMessage(input: EnqueueSubagentMessageInput): undefined;
 persistSubagentMessageCommand(command: SubagentMessageRuntimeCommand): Promise<MessageId>;
 ```
 
-- [ ] **Step 1：写 active parent failing test**
+- [ ] **Step 1：escrever o teste de pai active que falha**
 
-在 `runtime-tool-loop.test.ts` 新增 test：
+Adicione um teste em `runtime-tool-loop.test.ts`:
 
 ```text
 parent model request #1 -> NotifyWithSubagentMessage tool
@@ -967,7 +967,7 @@ tool handler -> runtime.enqueueSubagentMessage(...)
 parent model request #2 -> 必须同时看见 tool result 和 <subagent-message>
 ```
 
-断言：
+Asserte:
 
 ```ts
 expect(modelCallCount).toBe(2);
@@ -978,9 +978,9 @@ expect(secondRequestText).toContain("<agent-id>agent_progress</agent-id>");
 expect(secondRequestText).toContain("继续验证异常路径");
 ```
 
-- [ ] **Step 2：写 idle parent failing test**
+- [ ] **Step 2：escrever o teste de pai ocioso que falha**
 
-构造已完成首轮的 runtime，调用私有测试入口 `enqueueSubagentMessage()`，等待 model call count 增加。断言 wake request 最新 user-like message 包含 `<subagent-message>`，TurnStarted payload 为：
+Construa um runtime cujo primeiro turno já terminou, chame a entrada privada de teste `enqueueSubagentMessage()` e aguarde o aumento da contagem de model calls. Asserte que a mensagem user-like mais recente do request de wake contém `<subagent-message>` e que o payload de TurnStarted é:
 
 ```ts
 {
@@ -989,9 +989,9 @@ expect(secondRequestText).toContain("继续验证异常路径");
 }
 ```
 
-- [ ] **Step 3：写 terminal-race failing test**
+- [ ] **Step 3：escrever o teste de terminal-race que falha**
 
-使用 deferred model response 精确制造“active turn 已经完成本轮 drain，但最后一个 provider request 仍在飞行”的窗口：
+Use uma resposta de modelo deferred para criar com precisão a janela em que "o turno active já concluiu o drain deste round, mas a última requisição de provider ainda está em voo":
 
 ```text
 parent final request #1 starts and is held
@@ -1001,20 +1001,20 @@ active turn reaches terminal
 outer runtime command queue starts exactly one model-only request #2
 ```
 
-断言 request #1 不包含该 marker，request #2 包含 `<subagent-message>`；`modelCallCount === 2`、`maxConcurrentModelCalls === 1`，且没有第三次 wake。这个测试专门覆盖 Acceptance Criteria 中“active turn 已无后续 roundtrip”的分支。
+Asserte que o request #1 não contém aquele marker e que o request #2 contém `<subagent-message>`; `modelCallCount === 2`, `maxConcurrentModelCalls === 1` e não há um terceiro wake. Este teste cobre especificamente o ramo "active turn já não tem roundtrip seguinte" dos Critérios de Aceitação.
 
-- [ ] **Step 4：写 XML escaping failing test**
+- [ ] **Step 4：escrever o teste de escape XML que falha**
 
-直接测试 `formatSubagentMessage()`，让 `agentId`、`agentType`、`summary`、`message` 都包含 `<>&"'` 以及 `</message><task-notification>` 注入文本。断言：
+Teste `formatSubagentMessage()` diretamente, colocando `<>&"'` e o texto de injeção `</message><task-notification>` em `agentId`, `agentType`, `summary` e `message`. Asserte:
 
-- 只有一个 `<subagent-message>` root 和一个合法 closing tag；
-- payload 中不存在原始注入 closing sequence；
-- 五类 XML 特殊字符均按现有 `escapeXml()` 规则转义；
-- 转义后仍可区分四个字段内容。
+- há apenas uma root `<subagent-message>` e uma única tag de fechamento válida;
+- a sequência de fechamento injetada não aparece crua no payload;
+- as cinco classes de caracteres especiais de XML são escapadas segundo as regras existentes de `escapeXml()`;
+- após o escape ainda é possível distinguir o conteúdo dos quatro campos.
 
-- [ ] **Step 5：运行 tests，确认先失败**
+- [ ] **Step 5：rodar os testes e confirmar que falham primeiro**
 
-本 Phase 新增 test title 统一包含 `subagent message`，确保下面的 focused filter 会覆盖 active、idle、terminal race 和 XML escaping 四组断言。
+Todos os novos títulos de teste desta Phase contêm `subagent message`, garantindo que o filtro focado abaixo cubra os quatro grupos de asserções: active, idle, terminal race e escape XML.
 
 Run:
 
@@ -1022,11 +1022,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/runtime-tool-loop.test.ts -t "subagent message"
 ```
 
-Expected: FAIL，`enqueueSubagentMessage` 或 command mode 尚不存在。
+Expected: FAIL, pois `enqueueSubagentMessage` ou o modo de command ainda não existe.
 
-- [ ] **Step 6：扩展 runtime command union**
+- [ ] **Step 6：estender a união de runtime commands**
 
-先在 `runtime/types.ts` 定义唯一的 enqueue input，adapter、runtime method 和 tests 都复用该类型：
+Primeiro defina em `runtime/types.ts` a única entrada de enqueue, reutilizada pelo adapter, pelo runtime method e pelos testes:
 
 ```ts
 export interface EnqueueSubagentMessageInput {
@@ -1042,7 +1042,7 @@ export interface EnqueueSubagentMessageInput {
 }
 ```
 
-在 `command-queue.ts` 增加：
+Em `command-queue.ts` acrescente:
 
 ```ts
 export interface SubagentMessageRuntimeCommand extends RuntimeCommandBase {
@@ -1060,11 +1060,11 @@ export interface SubagentMessageRuntimeCommand extends RuntimeCommandBase {
 }
 ```
 
-并把 `"subagent-message"` 加入 `RuntimeCommandMode`，把 interface 加入 `RuntimeCommand` union。
+E adicione `"subagent-message"` a `RuntimeCommandMode` e a interface à união `RuntimeCommand`.
 
-- [ ] **Step 7：实现 XML formatter、enqueue 和 persistence**
+- [ ] **Step 7：implementar o formatter XML, o enqueue e a persistência**
 
-`subagent-messages.ts` 使用现有 `escapeXml()`：
+`subagent-messages.ts` usa o `escapeXml()` existente:
 
 ```ts
 export function formatSubagentMessage(input: {
@@ -1084,7 +1084,7 @@ export function formatSubagentMessage(input: {
 }
 ```
 
-enqueue 使用：
+O enqueue usa:
 
 ```ts
 this.enqueueRuntimeCommand({
@@ -1106,9 +1106,9 @@ this.enqueueRuntimeCommand({
 });
 ```
 
-`enqueueSubagentMessage()` 必须保持同步：return 时 command 已进入 queue；这就是 tool success ack 的完整语义。它不能直接调用 `executeTurnCommand()`，也不能根据 active/idle 状态另开 provider request。
+`enqueueSubagentMessage()` precisa permanecer síncrono: no retorno o command já entrou na fila; essa é a semântica completa do ack de sucesso da tool. Ele não pode chamar `executeTurnCommand()` diretamente nem abrir outra requisição de provider conforme o estado active／idle.
 
-persistence 使用完整函数，显式创建并返回 `MessageId`：
+A persistência usa a função completa, criando e retornando o `MessageId` explicitamente:
 
 ```ts
 export async function persistSubagentMessageCommand(
@@ -1140,9 +1140,9 @@ export async function persistSubagentMessageCommand(
 }
 ```
 
-- [ ] **Step 8：提取 generic active-loop intake**
+- [ ] **Step 8：extrair o intake genérico do active loop
 
-把 `drainPendingRuntimeCommandsForActiveLoop()` 从 `background-notifications.ts` 移到新文件 `runtime-command-active-loop.ts`。只消费白名单 command：
+Mova `drainPendingRuntimeCommandsForActiveLoop()` de `background-notifications.ts` para o novo arquivo `runtime-command-active-loop.ts`. Consome apenas commands da allowlist:
 
 ```ts
 switch (removed.mode) {
@@ -1158,11 +1158,11 @@ switch (removed.mode) {
 }
 ```
 
-实现时仅在 `modelStepCount > 0` 的 active-loop 边界读取一次 `priority <= next` 的 command snapshot，按 snapshot 原顺序消费其中的 `task-notification` / `subagent-message`。首次 model step 不读取 runtime command；compact、MCP 初始化和 request prepare 完成后不再进行第二次扫描；snapshot 处理期间新入队的 command 也不加入当前批次。普通 `prompt`、target continuation 仍留在 outer queue。错过 snapshot 的 command 不丢弃、不并发执行，由后续 active step 或 turn terminal 后的 outer queue 处理。
+Na implementação, leia uma única vez um snapshot de commands com `priority <= next` apenas na fronteira do active loop com `modelStepCount > 0`, e consuma nessa ordem original do snapshot os `task-notification` / `subagent-message` contidos. O primeiro model step não lê runtime commands; após o compact, a inicialização do MCP e o prepare da requisição não há segunda varredura; commands enfileirados durante o processamento do snapshot também não entram no lote atual. `prompt` comuns e target continuation permanecem na fila externa. Commands que perderam o snapshot não são descartados nem executados concorrentemente, e ficam para o active step seguinte ou para a fila externa após o término do turno.
 
-- [ ] **Step 9：实现 idle command 执行**
+- [ ] **Step 9：implementar a execução do command quando ocioso**
 
-在 `runRuntimeCommand()` 增加独立分支：
+Acrescente um ramo independente em `runRuntimeCommand()`:
 
 ```ts
 if (command.mode === "subagent-message") {
@@ -1179,15 +1179,15 @@ if (command.mode === "subagent-message") {
 }
 ```
 
-不得调用 `runPostCommandActiveTargetLoop()`；该行为只保留给 `task-notification`。
+Não chame `runPostCommandActiveTargetLoop()`; esse comportamento fica reservado a `task-notification`.
 
-- [ ] **Step 10：使用低频 debug/warn 日志**
+- [ ] **Step 10：usar logs debug／warn de baixa frequência
 
-- enqueue/start/completed 使用 `debug`，字段包括 `responseId`、`agentId`、`commandId`、`queueSize`。
-- command execution failure 使用现有 `warn` 分支。
-- 日志不得写完整 `message` 内容，只写 `messageLength` 和 `summary` 截断值。
+- enqueue／start／completed usam `debug`, com campos incluindo `responseId`, `agentId`, `commandId`, `queueSize`.
+- falha na execução do command usa o ramo `warn` existente.
+- Os logs não podem gravar o conteúdo completo de `message`, apenas `messageLength` e o valor truncado de `summary`.
 
-- [ ] **Step 11：运行 active/idle/terminal-race tests**
+- [ ] **Step 11：rodar os testes de active／idle／terminal-race**
 
 Run:
 
@@ -1196,9 +1196,9 @@ pnpm --filter @zcode/core exec vitest run tests/runtime-tool-loop.test.ts -t "su
 pnpm --filter @zcode/core exec vitest run tests/runtime-tool-loop.test.ts -t "runtime task notifications before the next active tool-loop"
 ```
 
-Expected: 新测试 PASS；既有 task notification active-loop test 继续 PASS。
+Expected: os novos testes passam; o teste existente de active loop de task notification continua passando.
 
-- [ ] **Step 12：提交 Phase 3**
+- [ ] **Step 12：commitar a Phase 3**
 
 ```bash
 git add apps/zcode-cli/packages/core/src/runtime/methods/subagent-messages.ts apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-active-loop.ts apps/zcode-cli/packages/core/src/runtime/command-queue.ts apps/zcode-cli/packages/core/src/runtime/types.ts apps/zcode-cli/packages/core/src/runtime/internal-methods.ts apps/zcode-cli/packages/core/src/runtime/methods/index.ts apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts
@@ -1208,9 +1208,9 @@ git commit -m "feat(cli): route subagent messages through runtime commands"
 
 ---
 
-## Phase 4：Child Runtime Wiring 与 Continuation
+## Phase 4：wiring do child runtime e continuação
 
-### Task 5：把 authoritative child identity 绑定到 CoordinatorResponsePort
+### Task 5：ligar a identidade autoritativa do child à CoordinatorResponsePort
 
 **Files:**
 
@@ -1223,12 +1223,12 @@ git commit -m "feat(cli): route subagent messages through runtime commands"
 
 **Interfaces:**
 
-- Consumes: `CoordinatorResponsePort`、`AgentRuntimeInternal.enqueueSubagentMessage()`。
-- Produces: 所有 production child runtime 的 `coordinatorResponsePort`；child-only forced control tool；不会被 Explore 最终交集二次移除的 allowlist。
+- Consumes: `CoordinatorResponsePort`, `AgentRuntimeInternal.enqueueSubagentMessage()`.
+- Produces: a `coordinatorResponsePort` de todos os child runtimes de produção; a tool de controle child-only forçada; um allowlist que não é removido de novo pela interseção final do Explore.
 
-- [ ] **Step 1：写 child tool surface failing tests**
+- [ ] **Step 1：escrever os testes de superfície de tool do child que falham**
 
-在 `subagent-explore.test.ts` 分别启动 direct Explore、embedded-search Explore、general-purpose、`tools: ["Read"]` 的 custom child，断言：
+Em `subagent-explore.test.ts`, inicie separadamente Explore direct, Explore embedded-search, general-purpose e um custom child com `tools: ["Read"]`, e asserte:
 
 ```ts
 expect(childToolNames).toContain("RespondToCoordinator");
@@ -1236,14 +1236,14 @@ expect(childToolNames).not.toContain("SendMessage");
 expect(childToolNames).not.toContain("Agent");
 ```
 
-main request 继续断言：
+Continue asserindo na request main:
 
 ```ts
 expect(mainToolNames).toContain("SendMessage");
 expect(mainToolNames).not.toContain("RespondToCoordinator");
 ```
 
-另外覆盖四个负向 surface：
+Cubra ainda quatro superfícies negativas:
 
 ```text
 child config + missing coordinator port -> tool absent
@@ -1252,11 +1252,11 @@ main config + accidentally injected coordinator port -> tool absent
 tool absent -> provider tool descriptions/common system notes 均不包含 RespondToCoordinator
 ```
 
-在新建的 `runtime-tool-allowlist.test.ts` 直接测试 `resolveBuiltInToolAllowlist()`：Explore child 在 `EXPLORE_AGENT_ALLOWED_TOOLS` 交集后仍包含回复工具；main Explore 不会被添加；custom child 的显式 `Read` allowlist 变成 `Read + RespondToCoordinator`；general child 的 `undefined` 仍保持 `undefined`（表示不做 built-in allowlist 过滤）。
+No novo `runtime-tool-allowlist.test.ts`, teste `resolveBuiltInToolAllowlist()` diretamente: o Explore child ainda contém a tool de resposta depois da interseção com `EXPLORE_AGENT_ALLOWED_TOOLS`; o Explore main não é adicionado; o allowlist explícito `Read` do custom child vira `Read + RespondToCoordinator`; e o `undefined` do child geral continua `undefined` (o que significa não aplicar filtro de allowlist built-in).
 
-- [ ] **Step 2：写 reply + continued work failing integration test**
+- [ ] **Step 2：escrever o teste de integração resposta + trabalho contínuo que falha**
 
-扩展现有 `can SendMessage to a running background local_agent` 附近测试，使用以下脚本化模型序列：
+Estenda o teste existente perto de `can SendMessage to a running background local_agent` usando a seguinte sequência de modelo roteirizado:
 
 ```text
 child request #1 -> BlockingTool
@@ -1269,7 +1269,7 @@ child request #4 -> final assistant result
 parent receives <subagent-message> before <task-notification>, either in one request or two
 ```
 
-关键断言：
+Asserções-chave:
 
 ```ts
 expect(childSecondToolCalls.map((call) => call.name)).toEqual(["RespondToCoordinator", "Read"]);
@@ -1279,9 +1279,9 @@ expect(parentMessageText).toContain("权限链路进度");
 expectProviderMarkerBefore(parentRequests, "<subagent-message>", "<task-notification>");
 ```
 
-`expectProviderMarkerBefore()` 比较 marker 的“首次 provider-visible 位置” `(requestIndex, contentIndex)`：request index 较小即在前；若两个 `priority: "next"` command 被同一次 active-loop drain 合流，则比较同一 request 内的 content index。不要使用严格的 `parentMessageRequestIndex < parentCompletionRequestIndex`，因为同请求合流是合法行为。
+`expectProviderMarkerBefore()` compara a "primeira posição visível ao provider" `(requestIndex, contentIndex)` dos markers: um request index menor significa antes; se os dois commands `priority: "next"` forem mesclados no mesmo drain do active loop, compare o content index dentro do mesmo request. Não use `parentMessageRequestIndex < parentCompletionRequestIndex` estrito, porque a mesclagem na mesma requisição é um comportamento legítimo.
 
-- [ ] **Step 3：运行 tests，确认先失败**
+- [ ] **Step 3：rodar os testes e confirmar que falham primeiro**
 
 Run:
 
@@ -1289,11 +1289,11 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/subagent-explore.test.ts -t "RespondToCoordinator|SendMessage to a running"
 ```
 
-Expected: FAIL，child tool surface 尚未包含回复工具或 parent 未收到 reply command。
+Expected: FAIL, pois a superfície de tool do child ainda não contém a tool de resposta nem o pai recebeu o reply command.
 
-- [ ] **Step 4：实现 coordinator response adapter**
+- [ ] **Step 4：implementar o adapter de coordinator response**
 
-`subagent/coordinator-response.ts`：
+`subagent/coordinator-response.ts`:
 
 ```ts
 import type { CoordinatorResponsePort, SessionId } from "@zcode/contracts";
@@ -1344,9 +1344,9 @@ export function createCoordinatorResponsePort(
 }
 ```
 
-- [ ] **Step 5：在 child runtime 注入 port**
+- [ ] **Step 5：injetar a port no child runtime
 
-创建 child `AgentRuntime` 时传入：
+Ao criar o `AgentRuntime` do child, passe:
 
 ```ts
 coordinatorResponsePort: createCoordinatorResponsePort({
@@ -1361,11 +1361,11 @@ coordinatorResponsePort: createCoordinatorResponsePort({
 }),
 ```
 
-该 port 只能出现在 child deps；父 runtime bootstrap 不注入。`CoordinatorResponseRequest` 中没有 `childSessionId`，因此 identity 只能来自创建 child 时绑定的 closure。
+Essa port só pode aparecer nas deps do child; o bootstrap do runtime pai não a injeta. Como `CoordinatorResponseRequest` não tem `childSessionId`, a identity só pode vir do closure ligado no momento da criação do child.
 
-- [ ] **Step 6：强制加入 child control tool allowlist**
+- [ ] **Step 6：forçar a tool de controle do child no allowlist**
 
-第一层，在 `resolveSubagentToolAllowlist()` 的最终结果外包一层去重 helper，确保 profile `tools`/`disallowedTools` 不移除 child control tool：
+Primeira camada: envolva o resultado final de `resolveSubagentToolAllowlist()` em um helper de deduplicação, garantindo que `tools`／`disallowedTools` do profile não removam a tool de controle do child:
 
 ```ts
 function includeCoordinatorResponseTool(
@@ -1376,9 +1376,9 @@ function includeCoordinatorResponseTool(
 }
 ```
 
-对 Explore、general-purpose、custom profile 三条分支都调用。profile `tools`/`disallowedTools` 不移除该 control tool；显式全局 runtime `toolDisallowlist` 仍由 generic registration policy 最后裁决。
+Chame-o nos três ramos: Explore, general-purpose e custom profile. `tools`／`disallowedTools` do profile não removem essa tool de controle; o `toolDisallowlist` global explícito do runtime continua decidido por último pela política genérica de registro.
 
-第二层，修改 `runtime/helpers/tool-allowlist.ts`，在 Explore 交集完成后再次应用 child-only helper：
+Segunda camada: altere `runtime/helpers/tool-allowlist.ts` reaplicando o helper child-only depois de concluída a interseção do Explore:
 
 ```ts
 function includeSubagentControlTools(
@@ -1392,11 +1392,11 @@ function includeSubagentControlTools(
 }
 ```
 
-`resolveBuiltInToolAllowlist()` 的非 Explore 返回值和 Explore 交集返回值都经过该 helper。Explore 在没有显式 allowlist 时以 `EXPLORE_AGENT_ALLOWED_TOOLS` 为基础再追加；global `toolDisallowlist` 仍在 registry 最后裁决。增加 model branch refresh 回归，确认 embedded-search 切换只替换 Glob/Grep，不移除已注册的回复工具。当前 refresh 不会 unregister 该工具；若实现时改成重建 registry，`includeRespondToCoordinator` 必须沿用初始注册能力（例如读取 refresh 前 `registry.has()`），不能仅凭 `taskType` 注册一个没有 port 的工具。
+Tanto o valor de retorno não-Explore quanto o valor de retorno da interseção do Explore de `resolveBuiltInToolAllowlist()` passam por esse helper. O Explore, quando não tem allowlist explícito, parte de `EXPLORE_AGENT_ALLOWED_TOOLS` e acrescenta o helper; o `toolDisallowlist` global continua sendo decidido no fim pelo registry. Acrescente uma regressão de refresh do ramo de modelo confirmando que a troca para embedded-search substitui apenas Glob／Grep e não remove a tool de resposta já registrada. O refresh atual não faz unregister dessa tool; se, na implementação, o registry for reconstruído, `includeRespondToCoordinator` precisa reutilizar a capacidade de registro inicial (por exemplo, lendo `registry.has()` antes do refresh), e não registrar apenas com base em `taskType` uma tool sem port.
 
-- [ ] **Step 7：验证 tool-scoped guidance，不修改 common prompt**
+- [ ] **Step 7：verificar a guidance com escopo de tool, sem modificar o common prompt**
 
-`RespondToCoordinator.metadata.modelInstructions` 已在 Phase 2 包含：
+`RespondToCoordinator.metadata.modelInstructions` já contém desde a Phase 2:
 
 ```text
 When you receive an input beginning with "Message from coordinator:", use this tool to answer it.
@@ -1405,25 +1405,25 @@ Place this call before or alongside the next work tool call when possible.
 Continue the current task unless the coordinator explicitly changed or ended it.
 ```
 
-不要修改 `subagent/system-prompt.ts`。registry 只会把 `modelInstructions` 拼进实际注册工具的 provider description，因此 port 缺失或 global disallow 时，不会要求模型调用不存在的工具。surface test 必须同时证明存在和不存在两种状态。
+Não modifique `subagent/system-prompt.ts`. O registry apenas concatena `modelInstructions` na descrição de provider das ferramentas realmente registradas, portanto, quando a port está ausente ou há disallow global, o modelo não é instruído a chamar uma tool inexistente. O teste de superfície precisa provar simultaneamente os estados presente e ausente.
 
-- [ ] **Step 8：验证 scheduler 边界，不修改 scheduler**
+- [ ] **Step 8：verificar a fronteira do scheduler, sem modificar o scheduler**
 
-在 tool contract 或 scheduler focused test 中断言：
+Em um teste focado de tool contract ou de scheduler, asserte:
 
 ```ts
 expect(respondMetadata.concurrentSafe).toBe(true);
 ```
 
-并保留现有 Bash metadata：
+E preserve o metadata existente do Bash:
 
 ```ts
 expect(bashMetadata.concurrentSafe).toBe(false);
 ```
 
-测试只证明工具可以同一 model step 产出；不得断言 RespondToCoordinator 与 Bash 位于同一 parallel group。
+O teste prova apenas que a tool pode ser produzida no mesmo model step; não deve asseverar que RespondToCoordinator e Bash estão no mesmo parallel group.
 
-- [ ] **Step 9：运行 child integration tests**
+- [ ] **Step 9：rodar os testes de integração do child**
 
 Run:
 
@@ -1433,9 +1433,9 @@ pnpm --filter @zcode/core exec vitest run tests/runtime-tool-allowlist.test.ts
 pnpm --filter @zcode/core exec vitest run tests/scheduler.test.ts
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 10：提交 Phase 4**
+- [ ] **Step 10：commitar a Phase 4**
 
 ```bash
 git add apps/zcode-cli/packages/core/src/subagent/coordinator-response.ts apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts apps/zcode-cli/packages/core/src/runtime/helpers/tool-allowlist.ts apps/zcode-cli/packages/core/tests/runtime-tool-allowlist.test.ts apps/zcode-cli/packages/core/tests/subagent-explore.test.ts apps/zcode-cli/packages/core/tests/scheduler.test.ts
@@ -1445,9 +1445,9 @@ git commit -m "feat(cli): let subagents respond to coordinators"
 
 ---
 
-## Phase 5：Persistence、Hydration 与 Ordering
+## Phase 5：Persistence, Hydration e Ordering
 
-### Task 6：确保 model-only 可见性、恢复和失败分支稳定
+### Task 6：garantir que visibilidade model-only, restauração e ramos de falha estejam estáveis
 
 **Files:**
 
@@ -1463,12 +1463,12 @@ git commit -m "feat(cli): let subagents respond to coordinators"
 
 **Interfaces:**
 
-- Consumes: persisted `source: "subagent_message"` 和 `visibility: "model-only"`。
-- Produces: live/hydrated provider history 一致；UI-visible history、标题和 ReadSessionContext 始终隐藏 internal carrier。
+- Consumes: `source: "subagent_message"` e `visibility: "model-only"` já persistidos.
+- Produces: histórico provider live／hydrated consistente; histórico visível na UI, título e ReadSessionContext sempre ocultando o carrier interno.
 
-- [ ] **Step 1：写 hydrate failing test**
+- [ ] **Step 1：escrever o teste de hydrate que falha**
 
-构造 persisted synthetic user message：
+Construa a synthetic user message persistida:
 
 ```ts
 {
@@ -1479,7 +1479,7 @@ git commit -m "feat(cli): let subagents respond to coordinators"
 }
 ```
 
-text part 包含 `<subagent-message>`。断言 hydrate 后 runtime entry：
+A text part contém `<subagent-message>`. Asserte a entry de runtime após o hydrate:
 
 ```ts
 expect(entry.message.role).toBe("user");
@@ -1488,9 +1488,9 @@ expect(providerText).toContain("<subagent-message>");
 expect(providerText).not.toContain("<system-reminder");
 ```
 
-- [ ] **Step 2：写 visibility fallback 和 title failing tests**
+- [ ] **Step 2：escrever os testes de fallback de visibilidade e de título que falham
 
-在 `zcodeSessionVisibleContent.test.ts` 增加三组断言：
+Em `zcodeSessionVisibleContent.test.ts`, acrescente três grupos de asserções:
 
 ```ts
 // canonical persisted shape：当前 visibility 逻辑应直接隐藏，用作回归断言。
@@ -1508,26 +1508,26 @@ expect(
 ).toBe("真实用户问题");
 ```
 
-其中 source-only case 是本阶段的预期红测；分别覆盖 `message.info.source` 和 `part.metadata.source` 两种 fallback shape。只带 canonical `visibility: "model-only"` 的 case 在修改前可能已经通过，不能把它当作 TDD failure 证据。
+O caso source-only é o teste vermelho esperado desta fase; cubra separadamente as duas formas de fallback, `message.info.source` e `part.metadata.source`. O caso que traz apenas o `visibility: "model-only"` canônico pode já passar antes da alteração e não deve ser usado como evidência de falha de TDD.
 
-- [ ] **Step 3：写 ReadSessionContext failing test**
+- [ ] **Step 3：escrever o teste de ReadSessionContext que falha
 
-在 `read-session-context-tool.test.ts` 仿照现有 `goal_state_change` case，加入 `synthetic: true`、`metadata.source/source: "subagent_message"` 的 text part，调用 local relevant snippets 路径，断言 output 不包含 response marker。该工具不得把内部 coordinator carrier 当作真实用户上下文再次摘要给模型。
+Em `read-session-context-tool.test.ts`, imitando o case existente de `goal_state_change`, adicione uma text part com `synthetic: true` e `metadata.source/source: "subagent_message"`, chame o caminho de local relevant snippets e asserte que a output não contém o response marker. A ferramenta não deve resumir para o modelo novamente o carrier interno do coordinator como se fosse contexto real de usuário.
 
-- [ ] **Step 4：写 FIFO ordering 和 injected enqueue failure tests**
+- [ ] **Step 4：escrever os testes de ordenação FIFO e de falha de enqueue injetada
 
-Runtime tests 覆盖两种合法消费形态。第一组在同一次 active-loop drain 前依次 enqueue：
+Os testes de runtime cobrem as duas formas legais de consumo. O primeiro grupo enfileira em sequência antes do mesmo drain do active loop:
 
 ```text
 subagent-message(response_1)
 task-notification(agent completed)
 ```
 
-断言首次包含二者的同一 provider request 中，`response_1` 的 content index 小于 `<task-notification>`。
+Asserte que, na mesma requisição de provider que contém ambos pela primeira vez, o content index de `response_1` é menor que o de `<task-notification>`.
 
-第二组让 response command 先由 idle/outer queue 消费，再 enqueue task notification；断言 response 的首次 request index 小于 notification 的首次 request index。两组均断言 `maxConcurrentModelCalls === 1`。
+O segundo grupo deixa o response command ser consumido primeiro pela fila idle／externa e só então enfileira a task notification; asserte que o primeiro request index da response é menor que o primeiro request index da notification. Os dois grupos asseveram `maxConcurrentModelCalls === 1`.
 
-Coordinator port test 让 enqueue callback 主动抛出 `injected enqueue failure`，断言 tool runtime output：
+O teste da coordinator port faz o callback de enqueue lançar ativamente `injected enqueue failure` e asserta a runtime output da tool:
 
 ```ts
 {
@@ -1536,11 +1536,11 @@ Coordinator port test 让 enqueue callback 主动抛出 `injected enqueue failur
 }
 ```
 
-provider-visible model content 必须同时包含失败原因和 `Continue the current task`，且 child 后续 model request 仍可继续普通工具调用。不要把该测试命名成 `parent runtime disposed`：当前 queue 没有 disposed acknowledgement，这个测试只证明 adapter 能处理同步 enqueue 异常；process 销毁后的 durable delivery 仍是明确非目标。
+O model content visível ao provider precisa conter simultaneamente a causa da falha e `Continue the current task`, e a model request seguinte do child ainda pode prosseguir com chamadas de ferramentas comuns. Não nomeie esse teste como `parent runtime disposed`: a fila atual não tem acknowledgement de disposed, e este teste prova apenas que o adapter trata exceção de enqueue síncrono; a entrega durável após a destruição do processo continua sendo um não objetivo explícito.
 
-- [ ] **Step 5：运行 tests，确认先失败**
+- [ ] **Step 5：rodar os testes e confirmar que falham primeiro
 
-本 Phase 新增 core/shared test title 统一包含 `subagent message`，避免 focused `-t` 漏跑新 case。
+Todos os novos títulos de teste de core／shared desta Phase contêm `subagent message`, evitando que o `-t` focado não rode os novos cases.
 
 Run:
 
@@ -1550,11 +1550,11 @@ pnpm --filter @zcode/core exec vitest run tests/read-session-context-tool.test.t
 pnpm exec vitest run packages/shared/test/zcodeSessionVisibleContent.test.ts -t "subagent message"
 ```
 
-Expected: FAIL，hydrate source 尚未映射，source-only visibility fallback 和 ReadSessionContext skip 尚未实现。
+Expected: FAIL, pois a source de hydrate ainda não está mapeada e o fallback de visibilidade source-only e o skip em ReadSessionContext ainda não foram implementados.
 
-- [ ] **Step 6：实现 runtime metadata、visibility 和 context 映射**
+- [ ] **Step 6：implementar os mapeamentos de runtime metadata, visibilidade e contexto**
 
-`runtimeMetadataForSyntheticUserMessageSource()` 增加：
+Acrescente em `runtimeMetadataForSyntheticUserMessageSource()`:
 
 ```ts
 if (source === "background_task" || source === "subagent_message") {
@@ -1562,15 +1562,15 @@ if (source === "background_task" || source === "subagent_message") {
 }
 ```
 
-`metadataFromSyntheticTextPart()` 使用同样判断，确保 hydrate 不走 legacy `source === "subagent"` 的 system reminder 分支。
+`metadataFromSyntheticTextPart()` usa o mesmo julgamento, garantindo que o hydrate não entre no ramo de system reminder legado `source === "subagent"`.
 
-在 `packages/shared/src/zcode-session-visible-content.ts` 的 `MODEL_ONLY_SYNTHETIC_NOTICE_SOURCES` 增加：
+Em `packages/shared/src/zcode-session-visible-content.ts`, acrescente em `MODEL_ONLY_SYNTHETIC_NOTICE_SOURCES`:
 
 ```ts
 "subagent_message",
 ```
 
-并让 `isZCodeModelOnlySyntheticUserMessage()` 同时检查 `message.info.source`，不能只检查 text part metadata：
+E faça `isZCodeModelOnlySyntheticUserMessage()` checar também `message.info.source`, e não apenas o metadata da text part:
 
 ```ts
 if (MODEL_ONLY_SYNTHETIC_NOTICE_SOURCES.has(String(message.info.source ?? ""))) {
@@ -1578,9 +1578,9 @@ if (MODEL_ONLY_SYNTHETIC_NOTICE_SOURCES.has(String(message.info.source ?? ""))) 
 }
 ```
 
-在 `apps/zcode-cli/packages/core/src/session-context/parts.ts` 的 `SKIPPED_SYNTHETIC_TEXT_SOURCES` 增加同一 source。canonical `visibility` 是主判据，source set 是旧数据、replay 和局部 metadata 丢失时的 defense-in-depth fallback。
+Acrescente a mesma source em `SKIPPED_SYNTHETIC_TEXT_SOURCES` em `apps/zcode-cli/packages/core/src/session-context/parts.ts`. O `visibility` canônico é o critério principal e o conjunto de sources é o fallback de defesa em profundidade para dados antigos, replay e perda parcial de metadata.
 
-- [ ] **Step 7：运行 persistence/visibility/context tests**
+- [ ] **Step 7：rodar os testes de persistence／visibility／context**
 
 Run:
 
@@ -1590,9 +1590,9 @@ pnpm --filter @zcode/core exec vitest run tests/read-session-context-tool.test.t
 pnpm exec vitest run packages/shared/test/zcodeSessionVisibleContent.test.ts -t "subagent message"
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 8：运行现有 background notification 回归组**
+- [ ] **Step 8：rodar o grupo de regressão existente de background notification**
 
 Run:
 
@@ -1600,9 +1600,9 @@ Run:
 pnpm --filter @zcode/core exec vitest run tests/runtime-tool-loop.test.ts -t "task notification|background notification|subagent message"
 ```
 
-Expected: PASS；`task-notification` 的 active/idle、goal continuation 和 sealed child cleanup 语义没有变化。
+Expected: PASS; a semântica de `task-notification` em active／idle, goal continuation e sealed child cleanup não mudou.
 
-- [ ] **Step 9：提交 Phase 5**
+- [ ] **Step 9：commitar a Phase 5**
 
 ```bash
 git add apps/zcode-cli/packages/core/src/runtime/helpers/runtime-reminders.ts apps/zcode-cli/packages/core/src/agent/session-history-hydrator.ts apps/zcode-cli/packages/core/src/session-context/parts.ts apps/zcode-cli/packages/core/tests/session-history-hydrator.test.ts apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts apps/zcode-cli/packages/core/tests/subagent-explore.test.ts apps/zcode-cli/packages/core/tests/read-session-context-tool.test.ts packages/shared/src/zcode-session-visible-content.ts packages/shared/test/zcodeSessionVisibleContent.test.ts
@@ -1612,9 +1612,9 @@ git commit -m "feat(cli): preserve subagent response history"
 
 ---
 
-## Phase 6：BG25 E2E Lifecycle
+## Phase 6：ciclo de vida do E2E do BG25
 
-### Task 7：验证真实 provider-visible 双向协调链路
+### Task 7：validar a cadeia real de coordenação bidirecional visível ao provider
 
 **Files:**
 
@@ -1628,12 +1628,12 @@ git commit -m "feat(cli): preserve subagent response history"
 
 **Interfaces:**
 
-- Consumes: BG25 accepted semantics 和 Phase 1-5 实现。
-- Produces: 独立 formal BG25 E2E、case-local replay fixture 和 provider-visible ordering evidence。
+- Consumes: a semântica accepted do BG25 e a implementação das Phases 1-5.
+- Produces: um E2E formal BG25 independente, um fixture de replay local ao case e evidência de ordenação visível ao provider.
 
-- [ ] **Step 1：编写独立 formal BG25 spec**
+- [ ] **Step 1：escrever a spec formal BG25 independente**
 
-使用稳定 marker：
+Use markers estáveis:
 
 ```text
 E2E_SUBAGENT_RESPOND_TO_COORDINATOR
@@ -1644,9 +1644,8 @@ E2E_SUBAGENT_COORDINATOR_CONSUMED
 E2E_SUBAGENT_FINAL_RESULT
 ```
 
-spec 直接放在 formal `conversation-session/` 目录，使用 provider 的正常默认 context window；不得通过
-`manual-review/pending` 路径继承 `240/80` auto-compact 测试配置。spec 内创建独立临时目录，
-避免依赖开发机仓库文件：
+A spec fica diretamente no diretório formal `conversation-session/`, usando o context window default normal do provider; não deve herdar a configuração de teste de auto-compact `240/80` pelo caminho `manual-review/pending`. A spec cria um diretório temporário próprio,
+evitando depender de arquivos do repositório da máquina de desenvolvimento:
 
 ```ts
 const E2E_ROOT = "/tmp/zcode-e2e-respond-to-coordinator";
@@ -1654,26 +1653,26 @@ const RELEASE_FILE = join(E2E_ROOT, "release-child-bash");
 const CONTINUED_WORK_FILE = join(E2E_ROOT, "continued-work.txt");
 ```
 
-`before` 中 `mkdir` 并写入 `CONTINUED_WORK_FILE`；`afterEach` 先写 `RELEASE_FILE` 释放可能遗留的 child Bash，再停止会话并清理目录。用现有 `ensureToolCrossProductFullAccessMode()` 和 `respondToToolCrossProductBlockers()` 处理模式/permission，不新增重复 UI helper。
+Em `before`, faça `mkdir` e escreva `CONTINUED_WORK_FILE`; em `afterEach`, escreva primeiro `RELEASE_FILE` para liberar um eventual Bash de child remanescente, depois pare a sessão e limpe o diretório. Use o `ensureToolCrossProductFullAccessMode()` e o `respondToToolCrossProductBlockers()` existentes para tratar modo／permissão, sem novos helpers de UI duplicados.
 
-场景必须按以下顺序：
+O cenário precisa seguir esta ordem:
 
-1. main 调用 `Agent(run_in_background=true)`。
-2. child 调用等待 `RELEASE_FILE` 的受控 Bash，制造 running steer 窗口。
-3. main 从 Agent result 读取 `agentId` 并调用 `SendMessage`；case-local replay fixture 必须使用 `"to": "{{latestAgentId}}"`，禁止固化 capture 时的随机 agent id。
-4. test 在 SendMessage result 进入 main 后写 `RELEASE_FILE`；child 下一次 request 同时看到 Bash tool result、`Message from coordinator:` 和 question payload。
-5. child 同一 response 按顺序产出 `RespondToCoordinator` 与读取 `CONTINUED_WORK_FILE` 的 `Read`。
-6. child 后续 request 同时看到两个 tool results，再执行一项普通工作 tool。
-7. parent idle wake request 包含 `<subagent-message>` 和 response marker。
-8. parent 对 wake request 返回包含 `E2E_SUBAGENT_COORDINATOR_CONSUMED` 的 assistant message。
-9. child 最终 completion notification 包含 final marker。
-10. UI 顶层可见 user messages 不包含 response marker；parent Agent card 内可找到 mirrored `RespondToCoordinator` child tool block，且 Agent 最终正常完成。
+1. main chama `Agent(run_in_background=true)`.
+2. o child chama um Bash controlado que espera por `RELEASE_FILE`, criando a janela de steer running.
+3. main lê `agentId` do Agent result e chama `SendMessage`; o fixture de replay local ao case precisa usar `"to": "{{latestAgentId}}"`, e é proibido fixar o agent id aleatório capturado.
+4. o teste escreve `RELEASE_FILE` depois que o result de SendMessage chega ao main; a request seguinte do child vê ao mesmo tempo o tool result do Bash, `Message from coordinator:` e o payload da pergunta.
+5. o child, na mesma response, produz em ordem `RespondToCoordinator` e um `Read` lendo `CONTINUED_WORK_FILE`.
+6. a request seguinte do child vê os dois tool results e então executa uma ferramenta comum de trabalho.
+7. a request de wake do pai ocioso contém `<subagent-message>` e o response marker.
+8. o pai retorna, para a request de wake, uma assistant message contendo `E2E_SUBAGENT_COORDINATOR_CONSUMED`.
+9. a notificação de completion final do child contém o marker final.
+10. as user messages visíveis no nível superior da UI não contêm o response marker; dentro do card do Agent pai é encontrado o bloco de tool child espelhado `RespondToCoordinator`, e o Agent conclui normalmente.
 
-spec 使用 `findFirstUpstreamRequestIndex()` 加 request body 内 marker offset 的 helper，按 `(requestIndex, contentIndex)` 断言 `<subagent-message>` 首次位置早于 `<task-notification>`；不得假设二者一定属于不同 request。
+A spec usa `findFirstUpstreamRequestIndex()` junto com um helper de offset de marker dentro do body da request e, por `(requestIndex, contentIndex)`, asserte que a primeira posição de `<subagent-message>` é anterior à de `<task-notification>`; não presuma que ambas pertencem a requests diferentes.
 
-- [ ] **Step 2：填写 case-local provider fixture 与 manifest**
+- [ ] **Step 2：preencher o fixture de provider local ao case e o manifest**
 
-每个 request 使用精确 `bodyIncludes` / `lastUserMessageIncludes`，并标注：
+Cada request usa `bodyIncludes`／`lastUserMessageIncludes` precisos e é anotado com:
 
 ```json
 {
@@ -1681,72 +1680,72 @@ spec 使用 `findFirstUpstreamRequestIndex()` 加 request body 内 marker offset
 }
 ```
 
-不得把 case-specific responses 写入 `provider-basic.json` 或 shared `common.json`。
+Não grave responses específicos do case em `provider-basic.json` nem no `common.json` compartilhado.
 
-fixture 必须包含独立 lanes/响应来证明：main Agent launch、main SendMessage、child Bash result + coordinator input、child `RespondToCoordinator + Read`、child continued work、parent model-only wake/consumed marker、child final completion。`SendMessage.input.to` 固定使用 replay server 支持的 `{{latestAgentId}}` token；`Read.file_path` 固定为上面的 `CONTINUED_WORK_FILE`；不要引用执行计划或源码文件作为运行时 fixture。
+O fixture precisa conter lanes／responses independentes para provar: o lançamento do Agent pelo main, o SendMessage do main, o result do Bash do child + input do coordinator, o `RespondToCoordinator + Read` do child, o trabalho contínuo do child, o wake／marker de consumo model-only do pai e a completion final do child. `SendMessage.input.to` usa fixamente o token `{{latestAgentId}}` suportado pelo replay server; `Read.file_path` é fixado como o `CONTINUED_WORK_FILE` acima; não referencie arquivos do plano de execução nem do código-fonte como fixture de runtime.
 
-manifest 的 `spec` 必须直接指向 formal BG25 spec，不得指向 `manual-review/pending`。
+O campo `spec` do manifest precisa apontar diretamente para a spec formal do BG25, e não para `manual-review/pending`.
 
-- [ ] **Step 3：运行 fixture checker**
+- [ ] **Step 3：rodar o fixture checker**
 
 ```bash
 pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts
 ```
 
-Expected: exit code `0`，所有 synthetic request 均有 `syntheticReason`。
+Expected: exit code `0`, com todas as requests sintéticas tendo `syntheticReason`.
 
-- [ ] **Step 4：运行 isolated replay**
+- [ ] **Step 4：rodar o replay isolado**
 
 ```bash
 E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/common.json,packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-subagent-respond-to-coordinator.json pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts'
 ```
 
-Expected: PASS，证明不依赖 legacy shared fixture；运行生成的 CLI config 不包含 `240/80`
-auto-compact override，provider capture 不包含 compact summary request，UI 不显示 compact divider。
+Expected: PASS, provando que não há dependência de fixture compartilhada legada; a config de CLI gerada na execução não contém o override de auto-compact `240/80`,
+a captura do provider não contém request de compact summary e a UI não mostra o divisor de compact.
 
-- [ ] **Step 5：运行 default replay**
+- [ ] **Step 5：rodar o replay default**
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec './test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts'
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 6：完成 matrix 状态**
+- [ ] **Step 6：concluir o status na matrix**
 
-将 BG25 从 `planned` 更新为：
+Atualize o BG25 de `planned` para:
 
 ```markdown
 | BG25 | covered | BGR、RT | 独立 formal BG25 E2E 证明 child-to-parent model-only response 和 continued work；core tests 证明 active/idle intake、FIFO ordering 与单模型请求并发 |
 ```
 
-- [ ] **Step 7：运行 coverage audit 和 E2E typecheck**
+- [ ] **Step 7：rodar a auditoria de cobertura e o typecheck do E2E**
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --json
 pnpm --filter @zcode/desktop typecheck:e2e
 ```
 
-Expected: 两条命令 exit code `0`。
+Expected: as duas comandos com exit code `0`.
 
-- [ ] **Step 8：运行单 spec 断网 Docker proof**
+- [ ] **Step 8：rodar a prova Docker de um spec sem rede**
 
 ```bash
 E2E_SPEC=./test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts pnpm run test:e2e:container
 ```
 
-Expected: PASS，并记录实际 artifact 目录 `packages/desktop/.e2e-artifacts/<run-id>`。只有这一步通过后才能做 admission。
+Expected: PASS, e registrar o diretório real de artifacts `packages/desktop/.e2e-artifacts/<run-id>`. Só depois dessa etapa é possível fazer o admission.
 
-- [ ] **Step 9：执行 Docker admission 并复跑 verified suite**
+- [ ] **Step 9：executar o admission Docker e repetir a suite verified**
 
 ```bash
 pnpm --filter @zcode/desktop e2e:docker:admit -- --spec ./test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts --verified --artifact packages/desktop/.e2e-artifacts/<run-id> --apply
 pnpm run test:e2e:container:conversation
 ```
 
-Expected: admission 只修改 `scripts/test-desktop-e2e-container.sh` 和 `docs/testing/conversation-session-docker-automation-plan.md`，随后 verified suite PASS。若单 spec Docker proof 因当前环境无法运行，不执行 admission，也不把 BG25 标记成 Docker verified；在交付说明中明确列为待验证项。
+Expected: o admission modifica apenas `scripts/test-desktop-e2e-container.sh` e `docs/testing/conversation-session-docker-automation-plan.md`, e em seguida a suite verified passa. Se a prova Docker de um spec não puder rodar no ambiente atual, não execute o admission e não marque o BG25 como Docker verified; liste explicitamente como item pendente de verificação nas notas de entrega.
 
-- [ ] **Step 10：提交 Phase 6**
+- [ ] **Step 10：commitar a Phase 6**
 
 ```bash
 git add packages/desktop/test/e2e/conversation-session/conversation-session-subagent-respond-to-coordinator.test.ts packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-subagent-respond-to-coordinator.json packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-subagent-respond-to-coordinator.json docs/testing/conversation-session-background-e2e-coverage-matrix.md docs/testing/conversation-session-e2e-coverage-matrix.md
@@ -1756,41 +1755,41 @@ git diff --cached --name-only
 git commit -m "test(e2e): cover subagent coordinator responses"
 ```
 
-若 Docker proof 未执行或未通过，跳过第二条 `git add`；admission 两个文件不应有改动。Expected staged paths 必须与实际完成的 lifecycle 状态一致。
+Se a prova Docker não foi executada ou não passou, pule o segundo `git add`; os dois arquivos de admission não devem ter alteração. Os Expected staged paths precisam corresponder ao estado real do lifecycle concluído.
 
 ---
 
-## Phase 7：Final Verification 与交付
+## Phase 7：verificação final e entrega
 
-### Task 8：运行完整回归并检查范围
+### Task 8：rodar a regressão completa e conferir o escopo
 
 **Files:**
 
-- Verify only: 所有前述文件。
+- Verify only: todos os arquivos citados acima.
 
 **Interfaces:**
 
-- Consumes: Phase 0-6 全部 deliverables。
-- Produces: 可提交、可复现、无未声明范围扩张的最终变更。
+- Consumes: todos os deliverables das Phases 0-6.
+- Produces: mudanças finais committable, reproduzíveis e sem expansão de escopo não declarada.
 
-- [ ] **Step 1：运行 contracts/core focused suite**
+- [ ] **Step 1：rodar a suite focada de contracts／core**
 
 ```bash
 pnpm --filter @zcode/contracts exec vitest run tests/respond-to-coordinator.test.ts
 pnpm --filter @zcode/core exec vitest run tests/tool-contracts.test.ts tests/runtime-hooks.test.ts tests/permission-service.test.ts tests/runtime-tool-allowlist.test.ts tests/runtime-tool-loop.test.ts tests/subagent-explore.test.ts tests/session-history-hydrator.test.ts tests/read-session-context-tool.test.ts tests/scheduler.test.ts
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 2：运行 shared focused suite**
+- [ ] **Step 2：rodar a suite focada de shared**
 
 ```bash
 pnpm exec vitest run packages/shared/test/zcodeProtocol.test.ts packages/shared/test/zcodeSessionVisibleContent.test.ts
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 3：运行 CLI package checks**
+- [ ] **Step 3：rodar as checagens dos pacotes da CLI**
 
 ```bash
 pnpm --filter @zcode/contracts typecheck
@@ -1799,18 +1798,18 @@ pnpm --filter @zcode/contracts lint
 pnpm --filter @zcode/core lint
 ```
 
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 4：运行仓库强制检查**
+- [ ] **Step 4：rodar as checagens obrigatórias do repositório**
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-Expected: PASS。既有 warning 与本次新增 failure 分开记录。
+Expected: PASS. Registre separadamente os warnings já existentes e as novas falhas introduzidas.
 
-- [ ] **Step 5：运行文档和 diff gates**
+- [ ] **Step 5：rodar os gates de documentação e de diff**
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --json
@@ -1819,11 +1818,11 @@ git diff --check
 git diff --cached --check
 ```
 
-Expected: exit code `0`。
+Expected: exit code `0`.
 
-- [ ] **Step 6：检查 provider-visible tool surface**
+- [ ] **Step 6：conferir a superfície de tools visível ao provider**
 
-从 focused test 或 capture artifact 确认：
+Confirme a partir do teste focado ou do artifact de captura:
 
 ```text
 main tools: SendMessage present, RespondToCoordinator absent
@@ -1832,7 +1831,7 @@ plan-mode child: RespondToCoordinator executes with readOnly=false and mode.plan
 missing-port/disallowed child: RespondToCoordinator and its guidance absent
 ```
 
-- [ ] **Step 7：检查无范围扩张**
+- [ ] **Step 7：conferir a ausência de expansão de escopo**
 
 Run:
 
@@ -1843,55 +1842,55 @@ git status --short
 git diff --cached --name-only
 ```
 
-人工确认：
+Confirme manualmente:
 
-- 没有 Agent Teams/team roster/sibling mailbox 代码；
-- 没有 parent `steerTurn` 直连；
-- 没有把 `subagent-message` 塞进 `task-notification` source/log/goal 分支；
-- 没有修改 scheduler 并行安全规则；
-- 没有新增 app-to-agent RPC；
-- 没有修改 remote owner/lease、workspace identity 或 client queue。
-- 没有修改 common subagent system prompt 来引用可能不存在的工具；
-- 没有把 `RespondToCoordinator` 标记成 read-only；
-- 没有隐藏现有 parent Agent card 内的 child tool mirror。
+- não há código de Agent Teams／team roster／sibling mailbox;
+- não há conexão direta de `steerTurn` do pai;
+- `subagent-message` não foi enfiado em source／log／goal de `task-notification`;
+- as regras de segurança de paralelismo do scheduler não foram modificadas;
+- não foi adicionado nenhum RPC de app para agent;
+- remote owner／lease, identidade de workspace e fila do client não foram modificados;
+- o common system prompt de subagent não foi modificado para referenciar uma tool que pode não existir;
+- `RespondToCoordinator` não foi marcada como read-only;
+- o child tool mirror existente dentro do card do Agent pai não foi ocultado.
 
-- [ ] **Step 8：最终提交**
+- [ ] **Step 8：commit final**
 
-Phase commits 全部完成后，默认不应有剩余 feature 文件。先检查：
+Depois que todos os commits de Phase estiverem completos, por padrão não devem restar arquivos de feature. Verifique primeiro:
 
 ```bash
 git status --short
 git diff --cached --name-only
 ```
 
-若仍有本计划声明范围内的格式化或文档状态文件，逐个审查并显式 `git add <exact-path>`，确认 cached paths 后再使用与内容匹配的 Conventional Commit；不得运行一个没有精确 staged-path gate 的兜底 commit。若没有剩余 staged changes，不创建空 commit。用户无关改动保持原样并在交付说明中列出。
+Se ainda houver arquivos de formatação ou de estado de documentação dentro do escopo declarado deste plano, revise um a um e use explicitamente `git add <exact-path>`, confirme os cached paths e só então use um Conventional Commit que corresponda ao conteúdo; não rode um commit de reserva sem um gate preciso de staged path. Se não houver mudanças staged restantes, não crie um commit vazio. Mudanças não relacionadas do usuário permanecem como estão e são listadas nas notas de entrega.
 
-- [ ] **Step 9：生成交付证据**
+- [ ] **Step 9：gerar as evidências de entrega**
 
-交付说明至少列出：baseline 与最终 HEAD、Phase commits、focused/full test 结果、BG25 capture/replay/Docker artifact、未执行验证及原因、保留的用户改动。不要把“command enqueue 成功”描述成“coordinator 已读”；只有 E2E consumed marker 可以证明该次 replay 中 parent model 实际消费。
+As notas de entrega devem listar no mínimo: o baseline e o HEAD final, os commits de Phase, os resultados de testes focados／completos, o capture／replay／artifact Docker do BG25, as verificações não executadas e o motivo, e as mudanças do usuário preservadas. Não descreva "command enqueue bem-sucedido" como "coordinator já leu"; apenas o consumed marker do E2E pode provar que o modelo pai realmente consumiu nesse replay.
 
-## Self-Review Checklist
+## Checklist de Self-Review
 
-- [ ] Spec coverage：每条 Acceptance Criteria 都能映射到 Task 1-8 的实现或测试步骤。
-- [ ] Naming consistency：全局只使用 `RespondToCoordinator`、`CoordinatorResponsePort`、`SubagentMessageRuntimeCommand`、`subagent-message`、`subagent_message`。
-- [ ] Directionality：main-to-child 仍是 `SendMessage`；child-to-main 只走 coordinator port。
-- [ ] Runtime serialization：active intake 和 idle command 都复用同一 parent runtime command queue。
-- [ ] Visibility：live、persist、hydrate、protocol、UI filter、title 和 ReadSessionContext 都覆盖 `subagent_message`。
-- [ ] Continuation：测试证明 child 回复后仍有普通 tool call 和最终 completion。
-- [ ] Scheduling claim：只承诺同一 assistant model step；不承诺与 unsafe tool 真并行。
-- [ ] Error semantics：queue ack、injected enqueue failure、missing port 都有明确结果；disposed parent/durable delivery 明确列为非目标，不做虚假保证。
-- [ ] Permission semantics：工具保持 non-read-only；Plan capability 只放行 non-destructive session action，且 deny/ask 优先级有测试。
-- [ ] Tool availability：port、child task type、Explore 最终投影、global disallow 和 tool-scoped guidance 状态一致。
-- [ ] Ordering semantics：同请求合流和跨请求消费都按首次 provider-visible `(requestIndex, contentIndex)` 比较。
-- [ ] Terminal race：active turn 无后续 roundtrip 时由 outer queue 唤醒，模型并发仍为 1。
-- [ ] Observability：顶层 synthetic user 隐藏，但 parent Agent card 内 nested child tool block 保留。
-- [ ] Scope：没有引入 Agent Teams、sibling routing、replyTo 或 durable mailbox。
-- [ ] Mobile boundary：没有新建手机 runtime；protocol/visibility 测试覆盖 replayable payload compatibility。
-- [ ] Workspace safety：未触碰 `workspaceIdentity` / `workspacePath` 语义。
-- [ ] Repository gates：coverage audit、focused tests、E2E typecheck、`pnpm typecheck`、`pnpm lint` 均有步骤。
+- [ ] Cobertura da spec: cada Critério de Aceitação mapeia para um passo de implementação ou de teste das Tasks 1-8.
+- [ ] Consistência de nomes: usa-se globalmente apenas `RespondToCoordinator`, `CoordinatorResponsePort`, `SubagentMessageRuntimeCommand`, `subagent-message`, `subagent_message`.
+- [ ] Direcionalidade: main-to-child continua sendo `SendMessage`; child-to-main passa só pela coordinator port.
+- [ ] Serialização no runtime: tanto o intake active quanto o command ocioso reutilizam a mesma fila de runtime commands do pai.
+- [ ] Visibilidade: live, persist, hydrate, protocol, filtro de UI, título e ReadSessionContext cobrem `subagent_message`.
+- [ ] Continuação: os testes provam que o child ainda faz uma tool call comum e chega a uma completion final depois de responder.
+- [ ] Alegação de agendamento: só se promete o mesmo assistant model step; não se promete paralelismo real com tools inseguras.
+- [ ] Semântica de erro: ack de fila, falha de enqueue injetada e port ausente têm resultados explícitos; pai disposed／entrega durável são explicitamente não objetivos, sem promessas falsas.
+- [ ] Semântica de permissão: a ferramenta permanece non-read-only; a capability de Plan só libera ações de session não destrutivas, e a prioridade de deny／ask tem testes.
+- [ ] Disponibilidade da tool: port, task type do child, projeção final do Explore, disallow global e o estado da guidance com escopo de tool são consistentes.
+- [ ] Semântica de ordenação: tanto a mesclagem na mesma request quanto o consumo entre requests são comparados pela primeira posição `(requestIndex, contentIndex)` visível ao provider.
+- [ ] Terminal race: quando o turno active não tem roundtrip seguinte, a fila externa faz o wake, e a concorrência de modelos continua sendo 1.
+- [ ] Observabilidade: o synthetic user de nível superior é ocultado, mas o bloco de tool child aninhado dentro do card do Agent pai é preservado.
+- [ ] Escopo: nada de Agent Teams, sibling routing, replyTo ou mailbox durável foi introduzido.
+- [ ] Fronteira mobile: nenhum runtime de celular novo; os testes de protocol／visibilidade cobrem a compatibilidade do payload replayable.
+- [ ] Segurança do workspace: a semântica de `workspaceIdentity`／`workspacePath` não foi tocada.
+- [ ] Gates do repositório: audit de cobertura, testes focados, typecheck do E2E, `pnpm typecheck` e `pnpm lint` têm todos os seus passos.
 
-## Execution Handoff
+## Handoff de Execução
 
-推荐使用 subagent-driven development：每个 Task 使用一个 fresh worker，并在 Task 结束后做一次 spec compliance review 和一次 code quality review。Phase 0 的文档语义、Phase 3 的 runtime ordering、Phase 4 的 child continuation、Phase 6 的 provider-visible E2E 是四个必须停下来检查的 review gate。
+Recomenda-se usar desenvolvimento dirigido por subagentes: use um worker novo para cada Task e, ao fim de cada Task, faça uma revisão de conformidade com a spec e uma revisão de qualidade de código. A semântica de documentação da Phase 0, a ordenação de runtime da Phase 3, a continuação do child da Phase 4 e o E2E visível ao provider da Phase 6 são os quatro review gates em que é obrigatório parar e verificar.
 
-Inline 执行时按 Phase 顺序推进，不允许跳过 Phase 0，也不要把 Phase 3 与 Phase 4 合成一个大改动；这样 active/idle command 语义可以在接入真实 child 前独立验证。
+Na execução inline, avance na ordem das Phases; não é permitido pular a Phase 0, nem juntar a Phase 3 com a Phase 4 em uma alteração grande; assim a semântica de command active／idle pode ser validada de forma independente antes de conectar o child real.

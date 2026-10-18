@@ -1,37 +1,36 @@
-# 18 ZCode Built-in Config 远端同步与 LKG 兜底
+# 18 Sincronização remota do ZCode Built-in Config e fallback LKG
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-25
+> Data: 2026-08-25
 >
-> 来源讨论：Provider Refactor 完成后的 ZCode Built-in Provider/Model 配置发布方式收口
+> Discussão de origem: fechamento da forma de publicação da configuração de ZCode Built-in Provider/Model após a conclusão do Provider Refactor
 >
-> 相关任务：[`10`](./todo-10-zcode-builtin-provider-config-naming-cutover.md)、
+> Tarefas relacionadas: [`10`](./todo-10-zcode-builtin-provider-config-naming-cutover.md)、
 > [`13`](./todo-13-target-host-model-selection-authority.md)、
 > [`15`](./todo-15-provider-release-validation.md)、
 > [`17`](./todo-17-provider-registry-settings-authority-boundary-closure.md)、
 > [`19`](./todo-19-zcode-builtin-release-integrity-validation.md)
 >
-> 相关设计：[`configuration.md`](../design/registry/configuration.md)、
+> Designs relacionados: [`configuration.md`](../design/registry/configuration.md)、
 > [`registry.md`](../design/registry/registry.md)、
 > [`runtime.md`](../design/registry/runtime.md)、
 > [`environment.md`](../design/environment/environment.md)
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-ZCode Built-in Provider Config 与 ZCode Built-in Model Config Rules 当前只从随仓库和安装包发布的
-`config/provider/zcode-builtin.json` 读取。本 Todo 将 `/api/v1/client/configs` 增加为这同一份 Built-in
-事实的远端优先发布通道，并为每个 Environment 保存最近一次确认可用的远端配置（Last Known Good，LKG）。
+Hoje o ZCode Built-in Provider Config e o ZCode Built-in Model Config Rules são lidos somente de
+`config/provider/zcode-builtin.json`, publicado junto com o repositório e o pacote de instalação. Este Todo adiciona `/api/v1/client/configs` como canal de publicação remoto com prioridade para essa mesma verdade Built-in, e salva para cada Environment a configuração remota confirmada como utilizável mais recentemente (Last Known Good, LKG).
 
-本 Todo 只做完成该目标所需的最小改动，不统一重构现有 Client Config 基础设施：
+Este Todo faz apenas a mudança mínima necessária para atingir esse objetivo, sem refatorar de forma unificada a infraestrutura de Client Config existente:
 
-- 不抽取全局 `ClientConfigService`；
-- 不改造 `BigModelCodingPlanSubscriptionProvider` 的既有 `/client/configs` 请求、TTL 或缓存；
-- 不合并 Desktop Main 的 Force Update、Computer Use、Desktop Context Prompt 请求；
-- 不改变 Coding Plan、官方版本安全校验、Off-Peak 或 `modelContextBudget.strategy` 的现有配置所有权；
-- 允许本阶段为 Built-in Config 增加一条独立的 `/client/configs` 请求；公共 Client Config 收口另立任务。
+- não extrai um `ClientConfigService` global;
+- não altera as requisições, o TTL ou o cache de `/client/configs` já existentes no `BigModelCodingPlanSubscriptionProvider`;
+- não une as requisições de Force Update, Computer Use e Desktop Context Prompt do Desktop Main;
+- não altera a propriedade de configuração existente de Coding Plan, da checagem de segurança da versão oficial, de Off-Peak ou de `modelContextBudget.strategy`;
+- permite que esta fase adicione uma requisição `/client/configs` independente para o Built-in Config; o fechamento de Client Config público fica para outra tarefa.
 
-本 Todo 只改变 ZCode Built-in Config 的 Source 与发布时序，不改变 Provider 领域主链：
+Este Todo altera apenas o Source e a temporalidade de publicação do ZCode Built-in Config, sem alterar a cadeia principal do domínio de Provider:
 
 ```text
 ZCode Built-in Provider Config
@@ -56,25 +55,25 @@ Effective Model Config Rules
         Registry / ModelFactory
 ```
 
-远端、LKG 与安装包配置是同一份 ZCode Built-in Source 的三个候选，不是新的 Overlay 层。
+Remoto, LKG e configuração do pacote de instalação são três candidatos da mesma ZCode Built-in Source, e não uma nova camada de Overlay.
 
-## 1. 已确认裁决
+## 1. Decisões confirmadas
 
-### 1.1 `/client/configs` 使用两层原子结构
+### 1.1 `/client/configs` usa uma estrutura atômica de dois níveis
 
-服务端在 `data.configs` 下增加一个一级字段：
+O servidor adiciona um campo de primeiro nível em `data.configs`:
 
 ```ts
 interface ZCodeBuiltinConfigContent {
-  /** 现有 ZCode Built-in Provider Config 的纯内容。 */
+  /** Conteúdo puro do ZCode Built-in Provider Config existente. */
   readonly providers: Record<string, ProviderConfigObject>;
-  /** 现有 ZCode Built-in Model Config Rules 的纯内容。 */
+  /** Conteúdo puro do ZCode Built-in Model Config Rules existente. */
   readonly modelConfigRules: readonly ModelConfigRuleObject[];
 }
 
 interface ZCodeBuiltinRelease {
   readonly schemaVersion: number;
-  /** 每次发布单调递增；内容回滚也产生更大的 revision。 */
+  /** Incrementa monotonicamente a cada publicação; até um rollback de conteúdo gera uma revisão maior. */
   readonly revision: number;
   readonly config: ZCodeBuiltinConfigContent;
 }
@@ -84,10 +83,10 @@ interface ClientConfigFields {
 }
 ```
 
-结构只保留两层：内层 `config` 是已经存在的 Provider Config 与 Model Config Rules 纯内容，不携带
-`schemaVersion`、`revision`、`fetchedFor` 或缓存状态；外层 Release 统一承担格式版本和发布顺序。
+A estrutura mantém apenas dois níveis: o `config` interno é o conteúdo puro já existente de Provider Config e Model Config Rules, sem carregar
+`schemaVersion`, `revision`, `fetchedFor` nem estado de cache; o Release externo assume uniformemente a versão de formato e a ordem de publicação.
 
-示意响应：
+Resposta ilustrativa:
 
 ```json
 {
@@ -107,87 +106,82 @@ interface ClientConfigFields {
 }
 ```
 
-`config.providers` 与 `config.modelConfigRules` 必须作为同一次发布共同出现、共同解析、共同应用。客户端不支持两个独立
-一级字段，不允许把远端 Provider 与本地 Model Rules 或本地 Provider 与远端 Model Rules 混合。
+`config.providers` e `config.modelConfigRules` precisam aparecer, ser parseados e ser aplicados em conjunto como uma mesma publicação. O cliente não suporta dois campos de primeiro
+nível independentes e não permite misturar Provider remoto com Model Rules locais nem Provider local com Model Rules remotas.
 
-`zcodeBuiltin` 是 Client Config 传输边界的原子分组，不成为新的 Provider 领域对象或 Overlay 层。解析成功后
-立即投影为现有 `ProviderConfigLayerSnapshot` 所需的 `ProviderConfigMap + ModelConfigRules`。
+`zcodeBuiltin` é um agrupamento atômico na fronteira de transporte do Client Config e não se torna um novo objeto de domínio de Provider nem uma camada de Overlay. Após um parse bem-sucedido, ele é
+imediatamente projetado como o `ProviderConfigMap + ModelConfigRules` de que o `ProviderConfigLayerSnapshot` existente precisa.
 
-仓库/安装包中的 Built-in 也继续维护为一份完整 JSON。Provider 分组和 Model Rule 分层通过
-[`configuration.md`](../design/registry/configuration.md) 规定的单文件声明顺序表达；本 Todo 不把它拆成多份
-源文件，不增加配置生成/拼装流水线。Remote、Environment Active Cache 与 Bundled 始终使用上述同一个
-两层 Release 形状。
+O Built-in no repositório/pacote de instalação continua mantido como um único JSON completo. A ordenação em grupos de Provider e em camadas de Model Rule é expressa pela ordem de declaração de arquivo único
+definida em [`configuration.md`](../design/registry/configuration.md); este Todo não o divide em vários arquivos-fonte e não adiciona pipeline de geração/composição de configuração. Remote, Environment Active Cache e Bundled usam sempre a mesma forma de Release de dois níveis acima.
 
-### 1.2 远端配置是完整替换，不是相对 Bundled 的补丁
+### 1.2 A configuração remota é substituição completa, não patch sobre o Bundled
 
-远端 `config.providers` 是当前 ZCode Built-in Provider 的完整有序集合，`config.modelConfigRules` 是当前完整、有序的
-Built-in Rule 数组。服务端删除 Provider、模型成员或 Rule 时，客户端必须在新快照中同样删除，不能继续从
-Bundled Config 补回。
+O `config.providers` remoto é o conjunto ordenado completo dos Providers ZCode Built-in atuais, e `config.modelConfigRules` é o array completo e ordenado de
+Built-in Rules atuais. Quando o servidor remove um Provider, membros de modelo ou Rule, o cliente precisa remover o mesmo no novo snapshot e não pode continuar
+repondo a partir da Config Bundled.
 
 ```text
 Bundled Release ─────┐
-Active Cache Release ┼─> 选择一个兼容候选 ─> ZCode Built-in Source
+Active Cache Release ┼─> escolher um candidato compatível ─> ZCode Built-in Source
 Remote Release ──────┘
 ```
 
-单条 Model Config Rule 继续允许稀疏；Personal Rules 仍排在 Built-in Rules 之后，不因远端同步改变顺序。
-Built-in Release 的业务完整性发布门禁不属于客户端同步首版；旧 Todo 19 已废弃，未来如有需要另立发布门禁任务。
+Uma Model Config Rule individual continua podendo ser esparsa; as Personal Rules continuam vindo depois das Built-in Rules e sua ordem não muda por causa da sincronização remota.
+A barreira de publicação de integridade de negócio do Built-in Release não faz parte da primeira versão da sincronização do cliente; o Todo 19 antigo foi descontinuado e, se for necessário no futuro, outra tarefa de barreira de publicação será criada.
 
-### 1.3 Bundled、LKG 与 Remote 的职责
+### 1.3 Responsabilidades de Bundled, LKG e Remote
 
-三类物理输入分别是：
+As três entradas físicas são:
 
-| 输入                     | 含义                                                       | 生命周期     | 是否运行时改写       |
+| Entrada                   | Significado                                                       | Ciclo de vida      | Reescrita em runtime       |
 | ------------------------ | ---------------------------------------------------------- | ------------ | -------------------- |
-| Bundled Config           | 当前安装包携带的兼容基线                                   | App 发布版本 | 否                   |
-| Environment Active Cache | 当前 Environment 已接受并正在使用的 Built-in；同时承担 LKG | 跨进程重启   | 是，原子替换         |
-| Remote Config            | `/client/configs.data.configs.zcodeBuiltin` 当前响应       | 单次远端刷新 | 不直接作为持久化文件 |
+| Bundled Config           | Baseline compatível carregada pelo pacote de instalação atual                                   | Versão de release do App | Não                   |
+| Environment Active Cache | O Built-in aceito e em uso pelo Environment atual; também cumpre o papel de LKG | Sobre reinícios de processo   | Sim, por substituição atômica         |
+| Remote Config            | Resposta atual de `/client/configs.data.configs.zcodeBuiltin`       | Um único refresh remoto | Não é usado diretamente como arquivo persistido |
 
-运行时不得改写仓库中的 `config/provider/zcode-builtin.json` 或安装包只读资产。远端成功结果只原子替换所属
-Environment 的可写 `active.json`。该文件既是 Host/Worker 共同读取的活动 Source，也是重启时的 LKG；不再维护
-第二份 LKG 文件。
+O runtime não pode reescrever o `config/provider/zcode-builtin.json` do repositório nem os assets somente-leitura do pacote de instalação. Um resultado remoto bem-sucedido substitui atomicamente apenas o `active.json` gravável do Environment ao qual pertence. Esse arquivo é ao mesmo tempo a Source ativa lida em conjunto por Host/Worker e o LKG no momento do restart; não se mantém um segundo arquivo de LKG.
 
-仓库/安装包配置继续在每次 Built-in 配置发布时同步更新，保证新安装和不具备有效 LKG 的客户端拥有合理
-基线；这属于发布流程，不等于客户端改写源码仓库。
+A configuração do repositório/pacote de instalação continua sendo atualizada em conjunto a cada publicação de configuração Built-in, garantindo que novas instalações e clientes sem LKG válido tenham um baseline razoável;
+isso faz parte do processo de publicação e não equivale ao cliente reescrever o repositório de código.
 
-### 1.4 LKG 只表示 Last Known Good，不保证天然更新
+### 1.4 LKG significa apenas Last Known Good e não garante atualização natural
 
-LKG（Last Known Good）表示“当前 Environment 最近一次成功解析并应用的远端 Release”。它仍可能：
+LKG (Last Known Good) significa "a resposta remota Release mais recente que o Environment atual conseguiu parsear e aplicar com sucesso". Ela ainda pode:
 
-- 比新安装包携带的 Bundled Config 更旧；
-- 由旧 App 版本拉取；
-- 使用当前客户端已经不支持的 Schema；
-- 因文件损坏而无法解析；
-- 来自同一机器上不同平台或 Environment 的错误缓存路径。
+- ser mais antiga que a Bundled Config do novo pacote de instalação;
+- ter sido obtida por uma versão antiga do App;
+- usar um Schema que o cliente atual já não suporta;
+- não ser parseável por corrupção de arquivo;
+- vir de um caminho de cache errado de outra plataforma ou Environment na mesma máquina.
 
-因此启动时不能无条件让 LKG 覆盖 Bundled。Active Cache 只有满足以下条件才是候选：
+Portanto, no start não se pode deixar o LKG sobrescrever o Bundled de forma incondicional. O Active Cache só é candidato quando satisfaz:
 
-1. Release 外壳可读取；
-2. `schemaVersion` 为当前客户端支持版本；
-3. Provider Config 与 Model Config Rules 能由当前正式 Parser 解析；
-4. `Active.revision >= Bundled.revision`。
+1. o envelope do Release pode ser lido;
+2. `schemaVersion` é uma versão suportada pelo cliente atual;
+3. o Provider Config e os Model Config Rules podem ser parseados pelo Parser oficial atual;
+4. `Active.revision >= Bundled.revision`.
 
 ```text
-Bundled valid ────────┐
+Bundled válido ────────┐
                       +--> compatibility gate --> max revision --> startup snapshot
-LKG readable/valid ───┘
+LKG legível/válido ───┘
 
-LKG incompatible / older
-└─ ignore LKG, use Bundled
+LKG incompatível / mais antigo
+└─ ignorar LKG, usar Bundled
 
-Bundled and LKG both invalid
-└─ fail Provider Runtime startup; do not create empty/fake fallback
+Bundled e LKG ambos inválidos
+└─ falhar o start do Provider Runtime; não criar fallback vazio/falso
 ```
 
-第一版通过 `<platform>/<appVersion>/<endpointKey>/active.json` 物理路径隔离 Cache，不把 `fetchedFor` 再写入 JSON，也不因
-JSON 恰好可解析就跨版本复用。后续若需要跨补丁版本复用，必须先建立明确的兼容范围，不在本 Todo 推断。
+A primeira versão isola fisicamente o Cache por `<platform>/<appVersion>/<endpointKey>/active.json`, sem gravar `fetchedFor` de novo no JSON e sem reutilizar entre versões só porque o JSON por acaso é parseável. Se mais adiante for necessária reutilização entre versões de patch, é preciso primeiro estabelecer um escopo de compatibilidade explícito, o que não é inferido neste Todo.
 
-### 1.5 `revision` 必须可排序并由同一发布流程生成
+### 1.5 `revision` precisa ser ordenável e gerado pelo mesmo processo de publicação
 
-普通内容 Hash 或 HTTP ETag 只能判断相同/不同，不能判断 LKG 与 Bundled 谁更新。本 Todo 要求
-`zcodeBuiltin.revision` 使用服务端单调递增整数，并同步写入同次发布生成的 Bundled Config。
+Um Hash de conteúdo comum ou um ETag de HTTP só conseguem dizer igual/diferente, e não dizer qual entre LKG e Bundled é mais novo. Este Todo exige que
+`zcodeBuiltin.revision` use um inteiro monotonicamente crescente gerado no servidor e gravado sincronamente na Config Bundled produzida pela mesma publicação.
 
-内容回滚也必须产生新 revision：
+Um rollback de conteúdo também precisa produzir uma nova revision:
 
 ```text
 revision 40 -> content A
@@ -195,12 +189,12 @@ revision 41 -> content B
 revision 42 -> rollback to content A
 ```
 
-客户端按 revision 判断发布顺序，不比较本机文件时间，也不把内容 Hash 当成可排序版本。Source 仍可用标准化
-内容 Hash 作为进程内相同内容去重信息，但它不替代发布 revision。
+O cliente usa a revision para julgar a ordem de publicação, não compara o horário de arquivos locais e não trata Hash de conteúdo como versão ordenável. A Source ainda pode usar um Hash de conteúdo
+padronizado como informação de deduplicação de conteúdo idêntico dentro do processo, mas isso não substitui a revision de publicação.
 
-### 1.6 只有 Environment 组合根负责远端同步
+### 1.6 Somente a raiz de composição do Environment é responsável pela sincronização remota
 
-每个执行 Environment 拥有自己的 Built-in 配置和 LKG：
+Cada Environment de execução tem sua própria configuração Built-in e seu próprio LKG:
 
 ```text
 Local Environment Host
@@ -216,14 +210,14 @@ SSH / Server Environment Host
 └─ Remote Core Workers read/watch the selected remote file
 ```
 
-Desktop 控制远程 Workspace 时只读取 Remote Host 的 Settings/Selection Facade。Desktop 不把本地
-`zcodeBuiltin`、LKG、Registry Snapshot 或 Provider/Model 静态事实推给远端。
+Quando o Desktop controla um Workspace remoto, ele lê somente a Facade de Settings/Selection do Remote Host. O Desktop não empurra o
+`zcodeBuiltin`, LKG, Registry Snapshot ou fatos estáticos de Provider/Model locais para o remoto.
 
-普通 Core Worker 不独立请求 `/client/configs`。Host 先选择启动候选并把同一可读 Built-in 文件路径提供给
-Worker；远端成功更新后原子更新该 Environment 的活动文件，由 Host 和 Worker 的现有 Source watcher 刷新。
-这样避免每个 Workspace 重复请求和同一 Environment 内多个 revision 并存。
+Um Core Worker comum não requisita `/client/configs` de forma independente. O Host primeiro escolhe o candidato de start e fornece ao
+Worker o mesmo caminho de arquivo Built-in legível; depois de uma atualização remota bem-sucedida, o arquivo ativo daquele Environment é atualizado atomicamente e é o watcher de Source existente do Host e do Worker que faz o refresh.
+Isso evita requisições duplicadas por Workspace e múltiplas revisions coexistindo dentro do mesmo Environment.
 
-### 1.7 远端更新只影响后来创建的 Model
+### 1.7 Uma atualização remota só afeta Models criados depois
 
 ```text
 Remote Built-in refresh
@@ -234,26 +228,26 @@ Source change -> Account refresh -> Registry rebuild -> Facade update
                                                 v
                                   later ModelFactory.create()
 
-already-created Active Model
-└─ remains frozen for its execution
+Active Model já criado
+└─ permanece congelado durante sua execução
 ```
 
-远端刷新可以改变新的 Settings View、Selection View、Provider 成员和后来创建的 Model，但不能热改已创建
-Active Model 的 Endpoint、API Type、Properties、Option Specs 或 Reasoning Mapping。
+Um refresh remoto pode mudar a nova Settings View, a Selection View, os membros de Provider e Models criados depois, mas não pode alterar a quente o Endpoint, o API Type, as Properties, os Option Specs ou o Reasoning Mapping de um
+Active Model já criado.
 
-### 1.8 本轮明确不统一 Client Config
+### 1.8 Não unificar o Client Config nesta rodada
 
-当前 `/client/configs` 仍由多条生命周期不同的链路读取：
+Hoje `/client/configs` ainda é lido por várias cadeias com ciclos de vida diferentes:
 
-- `BigModelCodingPlanSubscriptionProvider` 内的商品、套餐、官方版本安全校验、Off-Peak、Context Budget 等；
-- Desktop Main 的 Computer Use 与 Desktop Context Prompt 灰度；
-- Desktop 启动前 Force Update gate。
+- produtos, planos, checagem de segurança da versão oficial, Off-Peak e Context Budget dentro do `BigModelCodingPlanSubscriptionProvider`;
+- o rollout de Computer Use e Desktop Context Prompt do Desktop Main;
+- o gate de Force Update antes do start do Desktop.
 
-本 Todo 不重排这些 owner，不建立公共 `IClientConfigService`，也不为了消除重复请求扩大改造范围。Built-in
-同步实现可以复用现有 `ApiClient`、Endpoint 与平台参数工具，但不能依赖 Coding Plan Provider，也不能让
-Provider Config Source 反向依赖 Subscription Service。
+Este Todo não reordena esses owners, não estabelece um `IClientConfigService` público e não amplia o escopo de modificação para eliminar requisições duplicadas. A implementação da sincronização Built-in pode
+reaproveitar o `ApiClient`, o Endpoint e as ferramentas de parâmetro de plataforma existentes, mas não pode depender do Coding Plan Provider e não pode deixar o Provider Config Source depender
+inversamente do Subscription Service.
 
-允许的最小新增关系是：
+A única relação nova permitida é:
 
 ```text
 Environment composition root existing ApiClient
@@ -262,44 +256,43 @@ Environment composition root existing ApiClient
 ZCode Built-in remote fetch/synchronizer
               |
               v
-Built-in active Source file（同时承担 LKG）
+Built-in active Source file（que também cumpre o papel de LKG）
 ```
 
-后续统一 Client Config 时可以把这条网络读取迁入公共 Transport/Service；不得改变本 Todo 已确认的
-Environment 所有权、原子 `zcodeBuiltin` 契约和 Active Cache 选择边界。
+Na unificação posterior do Client Config, essa leitura de rede pode ser movida para um Transport/Service público; não se pode mudar a propriedade de Environment já confirmada neste Todo, o contrato atômico de
+`zcodeBuiltin` nem a fronteira de seleção do Active Cache.
 
-### 1.9 Environment 级落盘刷新消抖
+### 1.9 Debounce do refresh gravado em nível de Environment
 
-进程内 `inFlight` 不能阻止同一 Environment 的多个 Desktop Host、CLI 或 Server Entry 重复请求。每个
-Environment 在按 Endpoint 隔离的 Active Cache 旁维护 `refresh-control.json`，以文件锁和可过期 lease 协调刷新：
+O `inFlight` em memória não impede que múltiplos Desktop Host, CLI ou Server Entry do mesmo Environment repitam a requisição. Cada
+Environment mantém um `refresh-control.json` ao lado do Active Cache isolado por Endpoint, coordenando o refresh com lock de arquivo e lease expirável:
 
 ```text
-多个 Entry 请求刷新
+ múltiplos Entry pedem refresh
         |
         v
-锁 refresh-control.json
+travar refresh-control.json
         |
-        +--> nextEligibleAt 未到或已有有效 lease：跳过网络
+        +--> nextEligibleAt ainda não chegou ou já existe lease válido: pular a rede
         |
-        `--> 写入短期 lease 后释放锁
+        `--> grava lease de curto prazo e solta o lock
                     |
                     v
-                 请求远端
+                 requisição remota
                     |
                     v
-              重新加锁并比较 revision
+              trava de novo e compara a revision
                     |
-          成功：原子替换 active.json，记录下次时间
-          失败：保留 active.json，记录递增退避
+          sucesso: substitui active.json atomicamente e registra o próximo horário
+          falha: mantém active.json e registra um backoff incremental
 ```
 
-网络请求期间不持有文件锁；进程崩溃后 lease 到期即可接管。成功刷新使用一小时量级间隔，失败使用有上限的
-递增退避。显式刷新可以绕过 `nextEligibleAt`，但不能绕过仍有效的 lease。Endpoint 变化必须改变控制文件中的
-`endpointKey`，使新 Endpoint 不受旧 TTL 阻塞。
+O lock de arquivo não é mantido durante a requisição de rede; depois de um crash de processo, a expiração do lease permite a tomada. Um refresh bem-sucedido usa um intervalo na ordem de uma hora, e uma falha usa um backoff incremental com teto. Um refresh explícito pode contornar `nextEligibleAt`, mas não pode contornar um lease ainda válido. Uma mudança de Endpoint precisa alterar o
+`endpointKey` no arquivo de controle, para que o novo Endpoint não fique bloqueado pelo TTL antigo.
 
-## 2. 失败与刷新语义
+## 2. Semântica de falha e de refresh
 
-### 2.1 启动
+### 2.1 Start
 
 ```text
 read Bundled + read LKG
@@ -314,23 +307,23 @@ publish immediately
 start remote refresh in background
 ```
 
-远端网络请求不阻塞 Provider Runtime 使用本地有效候选完成首次 ready。若本地没有任何有效候选，则启动失败；
-不得为等待网络而发布空 Registry，也不得制造半完整 Provider。
+A requisição de rede remota não bloqueia o Provider Runtime de concluir o primeiro ready usando um candidato local válido. Se não houver nenhum candidato local válido, o start falha;
+não se pode publicar um Registry vazio por causa da espera da rede, nem fabricar um Provider meio completo.
 
-### 2.2 远端响应分类
+### 2.2 Classificação da resposta remota
 
-| 情况                           | 处理                                     |
+| Situação                           | Tratamento                                     |
 | ------------------------------ | ---------------------------------------- |
-| HTTP/超时/JSON/Envelope 失败   | 保持当前 Snapshot 与 LKG，记录可诊断错误 |
-| `configs.zcodeBuiltin` 缺失    | 视为服务端尚未下发，保持当前 Snapshot    |
-| Schema 不支持                  | 拒绝响应，保持当前 Snapshot 与 LKG       |
-| Provider/Rule 严格解析失败     | 拒绝整份响应，不做局部应用               |
-| revision 小于当前有效 revision | 视为陈旧响应，忽略                       |
-| revision 等于当前且内容一致    | 去重，不写盘、不通知                     |
-| revision 等于当前但内容不同    | 视为发布协议错误，拒绝并记录错误         |
-| revision 更高且兼容解析成功    | 原子替换 Active Cache，随后发布变化      |
+| Falha de HTTP/timeout/JSON/Envelope   | mantém o Snapshot e o LKG atuais e registra um erro diagnosticável |
+| `configs.zcodeBuiltin` ausente    | considera que o servidor ainda não publicou e mantém o Snapshot atual    |
+| Schema não suportado                  | rejeita a resposta e mantém o Snapshot e o LKG atuais       |
+| Falha de parse estrito de Provider/Rule     | rejeita a resposta inteira, sem aplicação parcial               |
+| revision menor que a revision válida atual | trata como resposta obsoleta e ignora                       |
+| revision igual à atual e conteúdo igual    | deduplica, sem gravar em disco e sem notificar                     |
+| revision igual à atual mas conteúdo diferente| trata como erro de protocolo de publicação e rejeita com registro de erro         |
+| revision maior e parse compatível bem-sucedido    | substitui atomicamente o Active Cache e depois publica a mudança      |
 
-### 2.3 写入与发布顺序
+### 2.3 Ordem de escrita e publicação
 
 ```text
 remote payload
@@ -345,154 +338,152 @@ atomic replace active.json
 publish Source changed
 ```
 
-若持久化失败，本轮远端更新不进入 Host 内存 Registry。这样已运行 Host、后来启动的 Worker 和重启恢复不会
-各自看到不同事实。写入必须使用 Environment 明确的可写路径、文件锁和原子替换，不依赖源码路径、宽泛环境
-变量或跨 Environment 共享缓存。
+Se a persistência falhar, a atualização remota desta rodada não entra no Registry em memória do Host. Assim, o Host já em execução, um Worker iniciado depois e a recuperação após restart não
+veem fatos diferentes entre si. A escrita precisa usar o caminho gravável explícito do Environment, lock de arquivo e substituição atômica, sem depender de caminhos de código-fonte, de variáveis de ambiente amplas nem de cache compartilhado entre Environments.
 
-## 3. 实施范围
+## 3. Escopo de implementação
 
-### Step 0：先更新正式 Design
+### Step 0: atualizar primeiro o Design oficial
 
-- 在 Environment Design 中把 Management Service 的长期蓝图收敛为本轮 `/client/configs.zcodeBuiltin` 入口；
-- 在 Configuration/Runtime Design 中写明 Bundled/LKG/Remote 是同一个 Built-in Source 的候选；
-- 写明 Environment 组合根是同步 owner，Core Worker 只读活动文件；
-- 写明当前不统一 Client Config Service。
+- no Environment Design, converte o blueprint de longo prazo do Management Service na entrada `/client/configs.zcodeBuiltin` desta rodada;
+- nos Designs de Configuration/Runtime, registrar que Bundled/LKG/Remote são candidatos da mesma Built-in Source;
+- registrar que a raiz de composição do Environment é a dona da sincronização e que o Core Worker só lê o arquivo ativo;
+- registrar que o Client Config Service não é unificado nesta rodada.
 
-### Step 1：定义两层 Release Schema 与缓存路径
+### Step 1: definir o Schema de Release de dois níveis e o caminho de cache
 
-- 为 `configs.zcodeBuiltin` 建立严格运行时 Schema；
-- 增加单调递增 `revision` 与 `schemaVersion`；
-- 内层 `config` 只保存现有 Provider Config 与 Model Config Rules 内容；
-- Bundled、Remote 与 Active Cache 使用完全相同的两层 Release 结构；
-- 以 `<platform>/<appVersion>/<endpointKey>/active.json` 路径表达缓存兼容范围，不在 JSON 中增加 `fetchedFor`；
-- 不向 Provider Domain 引入 Remote Config Document 类型。
+- estabelecer um Schema de runtime estrito para `configs.zcodeBuiltin`;
+- adicionar a `revision` monotonicamente crescente e o `schemaVersion`;
+- o `config` interno guarda somente o conteúdo de Provider Config e Model Config Rules existentes;
+- Bundled, Remote e Active Cache usam exatamente a mesma estrutura de Release de dois níveis;
+- expressar o escopo de compatibilidade do cache pelo caminho `<platform>/<appVersion>/<endpointKey>/active.json`, sem adicionar `fetchedFor` ao JSON;
+- não introduzir no Domínio de Provider um tipo de Documento de Config Remoto.
 
-### Step 2：建立本地候选选择与原子 Repository
+### Step 2: estabelecer a seleção de candidatos local e o Repository atômico
 
-- 读取并分别兼容解析 Bundled 与 Active Cache；
-- 按兼容性与 revision 选择启动候选；
-- Active Cache 缺失、损坏、过旧或不兼容时自然使用 Bundled；
-- `active.json` 同时承担活动 Source 与 LKG，只做一次带锁原子替换；
-- 不写入仓库/安装包文件。
+- ler e parsear de forma compatível e separada o Bundled e o Active Cache;
+- escolher o candidato de start por compatibilidade e revision;
+- usar naturalmente o Bundled quando o Active Cache está ausente, corrompido, muito antigo ou incompatível;
+- `active.json` cumpre simultaneamente o papel de Source ativa e de LKG, com uma única substituição atômica sob lock;
+- não escrever nos arquivos do repositório/pacote de instalação.
 
-### Step 3：增加最小远端同步器
+### Step 3: adicionar o sincronizador remoto mínimo
 
-- 在 Environment 组合根使用现有 `ApiClient` 请求 `/client/configs`；
-- 使用当前 Environment 的 Endpoint、App Version 和平台参数；
-- 对原子 `zcodeBuiltin` 执行严格 Envelope 与现有 Provider/Model Config Parser 兼容解析；
-- 使用落盘 `refresh-control.json`、可过期 lease、请求超时和递增退避做 Environment 级去重；
-- 多 Host 共享同一 Environment 路径时在文件锁内重新比较 revision，防止晚到请求陈旧覆盖；
-- 不修改其他 Client Config 消费者。
+- usar o `ApiClient` existente na raiz de composição do Environment para requisitar `/client/configs`;
+- usar o Endpoint, o App Version e os parâmetros de plataforma do Environment atual;
+- executar parse estrito do envelope e parse compatível de `zcodeBuiltin` com os Parsers de Provider/Model Config existentes;
+- usar o `refresh-control.json` gravado em disco, lease expirável, timeout de requisição e backoff incremental para a deduplicação em nível de Environment;
+- quando vários Hosts compartilham o mesmo caminho de Environment, comparar a revision novamente dentro do lock de arquivo para evitar que uma requisição atrasada sobrescreva algo obsoleto;
+- não modificar outros consumidores de Client Config.
 
-### Step 4：接入 Host/Worker Source 路径
+### Step 4: conectar o caminho de Source do Host/Worker
 
-- Local Host 与 Remote Host 各自使用所属 Environment 的活动 Built-in 文件；
-- spawn 的 Core Worker 继续取得同一路径并使用现有文件 Source/watcher；
-- Prompt CLI、TUI、standalone server 等没有 Desktop Local Host 的 Environment Entry 明确拥有同等同步 owner；
-- Desktop attached remote 只消费 Remote Host Facade，不建立本地推送路径。
+- o Local Host e o Remote Host usam cada um o arquivo Built-in ativo do seu Environment;
+- o Core Worker spawado continua recebendo o mesmo caminho e usando o Source/watcher de arquivo existente;
+- Environment Entries sem Desktop Local Host, como Prompt CLI, TUI e standalone server, têm explicitamente a mesma dona de sincronização;
+- o remote anexado do Desktop consome apenas a Facade do Remote Host e não estabelece caminho local de push.
 
-### Step 5：刷新与生命周期
+### Step 5: refresh e ciclo de vida
 
-- 本地有效候选完成首次 ready 后后台刷新一次；
-- 后续刷新频率先沿用一小时量级 TTL，并提供显式 refresh 入口；
-- 网络恢复可以触发重试，但失败不清空当前 Snapshot；
-- dispose 后禁止晚到请求写盘或发布变化；
-- 配置变化触发现有 Account Source 与 Registry 刷新，不建立第二套 Registry 同步。
+- fazer um refresh em segundo plano depois que o candidato local válido completar o primeiro ready;
+- usar inicialmente um TTL na ordem de uma hora para as refreshes seguintes e oferecer uma entrada de refresh explícito;
+- a recuperação da rede pode disparar um retry, mas uma falha não limpa o Snapshot atual;
+- depois do dispose, é proibido gravar em disco ou publicar mudanças com respostas atrasadas;
+- mudanças de configuração disparam os refreshes existentes de Account Source e Registry, sem criar um segundo conjunto de sincronização de Registry.
 
-### Step 6：清理与验证
+### Step 6: limpeza e verificação
 
-- 删除仅因旧单文件 Source 假设而存在的路径硬编码；
-- 不删除或重构其他 `/client/configs` 链路；
-- 更新发布构建，确保 Bundled 与远端发布 revision 来自同一配置发布流程；
-- 增加本 Todo 的单元、集成和目标 Environment 验证。
+- remover hardcodes de caminho que existiam apenas por causa da antiga premissa de Source em arquivo único;
+- não remover nem refatorar as outras cadeias de `/client/configs`;
+- atualizar o build de publicação para garantir que o Bundled e a revision de publicação remota venham do mesmo processo de publicação de configuração;
+- adicionar as verificações unitárias, de integração e do Environment alvo deste Todo.
 
-## 4. 测试计划
+## 4. Plano de testes
 
-### 4.1 Schema 与原子性
+### 4.1 Schema e atomicidade
 
-- `zcodeBuiltin` 完整对象严格解析；
-- 缺失 `config.providers`、`config.modelConfigRules`、`schemaVersion` 或 `revision` 时整份拒绝；
-- 未知旧 `builtinProviders/builtinModels` 不进入正式 Source；
-- Rule 正则、Provider API/Access、Model Properties 与 Reasoning Mapping 使用当前正式 Schema；
-- 不在客户端增加已废弃 Todo 19 所讨论的额外 Built-in 业务完整性规则集。
+- parse estrito do objeto `zcodeBuiltin` completo;
+- rejeição de toda a resposta quando `config.providers`, `config.modelConfigRules`, `schemaVersion` ou `revision` estão ausentes;
+- `builtinProviders/builtinModels` antigos e desconhecidos não entram na Source oficial;
+- regex de Rule, API/Access de Provider, Model Properties e Reasoning Mapping usam o Schema oficial atual;
+- não adicionar no cliente o conjunto extra de regras de integridade de negócio do Built-in descartado no Todo 19.
 
-### 4.2 Bundled/LKG 选择
+### 4.2 Seleção Bundled/LKG
 
-- 无 LKG 使用 Bundled；
-- 有效且更新的 LKG 胜出；
-- LKG revision 更旧时使用 Bundled；
-- 旧 appVersion、错误 platform 由缓存路径隔离；未知 Schema、损坏 JSON 或 Domain Parser 失败的 Cache 均被忽略；
-- Bundled 与 LKG 都无效时明确失败；
-- App 升级后不复用旧版本 LKG。
+- sem LKG, usar o Bundled;
+- um LKG válido e mais novo vence;
+- usar o Bundled quando a revision do LKG é mais antiga;
+- appVersion antigo e platform errada são isolados pelo caminho de cache; Cache com Schema desconhecido, JSON corrompido ou falha do Domain Parser é ignorado;
+- falha explícita quando Bundled e LKG são ambos inválidos;
+- após a atualização do App, o LKG da versão antiga não é reutilizado.
 
-### 4.3 远端刷新
+### 4.3 Refresh remoto
 
-- 更高 revision 成功解析、原子替换 `active.json` 并只发布一次变化；
-- 同 revision 同内容去重；
-- 同 revision 不同内容拒绝；
-- 更低 revision、晚到陈旧请求不覆盖当前配置；
-- HTTP、超时、JSON、Envelope、Schema、Domain Parser 和写盘失败均保留当前 Snapshot/Active Cache；
-- dispose 后晚到响应不写盘、不通知。
-- 多 Host/Entry 同时刷新时只有一个取得落盘 lease 并请求服务端；
-- lease owner 崩溃后可在过期后接管；Endpoint 变化不受旧 TTL 阻塞；
-- 失败使用有上限的递增退避，显式刷新仍不绕过有效 lease。
+- revision maior faz parse com sucesso, substitui `active.json` atomicamente e publica a mudança uma única vez;
+- deduplicação na mesma revision com o mesmo conteúdo;
+- rejeição na mesma revision com conteúdo diferente;
+- revision menor e requisições obsoletas atrasadas não sobrescrevem a configuração atual;
+- falhas de HTTP, timeout, JSON, Envelope, Schema, Domain Parser e de gravação em disco preservam o Snapshot/Active Cache atual;
+- depois do dispose, respostas atrasadas não gravam em disco nem notificam.
+- quando múltiplos Hosts/Entries fazem refresh ao mesmo tempo, apenas um obtém o lease gravado em disco e faz a requisição ao servidor;
+- após um crash do dono do lease, a troca é possível depois da expiração; uma mudança de Endpoint não fica bloqueada pelo TTL antigo;
+- a falha usa backoff incremental com teto e o refresh explícito ainda não contorna um lease válido.
 
-### 4.4 Environment 与执行
+### 4.4 Environment e execução
 
-- Local Host 与其 Core Worker 读取同一活动 Built-in revision；
-- Remote Host 与 Remote Worker 使用远端 Environment 自己的 LKG；
-- Desktop attached remote 不使用 Desktop 本地 Built-in；
-- 多 Workspace Worker 不各自请求 `/client/configs`；
-- Built-in 更新后 Settings/Selection View 更新；
-- Account Provider 按新 Built-in 重新约束；
-- 已创建 Active Model 不变化，后来创建的 Model 使用新 revision；
-- Personal Provider/Model Config 不被远端更新重写，继续作为最后 Overlay。
+- o Local Host e seu Core Worker leem a mesma revision Built-in ativa;
+- o Remote Host e o Remote Worker usam o LKG do próprio Environment remoto;
+- o remote anexado do Desktop não usa o Built-in local do Desktop;
+- workers de múltiplos Workspaces não requisitam `/client/configs` individualmente;
+- depois de uma atualização Built-in, as Views de Settings/Selection são atualizadas;
+- o Account Provider se restringe novamente pelo novo Built-in;
+- o Active Model já criado não muda, e Models criados depois usam a nova revision;
+- a Personal Provider/Model Config não é reescrita pela atualização remota e continua como o último Overlay.
 
-### 4.5 回归
+### 4.5 Regressão
 
-- Coding Plan 商品、套餐、官方版本安全校验、Off-Peak 与 Context Budget 的原 Client Config 行为不变；
-- Desktop Computer Use、Desktop Context Prompt 与 Force Update 请求链不变；
-- Desktop continuous 与 Web Remote replayable 的 Session/Task 数据链不受影响；
-- Provider 设置、模型选择、Connectivity、Automation、Subagent、Repo Wiki 和 Off-Peak 仍通过目标 Host Facade；
-- `pnpm typecheck`、`pnpm lint`、受影响单测与相关 Desktop/Remote E2E 通过。
+- o comportamento original de Client Config de produtos e planos do Coding Plan, checagem de segurança da versão oficial, Off-Peak e Context Budget permanece inalterado;
+- as cadeias de requisição de Desktop Computer Use, Desktop Context Prompt e Force Update ficam inalteradas;
+- a cadeia de dados de Session/Task do Desktop continuous e do Web Remote replayable não é afetada;
+- as Settings de Provider, a seleção de modelos, a Connectivity, a Automation, o Subagent, o Repo Wiki e o Off-Peak continuam passando pela Facade do Host alvo;
+- `pnpm typecheck`, `pnpm lint`, os testes unitários afetados e os E2E relevantes de Desktop/Remote passam.
 
-## 5. 完成定义
+## 5. Definição de conclusão
 
-- `/client/configs.data.configs.zcodeBuiltin` 成为远端 Built-in 的唯一传输字段；
-- Provider 与 Model Rules 原子发布、原子校验、原子应用；
-- Bundled 与 Active Cache 按兼容性和 revision 正确选择；
-- `active.json` 同时承担活动 Source 与 LKG，写入不会修改仓库或安装包资产；
-- 每个 Environment 组合根自己拉取、缓存和发布，Core Worker 不独立请求；
-- Remote Workspace 不接受 Desktop 本地 Built-in 推送；
-- 远端失败、陈旧、损坏和不兼容配置均不会破坏当前可用 Registry；
-- 配置刷新只影响后来创建的 Model；
-- 其他 Client Config 消费者没有被顺手重构；
-- Design、测试、类型检查与 Lint 同步完成，并以 Conventional Commit 提交。
+- `/client/configs.data.configs.zcodeBuiltin` se torna o único campo de transporte do Built-in remoto;
+- Provider e Model Rules têm publicação, validação e aplicação atômicas;
+- Bundled e Active Cache são escolhidos corretamente por compatibilidade e revision;
+- `active.json` cumpre simultaneamente o papel de Source ativa e de LKG, e a escrita não modifica ativos do repositório nem do pacote de instalação;
+- cada raiz de composição de Environment faz o seu próprio fetch, cache e publicação, e o Core Worker não requisita de forma independente;
+- o Remote Workspace não recebe push do Built-in local do Desktop;
+- configurações remotas com falha, obsoletas, corrompidas ou incompatíveis não quebram o Registry atualmente utilizável;
+- o refresh de configuração só afeta Models criados depois;
+- os outros consumidores de Client Config não foram refatorados por conta própria;
+- Design, testes, typecheck e Lint são concluídos de forma sincronizada, com submissão em Conventional Commit.
 
-## 6. 明确不做
+## 6. Explicitamente não feito
 
-- 不建立全局或跨进程 Client Config 单例；
-- 不统一 `BigModelCodingPlanSubscriptionProvider`、Desktop Main 与 Force Update 的 Client Config 请求；
-- 不持久化整份 `/client/configs`，只持久化验证后的 `zcodeBuiltin`；
-- 不把远端、LKG、Bundled 建模为三层 Provider Overlay；
-- 不允许 Remote Provider Config 与 Bundled Model Rules 混合；
-- 不恢复旧 `builtinProviders`、`builtinModels`、Catalog、Preset 或具体模型 hardcode；
-- 不修改 Account Access、Personal Config、凭据、请求鉴权或服务端最终授权语义；
-- 不修改模型选择、队列、恢复、Continuous/Replayable 或 Session 生命周期。
+- não estabelecer um singleton de Client Config global ou entre processos;
+- não unificar as requisições de Client Config de `BigModelCodingPlanSubscriptionProvider`, do Desktop Main e do Force Update;
+- não persistir o `/client/configs` inteiro, apenas o `zcodeBuiltin` já validado;
+- não modelar Remoto, LKG e Bundled como três camadas de Overlay de Provider;
+- não permitir a mistura de Remote Provider Config com Bundled Model Rules;
+- não restaurar `builtinProviders`, `builtinModels`, Catalog, Preset ou hardcode de modelo concreto antigos;
+- não alterar a semântica de Account Access, Personal Config, credenciais, autenticação de requisição ou autorização final do servidor;
+- não alterar seleção de modelo, fila, recuperação, Continuous/Replayable ou o ciclo de vida da Session.
 
-## 7. 实施记录
+## 7. Registro de implementação
 
-2026-08-25 已按本文完成：
+Concluído em 2026-08-25 conforme este documento:
 
-- `@zcode/provider-node` 增加严格两层 Release Schema、Bundled/Active 候选选择、原子 Active Source、
-  跨进程刷新控制文件与 Remote Synchronizer；
-- 正式 `config/provider/zcode-builtin.json` 已迁为 `revision=1` 的两层 Release；
-- Services Environment 组合根使用当前 Endpoint、App Version、平台参数和既有 `ApiClient` 后台读取
-  `/api/v1/client/configs`；Local/Remote Host 向 Worker 注入 Active 路径；
-- Standalone Server 复用 Services owner；独立 Prompt CLI/TUI 负责自己的 Active/LKG 与后台刷新，Host
-  显式注入路径时不重复刷新；
-- Settings 显式刷新会触发 Built-in Remote、Account Source 与 Registry 的既有刷新链；
-- 未修改其他 Client Config 消费者，未增加额外的发布者业务完整性校验。
+- `@zcode/provider-node` ganhou o Schema estrito de Release de dois níveis, a seleção de candidatos Bundled/Active, a Source Active atômica,
+  o arquivo de controle de refresh entre processos e o Remote Synchronizer;
+- o `config/provider/zcode-builtin.json` oficial foi migrado para um Release de dois níveis com `revision=1`;
+- a raiz de composição de Environment dos Services usa o Endpoint, o App Version, os parâmetros de plataforma e o `ApiClient` existentes para ler em segundo plano
+  `/api/v1/client/configs`; o Local/Remote Host injeta o caminho Active no Worker;
+- o Standalone Server reaproveita o owner dos Services; o Prompt CLI/TUI independente cuida do seu próprio Active/LKG e refresh em segundo plano, e não faz refresh duplicado quando o Host injeta o caminho explicitamente;
+- o refresh explícito das Settings dispara a cadeia de refresh existente do Built-in Remote, do Account Source e do Registry;
+- os outros consumidores de Client Config não foram modificados e nenhuma checagem extra de integridade de negócio do publicador foi adicionada.
 
-核心自动化覆盖严格解析、候选选择、相同 revision 冲突、远端新旧 revision、原子更新、跨进程 lease、
-Endpoint 变化、dispose 晚到响应、Services 组合根、Remote Host owner、Worker Active 路径及 CLI/SEA 入口。
+A automação principal cobre o parse estrito, a seleção de candidatos, o conflito de mesma revision, as revisions remota nova e antiga, a atualização atômica, o lease entre processos,
+a mudança de Endpoint, a resposta atrasada após dispose, a raiz de composição dos Services, o owner do Remote Host, o caminho Active do Worker e as entradas de CLI/SEA.

@@ -1,177 +1,177 @@
-# 模型供应商重构上线回归范围
+# Escopo de regressão de lançamento da refatoração de providers de modelo
 
-> 状态：待执行
+> Status: a executar
 >
-> 基线日期：2026-09-03
+> Data da baseline: 2026-09-03
 
-本文列出模型供应商重构上线前需要回归的主要功能。每节对应一项用户功能，最终回归应在最新 staging 合入后执行。
+Este documento lista as principais funcionalidades que precisam de regressão antes do lançamento da refatoração de providers de modelo. Cada seção corresponde a uma funcionalidade do usuário, e a regressão final deve ser executada após o merge do staging mais recente.
 
-## 1. 模型设置页面
+## 1. Página de configurações de modelos
 
-- 检查页面进入、刷新、滚动和不同窗口尺寸下的显示。
-- 检查供应商和模型较多时，左右列表能否独立滚动并显示完整。
-- 检查供应商与模型的改名和排序，以及模型的开关和删除。
-- 检查输入框自动保存、保存反馈和连续编辑。
-- 检查模型配置编辑和恢复默认，包括上下文、最大输出、输入类型、模型能力和推理档位。
-- 检查浅色与深色主题、中英文界面和中文输入法。
+- Verificar a entrada na página, a atualização, a rolagem e a exibição em diferentes tamanhos de janela.
+- Verificar se, com muitos providers e modelos, as listas da esquerda e da direita rolam de forma independente e exibem tudo.
+- Verificar a renomeação e a ordenação de providers e modelos, além do interruptor e da exclusão de modelos.
+- Verificar o salvamento automático dos campos, o feedback de salvamento e a edição contínua.
+- Verificar a edição da configuração do modelo e a restauração dos padrões, incluindo contexto, saída máxima, tipos de entrada, capacidades do modelo e níveis de raciocínio.
+- Verificar os temas claro e escuro, a interface em PT/EN e o IME em chinês.
 
-## 2. 添加和配置模型供应商
+## 2. Adicionar e configurar providers de modelo
 
-- 从“添加供应商”进入模板列表，分别添加内置供应商和纯自定义供应商。
-- 从首次使用页面输入 API Key，配置 Z.AI 或 BigModel 按量 API。
-- 检查新供应商的名称、Logo、接口地址、API 格式和模型列表。
-- 重复添加同一模板，检查名称区分、配置隔离和排序。
-- 填写 API Key、接口地址和模型后，检查保存、连接测试和实际聊天。
-- 检查配置不完整、名称重复、接口错误和删除供应商时的页面反馈。
+- Entrar pela "adicionar fornecedor" na lista de templates e adicionar um provider embutido e um provider puramente personalizado.
+- Informar a API Key pela página de primeiro uso e configurar a API sob demanda da Z.AI ou da BigModel.
+- Verificar o nome, o Logo, o endereço da interface, o formato da API e a lista de modelos do novo provider.
+- Adicionar o mesmo template de novo e verificar a distinção de nomes, o isolamento de configuração e a ordenação.
+- Depois de preencher a API Key, o endereço e o modelo, verificar o salvamento, o teste de conexão e o chat real.
+- Verificar o feedback de página para configuração incompleta, nome duplicado, erro de interface e exclusão do provider.
 
-## 3. 升级后保留模型供应商配置
+## 3. Preservação das configurações de providers após a atualização
 
-- 在旧版本中配置内置供应商和自定义供应商，再升级到新版本，检查原有配置、模型和顺序。
-- 检查升级后的首次启动、应用重启和继续使用模型。
-- 使用缺失或损坏的旧配置启动，检查错误提示及其他供应商的使用。
-- 更新内置模型配置后，检查已有供应商、新增模型和模型默认值。
+- Configurar providers embutidos e personalizados em uma versão antiga, atualizar para a nova e verificar as configurações, os modelos e a ordem anteriores.
+- Verificar a primeira inicialização após a atualização, o restart do aplicativo e o uso contínuo dos modelos.
+- Iniciar com uma configuração antiga ausente ou corrompida e verificar as mensagens de erro e o uso dos demais providers.
+- Após atualizar a configuração de modelos embutidos, verificar os providers existentes, os novos modelos e os valores padrão dos modelos.
 
-## 4. 智谱账号和套餐模型
+## 4. Conta Zhipu e modelos de planos
 
-- 检查 Z.AI 与 BigModel 的登录、退出、重新登录和应用重启恢复。
-- 分别检查体验套餐、个人套餐和团队套餐的页面、模型、额度和使用状态。
-- 检查体验套餐的领取，以及领取成功、失败和重复领取后的页面刷新。
-- 检查不同套餐和不同团队之间的切换，以及再次选择当前套餐。
-- 检查套餐模型的编辑、排序、开关、连接测试和实际聊天。
-- 检查升级入口、购买后返回应用，以及套餐信息刷新。
-- 检查套餐信息加载失败时的提示和重试。
-- 检查模型请求触发账号验证后的提示和继续使用。
+- Verificar login, logout, novo login e restauração após restart do aplicativo na Z.AI e na BigModel.
+- Verificar as páginas, os modelos, as cotas e o estado de uso dos planos de experiência, pessoal e de equipe.
+- Verificar a resgate do plano de experiência, bem como a atualização da página após um resgate com sucesso, com falha e repetido.
+- Verificar a troca entre planos e entre equipes diferentes, bem como a resseleção do plano atual.
+- Verificar a edição, a ordenação, o interruptor, o teste de conexão e o chat real dos modelos de plano.
+- Verificar a entrada de upgrade, o retorno ao aplicativo após a compra e a atualização das informações do plano.
+- Verificar a mensagem exibida e a retentativa quando as informações do plano falham ao carregar.
+- Verificar a mensagem exibida quando um request de modelo dispara a verificação de conta, e a continuidade de uso.
 
-## 5. 应用启动和工作区切换
+## 5. Inicialização do aplicativo e troca de workspace
 
-- 冷启动应用或打开本地工作区后，立即检查模型列表、默认模型、新建任务和首次发送。
-- 检查模型加载失败后的提示、重试和恢复。
-- 检查切换工作区、重启应用和恢复已有任务后的模型使用。
+- Após iniciar o aplicativo em cold start ou abrir um workspace local, verificar imediatamente a lista de modelos, o modelo padrão, a criação de tarefa e o primeiro envio.
+- Verificar a mensagem, a retentativa e a recuperação quando os modelos falham ao carregar.
+- Verificar o uso de modelos ao trocar de workspace, reiniciar o aplicativo e retomar tarefas existentes.
 
-## 6. 普通聊天中的模型选择
+## 6. Seleção de modelo no chat comum
 
-- 新建任务并使用默认模型首发，核对界面显示和实际使用的供应商、模型与推理档位。
-- 在任务中切换供应商、模型和推理档位，检查当前消息和后续消息。
-- 检查任务运行中切换模型、追加指令，以及开启“变更前确认”后的操作。
-- 检查连续发送、停止、重发和带附件发送。
-- 检查不同供应商拥有同名模型时的选择、使用和重启恢复。
-- 检查模型关闭或供应商删除后，已有任务的恢复和提示。
+- Criar uma tarefa e enviar a primeira mensagem com o modelo padrão, conferindo a exibição na interface e o provider, o modelo e o nível de raciocínio realmente usados.
+- Trocar de provider, modelo e nível de raciocínio dentro da tarefa e verificar a mensagem atual e as seguintes.
+- Verificar a troca de modelo com a tarefa em execução, o envio de instruções adicionais e o comportamento com a "confirmação antes de alterar" ativada.
+- Verificar envios consecutivos, parar, reenviar e enviar com anexos.
+- Verificar a seleção, o uso e a restauração após restart quando providers diferentes têm modelos com o mesmo nome.
+- Verificar a retomada e as mensagens ao desativar um modelo ou excluir um provider em tarefas existentes.
 
-## 7. 不同 API 格式与模型能力
+## 7. Diferentes formatos de API e capacidades de modelo
 
-- 分别使用 Anthropic Messages、OpenAI Chat Completions 和 OpenAI Responses 完成真实请求。
-- 检查不同模型的推理档位，包括不能关闭推理的模型。
-- 检查长上下文、最大输出和超过模型限制时的提示。
-- 检查对话压缩后的继续聊天和重启恢复。
-- 检查图片、视频和 PDF 输入，以及模型不支持相应内容时的提示。
-- 检查工具调用、结构化输出、原生联网和系统消息。
-- 检查鉴权失败、限流、网络中断和取消请求。
+- Fazer requisições reais com Anthropic Messages, OpenAI Chat Completions e OpenAI Responses.
+- Verificar os níveis de raciocínio de modelos diferentes, inclusive modelos em que o raciocínio não pode ser desativado.
+- Verificar contexto longo, saída máxima e as mensagens ao ultrapassar os limites do modelo.
+- Verificar a continuidade do chat após a compressão da conversa e a restauração após restart.
+- Verificar entradas de imagem, vídeo e PDF, bem como as mensagens quando o modelo não suporta determinado conteúdo.
+- Verificar chamadas de ferramentas, saída estruturada, busca nativa e mensagens de sistema.
+- Verificar falha de autenticação, limitação de taxa, interrupção de rede e cancelamento de requisição.
 
-## 8. 使用统计和额度提示
+## 8. Estatísticas de uso e avisos de cota
 
-- 检查使用统计页面的总量、明细、筛选和各模型的使用记录。
-- 检查聊天区域和侧边栏中的套餐额度、上下文用量和重置提醒。
-- 切换账号套餐、模型或工作区后，检查统计和额度信息的更新。
+- Verificar o total, o detalhamento, os filtros e o registro de uso por modelo na página de estatísticas de uso.
+- Verificar a cota do plano, o uso de contexto e os lembretes de reinício na área de chat e na barra lateral.
+- Depois de trocar de plano, modelo ou workspace, verificar a atualização das estatísticas e das informações de cota.
 
-## 9. 记忆功能
+## 9. Funcionalidade de memória
 
-- 检查记忆读取、提取和整理时使用的模型。
-- 检查应用重启后，记忆功能能否继续使用。
-- 检查切换聊天模型或同时运行多个任务时的记忆功能。
-- 检查记忆使用的模型请求失败时，页面提示和普通聊天是否正常。
+- Verificar o modelo usado na leitura, extração e organização das memórias.
+- Verificar se a funcionalidade de memória continua utilizável após restart do aplicativo.
+- Verificar a funcionalidade de memória ao trocar o modelo do chat ou ao executar várias tarefas ao mesmo tempo.
+- Verificar a mensagem exibida e se o chat comum continua normal quando o request do modelo usado pela memória falha.
 
-## 10. 任务标题生成
+## 10. Geração do título da tarefa
 
-- 检查首次生成标题、生成失败、响应较慢和应用重启后的表现。
-- 检查自动生成标题和用户手动改名同时发生的情况。
-- 使用不能关闭推理的模型生成标题。
+- Verificar a primeira geração do título, a falha de geração, a resposta lenta e o comportamento após restart do aplicativo.
+- Verificar o que acontece quando a geração automática do título ocorre ao mesmo tempo que uma renomeação manual.
+- Gerar o título com um modelo em que o raciocínio não pode ser desativado.
 
-## 11. Goal 标题和完成验证
+## 11. Título e verificação de conclusão do Goal
 
-- 检查 Goal 创建、替换、清除和重启后的标题生成。
-- 检查 Goal 完成验证的成功、失败、取消和重试。
-- 检查快速替换 Goal 时的标题结果，以及验证失败后的 Goal 状态。
+- Verificar a geração do título na criação, substituição, limpeza do Goal e após restart.
+- Verificar o sucesso, a falha, o cancelamento e a retentativa da verificação de conclusão do Goal.
+- Verificar o resultado do título ao substituir rapidamente o Goal, bem como o estado do Goal após uma verificação falha.
 
-## 12. Git Commit Message 生成
+## 12. Geração de Git Commit Message
 
-- 检查有无暂存改动、改动较大、生成失败和取消时的表现。
-- 检查用户已填写提交信息时，再次生成提交信息的表现。
-- 检查生成期间工作区继续发生变化的情况。
+- Verificar o comportamento com alterações em staging, com alterações grandes, na falha de geração e no cancelamento.
+- Verificar o comportamento de gerar novamente a mensagem de commit quando o usuário já preencheu uma.
+- Verificar o que acontece quando o workspace continua mudando durante a geração.
 
 ## 13. Repo Wiki
 
-- 检查模型选择、开始生成、长时间运行、取消和失败。
-- 检查应用重启后继续查看或生成 Wiki。
-- 检查切换项目和修改 Wiki 设置时使用的模型。
+- Verificar a seleção de modelo, o início da geração, execuções longas, o cancelamento e a falha.
+- Verificar a continuidade de ver ou gerar o Wiki após restart do aplicativo.
+- Verificar o modelo usado ao trocar de projeto e ao alterar as configurações do Wiki.
 
-## 14. 模型连接测试
+## 14. Teste de conexão de modelo
 
-- 分别测试 API Key 供应商、体验套餐、个人套餐和团队套餐中的模型。
-- 保存供应商配置后立即测试连接。
-- 选择不能关闭推理的模型进行连接测试。
-- 检查成功提示中的模型名称，以及失败提示和重新测试。
-- 在远程工作区中打开模型设置页并测试连接。
+- Testar modelos de providers com API Key e dos planos de experiência, pessoal e de equipe.
+- Testar a conexão imediatamente após salvar a configuração do provider.
+- Fazer o teste de conexão com um modelo em que o raciocínio não pode ser desativado.
+- Verificar o nome do modelo na mensagem de sucesso, bem como a mensagem de falha e um novo teste.
+- Abrir a página de configurações de modelos em um workspace remoto e testar a conexão.
 
-## 15. 子智能体和后台任务
+## 15. Subagentes e tarefas em background
 
-- 检查内置与自定义子智能体使用的供应商、模型和推理档位。
-- 检查父任务与子任务同时运行时的模型使用和任务切换。
-- 检查应用重启后，父任务与子任务能否继续正常显示和使用。
-- 检查后台子智能体和后台命令的启动、停止和完成通知。
-- 检查后台任务运行时继续发送消息或切换任务。
-- 检查提问卡片、权限确认和工具完成后的继续生成。
+- Verificar o provider, o modelo e o nível de raciocínio usados por subagentes embutidos e personalizados.
+- Verificar o uso de modelos e a troca de tarefa quando a task pai e a subtarefa rodam ao mesmo tempo.
+- Verificar se, após restart do aplicativo, a task pai e a subtarefa continuam aparecendo e sendo utilizáveis normalmente.
+- Verificar o início, a parada e a notificação de conclusão de subagentes em background e de comandos em background.
+- Verificar o envio de novas mensagens e a troca de tarefa enquanto uma tarefa em background está rodando.
+- Verificar os cartões de pergunta, a confirmação de permissão e a geração contínua após a conclusão de uma ferramenta.
 
-## 16. Hooks、MCP 和插件工具
+## 16. Hooks, MCP e ferramentas de plugins
 
-- 检查 Hooks 对模型请求的阻断、补充信息、报错和后续继续执行。
-- 检查 MCP 服务器的连接、登录和版本兼容。
-- 检查 MCP、插件工具和内置工具在不同 API 格式下的调用和报错。
+- Verificar o bloqueio de requisições de modelo por Hooks, o complemento de informações, o erro e a continuidade da execução.
+- Verificar a conexão, o login e a compatibilidade de versão dos servidores MCP.
+- Verificar a chamada e os erros de MCP, ferramentas de plugins e ferramentas embutidas nos diferentes formatos de API.
 
-## 17. 定时任务中的模型使用
+## 17. Uso de modelos em tarefas agendadas
 
-- 检查定时任务的创建、编辑、启停、到点运行、错过执行和历史记录。
-- 检查定时任务保存和使用的供应商、模型与推理档位。
-- 检查定时任务运行后生成的任务标题。
-- 检查应用重启后的已有任务，以及升级前创建的任务。
-- 检查模型下线、供应商删除、套餐失效和请求失败时的提示与后续操作。
-- 检查定时任务和普通聊天的模型选择互不影响。
+- Verificar a criação, a edição, o início/parada, a execução no horário, a execução perdida e o histórico das tarefas agendadas.
+- Verificar o provider, o modelo e o nível de raciocínio salvos e usados pela tarefa agendada.
+- Verificar o título da tarefa gerado depois da execução de uma tarefa agendada.
+- Verificar as tarefas existentes após restart do aplicativo, bem como as criadas antes do upgrade.
+- Verificar as mensagens e as ações seguintes quando um modelo fica indisponível, um provider é excluído, um plano expira ou uma requisição falha.
+- Verificar que a seleção de modelo da tarefa agendada e a do chat comum não afetam uma a outra.
 
-## 18. 闲时任务和存量任务
+## 18. Tarefas ociosas e tarefas existentes
 
-- 完整体验闲时任务的新建、模型选择、等待调度、执行、查看结果、取消和重新执行。
-- 分别使用 Z.AI、BigModel、个人套餐和团队套餐创建闲时任务。
-- 升级前先创建闲时任务，升级并重启应用后检查任务记录和当前状态。
-- 检查模型下线、套餐失效、登录过期、额度不足和网络异常时的提示与恢复。
-- 检查闲时任务不会改变普通聊天中的模型选择。
-- 检查远程工作区和手机端的闲时任务入口。
+- Viver a experiência completa da tarefa ociosa: criação, seleção de modelo, espera pela agendação, execução, visualização do resultado, cancelamento e nova execução.
+- Criar tarefas ociosas usando, respectivamente, Z.AI, BigModel, plano pessoal e plano de equipe.
+- Criar uma tarefa ociosa antes do upgrade e, após o upgrade e restart do aplicativo, verificar o registro da tarefa e o estado atual.
+- Verificar as mensagens e a recuperação quando o modelo fica indisponível, o plano expira, o login vence, a cota é insuficiente ou a rede falha.
+- Verificar que a tarefa ociosa não altera a seleção de modelo do chat comum.
+- Verificar a entrada de tarefas ociosas em workspaces remotos e no celular.
 
-## 19. Bot 任务和飞书交互
+## 19. Tarefas de Bot e interação pelo Feishu
 
-- 使用飞书、Telegram 等已配置 Bot 启动并完成任务。
-- 升级应用后，检查原有 Bot 配置和任务目标。
-- 检查任务启动、终端事件、最终结果和错误提示。
-- 检查飞书中的多选问题、自定义回答、权限确认和完成后的卡片状态。
-- 检查同一张飞书卡片上的流式回复、任务进度和终端输出。
+- Iniciar e concluir uma tarefa com um Bot já configurado, como Feishu ou Telegram.
+- Após atualizar o aplicativo, verificar as configurações de Bot existentes e o destino das tarefas.
+- Verificar o início da tarefa, os eventos de terminal, o resultado final e as mensagens de erro.
+- Verificar perguntas de múltipla escolha no Feishu, respostas personalizadas, confirmação de permissão e o estado do cartão após a conclusão.
+- Verificar respostas em streaming, o progresso da tarefa e a saída do terminal na mesma cartão do Feishu.
 
-## 20. 远程工作区中的模型使用
+## 20. Uso de modelos em workspaces remotos
 
-- 首次连接远程工作区后，检查本地账号、供应商和默认模型能否在远端使用。
-- 在本地登录、退出或修改模型设置后，检查已连接远程工作区中的更新。
-- 同一远程环境打开多个工作区后，检查模型配置和任务使用。
-- 检查模型配置同步失败、网络中断、远端写入失败和 SSH 重连。
-- 检查本地工作区和不同远程环境之间的账号、供应商、模型与任务隔离。
+- Após conectar pela primeira vez a um workspace remoto, verificar se a conta, o provider e o modelo padrão locais podem ser usados no remoto.
+- Verificar a atualização em um workspace remoto já conectado depois de fazer login, logout ou alterar as configurações de modelo localmente.
+- Abrir vários workspaces no mesmo ambiente remoto e verificar a configuração de modelos e o uso em tarefas.
+- Verificar a falha de sincronização da configuração de modelos, a interrupção de rede, a falha de escrita remota e o reconexão via SSH.
+- Verificar o isolamento de conta, providers, modelos e tarefas entre o workspace local e diferentes ambientes remotos.
 
-## 21. Desktop、Web、手机和 CLI
+## 21. Desktop, Web, celular e CLI
 
-- 检查 Desktop、本地 Web 和手机远控中的模型列表、模型选择和任务恢复。
-- 检查本地与远程工作区切换，以及 Desktop 和手机同时操作同一任务。
-- 检查 CLI 的登录、退出、默认模型、显式模型和子智能体。
-- 检查 TUI 和脚本任务中的模型使用。
-- 检查帮助、版本等不需要模型的 CLI 命令。
+- Verificar a lista de modelos, a seleção de modelo e a retomada de tarefas no Desktop, no Web local e no controle remoto pelo celular.
+- Verificar a troca entre workspaces local e remoto, bem como o Desktop e o celular operando a mesma tarefa ao mesmo tempo.
+- Verificar login, logout, modelo padrão, modelo explícito e subagentes na CLI.
+- Verificar o uso de modelos na TUI e em tarefas de script.
+- Verificar comandos da CLI que não precisam de modelo, como ajuda e versão.
 
-## 22. 正式安装包
+## 22. Instalador oficial
 
-- 使用全新用户目录安装正式包，完成启动、登录、添加供应商、选择模型和发送消息。
-- 从上一正式版本覆盖安装，检查原有登录、供应商配置、默认模型和已有任务，并继续发送消息。
-- 在官网登录或购买套餐后点击“打开 ZCode”，检查应用唤起和账号信息刷新。
-- 分别安装 macOS、Windows 和 Linux 正式包，检查内置供应商、模型和 Logo。
+- Instalar o pacote oficial com um diretório de usuário totalmente novo e concluir a inicialização, o login, a adição de um provider, a seleção de modelo e o envio de mensagens.
+- Instalar por cima da versão oficial anterior e verificar o login existente, a configuração de providers, o modelo padrão e as tarefas já existentes, continuando a enviar mensagens.
+- Após fazer login no site oficial ou comprar um plano e clicar em "Abrir ZCode", verificando o acionamento do aplicativo e a atualização das informações da conta.
+- Instalar os pacotes oficiais de macOS, Windows e Linux, e verificar os providers embutidos, os modelos e os Logos.

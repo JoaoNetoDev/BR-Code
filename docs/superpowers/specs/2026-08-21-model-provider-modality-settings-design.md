@@ -1,39 +1,38 @@
-# 3.9.0 模型输入输出类型设置设计
+# 3.9.0 — Design das configurações de tipos de entrada e saída do modelo
 
-> Provider Refactor 已将正式模型事实收口为
-> `properties.input_format` / `properties.output_format`。本文保留 staging UI 决策和历史实施记录；
-> 当前数据契约以
-> [`../../working-memory/provider-refactor/design/model/input-output-format.md`](../../working-memory/provider-refactor/design/model/input-output-format.md)
-> 为准。
+> O Provider Refactor já consolidou os fatos do modelo oficial em
+> `properties.input_format` / `properties.output_format`. Este documento mantém as decisões de UI de staging e o registro histórico de implementação;
+> o contrato de dados atual é o de
+> [`../../working-memory/provider-refactor/design/model/input-output-format.md`](../../working-memory/provider-refactor/design/model/input-output-format.md).
 
-## 状态
+## Estado
 
-- 目标版本：3.9.0
-- 当前阶段：已实施并完成单元/集成验证
-- 关联现状：`ModelProviderModelConfig.modalities` 支持 `input` / `output`，公共枚举为 `text`、`image`、`video`、`audio`、`pdf`；模型编辑弹窗提供 Text/Image/Video 输入类型和固定 Text 输出类型入口。
-- 关联文档：
+- Versão alvo: 3.9.0
+- Fase atual: implementada e com verificação unitária/integrada concluída
+- Situação associada: `ModelProviderModelConfig.modalities` suporta `input` / `output`, com enum público `text`, `image`, `video`, `audio`, `pdf`; o diálogo de edição de modelo oferece tipos de entrada Text/Image/Video e uma entrada fixa de tipo de saída Text.
+- Documentos relacionados:
   - `docs/superpowers/specs/2026-06-04-model-provider-model-editor-design.md`
   - `docs/model-provider-client-config-remote-model-facts.md`
   - `docs/superpowers/plans/2026-06-24-model-media-capability-projection.md`
   - `docs/ssh-remote-app-global-state-authority.md`
 
-## 目标
+## Objetivo
 
-在模型供应商设置的“添加模型”和“编辑模型配置”弹窗内增加类型选择交互，使用户可以声明模型支持的输入、输出类型。底层继续使用 provider schema 的 `modalities` 字段；保存后的类型事实必须进入现有 provider registry，并在当前运行时已经支持的能力边界内生效。
+Adicionar interação de seleção de tipos dentro dos diálogos "Adicionar modelo" e "Editar configuração do modelo" nas configurações de provider do modelo, permitindo ao usuário declarar os tipos de entrada e saída suportados pelo modelo. A base continua sendo o campo `modalities` do schema do provider; os fatos de tipo salvos precisam entrar no provider registry existente e valer dentro dos limites de capacidade já suportados pelo runtime atual.
 
-本功能不是单纯展示字段。用户显式取消图片或 PDF 输入时，配置必须能与旧版“未声明能力”区分，避免 UI 显示 text-only、运行时却仍按未知能力透传媒体。PDF 使用现有底层能力事实，并在设置页提供独立切换入口。
+Esta funcionalidade não é apenas um campo de exibição. Quando o usuário desmarca explicitamente imagem ou PDF na entrada, a configuração precisa se distinguir da antiga "capacidade não declarada", evitando que a UI mostre text-only enquanto o runtime ainda passe mídia como capacidade desconhecida. O PDF usa o fato de capacidade de baixo nível já existente e ganha uma entrada de toggle própria na página de configurações.
 
-## 非目标
+## Não objetivos
 
-- 不在本设置功能中新增 Audio 附件发送、编码或 provider request 转换能力；Video 附件能力由独立的视频输入功能提供。
-- 不新增图片、音频或视频输出的渲染链路。
-- 不改变模型候选分组、当前模型选择、任务恢复和手机 replayable 语义。
-- 不让远端 workspace 的 `~/.zcode/v2` 成为模型设置权威源。
-- 不把 provider registry 或能力状态下沉到 relay、desktop main 或 renderer 队列。
+- Não adicionar nesta funcionalidade de configuração envio, codificação ou conversão em provider request de anexos de áudio; a capacidade de anexo de vídeo vem da funcionalidade independente de entrada de vídeo.
+- Não adicionar cadeia de renderização de saída de imagem, áudio ou vídeo.
+- Não alterar o agrupamento de candidatos de modelo, a seleção do modelo atual, a recuperação de tasks nem a semântica de mobile replayable.
+- Não fazer o `~/.zcode/v2` do workspace remoto se tornar a fonte autoritativa das configurações de modelo.
+- Não afundar o provider registry ou o estado de capacidade no relay, no desktop main ou na fila do renderer.
 
-## 当前事实与设计缺口
+## Fatos atuais e lacunas de design
 
-`ModelProviderModelConfig.modalities` 当前总会被归一化为数组；未配置时缺省为：
+`ModelProviderModelConfig.modalities` hoje é sempre normalizado para array; quando não configurado, o padrão é:
 
 ```json
 {
@@ -42,88 +41,88 @@
 }
 ```
 
-但对 legacy/custom provider，这个 text-only 缺省并不代表“明确不支持图片”。`convertModelProviderConfigToZCodeProviderInput` 会保留媒体能力未知态，防止第三方 vision 模型因为历史默认值被误判为 text-only。
+Mas, para providers legacy/custom, esse padrão text-only não significa "não suporta explicitamente imagem". `convertModelProviderConfigToZCodeProviderInput` preserva o estado de capacidade de mídia desconhecida, evitando que um modelo vision de terceiros seja julgado incorretamente como text-only por causa do default histórico.
 
-因此下面两种状态当前在内存配置中不可区分：
+Portanto, os dois estados abaixo hoje são indistinguíveis na configuração em memória:
 
 ```text
-旧配置没有 modalities ──归一化──> input=[text] ──> 能力未知，允许媒体透传
+配置旧没有 modalities ──归一化──> input=[text] ──> 能力未知，允许媒体透传
 用户明确只选 text ─────归一化──> input=[text] ──> 期望明确不支持 image/pdf
 ```
 
-只增加 UI 和数组保存会产生错误交互：取消 image 后，运行时仍可能继续发送 image。3.9.0 必须同时保留“模态是否由用户显式配置”的来源事实。
+Apenas adicionar UI e salvar o array produziria uma interação errada: depois de desmarcar image, o runtime ainda poderia continuar enviando image. O 3.9.0 precisa preservar em paralelo o fato de origem "as modalidades foram explicitamente configuradas pelo usuário".
 
-## 已确认产品语义
+## Semântica de produto já confirmada
 
-### 分组交互
+### Interação de agrupamento
 
-- 模型弹窗按以下顺序展示模型配置：
-  1. 模型 ID
-  2. 启用
-  3. 上下文窗口
-  4. 最大输出 Token
-  5. 输入类型
-  6. 输出类型
-  7. 模型能力
-  8. Reasoning、Mapping 与 MFJS Tool Schema
-- 所有配置均使用无标题分组卡片，不提供折叠入口。
-- 输入类型、输出类型与模型能力的标签到选项区域统一使用 `mb-1` 垂直间距，不能让分组容器的 `space-y-3` 放大模型能力标题下方留白。
-- 模型 ID 与“启用”组成同一行双列布局：模型 ID 输入框占满剩余宽度，“启用”使用 `w-24` 稳定操作列，标签与 Switch 在该列内水平居中。窄屏继续保持同一行，模型 ID 列允许收缩，不能把 Switch 挤出弹窗。
-- 模型列表项统一使用 `px-3 py-2` 内边距；拖拽中的浮起项不显示行底部分隔线，使用透明底边框保留原始占位尺寸，避免拖动时产生纵向抖动。
-- 模型弹窗底部操作复用编辑 Subagent 的 `SettingsFormActions` 层级：恢复默认留在左侧；右侧“保存”在前并使用 `default + lg`，“取消”在后并使用 `ghost + lg`。窄屏允许上下排列，但不能改变主次关系或丢失操作。
-- Provider 与模型保存成功反馈使用与 Loading 状态一致的整行宽度、`rounded-xl` 圆角和中性浮层，不使用整块绿色背景、绿色边框或绿色正文；仅成功图标保留 `text-success` 语义。失败反馈继续保留高辨识度的 destructive 样式。
-- 弹窗正文独立滚动，Header 与 Footer 固定。滚动容器向右延伸到弹窗内侧留白，卡片与 overlay/native scrollbar 之间保留独立 gutter；滚动条不得紧贴或覆盖分组卡片右边框。
-- 新增模型打开时只有模型 ID 为空，其余字段都有可见默认值：
-  - 上下文窗口：`1000000`
-  - 最大输出 Token：`128000`
-  - 输入类型：Text
-  - 输出类型：Text
-- 输入类型固定展示顺序为 Text、Image、Video、PDF。Text 默认选中且不可取消，Image/Video/PDF 可以独立切换；Audio 暂不在设置页展示。
-- 输出类型暂不支持其他选项，只展示固定、不可操作的 Text，不使用下拉或 Popover。
-- 输入类型选项下方不展示泛化的附件能力提示。Image/Video 是否可以作为对话附件，由模型显式能力与当前 provider adapter 的实际编码能力共同决定；设置页不重复声明一个可能过时的全局结论。
-- 输入类型的四个图标选项全部直接可见并允许换行，不使用下拉或 Popover。每项复用共享 Button 的 `outline + lg` 外壳，固定 `h-8`（32px）、`rounded-lg` 和左右 `12px`（`px-3`）内边距；内部使用 `size-4` 模态图标与文本，不展示 checkbox。选中态使用 `bg-selected border-primary/20`，并以 `background-clip: border-box` 覆盖共享 Button 的 padding-box 裁剪，使半透明状态边框实际叠加在选中背景上；Hover 只增强为 `border-border-hover`，选中项 Hover 时继续保持 `bg-selected`；未选中态使用 `bg-transparent border-border`。Personal Overlay 不覆盖模态选项的状态边框。Text 保持选中并通过原生 disabled 禁止点击，在选项末尾展示弱化的锁图标以表达不可取消；其余选项点击或按 Space 切换。
-- 输出类型使用相同的“图标 + 文本 + 锁图标”结构，只展示固定选中且 disabled 的 Text。
-- 模型能力使用与输入/输出类型一致的“图标 + 文本”胶囊选项，不展示方形 checkbox；工具调用、结构化输出、原生联网搜索、对话中系统消息分别使用 Wrench、Layers、Search、MessageSquareText 图标。选中态统一使用 `bg-selected border-primary/20`，未选中态使用 `bg-transparent border-border`，Hover 只将边框增强为 `border-border-hover`，选中 Hover 保持 `bg-selected`。控件继续保留 `role="checkbox"` 与 `aria-checked`，确保键盘交互和辅助技术可以读取选择状态。Personal Overlay 不改变这套状态颜色。
-- 推理档位的静态文字与编辑输入统一使用 `text-ui-sm` 普通 UI 字体，不使用等宽字体。编辑输入按内容宽度伸缩并沿用档位的 `h-7` 外壳，进入编辑态时字号、高度和宽度不得突跳；新增入口使用与档位同高的 `size-7` Outline 图标按钮，保留紧凑方形边框。
-- 底层 schema、旧配置读取和远端权威事实继续兼容 Audio/PDF。编辑旧模型时，未触碰类型不得删除隐藏值；用户切换可见类型时也保留已有 Audio 值，避免 UI 收窄造成静默数据丢失。
-- 编辑模型时回显已保存的上下文窗口、最大输出 Token 和输入模态；旧模型缺少最大输出 Token 时显示 `128000`。输出模态按 3.9.0 产品边界固定为 Text。
-- 可编辑本地模型成功保存后 output 统一为 `["text"]`；只读的 catalog/远端权威模型保持服务端原始 output 事实，不参与这次归一化。
-- catalog 查询命中明确 `maxOutputTokens` 时，只能在用户尚未手动编辑该字段时覆盖 `128000`；未命中、未声明、查询失败或迟到结果均保留当前值，不再清空为无默认值。
-- Image/Video 输入选择会影响现有运行时媒体能力投影；旧配置或权威事实里的 PDF 继续参与现有投影。
-- Video 输入作为 provider 模型事实保存，并通过现有 `supportsVideo` 能力投影参与对话附件校验；不支持 Video 编码的 provider adapter 仍在运行时拒绝或降级，不能只凭设置页勾选绕过。
-- 只读的内置套餐/权威远端模型继续展示服务端事实，不开放本地编辑，避免用户配置与后续远端同步互相覆盖。
+- O diálogo de modelo exibe a configuração do modelo nesta ordem:
+  1. ID do modelo
+  2. Habilitado
+  3. Janela de contexto
+  4. Token máximo de saída
+  5. Tipo de entrada
+  6. Tipo de saída
+  7. Capacidade do modelo
+  8. Reasoning, Mapping e MFJS Tool Schema
+- Todas as configurações usam cartões de grupo sem título, sem entrada de collapse.
+- Os rótulos de tipo de entrada, tipo de saída e capacidade do modelo usam espaçamento vertical unificado `mb-1` até a área de opções, para que o `space-y-3` do contêiner de grupo não amplie o espaço em branco abaixo do título de capacidade do modelo.
+- O ID do modelo e "Habilitado" formam uma mesma linha de layout em duas colunas: o campo de ID ocupa toda a largura restante e "Habilitado" usa `w-24` como coluna de ação estável, com rótulo e Switch centralizados horizontalmente nessa coluna. Em tela estreita a linha continua a mesma, a coluna de ID pode encolher e o Switch não pode ser empurrado para fora do diálogo.
+- Os itens da lista de modelos usam padding uniforme `px-3 py-2`; o item elevado durante o arraste não mostra linha divisória na parte de baixo e usa borda inferior transparente para preservar o tamanho original do placeholder, evitando tremor vertical durante o arraste.
+- As ações do rodapé do diálogo de modelo reutilizam a hierarquia de `SettingsFormActions` da edição de Subagent: "Restaurar padrões" fica à esquerda; à direita, "Salvar" vem primeiro com `default + lg` e "Cancelar" vem depois com `ghost + lg`. Em tela estreita o empilhamento vertical é permitido, mas a relação de primário/secundário não pode mudar e nenhuma ação pode ser perdida.
+- O feedback de sucesso ao salvar Provider e Modelo usa largura de linha inteira, raio `rounded-xl` e overlay neutro coerentes com o estado de Loading, sem fundo verde de bloco inteiro, borda verde ou texto verde; apenas o ícone de sucesso mantém o semântico `text-success`. O feedback de falha continua com o estilo destrutivo de alta visibilidade.
+- O corpo do diálogo rola de forma independente, com Header e Footer fixos. O container de rolagem se estende até o respiro interno do diálogo à direita, mantendo um gutter independente entre os cartões e a overlay/native scrollbar; a barra de rolagem não pode ficar colada nem cobrir a borda direita dos cartões de grupo.
+- Ao abrir "Adicionar modelo", apenas o ID do modelo fica vazio; os demais campos têm valores padrão visíveis:
+  - Janela de contexto: `1000000`
+  - Token máximo de saída: `128000`
+  - Tipo de entrada: Text
+  - Tipo de saída: Text
+- A ordem fixa de exibição dos tipos de entrada é Text, Image, Video, PDF. Text vem marcado por padrão e não pode ser desmarcado; Image/Video/PDF podem ser alternados de forma independente; Audio ainda não aparece na página de configurações.
+- O tipo de saída ainda não suporta outras opções: exibe apenas Text fixo e não operável, sem dropdown nem Popover.
+- Abaixo das opções de tipo de entrada não há dica genérica de capacidade de anexos. Se Image/Video podem ser anexos na conversa é decidido em conjunto pela capacidade explícita do modelo e pela capacidade real de codificação do provider adapter atual; a página de configurações não repete uma conclusão global que pode estar defasada.
+- As quatro opções de ícone do tipo de entrada são todas diretamente visíveis e permitem quebra de linha, sem dropdown nem Popover. Cada item reaproveita o casco `outline + lg` do Button compartilhado, com `h-8` (32px), `rounded-lg` e padding lateral `12px` (`px-3`) fixos; internamente usa ícone de modalidade `size-4` com texto, sem checkbox. O estado selecionado usa `bg-selected border-primary/20` e sobrescreve o corte padding-box do Button compartilhado com `background-clip: border-box`, para que a borda semitransparente realmente seja sobreposta ao fundo selecionado; o Hover apenas reforça para `border-border-hover`, o item selecionado continua com `bg-selected` no Hover e o estado não selecionado usa `bg-transparent border-border`. O Personal Overlay não sobrescreve a borda de estado das opções de modalidade. Text permanece selecionado e tem o clique bloqueado por `disabled` nativo, exibindo no fim da opção um ícone de cadeado enfraquecido para expressar que não pode ser desmarcado; as demais opções alternam por clique ou pela tecla Space.
+- O tipo de saída usa a mesma estrutura "ícone + texto + ícone de cadeado", exibindo apenas Text fixo, selecionado e disabled.
+- A capacidade do modelo usa opções em pílula "ícone + texto" coerentes com os tipos de entrada/saída, sem checkbox quadrado; tool calling, saída estruturada, busca nativa na web e mensagens de sistema na conversa usam os ícones Wrench, Layers, Search e MessageSquareText. O estado selecionado usa `bg-selected border-primary/20`, o não selecionado usa `bg-transparent border-border`, o Hover apenas reforça a borda para `border-border-hover` e o Hover de selecionado mantém `bg-selected`. O controle continua com `role="checkbox"` e `aria-checked`, garantindo que a interação por teclado e as tecnologias assistivas consigam ler o estado de seleção. O Personal Overlay não altera essas cores de estado.
+- O texto estático do nível de raciocínio e o input de edição usam uniformemente a fonte de UI comum `text-ui-sm`, sem fonte monoespaçada. O input de edição estica conforme a largura do conteúdo e reaproveita o casco `h-7` do nível; ao entrar em modo de edição, tamanho de fonte, altura e largura não podem dar um salto. A nova entrada usa um botão de ícone Outline `size-7`, com a mesma altura do nível e borda quadrada compacta preservada.
+- O schema de baixo nível, a leitura de configuração antiga e os fatos autoritativos remotos continuam compatíveis com Audio/PDF. Ao editar um modelo antigo, tipos não tocados não podem apagar valores ocultos; ao alternar os tipos visíveis, os valores de Audio existentes também são preservados, evitando perda silenciosa de dados pelo estreitamento da UI.
+- Ao editar um modelo, o contexto salvo, o token máximo de saída e as modalidades de entrada são reexibidos; em modelos antigos sem token máximo de saída, exibe-se `128000`. A modalidade de saída fica fixa em Text conforme o limite de produto do 3.9.0.
+- Após salvar com sucesso um modelo local editável, o output é unificado como `["text"]`; modelos catalog/autoritativos remotos somente leitura mantêm o fato de output original do servidor e não participam desta normalização.
+- Quando a consulta ao catálogo encontra `maxOutputTokens` explícito, o valor `128000` só pode sobrescrever enquanto o usuário não tiver editado o campo manualmente; quando não há match, não há declaração, a consulta falha ou o resultado chega atrasado, o valor atual é preservado e não volta a ser vazio/sem default.
+- A seleção de entrada Image/Video afeta a projeção de capacidade de mídia do runtime existente; o PDF presente em configuração antiga ou em fatos autoritativos continua participando da projeção existente.
+- A entrada de vídeo é salva como fato de provider do modelo e participa da validação de anexo de conversa pela projeção de capacidade `supportsVideo` já existente; um provider adapter sem suporte a codificação de vídeo ainda rejeita ou degrada em runtime, e não pode ser contornado apenas por marcar a caixa na página de configurações.
+- Pacotes integrados/autoritativos remotos somente leitura continuam exibindo os fatos do servidor, sem edição local, evitando que a configuração do usuário e a sincronização remota posterior sobrescrevam uma à outra.
 
-### 显式来源
+### Origem explícita
 
-推荐给 `ModelProviderModelConfig` 增加可选来源字段，例如：
+Recomenda-se adicionar a `ModelProviderModelConfig` um campo de origem opcional, por exemplo:
 
 ```ts
 modalitiesConfigured?: boolean;
 ```
 
-语义：
+Semântica:
 
-- `true`：用户或权威 catalog 明确提供了模态事实；input 中缺少 image/pdf 可以投影为显式 `false`。
-- `undefined`：历史 custom/legacy 配置没有可靠模态事实；即使归一化数组是 text-only，也继续保持媒体能力未知。
-- catalog-backed/远端权威模型不依赖用户标记，仍按现有权威来源规则投影。
+- `true`: o usuário ou o catalog autoritativo forneceu explicitamente os fatos de modalidade; a ausência de image/pdf em input pode ser projetada como `false` explícito.
+- `undefined`: configurações custom/legacy não têm fatos de modalidade confiáveis; mesmo com array normalizado text-only, o estado de capacidade de mídia continua desconhecido.
+- Modelos backed por catálogo/autoritativos remotos não dependem da marcação do usuário e continuam projetados pelas regras de fonte autoritativa existentes.
 
-字段需要通过 `zcode` 扩展保存，避免污染 OpenCode 公共字段；顶层 `modalities` 继续保存真实 input/output 数组。命名可在实现前调整，但必须保留同等的来源区分，不能复用粗粒度的 `modified`：用户只修改 context window 时不应被误判为显式 text-only。
+O campo precisa ser salvo pela extensão `zcode`, para não poluir o campo público do OpenCode; o `modalities` de nível superior continua guardando os arrays reais de input/output. A nomeação pode ser ajustada antes da implementação, mas precisa preservar a mesma distinção de origem, sem reutilizar o `modified` grosseiro: quando o usuário muda apenas a context window, ele não pode ser julgado como text-only explícito.
 
-草稿需要单独跟踪模态是否被用户触碰。打开旧模型后只修改 context window，不得自动写入 `modalitiesConfigured=true`；只有用户改变模态，或新增模型时主动确认模态选择，才写入显式来源。
+O rascunho precisa rastrear separadamente se as modalidades foram tocadas pelo usuário. Depois de abrir um modelo antigo e alterar apenas a context window, `modalitiesConfigured=true` não pode ser gravado automaticamente; o campo só recebe origem explícita quando o usuário altera as modalidades ou confirma ativamente a seleção de modalidades ao adicionar um modelo.
 
-### 视觉能力标识
+### Identificador de capacidade visual
 
-- 当模型配置的 `modalities.input` 包含任意非 `text` 类型时，UI 将该模型标记为视觉模型。该判定只消费模型已经声明的输入类型，不依赖 `modalitiesConfigured`、输出类型、provider adapter 或附件编码能力。
-- 标识文案随系统语言切换：中文为“视觉”，英文为“Vision”；可访问名称和悬停标题复用同一国际化文案。
-- 标识展示在两个共享入口：
-  1. 模型选择菜单中紧跟完整模型名，位于左侧内容区；选中对号继续固定在行尾。
-  2. 模型设置的紧凑模型行中，与上下文窗口容量徽标并列展示；从左到右固定为“视觉 / Vision”、上下文窗口容量，容量徽标保持在最右侧。
-- 两处复用同一 `rounded-md`、语义边框/表面色和紧凑字号样式；上下文窗口继续使用等宽字体，视觉文案使用普通 UI 字体。
-- 两处视觉标识必须复用同一个国际化键；英文环境下均显示精确文案 `Vision`，不得在任一入口回退为中文或使用不同英文名称。
-- 模型 ID 是不透明字符串。`openrouter/ox-alpha`、`openrouter/nvidia/model` 等包含一个或多个 `/` 的 ID 必须原样展示、编码和选择，不得为了标识投影按 `/` 拆分或反向匹配。
-- 该标识只描述模型配置中的输入类型事实，不新增附件入口、不绕过运行时 capability guard，也不改变模型选择值、provider registry、请求参数或持久化格式。
+- Quando `modalities.input` da configuração do modelo contém qualquer tipo diferente de `text`, a UI marca o modelo como modelo visual. Essa decisão consome apenas os tipos de entrada já declarados pelo modelo e não depende de `modalitiesConfigured`, do tipo de saída, do provider adapter ou da capacidade de codificação de anexos.
+- O texto do identificador acompanha o idioma do sistema: em chinês “视觉”, em inglês “Vision”; o nome acessível e o título de hover reaproveitam o mesmo texto internacionalizado.
+- O identificador aparece em dois pontos de entrada compartilhados:
+  1. No menu de seleção de modelos, logo após o nome completo do modelo, na área de conteúdo à esquerda; o check de seleção continua fixo no fim da linha.
+  2. Na linha compacta de modelo das configurações de modelo, exibido lado a lado com o badge de capacidade da janela de contexto; da esquerda para a direita, a ordem fixa é “视觉 / Vision”, capacidade da janela de contexto, e o badge de capacidade permanece na extremidade direita.
+- Os dois lugares reutilizam o mesmo `rounded-md`, borda/cores de superfície semânticas e estilo de fonte compacta; a janela de contexto continua em fonte monoespaçada e o texto de visão usa a fonte de UI comum.
+- O identificador visual nos dois lugares precisa reutilizar a mesma chave de internacionalização; no ambiente em inglês ambos exibem exatamente `Vision`, sem recair para o chinês nem usar nomes em inglês diferentes em algum dos pontos de entrada.
+- O ID do modelo é uma string opaca. IDs como `openrouter/ox-alpha` ou `openrouter/nvidia/model`, que contêm um ou mais `/`, precisam ser exibidos, codificados e selecionados tal e qual, sem serem divididos por `/` nem comparados ao contrário para a projeção do identificador.
+- O identificador apenas descreve o fato dos tipos de entrada na configuração do modelo; não cria nova entrada de anexo, não contorna o capability guard do runtime e não altera o valor de seleção do modelo, o provider registry, os parâmetros de request nem o formato de persistência.
 
-## 状态与同步链路
+## Estado e cadeia de sincronização
 
 ```text
 模型设置弹窗
@@ -167,64 +166,64 @@ workspace/updateProviderRegistry     本地快照显式下发，不写远端配�
 provider-visible request 媒体保留或文本化
 ```
 
-### 客户端边界
+### Fronteira do cliente
 
-- Desktop local 与 desktop-attached remote 使用相同 provider registry revision 语义。
-- 远端 workspace 必须继续使用 `workspaceIdentity?.trim() || workspacePath` 隔离同步状态，并携带 `remoteSessionId`；`workspacePath` 只用于执行和展示。
-- 手机 `/remote` 仍附着桌面已有 host；不新增独立 runtime，也不把模态设置写入 replayable snapshot。
-- 本功能不修改 `clientMode` / `deliveryKind`，必须用回归用例证明 desktop continuous 与 web remote replayable 均未被改变。
+- Desktop local e remote desktop-attached usam a mesma semântica de revision do provider registry.
+- O workspace remoto precisa continuar isolando o estado de sincronização por `workspaceIdentity?.trim() || workspacePath` e carregar `remoteSessionId`; `workspacePath` é usado apenas para execução e exibição.
+- O `/remote` do celular continua se anexando ao host já existente no desktop; não há runtime novo e as configurações de modalidade não são gravadas no snapshot replayable.
+- Esta funcionalidade não modifica `clientMode` / `deliveryKind`, e casos de regressão precisam provar que tanto o desktop continuous quanto o web remote replayable seguem inalterados.
 
-## UI Surface Matrix
+## Matriz de superfícies de UI
 
-| 场景           | UI 入口                                                  | 草稿 owner                  | 默认/回显                                     | 校验                                   | commit sink         | 权威落点             | 边界                                |
+| Cenário           | Entrada de UI                                                  | Owner do rascunho                  | Default/reexibição                                     | Validação                                   | commit sink         | Ponto de chegada autoritativo | Limite                                |
 | -------------- | -------------------------------------------------------- | --------------------------- | --------------------------------------------- | -------------------------------------- | ------------------- | -------------------- | ----------------------------------- |
-| 添加自定义模型 | `ProviderModelsSection` -> `ProviderModelMetadataDialog` | add draft state             | context=1M、maxOutput=128K、input/output=Text | ID 必填、数字为正整数、Text input 锁定 | `onAddModel`        | 本地 provider config | 新模型显式保存类型                  |
-| 编辑自定义模型 | `ModelRowInput` -> `ProviderModelMetadataDialog`         | row draft state             | 已保存 input + 固定 Text output               | Text input 不可取消                    | `onModelCommit`     | 本地 provider config | 未触碰输入模态不得改变 unknown 语义 |
-| 内置/套餐模型  | provider settings read-only row                          | 无可编辑草稿                | catalog/remote facts                          | 服务端 schema                          | 不提交              | 本地权威同步缓存     | 不允许本地覆盖权威事实              |
-| 对话模型运行时 | 无新增 UI                                                | 当前 session runtime config | provider registry projection                  | existing capability guard              | registry hot update | Agent runtime memory | 消费 image/pdf/video input          |
+| Adicionar modelo customizado | `ProviderModelsSection` -> `ProviderModelMetadataDialog` | estado de rascunho de adição | context=1M, maxOutput=128K, input/output=Text | ID obrigatório, números inteiros positivos, input Text travado | `onAddModel`        | config de provider local | novo modelo salva os tipos explicitamente |
+| Editar modelo customizado | `ModelRowInput` -> `ProviderModelMetadataDialog`         | estado de rascunho da linha             | input salvo + output Text fixo               | input Text não pode ser desmarcado                    | `onModelCommit`     | config de provider local | input modalities não tocadas não podem mudar a semântica unknown |
+| Modelos integrados/pacote   | linha somente leitura nas settings do provider                          | sem rascunho editável                | fatos de catalog/remote                          | schema do servidor                          | não submetido              | cache de sincronização autoritativo local | não permite sobrescrita local do fato autoritativo              |
+| Runtime de modelo na conversa | sem nova UI                                                | config de runtime da session atual | projeção do provider registry                  | capability guard existente              | hot update do registry | memória do Agent runtime | consome input image/pdf/video          |
 
-共享模型选择器、自动化、Subagent、Repo Wiki 只读取 provider registry 候选，并在候选模型声明任意非 Text 输入类型时展示“视觉 / Vision”标识。本次不改变它们的 draft、default 或 commit sink；需要做候选与默认隔离回归，但不新增模态编辑入口。
+O seletor de modelos compartilhado, automações, Subagents e Repo Wiki apenas leem os candidatos do provider registry e exibem o identificador “视觉 / Vision” quando o modelo candidato declara qualquer tipo de input diferente de Text. Nada muda nesta versão em seus rascunhos, defaults ou commit sinks; é preciso fazer regressão de isolamento entre candidatos e defaults, mas sem nova entrada de edição de modalidades.
 
-## 数据与验证规则
+## Regras de dados e validação
 
-- `ProviderModelDraftValues` 增加 input 模态数组和 `modalitiesTouched`（或等价局部状态）；output 在可编辑模型提交时固定为 `["text"]`。
-- 模态按公共枚举固定顺序去重保存，不接受 UI 之外的未知枚举。
-- input 必须包含 Text，UI 不提供取消路径，commit resolver 仍做防御性校验。
-- 上下文窗口和最大输出 Token 都必须是正整数，不再允许最大输出 Token 留空。
-- 取消弹窗丢弃模态草稿，不修改 provider registry。
-- 模态变更与现有 ID、API format、context window、max output tokens 一次原子提交。
-- 编辑其他 metadata 时必须保留已有 input modalities 和显式来源；output 按已确认边界归一化为固定 Text。
-- Video 必须只映射到 `supportsVideo`；Audio/输出类型不得被错误映射到 `supportsImages` / `supportsPdf` / `supportsVideo`。
-- 不新增 ZCode Protocol 字段；当前协议已有 optional `supportsImages`、`supportsPdf`、`supportsVideo`。Audio 若要立即生效，必须先扩展协议 schema 和 runtime 能力，该要求不属于本 spec。
+- `ProviderModelDraftValues` ganha o array de modalidades de input e `modalitiesTouched` (ou estado local equivalente); o output é fixado como `["text"]` na submissão de modelos editáveis.
+- As modalidades são salvas deduplicadas na ordem fixa do enum público, e enums desconhecidos fora da UI não são aceitos.
+- O input precisa conter Text, a UI não oferece caminho para desmarcar e o commit resolver ainda faz a validação defensiva.
+- A janela de contexto e o token máximo de saída precisam ser inteiros positivos; o token máximo de saída não pode mais ficar vazio.
+- Cancelar o diálogo descarta o rascunho de modalidades e não modifica o provider registry.
+- A mudança de modalidade é submetida atomicamente junto com ID, API format, context window e max output tokens já existentes.
+- Ao editar outros metadados, é preciso preservar as input modalities existentes e a origem explícita; o output é normalizado para Text fixo conforme o limite já confirmado.
+- Video só pode ser mapeado para `supportsVideo`; Audio/o tipo de saída não podem ser mapeados incorretamente para `supportsImages` / `supportsPdf` / `supportsVideo`.
+- Não se adiciona campo novo ao ZCode Protocol; o protocolo atual já tem `supportsImages`, `supportsPdf` e `supportsVideo` opcionais. Para o Audio passar a valer de imediato, seria preciso antes estender o schema do protocolo e a capacidade do runtime, e esse requisito está fora deste spec.
 
-## 必须保持的不变量
+## Invariantes obrigatórias
 
-- legacy custom 模型的媒体能力未知态不因升级或编辑其他字段变成明确 false。
-- 用户显式取消 Image 后，当前匹配 session 无需重启或重新选模型即可收到能力刷新；隐藏的 PDF 事实不得因编辑其他可见类型而丢失。
-- provider settings 是唯一编辑入口；对话工具栏、自动化、Subagent、Repo Wiki 不获得新的模态 commit 权限。
-- 本地和远端 workspace 使用同一份本地 app-global provider 权威事实。
-- 主题、国际化、键盘操作和手机 Web 小屏布局可用；输入类型选项允许换行，UI 使用 `text-ui-*` 与语义色 token。
-- 视觉标识不得占用模型行尾的选中对号位置；长模型 ID（包括多段 `/`）仍作为完整值参与选择，只有可见文本可以按现有布局截断。
-- 设置更新不改变任务消息、队列、snapshot、owner/lease 或 delivery semantics。
+- O estado de capacidade de mídia desconhecida de um modelo legacy custom não vira false explícito por causa de upgrade ou da edição de outro campo.
+- Depois de o usuário desmarcar Image explicitamente, a session correspondente recebe a atualização de capacidade sem precisar reiniciar ou reselecionar o modelo; o fato oculto de PDF não pode se perder ao editar outro tipo visível.
+- As settings do provider são a única entrada de edição; a barra de ferramentas da conversa, automações, Subagents e Repo Wiki não recebem nova permissão de commit de modalidades.
+- Workspaces local e remoto usam o mesmo fato de autoridade app-global local do provider.
+- Tema, internacionalização, operação por teclado e layout de tela pequena do Web no celular funcionam; as opções de tipo de entrada permitem quebra de linha e a UI usa `text-ui-*` e tokens de cor semânticos.
+- O identificador visual não pode ocupar a posição do check de seleção no fim da linha do modelo; IDs de modelo longos (inclusive com múltiplos `/`) continuam participando da seleção como valor completo e apenas o texto visível pode ser truncado pelo layout existente.
+- A atualização de configurações não altera mensagens de task, fila, snapshot, owner/lease nem semântica de delivery.
 
-## 已裁决边界
+## Limites já decididos
 
-- 所有字段按无标题卡片分组，不额外引入层级。
-- 新增模型除模型 ID 外都有默认值：1M context、128K max output、Text input/output。
-- 输入 Text 锁定，Image/Video/PDF 独立可选；Audio 暂不展示但保持数据兼容。
-- 输出只支持固定 Text，不提供其他选项。
-- 任意非 Text 输入类型触发“视觉 / Vision”展示；text-only 和缺少结构化模态事实的 legacy 字符串模型不展示。
-- 权威 catalog 模型继续沿用现有只读/authoritative 边界，不开放本地覆盖。
+- Todos os campos são agrupados em cartões sem título, sem introduzir níveis extras.
+- Ao adicionar um modelo, tudo tem default exceto o ID: 1M de contexto, 128K de output máximo, input/output Text.
+- O input Text é travado, Image/Video/PDF são opcionais de forma independente; Audio ainda não é exibido, mas a compatibilidade de dados é mantida.
+- O output suporta apenas Text fixo, sem outras opções.
+- Qualquer tipo de input diferente de Text dispara a exibição de “视觉 / Vision”; modelos text-only e modelos legacy em string sem fatos estruturados de modalidade não exibem o identificador.
+- Modelos de catálogo autoritativo continuam com o limite existente de somente leitura/authoritative, sem abertura para sobrescrita local.
 
-feature graph 已补充 `capability.model-capabilities` 到共享模型候选和 provider settings 的视觉标识投影关系；既有 `surface.provider-settings -> capability.provider-registry` 显式模态来源关系保持不变。
+O feature graph já complements a relação `capability.model-capabilities` com a projeção do identificador visual para candidatos de modelo compartilhados e provider settings; a relação explícita `surface.provider-settings -> capability.provider-registry` de origem de modalidades permanece inalterada.
 
-## 验收证据
+## Evidências de aceitação
 
-- UI 单测：添加/编辑、默认值、回显、多选、键盘、取消、校验、i18n。
-- 展示单测：text-only 与任意非 Text 输入类型判定、模型菜单左侧徽标/行尾对号布局、设置行容量徽标并列、中英文文案、含多段 `/` 的模型 ID round-trip。
-- draft 单测：排序去重、原子提交、保留未修改字段、旧模型未触碰模态保持 unknown。
-- shared/services 单测：schema、OpenCode config 读写、`zcode` 来源标记 round-trip、legacy migration。
-- protocol/bootstrap 单测：正向/负向 image/pdf/video 投影、active session 热更新、未知态保留。
-- 桌面 E2E：真实设置页保存、配置落盘、provider registry revision、最终 provider request。
-- 远端 E2E/集成：本地 provider snapshot 下发远端 runtime，远端配置文件不成为权威源。
-- 回归：模型选择、自动化、Subagent、Repo Wiki、desktop continuous、mobile replayable 均无副作用。
+- Testes unitários de UI: adicionar/editar, defaults, reexibição, múltipla seleção, teclado, cancelamento, validação, i18n.
+- Testes unitários de exibição: decisão entre text-only e qualquer tipo de input diferente de Text, layout do badge à esquerda e do check no fim da linha no menu de modelos, badge de capacidade lado a lado na linha de settings, textos em chinês e inglês, round-trip de ID de modelo com múltiplos `/`.
+- Testes unitários de rascunho: ordenação e deduplicação, submissão atômica, preservação de campos não modificados, modelo antigo com modalidades não tocadas mantendo unknown.
+- Testes unitários de shared/services: schema, leitura e escrita do config OpenCode, round-trip da marcação de origem `zcode`, migração legacy.
+- Testes unitários de protocol/bootstrap: projeção positiva e negativa de image/pdf/video, hot update de session ativa, preservação do estado desconhecido.
+- E2E de desktop: salvamento na página real de configurações, gravação em disco do config, revision do provider registry, provider request final.
+- E2E/integração remota: snapshot local do provider pushed ao runtime remoto, config de arquivo remoto não se tornando fonte autoritativa.
+- Regressão: seleção de modelo, automações, Subagents, Repo Wiki, desktop continuous e mobile replayable sem efeitos colaterais.

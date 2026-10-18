@@ -1,57 +1,43 @@
-# Todo 55：Provider Template 继承与普通 Built-in Provider 退役
+# Todo 55: Herança de Provider Template e Aposentadoria do Built-in Provider Comum
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-09-01
+> Data: 2026-09-01
 >
-> 取代范围：Todo 49/50/51 中关于普通 Built-in Provider placement、Family 固定“按量 API”槽位、Welcome
-> 固定 API Provider Overlay 与 Provider 顶层 `enabled` 的阶段性设计。Z.ai/BigModel Account Family、
-> Account Access、`entitled`、请求期凭据和 Off-Peak 鉴权边界继续有效。
+> Escopo substituído: o design em fases de Todo 49/50/51 sobre o placement do Built-in Provider comum, o slot fixo de "API 按量" (API por volume) do Family, o Overlay de API Provider fixo do Welcome e o `enabled` de topo do Provider. O Z.ai/BigModel Account Family, o Account Access, o `entitled`, as credenciais em tempo de requisição e os limites de autenticação de Off-Peak continuam válidos.
 
-## 0. 当前裁决速览
+## 0. Panorama rápido das decisões atuais
 
-- Provider Template 不是 Provider，只是创建 Personal Provider 时引用的 Built-in 配置基线；同一 Template
-  可以创建多个独立实例。
-- 全部非 Account Built-in Concrete Provider 退役；Z.ai API、BigModel API 与其他第三方供应商一起改为
-  Provider Template。
-- Z.ai/BigModel Family 继续保留，但只组织 Start、Individual、Team、Off-Peak Account Provider；不再包含
-  “按量 API”连接项。
-- Account Provider 的定义由 Built-in Release 提供，并固定进入对应 Family 的 Settings 结构；用户不负责创建或
-  删除它们。Account Overlay 的 `access.entitled` 只决定当前账号是否拥有访问资格。
-- Provider 顶层 `enabled` 已最终裁决为彻底删除；Settings placement、账号权益、配置完整性和 Model
-  `enabled` 各自表达单一事实。
-- Account Access 的身份字段本轮确定由 `access.family` 改名为
-  `access.accountType = "zai" | "bigmodel"`；现有 Provider Family 产品结构继续保留。
-- Welcome 中每次选择 Z.ai/BigModel API Key 并提交，均从相应 Template 创建一个新的 Personal Provider
-  实例并写入 Key；不查找、复用或维护所谓 canonical API 实例。
-- Template 实例创建统一复用通用 `createPersonalProvider`，Provider、初始 Personal Overlay、唯一 label 与
-  `providerOrder` 在一次 Repository 更新中原子写入；Welcome 不拥有专用 Provider 创建接口。
-- 账号登录只处理 Account Provider，不创建按量 API Personal Provider；`providerSetupCompleted` 只控制自动
-  引导是否再次出现，不参与 Provider 创建去重、Registry 或 Family Selection。
-- Settings 不把 Template 继承来源与 `effectiveBuiltinConfig` 合并成同一个概念；`templateConfig`、
-  `effectiveBuiltinConfig`、`personalConfig` 与 `effectiveConfig` 各自保留准确语义。
-- Provider 级 `enabled` 字段、Facade DTO 和“已启用”胶囊一并删除；不得用 `executable`、`entitled` 或 API Key
-  是否存在伪装成新的 Provider enabled。
+- Provider Template não é um Provider: é a linha de base de Config Built-in referenciada ao criar um Personal Provider; o mesmo Template pode criar várias instâncias independentes.
+- Todos os Built-in Concrete Providers não-Account são aposentados; Z.ai API, BigModel API e os demais fornecedores de terceiros passam a ser Provider Templates.
+- O Family Z.ai/BigModel é mantido, mas apenas para organizar os Account Providers Start, Individual, Team e Off-Peak; ele deixa de conter a conexão de "API 按量" (API por volume).
+- A definição dos Account Providers é fornecida pelo Built-in Release e entra fixamente na estrutura Settings da Family correspondente; o usuário não é responsável por criá-los ou removê-los. O `access.entitled` do Account Overlay decide somente se a conta atual tem qualificação de acesso.
+- O `enabled` de topo do Provider foi definitivamente decidido como remoção total; placement em Settings, direito da conta, completude de configuração e `enabled` de Model expressam cada um um único fato.
+- O campo de identidade do Account Access é definido nesta rodada como a renomeação de `access.family` para `access.accountType = "zai" | "bigmodel"`; a estrutura de produto Provider Family existente continua mantida.
+- Cada seleção e envio de uma API Key Z.ai/BigModel no Welcome cria uma nova instância de Personal Provider a partir do Template correspondente e grava a Key; não há busca, reuso ou manutenção de uma suposta instância canônica de API.
+- A criação de instâncias de Template reutiliza uniformemente o `createPersonalProvider` genérico; Provider, Overlay Personal inicial, label único e `providerOrder` são gravados atomicamente em uma única atualização do Repository; o Welcome não tem interface de criação de Provider dedicada.
+- O login de conta lida apenas com Account Providers e não cria Personal Providers de API por volume; `providerSetupCompleted` controla apenas se o guia automático aparece novamente e não participa da deduplicação de criação de Provider, do Registry nem da Family Selection.
+- Settings não funde a origem da herança de Template com `effectiveBuiltinConfig`; `templateConfig`, `effectiveBuiltinConfig`, `personalConfig` e `effectiveConfig` mantêm cada uma sua semântica precisa.
+- O campo `enabled` de nível Provider, o DTO de Facade e a cápsula de "已启用" (habilitado) são removidos; não é permitido usar `executable`, `entitled` ou a existência de uma API Key para disfarçar um novo enabled de Provider.
 
-### 0.1 术语边界
+### 0.1 Limites de terminologia
 
-| 名称                      | 唯一含义                                                      |
-| ------------------------- | ------------------------------------------------------------- |
-| Provider Template         | Built-in 发布的 Provider 配置继承来源；不能直接执行           |
-| Account Concrete Provider | Built-in 发布的账号产品 Provider；由 Account Overlay 约束     |
-| Personal Provider         | 用户创建的真实 Provider 实例；具有唯一 `providerId`           |
-| Personal Provider Overlay | 用户对真实 Provider 实例保存的稀疏配置                        |
-| Effective Provider Config | Resolver 组合全部适用来源后供 Registry 使用的最终配置         |
-| Account Family            | Z.ai/BigModel 账号产品的 Settings 导航与连接选择边界          |
-| `access.entitled`         | 当前账号是否拥有对应 Account Provider 的访问资格              |
-| executable                | Provider/Model 当前是否配置完整且满足执行条件的 Resolver 结果 |
+| Nome                           | Único significado                                                                 |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| Provider Template              | origem de herança de Config de Provider publicada pelo Built-in; não pode ser executado diretamente |
+| Account Concrete Provider      | Provider de produto de conta publicado pelo Built-in; limitado pelo Account Overlay |
+| Personal Provider              | instância real de Provider criada pelo usuário; tem um `providerId` único          |
+| Personal Provider Overlay      | configuração esparsa salva pelo usuário para a instância real de Provider          |
+| Effective Provider Config      | configuração final combinada pelo Resolver a partir de todas as fontes aplicáveis e usada pelo Registry |
+| Account Family                 | limite de navegação em Settings e de seleção de conexão dos produtos de conta Z.ai/BigModel |
+| `access.entitled`              | se a conta atual tem qualificação de acesso ao Account Provider correspondente    |
+| executable                     | resultado do Resolver sobre se o Provider/Model está atualmente com configuração completa e satisfaz as condições de execução |
 
-Template、Family、entitlement、Settings placement 与 executable 互不替代。
+Template, Family, entitlement, placement em Settings e executable não se substituem uns aos outros.
 
-## 1. 目标与不变量
+## 1. Objetivos e invariantes
 
-普通第三方供应商不再以“尚未添加但已经存在”的 Built-in Concrete Provider 发布。它们改为可复用的
-Provider Template；用户从同一 Template 创建一个或多个具有独立 `providerId` 的 Personal Provider。
+Os fornecedores de terceiros comuns deixam de ser publicados como Built-in Concrete Providers do tipo "ainda não adicionado, mas já existente". Passam a ser Provider Templates reutilizáveis; o usuário cria um ou mais Personal Providers com `providerId` independente a partir do mesmo Template.
 
 ```text
 Provider Template
@@ -74,10 +60,9 @@ Effective Provider Config
 Provider Registry
 ```
 
-Template 不是 Provider：它不进入 Registry、模型选择或已创建 Provider 列表，没有运行时 `providerId`，
-也不能直接执行。Template 只是 Provider Config 的 Built-in 继承基线。
+Template não é Provider: ele não entra no Registry, na seleção de modelos nem na lista de Providers criados, não tem `providerId` em tempo de execução e não pode ser executado diretamente. Um Template é apenas a linha de base de herança Built-in de um Provider Config.
 
-本轮保留 Z.ai/BigModel Family，但将其职责收窄为只组织 Account Provider；按量 API 与 Family 解耦：
+Nesta rodada o Family Z.ai/BigModel é mantido, mas com suas responsabilidades restritas a apenas organizar os Account Providers; a API por volume é desacoplada do Family:
 
 ```text
 Z.ai Account Family                      BigModel Account Family
@@ -94,52 +79,44 @@ Z.ai Account Family                      BigModel Account Family
 └─ ……
 ```
 
-因此：
+Portanto:
 
-- `zai-api`、`bigmodel-api` 从固定 Built-in Concrete Provider 迁入 Provider Templates；
-- 两者和其他 Template 一样进入普通“添加供应商”菜单，允许创建多个 Personal Provider 实例；
-- Start、Individual、Team、Off-Peak Account Provider 继续由对应 Family 组织；
-- 保留 `ProviderFamilyDomain`、Account Family Header/Connection UI、套餐、额度、升级、账号凭据与 Off-Peak
-  消费链路；
-- `ProviderFamilyConnectionSelection` 删除 `kind: "api-key"` 分支，只保留 Start、Individual、Team Account
-  选择；
-- 本轮不新增 `family: "zhipu" | "others"`，设置页继续使用现有分组结构；
-- 不把“保留 Family”解释成保留旧的、已经删除的 `oauth | apiKey` 平行 mode helper。正式连接选择仍以
-  收窄后的 Account `ProviderFamilyConnectionSelection` 为准。
+- `zai-api` e `bigmodel-api` migram de Built-in Concrete Providers fixos para Provider Templates;
+- ambos entram, como os outros Templates, no menu comum de "adicionar fornecedor", permitindo criar várias instâncias de Personal Provider;
+- os Account Providers Start, Individual, Team e Off-Peak continuam sendo organizados pelo Family correspondente;
+- `ProviderFamilyDomain`, o Header/Connection UI do Account Family, os planos, as cotas, os upgrades, as credenciais de conta e a cadeia de consumo de Off-Peak são mantidos;
+- `ProviderFamilyConnectionSelection` remove o ramo `kind: "api-key"` e mantém apenas as seleções de Account Start, Individual e Team;
+- esta rodada não adiciona `family: "zhipu" | "others"`; a página de configurações continua usando a estrutura de agrupamento existente;
+- "manter o Family" não é interpretado como manter os antigos helpers de mode paralelos `oauth | apiKey`, que já foram removidos. A seleção de conexão formal continua sendo a `ProviderFamilyConnectionSelection` de Account já restringida.
 
-## 2. Config 与 Built-in Release
+## 2. Config e Built-in Release
 
-### 2.1 复用现有 Provider Config 值结构
+### 2.1 Reutilizar a estrutura de valor de Provider Config existente
 
-不增加另一套完整的 `ProviderTemplateConfig` 值对象。Template Map 的值直接复用
-`ProviderConfigOverlay`；Built-in Concrete Provider、Provider Template 与 Personal Provider 共享同一套字段
-Schema、Overlay、嵌套 API/Access Config 和 JSON round-trip。
+Não se adiciona outro objeto de valor `ProviderTemplateConfig` completo. O valor do Template Map reutiliza diretamente `ProviderConfigOverlay`; Built-in Concrete Provider, Provider Template e Personal Provider compartilham o mesmo Schema de campos, Overlay, Config de API/Access aninhada e round-trip de JSON.
 
 ```ts
 type ProviderTemplateMap = ReadonlyMap<TemplateId, ProviderConfigOverlay>;
 ```
 
-这里单独存在的是以 `templateId` 为键的 Map 容器，不是第二套 Provider Config 值类型。
+O que existe separadamente aqui é o contêiner Map com `templateId` como chave, não um segundo tipo de valor de Provider Config.
 
-Provider Config 增加：
+O Provider Config ganha:
 
 ```ts
 readonly templateId?: string | null;
 ```
 
-本轮不增加新的展示 `family` 字段。现有 `ProviderGroup` 暂时保留：
+Esta rodada não adiciona um novo campo `family` de exibição. O `ProviderGroup` existente é mantido por enquanto:
 
-- `zai-family`、`bigmodel-family` 继续只表达 Account Provider 的 Family 配置归属；
-- Template 创建的普通 Personal Provider 继续进入现有 Personal Provider 分组；
-- 普通 Built-in Concrete Provider 清零后，`standard-builtin` 随对应旧生命周期一起删除；机械扫描只用于证明
-  零残留，不再决定是否保留；
-- 不在本轮另起“智谱 / 其他”分栏或重新命名现有 Family。
+- `zai-family` e `bigmodel-family` continuam expressando apenas a configuração de pertinência de Family dos Account Providers;
+- os Personal Providers comuns criados por Template continuam entrando no agrupamento de Personal Providers existente;
+- depois que os Built-in Concrete Providers comuns zeram, `standard-builtin` é removido junto com o ciclo de vida antigo correspondente; a varredura mecânica passa a servir apenas para provar ausência de resíduo, e não para decidir se algo permanece;
+- não se cria nesta rodada uma nova seção "智谱 / 其他" nem se renomeia nenhum Family existente.
 
-复用同一个值结构不代表 Template 获得 Provider 身份。Template、Built-in、Account 与 Personal Source
-分别使用严格 Source Schema；各 Source Schema 可以从共享字段 Schema 扩展或收窄，解析后统一构造
-Provider Config。
+Reutilizar a mesma estrutura de valor não significa que o Template ganha identidade de Provider. Template, Built-in, Account e Personal Source usam Source Schemas estritos; cada Source Schema pode estender ou restringir o Schema de campos compartilhado, e depois da parsing tudo é construído de forma unificada como Provider Config.
 
-Template Source Schema 必须从共享 Overlay Schema 收窄，而不是直接接受任意 Provider Overlay 字段：
+O Template Source Schema precisa restringir o Overlay Schema compartilhado, e não aceitar diretamente campos arbitrários de Provider Overlay:
 
 ```text
 允许
@@ -156,15 +133,14 @@ Template Source Schema 必须从共享 Overlay Schema 收窄，而不是直接�
 └─ 真实 apiKey、entitled、账号凭据或请求期材料
 ```
 
-- API Key Template 没有真实 API Key 是正常状态；
-- Template 只做 Source 结构校验，不调用面向最终可执行 Provider 的完整性校验；
-- Template 的官方成员只使用 `builtinModelIds`，用户成员仍只存在于 Personal Provider 的 `modelIds`；
-- Template Map 的 JSON 书写顺序就是 Settings 创建菜单顺序，本轮不增加另一套 Template order 字段。
+- Um Template de API Key sem uma API Key real é um estado normal;
+- o Template só faz validação de estrutura de Source e não chama a validação de completude voltada ao Provider final executável;
+- os membros oficiais do Template usam apenas `builtinModelIds`; os membros do usuário continuam existindo apenas no `modelIds` do Personal Provider;
+- a ordem de escrita JSON do Template Map é a ordem do menu de criação em Settings; esta rodada não adiciona outro campo de ordem de Templates.
 
-Template 集合使用以 `templateId` 为键的独立 Map；Provider 集合继续以 `providerId` 为键。两个容器复用
-内部 Provider Config Overlay，但容器 API 和变量名必须明确区分 Template ID 与 Provider ID。
+O conjunto de Templates usa um Map independente com `templateId` como chave; o conjunto de Providers continua usando `providerId` como chave. Os dois contêineres reutilizam o Overlay de Provider Config interno, mas a API e os nomes de variável dos contêineres precisam distinguir claramente Template ID de Provider ID.
 
-### 2.2 Built-in Release 结构
+### 2.2 Estrutura do Built-in Release
 
 ```ts
 interface ZCodeBuiltinConfigContent {
@@ -187,16 +163,15 @@ providerTemplates
 └─ 其他普通第三方供应商
 ```
 
-- `providerTemplates` 不是 Catalog，不引入市场、发现、安装或独立版本语义；
-- `providers`、`providerTemplates` 与 `modelConfigRules` 属于同一个 Built-in revision；
-- 三者共同解析、共同发布、共同 Active/LKG 回退，禁止分版本应用；
-- `zai-api` / `bigmodel-api` 的固定 Concrete Provider 身份和 Family 槽位退出；对应字符串可以继续作为稳定
-  Template ID，但不能继续作为运行时固定 Provider ID；
-- Family 与 Template 不建立桥接关系：Family 解析 Account Provider，Template 创建 Personal Provider。
+- `providerTemplates` não é um Catalog e não introduz semântica de mercado, descoberta, instalação ou versão independente;
+- `providers`, `providerTemplates` e `modelConfigRules` pertencem à mesma revision de Built-in;
+- os três são parseados, publicados e subjected a fallback Active/LKG em conjunto; é proibido aplicá-los com versões separadas;
+- a identidade fixa de Concrete Provider e o slot de Family de `zai-api` / `bigmodel-api` saem; as strings correspondentes podem continuar como Template IDs estáveis, mas não como Provider IDs fixos em tempo de execução;
+- Family e Template não estabelecem relação de ponte: o Family resolve Account Providers e o Template cria Personal Providers.
 
-### 2.3 Provider Overlay 顺序
+### 2.3 Ordem do Provider Overlay
 
-Resolver 先按正常 Overlay 语义得到 Concrete Provider 的 Effective `templateId`，再组装配置：
+O Resolver obtém primeiro, pela semântica normal de Overlay, o `templateId` efetivo do Concrete Provider e só então monta a configuração:
 
 ```text
 Provider Template
@@ -214,7 +189,7 @@ Personal Overlay
 Effective Provider Config
 ```
 
-三类实际路径：
+Três caminhos reais:
 
 ```text
 Template 创建的 Personal Provider
@@ -227,17 +202,13 @@ Template 创建的 Personal Provider
 └─ Personal
 ```
 
-Built-in Provider 的 `templateId` 约定由 Built-in Source 声明，Personal-only Provider 的 `templateId` 约定由
-Personal Source 声明；不新增 Source 所有权门禁。Personal 显式值与 `null` 继续遵循普通 Overlay
-覆盖/清除语义。
+A convenção de `templateId` de um Built-in Provider é declarada pela Built-in Source, e a convenção de `templateId` de um Provider Personal-only é declarada pela Personal Source; não é adicionado um novo gate de posse de Source. Valores Personal explícitos e `null` continuam obedecendo à semântica normal de sobrescrita/limpeza do Overlay.
 
-Template 自身不递归继承 Template。Resolver 只读取 Concrete Provider 的 Effective `templateId`，不继续解释
-Template 值中的 `templateId`，避免引入继承图、循环检测和多级解析器。
+O Template não herda Templates recursivamente. O Resolver lê apenas o `templateId` efetivo do Concrete Provider e não continua interpretando `templateId` dentro dos valores de Template, evitando introduzir um grafo de herança, detecção de ciclos e um resolver de múltiplos níveis.
 
-Template 与 Concrete Provider 的 Access 判别可以不同。后一层 Access discriminant 不同时，继续使用现有
-`overlayProviderAccess()` 的整体替换语义。
+O discriminante de Access entre Template e Concrete Provider pode ser diferente. Quando o discriminante de Access da camada seguinte é diferente, continua valendo a semântica de substituição completa existente em `overlayProviderAccess()`.
 
-Resolver 和 Settings 必须保留下面四类事实，不能用一个含义模糊的 `inheritedConfig` 替代：
+O Resolver e Settings precisam preservar os quatro tipos de fato abaixo, sem substituí-los por um `inheritedConfig` de significado vago:
 
 ```text
 templateConfig?
@@ -254,34 +225,24 @@ effectiveConfig
 └─ 最终 Effective Provider Config
 ```
 
-因此，Template 创建的纯 Personal Provider 有 `templateConfig`、`personalConfig` 和 `effectiveConfig`，但没有
-`effectiveBuiltinConfig`；完全自定义 Personal Provider 可以只有 `personalConfig` 与 `effectiveConfig`。继承是
-Resolver 的组合关系，不是新增的持久化 Config Source。
+Portanto, um Personal Provider puro criado por Template tem `templateConfig`, `personalConfig` e `effectiveConfig`, mas não `effectiveBuiltinConfig`; um Personal Provider totalmente personalizado pode ter apenas `personalConfig` e `effectiveConfig`. A herança é uma relação de composição do Resolver, e não uma nova Source de Config persistida.
 
-这里描述的是 Provider Settings Provider View。Model Settings View 原有的 `effectiveBuiltinConfig` 仍表示
-Built-in Model Rules 解析出的无 Personal Rule 基线；即使模型属于纯 Personal Provider，该模型基线也可能存在，
-不能因为 Provider 层没有 `effectiveBuiltinConfig` 而删除或伪造 Model 层事实。
+O que está descrito aqui é a Provider View de Provider Settings. O `effectiveBuiltinConfig` existente na Model Settings View continua representando a linha de base sem Personal Rule resolvida a partir das Built-in Model Rules; mesmo que o modelo pertença a um Personal Provider puro, essa linha de base de modelo pode existir, e não se pode apagá-la nem falsificá-la só porque não existe `effectiveBuiltinConfig` na camada de Provider.
 
-`templateId` 只参与 Config Resolver、Model Rule 和 Settings baseline。Effective Config 产生后，
-Registry、Selection、ModelFactory、Adapter 与请求协议不依赖 Template ID；正式执行始终使用真实
-`providerId`、Effective API 与 Effective Access。
+`templateId` participa apenas do Config Resolver, das Model Rules e da linha de base de Settings. Depois que o Effective Config é produzido, o Registry, a Selection, o ModelFactory, o Adapter e o protocolo de requisição não dependem de Template ID; a execução formal sempre usa o `providerId` real, o Effective API e o Effective Access.
 
-### 2.4 Provider 顶层 `enabled`
+### 2.4 `enabled` de topo do Provider
 
-Provider 顶层 `enabled` 已最终裁决为彻底删除，不保留兼容字段或阶段性双读。它原有的 placement 职责随普通
-Built-in Provider 生命周期一并退役：
+O `enabled` de topo do Provider foi definitivamente decidido como remoção total, sem campo de compatibilidade e sem leitura dupla em fases. Sua responsabilidade original de placement é aposentada junto com o ciclo de vida do Built-in Provider comum:
 
-- Template 本身不需要 Provider `enabled`；
-- Personal Provider 的定义存在，即表示用户已创建该实例并在 Settings 中可见；
-- API Key、Endpoint 等配置可以暂时不完整，实例仍可保存并留在 Settings，但不会成为可执行 Registry
-  Provider；
-- Account Provider 固定出现在各自 Family，不再依赖 Provider `enabled` 表达 placement；
-- Account `access.entitled` 继续只表达当前账号是否拥有对应访问资格；
-- Model Config 的 `enabled` 保留，继续控制具体模型。
+- o próprio Template não precisa de `enabled` de Provider;
+- a existência da definição de um Personal Provider significa que o usuário já criou a instância e ela está visível em Settings;
+- configurações como API Key e Endpoint podem estar temporariamente incompletas e a instância ainda pode ser salva e permanecer em Settings, mas ela não se torna um Provider executável do Registry;
+- Account Providers aparecem fixamente em suas Families e não dependem mais de `enabled` de Provider para expressar placement;
+- `access.entitled` do Account continua expressando apenas se a conta atual tem a qualificação de acesso correspondente;
+- o `enabled` do Model Config é mantido e continua controlando o modelo específico.
 
-这里的“Account Provider 固定出现”只描述定义来源和 Settings placement：Built-in Release 声明 Account
-Provider 身份及其所属 Family，用户不创建、不删除。它不表示该 Provider 必然可执行；Account Overlay 仍需
-提供当前账号事实，最终由 `entitled` 与配置完整性共同决定是否进入可执行 Registry。
+O "Account Provider aparece fixamente" aqui descreve apenas a origem da definição e o placement em Settings: o Built-in Release declara a identidade do Account Provider e a Family à qual pertence, e o usuário não cria nem remove. Isso não significa que o Provider é necessariamente executável; o Account Overlay ainda precisa fornecer os fatos da conta atual e, no final, são `entitled` e a completude de configuração que decidem em conjunto se ele entra no Registry executável.
 
 ```text
 Settings placement
@@ -294,14 +255,13 @@ Executable
 └─ 目标 Model enabled 且完整
 ```
 
-`enabled` 删除必须一次收口 Resolver、Config Service、Facade、Settings 与测试，不能保留第二套 placement
-fallback。
+A remoção de `enabled` precisa ser fechada de uma só vez em Resolver, Config Service, Facade, Settings e testes, sem deixar um segundo fallback de placement.
 
 ## 3. Model Config Rules
 
-### 3.1 Template 精确 Rule
+### 3.1 Rule preciso de Template
 
-在现有 `match | provider-model` Rule union 中增加：
+Na união de Rules existente `match | provider-model` é adicionado:
 
 ```ts
 interface TemplateModelConfigRule {
@@ -323,15 +283,15 @@ provider-model
 └─ 按真实 providerId + modelId 匹配 Concrete Provider/实例
 ```
 
-Resolution Input 增加可选 `templateId`，不能把 Template ID 冒充成 Provider ID：
+A Resolution Input ganha o `templateId` opcional, sem poder fazer o Template ID passar por Provider ID:
 
 ```ts
 modelRules.resolve({ providerId, templateId, modelId, apiType, baseURL });
 ```
 
-### 3.2 Rule 按配置字段分层
+### 3.2 Rules em camadas por campo de configuração
 
-不同 Rule 类型不依靠一个混合 JSON 数组的偶然位置表达跨层优先级：
+Os diferentes tipos de Rule não dependem da posição acidental em um array JSON misto para expressar prioridade entre camadas:
 
 ```ts
 interface ZCodeBuiltinModelConfigRules {
@@ -346,8 +306,7 @@ interface PersonalModelConfigRules {
 }
 ```
 
-每个字段内部仍严格按书写顺序 Overlay。Source Decoder 只按字段固定顺序连接成现有
-`ModelConfigRules` 有序序列；Resolver 继续逐条遍历，不增加按 Rule type 动态排序、分桶或优先级推断。
+Dentro de cada campo o Overlay continua estritamente na ordem de escrita. O Source Decoder apenas concatena na ordem fixa dos campos a sequência ordenada `ModelConfigRules` existente; o Resolver continua percorrendo item a item, sem ganhar ordenação dinâmica por tipo de Rule, agrupamento em baldes ou inferência de prioridade.
 
 ```text
 Built-in match
@@ -363,15 +322,15 @@ Personal provider-model
 Effective Model Config
 ```
 
-- Template 官方差异写 Built-in `template-model`；
-- Account Concrete Provider 的官方差异继续写 Built-in `provider-model`；
-- 用户编辑具体实例只写 Personal `provider-model`；
-- Personal Source 不接受 `template-model`，避免用户修改共享 Template 基线；
-- Personal 精确 Rule 写入 API 继续只操作 `providerModelRules`。
+- As diferenças oficiais de Template vão para o `template-model` do Built-in;
+- As diferenças oficiais do Account Concrete Provider continuam no `provider-model` do Built-in;
+- Editar uma instância concreta pelo usuário escreve apenas no `provider-model` do Personal;
+- A Personal Source não aceita `template-model`, evitando que o usuário modifique a linha de base compartilhada do Template;
+- A escrita da API de Rules precisas do Personal continua operando apenas em `providerModelRules`.
 
-### 3.3 模型成员与启停
+### 3.3 Composição e habilitação de modelos
 
-不增加 Template 专属 `models: [{ modelId, enabled }]` 或第二套 Model Config：
+Não se adiciona um `models: [{ modelId, enabled }]` exclusivo de Template nem um segundo conjunto de Model Config:
 
 ```text
 Template.builtinModelIds
@@ -387,15 +346,13 @@ Personal provider-model.config.enabled
 └─ 用户对真实 Provider 实例的最终覆盖
 ```
 
-Template 的 `builtinModelIds` 进入实例后仍作为 Built-in-owned 成员；Personal `modelIds` 继续作为用户成员。
-现有成员所有权、Built-in-wins 重名处理和 `modelOrder` Overlay 继续复用。
+Depois de entrar na instância, os `builtinModelIds` do Template continuam sendo membros de posse Built-in; os `modelIds` do Personal continuam sendo membros do usuário. A posse de membros existente, o tratamento de nomes duplicados com Built-in-wins e o Overlay de `modelOrder` continuam sendo reutilizados.
 
-## 4. 创建、更新与删除
+## 4. Criação, atualização e remoção
 
-### 4.1 创建
+### 4.1 Criação
 
-普通第三方 Provider 的旧 `addBuiltinProvider(providerId)` 退役，空白创建、Settings Template 创建和 Welcome
-API Key 创建统一为：
+O antigo `addBuiltinProvider(providerId)` dos Providers de terceiros comuns é aposentado; a criação em branco, a criação por Template em Settings e a criação por API Key no Welcome são unificadas em:
 
 ```ts
 createPersonalProvider(input?: {
@@ -404,44 +361,36 @@ createPersonalProvider(input?: {
 }): PersonalProviderCreation;
 ```
 
-- 无 `templateId`：创建空白自定义 Provider；
-- 有 `templateId`：确认当前 Release 存在该 Template，生成唯一 `providerId`，只写 `templateId` 与必要
-  Personal 初始 Overlay；
-- 不复制 Template API、成员或 Model Rules；
-- 不为每个实例生成重复 Template Rule；
-- 同一 Template 可以创建多个实例；
-- Template `label` 只是创建菜单文案和新实例名称种子；创建时写入唯一 Personal label，如 `DeepSeek`、
-  `DeepSeek 2`；之后 label 归用户实例所有，Template 改名不会重命名既有实例；
-- Provider Config、`templateId`、`initialConfig`（包括 Welcome 提交的 API Key）、唯一 label 与
-  `providerOrder` 必须在同一次 Repository 更新中写入；不得先创建空 Provider，再通过第二个 API 补 Key；
-- `templateId` 只接受顶层创建参数；`initialConfig` 不得再次携带 `templateId`、`providerId` 或
-  `providerOrder` 等身份/容器字段；
-- 创建失败不得写入 `providerSetupCompleted`、半成品 Provider 或孤立 order 成员；
-- 本轮不改变 Welcome 已有的“创建成功后设置可用默认模型”产品行为，该动作继续走现有模型选择 API，不并入
-  Provider Config Repository。
+- Sem `templateId`: cria um Provider personalizado em branco;
+- Com `templateId`: confirma que o Template existe no Release atual, gera um `providerId` único e grava apenas `templateId` e o Overlay Personal inicial necessário;
+- Não copia API, membros ou Model Rules do Template;
+- Não gera Template Rules duplicados para cada instância;
+- O mesmo Template pode criar várias instâncias;
+- O `label` do Template é apenas o texto do menu de criação e a semente do nome da nova instância; na criação é gravado um label Personal único como `DeepSeek` ou `DeepSeek 2`; depois disso o label pertence à instância do usuário, e renomear o Template não renomeia instâncias existentes;
+- Provider Config, `templateId`, `initialConfig` (incluindo a API Key enviada pelo Welcome), label único e `providerOrder` precisam ser gravados na mesma atualização do Repository; é proibido criar primeiro um Provider vazio e depois complementar a Key por uma segunda API;
+- `templateId` só é aceito como parâmetro de criação de topo; `initialConfig` não pode carregar novamente campos de identidade/contêiner como `templateId`, `providerId` ou `providerOrder`;
+- Uma falha de criação não pode gravar `providerSetupCompleted`, um Provider pela metade nem um membro de order órfão;
+- Esta rodada não altera o comportamento de produto já existente no Welcome de "definir um modelo padrão utilizável após criar com sucesso"; essa ação continua passando pela API existente de seleção de modelo e não é fundida ao Provider Config Repository.
 
-Z.ai/BigModel 按量 API 与其他 Template 使用同一创建操作：
+A API por volume Z.ai/BigModel usa a mesma operação de criação que os outros Templates:
 
-- Welcome/API Key 表单每次提交时，都选择对应 Template，并把 API Key 作为 `initialConfig` 交给同一个
-  `createPersonalProvider` 原子创建操作；
-- 不按 Template、品牌或 API Key 查找并复用旧实例，也不维护“Family canonical API 实例”；
-- `providerSetupCompleted` 只在实例创建成功后写入，只约束 Welcome 是否自动出现，不限制用户显式进入 API
-  Key 流程后再次创建实例；
-- 账号登录不触发 Template 实例创建；
-- 设置页允许用户从相同 Template 继续创建更多实例；
-- 创建按量 API 实例不写 `ProviderFamilyConnectionSelection`，也不改变 Account Family 当前选择；
-- 不增加“哪个 Template 实例属于 Family”的绑定字段或恢复逻辑。
+- Cada envio do formulário Welcome/API Key escolhe o Template correspondente e entrega a API Key como `initialConfig` à mesma operação de criação atômica `createPersonalProvider`;
+- Não se busca nem se reutiliza uma instância antiga por Template, marca ou API Key, e nem se mantém uma "instância canônica de API do Family";
+- `providerSetupCompleted` só é gravado depois que a criação da instância tem sucesso, e apenas restringe se o Welcome aparece automaticamente, sem impedir que o usuário crie novas instâncias ao entrar explicitamente no fluxo de API Key;
+- O login de conta não dispara a criação de instância de Template;
+- A página de configurações permite que o usuário crie mais instâncias a partir do mesmo Template;
+- Criar uma instância de API por volume não grava `ProviderFamilyConnectionSelection` nem altera a seleção atual do Account Family;
+- Não se adiciona campo de vínculo de " qual instância de Template pertence a qual Family" nem lógica de restauração.
 
-### 4.2 更新
+### 4.2 Atualização
 
-实例保存继续使用通用 Personal Provider Overlay API。Template 更新通过 Built-in revision 传播给所有引用
-实例；Personal 显式叶子最后覆盖。
+O salvamento de instâncias continua usando a API genérica de Personal Provider Overlay. Atualizações de Template são propagadas por meio da revision de Built-in a todas as instâncias que a referenciam; as folhas Personal explícitas sobrescrevem por último.
 
-Registry 更新只影响之后创建的 Active Model；已创建的 Active Model 保持冻结。
+Atualizações do Registry só afetam os Active Models criados depois; os Active Models já criados permanecem congelados.
 
-### 4.3 删除
+### 4.3 Remoção
 
-删除 Personal Provider 必须在同一 Repository 更新中原子删除：
+Remover um Personal Provider precisa apagar atomicamente, na mesma atualização do Repository:
 
 ```text
 Personal Provider Config
@@ -449,18 +398,15 @@ Personal providerOrder 成员
 所有精确绑定该 providerId 的 Personal provider-model Rules
 ```
 
-不删除通用 `match`、Built-in `template-model`、Template 本身或其他 Provider 的 Rule。现有
-`deletePersonalProvider -> deleteExactForProvider` 原子边界必须保留。
+Não são removidos as Rules genéricas `match`, as `template-model` do Built-in, o próprio Template ou as Rules de outros Providers. O limite atômico existente `deletePersonalProvider -> deleteExactForProvider` precisa ser preservado.
 
-Template 创建的 Z.ai/BigModel API Provider 与其他 Personal Provider 使用同一删除语义；删除时原子清理其
-Provider、排序成员与精确 Personal Model Rules。Account Family Provider 不进入普通删除入口。
+Os Z.ai/BigModel API Providers criados a partir de Template usam a mesma semântica de remoção que os outros Personal Providers; na remoção, Provider, membro de ordenação e Personal Model Rules precisas são limpos de forma atômica. Account Family Providers não entram na entrada comum de remoção.
 
-## 5. Settings、Family 与 Welcome
+## 5. Settings, Family e Welcome
 
-### 5.1 Settings Template Menu
+### 5.1 Menu de Templates do Settings
 
-普通第三方的 `addableProviders` 不再投影 disabled Built-in Provider，改为独立 `providerTemplates` 候选投影。
-该 DTO 只服务 Settings 创建菜单，不进入 Registry Provider View。
+O `addableProviders` dos terceiros comuns deixa de projetar Built-in Providers desabilitados e passa a usar uma projeção de candidatos `providerTemplates` independente. Esse DTO serve apenas ao menu de criação do Settings e não entra na Provider View do Registry.
 
 ```text
 Built-in providerTemplates
@@ -476,7 +422,7 @@ Personal Provider Instance
 Settings Provider List / Registry（完整时）
 ```
 
-Settings Facade 必须投影同一 Resolver 中彼此独立的事实：
+A Facade de Settings precisa projetar fatos mutuamente independentes no mesmo Resolver:
 
 ```text
 templateConfig?          Template 官方来源
@@ -485,26 +431,24 @@ personalConfig?          当前 providerId 的稀疏 Personal Overlay
 effectiveConfig          最终结果
 ```
 
-不新增一个把这些事实压扁的 `inheritedConfig` 字段。Settings 的恢复默认、修改标识和成员来源根据当前路径读取
-相应事实：
+Não se adiciona um novo campo `inheritedConfig` que achate esses fatos. A restauração de padrão, o indicador de modificação e a origem de membros em Settings leem o fato correspondente conforme o caminho atual:
 
-- Template Personal 实例的 Provider 默认基线来自 `templateConfig`；
-- Built-in/Account Provider 的 Provider 默认基线来自 `effectiveBuiltinConfig`；
-- 完全自定义 Personal Provider 没有 Provider 官方基线；
-- Model 默认值始终由同一个 Model Rule Resolver 在排除该实例 Personal exact Rule 后解析，不能只看 Provider
-  Template 或另写 UI fallback。
+- A linha de base padrão de Provider de uma instância Personal de Template vem de `templateConfig`;
+- A linha de base padrão de Provider de um Provider Built-in/Account vem de `effectiveBuiltinConfig`;
+- Um Personal Provider totalmente personalizado não tem linha de base oficial de Provider;
+- Os valores padrão de Model são sempre resolvidos pelo mesmo Model Rule Resolver depois de excluir a Personal exact Rule daquela instância, e não podem olhar apenas para o Provider Template nem escrever um fallback de UI separado.
 
-这些投影必须保证：
+Essas projeções precisam garantir que:
 
-- “恢复默认”回到正确基线；
-- Template 模型显示为 Built-in-owned；
-- Personal 修改样式只反映 Personal Overlay；
-- 新增模型默认配置与真实 Registry 一致；
-- Template 缺失或配置不完整时实例仍可见并显示 Config issue。
+- "restaurar padrão" volte à linha de base correta;
+- Os modelos do Template apareçam como de posse Built-in;
+- O estilo de modificação Personal reflita apenas o Personal Overlay;
+- A configuração padrão de modelos novos seja consistente com o Registry real;
+- Quando o Template está ausente ou a configuração está incompleta, a instância continua visível e mostra Config issue.
 
-### 5.2 Family 保留
+### 5.2 Manutenção do Family
 
-Family 是保留的 Account 产品组合与连接选择边界：
+O Family é mantido como o limite de combinação de produtos de conta e de seleção de conexão:
 
 ```text
 ProviderFamilyDomain = zai | bigmodel
@@ -519,28 +463,23 @@ ProviderFamilyDomain = zai | bigmodel
 ProviderFamilyConnectionSelection
 ```
 
-继续保留并验证：
+Continua mantido e validado:
 
-- Family Header、Account 连接方式菜单和当前选择持久化；
-- Start、Individual、Team 的切换与恢复；
-- `providerFamilyDomain` 与登录账号体系同步；
-- 套餐、额度、升级、账号凭据和 Off-Peak 对 Z.ai/BigModel 身份的消费；
-- `ProviderFamilyConnectionSelection` 的 `api-key` variant、固定 Provider ID 与对应 App Settings 数据退出；
-- Z.ai/BigModel API Templates 进入普通“添加供应商”候选，但不出现在 Account Family 连接方式菜单；
-- 不重新建立已经删除的第二份 `oauth | apiKey` mode 状态。
+- O Header de Family, o menu de modo de conexão de Account e a persistência da seleção atual;
+- A troca e a restauração entre Start, Individual e Team;
+- A sincronização de `providerFamilyDomain` com o sistema de contas logadas;
+- O consumo das identidades Z.ai/BigModel por planos, cotas, upgrades, credenciais de conta e Off-Peak;
+- O variant `api-key` de `ProviderFamilyConnectionSelection`, os Provider IDs fixos e os dados de App Settings correspondentes saem;
+- Os Z.ai/BigModel API Templates entram nos candidatos comuns de "adicionar fornecedor", mas não aparecem no menu de modos de conexão do Account Family;
+- Não se restabelece uma segunda cópia do estado de mode `oauth | apiKey`, que já foi removido.
 
-Off-Peak 仍属于对应 Account Family 的账号与套餐产品链，但它是隐藏执行 Provider：不作为
-`ProviderFamilyConnectionSelection` 候选，不出现在普通 Settings Provider 列表，也不提供用户编辑入口。它继续
-由内部闲时执行通过真实 Provider ID 和普通 Registry/ModelFactory 精确使用。
+Off-Peak continua pertencendo à cadeia de produtos de conta e de planos do Account Family correspondente, mas é um Provider de execução oculto: não é candidato de `ProviderFamilyConnectionSelection`, não aparece na lista comum de Providers em Settings e não oferece entrada de edição para o usuário. Ele continua sendo usado de forma precisa pela execução interna ociosa, por meio do Provider ID real e do Registry/ModelFactory comuns.
 
-Account Access 内部在本轮将原 `access.family` 确定改名为
-`access.accountType = zai | bigmodel`；
-它描述账号访问身份。`ProviderFamilyDomain` 和 Connection Selection 描述产品 UI 与用户连接选择。两者值域
-相同但职责不同，不能互相替代，也不能因为改名而删除 Family 状态。
+No Account Access, nesta rodada o antigo `access.family` é definitivamente renomeado para `access.accountType = zai | bigmodel`; ele descreve a identidade de acesso da conta. `ProviderFamilyDomain` e a Connection Selection descrevem a UI de produto e a escolha de conexão do usuário. Os dois têm o mesmo domínio de valores, mas responsabilidades diferentes: não podem se substituir e a renomeação não apaga o estado de Family.
 
-### 5.3 现有分组保持不变
+### 5.3 Os agrupamentos existentes permanecem inalterados
 
-本轮不新增 `family: "zhipu" | "others"`，也不新增 `brandGroup`、`settingsSection` 等替代字段。
+Esta rodada não adiciona `family: "zhipu" | "others"`, nem campos substitutos como `brandGroup` ou `settingsSection`.
 
 ```text
 现有设置页
@@ -550,21 +489,20 @@ Account Access 内部在本轮将原 `access.family` 确定改名为
    └─ Template 创建（包含 Z.ai API / BigModel API）
 ```
 
-Template 只改变普通第三方 Provider 的创建来源，不顺便重做左侧导航信息架构。
+O Template apenas muda a origem de criação dos Providers de terceiros comuns, sem refazer de passagem a arquitetura de informação da navegação à esquerda.
 
 ### 5.4 Welcome
 
-保留已裁决的独立设置事实 `providerSetupCompleted`，只表达启动引导已完成或跳过，不参与 Registry、
-Template 继承、Family Connection Selection 或 Account 权益。
+O fato de Settings independente já decidido, `providerSetupCompleted`, é mantido e expressa apenas que o guia de inicialização foi concluído ou pulado, sem participar do Registry, da herança de Template, da Family Connection Selection nem dos direitos de conta.
 
-自动打开 Welcome 的基本条件：
+Condições básicas para abrir o Welcome automaticamente:
 
 ```text
 providerSetupCompleted = false
 AND 当前没有可执行 Provider
 ```
 
-Welcome 每次提交 Z.ai/BigModel API Key：
+A cada envio de uma API Key Z.ai/BigModel no Welcome:
 
 ```text
 选择 Z.ai / BigModel
@@ -582,163 +520,157 @@ createPersonalProvider({
 原子写入 Personal Provider + order
 ```
 
-它不复制 Built-in Provider，不写 Account Overlay，也不写或修改 Account Family Connection Selection。
-账号登录不走这条链路。`providerSetupCompleted` 只控制自动引导，不参与实例复用或去重。
+Ele não copia Built-in Providers, não grava Account Overlay e nem grava ou modifica a Account Family Connection Selection. O login de conta não passa por essa cadeia. `providerSetupCompleted` controla apenas o guia automático e não participa do reuso ou da deduplicação de instâncias.
 
-## 6. Built-in 同步与持久化
+## 6. Sincronização do Built-in e persistência
 
-- Built-in Release Schema 增加 `providerTemplates` 后提升 Schema Version；
-- Bundled、Remote、Active、LKG、Endpoint-scoped cache 和 materializer 携带同一份 Templates；
-- Remote Release 原子替换 `{ providers, providerTemplates, modelConfigRules }`；
-- Template ID 是稳定引用键；Personal 实例可能长期引用它；
-- Publisher 删除 Template 时，引用实例保留在 Settings、产生 `missing-template` issue 且不进入 Registry；
-- 本轮不增加 Template 退役元数据，先采用不删除已发布 Template 的发布纪律；
-- Personal `provider_config.json` 继续保存 providers、modelConfigRules、providerOrder，只增加 `templateId`；
-- Family Connection Selection 继续留在现有 App Settings，不迁入 Personal Provider Config；
-- 本分支尚未上线，不为未发布过渡形态增加 alias、兼容读取或迁移器。
+- O Schema do Built-in Release ganha `providerTemplates` e depois disso a Schema Version é incrementada;
+- Bundled, Remote, Active, LKG, cache de escopo de Endpoint e materializer carregam o mesmo conjunto de Templates;
+- O Remote Release substitui atomicamente `{ providers, providerTemplates, modelConfigRules }`;
+- Template ID é uma chave de referência estável; uma instância Personal pode referenciá-lo por muito tempo;
+- Quando o Publisher remove um Template, as instâncias que o referenciam são mantidas em Settings, geram a issue `missing-template` e não entram no Registry;
+- Esta rodada não adiciona metadados de aposentadoria de Templates; adota-se primeiro a disciplina de publicação de não remover Templates já publicados;
+- O `provider_config.json` Personal continua salvando providers, modelConfigRules e providerOrder, e apenas ganha `templateId`;
+- A Family Connection Selection continua nas App Settings existentes e não é migrada para o Personal Provider Config;
+- Este branch ainda não foi lançado, portanto não se adiciona alias, leitura de compatibilidade ou migrador para formas transitórias não publicadas.
 
-## 7. 实施切片
+## 7. Fatias de implementação
 
-### A0. 先同步当前 Design 与 Feature Graph
+### A0. Sincronizar primeiro o Design e o Feature Graph atuais
 
-在测试和生产代码之前，先把本 Todo 已裁决语义写回当前事实文档与 Feature Graph，至少覆盖：
+Antes do código de teste e de produção, escrever de volta nos documentos de fato atuais e no Feature Graph a semântica já decidida neste Todo, cobrindo no mínimo:
 
-- `design.md`、`configuration.md`、`provider-and-model-configuration-overview.md`；
-- `zcode-builtin-provider-config.md`、`model-membership-and-enablement.md`、`settings.md`；
-- `request-compatibility-and-access-protocols.md` 中固定 API Provider / Account Type 边界；
-- Feature Graph 中普通 Built-in placement、Provider enabled、Family 按量 API 与 Welcome 固定 Provider seed。
+- `design.md`, `configuration.md`, `provider-and-model-configuration-overview.md`;
+- `zcode-builtin-provider-config.md`, `model-membership-and-enablement.md`, `settings.md`;
+- Os limites de API Provider fixo / Account Type em `request-compatibility-and-access-protocols.md`;
+- No Feature Graph: o placement do Built-in comum, o enabled do Provider, a API por volume do Family e o seed de Provider fixo do Welcome.
 
-历史 Todo 只作决策轨迹；实现和测试以更新后的当前 Design 为准。
+Os Todos históricos servem apenas como rastro de decisão; a implementação e os testes seguem o Design atualizado.
 
-### A. Config 与 Built-in Release
+### A. Config e Built-in Release
 
-1. Provider Config/Object/Input/Overlay/JSON 增加 `templateId`；
-2. 增加独立 Template Map 与严格 Template Source Schema，Map 值复用 `ProviderConfigOverlay`，并执行字段
-   白名单；
-3. Built-in Release 版本提升并原子贯穿 Bundled/Remote/Active/LKG；
-4. `providers` 只保留全部 Account/Off-Peak Concrete Provider；
-5. Z.ai API、BigModel API 与其他普通第三方 Provider 全部移入 `providerTemplates`；
-6. 不新增 `family = zhipu | others`，保留现有 Family 与设置分组；
-7. 删除 Provider 顶层 `enabled`，保留 `access.entitled` 和 Model `enabled`；
-8. 将 Account Access 的 `family` 改名为 `accountType`，但不删除 Provider Family 产品结构。
+1. Provider Config/Object/Input/Overlay/JSON ganha `templateId`;
+2. Adicionar um Template Map independente e um Template Source Schema estrito; o valor do Map reutiliza `ProviderConfigOverlay` e executa uma whitelist de campos;
+3. Incrementar a versão do Built-in Release e propagá-la atomicamente por Bundled/Remote/Active/LKG;
+4. `providers` passa a conter apenas todos os Concrete Providers de Account/Off-Peak;
+5. Z.ai API, BigModel API e todos os outros Providers de terceiros comuns migram para `providerTemplates`;
+6. Não adicionar `family = zhipu | others`; manter as Families e os agrupamentos de Settings existentes;
+7. Remover o `enabled` de topo do Provider, mantendo `access.entitled` e o `enabled` de Model;
+8. Renomear `family` para `accountType` no Account Access, sem remover a estrutura de produto Provider Family.
 
-### B. Model Rules 与 Resolver
+### B. Model Rules e Resolver
 
-1. 增加 Built-in-only `template-model` Rule；
-2. Built-in/Personal Rule JSON 拆成按类型命名的数组字段；
-3. Resolution Input 携带真实 `providerId` 与可选 `templateId`；
-4. 实现 Template -> Built-in -> Account -> Personal Overlay；
-5. Source 按显式字段顺序连接 Rule，Resolver 保持逐条 Overlay；
-6. 保留成员所有权、顺序、完整性、entitlement、visibility 与 Active Model 冻结语义；
-7. Template 缺失时产生 issue，不猜测 fallback Template。
+1. Adicionar a Rule `template-model`, exclusiva do Built-in;
+2. Dividir o JSON de Rules do Built-in/Personal em campos de array nomeados por tipo;
+3. A Resolution Input carrega o `providerId` real e o `templateId` opcional;
+4. Implementar o Overlay Template -> Built-in -> Account -> Personal;
+5. A Source concatena Rules na ordem explícita dos campos e o Resolver mantém o Overlay item a item;
+6. Preservar a semântica de posse de membros, ordem, completude, entitlement, visibility e congelamento de Active Models;
+7. Quando o Template está ausente, gerar uma issue em vez de adivinhar um Template de fallback.
 
-### C. Config Service 与 Facade
+### C. Config Service e Facade
 
-1. 通用 `createPersonalProvider({ templateId?, initialConfig? })` 支持 Template、空白自定义和 Welcome API Key
-   创建，并在一次 Repository 更新中写 Provider、label、order 与初始 Overlay；
-2. 删除普通第三方 `addBuiltinProvider` 和 disabled Built-in 复活逻辑；
-3. Settings View 用 `providerTemplates` 取代普通第三方 `addableProviders`；
-4. Account Provider 继续走现有 Family/Account Facade；Z.ai/BigModel API 实例走普通 Personal Facade；
-5. Template 实例删除沿用 Provider + order + exact Rules 原子删除；
-6. Facade 分别投影 `templateConfig`、`effectiveBuiltinConfig`、`personalConfig` 与 `effectiveConfig`；Reset、模型
-   编辑与连接测试复用同一 Resolver，不新增统一 `inheritedConfig`；
-7. 删除 Provider Settings DTO 的 `enabled` 和普通 Provider“已启用”胶囊；Account 套餐状态继续由状态卡表达。
+1. O `createPersonalProvider({ templateId?, initialConfig? })` genérico suporta a criação por Template, a personalizada em branco e a de API Key pelo Welcome, gravando Provider, label, order e Overlay inicial em uma única atualização do Repository;
+2. Remover o `addBuiltinProvider` dos terceiros comuns e a lógica de ressurreição de Built-in desabilitado;
+3. A Settings View usa `providerTemplates` no lugar de `addableProviders` para os terceiros comuns;
+4. Account Providers continuam passando pela Facade de Family/Account existente; instâncias de Z.ai/BigModel API passam pela Facade Personal comum;
+5. A remoção de instância de Template segue a remoção atômica de Provider + order + exact Rules;
+6. A Facade projeta separadamente `templateConfig`, `effectiveBuiltinConfig`, `personalConfig` e `effectiveConfig`; Reset, edição de modelos e teste de conexão reutilizam o mesmo Resolver, sem novo `inheritedConfig` unificado;
+7. Remover o `enabled` do DTO de Provider Settings e a cápsula de "已启用" dos Providers comuns; o estado de plano de Account continua sendo expresso pelo cartão de status.
 
-### D. UI 与产品入口
+### D. UI e entradas de produto
 
-1. 保留 Account Family Select、Family Header 与 Account Connection Selection；
-2. 删除 Family“按量 API”选项及 `ProviderFamilyConnectionSelection.kind = "api-key"`；
-3. 普通“添加供应商”菜单从 Templates 创建实例，包含 Z.ai API / BigModel API 并支持多实例；
-4. Welcome 每次提交 API Key 都通过同一 Template 创建入口建立新的 Personal Provider，并用通用 Personal
-   Overlay 作为 `initialConfig` 原子保存 Key；
-5. 引入 `providerSetupCompleted`；Welcome API Key 路径不改变 Account Family 选择事实；
-6. 保持桌面、Web、手机、主题与国际化一致；
-7. 不改变模型选择、Automation、Subagent、Repo Wiki、队列或恢复状态归属。
+1. Manter o Account Family Select, o Family Header e a Account Connection Selection;
+2. Remover a opção de "API 按量" do Family e `ProviderFamilyConnectionSelection.kind = "api-key"`;
+3. O menu comum de "adicionar fornecedor" cria instâncias a partir de Templates, incluindo Z.ai API / BigModel API e com suporte a múltiplas instâncias;
+4. Cada envio de API Key pelo Welcome cria um novo Personal Provider pela mesma entrada de criação por Template e salva a Key de forma atômica usando o Personal Overlay genérico como `initialConfig`;
+5. Introduzir `providerSetupCompleted`; o caminho de API Key do Welcome não altera o fato de seleção do Account Family;
+6. Manter desktop, web, celular, temas e internacionalização consistentes;
+7. Não alterar a seleção de modelos, Automation, Subagent, Repo Wiki, filas ou a posse do estado de recuperação.
 
-### E. 清理边界
+### E. Limites de limpeza
 
-删除：
+Remover:
 
-- 全部非 Account Built-in Concrete Provider，包括固定 `zai-api` / `bigmodel-api` Provider；
-- 普通第三方 Provider 顶层 `enabled` placement 与 Built-in 复活判断；
-- 普通第三方 `addBuiltinProvider`、`addableProviders` 和 Overlay recreation；
-- 普通 Built-in/Personal 两套表单权限判断；
-- 对应过时测试、Fixture、文档和 Feature Graph seed；
-- Provider Settings View/DTO 中的 Provider `enabled`、普通 Provider“已启用”胶囊及由它派生的 UI 分支；
-- 删除 `standard-builtin` group 值；机械扫描用于证明零残留，不再作为是否删除的产品裁决。
+- Todos os Built-in Concrete Providers não-Account, incluindo os Providers fixos `zai-api` / `bigmodel-api`;
+- O placement de `enabled` de topo dos Providers de terceiros comuns e a verificação de ressurreição de Built-in;
+- O `addBuiltinProvider`, o `addableProviders` e a recriação de Overlay dos terceiros comuns;
+- Os dois conjuntos de verificação de permissão de formulário, Built-in e Personal;
+- Testes, Fixtures, documentação e seeds do Feature Graph correspondentes que ficaram obsoletos;
+- O `enabled` de Provider da View/DTO de Provider Settings, a cápsula de "已启用" dos Providers comuns e os ramos de UI derivados dela;
+- O valor de group `standard-builtin`; a varredura mecânica passa a servir para provar ausência de resíduo e deixa de ser uma decisão de produto sobre manter ou remover.
 
-明确不删除：
+Não remover explicitamente:
 
-- `zai-family`、`bigmodel-family` 与当前 Personal 分组；
-- `ProviderFamilyDomain`、收窄后的 Account `ProviderFamilyConnectionSelection` 及其持久化；
-- Account Family Header/Connection UI；
-- Account 套餐、额度、升级、凭据与 Off-Peak Family 消费链路。
+- `zai-family`, `bigmodel-family` e o agrupamento Personal atual;
+- `ProviderFamilyDomain`, a `ProviderFamilyConnectionSelection` de Account já restringida e sua persistência;
+- O Header/Connection UI do Account Family;
+- A cadeia de consumo de plano, cota, upgrade, credenciais e Off-Peak do Account Family.
 
-## 8. 测试与验收
+## 8. Testes e aceitação
 
 ### Config / Release
 
-- `templateId` Overlay、`null` 清除和 JSON round-trip；
-- Template Source 接受无真实 Key 的官方基线，拒绝不合法结构；
-- Template Source 字段白名单拒绝 `group/modelIds/modelOrder/enabled/visibility/templateId` 与真实凭据；
-- Built-in Release 原子解析、版本拒绝、Remote/LKG 回落；
-- Template 不直接进入 Provider 集合或 Registry；
-- missing Template 实例保留 Settings issue 且不进入 Registry；
-- Template 不递归继承；
-- Release 的 Concrete `providers` 只包含 Account Provider；Z.ai API / BigModel API 存在于 Templates。
+- Overlay de `templateId`, limpeza com `null` e round-trip de JSON;
+- A Template Source aceita a linha de base oficial sem Key real e rejeita estruturas inválidas;
+- A whitelist de campos da Template Source rejeita `group/modelIds/modelOrder/enabled/visibility/templateId` e credenciais reais;
+- Parsing atômico do Built-in Release, rejeição de versão e fallback Remote/LKG;
+- O Template não entra diretamente no conjunto de Providers nem no Registry;
+- Uma instância com Template ausente mantém a issue em Settings e não entra no Registry;
+- O Template não herda Templates recursivamente;
+- Os `providers` Concrete do Release contêm apenas Account Providers; Z.ai API / BigModel API existem nos Templates.
 
 ### Provider / Model Resolver
 
-- 同一 Template 两个实例获得相同官方基线且 Personal 覆盖互不污染；
-- Built-in/Account Provider 可以选择继承 Template；
-- Personal `templateId` 覆盖和 `null` 清除遵循 Overlay；
-- `template-model` 只按 Template ID + Model ID 命中；
-- 字段内保持书写顺序，跨字段顺序由 Config Schema 固定；
-- Account `provider-model` 晚于 Template Rule，Personal Rule 始终最后；
-- generic match、API Schema、baseURL 和 Active Model 冻结不回归。
+- Duas instâncias do mesmo Template obtêm a mesma linha de base oficial e as sobrescritas Personal não se contaminam;
+- Providers Built-in/Account podem escolher herdar um Template;
+- A sobrescrita de `templateId` do Personal e a limpeza com `null` seguem o Overlay;
+- `template-model` só acerta por Template ID + Model ID;
+- A ordem de escrita é mantida dentro de cada campo e a ordem entre campos é fixada pelo Config Schema;
+- O `provider-model` do Account vem depois da Rule de Template, e a Rule do Personal é sempre a última;
+- match genérico, API Schema, baseURL e congelamento de Active Models não regridem.
 
 ### Lifecycle / Settings
 
-- 同一 Template 可创建多个唯一 Provider ID 与 label；
-- Template label 只作为创建名称种子；既有实例不随 Template 改名；
-- 创建在一个 Repository 事务中原子写入 Provider、initialConfig 与 providerOrder；失败不留下半成品；
-- 删除实例原子清除 order 与 exact Personal Rules；
-- 空白自定义 Provider 无 Template 仍可配置、保存、测试和执行；
-- 配置不完整时实例可见但不可执行；
-- Template baseline 正确驱动默认值、恢复默认、修改标识和成员来源；
-- Template Personal 实例没有伪造的 `effectiveBuiltinConfig`；四类 Settings Config 投影语义准确；
-- Template 菜单包含 Z.ai API / BigModel API，且可分别创建多个实例；
-- Family 页面只包含 Start、Individual 与 Team，不再包含按量 API；
-- Off-Peak 不进入 Family Connection Selection 或普通 Settings 列表，但内部精确执行不回归；
-- Welcome 每次保存 Key 都创建新的正确 Template 实例，且不复用旧实例、不修改 Account Connection
-  Selection；
-- 账号登录不创建按量 API Template 实例；`providerSetupCompleted` 不参与实例去重。
+- O mesmo Template pode criar vários Provider IDs e labels únicos;
+- O label do Template serve apenas de semente para o nome de criação; instâncias existentes não são renomeadas junto com o Template;
+- A criação grava atomicamente Provider, initialConfig e providerOrder em uma transação do Repository; uma falha não deixa nada pela metade;
+- A remoção de instância limpa atomicamente order e exact Personal Rules;
+- Um Provider personalizado em branco sem Template ainda pode ser configurado, salvo, testado e executado;
+- Com a configuração incompleta, a instância é visível mas não executável;
+- A linha de base do Template orienta corretamente os valores padrão, a restauração de padrão, o indicador de modificação e a origem dos membros;
+- Instâncias Personal de Template não têm um `effectiveBuiltinConfig` falsificado; as quatro projeções de Config em Settings têm semântica precisa;
+- O menu de Templates inclui Z.ai API / BigModel API e permite criar várias instâncias de cada um;
+- A página de Family contém apenas Start, Individual e Team, sem a API por volume;
+- Off-Peak não entra na Family Connection Selection nem na lista comum de Settings, mas a execução interna precisa não regride;
+- Cada salvamento de Key no Welcome cria uma nova instância do Template correto e não reutiliza instâncias antigas nem altera a Account Connection Selection;
+- O login de conta não cria instância de Template de API por volume; `providerSetupCompleted` não participa da deduplicação de instâncias.
 
-### Family / Account 回归
+### Family / Account regressões
 
-- `providerFamilyDomain` 切换与登录恢复正确；
-- Start、Individual、Team Connection Selection round-trip 正确；旧 `api-key` variant 零残留；
-- Z.ai API / BigModel API Template 实例不被 Family 导航或 Account Resolver 消费；
-- Start 模型成员、Individual/Team entitlement 与状态不回归；
-- 套餐、额度、升级、账号凭据和 Off-Peak 读取正确 Account Type；
-- 不存在第二份 `oauth | apiKey` mode 状态。
-- Provider Settings DTO 和 UI 不再存在 Provider 级 enabled 或“已启用”胶囊；Model enabled 保持不变。
+- A troca de `providerFamilyDomain` e a restauração de login funcionam corretamente;
+- O round-trip da Connection Selection de Start, Individual e Team funciona corretamente; o antigo variant `api-key` não deixa resíduo;
+- Instâncias de Template Z.ai API / BigModel API não são consumidas pela navegação de Family nem pelo Account Resolver;
+- A composição de modelos Start, o entitlement de Individual/Team e o status não regridem;
+- Planos, cotas, upgrades, credenciais de conta e Off-Peak leem o Account Type correto;
+- Não existe uma segunda cópia do estado de mode `oauth | apiKey`.
+- O DTO e a UI de Provider Settings não possuem mais enabled de nível Provider nem a cápsula de "已启用"; o enabled de Model permanece inalterado.
 
-### Runtime / 机械验证
+### Runtime / verificação mecânica
 
-- 连接测试与真实请求使用实例真实 `providerId` 和 Effective Config；
-- 同 modelId 的不同实例不串 Provider；
-- Automation、Subagent、Repo Wiki 不感知 Template；
-- Desktop continuous、Web/Mobile replayable 和 remote workspace 不新增运行时状态；
-- Provider、Provider Node、Services、UI 定向单测与 typecheck；
-- Template 多实例与 Account Family 设置隔离 E2E；
-- `pnpm typecheck`、`pnpm lint`、`pnpm test:unit`、格式检查与 `git diff --check`；
-- `rg`/`dep:refs` 证明普通 Built-in 生命周期和 Provider enabled 清理完整；
-- `rg`/测试证明 Account Family 没有被误删，同时固定 API Provider 和 Family `api-key` 分支清理完整。
+- O teste de conexão e a requisição real usam o `providerId` e o Effective Config reais da instância;
+- Instâncias diferentes com o mesmo modelId não misturam Providers;
+- Automation, Subagent e Repo Wiki nãosenses o Template;
+- Desktop continuous, Web/Mobile replayable e remote workspace não ganham novo estado de runtime;
+- Testes unitários direcionados e typecheck de Provider, Provider Node, Services e UI;
+- E2E de isolamento de múltiplas instâncias de Template e de settings de Account Family;
+- `pnpm typecheck`, `pnpm lint`, `pnpm test:unit`, verificação de formatação e `git diff --check`;
+- `rg`/`dep:refs` provando que a limpeza do ciclo de vida do Built-in comum e do enabled de Provider está completa;
+- `rg`/testes provando que o Account Family não foi removido por engano e que a limpeza da API Provider fixa e do ramo `api-key` do Family está completa.
 
-## 9. Review 风险与实施约束
+## 9. Riscos de review e restrições de implementação
 
-### 9.1 Template 校验时机
+### 9.1 Momento da validação de Template
 
 ```text
 Provider Template              只做 Source 结构校验
@@ -749,22 +681,17 @@ Concrete/Personal/Account 层
 Effective Provider Config      才做完整性/可执行校验
 ```
 
-不得给 Template 填假 Key、放宽最终完整性或增加 fallback 绕过边界。
+Não se deve preencher Template com Keys falsas, afrouxar a completude final ou adicionar um fallback que contorne o limite.
 
-### 9.2 Template Map 与 Provider Map 分型
+### 9.2 Separação de tipos entre Template Map e Provider Map
 
-`providerTemplates` 使用 `templateId`；`providers` 使用 `providerId`。Template Map 的值直接复用
-`ProviderConfigOverlay`，不另建一份完整 Template Config 值类型；同时不能让 Template ID 在 API 或变量中被称为
-Provider ID。
+`providerTemplates` usa `templateId`; `providers` usa `providerId`. O valor do Template Map reutiliza diretamente `ProviderConfigOverlay`, sem criar um segundo tipo de valor completo de Template Config; ao mesmo tempo, o Template ID não pode ser chamado de Provider ID em APIs ou variáveis.
 
-### 9.3 Settings 来源事实来自唯一 Resolver
+### 9.3 Os fatos de origem de Settings vêm de um único Resolver
 
-Template 继承关系不等于 `effectiveBuiltinConfig`。唯一 Resolver 必须分别保留 `templateConfig`、
-`effectiveBuiltinConfig`、`personalConfig` 与 `effectiveConfig`，Settings 只读投影这些事实；不能新增一个
-`inheritedConfig` 抹平来源，也不能让 Registry、Settings 和 Preview 各自拼一次 Template，否则恢复默认、成员
-来源、修改标识和新增模型默认值会分叉。
+A relação de herança de Template não é igual a `effectiveBuiltinConfig`. O único Resolver precisa preservar separadamente `templateConfig`, `effectiveBuiltinConfig`, `personalConfig` e `effectiveConfig`, e Settings apenas lê projeta esses fatos; não se pode adicionar um `inheritedConfig` que apague as origens, nem deixar Registry, Settings e Preview montarem um Template cada um, sob pena de a restauração de padrão, a origem de membros, o indicador de modificação e os valores padrão de modelos novos divergirem.
 
-### 9.4 Account Family 是明确保留的不变量
+### 9.4 O Account Family é um invariante explicitamente mantido
 
 ```text
 Template 改造路径                         Account Family 保留路径
@@ -780,74 +707,63 @@ Personal Provider Instance                       |
                     Provider Registry
 ```
 
-本轮把按量 API 从 Family 移到 Template，但不能顺手删除或重建 Account Family。
+Esta rodada move a API por volume do Family para o Template, mas não pode de passagem apagar nem reconstruir o Account Family.
 
-### 9.5 Z.ai/BigModel API Template 不与 Family 绑定
+### 9.5 O Template Z.ai/BigModel API não fica vinculado ao Family
 
-Z.ai/BigModel API 进入 Template 后就是普通 Personal Provider 来源。不能保留固定 Provider ID、canonical
-实例、Family 槽位或“当前 Family API 实例”等桥接概念。Family 只消费 Account Provider；Template 实例只通过
-标准 Settings/Registry 路径执行。
+Depois de entrar nos Templates, Z.ai/BigModel API passa a ser uma origem comum de Personal Provider. Não se pode manter Provider ID fixo, instância canônica, slot de Family ou conceitos de ponte como "instância de API atual do Family". O Family consome apenas Account Providers; as instâncias de Template são executadas apenas pelo caminho padrão de Settings/Registry.
 
-### 9.6 Provider `enabled` 与 Family placement 解耦
+### 9.6 Desacoplamento entre `enabled` de Provider e placement de Family
 
-Account Provider 的展示来自 Family 结构，Personal Provider 的展示来自 Personal 定义存在。删除
-`enabled` 后，不能用 API Key 是否存在或 `executable` 反推是否显示；配置不完整但可见是合法状态。
+A exibição de um Account Provider vem da estrutura de Family e a exibição de um Personal Provider vem da existência da definição Personal. Depois da remoção de `enabled`, não se pode inferir se algo deve ser exibido a partir da existência de uma API Key ou de `executable`; estar visível com a configuração incompleta é um estado legítimo.
 
-Facade 与 UI 同时删除 Provider 级 `enabled`：普通 Provider 不显示“已启用”胶囊；Account Provider 的产品状态由
-套餐/连接状态卡表达；配置问题由 issue 与 executable 结果表达。三者都不得重新命名为 enabled。
+Facade e UI removem simultaneamente o `enabled` de nível Provider: Providers comuns não exibem a cápsula de "已启用"; o estado de produto de um Account Provider é expresso pelo cartão de plano/status de conexão; problemas de configuração são expressos por issues e pelo resultado executável. Nenhum dos três pode ser renomeado de volta para enabled.
 
-### 9.7 Rule 分类由 Config 表达
+### 9.7 A classificação das Rules é expressa pela Config
 
-`composeEffective()` 继续作为共享组合入口。新增 Template 后仍只构造一条有序 Rule 序列，不允许三处各自
-排序或拼接。
+`composeEffective()` continua sendo a entrada de composição compartilhada. Depois de adicionar o Template, continua sendo construída apenas uma única sequência ordenada de Rules, sem permitir que os três pontos ordenem ou concatenem por conta própria.
 
-### 9.8 Release 与工具链原子扩展
+### 9.8 Extensão atômica de Release e toolchain
 
-`providerTemplates` 会影响 Release codec、remote client、Endpoint cache、materializer、正式 bundle、完整性
-测试、publisher evidence、E2E fixture 和 helper。开发环境成功不能替代正式包和 Remote Workspace 证明。
+`providerTemplates` afeta o codec de Release, o remote client, o cache de Endpoint, o materializer, o bundle oficial, os testes de completude, as evidências do publisher, os fixtures de E2E e os helpers. O sucesso no ambiente de desenvolvimento não substitui a prova do pacote oficial e do Remote Workspace.
 
-### 9.9 Template ID 不进入运行时
+### 9.9 Template ID não entra em runtime
 
-Template ID 是配置继承来源，不是请求路由身份。Selection、任务持久化、ModelFactory 和 Adapter 不新增
-Template 分支。
+Template ID é a origem da herança de configuração, e não a identidade de roteamento de requisições. Selection, persistência de tarefas, ModelFactory e Adapter não ganham ramos de Template.
 
-### 9.10 Template ID 与 Provider ID 不混用
+### 9.10 Template ID e Provider ID não se misturam
 
-两个 Map 允许 `templateId = deepseek` 与 `providerId = deepseek` 同名。独立 `template-model` /
-`provider-model` Rule 必须保证身份不会因字符串相等而混淆。
+Os dois Maps permitem `templateId = deepseek` e `providerId = deepseek` com o mesmo nome. As Rules independentes `template-model` / `provider-model` precisam garantir que a identidade não fica confusa só porque as strings são iguais.
 
-## 10. 完成标准
+## 10. Critérios de conclusão
 
-- Template 与 Provider 身份严格分离，但配置值复用现有 Provider Config；
-- Template Map 值直接复用 `ProviderConfigOverlay` 且 Source 字段白名单明确；
-- 同一 Template 可以创建多个互不污染的 Personal Provider；
-- Built-in/Account Concrete Provider 可以选择继承 Template；
-- Built-in Config 原子包含固定 Providers、Provider Templates 与分层 Model Rules；
-- 普通第三方 Built-in Concrete Provider、placement enabled 和 addable 生命周期全面退出；
-- Z.ai/BigModel API 以 Template 形式进入普通 Personal Provider 创建链，固定 Concrete Provider 身份清零；
-- Z.ai/BigModel Account Family、收窄后的 Account Connection Selection 与 Account 产品链完整保留；
-- Family `api-key` 连接项、固定 API Provider ID 特例和 Welcome 固定 Overlay 链清零；
-- 不新增 `family = zhipu | others` 或另一套设置页分组字段；
-- Settings、Registry、ModelFactory 与 Runtime 不存在第二套 Provider/Model 事实；
-- Settings 不混淆 Template 来源、Effective Built-in、Personal Overlay 与最终 Effective Config；
-- Provider 级 enabled 字段、DTO、胶囊与隐式替代物清零，Model enabled 保留；
-- Account entitlement、套餐、请求期凭据、Off-Peak 与 Active Model 冻结语义保持正确；
-- 所有定向、全量与 E2E 证据通过后提交 Conventional Commit。
+- A identidade de Template e de Provider é estritamente separada, mas o valor de configuração reutiliza o Provider Config existente;
+- O valor do Template Map reutiliza diretamente `ProviderConfigOverlay` e a whitelist de campos da Source é explícita;
+- O mesmo Template pode criar vários Personal Providers que não se contaminam;
+- Concrete Providers Built-in/Account podem escolher herdar um Template;
+- A Built-in Config contém atomicamente Providers fixos, Provider Templates e Model Rules em camadas;
+- O Built-in Concrete Provider comum de terceiros, o placement enabled e o ciclo de vida addable saem por completo;
+- Z.ai/BigModel API entra na cadeia comum de criação de Personal Provider como Template, e a identidade de Concrete Provider fixa é zerada;
+- O Z.ai/BigModel Account Family, a Account Connection Selection já restringida e a cadeia de produtos de Account são integralmente mantidos;
+- O item de conexão `api-key` do Family, os casos especiais de API Provider ID fixos e a cadeia de Overlay fixo do Welcome são zerados;
+- Não se adiciona `family = zhipu | others` nem outro conjunto de campos de agrupamento na página de configurações;
+- Settings, Registry, ModelFactory e Runtime não têm um segundo conjunto de fatos de Provider/Model;
+- Settings não confunde a origem de Template, o Effective Built-in, o Personal Overlay e o Effective Config final;
+- O campo enabled de nível Provider, o DTO, a cápsula e os substitutos implícitos são zerados; o enabled de Model é mantido;
+- A semântica de entitlement de Account, planos, credenciais em tempo de requisição, Off-Peak e congelamento de Active Models continua correta;
+- Depois que todas as evidências direcionadas, completas e de E2E passarem, submeter um Conventional Commit.
 
-## 11. 实施记录
+## 11. Registro de implementação
 
-2026-09-01 已完成 Provider Template 切换：
+2026-09-01: a transição para Provider Template foi concluída:
 
-- Built-in Release 升级为 `providers + providerTemplates + modelConfigRules` 的原子版本；
-- 普通第三方 Provider 全部迁为 Template，只有 Account/Off-Peak 保留 Built-in Concrete Provider；
-- Settings 与 Welcome 统一通过 `createPersonalProvider(templateId, ...)` 创建独立 Personal Provider；
-- Z.ai/BigModel 按量 API 退出 Family Connection Selection，Template ID 不再充当运行时 Provider ID；
-- Account Registry Access 使用 `accountType`，请求期账号访问事实继续使用 `family`；
-- Provider 顶层 `enabled`、固定 API Provider 特例和相关 UI/测试残留已删除；
-- Personal Rule 与 Provisioning Envelope 统一使用分层 Rule 结构；
-- Z.ai/BigModel 的 Endpoint 专属能力按 `baseURL + api.type` 匹配，不依赖固定 Provider ID。
+- O Built-in Release foi atualizado para a versão atômica `providers + providerTemplates + modelConfigRules`;
+- Todos os Providers de terceiros comuns migraram para Templates, e apenas Account/Off-Peak mantêm Built-in Concrete Provider;
+- Settings e Welcome passam a criar Personal Providers independentes de forma unificada por `createPersonalProvider(templateId, ...)`;
+- A API por volume Z.ai/BigModel saiu da Family Connection Selection, e o Template ID deixou de servir como Provider ID em runtime;
+- O Access do Account Registry passou a usar `accountType`, e os fatos de acesso de conta em tempo de requisição continuam usando `family`;
+- O `enabled` de topo do Provider, os casos especiais de API Provider fixos e os resíduos relacionados de UI/testes foram removidos;
+- As Rules Personal e o Provisioning Envelope passam a usar de forma unificada a estrutura de Rules em camadas;
+- As capacidades específicas de Endpoint de Z.ai/BigModel são casadas por `baseURL + api.type`, sem depender de um Provider ID fixo.
 
-验证证据：Provider/Provider Node 定向测试、受影响 Services/UI 测试、根 `typecheck`、`lint` 与全量
-`test:unit`；CLI Bootstrap 的 Provider 定向测试与独立 `typecheck` 通过。CLI Bootstrap 全量共 106 个测试文件，
-Todo 55 相关用例全部通过；剩余 8 条失败分别属于既存 v4 边界/stale revision、官方插件资源和依赖真实网络的
-Marketplace 基线，不属于 Provider Template。实际 Electron/WDIO 证据由 Todo 57 统一补齐。
+Evidências de verificação: testes direcionados de Provider/Provider Node, testes de Services/UI afetados, `typecheck` da raiz, `lint` e `test:unit` completo; os testes direcionados de Provider do CLI Bootstrap e o `typecheck` independente passaram. O CLI Bootstrap completo tem 106 arquivos de teste, e todos os casos relacionados ao Todo 55 passaram; as 8 falhas restantes pertencem a fronteiras v4/revisions obsoletas já existentes, a recursos oficiais de plugins e à linha de base do Marketplace que depende de rede real, e não ao Provider Template. As evidências reais de Electron/WDIO serão completadas de forma unificada pelo Todo 57.

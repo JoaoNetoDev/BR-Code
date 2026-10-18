@@ -1,61 +1,53 @@
-# New Task 草稿页推荐提示词
+# Prompts sugeridos na página de rascunho de New Task
 
-## 背景
+## Contexto
 
-新版 New task 首页在 Chat composer 正下方增加「推荐提示词」入口。原有横向按钮组由
-`clientScenesService` 的 `draft-suggestion` scene 下发；主动任务推荐列表使用本地按功能维护的推荐池。
+A nova homepage de New task adiciona a entrada 「推荐提示词」 logo abaixo do Chat composer. O grupo de botões horizontais existente é distribuído pela scene `draft-suggestion` do `clientScenesService`; a lista de recomendações de tarefas proativas usa um pool local mantido por funcionalidade.
 
-## 主动任务推荐
+## Recomendações de tarefas proativas
 
-- 本期主动任务推荐仅在办公模式显示。办公模式在 onboarding 第三步提供默认勾选的选项；编程模式不显示该选项，也不显示主动推荐列表，保留原有 Client Scenes 小型场景入口。设置页保留「主动任务推荐」开关，说明「仅在办公模式下支持」，编程模式下不可操作。即使旧设置里主动推荐为开启，编程模式也不能显示主动列表。
-- 办公模式草稿输入框上方保留插件入口：缩略展示当前列表前三个插件图标，展开后仍列出这三个和其他插件；点击条目导航到现有插件市场，不在推荐功能中注入插件市场假数据。
-- 展示文案简短，不含 `[占位符]`；点击后填入的正文完整、可执行，可以用 `[目标对象]` 等占位符补充非必需信息。推荐任务不得以“如果当前仓库是某类项目”作为开始条件。
-- 每个可见面板展示三条。抽取时优先避免同屏重复图标与插件，并尽量避开其他分屏已显示的图标；候选不足时仍显示三条。“换一批”只重新分配当前面板，其他面板已展示的批次和插件确认锚点保持不变。轮换应让池内每条推荐在有限轮次内可达。关闭推荐复用既有设置和 onboarding record 回写。
-- 推荐图标使用 24px 无边框底板和内边距；GitHub 白底素材额外缩至 18px，避免白色方块贴近底板边缘。
-- 填入正文中的 `[@插件](plugin://stable-id)` 在 Composer 内按原位置形成结构化提及；多个插件可同时出现。点击仅替换草稿，不自动发送。
+- Nesta etapa, as recomendações de tarefas proativas são exibidas apenas no modo de trabalho. O modo de trabalho é uma opção oferecida no terceiro passo do onboarding, marcada por padrão; o modo de programação não exibe essa opção nem a lista de recomendações proativas, e mantém a entrada existente de pequenas cenas do Client Scenes. A página de configurações mantém o interruptor 「主动任务推荐」, explicando que “仅在办公模式下支持”, e ele não é acionável no modo de programação. Mesmo que a configuração antiga tenha as recomendações proativas ativadas, o modo de programação não pode exibir a lista proativa.
+- Acima do campo de entrada do rascunho, no modo de trabalho, a entrada de plugins é mantida: exibe em miniatura os ícones dos três primeiros plugins da lista atual e, ao expandir, continua listando esses três e os demais plugins; clicar em um item navega para o mercado de plugins existente, e nenhum dado fictício do mercado de plugins é injetado na funcionalidade de recomendação.
+- O texto de exibição é curto e não contém `[占位符]`; o corpo preenchido no clique é completo e executável, podendo complementar informações não obrigatórias com placeholders como `[目标对象]`. Uma tarefa recomendada não pode ter como condição inicial algo como “如果当前仓库是某类项目”.
+- Cada painel visível exibe três itens. Na extração, prioriza-se evitar ícones e plugins repetidos na mesma tela e, sempre que possível, evitar os ícones já exibidos em outros painéis; quando faltam candidatos, ainda assim são exibidos três. “换一批” apenas redistribui o painel atual, enquanto os lotes já exibidos nos outros painéis e a âncora de confirmação de plugin permanecem inalterados. A rotação deve fazer cada recomendação do pool alcançável em um número limitado de rodadas. Fechar as recomendações reutiliza a gravação de volta das configurações existentes e do registro de onboarding.
+- Os ícones de recomendação usam uma base de 24px sem borda com padding; o material do GitHub com fundo branco é reduzido adicionalmente para 18px, evitando que o quadrado branco fique próximo às bordas da base.
+- O `[@插件](plugin://stable-id)` preenchido no corpo do composer forma no Composer uma menção estruturada na posição original; múltiplos plugins podem aparecer simultaneamente. O clique apenas substitui o rascunho e não envia automaticamente.
 
-## 产品语义
+## Semântica de produto
 
-- 点击不引用 Plugin 的推荐项时，立即把固定 prompt **预填**到 Composer，不自动发送。
-- 点击引用 Plugin 的推荐项时，等待目标 Host 的首次可信解析。首次本地检查仍可直接引用时不显示额外反馈，`ready` 时一次性写入结构化 Plugin 提及与 prompt；正文已有该插件引用时保留原位置，不重复前置，正文含多个插件时逐个解析为提及节点。首次检查发现不能直接引用时，当前推荐项的唯一 Plugin action Popover 立即进入 loading。其他结果或解析失败时
-  一次性写入纯 prompt，避免先出现正文、稍后再跳入 chip 的两阶段更新。
-- 预填会**替换**现有草稿，不做追加或合并；用户仍可继续编辑后手动发送。
-- prompt item 的 `on_finish` 按英文逗号拆分、trim 并去重，再由显式 `switch` 白名单映射行为。
-  当前支持以下导航行为，命中后均终止本次 Composer 预填：
-  - `NAVIGATE:AUTOMATIONS`：复用 workspace 主导航打开 Automations。
-  - `NAVIGATE:AUTOMATIONS:OFFPEAK`：打开 Automations；待定时任务/闲时任务数据就绪后，仅当
-    `Idle-time` tab 实际存在时自动选中该 tab，否则保持 Automations 的默认 tab。若同一 item 同时声明
-    两种 Automations action，以更具体的 `NAVIGATE:AUTOMATIONS:OFFPEAK` 为准且只导航一次。
-    未知或空 action 不改变普通 prompt 的预填语义。
-- 手机 `/remote` 不承载 Automations；当页面没有 Automations 导航能力时，必须过滤声明了
-  任一 Automations 导航 action 的推荐项，不得展示一个无效入口或绕过既有端侧边界。
-- 推荐项可以声明一个固定 Plugin stable ID。只有 Plugin 已启用且不存在同名冲突时，首次写入才在 prompt 前加入 canonical
-  `[@Plugin](plugin://stable-id)` 引用并创建结构化 Plugin chip。
-- Plugin 首次可信解析期间记录点击时的 renderer-local Composer revision；若用户输入、外部插入或草稿恢复使 revision 变化，
-  该 operation 静默放弃延迟写入和后续 Popover，禁止用迟到的推荐结果覆盖当前草稿。
-- `missing` 必须先只刷新 `zcode-plugins-official`，刷新成功后重新解析；刷新失败、候选消失、来源不可信或冲突均为
-  `unavailable`/`conflict`，禁止使用旧快照一键安装，保留纯 prompt。
-- `zcode-plugins-official` 刷新最多等待 10000 ms；达到超时后主动中止刷新并按 `marketplace_refresh_failed` fail closed，禁止继续读取旧快照候选，只保留纯 prompt。
-- 一键安装只允许 `zcode-plugins-official`，固定使用 `scope: "user"`，安装到当前权威 Agent Host 的当前用户；远程 workspace 写入远程 Host。
-- 首次本地检查发现目标 Plugin 不存在、即将刷新官方 Marketplace 时，Agent 必须先按 `operationId` 发出 `refreshing` 进度；UI 收到后立即让
-  当前推荐项的 Plugin action Popover 进入 loading。首次可信解析直接返回 `disabled` 时，UI 在写入纯 prompt 前让同一个 Popover 进入 loading。
-  `ready`、`conflict`、`unavailable` 和解析失败不得仅因首次检查而新建第二个 Popover。
-- 每个推荐操作在任意时刻最多存在一个 Plugin action Popover。loading、安装/开启确认、安装/开启进度以及成功/失败都只更新同一个
-  `PopoverContent` 的 phase/message/action；切换推荐项时先清理旧 operation 的同一实例，再由新 operation 复用这个唯一挂载点，禁止并行挂载、嵌套或叠加第二个 Popover。
-- `missing` / `disabled` 可信结果继续把纯 prompt 交给 Composer；只有 Composer 已消费对应插入请求、输入区与推荐项完成本轮布局后，
-  同一个 loading Popover 才原地切换为确认态。Popover 以当前推荐项按钮为锚点，在按钮正下方 `9px` 打开，不抢 Composer 焦点、不阻断页面其它交互，桌面与手机 Web 都必须限制在当前 viewport 内。确认态宽度为 `240px`，高度由本地化内容自然撑开；不设置自动关闭时限。用户以主指针点击 Popover 外部区域时，关闭 Popover、取消该 operation 并只保留纯 prompt；焦点移出、Popover 内部点击、前置 loading、安装/开启进度和结果态不得触发这条确认态关闭行为。
-- 首次可信解析已经返回 `ready` 时一次性替换为 chip + prompt；当前没有 workspace 级 Plugin，不得再调用 `plugins/referenceCatalog`，也不得失效草稿 Runtime 或再次调用可信解析。只有安装或启用成功后，才失效延迟草稿 Runtime，并由目标 Host 再次可信解析状态。
-- 可信解析结果可以携带官方 Marketplace listing 的 display-only `icon`；该字段不参与身份、安装判断或权限，只随同一次解析返回。UI 将它写入 Plugin mention；缺失或无效时使用既有默认 Plugin 图标，不得只为图标恢复 catalog RPC。
-- 用户确认安装或启用后，同一个 PopoverContent 从确认态收敛为常驻进度；只有目标 Host 再次可信解析为 `ready`、Composer 已消费并清理对应前置 chip requestId 后才显示成功态。进度内容切换到成功内容时复用模型切换标签的纵向滚动结构：`AnimatePresence initial={false} mode="popLayout"` 保持挂载点，旧进度内容从 `y: 0` 向 `-0.75em` 淡出，16px Check 与成功文案从 `y: 0.75em + opacity: 0` 进入到 `y: 0 + opacity: 1`，时长 `200ms`、easing 为 `[0.4, 0, 0.2, 1]`；reduced-motion 下直接静态替换。确认、失败和重试阶段不触发该滚动。安装/启用失败按 Popover 失败语义收敛，并继续保留纯 prompt。
-- 一键安装的远端操作最多等待 10000 ms；超时即判定安装失败，取消旧 operation、阻断迟到结果，只保留纯 prompt，并让同一个 Popover 恢复安装确认态以便重试，同时按 UI logger `warn` 与 warning toast 记录失败。该超时只作用于安装阶段，不限制后续 Composer 收尾。
-- 每次可信解析请求必须携带唯一 `operationId`，并同时携带目标 attachment 的 `clientMode` 与 `deliveryKind`：桌面为
-  `desktop-continuous`，手机远控为 `web-remote-replayable`；两者只声明既有链路边界，不创建新的 stream 或恢复状态。
-- 安装或启用进行中点击另一推荐项时，中断旧 operation；旧 operation 的迟到结果不得写入草稿、Popover 或 chip，取消尚未完成时暂时禁用其他推荐项。
-- Plugin 不存在或未启用时，使用当前 locale 的 Plugin label 展示可恢复状态并保留纯 prompt；冲突、workspace RPC 未就绪或解析失败时
-  降级为纯 prompt，不展示虚假的 Plugin chip。初次点击不自动安装或启用，只有用户明确点击 flow 中的安装/启用动作时才执行。
-- Plugin 引用只是 capability hint，不自动发送，也不改变工具权限和审批；本次不处理 API Key、OAuth 或用户插件配置。
-- 草稿继续由 renderer-local Composer draft 持有；发送仍走既有 desktop `desktop-continuous` 或手机
-  `web-remote-replayable` 链路，不新增 relay/main/Host 业务状态。
+- Ao clicar em um item recomendado que não referencia Plugin, o prompt fixo é **pré-preenchido** imediatamente no Composer, sem envio automático.
+- Ao clicar em um item recomendado que referencia Plugin, aguarda-se a primeira resolução confiável do Host de destino. Quando a primeira verificação local ainda puder referenciar diretamente, não se exibe feedback adicional e, em `ready`, a menção estruturada de Plugin e o prompt são escritos de uma só vez; quando o corpo já tem a referência desse plugin, a posição original é mantida sem prefixar de novo e, quando o corpo contém múltiplos plugins, cada um é resolvido como um nó de menção. Quando a primeira verificação encontra que não é possível referenciar diretamente, o único Plugin action Popover do item recomendado atual entra imediatamente em loading. Em outros resultados ou em falha de resolução,
+  o prompt puro é escrito de uma só vez, evitando a atualização em duas fases em que o corpo aparece primeiro e o chip entra depois.
+- O pré-preenchimento **substitui** o rascunho existente, sem append nem merge; o usuário ainda pode continuar editando e enviar manualmente.
+- O `on_finish` do prompt item é dividido por vírgulas em inglês, sofre trim e desduplicação e então tem o comportamento mapeado por uma allowlist de `switch` explícita.
+  Os seguintes comportamentos de navegação são suportados atualmente e, quando atingidos, encerram este pré-preenchimento do Composer:
+  - `NAVIGATE:AUTOMATIONS`：reutiliza a navegação principal do workspace para abrir Automations.
+  - `NAVIGATE:AUTOMATIONS:OFFPEAK`：abre Automations e, depois que os dados de tarefas agendadas/de período ocioso estiverem prontos, seleciona automaticamente a tab `Idle-time` somente quando ela realmente existir, mantendo caso contrário a tab padrão de Automations. Se o mesmo item declara as duas actions de Automations, prevalece a `NAVIGATE:AUTOMATIONS:OFFPEAK` mais específica e a navegação acontece apenas uma vez.
+    Action desconhecida ou vazia não altera a semântica de pré-preenchimento do prompt comum.
+- O celular `/remote` não hospeda Automations; quando a página não tem a capacidade de navegação de Automations, os itens recomendados que declaram qualquer action de navegação de Automations precisam ser filtrados, sem exibir uma entrada inválida nem contornar as fronteiras de terminal já existentes.
+- Um item recomendado pode declarar um único Plugin stable ID fixo. Somente quando o Plugin está habilitado e não há conflito de mesmo nome, a primeira escrita acrescenta antes do prompt a referência canonical `[@Plugin](plugin://stable-id)` e cria o chip estruturado de Plugin.
+- Durante a primeira resolução confiável do Plugin, registra-se o Composer revision renderer-local no momento do clique; se a entrada do usuário, uma inserção externa ou a restauração do rascunho mudarem o revision,
+  essa operation abandona silenciosamente a escrita adiada e o Popover subsequente, e é proibido sobrescrever o rascunho atual com um resultado de recomendação tardio.
+- `missing` deve primeiro atualizar somente `zcode-plugins-official` e, após a atualização bem-sucedida, resolver novamente; falha de atualização, candidato desaparecido, origem não confiável ou conflito resultam em
+  `unavailable`/`conflict`, e é proibido usar o snapshot antigo para instalar em um clique, mantendo o prompt puro.
+- A atualização de `zcode-plugins-official` espera no máximo 10000 ms; ao atingir o timeout, a atualização é abortada ativamente e ocorre fail closed com `marketplace_refresh_failed`, sem continuar lendo candidatos do snapshot antigo e mantendo apenas o prompt puro.
+- A instalação em um clique só é permitida para `zcode-plugins-official`, sempre com `scope: "user"`, instalando no usuário atual do Agent Host autoritativo atual; em workspace remoto, a escrita vai para o Host remoto.
+- Quando a primeira verificação local encontra que o Plugin de destino não existe e o Marketplace oficial está prestes a ser atualizado, o Agent precisa emitir primeiro o progresso `refreshing` com o `operationId`; ao recebê-lo, a UI coloca imediatamente em loading o Plugin action Popover do item recomendado atual. Quando a primeira resolução confiável retorna diretamente `disabled`, a UI coloca o mesmo Popover em loading antes de escrever o prompt puro.
+  `ready`, `conflict`, `unavailable` e falha de resolução não podem criar um segundo Popover apenas por causa da primeira verificação.
+- Para cada operation de recomendação existe no máximo um Plugin action Popover em qualquer momento. Loading, confirmação de instalação/ativação, progresso de instalação/ativação e sucesso/falha apenas atualizam a phase/message/action do mesmo
+  `PopoverContent`; ao trocar de item recomendado, a mesma instância da operation antiga é limpa primeiro e a nova operation reutiliza esse único ponto de montagem, e é proibida a montagem paralela, aninhada ou sobreposta de um segundo Popover.
+- Resultados confiáveis `missing` / `disabled` continuam entregando o prompt puro ao Composer; somente depois que o Composer tiver consumido a solicitação de inserção correspondente e que a área de entrada e o item recomendado tiverem concluído o layout desta rodada, o
+  mesmo Popover em loading muda no lugar para o estado de confirmação. O Popover usa o botão do item recomendado atual como âncora e abre `9px` diretamente abaixo do botão, sem roubar o foco do Composer e sem bloquear as outras interações da página, devendo ficar restrito ao viewport atual tanto no desktop quanto na Web móvel. O estado de confirmação tem largura de `240px`, com a altura crescendo naturalmente conforme o conteúdo localizado; não há tempo de fechamento automático. Quando o usuário clica com o ponteiro principal na área externa ao Popover, o Popover fecha, a operation é cancelada e apenas o prompt puro é mantido; mover o foco para fora, clicar dentro do Popover e os estados de loading inicial, de progresso de instalação/ativação e de resultado não podem disparar esse fechamento do estado de confirmação.
+- Quando a primeira resolução confiável já retornou `ready`, a substituição por chip + prompt acontece de uma só vez; não havendo Plugin de nível de workspace, não se chama mais `plugins/referenceCatalog`, e o Runtime do rascunho não é invalidado nem a resolução confiável é chamada de novo. Somente após sucesso de instalação ou ativação é que o Runtime do rascunho adiado é invalidado e o estado é resolvido de forma confiável novamente pelo Host de destino.
+- O resultado da resolução confiável pode carregar o `icon` display-only do listing oficial do Marketplace; esse campo não participa de identidade, decisão de instalação ou permissão e volta junto com a mesma resolução. A UI o escreve na menção de Plugin; quando ausente ou inválido, usa o ícone de Plugin padrão existente, sem restaurar um RPC de catalog apenas por causa do ícone.
+- Após o usuário confirmar a instalação ou ativação, o mesmo PopoverContent converge do estado de confirmação para o progresso persistente; o estado de sucesso só é exibido quando o Host de destino resolver novamente de forma confiável como `ready` e o Composer tiver consumido e limpo o chip requestId de prefixo correspondente. Ao trocar o conteúdo de progresso pelo conteúdo de sucesso, reutiliza-se a estrutura de rolagem vertical do标签 de troca de modelo: `AnimatePresence initial={false} mode="popLayout"` mantém o ponto de montagem, o conteúdo de progresso antigo desaparece de `y: 0` para `-0.75em`, o Check de 16px e o texto de sucesso entram de `y: 0.75em + opacity: 0` para `y: 0 + opacity: 1`, com duração `200ms` e easing `[0.4, 0, 0.2, 1]`; sob reduced-motion a substituição é estática e direta. Os estágios de confirmação, falha e retry não disparam essa rolagem. Falhas de instalação/ativação convergem conforme a semântica de falha do Popover e continuam mantendo o prompt puro.
+- A operação remota de instalação em um clique espera no máximo 10000 ms; no timeout a instalação é considerada falha, a operation antiga é cancelada, resultados tardios são bloqueados, apenas o prompt puro é mantido e o mesmo Popover volta ao estado de confirmação de instalação para permitir retry, com o registro da falha no UI logger `warn` e em um warning toast. Esse timeout atua apenas sobre a fase de instalação e não limita a conclusão posterior do Composer.
+- Cada solicitação de resolução confiável precisa carregar um `operationId` único e, ao mesmo tempo, o `clientMode` e o `deliveryKind` do attachment de destino: `desktop-continuous` no desktop e `web-remote-replayable` no controle remoto do celular; ambos apenas declaram as fronteiras de cadeia já existentes e não criam novos estados de stream ou de restauração.
+- Ao clicar em outro item recomendado durante uma instalação ou ativação em andamento, a operation antiga é interrompida; os resultados tardios da operação antiga não podem escrever no rascunho, no Popover ou no chip, e os outros itens recomendados ficam temporariamente desabilitados enquanto o cancelamento ainda não concluiu.
+- Quando o Plugin não existe ou não está habilitado, um estado recuperável é exibido com o Plugin label do locale atual e o prompt puro é mantido; em conflito, quando o RPC do workspace não está pronto ou em falha de resolução, degrada-se
+  para o prompt puro, sem exibir um chip de Plugin falso. O primeiro clique não instala nem ativa automaticamente, e a instalação/ativação só acontece quando o usuário clica explicitamente na ação de instalação/ativação do fluxo.
+- A referência de Plugin é apenas uma dica de capability, não envia automaticamente e não altera permissões nem aprovações de ferramentas; esta rodada não lida com API Key, OAuth ou configuração de plugins do usuário.
+- O rascunho continua sendo mantido pelo Composer draft renderer-local; o envio continua passando pelas cadeias existentes de `desktop-continuous` no desktop ou `web-remote-replayable` no celular, sem novos estados de negócio de relay/main/Host.
 
 ```text
 点击推荐项
@@ -117,7 +109,7 @@ operation A active
         -> 不显示取消或中断反馈
 ```
 
-## 组件
+## Componente
 
 `packages/ui/src/v4/ConversationDraftSuggestedPrompts.tsx`
 
@@ -125,126 +117,119 @@ operation A active
 <ConversationDraftSuggestedPrompts className="mt-6" onSelect={(item) => …} />
 ```
 
-| Prop                  | 说明                                                    |
-| --------------------- | ------------------------------------------------------- |
-| `className`           | 外层容器附加类名                                        |
-| `items`               | 从 `clientScenesService` 映射后的推荐项列表；默认空数组 |
-| `onSelect`            | 点击回调，参数为完整推荐项配置                          |
-| `disabled`            | 旧 operation 取消收敛期间禁用推荐项                     |
-| `pluginActionPopover` | 当前安装/开启 Popover 的锚点、阶段、文案与确认动作      |
+| Prop                  | Descrição                                                       |
+| --------------------- | --------------------------------------------------------------- |
+| `className`           | nome de classe adicional do contêiner externo                    |
+| `items`               | lista de itens recomendados mapeada a partir do `clientScenesService`; array vazio por padrão |
+| `onSelect`            | callback de clique, com o argumento sendo a configuração completa do item recomendado |
+| `disabled`            | desabilita os itens recomendados enquanto uma operation antiga está convergindo após o cancelamento |
+| `pluginActionPopover` | âncora, fase, texto e ação de confirmação do Popover atual de instalação/ativação |
 
-- 挂载点：`packages/ui/src/v4/SessionPane.tsx` 的 `conversationBottomDock` 中、`{composerNode}` 之后，
-  仅草稿态（`isDraft`）渲染。草稿页按 `welcome -> composer -> suggested slot` 的顺序组织；Container
-  使用正常文档流中的固定 `h-8` 槽位，不使用 absolute 定位。列表异步加载期间槽位保持为空，数据返回后按钮填入同一槽位，避免加载前后高度变化。
-- 布局：按钮组从 Composer 下沿保留 `24px` 间距，内部使用 hug-content 的单行横向排列，
-  按钮间距为 `gap-4`。桌面在 Composer 下方居中；窄屏保持单行并允许横向滚动，不折叠成纵向列表，
-  也不挤压 Composer。按钮组本身不增加额外卡片背景，Composer 与空槽位作为同一居中布局整体参与计算。
-- 每一项复用共享 `Button` 的 `outline` 交互态，行高为 `h-8`，使用 8px 的 `rounded-lg`、`px-3`；左侧保留
-  `size-4` 图标槽（内部 `size-4` lucide 图标），右侧优先显示 prompt item 当前 locale 的
-  `label`（来自 Client Scenes `labels`）。点击后仍使用 `prompt`（来自 `contents`）预填 Composer。
-- Client Scenes 列表首次渲染时使用 waterfall 进入效果：按钮按 DOM 顺序从左到右以
-  `65ms` 间隔接续，每个按钮从顶部裁切展开，同时从上方 `12px` 下落归位。动画不改变
-  按钮组布局高度。系统开启
-  `prefers-reduced-motion: reduce` 时完全关闭该动画。
-- 按钮可见文本和图标统一使用 `text-foreground`；默认内容透明度为 `opacity-70`，hover 时通过
-  `transition-opacity` 过渡到 `opacity-100`。可见文本继续以 `text-ui-base` 呈现并始终保持单行省略。
-  窄屏不换行，超出按钮组宽度时由组内横向滚动承接，不让页面本身横向溢出。
-- `plugin` 配置只参与点击后的 capability 解析，Plugin label 和 canonical 引用都不在推荐列表中展示。
-- 图标直接使用 prompt item 的 `img` 作为 Lucide canonical 名称（kebab-case，例如 `file-text`），
-  按名称动态加载对应 SVG。图标不设置独立颜色，使用 `currentColor` 继承图标槽的 `text-foreground`；
-  `img` 为空、名称不属于当前 Lucide 版本或模块加载失败时回退中性的 `SquareCode`。不要读取 locale
-  相关的 `imgs.cn` / `imgs.en`。
-- 服务端 i18n 字段使用 `cn` / `en`；`zh-CN` 读取 `cn`，`en-US` 读取 `en`，字段为空时回退另一语言。
+- Ponto de montagem: dentro do `conversationBottomDock` de `packages/ui/src/v4/SessionPane.tsx`, depois de `{composerNode}`,
+  renderizado apenas no estado de rascunho (`isDraft`). A página de rascunho é organizada na ordem `welcome -> composer -> suggested slot`; o Container usa um slot fixo de `h-8` no fluxo normal do documento, sem posicionamento absolute. O slot permanece vazio durante o carregamento assíncrono da lista e os botões são preenchidos no mesmo slot quando os dados chegam, evitando mudança de altura antes e depois do carregamento.
+- Layout: o grupo de botões mantém `24px` de distância da borda inferior do Composer, usa internamente uma disposição horizontal de linha única com hug-content
+  e espaçamento de `gap-4` entre botões. No desktop fica centralizado abaixo do Composer; em tela estreita permanece em linha única e permite rolagem horizontal, sem colapsar em lista vertical
+  e sem comprimir o Composer. O próprio grupo de botões não adiciona fundo de card adicional, e o Composer e o slot vazio participam juntos do cálculo como um único layout centralizado.
+- Cada item reutiliza o estado de interação `outline` do `Button` compartilhado, com altura de linha `h-8`, usando `rounded-lg` de 8px e `px-3`; à esquerda fica um slot de ícone `size-4` (ícone lucide `size-4` interno) e à direita é exibido preferencialmente o
+  `label` do prompt item no locale atual (vindo dos `labels` do Client Scenes). Após o clique, o Composer continua sendo preenchido com o `prompt` (vindo dos `contents`).
+- Na primeira renderização da lista do Client Scenes, usa-se um efeito de entrada em waterfall: os botões entram em sequência da esquerda para a direita na ordem do DOM com
+  intervalo de `65ms`, cada botão sendo revelado a partir de um recorte no topo e descendo `12px` para se acomodar. A animação não altera
+  a altura do layout do grupo de botões. Quando o sistema tem
+  `prefers-reduced-motion: reduce`, a animação é totalmente desligada.
+- O texto visível e o ícone dos botões usam uniformemente `text-foreground`; a opacidade padrão do conteúdo é `opacity-70` e, no hover, transita por
+  `transition-opacity` para `opacity-100`. O texto visível continua sendo apresentado em `text-ui-base` e permanece sempre em linha única com ellipsis.
+  Em tela estreita não há quebra de linha e, ao ultrapassar a largura do grupo de botões, a rolagem horizontal dentro do grupo assume, sem deixar a própria página transbordar horizontalmente.
+- A configuração `plugin` participa apenas da resolução de capability após o clique; o Plugin label e a referência canonical não são exibidos na lista de recomendações.
+- O ícone usa diretamente o `img` do prompt item como nome canônico Lucide (kebab-case, por exemplo `file-text`),
+  carregando dinamicamente o SVG correspondente pelo nome. O ícone não tem cor própria e usa `currentColor` herdando o `text-foreground` do slot de ícone;
+  quando o `img` está vazio, o nome não pertence à versão atual do Lucide ou o carregamento do módulo falha, há recorrência ao `SquareCode` neutro. Não se lê o
+  `imgs.cn` / `imgs.en` relacionados ao locale.
+- Os campos i18n do servidor usam `cn` / `en`; `zh-CN` lê `cn`, `en-US` lê `en` e, quando o campo está vazio, há recorrência ao outro idioma.
 
-## Client Scenes 映射
+## Mapeamento do Client Scenes
 
-只消费 `ClientSceneConfig.scene === "draft-suggestion"` 的 `options.prompts.items`；旧的
-`ai-writing` 不再作为 fallback，其他 scene 和 option 均不参与推荐列表：
+Consome-se apenas o `options.prompts.items` cujo `ClientSceneConfig.scene === "draft-suggestion"`; o antigo `ai-writing` não é mais usado como fallback e nenhuma outra scene ou option participa da lista de recomendações:
 
-| `DraftSuggestedPromptItem` | 来源                                                                                                                            |
+| `DraftSuggestedPromptItem` | Origem                                                                                                                            |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                       | prompt item 的 `id`                                                                                                             |
-| `label`                    | prompt item 的 `labels`（`cn` / `en`）                                                                                          |
-| `prompt`                   | prompt item 的 `contents`（`cn` / `en`）                                                                                        |
-| `iconName`                 | prompt item 的 `img` Lucide canonical 名称；明确不读取 `imgs`                                                                   |
-| `actions`                  | prompt item 的 `on_finish`；按英文逗号拆分后只保留 UI 明确支持的 action                                                         |
-| `plugin.stableId`          | 遍历 prompt item 的 `defaults`；key 定位 `scene.options[key]`，value 中的 id 定位该 option 的 item，读取匹配 item 的 `contents` |
-| `plugin.label`             | 同一个匹配 item 的 `labels`（`cn` / `en`）                                                                                      |
+| `id`                       | o `id` do prompt item                                                                                                             |
+| `label`                    | os `labels` do prompt item (`cn` / `en`)                                                                                          |
+| `prompt`                   | os `contents` do prompt item (`cn` / `en`)                                                                                        |
+| `iconName`                 | o nome canônico Lucide do `img` do prompt item; explicitamente não lê `imgs`                                                     |
+| `actions`                  | o `on_finish` do prompt item; após dividir por vírgulas em inglês, mantém apenas as actions explicitamente suportadas pela UI        |
+| `plugin.stableId`          | percorre os `defaults` do prompt item; a key localiza `scene.options[key]`, o id dentro do value localiza o item daquela option e lê os `contents` do item correspondente |
+| `plugin.label`             | os `labels` (`cn` / `en`) do mesmo item correspondente                                                                            |
 
-`defaults` 缺失、option key 不存在、item id 不存在或 Plugin stable ID 为空时，该推荐项按无 Plugin 处理。
-当前 `DraftSuggestedPromptItem` 只支持一个 Plugin，因此存在多个有效 defaults 引用时按服务端声明顺序取第一个。
+Quando `defaults` está ausente, a option key não existe, o id de item não existe ou o Plugin stable ID está vazio, o item recomendado é tratado como sem Plugin.
+O `DraftSuggestedPromptItem` atual suporta apenas um Plugin e, portanto, quando existem múltiplas referências válidas em defaults, toma-se a primeira na ordem de declaração do servidor.
 
-Client Scenes 通过共享 `useClientScenesResource()` 获取：与同一 Service authority 下的 scheduled / off-peak
-模板并发挂载时只发出一次请求。冷缓存加载期间展示空列表；已有缓存时立即映射并展示旧目录，后台重验
-不得清空列表。接口首次失败、响应 `code !== 0`、缺少 `draft-suggestion` scene 或缺少
-`options.prompts` 时展示空列表，不回退到本地静态推荐；已有缓存的重验失败保留 last-known-good 推荐项。
-接口失败使用 UI logger `warn`，不影响 Composer。locale 切换只重新映射缓存中的 i18n 字段，不触发请求。
-缓存去重窗口为 10 分钟；页面实际经历 hidden 后重新 visible 时必须绕过去重窗口强制重验一次，同一
-Service/cache authority 的多个推荐项或模板消费方不得重复请求。
+O Client Scenes é obtido pelo `useClientScenesResource()` compartilhado: ao montar concorrentemente com os modelos scheduled/off-peak sob a mesma autoridade de Service, apenas uma requisição é emitida. Uma lista vazia é exibida durante o carregamento do cache frio; com cache existente, o catálogo antigo é mapeado e exibido imediatamente e a revalidação em segundo plano
+não pode esvaziar a lista. Quando a interface falha na primeira chamada, a resposta tem `code !== 0`, falta a scene `draft-suggestion` ou falta
+`options.prompts`, exibe-se uma lista vazia, sem recorrer às recomendações estáticas locais; uma falha de revalidação com cache existente mantém os itens recomendados de last-known-good.
+Falhas de interface usam o UI logger `warn` e não afetam o Composer. A troca de locale apenas remapeia os campos i18n do cache e não dispara requisição.
+A janela de desduplicação do cache é de 10 minutos; quando a página realmente passa por hidden e volta a visible, é preciso contornar a janela de desduplicação e forçar uma revalidação, e múltiplos consumidores de recomendação ou template sob a mesma autoridade de Service/cache não podem repetir a requisição.
 
-## 状态剪枝与覆盖
+## Poda de estados e cobertura
 
-| Case  | 状态                                            | 期望                                                                                                                                                                                                                     | 覆盖         |
-| ----- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
-| DSP01 | `draft-suggestion` prompt item、无 defaults     | 映射服务端 i18n，替换为纯 prompt，不自动发送                                                                                                                                                                             | focused unit |
-| DSP02 | defaults 反查到 Plugin，首次解析即 ready        | 解析前不写入；结果返回后一次性替换为 chip + prompt，不失效 Runtime、不二次解析、不读取 workspace catalog；可选 icon 随结构化 chip 写入                                                                                   | focused unit |
-| DSP03 | Plugin missing                                  | 首次本地检查缺失后先发 `refreshing`，唯一 Popover 进入 loading；只刷新官方市场，10000ms 超时中止并 fail closed；完成后一次性写入纯 prompt；Composer 消费后同一 Popover 原地切换为无时限确认态，点击 Popover 外部静默取消 | focused unit |
-| DSP04 | Plugin disabled / conflicted / catalog 请求失败 | disabled 先让唯一 Popover 进入 loading，再一次性写入纯 prompt，Composer 消费后原地切换为确认；conflict/失败不增加第二个 Popover；请求携带 clientMode/deliveryKind                                                        | unit         |
-| DSP05 | 安装或启用期间点击另一个推荐项                  | 静默关闭旧 Plugin action Popover 并取消旧 operation；取消收敛前禁用其他推荐项；迟到结果不覆盖新选择                                                                                                                      | focused unit |
-| DSP06 | 安装完成且用户已编辑草稿                        | Popover 进度常驻；保留正文，将唯一 Plugin chip 前置；Composer 更新后在同一 Popover 以模型标签同款纵向滚动显示成功，不自动发送                                                                                            | focused unit |
-| DSP07 | 安装或启用失败或安装达到 10000ms                | 安装失败恢复确认 Popover 并允许重试；启用失败显示失败结果；安装超时取消 operation，纯 prompt 保留                                                                                                                        | focused unit |
-| DSP08 | scenes 加载失败/非成功 code/目标配置缺失        | 空列表，Composer 保持可用                                                                                                                                                                                                | unit         |
-| DSP09 | locale 为 `zh-CN` / `en-US`                     | 分别使用 `cn` / `en`，缺失时跨语言回退                                                                                                                                                                                   | unit         |
-| DSP10 | `img` 有效 / 缺失 / 加载失败，且 `imgs` 任意    | 有效图标；其余回退占位且忽略 `imgs`                                                                                                                                                                                      | focused unit |
-| DSP11 | Plugin 首次可信解析期间用户修改 Composer        | revision 变化后静默放弃延迟写入和 Popover，当前草稿不被覆盖                                                                                                                                                              | focused unit |
-| DSP12 | `on_finish` 含逗号、空白、重复或未知 action     | 只保留去重后的受支持 action                                                                                                                                                                                              | focused unit |
-| DSP13 | 点击 `NAVIGATE:AUTOMATIONS` 推荐项              | 打开 Automations，不预填、不自动发送                                                                                                                                                                                     | focused unit |
-| DSP14 | 点击 `NAVIGATE:AUTOMATIONS:OFFPEAK` 推荐项      | 打开 Automations；Idle tab 存在时自动选中                                                                                                                                                                                | focused unit |
-| DSP15 | OFFPEAK intent 数据就绪后无 Idle tab            | 保持默认 tab，并消费一次性 intent                                                                                                                                                                                        | focused unit |
-| DSP16 | 手机 `/remote` 无 Automations 导航能力          | 过滤两种导航型推荐项，普通 prompt 保持可用                                                                                                                                                                               | focused unit |
+| Case  | Estado                                            | Expectativa                                                                                                                                                                                                                     | Cobertura     |
+| ----- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- |
+| DSP01 | prompt item de `draft-suggestion`, sem defaults     | mapeia o i18n do servidor, substitui pelo prompt puro e não envia automaticamente                                                                                                                                            | focused unit |
+| DSP02 | Plugin encontrado por defaults, já ready na primeira resolução | não escreve antes da resolução; após o retorno do resultado, substitui de uma só vez por chip + prompt, sem invalidar o Runtime, sem segunda resolução e sem ler o workspace catalog; o icon opcional vai junto com o chip estruturado | focused unit |
+| DSP03 | Plugin missing                                  | após a ausência na primeira verificação local, envia `refreshing` e o único Popover entra em loading; atualiza apenas o mercado oficial, com timeout de 10000ms que aborta e falha de forma fechada; depois escreve de uma só vez o prompt puro e, após o Composer consumir, o mesmo Popover muda no lugar para um estado de confirmação sem prazo, e clicar fora do Popover cancela silenciosamente | focused unit |
+| DSP04 | Plugin disabled / conflicted / falha na requisição de catalog | disabled primeiro coloca o único Popover em loading e depois escreve de uma só vez o prompt puro, mudando no lugar para confirmação após o consumo do Composer; conflict/falha não adiciona um segundo Popover; a requisição carrega clientMode/deliveryKind | unit         |
+| DSP05 | clicar em outro item recomendado durante instalação ou ativação | fecha silenciosamente o Popover de action de Plugin antigo e cancela a operation antiga; desabilita os outros itens recomendados até a convergência do cancelamento; resultados tardios não sobrescrevem a nova escolha | focused unit |
+| DSP06 | instalação concluída e o usuário já editou o rascunho | o progresso do Popover persiste; o corpo é mantido e o único chip de Plugin é prefixado; após a atualização do Composer, o sucesso é exibido no mesmo Popover com a rolagem vertical igual à do tag de modelo, sem envio automático | focused unit |
+| DSP07 | falha de instalação ou ativação, ou instalação atingindo 10000ms | a falha de instalação restaura o Popover de confirmação e permite retry; a falha de ativação exibe o resultado de falha; o timeout de instalação cancela a operation e mantém o prompt puro | focused unit |
+| DSP08 | falha de scenes / code não bem-sucedido / configuração-alvo ausente | lista vazia, Composer permanece utilizável                                                                                                                         | unit         |
+| DSP09 | locale `zh-CN` / `en-US`                     | usa `cn` / `en` respectivamente, com recorrência entre idiomas quando faltam                                                                                  | unit         |
+| DSP10 | `img` válido / ausente / falha de carregamento, com qualquer `imgs` | ícone válido; nos demais casos, placeholder de recorrência ignorando `imgs`                                                                                  | focused unit |
+| DSP11 | usuário modifica o Composer durante a primeira resolução confiável do Plugin | após a mudança de revision, abandona silenciosamente a escrita adiada e o Popover, sem sobrescrever o rascunho atual | focused unit |
+| DSP12 | `on_finish` com vírgula, espaço, repetição ou action desconhecida | mantém apenas as actions suportadas após a desduplicação                                                                                                      | focused unit |
+| DSP13 | clicar em um item recomendado `NAVIGATE:AUTOMATIONS` | abre Automations, sem pré-preenchimento e sem envio automático                                                                                              | focused unit |
+| DSP14 | clicar em um item recomendado `NAVIGATE:AUTOMATIONS:OFFPEAK` | abre Automations; seleciona automaticamente quando a tab Idle existe                                                                                          | focused unit |
+| DSP15 | sem Idle tab depois que os dados da intent OFFPEAK estão prontos | mantém a tab padrão e consome a intent de uso único                                                                                                           | focused unit |
+| DSP16 | celular `/remote` sem capacidade de navegação de Automations | filtra os dois tipos de item navegável e o prompt comum permanece utilizável                                                                                  | focused unit |
 
-- 可信解析 loading、remote waiting、RPC error 都归入“当前不可验证”，用 DSP04 代表，不展开错误类型笛卡尔积。
-- “未安装”必须经过可信解析和官方市场刷新；不能把 catalog 缺失直接当作可安装，也不能使用刷新失败时的旧快照。
-- Popover 与草稿写入共用 latest-wins 边界，迟到的旧 catalog 响应不得覆盖草稿或显示过期提示；手动切换推荐项导致的中断始终静默。
-- loading 与 confirmation 均不启动自动关闭计时；只有 confirmation 响应主指针的 Popover 外部点击并取消当前 operation。任意时刻全局最多挂载一个 Plugin action Popover。
-- desktop、mobile Web、local、remote 共用相同 workspace-scoped prefill 与 canonical text，不重复为每个 Plugin
-  状态叉乘；人工 UI 验收同时检查桌面和手机 Web。
-- conversation E2E 采用代表链路：桌面本地安装、桌面远程 User-scope Host 隔离、手机远控刷新失败恢复，另加安装中切换推荐项。
-  主题、语言、Popover action/常驻/外部点击、键盘焦点、移动布局和 reduced-motion 由人工验收，不宣称自动化覆盖 UI。
+- Loading de resolução confiável, espera remota e erro de RPC são todos agrupados em “atualmente não verificável”, representados por DSP04, sem expandir o produto cartesiano de tipos de erro.
+- “Não instalado” precisa passar por resolução confiável e atualização do mercado oficial; não se pode tratar a ausência no catalog como diretamente instalável nem usar o snapshot antigo de uma atualização que falhou.
+- O Popover e a escrita no rascunho compartilham a fronteira latest-wins, e respostas antigas de catalog que chegam tarde não podem sobrescrever o rascunho nem exibir um aviso obsoleto; interrupções causadas pela troca manual de item recomendado são sempre silenciosas.
+- Nem loading nem confirmação iniciam temporizador de fechamento automático; apenas a confirmação responde ao clique com o ponteiro principal fora do Popover e cancela a operation atual. Em qualquer momento há no máximo um Plugin action Popover montado globalmente.
+- desktop, Web móvel, local e remote compartilham o mesmo prefill de escopo de workspace e o mesmo texto canonical, sem bifurcar para cada estado de Plugin;
+  a aceite manual de UI verifica simultaneamente o desktop e a Web móvel.
+- O E2E de conversa adota as cadeiras representativas: instalação local no desktop, isolamento de Host User-scope remoto do desktop, recuperação de falha de atualização no controle remoto do celular e, além disso, troca de item recomendado durante a instalação.
+  Tema, idioma, action/persistência/clique externo do Popover, foco de teclado, layout móvel e reduced-motion ficam por conta da aceite manual, sem alegar cobertura automatizada de UI.
 
 ## Impact Brief
 
-| 字段           | 结论                                                                                                                                                                                                                    |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Campo           | Conclusão                                                                                                                                                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Change layers  | `option-source`、`presentation`、`draft-default`、`validation`、`commit-effect`                                                                                                                                         |
-| UI surface     | New Task 草稿页 `ConversationDraftSuggestedPrompts`                                                                                                                                                                     |
+| UI surface     | `ConversationDraftSuggestedPrompts` da página de rascunho de New Task                                                                                                                                                     |
 | Draft owner    | renderer-local Composer draft / workspace-scoped insert request                                                                                                                                                         |
 | Option source  | `clientScenesService.list()` → `draft-suggestion.options.prompts.items`                                                                                                                                                 |
-| Validation     | Client Scenes 映射边界 + 目标 Host `plugins/resolveSuggestedReference` 可信解析                                                                                                                                         |
-| Commit sink    | `requestComposerTextInsert`；不调用 `onSendText`                                                                                                                                                                        |
-| Persistence    | 既有 V4 Composer draft persistence                                                                                                                                                                                      |
-| Invariants     | 普通 prompt 替换且不自动发送；导航 action 不预填；OFFPEAK 只在现有 Idle tab 间切换；Plugin 不可用时纯 prompt；workspaceIdentity 隔离；手机 `/remote` 不新增 Automations 入口；操作携带 clientMode/deliveryKind 且可取消 |
-| Graph evidence | `capability.plugin-reference` + 新增 suggested-prompts surface；当前环境无 codegraph，使用 feature graph seeds 与 depth-2 精确调用点核对                                                                                |
+| Validation     | fronteira de mapeamento do Client Scenes + resolução confiável `plugins/resolveSuggestedReference` do Host de destino                                      |
+| Commit sink    | `requestComposerTextInsert`; não chama `onSendText`                                                                                                                                                                     |
+| Persistence    | persistência de Composer draft do V4 já existente                                                                                                                                                                       |
+| Invariants     | prompt comum substitui e não envia automaticamente; action de navegação não pré-preenche; OFFPEAK só alterna entre as tabs Idle existentes; prompt puro quando o Plugin está indisponível; isolamento por workspaceIdentity; celular `/remote` não adiciona entrada de Automations; a operação carrega clientMode/deliveryKind e pode ser cancelada |
+| Graph evidence | `capability.plugin-reference` + nova superfície de suggested-prompts; o ambiente atual não possui codegraph, então são usados seeds do feature graph e a conferência de pontos de chamada exatos em profundidade 2 |
 
-组件继续作为纯展示和点击入口；服务端配置只提供候选与 capability hint，UI 只消费目标 Host 的可信解析结果，
-不再读取 workspace catalog，并保持单行标题、隐藏 Plugin 引用、替换草稿且不自动发送的既有契约。
+O componente continua sendo apenas uma superfície de exibição e um ponto de entrada de clique; a configuração do servidor fornece apenas candidatos e dicas de capability, a UI consome somente o resultado da resolução confiável do Host de destino,
+não lê mais o workspace catalog e mantém o contrato existente de título em linha única, referência de Plugin oculta, substituição do rascunho e ausência de envio automático.
 
-## Prompt 模板点击埋点
+## Telemetria de clique em modelos de prompt
 
-Desktop 中每次点击推荐 Prompt 模板（包括普通 Prompt 预填、Automations 导航和 Off-Peak 导航）均通过现有
-`reportAppTelemetryEvent()` 上报一次产品埋点。Web 和手机远控本轮只保留既有 UI 行为，不调用该埋点；
-两端真实上报链路后续单独补齐。事件固定为：
+No Desktop, cada clique em um modelo de prompt recomendado — incluindo o pré-preenchimento de prompt comum, a navegação de Automations e a navegação de Off-Peak — reporta uma única vez um evento de produto pelo `reportAppTelemetryEvent()` existente. Web e controle remoto do celular mantêm nesta rodada apenas o comportamento de UI existente e não chamam essa telemetria;
+a cadeia real de reporte dos dois lados será completada separadamente. O evento é fixo em:
 
-| 字段 | 值 / 口径 |
+| Campo | Valor / semântica |
 | --- | --- |
 | `elementName` | `prompt_template_ck` |
 | `eventRegion` | `app.session` |
 | `eventType` | `ck` |
-| `eventText` | 当前界面语言下用户实际看到的模板名称 |
-| `eventExtraDetail.template_id` | Client Scenes prompt item 的 `item.id`，作为跨语言和改名稳定的统计维度 |
-| `eventExtraDetail.template_prompt` | 当前界面语言解析后的完整 Prompt；不包含用户后续编辑内容 |
+| `eventText` | o nome do modelo realmente visto pelo usuário no idioma de interface atual |
+| `eventExtraDetail.template_id` | o `item.id` do prompt item do Client Scenes, usado como dimensão de estatística estável entre idiomas e renomeações |
+| `eventExtraDetail.template_prompt` | o Prompt completo resolvido no idioma de interface atual; não inclui edições posteriores do usuário |
 
-`eventExtraDetail` 严格只包含 `template_id` 和 `template_prompt`，不上传 `template_name`、
-`template_action`、`talkId` 或 `messageId`。点击埋点在点击处理开始时触发，并与异步 Plugin 操作、导航
-或草稿预填解耦；埋点失败不得阻塞原有交互。Desktop 的 `userId`、客户端上下文和设备字段继续由既有
-`/event/report` 宿主链路补充。Web / 手机远控不在本轮 `/event/report` 统计范围内。
+`eventExtraDetail` contém estritamente apenas `template_id` e `template_prompt`, sem enviar `template_name`,
+`template_action`, `talkId` ou `messageId`. A telemetria de clique é disparada no início do tratamento do clique e fica desacoplada das operações assíncronas de Plugin, da navegação
+ou do pré-preenchimento do rascunho; uma falha de telemetria não pode bloquear a interação original. O `userId`, o contexto de cliente e os campos de dispositivo do Desktop continuam sendo completados pela cadeia de hospedeiro `/event/report` existente. Web / controle remoto do celular não estão no escopo de estatística `/event/report` desta rodada.

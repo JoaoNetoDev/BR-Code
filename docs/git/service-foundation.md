@@ -1,20 +1,20 @@
-# Git 底层服务实现总结
+# Resumo da implementação do serviço de Git
 
-更新日期：2026-04-09
+Data de atualização: 2026-04-09
 
-## 本次目标
+## Objetivo desta rodada
 
-本次只实现 Git 的底层服务与通信架构，不接入上层 Git pane 的真实交互。
+Esta rodada implementa apenas a camada de serviço de baixo nível do Git e a arquitetura de comunicação, sem integrar a interação real do painel Git de nível superior.
 
-完成范围：
+Escopo concluído:
 
-- 在 `packages/shared/src/git.ts` 补齐 Git RPC 所需 DTO
-- 在 `packages/shared/src/channels.ts` 注册 `git` 服务频道
-- 在 `packages/services/src/git/` 落地 `config -> providers -> repo -> service` 结构
-- 在本地、远端、Web 三条服务链路中接入 `IGitService`
-- 补充服务层测试，验证真实 Git CLI 执行
+- Completar os DTOs necessários para o RPC de Git em `packages/shared/src/git.ts`
+- Registrar o canal de serviço `git` em `packages/shared/src/channels.ts`
+- Materializar a estrutura `config -> providers -> repo -> service` em `packages/services/src/git/`
+- Integrar `IGitService` nas três cadeias de serviço: local, remota e web
+- Complementar os testes da camada de serviço validando a execução real da CLI do Git
 
-## 实现关系图
+## Diagrama de relações da implementação
 
 ```mermaid
 flowchart LR
@@ -39,12 +39,12 @@ flowchart LR
   GitCLI --> WorkspaceRepo["workspace 所在环境的 Git 仓库"]
 ```
 
-这张图对应两条核心原则：
+Esse diagrama corresponde a dois princípios centrais:
 
-- 上层永远只通过统一的 `IGitService` 协议访问 Git 能力，不感知执行位置
-- 真正执行 Git 命令的一定是 workspace 所在那一侧的服务实例，而不是固定绑在本机平台层
+- A camada superior sempre acessa as capacidades do Git apenas pelo protocolo unificado `IGitService`, sem perceber onde a execução acontece
+- Quem executa de fato os comandos do Git é a instância de serviço do lado onde o workspace está, e não uma camada de plataforma presa à máquina local
 
-## 目录结构
+## Estrutura de diretórios
 
 ```text
 packages/services/src/git/
@@ -60,286 +60,285 @@ packages/services/src/git/
     gitCliRepo.ts
 ```
 
-## 分层职责
+## Responsabilidades por camada
 
 ### Config
 
-负责 Git 域的静态规则与工具方法：
+Responsável pelas regras estáticas do domínio Git e pelos métodos utilitários:
 
-- Git binary 候选路径
-- 默认 timeout / 输出大小限制
-- 命令执行环境变量
-- 跨平台路径规范化
-- repo 路径与 workspace 作用域判断
+- Caminhos candidatos do binário do Git
+- Timeout padrão / limite de tamanho da saída
+- Variáveis de ambiente para execução de comandos
+- Normalização de caminhos multiplataforma
+- Verificação do escopo de caminho do repo e do workspace
 
 ### Providers
 
-`Providers` 层只负责“怎么执行”，不负责 Git 业务语义。
+A camada `Providers` responde apenas por "como executar", e não pela semântica de negócio do Git.
 
 #### GitEnvironmentProvider
 
-负责：
+Responsável por:
 
-- 解析当前环境里可用的 Git binary
-- 缓存探测结果，避免重复执行 `git --version`
-- 生成统一的 Git 执行环境变量
+- Resolver o binário do Git disponível no ambiente atual
+- Armazenar em cache o resultado da detecção, evitando repetir `git --version`
+- Gerar as variáveis de ambiente unificadas de execução do Git
 
 #### GitCommandProvider
 
-负责：
+Responsável por:
 
-- 统一执行 Git CLI
-- 控制 `cwd`、`env`、timeout、输出大小
-- 记录命令、耗时、exit code、stdoutBytes、stderrSummary
+- Executar a CLI do Git de forma unificada
+- Controlar `cwd`, `env`, timeout e tamanho da saída
+- Registrar comando, tempo decorrido, exit code, stdoutBytes e stderrSummary
 
 ### Repo
 
-`GitCliRepo` 是对系统 Git CLI 的薄封装，职责是“把 Git 原始输出变成结构化数据”。
+`GitCliRepo` é um encapsulamento fino sobre a CLI do Git do sistema, com a responsabilidade de "transformar a saída bruta do Git em dados estruturados".
 
-当前已覆盖：
+Atualmente coberto:
 
-- 仓库解析
+- Resolução do repositório
 - status
 - diff
 - branch comparison
 - stage / unstage / discard / commit
 - identity
 
-其中纯解析逻辑被拆到 `gitCliHelpers.ts`，包括：
+A lógica puramente de parsing foi extraída para `gitCliHelpers.ts`, incluindo:
 
-- `git status --porcelain=v2 -z` 解析
-- `git diff --numstat -z` 解析
-- diff 结果可用性判断
-- 路径归一化与 repo 边界检查
+- Parsing de `git status --porcelain=v2 -z`
+- Parsing de `git diff --numstat -z`
+- Verificação da usabilidade do resultado de diff
+- Normalização de caminhos e verificação dos limites do repo
 
 ### Service
 
-`GitService` 对上层暴露稳定 RPC 语义，不让 UI 直接感知 Git CLI 细节。
+`GitService` expõe à camada superior uma semântica de RPC estável, sem deixar a UI perceber os detalhes da CLI do Git.
 
-关键职责：
+Responsabilidades principais:
 
-- 按当前 `workspacePath` 做作用域过滤
-- 将 repo 层原始状态映射成 `GitFileChange`
-- 把 branch comparison、identity、refresh 等高层语义统一收口
+- Aplicar filtro de escopo pelo `workspacePath` atual
+- Mapear o estado bruto do repo para `GitFileChange`
+- Centralizar as semânticas de alto nível como branch comparison, identity e refresh
 
-## 关键实现流程
+## Fluxos principais de implementação
 
-### 1. 仓库解析
+### 1. Resolução do repositório
 
-`GitCliRepo.resolveRepository()` 的流程：
+O fluxo de `GitCliRepo.resolveRepository()`:
 
-1. 通过 `GitEnvironmentProvider` 找可用的 Git binary
-2. 在 `workspacePath` 下执行 `git rev-parse --show-toplevel --show-prefix`
-3. 得到：
+1. Buscar, via `GitEnvironmentProvider`, um binário do Git disponível
+2. Executar `git rev-parse --show-toplevel --show-prefix` sob `workspacePath`
+3. Obter:
    - `repoRoot`
    - `workspaceInRepoPath`
-4. 如果 Git 不存在或当前目录不在仓库内，返回结构化空结果，而不是把异常直接暴露给上层
+4. Se o Git não existir ou o diretório atual não estiver dentro de um repositório, retornar um resultado vazio estruturado, em vez de expor a exceção diretamente à camada superior
 
-这样做的目的是让上层可以稳定拿到：
+O objetivo é permitir que a camada superior obtenha de forma estável:
 
-- 是否安装了 Git
-- 当前 workspace 是否处于 Git 仓库中
-- workspace 是 repo 根目录还是子目录
+- Se o Git está instalado
+- Se o workspace atual está em um repositório Git
+- Se o workspace é a raiz do repo ou um subdiretório
 
-### 2. 状态获取
+### 2. Obtenção do status
 
-`GitCliRepo.getStatus()` 的流程：
+O fluxo de `GitCliRepo.getStatus()`:
 
-1. 执行 `git status --porcelain=v2 --branch -z`
-2. 执行 staged / unstaged 两个 `git diff --numstat -z`
-3. 解析 branch、ahead/behind、文件状态、行数统计
-4. 对 untracked 文件额外读取文件内容，补出 added 行数
-5. 返回 `GitStatusSnapshot`
+1. Executar `git status --porcelain=v2 --branch -z`
+2. Executar os dois `git diff --numstat -z` (staged / unstaged)
+3. Fazer o parsing de branch, ahead/behind, status dos arquivos e contagem de linhas
+4. Para arquivos untracked, ler o conteúdo do arquivo para completar as linhas adicionadas
+5. Retornar `GitStatusSnapshot`
 
-这里的关键点是：
+Os pontos-chave aqui:
 
-- `status --porcelain=v2` 保证格式稳定，不受系统语言影响
-- staged / unstaged 的行数统计统一在 repo 层完成
-- 上层不需要再猜测某个文件到底属于 staged、unstaged、untracked 还是 conflicted
+- `status --porcelain=v2` garante um formato estável, independente do idioma do sistema
+- A contagem de linhas de staged / unstaged é feita de forma unificada na camada de repo
+- A camada superior não precisa mais adivinhar se um arquivo é staged, unstaged, untracked ou conflicted
 
-### 3. workspace 子目录过滤
+### 3. Filtro de subdiretório do workspace
 
-`GitService.getChanges()` 不会直接把整个 repo 的变化原样抛给 UI，而是根据：
+`GitService.getChanges()` não repassa à UI todas as mudanças do repo como são, mas, com base em:
 
 - `repoRoot`
 - `workspacePath`
 - `workspaceInRepoPath`
 
-只保留当前 workspace 作用域内的变更。
+mantém apenas as mudanças dentro do escopo do workspace atual.
 
-这样当用户打开的是 monorepo 子目录时，默认看到的是“当前 workspace 相关的改动”，不会被整个仓库的其他目录干扰。
+Assim, quando o usuário abre um subdiretório de um monorepo, o padrão exibido são as "alterações relacionadas ao workspace atual", sem interferência dos outros diretórios do repositório.
 
-### 4. 单文件 diff
+### 4. Diff de arquivo único
 
-`GitCliRepo.getDiff()` 的策略：
+A estratégia de `GitCliRepo.getDiff()`:
 
-- `staged`：走 `git diff --cached`
-- `unstaged`：走 `git diff`
-- `branch`：走 `git diff <upstream>...HEAD`
+- `staged`: usa `git diff --cached`
+- `unstaged`: usa `git diff`
+- `branch`: usa `git diff <upstream>...HEAD`
 
-对未跟踪文件做了额外兜底：
+Para arquivos não rastreados há um fallback adicional:
 
-- 普通 `git diff` 不会返回 untracked 文件
-- 所以对这类场景再执行一次 `git diff --no-index`
+- Um `git diff` comum não retorna arquivos untracked
+- Portanto, nesse caso é executado mais uma vez `git diff --no-index`
 
-这样上层在拿 diff 时不需要额外特判“这是 untracked 文件”。
+Assim a camada superior não precisa de um caso especial ao obter o diff ("este arquivo é untracked").
 
-### 5. 写操作
+### 5. Operações de escrita
 
-当前 repo 层已经实现以下真实 Git 写操作：
+A camada de repo já implementa as seguintes operações reais de escrita do Git:
 
 - `stage` -> `git add -- <paths>`
 - `unstage` -> `git restore --staged -- <paths>`
 - `discard` -> `git restore ...`
 - `commit` -> `git commit -m <message>`
 
-这些能力已经通过 `IGitService` 暴露，但上层 UI 还没有正式接入。
+Essas capacidades já são expostas via `IGitService`, mas a UI de nível superior ainda não foi formalmente integrada.
 
-## 通信接线
+## Ligação da comunicação
 
-Git 服务现在和 `file/system/terminal` 一样走统一 RPC 链路。
+O serviço de Git agora usa a cadeia de RPC unificada, assim como `file/system/terminal`.
 
-### Local Desktop
+### Desktop local
 
-- `createLocalServices()` 直接注册本地 `GitService`
+- `createLocalServices()` registra diretamente o `GitService` local
 
-### Remote Desktop
+### Desktop remoto
 
-- renderer 侧看到的仍然是 `IServiceAccessor.gitService`
-- 当前窗口对应的 Remote Host service collection 暴露远端 `gitService`，renderer 再按 remote session /
-  workspace scope 选择该服务；窗口 Local Host 不负责替远端 workspace 建立 Git 代理
-- 这保证 Git 执行位置始终跟随远端 workspace，而不是错误地落到本机
+- Do lado do renderer, o que se vê continua sendo `IServiceAccessor.gitService`
+- A coleção de serviços do Remote Host da janela atual expõe o `gitService` remoto, e o renderer seleciona esse serviço conforme o remote session / workspace scope; a janela Local Host não é responsável por criar um proxy de Git para o workspace remoto
+- Isso garante que o local de execução do Git siga sempre o workspace remoto, em vez de cair incorretamente na máquina local
 
 ### Web
 
-- 浏览器通过 websocket 接远端服务
-- server 侧 remote bridge 透传 `gitService`
+- O navegador se conecta ao serviço remoto via websocket
+- O remote bridge no lado do server repassa o `gitService`
 
-结论：
+Conclusão:
 
-- 协议统一
-- 执行位置跟随 workspace
-- UI 不需要区分 local / remote / web
+- Protocolo unificado
+- Local de execução acompanha o workspace
+- A UI não precisa diferenciar local / remoto / web
 
-## 问题解答
+## Perguntas e respostas
 
-### 1. GitService 如何获取用户本地 Git 命令和 Git 配置
+### 1. Como o GitService obtém os comandos e a configuração Git locais do usuário
 
-#### Git 命令
+#### Comandos do Git
 
-`GitEnvironmentProvider` 会按顺序探测：
+O `GitEnvironmentProvider` sonda, em ordem:
 
 1. `ZCODE_GIT_BINARY`
 2. `git`
-3. Windows 下的常见 Git 安装路径
+3. Caminhos comuns de instalação do Git no Windows
 
-探测方式是执行一次 `git --version`，成功后缓存结果，后续复用。
+A detecção é feita executando uma vez `git --version`; em caso de sucesso o resultado é cacheado e reutilizado depois.
 
-#### Git 配置
+#### Configuração do Git
 
-不直接自己解析 `~/.gitconfig`，而是统一通过 Git CLI 读取。
+Em vez de fazer o parsing de `~/.gitconfig` por conta própria, a leitura é feita sempre pela CLI do Git.
 
-例如身份信息读取方式：
+Por exemplo, para ler as informações de identidade:
 
 - `git config --show-scope --show-origin --get user.name`
 - `git config --show-scope --show-origin --get user.email`
 
-这样拿到的是 Git 自己最终判定的有效配置，天然兼容：
+Assim o que se obtém é a configuração efetiva que o próprio Git decidiu, naturalmente compatível com:
 
-- global / local / worktree scope
+- escopo global / local / worktree
 - includeIf
-- 平台默认配置加载逻辑
+- lógica de carregamento de configuração padrão da plataforma
 
-### 2. GitService 怎么做多端兼容
+### 2. Como o GitService garante a compatibilidade entre plataformas
 
-多端兼容的核心不是“每端单独写一套 Git 实现”，而是：
+O núcleo da compatibilidade não é "escrever uma implementação de Git separada para cada plataforma", mas sim:
 
-- 统一协议：`IGitService`
-- 统一分层：`Service -> Repo -> Providers -> System Git CLI`
-- 统一原则：Git 执行位置跟随 workspace 所在环境
+- Protocolo unificado: `IGitService`
+- Camadas unificadas: `Service -> Repo -> Providers -> System Git CLI`
+- Princípio unificado: o local de execução do Git acompanha o ambiente onde está o workspace
 
-#### 本地 / 远端 / Web 兼容
+#### Compatibilidade local / remoto / web
 
-- 本地：本机 host process 注册本地实现
-- 远端：远端 server 提供 Git 服务，本地只做 RPC 代理
-- Web：浏览器通过 websocket 消费同一套远端服务
+- Local: o host process da própria máquina registra a implementação local
+- Remoto: o server remoto fornece o serviço de Git, e a máquina local apenas faz proxy via RPC
+- Web: o navegador consome, via websocket, o mesmo conjunto de serviços remotos
 
-#### 多操作系统兼容
+#### Compatibilidade com múltiplos sistemas operacionais
 
-当前已经处理：
+Já tratado:
 
-- Windows Git binary 候选路径
-- `/dev/null` 与 `NUL` 差异
-- `\` 与 `/` 路径分隔符差异
-- `realpath` 归一化，避免 macOS `/var` 与 `/private/var` 导致路径误判
+- Caminhos candidatos do binário do Git no Windows
+- Diferença entre `/dev/null` e `NUL`
+- Diferença entre `\` e `/` como separadores de caminho
+- Normalização por `realpath`, evitando que `/var` e `/private/var` no macOS causem falso positivo na comparação de caminhos
 
-### 3. GitService 现在提供哪些服务接口，分别是做什么的
+### 3. Quais interfaces de serviço o GitService oferece hoje, e o que cada uma faz
 
 #### `getRepositorySummary`
 
-返回仓库摘要信息：
+Retorna o resumo do repositório:
 
 - `repoRoot`
 - `workspaceInRepoPath`
-- 分支名
+- Nome do branch
 - ahead / behind
-- 是否 dirty
-- 是否安装 Git
-- 是否在仓库中
+- Se está dirty
+- Se o Git está instalado
+- Se está dentro de um repositório
 
 #### `getChanges`
 
-返回当前 workspace 作用域内的改动列表。
+Retorna a lista de alterações dentro do escopo do workspace atual.
 
-当前支持：
+Suporta hoje:
 
 - `unstaged`
 - `staged`
 
-返回值已经归一化成 `GitFileChange[]`。
+O retorno já é normalizado como `GitFileChange[]`.
 
 #### `getDiff`
 
-返回单文件 diff。
+Retorna o diff de um único arquivo.
 
-支持：
+Suporta:
 
-- unstaged diff
-- staged diff
-- branch comparison diff
-- untracked 文件兜底 diff
+- diff unstaged
+- diff staged
+- diff de comparação de branches
+- diff de fallback para arquivos untracked
 
 #### `getBranchComparison`
 
-返回当前分支相对 upstream 的比较结果，包括：
+Retorna a comparação do branch atual em relação ao upstream, incluindo:
 
 - `baseRef`
 - `headRef`
 - `comparisonLabel`
-- 变更文件列表
+- Lista de arquivos alterados
 
 #### `stagePaths`
 
-将文件加入暂存区。
+Adiciona arquivos à área de staging.
 
 #### `unstagePaths`
 
-将文件从暂存区移除。
+Remove arquivos da área de staging.
 
 #### `discardPaths`
 
-丢弃文件改动，支持工作区丢弃和 staged 丢弃。
+Descarta as alterações de um arquivo, com suporte a descarte na área de trabalho e descarte de staged.
 
 #### `commit`
 
-执行提交，返回：
+Executa o commit e retorna:
 
 - `commitHash`
-- 提交后的最新仓库摘要
+- O resumo mais recente do repositório após o commit
 
 #### `getIdentity`
 
-读取当前有效的 Git 身份信息：
+Lê as informações de identidade Git atualmente efetivas:
 
 - `userName`
 - `userEmail`
@@ -349,33 +348,33 @@ Git 服务现在和 `file/system/terminal` 一样走统一 RPC 链路。
 
 #### `refresh`
 
-一次性返回：
+Retorna de uma só vez:
 
-- 最新 `summary`
-- 最新 `identity`
+- `summary` mais recente
+- `identity` mais recente
 
-适合上层做刷新入口时直接调用。
+Útil para a camada superior usar diretamente como ponto de entrada de refresh.
 
-## 验证结果
+## Resultados da verificação
 
-本轮已验证：
+Verificado nesta rodada:
 
-- `pnpm typecheck` 通过
-- `pnpm test:unit -- packages/services/test/gitService.test.ts` 通过
+- `pnpm typecheck` passou
+- `pnpm test:unit -- packages/services/test/gitService.test.ts` passou
 
-`pnpm lint` 当前仍未完全通过，但剩余失败项是仓库内既有历史问题，不是本轮新增 Git 底层服务引入的错误。
+O `pnpm lint` ainda não passa completamente, mas as falhas restantes são problemas históricos já existentes no repositório, e não erros introduzidos nesta rodada pelo serviço de Git de baixo nível.
 
-## 当前边界
+## Limites atuais
 
-当前已经完成的是：
+O que já foi concluído:
 
-- Git 底层服务能力
-- 跨端通信与执行位置设计
-- 真实 Git CLI 集成
+- Capacidades do serviço de Git de baixo nível
+- Comunicação multiplataforma e desenho do local de execução
+- Integração real com a CLI do Git
 
-当前还没有做的是：
+O que ainda não foi feito:
 
-- 上层 Git pane 改为消费真实 `gitService`
-- Git pane 写操作 UI 正式接线
-- Git 仓库动态订阅刷新
-- 更细粒度 hunk 级操作
+- Fazer o painel Git de nível superior consumir o `gitService` real
+- Ligar formalmente a UI das operações de escrita do painel Git
+- Assinatura dinâmica de repositórios Git para atualização
+- Operações em nível de hunk, mais granulares

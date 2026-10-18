@@ -1,91 +1,93 @@
 # Bash Background Parity
 
-后台输出查看新增独立的按需查询与右侧详情，不恢复前台 progress 推送；完整合同和
-BGV01–BGV06 验收见 [后台 Bash 输出详情](background-bash-output-details.md)。
+A visualização da saída em background ganhou uma consulta sob demanda independente e um detalhe à direita, sem restaurar o envio de progresso no foreground; o contrato completo e
+a aceitação BGV01–BGV06 estão em [后台 Bash 输出详情](background-bash-output-details.md).
 
-本文记录 `local_bash` background 行为与输出传输的当前实现边界，包括文件打开方式、
-输出上限与根进程结算；未列为本次变更的工具 schema、timeout 与 owner scope 策略保留既有合同。
+Este documento registra os limites atuais da implementação do comportamento background do `local_bash` e da transmissão de saída, incluindo a forma de abertura de
+arquivo, o limite superior de saída e o encerramento por processo raiz; o schema de ferramenta, o timeout e a política de escopo de owner não listados como parte desta
+mudança mantêm o contrato existente.
 
-## 行为
+## Comportamento
 
-- foreground Bash 默认等待预算为 `120000ms`，默认最大值为 `600000ms`。bootstrap 支持
-  `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS`，并把同一 timeout policy 注入 prompt、
-  schema、handler 和 tool executor cleanup watchdog。两个 env 均按十进制
-  `parseInt` 语义解析；合法 max 取 `max(configuredMax, default)`，仅缺失或非法 max 才回退
-  `max(600000, default)`。
-- 当 foreground Bash 到达 timeout 且命令可 background 时，运行中的子进程不会被 kill，而是被移交为 background task。
-- 首个原始 token 为 `sleep` 的命令不进入 timeout auto-background，仍按普通 foreground timeout 路径处理；因此 `sleep 1` / `sleep 1; echo` 不 eligible，而 `echo x; sleep 1` / `FOO=1 sleep 1` eligible。
-- timeout auto-background 是 Bash 自有执行路径；它复用已有 background task events、task notification enqueue、runtime wake 和 runtime command queue，不在 `ExecutionPort` 上暴露通用 foreground promotion 方法，也不改变通用 `ExecutionPort.start()`。
-- timeout auto-background 的 Bash tool result 返回：
+- O orçamento de espera padrão do Bash em foreground é `120000ms`, com máximo padrão de `600000ms`. O bootstrap suporta
+  `BASH_DEFAULT_TIMEOUT_MS` / `BASH_MAX_TIMEOUT_MS` e injeta a mesma política de timeout no prompt, no
+  schema, no handler e no watchdog de limpeza do tool executor. Ambas as env são interpretadas com a semântica de `parseInt` decimal; para um max válido usa-se
+  `max(configuredMax, default)`, e somente max ausente ou inválido recua para
+  `max(600000, default)`.
+- Quando o Bash em foreground atinge o timeout e o comando pode ir para background, o subprocesso em execução não é morto, e sim entregue como background task.
+- Um comando cujo primeiro token original seja `sleep` não entra no auto-background por timeout e é tratado pela via normal de timeout em foreground; portanto `sleep 1` / `sleep 1; echo` não são elegíveis, enquanto `echo x; sleep 1` / `FOO=1 sleep 1` são.
+- O auto-background por timeout é um caminho de execução próprio do Bash; ele reutiliza os eventos de background task existentes, o enqueue de notificação de task, o runtime wake e a fila de comandos do runtime, não expõe na `ExecutionPort` um método genérico de promoção de foreground e não altera o `ExecutionPort.start()` genérico.
+- O tool result do Bash no auto-background por timeout retorna:
   - `status: "backgrounded"`
   - `backgroundTaskId`
   - output file path
-- timeout auto-background 不设置 `assistantAutoBackgrounded`，模型看到的是普通 background task 文案，不是 assistant blocking-budget 文案。
-- 普通 Bash 在 spawn 前异步打开 canonical output 一次，stdout/stderr 继承同一个 fd；
-  spawn 后关闭父 fd，子进程直接写文件。前台、显式后台、超时转后台及 subagent Bash
-  共用此路径；不创建 Node collector、WriteStream、逐 chunk decoder 或输出 data listener。
-  通用 argv/Hook 保留双 pipe、分流结果与原有 collector 合同；collector 仅使用通用 inline 预算。
-  Bash 请求不下发 collector 专用的 `killProcessOnPersistedLimit`，文件 watchdog 在前后台始终生效。
-- 文件 flags 按宿主平台选择：macOS/Linux 使用
-  `O_WRONLY | O_CREAT | O_APPEND | (O_NOFOLLOW ?? 0)`，不包含 `O_TRUNC`，不提前清空或删除
-  已有普通文件；Windows 使用 `"w"`，包括 Git Bash 与 CMD，不添加 append/no-follow。
-  POSIX 新文件继续以 `0600` 创建。前后台切换只移交所有权，不重开文件、不迁移输出。
-- 文件从启动即存在，Bash 的 `persistOutput` 表示结算后的保留策略。打开失败按
-  `spawn_error` 结算，不发布后台任务；准备期间取消会关闭 fd，仅删除本次创建的文件。
-  文件读取失败返回明确诊断，不伪装成正常空输出；清理失败不阻塞结算。
-- 前台等待约 2 秒后每 1 秒读取最多末尾 4096 bytes，复用 progress 事件；后台提交停止
-  前台轮询，Read/TaskOutput 按需读取文件。最终 stdout 默认读取头部 30000 bytes，
-  沿用 `BASH_MAX_OUTPUT_LENGTH`，最大 150000 bytes；文件保存原始字节，读取时有界解码。
-- root shell `exit` 即触发有界读取与单次结算，不等待 pipe EOF、文件大小稳定或后代结束，
-  正常结算不主动杀后代。后代仍可继续写文件，但不会重新激活任务、补发完成通知或继续
-  运行大小 watchdog。调用方需要输出完整结束时，应让 root shell 等待自己的 worker。
-- 前后台都每 5000ms stat canonical output，严格 `size > 5368709120` 时请求终止进程树。
-  这是 5 GiB 软阈值，没有写盘硬截断；接受检查间隔内超量和首次检查前自然结束的命令，
-  不增加终态补判。后台提交重启 watchdog，终态清理 watchdog；检查失败不伪判超限。
-  超限结果为 cancelled/interrupted、exit 137、`error.type=output_limit`，提示
-  `Command killed: output file exceeded 5GB`。取消、硬超时和超限仍复用平台进程树终止，
-  异步杀树收尾由 adapter 跟踪；终态后不再推送迟到进度或发起重复终止。
-- 关闭保障：Stop 的结果仍可先结算；adapter `close()` 必须为已登记的杀树操作保活，直到
-  POSIX 的 1500ms SIGKILL 升级及该轮 PPID 快照/信号发送完成，或 Windows taskkill 收尾。
-  不能只等待 Promise：直写后没有 pipe 保活，unref 定时器可能随父 Node 提前退出。
-  仅 shutdown 引用现有清理句柄，不新增常驻轮询；不恢复正常根退出后的 drain/杀后代。
-  回归用独立 Node（无 IPC/额外保活）覆盖取消后关闭、直接关闭、后台 Stop、硬超时和超限。
-- 前台小输出读回后尽力删除冗余文件；普通大输出保留完整 canonical output，返回有界头部
-  摘要和完整文件路径，不再执行 64 MiB artifact 截断。Bash 忽略 `maxArtifactBytes`；
-  通用 argv/Hook 原有预算不变。记录读取时的原始大小。前台超限终止后读回摘要并尽力删除
-  超限文件，后台文件保留。
-  `persistOutput="always"` 的正常空输出仍保留零字节 artifact。
-- 终态 stdout 为空、非零退出且不是 exit 137 时，继续对 output file 所在目录执行
-  `statfs`；可用空间低于 10 MiB 或 inode 少于 1000 时返回现有输出丢失诊断。
-- 显式 `run_in_background: true` 在进程启动成功后立即完成 background commit，并复用同一套 completion / notification 链路。调用里即使带有短 `timeout`，该值也只表示提交前的 foreground deadline；commit 会清除 deadline 并解绑 parent turn abort，后台进程不会在原 timeout 到达时被杀。
-- explicit 与 timeout-promoted Bash 共用一个 adapter lifecycle 状态机和单任务 `5GiB`
-  canonical output 软阈值；completion、deadline、abort 与 output-limit 竞争只能产生一个
-  foreground result 或一个 background task。
-- main/session scope 的 background task 只有 `cancelBackgroundTask`、adapter/session
-  `close()`，定时 output-limit watchdog 才可以终止进程树。root shell 已退出后任务终态不再持有后代。
-- `subagent_child` scope 沿用上述 background 行为，另外保留两条 owner 生命周期约束：background
-  Bash 默认最长运行 `3600000ms`（可由内部 subagent runtime 配置覆盖）；owner subagent
-  被取消时会清理其仍在运行的 background Bash。owner 正常完成不会仅因完成而终止已提交任务。
-  因此这里的 detached 只表示脱离 foreground deadline 和 parent turn abort，不表示脱离
-  adapter/session 或 owner subagent 的进程所有权。
-- background Bash 完成后由 execution adapter 的 completion promise 直接 settle，tool executor 通过既有 background notification enqueue 进入 runtime command queue 唤醒 main agent。
-- 普通后台 tool result 只包含 canonical output path，不附加 `Stdout:` / `Stderr:` 路径。
-- `local_bash` task notification 使用 provider-visible XML，不带 system notification 前缀、
-  `<task-type>`、split path、result 或 error 字段，只包含 `task-id`、可选 `tool-use-id`、
-  `output-file`、`status` 和 `summary`。
+- O auto-background por timeout não define `assistantAutoBackgrounded`; o que o modelo vê é o texto de background task normal, não o texto de budget de bloqueio do assistant.
+- O Bash comum abre de forma assíncrona a saída canônica uma única vez antes do spawn, com stdout/stderr herdando o mesmo fd;
+  após o spawn o fd pai é fechado e o subprocesso escreve direto no arquivo. Esse caminho é compartilhado por Bash em foreground, background explícito, background por timeout e subagent;
+  não é criado nenhum collector Node, WriteStream, decoder por chunk ou listener de dados de saída.
+  O argv/Hook genérico mantém os dois pipes, o resultado dividido e o contrato original de collector; o collector usa apenas o orçamento inline genérico.
+  Requisições de Bash não enviam o `killProcessOnPersistedLimit` exclusivo do collector, e o watchdog de arquivo continua valendo em foreground e background.
+- As flags de arquivo são escolhidas conforme a plataforma do host: macOS/Linux usam
+  `O_WRONLY | O_CREAT | O_APPEND | (O_NOFOLLOW ?? 0)`, sem `O_TRUNC`, sem limpar ou apagar antecipadamente
+  arquivos comuns já existentes; Windows usa `"w"`, incluindo Git Bash e CMD, sem adicionar append/no-follow.
+  Novos arquivos POSIX continuam sendo criados com `0600`. A alternância entre foreground e background apenas transfere a propriedade, sem reabrir o arquivo ou migrar a saída.
+- O arquivo existe desde a inicialização, e o `persistOutput` do Bash representa a política de retenção após o encerramento. Falha ao abrir é encerrada como
+  `spawn_error`, sem publicar background task; cancelar durante a preparação fecha o fd e apaga apenas o arquivo criado nesta execução.
+  Falha ao ler o arquivo retorna um diagnóstico explícito, sem se passar por saída vazia normal; falha de limpeza não bloqueia o encerramento.
+- Em foreground, após cerca de 2 segundos, são lidos no máximo os 4096 bytes finais a cada segundo, reutilizando eventos de progresso; ao submeter em background o
+  polling de foreground é interrompido, e Read/TaskOutput lê o arquivo sob demanda. O stdout final lê por padrão os 30000 bytes iniciais,
+  mantendo `BASH_MAX_OUTPUT_LENGTH`, com máximo de 150000 bytes; o arquivo guarda os bytes brutos e a leitura faz decodificação limitada.
+- O `exit` do shell raiz já dispara a leitura limitada e o encerramento único, sem esperar o EOF do pipe, a estabilização do tamanho do arquivo ou o término dos descendentes,
+  e o encerramento normal não mata descendentes ativamente. Descendentes ainda podem continuar escrevendo no arquivo, mas não reativam a task, não reenviam notificação de conclusão nem continuam
+  executando o watchdog de tamanho. Quando o chamador precisar da saída completa, deve fazer o shell raiz esperar pelo seu próprio worker.
+- Tanto em foreground quanto em background há um `stat` da saída canônica a cada 5000ms, e uma requisição de terminação da árvore de processos quando estritamente `size > 5368709120`.
+  Esse é um limiar suave de 5 GiB, sem truncamento rígido em disco; são aceitos comandos que terminam naturalmente entre as checagens e antes da primeira checagem,
+  sem acrescenta julgamento de estado terminal adicional. A submissão em background reinicia o watchdog, e o estado terminal o limpa; falha na checagem não gera falso diagnóstico de limite excedido.
+  O resultado de excedente é cancelled/interrupted, exit 137 e `error.type=output_limit`, com a mensagem
+  `Command killed: output file exceeded 5GB`. Cancelamento, hard timeout e excesso continuam reutilizando a terminação da árvore de processos da plataforma, e o
+  encerramento assíncrono da árvore é acompanhado pelo adapter; após o estado terminal não são mais enviados atrasos de progresso nem iniciadas terminações duplicadas.
+- Garantia de fechamento: o resultado de Stop ainda pode ser encerrado primeiro; o `close()` do adapter precisa manter vivos por operações de terminate de árvore já registradas, até que
+  a escalada para SIGKILL de 1500ms no POSIX e o snapshot de PPID/envio de sinal daquela rodada sejam concluídos, ou até o encerramento do taskkill no Windows.
+  Não se pode apenas aguardar a Promise: após a escrita direta não há pipe mantendo a vida, e temporizadores unref podem sair junto com o Node pai.
+  O shutdown apenas referencia handles de limpeza já existentes, sem adicionar polling residente; não se restaura o drain/terminate de descendentes após a saída normal da raiz.
+  A regressão usa um Node independente (sem IPC/keepalive adicional) cobrindo cancelamento seguido de fechamento, fechamento direto, Stop em background, hard timeout e excesso.
+- Saídas pequenas em foreground são lidas de volta e o arquivo redundante é apagado em um esforço; saídas grandes comuns mantêm a saída canônica completa, retornando um resumo limitado do
+  cabeçalho e o caminho completo do arquivo, sem executar mais o truncamento de artifact de 64 MiB. O Bash ignora `maxArtifactBytes`;
+  o orçamento original do argv/Hook genérico não muda. O tamanho bruto é registrado no momento da leitura. Após a terminação por excesso em foreground, o resumo é lido de volta e o
+  arquivo excedente é apagado em um esforço; arquivos de background são mantidos.
+  A saída vazia normal com `persistOutput="always"` continua preservando um artifact de zero bytes.
+- Quando o stdout final é vazio, a saída é não zero e não é exit 137, continua-se executando `statfs` no diretório do arquivo de
+  saída; quando o espaço disponível fica abaixo de 10 MiB ou os inodes ficam abaixo de 1000, a resposta é o diagnóstico existente de saída perdida.
+- Um `run_in_background: true` explícito conclui o commit de background imediatamente após o processo iniciar com sucesso, reutilizando a mesma cadeia de completion / notification.
+  Mesmo quando a chamada traz um `timeout` curto, esse valor só representa o deadline de foreground antes do commit; o commit limpa o deadline e desvincula o abort do parent turn, e o processo em background não é morto quando o timeout original é atingido.
+- Bash explícito e promovido por timeout compartilham uma única máquina de estados de lifecycle do adapter e o limiar suave de `5GiB` por
+  task para a saída canônica; a corrida entre completion, deadline, abort e output-limit só pode produzir um
+  foreground result ou uma background task.
+- Background tasks de escopo main/session só podem ser encerrados por `cancelBackgroundTask`, pelo `close()` do adapter/session
+  ou pelo watchdog periódico de output-limit. Depois que o shell raiz saiu, o estado terminal da task não mantém mais descendentes.
+- O escopo `subagent_child` mantém o comportamento de background acima e ainda preserva duas restrições de lifecycle de owner: background
+  Bash tem duração máxima padrão de `3600000ms` (podendo ser sobrescrito pela configuração interna do runtime de subagent); quando o
+  subagent owner é cancelado, o cleanup remove seus background Bash ainda em execução. A conclusão normal do owner não termina tarefas já submetidas apenas por ter concluído.
+  Portanto, aqui detached significa apenas se desligar do deadline de foreground e do abort do parent turn, e não se desligar da
+  propriedade de processo do adapter/session ou do subagent owner.
+- Depois que o Bash em background conclui, a completion promise do execution faz o settle diretamente, e o tool executor entra na fila de comandos do runtime pelo enqueue de notificação de background já existente, acordando o main agent.
+- O tool result de background comum contém apenas o caminho da saída canônica, sem acrescentar caminhos `Stdout:` / `Stderr:`.
+- A task notification de `local_bash` usa XML provider-visible, sem prefixo de system notification e sem
+  `<task-type>`, split path, result ou campos de error, contendo apenas `task-id`, `tool-use-id` opcional,
+  `output-file`, `status` e `summary`.
 
-## 暂不支持
+## Ainda Não Suportado
 
-- 手动把正在 foreground 执行的 Bash 转为 background。
-- provider-visible `background_tasks` control request。
-- `backgroundedByUser` 的真实可达路径。
-- 2 秒后提示用户可手动 background 的 UI/UX。
-- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` 跨 Bash/Agent/schema 的全局能力开关。
+- Converter manualmente um Bash em execução no foreground para background.
+- Control request provider-visible `background_tasks`.
+- Um caminho realmente alcançável para `backgroundedByUser`.
+- UI/UX que Sugere ao usuário fazer background manualmente após 2 segundos.
+- O interruptor global de capacidade `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` atravessando Bash/Agent/schema.
 
-## 多端边界
+## Limites Multiplataforma
 
-2026-09-07 补齐进度合同：每次从同一份 4 KiB 尾窗提取最近 5 行短预览、最近 100 行长预览，
-全文件进入尾窗时直接计数，否则按总字节/读取字节比例估算总行数并保持估算值不回退。
+2026-09-07 completou o contrato de progresso: a cada extração, as 5 linhas mais recentes de preview curto e as 100 linhas mais recentes de preview longo vêm da mesma janela de 4 KiB do final;
+  quando o arquivo inteiro cabe na janela final, a contagem é direta; caso contrário, o total de linhas é estimado pela razão entre bytes totais e bytes lidos, e o valor estimado nunca regride.
 
 ```text
 direct file -> bounded tail -> ExecutionEvent.outputPreview -> ToolCallProgress
@@ -95,41 +97,44 @@ direct file -> bounded tail -> ExecutionEvent.outputPreview -> ToolCallProgress
   -> result/error/background/turn end: clear preview
 ```
 
-`outputPreview` 是可选的有界最新输出状态，含 `text`、`fullText`、`totalLines`、`totalBytes`、
-`linesEstimated`；沿 ExecutionPort、session event、legacy tool.updated schema 和 V4 row 传递。
-V4 只更新已有 running Bash 行；迟到进度不创建行、不复活终态。父会话不物化镜像 subagent 工具，
-child conversation 正常更新。旧 snapshot 缺字段仍可读。
-2026-09-09 用户修正展示合同：共享 Execute renderer 收起时只显示命令摘要和状态；
-实时预览和最终输出只在展开详情内渲染；2026-09-10 调整为仅展示正文，不再附加截断提示和完整文件入口。预览正文保留最近 100 行，视口最多显示 5 行，
-终态清除进度；CLI 的 5/100 行预览及行数/字节数事件保持不变。TUI 不在本轮范围内。
-不复用 replayable-only `progress` 恢复字段；通过现有 row delta/snapshot 交付，桌面 continuous
-不增加恢复队列，手机 replayable 不绕过 gap/snapshot。
+`outputPreview` é um estado opcional e limitado da saída mais recente, contendo `text`, `fullText`, `totalLines`, `totalBytes` e
+`linesEstimated`; ele é transmitido pela ExecutionPort, pelo evento de session, pelo schema legado tool.updated e pela row do V4.
+O V4 só atualiza uma linha de Bash já em running; progresso atrasado não cria linha nem revive um estado terminal. A sessão pai não materializa ferramentas espelhadas de subagent, enquanto a
+child conversation atualiza normalmente. Snapshots antigos sem os campos continuam legíveis.
+Em 2026-09-09 o usuário corrigiu o contrato de exibição: o Execute renderer compartilhado, quando recolhido, mostra somente o resumo do comando e o status;
+a pré-visualização ao vivo e a saída final só são renderizadas dentro dos detalhes expandidos; em 2026-09-10 foi ajustado para exibir somente o corpo, sem aviso de truncamento e sem entrada de arquivo completo. O corpo da prévia mantém as 100 linhas mais recentes, o viewport mostra no máximo 5 linhas,
+o estado terminal limpa o progresso, e os previews de 5/100 linhas da CLI e os eventos de contagem de linhas/bytes permanecem inalterados. O TUI está fora do escopo desta rodada.
+O campo de recuperação replayable-only `progress` não é reutilizado; a entrega é feita pelo delta/snapshot de linha existente, e o desktop continuous
+não ganha fila de recuperação, enquanto o mobile replayable não contorna gap/snapshot.
 
-验收补充：真实大于 64 MiB 输出验证完整保留、头部摘要、尾部 sentinel；预览覆盖空输出、无换行、
-CRLF、超 100 行、部分尾窗、估算单调和终态迟到。V4 覆盖两种 profile、终态清理及 subagent 隔离；
-Desktop BG14 以分段输出与放行 barrier 验证收起无输出、展开实时预览、不显示计数和终态清理。
+Complemento de aceitação: saída real maior que 64 MiB verifica retenção completa, resumo de cabeçalho e sentinel de final; a prévia cobre saída vazia, ausência de quebra de linha,
+CRLF, mais de 100 linhas, janela final parcial, estimativa monotônica e chegada tardia no estado terminal. O V4 cobre os dois profiles, a limpeza no estado terminal e o isolamento de subagent;
+o Desktop BG14 valida com saída segmentada e barreira de liberação que, recolhido, não há saída, expandido há prévia ao vivo, não se exibe contagem e há limpeza no estado terminal.
 
-执行能力位于 zcode-cli runtime/tool/execution adapter；共享协议增加可选有界 outputPreview 与 bash_output 结果 display；Desktop 复用共享 Execute renderer，使用语义颜色与窄屏换行，不新增端专属传输逻辑。desktop continuous 与 mobile replayable 的 task command / snapshot 边界不变；background completion 仍通过 runtime command queue 消费，不新增并发 `executeTurn` 入口。
+A capacidade de execução fica no zcode-cli runtime/tool/execution adapter; o protocolo compartilhado acrescenta um outputPreview opcional e limitado e o display de resultado bash_output; o Desktop reutiliza o Execute renderer compartilhado, usando cores semânticas e quebra de linha em telas estreitas, sem nova lógica de transmissão específica de plataforma. Os limites de task command / snapshot de desktop continuous e mobile replayable não mudam; o background completion continua sendo consumido pela fila de comandos do runtime, sem nova entrada concorrente `executeTurn`.
 
-## 前台输出视口与跟随（2026-09-10）
+## Viewport e Seguimento da Saída em Foreground (2026-09-10)
 
-- 展开后的输出按实际内容占高，最多显示 5 行（包含自动换行），超出后滚动；运行与终态共用同一容器及行高，不固定短输出的高度。
-- 前后台输出滚动区域复用共享 `ScrollFadeViewport`（由现有反馈滚动组件提取）的 24px 上下渐隐。
-  CSS mask 固定在滚动视口边缘，文字滚动经过边缘时逐渐透明；不随正文一起滚动。
-  仅仍有内容隐藏的一端淡出：短输出无 mask，到顶只淡出底部，到底只淡出顶部，中间两端淡出。
-  mask 只作用于正文，不遮挡命令或后台顶部状态/悬浮操作，不增加轮询或改变原有跟随状态。
-- 首次预览沿用约 2 秒订阅延迟及共享 1 秒 tick；每次收到新的有界预览即更新 UI，
-  不增加前端定时器、输出累积缓存或模型请求。没有新字节时不承诺内容发生变化。
-- 默认吸底；内容替换、尾窗淘汰、换行数量变化及程序滚动不能取消跟随。用户向上滚动离开底部后，
-  冻结当前有界文本与阅读位置；滚回底部应用最新文本并恢复吸底，不展示“回到最新”按钮。
-- 结束时仍最多显示 5 行；跟随状态显示最终摘要，暂停状态保留正在阅读的文本，滚回底部后显示最终摘要。
-  收起/再次展开沿用详情卸载语义，重新展开从最新内容开始。前台不增加“Full output”路径、截断提示等附加区域。
-- UI 的局部跟随状态由单个输出组件拥有；CLI 文件、共享轮询、V4 row 更新、background 查询、
-  Stop/通知以及 desktop continuous / mobile replayable 交付边界不变。共享 UI 使用原有主题 token、
-  国际化与窄屏换行，不增加端专属链路。
-- 2026-09-11 恢复组件内的简单滚动判断：输出更新时仅在跟随中吸底并记录实际位置；
-  `scroll` 中向上离开底部则暂停，到底（8px 容差）则恢复。不引入输入意图有效期、布局保护定时器或共享滚动 Hook。
-  已知边界：窗口尺寸变化使浏览器自动钳制到底时仍可能误恢复；本次回退不修复该问题，也不把相关场景计作已覆盖。
+- A saída expandida ocupa altura conforme o conteúdo real, mostrando no máximo 5 linhas (incluindo quebras automáticas), com rolagem além disso; execução e estado terminal compartilham o mesmo contêiner e a mesma altura de linha, sem fixar a altura de saídas curtas.
+- A área de rolagem da saída em foreground e em background reutiliza o fade de 24px no topo e na base do `ScrollFadeViewport` compartilhado
+  (extraído do componente de scroll de feedback existente). A CSS mask fica fixa nas bordas do viewport de rolagem e o texto fica
+  gradualmente transparente ao passar pelas bordas; ela não rola junto com o corpo. Apenas o lado que ainda
+  tem conteúdo oculto sofre fade: saídas curtas não têm mask, no topo só a base desbota, no fim só o topo desbota e no meio ambos desbota.
+  A mask só atua sobre o corpo, não oculta o comando nem o status/a ação flutuante do topo em background, e não adiciona polling nem muda o estado de seguimento existente.
+- A primeira prévia mantém o atraso de assinatura de cerca de 2 segundos e o tick compartilhado de 1 segundo; a UI é atualizada a cada nova prévia limitada recebida,
+  sem adicionar timers de frontend, cache de saída acumulada ou requisições ao modelo. Não se promete mudança de conteúdo quando não há bytes novos.
+- Colado ao fundo por padrão; substituição de conteúdo, descarte da janela final, mudança na quantidade de quebras de linha e scroll programático não cancelam o seguimento. Depois que o usuário
+  rola para cima e sai do fundo, o texto limitado atual e a posição de leitura ficam congelados; ao voltar ao fundo, o texto mais recente é aplicado e o
+  colado ao fundo é restaurado, sem exibir um botão «voltar ao mais recente».
+- No encerramento continuam sendo exibidas no máximo 5 linhas; no estado de seguimento aparece o resumo final, no estado pausado o texto em leitura é preservado e, ao voltar ao fundo, o resumo final é exibido.
+  Recolher/expandir novamente mantém a semântica de desmontagem dos detalhes, e a nova expansão parte do conteúdo mais recente. O foreground não ganha caminho «Full output», aviso de truncamento nem nenhuma área adicional.
+- O estado local de seguimento da UI pertence a um único componente de saída; o arquivo da CLI, o polling compartilhado, a atualização da row do V4, a consulta de
+  background, o Stop/as notificações e os limites de entrega de desktop continuous / mobile replayable permanecem inalterados. A UI compartilhada usa os tokens de tema,
+  a internacionalização e a quebra de linha em telas estreitas existentes, sem cadeia específica de plataforma.
+- Em 2026-09-11 foi restaurada a verificação simples de scroll dentro do componente: nas atualizações de saída, o conteúdo só gruda ao fundo e registra a posição real quando está
+  em seguimento; no evento `scroll`, sair do topo em direção ao fim pausa, e chegar ao fundo (tolerância de 8px) retoma. Não são introduzidos validade da intenção de
+  entrada, timer de proteção de layout nem hook de scroll compartilhado. Limite conhecido: quando a mudança de tamanho da janela faz o navegador
+  forçar o scroll até o fundo, ainda pode haver retomada indevida; esta reversão não corrige esse problema e também não considera esse cenário como coberto.
 
 ```text
 file -> shared 1s poll -> V4 row -> latest text
@@ -140,39 +145,41 @@ terminal --------------------------+ same 5-line limit; preserve paused text
 viewport scroll/resize ------------> shared fade mask (no change to following state)
 ```
 
-验收沿用 BDO07：真实分段文件输出记录写入/DOM 更新时间，覆盖短输出自适应、多行输出最多 5 行、逐段更新吸底、
-用户滚动后冻结、滚回底部恢复且无恢复按钮、收起不渲染及 running/terminal 使用相同行数上限。组件单测覆盖尾窗变短引发的
-程序 scroll 不能误暂停、终态暂停与不同工具实例隔离；BGV 后台详情作为不变合同回归。
+A aceitação reaproveita BDO07: saída real de arquivo segmentada registra os horários de escrita e de atualização do DOM, cobrindo adaptação a saída curta, no máximo 5 linhas em saída multilinha, colado ao fundo em atualizações
+  por segmento, congelamento após scroll do usuário, retomada ao voltar ao fundo sem botão de retomada, não renderização quando recolhido e o mesmo limite de linhas em running e
+  terminal. Os testes unitários do componente cobrem scroll programático que não pode pausar indevidamente quando a janela final encurta, pausa no estado terminal e isolamento entre instâncias
+  de ferramentas diferentes; os detalhes de background BGV são cobertos como regressão de contrato inalterado.
 
-验证（macOS / Node 24.14.0）：修复前 `desktop-e2e-20260910-115819-131` 测得运行视口
-256px、第二段距底部 1844px，而写入到 DOM 更新仅 910ms。当前 BDO07
-`desktop-e2e-20260910-124047-804` 首段 1 行（20px），后续 5 行（100px），各段底部间距均为 0；
-首段刷新 3014ms，后续无主动暂停的两段为 1012ms、408ms；收起/暂停阶段包含人为等待。
-同次 BDO02/03/07、BG14 和 4 条 BGV 通过；子会话 BGV04 因 `mode.build.highRisk` 审批阻塞，
-producer 未启动，清理 hook 随之失败，BGV05/06 未执行。三条在独立回放
-`desktop-e2e-20260910-124514-441` 通过，合计 11 条相关 E2E 验证通过，不计作一次全绿运行。
-19 项 UI 单测、根与 E2E typecheck、architecture、fixture check 通过；
-lint 为 43 条既有 warnings、0 errors。本轮未执行 Windows/Linux Desktop 或真实手机远控 UI；
-无可用 codegraph，影响面通过直接调用链及登记的源码 seed 核对。
+Verificação (macOS / Node 24.14.0): antes da correção, `desktop-e2e-20260910-115819-131` mediu um viewport de
+execução de 256px, com o segundo segmento a 1844px do fundo, enquanto a gravação até a atualização do DOM levava 910ms. No BDO07 atual
+`desktop-e2e-20260910-124047-804`, o primeiro segmento tem 1 linha (20px) e os seguintes 5 linhas (100px), com espaçamento de 0 até o fundo em todos os segmentos;
+a atualização do primeiro segmento levou 3014ms e os dois segmentos seguintes sem pausa ativa levaram 1012ms e 408ms; as etapas de recolhimento/pausa incluem espera artificial.
+BDO02/03/07, BG14 e as 4 BGV da mesma execução passaram; a BGV04 da subsessão ficou bloqueada pela aprovação de `mode.build.highRisk`, o
+producer não iniciou, o hook de limpeza falhou em consequência e BGV05/06 não foram executados. As três passaram em uma reprodução independente
+`desktop-e2e-20260910-124514-441`, totalizando 11 E2E relacionados aprovados, o que não conta como uma execução inteiramente verde.
+19 testes unitários de UI, typecheck de raiz e de E2E, architecture e verificação de fixture passaram;
+o lint teve 43 warnings já existentes e 0 erros. Esta rodada não executou o UI de Desktop Windows/Linux nem de controle remoto real em celular;
+não havia codegraph disponível, e a superfície de impacto foi conferida pela cadeia de chamadas direta e pelos seeds de código registrados.
 
-上下渐隐验证：`desktop-e2e-20260910-142038-231` 的 BDO07、BGV03 共 2/2 通过。
-真实窗口验证 CSS mask 有效、无溢出/滚动两端/中间方向正确，输出更新及暂停/恢复不变；
-首段仍为 1 行，后续最多 5 行。共享 viewport、前后台跟随及反馈表单共 23 项单测通过，
-typecheck、E2E typecheck、lint（43 条既有 warnings，0 errors）、architecture 通过。
+Verificação do fade no topo e na base: BDO07 e BGV03 de `desktop-e2e-20260910-142038-231`, 2/2 aprovados.
+A janela real confirmou a有效性 da CSS mask, sem overflow e com a direção correta no início, meio e fim; a atualização de saída e a
+pausa/retomada permaneceram iguais; o primeiro segmento continua com 1 linha e os seguintes com no máximo 5. O viewport compartilhado, o seguimento em
+foreground/background e os formulários de feedback tiveram 23 testes unitários aprovados, e typecheck, E2E typecheck,
+lint (43 warnings já existentes, 0 erros) e architecture passaram.
 
-## 共享前台进度轮询（2026-09-08）
+## Polling Compartilhado de Progresso em Foreground (2026-09-08)
 
-- 同一 Node 进程中，相同 `progressIntervalMs` 的 Bash 共用一个进度 interval；产品默认
-  全部为 1000ms，因此主会话及同进程 subagent 的前台 Bash 只有一个轮询器。不同进程各自管理。
-  内部测试/adapter 自定义不同周期时按周期分组，不用最短周期轮询所有任务。
-- 每个 Bash 保留约 2 秒的订阅延迟；注册后在共享轮询的下一次 tick 读取。首个任务仍约 3 秒
-  得到首次预览；后来注册的任务加入既有 tick，不重启其他任务的定时器。
-- 每个订阅独立维护读取中的状态及行数估计，同次 tick 分别异步读取至多 4 KiB。
-  慢读取不阻塞其他订阅，也不叠加本任务的读取；读取或回调失败不终止共享轮询。
-- 终态、Stop/取消、转后台移除订阅并取消尚未生效的延迟；重复停止幂等，迟到的读取结果不再
-  发布进度，旧订阅的清理不能影响重新注册的订阅。最后一个订阅移除即清理 interval 和注册表。
-- 共享轮询器只保留订阅状态，不缓存输出正文；计时器 unref。大小 watchdog 仍按原有每任务
-  5 秒周期检查，不与进度调度合并。文件 flags、原始字节直写、头部摘要、保留策略、协议和 UI 不变。
+- No mesmo processo Node, os Bash com o mesmo `progressIntervalMs` compartilham um único intervalo de progresso; o padrão do produto é
+  1000ms para todos, portanto há apenas um poller para o Bash em foreground da sessão principal e dos subagents do mesmo processo. Processos diferentes
+  gerenciam os seus próprios. Quando testes internos/adapter definem ciclos diferentes, os agrupamentos são feitos por ciclo, sem usar o menor ciclo para fazer polling de todas as tasks.
+- Cada Bash mantém um atraso de assinatura de cerca de 2 segundos; após o registro, ele lê no próximo tick do polling compartilhado. A primeira task ainda leva cerca de 3 segundos
+  para obter a primeira prévia; tasks registradas depois entram no tick existente e não reiniciam o timer das demais tasks.
+- Cada assinatura mantém seu próprio estado de leitura em andamento e sua estimativa de linhas, e no mesmo tick lê de forma assíncrona no máximo 4 KiB.
+  Leituras lentas não bloqueiam as demais assinaturas nem se acumulam para a mesma task; falha na leitura ou no callback não encerra o polling compartilhado.
+- Estado terminal, Stop/cancelamento e passagem para background removem a assinatura e cancelam o atraso ainda não aplicado; parada repetida é idempotente, resultados de leitura
+  atrasados não publicam mais progresso e a limpeza de uma assinatura antiga não pode afetar uma assinatura registrada novamente. A remoção da última assinatura limpa o interval e a entrada do registro.
+- O poller compartilhado mantém apenas o estado das assinaturas e não faz cache do corpo da saída; o timer é unref. O watchdog de tamanho continua verificando no ciclo original de 5 segundos por task,
+  sem ser combinado com o agendamento de progresso. Flags de arquivo, escrita direta de bytes brutos, resumo de cabeçalho, política de retenção, protocolo e UI permanecem inalterados.
 
 ```text
 foreground delay -> subscribe -> shared interval (same process/cadence)
@@ -182,31 +189,30 @@ exit / background / cancel -> unsubscribe
 last unsubscribe -> clear interval and registry entry
 ```
 
-验收：fake timer 验证多订阅仅一个 interval、后来加入不重置 tick、单任务退出不影响其他任务、
-全部退出释放定时器、重复取消与重订阅、慢读取/失败隔离、迟到结果丢弃、不同内部周期隔离；
-真实文件测试验证并发 BashFileOutput 注册与读取、后台移交与 watchdog 独立。复跑 direct execution、
-Desktop BG14（运行态预览及终态提示）和类型/lint 检查；continuous/replayable 的既有传输边界不变。
+Aceitação: fake timer verifica que múltiplas assinaturas geram apenas um interval, que entrar depois não reseta o tick, que a saída de uma task não afeta as outras,
+que sair de todas libera o timer, cancelamento repetido e reassinatura, isolamento de leitura lenta/falha, descarte de resultado atrasado e isolamento entre ciclos internos diferentes;
+testes com arquivo real verificam o registro e a leitura concorrentes de BashFileOutput, a passagem para background e a independência do watchdog. Foram repetidos
+a execução direta, o Desktop BG14 (prévia em running e aviso no estado terminal) e as verificações de tipo/lint; os limites de transmissão existentes continuous/replayable não mudam.
 
-共享轮询验收结果：5 个 adapter 测试文件 149 passed / 3 平台分支 skipped；随后补充真实文件
-重订阅后的迟到读取用例，focused 18 passed。Desktop BG14
-`desktop-e2e-20260908-061858-748` 通过（8.5 秒），进度与终态提示均正常。
-根 typecheck、adapter typecheck、根 lint 和本轮 adapter 文件显式 lint 通过；根 lint 保留 43 个既有警告。
-本轮仅改变进程内进度调度，没有重跑 Windows/Linux 实机测试或性能对照；之前跨平台直写验证仍是
-文件 flags/输出实现的证据，不作为本轮共享调度器的实机复验。TUI 和 Desktop 渲染代码未新增改动。
+Resultado da aceitação do polling compartilhado: 5 arquivos de teste do adapter com 149 passed / 3 branches de plataforma skipped; depois foi adicionado o caso de leitura atrasada após
+reassinatura com arquivo real, com 18 passed no focused. O Desktop BG14
+`desktop-e2e-20260908-061858-748` passou (8,5 segundos), com progresso e aviso de estado terminal normais.
+O typecheck da raiz, o typecheck do adapter, o lint da raiz e o lint explícito dos arquivos do adapter desta rodada passaram; o lint da raiz mantém os 43 warnings já existentes.
+Esta rodada alterou apenas o agendamento de progresso dentro do processo, sem reexecutar testes reais em Windows/Linux ou comparação de performance; a verificação anterior de escrita direta multiplataforma continua sendo
+evidência das flags de arquivo/da implementação de saída e não conta como reverificação real deste poller compartilhado. O TUI e o código de renderização do Desktop não tiveram novas alterações.
 
-## Desktop Bash 摘要正文（2026-09-10）
+## Corpo do Resumo de Bash no Desktop (2026-09-10)
 
-- 原因：终态 V4 行复用模型摘要正文，BashOutput 的 stdoutTruncated/stderrTruncated 和
-  canonical 文件路径没有专门的展示投影；模型 envelope 或协议 head/tail 的截断不能替代 Bash 事实。
-- 通过现有 `ToolResult.display -> ToolOutput.display` 增加严格校验的 `bash_output` 分支：
-  `output` 为有界头部正文（默认 30,000 bytes；合并展示最多 150,000 bytes）、`truncated` 为真实
-  截断标志、`outputPath` 为可选的完整输出文件路径。仅部分输出或保留文件的普通终态 Bash 产生该分支；
-  后台启动和图片结果沿用既有展示；不解析 provider envelope，不根据文本长度猜测截断。
-- 前台展开只显示输出正文，不附加“Full output”文件入口、截断提示或计数。旧行缺少 display 时保留原有正文。
-  `truncated` 和 `outputPath` 继续保留在既有协议中；CLI 的摘要/完整文件策略及后台详情文件入口不变。
-- 运行态保留最多 100 行有界正文，视口最多显示 5 行；收起后不显示正文，后台、终态清除运行态预览。
-- 不改变 provider-visible 内容、执行/保留策略和 TUI；可选 display 沿既有 continuous/replayable
-  row delta 与 snapshot 传递，不新增恢复队列或绕过恢复边界。
+- Motivo: a row do V4 no estado terminal reutiliza o corpo do resumo do modelo, e o stdoutTruncated/stderrTruncated do BashOutput e o caminho
+  de arquivo canônico não tinham uma projeção de exibição dedicada; o envelope do modelo ou o truncamento head/tail do protocolo não substituem os fatos do Bash.
+- Através do `ToolResult.display -> ToolOutput.display` existente, é adicionado um branch `bash_output` com validação estrita:
+  `output` é o corpo limitado do cabeçalho (30.000 bytes por padrão; até 150.000 bytes na exibição combinada), `truncated` é a bandeira real de
+  truncamento e `outputPath` é o caminho opcional do arquivo de saída completo. Esse branch é produzido apenas por Bash em estado terminal comum com saída parcial ou arquivo retido;
+  a inicialização em background e os resultados de imagem mantêm a exibição existente; o envelope do provider não é analisado e o truncamento não é inferido pelo tamanho do texto.
+- O expandido em foreground mostra somente o corpo da saída, sem entrada de arquivo «Full output», aviso de truncamento ou contagem. Linhas antigas sem display mantêm o corpo original.
+  `truncated` e `outputPath` continuam disponíveis no protocolo existente; a estratégia de resumo/arquivo completo da CLI e a entrada de arquivo nos detalhes de background não mudam.
+- Em running são mantidos no máximo 100 linhas de corpo limitado, e o viewport exibe no máximo 5 linhas; recolhido não mostra corpo, e background/estado terminal limpa a prévia de running.
+- O conteúdo provider-visible, as políticas de execução/retenção e o TUI não mudam; o display opcional é transmitido pelo delta de row e snapshot continuous/replayable existentes, sem nova fila de recuperação nem contorno do limite de recuperação.
 
 ```text
 BashOutput (bounded head + truncation + file path)
@@ -215,76 +221,74 @@ BashOutput (bounded head + truncation + file path)
        +-> no additional notice or file link in foreground details
 ```
 
-验收：单位测试覆盖有/无文件及截断元数据均不产生附加 UI、终态与历史正文兼容；协议及双 profile 投影不变。
-BG14 用 barrier 验证进度无计数，释放后输出超过 30,000 bytes，验证仅显示头部正文，provider 仍包含完整文件路径且文件尾部完整。
+Aceitação: testes unitários cobrem que os metadados de arquivo e truncamento presentes ou ausentes não geram UI adicional, e a compatibilidade de corpo entre estado terminal e histórico; o protocolo e a projeção dos dois profiles permanecem inalterados.
+O BG14 usa uma barreira para verificar que o progresso não mostra contagem e, após a liberação, que a saída passa de 30.000 bytes e que apenas o corpo do cabeçalho é exibido, enquanto o provider ainda contém o caminho completo do arquivo e o final do arquivo está íntegro.
 
-2026-09-08 验证：UI 25 项、shared wire 73 项、Core display/V4 progress projection 40 项通过；
-Desktop BG14 最终 replay `desktop-e2e-20260907-171113-863` 通过。前两次验收分别因未展开完成历史、
-读取展开动画中的空正文而失败；测试补齐真实展开动作并等待提示文案/路径就绪，未改变产品生命周期。
-模型仍收到原有 persisted-output 小摘要，Desktop 使用独立的默认 30,000 bytes 头部；
-本次没有重跑 Windows/Linux 执行测试，执行器、flags、watchdog 和文件保留代码未新增改动。
+Verificação de 2026-09-08: 25 casos de UI, 73 de wire compartilhado e 40 de projeção de display/progresso do Core aprovados;
+o replay final do Desktop BG14 `desktop-e2e-20260907-171113-863` passou. As duas primeiras aceitações falharam por não terem concluído a expansão do histórico e por terem lido o corpo
+vazio durante a animação de expansão; o teste passou a fazer a ação real de expansão e a esperar o texto de dica/caminho ficar pronto, sem alterar o ciclo de vida do produto.
+O modelo continua recebendo o pequeno resumo original de persisted-output, e o Desktop usa um cabeçalho independente de 30.000 bytes por padrão;
+desta vez não foram reexecutados os testes de execução em Windows/Linux, e não houve novas alterações no executor, nas flags, no watchdog ou no código de retenção de arquivos.
 
-## 2026-09-08 CLI 补齐验收
+## 2026-09-08 CLI Completa a Aceitação
 
-- 本轮取消普通前台 64 MiB artifact 截断，补齐 5/100 行与估算总行数的 CLI 事件/投影；
-  Desktop 渲染与 BG14 验证一并保留，TUI 不改，原有 TaskOutput 读向及进程生命周期不变。
-- 真实 65 MiB + 8 bytes 输出验证完整长度、30,000 bytes 头部摘要与尾部 sentinel；
-  macOS/Linux Node 24 各 10 项、Windows Git Bash/CMD Node 24 与 Node 25 各 20 项通过。
-- Desktop 渲染恢复后 UI focused 3 passed，BG14 真实 Bash E2E 通过；展开断言等待目标正文就绪，避免读取动画中间态。
-- Agent 10 文件 461 passed / 3 平台分支 skipped；shared wire/coalescing 36 passed。
-  typecheck 通过；根 lint 无错误、43 既有警告。显式取消 Agent ignore 的检查仅有
-  bash.ts/product-projection.ts 两项基线已有 max-lines，均已对 HEAD 复核且本轮行数减少。
-- 本轮未重复实写 5 GiB、未重测性能；5 秒软阈值及边界由回归测试锁定。
-  下方性能表是取消 64 MiB 截断之前的历史结果，不作为本轮新测数据。
+- Esta rodada cancelou o truncamento de artifact de 64 MiB no foreground comum e completou no CLI os eventos/projeções de 5/100 linhas e de total estimado de linhas;
+  a renderização do Desktop e a verificação BG14 foram mantidas, o TUI não muda e a leitura original do TaskOutput e o ciclo de vida do processo permanecem inalterados.
+- Uma saída real de 65 MiB + 8 bytes verificou o comprimento completo, o resumo de cabeçalho de 30.000 bytes e o sentinel de final;
+  10 itens cada em macOS/Linux com Node 24, e 20 itens cada em Windows Git Bash/CMD com Node 24 e Node 25 passaram.
+- Com a renderização do Desktop restaurada, o focused de UI teve 3 passed e o E2E de Bash real do BG14 passou; as asserções de expansão esperam o corpo alvo ficar pronto, evitando ler o estado intermediário da animação.
+- Agent com 10 arquivos e 461 passed / 3 branches de plataforma skipped; wire/coalescing compartilhado com 36 passed.
+  O typecheck passou; o lint da raiz sem erros e com os 43 warnings já existentes. Ao remover explicitamente o ignore do Agent, apenas
+  bash.ts/product-projection.ts violaram max-lines, ambos já presentes na baseline e reconferidos contra o HEAD, com redução de linhas nesta rodada.
+- Esta rodada não reescreveu na prática os 5 GiB nem remediu performance; o limiar suave de 5 segundos e suas bordas estão travados por testes de regressão.
+  A tabela de performance abaixo é um resultado histórico de antes do cancelamento do truncamento de 64 MiB e não serve como dados novos desta rodada.
 
-## 本次验收与性能
+## Aceitação e Performance Desta Rodada
 
-- flags 测试覆盖 darwin/linux/win32；预置文件证明 POSIX 追加、Windows 截断，POSIX symlink
-  不被跟随；前后台提交只打开一次。Windows 旧 append 失败保留为负对照，
-  可用 `apps/zcode-cli/packages/adapters/tests/fixtures/bash-windows-flags-probe.cjs` 独立复现。
-- 分段 barrier 证明退出前可读；覆盖无换行、中文空格路径、stdout/stderr、二进制、并发后代。
-  生命周期覆盖 foreground/explicit/timeout promotion/subagent、parent abort/Stop、单次通知；
-  root 先退出案例由测试清理后代，不能再断言终态文件稳定。
-- 用可控时钟和文件大小验证 watchdog 周期、等于/超过阈值、终态竞争和读取/清理失败。
-- 实际 adapter 验证 Windows Node 24.14.0 + Git Bash/CMD，Node 25 做对照；macOS/Linux
-  使用对应 append flags。更新相关产品 E2E，运行受影响单测、typecheck、lint。
-- 性能基准使用同机同 Node 的旧/新 adapter：每任务 256 MiB、并发 1/4、各至少三次，
-  记录父 Node 峰值 RSS、heap/external、CPU 与耗时，不将文件上限当作内存节省量。
+- Os testes de flags cobrem darwin/linux/win32; arquivos pré-existentes provam o append no POSIX, o truncamento no Windows e que symlinks POSIX não são seguidos; a submissão em foreground/background abre o arquivo apenas uma vez. O append antigo que falhava no Windows é mantido como controle negativo,
+  reproduzível de forma independente com `apps/zcode-cli/packages/adapters/tests/fixtures/bash-windows-flags-probe.cjs`.
+- A barreira segmentada prova que a leitura é possível antes da saída; a cobertura inclui ausência de quebra de linha, caminhos com espaços e chinês, stdout/stderr, binário e descendentes concorrentes.
+  O ciclo de vida cobre foreground/explicit/timeout promotion/subagent, abort/Stop do parent, notificação única; o
+  caso de saída antecipada da raiz é tratado nos testes limpando os descendentes, e não se pode mais afirmar estabilidade do arquivo no estado terminal.
+- Com relógio e tamanho de arquivo controláveis, o watchdog, o igual/acima do limiar, a corrida com o estado terminal e as falhas de leitura/limpeza são verificados.
+- O adapter real é verificado com Windows Node 24.14.0 + Git Bash/CMD, usando o Node 25 como contraste; macOS/Linux
+  usam as flags de append correspondentes. Os E2E de produto relevantes são atualizados, e os testes unitários afetados, typecheck e lint são executados.
+- O benchmark de performance usa o adapter antigo/novo na mesma máquina e no mesmo Node: 256 MiB por task, concorrência 1/4, pelo menos três repetições cada,
+  registrando o RSS de pico do Node pai, heap/external, CPU e tempo, sem tomar o limite de arquivo como economia de memória.
 
-### 2026-09-07 实测结果
+### Resultados Medidos em 2026-09-07
 
-- 受影响单测覆盖 adapter、Bash/TaskOutput wire、core conformance 与 background output；
-  209 项通过、8 项平台跳过；完整命令保存在本工作区 `.tmp/bash-direct-file-validation/implementation-report.md`。
-- 实际 adapter：macOS arm64 / Linux arm64（Docker）Node 24.14.0 各 8/8；
-  Windows x64 Node 24.14.0 和 25.9.0 各 16/16，分别覆盖 Git Bash 与 CMD。
-  Windows 默认 Node 未切换，24.14.0 使用独立 portable 路径；原始 append 负对照见
-  `.tmp/bash-direct-file-validation/windows-node24-report.md` 与 `windows-node25-report.md`。
-- Desktop formal replay：三组共 9 次通过、8 个不同场景，覆盖自动/显式后台、实时落盘、
-  单次完成通知、Stop、后台解除 parent abort、前台 Bash/subagent loading、硬超时及嵌套后台 Bash 的 child cleanup。
-  产物：`desktop-e2e-20260907-121229-740`、`desktop-e2e-20260907-121411-528`、
-  `desktop-e2e-20260907-123006-030`。
-- `pnpm typecheck`、`pnpm lint` 与 conversation coverage audit 通过。根 lint 配置排除
-  `apps/zcode-cli`，因此额外用相同规则对本次 Agent 变更显式 lint（移除该忽略项）。
-- 真实测试没有跑满 5 GiB 或填满磁盘：阈值和竞争用可控文件大小/时钟验证，输出丢失诊断
-  用故障注入验证。未覆盖 Windows arm64、全部 Git/MSYS 版本或手机真实远控重连；本次
-  未改 App–Agent schema、desktop continuous 和 mobile replayable 路由。
+- Os testes unitários afetados cobrem adapter, wire de Bash/TaskOutput, conformance do Core e saída em background;
+  209 aprovados e 8 skips de plataforma; o comando completo está salvo no `.tmp/bash-direct-file-validation/implementation-report.md` deste workspace.
+- Adapter real: macOS arm64 / Linux arm64 (Docker) com Node 24.14.0, 8/8 cada;
+  Windows x64 com Node 24.14.0 e 25.9.0, 16/16 cada, cobrindo Git Bash e CMD.
+  O Node padrão do Windows não foi trocado, e o 24.14.0 usou um caminho portable independente; o controle negativo de append original está em
+  `.tmp/bash-direct-file-validation/windows-node24-report.md` e `windows-node25-report.md`.
+- Replay formal do Desktop: 9 execuções aprovadas em 3 grupos, 8 cenários distintos, cobrindo background automático/ explícito, gravação em tempo real,
+  notificação única de conclusão, Stop, remoção do abort do parent em background, loading de Bash/subagent em foreground, hard timeout e child cleanup de background Bash aninhado.
+  Artefatos: `desktop-e2e-20260907-121229-740`, `desktop-e2e-20260907-121411-528`,
+  `desktop-e2e-20260907-123006-030`.
+- `pnpm typecheck`, `pnpm lint` e a auditoria de cobertura de conversation passaram. A config de lint da raiz exclui
+  `apps/zcode-cli`, por isso o lint explícito com as mesmas regras foi aplicado às mudanças de Agent desta rodada (removendo esse ignore).
+- Os testes reais não encheram 5 GiB nem o disco: limiar e corrida foram validados com tamanho de arquivo/relógio controláveis, e o diagnóstico de
+  saída perdida foi validado por injeção de falha. Não foram cobertos Windows arm64, todas as versões de Git/MSYS nem a reconexão real de controle remoto em celular; desta rodada
+  não alterou o schema App–Agent, nem as rotas desktop continuous e mobile replayable.
 
-性能脚本：`apps/zcode-cli/packages/adapters/tests/fixtures/bash-output-benchmark.cjs`。
-每个样本启动独立父 Node，先预热再 GC；每任务输出 256 MiB，并发 1/4，各三次，旧/新
-交替运行。两端均为 Node 24.14.0、Git Bash/系统 Bash；旧实现取变更前 `65ed641886`。
-以下为取消 64 MiB 结算截断前的历史性能对照，当时两者均验证原始字节数、30,000 bytes 返回摘要及 64 MiB artifact。下表为三次中位数；本轮完整文件保留不沿用该 artifact 验收条件，
-RSS 增量表示相对预热后的父 Node 基线，CPU 仅计父 Node user + system：
+Script de performance: `apps/zcode-cli/packages/adapters/tests/fixtures/bash-output-benchmark.cjs`.
+Cada amostra inicia um Node pai independente, com warm-up antes do GC; 256 MiB de saída por task, concorrência 1/4, três repetições cada, com execução alternada
+antigo/novo. Ambos os lados usam Node 24.14.0, Git Bash/Bash do sistema; a implementação antiga é a `65ed641886` de antes da mudança.
+Abaixo está a comparação histórica de performance de antes do cancelamento do truncamento de settlement de 64 MiB, quando ambos verificavam a contagem bruta de bytes, o resumo de retorno de 30.000 bytes e o artifact de 64 MiB. A tabela traz a mediana das três repetições; a retenção do arquivo completo desta rodada não adota essa condição de aceitação de artifact,
+e o incremento de RSS representa a diferença em relação à baseline do Node pai após o warm-up, com a CPU contando apenas user + system do Node pai:
 
-| 主机 / 并发 | 峰值 RSS 增量 MiB：旧 → 新 | heapUsed 增量 MiB：旧 → 新 | external 增量 MiB：旧 → 新 | 父 CPU ms：旧 → 新 | 耗时 ms：旧 → 新 |
+| Host / concorrência | Incremento de RSS de pico MiB: antigo → novo | Incremento de heapUsed MiB: antigo → novo | Incremento de external MiB: antigo → novo | CPU do pai ms: antigo → novo | Tempo ms: antigo → novo |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Windows / 1 | 78.08 → 0.55 | 38.84 → 0.51 | 66.79 → 0.07 | 1063 → 31 | 1204 → 393 |
 | Windows / 4 | 110.49 → 0.32 | 41.39 → 1.31 | 74.67 → 0.16 | 4703 → 172 | 3787 → 665 |
 | macOS / 1 | 190.50 → 0.39 | 46.85 → 0.54 | 80.89 → 0.07 | 330 → 11 | 323 → 213 |
 | macOS / 4 | 377.03 → 1.03 | 55.61 → 1.56 | 110.11 → 0.16 | 1348 → 68 | 749 → 973 |
 
-本负载的父 Node 输出处理 RSS 增量下降约 99.3%–99.8%，CPU 明显减少；不是整个 Agent
-内存下降 99%，也不包含子进程或 OS 文件缓存。5ms 采样可能漏掉短暂峰值，不同内存指标
-的峰值不一定同时发生。macOS 四并发耗时中位数反而增加约 30%，其中一次新实现耗时
-3964ms；因此不能据此承诺总执行耗时必然改善。原始样本保存在 `.tmp/bash-direct-file-validation/`
-下的 `windows-memory-results.json` 和 `macos-memory-results.json`，包含绝对 RSS 峰值、
-heap/external、CPU、耗时及每次重复编号。
+Nessa carga, o incremento de RSS do tratamento de saída do Node pai caiu cerca de 99,3%–99,8% e a CPU diminuiu de forma clara; isso não significa uma queda de 99% na memória de todo o Agent,
+e não inclui subprocessos nem o cache de arquivos do SO. A amostragem de 5ms pode perder picos curtos, e os picos de diferentes métricas
+de memória não ocorreram necessariamente ao mesmo tempo. No macOS com quatro execuções, a mediana de tempo na verdade aumentou cerca de 30%, e em uma delas a nova implementação levou
+3964ms; portanto não se pode prometer com base nisso que o tempo total de execução necessariamente melhora. As amostras originais estão em `.tmp/bash-direct-file-validation/`
+nos arquivos `windows-memory-results.json` e `macos-memory-results.json`, com o RSS de pico absoluto, heap/external, CPU, tempo e a numeração de cada repetição.

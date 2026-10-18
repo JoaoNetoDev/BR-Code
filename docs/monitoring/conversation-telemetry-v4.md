@@ -1,27 +1,23 @@
-# V4 对话埋点兼容规范
+# Especificação de compatibilidade da telemetria de conversa do V4
 
-本文冻结 V4 conversation 主链路的对话埋点口径。实现以 `z-code-2` 的生产行为为兼容基准，
-只恢复旧版已经存在的数据，不借迁移修改字段类型、指标公式或采集范围。
+Este documento congela o contrato de telemetria de conversa da cadeia principal de conversation do V4. A implementação usa o comportamento de produção de `z-code-2` como baseline de compatibilidade, restaurando apenas dados que já existiam na versão antiga, sem aproveitar a migração para modificar tipos de campo, fórmulas de métrica ou escopo de coleta.
 
-## 目标与非目标
+## Objetivos e não objetivos
 
-恢复下列生产事件：
+Restaurar os seguintes eventos de produção:
 
-- `/event/report`：`send_btn`、`message_completion`、`agent_step`、`context_compaction`、
-  `assistant_message_feedback`。
-- ARMS：`perf_ui_first_token`、`perf_ui_message_complete`、`perf_ui_turn_breakdown`、
-  `perf_ui_stream_stall`、`perf_ui_tool_call_detail`、`plan_request`、`plan_ttft`、
-  `chat_error_banner`。
-- 依赖真实对话入口的 `session_quota_alert` quota banner 和已有 Upgrade 面板交接。
+- `/event/report`: `send_btn`, `message_completion`, `agent_step`, `context_compaction`, `assistant_message_feedback`.
+- ARMS: `perf_ui_first_token`, `perf_ui_message_complete`, `perf_ui_turn_breakdown`, `perf_ui_stream_stall`, `perf_ui_tool_call_detail`, `plan_request`, `plan_ttft`, `chat_error_banner`.
+- O quota banner `session_quota_alert` dependente da entrada real de conversa e a passagem para o painel de Upgrade já existente.
 
-非目标：
+Não objetivos:
 
-- Web/手机端实际网络上报。
-- initial snapshot、cold hydration、gap recovery 或历史 transcript 的补报。
-- 修正旧版固定零值、空字符串、负值钳制和 stop-without-terminal 等历史口径。
-- 把 telemetry 状态写入 conversation rows、snapshot、relay 或 main 进程。
+- O reporte de rede efetivo no Web/celular.
+- Reenvio de initial snapshot, cold hydration, gap recovery ou transcript histórico.
+- Corrigir os contratos históricos da versão antiga: valores zero fixos, strings vazias, clamp de valores negativos e stop-without-terminal.
+- Gravar o estado de telemetry em conversation rows, snapshot, relay ou no processo main.
 
-## 架构与状态边界
+## Arquitetura e fronteiras de estado
 
 ```text
 CLI V4 live SessionEvent
@@ -44,23 +40,19 @@ persisted hydration / initial / recovery
                MUST NOT emit telemetry facts
 ```
 
-不得复活旧 `zcodeTaskRuntimeMonitor`，也不得把 supervisor 放在 `SessionPane`、
-`SessionDataLayer` 或受 30 秒 keep-warm 控制的 connection 上。supervisor 归属于窗口的
-workspace/service attachment，隔离 key 为：
+Não se pode ressuscitar o antigo `zcodeTaskRuntimeMonitor`, nem colocar o supervisor dentro de `SessionPane`, `SessionDataLayer` ou na connection controlada pelo keep-warm de 30 segundos. O supervisor pertence ao workspace/service attachment da janela, e a chave de isolamento é:
 
 ```text
 endpoint + remoteSessionId + (workspaceIdentity?.trim() || workspacePath) + serviceGeneration
 ```
 
-同一 workspace/service generation 只有一个 supervisor。task 切换、pane 卸载和 keep-warm
-到期不销毁；workspace detach、窗口关闭或 service generation 更换时销毁。
+Só existe um supervisor por geração de workspace/service. Troca de task, unload de pane e expiração do keep-warm não o destroem; detach de workspace, fechamento da janela ou troca de service generation o destrói.
 
-foreground 是可见 session 的引用集合，不是单 pane owner。同一 session 在多个分屏可见时仍只消费
-一次事实；多个不同 session 可以同时 foreground。
+"Foreground" é o conjunto de referências das sessions visíveis, e não um dono único de pane. A mesma session continua consumindo o fato apenas uma vez quando está visível em vários split panes; múltiplas sessions diferentes podem estar em foreground ao mesmo tempo.
 
-## Live fact 协议
+## Protocolo de live fact
 
-`ConversationTelemetryFact` 是严格 discriminated union，公共字段为：
+`ConversationTelemetryFact` é uma discriminated union estrita, com campos comuns:
 
 ```ts
 interface ConversationTelemetryFactBase {
@@ -74,175 +66,106 @@ interface ConversationTelemetryFactBase {
 }
 ```
 
-事实类型覆盖：
+Os tipos de fato cobrem:
 
 - `turn.started`
 - `model.request.status`
-- `stream.chunk`，只允许 `thought | text`、长度、是否首 chunk 和可选
-  `parentToolCallId`，不带正文；带 parent 的子代理 text 不进入主 generation step，但旧 handler
-  仍会在 step builder 外记录其 first token 和 stall。parented thought 继续保留旧 reasoning/TTFT/stall
-- `tool.lifecycle`，只允许工具名、状态、ID、父子/Agent 关联和扁平 allowlist perf，不带
-  input/output。Runtime `ToolExecutionTelemetry` 的 nested `detail` 必须由 CLI fact normalizer
-  按 command/filesystem/patch 判别分支逐字段映射，禁止直接透传或 spread；`command.hash` 只留在
-  CLI 本地诊断对象，不进入 V4 fact。shared schema 中保留的 `commandHash` 不代表官方 producer
-  会填充该字段
+- `stream.chunk`, permitindo apenas `thought | text`, o comprimento, se é o primeiro chunk e um `parentToolCallId` opcional, sem o corpo; o text de subagente com parent não entra no generation step principal, mas o handler antigo continua registrando o first token e o stall dele fora do step builder. O thought com parent mantém o comportamento antigo de reasoning/TTFT/stall
+- `tool.lifecycle`, permitindo apenas nome da ferramenta, status, ID, associação pai-filho/Agent e perf de allowlist achatado, sem input/output. O `detail` aninhado do `ToolExecutionTelemetry` do Runtime precisa ser mapeado campo a campo pelo normalizador de fact da CLI conforme os ramos discriminados command/filesystem/patch; é proibido repassar direto ou usar spread; `command.hash` fica apenas no objeto local de diagnóstico da CLI e não entra no fact do V4. O `commandHash` mantido no schema compartilhado não significa que o producer oficial preencha esse campo
 - `permission.lifecycle`
-- `usage.delta`，只由 `querySource=main_turn`（或兼容历史缺省且非
-  `tool_internal`）的 `ModelComplete` 产生；`session_title`、compact、子代理和其它
-  sidecar usage 不得累计到用户 prompt
+- `usage.delta`, produzido apenas pelo `ModelComplete` com `querySource=main_turn` (ou o padrão histórico de compatibilidade ausente e diferente de `tool_internal`); `session_title`, compact, subagente e outros usages sidecar não podem ser acumulados no prompt do usuário
 - `turn.terminal`
 - `compaction.terminal`
 
-`model.request.status` 只保留旧 `plan_request` 和 message telemetry 需要的 provider/model/status、
-请求耗时、错误分类和 provider hostname。hostname 必须通过 URL 解析后得到，禁止保留 path、query、
-header、header count、token、prompt、上游原始 message 或 finish reason。
+`model.request.status` mantém apenas o provider/model/status, a duração da requisição, a classificação de erro e o hostname do provider necessários ao `plan_request` antigo e à telemetry de message. O hostname precisa ser obtido por parsing de URL, e é proibido manter path, query, header, contagem de headers, token, prompt, message original do upstream ou finish reason.
 
-`message_completion` 与 `agent_step` 的 `event_extra_detail` 还必须携带当前 workspace 场景维度：
+O `event_extra_detail` de `message_completion` e `agent_step` também precisa carregar a dimensão de cenário do workspace atual:
 
-- `workspace_kind`：`local` / `remote`，表示本轮实际运行的 workspace 类型；
-- `remote_kind`：`ssh` / `wsl` / `docker` / `server`，本地或无法解析远端类型时为空字符串。
+- `workspace_kind`: `local` / `remote`, indicando o tipo de workspace em que o turno realmente rodou;
+- `remote_kind`: `ssh` / `wsl` / `docker` / `server`, string vazia em caso local ou quando o tipo remoto não pode ser resolvido.
 
-这两个字段是低基数维度，值由 renderer workspace attachment 在 supervisor 创建时冻结，并同时写入同一
-message 的 completion 与 step。远端类型只能通过统一的 `parseRemoteWorkspaceIdentity` 解析；不得把
-`remoteSessionId`、`workspaceIdentity`、`workspacePath`、主机地址或其它高基数身份直接写入埋点。
+Esses dois campos são dimensões de baixa cardinalidade, com valores congelados pelo renderer workspace attachment no momento da criação do supervisor e escritos simultaneamente na completion e no step da mesma message. O tipo remoto só pode ser resolvido pelo `parseRemoteWorkspaceIdentity` unificado; não se pode escrever diretamente noevento `remoteSessionId`, `workspaceIdentity`, `workspacePath`, endereço de host ou qualquer outra identidade de alta cardinalidade.
 
-Host 依据 attachment 注入的可信 `clientMode` 决定订阅权限，不能相信 renderer 自报。
-只有 `desktop-continuous` renderer 安装真实 reporter；`web-remote-replayable`、Bot 和自动化客户端
-即使能看到权威 conversation 状态，也不能借 telemetry service 产生网络上报。SSH/WSL/Docker/Server
-远程链路可能存在 Desktop Host attachment → trusted host relay 的多层 connection scope；relay 本身仍
-不得安装 reporter，但必须把现有 trusted 下游连接的 `clientMode` 和 namespace connectionId 继续传给
-上游。只有带可信下游 `desktop-continuous` 上下文的 telemetry fact 订阅可以穿过 relay，直接 relay
-订阅或 `web-remote-replayable` 下游必须返回空事件。
-Telemetry attachment 是旁路能力；Platform 或 agent service 尚未就绪时必须保持 no-op，不能阻断
-workspace/remote renderer，依赖齐备后才按 service generation 建立 supervisor 与 live subscription。
+O Host decide a permissão de assinatura conforme o `clientMode` confiável injetado pelo attachment e não pode confiar no que o renderer declara. Só o renderer `desktop-continuous` instala o reporter real; `web-remote-replayable`, o Bot e clientes de automação, mesmo vendo o estado autoritativo de conversation, não podem gerar reporte de rede pelo telemetry service. O link remoto SSH/WSL/Docker/Server pode ter múltiplos connection scopes, do attachment do Desktop Host até o trusted host relay; o relay em si continua sem instalar reporter, mas precisa repassar o `clientMode` das conexões downstream confiáveis existentes e o connectionId com namespace para o upstream. Somente a assinatura de telemetry fact com contexto downstream confiável de `desktop-continuous` pode atravessar o relay; assinatura direta no relay ou downstream `web-remote-replayable` precisa devolver eventos vazios.
+O attachment de Telemetry é uma capacidade secundária; enquanto Platform ou agent service ainda não estiverem prontos, ele precisa permanecer no-op, sem bloquear o workspace/remote renderer, e o supervisor e a live subscription só são estabelecidos conforme a service generation quando todas as dependências estiverem prontas.
 
-fact 只从当前进程的 live ingest 产生：
+Fatos são produzidos apenas pelo ingest live do processo atual:
 
-- persisted hydration、subscribe initial、snapshot 和 recovery：不产生。
-- hydration 期间新到达并暂存在 live buffer 的事件：产生一次。
-- CLI/runtime 重启后不根据 orphan 或历史终态补造 completion。
+- persisted hydration, subscribe initial, snapshot e recovery: não produzem.
+- Eventos que chegam durante a hydration e ficam temporariamente no live buffer: produzem uma vez.
+- Após reinício de CLI/runtime, não se fabrica completion por órfãos ou por estados terminais históricos.
 
-## ID、时钟和去重
+## IDs, relógio e deduplicação
 
-- `talk_id = sessionId`。
-- send/completion/step 的 `message_id = sourceCommandId`。
-- feedback 的 `message_id = assistant entityId`；缺少 entityId 时不以 rowId 代替。
-- compaction 的 `message_id = summaryMessageId ?? operationId`。
-- renderer 以收到 live fact 时的 `Date.now()` 计算旧耗时；`occurredAt` 只用于诊断。
-- eventId 使用约 2000 条有界 LRU。
-- terminal 按 `(sessionId, sourceCommandId, eventName)` exactly-once。
-- compact 按 `(sessionId, operationId, "context_compaction")` exactly-once；同一 operation
-  即使异常重复到达相互矛盾的 terminal status，也只采用首个 live terminal。
-- 本地 prompt seed 只在内存中保留；renderer reload 后不补报。
+- `talk_id = sessionId`.
+- O `message_id` de send/completion/step é o `sourceCommandId`.
+- O `message_id` de feedback é o `entityId` da assistant message; na ausência de entityId, não se substitui pelo rowId.
+- O `message_id` de compaction é `summaryMessageId ?? operationId`.
+- O renderer calcula a duração antiga com `Date.now()` no momento em que recebe o live fact; `occurredAt` serve apenas para diagnóstico.
+- eventId usa um LRU limitado de cerca de 2000 entradas.
+- Terminal é exactly-once por `(sessionId, sourceCommandId, eventName)`.
+- Compact é exactly-once por `(sessionId, operationId, "context_compaction")`; na mesma operation, mesmo que terminais com status contraditórios cheguem repetidamente de forma anormal, apenas o primeiro terminal live é adotado.
+- O seed local de prompt fica apenas na memória; não há reenvio após reload do renderer.
 
-## 事件触发矩阵
+## Matriz de disparo de eventos
 
-| 事件 | foreground | 切走后的 background | initial/recovery |
+| Evento | Foreground | Background após sair | Initial/recovery |
 | --- | --- | --- | --- |
-| `send_btn` | 本地桌面 command 被 UI 接纳时一次 | queued promotion 不重报 | 不报 |
-| `message_completion` | 报 | 已有本地 seed 的轮次继续报 | 不报 |
-| `agent_step` | 报 | 已有本地 seed 的轮次继续报 | 不报 |
-| `plan_request` | 报 | 报 | 不报 |
-| `context_compaction` | terminal 到达时可见才报 | 不报 | 不报 |
-| 六项 UI ARMS | 报 | 不报 | 不报 |
-| `chat_error_banner` | banner 实际可见才报 | 不报 | 恢复后首次真实可见可报 |
+| `send_btn` | Uma vez quando o command local de desktop é aceito pela UI | Promoção de fila não reenvia | Não envia |
+| `message_completion` | Envia | Turnos que já têm seed local continuam enviando | Não envia |
+| `agent_step` | Envia | Turnos que já têm seed local continuam enviando | Não envia |
+| `plan_request` | Envia | Envia | Não envia |
+| `context_compaction` | Envia quando o terminal chega estando visível | Não envia | Não envia |
+| Os seis eventos de UI ARMS | Enviam | Não enviam | Não enviam |
+| `chat_error_banner` | Envia quando o banner fica realmente visível | Não envia | Após a recuperação, pode enviar na primeira visibilidade real |
 
-`send_btn` 的发送时间来自 UI 原始动作。已有 session 的 direct/queued command 在本地接纳后上报；
-draft 首发等待 create ACK 得到 sessionId 后上报，但沿用原始 input/send 时间。相同 commandId 的重试、
-queued promotion 或 command inbox duplicate 不重报。
+O tempo de envio de `send_btn` vem da ação original da UI. Commands direct/queued de uma session existente são reportados após a aceitação local;
+o primeiro envio a partir de um draft é reportado depois do ACK de create, quando se obtém o sessionId, mas continua usando o tempo original de input/send. Retry com o mesmo commandId, promoção de fila ou duplicata de inbox de command não reenviam.
 
-发送种子的模型字段继续复用旧 UI 兼容值：运行时 provider（当前缺省为 `glm`）只写 `agent`；
-`config.provider !== glm` 时 `model_name` 使用 `custom:<provider>:<model>` 编码，`model_provider`
-仍写拆分后的真实 config provider。真实模型请求到达后，completion/step 再沿用旧逻辑改写为
-`<provider>/<model>`。不得因为 V4 config 已把 provider/model 拆字段，就改变旧数仓字符串口径。
-草稿首发即使 prewarm snapshot 尚未到达，也必须从该草稿生命周期冻结的初始化 config 与显式 intent
-合并得到 seed；不能回退为空模型/`glm`，也不能为了等待 telemetry 阻塞真实发送。
+Os campos de modelo do seed de envio continuam reaproveitando os valores de compatibilidade da UI antiga: o provider de runtime (atualmente com default `glm`) escreve apenas `agent`;
+quando `config.provider !== glm`, `model_name` usa a codificação `custom:<provider>:<model>`, e `model_provider` continua escrevendo o config provider real separado. Depois que a requisição real de modelo chega, completion/step reescrevem para `<provider>/<model>` pela lógica antiga. Não é permitido mudar o contrato de string do data warehouse só porque o config do V4 separou provider/model em campos.
+Mesmo no primeiro envio a partir de um draft em que o prewarm snapshot ainda não chegou, o seed precisa vir da mesclagem do config de inicialização congelado no ciclo de vida daquele draft com a intent explícita; não pode regredir para modelo vazio/`glm`, nem bloquear o envio real esperando a telemetria.
 
-`message_completion` 和 `agent_step` 只由桌面 UI 建立 seed 的 prompt 产生。`turn.started` 把 seed 与
-session/turn/sourceCommandId 绑定；所有携 sourceCommandId 的后续事实必须匹配当前生命周期。stop
-没有 terminal 时保持旧行为，不合成 completion。
+`message_completion` e `agent_step` são produzidos apenas por prompts com seed criado pela UI de desktop. `turn.started` liga o seed a session/turn/sourceCommandId; todos os fatos posteriores que carregam sourceCommandId precisam casar com o ciclo de vida atual. Um stop sem terminal mantém o comportamento antigo e não sintetiza completion.
 
-同一 `talk_id + message_id` 的 `message_completion` 与全部 `agent_step` 必须使用相同的
-`workspace_kind` / `remote_kind`。本地 Desktop 与 Desktop 远程 workspace 都属于
-`desktop-continuous`，因此 `clientMode` 只用于可信订阅门禁，不能作为 workspace 场景维度。
+`message_completion` e todos os `agent_step` do mesmo `talk_id + message_id` precisam usar o mesmo `workspace_kind` / `remote_kind`. Desktop local e workspace remoto de Desktop pertencem ambos a `desktop-continuous`, portanto `clientMode` serve apenas como portão de assinatura confiável e não pode ser uma dimensão de cenário de workspace.
 
-工具 terminal fact 到达时必须立即按该时刻关闭对应 tool step，并先上报
-`/event/report agent_step`；同轮 `message_completion` 只在之后的 turn terminal 收口。若正常工具
-terminal 因 fact schema 失败被丢弃，turn terminal 虽会兜底关闭仍打开的 step，但会把
-`duration_ms` 拉长到整轮结束，并可能用 turn 状态覆盖真实工具状态、错误与失败计数。该 fallback
-只保留给真实缺失/异常链路，不能作为正常 desktop continuous 链路的成功路径或测试依据。
+Quando o fact terminal de ferramenta chega, o tool step correspondente precisa ser fechado imediatamente naquele instante, reportando primeiro `/event/report agent_step`; o `message_completion` do mesmo turno só é fechado no turn terminal posterior. Se um terminal de ferramenta normal for descartado por falha de schema de fact, o turn terminal ainda fecha por fallback os steps que restam abertos, mas isso alonga o `duration_ms` até o fim do turno e pode sobrescrever o status, o erro e a contagem de falhas reais da ferramenta com o estado do turno. Esse fallback fica reservado apenas para cadeias realmente ausentes/anormais e não pode ser caminho de sucesso da cadeia desktop continuous normal nem base de teste.
 
-`TurnComplete(cancelled)` 保留旧两阶段收口：agent step 仍按 `task_complete` 成功关闭，随后
-`message_completion.status="user_interrupt"`，并使用旧固定错误
-`USER_INTERRUPT / User stopped generation`。只有真实 `TurnError` 用 `task_error` 关闭 step。
+`TurnComplete(cancelled)` mantém o fechamento antigo em duas fases: o agent step ainda é fechado com sucesso como `task_complete` e, em seguida, vem `message_completion.status="user_interrupt"`, usando o erro fixo antigo `USER_INTERRUPT / User stopped generation`. Somente um `TurnError` real fecha o step com `task_error`.
 
-`plan_request` 直接消费真实模型网络状态，覆盖旧版五种状态；允许前后台且不要求本地 prompt seed。
-不得从 `apiRetry`、accepted、queued 或其它投影状态推断。eventKey 使用 2000 条 FIFO/LRU 去重。
+`plan_request` consome diretamente o status de rede real do modelo, cobrindo os cinco estados da versão antiga; é permitido em primeiro e segundo plano e não exige seed local de prompt.
+Não pode ser inferido a partir de `apiRetry`, de accepted, de queued ou de outros estados projetados. O eventKey usa dedup FIFO/LRU de 2000 entradas.
 
-六项 UI 性能事件和 `plan_ttft` 只在 session foreground 时更新/收口。stream stall 必须严格
-`> 3000ms`；工具开始/更新和 terminal 清空 tracker；tool detail 只有 allowlist perf 非空时上报。
-旧统计接受的首个 thought、text（包括 parented child chunk）或 tool 都可成为 first token。旧 prompt
-在 terminal 前完全没有 thought/text/tool 时，completion 的 `time_to_first_token="-1"` 仍镜像一次
-`perf_ui_first_token(value=0)`；`plan_ttft < 0` 或 provider 为空时不发。仅在后台到达的首 token
-不能在切回前台后补算为 UI TTFT。
+Os seis eventos de performance de UI e o `plan_ttft` só são atualizados/fechados quando a session está em foreground. Stream stall precisa ser estritamente `> 3000ms`; o início/atualização da ferramenta e o terminal limpam o tracker; tool detail só é reportado quando o perf de allowlist não está vazio.
+O primeiro thought, o primeiro text (incluindo chunk de child com parent) ou a primeira ferramenta aceitos pela estatística antiga podem ser o first token. Quando o prompt antigo não tem absolutamente nenhum thought/text/tool antes do terminal, o `time_to_first_token="-1"` da completion ainda espelha uma vez `perf_ui_first_token(value=0)`; não se envia quando `plan_ttft < 0` ou o provider está vazio. Um first token que chega apenas em background não pode ser computado retroativamente como TTFT de UI ao voltar para o foreground.
 
-旧生产 completion 调用从未传入 `fileChanges`，因此 `file_change_cnt`、
-`generated_code_lines` 以及 ARMS breakdown 对应属性固定为 `"0"`/`0`。V4 即使从 runtime
-拿到文件摘要，也不得借迁移修正这两个指标。
+As chamadas de completion de produção antigas nunca passaram `fileChanges`, portanto `file_change_cnt`, `generated_code_lines` e os atributos correspondentes do ARMS breakdown ficam fixos em `"0"`/`0`. Mesmo que o V4 obtenha um resumo de arquivos do runtime, ele não pode aproveitar a migração para corrigir essas duas métricas.
 
-compaction 使用旧 runtime 模型值：非 `glm` provider 的 `model_name` 为
-`<provider>/<model>`，`model_provider` 保留 provider id；它不同于 `send_btn` 的
-`custom:<provider>:<model>` UI 编码。`reason` 只读取旧 timeline 实际消费的 `reason`；不得用
-V4 的 `compactReason` 回填空字符串。
+A compaction usa os valores de modelo do runtime antigo: para provider diferente de `glm`, `model_name` é `<provider>/<model>` e `model_provider` mantém o provider id; isso é diferente da codificação de UI `custom:<provider>:<model>` do `send_btn`. O `reason` só lê o `reason` realmente consumido pela timeline antiga; não se pode preencher string vazia com o `compactReason` do V4.
 
-`chat_error_banner` 在错误真正渲染可见后上报，同一组件 mount 内相同 key 一次；被 reducer/UI
-抑制的错误不报。普通 provider business error 保留旧版可见恢复动作与业务 code 维度；官方版本安全校验的
-内部恢复 action 不进入 banner telemetry。
+`chat_error_banner` é reportado depois que o erro é realmente renderizado e visível, uma vez por key igual dentro da mesma montagem do componente; erros suprimidos pelo reducer/UI não são reportados. Erros de business de provider comuns mantêm as ações de recuperação visíveis antigas e a dimensão do business code; a action de recuperação interna da verificação de segurança da versão oficial não entra na telemetria do banner.
 
-错误从 CLI 投影到 UI 时可附带 `attribution` 结构化事实：`source`、`reason`、`providerId`、
-`modelId`、`providerKind`、`transport`、`statusCode`、`providerErrorCode`、`retryable`、
-`errorPhase`、`exceptionKind`。这些字段
-全部可选，只用于故障归因和监控聚合；不得改变既有 banner 的显隐、文案、按钮、重试、安全校验或
-feedback 行为。旧事件与旧持久化记录缺少 attribution 时继续按原有 fallback 工作。
+Quando um erro é projetado do CLI para a UI, ele pode acompanhar uma estrutura `attribution` de fatos: `source`, `reason`, `providerId`, `modelId`, `providerKind`, `transport`, `statusCode`, `providerErrorCode`, `retryable`, `errorPhase`, `exceptionKind`. Todos esses campos são opcionais e servem apenas para atribuição de falhas e agregação de monitoramento; não podem mudar a visibilidade, o texto, os botões, o retry, a verificação de segurança ou o comportamento de feedback do banner existente. Eventos antigos e registros antigos persistidos que não têm attribution continuam funcionando pelos fallbacks de sempre.
 
-`chat_error_banner` 在保持既有字段不变的前提下，按白名单展开上述事实为
-`error_source`、`failure_reason`、`provider_scope`、`provider_id`、`model_id`、`provider_kind`、
-`transport`、`status_code`、`provider_error_code`、`failure_retryable`、`failure_phase`、
-`failure_exception_kind`。内置 provider 可保留稳定 ID；
-自定义 provider 一律归一为 `provider_scope=custom`、`provider_id=custom`，避免用户自定义名称造成
-高基数或隐私泄漏。`model_id` 只允许保留 telemetry 显式白名单中的内置稳定模型 ID；自定义 provider
-的模型和内置 provider 下未命中白名单的模型统一写为 `custom`，provider 或 model 缺失时写空字符串。
-白名单匹配与输出均使用规范化小写 ID，新增内置模型未进入白名单时必须默认降级为 `custom`，不得原样
-透传。禁止上传 base URL/完整 URL、header、token、请求或响应正文、prompt/tool 内容、stack、完整
-detail、requestId。ZCode 只上报事实归因，不上报 `owner` 或 `shouldAlert` 等监控策略结论。
+Mantendo os campos existentes inalterados, `chat_error_banner` expande esses fatos por allowlist em `error_source`, `failure_reason`, `provider_scope`, `provider_id`, `model_id`, `provider_kind`, `transport`, `status_code`, `provider_error_code`, `failure_retryable`, `failure_phase`, `failure_exception_kind`. Providers embutidos podem manter IDs estáveis;
+providers personalizados são sempre normalizados para `provider_scope=custom` e `provider_id=custom`, evitando que nomes personalizados pelo usuário gerem alta cardinalidade ou vazamento de privacidade. `model_id` só pode manter IDs de modelos embutidos estáveis explicitamente na allowlist de telemetria; modelos de provider personalizado e modelos de provider embutido que não casarem com a allowlist são escritos como `custom`, e quando provider ou model estão ausentes escreve-se string vazia.
+O casamento e a saída da allowlist usam IDs normalizados em minúsculas, e um novo modelo embutido que ainda não entrou na allowlist precisa degradar por padrão para `custom`, sem ser repassado como está. É proibido enviar base URL/URL completa, header, token, corpo de requisição ou resposta, conteúdo de prompt/tool, stack, detail completo ou requestId. O ZCode reporta apenas fatos de atribuição, e não conclusões de política de monitoramento como `owner` ou `shouldAlert`.
 
-`exceptionKind` 必须在 adapter 边界由 allowlist 规范，禁止把自定义 Error name 原样带入协议或 ARMS。
-`failure_reason=unknown` 不等于诊断字段缺失；Dashboard 分开统计 reason coverage 与
-`source + errorPhase + exceptionKind` 的 diagnostic coverage。
+`exceptionKind` precisa ser normalizado por allowlist na fronteira do adapter, e é proibido trazer o nome de um Error customizado para o protocolo ou para o ARMS como está.
+`failure_reason=unknown` não equivale a campo de diagnóstico ausente; o Dashboard conta separadamente a cobertura de reason e a cobertura de diagnóstico de `source + errorPhase + exceptionKind`.
 
-attribution 随权威 conversation error 状态进入 snapshot，因此 live continuous 与 persisted cold
-hydration 对同一错误应得到相同归因；它不触发 telemetry 补报。桌面仍仅在 banner 实际可见时通过
-`desktop-continuous` reporter 上报，手机 `web-remote-replayable` 不新增网络上报能力。
+O attribution entra no snapshot junto com o estado autoritativo de erro de conversation, de modo que o live continuous e o persisted cold hydration devem obter a mesma atribuição para o mesmo erro; ele não dispara reenvio de telemetria. O desktop continua reportando apenas quando o banner está realmente visível, pelo reporter de `desktop-continuous`, e o celular `web-remote-replayable` não ganha nova capacidade de reporte de rede.
 
-`source` 必须依据错误发生边界判定，不能只按 failure reason 猜测。判定优先级为：用户取消和
-请求发出前的本地 provider 配置、请求选项校验、未知 adapter 异常归为 `runtime`；TLS、代理、
-连接和超时等明确传输失败归为 `network`；其余仅在存在 provider 响应、provider business error
-或 provider 返回内容校验失败等上游证据时归为 `provider`。同一个 `invalid_request` reason
-因此可能按是否已有 provider 响应分别归为 `runtime` 或 `provider`；明确的网络 reason 即使由
-provider 响应携带，仍保持 `network`。
+`source` precisa ser julgado pela fronteira onde o erro ocorreu e não pode ser adivinhado apenas pelo failure reason. A prioridade de decisão é: cancelamento do usuário e configuração local de provider antes do envio da requisição, validação de opções de requisição e exceção desconhecida de adapter viram `runtime`; falhas de transporte explícitas como TLS, proxy, conexão e timeout viram `network`; todo o resto só vira `provider` quando existe evidência upstream, isto é, resposta de provider, provider business error ou falha de validação do conteúdo retornado pelo provider. Um mesmo reason `invalid_request` pode assim ser classificado como `runtime` ou `provider` conforme já exista ou não resposta do provider; um reason de rede explicitamente continua `network` mesmo quando é carregado pela resposta do provider.
 
-已携带结构化归因的 adapter error 再次经过 runner 终态边界时，`source`、`reason`、
-`retryable`、`statusCode` 和 provider business error 字段由最先取得有效证据的边界负责；后续边界
-只能补齐缺失值，不得用更粗粒度的重新分类覆盖。`attempt`、`requestId`、`traceId`、`providerId`、
-`modelId`、`providerKind` 和 `transport` 等本次请求事实仍以当前 runner 边界为准。为保留原始 stack、
-cause 和调用方已有的错误对象引用，已有 adapter error 的上下文补齐不得替换错误对象；compact 等
-调用点可以继续追加其明确拥有的阶段字段。
+Quando um adapter error que já carrega atribuição estruturada passa de novo pela fronteira de estado terminal do runner, `source`, `reason`, `retryable`, `statusCode` e os campos de provider business error ficam a cargo da fronteira que primeiro obteve evidência válida; as fronteiras seguintes só podem completar valores faltantes e não podem sobrescrever com uma reclassificação mais grosseira. Os fatos da requisição atual como `attempt`, `requestId`, `traceId`, `providerId`, `modelId`, `providerKind` e `transport` continuam seguindo a fronteira atual do runner. Para preservar o stack original, a cause e as referências de objetos de erro já existentes no chamador, o preenchimento de contexto de um adapter error existente não pode substituir o objeto de erro; pontos de chamada como compact podem continuar acrescentando os campos de estágio que lhes pertencem explicitamente.
 
-## 业务触发链路
+## Cadeias de disparo de negócio
 
 ### Assistant feedback
 
-V4 提供 `setAssistantFeedback` CAS command：
+O V4 oferece o CAS command `setAssistantFeedback`:
 
 ```ts
 {
@@ -251,7 +174,7 @@ V4 提供 `setAssistantFeedback` CAS command：
 }
 ```
 
-CLI 更新 assistant row 并持久化。UI 乐观更新、command 失败时回滚；点击时仍立即上报旧格式：
+A CLI atualiza e persiste a row da assistant message. A UI faz atualização otimista e reverte quando o command falha; no clique, ela continua reportando imediatamente o formato antigo:
 
 ```ts
 {
@@ -262,41 +185,39 @@ CLI 更新 assistant row 并持久化。UI 乐观更新、command 失败时回�
 }
 ```
 
-相同 reaction 再点一次写 `null` 并上报 `none`。
+Clicar de novo na mesma reaction escreve `null` e reporta `none`.
 
-### Session quota entry
+### Entrada de quota da session
 
-V4 quota banner 必须恢复可见性、dismiss、提交阻断、entitlement refresh 和 Upgrade 面板。
-只有已有购买面板确认打开后才由原购买模块上报 `coding_plan_upgrade_ck`，对话入口负责传递：
+O quota banner do V4 precisa restaurar visibilidade, dismiss, bloqueio de envio, refresh de entitlement e o painel de Upgrade.
+O `coding_plan_upgrade_ck` só é reportado pelo módulo de compra original depois que o painel de compra existente foi confirmado como aberto, e a entrada de conversa é responsável por repassar:
 
 - `eventRegion = app.session`
 - `upgrade_source = session_quota_alert`
 
-购买模块内部的 product/cycle/pay/result 与支付结果不属于本次 conversation 重构恢复范围；本次只验证
-Upgrade 面板真实打开且 funnel context 没有在对话入口丢失。
+Os detalhes de product/cycle/pay/result e o resultado de pagamento dentro do módulo de compra não fazem parte do escopo de restauração desta refatoração de conversation; aqui só se verifica que o painel de Upgrade realmente abriu e que o contexto de funnel não foi perdido na entrada de conversa.
 
-## 验证合同
+## Contrato de verificação
 
-- Golden tests 必须比较完整 payload，包括字符串化数字、空字符串和固定零值。
-- fake clock 覆盖 first token、3000/3001 stall、permission waiting、terminal exactly-once。
-- schema/privacy tests 证明正文、工具内容和 URL path/query 不会进入 fact。
-- gateway/service tests 证明 live buffered event 一次，initial/hydration/recovery 零次。
-- desktop E2E 用 `/event/report` fetch mock 和测试构建专用的有界 ARMS ring buffer 验证生产入口；
-  ring buffer 不得在生产构建暴露或持久化。
+- Os golden tests precisam comparar o payload completo, incluindo números convertidos em string, strings vazias e valores zero fixos.
+- O fake clock cobre first token, stall de 3000/3001, permission waiting e terminal exactly-once.
+- Testes de schema/privacidade provam que corpo de texto, conteúdo de ferramenta e path/query de URL não entram no fact.
+- Testes de gateway/service provam que evento live buffered acontece uma vez e initial/hydration/recovery acontecem zero vezes.
+- O E2E de desktop verifica a entrada de produção com fetch mock de `/event/report` e um ring buffer de ARMS limitado, exclusivo de build de teste;
+  o ring buffer não pode ser exposto nem persistido em builds de produção.
 
-conversation 正式用例编号与剪枝结论见 case catalog 的 `TEL` 分组和 E2E coverage matrix。
-新旧版本运行时差分、原子化回归 case 与自动化分层见
-[`conversation-telemetry-differential-regression-plan.md`](../testing/conversation-telemetry-differential-regression-plan.md)。
+A numeração dos casos formais de conversation e as conclusões de poda estão no grupo `TEL` do case catalog e na matriz de cobertura E2E.
+O diferencial de runtime entre versão nova e antiga, os casos de regressão atômicos e ocamadas de automação estão em
+[`conversation-telemetry-differential-regression-plan.md`](../testing/conversation-telemetry-differential-regression-plan.md).
 
-## Memory 开关维度（2026-09-17）
+## Dimensão da flag de Memory (2026-09-17)
 
-`send_btn`、`message_completion`、`agent_step` 的 `eventExtraDetail` 均包含
-`memory_enabled`：`"1"` 开启、`"0"` 关闭、`""` 表示旧 CLI/旧事实未提供状态。
-它只表示会话运行实例创建时采用的 App Memory 设置，不表示 CLI memory 最终生效、
-记忆读取命中或写入成功；不新增 read/write 指标，不改变 Memory 开关行为。
+O `eventExtraDetail` de `send_btn`, `message_completion` e `agent_step` contém
+`memory_enabled`: `"1"` ligado, `"0"` desligado e `""` indicando que um CLI/fato antigo não forneceu o estado.
+Ele só representa a configuração de App Memory adotada na criação da instância de execução da sessão, e não indica que o memory do CLI acabou valendo, que houve acerto de leitura de memória ou que a escrita teve sucesso; não cria métricas de read/write nem muda o comportamento da flag de Memory.
 
-唯一数据源为 CLI `ZCodeProtocolSessionRecord.memoryEnabled`，不在发送或完成时重新读取
-App 当前设置。用户中途修改设置不会改变存量运行实例；新建/冷恢复实例使用其创建期值。
+A única fonte de dados é `ZCodeProtocolSessionRecord.memoryEnabled` da CLI, e a configuração atual do App não é relida no momento do envio ou da conclusão.
+Alterar a configuração no meio do caminho não muda instâncias de execução já existentes; instâncias novas ou recuperadas a frio usam o valor de sua criação.
 
 ```text
 会话记录 memoryEnabled
@@ -305,25 +226,20 @@ App 当前设置。用户中途修改设置不会改变存量运行实例；新�
                            └─ child step 继承来源 prompt 的值
 ```
 
-ACK 与 live telemetry fact 增加可选 boolean `memoryEnabled`；缺失保持 unknown，不默认关闭。
-新建/选区侧聊 ACK 读取结果 session 的记录，普通发送读取目标 session 的记录。
-先于 ACK 的普通事实继续使用现有 pending fact 缓冲；child 启动事实直接沿用父会话字段，不等待 ACK；去重、FIFO、workspace identity 不变。
-后台任务不伪造 send_btn；子 Agent 继承来源 prompt 的开关，不把其自身记忆工具使用当开关。
-传输只增加无正文元数据，CLI snapshot/历史恢复不补造 telemetry fact。桌面保持
-`desktop-continuous` live reporter，手机 `web-remote-replayable` 不安装 reporter、
-不扩大 telemetry 采集范围；命令 ACK 在两端均兼容新字段。
+O ACK e o live telemetry fact ganham o boolean opcional `memoryEnabled`; a ausência mantém unknown e não significa desligado por default.
+O ACK de novo thread ou side chat lê o registro da session resultante, enquanto o envio comum lê o registro da session alvo.
+Fatos comuns anteriores ao ACK continuam usando o buffer de pending fact existente; o fato de início de child usa diretamente o campo da sessão pai, sem esperar o ACK; dedup, FIFO e workspace identity permanecem iguais.
+Tarefas em segundo plano não fabricam send_btn; subagentes herdam a flag do prompt de origem e não usam o próprio uso de ferramenta de memória como flag.
+O transporte ganha apenas metadados sem corpo, e o snapshot/recuperação histórica da CLI não fabrica fatos de telemetria. O desktop mantém o live reporter de `desktop-continuous`, e o celular `web-remote-replayable` não instala reporter nem amplia o escopo de coleta de telemetria; o command ACK é compatível com o novo campo nas duas pontas.
 
-验收：开/关各验证三个事件同值；设置变更后存量实例不漂移；后台轮和 detached child
-继承；事实早于 ACK、重复 ACK 保持原有去重；旧 CLI 缺字段留空；非 boolean 协议值被拒绝。
-现有 Memory E2E 增加默认关闭与新会话开启的三事件断言。
+Aceite: ligado e desligado validam o mesmo valor nos três eventos; após mudar a configuração, as instâncias existentes não derivam; turnos em segundo plano e child detached herdam; fatos anteriores ao ACK e ACKs duplicados mantêm o dedup de sempre; CLI antigo sem o campo deixa vazio; valores de protocolo não booleanos são rejeitados.
+O E2E de Memory existente ganha as asserções dos três eventos para desligado por default e ligado em sessão nova.
 
-### 本次验证边界
+### Limites de verificação deste trabalho
 
-- 2026-09-17：根工程与 CLI typecheck、根 lint、architecture changed 检查通过。
-- UI/协议相关 112 项单测通过；gateway/workflow fact 回归 108 项通过、1 项失败。
-  失败项为既有 `Core admission ACK 不等待 TurnStarted projection；旧 revision retry/file rewind 只 stale`，
-  使用未修改的 staging gateway 复跑仍得到相同失败。
-- CLI lint 被未修改文件的既有 `max-lines` 错误阻塞。
-- Memory WDIO 的 `before all` 未能选择 Full access/yolo 模式，未到新增埋点断言；
-  不能把本次运行作为桌面开/关埋点的端到端通过证据。手机远控未进行新增实机验证，
-  原有 reporter 的 desktop-continuous 边界保持不变。
+- 2026-09-17: o typecheck do projeto raiz e da CLI, o lint raiz e a verificação de architecture changed passaram.
+- 112 testes unitários de UI/protocolo passaram; a regressão de fact de gateway/workflow deu 108 aprovados e 1 falha.
+  O item que falhou é o `Core admission ACK 不等待 TurnStarted projection；旧 revision retry/file rewind 只 stale` já existente, e a reexecução com o gateway de staging sem alterações deu a mesma falha.
+- O lint da CLI ficou bloqueado por erros `max-lines` já existentes em arquivos não modificados.
+- O `before all` do Memory WDIO não conseguiu selecionar o modo Full access/yolo e não chegou às novas asserções deevento;
+  esta execução não pode ser usada como evidência de aprovação ponta a ponta dosevento de desktop ligado/desligado. Não houve verificação em aparelho real nova no controle remoto do celular, e a fronteira desktop-continuous do reporter existente permanece inalterada.

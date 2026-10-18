@@ -1,11 +1,11 @@
-# V4 冷恢复：Runtime 激活与 Legacy Snapshot 解耦
+# V4 cold resume: ativação de runtime e desaclopamento do snapshot legacy
 
-> 状态：2026-07-24 accepted；2026-08-13 增补单次物化与单一 READY 水位合同。
-> 范围：V4 conversation 首次冷订阅；不删除 legacy `session/resume` 协议，也不迁移 Bot 实时订阅。
+> Estado: aceito em 2026-07-24; em 2026-08-13 foram acrescentados os contratos de materialização única e de nível de água READY único.
+> Escopo: primeira subscrição fria de conversation do V4; não remove o protocolo legacy `session/resume` nem migra a subscrição realtime do Bot.
 
-## 1. 问题
+## 1. Problema
 
-改动前，CLI 冷启动后首次打开持久会话，V4 订阅间接复用 legacy `resumeSession`：
+Antes da mudança, após o cold start da CLI, ao abrir a sessão persistente pela primeira vez, a subscrição do V4 reutilizava indiretamente o legacy `resumeSession`:
 
 ```text
 v4/conversation/subscribe
@@ -21,15 +21,14 @@ v4/conversation/subscribe
   -> V4 initial snapshot
 ```
 
-这里混合了两种职责：
+Aqui se misturavam duas responsabilidades:
 
-1. **runtime 激活**：V4 后续命令和 config seed 必须依赖；
-2. **legacy 表示层物化**：只为旧 `session/resume` 响应服务。
+1. **ativação de runtime**: da qual os comandos subsequentes e o config seed do V4 dependem;
+2. **materialização da camada de apresentação legacy**: que existe apenas para servir a resposta antiga de `session/resume`.
 
-V4 已由 durable transcript、session entry、memory event 和 `ProductProjection` 生成自己的权威
-snapshot。继续构建 legacy snapshot 不增加恢复能力，只会让耗时随历史 messages/parts 规模重复增长。
+O V4 já gera o seu próprio snapshot autoritativo a partir de durable transcript, session entry, memory event e `ProductProjection`. Continuar construindo o snapshot legacy não aumenta a capacidade de recuperação e apenas faz o tempo consumido crescer repetidamente com a escala de messages/parts históricos.
 
-## 2. 目标边界
+## 2. Fronteira de objetivo
 
 ```text
                          ┌─ legacy session/resume
@@ -45,48 +44,44 @@ activateSessionForResume ┤
   └─ app.resume()             -> V4 initial snapshot
 ```
 
-`activateSessionForResume` 是 profile 无关的 lifecycle primitive：
+`activateSessionForResume` é uma primitiva de ciclo de vida independente de profile:
 
-- record 已存在时不重复 `app.resume()` 或事件接线；显式 `runtimeModel` 仍按旧语义刷新；
-- record 不存在时完整保留原 `resumeSession` 在 `snapshot(...)` 之前的全部行为；
-- store 无 session、模型不可用、runtime resume 失败等错误与旧路径一致；
-- 不根据 `desktop-continuous` / `web-remote-replayable` 分支。两者只在激活完成后的 V4
-  publisher delivery profile 分流。
+- quando o record já existe, não repete `app.resume()` nem a ligação de eventos; um `runtimeModel` explícito ainda é atualizado conforme a semântica antiga;
+- quando o record não existe, preserva integralmente todo o comportamento original de `resumeSession` antes de `snapshot(...)`;
+- erros como store sem session, modelo indisponível ou falha no resume do runtime são iguais aos do caminho antigo;
+- não faz ramificação por `desktop-continuous` / `web-remote-replayable`. Ambos se separam apenas no profile de entrega do publisher do V4, depois da ativação concluída.
 
-legacy `resumeSession` 继续作为兼容包装层：
+O legacy `resumeSession` continua como camada de compatibilidade:
 
 ```text
 resumeSession = activateSessionForResume + snapshot
 ```
 
-因此旧协议调用者、Bot 尚未迁移的 legacy 状态读取和测试语义不变；本次只让 V4 冷订阅调用
-activation-only primitive。
+Portanto, a semântica dos chamadores antigos de protocolo, das leituras de estado legacy do Bot ainda não migrado e dos testes não muda; desta vez apenas fazemos com que a subscrição fria do V4 chame a primitiva activation-only.
 
-## 3. 不得损失的功能
+## 3. Funcionalidade que não pode ser perdida
 
-| 不变量                        | 约束                                                                                                       |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| runtimeReadyBeforeHydration   | `app.resume()` 完成后才读取 V4 config/usage seed 和发布首帧                                                |
-| historicalConfigPreserved     | 历史 model、thought、mode 继续按 session-local durable selection 优先恢复                                  |
-| restoreWarningPreserved       | 历史模型不可用时仍允许读历史，但后续 `sendText` 被同一 restore warning 闸门拒绝                            |
-| workspaceIdentityPreserved    | 远端恢复继续使用持久化 `workspaceID`；identity key 不退化为 `workspacePath`                                |
-| eventWiringPreserved          | `createRecord` 建立的 event sink、persistence、MCP/runtime 接线不改变                                      |
-| timestampsAndParentPreserved  | `createdAt`、`updatedAt`、`parentSessionId` 继续从持久会话回填                                             |
-| v4HistoryAuthorityUnchanged   | rows、reasoning、tool、plan、goal、queue 和 interaction 仍由 V4 durable materialization + memory tail 恢复 |
-| deliveryBoundaryUnchanged     | desktop 保持 continuous；mobile/Web remote 保持 replayable gap/snapshot 恢复                               |
-| restartDiscardUnchanged       | 上一 runtime 未终态 input 仍按 delivery ledger discarded；不得因去掉 legacy snapshot 自动重放              |
-| legacyResumeResponseUnchanged | `session/resume` 仍返回完整、schema 等价的 legacy snapshot                                                 |
-| v4ColdReadySingleOwner         | V4 gateway 只用一个 cold READY promise 串联 activation 与 hydration                                       |
-| hydrationBoundaryUnchanged     | `hydratePublisher` 仍只负责 projection hydration，不接管各入口既有的 runtime activation 前置条件          |
-| registryIsNotV4Readiness       | `context.sessions` 只登记 record；V4 cold operation 完成前不能据此放行 query/command                      |
+| Invariante                      | Restrição                                                                                                  |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| runtimeReadyBeforeHydration     | os config/usage seed do V4 e a publicação do primeiro frame só são lidos depois de `app.resume()` concluir   |
+| historicalConfigPreserved       | model, thought e mode históricos continuam sendo restaurados com prioridade da selection durable local da sessão |
+| restoreWarningPreserved         | quando o modelo histórico está indisponível, ainda se pode ler o histórico, mas o `sendText` seguinte é recusado pelo mesmo gate de restore warning |
+| workspaceIdentityPreserved      | a recuperação remota continua usando o `workspaceID` persistido; a identity key não degrada para `workspacePath` |
+| eventWiringPreserved            | o event sink, a persistência e a ligação de MCP/runtime estabelecidos por `createRecord` não mudam           |
+| timestampsAndParentPreserved    | `createdAt`, `updatedAt` e `parentSessionId` continuam sendo preenchidos a partir da sessão persistente    |
+| v4HistoryAuthorityUnchanged     | rows, reasoning, tool, plan, goal, queue e interaction continuam sendo restaurados pela materialização durable do V4 + memory tail |
+| deliveryBoundaryUnchanged       | o desktop mantém continuous; mobile/Web remote mantém a restauração replayable por gap/snapshot           |
+| restartDiscardUnchanged         | input do runtime anterior que não chegou a estado terminal continua sendo discarded pelo delivery ledger; não pode ser reproduzido automaticamente só por ter removido o snapshot legacy |
+| legacyResumeResponseUnchanged   | `session/resume` continua devolvendo um snapshot legacy completo e equivalente em schema                   |
+| v4ColdReadySingleOwner          | o gateway do V4 usa apenas um único promise cold READY para encadear ativação e hydration                   |
+| hydrationBoundaryUnchanged      | `hydratePublisher` continua responsável apenas pela hydration da projeção e não assume as pré-condições de ativação de runtime existentes em cada entrada |
+| registryIsNotV4Readiness         | `context.sessions` apenas registra o record; query/command não podem ser liberados com base nisso antes de a operação fria do V4 concluir |
 
-pending permission/elicitation 和当前 runtime queue 不是旧进程可无条件复活的 durable 事实。本次不增加、
-删除或改写它们；新 runtime 的 V4 memory event tail 仍是在线权威。
+Pending permission/elicitation e a queue atual do runtime não são fatos duráveis que um processo antigo possa ressuscitar sem condição. Não os adicionamos, removemos nem reescrevemos; a memory event tail do V4 do novo runtime continua sendo a autoridade online.
 
-## 4. Usage 窄投影
+## 4. Projeção estreita de usage
 
-V4 冷恢复不能为了 `runtime.contextUsage` 再调用 `readSession`。窄投影必须复用 legacy snapshot
-当前的同一计算口径：
+A cold recovery do V4 não pode chamar `readSession` de novo só para obter `runtime.contextUsage`. A projeção estreita precisa reutilizar o mesmo critério de cálculo atualmente usado pelo snapshot legacy:
 
 ```text
 runtime projection contextUsed/contextWindow
@@ -96,21 +91,17 @@ runtime projection contextUsed/contextWindow
   -> SessionUsageSeed
 ```
 
-必须保留以下细节：
+Os seguintes detalhes precisam ser preservados:
 
-- runtime `contextUsed` 非零时优先；否则回落 active branch 最近的 assistant tokens 或
-  compact boundary，具体口径见 `docs/context-window-usage-state.md`；
-- cache 汇总只统计 active branch 的非 summary assistant messages；compact boundary seed
-  不复活压缩前 cache；
-- breakdown 只接受 main-turn、且 `used/contextWindow` 与 meter 对齐的最新 `ModelComplete`；
-- 非正数 used/window 返回 `null`，保持“尚无一次模型往返”语义；
-- 不读取/映射 legacy messages、settings、todos、goal、slash commands 或 model availability。
+- o `contextUsed` do runtime tem prioridade quando é diferente de zero; caso contrário há recorrência para os assistant tokens mais recentes do active branch ou para a compact boundary, conforme o critério descrito em `docs/context-window-usage-state.md`;
+- o resumo de cache conta apenas assistant messages não-summary do active branch; a compact boundary seed não ressuscita o cache anterior à compactação;
+- o breakdown aceita somente o `ModelComplete` mais recente que seja de main-turn e tenha `used/contextWindow` alinhados ao meter;
+- used/window não positivos retornam `null`, preservando a semântica de “ainda sem nenhuma ida e volta de modelo”;
+- não lê/mapeia legacy messages, settings, todos, goal, slash commands ou model availability.
 
-### 4.1 单次冷恢复物化
+### 4.1 Materialização única da cold recovery
 
-大 session 的首次 V4 冷订阅中，settings、runtime resume、durable hydration、subagent manifest
-和 usage seed 使用的是同一批持久 message/part。正常路径只允许在 activation 起点完整读取一次，
-后续消费者通过当前冷恢复调用栈复用该数组：
+Na primeira subscrição fria do V4 de uma sessão grande, settings, resume do runtime, durable hydration, manifesto de subagent e usage seed usam o mesmo conjunto de messages/parts persistidos. O caminho normal permite apenas uma leitura completa, no ponto de partida da ativação, e os consumidores seguintes reutilizam esse array pela pilha de chamadas corrente da cold recovery:
 
 ```text
 activateSessionForResume
@@ -128,46 +119,27 @@ gateway readyFlights[sessionId](M0 | M1)
   └─ late usage seed
 ```
 
-约束如下：
+As restrições são as seguintes:
 
-- materialization 只存在于本次 cold-resume promise 与紧随其后的 hydration 调用栈；不得挂到
-  session record、不得建立 `sessionId -> messages` 长期缓存，也不增加 TTL、失效广播或数据库 schema；
-- runtime 仍先取得持久 session，再消费注入的 messages；只有 V4 cold activation 显式选择
-  复用本次 materialization，普通 core 与 legacy `session/resume` 不注入 messages，继续由 runtime
-  自己读取，保持原入口语义；
-- runtime resume 若把 `started/retrying` compact timeline 收敛并写回 store，activation 必须刷新
-  一次 messages 后再交给 V4。仅该修补路径允许两次完整读取，正常路径必须严格为一次；
-- durable hydration 继续读取最新 session metadata、target、session entries 与 memory events；复用
-  messages 不得冻结 rewind/target/event 水位；
-- usage seed 继续在 hydration 补完 live buffer 后读取最新 session/events/runtime projection，只把
-  已物化 messages 作为输入，保持“新 `ModelComplete` 高于冷种子”的既有顺序；
-- subagent manifest 只复用 parent messages；child session 仍各自读取自己的持久事实，不能误把
-  parent materialization 扩散成跨 session cache；
-- 并发 desktop continuous / web remote replayable 首订阅共享同一个 READY promise 和
-  materialization，但 delivery profile、gap/resync 与首帧终态语义不变。
-- gateway 每个 cold session 只维护一个 `readyFlights` entry，串联
-  `activate runtime -> hydrate projection`。注册 entry 必须早于 activation
-  开始；并发 cold 入口若已看到该 entry，必须等待同一个终态。改动前已有的
-  `ColdSessionResumeCoordinator` 仍只负责 runtime activation 单飞与错误分型，不作为 command/query
-  的 READY 水位。
-- `hydratePublisher` 保持原有 projection-only 职责和独立 hydration singleflight；不得在其中根据
-  `sessionExists`、detached publisher 或调用方 option 决定是否 activation。各入口继续显式保留原有
-  前置条件：普通 conversation 读取按 `hasLiveConversation` 判断，file rewind/attachment read 按
-  `host.sessionExists` 判断。只有确实需要 cold activation 时才进入 `readyFlights`。
-- command/query 只读取调用开始时已经存在的 READY promise；存在就先等待，随后只进入一次既有
-  CommandInbox query/admission 流程。该流程内部原有的锁后复核保持不变；不得在 READY 外再增加
-  “先查一次、等待、再查一次”，也不得由每个 query 包装 `.finally()`。READY 注册早于 activation，
-  因而恢复窗口不会创建旧 command index；READY owner 不再额外失效该索引。
-- 孤立 command/query 不自动激活历史 session。legacy `session/resume` 与 `attachment/begin`
-  保持原有入口，不并入本次 READY 协调，也不新增跨入口 singleflight。
-- `fault.command.queryUnavailable` 只表示 transcript/timeline/child/discarded 持久事实读取失败。
-  activation/hydration 的异常保留原始生命周期错误，禁止伪装成 command query 故障。
-- READY 失败沿用原 activation/hydration 的既有错误与清理语义；gateway 只释放本次 map entry，
-  避免永久复用已 rejected 的 promise，但不改变 `context.sessions` 的既有生命周期。只有 record 入册前
-  失败时，后续请求才会重新进入 cold activation；本次不承诺 record 入册后的自动回滚或重试，也不新增
-  补偿事务或失败缓存。
+- a materialização existe apenas no promise cold-resume atual e na pilha de hydration imediatamente seguinte; não pode ser pendurada no session record, não pode estabelecer um cache de longo prazo `sessionId -> messages` e não adiciona TTL, broadcast de invalidação nem schema de banco;
+- o runtime continua obtendo primeiro a sessão persistente e depois consumindo as messages injetadas; apenas a cold activation do V4 escolhe explicitamente reutilizar esta materialização, enquanto o core comum e o legacy `session/resume` não injetam messages e continuam lendo pelo próprio runtime, preservando a semântica original de cada entrada;
+- se o resume do runtime convergir e gravar de volta no store uma timeline compact em `started/retrying`, a ativação precisa refrescar as messages uma vez antes de entregar ao V4. Somente esse caminho de reparo permite duas leituras completas; o caminho normal precisa ser estritamente uma;
+- a durable hydration continua lendo o session metadata, target, session entries e memory events mais recentes; reutilizar as messages não pode congelar a água de rewind/target/event;
+- o usage seed continua sendo lido depois que a hydration completa o live buffer, a partir do session/events/projection de runtime mais recentes, usando as messages materializadas apenas como entrada, preservando a ordem já existente de “um novo `ModelComplete` fica acima da semente fria”;
+- o manifesto de subagent reutiliza apenas as messages do parent; cada child session continua lendo seus próprios fatos persistentes, e não se pode deixar a materialização do parent se espalhar em um cache entre sessões;
+- subscrições concorrentes desktop continuous / web remote replayable compartilham o mesmo promise READY e a mesma materialização, mas a semântica de delivery profile, gap/resync e de estado terminal do primeiro frame não muda.
+- o gateway mantém apenas uma entrada `readyFlights` por sessão fria, encadeando
+  `activate runtime -> hydrate projection`. O registro da entrada precisa acontecer antes do início da ativação;
+  uma entrada fria concorrente que já tenha visto essa entrada precisa esperar o mesmo estado terminal. O `ColdSessionResumeCoordinator` que já existia antes da mudança continua responsável apenas pelo single-flight de ativação de runtime e pela classificação de erros, e não é a água READY de command/query.
+- `hydratePublisher` mantém sua responsabilidade original de projection-only e seu hydration singleflight independente; não pode, dentro dele, decidir a ativação com base em `sessionExists`, publisher destacado ou opção do chamador. Cada entrada continua preservando explicitamente suas pré-condições originais: a leitura de conversation comum é decidida por `hasLiveConversation`, e o read de file rewind/attachment por `host.sessionExists`. Só entra em `readyFlights` quando a cold activation é de fato necessária.
+- command/query só leem o promise READY que já existia no início da chamada; se ele existir, esperam e depois entram uma única vez no fluxo existente de query/admission do CommandInbox. A re-verificação sob lock já existente dentro desse fluxo permanece inalterada; não se pode adicionar fora do READY um “consultar uma vez, esperar e consultar de novo”, nem fazer cada query envolver `.finally()`. Como o registro do READY é anterior à ativação, a janela de recuperação não cria um índice de commands antigo, e o owner do READY não invalida mais esse índice.
+- command/query órfãos não ativam automaticamente sessions históricos. O legacy `session/resume` e o `attachment/begin` mantêm suas entradas originais, não são incorporados a esta coordenação READY e nenhum singleflight entre entradas é adicionado.
+- `fault.command.queryUnavailable` indica somente falha de leitura de fatos persistentes de transcript/timeline/child/discarded.
+  Exceções de activation/hydration preservam o erro de ciclo de vida original e não podem ser disfarçadas de falha de command query.
+- Uma falha do READY segue os erros e a semântica de limpeza já existentes de activation/hydration; o gateway libera apenas a entrada deste map,
+  evitando reutilizar permanentemente um promise já rejeitado, mas sem alterar o ciclo de vida existente de `context.sessions`. Somente quando a falha ocorre antes da entrada do record no registro as requisições seguintes reentram na cold activation; não há promessa de rollback ou retry automático após a entrada do record, e nenhuma transação compensatória nem cache de falha é adicionado.
 
-### 4.2 单一 READY owner
+### 4.2 Owner READY único
 
 ```text
 gateway readyFlights[sessionId]
@@ -185,87 +157,84 @@ incoming query / command
   enter the existing CommandInbox flow once
 ```
 
-状态边界如下：
+As fronteiras de estado são as seguintes:
 
-- `context.sessions` 继续只负责事件接线；V4 query/command 的等待依据只有 gateway READY promise；
-- 只有从未在册持久 session 开始的 cold READY 阻塞 query/command；既有 live session 的首次
-  projection hydration 保持原 command 调度语义，不扩大这次 M0 修复的等待范围；
-- host-dependent 读取继续在自己的入口保证 record 已恢复，不把更强前置条件编码进共享
-  `hydratePublisher`；
-- 改动前已有的 activation singleflight 保持原职责；CommandInbox 不维护或派生 readiness promise；
-- READY owner 在成功或失败后释放 map entry；这只证明失败 promise 不会被永久缓存，不等价于整个
-  activation 在任意失败点都可重试；
-- resident pool 继续独立覆盖 eviction close，显式 `session/close` 保持既有产品删除语义；
-- desktop continuous 与 web remote replayable 仍只在 projection ready 后选择 delivery profile。
+- `context.sessions` continua responsável apenas pela ligação de eventos; a base de espera de query/command do V4 é somente o promise READY do gateway;
+- somente um cold READY que parte de uma sessão persistente nunca registrada bloqueia query/command; a primeira hydration de projeção de uma sessão live existente mantém a semântica original de agendamento de commands, e a espera não é ampliada por esta correção de M0;
+- leituras dependentes de host continuam garantindo, em sua própria entrada, que o record foi restaurado, sem codificar pré-condições mais fortes no `hydratePublisher` compartilhado;
+- o singleflight de ativação que já existia antes da mudança mantém sua responsabilidade original; o CommandInbox não mantém nem deriva promise de readiness;
+- o owner do READY libera a entrada do map após sucesso ou falha; isso prova apenas que um promise com falha não fica permanentemente em cache e não equivale a dizer que toda a ativação pode ser reexecutada em qualquer ponto de falha;
+- o resident pool continua cobrindo eviction close de forma independente, e o `session/close` explícito mantém a semântica existente de exclusão de produto;
+- desktop continuous e web remote replayable continuam escolhendo o delivery profile somente depois de a projeção estar ready.
 
-## 5. 剪枝后的验证矩阵
+## 5. Matriz de verificação podada
 
-不枚举所有客户端 × 所有会话状态。activation 发生在 delivery profile 分流前，按不变量选择代表样本：
+Não se enumeram todos os clientes × todos os estados de sessão. A ativação acontece antes da separação do delivery profile e, por invariante, escolhem-se amostras representativas:
 
-| 代表样本                                | 验证重点                                                                              | 证据层                    |
-| --------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------- |
-| completed 本地历史 + desktop continuous | 历史 rows/tool/reasoning、续发、幂等、无 legacy snapshot 物化                         | bootstrap 集成            |
-| completed 远端历史                      | workspace identity、provider registry、续发                                           | 既有 V4 cold-resume 集成  |
-| 历史模型/thought/mode                   | session-local 配置与 thought hint 优先级                                              | 既有 I63 / bootstrap 集成 |
-| 模型不可用                              | restoreWarning 读写边界                                                               | 既有 bootstrap 集成       |
-| completed child                         | child cold hydration、只读导航                                                        | SAT09 既有证据            |
-| mobile replayable                       | 与 desktop 首个完整终态等价；gap/resync 语义不变                                      | PV4-06/25 既有协议证据    |
-| legacy `session/resume`                 | 完整 snapshot 和 context usage 保持                                                   | legacy protocol 单测      |
-| 大会话 PERF03                           | activation 不构建 legacy snapshot；正常冷订阅只完整读取一次 parent messages；记录趋势 | 性能 fixture              |
-| 并发 V4 subscribe/query/command          | 共享一个 READY promise；READY 前零查询、零 admission                                   | bootstrap 单元/集成       |
-| READY 失败                              | command/query 不进入 inbox，保留原 lifecycle error；record 入册前失败会释放 READY entry | gateway 单元               |
+| Amostra representativa                    | Foco da verificação                                                                              | Camada de evidência           |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
+| histórico local completed + desktop continuous | rows/tool/reasoning históricos, continuação, idempotência e ausência de materialização de snapshot legacy | integração de bootstrap       |
+| histórico remoto completed                | workspace identity, provider registry e continuação                                            | integração V4 cold-resume existente |
+| model/thought/mode históricos             | prioridade da configuração local da sessão e do thought hint                                    | I63 / integração de bootstrap existente |
+| modelo indisponível                      | fronteira de leitura/escrita do restoreWarning                                                 | integração de bootstrap existente |
+| child completed                           | cold hydration do child e navegação somente leitura                                             | evidência existente SAT09     |
+| mobile replayable                         | equivalente ao primeiro estado terminal completo do desktop; semântica de gap/resync inalterada   | evidência de protocolo existente PV4-06/25 |
+| legacy `session/resume`                   | snapshot completo e context usage preservados                                                   | teste unitário do protocolo legacy |
+| PERF03 de sessão grande                   | a ativação não constrói snapshot legacy; a cold subscription normal lê por completo as messages do parent apenas uma vez; registra a tendência | fixture de performance        |
+| subscribe/query/command V4 concorrentes    | compartilham um único promise READY; zero queries e zero admissions antes do READY              | unidade/integração de bootstrap |
+| falha do READY                            | command/query não entra no inbox e preserva o lifecycle error original; falha antes da entrada do record libera a entrada READY | unidade do gateway            |
 
-## 6. 非目标与后续
+## 6. Não objetivos e próximos passos
 
-本次不处理以下相邻 over-fetch，避免扩大回归面：
+Esta rodada não trata os seguintes over-fetch adjacentes, para não ampliar a superfície de regressão:
 
-- V4 `createSession` / fork registration 为取得少量字段构建 legacy snapshot；
-- Bot 的 legacy continuous subscribe、附件发送与状态查询；
-- 删除 legacy `session/resume`、`readSession` 或 snapshot schema；
-- 修改 publisher batch hydration、wire fragment、rows window 或 React 渲染。
+- o `createSession` / fork registration do V4 construindo um snapshot legacy para obter poucos campos;
+- o legacy continuous subscribe do Bot, o envio de anexos e a consulta de estado;
+- remover o legacy `session/resume`, o `readSession` ou o schema de snapshot;
+- modificar a hydration em lote do publisher, fragmentos de wire, a janela de rows ou a renderização React.
 
-这些路径应单独按调用者迁移并留下自己的功能矩阵，不能借本次 cold-resume 优化一并删除。
+Esses caminhos devem ser migrados por chamador e manter sua própria matriz funcional, e não podem ser removidos junto com esta otimização de cold-resume.
 
-## 7. 2026-07-24 实测
+## 7. Medições reais de 2026-07-24
 
-环境：Apple Silicon、本地 production `app-server`、每个样本启动全新 CLI 进程；同一 workspace、
-同一 session、同一 `desktop-continuous` subscribe。对照组从改动前 HEAD
-`e3efe9006ad7489b83d1efca917b3c0df32add69` 的 detached worktree 独立构建，避免用旧安装包或
-不同源码比较。文件缓存预热后各跑三次。
+Ambiente: Apple Silicon, `app-server` local em produção, um novo processo de CLI por amostra; mesmo workspace,
+mesma sessão e mesma subscrita `desktop-continuous`. O grupo de controle foi compilado de forma independente a partir de um worktree detached no HEAD anterior à mudança
+`e3efe9006ad7489b83d1efca917b3c0df32add69`, evitando comparar com um pacote instalado antigo ou com
+código-fonte diferente. Após o aquecimento do cache de arquivos, cada execução foi feita três vezes.
 
-fixture `sess_perf_large_20260724034221_af2e36b8`：
+fixture `sess_perf_large_20260724034221_af2e36b8`:
 
-- 2,000 messages / 6,671 parts（约 1,000 turns）
-- 2,000 tool parts、334 reasoning、200 patch、60 todos
-- 两组 initial V4 physical frame 均为 143,690 bytes
+- 2.000 messages / 6.671 parts (cerca de 1.000 turns)
+- 2.000 tool parts, 334 reasoning, 200 patch, 60 todos
+- os dois grupos tiveram initial V4 physical frame de 143.690 bytes
 
-| 实现                                                               | 三次 cold process → initial frame |    中位数 |
-| ------------------------------------------------------------------ | --------------------------------- | --------: |
-| 改动前：V4 activation 构建 legacy snapshot，usage 再 `readSession` | 3352.1 / 3169.5 / 3070.2 ms       | 3169.5 ms |
-| 改动后：activation-only + usage 窄投影                             | 2704.8 / 2701.5 / 2607.6 ms       | 2701.5 ms |
+| Implementação                                                          | Três execuções de cold process → initial frame |    Mediana |
+| ---------------------------------------------------------------------- | --------------------------------------------- | --------: |
+| Antes: a ativação do V4 constrói o snapshot legacy e o usage chama `readSession` de novo | 3352,1 / 3169,5 / 3070,2 ms | 3169,5 ms |
+| Depois: activation-only + projeção estreita de usage                    | 2704,8 / 2701,5 / 2607,6 ms                   | 2701,5 ms |
 
-同机中位数减少 **468.0 ms（14.8%）**。此前该 fixture 的单次 legacy `readSession` 日志为
-281–288 ms；两次 full snapshot 被移除后的端到端差值与该量级一致。这个数字仅作为本机回归证据，
-不构成跨机器 SLA。
+A mediana na mesma máquina caiu **468,0 ms (14,8%)**. Anteriormente, o log de um único legacy `readSession` desse fixture ficava em
+281–288 ms; a diferença ponta a ponta após a remoção dos dois full snapshots é coerente com essa ordem de grandeza. Este número serve
+apenas como evidência de regressão nesta máquina e não constitui uma SLA entre máquinas.
 
-最终 production bundle 重建后，又以 Agent ready 作为起点跑了三次：
+Depois que o bundle final de produção foi reconstruído, executou-se mais três vezes usando o Agent ready como ponto de partida:
 
-| 边界                               | 三次耗时                    |    中位数 |
-| ---------------------------------- | --------------------------- | --------: |
-| ready 后 subscribe → initial frame | 2040.1 / 1998.0 / 1936.5 ms | 1998.0 ms |
+| Fronteira                                  | Três durações                |    Mediana |
+| ------------------------------------------ | --------------------------- | --------: |
+| subscribe após ready → initial frame       | 2040,1 / 1998,0 / 1936,5 ms | 1998,0 ms |
 
-完整 `v4/conversation/frame` NDJSON notification（含换行）均为 143,691 bytes，stderr 为空。此前
-process → initial frame 的约 2.7 秒还包含约 0.69 秒的进程启动/ready 阶段，因此两种口径一致，
-不能把全部等待时间都算给 runtime activation 或 legacy snapshot。
+A notification NDJSON `v4/conversation/frame` completa (incluindo a quebra de linha) teve 143.691 bytes em todas elas, com stderr vazio. Os
+aproximadamente 2,7 segundos antes medidos de process → initial frame ainda incluíam cerca de 0,69 segundo de inicialização/ready do processo e, por isso, as duas métricas são coerentes:
+não se pode atribuir todo o tempo de espera à ativação de runtime ou ao snapshot legacy.
 
-同一 fixture 的单次阶段探针显示：持久 messages 读取/解码约 56.8 ms，transcript synth 约
-49.9 ms，`ProductProjection` hydrate 约 679.9 ms，当前 usage 窄读取再次读取 active-branch
-messages 约 60.0 ms。探针来自诊断 run，不与上表逐项强行求和；它只代表该 2,000-message
-fixture，不能外推到 10,000-message 以上的工单形状。
+A sondagem de estágios do mesmo fixture em uma única execução mostra: leitura/decodificação das messages persistidas cerca de 56,8 ms, synth do transcript cerca de
+49,9 ms, hydrate do `ProductProjection` cerca de 679,9 ms e nova leitura estreita de usage da atual lendo as messages do active-branch cerca de
+60,0 ms. A sondagem vem de uma execução de diagnóstico e não é somada forçadamente item a item da tabela acima; ela representa apenas esse fixture de 2.000 messages
+e não pode ser extrapolada para shapes de ticket com mais de 10.000 messages.
 
-2026-08-12 使用 PERF03-E 的 10,622 messages / 35,811 parts fixture 重新计数后，production
-正常冷订阅会完整物化父 messages 5 次；单读中位数为 385.1ms，4 次重复读取的直接成本上界约
-1540.6ms。落实本节 4.1 的 operation-scoped 复用后，fresh-process subscribe → initial frame
-中位数从 3991.9ms 降到 2681.6ms，减少 1310.3ms（32.8%）。两组保持 158038-byte frame、
-29950 rows、60-row window、`toSeq=74164` 与 0 running subagents。完整测量与环境见
-[`v4-conversation-cold-hydration.md`](../performance/v4-conversation-cold-hydration.md#perf03-h-单次冷恢复物化2026-08-12)。
+Em 2026-08-12, após recontar com o fixture de PERF03-E com 10.622 messages / 35.811 parts, a cold subscription normal de produção
+materializa por completo as messages do parent 5 vezes; a mediana da leitura única é 385,1 ms e o custo direto das 4 leituras repetidas tem limite superior de cerca de
+1540,6 ms. Depois de implementar a reutilização de escopo de operação da seção 4.1, a mediana de subscribe em processo novo → initial frame
+caiu de 3991,9 ms para 2681,6 ms, uma redução de 1310,3 ms (32,8%). Ambos os grupos mantêm o frame de 158038 bytes,
+29950 rows, janela de 60 rows, `toSeq=74164` e 0 running subagents. A medição completa e o ambiente estão em
+[`v4-conversation-cold-hydration.md`](../performance/v4-conversation-cold-hydration.md#perf03-h-单次冷恢复物化2026-08-12).

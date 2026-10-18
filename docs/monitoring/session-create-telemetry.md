@@ -1,133 +1,127 @@
-# Session 创建业务埋点
+# Telemetria de criação de Session
 
-## 口径
+## Definição (critério de medição)
 
-`session_create` 通过 `/api/v1/event/report` 统计用户草稿或自动化实际新建且首发接纳的正式会话。
-Group / Project 点击只确定来源；默认空态直接输入的来源为 `session`。
-预热 `createSession`、重复点新建、未发送草稿、打开历史、后续轮次、fork、subagent、
-自动化复用已有会话均不计入。首条普通输入或有效 Goal 命令被接受后报告；失败不报告。
-自动化只有实际新建 Session 且首条 sendPrompt accepted 才计入，不等待 message_completion。
+`session_create` é contabilizado, via `/api/v1/event/report`, para as sessões formais efetivamente criadas pelo usuário (rascunho ou automação) e cuja primeira mensagem foi aceita.
+Clicar em Group / Project apenas determina a origem; a origem para digitação direta no estado vazio padrão é `session`.
+O `createSession` de pré-aquecimento, cliques repetidos em novo, rascunhos não enviados, abertura de histórico, turnos posteriores, fork, subagent e
+automação que reaproveita uma sessão existente não são contabilizados. O relatório ocorre depois que a primeira entrada comum ou um comando Goal válido é aceito; falhas não são reportadas.
+A automação só é contabilizada quando cria de fato uma Session e o primeiro sendPrompt é aceito, sem esperar por message_completion.
 
 ```text
-Group / Project / 默认 Session 空态
-    -> 草稿来源（首发前冻结）
-    -> 预热 session 或 fallback createSession
-    -> 首条输入 accepted
-    -> session_create（按 workspace identity + session 去重）
+Group / Project / estado vazio padrão de Session
+    -> origem do rascunho (congelada antes do primeiro envio)
+    -> session de pré-aquecimento ou fallback createSession
+    -> primeira entrada accepted
+    -> session_create (deduplicado por workspace identity + session)
 
 Desktop IPlatformService -> IPC -> TelemetryCore -> /event/report
-Mobile  IPlatformService -> 已配对 relay app payload -> Desktop Main -> TelemetryCore
-Automation Host 新建 + 首发 accepted -> 严格 telemetry 消息 -> Desktop Main -> TelemetryCore
+Mobile  IPlatformService -> payload do relay pareado -> Desktop Main -> TelemetryCore
+Automation Host: criação + primeiro envio accepted -> mensagem de telemetria estrita -> Desktop Main -> TelemetryCore
 ```
 
-事件固定 `element_name=session_create`、`event_region=app`、`event_type=result`，
-顶层 `talk_id` 为创建的 session ID，`message_id` 必填，为首次 accepted 输入的 command ID，
-与该轮 message_completion.message_id 一致。公共 user/device/version/marketing 字段沿用 TelemetryCore。
+O evento fixa `element_name=session_create`, `event_region=app`, `event_type=result`;
+o `talk_id` de nível superior é o ID da session criada, `message_id` é obrigatório e corresponde ao command ID da primeira entrada aceita,
+o mesmo valor de message_completion.message_id daquele turno. Os campos comuns de user/device/version/marketing seguem o TelemetryCore.
 
-| event_extra_detail 字段 | 值 |
+| Campo event_extra_detail | Valor |
 | --- | --- |
 | create_source | `group` / `project` / `session` / `automation_idle` / `automation_scheduled` |
-| client_kind | `desktop` / `mobile` / `web`；mobile 表示 Web 远控入口，不按 UA 猜设备 |
+| client_kind | `desktop` / `mobile` / `web`; mobile indica a entrada de controle remoto Web, sem adivinhar o dispositivo pelo UA |
 | workspace_kind | `local` / `remote` |
-| remote_kind | `ssh` / `wsl` / `docker` / `server` / 空字符串 |
+| remote_kind | `ssh` / `wsl` / `docker` / `server` / string vazia |
 
-workspace 类型复用 conversation telemetry：identity 或 remoteSessionId 任一非空就是
-remote；remote_kind 由 `parseRemoteWorkspaceIdentity` 提取，未知 identity 保留 remote。
-身份隔离用 `workspaceIdentity?.trim() || workspacePath`，不上报路径、identity 原文或远端地址。
+O tipo de workspace reaproveita a telemetria de conversation: é remote se identity ou remoteSessionId for diferente de vazio;
+remote_kind é extraído por `parseRemoteWorkspaceIdentity`, e uma identity desconhecida é mantida como remote.
+O isolamento de identidade usa `workspaceIdentity?.trim() || workspacePath`, sem reportar caminho, texto original da identity ou endereço remoto.
 
-侧栏 Project 当前是 workspace 分组，没有独立持久化项目 ID。CLI session 表的
-`project_id` 确实存在，但 `projectIdFromDirectory` 仅将目录小写化、替换符号、截取
-80 字符；不是 opaque ID，也不区分同路径远端主机，且可能碰撞。V4 创建 ACK 未暴露它。
-Tab ID 是 UI 身份，Coding Plan 的 projectId 是计费项目，两者也不作为该字段。
-本次不新增/伪造 project_id；项目级统计需要先定义跨端、远端隔离的稳定身份合同。
+O Project da barra lateral hoje é um agrupamento de workspace, sem um ID de projeto persistido independente. A tabela de sessions do CLI
+tem `project_id`, mas `projectIdFromDirectory` apenas coloca o diretório em minúsculas, substitui símbolos e trunca em
+80 caracteres; não é um ID opaco, não distingue hosts remotos com o mesmo caminho e pode colidir. O ACK de criação do V4 não o expõe.
+O Tab ID é identidade de UI e o projectId do Coding Plan é o projeto de cobrança, portanto também não servem para este campo.
+Esta entrega não adiciona nem fabrica um project_id; estatísticas em nível de projeto exigem antes um contrato de identidade estável entre plataformas e isolado por remoto.
 
-## 自动化与幂等合同（2026-09-15 补充）
+## Contrato de automação e idempotência (complemento de 2026-09-15)
 
-- create_source 扩展 `automation_idle` / `automation_scheduled`。闲时只有 `init`
-  计入，`bound-first-run` / `resume` 不计入；定时只有未传 `targetTaskId`、实际调用
-  createTask 的分支计入。prompt 创建并绑定原会话的定时任务追加消息不计入。
-- 自动化触发归属由当前 Host 派发函数判断；sendPrompt accepted 后通过严格的
-  Host → Main 事件转发。Main 只校验/转发，不维护 Session 状态；UI 不从订阅补报。
-- 自动化 client_kind 为 desktop（执行宿主），不反推最初在哪个设备创建任务配置。
-  Host context 使用运行环境 timezone/locale，screenResolution 留空，不伪造屏幕尺寸。
-- TelemetryCore 为 session_create 按 `[版本命名空间, user_id, talk_id]` 的 SHA-256
-  前 128 位生成 UUIDv8 格式 event_id。Session ID 本身为全局 UUID；来源/设备不参与键，
-  同一用户和 Session 跨报告、重试和 Core 重建保持同一 ID。其他事件仍使用随机 UUID。
-- event_id 供服务端幂等消费；本仓库不包含生产接收端去重实现，不宣称端到端 exactly-once。
-  网络失败延用现有有界重试，不引入持久发送队列。accepted 后即报告，不依赖完成事件；
-  message_id 使用首发输入命令身份，accepted 时已可取得，不是 Assistant row ID。
-- 不改调度、owner/lease、CLI admission 或桌面 continuous / 手机 replayable 恢复边界。
-- 测试：真实派发函数覆盖闲时 init/绑定/续跑、cron 新建/绑定原会话、首发拒绝/挂起；
-  Host schema/消息转发、event_id 重试与多实例稳定性；桌面 E2E 验证最终 event_id。
+- create_source foi estendido com `automation_idle` / `automation_scheduled`. Em tempo ocioso, apenas `init`
+  é contabilizado; `bound-first-run` / `resume` não são. Em agendado, apenas o ramo sem `targetTaskId` que de fato chama
+  createTask é contabilizado. Tarefas agendadas criadas via prompt e vinculadas à session original não contam mensagens adicionais.
+- A atribuição do disparo de automação é determinada pela função de dispatch do Host atual; após o sendPrompt ser aceito, o evento é encaminhado de forma estrita
+  de Host → Main. O Main apenas valida/encaminha, não mantém estado de Session; a UI não complementa o relatório a partir de assinaturas.
+- O client_kind da automação é desktop (host de execução), sem inferir em qual dispositivo a configuração da tarefa foi originalmente criada.
+  O contexto do Host usa timezone/locale do ambiente de execução, screenResolution fica vazio e não se fabrica tamanho de tela.
+- O TelemetryCore gera, para session_create, um event_id no formato UUIDv8 a partir dos 128 primeiros bits do SHA-256 de `[namespace de versão, user_id, talk_id]`. O próprio Session ID já é um UUID global; origem/dispositivo não participam da chave,
+  portanto o mesmo usuário e a mesma Session mantêm o mesmo ID entre relatórios, retentativas e reconstruções do Core. Outros eventos continuam usando UUID aleatório.
+- O event_id é usado pelo servidor para consumo idempotente; este repositório não contém a implementação de deduplicação do receptor de produção e não reivindica exactly-once ponta a ponta.
+  Falhas de rede seguem o retry limitado já existente, sem introduzir fila persistente de envio. O relatório ocorre assim que algo é accepted, sem depender do evento de conclusão;
+  o message_id usa a identidade do comando da primeira entrada, disponível já no momento do accepted, e não o ID da row do Assistant.
+- Não alteram-se agendamento, owner/lease, CLI admission, nem os limites de restauração desktop continuous / mobile replayable.
+- Testes: as funções reais de dispatch cobrem idle init/binding/continue-run, criação por cron/vínculo à session original, rejeição/espera do primeiro envio;
+  schema/mensagem de forwarding do Host, retry do event_id e estabilidade com múltiplas instâncias; E2E desktop validando o event_id final.
 
-## 边界
+## Limites
 
-message_id 的唯一事实源为输入命令：UI 普通/预热/Goal 首发使用 accepted ACK.commandId，
-createSession(firstInput) 使用该创建命令 ACK.commandId；空 createSession 后另行首发时
-使用 sendText/Goal 的 commandId，不能误用空创建命令。用户确认恢复重发使用新 ACK 的
-commandId。自动化使用实际 sendPrompt 的 traceId（cron 为 runId，闲时 init 为 task.traceId）。
-手机与 Host 的严格转发 schema 均要求非空 messageId；不新增另一套 ID、不从完成消息反查。
-event_id 仍只按用户与 Session 幂等，不将 message_id 加入创建事件的幂等键。
+A única fonte de verdade do message_id é o comando de entrada: na UI, o primeiro envio comum/de pré-aquecimento/Goal usa o accepted ACK.commandId;
+createSession(firstInput) usa o ACK.commandId daquele comando de criação; quando o primeiro envio ocorre depois de um createSession vazio,
+usa-se o commandId do sendText/Goal, sem reutilizar por engano o comando de criação vazio. O reenvio após confirmação de restauração pelo usuário usa o commandId do novo ACK.
+A automação usa o traceId do sendPrompt efetivo (runId para cron, task.traceId para idle init).
+O schema estrito de forwarding do celular e do Host exige messageId não vazio; não é criado outro conjunto de IDs nem feita busca reversa a partir da mensagem de conclusão.
+O event_id continua idempotente apenas por usuário e Session, sem incluir message_id na chave de idempotência do evento de criação.
 
 ```text
-首发命令 ID -> accepted ACK -> session_create.message_id
-          \-> 后续完成事实 -> message_completion.message_id（同一值）
+command ID da primeira entrada -> accepted ACK -> session_create.message_id
+          \-> fato posterior de conclusão -> message_completion.message_id (mesmo valor)
 ```
 
-用户草稿由发起 UI 报告，自动化新建由派发 Host 报告；Desktop 不从手机/桌面订阅流补报。
-手机只透传本事件的严格 schema，不启用其他原有 desktop-only conversation 事件。
-Main 不保存 session、queue、owner 或去重业务状态；使用已有配对连接与 TelemetryCore。
-Desktop continuous 和 Mobile replayable 的 command、snapshot、恢复行为不变，
-workspaceIdentity/remoteSessionId 继续沿原 attachment 传递。
+O rascunho do usuário é reportado pela UI que o iniciou, e a criação por automação é reportada pelo Host que despachou; o Desktop não complementa o relatório a partir do fluxo de assinaturas do celular/desktop.
+O celular apenas repassa o schema estrito deste evento, sem habilitar outros eventos de conversation originalmente exclusivos do desktop.
+O Main não guarda session, queue, owner nem estado de negócio de deduplicação; usa as conexões pareadas e o TelemetryCore já existentes.
+command, snapshot e comportamento de restauração de Desktop continuous e Mobile replayable permanecem inalterados,
+com workspaceIdentity/remoteSessionId continuando repassados pelo attachment original.
 
-去重保留当前 Renderer 最近 4096 个 workspace/session 组合，覆盖重复创建回调/多 pane；
-不宣称跨崩溃或断线丢 ACK 场景 exactly-once。
-埋点为旁路，不阻塞导航、发送，不把上报失败转为创建失败。
+A deduplicação mantém no Renderer as últimas 4096 combinações workspace/session, cobrindo callbacks de criação duplicados/múltiplos panes;
+não reivindica exactly-once em caso de crash ou de perda de ACK por desconexão.
+A telemetria é um caminho lateral: não bloqueia navegação nem envio, e não converte falha de reporte em falha de criação.
 
-## 验证
+## Verificação
 
-- 单测：三种来源；local/SSH/WSL/Docker/server/未知 identity；mobile+SSH；
-  同 session 重复回调只一次，同路径不同远端 identity 隔离；无 project_id/路径泄露。
-- 单测：草稿来源的设置/重定位；手机 schema 拒绝其他事件/多余字段；宿主转发。
-- Pending E2E：预热零事件、首发一条带 talk_id、续发和历史重开不增加事件；
-  Group/Project 来源由真实 UI 创建入口验证。
-- `pnpm typecheck`、`pnpm lint`、`pnpm --filter @zcode/desktop typecheck:e2e`。
+- Testes unitários: três origens; local/SSH/WSL/Docker/server/identity desconhecida; mobile+SSH;
+  callbacks duplicados da mesma session contados uma única vez, isolamento por identity remota distinta no mesmo caminho; sem project_id/vazamento de caminho.
+- Testes unitários: definição/reposicionamento da origem do rascunho; schema do celular rejeitando outros eventos/campos extras; forwarding do host.
+- E2E pendente: pré-aquecimento com zero eventos, primeiro envio com um único evento contendo talk_id, envios seguintes e reabertura de histórico sem novo evento;
+  origem Group/Project validada pela entrada real de criação na UI.
+- `pnpm typecheck`, `pnpm lint`, `pnpm --filter @zcode/desktop typecheck:e2e`.
 
-### 2026-09-15 验证记录
+### Registro de verificação de 2026-09-15
 
-- macOS Electron + case-local 模型回放通过：Project / Group / 刷新后直接首发三种
-  入口最终 `/event/report` 请求体、预热零报告、续发与历史重开不重复。
-  Run：`desktop-e2e-20260915062832206-p33122-e75382b73612e1b7`。
-- 全仓类型检查、E2E 类型检查、lint（0 errors）、架构检查通过。
-- 8 个相关单测文件共 173 条通过，含 Goal accepted/rejected 和上报失败隔离。
-- 手机 strict schema 和 Desktop Main 转发由单测覆盖；手机实机、SSH/WSL/Docker
-  实机与 Windows/Linux UI 尚未验收，不计为跨平台 E2E 已通过。
-- 全仓 conversation coverage audit 未通过：基线已有 D19/I74/I75 引用错误、统计数
-  与三个生成文档过期；本次 pending fixture metadata 为 0 rejected。
-- E2E 保持 pending，未人工 review / promotion。
+- Electron no macOS com replay do modelo local do case aprovado: para as três entradas Project / Group / primeiro envio direto após refresh, o corpo final da requisição `/event/report`, zero relatórios no pré-aquecimento e ausência de duplicação em envios seguintes e reabertura de histórico.
+  Run: `desktop-e2e-20260915062832206-p33122-e75382b73612e1b7`.
+- Typecheck de todo o repositório, typecheck de E2E, lint (0 errors) e verificação de arquitetura aprovados.
+- 8 arquivos de testes unitários relacionados, 173 casos aprovados, incluindo Goal accepted/rejected e isolamento de falha de reporte.
+- O strict schema do celular e o forwarding do Desktop Main são cobertos por testes unitários; celular em aparelho real, SSH/WSL/Docker em aparelho real e UI Windows/Linux ainda não foram homologados, portanto não contam como E2E multiplataforma aprovada.
+- A auditoria de cobertura de conversation de todo o repositório não passou: a linha de base já tinha erros de referência D19/I74/I75, números de estatísticas
+  e três documentos gerados desatualizados; nesta entrega os metadados de fixture pendente foi 0 rejected.
+- E2E permanece pendente, sem review/promoção manual.
 
-### 自动化与 event_id 补充验证
+### Verificação complementar de automação e event_id
 
-- 11 个相关单测文件共 137 条通过；全仓 typecheck、E2E typecheck、lint
-  （43 条既有 warning、0 error）、architecture:check（0 violation）通过。
-- 三入口创建及最终 UUIDv8 event_id E2E 通过：
-  `desktop-e2e-20260915070847887-p40115-4254803e37acd6f0` 的创建事件用例。
-- 定时任务 UI 新建后立即运行、Host → Main → `/event/report` 完整链路 E2E 通过：
-  `desktop-e2e-20260915071458180-p44110-b9e884f38651cbd9`，来源 automation_scheduled、
-  talk_id 和稳定 event_id 均有断言；两条用例的 fixture check 通过。
-- 闲时 init/绑定/续跑、cron targetTaskId 追加、首发失败/等待由生产派发函数的隔离
-  测试验证；没有将其计为闲时/远端/手机实机 E2E。生产接收端的 event_id 去重未验证。
-- 全仓 typecheck 会输出 Host 编译产物，不能和 Electron 打包/运行并行；本次最终自动化
-  E2E 在 typecheck 完成后重新构建运行。账号 mock 显式隔离，表单显式选择 case 回放模型。
+- 11 arquivos de testes unitários relacionados, 137 casos aprovados; typecheck de todo o repositório, typecheck de E2E, lint
+  (43 warnings existentes, 0 error) e architecture:check (0 violation) aprovados.
+- E2E de criação pelas três entradas e do event_id final UUIDv8 aprovado:
+  caso de criação do `desktop-e2e-20260915070847887-p40115-4254803e37acd6f0`.
+- E2E de execução imediata de tarefa agendada criada pela UI e da cadeia completa Host → Main → `/event/report` aprovado:
+  `desktop-e2e-20260915071458180-p44110-b9e884f38651cbd9`, com asserções sobre origem automation_scheduled,
+  talk_id e event_id estável; as verificações de fixture dos dois casos passaram.
+- idle init/binding/continue-run, acréscimo por cron targetTaskId e falha/espera do primeiro envio verificados por testes de isolamento das funções de dispatch de produção; não foram contabilizados como E2E de idle/remoto/celular em aparelho real. A deduplicação de event_id no receptor de produção não foi verificada.
+- O typecheck de todo o repositório emite artefatos compilados do Host e não pode rodar em paralelo com o empacotamento/execução do Electron; o E2E final de automação desta entrega foi reconstruído e executado após a conclusão do typecheck. O mock de conta é isolado explicitamente e o formulário seleciona explicitamente o modelo de replay do case.
 
-### message_id 补充验证
+### Verificação complementar de message_id
 
-- 8 个相关单测文件共 110 条通过，含普通/预热/Goal、空创建后发送、确认恢复重发、
-  闲时/定时首发 ID、手机/Host 必填 schema 与转发；event_id 不随 message_id 改变。
-- 三入口 E2E 通过：`desktop-e2e-20260915072807214-p50394-fa16c0175fef4bc5`。
-  逐轮确认创建和完成事件的 message_id 相等；Group 关联断言在刷新前完成，
-  避免把刷新时未完成的异步上报误判为 ID 不一致。
-- 定时任务 E2E 通过：`desktop-e2e-20260915072551534-p48619-f5fdee3f954ae066` 的
-  automation-run-title-stable 用例，最终 HTTP 两事件的 message_id 与 runId 一致。
-- 全仓 typecheck、E2E typecheck、lint（43 warnings、0 errors）、架构检查通过。
-  两条 fixture check 通过。手机和远端实机验证状态沿用上节，不宣称新增实机覆盖。
+- 8 arquivos de testes unitários relacionados, 110 casos aprovados, cobrindo comum/pré-aquecimento/Goal, envio após criação vazia, reenvio em confirmação de restauração,
+  ID do primeiro envio em idle/agendado, schema obrigatório e forwarding em celular/Host; o event_id não muda com o message_id.
+- E2E das três entradas aprovado: `desktop-e2e-20260915072807214-p50394-fa16c0175fef4bc5`.
+  Confirmou-se turno a turno que o message_id dos eventos de criação e de conclusão é igual; a asserção de associação do Group foi concluída antes do refresh,
+  evitando interpretar como divergência de ID um reporte assíncrono ainda incompleto durante o refresh.
+- E2E de tarefa agendada aprovado: caso automation-run-title-stable do `desktop-e2e-20260915072551534-p48619-f5fdee3f954ae066`, com o message_id final dos dois eventos HTTP igual ao runId.
+- Typecheck de todo o repositório, typecheck de E2E, lint (43 warnings, 0 errors) e verificação de arquitetura aprovados.
+  As duas verificações de fixture passaram. O status de verificação em aparelho real de celular e remoto segue o da seção anterior, sem alegar nova cobertura em aparelho real.

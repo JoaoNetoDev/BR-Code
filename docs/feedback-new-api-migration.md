@@ -1,27 +1,27 @@
-# 问题反馈新接口迁移 Spec
+# Spec de migração para a nova API de feedback
 
-## 背景
+## Contexto
 
-问题反馈服务从旧的独立反馈域名接口迁移到 ZCode Server 新接口：
+O serviço de feedback de problemas migrou da interface antiga em um domínio de feedback separado para a nova interface do ZCode Server:
 
-- 旧接口：`https://feedback.example.invalid/v1/tickets`
-- 生产新接口：`https://zcode.z.ai/api/v1/feedback/*`
-- 测试新接口：`https://zcode.z.ai/api/v1/feedback/*`
+- Interface antiga: `https://feedback.example.invalid/v1/tickets`
+- Nova interface de produção: `https://zcode.z.ai/api/v1/feedback/*`
+- Nova interface de teste: `https://zcode.z.ai/api/v1/feedback/*`
 
-UI 和 RPC 服务接口暂不扩展，`IFeedbackService` 继续向 UI 暴露现有的创建、列表、详情、评论和附件上传能力。迁移只收敛在 services 层的 HTTP 协议、鉴权、字段映射和匿名票据缓存。
+A interface de UI e de serviço RPC não é estendida por enquanto, e `IFeedbackService` continua expondo à UI as capacidades existentes de criação, listagem, detalhes, comentários e upload de anexos. A migração fica restrita ao protocolo HTTP da camada services, à autenticação, ao mapeamento de campos e ao cache anônimo de tickets.
 
-默认 feedback API base 必须跟随统一的 ZCode endpoint resolver：
+O feedback API base padrão precisa acompanhar o resolvedor de endpoints unificado do ZCode:
 
-- `ZCODE_ENV=production` 或未显式设置时，默认 `https://zcode.z.ai/api/v1`。
-- `ZCODE_ENV=test` 时，默认 `https://zcode.z.ai/api/v1`。
-- `ZCODE_BASE_URL`、`ZCODE_TEST_BASE_URL`、`ZCODE_PRODUCTION_BASE_URL` 等统一 endpoint 覆盖继续生效。
-- `ZCODE_FEEDBACK_API_BASE` 或显式传入的 `apiBaseUrl` 只作为人工覆盖，优先级高于环境默认值。
+- Com `ZCODE_ENV=production` ou sem definição explícita, o padrão é `https://zcode.z.ai/api/v1`.
+- Com `ZCODE_ENV=test`, o padrão é `https://zcode.z.ai/api/v1`.
+- As sobrescritas unificadas de endpoint, como `ZCODE_BASE_URL`, `ZCODE_TEST_BASE_URL` e `ZCODE_PRODUCTION_BASE_URL`, continuam valendo.
+- `ZCODE_FEEDBACK_API_BASE` ou o `apiBaseUrl` passado explicitamente existem apenas como sobrescrita manual, com prioridade acima do valor padrão do ambiente.
 
-反馈 API 的 HTTP 出口必须通过 services 层统一 `ApiClient` 收口，不直接调用全局 `fetch`。统一 `ApiClient` 负责 ZCode Server endpoint 重写、`x-request-id` 以及 `buildZCodeSourceHeaders()` 中的通参注入；反馈模块只在此基础上叠加接口自身关注的 header 和请求体。这样后续新增 ZCode Server 通参时，只需要修改统一 API client/source headers，不需要逐个业务模块补字段。
+A saída HTTP da API de feedback precisa convergir no `ApiClient` unificado da camada services, sem chamar o `fetch` global diretamente. O `ApiClient` unificado é responsável pela reescrita de endpoint do ZCode Server, pelo `x-request-id` e pela injeção de parâmetros comuns em `buildZCodeSourceHeaders()`; o módulo de feedback apenas sobrepõe a isso os headers e o corpo da requisição aos quais a própria interface dá importância. Assim, ao adicionar futuramente um novo parâmetro comum do ZCode Server, basta modificar o API client/source headers unificado, sem necessidade de complementar campos módulo a módulo.
 
-## 新接口契约
+## Contrato da nova interface
 
-所有反馈 API 响应统一为：
+Todas as respostas da API de feedback seguem o mesmo formato:
 
 ```json
 {
@@ -31,37 +31,37 @@ UI 和 RPC 服务接口暂不扩展，`IFeedbackService` 继续向 UI 暴露现�
 }
 ```
 
-`code !== 0` 或 HTTP 非 2xx 均视为失败，错误消息优先使用 `msg`，其次使用响应正文。
+`code !== 0` ou HTTP fora de 2xx são considerados falha; a mensagem de erro usa prioritariamente `msg` e, em segundo lugar, o corpo da resposta.
 
-核心接口：
+Interfaces principais:
 
-- `POST /feedback/ticket`：创建反馈工单，JWT 可选。
-- `GET /feedback/ticket`：查询当前登录用户工单列表，要求 Bearer JWT。
-- `GET /feedback/ticket/{ticket_id}`：查询工单详情。登录用户走 Bearer JWT；匿名用户必须携带 `X-Device-Mid`。
-- `POST /feedback/ticket/{ticket_id}/message`：追加消息。登录用户走 Bearer JWT；匿名用户必须携带 `X-Device-Mid`。
-- `POST /feedback/attachment/upload-credential`：获取 OSS 表单直传凭证，登录用户走 Bearer JWT；匿名用户必须携带 `X-Device-Mid`。
+- `POST /feedback/ticket`: cria um ticket de feedback, com JWT opcional.
+- `GET /feedback/ticket`: consulta a lista de tickets do usuário autenticado, exige Bearer JWT.
+- `GET /feedback/ticket/{ticket_id}`: consulta os detalhes do ticket. Usuários autenticados usam Bearer JWT; usuários anônimos precisam enviar `X-Device-Mid`.
+- `POST /feedback/ticket/{ticket_id}/message`: acrescenta uma mensagem. Usuários autenticados usam Bearer JWT; usuários anônimos precisam enviar `X-Device-Mid`.
+- `POST /feedback/attachment/upload-credential`: obtém a credencial de upload direto por formulário do OSS; usuários autenticados usam Bearer JWT; usuários anônimos precisam enviar `X-Device-Mid`.
 
-## 鉴权与匿名身份
+## Autenticação e identidade anônima
 
-服务层复用桌面宿主统一的 telemetry `deviceMid` 作为反馈匿名 `device_mid`：
+A camada de serviço reutiliza o `deviceMid` de telemetry do host unificado do desktop como `device_mid` anônimo do feedback:
 
-- `deviceMid` 由 main 进程在窗口创建前通过 `telemetry-state.json` 同步确保，并注入 host process。
-- 反馈服务不再维护独立的 `zcodefeedbackclientid`，避免同一台机器在 telemetry、ARMS、远控和 feedback 中被拆成多个设备。
-- 旧的 `zcodefeedbackclientid` / `X-Feedback-Client-Id` 只作为废弃数据保留在本地凭据中，不参与新接口请求或匿名列表隔离。
+- O `deviceMid` é garantido de forma síncrona pelo processo main antes da criação da janela, via `telemetry-state.json`, e injetado no host process.
+- O serviço de feedback não mantém mais um `zcodefeedbackclientid` independente, evitando que a mesma máquina seja dividida em vários dispositivos entre telemetry, ARMS, controle remoto e feedback.
+- O antigo `zcodefeedbackclientid` / `X-Feedback-Client-Id` é mantido apenas como dado obsoleto nas credenciais locais, sem participar das requisições à nova interface nem do isolamento da lista anônima.
 
-请求头规则：
+Regras de headers:
 
-- 反馈请求通过统一 `ApiClient` 发送，自动携带 ZCode Server 通参，例如 `User-Agent`、`HTTP-Referer`、`X-ZCode-App-Version`、`X-Platform`、`X-Release-Channel`、`X-Client-Language`、`X-Client-Timezone`、`X-Os-Category`、`X-Os-Version` 和 `x-request-id`。
-- 如果本地凭据存在 `zcodejwttoken`，请求发送 `Authorization: Bearer <token>`。
-- 所有反馈 API 请求发送 `X-Device-Mid: <telemetry deviceMid>`，用于匿名工单归属与详情访问。
-- `POST /feedback/ticket` 请求体同时发送 `device_mid`。
-- 不再发送旧接口使用的 `X-Feedback-Client-Id` 和 `X-Feedback-Account-Id`。
+- As requisições de feedback são enviadas pelo `ApiClient` unificado e carregam automaticamente os parâmetros comuns do ZCode Server, como `User-Agent`, `HTTP-Referer`, `X-ZCode-App-Version`, `X-Platform`, `X-Release-Channel`, `X-Client-Language`, `X-Client-Timezone`, `X-Os-Category`, `X-Os-Version` e `x-request-id`.
+- Se as credenciais locais contiverem `zcodejwttoken`, a requisição envia `Authorization: Bearer <token>`.
+- Todas as requisições da API de feedback enviam `X-Device-Mid: <telemetry deviceMid>`, usado para atribuição de tickets anônimos e acesso aos detalhes.
+- O corpo de `POST /feedback/ticket` também envia `device_mid`.
+- Não são mais enviados o `X-Feedback-Client-Id` nem o `X-Feedback-Account-Id` da interface antiga.
 
-匿名用户无法调用服务器列表接口。匿名创建成功后，本地在反馈数据目录维护最小票据缓存，用于“我的反馈”列表展示。登录用户列表以服务器 `GET /feedback/ticket` 为准。
+Usuários anônimos não conseguem chamar a interface de lista do servidor. Após uma criação anônima bem-sucedida, o client mantém localmente um cache mínimo de tickets no diretório de dados de feedback, usado para exibir a lista “我的反馈”. A lista de usuários autenticados segue o `GET /feedback/ticket` do servidor.
 
-## 字段映射
+## Mapeamento de campos
 
-创建工单时，旧 UI 输入映射到新请求：
+Na criação de um ticket, as entradas antigas da UI são mapeadas para a nova requisição:
 
 - `title` -> `title`
 - `description` -> `content.description`
@@ -70,7 +70,7 @@ UI 和 RPC 服务接口暂不扩展，`IFeedbackService` 继续向 UI 暴露现�
 - `contact` -> `contact`
 - `device` -> `environment`
 
-`environment` 至少包含：
+`environment` contém no mínimo:
 
 - `app_version`
 - `platform`
@@ -78,36 +78,36 @@ UI 和 RPC 服务接口暂不扩展，`IFeedbackService` 继续向 UI 暴露现�
 - `os_category`
 - `os_version`
 
-`platform` 使用和 `GET /client/configs?platform=...` 一致的系统架构键，例如 `darwin-aarch64`、`darwin-x86_64`、`windows-x86_64`。`os_version` 使用短系统 release（`node:os.release()`），避免 macOS 的完整 Darwin kernel 字符串超过后端 `feedback_tickets.os_version` 长度限制。
+`platform` usa a mesma chave de arquitetura de sistema de `GET /client/configs?platform=...`, por exemplo `darwin-aarch64`, `darwin-x86_64`, `windows-x86_64`. `os_version` usa o release curto do sistema (`node:os.release()`), evitando que a string completa do kernel Darwin no macOS ultrapasse o limite de tamanho de `feedback_tickets.os_version` no backend.
 
-设备快照中的额外字段以 snake_case 扁平写入 `environment`，不再嵌套在 `device` 字段内。UI 侧详情仍将 `environment` 映射回 `FeedbackDeviceInfo`，保持现有组件可读。
+Campos adicionais do snapshot de dispositivo são gravados de forma achatada em snake_case dentro de `environment`, sem ficar mais aninhados no campo `device`. No lado da UI, os detalhes continuam mapeando `environment` de volta para `FeedbackDeviceInfo`, mantendo a legibilidade dos componentes atuais.
 
-状态映射：
+Mapeamento de status:
 
 - `submitted` -> `已提交`
 - `closed` -> `已归档`
-- 未识别状态 -> `已提交`
+- Status não reconhecido -> `已提交`
 
-其中 `已归档` 是服务层为兼容现有 `FeedbackTicketStatus` 保留的内部状态值；“我的反馈”列表和详情对用户展示为中文“已完成”、英文 `Completed`，不把接口兼容命名暴露给用户。
+Onde `已归档` é um valor de status interno mantido pela camada de serviço para compatibilidade com o `FeedbackTicketStatus` existente; a lista “我的反馈” e os detalhes exibem ao usuário “已完成” em chinês e `Completed` em inglês, sem expor ao usuário a nomenclatura de compatibilidade da interface.
 
-新接口没有旧的 type/module/assignee/event 语义。服务层保留 UI 类型兼容：
+A nova interface não tem a semântica antiga de type/module/assignee/event. A camada de serviço mantém a compatibilidade de tipos da UI:
 
-- 创建返回使用本次输入的 `type`、`module`、`severity`。
-- 服务器列表没有类型时默认映射为 `bug`。
-- 详情中的消息映射为 `comments`，并生成展示用系统事件。
+- O retorno da criação usa o `type`, o `module` e o `severity` informados nesta interação.
+- Quando a lista do servidor não traz tipo, o mapeamento padrão é `bug`.
+- As mensagens nos detalhes são mapeadas como `comments`, e um evento de sistema para exibição é gerado.
 
-## 附件上传
+## Upload de anexos
 
-新接口不再支持旧的 `attachments:init`、chunk PUT、`attachments:complete` 协议。服务层统一使用 OSS 表单直传：
+A nova interface não suporta mais o protocolo antigo de `attachments:init`, PUT em chunks e `attachments:complete`. A camada de serviço passa a usar uniformemente o upload direto por formulário do OSS:
 
-1. 调用 `POST /feedback/attachment/upload-credential`，传入 `ticket_id`、可选 `message_id`、`file_name` 和 `size`。
-2. 用返回的 OSS `host`、`path`、policy、签名和 callback 信息构造 `multipart/form-data` 表单。
-3. 文件字段放在表单最后上传，并向 UI 上报上传进度。
-4. OSS 返回 2xx 后，服务层按当前文件信息构造 `FeedbackAttachment` 返回。
+1. Chama `POST /feedback/attachment/upload-credential`, informando `ticket_id`, o `message_id` opcional, `file_name` e `size`.
+2. Constrói um formulário `multipart/form-data` com o `host`, o `path`, a policy, a assinatura e as informações de callback retornados pelo OSS.
+3. O campo de arquivo é enviado por último no formulário, e o progresso do upload é reportado à UI.
+4. Depois que o OSS retorna 2xx, a camada de serviço monta um `FeedbackAttachment` com as informações atuais do arquivo e o retorna.
 
-取消上传继续通过 `AbortController` 中断当前 OSS 请求，并抛出 `FeedbackUploadCanceledError`。
+O cancelamento do upload continua interrompendo a requisição atual do OSS por meio do `AbortController` e lançando um `FeedbackUploadCanceledError`.
 
-反馈表单默认上传诊断日志时仍使用完整归档流程，但归档内容只覆盖反馈定位需要的日志与轻量配置。日志附件客户端预检上限为 1GB；为避免上传高频协议流或插件缓存导致归档膨胀，full archive 会排除：
+Quando o formulário de feedback envia logs de diagnóstico por padrão, ele continua usando o fluxo completo de arquivamento, mas o conteúdo arquivado cobre apenas os logs necessários para localizar o problema e uma configuração leve. O limite de pré-verificação do anexo de logs no cliente é 1GB; para evitar que o envio de fluxos de protocolo de alta frequência ou o cache de plugins infle o arquivo, o full archive exclui:
 
 - `dev`
 - `sessions`
@@ -116,54 +116,54 @@ UI 和 RPC 服务接口暂不扩展，`IFeedbackService` 继续向 UI 暴露现�
 - `repo-snapshots`
 - `repo-wiki`
 
-其中 `repo-snapshots` / `repo-wiki` 是已退役 Repo 快照上传与 Repo Wiki 功能的历史数据目录：升级用户数据根仍可能残留（快照加密包可达 GB 级，Wiki 正文含仓库路径与引用信息），退役功能的归档隐私边界必须继续生效。
+Onde `repo-snapshots` / `repo-wiki` são os diretórios de dados históricos das funcionalidades já desativadas de upload de snapshots de Repo e de Repo Wiki: mesmo em dados de usuários que já atualizaram, ainda podem sobrar resíduos (os pacotes de snapshot criptografados podem chegar a vários GB, e o corpo do Wiki contém caminhos de repositório e informações de referência), e a fronteira de privacidade de arquivamento das funcionalidades desativadas precisa continuar valendo.
 
-## 网络错误与重试边界
+## Limites de erro de rede e retentativa
 
-反馈 API 通过 Node.js `fetch` / Undici 发出。网络错误必须在 services 的统一 API 网络错误分类器中归一化，反馈、模型连通性等调用方不得各自维护互相分叉的错误码列表。
+A API de feedback é emitida pelo `fetch` / Undici do Node.js. Erros de rede precisam ser normalizados no classificador unificado de erros de rede da API da camada services; os chamadores, como feedback e conectividade de modelos, não devem manter listas de códigos de erro divergentes entre si.
 
-只有能够确认请求尚未到达后端的建连阶段错误可以自动重试，包括：
+Somente erros da fase de conexão dos quais é possível confirmar que a requisição ainda não chegou ao backend podem ser repetidos automaticamente, incluindo:
 
 - `UND_ERR_CONNECT_TIMEOUT`
 - `UND_ERR_CONNECT_ERROR`
 - `ENOTFOUND`
-- 明确包含 `connection attempts timed out` 或 `connect ETIMEDOUT` 建连证据的 `ETIMEDOUT`
+- `ETIMEDOUT` com evidência explícita de conexão em `connection attempts timed out` ou `connect ETIMEDOUT`
 - `ENETUNREACH`
 - `EHOSTUNREACH`
 - `ECONNREFUSED`
-- 明确发生在 TLS 建立前的 `ECONNRESET`
+- `ECONNRESET` ocorrendo explicitamente antes do handshake TLS
 
-请求体发送后发生的普通 socket 断开、用户取消、业务超时和 HTTP 失败不得按建连错误自动重试。`POST /feedback/ticket` 在后端提供幂等键契约前，只允许重试上述“请求尚未到达后端”的失败，避免响应丢失时重复创建工单。
+Desconexões comuns de socket após o envio do corpo, cancelamento pelo usuário, timeouts de negócio e falhas HTTP não devem ser repetidos automaticamente como erros de conexão. Enquanto o backend não oferecer um contrato de chave de idempotência, `POST /feedback/ticket` só pode repetir as falhas acima em que «a requisição ainda não chegou ao backend», evitando criar tickets duplicados quando a resposta se perde.
 
-重试耗尽后，services 日志应保留脱敏后的目标 URL、错误码、尝试次数和耗时。UI 必须按工单是否已经创建分流提示与后续动作：
+Depois que as retentativas se esgotam, o log da camada services deve preservar a URL de destino com mascaramento, o código de erro, o número de tentativas e o tempo decorrido. A UI precisa ramificar a mensagem e as ações seguintes conforme o ticket já tenha sido criado ou não:
 
-- 创建工单前失败时，不直接展示 `fetch failed` 等运行时原始消息，而是按当前语言提示用户检查网络、VPN 或代理后重试；提交草稿、截图和联系方式必须继续保留，用户可以在原表单重新提交。
-- 工单已经创建、日志等后续材料上传失败并进入错误状态时，不得提示用户重新提交整个表单。后台状态必须明确提示“工单已创建，但后续材料上传失败”，点击后直接打开已有工单，避免重复创建工单。截图仍保持现有的逐附件降级语义：失败后写入系统评论并继续提交，不因本次错误路由修复改成整体失败。
+- Quando a falha ocorre antes da criação do ticket, não se exibe diretamente a mensagem de runtime original como `fetch failed`; em vez disso, orienta-se o usuário, no idioma atual, a verificar a rede, a VPN ou o proxy e tentar de novo. O rascunho enviado, as capturas de tela e os dados de contato precisam continuar preservados, e o usuário pode reenviar no próprio formulário original.
+- Quando o ticket já foi criado e o envio de materiais posteriores, como logs, falha e entra em estado de erro, não se deve pedir que o usuário reenvie o formulário inteiro. O estado de fundo precisa informar claramente “工单已创建，但后续材料上传失败” e, ao clicar, abrir diretamente o ticket já existente, evitando a criação duplicada. As capturas de tela mantêm a semântica atual de degradação por anexo: em caso de falha, escrevem um comentário de sistema e a submissão continua, sem que a correção de roteamento de erros desta vez transforme isso em falha geral.
 
-## 多端影响
+## Impacto em múltiplas plataformas
 
-本次迁移只修改 `packages/services` 的反馈 HTTP 协议和持久化缓存，不改变：
+Esta migração altera apenas o protocolo HTTP de feedback e o cache de persistência em `packages/services`, e não muda:
 
-- app 与 agent 的 stdio 协议。
-- task stream、snapshot、queue、owner command。
-- 桌面端 `desktop-continuous` 与手机远控 `web-remote-replayable` 边界。
-- main process、relay 或 remote host attachment 逻辑。
+- o protocolo stdio entre app e agent.
+- task stream, snapshot, queue, owner command.
+- a fronteira entre `desktop-continuous` no desktop e o controle remoto `web-remote-replayable` no celular.
+- a lógica de main process, relay ou attachment do remote host.
 
-桌面本地与远程窗口都通过 host process 中的同一反馈服务访问新接口；Web/mobile 远控链路不新增独立 Agent runtime 或业务状态。
+Tanto as janelas locais do desktop quanto as remotas acessam a nova interface pelo mesmo serviço de feedback dentro do host process; a cadeia de controle remoto Web/mobile não ganha um runtime de Agent independente nem estados de negócio novos.
 
-## 验证
+## Verificação
 
-必须覆盖：
+É obrigatório cobrir:
 
-- 创建工单走 `/feedback/ticket`，请求体包含 `device_mid`、`content`、`environment`，并发送 Bearer JWT 和 `X-Device-Mid`。
-- 反馈 API 请求必须通过注入的统一 `ApiClient` 发出，不能绕过通参收口直接调用全局 `fetch`。
-- 无 JWT 时匿名创建使用 host 注入的 telemetry `deviceMid`，不生成或持久化独立反馈客户端 ID。
-- 无 JWT 列表不请求服务器，按 telemetry `deviceMid` 返回本地匿名缓存。
-- 有 JWT 列表调用服务器接口并映射状态。
-- 附件通过 upload credential + OSS 表单直传完成，并支持进度与取消。
-- 网络握手阶段的可重试失败仍会重试。
-- Undici `UND_ERR_CONNECT_TIMEOUT` 首次失败、后续恢复时能够自动重试成功。
-- Undici 建连错误连续三次失败后停止重试，并记录尝试次数和错误码。
-- 建连错误耗尽后，反馈表单展示本地化网络提示，不展示原始 `fetch failed`，并保留当前描述、截图和联系方式供用户重试。
-- 工单创建后日志等后续材料上传发生网络错误并进入错误状态时，展示本地化的“工单已创建”提示，后台入口打开已有工单而不是重新打开提交表单。
-- 全量执行 `pnpm typecheck` 和 `pnpm lint`。
+- A criação de ticket passa por `/feedback/ticket`, com corpo contendo `device_mid`, `content` e `environment`, e envia Bearer JWT e `X-Device-Mid`.
+- As requisições da API de feedback precisam ser emitidas pelo `ApiClient` unificado injetado, sem contornar a convergência de parâmetros comuns chamando o `fetch` global diretamente.
+- Sem JWT, a criação anônima usa o telemetry `deviceMid` injetado pelo host, sem gerar nem persistir um ID de cliente de feedback independente.
+- Sem JWT, a lista não consulta o servidor e retorna o cache anônimo local pelo telemetry `deviceMid`.
+- Com JWT, a lista consulta a interface do servidor e mapeia os status.
+- O anexo é concluído via upload credential + upload direto por formulário do OSS, com suporte a progresso e cancelamento.
+- Falhas retentáveis na fase de handshake de rede continuam sendo repetidas.
+- Com uma falha inicial de `UND_ERR_CONNECT_TIMEOUT` do Undici e recuperação posterior, a retentativa automática tem sucesso.
+- Após três falhas consecutivas de conexão do Undici, as retentativas param, registrando o número de tentativas e o código de erro.
+- Depois de esgotar as retentativas de erro de conexão, o formulário de feedback exibe uma mensagem de rede localizada, sem exibir o `fetch failed` original, e preserva a descrição atual, as capturas de tela e os dados de contato para o usuário tentar de novo.
+- Quando o envio de materiais posteriores ao ticket criado, como logs, sofre erro de rede e entra em estado de erro, exibe-se a mensagem localizada “工单已创建” e a entrada de fundo abre o ticket já existente em vez de reabrir o formulário de envio.
+- Executar `pnpm typecheck` e `pnpm lint` por completo.

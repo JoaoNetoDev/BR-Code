@@ -1,108 +1,108 @@
-# Runtime Command Active Loop Intake Implementation Plan
+# Plano de Implementação de Intake de Runtime Commands no Active Loop
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para trabalhadores agênticos:** SUB-SKILL OBRIGATÓRIA: usar superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** background task completion 的 `<task-notification>` 仍进入 runtime command queue，但 active query loop 在即将发起下一次模型请求的合法边界前，应按 command priority 尽早消费 pending runtime commands；如果 runtime 已空闲，则保留现有 idle wake / next command 行为。
+**Objetivo:** o `<task-notification>` de conclusão de tarefa em background continua entrando na runtime command queue, mas o active query loop, antes do limite legítimo de iniciar a próxima requisição ao modelo, deve consumir o quanto antes os runtime commands pendentes conforme a prioridade do command; se o runtime já estiver ocioso, mantém-se o comportamento existente de idle wake / next command.
 
-**Architecture:** 在 runtime command queue 提供 priority 候选能力，让 `runRegularTurnLoop()` 在每次 provider request projection 前查看“priority rank 不大于 `next`”的 pending runtime commands，也就是优先级至少为 `next` 的 `now` / `next` commands。候选集进入 active loop 前还必须经过显式白名单；本阶段只允许 `task-notification` 在 active loop 合流，普通 `prompt` / target continuation 仍留在 outer runtime command queue。idle 路径继续由 `task-notification` command 调 `executeTurnCommand()`；subagent child runtime terminal 后的 nested Bash cleanup-only suppression 在 active-loop 和 idle 消费侧共用同一个判定。
+**Arquitetura:** oferecer no runtime command queue a capacidade de candidatos por prioridade, para que `runRegularTurnLoop()` verifique, antes de cada projeção de requisição ao provider, os runtime commands pendentes cujo "priority rank não é maior que `next`", isto é, commands `now` / `next` com prioridade pelo menos `next`. Antes de entrar no active loop, o conjunto de candidatos ainda precisa passar por uma allowlist explícita; nesta etapa só `task-notification` pode convergir no active loop, e `prompt` comum / target continuation continuam no outer runtime command queue. O caminho idle continua sendo acionado pelo command `task-notification` chamar `executeTurnCommand()`; a supressão cleanup-only do nested Bash após o terminal do subagent child runtime é compartilhada entre active-loop e lado de consumo idle, usando a mesma decisão.
 
-**Tech Stack:** TypeScript, Vitest, zcode runtime command queue, `MessageHistoryImpl`, runtime task notification, conversation-session E2E fixtures.
+**Stack técnico:** TypeScript, Vitest, zcode runtime command queue, `MessageHistoryImpl`, runtime task notification, fixtures E2E de conversation-session.
 
-## Execution Status
+## Status de execução
 
-- [x] Phase 0 baseline / acceptance reviewed.
-- [x] Phase 1 queue priority API implemented as `getByMaxPriority("next")` + explicit `removeById()`, with unit coverage.
-- [x] Phase 2 active-loop runtime command intake helper implemented; task-notification persists as model-only synthetic input; prompt commands remain queued for the outer runtime command queue.
-- [x] Phase 3 wired into `runRegularTurnLoop()` only for post-first-request active-loop roundtrips (`modelStepCount > 0`), preserving idle command fallback.
-- [x] Phase 4 idle wake fallback verified by focused tests.
-- [x] Phase 5 goal interaction covered by existing and updated focused runtime tests.
-- [x] Phase 6 nested subagent/background Bash cleanup and active child runtime boundaries covered by focused runtime tests.
-- [x] Phase 7 compact/visibility regression covered by `runtime-compact.test.ts`.
-- [x] Phase 8 coverage docs updated and coverage audit passed.
-- [x] Phase 9 focused tests, root `pnpm typecheck`, root `pnpm lint`, direct core/adapters/bootstrap `tsc`, and `git diff --check` executed.
-- [ ] Phase 9 `apps/zcode-cli` package-level `pnpm typecheck` / `turbo run typecheck` is blocked by current workspace dependency resolution: `@zcode/shared@workspace:*` is referenced by `packages/adapters`, but the workspace only contains `@zcode/shared-types`.
-- [x] Phase 9 E2E formalization gates executed with the correct package scripts: `pnpm --filter @zcode/desktop typecheck:e2e` and `pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-background.test.ts`.
+- [x] Phase 0 baseline / aceitação revisados.
+- [x] Phase 1 API de prioridade da queue implementada como `getByMaxPriority("next")` + `removeById()` explícito, com cobertura unitária.
+- [x] Phase 2 helper de intake de runtime command do active-loop implementado; task-notification persiste como synthetic input model-only; comandos prompt continuam enfileirados para a outer runtime command queue.
+- [x] Phase 3 conectado a `runRegularTurnLoop()` apenas para os roundtrips de active-loop posteriores à primeira requisição (`modelStepCount > 0`), preservando o fallback de command idle.
+- [x] Phase 4 fallback de idle wake verificado por testes focados.
+- [x] Phase 5 interação com goal coberta por testes de runtime focados existentes e atualizados.
+- [x] Phase 6 cleanup de nested Bash de subagent/background em background e fronteiras de active child runtime cobertos por testes de runtime focados.
+- [x] Phase 7 regressão de compactação/visibilidade coberta por `runtime-compact.test.ts`.
+- [x] Phase 8 documentos de cobertura atualizados e auditoria de cobertura aprovada.
+- [x] Phase 9 testes focados, `pnpm typecheck` na raiz, `pnpm lint` na raiz, `tsc` direto de core/adapters/bootstrap e `git diff --check` executados.
+- [ ] O `pnpm typecheck` de pacote do `apps/zcode-cli` / `turbo run typecheck` do Phase 9 está bloqueado pela resolução atual de dependências do workspace: `@zcode/shared@workspace:*` é referenciado por `packages/adapters`, mas o workspace só contém `@zcode/shared-types`.
+- [x] Gates de formalização E2E do Phase 9 executados com os scripts de pacote corretos: `pnpm --filter @zcode/desktop typecheck:e2e` e `pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/conversation-session-background.test.ts`.
 
-## Global Constraints
+## Restrições globais
 
-- 只以当前仓库实现为准，不参考其他分支。
-- 不重写 subagent/background 架构，只修正 runtime command 从 outer command queue 到 active query loop 的合流策略。
-- 不打断 in-flight provider request，不插入工具执行中间，只能在下一次合法模型请求前消费。
-- active-loop command 先按 priority rank 上限取候选：`now = 0`、`next = 1`、`later = 2`，取 `rank <= rank(next)`，语义是“优先级至少为 next”；随后必须经过显式白名单。本阶段白名单只放行 `task-notification`，其它 command mode 保持在 outer runtime command queue，不静默吞掉、不改 promise 生命周期。
-- provider-visible content 继续使用现有 `<task-notification>` 文案；Bash 单 output-file surface、Workflow output-file artifact、手动 background controls 均不在本计划范围。
-- subagent child runtime 已 terminal/sealed 后完成的 nested Bash 仍只做 terminal record/artifact/event cleanup，不复活 child model turn，不回写 parent Agent output。
-- 不自动提交；每个 phase 完成后只报告验证结果，由用户显式要求再提交。
-- 每个 phase 开始前必须重新阅读本 plan 和当前 `git diff`，确认没有被后续改动改变前提。
+- Tomar como referência apenas a implementação do repositório atual, sem consultar outros branches.
+- Não reescrever a arquitetura de subagent/background; apenas corrigir a estratégia de convergência do runtime command da outer command queue para o active query loop.
+- Não interromper uma requisição ao provider em andamento e não inserir execução de ferramenta no meio; só é possível consumir antes da próxima requisição legítima ao modelo.
+- O command do active-loop primeiro obtém candidatos pelo limite superior de priority rank: `now = 0`, `next = 1`, `later = 2`, tomando `rank <= rank(next)`, cuja semântica é "prioridade pelo menos next"; em seguida é obrigatório passar pela allowlist explícita. Nesta etapa a allowlist só libera `task-notification`; outros command modes permanecem na outer runtime command queue, sem engolir silenciosamente e sem alterar o ciclo de vida do promise.
+- O conteúdo visível ao provider continua usando o texto `<task-notification>` já existente; a superfície de output-file único do Bash, o artifact de output-file de Workflow e os controles manuais de background estão fora do escopo deste plano.
+- O nested Bash concluído depois de o subagent child runtime já estar terminal/sealed continua fazendo apenas cleanup de terminal record/artifact/event, sem ressuscitar o model turn do child e sem reescrever o output do Agent pai.
+- Não commitar automaticamente; após cada phase concluída apenas reportar o resultado da verificação, e só commitar quando o usuário pedir explicitamente.
+- Antes de começar cada phase é obrigatório reler este plan e o `git diff` atual, confirmando que as premissas não foram alteradas por mudanças posteriores.
 
 ---
 
-## File Map
+## Mapa de arquivos
 
 - Modify: `apps/zcode-cli/packages/core/src/runtime/command-queue.ts`
-  - 增加 queue 级别的受控 drain API，用于取出 priority rank 不大于 `"next"` 的 commands，保持现有优先级顺序。
+  - Adiciona uma API de drain controlada no nível da queue, para retirar commands cujo priority rank não é maior que `"next"`, mantendo a ordem de prioridade existente.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
-  - 暴露 runtime 内部 active-loop runtime command drain 方法。
+  - Expõe o método interno de drain de runtime command do active-loop.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/internal.ts`
-  - 将新内部方法纳入 `AgentRuntimeInternal` 类型。
+  - Inclui o novo método interno no tipo `AgentRuntimeInternal`.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/index.ts`
-  - 将新方法挂到 runtime prototype。
+  - Anexa o novo método ao prototype do runtime.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts`
-  - 复用现有 `persistBackgroundTaskNotificationCommand()`，新增 active-loop runtime command intake helper。
+  - Reaproveita o `persistBackgroundTaskNotificationCommand()` existente e adiciona o helper de intake de runtime command do active-loop.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts`
-  - 在下一次 provider request projection 前调用 active-loop runtime command drain。
+  - Chama o drain de runtime command do active-loop antes da próxima projeção de requisição ao provider.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts`
-  - idle `task-notification` command path 保持现有语义；必要时复用提取出的 helper，避免 persistence 逻辑分叉。
+  - O caminho de command `task-notification` idle mantém a semântica existente; reaproveita o helper extraído quando necessário, evitando divergência na lógica de persistência.
 - Modify/Test: `apps/zcode-cli/packages/core/tests/runtime-command-queue.test.ts`
-  - 覆盖 queue drain API 的优先级上限、移除语义和 FIFO 行为。
+  - Cobre o limite superior de prioridade da API de drain da queue, a semântica de remoção e o comportamento FIFO.
 - Modify/Test: `apps/zcode-cli/packages/core/tests/subagent-background.test.ts`
-  - 更新“active prompt 后 notification 才作为独立 next turn”的旧断言；新增 active-loop 合流断言。
+  - Atualiza a asserção antiga de "a notification só vira um next turn independente depois de um prompt ativo"; adiciona asserções de convergência no active-loop.
 - Modify/Test: `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`
-  - 覆盖 main runtime background Bash/Agent notification 在工具结果后、下一次 provider request 前被合流。
+  - Cobre a convergência da notificação de background Bash/Agent do main runtime depois do resultado da ferramenta e antes da próxima requisição ao provider.
 - Modify/Test: `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`
-  - 覆盖 active-loop 合流发生在 compact projection 前后不会破坏 model-only synthetic history。
+  - Cobre que a convergência no active-loop, antes ou depois da projeção de compactação, não quebra o histórico sintético model-only.
 - Modify: `docs/testing/conversation-session-background-e2e-coverage-matrix.md`
-  - 更新 background notification active-loop coverage 状态。
+  - Atualiza o status de cobertura do active-loop de background notification.
 - Modify: `docs/conversation-session-case-catalog.md`
-  - 如现有 BG case 语义描述提到“next turn only”，改为“active-loop intake or idle wake fallback”。
+  - Se a descrição semântica do caso BG existente mencionar "next turn only", passa a "active-loop intake or idle wake fallback".
 - Optional Modify: `packages/desktop/test/e2e/conversation-session/conversation-session-background.test.ts`
-  - 如果 fixture replay 可稳定观察 active-loop 合流，则补 case；否则只更新 manual-review/coverage 文档，不强行新增 flaky E2E。
+  - Se o replay de fixture puder observar a convergência do active-loop de forma estável, adiciona o caso; caso contrário, atualiza apenas os documentos de manual-review/coverage, sem forçar um E2E flaky novo.
 
 ---
 
-## Phase 0: Freeze Baseline And Acceptance
+## Phase 0: Congelar baseline e aceitação
 
-**Purpose:** 在动代码前固定当前偏差、目标行为和本次验收口径，避免继续 patch-on-patch。
+**Propósito:** fixar a deviation atual, o comportamento alvo e o critério de aceitação desta rodada antes de mexer no código, evitando continuar fazendo patch sobre patch.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan。
-- [ ] 运行 `git diff --stat`，确认当前 worktree 仍是 background/subagent/BG06 相关改动，没有混入不相关 UI 或 remote-control 改动。
-- [ ] 确认目标 queue 语义：
-  - command queue 支持 `prompt` / `task-notification` 和 `now < next < later`。
-  - background Agent completion enqueue `mode: "task-notification", priority: "next"`。
-  - Bash completion enqueue `mode: "task-notification", priority: "next"`。
-- [ ] 复查当前 zcode 偏差：
-  - `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts`：`task-notification` 作为 outer command 调 `executeTurnCommand(command.text)`。
-  - `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts`：下一次 provider request 前只 drain steer 和旧 subagent notification，没有 drain runtime command queue task-notification。
-- [ ] 记录验收口径：
-  - Active loop 正在跑且会进入下一次 provider request：pending task notification 必须进入这次 request。
-  - Active loop 已结束或 runtime idle：pending task notification 必须按现有 idle command wake 路径执行。
-  - Subagent child sealed 后的 nested Bash completion：notification 必须被 suppress，不触发 child model turn。
+- [ ] Reler este plan.
+- [ ] Executar `git diff --stat` e confirmar que o worktree atual ainda contém apenas mudanças de background/subagent/BG06, sem mudanças de UI não relacionadas ou de remote-control misturadas.
+- [ ] Confirmar a semântica alvo da queue:
+  - a command queue suporta `prompt` / `task-notification` e `now < next < later`;
+  - a conclusão de background Agent faz enqueue de `mode: "task-notification", priority: "next"`;
+  - a conclusão de Bash faz enqueue de `mode: "task-notification", priority: "next"`.
+- [ ] Revisar aa deviation atual do zcode:
+  - `apps/zcode-cli/packages/core/src/runtime/methods/runtime-command-queue.ts`: `task-notification` como outer command chama `executeTurnCommand(command.text)`.
+  - `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts`: antes da próxima requisição ao provider só faz drain de steer e da notificação antiga de subagent, sem drain das task-notification da runtime command queue.
+- [ ] Registrar o critério de aceitação:
+  - Active loop em execução e que vai entrar na próxima requisição ao provider: a task notification pendente precisa entrar nessa requisição.
+  - Active loop já encerrado ou runtime idle: a task notification pendente precisa ser executada pelo caminho existente de idle command wake.
+  - Conclusão de nested Bash após o subagent child sealed: a notification precisa ser suprimida e não deve disparar um model turn do child.
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] 没有代码修改。
-- [ ] 能用上面的目标 queue 语义和当前源码位置解释“当前偏差”和“目标行为”。
+- [ ] Nenhuma modificação de código.
+- [ ] É possível explicar "aa deviation atual" e "o comportamento alvo" com a semântica alvo da queue acima e as posições no código atual.
 
 ---
 
-## Phase 1: Add Queue-Level Drain API
+## Phase 1: Adicionar API de drain no nível da queue
 
-**Purpose:** 让 active loop 可以从 runtime command queue 中查看优先级至少为 `next` 的 pending command 候选。rank 模型为：`now = 0`、`next = 1`、`later = 2`，所以判断写作 `rank <= rank(next)`。queue 层只负责 priority ordering，不关心 command mode；真正消费时由 runtime intake 按 id 显式 `removeById()`。
+**Propósito:** permitir que o active loop consulte candidatos pendentes com prioridade pelo menos `next` na runtime command queue. O modelo de rank é `now = 0`, `next = 1`, `later = 2`, então a condição é escrita como `rank <= rank(next)`. A camada da queue responsável apenas pela ordenação por prioridade e não se importa com o command mode; o consumo real é feito pelo runtime intake com `removeById()` explícito por id.
 
 **Interfaces:**
 
-- Add type export:
+- Export de tipo a adicionar:
 
 ```ts
 export interface RuntimeCommandQueue {
@@ -110,52 +110,52 @@ export interface RuntimeCommandQueue {
 }
 ```
 
-- Selection rule:
-  - 只返回 `RUNTIME_COMMAND_PRIORITY_ORDER[command.priority] <= RUNTIME_COMMAND_PRIORITY_ORDER[maxPriority]`。
-  - 这里的 `<=` 比的是 rank，不是自然语言里的“优先级更低”；rank 越小优先级越高。
-  - 每次选择仍复用现有 priority ordering；同 priority 保持原入队顺序。
-  - 被返回的 command 不从 queue 中移除；调用方确认要消费后再用 `removeById()` 删除。
+- Regra de seleção:
+  - retorna apenas `RUNTIME_COMMAND_PRIORITY_ORDER[command.priority] <= RUNTIME_COMMAND_PRIORITY_ORDER[maxPriority]`;
+  - o `<=` aqui compara rank, e não "prioridade mais baixa" em linguagem natural; quanto menor o rank, maior a prioridade;
+  - cada seleção continua reaproveitando a ordenação de prioridade existente; dentro da mesma prioridade se mantém a ordem original de entrada na fila;
+  - os commands retornados não são removidos da queue; o chamador só os remove com `removeById()` depois de confirmar o consumo.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 在 `apps/zcode-cli/packages/core/tests/runtime-command-queue.test.ts` 先写失败测试：
-  - `getByMaxPriority("next")` 返回所有 `now` 和 `next` commands。
-  - 不返回 `later` commands。
-  - 同 priority FIFO。
-  - 候选读取后 queue 仍可由 `dequeue()` 正常取出。
-- [ ] 运行：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Escrever primeiro o teste que falha em `apps/zcode-cli/packages/core/tests/runtime-command-queue.test.ts`:
+  - `getByMaxPriority("next")` retorna todos os commands `now` e `next`.
+  - Não retorna commands `later`.
+  - FIFO dentro da mesma prioridade.
+  - Após ler os candidatos, a queue ainda pode ser consumida normalmente por `dequeue()`.
+- [ ] Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-command-queue.test.ts --run
 ```
 
-Expected: 新增测试失败，错误应指向 `getByMaxPriority` 未实现或行为不符。
+Esperado: os novos testes falham, e o erro deve apontar que `getByMaxPriority` não está implementado ou que o comportamento não bate.
 
-- [ ] 修改 `apps/zcode-cli/packages/core/src/runtime/command-queue.ts`，实现 `getByMaxPriority()`。
-- [ ] 再次运行：
+- [ ] Modificar `apps/zcode-cli/packages/core/src/runtime/command-queue.ts` e implementar `getByMaxPriority()`.
+- [ ] Executar novamente:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-command-queue.test.ts --run
 ```
 
-Expected: PASS。
+Esperado: PASS.
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Queue API 单测通过。
-- [ ] `dequeue()` / `peek()` / `snapshot()` 现有行为未改。
-- [ ] Queue API 没有按 command mode 过滤；mode-specific 行为只在 runtime intake processor 中处理。
+- [ ] Os testes unitários da API de queue passam.
+- [ ] O comportamento existente de `dequeue()` / `peek()` / `snapshot()` não mudou.
+- [ ] A API de queue não filtra por command mode; o comportamento específico de mode só é tratado no runtime intake processor.
 
 ---
 
-## Phase 2: Extract Active-Loop Runtime Command Intake Helper
+## Phase 2: Extrair o helper de intake de runtime commands do active-loop
 
-**Purpose:** 复用现有 persistence，把 active loop 按 priority 候选 + 白名单取出的 pending runtime commands 转成下一次 provider request 前应该进入 runtime history 的 entries。本阶段只实现 `task-notification` adapter；普通 prompt / target continuation 不进入 active-loop intake。
+**Propósito:** reaproveitar a persistência existente para transformar os runtime commands pendentes que o active loop selecionou por prioridade + allowlist nas entries que devem entrar no runtime history antes da próxima requisição ao provider. Nesta etapa só é implementado o adapter de `task-notification`; prompt comum / target continuation não entram no intake do active-loop.
 
 **Interfaces:**
 
-- Add internal method:
+- Adicionar método interno:
 
 ```ts
 drainPendingRuntimeCommandsForActiveLoop(traceContext: TraceContext): Promise<{
@@ -165,54 +165,54 @@ drainPendingRuntimeCommandsForActiveLoop(traceContext: TraceContext): Promise<{
 }>;
 ```
 
-- Behavior:
-  - 从 `runtimeCommandQueue.getByMaxPriority("next")` 取得候选 commands。
-  - 对 `mode === "task-notification"` 的 command 调用 `persistBackgroundTaskNotificationCommand()`，保持 model-only synthetic input。
-  - 对 `mode === "prompt"` 的 command 不做 active-loop 消费，保持在 queue 中，继续等待 outer runtime command queue drain。
-  - 对 `mode === "target-continuation"` / `mode === "target-continuation-loop"` 必须保持原有 queue 执行语义，不能在 active loop 内直接转成 history entry。
-  - 不调用 `executeTurnCommand()`，不创建新 turn。
-  - 不触发 `runPostCommandActiveTargetLoop()`；active-loop 本轮结束后仍走现有 prompt/target post-turn 逻辑。
-  - 如果没有 commands，返回 `{ drained: 0, messageIds: [], consumedCommandIds: [] }`。
+- Comportamento:
+  - obtém os commands candidatos a partir de `runtimeCommandQueue.getByMaxPriority("next")`.
+  - Para commands com `mode === "task-notification"`, chama `persistBackgroundTaskNotificationCommand()`, mantendo o synthetic input model-only.
+  - Para commands com `mode === "prompt"`, não faz consumo no active-loop e mantém na queue, aguardando o drain da outer runtime command queue.
+  - Para `mode === "target-continuation"` / `mode === "target-continuation-loop"` é obrigatório manter a semântica de execução em queue original, sem converter em history entry dentro do active loop.
+  - Não chama `executeTurnCommand()` e não cria novo turn.
+  - Não dispara `runPostCommandActiveTargetLoop()`; após a rodada do active-loop, continua seguindo a lógica existente de post-turn de prompt/target.
+  - Se não houver commands, retorna `{ drained: 0, messageIds: [], consumedCommandIds: [] }`.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 在 `apps/zcode-cli/packages/core/tests/subagent-background.test.ts` 或更合适的 runtime test 中先写失败测试：
-  - enqueue 两条 task-notification。
-  - 调用内部 helper。
-  - 断言 `sessionStore.savedMessages` 中有两条 `source === "background_task"`、`visibility === "model-only"`。
-  - 断言 `messageHistory.toRuntimeEntries()` 包含两条 `<task-notification>`。
-  - 断言 modelAdapter 未被调用。
-  - enqueue 一条 `prompt` command 后调用内部 helper；断言该 command 仍留在 queue 且 promise 未 settle。
-- [ ] 运行 focused test，确认失败：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Escrever primeiro o teste que falha em `apps/zcode-cli/packages/core/tests/subagent-background.test.ts` ou em um teste de runtime mais adequado:
+  - enfileirar duas task-notification.
+  - Chamar o helper interno.
+  - Assertar que `sessionStore.savedMessages` tem duas entradas com `source === "background_task"` e `visibility === "model-only"`.
+  - Assertar que `messageHistory.toRuntimeEntries()` contém dois `<task-notification>`.
+  - Assertar que o modelAdapter não foi chamado.
+  - Enfileirar um command `prompt` e chamar o helper interno; assertar que o command continua na queue e que o promise não foi resolvido.
+- [ ] Executar o teste focado e confirmar a falha:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/subagent-background.test.ts --run
 ```
 
-- [ ] 修改：
+- [ ] Modificar:
   - `apps/zcode-cli/packages/core/src/runtime/methods/background-notifications.ts`
   - `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
   - `apps/zcode-cli/packages/core/src/runtime/internal.ts`
   - `apps/zcode-cli/packages/core/src/runtime/methods/index.ts`
-- [ ] 再次运行 focused test。
+- [ ] Executar novamente o teste focado.
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Active-loop runtime command helper 只做 command intake/persistence，不启动额外 turn。
-- [ ] 没有启动额外 model request。
-- [ ] 非 `task-notification` command mode 没有被静默吞掉，仍保留在 outer runtime command queue。
-- [ ] idle command path 仍可复用 `persistBackgroundTaskNotificationCommand()`。
+- [ ] O helper de runtime command do active-loop só faz intake/persistência de commands e não inicia um turn extra.
+- [ ] Nenhuma requisição extra ao modelo foi iniciada.
+- [ ] Nenhum command mode diferente de `task-notification` foi engolido silenciosamente e todos continuam na outer runtime command queue.
+- [ ] O caminho de command idle ainda pode reaproveitar `persistBackgroundTaskNotificationCommand()`.
 
 ---
 
-## Phase 3: Wire Active-Loop Intake Before Provider Projection
+## Phase 3: Conectar o intake do active-loop antes da projeção ao provider
 
-**Purpose:** 将 helper 接到 `runRegularTurnLoop()` 的合法边界：steer drain 之后、compact/provider projection 之前。这样 background completion 如果赶上下一个 roundtrip，会合进这一轮模型请求。
+**Propósito:** conectar o helper no limite legítimo de `runRegularTurnLoop()`: depois do drain de steer e antes da projeção de compactação/provider. Assim, uma conclusão de background que chegar a tempo do próximo roundtrip entra nesta requisição ao modelo.
 
-**Placement:**
+**Posicionamento:**
 
-In `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts`:
+Em `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts`:
 
 ```ts
 await this.drainPendingSubagentNotifications(state.turnTraceContext);
@@ -224,7 +224,7 @@ if (drainedRuntimeCommands.drained > 0) {
 }
 ```
 
-The exact placement must remain before:
+O posicionamento exato precisa permanecer antes de:
 
 ```ts
 const providerProjection = buildRuntimeProviderRequestMessages(this, {
@@ -235,203 +235,203 @@ const providerProjection = buildRuntimeProviderRequestMessages(this, {
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 在 `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts` 写失败测试：background Bash 在一个 tool step 执行完成后、下一次 provider request 前 enqueue notification。
-  - 第一次 model request 返回一个 foreground tool call，tool result 触发 background notification enqueue。
-  - 第二次 model request 的 `messages` 必须同时包含 tool result 和 `<task-notification>`。
-  - 断言没有第三个“notification-only” model request。
-- [ ] 运行：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Escrever o teste que falha em `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`: o background Bash faz enqueue da notification depois de um tool step executar e antes da próxima requisição ao provider.
+  - A primeira requisição ao modelo retorna um foreground tool call e o tool result dispara o enqueue da background notification.
+  - As `messages` da segunda requisição ao modelo precisam conter simultaneamente o tool result e o `<task-notification>`.
+  - Assertar que não existe uma terceira requisição ao modelo "só de notification".
+- [ ] Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-tool-loop.test.ts --run -t "background notification"
 ```
 
-Expected: 新测试先失败，表现为 notification 只在当前 prompt command 完成后作为独立 request 出现。
+Esperado: o novo teste falha primeiro,sehavior: a notification só aparecendo como uma requisição independente depois que o command prompt atual é concluído.
 
-- [ ] 修改 `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts`，接入 helper。
-- [ ] 更新旧测试：
-  - `apps/zcode-cli/packages/core/tests/subagent-background.test.ts` 里“queues task-notification commands behind an active prompt command”如果只断言 active prompt 期间不打断 in-flight request，应保留；如果断言 prompt 完成后一定是独立 notification turn，应改成 active-loop 合流或 idle fallback 分别覆盖。
-- [ ] 运行：
+- [ ] Modificar `apps/zcode-cli/packages/core/src/runtime/methods/turn-loop.ts` e conectar o helper.
+- [ ] Atualizar os testes antigos:
+  - o "queues task-notification commands behind an active prompt command" em `apps/zcode-cli/packages/core/tests/subagent-background.test.ts`, se só afirmar que a requisição em andamento não é interrompida durante um prompt ativo, deve ser mantido; se afirmar que depois de o prompt concluído sempre há um notification turn independente, deve ser trocado por cobertura separada de convergência no active-loop ou fallback idle.
+- [ ] Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/subagent-background.test.ts packages/core/tests/runtime-tool-loop.test.ts --run
 ```
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Notification 不打断当前 in-flight provider request。
-- [ ] 如果 active loop 还会继续下一次 provider request，notification 出现在下一次 request。
-- [ ] 如果 active loop 不再继续，仍保留 idle wake fallback。
-- [ ] Prompt command 没有被 active-loop processor 静默吞掉；若本期消费 prompt，必须有 resolve/visibility 测试覆盖；若本期不消费 prompt，必须仍按 next-turn queue 语义执行。
+- [ ] A notification não interrompe a requisição ao provider em andamento.
+- [ ] Se o active loop continuar para a próxima requisição ao provider, a notification aparece nessa próxima requisição.
+- [ ] Se o active loop não continuar, o fallback de idle wake é preservado.
+- [ ] O command prompt não foi engolido silenciosamente pelo processador do active-loop; se nesta etapa o prompt for consumido, precisa haver cobertura de teste de resolve/visibility; se não for consumido, precisa continuar sendo executado com a semântica de queue do next-turn.
 
 ---
 
-## Phase 4: Preserve Idle Wake Fallback
+## Phase 4: Preservar o fallback de idle wake
 
-**Purpose:** 确保 runtime idle 时的 background notification 仍按当前 command queue 路径唤醒 main agent；这条路径是 background subagent/bash 主链路的基础。
+**Propósito:** garantir que a background notification com o runtime idle ainda acorde o main agent pelo caminho atual da command queue; esse caminho é a base docadeia principal de background subagent/bash.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 保留并必要时更新 `apps/zcode-cli/packages/core/tests/subagent-background.test.ts` 中的 idle wake 测试：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Preservar e, se necessário, atualizar os testes de idle wake em `apps/zcode-cli/packages/core/tests/subagent-background.test.ts`:
   - `runs each idle background notification as a model-only task-notification command`
   - `wakes idle runtime synchronously when a background notification is enqueued`
-- [ ] 新增或更新测试，明确 active-loop runtime command helper 不会吞掉 idle notification：
-  - runtime idle。
-  - enqueue notification。
-  - `enqueueRuntimeCommand()` 触发 drain。
-  - model request latest message 包含 `<task-notification>`。
-- [ ] 运行：
+- [ ] Adicionar ou atualizar testes deixando explícito que o helper de runtime command do active-loop não engole a notification idle:
+  - runtime idle.
+  - enfileirar notification.
+  - `enqueueRuntimeCommand()` dispara o drain.
+  - A última mensagem da requisição ao modelo contém `<task-notification>`.
+- [ ] Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/subagent-background.test.ts --run
 ```
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Idle notification 仍然启动 model-only synthetic notification turn。
-- [ ] `persistBackgroundTaskNotificationCommand()` 仍只落 model-only session message，不在用户可见内容里泄漏。
-- [ ] `runtime-command-queue.ts` 的 post-notification goal continuation 逻辑仍只服务 idle notification command，不影响 active-loop intake。
+- [ ] A notification idle ainda inicia um model-only synthetic notification turn.
+- [ ] `persistBackgroundTaskNotificationCommand()` ainda grava apenas a session message model-only, sem vazar para o conteúdo visível ao usuário.
+- [ ] A lógica de goal continuation pós-notification em `runtime-command-queue.ts` continua servindo apenas ao command de notification idle e não afeta o intake do active-loop.
 
 ---
 
-## Phase 5: Goal Interaction Regression
+## Phase 5: Regressão da interação com goal
 
-**Purpose:** 保护 goal + background 的既有结论：goal verification 必须等 running background settle，并且 notification 被消费后再做 verifier/continuation。
+**Propósito:** proteger a conclusão existente de goal + background: a verificação de goal precisa esperar o settle do background em execução, e o verifier/continuation só acontece depois que a notification foi consumida.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 更新或新增 `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts` goal 相关用例：
-  - Active loop 合流 notification 后，同一 prompt command 的 post-turn goal loop 会继续检查 active target。
-  - 如果 `RuntimeTaskRegistry` 仍有 running background task，verifier defer。
-  - 多个 notification 中第一个合流、第二个 idle fallback 时，goal loop 不抢跑 queued command。
-  - `targetCompletionVerification.enabled === false` 时，notification 不无条件启动 active target continuation。
-- [ ] 运行：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Atualizar ou adicionar casos de goal em `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts`:
+  - Depois de o active-loop convergir a notification, o goal loop de post-turn do mesmo command prompt continua verificando o active target.
+  - Se `RuntimeTaskRegistry` ainda tiver uma background task em execução, o verifier adia.
+  - Com múltiplas notifications, quando a primeira converge e a segunda usa o fallback idle, o goal loop não adelanta o command enfileirado.
+  - Com `targetCompletionVerification.enabled === false`, a notification não inicia incondicionalmente a active target continuation.
+- [ ] Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-tool-loop.test.ts --run -t "target"
 ```
 
-- [ ] 再运行完整 runtime tool-loop focused suite：
+- [ ] Depois executar a suíte focado completa de runtime tool-loop:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-tool-loop.test.ts --run
 ```
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Goal verification 不会先于 notification consumption。
-- [ ] Running background task 仍会 defer verifier。
-- [ ] Queued prompt 仍优先于 post-notification goal loop 的后续迭代。
-- [ ] 没有恢复“goal steer 后 pause/卡住”的旧问题。
+- [ ] A verificação de goal não ocorre antes do consumo da notification.
+- [ ] Uma background task em execução continua adiando o verifier.
+- [ ] Um prompt enfileirado continua tendo prioridade sobre as iterações seguintes do goal loop pós-notification.
+- [ ] O problema antigo de "pause/travamento depois do goal steer" não foi restaurado.
 
 ---
 
-## Phase 6: Subagent And Nested Background Bash Semantics
+## Phase 6: Semântica de subagent e nested background Bash
 
-**Purpose:** 将 BG06 语义和新的 active-loop intake 对齐：child runtime 活跃时可以消费 nested Bash notification；child runtime sealed 后只 cleanup，不复活。
+**Propósito:** alinhar a semântica de BG06 com o novo intake do active-loop: quando o child runtime está ativo ele pode consumir a nested Bash notification; depois que o child runtime está sealed, só há cleanup e nada é ressuscitado.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 在 `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts` 或 `subagent-background.test.ts` 更新 BG06 单测：
-  - subagent child runtime 内 Bash background completion 发生在 child loop 下一次 provider request 前。
-  - child 第二次 provider request 包含 nested Bash `<task-notification>`。
-  - parent Agent result 不因为 nested Bash 后续结果被重写。
-- [ ] 保留 sealed 后 cleanup-only 测试：
-  - child `executeTurn()` 已返回并 seal。
-  - nested Bash completion 只更新 task terminal/event/artifact。
-  - 不 enqueue child task-notification command。
-  - 不触发 child model request。
-- [ ] 运行：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Atualizar os testes unitários de BG06 em `apps/zcode-cli/packages/core/tests/runtime-tool-loop.test.ts` ou `subagent-background.test.ts`:
+  - a conclusão do Bash em background dentro do subagent child runtime acontece antes da próxima requisição ao provider do child loop.
+  - A segunda requisição ao provider do child contém o `<task-notification>` do nested Bash.
+  - O resultado do Agent pai não é reescrito por causa do resultado posterior do nested Bash.
+- [ ] Preservar os testes de cleanup-only após o seal:
+  - o `executeTurn()` do child já retornou e foi selado.
+  - a conclusão do nested Bash só atualiza task terminal/event/artifact.
+  - não enfileira command de task-notification do child.
+  - não dispara requisição ao modelo do child.
+- [ ] Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-tool-loop.test.ts packages/core/tests/subagent-background.test.ts --run -t "background"
 ```
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Child runtime active-loop 合流只发生在 child still active 的合法边界。
-- [ ] Child sealed 后 notification suppression 保持。
-- [ ] Main runtime queue 不被 child nested Bash 污染。
-- [ ] Parent Agent output 不追加 nested Bash completion result。
+- [ ] A convergência no active-loop do child runtime só acontece nos limites legítimos em que o child ainda está ativo.
+- [ ] A supressão de notification após o child selado é preservada.
+- [ ] A queue do main runtime não é poluída pelo nested Bash do child.
+- [ ] O output do Agent pai não recebe o resultado da conclusão do nested Bash.
 
 ---
 
-## Phase 7: Compact, Prompt Projection, And Visibility Regression
+## Phase 7: Regressão de compactação, projeção de prompt e visibilidade
 
-**Purpose:** 确保 active-loop runtime command intake 插入 synthetic user entry 后，不重新引入 non-incremental trajectory、cache anchor 漂移或 UI 可见泄漏。
+**Propósito:** garantir que, depois de o intake de runtime command do active-loop inserir uma synthetic user entry, não sejam reintroduzidos trajectory não incremental, deriva de âncora de cache ou vazamento visível na UI.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 更新 `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`：
-  - active-loop runtime command drain 后触发 mid-turn compact 时，`<task-notification>` 仍保留在 provider-visible history 中。
-  - compact 不把 model-only notification 变成 real user message。
-  - cache-control 仍由 `buildRuntimeProviderRequestMessages()` 统一投影。
-- [ ] 运行：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Atualizar `apps/zcode-cli/packages/core/tests/runtime-compact.test.ts`:
+  - quando um mid-turn compact é disparado após o drain de runtime command do active-loop, o `<task-notification>` continua no histórico visível ao provider.
+  - a compactação não transforma a notification model-only em uma real user message.
+  - o cache-control continua sendo projetado de forma unificada por `buildRuntimeProviderRequestMessages()`.
+- [ ] Executar:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/core/tests/runtime-compact.test.ts --run -t "task-notification"
 ```
 
-- [ ] 如有轨迹转换 helper 测试覆盖，补充一次 “active-loop notification 合流后 append-only” fixture 或 snapshot 检查。
+- [ ] Se houver testes de helper de conversão de trajetória, acrescentar uma fixture ou verificação de snapshot "append-only após a convergência da notification no active-loop".
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Provider request body 中 notification 位置稳定且 append-only。
-- [ ] Session visible content 不展示 model-only `<task-notification>`。
-- [ ] 不恢复之前已修复的 non-incremental snapshot 问题。
+- [ ] A posição da notification no body da requisição ao provider é estável e append-only.
+- [ ] O conteúdo visível da sessão não mostra o `<task-notification>` model-only.
+- [ ] O problema de snapshot não incremental já corrigido antes não foi restaurado.
 
 ---
 
-## Phase 8: E2E Coverage And Docs
+## Phase 8: Cobertura E2E e documentação
 
-**Purpose:** 将语义变化反映到 conversation-session background coverage 中，避免文档仍描述旧的 “next turn only” 行为。
+**Propósito:** refletir a mudança de semântica na cobertura de background de conversation-session, evitando que a documentação continue descrevendo o comportamento antigo de "next turn only".
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 更新 `docs/testing/conversation-session-background-e2e-coverage-matrix.md`：
-  - 为 active-loop intake 增加或更新 coverage row。
-  - 明确 idle wake fallback 仍覆盖。
-  - 明确 BG06 nested Bash terminal cleanup-only 仍是边界语义。
-- [ ] 更新 `docs/testing/conversation-session-e2e-coverage-matrix.md` 中对应汇总项。
-- [ ] 更新 `docs/conversation-session-case-catalog.md` 中 background case 描述。
-- [ ] 如果新增 E2E case，更新：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Atualizar `docs/testing/conversation-session-background-e2e-coverage-matrix.md`:
+  - adicionar ou atualizar uma linha de cobertura para o intake do active-loop.
+  - deixar explícito que o fallback de idle wake continua coberto.
+  - deixar explícito que o cleanup-only de nested Bash terminal do BG06 continua sendo semântica de fronteira.
+- [ ] Atualizar o item de resumo correspondente em `docs/testing/conversation-session-e2e-coverage-matrix.md`.
+- [ ] Atualizar a descrição dos casos de background em `docs/conversation-session-case-catalog.md`.
+- [ ] Se for adicionado um caso E2E, atualizar:
   - `packages/desktop/test/e2e/conversation-session/conversation-session-background.test.ts`
   - `packages/desktop/test/e2e/fixtures/cases/conversation-session/conversation-session-background.json`
   - `packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-background.json`
-- [ ] 运行 coverage/doc gate：
+- [ ] Executar o gate de cobertura/documentação:
 
 ```bash
 node scripts/audit-conversation-session-case-coverage.mjs --check --json
 pnpm typecheck:e2e
 ```
 
-- [ ] 如新增 fixture，运行：
+- [ ] Se for adicionada fixture, executar:
 
 ```bash
 pnpm e2e:fixture:check -- --case conversation-session-background
 ```
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Coverage matrix 与测试代码一致。
-- [ ] Case catalog 不再把 background notification 描述成只会 next turn。
-- [ ] E2E fixture/deepseek replay JSON 结构校验通过。
+- [ ] A coverage matrix está consistente com o código de teste.
+- [ ] O case catalog não descreve mais a background notification como acontecendo apenas no next turn.
+- [ ] A validação de estrutura do JSON de E2E fixture/deepseek replay passa.
 
 ---
 
-## Phase 9: Final Verification
+## Phase 9: Verificação final
 
-**Purpose:** 提交前做完整回归，确保 active-loop 合流没有破坏现有 background/subagent/bash/workflow 主链路。
+**Propósito:** fazer uma regressão completa antes do commit, garantindo que a convergência no active-loop não quebrou as cadeias principais existentes de background/subagent/bash/workflow.
 
 **Checklist:**
 
-- [ ] 重新阅读本 plan 和当前 `git diff`。
-- [ ] 运行 focused core tests：
+- [ ] Reler este plan e o `git diff` atual.
+- [ ] Executar os testes focados de core:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest \
@@ -442,7 +442,7 @@ pnpm --dir apps/zcode-cli exec vitest \
   --run
 ```
 
-- [ ] 运行 Bash/background focused tests：
+- [ ] Executar os testes focados de Bash/background:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest \
@@ -451,13 +451,13 @@ pnpm --dir apps/zcode-cli exec vitest \
   --run -t "background|auto-background|task-notification"
 ```
 
-- [ ] 运行 workflow detach focused test：
+- [ ] Executar o teste focado de workflow detach:
 
 ```bash
 pnpm --dir apps/zcode-cli exec vitest packages/bootstrap/tests/script-workflow.test.ts --run -t "background"
 ```
 
-- [ ] 运行 repo gates：
+- [ ] Executar os gates do repositório:
 
 ```bash
 pnpm typecheck
@@ -466,33 +466,33 @@ git diff --check
 node scripts/audit-conversation-session-case-coverage.mjs --check --json
 ```
 
-- [ ] 手动 review `git diff`：
-  - 确认没有新增外部产品关键字。
-  - 确认没有新增过度兜底 timer/poller。
-  - 确认 active-loop command intake 是 priority-first；所有被 drain 的 command mode 都有明确 adapter、保留或放回策略，没有静默吞掉。
-  - 确认没有改变 Bash single output-file 未覆盖的既定 divergence。
-  - 确认没有自动提交。
+- [ ] Revisar o `git diff` manualmente:
+  - confirmar que não houve palavra-chave de produto externo nova.
+  - confirmar que não houve timer/poller de fallback excessivo novo.
+  - confirmar que o intake de command do active-loop é priority-first; todos os command modes que são drenados têm adapter explícito, preservação ou estratégia de devolução, e nada foi engolido silenciosamente.
+  - confirmar que não mudou a divergência já estabelecida e não coberta pelo output-file único do Bash.
+  - confirmar que não houve commit automático.
 
-**Pass Criteria:**
+**Critérios de aprovação:**
 
-- [ ] Focused tests 全通过。
-- [ ] `pnpm typecheck` 通过。
-- [ ] `pnpm lint` 通过或仅有本任务无关的既有 warning。
-- [ ] `git diff --check` 通过。
-- [ ] Coverage audit 通过。
-- [ ] 最终行为总结能清楚区分：
-  - active-loop intake
-  - idle wake fallback
-  - subagent child sealed cleanup-only
+- [ ] Todos os testes focados passam.
+- [ ] `pnpm typecheck` passa.
+- [ ] `pnpm lint` passa ou tem apenas warnings já existentes e sem relação com esta tarefa.
+- [ ] `git diff --check` passa.
+- [ ] A auditoria de cobertura passa.
+- [ ] O resumo final de comportamento distingue claramente:
+  - intake do active-loop
+  - fallback de idle wake
+  - cleanup-only de subagent child sealed
 
 ---
 
-## Expected End State
+## Estado final esperado
 
-- Background completion 仍统一写入 runtime command queue 的 `task-notification`。
-- Active loop 从 runtime command queue 取 command 时先按 `rank <= rank(next)` 得到候选，也就是取 `now` / `next`，然后按显式白名单过滤；本阶段只放行 `task-notification`。
-- Main/subagent child runtime 如果正在 active loop 且即将发下一次 provider request，会先消费 priority 合法且白名单允许的 pending command；其中 background `task-notification` 会作为 model-only synthetic input 让模型在最近合法 roundtrip 看到结果。
-- Runtime idle 时，notification 仍作为 model-only synthetic task-notification command 唤醒下一 turn。
-- Goal verifier 仍等待 running background task settle；notification 被消费后才进入 post-turn verification/continuation。
-- Subagent child runtime terminal 后的 nested background Bash 不会复活 child，不会污染 main queue，不会重写 parent Agent output。
-- 当前 background subagent/bash/workflow registry -> notification -> wake 主链路不被重写，只补齐 active-query 合流缺口。
+- A conclusão de background continua sendo gravada unicamente como `task-notification` na runtime command queue.
+- Quando o active loop retira commands da runtime command queue, ele primeiro obtém candidatos por `rank <= rank(next)`, isto é, `now` / `next`, e depois filtra por uma allowlist explícita; nesta etapa só `task-notification` é liberado.
+- Se o runtime main ou o subagent child estiver em active loop e estiver prestes a enviar a próxima requisição ao provider, ele consome primeiro os pending commands com prioridade legítima e permitidos pela allowlist; entre eles, a background `task-notification` entra como synthetic input model-only para que o modelo veja o resultado no roundtrip legítimo mais recente.
+- Quando o runtime está idle, a notification ainda acorda o próximo turn como command de task-notification sintético model-only.
+- O goal verifier continua esperando o settle da background task em execução; a verificação/continuation de post-turn só entra depois que a notification foi consumida.
+- O nested background Bash depois do terminal do subagent child runtime não ressuscita o child, não polui a queue do main e não reescreve o output do Agent pai.
+- A cadeia principal atual background subagent/bash/workflow registry -> notification -> wake não é reescrita; apenas a lacuna de convergência com o active-query é preenchida.

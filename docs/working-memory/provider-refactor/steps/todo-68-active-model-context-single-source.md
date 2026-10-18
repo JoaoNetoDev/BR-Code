@@ -1,15 +1,16 @@
-# Todo 68：Active Model 与执行 Context 单一事实收口
+# Todo 68: Active Model como fonte única do Context de execução
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Transferência de atribuição de verificação (2026-09-09): a dívida residual de teste/falha/promoção manual deste documento foi transferida para [Todo102](todo-102-verification-debt-closeout.md), que fecha o agendamento de verificação independente deste documento; as evidências históricas são preservadas, e a transferência não significa que os testes passaram.
 
-> 状态：已完成实现与验证（2026-09-03；提交随本轮收口）
+> Estado: implementação e verificação concluídas (2026-09-03; commit nesta rodada de fechamento)
 >
-> 来源：实机切换同名模型后，模型在下一轮才感知新 Provider 的回归
+> Origem: regressão em que, após trocar na prática por um modelo de mesmo nome, o modelo só percebia o novo Provider no turno seguinte
 
-## 1. 问题与根因
+## 1. Problema e causa raiz
 
-当前正式请求已经使用本轮 `ModelSelection` 创建出的 Active Model，但 Context 前缀仍从
-Session Selection 单独推导 `currentModel` 和模型相关工具提示。两条链路的应用时机不同：
+A requisição oficial já usa o Active Model criado pelo `ModelSelection` do turno corrente, mas o prefixo do
+Context ainda deriva separadamente um `currentModel` e as dicas de ferramentas relacionadas ao modelo a partir
+do Session Selection. As duas cadeias têm timings de aplicação diferentes:
 
 ```text
 本轮 Submission Selection
@@ -21,24 +22,27 @@ Session Selection 单独推导 `currentModel` 和模型相关工具提示。两�
 旧 Session Selection -> Context 前缀 -> 模型看到的“Current model”
 ```
 
-Turn 在异步 Context 初始化和 SessionStart Hook 之后才应用 Submission Selection；此时
-`activeTurn` 已建立，旧的刷新保护又禁止改写当前 Turn 的 Context。结果是 Adapter 请求使用新
-Model，而请求内的环境说明仍写上一轮 Model，表现为切模总是滞后一拍。
+O Turn só aplica o Submission Selection depois da inicialização assíncrona do Context e do SessionStart Hook;
+nesse momento `activeTurn` já existe, e a proteção de atualização antiga proíbe reescrever o Context do Turn
+corrente. O resultado é que a requisição do Adapter usa o Model novo, enquanto a descrição de ambiente dentro
+da requisição ainda escreve o Model do turno anterior — se manifestando como a troca de modelo sempre atrasada
+em um passo.
 
-同一分裂还影响：
+A mesma divisão também afeta:
 
-- Guide 在同一 Turn 的合法 model-step 边界切换 Model；
-- execution-scoped Off-Peak Model 不修改 Session Selection；
-- Subagent 继承父 Active Model 时仍从父 Session Selection 拼 child Selection；
-- Context 中按模型投影的工具提示没有使用正式请求持有的 Model。
+- o Guide trocando de Model em um limite legítimo de model-step dentro do mesmo Turn;
+- o Off-Peak Model de escopo de execução, que não modifica o Session Selection;
+- o Subagent, que ao herdar o Active Model pai ainda monta o child Selection a partir do Session Selection do
+  pai;
+- as dicas de ferramentas projetadas por modelo no Context, que não usam o Model held pela requisição oficial.
 
-## 2. 统一原则
+## 2. Princípio de unificação
 
-`ModelSelection` 是“以后创建哪个 Model”的 Session/Submission 意图，可以持久化；它不是正在
-执行的模型事实。
+`ModelSelection` é a intenção de Session/Submission de "qual Model criar daqui em frente", e pode ser
+persistido; não é o fato do modelo que está sendo executado.
 
-每个模型步骤只创建并持有一个不可变 Active Model。该步骤的 Context、工具投影、预算、Adapter
-和实际请求全部直接读取同一个 Model：
+Cada passo de modelo cria e detém apenas um Active Model imutável. O Context desse passo, a projeção de
+ferramentas, o orçamento, o Adapter e a requisição real leem diretamente esse mesmo Model:
 
 ```text
 Session / Submission ModelSelection
@@ -53,105 +57,119 @@ Session / Submission ModelSelection
        Context    Tools    Request
 ```
 
-- 不新增 Context Model Snapshot、Execution Model Binding、Provider Snapshot 或 capability DTO；
-- 不把 Active Model 持久化；Registry 更新只影响以后创建的 Model；
-- Session Selection 在活动 Turn 中变化，只影响下一次新建的 Model；
-- `contextSourceSnapshot` 继续保存 cwd、平台、Shell、Git 和 Instructions 等合法 Context Source，
-  但不再保存或推导执行模型；
-- Session Selection 的防御性复制与本 Bug 无关；对外方法使用
-  `getSessionModelSelection()` / `setSessionModelSelection()` 明确它是未来 Turn 的会话选择，避免被误读为
-  当前 Active Model。
+- Não criar Context Model Snapshot, Execution Model Binding, Provider Snapshot nem capability DTO;
+- Não persistir o Active Model; atualizações do Registry só afetam Models criados depois;
+- Mudança do Session Selection em um Turn ativo afeta apenas o próximo Model criado;
+- `contextSourceSnapshot` continua guardando cwd, plataforma, Shell, Git e Instructions e outras Context
+  Sources legítimas, mas não guarda nem deriva o modelo de execução;
+- A cópia defensiva do Session Selection não tem relação com este bug; os métodos externos usam
+  `getSessionModelSelection()` / `setSessionModelSelection()` deixando explícito que se trata da escolha de
+  sessão de Turns futuros, evitando que seja lido como o Active Model atual.
 
-## 3. 实施设计
+## 3. Design de implementação
 
 ### 3.1 Turn admission
 
-普通 Turn、Compact 和 execution-scoped Off-Peak 在第一次异步等待前冻结 Selection，并只创建一次
-本轮 Active Model。随后：
+Turn comum, Compact e Off-Peak de escopo de execução congelam o Selection antes da primeira espera assíncrona e
+criam o Active Model do turno apenas uma vez. Depois:
 
-1. Context 初始化/重建显式接收该 Model；
-2. SessionStart Hook 读取该 Model 的 Provider/Model 身份；
-3. Submission 的 Session Selection 写入与事件发布复用已经创建的 Model，不再次创建；
-4. Regular Loop、Memory Recall、Compact、工具投影和请求继续使用同一个对象。
+1. A inicialização/reconstrução do Context recebe explicitamente esse Model;
+2. O SessionStart Hook lê a identidade de Provider/Model desse Model;
+3. A escrita do Session Selection da Submission e a publicação de eventos reutilizam o Model já criado, sem
+   criar outro;
+4. Regular Loop, Memory Recall, Compact, projeção de ferramentas e requisição continuam usando o mesmo objeto.
 
-Rewind 等不发模型请求的命令不应为了重建历史而额外要求一个可执行 Model。
+Comandos que não enviam requisição de modelo, como Rewind, não devem exigir um Model executável extra só para
+reconstruir histórico.
 
-### 3.2 Context 前缀
+### 3.2 Prefixo do Context
 
-删除 `refreshContextModelSnapshot` 这种把 Session Selection 同步到 Context 的语义。保留通用的
-Context 前缀重建能力，用于语言、输出样式、Shell、Rewind 等真实 Context Source 变化；重建时如
-果属于模型步骤，必须显式传入该步骤的 Active Model。
+Remover a semântica `refreshContextModelSnapshot`, que sincroniza o Session Selection com o Context. Manter a
+capacidade genérica de reconstrução do prefixo do Context, usada para mudanças reais de Context Source como
+idioma, estilo de saída, Shell e Rewind; ao reconstruir, se o passo for um passo de modelo, o Active Model
+desse passo precisa ser passado explicitamente.
 
-Context Builder 只能从显式 Model 生成：
+O Context Builder só pode gerar a partir de um Model explícito:
 
-- 最终 Prompt 中的 Provider/Model 说明（不经过环境字段）；
-- `guidanceToolNames` 等模型相关投影。
+- a descrição de Provider/Model no prompt final (sem passar pelos campos de ambiente);
+- projeções relacionadas ao modelo como `guidanceToolNames`.
 
-它不得调用 `getSessionModelSelection()` 猜测正在执行的 Model。
+Ele não pode chamar `getSessionModelSelection()` para adivinhar qual modelo está sendo executado.
 
-### 3.3 Guide model step
+### 3.3 Model step do Guide
 
-Guide 切模会创建新的 Active Model。下一次请求前，用该 Model 重新投影 Context 前缀，并同时替换
-当前 Turn 的 request-local 前缀；已提交的用户、助手、工具和提醒尾部保持不变。Session Selection
-是否更新继续沿用 Guide 的现有语义。
+A troca de modelo pelo Guide cria um novo Active Model. Antes da próxima requisição, reprojetar o prefixo do
+Context com esse Model e substituir ao mesmo tempo o prefixo request-local do Turn corrente; os trechos já
+submetidos de usuário, assistente, ferramentas e lembretes permanecem inalterados. Se o Session Selection é
+atualizado continua valendo a semântica já existente do Guide.
 
 ### 3.4 Subagent
 
-Subagent 继承父 Model 时，child Selection、child prompt 中的模型身份和 child ModelFactory 都从
-实际传入的父 Active Model 派生，不再混用父 Session Selection。显式 profile/override 继续创建
-自己的 Model。
+Quando o Subagent herda o Model pai, o child Selection, a identidade de modelo no child prompt e o child
+ModelFactory derivam todos do Active Model pai realmente passado, sem mais misturar com o Session Selection do
+pai. Profile/override explícito continuam criando o próprio Model.
 
-## 4. 测试先行
+## 4. Testes primeiro
 
-先增加会在旧实现失败的回归测试：
+Adicionar primeiro testes de regressão que falham na implementação antiga:
 
-1. 普通显式切模：请求使用新 Model，Context 也立即显示同一 Provider/Model；
-2. execution-scoped Off-Peak：Context 和请求都使用临时 Model，Session Selection 保持不变；
-3. Turn 已开始后外部修改 Session Selection：当前 Active Model 与 Context 不变；
-4. Guide 切模：下一 model step 的 Context、工具和请求同时切到 Guide Model；
-5. SessionStart Hook：首轮收到 admission 时已经选定的 Model；
-6. Subagent 继承：即使父 Session Selection 与父 Active Model 不同，child 仍完整继承 Active Model；
-7. Registry/Selection 后续变化只影响后来创建的 Model。
+1. Troca de modelo comum e explícita: a requisição usa o Model novo e o Context já mostra o mesmo Provider/Model;
+2. Off-Peak de escopo de execução: Context e requisição usam o Model temporário, e o Session Selection não muda;
+3. Modificação externa do Session Selection depois que o Turn já começou: o Active Model atual e o Context não
+   mudam;
+4. Troca de modelo pelo Guide: Context, ferramentas e requisição mudam juntos para o Model do Guide no próximo
+   model step;
+5. SessionStart Hook: já recebe na primeira rodada o Model escolhido no admission;
+6. Herança do Subagent: mesmo que o Session Selection do pai difira do Active Model do pai, o child herda
+   integralmente o Active Model;
+7. Mudanças posteriores no Registry/Selection afetam apenas Models criados depois.
 
-## 5. 完成标准
+## 5. Critérios de conclusão
 
-- 代码中不存在从 Session Selection 推导当前执行 Context Model 的路径；
-- 一个 model step 的 Context、工具与 Adapter 请求使用同一 Active Model；
-- 普通切模、Guide、Off-Peak 和 Subagent 不再出现模型身份错拍或混用；
-- 不引入第二套模型事实、额外状态同步或超时兜底；
-- 定向测试、Core 全量单测、根 `pnpm typecheck` 与 `pnpm lint` 通过；
-- 更新 Registry Runtime Design 与 Feature Graph，并记录最终实施结果。
+- Não existe mais no código nenhum caminho que derive o Context Model de execução atual a partir do Session
+  Selection;
+- O Context, as ferramentas e a requisição do Adapter de um model step usam o mesmo Active Model;
+- A troca comum de modelo, o Guide, o Off-Peak e o Subagent não apresentam mais dessincronização ou mistura de
+  identidade de modelo;
+- Não é introduzida uma segunda fonte de verdade de modelo, sincronização de estado extra nem fallback por
+  timeout;
+- Testes direcionados, a suíte completa de testes unitários do Core, o `pnpm typecheck` e o `pnpm lint` da raiz
+  passam;
+- Atualizar o Registry Runtime Design e o Feature Graph, e registrar o resultado final da implementação.
 
-## 6. 已完成的主链实施
+## 6. Implementação da cadeia principal já concluída
 
-- Turn 在第一次异步等待前按 admission Selection 创建唯一 Active Model；Context 初始化、Context
-  前缀重建、SessionStart Hook、Submission 状态应用和正式请求复用同一个对象。
-- `setSessionModelSelection()` 只更新未来 Model 的选择意图，不再把 Session Selection 同步进 Context，旧
-  `refreshContextModelSnapshot` 已删除。
-- Context Source 不再保存执行模型；`currentModel` 和模型相关工具提示仅从当前 model step 显式传入的
-  Active Model 生成。
-- execution-scoped Off-Peak 使用自己的 Model 和 Context，但不改写 Session Selection；Guide 在下一个
-  model step 同时更新 Model 与 request-local Context；Subagent 从实际继承的父 Active Model 派生 child
-  Selection 并直接复用该 Model。
-- 删除了切换 Session Selection 时冗余的 Built-in Tool 刷新；工具是否可见继续在请求时由
-  `getTools(activeModel)` 判断。
+- O Turn cria um único Active Model conforme o Selection do admission antes da primeira espera assíncrona; a
+  inicialização do Context, a reconstrução do prefixo do Context, o SessionStart Hook, a aplicação do estado da
+  Submission e a requisição oficial reutilizam o mesmo objeto.
+- `setSessionModelSelection()` só atualiza a intenção de escolha de Models futuros e não sincroniza mais o
+  Session Selection com o Context; o antigo `refreshContextModelSnapshot` foi removido.
+- A Context Source não guarda mais o modelo de execução; `currentModel` e as dicas de ferramentas relacionadas
+  ao modelo são gerados apenas a partir do Active Model passado explicitamente no model step corrente.
+- O Off-Peak de escopo de execução usa seu próprio Model e seu próprio Context, sem reescrever o Session
+  Selection; o Guide atualiza Model e Context request-local no model step seguinte; o Subagent deriva o child
+  Selection do Active Model pai realmente herdado e reutiliza esse mesmo Model.
+- Foi removida a atualização redundante de Built-in Tool ao trocar o Session Selection; a visibilidade das
+  ferramentas continua sendo decidida no momento da requisição por `getTools(activeModel)`.
 
-验证结果：
+Resultados da verificação:
 
-- Core 全量单测：`2207 passed / 36 skipped / 2 todo`；
-- `@zcode/core` typecheck：通过；
-- 根 `pnpm typecheck`：通过；
-- 根 `pnpm lint`：通过（仅有仓库既存 warning）；
-- 本轮修改文件格式检查与 `git diff --check`：通过；
-- 全仓 `pnpm fmt:check` 仍被仓库既有的 Electron fiddle 非法 HTML 和
-  `apps/zcode-cli/tests/gb2312.js` 读取失败阻塞，本轮未修改这些基线文件。
+- Suíte completa de testes unitários do Core: `2207 passed / 36 skipped / 2 todo`;
+- typecheck de `@zcode/core`: passou;
+- `pnpm typecheck` da raiz: passou;
+- `pnpm lint` da raiz: passou (apenas os warnings já existentes no repositório);
+- Verificação de formatação dos arquivos alterados nesta rodada e `git diff --check`: passaram;
+- O `pnpm fmt:check` de todo o repositório continua bloqueado pelo HTML inválido do Electron fiddle já existente
+  e pela falha de leitura de `apps/zcode-cli/tests/gb2312.js`; esta rodada não alterou esses arquivos de linha
+  de base.
 
-## 7. Review 后的最终收口范围
+## 7. Escopo final de fechamento após o Review
 
-这一轮继续写入 Todo 68，不新增重复 Todo。下面各项都来自同一个根因：Session 的未来选择意图、
-Submission 的本次输入意图与 Active Model 的执行事实曾经混在一起。
+Esta rodada continua escrevendo no Todo 68, sem criar um Todo duplicado. Todos os itens abaixo vêm da mesma
+causa raiz: a intenção de escolha futura da Session, a intenção de entrada corrente da Submission e o fato de
+execução do Active Model já misturados.
 
-### 7.1 三类事实的最终边界
+### 7.1 Limite final entre os três tipos de fato
 
 ```text
 Session Model Selection
@@ -177,18 +195,21 @@ immutable Active Model
 └─ 不持久化；Registry 更新不改变已经创建的对象
 ```
 
-以上 Draft 路径仅描述 App。CLI、Bot、自动化、闲时等入口继续按自己的契约生成完整执行输入，不能强制
-套用 App Draft，也不能覆盖已冻结的 Submission。Session 接纳后的状态更新不反向覆盖用户正在编辑的 Draft。
+O caminho de Draft acima descreve apenas o App. CLI, Bot, automação, ociosidade e outras entradas continuam
+gerando a entrada de execução completa pelo seu próprio contrato; não se pode forçar o Draft do App nem
+sobrescrever uma Submission já congelada. A atualização de estado após o admission da Session não sobrescreve
+para trás o Draft que o usuário está editando.
 
-Runtime 原来的 `getModelSelection()` / `setModelSelection()` 只读写 Session 事实，名字确实会让调用方误以为
-它代表当前执行模型。本轮统一改为 `getSessionModelSelection()` /
-`setSessionModelSelection()`。方法内部的复制只用于防止调用方后来修改同一个 JavaScript 对象；它不创建
-新的业务事实，也不参与 Active Model 或 Context 同步。
+Os antigos `getModelSelection()` / `setModelSelection()` do Runtime liam e escreviam apenas o fato de Session,
+e o nome de fato levava quem chamava a acreditar que aquilo representava o modelo em execução. Nesta rodada eles
+passaram uniformemente a `getSessionModelSelection()` / `setSessionModelSelection()`. A cópia dentro dos métodos
+serve apenas para impedir que o chamador modifique depois o mesmo objeto JavaScript; ela não cria um novo fato
+de negócio nem participa da sincronização do Active Model ou do Context.
 
-### 7.2 删除 `EnvInfo.currentModel` 的反向入口
+### 7.2 Remover a entrada inversa de `EnvInfo.currentModel`
 
-当前 `ContextSourceSnapshot.envInfo` 仍沿用一个带可选 `currentModel` 的通用类型，因此 Builder 里存在下面
-这段桥接语义：
+O `ContextSourceSnapshot.envInfo` atual ainda usa um tipo genérico com `currentModel` opcional, então existe no
+Builder a seguinte semântica de ponte:
 
 ```text
 Context Source envInfo.currentModel
@@ -200,7 +221,8 @@ Context Source envInfo.currentModel
 再从 Active Model 生成 currentModel
 ```
 
-这虽然能避免旧值真正进入请求，却保留了一个误导性的第二入口。最终应收口为：
+Embora isso evite que o valor antigo entre de fato na requisição, ainda sobrou uma segunda entrada enganosa. O
+fechamento final deve ficar:
 
 ```text
 Context Source Snapshot
@@ -213,17 +235,21 @@ Active Model
 Context 渲染阶段直接生成模型说明
 ```
 
-- Context Source 请求、快照和持久化数据不再接收或保存 `currentModel`；
-- 删除 Builder 中“先剥离 `_ignoredCurrentModel`”以及持久化前 `delete currentModel` 的桥接；
-- Subagent 不再手工把 child Selection 写进 `envInfo`；
-- 主 Agent 与 Subagent 的模型说明仍可出现在最终 Prompt 中，但其输入只能是该 model step 的 Active
-  Model，不能是环境探测结果或 Session Selection；
-- 不误删 Protocol 中仅用于旧 UI 展示或兼容序列化、且不属于 Context Source 的同名字段；这些字段需要按
-  实际用途分别判断。
+- Requisição, snapshot e dados persistidos da Context Source não recebem nem guardam mais `currentModel`;
+- Remover do Builder a ponte que primeiro descarta `_ignoredCurrentModel` e o `delete currentModel` antes de
+  persistir;
+- O Subagent não grava mais manualmente o child Selection dentro de `envInfo`;
+- A descrição de modelo do Agente principal e do Subagent ainda pode aparecer no prompt final, mas sua entrada
+  só pode ser o Active Model daquele model step, e nunca um resultado de sondagem de ambiente ou o Session
+  Selection;
+- Não apagar por engano, no Protocol, campos de mesmo nome usados apenas para exibição antiga na UI ou para
+  serialização de compatibilidade e que não pertencem à Context Source; esses campos precisam ser julgados
+  pelo uso real de cada um.
 
-### 7.3 首轮 Context 只构造一次
+### 7.3 Construir o Context da primeira rodada apenas uma vez
 
-旧路径在首个 Turn 中先初始化 Context Builder，紧接着又为同一个 Active Model 重建 Prefix：
+O caminho antigo inicializava o Context Builder no primeiro Turn e logo em seguida reconstruía o Prefix para o
+mesmo Active Model:
 
 ```text
 首次 Turn
@@ -233,7 +259,8 @@ Context 渲染阶段直接生成模型说明
   -> 立即再次创建 Builder 和 Prefix
 ```
 
-这不是正确性所需的两阶段流程，只是合并后的重复调用。改为互斥分支：
+Esse fluxo de duas fases não é necessário para correção; é apenas uma chamada duplicada após a fusão. Mudar
+para ramos mutuamente exclusivos:
 
 ```text
 Context 尚未初始化
@@ -243,12 +270,14 @@ Context 已初始化
   -> rebuildContextPrefix(activeModel)           # 为新的 model step 重建
 ```
 
-首个 Turn 因而只创建一次 Builder；后续普通 Turn、Guide 的新 model step 和其他确实需要更新 Prefix 的路径
-继续重建。Rewind 等不创建模型请求的操作不额外构造 Active Model。
+Assim o primeiro Turn cria o Builder apenas uma vez; Turns comuns seguintes, o novo model step do Guide e os
+outros caminhos que realmente precisam atualizar o Prefix continuam reconstruindo. Operações como Rewind, que
+não criam requisição de modelo, não constroem um Active Model extra.
 
-### 7.4 Queue 只收口已确定的不变量
+### 7.4 Queue fecha apenas o invariante já determinado
 
-普通排队消息仍然在消费时开启一个新 Turn。本轮只修正文档和回归测试中的模型事实：
+Mensagens comuns na fila ainda abrem um novo Turn quando consumidas. Nesta rodada só se corrige o fato de modelo
+na documentação e nos testes de regressão:
 
 ```text
 消息入队
@@ -262,67 +291,80 @@ Session Selection 后续变化
    Provider Config 则在创建 Active Model 时读取当前最新配置
 ```
 
-删除“排队消息消费时使用最新 Session Selection”的旧说法。`sendQueuedNow`、默认立即引导以及 Guide/Queue
-之间的产品语义本轮明确暂停，不改协议和实现，也不借 Todo 68 作推断。
+Remover a afirmação antiga de que "a mensagem na fila usa o Session Selection mais recente ao ser consumida". A
+semântica de produto entre `sendQueuedNow`, o encaminhamento imediato por padrão e Guide/Queue fica
+explicitamente suspensa nesta rodada, sem alterar protocolo nem implementação, e sem usar o Todo 68 para inferir
+nada a respeito.
 
-### 7.5 明确排除 `outputStyle`
+### 7.5 Excluir explicitamente `outputStyle`
 
-`outputStyle` 在异步 Context 初始化期间仍可能出现同一轮不同位置读取到不同值的问题。这是既有的通用
-Submission 参数一致性问题，不是 Provider/Active Model 重构的组成部分。本轮只记录边界，不修改它；若
-后续决定收口，应建立独立 Todo，不扩大 Todo 68。
+O `outputStyle` ainda pode sofrer, durante a inicialização assíncrona do Context, com o mesmo turno lendo valores
+diferentes em pontos diferentes. Esse é um problema genérico preexistente de consistência de parâmetros de
+Submission e não faz parte da refatoração de Provider/Active Model. Esta rodada apenas registra o limite e não
+o modifica; se mais adiante se decidir fechar isso, deve ser criado um Todo separado, sem ampliar o Todo 68.
 
-## 8. 影响面与不变量
+## 8. Superfície de impacto e invariantes
 
-### 8.1 必须直接验证的链路
+### 8.1 Cadeias que precisam de verificação direta
 
-- 普通 Turn 显式切换 Provider/Model；
-- 同一 Turn 内 Guide 开启的新 model step；
-- execution-scoped Off-Peak；
-- Subagent 继承父 Active Model 与显式覆盖；
-- 首轮 Context 初始化、后续 Prefix 重建与 SessionStart Hook；
-- 模型相关工具投影与 Adapter 请求使用相同 Active Model。
+- Troca explícita de Provider/Model em um Turn comum;
+- Novo model step aberto pelo Guide dentro do mesmo Turn;
+- Off-Peak de escopo de execução;
+- Herança do Active Model pai pelo Subagent e sobreposição explícita;
+- Inicialização do Context da primeira rodada, reconstrução posterior do Prefix e SessionStart Hook;
+- Projeção de ferramentas relacionadas ao modelo e requisição do Adapter usando o mesmo Active Model.
 
-### 8.2 只验证不变量、不扩张实现的相邻链路
+### 8.2 Cadeias adjacentes em que só se verifica o invariante, sem expandir a implementação
 
-- 普通 Queue 保存完整 Submission Selection，并在未来新 Turn 使用它；
-- Registry/Personal Config 更新只影响以后创建的 Active Model；
-- Desktop `continuous` 与 Mobile `replayable` 只负责传递同一条已经提交的 Submission，不新增各自的模型
-  选择推导；
-- Session 冷恢复仍恢复 Selection，而不是序列化 Active Model；
-- Compact、Memory、标题生成等辅助步骤继续显式创建并使用自己的 Active Model，不回读 Context 模型字段。
+- A Queue comum salva a Submission Selection completa e a usa em um novo Turn futuro;
+- Atualizações de Registry/Personal Config afetam apenas Active Models criados depois;
+- Desktop `continuous` e Mobile `replayable` apenas repassam a mesma Submission já submetida, sem introduzir
+  dedução própria de escolha de modelo;
+- O cold recovery da Session ainda restaura o Selection, em vez de serializar o Active Model;
+- Passos auxiliares como Compact, Memory e geração de título continuam criando e usando explicitamente o próprio
+  Active Model, sem reler campos de modelo do Context.
 
-### 8.3 本轮不做
+### 8.3 O que esta rodada não faz
 
-- 不修改 `sendQueuedNow` 或默认立即引导语义；
-- 不处理 `outputStyle` 的通用 admission 一致性；
-- 不新增 Context/Provider/Execution Snapshot；
-- 不改变模型选择 UI、Provider Registry 刷新或远程传输协议。
+- Não modifica `sendQueuedNow` nem a semântica de encaminhamento imediato padrão;
+- Não trata a consistência genérica de admission do `outputStyle`;
+- Não cria Context/Provider/Execution Snapshot;
+- Não muda a UI de seleção de modelo, a atualização do Provider Registry nem o protocolo de transporte
+  remoto.
 
-## 9. Review 收口测试与完成标准
+## 9. Testes de fechamento do Review e critérios de conclusão
 
-最新 Review 进展：主执行链及 7.2 类型入口、Builder/持久化剥离桥接已经收口。Builder 直接接收 Active
-Model；Core 全量 2213 条与最终 Bootstrap 定向 82 条通过。Pro 已取得下述实机证据，详见同目录
-`68-72-implementation-report.md`：连续 A → B → C → A 的请求与 Context 一致，第二轮复跑同时加强标记目标断言。
+Andamento mais recente do Review: a cadeia principal de execução, a entrada de tipo de 7.2 e as pontes de
+remoção do Builder/persistência já foram fechadas. O Builder recebe o Active Model diretamente; os 2213 testes do
+Core e os 82 testes direcionados finais do Bootstrap passaram. O Pro obteve as evidências em máquina descritas
+abaixo, detalhadas em `68-72-implementation-report.md` no mesmo diretório: requisições e Context consistentes em
+A → B → C → A consecutivos, e a segunda rodada reforçou as asserções do marcador de alvo.
 
-当前工作区的 Core、Bootstrap 与根类型检查已经通过，根 Lint 仅有仓库既有 warning；这些自动化结果证明
-主链没有明显回归，但不能替代下面的实机验证。按用户最新要求统一在 MacBook Pro 测试，Air 只作为
-原始问题来源，不再要求在 Air 执行。
+A checagem de tipos do Core, do Bootstrap e da raiz no workspace atual já passou, e o Lint da raiz tem apenas os
+warnings já existentes no repositório; esses resultados automatizados provam que a cadeia principal não tem
+regressão evidente, mas não substituem a verificação em máquina abaixo. Por exigência mais recente do usuário,
+tudo é testado uniformemente no MacBook Pro; o Air passa a ser apenas a origem do problema original e não é
+mais exigido como máquina de execução.
 
-在已有七组 Core 回归测试基础上补齐并复核：
+Sobre a base das sete séries de testes de regressão do Core já existentes, completar e revisar:
 
-1. Context Source 输入即使来自旧 fixture，也不能成为当前模型事实；最终 Prompt 中的模型说明必须来自
-   Active Model；
-2. Subagent 环境信息不携带第二份模型身份，child Prompt 与请求仍使用同一个 child Active Model；
-3. 首个 Turn 只初始化一次 Context Builder，后续 Turn 和 Guide 只在合法 model-step 边界重建一次；
-4. 排队 Submission 在 Session Selection 改变后仍使用入队时的 Provider、Model 和 Reasoning；
-5. 原始场景实机回归：在 MacBook Pro 的同一 Session 中连续切换三个同 modelId、不同 Provider 的模型，每次
-   切换后的第一条请求都同时满足：
-   - UI model-change marker 是目标 Provider；
-   - Context 中的模型说明是目标 Provider/Model；
-   - Adapter 实际请求使用同一个 Active Model；
-   - 不再出现“上一拍 Provider”。
+1. Mesmo que a entrada do Context Source venha de uma fixture antiga, ela não pode virar um fato de modelo
+   atual; a descrição de modelo no prompt final tem de vir do Active Model;
+2. As informações de ambiente do Subagent não carregam uma segunda identidade de modelo, e o child Prompt e a
+   requisição continuam usando o mesmo child Active Model;
+3. O primeiro Turn inicializa o Context Builder só uma vez, e Turns seguintes e o Guide só reconstroem uma vez,
+   em fronteiras legítimas de model-step;
+4. A Submission na fila continua usando o Provider, Model e Reasoning congelados no momento da entrada na fila,
+   mesmo que o Session Selection mude depois;
+5. Regressão em máquina do cenário original: no MacBook Pro, dentro da mesma Session, alternar continuamente
+   entre três modelos com o mesmo modelId e Providers diferentes, e, após cada troca, a primeira requisição
+   precisa satisfazer simultaneamente:
+   - o marcador de mudança de modelo da UI é o Provider alvo;
+   - a descrição de modelo no Context é o Provider/Model alvo;
+   - a requisição real do Adapter usa o mesmo Active Model;
+   - o "Provider do passo anterior" não aparece mais.
 
-验证层级：
+Níveis de verificação:
 
 ```text
 Core 单测
@@ -335,6 +377,7 @@ Desktop E2E / MacBook Pro 实机
   -> 连续切模后的第一条消息无滞后
 ```
 
-完成前必须再次通过 Core/Bootstrap 定向测试、相关包 typecheck、根 `pnpm typecheck`、根 `pnpm lint` 和
-`git diff --check`。若 Desktop E2E 环境仍受阻，必须保留 MacBook Pro 的运行日志和请求轨迹作为实机证据，
-不能只以单测代替原始回归。
+Antes de concluir, é preciso passar de novo pelos testes direcionados de Core/Bootstrap, pelo typecheck dos pacotes
+relevantes, pelo `pnpm typecheck` e pelo `pnpm lint` da raiz e por `git diff --check`. Se o ambiente de Desktop
+E2E continuar bloqueado, é preciso preservar os logs de execução e o rastro de requisições do MacBook Pro como
+evidência em máquina; não se pode substituir a regressão original apenas por testes unitários.

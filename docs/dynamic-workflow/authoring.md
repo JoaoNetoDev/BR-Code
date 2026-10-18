@@ -846,4 +846,620 @@ as regras de autoria. `core/tests/workflow-routing-hints.test.ts` fixa os sinais
 roteamento e um orçamento de tamanho por descrição; `core/tests/workflow-skill-gate.test.ts`
 e `core/tests/loaded-skills.test.ts` fixam o gate e seu probe de histórico.
 
-<!--CURSOR-->
+## O que um subagent é avisado
+
+### O system prompt
+
+Um subagent de workflow não recebe a identidade do agente interativo. O construtor de
+contexto pega um terceiro caminho quando a config do runtime traz `workflowActor`
+(mutuamente exclusivo com um system prompt customizado; ambos presentes é um erro de
+wiring). O prefixo do CLI ("You are ZCode, an interactive coding agent") é pulado, e a
+seção de identidade é substituída por uma seção **Workflow Actor Identity**, que é a
+primeira linha do system prompt:
+
+1. Uma frase de abertura: "You are a subagent inside a dynamic workflow run, named
+   "<name>". A script created you and hands you work one ask at a time; the script, not a
+   person, consumes what you return. There is no user in this conversation to talk to."
+   A cláusula do nome aparece apenas quando o subagent tem nome.
+2. A persona do autor, se houver. Ela fica depois da frase de abertura para que o papel
+   seja proeminente, e depois dela para que a abertura não possa ser sobreposta.
+3. O aviso de segurança e o bloco `# Harness`, reutilizados literalmente da identidade
+   interativa.
+4. O contrato de workflow, `# Working inside a workflow`:
+   - Você tem as ferramentas de trabalho regulares (ler, buscar, editar, rodar comandos)
+     mais `submit_result` e `escalate`. Não há ferramenta que pergunte algo a uma pessoa.
+   - Cada ask diz o que fazer. Quando o ask carrega um schema de resultado, termine
+     chamando `submit_result` com um valor conforme; caso contrário sua mensagem final é o
+     resultado.
+   - Fundamente toda afirmação em algo que você leu ou rodou nesta sessão, ou no material que
+     o ask lhe deu, e diga qual. Cite código como `path:line`. Uma verificação só conta como
+     aprovada se você a executou aqui; se não pôde rodá-la, reporte-a como não rodada. Rode
+     a verificação que o ask nomeia em vez de um substituto mais rápido, e diga exatamente
+     qual comando você rodou.
+   - Reporte resultados com fidelidade. Se parte da tarefa for impossível, fora de escopo,
+     ou contradita pelo que você encontrou, diga isso no resultado em vez de preencher um
+     campo com um palpite plausível. Nunca finja um resultado aprovado para satisfazer uma
+     instrução.
+   - Quando algo fora do seu alcance bloquear você (um gate que não pode passar,
+     instruções que se contradizem, um fato que só o dono da execução sabe), chame
+     `escalate`. Perguntas escritas em prosa não chegam a ninguém.
+   - Não escreva arquivos de report ou sumário por iniciativa própria; os achados vão no
+     resultado. Quando o ask nomeia um caminho de saída, escreva exatamente ali e devolva
+     esse caminho no resultado; o script o publica para o usuário.
+
+O contexto desktop, a seção de comportamento dinâmico e a orientação de sessão são pulados
+(eles tratam de uma conversa com um usuário; a única regra que vale manter, "report outcomes
+faithfully", foi movida para o contrato). Memória, skills, instruções do usuário e
+instruções do projeto seguem como em qualquer sessão. O runtime do child remove qualquer
+system prompt herdado da sessão pai, então um pai com prompt customizado não pode vazá-lo.
+
+O cache de amend-retomada casa subagents pela persona de nível de script, não pelo system
+prompt composto, então mudanças no texto do contrato nunca invalidam trabalho importado. O
+`model` da persona fica fora dessa comparação (veja "Escolhendo um modelo por subagent").
+
+### Cada ask
+
+A mensagem que um subagent recebe para um ask é as instruções do script, depois um epílogo de
+qualidade, e então, para um ask tipado, um epílogo de schema. O hash de input do journal
+cobre apenas as instruções, então a redação do epílogo pode mudar sem invalidar o cache de
+uma execução retomada, e a GUI dobra o epílogo num disclosure colapsado usando o índice de
+limite que o driver repassa (`docs/dynamic-workflow/transcript-and-notifications.md`).
+
+O epílogo de qualidade, depois de uma regra e do título "Standard for this result":
+
+- Todo achado cita o que você leu ou rodou: caminho e linha para código; o comando exato e
+  sua saída para uma verificação; a parte do ask para material que o próprio ask lhe deu.
+- Uma verificação só conta como aprovada se você a rodou durante este ask. Caso contrário
+  reporte-a como não rodada.
+- Rode a verificação que o ask nomeia, na escala que ele nomeia. Um substituto mais estreito
+  ou mais rápido (um arquivo de teste no lugar da suíte, um build no lugar dos testes) é
+  reportado como o que é, nunca como a verificação do ask; diga o comando exato que você
+  rodou.
+- Qualquer coisa que você não pôde fazer, verificar ou encontrar é dito como tal, nunca
+  preenchido com um palpite plausível.
+- Quando as propriedades de topo do schema incluem `evidence`: ponha a citação de cada
+  achado em seu campo `evidence`. Quando incluem `confidence`: califique com honestidade;
+  um valor baixo com um motivo vale mais que um palpite confiante.
+- Se algo fora do seu alcance bloquear você, chame `escalate` em vez de inventar um valor.
+
+O epílogo de schema para um subagent de perfil genérico renderiza o JSON schema e diz para
+chamar `submit_result` com um valor conforme; para um subagent mono-tipado, cujo schema já
+está na declaração da ferramenta, uma frase diz para chamar a ferramenta quando terminar. O
+empurrãozinho enviado quando um turno termina sem submissão não carrega epílogo. Perfis,
+empurrões e rodadas de reparo estão no documento do engine.
+
+## O que o agente principal é avisado quando uma execução termina
+
+A notificação de conclusão é XML (`<task-notification>` com status, result, error, seções
+`<reports>` e `<artifacts>`) seguido de prosa que diz ao agente principal como apresentar o
+desfecho. A prosa é acrescentada apenas para execuções de workflow dinâmico; a notificação
+da ferramenta legada `Workflow` não muda. Ela vem por último para que o truncamento por
+comprimento total da notificação remova orientação antes dos artefatos e artefatos antes dos
+reports.
+
+Para uma execução concluída: apresente o desfecho como um entregável, nesta ordem: a
+conclusão; cada achado com sua evidência (caminho e linha, ou o comando e a saída que
+mostraram isso); quais achados foram confirmados por uma verificação determinística ou por
+um subagent independente e quais são apenas julgados; o que a execução não cobriu. Itens
+reportados são achados individuais e mantêm sua evidência. Quando o preview é parcial, diga
+isso e leia o resto com `GetWorkflowRun`. Não reformule o grafo de fases nem o script.
+
+Para uma execução que não completou, a orientação depende de como ela terminou: apresente
+primeiro o que ela salvou (os itens reportados), depois a falha e o que ela significa para o
+pedido, depois o próximo passo. Uma execução que o usuário parou é uma decisão, não um
+acidente: não a retome nem a reconstrua a não ser que peçam. Uma execução que o modelo parou
+para corrigir o script é corrigida agora com `AmendWorkflow`; caso contrário ela só é
+retomada se o usuário quiser. Uma execução parada por um processo encerrado ou por um erro do
+lado do provider nomeia `ResumeWorkflowRun` ou a causa a resolver primeiro; um script que
+deu erro nomeia o arquivo de script da execução e aponta para `AmendWorkflow` com `path`
+depois de editá-lo (`docs/dynamic-workflow/launch.md`, "Script files"). Uma execução que o
+modelo corrigiu não recebe notificação própria. Os estados terminais em si estão no
+documento do engine.
+
+Quando a execução publicou artefatos, mais uma frase: os artefatos listados acima já estão
+diante do usuário como cartões; refira-se a eles pelo título e não cole seus conteúdos. A
+ferramenta `GetWorkflowRun` diz o mesmo de sua seção `artifacts`.
+
+## Artefatos: o que o usuário guarda
+
+A palavra tem dois significados neste codebase. No engine, `artifact` é o valor de saída
+tipado de um ponto ou o retorno de topo do script, a coisa que o modelo lê
+(`RunSettlement.artifact`, `serializeWorkflowArtifact`). Na facade e em toda superfície de
+usuário, um **artefato** (「产物」 na UI em chinês) é o que o script publica para o usuário
+abrir: um arquivo, um documento markdown, ou um dashboard alimentado por itens `report`
+marcados. Esta seção é sobre o segundo. Identificadores do engine mantêm o primeiro
+significado; novos comentários ao lado de ambos dizem qual eles significam.
+
+Só o script publica. Subagents não têm ferramenta de artefato; um arquivo que um subagent
+escreve não existe para o usuário até o script publicá-lo. A fronteira de confiança não
+muda: o usuário aprova um script, e o script decide o que é entregue.
+
+### Duas famílias
+
+```ts
+declare interface ArtifactRef { id: string; version: number }
+declare interface ArtifactOptions { title?: string; description?: string; primary?: boolean }
+declare interface ArtifactFileOptions extends ArtifactOptions { contentType?: string }
+declare const artifact: {
+  file(id: string, path: string, opts?: ArtifactFileOptions): Promise<ArtifactRef>;
+  markdown(id: string, content: string, opts?: ArtifactOptions): Promise<ArtifactRef>;
+  chart(id: string, spec: ChartSpec): void;
+  table(id: string, spec: TableSpec): void;
+  metrics(id: string, spec: MetricsSpec): void;
+  board(id: string, spec: BoardSpec): void;
+};
+```
+
+| Família | Membros | Natureza | Canal de falha |
+|---|---|---|---|
+| conteúdo | `file`, `markdown` | um efeito: assíncrono, passa pelo driver, copia bytes para o store, resolve para um `ArtifactRef` | rejeita de forma capturável; o nó é registrado como falho |
+| preset | `chart`, `table`, `metrics`, `board` | uma declaração: síncrona, não devolve nada, nunca toca um arquivo; diz como itens marcados com seu id são desenhados | derruba a execução inteira; um retorno void não tem canal de rejeição |
+
+A assimetria é o projeto. Uma publicação de conteúdo pode falhar por razões sobre as quais o
+script pode agir (o arquivo está faltando, o subagent o escreveu em outro lugar), então
+`try { await artifact.file("book", "out/book.pdf") } catch { …peça a um subagent que o
+escreva… }` é o idioma pretendido. Um preset é declarado uma vez no topo e alimentado por
+`report(item, "<id>")`.
+
+Todo membro é um ponto (`artifact#N`), registrado em `dynamic-workflow/src/facade/registry.ts`
+numa tabela separada do registro de world-read, porque as duas famílias rebaixam para
+chamadas de host diferentes (`publishArtifact` e `declareArtifact`) e nenhuma é uma leitura.
+Os pontos não desenham arestas de grafo: um entregável não é um passo pelo qual alguém
+espere. Seus argumentos não são sumidouros de taint.
+
+### Ids, tags e versões
+
+Um id é um literal string de tempo de compilação, não vazio, de no máximo 64 caracteres de
+`[A-Za-z0-9_.-]`, porque ele é carregado literalmente pela coluna do journal, pelo call id
+do store, pelas consultas do protocolo e pela chave de aba do painel lateral. Dentro de uma
+execução um id pertence a exatamente um tipo de membro; usá-lo com outro é um diagnóstico de
+compilação quando ambos os usos estão visíveis e um `ArtifactKindMismatch` em tempo de
+execução caso contrário. Publicar de novo um id de conteúdo gera a próxima versão, contada a
+partir de 1, e mantém as antigas; um preset tem uma versão.
+
+Uma tag de `report` é um literal de tempo de compilação que nomeia um preset declarado em
+algum lugar do script. A declaração pode aparecer mais tarde no texto, mas precisa ter
+executado até o momento em que o report marcado roda, ou a execução falha com
+`ArtifactUndeclared`. Uma tag que nomeia um artefato de conteúdo é um diagnóstico: um
+arquivo contém conteúdo, não um fluxo de itens. Um report marcado ainda conta contra os
+limites de report e ainda vai para os resultados da execução; a tag adiciona o dashboard,
+não substitui nada.
+
+**O primário.** `primary: true` marca o entregável da execução, o artefato que o usuário
+deve abrir primeiro. No máximo um id por execução o carrega. A flag é uma propriedade do id,
+não de uma versão: uma vez que um id é primário, toda versão posterior dele também é, tenha ou
+não a publicação repetido a opção, então um report publicado como rascunho e de novo como
+final não perde seu lugar. Marcar um segundo id diferente é `ArtifactPrimaryConflict`: uma
+rejeição capturável registrada como nó falho para `file` e `markdown`, uma falha de execução
+para um preset, os mesmos canais de `ArtifactKindMismatch`. Quando ambos os literais estão
+visíveis o compilador diz isso primeiro (9009). Duas publicações que passam na admissão antes
+de qualquer uma assentar são reconferidas no assentamento, e a perdedora pega o caminho de
+falha, então o journal nunca contém dois primários concluídos. Uma publicação primária que
+falha não promove nada em seu lugar. Presets podem ser primários: um board de benchmark pode
+ser o que o usuário pediu. Redeclarar um preset com a flag adicionada ou removida muda seu
+spec canônico e é `ArtifactRedeclared`.
+
+Limites, em `dynamic-workflow/src/facade/artifact-caps.ts`:
+
+| Limite | Valor |
+|---|---|
+| ids por execução | 32 |
+| versões por id | 16 |
+| bytes de `artifact.file` | 20 MiB |
+| bytes de `artifact.markdown` | 256 KB |
+| título | 120 caracteres |
+| descrição | 500 caracteres |
+| spec de preset, JSON canônico | 8 KB |
+
+### Publicando conteúdo
+
+`artifact.file(id, path, opts)` recebe um caminho relativo ao workspace resolvido pelo mesmo
+resolvedor que `files.read` usa, e depois verificado de novo após resolver links simbólicos,
+para que um link para fora do workspace não possa transformar um arquivo privado num cartão.
+Os bytes são lidos com uma sondagem de limite mais um e copiados para o store de
+tool-artifacts do CLI no momento da publicação, sob a sessão pai da execução, com retenção
+de projeto (para que o hub possa mostrá-los entre sessões) e um call id de
+`<runId>:<siteId>@<ordinal>`. Edições ou eliminações posteriores no workspace não mudam
+nenhuma versão. O caminho do workspace é mantido no registro apenas como proveniência.
+
+O tipo de conteúdo vem da extensão (`pdf html htm md markdown txt csv json png jpg
+jpeg gif webp svg xlsx pptx docx`), ou de `opts.contentType`, que precisa ser um tipo MIME
+sem parâmetros porque o viewer despacha pela string exata. Qualquer outra coisa é
+`application/octet-stream`, que a UI mostra como um cartão de metadados em vez de renderizar.
+Não há sniffing de conteúdo. `artifact.markdown` é sempre `text/markdown`.
+
+`opts.title` e `opts.description` são verificados quanto a tipo e comprimento e rejeitados
+acima do limite em vez de truncados: um título cortado no meio de uma frase parece um cartão
+normal sem nada dizendo que foi cortado. `opts.primary` precisa ser booleano; o engine o lê
+antes do despacho (o driver repassa chaves de opção desconhecidas sem tocar) e carimba a flag
+no registro que guarda, então o `primary` do registro é o veredito do engine, não o argumento
+do chamador.
+
+O que pode rejeitar uma publicação de conteúdo, tudo capturável e tudo registrado como nó
+falho:
+
+| Código | Levantado por | Quando |
+|---|---|---|
+| `ArtifactSourceMissing` | driver | o caminho não existe ou não é um arquivo regular |
+| `ArtifactPathOutsideWorkspace` | driver | o caminho resolvido sai do workspace |
+| `ArtifactTooLarge` | driver | acima do limite de arquivo, markdown, título ou descrição |
+| `ArtifactStoreUnavailable` | driver ou engine | o host não tem store de artefatos, escrita binária, ou escopo de sessão |
+| `ArtifactVersionCapExceeded` | engine | o id já tem 16 versões |
+| `ArtifactKindMismatch` | engine | o id foi publicado sob outro tipo |
+| `ArtifactCapExceeded` | engine | um 33º id |
+| `ArtifactPrimaryConflict` | engine | `primary: true` em um id enquanto outro id já é primário |
+| `DriverError` | qualquer um | um argumento malformado (incluindo um `primary` não booleano), ou a própria escrita no store falhou |
+
+Um store ausente é uma falha nomeada que o script vê, nunca um fallback silencioso para
+escrever no workspace ou publicar um artefato vazio.
+
+### Declarando um dashboard
+
+```ts
+declare interface ArtifactField { field: string; label?: string; unit?: string }
+declare interface ChartSpec extends ArtifactOptions {
+  type?: "line" | "bar" | "scatter";   // default "line"
+  x: ArtifactField;
+  y: ArtifactField | ArtifactField[];   // several = several series
+  scale?: "linear" | "log";
+  baseline?: ArtifactField;             // a horizontal rule from the first item that has it
+}
+declare interface TableSpec extends ArtifactOptions { columns: ArtifactField[]; key?: string }
+declare interface MetricsSpec extends ArtifactOptions { metrics: ArtifactField[] }
+declare interface BoardSpec extends ArtifactOptions {
+  key: string; status: string; columns: string[]; cardTitle?: string; detail?: ArtifactField[];
+}
+```
+
+Um field é um caminho com pontos para dentro de um item reportado (`"timing.after"`). Um
+chart desenha um ponto por item marcado. Uma table desenha uma linha por item, ou substitui
+a linha com a mesma `key` quando uma é definida. Uma linha de metrics mostra, por tile, o
+item mais recente que tem o field. Um board coloca cada item como um cartão na coluna que seu
+`status` nomeia, movendo o cartão quando um item posterior tem a mesma `key`; um status que
+não está em `columns` cai numa coluna final "other". `cardTitle` nomeia o field usado como
+título do cartão, distinto do `title` do próprio board.
+
+O engine valida a forma do spec antes de escrever qualquer coisa (um spec malformado
+quebraria todo leitor que depois o carregasse do journal) e falha a execução com
+`ArtifactSpecInvalid`, cuja mensagem diz o que está errado. Declarar um id de novo com um
+spec idêntico é um no-op; com um spec diferente é `ArtifactRedeclared`. Um preset declarado
+sob um id já usado por outro tipo é `ArtifactKindMismatch`; um 33º id é `ArtifactCapExceeded`;
+`primary: true` enquanto outro id é primário é `ArtifactPrimaryConflict`. Todos os cinco
+derrubam a execução.
+
+Um dashboard não guarda dados próprios. Todo ponto, linha, tile e cartão é uma linha de
+journal de kind `report` cujo `artifact_id` corresponde, e toda superfície (o painel lateral,
+a aba em tamanho inteiro, um cold reload) dobra as mesmas linhas pela mesma função pura na
+mesma imagem. Um dashboard lê apenas os fields que seu spec nomeia, então o renderer pede ao
+CLI apenas esses fields e nunca itens inteiros: um item pode ter até 1 MiB, e um chart precisa
+de um número dele (documento do engine, "Reading the journal").
+
+### Linhas de journal e eventos
+
+Cada publicação ou declaração é uma linha de journal de kind `artifact`, chaveada por ponto
+e ordinal, com o id numa coluna `artifact_id`. O resultado da linha é um
+`ArtifactVersionRecord`:
+
+```ts
+interface ArtifactVersionRecord {
+  id: string;
+  kind: "file" | "markdown" | "chart" | "table" | "metrics" | "board";
+  version: number;
+  title?: string; description?: string;
+  contentType?: string; bytes?: number; uri?: string;   // content only
+  sourcePath?: string;                                   // file only
+  spec?: unknown;                                        // preset only
+  publishedAt?: number;
+  primary?: true;                                        // stamped by the engine; sticky per id
+}
+```
+
+`primary` viaja dentro do resultado da linha, então não exigiu migração; na retomada o
+engine reconstrói qual id é primário só a partir das linhas concluídas.
+
+Bytes nunca entram no journal; `uri` aponta para dentro do store. Uma publicação bem-sucedida
+e uma declaração emitem `artifact-published` com o registro; uma publicação de conteúdo que
+falha emite `artifact-failed` com o id, o membro e o erro estruturado. Nenhuma família emite
+eventos de ciclo de vida de nó (queued, dispatched, settled): um ponto de artefato não está
+em grafo algum, e um evento de assentamento nele apareceria como um nó inexplicado no painel
+da execução. Um acerto reproduzido não emite nada. O número da versão é derivado da
+contagem de linhas concluídas para o id, então sobrevive à retomada, e somente linhas
+concluídas reivindicam um id, então uma publicação falha não gasta uma das 32. Uma linha
+falha reproduz como a mesma rejeição. Uma linha de report marcado carrega a tag em
+`artifact_id` e seu evento carrega `artifactId`; a tag não faz parte do hash de input do
+report.
+
+O lado do engine (ordenação, porta do journal, consultas de protocolo, retenção do store)
+está no documento do engine.
+
+### Como o usuário os vê
+
+Em resumo, porque a renderização pertence a `docs/dynamic-workflow/presentation.md` e
+`docs/dynamic-workflow/transcript-and-notifications.md`:
+
+- **O cartão de conclusão** lidera com o primário como uma **linha**: o quadro de preview no
+  tamanho de um tile ao lado do título, da descrição e de uma linha `kind · size`; os outros
+  artefatos seguem como um **índice**, uma linha cada (ícone de tipo, título, tamanho ou
+  contagem), no máximo seis, o resto dobrado numa linha "N more" que abre o painel da
+  execução. Uma execução com exatamente um artefato recebe a linha sem a flag. Sem primário
+  o cartão mostra só o índice: nenhum artefato mereceu um preview.
+- **O painel da execução** tem uma seção de artefatos abaixo do grafo, presente apenas
+  quando a execução publicou algo, renderizada também para execuções falhadas e paradas. Com
+  um primário é a mesma linha, e o resto como um índice de uma coluna sem limite; sem um
+  primário, cada artefato é um tile com um preview (o dashboard ao vivo, uma miniatura do
+  documento, as primeiras linhas de um CSV, uma imagem, um glifo de PDF) e uma legenda, em
+  uma grade que se adapta à largura do painel. O cabeçalho da seção colapsada mantém o
+  título do primário ao lado da contagem.
+- **Uma aba em tamanho inteiro** (`workflow-artifact`) abre a partir de um tile, um chip ou
+  uma linha do hub. Seu cabeçalho mostra o título, o tipo e um stepper de versões; seu corpo
+  despacha pelo tipo de conteúdo: markdown, PDF, imagens, texto e código, os formatos de
+  escritório pelos viewers existentes, presets em tamanho inteiro. HTML ganha um cartão de
+  metadados cuja ação é "abrir no navegador", a superfície de fallback para a regra abaixo;
+  tipos desconhecidos ganham um cartão de metadados com "mostrar no workspace".
+- **"Abrir como arquivo"** fica no cabeçalho da aba de todo artefato de conteúdo (`file` e
+  `markdown`; presets não têm bytes). É um botão dividido: a ação principal abre a versão
+  na tela no app padrão do sistema, o chevron lista os apps instalados (a mesma lista e
+  escolha lembrada dos outros menus "abrir com", gerenciadores de arquivos primeiro), e
+  depois as ações de localização: "mostrar no workspace" quando o artefato tem uma origem no
+  workspace que a aba alcança, e "copiar caminho". O cabeçalho portanto carrega um controle
+  de arquivo, não dois; onde o botão dividido está ausente, "mostrar no workspace" fica
+  sozinho no cabeçalho. O arquivo é uma **cópia que o desktop escreve** a partir dos bytes
+  que a aba já leu, em
+  `~/.zcode/tmp/workflow-artifacts/<runId>-<digest>/<artifactId>-<digest>/v<N>/<name>`; o
+  nome é o nome base de `sourcePath` para `file` (sua extensão escolhe o app) e
+  `<artifactId>.md` para `markdown`. Cada `<digest>` é os 8 primeiros dígitos hex do SHA-256
+  do id que o precede, como o CLI o enviou. Isso mantém em dois diretórios dois ids que o
+  engine distingue quando só a parte legível os fundiria: sistemas de arquivos que ignoram
+  caixa (os padrões de macOS e Windows) fundem `Report` e `report`, e a sanitização que
+  descarta um ponto inicial funde `.notes` e `notes`. Não é o arquivo do store, por três
+  razões: o store mora com o CLI, que para um workspace SSH, WSL ou Docker é outra máquina;
+  um editor escrevendo no arquivo do store mudaria uma versão publicada sob seu registro de
+  journal; e o protocol teria de entregar caminhos do host ao renderer. Uma cópia é escrita
+  só quando seu caminho está vazio. Os bytes de uma versão nunca mudam, então uma cópia
+  existente ou é os mesmos bytes ou são as edições do próprio usuário, e ambos são mantidos;
+  abrir de novo abre o mesmo arquivo. A ação existe onde o shell pode escrever essa cópia
+  (o desktop, workspaces locais e remotos igualmente) e está ausente no shell de
+  remote-control do celular e nos shells web. As cópias ficam sob `tmp`, que a página de
+  armazenamento das Settings lista junto das outras saídas de ferramentas e que o usuário
+  pode limpar; uma cópia limpa é escrita de novo na próxima abertura.
+- **Um artefato HTML abre diretamente na aba do navegador embutido**, de toda superfície que
+  abre um artefato, sem passar pela aba em tamanho inteiro. Três coisas precisam valer: o
+  workspace é local (sem workspace identity, sem sessão remota), o shell tem o navegador
+  embutido (desktop, não o shell web de remote-control do celular), e o artefato tem um
+  caminho de origem no workspace. HTML aqui significa um `contentType` exatamente
+  `text/html`, o mesmo teste que decide se a aba desenha seu cartão HTML, então as duas
+  nunca discordam sobre o que é uma página; um sumário sem tipo de conteúdo não é HTML e
+  abre a aba. A URL é a URL `file://` da cópia do workspace, o caminho do workspace junto com
+  o caminho de origem relativo do registro, o arquivo original da versão mais recente,
+  exatamente o que "abrir no navegador" abriu a partir da aba. Clicar no mesmo artefato de
+  novo foca a aba do navegador já naquela URL naquele workspace e a recarrega, então uma
+  versão republicada mostra conteúdo novo em vez de abrir uma segunda aba. A ressalva que o
+  cartão da aba declara vale aqui também: aquele arquivo são os bytes atuais do workspace,
+  não os bytes fixados para uma versão, e por isso só a versão mais recente é alcançável
+  assim.
+- **A decisão de roteamento mora em um lugar**, o handler de abertura do painel do app
+  (`useAppPanels.handleOpenWorkflowArtifact`). Uma superfície passa o que seu próprio sumário
+  sabe, o `contentType`, e o `sourcePath` onde tem a visão de journal combinada; o handler
+  pergunta ao journal de artefatos da execução (`workflowRunArtifacts`) por um caminho de
+  origem que não lhe foi dado. Quando essa consulta falha (um CLI antigo sem ela, um erro
+  transitório) ou o registro não tem caminho de origem, o clique abre a aba em tamanho
+  inteiro. Nenhum clique é morto.
+- **A linha da notificação de conclusão** termina em até três pills pequenos de artefato
+  mais um overflow "+N", cada um abrindo seu artefato pela mesma regra.
+- **O hub de workflows** mostra os mesmos pills nas linhas do histórico de execuções e uma
+  faixa de "latest artifacts" na página de detalhe de um workflow salvo, tirada da sua
+  execução concluída mais recente.
+
+Toda lista é ordenada **primário primeiro, depois ordem de publicação**. A ordem é fixada
+onde as listas são construídas, na projeção do journal (`artifactsOf`) e no manifesto da
+notificação, antes de qualquer limite ser aplicado, então o primário nunca é o artefato que
+um limite corta. Nenhuma superfície rotula o primário; a forma da linha diz.
+
+Onde um clique em um artefato HTML cai, de qualquer uma dessas superfícies:
+
+| O clique | Onde cai |
+|---|---|
+| workspace local, um shell com navegador, um caminho de origem em mãos ou no journal | a aba do navegador, na URL `file://` do arquivo do workspace |
+| o mesmo artefato clicado de novo | essa mesma aba do navegador, focada e recarregada, nunca uma segunda aba |
+| um workspace remoto ou uma sessão remota | a aba em tamanho inteiro, cujo cartão HTML mostra a nota de local-only |
+| o shell de remote-control do celular | a aba em tamanho inteiro; esse shell não tem navegador |
+| a consulta ao journal falha, ou o registro não tem caminho de origem | a aba em tamanho inteiro |
+| o sumário não traz `contentType` (um CLI antigo que não emitia nenhum) | a aba em tamanho inteiro |
+
+No lado do modelo, a seção `<artifacts count shown>` da notificação de conclusão lista uma
+linha por artefato, `- {id} ({kind}, primary, v{version}, {contentType}, {bytes} bytes):
+{title}` (`primary` aparece apenas no primário; presets mostram `{n} items` em vez de
+bytes), no máximo oito linhas depois da seção `<reports>`; `GetWorkflowRun` lista até 32 do
+mesmo jeito. Nenhum dá ao modelo uma URI: o modelo não pode ler o store, e o conteúdo é
+alcançado por `GetWorkflowRun` ou por um subagent lendo o caminho do workspace.
+
+### A orientação
+
+A seção "Deliver artifacts" da skill carrega dois hábitos; o comentário de facade em
+`artifact` declara apenas as regras de id, as duas famílias e os limites. Toda execução
+publica seu entregável: uma coisa que o usuário pediu (uma página, um PDF, um site) é
+escrita por um subagent no workspace e publicada com `file`; uma resposta (achados, uma
+revisão) é publicada como markdown, a forma longa dos fatos que o retorno resume, uma vez no
+fim, pulada apenas quando a resposta inteira tem uma linha. Um dashboard é para a pessoa
+assistindo a execução: declare um quando há estado que vale assistir no meio da execução,
+nenhum quando a execução termina antes de alguém olhar. Dois testes mantêm o conjunto
+pequeno: o usuário o abriria por conta própria, e ele repete outro artefato. Uma execução
+que publica mais de um artefato marca seu entregável `primary: true`, então o cartão e o
+painel da execução lideram com ele em vez de com o que foi publicado primeiro. O `return`
+permanece o resultado voltado ao modelo e os artefatos o entregável voltado ao usuário; o
+mesmo conteúdo nunca vai nos dois.
+
+## EvalWorkflowSnippet
+
+`EvalWorkflowSnippet` é o banco de provas da autoria. Ele compila e roda um pequeno snippet
+TypeScript sincronamente contra o mesmo compilador, lowering, sandbox e caminho de execução
+de world-read que uma execução real usa, e devolve o resultado na chamada da ferramenta.
+Existe porque testar lógica fixa (um parser, um padrão de glob, um predicado de gate) em Node
+comum tem a fidelidade errada: `files.glob` devolve caminhos ordenados relativos ao
+workspace, limites recusam, `GrepMatch` tem uma forma, e as opções do compilador são as da
+execução. Um snippet que passa cola literalmente num workflow.
+
+| Entrada | Significado |
+|---|---|
+| `code` | o snippet, escrito contra a facade de snippet |
+| `path` | ou: um arquivo com o snippet, lido inteiro (relativo ao diretório de trabalho ou absoluto); exatamente um entre `code` e `path` |
+| `timeoutMs` | tempo de parede para o snippet inteiro; padrão 60 000, aceito entre 1 000 e 600 000 |
+
+A facade de snippet é os segmentos args, log, world e world-run. `agent()`, `report()`,
+`artifact.*` e `phase()` estão ausentes, então um snippet que use um deles falha a compilação
+com um diagnóstico comum de "cannot find name"; asks não podem ser ensaiados, só as peças.
+A descrição da ferramenta diz para que serve e aponta para a skill; o subconjunto da facade e
+as regras de snippet são a §16.6 da skill, e a chamada é recusada até que a skill tenha sido
+carregada na sessão (veja "O gate da skill"). O pipeline é o de produção: um programa
+TypeScript alimenta diagnósticos, a tabela de pontos e o lowering; comandos de `world.run`
+são coletados e um comando não literal é o mesmo diagnóstico 9003; o código rebaixado roda no
+harness de sandbox com um journal em memória, um run id aleatório, o `executeWorldRead` de
+produção (sistema de arquivos real, git real, limites de produção) e um driver cujos métodos
+de ask lançam, como defesa contra um erro de wiring que nunca os alcançaria.
+
+Nada persiste: sem linhas de journal, sem tarefa em background, sem entrada na lista de
+execuções. O resultado é `{ok, diagnostics, logs, response, durationMs}`. Com diagnósticos,
+`ok` é falso, nada rodou, e a resposta diz isso. Em sucesso a resposta carrega o valor
+devolvido serializado do jeito que uma notificação de conclusão serializa um resultado, e as
+linhas de `log()` em ordem (no máximo 100, cada uma com no máximo 2 048 caracteres, truncamento
+marcado). Um valor devolvido acima de 256KB é uma falha (`ArtifactTooLarge`) com uma mensagem
+para devolver um sumário. Um erro de script, uma rejeição de limite, um timeout que matou o
+sandbox, ou um cancelamento voltam todos como `ok: false` com o código e a mensagem
+estruturados.
+
+A permissão é comum, como em `Bash`: modos, regras e "sempre permitir" se aplicam. O hook de
+aprovação da ferramenta compila o snippet e pede confirmação apenas quando ele contém comandos
+de `world.run`; um snippet somente leitura, e um snippet que não compila, prosseguem em
+silêncio. O usuário lê os comandos do código do snippet, o que a regra de literal torna
+possível. A ferramenta é marcada como não somente leitura, com escopo de efeito colateral no
+workspace.
+
+O cartão da ferramenta no chat: enquanto roda, "Running workflow snippet · N s" com o código
+expansível; quando termina, "Workflow snippet · N ms" com o valor de retorno expansível; em
+falha, o sumário genérico de falha com o erro expandido, ou o cartão de feedback do compilador
+(`docs/dynamic-workflow/presentation.md`, "Compiler feedback") quando o snippet não compilou.
+Logs vazios, valores de retorno vazios e palavras de status nunca são repetidos.
+
+## Uso, não orçamento
+
+Não há construto de orçamento. O harness não impõe orçamento de tokens nem limite de nós, a
+facade não tem global `budget`, e nenhum código de erro derruba uma execução por uso. As
+razões: nenhum chamador de produção nunca definiu um orçamento de tokens, então a verificação
+era inalcançável; o limite de nós era uma cerca que um fan-out grande normal esbarrava; e o
+controle de custo pertence ao harness e à pessoa, não a código de script otimizando contra um
+limite. Cancelamento e a confirmação da execução são os controles.
+
+O uso ainda é contabilizado, como superfície de observação. O driver reporta o uso de tokens
+de cada turno, o engine o soma em `spentTokens` da execução, escreve no journal no mesmo
+passo em que emite `usage-updated { spentTokens }`, e os dois são sempre iguais. O snapshot de
+execução do protocolo carrega `usage { spentTokens, nodesUsed }`, com `nodesUsed` contado a
+partir do primeiro dispatch de cada nó. O painel da execução mostra uma linha, 「用量：N
+tokens · M 步」 ("Usage: N tokens · M steps"); o cartão da TUI mostra os tokens;
+`GetWorkflowRun` reporta `usage` com contagens de token e de nó e sem campos de limite. Como
+nada para um laço por causa do script, um laço de descoberta se limita com uma constante de
+rodadas no script.
+
+O número é o custo da linhagem da execução. Uma execução corrigida (`AmendWorkflow`,
+`docs/dynamic-workflow/launch.md`) começa sua contagem no total do antecessor em vez de zero,
+e uma cadeia de amends soma por construção porque o número de cada antecessor já é cumulativo;
+um acerto de cache não adiciona nada, já que seu custo está dentro do total herdado. Uma
+execução retomada continua sua própria contagem. Nos dois casos o engine reemite o total
+carregado logo depois de `run-started`, então um cartão nunca mostra zero para uma execução que
+já custou algo. O antecessor mantém seu próprio número; é o sucessor que reporta o todo
+(`apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md`, "Usage across the
+lineage").
+
+## Alternativas não adotadas
+
+- **Uma facade `budget`, um orçamento de tokens e um limite de nós.** Nunca definidos em
+  produção, mais um global de facade com lowering e casos especiais do analisador, e a
+  camada errada para controle de custo.
+- **Um perfil de ferramenta (`"none"`, `"readonly"`) ou um tier de modelo (`"lite"`) na
+  persona.** O tier não tinha fonte de modelo leve no host e resolvia para o modelo
+  principal. Escolher um modelo mudou para a execução, como o campo `subagent_model` das
+  ferramentas de lançamento (`docs/dynamic-workflow/launch.md`), onde é uma decisão que o
+  usuário pode ver e aprovar. Um modelo por subagent voltou quando o host ganhou um catálogo
+  de modelos, como um nome de modelo concreto em vez de um tier ("Escolhendo um modelo por
+  subagent"): o catálogo é a fonte do host que o tier não tinha, e resolver cada nome antes
+  da janela mantém a escolha visível e aprovável. Tiers nomeados (`"fast"`, `"strong"`)
+  ainda não são oferecidos; precisariam de um mapeamento que o host não tem, que foi o que
+  aposentou `"lite"`. Os perfis impunham uma frase ("não pode editar nem rodar") que todo
+  outro subagent do produto carrega como texto de ask, prosa de custo na facade,
+  ramificação de contrato e seções da skill, e o perfil sem ferramentas produzia escalações
+  de placeholder vindas de subagents a quem se mandava ler o que não podiam. Um script que ainda
+  escreve `tools:` recebe o erro de propriedade excedente do próprio TypeScript, e um que
+  escreve `model: "lite"` recebe 9011 (não existe esse modelo); não há shim de compatibilidade
+  nem dica customizada.
+- **Uma seção de system prompt para orientação de workflow.** Os sinais de roteamento moram
+  nas descrições das ferramentas e na skill; o prompt sempre ligado não ganha menção a
+  workflow.
+- **A skill repetindo a facade, ou arquivos de exemplo `.ts`.** Uma segunda cópia diverge, e
+  um arquivo `.ts` convida à imitação de `import`/`export`.
+- **Uma heurística de compilação para quais blocos de skill estão completos.** O marcador
+  `<!-- compile -->` é explícito; uma heurística acabaria passando um erro real como
+  fragmento.
+- **`alwaysAsk` na ferramenta de snippet.** Essa postura pertence a `CreateWorkflow`, cujo
+  envio é determinante e caro; um snippet é barato e efêmero.
+- **Uma string de shell, uma opção `cwd` ou `env`, ou um comando calculado em
+  `world.run`.** A janela de confirmação só pode mostrar um conjunto fixo de comandos.
+- **Saída diferente de zero como exceção.** Uma verificação que falha é o caminho normal do
+  laço de gate.
+- **Lógica de gate em um arquivo de verificação externo.** Um arquivo no workspace está no
+  domínio gravável dos subagents; lógica dentro do script submetido não está.
+- **Truncar saída acima do limite em qualquer lugar.** Uma visão parcial silenciosa é
+  exatamente a falha que os limites existem para evitar.
+- **Subagents publicando artefatos diretamente.** O usuário aprovou o script, não o subagent.
+- **Dashboards HTML escritos pelo modelo, ou um iframe inline para artefatos HTML.** O
+  renderer não tem sandbox para hospedar HTML com script, e o sandbox que o produto já tem
+  é o `<webview>` da aba do navegador, que é onde um artefato HTML abre no lugar; os presets
+  cobrem os casos de número observado e status observado.
+- **Um filtro `where` em `report` ou um terceiro argumento.** Uma tag, um stream.
+- **Sniffing de conteúdo para tipos de artefato.** Um segundo juiz discorda do primeiro.
+- **Uma tabela de artefatos separada.** Versões são linhas de journal; uma segunda tabela é
+  uma segunda verdade.
+- **Reusar `node-settled` para uma publicação falha.** O ponto não está em grafo algum, então o
+  painel da execução mostraria um nó inexplicado.
+- **Colocar a tag do report no hash de input do report.** Todo report sem tag em um journal
+  existente passaria a casar errado na retomada sem ganho algum.
+- **`WorkflowReport` na facade.** Reconhecer a forma significa síntese de schema e
+  reconhecimento pelo engine; a interface copiável da skill compra a forma sem a maquinaria.
+
+- **Um canal limitado, ou um `send` assíncrono.** O backpressure tem um recurso escasso para
+  proteger e o limite de concorrência já o protege; um buffer cheio seria mais uma coisa em
+  que um script pode dar deadlock.
+- **Encerrar um canal por quiescência** (um receptor completa quando nada na execução
+  poderia enviar). Determinístico e livre de `close`, mas o fim de um canal passaria a
+  depender do estado da execução inteira em vez de seus produtores, e um estágio nunca
+  poderia observar a própria conclusão. A quiescência é mantida como o detector de travamento,
+  que é a mesma condição lida como erro.
+- **Um helper `pool` ou `stage` na facade.** O helper existia para ter o protocolo de
+  fechamento; um `finally` no corpo de uma future tem o mesmo dono, e uma cadeia fluente
+  `.pipe()` não consegue carregar um marcador de fase por estágio.
+- **Uma forma com escopo `phase(name, body)`.** Uma chamada a menos que um marcador dentro de
+  uma future, mas dá a `phase` duas formas e perturba a regra de statement autônomo.
+- **Um ponto `channel` e um nó de relé nos grafos.** Os tipos de nó do grafo são um
+  vocabulário fechado que os clientes validam estritamente; a visão de container dá as
+  arestas certas hoje, e um nó pode ser adicionado quando alguma imagem precisar dele.
+- **Canais de broadcast.** Um estágio que precisa alimentar dois consumidores envia para dois
+  canais; cada item ter um receptor é o que faz um pool ser um pool.
+
+## Perguntas em aberto
+
+- Colapsar `AgentPersona` para uma string de system prompt crua; a forma de objeto agora tem
+  um campo.
+- Um modelo de subagent padrão do host escolhido pelo usuário. O `subagent_model` por
+  execução nas ferramentas de lançamento cobre escolher um para uma execução; não existe uma
+  configuração que se aplique a toda execução.
+- `WorkflowReport` como um tipo da facade com renderização nativa de conclusão e achados.
+- Listar `declaredArtifacts` na janela de confirmação da execução; o produto de compilação os
+  carrega, o schema de exibição de permissões ainda não.
+- Uma ação "salvar no workspace" que escreve os bytes de uma versão num caminho escolhido pelo
+  usuário. "Abrir como arquivo" cobre abrir uma versão em outro app, incluindo os tipos sem
+  renderer; colocar uma cópia no workspace (para commitar ou continuar editando lá) não é
+  coberto.
+- Exclusão em cascata dos bytes do store quando uma execução é apagada; a retenção hoje é a
+  política de projeto do store.
+- Se os limites de report são suficientes para uma execução cheia de dashboards, ou se
+  reports marcados precisam de sua própria cota.
+- Um `select` sobre vários channels, e um `receive()` que produz um item fora de um laço.
+- Desenhar um canal como um nó de relé quando o vocabulário do grafo puder crescer.

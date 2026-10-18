@@ -363,18 +363,18 @@ const DELIVERY_PROFILES = {
 } satisfies Record<string, DeliveryProfile>;
 ```
 
-- profile 只由 trusted `clientMode` 注入：desktop/SSH/WSL/Docker=`continuous`；mobile remote/WebSocket=`replayable`。`SubscribeParams` 和 UI-facing API 不暴露选择项。
-- **完成态与 profile 无关**（R-10）：任何 profile 下，工具完成时 `row.upserted` 的 `output` 采用同一份终态截断参数（§8），收敛性黄金测试因此可断言「终态逐字节一致」。
-- 客户端代码禁止出现 profile 变量（05 试金石）。
-- 被 profile 过滤的事件必须最终被某个不可过滤事件收口（05 不变量）。
+- O profile é injetado apenas pelo `clientMode` confiável: desktop/SSH/WSL/Docker=`continuous`; mobile remote/WebSocket=`replayable`. `SubscribeParams` e a API orientada a UI não expõem a escolha.
+- **O estado final é independente do profile** (R-10): em qualquer profile, na conclusão da ferramenta o `output` de `row.upserted` usa o mesmo conjunto de parâmetros de truncamento final (§8), e por isso o teste dourado de convergência pode afirmar "identical byte a byte no estado final".
+- É proibido que o código do cliente contenha variáveis de profile (a pedra de toque de 05).
+- Um evento filtrado pelo profile tem de ser encerrado por algum evento não filtrável (invariante de 05).
 
 ---
 
-## 4. conversation topic
+## 4. Topic conversation
 
-`TopicKey = "conversation/<sessionId>"`。Snapshot = `ConversationSnapshot`，Delta = `ConversationDelta`。
+`TopicKey = "conversation/<sessionId>"`. Snapshot = `ConversationSnapshot`, Delta = `ConversationDelta`.
 
-### 4.1 Snapshot 总览
+### 4.1 Visão geral do snapshot
 
 ```ts
 interface ConversationSnapshot {
@@ -409,7 +409,7 @@ interface RowsWindow {
 }
 ```
 
-### 4.2 A 区字段
+### 4.2 Campos da área A
 
 #### 4.2.1 SessionControl
 
@@ -466,10 +466,10 @@ interface ApiRetryState {
 }
 ```
 
-- `hasBackgroundWork` 从 control 移除：= `backgroundWorks.some(w => w.status === "running")`，客户端一行派生（§10-D7）。
-- `control` 任一字段变化即整体重发（conflation 后每 flush 窗口最多一条）。
+- `hasBackgroundWork` foi removido de control: = `backgroundWorks.some(w => w.status === "running")`, derivado em uma linha pelo cliente (§10-D7).
+- Qualquer alteração em um campo de `control` reenvia o objeto inteiro (no máximo uma mensagem por janela de flush após a conflação).
 
-#### 4.2.2 SessionActionAvailability 与 InputRouting
+#### 4.2.2 SessionActionAvailability e InputRouting
 
 ```ts
 type ActionAvailability = { allowed: true } | { allowed: false; reasonCode: string }; // reasonCode = product-protocol guard id，驱动禁用态 tooltip
@@ -490,14 +490,14 @@ interface InputRouting {
 }
 ```
 
-- `choice`（2026-07-05 裁决，heldQueueInputRequiresChoice）：held 状态（completed + queue>0 + autoDrain=false）下 composer 输入不静默入队——客户端呈现「清空 queue 后发送 / 保留 queue 立即发送」，用户所选 disposition 随 `sendText`/`sendGoalCommand` payload 上行（`heldQueueDisposition`），CLI 按其裁决执行。
-- compacting 期间输入 = `enqueue`（compactingAcceptsFutureInput，F04/F05/G05/G06）：追加 queue，不打断 compact；`/compact` 仍 reject（duplicateCompactRejected → `compactOperationLock`）。
-- `mode=guide` 是可提交路由，不是 disabled/reject。V4 Composer 必须保留正常发送按钮与 Enter；CLI accepted 且 intent 可对账后才清空草稿。
-- `guide` 只表示当前 turn 的 inline delivery；普通 `enqueue` 只表示 future turn。两者不能由同一个 generic round-trip drain 消费。
+- `choice` (decisão de 2026-07-05, heldQueueInputRequiresChoice): no estado held (completed + queue>0 + autoDrain=false), a entrada no composer não é enfileirada silenciosamente — o cliente apresenta "enviar após limpar a queue / enviar mantendo a queue", e a disposition escolhida pelo usuário sobe junto do payload de `sendText`/`sendGoalCommand` (`heldQueueDisposition`), com o CLI decidindo conforme ela.
+- Entrada durante compactação = `enqueue` (compactingAcceptsFutureInput, F04/F05/G05/G06): acrescenta à queue sem interromper o compact; `/compact` continua sendo rejeitado (duplicateCompactRejected → `compactOperationLock`).
+- `mode=guide` é uma rota submeter, não disabled/reject. O Composer do V4 precisa manter o botão normal de envio e o Enter; o rascunho só é limpo depois que o CLI aceita e que o intent pode ser conciliado.
+- `guide` só significa entrega inline no turn atual; o `enqueue` comum só significa um turn futuro. Os dois não podem ser consumidos pelo mesmo drain genérico de round-trip.
 
-`availability.fork` 只表达 session/global lock（尤其 compact）；目标行是否合法只看 `RowActions.canFork`（§4.4.1）。UI 必须消费这两个权威字段，禁止按 phase、数组位置或 raw message 本地推断。edit/retry 仍只有行级资格。
+`availability.fork` só expressa o lock de sessão/global (especialmente compact); a legitimidade da linha de destino depende apenas de `RowActions.canFork` (§4.4.1). A UI precisa consumir esses dois campos autoritativos e é proibido inferir localmente por phase, posição no array ou raw message. edit/retry continuam tendo apenas qualificação em nível de linha.
 
-#### 4.2.3 SessionConfigState（G-01）
+#### 4.2.3 SessionConfigState (G-01)
 
 ```ts
 interface SessionConfigState {
@@ -510,39 +510,28 @@ interface SessionConfigState {
 }
 ```
 
-- 事件写入路径：`switchModelConfig` / `setFollowupMode` / `switchCollaborationMode`（M5 additive）command → guard → 事件（ModelSelected / FollowupModeChanged / SessionModeChanged）→ 本字段整体替换下发。`ModelSelected` 必须携带切换完成后 runtime 的 `thoughtLevels` 与 `contextWindow`，使 `provider/model/thought/thoughtLevels` 和该模型实际窗口在同一 revision 原子收敛。客户端选择器 UI 是 optimistic overlay（按 commandId 挂起），权威值到达即收口——**没有「本地已选值 vs 回显值」的合并逻辑**（消灭 P2-10 补丁群）。
-- 模型切换的 timeline 提示由 CLI 在下一个 turn 开始时生成 `modelChange` marker row（R-17），协议上没有「暂存的 marker」状态。
-  - **R-17 时机细则（2026-07-07 五测裁决，2026-07-08 追认 thought-only 边界）**：marker 的比较基准 = **上一个实际启动的 turn 使用的模型身份**，模型身份只包含 `provider/model`，不包含 `thought`。推论：① 草稿态/首轮前任意拨动选择器不产 marker（首轮以最终选型启动，「第一次用什么」不构成「变化」）；② 编辑期切 A→B→A 净变化为零，下一 turn 不产 marker；③ 仅思考深度变化（例如 `high → max`）更新 `config.thought` 与请求参数，但不产 `modelChange`；④ 切换动作的即时反馈是**纯 UI 逻辑**（toast），不进 timeline。marker 位置：紧邻新 turn 的 turnHeader row 之前。
-  - **R-17 展示细则（2026-07-29，2026-07-29 文案修正）**：marker 的 `fromProvider/fromModel/toProvider/toModel` 是完整模型身份，比较语义不因展示裁剪而改变。renderer 使用当前 provider snapshot 将 provider ID 映射为 `provider.name`；Z.ai / BigModel 内置供应商只显示 modelId，其他供应商按 `provider.name/modelId` 展示，配置已删除或尚未水合时回落为 `providerId/modelId`。该规则与模型触发器和 toast 一致，不改变 marker schema、生成时机或 replay 语义。
+- Caminho de escrita por evento: command `switchModelConfig` / `setFollowupMode` / `switchCollaborationMode` (M5 aditivo) → guard → evento (ModelSelected / FollowupModeChanged / SessionModeChanged) → reenvio deste campo inteiro. `ModelSelected` precisa carregar o `thoughtLevels` e o `contextWindow` do runtime após a troca, de modo que `provider/model/thought/thoughtLevels` e a janela real daquele modelo convirjam atomicamente na mesma revision. O UI dos seletores no cliente é um overlay otimista (pendurado por commandId) e converge assim que o valor autoritativo chega — **não existe lógica de merge entre "valor escolhido localmente" e "valor refletido"** (isso elimina o grupo de remendos P2-10).
+- A dica de timeline da troca de modelo é gerada pelo CLI, no início do próximo turn, como uma linha marker `modelChange` (R-17); no protocolo não existe estado de "marker pendente".
+  - **Detalhes de momento do R-17 (decisão de cinco medições em 2026-07-07, fronteira de thought-only ratificada em 2026-07-08)**: a base de comparação do marker = **a identidade de modelo usada pelo último turn efetivamente iniciado**, e a identidade de modelo contém apenas `provider/model`, sem `thought`. Consequências: ① mexer em qualquer seletor no estado de rascunho/antes do primeiro turno não gera marker (o primeiro turno inicia com a escolha final, e "usar X pela primeira vez" não é uma "mudança"); ② trocar A→B→A durante a edição tem mudança líquida zero e o próximo turno não gera marker; ③ mudar apenas a profundidade de pensamento (por exemplo `high → max`) atualiza `config.thought` e os parâmetros da requisição, mas não gera `modelChange`; ④ o feedback imediato da ação de troca é **lógica puramente de UI** (toast) e não entra na timeline. Posição do marker: imediatamente antes da linha turnHeader do novo turn.
+  - **Detalhes de exibição do R-17 (2026-07-29, correção de texto em 2026-07-29)**: `fromProvider/fromModel/toProvider/toModel` do marker são a identidade de modelo completa, e a semântica de comparação não muda por causa de recorte de exibição. O renderer usa o snapshot de provider atual para mapear o ID de provider em `provider.name`; fornecedores embutidos Z.ai / BigModel mostram apenas o modelId, outros fornecedores são exibidos como `provider.name/modelId`, e quando a configuração foi removida ou ainda não foi hidratada há fallback para `providerId/modelId`. Essa regra é consistente com o disparador de modelo e com o toast, e não muda o schema do marker, o momento de geração nem a semântica de replay.
 
-**config 种子语义（R-19，2026-07-07 裁决；落掉 M6 TODO「draft 期免 revision 种子通道」）**：
+**Semântica de seed do config (R-19, decisão de 2026-07-07; encerra o TODO de M6 "canal de seed sem revision na fase draft")**:
 
-- **首个 snapshot 的 `config` 必须等于 runtime 真值**：`provider/model/thought` = runtime 当前模型选型（含启动时 workspace catalog 默认模型 / 持久化偏好的解析结果），`thoughtLevels` = `listThoughtLevels()` 对该 runtime 当前模型的结果，`mode` = runtime 当前协作模式（含项目持久化 permission mode 偏好）。禁止以空 `provider/model`、写死 `mode="build"` 或客户端通用五档作为初值。
-- **种子通道 = snapshot 构造，不是事件 delta**：种子在投影初始化时从 runtime 读取注入（`getModelRef()` / `getMode()` / thought level），不产生 `state.updated`、不递增 revision——draft「无可见 delta、不 bump revision」的裁决（§4.2.1）不被破坏。R-04 的 revision 递进规则不变：config 的**变化**才递增，种子是初值不是变化。
-- **冷恢复同一口径**：transcript hydration / cold resume 重建投影时，先按 runtime 真值种子，再被日志中的 ModelSelected / SessionModeChanged 重放覆盖（重放序在种子之后，最终值以日志为准）。
-- **hydration 不丢 live tail**：首次重建按 session single-flight；读取 memory eventStore
-  快照后到 publisher 替换前的 raw event 进入临时 buffer。raw sequence 可因各事件
-  持久化 await 乱序到达，必须按 `sourceEventSeq+1` 暂存并连续 drain，禁止用
-  “已见更大 seq”丢弃迟到的 queue/stream 事实。合成序列与 runtime raw seq 通过
-  snapshot cursor 建立单调 offset，eventId + cursor 只用于去除已在快照中的真重复。
-- **首次订阅时机不得改变终态快照**：若首轮回复在客户端首次 `subscribe` 之前已经完成，
-  cold hydration 必须从 durable message/part 重建出与提前订阅 live path 相同的可见终态，
-  包含已持久化的 user 与 assistant 正文。`providerVisibility` 与 `uiVisibility` /
-  `transcriptVisibility` 是正交维度；正常 `assistant_response` 同时对 provider、UI、
-  transcript 可见，不得因为 `providerVisibility=visible` 被归为 provider-context-only。
-  desktop `desktop-continuous` 与手机 `web-remote-replayable` 可拥有不同的中间帧交付策略，
-  但同一 durable transcript 的首次完整 snapshot 必须一致。禁止用延迟 provider、提前订阅、
-  retry 或客户端补帧掩盖这一不变量。
-- **种子来源分场景（优先级钉死，防实现时统一读 workspace 缺省冲掉会话历史）**：
-  - 新建会话（草稿首发）：`createSession.config`（用户先行选择）＞ runtime 启动缺省（workspace catalog 默认模型 / 项目持久化 mode 偏好）。
-  - 历史会话恢复：**会话自身的历史选型优先**——`derivePersistedRuntimeSettings` 从持久化消息倒序取最后使用的 model（thought 承载于 `modelRef.variant`）与 mode，经 `reconcileResumedRuntimeSettings` 写回 runtime。模型必须在当前 Environment 的 Registry 中解析；Provider Refactor 已删除 App 下发的 `runtimeModel` 权威覆盖。V4 gateway 用一个 READY promise 串起 runtime activation 与 projection hydration；不得为 V4 构建或返回 legacy 全量 session snapshot。旧 `session/resume` 继续以 `activation + legacy snapshot` 包装保持兼容。**种子取值必须在 activation 完成之后**（gateway 顺序 activation → hydrate），产品语义即「打开历史会话默认选中之前的模型和思考深度」。完整边界见 [17-cold-resume-runtime-activation.md](./17-cold-resume-runtime-activation.md)。
-  - 会话内切换：命令事件（ModelSelected / SessionModeChanged）覆盖，同 §上文写入路径。
-- **`createSession.config` 必须被消费**：payload 携带 partial config 时（草稿态 UI 的先行选择，见 m5-composer-parity §五），CLI 在会话创建时以「请求 config 覆盖 runtime 缺省」归并出初值，再按上述种子通道注入投影；缺省字段回落 runtime 真值。当前实现只在 schema 收下该字段、handler 未消费，属实现缺口。
-- **同值切换 ACK 必须可判别**：`switchModelConfig` / `switchCollaborationMode` 命中 runtime 当前值时回 `noop` + `reasonCode="config.unchanged"`，不得以 accepted（无 result）静默吞掉。种子对齐后「UI 显示值 = runtime 真值」成立，noop 语义才是准确的。
-- Bug 记录（2026-07-07，v4 桌面首测）：种子缺失导致两个用户可见故障——① 新会话模型选择器显示空（`ModelSelected` 仅在 switchModelConfig 后补发，全链路无初始时机）；② 项目持久化 mode=yolo 时 UI 按种子显示 build（"变更前确认"），点击 yolo 命中 handler 的同值提前返回（不发事件），UI 永远无法收敛。两者同根：**同值判断用 runtime 真值、UI 显示用投影种子，两边没有对齐时机**。
-- Bug 记录（2026-07-16，E11/FX11）：旧 snapshot 只投影当前 `thought`，不投影“当前模型支持哪些 thought”。父会话尚可能从 legacy task config cache 读到目录，fork child 没有该缓存时则退回 UI 写死的五档，造成 GLM-5.2 也显示五档。能力是模型配置元组的一部分，必须从 child runtime 进入同一 snapshot/event；不能由 localStorage、workspace 目录或客户端 fallback 猜测。
+- **O `config` do primeiro snapshot precisa ser igual ao valor real do runtime**: `provider/model/thought` = a escolha de modelo atual do runtime (incluindo o modelo padrão do catálogo do workspace na inicialização / o resultado da resolução de preferências persistidas), `thoughtLevels` = o resultado de `listThoughtLevels()` para o modelo atual desse runtime, e `mode` = o modo de colaboração atual do runtime (incluindo a preferência de permission mode persistida no projeto). É proibido usar `provider/model` vazio, `mode="build"` fixo ou os cinco níveis genéricos do cliente como valor inicial.
+- **O canal de seed = a construção do snapshot, não um delta de evento**: o seed é lido do runtime e injetado na inicialização da projection (`getModelRef()` / `getMode()` / nível de pensamento), não gera `state.updated` nem incrementa a revision — a decisão de draft "sem delta visível, sem bump de revision" (§4.2.1) não é quebrada. A regra de progressão de revision do R-04 permanece: apenas uma **mudança** em config incrementa; o seed é valor inicial, não mudança.
+- **Recuperação fria com o mesmo critério**: ao reconstruir a projection por hydration do transcript / cold resume, ela é primeiro semeada pelo valor real do runtime e então sobrescrita pela reprodução de ModelSelected / SessionModeChanged do log (a reprodução vem depois do seed, e o valor final segue o log).
+- **A hydration não perde a live tail**: a primeira reconstrução é single-flight por sessão; os raw events que chegam entre a leitura do snapshot do memory eventStore e a substituição pelo publisher vão para um buffer temporário. A raw sequence pode chegar fora de ordem por causa dos awaits de persistência de cada evento, então é preciso fazer staging por `sourceEventSeq+1` e drenar continuamente, sem descartar fatos tardios de queue/stream com o critério "já vi um seq maior". A sequência sintetizada e o raw seq do runtime estabelecem um offset monotônico pelo cursor do snapshot, e eventId + cursor servem apenas para remover duplicatas reais já presentes no snapshot.
+- **O momento da primeira assinatura não pode alterar o snapshot final**: se a primeira resposta do turno já tiver sido concluída antes do primeiro `subscribe` do cliente, a hydration fria precisa reconstruir a partir das mensagens/partes duráveis exatamente o mesmo estado final visível do caminho live com assinatura antecipada, incluindo o corpo de user e assistant já persistido. `providerVisibility` e `uiVisibility` / `transcriptVisibility` são dimensões ortogonais; um `assistant_response` normal é visível ao provider, à UI e ao transcript ao mesmo tempo e não pode ser classificado como provider-context-only só porque `providerVisibility=visible`. O desktop `desktop-continuous` e o mobile `web-remote-replayable` podem ter estratégias diferentes de entrega de quadros intermediários, mas o primeiro snapshot completo do mesmo transcript durável precisa ser idêntico. É proibido mascarar essa invariante com provider atrasado, assinatura antecipada, retry ou preenchimento de quadros pelo cliente.
+- **Fontes de seed por cenário (prioridade fixada, para evitar que a implementação uniformemente leia o default do workspace e sobrescreva o histórico da sessão)**:
+  - Nova sessão (primeiro envio no rascunho): `createSession.config` (a escolha prévia do usuário) > default de inicialização do runtime (modelo padrão do catálogo do workspace / preferência de mode persistida no projeto).
+  - Recuperação de sessão histórica: **a seleção histórica da própria sessão tem precedência** — `derivePersistedRuntimeSettings` obtém, das mensagens persistidas em ordem inversa, o último model usado (com o thought carregado em `modelRef.variant`) e o mode, e os grava de volta no runtime via `reconcileResumedRuntimeSettings`. O modelo precisa ser resolvido no Registry do Environment atual; o Provider Refactor já removeu a sobrescrita autoritativa `runtimeModel` enviada pelo App. O gateway do V4 usa uma promise READY para serializar a ativação do runtime com a hydration da projection; não é permitido construir nem retornar um legacy session snapshot completo para o V4. O antigo `session/resume` continua compatível embrulhado em `activation + legacy snapshot`. **A leitura do seed precisa acontecer depois da activation concluída** (a ordem do gateway é activation → hydrate), e a semântica de produto é "abrir uma sessão histórica seleciona por padrão o modelo e a profundidade de pensamento anteriores". Os limites completos estão em [17-cold-resume-runtime-activation.md](./17-cold-resume-runtime-activation.md).
+  - Troca dentro da sessão: eventos de command (ModelSelected / SessionModeChanged) sobrescrevem, conforme o caminho de escrita acima.
+- **O `createSession.config` precisa ser consumido**: quando o payload carrega config parcial (a escolha antecipada da UI no estado de rascunho, ver m5-composer-parity §cinco), o CLI, na criação da sessão, combina "config solicitada sobrepõe o default do runtime" para obter o valor inicial e depois injeta esse valor na projection pelo canal de seed acima; campos ausentes voltam ao valor real do runtime. A implementação atual apenas recebe o campo no schema e o handler não o consome — é uma lacuna de implementação.
+- **Um ACK de troca com o mesmo valor precisa ser distinguível**: quando `switchModelConfig` / `switchCollaborationMode` atingem o valor atual do runtime, respondem `noop` + `reasonCode="config.unchanged"`, e não podem ser absorvidos silenciosamente como accepted (sem result). Depois do alinhamento do seed, "valor exibido na UI = valor real do runtime" vale, e só então a semântica de noop é precisa.
+- Registro de bug (2026-07-07, primeiro teste do desktop do v4): a falta do seed causou duas falhas visíveis ao usuário — ① o seletor de modelo da nova sessão aparecia vazio (`ModelSelected` só era reemitido depois de um switchModelConfig, sem nenhum momento inicial em toda a cadeia); ② com mode=yolo persistido no projeto, a UI mostrava build ("confirmar antes de mudar") conforme o seed, e clicar em yolo caía no retorno antecipado de mesmo valor do handler (sem evento), de modo que a UI nunca convergia. Mesma raiz: **a comparação de mesmo valor usa o valor real do runtime, a exibição da UI usa o seed da projection e não havia momento de alinhamento entre os dois lados**.
+- Registro de bug (2026-07-16, E11/FX11): o snapshot antigo só projeta o `thought` atual, e não projeta "quais thoughts o modelo atual suporta". A sessão pai ainda pode ler o catálogo do cache legado de task config, mas o child de fork, sem esse cache, volta aos cinco níveis fixos da UI, fazendo até o GLM-5.2 mostrar cinco níveis. A capacidade faz parte da tupla de configuração do modelo e precisa entrar no mesmo snapshot/evento a partir do runtime do child; não pode ser adivinhada por localStorage, pelo catálogo do workspace ou por fallback do cliente.
 
-#### 4.2.4 SessionUsageState（G-02）
+#### 4.2.4 SessionUsageState (G-02)
 
 ```ts
 interface SessionUsageState {
@@ -561,19 +550,13 @@ interface SessionUsageState {
 }
 ```
 
-conflation 语义：值未变不下发（P-05）；A 区整体替换保证「不会把正数 used 覆盖成 0」类 bug 无处生长。计费/配额（coding plan）不在 conversation topic，归 usage 域。
+Semântica de conflação: valores inalterados não são enviados (P-05); a substituição inteira da área A garante que bugs do tipo "sobrescrever um used positivo com 0" não tenham onde crescer. Faturamento/cota (coding plan) não pertence ao topic conversation, e sim ao domínio de usage.
 
-**模型切换窗口语义（2026-07-17）**：`usedTokens` 表示当前历史上下文占用，切换模型时不重算；
-`maxTokens` 表示当前 runtime 已应用模型的窗口，必须随 `ModelSelected.contextWindow` 立即替换，同时更新
-投影内部供后续 `ModelComplete` 回退使用的 `contextWindowMax`。旧持久化事件允许缺少该字段，此时保持
-既有窗口，等待后续带窗口的 runtime 事件校准。禁止 renderer 从模型目录覆盖该字段，否则 session runtime
-override、远端 registry 与 UI 目录会重新形成多源竞态。
+**Semântica de janela na troca de modelo (2026-07-17)**: `usedTokens` representa o uso atual do contexto histórico e não é recalculado ao trocar de modelo; `maxTokens` representa a janela do modelo já aplicado pelo runtime e precisa ser substituído imediatamente junto com `ModelSelected.contextWindow`, atualizando ao mesmo tempo o `contextWindowMax` interno da projection usado no fallback de `ModelComplete`. Eventos persistidos antigos podem não ter esse campo; nesse caso se mantém a janela existente e se espera a calibração por um evento posterior do runtime que traga a janela. É proibido que o renderer sobrescreva esse campo a partir do catálogo de modelos, senão o override de runtime da sessão, o registry remoto e o catálogo da UI voltam a formar uma corrida de múltiplas fontes.
 
-- Bug 记录（2026-07-17）：历史会话从模型 A 切到 B 后，runtime 已正确应用 B 的 context window，
-  但旧 `ModelSelected` 只发布模型和思考能力，V4 投影直到下一次 `ModelComplete` 才看到 B 的窗口，导致
-  工具条长期显示 A 的容量分母。根因是模型能力元组发布不完整，不是 React 缓存或 runtime 切换失败。
+- Registro de bug (2026-07-17): depois de trocar do modelo A para o B em uma sessão histórica, o runtime aplicou corretamente a context window de B, mas o `ModelSelected` antigo publicava apenas o modelo e as capacidades de pensamento, e a projection do V4 só via a janela de B no `ModelComplete` seguinte, fazendo a barra de ferramentas mostrar por muito tempo o denominador de capacidade de A. A causa raiz é a publicação incompleta da tupla de capacidades do modelo, não um cache do React nem uma falha na troca do runtime.
 
-#### 4.2.5 QueueState（D-03 / R-07）
+#### 4.2.5 QueueState (D-03 / R-07)
 
 ```ts
 interface QueueState {
@@ -615,59 +598,31 @@ type QueueItem = ConversationInputIntent & {
 };
 ```
 
-输入守恒与回退规则：
+Regras de conservação da entrada e de fallback:
 
-- desktop/mobile 已提交的 busy/running 输入都先进入同一个 CLI `CommandInbox` FIFO，顺序以 `order.admissionSeq` 为准；手机 V4 不再走 host runtime 第二队列。
-- guide 不适用、携带附件、compact/verifier busy 时，将同一 intent（原文、附件、clientId、sourceCommandId 不变）回退普通 queue，并记录 `delivery.fallbackReasonCode/steer.state="fellBack"`。
-- eligible guide 可以在 tool call 出现前等待；一次 model step 的全部 sibling tool results（成功或失败）提交后，runtime 最多内联 drain 一条 guide，再开始同一 product turn 的下一 provider request。单个 parallel sibling 完成不能提前 drain，多条 guide 不能在同一 batch 一次清空。
-- 当前 turn text-only complete、stop 或 interrupted，且没有形成可用 tool result batch 时，未 drain guide 必须通过明确的 delivery/fallback fact 原地改投 queue；`sourceCommandId/queueItemId/clientId/admissionSeq/payload` 全部不变，live/cold projection 收敛一致。
-- 普通 queue 自动提升必须同时满足 `autoDrain=true`、session ready/no active controller，以及 `target` 不存在或 `target.status=complete`。该 guard 覆盖 text、goal command、compact 全部 kind；一次 verification marker 不能单独解锁。
-- verifier 显式 pass 与 fail-open 都先写 `passed=true` 并更新 target complete，再正常重新评估 queue；手动 Stop/abort 是 cancelled/failed + target paused + `autoDrain=false`，不算 pass。`sendQueuedNow` 的 reservation + Stop barrier 是显式例外。
-- empty/oversize/runtime reject 返回明确 `rejected/failed`；UI 保留文本与附件，不能先清空再静默失败。
-- `editQueueItem` 原地更新，保留 ID、位置、附件和来源命令；`reorderQueueItem/deleteQueueItem/drain` 都以 `queueItemId` 操作同一 intent。
-- drain/guided row/message anchor 必须沿用原 `sourceCommandId`，不能改用 promotion 或 send-now commandId。
-- `sendQueuedNow` 固定为 `reserve → stop barrier → start/promote → remove`；只有启动成功才移除。timeout/失败释放 reservation、原项不变；连续点击与多端点击只能有一个 reservation owner。
+- Toda entrada busy/running já submetida por desktop/mobile entra primeiro no mesmo FIFO `CommandInbox` do CLI, com a ordem definida por `order.admissionSeq`; o mobile V4 não usa mais uma segunda fila no host runtime.
+- Quando guide não se aplica, quando há anexos, ou quando compact/verifier está busy, o mesmo intent (texto original, anexos, clientId e sourceCommandId inalterados) volta para a queue comum, registrando `delivery.fallbackReasonCode`/`steer.state="fellBack"`.
+- Um guide elegível pode esperar antes de surgir uma chamada de ferramenta; depois que todos os tool results irmãos de um model step (com sucesso ou falha) forem submetidos, o runtime pode drenar no máximo um guide inline antes de iniciar a próxima requisição ao provider do mesmo product turn. A conclusão de um único sibling em paralelo não pode drenar antes da hora, e vários guides não podem ser esvaziados de uma vez no mesmo batch.
+- Se o turn atual text-only completar, for parado ou interrompido e não tiver formado um batch de tool results utilizável, o guide não drenado precisa ser redirecionado no lugar para a queue por um fato explícito de delivery/fallback; `sourceCommandId`/`queueItemId`/`clientId`/`admissionSeq`/`payload` permanecem todos iguais, e a projeção live/cold converge de forma idêntica.
+- A promoção automática da queue comum exige simultaneamente `autoDrain=true`, sessão pronta/sem controller ativo e `target` inexistente ou com `target.status=complete`. Esse guard cobre todos os kinds: texto, goal command e compact; um marker de verificação sozinho não destrava.
+- Um verifier explicitamente aprovado e o fail-open gravam primeiro `passed=true` e atualizam o target para complete, e só então reavaliam a queue normalmente; um Stop/abort manual é cancelled/failed + target paused + `autoDrain=false`, e não conta como aprovação. A reservation + barreira de Stop do `sendQueuedNow` é a exceção explícita.
+- Rejeição por vazio/excedente/runtime devolve `rejected/failed` explícito; a UI preserva o texto e os anexos e não pode limpar primeiro e depois falhar em silêncio.
+- `editQueueItem` atualiza no lugar, preservando ID, posição, anexos e command de origem; `reorderQueueItem`/`deleteQueueItem`/`drain` operam o mesmo intent por `queueItemId`.
+- O drain e as row/message anchors de guided precisam reutilizar o `sourceCommandId` original e não podem passar a usar o commandId da promoção ou do send-now.
+- `sendQueuedNow` é fixo como `reserve → stop barrier → start/promote → remove`; a remoção ocorre só se a inicialização tiver sucesso. Timeout/falha libera a reservation e o item original fica intacto; cliques consecutivos e cliques de vários dispositivos só podem ter um dono da reservation.
 
-`sendQueuedNow` 的 reservation 由 CLI runtime 按 `queueItemId` 持有，`TurnSteerDispatchChanged`
-把 `queued/reserved/promoting` 投影到 QueueItem。reserved 队首禁止普通 roundtrip drain，普通
-delete 也必须持有同一 reservationId；提升时只能从完整 QueueItem 还原输入，`inputId` 继续使用原
-`sourceCommandId`，禁止退化为 text-only 或改用 send-now commandId。start barrier 之前失败回到
-queued；start admitted 后若 remove 异常保持 promoting，禁止释放后重复执行。
+A reservation de `sendQueuedNow` é mantida pelo runtime do CLI por `queueItemId`, e `TurnSteerDispatchChanged` projeta `queued/reserved/promoting` no QueueItem. A cabeça da fila em estado reserved proíbe o drain comum de round-trip, e um delete comum também precisa manter a mesma reservationId; na promoção a entrada só pode ser restaurada a partir do QueueItem completo, `inputId` continua usando o `sourceCommandId` original, e é proibido degradar para text-only ou usar o commandId do send-now. Uma falha antes da barreira de start volta a `queued`; depois do start admitted, se o remove lançar erro o estado permanece `promoting`, e é proibido liberar e executar de novo.
 
-`remove` 的 `promoted` 原因只从 queue 投影摘除，不能把 session-input ledger 置 cancelled：
-text turn 的 user message 在后台开始阶段才写入，提前 cancelled 会重新制造
-`queue 已消失 → transcript 尚未落盘` 的崩溃窗口。ledger 保持 admitted，直到
-message/parts 与 ledger 在同一事务提交；提交后发 `SessionInputPromoted`，gateway 先失效旧
-transcript query seed，再解除 CommandInbox live pin。若提交前 CLI 退出，恢复清扫把 admitted
-明确置 `discarded(session_resumed)`。
+O motivo `promoted` do `remove` só retira o item da projeção da queue e não pode colocar o session-input ledger em cancelled: a user message de um turn de texto só é gravada no início da execução em segundo plano, e um cancelled antecipado recriaria a janela de crash "a queue já sumiu → o transcript ainda não foi persistido". O ledger permanece admitted até que message/parts e ledger sejam submetidos na mesma transação; depois da submissão envia-se `SessionInputPromoted`, o gateway invalida primeiro o seed da query de transcript antiga e só então libera o pin live do CommandInbox. Se o CLI sair antes da submissão, a varredura de recuperação de restart coloca explicitamente os admitted em `discarded(session_resumed)`.
 
-队列只保证当前 CLI 进程内可靠。CLI restart 后未进入 transcript 的 admitted input 不恢复执行，而是在 discarded input ledger 留 tombstone；`commands/query` 返回 `failed/fault.command.inputDiscardedOnRestart`，并在 typed result 中带持久 `delivery`。`queue/guide` 与无权威结论的 `unknown` 由客户端静默结算且不呈现 UI 错误；只有未进入 transcript 的 `startNow` 才允许用户确认后以新 commandId 重发。
+A fila só é confiável dentro do processo CLI atual. Depois de um restart do CLI, uma entrada admitted que não entrou no transcript não retoma a execução: ela deixa um tombstone no ledger de inputs descartados; `commands/query` devolve `failed/fault.command.inputDiscardedOnRestart`, com o `delivery` persistente no resultado tipado. `queue/guide` e o `unknown` sem conclusão autoritativa são liquidados em silêncio pelo cliente, sem erro de UI; apenas um `startNow` que não entrou no transcript pode ser reenviado pelo usuário, com confirmação e um novo commandId.
 
-`ConversationInputIntent` 是 CLI admission 后唯一的输入事实，必须按严格 schema 校验；`attachments`
-缺省时规范化为 `[]`。`inFlight`（正在执行）、`liveInputFacts`（仍在 queue/guide）与
-`settled LRU`（每 session 512 条）是三张表：前两者 pinned、不可被 LRU churn 淘汰。CLI
-为每个 session 串行分配 `order.admissionSeq`，不同 session 可并行。
+`ConversationInputIntent` é o único fato de entrada após a admission do CLI e precisa ser validado por um schema estrito; `attachments` ausente é normalizado como `[]`. `inFlight` (em execução), `liveInputFacts` (ainda em queue/guide) e o `settled LRU` (512 entradas por sessão) são três tabelas: as duas primeiras são pinned e não podem ser descartadas pelo churn do LRU. O CLI aloca `order.admissionSeq` serialmente por sessão, e sessões diferentes podem correr em paralelo.
 
-持久边界冻结如下：user message 的 `metadata.conversationInputIntent` 和 session-input ledger 的
-`payload.conversationInputIntent` 保存完整严格对象；`message.anchor.sourceCommandId` 保存快速查重锚点。
-输入命令在业务 handler 执行前先写 ledger（含 startNow/createSession.firstInput），再允许 UI 收到
-accepted；Queue/guide 的实际路由事件以同 `queueItemId` 幂等修正 delivery/fallback。执行前 admission
-同时 pin 进 CommandInbox，只有原子 promotion、显式取消/失败或 discarded 才能解除，不能被 512 LRU
-churn 淘汰。draft 首发必须先经 runtime 统一持久化边界建立 session 外键，再写 ledger；不能反过来
-依赖后台 startPromptTurn 才建 session，否则 admission 会在 FK 边界失败且失去权威记录。
-`createSession.firstInput` 的 command key 属于 `sessionId=null` 全局桶，但 ledger/transcript 属于
-新建 session；ledger 必须额外保存 `sourceCommandType="createSession"`，并允许用全局唯一
-`queue_<sourceCommandId>` 在未知 sessionId 时找回真实 session。原子 promotion 后同 commandId
-重试返回第一次的 `result.sessionId`；restart 时仍为 admitted 则先置 discarded 并返回
-`fault.command.inputDiscardedOnRestart`，禁止再创建第二个 session。
-早期 transcript 的 `metadata.inputIntent` 只作为兼容读取 seed，新写入不得只保存 seed。runtime 内部可用
-`TurnInputIntentMetadata + input + unresolved attachments` 的分层载体避免依赖 wire package，但只能通过同一
-canonical adapter 生成上述完整对象，projection/hydration 禁止各自推断 delivery、steer 或 dispatch。
+O limite de persistência fica congelado assim: `metadata.conversationInputIntent` da user message e `payload.conversationInputIntent` do session-input ledger guardam o objeto estrito completo; `message.anchor.sourceCommandId` guarda a âncora de deduplicação rápida. Um command de entrada grava o ledger antes de o handler de negócio executar (incluindo startNow/createSession.firstInput) e só então a UI pode receber accepted; os eventos de roteamento reais de queue/guide corrigem delivery/fallback de forma idempotente pelo mesmo `queueItemId`. A admission antes da execução também faz pin no CommandInbox, e só uma promoção atômica, um cancelamento/falha explícito ou o descarte podem liberá-la; ela não pode ser evictada pelo churn do LRU de 512. O primeiro envio no rascunho precisa passar antes pela fronteira unificada de persistência do runtime para estabelecer a FK da sessão, e só depois gravar o ledger; não se pode depender inversamente do startPromptTurn em segundo plano para criar a sessão, senão a admission falha na fronteira de FK e perde o registro autoritativo. O command key de `createSession.firstInput` pertence ao balde global `sessionId=null`, mas o ledger/transcript pertence à sessão recém-criada; o ledger precisa guardar adicionalmente `sourceCommandType="createSession"` e permitir reencontrar a sessão real, com `sessionId` desconhecido, pelo `queue_<sourceCommandId>` globalmente único. Depois da promoção atômica, uma retentativa com o mesmo commandId devolve o `result.sessionId` da primeira; no restart, um item ainda admitted é primeiro posto como discarded e devolve `fault.command.inputDiscardedOnRestart`, e é proibido criar uma segunda sessão.
+O `metadata.inputIntent` de transcripts antigos serve apenas como seed de leitura de compatibilidade, e novas gravações não podem salvar só o seed. Internamente o runtime pode usar um portador em camadas `TurnInputIntentMetadata + input + unresolved attachments` para evitar dependência do pacote de wire, mas isso só pode produzir o objeto completo acima pelo mesmo adapter canônico; projection e hydration não podem deduzir delivery, steer ou dispatch por conta própria.
 
-无 user message 的成功副作用使用 `session_entry(type="v4/command_fact")` 保存 timeline/child ACK；
-compact timeline part 同时写 `sourceCommandId`。CLI 重启后，尚为 admitted 的旧 session-input 在首次
-持久查询/恢复时原子收口为 `discarded(session_resumed)`，`commands/query` 必须返回
-`failed/fault.command.inputDiscardedOnRestart`，不能返回 unknown 或自动重放。
+Efeitos bem-sucedidos sem user message usam `session_entry(type="v4/command_fact")` para guardar timeline/child ACK; o part de timeline do compact grava também `sourceCommandId`. Depois de um restart do CLI, os session-inputs antigos ainda admitted são fechados atomicamente como `discarded(session_resumed)` na primeira consulta persistida/recuperação, e `commands/query` precisa devolver `failed/fault.command.inputDiscardedOnRestart`, nunca unknown nem replay automático.
 
 ```text
 query / execute 同 key
@@ -683,7 +638,7 @@ key gate(sessionId|null, commandId)
                               -> 分配 admissionSeq -> pin inFlight
 ```
 
-#### 4.2.6 PendingInteraction（阻塞交互 → 状态）
+#### 4.2.6 PendingInteraction (interação bloqueante → estado)
 
 ```ts
 interface PendingInteraction {
@@ -731,22 +686,13 @@ interface UserInputRequestPayload {
 }
 ```
 
-生命周期：出现/消失都走 `state.updated.pendingInteractions` 整体替换。应答 = `resolveInteraction` command；他端已答 → 本端下一帧该项消失，无需专门同步逻辑。CLI 重启 → running turn 死亡 → 数组自然清空（§9.3）。
+Ciclo de vida: tanto o aparecimento quanto o desaparecimento passam por `state.updated.pendingInteractions` com substituição inteira. A resposta = command `resolveInteraction`; se o outro lado já respondeu, o item desaparece no próximo quadro deste lado, sem necessidade de lógica de sincronização dedicada. Um restart do CLI → o turn em execução morre → o array se esvazia naturalmente (§9.3).
 
-`AskUserQuestion` 和 `ExitPlanMode` 都属于 `userInput` / elicitation，而不是普通
-permission。它们仍由 core 发出 `permission_requested` 等待态，但 v4 projection 必须把
-这些 user-input-backed 工具映射为 `pendingInteractions.userInput`，保留 `questions[]`
-和 `schema`，由客户端复用 `ElicitationDialog` 回答。普通工具权限继续走
-`pendingInteractions.permission` 与 `PermissionDialog`。
+Tanto `AskUserQuestion` quanto `ExitPlanMode` são `userInput` / elicitation, e não permission comum. Eles continuam sendo emitidos pelo core como o estado de espera `permission_requested`, mas a projection do v4 precisa mapear essas ferramentas com backing de user input para `pendingInteractions.userInput`, preservando `questions[]` e `schema`, para que o cliente reutilize o `ElicitationDialog` ao responder. Permissões comuns de ferramenta continuam passando por `pendingInteractions.permission` e pelo `PermissionDialog`.
 
-UI 布局约束：`pendingInteractions[0]` 是当前会话 bottom dock 的阻塞交互，必须和
-composer 共用 `ConversationTimeline` 的 sticky dock 与主列宽度；不能作为
-`SessionPane` 外层的独立全宽底部区域渲染。阻塞期间 composer 仍保持挂载但隐藏
-（例如通过 `blockingRequestId` 设置 `aria-hidden=true` 与 `display:none`），避免切换
-权限 / elicitation 时丢失草稿、编辑器实例和附件状态。Queue panel 属于同一 dock 内的
-待发送提示，可继续显示在阻塞交互之前。
+Restrição de layout de UI: `pendingInteractions[0]` é a interação bloqueante do bottom dock da sessão atual e precisa compartilhar o sticky dock e a largura da coluna principal do `ConversationTimeline` com o composer; não pode ser renderizada como uma área inferior de largura total independente na camada externa do `SessionPane`. Durante o bloqueio o composer continua montado, mas oculto (por exemplo via `blockingRequestId` com `aria-hidden=true` e `display:none`), para evitar perder rascunho, instância do editor e anexos ao alternar entre permission e elicitation. O painel de queue é um aviso de envio pendente dentro do mesmo dock e pode continuar aparecendo antes da interação bloqueante.
 
-#### 4.2.7 CommandStateSummary 与 BackgroundWorkSummary
+#### 4.2.7 CommandStateSummary e BackgroundWorkSummary
 
 ```ts
 interface CommandStateSummary {
@@ -775,7 +721,7 @@ interface BackgroundWorkSummary {
 }
 ```
 
-#### 4.2.8 GoalState 与 PlanState
+#### 4.2.8 GoalState e PlanState
 
 ```ts
 interface GoalState {
@@ -805,14 +751,14 @@ interface PlanItem {
 }
 ```
 
-### 4.3 行分页（游标制，R-06）
+### 4.3 Paginação de linhas (por cursor, R-06)
 
-- snapshot 只带尾部窗口；更早历史用 `rows/range`（§7.1）按 `beforeRowId` 游标拉取。
-- **没有任何 index 语义**：行的全序 = rowId 升序；客户端合并一律以 rowId 为排序键。
-- patch 命中未加载 rowId（已滚出并被客户端逐出 / 在未拉取的历史段）= **no-op**，被逐出的行只能通过重新 `rows/range` 取回。
-- `row.removed(fromRowId)` 作用于客户端已加载集合中所有 `rowId >= fromRowId` 的行（含已拉取的历史段），因此截断天然一致，无需 seq 门控。
+- O snapshot carrega apenas a janela final; o histórico mais antigo é buscado com `rows/range` (§7.1) usando o cursor `beforeRowId`.
+- **Não há nenhuma semântica de índice**: a ordem total das linhas é o rowId ascendente; toda mesclagem no cliente usa o rowId como chave de ordenação.
+- Um patch que acerta um rowId não carregado (já rolado para fora e descartado pelo cliente / em um trecho de histórico ainda não buscado) = **no-op**, e uma linha descartada só pode ser recuperada buscando de novo com `rows/range`.
+- `row.removed(fromRowId)` vale para todas as linhas com `rowId >= fromRowId` no conjunto já carregado pelo cliente (incluindo o histórico já buscado), de modo que o truncamento é naturalmente consistente e não precisa de gate por seq.
 
-### 4.4 ConversationRow（8 种，自包含，全字段）
+### 4.4 ConversationRow (8 tipos, autossuficientes, com todos os campos)
 
 #### 4.4.1 RowBase
 
@@ -836,7 +782,7 @@ interface RowActions {
 }
 ```
 
-#### 4.4.2 turnHeader（新增行类型，G-05 的落点）
+#### 4.4.2 turnHeader (novo tipo de linha, ponto de chegada de G-05)
 
 ```ts
 interface TurnHeaderRow extends RowBase {
@@ -867,7 +813,7 @@ interface TurnHeaderRow extends RowBase {
 }
 ```
 
-覆盖 P1-12b：auto compact 等「附着在上一工作块」的归属由 CLI 决定 compact 行落在哪个 turnHeader 之后，客户端零归属逻辑。
+Cobre P1-12b: a atribuição de coisas como auto compact, que "se anexam ao bloco de trabalho anterior", é decidida pelo CLI quanto a qual turnHeader recebe a linha de compact, e o cliente não tem nenhuma lógica de atribuição.
 
 #### 4.4.3 userInput
 
@@ -910,13 +856,7 @@ interface ReasoningRow extends RowBase {
 }
 ```
 
-不变量（09§3 保留）：追加只能进 `state="streaming"` 的行；普通的新模型 response 必然新
-`rowId`。唯一例外是同一 product turn 内的 output-token Continue：上一请求以
-`ModelComplete(stopReason="length", toolCallCount=0)` 收口，且下一段可见内容仍紧邻上一条
-`assistantText` 时，ProductProjection 必须把原行重新置为 `streaming` 并在同一 Markdown 正文末尾
-继续追加。任何 tool、reasoning、可见 user、timeline boundary、product turn 切换或非 `length` 收口
-都会取消该复用资格。复用期间 `rowId` 保持稳定，`entityId`、`assistantResponseId`、message action
-锚点推进到最新 assistant message；冷恢复使用持久化 `assistant.info.finish` 重建相同结果。
+Invariantes (preservados de 09§3): o append só pode entrar em uma linha com `state="streaming"`; uma nova resposta normal do modelo necessariamente tem um novo `rowId`. A única exceção é o Continue de output-token dentro do mesmo product turn: quando a requisição anterior é encerrada por `ModelComplete(stopReason="length", toolCallCount=0)` e o próximo trecho de conteúdo visível ainda é adjacente ao `assistantText` anterior, o ProductProjection precisa colocar a linha original de volta em `streaming` e continuar o append no fim do mesmo corpo Markdown. Qualquer tool, reasoning, user visível, fronteira de timeline, troca de product turn ou fechamento diferente de `length` cancela essa elegibilidade de reuso. Durante o reuso o `rowId` permanece estável, enquanto `entityId`, `assistantResponseId` e a âncora de message action avançam para a mensagem assistant mais recente; a recuperação fria reconstrói o mesmo resultado usando o `assistant.info.finish` persistido.
 
 #### 4.4.5 toolCall
 
@@ -953,23 +893,12 @@ interface ToolProgress {
 }
 ```
 
-**display 在信封层不设门。** 四个嵌入点——`ToolCallRow.display`、`ToolOutput.display`、
-`pendingInteractions[].payload.display`（确认预览）、`turnHeader/userInput.workflowLaunch.display`
-（启动行图）——的载荷都是 `.optional().catch(undefined)`：认不出来的 display 被**丢掉**，帧照常
-交付，卡片退化成纯文本。成员 schema 本身仍是 `.strict()`（它们定义「本端认得的形状」），未知
-字段、未知枚举值、未知 `kind`（新客户端新增的卡种）一律只丢这一张卡的载荷。
+**O display não tem portão no nível do envelope.** Os quatro pontos de embutição — `ToolCallRow.display`, `ToolOutput.display`, `pendingInteractions[].payload.display` (prévia de confirmação) e `turnHeader/userInput.workflowLaunch.display` (preview do grafo da linha de inicialização) — usam carga com `.optional().catch(undefined)`: um display não reconhecido é **descartado**, o quadro é entregue normalmente e o cartão decai para texto puro. O schema dos membros em si continua `.strict()` (eles definem "os formatos que este lado reconhece"); campos desconhecidos, valores de enum desconhecidos e `kind` desconhecidos (tipos de cartão novos que um cliente mais novo adicione) descartam apenas a carga daquele cartão.
 
-理由是分量不对等：display 是装饰载荷，却长在 liveness 关键的信封里。一个多出来的键曾让整帧被
-`proto.frameAssemblyInvalidPayload` 拒 → 恢复阶梯在同一份内容上重试 → 会话 fail closed，而每次
-快照都重放同一份存量载荷，会话永不自愈（2026-09-17 的 `providerStop`、2026-09-21 的
-`list_workflow_runs` lineage 键，同一形状两次）。严格性没有丢，只是挪到了渲染层：`readToolResultDisplay`
-本来就按 `kind` 逐个 strict 解析并在失败时回退纯文本——这正是各 spec 一直承诺的行为，信封层那道
-门是重复的第二道门，唯一的独有效果是杀死会话。
+A razão é a desigualdade de peso: display é carga decorativa, mas cresce dentro do envelope crítico para a liveness. Uma chave a mais já fez um quadro inteiro ser rejeitado por `proto.frameAssemblyInvalidPayload` → a escada de recuperação retentou sobre o mesmo conteúdo → a sessão fechou em fail closed, e como cada snapshot reproduzia a mesma carga já existente, a sessão nunca se curava sozinha (o `providerStop` de 2026-09-17 e a chave de lineage `list_workflow_runs` de 2026-09-21, a mesma forma duas vezes). O rigor não se perdeu, apenas foi movido para a camada de renderização: `readToolResultDisplay` já faz parsing estrito por `kind` e cai para texto puro em caso de falha — exatamente o comportamento que as specs sempre prometeram; aquele portão no nível do envelope era uma segunda porta redundante, e seu único efeito exclusivo era matar a sessão.
 
-代价是两侧 schema 偏斜变**静默**（卡片安静地退化成文本）。补偿手段是构造侧与镜像侧的 parity
-测试，不是让线上订阅去发现它。必填字段偏斜没有卡可丢，仍会拒帧——那条路的后备见
-04-sync-and-recovery 封闭规则 11。回归见
-`packages/shared/test/zcodeProtocolV4DisplayTolerance.test.ts`。
+O custo é que o desvio entre os dois schemas de membro fica **silencioso** (o cartão decai calmamente para texto). A compensação são testes de paridade no lado de construção e no lado espelho, e não deixar a assinatura de produção descobrir isso. Um desvio em campo obrigatório não tem cartão para descartar e ainda rejeita o quadro — o reserva para esse caminho está na regra fechada 11 de 04-sync-and-recovery. A regressão está em
+`packages/shared/test/zcodeProtocolV4DisplayTolerance.test.ts`.
 
 #### 4.4.6 subagent
 
@@ -988,17 +917,9 @@ interface SubagentRow extends RowBase {
 }
 ```
 
-前提 R-05：subagent 镜像事件必须进事件日志，本行的流式与区间记账才成立。
+Premissa R-05: os eventos espelho de subagent precisam entrar no log de eventos, para que o streaming desta linha e a contabilidade de intervalos façam sentido.
 
-UI 渲染裁决（2026-07-16 修订）：父会话投影仍保留触发它的 `Agent`/`Task`
-`toolCall` 行与对应 `subagent` 行两条事实；投影必须把事件中的 `parentToolCallId`
-保留到 `SubagentRow`，渲染层只能用 `toolCallId === parentToolCallId` 精确配对。
-并发工具的 spawn/完成顺序不保证与模型输出的 tool call 顺序一致，禁止按行位置、
-标题或时间猜测。兼容缺少该字段的历史数据时，仅在同一 turn 恰好剩余一个未配对
-Agent/Task 行和一个未关联 subagent 行时允许一对一降级；存在歧义则保留独立行。
-已精确配对的 `subagent` 不再单独生成 timeline 块，而是把 `childSessionId` 下钻和
-「在右侧打开」入口放进触发它的「子智能体」工具块展开区。P9 语义不变：下钻
-内容通过订阅 `conversation/<childSessionId>` 获取，不把 child rows 写回父投影。
+Decisão de renderização na UI (revisão de 2026-07-16): a projection da sessão pai ainda mantém o fato das duas linhas — o `toolCall` de `Agent`/`Task` que a disparou e a linha `subagent` correspondente; a projection precisa preservar o `parentToolCallId` do evento até o `SubagentRow`, e a camada de renderização só pode fazer o pareamento exato por `toolCallId === parentToolCallId`. A ordem de spawn/conclusão de ferramentas concorrentes não é garantida como a ordem dos tool calls na saída do modelo, e é proibido adivinhar por posição da linha, título ou tempo. Para compatibilizar dados históricos sem esse campo, só se permite um fallback um-para-um quando no mesmo turno restar exatamente uma linha Agent/Task não pareada e uma linha subagent não associada; havendo ambiguidade, as linhas independentes são mantidas. Um `subagent` já pareado com precisão deixa de gerar um bloco de timeline próprio, e o drill-down de `childSessionId` e a entrada "abrir à direita" vão para a área expandida do bloco de ferramenta "subagente" que o disparou. A semântica de P9 não muda: o conteúdo do drill-down é obtido assinando `conversation/<childSessionId>`, sem escrever as rows do child de volta na projection do pai.
 
 #### 4.4.7 timelineMarker
 
@@ -1045,9 +966,9 @@ interface TimelineMarkerRow extends RowBase {
 }
 ```
 
-#### 4.4.8 StableForkTarget 与 running fork
+#### 4.4.8 StableForkTarget e fork em execução
 
-所有 V4 fork 目标必须经过唯一解析器，UI 不得自行扫描 raw message：
+Todos os alvos de fork do V4 precisam passar pelo resolvedor único, e a UI não pode varrer raw messages por conta própria:
 
 ```ts
 interface StableForkTarget {
@@ -1090,19 +1011,19 @@ resolveStableForkTarget(target: { rowId: number; entityId: string }, baseLogEpoc
       | "guard.compactOperationLock" };
 ```
 
-规范性裁决：
+Decisões normativas:
 
-1. 目标必须是 `completedSuccess` product turn 的最后一段 `state="complete"` assistant；返回的 turn/message/boundary id 在重试间固定。
-2. 新数据以持久化 turn anchor 为准；旧数据仅在 message/turn 边界无歧义时 fallback，否则 `guard.forkTargetAmbiguous`。
-3. primary turn、foreground subagent、goal continuation、goal verifier running 时，可以 fork 更早的稳定 turn；compact 仍是 operation lock。
-4. 当前 streaming/interrupted/failed partial、中间 assistant 段、user/tool/timeline 一律拒绝。
-5. running fork 不进入带 `ensureNoActiveTurn` 的 legacy bridge：只复制稳定 transcript、fork 点 config 和 fork 点前 goal；不复制 queue、active/background work、continuation inbox，不 rewind shared workspace，parent 原样继续 running。
-6. completed/idle 的既有 workspace checkpoint 行为本轮不扩大。
-7. E10/FX08 以 logical turn boundary 复制工具块、工具结果后的最终 assistant 与该 turn 已产生的文件事实，不按“最后一条 raw assistant message”截断。
-8. child metadata 必须持久化 `sourceCommandId` 与 `StableForkTarget`；同 commandId 重试返回同一 child。
-9. 新数据必须在 `TurnComplete` 对订阅者可见前完成最终 assistant anchor 的持久化；anchor 固定 raw message segment、boundary 与显式 `goalBoundary`。缺省 `goalBoundary` 仅表示 legacy，不能读取 parent 当前 goal 冒充历史快照。
+1. O alvo precisa ser o último trecho assistant com `state="complete"` de um product turn `completedSuccess`; os ids de turn/message/boundary devolvidos são fixos entre retentativas.
+2. Dados novos usam como base o turn anchor persistido; dados antigos só fazem fallback quando a fronteira message/turn é inequívoca, caso contrário `guard.forkTargetAmbiguous`.
+3. Com primary turn, foreground subagent, goal continuation ou goal verifier em execução, é possível fazer fork de um turno estável mais antigo; o compact continua sendo operation lock.
+4. Streaming/interrompido/falho parcial atual, trechos assistant intermediários e linhas user/tool/timeline são sempre rejeitados.
+5. Um fork em execução não entra no legacy bridge com `ensureNoActiveTurn`: copia apenas o transcript estável, o config no ponto do fork e o goal anterior ao ponto do fork; não copia queue, trabalho ativo/de segundo plano nem continuation inbox, não faz rewind do workspace compartilhado, e o pai continua rodando como estava.
+6. O comportamento existente de checkpoint de workspace em completed/idle não é ampliado nesta rodada.
+7. E10/FX08 copia blocos de ferramenta, o assistant final após o resultado da ferramenta e os fatos de arquivo já produzidos por esse turno com base na fronteira lógica de turno, e não truncando pela "última raw assistant message".
+8. Os metadados do child precisam persistir `sourceCommandId` e `StableForkTarget`; uma retentativa com o mesmo commandId devolve o mesmo child.
+9. Dados novos precisam concluir a persistência do anchor do assistant final antes de `TurnComplete` ficar visível para os assinantes; o anchor fixa o segmento de raw message, a fronteira e um `goalBoundary` explícito. Um `goalBoundary` ausente significa apenas legacy e não permite ler o goal atual do pai como se fosse um snapshot histórico.
 
-### 4.5 Delta：七个操作 + coalesce + revision 递进
+### 4.5 Delta: sete operações + coalesce + progressão de revision
 
 ```ts
 type ConversationDelta =
@@ -1144,80 +1065,44 @@ interface StatePatch {
 }
 ```
 
-`workflowRuns` 是唯一另有键化增量的状态键：一次引擎事件只改一个 run 的少数 header 字段和少数条目，
-整键按事件重发则是 O(N²) 字节。条目界不因此消失——snapshot 仍整键携带，界是它的预算
-（见 [presentation.md](../dynamic-workflow/presentation.md)「The run state the pane draws」）。
-`WorkflowRunHeader` = `WorkflowRunState` 去掉 `actors`/`nodes`，由 schema `.omit` 派生而非手抄词表。语义：
+`workflowRuns` é a única chave de estado que também tem um delta com chaves: um evento do motor altera apenas poucos campos de header e poucos itens de um run, enquanto reenviar a chave inteira a cada evento seria O(N²) em bytes. A fronteira de itens não desaparece por isso — o snapshot ainda carrega a chave inteira, e a fronteira é o seu orçamento (ver [presentation.md](../dynamic-workflow/presentation.md), "The run state the pane draws").
+`WorkflowRunHeader` = `WorkflowRunState` sem `actors`/`nodes`, derivado por `.omit` do schema em vez de copiado à mão. Semântica:
 
-- header 键按 `run` 整体替换、按 `cleared` 删除；header 内的小集合（`reports`/`artifacts`/`phases`/
-  `pendingQuestions` …）仍是整体替换的值，不做二级增量。
-- `removedActors`/`removedNodes` 按 `(siteId, ordinal)` 删除条目（未命中的键是 no-op），`actors`/`nodes`
-  按同一个键 upsert：命中替换、未命中追加到尾部。条目**不重排**——生产者只在触界时淘汰
-  （[presentation.md](../dynamic-workflow/presentation.md)「Reduction」），淘汰必须用这两个键说出来，
-  而删除之外的顺序变化这个模型仍然表达不了。四个数组的界 = `WORKFLOW_RUNS_LIMITS.maxActors` / `maxNodes`。
-- 一条 op 内的施加序固定为 **header → 删除 → upsert**：同一个键在一条 op 里被删又被加时，它落在表尾，
-  与逐条施加两条 op 的结果一致。
-- apply：`workflowRuns` 缺省时按 `{revision: 0, runs: []}` 起算。命中 run 按上面几条更新；未命中 run 而
-  `run` 是**完整 header**（必填 header 字段齐全）= 新生，追加到 `runs` 末尾；未命中且 header 不完整 =
-  定义明确的 no-op（与 `row.upserted` 命中未加载行同一条规则），不得报错。`workflowRun.removed` 过滤掉
-  该 run，未命中时只推进 revision。容器 `revision` 取 `max(当前, op.revision)`（coalesce 会把同 run 的
-  op 前移，见下）。未变的 run 与未变的条目保持对象身份，变化的 run 与容器是新对象。
-- **客户端永不执行界**（`maxRuns`、条目界、总预算）：淘汰只由 producer 做，并明说——整条 run 用
-  `workflowRun.removed`，表内条目用 `removedActors` / `removedNodes`。
-- 一次引擎事件对一个 run 最多产生一个 `updated`（节点、派生的 actor 状态、usage 与 `lastEventSequence`
-  原子落在一起），外加被淘汰 run 的 `removed`。
-- 两个 op 都不进 profile filter（与 `state.updated` 同类，§3.6），也都不递增 conversation revision：
-  `workflowRuns` 自带单调 revision，且没有任何 command 的 baseRevision CAS 读它。
-- 未声明 `workflowRunDeltas`（§2）的订阅者收不到这两个 op：publisher 为它把整批 `workflowRun.*` 降级
-  成一条整键 `state.updated{workflowRuns}`，并按旧界钳位（[05 §1.1](./05-transport-and-backpressure.md)）。
+- As chaves de header são substituídas inteiramente por `run` e removidas por `cleared`; os pequenos coleções dentro do header (`reports`/`artifacts`/`phases`/`pendingQuestions` …) continuam sendo valores de substituição inteira, sem delta de segundo nível.
+- `removedActors`/`removedNodes` removem itens por `(siteId, ordinal)` (uma chave que não casa é no-op), e `actors`/`nodes` fazem upsert pela mesma chave: casa → substitui, não casa → acrescenta ao fim. Itens **não são reordenados** — o produtor só expulsa ao atingir a fronteira ([presentation.md](../dynamic-workflow/presentation.md), "Reduction"), e a expulsão precisa ser dita por essas duas chaves; mudanças de ordem além da remoção continuam não expressáveis neste modelo. Os limites dos quatro arrays = `WORKFLOW_RUNS_LIMITS.maxActors` / `maxNodes`.
+- A ordem de aplicação dentro de uma op é fixa em **header → remoção → upsert**: quando a mesma chave é removida e adicionada numa única op, ela fica no fim da tabela, o que coincide com o resultado de aplicar duas ops em sequência.
+- apply: quando `workflowRuns` está ausente, parte-se de `{revision: 0, runs: []}`. Um run casado é atualizado conforme acima; um run não casado em que `run` é um **header completo** (todos os campos obrigatórios do header presentes) = nascimento, acrescentado ao fim de `runs`; não casado com header incompleto = um no-op bem definido (a mesma regra de um `row.upserted` que acerta uma linha não carregada), sem erro. `workflowRun.removed` filtra aquele run e, quando não casa, apenas avança a revision. A `revision` do contêiner é `max(atual, op.revision)` (o coalesce move para frente as ops do mesmo run, ver abaixo). Runs e itens inalterados preservam a identidade de objeto; runs alterados e o container são objetos novos.
+- **O cliente nunca executa fronteiras** (`maxRuns`, fronteiras de itens, orçamento total): a expulsão é feita só pelo produtor e dita explicitamente — o run inteiro via `workflowRun.removed`, os itens da tabela via `removedActors` / `removedNodes`.
+- Um evento do motor gera no máximo um `updated` para um run (nós, estado de ator derivado, usage e `lastEventSequence` caem juntos atomicamente), mais o `removed` dos runs expulsos.
+- Nenhum dos dois ops passa pelo profile filter (são da mesma família que `state.updated`, §3.6), e nenhum incrementa a conversation revision: `workflowRuns` tem a própria revision monotônica, e nenhum command faz CAS de baseRevision sobre ela.
+- Assinantes que não declaram `workflowRunDeltas` (§2) não recebem nenhum desses dois ops: o publisher rebaixa para elas todo o lote `workflowRun.*` em uma única `state.updated{workflowRuns}` de chave inteira e aplica o clamp do limite antigo ([05 §1.1](./05-transport-and-backpressure.md)).
 
-coalesce 规则（`@zcode/protocol` 纯函数）：
+Regras de coalesce (função pura em `@zcode/protocol`):
 
-1. 相邻同 `(rowId, path)` 的 `row.delta` → append 拼接；
-2. 相邻 `state.updated` → patch 键浅合并（键内整体替换，安全）；
-3. `row.delta` 后随同 rowId 的 `row.upserted` → 前者丢弃；
-4. `row.removed` 是屏障，任何规则不得跨越；
-5. 合并后单帧超过 `maxFrameBytes` → 按 §3.2 切分；
-6. 同 runId 的 `workflowRun.updated` 向前合并进窗口内**最后**一条、未被屏障隔开的同 runId
-   `workflowRun.updated`：header 键 last-wins 并与 `cleared` 对账（后来的赋值把该键移出 `cleared`，
-   后来的清除把它移出 `run`），条目按 `(siteId, ordinal)` last-wins 且保持首次出现顺序，`revision`
-   取最后一个。删除与 upsert 按「合并等于顺序施加」推出来：`removedActors` / `removedNodes` 取两侧的
-   并集（按首次出现去重），而**先者的 upsert 里凡是被后者删掉的键一律去掉**，再按上面的规则叠加
-   后者的 upsert。于是一个先删后加的键落在表尾——顺序施加两条 op 得到的正是这个位置。屏障有两类：
-   patch 含 `workflowRuns` 的 `state.updated`（整键替换）、同 runId 的 `workflowRun.removed`；
-   `removed` 同时吞掉该 run 自上一个屏障以来的全部 `updated`（同一窗口内生又删，客户端从未见过
-   这个 run，等价）。
-   **合并出来的四张条目表任一超过线上界时不合并**，两条 op 照原样留着、次序不变。会超界的其实
-   只有两张**删除**表：按上面的合并规则，留在 upsert 里的每个键在这条 op 施加完之后都还在表里，
-   而表本身有界；删除表没有这条护栏——合并分不出「窗口里刚出生又被淘汰的键」和「客户端早就
-   拿着的键」，而每次淘汰都让出一个位子，所以一个够宽的窗口里被删掉的不同键可以多于表界
-   （淘汰之前不可能：表只增不减）。四张都查只是因为这道闸便宜，不该依赖那条论证一直成立。
-   超界的载荷不会被剥掉一个键——它让整个 patch 解析失败、整帧被丢。合并是优化，拒绝合并不改变
-   终态。目标取**最后**一条而不是更早的，正是为了这种情形：合并一路成功时屏障之后只剩一条
-   `updated`，「最早」与「最后」是同一条；一旦有一次被拒，往更早那条合会让后来的 upsert 跳到
-   中间那条的删除**之前**，一个先删后加的键就此消失。
+1. `row.delta` adjacentes com o mesmo `(rowId, path)` → concatenação de append;
+2. `state.updated` adjacentes → merge raso das chaves de patch (substituição inteira dentro da chave, seguro);
+3. `row.delta` seguido de `row.upserted` do mesmo rowId → o primeiro é descartado;
+4. `row.removed` é uma barreira que nenhuma regra pode atravessar;
+5. Se o quadro único resultante exceder `maxFrameBytes` → fatiado conforme §3.2;
+6. Um `workflowRun.updated` do mesmo runId funde para frente na **última** `workflowRun.updated` do mesmo runId dentro da janela e não separada por barreira: chaves de header com last-wins reconciliadas com `cleared` (uma atribuição posterior tira a chave de `cleared`, uma remoção posterior tira a chave de `run`), itens com last-wins por `(siteId, ordinal)` mantendo a ordem de primeira aparição, e `revision` é a do último. As remoções e upserts decorrem de "a fusão equivale à aplicação sequencial": `removedActors` / `removedNodes` recebem a união dos dois lados (deduplicada pela primeira aparição), e **toda chave removida pelo segundo que ainda exista no upsert do primeiro é retirada**, e só então se sobrepõe o upsert do segundo conforme as regras acima. Assim uma chave removida e depois adicionada fica no fim da tabela — que é exatamente a posição obtida aplicando as duas ops em sequência. Existem duas categorias de barreira: um `state.updated` cujo patch contém `workflowRuns` (substituição de chave inteira) e um `workflowRun.removed` do mesmo runId; um `removed` também engole todos os `updated` daquele run desde a última barreira (nasceu e foi removido dentro da mesma janela, o cliente nunca viu esse run, o que é equivalente).
+   **Se qualquer uma das quatro tabelas de itens resultante exceder o limite online, não funde**: as duas ops ficam como estavam, sem mudança de ordem. Na verdade, só duas tabelas de **remoção** podem exceder: pela regra de fusão acima, toda chave que permanece em um upsert ainda estará na tabela depois de esta op ser aplicada, e a própria tabela é limitada; as tabelas de remoção não têm essa salvaguarda — a fusão não consegue distinguir "chave que acabou de nascer e foi expulsa dentro da janela" de "chave que o cliente já tinha", e cada expulsão libera uma vaga, de modo que numa janela larga o número de chaves distintas removidas pode superar o limite da tabela (antes da expulsão isso é impossível: a tabela só cresce). As quatro são verificadas só porque essa barreira é barata e a argumentação acima não deve ser considerada válida para sempre.
+   A carga que excede o limite não perde uma chave — ela faz o patch inteiro falhar no parse e o quadro ser descartado. A fusão é uma otimização, e recusar a fusão não muda o estado final. A escolha do alvo como a **última** op, e não uma anterior, é exatamente para esse caso: quando a fusão dá certo o tempo todo, depois de uma barreira resta apenas um `updated`, e "a mais antiga" e "a mais recente" são a mesma; assim que uma é recusada, fundir na anterior faz o upsert posterior saltar para **antes** da remoção do meio, e uma chave removida e depois adicionada desaparece.
+O avanço da regra 6 atravessando ops de row intermediárias, ops de outro runId e `state.updated` sem `workflowRuns` é comutativo: elas atuam sobre estados disjuntos, e o nascimento de um run entra em `runs` pela ordem de primeira aparição, que não muda. A única coisa não comutativa é a `revision` do container — quando as ops de dois runs se alternam, a última op da sequência de saída após a fusão ainda precisa carregar a revision mais alta, o que é garantido pelo apply ao tomar `max` (a revision é monotônica por contrato). O critério continua sendo a igualdade dos testes dourados existentes: `applyAll(s, coalesce(ds))` e `applyAll(s, ds)` são idênticos byte a byte. Após a fusão, cada run em voo tem no máximo cerca de 2 ops por janela (algumas a mais quando a fusão é recusada por limite de item), independentemente da largura do fan-out, de modo que o limite de 500 ops de §3.2 não é ameaçado por esses dois ops.
 
-规则 6 的前移跨越中间的 row op、别的 runId 的 op 和不含 `workflowRuns` 的 `state.updated` 是可交换的：
-它们作用在不相交的状态上，且 run 新生按首次出现顺序进 `runs`，顺序不变。唯一不可交换的是容器
-`revision`——两个 run 的 op 交错时，合并后输出序列的最后一个 op 必须仍携带最高 revision，这由 apply 取
-`max` 保证（revision 按契约单调）。判据仍是既有黄金测试的那条等式：`applyAll(s, coalesce(ds))` 与
-`applyAll(s, ds)` 逐字节一致。合并后每个在飞 run 每窗口至多约 2 个 op（撞上条目界而拒绝合并时多
-几个），与 fan-out 宽度无关，§3.2 的 500 op 边界因此不受这两个 op 威胁。
+**Regra de progressão de revision (R-04, definição fechada)**: os eventos abaixo somam +1 cada; todos os outros (fluxo de texto só `row.delta`, mudanças em `usage`, mudanças em `pendingCommands`, mudanças em `workflowRuns` (incluindo os dois ops `workflowRun.*`) e atualizações de `ToolProgress`) **não incrementam**:
 
-**revision 递进规则（R-04，封闭定义）**：以下事件各 +1，其余（纯 `row.delta` 文本流、`usage` 变化、`pendingCommands` 变化、`workflowRuns` 变化（含两个 `workflowRun.*` op）、`ToolProgress` 更新）**不递增**：
+| Eventos que incrementam a revision                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------- |
+| row.appended / row.upserted / row.removed (qualquer mudança de estrutura de linha ou de máquina de estados)                 |
+| qualquer mudança em control / availability / inputRouting / config / queue / pendingInteractions / backgroundWorks / goal / plan |
 
-| 递增 revision 的事件                                                                                                  |
-| --------------------------------------------------------------------------------------------------------------------- |
-| row.appended / row.upserted / row.removed（任何行结构与状态机变化）                                                   |
-| control / availability / inputRouting / config / queue / pendingInteractions / backgroundWorks / goal / plan 任一变化 |
-
-携带规则：任何含 revision 递增事件的帧，其 deltas 必含 `state.updated.revision`（conflation 后自然满足：至少 revision 键在场）。CAS（§6.2）由此语义明确：**revision 不变 ⇔ 没有任何 guard 可见的状态变化**。
+Regra de carregamento: qualquer quadro que contenha um evento que incrementa a revision precisa ter `state.updated.revision` em seus deltas (o que é naturalmente satisfeito depois da conflação: pelo menos a chave de revision está presente). O CAS (§6.2) fica assim semanticamente definido: **revision inalterada ⇔ nenhuma mudança de estado visível por guard**.
 
 ---
 
-## 5. sessions-index topic
+## 5. Topic sessions-index
 
-`TopicKey = "sessions-index/<workspaceId>"`。列表 activity/状态点的权威数据源；conflated 最新态，永不溢出。未读属于 tasks-index membership，不从 activity time 推导。
+`TopicKey = "sessions-index/<workspaceId>"`. Fonte autoritativa dos pontos de atividade/status da lista; estado mais recente conflado, nunca transborda. Não lidas pertencem à membership do tasks-index e não são derivadas do tempo de atividade.
 
 ```ts
 interface SessionsIndexSnapshot {
@@ -1253,9 +1138,9 @@ interface SessionSummary {
 
 ---
 
-## 6. Command 层
+## 6. Camada de commands
 
-### 6.1 信封
+### 6.1 Envelope
 
 ```ts
 interface CommandEnvelope<T extends CommandType = CommandType> {
@@ -1286,79 +1171,65 @@ type CommandResult =
   | { type: "resolveInteraction"; resolvedBy: { clientId: string; optionId?: string } };
 ```
 
-| status      | 语义                                                                                                                                                                                                 | UI 收口                                         |
-| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `accepted`  | CLI 已受理命令；其中输入命令已完成串行 admission 并进入 input ledger/inbox。**输入不承诺跨 CLI 进程继续执行**；最终收口以 `sourceCommandId` 命中 QueueItem/row/transcript 或 explicit discarded 为准 | 保留 optimistic 与 pending registry，等权威状态 |
-| `rejected`  | guard 拒绝                                                                                                                                                                                           | 撤 optimistic，按 reasonCode 提示               |
-| `stale`     | baseRevision 过旧                                                                                                                                                                                    | 撤 optimistic；拉最新投影后由用户重发           |
-| `duplicate` | **同 commandId** 已处理                                                                                                                                                                              | 用 result 收口，不重放副作用                    |
-| `noop`      | 命令有效但无事可做（R-09）：stop-while-stopping、resolveInteraction 已被他端答掉                                                                                                                     | 静默收口；result 携带既有结论                   |
-| `failed`    | accepted 后执行失败                                                                                                                                                                                  | 按 reasonCode 展示；配合 lastError/row 状态     |
+| status      | Semântica                                                                                                                                                                                            | Encerramento na UI                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `accepted`  | O CLI aceitou o command; para commands de entrada, o admission serial já foi concluído e a entrada entrou no input ledger/inbox. **Não há promessa de que a entrada continue em execução entre processos do CLI**; o encerramento final depende de `sourceCommandId` acertar um QueueItem/row/transcript ou de um discarded explícito | Mantém o registro otimista e de pendentes, aguardando o estado autoritativo |
+| `rejected`  | Recusado por guard                                                                                                                                                                                  | Reverte o otimista, exibe conforme o reasonCode                       |
+| `stale`     | baseRevision muito antigo                                                                                                                                                                            | Reverte o otimista; o usuário reenvia depois de puxar a projection mais recente |
+| `duplicate` | **Mesmo commandId** já processado                                                                                                                                                                    | Encerra com o result, sem repetir efeitos colaterais                 |
+| `noop`      | O command é válido mas não há nada a fazer (R-09): stop-while-stopping, resolveInteraction já respondido pelo outro lado                    | Encerramento silencioso; o result traz a conclusão existente          |
+| `failed`    | Falha de execução após accepted                                                                                                                                                                     | Exibe conforme o reasonCode; combinado com lastError/status da row    |
 
-幂等与重试（§9.3 裁决后的口径）：
+Idempotência e retentativa (critério após as decisões de §9.3):
 
-- 服务端查重顺序：内存 LRU → transcript user/message anchor、timeline marker、fork child metadata 的 `sourceCommandId` → discarded input ledger → `unknown`。discarded 命中返回 `failed/fault.command.inputDiscardedOnRestart`，不能退化成 unknown。
-- 同 `{sessionId,commandId}` 的 query 与 execute 共用 single-flight/互斥入口，消除“执行已开始、尚未写 LRU/transcript”窗口；并发 duplicate/fork duplicate 均只能执行一次副作用。
-- 客户端 24h pending registry：普通文本/goal 保存可重发 payload，敏感 interaction 只保存 digest。QueueItem/guided projection 出现即删除记录；重连先 `commands/query` 对账，discarded `queue/guide` 与 unknown 静默清账，只有 `startNow` 保留人工确认；任何分支都**永不自动重发**。
-- registry 以 `{sessionId,commandId}` 为键写入 renderer 持久存储，写入必须早于第一次
-  `v4/command` 上行；TTL 从首次写入起固定为 24h，刷新、attachment 重建或 CLI runtime
-  换代不得延长。`sendText`、`sendGoalCommand` 与携 `firstInput` 的 `createSession` 保存可重发
-  payload；`resolveInteraction` 只保存 payload digest，禁止落盘权限答案、freeText 或 elicitation
-  content。
-- input 命令收到 `accepted/duplicate` 只证明 admission，不单独删除 registry；带相同
-  `sourceCommandId` 的 QueueItem/guided projection 或 transcript user row、显式
-  rejected/stale/noop/failed/cancelled、discarded `queue/guide` 或 TTL 到期才删除。敏感 interaction 收到确定
-  ACK 后即可删除，ACK 不明时在重连 query 得到结果后删除；`unknown` 同样静默删除。
-- 每次 conversation subscribe 进入 live（含 runtime restart 后 fresh snapshot）先按 session 分批
-  查询 registry，单批最多 64 项。`unknown` 与 delivery=`queue/guide` 的
-  `failed/fault.command.inputDiscardedOnRestart` 直接清账且不呈现 UI 错误；只有 delivery=`startNow`
-  生成一次 recoverable notice。UI 只在用户点击“重新发送”后用**新 commandId**提交保存的 input
-  payload。无 payload 的敏感 interaction 遇到 `unknown` 也静默清账。queryUnavailable 保留条目并
-  等待下次连接对账，不伪装成 unknown。
-- 连接存续期内的丢帧由 rpc 重放兜底，客户端不做应用层定时重发。
+- Ordem de deduplicação no servidor: LRU em memória → `sourceCommandId` da âncora de user/message do transcript, do timeline marker e dos metadados de fork child → ledger de inputs descartados → `unknown`. Um acerto em discarded devolve `failed/fault.command.inputDiscardedOnRestart` e não pode degradar para unknown.
+- Query e execute do mesmo `{sessionId,commandId}` compartilham a entrada single-flight/mutualmente excludente, eliminando a janela "a execução já começou mas ainda não escreveu no LRU/transcript"; duplicate/fork duplicate concorrentes só podem executar o efeito colateral uma vez.
+- Registro de pendentes de 24h no cliente: texto/goal comuns guardam o payload reenviável, e interações sensíveis guardam apenas o digest. O registro é removido assim que aparecem o QueueItem ou a projection guided; na reconexão, primeiro se concilia com `commands/query`, e `queue/guide` descartado e `unknown` são liquidados em silêncio, com apenas `startNow` exigindo confirmação manual; nenhum ramo **nunca reenvia automaticamente**.
+- O registro é gravado no armazenamento persistente do renderer com a chave `{sessionId,commandId}`, e a gravação precisa ocorrer antes do primeiro envio de `v4/command`; o TTL é fixo em 24h contados da primeira gravação, e refresh, reconstrução de attachment ou troca de geração do runtime do CLI não podem estendê-lo. `sendText`, `sendGoalCommand` e `createSession` com `firstInput` guardam o payload reenviável; `resolveInteraction` guarda apenas o digest do payload, e é proibido persistir em disco respostas de permissão, freeText ou conteúdo de elicitation.
+- Um command de entrada que recebe `accepted/duplicate` só prova o admission e não remove o registro sozinho; a remoção acontece quando aparece a projection QueueItem/guided com o mesmo `sourceCommandId`, ou uma row user do transcript, ou um rejected/stale/noop/failed/cancelled explícito, ou um `queue/guide` descartado, ou o TTL expira. Uma interação sensível pode ser removida assim que recebe um ACK definitivo, ou após o query de reconexão quando o ACK é incerto; `unknown` também é removido em silêncio.
+- A cada subscribe de conversation entrando em live (inclusive um fresh snapshot após restart do runtime), o registro é consultado em lotes por sessão, com no máximo 64 itens por lote. `unknown` e `failed/fault.command.inputDiscardedOnRestart` com delivery=`queue/guide` são liquidados diretamente, sem exibir erro de UI; apenas delivery=`startNow` gera um aviso recuperável uma única vez. A UI só submete o payload de entrada salvo, com um **novo commandId**, depois que o usuário clica em "reenviar". Uma interação sensível sem payload que encontre `unknown` também é liquidada em silêncio. queryUnavailable mantém os itens e espera a conciliação da próxima conexão, sem se passar por unknown.
+- Quadros perdidos durante a vida da conexão são cobertos pelo replay do rpc, e o cliente não faz reenvio temporizado no nível da aplicação.
 
-### 6.3 多端并发裁决（03 收口，用 ACK 枚举重述）
+### 6.3 Decisão de concorrência entre dispositivos (encerramento de 03, reescrito com enumeração de ACK)
 
-| 场景                     | 先到者   | 晚到者（不同 commandId）                                             |
-| ------------------------ | -------- | -------------------------------------------------------------------- |
-| 两端同时 stop            | accepted | **noop**（reasonCode=alreadyStopping，result 空）                    |
-| 两端同答同一 interaction | accepted | **noop**（reasonCode=alreadyResolved，result.resolvedBy 携带先到者） |
-| 基于旧 revision 的操作   | accepted | stale                                                                |
-| 同 commandId 网络重试    | accepted | duplicate（回放 result）                                             |
+| Cenário                                    | Quem chega primeiro | Quem chega depois (commandId diferente)                                   |
+| ------------------------------------------ | ------------------- | -------------------------------------------------------------------------- |
+| Dois dispositivos param ao mesmo tempo      | accepted            | **noop** (reasonCode=alreadyStopping, result vazio)                       |
+| Dois dispositivos respondem à mesma interação | accepted            | **noop** (reasonCode=alreadyResolved, result.resolvedBy traz o primeiro) |
+| Operação baseada em uma revision antiga     | accepted            | stale                                                                   |
+| Retentativa de rede do mesmo commandId     | accepted            | duplicate (reproduz o result)                                            |
 
-### 6.4 命令全集（payload 字段级）
+### 6.4 Conjunto completo de commands (campos de payload)
 
-CAS ✓ = 信封必带 `baseRevision`。所有 row-targeting 命令还必须带 `baseLogEpoch`，payload
-使用 `target: { rowId, entityId }`；CLI 严格按 epoch → revision → entity → action 顺序校验，
-客户端不得只凭 display row 位置提交动作。guard 列为 product-protocol 的 guard/invariant id。
+CAS ✓ = o envelope precisa carregar `baseRevision`. Todos os commands que visam linhas precisam também carregar `baseLogEpoch`, e o payload usa `target: { rowId, entityId }`; o CLI valida estritamente na ordem epoch → revision → entity → action, e o cliente não pode submeter uma ação apenas pela posição da linha exibida. A coluna guard traz os ids de guard/invariante do product-protocol.
 
-| type                   | payload                                                                                                                                   | CAS | 效果（投影可见）                                                                                                                                                                                                                                                                                 | guard                                                                                                                                                                                   |
+| type                   | payload                                                                                                                                   | CAS | Efeito (visível na projection)                                                                                                                                                                                                                                                                               | guard                                                                                                                                                                                   |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createSession`        | `{ workspaceId: string; firstInput?: { text: string; attachments?: AttachmentRef[] }; config?: Partial<SessionConfigState> }`             | –   | 裁决（2026-07-05）：`firstInput` 可选。缺省 → phase=draft 空会话（见 §4.2.1 draft 生命周期）；携带 → 直接 turnHeader+userInput rows。ACK result.sessionId                                                                                                                                        | `firstSend`                                                                                                                                                                             |
-| `sendText`             | `{ text: string; attachments?: AttachmentRef[]; heldQueueDisposition?: "clearQueueAndSend" \| "keepQueueAndSend" }`                       | –   | admission 先生成完整 `ConversationInputIntent`；startNow → user row，enqueue → QueueItem，guide → 等完整 tool-result batch 后最多一条 inline guided row。guide 无 tool boundary/不适用/附件/compact/verifier busy 以同 intent 回退普通 queue；empty/oversize/runtime reject 明确 rejected/failed | `runningPromptQueues` / `guideModeTurnSteer` / `guideDrainsAfterCompletedToolBatch` / `guideFallbackPreservesIntent` / `unfinishedSessionPromptQueues` / `heldQueueInputRequiresChoice` |
-| `sendGoalCommand`      | `{ text: string; heldQueueDisposition?: "clearQueueAndSend" \| "keepQueueAndSend" }`                                                      | –   | enqueue 为 kind=sendGoalCommand；消费时 set/update goal + goalSet marker；held 下同 sendText 走 choice                                                                                                                                                                                           | `unfinishedSessionGoalQueues` / `heldQueueInputRequiresChoice`                                                                                                                          |
-| `stop`                 | `{}`                                                                                                                                      | –   | 终止全部 completion-blocking work → phase=completedInterrupted；queue 保留 autoDrain=false；goal active→paused                                                                                                                                                                                   | `stopBusySessionCancelsForegroundWork`                                                                                                                                                  |
-| `compact`              | `{}`                                                                                                                                      | –   | startNow → compact marker；running/goal verifier/held → kind=compact 的 QueueItem，FIFO promotion 时执行；不生成 user row；重复 active/queued compact reject                                                                                                                                     | `manualCompact` / `runningCompactQueues` / `heldCompactQueues` / `compactOperationLock`                                                                                                 |
-| `forkAssistant`        | `{ target: { rowId: number; entityId: string } }`                                                                                         | ✓   | 先统一 target resolver；running 时 conversation-only 复制稳定 logical turn，parent 继续且 shared workspace 不 rewind；同 commandId 返回同 child                                                                                                                                                  | `runningStableAssistantForkAllowed` / `forkAssistantOnly` / `forkTargetAmbiguous` / `compactOperationLock`                                                                              |
-| `applyFileRewind`      | `{ target: { rowId: number; entityId: string } }`                                                                                         | ✓   | 仅 `turnHeader.actions.canRewindFiles=true` 可 preview/apply workspace 文件变化；不截断 conversation 历史                                                                                                                                                                                        | `fileRewindTargetOnly` / `fileRewindUnavailable` / `compactOperationLock`                                                                                                               |
-| `editUserQuery`        | `{ target: { rowId: number; entityId: string }; newText: string; attachments?: AttachmentRef[]; workspaceMode?: "preserve" \| "rewind" }` | ✓   | latest query running 时先 stop barrier；compact 前后都在原 session append-only branch cut 并按 canonical intent 重放。`workspaceMode=rewind` 在同一 command 内安全预检并恢复文件，unsafe/ignored 返回 blocked 且不改 branch/file                                                                 | `latestQueryEditPreemptsActiveTurn` / `compactCoveredLatestEditRewindsInPlace` / `editUserOnly` / `editKeepsQueue`                                                                      |
-| `retryTurn`            | `{ target: { rowId: number; entityId: string } }`                                                                                         | ✓   | 从 canonical `ConversationInputIntent` 重跑 canRetry=true 的最后 assistant turn，保留 input kind、附件和 provenance                                                                                                                                                                              | `latestAssistantRetryOnly`                                                                                                                                                              |
-| `setAssistantFeedback` | `{ target: { rowId: number; entityId: string }; feedback: "like" \| "dislike" \| null }`                                                  | ✓   | 仅 assistantText 可写；非 null 值持久化到 assistant message/row，null 删除 feedback；同值可作为幂等 accepted/noop 收口                                                                                                                                                                           | `assistantFeedbackTargetOnly`                                                                                                                                                           |
-| ~~`rewind`~~           | —                                                                                                                                         | —   | **删除独立命令**。conversation rewind 是 `editUserQuery` 的 UI 入口；workspace-only 仍走 `applyFileRewind`，组合语义由 `editUserQuery.workspaceMode` 在 Agent 内原子协调                                                                                                                         | —                                                                                                                                                                                       |
-| `sendQueuedNow`        | `{ queueItemId: string }`                                                                                                                 | ✓   | `reserve → stop barrier → start/promote → remove`；启动成功才移除，失败/timeout 释放 reservation 且原项不变，多端竞争单 winner                                                                                                                                                                   | `sendQueuedNowStopsBeforeDrain` / `*OperationLock`                                                                                                                                      |
-| `editQueueItem`        | `{ queueItemId: string; newText: string }`                                                                                                | ✓   | 文本/goal 项原地更新并整体下发 queue；保留 ID、位置、attachments、clientId、sourceCommandId；kind=compact 不可编辑                                                                                                                                                                               | `queueContentIndependence` / `queueItemNotEditable`                                                                                                                                     |
-| `reorderQueueItem`     | `{ queueItemId: string; beforeQueueItemId: string \| null }`                                                                              | ✓   | 同上（null = 移到队尾）                                                                                                                                                                                                                                                                          | 同上                                                                                                                                                                                    |
-| `deleteQueueItem`      | `{ queueItemId: string }`                                                                                                                 | ✓   | 同上                                                                                                                                                                                                                                                                                             | 同上                                                                                                                                                                                    |
-| `setAutoDrain`         | `{ autoDrain: boolean }`                                                                                                                  | ✓   | queue.autoDrain 更新（held 恢复入口，G-07）                                                                                                                                                                                                                                                      | `heldQueueInputRequiresChoice` 语境                                                                                                                                                     |
-| `resolveInteraction`   | `{ interactionId: string; answer: { optionId?: string; freeText?: string } }`                                                             | –   | 该项从 pendingInteractions 消失；toolCall row 状态推进                                                                                                                                                                                                                                           | 先到先得，晚到 noop                                                                                                                                                                     |
-| `switchModelConfig`    | `{ provider: string; model: string; thought: string }`                                                                                    | ✓   | config 整体替换；下一 turn 起按 provider/model 身份变化生成 modelChange marker；thought-only 不产 marker                                                                                                                                                                                         | `sessionConfigScoped` / PB-AUTO-COMP-MODEL-N06                                                                                                                                          |
-| `setFollowupMode`      | `{ mode: "queue" \| "guide" }`                                                                                                            | ✓   | config.followupMode 更新                                                                                                                                                                                                                                                                         | `followupInputModeExplicit`                                                                                                                                                             |
-| `resumeGoal`           | `{}`                                                                                                                                      | ✓   | goal.status paused→active（G-07）                                                                                                                                                                                                                                                                | `stopPausesActiveGoalTarget` 的逆操作                                                                                                                                                   |
-| `cancelBackgroundWork` | `{ workId: string }`                                                                                                                      | –   | 对应 BackgroundWorkSummary → cancelled；不改 sessionEnded                                                                                                                                                                                                                                        | `backgroundWorkDoesNotBlockSessionEnd`                                                                                                                                                  |
-| `renameSession`        | `{ title: string }`                                                                                                                       | –   | sessions-index 的 SessionSummary.title 更新                                                                                                                                                                                                                                                      | –                                                                                                                                                                                       |
-| `deleteSession`        | `{}`                                                                                                                                      | –   | sessions-index `session.removed`；对已订阅客户端：订阅终止信号 + pane 回空态（G-07 联动清理由客户端执行本地态 GC）                                                                                                                                                                               | –                                                                                                                                                                                       |
+| `createSession`        | `{ workspaceId: string; firstInput?: { text: string; attachments?: AttachmentRef[] }; config?: Partial<SessionConfigState> }`             | –   | Decisão (2026-07-05): `firstInput` é opcional. Ausente → phase=draft, sessão vazia (ver o ciclo de vida de draft em §4.2.1); presente → direto turnHeader+userInput rows. ACK result.sessionId                                                                                                                                        | `firstSend`                                                                                                                                                                             |
+| `sendText`             | `{ text: string; attachments?: AttachmentRef[]; heldQueueDisposition?: "clearQueueAndSend" \| "keepQueueAndSend" }`                       | –   | O admission gera primeiro o `ConversationInputIntent` completo; startNow → user row, enqueue → QueueItem, guide → espera um batch completo de tool results e então no máximo uma linha guided inline. guide sem fronteira de tool/não aplicável/com anexos/compact/verifier busy volta à queue comum com o mesmo intent; rejeição por vazio/excedente/runtime devolve rejected/failed explícito | `runningPromptQueues` / `guideModeTurnSteer` / `guideDrainsAfterCompletedToolBatch` / `guideFallbackPreservesIntent` / `unfinishedSessionPromptQueues` / `heldQueueInputRequiresChoice` |
+| `sendGoalCommand`      | `{ text: string; heldQueueDisposition?: "clearQueueAndSend" \| "keepQueueAndSend" }`                                                      | –   | enqueue é kind=sendGoalCommand; no consumo faz set/update do goal + marker goalSet; em held, igual a sendText, passa por choice                                                                                                                                                                                           | `unfinishedSessionGoalQueues` / `heldQueueInputRequiresChoice`                                                                                                                          |
+| `stop`                 | `{}`                                                                                                                                      | –   | Encerra todo o trabalho que bloqueia completion → phase=completedInterrupted; a queue é preservada com autoDrain=false; goal active→paused                                                                                                                                                                                   | `stopBusySessionCancelsForegroundWork`                                                                                                                                                  |
+| `compact`              | `{}`                                                                                                                                      | –   | startNow → compact marker; running/goal verifier/held → QueueItem de kind=compact, executado na promoção FIFO; não gera user row; compact active/queued repetido é rejeitado                                                                                                                                     | `manualCompact` / `runningCompactQueues` / `heldCompactQueues` / `compactOperationLock`                                                                                                 |
+| `forkAssistant`        | `{ target: { rowId: number; entityId: string } }`                                                                                         | ✓   | Primeiro o resolvedor de target unificado; durante a execução, cópia apenas da conversation do turno lógico estável, o pai continua e o workspace compartilhado não sofre rewind; o mesmo commandId devolve o mesmo child                                                                                                                                                  | `runningStableAssistantForkAllowed` / `forkAssistantOnly` / `forkTargetAmbiguous` / `compactOperationLock`                                                                              |
+| `applyFileRewind`      | `{ target: { rowId: number; entityId: string } }`                                                                                         | ✓   | Só `turnHeader.actions.canRewindFiles=true` permite preview/apply das mudanças de arquivo do workspace; não trunca o histórico da conversation                                                                                                                                                                                        | `fileRewindTargetOnly` / `fileRewindUnavailable` / `compactOperationLock`                                                                                                               |
+| `editUserQuery`        | `{ target: { rowId: number; entityId: string }; newText: string; attachments?: AttachmentRef[]; workspaceMode?: "preserve" \| "rewind" }` | ✓   | Com a latest query em execução, primeiro a barreira de stop; antes e depois do compact, corta o branch append-only na sessão original e reproduz pelo intent canônico. `workspaceMode=rewind` pré-verifica e restaura os arquivos com segurança dentro do mesmo command; unsafe/ignored devolve blocked sem alterar branch/arquivo                                                                 | `latestQueryEditPreemptsActiveTurn` / `compactCoveredLatestEditRewindsInPlace` / `editUserOnly` / `editKeepsQueue`                                                                      |
+| `retryTurn`            | `{ target: { rowId: number; entityId: string } }`                                                                                         | ✓   | Reexecuta o último assistant turn com canRetry=true a partir do `ConversationInputIntent` canônico, preservando o kind de input, os anexos e a proveniência                                                                                                                                                                              | `latestAssistantRetryOnly`                                                                                                                                                              |
+| `setAssistantFeedback` | `{ target: { rowId: number; entityId: string }; feedback: "like" \| "dislike" \| null }`                                                  | ✓   | Só assistantText é gravável; um valor não nulo é persistido na mensagem/row do assistant, e null remove o feedback; o mesmo valor pode encerrar como accepted/noop idempotente                                                                                                                                                                           | `assistantFeedbackTargetOnly`                                                                                                                                                           |
+| ~~`rewind`~~           | —                                                                                                                                         | —   | **Comando independente removido.** O rewind da conversation é a entrada de UI de `editUserQuery`; o que é só workspace continua passando por `applyFileRewind`, e a semântica combinada é coordenada atomicamente dentro do Agent por `editUserQuery.workspaceMode`                                                                                                                         | —                                                                                                                                                                                       |
+| `sendQueuedNow`        | `{ queueItemId: string }`                                                                                                                 | ✓   | `reserve → stop barrier → start/promote → remove`; só remove em caso de inicialização bem-sucedida; falha/timeout libera a reservation e o item original fica intacto; competição entre dispositivos tem um único vencedor                                                                                                                                                                   | `sendQueuedNowStopsBeforeDrain` / `*OperationLock`                                                                                                                                      |
+| `editQueueItem`        | `{ queueItemId: string; newText: string }`                                                                                                | ✓   | Item de texto/goal atualizado no lugar e a queue reenviada inteira; preserva ID, posição, attachments, clientId e sourceCommandId; kind=compact não é editável                                                                                                                                                                               | `queueContentIndependence` / `queueItemNotEditable`                                                                                                                                     |
+| `reorderQueueItem`     | `{ queueItemId: string; beforeQueueItemId: string \| null }`                                                                              | ✓   | O mesmo (null = mover para o fim)                                                                                                                                                                                                                                                                          | o mesmo                                                                                                                                                                                    |
+| `deleteQueueItem`      | `{ queueItemId: string }`                                                                                                                 | ✓   | O mesmo                                                                                                                                                                                                                                                                                             | o mesmo                                                                                                                                                                                    |
+| `setAutoDrain`         | `{ autoDrain: boolean }`                                                                                                                  | ✓   | Atualização de queue.autoDrain (entrada de recuperação de held, G-07)                                                                                                                                                                                                                                                      | contexto de `heldQueueInputRequiresChoice`                                                                                                                                                     |
+| `resolveInteraction`   | `{ interactionId: string; answer: { optionId?: string; freeText?: string } }`                                                             | –   | O item desaparece de pendingInteractions; o status da toolCall row avança                                                                                                                                                                                                                                           | quem chega primeiro vence, quem chega depois é noop                                                                                                                                                                     |
+| `switchModelConfig`    | `{ provider: string; model: string; thought: string }`                                                                                    | ✓   | Substituição inteira de config; a partir do próximo turno gera um marker modelChange conforme a mudança de identidade provider/model; thought-only não gera marker                                                                                                                                                                                         | `sessionConfigScoped` / PB-AUTO-COMP-MODEL-N06                                                                                                                                          |
+| `setFollowupMode`      | `{ mode: "queue" \| "guide" }`                                                                                                            | ✓   | Atualização de config.followupMode                                                                                                                                                                                                                                                                         | `followupInputModeExplicit`                                                                                                                                                             |
+| `resumeGoal`           | `{}`                                                                                                                                      | ✓   | goal.status paused→active (G-07)                                                                                                                                                                                                                                                                | o inverso de `stopPausesActiveGoalTarget`                                                                                                                                                   |
+| `cancelBackgroundWork` | `{ workId: string }`                                                                                                                      | –   | O BackgroundWorkSummary correspondente → cancelled; não altera sessionEnded                                                                                                                                                                                                                                        | `backgroundWorkDoesNotBlockSessionEnd`                                                                                                                                                  |
+| `renameSession`        | `{ title: string }`                                                                                                                       | –   | Atualização de SessionSummary.title no sessions-index                                                                                                                                                                                                                                                      | –                                                                                                                                                                                       |
+| `deleteSession`        | `{}`                                                                                                                                      | –   | `session.removed` no sessions-index; para os clientes assinantes: sinal de término de assinatura + pane volta ao estado vazio (a limpeza coordenada do G-07 é feita pelo cliente com GC do estado local)                                                                                                                                                                               | –                                                                                                                                                                                       |
 
-### 6.5 附件上行（G-07）
+### 6.5 Upload de anexos (G-07)
 
 ```ts
 attachment/begin {
@@ -1405,21 +1276,15 @@ renderer/mobile bytes
   -> sendText/createSession AttachmentRef
 ```
 
-事务 key 至少为 `(trusted connectionId, sessionId, uploadId)`。同 metadata 的 begin 重试返回当前
-`nextChunkIndex`/已提交 ref；冲突 metadata 拒绝。chunk 只接受 expected next index；相同 index +
-相同 bytes 是 no-op，冲突 duplicate 或 future gap 明确失败。commit 只在片数、总字节和 whole SHA-256
-全部吻合后原子写 artifact；ACK 丢失重试返回同一 ref。abort 幂等。active uploads、全局 staged bytes、
-TTL、connection close、session close 与 CLI restart 都有硬清理边界，半成品不进入 artifact store。
+A chave da transação é no mínimo `(trusted connectionId, sessionId, uploadId)`. Uma retentativa de begin com os mesmos metadados devolve o `nextChunkIndex` atual / a ref já submetida; metadados conflitantes são rejeitados. O chunk só aceita o próximo índice esperado; o mesmo índice com os mesmos bytes é no-op, e um duplicate conflitante ou um gap futuro falha explicitamente. O commit só grava o artifact atomicamente depois que a contagem de fragmentos, o total de bytes e o SHA-256 inteiro conferem; uma retentativa com ACK perdido devolve a mesma ref. O abort é idempotente. Uploads ativos, bytes staged globais, TTL, fechamento de conexão, fechamento de sessão e restart do CLI têm limites de limpeza rígidos, e uma carga incompleta nunca entra no artifact store.
 
-UI 高层仍是“put attachment → ref”，但 production wire 不再存在承载完整 `dataBase64` 的
-`v4/attachment/put` fallback。上传失败不清 composer 文本/附件；CLI restart 后也不自动 replay bytes。
-ref 未被任何 message 引用时按 TTL 回收（§8）。
+O nível alto da UI continua sendo "colocar anexo → ref", mas o wire de produção não tem mais o fallback `v4/attachment/put` carregando um `dataBase64` completo. Uma falha de upload não limpa o texto/anexos do composer; após um restart do CLI também não há replay automático de bytes. Uma ref não referenciada por nenhuma mensagem é reciclada por TTL (§8).
 
 ---
 
-## 7. Query 层（只读、无状态、超时重发安全）
+## 7. Camada de queries (somente leitura, sem estado, segura para reenvio com timeout)
 
-### 7.1 rows/range（R-06 游标制）
+### 7.1 rows/range (por cursor, R-06)
 
 ```ts
 rows/range {
@@ -1434,9 +1299,9 @@ rows/range {
 }
 ```
 
-合并规范（客户端）：按 rowId 键控插入；与订阅流的 `row.upserted/removed` 天然一致（§4.3）；`atLogEpoch` 不等于 store 当前 epoch 的结果**整体丢弃**（跨 CLI 重启的陈旧读）。
+Especificação de mesclagem (cliente): inserção controlada por rowId; naturalmente consistente com o `row.upserted/removed` do fluxo de assinatura (§4.3); um resultado cujo `atLogEpoch` difere da epoch atual do store é **descartado por inteiro** (leitura obsoleta de um CLI reiniciado).
 
-### 7.2 toolOutput/get、attachment/read 与 artifactd
+### 7.2 toolOutput/get, attachment/read e artifactd
 
 ```ts
 toolOutput/get { ref: string; byteRange?: { start: number; end: number } }
@@ -1455,20 +1320,11 @@ attachment/read {
 }
 ```
 
-`attachment/read` 是严格只读 query：服务端必须先把 session 水合到当前 projection，再确认 ref
-等于该 session 任一 user row 图片附件的 `previewRef ?? ref`；非图片、跨 session ref、任意路径和
-越界 offset 都返回结构化 fault。单次 decoded chunk 不得超过 512 KiB，避免 base64 后突破
-1MiB NDJSON envelope；客户端按 `nextOffset` 顺序拉取并校验 `totalBytes`/`mediaType` 在各 chunk
-间保持不变。服务端可对同 session/ref 做 30 秒、总量有界的读取缓存，session dispose 和 CLI
-dispose 时必须清理。
+`attachment/read` é uma query estritamente de somente leitura: o servidor precisa primeiro hidratar a sessão até a projection atual, e só então confirmar que a ref é igual ao `previewRef ?? ref` de algum anexo de imagem de uma user row daquela sessão; não-imagem, ref de outra sessão, qualquer caminho arbitrário e offset fora dos limites devolvem uma fault estruturada. Um único chunk decodificado não pode passar de 512 KiB, para não estourar o envelope NDJSON de 1MiB depois do base64; o cliente busca em ordem seguindo `nextOffset` e verifica que `totalBytes`/`mediaType` permanecem iguais entre os chunks. O servidor pode manter um cache de leitura de 30 segundos e limitado em volume para o mesmo session/ref, que precisa ser limpo no dispose da sessão e no dispose do CLI.
 
-ref 有效期 = 对应 message 生命周期（artifact store 落盘，跨重启有效）。compact `summaryRef`
-继续走 `toolOutput/get`；attachment `previewRef` 优先走 `attachment/read`。历史附件只有 `ref` 时
-允许读取该 ref，但仍必须通过当前 session row 授权。query 不新增 conversation event、snapshot、
-queue 或 relay/main 业务状态；桌面 `desktop-continuous` 与手机 `web-remote-replayable` 共用该
-读取合同。
+A validade de uma ref = o ciclo de vida da mensagem correspondente (persistida no artifact store, válida entre reinícios). O `summaryRef` do compact continua passando por `toolOutput/get`; o `previewRef` de um anexo tem prioridade em `attachment/read`. Um anexo histórico que tem apenas `ref` permite ler essa ref, mas ainda precisa ser autorizado pela row da sessão atual. A query não cria conversation events, snapshots, filas nem estado de negócio em relay/main; o desktop `desktop-continuous` e o mobile `web-remote-replayable` compartilham este contrato de leitura.
 
-### 7.3 commands/query（重连对账）
+### 7.3 commands/query (conciliação na reconexão)
 
 ```ts
 interface CommandKey { sessionId: string | null; commandId: string }
@@ -1477,33 +1333,23 @@ commands/query { commands: CommandKey[] }      // 1..64 个
   -> { results: Array<{ key: CommandKey; result: CommandAck | "unknown" }> }
 ```
 
-每个 key 按 `内存 LRU → transcript/message anchor → timeline marker → fork child metadata → discarded input ledger → unknown` 查询。query 与 execute 同 key single-flight。discarded ledger 命中返回 `failed/fault.command.inputDiscardedOnRestart`；只有全部事实源未命中才是 `unknown`。客户端行为见 §6.2。
+Cada chave é consultada na ordem `LRU em memória → âncora de transcript/message → timeline marker → metadados de fork child → ledger de inputs descartados → unknown`. Query e execute da mesma chave são single-flight. Um acerto no ledger descartado devolve `failed/fault.command.inputDiscardedOnRestart`; só quando todas as fontes de fato falham o resultado é `unknown`. O comportamento do cliente está em §6.2.
 
-补充约束：
+Restrições adicionais:
 
-- `commands` 必须为 1..64 个，结果严格保持输入顺序；`sessionId=null` 只查询全局/
-  `createSession` 幂等桶。携 firstInput 的 create 命令通过 `queue_<sourceCommandId>` 精确找回
-  新 session 的 ledger；promoted 返回原 `result.sessionId`，admitted-on-restart 返回 discarded。
-- memory 的精确顺序为 `inFlight → liveInputFacts → settled LRU`；persistent 的精确顺序为
-  `message anchor → timeline marker → child metadata → discarded ledger`，只按完全相等的
-  `sourceCommandId` 命中，禁止用文本或时间戳猜测。
-- query 与 execute 共享同一 per-key gate；固定加锁序为 key gate → per-session admission gate。
-  execute 已 pin 后并发 query 不得返回 `unknown`，同 session 不同 commandId 的 admission
-  严格 FIFO，不同 session 互不阻塞。
-- 该 session 已有 V4 cold READY flight 时，query/execute 必须先等待，再按原有优先级查询当前
-  持久事实；不得先查询旧水位后重查，也不得主动激活历史 session。
-- persistent 读取失败返回逐 key 的 `failed/fault.command.queryUnavailable`，不能降级成
-  `unknown`；`unknown` 不缓存。持久化索引按 session 惰性构建并增量更新，workspace 隔离键
-  固定为 `workspaceIdentity?.trim() || workspacePath`，禁止每次 query 全量扫描 transcript。
+- `commands` precisa ter de 1 a 64 itens e os resultados mantêm estritamente a ordem de entrada; `sessionId=null` consulta somente o balde global/de idempotência do `createSession`. Um command create com firstInput reencontra com precisão o ledger da nova sessão pelo `queue_<sourceCommandId>`; promoted devolve o `result.sessionId` original e admitted-on-restart devolve discarded.
+- A ordem exata na memória é `inFlight → liveInputFacts → settled LRU`; a ordem exata no persistente é `message anchor → timeline marker → child metadata → discarded ledger`, casando apenas por `sourceCommandId` exatamente igual, e é proibido adivinhar por texto ou timestamp.
+- Query e execute compartilham o mesmo gate por chave; a ordem fixa de aquisição de travas é key gate → per-session admission gate. Depois que o execute já fez pin, uma query concorrente não pode devolver `unknown`; o admission de commandIds diferentes na mesma sessão é estritamente FIFO, e sessões diferentes não bloqueiam umas as outras.
+- Quando a sessão já tem um V4 cold READY flight em andamento, query/execute precisam esperar primeiro e só então consultar os fatos persistentes atuais pela prioridade de sempre; é proibido consultar uma marca d'água antiga e depois consultar de novo, e é proibido ativar ativamente uma sessão histórica.
+- Uma falha de leitura persistente devolve `failed/fault.command.queryUnavailable` por chave e não pode degradar para `unknown`; `unknown` não é cacheado. O índice persistente é construído de forma preguiçosa por sessão e atualizado incrementalmente, e a chave de isolamento do workspace é fixada em `workspaceIdentity?.trim() || workspacePath`; é proibido varrer o transcript inteiro a cada query.
 
-### 7.4 首屏 bootstrap
+### 7.4 Bootstrap da primeira tela
 
-无聚合中间层（05）：连接建立后客户端**并行**发起 `subscribe(sessions-index/<ws>)` + `subscribe(conversation/<活跃 sessionId>)` + settings 类 query，ws 多路复用一个 RTT 内完成。无专门 bootstrap 方法。
+Sem camada intermediária de agregação (05): depois que a conexão é estabelecida, o cliente dispara **em paralelo** `subscribe(sessions-index/<ws>)` + `subscribe(conversation/<sessionId ativo>)` + as queries de settings, tudo concluído em um único RTT multiplexado no ws. Não existe um método de bootstrap dedicado.
 
-### 7.5 Live conversation telemetry feed
+### 7.5 Feed de telemetria live da conversation
 
-对话埋点使用独立的 ephemeral live feed，不属于 conversation topic，也不参与 snapshot、fragment、
-recovery 或 `rows/range`。事实只从当前 CLI 进程的 runtime live ingest 分流：
+A telemetria da conversa usa um live feed efêmero e separado, que não pertence ao topic conversation nem participa de snapshot, fragment, recovery ou `rows/range`. Os fatos são desviados apenas do ingest live do runtime do processo CLI atual:
 
 ```ts
 interface ConversationTelemetryFactBase {
@@ -1529,106 +1375,102 @@ type ConversationTelemetryFact = ConversationTelemetryFactBase &
   );
 ```
 
-强制边界：
+Fronteiras obrigatórias:
 
-- persisted hydration、subscribe initial、cold snapshot 和 gap recovery 不产生 fact；hydration 期间新到达
-  的 live runtime event 仍产生一次。
-- fact 不进入 transcript、ConversationRow、事件日志、relay 或 main 业务状态。
-- prompt/text chunk 不携正文；tool 不携 input/output；模型 URL 只保留解析后的 hostname。
-- Host 根据 attachment 的可信 `clientMode` 开放订阅，只有 `desktop-continuous` renderer 安装实际
-  reporter；`web-remote-replayable` 不得通过伪造字段扩大旧桌面采集口径。
-- workspace supervisor key 使用
-  `endpoint + remoteSessionId + (workspaceIdentity?.trim() || workspacePath) + serviceGeneration`；
-  pane/SessionDataLayer 生命周期不得拥有该状态。
-- eventId 使用约 2000 条有界 LRU；terminal 与 compact 另按业务 key exactly-once。
+- A hydration persistida, o initial de subscribe, o snapshot frio e o recovery de gap não produzem fatos; um evento live do runtime que chega durante a hydration ainda produz um fato.
+- Um fato não entra no transcript, na ConversationRow, no log de eventos, no relay nem no estado de negócio do main.
+- Chunks de prompt/texto não carregam o corpo; ferramentas não carregam input/output; URLs de modelo guardam apenas o hostname já resolvido.
+- O host libera a assinatura conforme o `clientMode` confiável do attachment, e apenas o renderer `desktop-continuous` instala o reporter real; o `web-remote-replayable` não pode ampliar o escopo antigo de coleta do desktop forçando campos falsos.
+- A chave do supervisor do workspace usa `endpoint + remoteSessionId + (workspaceIdentity?.trim() || workspacePath) + serviceGeneration`; o ciclo de vida do pane/SessionDataLayer não pode ser dono desse estado.
+- O eventId usa um LRU limitado de cerca de 2000 entradas; terminal e compact têm ainda exactly-once por chave de negócio.
 
-完整事件名、字段兼容和前后台矩阵见
-[`docs/monitoring/conversation-telemetry-v4.md`](../monitoring/conversation-telemetry-v4.md)。
+Os nomes completos dos eventos, a compatibilidade de campos e a matriz de primeiro plano/segundo plano estão em
+[`docs/monitoring/conversation-telemetry-v4.md`](../monitoring/conversation-telemetry-v4.md).
 
 ---
 
-## 8. 常量与限额（初始值，实测调参）
+## 8. Constantes e limites (valores iniciais, ajustados por medição)
 
-| 参数                                      | 值                                                                        | 出处                  |
-| ----------------------------------------- | ------------------------------------------------------------------------- | --------------------- |
-| `maxFrameBytes`                           | 1 MiB（physical JSON/RPC 含 envelope）                                    | R-12                  |
-| `maxLogicalAssemblyBytes`                 | 16 MiB；超限 admission 明确拒绝                                           | 05/§3.2               |
-| `maxLogicalAssemblyFragments`             | 1,024                                                                     | 05/§3.2               |
-| 并发 assembly / decoded staging / timeout | 32 / 32 MiB / 30s                                                         | 05/§3.2               |
-| flushWindowMs                             | continuous 30ms / replayable 150ms（可按 RTT 自适应至 200ms）             | 05                    |
-| 每订阅者通道缓冲                          | filter+coalesce 后同时 ≤500 op、≤1 MiB；任一超限 → 清空 + snapshot resync | 05                    |
-| 事件保留窗（内存日志）                    | 每 session 2000 条（08 开放问题口径）                                     | 05/§9.2B              |
-| snapshot 尾部窗口                         | 60 rows                                                                   | 02「一屏」参数化      |
-| `rows/range` limit                        | ≤ 200                                                                     | §7.1                  |
-| tool output 流式上限                      | continuous 256 KiB；replayable 0（不流）                                  | 05                    |
-| **tool output 终态截断（全档统一）**      | head 32 KiB + tail 32 KiB，超出进 `truncated.ref`                         | R-10                  |
-| GoalState.verifications 保留              | 最近 20 条                                                                | §4.2.8                |
-| pendingCommands 显示上限                  | 32 条（超出裁旧）                                                         | §4.2.7                |
-| rpc 心跳/判死/宽限                        | 5s / 20s / 45s·4MiB                                                       | 05（R-02 补课后生效） |
-| 重连退避                                  | 0,1,2,5,10…封顶 30s，单一入口                                             | 05                    |
-| command 客户端 pending TTL                | 24h                                                                       | C-02                  |
-| 服务端内存幂等表                          | 每 session 512 条 LRU + transcript/marker/child/discarded 兜底            | §6.2/§7.3             |
-| query 超时                                | conversation 域 10s；workspace 部署类操作由该域自定义（G-14）             | §7                    |
-| attachment 单个上限 / 未引用 TTL          | 20 MiB / 24h                                                              | §6.5                  |
-
----
-
-## 9. reasonCode 规范
-
-- 命名空间：`guard.*`（含 `guard.forkTargetAmbiguous`、`guard.forkTargetNotStable`、`guard.compactOperationLock`）、`fault.*`（含 `fault.command.inputDiscardedOnRestart`）、`proto.*`（协议层：`proto.staleRevision`、`proto.unknownTargetRow`、`proto.alreadyResolved`、`proto.alreadyStopping`、`proto.sessionNotFound`、`proto.payloadTooLarge`、`proto.invalidPayload`、`proto.missingBaseRevision`）。
-- 客户端按 reasonCode 查本地化文案表；`message` 字段仅兜底与日志。
-- 证据契约（product-protocol §Evidence）：e2e 断言 reasonCode，不断言文案。
+| Parâmetro                                      | Valor                                                                        | Origem               |
+| --------------------------------------------- | ---------------------------------------------------------------------------- | -------------------- |
+| `maxFrameBytes`                                | 1 MiB (JSON/RPC físico incluindo o envelope)                                 | R-12                 |
+| `maxLogicalAssemblyBytes`                      | 16 MiB; acima disso a admission recusa explicitamente                         | 05/§3.2              |
+| `maxLogicalAssemblyFragments`                  | 1.024                                                                         | 05/§3.2              |
+| Montagem concorrente / staging decodificado / timeout | 32 / 32 MiB / 30s                                                     | 05/§3.2              |
+| flushWindowMs                                  | continuous 30ms / replayable 150ms (pode se adaptar ao RTT até 200ms)         | 05                   |
+| Buffer de canal por assinante                  | após filter+coalesce, ≤500 ops e ≤1 MiB simultaneamente; qualquer um excedido → esvazia + snapshot resync | 05                   |
+| Janela de retenção de eventos (log em memória)  | 2000 entradas por sessão (critério das questões abertas de 08)              | 05/§9.2B             |
+| Janela final do snapshot                       | 60 rows                                                                      | parametrização "uma tela" de 02 |
+| Limite de `rows/range`                         | ≤ 200                                                                        | §7.1                 |
+| Teto de streaming do tool output               | continuous 256 KiB; replayable 0 (sem streaming)                             | 05                   |
+| **Truncamento final do tool output (unificado)** | head 32 KiB + tail 32 KiB; o excedente vai para `truncated.ref`                | R-10                 |
+| Retenção de GoalState.verifications            | as 20 mais recentes                                                          | §4.2.8               |
+| Teto de exibição de pendingCommands           | 32 entradas (as mais antigas são cortadas)                                   | §4.2.7               |
+| Heartbeat/morte sutil/grace do rpc             | 5s / 20s / 45s·4MiB                                                          | 05 (vale após o complemento R-02) |
+| Backoff de reconexão                           | 0,1,2,5,10… com teto de 30s, por um único ponto de entrada                   | 05                   |
+| TTL de pendentes de command no cliente         | 24h                                                                          | C-02                 |
+| Tabela de idempotência em memória do servidor  | LRU de 512 por sessão + reserva transcript/marker/child/discarded            | §6.2/§7.3            |
+| Timeout de query                               | 10s no domínio conversation; operações de deploy de workspace têm timeout próprio nesse domínio (G-14) | §7                   |
+| Teto por anexo / TTL de anexo não referenciado | 20 MiB / 24h                                                                 | §6.5                 |
 
 ---
 
-## 10. 与 09/评审结论的差异与待决清单
+## 9. Especificação de reasonCode
 
-### 已按评审结论落实（review 时对照勾选）
+- Namespaces: `guard.*` (incluindo `guard.forkTargetAmbiguous`, `guard.forkTargetNotStable`, `guard.compactOperationLock`), `fault.*` (incluindo `fault.command.inputDiscardedOnRestart`) e `proto.*` (camada de protocolo: `proto.staleRevision`, `proto.unknownTargetRow`, `proto.alreadyResolved`, `proto.alreadyStopping`, `proto.sessionNotFound`, `proto.payloadTooLarge`, `proto.invalidPayload`, `proto.missingBaseRevision`).
+- O cliente consulta uma tabela de textos localizados pelo reasonCode; o campo `message` serve apenas como fallback e para logs.
+- Contrato de evidência (product-protocol §Evidence): o e2e afirma o reasonCode e não o texto.
 
-| #   | 决定                                                                                                                            | 来源           |
-| --- | ------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| 1   | `TopicFrame.subscriptionId` + apply 三分支 + 重订阅 single-flight + 服务端替换式重订阅                                          | R-01           |
-| 2   | `base = { logEpoch, seq }`，revision 不参与恢复（04 的 {R,W} 由此裁决）                                                         | C-05/R-04      |
-| 3   | rows 分页全面游标化，`firstIndex/totalCount` 索引语义删除（保留 totalCount 仅供滚动条估计）                                     | R-06           |
-| 4   | `sourceCommandId` 铺满：QueueItem/drain/user row/message anchor/timeline marker/fork child metadata                             | R-07/核心闭环  |
-| 5   | ACK 增 `noop`；跨端晚到者语义改用 noop+reasonCode，`duplicate` 严格限同 commandId                                               | R-09           |
-| 6   | 终态截断全档统一（head+tail 32K），流式上限才按 profile                                                                         | R-10           |
-| 7   | wire v3 physical 帧含 envelope ≤1 MiB；snapshot/resume fragment assembly ≤16 MiB、校验后原子 apply                              | R-12/核心闭环  |
-| 8   | revision 递进规则封闭枚举；revision/rowId/seq 确定性写入 §1                                                                     | R-04           |
-| 9   | A 区新增 config/usage/backgroundWorks/plan/goal(verifications)/apiRetry                                                         | G-01~04        |
-| 10  | RowBase.createdAt + frame.sentAt + clockOffset 规则 + turnHeader(activeMs/fileChanges)                                          | G-05           |
-| 11  | userInput.origin 增 mailbox/goalContinuation + originMeta 结构化                                                                | G-06           |
-| 12  | 命令补齐：retryTurn/resumeGoal/setAutoDrain/cancelBackgroundWork/renameSession/deleteSession/attachment 上行                    | G-07           |
-| 13  | queue 仅进程内可靠；restart 写 discarded tombstone，commands/query 返回显式 failed，禁止自动重放                                | §9.3/核心闭环  |
-| 14  | 自包含 ConversationInputIntent 贯穿 queue/runtime/transcript，含 steer/dispatch 状态                                            | D-03/核心闭环  |
-| 15  | stopTargetKind 增 turnSteer；activeWorks 轻量保留                                                                               | D-02           |
-| 16  | D-05 全部未定义类型补齐（QueueItem/GoalState/SessionErrorInfo/Availability/AttachmentRef/marker payloads/Permission/UserInput） | D-05           |
-| 17  | host 为每 attachment 注入可信 clientMode/profile；owned subscription routing，port close unsubscribe all                        | 核心闭环门禁 1 |
-| 18  | commands/query 以 `{sessionId,commandId}` 查询 LRU→transcript/marker/child→discarded，query/execute single-flight               | 核心闭环门禁 2 |
-| 19  | `resolveStableForkTarget` + running conversation-only fork；父继续、workspace 不 rewind                                         | 核心闭环门禁 3 |
+---
 
-### ⚠ 我替你做的决定（2026-07-05 已全部裁决，见各行标注）
+## 10. Diferenças em relação a 09/às conclusões da revisão e lista de pendências
 
-> P1、P4–P11 于 2026-07-05 由用户整批确认接受；P2/P3 单独裁决见下。用户同时确认了 running fork 语义（`forkAssistant` 在 running 时对稳定 assistant row 可用，`runningStableAssistantForkAllowed`）是期望的产品方向——这是相对现状的行为放开，记入 C-07 语义变更表。
+### Implementado conforme as conclusões da revisão (marcar durante a review)
 
-| #   | 决定                                                                                                                                                                    | 理由 / 备选                                                                                                                           |
-| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| P1  | **新增 `turnHeader` 行类型**承载折叠头/权威工时/每轮文件摘要（**已确认**）                                                                                              | 09 只有「turnId 相邻性」表达不了工时与折叠组归属（G-05/P1-12b）。备选：A 区 turnsMeta map——被否，无界增长且违反「只有 rows 用 patch」 |
-| P2  | ~~删除 phase="draft"~~ **已裁决：保留 draft**，createSession 的 firstInput 改为可选；draft 生命周期见 §4.2.1（纯内存、不落盘、CLI 重启即消失）                          | 产品需要「先建空会话再输入」                                                                                                          |
-| P3  | ~~rewind 命令占位待决~~ **已裁决：删除独立命令**，rewind = editUserQuery 的 UI 入口，行为力复用 canEdit                                                                 | 一件事一条路                                                                                                                          |
-| P4  | **`hasBackgroundWork` 从 control 删除**（sessions-index 的 SessionSummary 保留布尔）                                                                                    | backgroundWorks[] 已在 A 区，派生一行代码；保留则是可分叉的冗余真相                                                                   |
-| P5  | **`forkOf` 从 createSession 删除**，fork 只走 forkAssistant                                                                                                             | 一件事一条路；09§10 两处入口冗余                                                                                                      |
-| P6  | **rowId/`revision` 用 number，Timestamp 用 Unix ms**；rowId 不做字符串前缀                                                                                              | 排序/比较零成本。若要预留复合 id 空间可改 string，需同步改游标比较规则                                                                |
-| P7  | **usage 放 conversation A 区**而非独立 topic                                                                                                                            | 它是 per-session、低频（conflation 后）、UI 与会话同生命周期。备选：usage 域独立 topic——跨 session 汇总页再考虑                       |
-| P8  | **command 信封删除 clientMode**；可信 clientMode 由 host attachment 注入，ClientHello 只上报 telemetry `clientKind`                                                     | 客户端声明不可作为 desktop/mobile 投递边界；每条命令重复携带也无意义                                                                  |
-| P9  | **深链行为**：subagent 下钻 = 订阅 child session 的 conversation topic，不在父投影内嵌 child rows；父会话 UI 可把已配对 `subagent` 下钻挂回触发它的 Agent/Task 工具块内 | row 自包含原则；child 是普通 session                                                                                                  |
-| P10 | **deleteSession 的多端联动**只定义「订阅终止信号 + 客户端本地态 GC」，不定义回收站/恢复                                                                                 | G-07 最小闭环；软删除属产品决策                                                                                                       |
-| P11 | pendingCommands 上限 32、幂等表 512 LRU、附件 20MiB 等具体数值                                                                                                          | 全部标在 §8，按实测调                                                                                                                 |
+| #   | Decisão                                                                                                                            | Origem           |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| 1   | `TopicFrame.subscriptionId` + os três ramos do apply + reassinatura single-flight + reassinatura substitutiva no servidor               | R-01             |
+| 2   | `base = { logEpoch, seq }`; a revision não participa da recuperação (o par {R,W} de 04 é decidido assim)                                 | C-05/R-04        |
+| 3   | Paginação de rows totalmente por cursor, semântica de índice `firstIndex/totalCount` removida (totalCount permanece só para estimar a barra de rolagem) | R-06             |
+| 4   | `sourceCommandId` em tudo: QueueItem/drain/user row/message anchor/timeline marker/metadados de fork child                            | R-07/fechamento central |
+| 5   | ACK ganha `noop`; a semântica de quem chega depois entre dispositivos passa a ser noop+reasonCode, e `duplicate` fica restrito ao mesmo commandId | R-09           |
+| 6   | Truncamento final unificado em todos os perfis (head+tail 32K); só o teto de streaming é por perfil                                    | R-10             |
+| 7   | Quadro físico wire v3 com envelope ≤1 MiB; montagem por fragmentos de snapshot/resume ≤16 MiB, com apply atômico após a validação           | R-12/fechamento central |
+| 8   | Regra de progressão de revision em enumeração fechada; revision/rowId/seq de forma determinística em §1                                  | R-04             |
+| 9   | Área A ganha config/usage/backgroundWorks/plan/goal(verifications)/apiRetry                                                          | G-01~04          |
+| 10  | RowBase.createdAt + frame.sentAt + regra de clockOffset + turnHeader(activeMs/fileChanges)                                            | G-05             |
+| 11  | userInput.origin ganha mailbox/goalContinuation + originMeta estruturado                                                             | G-06             |
+| 12  | Commands completados: retryTurn/resumeGoal/setAutoDrain/cancelBackgroundWork/renameSession/deleteSession/upload de anexos                  | G-07             |
+| 13  | A queue só é confiável no processo; no restart grava-se um tombstone discarded e commands/query devolve failed explícito, sem replay automático | §9.3/fechamento central |
+| 14  | ConversationInputIntent autossuficiente atravessando queue/runtime/transcript, com estado de steer/dispatch                              | D-03/fechamento central |
+| 15  | stopTargetKind ganha turnSteer; activeWorks mantido de forma leve                                                                    | D-02             |
+| 16  | Todos os tipos indefinidos de D-05 completados (QueueItem/GoalState/SessionErrorInfo/Availability/AttachmentRef/marker payloads/Permission/UserInput) | D-05             |
+| 17  | O host injeta clientMode/profile confiáveis por attachment; roteamento de assinatura owned e unsubscribe all no fechamento de porta           | portão 1 do fechamento central |
+| 18  | commands/query consulta `{sessionId,commandId}` em LRU→transcript/marker/child→discarded, com query/execute single-flight                 | portão 2 do fechamento central |
+| 19  | `resolveStableForkTarget` + fork em execução apenas de conversation; o pai continua e o workspace não sofre rewind                            | portão 3 do fechamento central |
 
-### 依赖的外部未决项（2026-07-05 部分已裁决）
+### ⚠ Decisões que tomei no seu lugar (todas decididas em 2026-07-05, ver as anotações em cada linha)
 
-- ~~§9.2 事件日志 A/B~~ **已裁决：方案 B**（内存有界日志 + logEpoch，零新表；CLI 重启后客户端走一次 snapshot）。
-- ~~fork/createSession 崩溃窗口防重~~ **已裁决：child session 记 `source_command_id`**（一列或 metadata，彻底防重）。
-- ~~多端动作权限（C-01）~~ **已裁决：全权对等**——任何已连接客户端都能 stop / 答权限弹窗，冲突靠幂等收口。鉴权面（G-13）仍待成文。
-- ~~fault catalog（G-12）~~ **词表已定**：`fault.*` reasonCode 与 `SessionErrorInfo.code` 枚举见 [12-fault-catalog.md](./12-fault-catalog.md)（code 词表冻结；各 fault 的产品行为仍按 decision worksheet 逐批裁决，裁决只改 reducer 分支不改 code）。
-- ~~PB-\*~~ **已裁决（2026-07-05，M0 决策清收）**：F09 手动 compact 失败保持 completed + failed marker（retry 入口）；G11 三连败继续无压缩执行 + circuit breaker；G12 被 stop 与普通 stop 对齐、marker 置 `cancelled`；N06 允许 compact 中切模型、pendingAction 消费瞬间读 config 快照。**结论验证：本文 compact marker 的 `status` 枚举（running/success/failed/noop/cancelled）与 `attempt`/`retryNotice` 表达力足够，无需扩枚举**。逐项记录见 `docs/conversation-product-protocol.md`「Pending Product Boundaries」。
+> P1, P4–P11 foram aceitos em bloco pelo usuário em 2026-07-05; P2/P3 foram decididos à parte, como visto abaixo. O usuário confirmou ao mesmo tempo que a semântica de fork em execução (`forkAssistant` disponível para uma row assistant estável enquanto o turno roda, `runningStableAssistantForkAllowed`) é a direção de produto desejada — isso é uma liberação de comportamento em relação ao estado atual e foi registrada na tabela de mudanças semânticas C-07.
+
+| #   | Decisão                                                                                                                                                                    | Razão / alternativa                                                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | **Novo tipo de linha `turnHeader`** para carregar o cabeçalho recolhido, o tempo de trabalho autoritativo e o resumo de arquivos por turno (**confirmado**)           | O 09 só tem a "adjacência de turnId", que não expressa tempo de trabalho nem atribuição de grupo recolhido (G-05/P1-12b). Alternativa: um map turnsMeta na área A — rejeitada, crescimento sem limite e violação de "só rows usam patch" |
+| P2  | ~~Remover phase="draft"~~ **Decidido: manter draft**; o firstInput de createSession passa a ser opcional; o ciclo de vida de draft está em §4.2.1 (só em memória, não persistido, some com o restart do CLI) | O produto precisa de "criar antes uma sessão vazia e só depois digitar"                                                                                                                                    |
+| P3  | ~~Espaço reservado para o command rewind~~ **Decidido: remover o comando independente**; rewind = entrada de UI de editUserQuery, e o poder de ação reaproveita canEdit             | Um caminho único por assunto                                                                                                                                                                                |
+| P4  | **`hasBackgroundWork` removido de control** (o booleano permanece no SessionSummary do sessions-index)                                                                     | backgroundWorks[] já está na área A e a derivação custa uma linha de código; mantê-lo seria uma verdade redundante que pode divergir                                                                                      |
+| P5  | **`forkOf` removido de createSession**; o fork passa só por forkAssistant                                                                                                   | Um caminho único por assunto; as duas entradas de 09§10 eram redundantes                                                                                                                                    |
+| P6  | **rowId/`revision` são number, Timestamp é Unix ms**; rowId não ganha prefixo de string                                                                                    | Ordenação e comparação sem custo. Se for reservado espaço para ids compostos, pode virar string, com a regra de comparação de cursor mudando em conjunto                                                                            |
+| P7  | **usage fica na área A de conversation**, e não em um topic separado                                                                                                       | É por sessão, de baixa frequência (após a conflação), e compartilha o ciclo de vida com a sessão. Alternativa: topic de domínio usage — a considerar quando existir uma página de agregação entre sessões       |
+| P8  | **O envelope de command deixa de carregar clientMode**; o clientMode confiável é injetado pelo host no attachment, e o ClientHello só reporta o clientKind de telemetria           | A declaração do cliente não pode servir de fronteira de entrega desktop/mobile; além disso, repetir isso em cada command não tem sentido                                                                                        |
+| P9  | **Comportamento de deep link**: o drill-down de subagent = assinar o topic conversation da sessão child, sem embutir child rows na projection do pai; a UI da sessão pai pode anexar de volta o `subagent` pareado ao bloco de ferramenta Agent/Task que o disparou | O princípio de line autossuficiente; o child é uma sessão comum                                                                                                                       |
+| P10 | **A coordenação entre dispositivos de deleteSession** define apenas "sinal de término de assinatura + GC do estado local do cliente", sem lixeira/restauração                                                                              | Fechamento mínimo do G-07; exclusão lógica é uma decisão de produto                                                                                                                                      |
+| P11 | Valores concretos como teto de 32 em pendingCommands, LRU de 512 na tabela de idempotência e anexos de 20MiB                                                                              | Todos marcados em §8 e ajustados por medição                                                                                                                                                        |
+
+### Pendências externas das quais isto depende (parcialmente decididas em 2026-07-05)
+
+- ~~Log de eventos A/B em §9.2~~ **Decidido: Opção B** (log limitado em memória + logEpoch, sem tabela nova; após o restart do CLI o cliente faz um snapshot).
+- ~~Prevenção de duplicidade na janela de crash de fork/createSession~~ **Decidido: a sessão child grava `source_command_id`** (uma coluna ou metadata, prevenir duplicidade por completo).
+- ~~Permissões de ação entre dispositivos (C-01)~~ **Decidido: paridade total** — qualquer cliente conectado pode parar / responder a um popup de permissão, e conflitos são encerrados pela idempotência. A superfície de autorização (G-13) ainda precisa ser escrita.
+- ~~Catálogo de faults (G-12)~~ **Vocabulário definido**: os reasonCodes `fault.*` e a enumeração de `SessionErrorInfo.code` estão em [12-fault-catalog.md](./12-fault-catalog.md) (vocabulário de codes congelado; o comportamento de produto de cada fault continua sendo decidido lote a lote na decision worksheet, e as decisões só mudam ramos do reducer, não o code).
+- ~~PB-\*~~ **Decidido (2026-07-05, fechamento das decisões de M0)**: F09 compact manual que falha permanece completed + failed marker (entrada de retry); G11 três falhas seguidas continuam executando sem compactação + circuit breaker; G12 um stop de goal e o stop comum ficam alinhados, com marker em `cancelled`; N06 permite trocar de modelo durante o compact, e o pendingAction lê o snapshot de config no instante do consumo. **Verificação da conclusão: o enum `status` do compact marker neste documento (running/success/failed/noop/cancelled) e a expressividade de `attempt`/`retryNotice` são suficientes, sem necessidade de ampliar o enum**. O registro item a item está em `docs/conversation-product-protocol.md`, em "Pending Product Boundaries".

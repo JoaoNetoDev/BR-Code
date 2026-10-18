@@ -1,25 +1,21 @@
-# Onboarding 记录本地持久化 Spec
+# Spec de persistência local do registro de onboarding
 
-> 分支：`prototype/onboarding-suggestions`
-> 状态：已实现（本地存储阶段；服务端上传接口待定，预留 `uploadState`）
+> Branch: `prototype/onboarding-suggestions`
+> Status: implementado (fase de armazenamento local; interface de upload para o servidor pendente, com `uploadState` reservado)
 
-## 1. 背景与目标
+## 1. Contexto e objetivos
 
-新用户引导（OccupationOnboarding，三步向导：职业 / 模式 / 偏好）目前只在完成后把偏好写入
-`~/.zcode/v2/setting.json`（`onboardingOccupation` 等字段），没有独立的"引导完成记录"。
-产品需要：
+O onboarding de novos usuários (OccupationOnboarding, assistente de três passos: profissão / modo / preferências) hoje, ao ser concluído, grava apenas as preferências em `~/.zcode/v2/setting.json` (campos como `onboardingOccupation`), sem um "registro de conclusão do onboarding" independente.
+O produto precisa de:
 
-1. 把三页收集的信息持久化到**独立的本地 JSON 文件**，后续开放上传给服务器；
-2. 记录以**设备 id（deviceMid）**为锚点，支持**多个用户 id**（同一台电脑多人登录），
-   也支持**没有用户 id**（使用 apikey、未登录）；
-3. 引导只自动展示给本机尚未激活的身份：既没有作答/资格决策，也没有创建过真实
-   Task/Session 时展示；已有本地 Task 的存量用户静默记为 `existing_local_user`，关闭引导的用户
-   记为 `dismissed`，两者之后都不重复展示。
+1. persistir as informações coletadas nas três páginas em um **arquivo JSON local separado**, para depois habilitar o upload ao servidor;
+2. ancorar o registro por **device id (deviceMid)**, com suporte a **múltiplos user ids** (várias pessoas conectadas no mesmo computador),
+   e também a **ausência de user id** (uso com apikey, não conectado);
+3. exibir o onboarding automaticamente apenas para identidades ainda não ativadas nesta máquina: quando não há resposta/decisão de elegibilidade nem Task/Session reais criados; usuários existentes com Tasks locais são registrados silenciosamente como `existing_local_user` e usuários que fecharam o onboarding como `dismissed` — ambos não são exibidos novamente.
 
-## 2. 数据结构
+## 2. Estrutura de dados
 
-Schema 定义在 `packages/shared/src/onboardingRecord.ts`（类型 + zod，独立平级文件，
-不并入 `validationAppSettings.ts`）：
+O schema está definido em `packages/shared/src/onboardingRecord.ts` (tipos + zod, em um arquivo separado e par, sem incorporação a `validationAppSettings.ts`):
 
 ```ts
 interface OnboardingRecordEntry {
@@ -45,14 +41,14 @@ interface OnboardingRecordFile {
 }
 ```
 
-`entries` 仍是问卷答案及后续上传队列；`decisions` 只表达本机展示资格，不进入答案上传。
-v1 文件不做启动迁移：读取时视为 `decisions: []`，下一次业务写入时自然落为 v2。
+`entries` continuam sendo as respostas do questionário e a fila de upload subsequente; `decisions` expressam apenas a elegibilidade de exibição local e não entram no upload de respostas.
+Arquivos v1 não recebem migração na inicialização: na leitura são tratados como `decisions: []` e, na próxima escrita de negócio, são naturalmente gravados como v2.
 
-**跳过语义**：跳过是显式答案。某页被跳过时该字段记 `null`（职业页跳过 → `occupation: null`；模式页跳过 → `interfaceMode: null`；偏好页跳过 → 两个布尔记 `null`），与"明确选择了值"区分。settings 侧跳过仍落保守默认值（职业 `other` / 偏好关），区分度只体现在本记录文件。
+**Semântica de pulo**: pular é uma resposta explícita. Quando uma página é pulada, o campo correspondente é registrado como `null` (pulo na página de profissão → `occupation: null`; pulo na página de modo → `interfaceMode: null`; pulo na página de preferências → os dois booleanos como `null`), diferenciando-se de "escolheu explicitamente um valor". No lado de settings, o pulo continua gravando o default conservador (profissão `other` / preferências desligadas); a distinção aparece apenas neste arquivo de registro.
 
-存储位置：`getAppConfigDir()/onboarding-record.json`（即 `getDataBaseDir()/.zcode/v2/`，默认 `~/.zcode/v2/`；用户自定义数据目录时跟随 dataBaseDir，与 telemetry-state.json 等设备级数据一致。注意与 setting.json 不同——setting.json 固定留在 home，因为启动引导需要从固定位置读取 dataBaseDir）。原子写。
+Local de armazenamento: `getAppConfigDir()/onboarding-record.json` (isto é, `getDataBaseDir()/.zcode/v2/`, por padrão `~/.zcode/v2/`; quando o usuário define um diretório de dados customizado, segue o dataBaseDir, igual a dados de nível de dispositivo como telemetry-state.json. Note a diferença em relação a setting.json — setting.json permanece fixo no home, porque o onboarding de inicialização precisa ler o dataBaseDir de uma posição fixa). Escrita atômica.
 
-## 3. 关联语义
+## 3. Semântica de vínculo
 
 ```
 +----------------+          +---------------------------+
@@ -70,16 +66,12 @@ v1 文件不做启动迁移：读取时视为 `decisions: []`，下一次业务�
                                   服务器（payload 自带 deviceMid + userId）
 ```
 
-- `deviceMid` 由 renderer 经 `platform.getDeviceId()`（desktop 为 userData 路径 SHA-256，
-  稳定）传入 service；落盘后以**文件内的值**为权威，重复写入不改变。
-- `userId` 由 service 内部经 `oauthCredentialRepo.loadActiveUserProfile()?.id ?? null`
-  补全，UI 不直接触碰 OAuth 层。
+- `deviceMid` é passado pelo renderer via `platform.getDeviceId()` (no desktop, SHA-256 do caminho userData, estável) para o service; após ser gravado, o valor **dentro do arquivo** é o autoritativo e reescritas não o alteram.
+- `userId` é completado internamente pelo service via `oauthCredentialRepo.loadActiveUserProfile()?.id ?? null`; a UI não toca diretamente na camada de OAuth.
 
-## 3.5 登录认领（claimAnonymousRecord）
+## 3.5 Reivindicação no login (claimAnonymousRecord)
 
-同一人"未登录答一次 → 登录"不得被当成新用户重复引导：登录用户判定前先认领——
-该 userId 无条目而存在匿名（null）条目时，把 null 条目**移交给**该 userId（改写，
-不复制，避免同一引导行为双条目污染上传统计）。
+Responder uma vez sem estar conectado e depois conectar não pode ser tratado como um novo usuário que precisa de onboarding repetido: antes de avaliar o usuário conectado, primeiro se reivindica o registro — quando esse userId não tem entrada mas existe uma entrada anônima (null), a entrada null é **transferida** para aquele userId (reescrita, não cópia, evitando que o mesmo comportamento de onboarding produza duas entradas e contamine as estatísticas de upload).
 
 ```
 [] → 未登录答 → [null]
@@ -89,12 +81,11 @@ v1 文件不做启动迁移：读取时视为 `decisions: []`，下一次业务�
         → 切回 A：A 有条目 → 不动
 ```
 
-- 认领同时覆盖作答 entry 和资格 decision，只在登录用户自己两者都没有时发生；
-  [A, null] 状态下登录 A 是幂等空操作。
-- 匿名态失去记录后再次触发引导属预期（该态确实没有自己的记录）。
-- UI 侧必须 await 认领完成后再 shouldOnboard，否则读到认领前文件会误判需要引导。
+- a reivindicação cobre simultaneamente a entry de respostas e a decision de elegibilidade, e ocorre somente quando o próprio usuário conectado não tem nenhuma das duas; no estado [A, null], conectar com A é uma operação vazia idempotente.
+- após perder o registro no estado anônimo, o onboarding disparar novamente é o comportamento esperado (esse estado realmente não tem registro próprio).
+- no lado da UI é obrigatório aguardar a reivindicação terminar antes de shouldOnboard, caso contrário a leitura do arquivo anterior à reivindicação pode 判断 incorretamente que o onboarding é necessário.
 
-## 4. 触发规则（shouldOnboard）
+## 4. Regras de disparo (shouldOnboard)
 
 ```
 启动 / 登录态变化（zustand user 改变）
@@ -112,29 +103,26 @@ v1 文件不做启动迁移：读取时视为 `decisions: []`，下一次业务�
  触发引导（完成写 entry；关闭写 dismissed）
 ```
 
-- 登录用户按 `userId` 精确匹配；未登录 / apikey 按 `userId === null` 匹配。
-- Task 激活证据按设备全局 tasks-index 判断，包含归档 Task、排除已删除 Task；当前版本没有可靠的
-  Task 创建者身份归属，因此只要本设备已有真实 Task，就把当前无记录身份视为存量用户。
-- 手动快捷键打开引导（`newUserOnboardingOpen`）不受该规则限制，保存后同样追加记录。
+- usuários conectados fazem correspondência exata por `userId`; não conectado / apikey faz correspondência por `userId === null`.
+- a evidência de Task ativa é julgada pelo tasks-index global do dispositivo, incluindo Tasks arquivadas e excluindo Tasks já deletadas; como a versão atual não tem atribuição confiável de identidade do criador da Task, basta que o dispositivo já tenha uma Task real para que a identidade sem registro seja tratada como usuário existente.
+- a abertura manual do onboarding por atalho (`newUserOnboardingOpen`) não é restringida por essa regra e também acrescenta um registro ao salvar.
 
-## 5. 服务接口（IOnboardingRecordService）
+## 5. Interface de serviço (IOnboardingRecordService)
 
-| 方法                             | 说明                                                                                |
+| Método                             | 说明                                                                                |
 | -------------------------------- | ----------------------------------------------------------------------------------- |
-| `appendRecord(deviceMid, entry)` | 文件不存在则创建并固化 deviceMid；存在则追加；损坏时 warn 并重建；userId 由服务补全 |
-| `shouldOnboard(deviceMid)`       | 触发判定；已有 Task 时写入 existing_local_user（见 §4）                             |
-| `dismissOnboarding(deviceMid)`   | 关闭首次引导时写入 dismissed；已有作答时为空操作                                    |
-| `getRecords()`                   | 读取整份文件（后续上传使用）                                                        |
-| `clearRecords()`                 | 删除文件（调试用）                                                                  |
+| `appendRecord(deviceMid, entry)` | Cria o arquivo e fixa o deviceMid se não existir; acrescenta se existir; em caso de corrupção, emite warn e reconstrói; o userId é completado pelo serviço |
+| `shouldOnboard(deviceMid)`       | Avaliação de disparo; grava existing_local_user quando já há Task (ver §4)        |
+| `dismissOnboarding(deviceMid)`   | Grava dismissed ao fechar o primeiro onboarding; é operação vazia se já houver respostas |
+| `getRecords()`                   | Lê o arquivo inteiro (usado no upload subsequente)                                |
+| `clearRecords()`                 | Remove o arquivo (para depuração)                                                  |
 
-RPC 暴露链路与 settingService 相同：`ServiceChannels.OnboardingRecord` →
-descriptor → `createLocalServices` 注册 → `RemoteServiceAccess` getter → UI hook。
+A cadeia de exposição de RPC é a mesma do settingService: `ServiceChannels.OnboardingRecord` →
+descriptor → registro em `createLocalServices` → getter de `RemoteServiceAccess` → hook de UI.
 
-### 5.1 手机远程工作区的服务连接
+### 5.1 Conexão de serviço do workspace remoto no celular
 
-远程工作区的 service collection 必须暴露 `onboarding-record`，与该入口的 settings/OAuth
-保持同源：SSH/WSL/Docker 复用窗口 Local Host 已有的 `IOnboardingRecordService` 实例；
-Server remote 转接 Server 已有的记录服务。不得按项目另建记录服务或复制记录。
+A coleção de services do workspace remoto deve expor `onboarding-record`, mantendo a mesma origem dos services de settings/OAuth desse ponto de entrada: SSH/WSL/Docker reutilizam a instância existente de `IOnboardingRecordService` do Local Host da janela; o Server remote encaminha para o serviço de registros já existente no Server. Não se deve criar um serviço de registro por projeto nem copiar registros.
 
 ```text
 手机新建远程任务 -> 新 workspace attachment -> onboarding-record RPC
@@ -142,100 +130,76 @@ Server remote 转接 Server 已有的记录服务。不得按项目另建记录�
   Server        -> Server 原有服务         -> Server 身份、记录和全局任务索引
 ```
 
-故障原因是远程 service collection 漏注册此通道，手机重挂载 Root 后调用失败，回退到
-settings 判定而误弹引导。修复只补服务装配；引导触发规则、settings 失败兜底、Root 重挂载
-以及 desktop-continuous/web-remote-replayable 的任务传输语义均沿用既有实现。
+A causa da falha foi a coleção de services remota não registrar este canal: após o celular remontar o Root a chamada falhava e caía na decisão baseada em settings, exibindo o onboarding indevidamente. A correção apenas completa a montagem do serviço; as regras de disparo do onboarding, o fallback de falha de settings, a remontagem do Root e a semântica de transferência de Tasks de desktop-continuous/web-remote-replayable seguem a implementação existente.
 
-回归覆盖：已有记录但 settings 无职业字段时，手机进入远程草稿不展示引导；首次用户仍展示，
-关闭后重建连接仍保持已关闭；Server 使用自己的记录服务，不能误读桌面记录。服务装配测试
-通过真实 RPC 验证读写路由和错误传播；浏览器回归使用真实引导组件和服务装配，任务入口与
-传输环境使用隔离夹具，不代替真机配对及 SSH/WSL/Docker 传输端到端验收。
+Cobertura de regressão: quando já existe registro mas settings não tem o campo de profissão, o celular entrando em um rascunho remoto não exibe o onboarding; o usuário de primeira execução continua vendo, e após fechar, reconectar mantém o estado fechado; o Server usa seu próprio serviço de registros e não pode ler registros do desktop por engano. O teste de montagem de serviços valida o roteamento de leitura/escrita e a propagação de erros via RPC real; a regressão de navegador usa componentes reais de onboarding e montagem de serviços, com entrada de tarefa e ambiente de transferência em fixtures isoladas, não substituindo a validação de pareamento em aparelho real e a transferência ponta a ponta por SSH/WSL/Docker.
 
-- RPC 回归：`packages/desktop/test/hostRemoteWorkspaceServices.test.ts`。
-- 浏览器候选用例（待人工审阅）：
-  `packages/desktop/test/e2e/manual-review/pending/mobile-remote-onboarding.mjs`，
-  从仓库根目录执行 `pnpm exec tsx <用例路径>`。
+- Regressão de RPC: `packages/desktop/test/hostRemoteWorkspaceServices.test.ts`.
+- Caso de navegador candidato (aguardando revisão manual):
+  `packages/desktop/test/e2e/manual-review/pending/mobile-remote-onboarding.mjs`,
+  executando a partir da raiz do repositório `pnpm exec tsx <caminho-do-caso>`.
 
-## 6. UI 集成（OccupationOnboarding.tsx）
+## 6. Integração de UI (OccupationOnboarding.tsx)
 
-- 引导操作文案必须在中英文语言包中完整定义，不能回退显示原始翻译 key：
-  `start` 为“开始使用” / “Get started”，`continue` 为“下一步” / “Next”，
-  `saving` 为“正在保存…” / “Saving…”，`back` 为“返回” / “Back”，
-  `error` 为“保存失败，请重试。” / “Failed to save. Please try again.”。
-  回归测试覆盖上述五个 key 的两种语言，确保后续埋点也能复用有效按钮文案。
+- Os textos das ações do onboarding devem estar totalmente definidos nos pacotes de idioma zh e en, sem voltar a exibir a chave de tradução original:
+  `start` é "开始使用" / "Get started", `continue` é "下一步" / "Next",
+  `saving` é "正在保存…" / "Saving…", `back` é "返回" / "Back",
+  `error` é "保存失败，请重试。" / "Failed to save. Please try again.".
+  Os testes de regressão cobrem essas cinco chaves nos dois idiomas, garantindo que a telemetria posterior possa reutilizar textos de botão válidos.
 
-- 顶部导航使用等宽左右列与居中进度列：返回在左、步骤进度在正中、关闭在右，按钮垂直居中且左右外边距一致；首步隐藏返回仍保留其列，不移动进度。
+- A navegação superior usa colunas laterais de largura igual e uma coluna central de progresso: voltar à esquerda, progresso das etapas exatamente ao centro, fechar à direita, botões centralizados verticalmente e com margens externas iguais; no primeiro passo o botão voltar é ocultado mas sua coluna é mantida, sem deslocar o progresso.
 
-- 职业选项图标使用 20px（size-5），选中圆圈保持 16px。
-- 跳过与下一步按钮字号统一使用 text-ui-base（默认 14px）。
+- Os ícones das opções de profissão usam 20px (size-5) e o círculo de seleção permanece com 16px.
+- Os botões pular e próximo unificam o tamanho de fonte em text-ui-base (14px por padrão).
 
-- 布局：桌面双栏由外层统一提供 4px 四周留白与栏间距；右侧插画面板复用主界面圆角规则
-  （Windows 5px、macOS 26+ 12px、旧版或未知 macOS 6px、其他平台 12px）。
-  左侧职业、模式、偏好选择卡片统一使用首层容器圆角 rounded-xl；本页面按设计要求将下一步、上一步、跳过、关闭等按钮统一为 rounded-xl，与选择卡片一致，不修改全局按钮默认圆角。
-  右侧 Hero 覆盖 1px 主题边框，沿用面板圆角，不占布局空间、不接收指针。
-  Hero 使用左对齐的品牌介绍布局：Logo、标题、副文案共享左边线，内容组垂直居中，最大宽度 640px。
-  面板左右留白随窗口宽度在 64–72px 之间变化，上下留白保持 32–72px，Logo 与标题间距 40px，标题与副文案间距 24px。
-  窄屏沿用单栏表单与原有滚动边界，不显示 Hero；短窗口允许面板滚动。
-  Hero 展示文案按本页面设计使用独立字号：标题随内容区宽度在 24–48px 之间变化、半粗、1.15 倍行高，保持单行；副文案 16px、26px 行高，英文两句话在句号后显式换行，窄窗口中长句仍可自然折行，不随 UI 字号缩放；标题沿用 Hero 主题文字色，深色副文案使用浅蓝灰提高对比度。
-  Hero 文案对齐官网品牌标题：英文“Simple, Fast, Vibe‑Ready!”，中文“简单、迅捷、氛围十足！”；副文案围绕多智能体完成复杂目标与随处掌控，采用适合引导面板的简短版本。
-  内容组顶部直接复用初始化页面的品牌图标组件（含尺寸、黑色渐变底、描边及圆角），深浅主题不反转；引导页关闭动画，初始化页面保留原有动画。
-  引导 Logo 的黑底与白色 Z 保持静止，仅在 1px 圆角边框内增加淡白色扫光，光尾覆盖约 120°，5 秒绕行一圈，带柔和光尾、不产生外围光晕；减少动态效果时隐藏扫光。
-  背景仅引用欢迎区 Hero 的蓝色主题色值（深色为深蓝黑与青蓝，浅色为冰蓝白与天蓝），
-  叠加独立实现的流动 WebGL 光场（参考 Mesh Flow 6 的视觉方向，非官方预设代码），保持原有流场、透明度与速度，只替换底色和光带 RGB；不叠加 Hero 静态光晕或混合模式。
-  移除轨道线。主波形约 3 秒一轮；背景不接收指针，仅可见桌面面板运行，最多 24fps，
-  渲染长边不超过 960px。减少动态效果时固定画面，隐藏页面暂停，卸载释放 GPU 与监听资源；
-  WebGL 不可用或上下文丢失时显示主题静态底色，不能阻塞引导。
-  验收覆盖桌面大屏、短窗口及手机宽度的深浅主题，内容不得溢出或遮挡导航。
+- Layout: as duas colunas da versão desktop recebem, de fora para dentro, 4px de respiro em todos os lados e o espaçamento entre colunas; o painel ilustrado à direita reaproveita as regras de raio de canto da interface principal
+  (Windows 5px, macOS 26+ 12px, macOS antigo ou desconhecido 6px, outras plataformas 12px).
+  Os cartões de seleção de profissão, modo e preferências à esquerda usam uniformemente o raio do contêiner de primeiro nível rounded-xl; nesta página, por exigência de design, os botões próximo, anterior, pular e fechar são uniformizados em rounded-xl, em coerência com os cartões de seleção, sem modificar o raio de canto padrão global dos botões.
+  O Hero à direita cobre a borda de tema de 1px, mantém o raio do painel, não ocupa espaço de layout e não recebe ponteiro.
+  O Hero usa um layout de apresentação de marca alinhado à esquerda: Logo, título e subtítulo compartilham a margem esquerda, o grupo de conteúdo é centralizado verticalmente e a largura máxima é de 640px.
+  O respiro lateral do painel varia entre 64–72px conforme a largura da janela e o respiro vertical permanece em 32–72px; o espaçamento entre Logo e título é de 40px e entre título e subtítulo é de 24px.
+  Em telas estreitas vale o formulário de coluna única e os limites de rolagem originais, sem exibir o Hero; em janelas curtas o painel pode rolar.
+  Os textos do Hero usam tamanhos de fonte próprios a esta página, conforme o design: o título varia entre 24–48px conforme a largura da área de conteúdo, peso semibold e entrelinha de 1.15, permanecendo em uma linha; o subtítulo usa 16px com entrelinha de 26px, e as duas frases em inglês têm quebra de linha explícita após o ponto, mantendo quebra natural de frases longas em janelas estreitas, sem escalar com o tamanho de fonte da UI; o título mantém a cor de texto do tema do Hero e o subtítulo escuro usa um azul-acinzentado claro para aumentar o contraste.
+  Os textos do Hero se alinham ao título de marca do site oficial: em inglês "Simple, Fast, Vibe‑Ready!" e em chinês "简单、迅捷、氛围十足！"; o subtítulo gira em torno de agentes múltiplos alcançando objetivos complexos e controle em qualquer lugar, em uma versão curta adequada ao painel de onboarding.
+  O grupo de conteúdo reaproveita diretamente o componente de ícone de marca da página de inicialização (incluindo tamanho, fundo com gradiente preto, traço e raio), sem inversão entre temas claro e escuro; a página de onboarding desliga as animações, a página de inicialização mantém as animações originais.
+  O fundo preto do Logo de onboarding e o Z branco permanecem estáticos, com apenas um brilho suave varrendo dentro de uma borda de 1px com raio; a cauda de luz cobre cerca de 120°, completa uma volta em 5 segundos, com cauda suave e sem gerar halo periférico; o brilho varrido é ocultado quando há redução de movimento.
+  O fundo referencia apenas os valores de cor azul do tema do Hero da área de boas-vindas (no escuro, azul-escuro e azul-ciano; no claro, branco-azulado de gelo e azul-céu),
+  sobrepondo um campo de luz WebGL fluido de implementação independente (referência na direção visual do Mesh Flow 6, não o código oficial de preset), mantendo o fluxo, a opacidade e a velocidade originais e trocando apenas a cor de fundo e o RGB das fitas de luz; não se sobrepõe o halo estático nem o modo de mistura do Hero.
+  As linhas de órbita foram removidas. A onda principal completa um ciclo a cada ~3 segundos; o fundo não recebe ponteiro e é executado apenas no painel visível da área de trabalho, com no máximo 24fps e lado maior de renderização não superior a 960px. Com movimento reduzido o quadro é fixo; a ocultação da página pausa; a desmontagem libera a GPU e os recursos de escuta;
+  quando o WebGL está indisponível ou o contexto é perdido, exibe-se a cor de fundo estática do tema, sem bloquear o onboarding.
+  A aceitação cobre desktop de tela grande, janela curta e largura de celular, nos temas claro e escuro, sem que o conteúdo transborde ou cubra a navegação.
 
-- 显示 gating：`requested || (needsOnboarding === true && !dismissed)`；
-  `needsOnboarding` 为异步判定结果。**判定不得无限期拦截主界面**：存量用户
-  （settings 已有 `onboardingOccupation`）不等判定直接进主界面；疑似首跑用户最多等
-  3 秒（RPC 超时退回 settings 判定）。`appendRecord` 同样带 5 秒超时，channel 缺失时
-  不会让保存按钮永久转圈。
-- `save()`：现有 settings update 成功后调 `appendRecord()`；追加失败仅 warn 日志，
-  不阻塞引导主流程、不向用户报错。
-- `onboardingOccupation` 等 settings 字段照旧写入（推荐 prompt 池仍依赖它），
-  语义变为"当前用户最近一次选择的职业"。
+- Gating de exibição: `requested || (needsOnboarding === true && !dismissed)`;
+  `needsOnboarding` é o resultado da avaliação assíncrona. **A avaliação não pode bloquear a interface principal indefinidamente**: usuários existentes
+  (com `onboardingOccupation` já em settings) entram na interface principal sem esperar a avaliação; usuários provavelmente de primeira execução esperam no máximo
+  3 segundos (timeout da RPC recai na decisão via settings). `appendRecord` também tem timeout de 5 segundos, e a ausência do canal
+  não deixa o botão de salvar girando indefinidamente.
+- `save()`: após o update de settings existente, chama `appendRecord()`; falha ao acrescentar gera apenas log warn,
+  sem bloquear o fluxo principal do onboarding e sem reportar erro ao usuário.
+- Campos de settings como `onboardingOccupation` continuam sendo gravados (o pool de prompts recomendados ainda depende deles),
+  com semântica agora igual a "a profissão escolhida mais recentemente pelo usuário atual".
 
-## 6.5 引导再次打开时的预填与直接退出
+## 6.5 Pré-preenchimento e saída direta ao reabrir o onboarding
 
-- **预填**：从设置入口（或快捷键）手动打开引导、以及再次触发的引导，用该 userId 在
-  record 里的最近作答初始化三页选项（`getLatestEntry()`）。跳过页记 null 的字段预填
-  默认值（职业 developer / 偏好默认）；record 的职业不在当前列表（列表演进）时同样落
-  默认。编程模式下主动工作记忆始终预填为关闭，即使此前在设置中手动开启并保存；办公
-  模式下按最近作答预填，未作答时默认开启。预填数据异步后到时，若用户已交互则不覆盖其选择。
-- **重新完成引导**：本次引导的选择作为新的配置写入 settings 和 record，覆盖此前在设置页
-  或上次引导中保存的偏好。用户在编程模式下重开引导并直接保存，也会把此前手动开启的
-  主动工作记忆改为关闭；这是预期行为。
-- **直接退出**：引导页右上角 X 按钮与 ESC 均可退出——不保存、不改 settings，写入
-  `dismissed` 资格决策，之后启动不再自动触发。设置里主动打开仍可随时关闭回到原界面；
-  已有作答的身份关闭手动打开的引导时不新增决策。
+- **Pré-preenchimento**: o onboarding aberto manualmente pela entrada de settings (ou atalho), bem como o onboarding disparado novamente, inicializam as opções das três páginas com a resposta mais recente desse userId no record (`getLatestEntry()`). Campos registrados como null por página pulada recebem o default de pré-preenchimento (profissão developer / padrão de preferências); quando a profissão do record não está na lista atual (a lista evolui), também cai no default. No modo de programação, a memória de trabalho proativa é sempre pré-preenchida como desligada, mesmo que tenha sido manualmente ligada e salva antes nas settings; no modo de escritório, segue a resposta mais recente e, sem respostas, o padrão é ligado. Se os dados de pré-preenchimento chegarem de forma assíncrona e o usuário já tiver interagido, a escolha dele não é sobrescrita.
+- **Concluir o onboarding novamente**: as escolhas deste ciclo são gravadas como nova configuração em settings e no record, sobrescrevendo as preferências salvas anteriormente na página de settings ou no último onboarding. Se o usuário reabrir o onboarding no modo de programação e salvar diretamente, a memória de trabalho proativa que havia sido ligada manualmente passa a desligada; esse é o comportamento esperado.
+- **Saída direta**: o botão X no canto superior direito da página de onboarding e a tecla ESC permitem sair — sem salvar e sem alterar settings — registrando a decision de elegibilidade `dismissed`, de modo que o onboarding não dispare automaticamente depois. Quando aberto ativamente pelas settings, ele ainda pode ser fechado a qualquer momento voltando à interface original; uma identidade que já possui respostas e fecha o onboarding aberto manualmente não gera nova decision.
 
-## 7. settings 回填（换账号恢复偏好）
+## 7. Repreenchimento de settings (restaura preferências ao trocar de conta)
 
-settings 不分用户，A 答完后 B 触发引导会把 settings 顶成 B 的答案。因此登录态变化
-（或启动）判定"不需要引导"时，调 `syncSettingsFromRecord()` 把当前 userId 在 record 里
-**最近一条**作答回填到 settings 的 `onboardingOccupation / proactiveSuggestionsEnabled /
-memoryEnabled`，推荐区内容随之切换。约定：
+As settings não são divididas por usuário, então, depois que A responde, B disparar o onboarding sobrescreveria as settings com as respostas de B. Por isso, quando uma mudança de estado de login (ou a inicialização) avalia que "não é necessário o onboarding", é preciso chamar `syncSettingsFromRecord()` para repreencher nas settings `onboardingOccupation / proactiveSuggestionsEnabled / memoryEnabled` com a resposta **mais recente** do userId atual no record, com a troca do conteúdo da área de recomendações junto. Convenções:
 
-- 回填时机（CR-03 修订）：**仅 userId 运行时变化后**（换号/登录）执行；挂载首跑（含启动时
-  OAuth 异步恢复引起的 null→id）只做触发判定不回写——否则用户手动关闭的推荐/记忆开关
-  会在每次启动被 record 复活。
-- 手动修改回写 record（CR-03 修订）：推荐区关闭按钮、设置页建议/记忆开关在更新 settings
-  的同时调 `updateRecordPreferences()` 回写当前用户条目（失败仅 warn 不阻塞），record 始终
-  等于"该用户最新偏好"，回填因此不会覆盖任何手动修改。
-- 跳过页记 null 的字段回填保守默认（职业 `other`、偏好关），与引导跳过写 settings 一致。
-- record 的职业是非枚举字符串（职业列表会演进），回填前经 `appSettingsOccupationEnum`
-  窄化，未知值落 `other`。
-- 当前用户无记录时不改 settings；同步失败仅 warn 日志。
+- Momento do repreenchimento (revisão CR-03): executado **apenas após uma mudança de userId em runtime** (troca de conta/login); a primeira execução na montagem (inclusive o null→id causado pela restauração assíncrona do OAuth na inicialização) faz apenas a avaliação de disparo sem reescrita — caso contrário os toggles de recomendações/memória desligados manualmente pelo usuário seriam revividos pelo record a cada inicialização.
+- Escrita manual de volta no record (revisão CR-03): o botão de desligar da área de recomendações e os toggles de sugestão/memória na página de settings, ao atualizar as settings, chamam também `updateRecordPreferences()` para reescrever a entrada do usuário atual (falha gera apenas warn, sem bloquear); o record é sempre igual a "as preferências mais recentes daquele usuário", e por isso o repreenchimento nunca sobrescreve nenhuma alteração manual.
+- Campos registrados como null por página pulada recebem o default conservador no repreenchimento (profissão `other`, preferências desligadas), em coerência com o onboarding pulado que grava settings.
+- Quando a profissão no record é uma string fora do enum (a lista de profissões evolui), ela é estreitada via `appSettingsOccupationEnum` antes do repreenchimento, e valores desconhecidos caem em `other`.
+- Quando o usuário atual não tem registro, as settings não são alteradas; falha na sincronização gera apenas log warn.
 
-## 7. 上传预留（待服务端接口确定后实现）
+## 7. Upload reservado (a implementar após a definição da interface do servidor)
 
-引导曝光及结束的公共行为埋点另见 [用户引导埋点 Spec](monitoring/onboarding-telemetry.md)。
-该事件上传结束时的选择快照（包括第三页跳过时的勾选状态），不等同于本地记录上传，
-也不改变本记录的跳过字段置 null 规则或 uploadState。埋点模式使用 work/code，
-本地 interfaceMode 继续使用 office/coding；身份字段复用公共 telemetry 的 user_id/device_mid。
+O comportamento comum de telemetry de exposição e conclusão do onboarding está descrito em [Spec de telemetry do onboarding de usuário](monitoring/onboarding-telemetry.md).
+O upload das escolhas ao final desse evento (incluindo o estado das marcações quando a terceira página é pulada) não equivale ao upload do registro local e não altera a regra de gravar null nos campos pulados nem o uploadState deste registro. O modo de telemetry usa work/code, enquanto o interfaceMode local continua usando office/coding; os campos de identidade reutilizam o user_id/device_mid da telemetry comum.
 
-- payload = 文件内 `uploadState === "pending"` 的 entries + deviceMid；`decisions` 不上传；
-- 上传成功后将对应 entry 置为 `uploaded`；
-- 触发时机待定（启动补报 / 登录后上报）。
+- payload = as entries do arquivo com `uploadState === "pending"` + deviceMid; `decisions` não são enviadas;
+- após sucesso do upload, a entry correspondente passa a `uploaded`;
+- momento de disparo pendente (reenvio na inicialização / envio após o login).

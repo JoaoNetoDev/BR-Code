@@ -1,368 +1,359 @@
-# 闲时任务 · 决策记录（ADR 滚动式）
+# Tarefa Fora do Pico · Registro de Decisões (ADR contínuo)
 
-> **状态：历史 ADR，功能已实现。** 本文按时间保留 D1–D44 的方案演进，早期条目不会回写成
-> 最终方案；“已定”只表示当时结论。当前行为以 `spec.md`、`tech-design.md`、
-> `implementation-notes.md` 和代码为准，Scheduled Automation 仍是独立领域。
-
-> grilling 会话产出。每条决策：背景 → 选项 → 结论。OPEN = 未定案。
-
-### 当前代码阅读索引（2026-07-23）
-
-- 服务端接口以 D26/D39 为准：`availability → POST /ticket → POST /ticket/status → messages → settle`；D25 的 register/per-task GET 是历史形状。
-- 票据失效正式码是 `400/3102`；`3001` 只保留在 adapter 的滚动发布兼容与历史说明中。
-- 创建额度以 D39 availability 快照 + `POST /ticket` 的 3103 为准；D36 的
-  `limit.max_tasks/sliding_window` 和本地 createdAt 计数已从最终客户端删除。
-- D44 已明确不采纳 D11/D27 的 Off-Peak 专用批准状态机：permission/elicitation 只走普通
-  session，聚合状态保持 `running`，同一自动 turn 继续使用 idle-plan overlay。
-- D33 per-turn overlay 已实现；自动 turn 忙碌时补发的用户 prompt 会在恢复用户常驻模型后 drain。
-
-## D1 计费模型（已定 2026-07-09）
-
-**结论：免费池。产品语境下不存在"余额"这个概念，余额守护整章作废，客户端零余额逻辑。** 创建时按等级配额鉴权（lite:1 / pro:2 / Max:3，具体语义见 D5）。
-
-原始分析：
-
-PRD 自相矛盾：前置定义说 v1 走免费池（codingplan+lite:1/pro:2/Max:3），v0.2 又新增整章 ¥0.50 余额守护，随后整章被划掉。现有 coding plan 是配额制（`GET /api/monitor/usage/quota/limit`，百分比），客户端没有任何 ¥ 余额 API。
-
-- A（推荐）：v1 免费池 + 等级配额，余额守护整章不做，客户端零余额逻辑。
-- B：免费池 + 只读展示余额。
-- C：完整余额守护（需服务端新增余额 API + 每次调用后查扣）。
-
-## D2 闲时窗口真源（已定 2026-07-09）
-
-**结论：服务端下发窗口表，客户端只读缓存。窗口 API 就绪前不做精确 ETA，只显示"下个闲时窗口"级别的文案。**
-
-> 已被 D21 取代（2026-07-10 文档评论共识）：不下发窗口表，客户端无窗口概念，改为轮询调度授权接口。
-
-原始分析：
-
-PRD 三种口径打架：maas 波峰 14-18 反推（→ 其余 20h 全是闲时，"今晚 22:07"叙事崩）/ 设置页 preset 22:00-06:00 / "跟 maas 保持一致，需验证"。
-
-- A（推荐）：服务端下发窗口表（v1 可以是服务端配置硬编码），客户端只读缓存；无 API 前不做"预计开始时间"精确 ETA。
-- B：客户端硬编码 preset。
-- C：按 maas 波峰反推。
-
-## D3 窗口边界语义（已定 2026-07-09）
-
-**结论：准入门槛制。窗口只控制"何时允许启动"，开跑后跑到终态不打断。砍掉：window_paused 状态、"已消耗 N 次窗口"、窗口结束快照续跑、"窗口暂停"通知。**
-
-原始分析：
-
-"窗口结束未完成 → 暂停快照 → 下窗口续跑"章节已划掉，但 window_paused 状态、"已消耗 N 次窗口"、"不会因中断丢失进度"仍散落全文。硬边界 = 要解决 mid-run kill（正在跑的 bash 怎么办）+ session 快照续跑，是全 PRD 实现成本最高的一块。
-
-- A（推荐）：准入门槛制——窗口只控制"何时允许启动"，开跑后跑到终态；砍 window_paused。
-- B：硬边界制——窗口结束强制暂停 + 续跑（PRD 原文）。
-- C：软边界——窗口结束后不再发起新 LLM 调用，收尾后暂停，下窗口续跑。
-
-## D4 防休眠（已定 2026-07-09，低优先）
-
-**结论：设置里提供一个手动"保持唤醒"开关，本期不做自动 powerSaveBlocker 联动，不深究。保留"保持插电"教育卡片。**
-
-原始分析：
-
-PRD 明确"不会阻止系统休眠"，只给设置卡片让用户自己关休眠。macOS 默认闲置即睡 → 22:00 窗口到点机器在睡，任务永远不跑，核心承诺不成立。Electron `powerSaveBlocker.start("prevent-app-suspension")` 一行可防闲置休眠（防不了合盖，插电+合盖建议仍保留）。现有 cron scheduler 对睡过的窗口是 skip 策略，闲时任务语义相反。
-
-- A（推荐）：存在 queued/running 闲时任务期间开 powerSaveBlocker，设置可关。
-- B：遵循 PRD 不阻止休眠（接受大概率首晚跑不成）。
-- C：仅 running 期间防休眠（排队等待期睡了照样错过窗口）。
-
-## D5 任务身份 = 对话上的延迟发送 + 排队锁定（已定 2026-07-09）
-
-闲时任务不是独立实体，是"某个对话上的一次延迟发送"（可新对话、可续已有对话）。排队期间该对话 composer 锁定，只允许"取消 / 立即执行"，上下文不漂移。窗口到点在提交时的对话状态上执行（续已有对话 = resume 该 session 发送排队 prompt）。
-
-## D6 配额：tier 作废，服务端限调度任务个数（已定 2026-07-09）
-
-PRD 的 lite:1/pro:2/Max:3 和"每人最多 1 个/24h"全部作废。**服务端统一限制每用户已调度（非终态）任务个数**，具体数值是服务端策略，客户端只处理"创建被拒（已达上限）"。
-
-> 修正见 D18：上限数值由服务端**下发**，客户端本地强制，不走 per-create 鉴权接口。
-
-## D7 本地调度：严格串行（已定 2026-07-09）
-
-窗口内本机按入队顺序一次只跑 1 个任务，跑完再下一个。不做 worktree 隔离（串行天然避免同 workspace 并发写）。跨 workspace 也串行（app 级单执行位）。
-
-> 修正见 D18：排队逻辑归服务端；本机串行降级为「执行策略」——同一时刻仅尝试/执行 1 个，保留防同 workspace 并发写的效果，但它不是队列。
+> **Status: ADR histórico, funcionalidade já implementada.** Este documento preserva ao longo do tempo a evolução das soluções D1–D44; as entradas iniciais não são reescritas como solução final, e «decidido» significa apenas a conclusão da época. O comportamento atual segue `spec.md`, `tech-design.md`, `implementation-notes.md` e o código, e Scheduled Automation continua sendo um domínio independente.
 >
-> 已被 D20 推翻：客户端不做任何并发限制，并发额度由服务端调度决定。
+> Saída das sessões de grilling. Cada decisão: contexto → opções → conclusão. OPEN = não decidido.
 
-## D8 全自动 = bypassPermissions，不碰 git（已定 2026-07-09）
+### Índice de leitura do código atual (2026-07-23)
 
-全自动映射现有 `bypassPermissions`，敏感暂停映射 default + 现有 permission_request 通知链路。不做文件系统沙盒，文案删"强制沙盒"改"自动批准所有操作"。不做自动 git 基线，保留 PRD"建议先 commit 干净版本"的警示文案，责任留给用户。
+- As interfaces do servidor seguem D26/D39: `availability → POST /ticket → POST /ticket/status → messages → settle`; o register/per-task GET de D25 é uma forma histórica.
+- O código oficial de invalidação de ticket é `400/3102`; o `3001` só permanece na compatibilidade de rollout do adapter e nas explicações históricas.
+- A cota de criação segue o snapshot de availability do D39 mais o 3103 de `POST /ticket`; o `limit.max_tasks/sliding_window` do D36 e a contagem local por createdAt foram removidos do cliente final.
+- D44 estabelece explicitamente que a máquina de estados de aprovação dedicada do Off-Peak de D11/D27 não foi adotada: permission/elicitation passa só pela sessão comum, o estado agregado permanece `running`, e o mesmo turno automático continua usando o idle-plan overlay.
+- O overlay por turno do D33 já foi implementado; e os prompts do usuário enviados durante um turno automático ocupado são drenados depois de restaurar o modelo residente do usuário.
 
-## D9 错过窗口 = 顺延不丢弃（已定，语义推论）
+## D1 Modelo de cobrança (decidido em 2026-07-09)
 
-queued 任务在窗口内因 app 未开 / 机器休眠未被调度 → 保持 queued，自动等下个窗口，无需用户操作。注意：与现有 automation scheduler 的 misfire-skip（`MISFIRE_GRACE_MS` 记 skipped 不补跑）语义相反，闲时任务调度路径不能复用该策略。
+**Conclusão: pool gratuito. No contexto do produto não existe o conceito de «saldo», todo o capítulo de guarda de saldo é eliminado e o cliente não tem lógica de saldo alguma.** Na criação a autenticação é feita por cota de plano (lite:1 / pro:2 / Max:3, com o significado detalhado em D5).
 
-> D21 后自然成立：无窗口可错过，恢复后只要还有 queued 任务就继续轮询与派发。
+Análise original:
 
-## D10 通知动作按钮 = macOS best-effort，主路径应用内（已定，工程事实）
+O PRD se contradiz: a definição inicial diz que a v1 usa pool gratuito (codingplan+lite:1/pro:2/Max:3), a v0.2 acrescenta um capítulo inteiro de guarda de saldo de ¥0.50 e depois o capítulo inteiro é riscado. O coding plan existente é por cota (`GET /api/monitor/usage/quota/limit`, em porcentagem), e o cliente não tem nenhuma API de saldo em ¥.
 
-Electron Notification 的 actions 仅 macOS 且需签名 + 用户通知样式为"提醒"才显示；banner 一闪而过。三按钮（批准/拒绝/取消）只作为 macOS 增强，**权威交互路径是应用内**（对话详情页顶部状态条 + 操作按钮），通知点击一律跳转对话。复用现有 `desktopNotifications.ts` 链路。
+- A (recomendado): v1 com pool gratuito + cota por plano, sem guarda de saldo, e o cliente sem lógica de saldo.
+- B: pool gratuito + exibição somente leitura do saldo.
+- C: guarda de saldo completa (exige API de saldo no servidor + consulta e dedução após cada chamada).
 
-## D11 计费执行形态 = 闲时专属 Provider（idle plan）（2026-07-09 引入）
+## D2 Fonte de verdade da janela fora do pico (decidido em 2026-07-09)
 
-> **实现状态修正（2026-07-23）**：idle plan per-turn 注入已实现；本节关于 permission
-> approval 后切用户 provider/套餐配额提示的派生规则未被最终代码采纳，已由 D44 明确砍掉。
+**Conclusão: o servidor envia a tabela de janelas e o cliente apenas a mantém em cache de leitura. Antes de a API de janelas ficar pronta, não há ETA preciso, apenas textos do nível «próxima janela fora do pico».**
 
-"免费池"的落地形态：**闲时任务在窗口内执行时使用一个用户不可见的专属 provider（idle plan，类似 Start plan 机制）**。派生规则：
+> Substituído por D21 (consenso nos comentários do documento em 2026-07-10): a tabela de janelas não é enviada, o cliente não tem conceito de janela e passa a fazer polling da interface de autorização de agendamento.
 
-- 敏感暂停的任务被批准后**立即续跑**，但续跑**不允许使用 idle plan**，切换到用户自己的付费 provider。批准交互必须明示"继续将使用你自己的套餐配额"。
-- queued 态"立即执行"同理：出队即用用户自己的 provider。
-- 评论确认（2026-07-10）+ D27 精化：切用户 provider 的触发是「用户主动让它继续做事/接管」——批准执行敏感操作、立即执行、主动补 prompt；**拒绝并跳过 = 否决 + 继续无人值守 → 保持 idle plan**（D27）。切换均为纯客户端逻辑，服务端不感知。
-- ⚠ 待验证：session 中途切换 provider 的现有机制（参考 chat-model-change-notice）能否覆盖续跑场景。
-- （原 OPEN 已由 D15/D26 定案：active 3h 时间盒 + 自动续跑。）
+Análise original:
 
-## D12 侧栏"进行中"分组 = per-workspace 展示（已定 2026-07-09）
+Três alternativas de leitura no PRD: inferência a partir do pico maas das 14-18 (→ as outras 20h são todas fora do pico e a narrativa de «hoje à noite 22:07» desmorona) / preset 22:00-06:00 na página de configurações / «manter consistente com o maas, precisa validar».
 
-只聚合当前 workspace 的闲时任务，与 automation 主视图同栖。调度仍是 app 级全局串行（D7），展示与调度解耦。
+- A (recomendado): o servidor envia a tabela de janelas (na v1 pode ser hardcoded na configuração do servidor), e o cliente apenas mantém o cache de leitura; sem API, não há ETA preciso de «horário de início previsto».
+- B: preset hardcoded no cliente.
+- C: inferir pelo pico do maas.
 
-## D13 多端边界 = 桌面发起，手机只读（已定 2026-07-09）
+## D3 Semântica dos limites de janela (decidido em 2026-07-09)
 
-发起入口（月亮开关）与敏感批准仅桌面端；手机远控经现有 replayable 链路自然只读可见状态图标/分组，不做专门功能，不屏蔽。
+**Conclusão: sistema de limiar de admissão. A janela só controla «quando é permitido iniciar», e uma vez iniciado o processo roda até o estado terminal sem interrupção. Cortado: estado window_paused, «já foram consumidas N janelas», retomada por snapshot no fim da janela e notificação de «janela pausada».**
 
-## D14 "期望完成时间"字段重定义（已定 2026-07-09）
+Análise original:
 
-砍掉用户三档选择（下次窗口/24h/48h）及到期提醒。提交弹窗只展示**只读的"预计开始时间"= 服务端窗口表返回的下一个窗口；若提交时已处于窗口内，即为当前窗口 → 任务立即（轮到执行位时）开跑**。文案随之调整：月亮开关的价值主张是"闲时窗口执行"，不绑死"夜间"。
+O capítulo «não concluído no fim da janela → pausar com snapshot → retomar na próxima janela» foi riscado, mas o estado window_paused, «já foram consumidas N janelas» e «o progresso não se perde por interrupção» continuam espalhados por todo o texto. Limite rígido = precisa resolver o kill em andamento (o que fazer com um bash em execução?) e a retomada da sessão por snapshot, que é o pedaço de maior custo de implementação de todo o PRD.
 
-> D21 后进一步弱化：无窗口表可推算，提交弹窗与状态条改为"等待闲时算力执行"，不做任何开始时间承诺。
+- A (recomendado): limiar de admissão — a janela só controla «quando é permitido iniciar», e uma vez iniciado roda até o estado terminal; window_paused é cortado.
+- B: limite rígido — pausa forçada no fim da janela + retomada (texto original do PRD).
+- C: limite flexível — após o fim da janela não se iniciam novas chamadas de LLM, e a tarefa pausa após a conclusão, retomando na próxima janela.
 
-## D15 running 跨窗口结束 = 锁定 idle plan 到终态（已定 2026-07-09）
+## D4 Prevenção de suspensão (decidido em 2026-07-09, baixa prioridade)
 
-**结论：任务开跑即锁定 idle plan 直到终态，服务端按"窗口内启动的任务"整任务核销。** 对服务端的硬要求：idle plan 放行不能是"窗口外一刀切拒绝"，必须支持"窗口内启动的任务跑到终态"（宽限期或任务级标识），写入 API 契约。
+**Conclusão: um switch manual «manter acordado» nas configurações; nesta iteração não há integração automática com powerSaveBlocker e o assunto não é aprofundado. Mantém-se o cartão educativo «mantenha na tomada».**
 
-> D19 补充：锁定到终态是 **provider 归属与放行保证**（不拒绝、不切换），不是免排队保证——任务内每次请求仍可能排队等待。
+Análise original:
+
+O PRD diz explicitamente que «não impede a suspensão do sistema», entregando apenas um cartão de configuração para o usuário desligar a suspensão por conta própria. No macOS, por padrão, a máquina dorme quando fica ociosa → na janela das 22:00 a máquina está dormindo, a tarefa nunca roda e a promessa central não se cumpre. O Electron `powerSaveBlocker.start("prevent-app-suspension")` impede a suspensão por ociosidade com uma linha (não impede com a tampa fechada, e a recomendação de manter na tomada e com a tampa fechada continua). O cron scheduler existente tem estratégia de skip para janelas perdidas durante o sono, e as tarefas fora do pico têm a semântica oposta.
+
+- A (recomendado): ligar o powerSaveBlocker enquanto existem tarefas queued/running, com possibilidade de desligar nas configurações.
+- B: seguir o PRD e não impedir a suspensão (aceitando a alta probabilidade de não rodar na primeira noite).
+- C: impedir a suspensão somente durante running (dormir durante a espera da fila perde a janela do mesmo jeito).
+
+## D5 Identidade da tarefa = envio atrasado na conversa + trava de fila (decidido em 2026-07-09)
+
+A tarefa fora do pico não é uma entidade independente, mas «um envio atrasado em alguma conversa» (pode ser uma conversa nova ou continuar uma existente). Durante a fila o composer dessa conversa fica travado, permitindo apenas «cancelar / executar imediatamente», e o contexto não deriva. Quando a janela chega, a execução acontece sobre o estado da conversa no momento da submissão (continuar uma conversa existente = retomar aquela session e enviar o prompt enfileirado).
+
+## D6 Cota: tier eliminado, o servidor limita a quantidade de tarefas agendadas (decidido em 2026-07-09)
+
+O lite:1/pro:2/Max:3 do PRD e o «no máximo 1 por pessoa a cada 24h» são totalmente eliminados. **O servidor limita uniformemente a quantidade de tarefas agendadas (não terminais) por usuário**, o valor concreto é política do servidor, e o cliente só trata «criação rejeitada (limite atingido)».
+
+> Correção em D18: o valor do limite é enviado pelo servidor e o cliente o aplica localmente, sem passar por uma interface de autenticação por criação.
+
+## D7 Agendamento local: estritamente serial (decidido em 2026-07-09)
+
+Dentro da janela a máquina local executa uma tarefa por vez, na ordem de entrada na fila, e só passa para a próxima depois que a anterior termina. Não há isolamento por worktree (a serialização evita naturalmente escritas concorrentes no mesmo workspace). Mesmo entre workspaces diferentes é serial (uma única posição de execução em nível de app).
+
+> Correção em D18: a lógica de fila vai para o servidor; a serialização local degrada para «política de execução» — apenas uma é tentada/executada por vez, preservando o efeito de evitar escrita concorrente no mesmo workspace, mas não é uma fila.
 >
-> **D26 修正（2026-07-14）**：服务端 active 硬顶 3h，并非「锁定到终态」。跨 3h = 同 task_id 重新取号 + resume 续跑（见 D26）。
+> Refutado por D20: o cliente não impõe nenhuma limitação de concorrência, e a cota de concorrência é decidida pelo agendamento do servidor.
 
-原始分析：
+## D8 Totalmente automático = bypassPermissions, sem mexer em git (decidido em 2026-07-09)
 
-D3 准入门槛制允许任务跑过窗口结束，D11 又规定 idle plan 仅窗口内可用，两者相撞：
+O modo totalmente automático mapeia o `bypassPermissions` existente, e a pausa sensível mapeia o default mais a cadeia existente de notificações permission_request. Não há sandbox do sistema de arquivos; o texto «sandbox forçado» é removido e vira «aprovar todas as operações automaticamente». Não há baseline automático de git; mantém-se o texto de alerta do PRD «recomenda-se fazer commit de uma versão limpa», e a responsabilidade fica com o usuário.
 
-- A（推荐）：开跑即锁定 idle plan 直到终态，服务端按"窗口内启动的任务"整任务核销，超窗溢出可控。
-- B：窗口结束瞬间切到用户付费 provider 继续——用户睡着时开始烧自己的钱，不可接受，除非明示同意。
-- C：窗口结束即停（回到硬边界，推翻 D3）。
-  取决于服务端 idle plan 是否在窗口外直接拒绝请求。
+## D9 Janela perdida = adiar, não descartar (decidido, consequência semântica)
 
-## D16 idle plan 接入形态 = 复用 Start plan 机制（已定 2026-07-09）
+Uma tarefa queued que não é agendada dentro da janela porque o app não estava aberto ou a máquina dormiu → permanece queued e espera automaticamente a próxima janela, sem ação do usuário. Atenção: isso é o contrário da semântica de misfire-skip do scheduler de automations existente (`MISFIRE_GRACE_MS` marca como skipped e não repete), e o caminho de agendamento de tarefas fora do pico não pode reutilizar essa política.
 
-内置不可见 provider，服务端窗口期放行（含 D15 的到终态宽限）。客户端复用 Start plan 式基建，不新增任务级临时凭证下发链路。
+> Passa a valer naturalmente após D21: não há janela a perder, e depois da recuperação basta continuar o polling e o despacho enquanto houver tarefas queued.
 
-## D17 服务端现状 = 三件套全部新开（已确认 2026-07-09）
+## D10 Botões de ação na notificação = macOS best-effort, caminho principal dentro do app (decidido, fato de engenharia)
 
-窗口表 / 创建鉴权+核销 / idle plan 放行，当前都不存在。客户端按 spec 中的 API 契约草案 mock 先行开工，契约拿去和服务端/产品对齐。
+As actions da Electron Notification só aparecem no macOS e exigem assinatura + estilo de notificação do usuário configurado como «lembrete»; o banner pisca e some. Os três botões (aprovar/recusar/cancelar) são apenas um aprimoramento do macOS, e **o caminho de interação autoritativo é dentro do app** (barra de status no topo da página de detalhes da conversa + botões de ação); o clique na notificação sempre leva à conversa. Reutiliza-se a cadeia existente de `desktopNotifications.ts`.
 
-> 修正见 D18：三件套重构为「配置下发（窗口表+创建上限）/ 网关排队准入（response header 协议）/ idle plan 放行」；显式登记与终态核销是否需要，待服务端定。
+## D11 Forma de execução da cobrança = Provider dedicado fora do pico (idle plan) (introduzido em 2026-07-09)
 
-## D18 排队归服务端，客户端只做尝试与应答处理（已定 2026-07-09，修正 D6/D7/D17）
+> **Correção do status de implementação (2026-07-23)**: a injeção do idle plan por turno foi implementada; as regras derivadas desta seção sobre trocar para o provider do usuário / avisar cota de plano após a aprovação de permissão não foram adotadas no código final e foram cortadas explicitamente por D44.
 
-用户澄清的真实架构：
+A forma concreta do «pool gratuito»: **quando uma tarefa fora do pico executa dentro da janela, ela usa um provider dedicado invisível ao usuário (idle plan, semelhante ao mecanismo de Start plan)**. Regras derivadas:
 
-- **服务端承载排队核心**：全局闲时任务池，跨用户 FIFO（先创建先排），服务端按资源空余安排一定并发的准入。
-- **客户端不承载排队逻辑**，只做三件事：
-  1. 创建：按服务端下发的任务数量上限本地限制提交（无 per-create 鉴权接口；多设备同账号超创建的兜底由服务端队列天然承担）。
-  2. 窗口内：对本机最早的 queued 任务发起执行尝试，请求打向服务端。
-  3. 处理排队 response header（排队中/放行/位置/重试间隔）：被告知排队 → 保持 queued（可展示队列位置）按 Retry-After/退避重试；放行 → running。
-- ~~本机「严格串行」保留但降级为执行策略~~（已被 D20 推翻：客户端不限并发）。
-- 副产品：PRD 里"前面还有 N 个任务"的排队位置展示，靠 header 位置字段变得真实可做（可选）。
-- （原"待服务端定"均已定案：FIFO=前置登记 D25；终态核销=settle D22；running 中途排队 D19。）
+- Uma tarefa pausada por sensibilidade, depois de aprovada, **retoma imediatamente**, mas a retomada **não pode usar o idle plan** e troca para o provider pago do próprio usuário. A interação de aprovação precisa deixar explícito que «a continuação usará a sua própria cota do plano».
+- O mesmo vale para «executar imediatamente» no estado queued: ao sair da fila já usa o provider do próprio usuário.
+- Comentário de confirmação (2026-07-10) + refinação de D27: o gatilho da troca para o provider do usuário é «o usuário ativamente deixando que ela continue fazendo algo / assumindo» — aprovar a execução de uma operação sensível, executar imediatamente, ou enviar ativamente um prompt; **recusar e pular = veto + continuar sem supervisão → manter o idle plan** (D27). Todas as trocas são lógica puramente do cliente, e o servidor não fica sabendo.
+- ⚠ A validar: se o mecanismo existente de troca de provider no meio da sessão (ver chat-model-change-notice) cobre o cenário de retomada.
+- (O OPEN original foi decidido por D15/D26: time box de 3h para active + retomada automática.)
 
-## D19 任务内每请求皆可重排队，服务端尽力优先在跑任务（已定 2026-07-09）
+## D12 Agrupamento «em andamento» na barra lateral = exibição por workspace (decidido em 2026-07-09)
 
-任务准入后，**每一次模型请求都可能被服务端重新排队**；服务端尽最大努力做优先级排队，保证同一任务的 Agent loop 优先调度（新任务准入让位于在跑任务的续请求）。客户端实现口径：
+Agrega apenas as tarefas fora do pico do workspace atual, convivendo com a visão principal de automations. O agendamento continua serial global em nível de app (D7), e exibição e agendamento ficam desacoplados.
 
-- 排队 header 处理收敛到 **idle plan provider 适配层**（Retry-After + 退避重试），对 agent runtime 透明——loop 只感知"这次响应慢"。核对复用现有 `bigmodel-business-error-retry` 机制。
-- 不新增状态机状态：任务保持 running；详情页状态条可临时展示"排队等待闲时资源（第 N 位）"。
-- 排队等待**不计入**"API 连续失败"的 failed 判定，等待不设上限（无人值守场景等待免费）；仅真实错误才终态。
-- 用户取消任务时中止等待中的重试循环。
-- 评论补充（2026-07-10）：服务端优先队列的设计目标之一——**保证同一 session 的请求尽量连续跑完**，避免 loop 中途长时间饥饿。
+## D13 Limite multiplataforma = iniciar no desktop, leitura apenas no celular (decidido em 2026-07-09)
 
-## D20 并发由服务端控制，客户端不做本机串行（已定 2026-07-09，推翻 D7）
+A entrada de início (switch da lua) e a aprovação sensível existem apenas no desktop; o controle remoto pelo celular, através da cadeia replayable existente, naturalmente vê apenas de forma somente leitura os ícones e agrupamentos de status, sem função especial e sem bloqueio.
 
-用户可以同时有多个闲时任务、多个并发运行；**给每个用户实际调度多少并发，由服务端决定**。客户端窗口内把所有 queued 任务按入队顺序全部发起，准入与并发额度全在网关（结合 D18/D19 的 header 协议）。
+## D14 Redefinição do campo «horário esperado de conclusão» (decidido em 2026-07-09)
 
-- 单任务派发仍是 single-flight（认领事务防同一任务重复派发），任务之间不设本地并发上限。
-- 同 workspace 多任务并发写文件的风险，与用户手动同时跑多个对话完全一致（现状已允许），不新增 worktree 隔离。
-- 评论确认（2026-07-10）：未来按套餐分层并发（如 Max Plan 3+ 并发）——服务端策略，客户端无感。
+Cortada a escolha do usuário entre três faixas (próxima janela / 24h / 48h) e o lembrete de expiração. O diálogo de submissão mostra apenas o **«horário de início previsto» somente leitura** = a próxima janela devolvida pela tabela de janelas do servidor; se no momento da submissão já se está dentro de uma janela, então é a janela atual → a tarefa roda imediatamente (quando chegar sua vez na posição de execução). O texto é ajustado: a proposta de valor do switch da lua é «executar na janela fora do pico», sem se prender à «noite».
 
-## D21 客户端无窗口概念：轮询调度授权取代窗口表（已定 2026-07-10，取代 D2 的窗口表形态）
+> Depois de D21 isso é ainda mais enfraquecido: sem tabela de janelas não há o que calcular, e o diálogo de submissão e a barra de status passam a dizer «aguardando capacidade computacional fora do pico», sem nenhuma promessa de horário de início.
 
-来源：飞书文档评论区共识。客户端**不判断高峰/低峰、不存窗口表**：
+## D15 Running atravessando o fim da janela = trava do idle plan até o estado terminal (decidido em 2026-07-09)
 
-- 仅当本机存在非终态闲时任务时，轮询服务端调度授权接口；**轮询间隔由接口下发，不写死**。
-- 响应含 `canDispatch`（当前是否可派发）+ 间隔 + maxTasksPerUser；canDispatch=true 即发起派发（"提交"= 这一轮模型请求可以放行）。
-- 弹性全在服务端：算力宽裕时可 24h 放行、新增算力充沛的小模型时可放宽策略——客户端无需发版。
-- D3 准入门槛制精神保留：门槛从"时间窗口"变成"服务端授权"；running 之后依旧与授权无关（D15 锁定到终态）。
-- UI 不再做任何开始时间承诺，文案统一"等待闲时算力执行"。
+**Conclusão: assim que a tarefa começa, o idle plan fica travado até o estado terminal, e o servidor faz a baixa da tarefa inteira como «tarefa iniciada dentro da janela».** Requisito rígido para o servidor: a liberação do idle plan não pode ser um «corte fora da janela», e precisa suportar «tarefa iniciada dentro da janela roda até o estado terminal» (período de tolerância ou identificador por tarefa), escritas no contrato de API.
 
-## D22 终态核销 = 显式 settle 上报 + 静默超时兜底（已定 2026-07-13）
+> Complemento de D19: travar até o estado terminal é uma **garantia de atribuição e liberação do provider** (não rejeitar, não trocar), não uma garantia de dispensar a fila — cada requisição dentro da tarefa ainda pode entrar na fila.
+>
+> **Correção de D26 (2026-07-14)**: o servidor tem um teto rígido de active de 3h, e não «trava até o estado terminal». Atravessar as 3h = retirar um novo número com o mesmo task_id + retomar e continuar (ver D26).
 
-原 7.6 待定项 2 定案。新增幂等接口 `POST /api/off-peak/tasks/{id}/settle`（status + endedAt），客户端 outbox 模式：终态即上报、`settled_at` 列记 ack、poll 周期捎带补报、host 启动扫描。服务端收到即移出等待队列/活跃集合、释放额度；静默超时回收保留作兜底。核销非计费动作，纯资源记账。设计细节见 tech-design §7.7。
+Análise original:
 
-## D23 宿主对话非终态全程锁定 + provider 绑定 run 作用域（已定 2026-07-13）
+O sistema de limiar de admissão de D3 permite que a tarefa passe do fim da janela, e D11 diz que o idle plan só está disponível dentro da janela; os dois se chocam:
 
-D5 只锁了 queued，本条补齐 running / awaiting_approval 的空档（"用户直接 prompt 这个 session 怎么办"）：
+- A (recomendado): trava do idle plan desde o início até o estado terminal, com baixa da tarefa inteira pelo servidor como tarefa iniciada dentro da janela e transbordo controlado.
+- B: no instante do fim da janela troca para o provider pago do usuário e continua — isso queimaria o dinheiro do usuário enquanto ele dorme, o que é inaceitável a menos que haja consentimento explícito.
+- C: parar no fim da janela (volta ao limite rígido, refutando D3).
+  Depende de o idle plan do servidor recusar diretamente requisições fora da janela.
 
-- **非终态全程锁定** composer，人工介入面收敛为状态对应按钮：queued「取消 / 立即执行」、running「取消任务」、awaiting_approval「批准 / 拒绝跳过 / 取消」。想直接对话的唯一路径 = 先取消（自动化终止、文件保留、解锁）——"接管 = 终止自动化"。
-- 否决的备选：running 期间放开打字（人工消息排到任务后、切用户 provider）。同 session 免费/付费轮次交错对用户不可解释，且踩 desktop queued prompt 的语义边界，灵活性收益撑不起复杂度。
-- **provider 绑定为 run 作用域**：idle plan 选择键仅随本次派发注入，不持久化到 session 配置；终态后对话自动回落用户自己的 provider——否则解锁后的第一句人工消息继续烧免费池，反向违反 D11。列入 MR3 验收标准。
+## D16 Forma de integração do idle plan = reuso do mecanismo de Start plan (decidido em 2026-07-09)
 
-## D24 长等待策略：短钳制 × 无限探测，核心靠 Retry-After（已定 2026-07-13）
+Provider embutido invisível, liberado pelo servidor durante o período da janela (incluindo a tolerância até o estado terminal de D15). O cliente reutiliza a infraestrutura no estilo Start plan, sem criar uma nova cadeia de envio de credencial temporária por tarefa.
 
-服务端可能下发小时级 Retry-After，客户端从不长睡（2026-07-14 服务端确认 429 会返回 `Retry-After`；载体是 HTTP 429/3105，非自定义应答头）：
+## D17 Situação atual do servidor = os três itens são totalmente novos (confirmado em 2026-07-09)
 
-- **规则 1（首派弃派）**：queued 态首个请求 Retry-After > `max(10 分钟, 当前 pollInterval)` → 放弃本次派发，任务留在 queued 等下轮授权，不空挂 agent loop；重派发复用中断恢复的 resume 语义。
-- **规则 2（单次钳制 × 无限探测）**：running 态单次等待 = `min(Retry-After, 5 分钟)`，无限次幂等探测（3h ≈ 36 次），资源提前空出即被下次探测捕获。钳制与 retry-after 解析复用 `bigmodel-business-error-retry` 既有逻辑；**预算豁免是新增开关**——新 retry reason `offpeak_queued` 绕开统一 retry budget（否则现状探四五次就 fail）。
-- **规则 3**：UI 如实展示重试提示，取消/立即执行随时可用；取消 abort 等待定时器。
-- **服务端两条义务**：小时级缺口用粗阀表达（schedulable=false + 长轮询间隔），勿 admit 后给小时级 Retry-After；排队应答必须在请求受理前返回（零模型副作用），SSE 流中途不得转排队。
-- 实现落点：`apps/zcode-cli/packages/adapters/src/model/{failure-inspection,failure-classifier,runner-retry}.ts`，详见 tech-design §4.3。
+Tabela de janelas / autenticação de criação + baixa / liberação do idle plan: nada disso existe hoje. O cliente começa trabalhando com mocks conforme o rascunho do contrato de API da spec, e o contrato é levado para alinhamento com o servidor/produto.
 
-## D25 服务端契约收敛为任务生命周期四接口（已定 2026-07-13，取代 D21 的全局 poll，定案 7.8-1）
+> Correção em D18: os três itens são reestruturados em «envio de configuração (tabela de janelas + limite de criação) / admissão de fila no gateway (protocolo de response header) / liberação do idle plan»; se o registro explícito e a baixa no estado terminal são necessários, fica a cargo do servidor decidir.
 
-> **历史接口形状，已被 D26 取代。** 下文的 `POST /register`、`GET /:taskId`、409 和
-> `maxTasksPerUser` 只用于保留演进过程，不是当前客户端契约。
+## D18 A fila vai para o servidor, e o cliente só faz tentativas e trata as respostas (decidido em 2026-07-09, corrige D6/D7/D17)
 
-**取号 → 轮询 → 模型请求 → 结算**：
+Arquitetura real revelada pelo usuário:
 
-1. `POST /register`——创建任务时取号，服务端按注册顺序登记进全局 FIFO（**这就是前置登记，7.8 待定项 1 定案**：FIFO 序服务端记，queuedAt 伪造/多设备绕过均消除），并在此校验 maxTasksPerUser（超限 409）。
-2. `GET /:taskId`——**替换 D21 全局 poll**：回 `status + schedulable + queuePosition + nextPollAfter`。schedulable=true ≡ 窗口开 + 排到了（粗阀，per-task）。
-3. `POST /messages`——= /chat 调模型，schedulable 后发起。D19 细阀在此：running 保号、单次请求可限流退避（D24 短钳制×无限探测）。
-4. `POST /:taskId/settle`——终态释放号/并发槽（D22 归入生命周期）。
+- **O servidor hospeda o núcleo da fila**: pool global de tarefas fora do pico, FIFO entre usuários (primeiro criado fica primeiro), e o servidor organiza a admissão de uma certa concorrência conforme a folga de recursos.
+- **O cliente não hospeda a lógica de fila** e faz apenas três coisas:
+  1. Criação: localmente limita a submissão conforme o limite de quantidade de tarefas enviado pelo servidor (não há interface de autenticação por criação; proteção de segurança de criação em excesso na mesma conta em múltiplos dispositivos é assumido naturalmente pela fila do servidor).
+  2. Dentro da janela: inicia a tentativa de execução da tarefa queued mais antiga da máquina local, com a requisição indo ao servidor.
+  3. Tratamento do response header de fila (na fila/liberado/posição/intervalo de retentativa): avisado de que está na fila → permanece queued (pode exibir a posição na fila) e retenta conforme Retry-After/backoff; liberado → running.
+- ~~A «serialização estrita» local é mantida, mas degradada para política de execução~~ (refutado por D20: o cliente não limita concorrência).
+- Efeito colateral: a exibição da posição «faltam N tarefas na sua frente» do PRD se torna realmente viável graças ao campo de posição do header (opcional).
+- (Tudo o que estava «pendente de decisão do servidor» foi decidido: FIFO = registro prévio D25; baixa no estado terminal = settle D22; fila no meio de running D19.)
 
-连带：① 全局 `GET /poll` / `off_peak_poll_state` 单行表废弃，schedulable/queue_position/next_poll_at 落在 `off_peak_tasks` 行上（scheduler 跨进程读）；② 提交从"本地必成功"变为"register 往返可失败"（409/网络），UI 需失败态——D18"无 per-create 接口"随之作废；③ maxTasksPerUser 权威在 register 409，客户端本地计数仅用于按钮预判，多设备超限被服务端挡住；④ 并发控制 = 服务端决定同时翻多少任务 schedulable。
+## D19 Cada requisição dentro da tarefa pode ser reenfileirada, e o servidor prioriza o melhor esforço da tarefa em execução (decidido em 2026-07-09)
 
-- 保留待议：register 与首个 messages 是否合并（当前取"轮询到 schedulable 再发 messages"，职责更清晰）。
+Depois que a tarefa é admitida, **cada requisição de modelo pode ser reenfileirada pelo servidor**; o servidor faz o melhor possível com fila de prioridade para garantir que o Agent loop da mesma tarefa seja agendado primeiro (a admissão de novas tarefas cede lugar às requisições de continuação das tarefas em execução). leitura de implementação no cliente:
 
-> **D26 取代（2026-07-14）**：对齐服务端 v2 实际契约——register→`POST /ticket`（返回服务端 Snowflake ticket_id）、per-task GET→批量 `POST /ticket/status`、schedulable→服务端 ready 态。详见 D26。
+- O tratamento do header de fila é convergido para a **camada de adaptação do provider de idle plan** (Retry-After + retentativa com backoff), transparente para o agent runtime — o loop percebe apenas que «essa resposta está lenta». Conferir o reuso do mecanismo existente `bigmodel-business-error-retry`.
+- Nenhum estado novo na máquina de estados: a tarefa permanece running; a barra de status da página de detalhes pode mostrar temporariamente «aguardando recursos fora do pico (posição N)».
+- A espera na fila **não conta** para o julgamento de failed por «falhas consecutivas de API», e a espera não tem limite (esperar é grátis em cenário sem supervisão); apenas erros reais levam a um estado terminal.
+- Quando o usuário cancela a tarefa, o loop de retentativa em espera é abortado.
+- Comentário adicional (2026-07-10): um dos objetivos de projeto da fila prioritária do servidor é **garantir que as requisições da mesma sessãoo máximo possível rodem de forma contínua**, evitando inanição longa no meio do loop.
 
-## D26 服务端 v2 契约对齐（已定 2026-07-14，修正 D3/D9/D15/D24/D25）
+## D20 A concorrência é controlada pelo servidor, e o cliente não faz serialização local (decidido em 2026-07-09, refuta D7)
 
-对照 `zcode-server` feat/off-peak 的 `off_peak_design.md`(v2)。服务端是一个**有严格时间盒的准入系统**，与我们「开跑跑到终态」的假设不同。
+O usuário pode ter múltiplas tarefas fora do pico e múltiplas execuções concorrentes; **quantas execuções concorrentes cada usuário realmente recebe é decidido pelo servidor**. O cliente inicia todas as tarefas queued dentro da janela na ordem de entrada na fila, e a admissão e a cota de concorrência ficam todas no gateway (combinando com o protocolo de header de D18/D19).
 
-**1. 双 ID（task_id / ticket_id）。** 客户端提交自己的 `task_id`（每个闲时任务一个稳定 id，用户内有意义、不要求全局唯一）；服务端取号生成 Snowflake `ticket_id`，此后 status/settle/messages **一律用 ticket_id**。本地表加 `server_ticket_id` 列，取号成功回填、重新取号更新。
+- O despacho de uma única tarefa continua sendo single-flight (a transação de reivindicação impede o despacho duplicado da mesma tarefa), e não há limite local de concorrência entre tarefas.
+- O risco de várias tarefas escreverem arquivos em paralelo no mesmo workspace é exatamente o mesmo de o usuário rodar manualmente várias conversas ao mesmo tempo (já permitido hoje), e não há isolamento por worktree.
+- Confirmação por comentário (2026-07-10): futuramente concorrência por camada de plano (por exemplo, Max Plan com 3+ concorrentes) — política do servidor, sem impacto para o cliente.
 
-**2. 两轴状态机。** 服务端准入态 `queued→ready→active→expired/settled`；客户端执行态 `queued/running/awaiting_approval/终态`。映射：**schedulable ≡ 服务端 ready**、**running ≡ 服务端 active**、客户端终态→settle→服务端 settled、服务端 expired→触发续跑或失败。
+## D21 O cliente não tem conceito de janela: polling de autorização de agendamento no lugar da tabela de janelas (decidido em 2026-07-10, substitui a forma da tabela de janelas de D2)
 
-**3. 低峰窗口在服务端，客户端仍无窗口概念（D21 成立）。** `queued→ready` 只在服务端低峰窗口内晋级（默认 00:00-08:00 + 12:00-14:00，Asia/Shanghai，支持跨午夜）；非低峰可取号/查排位但不晋级。客户端不存/不判窗口，只轮询看 state；「等待闲时窗口」文案现字面属实。已 ready/active 的票不受窗口结束影响。**修正 D9**：queued→ready 错过窗口=等下一个低峰窗口（不丢弃）成立；但 ready 5min、active 3h 是硬计时器。
+Origem: consenso nos comentários de um documento no Feishu. O cliente **não julga pico/fora do pico e não guarda tabela de janelas**:
 
-**4. 3h 上限 + 自动重新取号续跑（问题①②定案）。** 服务端 active 硬顶 3h、不滑动续期，到期后 message 收 `400/3102`——**修正 D15/D3**：idle plan 是 3h 时间盒不是「锁定到终态」。取号额度实际放宽：**同一 task_id 允许多次取号**（过期后同 task_id 重新取号→新 ticket_id）。客户端做**自动续跑**：active 到期/收 400/3102 → 同 task_id 重新取号 → 回 queued 等下一个 ready → resume 同一 session 续发 → agent loop 自然完成 → settle。用户视角是一个 running/等待交替、慢慢跑完的任务；每段 3h 是一个 ticket，task 横跨多个 ticket。
+- Apenas quando existe na máquina local uma tarefa fora do pico não terminal, faz polling da interface de autorização de agendamento do servidor; **o intervalo de polling é enviado pela interface e não fica hardcoded**.
+- A resposta contém `canDispatch` (se pode despachar agora) + intervalo + maxTasksPerUser; canDispatch=true significa iniciar o despacho («submeter» = esta rodada de requisição de modelo pode ser liberada).
+- Toda a flexibilidade fica no servidor: pode liberar 24h quando há capacidade sobrando e pode afrouxar a estratégia ao adicionar modelos pequenos com muito poder computacional — sem precisar de novo release no cliente.
+- O espírito do sistema de limiar de admissão de D3 é preservado: o limiar deixa de ser «janela de tempo» e passa a ser «autorização do servidor»; depois do running, continua sem relação com a autorização (D15 trava até o estado terminal).
+- A UI não faz mais nenhuma promessa de horário de início, e o texto é unificado como «aguardando capacidade computacional fora do pico».
 
-**5. 接口/头对齐（取代 D25 形状）。**
+## D22 Baixa no estado terminal = reporte explícito de settle + proteção por timeout silencioso (decidido em 2026-07-13)
 
-- `POST /api/v1/off-peak/ticket {task_id}` → `{ticket_id, state, position, next_poll_after, …}`（取号，可能直接 ready）。
-- `POST /api/v1/off-peak/ticket/status {ticket_ids:[…≤100]}` → 批量状态（position / active_deadline）。
-- `POST /api/v1/off-peak/ticket/:ticket_id/settle`（仅 JWT，无 body）。
-- `POST /api/v1/off-peak/anthropic/v1/messages`，头 `Authorization: Bearer <jwt>` + `X-Coding-Plan-Api-Key: <原始 key>` + `X-Off-Peak-Ticket-ID: <ticket_id>`，body 原生 Anthropic。
-- idle plan provider = baseURL 指向该 messages 端点、auth = JWT + coding-plan-key 的 provider；服务端持上游 key（免费池落地）。模型受 `allowed_models` 白名单、body ≤10MB。
+O item pendente 2 da seção 7.6 foi decidido. Nova interface idempotente `POST /api/off-peak/tasks/{id}/settle` (status + endedAt), com o cliente no padrão outbox: reporta ao chegar no estado terminal, a coluna `settled_at` registra o ack, o ciclo de polling reenvia por conta própria e o scan no start do host cobre o resto. Ao receber, o servidor remove da fila de espera / do conjunto ativo e libera a cota; a recuperação por timeout silencioso é mantida como proteção. A baixa não é uma ação de cobrança, apenas contabilidade de recursos. Detalhes em tech-design §7.7.
 
-**6. 错误码映射 v3（服务端 2026-07-16 文档，修正 v2 的 3001）。** `3101/403` 无有效 coding plan→拦提交；`3103/429` 取号额度（+next_take_at，已放宽）；`3105/429` 模型并发满→**带 `Retry-After`**，客户端按 D24 `min(Retry-After,5min)` 退避、吃 3h 预算；`3103/429` 取号额度→带 `next_take_at`（绝对时间，非 Retry-After）；`3102/400` ticket 不可用（过期/settled/不存在/非本人）→**触发续跑重新取号，非普通报错**；`3006/400` 模型不在白名单→提交前用 allowed_models 校验；`3011/499` 客户端取消→预期结果；`2001/2002/2007/2010`(500) 依赖异常→瞬时退避。 **重排队/限流的真实信号是 HTTP 429/3105 + Retry-After，非早期设想的 `X-OffPeak-Queue` 应答头**——D24 退避据此，§4.3/§7.6 的 header 表述按此理解。
+## D23 Conversa hospedeira travada em todos os estados não terminais + provider vinculado ao escopo do run (decidido em 2026-07-13)
 
-**7. 客户端要接的活。** 供给 `X-Coding-Plan-Api-Key`（用户 coding plan provider 原始 key）；持续批量轮询驱动晋级（服务端无常驻调度器，查状态即触发 Promote）；维护 task_id↔ticket_id、存 server_ticket_id。
+D5 só travou o estado queued, e este item completa a lacuna de running / awaiting_approval («o que acontece se o usuário digitar direto nesse session?»):
 
-（问题③ ready 5min 抢首发的 next_poll_after 调短：本期不管。）
+- **Trava em todos os estados não terminais**: o composer fica travado, e a superfície de intervenção manual é reduzida aos botões do estado correspondente: queued「Cancelar / Executar imediatamente」、running「Cancelar tarefa」、awaiting_approval「Aprovar / Recusar e pular / Cancelar」. O único caminho para conversar diretamente é primeiro cancelar (a automação termina, os arquivos são preservados e a trava é liberada) — «assumir = terminar a automação».
+- Alternativa refutada: liberar a digitação durante running (mensagens humanas ficam depois da tarefa, com troca para o provider do usuário). Turns grátis/pagos intercalados na mesma sessão são inexplicáveis para o usuário e esbarram no limite semântico do queued prompt do desktop; o ganho de flexibilidade não compensa a complexidade.
+- **Provider vinculado ao escopo do run**: a chave de seleção do idle plan é injetada apenas neste despacho, sem ser persistida na configuração da sessão; depois do estado terminal a conversa volta automaticamente ao provider do próprio usuário — caso contrário a primeira mensagem humana depois de desbloquear continuaria queimando o pool gratuito, violando D11 na direção oposta. Incluído nos critérios de aceitação do MR3.
 
-## D27 收尾确认（已定 2026-07-14）
+## D24 Estratégia de espera longa: clamp curto × sondagem infinita, apoiada no Retry-After (decidido em 2026-07-13)
 
-> **实现状态修正**：模型白名单、提交取号和过期重取已落地；下文 permission approval 后
-> 切用户 provider/拒绝跳过的 Off-Peak 专用状态机未被最终代码采纳，见 D44。
+O servidor pode enviar um Retry-After de horas, e o cliente nunca dorme por muito tempo (em 2026-07-14 o servidor confirmou que o 429 retorna `Retry-After`; o portador é HTTP 429/3105, e não um header de resposta customizado):
 
-一次性确认所有剩余口子：
+- **Regra 1 (abandono no primeiro despacho)**: no estado queued, se o primeiro Retry-After > `max(10 minutos, pollInterval atual)` → abandona este despacho, a tarefa permanece queued esperando a próxima autorização, sem deixar o agent loop pendurado; o novo despacho reusa a semântica de resume da recuperação de interrupção.
+- **Regra 2 (clamp por tentativa × sondagem infinita)**: no estado running, a espera de uma única vez = `min(Retry-After, 5 minutos)`, com sondagem idempotente ilimitada (3h ≈ 36 vezes), e um recurso que fique livre antes é capturado pela próxima sondagem. O clamp e o parsing de retry-after reutilizam a lógica existente de `bigmodel-business-error-retry`; **a isenção de orçamento é um switch novo** — o novo retry reason `offpeak_queued` contorna o retry budget unificado (senão hoje a tentativa falha na quarta ou quinta vez).
+- **Regra 3**: a UI exibe a dica de retentativa com fidelidade, e cancelar/executar imediatamente ficam sempre disponíveis; ao cancelar, o temporizador de espera é abortado.
+- **Duas obrigações do servidor**: lacunas de horas precisam ser expressas por uma válvula grossa (schedulable=false + intervalo de polling longo), e não admitir e depois dar um Retry-After de horas; a resposta de fila precisa ser retornada antes de a requisição ser aceita (zero efeito colateral de modelo), e um stream SSE não pode virar fila no meio do fluxo.
+- Ponto de implementação: `apps/zcode-cli/packages/adapters/src/model/{failure-inspection,failure-classifier,runner-retry}.ts`, detalhado em tech-design §4.3.
 
-- **拒绝跳过保持 idle plan**：切用户 provider 只在「用户主动让它继续做事/接管」时发生（批准执行敏感操作 / 立即执行 / 主动补 prompt）；拒绝并跳过是否决+继续无人值守，留 idle plan（精化 D11）。
-- **模型：用户可选 + 提交前 allowed_models 预校**。→ 需服务端把 `allowed_models` 暴露给客户端（新增接口或 config 下发）——**给服务端的新增对齐项**。撞 3006 作兜底。
-- **提交即取号**：确认加入队列即 `POST /ticket`，非低峰也取号进 FIFO、显示 position，只是不晋升 ready。
-- **ready 5min 废票 = 同 task_id 自动重取**：与 active 3h 到期一视同仁（统一"任何 expired → 同 task_id 重新取号续跑"，问题③本期不调轮询间隔）。
-- **files_changed**：复用现有 task diff，MR4 核对，不单独定。
-- **settle 只结算当前 ticket**：过期旧 ticket 服务端已自然终态，无需 settle。
+## D25 Contrato do servidor convergido para quatro interfaces de ciclo de vida da tarefa (decidido em 2026-07-13, substitui o poll global de D21, decide o item 7.8-1)
 
-### 给服务端/产品的对齐清单（拿去敲）
+> **Forma de interface histórica, substituída por D26.** O `POST /register`, o `GET /:taskId`, o 409 e o `maxTasksPerUser` abaixo servem apenas para preservar o processo de evolução e não são o contrato atual do cliente.
 
-1. 429/3105 补文档写明返回 `Retry-After`（口头已确认，v2 文档待补）。
-2. ~~暴露 `allowed_models` 给客户端~~ ✅ 已解决（2026-07-15）：服务端 §11.1 经共用 `GET /api/v1/client/configs` 灰度下发 `data.configs.offPeak.allowed_models`，见 D31。
-3. `take_number.limit` 放宽的实际值（同 task_id 多次取号已确认允许）。
+**Retirar número → fazer polling → requisição de modelo → liquidar**:
 
-### 开工前代码 spike（事实验证，非决策）
+1. `POST /register` — retira o número na criação da tarefa, e o servidor registra na FIFO global pela ordem de registro (**este é o registro prévio, decidido o item pendente 1 de 7.8**: a ordem FIFO é memorizada pelo servidor, eliminando falsificação de queuedAt e contornamento multi-dispositivo), e valida o maxTasksPerUser aqui (409 ao exceder).
+2. `GET /:taskId` — **substitui o poll global de D21**: devolve `status + schedulable + queuePosition + nextPollAfter`. schedulable=true ≡ janela aberta + vez na fila (válvula grossa, por tarefa).
+3. `POST /messages` — = /chat chamando o modelo, iniciado depois de schedulable. O detalhe de D19 fica aqui: manter o número em running e poder limitar uma requisição com backoff (clamp curto × sondagem infinita de D24).
+4. `POST /:taskId/settle` — libera o número / a vaga de concorrência no estado terminal (D22 entra no ciclo de vida).
 
-- `session/resume` 跨 ticket 续跑 + `updateRuntimeModelConfig` 中途切 provider。
-- 客户端能否读到原始 Coding Plan API Key（`X-Coding-Plan-Api-Key` 前置）。
-- `bigmodel-business-error-retry` 承载 429+Retry-After。
+Consequências: ① o poll global `GET /poll` / a tabela de linha única `off_peak_poll_state` são abolidos, e schedulable/queue_position/next_poll_at passam a ficar na linha de `off_peak_tasks` (lida pelo scheduler entre processos); ② a submissão deixa de ser «localmente sempre bem-sucedida» e passa a poder falhar na ida e volta (409/rede), então a UI precisa de um estado de falha — com isso o «sem interface por criação» de D18 é refutado; ③ a autoridade do maxTasksPerUser está no 409 do register, e a contagem local do cliente serve só para prever o estado do botão, sendo o excesso multi-dispositivo barrado pelo servidor; ④ o controle de concorrência = o servidor decide quantas tarefas são tornadas schedulable ao mesmo tempo.
 
-## D28 UI 范式 = Automation 兄弟实体，一切以设计稿为准（已定 2026-07-14，推翻 D5/D23 的对话式范式）
+- Mantido em aberto: se register e o primeiro messages devem ser fundidos (atualmente opta-se por «fazer polling até schedulable e só então enviar messages», com responsabilidades mais claras).
 
-> **口径修正（2026-07-28）**：本条的「Automations Tab（All / Scheduled tasks / Idle-time task）」
-> 已由 D47 收窄为 Scheduled / Idle 两个 tab，All 混排总览删除；其余定案继续成立。
+> **Substituição por D26 (2026-07-14)**: alinhamento com o contrato real v2 do servidor — register→`POST /ticket` (devolve o ticket_id Snowflake do servidor), GET por task→`POST /ticket/status` em lote, schedulable→estado ready do servidor. Ver D26.
 
-Figma（⚫️ Z.ai - Zcode / 自动化 & 闲时任务页）定稿范式：闲时任务是 **Automations 体系下的实体**，不是"对话上的延迟发送"。
+## D26 Alinhamento ao contrato v2 do servidor (decidido em 2026-07-14, corrige D3/D9/D15/D24/D25)
 
-- **创建**：Automations 主视图整页表单（Task title + Instructions + 项目 + Ask for approval 下拉 + 模型 + Idle-time 时段选择），Settings/History 双 tab——完全复用 feat/cron 定时任务的创建范式。
-- **列表**：Automations Tab（All / Scheduled tasks / Idle-time task），卡片带排队位次徽章与操作菜单。
-- **入口**（≥4 个）：Automations 主视图按钮、New task 页引导条+模板卡、对话中 429/Coding plan 额度耗尽 toast 引导、Create via chat。**PRD 的 composer 月亮开关不存在了。**
-- **连带作废/重写**：D5（延迟发送+排队锁定）、D23（非终态锁定 composer、接管语义）整体作废——run→新 session，无锁对话问题；侧栏月亮状态图标、per-conversation 提交确认弹窗、"记住偏好 30 天"均随范式消失。D26 的 3h 续跑、四接口契约、D24 等待策略、D27 计费边界**继续成立**（作用于 run 执行层）。
-- 后续 UI 细节以该 Figma 页为唯一真源，spec §5 UI 清单按设计稿重写（本次 grilling 收敛后统一落）。
+Comparação com `off_peak_design.md` (v2) do `zcode-server` feat/off-peak. O servidor é um **sistema de admissão com time box rígido**, diferente da nossa hipótese de «roda até o estado terminal».
 
-## D29 设计稿交互定案·第一批（grilling 2026-07-14）
+**1. Dois IDs (task_id / ticket_id).** O cliente submete seu próprio `task_id` (um id estável por tarefa fora do pico, significativo dentro do usuário e sem exigência de unicidade global); o servidor retira o número e gera um `ticket_id` Snowflake, e a partir daí status/settle/messages usam **sempre o ticket_id**. A tabela local ganha a coluna `server_ticket_id`, preenchida no sucesso da retirada e atualizada ao retirar de novo.
 
-> **实现状态修正**：权限下拉保留；“批准 = 接管 = 切用户 key”和专用等待态未被最终代码采纳，
-> 见 D44。下文保留的是当时设计反馈，不是当前 UI 契约。
+**2. Máquina de estados de dois eixos.** Estado de admissão do servidor `queued→ready→active→expired/settled`; estado de execução do cliente `queued/running/awaiting_approval/estado terminal`. O mapeamento: **schedulable ≡ ready do servidor**, **running ≡ active do servidor**, estado terminal do cliente→settle→settled no servidor, expired no servidor→dispara retomada ou falha.
 
-以 Figma「自动化 & 闲时任务」页为真源，逐题拍板：
+**3. A janela de baixa demanda está no servidor, e o cliente continua sem conceito de janela (D21 se confirma).** `queued→ready` só é promovido dentro da janela de baixa demanda do servidor (por padrão 00:00-08:00 + 12:00-14:00, Asia/Shanghai, com suporte a cruzar a meia-noite); fora da baixa demanda é possível retirar número e consultar a posição, mas sem promoção. O cliente não guarda nem julga a janela e apenas faz polling do state; o texto«aguardando a janela fora do pico»é agora literalmente verdadeiro. Tickets já ready/active não são afetados pelo fim da janela. **Correção de D9**: perder a janela em `queued→ready` = esperar a próxima janela de baixa demanda (sem descartar) se confirma; mas ready de 5min e active de 3h são cronômetros rígidos.
 
-1. **一次性实体**：创建即取号排队 → 跑完进终态；不做 Run again（服务端 settled 票不可同 task_id 重取，再跑=新建新 task_id，从模板/复制入口走）。
-2. **History = 一行汇总整个执行**：3h 续跑分段对用户透明，不逐段成行；Go to session 跳唯一 session。
-3. **Pause/Continue（方案 A + 手动 Continue）**：Pause = 客户端停止派发，票留服务端队列继续排；暂停中排到 ready 未接 → 票 5min 自然过期 → **停在 Paused 态，不自动重取**；Continue：票活着=恢复派发（零成本），票已废=此刻手动重取号回队尾。额度消耗永远由用户显式动作触发。→ 给设计的文案微调：tooltip「会被重新放回队列」应改为「需手动继续以重新排队」。
-4. **权限默认 = Ask for approval**（安全优先），表单就地警示：「闲时执行时无人值守，需要确认的操作会暂停任务直到你响应」。四档全开放（Ask/Edit automatically/Plan/Full access，映射现有 ZCodeTaskMode）。派生：批准 = 接管 = 切用户 key 跑到完（D27，票此后不再需要）；拒绝跳过留 idle plan，票已过期时重取号搭在"拒绝"显式动作上。
-5. 照设计直接采纳（无争议）：达上限创建按钮置灰 + tooltip "Free tier limit reached"；非 coding plan 用户按钮带锁 + "仅限 coding plan 用户使用"；多任务同时排队（多卡同屏各带位次）；模型下拉=allowed_models 白名单形态。
+**4. Teto de 3h + retirada automática de novo número para retomada (itens ①② decididos).** O servidor tem um teto rígido de active de 3h, sem renovação deslizante, e ao expirar a mensagem recebe `400/3102` — **corrige D15/D3**: o idle plan é um time box de 3h, e não «trava até o estado terminal». A cota de retirada de números na prática é relaxada: **o mesmo task_id pode retirar números várias vezes** (após expirar, retirar de novo com o mesmo task_id → novo ticket_id). O cliente faz **retomada automática**: active expirado / 400/3102 recebido → retira um novo número com o mesmo task_id → volta para queued esperando o próximo ready → retoma a mesma session e reenvia → o agent loop conclui naturalmente → settle. Na perspectiva do usuário é uma tarefa alternando running/espera e terminando aos poucos; cada trecho de 3h é um ticket, e a tarefa atravessa múltiplos tickets.
 
-## D30 设计稿交互定案·第二批 + 范式连带修订（grilling 2026-07-14 收官）
+**5. Alinhamento de interfaces/headers (substitui a forma de D25).**
 
-1. **Est. 预计等待砍掉**：卡片只显示位次（#N in queue），客户端不做任何时间预估（D14 口径贯彻）；服务端不必加预估字段。→ 设计改稿项。
-2. **额度口径定稿**：滚动 24h 内 distinct task_id ≤ 服务端配置数（**含 Paused**，不返还）；同一 task_id 多次取号不重复计数（续跑/Continue/拒绝后重取全部免计）。文案跟配置走（"X free runs every 24 hours"）。→ 服务端对齐项定案。
-3. **保持唤醒 = 单一全局开关**，列表横幅/创建页/设置 General 三处入口镜像，文案统一；实现 = `keepAwakeWhileRunning` 配置 + powerSaveBlocker 在存在执行中任务期间生效（D4 落地形态）。
-4. **入口收敛为两个**：Automations 主视图按钮 + New task 页引导条&模板卡（模板 = 预填创建表单）。**砍掉**：对话中 429/Coding plan 额度耗尽 toast 引导（该设计帧 v1 作废）、Create via chat 接入闲时。
-5. **侧栏**：Group 视图系统分组「Idle-time task」（跨项目聚合，计数徽章）；Project 视图不出现；**D12 per-workspace 作废**。条目点击：无 session（排队/暂停）→ 任务详情页；有 session → 直接跳 session 对话（顶部留"查看任务"回详情）。
-6. **终态卡片**：保留展示（Succeeded/Failed 徽章+时间），可 Delete，不自动清理。排序口径已修订为只按 `createdAt` 倒序，不再按活跃/终态分组。
-7. **编辑窗口期**：queued/paused 全字段可编辑（票只锁队列身份，prompt 派发时才读）；running 起锁定编辑（仅可取消）；终态只读。丢弃草稿弹窗沿用 scheduled 范式。
-8. **D25 取舍修订（范式连带）**：不再"提交时预建宿主对话"——创建只落表单数据+取号；**派发时 createTask 新建 session**（automation 同款），sessionId 首跑回填，中断恢复仍 resume 同一 session。
-9. **D23 修订（范式连带）**：composer 锁定作废——run session 是普通对话，running 中用户插话走 z.code 现状（busy 排队消息）；但**排队消息必须走用户自己的 provider**——D23 的「provider 绑定 run 作用域」比以前更关键（防中途插话和终态后聊天烧免费池），列 MR3 验收 + spike 覆盖。
-10. **状态机新增 paused 态**（用户主动）：queued ⇄ paused（Pause/Continue）；paused 中票过期仍停在 paused（D29-3）；paused 可取消、可编辑。
+- `POST /api/v1/off-peak/ticket {task_id}` → `{ticket_id, state, position, next_poll_after, …}` (retirar número, podendo já vir ready).
+- `POST /api/v1/off-peak/ticket/status {ticket_ids:[…≤100]}` → status em lote (position / active_deadline).
+- `POST /api/v1/off-peak/ticket/:ticket_id/settle` (somente JWT, sem body).
+- `POST /api/v1/off-peak/anthropic/v1/messages`, com os headers `Authorization: Bearer <jwt>` + `X-Coding-Plan-Api-Key: <key original>` + `X-Off-Peak-Ticket-ID: <ticket_id>`, e body nativo do Anthropic.
+- O provider de idle plan = provider cujo baseURL aponta para esse endpoint de messages e cujo auth é JWT + coding-plan-key; o servidor guarda a key upstream (concretização do pool gratuito). Os modelos são limitados pela lista de permissões `allowed_models`, com body de até 10MB.
 
-### 给设计的反馈清单（拿去和 Mico 对）
+**6. Mapeamento de códigos de erro v3 (documento do servidor de 2026-07-16, corrige o 3001 da v2).** `3101/403` sem coding plan válido→bloqueia a submissão; `3103/429` cota de retirada de número (+next_take_at, já relaxado); `3105/429` concorrência de modelo no máximo→**com `Retry-After`**, e o cliente faz backoff de `min(Retry-After,5min)` conforme D24, consumindo o orçamento de 3h; `3103/429` cota de retirada de número→com `next_take_at` (tempo absoluto, e não Retry-After); `3102/400` ticket indisponível (expirado/settled/inexistente/de outra pessoa)→**dispara a retomada com retirada de novo número, e não é um erro comum**; `3006/400` modelo fora da lista de permissões→validar com allowed_models antes da submissão; `3011/499` cancelamento pelo cliente→resultado esperado; `2001/2002/2007/2010`(500) falha de dependência→backoff transitório. **O sinal real de reenfileiramento/limitação é HTTP 429/3105 + Retry-After, e não o header de resposta `X-OffPeak-Queue` imaginado no início** — o backoff de D24 se baseia nisso, e a formulação de header em §4.3/§7.6 deve ser entendida assim.
 
-1. 卡片去掉 Est.，只留位次。
-2. Pause tooltip 文案改：「排到号未开始的暂停任务票会失效，需手动"继续"重新排队」（现文案暗示自动放回，与手动 Continue 语义冲突）。
-3. 权限默认保持 Ask for approval，但表单需加警示行：「闲时执行时无人值守，需要确认的操作会暂停任务直到你响应」。
-4. 缺失状态补设计：running 态卡片徽章、终态卡片样式（Succeeded/Failed）、awaiting_approval 卡片态、Paused-票已失效（需手动继续）的提示态。
-5. 系统通知样式未画（完成/失败/等确认三种，交互按 D10：macOS best-effort 按钮、点击跳 session）。
-6. "One free run every 24 hours" 文案改为跟服务端配置数。
-7. 对话中轻流量入口帧（429/额度耗尽 toast 引导）v1 作废。
+**7. O que o cliente precisa assumir.** Fornecer `X-Coding-Plan-Api-Key` (a key original do provider de coding plan do usuário); fazer polling em lote contínuo para dirigir a promoção (o servidor não tem scheduler residente, e consultar o status já dispara o Promote); manter task_id↔ticket_id e guardar server_ticket_id.
 
-## D31 客户端灰度开关接入（已定 2026-07-15，对齐服务端 §11.1）
+(Problema ③ do next_poll_after de ready de 5min disputando o primeiro envio: não tratado nesta iteração.)
 
-服务端设计新增 §11.1：Off Peak 客户端入口经**现有共用配置接口**灰度下发——`GET /api/v1/client/configs`（Authorization 可选、Common Params 走现有统一 Header），客户端从 `data.configs.offPeak` 读取，**零新增请求**。z.code 已有该接口消费者（`forceUpdateGuard.ts` 启动强更检查、`bigmodelCodingPlanSubscriptionProvider.ts`），直接复用拉取链路。
+## D27 Confirmação de fechamento (decidido em 2026-07-14)
 
-字段：`enable_offpeak_task`（功能总开关，false/缺失/未命中灰度不下发 key 均按关闭）+ `allowed_models`（灰度用户可选模型列表）。服务端明确：该配置**只控曝光与模型展示**，不替代服务端鉴权/低峰判断/ticket 准入/白名单校验（3006 兜底不变，D27 成立）。
+> **Correção do status de implementação**: a lista de permissões de modelos, a retirada de número na submissão e a retirada de novo número após expiração já foram implementadas; a máquina de estados de aprovação dedicada ao Off-Peak da seção abaixo (troca para o provider do usuário após a aprovação / recusa e pulo) não foi adotada no código final, ver D44.
 
-客户端三决策：
+Confirma de uma vez todos os pontos restantes:
 
-1. **灰度未命中 = 完全隐藏，锁在灰度之内**：Idle-time tab / 创建按钮 / 模板卡 / 侧栏分组全部不渲染；「非 coding plan 置灰锁」（D29-5）只在灰度命中后才生效。曝光判断两层：灰度开 → 再看 coding plan。
-2. **有效开启判据 = `enable_offpeak_task === true` 且 `allowed_models` 非空**：模型列表空/缺失视为配置不完整，按关闭处理（隐藏），不展示一个无法提交的表单。
-3. **灰度中途翻转：存量继续跑，只藏创建入口**：配置刷新后 enable 变 false——创建入口（按钮/模板卡）隐藏；若存在非终态存量任务，Idle-time tab/侧栏分组仍展示存量并跑到终态（服务端 ticket 准入是真权威）；无存量则整体隐藏。模型被移出白名单的存量任务不预判，派发时撞 `400/3006` 走现有失败处理。
+- **Recusar e pular mantém o idle plan**: a troca para o provider do usuário acontece somente quando «o usuário ativamente deixa que ela continue fazendo algo / assume» (aprovar a execução de uma operação sensível / executar imediatamente / enviar ativamente um prompt); recusar e pular é veto + continuar sem supervisão, e o idle plan é mantido (refinando D11).
+- **Modelo: escolha do usuário + validação prévia por allowed_models**. → exige que o servidor exponha `allowed_models` ao cliente (nova interface ou envio por config) — **um novo item de alinhamento para o servidor**. O 3006 funciona como proteção.
+- **Submissão já retira número**: entrar na fila já faz `POST /ticket`, e mesmo fora da baixa demanda retira número e entra na FIFO exibindo a position, apenas não é promovido a ready.
+- **Ticket ready de 5min inutilizado = retirada automática com o mesmo task_id**: tratado de forma idêntica à expiração de active de 3h (a unificação «qualquer expired → retirar de novo com o mesmo task_id e retomar»; o problema ③ não ajusta o intervalo de polling nesta iteração).
+- **files_changed**: reutiliza o diff de task existente, conferido no MR4, sem decisão separada.
+- **settle liquida apenas o ticket atual**: tickets antigos expirados já estão em estado terminal naturalmente no servidor e não precisam de settle.
 
-派生：D27 对齐清单第 2 项（暴露 allowed_models）关闭；spike 增补一项——确认现有 client/configs 拉取时机（forceUpdateGuard 为启动一次性），灰度刷新节奏可能需要入口打开时补拉。
+### Lista de alinhamento com servidor/produto (levar para fechar)
 
-## D32 「立即执行」砍掉 v1（已定 2026-07-15）
+1. Documentar que 429/3105 retorna `Retry-After` (confirmado verbalmente, documento v2 ainda pendente).
+2. ~~Expor `allowed_models` ao cliente~~ ✅ resolvido (2026-07-15): o servidor envia por gradual rollout, via `GET /api/v1/client/configs` compartilhado, em `data.configs.offPeak.allowed_models` na §11.1, ver D31.
+3. Valor real de relaxação de `take_number.limit` (já foi confirmado que várias retiradas pelo mesmo task_id são permitidas).
 
-> “立即执行”删除已落地；本节末尾的批准切 provider 只是当时收敛的剩余意图，当前没有运行时接线。
+### Spikes de código antes de começar (verificação factual, não decisão)
 
-D30 定案的卡片菜单（queued=Pause/Delete/编辑）与 Figma 均无「立即执行」入口，但 §0 计费边界表、D18 遗留小项、RPC 清单仍残留该入口，文档自相矛盾。与用户确认：**以 Figma/D30 卡片菜单为准，v1 不做立即执行**。想马上跑 = 取消任务后自己开对话。连带清理：计费边界表该行、RPC `offPeakRunNow`、迁移表「queued→出队」行、spec §3 主动接管触发列表中的「立即执行」。切用户 provider 的触发收敛为两个：批准执行敏感操作、run session 内主动补 prompt。
+- `session/resume` continuando entre tickets + `updateRuntimeModelConfig` trocando de provider no meio.
+- Se o cliente consegue ler a Coding Plan API Key original (`X-Coding-Plan-Api-Key` como pré-requisito).
+- Se `bigmodel-business-error-retry` suporta 429+Retry-After.
 
-## D33 run 作用域落地 = per-turn runtimeModel 注入（已定 2026-07-15，落地 D23/D30-9）
+## D28 Paradigma de UI = entidade irmã de Automation, e o design manda (decidido em 2026-07-14, refuta o paradigma conversacional de D5/D23)
 
-spike ②（tech-design §11）证实：往 session 上设置模型会三层持久化（app 缓存 `runtimeModelConfigBySessionKey` / CLI `record.modelRuntime` / workspace catalog），用户 busy 插话与终态后聊天都会 drain 到 idle plan，违反 D23/D30-9。两个方案对比后与用户确认定案 **(a) per-turn 注入**：
+> **Correção de leitura (2026-07-28)**: o «Automations Tab (All / Scheduled tasks / Idle-time task)» deste item foi estreitado por D47 para duas tabs, Scheduled e Idle, e a visão geral mista All foi removida; as demais decisões continuam valendo.
 
-- 派发的每次 sendPrompt 单独携带 idle plan runtimeModel，仅对该轮生效；不写 session 常驻模型、不落三层缓存、不碰 workspace catalog（`applyWorkspace:false` 语义）。
-- session 常驻模型始终是用户自己的 → 插话与终态后聊天**天然**走用户 provider，无回切时序问题。
-- CLI 运行态必须把「session 常驻模型」与「active turn 临时模型」作为两层状态处理：`ensureModelReady` 可以校验 active turn 临时目标，但不得因为它不在 workspace catalog 就自动回退到用户模型；该例外只由内存中的 active turn 标记授权，不能放宽普通隐藏模型的 catalog 边界。
-- provider registry 在 turn 运行期间可能热更新。每次 overlay/registry 重建必须使用「最新 workspace catalog + 当前 active turn runtimeModel」，禁止把临时 provider 从在途 turn 的后续重试中删掉；turn 结束后才恢复用户模型并按最新 workspace catalog 清除临时 provider。
-- 应用、热更新、恢复和清理必须进入同一 session 模型配置串行化边界；恢复与清理先于 ready/queue drain。恢复原模型失败时仍要清除临时凭据，并走 workspace catalog 的可用模型兜底，不能留下“runtime 指向已删除临时 provider”的半状态。
+Paradigma finalizado no Figma (⚫️ Z.ai - Zcode / página Automations & Tarefas Fora do Pico): a tarefa fora do pico é uma **entidade sob o sistema Automations**, e não um «envio atrasado em uma conversa».
+
+- **Criação**: formulário de página inteira na visão principal de Automations (Task title + Instructions + projeto + dropdown Ask for approval + modelo + seleção de horário Idle-time), com duas tabs Settings/History — reuso completo do paradigma de criação das tarefas agendadas do feat/cron.
+- **Lista**: Automations Tab (All / Scheduled tasks / Idle-time task), com cartões tendo selo de posição na fila e menu de ações.
+- **Entradas** (≥4): botão na visão principal de Automations, barra de orientação + cartões de template na página New task, toast de orientação dentro da conversa para 429/cota esgotada do Coding plan, e Create via chat. **O switch da lua no composer do PRD não existe mais.**
+- **Abolições/refações em cascata**: D5 (envio atrasado + trava de fila) e D23 (trava do composer em estados não terminais, semântica de assumir) são abolidos por inteiro — run→nova session, sem problema de conversa travada; o ícone de status da lua na barra lateral, o diálogo de confirmação de envio por conversa e o «lembrar preferência por 30 dias» desaparecem com o paradigma. A retomada de 3h de D26, o contrato de quatro interfaces, a estratégia de espera de D24 e os limites de cobrança de D27 **continuam valendo** (agindo na camada de execução do run).
+- Detalhes posteriores de UI têm essa página do Figma como única fonte de verdade, e o checklist de UI da spec §5 é reescrito segundo o design (unificado nesta rodada de grilling).
+
+## D29 Interações do design, primeira leva (grilling 2026-07-14)
+
+> **Correção do status de implementação**: o dropdown de permissões foi mantido; «aprovar = assumir = trocar para a key do usuário» e o estado de espera dedicado não foram adotados no código final, ver D44. O que segue abaixo é o feedback de design da época, e não o contrato de UI atual.
+
+Com a página Automations & Tarefas Fora do Pico do Figma como fonte de verdade, cada ponto foi decidido:
+
+1. **Entidade de uso único**: criar já retira número e coloca na fila → ao terminar vai para o estado terminal; sem Run again (um ticket settled do servidor não pode ser retirado de novo com o mesmo task_id; rodar de novo = criar um novo task_id, entrando pelo template ou pela cópia).
+2. **History = uma linha resumindo toda a execução**: a segmentação de 3h é transparente para o usuário e não gera uma linha por trecho; Go to session pula para a sessão única.
+3. **Pause/Continue (plano A + Continue manual)**: Pause = o cliente para de despachar, e o ticket continua na fila do servidor; se durante a pausa chegar a ready e não for pego → o ticket expira naturalmente em 5min → **fica parado no estado Paused, sem retirar número automaticamente**; Continue: ticket vivo = retomar o despacho (custo zero), ticket inutilizado = retirar número manualmente agora e voltar ao fim da fila. O consumo de cota é sempre disparado por uma ação explícita do usuário. → Ajuste de texto para o design: o tooltip «voltará a ser colocado na fila» deve virar «é preciso continuar manualmente para entrar na fila de novo».
+4. **Permissão padrão = Ask for approval** (prioridade à segurança), com alerta no próprio formulário: «durante a execução fora do pico não há supervisão, e as operações que exigirem confirmação pausam a tarefa até você responder». As quatro opções ficam abertas (Ask/Edit automatically/Plan/Full access, mapeadas para o ZCodeTaskMode existente). Derivadas: aprovar = assumir = trocar para a key do usuário e rodar até o fim (D27, o ticket deixa de ser necessário depois); recusar e pular mantém o idle plan, e a retirada de novo número quando o ticket já expirou fica presa à ação explícita «recusar».
+5. Adotado direto do design (sem controvérsia): botão de criação cinza ao atingir o limite + tooltip "Free tier limit reached"; usuário sem coding plan com botão bloqueado + "apenas para usuários de coding plan"; múltiplas tarefas na fila ao mesmo tempo (vários cartões na mesma tela cada um com sua posição); dropdown de modelo = forma de lista de permissões allowed_models.
+
+## D30 Interações do design, segunda leva + revisões em cascata do paradigma (fechamento do grilling 2026-07-14)
+
+1. **Est. de espera prevista é cortado**: o cartão mostra apenas a posição (#N in queue), e o cliente não faz nenhuma estimativa de tempo (aplicação da leitura de D14); o servidor não precisa adicionar campo de estimativa. → Item de alteração no design.
+2. **Leitura final da cota**: distinct task_id dentro de uma janela móvel de 24h ≤ o número configurado no servidor (**incluindo Paused**, sem devolução); várias retiradas com o mesmo task_id não contam de novo (retomada/Continue/nova retirada após recusa são todas isentas). O texto acompanha a configuração («X execuções gratuitas a cada 24 horas»). → Item de alinhamento com o servidor decidido.
+3. **Manter acordado = um único switch global**, com pontos de entrada espelhados na faixa da lista, na página de criação e em General das configurações, e texto unificado; implementação = a configuração `keepAwakeWhileRunning` + o powerSaveBlocker em vigor enquanto existem tarefas em execução (a forma concreta de D4).
+4. **As entradas convergem para duas**: botão na visão principal de Automations + barra de orientação e cartões de template na página New task (template = formulário de criação pré-preenchido). **Cortado**: o toast de orientação dentro da conversa para 429/cota esgotada do Coding plan (esse frame de design v1 foi abolido), e o Create via chat para fora do pico.
+5. **Barra lateral**: agrupamento de sistema da visão Group「Idle-time task」(agregação entre projetos, com selo de contagem); não aparece na visão Project; **D12 por workspace é abolido**. Clique no item: sem sessão (na fila/pausada) → página de detalhes da tarefa; com sessão → pula direto para a conversa (deixando «ver tarefa» no topo para voltar aos detalhes).
+6. **Cartão em estado terminal**: mantido em exibição (selo Succeeded/Failed + horário), pode ser excluído e não é limpo automaticamente. O critério de ordenação foi revisto para apenas `createdAt` decrescente, sem agrupar por ativo/terminal.
+7. **Janela de edição**: queued/paused com todos os campos editáveis (o ticket só trava a identidade na fila, e o prompt só é lido no despacho); a partir de running a edição é bloqueada (só cancelar); estados terminais são somente leitura. O diálogo de descarte de rascunho segue o paradigma scheduled.
+8. **Revisão da decisão de D25 (em cascata do paradigma)**: não se «pré-cria a conversa hospedeira na submissão» — a criação grava apenas os dados do formulário + retirada de número; **no despacho o createTask cria uma nova session** (igual à automation), o sessionId é preenchido na primeira execução, e a recuperação de interrupção ainda retoma a mesma session.
+9. **Revisão de D23 (em cascata do paradigma)**: a trava do composer é abolida — a run session é uma conversa comum, e o usuário falando durante running segue o estado atual do z.code (mensagens na busy queue); mas **as mensagens enfileiradas precisam passar pelo provider do próprio usuário** — o «provider vinculado ao escopo do run» de D23 fica ainda mais crucial (evita que uma fala no meio e o chat depois do estado terminal queimem o pool gratuito), e entra nos critérios de aceitação do MR3 + cobertura de spike.
+10. **Novo estado paused na máquina de estados** (ação do usuário): queued ⇄ paused (Pause/Continue); um ticket expirado durante o paused continua em paused (D29-3); paused pode ser cancelado e editado.
+
+### Lista de feedback para o design (levar para alinhamento)
+
+1. Remover Est. do cartão e deixar apenas a posição.
+2. Texto do tooltip de Pause: «o ticket de uma tarefa pausada que chegou a ser numerada mas não começou expira, e é preciso «continuar» manualmente para entrar na fila de novo» (o texto atual sugere devolução automática, o que conflita com a semântica de Continue manual).
+3. A permissão padrão continua Ask for approval, mas o formulário precisa de uma linha de alerta: «durante a execução fora do pico não há supervisão, e as operações que exigirem confirmação pausam a tarefa até você responder».
+4. Faltam designs para os estados: selo do cartão em running, estilo do cartão em estado terminal (Succeeded/Failed), estado de cartão awaiting_approval e o estado de aviso Paused-ticket inutilizado (precisa continuar manualmente).
+5. O estilo das notificações do sistema não foi desenhado (conclusão/falha/aguardando confirmação, com interação conforme D10: botões best-effort no macOS e clique pulando para a sessão).
+6. O texto "One free run every 24 hours" passa a acompanhar o número configurado no servidor.
+7. O frame de entrada de baixo volume dentro da conversa (toast de 429/cota esgotada) fica abolido na v1.
+
+## D31 Integração do switch de gradual rollout no cliente (decidido em 2026-07-15, alinhado à §11.1 do servidor)
+
+O novo design do servidor acrescenta a §11.1: a entrada Off Peak no cliente é enviada por gradual rollout pela **interface de configuração compartilhada existente** — `GET /api/v1/client/configs` (Authorization opcional, Common Params pelo Header unificado existente) — e o cliente lê de `data.configs.offPeak`, com **zero requisições novas**. O z.code já tem consumidores dessa interface (`forceUpdateGuard.ts` para a checagem de atualização forçada no start, `bigmodelCodingPlanSubscriptionProvider.ts`), e o cliente reutiliza diretamente a cadeia de fetch.
+
+Campos: `enable_offpeak_task` (switch principal da funcionalidade; false, ausente, ou chave não enviada por não atingir o gradual rollout significam desligado) + `allowed_models` (lista de modelos que o usuário do gradual rollout pode escolher). O servidor deixa explícito: essa configuração **controla apenas a exposição e a exibição de modelos**, e não substitui a autenticação do servidor / o julgamento de baixa demanda / a admissão de ticket / a validação da lista de permissões (o 3006 de proteção permanece, e D27 se confirma).
+
+Três decisões do cliente:
+
+1. **Não atingir o gradual rollout = ocultar completamente, e ficar preso dentro do gradual rollout**: a tab Idle-time, o botão de criação, o cartão de template e o agrupamento da barra lateral não são renderizados; o «cinza travado para quem não tem coding plan» (D29-5) só tem efeito depois que o gradual rollout é atingido. O julgamento de exposição tem duas camadas: gradual rollout ligado → depois verificar o coding plan.
+2. **Critério de habilitação válida = `enable_offpeak_task === true` e `allowed_models` não vazio**: lista vazia/ausente é tratada como configuração incompleta, ou seja desligado (oculto), sem exibir um formulário que não pode ser submetido.
+3. **Virada do gradual rollout no meio do caminho: o estoque continua rodando, e apenas a entrada de criação é escondida**: depois que a configuração é atualizada e enable fica false — a entrada de criação (botão/cartão de template) é escondida; se existirem tarefas não terminais, a tab Idle-time e o agrupamento da barra lateral continuam exibindo o estoque e o deixam rodar até o estado terminal (a admissão de ticket do servidor é a verdadeira autoridade); sem estoque, tudo é ocultado. Tarefas do estoque cujo modelo saiu da lista de permissões não são pré-julgadas, e no despacho um `400/3006` segue o tratamento de falha existente.
+
+Derivadas: o item 2 da lista de alinhamento de D27 (expor allowed_models) é fechado; um item é acrescentado aos spikes — confirmar o momento atual de fetch de client/configs (forceUpdateGuard é uma única vez no start), e o ritmo de atualização do gradual rollout pode exigir um fetch extra ao abrir a entrada.
+
+## D32 «Executar imediatamente» cortado na v1 (decidido em 2026-07-15)
+
+> A remoção de «Executar imediatamente» foi implementada; a troca para o provider do usuário no fim desta seção é apenas a intenção restante da convergência da época, e hoje não há ligação de runtime.
+
+O menu de cartão decidido em D30 (queued=Pause/Delete/editar) e o Figma não têm entrada «Executar imediatamente», mas a tabela de limites de cobrança da §0, os pequenos itens remanescentes de D18 e a lista de RPC ainda traziam essa entrada, e o documento se contradizia. Confirmado com o usuário: **vale o menu de cartão do Figma/D30, e a v1 não faz execução imediata**. Se quiser rodar agora = cancelar a tarefa e abrir uma conversa por conta própria. Limpeza em cascata: a linha correspondente na tabela de limites de cobrança, o RPC `offPeakRunNow`, a linha «queued→saída da fila» na tabela de migração e o «Executar imediatamente» na lista de gatilhos de assumirativamente do §3 da spec. O gatilho de troca para o provider do usuário converge para dois: aprovar a execução de uma operação sensível, e enviar ativamente um prompt dentro da run session.
+
+## D33 Escopo de execuçãode execução = injeção de runtimeModel por turno (decidido em 2026-07-15, implementa D23/D30-9)
+
+O spike ② (tech-design §11) provou: definir um modelo na session persiste em três camadas (cache do app `runtimeModelConfigBySessionKey` / `record.modelRuntime` da CLI / catálogo do workspace), e a fala do usuário durante o busy e o chat depois do estado terminal seriam drenados para o idle plan, violando D23/D30-9. Depois de comparar dois planos e confirmar com o usuário, fica decidido **(a) injeção por turno**:
+
+- Cada sendPrompt de despacho carrega separadamente o runtimeModel do idle plan, válido apenas para aquele turno; não escreve o modelo residente da session, não cai nas três camadas de cache e não toca no catálogo do workspace (semântica `applyWorkspace:false`).
+- O modelo residente da session é sempre o do próprio usuário → a fala no meio e o chat depois do estado terminal vão **naturalmente** pelo provider do usuário, sem problema de timing de volta.
+- O runtime da CLI precisa tratar «modelo residente da session» e «modelo temporário do turno ativo» como dois estados: `ensureModelReady` pode validar o alvo temporário do turno ativo, mas não pode voltar automaticamente ao modelo do usuário só porque ele não está no catálogo do workspace; essa exceção é autorizada apenas pela marca de turno ativo em memória, e não pode afrouxar o limite normal do catálogo de modelos ocultos.
+- O registry de providers pode ser atualizado a quente durante a execução de um turno. Cada reconstrução de overlay/registry precisa usar «o catálogo de workspace mais recente + o runtimeModel do turno ativo atual», e é proibido remover o provider temporário das retentativas seguintes de um turno em andamento; o modelo do usuário só é restaurado depois que o turno termina, limpando o provider temporário segundo o catálogo de workspace mais recente.
+- Aplicação, hot reload, recuperação e limpeza precisam entrar na mesma fronteira de serialização da configuração de modelo da session; a recuperação e a limpeza vêm antes do ready/drain da fila. Se a restauração do modelo original falhar, as credenciais temporárias ainda precisam ser limpas, com proteção de segurança dos modelos disponíveis do catálogo do workspace, e não pode sobrar um meio-estado com «runtime apontando para um provider temporário já removido».
 
 ```text
 workspace catalog ───────────────┐
@@ -373,77 +364,65 @@ turn finally: restore user model ── clear active override ─────┴
                                                                └─ release ready / drain queue
 ```
 
-- 否决的备选 (b)：createSession 设 idle plan + 终态事件显式回切 + drain 前拦截——改动面小但存在回切与队列 drain 的竞态。
-- 代价（工程接受）：agent 服务/CLI 侧需要一条不落缓存的 per-turn runtimeModel 通道（现有 `ZCodeAgentSendPromptParams.runtimeModel` 未接 V4 sendText 主路径、且 send 后会写缓存，需扩展）。
-- 配套工程决定（同日）：服务端 mock 交付为**进程内 mock + 环境开关**（真实 HTTP client 按契约实现，开关切 mock 可真机点通全流程，联调仅删开关）；E2E 本轮一并做（catalog/matrix 剪枝先与用户确认）。
+- Alternativa refutada (b): createSession definindo o idle plan + volta explícita por evento no estado terminal + interceptação antes do drain — a superfície de mudança é menor, mas existe uma corrida entre a volta e o drain da fila.
+- Custo (aceito pela engenharia): o lado do agent service / da CLI precisa de um canal de runtimeModel por turno que não vá para cache (o `ZCodeAgentSendPromptParams.runtimeModel` existente não está ligado ao caminho principal sendText da V4 e, depois do send, escreve em cache, precisando de extensão).
+- Decisão de engenharia associada (mesmo dia): o mock do servidor é entregue como **mock em processo + switch de ambiente** (o cliente HTTP real é implementado conforme o contrato, e o switch liga o mock para permitir testar o fluxo completo na máquina real, com a integração apenas removendo o switch); o E2E é feito nesta rodada também (a poda de catálogo/matriz é confirmada antes com o usuário).
 
-## D34 补齐思考深度字段（已定 2026-07-16）
+## D34 Completar o campo de profundidade de raciocínio (decidido em 2026-07-16)
 
-领域模型起草时遗漏：automation 的配置面是 model + provider + mode + thoughtLevel，off-peak 起草时只搬了 model + permissionMode(=mode)，`thoughtLevel` 未搬——D1–D33 从未讨论过要不要给闲时任务思考深度，既没决定要也没决定砍。Figma 创建表单 composer 画了 `Max ▾` 思考深度选择器（与 automation 一致），证明本该有。
+Omitido ao redigir o modelo de domínio: a superfície de configuração da automation é model + provider + mode + thoughtLevel, e ao redigir off-peak só foram trazidos model + permissionMode(=mode); o `thoughtLevel` não foi trazido — D1–D33 nunca discutiram se as tarefas fora do pico deveriam ter profundidade de raciocínio, e nem decidiram incluir nem cortar. O composer do formulário de criação do Figma desenhou um seletor de profundidade de raciocínio `Max ▾` (igual à automation), o que prova que deveria existir.
 
-**结论：补齐 `thoughtLevel`，与 automation 对齐。** provider 仍不搬（闲时固定 idle plan，D26/D33）。贯穿：shared 类型/创建入参 + `off_peak_tasks.thought_level` 列 + OffPeakRun 协议 + host 派发 `setConfigOption("thought_level")`（与 automation 同路径，per-turn provider 注入不变）+ UI composer 工具条思考深度下拉。缺省走 workspace 默认（不填即不下发）。
+**Conclusão: completar `thoughtLevel`, alinhado à automation.** O provider continua não sendo trazido (fora do pico é fixo em idle plan, D26/D33). Atravessa: tipos shared / parâmetros de criação + coluna `off_peak_tasks.thought_level` + protocolo OffPeakRun + o `setConfigOption("thought_level")` do despacho no host (mesmo caminho da automation, com a injeção de provider por turno inalterada) + o dropdown de profundidade de raciocínio na barra do composer da UI. O padrão segue o padrão do workspace (não preenchido significa não enviar).
 
-## 遗留小项（已随批次顺带定案）
+## Itens remanescentes (decididos junto no mesmo lote)
 
-- ~~queued 态操作 = 取消 / 立即执行~~（已被 D30 卡片菜单 + D32 取代：queued=Pause/Delete/编辑，无立即执行）；failed 不自动重试，可手动重新入队（重新鉴权）。
-- 详情页"消耗算力/剩余算力"字段随无余额/不可见 provider 自然砍掉。
-- "记住偏好 30 天"只记权限模式一个字段。
-- 代码域命名统一 `offPeak`（表 `off_peak_tasks`），分支名不改。
-- "前往充值"跳转等余额相关文案全部作废。
+- ~~Operação no estado queued = cancelar / executar imediatamente~~ (substituído pelo menu de cartão de D30 + D32: queued=Pause/Delete/editar, sem execução imediata); failed não tem retentativa automática e pode ser reenfileirado manualmente (com nova autenticação).
+- Os campos «capacidade consumida / capacidade restante» da página de detalhes são cortados naturalmente junto com a ausência de saldo e de provider invisível.
+- «Lembrar preferência por 30 dias» guarda apenas um campo, o modo de permissão.
+- Nomenclatura unificada no código em `offPeak` (tabela `off_peak_tasks`), sem mudar o nome do branch.
+- Todos os textos relacionados a saldo, como o redirecionamento «ir para recarregar», são abolidos.
 
-## D35 边缘态 Figma 逐帧核对结论（已定 2026-07-16）
+## D35 Conclusões da verificação quadro a quadro do Figma para os estados de borda (decidido em 2026-07-16)
 
-用 agent-browser 隔离实例对 Figma「自动化 & 闲时任务」页全部 idle 相关帧逐一实测后收敛：
+Após medir com uma instância isolada do agent-browser todos os frames relacionados a idle da página Automations & Tarefas Fora do Pico do Figma, convergiu-se:
 
-1. **已补实现（Figma 有、spec 已列或不冲突）**：丢弃草稿弹窗（4889-1942，spec §5 本就要求"沿用 scheduled"——但 scheduled 自身未实现，闲时先行）；History tab 表格化（Instructions/Triggered/Status/Duration + 行菜单，4866-2819）+ 创建态空态「No history yet.」（4866-3106）；权限下拉两行样式 + 选中 ✓（4835-4974，复用主 composer `mode.description.glm.*` 文案）；未开启完全访问右上提示（4970-2055）。
-2. **达上限置灰 = 反应式（过渡态，已被 D38 取代）**：当前客户端无配额查询 API（四接口契约无此端点），"Free tier limit reached" 置灰只能在创建收到 3103 后置位、下次创建成功清除。mock 网关补 `ZCODE_OFFPEAK_MOCK_QUOTA_COUNT` 注入以便验收。**后续计划**：新增配额查询接口后，改为在入口打开/创建按钮渲染前主动查配额，不再依赖 3103 失败事件做反应式置灰。当前实现仅作为无配额接口前的兜底方案。
-3. **非 coding plan 锁定态 = 客户端按当前时刻注册表判定（2026-07-16 用户拍板，推翻本条初版"暂缓"；资格真源已被 D40 取代）**：当时约定不等服务端 entitlement 字段——无有效订阅时 `codingPlanProviderAvailability` 已把 coding plan provider 置 `systemDisabledReason` 并实时同步 renderer 注册表，UI 判 `hasActiveCodingPlanProvider`（zai/bigmodel coding plan + bigmodel 团队套餐连接；Start plan 不算）即可，零新增请求。锁优先于达上限置灰；注册表加载中不闪锁。mock 演示走 `codingPlanActive` 强制通道（`ZCODE_OFFPEAK_MOCK_NO_PLAN=1` 演示锁态），真实路径不下发该字段。D40 进一步证明广泛扫描注册表会与 runtime credential 分叉，现状改为 host 解析当前 selected connection 后向 UI 返回脱敏 support。
-4. **维持作废**：「超出排队时间」自动分组 + 自动放回队列 toast（4866-2175 局部，被 D 决策 §266 推翻）；对话中轻流量入口帧（4828-1642，D30-4 v1 作废）；All tab idle 卡 Est.（D30-1）。
+1. **Implementação completada (presente no Figma, já listado na spec ou sem conflito)**: diálogo de descarte de rascunho (4889-1942, a spec §5 já exigia «seguir o scheduled» — mas o próprio scheduled não estava implementado, e o fora do pico foi o primeiro); tab History em forma de tabela (Instructions/Triggered/Status/Duration + menu de linha, 4866-2819) + estado vazio na criação「No history yet.」(4866-3106); estilo de duas linhas no dropdown de permissões + ✓ no selecionado (4835-4974, reusando o texto `mode.description.glm.*` do composer principal); aviso no canto superior direito quando o acesso total não está habilitado (4970-2055).
+2. **Cinza ao atingir o limite = reativo (estado de transição, substituído por D38)**: o cliente atual não tem API de consulta de cota (o contrato de quatro interfaces não tem esse endpoint), então o cinza de "Free tier limit reached" só pode ser ativado depois de a criação receber um 3103, e limpo na próxima criação bem-sucedida. O gateway de mock ganha a injeção `ZCODE_OFFPEAK_MOCK_QUOTA_COUNT` para permitir a aceitação. **Plano futuro**: depois de criar a interface de consulta de cota, mudar para consultar a cota ativamente antes de abrir a entrada / renderizar o botão de criação, sem depender do evento de falha 3103 para um cinza reativo. A implementação atual serve apenas comproteção de segurança para antes da existir interface de cota.
+3. **Estado travado para quem não tem coding plan = julgamento do cliente pelo registro do instante atual (decidido pelo usuário em 2026-07-16, refuta a «adiado» da primeira versão deste item; a fonte de verdade da elegibilidade foi substituída por D40)**: na época ficou acordado não esperar um campo de entitlement do servidor — sem assinatura válida, `codingPlanProviderAvailability` já põe o provider de coding plan com `systemDisabledReason` e sincroniza o registro do renderer em tempo real, e a UI julga por `hasActiveCodingPlanProvider` (zai/bigmodel coding plan + conexão de plano de equipe bigmodel; Start plan não conta), com zero requisições novas. O travamento tem prioridade sobre o cinza de limite atingido; e o registro não pisca o travamento enquanto carrega. A demonstração de mock usa o canal forçado `codingPlanActive` (`ZCODE_OFFPEAK_MOCK_NO_PLAN=1` para demonstrar o estado travado), e o caminho real não envia esse campo. D40 demonstra ainda mais que varrer amplamente o registro divergiria da credencial de runtime, e a situação atual mudou para o host resolver a selected connection atual e devolver o support des- à UI.
+4. **Mantido como abolido**: agrupamento automático «excedeu o tempo de fila» + toast de devolução automática da fila (4866-2175 parcial, refutado pela seção §266 das decisões D); frame de entrada de baixo volume dentro da conversa (4828-1642, abolido na v1 por D30-4); card idle com Est. na tab All (D30-1).
 
-## D36 达上限置灰 = 配置额度 + 本地记录预判（2026-07-16 用户拍板，已被 D39 取代）
+## D36 Cinza ao atingir o limite = cota de configuração + prever com registro local (2026-07-16, decisão do usuário, substituído por D39)
 
-服务端契约真源：内部仓库 `zcode/zcode-server` 的 `docs/off_peak_design.md`（§11.1）。
+Fonte de verdade do contrato do servidor: repositório interno `zcode/zcode-server`, `docs/off_peak_design.md` (§11.1).
 
-**目标形态**：不靠撞墙——按「服务端下发的取号额度上限 + 本地滚动窗口取号记录」提前置灰创建按钮。
+**Forma alvo**: não bater na parede — deixar o botão de criação cinza com antecedência, pelo «limite de cota de retirada de números enviado pelo servidor + registro local de retiradas na janela móvel».
 
-**字段名确认（2026-07-17 D36 收口）**：服务端 `data.configs.offPeak` 现下发三层结构 `enable_offpeak_task` / `allowed_models` / `limit: { max_tasks, sliding_window }`（示例 `{"max_tasks": 5, "sliding_window": 86400}`）。`sliding_window` 单位是**秒**（非自然日）；`max_tasks` 是滚动窗口内最多成功提交的 task 数。客户端读取与服务端 `off_peak.take_number.{limit,window}` 保持一致——字段缺失/非法/未命中灰度 → 视为不可提交新 task（按 D36 阻塞前同样走 3103 兜底）。
+**Confirmação dos nomes de campo (fechamento de D36 em 2026-07-17)**: o `data.configs.offPeak` do servidor envia hoje uma estrutura de três camadas `enable_offpeak_task` / `allowed_models` / `limit: { max_tasks, sliding_window }` (exemplo `{"max_tasks": 5, "sliding_window": 86400}`). A unidade de `sliding_window` é **segundos** (e não dia natural), e `max_tasks` é o número máximo de tasks submetidas com sucesso dentro da janela móvel. A leitura do cliente fica consistente com o `off_peak.take_number.{limit,window}` do servidor — campo ausente/inválido/sem match do gradual rollout → tratado como não ser possível submeter nova task (o 3103 continua sendo proteção de segurança, como antes do bloqueio de D36).
 
-**计数口径（权威修正 D30-2）**：滚动窗口内按用户 `off_peak_tickets.created_at` 计数，每次成功创建 ticket 计一次；幂等免计**仅当最新 ticket 未过期**——同 task_id 票还活着的续跑/Continue 免计，**票过期后的 Continue/重取会新建 ticket 并计入额度**（D30-2「续跑/Continue/拒绝后重取全部免计」表述过宽，据服务端文档收紧）。settle / ready 过期 / active 到期**均不返还**已占用名额；ticket 创建时间移出滚动窗口后名额自动恢复。
+**leitura de contagem (correção autoritativa de D30-2)**: a contagem é por `off_peak_tickets.created_at` do usuário na janela móvel, e cada criação bem-sucedida de ticket conta uma vez; a isenção idempotente **vale somente enquanto o ticket mais recente não expirou** — retomada/Continue com o ticket do mesmo task_id ainda vivo é isento, mas **um Continue/nova retirada depois que o ticket expirou cria um ticket novo e conta na cota** (a expressão «retomada/Continue/nova retirada após recusa são todas isentas» de D30-2 é ampla demais e foirestricted pelo documento do servidor). settle / expiração de ready / fim de active **não devolvem** a vaga ocupada; quando o tempo de criação do ticket sai da janela móvel, a vaga se recupera automaticamente.
 
-**本地计数的先天不准**：续跑/过期重取在服务端消费额度但客户端不一定新增 `off_peak_tasks` 行；多设备更不可见。→ 本地计数只作**预判**（提前置灰减少无效点击），服务端 3103 始终是权威兜底。实现路径：`resolveOffPeakClientConfig` 解析 `limit` → repo 加滚动窗口 ticket-take 计数 → `count >= max_tasks` 前置置灰创建按钮，3103 兜底保留。
+**Inevitável imprecisão da contagem local**: a retomada e a retirada após expiração consomem cota no servidor, mas não necessariamente criam uma nova linha em `off_peak_tasks` no cliente; com múltiplos dispositivos é ainda menos visível. → A contagem local serve apenas como **previsão** (cinza antecipada reduzindo cliques inúteis), e o 3103 do servidor é sempre proteção de segurança autoritativo. Caminho de implementação: `resolveOffPeakClientConfig` faz o parsing de `limit` → o repo ganha a contagem de retiradas de ticket na janela móvel → `count >= max_tasks` deixa o botão de criação cinza antes, mantendo o 3103 comproteção de segurança.
 
-## D37 Automations Figma 差异收口（已定 2026-07-20）
+## D37 Fechamento das divergências de Figma em Automations (decidido em 2026-07-20)
 
-以 12 张 Figma 画板和 49 条左右图 diff 为 UI 真源，同时保留已经成立的调度与会话语义：
+Tomando 12 artboards do Figma e cerca de 49 diffs de imagem como fonte de verdade de UI, e preservando ao mesmo tempo a semântica de agendamento e de sessão já estabelecida:
 
-1. **命名分层**：英文 UI=`Idle-time task`，中文 UI=闲时任务；技术域分别使用
-   `OffPeak*` / `offPeak*` / `OFF_PEAK_*` / `off-peak` / `off_peak_*`。
-2. **本地项目边界**：整个 Automations 的新建只列当前窗口已打开且可用的本地项目，
-   不列 recent/remote；创建后项目不可修改。存量远程任务继续可见和管理。
-3. **端侧边界**：手机 `/remote` 完全隐藏 Automations；桌面远程 workspace 隐藏 Idle-time。
-4. **卡片导航**：卡片主点击固定进入 Settings/History；Go to session 是显式次操作。
-5. **History 仍是一体一次执行**：每个 task 只有 0/1 行，不新增 runs 表。`startedAt` 后显示，
-   进行中统一 `In progress`，终态映射 Succeeded/Failure/Skipped。Delete history 只写
-   `historyDeletedAt` 隐藏该行，不删除任务、会话或执行字段，无确认与 Undo。
-6. **提示边界**：非 Full access 第一次提交显示警告但立即创建；无订阅模板点击显示带
-   Upgrade 与关闭 X 的 8 秒 Toast；锁定按钮继续显示 Tooltip。
-7. **keep-awake 与配额（配额部分已被 D39 取代）**：keep-awake 仍是全局持久设置，创建不修改；
-   当时约定本地配置计数只作 UI 预判，服务端 3103 保持最终权威。
-8. **验收**：1440×960、dark、en-US、固定侧栏与确定性 fixture 为主基线；
-   light/zh-CN 做语义验收。Figma 的多 Popover 组合稿拆成独立可达状态；不引入截图 matcher，
-   用左右图 HTML 逐条标记已解决或有 ADR 依据的预期差异。
+1. **Camadas de nomenclatura**: UI em inglês=`Idle-time task`, UI em chinês=tarefa fora do pico; o domínio técnico usa respectivamente `OffPeak*` / `offPeak*` / `OFF_PEAK_*` / `off-peak` / `off_peak_*`.
+2. **Limite de projetos locais**: toda a criação de Automations lista apenas os projetos locais já abertos e disponíveis na janela atual, sem recent/remote; após a criação o projeto não pode ser modificado. As tarefas remotas existentes continuam visíveis e gerenciáveis.
+3. **Limite por dispositivo**: o `/remote` do celular esconde completamente o Automations; o workspace remoto do desktop esconde o Idle-time.
+4. **Navegação do cartão**: o clique principal do cartão entra sempre em Settings/History; Go to session é uma operação secundária explícita.
+5. **History continua uma execução única integrada**: cada task tem apenas 0/1 linha e não há tabela de runs. Aparece depois de `startedAt`; em andamento é unificado como `In progress`, e os estados terminais mapeiam para Succeeded/Failure/Skipped. Delete history escreve apenas `historyDeletedAt` para esconder a linha, sem apagar a tarefa, a sessão ou os campos de execução, sem confirmação e sem Undo.
+6. **Limite dos avisos**: na primeira submissão sem Full access aparece um aviso, mas a criação acontece imediatamente; o template sem assinatura mostra um Toast de 8 segundos com Upgrade e um X para fechar; botões travados continuam mostrando Tooltip.
+7. **keep-awake e cota (a parte de cota foi substituída por D39)**: keep-awake continua sendo um setting global persistente, e a criação não o modifica; ficou acordado naquela época que a contagem de configuração local serve apenas para previsão de UI, e que o 3103 do servidor permanece a autoridade final.
+8. **Aceitação**: 1440×960, dark, en-US, barra lateral fixa e fixtures determinísticas como linha de base principal; light/zh-CN para aceitação semântica. Os desenhos do Figma com múltiplos Popover combinados são quebrados em estados independentes alcançáveis; não se introduz screenshot matcher, e usa-se HTML de comparação lado a lado para marcar uma a uma as diferenças esperadas resolvidas ou com base em ADR.
 
-## D38 取消额度前置置灰，3103 只作单次创建错误（2026-07-21，已被 D39 取代）
+## D38 Cancelar o cinza antecipado por cota, e deixar o 3103 ser apenas um erro de criação isolado (2026-07-21, substituído por D39)
 
-服务端当前没有只读额度探测接口，`client/configs.limit` 只下发静态上限与滚动窗口，无法覆盖
-多设备取号、过期重取等服务端真实用量；现行 `429/3103` 也不返回可依赖的 `next_take_at`。
-因此 D35 的反应式 `quotaExhausted` 与 D36 的本地滚动计数均无法给出可靠的恢复时刻。
+O servidor hoje não tem interface somente leitura de sondagem de cota, e `client/configs.limit` só envia um limite estático e a janela móvel, sem cobrir retirada multi-dispositivo, retirada após expiração e outros usos reais do servidor; o `429/3103` atual também não devolve um `next_take_at` confiável.
+Por isso o `quotaExhausted` reativo de D35 e a contagem local na janela móvel de D36 não conseguem dar um momento confiável de recuperação.
 
-**最终交互：不提前置灰。** Coding Plan 资格锁仍保留；额度不再参与创建按钮、空态入口或模板卡
-的 disabled 判定。用户每次点击创建都真实请求 `POST /ticket`：成功则创建任务，收到 3103
-则展示现有“Free tier limit reached / 闲时任务额度已用完”错误，本次请求结束后入口立即恢复可点。
-客户端不持久化或在内存中保留额度耗尽 boolean，不因本地 `limit` 计数阻止请求；服务端 3103
-始终是额度准入的唯一权威。
+**Interação final: não deixar cinza antecipada.** O travamento de elegibilidade do Coding Plan permanece; a cota não participa mais do julgamento de disabled do botão de criação, da entrada do estado vazio ou dos cartões de template. Cada clique do usuário em criar faz de fato um `POST /ticket`: em sucesso cria a tarefa, e ao receber 3103 exibe o erro existente «Free tier limit reached / a cota de tarefas fora do pico acabou». Ao fim da requisição a entrada volta imediatamente a ser clicável.
+O cliente não persiste nem mantém em memória um boolean de cota esgotada, não bloqueia a requisição pela contagem local de `limit`, e o 3103 do servidor é sempre a única autoridade de admissão de cota.
 
 ```text
 创建入口（仅 Coding Plan 资格门控）
@@ -452,9 +431,9 @@ turn finally: restore user model ── clear active override ─────┴
      -> 429/3103：展示错误；不落 task；请求结束后允许再次点击
 ```
 
-## D39 服务端额度可用性快照 + 精确恢复时间（已定 2026-07-21）
+## D39 Snapshot de disponibilidade de cota do servidor + tempo de recuperação preciso (decidido em 2026-07-21)
 
-服务端 `main` 在 `7d90055719ee6e6be3424a90441967e359618d4a` 更新并实现了额度查询契约：
+O `main` do servidor foi atualizado em `7d90055719ee6e6be3424a90441967e359618d4a` e implementou o contrato de consulta de cota:
 
 ```http
 GET /api/v1/off-peak/ticket/availability
@@ -465,26 +444,18 @@ X-Coding-Plan-Api-Key: <coding-plan-api-key>
 → { code: 0, data: { can_take_number: false, next_take_at: 1783908000000 } }
 ```
 
-`next_take_at` 是 Unix 毫秒时间戳，只在当前不能创建新 ticket 时返回。它按滚动窗口内
-当前 `limit` 阈值对应 ticket 的 `created_at + window` 计算，因此动态降低服务端 limit 后
-仍能给出正确恢复时间。该结果只是调用时快照；查询成功后可能有并发请求消耗额度，最终仍以
-`POST /ticket` 为准。
+`next_take_at` é um timestamp Unix em milissegundos, devolvido somente quando não é possível criar um ticket novo no momento. Ele é calculado a partir do `created_at + window` do ticket correspondente ao limiar `limit` atual dentro da janela móvel, de modo que mesmo reduzindo dinamicamente o limit no servidor ele continua dando o tempo de recuperação correto. Esse resultado é apenas um snapshot do instante da chamada; após uma consulta bem-sucedida é possível que requisições concorrentes consumam cota, e o `POST /ticket` continua prevalecendo.
 
-**客户端职责重新分层：**
+**Recamadas das responsabilidades do cliente:**
 
-1. `GET /api/v1/client/configs` 的 `offPeak` 只保留 `enable_offpeak_task` 与
-   `allowed_models`，删除不再使用的 `limit` 字段、解析和本地 `createdAt` 计数。
-2. 进入 Automations 时主动查询 availability。`can_take_number=false` 时创建按钮提前置灰，
-   Tooltip 显示服务端 `next_take_at`；到点后重新查询，不持久化 `quotaExhausted` boolean。
-3. availability 查询失败时按 D43 fail-closed；真实创建仍由 `POST /ticket` 处理查询成功后的
-   并发竞态。
-4. availability 为 true 后到实际取号之间存在并发窗口。若 `POST /ticket` 仍返回 3103，
-   UI 展示本次错误并立即刷新 availability；服务端 3103 是最终准入权威。
-5. 3103 的新响应从 `data.next_take_at` 携带恢复时间；客户端兼容旧 mock 的顶层
-   `next_take_at`，但不把任何一次错误转换为无期限 boolean。
+1. O `offPeak` de `GET /api/v1/client/configs` mantém apenas `enable_offpeak_task` e `allowed_models`, removendo o campo `limit` que não é mais usado, seu parsing e a contagem local por `createdAt`.
+2. Ao entrar em Automations, consulta ativamente a availability. Com `can_take_number=false`, o botão de criação fica cinza antecipadamente e o Tooltip mostra o `next_take_at` do servidor; na hora marcada a consulta é refeita, sem persistir o boolean `quotaExhausted`.
+3. Quando a consulta de availability falha, vale o fail-closed de D43; a criação real continua sendo tratada pelo `POST /ticket` para a corrida de concorrência após uma consulta bem-sucedida.
+4. Há uma janela concorrente entre availability=true e a retirada real de número. Se o `POST /ticket` ainda retornar 3103, a UI exibe o erro daquela vez e atualiza imediatamente a availability; o 3103 do servidor é a autoridade final de admissão.
+5. A nova resposta de 3103 traz o tempo de recuperação em `data.next_take_at`; o cliente mantém compatibilidade com o `next_take_at` de topo do mock antigo, mas não converte nenhum erro em um boolean sem prazo.
 
 ```text
-client/configs ──> 功能曝光 + allowed models
+client/configs ──> funcionalidade曝光 + allowed models
                          │
                          v
 ticket/availability ──> 创建按钮额度快照 + next_take_at 定时刷新
@@ -493,14 +464,11 @@ ticket/availability ──> 创建按钮额度快照 + next_take_at 定时刷新
 POST /ticket ─────────> 最终准入（并发竞态仍可能 429/3103）
 ```
 
-## D40 Coding Plan 资格与凭据统一为 selected connection 快照（已定 2026-07-22）
+## D40 Elegibilidade e credenciais do Coding Plan unificadas em um snapshot de selected connection (decidido em 2026-07-22)
 
-D35 的 broad provider-registry 扫描只回答“缓存里是否存在某个可用套餐”，不能回答“当前 provider
-family 实际选中了哪个 connection”。旧 runtime resolver 又固定读取个人 BigModel key，导致 UI 可放行
-ZAI/Team，而取号或自动 turn 仍报 `codingPlanApiKey` 缺失；切换 connection 时还可能把 JWT、ticket key
-和 turn key 拼成不同时间点的混合凭据。
+A varredura ampla de provider-registry de D35 só responde «existe algum plano utilizável no cache», e não «qual connection a família de provider atual realmente selecionou». O resolver de runtime antigo lia fixamente a key pessoal do BigModel, fazendo com que a UI pudesse liberar ZAI/Team e ainda assim a retirada de número ou o turno automático reclamassem de `codingPlanApiKey` ausente; e ao trocar de connection era possível misturar JWT, ticket key e turn key de instantes diferentes.
 
-**结论：资格、票据 API 与 per-turn runtime 共用一次 host 侧 selected credential snapshot。**
+**Conclusão: elegibilidade, API de ticket e runtime por turno compartilham um único snapshot de credencial selecionada no host.**
 
 ```text
 provider family + family mode + selected connection key
@@ -518,23 +486,13 @@ provider family + family mode + selected connection key
  sanitized UI support      availability/take/status/settle   per-turn model
 ```
 
-支持矩阵固定为：ZAI 个人 Coding Plan 原始 key、BigModel 个人 Coding Plan 原始 key、BigModel Team
-项目 runtime key（复用既有 `${apiKey}.${secretKey}` helper）。Start Plan、API Key mode、未选择、
-active OAuth provider 与所选 family 不一致、disabled、stale 或解析期间 selection/登录身份改变均拒绝；
-禁止扫描任意缓存 provider 或在 Team 解析失败后回退个人 key。UI 只接收 provider
-family/id/selected key 等脱敏 metadata，不接触秘密。
+A matriz de suporte é fixa em: key original do Coding Plan pessoal ZAI, key original do Coding Plan pessoal BigModel e key runtime do projeto BigModel Team (reusando o helper existente `${apiKey}.${secretKey}`). Start Plan, modo API Key, não selecionado, provider OAuth ativo diferente da família escolhida, disabled, stale, ou mudança de seleção/identidade de login durante a resolução são recusados; é proibido varrer qualquer provider em cache ou fazer fallback para a key pessoal depois de falhar a resolução de Team. A UI recebe apenas metadata des- como family/id/selected key e nunca toca nos segredos.
 
-服务端 `main@ec2b18daa01b8e1b801f0691ac22153c2e56c6db` 的 verifier 按 JWT 登录 provider 支持
-ZAI/BigModel，并把 `X-Coding-Plan-Api-Key` 当 opaque credential 校验套餐归属，因此三种 key 形态
-可共用当前五端点契约；Start Plan JWT 不是 Coding Plan API key，不纳入支持矩阵。
+O verificador em `main@ec2b18daa01b8e1b801f0691ac22153c2e56c6db` do servidor suporta ZAI/BigModel conforme o provider de login do JWT e valida a atribuição do plano tratando `X-Coding-Plan-Api-Key` como credencial opaca, e por isso as três formas de key podem compartilhar o contrato atual de cinco endpoints; o JWT do Start Plan não é uma Coding Plan API key e não entra na matriz de suporte.
 
-## D41 主页模板导航按任一 Coding Plan 放行（已定 2026-07-22）
+## D41 Navegação pelo template da página inicial liberada por qualquer Coding Plan (decidido em 2026-07-22)
 
-主页模板点击只是携带草稿进入创建表单，不会取号或启动 runtime。若把 D40 的 selected-connection
-门禁提前到这里，尚未选择 provider、但账号已有 Coding Plan 的用户会被误判成“未订阅”并收到 Upgrade
-Toast。产品口径调整为：主页导航门只判断 provider 快照中是否存在任一未被系统禁用的 ZAI 个人、
-BigModel 个人或 BigModel Team Coding Plan；Start Plan 不计入。用户手动关闭 provider 不等于取消订阅，
-仍算“已有套餐”。
+O clique no template da página inicial apenas leva um rascunho ao formulário de criação, sem retirar número nem iniciar runtime. Se o gating de selected connection de D40 fosse antecipado para aqui, usuários que ainda não escolheram provider mas já têm Coding Plan seriam julgados como «não assinantes» e receberiam um Toast de Upgrade. Aleitura de produto foi ajustada: o gating de navegação da página inicial só verifica se existe no snapshot de providers algum Coding Plan ZAI pessoal, BigModel pessoal ou BigModel Team que não esteja desativado pelo sistema; Start Plan não entra. O usuário fechar manualmente um provider não equivale a cancelar a assinatura, e ainda conta como «já tem plano».
 
 ```text
 New task 模板点击
@@ -546,31 +504,21 @@ New task 模板点击
                                       `-- 提交仍走 D40 selected connection 门禁
 ```
 
-D41 只放宽导航，不选择或切换 provider，也不允许 runtime 扫描缓存后任选凭证。Automations 创建按钮、
-创建表单提交、ticket API 与 per-turn runtime 继续使用 D40；未选择 family/connection 时表单提交保持禁用。
+D41 apenas relaxa a navegação; não seleciona nem troca provider, e também não permite que o runtime varra o cache e escolha qualquer credencial. O botão de criação de Automations, a submissão do formulário de criação, a API de ticket e o runtime por turno continuam usando D40; com a família/conexão não selecionada, a submissão do formulário continua desabilitada.
 
-## D42 Team Plan 客户端传输成立，test 后端 verifier 仍阻塞（已确认 2026-07-22）
+## D42 Transporte do Team Plan no cliente confirmado, mas o verificador do backend de teste ainda bloqueia (confirmado em 2026-07-22)
 
-tester 的 Windows test 包 `3.5.3-alpha.0@fc76b00d` 在切换到完整 BigModel Team org/project 后，
-Team 项目 API Key 预热返回 `status=existing`，entitlement 解析为同一 org/project 的 `scope=team`，
-且 Off-Peak availability 已进入服务端 Coding Plan middleware。测试后端日志进一步确认 verifier
-调用 subscription 依赖时得到 `3101 coding plan is required`，随后按当前基础设施契约包装为
-`HTTP 500/code 2007`。这排除了“客户端没带 key”——缺 key 应在 middleware 直接返回 `403/3101`。
+O pacote de teste Windows `3.5.3-alpha.0@fc76b00d` do tester, ao mudar para a org/projeto BigModel Team completo, teve o pré-aquecimento da API Key do projeto Team retornando `status=existing`, a resolução de entitlement como `scope=team` da mesma org/projeto, e a availability do Off-Peak já entrando no middleware de Coding Plan do servidor. Os logs do backend de teste confirmam ainda mais que o verificador, ao chamar a dependência de subscription, recebeu `3101 coding plan is required`, que depois foi envolvido conforme o contrato atual de infraestrutura como `HTTP 500/code 2007`. Isso descarta «o cliente não enviou a key» — a ausência de key retornaria `403/3101` direto no middleware.
 
-同一轮中的 `POST /ticket HTTP 429` 在服务端 access log 中 body_size=0，属于独立全局 HTTP 限流，
-不是带 `next_take_at` 的 `3103` 取号额度。决策：
+Na mesma rodada, o `POST /ticket HTTP 429` apareceu no access log do servidor com body_size=0, pertencendo a uma limitação HTTP global independente, e não à cota de retirada de número `3103` com `next_take_at`. Decisões:
 
-- 不回退个人 BigModel key，也不把 Team 套餐伪装成客户端修复成功；后端必须补 Team credential
-  verifier 分支或让现有 subscription 依赖接受 Team 项目 runtime key。
-- 客户端只有明确 `code=3103` 才展示额度错误；`2007` 与裸 `429` 展示暂时不可用。
-- ticket client 给请求补标准来源/request-id header，并用 service `warn` 记录 path、HTTP/code、
-  credential kind 与 request id；禁止记录 JWT、API Key、secret 或 fingerprint。
+- Não fazer fallback para a key pessoal do BigModel nem disfarçar o plano Team como sucesso de correção do cliente; o backend precisa acrescentar um ramo de verificador de credencial Team, ou fazer a dependência de subscription existente aceitar a runtime key de projeto Team.
+- O cliente só exibe erro de cota com `code=3103` explícito; `2007` e o `429` cru exibem indisponibilidade temporária.
+- O ticket client adiciona headers padrão de origem/request-id às requisições e registra com `warn` do service o path, HTTP/code, credential kind e request id; é proibido registrar JWT, API Key, segredo ou impressão digital.
 
-## D43 创建准入改为 fail-closed（已定 2026-07-23，取代 D39 的 fail-open）
+## D43 Admissão de criação passa a fail-closed (decidido em 2026-07-23, substitui o fail-open de D39)
 
-用户明确要求“无资格和临时依赖异常都要禁入”。创建入口不再把 availability 当作可丢失的额度
-优化，而是把它作为服务端准入确认：只有 selected-connection support 成功，且最新一次
-`GET /ticket/availability` 成功返回 `can_take_number=true` 时才允许创建。
+O usuário exigiu explicitamente que «sem elegibilidade e falhas temporárias de dependência também bloqueiam». A entrada de criação deixa de tratar a availability como uma otimização de cota que pode ser perdida e passa a tratá-la como confirmação de admissão do servidor: a criação só é permitida quando o support de selected connection tem sucesso e a última `GET /ticket/availability` retorna com sucesso `can_take_number=true`.
 
 ```text
 selected connection support
@@ -584,20 +532,14 @@ selected connection support
                               `-- loading / network / 5xx -> 禁入，刷新后重试
 ```
 
-临时依赖异常不写成永久资格结论，但在下一次成功刷新前保持禁入。手动刷新、重新进入页面或
-`next_take_at` 到点重查均可解除该临时门禁。`POST /ticket` 仍是 availability 成功后的最终权威，
-用于兜住查询与提交之间的额度竞态；创建请求自身失败后也恢复为禁入，直到 availability 再次成功。
-New Task 与 Automations 可能在导航时短暂重叠挂载，二者的初始化必须在共享 store 中 single-flight，
-禁止并发 availability 请求用后到的限流/成功结果互相覆盖。
+Uma falha temporária de dependência não é escrita como conclusão permanente de elegibilidade, mas o bloqueio permanece até a próxima atualização bem-sucedida. A atualização manual, reentrar na página ou a reconsulta na hora de `next_take_at` podem lifting esse bloqueio temporário. O `POST /ticket` continua sendo a autoridade final depois de uma availability bem-sucedida, cobrindo a corrida de cota entre consulta e submissão; e depois que a própria requisição de criação falha, o estado volta a bloqueado até que a availability tenha sucesso de novo.
+New Task e Automations podem ficar montados sobrepostos por um breve momento durante a navegação, e suas inicializações precisam ser single-flight no store compartilhado, proibindo que requisições concorrentes de availability se sobrescrevam com o resultado tardio de limitação/sucesso.
 
-## D44 Permission 只走普通 session，砍掉 Off-Peak 专用等待态（已定 2026-07-23）
+## D44 Permission passa só pela sessão comum, e o estado de espera dedicado ao Off-Peak é cortado (decidido em 2026-07-23)
 
-代码事实是 per-turn `runtimeModel` 覆盖整个自动 turn。permission/elicitation 会在普通 session
-内阻塞工具执行并等待用户响应，但不会结束当前 turn；因此只订阅事件并写
-`awaiting_approval` 无法实现 D11 的计费切换，反而会让 Review 卡片和专用通知承诺一条不存在的
-provider handoff。
+O fato do código é que o `runtimeModel` por turno cobre o turno automático inteiro. permission/elicitation bloqueia a execução de ferramentas dentro de uma sessão comum aguardando a resposta do usuário, mas não encerra o turno atual; portanto apenas assinar o evento e escrever `awaiting_approval` não consegue implementar a troca de cobrança de D11, e ainda faria o cartão Review e a notificação dedicada prometerem um provider handoff que não existe.
 
-**结论：以当前运行时边界为产品口径，不新增中途 provider handoff。**
+**Conclusão: adota-se o limite de runtime atual comoleitura de produto, sem novo handoff de provider no meio do turno.**
 
 ```text
 off-peak sendPrompt(turnRuntimeModel=idle plan)
@@ -612,20 +554,17 @@ off-peak sendPrompt(turnRuntimeModel=idle plan)
         `-- turn terminal --> 恢复用户常驻模型 --> drain 用户排队消息
 ```
 
-- 删除 `awaiting_approval` 领域态、Repo 写入口、卡片 Review 展示和 Off-Peak 专用等确认通知。
-- 历史数据库若存在该预留值，初始化时迁移为 `running`；启动恢复仍按 running→queued 处理。
-- Ask for approval 权限选项保留，安全确认仍由普通 session 完成。
-- completed/failed 仍由 Off-Peak 聚合通知；permission/elicitation 通知只由 session 通用链路负责。
-- 若未来产品重新要求“批准后切用户 provider”，必须先设计可验证的 mid-turn runtime-model
-  handoff，再重新引入聚合状态，不能仅恢复 UI/Repo 壳。
+- Remover o estado de domínio `awaiting_approval`, o ponto de escrita no Repo, a exibição Review no cartão e a notificação de espera de confirmação dedicada ao Off-Peak.
+- Se o banco histórico tiver esse valor reservado, a inicialização o migra para `running`; a recuperação no start continua tratando running→queued.
+- A opção de permissão Ask for approval é mantida, e a confirmação segura continua sendo feita pela sessão comum.
+- completed/failed continuam gerando a notificação agregada do Off-Peak; as notificações de permission/elicitation continuam sendo responsabilidade apenas da cadeia genérica da sessão.
+- Se o produto voltar a exigir «trocar para o provider do usuário após a aprovação», é preciso primeiro projetar um handoff de runtime-model no meio do turno que possa ser verificado, e só então reintroduzir o estado agregado; não basta restaurar a casca de UI/Repo.
 
-## D45 闲时自动 turn 禁止创建定时任务（已定 2026-07-23）
+## D45 Turno automático fora do pico proíbe criar tarefas agendadas (decidido em 2026-07-23)
 
-闲时任务的首跑与续跑都会进入普通 session，但执行主体是后台自动 turn。若沿用普通用户 turn
-的完整工具面，模型可以调用 `CronCreate` 创建新的持久化调度定义，让一次闲时执行在用户未明确
-操作的情况下扩散为后续定时任务。
+Tanto a primeira execução quanto a retomada de uma tarefa fora do pico entram em uma sessão comum, mas o executor é um turno automático em background. Se fosse mantida a superfície completa de ferramentas do turno comum do usuário, o modelo poderia chamar `CronCreate` para criar uma nova definição de agendamento persistente, fazendo uma execução fora do pico se difundir em tarefas agendadas futuras sem uma operação explícita do usuário.
 
-**结论：每次闲时派发在 sendPrompt 的 turn 作用域显式 deny `CronCreate`。**
+**Conclusão: cada despacho fora do pico nega explicitamente `CronCreate` no escopo de turno do sendPrompt.**
 
 ```text
 首跑 createTask ──┐
@@ -636,22 +575,18 @@ off-peak sendPrompt(turnRuntimeModel=idle plan)
                               `-- CronList / CronDelete：保持可用
 ```
 
-- denylist 只随本次 prompt 下发，不写 session 常驻配置；自动 turn 结束后，普通用户 turn 的工具面
-  仍由 session 自身策略决定。
-- 不复用 cron automation 的 `automationId` 标记。闲时任务与 cron 是兄弟实体，伪造该标记会污染
-  cron 会话归属、任务聚合和历史语义。
-- 首跑与续跑在 `sendPrompt` 前路径不同，但必须收敛到同一闲时 turn denylist，避免恢复段重新暴露
-  `CronCreate`。
+- O denylist é enviado apenas junto deste prompt e não é escrito na configuração residente da sessão; depois que o turno automático termina, a superfície de ferramentas do turno comum do usuário continua sendo decidida pela própria política da sessão.
+- Não reutiliza a marca `automationId` da cron automation. Tarefa fora do pico e cron são entidades irmãs, e falsificar essa marca contaminaria a atribuição de sessão do cron, a agregação de tarefas e a semântica de histórico.
+- A primeira execução e a retomada têm caminhos diferentes antes do `sendPrompt`, mas precisam convergir para o mesmo denylist de turno fora do pico, evitando que a etapa de recuperação exponha novamente o `CronCreate`.
 
-## D46 Pause 取消二次确认并更新提示文案（已定 2026-07-28，取代 D29-3/D30-2 的 UI 口径）
+## D46 Pause sem segunda confirmação e com texto de dica atualizado (decidido em 2026-07-28, substitui aleitura de UI de D29-3/D30-2)
 
-用户明确要求 Pause 不再弹二次确认，选择菜单项后立即执行；Pause 行尾的信息图标与 Tooltip
-继续保留，并使用产品指定文案：
+O usuário exigiu explicitamente que o Pause não abra mais uma confirmação secundária e que a ação seja executada imediatamente ao escolher o item do menu; o ícone informativo e o Tooltip no fim da linha Pause são mantidos, com o texto especificado pelo produto:
 
-- English: `Tasks paused beyond the queue wait time will be placed back in the queue`
-- 中文：`暂停时长超过队列等待时限的任务，将会被重新放回队列。`
+- Inglês: `Tasks paused beyond the queue wait time will be placed back in the queue`
+- Português: `Tarefas pausadas por mais tempo que o limite de espera da fila voltarão a ser colocadas de volta na fila.`
 
-本次只修改 UI 交互与展示文案，不改变已有票据状态机；Tooltip 是面向用户的简化说明：
+Esta rodada altera apenas a interação e os textos de exibição da UI, sem mudar a máquina de estados de tickets existente; o Tooltip é uma explicação simplificada para o usuário:
 
 ```text
 queued -- Pause（无确认弹窗） --> paused
@@ -660,220 +595,101 @@ queued -- Pause（无确认弹窗） --> paused
                                   `-- ticket 已过期 -- Continue --> 重新排队
 ```
 
-因此 D29-3 中“暂停后不自动重取、Continue 时按票据有效性恢复或重排”的运行时事实继续成立；
-D29-3/D30-2 中要求 Pause 确认弹窗及旧 Tooltip 文案的 UI 部分由本决策取代。
+Portanto, o fato de runtime de D29-3 — «após pausar não há retirada automática de novo número, e no Continue a execução é retomada ou re-enfileirada conforme a validade do ticket» — continua valendo; a parte de UI de D29-3/D30-2 que exigia confirmação de Pause e o texto antigo do Tooltip é substituída por esta decisão.
 
-## D47 移除 All 混排 tab，主视图只保留 Scheduled / Idle 两个 tab（已定 2026-07-28，收窄 D28 的三 tab 口径）
+## D47 Remover a tab mista All, e a visão principal fica só com as tabs Scheduled / Idle (decidido em 2026-07-28, estreita aleitura de três tabs de D28)
 
-产品定案：Automations 主视图去掉「All / 全部」总览 tab，默认落在 Scheduled tasks；
-Idle-time task 仍按 D31 灰度控制。随之作废/调整的派生约束：
+Decisão de produto: a visão principal de Automations remove a tab de visão geral«All / Todos», e o padrão passa a ser Scheduled tasks; a Idle-time task continua sob o controle de gradual rollout de D31. As restrições derivadas abolidas ou ajustadas:
 
-- All 专属的两类任务共享混排栅格（两列 / 132px 行高 / 16px 间距、idle 在前连续排列、
-  隐藏 `Task created` 分区标题）整体删除，不再提供跨类型总览；两类卡片只在各自 tab 内
-  保持独立列表语义。
-- 灰度关闭时已选中的 Idle tab 收敛回 Scheduled（原为 All）；闲时不可见时只剩
-  Scheduled 单 tab，action row 仍承载刷新与创建入口，不隐藏整行。
-- keep-awake 提示栏系全局开关（镜像设置页「常规」，powerSaveBlocker 不绑定闲时活跃
-  计数），定时任务运行会话同样受益：改为 Scheduled / Idle 两个 tab 都展示——列表态位于
-  任务卡之前，空态保持大空卡在前、横幅在后，不再绑定闲时可见性。
-- `offPeak.tabs.all` 文案键删除。
+- A grade mista compartilhada entre os dois tipos de tarefa, exclusiva da tab All (duas colunas / altura de linha de 132px / espaçamento de 16px, com idle primeiro em sequência contínua e o título de seção `Task created` oculto) é removida por completo, e não há mais visão geral entre tipos; os dois tipos de cartão mantêm semântica de lista independente apenas dentro de suas respectivas tabs.
+- Com o gradual rollout desligado, a tab Idle selecionada converge de volta para Scheduled (antes era All); quando fora do pico está invisível resta apenas a tab Scheduled, e a action row continua carregando atualização e criação, sem esconder a linha inteira.
+- A barra de keep-awake é um switch global (espelhando «Geral» das configurações, e o powerSaveBlocker não é linked à contagem ativa fora do pico), e as sessões de tarefas agendadas também se beneficiam: passa a ser exibida nas duas tabs, Scheduled e Idle — no estado de lista antes dos cartões de tarefa, e no estado vazio mantendo o grande cartão vazio na frente e a faixa atrás, sem estar mais ligada à visibilidade de fora do pico.
+- A chave de texto `offPeak.tabs.all` é removida.
 
-对应实现：`AutomationsTab` 收敛为 `"scheduled" | "idle"`，`resolveVisibleAutomationTabs`
-与 `resolveAutomationTabAfterOffPeakChange` 按上述口径实现；populated-list fidelity 与
-tab 契约测试以本决策（及 spec.md 同步后的条目）为断言依据。
+Implementação correspondente: `AutomationsTab` converge para `"scheduled" | "idle"`, e `resolveVisibleAutomationTabs` e `resolveAutomationTabAfterOffPeakChange` são implementados conforme aleitura acima; a fidelidade de lista populada e os testes de contrato de tab têm esta decisão (e os itens correspondentes depois de sincronizada a spec.md) como base de asserção.
 
-## D48 侧栏闲时分组收敛为 tasks-index 一等行（已定 2026-07-28，取代同日虚拟 id 折叠/renderer 排序机制）
+## D48 O agrupamento fora do pico da barra lateral converge para linhas de primeira classe no tasks-index (decidido em 2026-07-28, substitui o mecanismo de id virtual e ordenação no renderer do mesmo dia)
 
-背景：Idle-time 侧栏分组此前是独立组件（OffPeakSidebarGroup），只借用 Scheduled 的
-TASK_GROUP_* 视觉类。两次用户反馈（组内不可拖拽、收起全部不覆盖）暴露"视觉一致、行为
-双轨"的持续成本；2026-07-28 早间先以虚拟分组 id + localStorage 排序补齐两项行为，随即
-经 grilling 会话定案彻底收敛。核心机制 = 照抄 cron：`offPeakTaskId` 成为 task meta
-持久标记（不复用 cronAutomationId，D45 兄弟实体边界不变），`ensureOffPeakGroupMembership`
-写真实系统分组，UI 走 grouped 原生管线。
+Contexto: o agrupamento Idle-time da barra lateral era antes um componente independente (OffPeakSidebarGroup), que apenas pegava emprestado as classes visuais TASK_GROUP_* dos Scheduled. Dois feedbacks de usuário (não é possível arrastar dentro do grupo; recolher tudo não cobre) expuseram o custo contínuo de «consistência visual, comportamento em duas trilhas»; na manhã de 2026-07-28 primeiro foram adicionadas as duas comportamentos com id de grupo virtual + ordenação em localStorage, e logo em seguida uma sessão de grilling decidiu a convergência total. O mecanismo central = copiar o cron: `offPeakTaskId` se torna a marca persistente do task meta (sem reutilizar cronAutomationId, e o limite de entidade irmã de D45 permanece), `ensureOffPeakGroupMembership` escreve o agrupamento de sistema real, e a UI usa o pipeline nativo grouped.
 
-grilling 定案的关键取舍（完整契约见 spec §5.1）：
+PrincipaisYudecisãos do grilling (contrato completo na spec §5.1):
 
-1. **幻影行保排队可见**（否决"严格照抄 cron、排队只留 Automations"的 3–5 人日方案）：
-   创建时预分配 `sessionId` 写 tasks-index 行，不建会话——D30-8 继续成立；派发时
-   `session/create` 携带同 id 无缝升级，行身份恒定。协议早已支持带 id 创建
-   （zcodeSessionCreateParamsSchema.sessionId optional）。
-2. **作用域降级**：接受 grouped 视图的 open-workspaces-only scope，跨项目聚合入口收敛
-   到 Automations 主视图；不给单个分组开查询例外。
-3. **成员关系照抄松散**：可拖出/拖入，不加封闭守卫；标记跟行不跟组。
-4. **统一归档**：行关闭 = 归档，含幻影行（"静音"语义：任务照跑、跑完见归档列表），无
-   确认弹窗；删除/取消收敛到 Automations 卡片菜单。原侧栏"确认后取消并删除"退役。
-5. **组内排序、空组常驻照抄 cron**；组头「+」是唯一不照抄点（进 Automations，
-   cron 的建草稿语义对闲时是错误）。
-6. **全面抑制**：幻影行仅侧栏闲时组可见，Project/Timeline/Pinned/搜索/web 远控一律
-   不出现；点击幻影行 → Automations。
-7. **退役与迁移**：虚拟 id 机制、`zcode-off-peak-sidebar-order`、投影去重整体删除；
-   本地折叠/排序偏好接受重置（未随正式版发布）；存量迁移幂等（有 session 回填标记+
-   成员，无 session 补幻影行）；`OFF_PEAK_DEFAULT_GROUP_ID` 进 shared 与
-   CRON_DEFAULT_GROUP_ID 并列（"不进 shared"的旧边界前提随真实 membership 出现而消失）。
-8. **不加临时功能开关**；分三个 MR 落地（打点 → 原子切换+迁移 → 测试收尾），spec 先行。
+1. **Linhas fantasma preservam a visibilidade da fila** (refutando o plano de 3–5 dias de «copiar estritamente o cron, fila só em Automations»): um sessionId é pré-alocado na criação para escrever a linha no tasks-index, sem criar sessão — D30-8 continua valendo; no despacho, `session/create` leva o mesmo id e faz o upgrade sem emenda, e a identidade da linha é constante. O protocolo já suporta criação com id (zcodeSessionCreateParamsSchema.sessionId é opcional).
+2. **Degradação de escopo**: aceita-se o escopo open-workspaces-only da visão grouped, e a entrada de agregação entre projetos converge para a visão principal de Automations; nenhuma exceção de consulta é aberta para um grupo individual.
+3. **Relação de membro frouxa copiada**: pode-se arrastar para fora e para dentro, sem guarda fechada; a marca acompanha a linha e não o grupo.
+4. **Arquivamento unificado**: fechar a linha = arquivar, incluindo linhas fantasma (semântica de «silêncio»: a tarefa continua rodando e aparece na lista de arquivados ao terminar), sem diálogo de confirmação; exclusão/cancelamento convergem para o menu de cartão em Automations. O antigo «confirmar e depois cancelar e excluir» da barra lateral foi aposentado.
+5. **Ordenação dentro do grupo e grupo vazio permanente copiados do cron**; o «+» do cabeçalho do grupo é o único ponto não copiado (entra em Automations, pois a semântica de criar rascunho do cron é errada para fora do pico).
+6. **Supressão total**: as linhas fantasma são visíveis apenas no grupo fora do pico da barra lateral, e não aparecem em Project/Timeline/Pinned/busca/web de controle remoto; clicar em uma linha fantasma → Automations.
+7. **Aposentadoria e migração**: o mecanismo de id virtual, o `zcode-off-peak-sidebar-order` e a deduplicação por projeção são removidos por completo; as preferências locais de folding/ordenação aceitam reset (nunca foram lançadas com a versão oficial); a migração do estoque é idempotente (com sessão, preenche a marca + membro; sem sessão, adiciona a linha fantasma); o `OFF_PEAK_DEFAULT_GROUP_ID` entra no shared ao lado de CRON_DEFAULT_GROUP_ID (a premissa antiga de «não entrar no shared» desaparece com o surgir de membership real).
+8. **Sem feature flag temporária**; a implantação é dividida em três MRs (marcação → comutação atômica + migração → fechamento de testes), com a spec à frente.
 
-**同日晚间修订（D48-A）**：实施审计后第 1 条改选"严格照抄 cron"——排队/暂停任务派发前
-不上侧栏、无幻影行，Automations 主视图是唯一队列管理面。改判依据（grill 时未知的实证）：
-① 抑制无单点 chokepoint——`fetchTaskListMembershipSets` 的 taskIndexItems 同时喂
-grouped 与平铺列表，全面抑制需散布在 renderer 列表构建、服务端 listTasks、搜索等 5+ 处，
-"三态不变量"永久税具体化；② `sessionId` 预填破坏"存在 = 已跑过"的隐含契约
-（OffPeakHistoryTab Go-to-session 门控、OffPeakTaskList 卡片入口等多处依赖）；
-③ 收益重估——幻影行只买到一个跳转 Automations 的侧栏书签，位次/暂停/删除本就只在
-Automations。A→幻影行是纯增量升级路径，幻影行方案在 spec §5.1 标"暂缓"，触发条件 =
-真实用户反馈要求排队任务侧栏可见。第 4 条统一归档随之简化为"已派发行关闭 = 归档"
-（无幻影行归档语义）；第 6 条全面抑制作废（无可抑制对象）；其余各条不变。
+**Revisão da mesma noite (D48-A)**: após uma auditoria de implementação, o item 1 passa a escolher «copiar estritamente o cron» — tarefas enfileiradas/pausadas não sobem para a barra lateral antes do despacho e não há linhas fantasma, e a visão principal de Automations é a única superfície de gerenciamento da fila. Base da mudança de posição (evidências que eram desconhecidas no grill): ① a supressão não tem um chokepoint único — os taskIndexItems de `fetchTaskListMembershipSets` alimentam ao mesmo tempo a visão grouped e a lista plana, e a supressão total precisaria se espalhar pela construção de listas no renderer, pelo listTasks do servidor, pela busca e mais 5+ lugares, concretizando o «imposto permanente de invariante de três estados»; ② o preenchimento prévio de `sessionId` quebra o contrato implícito «existe = já executou» (do qual dependem o gating de Go-to-session do OffPeakHistoryTab, a entrada de cartão do OffPeakTaskList e vários outros pontos); ③ reavaliação do benefício — a linha fantasma compra apenas um marcador na barra lateral que leva a Automations, já que posição/pausa/exclusão existem só em Automations. A→linha fantasma é um caminho de atualização puramente incremental, e o esquema de linhas fantasma é marcado como «adiado» na spec §5.1, com o gatilho = um feedback real de usuários exigindo que tarefas na fila apareçam na barra lateral. O item 4 de arquivamento unificado se simplifica para «fechar linha já despachada = arquivar» (sem semântica de arquivamento de linha fantasma); a supressão total do item 6 é abolida (não há objeto a suprimir); os demais itens ficam inalterados.
 
-**MR review 修订（D48-B，2026-07-28）**：明确远程 workspace 不在闲时任务支持范围
-（v1 桌面本地专属）。归组写入与 bootstrap 成员关系回填对远程行一律跳过——存量远程行的
-`workspace_identity` 列可能缺失，remote 判定看主键 `workspace_key`，否则回填会用
-`workspacePath` 重算出本地 key 造成成员关系串写（review CR-01）。同时补齐 resumeTask
-正常 snapshot 路径的 `offPeakTaskId` 盖章，与 legacy 分支同语义（review SG-01）。
+**Revisão de review de MR (D48-B, 2026-07-28)**: fica explícito que o workspace remoto está fora do suporte das tarefas fora do pico (v1 é exclusivo do desktop local). A escrita de associação e o preenchimento de membro no bootstrap sempre pulam linhas remotas — a coluna `workspace_identity` de linhas remotas de estoque pode estar ausente, e a determinação de remote olha a chave primária `workspace_key`, senão o preenchimento usaria `workspacePath` para recalcular a key local e causaria escrita cruzada de membros (review CR-01). Ao mesmo tempo é completada a marcação `offPeakTaskId` no caminho normal de snapshot de resumeTask, com a mesma semântica do branch legacy (review SG-01).
 
-## D49 会话内创建闲时任务（已定 2026-08-24，推翻 D30-4 的 Create-via-chat 砍除）
+## D49 Criação de tarefas fora do pico dentro da sessão (decidido em 2026-08-24, refuta o corte de Create-via-chat de D30-4)
 
-feat/offpeak_v2 恢复 v1 砍掉的「Create via chat 接入闲时」：用户在任意会话里用自然语言让
-agent 创建闲时任务，与定时任务的 `CronCreate` 范式对齐——**统一创建入口 = OffPeak* 与 Cron*
-兄弟工具族并列**，agent 按语义分流（tool description 互相区分「定时触发 vs 闲时队列、无确定
-执行时间」），底层两套体系保持 D28 独立。grilling 三轮拍板：
+O feat/offpeak_v2 restaura o «Create via chat para tarefas fora do pico»cortado na v1: o usuário pede ao agent, em qualquer sessão e em linguagem natural, que crie uma tarefa fora do pico, alinhado ao paradigma `CronCreate` das tarefas agendadas — **entrada de criação unificada = família de ferramentas irmãs OffPeak* e Cron***, e o agent roteia por semântica (as descrições das ferramentas diferenciam «gatilho agendado vs fila fora do pico, sem horário de execução determinado»), com os dois sistemas subjacentes permanecem independentes conforme D28. Três rodadas de grilling:
 
-1. **工具面 = `OffPeakCreate` + `OffPeakList`（只读）**；不做 update/cancel 工具。修改唯一
-   入口：聊天轮尾卡片 → Automations idle tab 编辑表单（D30-7 编辑窗口期不变，running/终态
-   由 OffPeakEditView 既有 readOnly 判定自然只读）。
-2. **闲时自动 turn deny `OffPeakCreate`**（与 D45 对称：闲时任务创建闲时任务 = 免费池自我
-   放大）；`OffPeakList` 保留可用（对齐 D45 保留 CronList 的处理）。落点：闲时派发 turn 的
-   toolDenylist 从 `["CronCreate"]` 扩为 `["CronCreate", "OffPeakCreate"]`。
-3. **cron automation 自动 turn 允许 `OffPeakCreate`**（组合玩法：用户可搭「定时派生闲时
-   任务」链条）。放大防护不加本地计数，服务端额度是唯一权威（`POST /ticket` 3103，
-   D38/D39 精神）。⚠ 照抄陷阱：cron 工具的 `assertNotAutomationTurn` 防御方向与此相反，
-   OffPeakCreate 绝不能混入任何一份 `AUTOMATION_MUTATION_TOOL_NAMES` 副本。
-4. **参数面**：`title`/`prompt` 必填；`permissionMode`/`model`/`thoughtLevel` 可选（agent 按
-   用户显式要求覆盖），**缺省 = 全自动（yolo）/ `allowed_models` 最后一个（假设服务端顺序
-   末位≈最新最强）/ 推理最高档**。与表单缺省（Ask + allowedModels[0] + workspace 默认档，
-   D29-4/D34）是**有意分叉**：工具路径面向「说完就走」的无人值守语义——Ask 缺省会让任务
-   半夜卡在权限确认上，违背闲时核心价值；表单路径保留安全缺省与警示行。缺省解析在 host
-   端（灰度配置可读处）；model 入参时预校 allowed_models，3006 服务端兜底。
-5. **不冻结会话标题**：不照抄 CronCreate 的 `setCustomSessionTitle`——闲时创建多发生在任意
-   工作会话中途，任务运行在自己的新 session（D30-8），与创建会话无绑定。
-6. **静态轮尾卡**（cron 同款 ConversationTurnGroup 轮尾管线，回复完成后渲染）：月亮图标 +
-   任务标题 + 创建时位次快照（#N in queue，取自取号返回）+「去到闲时任务」按钮 →
-   `onOpenAutomationsMain(offPeakTaskId, "idle")` → idle tab 编辑视图。不订阅后续状态，
-   历史回看无过期活数据问题。
-7. **入口面仅工具**：Automations 主视图按钮与 New task 首页入口不动；`needsApproval: true`
-   照抄 cron（创建消耗取号额度）。
-8. **门禁**：灰度未命中（D31）/ 远程 workspace（D37-3/D48-B）/ subagent_child 不暴露工具，
-   经 session create/resume params 的 `offPeakToolEnabled` flag 下发（旧 host 不下发 →
-   工具不注册，fail-closed）；灰度中途翻转接受「本 session 工具面不变 + 服务端取号
-   fail-closed 兜底」，不做 turn 级灰度重查。D30-8 的「创建不预建对话、sessionId 首跑回填」
-   不变量不受影响——工具创建与表单创建走同一 `OffPeakTaskService.createTask`。
-   **2026-09-04 补充**：门禁是 workspace 级事实，权威载体改为 host 在 agent 客户端就绪时调用的
-   `workspace/updateOffPeakToolPolicy`（旧 CLI method-not-found 降级忽略），覆盖 legacy create/resume、
-   v4 createSession 与 v4 冷恢复（subscribe 无参数通道）三条路径；per-request flag 作为同源冗余保留。
-   卡片跳转以「收到导航后强制刷新完成」为就绪信号（agent 落库不经 UI store）；刷新失败时不做 found/missing
-   终审，改提示列表加载失败（review CR-01）。**灰度中途翻转**：handler 对灰度关闭/配置缺失直接返回
-   `offpeak_disabled` 稳定失败，不走空白名单推导；model 预校 trim + 大小写不敏感（review SG-02/03）。
+1. **Superfície de ferramentas = `OffPeakCreate` + `OffPeakList` (somente leitura)**; sem ferramentas de update/cancel. A única entrada de modificação: o cartão no fim do turno do chat → o formulário de edição da tab idle de Automations (a janela de edição de D30-7 não muda, e running/estado terminal ficam naturalmente somente leitura pelojulgamento readOnly já existente no OffPeakEditView).
+2. **O turno automático fora do pico nega `OffPeakCreate`** (simétrico a D45: tarefa fora do pico criando tarefa fora do pico = auto-amplificação do pool gratuito); `OffPeakList` continua disponível (alinhado ao tratamento que preserva CronList em D45). Ponto de implementação: o toolDenylist do turno de despacho fora do pico expande de `["CronCreate"]` para `["CronCreate", "OffPeakCreate"]`.
+3. **O turno automático de cron automation permite `OffPeakCreate`** (jogo combinado: o usuário pode montar a cadeia «agendado deriva fora do pico»). A proteção de amplificação não ganha contagem local, e a cota do servidor é a única autoridade (`POST /ticket` 3103, espírito de D38/D39). ⚠ Armadilha de cópia literal: a defesa `assertNotAutomationTurn` das ferramentas de cron tem a direção oposta, e o OffPeakCreate nunca pode entrar em nenhuma cópia de `AUTOMATION_MUTATION_TOOL_NAMES`.
+4. **Superfície de parâmetros**: `title`/`prompt` obrigatórios; `permissionMode`/`model`/`thoughtLevel` opcionais (o agent sobrescreve conforme o pedido explícito do usuário), **padrão = totalmente automático (yolo) / último de `allowed_models` (assumindo que a ordem no servidor coloque o mais recente/forte por último) / nível mais alto de raciocínio**. Isso é uma **divergência intencional** do padrão do formulário (Ask + allowedModels[0] + nível padrão do workspace, D29-4/D34): o caminho da ferramenta atende à semântica de quem «fala e vai embora» sem supervisão — o padrão Ask deixaria a tarefa travada à meia-noite em uma confirmação de permissão, o que contraria o valor central do fora do pico; o caminho do formulário mantém o padrão seguro e a linha de alerta. A resolução do padrão é no host (onde o gradual rollout é legível); quando `model` é informado, valida-se contra allowed_models previamente, com o 3006 do servidor comproteção de segurança.
+5. **Não congela o título da sessão**: não copia o `setCustomSessionTitle` do CronCreate — a criação fora do pico acontece com frequência no meio de uma sessão de trabalho, e a tarefa roda na sua própria session nova (D30-8), sem vínculo com a sessão de criação.
+6. **Cartão estático no fim do turno** (o mesmo pipeline de ConversationTurnGroup no fim do turno do cron, renderizado após a conclusão da resposta): ícone da lua + título da tarefa + snapshot da posição no momento da criação (#N in queue, vindo da resposta de retirada de número) + botão «Ir para a tarefa fora do pico»→ `onOpenAutomationsMain(offPeakTaskId, "idle")` → visão de edição da tab idle. Não assina estados posteriores, e o histórico não tem problema de dado ativo expirado.
+7. **Superfície de entrada apenas por ferramenta**: o botão da visão principal de Automations e a entrada da página inicial New task ficam como estão; `needsApproval: true` é copiado do cron (a criação consome cota de retirada de número).
+8. **Gating**: quando o gradual rollout não é atingido (D31) / workspace remoto (D37-3/D48-B) / subagent_child, a ferramenta não é exposta, entregue pela flag `offPeakToolEnabled` nos parâmetros de session create/resume (host antigo não entrega → a ferramenta não é registrada, fail-closed); uma virada do gradual rollout no meio do caminho aceita «a superfície de ferramentas desta session não muda + o fail-closed de retirada de número do servidor comproteção de segurança», sem reconsulta de gradual rollout por turno. O invariante de D30-8 «a criação não pré-cria a conversa, e o sessionId é preenchido na primeira execução» não é afetado — a criação por ferramenta e a criação por formulário passam pelo mesmo `OffPeakTaskService.createTask`.
+   **Complemento de 2026-09-04**: o gating é um fato em nível de workspace, e o portador autoritativo passa a ser o `workspace/updateOffPeakToolPolicy` chamado pelo host quando o cliente de agent fica pronto (degradação de method-not-found do CLI antigo é ignorada), cobrindo os caminhos de create/resume legacy, v4 createSession e a recuperação a frio v4 (o canal subscribe sem parâmetros); a flag por requisição é mantida como redundância de mesma origem. O salto do cartão usa «refresh forçado concluído após receber a navegação» como sinal de prontidão (o agent grava no banco sem passar pelo store da UI); quando o refresh falha, não se faz um veredito final de encontrado/ausente, e em vez disso se mostra que a lista não carregou (review CR-01). **Virada do gradual rollout no meio do caminho**: o handler devolve diretamente a falha estável `offpeak_disabled` quando o gradual rollout está desligado ou a configuração está ausente, sem passar por derivação de lista vazia; a validação prévia de model faz trim e é insensível a maiúsculas (review SG-02/03).
 
-连带修订：spec §5「已砍入口」删除「Create via chat 接入闲时」一项（composer 月亮开关与
-429 toast 引导维持已砍）；§7 明确不做清单同步。D30-4 其余定案（入口收敛、砍 429 toast）
-继续成立。
+Revisões em cascata: a §5 da spec remove o item «Create via chat para tarefas fora do pico» da lista de «entradas já cortadas» (o switch da lua no composer e o toast de orientação de 429 continuam cortados); a lista de explicitamente não feito da §7 é sincronizada. As demais decisões de D30-4 (convergência de entradas, corte do toast de 429) continuam valendo.
 
-### D49-8 修订：3.12.2 聊天启动不等待灰度（2026-09-14）
+### Revisão de D49-8: o start do chat na 3.12.2 não espera o gradual rollout (2026-09-14)
 
-本修订取代上文注册阶段的灰度曝光判断：支持的本地 Host 只按服务装配与 workspace 类型
-决定工具注册，不读取远端配置。workspace 策略与 legacy/V4 创建、恢复 flag 保留为本地能力通道。
-灰度关闭/未知时模型仍看到 OffPeakCreate/OffPeakList；实际创建进入 Host handler 后才读取灰度、
-校验套餐与模型，通过后才能 createTask/取号。失败保持现有稳定工具错误且无创建副作用。
-OffPeakList 只查当前 workspace 本地任务。页面入口灰度、远程不支持、子 Agent 不注册、闲时轮拒绝
-递归创建、审批与绑定守卫不变。无需为已开会话异步补工具，也不新增配置后台刷新。
+Esta revisão substitui o julgamento de exposição do gradual rollout na etapa de registro descrita acima: o Host local suportado decide o registro das ferramentas apenas pelo conjunto de serviços montados e pelo tipo de workspace, sem ler configuração remota. A política de workspace e as flags de criação/recuperação legacy e V4 são mantidas como canal de capacidade local. Com o gradual rollout desligado ou desconhecido, o modelo ainda vê OffPeakCreate/OffPeakList; a criação real só lê o gradual rollout e valida plano e modelo depois de entrar no handler do host, e só depois da aprovação é que createTask/retirada de número acontece. Na falha, mantém-se o erro de ferramenta estável existente e não há efeito colateral de criação. OffPeakList consulta apenas as tarefas locais do workspace atual. O gating de gradual rollout da entrada de página, o suporte remoto, o não registro para subagentes, a recusa de criação recursiva no turno fora do pico, as aprovações e a guarda de vínculo permanecem. Não é preciso adicionar ferramentas assincronamente a sessões já abertas, e nem é adicionada atualização de configuração em background.
 
-原缺陷：注册与创建命令重复解析远端灰度；失败不缓存导致普通聊天串行重复等待。工具可处理的
-本地能力和账号是否允许创建是两个边界，前者不应等待后者。
+Defeito original: registro e comando de criação analisavam em duplicidade o gradual rollout remoto; e a ausência de cache fazia com que o chat comum esperasse em série repetidamente. A capacidade local que a ferramenta pode tratar e se a conta tem permissão para criar são dois limites, e o primeiro não deve esperar pelo segundo.
 
-## D50 会话内创建的闲时任务绑定并运行在创建会话（已定 2026-09-07，修订 D49-5 的"与创建会话无绑定"）
+## D50 A tarefa fora do pico criada dentro da sessão fica vinculada e roda na sessão de criação (decidido em 2026-09-07, revisa o «sem vínculo com a sessão de criação» de D49-5)
 
-用户诉求：会话内创建的闲时任务要「基于现有会话」执行。备选 B（创建时 fork 子会话继承历史）被否决，
-选定 A：**逻辑对齐 CronCreate 的 targetTaskId**——创建时绑定当前会话，派发时 resume 该会话并发送
-任务原 prompt。六项拍板：
+Pedido do usuário: a tarefa fora do pico criada dentro da sessão deve executar «com base na sessão existente». A alternativa B (fork de uma subsessão na criação herdando o histórico) foi refutada, e escolheu-se A: **alinhamento lógico com o targetTaskId do CronCreate** — vincular à sessão atual na criação, e retomar essa sessão no despacho enviando o prompt original da tarefa. Seis pontos decididos:
 
-1. **始终绑定，不加开关**：会话内 `OffPeakCreate` 一律绑定当前会话（`boundSessionId` 由 CLI 端口从
-   工具上下文填入，经 `offPeak/create` 协议到 host，`repo.create` 写 `session_id`；`conversation_id`
-   仍等首跑回填，保持"非空 = 已跑过"契约）。表单创建路径不变，仍新建独立 session（D30-8 对表单继续成立）。
-2. **缺省权限模式维持 D49-4 的 yolo，且任务结束后不回滚**：与 cron 的差别是可见的——cron 快照的是
-   会话当下 mode，写回无感；闲时会把用户会话切成完全访问并保持。用户明确接受。
-3. **不冻结会话标题**（维持 D49-5）：绑定的是用户的工作会话。
-4. **重复绑定只拒未终态**：本会话已有 queued/running/paused 闲时任务时拒绝再建（两个无人值守 prompt
-   抢同一会话），任务终结后允许再建；与 cron 的"一会话一任务永久拒绝"不同（闲时任务一次性）。
-   判定复用 `offPeak/list` 最小快照（含 sessionId/status），查询失败 fail-closed。
-5. **派发撞忙先探测**：绑定首跑先读 tasks-index 的 `status === "running"`，忙则直接 transient 交给
-   调度器退避（30s 起翻倍，上限 15 分钟，无次数上限），**不碰任何会话配置**。原因：CLI `session/send`
-   以 -32010 拒绝并发 prompt，但 `setMode` 没有活跃 turn 检查，先写配置再撞忙会悄悄改掉用户会话的
-   权限模式。绑定会话已被删除 → permanent（不再退避到票过期重取号）。
-6. **Stop 即取消**：任务在用户会话里跑时用户点 Stop，停掉的是任务那一轮，结果追踪把 stopped 映射为
-   `cancelled`，票作废（不做"回 queued 等下一票"）。用户在任务轮期间的输入进 v4 队列排在其后。
+1. **Sempre vinculado, sem switch**: o `OffPeakCreate` dentro da sessão sempre vincula à sessão atual (o `boundSessionId` é preenchido pela porta da CLI a partir do contexto da ferramenta e chega ao host pelo protocolo `offPeak/create`, e o `repo.create` grava `session_id`; o `conversation_id` continua sendo preenchido na primeira execução, mantendo o contrato «não vazio = já executou»). O caminho de criação por formulário não muda e continua criando uma session independente (D30-8 continua valendo para o formulário).
+2. **O modo de permissão padrão mantém o yolo de D49-4 e não é revertido quando a tarefa termina**: a diferença em relação ao cron é visível — o cron registra o mode do momento da sessão e a escrita de volta passa despercebida; fora do pico o usuário é colocado em acesso total e assim permanece. O usuário aceitou explicitamente.
+3. **Não congela o título da sessão** (mantido de D49-5): o que é vinculado é a sessão de trabalho do usuário.
+4. **Vinculação repetida recusa apenas o que não é terminal**: quando a sessão já tem uma tarefa fora do pico queued/running/paused, a criação é recusada (dois prompts sem supervisão disputando a mesma sessão); depois que a tarefa termina, criar de novo é permitido; é diferente do «uma sessão uma tarefa sempre recusado» do cron (a tarefa fora do pico é de uso único). O julgamento reaproveita o snapshot mínimo de `offPeak/list` (com sessionId/status), e uma falha na consulta é fail-closed.
+5. **Ao bater em sessão ocupada no despacho, primeiro sonda**: a primeira execução vinculada lê `status === "running"` no tasks-index, e se estiver ocupada devolve transient diretamente ao scheduler para backoff (a partir de 30s dobrando, com teto de 15 minutos e sem limite de tentativas), **sem tocar em nenhuma configuração da sessão**. Motivo: o `session/send` da CLI recusa prompts concorrentes com -32010, mas o `setMode` não tem verificação de turno ativo, e escrever a configuração antes de bater na ocupação mudaria silenciosamente o modo de permissão da sessão do usuário. Sessão vinculada já deletada → permanent (sem backoff até a expiração do ticket e nova retirada).
+6. **Stop é cancelar**: quando a tarefa está rodando na sessão do usuário e ele aperta Stop, o que para é o turno da tarefa, e o rastreamento de resultado mapeia stopped como `cancelled`, com o ticket invalidado (sem «voltar para queued esperando o próximo ticket»). Entradas do usuário durante o turno da tarefa entram na fila v4 atrás dele.
 
-UI 连带：Automations 闲时卡片脚注与编辑页露出**绑定会话标题**（`repo.list` 联查同库 tasks 表得到只读
-派生字段 `sessionTitle`，不落库），编辑页附 Stop 即取消提示；聊天轮尾卡状态行追加「将在本会话中运行」。
-侧栏：绑定会话在首跑盖章 `offPeakTaskId` 时归入闲时系统分组（D48 机制同 cron targetTaskId）。
+Consequências na UI: o rodapé dos cartões de tarefas fora do pico em Automations e a página de edição expõem o **título da sessão vinculada** (`sessionTitle`, um campo derivado somente leitura obtido pelo join do `repo.list` com a tabela tasks do mesmo banco, sem persistir), e a página de edição traz a dica de que Stop significa cancelar; o cartão no fim do turno da chat acrescenta à linha de status«rodará nesta sessão». Barra lateral: a sessão vinculada entra no agrupamento de sistema fora do pico quando recebe a marca `offPeakTaskId` na primeira execução (mecanismo de D48, igual ao targetTaskId do cron).
 
-连带修订：D49-5 中"任务运行在自己的新 session，与创建会话无绑定"仅对表单创建成立；tech-design §4.7
-的派发分支由两分支改为三分支（resume / bound-first-run / init）。
+Revisão em cascata: «a tarefa roda na sua própria session nova, sem vínculo com a sessão de criação» de D49-5 vale apenas para a criação por formulário; o ramo de despacho da §4.7 do tech-design passa de dois ramos para três (resume / bound-first-run / init).
 
-## D50 补充：2026-09-08 机审回应
+## D50 complemento: resposta à revisão automática de 2026-09-08
 
-- **CR-01**：`OffPeakCreate` 的 description / modelInstructions 仍写"fresh session / NEW session /
-  self-contained prompt"，与 D50 绑定会话执行相反。已改为"later continues THIS conversation with the
-  full history"，并允许 prompt 引用会话内既有上下文，但仍要求写明交付物（无人值守无法追问）。
-  第二轮机审指出 contracts 里 `prompt` 参数的 `.describe()` 漏改（经 zodToJsonSchema 进入模型可见
-  inputSchema，与工具描述互相矛盾），已同步修正并加 JSON schema 级文案断言。
-- **CR-02**：CLI 端口的绑定守卫（D50-4）读 `offPeak/list`，而该方法为展示截断 top-20，任务多于 20 且
-  绑定任务较旧时守卫放行。第二轮机审再指出预检与 INSERT 之间夹着取号网络往返，存在 TOCTOU。最终收敛为
-  两层：① `OffPeakTaskService.createTask` 在取号前调 `repo.hasActiveBoundTask(workspaceKey, sessionId)`
-  精确预检（不再复用展示 list），命中回 `client_validation / session_bound`；② 存储层部分唯一索引
-  `idx_off_peak_bound_active ON (workspace_key, session_id) WHERE session_id IS NOT NULL AND status
-  NOT IN 终态`，并发穿过预检的一方 INSERT 被拒，同样映射为 `session_bound`（已取的票随任务作废，服务端
-  按过期回收，不加释放接口）。存量库若已有重复行则建索引失败，跳过索引只剩预检，等人工巡检。host
-  `offPeak/create` 处理器不再自带预检；CLI 端口读 top-20 的守卫保留为快速路径。CLI 翻译为稳定文案。
-- **SG-02**：`workspace/updateOffPeakToolPolicy` 同步失败只吞 -32601，其他错误会让客户端就绪 reject。
-  改为所有错误记 warn 不上抛：失败方向是 fail-closed（CLI 缺省不注册工具），不值得阻断启动。
-- **SG-03**：缺省思考档由 `defaultLevel ?? levels[0]` 改为按已知强度表
-  （max > xhigh > high > medium > low > minimal > nothink > none）取最高，落实 D49-4 的"最高档"口径；
-  目录全为未知命名时才退回 defaultLevel / 首位。用户拍板：最高档优先于目录 defaultLevel。
-- **SG-01 不改**：灰度关闭不向已启动 CLI 推送 `enabled:false`，是 D49-8 已定的"本 session 工具面不变 +
-  服务端 fail-closed 兜底"，且只推 true 是 pre-push 回归后刻意收窄的方向。
+- **CR-01**: a description / modelInstructions de `OffPeakCreate` ainda diz «fresh session / NEW session / self-contained prompt», o que é o contrário da execução na sessão vinculada de D50. Foi alterado para «later continues THIS conversation with the full history», e o prompt pode referenciar o contexto já existente da sessão, mas continua exigindo que a entrega seja explicitada (sem supervisão não é possível perguntar). A segunda rodada apontou que o `.describe()` do parâmetro `prompt` em contracts tinha ficado para trás (entra no inputSchema visível ao modelo via zodToJsonSchema, contradizendo a descrição da ferramenta), e a correção foi sincronizada junto com uma asserção de texto em nível de JSON schema.
+- **CR-02**: a guarda de vínculo da porta da CLI (D50-4) lê `offPeak/list`, mas esse método é truncado para exibição em top-20, de modo que com mais de 20 tarefas e a tarefa vinculada sendo mais antiga a guarda deixa passar. A segunda rodada apontou ainda que existe um TOCTOU entre a verificação prévia e o INSERT, com uma ida e volta de rede de retirada de número no meio. A convergência final foi em duas camadas: ① `OffPeakTaskService.createTask` chama `repo.hasActiveBoundTask(workspaceKey, sessionId)` para uma verificação prévia precisa antes da retirada de número (sem reutilizar a list de exibição), retornando `client_validation / session_bound` em caso de acerto; ② um índice único parcial na camada de armazenamento `idx_off_peak_bound_active ON (workspace_key, session_id) WHERE session_id IS NOT NULL AND status NOT IN estados terminais` faz com que a parte que atravessa a verificação prévia em concorrência seja rejeitada no INSERT, mapeada igualmente para `session_bound` (o ticket já retirado é invalidado junto com a tarefa, e o servidor o recolhe por expiração, sem interface de liberação). Se um banco já tiver linhas duplicadas, a criação do índice falha e o índice é pulado restando apenas a verificação prévia, aguardando inspeção manual. O handler `offPeak/create` do host não traz mais uma verificação prévia própria; a guarda que lê top-20 na porta da CLI é mantida como caminho rápido. A CLI traduz para um texto estável.
+- **SG-02**: uma falha de sincronização de `workspace/updateOffPeakToolPolicy` apenas engole -32601, mas outros erros fariam o cliente ficar ready com reject. Passa a registrar todos os erros como warn sem repropagar: a direção de falha é fail-closed (a CLI não registra as ferramentas por padrão), e isso não merece bloquear o start.
+- **SG-03**: o nível de raciocínio padrão passou de `defaultLevel ?? levels[0]` para o maior valor de uma tabela de intensidade conhecida (max > xhigh > high > medium > low > minimal > nothink > none), concretizando aleitura de «nível mais alto» de D49-4; só quando todos os nomes do catálogo são desconhecidos é que há fallback para defaultLevel / primeiro item. Decisão do usuário: o nível mais alto tem prioridade sobre o defaultLevel do catálogo.
+- **SG-01 inalterado**: não enviar `enabled:false` a uma CLI já iniciada quando o gradual rollout é desligado é o «a superfície de ferramentas desta session não muda + proteção de segurança fail-closed do servidor» já decidido em D49-8, e enviar apenas true foi a direção deliberadamente estreita após a regressão de pre-push.
 
-## D51 闲时 turn 禁止 Bash 后台执行（已定 2026-09-07）
+## D51 Turno fora do pico proíbe execução de Bash em background (decidido em 2026-09-07)
 
-问题：后台 Bash 命令完成后，`runTaskNotificationBatch` 会另起一轮通知 turn，而该 turn 不带
-`turnExecutionModel`/`offPeakTaskId`；闲时 turn 结束或失败后 session 模型已还原成用户 provider，
-这一轮完整 agent loop 就跑在用户自己的套餐上，且没有任何用户操作（D33 计费边界被绕过）。
+Problema: depois que um comando Bash em background é concluído, `runTaskNotificationBatch` inicia outro turno de notificação, e esse turno não leva `turnExecutionModel`/`offPeakTaskId`; quando o turno fora do pico termina ou falha, o modelo da sessão já foi restaurado para o provider do usuário, e esse agent loop completo roda no plano do próprio usuário sem nenhuma ação do usuário (o limite de cobrança de D33 é contornado).
 
-决策：**不修通知 turn 的归因，直接在闲时 turn 关掉 Bash 后台面**——`bashHandler` 读
-`context.offPeakTurn`：显式 `run_in_background` 抛 recoverable `ToolExecutionFailed`（提示改前台重跑），
-超时自动转后台（`isBashAutoBackgroundEligible`）同时关闭，长命令按前台超时处理。与 subagent runner
-已有的 `BACKGROUND_UNAVAILABLE`（闲时 turn 拒绝后台 Agent）对称，两条后台入口在闲时轮统一 fail-closed。
+Decisão: **não corrigir a atribuição do turno de notificação, e simplesmente desligar a superfície de Bash em background no turno fora do pico** — o `bashHandler` lê `context.offPeakTurn`: um `run_in_background` explícito lança um `ToolExecutionFailed` recuperável (com a dica de rodar em foreground), e a conversão automática para background por timeout (`isBashAutoBackgroundEligible`) é desligada junto, com comandos longos tratados com o timeout de foreground. Isso é simétrico ao `BACKGROUND_UNAVAILABLE` já existente no subagent runner (turno fora do pico recusando Agent em background), e as duas entradas de background falham de forma fechada no turno fora do pico.
 
-不做：通知 turn 带模型/延后（需要跨 turn 持有临时凭据，与 D33 清理边界冲突）；cron automation turn
-不受影响（走用户 provider，后台面照旧）。
+Não feito: o turno de notificação levar modelo/adiar (exige manter credencial temporária entre turnos, o que conflita com o limite de limpeza de D33); turnos de cron automation não são afetados (usam o provider do usuário, e a superfície de background continua como antes).
 
-## D52 闲时 turn 禁止 SendMessage 与 Workflow（已定 2026-09-14，hotfix/3.12.2）
+## D52 Turno fora do pico proíbe SendMessage e Workflow (decidido em 2026-09-14, hotfix/3.12.2)
 
-问题（ZCT-2099408932463325184，3.12.1）：主 Agent 用 `SendMessage` 续跑已完成的子 Agent 时，
-`subagent/runner.ts` 的 `resumeTerminalAgentInBackground → runBackgroundAgent` 只传 signal，不带闲时轮的
-`subagentModelOverride`；`runExploreAgent` 的模型解析在无 override、profile 无显式模型时回落
-`getSessionModelSelection()`，而 D33 规定常驻选择永远是用户 Provider，于是续跑轮全部计入用户 Coding Plan。
-3.11.2 同路径靠 runner 读 `turnExecutionModel` 仍走 idle plan，属 provider 重构（1ccc89c5d4..eb8b9deee5）回归。
-同类路径还有 `Workflow`：脚本子会话由 `script-workflow-child-runtime` 按父会话常驻选择建模型。
-该路径同时绕过了 D51 的 `modelOverride.background === "deny"` 检查（没有 modelOverride 就没有 deny）。
+Problema (ZCT-2099408932463325184, 3.12.1): quando o Agent principal usa `SendMessage` para retomar um subagente já concluído, `resumeTerminalAgentInBackground → runBackgroundAgent` em `subagent/runner.ts` passa apenas o signal, sem o `subagentModelOverride` do turno fora do pico; a resolução de modelo de `runExploreAgent` cai em `getSessionModelSelection()` quando não há override e o profile não tem modelo explícito, e como D33 determina que a seleção residente é sempre o Provider do usuário, todos os turnos de retomada são contabilizados no Coding Plan do usuário.
+A 3.11.2, o mesmo caminho ainda usava o idle plan porque o runner lia `turnExecutionModel`, o que é uma regressão da refatoração de provider (1ccc89c5d4..eb8b9deee5). Há um caminho semelhante em `Workflow`: as subsessões de script criam o modelo pela seleção residente da sessão pai pelo `script-workflow-child-runtime`.
+Esse caminho também contorna a verificação `modelOverride.background === "deny"` de D51 (sem modelOverride não há deny).
 
-决策：**不给续跑路径补 override，直接在闲时轮禁掉这两个工具**（用户拍板）。三层同 D49：turn denylist
-（core `OFF_PEAK_MUTATION_TOOL_NAMES`、V4 `prompt-turn.ts`、legacy `server-operations.ts` 同值扩为
-`["OffPeakCreate","SendMessage","Workflow"]`）隐藏工具；handler 复用 `assertNotOffPeakTurn` 抛 recoverable
-`PermissionDenied` 并提示改用前台 Agent；`isOffPeakCreateRestrictedTurn` 的 denylist 兜底只认 OffPeakCreate
-哨兵（旧 host 派发的 denylist 可能尚未带新工具）。闲时轮内子 Agent 均为前台同步完成，SendMessage 没有
-其他有效用途，禁用无功能损失。
+Decisão: **não complementar o override no caminho de retomada, e simplesmente proibir essas duas ferramentas no turno fora do pico** (decidido pelo usuário). Em três camadas, como em D49: o turn denylist (núcleo `OFF_PEAK_MUTATION_TOOL_NAMES`, `prompt-turn.ts` da V4, `server-operations.ts` legacy, todos com o mesmo valor ampliado para `["OffPeakCreate","SendMessage","Workflow"]`) esconde as ferramentas; o handler reaproveita `assertNotOffPeakTurn` lançando um `PermissionDenied` recuperável com a dica de usar um Agent em foreground; e o denylist de fallback de `isOffPeakCreateRestrictedTurn` reconhece apenas o sentinela OffPeakCreate (o denylist despachado por um host antigo pode ainda não trazer as ferramentas novas). Dentro do turno fora do pico todos os subagentes são concluídos de forma síncrona em foreground, então o SendMessage não tem outro uso válido, e a proibição não traz perda funcional.
 
-不做：resume 路径透传 override（与 D51 的后台 deny 语义冲突，需另定前台等待方案）；标题生成沿用本轮模型
-（`session-title.ts` 仍走常驻选择，每会话 1 次小额请求，另行处理）。
+Não feito: passar o override pelo caminho de resume (conflita com a semântica de deny de background de D51, e exigiria definir um plano de espera em foreground); a geração de título continua usando o modelo deste turno (`session-title.ts` ainda usa a seleção residente, 1 requisição pequena por sessão, tratado separadamente).
 
-## 待讨论队列
+## Fila de discussão em aberto
 
-（已全部收敛，最终形态见 `spec.md`。）
+(Convergida por completo; a forma final está em `spec.md`.)

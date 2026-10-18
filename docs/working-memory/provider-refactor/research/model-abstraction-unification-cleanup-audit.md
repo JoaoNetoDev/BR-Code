@@ -1,57 +1,50 @@
-# 模型抽象统一清理审查
+# Revisão de Limpeza da Unificação da Abstração de Modelo
 
-> 状态：M4 完成后的清理预审；M4 项已归零，其余问题待逐项裁决
+> Status: pré-revisão de limpeza após a conclusão de M4; os itens de M4 foram zerados, os demais problemas aguardam decisão item a item
 >
-> 日期：2026-08-24
+> Data: 2026-08-24
 >
-> 目标设计：[`../design/design.md`](../design/design.md)
+> Design alvo: [`../design/design.md`](../design/design.md)
 >
-> 当前并行阶段：[`../steps/04-model-execution-cutover.md`](../steps/04-model-execution-cutover.md)
+> Fase paralela atual: [`../steps/04-model-execution-cutover.md`](../steps/04-model-execution-cutover.md)
 
-## 1. 文档定位
+## 1. Posicionamento do documento
 
-Provider Refactor 已经建立新的 Provider Config、Model Config Rules、Registry、ModelFactory 和 `Model`
-调用边界，并删除了大量旧 Provider / Model 实现。M4 已把闲时任务与 Subagent 等特殊执行迁入同一条
-标准模型调用链。
+O Provider Refactor já estabeleceu o novo Provider Config, as Model Config Rules, o Registry, o ModelFactory e a fronteira de chamada de `Model`, e removeu um grande volume de implementações antigas de Provider / Model. M4 migrou execuções especiais como tarefas off-peak e Subagent para a mesma cadeia padrão de chamada de modelo.
 
-本次审查不再只判断某个阶段是否按计划完成，而是检查整个系统是否仍存在第二套模型抽象、第二条模型
-装配路径或第二份模型事实源。审查结果先记录代码事实和结构风险；需要设计裁决的内容保留为开放问题，
-后续逐项讨论后再进入正式设计和实施计划。
+Esta revisão deixa de avaliar apenas se uma fase foi concluída conforme o plano, e passa a verificar se o sistema ainda possui um segundo conjunto de abstrações de modelo, um segundo caminho de montagem de modelo ou uma segunda fonte de verdade sobre modelos. O resultado da revisão registra primeiro os fatos de código e os riscos estruturais; o que exigir decisão de design é mantido como questão aberta, para ser discutido item a item antes de entrar no design formal e no plano de implementação.
 
-本审查与并行的新增代码审查分工明确：
+Esta revisão tem uma divisão de trabalho clara com a revisão de código novo da fase paralela:
 
 ```text
-并行新增代码审查
-`- 检查 M4 新实现是否正确、完整，是否引入行为或质量问题
+Revisão de código novo da fase paralela
+`- verifica se a nova implementação de M4 está correta e completa e não introduz problemas de comportamento ou qualidade
 
-本模型抽象统一清理审查
-`- 检查新链建立后还有哪些旧代码、旧抽象和兼容路径可以物理退出
+Esta revisão de limpeza da unificação da abstração de modelo
+`- verifica quais códigos antigos, abstrações antigas e caminhos de compatibilidade ainda podem sair fisicamente depois que a nova cadeia está estabelecida
 ```
 
-因此，本审查不对 M4 新增代码做一般性的实现 Review。只有在判断某段旧代码是否已经被新链完整替代时，
-才读取新增实现作为删除证据。这里的核心产出是旧代码清理清单、依赖关系、删除前提与机械归零条件，
-不是另一份 M4 新代码问题列表。
+Portanto, esta revisão não faz uma revisão geral de implementação do código novo de M4. A nova implementação só é lida como evidência de deleção ao julgar se um trecho de código antigo já foi completamente substituído pela nova cadeia. O produto central aqui é a lista de limpeza de código antigo, suas dependências, os pré-requisitos de deleção e as condições mecânicas de zeragem, e não outra lista de problemas do código novo de M4.
 
-本次审查回答以下问题：
+Esta revisão responde às seguintes questões:
 
-1. 业务代码是否仍能绕过 `ModelFactory`，直接使用旧 Adapter 或旧请求 DTO 执行模型请求；
-2. `ModelSelection`、`Model`、模型身份、请求和结果是否仍被旧 `ModelRef` 混合表达；
-3. Provider / Model Config 之外是否仍有 Catalog、Runtime Config、Endpoint 或 modelId hardcode 提供模型事实；
-4. Core、Service、Protocol 和 UI 是否仍消费旧 Provider / Model 完整 DTO；
-5. 哪些旧实现应物理删除，哪些只是需要限制在 Adapter、Protocol 或一次性 importer 边界；
-6. M4 完成后还需要哪些机械检查，才能证明系统抽象真正收口。
+1. o código de negócio ainda consegue contornar o `ModelFactory` e executar requisições de modelo usando diretamente o Adapter antigo ou o DTO de requisição antigo?
+2. `ModelSelection`, `Model`, a identidade do modelo, a requisição e o resultado ainda são expressos de forma misturada pelo `ModelRef` antigo?
+3. fora de Provider / Model Config, ainda há Catalog, Runtime Config, Endpoint ou hardcode de modelId fornecendo fatos sobre modelos?
+4. Core, Service, Protocol e UI ainda consomem o DTO completo antigo de Provider / Model?
+5. quais implementações antigas devem ser fisicamente removidas e quais apenas precisam ficar restritas às fronteiras de Adapter, Protocol ou importer de uso único?
+6. que verificações mecânicas ainda são necessárias após M4 para provar que a abstração do sistema realmente convergiu.
 
-更直接地说，本审查持续追问的是：
+Mais diretamente, esta revisão pergunta continuamente:
 
-> 新设计已经提供了什么替代能力；依赖旧设计的代码为什么还存在；现在能否删除；如果还不能删除，
-> 缺少的最后一个迁移前提是什么。
+> que capacidade substituta o novo design já ofereceu; por que o código que depende do design antigo ainda existe; é possível deletá-lo agora; e, se ainda não for possível deletar, qual é o último pré-requisito de migração que falta.
 
-## 2. 审查目标架构
+## 2. Arquitetura alvo da revisão
 
-目标系统只有一条模型形成与执行链：
+O sistema alvo tem apenas uma cadeia de formação e execução de modelo:
 
 ```text
-持久化 / Protocol
+Persistência / Protocol
     ModelSelection
           |
           v
@@ -72,217 +65,208 @@ Effective Provider Config + Effective Model Config Rules
       `- generateText / streamText
           |
           v
- Adapter 内部执行投影
+ Projeção de execução interna do Adapter
           |
           v
      Provider API
 ```
 
-各概念的目标职责为：
+As responsabilidades alvo de cada conceito são:
 
-| 概念                      | 唯一职责                                                                         |
+| Conceito                      | Responsabilidade única                                                                        |
 | ------------------------- | -------------------------------------------------------------------------------- |
-| `ModelSelection`          | 表达未来创建模型的用户或产品意图，可以持久化和跨进程传输                         |
-| Effective Provider Config | 决定 Provider、API、Access、模型成员和用户可见性                                 |
-| Effective Model Config    | 决定模型 Properties、Option Specs 和请求参数映射                                 |
-| Provider Registry         | 聚合 Effective Config，并按 Provider/Model 身份提供解析与 View                   |
-| `ModelFactory`            | 把 Selection、Registry 事实和请求依赖装配成完整 `Model`                          |
-| `Model`                   | 当前执行使用的不可变模型事实与唯一模型调用接口                                   |
-| Adapter                   | 把 `ModelRequest` 编码为具体 Provider API 请求；不向业务层输出第二套模型抽象     |
-| Model Identity            | 如事件、Telemetry 确实需要，只记录实际模型身份，不承担 Selection 或 Options 语义 |
+| `ModelSelection`          | Expressar a intenção do usuário ou do produto ao criar um modelo no futuro; pode ser persistida e transmitida entre processos                       |
+| Effective Provider Config | Determinar Provider, API, Access, membros de modelo e visibilidade para o usuário                                 |
+| Effective Model Config    | Determinar Properties do modelo, Option Specs e mapeamento de parâmetros de requisição                                 |
+| Provider Registry         | Agregar a Effective Config e fornecer resolução e View por identidade de Provider/Model                   |
+| `ModelFactory`            | Montar um `Model` completo a partir da Selection, dos fatos do Registry e das dependências de requisição                          |
+| `Model`                   | Fatos de modelo imutáveis usados na execução atual e única interface de chamada de modelo                                   |
+| Adapter                   | Codificar `ModelRequest` como requisição de uma API de Provider concreta; não produzir um segundo conjunto de abstrações de modelo para a camada de negócio     |
+| Model Identity            | Se eventos e Telemetry realmente precisarem, registrar apenas a identidade real do modelo, sem carregar a semântica de Selection ou Options |
 
-Core 最终只应认识 `ModelSelection` 和 `Model`；如有必要，可以认识只读的最小 Model Identity。Core 不应
-认识 AI SDK Adapter、Provider Connection、baseURL、providerKind、旧 Catalog capability 或按具体 modelId
-推断出的能力。
+No final, Core deve conhecer apenas `ModelSelection` e `Model`; se necessário, pode conhecer uma Model Identity mínima e somente leitura. Core não deve
+conhecer o Adapter do AI SDK, Provider Connection, baseURL, providerKind, capabilities do Catalog antigo nem capacidades inferidas por modelId específico.
 
-## 3. 审查分类原则
+## 3. Princípios de classificação da revisão
 
-发现旧符号或旧 DTO 时不能仅按名称判断是否删除。本次使用以下四类归属：
+Ao encontrar símbolos antigos ou DTOs antigos, não se pode decidir a deleção apenas pelo nome. Esta revisão usa as quatro classes de atribuição a seguir:
 
-| 分类           | 含义                                                            | 处理原则                                                 |
+| Classe                | Significado                                                            | Princípio de tratamento                                                |
 | -------------- | --------------------------------------------------------------- | -------------------------------------------------------- |
-| M4 已退出      | 属于 M4 且已经删除的特殊执行双轨                                | 保持归零门禁，禁止重新引入                               |
-| 运行时第二抽象 | 仍参与正常模型选择、装配、能力判断或请求执行                    | 必须迁入统一链并删除旧入口                               |
-| 合法边界实现   | Adapter 内部执行、严格 Protocol schema 或一次性 legacy importer | 可以保留，但不能反向渗透到 Core、Registry、Service 或 UI |
-| 后续领域边界   | 已知不属于 M4、需要后续阶段重新归属的职责                       | 记录依赖和最终方向，不在 M4 中顺手改造                   |
+| Saiu em M4      | Pertence a M4 e a trilha dupla de execução especial já foi removida                                | Manter a barreira de zeragem e proibir reintrodução                               |
+| Segunda abstração em runtime | Ainda participa da seleção normal de modelo, montagem, julgamento de capacidade ou execução de requisição                    | Deve migrar para a cadeia unificada e a entrada antiga deve ser removida                               |
+| Implementação de fronteira legítima   | Execução interna do Adapter, schema estrito de Protocol ou importer legacy de uso único | Pode permanecer, mas não pode vazar de volta para Core, Registry, Service ou UI |
+| Fronteira de domínio posterior   | Responsabilidades já sabidas como fora do escopo de M4 e que precisam de nova atribuição em fases posteriores                       | Registrar dependências e direção final, sem refatorar por conta própria em M4                   |
 
-`AiSdkModelAdapter` 本身不是需要删除的“旧模型抽象”。它可以继续作为具体执行实现。真正的问题是 Core
-是否直接依赖它，以及它是否通过公共 DTO、Connection 或可变 Registry 重新成为第二个业务模型入口。
+`AiSdkModelAdapter` não é, em si, uma "abstração de modelo antiga" a ser removida. Ele pode continuar como implementação concreta de execução. O problema real é se Core depende diretamente dele e se ele volta a se tornar uma segunda entrada de modelo de negócio por meio de DTOs públicos, Connection ou Registry mutável.
 
-## 4. 当前总体结论
+## 4. Conclusão geral atual
 
-主要业务模型调用已经大多通过 `Model.generateText()` / `Model.streamText()`；直接调用 OpenAI、Anthropic
-或其他 Provider SDK 的实现基本收敛在 Adapter。这说明新的公共调用边界已经形成。
+A maior parte das chamadas de modelo de negócio já passa por `Model.generateText()` / `Model.streamText()`; as implementações que chamam diretamente o SDK da OpenAI, da Anthropic ou
+de outros Providers praticamente convergiram para o Adapter. Isso indica que a nova fronteira pública de chamada já se formou.
 
-但是系统尚未完成抽象统一。当前仍存在几组会参与正常运行时的旧结构：
+No entanto, o sistema ainda não concluiu a unificação da abstração. Ainda existem alguns grupos de estruturas antigas que participam do funcionamento normal:
 
 ```text
-正式路径
+Caminho oficial
 ModelSelection -> Registry -> ModelFactory -> Model
 
-并存路径
+Caminhos coexistentes
 Runtime Config -> modelAdapter -> Compatibility Model
-Old Catalog / Connection / modelId hardcode -> 再次推断 Properties 和 Options
-ModelRef -> 同时承担 Selection、Identity、Variant、Request 和 Result 归属
-New Registry Model View -> 反向投影为旧 ModelProviderModelConfig -> Service / UI
+Old Catalog / Connection / modelId hardcode -> inferir novamente Properties e Options
+ModelRef -> assume ao mesmo tempo Selection, Identity, Variant, Request e Result
+New Registry Model View -> projetado de volta para o antigo ModelProviderModelConfig -> Service / UI
 ```
 
-因此，M4 是必要收口，但仅完成 M4 还不能证明系统只剩一套模型抽象。M4 后仍需要一次专门的模型抽象
-清理阶段。
+Portanto, M4 é uma convergência necessária, mas apenas concluir M4 não prova que restou um único conjunto de abstrações de modelo. Ainda é necessária uma fase
+dedicada de limpeza da abstração de modelo após M4.
 
-## 5. 已发现问题
+## 5. Problemas já encontrados
 
-### 5.1 Core 仍同时依赖 ModelFactory 与旧 Model Adapter（已裁决删除）
+### 5.1 Core ainda depende simultaneamente de ModelFactory e do Model Adapter antigo (deleção já decidida)
 
-详细实施 Todo：[`../steps/todo-01-core-model-adapter-boundary-cleanup.md`](../steps/todo-01-core-model-adapter-boundary-cleanup.md)
+Todo detalhado de implementação: [`../steps/todo-01-core-model-adapter-boundary-cleanup.md`](../steps/todo-01-core-model-adapter-boundary-cleanup.md)
 
-`AgentRuntimeDeps` 和 `AgentRuntime` 当前同时持有：
+`AgentRuntimeDeps` e `AgentRuntime` hoje mantêm ao mesmo tempo:
 
-- `modelFactory`；
-- `modelAdapter: any`；
-- `modelConnectionPort`；
-- `resolveRuntimeModelLimits`；
-- `resolveModelProviderOptions`；
-- `providerRuntimeHeadersPort`。
+- `modelFactory`;
+- `modelAdapter: any`;
+- `modelConnectionPort`;
+- `resolveRuntimeModelLimits`;
+- `resolveModelProviderOptions`;
+- `providerRuntimeHeadersPort`.
 
-`createRuntimeModel()` 在存在 `modelFactory` 时创建正式 Model；缺少 Factory 时会自动使用 `modelAdapter`
-创建 Compatibility Model。这个 Compatibility Model 自己补齐 context window、max output、输入格式、Tool、
-Structured Output、WebSearch 和 Mid-conversation System 等事实。
+`createRuntimeModel()` cria o Model oficial quando existe `modelFactory`; quando falta a Factory, ele usa automaticamente `modelAdapter`
+para criar o Compatibility Model. Esse Compatibility Model preenche por conta própria context window, max output, formatos de entrada, Tool,
+Structured Output, WebSearch e System no meio da conversa.
 
-当前 Compatibility Model 的代表性默认值包括：
+Os valores padrão representativos atuais do Compatibility Model incluem:
 
-- context window `200_000`；
-- max output `32_000`；
-- Text、Image、Video、PDF 为支持；
-- Audio 为不支持；
-- Tool Call、Structured Output 为支持；
-- WebSearch 和 Mid-conversation System 再根据 Connection、Endpoint 或 modelId 推断。
+- context window `200_000`;
+- max output `32_000`;
+- Text, Image, Video e PDF suportados;
+- Audio não suportado;
+- Tool Call e Structured Output suportados;
+- WebSearch e System no meio da conversa ainda inferidos a partir de Connection, Endpoint ou modelId.
 
-这不是单纯的兼容命名，而是一份与 Effective Model Config 平行的模型事实源。只要 Core 允许缺少
-Factory 时隐式进入这条路径，生产装配遗漏就无法被类型或启动完整性检查发现。
+Isso não é apenas uma nomenclatura de compatibilidade, é uma fonte de fatos de modelo paralela à Effective Model Config. Enquanto o Core permitir entrar
+implicitamente nesse caminho quando falta a Factory, omissões na montagem de produção não poderão ser detectadas por tipos ou por verificações de integridade no start.
 
-静态扫描显示，当前仍有 17 个 Core 生产文件引用 `modelAdapter`，约 15 个 Core 生产文件引用
-`modelConnectionPort`。部分标题、Memory、Compact、Subagent 和模型型工具支线仍以 Adapter 或 Connection
-是否存在判断能力可用性。
+A varredura estática mostra que ainda há 17 arquivos de produção de Core referenciando `modelAdapter` e cerca de 15 arquivos de produção de Core referenciando
+`modelConnectionPort`. Branchs de título, Memory, Compact, Subagent e ferramentas de modelo ainda julgam a disponibilidade de capacidade pela existência de Adapter ou Connection.
 
-已确认的设计裁决：
+Decisões de design já confirmadas:
 
-- Core 删除 `modelAdapter` 依赖和 Compatibility Model；
-- 缺少 ModelFactory 时不得回退到 Adapter 或由 Core 拼装模型事实；
-- 所有生产模型执行入口必须取得正式 ModelFactory；
-- 测试模型调用改用 Fake Model / Fake ModelFactory，不为测试保留生产兼容入口；
-- Adapter 仍可作为 Bootstrap / ModelFactory 下游的执行实现，不要求从整个仓库删除 `modelAdapter` 概念；
-- `modelFactory` 是否在 `AgentRuntimeDeps` 类型上对纯 state-only Runtime 也设为必填，可以按真实构造形态决定，
-  但任何无 Factory Runtime 都必须无法执行模型请求。
+- o Core remove a dependência de `modelAdapter` e o Compatibility Model;
+- na ausência de ModelFactory, não há recuo para o Adapter nem montagem de fatos de modelo pelo Core;
+- todas as entradas de execução de modelo em produção devem obter uma ModelFactory oficial;
+- chamadas de modelo em teste passam a usar Fake Model / Fake ModelFactory, sem manter entradas de compatibilidade de produção para testes;
+- o Adapter ainda pode servir como implementação de execução a jusante do Bootstrap / ModelFactory; não se exige remover o conceito `modelAdapter` de todo o repositório;
+- se `modelFactory` deve ser obrigatório no tipo `AgentRuntimeDeps` inclusive para Runtime puramente state-only pode ser decidido pela forma real de construção,
+  mas qualquer Runtime sem Factory deve ser incapaz de executar requisições de modelo.
 
-实施评估：这项清理边界明确、风险可控，但不是一次 trivial 删除。M4 后的静态扫描仍发现 17 个 Core 生产
-文件引用 `modelAdapter`，Workflow Child 的 Factory 类型仍为可选，约 29 个 Core / Bootstrap 测试文件只
-提供 Adapter 而没有 Factory。实施需要先迁移测试装配和生产 Child Runtime，再删除 Core fallback、字段和
-功能门禁。它应作为独立、测试先行的清理提交，不能与并行 M4 Review 的未提交测试修改交叉编辑。
+Avaliação de implementação: essa limpeza tem fronteira clara e risco controlável, mas não é uma deleção trivial. A varredura estática após M4 ainda encontra 17 arquivos de produção de Core
+referenciando `modelAdapter`, o tipo Factory do Workflow Child ainda é opcional e cerca de 29 arquivos de teste de Core / Bootstrap fornecem
+apenas Adapter e nenhuma Factory. A implementação exige migrar primeiro a montagem dos testes e o Child Runtime de produção, e só então remover o fallback, os campos e
+as barreiras de funcionalidade do Core. Isso deve ser um commit de limpeza independente, test-first, e não pode cruzar edições com as modificações de teste não commitadas da revisão paralela de M4.
 
-### 5.2 M4 的特殊执行模型链已物理退出
+### 5.2 A cadeia de modelo de execução especial do M4 já saiu fisicamente
 
-M4 已删除以下旧概念：
+M4 removeu os seguintes conceitos antigos:
 
-- `turnRuntimeModel`；
-- `TurnExecutionModel`；
-- `ExecutionScopedModelSource`；
-- `createRuntimeModelFactory`；
-- Runtime Provider 临时 Overlay；
-- 临时切换并恢复 Session model 的状态机。
+- `turnRuntimeModel`;
+- `TurnExecutionModel`;
+- `ExecutionScopedModelSource`;
+- `createRuntimeModelFactory`;
+- Overlay temporário de Provider em runtime;
+- a máquina de estados que trocava temporariamente o model da Session e o restaurava.
 
-闲时任务、Compact、Subagent 与普通会话现在使用相同的 Selection、Registry、ModelFactory 和 Active
-Model，不再产生第二份完整 Provider/Model 快照。生产源码扫描中上述符号均为零；协议测试中仅保留一个
-`turnRuntimeModel` 字面量，用来证明旧字段不能进入新命令契约。
+Tarefas off-peak, Compact, Subagent e a sessão comum agora usam a mesma Selection, Registry, ModelFactory e Active
+Model, sem gerar mais um segundo snapshot completo de Provider/Model. Na varredura do código-fonte de produção esses símbolos são zero; nos testes de protocolo resta apenas um
+literal `turnRuntimeModel`, usado para provar que o campo antigo não pode entrar no novo contrato de comandos.
 
-### 5.3 死的 ModelPort 接口仍保留
+### 5.3 A interface morta ModelPort ainda permanece
 
-旧 `ModelPort` 仍定义以 `ModelTextRequest` 为输入的 `generateText` / `streamText` 接口，另有
-`ModelPortOptions`。当前静态引用审查没有发现有效生产调用。
+O antigo `ModelPort` ainda define as interfaces `generateText` / `streamText` com `ModelTextRequest` como entrada, além de
+`ModelPortOptions`. A revisão atual de referências estáticas não encontrou nenhuma chamada de produção válida.
 
-它与新 `Model` 是重复的 Core-facing 执行接口，应作为明确死代码删除。删除时不能把
-`modelAdapter: any` 重新类型化成 `ModelPort`，否则只是恢复旧抽象。
+Ele é uma interface de execução voltada ao Core duplicada em relação ao novo `Model` e deve ser removido como código morto explícito. Na remoção, não se pode
+retipar `modelAdapter: any` como `ModelPort`, o que apenas restauraria a abstração antiga.
 
-### 5.4 新 Model 的 Result/Event 仍建立在旧 ModelRef 协议上
+### 5.4 O Result/Event do novo Model ainda está construído sobre o protocolo antigo de ModelRef
 
-新的 `Model` 已经定义统一的 Properties、Option Specs、Options 和调用方法，但 `ModelResult` 与
-`ModelEvent` 暂时仍是旧 `ModelTextResult` 和 `ModelStreamEvent` 的别名。
+O novo `Model` já define Properties, Option Specs, Options e métodos de chamada unificados, mas `ModelResult` e
+`ModelEvent` continuam temporariamente como aliases de `ModelTextResult` e `ModelStreamEvent` antigos.
 
-旧协议中的 `ModelRef` 同时携带：
+O `ModelRef` do protocolo antigo carrega simultaneamente:
 
-- `providerId`；
-- `modelId`；
-- 可选 `variant`。
+- `providerId`;
+- `modelId`;
+- `variant` opcional.
 
-它目前仍广泛用于：
+Ele ainda é amplamente usado em:
 
-- 旧 `ModelTextRequest`；
-- `ModelTextResult`；
-- Stream Event；
-- Network Status；
-- Telemetry；
-- 消息和执行归属；
-- Runtime 选择与兼容转换。
+- `ModelTextRequest` antigo;
+- `ModelTextResult`;
+- Stream Event;
+- Network Status;
+- Telemetry;
+- atribuição de mensagens e execução;
+- seleção em runtime e conversão de compatibilidade.
 
-静态扫描中 `ModelRef` 仍出现在约 48 个生产文件。这里不能直接批量删除，因为其中一部分确实需要记录
-已执行模型身份；问题在于同一类型混合了选择意图、执行身份、reasoning variant 和请求参数。
+Na varredura estática, `ModelRef` ainda aparece em cerca de 48 arquivos de produção. Não é possível deletá-lo em lote aqui, porque parte dele realmente precisa registrar
+a identidade do modelo executado; o problema é que o mesmo tipo mistura intenção de seleção, identidade de execução, reasoning variant e parâmetros de requisição.
 
-需要讨论：
+Pontos a discutir:
 
-1. 是否正式建立只包含 `providerId + modelId` 的 `ModelIdentity`；
-2. `ModelSelection` 是否是唯一允许携带 Options 的序列化选择类型；
-3. Result、Event、Telemetry 分别保存 Identity、完整执行 Options，还是一份执行 Observation；
-4. `variant` 如何退出，历史持久化数据如何只在恢复边界转换；
-5. 新 `ModelResult` / `ModelEvent` 是否应脱离旧 DTO 后再删除 `ModelRef`。
+1. se deve ser formalmente estabelecido um `ModelIdentity` contendo apenas `providerId + modelId`;
+2. se `ModelSelection` deve ser o único tipo de seleção serializado permitido a carregar Options;
+3. se Result, Event e Telemetry devem guardar Identity, Options completos de execução ou uma Execution Observation;
+4. como `variant` sai, e como os dados persistidos historicamente são convertidos apenas na fronteira de restauração;
+5. se o novo `ModelResult` / `ModelEvent` devem se desprender dos DTOs antigos antes de `ModelRef` ser removido.
 
-### 5.5 旧 Model Catalog 仍是一套平行事实系统
+### 5.5 O Model Catalog antigo ainda é um sistema de fatos paralelo
 
-详细实施 Todo：[`../steps/todo-08-legacy-model-catalog-retirement.md`](../steps/todo-08-legacy-model-catalog-retirement.md)
+Todo detalhado de implementação: [`../steps/todo-08-legacy-model-catalog-retirement.md`](../steps/todo-08-legacy-model-catalog-retirement.md)
 
-当前仍保留以下完整结构：
+Ainda se mantém a seguinte estrutura completa:
 
-- `ModelCatalogConfig`；
-- `ModelCapability` / `ModelCapabilityProvider`；
-- `ModelCatalogService` / `ModelCatalogSource`；
-- `models-dev` / `models-dev-snapshot`；
-- `default-policy` / `reasoning-policy`；
-- `runtime-thought-level`。
+- `ModelCatalogConfig`;
+- `ModelCapability` / `ModelCapabilityProvider`;
+- `ModelCatalogService` / `ModelCatalogSource`;
+- `models-dev` / `models-dev-snapshot`;
+- `default-policy` / `reasoning-policy`;
+- `runtime-thought-level`.
 
-其中 bundled `models-dev-snapshot.ts` 约 2.3 MB。当前发现的正常生产构造基本显式设置
-`modelsDev: false`，说明 bundled 数据库已经不再承担主要生产事实；但 Catalog 类型、合并逻辑和策略仍被
-Bootstrap、Adapter 和旧配置链引用。
+Entre eles, o `models-dev-snapshot.ts` bundled tem cerca de 2,3 MB. As construções normais de produção encontradas hojebasically definem
+`modelsDev: false` explicitamente, o que indica que o banco bundled já não carrega o fato principal de produção; mas os tipos de Catalog, a lógica de merge e as políticas ainda são referenciados pelo
+Bootstrap, pelo Adapter e pela cadeia antiga de configuração.
 
-目标边界应当是：
+A fronteira alvo deve ser:
 
 ```text
-正常运行时
+Runtime normal
 Built-in / Personal Config -> Effective Rules -> Registry -> Model
 
-历史迁移
-Legacy Config -> 私有 Importer -> 新 Config
-                              `-> 到此终止
+Migração histórica
+Legacy Config -> Importer privado -> Nova Config
+                              `-> termina aqui
 ```
 
-已确认的 Legacy Config 裁决：
+Decisões confirmadas sobre o Legacy Config:
 
-- 删除旧 `modelCatalog.overrides` 的 Schema、解析、合并和测试；不为它补写 Personal Model Config importer；
-- 该结构曾表达的 context、输入格式、Tool/Structured Output、reasoning 档位、默认值和请求参数映射，均可由
-  Personal Model Config Rules 完整表达，不存在必须保留的独有运行能力；
-- 审查时 Legacy parser 虽然解析 `modelCatalog.overrides`，正式 importer 并不消费该结果，因此删除它不会取消
-  一条当前有效的迁移行为；
-- 旧 `provider.*.models.*` 中 importer 已明确支持的常规 Provider/Model 配置继续迁移；不得为删除
-  `modelCatalog.overrides` 而扩大或缩小这条既有迁移边界；
-- `name`、`family` 等旧展示元数据不构成保留 Catalog 的理由；未来若有产品用途，应进入当前展示配置，而不
-  能恢复 Catalog 权威。
+- remover o Schema, o parsing, o merge e os testes do antigo `modelCatalog.overrides`; não escrever um importer de Personal Model Config para ele;
+- o context, os formatos de entrada, Tool/Structured Output, as faixas de reasoning, os valores padrão e o mapeamento de parâmetros de requisição que essa estrutura expressava podem ser totalmente expressos pelas Personal Model Config Rules, não havendo capacidade de runtime exclusiva que precise ser preservada;
+- embora o Legacy parser analise `modelCatalog.overrides` no momento da revisão, o importer oficial não consome esse resultado, portanto removê-lo não cancela nenhum comportamento de migração hoje válido;
+- as configurações comuns de Provider/Model em `provider.*.models.*` que o importer já suporta explicitamente continuam sendo migradas; não se pode ampliar nem reduzir essa fronteira de migração existente para remover `modelCatalog.overrides`;
+- metadados antigos de exibição como `name` e `family` não constituem motivo para manter o Catalog; se houver uso de produto no futuro, isso deve entrar na configuração de exibição atual, e não restaurar a autoridade do Catalog.
 
-上述裁决及剩余 Catalog 数据/source、capability/default policy、Reasoning Selection View 和 Tool Schema
-兼容特判的物理清理由 Todo 08 统一实施；不能继续散落在已经完成的 Todo 02 中。
+As decisões acima e a limpeza física restante dos dados/sources de Catalog, das policies de capability/default, da Reasoning Selection View e dos casos especiais de compatibilidade de Tool Schema são implementadas de forma unificada pelo Todo 08; não podem continuar espalhadas pelo Todo 02, já concluído.
 
-### 5.5.1 Reasoning 选择器复用模型选择链
+### 5.5.1 O seletor de Reasoning reaproveita a cadeia de seleção de modelo
 
-`ZCodeModelReasoningState` 不是模型运行状态。它当前随 `ZCodeModelOption` 跨进程发送，主要为输入框、
-Subagent、闲时任务和 Repo Wiki 等模型选择界面提供 reasoning 档位和默认值。目标不是建立独立 reasoning
-查询或状态链，而是复用模型选择候选项：
+`ZCodeModelReasoningState` não é estado de execução de modelo. Hoje ele é enviado entre processos junto com `ZCodeModelOption` e serve principalmente para fornecer as faixas de reasoning e os valores padrão às interfaces de seleção de modelo como input box,
+Subagent, tarefas off-peak e Repo Wiki. O objetivo não é estabelecer uma consulta ou cadeia de estado de reasoning independente, mas reaproveitar os candidatos de seleção de modelo:
 
 ```text
 Effective Model Config.optionSpecs.reasoningLevel
@@ -291,168 +275,164 @@ Effective Model Config.optionSpecs.reasoningLevel
             Registry Model Selection View
                          |
                          v
-                当前选中的模型候选项
+                candidato de modelo selecionado
                          |
-                         +--> Composer reasoning selector
+                         +--> seletor de reasoning do Composer
                          +--> Subagent / Off-Peak / Repo Wiki
-                         `--> 提交 ModelSelection.options.reasoningLevel
+                         `--> envio de ModelSelection.options.reasoningLevel
 ```
 
-已确认裁决：
+Decisões confirmadas:
 
-- 可用档位和默认值属于模型选择候选项的 `optionSpecs.reasoningLevel`，前端从当前选中候选项直接读取；
-- `ModelSelection` 只保存用户明确选择的 `options.reasoningLevel`，不复制整个档位规格；
-- 删除独立的 `ZCodeModelReasoningState` 概念和误导性的 `State` 命名；不建立第二个 reasoning fetch、store
-  或同步通道；
-- `enabled` 是冗余字段：是否存在 `optionSpecs.reasoningLevel` 已经完整表达该模型是否提供此选项；
-- `providerOptionsByLevel` 不进入 Protocol/UI。Provider 请求参数映射只保留在 Effective Model Config 的
-  `reasoningMapping`，由 ModelFactory/Adapter 在执行侧消费；
-- Protocol 可以严格序列化选择候选项所需的 Option Spec，但它是 Registry Selection View 的一部分，不是
-  新的模型事实源。
+- as faixas disponíveis e os valores padrão pertencem a `optionSpecs.reasoningLevel` do candidato de seleção de modelo, e o frontend lê diretamente do candidato atualmente selecionado;
+- `ModelSelection` guarda apenas o `options.reasoningLevel` escolhido explicitamente pelo usuário, sem copiar toda a especificação de faixas;
+- remover o conceito independente `ZCodeModelReasoningState` e a nomenclatura enganosa de `State`; não criar um segundo fetch, store ou canal de sincronismo de reasoning;
+- `enabled` é um campo redundante: a existência de `optionSpecs.reasoningLevel` já expressa por completo se o modelo oferece essa opção;
+- `providerOptionsByLevel` não entra em Protocol/UI. O mapeamento de parâmetros de requisição do Provider fica apenas em `reasoningMapping` da Effective Model Config, consumido pelo ModelFactory/Adapter no lado da execução;
+- o Protocol pode serializar estritamente os Option Specs necessários aos candidatos de seleção, mas isso é parte da Registry Selection View e não uma nova fonte de verdade sobre modelos.
 
-### 5.6 Model Properties 之外仍有能力推断路径
+### 5.6 Ainda há caminhos de inferência de capacidade fora das Model Properties
 
-新的 `ModelProperties` 已经包含 input/output format、Tool、Structured Output、Native WebSearch 和
-Mid-conversation System 等能力。但是 Core 与 Adapter 中仍存在根据以下信息推断能力的路径：
+O novo `ModelProperties` já inclui capacidades como input/output format, Tool, Structured Output, Native WebSearch e
+System no meio da conversa. Mas ainda existem, em Core e Adapter, caminhos que inferem capacidades a partir de:
 
-- providerKind；
-- baseURL / Endpoint host；
-- 具体 modelId 或 modelId prefix；
-- 特定 Provider ID。
+- providerKind;
+- baseURL / host do Endpoint;
+- modelId específico ou prefixo de modelId;
+- ID de Provider específico.
 
-当前代表性 hardcode 包括 `claude-opus-4-8`、DeepSeek Endpoint、DeepSeek V4、MIMO、Kimi K3、
-GitHub Copilot 与 GPT 字符串组合。
+Os hardcodes representativos atuais incluem `claude-opus-4-8`, Endpoint da DeepSeek, DeepSeek V4, MIMO, Kimi K3,
+GitHub Copilot e combinações de strings de GPT.
 
-这里需要区分两个问题：
+Aqui é preciso distinguir duas questões:
 
 ```text
-模型是否支持某种能力
+O modelo suporta determinada capacidade
     -> Effective Model Config / Model.properties
 
-某个 API type 怎样把能力编码到 wire request
-    -> Adapter 实现或显式 Adapter compatibility 配置
+Como um determinado tipo de API codifica a capacidade na requisição wire
+    -> implementação do Adapter ou configuração explícita de compatibilidade do Adapter
 ```
 
-当前部分 helper 混合了“能力事实”和“编码限制”。例如 Config 可以声明 Native WebSearch 为支持，Adapter
-又可能因为 Endpoint 不在 allowlist 中不编码工具，从而产生两个裁决源。
+Alguns helpers atuais misturam "fato de capacidade" e "limitação de codificação". Por exemplo, a Config pode declarar Native WebSearch como suportado, enquanto o Adapter
+pode não codificar a ferramenta porque o Endpoint não está na allowlist, produzindo duas fontes de decisão.
 
-需要讨论：
+Pontos a discutir:
 
-1. 哪些 hardcode 是模型能力，应迁入 Built-in Model Config Rules；
-2. 哪些是 API 协议兼容，应改为按 `api.type` 或显式 compatibility flag 驱动；
-3. Adapter 是否允许知道具体模型 ID；如果允许，边界和集中位置是什么；
-4. 一次性 legacy importer 中的模型名推断是否作为唯一例外保留。
+1. quais hardcodes são capacidades de modelo e devem migrar para as Built-in Model Config Rules;
+2. quais são compatibilidade de protocolo de API e devem passar a ser dirigidos por `api.type` ou por uma flag explícita de compatibilidade;
+3. se o Adapter pode conhecer IDs de modelo concretos e, em caso positivo, qual é a fronteira e o local centralizado;
+4. se a inferência por nome de modelo no importer legacy de uso único é preservada como a única exceção.
 
-### 5.7 闲时模型又被投影回旧 Provider Model DTO
+### 5.7 O modelo off-peak é projetado de volta para o DTO antigo de Provider Model
 
-闲时任务已经可以从新的 Provider Config resolution 读取模型，但 Service 随后把每个模型重新构造成旧
-`ModelProviderModelConfig`，包括旧 `modalities` 和旧 reasoning patch 结构。Subscription Provider 和 UI
-继续消费这份 DTO。
+As tarefas off-peak já conseguem ler o modelo a partir da nova resolução de Provider Config, mas o Service em seguida reconstrói cada modelo como o antigo
+`ModelProviderModelConfig`, incluindo as `modalities` antigas e a estrutura antiga de reasoning patch. O Subscription Provider e a UI
+continuam consumindo esse DTO.
 
-这条链不会改变 Registry 的事实来源，却让旧完整 Provider Model Schema 继续成为活跃的 Service/UI 接口，
-并可能诱导后续功能继续依赖旧字段。
+Essa cadeia não altera a fonte de verdade do Registry, mas mantém o Schema completo antigo de Provider Model como uma interface de Service/UI ativa,
+e pode induzir funcionalidades futuras a continuarem dependendo de campos antigos.
 
-需要讨论：
+Pontos a discutir:
 
-1. 闲时页面真实需要哪些字段；
-2. 是否建立最小的 `OffPeakModelOption` / View，而不是返回完整 Model Config；
-3. reasoning 展示应直接读取新的 Option Specs，还是由 Selection View 统一提供；
-4. `ModelProviderModelConfig` 是否最终只允许出现在 legacy importer。
+1. quais campos a página off-peak realmente precisa;
+2. se deve ser estabelecido um `OffPeakModelOption` / View mínimo, em vez de devolver o Model Config completo;
+3. se a exibição de reasoning deve ler diretamente os novos Option Specs ou ser fornecida de forma unificada pela Selection View;
+4. se `ModelProviderModelConfig` deve acabar aparecendo apenas no legacy importer.
 
-### 5.8 动态鉴权仍通过 Core Runtime Header 兼容链刷新
+### 5.8 A autenticação dinâmica ainda é atualizada pela cadeia de compatibilidade de Core Runtime Header
 
-API Key Provider 可以由 Provider Config 直接保存静态访问材料。账号类型 Provider 的动态凭据不由 Config
-管理；请求执行时需要由账号服务解析当前访问材料。
+Um Provider de API Key pode salvar material de acesso estático diretamente pelo Provider Config. As credenciais dinâmicas dos Providers do tipo conta não são gerenciadas pela Config;
+durante a execução da requisição, o serviço de conta precisa resolver o material de acesso atual.
 
-新的方向是由 ModelFactory 在创建 Model 时装配 `ModelRequestDependencies`。但现有账号 Provider 仍通过
-Core 的 `providerRuntimeHeadersPort` 和 Model Invocation Context，在每次物理请求前刷新 Header。Title、
-Compact、Memory、Verifier 和 Subagent 等支线因此需要显式传播刷新回调。
+A nova direção é o ModelFactory montar `ModelRequestDependencies` ao criar o Model. Mas os Providers de conta existentes ainda atualizam os Headers pelo
+`providerRuntimeHeadersPort` do Core e pelo Model Invocation Context antes de cada requisição física. Branchs como Title,
+Compact, Memory, Verifier e Subagent precisam, portanto, propagar explicitamente o callback de atualização.
 
-这使 Core 仍知道 Provider 鉴权生命周期，但 Account Provider 的完整改造不属于 M4。当前将其分类为后续
-领域边界，而不是要求 M4 同时删除。
+Isso faz com que o Core ainda conheça o ciclo de vida da autenticação do Provider, mas a reformulação completa do Account Provider não faz parte de M4. Atualmente isso é classificado como fronteira de domínio posterior,
+em vez de uma exigência de que M4 remova isso ao mesmo tempo.
 
-需要讨论：
+Pontos a discutir:
 
-1. Account Provider 阶段是否统一把账号 Request Auth Source 装配到 ModelFactory；
-2. Core 是否只保留 Trace、Status 等调用上下文，不再持有凭据刷新能力；
-3. 动态凭据刷新后是否只更新访问材料，禁止重新解析完整 Provider/Model；
-4. 这项清理属于 M5、M6，还是单独的 Auth 收口阶段。
+1. se, na fase de Account Provider, a Request Auth Source da conta deve ser montada uniformemente no ModelFactory;
+2. se o Core deve manter apenas contextos de chamada como Trace e Status, sem mais possuir a capacidade de atualizar credenciais;
+3. se, após a atualização de credenciais dinâmicas, apenas o material de acesso deve ser atualizado, proibindo resolver novamente o Provider/Model completo;
+4. se essa limpeza pertence a M5, a M6 ou a uma fase de convergência de Auth separada.
 
-## 6. 当前确认可以保留的边界
+## 6. Fronteiras que a revisão atual confirma poder manter
 
-以下结构不是本次审查要求直接删除的对象：
+As estruturas a seguir não são alvos de deleção direta exigidos por esta revisão:
 
-### 6.1 Adapter 内部 Provider SDK 实现
+### 6.1 Implementações de SDK de Provider dentro do Adapter
 
-AI SDK、OpenAI、Anthropic 等具体客户端可以继续存在于 Adapter。业务层不能直接依赖它们，Adapter 也不能
-向 Core 暴露第二套 Model Selection 或 capability 体系。
+Clientes concretos como AI SDK, OpenAI e Anthropic podem continuar existindo no Adapter. A camada de negócio não pode depender diretamente deles, e o Adapter também não pode
+expor ao Core um segundo sistema de Model Selection ou de capabilities.
 
-### 6.2 Adapter Execution Infrastructure
+### 6.2 Infraestrutura de execução do Adapter
 
-Adapter 内部可以维护 API factory、transport、签名缓存等执行基础设施，但不再维护 Provider 列表或可查询
-Execution Registry。baseURL、API type、静态 Header 与 Model Config 在 Model 创建时一次性绑定，不能接受
-业务层临时 Overlay 后反向成为模型事实源。
+Dentro do Adapter é possível manter infraestrutura de execução como API factory, transport e cache de assinaturas, mas não se mantém mais uma lista de Providers ou um Execution Registry
+consultável. baseURL, tipo de API, Headers estáticos e Model Config são vinculados uma única vez na criação do Model, e não se aceita que um Overlay temporário
+da camada de negócio se torne depois a fonte de verdade do modelo.
 
-### 6.3 严格 Protocol Schema
+### 6.3 Schema estrito de Protocol
 
-跨进程协议需要独立的 runtime schema 校验。协议类型不必与进程内 TypeScript 类型共享同一个声明，但其
-语义必须与 `ModelSelection` 对齐，不能重新引入完整 Runtime Model、Provider 快照或另一种 Options 表达。
+O protocolo entre processos precisa de validação de schema em runtime própria. Os tipos do protocolo não precisam compartilhar a mesma declaração que os tipos TypeScript in-process, mas sua
+semântica precisa estar alinhada a `ModelSelection`, sem reintroduzir um Runtime Model completo, um snapshot de Provider ou outra representação de Options.
 
-### 6.4 一次性 Legacy Importer
+### 6.4 Importer legacy de uso único
 
-Importer 可以识别已发布旧字段、旧 modalities 和历史 reasoning 配置，但转换结果必须立即进入新 Config。
-旧类型不得从 importer 泄漏进 Registry、Runtime、Service View 或 UI。
+O Importer pode reconhecer campos antigos publicados, modalities antigas e configurações históricas de reasoning, mas o resultado da conversão deve entrar imediatamente na nova Config.
+Os tipos antigos não podem vazar do importer para Registry, Runtime, Service View ou UI.
 
-## 7. 建议的逐项讨论顺序
+## 7. Ordem sugerida para discussão item a item
 
-后续讨论建议按依赖关系进行，不先把所有问题塞进同一实施分支：
+A discussão posterior é sugerida na ordem das dependências, sem enfiar todas as questões em um mesmo branch de implementação:
 
-1. **M4 归零门禁**：持续确认旧特殊执行符号保持为零；
-2. **Core Model-only**：裁决 ModelFactory 是否成为所有可执行 Runtime 的强制依赖；
-3. **Selection / Model / Identity**：明确三个概念以及 Result、Event、Telemetry 的身份表达；
-4. **旧 Catalog 退役**：确认 legacy importer 的最小保留范围；
-5. **能力与 wire compatibility**：逐个归类现有 modelId、Provider 和 Endpoint hardcode；
-6. **Service/UI 旧 DTO 退役**：从闲时模型 View 开始消除反向投影；
-7. **Account Request Auth**：在账号 Provider 阶段删除 Core Header 刷新兼容链；
-8. **最终机械门禁**：把禁止重新引入旧抽象的规则固化为测试或静态检查。
+1. **Barreira de zeragem de M4**: confirmar continuamente que os símbolos antigos de execução especial permanecem em zero;
+2. **Core somente-Model**: decidir se a ModelFactory se torna uma dependência obrigatória de todo Runtime executável;
+3. **Selection / Model / Identity**: esclarecer os três conceitos e a expressão de identidade em Result, Event e Telemetry;
+4. **Aposentadoria do Catalog antigo**: confirmar o escopo mínimo de retenção do legacy importer;
+5. **Capacidade e compatibilidade wire**: classificar um a um os hardcodes existentes de modelId, Provider e Endpoint;
+6. **Aposentadoria dos DTOs antigos em Service/UI**: eliminar a projeção reversa começando pela View de modelo off-peak;
+7. **Account Request Auth**: remover a cadeia de compatência de atualização de Header do Core na fase de Providers de conta;
+8. **Barreira mecânica final**: consolidar em testes ou verificações estáticas as regras que proíbem reintroduzir abstrações antigas.
 
-第 2 至第 6 项共同构成候选的“M4 后模型抽象统一清理”。是否设为独立里程碑、如何编号，需要在逐项
-裁决完成后再决定。
+Os itens de 2 a 6 constituem juntos o candidato "limpeza de unificação da abstração de modelo após M4". Se isso será definido como um marco independente e como será numerado precisa ser decidido só depois
+de concluídas as decisões item a item.
 
-## 8. 候选机械验收条件
+## 8. Condições mecânicas candidatas de aceitação
 
-以下是当前审查提出的候选归零条件，不代表未经讨论即可执行删除：
+Abaixo estão as condições candidatas de zeragem propostas por esta revisão; elas não representam autorização para executar deleções sem discussão:
 
 ```text
-Core 中 modelAdapter                         = 0
-Core 中 modelConnectionPort                  = 0
+modelAdapter no Core                           = 0
+modelConnectionPort no Core                    = 0
 ModelPort / ModelPortOptions                  = 0
 TurnExecutionModel                           = 0
 ExecutionScopedModelSource                   = 0
 turnRuntimeModel                             = 0
 ModelRef.variant                             = 0
-正常运行时中的 ModelCatalogConfig            = 0
-Service/UI 正常链路中的 ModelProviderModelConfig = 0
-Config 外按具体 modelId 判断模型能力          = 0
+ModelCatalogConfig no runtime normal            = 0
+ModelProviderModelConfig na cadeia normal de Service/UI = 0
+Julgar capacidade de modelo por modelId específico fora da Config = 0
 ```
 
-除此之外还需要行为验收：
+Além disso, ainda são necessárias aceitações de comportamento:
 
-- 普通会话、闲时任务、Compact、Memory、Title、Goal、Subagent、Workflow 和模型型工具全部从 ModelFactory
-  获得 Model；
-- 当前 Loop 只读取自己的 Active Model，不回退到 Session 默认选择或可变 Registry；
-- Registry 更新只影响之后创建的 Model；
-- Model Properties 是 Core 能力判断的唯一事实；
-- Adapter 编码限制不会暗中覆盖 Config 的模型能力声明；
-- Protocol、Telemetry 和持久化可以记录真实执行模型，但不会重新承担模型选择或配置职责；
-- Legacy Config 只能单向导入，不能继续成为运行时 fallback。
+- sessão comum, tarefas off-peak, Compact, Memory, Title, Goal, Subagent, Workflow e ferramentas de modelo obtêm todos o Model a partir do ModelFactory;
+- o Loop atual lê apenas o seu próprio Active Model, sem recuar para a seleção padrão da Session nem para um Registry mutável;
+- atualizações do Registry afetam apenas Models criados depois;
+- Model Properties é o único fato para julgamento de capacidade no Core;
+- limitações de codificação do Adapter não sobrescrevem silenciosamente as declarações de capacidade de modelo da Config;
+- Protocol, Telemetry e persistência podem registrar o modelo realmente executado, sem voltar a assumir responsabilidades de seleção ou configuração de modelo;
+- Legacy Config só pode ser importado em sentido único e não pode continuar como fallback de runtime.
 
-## 9. 置信边界与后续维护
+## 9. Limites de confiança e manutenção posterior
 
-本次结论来自生产代码静态调用扫描、旧导出引用审计、Config/Registry/ModelFactory 调用链检查，以及对
-当前 M4 工作树的只读观察。完整 `knip` 结果包含大量仓库既有噪音，因此只将经过符号级复核的结果写入
-结论；“未发现静态引用”也不等于证明不存在字符串或动态导入。
+Estas conclusões vêm de uma varredura estática de chamadas no código de produção, de uma auditoria de referências a exports antigos, da verificação das cadeias de chamada
+Config/Registry/ModelFactory e da observação somente leitura da working tree atual de M4. O resultado completo do `knip` contém muito ruído já existente no repositório, por isso apenas resultados
+verificados no nível de símbolo foram escritos nas conclusões; "nenhuma referência estática encontrada" também não equivale a prova de que não existam strings ou importações dinâmicas.
 
-M4 项已经按当前生产代码重新扫描并标记完成。其余符号数量和调用位置仍是预审快照；进入下一清理阶段前
-需要重新扫描剩余生产引用，再将经过逐项裁决的结论同步到正式 design 和后续实施文档。本文件不替代正式
-设计，也不把尚未讨论的建议提前固化成目标契约。
+Os itens de M4 foram varridos novamente e marcados como concluídos com base no código de produção atual. As contagens e posições de chamada dos demais símbolos ainda são um snapshot de pré-revisão; antes de entrar na próxima fase de limpeza é
+necessário varrer novamente as referências de produção restantes e só então sincronizar as conclusões que passaram por decisão item a item para o design formal e para os documentos de implementação posteriores. Este arquivo não substitui o design
+formal e não fixa antecipadamente como contrato alvo sugestões que ainda não foram discutidas.

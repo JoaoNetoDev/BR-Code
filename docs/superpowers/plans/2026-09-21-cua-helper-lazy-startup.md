@@ -1,83 +1,83 @@
-# CUA Helper 懒启动 Implementation Plan
+# Plano de implementação do lazy start do CUA Helper
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Agent-facing CUA 凭据变为纯数据注入——Host 启动与 Agent spawn 零 Helper IO；Helper 由首次 CUA 调用（SDK）或用户显式动作（设置页/授权流）按需拉起，macOS 与 Windows 统一。
+**Objetivo:** as credenciais de CUA voltadas ao agente passam a ser injeção de dados puro — zero Helper IO na inicialização do Host e no spawn do Agent; o Helper é levantado sob demanda pela primeira chamada de CUA (SDK) ou por ação explícita do usuário (página de configurações/fluxo de autorização), unificado entre macOS e Windows.
 
-**Architecture:** darwin 已有 M7 懒启动基线，本计划收窄其授权流残留（spawn 恒注入稳定 socket）；Windows 从「spawn acquire + waitForTransport(1s)」移植为「稳定 pipe 名 + recipe env 注入 + SDK 首调自 fork」。最后删除 spawn 侧全部等待/探针尸体（`buildCuaProductHelperAgentEnv` 等）。
+**Arquitetura:** o darwin já tem a baseline de lazy start da M7; este plano estreita os vestígios do fluxo de autorização (o spawn sempre injeta o socket estável); o Windows passa de "spawn acquire + waitForTransport(1s)" para "nome de pipe estável + injeção de recipe env + fork pelo SDK na primeira chamada". Por fim, removem-se todos os restos de espera/sonda no lado do spawn (`buildCuaProductHelperAgentEnv` etc.).
 
-**Tech Stack:** TypeScript (pnpm monorepo ×2)、Vitest、Node child_process fork、Electron (ELECTRON_RUN_AS_NODE)。
+**Stack técnico:** TypeScript (monorepo pnpm ×2), Vitest, fork de child_process do Node, Electron (ELECTRON_RUN_AS_NODE).
 
-**Spec:** `docs/cua-permission-broker/2026-09-21-cua-helper-lazy-startup-spec.md`（计划从 spec 出发，执行者须同时读 spec）
+**Spec:** `docs/cua-permission-broker/2026-09-21-cua-helper-lazy-startup-spec.md` (o plano parte da spec; quem executa precisa ler a spec também)
 
-## Global Constraints
+## Restrições globais
 
-**z-code 仓库（本 worktree：`/Users/dev/orca/workspaces/z-code/petrel`，分支 `feat/cua-helper-lazy-startup`）**
+**Repositório z-code (este worktree: `/Users/dev/orca/workspaces/z-code/petrel`, branch `feat/cua-helper-lazy-startup`)**
 
-- 每个任务前 `node scripts/check-workspace-freshness.mjs` 通过、`git status --short` 干净再开工；保留他人改动。
-- 必要验证：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响单测（根 `pnpm test:unit:affected` 不替代 CLI 测试与 desktop E2E）。
-- 提交遵守 [Conventional Commits 约定](../../docs/git/ai-agent-commit-message-guidelines.md)（Why/What/Risk 正文），**绝不使用 `--no-verify`**。
-- 新增代码不写注释（用户明确要求；必要的根因说明仅写在 commit message 与 spec）。
-- 跨 worktree 一律 `git -C <path>`，绝不 `cd`。
-- 禁止整文件跑 oxfmt（`fmt:check` 基线本身红；只格式化自己新增的行）。
-- 不考虑 Linux；darwin/win32 之外平台行为维持现状。
+- Antes de cada tarefa, `node scripts/check-workspace-freshness.mjs` deve passar e `git status --short` deve estar limpo; preservar alterações de outras pessoas.
+- Verificações necessárias: `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, testes unitários afetados (o `pnpm test:unit:affected` da raiz não substitui os testes de CLI nem o E2E de desktop).
+- Os commits seguem a [convenção de Conventional Commits](../../docs/git/ai-agent-commit-message-guidelines.md) (corpo Why/What/Risk), e **nunca** devem usar `--no-verify`.
+- Não escrever comentários em código novo (exigência explícita do usuário; explicações de causa raiz necessárias ficam apenas na mensagem de commit e na spec).
+- Entre worktrees usar sempre `git -C <path>`, nunca `cd`.
+- Proibido rodar oxfmt no arquivo inteiro (a baseline de `fmt:check` já é vermelha; formatar somente as linhas que você adicionou).
+- Não considerar Linux; o comportamento em plataformas além de darwin/win32 permanece como está.
 
-**zcode-cua 仓库（producer，worktree：`/Users/dev/.codex/worktrees/cua-refactor/zcode-cua`）**
+**Repositório zcode-cua (producer, worktree: `/Users/dev/.codex/worktrees/cua-refactor/zcode-cua`)**
 
-- 提交必须带 lore trailers：标题 + 叙事段落 + `Confidence:` + `Scope-risk:` + `Tested:`/`Not-tested:`；本地预检
-  `python3 scripts/validate_lore_commit.py --range origin/main..HEAD`。缺任一项 `commit_lore_review` 红，且挂掉会让
-  dist/js_eval/helper_lifecycle/package_smoke/e2e 全部 skipped（看起来只有一个 job 失败，实际整条流水线没验）。
-- `dist/` 是 git-tracked 且就是包本体：改 src 必须同一 commit 重建 dist。重建前确认 `node_modules`
-  不是软链（worktree 常软链到主克隆；是则 `rm node_modules` 摘链后 `corepack pnpm install --frozen-lockfile`）。
-- producer pin 只能用脚本改：`pnpm --filter @zcode/zcode-cua-plugin bump:producer <完整40位sha>`（在 z-code 仓库跑；
-  producer worktree 场景先 `export ZCODE_CUA_REPO=/Users/dev/.codex/worktrees/cua-refactor/zcode-cua`）。
-  手改 `pnpm-workspace.yaml` 的 SHA 会被 `check-cua-baseline.mjs` 拒绝；pin 目标必须已推到远端。**必须全 sha**（短前缀会造混合 sha）。
-- 两仓库都提交后立刻 push（并发会话 amend 吞 commit 的历史教训；pin 只信远端 ref）。
+- Os commits devem trazer lore trailers: título + parágrafo narrativo + `Confidence:` + `Scope-risk:` + `Tested:`/`Not-tested:`; pré-validação local
+  `python3 scripts/validate_lore_commit.py --range origin/main..HEAD`. Se faltar qualquer item, `commit_lore_review` fica vermelho, e essa falha faz
+  dist/js_eval/helper_lifecycle/package_smoke/e2e irem todos para skipped (aparenta ser só um job falhando, mas na verdade a pipeline inteira não foi verificada).
+- `dist/` é rastreado pelo git e é o próprio pacote: alterar src exige reconstruir o dist no mesmo commit. Antes de reconstruir, confirme que `node_modules`
+  não é symlink (em worktrees ele costuma apontar para o clone principal; nesse caso, remova o link com `rm node_modules` e rode `corepack pnpm install --frozen-lockfile`).
+- O pin do producer só pode ser alterado por script: `pnpm --filter @zcode/zcode-cua-plugin bump:producer <sha completo de 40 dígitos>` (executado no repositório z-code;
+  no cenário de worktree do producer, antes `export ZCODE_CUA_REPO=/Users/dev/.codex/worktrees/cua-refactor/zcode-cua`).
+  Editar o SHA manualmente em `pnpm-workspace.yaml` faz o `check-cua-baseline.mjs` recusar; o alvo do pin precisa já estar no remoto. **O sha completo é obrigatório** (prefixo curto gera sha misto).
+- Após commitar nos dois repositórios, dar push imediatamente (lição aprendida com sessões concorrentes que engolem commits via amend; o pin só é confiável via ref remota).
 
-**跨仓契约**
+**Contratos entre repositórios**
 
-- recipe env 键名：`ZCODE_CUA_WIN_HELPER_RECIPE`（producer helperConstants 常量 + z-code 同名字面量，两处一致）。
-- fork argv：`[entryPath, "--socket", <稳定pipe名>, "--parent-pid", <hostPid>]`（fork 的 child 侧
-  `process.argv.slice(2)` 恰为 4 元，满足 `parseWindowsDevHelperConfig` 校验）。
-- fork env：`ELECTRON_RUN_AS_NODE=1`、`[HELPER_ADDON_ENV]=addonPath`（HELPER_ADDON_ENV 即
-  `"ZCODE_CUA_HELPER_ADDON"`）、`commandEnv` 白名单合并。
+- Chave env da recipe: `ZCODE_CUA_WIN_HELPER_RECIPE` (constante helperConstants no producer + literal de mesmo nome no z-code, consistentes nos dois lugares).
+- argv do fork: `[entryPath, "--socket", <nome de pipe estável>, "--parent-pid", <hostPid>]` (o lado child do fork tem
+  `process.argv.slice(2)` com exatamente 4 elementos, satisfazendo a validação de `parseWindowsDevHelperConfig`).
+- env do fork: `ELECTRON_RUN_AS_NODE=1`, `[HELPER_ADDON_ENV]=addonPath` (HELPER_ADDON_ENV é
+  `"ZCODE_CUA_HELPER_ADDON"`), merge da allowlist de `commandEnv`.
 
-## File Structure
+## Estrutura de arquivos
 
-**z-code 仓库**
+**Repositório z-code**
 
-| 文件 | 动作 | 职责 |
+| Arquivo | Ação | Responsabilidade |
 | --- | --- | --- |
-| `packages/services/src/node.ts` | Modify | resolveSpawnEnv 懒分支（Task 1/6）、getStatus win32（Task 7）、删尸体（Task 9） |
-| `packages/services/src/cua-permission-broker/stableCuaTransport.ts` | Create | 稳定 pipe 名 singleton + win32 recipe 解析缓存（Task 5） |
-| `packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts` | Modify | 各任务对应测试收敛 |
-| `packages/services/test/agentProxyEnv.test.ts` | Verify-only | 其源码文本守卫锚定 `resolveSpawnEnv: async (`，不得破坏 |
+| `packages/services/src/node.ts` | Modify | ramo lazy de resolveSpawnEnv (Tarefas 1/6), getStatus no win32 (Tarefa 7), remoção dos restos (Tarefa 9) |
+| `packages/services/src/cua-permission-broker/stableCuaTransport.ts` | Create | singleton de nome de pipe estável + cache de parsing da recipe win32 (Tarefa 5) |
+| `packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts` | Modify | convergência dos testes correspondentes a cada tarefa |
+| `packages/services/test/agentProxyEnv.test.ts` | Verify-only | o guard de texto de fonte ancora `resolveSpawnEnv: async (`, e não pode ser quebrado |
 
-**zcode-cua 仓库**
+**Repositório zcode-cua**
 
-| 文件 | 动作 | 职责 |
+| Arquivo | Ação | Responsabilidade |
 | --- | --- | --- |
-| `src/tools/computer-use-runtime.ts` | Modify | `ensureStandaloneHelperLaunched` 增加 win32 fork 分支（Task 3） |
-| `src/broker/helperConstants.ts` | Modify | 新增 `ZCODE_CUA_WIN_HELPER_RECIPE_ENV` 常量（Task 3） |
-| `src/broker/server/cuaProductMcpResolver.ts` | Modify | 删除 `warmHelperForBuiltInPlugin` 预热（Task 3） |
-| `test/computer-use-runtime.win-fork.test.ts` | Create | win32 fork 分支单测（Task 3） |
-| `dist/**` | Rebuild | 同 commit 重建（Task 4） |
+| `src/tools/computer-use-runtime.ts` | Modify | `ensureStandaloneHelperLaunched` ganha o ramo de fork win32 (Tarefa 3) |
+| `src/broker/helperConstants.ts` | Modify | nova constante `ZCODE_CUA_WIN_HELPER_RECIPE_ENV` (Tarefa 3) |
+| `src/broker/server/cuaProductMcpResolver.ts` | Modify | remoção do pré-aquecimento `warmHelperForBuiltInPlugin` (Tarefa 3) |
+| `test/computer-use-runtime.win-fork.test.ts` | Create | teste unitário do ramo de fork win32 (Tarefa 3) |
+| `dist/**` | Rebuild | reconstruir no mesmo commit (Tarefa 4) |
 
 ---
 
-### Task 1: resolveSpawnEnv 的 darwin 分支前移（MR1）
+### Tarefa 1: antecipar o ramo darwin de resolveSpawnEnv (MR1)
 
-**Files:**
+**Arquivos:**
 - Modify: `packages/services/src/node.ts:2175-2186`
-- Test: `packages/services/test/agentProxyEnv.test.ts`（追加一个 source-guard 测试）
+- Test: `packages/services/test/agentProxyEnv.test.ts` (adicionar um teste source-guard)
 
 **Interfaces:**
-- Consumes: `defaultCuaProductHelperLifecycle.peek()`、`isDefaultCuaProductHelperCurrent`、`getOrCreateDefaultCuaProductHelper`（全部已存在，签名不变）。
-- Produces: spawn 侧 helper 选择语义——darwin 恒 `undefined`；win32 暂维持现状（Task 6 改）。
+- Consumes: `defaultCuaProductHelperLifecycle.peek()`, `isDefaultCuaProductHelperCurrent`, `getOrCreateDefaultCuaProductHelper` (todos já existentes, sem mudança de assinatura).
+- Produces: a semântica de escolha do helper no spawn — no darwin sempre `undefined`; no win32 mantém o estado atual por enquanto (mudado na Tarefa 6).
 
-- [ ] **Step 1: 写失败的 source-guard 测试**
+- [ ] **Passo 1: escrever o teste source-guard que falha**
 
-在 `agentProxyEnv.test.ts` 末尾追加（沿用该文件已有的源码文本提取模式；注意守卫必须先断言提取结果非空，否则 not.toContain 永真——这是本仓库已踩过的坑）：
+Ao final de `agentProxyEnv.test.ts`, acrescentar (seguindo o padrão já existente no arquivo de extração de texto de fonte; atenção: o guard precisa primeiro afirmar que o resultado da extração não está vazio, senão `not.toContain` é sempre verdadeiro — esse já foi um problema neste repositório):
 
 ```ts
 describe("node.ts lazy CUA spawn helper selection", () => {
@@ -103,14 +103,14 @@ describe("node.ts lazy CUA spawn helper selection", () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [ ] **Passo 2: rodar o teste e confirmar a falha**
 
 Run: `pnpm vitest run packages/services/test/agentProxyEnv.test.ts`
-Expected: 新增 case FAIL（现状是 peeked 分支在 darwin 判定之前）。
+Expected: o novo case FALHA (no estado atual o ramo do peek vem antes da verificação de darwin).
 
-- [ ] **Step 3: 改 node.ts 分支顺序**
+- [ ] **Passo 3: mudar a ordem dos ramos em node.ts**
 
-把 `node.ts:2176-2186` 现状：
+O estado atual em `node.ts:2176-2186`:
 
 ```ts
       const peekedHelper = defaultCuaProductHelperLifecycle.peek()?.helper;
@@ -123,7 +123,7 @@ Expected: 新增 case FAIL（现状是 peeked 分支在 darwin 判定之前）�
             : await getOrCreateDefaultCuaProductHelper(context);
 ```
 
-改为（darwin 短路提到最前，注释块同步替换为指向新 spec 的单行）：
+Passa a ser (com o curto-circuito de darwin trazido para o topo e o bloco de comentário substituído por uma linha apontando para a nova spec):
 
 ```ts
       const peekedHelper = defaultCuaProductHelperLifecycle.peek()?.helper;
@@ -136,20 +136,20 @@ Expected: 新增 case FAIL（现状是 peeked 分支在 darwin 判定之前）�
             : await getOrCreateDefaultCuaProductHelper(context);
 ```
 
-同时把上方 `// M7 懒启动：…` 注释块替换为一行：
+Ao mesmo tempo, substituir o bloco de comentário `// M7 懒启动：…` acima por uma linha:
 `// 懒启动规范（docs/cua-permission-broker/2026-09-21-cua-helper-lazy-startup-spec.md）：darwin spawn 恒稳定 socket，托管 host 不参与 spawn 凭据；win32 于 MR2 前仍走 acquire。`
 
-- [ ] **Step 4: 跑测试确认通过**
+- [ ] **Passo 4: rodar o teste e confirmar a aprovação**
 
 Run: `pnpm vitest run packages/services/test/agentProxyEnv.test.ts`
-Expected: PASS（含既有全部 case——锚点 `resolveSpawnEnv: async (` 未动）。
+Expected: PASS (incluindo todos os cases já existentes — a âncora `resolveSpawnEnv: async (` não foi tocada).
 
-- [ ] **Step 5: 跑受影响面验证**
+- [ ] **Passo 5: rodar a verificação da superfície afetada**
 
 Run: `pnpm typecheck && pnpm lint && pnpm architecture:check --changed && pnpm vitest run packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts`
-Expected: 全绿（该文件现有 case 不应受影响——它们测 lifecycle 层，不测 spawn 分支顺序）。
+Expected: tudo verde (os cases atuais desse arquivo não deveriam ser afetados — eles testam a camada de lifecycle, não a ordem dos ramos do spawn).
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commit**
 
 ```bash
 git add packages/services/src/node.ts packages/services/test/agentProxyEnv.test.ts
@@ -174,49 +174,49 @@ EOF
 
 ---
 
-### Task 2: MR1 收尾验证与 push
+### Tarefa 2: verificação final do MR1 e push
 
-**Files:** 无新改动（验证任务）。
+**Arquivos:** sem novas alterações (tarefa de verificação).
 
-- [ ] **Step 1: 全量必要验证**
+- [ ] **Passo 1: verificação completa necessária**
 
 Run: `pnpm typecheck && pnpm lint && pnpm architecture:check --changed && pnpm test:unit:affected`
-Expected: 全绿；如有既有红（非本次引入），按 AGENTS.md 区分报告，不得混入。
+Expected: tudo verde; se houver vermelho já existente (não introduzido nesta rodada), relatar conforme o AGENTS.md, sem misturar.
 
-- [ ] **Step 2: Push**
+- [ ] **Passo 2: Push**
 
 ```bash
 git push -u origin feat/cua-helper-lazy-startup
 ```
 
-（MR 创建由用户触发，不在本计划内。）
+(A criação do MR é disparada pelo usuário e não faz parte deste plano.)
 
 ---
 
-### Task 3: producer——win32 fork 分支 + 删预热（MR2-producer）
+### Tarefa 3: producer — ramo de fork win32 e remoção do pré-aquecimento (MR2-producer)
 
-**仓库：** `/Users/dev/.codex/worktrees/cua-refactor/zcode-cua`，**新建分支** `feat/win-lazy-fork`（基于 origin/main，浅克隆先 `git fetch --deepen=300`）。
+**Repositório:** `/Users/dev/.codex/worktrees/cua-refactor/zcode-cua`, **nova branch** `feat/win-lazy-fork` (baseada em origin/main; em shallow clone, rodar antes `git fetch --deepen=300`).
 
-**Files:**
+**Arquivos:**
 - Modify: `src/tools/computer-use-runtime.ts`
 - Modify: `src/broker/helperConstants.ts`
-- Modify: `src/broker/server/cuaProductMcpResolver.ts:390-409`（`warmHelperForBuiltInPlugin` 及其调用点）
+- Modify: `src/broker/server/cuaProductMcpResolver.ts:390-409` (`warmHelperForBuiltInPlugin` e seu ponto de chamada)
 - Create: `test/computer-use-runtime.win-fork.test.ts`
 
 **Interfaces:**
-- Produces: `ensureStandaloneHelperLaunched(socketPath, env, options?)` 的 win32 行为（options 形参供测试注入 fork 实现）；`ZCODE_CUA_WIN_HELPER_RECIPE_ENV = "ZCODE_CUA_WIN_HELPER_RECIPE"`（helperConstants 导出）。
+- Produces: o comportamento win32 de `ensureStandaloneHelperLaunched(socketPath, env, options?)` (o parâmetro options permite injetar a implementação de fork nos testes); `ZCODE_CUA_WIN_HELPER_RECIPE_ENV = "ZCODE_CUA_WIN_HELPER_RECIPE"` (exportado por helperConstants).
 
-- [ ] **Step 1: helperConstants 加常量**
+- [ ] **Passo 1: adicionar a constante em helperConstants**
 
-在 `src/broker/helperConstants.ts` 的 env 常量区（`HELPER_ADDON_ENV` 附近）加：
+Na área de constantes env de `src/broker/helperConstants.ts` (perto de `HELPER_ADDON_ENV`), acrescentar:
 
 ```ts
 export const ZCODE_CUA_WIN_HELPER_RECIPE_ENV = "ZCODE_CUA_WIN_HELPER_RECIPE";
 ```
 
-- [ ] **Step 2: 写失败的 win32 fork 单测**
+- [ ] **Passo 2: escrever o teste unitário de fork win32 que falha**
 
-`test/computer-use-runtime.win-fork.test.ts`（建模自 `test/computer-use-runtime.dev-helper-refresh.test.ts` 的 `__testing` 模式）：
+`test/computer-use-runtime.win-fork.test.ts` (modelado a partir do padrão `__testing` de `test/computer-use-runtime.dev-helper-refresh.test.ts`):
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
@@ -292,17 +292,17 @@ describe("ensureStandaloneHelperLaunched win32 fork", () => {
 });
 ```
 
-- [ ] **Step 3: 跑测试确认失败**
+- [ ] **Passo 3: rodar o teste e confirmar a falha**
 
 Run: `pnpm vitest run test/computer-use-runtime.win-fork.test.ts`
-Expected: FAIL（win32 分支不存在 / `options` 形参不存在）。
+Expected: FAIL (o ramo win32 não existe / o parâmetro `options` não existe).
 
-- [ ] **Step 4: 实现 win32 分支**
+- [ ] **Passo 4: implementar o ramo win32**
 
-`src/tools/computer-use-runtime.ts`：
+`src/tools/computer-use-runtime.ts`:
 
-1. `ensureStandaloneHelperLaunched` 增加第三参 `options: { fork?: typeof import("node:child_process").fork } = {}`，`__testing` 导出同步签名。
-2. 函数体最前部改为：
+1. `ensureStandaloneHelperLaunched` ganha um terceiro parâmetro `options: { fork?: typeof import("node:child_process").fork } = {}`, e o export `__testing` recebe a mesma assinatura.
+2. O início do corpo da função passa a ser:
 
 ```ts
 async function ensureStandaloneHelperLaunched(
@@ -318,7 +318,7 @@ async function ensureStandaloneHelperLaunched(
   // …现有 darwin 实现不变…
 ```
 
-3. 新增私有函数（同文件，darwin 实现之后）：
+3. Nova função privada (mesmo arquivo, depois da implementação de darwin):
 
 ```ts
 async function ensureWindowsHelperForked(
@@ -372,35 +372,35 @@ async function ensureWindowsHelperForked(
 }
 ```
 
-（`HELPER_ADDON_ENV`、`ZCODE_CUA_WIN_HELPER_RECIPE_ENV` 从 helperConstants 补 import。）
+(`HELPER_ADDON_ENV` e `ZCODE_CUA_WIN_HELPER_RECIPE_ENV` devem ser importados de helperConstants.)
 
-- [ ] **Step 5: 跑测试确认通过**
+- [ ] **Passo 5: rodar os testes e confirmar a aprovação**
 
 Run: `pnpm vitest run test/computer-use-runtime.win-fork.test.ts test/computer-use-runtime.dev-helper-refresh.test.ts`
-Expected: PASS（新旧都绿——darwin 路径未动）。
+Expected: PASS (novo e antigo verdes — o caminho de darwin não foi tocado).
 
-- [ ] **Step 6: 删除 warmHelperForBuiltInPlugin**
+- [ ] **Passo 6: remover warmHelperForBuiltInPlugin**
 
-`src/broker/server/cuaProductMcpResolver.ts`：删除 `warmHelperForBuiltInPlugin` 函数（约 390-397 行）及 `resolveMcpServersImpl` 内唯一调用点（约 406-408 行 `if (!host.running) { warmHelperForBuiltInPlugin(); return servers; }` → 直接 `return servers;`）。同步删除/调整引用它的既有测试（`rg -n warmHelperForBuiltInPlugin test/ src/` 找全）。
+`src/broker/server/cuaProductMcpResolver.ts`: remover a função `warmHelperForBuiltInPlugin` (linhas ~390-397) e seu único ponto de chamada dentro de `resolveMcpServersImpl` (~406-408, `if (!host.running) { warmHelperForBuiltInPlugin(); return servers; }` → apenas `return servers;`). Remover/ajustar em conjunto os testes existentes que a referenciam (use `rg -n warmHelperForBuiltInPlugin test/ src/` para achar todos).
 
-Run: `pnpm vitest run`（全量，producer 体量可控）
-Expected: 全绿。
+Run: `pnpm vitest run` (completo, o volume do producer é administrável)
+Expected: tudo verde.
 
-- [ ] **Step 7: producer 全量验证**
+- [ ] **Passo 7: verificação completa do producer**
 
 Run: `pnpm vitest run && pnpm typecheck 2>/dev/null || npx tsc -p tsconfig.json --noEmit`
-（以 producer package.json 实际 scripts 为准；若 typecheck 脚本不存在用 tsc 直跑。）
-Expected: 全绿。
+(seguir os scripts reais do package.json do producer; se não houver script de typecheck, rodar o tsc direto.)
+Expected: tudo verde.
 
-- [ ] **Step 8: 重建 dist 并带 lore 提交**
+- [ ] **Passo 8: reconstruir o dist e commitar com lore**
 
-先确认 node_modules 非软链：`readlink node_modules` 为空则直接 build；否则：
+Primeiro confirmar que node_modules não é symlink: se `readlink node_modules` vier vazio, build direto; senão:
 
 ```bash
 rm node_modules && corepack pnpm install --frozen-lockfile
 ```
 
-（不带 -rf、不带尾斜杠——穿透会删主克隆。）
+(sem -rf, sem barra final — a travessia apagaria o clone principal.)
 
 ```bash
 node -e "console.log(Object.keys(require('./package.json').scripts))"   # 确认构建脚本名（预期含 build）
@@ -427,22 +427,22 @@ EOF
 git -C /Users/dev/.codex/worktrees/cua-refactor/zcode-cua push -u origin feat/win-lazy-fork
 ```
 
-（若 dist 重建含既有尾空格导致 `--check-diff` 报红：那是 main 上既有基线，非本次引入——如实区分，不要为过门改无关文件。）
+(Se a reconstrução do dist incluir espaços finais já existentes fazendo `--check-diff` ficar vermelho: essa é uma baseline já presente na main, não introduzida aqui — distinga com honestidade e não altere arquivos alheios só para passar no gate.)
 
 ---
 
-### Task 4: z-code——稳定 pipe 名与 recipe 模块
+### Tarefa 4: z-code — nome de pipe estável e módulo de recipe
 
-**Files:**
+**Arquivos:**
 - Create: `packages/services/src/cua-permission-broker/stableCuaTransport.ts`
 - Create: `packages/services/test/stableCuaTransport.test.ts`
 
 **Interfaces:**
 - Produces:
-  - `getStableCuaPipeName(): string`——进程级 singleton，首次调用用 `mintBrokerSocketPath({ env: process.env })` 铸造（与 `windowsCuaHelperHostSupport.ts` 的 `defaultSocketPathFactory` 同源，import 路径 `@zcode/zcode-cua/broker/socketPath`，照抄该文件现有 import）。
-  - `resolveStableCuaWinRecipe(): Promise<StableCuaWinRecipe | null>`——`{ command, entryPath, root, addonPath, commandEnv }`；内部 `resolveWindowsCuaRuntime()`（`#src/cua-permission-broker/windowsCuaDevRuntime.js`），成功缓存、失败返回 null 并 warn 一次；并发调用共享同一 in-flight promise。
+  - `getStableCuaPipeName(): string` — singleton de nível de processo, moldado na primeira chamada com `mintBrokerSocketPath({ env: process.env })` (mesma origem do `defaultSocketPathFactory` de `windowsCuaHelperHostSupport.ts`, import pelo caminho `@zcode/zcode-cua/broker/socketPath`, copiando o import existente daquele arquivo).
+  - `resolveStableCuaWinRecipe(): Promise<StableCuaWinRecipe | null>` — `{ command, entryPath, root, addonPath, commandEnv }`; internamente chama `resolveWindowsCuaRuntime()` (`#src/cua-permission-broker/windowsCuaDevRuntime.js`), com cache em caso de sucesso, retornando null e warned uma vez em caso de falha; chamadas concorrentes compartilham a mesma promise em andamento.
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Passo 1: escrever o teste que falha**
 
 ```ts
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -473,12 +473,12 @@ describe("stableCuaTransport", () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [ ] **Passo 2: rodar o teste e confirmar a falha**
 
 Run: `pnpm vitest run packages/services/test/stableCuaTransport.test.ts`
-Expected: FAIL（模块不存在）。
+Expected: FAIL (o módulo não existe).
 
-- [ ] **Step 3: 实现**
+- [ ] **Passo 3: implementar**
 
 ```ts
 import { mintBrokerSocketPath } from "@zcode/zcode-cua/broker/socketPath";
@@ -528,12 +528,12 @@ export function __resetStableCuaTransportForTest(): void {
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [ ] **Passo 4: rodar o teste e confirmar a aprovação**
 
 Run: `pnpm vitest run packages/services/test/stableCuaTransport.test.ts`
-Expected: PASS。
+Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commit**
 
 ```bash
 git add packages/services/src/cua-permission-broker/stableCuaTransport.ts packages/services/test/stableCuaTransport.test.ts
@@ -557,19 +557,19 @@ EOF
 
 ---
 
-### Task 5: z-code——spawn env win32 懒分支
+### Tarefa 5: z-code — ramo lazy win32 do spawn env
 
-**Files:**
-- Modify: `packages/services/src/node.ts:2175-2225`（Task 1 改后的块）
+**Arquivos:**
+- Modify: `packages/services/src/node.ts:2175-2225` (bloco após a Tarefa 1)
 - Test: `packages/services/test/agentProxyEnv.test.ts`
 
 **Interfaces:**
-- Consumes: Task 4 的 `getStableCuaPipeName` / `resolveStableCuaWinRecipe`；既有 `resolveBrokerSocketPath`、`BROKER_SOCKET_ENV`、`ZCODE_CUA_PLUGIN_AUTHORITY_ENV_KEY`、`BROKER_UNAVAILABLE_ENV`、`randomBytes`。
-- Produces: win32 spawn 不再调用 `getOrCreateDefaultCuaProductHelper`；env 含 `ZCODE_CUA_BROKER_SOCKET`、`ZCODE_CUA_PLUGIN_AUTHORITY`、`ZCODE_CUA_WIN_HELPER_RECIPE`。
+- Consumes: `getStableCuaPipeName` / `resolveStableCuaWinRecipe` da Tarefa 4; já existentes `resolveBrokerSocketPath`, `BROKER_SOCKET_ENV`, `ZCODE_CUA_PLUGIN_AUTHORITY_ENV_KEY`, `BROKER_UNAVAILABLE_ENV`, `randomBytes`.
+- Produces: o spawn no win32 não chama mais `getOrCreateDefaultCuaProductHelper`; o env contém `ZCODE_CUA_BROKER_SOCKET`, `ZCODE_CUA_PLUGIN_AUTHORITY`, `ZCODE_CUA_WIN_HELPER_RECIPE`.
 
-- [ ] **Step 1: 写失败测试（source-guard，先断言锚点非空）**
+- [ ] **Passo 1: escrever o teste que falha (source-guard, afirmando primeiro que a âncora não está vazia)**
 
-`agentProxyEnv.test.ts` 的 lazy describe 里追加：
+Acrescentar ao describe lazy de `agentProxyEnv.test.ts`:
 
 ```ts
   it("keeps win32 spawn off the acquire path (MC-4)", () => {
@@ -583,21 +583,21 @@ EOF
   });
 ```
 
-（`getOrCreateDefaultCuaProductHelper(context)` 字面此后不再出现在 resolveSpawnEnv 块内——indexOf 返回 -1 时 LessThan 判定天然成立且语义正确。）
+(O literal `getOrCreateDefaultCuaProductHelper(context)` deixa de aparecer no bloco de resolveSpawnEnv depois disso — quando indexOf retorna -1, a asserção LessThan é naturalmente satisfeita e semanticamente correta.)
 
-- [ ] **Step 2: 跑测试确认失败**
+- [ ] **Passo 2: rodar o teste e confirmar a falha**
 
 Run: `pnpm vitest run packages/services/test/agentProxyEnv.test.ts`
-Expected: FAIL。
+Expected: FAIL.
 
-- [ ] **Step 3: 改写 spawn env CUA 块**
+- [ ] **Passo 3: reescrever o bloco CUA do spawn env**
 
-Task 1 改后，把 helper 选择与后续消费整体删除（不再有过渡态）：
+Após a Tarefa 1, remover por completo a escolha do helper e seus consumidores (não há mais estado de transição):
 
-- 删除 `peekedHelper`、`helper`、`cuaProductHelperHost` 三个变量及 `cuaProductHelperWorkspaceRegistry.setEnabled(context, Boolean(cuaProductHelperHost))` 行；
-- 删除 `else if (cuaProductHelperHost && helper) { …buildCuaProductHelperAgentEnv… }` 与 `else if (cuaPluginEnabled && defaultCuaProductHelperLifecycle.disposed)` 两个分支（`buildCuaProductHelperAgentEnv` 的调用点就此消失，函数本体留待 Task 8 删）。
+- Remover as variáveis `peekedHelper`, `helper`, `cuaProductHelperHost` e a linha `cuaProductHelperWorkspaceRegistry.setEnabled(context, Boolean(cuaProductHelperHost))`;
+- Remover os ramos `else if (cuaProductHelperHost && helper) { …buildCuaProductHelperAgentEnv… }` e `else if (cuaPluginEnabled && defaultCuaProductHelperLifecycle.disposed)` (com isso o ponto de chamada de `buildCuaProductHelperAgentEnv` desaparece; o corpo da função fica para a Tarefa 8 remover).
 
-懒注入分支改为两平台通用（替换现有 `if (!helper && cuaPluginEnabled && process.platform === "darwin")` 块）：
+O ramo de injeção lazy passa a ser comum às duas plataformas (substituindo o bloco atual `if (!helper && cuaPluginEnabled && process.platform === "darwin")`):
 
 ```ts
       let cuaProductHelperEnv: Record<string, string> = {};
@@ -626,19 +626,19 @@ Task 1 改后，把 helper 选择与后续消费整体删除（不再有过渡�
       }
 ```
 
-后续 `else if (cuaProductHelperHost && helper) { …buildCuaProductHelperAgentEnv… }` 等分支已随变量删除（见上）。`randomBytes` 已在现状懒分支使用（node.ts:2203），无需补 import。顶部补 import：`getStableCuaPipeName`、`resolveStableCuaWinRecipe`（`#src/cua-permission-broker/stableCuaTransport.js`）。
+Os ramos posteriores `else if (cuaProductHelperHost && helper) { …buildCuaProductHelperAgentEnv… }` etc. já sumiram com a remoção das variáveis (acima). `randomBytes` já é usado no ramo lazy atual (node.ts:2203), sem necessidade de novo import. Acrescentar no topo os imports de `getStableCuaPipeName` e `resolveStableCuaWinRecipe` (`#src/cua-permission-broker/stableCuaTransport.js`).
 
-- [ ] **Step 4: 跑测试与受影响面**
+- [ ] **Passo 4: rodar os testes e a superfície afetada**
 
 Run: `pnpm vitest run packages/services/test/agentProxyEnv.test.ts packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts`
-Expected: agentProxyEnv PASS；cuaPermissionBrokerProductAgentEnv 中直接测 spawn 注入旧路径的 case（如 "injects the Helper broker socket, token and plugin authority…"、"marks zcode-cua unavailable…" 系列）预期转红——这些属 Task 8 收敛范围，**本步骤允许既有红**，但必须逐条确认红因是「被测路径已删除」，记录清单，不得有其他红。
+Expected: agentProxyEnv PASS; em cuaPermissionBrokerProductAgentEnv, os cases que testam diretamente a antiga injeção de spawn (como "injects the Helper broker socket, token and plugin authority…" e a série "marks zcode-cua unavailable…") ficam vermelhos — eles pertencem ao escopo de convergência da Tarefa 8, e **neste passo o vermelho já existente é permitido**, mas é preciso confirmar item a item que a causa é "o caminho testado foi removido", registrar a lista e não haver outros vermelhos.
 
-- [ ] **Step 5: typecheck/lint**
+- [ ] **Passo 5: typecheck/lint**
 
 Run: `pnpm typecheck && pnpm lint && pnpm architecture:check --changed`
-Expected: 绿（`buildCuaProductHelperAgentEnv` 仍被导出，本任务不断引用）。
+Expected: verde (`buildCuaProductHelperAgentEnv` continua exportado e esta tarefa não o referencia mais).
 
-- [ ] **Step 6: Commit**
+- [ ] **Passo 6: Commit**
 
 ```bash
 git add packages/services/src/node.ts packages/services/test/agentProxyEnv.test.ts
@@ -663,22 +663,22 @@ EOF
 
 ---
 
-### Task 6: z-code——getStatus win32 对齐（MC-9）
+### Tarefa 6: z-code — alinhar o getStatus no win32 (MC-9)
 
-**Files:**
-- Modify: `packages/services/src/node.ts:1894-1971`（getStatus）与 `node.ts:1037-1055`（win32 host 创建处注入 mintSocketPath）
+**Arquivos:**
+- Modify: `packages/services/src/node.ts:1894-1971` (getStatus) e `node.ts:1037-1055` (injetar mintSocketPath na criação do host win32)
 
 **Interfaces:**
-- Consumes: Task 4 的 `getStableCuaPipeName`；既有 `probeStableCuaHelperSocket`、`getOrCreateDefaultCuaProductHelper`、`callBrokerMethod`。
-- Produces: win32 getStatus = probe → host fork（stable pipe）→ permission_status 真值 → idle 降级。
+- Consumes: `getStableCuaPipeName` da Tarefa 4; já existentes `probeStableCuaHelperSocket`, `getOrCreateDefaultCuaProductHelper`, `callBrokerMethod`.
+- Produces: getStatus no win32 = probe → fork do host (pipe estável) → valor real de permission_status → degradação para idle.
 
-> 注：`getStatus` 是 `createNodeServices` 内的闭包，本文件既有测试均不直接触达它（测试清单可证）；
-> 本任务不做单测，行为验证归 Task 9 的实机清单（darwin 侧 getStatus 行为沿 M7 不变，win32 侧本就无实机）。
+> Nota: `getStatus` é uma closure dentro de `createNodeServices`, e nenhum teste existente deste arquivo a toca diretamente (a lista de testes comprova);
+> esta tarefa não faz testes unitários; a verificação de comportamento fica na lista prática da Tarefa 9 (o comportamento de getStatus no darwin segue a M7 sem mudança, e o lado win32 originalmente não tinha prática real).
 
-- [ ] **Step 1: 实现**
+- [ ] **Passo 1: implementar**
 
-1. `node.ts:1037-1055` `createWindowsCuaHelperHost({…})` 的 options 增加 `mintSocketPath: () => getStableCuaPipeName()`（经 `createDefaultCuaProductHelper` 的 win32 分支传入，保持其余选项不变）。
-2. getStatus 开头的平台短路替换：
+1. Em `node.ts:1037-1055`, as options de `createWindowsCuaHelperHost({…})` ganham `mintSocketPath: () => getStableCuaPipeName()` (passado pelo ramo win32 de `createDefaultCuaProductHelper`, mantendo as demais opções intactas).
+2. O curto-circuito de plataforma no início de getStatus é substituído:
 
 ```ts
       if (process.platform !== "darwin" && process.platform !== "win32") {
@@ -689,7 +689,7 @@ EOF
       }
 ```
 
-3. darwin 独占的 `launchStandaloneCuaHelperForStatus` 调用处（约 1929-1932）改为平台分派：
+3. O ponto de chamada de `launchStandaloneCuaHelperForStatus`, exclusivo do darwin (~1929-1932), passa a ser um despacho por plataforma:
 
 ```ts
         let stable = await probeStableCuaHelperSocket();
@@ -701,7 +701,7 @@ EOF
         }
 ```
 
-4. 新增 `launchWindowsCuaHelperForStatus`（放在 `launchStandaloneCuaHelperForStatus` 之后，同层闭包）：
+4. Nova função `launchWindowsCuaHelperForStatus` (colocada depois de `launchStandaloneCuaHelperForStatus`, na mesma closure):
 
 ```ts
   const launchWindowsCuaHelperForStatus = async (): Promise<string | null> => {
@@ -720,14 +720,14 @@ EOF
   };
 ```
 
-（`probeStableCuaHelperSocket` 用 `createConnection`，named pipe 同样适用，无需改。）
+(`probeStableCuaHelperSocket` usa `createConnection`, o que também se aplica a named pipes, sem necessidade de alterações.)
 
-- [ ] **Step 2: 验证不回归**
+- [ ] **Passo 2: verificar que não há regressão**
 
 Run: `pnpm typecheck && pnpm lint && pnpm architecture:check --changed && pnpm vitest run packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts`
-Expected: 绿（红的仍限 Task 5 记录的清单；本任务不新增测试，行为验证归 Task 9 实机）。
+Expected: verde (os vermelhos continuam limitados à lista registrada na Tarefa 5; esta tarefa não adiciona testes, e a verificação de comportamento fica para a prática da Tarefa 9).
 
-- [ ] **Step 3: Commit**
+- [ ] **Passo 3: Commit**
 
 ```bash
 git add packages/services/src/node.ts
@@ -752,32 +752,32 @@ EOF
 
 ---
 
-### Task 7: z-code——producer pin bump
+### Tarefa 7: z-code — bump do pin do producer
 
-**Files:**
-- Modify（脚本自动）: `apps/zcode-cli/packages/zcode-cua-plugin/upstream.json`、`pnpm-workspace.yaml`、`pnpm-lock.yaml` 等 bump 脚本触达面。
+**Arquivos:**
+- Modify (automático por script): `apps/zcode-cli/packages/zcode-cua-plugin/upstream.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml` e a superfície tocada pelo script de bump.
 
-- [ ] **Step 1: 确认 producer 分支已 push**
+- [ ] **Passo 1: confirmar que a branch do producer já foi enviada**
 
 Run: `git -C /Users/dev/.codex/worktrees/cua-refactor/zcode-cua ls-remote origin feat/win-lazy-fork`
-Expected: 输出远端 ref 与完整 sha（Task 3 已 push）。
+Expected: a saída mostra a ref remota com o sha completo (a Tarefa 3 já fez o push).
 
-- [ ] **Step 2: 原子 bump（完整 40 位 sha）**
+- [ ] **Passo 2: bump atômico (sha completo de 40 dígitos)**
 
 ```bash
 export ZCODE_CUA_REPO=/Users/dev/.codex/worktrees/cua-refactor/zcode-cua
-pnpm --filter @zcode/zcode-cua-plugin bump:producer <上一步的完整40位sha>
+pnpm --filter @zcode/zcode-cua-plugin bump:producer <sha completo de 40 dígitos do passo anterior>
 ```
 
-**禁止**手改 `pnpm-workspace.yaml` 的 SHA（`check-cua-baseline.mjs` 会拒），**禁止**短前缀。
+**Proibido** editar o SHA manualmente em `pnpm-workspace.yaml` (o `check-cua-baseline.mjs` recusa), **proibido** usar prefixo curto.
 
-- [ ] **Step 3: 安装与验证**
+- [ ] **Passo 3: instalar e verificar**
 
 ```bash
 pnpm install --frozen-lockfile && pnpm typecheck && pnpm lint && pnpm architecture:check --changed
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Passo 4: Commit**
 
 ```bash
 git add apps/zcode-cli/packages/zcode-cua-plugin/upstream.json pnpm-workspace.yaml pnpm-lock.yaml
@@ -800,38 +800,38 @@ EOF
 
 ---
 
-### Task 8: z-code——删除 spawn 侧尸体与测试收敛
+### Tarefa 8: z-code — remover os restos do lado do spawn e convergir os testes
 
-**Files:**
-- Modify: `packages/services/src/node.ts`（`buildCuaProductHelperAgentEnv` 1123-1281、常量 566、相关 import）
-- Modify: `packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts`（收敛 Task 5 记录的红名单）
+**Arquivos:**
+- Modify: `packages/services/src/node.ts` (`buildCuaProductHelperAgentEnv` 1123-1281, constante 566, imports relacionados)
+- Modify: `packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts` (convergência da lista de vermelhos registrada na Tarefa 5)
 
 **Interfaces:**
-- Produces: `buildCuaProductHelperAgentEnv` 从 node.ts 导出面删除；`CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS` 删除。`getOrCreateDefaultCuaProductHelper` 保留（getStatus/restartHelper/resolver 仍用）。
+- Produces: `buildCuaProductHelperAgentEnv` sai da superfície de exportação de node.ts; `CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS` é removida. `getOrCreateDefaultCuaProductHelper` é mantida (ainda usada por getStatus/restartHelper/resolver).
 
-- [ ] **Step 1: 定位全部引用**
+- [ ] **Passo 1: localizar todas as referências**
 
 Run:
 ```bash
 rg -n "buildCuaProductHelperAgentEnv|CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS|trackCuaProductHelperStartup|cuaProductHelperAgentEnvRetryAt|cuaProductHelperReservedSpawns|cuaProductHelperTransportSpawns" packages/ apps/ --type ts | rg -v node_modules
 ```
 
-预期：node.ts 定义处 + cuaPermissionBrokerProductAgentEnv.test.ts 测试处。若出现其他消费方（如 desktop main），停下核实——spec 假设无其他消费方，若假设不成立升级处理而非强删。
+Esperado: a definição em node.ts e os testes em cuaPermissionBrokerProductAgentEnv.test.ts. Se surgir outro consumidor (por exemplo, o main do desktop), parar e verificar — a spec assume que não há outros consumidores; se a premissa não se confirmar, tratar como escalonamento em vez de apagar à força.
 
-- [ ] **Step 2: 删除实现与常量**
+- [ ] **Passo 2: remover a implementação e a constante**
 
-删除 `buildCuaProductHelperAgentEnv` 整个函数、`CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS` 常量、以及只为它存在的伴生符号（`trackCuaProductHelperStartup`、`cuaProductHelperAgentEnvRetryAt`、`cuaProductHelperReservedSpawns`、`cuaProductHelperTransportSpawns`、`CUA_PRODUCT_HELPER_AGENT_ENV_RETRY_MS`——按 Step 1 清单为准，仍被 getStatus/restart 引用的保留）。
+Remover toda a função `buildCuaProductHelperAgentEnv`, a constante `CUA_PRODUCT_HELPER_SPAWN_READY_DEADLINE_MS` e os símbolos companheiros que existem apenas para ela (`trackCuaProductHelperStartup`, `cuaProductHelperAgentEnvRetryAt`, `cuaProductHelperReservedSpawns`, `cuaProductHelperTransportSpawns`, `CUA_PRODUCT_HELPER_AGENT_ENV_RETRY_MS` — conforme a lista do Passo 1; manter o que ainda é referenciado por getStatus/restart).
 
-- [ ] **Step 3: 测试收敛**
+- [ ] **Passo 3: convergir os testes**
 
-对 Task 5 记录的红名单逐条处置：直接测已删函数的 case 删除；测 resolver/lifecycle 行为且仍有效的 case 保留并修 fixture（如 marker 相关 case 改为只测 resolver 侧语义）。**每删一个 case，在 commit 正文里列出名字**。
+Tratar item a item a lista de vermelhos registrada na Tarefa 5: apagar os cases que testam diretamente a função removida; manter e corrigir o fixture dos cases que testam o comportamento de resolver/lifecycle e continuam válidos (por exemplo, os cases de marker passam a testar apenas a semântica do lado do resolver). **A cada case removido, listar o nome no corpo do commit.**
 
-- [ ] **Step 4: 全量验证**
+- [ ] **Passo 4: verificação completa**
 
 Run: `pnpm typecheck && pnpm lint && pnpm architecture:check --changed && pnpm vitest run packages/services/test`
-Expected: 全绿。
+Expected: tudo verde.
 
-- [ ] **Step 5: Commit**
+- [ ] **Passo 5: Commit**
 
 ```bash
 git add -A packages/services
@@ -855,42 +855,42 @@ EOF
 
 ---
 
-### Task 9: 端到端本机验证（darwin 实测 + Windows 标注）
+### Tarefa 9: verificação local ponta a ponta (prática no darwin + marcação para Windows)
 
-**Files:** 无代码改动。
+**Arquivos:** sem alteração de código.
 
-- [ ] **Step 1: darwin 实机冷启验证（MC-1/2/3）**
+- [ ] **Passo 1: verificação prática de cold start no darwin (MC-1/2/3)**
 
 ```bash
 ZCODE_CUA_DEV_MODE=1 pnpm run dev:desktop
 ```
 
-按 [本地跑 CUA Helper](../../docs/cua-permission-broker/local-dev-helper-runbook.md) 验证：
-1. app 启动后 Activity Monitor 无 "ZCode Computer Use" 进程（懒启动未被触发）。
-2. 新开对话让模型调 computer-use → Helper 进程出现、调用成功（MC-2）。
-3. 在设置页完成一次权限授权流后再 spawn 新 agent → 新 agent env 里 `ZCODE_CUA_BROKER_SOCKET` 为稳定路径而非随机（MC-3；可用 dev 日志核对）。
+Seguir o [runbook local do CUA Helper](../../docs/cua-permission-broker/local-dev-helper-runbook.md) para verificar:
+1. Depois que o app inicia, o Activity Monitor não mostra processos "ZCode Computer Use" (o lazy start não foi disparado).
+2. Abrir uma nova conversa e pedir ao modelo que use computer-use → o processo do Helper aparece e a chamada funciona (MC-2).
+3. Concluir uma vez o fluxo de autorização de permissões na página de configurações e então fazer spawn de um novo agent → no env do novo agent, `ZCODE_CUA_BROKER_SOCKET` é um caminho estável e não aleatório (MC-3; pode conferir pelo log de dev).
 
-- [ ] **Step 2: desktop E2E 评估**
+- [ ] **Passo 2: avaliação de E2E de desktop**
 
-按 [.agents/skills/e2e-case-lifecycle/SKILL.md](../../.agents/skills/e2e-case-lifecycle/SKILL.md) 评估
-`docs/testing/cua-e2e-case-catalog.md` 是否需要新增/修订 case（spawn 时序断言无法在 E2E 层观测的如实标注；Windows 路径全部标注「待 Windows 实机」）。
+Seguir [.agents/skills/e2e-case-lifecycle/SKILL.md](../../.agents/skills/e2e-case-lifecycle/SKILL.md) para avaliar se
+`docs/testing/cua-e2e-case-catalog.md` precisa de cases novos/revisados (asserturas de timing de spawn não observáveis na camada E2E devem ser marcadas com honestidade; todos os caminhos do Windows marcados como "pendente de prática no Windows").
 
-- [ ] **Step 3: 汇总未验证项**
+- [ ] **Passo 3: consolidar os itens não verificados**
 
-在最终 MR 说明中列出：Windows 全链路（fork/pipe/设置页/MC-4~7/9）待实机；producer CI job 状态；本机已验清单。
+Listar na descrição final do MR: a cadeia completa do Windows (fork/pipe/página de configurações/MC-4~7/9) pendente de prática real; o status dos jobs de CI do producer; a lista do que já foi verificado localmente.
 
 ---
 
-### Task 10: 收尾——spec 状态与 push
+### Tarefa 10: fechamento — status da spec e push
 
-**Files:**
-- Modify: `docs/cua-permission-broker/2026-09-21-cua-helper-lazy-startup-spec.md`（状态节改为已实现 + 实测结论）
+**Arquivos:**
+- Modify: `docs/cua-permission-broker/2026-09-21-cua-helper-lazy-startup-spec.md` (seção de status passando para implementado + conclusões da prática)
 
-- [ ] **Step 1: 更新 spec §状态**
+- [ ] **Passo 1: atualizar o status da spec**
 
-状态改为「MR1/MR2 已实现；darwin 本机实测通过（MC-1/2/3）；Windows 待实机（MC-4~9）」并附日期。
+Mudar o status para "MR1/MR2 implementados; prática local no darwin aprovada (MC-1/2/3); Windows pendente de prática real (MC-4~9)" e anexar a data.
 
-- [ ] **Step 2: 最终验证 + push**
+- [ ] **Passo 2: verificação final + push**
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm architecture:check --changed
@@ -899,4 +899,4 @@ git commit -m "docs(cua): mark lazy startup spec implemented for mac"
 git push
 ```
 
-MR 创建由用户决定（走 zcode-mr 流程时另起）。
+A criação do MR é decidida pelo usuário (quando seguir o fluxo do zcode-mr, abrir uma nova).

@@ -1,17 +1,16 @@
-# 12 Model Selection 校验边界收口
+# 12 Convergência da fronteira de validação da seleção de modelo
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-25
+> Data: 2026-08-25
 >
-> 来源审查：[`../provider-implementation-architecture-conformance-review.md`](../provider-implementation-architecture-conformance-review.md)
+> Revisão de origem: [`../provider-implementation-architecture-conformance-review.md`](../provider-implementation-architecture-conformance-review.md)
 >
-> 相关设计：[`../design/registry/registry.md`](../design/registry/registry.md)、[`../design/registry/model-creation.md`](../design/registry/model-creation.md)
+> Designs relacionados: [`../design/registry/registry.md`](../design/registry/registry.md), [`../design/registry/model-creation.md`](../design/registry/model-creation.md)
 
-## 0. 已确认目标
+## 0. Objetivo confirmado
 
-Model Selection 的权威校验发生在任务真正开始执行、`ModelFactory` 准备构建 Model 的边界。用户 Facade
-只负责提供用户可见候选，不再同时充当内部执行校验器。
+A validação autoritativa da Model Selection acontece na fronteira em que a task realmente começa a executar e o `ModelFactory` se prepara para construir o Model. O Facade do usuário é responsável apenas por fornecer candidatos visíveis ao usuário e deixa de atuar também como validador de execução interna.
 
 ```text
 用户候选
@@ -38,120 +37,108 @@ validateSelection()
 ModelFactory 构建 Model
 ```
 
-Off-Peak 在创建、编辑和派发前使用同一 Registry 语义提前校验：创建校验发生在申请 Ticket 前，派发校验防止
-排队期间配置失效；这些检查都不替代 ModelFactory 的最终校验。Visibility 只影响用户候选，不是权限，也不
-产生 `trusted`、`execution-only` 等新概念。
+Off-Peak usa a mesma semântica do Registry para validação antecipada na criação, na edição e antes do despacho: a validação na criação acontece antes de solicitar o Ticket, e a validação no despacho impede que a configuração fique inválida durante a fila; nenhuma dessas checagens substitui a validação final do ModelFactory. Visibility afeta apenas os candidatos do usuário, não é permissão e não gera conceitos novos como `trusted` ou `execution-only`.
 
-## 1. 当前问题
+## 1. Problema atual
 
-1. `ModelSelectionFacade.getView()` 过滤 hidden Provider/Model，但 `validate()` 直接委托完整 Registry，同一个
-   Facade 同时表达了用户候选和内部精确执行两种语义；
-2. 普通 UI 当前只消费 `getView()`/`onDidChange()`，`IModelSelectionService.validate()` 的生产调用主要是
-   Desktop Off-Peak 派发，实际成为 hidden Provider 借用的内部捷径；
-3. `ApiProviderModelRuntime.modelFactory` 当前只精确查找 Provider/Model，没有在构建入口统一调用 Registry 的
-   reasoning level、max output tokens 等 Selection option 校验；
-4. Off-Peak 另一条创建/编辑链已经直接使用 Registry 精确校验，当前同一产品存在两条校验入口。
+1. `ModelSelectionFacade.getView()` filtra Provider/Model ocultos, mas `validate()` delega diretamente ao Registry completo; a mesma Facade expressa ao mesmo tempo a semântica de candidato para o usuário e a semântica de execução interna precisa;
+2. A UI comum hoje consome apenas `getView()`/`onDidChange()`, e as chamadas de produção de `IModelSelectionService.validate()` são principalmente o despacho de Off-Peak no Desktop, o que na prática transformou isso num atalho interno usado por Provider oculto;
+3. `ApiProviderModelRuntime.modelFactory` hoje apenas localiza Provider/Model com precisão e não chama, na entrada de construção, a validação de Selection options do Registry (reasoning level, max output tokens etc.);
+4. A outra cadeia de criação/edição de Off-Peak já usa a validação precisa do Registry diretamente, então hoje existem duas entradas de validação no mesmo produto.
 
-## 2. 改动原则与要点
+## 2. Princípios e pontos de mudança
 
-### A. 用户 Facade 退役执行校验
+### A. A Facade do usuário aposenta a validação de execução
 
-- 删除 `ModelSelectionFacade.validate()`；
-- 删除 `IModelSelectionService.validate()` 及 RPC adapter、Home-only stub、mock 和对应测试；
-- 从 `ProviderRegistryFacadeSource` 删除只为 Facade 暴露的 `validateSelection()`；
-- 保留 `ProviderRegistryService` / `ProviderRegistry` 的 `validateSelection()`，供 ModelFactory 和内部产品使用；
-- Facade 只保留用户候选 View 与变化事件；
-- 不让 Renderer 根据 View 复制一套权威 option 校验。
+- Remover `ModelSelectionFacade.validate()`;
+- Remover `IModelSelectionService.validate()` e o adapter RPC, o stub Home-only, os mocks e os testes correspondentes;
+- Remover de `ProviderRegistryFacadeSource` o `validateSelection()` exposto apenas para a Facade;
+- Manter o `validateSelection()` de `ProviderRegistryService` / `ProviderRegistry` para uso do ModelFactory e de produtos internos;
+- A Facade mantém apenas a View de candidatos do usuário e o evento de mudança;
+- Não deixar o Renderer duplicar um conjunto autoritativo de validação de options a partir da View.
 
-### B. ModelFactory 成为最终校验边界
+### B. O ModelFactory passa a ser a fronteira de validação final
 
-- `ApiProviderModelRuntime.modelFactory` 在读取并冻结 Provider/Model 事实前，使用当前进程 Registry 完整校验
-  `ModelSelection`；
-- Provider/Model 不存在、Reasoning Level 不支持、Max Output Tokens 越界都在创建 Model 前 fail-closed；
-- 从现有 Registry selection helper 提取共享的 `ModelSelectionValidation -> ModelProtocolError` 映射；
-- `provider-not-found` 映射为 `ProviderNotFound`、`model-not-found` 映射为 `ModelNotFound`，option 错误映射为
-  `InvalidModelRequest`；ModelFactory 与现有 Selection 解析不能分别维护两个 `switch`；
-- 不能直接复用会把 `provider-not-found` 返回 `undefined` 的 fallback helper；ModelFactory 必须明确失败；
-- hidden 但完整、enabled 的模型仍在 Registry 中，可被内部精确 Selection 正常创建；
-- 每个新创建的根执行 Model 都经过同一个 ModelFactory 边界；`Model.bind()` 和复用当前 Active Model 的
-  Automatic Compact 继承已经校验并冻结的事实，不重新查询 Registry。
+- `ApiProviderModelRuntime.modelFactory` valida o `ModelSelection` de forma completa com o Registry do processo atual antes de ler e congelar os fatos de Provider/Model;
+- Provider/Model inexistente, Reasoning Level não suportado e Max Output Tokens fora dos limites falham de forma fechada antes da criação do Model;
+- Extrair do helper de selection do Registry o mapeamento compartilhado `ModelSelectionValidation -> ModelProtocolError`;
+- `provider-not-found` mapeia para `ProviderNotFound`, `model-not-found` mapeia para `ModelNotFound` e erros de option mapeiam para `InvalidModelRequest`; o ModelFactory e a resolução de Selection existente não podem manter dois `switch` separados;
+- Não reutilizar diretamente o helper de fallback que devolve `undefined` para `provider-not-found`; o ModelFactory precisa falhar explicitamente;
+- Modelos ocultos, mas completos e enabled, continuam no Registry e podem ser criados normalmente por uma Selection interna precisa;
+- Cada Model de execução raiz recém-criado passa pela mesma fronteira do ModelFactory; `Model.bind()` e o Automatic Compact que reutiliza o Model Active atual herdam fatos já validados e congelados, sem consultar o Registry de novo.
 
-### C. Off-Peak 保留窄提前检查
+### C. Off-Peak mantém a checagem antecipada e estreita
 
-- Desktop Off-Peak 不再调用用户 `IModelSelectionService.validate()`；
-- 复用 `OffPeakTaskServiceDeps.resolveModelSelection` 现有完整 Registry 解析依赖；如 Desktop Host 需要调用，
-  只在具体 `OffPeakTaskService` 上提供 Host 私有派发校验方法，不加入 Renderer RPC 接口；
-- 不新增 Registry Service、RPC 或拥有状态的通用 Validation Service；
-- 创建阶段在 `takeTicket()` 前校验，编辑阶段在持久化前校验，派发阶段在启动 Agent turn 前重新校验；
-- 派发提前校验失败继续形成 `OffPeakModelUnavailableError` 和 permanent dispatch failure；
-- 提前校验通过后，真正构建闲时 Model 时仍再次执行最终校验，防止派发等待期间 Registry 已变化。
+- O Off-Peak do Desktop não chama mais o `IModelSelectionService.validate()` do usuário;
+- Reutilizar a dependência de resolução completa do Registry já existente em `OffPeakTaskServiceDeps.resolveModelSelection`; se o Desktop Host precisar chamar, fornecer o método de validação de despacho privado do Host apenas no `OffPeakTaskService` concreto, sem entrar na interface RPC do Renderer;
+- Não criar Registry Service, RPC ou um Validation Service genérico com estado próprio;
+- Na etapa de criação, validar antes de `takeTicket()`; na etapa de edição, validar antes de persistir; na etapa de despacho, revalidar antes de iniciar o Agent turn;
+- A falha da checagem antecipada no despacho continua formando `OffPeakModelUnavailableError` e permanent dispatch failure;
+- Depois de aprovada a checagem antecipada, a validação final é executada novamente quando o Model de tempo ocioso é realmente construído, evitando que o Registry tenha mudado durante a espera do despacho.
 
-### D. 不改变选择状态
+### D. Não alterar o estado de seleção
 
-- 不修改 Composer Draft、App Recent、Configured Default 或 Session Selection；
-- 不改变 Configured Default/fallback 的候选解析；
-- 不改变 Model Selection 的协议和持久化结构；
-- 不改变 UI 候选排序、分组或 hidden 过滤；
-- 不改变 Desktop continuous、Mobile replayable、remote workspace、Queue 或恢复语义。
+- Não modificar Composer Draft, App Recent, Configured Default ou Session Selection;
+- Não alterar a resolução de candidatos do Configured Default/fallback;
+- Não alterar o protocolo nem a estrutura de persistência da Model Selection;
+- Não alterar a ordenação, o agrupamento ou o filtro de ocultos da UI de candidatos;
+- Não alterar a semântica de Desktop continuous, Mobile replayable, remote workspace, Queue ou recuperação.
 
 ## 3. Impact Brief
 
-| 字段             | 结论                                                                                                           |
-| ---------------- | -------------------------------------------------------------------------------------------------------------- |
-| Developer intent | 删除用户 Facade 的内部执行校验语义，把权威校验归位到 Model 构建边界                                            |
-| Capability       | Model Selection、Provider Registry、ModelFactory、Off-Peak execution                                           |
-| Change layer     | `validation`、`commit-effect`                                                                                  |
-| Operating mode   | planning / implementation-handoff                                                                              |
-| Primary seeds    | `ModelSelectionFacade`、`IModelSelectionService`、`ApiProviderModelRuntime.modelFactory`、`dispatchOffPeakRun` |
-| Out of scope     | 候选 UI、选择状态、持久化、Access/Auth、Runtime composition、Telemetry                                         |
+| Campo              | Conclusão                                                                                                   |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Developer intent  | Remover a semântica de validação de execução interna da Facade do usuário e devolver a validação autoritativa à fronteira de construção do Model |
+| Capability        | Model Selection, Provider Registry, ModelFactory, Off-Peak execution                                         |
+| Change layer      | `validation`, `commit-effect`                                                                                |
+| Operating mode    | planning / implementation-handoff                                                                              |
+| Primary seeds     | `ModelSelectionFacade`, `IModelSelectionService`, `ApiProviderModelRuntime.modelFactory`, `dispatchOffPeakRun`  |
+| Out of scope      | UI de candidatos, estado de seleção, persistência, Access/Auth, Runtime composition, Telemetry              |
 
-### 3.1 UI Surface Matrix
+### 3.1 Matriz de superfície de UI
 
-| 用户场景                      | 候选来源                          | 提交落点              | 最终校验                                   | 本 Todo 可见变化 |
-| ----------------------------- | --------------------------------- | --------------------- | ------------------------------------------ | ---------------- |
-| 普通对话选择模型              | `ModelSelectionFacade.getView()`  | Submission / Session  | Agent Registry + ModelFactory              | 无               |
-| Automation/Subagent/Repo Wiki | 同一候选 View，各自保持独立 Draft | 各自既有配置/提交命令 | 真正创建 Model 时                          | 无               |
-| Off-Peak hidden 模型          | 内部产品配置/精确 Selection       | Off-Peak dispatch     | 提前 Registry 检查 + ModelFactory 最终校验 | 无               |
+| Cenário do usuário                   | Origem dos candidatos            | Ponto de envio                        | Validação final                                        | Mudança visível neste Todo |
+| ------------------------------------ | -------------------------------- | ------------------------------------- | ------------------------------------------------------- | ------------------------- |
+| Escolher modelo em conversa comum    | `ModelSelectionFacade.getView()` | Submission / Session                  | Agent Registry + ModelFactory                           | Nenhuma                    |
+| Automation/Subagent/Repo Wiki        | Mesma View de candidatos, cada um com Draft próprio | Suas configurações/comandos de envio existentes | Na criação real do Model                 | Nenhuma                    |
+| Modelo oculto de Off-Peak            | Configuração interna do produto/Selection precisa | Off-Peak dispatch                    | Checagem antecipada no Registry + validação final no ModelFactory | Nenhuma   |
 
-### 3.2 关系与 owner
+### 3.2 Relações e owners
 
-| 等级           | 关系                          | 要求                                                 |
-| -------------- | ----------------------------- | ---------------------------------------------------- |
-| must-inspect   | Facade -> Services/RPC/mocks  | `validate()` 全链删除，不留空实现                    |
-| must-inspect   | ModelFactory -> Registry      | 构建前执行完整 Selection 校验，共用错误映射          |
-| must-inspect   | Off-Peak dispatch -> Registry | 复用既有 resolver，保留 permanent failure            |
-| should-inspect | Client/Remote service proxy   | 接口收窄后代理、Bot 和 remote workspace 装配继续成立 |
-| should-inspect | Configured Default/fallback   | 既有提前解析不替代最终校验，行为不变                 |
-| invariant-only | 所有模型选择 UI               | 候选、Draft、commit sink 和持久化不变                |
-| invariant-only | Desktop/Mobile/Remote         | delivery、Queue、Recovery 和 workspace identity 不变 |
+| Nível           | Relação                                  | Requisito                                                             |
+| --------------- | ---------------------------------------- | --------------------------------------------------------------------- |
+| must-inspect    | Facade -> Services/RPC/mocks             | Remover `validate()` em toda a cadeia, sem implementação vazia        |
+| must-inspect    | ModelFactory -> Registry                 | Executar a validação completa de Selection antes de construir, com mapeamento de erro compartilhado |
+| must-inspect    | Off-Peak dispatch -> Registry            | Reutilizar o resolver existente e preservar a permanent failure        |
+| should-inspect  | Client/Remote service proxy              | Após o estreitamento da interface, proxies, Bot e a montagem do remote workspace continuam válidos |
+| should-inspect  | Configured Default/fallback              | A resolução antecipada existente não substitui a validação final e o comportamento não muda |
+| invariant-only  | Toda UI de seleção de modelo             | Candidatos, Draft, commit sink e persistência inalterados              |
+| invariant-only  | Desktop/Mobile/Remote                    | delivery, Queue, Recovery e identidade de workspace inalterados        |
 
-当前环境没有可调用的 codegraph 接口。影响面以 Feature Graph、`dep:refs`、精确调用扫描和目标源码为证据；
-实现前重新执行引用归零和受影响测试发现。
+O ambiente atual não tem uma interface de codegraph chamável. A superfície de impacto é evidenciada pelo Feature Graph, `dep:refs`, varredura precisa de chamadas e o código-fonte alvo; antes da implementação, reexecutar a descoberta de referências zeradas e dos testes afetados.
 
-## 4. 已接受用例与剪枝
+## 4. Casos aceitos e podas
 
 | Case ID | Setup                                    | Action                        | Assertions                                           |
 | ------- | ---------------------------------------- | ----------------------------- | ---------------------------------------------------- |
-| MSV-01  | visible Provider/Model                   | 正常提交并创建 Model          | Registry 校验通过，创建一次 Model                    |
-| MSV-02  | Provider 或 Model 已从当前 Registry 消失 | 开始构建 Model                | 创建前返回稳定的 Provider/Model 错误                 |
-| MSV-03  | Reasoning 或 Max Output option 无效      | 开始构建 Model                | 创建前返回 `InvalidModelRequest`，不进入 Adapter     |
-| MSV-04  | hidden Off-Peak Provider 完整且 enabled  | 派发并构建 Model              | 提前检查和最终校验均通过，用户 View 仍不可见         |
-| MSV-05  | Off-Peak 提前检查后 Registry 发生变化    | 最终构建 Model                | ModelFactory 按最新 Registry fail-closed             |
-| MSV-06  | 普通模型候选 UI                          | 读取并切换候选                | View、选择状态和提交行为不变，不调用 Facade validate |
-| MSV-07  | 已创建并校验的 Active Model              | `bind()` 或 Automatic Compact | 继承冻结事实，不重新读取当前 Registry                |
+| MSV-01  | Provider/Model visível                   | Envio normal e criação do Model | A validação do Registry passa e o Model é criado uma vez |
+| MSV-02  | Provider ou Model desapareceu do Registry atual | Início da construção do Model | Retorna erro estável de Provider/Model antes da criação |
+| MSV-03  | Option de Reasoning ou Max Output inválido | Início da construção do Model | Retorna `InvalidModelRequest` antes da criação, sem entrar no Adapter |
+| MSV-04  | Provider de Off-Peak oculto, completo e enabled | Despacho e construção do Model | Checagem antecipada e validação final passam, e a View do usuário continua invisível |
+| MSV-05  | Registry muda após a checagem antecipada de Off-Peak | Construção final do Model | O ModelFactory falha de forma fechada conforme o Registry mais recente |
+| MSV-06  | UI de candidatos de modelo comum         | Ler e trocar candidatos      | View, estado de seleção e comportamento de envio inalterados, sem chamar o validate da Facade |
+| MSV-07  | Model Active já criado e validado        | `bind()` ou Automatic Compact | Herda fatos congelados, sem reler o Registry atual    |
 
-剪枝：不展开 UI surface × Provider API，因为本 Todo 不改变候选或 Adapter 编码；不新增大规模 E2E。普通
-ModelFactory 和 Off-Peak 的跨边界单测足以证明核心行为，已有代表性 UI/Off-Peak E2E 只做回归。
+Podas: não expandir a superfície de UI × API de Provider, pois este Todo não altera candidatos nem a codificação do Adapter; não adicionar E2E em grande escala. Os testes unitários de fronteira do ModelFactory comum e do Off-Peak bastam para provar o comportamento central, e os E2E representativos de UI/Off-Peak já existentes servem apenas como regressão.
 
-## 5. 实施与验收
+## 5. Implementação e aceitação
 
-1. 先更新正式 Design 中 Facade 与 ModelFactory 的校验职责；
-2. 先写 ModelFactory option fail-closed、hidden 精确创建、绑定 Model 不重查 Registry 和 Off-Peak permanent
-   failure 测试；
-3. 提取共享 Validation -> Protocol Error 映射，并补齐 ModelFactory 最终校验；
-4. 让 Off-Peak 派发复用 `OffPeakTaskServiceDeps.resolveModelSelection`，删除对用户 Facade 的调用；
-5. 删除 Facade/Service `validate()`、`ProviderRegistryFacadeSource.validateSelection()` 和全部占位实现；
-6. 用 `rg`、`dep:refs` 确认以下生产引用归零：
+1. Atualizar primeiro no Design formal as responsabilidades de validação da Facade e do ModelFactory;
+2. Escrever primeiro os testes de fail-closed de options do ModelFactory, de criação precisa de ocultos, de Model vinculado sem nova consulta ao Registry e de permanent failure do Off-Peak;
+3. Extrair o mapeamento compartilhado Validation -> Protocol Error e completar a validação final do ModelFactory;
+4. Fazer o despacho de Off-Peak reutilizar `OffPeakTaskServiceDeps.resolveModelSelection` e remover a chamada à Facade do usuário;
+5. Remover `validate()` da Facade/Service, `ProviderRegistryFacadeSource.validateSelection()` e todas as implementações placeholder;
+6. Usar `rg` e `dep:refs` para confirmar que as seguintes referências de produção zeraram:
 
 ```text
 ModelSelectionFacade.validate
@@ -160,8 +147,7 @@ modelSelectionService.validate
 ProviderRegistryFacadeSource.validateSelection
 ```
 
-7. 执行 Provider、Services、Bootstrap、Client、Server、Desktop、Web 受影响单测；显式覆盖
-   `RemoteServiceAccess`、Bot remote proxy、remote workspace service collection 和 Web Home-only stub，以及：
+7. Executar os testes unitários afetados de Provider, Services, Bootstrap, Client, Server, Desktop e Web; cobrindo explicitamente `RemoteServiceAccess`, o proxy remoto do Bot, a service collection do remote workspace e o stub Home-only da Web, além de:
 
 ```text
 pnpm typecheck
@@ -169,27 +155,22 @@ pnpm lint
 pnpm fmt:check
 ```
 
-8. 完成后回写 Todo 状态和实现结果，以 Conventional Commit 提交。
+8. Ao concluir, reescrever o status do Todo e o resultado da implementação no documento, e submeter com Conventional Commit.
 
-## 6. 非目标
+## 6. Fora de escopo
 
-- 不修改 Provider/Model visibility、enabled、成员或 Overlay；
-- 不把 hidden 解释为权限或受信身份；
-- 不改变 Model Selection persistence 或 Session 生命周期；
-- 不把 Off-Peak Selection 写入普通 Session Selection；
-- 不处理 Provider Runtime composition；
-- 不重构 Access、Request Auth、Telemetry、Queue 或 Recovery。
+- Não modificar visibility, enabled, membros ou Overlay de Provider/Model;
+- Não interpretar hidden como permissão ou identidade confiável;
+- Não alterar a persistência da Model Selection nem o ciclo de vida da Session;
+- Não gravar a Selection de Off-Peak na Session Selection comum;
+- Não tratar a composição do Provider Runtime;
+- Não refatorar Access, Request Auth, Telemetry, Queue ou Recovery.
 
-## 7. 实施结果（2026-08-25）
+## 7. Resultado da implementação (2026-08-25)
 
-- `ModelSelectionFacade` 与跨 Host `IModelSelectionService` 已删除通用 `validate()`，Web Home-only stub、测试和
-  Facade Source 同步归零；
-- `ApiProviderModelRuntime.modelFactory` 在 Adapter 创建前使用当前 Agent Registry 完整校验 Selection，且与
-  Registry selection resolver 共用唯一的 `ModelSelectionValidation -> ModelProtocolError` 映射；
-- Provider/Model 缺失分别稳定映射为 `ProviderNotFound` / `ModelNotFound`，非法 reasoning 与 max output 在
-  Adapter 前映射为 `InvalidModelRequest`；
-- hidden、完整且 enabled 的 Provider/Model 继续通过普通 Registry 精确创建；
-- Off-Peak 派发改用具体 `OffPeakTaskService.validateDispatchModelSelection()` 窄检查，创建/编辑仍复用同一
-  resolver，最终 ModelFactory 校验保持不变；
-- 归零扫描未发现 `ModelSelectionFacade.validate`、`modelSelectionService.validate` 或 Facade Source
-  `validateSelection` 残留；专项 Provider、Services、Web 与 Bootstrap 测试及根 `pnpm typecheck` 通过。
+- `ModelSelectionFacade` e o `IModelSelectionService` entre Hosts tiveram o `validate()` geral removido, e o stub Home-only da Web, os testes e o Facade Source zeraram em conjunto;
+- `ApiProviderModelRuntime.modelFactory` valida a Selection de forma completa com o Registry do Agent atual antes da criação do Adapter, compartilhando o mapeamento único `ModelSelectionValidation -> ModelProtocolError` com o resolver de selection do Registry;
+- Provider/Model ausente mapeia de forma estável para `ProviderNotFound` / `ModelNotFound`, e reasoning e max output inválidos mapeiam para `InvalidModelRequest` antes do Adapter;
+- Provider/Model ocultos, completos e enabled continuam sendo criados normalmente pelo Registry preciso;
+- O despacho de Off-Peak passou a usar a checagem estreita do `OffPeakTaskService.validateDispatchModelSelection()` concreto, com criação/edição ainda reutilizando o mesmo resolver e a validação final do ModelFactory inalterada;
+- A varredura de zeragem não encontrou resíduo de `ModelSelectionFacade.validate`, `modelSelectionService.validate` ou `validateSelection` do Facade Source; os testes específicos de Provider, Services, Web e Bootstrap e o `pnpm typecheck` da raiz passaram.

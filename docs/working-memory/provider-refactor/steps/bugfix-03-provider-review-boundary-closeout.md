@@ -1,23 +1,29 @@
-# Bugfix 03：Provider Review 边界收口
+# Bugfix 03: fechamento das fronteiras de revisão de Provider
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-27
+> Data: 2026-08-27
 >
-> 来源：Provider Refactor 最近一批启动恢复与设置交互 Bugfix 的逐笔复审
+> Origem: revisão item a item do lote mais recente de bugfixes de restauração de inicialização e interação de configurações do Provider Refactor
 >
-> 关联任务：[`Todo 23`](./todo-23-provider-refactor-decision-gap-closure.md)
+> Tarefa relacionada: [`Todo 23`](./todo-23-provider-refactor-decision-gap-closure.md)
 
-## 0. 任务定位
+## 0. Posicionamento da tarefa
 
-本任务修复最近 Bugfix 复审中已经完成裁决、无需重新设计 Provider 主架构的四个边界问题：
+Esta tarefa corrige quatro problemas de fronteira cujas decisões já foram tomadas na revisão
+mais recente de bugfixes e que não exigem redesenhar a arquitetura principal de Provider:
 
-1. Account 首次解析失败时，fail-closed Overlay 漏掉 Off-Peak Provider；
-2. 最大输出 Token 同时存在简化输入与完整 JSON 两个编辑入口，可能静默覆盖用户输入；
-3. Configured Default 的损坏恢复在文件锁之外删除文件，存在跨进程删除竞态；
-4. Host 向 ZCode CLI 执行进程同步 Account Overlay 时使用通用 Provider Parser 和手工门禁，没有使用 Account Source 专属 Schema。
+1. Na primeira resolução de Account com falha, o Overlay fail-closed deixa de fora os Providers
+   de Off-Peak;
+2. O Token de saída máximo tem simultaneamente uma entrada de edição simplificada e uma entrada
+   em JSON completo, o que pode sobrescrever silenciosamente o input do usuário;
+3. A recuperação do Configured Default corrompido exclui o arquivo fora do lock, existindo uma
+   corrida de exclusão entre processos;
+4. Quando o Host sincroniza o Account Overlay para o processo ZCode CLI em execução, ele usa o
+   Parser genérico de Provider e uma checagem manual em vez do Schema exclusivo da Account Source.
 
-本任务不改变三层 Overlay、Host/CLI 进程职责或 Account Config 同步架构：
+Esta tarefa não altera o Overlay de três camadas, a divisão de responsabilidade entre Host e
+processo CLI, nem a arquitetura de sincronização do Account Config:
 
 ```text
 ZCode Built-in Provider Config
@@ -39,13 +45,18 @@ Personal Provider Config
 CLI Effective Provider Registry
 ```
 
-Host 在 Desktop 托管模式下继续拥有当前账号连接与套餐事实的权威；CLI 保存 revisioned Account Overlay 副本，用于构建自己的 Effective Registry 和 Active Model。协议不下发账号凭据，不同步完整 Registry，也不让 CLI 重新查询和解析一套账号上游事实。
+O Host continua sendo, no modo Desktop hospedado, a autoridade sobre a conexão da conta atual e
+sobre os fatos do pacote; o CLI guarda uma cópia revisionada do Account Overlay, usada para
+construir seu próprio Effective Registry e Active Model. O protocolo não distribui credenciais de
+conta, não sincroniza o Registry completo e não faz o CLI reconsultar e reparsear um conjunto de
+fatos upstream da conta.
 
-## 1. Account fail-closed 覆盖 Off-Peak
+## 1. O fail-closed de Account cobre Off-Peak
 
-### 1.1 当前问题
+### 1.1 Problema atual
 
-`createFailClosedAccountProviderConfigSnapshot()` 当前只为 `access.type = "zhipu-account"` 的 Built-in Provider 发布 `enabled=false`。两个 Off-Peak Provider 使用：
+`createFailClosedAccountProviderConfigSnapshot()` hoje publica `enabled=false` apenas para os
+Built-in Providers com `access.type = "zhipu-account"`. Os dois Providers de Off-Peak usam:
 
 ```ts
 access: {
@@ -55,7 +66,10 @@ access: {
 }
 ```
 
-它们在 Built-in 中没有显式 `enabled=false`，而 Resolver 将 `enabled` 缺省解释为启用。因此首次 Account 解析失败时，普通账号 Provider 被关闭，Off-Peak Provider 却仍可能进入 Registry，并被 Off-Peak 专属 Model Selection View 按固定 Provider ID 投影。
+Eles não têm `enabled=false` explícito no Built-in, e o Resolver interpreta a ausência de
+`enabled` como habilitado. Assim, quando a primeira resolução de Account falha, os Providers de
+conta comuns são desligados, mas os Providers de Off-Peak ainda podem entrar no Registry e ser
+projetados pela Model Selection View específica de Off-Peak segundo o Provider ID fixo.
 
 ```text
 首次 Account 解析失败
@@ -70,31 +84,38 @@ Off-Peak enabled 缺省为 true
 进入 Registry / Off-Peak Selection View
 ```
 
-### 1.2 目标行为
+### 1.2 Comportamento alvo
 
-Account 首次事实未知且没有 Last Known Good Snapshot 时，所有受 Account Overlay 控制的 Built-in Provider 都必须显式关闭：
+Quando os fatos iniciais da Account são desconhecidos e não há Last Known Good Snapshot, todos os
+Built-in Providers controlados pelo Account Overlay devem ser desligados explicitamente:
 
 ```text
 Account-controlled Provider =
   access.type === "zhipu-account"
 ```
 
-Todo 26 已把普通账号与 Off-Peak 的静态身份统一收口为 `zhipu-account`，并由 `mode` 区分产品路径。
-正常 Account Resolver 与 fail-closed 复用同一 Account-controlled 判据，不能再维护旧 Access Type 白名单。
+O Todo 26 já unificou a identidade estática da conta comum e da Off-Peak em `zhipu-account`,
+distinguindo o caminho de produto pelo `mode`.
+O Account Resolver normal e o fail-closed reutilizam o mesmo critério de Provider controlado pela
+Account, e não podem mais manter uma whitelist legada de Access Type.
 
-### 1.3 验收
+### 1.3 Aceitação
 
-- 首次 Account 解析失败时，Start、Individual、Team 与两个 Off-Peak Provider 均为 `enabled=false`；
-- 普通 API Key 与 Personal Provider 仍可启动；
-- Off-Peak Model Selection View 不包含 fail-closed Provider；
-- 后续 Account 刷新成功后，以新 revision 原子替换 fail-closed Snapshot；
-- 不修改固定 Off-Peak Provider ID、Provider group、visibility 或请求期鉴权运行契约。
+- Na primeira falha de resolução de Account, Start, Individual, Team e os dois Providers de
+  Off-Peak ficam todos com `enabled=false`;
+- API Key comum e Personal Provider ainda podem iniciar;
+- A Off-Peak Model Selection View não contém o Provider em fail-closed;
+- Após uma atualização bem-sucedida da Account, o Snapshot fail-closed é substituído atomicamente
+  pela nova revision;
+- Não se modifica o Provider ID fixo de Off-Peak, o provider group, a visibility nem o contrato
+  de execução da autenticação em tempo de requisição.
 
-## 2. 最大输出 Token 单一编辑入口
+## 2. Entrada única de edição do Token de saída máximo
 
-### 2.1 删除重复 UI
+### 2.1 Remoção da UI duplicada
 
-设置页删除“最大输出 Token Option Spec JSON”编辑器及对应 Draft 字段。底层正式配置继续保留：
+A página de configurações remove o editor「最大输出 Token Option Spec JSON」e o campo de Draft
+correspondente. A configuração oficial subjacente é mantida:
 
 ```ts
 optionSpecs: {
@@ -106,11 +127,15 @@ optionSpecs: {
 }
 ```
 
-不得删除 `LimitOptionSpec`、Provider Schema、Effective Model Config、Model Options 校验或 Runtime 对 `max/default` 的使用。推理档位 Option Spec JSON 与 Reasoning Mapping JSON 继续保留。
+Não é permitido remover `LimitOptionSpec`, o Provider Schema, o Effective Model Config, a
+validação de Model Options ou o uso de `max/default` pelo Runtime. O Option Spec JSON dos níveis
+de reasoning e o Reasoning Mapping JSON continuam existindo.
 
-### 2.2 唯一输入语义
+### 2.2 Semântica de input única
 
-界面的“最大输出 Token”输入框表达用户希望使用的默认输出 Token 数 `N`。比较基准是排除当前 Personal `maxOutputTokens` 槽位后解析出的继承 `max`，记为 `inheritedLimit`：
+O campo「最大输出 Token」da interface expressa o número de tokens de saída que o usuário deseja
+usar como padrão, `N`. A base de comparação é o `max` herdado resolvido após excluir o slot
+Personal atual de `maxOutputTokens`, registrado como `inheritedLimit`:
 
 ```text
 N <= inheritedLimit
@@ -122,7 +147,7 @@ N > inheritedLimit
    default = N
 ```
 
-示例：
+Exemplo:
 
 ```text
 Inherited: max=32000, default=16000
@@ -137,27 +162,35 @@ Inherited: max=32000, default=16000
 -> Personal: max=32000, default=8000
 ```
 
-第三步必须把 `max` 恢复为 `inheritedLimit`，不能拿已经被 Personal 扩大后的 Effective `max` 作为比较基准。输入等于 `inheritedLimit` 时保持继承 `max`，并将 `default` 设为该值。
+O terceiro passo precisa restaurar `max` para `inheritedLimit` e não pode usar como base de
+comparação o `max` Efetivo já ampliado pelo Personal. Quando o input é igual a `inheritedLimit`,
+mantém-se o `max` herdado e define-se `default` como esse valor.
 
-用户输入即表达显式 Personal 意图；即使 `N` 恰好等于继承 `default`，仍保存为显式 Personal 槽位。清空该输入框会删除
-`maxOutputTokens` Personal 槽位并重新继承；“全部恢复默认”则一次清除该模型的全部 Personal Model Config Overlay。
+O input do usuário expressa uma intenção Personal explícita; mesmo que `N` coincida exatamente com
+o `default` herdado, ele ainda é salvo como slot Personal explícito. Limpar o campo remove o slot
+Personal `maxOutputTokens` e volta a herdar;「全部恢复默认」remove de uma vez todo o Personal
+Model Config Overlay daquele modelo.
 
-完整 Model Config 必须能够解析出 `inheritedLimit`；缺失时显示明确校验错误，不能根据 modelId、Provider 类型或任意常量猜测。
+O Model Config completo precisa conseguir resolver `inheritedLimit`; quando ausente, exibe-se um
+erro de validação explícito, e nunca se adivinha a partir de modelId, tipo de Provider ou
+constante arbitrária.
 
-### 2.3 验收
+### 2.3 Aceitação
 
-- 页面只存在一个最大输出 Token 编辑入口；
-- 小于、等于、大于继承 limit 的输入分别按上述规则生成完整 `LimitOptionSpec`；
-- 先扩大 limit、再输入较小值时，`max` 恢复为继承 limit；
-- 保存、重新打开和 JSON round-trip 后值不漂移；
-- “全部恢复默认”删除完整 Personal 槽位；
-- 不再存在 JSON 静默压过数字输入的优先级。
+- Existe apenas uma entrada de edição do Token de saída máximo na página;
+- Inputs menores, iguais e maiores que o limit herdado geram o `LimitOptionSpec` completo segundo
+  as regras acima;
+- Ao ampliar primeiro o limit e depois digitar um valor menor, `max` volta ao limit herdado;
+- O valor não sofre drift após salvar, reabrir e fazer round-trip do JSON;
+-「全部恢复默认」remove o slot Personal completo;
+- Não existe mais uma prioridade em que o JSON sobrescreve silenciosamente o input numérico.
 
-## 3. Configured Default 锁内恢复
+## 3. Recuperação do Configured Default dentro do lock
 
-### 3.1 背景
+### 3.1 Contexto
 
-Configured Default 是 Environment 级、可重建的 Model Selection 偏好，不是 Provider Config：
+O Configured Default é uma preferência de Model Selection de nível Environment e reconstruível,
+e não um Provider Config:
 
 ```ts
 {
@@ -167,11 +200,14 @@ Configured Default 是 Environment 级、可重建的 Model Selection 偏好，�
 }
 ```
 
-文件损坏不能阻断 Registry、Model Selection View 或 ZCode CLI 执行进程启动；忽略或删除确定损坏的偏好、再使用 Registry fallback 是正确策略。
+Um arquivo corrompido não pode bloquear a inicialização do Registry, da Model Selection View ou
+do processo ZCode CLI em execução; ignorar ou excluir uma preferência comprovadamente corrompida
+e depois usar o fallback do Registry é a estratégia correta.
 
-### 3.2 当前竞态
+### 3.2 Corrida atual
 
-当前实现捕获 `withFileLock()` 的所有失败，并在离开文件锁后删除目标文件：
+A implementação atual captura todas as falhas de `withFileLock()` e exclui o arquivo de destino
+depois de sair do lock de arquivo:
 
 ```text
 进程 A                         进程 B
@@ -187,9 +223,11 @@ rm(filePath)
 └─ 删除 B 刚写入的合法偏好
 ```
 
-同时，锁获取失败、权限错误、临时 IO 错误和 JSON/Schema 损坏被合并成同一种恢复动作。前几类错误不能证明文件内容损坏，不应触发删除。
+Além disso, falha ao obter o lock, erro de permissão, erro temporário de IO e corrupção de
+JSON/Schema são mesclados numa única ação de recuperação. As primeiras categorias de erro não
+provam que o conteúdo do arquivo está corrompido e não devem disparar exclusão.
 
-### 3.3 目标行为
+### 3.3 Comportamento alvo
 
 ```text
 withFileLock
@@ -203,21 +241,28 @@ withFileLock
          `-> 不删除文件；本轮忽略偏好并报告恢复事件
 ```
 
-Configured Default 可重建，因此不要求像 Personal Config 一样保留恢复备份；但删除必须同时满足“确定内容损坏”和“仍持有文件锁”。Legacy importer 失败不得删除另一个进程后来写入的正式文件。
+O Configured Default é reconstruível e portanto não exige backup de recuperação como o Personal
+Config; mas a exclusão precisa satisfazer simultaneamente "conteúdo comprovadamente corrompido" e
+"ainda segurando o lock do arquivo". Uma falha do Legacy importer não pode excluir o arquivo
+oficial escrito depois por outro processo.
 
-### 3.4 验收
+### 3.4 Aceitação
 
-- 非法 JSON、非法 Schema 或不支持版本不会阻断启动；
-- 确认损坏时只在持锁状态下删除；
-- 锁获取失败、读取权限错误和临时 IO 错误只产生本轮 fallback，不删除目标文件；
-- 并发保存与损坏恢复不能删除后来写入的合法 Selection；
-- 保存与读取继续保留完整结构化 `ModelSelection.options`。
+- JSON inválido, Schema inválido ou versão não suportada não bloqueiam a inicialização;
+- Quando a corrupção é confirmada, a exclusão acontece somente com o lock retido;
+- Falha ao obter o lock, erro de permissão de leitura e erro temporário de IO produzem apenas
+  fallback na rodada corrente, sem excluir o arquivo de destino;
+- Salvamento concorrente e recuperação de corrupção não podem excluir uma Selection válida
+  escrita depois;
+- Salvamento e leitura continuam preservando o `ModelSelection.options` estruturado completo.
 
-## 4. Account 同步使用专属 Source Schema
+## 4. Sincronização de Account usa o Schema exclusivo da Source
 
-### 4.1 职责边界
+### 4.1 Limites de responsabilidade
 
-Host Account Resolver 已经负责把登录、套餐和团队接口的上游结果解析成 Account Provider Overlay。CLI 同步入口不重新解析账号业务，只做物理 Schema 校验和 Snapshot 替换：
+O Host Account Resolver já é responsável por parsear os resultados upstream de login, pacote e
+interfaces de equipe em um Account Provider Overlay. A entrada de sincronização do CLI não
+reparseia o negócio da conta, faz apenas validação física de Schema e substituição de Snapshot:
 
 ```text
 Host Account Resolver
@@ -236,76 +281,99 @@ Mutable Account Source.replace(snapshot)
 通用 Registry Resolver 执行 Overlay
 ```
 
-同步入口不得：
+A entrada de sincronização não pode:
 
-- 使用通用 `parseProviderConfigMap()` 后再手写 `access.type` 门禁；
-- 重新实现 Account Connection Resolver；
-- 根据 Provider ID、Family 或 Access Type 自行拼接一份 Account Config；
-- 查询账号、套餐或凭据；
-- 接受 `label`、`api`、`group`、`visibility`、`modelIds` 等不属于 Account Source 的字段。
+- Usar o `parseProviderConfigMap()` genérico e depois escrever à mão a checagem de `access.type`;
+- Reimplementar o Account Connection Resolver;
+- Montar por conta própria uma Account Config a partir de Provider ID, Family ou Access Type;
+- Consultar conta, pacote ou credenciais;
+- Aceitar campos como `label`, `api`, `group`, `visibility`, `modelIds`, que não pertencem à
+  Account Source.
 
-### 4.2 目标实现
+### 4.2 Implementação alvo
 
-`parseProcessAccountProviderConfigSnapshot()` 对 `providers` 直接调用正式 `parseAccountProviderConfigMap()`。删除同步入口现有的通用 Provider Parser 和手工遍历门禁。
+`parseProcessAccountProviderConfigSnapshot()` chama diretamente o `parseAccountProviderConfigMap()`
+oficial para `providers`. O Parser genérico de Provider e a checagem manual por travessia
+presentes na entrada de sincronização são removidos.
 
-Account Source 专属 Schema 继续机械限制当前允许的字段：
+O Schema exclusivo da Account Source continua restringindo mecanicamente os campos permitidos
+atualmente:
 
-- `enabled`；
-- 当前账号约束的 `builtinModelIds`；
-- Account Access 的非敏感产品与协议事实。
+- `enabled`;
+- `builtinModelIds` restringidos pela conta atual;
+- Fatos de produto e de protocolo não sensíveis do Account Access.
 
-Off-Peak Account Overlay 只同步 `enabled`，因此切换专属 Schema 不影响 Off-Peak。公共 `accessId` 已由
-Todo 23/26 删除；Account Source Schema 不接受任何替代名称的公共凭据引用。
+O Account Overlay de Off-Peak sincroniza apenas `enabled`, portanto trocar para o Schema
+exclusivo não afeta o Off-Peak. O `accessId` público já foi removido pelo
+Todo 23/26; o Schema da Account Source não aceita nenhuma referência pública a credenciais sob
+nome substituto.
 
-### 4.3 验收
+### 4.3 Aceitação
 
-- 合法 Start、Individual、Team Account Overlay 可以跨进程 round-trip；
-- `{ enabled: true/false }` Off-Peak Overlay 可以跨进程 round-trip；
-- Account 同步拒绝 API Key、Endpoint、Headers、label、group、visibility、Personal modelIds；
-- CLI 不重新执行账号业务 Resolver；
-- 同步消息不包含 JWT、API Key、Team Key、临时 Header 或 Credential Store key；
-- Host 与 CLI 使用相同 Account Snapshot revision，CLI 只保存本地执行副本。
+- Overlays de Account válidos de Start, Individual e Team podem fazer round-trip entre processos;
+- Overlays de Off-Peak no formato `{ enabled: true/false }` podem fazer round-trip entre
+  processos;
+- A sincronização de Account recusa API Key, Endpoint, Headers, label, group, visibility e
+  modelIds pessoais;
+- O CLI não reexecuta o Resolver de negócio da conta;
+- A mensagem de sincronização não contém JWT, API Key, Team Key, Headers temporários ou chave do
+  Credential Store;
+- Host e CLI usam a mesma revision do Account Snapshot, e o CLI guarda apenas uma cópia local de
+  execução.
 
-## 5. 与 Todo 23 的边界
+## 5. Fronteira com o Todo 23
 
-本 Bugfix 可以独立完成，不等待 Todo 23：
+Este Bugfix pode ser concluído de forma independente, sem esperar o Todo 23:
 
-- fail-closed 覆盖 Off-Peak；
-- 最大输出 Token 唯一入口与确定性 `max/default` 推导；
-- Configured Default 锁内恢复；
-- Account 跨进程专属 Schema。
+- fail-closed cobrindo o Off-Peak;
+- entrada única de Token de saída máximo e dedução determinística de `max/default`;
+- recuperação do Configured Default dentro do lock;
+- Schema exclusivo de Account entre processos.
 
-以下问题没有在本 Bugfix 中叠补偿，已由 Todo 23 完成：
+Os problemas abaixo não foram sobrepostos neste Bugfix e já foram concluídos pelo Todo 23:
 
-- 删除公共 `accessId`，账号凭据和连接版本收回 Account Service；
-- Model 编辑一次原子 Host Mutation；
-- rename、membership、modelOrder 和 Personal Rule 同事务提交；
-- 保存失败保留弹窗与 Draft；
-- Personal、Inherited 与 Effective Preview 分离的四态 Draft；
-- Built-in 简化编辑器与 Personal-only 完整编辑器分流；
-- 相关 Design、Feature Graph 与旧 Todo 的最终事实归零。
+- remoção do `accessId` público, com as credenciais de conta e a versão da conexão devolvidas ao
+  Account Service;
+- mutação Host atômica única na edição de Model;
+- commit de rename, membership, modelOrder e Personal Rule na mesma transação;
+- preservação do diálogo e do Draft quando o salvamento falha;
+- Draft de quatro estados separando Personal, Inherited e Effective Preview;
+- desvio entre o editor simplificado Built-in e o editor completo Personal-only;
+- zeragem final dos fatos de Design, Feature Graph e Todo legados.
 
-## 6. 实施顺序与完成条件
+## 6. Ordem de implementação e condições de conclusão
 
-实施必须测试先行，建议顺序：
+A implementação deve ser test-first; ordem sugerida:
 
-1. 为 fail-closed Off-Peak、Configured Default 并发恢复和 Account Source Schema 写失败测试；
-2. 修复三项领域/持久化边界；
-3. 为最大输出 Token 小于、等于、大于、扩大后缩小和恢复默认写失败测试；
-4. 删除重复 JSON UI 并实现唯一输入推导；
-5. 执行 Provider、Provider Node、Bootstrap、Services 与 UI 定向测试；
-6. 执行 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check` 和 `git diff --check`；
-7. 检查 Desktop/Web/Mobile、中英文与两种主题下设置页没有布局或交互回归；
-8. 完成后提交 Conventional Commit，并更新本文件状态与实施证据。
+1. Escrever testes de falha para o fail-closed de Off-Peak, a recuperação concorrente do Configured
+   Default e o Schema da Account Source;
+2. Corrigir as três fronteiras de domínio/persistência;
+3. Escrever testes de falha para o Token de saída máximo menor, igual, maior, ampliado e depois
+   reduzido, e para a restauração do padrão;
+4. Remover a UI de JSON duplicada e implementar a dedução a partir do input único;
+5. Executar os testes direcionados de Provider, Provider Node, Bootstrap, Services e UI;
+6. Executar `pnpm typecheck`, `pnpm lint`, `pnpm fmt:check` e `git diff --check`;
+7. Verificar que a página de configurações não sofreu regressão de layout ou interação em
+   Desktop/Web/Mobile, nos idiomas chinês e inglês e nos dois temas;
+8. Ao concluir, enviar um Conventional Commit e atualizar o status e as evidências de implementação
+   deste arquivo.
 
-只有四项验收全部满足，且没有新增第二套 Account Resolver、Provider Parser、Model Config DTO 或运行时具体模型特判，才能将本 Bugfix 标记为完成。
+Só é possível marcar este Bugfix como concluído quando as quatro aceitações forem satisfeitas e
+não tiver sido introduzido um segundo conjunto de Account Resolver, Provider Parser, Model Config
+DTO ou tratamento de modelo específico por caso no runtime.
 
-## 7. 实施结果
+## 7. Resultado da implementação
 
-- 第 1 项 Off-Peak fail-closed 与第 4 项 Account Source 专属 Schema 已由前序提交完成；
-- 第 3 项 Configured Default 已收口：确认 JSON/Schema/版本损坏时在同一文件锁内删除；锁、读取与 Legacy
-  importer 失败只做本轮 fallback，不再锁外删除；非法内容和非内容读取失败均有回归测试；
-- 第 2 项已与 Todo 27 一并完成：删除完整 `maxOutputTokens` JSON 编辑器和对应 Draft 字段，唯一数字输入
-  表达 Personal 默认输出值 `N`，确定性解析为 `max=max(inherited.max,N)`、`default=N`；清空重新继承；
-  小于、等于、大于、先扩大后缩小均有回归测试；
-- UI 定向测试与根 `pnpm typecheck` 已通过；最终 lint、格式与全量回归证据随 Todo 27 收口记录统一补充。
+- O item 1, fail-closed de Off-Peak, e o item 4, Schema exclusivo da Account Source, foram
+  concluídos por commits anteriores;
+- O item 3, Configured Default, foi fechado: na confirmação de corrupção de JSON/Schema/versão a
+  exclusão ocorre dentro do mesmo lock de arquivo; falhas de lock, de leitura e do Legacy
+  importer fazem apenas fallback na rodada corrente, sem exclusão fora do lock; tanto conteúdo
+  inválido quanto falhas de leitura sem relação com o conteúdo têm testes de regressão;
+- O item 2 foi concluído junto com o Todo 27: o editor JSON completo de `maxOutputTokens` e o
+  campo de Draft correspondente foram removidos, e o único input numérico expressa o valor de
+  saída padrão Personal `N`, resolvido deterministicamente em `max=max(inherited.max,N)` e
+  `default=N`; limpar o campo volta a herdar; menor, igual, maior e ampliado-depois-reduzido têm
+  testes de regressão;
+- Os testes direcionados de UI e o `pnpm typecheck` da raiz passaram; as evidências finais de lint,
+  formatação e regressão completa são registradas de forma unificada no fechamento do Todo 27.

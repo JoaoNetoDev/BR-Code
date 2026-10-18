@@ -1,110 +1,110 @@
-# 内置 Subagent 模型覆盖实施计划
+# Plano de Implementação de Overrides de Modelo para Subagents Integrados
 
-> **给执行 agent：** 必须使用 `superpowers:executing-plans` 按任务执行。本计划的步骤使用 `- [ ]` checklist 语法，执行时逐项勾选。
+> **Para o agente executor:** é obrigatório usar `superpowers:executing-plans` para executar as tarefas. Os passos deste plano usam a sintaxe de checklist `- [ ]`; durante a execução, marque cada item individualmente.
 
-**目标：** 让用户可以像 custom subagent 一样，为内置 `general-purpose` 和 `Explore` subagent 持久配置模型。
+**Objetivo:** permitir que o usuário configure modelos persistentes para os subagents integrados `general-purpose` e `Explore`, assim como já faz com subagents customizados.
 
-**架构：** 不把内置 subagent 变成可编辑 custom agent，而是在现有 subagent state 上增加一层 built-in model override。Settings 只开放内置 agent 的模型选择，runtime 启动时读取同一份 state 并注入 built-in profile；`Explore` 的工具面必须和最终 child model 使用同一个 effective model 计算。
+**Arquitetura:** em vez de transformar os subagents integrados em custom agents editáveis, adicionamos uma camada de override de modelo para integrados sobre o estado de subagents existente. Settings só expõe a seleção de modelo dos agentes integrados; o runtime, na inicialização, lê o mesmo estado e injeta o built-in profile; a superfície de ferramentas de `Explore` precisa ser calculada com o mesmo effective model do child model final.
 
-**技术栈：** TypeScript、React、Vitest、Zod/JSON Schema tool contract、现有 subagents service、现有 zcode-cli runtime/bootstrap。
+**Stack técnico:** TypeScript, React, Vitest, contrato de ferramentas Zod/JSON Schema, serviço de subagents existente, runtime/bootstrap zcode-cli existente.
 
-## 本轮执行边界
+## Limites de execução desta rodada
 
-- 不自动提交；计划中的 `git commit` 步骤只作为人工提交参考，本轮执行不运行。
-- 不修改 `package.json`、`pnpm-lock.yaml`、`pnpm-workspace.yaml` 或构建拓扑；如果 E2E 构建入口因既有 workspace 问题失败，只记录为验证阻塞。
-- E2E 不验证“Settings 热保存后已启动 agent 立即生效”。当前桌面 agent 会在窗口启动早期初始化，正式 E2E 只验证启动前已有 `agents-state.json` 覆盖时：Settings 回显、bootstrap 读取、child provider-visible request 使用覆盖模型。
-- Settings 保存/清空覆盖由 UI/service 单测覆盖；provider-visible runtime 生效由 core/bootstrap 单测和冷启动 WDIO case 覆盖。
-- 只覆盖内置 `general-purpose` / `Explore` 的模型覆盖；不扩展 prompt/tools/description/delete/disable，也不引入 workspace 级覆盖或 mobile `/remote` replayable 语义。
-- `Explore` 的工具面断言以 effective child model 为准；无覆盖时 effective child model 继承主模型，不能再按旧 `lite` 默认值计算。
+- Sem commit automático; os passos de `git commit` do plano servem apenas de referência para commit manual e não são executados nesta rodada.
+- Não modificar `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` nem a topologia de build; se a entrada de build E2E falhar por problemas preexistentes de workspace, registrar apenas como bloqueio de verificação.
+- E2E não verifica "após salvar a caliente em Settings, agentes já inicializados passam a valer imediatamente". O agente desktop atual inicializa no início da abertura da janela, então o E2E oficial verifica apenas o cenário em que existe uma sobrescrita em `agents-state.json` antes do início: reflexo em Settings, leitura no bootstrap e requisição child provider-visible usando o modelo sobrescrito.
+- Salvar/limpar a sobrescrita em Settings é coberto por testes unitários de UI/service; a eficácia no runtime provider-visible é coberta por testes unitários de core/bootstrap e por um caso WDIO de cold start.
+- Cobrir apenas o override de modelo dos integrados `general-purpose` / `Explore`; não estender prompt/tools/description/delete/disable, nem introduzir override em nível de workspace nem semântica de replay mobile `/remote`.
+- As asserções da superfície de ferramentas de `Explore` devem usar o child model efetivo; sem override, o child model efetivo herda o modelo principal, e não pode mais ser calculado pelo antigo valor padrão `lite`.
 
-## 全局约束
+## Restrições globais
 
-- 新增功能先补 `docs` spec，再实现代码。
-- 涉及 `packages/ui` 的 UI 改动前必须遵守根目录 `DESIGN.md`。
-- 内置 `general-purpose` / `Explore` 仍然只读；本计划只开放模型覆盖，不开放 prompt、tools、description、delete、disable。
-- custom subagent 现有模型格式继续使用 `custom:provider-id:model-id`，不新增第二套模型 id 格式。
-- `general-purpose` 未配置覆盖时继续继承父会话主模型。
-- `Explore` 未配置覆盖时继承父会话主模型。
-- `Explore` provider-visible child tools 必须按最终 effective child model 判断 embedded-search 分支。
-- 不把 subagent/session/task 状态下沉到 relay 或 Electron main。
-- 若执行中改动 `Agent` tool provider-visible schema，必须同步更新 `apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md` 与 `apps/zcode-cli/docs/design/v2/tool/07-subagent.md`。
-- 每个 phase 完成后跑 targeted tests；最终跑 `pnpm typecheck` 与 `pnpm lint`。
+- Novas funcionalidades primeiro recebem spec em `docs`, depois vêm a implementação do código.
+- Mudanças de UI que envolvam `packages/ui` devem respeitar o `DESIGN.md` da raiz antes de serem feitas.
+- Os integrados `general-purpose` / `Explore` continuam somente leitura; este plano só abre o override de modelo, não abre prompt, tools, description, delete, disable.
+- O formato de modelo já existente dos custom subagents continua sendo `custom:provider-id:model-id`; não criar um segundo formato de model id.
+- `general-purpose` sem override configurado continua herdando o modelo principal da sessão pai.
+- `Explore` sem override configurado herda o modelo principal da sessão pai.
+- As ferramentas child provider-visible de `Explore` devem decidir o ramo de embedded-search pelo child model efetivo final.
+- Não afundar o estado de subagent/session/task em relay ou Electron main.
+- Se a execução alterar o schema provider-visible da ferramenta `Agent`, é preciso atualizar junto `apps/zcode-cli/docs/design/v2/tool/00-tool-change-chain.md` e `apps/zcode-cli/docs/design/v2/tool/07-subagent.md`.
+- Rodar testes direcionados ao fim de cada phase; ao final, rodar `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-## 当前事实
+## Fatos Atuais
 
-- `apps/zcode-cli/packages/core/src/subagent/profile.ts` 的 `AgentProfile` 已支持 `model?: string`。
-- custom markdown profile 已支持保存 `model: custom:provider:model`。
-- `createBuiltInExploreAgentProfile()` 当前不再写默认 `model` 字段，运行时等价于继承 main model。
-- `createBuiltInGeneralPurposeAgentProfile()` 当前没有 `model` 字段，运行时等价于继承 main model。
-- `apps/zcode-cli/packages/core/src/subagent/runner.ts` 已经把 `request.model` 与 `profile.model` 合并后传给 child runtime。
-- `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` 已经能把 `custom:provider:model` 解析成 `ModelRef`。
-- `packages/services/src/subagents/subagentsService.ts` 当前把内置 agent 作为 `readOnly: true` summary 返回。
-- `packages/ui/src/settings/SubagentsSection.tsx` 当前只允许 user agent edit/delete/toggle，并隐藏 built-in model badge。
+- O `AgentProfile` em `apps/zcode-cli/packages/core/src/subagent/profile.ts` já suporta `model?: string`.
+- O custom markdown profile já suporta salvar `model: custom:provider:model`.
+- `createBuiltInExploreAgentProfile()` hoje não escreve mais o campo `model` padrão; em runtime equivale a herdar o main model.
+- `createBuiltInGeneralPurposeAgentProfile()` hoje não tem campo `model`; em runtime equivale a herdar o main model.
+- `apps/zcode-cli/packages/core/src/subagent/runner.ts` já mescla `request.model` com `profile.model` e passa para o child runtime.
+- `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` já consegue resolver `custom:provider:model` em `ModelRef`.
+- `packages/services/src/subagents/subagentsService.ts` hoje retorna os agentes integrados como summary com `readOnly: true`.
+- `packages/ui/src/settings/SubagentsSection.tsx` hoje só permite edição/exclusão/toggle de user agent e esconde o badge de modelo do built-in.
 
-## 文件职责
+## Responsabilidades dos Arquivos
 
-- 新建 `docs/subagents-built-in-model-overrides.md`：功能与 runtime 语义 spec。
-- 修改 `docs/ui/subagents-built-in-model-badge.md`：从“隐藏内置模型 badge”改成“内置模型只读配置控件”。
-- 修改 `packages/shared/src/subagents-types.ts`：共享 built-in override 类型与 service 参数。
-- 修改 `packages/services/src/subagents/subagents.ts`：新增 service 方法。
-- 修改 `packages/services/src/subagents/subagentsService.ts`：读写 state、投影 built-in effective model。
-- 修改 `packages/services/test/subagentsService.test.ts`：service 侧 state 与 list 测试。
-- 修改 `apps/zcode-cli/packages/bootstrap/src/subagents.ts`：启动时读取 built-in overrides。
-- 修改 `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`：把 overrides 传入 runtime config。
-- 修改 `apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts`：合并 config overrides。
-- 修改 `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`：bootstrap loader 测试。
-- 修改 `apps/zcode-cli/packages/core/src/runtime/types.ts`：runtime config 增加 `subagents.builtInModelOverrides`。
-- 修改 `apps/zcode-cli/packages/core/src/subagent/profile.ts`：built-in profile 创建时接收 overrides。
-- 修改 `apps/zcode-cli/packages/core/src/subagent/runner.ts`：`Explore` allowed tools 接收 effective model 上下文。
-- 修改 `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`：抽 shared effective model resolver，供 child runtime 与 allowlist 共用。
-- 修改 `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`：profile override 测试。
-- 修改 `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`：provider-visible child model 与 `Explore` tool branch 测试。
-- 修改 `packages/ui/src/settings/SubagentsSection.tsx`：内置 row 增加模型控件。
-- 修改 `packages/ui/test/subagentsSection.test.ts`：UI 渲染与保存行为测试。
-- 修改现有 i18n 文件：补内置默认模型、保存失败文案。
+- Criar `docs/subagents-built-in-model-overrides.md`: spec da funcionalidade e da semântica de runtime.
+- Modificar `docs/ui/subagents-built-in-model-badge.md`: de "esconder o badge de modelo do built-in" para "controle de configuração somente leitura do modelo integrado".
+- Modificar `packages/shared/src/subagents-types.ts`: tipo compartilhado de override de integrado e parâmetros de service.
+- Modificar `packages/services/src/subagents/subagents.ts`: novos métodos de service.
+- Modificar `packages/services/src/subagents/subagentsService.ts`: ler/escrever estado e projetar o effective model dos integrados.
+- Modificar `packages/services/test/subagentsService.test.ts`: testes de estado e de listagem do lado do service.
+- Modificar `apps/zcode-cli/packages/bootstrap/src/subagents.ts`: ler overrides de integrados na inicialização.
+- Modificar `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`: passar os overrides para a config do runtime.
+- Modificar `apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts`: mesclar overrides de config.
+- Modificar `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`: testes do loader do bootstrap.
+- Modificar `apps/zcode-cli/packages/core/src/runtime/types.ts`: runtime config ganha `subagents.builtInModelOverrides`.
+- Modificar `apps/zcode-cli/packages/core/src/subagent/profile.ts`: built-in profile recebe os overrides ao ser criado.
+- Modificar `apps/zcode-cli/packages/core/src/subagent/runner.ts`: allowed tools de `Explore` recebem o contexto de effective model.
+- Modificar `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`: extrair o resolvedor compartilhado de effective model, usado tanto pelo child runtime quanto pela allowlist.
+- Modificar `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`: testes de override de profile.
+- Modificar `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`: testes de child model provider-visible e do ramo de ferramentas de `Explore`.
+- Modificar `packages/ui/src/settings/SubagentsSection.tsx`: adicionar controle de modelo na linha de integrado.
+- Modificar `packages/ui/test/subagentsSection.test.ts`: testes de renderização e de comportamento de salvamento da UI.
+- Modificar os arquivos de i18n existentes: adicionar o modelo padrão dos integrados e o texto de falha ao salvar.
 
-## Phase 0：补 spec 并锁定边界
+## Phase 0: escrever o spec e travar os limites
 
-### Task 1：写功能 spec
+### Task 1: escrever o spec da funcionalidade
 
-**文件：**
-- 新建 `docs/subagents-built-in-model-overrides.md`
-- 修改 `docs/ui/subagents-built-in-model-badge.md`
+**Arquivos:**
+- Criar `docs/subagents-built-in-model-overrides.md`
+- Modificar `docs/ui/subagents-built-in-model-badge.md`
 
-**产出接口：**
-- 明确 `BuiltInSubagentName = "general-purpose" | "Explore"`。
-- 明确 `builtInModelOverrides` 存储在现有 subagent state 文件里。
-- 明确内置 agent 只开放模型覆盖。
+**Interfaces de saída:**
+- Deixar explícito `BuiltInSubagentName = "general-purpose" | "Explore"`.
+- Deixar explícito que `builtInModelOverrides` fica no arquivo de estado de subagents existente.
+- Deixar explícito que os agentes integrados só abrem o override de modelo.
 
-- [ ] **Step 1：创建功能 spec**
+- [ ] **Step 1: criar o spec da funcionalidade**
 
-创建 `docs/subagents-built-in-model-overrides.md`，写入：
+Criar `docs/subagents-built-in-model-overrides.md`, escrevendo:
 
 ````markdown
-# 内置 Subagent 模型覆盖
+# Overrides de Modelo para Subagents Integrados
 
-## 目标
+## Objetivo
 
-用户可以为内置 `general-purpose` 和 `Explore` subagent 配置持久模型覆盖。
+O usuário pode configurar overrides de modelo persistentes para os subagents integrados `general-purpose` e `Explore`.
 
-## 非目标
+## Não objetivos
 
-- 不允许编辑内置 agent 的名称、描述、system prompt、tools、权限、删除状态。
-- 不允许禁用内置 agent。
-- 不新增 workspace 级内置覆盖。
-- 不改变 custom subagent 的 markdown 模型字段语义。
+- Não é permitido editar nome, descrição, system prompt, tools, permissões ou estado de exclusão dos agentes integrados.
+- Não é permitido desabilitar os agentes integrados.
+- Não criar override de integrado em nível de workspace.
+- Não mudar a semântica do campo de modelo em markdown dos custom subagents.
 
-## 默认行为
+## Comportamento padrão
 
-- `general-purpose` 未配置覆盖时继承父会话 main model。
-- `Explore` 未配置覆盖时继承父会话 main model。
-- 清空覆盖后恢复上述默认行为。
+- `general-purpose` sem override configurado herda o main model da sessão pai.
+- `Explore` sem override configurado herda o main model da sessão pai.
+- Depois de limpar o override, volta o comportamento padrão acima.
 
-## 存储格式
+## Formato de armazenamento
 
-扩展现有 subagent state：
+Estender o estado de subagents existente:
 
 ```json
 {
@@ -116,76 +116,76 @@
 }
 ```
 
-缺少 `builtInModelOverrides` 表示没有覆盖。
+A ausência de `builtInModelOverrides` significa que não há override.
 
-## Runtime 语义
+## Semântica de runtime
 
 ```ts
 type BuiltInSubagentName = "general-purpose" | "Explore";
 type BuiltInSubagentModelOverrides = Partial<Record<BuiltInSubagentName, string>>;
 ```
 
-runtime bootstrap 读取 state 后，把 overrides 注入 built-in profile 构造。custom / project / plugin profile 的既有加载与优先级保持不变。
+Após ler o estado, o bootstrap do runtime injeta os overrides na construção do built-in profile. O carregamento e a precedência existentes de profiles custom / project / plugin permanecem iguais.
 
-## Explore 工具面
+## Superfície de ferramentas do Explore
 
-`Explore` 的 allowed tools 必须使用最终 effective child model 判断 embedded-search 分支。也就是说，无覆盖时应按继承的 main model 计算，配置覆盖后按覆盖模型计算。
+Os allowed tools de `Explore` precisam usar o child model efetivo final para decidir o ramo de embedded-search. Ou seja, sem override o cálculo é pelo main model herdado, e com override configurado é pelo modelo sobrescrito.
 
-## 验收
+## Aceitação
 
-- Settings 中内置 agent 有模型控件。
-- Settings 中内置 agent 仍无编辑、删除、禁用入口。
-- 保存 `general-purpose` 覆盖后，child provider-visible request 使用覆盖模型。
-- 保存 `Explore` 覆盖后，child provider-visible request 使用覆盖模型。
-- `Explore` child tools 与覆盖模型能力一致。
-- 清空覆盖恢复默认模型。
+- Em Settings, os agentes integrados têm um controle de modelo.
+- Em Settings, os agentes integrados continuam sem entradas de edição, exclusão ou desativação.
+- Depois de salvar o override de `general-purpose`, a requisição child provider-visible usa o modelo sobrescrito.
+- Depois de salvar o override de `Explore`, a requisição child provider-visible usa o modelo sobrescrito.
+- As ferramentas child de `Explore` são coerentes com as capacidades do modelo sobrescrito.
+- Limpar o override restaura o modelo padrão.
 ````
 
-- [ ] **Step 2：更新 UI 文档**
+- [ ] **Step 2: atualizar a documentação de UI**
 
-把 `docs/ui/subagents-built-in-model-badge.md` 改为：
+Reescrever `docs/ui/subagents-built-in-model-badge.md` como:
 
 ```markdown
-# 内置 Subagent 模型控件
+# Controle de Modelo dos Subagents Integrados
 
-Settings 为内置 subagent 显示模型控件，但其他字段仍保持只读。
+O Settings exibe um controle de modelo para os subagents integrados, mas os demais campos continuam somente leitura.
 
-- `general-purpose` 默认继承父会话 main model。
-- `Explore` 默认继承父会话 main model。
-- 用户选择具体模型后写入 built-in model override。
-- 清空覆盖后恢复内置默认行为。
-- 内置 agent 不显示 edit、delete、enabled switch、prompt editor 或 tools editor。
-- user 和 plugin subagent 继续沿用现有模型摘要展示。
+- `general-purpose` por padrão herda o main model da sessão pai.
+- `Explore` por padrão herda o main model da sessão pai.
+- Quando o usuário escolhe um modelo concreto, isso é gravado como built-in model override.
+- Depois de limpar o override, volta o comportamento padrão do integrado.
+- Agentes integrados não exibem edit, delete, enabled switch, prompt editor nem tools editor.
+- Subagents de usuário e de plugin continuam usando o resumo de modelo já existente.
 
-该规则影响 `packages/ui` 展示、settings service state，以及 bootstrap 注入 runtime 的 built-in profile。
+Essa regra afeta a exibição em `packages/ui`, o estado do settings service e o built-in profile injetado no runtime pelo bootstrap.
 ```
 
-- [ ] **Step 3：文档自检**
+- [ ] **Step 3: autoverificação da documentação**
 
-运行：
+Executar:
 
 ```bash
 node -e 'const fs=require("node:fs"); for (const file of ["docs/subagents-built-in-model-overrides.md","docs/ui/subagents-built-in-model-badge.md"]) { const text=fs.readFileSync(file,"utf8"); for (const marker of ["T"+"BD","TO"+"DO","implement "+"later","fill "+"in"]) { if (text.includes(marker)) { console.error(`${file}: ${marker}`); process.exitCode=1; } } }'
 ```
 
-预期：无输出，退出码为 0。
+Esperado: sem saída, código de saída 0.
 
-- [ ] **Step 4：提交 spec**
+- [ ] **Step 4: commitar o spec**
 
 ```bash
 git add docs/subagents-built-in-model-overrides.md docs/ui/subagents-built-in-model-badge.md
 git commit -m "docs: specify built-in subagent model overrides"
 ```
 
-## Phase 1：Shared 类型与 Service state
+## Phase 1: tipos compartilhados e estado do service
 
-### Task 2：补共享类型与 service 接口
+### Task 2: adicionar os tipos compartilhados e a interface do service
 
-**文件：**
-- 修改 `packages/shared/src/subagents-types.ts`
-- 修改 `packages/services/src/subagents/subagents.ts`
+**Arquivos:**
+- Modificar `packages/shared/src/subagents-types.ts`
+- Modificar `packages/services/src/subagents/subagents.ts`
 
-**产出接口：**
+**Interfaces de saída:**
 
 ```ts
 export type BuiltInSubagentName = "general-purpose" | "Explore";
@@ -197,9 +197,9 @@ export interface BuiltInSubagentModelOverrideParams {
 }
 ```
 
-- [ ] **Step 1：修改 shared 类型**
+- [ ] **Step 1: modificar os tipos compartilhados**
 
-在 `packages/shared/src/subagents-types.ts` 的 agent 类型区域加入：
+Adicionar na área de tipos de agente em `packages/shared/src/subagents-types.ts`:
 
 ```ts
 export type BuiltInSubagentName = "general-purpose" | "Explore";
@@ -207,14 +207,14 @@ export type BuiltInSubagentName = "general-purpose" | "Explore";
 export type BuiltInSubagentModelOverrides = Partial<Record<BuiltInSubagentName, AgentProfileModel>>;
 ```
 
-扩展 `AgentSummary`：
+Estender `AgentSummary`:
 
 ```ts
   defaultModel?: AgentProfileModel;
   modelOverride?: AgentProfileModel;
 ```
 
-加入 service 参数：
+Adicionar os parâmetros do service:
 
 ```ts
 export interface BuiltInSubagentModelOverrideParams {
@@ -223,39 +223,39 @@ export interface BuiltInSubagentModelOverrideParams {
 }
 ```
 
-- [ ] **Step 2：修改 service 接口**
+- [ ] **Step 2: modificar a interface do service**
 
-在 `packages/services/src/subagents/subagents.ts` 引入 `BuiltInSubagentModelOverrideParams`，并在 `ISubagentsService` 增加：
+Importar `BuiltInSubagentModelOverrideParams` em `packages/services/src/subagents/subagents.ts` e adicionar em `ISubagentsService`:
 
 ```ts
   setBuiltInModelOverride(params: BuiltInSubagentModelOverrideParams): Promise<void>;
 ```
 
-- [ ] **Step 3：运行类型检查**
+- [ ] **Step 3: rodar a checagem de tipos**
 
 ```bash
 pnpm typecheck
 ```
 
-预期：出现 implementation 缺少 `setBuiltInModelOverride` 的类型错误。
+Esperado: erro de tipo apontando que a implementação não tem `setBuiltInModelOverride`.
 
-### Task 3：实现 service state 读写
+### Task 3: implementar a leitura e escrita do estado no service
 
-**文件：**
-- 修改 `packages/services/src/subagents/subagentsService.ts`
-- 修改 `packages/services/test/subagentsService.test.ts`
+**Arquivos:**
+- Modificar `packages/services/src/subagents/subagentsService.ts`
+- Modificar `packages/services/test/subagentsService.test.ts`
 
-**消费接口：**
+**Interfaces consumidas:**
 - `BuiltInSubagentModelOverrides`
 - `BuiltInSubagentModelOverrideParams`
 
-**产出接口：**
+**Interfaces de saída:**
 - `createSubagentsService().setBuiltInModelOverride(...)`
-- `list()` 返回 built-in agent 的 `model`、`defaultModel`、`modelOverride`
+- `list()` devolve `model`, `defaultModel` e `modelOverride` dos agentes integrados
 
-- [ ] **Step 1：写失败测试**
+- [ ] **Step 1: escrever o teste que falha**
 
-在 `packages/services/test/subagentsService.test.ts` 的 `describe("createSubagentsService", ...)` 中加入：
+Adicionar dentro de `describe("createSubagentsService", ...)` em `packages/services/test/subagentsService.test.ts`:
 
 ```ts
   it("persists model overrides for built-in subagents without making them editable", async () => {
@@ -319,24 +319,24 @@ pnpm typecheck
   });
 ```
 
-- [ ] **Step 2：确认测试失败**
+- [ ] **Step 2: confirmar que o teste falha**
 
 ```bash
 pnpm --filter @zcode/services test -- --run test/subagentsService.test.ts
 ```
 
-预期：失败，原因是 `setBuiltInModelOverride` 尚未实现。
+Esperado: falha, porque `setBuiltInModelOverride` ainda não foi implementado.
 
-- [ ] **Step 3：扩展 state 结构**
+- [ ] **Step 3: estender a estrutura de estado**
 
-在 `packages/services/src/subagents/subagentsService.ts` 中修改 import：
+Modificar os imports em `packages/services/src/subagents/subagentsService.ts`:
 
 ```ts
   type BuiltInSubagentModelOverrideParams,
   type BuiltInSubagentModelOverrides,
 ```
 
-修改 state interface：
+Modificar a interface de estado:
 
 ```ts
 interface AgentsStateFile {
@@ -345,7 +345,7 @@ interface AgentsStateFile {
 }
 ```
 
-加入空 state helper：
+Adicionar o helper de estado vazio:
 
 ```ts
 function emptyAgentsState(): AgentsStateFile {
@@ -356,9 +356,9 @@ function emptyAgentsState(): AgentsStateFile {
 }
 ```
 
-- [ ] **Step 4：读 state 时兼容旧文件**
+- [ ] **Step 4: compatibilizar arquivos antigos ao ler o estado**
 
-把 `readAgentStateFile()` 中的 fallback 改成 `emptyAgentsState()`，并解析 overrides：
+Trocar o fallback de `readAgentStateFile()` por `emptyAgentsState()` e passar a parsear os overrides:
 
 ```ts
 const builtInModelOverrides = isRecord(parsed.builtInModelOverrides)
@@ -375,7 +375,7 @@ return {
 };
 ```
 
-在文件底部已有工具函数附近加入：
+Adicionar perto das funções utilitárias já existentes no fim do arquivo:
 
 ```ts
 function normalizeBuiltInModelOverrides(input: Record<string, unknown>): BuiltInSubagentModelOverrides {
@@ -392,7 +392,7 @@ function scalarModel(value: unknown): string | undefined {
 }
 ```
 
-若本文件没有 `isRecord()`，加入：
+Se este arquivo não tiver `isRecord()`, adicionar:
 
 ```ts
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -400,9 +400,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 ```
 
-- [ ] **Step 5：built-in summary 投影 override**
+- [ ] **Step 5: projetar o override no summary do built-in**
 
-把 `createBuiltInAgents()` 改成：
+Mudar `createBuiltInAgents()` para:
 
 ```ts
 function createBuiltInAgents(overrides: BuiltInSubagentModelOverrides = {}): AgentSummary[] {
@@ -454,18 +454,18 @@ function createBuiltInAgents(overrides: BuiltInSubagentModelOverrides = {}): Age
 }
 ```
 
-在 `list()` 里先读 state，再创建 built-ins：
+Em `list()`, ler o estado antes de criar os built-ins:
 
 ```ts
 const state = await readAgentStateFile(storageOptions);
 const builtInAgents = createBuiltInAgents(state.builtInModelOverrides);
 ```
 
-删除后面重复读取 state 的代码，保留 `attachEnabledState(discoveredAgents, state)`。
+Remover a leitura duplicada de estado logo abaixo, mantendo `attachEnabledState(discoveredAgents, state)`.
 
-- [ ] **Step 6：实现保存方法**
+- [ ] **Step 6: implementar o método de salvamento**
 
-在 service object 中加入：
+Adicionar no objeto do service:
 
 ```ts
 async setBuiltInModelOverride(params: BuiltInSubagentModelOverrideParams): Promise<void> {
@@ -493,33 +493,33 @@ async setBuiltInModelOverride(params: BuiltInSubagentModelOverrideParams): Promi
 },
 ```
 
-- [ ] **Step 7：跑 service 测试**
+- [ ] **Step 7: rodar os testes do service**
 
 ```bash
 pnpm --filter @zcode/services test -- --run test/subagentsService.test.ts
 ```
 
-预期：通过。
+Esperado: passa.
 
-- [ ] **Step 8：提交**
+- [ ] **Step 8: commitar**
 
 ```bash
 git add packages/shared/src/subagents-types.ts packages/services/src/subagents/subagents.ts packages/services/src/subagents/subagentsService.ts packages/services/test/subagentsService.test.ts
 git commit -m "feat(subagents): persist built-in model overrides"
 ```
 
-## Phase 2：Bootstrap 与 Runtime 消费
+## Phase 2: consumo pelo bootstrap e pelo runtime
 
-### Task 4：启动时读取 built-in overrides
+### Task 4: ler os overrides de integrados na inicialização
 
-**文件：**
-- 修改 `apps/zcode-cli/packages/bootstrap/src/subagents.ts`
-- 修改 `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
-- 修改 `apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts`
-- 修改 `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`
-- 修改 `apps/zcode-cli/packages/core/src/runtime/types.ts`
+**Arquivos:**
+- Modificar `apps/zcode-cli/packages/bootstrap/src/subagents.ts`
+- Modificar `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
+- Modificar `apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts`
+- Modificar `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`
+- Modificar `apps/zcode-cli/packages/core/src/runtime/types.ts`
 
-**产出接口：**
+**Interfaces de saída:**
 
 ```ts
 subagents: {
@@ -527,9 +527,9 @@ subagents: {
 }
 ```
 
-- [ ] **Step 1：写失败测试**
+- [ ] **Step 1: escrever o teste que falha**
 
-在 `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts` 的 `describe("loadZCodeAgentProfiles", ...)` 中加入：
+Adicionar em `describe("loadZCodeAgentProfiles", ...)` dentro de `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`:
 
 ```ts
 it("loads built-in model overrides from shared subagent state", async () => {
@@ -562,23 +562,23 @@ it("loads built-in model overrides from shared subagent state", async () => {
 });
 ```
 
-- [ ] **Step 2：确认测试失败**
+- [ ] **Step 2: confirmar que o teste falha**
 
 ```bash
 pnpm --filter @zcode/bootstrap test -- --run tests/subagents.test.ts
 ```
 
-预期：失败，原因是 loader 尚未返回 `builtInModelOverrides`。
+Esperado: falha, porque o loader ainda não retorna `builtInModelOverrides`.
 
-- [ ] **Step 3：扩展 bootstrap loader**
+- [ ] **Step 3: estender o loader do bootstrap**
 
-在 `apps/zcode-cli/packages/bootstrap/src/subagents.ts` 引入 shared 类型：
+Importar o tipo compartilhado em `apps/zcode-cli/packages/bootstrap/src/subagents.ts`:
 
 ```ts
 import type { BuiltInSubagentModelOverrides } from "@zcode/shared";
 ```
 
-扩展 result：
+Estender o resultado:
 
 ```ts
 interface LoadZCodeAgentProfilesResult {
@@ -588,14 +588,14 @@ interface LoadZCodeAgentProfilesResult {
 }
 ```
 
-用 `readAgentState()` 替换原 `readDisabledAgentIds()`：
+Trocar o antigo `readDisabledAgentIds()` por `readAgentState()`:
 
 ```ts
 const state = readAgentState(input.storageRoot);
 const disabledAgentIds = state.disabledAgentIds;
 ```
 
-返回：
+Retornar:
 
 ```ts
 return {
@@ -605,7 +605,7 @@ return {
 };
 ```
 
-加入 helper：
+Adicionar o helper:
 
 ```ts
 function readAgentState(storageRoot: string): {
@@ -650,9 +650,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 ```
 
-- [ ] **Step 4：把 overrides 传入 runtime config**
+- [ ] **Step 4: passar os overrides para a config do runtime**
 
-在 `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts` 中保留 loader outcome：
+Manter o resultado do loader em `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`:
 
 ```ts
 const zcodeSubagentProfileOutcome = loadZCodeAgentProfiles({
@@ -663,19 +663,19 @@ const zcodeSubagentProfileOutcome = loadZCodeAgentProfiles({
 const zcodeSubagentProfiles = zcodeSubagentProfileOutcome.profiles;
 ```
 
-调用 `resolveAppRuntimeConfig()` 时传入：
+Passar ao chamar `resolveAppRuntimeConfig()`:
 
 ```ts
 builtInSubagentModelOverrides: zcodeSubagentProfileOutcome.builtInModelOverrides,
 ```
 
-在 `apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts` 的 input 类型加入：
+Adicionar ao tipo de input em `apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts`:
 
 ```ts
 builtInSubagentModelOverrides: BuiltInSubagentModelOverrides;
 ```
 
-合并进 runtime config：
+Mesclar na config do runtime:
 
 ```ts
 subagents: {
@@ -693,36 +693,36 @@ subagents: {
 },
 ```
 
-- [ ] **Step 5：扩展 core runtime 类型**
+- [ ] **Step 5: estender os tipos de runtime do core**
 
-在 `apps/zcode-cli/packages/core/src/runtime/types.ts` 中给 `subagents` 增加：
+Adicionar a `subagents` em `apps/zcode-cli/packages/core/src/runtime/types.ts`:
 
 ```ts
 builtInModelOverrides?: Partial<Record<"general-purpose" | "Explore", string>>;
 ```
 
-不要让 core 反向依赖 services。若 core 当前允许依赖 `@zcode/shared`，也可以使用 shared 类型；否则保留上面的 core-local 类型。
+Não deixar o core depender de services. Se o core já puder depender de `@zcode/shared`, pode-se usar o tipo compartilhado; caso contrário, manter o tipo local do core acima.
 
-- [ ] **Step 6：跑 bootstrap 测试**
+- [ ] **Step 6: rodar os testes do bootstrap**
 
 ```bash
 pnpm --filter @zcode/bootstrap test -- --run tests/subagents.test.ts
 ```
 
-预期：通过。
+Esperado: passa.
 
-### Task 5：内置 profile 应用模型覆盖
+### Task 5: aplicar o override de modelo no profile integrado
 
-**文件：**
-- 修改 `apps/zcode-cli/packages/core/src/subagent/profile.ts`
-- 修改 `apps/zcode-cli/packages/core/src/subagent/runner.ts`
-- 修改 `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
-- 修改 `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`
-- 修改 `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
+**Arquivos:**
+- Modificar `apps/zcode-cli/packages/core/src/subagent/profile.ts`
+- Modificar `apps/zcode-cli/packages/core/src/subagent/runner.ts`
+- Modificar `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
+- Modificar `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`
+- Modificar `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
 
-- [ ] **Step 1：写 profile 失败测试**
+- [ ] **Step 1: escrever o teste de profile que falha**
 
-在 `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts` 中加入：
+Adicionar em `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`:
 
 ```ts
 it("applies built-in model overrides when normalizing built-in profiles", () => {
@@ -742,9 +742,9 @@ it("applies built-in model overrides when normalizing built-in profiles", () => 
 });
 ```
 
-- [ ] **Step 2：修改 built-in profile 构造**
+- [ ] **Step 2: modificar a construção do built-in profile**
 
-在 `apps/zcode-cli/packages/core/src/subagent/profile.ts` 中加入：
+Adicionar em `apps/zcode-cli/packages/core/src/subagent/profile.ts`:
 
 ```ts
 export type BuiltInSubagentModelOverrides = Partial<
@@ -752,7 +752,7 @@ export type BuiltInSubagentModelOverrides = Partial<
 >;
 ```
 
-修改 `createBuiltInExploreAgentProfile()`：
+Modificar `createBuiltInExploreAgentProfile()`:
 
 ```ts
 export function createBuiltInExploreAgentProfile(
@@ -761,7 +761,7 @@ export function createBuiltInExploreAgentProfile(
   return {
     name: EXPLORE_AGENT_TYPE,
     description:
-      'Read-only search agent for broad fan-out searches - when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn\\'t review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions.',
+      'Read-only search agent for broad fan-out searches - when answering means sweeping many files, directories, or naming conventions and you only need the conclusion, not the file dumps. It reads excerpts rather than whole files, so it locates code; it doesn\'t review or audit it. Specify search breadth: "medium" for moderate exploration, "very thorough" for multiple locations and naming conventions.',
     color: "cyan",
     model: options.model?.trim() || "lite",
     source: "built-in",
@@ -771,7 +771,7 @@ export function createBuiltInExploreAgentProfile(
 }
 ```
 
-修改 `createBuiltInGeneralPurposeAgentProfile()`：
+Modificar `createBuiltInGeneralPurposeAgentProfile()`:
 
 ```ts
 export function createBuiltInGeneralPurposeAgentProfile(
@@ -791,7 +791,7 @@ export function createBuiltInGeneralPurposeAgentProfile(
 }
 ```
 
-修改 `normalizeAgentProfiles()`：
+Modificar `normalizeAgentProfiles()`:
 
 ```ts
 export function normalizeAgentProfiles(
@@ -818,15 +818,15 @@ export function normalizeAgentProfiles(
 }
 ```
 
-- [ ] **Step 3：把 runtime config 传入 port**
+- [ ] **Step 3: passar a config do runtime para a port**
 
-在 `apps/zcode-cli/packages/core/src/subagent/runner.ts` 的 `ExploreSubagentPortOptions` 中加入：
+Adicionar em `ExploreSubagentPortOptions`, em `apps/zcode-cli/packages/core/src/subagent/runner.ts`:
 
 ```ts
 builtInModelOverrides?: BuiltInSubagentModelOverrides;
 ```
 
-创建 profiles 时改为：
+Mudar a criação dos profiles para:
 
 ```ts
 const profiles = normalizeAgentProfiles(options.profiles ?? [], {
@@ -834,15 +834,15 @@ const profiles = normalizeAgentProfiles(options.profiles ?? [], {
 });
 ```
 
-在 `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` 创建 port 时加入：
+Adicionar ao criar a port em `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`:
 
 ```ts
 builtInModelOverrides: this.config.subagents?.builtInModelOverrides,
 ```
 
-- [ ] **Step 4：写 runtime provider-visible 模型测试**
+- [ ] **Step 4: escrever os testes de modelo provider-visible no runtime**
 
-在 `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts` 中加入 `general-purpose` 测试：
+Adicionar o teste de `general-purpose` em `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`:
 
 ```ts
 it("runs built-in general-purpose on configured concrete model override", async () => {
@@ -926,7 +926,7 @@ it("runs built-in general-purpose on configured concrete model override", async 
 });
 ```
 
-再加入 `Explore` 测试：
+Adicionar também o teste de `Explore`:
 
 ```ts
 it("runs built-in Explore on configured concrete model override", async () => {
@@ -1011,26 +1011,26 @@ it("runs built-in Explore on configured concrete model override", async () => {
 });
 ```
 
-- [ ] **Step 5：跑 core targeted tests**
+- [ ] **Step 5: rodar os testes direcionados do core**
 
 ```bash
 pnpm --filter @zcode/core test -- --run tests/subagent-profile.test.ts tests/subagent-explore.test.ts
 ```
 
-预期：通过。
+Esperado: passa.
 
-### Task 6：修正 Explore allowed tools 的 effective model 边界
+### Task 6: corrigir o limite de effective model nos allowed tools do Explore
 
-**文件：**
-- 修改 `apps/zcode-cli/packages/core/src/subagent/runner.ts`
-- 修改 `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
-- 修改 `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
+**Arquivos:**
+- Modificar `apps/zcode-cli/packages/core/src/subagent/runner.ts`
+- Modificar `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
+- Modificar `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
 
-**目标：** `Explore` child request 使用哪个模型，`Explore` allowed tools 就按哪个模型判断。
+**Objetivo:** qualquer que seja o modelo usado pela requisição child de `Explore`, é por esse modelo que os allowed tools de `Explore` devem ser decididos.
 
-- [ ] **Step 1：写失败测试**
+- [ ] **Step 1: escrever o teste que falha**
 
-在 `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts` 中新增测试。模型名要选一个当前 capability resolver 会走 direct fallback 的 fixture；如果下面 provider/model 与当前 capability 表不匹配，只改 provider/model 字符串，不改断言目标：
+Adicionar um novo teste em `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`. O nome do modelo deve ser uma fixture que hoje faça o capability resolver cair no fallback direto; se o provider/model abaixo não bater com a tabela de capabilities atual, alterar apenas as strings de provider/model, sem mexer no alvo das asserções:
 
 ```ts
 it("resolves Explore allowed tools from the effective overridden model", async () => {
@@ -1133,9 +1133,9 @@ it("resolves Explore allowed tools from the effective overridden model", async (
 });
 ```
 
-- [ ] **Step 2：抽 effective model helper**
+- [ ] **Step 2: extrair o helper de effective model**
 
-在 `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts` 中加入：
+Adicionar em `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`:
 
 ```ts
 function resolveEffectiveSubagentModelRef(input: {
@@ -1167,7 +1167,7 @@ function resolveEffectiveSubagentModelRef(input: {
 }
 ```
 
-把 `resolveSubagentModelRef()` 改成调用它：
+Mudar `resolveSubagentModelRef()` para chamá-lo:
 
 ```ts
 return resolveEffectiveSubagentModelRef({
@@ -1179,9 +1179,9 @@ return resolveEffectiveSubagentModelRef({
 });
 ```
 
-- [ ] **Step 3：runner 给 allowlist 传模型上下文**
+- [ ] **Step 3: passar o contexto de modelo do runner para a allowlist**
 
-在 `apps/zcode-cli/packages/core/src/subagent/runner.ts` 中把 `getAllowedTools` 类型改为：
+Mudar o tipo de `getAllowedTools` em `apps/zcode-cli/packages/core/src/subagent/runner.ts`:
 
 ```ts
 getAllowedTools?: (input: {
@@ -1191,7 +1191,7 @@ getAllowedTools?: (input: {
 }) => readonly string[];
 ```
 
-把 `resolveAllowedTools()` 改为：
+Mudar `resolveAllowedTools()` para:
 
 ```ts
 function resolveAllowedTools(
@@ -1216,21 +1216,21 @@ function resolveAllowedTools(
 }
 ```
 
-把调用点改为：
+Mudar os pontos de chamada para:
 
 ```ts
 allowedTools: [...resolveAllowedTools(profile, options, request)],
 ```
 
-以及：
+e:
 
 ```ts
 allowedTools: resolveAllowedTools(lifecycle.profile, options, request),
 ```
 
-- [ ] **Step 4：runtime allowlist closure 使用 effective model**
+- [ ] **Step 4: usar o effective model na closure da allowlist do runtime**
 
-在 `createDefaultSubagentPort()` 中改 `getAllowedTools`：
+Mudar `getAllowedTools` em `createDefaultSubagentPort()`:
 
 ```ts
 getAllowedTools: (input) => {
@@ -1247,54 +1247,54 @@ getAllowedTools: (input) => {
 },
 ```
 
-- [ ] **Step 5：跑 runtime 测试**
+- [ ] **Step 5: rodar os testes do runtime**
 
 ```bash
 pnpm --filter @zcode/core test -- --run tests/subagent-explore.test.ts
 ```
 
-预期：通过。
+Esperado: passa.
 
-- [ ] **Step 6：提交 runtime**
+- [ ] **Step 6: commitar o runtime**
 
 ```bash
 git add apps/zcode-cli/packages/bootstrap/src/subagents.ts apps/zcode-cli/packages/bootstrap/src/app/create-app.ts apps/zcode-cli/packages/bootstrap/src/app/runtime-config.ts apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts apps/zcode-cli/packages/core/src/runtime/types.ts apps/zcode-cli/packages/core/src/subagent/profile.ts apps/zcode-cli/packages/core/src/subagent/runner.ts apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts apps/zcode-cli/packages/core/tests/subagent-profile.test.ts apps/zcode-cli/packages/core/tests/subagent-explore.test.ts
 git commit -m "feat(agent): apply built-in subagent model overrides"
 ```
 
-## Phase 3：Settings UI
+## Phase 3: UI de Settings
 
-### Task 7：给内置 subagent 增加模型控件
+### Task 7: adicionar o controle de modelo aos subagents integrados
 
-**文件：**
-- 修改 `packages/ui/src/settings/SubagentsSection.tsx`
-- 修改 `packages/ui/test/subagentsSection.test.ts`
-- 修改现有 i18n 文件
+**Arquivos:**
+- Modificar `packages/ui/src/settings/SubagentsSection.tsx`
+- Modificar `packages/ui/test/subagentsSection.test.ts`
+- Modificar os arquivos de i18n existentes
 
-**消费接口：**
+**Interfaces consumidas:**
 - `AgentSummary.defaultModel`
 - `AgentSummary.modelOverride`
 - `subagentsService.setBuiltInModelOverride(...)`
 
-- [ ] **Step 1：重新确认 UI 设计约束**
+- [ ] **Step 1: reconfirmar as restrições de design da UI**
 
 ```bash
 sed -n '1,220p' DESIGN.md
 ```
 
-预期：确认使用紧凑业务 UI、semantic tokens、i18n 友好、浅色/深色兼容。
+Esperado: confirmar o uso de UI de negócio compacta, semantic tokens, compatível com i18n e com light/dark.
 
-- [ ] **Step 2：补 service mock**
+- [ ] **Step 2: completar o mock do service**
 
-在 `packages/ui/test/subagentsSection.test.ts` 的 `subagentsService` mock 中加入：
+Adicionar no mock de `subagentsService` em `packages/ui/test/subagentsSection.test.ts`:
 
 ```ts
 setBuiltInModelOverride: vi.fn(),
 ```
 
-- [ ] **Step 3：写 UI 失败测试**
+- [ ] **Step 3: escrever o teste de UI que falha**
 
-在 `packages/ui/test/subagentsSection.test.ts` 中加入：
+Adicionar em `packages/ui/test/subagentsSection.test.ts`:
 
 ```ts
 it("shows a model control for built-in subagents without edit or delete actions", async () => {
@@ -1345,9 +1345,9 @@ it("shows a model control for built-in subagents without edit or delete actions"
 });
 ```
 
-- [ ] **Step 4：增加 built-in model helper**
+- [ ] **Step 4: adicionar os helpers de modelo do built-in**
 
-在 `packages/ui/src/settings/SubagentsSection.tsx` 中加入：
+Adicionar em `packages/ui/src/settings/SubagentsSection.tsx`:
 
 ```ts
 function canConfigureBuiltInModel(agent: AgentSummary): boolean {
@@ -1363,9 +1363,9 @@ function getBuiltInModelValue(agent: AgentSummary): string {
 }
 ```
 
-- [ ] **Step 5：增加 built-in 默认选项组**
+- [ ] **Step 5: adicionar o grupo de opções padrão do built-in**
 
-加入：
+Adicionar:
 
 ```ts
 function createBuiltInSubagentModelSelectGroups(
@@ -1391,9 +1391,9 @@ function createBuiltInSubagentModelSelectGroups(
 }
 ```
 
-- [ ] **Step 6：新增内置模型控件组件**
+- [ ] **Step 6: criar o componente de controle de modelo do built-in**
 
-在 `AgentListRow` 附近加入：
+Adicionar perto de `AgentListRow`:
 
 ```tsx
 function BuiltInModelControl({
@@ -1442,16 +1442,16 @@ function BuiltInModelControl({
 }
 ```
 
-- [ ] **Step 7：接入 AgentListRow**
+- [ ] **Step 7: integrar ao AgentListRow**
 
-扩展 `AgentListRow` props：
+Estender as props de `AgentListRow`:
 
 ```ts
 onBuiltInModelChange: (agent: AgentSummary, model: string) => void;
 onManageModels?: () => void;
 ```
 
-在 badges 区域渲染：
+Renderizar na área de badges:
 
 ```tsx
 {canConfigureBuiltInModel(agent) ? (
@@ -1467,11 +1467,11 @@ onManageModels?: () => void;
 ) : null}
 ```
 
-保留 edit/delete/switch 的 `editable` guard，不要让 built-in 进入完整编辑表单。
+Manter a guarda `editable` de edit/delete/switch, para que o built-in não entre no formulário de edição completo.
 
-- [ ] **Step 8：保存 built-in model override**
+- [ ] **Step 8: salvar o override de modelo do built-in**
 
-在 `SubagentsSection` 中加入：
+Adicionar em `SubagentsSection`:
 
 ```ts
 const handleBuiltInModelChange = async (agent: AgentSummary, nextValue: string) => {
@@ -1497,11 +1497,11 @@ const handleBuiltInModelChange = async (agent: AgentSummary, nextValue: string) 
 };
 ```
 
-把 `handleBuiltInModelChange` 和 `onManageModels` 传给每个 `AgentListRow`。
+Passar `handleBuiltInModelChange` e `onManageModels` para cada `AgentListRow`.
 
-- [ ] **Step 9：补 i18n**
+- [ ] **Step 9: adicionar i18n**
 
-在现有 locale 文件中加入英文：
+Adicionar em inglês nos arquivos de locale existentes:
 
 ```json
 {
@@ -1510,7 +1510,7 @@ const handleBuiltInModelChange = async (agent: AgentSummary, nextValue: string) 
 }
 ```
 
-中文：
+Chinês:
 
 ```json
 {
@@ -1519,15 +1519,15 @@ const handleBuiltInModelChange = async (agent: AgentSummary, nextValue: string) 
 }
 ```
 
-- [ ] **Step 10：跑 UI 测试**
+- [ ] **Step 10: rodar os testes de UI**
 
 ```bash
 pnpm --filter @zcode/ui test -- --run test/subagentsSection.test.ts
 ```
 
-预期：通过。
+Esperado: passa.
 
-- [ ] **Step 11：提交 UI**
+- [ ] **Step 11: commitar a UI**
 
 ```bash
 git add packages/ui/src/settings/SubagentsSection.tsx packages/ui/test/subagentsSection.test.ts
@@ -1535,14 +1535,14 @@ git add packages/ui/src/i18n packages/ui/src/**/locales 2>/dev/null || true
 git commit -m "feat(ui): configure built-in subagent models"
 ```
 
-## Phase 4：验证与清理
+## Phase 4: verificação e limpeza
 
-### Task 8：端到端验证
+### Task 8: verificação de ponta a ponta
 
-**文件：**
-- 不计划修改代码。若验证暴露问题，只改对应失败链路文件。
+**Arquivos:**
+- Não há alteração de código planejada. Se a verificação expor problemas, alterar apenas os arquivos da cadeia com falha.
 
-- [ ] **Step 1：跑 targeted tests**
+- [ ] **Step 1: rodar os testes direcionados**
 
 ```bash
 pnpm --filter @zcode/services test -- --run test/subagentsService.test.ts
@@ -1551,11 +1551,11 @@ pnpm --filter @zcode/core test -- --run tests/subagent-profile.test.ts tests/sub
 pnpm --filter @zcode/ui test -- --run test/subagentsSection.test.ts
 ```
 
-预期：全部通过。
+Esperado: todos passam.
 
-- [ ] **Step 2：检查 provider-visible 断言**
+- [ ] **Step 2: conferir as asserções provider-visible**
 
-确认 `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts` 中存在：
+Confirmar que existe em `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`:
 
 ```ts
 expect(childRequests[0].model).toMatchObject({
@@ -1565,7 +1565,7 @@ expect(childRequests[0].model).toMatchObject({
 });
 ```
 
-以及：
+e também:
 
 ```ts
 expect(childRequests[0].tools.map((tool: any) => tool.name)).toEqual(
@@ -1573,68 +1573,68 @@ expect(childRequests[0].tools.map((tool: any) => tool.name)).toEqual(
 );
 ```
 
-- [ ] **Step 3：跑机械门禁**
+- [ ] **Step 3: rodar os portões mecânicos**
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-预期：全部通过。
+Esperado: tudo passa.
 
-- [ ] **Step 4：查 stale 文档描述**
+- [ ] **Step 4: procurar descrições desatualizadas na documentação**
 
 ```bash
 rg -n "hide built-in subagent model|内置.*不展示模型|built-in.*不展示模型|first version does not support.*Agent.*model" docs apps/zcode-cli/docs packages -S
 ```
 
-预期：当前设计文档没有过期描述；changelog 里的历史记录可以保留。
+Esperado: os documentos de design atuais não têm descrição vencida; registros históricos no changelog podem ser mantidos.
 
-- [ ] **Step 5：必要时提交文档清理**
+- [ ] **Step 5: commitar a limpeza de documentação, se necessário**
 
-若 Step 4 修改了当前 docs：
+Se o Step 4 tiver modificado a documentação atual:
 
 ```bash
 git add docs apps/zcode-cli/docs
 git commit -m "docs: align subagent model override references"
 ```
 
-若没有修改，不创建空提交。
+Se nada foi modificado, não criar commit vazio.
 
-## Phase 5：最终交付
+## Phase 5: entrega final
 
-### Task 9：最终状态与提交边界
+### Task 9: estado final e limites de commit
 
-- [ ] **Step 1：检查工作区**
+- [ ] **Step 1: conferir o workspace**
 
 ```bash
 git status --short
 ```
 
-预期：只出现本功能相关改动；不要 revert 用户已有无关改动。
+Esperado: só aparecem mudanças relacionadas a esta funcionalidade; não reverter mudanças não relacionadas que o usuário já tinha.
 
-- [ ] **Step 2：最终门禁**
+- [ ] **Step 2: portão final**
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-预期：全部通过。
+Esperado: tudo passa.
 
-- [ ] **Step 3：最终说明模板**
+- [ ] **Step 3: modelo de descrição final**
 
-交付时使用：
+Usar na entrega:
 
 ```markdown
-已实现内置 subagent 模型覆盖。
+Overrides de modelo para subagents integrados implementados.
 
-- `general-purpose` 可配置具体模型；未配置时继承 main model。
-- `Explore` 可配置具体模型；未配置时继承 main model。
-- 内置 agent 仍只读，只开放模型选择。
-- `Explore` allowed tools 已按 effective child model 计算。
+- `general-purpose` pode receber um modelo concreto; sem configuração, herda o main model.
+- `Explore` pode receber um modelo concreto; sem configuração, herda o main model.
+- Agentes integrados continuam somente leitura, com apenas a seleção de modelo aberta.
+- Os allowed tools de `Explore` já são calculados pelo effective child model.
 
-验证：
+Verificação:
 - `pnpm --filter @zcode/services test -- --run test/subagentsService.test.ts`
 - `pnpm --filter @zcode/bootstrap test -- --run tests/subagents.test.ts`
 - `pnpm --filter @zcode/core test -- --run tests/subagent-profile.test.ts tests/subagent-explore.test.ts`
@@ -1643,16 +1643,16 @@ pnpm lint
 - `pnpm lint`
 ```
 
-## 风险与护栏
+## Riscos e salvaguardas
 
-- 不要移除 built-in agent 的 `readOnly: true`。
-- 不要允许 `createAgent` / `updateAgent` 写出名为 `general-purpose` 或 `Explore` 的 user markdown。
-- 不要让 `Explore` allowed tools 继续按旧 lite model 判断。
-- 不要在本计划中新增 workspace-specific built-in override；若未来要做，身份隔离 key 使用 `workspaceIdentity?.trim() || workspacePath`。
-- 不要改 remote/mobile shared-host 远控边界。
-- 不要改 provider-visible `Agent.model` schema，除非同 phase 更新 tool spec、contract、adapter 测试。
+- Não remover o `readOnly: true` dos agentes integrados.
+- Não permitir que `createAgent` / `updateAgent` escrevam markdown de usuário chamado `general-purpose` ou `Explore`.
+- Não deixar os allowed tools de `Explore` continuarem decidindo pelo antigo lite model.
+- Não adicionar neste plano um override de built-in específico por workspace; se isso for feito no futuro, a chave de isolamento de identidade deve ser `workspaceIdentity?.trim() || workspacePath`.
+- Não alterar o limite de controle remoto remote/mobile shared-host.
+- Não alterar o schema provider-visible de `Agent.model`, a menos que a mesma phase atualize o spec de ferramentas, o contrato e os testes do adapter.
 
-## 建议提交顺序
+## Ordem sugerida de commits
 
 1. `docs: specify built-in subagent model overrides`
 2. `feat(subagents): persist built-in model overrides`
@@ -1660,16 +1660,16 @@ pnpm lint
 4. `feat(ui): configure built-in subagent models`
 5. `docs: align subagent model override references`
 
-## 自检清单
+## Checklist de autoverificação
 
-- [ ] 已先写 docs spec。
-- [ ] `general-purpose` 覆盖已覆盖。
-- [ ] `Explore` 覆盖已覆盖。
-- [ ] custom subagent 模型行为未改变。
-- [ ] built-in agent 除模型外仍只读。
-- [ ] service state 读写有测试。
-- [ ] bootstrap 加载 overrides 有测试。
-- [ ] child provider-visible model 有断言。
-- [ ] `Explore` allowed tools 与 effective model 对齐。
-- [ ] UI 有 i18n 文案。
-- [ ] targeted tests、`pnpm typecheck`、`pnpm lint` 都在计划中。
+- [ ] O spec em docs foi escrito primeiro.
+- [ ] O override de `general-purpose` está coberto.
+- [ ] O override de `Explore` está coberto.
+- [ ] O comportamento de modelo do custom subagent não mudou.
+- [ ] O agente integrado continua somente leitura além do modelo.
+- [ ] A leitura e escrita de estado do service têm teste.
+- [ ] O carregamento dos overrides no bootstrap tem teste.
+- [ ] O model provider-visible do child tem asserção.
+- [ ] Os allowed tools de `Explore` estão alinhados ao effective model.
+- [ ] A UI tem textos de i18n.
+- [ ] Os testes direcionados, `pnpm typecheck` e `pnpm lint` estão no plano.

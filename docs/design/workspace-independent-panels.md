@@ -1,12 +1,12 @@
-# 工作区独立面板布局
+# Layout de Painéis Independentes do Workspace
 
-## 目标
+## Objetivo
 
-桌面和宽屏 Web 保持侧栏，将原本共用外框的会话与 Side Pane 拆成独立面板；窗口根背景、侧栏保持原语义。
+O desktop e o Web em tela larga mantêm a barra lateral e separam a sessão e o Side Pane, que antes compartilhavam o mesmo quadro externo, em painéis independentes; o fundo raiz da janela e a barra lateral mantêm a semântica original.
 
-Workspace layout 的平台圆角：Windows 为 5px，macOS Sequoia 及更早版本为 6px，Tahoe 26+ 为 12px，未知 macOS 版本暂用 6px；Linux 和 Web 为 `xl`（12px）。设置页保留既有平台半径。
+Cantos arredondados por plataforma no workspace layout: 5px no Windows, 6px no macOS Sequoia e anteriores, 12px no Tahoe 26+, e 6px provisório para versões de macOS desconhecidas; `xl` (12px) no Linux e na Web. A página de configurações mantém os raios por plataforma já existentes.
 
-macOS 版本必须通过 `IPlatformService.getDesktopWindowChromeState` 查询并订阅窗口状态事件，再由 `useAppChromeState` 传入工作区圆角计算。此前 hook 排除了 macOS，导致所有 macOS 都走未知版本的 6px 分支；桌面各平台共用已有查询/事件 revision 防覆盖机制，Web 不查询桌面状态。回归测试须运行真实 hook，验证异步查询后的 Sequoia/Tahoe 圆角及订阅清理，不能只给半径函数注入版本。
+A versão do macOS precisa ser consultada via `IPlatformService.getDesktopWindowChromeState` e acompanhada por meio dos eventos de estado da janela, e então repassada por `useAppChromeState` ao cálculo dos cantos do workspace. Anteriormente o hook excluía o macOS, o que fazia todas as versões de macOS caírem no ramo de 6px de versão desconhecida; os desktops de todas as plataformas compartilham o mecanismo já existente de revisão contra sobrescrita de consulta/evento, e a Web não consulta o estado do desktop. O teste de regressão precisa rodar o hook real e validar os cantos de Sequoia/Tahoe após a consulta assíncrona, bem como a limpeza da assinatura; não basta injetar a versão na função de raio.
 
 ```text
 Window / Sidebar / transparent body layout
@@ -20,143 +20,144 @@ Window / Sidebar / transparent body layout
                   +-----------------------+     +--------------------+
 ```
 
-- 会话和底部终端各自使用独立的 `bg-background`、`rounded-xl`、`border-border` 外框，WorkspaceHeader 位于会话外框内部；终端关闭时，会话填满左列。
-- macOS 窗口根背景使用 `bg-background-alt`；Windows、Linux 和 Web 继续使用 `bg-background-win-alt`。
-- Side Pane 的 launcher/标签栏/内容共用独立 `bg-background` 外框，两个面板顶部底部对齐。
-- 内部面板默认 `xl` 圆角、`border-border` 弱边框；贴 Windows 系统外沿的一侧继续遵循已有 native corner / maximized 规则。布局外框不计入内容圆角层级。
-- 面板间保留 4px 透明间距，间距承载 resize handle；关闭 Side Pane 时不保留间距，会话恢复填满。
-- 工作区 Sidebar、Side Pane、Terminal 保留 4px 透明拖拽热区，指示线宽 2px，使用第三层文字色 `foreground-subtlest/50`（在主题色基础上再降低至 50% 不透明度）。默认隐藏，hover、键盘聚焦和拖动时显示。指示线不使用 mask，竖线恢复沿面板高度延伸、横线恢复沿面板宽度延伸，两端按面板圆角内缩，端点圆润，拖拽、间距和手机隐藏规则不变。
+- A sessão e o terminal inferior usam cada um seu próprio quadro externo com `bg-background`, `rounded-xl` e `border-border`, e o WorkspaceHeader fica dentro do quadro externo da sessão; quando o terminal está fechado, a sessão preenche a coluna esquerda.
+- O fundo raiz da janela no macOS usa `bg-background-alt`; Windows, Linux e Web continuam usando `bg-background-win-alt`.
+- O launcher / barra de tabs / conteúdo do Side Pane compartilham um quadro externo `bg-background` independente, com os dois painéis alinhados no topo e na base.
+- Os painéis internos usam por padrão cantos `xl` e uma borda fraca `border-border`; o lado encostado na borda do sistema no Windows continua seguindo as regras existentes de native corner / maximized. O quadro externo do layout não conta como um nível de cantos de conteúdo.
+- Entre os painéis permanece um espaçamento transparente de 4px, que carrega o resize handle; ao fechar o Side Pane o espaçamento não é mantido e a sessão volta a preencher tudo.
+- O Sidebar do workspace, o Side Pane e o Terminal mantêm zonas de arrasto transparentes de 4px, com linha indicadora de 2px de largura e a cor de texto do terceiro nível `foreground-subtlest/50` (a opacidade reduzida para 50% sobre a base da cor do tema). Ficam ocultas por padrão e aparecem no hover, no foco por teclado e durante o arrasto. A linha indicadora não usa mask; a linha vertical volta a se estender ao longo da altura do painel e a horizontal ao longo da largura, com as duas pontas recuadas para dentro conforme os cantos do painel e extremidades arredondadas. As regras de arrasto, espaçamento e ocultação no celular permanecem iguais.
 
-- 保留 `workspace-body-layout`、`conversation-column`、`browser` 和会话/终端的现有持久化 key、最小宽度、拖动和显式关闭边界。Side Pane 不因开关或主视图切换卸载，Browser Guest 截图承载保持原路径。
-- Windows/Linux 窗控属于最右侧 Header 的内联操作组：Side Pane 关闭时由 WorkspaceHeader 承载，打开时由 Side Header/空态顶部承载；不保留独立悬浮层和原生窗控占位。
-- 桌面 Side Pane 标签栏的空白区域支持拖动窗口；标签与按钮排除窗口拖拽，保留标签排序、切换、关闭和菜单操作。Web 与手机覆盖面板不启用窗口拖拽区域。
-- 收起时，WorkspaceHeader 显示展开按钮；展开时该按钮移至 Side Header 右侧，空态也保留同一收起入口。复用现有开关与快捷键，手机覆盖面板继续使用抽屉关闭入口。
-- Side Header 标签总览、新增标签按钮和 tab item 统一使用 ghost 风格。Tab 默认与头部背景一致，hover 使用 `bg-hover`、选中使用 `bg-selected`，均不显示 outline 边框；关闭按钮绝对定位，不占标题空间、不叠加背景遮罩，拖动预览也不显示边框，保留键盘焦点提示。
-- Tab 关闭按钮仅在选中、hover 或键盘焦点位于 tab 内时显示；隐藏时不接收鼠标点击；icon 和文字归入独立 item-content，溢出仅用 mask 淡出，不显示省略号；关闭按钮显示时仅将渐隐区域左移，内容宽度、位置不变。触屏用户先选中 tab，再操作关闭按钮。
-- 选中 tab 在 hover 时继续保持 `bg-selected`，不切换为 `bg-hover`。
-- WorkspaceHeader 与 Side Header 的分隔线使用 `border-border/50`；新任务草稿的 WorkspaceHeader 始终使用透明分隔线，包括展开 Side Pane 时。
-- 已有任务的 WorkspaceHeader 在名称前显示 ghost 工作区图标按钮：本地为 Folder，云端/远端为 Cloud，沿用现有工作区身份判断。名称后的工作区胶囊和分支切换入口移除；hover、键盘聚焦或触屏点按图标时显示工作区名称（含现有远端主机标识）及当前分支。Detached HEAD 使用现有本地化文案，非 Git 工作区不显示分支。新任务草稿仍不显示此上下文入口。不修改工作区身份、连接、任务菜单和其他分支切换入口。
-- WorkspaceHeader 工作区信息浮层复用 `ControlHintTooltip` 默认 2px offset 和 Tooltip 的 `rounded-lg` 圆角，不单独覆盖距离或圆角。
-- Side Header 的 tab 列表使用 `gap-1`（4px），溢出宽度预算使用相同间距。
-- 底部终端 tab 没有前置图标，左内边距使用 `pl-2`（8px）。
-- 底部终端 tab 同样使用 ghost：选中背景 hover 不变，内容用 mask 淡出；关闭按钮参与普通 flex 布局，仅在选中、hover、focus-within 时显示，隐藏时保留占位，mask 不随显示状态左移。Tab 间距为 4px，宽度跟随内容，最大 144px，不设置固定宽度或最小宽度。「终端」标题保持原样，shell 名称使用普通辅助文字，不使用 pill 背景、圆角或内边距。
-- 新任务、普通会话、插件、Automations 都使用同一主面板边界，不创建第二份业务状态。
-- 手机远控保持单列/覆盖抽屉路径，无额外双面板间距；响应式收缩不能挤掉输入区或造成横向滚动。
+- Preservam-se as chaves de persistência, a largura mínima, o arrasto e os limites de fechamento explícito já existentes de `workspace-body-layout`, `conversation-column`, `browser` e dos painéis de sessão/terminal. O Side Pane não é desmontado por ligar/desligar ou troca de visão principal, e o transporte de screenshots do Browser Guest continua no caminho original.
+- Os controles de janela de Windows/Linux pertencem ao grupo de ações inline do Header mais à direita: com o Side Pane fechado ficam no WorkspaceHeader; quando aberto, ficam no Side Header ou no topo do estado vazio. Não se mantém uma camada flutuante separada nem um placeholder de controle de janela nativo.
+- A área vazia da barra de tabs do Side Pane no desktop suporta arrastar a janela; tabs e botões ficam de fora do arrasto da janela, preservando a reordenação de tabs, a troca, o fechamento e as ações de menu. Web e o painel de sobreposição do celular não habilitam a área de arrasto da janela.
+- Quando recolhido, o WorkspaceHeader mostra o botão de expandir; quando expandido, esse botão vai para o lado direito do Side Header, e o estado vazio mantém a mesma entrada de recolhimento. Reaproveita-se o toggle e o atalho existentes, e o painel de sobreposição do celular continua usando a entrada de fechamento por gaveta.
+- A visão geral de tabs, o botão de nova tab e os tab items do Side Header usam uniformemente o estilo ghost. O tab, por padrão, tem a mesma cor do fundo do header, usa `bg-hover` no hover e `bg-selected` quando selecionado, sem nenhuma borda de outline; o botão de fechar é posicionado de forma absoluta, não ocupa espaço no título e não sobrepõe uma máscara de fundo, e a pré-visualização de arrasto também não mostra borda, preservando a indicação de foco por teclado.
+- O botão de fechar de um tab só aparece quando o tab está selecionado, sob hover ou quando o foco por teclado está dentro dele; quando oculto, não recebe clique do mouse; ícone e texto entram em um item-content separado e o overflow é apagado apenas com mask, sem reticências; quando o botão de fechar aparece, apenas a região com o fade é deslocada para a esquerda, sem alterar a largura nem a posição do conteúdo. Usuários de touch selecionam primeiro o tab e só depois usam o botão de fechar.
+- Um tab selecionado mantém `bg-selected` também no hover, sem trocar para `bg-hover`.
+- O separador entre WorkspaceHeader e Side Header usa `border-border/50`; o WorkspaceHeader do rascunho de nova task sempre usa um separador transparente, inclusive quando o Side Pane está expandido.
+- O WorkspaceHeader de uma task existente mostra, antes do nome, um botão de ícone ghost do workspace: Folder para local, Cloud para nuvem/remoto, seguindo a verificacao existente de identidade do workspace. A cápsula do workspace depois do nome e a entrada de troca de branch são removidas; no hover, no foco por teclado ou ao tocar no ícone em telas sensíveis ao toque, mostram-se o nome do workspace (incluindo o identificador de host remoto já existente) e o branch atual. Detached HEAD usa o texto localizado já existente e workspaces sem Git não mostram branch. O rascunho de nova task continua sem esta entrada de contexto. Não se modifica a identidade do workspace, a conexão, o menu da task nem as outras entradas de troca de branch.
+- O flyout de informações do workspace no WorkspaceHeader reaproveita o offset padrão de 2px do `ControlHintTooltip` e o `rounded-lg` do Tooltip, sem sobrescrever distância ou raio por conta própria.
+- A lista de tabs do Side Header usa `gap-1` (4px), e o orçamento de largura de overflow usa o mesmo espaçamento.
+- O tab do terminal inferior não tem ícone à esquerda, e o padding esquerdo usa `pl-2` (8px).
+- O tab do terminal inferior também usa ghost: o fundo de seleção permanece igual no hover, o conteúdo usa fade com mask; o botão de fechar participa do layout flex normal, aparece somente quando selecionado, em hover ou em focus-within, mantém um espaço reservado quando oculto e a mask não é deslocada conforme o estado de exibição. O espaçamento entre tabs é de 4px, a largura acompanha o conteúdo, com máximo de 144px, sem largura fixa nem largura mínima. O título “终端” permanece como está, e o nome do shell usa texto auxiliar comum, sem fundo de pill, raio ou padding.
+- Nova task, sessão comum, plugins e Automations usam a mesma borda de painel principal, sem criar um segundo estado de negócio.
+- O controle remoto no celular mantém o caminho de coluna única / gaveta de sobreposição, sem espaçamento extra entre dois painéis; a contração responsiva não pode espremer a área de entrada nem gerar rolagem horizontal.
 
-## 兼容边界
+## Limites de Compatibilidade
 
-仅改变 React 布局与样式，无协议/服务/Host 改动。桌面 `desktop-continuous` 与手机 `web-remote-replayable` 的 attachment、恢复和 CommandInbox 边界保持不变；workspaceIdentity / remoteSessionId 原样透传。
+Apenas o layout e os estilos React mudam, sem alteração de protocolo/serviço/Host. Os limites de attachment, restauração e CommandInbox do desktop `desktop-continuous` e do celular `web-remote-replayable` permanecem inalterados; workspaceIdentity / remoteSessionId são repassados como estão.
 
-## Linux 对齐 Windows（2026-09-04）
+## Alinhamento do Linux ao Windows (2026-09-04)
 
-本节取代下文历史记录中 Linux 保持旧布局的约定。Linux 桌面使用与 Windows 相同的 4px 外层留白、四角 5px 完整边框、顶部工具组左侧 13px 和顶部 5px 偏移、Header 两侧 8px padding。普通和最大化窗口一致，Linux 不套用 Windows 10 原生外角例外。
+Esta seção substitui o acordo, no registro histórico abaixo, de que o Linux mantinha o layout antigo. O desktop Linux usa as mesmas margens externas de 4px, a borda completa de 5px nos quatro cantos, 13px à esquerda e 5px no topo do grupo de ferramentas do topo e 8px de padding dos dois lados do Header que o Windows usa. Janela normal e maximizada são iguais, e o Linux não aplica a exceção de cantos nativos do Windows 10.
 
-Windows/Linux 复用同一内联窗控组件，28px 按钮、16px 图标、2px 间距，关闭 hover 为 destructive；收起时跟随 WorkspaceHeader 的 Side Pane 开关，展开时跟随 Side Header（含空态）。删除 Linux 旧悬浮窗控与 120px 占位，WorkspaceHeader 使用常规帮助入口，不保留独立下箭头。设置页窗控与 Windows 一样跟随菜单组。macOS、Web、手机布局不变；Linux 已有 frameless 和 DesktopCommand/状态事件继续复用。
+Windows/Linux reaproveitam o mesmo componente inline de controles de janela, com botão de 28px, ícone de 16px, espaçamento de 2px e hover de fechamento destructive; quando recolhido, acompanha o toggle de Side Pane do WorkspaceHeader, e quando expandido, acompanha o Side Header (incluindo o estado vazio). Remove-se o antigo controle de janela flutuante do Linux e o placeholder de 120px; o WorkspaceHeader passa a usar a entrada de ajuda comum, sem seta para baixo independente. Os controles de janela da página de configurações seguem o grupo de menus assim como no Windows. macOS, Web e layout do celular não mudam; o frameless já existente no Linux e o DesktopCommand/eventos de estado continuam reaproveitados.
 
-验收沿用 SPT-E2E-000/007，Windows/Linux 均执行展开收起、布局尺寸和原生窗控操作断言；平台单测覆盖 Linux 与 Web/macOS 隔离。Windows 环境不能代替真实 Linux 窗口管理器验证，提交记录需明确待补项。
+A aceitação segue SPT-E2E-000/007, com Windows/Linux executando as asserções de expandir/recolher, dimensões de layout e operação dos controles de janela nativos; os testes unitários de plataforma cobrem o isolamento entre Linux e Web/macOS. O ambiente Windows não substitui a validação em um gerenciador de janelas Linux real, e o registro do commit precisa deixar explícitos os itens pendentes.
 
-## 验收
+## Aceitação
 
-- macOS Sequoia（15）及更早版本的工作区面板使用 6px 圆角；Tahoe（26）及更高版本使用 12px。版本未知先使用 6px。会话、Side Pane、底部 Terminal 共用该版本选择。Windows、Linux、Web 的现有半径不变。
+- Os painéis de workspace no macOS Sequoia (15) e anteriores usam cantos de 6px; Tahoe (26) e posteriores usam 12px. Versão desconhecida usa 6px primeiro. Sessão, Side Pane e Terminal inferior compartilham essa escolha de versão. Os raios atuais de Windows, Linux e Web não mudam.
 
-- 设置页主内容面板在 Windows 使用 5px 圆角，与 Windows 主工作区一致；macOS 和 Linux 暂时保持既有 12px。圆角仅作用于有 4px 外层留白的内容面板，不改变窗口原生外沿。
-- 设置页 Sidebar 比原尺寸增加 4px：紧凑宽度 68px，桌面宽度 268px。Sidebar 与主内容不额外增加间距，内容框左侧保持原有连接方式。
+- O painel de conteúdo principal da página de configurações usa cantos de 5px no Windows, coerente com o workspace principal do Windows; macOS e Linux mantêm por enquanto os 12px existentes. Os cantos afetam apenas o painel de conteúdo com 4px de margem externa, sem alterar a borda nativa da janela.
+- O Sidebar da página de configurações ganha 4px sobre o tamanho anterior: 68px na largura compacta e 268px na largura desktop. O Sidebar não ganha espaçamento extra em relação ao conteúdo principal, e a ligação na borda esquerda da caixa de conteúdo é preservada.
 
-- 设置页在 Windows/Linux 移除独立 caption 下箭头，复用 macOS 的问号帮助入口；问号与内联窗控组成同一右侧操作组，窗控行为、关闭 hover 和 8px 右边距保持不变。macOS 继续使用原生窗控，Web 继续只显示问号。
+- A página de configurações remove a seta para baixo de caption independente no Windows/Linux e passa a reutilizar a entrada de ajuda com interrogação do macOS; o interrogação e os controles inline formam o mesmo grupo de ações à direita, e o comportamento dos controles de janela, o hover de fechamento e a margem direita de 8px permanecem iguais. O macOS continua usando os controles nativos de janela, e a Web continua mostrando apenas o interrogação.
 
-- 设置页主内容框在 macOS、Windows、Linux 桌面统一使用 4px 外层 padding：保留左侧导航相邻边的既有 0px 间距，并以 4px 顶部拖拽留白承接内容面板；Web 不增加桌面外框留白。此项只统一大结构边距，不改变设置内容区自身 padding。
+- A caixa principal de conteúdo da página de configurações usa de forma unificada 4px de padding externo no macOS, Windows e Linux no desktop: preserva o espaçamento de 0px já existente junto à borda da navegação lateral à esquerda e usa 4px de respiro de arrasto no topo para receber o painel de conteúdo; a Web não ganha margem externa de desktop. Este item uniformiza apenas as margens da estrutura grande, sem alterar o padding próprio da área de conteúdo das configurações.
 
-- Side Header 与 WorkspaceHeader 统一使用 8px 左右内边距：标签总览左侧、窗控操作组右侧及 launcher 空态一致，按钮尺寸与标签内部间距不变。
-- 职业引导页的 Windows/Linux 窗控与 Workspace、Settings 对齐：48px 标题区域计入 4px 外层留白和 1px 边框，控件距窗口顶部 15px、右侧 13px。深浅主题及窗口尺寸变化时保持同一 CSS 几何；macOS 和手机 Web 不显示该组自绘窗控。
+- O Side Header e o WorkspaceHeader usam de forma unificada 8px de padding interno esquerdo e direito: visão geral de tabs à esquerda, grupo de ações dos controles de janela à direita e estado vazio do launcher, com o tamanho dos botões e o espaçamento interno dos tabs inalterados.
 
-- Windows 自绘窗控采用普通 flex 布局，紧跟 Side Pane 开关，复用其 `icon-md` 尺寸、默认圆角和 2px 间距，关闭 hover 保持红色。Side Pane 收起时属于 WorkspaceHeader，展开时属于 Side Header（含 launcher 空态）；不使用绝对定位覆盖层，也不为它额外预留 native caption 空白。设置页窗控跟随其现有菜单操作组。
+- Os controles de janela no Windows/Linux da página de onboarding profissional se alinham ao Workspace e às Settings: a área de título de 48px contabiliza as 4px de margem externa e a borda de 1px, e os controles ficam a 15px do topo da janela e a 13px da direita. A mesma geometria CSS é mantida com temas claro/escuro e variação de tamanho de janela; macOS e o Web no celular não mostram esse grupo de controles desenhados pelo app.
 
-- Windows 主窗口与设置窗口采用应用自绘窗控：28px 按钮、16px 图标、5px 圆角、4px 间距，关闭 hover 使用 destructive 色。最大化显示还原图标，复用 DesktopCommand 与窗口状态事件。主窗口控件中心与 Header 对齐，原生 titleBarOverlay 不启用；缩放时自绘控件及预留使用 CSS 像素同步缩放。macOS/Linux 不变。Windows 原生最大化按钮 hover Snap Layout 菜单不属于自绘按钮能力。
+- Os controles de janela desenhados pelo app no Windows usam layout flex comum, encostando no toggle do Side Pane e reaproveitando seu tamanho `icon-md`, raio padrão e espaçamento de 2px, com o hover de fechamento mantendo o vermelho. Com o Side Pane recolhido pertencem ao WorkspaceHeader e, expandido, ao Side Header (incluindo o estado vazio do launcher); não usam camada de posicionamento absoluto nem reservam espaço extra de caption nativo. Os controles de janela da página de configurações seguem o grupo de ações de menu já existente.
 
-- Windows Header 的终端/Side Pane 按钮采用与 macOS 相同的紧凑样式，不使用 Windows caption 的 48px 整高点击背景和零间距；系统最小化/最大化/关闭按钮预留仍独立保留。
+- A janela principal e a janela de configurações no Windows adotam controles de janela desenhados pelo app: botão de 28px, ícone de 16px, raio de 5px, espaçamento de 4px e hover de fechamento na cor destructive. Maximizado mostra o ícone de restaurar, reaproveitando DesktopCommand e os eventos de estado da janela. O centro dos controles da janela principal é alinhado ao Header, o titleBarOverlay nativo não é habilitado e, no zoom, os controles desenhados e o espaço reservado escalam em sincronia com os CSS pixels. macOS/Linux não mudam. O menu de Snap Layout no hover do botão nativo de maximizar do Windows não faz parte da capacidade dos botões desenhados.
 
-- Windows 左侧顶部工具组使用 12px 水平 padding 加 1px 左 margin，实际左边距 13px，较原来右移 5px；纵向对齐与 Linux/macOS 定位不变。
+- Os botões de terminal/Side Pane no Header do Windows usam o mesmo estilo compacto do macOS, sem usar o fundo de clique de 48px de altura cheia e o espaçamento zero do caption do Windows; o espaço reservado para os botões de minimizar/maximizar/fechar do sistema continua sendo mantido de forma independente.
 
-- Windows 左侧顶部工具组整体偏移 4px 外层留白 + 1px 面板边框，与主工作区 48px Header 中心线对齐；侧栏展开/收起均适用，macOS/Linux/Web 原有定位不变。
+- O grupo de ferramentas do topo esquerdo no Windows usa 12px de padding horizontal mais 1px de margem à esquerda, resultando em margem real de 13px, ou seja, 5px mais à direita do que antes; o alinhamento vertical e o posicionamento de Linux/macOS não mudam.
 
-- 移除 Windows Header 独立下箭头后，操作区恢复共享 `p-2`，右侧 padding 为 8px；不再保留为旧 caption 菜单设置的 `pr-0`。系统窗口按钮区域的预留独立保留。
+- O grupo de ferramentas do topo esquerdo no Windows é deslocado em 4px de margem externa + 1px de borda de painel, alinhando-se à linha central de 48px do Header do workspace principal; vale tanto com a barra lateral expandida quanto recolhida, e o posicionamento original de macOS/Linux/Web não muda.
 
-- Windows WorkspaceHeader 与 macOS 共用常规操作区，移除终端右侧独立的 caption 下箭头菜单及分隔占位；保留标准帮助入口、系统窗口按钮预留。Linux 和设置页的菜单入口不变。
+- Depois de remover a seta para baixo independente do Header no Windows, a área de ações volta a compartilhar `p-2`, com padding direito de 8px; o `pr-0` que existia para o menu de caption antigo deixa de ser mantido. O espaço reservado da área de botões de janela do sistema é preservado de forma independente.
 
-- Windows 普通窗口和最大化窗口的会话、终端、Side Pane 统一使用 5px 布局圆角和完整 1px 边框：面板有 4px 外层留白，不再直接承担系统窗口外沿。能力未知时采用相同默认值；Windows 10 既有外侧直角规则暂保留，macOS 按版本使用 Sequoia 6px / Tahoe 12px。
+- O WorkspaceHeader no Windows compartilha a área de ações comum com o macOS, removendo o menu de seta para baixo de caption e o placeholder de separador à direita do terminal; a entrada de ajuda padrão e o espaço reservado para os botões de janela do sistema são preservados. As entradas de menu de Linux e da página de configurações não mudam.
 
-- Windows 与 macOS 主工作区统一保留顶部、右侧、底部 4px 外层 padding；侧栏收起后左侧同样保留 4px。侧栏拖拽线端点同步计入这层留白。Linux、Web 和手机布局保持原有规则，Windows caption 控制区仍按原规则预留。
+- A sessão, o terminal e o Side Pane, tanto em janela normal quanto maximizada no Windows, usam de forma unificada cantos de layout de 5px e borda completa de 1px: os painéis têm 4px de margem externa e não sustentam mais diretamente a borda do sistema. Quando a capacidade é desconhecida, adota-se o mesmo valor padrão; as regras existentes de canto reto externo do Windows 10 são mantidas por enquanto, e o macOS usa Sequoia 6px / Tahoe 12px conforme a versão.
 
-- 展开 Side Pane：Header 属于会话面板，两面板独立圆角与背景；顶部/底部差 <= 1px，面板间距 4px。
-- 关闭 Side Pane：左面板恢复原宽度；反复展开不丢失 tab、终端内容或会话。
+- O workspace principal do Windows e do macOS mantém de forma unificada padding externo de 4px no topo, à direita e na base; depois que a barra lateral é recolhida, os 4px à esquerda também são mantidos. As pontas da linha de arrasto da barra lateral contabilizam também essa camada de margem. Linux, Web e celular mantêm as regras originais, e a área de controle de caption do Windows continua reservada segundo as regras originais.
 
-- 两种主题分别验证背景与边框；现有手机远控、Windows/Linux caption 单测通过。
-- 执行相关单测、Electron E2E、typecheck、lint，记录无法完成的独立平台视觉验证。
+- Com o Side Pane expandido: o Header pertence ao painel da sessão, os dois painéis têm cantos e fundo independentes; a diferença entre topo e base é <= 1px e o espaçamento entre painéis é de 4px.
+- Com o Side Pane fechado: o painel esquerdo recupera a largura original; expandir e recolher repetidamente não perde tabs, conteúdo do terminal nem a sessão.
 
-## 验证结果
+- Fundo e borda são verificados nos dois temas; os testes unitários já existentes de caption no Windows/Linux e de controle remoto no celular passam.
+- Executar os testes unitários relacionados, o E2E de Electron, typecheck e lint, registrando a validação visual independente de plataforma que não foi possível concluir.
 
-- 2026-09-10 恢复原长度：指示线沿面板边缘延伸、按圆角内缩，保留 foreground-subtlest/50，无 mask。Windows Electron SPT-E2E-000 首轮 hover 超时，同一构建复测通过（`desktop-e2e-20260910-034045-447`）；覆盖长度、亮暗主题和拖拽。typecheck、typecheck:e2e、lint 通过（44 个既有警告）。其他平台未实机复测。
+## Resultados da Validação
 
-- 2026-09-10 固定长度 handle：指示线改为居中 48px，保留 2px 粗细和 foreground-subtlest/50，移除 mask。Windows Electron SPT-E2E-000 验证亮暗主题下固定长度、无 mask、显隐与真实拖拽通过（`desktop-e2e-20260910-033653-782`）；typecheck、typecheck:e2e、lint 通过（44 个既有警告）。其他平台未实机复测。
+- 2026-09-10 retorno ao comprimento original: a linha indicadora se estende ao longo da borda do painel e recua conforme os cantos, mantendo foreground-subtlest/50 e sem mask. O SPT-E2E-000 de Electron no Windows falhou por timeout de hover na primeira rodada e passou na reexecução com o mesmo build (`desktop-e2e-20260910-034045-447`); cobre comprimento, tema claro/escuro e arrasto. typecheck, typecheck:e2e e lint passaram (44 avisos já existentes). Os outras plataformas não foram retestados em máquina real.
 
-- 2026-09-10 渐隐线降为 foreground-subtlest/50：Windows Electron SPT-E2E-000 最终通过（`desktop-e2e-20260910-033454-339`）。首轮修正参照节点缺少 Tailwind utility 的测试误报，次轮 hover 超时，同一构建复跑通过。typecheck、typecheck:e2e、lint 通过（44 个既有警告），其他平台未实机复测。
+- 2026-09-10 handle de comprimento fixo: a linha indicadora passou a ter 48px centralizados, mantendo 2px de espessura e foreground-subtlest/50, com remoção do mask. O SPT-E2E-000 de Electron no Windows validou comprimento fixo nos temas claro/escuro, ausência de mask, exibição/ocultação e arrasto real (`desktop-e2e-20260910-033653-782`); typecheck, typecheck:e2e e lint passaram (44 avisos já existentes). Os outras plataformas não foram retestados em máquina real.
 
-- 2026-09-10 渐隐线改用第三层颜色 foreground-subtlest：Windows Electron SPT-E2E-000 通过，运行 ID `desktop-e2e-20260910-032826-700`；typecheck、typecheck:e2e、lint 通过（44 个既有警告）。渐隐、拖拽与显隐行为不变；其他平台未实机复测。
+- 2026-09-10 linha com fade reduzida para foreground-subtlest/50: o SPT-E2E-000 de Electron no Windows passou (`desktop-e2e-20260910-033454-339`). A primeira rodada corrigiu um falso positivo do teste por nó de referência sem Tailwind utility, a segunda teve timeout de hover e a reexecução com o mesmo build passou. typecheck, typecheck:e2e e lint passaram (44 avisos já existentes); os outras plataformas não foram retestados em máquina real.
 
-- 2026-09-10 次要颜色渐隐线：Windows Electron SPT-E2E-000 通过，覆盖三个 handle 的次要色、渐变 mask、默认隐藏、hover/拖动态显示、真实拖拽及亮暗主题。运行 ID `desktop-e2e-20260910-032455-191`。17 项单测通过、1 项既有跳过；typecheck、typecheck:e2e、lint 通过（44 个既有警告）。macOS/Linux、手机实机未复测。
+- 2026-09-10 linha com fade passando a usar a cor de terceiro nível foreground-subtlest: o SPT-E2E-000 de Electron no Windows passou, com run ID `desktop-e2e-20260910-032826-700`; typecheck, typecheck:e2e e lint passaram (44 avisos já existentes). O fade, o arrasto e a exibição/ocultação não mudaram; os outras plataformas não foram retestados em máquina real.
 
-- 2026-09-10 移除 handle 指示线：Windows Electron SPT-E2E-000 通过，三个透明热区的 hover、拖动态与亮暗主题均无指示线，真实尺寸调整仍有效。17 项相关单测通过、1 项既有跳过；typecheck、typecheck:e2e、lint 通过（44 个既有警告）。macOS/Linux 和手机实机未复测。
+- 2026-09-10 linha com fade na cor secundária: o SPT-E2E-000 de Electron no Windows passou, cobrindo a cor secundária dos três handles, a mask em gradiente, a ocultação padrão, a exibição em hover/arrasto, o arrasto real e os temas claro/escuro. Run ID `desktop-e2e-20260910-032455-191`. 17 testes unitários passaram e 1 existente foi pulado; typecheck, typecheck:e2e e lint passaram (44 avisos já existentes). macOS/Linux e celular não foram retestados em máquina real.
 
-- 2026-09-10 handle sky 配色：浅色 sky-500、深色 sky-400，不额外降低透明度。Windows Electron SPT-E2E-000 通过，覆盖三个 handle 的尺寸、真实拖拽及亮暗色断言；运行 ID `desktop-e2e-20260910-031310-945`。16 项相关单测、typecheck、typecheck:e2e、lint 通过（44 个既有警告）。macOS/Linux 和手机实机未复测。
+- 2026-09-10 remoção da linha indicadora do handle: o SPT-E2E-000 de Electron no Windows passou; as três zonas de arrasto transparentes não têm linha indicativa em hover, durante o arrasto nem nos temas claro/escuro, e o redimensionamento real continua funcionando. 17 testes unitários relacionados passaram e 1 existente foi pulado; typecheck, typecheck:e2e e lint passaram (44 avisos já existentes). macOS/Linux e celular não foram retestados em máquina real.
 
-- 2026-09-10 Sequoia 圆角修复：20 项版本识别及半径单测通过；typecheck、typecheck:e2e、lint 通过（44 个已有警告）。Windows Electron 首轮 6/8（标签 hover、最小化时序失败），同一 renderer 构建复测 8/8，运行 ID `desktop-e2e-20260910-030905-004`。Sequoia/Tahoe 原生窗口外观仍需 macOS 实机验证。
+- 2026-09-10 cor sky do handle: sky-500 no claro, sky-400 no escuro, sem redução adicional de opacidade. O SPT-E2E-000 de Electron no Windows passou, cobrindo dimensões dos três handles, arrasto real e asserções de cor clara/escura; run ID `desktop-e2e-20260910-031310-945`. 16 testes unitários relacionados, typecheck, typecheck:e2e e lint passaram (44 avisos já existentes). macOS/Linux e celular não foram retestados em máquina real.
 
-- 2026-09-10 handle 第三层文字色：Windows Electron SPT-E2E-000～007 共 8/8 通过，覆盖三个 handle 的拖拽与 Zai 浅色/深色颜色；相关单测 14 通过、1 既有跳过。typecheck、typecheck:e2e、lint 通过（46 个既有警告）。macOS/Linux 和手机实机未运行，修改仅涉及共享指示线颜色，手机隐藏规则不变。
+- 2026-09-10 correção dos cantos de Sequoia: 20 testes de identificação de versão e raio passaram; typecheck, typecheck:e2e e lint passaram (44 avisos já existentes). No Electron do Windows a primeira rodada deu 6/8 (hover de tab e sequência de minimização falharam), e o reteste com o mesmo build de renderer deu 8/8, run ID `desktop-e2e-20260910-030905-004`. A aparência nativa de janela em Sequoia/Tahoe ainda precisa de validação em máquina macOS real.
 
-- 2026-09-07 E2E 补齐：三个 handle 均验证 4px 热区、2px `bg-foreground` 指示线、默认隐藏、hover/拖动态显示与真实尺寸变化；同时验证设置页 Sidebar 桌面宽度 268px。测试发现并修复 Terminal 指针离开热区后拖动态指示线消失的问题。Workspace E2E 7/7、Settings E2E 5/5、相关单测 47/47 通过；运行 ID 分别为 `desktop-e2e-20260907065558567-p30371-3b85b0c85fbbae83`、`desktop-e2e-20260907065702167-p33040-7fa462d329a4436b`。
-- 2026-09-07 Windows 设置页圆角对齐：主内容面板使用 5px，macOS/Linux 保持 12px。14 项相关单测、4 项 Windows Electron 设置页 E2E、typecheck、lint 通过（44 个已有警告、0 错误）；E2E 运行 ID `desktop-e2e-20260907034259243-p15484-0c781c55b70b3943`。
+- 2026-09-10 cor de texto de terceiro nível no handle: SPT-E2E-000～007 de Electron no Windows passou 8/8, cobrindo o arrasto dos três handles e as cores Zai claro/escuro; 14 testes unitários relacionados passaram e 1 existente foi pulado. typecheck, typecheck:e2e e lint passaram (46 avisos já existentes). macOS/Linux e celular não foram executados, e a mudança afeta apenas a cor da linha indicadora compartilhada, com a regra de ocultação no celular inalterada.
 
-- 2026-09-07 设置页 caption 入口对齐：Windows/Linux 删除旧下箭头和 native overlay 动态占位，复用 macOS 问号帮助入口并与三个内联窗控组成 134px 操作区。15 项相关单测、4 项 Windows Electron 设置页 E2E、typecheck、lint 通过（44 个已有警告、0 错误）；E2E 运行 ID `desktop-e2e-20260907033146942-p24568-0c3e36ba64f67d99`。
+- 2026-09-07 E2E completo: os três handles validam zona quente de 4px, linha indicadora `bg-foreground` de 2px, ocultação padrão, exibição em hover/arrasto e mudança real de tamanho; também foi validada a largura desktop de 268px do Sidebar das configurações. Os testes encontraram e corrigiram o problema de a linha do Terminal sumir no estado de arrasto após o ponteiro sair da zona quente. Workspace E2E 7/7, Settings E2E 5/5 e 47/47 testes unitários relacionados passaram; os run IDs são `desktop-e2e-20260907065558567-p30371-3b85b0c85fbbae83` e `desktop-e2e-20260907065702167-p33040-7fa462d329a4436b`.
+- 2026-09-07 alinhamento dos cantos da página de configurações no Windows: o painel de conteúdo principal usa 5px e macOS/Linux mantêm 12px. 14 testes unitários relacionados, 4 E2E de Electron da página de configurações no Windows, typecheck e lint passaram (44 avisos já existentes, 0 erros); run ID do E2E `desktop-e2e-20260907034259243-p15484-0c781c55b70b3943`.
 
-- 2026-09-07 设置页桌面外框对齐：macOS、Windows、Linux 主内容框统一使用 4px 外层 padding，Web 保持 0px；22 项相关单测、typecheck、lint 通过（41 个已有警告、0 错误）。当前环境未独立执行 Linux/macOS 视觉验证。
+- 2026-09-07 alinhamento da entrada de caption da página de configurações: Windows/Linux removem a seta para baixo antiga e o placeholder dinâmico do native overlay, reaproveitando a entrada de ajuda com interrogação do macOS e formando com ela uma área de ações de 134px junto aos três controles inline. 15 testes unitários relacionados, 4 E2E de Electron da página de configurações no Windows, typecheck e lint passaram (44 avisos já existentes, 0 erros); run ID do E2E `desktop-e2e-20260907033146942-p24568-0c3e36ba64f67d99`.
 
-- 2026-09-04 Linux 对齐 Windows：60 项相关单测通过；Windows Electron 8 项交互回归通过，运行 ID `desktop-e2e-20260904131942845-p10384-c7851f1c1af7bbc7`，涵盖共享窗控真实 minimize/close、最大化/还原及面板展开收起。typecheck、lint 通过（41 个已有警告、0 错误）。Linux 分支已纳入相同 E2E 断言，当前 Windows 环境未执行真实 Linux/X11/Wayland 窗口管理器验证；macOS 与手机未独立视觉复测。
+- 2026-09-07 alinhamento do quadro externo das configurações: a caixa principal de conteúdo em macOS, Windows e Linux usa de forma unificada 4px de padding externo, e a Web mantém 0px; 22 testes unitários relacionados, typecheck e lint passaram (41 avisos já existentes, 0 erros). A validação visual independente de Linux/macOS não foi executada no ambiente atual.
 
-- 2026-09-04 Windows 内联自绘窗控：8 项 Windows Electron E2E 通过，覆盖展开/收起后的归属和相邻 2px 间距、28px 尺寸、最大化/还原图标、真实 minimize/close 事件及原有面板交互。运行 ID `desktop-e2e-20260904125135324-p11372-6864a58ebc85a27d`。相关单测、typecheck、lint 通过（41 个已有警告）。Windows 原生 hover Snap Layout 未实现；macOS/Linux/手机保持原路径，未独立视觉复测。旧窗口需重启才能应用 frameless 创建参数。
+- 2026-09-04 Linux alinhado ao Windows: 60 testes unitários relacionados passaram; 8 regressões de interação em Electron no Windows passaram, com run ID `desktop-e2e-20260904131942845-p10384-c7851f1c1af7bbc7`, cobrindo minimize/close reais dos controles compartilhados, maximizar/restaurar e expandir/recolher dos painéis. typecheck e lint passaram (41 avisos já existentes, 0 erros). O branch de Linux já foi incluído nas mesmas asserções de E2E, mas o ambiente Windows atual não executou a validação real no gerenciador de janelas Linux/X11/Wayland; macOS e celular não tiveram reteste visual independente.
 
-- 2026-09-04 Windows 布局圆角最终调整为 5px：CDP 实测四角均为 5px；28 项单测、7 项 Windows Electron E2E、typecheck、lint 通过（41 个已有警告）。
+- 2026-09-04 controles de janela inline desenhados no Windows: 8 E2E de Electron no Windows passaram, cobrindo a atribuição após expandir/recolher e o espaçamento adjacente de 2px, o tamanho de 28px, os ícones de maximizar/restaurar, os eventos reais de minimize/close e as interações de painel existentes. Run ID `desktop-e2e-20260904125135324-p11372-6864a58ebc85a27d`. Os testes unitários relacionados, typecheck e lint passaram (41 avisos já existentes). O hover nativo de Snap Layout do Windows não foi implementado; macOS/Linux/celular mantêm o caminho original e não tiveram reteste visual independente. Janelas antigas precisam ser reiniciadas para que os parâmetros de criação frameless sejam aplicados.
 
-- 2026-09-04 Windows Header 按钮恢复 macOS 紧凑样式：CDP 实测终端和 Side Pane 开关高度均为 28px；10 项 Header 单测、7 项 Windows Electron E2E、typecheck、lint 通过（41 个已有警告）。
+- 2026-09-04 ajuste final dos cantos de layout do Windows para 5px: medição via CDP mostrou 5px nos quatro cantos; 28 testes unitários, 7 E2E de Electron no Windows, typecheck e lint passaram (41 avisos já existentes).
 
-- 2026-09-04 Windows 顶部工具组对齐：CDP 实测调整前左右中心为 24px/29px，调整后均为 29px；3 项相关单测、7 项 Windows Electron E2E、typecheck、lint 通过（41 个已有警告）。
+- 2026-09-04 restauração do estilo compacto dos botões do Header no Windows: a medição via CDP mostrou altura de 28px tanto para o botão de terminal quanto para o toggle do Side Pane; 10 testes unitários de Header, 7 E2E de Electron no Windows, typecheck e lint passaram (41 avisos já existentes).
 
-- 2026-09-04 Windows Header 右边距修复：移除旧 `pr-0`，CDP 实测由 0px 恢复至 8px；10 项 Header 单测、7 项 Windows Electron E2E、typecheck、lint 通过（41 个已有警告）。
+- 2026-09-04 alinhamento do grupo de ferramentas do topo no Windows: a medição via CDP mostrou centros de 24px/29px antes do ajuste e 29px/29px depois; 3 testes unitários relacionados, 7 E2E de Electron no Windows, typecheck e lint passaram (41 avisos já existentes).
 
-- 2026-09-04 Windows Header 移除独立下箭头：运行时确认只保留常规帮助和终端操作；33 项相关单测、7 项 Windows Electron E2E、typecheck 和 lint 通过（41 个已有警告）。
+- 2026-09-04 correção da margem direita do Header no Windows: remoção do `pr-0` antigo; a medição via CDP voltou de 0px para 8px; 10 testes unitários de Header, 7 E2E de Electron no Windows, typecheck e lint passaram (41 avisos já existentes).
 
-- 2026-09-04 最大化 Side Pane 修复：运行时确认旧样式为 0px 圆角、仅左侧 1px 边框；修复后四角 6px、四边 1px。28 项单测、typecheck、lint 通过；包含真实 maximize/unmaximize 的 Windows Electron E2E 7/7 通过，运行 ID `desktop-e2e-20260904121343959-p7064-eb22b5d3fbfec48a`。
+- 2026-09-04 remoção da seta para baixo independente do Header no Windows: em tempo de execução confirmou-se que restam apenas a ajuda comum e as ações de terminal; 33 testes unitários relacionados, 7 E2E de Electron no Windows, typecheck e lint passaram (41 avisos já existentes).
 
-- 2026-09-04 Windows 布局圆角统一 `rounded-md`：28 项单测、typecheck、lint 通过（41 个已有警告）；CDP 实测会话与 Side Pane 四角均为 6px。Windows Electron E2E 首次 6/7，Tooltip 延时断言失败，复用相同构建重跑 7/7 通过；布局圆角断言两次均通过。macOS、Linux 和手机未进行本次独立视觉复测。
+- 2026-09-04 correção da maximização do Side Pane: em tempo de execução confirmou-se que o estilo antigo era raio de 0px e apenas borda de 1px à esquerda; após a correção são 6px nos quatro cantos e 1px nos quatro lados. 28 testes unitários, typecheck e lint passaram; o E2E de Electron no Windows com maximize/unmaximize reais passou 7/7, com run ID `desktop-e2e-20260904121343959-p7064-eb22b5d3fbfec48a`.
 
-- 2026-09-04 Windows 外层 padding 对齐 macOS：23 项布局单测、7 项 Windows Electron E2E、`pnpm typecheck`、`pnpm lint` 通过（41 个已有警告）。CDP 实测主面板顶部 4px，content 右/底 padding 均为 4px。E2E 运行 ID：`desktop-e2e-20260904120237923-p17680-a5f5b3aeaa873805`。macOS、Linux、手机未进行本次独立视觉复测。
+- 2026-09-04 unificação dos cantos de layout do Windows com `rounded-md`: 28 testes unitários, typecheck e lint passaram (41 avisos já existentes); a medição via CDP mostrou 6px nos quatro cantos tanto da sessão quanto do Side Pane. Na primeira execução do E2E de Electron no Windows o resultado foi 6/7, com falha na asserção de atraso do Tooltip, e a reexecução com o mesmo build deu 7/7; as asserções de cantos de layout passaram nas duas vezes. macOS, Linux e celular não tiveram reteste visual independente nesta rodada.
 
-- 2026-09-04 终端独立外框：39 项相关单测、7 项 Electron E2E、typecheck 与 lint 通过；E2E 验证终端位于会话框外、同属左列、间距 4px，以及三面板深浅主题背景一致。运行 ID：`desktop-e2e-20260904104922835-p29510-089fd6229a80617c`。Windows 原生边缘逻辑保留，Windows/Linux 和手机独立视觉验证待补。
-- 2026-09-04：相关 8 个单测文件，51 项通过、1 项已有跳过。新增 Header 归属与控制区预留用例先失败后通过。
-- `pnpm typecheck`、`pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm lint` 通过；Lint 41 个已有警告、0 错误。
-- macOS Electron 最终 4px 版本：7/7 通过；运行 ID `desktop-e2e-20260904084050358-p6937-68e000533efda13e`。
-- 运行时验证包含：4px 间距、上下对齐、双 xl 外框、Header 归属、真实指针拖动改变宽度、底部终端独立外框、关闭后宽度恢复、标签栏开关与缩放交互，以及浅色/深色背景一致性。两种主题截图已检查。
-- Windows/Linux caption 和手机远控路径有单测覆盖，尚未执行这些平台的独立视觉 E2E；截图中的透明窗口底层不等同于操作系统最终合成的 vibrancy 材质。
+- 2026-09-04 alinhamento do padding externo do Windows ao macOS: 23 testes unitários de layout, 7 E2E de Electron no Windows, `pnpm typecheck` e `pnpm lint` passaram (41 avisos já existentes). A medição via CDP mostrou 4px no topo do painel principal e 4px de padding direito/inferior do content. Run ID do E2E: `desktop-e2e-20260904120237923-p17680-a5f5b3aeaa873805`. macOS, Linux e celular não tiveram reteste visual independente nesta rodada.
 
-## 当前会话最近活动
+- 2026-09-04 quadro externo independente do terminal: 39 testes unitários relacionados, 7 E2E de Electron, typecheck e lint passaram; o E2E verifica que o terminal fica fora do quadro da sessão, na mesma coluna à esquerda, com 4px de espaçamento, e que o fundo dos três painéis é igual nos temas claro e escuro. Run ID: `desktop-e2e-20260904104922835-p29510-089fd6229a80617c`. A lógica de borda nativa do Windows foi preservada, e a validação visual independente de Windows/Linux e celular ficou pendente.
+- 2026-09-04: nos 8 arquivos de teste unitário relacionados, 51 casos passaram e 1 caso existente foi pulado. Os novos casos de atribuição do Header e de reserva da área de controle falharam antes e passaram depois.
+- `pnpm typecheck`, `pnpm --filter @zcode/desktop typecheck:e2e` e `pnpm lint` passaram; 41 avisos de lint já existentes, 0 erros.
+- Versão final de 4px no Electron do macOS: 7/7; run ID `desktop-e2e-20260904084050358-p6937-68e000533efda13e`.
+- A validação em tempo de execução inclui: espaçamento de 4px, alinhamento topo/base, dois quadros externos xl, atribuição do Header, mudança real de largura por arrasto do ponteiro, quadro externo independente do terminal inferior, restauração da largura após fechar, toggle da barra de tabs e interação de resize, e consistência do fundo claro/escuro. Os screenshots dos dois temas foram verificados.
+- Caption de Windows/Linux e o caminho de controle remoto no celular têm cobertura de teste unitário, mas ainda não executaram E2E visual independente dessas plataformas; o fundo transparente da janela nos screenshots não equivale ao material de vibrancy que o sistema operacional finally sintetiza.
 
-信息浮层的名称/路径下方显示时钟图标与“最近活动 2 分钟前”（英文 Last active 2 minutes ago），替代工作区 tasks/active 统计。使用当前会话 meta 的实时 activity.lastActivityAt，缺失时读取 updatedAt；时间未知时不显示。打开浮层期间每分钟刷新相对时间，关闭后清理计时器。删除原统计组件与列表查询；不新增服务、协议或持久化。
+## Atividade Recente da Sessão Atual
 
-## 工作区信息排版
+Abaixo do nome/caminho no flyout de informações, mostram-se um ícone de relógio e “最近活动 2 分钟前” (Last active 2 minutes ago em inglês), no lugar das estatísticas tasks/active do workspace. Usa-se o `activity.lastActivityAt` em tempo real do meta da sessão atual, com fallback para `updatedAt`; quando o tempo é desconhecido, nada é exibido. Enquanto o flyout está aberto, o tempo relativo é atualizado a cada minuto, e o timer é limpo ao fechar. O componente de estatísticas original e sua query de lista são removidos; nenhum serviço, protocolo ou persistência é adicionado.
 
-工作区图标与名称同行，名称下方显示路径并与名称左边缘对齐。路径使用次级前景与 text-ui-sm；只有属于当前工作区所在主机的 home 目录时缩写为 `~`，未取得 home 时显示原路径。下方显示当前会话最近活动，分支前增加 border-border/50 分隔线；非 Git 工作区不显示分支或分隔线。
+## Tipografia das Informações do Workspace
 
-排版验证：相关单测 7/7、macOS Electron TTL01–TTL07 7/7，路径实测 `~/ZCodeProject`；typecheck、lint 通过（46 个已有警告）。运行记录：`desktop-e2e-20260907080616432-p60066-d11800800bd11757`。
+O ícone e o nome do workspace ficam na mesma linha, e abaixo do nome aparece o caminho alinhado à borda esquerda do nome. O caminho usa o foreground secundário e `text-ui-sm`; ele é abreviado como `~` apenas quando pertence ao diretório home do host ao qual o workspace atual pertence, e quando o home não é obtido, o caminho original é exibido. Abaixo aparece a atividade recente da sessão atual, com um separador `border-border/50` antes do branch; workspaces sem Git não mostram branch nem separador.
 
-- 2026-09-10 MR !2586 CR-01：修复 macOS 窗口状态查询被 hook 守卫跳过。新增两条真实 hook 回归先失败后通过；26 项相关单测、typecheck、lint（44 个既有警告、0 错误）通过。Windows Electron SPT-E2E-000 通过，运行 ID desktop-e2e-20260910-040930-907。macOS 原生视觉与手机实机未验证。
+Validação da tipografia: 7/7 testes unitários relacionados, 7/7 de Electron no macOS (TTL01–TTL07), caminho medido `~/ZCodeProject`; typecheck e lint passaram (46 avisos já existentes). Registro da execução: `desktop-e2e-20260907080616432-p60066-d11800800bd11757`.
 
-- Workspace Sidebar 底部 footer 左内边距保持 16px（`pl-4`），右内边距为 12px（`pr-3`）；上下内边距不变。此覆盖仅由 Workspace 调用方传入，Settings 复用的 footer 保持默认左右 16px（`px-4`）。
+- 2026-09-10 MR !2586 CR-01: correção da consulta de estado de janela do macOS estar sendo pulada pelo guarda do hook. Duas novas regressões com o hook real falharam antes e passaram depois; 26 testes unitários relacionados, typecheck e lint (44 avisos já existentes, 0 erros) passaram. O SPT-E2E-000 de Electron no Windows passou, com run ID desktop-e2e-20260910-040930-907. A visual nativa do macOS e o celular em máquina real não foram verificados.
+
+- O footer inferior do Workspace Sidebar mantém padding esquerdo de 16px (`pl-4`) e padding direito de 12px (`pr-3`); o padding vertical não muda. Essa sobrescrita é passada apenas pelo chamador do Workspace, e o footer reaproveitado pelas Settings mantém o padrão de 16px dos dois lados (`px-4`).

@@ -1,24 +1,38 @@
-# Todo100 调查：Account / Provider / Effective Selection 的现状与收口方向
+# Investigação do Todo100: situação atual e direção de fechamento de Account / Provider / Effective Selection
 
-> 2026-09-09；纯调查完成，产品未修复。对应 [Todo100](../steps/todo-100-account-provider-selection-architecture-investigation.md)。
-> 已提交基线：`86bbe157c88e8e599694afb53c39f6dac125ac08`。受暂停实验影响的文件以 `git show HEAD:<path>` 核对，不能用工作区试改证明基线已修。没有修改产品代码、测试、真实账号、远端配置或部署。
+> 2026-09-09; investigação pura concluída, produto não corrigido. Correspondente a [Todo100](../steps/todo-100-account-provider-selection-architecture-investigation.md).
+> Baseline comitado: `86bbe157c88e8e599694afb53c39f6dac125ac08`. Os arquivos afetados pelo experimento suspenso foram conferidos com `git show HEAD:<path>`; não se pode provar que o baseline já está corrigido por tentativas de modificação no workspace. Nenhum código de produto, teste, conta real, configuração remota ou deploy foi modificado.
 
-## 1. 结论
+## 1. Conclusão
 
-不是“完全没有公共架构”，也不是“只把同步加一个字段就全部好了”。公共 Registry 快照、有效选择算法和 UI 订阅已经存在；主要缺口在装配和消费边界。
+Não é "não existe nenhuma arquitetura compartilhada", nem "basta adicionar um campo na sincronização e
+tudo fica resolvido". Já existem um snapshot público de Registry, o algoritmo de seleção efetiva e a
+assinatura de UI; a lacuna principal está na montagem e nas fronteiras de consumo.
 
-优先处理的事情：
+O que tratar com prioridade:
 
-1. 让实际执行进程取得完整 Account 事实，且同步确认反映真正已应用的快照。
-2. 显式 Subagent 等仍拿原选择直接创建模型的入口，接入已有公共解析；不是再写一份对应算法。
-3. 检查有效选择从解析到派发是否丢失。已发现任务适配器带附件分支漏传本次选择；Bot 已有任务的下一条消息没有重新取得有效选择。
-4. 把“新意图解析”与“已固定执行”在调用边界区分清楚，不能在 ModelFactory 内统一偷偷换模型。
+1. Fazer o processo de execução real obter os fatos completos de Account, e fazer a confirmação da
+   sincronização refletir o snapshot efetivamente aplicado.
+2. Ligar à resolução pública já existente as entradas que ainda criam o modelo direto a partir da escolha
+   original, como o Subagent explícito — sem escrever mais uma cópia do algoritmo correspondente.
+3. Verificar se a seleção efetiva se perde entre a resolução e o despacho. Já foi encontrado que o adaptador de
+   tarefa, no ramo com anexo, deixa de repassar a seleção corrente; e que o Bot, ao enviar a próxima mensagem de
+   uma tarefa já existente, não volta a obter a seleção efetiva.
+4. Distinguir claramente "resolver nova intenção" de "execução já fixada" na fronteira de chamada, e não trocar
+   de modelo às escondidas de forma unificada dentro do ModelFactory.
 
-临时同步机制不值得先做大重构。修完整性、应用确认、生命周期即可；公共模型选择语义不应依赖它的长期存在。独立终端 CLI 的完整账号装配仍按用户裁决暂不改。
+O mecanismo temporário de sincronização não justifica uma refatoração grande primeiro. Basta corrigir a
+integridade, a confirmação de aplicação e o ciclo de vida; a semântica pública de seleção de modelo não deve
+depender da existência de longo prazo dele. A montagem completa de contas do CLI terminal independente
+permanece sem alteração, conforme a decisão do usuário.
 
-证据分级：**确认**表示代码链明确或内存复现；**条件性缺口**表示能确定分支行为，但真实用户是否触发/产品边界仍需区分；**风险**表示尚不能断言发生错误。下文不把所有没有调用 resolver 的地方都报成 Bug。
+Classificação de evidências: **confirmado** significa que a cadeia de código é clara ou há reprodução em
+memória; **lacuna condicional** significa que é possível determinar o comportamento do ramo, mas ainda é
+preciso distinguir se um usuário real dispara isso e qual é o limite de produto; **risco** significa que ainda
+não é possível afirmar que ocorre um erro. Ao longo do texto não é reportado como Bug todo lugar que não chama o
+resolver.
 
-## 2. 当前分层与状态归属
+## 2. Camadas atuais e posse de estado
 
 ```text
 一个执行环境的 Host
@@ -51,15 +65,22 @@
         基线显式 Subagent 没有接公共 Effective Selection
 ```
 
-几个容易混淆的点：
+Alguns pontos fáceis de confundir:
 
-- `providerFamilyConnectionSelections` 是用户持久选择；Account `current` 是运行时事实，不新增一份持久 current。
-- Account Overlay 和 Account states 是一次账号计算的两个投影；states 不是凭据，也不能因为“不是请求配置”就在跨进程时丢掉。
-- Worker 与 Host 已复用 Provider 核心代码，但**注入数据与入口装配不同**。复用同一个 Resolver 不保证结果相同。
-- `ModelSelectionFacade` 是纯公共层。读取同一已应用快照，返回候选和输入对应的有效选择；不需要各业务都认识个人/Team/Start。
-- Host 网络账号编排位于 services；独立 CLI 当前只装配较简化的个人套餐来源。它不是“算法必须依赖 Host”，而是服务装配尚未对齐。
+- `providerFamilyConnectionSelections` é a escolha persistente do usuário; o `current` do Account é um fato de
+  runtime, e não se cria uma segunda cópia persistente de current.
+- O Overlay do Account e os states do Account são duas projeções do mesmo cálculo de conta; states não são
+  credenciais e também não podem ser descartados entre processos só porque "não são configuração de requisição".
+- Worker e Host já reutilizam o código central de Provider, mas **os dados injetados e a montagem da entrada são
+  diferentes**. Reutilizar o mesmo Resolver não garante o mesmo resultado.
+- `ModelSelectionFacade` é uma camada puramente pública. Ela lê o mesmo snapshot já aplicado e devolve os
+  candidatos e a seleção efetiva correspondentes à entrada; não precisa que cada negócio conheça
+  pessoal/Team/Start.
+- A orquestração de contas de rede do Host fica nos services; o CLI independente hoje monta apenas uma fonte de
+  pacotes pessoais simplificada. Não é "o algoritmo precisa depender do Host", é que a montagem de serviços ainda
+  não está alinhada.
 
-### SSH / 手机不是另一套业务算法
+### SSH / celular não são outro algoritmo de negócio
 
 ```text
 桌面环境 -- 初始/变更 provisioning --> 远端环境配置存储
@@ -72,30 +93,41 @@
 手机 /remote -- shared-host attachment --> 已存在的目标 Host
 ```
 
-Desktop→远端环境 provisioning 与 Host→Worker Account 同步是不同边。不能为了修后者给手机另建 runtime，也不增加每次普通发送前追平 Desktop 最新配置的屏障。服务目标、缓存和回包归属继续按 `workspaceIdentity?.trim() || workspacePath` 隔离；实际文件操作仍用 workspacePath。
+O provisioning da ambiente remoto Desktop→remoto e a sincronização de Account Host→Worker são arestas
+diferentes. Não se deve criar outro runtime só para o celular por causa da segunda, nem adicionar uma barreira
+de "alcançar a configuração mais recente do Desktop antes de cada envio comum". Os alvos de serviço, o cache e a
+posse da resposta continuam isolados por `workspaceIdentity?.trim() || workspacePath`; as operações reais de
+arquivo continuam usando workspacePath.
 
-## 3. 已有正确机制：应保留，不重写
+## 3. Mecanismos já corretos: preservar, não reescrever
 
-| 机制 | 调查结果 | 证据入口（基线） |
+| Mecanismo | Resultado da investigação | Entrada de evidência (baseline) |
 | --- | --- | --- |
-| Registry 完整应用 | 并发读取 config/account，检查刷新 generation；Account 所基于的 Built-in 不匹配时保留上一份完整快照 | `packages/provider/src/registry-service.ts:180` |
-| Facade 同快照解析 | 候选 Registry 和 Account states 来自一次 `getSnapshot()`；不是分别向两项服务取最新值再拼起来 | `packages/provider/src/facades.ts:483` |
-| Account revision | 标识已经包含 Built-in 来源、Overlay 和 states；仅 current 改变也会变更，不必再造 revision 系统 | `packages/provider/src/sources.ts:60` |
-| Account 刷新 | 合并 pending reasons、串行运行；失败保留上次结果；失败期间新事件会继续处理；初次失败仅账号 fail-closed | `packages/provider/src/account-provider-service.ts:95` |
-| 账号作用域隔离 | Resolver 按身份/连接作用域选择可复用的旧结果，不因一次查询失败直接把另一账号的可用事实继承过来 | `packages/services/src/model-provider/accountProviderConnectionResolver.ts:76` |
-| UI 异步隔离 | 公共 Hook 处理 owner、输入变化、请求代次、旧回包；有输入时收到通用 change 通知会重新带原选择取 View | `packages/ui/src/hooks/useModelSelectionView.ts` |
-| Composer 原意图 | 草稿保存原意图，显示/提交派生有效选择；读取失败不把原意图清库；accepted 写回有独立边界 | `packages/ui/src/v4/composer/useDraftConfigControl.ts:173` |
-| 最终创建 Model | 精确校验已经给定的 Provider/Model/档位，再创建冻结配置的 Model；不回退套餐首模型 | `apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts:43` |
+| Aplicação completa do Registry | Lê config/account de forma concorrente e verifica a generation de refresh; quando o Built-in no qual a Account se baseia não bate, mantém o snapshot completo anterior | `packages/provider/src/registry-service.ts:180` |
+| Resolução a partir do mesmo snapshot pela Facade | Os candidatos do Registry e os states da Account vêm de um único `getSnapshot()`; não se busca o valor mais novo de cada um dos dois serviços e se monta por cima | `packages/provider/src/facades.ts:483` |
+| Revision da Account | A identidade já inclui a origem Built-in, o Overlay e os states; mesmo só a mudança de current provoca alteração, e não é preciso inventar outro sistema de revision | `packages/provider/src/sources.ts:60` |
+| Refresh da Account | Mescla pending reasons e roda serialmente; em falha mantém o resultado anterior; eventos novos durante a falha continuam sendo processados; uma falha inicial deixa somente a conta em fail-closed | `packages/provider/src/account-provider-service.ts:95` |
+| Isolamento por escopo de conta | O Resolver escolhe resultados antigos reutilizáveis por escopo de identidade/conexão e não herda fatos de disponibilidade de outra conta só porque uma consulta falhou | `packages/services/src/model-provider/accountProviderConnectionResolver.ts:76` |
+| Isolamento assíncrono da UI | O Hook público trata owner, mudança de entrada, geração de requisição e respostas antigas; ao receber uma notificação genérica de change com entrada presente, ele volta a buscar a View com a escolha original | `packages/ui/src/hooks/useModelSelectionView.ts` |
+| Intenção original no Composer | O rascunho guarda a intenção original e exibe/submete a seleção efetiva derivada; uma falha de leitura não apaga a intenção original do armazenamento, e a escrita de volta do accepted tem limite próprio | `packages/ui/src/v4/composer/useDraftConfigControl.ts:173` |
+| Criação final do Model | Valida com precisão o Provider/Model/faixa já dados e só então cria o Model com a configuração congelada; não cai de volta no primeiro modelo do pacote | `apps/zcode-cli/packages/bootstrap/src/app/provider-registry-model-runtime.ts:43` |
 
-因此，所谓“统一解决中间态”不是全仓加锁，也不是删除现有正确机制。应明确：Account 发布完整结果，Registry 发布完整应用结果，所有需要组合事实的消费者读后者；异步来源的生产还需要针对性保证作用域一致。
+Portanto, "resolver o estado intermediário de forma unificada" não é colocar um lock em todo o repositório nem
+apagar mecanismos corretos que já existem. Deve ficar explícito: a Account publica o resultado completo, o
+Registry publica o resultado efetivamente aplicado, e todo consumidor que precisa combinar fatos lê o segundo; a
+produção a partir de origens assíncronas ainda precisa de garantias direcionadas de consistência de escopo.
 
-## 4. 确认的问题与影响
+## 4. Problemas confirmados e impacto
 
-### P100-01：跨进程丢失 states，执行资格不一致（确认，优先修）
+### P100-01: perda de states entre processos, elegibilidade de execução inconsistente (confirmado, corrigir primeiro)
 
-Host Account revision 已包含 states，但 `zcodeAgentService.ts:1169` 发出的信封只有 revision、basedOnZCodeBuiltinRevision、providers。基线协议和 Worker 接收路径也没有把 states 接通。
+A revision da Account do Host já contém os states, mas o envelope enviado em `zcodeAgentService.ts:1169` só
+traz revision, basedOnZCodeBuiltinRevision e providers. O protocolo do baseline e o caminho de recebimento do
+Worker também não conectam os states.
 
-Resolver 使用 `accountStates?.[providerId]?.current !== false`。这对不定义 current 的普通 Provider / Off-Peak 有既定用途，但信息丢失后也会让非当前普通 Account 通过。
+O Resolver usa `accountStates?.[providerId]?.current !== false`. Isso tem uso estabelecido para Providers comuns
+/ Off-Peak que não definem current, mas, depois que a informação se perde, também deixa passar uma conta comum
+não-current.
 
 ```text
 Host:   entitled=true, current=false -> 该套餐模型不进入执行 Registry
@@ -103,20 +135,30 @@ Host:   entitled=true, current=false -> 该套餐模型不进入执行 Registry
 Worker: entitled=true, current=undefined -> current 条件放行
 ```
 
-影响不只 Subagent，而是使用这个 Worker Registry 的精确模型创建、协议模型校验等入口。后续鉴权可能再拒绝请求，但不能把晚一步的失败当作前面正确。
+O impacto não se limita ao Subagent, atingindo também a criação precisa de modelo e a validação de modelo de
+protocolo que usam esse Registry do Worker. Uma autenticação posterior pode recusar a requisição de novo, mas
+não se pode tratar a falha mais tardia como prova de que o passo anterior estava correto.
 
-另一个方向：只把 Worker 接上公共 Effective Selection、却不补 states，普通账号选择会因没有唯一 current 而解析为空。两个修复需成套验证。
+Outro caminho: ligar apenas o Worker à seleção efetiva pública, sem completar os states, faz com que a escolha
+de uma conta comum seja resolvida como vazia por não haver um current único. Os doisArranjos precisam ser
+verificados em conjunto.
 
-建议：当前临时协议传完整同一快照；受管理 Worker 的边界明确“初始化 fail-closed”和“完整账号事实”，避免漏 states 被误当正常可执行状态。不能简单把所有 Provider 的 current 改成必填，也不能给 Off-Peak 加 current。
+Sugestão: o protocolo temporário atual transporta o mesmo snapshot completo; o limite do Worker gerenciado
+deve deixar explícito "inicialização fail-closed" e "fatos completos de conta", evitando que states faltantes
+sejam tratados como estado executável normal. Não se pode simplesmente tornar current obrigatório para todos os
+Providers, nem dar current ao Off-Peak.
 
-### P100-02：收到不等于应用，ACK 可以报错版本（内存复现，优先修）
+### P100-02: receber não é aplicar; o ACK pode reportar uma versão errada (reproduzido em memória, corrigir primeiro)
 
-链路：
+Cadeia:
 
-- `bootstrap/src/zcode-protocol-entrypoint.ts:239` 替换 Account Source，await Registry refresh，但没有核实返回的 applied snapshot。
-- `bootstrap/src/zcode-protocol/account-provider-config.ts` 无条件回复输入 `snapshot.revision` 为 `appliedRevision`。
-- Host 把该结果存进每个 Client 的确认缓存，之后同 revision 跳过。
-- Registry 在 Built-in 来源不匹配时允许 refresh 返回旧快照，这是**正确的 Registry 行为**。
+- `bootstrap/src/zcode-protocol-entrypoint.ts:239` substitui o Account Source e espera o refresh do Registry, mas
+  não confere o applied snapshot devolvido.
+- `bootstrap/src/zcode-protocol/account-provider-config.ts` responde incondicionalmente o `snapshot.revision` de
+  entrada como `appliedRevision`.
+- O Host guarda esse resultado no cache de confirmação de cada Client e, depois, pula o mesmo revision.
+- O Registry permite que o refresh devolva o snapshot antigo quando a origem Built-in não bate, e esse é um
+  **comportamento correto do Registry**.
 
 ```text
 Worker 正在使用 A
@@ -126,7 +168,7 @@ Worker 正在使用 A
   -> Host 认为 B 已完成，不再发送同一份
 ```
 
-2026-09-09 无账号、纯内存执行 `ProviderRegistryService` 得到：
+Em 2026-09-09, sem conta e apenas em memória, executar `ProviderRegistryService` deu:
 
 ```json
 {
@@ -137,88 +179,128 @@ Worker 正在使用 A
 }
 ```
 
-最后一项是按基线 handler 逻辑推导，并非伪称运行了整个旧协议进程。前面三项是实际运行结果。
+O último item é derivado da lógica do handler do baseline e não é uma alegação de ter executado todo o processo
+antigo de protocolo. Os três primeiros são resultados reais de execução.
 
-建议：ACK 从实际 applied snapshot 得出；尚未应用必须明确区分，不能记成成功。不规定必须阻塞等到最新，也不靠无限等待/延时解决。如何表示 accepted-but-not-applied 可以在实现规格中选最小协议调整。
+Sugestão: o ACK deve ser derivado do applied snapshot real; "ainda não aplicado" precisa ser distinguido
+explicitamente e não pode ser registrado como sucesso. Não se exige bloquear até o mais novo, nem resolver com
+espera infinita/atraso. A forma de representar accepted-but-not-applied pode escolher a menor mudança de
+protocolo na especificação de implementação.
 
-### P100-03：显式 Subagent 没接公共解析（确认，消费层重点）
+### P100-03: Subagent explícito não está ligado à resolução pública (confirmado, foco do consumo)
 
-基线 `core/src/runtime/methods/subagent.ts` 的同名 effective helper 实际只取 profile.modelSelection 或父选择，不调用 `packages/provider/src/effective-model-selection.ts`。随后使用精确 ModelFactory。
+O helper de nome equivalente em `core/src/runtime/methods/subagent.ts` no baseline só usa
+`profile.modelSelection` ou a escolha do pai e não chama
+`packages/provider/src/effective-model-selection.ts`. Depois, usa o ModelFactory preciso.
 
-因此个人 Provider 的旧意图在当前 Team 存在同模型时，也不会自动对应。states 丢失时可能先错误通过 Registry，补齐 states 后反而会更明确地失败；所以“补同步后问题更明显”不是应该恢复宽松门禁的理由。
+Assim, a intenção antiga de um Provider pessoal também não corresponde automaticamente quando existe o mesmo
+modelo no Team atual. Quando os states se perdem, ele pode passar pelo Registry de forma errada primeiro e,
+depois de completar os states, falhar de forma mais explícita — então "o problema fica mais visível depois de
+completar a sincronização" não é motivo para restaurar um portão permissivo.
 
-建议：在显式 profile 开始一次新执行时，注入同进程公共读取/解析能力，使用 Worker 已应用完整快照。Profile 不写回。嵌套 child、workflow/script child 必须贯穿相同依赖。隐式继承和内部 override 不经过这次重解析。
+Sugestão: quando um profile explícito começa uma nova execução, injetar a capacidade pública de
+leitura/resolução do mesmo processo, usando o snapshot completo já aplicado pelo Worker. O Profile não é
+escrito de volta. Child aninhado e child de workflow/script precisam atravessar a mesma dependência. Herança
+implícita e override interno não passam por essa nova resolução.
 
-### P100-04：Bot 已有任务后续消息不重新解析（条件性缺口，消费边界要明确）
+### P100-04: mensagens seguintes de uma tarefa de Bot existente não são re-resolvidas (lacuna condicional, fronteira de consumo precisa)
 
-`botsService.ts:4842` 首次创建任务会带原选择读取 View、使用 effectiveSelection 创建任务；这是正确的。
+Em `botsService.ts:4842`, a criação inicial da tarefa lê a View com a escolha original e cria a tarefa usando
+effectiveSelection; isso está correto.
 
-但 `botsService.ts:4934` 已有 activeTask 分支是 resume + send。`sendPromptInBackground:4764` 不传 modelSelection；任务适配器不补解析，Core `turn.ts:105` 在 intent 缺省时直接冻结 Session 已保存的选择。
+Mas o ramo de activeTask existente em `botsService.ts:4934` é resume + send. `sendPromptInBackground:4764` não
+passa modelSelection; o adaptador de tarefa não compensa com resolução, e o Core em `turn.ts:105`, quando a
+intenção está ausente, congela diretamente a escolha já salva da Session.
 
-结论：如果同一 Bot task 已空闲，用户切个人→Team，再发下一条消息，这条路径**不会因 Account 更新自动对应同模型**。这里的“activeTask”是长期复用任务 ID，不等于某一轮仍在执行。
+Conclusão: se a mesma Bot task já estiver ociosa e o usuário trocar de pessoal → Team e então enviar a próxima
+mensagem, esse caminho **não corresponderá automaticamente ao mesmo modelo por causa da atualização de Account**.
+Aqui "activeTask" é reutilização de longo prazo de um ID de tarefa e não significa que um turno ainda esteja em
+execução.
 
-建议按本次目标：闲置任务的新消息属于新派发，应取得有效选择；已经 admission 的输入、已固定运行、重试及运行中的引导不能笼统重解析。具体 Bot busy 输入在哪个既定边界冻结，需要沿原 CommandInbox 语义实现，不能重建 Host 队列。此处记录语义分界，不擅自把所有后续输入改成相同行为。
+Sugestão conforme o objetivo desta rodada: uma mensagem nova de uma task ociosa é um novo despacho e deve obter a
+seleção efetiva; entrada já em admission, execução já fixada, retry eorientações em execução não podem ser
+re-resolvidos de forma genérica. Onde exatamente a entrada busy do Bot congela precisa ser implementado ao longo
+da semântica já existente do CommandInbox, sem reconstruir a fila do Host. Aqui fica registrada a fronteira
+semântica, sem mudar todas as entradas seguintes para o mesmo comportamento por conta própria.
 
-### P100-05：任务发送有附件分支丢选择（确认分支缺口，尚无真机复现）
+### P100-05: o ramo com anexo do envio de tarefa perde a escolha (lacuna de ramo confirmada, sem reprodução em máquina real até agora)
 
-`zcodeTaskServiceAdapter.ts:363` 的 `sendPromptToAgent` 接收 modelSelection/modelExecution。
+O `sendPromptToAgent` em `zcodeTaskServiceAdapter.ts:363` recebe modelSelection/modelExecution.
 
-- 无附件：发送 V4 sendText，携带这两项。
-- 有附件：调用旧 `zcodeAgentService.sendPrompt`，手工重建参数时两项都未携带。
+- Sem anexo: envia o sendText do V4 carregando os dois itens.
+- Com anexo: chama o antigo `zcodeAgentService.sendPrompt`, e ao reconstruir os parâmetros manualmente não
+  carrega nenhum dos dois.
 
-它不会必然让每一次附件发送出错：若 Session 已经恰好处于同一选择，表现可能正常。但若调用方依靠本次选择覆盖或执行专用 scope，附件分支无法保留同等语义。上层“已经调用了 getView”不足以证明最终执行正确。
+Isso não faz com que todo envio com anexo falhe de forma obrigatória: se a Session por acaso já estiver na mesma
+escolha, o comportamento pode parecer normal. Mas, se o chamador depende desta escolha para sobrescrever ou
+para um escopo de execução dedicado, o ramo com anexo não consegue preservar a mesma semântica. O
+"já chamamos getView" da camada superior não basta para provar que a execução final está correta.
 
-建议：针对实际协议能力恢复等价传递，明确 execution-only 边界；不能简单在已运行 Session 全局 setModel 代替。不要求本轮提前完成整个附件协议迁移。
+Sugestão: restaurar a passagem equivalente conforme a capacidade real do protocolo, deixando explícito o limite
+execution-only; não se pode simplesmente fazer um setModel global na Session já em execução. Não é exigido
+concluir nesta rodada a migração completa do protocolo de anexos.
 
-## 5. 逐入口消费审查表
+## 5. Tabela de revisão de consumo por entrada
 
-| 入口 | 基线实际行为 | 调查结论 / 后续归属 |
+| Entrada | Comportamento real no baseline | Conclusão da investigação / atribuição posterior |
 | --- | --- | --- |
-| Composer 新建与已有会话草稿 | Hook 带原选择读目标服务；派生 draftConfig；accepted 才提交有效选择的成功写回 | 已接公共算法；保留 scope/request 防竞态，不持续回灌 Session snapshot |
-| 普通 Core Turn | admission 前冻结传入 intent 或 Session 选择；随后精确创建 Model | 应保持执行层不偷偷 remap；要求上游新意图入口传完整结果 |
-| 定时任务首次派发 | `automationModelSelection.ts` 有原选择时 getView(input)，派发返回结果 | 正确；不能只验证编辑器，需保持后台这条链 |
-| 定时任务已固定 run / 重试 | fixedSelection 分支直接返回；调用方用 run 选择 | 正确例外；不要重新对应账号 |
-| Bot 草稿展示/首次创建 | 展示返回副本有效值；创建解析并提交有效值 | 已接；P100-04 是另一个已有任务分支 |
-| Bot 已有任务新消息 | 沿 Session 选择继续 | P100-04；区分空闲新轮与已接纳运行输入 |
-| 任务适配器附件分支 | 未转发选择/执行上下文 | P100-05；有附件与无附件必须达到相同选择契约 |
-| Wiki 新生成 | `resolveGenerationConfig` 带原选择读目标 View，校验 issue，固定生成配置 | 已接公共解析；`repoWikiModelClient.ts:95` |
-| Wiki 固定生成重试 | `resolveConfig` 不再重新解释账号选择 | 正确例外，不能把 retry 改成 getView 后换套餐 |
-| 显式 Subagent | 原 profile 选择直接进工厂 | P100-03；实际执行入口、内置 JSON 覆盖与用户 Markdown 解析结果统一对待 |
-| 隐式 Subagent | 继承父 Active Model，有冻结模型工厂 | 正确例外；不能因后台 current 更新让子任务换模型 |
-| Workflow / script child | 独立 child runtime 装配，依赖需要贯穿 | 接公共能力时必须覆盖该装配，不另写匹配表 |
-| 标题 / Goal 标题 | `title-generation-sidecar.ts:103` 取 title 配置或 Session Selection，再精确建 Model | 不是 UI 消费；独立显式配置是潜在漏接点。已查 Host 当前创建通常只开关标题，没有普通 UI 独立选模入口；不夸大为已确认用户故障 |
-| Compact | 有输入 Model 时继承；没有时精确创建 Session Model | 保留运行中继承；手动独立 Compact 的新意图与冻结执行应在入口区分，不把内部每个 model step 都重解析 |
-| Memory Extraction / Dream | `project-memory-agent.ts:34` 优先输入 Model，否则从 Session 创建 | Extraction 继承正确；Dream 缺省路径需在后续入口规格明确新工作还是继承工作，不强制统一为最新账号 |
-| 连接测试 | 测试明确的设置 Provider / Model，在 Worker 查实际模型 | 不应通过普通账号 remap 测成另一套餐。同步正确性适用，公共“当前套餐对应”不无条件适用 |
-| Off-Peak | 创建时取 Ticket；派发校验，使用 Ticket 请求上下文 | 维持原绑定、原 domain 和执行专用 scope；不并入普通账号自动 remap；P100-05 不能丢执行上下文 |
-| 手机远控 | 共用目标 Host 服务/任务命令，UI 共用公共 Hook | 不需新增手机 Account 计算；必须保持 replayable 恢复、workspaceIdentity 和 attachment 边界 |
-| 独立终端 CLI | 同一 Provider 核心，简化 Account 来源，不完整 Team/Start 装配 | 用户已排除，记录差异即可 |
+| Composer: criação nova e rascunho de sessão existente | O Hook lê o serviço alvo com a escolha original; deriva draftConfig; só escreve de volta a seleção efetiva com sucesso quando é accepted | Já ligado ao algoritmo público; manter as proteções de escopo/requisição contra corrida e não realimentar continuamente o snapshot da Session |
+| Turn comum do Core | Congela antes do admission a intenção passada ou a escolha da Session; depois cria o Model com precisão | Deve manter a camada de execução sem remap secreto; exigir que as entradas de nova intenção upstream passem o resultado completo |
+| Primeiro despacho de tarefa agendada | Com a escolha original, `automationModelSelection.ts` faz getView(input) e o despacho devolve o resultado | Correto; não validar só o editor, é preciso manter esta cadeia de background |
+| Run já fixado / retry de tarefa agendada | O ramo fixedSelection devolve direto; o chamador usa a escolha do run | Exceção correta; não recorresponder a conta |
+| Exibição de rascunho / criação inicial do Bot | A exibição devolve uma cópia do valor efetivo; a criação resolve e submete o valor efetivo | Já ligado; P100-04 é outro ramo, o de tarefa já existente |
+| Mensagem nova em tarefa já existente do Bot | Segue a escolha da Session | P100-04; distinguir turno novo e ocioso de entrada de execução já admitida |
+| Ramo de anexo do adaptador de tarefa | Não repassa a escolha/o contexto de execução | P100-05; com anexo e sem anexo precisam chegar ao mesmo contrato de escolha |
+| Nova geração de Wiki | `resolveGenerationConfig` lê a View alvo com a escolha original, valida a issue e fixa a configuração de geração | Já ligado à resolução pública; `repoWikiModelClient.ts:95` |
+| Retry de geração fixa de Wiki | `resolveConfig` não reinterpreta mais a escolha de conta | Exceção correta; não mudar retry para getView e trocar de pacote |
+| Subagent explícito | A escolha original do profile vai direto para a fábrica | P100-03; a entrada de execução real, a cobertura JSON integrada e o resultado da análise do Markdown do usuário são tratados uniformemente |
+| Subagent implícito | Herda o Active Model do pai, com fábrica de modelo congelada | Exceção correta; a atualização de current em background não pode trocar o modelo da task filha |
+| Child de workflow / script | Montagem de child runtime própria; as dependências precisam atravessar | Ao ligar a capacidade pública, é preciso cobrir essa montagem e não escrever outra tabela de correspondência |
+| Título / título de Goal | `title-generation-sidecar.ts:103` pega a configuração de título ou a Session Selection e depois cria o Model com precisão | Não é consumo de UI; configuração explícita independente é um ponto de ligação potencialmente perdido. Verificou-se que a criação pelo Host hoje normalmente só liga/desliga o título e não há entrada de UI comum de escolha de modelo independente; não exagerar como falha de usuário já confirmada |
+| Compact | Herda quando há Model de entrada; quando não, cria com precisão o Model da Session | Manter a herança em execução; a nova intenção de Compact manual independente e a execução já fixada devem ser distinguidas na entrada, sem re-resolver cada model step interno |
+| Memory Extraction / Dream | `project-memory-agent.ts:34` prefere o Model de entrada, senão cria a partir da Session | A herança do Extraction está correta; o caminho default do Dream precisa, na especificação de entrada posterior, esclarecer se é trabalho novo ou herança, sem forçar a unificação no latest account |
+| Teste de conexão | Testa o Provider/Model explicitamente configurados e consulta o modelo real no Worker | Não deve virar a medição de outro pacote por remap de conta comum. A correção da sincronização se aplica; o público "correspondência do pacote atual" não se aplica incondicionalmente |
+| Off-Peak | Pega o Ticket na criação; valida no despacho e usa o contexto de requisição do Ticket | Manter o vínculo original, o domain original e o escopo de execução dedicado; não incorporar ao remap automático de conta comum; P100-05 não pode perder o contexto de execução |
+| Controle remoto do celular | Compartilha os serviços/comandos de tarefa do Host alvo, e a UI usa o Hook público compartilhado | Não precisa de novo cálculo de Account no celular; é preciso manter a restauração replayable, a workspaceIdentity e o limite de attachment |
+| CLI terminal independente | Mesmo núcleo de Provider, origem de Account simplificada, montagem incompleta de Team/Start | O usuário já excluiu; basta registrar a diferença |
 
-### 请求期鉴权不是第二个模型选择器
+### A autenticação no momento da requisição não é um segundo seletor de modelo
 
-`accountProviderRequestAuthService.ts` / `accountProviderConnectionResolver.ts:253` 按静态 access 的 family/mode 获取当前凭据；mode 不匹配则拒绝，不在请求层把个人 Provider 改成 Team Provider。API Key/JWT/一次性安全校验材料不属于静态 Model Config。
+`accountProviderRequestAuthService.ts` / `accountProviderConnectionResolver.ts:253` obtêm as credenciais atuais
+pelo family/mode do acesso estático; se o mode não bater, a requisição é recusada, e a camada de requisição não
+troca um Provider pessoal por um Provider de Team. Materiais de segurança como API Key/JWT e verificações
+efêmeras não fazem parte da configuração estática de Model.
 
-这里的冻结是 **Provider/Model/静态请求配置与本次执行选择**，不是永远冻结 OAuth Token。当前代码允许兼容 family/mode 的请求材料按请求更新（包括当前 Team scope）；这与“同一 Model 永远绑定原账号”的更强语义不同。本项不擅自新增旧账号/旧 Team 锁定，也不借完整快照把 Token 放进去。Off-Peak 另有 Ticket 绑定规则，不能推广普通请求行为到它。
+O congelamento aqui é **Provider/Model/configuração estática de requisição e a escolha desta execução**, e não
+congelar para sempre um OAuth Token. O código atual permite que materiais de requisição compatíveis com
+family/mode sejam atualizados por requisição (incluindo o escopo de Team atual); isso é diferente da semântica
+mais forte de "o mesmo Model fica sempre amarrado à conta original". Este item não cria por conta própria um
+bloqueio de conta antiga/Team antigo, nem usa o snapshot completo para enfiar o Token dentro dele. Off-Peak tem
+regras próprias de vínculo de Ticket, e o comportamento de requisição comum não pode ser estendido a ele.
 
-## 6. 临时同步：修正确性，不造第二套平台
+## 6. Sincronização temporária: corrigir a correção, não criar uma segunda plataforma
 
-### 时机、频率与生命周期
+### Timing, frequência e ciclo de vida
 
-| 项目 | 当前事实 | 判断 |
+| Item | Fato atual | Julgamento |
 | --- | --- | --- |
-| 上游失效触发 | Family/connection/endpoint 设置变化、配置源变化；登录登出/购买等业务显式 refresh | 事件驱动；Account read 通常读取缓存，不等于每次查询远端 |
-| 热推 | Account change 后遍历 `activeClientsByWorkspaceKey` | 普通 Worker 在此；不是全进程广播 |
-| 按需检查 | 创建/恢复会话、部分读取/订阅、generateText、连接测试及启动就绪等 | 已共用一个 sync helper，不是每处各写一套网络同步；但策略入口分散 |
-| 普通 V4 发送 | 同步检查在 createSession 分支，而非每次普通 sendText 强制追平 Desktop→SSH | 保留已裁决的无全局发送屏障 |
-| 去重 | 每个 Client WeakMap 保存确认 revision；同值跳过 | 数据完整/ACK 正确后可继续用；revision 是内容身份，不是可比较新旧的数字 |
-| 串行化 | 每 Client Promise 队列，失败不毒化下一个任务 | 已存在，不需要再叠队列；snapshot 在入队前读取，不能仅靠 revision 字符串宣称具备乱序丢弃功能 |
-| Worker 重建 | 确认缓存以 Client 对象为 key，新对象不会继承旧确认；WeakMap 不形成永久强引用 | 不应额外制造按 workspace 永久确认表 |
-| Wiki Worker | 独立 process manager；已 wire Host handlers；不在普通 active map 热推名单，generateText 前检查 | 不是“完全未同步”。允许旧完整快照；若未来其内部自主发起新工作，需要明确初始化/刷新范围 |
-| Plugin / MCP 专用 Worker | 专用 manager，主要做插件/MCP 管理 | 不因“统一”强迫纯读取能力等待账号就绪 |
+| Gatilho de invalidação upstream | Mudanças de configuração de family/connection/endpoint, mudanças de origem de configuração; login/logout/compra e refreshes explícitos do negócio | Dirigido por evento; a leitura de Account costuma ler cache, o que não equivale a consultar o remoto a cada vez |
+| Push quente | Após a mudança de Account, percorre `activeClientsByWorkspaceKey` | O Worker comum está aqui; não é broadcast de processo inteiro |
+| Verificação sob demanda | Criação/retomada de sessão, algumas leituras/assinaturas, generateText, teste de conexão e prontidão de inicialização etc. | Já se divide um sync helper, não uma sincronização de rede escrita em cada lugar; mas as entradas de estratégia estão dispersas |
+| Envio comum do V4 | A verificação de sincronização está no ramo de createSession, e não em cada sendText comum forçando o alcance da configuração Desktop→SSH | Manter a barreira sem envio global já decidida |
+| Dedupe | Cada Client guarda a revision confirmada em um WeakMap; valores iguais são pulados | Pode continuar em uso depois que os dados e o ACK estiverem corretos; a revision é identidade de conteúdo, e não um número comparável de novo/velho |
+| Serialização | Fila de Promises por Client; a falha não envenena a próxima tarefa | Já existe, não é preciso empilhar outra fila; o snapshot é lido antes de entrar na fila, então não se pode alegar ordem fora de execução só pela string de revision |
+| Reconstrução do Worker | O cache de confirmação tem o objeto Client como key; um objeto novo não herda a confirmação antiga, e o WeakMap não cria referência forte permanente | Não se deve fabricar uma tabela de confirmação permanente por workspace |
+| Worker de Wiki | Process manager próprio; já com os handlers do Host wire; não está na lista de push quente do active map comum e verifica antes do generateText | Não é "sem sincronização nenhuma". É permitido um snapshot completo antigo; se no futuro ele iniciar trabalho novo por conta própria, é preciso definir o escopo de inicialização/refresh |
+| Worker dedicado de Plugin / MCP | Manager dedicado, voltado à gestão de plugin/MCP | Não forçar a capacidade de leitura pura a esperar a conta ficar pronta só por "unificar" |
 
-最低收口建议：保留现有同步 helper/队列，在模型执行 Worker 的初始化/使用契约中明确所需事实；修 P100-01/P100-02。不追求本轮消灭所有 ensure 调用，更不把账号检查加到每个无关 RPC。以后删除传输层，不应修改有效选择算法或各业务保存语义。
+Sugestão mínima de fechamento: manter o sync helper/fila atuais e deixar explícito, no contrato de
+inicialização/uso do Worker de execução de modelo, quais fatos são necessários; corrigir P100-01/P100-02. Não
+se busca eliminar todas as chamadas de ensure nesta rodada, nem colocar verificação de conta em cada RPC
+alheio. Quando o transporte temporário for removido depois, isso não deve exigir mudar o algoritmo de seleção
+efetiva nem a semântica de armazenamento de cada negócio.
 
-## 7. 中间态：真正需要统一的层次
+## 7. Estados intermediários: a camada que realmente precisa ser unificada
 
 ```text
 来源读取 / Account 查询（可以异步、可以失败）
@@ -235,17 +317,31 @@ Registry 检查来源配套 -> 发布完整 applied snapshot
 读取这一份结果             确认实际应用结果
 ```
 
-不能把“全局一致”理解成所有进程同时切 B。旧完整 A 可以继续服务；新的组合不自洽就不发布。
+Não se pode entender "consistência global" como todos os processos trocando para B ao mesmo tempo. Um A completo
+antigo pode continuar atendendo; uma combinação nova e não autoconsistente simplesmente não é publicada.
 
-已经证实 Registry 有这层保护、Facade 也正确消费。**尚不能证明 Account 异步上游天然自洽**：settings 在查询开始读取，身份与 API 材料随后异步取得；AccountService 串行化刷新，但没有在每轮返回时像 Registry 那样按更新代次丢弃过期查询。本轮没有用真实账号切换复现“旧选择+新身份/响应”的混合。
+Já está provado que o Registry tem essa camada de proteção e que a Facade a consome corretamente. **Ainda não é
+possível provar que a origem assíncrona de Account é naturalmente autoconsistente**: o settings é lido no início
+da consulta e a identidade e os materiais de API vêm depois de forma assíncrona; o AccountService serializa os
+refreshes, mas não descarta consultas vencidas por generation de atualização no retorno de cada rodada como o
+Registry faz. Esta rodada não reproduziu, com troca de conta real, a mistura de "escolha antiga + identidade/
+resposta nova".
 
-这应列为有针对性的生产侧竞态风险 R100-01，而不是宣称“全局到处已经坏了”。后续最小验证是用可控延迟的身份/权益端口，在查询期间切连接或账号，观察发布的 scope、current、模型和 LKG 是否属于同一轮。若不成立，修生产层的作用域捕获/过期结果发布，不在 UI 各自加 timeout。
+Isso deve ser listado como um risco direcionado de corrida no lado de produção, R100-01, e não como "já está tudo
+quebrado em toda parte". A verificação mínima seguinte é usar portas de identidade/elegibilidade com atraso
+controlado, trocar de conexão ou de conta durante a consulta e observar se o escopo, o current, o modelo e o LKG
+publicados pertencem à mesma rodada. Se não pertencer, corrigir a captura de escopo/a publicação de resultado
+vencido na camada de produção, em vez de adicionar timeout em cada UI.
 
-R100-02：同步 snapshot 在排队前读取，通道只识别同值、不识别先后。目前 Account read 为缓存快照、Client 请求串行；本轮未复现倒序应用。不为了假设风险先引入第二个全局版本时钟。后续用延迟 read/reconnect 场景验证即可。
+R100-02: o snapshot de sincronização é lido antes de entrar na fila, e o canal só reconhece valor igual, não
+ordem. Atualmente a leitura de Account é um snapshot de cache e as requisições do Client são serializadas; esta
+rodada não reproduziu aplicação fora de ordem. Não se introduz um segundo relógio global de versão por causa de
+um risco hipotético. Depois basta verificar com cenário de read/reconnect atrasado.
 
-## 8. 希望重构成什么样
+## 8. Como se espera que a refatoração fique
 
-目标不是让每个业务“会同步”，而是让每个业务只说明自己给的是哪一种输入：
+O objetivo não é fazer cada negócio "saber sincronizar", e sim fazer cada negócio apenas declarar qual tipo de
+entrada está entregando:
 
 ```text
 保存配置 / 当前草稿                 已固定 Selection / Active Model / Ticket
@@ -266,74 +362,128 @@ effectiveSelection + issue + View                |
                        请求期合法鉴权
 ```
 
-建议职责：
+Responsabilidades sugeridas:
 
-- `packages/provider`：继续拥有 Account 编排抽象、Registry applied snapshot、纯有效选择规则。不导入 Host/网络/文件，也不保存业务选择。
-- 环境装配层：提供配置来源、Account 事实来源及身份分类器；Host 和受管理 Worker 装配同一套选择能力。临时传输只是 Account source 的一个适配器。
-- Core：通过依赖端口解析**显式新意图**；依赖从父 runtime 传入 child/workflow。不能依赖具体 services Runtime，也不应为每次解析反向 RPC。
-- UI：继续公共 Hook，不复制账号对应/刷新/过期回包处理。
-- Bot/Automation/Wiki：各自拥有意图和执行记录；公共规则返回值，业务在既定新派发点使用。不要把 getView 变成扫描并改写任务文件的操作。
-- Factory/adapter：精确执行，不偷偷 fallback，不在每个 HTTP retry 重选模型。
+- `packages/provider`: continua sendo dono da abstração de orquestração de Account, do applied snapshot do
+  Registry e das regras puras de seleção efetiva. Não importa Host/rede/arquivo nem salva escolha de negócio.
+- Camada de montagem do ambiente: fornece as origens de configuração, as origens de fatos de Account e o
+  classificador de identidade; Host e Worker gerenciado montam o mesmo conjunto de capacidades de seleção. O
+  transporte temporário é apenas um adaptador de Account source.
+- Core: resolve **nova intenção explícita** por porta de dependência; as dependências passam do runtime pai para
+  child/workflow. Não pode depender de um Runtime concreto de services nem fazer RPC reverso a cada resolução.
+- UI: continua usando o Hook público, sem duplicar tratamento de correspondência de conta, refresh ou resposta
+  vencida.
+- Bot/Automation/Wiki: cada um tem sua intenção e seu registro de execução; a regra pública devolve valores e o
+  negócio os usa nos pontos de novo despacho já estabelecidos. Não transformar getView em uma varredura que
+  reescreve arquivos de tarefa.
+- Factory/adapter: execução precisa, sem fallback secreto e sem reselecionar modelo a cada retry HTTP.
 
-输入种类优先用清晰的函数/端口和现有执行 scope 表达，不急着新增一个通用“大上下文对象”或再造状态框架。是否未来把 Account 服务移到另一个进程是部署决策，不是纯解析算法的前置条件。
+Os tipos de entrada devem ser expressos primeiro por funções/portas claras e pelo escopo de execução já
+existente, sem pressa de criar um "grande objeto de contexto" genérico ou de refazer o framework de estado. Mover o
+serviço de Account para outro processo no futuro é uma decisão de deploy, não um pré-requisito do algoritmo puro
+de resolução.
 
-## 9. 修复建议顺序与待裁决
+## 9. Ordem sugerida de correção e pontos pendentes de decisão
 
-本节是调查建议，不是已授权实现：
+Esta seção é uma sugestão da investigação, não uma implementação autorizada:
 
-1. **成套修最小状态闭环**：P100-01 完整事实 + P100-02 真实应用确认。覆盖只变 current、Builtin 不匹配、新 Client、失败后重试；不要以可选字段成功 round-trip 代替两端 Registry 结果对比。
-2. **接完整公共消费链**：P100-03 显式 Subagent 的真实模型调用与所有 child 装配；原档位失效/同模型不存在必须按公共规则报结果，不能继承父模型掩盖失败。
-3. **修派发丢失并核对新轮**：P100-05 附件协议传递；P100-04 Bot 空闲新输入。严格保持已固定 run、busy admission、Ticket，不改写已接纳输入。
-4. **补生产侧竞态证据**：R100-01 延迟查询作用域；检查身份变化与 Config 刷新是否能发布混合结果。若成立在上游修，保留 Registry/Hook 已有保护。
-5. **再做必要结构简化**：公共 Facade 装配、Worker 执行能力初始化归口；不把彻底统一临时同步当完成前提。
+1. **Fechar o ciclo mínimo de estado em conjunto**: fatos completos de P100-01 + confirmação de aplicação real
+   de P100-02. Cobrir mudança só de current, Built-in incompatível, Client novo e retry após falha; não
+   substituir a comparação de resultado de Registry nas duas pontas por um round-trip bem-sucedido de campo
+   opcional.
+2. **Ligar a cadeia pública completa de consumo**: a chamada real de modelo do Subagent explícito e todas as
+   montagens de child; quando o perfil original estiver inválido ou o mesmo modelo não existir, é preciso reportar
+   o resultado conforme as regras públicas, e não herdar o modelo do pai para mascarar a falha.
+3. **Corrigir perdas no despacho e conferir o turno novo**: passagem pelo protocolo de anexos em P100-05; nova
+   entrada ociosa do Bot em P100-04. Manter estritamente o run já fixado, o admission busy e o Ticket, sem
+   reescrever entradas já admitidas.
+4. **Complementar a evidência de corrida no lado de produção**: escopo com consulta atrasada em R100-01; checar
+   se mudança de identidade e refresh de Config conseguem publicar um resultado misturado. Se confirmado, corrigir
+   a montante, preservando as proteções já existentes no Registry/Hook.
+5. **Só então fazer a simplificação estrutural necessária**: montagem da Facade pública e a centralização da inicialização
+   da capacidade de execução do Worker; não tratar a unificação total da sincronização temporária como
+   pré-requisito de conclusão.
 
-需要讨论的产品边界仅集中在：Bot busy/队列输入与独立标题、手动 Compact、Dream 的“新工作”和“继承当前工作”分界。隐式 child、运行内 Compact/Extraction、固定 Wiki run、Off-Peak 不需要重新裁决。
+Os limites de produto que precisam de discussão estão concentrados em: entrada busy/fila do Bot versus título
+independente, Compact manual e a fronteira entre "trabalho novo" e "herdar o trabalho atual" no Dream. Child
+implícito, Compact/Extraction em execução, run fixo de Wiki e Off-Peak não precisam de nova decisão.
 
-独立 CLI 完整账号服务、删除临时同步、全端即时一致、持久化结构重做都不在这轮最小修复目标内。
+O serviço de contas completo do CLI independente, a remoção da sincronização temporária, a consistência
+imediata em todos os cliente e refazer a estrutura persistente estão fora do objetivo mínimo de correção desta
+rodada.
 
-## 10. 验证、暂停实验及覆盖限度
+## 10. Verificação, experimento suspenso e limite de cobertura
 
-### 本次已执行
+### Executado nesta rodada
 
-- 工作区 freshness 检查通过；基线固定为 `86bbe157c8`。
-- 只读追踪上表入口、Host/Worker 装配、协议、请求鉴权及模型工厂；未改产品文件。
-- Registry/Resolver 现有单测 **2 文件 21 条通过**。
-- Facade/AccountService/Account resolution 现有单测 **3 文件 31 条通过**。
-- P100-02 纯内存复现；没有真实请求、账号凭据或用户数据。
-- 第一组命令曾包含不存在的 `effective-model-selection.test.ts` 路径；Vitest 实际只运行另外两文件。随后运行包含相关行为的 `facades.test.ts`；这里按实际文件/条数记录，不称不存在的测试通过。
+- A verificação de freshness do workspace passou; o baseline foi fixado em `86bbe157c8`.
+- rastreamento somente leitura das entradas da tabela, da montagem Host/Worker, do protocolo, da autenticação de
+  requisição e do modelo factory; nenhum arquivo de produto foi alterado.
+- Os testes unitários existentes de Registry/Resolver: **2 arquivos, 21 casos, passando**.
+- Os testes unitários existentes de Facade/AccountService/Account resolution: **3 arquivos, 31 casos,
+  passando**.
+- Reprodução de P100-02 puramente em memória; sem requisição real, credencial de conta ou dado de usuário.
+- O primeiro conjunto de comandos continha o caminho inexistente `effective-model-selection.test.ts`; o Vitest
+  rodou de fato apenas os outros dois arquivos. Depois foi executado o `facades.test.ts`, que contém o
+  comportamento relevante; aqui se registra pelo arquivo/quantidade reais, e não se afirma que um teste inexistente
+  passou.
 
-这 52 条验证的是已有公共机制，不证明传输端到端或产品缺口已修。测试文件和被测 Provider 核心本轮均未修改。
+Esses 52 casos verificam mecanismos públicos já existentes e não provam que o transporte ponta a ponta ou as
+lacunas de produto foram corrigidas. Os arquivos de teste e o núcleo de Provider testado não foram modificados
+nesta rodada.
 
-### Todo99 暂停实验的复审
+### Revisão do experimento suspenso do Todo99
 
-工作区试改加了 states 传输、共享 Facade 装配、Core 可选解析端口和显式 Subagent helper。方向覆盖 P100-01/P100-03 的部分内容，但：
+As tentativas no workspace acrescentaram transporte de states, montagem de Facade compartilhada, porta de
+resolução opcional no Core e helper de Subagent explícito. A direção cobre parte de P100-01/P100-03, mas:
 
-- 没修 P100-02 ACK；不能称完整快照已端到端应用。
-- 可选 states 的严格性/缺失语义未形成完整契约。
-- 未覆盖 P100-04/P100-05 和辅助消费者边界。
-- mock helper 成功不等于真实 child 发出了正确请求；workflow、隐式继承、override 需要联合证明。
-- 之前 bootstrap 测试有旧 fixture schema/配置不完整失败，局部类型构建也有依赖产物新鲜度问题；本轮没有继续改这些失败，也没有宣布实验可提交。
+- não corrige o ACK de P100-02; não se pode dizer que o snapshot completo foi aplicado ponta a ponta;
+- a rigidez/semântica de ausência de states opcional não virou um contrato completo;
+- não cobre P100-04/P100-05 nem as fronteiras de consumidores auxiliares;
+- um mock helper bem-sucedido não equivale a o child real ter emitido a requisição correta; workflow, herança
+  implícita e override precisam de prova combinada;
+- os testes de bootstrap antes falhavam por fixture antigo com schema/configuração incompleta, e o build de tipo
+  local tinha problemas de freshness de artefato de dependência; esta rodada não continuou corrigindo essas
+  falhas nem declarou o experimento pronto para commit.
 
-因此继续暂停，既不自动采纳，也不自动回滚；之后按裁决从中保留必要部分。实验的测试与产品改动不能混进本次“纯调查完成”。
+Portanto, a suspensão continua, sem adoção automática e sem rollback automático; depois da decisão, mantém-se
+apenas o necessário. As mudanças de teste e de produto do experimento não podem ser misturadas nesta entrega de
+"investigação pura concluída".
 
-### 未执行与后续验收要求
+### Não executado e requisitos de aceitação posteriores
 
-- 未做真实多套餐/账号切换、SSH 真机、手机 attachment、Bot 附件及多轮、真实 Subagent 网络请求验证。
-- 未证明 R100-01/R100-02 在生产出现；不能把它们列为已复现事故。
-- 实现后应验证请求的实际 Provider/Model/档位和执行 scope，而不仅 UI 文案/Schema 接收；运行中切换不能改旧 Model，下一次显式新工作能对应。
-- 本轮是 docs-only，不用全仓 typecheck/lint 或 E2E 的历史结果为暂停实验背书；上述单测仅作为调查证据。
+- Não foi feita verificação real de troca de múltiplos pacotes/contas, SSH em máquina real, attachment do
+  celular, anexos e múltiplos turnos do Bot, nem requisição de rede real de Subagent.
+- Não se provou que R100-01/R100-02 ocorrem em produção; não podem ser listados como incidentes já reproduzidos.
+- Após a implementação, é preciso verificar o Provider/Model/faixa real da requisição e o escopo de execução, e
+  não apenas o texto de UI ou o Schema recebido; trocar em execução não pode mudar o Model antigo, e o próximo
+  trabalho novo explícito precisa conseguir corresponder.
+- Esta rodada é somente de docs, e não usa resultados históricos de typecheck/lint de todo o repositório nem de
+  E2E para endossar o experimento suspenso; os testes unitários acima servem apenas como evidência da
+  investigação.
 
-## 11. 影响梳理 / 图谱回写建议
+## 11. Mapeamento de impacto / sugestão de reescrita do grafo
 
-采用 feature-boundary-planner 的 impact-only 路径；本次用户明确要求 Todo 和调查报告，未生成实施矩阵或直接改 feature graph。codegraph 工具不可用，使用功能图种子 + 定向文件/调用搜索，不声称已完成全仓自动引用图审计。
+Adotada a rota impact-only do feature-boundary-planner; desta vez o usuário pediu explicitamente o Todo e o
+relatório de investigação, e nenhuma matriz de implementação foi gerada nem o feature graph foi alterado
+diretamente. A ferramenta codegraph não estava disponível, então foram usados sementes do grafo funcional mais
+busca direcionada de arquivos/chamadas, sem alegar que uma auditoria automática de referências de todo o
+repositório foi concluída.
 
-主要节点：AccountProviderService → ProviderRegistryService → ModelSelectionFacade → UI Hook / 后台新派发 / 显式 child → ModelFactory；临时 Account transport 是 source 边，不是有效选择规则 owner。
+Nós principais: AccountProviderService → ProviderRegistryService → ModelSelectionFacade → UI Hook / novo
+despacho de background / child explícito → ModelFactory; o transporte temporário de Account é uma aresta de
+source, e não o owner da regra de seleção efetiva.
 
-需要后续按真实实现更新的图谱事实：
+Fatos do grafo que precisam ser atualizados conforme a implementação real:
 
-- 旧“显式 Subagent 必须扩展 Host 解析 RPC”不是必然约束；已有纯 Facade 可经 Worker 本地应用快照复用。
-- “Bot 已接公共解析”应拆为草稿/首次创建和已有任务后续消息，不能用前者代表全覆盖。
-- “Worker 已共享 Resolver”不能推导 Account states 同样完整；传输缺口应单独标注。
-- “同步成功”需要区分 source 接收和 Registry 应用；现有 applied snapshot 能作为证据源。
+- O antigo "o Subagent explícito precisa estender uma RPC de resolução do Host" não é uma restrição
+  obrigatória; a Facade pura já existente pode ser reutilizada pelo snapshot aplicado localmente no Worker.
+- "O Bot já está ligado à resolução pública" precisa ser dividido entre rascunho/criação inicial e mensagens
+  seguintes de tarefa já existente; o primeiro não representa cobertura total.
+- "O Worker já compartilha o Resolver" não permite deduzir que os states da Account estejam igualmente completos;
+  a lacuna de transporte deve ser marcada separadamente.
+- "Sincronização bem-sucedida" precisa distinguir recebimento da source e aplicação no Registry; o applied
+  snapshot existente pode servir de fonte de evidência.
 
-调查完成只说明这轮逐项已有结论和可追踪证据，不表示系统不存在其他 Bug，也不授权自动恢复 Todo99。
+A investigação concluída apenas indica que esta rodada tem conclusões item a item e evidências rastreáveis; não
+significa que o sistema não tenha outros Bugs, nem autoriza retomar automaticamente o Todo99.

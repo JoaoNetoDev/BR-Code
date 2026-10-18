@@ -1,75 +1,75 @@
-# ZCode Preview 内部测试包
+# Pacote interno de testes ZCode Preview
 
-## Feature Summary
+## Resumo da funcionalidade
 
-| Field                 | Value                                                                                                                                                                                                                   |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Change                | `ZCODE_ENV=test` 的全平台桌面安装包使用 `ZCode Preview` 产品身份，并可从 MR 流水线手动触发生产级构建、签名和公证链路                                                                                                    |
-| User-visible surfaces | 安装包名、应用名、系统安装记录、任务栏/Dock、About、CUA 权限引导                                                                                                                                                        |
-| Existing docs         | `docs/cua-permission-broker/zcode-cua-permission-broker.md`、`docs/cua-permission-broker/cua-helper-installation.md`、`docs/desktop/auto-update-superseded-ready-package.md`                                            |
-| Existing code owners  | `packages/desktop/electron-builder.config.js`、`packages/desktop/src/main/desktopRuntimeEnv.ts`、`packages/desktop/src/main/autoUpdater.ts`、`packages/services/src/cua-permission-broker/*`、`.gitlab/ci/30-build.yml` |
-| Out of scope          | 独立账号/任务/配置目录、独立协议 scheme、Preview 自动更新、生产与 Preview 同时执行 CUA 输入                                                                                                                             |
+| Campo                  | Valor                                                                                                                                                                                                                     |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Alteração              | Os instaladores desktop de todas as plataformas com `ZCODE_ENV=test` passam a usar a identidade de produto `ZCode Preview`, e o pipeline de MR pode disparar manualmente a cadeia de build, assinatura e notarização de nível de produção                                                                 |
+| Superfícies visíveis ao usuário | Nome do instalador, nome do app, registro de instalação do sistema, barra de tarefas/Dock, About, guia de permissões CUA                                                                     |
+| Documentos existentes  | `docs/cua-permission-broker/zcode-cua-permission-broker.md`, `docs/cua-permission-broker/cua-helper-installation.md`, `docs/desktop/auto-update-superseded-ready-package.md`                                               |
+| Responsáveis de código existente | `packages/desktop/electron-builder.config.js`, `packages/desktop/src/main/desktopRuntimeEnv.ts`, `packages/desktop/src/main/autoUpdater.ts`, `packages/services/src/cua-permission-broker/*`, `.gitlab/ci/30-build.yml` |
+| Fora de escopo         | Diretórios separados de conta/tarefa/configuração, scheme de protocolo separado, atualização automática do Preview, execução simultânea de CUA em produção e Preview                                                  |
 
-## Clarification Log
+## Registro de esclarecimentos
 
-| Round | Question | User answer | Boundary fixed | Follow-up needed |
-| --- | --- | --- | --- | --- |
-| 1 | 测试包名称 | `ZCode Preview` | `ZCODE_ENV=test` 对应 Preview 产品名 | no |
-| 1 | 数据和账号是否隔离 | 不隔离，与生产版相同 | 继续共享 `${ZCODE_HOME:-$HOME/.zcode}` 业务数据 | no |
-| 1 | 是否独立更新/发布 | 不独立、不自动更新、仅内部 | Preview 不进入 stable 发布，不初始化更新器，也不执行强更 | no |
-| 1 | 平台与能力范围 | 全平台、完整可用 | macOS、Windows、Linux 都生成可安装 Preview 包；生产已有的签名能力继续适用 | no |
-| 2 | 是否要求与生产版同时运行 | 是 | OS 安装身份、可执行名和 Electron 运行目录必须分离 | no |
-| 2 | deep link 冲突是否接受 | 接受 | 继续共用 `zcode://`，由系统当前默认 handler 接收 | no |
-| 3 | 两个应用是否会同时使用 CUA | 不会，任一时刻只有一个使用 | 不增加跨应用 CUA 操作锁；只保证两边分别可用 | no |
-| 4 | Preview 如何触发 | 与 MR merge/approve 同级的手动命令 | MR 流水线展示 `build:preview`；点击后启动同 commit 的独立 Preview 子流水线 | no |
-| 5 | Preview 是否改变打包流程 | 不改变；与 MR production 使用同一套 build DAG，只改少数环境变量 | trigger 只向 child 显式传递 `ZCODE_PREVIEW_PIPELINE`、`ZCODE_ENV`、`TARGET_OUTPUT_DIR`；child 自己解析 runner/job 变量 | no |
-| 6 | 手动创建的 test pipeline 如何隔离产物 | `ZCODE_ENV=test` 时统一写入顶层 `@electron-preview/<branch>/` | MR、GitLab Run pipeline、Pipeline Trigger API、普通 API pipeline 与 Preview child 使用相同 Preview 根目录；production、tag、`ci/*` 路径不变 | no |
-| 7 | Pipeline Trigger API 是否支持平台裁剪 | 支持 | `CI_PIPELINE_SOURCE=trigger` 进入与 web/API 相同的 workflow，并消费 `ZCODE_BUILD_PLATFORMS`；未传平台变量时仍全平台自动 | no |
+| Rodada | Pergunta                                             | Resposta do usuário                            | Limite fixado                                                       | Necessita acompanhamento |
+| ------ | ---------------------------------------------------- | ---------------------------------------------- | -------------------------------------------------------------------- | ----------------------- |
+| 1      | Nome do pacote de teste                             | `ZCode Preview`                                | `ZCODE_ENV=test` corresponde ao nome de produto Preview             | não                      |
+| 1      | Dados e conta isolados?                             | Não isolados, iguais à produção                | Continua compartilhando os dados de negócio `${ZCODE_HOME:-$HOME/.zcode}` | não                  |
+| 1      | Atualização/publicação independente?                | Não, sem auto-update, apenas interno           | O Preview não entra no lançamento stable, não inicializa o updater e não força atualização | não |
+| 1      | Plataforma e alcance de capacidades                | Todas as plataformas, totalmente utilizável    | macOS, Windows e Linux geram pacotes Preview instaláveis; as capacidades de assinatura já existentes na produção continuam aplicáveis | não |
+| 2      | Exige rodar junto com a produção?                   | Sim                                            | A identidade de instalação do SO, o nome do executável e o diretório de runtime do Electron precisam ser separados | não |
+| 2      | Conflito de deep link aceito?                       | Aceito                                         | Continua compartilhando `zcode://`, tratado pelo handler padrão atual do sistema | não |
+| 3      | Os dois apps usariam CUA simultaneamente?          | Não, apenas um por vez                         | Não adicionar trava de CUA entre apps; apenas garantir que ambos funcionem isoladamente | não |
+| 4      | Como o Preview é disparado?                         | Comando manual no mesmo nível do merge/approve de MR | O pipeline de MR exibe `build:preview`; ao clicar, inicia um subpipeline Preview independente do mesmo commit | não |
+| 5      | O Preview altera o fluxo de packaging?              | Não; usa o mesmo DAG de build da produção de MR, mudando poucas variáveis de ambiente | O trigger passa explicitamente apenas `ZCODE_PREVIEW_PIPELINE`, `ZCODE_ENV` e `TARGET_OUTPUT_DIR` ao child; o child resolve suas próprias variáveis de runner/job | não |
+| 6      | Como o pipeline de teste manual isola artefatos     | Com `ZCODE_ENV=test`, escreve uniformemente em `@electron-preview/<branch>/` no nível superior | MR, pipeline do GitLab Run, Pipeline Trigger API, pipeline de API comum e o child Preview usam a mesma raiz Preview; produção, tag e `ci/*` permanecem inalterados | não |
+| 7      | A Pipeline Trigger API suporta recorte de plataforma | Sim                                            | `CI_PIPELINE_SOURCE=trigger` entra no mesmo workflow de web/API e consome `ZCODE_BUILD_PLATFORMS`; sem variável de plataforma, continua automático em todas as plataformas | não |
 
-## Boundary Decisions
+## Decisões de fronteira
 
-| Boundary | Decision | Includes | Excludes / prunes | Source |
-| --- | --- | --- | --- | --- |
-| 包类型 | `ZCODE_ENV=test` 构建 Preview | 生产优化、测试环境 API、内部安装包 | 新增第三种环境值 | user + current CI |
-| 展示身份 | `ZCode Preview` | macOS bundle 名、Windows 产品名、Linux desktop 名、产物名 | 改图标或 UI 品牌体系 | user |
-| 系统身份 | Preview 使用独立 app id / executable / Linux package name | 与生产版并排安装和启动 | 复用 `dev.zcode.app` | simultaneous-run invariant |
-| 数据 | 业务数据继续使用 `~/.zcode` | 任务、配置、凭据 | 两个进程同时修改同一任务的强一致保证 | user |
-| Electron 运行数据 | 按应用名分目录 | Chromium session、single-instance lock、cache | 与生产版共用 Electron `userData` | simultaneous-run invariant |
-| Deep link | 继续使用 `zcode://` | OAuth、支付、打开工作区 | 确定投递到发起回调的应用 | accepted limitation |
-| 更新 | Preview 完全禁用 | 后台轮询、手动检查入口、强更 gate | Preview update feed/channel | user |
-| CUA 权限主体 | 两个主应用都可启动同一个签名身份的 Helper | Helper launcher app-id allowlist、同一 TCC 授权身份 | 同时执行两路鼠标键盘输入 | user + CUA architecture |
-| CUA 安装 | Preview 使用 `computer-use/preview` 子目录 | 避免不同 App 版本互相升级/降级 Helper | 隔离任务、配置、凭据 | version-safety invariant |
-| 签名 | Preview 使用生产签名逻辑并 fail-closed | macOS Developer ID + notarization、Windows vsigntool | 无凭据时静默生成未签名 Preview | user |
-| CI 入口 | MR `approve-mr` 阶段增加可选 `build:preview` 手动 job | 触发同 MR commit 的 child pipeline，固定 `ZCODE_ENV=test` | 非 MR 展示入口、阻塞正常 MR 生产包构建 | user |
-| CI 产物 | Preview 使用独立共享目录 | `@electron-preview/<branch>/`；MR/Preview child 使用 source branch，web/API 使用 ref name | 覆盖 `@electron/dev/...` 生产验收包 | artifact isolation invariant |
-| CI 职责 | Preview child 只复用 build + notify | desktop app、全平台安装包、CUA Helper、remote assets、飞书产物通知 | test、upload/preload/publish/release | internal package boundary |
-| CI 变量继承 | `build:preview` 不继承 parent 顶层默认变量 | 只转发三个 Preview 控制变量；签名凭据由同项目 child workflow 重新映射 | 转发依赖 parent runner 的 `CI_PROJECT_DIR` 派生目录 | GitLab variable phase boundary |
+| Fronteira             | Decisão                                                       | Inclui                                                                       | Exclui / poda                                                        | Origem                            |
+| --------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------- |
+| Tipo de pacote        | `ZCODE_ENV=test` constrói Preview                               | Otimizações de produção, API de ambiente de teste, instalador interno         | Um terceiro valor de ambiente                                        | user + CI atual                   |
+| Identidade exibida    | `ZCode Preview`                                                | Nome do bundle macOS, nome do produto Windows, nome do desktop Linux, nome do artefato | Mudar ícone ou sistema de marca da UI | user                             |
+| Identidade de sistema | O Preview usa app id / executável / nome de pacote Linux próprios | Instalação e execução lado a lado com a produção                           | Reutilizar `dev.zcode.app`                                           | invariante de execução simultânea |
+| Dados                 | Os dados de negócio continuam em `~/.zcode`                    | Tarefas, configurações, credenciais                                        | Garantia de consistência forte para dois processos alterando a mesma tarefa | user                            |
+| Dados de runtime do Electron | Diretório por nome de app                                     | Sessão do Chromium, lock de instância única, cache                          | Compartilhar o `userData` do Electron com a produção                | invariante de execução simultânea |
+| Deep link             | Continua usando `zcode://`                                     | OAuth, pagamento, abertura de workspace                                     | Garantia de entrega ao app que originou o callback                   | limitação aceita                 |
+| Atualização           | O Preview é totalmente desabilitado                           | Polling em background, entrada manual de verificação, gate de force-update   | Feed/canal de atualização do Preview                                 | user                              |
+| Principal de permissão CUA | Os dois apps principais podem iniciar o mesmo Helper com identidade assinada | Allowlist de app-id no launcher do Helper, mesma identidade TCC autorizada    | Executar duas entradas de mouse/teclado ao mesmo tempo              | user + arquitetura CUA            |
+| Instalação do CUA     | O Preview usa o subdiretório `computer-use/preview`           | Evitar que versões diferentes do App atualizem/rebaixem o Helper entre si     | Isolar tarefas, configurações e credenciais                         | invariante de segurança de versão |
+| Assinatura            | O Preview usa a lógica de assinatura de produção com fail-closed | macOS Developer ID + notarização, vsigntool no Windows                    | Gerar silenciosamente um Preview não assinado sem credenciais       | user                              |
+| Entrada de CI         | A fase `approve-mr` do MR recebe um job manual opcional `build:preview` | Acionar um child pipeline do mesmo commit de MR, fixando `ZCODE_ENV=test` | Entrada de display fora do MR, bloqueio da construção normal do pacote de produção do MR | user         |
+| Artefatos de CI       | O Preview usa um diretório compartilhado próprio              | `@electron-preview/<branch>/`; MR/child Preview usam a source branch, web/API usam o nome da ref | Sobrescrever o pacote de aceitação de produção `@electron/dev/...` | invariante de isolamento de artefato |
+| Responsabilidades de CI | O child Preview apenas reaproveita build + notify             | App desktop, instaladores de todas as plataformas, CUA Helper, remote assets, notificação de artefatos no Feishu | test, upload/preload/publish/release                                  | fronteira de pacote interno      |
+| Herança de variáveis de CI | `build:preview` não herda as variáveis default do nível superior do parent | Encaminha apenas as três variáveis de controle do Preview; as credenciais de assinatura são remapeadas pelo child workflow do mesmo projeto | Encaminhar diretórios derivados de `CI_PROJECT_DIR` do parent runner | fronteira de fase de variáveis do GitLab |
 
-## Domain Scope
+## Escopo de domínio
 
-| Domain                       | Include? | Why it can change behavior                                                  | Primary sources                                                                                                                        |
-| ---------------------------- | -------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Desktop lifecycle/release    | yes      | 产品名、app id、single-instance、更新器、平台安装格式和手动构建入口均在此域 | `packages/desktop/electron-builder.config.js`、`.gitlab/ci/00-workflow.yml`、`.gitlab/ci/preview-child.yml`、`.gitlab/ci/30-build.yml` |
-| Permission/tool/CUA          | yes      | Preview 的新 app id 必须被 Helper 以同 Team 的签名 requirement 接受         | `docs/cua-permission-broker/zcode-cua-permission-broker.md`                                                                            |
-| Persistence                  | yes      | 业务数据共享，但 Electron `userData` 必须分开才能并行运行                   | `packages/desktop/src/main/desktopRuntimeEnv.ts`、`packages/services/src/paths.ts`                                                     |
-| OAuth/deep link              | yes      | 两个安装包共用 scheme，系统只保留一个默认 handler                           | `packages/desktop/src/main/desktopOAuthDeepLink.ts`                                                                                    |
-| Conversation/mobile realtime | no       | 不改变 Host/CLI 协议、workspace identity 或 delivery kind                   | architecture invariant                                                                                                                 |
+| Domínio                        | Inclui? | Por que pode alterar comportamento                                                | Fontes principais                                                                                                  |
+| ------------------------------ | ------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Ciclo de vida / lançamento desktop | sim   | Nome do produto, app id, instância única, updater, formato de instalação por plataforma e entrada de build manual vivem neste domínio | `packages/desktop/electron-builder.config.js`, `.gitlab/ci/00-workflow.yml`, `.gitlab/ci/preview-child.yml`, `.gitlab/ci/30-build.yml` |
+| Permissão / ferramenta / CUA   | sim     | O novo app id do Preview precisa ser aceito pelo Helper pelo requisito de assinatura do mesmo Team | `docs/cua-permission-broker/zcode-cua-permission-broker.md`                                                   |
+| Persistência                   | sim     | Os dados de negócio são compartilhados, mas o `userData` do Electron precisa ficar separado para permitir execução paralela | `packages/desktop/src/main/desktopRuntimeEnv.ts`, `packages/services/src/paths.ts`                     |
+| OAuth / deep link              | sim     | Os dois instaladores compartilham o scheme, e o sistema mantém apenas um handler padrão | `packages/desktop/src/main/desktopOAuthDeepLink.ts`                                                            |
+| Conversation / mobile realtime | não     | Não altera o protocolo Host/CLI, a identidade do workspace nem o delivery kind   | invariante de arquitetura                                                                                        |
 
-## High-Risk Cross-Products
+## Produtos cruzados de alto risco
 
-| Cross-product                               | Candidate risk                                                                                                        | Initial handling                                                                  |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Preview identity × OS installer             | 同 app id/package/executable 会覆盖生产版或命中同一实例锁                                                             | 独立系统身份，accepted                                                            |
-| Preview × shared business data              | 两个进程同时修改同一设置/任务可能竞争                                                                                 | 用户确认共享；不承诺同一任务并发写，accepted limitation                           |
-| Preview app id × CUA launcher verification  | Helper 当前只接受 `dev.zcode.app`                                                                                     | 同 Team 的显式双 app-id allowlist，accepted                                       |
-| Preview version × production Helper version | 共用 Helper 路径会产生升级/降级冲突                                                                                   | Preview 使用 `computer-use/preview`，accepted                                     |
-| Preview × auto/force update                 | 误读 stable feed 会覆盖 Preview 或阻止启动                                                                            | Preview 禁用所有 updater/force-update 入口，accepted                              |
-| Prod + Preview × `zcode://`                 | 回调可能进入另一应用，OAuth state 不匹配                                                                              | 用户接受，ignored                                                                 |
-| Preview trigger × MR production DAG         | 新手动 job 若是 blocking，会让未打 Preview 的 MR 无法正常完成                                                         | job 保持 optional；只有点击后才启动 child pipeline，accepted                      |
-| Preview child × release jobs                | 复用根配置会误上传或覆盖 stable feed                                                                                  | child 只 include build/notify 分片，accepted                                      |
-| Parent default variables × child runner     | `ZCODE_CI_TMPDIR="$CI_PROJECT_DIR/.tmp"` 在无 runner 的 trigger 阶段可能退化成 `/.tmp`，并以高优先级覆盖 child 默认值 | trigger 禁止继承 parent defaults，child job 使用自己的 `CI_PROJECT_DIR`，accepted |
+| Produto cruzado                          | Risco candidato                                                                        | Tratamento inicial                                                                |
+| ---------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Identidade Preview × instalador do SO     | Mesmo app id/pacote/executável sobrescreve a produção ou atinge o mesmo lock de instância | Identidade de sistema própria, aceito                                              |
+| Preview × dados de negócio compartilhados  | Dois processos alterando a mesma configuração/tarefa ao mesmo tempo podem competir    | Compartilhamento confirmado pelo usuário; sem promessa de escrita concorrente na mesma tarefa, limitação aceita |
+| App id do Preview × verificação do launcher CUA | O Helper hoje só aceita `dev.zcode.app`                                           | Allowlist explícita de dois app-id do mesmo Team, aceito                       |
+| Versão Preview × versão de produção do Helper | Compartilhar o caminho do Helper gera conflito de upgrade/downgrade               | O Preview usa `computer-use/preview`, aceito                                    |
+| Preview × auto/force update                | Ler o feed stable por engano pode sobrescrever o Preview ou impedir a inicialização   | O Preview desabilita todas as entradas de updater/force-update, aceito         |
+| Prod + Preview × `zcode://`               | O callback pode cair no outro app e o state do OAuth não corresponder                 | Aceito pelo usuário, ignorado                                                    |
+| Trigger Preview × DAG de produção do MR    | Se o novo job manual for blocking, um MR sem Preview não consegue concluir normalmente | O job permanece opcional; o child pipeline só inicia após o clique, aceito      |
+| Child Preview × jobs de release             | Reutilizar a configuração raiz pode enviar arquivos por engano ou sobrescrever o feed stable | O child inclui apenas os fragmentos de build/notify, aceito                |
+| Variáveis default do parent × runner do child | `ZCODE_CI_TMPDIR="$CI_PROJECT_DIR/.tmp"` pode degradar para `/.tmp` na fase de trigger sem runner e sobrescrever o default do child com alta prioridade | O trigger não herda os defaults do parent; o job do child usa seu próprio `CI_PROJECT_DIR`, aceito |
 
-## Concept Map
+## Mapa de conceitos
 
 ```text
 ZCODE_ENV=test
@@ -119,225 +119,225 @@ workflow path selection
   `-- tag / ci/*               -> existing @electron/release or @electron/ci path
 ```
 
-## State Owners
+## Donos do estado
 
-| State / fact              | Authority                                     | Mirrors / caches                                    | Evidence                                       |
-| ------------------------- | --------------------------------------------- | --------------------------------------------------- | ---------------------------------------------- |
-| Build flavor              | CI/build `ZCODE_ENV`                          | tsup/vite define、electron-builder config           | dry-run/config tests、产物 metadata            |
-| OS application identity   | electron-builder config                       | macOS Info.plist、NSIS GUID、Linux package metadata | unpacked artifact inspection                   |
-| Electron runtime identity | desktop main                                  | `app.name`、`userData`、single-instance lock        | runtime unit test、manual simultaneous launch  |
-| Business data root        | services path resolver                        | settings/task/credential repos                      | path assertions、manual shared-task visibility |
-| Update eligibility        | compiled `ZCODE_ENV` in desktop main          | application menu/tray/updater state                 | unit tests、network/log absence                |
-| CUA launcher trust        | signed Helper process                         | code requirement string                             | peer-verifier unit test、signed macOS smoke    |
-| CUA Helper version path   | Host process env + installer resolver         | helper candidate/reaper paths                       | installer/host unit tests、filesystem path     |
-| Preview trigger variables | `build:preview` job                           | child pipeline trigger variables                    | CI config assertion                            |
-| Child runtime paths       | child runner job 的 `CI_PROJECT_DIR` / `$PWD` | `ZCODE_CI_TMPDIR`、npm/electron cache paths         | runner log 中路径位于 checkout，不是 `/.*`     |
+| Estado / fato                 | Autoridade                                      | Espelhos / caches                                       | Evidência                                                    |
+| ----------------------------- | ----------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------ |
+| Flavor de build               | `ZCODE_ENV` em CI/build                         | define de tsup/vite, config do electron-builder         | dry-run/testes de config, metadata dos artefatos             |
+| Identidade do app por SO      | config do electron-builder                      | macOS Info.plist, GUID do NSIS, metadata do pacote Linux | inspeção do artefato desempacotado                          |
+| Identidade de runtime do Electron | desktop main                                  | `app.name`, `userData`, lock de instância única        | teste unitário de runtime, lançamento simultâneo manual     |
+| Raiz dos dados de negócio     | resolvedor de paths de services                 | repositórios de settings/task/credential                 | asserções de path, visibilidade manual de tarefa compartilhada |
+| Elegibilidade para atualização | `ZCODE_ENV` compilado no desktop main            | estado do menu/tray/updater do aplicativo               | testes unitários, ausência de rede/log                      |
+| Confiança do launcher CUA     | processo Helper assinado                        | string de code requirement                               | teste unitário do peer-verifier, smoke assinado no macOS    |
+| Caminho de versão do CUA Helper | env do processo Host + resolvedor do instalador | caminhos candidatos/reaper do helper                    | testes unitários de installer/host, path no sistema de arquivos |
+| Variáveis do trigger Preview  | job `build:preview`                             | variáveis de trigger do child pipeline                  | asserção de config de CI                                     |
+| Paths de runtime do child     | `CI_PROJECT_DIR` / `$PWD` do job de runner do child | `ZCODE_CI_TMPDIR`, caminhos de cache npm/electron      | no log do runner os caminhos ficam no checkout, e não em `/.*` |
 
-## Dimensions
+## Dimensões
 
-| Dimension                 | Values / equivalence classes                                        | Source                   | Include?            | Reason                                                        |
-| ------------------------- | ------------------------------------------------------------------- | ------------------------ | ------------------- | ------------------------------------------------------------- |
-| Product environment       | production / test                                                   | CI + shared env          | yes                 | identity、endpoint、update policy differ                      |
-| Platform                  | macOS / Windows / Linux                                             | packaging targets        | yes                 | installation identity mechanics differ                        |
-| Concurrent installed apps | prod only / preview only / both                                     | user boundary            | yes                 | main purpose of separate identity                             |
-| CUA launcher              | prod / preview / unrelated signed app                               | security requirement     | yes                 | first two accepted, unrelated must fail                       |
-| CUA use                   | one active / two active                                             | user boundary            | representative only | two active pruned by product usage assumption                 |
-| Deep-link receiver        | prod / preview                                                      | OS global scheme handler | yes                 | both valid but nondeterministic                               |
-| Update trigger            | startup / poll / menu / force gate                                  | updater code             | yes                 | all must be disabled in Preview                               |
-| Business data             | default shared root / explicit custom root                          | services paths           | representative      | identity change must not rewrite data root                    |
-| CI pipeline               | MR parent / Preview child / tag release                             | GitLab workflow          | yes                 | Preview entry and release isolation depend on pipeline source |
-| Preview command           | not clicked / running / succeeded / failed                          | manual trigger           | representative      | not clicked must not block production MR DAG                  |
-| Trigger variable class    | explicit Preview controls / parent defaults / child job-only values | GitLab variable phases   | yes                 | only explicit controls may cross the parent-child boundary    |
+| Dimensão                   | Valores / classes de equivalência                                       | Origem                  | Inclui?            | Motivo                                                          |
+| -------------------------- | ----------------------------------------------------------------------- | ----------------------- | ------------------- | --------------------------------------------------------------- |
+| Ambiente de produto        | production / test                                                       | CI + env compartilhado  | sim                 | identidade, endpoint e política de atualização diferem         |
+| Plataforma                 | macOS / Windows / Linux                                                 | alvos de packaging      | sim                 | a mecânica de identidade de instalação difere                  |
+| Apps instalados concorrentes | apenas prod / apenas preview / ambos                                    | fronteira do usuário    | sim                 | o propósito principal da identidade separada                    |
+| Launcher CUA               | prod / preview / app assinado não relacionado                          | requisito de segurança  | sim                 | os dois primeiros aceitos, o não relacionado precisa falhar      |
+| Uso de CUA                 | um ativo / dois ativos                                                  | fronteira do usuário    | apenas representativo | os dois ativos são podados pela premissa de uso do produto       |
+| Receptor de deep link      | prod / preview                                                          | handler global de scheme do SO | sim           | ambos válidos, mas não determinístico                          |
+| Gatilho de atualização      | inicialização / polling / menu / gate de força                         | código do updater       | sim                 | tudo precisa estar desabilitado no Preview                      |
+| Dados de negócio           | raiz compartilhada padrão / raiz custom explícita                       | paths de services       | representativo      | a mudança de identidade não pode reescrever a raiz de dados      |
+| Pipeline de CI             | parent de MR / child Preview / release de tag                           | workflow do GitLab      | sim                 | a entrada Preview e o isolamento de release dependem da origem do pipeline |
+| Comando Preview            | não clicado / em execução / bem-sucedido / falhou                       | trigger manual          | representativo      | não clicado não pode bloquear o DAG de produção do MR            |
+| Classe de variável do trigger | controles Preview explícitos / defaults do parent / valores só de job do child | fases de variáveis do GitLab | sim           | apenas controles explícitos podem cruzar a fronteira parent-child |
 
-## Candidate Combinations
+## Combinações candidatas
 
-| Candidate ID | State                                            | Event                             | Target/surface           | Expected guard/effect                                                                            | Initial status | Notes                                                |
-| ------------ | ------------------------------------------------ | --------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ | -------------- | ---------------------------------------------------- |
-| ZPREVIEW-001 | `ZCODE_ENV=test`                                 | package                           | all platforms            | Preview name and distinct install identity; optimized build                                      | accepted       | primary build case                                   |
-| ZPREVIEW-002 | production                                       | package                           | all platforms            | existing ZCode identity unchanged                                                                | accepted       | regression case                                      |
-| ZPREVIEW-003 | prod and Preview installed                       | launch both                       | desktop lifecycle        | both instances remain running with separate Electron data                                        | accepted       | manual smoke                                         |
-| ZPREVIEW-004 | Preview running                                  | read tasks/settings/credentials   | business data            | same `~/.zcode` repositories as production                                                       | accepted       | no data migration                                    |
-| ZPREVIEW-005 | Preview packaged                                 | startup/menu/force config         | updater                  | no update check, no update UI, no force-update block                                             | accepted       | no auto update                                       |
-| ZPREVIEW-006 | signed Preview                                   | start CUA                         | macOS Helper             | launcher passes Preview app-id + Team requirement                                                | accepted       | permission remains Helper-owned                      |
-| ZPREVIEW-007 | signed production                                | start CUA                         | macOS Helper             | production launcher continues to pass                                                            | accepted       | regression case                                      |
-| ZPREVIEW-008 | unrelated signed app                             | forge launcher pid                | macOS Helper             | fails launcher requirement                                                                       | accepted       | security negative case                               |
-| ZPREVIEW-009 | different prod/Preview versions                  | use CUA sequentially              | Helper install           | separate version directories avoid replace/downgrade conflict                                    | accepted       | operational isolation only                           |
-| ZPREVIEW-010 | both apps running                                | open `zcode://`                   | OS scheme handler        | current default handler receives callback                                                        | ignored        | accepted limitation                                  |
-| ZPREVIEW-011 | both apps running                                | run two CUA sessions concurrently | global mouse/keyboard    | behavior not supported                                                                           | pruned         | user states this does not occur                      |
-| ZPREVIEW-014 | eligible MR pipeline                             | inspect `approve-mr` stage        | CI UI                    | optional `build:preview` manual job is present beside MR approval                                | accepted       | explicit internal entry                              |
-| ZPREVIEW-015 | `build:preview` clicked                          | create child pipeline             | CI workflow              | same MR ref/SHA; force `ZCODE_ENV=test`; distinct Preview output path                            | accepted       | no manual variables required                         |
-| ZPREVIEW-016 | Preview child created                            | evaluate child jobs               | CI DAG                   | full desktop/CUA/remote build and notify; no test/Web deployment/release jobs                    | accepted       | package-only boundary                                |
-| ZPREVIEW-017 | non-MR pipeline                                  | evaluate manual job rules         | CI UI                    | `build:preview` is absent                                                                        | pruned         | current request is MR-level command only             |
-| ZPREVIEW-018 | MR parent has checkout-derived default paths     | click `build:preview`             | child pipeline variables | parent defaults are not inherited; child cache/temp paths resolve from the child runner checkout | accepted       | regression for `mkdir: /.tmp: Read-only file system` |
-| ZPREVIEW-019 | Preview trigger stops inheriting parent defaults | build signed packages             | child workflow           | signing/notarization variables remain mapped from same-project protected variables               | accepted       | variable isolation must not weaken signing           |
+| ID candidato   | Estado                                         | Evento                              | Alvo/superfície         | Guarda/efeito esperado                                                                                  | Status inicial  | Observações                                |
+| -------------- | ---------------------------------------------- | ----------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------ | --------------- | ------------------------------------------ |
+| ZPREVIEW-001   | `ZCODE_ENV=test`                                | empacotar                            | todas as plataformas     | Nome Preview e identidade de instalação distinta; build otimizado                                          | aceito          | caso principal de build                    |
+| ZPREVIEW-002   | production                                      | empacotar                            | todas as plataformas     | identidade ZCode existente inalterada                                                                    | aceito          | caso de regressão                          |
+| ZPREVIEW-003   | prod e Preview instalados                      | iniciar os dois                     | ciclo de vida do desktop | ambas as instâncias continuam rodando com dados do Electron separados                                    | aceito          | smoke manual                               |
+| ZPREVIEW-004   | Preview em execução                            | ler tarefas/configs/credenciais     | dados de negócio          | mesmos repositórios `~/.zcode` da produção                                                               | aceito          | sem migração de dados                      |
+| ZPREVIEW-005   | Preview empacotado                             | inicialização/menu/config de força  | updater                   | sem verificação de atualização, sem UI de atualização, sem bloqueio por force-update                      | aceito          | sem auto-update                            |
+| ZPREVIEW-006   | Preview assinado                               | iniciar CUA                          | Helper no macOS          | o launcher passa o app-id do Preview e o requisito de Team                                             | aceito          | a permissão continua sendo do Helper        |
+| ZPREVIEW-007   | produção assinada                              | iniciar CUA                          | Helper no macOS          | o launcher de produção continua passando                                                                 | aceito          | caso de regressão                          |
+| ZPREVIEW-008   | app assinado não relacionado                   | forjar o pid do launcher             | Helper no macOS          | falha no requisito do launcher                                                                          | aceito          | caso negativo de segurança                  |
+| ZPREVIEW-009   | versões diferentes de prod/Preview              | usar CUA em sequência                | instalação do Helper     | diretórios de versão separados evitam conflito de substituição/rebaixamento                              | aceito          | apenas isolamento operacional                |
+| ZPREVIEW-010   | os dois apps em execução                       | abrir `zcode://`                     | handler de scheme do SO  | o handler padrão atual recebe o callback                                                                | ignorado        | limitação aceita                           |
+| ZPREVIEW-011   | os dois apps em execução                       | rodar duas sessões CUA simultaneamente | mouse/teclado global    | comportamento não suportado                                                                             | podado          | o usuário afirma que isso não ocorre         |
+| ZPREVIEW-014   | pipeline de MR elegível                        | inspecionar a fase `approve-mr`       | UI de CI                  | o job manual opcional `build:preview` existe ao lado da aprovação do MR                                 | aceito          | entrada interna explícita                   |
+| ZPREVIEW-015   | `build:preview` clicado                        | criar child pipeline                  | workflow de CI            | mesma ref/SHA do MR; `ZCODE_ENV=test` forçado; path de saída Preview distinto                          | aceito          | não exige variáveis manuais                |
+| ZPREVIEW-016   | child Preview criado                           | avaliar os jobs do child              | DAG de CI                 | build completo desktop/CUA/remote e notificação; sem jobs de test/deploy web/release                    | aceito          | fronteira apenas de pacote                  |
+| ZPREVIEW-017   | pipeline fora do MR                            | avaliar as regras do job manual       | UI de CI                  | `build:preview` está ausente                                                                            | podado          | a solicitação atual é um comando de nível MR |
+| ZPREVIEW-018   | parent de MR com paths default derivados do checkout | clicar em `build:preview`   | variáveis do child pipeline | os defaults do parent não são herdados; os paths de cache/temp do child resolvem a partir do checkout do runner do child | aceito | regressão para `mkdir: /.tmp: Read-only file system` |
+| ZPREVIEW-019   | trigger Preview deixa de herdar os defaults do parent | construir pacotes assinados       | workflow do child         | as variáveis de assinatura/notarização continuam mapeadas das protected variables do mesmo projeto       | aceito          | o isolamento de variáveis não pode enfraquecer a assinatura |
 
-## Pruning Decisions
+## Decisões de poda
 
-| Decision ID  | Pruned combinations                         | Guard/invariant                            | Product reason                              | Representative coverage             |
-| ------------ | ------------------------------------------- | ------------------------------------------ | ------------------------------------------- | ----------------------------------- |
-| ZPREVIEW-P01 | 两个应用同时执行 CUA                        | 任一时刻只有一个应用使用 CUA               | 无需引入全局 CUA lease 和新 UI 状态         | 分别验证 prod/Preview 可启动 Helper |
-| ZPREVIEW-P02 | Preview 独立账号/任务/配置                  | 业务数据明确共享                           | Preview 仅是内部测试入口                    | 验证路径解析未改写 `ZCODE_HOME`     |
-| ZPREVIEW-P03 | Preview 独立 scheme                         | 用户接受 deep-link 抢占                    | 避免改 OAuth callback 配置                  | 保留 `zcode` protocol 配置断言      |
-| ZPREVIEW-P04 | Preview 更新 channel                        | Preview 禁止更新                           | 内部包由重新下载安装替换                    | 断言 updater、菜单和强更均禁用      |
-| ZPREVIEW-P05 | branch/tag/web pipeline 展示 Preview 命令   | 手动入口仅限 MR                            | 与 MR merge/approve 同级是本次明确边界      | CI rules 静态断言                   |
-| ZPREVIEW-P06 | 转发 parent 的 cache/temp/default variables | trigger 只允许显式 Preview controls 跨边界 | job-only runner paths 必须由 child 自己计算 | CI config 静态断言 + 真实 child log |
+| ID da decisão | Combinações podadas                               | Guarda/invariante                                     | Motivo no produto                                       | Cobertura representativa                          |
+| ------------- | -------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- |
+| ZPREVIEW-P01  | Os dois apps executando CUA ao mesmo tempo        | Apenas um app por vez usa CUA                        | Não é preciso introduzir lease global de CUA nem novo estado de UI | Verificar separadamente prod/Preview iniciando o Helper |
+| ZPREVIEW-P02  | Preview com conta/tarefa/configuração independentes | Dados de negócio explicitamente compartilhados        | O Preview é apenas uma entrada interna de teste         | Verificar que a resolução de paths não reescreve `ZCODE_HOME` |
+| ZPREVIEW-P03  | Scheme separado para o Preview                    | O usuário aceita o roubo de deep link                | Evitar mudar a configuração de callback do OAuth       | Manter a asserção de configuração do protocol `zcode` |
+| ZPREVIEW-P04  | Canal de atualização do Preview                   | O Preview proíbe atualizações                        | O pacote interno é substituído baixando e instalando de novo | Asserir que updater, menu e force-update estão desabilitados |
+| ZPREVIEW-P05  | Exibir o comando Preview em pipeline branch/tag/web | A entrada manual é limitada ao MR                    | Estar no mesmo nível do merge/approve do MR é uma fronteira explícita desta rodada | Asserção estática das regras de CI |
+| ZPREVIEW-P06  | Encaminhar cache/temp/defaults do parent          | O trigger só permite controles Preview explícitos atravessarem a fronteira | Paths exclusivos do runner/job devem ser calculados pelo próprio child | Asserção estática da config de CI + log real do child |
 
-## Questions For User
+## Perguntas para o usuário
 
-当前没有未决产品问题。若未来要求两个应用同时执行 CUA，需新开全局输入 owner/lease 设计，不属于本变更。
+Nenhuma questão de produto em aberto no momento. Se futuramente for exigido que os dois apps executem CUA ao mesmo tempo, será preciso abrir um novo projeto de owner/lease global de entrada, que não faz parte desta alteração.
 
-## Accepted Cases
+## Casos aceitos
 
-| Case ID      | Setup                                | Action                          | Assertions                                                                                       | Evidence layers               | E2E status                         |
-| ------------ | ------------------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------- | ---------------------------------- |
-| ZPREVIEW-001 | `ZCODE_ENV=test`                     | 解析 electron-builder identity  | Preview product/app/executable/package identity 正确                                             | config                        | verified                           |
-| ZPREVIEW-002 | `ZCODE_ENV=production`               | 解析 electron-builder identity  | 所有生产 identity 不变                                                                           | config                        | verified                           |
-| ZPREVIEW-003 | 模拟 packaged test runtime           | 解析 desktop runtime paths      | name=`ZCode Preview`，Electron userData 分离                                                     | runtime + filesystem path     | verified                           |
-| ZPREVIEW-005 | packaged test runtime                | 初始化更新器并构建菜单          | 不请求 feed、不显示更新入口、不执行强更                                                          | runtime + menu + network mock | verified                           |
-| ZPREVIEW-006 | Preview app id + official Team       | Helper 校验 launcher            | requirement 接受                                                                                 | native requirement unit       | verified                           |
-| ZPREVIEW-007 | production app id + official Team    | Helper 校验 launcher            | requirement 接受                                                                                 | native requirement unit       | verified                           |
-| ZPREVIEW-008 | 其他 app id                          | Helper 校验 launcher            | requirement 拒绝                                                                                 | native requirement unit       | verified                           |
-| ZPREVIEW-009 | Preview Host env                     | 解析 Helper 路径                | 使用 `computer-use/preview`，production path 不变                                                | service + filesystem path     | verified                           |
-| ZPREVIEW-012 | macOS Preview CI                     | 缺少签名/公证凭据               | 构建 fail-closed                                                                                 | CI script test                | verified                           |
-| ZPREVIEW-013 | 三平台 Preview 产物                  | 安装并启动，与生产版并行        | 两个进程同时存在、基本功能可用                                                                   | manual signed artifact smoke  | missing                            |
-| ZPREVIEW-014 | 目标为 `main`/`staging` 的 MR        | 创建父 pipeline                 | `approve-mr` 阶段存在 optional `build:preview` 手动 job                                          | CI config                     | verified                           |
-| ZPREVIEW-015 | MR 父 pipeline                       | 点击 `build:preview`            | child 使用同 MR SHA，固定 `ZCODE_ENV=test` 和独立 Preview 目录                                   | CI config                     | verified                           |
-| ZPREVIEW-016 | Preview child                        | 展开 include 和 job rules       | 复用全平台 build/签名/公证/通知；排除测试、Web 部署和 release                                    | CI config                     | verified                           |
-| ZPREVIEW-018 | parent 默认变量引用 `CI_PROJECT_DIR` | 点击 `build:preview`            | trigger 设置 `inherit:variables:false`；child 不收到 parent 派生的 `/.tmp`、`/.npm-cache` 等路径 | CI config + runner log        | verified (config); runtime pending |
-| ZPREVIEW-019 | 同项目 Preview child                 | 解析 workflow signing variables | Apple 签名/公证变量仍由 child workflow 从 protected variables 映射                               | CI config                     | verified                           |
+| Case ID       | Setup                                  | Ação                                  | Asserções                                                                                   | Camadas de evidência            | Status E2E                             |
+| ------------- | -------------------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------- | -------------------------------------- |
+| ZPREVIEW-001  | `ZCODE_ENV=test`                       | resolver a identidade do electron-builder | A identidade de produto/app/executável/pacote do Preview está correta                    | config                          | verificado                             |
+| ZPREVIEW-002  | `ZCODE_ENV=production`                 | resolver a identidade do electron-builder | Toda identidade de produção permanece inalterada                                         | config                          | verificado                             |
+| ZPREVIEW-003  | runtime de teste empacotado simulado   | resolver os paths de runtime do desktop | name=`ZCode Preview`, userData do Electron separado                                       | runtime + path do sistema de arquivos | verificado                       |
+| ZPREVIEW-005  | runtime de teste empacotado            | inicializar o updater e montar o menu | Não solicita feed, não mostra entrada de atualização, não executa force-update            | runtime + menu + mock de rede   | verificado                             |
+| ZPREVIEW-006  | app id do Preview + Team oficial      | Helper valida o launcher              | O requirement é aceito                                                                      | teste unitário de requirement nativo | verificado                       |
+| ZPREVIEW-007  | app id de produção + Team oficial     | Helper valida o launcher              | O requirement é aceito                                                                      | teste unitário de requirement nativo | verificado                       |
+| ZPREVIEW-008  | outro app id                           | Helper valida o launcher              | O requirement é rejeitado                                                                    | teste unitário de requirement nativo | verificado                       |
+| ZPREVIEW-009  | env de Host do Preview                 | resolver o path do Helper             | Usa `computer-use/preview`, o path de produção inalterado                                 | service + path do sistema de arquivos | verificado                       |
+| ZPREVIEW-012  | CI de Preview no macOS                 | faltam credenciais de assinatura/notarização | O build falha de forma closed                                                        | teste de script de CI           | verificado                             |
+| ZPREVIEW-013  | artefatos Preview das três plataformas | instalar e iniciar, em paralelo com a produção | Os dois processos coexistem e as funções básicas funcionam                              | smoke manual de artefato assinado | ausente                         |
+| ZPREVIEW-014  | MR com alvo `main`/`staging`           | criar o pipeline parent               | Existe um job manual opcional `build:preview` na fase `approve-mr`                        | config de CI                    | verificado                             |
+| ZPREVIEW-015  | pipeline parent do MR                   | clicar em `build:preview`             | O child usa o mesmo SHA do MR, com `ZCODE_ENV=test` fixo e diretório Preview separado     | config de CI                    | verificado                             |
+| ZPREVIEW-016  | child Preview                           | expandir includes e regras de job     | Reutiliza build/assinatura/notarização/notificação de todas as plataformas; exclui testes, deploy web e release | config de CI      | verificado                             |
+| ZPREVIEW-018  | variável default do parent referenciando `CI_PROJECT_DIR` | clicar em `build:preview` | O trigger define `inherit:variables:false`; o child não recebe paths derivados do parent como `/.tmp`, `/.npm-cache` | config de CI + log do runner | verificado (config); runtime pendente |
+| ZPREVIEW-019  | child Preview do mesmo projeto          | resolver as variáveis de assinatura do workflow | As variáveis de assinatura/notarização da Apple ainda são mapeadas pelo child workflow a partir das protected variables | config de CI | verificado                   |
 
-## Verification Results
+## Resultados da verificação
 
-- `pnpm typecheck`: passed.
-- `pnpm lint`: passed with 0 errors; 59 existing repository warnings remain outside this change.
-- `pnpm exec vitest run packages/desktop/test/ciNodeVersionConfig.test.ts`: 1 file passed, 20 tests passed；覆盖 Preview 手动 job、parent 默认变量继承隔离、child workflow 变量、签名变量、include 边界和禁用的 Web 远控 job。
-- YAML syntax parse: `.gitlab/ci/00-workflow.yml` 与 `.gitlab/ci/preview-child.yml` 均通过。
-- Preview packaging 基线的 `pnpm test:unit:affected`: expanded to the full unit suite by the repository pre-push rule; 841 files passed, 6478 tests passed, 1 skipped.
-- 本次手动触发改动的 `pnpm test:unit:affected`: passed；lint-staged 选中 CI 配置测试，1 file / 20 tests passed。
-- electron-builder schema validation: both `ZCODE_ENV=test` and `ZCODE_ENV=production` configurations passed; resolved Preview identity is `dev.zcode.app.preview` / `ZCode Preview` / `zcode-preview` / `_TEST`.
-- macOS scripts: `bash -n` passed; Preview missing-signing/notarization-credential paths are covered by fail-closed tests.
-- Runtime failure evidence: GitLab Runner 18.7.2 中 parent default `ZCODE_CI_TMPDIR="$CI_PROJECT_DIR/.tmp"` 经 trigger 转发后变为 `/.tmp`，child 首个 setup 因 `mkdir: /.tmp: Read-only file system` 失败；根因修复为 `build:preview.inherit.variables=false`，不修改共享 build/sign/notarize DAG。
-- Remaining manual gate: 在真实 MR 重试 `build:preview`，确认 child 的 temp/cache 路径位于 runner checkout 且完成全平台打包；安装签名的 macOS/Windows/Linux 产物并在目标系统验证 ZPREVIEW-013。
+- `pnpm typecheck`: passou.
+- `pnpm lint`: passou com 0 erros; 59 warnings já existentes do repositório permanecem fora desta alteração.
+- `pnpm exec vitest run packages/desktop/test/ciNodeVersionConfig.test.ts`: 1 arquivo passou, 20 testes passaram; cobre o job manual do Preview, o isolamento de herança de variáveis default do parent, as variáveis do child workflow, as variáveis de assinatura, as fronteiras de include e o job de web remote desabilitado.
+- Parsing de sintaxe YAML: `.gitlab/ci/00-workflow.yml` e `.gitlab/ci/preview-child.yml` passaram.
+- `pnpm test:unit:affected` da baseline de packaging do Preview: expandido para a suíte unitária completa pela regra de pre-push do repositório; 841 arquivos passaram, 6478 testes passaram, 1 ignorado.
+- `pnpm test:unit:affected` da alteração do disparo manual desta rodada: passou; o lint-staged selecionou o teste de config de CI, 1 arquivo / 20 testes passaram.
+- Validação de schema do electron-builder: as configurações `ZCODE_ENV=test` e `ZCODE_ENV=production` passaram; a identidade Preview resolvida é `dev.zcode.app.preview` / `ZCode Preview` / `zcode-preview` / `_TEST`.
+- Scripts de macOS: `bash -n` passou; os caminhos do Preview sem credenciais de assinatura/notarização são cobertos por testes fail-closed.
+- Evidência de falha em runtime: no GitLab Runner 18.7.2, o default do parent `ZCODE_CI_TMPDIR="$CI_PROJECT_DIR/.tmp"` era encaminhado pelo trigger e virava `/.tmp`, e o primeiro setup do child falhava com `mkdir: /.tmp: Read-only file system`; a causa raiz foi corrigida com `build:preview.inherit.variables=false`, sem modificar o DAG compartilhado de build/sign/notarize.
+- Gate manual restante: repetir `build:preview` em um MR real, confirmando que os paths de temp/cache do child ficam no checkout do runner e que o packaging em todas as plataformas é concluído; instalar os artefatos assinados de macOS/Windows/Linux e validar o ZPREVIEW-013 nos sistemas de destino.
 
-## Matrix Backfill
+## Backfill da matriz
 
-| File            | Change                                                                      |
-| --------------- | --------------------------------------------------------------------------- |
-| case catalog    | 本文作为 release/lifecycle 专用 case catalog，避免污染 conversation catalog |
-| coverage matrix | 本文 `Accepted Cases` 记录 planned/missing 状态；实现后更新为 verified      |
-| CUA specs       | 更新 launcher allowlist 与 Preview Helper 安装子目录                        |
+| Arquivo            | Alteração                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| catálogo de casos  | Este documento serve como catálogo de casos dedicado a release/lifecycle, evitando poluir o catálogo de conversation |
+| matriz de cobertura | O `Accepted Cases` deste documento registra o estado planned/missing; após a implementação, atualizar para verified |
+| specs de CUA       | Atualizar o allowlist do launcher e o subdiretório de instalação do Helper do Preview |
 
-## E2E Handoff Notes
+## Observações de passagem de bastão E2E
 
-- Provider fixture: 不需要；测试环境 endpoint 由既有 `ZCODE_ENV=test` 单测覆盖。
-- File-system fixture: 临时 appData、`ZCODE_HOME/computer-use[/preview]`。
-- Timing strategy: 配置/路径采用纯函数单测；双应用并行启动使用签名产物手工 smoke。
-- Docker preset: 不适用。
-- Review risks: macOS 签名 requirement 语法、Windows NSIS 并排安装、Linux deb package name、Preview 禁用强更。
+- Fixture de Provider: desnecessário; o endpoint de ambiente de teste é coberto pelos testes unitários existentes de `ZCODE_ENV=test`.
+- Fixture de sistema de arquivos: appData temporário, `ZCODE_HOME/computer-use[/preview]`.
+- Estratégia de timing: config/paths por funções puras em testes unitários; inicialização paralela dos dois apps por smoke manual de artefato assinado.
+- Preset Docker: não aplicável.
+- Riscos de review: sintaxe do requirement de assinatura no macOS, instalação lado a lado com NSIS no Windows, nome do pacote deb no Linux, Preview com force-update desabilitado.
 
-## 追记 2026-09-13：生产后端的 ZCode Preview（`ZCODE_PREVIEW_IDENTITY`）
+## Complemento de 2026-09-13: ZCode Preview para o backend de produção (`ZCODE_PREVIEW_IDENTITY`)
 
-### 需求
+### Necessidade
 
-内部希望拿到一个"连接生产后端、能用生产 BigModel / Z.ai 账号登录"的 `ZCode Preview`，且不新增第三种产品身份。
-原设计里 `ZCODE_ENV` 同时决定后端环境和安装包身份，`test` 的 Preview 只能登录 `bigmodel.cn` / `zcode.z.ai`。
+A equipe interna quer um `ZCode Preview` que conecte ao backend de produção e permita login com contas de produção BigModel / Z.ai, sem criar uma terceira identidade de produto.
+No design original, `ZCODE_ENV` determinava ao mesmo tempo o ambiente de backend e a identidade do instalador, de modo que o Preview com `test` só podia fazer login em `bigmodel.cn` / `zcode.z.ai`.
 
-### 决策
+### Decisões
 
-| 项 | 决定 | 说明 |
-| --- | --- | --- |
-| 新增变量 | `ZCODE_PREVIEW_IDENTITY=1`（只认 `1`；`0`/空 = 关闭；其它拼写构建期直接失败） | 构建期开关；只控制**身份**，不碰后端环境。单一拼写与 CI 规则的 `== "1"` 精确比较同语义（2026-09-14 收紧，见下） |
-| `ZCODE_ENV` 语义 | 不变，仍只表示后端环境 | 原 Boundary「新增第三种环境值」的排除继续有效 |
-| 身份推导 | `flavor = ZCODE_PREVIEW_IDENTITY 为真 \|\| ZCODE_ENV=test ? preview : production` | 测试后端永远是 Preview，开关无法把测试后端包变成正式 `ZCode` |
-| 身份含义 | 整套 Preview 身份，不是只改显示名 | appId `dev.zcode.app.preview`、`ZCode Preview` 应用名、独立 Electron `userData`、Linux `zcode-preview`、Helper 安装子目录 `computer-use/preview`、Windows AUMID |
-| 更新 | Preview 身份在两种后端下都禁用 updater / 强更 / 菜单与标题栏更新入口 | stable feed 上只有正式 `ZCode` 安装包，装到 Preview bundle 上等于再装一份正式版 |
-| 产物后缀 | `_TEST` 只标记 `ZCODE_ENV=test`；生产后端的 Preview 没有后缀 | 生产 Preview 靠 productName 区分：`ZCode Preview-<version>-mac-arm64.dmg` vs `ZCode-<version>-mac-arm64.dmg` |
-| 发布链路 | `ZCODE_PREVIEW_IDENTITY == "1"` 与 `ZCODE_ENV == "test"` 同等对待：所有 release job `when: never`，`publish-release.sh` 硬拦截 | 生产后端的 Preview 仍是内部包 |
-| CUA Helper | 不改 | app id 仍是 `dev.zcode.app.preview`，Helper 的 launcher allowlist 已接受 |
+| Item                 | Decisão                                                                                                              | Explicação                                                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nova variável        | `ZCODE_PREVIEW_IDENTITY=1` (reconhece somente `1`; `0`/vazio = desligado; qualquer outra grafia faz o build falhar) | Interruptor de build; controla **apenas a identidade**, sem tocar no ambiente de backend. A grafia única tem exatamente a mesma semântica da comparação `== "1"` nas regras de CI (estreitado em 2026-09-14, ver abaixo) |
+| Semântica de `ZCODE_ENV` | Inalterada, continua indicando apenas o ambiente de backend                              | A exclusão da fronteira original "novo terceiro valor de ambiente" continua válida                                                          |
+| Derivação de identidade | `flavor = ZCODE_PREVIEW_IDENTITY verdadeiro \|\| ZCODE_ENV=test ? preview : production`                       | O backend de teste é sempre Preview; o interruptor não consegue transformar um pacote de backend de teste em um `ZCode` oficial |
+| Significado da identidade | O conjunto da identidade Preview, não apenas o nome exibido | appId `dev.zcode.app.preview`, nome de app `ZCode Preview`, `userData` do Electron separado, `zcode-preview` no Linux, subdiretório de instalação do Helper `computer-use/preview`, AUMID do Windows |
+| Atualização          | A identidade Preview desabilita updater / force-update / menu e entradas de atualização da barra de título nos dois backends | No feed stable há apenas o instalador oficial `ZCode`; instalar no bundle Preview equivaleria a instalar mais uma cópia da versão oficial |
+| Sufixo do artefato   | `_TEST` marca somente `ZCODE_ENV=test`; o Preview com backend de produção não tem sufixo | O Preview de produção se distingue pelo productName: `ZCode Preview-<version>-mac-arm64.dmg` vs `ZCode-<version>-mac-arm64.dmg`        |
+| Cadeia de publicação  | `ZCODE_PREVIEW_IDENTITY == "1"` é tratado como `ZCODE_ENV == "test"`: todos os jobs de release com `when: never`, e bloqueio rígido em `publish-release.sh` | O Preview com backend de produção continua sendo um pacote interno |
+| CUA Helper           | Sem alteração                                                                                                        | O app id continua `dev.zcode.app.preview`, e o allowlist de launcher do Helper já o aceita |
 
-### 编译期常量
+### Constantes de compilação
 
-- `packages/shared/src/env.ts` 新增 `ZCodeProductFlavor = "production" | "preview"`、`ZCODE_PRODUCT_FLAVOR`、`normalizeZCodeProductFlavor(value, zcodeEnv)`。
-- `tsup.config.ts` / `vite.config.ts` 注入 `__ZCODE_PRODUCT_FLAVOR__`；未注入 define 的 bundle（web、CLI、测试）回落为"跟随 `ZCODE_ENV`"的旧单轴语义。
-- 打包后的应用**不能**依赖机器上的环境变量：身份和后端一样是编译期常量，主进程 / renderer 只读 `ZCODE_PRODUCT_FLAVOR`。
+- `packages/shared/src/env.ts` ganha `ZCodeProductFlavor = "production" | "preview"`, `ZCODE_PRODUCT_FLAVOR` e `normalizeZCodeProductFlavor(value, zcodeEnv)`.
+- `tsup.config.ts` / `vite.config.ts` injetam `__ZCODE_PRODUCT_FLAVOR__`; bundles sem define injetado (web, CLI, testes) caem na antiga semântica de eixo único, "seguindo `ZCODE_ENV`".
+- O app empacotado **não pode** depender de variáveis de ambiente da máquina: a identidade, assim como o backend, é uma constante de compilação, e o processo principal / renderer apenas leem `ZCODE_PRODUCT_FLAVOR`.
 
-### 改为按身份判断的位置
+### Locais trocados para julgamento por identidade
 
-| 位置 | 原判据 | 现判据 |
-| --- | --- | --- |
-| `packages/desktop/scripts/desktop-product-identity.mjs` | `ZCODE_ENV` | `resolveDesktopProductFlavor(env)`；`artifactSuffix` 移出身份记录，改为 `resolveDesktopArtifactSuffix(env)` |
-| `desktopRuntimeEnv.ts` `isPreviewPackagedRuntime` | `ZCODE_ENV === "test"` | `ZCODE_PRODUCT_FLAVOR === "preview"` |
-| `index.ts` AUMID / `initAutoUpdater.enabled` / force-update gate | `ZCODE_ENV` | `ZCODE_PRODUCT_FLAVOR`（`resolveWindowsAppUserModelIdForFlavor`） |
-| `desktopApplicationMenu.ts` 检查更新菜单项 | `ZCODE_ENV === "production"` | `ZCODE_PRODUCT_FLAVOR === "production"`；endpoint 切换子菜单仍看 `ZCODE_ENV` |
-| `packages/ui/.../WindowsCaptionMenuButton.tsx` `shouldShowDesktopUpdateEntry` | `ZCodeEnv` | `ZCodeProductFlavor` |
-| `scripts/notarize-macos.sh` `is_preview_package` / `is_strict_release` | `ZCODE_ENV=test` | 加上 `ZCODE_PREVIEW_IDENTITY`；Preview 永不进入 strict release |
-| `scripts/sign-macos-runtime-binaries.sh` fail-closed | `ZCODE_ENV=test` | `is_preview_package` |
-| `scripts/doctor-macos-release-app.sh` 默认 Helper variant | `ZCODE_ENV=test` | 加上 `ZCODE_PREVIEW_IDENTITY` |
-| `scripts/upload-oss.sh` / `scripts/package-cua-helper-release.mjs` `is_strict_release` | `ZCODE_ENV != test` | 再排除 Preview 身份 |
-| `scripts/publish-release.sh` | 拒绝 `ZCODE_ENV=test` | 同时拒绝 `ZCODE_PREVIEW_IDENTITY` 为真 |
-| `scripts/notify-feishu.mjs` | 标题只带环境 | `production` + 身份开关时追加 `· ZCode Preview`，其余标题不变 |
+| Local                                                                          | Critério anterior           | Critério atual                                                                                       |
+| ------------------------------------------------------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------- |
+| `packages/desktop/scripts/desktop-product-identity.mjs`                         | `ZCODE_ENV`                 | `resolveDesktopProductFlavor(env)`; `artifactSuffix` sai do registro de identidade e passa a `resolveDesktopArtifactSuffix(env)` |
+| `desktopRuntimeEnv.ts` `isPreviewPackagedRuntime`                               | `ZCODE_ENV === "test"`      | `ZCODE_PRODUCT_FLAVOR === "preview"`                                                                 |
+| `index.ts` AUMID / `initAutoUpdater.enabled` / gate de force-update             | `ZCODE_ENV`                 | `ZCODE_PRODUCT_FLAVOR` (`resolveWindowsAppUserModelIdForFlavor`)                                    |
+| `desktopApplicationMenu.ts` item de menu "verificar atualizações"               | `ZCODE_ENV === "production"` | `ZCODE_PRODUCT_FLAVOR === "production"`; o submenu de troca de endpoint continua olhando `ZCODE_ENV` |
+| `packages/ui/.../WindowsCaptionMenuButton.tsx` `shouldShowDesktopUpdateEntry`   | `ZCodeEnv`                  | `ZCodeProductFlavor`                                                                                  |
+| `scripts/notarize-macos.sh` `is_preview_package` / `is_strict_release`          | `ZCODE_ENV=test`            | Somar `ZCODE_PREVIEW_IDENTITY`; o Preview nunca entra em strict release                              |
+| `scripts/sign-macos-runtime-binaries.sh` fail-closed                           | `ZCODE_ENV=test`            | `is_preview_package`                                                                                  |
+| `scripts/doctor-macos-release-app.sh` variante padrão do Helper                 | `ZCODE_ENV=test`            | Somar `ZCODE_PREVIEW_IDENTITY`                                                                        |
+| `scripts/upload-oss.sh` / `scripts/package-cua-helper-release.mjs` `is_strict_release` | `ZCODE_ENV != test`   | Excluir também a identidade Preview                                                                   |
+| `scripts/publish-release.sh`                                                    | Rejeita `ZCODE_ENV=test`    | Rejeitar também quando `ZCODE_PREVIEW_IDENTITY` for verdadeiro                                       |
+| `scripts/notify-feishu.mjs`                                                    | Título com apenas o ambiente | Em `production` com o interruptor de identidade, acrescentar `· ZCode Preview`; os demais títulos inalterados |
 
-保持按后端环境判断、未改动的位置：`zcodeEndpoint.ts` 全部端点解析、OAuth provider 配置、source headers、`resolveZCodeEndpointSelection`、`30-build.yml` 的 test remote assets 分支、退出确认与 endpoint 菜单。
+Mantidos por julgamento de ambiente de backend, sem alteração: toda a resolução de endpoints em `zcodeEndpoint.ts`, a configuração do provider de OAuth, os source headers, `resolveZCodeEndpointSelection`, o ramo de test remote assets do `30-build.yml`, a confirmação de saída e o menu de endpoint.
 
-### CI 入口
+### Entradas de CI
 
-| 入口 | 变量 | 产物目录 |
-| --- | --- | --- |
-| MR `approve-mr` 阶段新增手动 job `build:preview:production` | 转发 `ZCODE_PREVIEW_PIPELINE=1`、`ZCODE_PREVIEW_IDENTITY=1`、`ZCODE_ENV=production`、`TARGET_OUTPUT_DIR` | `@electron-preview/<source-branch>/`，复用 `preview-child.yml` |
-| 手动 pipeline（web / api / trigger）传 `ZCODE_PREVIEW_IDENTITY=1` | `ZCODE_ENV` 留空或 `production` | `@electron-preview/<ref>/` |
-| MR pipeline 带 `ZCODE_PREVIEW_IDENTITY=1`（API 创建） | 同上 | `@electron-preview/<source-branch>/` |
+| Entrada                                                          | Variáveis                                                                                                    | Diretório de artefatos                |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Novo job manual `build:preview:production` na fase `approve-mr` do MR | Encaminha `ZCODE_PREVIEW_PIPELINE=1`, `ZCODE_PREVIEW_IDENTITY=1`, `ZCODE_ENV=production`, `TARGET_OUTPUT_DIR` | `@electron-preview/<source-branch>/`, reutilizando `preview-child.yml` |
+| Pipeline manual (web / api / trigger) passando `ZCODE_PREVIEW_IDENTITY=1` | `ZCODE_ENV` vazio ou `production`                                                                | `@electron-preview/<ref>/`            |
+| Pipeline de MR com `ZCODE_PREVIEW_IDENTITY=1` (criado via API)   | Igual ao anterior                                                                                            | `@electron-preview/<source-branch>/`  |
 
-- `.ci:resolve-zcode-env`（bash + PowerShell）把开关收敛为 `1` / 未设置，其它拼写直接失败。
-- child workflow 规则：身份规则条件写成 `$ZCODE_PREVIEW_IDENTITY == "1" && $ZCODE_PREVIEW_PIPELINE == "1" && $CI_PIPELINE_SOURCE == "parent_pipeline"`，排在测试 child 规则之前；原测试规则不变。
-- tag / `ci/*` 流水线不识别该开关；即便被 API 注入，`50-release.yml` 的 7 个发布 job 也会 `when: never`。
+- `.ci:resolve-zcode-env` (bash + PowerShell) reduz o interruptor a `1` / não definido, e qualquer outra grafia falha.
+- Regras do child workflow: a condição de regra de identidade é escrita como `$ZCODE_PREVIEW_IDENTITY == "1" && $ZCODE_PREVIEW_PIPELINE == "1" && $CI_PIPELINE_SOURCE == "parent_pipeline"`, posicionada antes das regras de child de teste; as regras de teste originais permanecem.
+- Pipelines de tag / `ci/*` não reconhecem o interruptor; mesmo se injetado pela API, os 7 jobs de publicação de `50-release.yml` ficam com `when: never`.
 
-### 新增用例
+### Novos casos
 
-| Case ID | Setup | Assertion | Evidence | Status |
-| --- | --- | --- | --- | --- |
-| ZPREVIEW-020 | `ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1` | electron-builder 解析为 Preview 身份、无 `_TEST` 后缀 | `desktopProductIdentity.test.ts`、真实加载 `electron-builder.config.js` 四组组合 | verified |
-| ZPREVIEW-021 | `ZCODE_ENV=test ZCODE_PREVIEW_IDENTITY=0` | 仍是 Preview，开关不能生成测试后端的正式 `ZCode` | `desktopProductIdentity.test.ts` | verified |
-| ZPREVIEW-022 | renderer / shared 注入 `__ZCODE_PRODUCT_FLAVOR__=preview` + `__ZCODE_ENV__=production` | `ZCODE_ENV=production`、`ZCODE_PRODUCT_FLAVOR=preview`；更新入口隐藏 | `shared/test/env.test.ts`、`viteRendererConfig.test.ts`、`windowsCaptionMenuButton.test.ts` | verified |
-| ZPREVIEW-023 | 生产后端 Preview 缺少 Apple 凭据 | notarize fail-closed，寻找 `*mac-arm64.dmg`（无 `_TEST`） | `notarizeMacosScript.test.ts` | verified |
-| ZPREVIEW-024 | `publish-release.sh` 收到 `ZCODE_PREVIEW_IDENTITY=1` | 退出 1，不读取密钥 | `publishReleaseScript.test.ts` | verified |
-| ZPREVIEW-025 | CI 配置 | `build:preview:production` 存在且 optional；三条身份规则写 Preview 目录且带签名变量；7 个 release gate 含身份条件 | `ciNodeVersionConfig.test.ts` | verified |
-| ZPREVIEW-026 | 生产后端 Preview 与正式 `ZCode` 并排安装，用生产 BigModel 账号登录，无更新检查 | 两进程共存、登录成功、日志无 `[auto-update]` 请求 | manual signed artifact smoke | missing |
+| Case ID    | Setup                                                                              | Asserção                                                              | Evidência                                                                                                                  | Status    |
+| ---------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------- |
+| ZPREVIEW-020 | `ZCODE_ENV=production ZCODE_PREVIEW_IDENTITY=1`                                | O electron-builder resolve como identidade Preview, sem sufixo `_TEST`  | `desktopProductIdentity.test.ts`, carregamento real de `electron-builder.config.js` com quatro combinações | verificado |
+| ZPREVIEW-021 | `ZCODE_ENV=test ZCODE_PREVIEW_IDENTITY=0`                                     | Continua sendo Preview; o interruptor não gera um `ZCode` oficial de backend de teste | `desktopProductIdentity.test.ts`                                                                              | verificado |
+| ZPREVIEW-022 | renderer / shared com `__ZCODE_PRODUCT_FLAVOR__=preview` + `__ZCODE_ENV__=production` | `ZCODE_ENV=production`, `ZCODE_PRODUCT_FLAVOR=preview`; entrada de atualização oculta | `shared/test/env.test.ts`, `viteRendererConfig.test.ts`, `windowsCaptionMenuButton.test.ts`                | verificado |
+| ZPREVIEW-023 | Preview com backend de produção sem credenciais da Apple                     | notarize fail-closed, procurando `*mac-arm64.dmg` (sem `_TEST`)         | `notarizeMacosScript.test.ts`                                                                                 | verificado |
+| ZPREVIEW-024 | `publish-release.sh` recebe `ZCODE_PREVIEW_IDENTITY=1`                        | Sai com 1 e não lê segredos                                            | `publishReleaseScript.test.ts`                                                                                 | verificado |
+| ZPREVIEW-025 | Configuração de CI                                                               | `build:preview:production` existe e é opcional; as três regras de identidade escrevem no diretório Preview e levam variáveis de assinatura; os 7 gates de release têm condição de identidade | `ciNodeVersionConfig.test.ts`                            | verificado |
+| ZPREVIEW-026 | Preview com backend de produção instalado lado a lado com o `ZCode` oficial, login com conta BigModel de produção e sem verificação de atualização | Os dois processos coexistem, o login funciona e o log não tem requisições `[auto-update]` | smoke manual de artefato assinado                        | ausente   |
 
-### 验证
+### Verificação
 
-- `pnpm typecheck`：passed。
-- `oxlint` 对改动文件：0 errors。改动文件中 6 个在 HEAD 已非 formatter-clean，只对新增行做了格式化。
-- `vitest`：`packages/desktop/test`、`packages/shared/test`、`packages/ui/test` 全量 1296 文件，含 `desktopProductIdentity`、`ciNodeVersionConfig`、`notarizeMacosScript`、`publishReleaseScript`、`notifyFeishuScript`、`viteRendererConfig`、`tsupChunkIsolation`、`desktopRuntimeEnv`、`desktopApplicationMenu`、`shared/env`、`ui/windowsCaptionMenuButton`；唯一一次失败是 `desktopApplicationMenu.test.ts` 的手写 `@zcode/shared` mock 缺少新导出 `ZCODE_PRODUCT_FLAVOR`，补上 getter 后通过（`dev-cua-plugin-runtime.test.ts` 在新 worktree 需先构建 zcode-cli 包树，与本改动无关，构建后通过）。
-- `scripts/ci/ci-lint-pipeline.mjs`：OK；改动的 YAML 可解析。
-- 未执行：真实 CI 上点击 `build:preview:production`，以及 ZPREVIEW-026 的签名产物手工 smoke。
+- `pnpm typecheck`: passou.
+- `oxlint` nos arquivos alterados: 0 erros. Dos arquivos alterados, 6 já não eram formatter-clean no HEAD, e apenas as linhas novas foram formatadas.
+- `vitest`: `packages/desktop/test`, `packages/shared/test` e `packages/ui/test` na íntegra, 1296 arquivos, incluindo `desktopProductIdentity`, `ciNodeVersionConfig`, `notarizeMacosScript`, `publishReleaseScript`, `notifyFeishuScript`, `viteRendererConfig`, `tsupChunkIsolation`, `desktopRuntimeEnv`, `desktopApplicationMenu`, `shared/env` e `ui/windowsCaptionMenuButton`; a única falha foi `desktopApplicationMenu.test.ts`, cujo mock manual de `@zcode/shared` não tinha a nova exportação `ZCODE_PRODUCT_FLAVOR` — passou depois de adicionar o getter (`dev-cua-plugin-runtime.test.ts`, no novo worktree, exige antes a árvore de pacotes do zcode-cli, sem relação com esta alteração, e passou após o build).
+- `scripts/ci/ci-lint-pipeline.mjs`: OK; o YAML alterado é parseável.
+- Não executado: clicar em `build:preview:production` na CI real, e o smoke manual do artefato assinado do ZPREVIEW-026.
 
-## 追记 2026-09-14：审查修正——漏改的更新入口与开关真值集合
+## Complemento de 2026-09-14: correções de review — entradas de atualização esquecidas e conjunto de valores verdadeiros do interruptor
 
-MR !2636 合入后 bug scanner 报出两项，均成立，本轮修正：
+Depois do merge do MR !2636, o bug scanner apontou dois pontos, ambos válidos, corrigidos nesta rodada:
 
-### CR-01 托盘与命令入口仍按 `ZCODE_ENV` 放行更新检查
+### CR-01 Tray e entrada por comando ainda liberavam a verificação de atualização com base em `ZCODE_ENV`
 
-- 漏改位置：`desktopTray.ts` 的托盘「检查更新」菜单项、`desktopCommandHandlers.ts` 的 `DesktopCommandIds.CheckForUpdates` 分支。生产后端 Preview 下两者都会调用 `checkForUpdateMenuClick`，而 `initAutoUpdater({ enabled: false })` 只清轮询并 return，electron-updater 实例保持未配置（占位 feed `http://localhost:8081`、`autoDownload` 未设为 false），手动检查会对占位 feed 发真实请求。
-- 修正：两处判据改为 `ZCODE_PRODUCT_FLAVOR === "production"`；并在 `autoUpdater.ts` 增加模块级 `autoUpdaterDisabledForProductFlavor`，`initAutoUpdater({ enabled: false })` 置位，`checkForUpdateMenuClick` 在打包态闸后再检查该位，命中即回 `dev-skipped` 并记录 `[auto-update] skip manual check: updater disabled for this product flavor`，不触碰 updater 实例。禁用语义从"每个入口各自判断"收口为"模块内 fail-closed"。
-- 未改的 `ZCODE_ENV` 判据（均为后端语义，保留）：`setZCodeEndpointOverride`、endpoint 子菜单、`resolveZCodeEndpointSelection`、退出确认、remote assets、logger/telemetry 的 e2e 分支。
+- Local esquecido: o item de menu "verificar atualizações" do tray em `desktopTray.ts`, e o ramo `DesktopCommandIds.CheckForUpdates` de `desktopCommandHandlers.ts`. Com o Preview de backend de produção, ambos chamavam `checkForUpdateMenuClick`, e `initAutoUpdater({ enabled: false })` apenas limpa o polling e retorna, deixando a instância do electron-updater sem configurar (feed placeholder `http://localhost:8081`, `autoDownload` não definido como false); a verificação manual fazia uma requisição real ao feed placeholder.
+- Correção: o critério dos dois locais passou a ser `ZCODE_PRODUCT_FLAVOR === "production"`; e em `autoUpdater.ts` foi adicionado `autoUpdaterDisabledForProductFlavor` no escopo do módulo, definido por `initAutoUpdater({ enabled: false })`, e `checkForUpdateMenuClick` verifica esse bit depois do gate de build — ao casar, retorna `dev-skipped` e registra `[auto-update] skip manual check: updater disabled for this product flavor`, sem tocar na instância do updater. A semântica de desabilitado passou de "cada entrada decidindo por si" para "fail-closed dentro do módulo".
+- Critérios `ZCODE_ENV` não alterados (todos de semântica de backend, mantidos): `setZCodeEndpointOverride`, o submenu de endpoint, `resolveZCodeEndpointSelection`, a confirmação de saída, remote assets e os ramos e2e de logger/telemetry.
 
-### CR-02 开关真值集合在 YAML 层与脚本层不一致
+### CR-02 O conjunto de valores verdadeiros do interruptor era inconsistente entre a camada YAML e a camada de scripts
 
-- 问题：workflow 三条身份路由规则与 `50-release.yml` 七个发布门做 `$ZCODE_PREVIEW_IDENTITY == "1"` 精确比较，而 `resolve_zcode_env`、identity resolver 与全部脚本接受 `1/true/yes/on`。`ZCODE_PREVIEW_IDENTITY=true` 会在路由层漏匹配（落入 `@electron/dev/…`、发布门不触发），却在脚本层被当成开启，打出 Preview 身份包进生产验收目录。
-- 决策：**收紧为单一拼写 `1`**（`0`/空 = 关闭），不走 YAML 正则放宽。理由：一个值在 YAML、bash、PowerShell、Node 四处只需一种比较；GitLab 规则层保持精确比较最不易出错。
-- 修正位置：`resolve_zcode_env`（bash + PowerShell）只接受 `1` / `0` / 空，其它值失败；`desktop-product-identity.mjs` 的 `isPreviewIdentityRequested` 对其它值直接 `throw`（tsup / vite / electron-builder 在构建期 fail-closed，本地 `ZCODE_PREVIEW_IDENTITY=true pnpm bundle:desktop` 不会静默打出正式包）；五个 shell 脚本、`publish-release.sh`、`package-cua-helper-release.mjs`、`notify-feishu.mjs` 同步只认 `1`；上方决策表真值列已更新。
-- YAML 规则与发布门不变（`== "1"` 已是目标语义）。
+- Problema: as três regras de roteamento de identidade do workflow e os sete gates de publicação de `50-release.yml` fazem uma comparação exata `$ZCODE_PREVIEW_IDENTITY == "1"`, enquanto `resolve_zcode_env`, o resolvedor de identidade e todos os scripts aceitam `1/true/yes/on`. Com `ZCODE_PREVIEW_IDENTITY=true`, o roteamento deixa de casar (cai em `@electron/dev/…` e os gates de publicação não disparam), mas a camada de script trata isso como ligado e produz um pacote de identidade Preview dentro do diretório de aceitação de produção.
+- Decisão: **estreitar para uma única grafia, `1`** (`0`/vazio = desligado), sem afrouxar com regex no YAML. Razão: um valor precisa de apenas um tipo de comparação em YAML, bash, PowerShell e Node; manter a comparação exata na camada de regras do GitLab é o menos propenso a erros.
+- Locais corrigidos: `resolve_zcode_env` (bash + PowerShell) aceita apenas `1` / `0` / vazio, e qualquer outro valor falha; o `isPreviewIdentityRequested` de `desktop-product-identity.mjs` faz `throw` direto para outros valores (tsup / vite / electron-builder falham de forma fechada no build, e um `ZCODE_PREVIEW_IDENTITY=true pnpm bundle:desktop` local não produz silenciosamente um pacote oficial); os cinco scripts shell, `publish-release.sh`, `package-cua-helper-release.mjs` e `notify-feishu.mjs` passam a reconhecer apenas `1`; a coluna de valores verdadeiros da tabela de decisões acima foi atualizada.
+- As regras YAML e os gates de publicação permanecem inalterados (`== "1"` já era a semântica desejada).
 
-### 新增用例
+### Novos casos
 
-| Case ID | Setup | Assertion | Evidence | Status |
-| --- | --- | --- | --- | --- |
-| ZPREVIEW-027 | `initAutoUpdater({ enabled: false })` 后调用 `checkForUpdateMenuClick` | 不调用 `checkForUpdates` / `setFeedURL`，向 renderer 发 `dev-skipped`，记录禁用日志 | `autoUpdaterReadyState.test.ts` | verified |
-| ZPREVIEW-028 | `ZCODE_PREVIEW_IDENTITY` 取 `true/yes/on/false/no/off/2` | identity resolver 抛 `expected 1 or 0` | `desktopProductIdentity.test.ts` | verified |
-| ZPREVIEW-029 | CI 配置 | `resolve_zcode_env` 两个实现均不含 `true/yes/on` 真值列表 | `ciNodeVersionConfig.test.ts` | verified |
-| ZPREVIEW-030 | 生产后端 Preview 打包态点击托盘「检查更新」 | 入口不存在 | 托盘模块无单测，待 ZPREVIEW-026 手工 smoke 一并覆盖 | missing |
+| Case ID    | Setup                                                                     | Asserção                                                                        | Evidência                     | Status    |
+| ---------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------- | --------- |
+| ZPREVIEW-027 | Chamar `checkForUpdateMenuClick` após `initAutoUpdater({ enabled: false })` | Não chama `checkForUpdates` / `setFeedURL`, envia `dev-skipped` ao renderer e registra o log de desabilitado | `autoUpdaterReadyState.test.ts` | verificado |
+| ZPREVIEW-028 | `ZCODE_PREVIEW_IDENTITY` assumindo `true/yes/on/false/no/off/2`          | O resolvedor de identidade lança `expected 1 or 0`                             | `desktopProductIdentity.test.ts` | verificado |
+| ZPREVIEW-029 | Configuração de CI                                                         | As duas implementações de `resolve_zcode_env` não contêm lista de valores `true/yes/on` | `ciNodeVersionConfig.test.ts` | verificado |
+| ZPREVIEW-030 | Preview com backend de produção empacotado clicando em "verificar atualizações" no tray | A entrada não existe                              | O módulo do tray não tem testes unitários; será coberto junto com o smoke manual do ZPREVIEW-026 | ausente |
 
-### 验证
+### Verificação
 
-- `pnpm typecheck`：通过。`oxlint` 改动文件：0 errors；仅格式化新增行（含上一轮遗留的 `notify-feishu.mjs` 长调用行）。
-- `vitest`：`autoUpdaterReadyState`、`desktopProductIdentity`、`ciNodeVersionConfig`、`desktopCommandHandlers`、`desktopApplicationMenu`、`desktopMainIpcPlatform`、`notifyFeishuScript`、`publishReleaseScript`、`notarizeMacosScript`、`runtime-asset-scripts`、`uploadOssScript`、`macosReleaseAppDoctor`、`viteRendererConfig`、`tsupChunkIsolation`、`electronBuilderLinuxPackageTargets` 15 文件 263 用例通过。
+- `pnpm typecheck`: passou. `oxlint` nos arquivos alterados: 0 erros; apenas as linhas novas foram formatadas (incluindo a longa linha de chamada de `notify-feishu.mjs` remanescente da rodada anterior).
+- `vitest`: `autoUpdaterReadyState`, `desktopProductIdentity`, `ciNodeVersionConfig`, `desktopCommandHandlers`, `desktopApplicationMenu`, `desktopMainIpcPlatform`, `notifyFeishuScript`, `publishReleaseScript`, `notarizeMacosScript`, `runtime-asset-scripts`, `uploadOssScript`, `macosReleaseAppDoctor`, `viteRendererConfig`, `tsupChunkIsolation` e `electronBuilderLinuxPackageTargets` — 15 arquivos, 263 casos aprovados.

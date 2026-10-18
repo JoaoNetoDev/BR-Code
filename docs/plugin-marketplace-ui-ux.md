@@ -1,34 +1,34 @@
-# Plugin Marketplace UI/UX 规格 V2 —— 插件商店化重设计
+# Especificação de UI/UX do Plugin Marketplace V2 —— Redesenho da loja de plugins
 
-> 2026-07-14 全面重写。本版将插件设置页重做为展示型的"插件商店页"，
-> 取代 2026-06 版的「Installed / Marketplace 双 tab + 左侧市场切换栏」信息架构。
-> 旧版 IA、按市场分组限量策略、浏览页布局等章节整体作废（内容见 git history）；
-> 仍然有效并被本版继承的规范：`plugins/describe` 按需组件详情协议、CLI 权威组件枚举
-> （`ZCodePluginInfo.components`）、诚实降级原则、「名称 — 描述」两行体渲染。
+> Reescrita completa em 2026-07-14. Esta versão refaz a página de configurações de plugins como uma "página de loja de plugins" de exibição,
+> substituindo a arquitetura de informação da versão de 2026-06, com「Installed / Marketplace」em duas tabs e barra lateral de troca de mercado.
+> A IA antiga, a estratégia de limite por agrupamento de mercado, o layout da página de navegação e afins estão integralmente revogados (conteúdo no git history);
+> As especificações ainda válidas e herdadas por esta versão são: o protocolo de detalhes de componentes sob demanda `plugins/describe`, a enumeração autoritativa de componentes do CLI
+> (`ZCodePluginInfo.components`), o princípio de degradação honesta e a renderização em duas linhas「nome — descrição」.
 >
-> 术语以根目录 [CONTEXT.md](../CONTEXT.md) 为准；关键决策见
-> [ADR-0001（listing 放目录层）](./adr/0001-store-listing-in-marketplace-catalog.md)、
-> [ADR-0002（有意偏离 DESIGN.md 克制风格）](./adr/0002-plugin-store-style-deviation.md)。
+> Os termos seguem o [CONTEXT.md](../CONTEXT.md) na raiz; decisões-chave em
+> [ADR-0001（listing 放目录层）](./adr/0001-store-listing-in-marketplace-catalog.md) e
+> [ADR-0002（有意偏离 DESIGN.md 克制风格）](./adr/0002-plugin-store-style-deviation.md).
 
-## 背景与目标
+## Contexto e objetivos
 
-列表页与详情页的视觉与交互：
+Visual e interação das páginas de listagem e de detalhe:
 
-- 列表页：大标题 + 副标题、全宽搜索框、已安装图标条（右侧齿轮）、公开/个人分段、
-  Featured 大区 + 按分类区块的双列卡片流，各组默认全部展开，支持手动折叠。
-- 详情页：大 icon + 名称 + 一句话描述、右上「…」与「立即试用」、hero 图内嵌示例提示词
-  胶囊、长描述、「MCP 服务器」「技能」等组件分区、「信息」区（开发者/类别/版本/网站/
-  隐私政策/服务条款）。
+- Página de listagem: título grande + subtítulo, caixa de busca de largura total, faixa de instalados (engrenagem à direita), segmentação público/pessoal,
+  grande seção Featured + fluxo de cartões em duas colunas por blocos de categoria, todos os grupos expandidos por padrão, com recolhimento manual.
+- Página de detalhe: icon grande + nome + descrição de uma linha,「…」e「立即试用」no canto superior direito, cápsulas de prompt de exemplo embutidas na imagem hero,
+  descrição longa, seções de componentes como「MCP 服务器」「技能」, seção「信息」(desenvolvedor/categoria/versão/site/
+  política de privacidade/termos de serviço).
 
-公开分段对应官方市场 `zcode-plugins-official`（内置插件 + CDN zip 插件，目录源
-`https://cdn-zcode.z.ai/zcode/official-plugin/marketplace.json`）；个人分段承载其余一切
-个人来源（claude-plugins-official、用户自加市场、inline）。
+A segmentação pública corresponde ao mercado oficial `zcode-plugins-official` (plugins embutidos + plugins zip do CDN, fonte de catálogo
+`https://cdn-zcode.z.ai/zcode/official-plugin/marketplace.json`); a segmentação pessoal abriga todas as demais
+fontes pessoais (claude-plugins-official, mercados adicionados pelo usuário, inline).
 
-### 官方市场单一身份与合并合同
+### Identidade única do mercado oficial e contrato de merge
 
-`zcode-plugins-official` 是 ZCode 官方市场唯一 id。内置插件和 CDN 插件不是两个市场，
-而是同一市场的两个目录分片；不得再注册、展示或生成 `zcode-plugins` 市场及
-`<name>@zcode-plugins` 插件 id。
+`zcode-plugins-official` é o único id do mercado oficial da ZCode. Plugins embutidos e plugins do CDN não são dois mercados,
+mas duas fatias de catálogo do mesmo mercado; não se deve mais registrar, exibir ou gerar o mercado `zcode-plugins` nem
+ids de plugin `<name>@zcode-plugins`.
 
 ```text
 应用内置目录分片 ─┐
@@ -36,73 +36,73 @@
 CDN 目录分片 ─────┘                    └─ 所有插件 id: <name>@zcode-plugins-official
 ```
 
-边界决策（2026-07-15 用户确认）：
+Decisões de limite (confirmadas pelo usuário em 2026-07-15):
 
-| 边界     | 决策                                                      | 剪枝 / 非目标                                  |
-| -------- | --------------------------------------------------------- | ---------------------------------------------- |
-| 市场身份 | 内置与 CDN 统一使用 `zcode-plugins-official`              | 不保留 `zcode-plugins` alias，不迁移旧测试数据 |
-| 刷新语义 | 刷新官方市场只替换 CDN 分片，再与当前应用内置分片重新合并 | CDN 刷新不得删除或改写内置插件缓存             |
-| 同名冲突 | CDN 市场条目优先，忽略内置分片中的同名目录条目            | 仅改变合并目录选择，不删除或改写应用内置缓存   |
-| 更新来源 | 内置分片随应用版本更新；CDN 分片由市场刷新更新            | 不把内置插件二进制改成 CDN 热更新              |
-| UI       | 市场源管理只显示一个可刷新的 ZCode 官方市场               | 不显示独立的内置 source 行或 CDN source 行     |
+| Limite           | Decisão                                                                               | Poda / não objetivo                                             |
+| ---------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Identidade do mercado | Embutidos e CDN usam uniformemente `zcode-plugins-official`                         | Não se mantém alias `zcode-plugins` nem se migram dados de teste antigos |
+| Semântica de refresh | O refresh do mercado oficial substitui apenas a fatia do CDN e a remergeia com a fatia embutida atual do app | O refresh do CDN não pode apagar nem reescrever o cache de plugins embutidos |
+| Conflito de nome    | A entrada de mercado do CDN tem prioridade e a entrada de diretório embutida homônima é ignorada | Isso altera apenas a escolha do catálogo mesclado, sem apagar nem reescrever o cache embutido do app |
+| Fonte de atualização | A fatia embutida muda com a versão do app; a fatia do CDN muda com o refresh do mercado | Não se transforma o binário de plugin embutido em hot update via CDN |
+| UI                 | O gerenciamento de fontes de mercado mostra apenas um mercado oficial da ZCode, com refresh | Não se exibe uma linha de source embutido nem uma linha de source do CDN |
 
-状态所有权与持久化：
+Propriedade do estado e persistência:
 
-| 状态                   | 权威来源                                                         | 本地投影                                               | 验证证据                |
-| ---------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ | ----------------------- |
-| 内置目录分片           | 当前应用 bundle / SEA assets                                     | 官方市场目录下的内置分片快照                           | seed 单测、cache marker |
-| CDN 目录分片           | 官方 CDN manifest                                                | 官方市场目录下的 CDN 分片快照                          | refresh 单测、网络响应  |
-| 合并目录               | 上述两个分片按 name 合并                                         | `marketplaces/zcode-plugins-official/marketplace.json` | overview / install 单测 |
-| 市场 source 与刷新时间 | `known_marketplaces.json` 中唯一的 `zcode-plugins-official` 记录 | UI marketplace summary                                 | 协议结果、设置页        |
+| Estado                        | Fonte autoritativa                                                  | Projeção local                                            | Evidência de verificação     |
+| ----------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------- | ---------------------------- |
+| Fatia de catálogo embutida    | bundle do app atual / assets SEA                                     | snapshot da fatia embutida no catálogo do mercado oficial | teste unitário de seed, cache marker |
+| Fatia de catálogo do CDN      | manifesto do CDN oficial                                              | snapshot da fatia do CDN no catálogo do mercado oficial   | teste unitário de refresh, resposta de rede |
+| Catálogo mesclado             | as duas fatias acima mescladas por name                             | `marketplaces/zcode-plugins-official/marketplace.json`     | testes de overview / install |
+| Fonte de mercado e hora de refresh | o único registro `zcode-plugins-official` em `known_marketplaces.json` | resumo de marketplace na UI                    | resultado de protocolo, página de configurações |
 
-接受的回归 case：
+Casos de regressão aceitos:
 
-| Case                      | Setup                        | Action                  | Assertions                                           | Evidence                |
-| ------------------------- | ---------------------------- | ----------------------- | ---------------------------------------------------- | ----------------------- |
-| `official-merge-initial`  | 新 storage，仅应用内置分片   | 打开插件页              | 单一官方市场；内置插件可见；source 指向 CDN          | manifest + overview     |
-| `official-merge-refresh`  | 已有内置分片，CDN 返回新插件 | 刷新官方市场            | 新插件使用 `@zcode-plugins-official`；内置插件仍存在 | manifest + protocol     |
-| `official-merge-conflict` | CDN 含与内置同名条目         | 刷新官方市场            | 保留 CDN 条目并忽略内置同名目录条目                  | manifest + adapter test |
-| `official-merge-reseed`   | 已缓存 CDN 分片              | 重启/重新 seed 内置插件 | CDN 条目仍存在；合并目录按新内置分片重建             | filesystem test         |
+| Caso                         | Setup                          | Ação                      | Asserções                                                   | Evidência               |
+| ---------------------------- | ------------------------------ | ------------------------- | ----------------------------------------------------------- | ----------------------- |
+| `official-merge-initial`     | novo storage, apenas fatia embutida do app | abrir a página de plugins | mercado oficial único; plugins embutidos visíveis; source apontando para o CDN | manifest + overview     |
+| `official-merge-refresh`     | fatia embutida existente, CDN devolve plugin novo | atualizar o mercado oficial | o plugin novo usa `@zcode-plugins-official`; os plugins embutidos ainda existem | manifest + protocolo    |
+| `official-merge-conflict`    | o CDN contém uma entrada com o mesmo nome de uma embutida | atualizar o mercado oficial | a entrada do CDN é mantida e a entrada de diretório embutida homônima é ignorada | manifest + teste de adapter |
+| `official-merge-reseed`      | fatia do CDN já em cache       | reiniciar / reseed dos plugins embutidos | as entradas do CDN ainda existem; o catálogo mesclado é reconstruído com a nova fatia embutida | teste de filesystem     |
 
-桌面端、Web 端和手机端共用 `IPluginManagementService` 与同一 CLI storage 合同，本次不新增
-client mode、workspace identity 或 replayable 分支；代表性 UI 单测覆盖共享组件，运行时用
-桌面 CDP 验证刷新交互。conversation E2E 状态空间不受影响，因此不修改 conversation case catalog。
+Desktop, web e celular compartilham o `IPluginManagementService` e o mesmo contrato de storage do CLI; esta rodada não adiciona
+client mode, workspace identity ou ramo replayable. Testes unitários de UI representativos cobrem os componentes compartilhados, e o runtime usa
+CDP do desktop para verificar a interação de refresh. O espaço de estados do E2E de conversation não é afetado e, portanto, o catálogo de casos de conversation não é modificado.
 
-## 非目标（本期不做，YAGNI）
+## Não objetivos (não feitos nesta rodada, YAGNI)
 
-| 项                                                                         | 原因 / 未来锚点                                                                                                                                                        |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP server / skill 的**单项启停开关**（每行的 Switch 与 MCP 行齿轮） | 后端只有插件级 `plugins/setEnabled`。本期组件区**只列表不带开关**；单项开关需要新增 per-component 禁用配置 + 协议方法 + 运行时（MCP 合并、skill 发现）生效，另轮迭代。 |
-| 顶栏「插件 / 技能」双 pill tab                                             | 技能是独立设置区，本期不合并。                                                                                                                                         |
-| 顶栏「本地 / 远程」下拉                                                    | 现有 SSH 远程同步入口收进管理已安装视图，不做视图切换。                                                                                                                |
-| 「新建插件」脚手架                                                       | 顶栏 New 按钮本期只直接打开「添加市场源」。                                                                                                                            |
-| 公开/个人分段行右端的筛选/排序图标                                         | 语义未定义，分类区块已承担导航，先省略。                                                                                                         |
-| 评分、下载量、README 渲染                                                  | 无数据源。                                                                                                                                                             |
+| Item                                                                                 | Motivo / âncora futura                                                                                                                                                  |
+| ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Interruptor individual de ligar/desligar MCP server / skill (Switch por linha e engrenagem na linha de MCP) | O backend só tem `plugins/setEnabled` em nível de plugin. Nesta rodada a seção de componentes **apenas lista, sem interruptores**; o interruptor individual exige nova configuração de-disable por componente + método de protocolo + efeito no runtime (merge de MCP, descoberta de skills), em outra iteração. |
+| Pills duplas「插件 / 技能」no topo | Skills são uma área de configuração independente e não são mescladas nesta rodada.                                                                                        |
+| Dropdown「本地 / 远程」no topo | A entrada existente de sincronização remota SSH é recolhida na visão de instalados gerenciados, sem troca de visão.                                                       |
+| Scaffold「新建插件」                                             | O botão New do topo abre diretamente「添加市场源」nesta rodada.                                                                                                            |
+| Ícones de filtro/ordenação à direita da linha de segmentação público/pessoal | A semântica não está definida e os blocos de categoria já cobrem a navegação; omitido por enquanto.                                                           |
+| Avaliações, número de downloads, renderização de README       | Sem fonte de dados.                                                                                                                                                        |
 
-### Lifecycle E2E 已知缺口
+### Lacunas conhecidas do E2E de Lifecycle
 
-2026-07-15 的插件管理 lifecycle case 只对当前已有、产品语义已确认的入口建立绿色合同。
-下列入口与规格或底层能力不一致，登记为 bug candidate，不在本轮 E2E 中通过绕过 UI 或
-放宽断言掩盖：
+O caso de lifecycle de gestão de plugins de 2026-07-15 só estabelece contratos verdes para as entradas hoje existentes e com semântica de produto já confirmada.
+As entradas abaixo são inconsistentes com a especificação ou com a capacidade subjacente e são registradas como bug candidates; nesta rodada de E2E elas não são mascaradas
+contornando a UI ou afrouxando as asserções:
 
-| Bug candidate                   | 当前事实                                                                | 本轮测试边界                                   |
-| ------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------- |
-| 安装取消入口缺失                | 安装按钮只显示 loading/disabled，协议虽有取消能力但商店 UI 没有取消动作 | 验证安装中的 busy 状态，不宣称取消已覆盖       |
-| 来源 Validate/Diagnose 入口缺失 | 添加来源会做校验，来源管理页只暴露更新和删除                            | 覆盖添加校验、更新和删除，不宣称独立诊断已覆盖 |
-| Inline 插件暴露卸载             | 商店通用菜单会渲染卸载，但 inline 没有 marketplace 安装记录可供正常卸载 | 只覆盖 inline 展示与可用性，不执行卸载         |
+| Bug candidate                    | Fato atual                                                                       | Limite do teste nesta rodada                        |
+| -------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Entrada de cancelamento de instalação ausente | O botão de instalar só mostra loading/disabled; o protocolo tem capacidade de cancelar, mas a UI da loja não tem ação de cancelar | Verificar o estado busy da instalação, sem alegar cobertura de cancelamento |
+| Entrada Validate/Diagnose de origem ausente | Adicionar origem faz validação; a página de gerenciamento de origens só expõe atualização e remoção | Cobrir adição com validação, atualização e remoção, sem alegar cobertura de diagnóstico independente |
+| Uninstall exposto para plugins inline | O menu genérico da loja renderiza卸载, mas inline não tem registro de instalação de marketplace para um uninstall normal | Cobrir apenas exibição e disponibilidade de inline, sem executar o卸载 |
 
-### 删除 Personal Source 的已安装插件语义
+### Semântica dos plugins instalados ao remover uma Personal Source
 
-删除来源只移除目录发现与更新关系，不级联删除已经安装的插件、配置或数据。插件进入
-`Orphaned Installed Plugin` 状态后仍保留在已安装条、详情和管理页，继续支持配置、启停、
-运行与卸载；更新入口必须隐藏或禁用，并给出来源缺失的诚实提示。重新添加同一来源后，
-插件恢复目录详情与更新能力。完整决策见
-[ADR-0003](./adr/0003-marketplace-source-removal-keeps-installed-plugins.md)。
+Remover uma origem remove apenas a descoberta de catálogo e a relação de atualização, sem cascatear a remoção de plugins já instalados, configurações ou dados. Depois que um plugin entra no
+estado `Orphaned Installed Plugin`, ele continua presente na faixa de instalados, na página de detalhe e na página de gerenciamento, e continua suportando configuração, ligar/desligar,
+execução e remoção; a entrada de atualização precisa ser ocultada ou desabilitada, com um aviso honesto de origem ausente. Depois de adicionar a mesma origem novamente,
+o plugin recupera os detalhes de catálogo e a capacidade de atualização. A decisão completa está em
+[ADR-0003](./adr/0003-marketplace-source-removal-keeps-installed-plugins.md).
 
-## 信息架构
+## Arquitetura de informação
 
-插件设置页的内容区整体替换为**插件商店页**（宿主不变：仍在 Settings → 插件 section，
-不动全局导航与 `SettingsPage` 容器）。三个视图：
+A área de conteúdo da página de configurações de plugins é totalmente substituída pela **página de loja de plugins** (o hospedeiro permanece: continua em Settings → seção 插件,
+sem mexer na navegação global nem no contêiner `SettingsPage`). Três visões:
 
 ```mermaid
 flowchart TD
@@ -122,187 +122,177 @@ flowchart TD
     Detail -- "示例提示词" --> NewPromptDraft["标准新建任务（canonical Plugin 引用 + 提示词预填，不自动发送）"]
 ```
 
-视图间为同容器内切换（沿用现有 list↔detail 就地切换模式），不新增路由。
+A alternância entre visões ocorre dentro do mesmo contêiner (mantendo o padrão existente de troca no local list↔detail), sem novas rotas.
 
-## 列表页规格
+## Especificação da página de listagem
 
-自上而下：
+De cima para baixo:
 
-### 1. 顶栏
+### 1. Barra superior
 
-- 左：无（「插件/技能」tab 不做）。右侧操作组，顺序如下：
-  - **刷新**（Manual Refresh）：触发 `plugins/marketplace/update(null)`（全部市场），复用现有 loading 态；不受自动刷新节流限制。
-  - **目录自动刷新**（Catalog Auto-Refresh）：进入商店页后只刷新 `zcode-plugins-official`，
-    判据为 `now - max(lastUpdated, lastAttemptAt) >= 10 分钟`。`lastUpdated` 来自 Host 用户级
-    目录持久化；`lastAttemptAt` 是 Renderer 模块内的尝试时间，发起时占位，跨页面重新挂载保留，
-    进程重启清零。窗口内的失败、在途请求不因重进页面重复发起；成功的手动刷新会更新持久时间。
-    不新增定时轮询，不自动拉取 `claude-plugins-official` 或个人来源，避免未加载的 GitHub
-    市场每次进入都执行长超时请求。自动刷新不弹发现更新的 toast，沿用现有 loading/错误反馈。
-    桌面与 Web 共用此 UI 和服务，不改变 user inventory、workspaceIdentity 或请求路由。
-  - **齿轮**：进入**市场源管理**——现有 marketplace source 管理能力换位置（列出已有源：
-    更新/校验/删除/诊断）。「添加」不放这里。
-    市场源行按以下规则排序：`zcode-plugins-official`、`claude-plugins-official` 固定置顶；
-    其余自定义源按 `lastUpdated` 倒序排列；缺少 `lastUpdated` 的自定义源沉底；同一时间按本地化
-    展示名称稳定排序。
-  - **New**：使用 `default`、`size="lg"` 的图标加文字按钮，直接打开「添加市场源」，收编现有 AddMarketplacePopover 的
-    github / git / URL / 本地路径（含拖放）能力。零后端新增。
+- Esquerda: nada (a tab「插件/技能」não é feita). À direita, o grupo de ações, nesta ordem:
+  - **Refresh**（Manual Refresh）：dispara `plugins/marketplace/update(null)`（todos os mercados), reutilizando o estado de loading existente; não é afetado pelo throttling do refresh automático.
+  - **Catalog Auto-Refresh**（目录自动刷新）：após entrar na página da loja, atualiza apenas `zcode-plugins-official`,
+    com o critério `now - max(lastUpdated, lastAttemptAt) >= 10 minutos`. `lastUpdated` vem da persistência de catálogo em nível de usuário do Host;
+    `lastAttemptAt` é o horário de tentativa dentro do módulo do Renderer, com placeholder ao iniciar, preservado ao remontar a página entre navegações
+    e zerado ao reiniciar o processo. Falhas dentro da janela e requisições em voo não são reiniciadas ao reentrar na página; um refresh manual bem-sucedido atualiza o tempo persistido.
+    Não se adiciona polling por timer, nem busca automática de `claude-plugins-official` ou de origens pessoais, evitando que mercados Git ainda não carregados executem requisições com timeout longo a cada entrada. O refresh automático não mostra toast de atualização disponível e mantém o feedback de loading/erro existente.
+    Desktop e Web compartilham esta UI e este serviço, sem alterar user inventory, workspaceIdentity ou o roteamento de requisições.
+  - **Engrenagem**：entra em **gerenciamento de fontes de mercado** — a capacidade existente de gerenciamento de marketplace source muda de lugar (lista origens existentes:
+    atualizar/validar/remover/diagnosticar).「Adicionar」não fica aqui.
+    As linhas de origem de mercado são ordenadas pelas regras a seguir: `zcode-plugins-official` e `claude-plugins-official` ficam fixos no topo;
+    as demais origens customizadas são ordenadas por `lastUpdated` decrescente; origens customizadas sem `lastUpdated` vão para o fim; em caso de empate de horário, ordenação estável pelo nome de exibição localizado.
+  - **New**：botão de icon com texto usando `default`, `size="lg"`, que abre diretamente「添加市场源」, recolhendo as capacidades existentes do AddMarketplacePopover de
+    github / git / URL / caminho local (incluindo arrastar e soltar). Zero adição de backend.
 
-「添加插件市场」与「市场源」弹窗统一使用 `text-ui-lg` 标题、`text-ui-base` 正文及辅助信息。
-添加弹窗的文字操作按钮使用 `size="lg"`；市场源行内纯图标操作使用 `size="icon-lg"`。
-输入框保持 `size="lg"` 的组件标准高度，不额外覆盖高度。
+O diálogo「添加插件市场」e o diálogo「市场源」usam uniformemente título `text-ui-lg`, corpo `text-ui-base` e informação auxiliar.
+Os botões de ação de texto do diálogo de adição usam `size="lg"`; as ações só com ícone dentro da linha de origem de mercado usam `size="icon-lg"`.
+As caixas de entrada mantêm a altura padrão do componente com `size="lg"`, sem sobrescrever a altura.
 
-插件详情标题右侧动作遵循设置页统一尺寸：更多菜单使用 `outline + icon-lg`，并承载
-启用/禁用操作；标题行不单独显示 `Switch`。Try now 与安装按钮使用 `size="lg"`。Try now
-使用按钮默认圆角，不继承 Hero 提示词的胶囊圆角；Hero 区提示词动作保留胶囊圆角。
-动作组垂直居中排列，列表卡片仍使用紧凑尺寸。
+As ações à direita do título na página de detalhe seguem o tamanho unificado da página de configurações: o menu "mais" usa `outline + icon-lg` e hospeda
+as ações de habilitar/desabilitar; a linha do título não exibe um `Switch` separado. Try now e o botão de instalar usam `size="lg"`. Try now
+usa o raio padrão do botão e não herda o raio de cápsula do prompt do Hero; a ação de prompt na área do Hero mantém o raio de cápsula.
+O grupo de ações é alinhado verticalmente ao centro e os cartões da lista continuam usando o tamanho compacto.
 
-### 2. 标题区
+### 2. Área de título
 
-- Display 级大标题「插件」+ 副标题一句（ZCode 措辞，i18n 双语；实施时定稿文案）。
+- Título grande no nível Display「插件」+ um subtítulo (redação da ZCode, i18n bilíngue; texto final definido na implementação).
 
-### 3. 搜索框
+### 3. Caixa de busca
 
-- 全宽、圆角、放大镜前缀，placeholder「搜索插件」。
-- 中文名称支持无声调全拼和首字母（feishu、fei shu、fs），英文界面也使用 listing 中的中文名。与管理页共用匹配器，不做错字模糊匹配或改变排序。
-- **搜索范围横跨公开 + 个人**（沿用现有全量搜索逻辑）。输入非空时，分段/Featured/分类
-  布局让位于统一的搜索结果卡片流（双列，同卡片样式），清空恢复。
+- Largura total, bordas arredondadas, prefixo de lupa, placeholder「搜索插件」.
+- Nomes em chinês suportam pinyin sem tom e iniciais (feishu、fei shu、fs), e a interface em inglês também usa o nome em chinês presente no listing. Compartilha o matcher com a página de gerenciamento, sem correspondência aproximada de erros de digitação nem alteração de ordenação.
+- **O escopo da busca atravessa público + pessoal**（mantendo a lógica de busca total existente）. Quando a entrada não está vazia, o layout de segmentação/Featured/categoria
+  cede lugar a um fluxo unificado de cartões de resultado (duas colunas, o mesmo estilo de cartão); limpar restaura.
 
-### 4. 已安装条（Installed Strip）
+### 4. Faixa de instalados (Installed Strip)
 
-- 2026-09-15 裁切修复：横向滚动视口必须为右上角更新按钮、悬停缩放和键盘焦点环预留空间；首项左侧与末项右侧也不得裁切，名称提示框不得覆盖更新角标。保持图标的原始对齐、顶部间距及横向滚动能力，桌面与手机 Web 共用样式。布局由 `PluginStoreListView` 独占负责，不改变更新命令或安装状态。
+- Correção de recorte de 2026-09-15: o viewport de rolagem horizontal precisa reservar espaço para o botão de atualização no canto superior direito, o zoom no hover e o anel de foco por teclado; o lado esquerdo do primeiro item e o lado direito do último item também não podem ser recortados, e a caixa de dica do nome não pode cobrir o canto de atualização. Mantém-se o alinhamento original dos ícones, o espaçamento superior e a capacidade de rolagem horizontal, com estilos compartilhados entre desktop e web móvel. O layout é de responsabilidade exclusiva de `PluginStoreListView`, sem alterar o comando de atualização nem o estado de instalação.
 
-- 一排已安装插件 icon（含内置），官方 PDF、PPT、Excel、Word 按此顺序优先，其余内置/inline 插件按展示名称稳定排序；
-  其余市场安装插件按安装时间倒序，溢出横向滚动。
-- 鼠标悬停或键盘聚焦 icon 时，使用应用统一 Tooltip 显示插件名称。
-- 点 icon → 该插件详情页。
-- 行首标题「已安装」，行尾**齿轮 → 管理已安装视图**。
-- Installed Strip 的图标保持资源原始不透明度，不根据启用状态整体降透明度；启用状态在
-  「管理已安装」视图中表达。
-- 有可更新的插件（`canUpdatePluginItem`，孤立插件排除）在 icon 右上角叠加 `size-4` 圆形
-  更新按钮（success 底色 + `Download` 图标，更新中转 spinner），点击原地触发更新，不必进
-  详情页；任一插件操作进行中时禁用。
-  > 2026-09-02 修订：此前更新入口只藏在详情页「高级信息」折叠区，用户检查更新后看不出
-  > 哪个插件可更新、也找不到入口。已安装条、卡片、管理已安装视图三处统一暴露角标与
-  > 行内更新入口，判定复用同一 `canUpdatePluginItem`。
+- Uma fileira de ícones de plugins instalados (incluindo os embutidos), com PDF, PPT, Excel e Word oficiais priorizados nesta ordem, e os demais plugins embutidos/inline ordenados de forma estável pelo nome de exibição;
+  os demais plugins instalados de mercados são ordenados por tempo de instalação decrescente, com transbordo em rolagem horizontal.
+- Ao passar o mouse ou focar por teclado um ícone, exibe-se o nome do plugin no Tooltip unificado do app.
+- Clicar no ícone → página de detalhe daquele plugin.
+- Título「已安装」no início da linha e **engrenagem → gerenciar a visão de instalados** no fim.
+- Os ícones da Faixa de Instalados mantêm a opacidade original do recurso e não ficam globalmente mais transparentes conforme o estado de habilitação; o estado de habilitação é expresso
+na visão「管理已安装」.
+- Quando há plugins atualizáveis (`canUpdatePluginItem`, excluindo plugins órfãos), um botão de atualização circular `size-4` é sobreposto no canto superior direito do ícone
+(fundo success + ícone `Download`, virando spinner durante a atualização), e o clique dispara a atualização no local, sem precisar entrar na
+página de detalhe; fica desabilitado enquanto alguma operação de plugin estiver em andamento.
+  > Revisão de 2026-09-02: antes, a entrada de atualização só ficava escondida na área recolhida de「高级信息」da página de detalhe, e depois que o usuário conferia as atualizações não dava para ver
+  > qual plugin tinha atualização nem encontrava a entrada. A faixa de instalados, o cartão e a visão de gerenciamento de instalados expõem de forma unificada o canto e a
+  > entrada de atualização na linha, e o julgamento reaproveita o mesmo `canUpdatePluginItem`.
 
-### 5. 公开 / 个人分段
+### 5. Segmentação público / pessoal
 
-- pill 分段控件，默认「公开」。切换只改下方目录内容，搜索框与已安装条不变。
+- Controle de segmentação em pílulas, com「公开」por padrão. Trocar altera apenas o conteúdo do catálogo abaixo; a caixa de busca e a faixa de instalados permanecem.
 
-### 6. 公开分段内容
+### 6. Conteúdo da segmentação pública
 
-- **Featured 大区**：名单来自 CDN 目录顶层 `featured: string[]`（按序）。区标题
-  "Featured"（i18n）。双列卡片。
-- **分类区块**：其余插件按 `category` 聚合，默认全部展开。超过 6 张卡片时保留“收起”入口；
-  用户手动收起后只展示前 6 张，其余折叠为底部一行：`[前 3 个的小 icon] 查看 A、B，以及另外 N 个`，
-  点击可再次展开。本次不按数量自动折叠，新出现的分组也默认展开；当前页面内保留用户手动选择。无 `category` 的插件归入「其他」区（默认排最后）。
-- 分类及分类内插件支持服务端按界面模式下发排序，详见
-  [模式排序契约](plugins/plugin-store-mode-order.md)。编程模式使用 `code`，通用模式使用
-  `work`；未配置项按原顺序追加，显式配置允许调整「其他」的位置。精选及其余列表不受影响。
-- 分类区块的标题 Divider 使用 `surface` 语义色；上下 padding 合计 32px（上、下各
-  16px），相邻分类之间形成稳定的 32px 间距。该间距只作用于目录分类，不改变搜索、
-  Installed Strip 或分段控件的布局。
-- 已卸载的**内置插件**（可恢复）正常出现在公开分段，卡片按钮为「安装」（走
-  `plugins/restoreBuiltin`）。
-- 分类显示名走 i18n 已知映射（如 `productivity` → 生产力/Productivity），
-  未知 category 原样展示。
-- 指南类目已并入实用工具，旧 `guides` 目录缓存也归并到 `utilities`。`legal` 显示为
-  法律/Legal，沿用有插件才展示区块的规则；当前不新增法律插件。
+- **Grande seção Featured**：a lista vem do `featured: string[]` de nível superior do catálogo do CDN (na ordem). O título da seção é
+  "Featured" (i18n). Cartões em duas colunas.
+- **Blocos de categoria**: os demais plugins são agregados por `category`, todos expandidos por padrão. Acima de 6 cartões, a entrada "recolher" é mantida;
+  depois que o usuário recolhe manualmente, apenas os 6 primeiros são exibidos e o restante é recolhido em uma linha no rodapé: `[小 icon do 前 3 个] 查看 A、B，以及另外 N 个`,
+  e o clique expande novamente. Nesta rodada não há recolhimento automático por quantidade, e os grupos newly also appear expandidos por padrão; a escolha manual do usuário é preservada na página atual. Plugins sem `category` vão para a seção「其他」（por padrão no final）.
+- Categorias e plugins dentro de cada categoria suportam ordenação enviada pelo servidor conforme o modo de interface; veja
+  [模式排序契约](plugins/plugin-store-mode-order.md). O modo de programação usa `code` e o modo geral usa
+  `work`; itens não configurados são adicionados na ordem original, e a configuração explícita permite reposicionar「其他」. Destaques e as demais listas não são afetados.
+- O Divider de título do bloco de categoria usa a cor semântica `surface`; o padding superior e inferior soma 32px (16px cada), formando um espaçamento estável de 32px entre categorias vizinhas. Esse espaçamento vale apenas para as categorias de catálogo e não altera o layout da busca,
+  da Faixa de Instalados ou do controle de segmentação.
+- Plugins **embutidos** desinstalados (recuperáveis) aparecem normalmente na segmentação pública, e o botão do cartão é「安装」（via
+  `plugins/restoreBuiltin`）.
+- O nome de exibição de categoria segue um mapeamento conhecido de i18n (como `productivity` → 生产力/Productivity）,
+  e category desconhecida é exibida como está.
+- A categoria de guias já foi fundida em utilitários, e o cache do antigo diretório `guides` também foi fundido em `utilities`. `legal` aparece como
+  Legal/Legal, seguindo a regra de exibir o bloco apenas quando há plugins; nenhuma Legal plugin nova é adicionada agora.
 
-### 7. 个人分段内容
+### 7. Conteúdo da segmentação pessoal
 
-- 按市场分组展示各个人来源的候选插件（组标题 = 市场显示名），组间按 `lastUpdated`
-  倒序——最近刷新/添加的市场在最上（添加成功跳转过来第一眼就能看到）；无刷新时间的
-  沉底，同刻或都缺失时按显示名字母序兜底。组内双列卡片，默认全部展开，沿用公开分类相同的手动收起/展开行为。
-- inline 插件与本地目录市场同样成组展示。
-- 推荐区（Recommended）已下线：个人分段不再置顶仓内策展名单。
+- Exibição agrupada por mercado dos plugins candidatos de cada fonte pessoal (título do grupo = nome de exibição do mercado), com grupos em `lastUpdated`
+  decrescente — o mercado atualizado/adicionado mais recentemente fica no topo (ao chegar aqui após adicionar, ele é a primeira coisa vista); mercados sem horário de atualização
+  vão para o fim e, em caso de empate ou ausência, a ordenação alfabética pelo nome de exibição é o fallback. Cartões em duas colunas dentro do grupo, todos expandidos por padrão, com o mesmo comportamento manual de recolher/expandir das categorias públicas.
+- Plugins inline e mercados de diretório local são exibidos igualmente em grupo.
+- A seção de recomendados (Recommended) foi desativada: a segmentação pessoal não coloca mais no topo a lista curada interna.
 
-### 8. 卡片
+### 8. Cartões
 
-- 结构：icon（40px 圆角）· 显示名（粗体）· 一行截断描述 · 右侧操作。
-- 右侧操作：未安装 → 「安装」胶囊按钮（安装中转 spinner，可取消，沿用现有操作流）；
-  已安装 → 「…」菜单：启用/禁用、更新（仅当有更新且来源仍存在）、卸载
-  （卸载走现有确认弹窗）。
-  > 2026-07-17 修订：双列商店卡片保持紧凑，不再重复展示插件级 Switch；启停仍可从
-  > 「…」菜单操作。需要显式查看当前启用状态时，详情页头部和「管理已安装」视图继续
-  > 提供可见的插件级 Switch（单项组件开关仍在非目标清单，见 ADR 边界）。
-- 已安装且有可更新时：标题右侧追加「可更新」角标（`Download` `size-3` 图标 +
-  `settings.plugins.list.updateAvailable`，success 语义色胶囊，`text-ui-sm`，与套餐徽标
-  同规格并列）；右侧操作区在「…」菜单前追加「更新」胶囊按钮（更新中转 spinner），
-  「…」菜单里的更新项保留。角标与按钮的显示条件与详情页更新入口完全一致。
-- 点击卡片主体（非按钮区）→ 详情页。
+- Estrutura: ícone (40px, cantos arredondados) · nome de exibição (negrito) · descrição truncada em uma linha · ações à direita.
+- Ações à direita: não instalado → botão de cápsula「安装」（virando spinner durante a instalação, cancelável, mantendo o fluxo de operações existente）；
+  instalado → menu「…」: habilitar/desabilitar, atualizar（somente quando há atualização e a origem ainda existe）, remover
+  （a remoção passa pelo diálogo de confirmação existente）。
+  > Revisão de 2026-07-17: os cartões da loja em duas colunas permanecem compactos e não repetem o Switch de nível de plugin; ligar/desligar continua possível pelo
+  > menu「…」. Quando for necessário ver explicitamente o estado atual de habilitação, o cabeçalho da página de detalhe e a visão「管理已安装」continuam
+  > oferecendo um Switch de nível de plugin visível (o interruptor individual de componentes continua fora do escopo desta rodada, ver os limites do ADR).
+- Quando instalado e com atualização disponível: o canto「可更新」é acrescentado à direita do título (ícone `Download` `size-3` +
+  `settings.plugins.list.updateAvailable`, cápsula com cor semântica success, `text-ui-sm`, lado a lado com a especificação do badge de plano); a área de ações à direita ganha um botão de cápsula「更新」antes do menu「…」（virando spinner durante a atualização）,
+  e o item de atualizar do menu「…」é mantido. A condição de exibição do canto e do botão é exatamente a mesma da entrada de atualização da página de detalhe.
+- Clicar no corpo do cartão (fora da área de botões) → página de detalhe.
 
-## 详情页规格
+## Especificação da página de detalhe
 
-自上而下，单列居中（max-width 按设计稿）：
+De cima para baixo, coluna única centralizada (max-width conforme o design):
 
-1. **头部**：大 icon（64px）后，显示名与操作保持同一水平行：
-   `显示名 | 插件级启停 Switch | 「…」菜单 | Try now / 安装`。显示名允许收缩截断，
-   操作区不收缩；一句话描述与来源缺失提示独占下一行，不得夹在显示名和操作之间。
-   - **插件级启停 Switch**（已安装且有 runtime info 时，状态显性化）。
-   - 「…」菜单：与卡片菜单一致（启用/禁用、更新、卸载）；孤立插件在来源重新关联前
-     不显示更新项。
-   - 主按钮：已安装 → 「立即试用 / Try now」；未安装 → 「安装」。
-     点击「立即试用」复用 Root 标准新建任务动作，只预填
-     `[@Plugin](plugin://stable-id)` 结构化 mention，不附加示例文本、不自动发送。
-2. **Hero 区**（有 `heroImage` 才渲染）：圆角横幅图，其上垂直堆叠**示例提示词胶囊**
-   （来自 `examplePrompts`，每颗：文档产品 icon + 插件名前缀 + 提示词 + → 按钮）。Document Skills
-   示例使用随 UI 打包的 `documents@2x.png`、`pdf@2x.png`、`spreadsheets@2x.png`：DOCX/Word
-   映射 documents，PDF 映射 pdf，XLSX/Excel/CSV 映射 spreadsheets；无法识别时回退 documents，
-   不重复展示插件头像。
-   桌面横幅采用约 `3:1` 的宽矮比例与大圆角，手机端保留最小高度；底层复用引导弹窗
-   `ThemeHeroVisual` 的主题感知彩色渐变与光斑，图片以半透明方式叠加并增加轻量暗色遮罩。
-   无图片、图片透明或加载失败时仍保留彩色背景，不退化为普通按钮列表。
-   提示词在视觉中心按内容自然宽度排列。胶囊使用深色半透明背景和大圆角，正文允许换行、
-   不做单行截断；插件名使用弱化颜色，提示词使用主要白色，箭头置于独立圆形弱表面中。
-   点击胶囊 → 复用与「立即试用」相同的 Root 标准新建任务动作，退出 Settings 并把
-   `[@Plugin](plugin://stable-id) + 空格 + 示例提示词` 预填进输入框，**不自动发送**。
-   canonical 链接必须复用 Composer `@` Picker 的构造器，Agent 侧仍只认 destination stable ID，
-   不新增第二套 Plugin 引用状态。插件未安装时点击胶囊先引导安装（等价于点「安装」），
-   留在详情页且不新建会话；安装完成后再次点击才进入草稿。
-   无 `heroImage` 但有 `examplePrompts` → 无图纯胶囊列表；两者皆无 → 整区不渲染。
-3. **长描述**：listing `description`（按 locale 取 `description_i18n`，回退 `description`）。
-4. **组件分区**：按 「MCP 服务器」「技能」「命令」「子智能体」「Hooks」顺序，
-   仅渲染非空组。每区：区标题 + 数量角标 + 分隔线 + 条目行（小 icon/字母头像 + 名称 +
-   截断描述），同一行样式套用到全部五类。**本期无单项开关、无行内齿轮**（见非目标）。
-   资源图标必须与各设置列表保持同一语义：MCP 服务器使用 `Server`、技能使用
-   `WandSparkles`、命令使用 `Terminal`、子智能体使用 `Bot`、Hooks 使用 `Anchor`；
-   详情页不得另建一套近似但不一致的图标映射。
-   - 数据源不变：已安装 → `ZCodePluginInfo.components`（CLI 权威枚举）；
-     未安装候选 → `plugins/describe` 按需拉取（loading / 失败降级 / 缓存规则沿用 V1：
-     失败回退 componentTypes 标签 + 诚实提示，绝不编造）。
-5. **信息区**：标签-值两列：开发者 · 类别 · 版本 · 网站 ↗ · 隐私政策 ↗ · 服务条款 ↗。
-   链接用外链图标，系统浏览器打开，仅允许 https。取值见「listing 优先级」；某行无值则整行省略。
-6. Hook 明细、userConfig 配置项、rootPath 等高级信息：折叠区「更多详情」，
-   沿用现有 `PluginConfigControls` 与 hook 明细渲染，不在主视觉层。有更新且来源仍存在时，
-   折叠区上方显示更新提示与按钮；孤立插件不得显示该更新入口。
+1. **Cabeçalho**：após o ícone grande (64px), o nome de exibição e as ações permanecem na mesma linha horizontal:
+   `显示名 | 插件级启停 Switch | 「…」菜单 | Try now / 安装`. O nome de exibição pode encolher e truncar,
+   a área de ações não encolhe; a descrição de uma linha e o aviso de origem ausente ocupam a linha seguinte sozinhos e não podem ficar entre o nome e as ações.
+   - **Switch de ligar/desligar do plugin**（quando instalado e há runtime info, explicitando o estado）。
+   - Menu「…」：igual ao menu do cartão (habilitar/desabilitar, atualizar, remover); plugins órfãos não exibem o item de atualizar antes de a origem ser reassociada.
+   - Botão principal: instalado →「立即试用 / Try now」; não instalado →「安装」.
+     Clicar em「立即试用」reaproveita a ação padrão de nova tarefa do Root, preenchendo apenas
+     a mention estruturada `[@Plugin](plugin://stable-id)`, sem anexar texto de exemplo e sem enviar automaticamente.
+2. **Área do Hero**（renderizada apenas se houver `heroImage`）：imagem de banner arredondada, sobre a qual são empilhadas verticalmente as **cápsulas de prompt de exemplo**
+   (de `examplePrompts`, cada uma: ícone do produto de documentos + prefixo com o nome do plugin + prompt + botão →). Os exemplos de Document Skills
+   usam `documents@2x.png`、`pdf@2x.png`、`spreadsheets@2x.png` empacotados com a UI: DOCX/Word mapeia para documents, PDF mapeia para pdf e XLSX/Excel/CSV mapeia para spreadsheets; quando não reconhecido, há fallback para documents,
+   sem exibir novamente o avatar do plugin.
+   O banner no desktop adota uma proporção baixa e larga de cerca de `3:1` com cantos muito arredondados, e no celular mantém uma altura mínima; por baixo, reaproveita o gradiente colorido com pontos de luz, sensível ao tema, do `ThemeHeroVisual` do diálogo de onboarding, com a imagem sobreposta de forma semitransparente e uma máscara escura leve.
+   Sem imagem, com imagem transparente ou em caso de falha de carregamento, o fundo colorido é mantido e não degrada para uma lista comum de botões.
+   Os prompts são dispostos no centro visual com a largura natural do conteúdo. As cápsulas usam fundo escuro semitransparente e raio grande, o corpo permite quebra de linha
+   e não é truncado em linha única; o nome do plugin usa uma cor enfraquecida, o prompt usa branco principal e a seta fica em uma superfície circular fraca independente.
+   Clicar em uma cápsula → a mesma ação padrão de nova tarefa do Root usada por「立即试用」, que sai de Settings e preenche
+   `[@Plugin](plugin://stable-id) + espaço + prompt de exemplo` na caixa de entrada, **sem envio automático**.
+   O link canônico precisa reutilizar o construtor do Picker `@` do Composer, e o lado do Agent continua reconhecendo apenas o destination stable ID,
+   sem criar um segundo estado de referência de Plugin. Quando o plugin não está instalado, clicar na cápsula primeiro orienta a instalação (equivalente a clicar em「安装」）,
+   permanecendo na página de detalhe e sem criar sessão; depois de concluída a instalação, um novo clique entra no rascunho.
+   Sem `heroImage` mas com `examplePrompts` → lista apenas de cápsulas sem imagem; sem nenhum dos dois → a área inteira não é renderizada.
+3. **Descrição longa**：`description` do listing (por locale, pega `description_i18n`, com fallback `description`).
+4. **Seções de componentes**：na ordem「MCP 服务器」「技能」「命令」「子智能体」「Hooks」,
+   renderizando apenas grupos não vazios. Cada seção: título + contador + divisor + linhas de itens (avatar de ícone pequeno/iniciais + nome +
+   descrição truncada), com o mesmo estilo de linha aplicado às cinco categorias. **Nesta rodada não há interruptor individual nem engrenagem na linha**（ver não objetivos）。
+   Os ícones de recurso devem manter a mesma semântica das listas de configurações: servidores MCP usam `Server`, skills usam
+   `WandSparkles`, comandos usam `Terminal`, subagentes usam `Bot` e Hooks usam `Anchor`;
+   a página de detalhe não pode criar um conjunto próprio de ícones aproximados e inconsistentes.
+   - A fonte de dados não muda: instalado → `ZCodePluginInfo.components` (enumeração autoritativa do CLI);
+     candidato não instalado → busca sob demanda com `plugins/describe` (regras de loading / degradação por falha / cache mantidas da V1:
+     em caso de falha, fallback para rótulos de componentTypes + aviso honesto, nunca inventando).
+5. **Seção de informações**: duas colunas rótulo-valor: 开发者 · 类别 · 版本 · 网站 ↗ · 隐私政策 ↗ · 服务条款 ↗.
+   Os links usam ícone de link externo, abrem no navegador do sistema e só permitem https. Os valores seguem a "prioridade de listing"; se uma linha não tiver valor, a linha inteira é omitida.
+6. Detalhes de Hook, itens de configuração de userConfig, rootPath e afins: seção recolhida「更多详情」,
+   reaproveitando o `PluginConfigControls` existente e a renderização de detalhes de hook, fora da camada visual principal. Havendo atualização e origem ainda existente,
+   a área recolhida exibe acima dela o aviso e o botão de atualização; plugins órfãos não podem exibir essa entrada de atualização.
 
-个人来源插件走同一详情布局，靠降级矩阵自然收敛（通常无 hero/提示词区、字母头像、
-信息区仅剩 manifest 回退出的开发者/网站/版本）。
+Plugins de fontes pessoais seguem o mesmo layout de detalhe e convergem naturalmente pela matriz de degradação (normalmente sem hero/área de prompts, com avatar de iniciais e
+seção de informações reduzida ao fallback de manifesto com desenvolvedor/site/versão).
 
-## 数据模型与 schema 扩展
+## Modelo de dados e extensões de schema
 
-### Claude 官方市场图标补齐
+### Completude de ícones do mercado oficial da Claude
 
-`claude-plugins-official` 的上游目录不保证为每个插件提供 `icon`。刷新该市场时，Agent
-可以从 ZCode CDN 的
-`https://cdn-zcode.z.ai/zcode/official-plugin/assets/icon-sources.json` 获取可选图标映射，
-并按插件 `name` 为缺失 `icon` 的目录条目补齐：
+O catálogo upstream de `claude-plugins-official` não garante `icon` para cada plugin. Ao atualizar esse mercado, o Agent
+pode obter um mapeamento opcional de ícones a partir do CDN da ZCode em
+`https://cdn-zcode.z.ai/zcode/official-plugin/assets/icon-sources.json` e, pelo `name` do plugin, completar as entradas de catálogo sem `icon`:
 
-- 仅作用于 `claude-plugins-official`；用户自加市场、inline 插件及孤立安装不按名称套用，
-  避免跨市场同名插件误用图标。
-- marketplace 条目自带的 `icon` 优先，映射不得覆盖。
-- 映射只消费 `name`、`icon`、`mimeType`、`sha256`；素材溯源字段不得进入协议、日志或 UI。
-- `icon` 必须是安全的相对 PNG 路径，最终 URL 固定落在
-  `https://cdn-zcode.z.ai/zcode/official-plugin/assets/` 下。
-- 市场 manifest 是主数据，图标映射是可选增强。映射下载或解析失败不得导致市场刷新失败；
-  有旧缓存时继续使用旧缓存，无缓存或未命中时按统一的 Blocks 图标降级。
-- 映射在 marketplace 更新阶段获取并缓存；`plugins/overview` 不为每个条目单独发起图标网络请求。
-- 存量迁移：Agent 进程首次处理某个 plugin storage 的 `plugins/overview` 时，对已有
-  `claude-plugins-official` catalog 启动一次后台 best-effort icon-only enrich。overview 立即返回
-  现有 catalog；迁移不重拉 Git marketplace、不修改 `lastUpdated`，网络获取期间不占用 plugin
-  storage 锁，只在写回前短暂加锁并重新读取 manifest。失败不影响 overview，并在下次 Agent
-  进程启动后重试；补齐结果从后续 overview 开始可见。
+- Vale apenas para `claude-plugins-official`; mercados adicionados pelo usuário, plugins inline e instalações órfãs não aplicam o mapeamento por nome,
+  evitando que plugins homônimos entre mercados usem o ícone errado.
+- O `icon` próprio da entrada do marketplace tem prioridade e o mapeamento não pode sobrescrevê-lo.
+- O mapeamento consome apenas `name`, `icon`, `mimeType` e `sha256`; campos de proveniência de material não podem entrar no protocolo, nos logs ou na UI.
+- O `icon` precisa ser um caminho PNG relativo e seguro, e a URL final sempre cai sob
+  `https://cdn-zcode.z.ai/zcode/official-plugin/assets/`.
+- O manifesto do mercado é o dado mestre e o mapeamento de ícones é um aprimoramento opcional. Falha no download ou no parse do mapeamento não pode fazer a atualização do mercado falhar;
+  havendo cache antigo, ele continua em uso e, sem cache ou sem acerto, há degradação para o ícone Blocks padrão.
+- O mapeamento é obtido e cacheado na etapa de atualização do marketplace; `plugins/overview` não inicia uma requisição de rede de ícone por entrada.
+- Migração de dados existentes: quando o processo do Agent processa pela primeira vez o `plugins/overview` de um determinado plugin storage, ele dispara um enriquecimento icon-only em background, best-effort, para o catalog `claude-plugins-official` existente. O overview retorna imediatamente o
+  catalog atual; a migração não rebaixa o marketplace do Git, não modifica `lastUpdated`, não mantém o lock do plugin storage durante a obtenção pela rede, e só o trava brevemente antes de gravar, relendo o manifesto. Falhas não afetam o overview e são retentadas no próximo início do processo do
+  Agent; o resultado da completude fica visível a partir dos overviews seguintes.
 
 ```text
 update claude-plugins-official
@@ -323,54 +313,52 @@ existing catalog after upgrade
   → later plugins/overview → PluginStoreAvatar
 ```
 
-### CDN / 市场目录条目新增字段（全部可选）
+### Novos campos nas entradas de catálogo do CDN / do mercado (todos opcionais)
 
-`marketplace.json` 顶层已有 `name` / `description(_i18n)` / `owner` / `plugins[]`，新增：
+O `marketplace.json` de nível superior já tem `name` / `description(_i18n)` / `owner` / `plugins[]`; adiciona-se:
 
-| 字段                                     | 层级 | 类型                                   | 用途                                    |
-| ---------------------------------------- | ---- | -------------------------------------- | --------------------------------------- |
-| `featured`                               | 顶层 | `string[]`（插件 name）                | 公开分段 Featured 名单与排序            |
-| `displayName` / `displayName_i18n`       | 条目 | `string` / `Record<locale,string>`     | 卡片/详情显示名（缺失回退 `name` slug） |
-| `icon`                                   | 条目 | `string`（https URL 或包内相对路径）   | 卡片、已安装条、详情头图标              |
-| `homepage`                               | 条目 | `string`（https URL）                  | 信息区·网站                             |
-| `privacyPolicy`                          | 条目 | `string`（https URL）                  | 信息区·隐私政策                         |
-| `termsOfService`                         | 条目 | `string`（https URL）                  | 信息区·服务条款                         |
-| `heroImage`                              | 条目 | `string`（https URL 或包内相对路径）   | 详情 hero 横幅                          |
-| `examplePrompts` / `examplePrompts_i18n` | 条目 | `string[]` / `Record<locale,string[]>` | hero 区提示词胶囊                       |
-| `requiresPaidPlan`                       | 条目 | `boolean`（仅 `true` 生效）            | 卡片/详情标题右侧编程套餐杏色徽标        |
+| Campo                                     | Nível     | Tipo                                     | Uso                                                   |
+| ---------------------------------------- | --------- | ---------------------------------------- | ----------------------------------------------------- |
+| `featured`                                | superior  | `string[]`（plugin name）                | lista e ordenação do Featured da segmentação pública  |
+| `displayName` / `displayName_i18n`        | entrada   | `string` / `Record<locale,string>`       | nome de exibição no cartão/detalhe（fallback `name` slug） |
+| `icon`                                    | entrada   | `string`（URL https ou caminho relativo no pacote） | ícone do cartão, da faixa de instalados e do cabeçalho de detalhe |
+| `homepage`                                | entrada   | `string`（URL https）                   | 信息区·site                                          |
+| `privacyPolicy`                           | entrada   | `string`（URL https）                   | 信息区·política de privacidade                        |
+| `termsOfService`                          | entrada   | `string`（URL https）                   | 信息区·termos de serviço                              |
+| `heroImage`                               | entrada   | `string`（URL https ou caminho relativo no pacote） | banner hero da página de detalhe                       |
+| `examplePrompts` / `examplePrompts_i18n`  | entrada   | `string[]` / `Record<locale,string[]>`  | cápsulas de prompt da área hero                       |
+| `requiresPaidPlan`                        | entrada   | `boolean`（só `true` tem efeito）        | badge cor de damasco do plano de programação à direita do título no cartão/detalhe |
 
-已有可用字段继续透传：`category`、`author{name,url?}`、`description_i18n`、`keywords`。
+Os campos já disponíveis continuam sendo repassados: `category`、`author{name,url?}`、`description_i18n`、`keywords`.
 
-- 付费套餐提示：`requiresPaidPlan` 只在显式布尔 `true` 时生效，`"true"` / `1` 等歧义写法
-  一律按无需套餐处理，避免目录写错就给免费插件挂上付费提示。字段描述的是「使用条件」
-  （需要付费套餐才好用），不代表插件本身是收费商品——它是纯展示标记，不参与安装门禁
-  与计费。命名刻意不绑定具体套餐商品名，套餐改名或文案换口径时字段不用跟着改。
-- 卡片与详情标题使用杏色胶囊视觉，文案前展示 `size-3` 的小皇冠图标；浅色主题参考 `#FFE3C8` 背景与 `#4B280F` 文字，
-  深色主题使用同色相的深底浅字；颜色必须通过插件套餐徽标专用 token 提供。徽标文字使用
-  `text-ui-sm`，中文显示「编程套餐」，英文显示「Coding Plan」；完整条件说明保留在
-  hover/focus Tooltip 中，不读取 150% 活动配置。
+- Aviso de plano pago: `requiresPaidPlan` só tem efeito com o booleano explícito `true`, e formas ambíguas como
+  `"true"` / `1` são sempre tratadas como sem plano, evitando que um erro no catálogo acople um aviso pago a um plugin gratuito. O campo descreve a "condição de uso"
+  (é preciso ter um plano pago para que funcione bem) e não significa que o próprio plugin seja um produto pago — é uma marca puramente de exibição e não participa de gate de instalação
+  nem de faturamento. O nome é deliberadamente não ligado a nenhum nome comercial de plano, para que uma mudança de nome ou de redação do plano não obrigue a mudar o campo.
+- Cartão e título de detalhe usam o visual de cápsula cor de damasco, com um pequeno ícone de coroa `size-3` antes do texto; no tema claro usa-se como referência o fundo `#FFE3C8` com texto `#4B280F`,
+  e no tema escuro um fundo escuro e texto claro do mesmo matiz; as cores precisam vir de um token específico do badge de plano do plugin. O texto do badge usa
+  `text-ui-sm`, exibindo「编程套餐」em chinês e「Coding Plan」em inglês; a explicação completa da condição permanece em
+  Tooltip de hover/foco, sem ler a configuração da campanha de 150%.
 
-- 图片字段：CDN 条目用绝对 https URL；**内置插件**在仓内 `official-plugin-definitions.ts`
-  补齐同构 listing 元数据。需要覆盖旧缓存或尚未发布 CDN 素材的官方内置插件，可由共享
-  图标解析器按完整官方插件 id 选择客户端打包图标；当前 Documents、PDF、
-  Presentations、Spreadsheets、Image Search 与 Plugin Creator 使用此路径，个人市场同名插件
-  不得复用。其余 icon/hero 作为打包资源随应用分发（seed 生成 marketplace.json 时写入可解析
-  的本地路径）。仅接受 https 与受控本地资源两种来源，其余 scheme 一律丢弃。
-- i18n 取值规则统一：`x_i18n[locale] ?? x`。
+- Campos de imagem: entradas do CDN usam URL https absoluto; **plugins embutidos** completam metadados de listing isomórficos no `official-plugin-definitions.ts`
+  dentro do repositório. Para plugins embutidos oficiais que precisam cobrir caches antigos ou ainda não possuem material publicado no CDN, um parser de ícones compartilhado
+  pode selecionar o ícone empacotado no cliente pelo id oficial completo do plugin; hoje Documents, PDF,
+  Presentations, Spreadsheets, Image Search e Plugin Creator usam esse caminho, e plugins pessoais homônimos não podem reutilizá-lo. Os demais icon/hero são distribuídos como recursos empacotados junto com o app (gravando um caminho local resolvível no marketplace.json ao gerar o seed). Apenas https e recursos locais controlados são aceitos como origem; os demais schemes são descartados.
+- A regra de取值 de i18n é unificada: `x_i18n[locale] ?? x`.
 
-### Wire 类型传播
+### Propagação dos tipos de wire
 
-listing 字段从 adapter 解析层（`PluginMarketplaceEntry`）一路透传：
+Os campos de listing são repassados desde a camada de parse do adapter (`PluginMarketplaceEntry`):
 
-- `AvailablePluginSummary` / `InstalledPluginSummary`（overview）与 `ZCodePluginInfo`
-  （plugins/list）增加可选 listing 字段（displayName/icon/category/author/homepage/
-  privacyPolicy/termsOfService/heroImage/examplePrompts）。
-- `PluginsOverviewResult` 的 marketplace 记录增加 `featured?: string[]`。
-- **manifest 回退**：CLI 侧在能拿到插件根目录时（已安装/内置/describe 已解析），
-  把 plugin.json 的 `author` / `homepage` 也带上；UI 展示时 **listing 优先，manifest 回退**
-  （ADR-0001）。未安装且未 describe 的个人候选没有回退值，正常省略。
+- `AvailablePluginSummary` / `InstalledPluginSummary` (overview) e `ZCodePluginInfo`
+  (plugins/list) ganham campos opcionais de listing (displayName/icon/category/author/homepage/
+  privacyPolicy/termsOfService/heroImage/examplePrompts).
+- Os registros de marketplace de `PluginsOverviewResult` ganham `featured?: string[]`.
+- **Fallback de manifesto**: do lado do CLI, quando é possível obter a raiz do plugin (instalado/embutido/já resolvido por describe),
+  o `author` / `homepage` do plugin.json também são levados; na exibição da UI **o listing tem prioridade e o manifesto é o fallback**
+  (ADR-0001). Candidatos pessoais não instalados e não descritos não têm valor de fallback e são normalmente omitidos.
 
-### 数据流
+### Fluxo de dados
 
 ```mermaid
 sequenceDiagram
@@ -401,95 +389,95 @@ sequenceDiagram
     Boot-->>UI: 组件「名称 + 描述」/ 诊断降级
 ```
 
-公开/个人分桶规则（纯 UI 层，按市场 id）：`zcode-plugins-official` → 公开；
-其余（含 `claude-plugins-official`、`inline`、用户自加）→ 个人。
+Regra de bucketing público/pessoal (puramente na camada de UI, por id de mercado): `zcode-plugins-official` → público;
+todo o resto (incluindo `claude-plugins-official`、`inline` e os adicionados pelo usuário) → pessoal.
 
-## 降级矩阵
+## Matriz de degradação
 
-| 缺失                                            | 列表页                                         | 详情页                                                    |
-| ----------------------------------------------- | ---------------------------------------------- | --------------------------------------------------------- |
-| `icon`                                          | `bg-surface` 圆角方形容器 + 中性 Blocks 默认图标，无边框 | 同左（64px，沿用详情页圆角）                              |
-| `displayName`                                   | 回退 `name` slug                               | 同左                                                      |
-| `heroImage`                                     | —                                              | 无图；仍有提示词则纯胶囊列表，否则整区不渲染              |
-| `examplePrompts`                                | —                                              | hero 只剩横幅图；连同 heroImage 都无则整区不渲染          |
-| `category`                                      | 归入「其他」区块                               | 信息区·类别行省略                                         |
-| `homepage` / `privacyPolicy` / `termsOfService` | —                                              | 对应信息行省略（试 manifest 回退后仍无才省略）            |
-| `author`                                        | —                                              | 开发者行：listing → manifest → 省略                       |
-| `requiresPaidPlan`（缺失或非 `true`）           | 卡片标题右侧无编程套餐徽标                     | 详情标题右侧无编程套餐徽标                                |
-| `featured` 空/缺失                              | 公开分段无 Featured 大区，直接分类区块         | —                                                         |
-| 图片加载失败                                    | 与缺失同（头像兜底），不出现裂图               | 同左；hero 加载失败整区按无图处理                         |
-| describe 失败/超时                              | —                                              | 组件区回退 componentTypes 标签 + 诚实提示（沿用 V1 规则） |
+| Ausente                                             | Página de listagem                                                     | Página de detalhe                                                 |
+| --------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `icon`                                             | contêiner quadrado com cantos arredondados `bg-surface` + ícone Blocks neutro padrão, sem borda | idem (64px, mantendo o raio da página de detalhe)   |
+| `displayName`                                      | fallback `name` slug                                                    | idem                                                             |
+| `heroImage`                                        | —                                                                       | sem imagem; se ainda houver prompts, lista só de cápsulas, senão a área inteira não é renderizada |
+| `examplePrompts`                                   | —                                                                       | o hero fica só com a imagem do banner; sem heroImage também, a área inteira não é renderizada |
+| `category`                                         | vai para o bloco「其他」                                                | a linha de categoria da seção de informações é omitida            |
+| `homepage` / `privacyPolicy` / `termsOfService`    | —                                                                       | a linha de informação correspondente é omitida (só após o fallback de manifesto continuar ausente) |
+| `author`                                           | —                                                                       | linha de desenvolvedor: listing → manifest → omitida             |
+| `requiresPaidPlan`（ausente ou diferente de `true`） | sem badge de plano de programação à direita do título do cartão         | sem badge de plano de programação à direita do título do detalhe  |
+| `featured` vazio/ausente                           | a segmentação pública não tem a grande seção Featured e vai direto para os blocos de categoria | —                                                   |
+| Falha no carregamento de imagem                    | idem ao ausente (fallback de avatar), sem imagem quebrada               | idem; falha no hero faz a área inteira ser tratada como sem imagem |
+| Falha/timeout no describe                          | —                                                                       | a seção de componentes volta para rótulos de componentTypes + aviso honesto (regra da V1) |
 
-## 管理已安装视图
+## Visão de gerenciamento de instalados
 
-现有 Installed tab 的管理能力整体迁入，不减功能：
+As capacidades de gerenciamento da tab Installed existente são migradas inteiramente, sem reduzir funcionalidades:
 
-- 每插件一行：icon + 显示名 + 版本 + 来源 badge + 更新 badge + **插件级启停 Switch**。
-  更新 badge 即「可更新」角标（与卡片同一组件），紧跟显示名；有更新时行尾「…」菜单前
-  额外提供行内「更新」按钮，菜单中的更新项保留。
-- 行点击 → 详情页；卸载在详情页完成，更新可在行内或详情页完成。
-- 顶部：启用状态筛选（全部/已启用/已禁用）、检查更新（全部）、SSH 远程同步入口
-  （现有 RemotePluginSyncDialog 收编于此）。
+- Uma linha por plugin: ícone + nome de exibição + versão + badge de origem + badge de atualização + **Switch de ligar/desligar do plugin**.
+  O badge de atualização é o canto「可更新」（o mesmo componente do cartão), logo após o nome de exibição; havendo atualização, um botão「更新」na linha é fornecido antes do menu「…」no fim da
+  linha, e o item de atualizar do menu é mantido.
+- Clicar na linha → página de detalhe; a remoção é concluída na página de detalhe e a atualização pode ser feita na linha ou na página de detalhe.
+- No topo: filtro por estado de habilitação (todos/habilitados/desabilitados), verificar atualizações (todas), entrada de sincronização remota SSH
+  (o RemotePluginSyncDialog existente é recolhido aqui).
 
-## i18n 与主题
+## i18n e tema
 
-- 全部新文案进 `packages/ui/src/i18n/locales/{en-US,zh-CN}.ts`（`settings.plugins.*`
-  命名空间延续），零硬编码。
-- listing 的 `*_i18n` 字段按当前 locale 解析；分类显示名维护已知映射表，未知原样。
-- 深浅主题（Zai Light/Dark）均需验证；hero 渐变与胶囊为图片/半透明叠层，
-  不依赖硬编码颜色（ADR-0002：商店页留白与视觉尺度可偏离 DESIGN.md 克制规则，
-  但语义 token 与可达性不豁免）。
+- Todos os textos novos vão para `packages/ui/src/i18n/locales/{en-US,zh-CN}.ts`（o namespace `settings.plugins.*`
+  continua), sem hardcode.
+- Os campos `*_i18n` do listing são resolvidos conforme o locale atual; os nomes de exibição de categoria mantêm uma tabela de mapeamento conhecido e os desconhecidos são exibidos como estão.
+- Temas claro e escuro (Zai Light/Dark) precisam ser validados; o gradiente do hero e as cápsulas são camadas de imagem/semitransparentes
+  e não dependem de cores hardcoded (ADR-0002: o espaço em branco e a escala visual da página da loja podem se desviar das regras de contenção do DESIGN.md,
+  mas tokens semânticos e acessibilidade não ficam isentos).
 
-## 验收清单
+## Checklist de aceitação
 
-列表页：
+Página de listagem:
 
-- [ ] Settings → 插件 呈现商店页：大标题、副标题、搜索框、已安装条、公开/个人分段、卡片流，视觉符合设计稿（间距/字号/圆角/双列栅格）。
-- [ ] 已安装条展示全部已安装插件 icon（含内置，中性 Blocks 图标兜底），悬停/聚焦显示插件名称，点击进详情；齿轮进管理视图。
-- [ ] 公开分段 = 仅官方市场：Featured 区（CDN `featured` 驱动，可为空）+ 分类区块；各区默认完整展示；每区 >6 时可手动收起，再通过「查看 A、B，以及另外 N 个」展开。
-- [ ] 个人分段 = 推荐区（recommendedPlugins.json）+ 按市场分组的其余来源（含 claude-plugins-official、inline）。
-- [ ] 搜索横跨两个分段，输入时切换为统一结果流，清空复原（分段与滚动位置保持）。
-- [ ] 卡片：未安装显示「安装」（含进行中/取消态），已安装显示「…」（启用/禁用、更新、卸载）；卸载有确认弹窗。
-- [ ] 可更新：卡片标题「可更新」角标 + 行内「更新」胶囊、已安装条 icon 右上角更新按钮、管理已安装视图行内角标与按钮同时出现；无更新或孤立插件三处都不出现。
-- [ ] 顶栏：刷新触发全市场 update；齿轮打开市场源管理（更新/校验/删除）；New 直接打开「添加市场源」，github/git/URL/本地路径与拖放全可用。
-- [ ] 目录自动刷新：进入商店页自动刷新官方市场且只刷官方市场；10 分钟内重进不再刷新；刷新失败或在飞时重进不重复发起；手动刷新不受节流影响（PLM-LC-018/019）。
-- [ ] 已卸载内置插件出现在公开分段并可恢复安装。
-- [ ] 目录自动刷新：只刷新过期的 ZCode 官方目录；十分钟内重进、失败后重进不重复发起；手动刷新绕过节流（PLM-LC-018/019）。
+- [ ] Settings → 插件 apresenta a página da loja: título grande, subtítulo, caixa de busca, faixa de instalados, segmentação público/pessoal, fluxo de cartões, com visual conforme o design (espaçamento/fonte/raio/grade de duas colunas).
+- [ ] A faixa de instalados mostra o ícone de todos os plugins instalados (incluindo embutidos, com fallback do ícone Blocks neutro), exibe o nome do plugin no hover/foco e leva ao detalhe ao clicar; a engrenagem leva à visão de gerenciamento.
+- [ ] A segmentação pública = apenas o mercado oficial: seção Featured (dirigida pelo `featured` do CDN, pode estar vazia) + blocos de categoria; cada seção é exibida completa por padrão; cada seção com mais de 6 pode ser recolhida manualmente e expandida de novo por "查看 A、B，以及另外 N 个".
+- [ ] A segmentação pessoal = seção de recomendados (recommendedPlugins.json) + as demais origens agrupadas por mercado (incluindo claude-plugins-official, inline).
+- [ ] A busca atravessa as duas segmentações e, ao digitar, vira um fluxo unificado de resultados; limpar restaura (segmentação e posição de rolagem preservadas).
+- [ ] Cartão: não instalado mostra「安装」（incluindo os estados em andamento/cancelamento）, instalado mostra「…」（habilitar/desabilitar, atualizar, remover); a remoção tem diálogo de confirmação.
+- [ ] Atualização disponível: o canto「可更新」no título do cartão + a cápsula「更新」na linha, o botão de atualização no canto superior direito do ícone da faixa de instalados e o canto/botão na linha da visão de gerenciamento de instalados aparecem simultaneamente; sem atualização ou em plugin órfão, nenhum dos três aparece.
+- [ ] Barra superior: o refresh dispara update de todos os mercados; a engrenagem abre o gerenciamento de fontes de mercado (atualizar/validar/remover); New abre diretamente「添加市场源」, com github/git/URL/caminho local e arrastar e soltar todos funcionais.
+- [ ] Refresh automático de catálogo: ao entrar na página da loja, o mercado oficial é atualizado automaticamente e só ele; reentrar dentro de 10 minutos não atualiza; falha no refresh ou reentrada com requisição em voo não reinicia; o refresh manual não é afetado por throttling (PLM-LC-018/019).
+- [ ] Plugins embutidos desinstalados aparecem na segmentação pública e podem ter a instalação restaurada.
+- [ ] Refresh automático de catálogo: apenas o catálogo oficial da ZCode expirado é atualizado; reentrada dentro de dez minutos e reentrada após falha não reiniciam; o refresh manual contorna o throttling (PLM-LC-018/019).
 
-详情页：
+Página de detalhe:
 
-- [ ] 头部 icon/显示名/描述与右上操作（已安装=启停开关+「…」+「立即试用」，未安装=「安装」主按钮）。
-- [ ] 「立即试用」只预填 canonical Plugin mention；示例提示词胶囊预填 mention + prompt；两者都不自动发送，未安装时仍只展示安装入口。
-- [ ] hero/提示词/信息行按降级矩阵渲染，无裂图、无空区块、无编造字段。
-- [ ] 组件分区按 MCP 服务器/技能/命令/子智能体/Hooks 渲染名称+描述，无单项开关；未安装候选走 `plugins/describe`（loading→内容，失败诚实降级，二开走缓存）。
-- [ ] 信息区：开发者/类别/版本/网站/隐私政策/服务条款，listing 优先 manifest 回退，外链走系统浏览器且仅 https。
-- [ ] 个人来源插件同布局自然降级，不出现官方专属区块的空壳。
+- [ ] O cabeçalho tem ícone/nome/descrição e as ações à direita (instalado = switch de ligar/desligar +「…」+「立即试用」; não instalado = botão principal「安装」).
+- [ ]「立即试用」preenche apenas a mention canônica de Plugin; a cápsula de prompt de exemplo preenche mention + prompt; nenhum dos dois envia automaticamente e, quando não instalado, ainda só a entrada de instalação é exibida.
+- [ ] Hero/prompts/linhas de informação são renderizados conforme a matriz de degradação, sem imagem quebrada, sem bloco vazio e sem campo inventado.
+- [ ] As seções de componentes são renderizadas por MCP servidor/skill/comando/subagente/Hooks com nome+descrição, sem interruptor individual; candidatos não instalados passam por `plugins/describe` (loading→conteúdo, falha com degradação honesta, segunda chamada usa cache).
+- [ ] Seção de informações: desenvolvedor/categoria/versão/site/política de privacidade/termos de serviço, com o listing prioritário e o manifesto como fallback, e links externos abrindo no navegador do sistema e apenas https.
+- [ ] Plugins de fontes pessoais degradam naturalmente com o mesmo layout, sem cascas vazias de blocos exclusivos do oficial.
 
-管理视图与横切：
+Visão de gerenciamento e transversal:
 
-- [ ] 管理已安装视图保留：插件级开关、更新 badge、卸载、状态筛选、检查更新、SSH 远程同步入口。
-- [ ] 中英文完整、深浅主题不破、窄视口（web/mobile 宽度)布局不溢出：卡片流降单列、已安装条横向滚动、详情页单列自适应。
-- [ ] CDP 截图检查覆盖：列表页（公开/个人/搜索态/折叠展开）、详情页（全量 listing 与降级两态）、管理视图。
+- [ ] A visão de gerenciamento de instalados preserva: switch de nível de plugin, badge de atualização, remoção, filtro de estado, verificação de atualizações e entrada de sincronização remota SSH.
+- [ ] Chinês e inglês completos, temas claro e escuro sem quebrar, e layout sem overflow em viewport estreito (larguras web/mobile): o fluxo de cartões vira uma coluna, a faixa de instalados rola horizontalmente e a página de detalhe se adapta em coluna única.
+- [ ] A verificação por capturas de CDP cobre: página de listagem (público/pessoal/estado de busca/recolher-expandir), página de detalhe (listing completo e os dois estados degradados) e visão de gerenciamento.
 
-## 2026-09-16 添加菜单
+## Menu Adicionar de 2026-09-16
 
-顶栏 New 改为“添加 ▾”，菜单只有“创建插件”和“添加插件市场”，覆盖桌面/手机与中英文、深浅主题。本节取代旧规格“New 只打开添加市场源”的限制；创建通过内置 plugin-creator Skill 引用进入新草稿。添加市场继续复用既有对话框。详见 [插件创建入口](plugin-creator.md)。
+O New da barra superior passou a ser“添加 ▾”, com um menu contendo apenas“创建插件”e“添加插件市场”, cobrindo desktop/celular e os idiomas chinês/inglês, bem como os temas claro e escuro. Esta seção substitui a restrição da especificação antiga de que o New só abriria o gerenciador de fontes de mercado; a criação entra em um novo rascunho por meio da Skill embutida plugin-creator. A adição de mercado continua reutilizando o diálogo existente. Veja [插件创建入口](plugin-creator.md).
 
-### 缺失配置记录与商店目录（2026-09-17）
+### Registros de configuração ausentes e catálogo da loja（2026-09-17）
 
-插件拆分/下架后，`plugins.enabledPlugins` 或 `plugins.options` 中可能仍有旧 ID。
-Agent 保留 `source: missing` / `packageStatus: missing` 的记录作为 User/Workspace 配置诊断数据；
-该配置记录自身不证明插件可以安装。商店仅从 availablePlugins、restorableBuiltins 或实际发现的插件包
-构造条目：缺包且没有目录/恢复来源的记录不生成商品卡片、搜索结果或安装入口。
-有目录来源的缺包插件仍可安装；可恢复内置条目和实际已安装的孤立插件保持原行为。
-这项投影不删除用户配置、缓存或安装记录，适用于桌面与手机 Web 的共同商店实现。
+Após a divisão/despublicação de plugins, `plugins.enabledPlugins` ou `plugins.options` ainda podem conter IDs antigos.
+O Agent mantém os registros com `source: missing` / `packageStatus: missing` como dados de diagnóstico de configuração de User/Workspace;
+esse registro de configuração, por si só, não prova que o plugin possa ser instalado. A loja constrói entradas apenas a partir de availablePlugins, restorableBuiltins ou de pacotes de plugin realmente
+encontrados: registros sem pacote e sem origem de catálogo/restauração não geram cartão de produto, resultado de busca nem entrada de instalação.
+Plugins sem pacote mas com origem de catálogo ainda podem ser instalados; entradas embutidas restauráveis e plugins órfãos realmente instalados mantêm o comportamento original.
+Essa projeção não remove configurações, caches ou registros de instalação do usuário e vale para a implementação de loja compartilhada entre desktop e web móvel.
 
-链路：用户配置 → Agent 缺包诊断 → 协议保留诊断数据；商店 join 先保留目录/恢复条目，再仅补入真实包。
-回归场景：`PLM-MISSING-CONFIG`，见生命周期 case catalog 与 coverage matrix。
+Cadeia: configuração do usuário → diagnóstico de pacote ausente no Agent → o protocolo preserva os dados de diagnóstico; o join da loja primeiro preserva entradas de catálogo/restauração e só então complementa com pacotes reais.
+Cenário de regressão: `PLM-MISSING-CONFIG`, ver o catálogo de casos de lifecycle e a coverage matrix.
 
-### 文档插件默认排序（2026-09-17）
+### Ordenação padrão dos plugins de documentos（2026-09-17）
 
-官方完整 ID `pdf`、`presentations`、`spreadsheets`、`documents`（均来自 `zcode-plugins-official`）
-按 PDF → PPT → Excel → Word 排在已安装图标条及管理页预置分组前四位。缺少的插件跳过，停用不影响排序，个人来源同名插件不置顶。
-公开分类及复用其排序的引用选择器，在同一分类内默认按上述顺序优先；服务端显式分类/插件排序仍优先，其余规则保持。
-桌面/手机、中英文及深浅主题使用相同顺序。排序仅改变展示，不改安装、启停、配置或原数组。
+Os IDs oficiais completos `pdf`、`presentations`、`spreadsheets`、`documents`（todos de `zcode-plugins-official`）
+ocupam as quatro primeiras posições da faixa de ícones instalados e dos grupos pré-definidos da página de gerenciamento, na ordem PDF → PPT → Excel → Word. Plugins ausentes são pulados, desativação não afeta a ordenação e plugins pessoais homônimos não são promovidos ao topo.
+As categorias públicas e os seletores de referência que reutilizam sua ordenação priorizam, por padrão, a ordem acima dentro da mesma categoria; a ordenação explícita de categorias/plugins do servidor continua prevalecendo e as demais regras são mantidas.
+Desktop/celular, chinês/inglês e os temas claro e escuro usam a mesma ordem. A ordenação altera apenas a exibição, e não a instalação, o ligar/desligar, a configuração ou o array original.

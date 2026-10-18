@@ -1,110 +1,110 @@
-# MR !1466 闲时任务（Off-Peak Task）完整改动梳理
+# MR !1466 Tarefa de Horário Ocioso (Off-Peak Task) — Panorama Completo das Mudanças
 
-> 本文按 **MR 的真实 Git 边界**、**最终代码行为**、**测试覆盖**和**已知缺口**梳理，不把早期方案、提交中间态或文档愿景误写成已经落地的能力。
+> Este documento é organizado pelo **limite real de Git do MR**, pelo **comportamento final do código**, pela **cobertura de testes** e pelas **lacunas conhecidas**, sem apresentar planos iniciais, estados intermediários de commit ou visões de documentação como capacidades já entregues.
 >
-> 盘点时间：2026-07-21；MR：`!1466`；目标分支：`main`；源分支：`feat/off-peak-task`。
+> Data do levantamento: 2026-07-21; MR: `!1466`; branch de destino: `main`; branch de origem: `feat/off-peak-task`.
 >
-> **2026-07-23 后续收口**：D44 已删除 Off-Peak 专用 `awaiting_approval` 类型/Repo/UI/通知壳。
-> 下文提到这些内容时是在复盘 MR Head 的历史边界；当前行为以 `spec.md` 与代码为准：
-> permission/elicitation 只走普通 session，Off-Peak 聚合保持 `running`，当前 turn 不切 provider。
+> **Fechamento posterior de 2026-07-23**: D44 removeu o tipo `awaiting_approval` exclusivo de Off-Peak e seu Repo/UI/casca de notificação.
+> As menções a esses conteúdos abaixo estão revisando o limite histórico do Head do MR; o comportamento atual segue `spec.md` e o código:
+> permission/elicitation passa apenas pela session comum, o agregado de Off-Peak permanece `running` e o turn atual não troca de provider.
 
-## 1. 审计范围与结论
+## 1. Escopo da auditoria e conclusões
 
-### 1.1 精确 Git 边界
+### 1.1 Limite exato de Git
 
-| 项目 | 值 |
+| Item                    | Valor |
 |---|---|
 | MR | `!1466` — `Draft: feat(off-peak): 闲时任务 Off-Peak Task` |
 | Base SHA | `14a62011d582ccbd20ef4c274892ae0dea076bd9` |
 | MR Head SHA | `cc3980d2a1f1523f362cb1a6e80d5ba2482cc5b7` |
-| 对比范围 | `14a62011d582ccbd20ef4c274892ae0dea076bd9..cc3980d2a1f1523f362cb1a6e80d5ba2482cc5b7` |
-| 提交数 | 60 个（55 个 non-merge + 5 个分支同步 merge commit） |
-| 文件数 | 115 |
-| 行数 | `+14,429 / -1,707` |
-| MR 状态 | Draft、Open、无冲突；最新 pipeline 处于 manual/blocked |
+| Escopo de comparação | `14a62011d582ccbd20ef4c274892ae0dea076bd9..cc3980d2a1f1523f362cb1a6e80d5ba2482cc5b7` |
+| Número de commits | 60（55 non-merge + 5 merge commit de sincronização de branch）|
+| Número de arquivos | 115 |
+| Linhas | `+14,429 / -1,707` |
+| Estado do MR | Draft, Open, sem conflitos; o pipeline mais recente está em manual/blocked |
 
-本地分支当前还额外包含 `5c6d0e9d7f chore: release v3.5.3-alpha.0`。它不在上述 MR Head 内，因此不计入本文的 MR 改动。本文自身也是对该远端 Head 的审计产物，不计入 115 个原始 changed paths；若后续把本文推入源分支，MR 文件数会相应增加。
+O branch local atual contém ainda `5c6d0e9d7f chore: release v3.5.3-alpha.0`. Ele não está no Head do MR acima, portanto não entra nas mudanças de MR deste documento. O próprio documento é um artefato de auditoria desse Head remoto e não conta entre os 115 changed paths originais; se este documento for enviado ao branch de origem, o número de arquivos do MR aumentará.
 
-### 1.2 一句话结果
+### 1.2 Resultado em uma frase
 
-这个 MR 新增了一套桌面本地的“一次性闲时任务”产品：用户先向服务端取号，客户端持久化任务并轮询票据，服务端放行后由独立 scheduler 派发到承载目标 workspaceKey 的窗口 Local Host，Host 创建或复用一个普通 ZCode session，并仅对自动执行的那一轮临时注入内置 `builtin:offpeak-idle-plan` provider；遇到容量型 `429/3105` 时遵从 `Retry-After` 无限等待而不消耗普通重试预算，票据 `3102` 失效时换票并在同一 session 续跑，任务结束后异步核销票据。
+Este MR introduz um produto de "tarefa de horário ocioso" de execução única e local ao desktop: o usuário primeiro pega um número no servidor, o cliente persiste a tarefa e faz polling do ticket, e, após a liberação do servidor, um scheduler independente despacha para o Local Host da janela que hospeda o workspaceKey de destino; o Host cria ou reaproveita uma session ZCode comum e injeta temporariamente o provider embutido `builtin:offpeak-idle-plan` apenas no turno de execução automática; ao encontrar `429/3105` de capacidade, respeita `Retry-After` e espera indefinidamente sem consumir o orçamento de retries comuns, e quando o ticket `3102` expira troca de ticket e continua na mesma session; ao final da tarefa, o ticket é baixado de forma assíncrona.
 
-### 1.3 本 MR 的实际范围
+### 1.3 Escopo real deste MR
 
-核心范围包括：
+O escopo principal inclui:
 
-- Off-Peak 领域类型、SQLite 表、Repo 状态机、服务端 ticket 客户端、同步与核销服务。
-- desktop scheduler → main → window Local Host → workspaceKey Agent 的派发闭环。
-- agent/CLI 的单轮 provider overlay、模型恢复、`429/3105` 等待和 `3102` 续跑标记。
-- Automations 中的创建、编辑、列表、History、侧栏分组、通知、灰度与额度门控。
-- 全局“运行时保持唤醒”设置。
-- mock 网关、单测、服务集成测试和两条 WDIO E2E。
-- 文档、决策记录、conversation case catalog、覆盖矩阵。
+- Tipos de domínio de Off-Peak, tabela SQLite, máquina de estados do Repo, cliente de ticket do servidor e serviços de sincronização e baixa.
+- Cadeia fechada de despacho: desktop scheduler → main → window Local Host → Agent do workspaceKey.
+- Overlay de provider de turno único em agent/CLI, restauração do modelo, espera de `429/3105` e marcação de continuação por `3102`.
+- Criação, edição, listagem, History, agrupamento na barra lateral, notificações, rollout e gating de cota em Automations.
+- Configuração global "manter acordado durante a execução".
+- Gateway mock, testes unitários, testes de integração de serviço e duas specs E2E WDIO.
+- Documentação, registro de decisões, catálogo de cases de conversation e matriz de cobertura.
 
-同时夹带两个非核心但确实属于 MR 的改动：
+Também vêm junto duas mudanças não centrais mas que realmente pertencem ao MR:
 
-- GitLab CI 允许 API source 触发部分手动测试/构建链路。
-- `mise run dev` 使用独立 `~/.zcode-dev-home`，隔离生产数据目录。
+- O GitLab CI passa a permitir que a fonte API dispare algumas cadeias manuais de teste/build.
+- `mise run dev` usa um `~/.zcode-dev-home` separado, isolando o diretório de dados de produção.
 
-## 2. 最终产品语义
+## 2. Semântica final do produto
 
-### 2.1 用户看到的对象
+### 2.1 O que o usuário vê
 
-- 一个闲时任务是一条一次性任务，不是 cron，也不是可重复 automation。
-- 创建任务时填写标题、Instructions、项目、权限模式、闲时模型和推理档位。
-- 创建成功即完成服务端取号；并不会立即创建对话。
-- 服务端票据进入 `ready` 后才可派发；首次派发时创建普通 session。
-- 3 小时执行段到期后可换新 ticket，并继续复用原 session。
-- 本地始终只有一条逻辑任务记录；新 ticket 会覆盖当前 `server_ticket_id`，不会新增一条任务。
-- History 对一条任务最多显示 1 行，不会按每个 3 小时分段或每张 ticket 展开。
+- Uma tarefa de horário ocioso é uma tarefa de execução única, não um cron nem uma automation repetível.
+- Ao criar a task, preenchem-se título, Instructions, projeto, modo de permissão, modelo de horário ocioso e nível de raciocínio.
+- A criação bem-sucedida completa a retirada de número no servidor; ela não cria imediatamente uma conversa.
+- Só é despachável depois que o ticket do servidor entra em `ready`; no primeiro despacho é criada uma session comum.
+- Depois que o bloco de execução de 3 horas expira, pode-se trocar por um ticket novo e continuar reutilizando a session original.
+- Localmente há sempre apenas um registro lógico de tarefa; um ticket novo sobrescreve o `server_ticket_id` atual e não cria uma nova tarefa.
+- O History mostra no máximo 1 linha por tarefa, sem expandir por bloco de 3 horas nem por ticket.
 
-### 2.2 用户可见 provider 与实际请求 provider
+### 2.2 Provider visível ao usuário e provider realmente usado na requisição
 
-这是本 MR 最容易混淆的边界：
+Esta é a fronteira mais confusa deste MR:
 
-| 场景 | 模型选择栏/Session 常驻模型 | 当前请求真正使用的 provider |
+| Cenário | Modelo na barra / modelo permanente da Session | Provider realmente usado na requisição atual |
 |---|---|---|
-| 首次闲时派发创建 session | 用户 workspace 的默认模型；完整保留 `providerId/modelId` | 该自动执行 turn 临时使用内置 `builtin:offpeak-idle-plan` |
-| 后续 ticket 分段续跑 | 仍是同一 session 的用户常驻模型 | 续跑 turn 再临时使用 `builtin:offpeak-idle-plan` |
-| 自动 turn 结束后 | 恢复用户常驻模型 | 后续普通消息使用用户 provider |
-| 自动 turn 尚未结束时触发 permission approval | 模型栏仍显示用户常驻模型 | **当前实现仍处于同一个 idle-plan turn，批准不会切换 provider** |
-| 自动 turn 忙碌时用户补发 prompt | 模型栏仍显示用户常驻模型 | 消息先排队；自动 turn 清理 overlay 并恢复模型后才 drain，因此使用用户 provider |
+| Primeiro despacho de horário ocioso cria a session | Modelo padrão do workspace do usuário; `providerId/modelId` preservados por completo | O turn de execução automática usa temporariamente o embutido `builtin:offpeak-idle-plan` |
+| Continuação por blocos de ticket seguintes | Continua sendo o modelo permanente do usuário na mesma session | O turn de continuação usa novamente temporariamente `builtin:offpeak-idle-plan` |
+| Depois que o turn automático termina | Volta ao modelo permanente do usuário | Mensagens normais subsequentes usam o provider do usuário |
+| Aprovação de permissão disparada enquanto o turn automático ainda não terminou | A barra de modelo ainda mostra o modelo permanente do usuário | **A implementação atual ainda está no mesmo idle-plan turn, e a aprovação não troca o provider** |
+| Usuário envia um prompt extra enquanto o turn automático está ocupado | A barra de modelo ainda mostra o modelo permanente do usuário | A mensagem é enfileirada; o drain só acontece depois que o turn automático limpa o overlay e restaura o modelo, então o provider do usuário é usado |
 
-多 provider 用户的 session 常驻模型不是“任取第一个 provider”。host 首次派发前调用 `workspace/readState(preferWorkspaceDefaults=true)`，按以下顺序选择仍在 available 集合中的完整模型引用：
+O modelo permanente da session de um usuário com vários providers não é "o primeiro provider da lista". Antes do primeiro despacho, o host chama `workspace/readState(preferWorkspaceDefaults=true)` e escolhe, nesta ordem, a referência de modelo completa que ainda está no conjunto available:
 
 1. `modelCatalog.defaultModel`
 2. `modelCatalog.lastUsed`
 3. `settings.model.current`
 
-候选为 `builtin:offpeak-idle-plan` 时跳过；没有候选则以永久派发错误失败。创建表单里的模型只决定 idle-plan 自动 turn 的模型，不覆盖 session 常驻模型。
+Candidatos que sejam `builtin:offpeak-idle-plan` são pulados; sem candidato, a falha é um erro permanente de despacho. O modelo escolhido no formulário de criação só decide o modelo do turn automático idle-plan e não sobrescreve o modelo permanente da session.
 
-### 2.3 Ask approval 的真实落地状态
+### 2.3 Estado real de implementação do Ask approval
 
-方案文档写的是：敏感操作进入 `awaiting_approval`，批准时提示“继续将使用你自己的套餐配额”，然后切到用户 provider。
+O documento de plano diz: operações sensíveis entram em `awaiting_approval` e, na aprovação, aparece o aviso "a continuação usará a cota do seu próprio plano", e então há a troca para o provider do usuário.
 
-**MR Head 的生产代码没有完成这条链路：**
+**O código de produção do Head do MR não concluiu essa cadeia:**
 
-- Repo 已有 `setAwaitingApproval()`，共享状态、UI badge、卡片动作和系统通知也预留了 `awaiting_approval`。
-- 但生产运行链路没有调用 `setAwaitingApproval()`。
-- 没有 Off-Peak 专用 approval handler，也没有批准后切换 provider 的实现。
-- 没有“继续将使用你自己的套餐配额”的运行时提示。
-- permission 请求仍属于当前自动 turn，而该 turn 的 `turnRuntimeModel` 要到 turn 完成边界才清理，所以批准后继续执行的仍是 idle-plan provider。
+- O Repo já tem `setAwaitingApproval()`, e o estado compartilhado, o badge de UI, as ações de card e a notificação de sistema também reservaram `awaiting_approval`.
+- Mas a cadeia de execução de produção não chama `setAwaitingApproval()`.
+- Não existe handler de aprovação exclusivo de Off-Peak nem implementação de troca de provider após a aprovação.
+- Não existe o aviso de runtime "a continuação usará a cota do seu próprio plano".
+- A requisição de permissão ainda pertence ao turn automático atual, e o `turnRuntimeModel` desse turn só é limpo na fronteira de conclusão do turn, portanto a execução após a aprovação continua no provider idle-plan.
 
-因此 `awaiting_approval` 当前更像“已建模、已渲染、尚未接通运行时事件”的预留态，不能按已完成能力验收。
+Assim, `awaiting_approval` hoje se parece mais com um estado reservado "modelado e renderizado, mas ainda sem evento de runtime conectado", e não pode ser aceito como capacidade concluída.
 
-### 2.4 “队列”到底是什么
+### 2.4 O que "fila" realmente é
 
-这里有三层不同队列，不能混成一个全局 FIFO：
+Há três camadas diferentes de fila, que não devem virar um FIFO global único:
 
-| 层 | 保存位置 | 排的是什么 | 权威性 |
+| Camada | Onde fica | O que enfileira | Autoridade |
 |---|---|---|---|
-| 服务端 ticket 队列 | Off-Peak 服务端 | 用户取到的 ticket，返回 `position` 并在低峰时转 `ready` | 闲时准入顺序的权威 |
-| scheduler 可派发队列 | 本地 `off_peak_tasks` + claim 字段 | 已同步为 `schedulable=true` 的本地任务，按 `queued_at` 认领 | 本机 host 派发顺序 |
-| 对话消息队列 | session/agent 现有运行时 | agent busy 时用户补发的普通 prompt | 仅该 session 内的消息顺序 |
+| Fila de tickets do servidor | Servidor de Off-Peak | Ticket retirado pelo usuário, que devolve `position` e vira `ready` no horário de baixa | Autoridade da ordem de admissão de horário ocioso |
+| Fila despachável do scheduler | `off_peak_tasks` local + campos de claim | Tarefas locais já sincronizadas como `schedulable=true`, reivindicadas por `queued_at` | Ordem de despacho do host local |
+| Fila de mensagens da conversa | Runtime existente de session/agent | Prompt comum que o usuário envia enquanto o agent está ocupado | Apenas a ordem de mensagens dentro daquela session |
 
-`next_poll_at` 虽被写入任务表，但当前 service 使用一个共享 timer 驱动整批非终态 ticket 的轮询，并不是为每条 task 建独立定时器。
+Embora `next_poll_at` seja gravado na tabela de tarefas, o service atual usa um timer compartilhado para conduzir o polling de todo o lote de tickets não terminais, e não cria um temporizador por task.
 
-## 3. 全链路架构
+## 3. Arquitetura de ponta a ponta
 
 ```text
 Renderer / packages/ui
@@ -140,16 +140,16 @@ Agent / zcode-cli
   └─ 400/3102 => stable expired marker => host requeues same task/session
 ```
 
-边界说明：
+Explicação das fronteiras:
 
-- scheduler 和 host 都会打开同一 tasks-index SQLite，但通过事务 claim 和状态守卫协作。
-- main 只转发调度消息并管理系统能力，不承载 ticket/session 业务状态。
-- relay、mobile remote、desktop main 都没有新增 replayable task 状态源。
-- desktop 仍走 `desktop-continuous`；本 MR 没有把手机 replayable 恢复语义扩散到桌面链路。
+- Scheduler e host abrem o mesmo SQLite de tasks-index, mas cooperam por meio de transação de claim e guardas de estado.
+- O main apenas encaminha mensagens de agendamento e gerencia capacidades do sistema; não hospeda o estado de negócio de ticket/session.
+- Relay, mobile remote e desktop main não ganharam nenhuma nova fonte de estado de task replayable.
+- O desktop continua usando `desktop-continuous`; este MR não espalhou a semântica de recuperação replayable do celular para a cadeia do desktop.
 
-## 4. 两轴状态机
+## 4. Máquinas de estado de dois eixos
 
-### 4.1 客户端任务状态
+### 4.1 Estado da tarefa no cliente
 
 ```text
                          ┌──────────── Pause ────────────┐
@@ -167,15 +167,15 @@ create + take ticket ─► queued ── server ready ──► claimed ── 
 终态：completed / failed / cancelled，均不可逆出。
 ```
 
-客户端七态：
+Os sete estados do cliente:
 
-- `queued`：已取号，等待服务端 ready，或重启/续跑后重新排队。
-- `paused`：用户停止本地派发；服务端 ticket 自身仍会继续老化。
-- `running`：host 已接受 `sendPrompt` 派发并回 ACK。
-- `awaiting_approval`：领域和 UI 已预留，生产运行链路暂不可达。
-- `completed`、`failed`、`cancelled`：终态。
+- `queued`: número retirado, aguardando ready do servidor, ou reenfileirado após reinício/continuação.
+- `paused`: o usuário parou o despacho local; o ticket do servidor em si continua envelhecendo.
+- `running`: o host aceitou o despacho de `sendPrompt` e devolveu ACK.
+- `awaiting_approval`: reservado no domínio e na UI, por enquanto inalcançável pela cadeia de produção.
+- `completed`, `failed`, `cancelled`: estados terminais.
 
-### 4.2 服务端 ticket 状态
+### 4.2 Estado do ticket no servidor
 
 ```text
 POST /ticket
@@ -191,89 +191,89 @@ POST /ticket
 查询还可能得到 not_found。
 ```
 
-### 4.3 两轴映射与重要偏差
+### 4.3 Mapeamento entre os dois eixos e desvios importantes
 
-| 服务端状态 | 本地同步动作 | 客户端常见状态 |
+| Estado do servidor | Ação de sincronização local | Estado comum do cliente |
 |---|---|---|
-| `queued` | `schedulable=false`，写 position | `queued` 或 `paused` |
-| `ready` | `schedulable=true`，唤醒 scheduler | `queued`，随后可派发 |
-| `active` | 保持已激活快照 | 通常 `running` |
-| `expired` | queued 任务自动 retake；running 由 messages `3102` 闭环 retake | 回到 `queued` |
-| `settled` | 清除可调度快照 | 一般已终态；意外初态可能滞留 |
-| `not_found` | 当前 sync 忽略，不自动 retake | 可能滞留；用户 Continue 可触发重取 |
+| `queued` | `schedulable=false`, grava position | `queued` ou `paused` |
+| `ready` | `schedulable=true`, acorda o scheduler | `queued`, depois despachável |
+| `active` | mantém o snapshot já ativado | normalmente `running` |
+| `expired` | tarefa em queued faz retake automático; em running o `3102` de messages fecha o ciclo com retake | volta para `queued` |
+| `settled` | limpa o snapshot despachável | geralmente já está em estado terminal; um estado inicial inesperado pode ficar preso |
+| `not_found` | o sync atual ignora, sem retake automático | pode ficar preso; o Continue do usuário pode disparar uma nova retirada |
 
-重要偏差：本地 `running` 在 `sendPrompt` 返回 ACK 后就写入，而 gateway 是否真正通过 messages 细阀发生在之后。因此遇到 `429/3105` 等待时，UI 会显示 running，而不是独立的“服务端容量排队中”。
+Desvio importante: o `running` local é gravado assim que `sendPrompt` devolve ACK, enquanto a passagem real do gateway pela válvula fina de messages acontece só depois. Por isso, ao encontrar espera por `429/3105`, a UI mostra running em vez de um "enfileirando por capacidade do servidor" separado.
 
-## 5. 数据模型与持久化
+## 5. Modelo de dados e persistência
 
-### 5.1 领域主键和身份
+### 5.1 Chaves primárias e identidades de domínio
 
-- `offPeakTaskId`：本地主键，同时作为服务端稳定 `task_id`；跨多张 ticket 不变。
-- `serverTicketId`：当前服务端票据；每次重取号覆盖。
-- `conversationId`：宿主 ZCode task id；首次派发后回填。
-- `sessionId`：Agent session id；首次执行后回填，续跑复用。
-- `workspaceKey = workspaceIdentity?.trim() || workspacePath`：身份隔离 key。
-- `workspacePath`：文件、cwd、展示等真实路径语义。
-- `workspaceIdentity`：远端身份字段被类型和协议保留，但产品 UI 禁止在 remote workspace 创建闲时任务。
+- `offPeakTaskId`: chave primária local e, ao mesmo tempo, o `task_id` estável do servidor; inalterada entre vários tickets.
+- `serverTicketId`: o ticket atual do servidor; sobrescrito a cada nova retirada.
+- `conversationId`: id da task ZCode hospedeira; preenchido após o primeiro despacho.
+- `sessionId`: id da session do Agent; preenchido após a primeira execução e reutilizado na continuação.
+- `workspaceKey = workspaceIdentity?.trim() || workspacePath`: chave de isolamento de identidade.
+- `workspacePath`: semântica de caminho real para arquivos, cwd e exibição.
+- `workspaceIdentity`: o campo de identidade remota é preservado pelo tipo e pelo protocolo, mas a UI de produto proíbe criar tarefas de horário ocioso em workspace remoto.
 
-### 5.2 `off_peak_tasks` 表
+### 5.2 Tabela `off_peak_tasks`
 
-存储位于现有 tasks-index SQLite。连接启用 WAL、`synchronous=NORMAL`、`busy_timeout=5000`。
+O armazenamento fica no SQLite de tasks-index existente. A conexão habilita WAL, `synchronous=NORMAL` e `busy_timeout=5000`.
 
-| 列 | 含义 |
+| Coluna | Significado |
 |---|---|
-| `off_peak_task_id` | 稳定任务主键/服务端 task_id |
-| `server_ticket_id` | 当前 ticket id |
-| `title` | 用户标题 |
-| `conversation_id` | ZCode task id |
-| `session_id` | 可复用 Agent session id |
+| `off_peak_task_id` | chave primária estável da tarefa / task_id do servidor |
+| `server_ticket_id` | id do ticket atual |
+| `title` | título informado pelo usuário |
+| `conversation_id` | id da task ZCode |
+| `session_id` | id da session do Agent reutilizável |
 | `prompt` | Instructions |
-| `permission_mode` | build/edit/plan/yolo 等现有 task mode |
-| `model` | idle plan 自动 turn 模型 |
-| `thought_level` | 推理档位；增量 migration 补列 |
-| `workspace_key` | workspace 身份隔离 key |
-| `workspace_path` | 实际路径 |
-| `workspace_identity` | 可选远端 identity |
-| `status` | 客户端七态 |
-| `queued_at` | 本地 FIFO 排序时间 |
-| `started_at` / `ended_at` | 生命周期时间 |
-| `failure_reason` | 失败原因 |
-| `files_changed` | best-effort 变更文件数 |
-| `settled_at` | 服务端核销 ACK 时间 |
-| `history_deleted_at` | History 逻辑删除时间；增量 migration 补列 |
-| `registered_at` | 取号成功时间 |
-| `schedulable` | 服务端 ready 的本地快照 |
-| `queue_position` | 服务端队列位置 |
-| `next_poll_at` | 服务端建议的下次轮询时间快照 |
-| `claim_running` / `claimed_at` | scheduler 认领锁与时间 |
-| `attempt_count` / `last_error` | 派发记录/诊断字段 |
-| `created_at` / `updated_at` | 本地审计时间 |
+| `permission_mode` | task mode existente (build/edit/plan/yolo etc.) |
+| `model` | modelo do turn automático do idle plan |
+| `thought_level` | nível de raciocínio; coluna adicionada por migration incremental |
+| `workspace_key` | chave de isolamento de identidade do workspace |
+| `workspace_path` | caminho real |
+| `workspace_identity` | identity remoto opcional |
+| `status` | os sete estados do cliente |
+| `queued_at` | tempo de ordenação FIFO local |
+| `started_at` / `ended_at` | tempos de ciclo de vida |
+| `failure_reason` | motivo da falha |
+| `files_changed` | quantidade de arquivos alterados, best-effort |
+| `settled_at` | tempo do ACK de baixa no servidor |
+| `history_deleted_at` | tempo da exclusão lógica no History; coluna adicionada por migration incremental |
+| `registered_at` | momento da retirada de número bem-sucedida |
+| `schedulable` | snapshot local de ready do servidor |
+| `queue_position` | posição na fila do servidor |
+| `next_poll_at` | snapshot do horário de próximo polling sugerido pelo servidor |
+| `claim_running` / `claimed_at` | trava de reivindicação do scheduler e seu tempo |
+| `attempt_count` / `last_error` | campos de registro de despacho / diagnóstico |
+| `created_at` / `updated_at` | tempos de auditoria local |
 
-索引：
+Índices:
 
-- `(status, queued_at)`：状态过滤和 FIFO 认领。
-- `(workspace_key, status)`：workspace 隔离查询。
+- `(status, queued_at)`: filtro de estado e reivindicação FIFO.
+- `(workspace_key, status)`: consultas de isolamento por workspace.
 
-### 5.3 Repo 的机械守卫
+### 5.3 Guardas mecânicas do Repo
 
-`OffPeakTaskRepo` 实现了：
+O `OffPeakTaskRepo` implementa:
 
-- 初始化建表、增量 `ensureColumn`、row → domain 映射。
-- create/list/get/physical delete/History tombstone。
-- 非终态数和 active 数统计。
-- 仅 `queued/paused` 可编辑。
-- 更新服务端 scheduling snapshot。
-- `BEGIN IMMEDIATE` 事务内 FIFO claim；10 分钟 claim 视为 stale，可重新认领。
-- `markRunning` 只接受 queued，首次时间/session 字段使用 `COALESCE` 保留。
-- `markTerminal` 禁止终态被迟到结果反向覆盖。
-- awaiting、pause、release claim 的条件转换。
-- 启动恢复：把中断的 claimed/running 任务放回 queued，同时保留 session。
-- `requeueForContinuation`：换票续跑仍保留 task/session。
-- 未核销终态 outbox 查询与 `markSettled`。
+- Criação de tabela na inicialização, `ensureColumn` incremental e mapeamento de linha para domínio.
+- create/list/get/exclusão física/tombstone de History.
+- Contagem de não terminais e de ativos.
+- Apenas `queued/paused` são editáveis.
+- Atualização do snapshot de agendamento do servidor.
+- Claim FIFO em transação `BEGIN IMMEDIATE`; claim de 10 minutos é considerado stale e pode ser reivindicado de novo.
+- `markRunning` aceita apenas queued, preservando os campos de tempo e de session com `COALESCE`.
+- `markTerminal` impede que um estado terminal seja sobrescrito por um resultado tardio.
+- Transições condicionais de awaiting, pause e liberação de claim.
+- Recuperação na inicialização: tarefas claim/running interrompidas voltam para queued, preservando a session.
+- `requeueForContinuation`: a troca de ticket na continuação preserva task/session.
+- Consulta de outbox de terminais não baixados e `markSettled`.
 
-## 6. 关键时序
+## 6. Sequências críticas
 
-### 6.1 创建与取号
+### 6.1 Criação e retirada de número
 
 ```text
 UI                    Host Service             Off-Peak Server          SQLite
@@ -288,12 +288,12 @@ UI                    Host Service             Off-Peak Server          SQLite
 │◄─────────────────────────┤                          │                    │
 ```
 
-- 顺序是“服务端取号成功后才落本地库”。
-- 好处：取号失败不会留下假任务。
-- 风险：取号成功后 SQLite insert 失败，会留下服务端孤儿 ticket；当前没有主动 settle 补偿。
-- 服务端返回 `ready` 时会立即唤醒 scheduler，不必等下一次 20 秒 tick。
+- A ordem é "só grava no banco local depois que a retirada no servidor tem sucesso".
+- Benefício: uma falha na retirada não deixa tarefa falsa.
+- Risco: se a retirada funciona e o insert no SQLite falha, sobra um ticket órfão no servidor; hoje não há compensação ativa de settle.
+- Quando o servidor devolve `ready`, o scheduler é acordado imediatamente, sem esperar o próximo tick de 20 segundos.
 
-### 6.2 首次派发与 session 创建
+### 6.2 Primeiro despacho e criação da session
 
 ```text
 Sync Service       SQLite/Scheduler       Main       Window Local Host       workspaceKey Agent
@@ -312,9 +312,9 @@ Sync Service       SQLite/Scheduler       Main       Window Local Host       wor
 │                       │                                  Agent turn continues │
 ```
 
-`running` 表示派发 ACK，而不是模型已经产出 token，也不是服务端 messages 已通过容量细阀。
+`running` significa ACK de despacho, e não que o modelo já tenha produzido token nem que as messages do servidor já passaram pela válvula de capacidade.
 
-### 6.3 单轮模型覆盖与恢复
+### 6.3 Cobertura de modelo por turno e restauração
 
 ```text
 workspace catalog/model                  turn overlay
@@ -331,13 +331,13 @@ workspace catalog/model                  turn overlay
         └─ drain queued user messages using restored user provider
 ```
 
-- workspace overlay 与 turn overlay 分层保存；workspace 热刷新不会覆盖仍在运行的 turn overlay。
-- 该 provider 配置只在内存中注入，不写 workspace catalog、session 持久化或磁盘。
-- 注入和恢复都不发普通 model-change UI 事件，避免模型栏闪成 Idle plan。
-- 若原模型在自动 turn 期间被移除，先清理含密钥的临时 overlay，再从最新 catalog 回退。
-- agent busy 时，带另一个 `turnRuntimeModel` 的 sendText 会被拒绝，scheduler 将其视为 transient 派发失败。
+- O overlay de workspace e o de turno são guardados em camadas separadas; um hot refresh do workspace não sobrescreve o overlay de turno que ainda está rodando.
+- Essa configuração de provider só é injetada em memória, sem gravar no catálogo do workspace, na persistência da session ou em disco.
+- Injeção e restauração não emitem eventos de UI de model-change comuns, evitando que a barra de modelo pisque para Idle plan.
+- Se o modelo original for removido durante o turn automático, o overlay temporário com chaves é limpo primeiro e só então há o fallback para o catálogo mais recente.
+- Quando o agent está ocupado, um sendText com outro `turnRuntimeModel` é rejeitado, e o scheduler trata isso como falha de despacho transitória.
 
-### 6.4 `429/3105 + Retry-After` 如何实现
+### 6.4 Como `429/3105 + Retry-After` é implementado
 
 ```text
 Agent adapter              Off-Peak messages endpoint
@@ -353,17 +353,17 @@ Agent adapter              Off-Peak messages endpoint
      └─ retry same provider request ───►│
 ```
 
-实现点：
+Pontos de implementação:
 
-- `offpeak-retry.ts` 只对 `providerId=builtin:offpeak-idle-plan` 生效，普通 provider 不受影响。
-- 裸 HTTP 429 和业务码 3105 都被分类为 `queued`。
-- 没有可解析的 `Retry-After` 时默认 60 秒；单次等待最多 5 分钟。
-- generate runner 通过回退 attempt/保持队列决策，使容量等待不消耗普通 retry budget，可持续探测。
-- stream runner 仅在尚未跨越可见输出边界时安全重试，避免把已输出内容重复给用户。
-- wait 使用 abort signal，可被取消，不是不可打断 sleep。
-- projection 将其映射成可恢复的 rate-limit fault，原因枚举为 `ModelRetryReason.OffpeakQueued`。
+- `offpeak-retry.ts` só tem efeito para `providerId=builtin:offpeak-idle-plan`; providers comuns não são afetados.
+- HTTP 429 cru e o código de negócio 3105 são ambos classificados como `queued`.
+- Sem `Retry-After` parseável, o padrão é 60 segundos; uma espera isolada dura no máximo 5 minutos.
+- O runner de generate faz fallback de attempt / mantém a decisão de fila, de modo que a espera por capacidade não consome o retry budget comum e o sondeo pode continuar.
+- O runner de stream só reexecuta com segurança quando ainda não cruzou a fronteira de saída visível, evitando entregar ao usuário conteúdo já emitido.
+- A espera usa abort signal, pode ser cancelada e não é um sleep ininterrompível.
+- A projection mapeia isso para um rate-limit fault recuperável, com o motivo `ModelRetryReason.OffpeakQueued`.
 
-### 6.5 `3102` 票据到期续跑
+### 6.5 Continuação por expiração do ticket `3102`
 
 ```text
 messages 400/code=3102
@@ -380,11 +380,11 @@ host terminal observer detects marker
       └─ scheduler later resumes same session with continuation prompt
 ```
 
-- 新契约码为 3102；adapter 仍兼容旧网关的 3001，便于滚动发布。
-- 续跑使用固定英文 continuation prompt，并重新应用原 permission mode/thought level。
-- task 是同一条、session 是同一个；本地不保存 ticket 历史。
+- O novo código de contrato é 3102; o adapter ainda tolera o 3001 do gateway antigo, para facilitar rollout.
+- A continuação usa um continuation prompt fixo em inglês e reaplica o permission mode / thought level originais.
+- A task é a mesma e a session é a mesma; localmente não se guarda histórico de tickets.
 
-### 6.6 Pause、Continue、Cancel、Delete
+### 6.6 Pause, Continue, Cancel, Delete
 
 ```text
 Pause:
@@ -409,9 +409,9 @@ Delete history:
   只写 history_deleted_at；任务、session、执行字段均保留。
 ```
 
-Delete 存在一个明确风险：如果 settle 在网络错误/5xx 下失败，随后物理删除 row，也会删掉本地 outbox 依据，之后无法自动补报。
+O Delete tem um risco explícito: se o settle falhar por erro de rede / 5xx e em seguida a linha for apagada fisicamente, a base local do outbox também é apagada e a reenvio automático fica impossível.
 
-### 6.7 重启恢复
+### 6.7 Recuperação após reinício
 
 ```text
 desktop/scheduler restart
@@ -422,58 +422,54 @@ desktop/scheduler restart
        └─ wait for valid/retaken ticket and resume
 ```
 
-## 7. 服务端接口、鉴权与错误语义
+## 7. Interfaces do servidor, autenticação e semântica de erros
 
-### 7.1 五个概念端点
+### 7.1 Os cinco endpoints conceituais
 
-| 用途 | 方法与路径 | 调用方 |
+| Uso | Método e caminho | Chamador |
 |---|---|---|
-| 创建资格快照 | `GET /api/v1/off-peak/ticket/availability` | host service |
-| 取号 | `POST /api/v1/off-peak/ticket` | host service |
-| 批量查票 | `POST /api/v1/off-peak/ticket/status` | host service |
-| 核销 | `POST /api/v1/off-peak/ticket/:id/settle` | host service |
-| 模型消息 | `POST /api/v1/off-peak/anthropic/v1/messages` | agent 内临时 provider |
+| Snapshot de elegibilidade | `GET /api/v1/off-peak/ticket/availability` | host service |
+| Retirada de número | `POST /api/v1/off-peak/ticket` | host service |
+| Consulta em lote de tickets | `POST /api/v1/off-peak/ticket/status` | host service |
+| Baixa | `POST /api/v1/off-peak/ticket/:id/settle` | host service |
+| Mensagens de modelo | `POST /api/v1/off-peak/anthropic/v1/messages` | provider temporário dentro do agent |
 
-早期文档中的“四接口”只数 ticket 管理接口；加入 availability 后，按产品链路应理解为四个 ticket JSON 接口加一个 model endpoint。
+Os "quatro endpoints" dos documentos iniciais contam apenas as interfaces de gestão de tickets; com o availability incluído, pela cadeia de produto deve-se entender quatro interfaces JSON de ticket mais um endpoint de modelo.
 
-### 7.2 鉴权
+### 7.2 Autenticação
 
-- ticket JSON 接口统一带 `Authorization: Bearer <ZCode JWT>` 和 `x-coding-plan-api-key`。
-- messages 端点还带 `X-Off-Peak-Ticket-ID`。
-- JWT 从 credential key `zcodejwttoken` 读取。
-- Coding Plan key 按当前 provider family 与 selected connection 解析：ZAI/BigModel 个人套餐读取所选
-  provider 的原始 `apiKey`，BigModel Team 复用既有 runtime-key helper 生成 `${apiKey}.${secretKey}`。
-- Start Plan、API Key mode、未选择、active OAuth provider 与所选 family 不一致、disabled/stale
-  connection 均拒绝；UI、ticket client 与 per-turn runtime 共用同一份 host credential snapshot，
-  禁止扫描或回退到任意缓存 provider。
-- 缺 JWT、Coding Plan key、闲时模型或用户 workspace 模型均产生类型化 permanent dispatch error，避免无意义反复认领。
+- As interfaces JSON de ticket levam uniformemente `Authorization: Bearer <ZCode JWT>` e `x-coding-plan-api-key`.
+- O endpoint de messages também leva `X-Off-Peak-Ticket-ID`.
+- O JWT é lido da credential key `zcodejwttoken`.
+- A Coding Plan key é resolvida conforme a família de provider atual e a conexão selecionada: plano pessoal ZAI/BigModel lê o `apiKey` original do provider selecionado, e BigModel Team reaproveita o helper de runtime-key existente para gerar `${apiKey}.${secretKey}`.
+- Start Plan, modo API Key, nada selecionado, provider OAuth ativo inconsistente com a família selecionada e conexões disabled/stale são todos rejeitados; UI, ticket client e runtime por turno compartilham o mesmo snapshot de credencial do host, e é proibido varrer ou fazer fallback para qualquer provider em cache.
+- A falta de JWT, de Coding Plan key, do modelo de horário ocioso ou do modelo do workspace do usuário produz um erro de despacho permanente e tipado, evitando reivindicações inúteis repetidas.
 
-### 7.3 解析与超时
+### 7.3 Parsing e timeouts
 
-- 单请求 10 秒超时。
-- Zod 使用 loose/passthrough，允许服务端增加字段。
-- `position: null` 会规范化成字段缺省。
-- `next_poll_after` 按秒读取并转换成毫秒。
-- 同时兼容裸 JSON 和 `{ code: 0, data }` 信封。
-- batch status 最多发送 100 张 ticket；超出会截断并记 warn，不拆包。
-- availability 返回 `can_take_number=false` 却缺少 `next_take_at` 时按脏响应抛错；UI 按 D43
-  fail-closed，等待下一次成功刷新。
+- Timeout de 10 segundos por requisição.
+- O Zod usa loose/passthrough, permitindo que o servidor acrescente campos.
+- `position: null` é normalizado para campo ausente.
+- `next_poll_after` é lido em segundos e convertido para milissegundos.
+- São compatíveis tanto JSON cru quanto o envelope `{ code: 0, data }`.
+- O batch status envia no máximo 100 tickets por vez; o excedente é truncado com um warn, sem dividir em pacotes.
+- Se availability devolve `can_take_number=false` sem `next_take_at`, isso é tratado como resposta suja e lança erro; a UI age de forma fail-closed conforme D43 e espera a próxima atualização bem-sucedida.
 
-### 7.4 主要业务码
+### 7.4 Principais códigos de negócio
 
-| HTTP/业务码 | 处理 |
+| HTTP / código de negócio | Tratamento |
 |---|---|
-| `3101` | 无资格，创建失败，由 UI 展示对应错误 |
-| `3103` | 当前不可取号/额度限制，刷新 availability；不落永久本地 bool |
-| `429` / `3105` | messages 容量队列，按 Retry-After 等待且不消耗普通 retry budget |
-| `400` / `3102` | ticket 不可用，产生稳定 marker，换票续跑 |
-| legacy `3001` | 仅作为旧 gateway 兼容，同 3102 |
+| `3101` | sem elegibilidade, criação falha, e a UI mostra o erro correspondente |
+| `3103` | no momento não dá para retirar número / limite de cota; atualiza availability e não grava bool permanente local |
+| `429` / `3105` | fila de capacidade das messages; espera conforme Retry-After sem consumir o retry budget comum |
+| `400` / `3102` | ticket indisponível; gera marcador estável e troca de ticket para continuar |
+| legacy `3001` | apenas compatibilidade com gateway antigo, igual ao 3102 |
 
-## 8. OffPeakTaskService：取号、同步和核销
+## 8. OffPeakTaskService: retirada, sincronização e baixa
 
-### 8.1 对外服务面
+### 8.1 Superfície pública do serviço
 
-`IOffPeakTaskService` 暴露：
+`IOffPeakTaskService` expõe:
 
 - `getTakeNumberAvailability`
 - `createTask`
@@ -486,60 +482,59 @@ desktop/scheduler restart
 - `list`
 - `get`
 
-renderer 不直接操作 server ticket；取号、轮询、续票和核销都留在服务层。
+O renderer não opera o ticket do servidor diretamente; retirada, polling, renovação de ticket e baixa ficam todos na camada de serviço.
 
-### 8.2 同步循环
+### 8.2 Loop de sincronização
 
-- 只有存在相关非终态任务或未核销终态时才维持 timer。
-- 正常轮询间隔夹在 5 秒到 5 分钟之间，优先采用服务端 `next_poll_after`。
-- 同步失败从 10 秒开始指数退避。
-- 一次批量同步所有非终态 task 的当前 ticket。
-- queued ticket 变 ready 时更新 `schedulable=true` 并请求唤醒 scheduler。
-- queued ticket 变 expired 时自动 retake；paused ticket 不自动 retake，等待用户 Continue。
-- `not_found` 当前被忽略；不会在 background sync 中自动重取。
+- O timer só é mantido enquanto houver tarefas não terminais relevantes ou terminais ainda não baixados.
+- O intervalo normal de polling fica entre 5 segundos e 5 minutos, dando prioridade ao `next_poll_after` do servidor.
+- A falha de sincronização parte de 10 segundos com backoff exponencial.
+- Uma sincronização em lote cobre o ticket atual de todas as tarefas não terminais.
+- Quando um ticket queued vira ready, `schedulable=true` é atualizado e o scheduler é acordeado.
+- Quando um ticket queued vira expired, o retake é automático; ticket paused não tem retake automático e espera o Continue do usuário.
+- `not_found` é ignorado hoje; não há retirada automática nova no sync em background.
 
-### 8.3 终态 settle outbox
+### 8.3 Outbox de baixa de terminais
 
-- 终态写入和服务端 settle 分离，避免网络错误阻塞本地完成态。
-- 未 `settled_at` 的终态任务会被重复补报。
-- settle 的 4xx 被视为已经无法/无需重试并本地 ack；网络错误和 5xx 保留 outbox。
-- settle API 设计为幂等。
+- A gravação do estado terminal e o settle no servidor são separados, evitando que um erro de rede bloqueie o estado de conclusão local.
+- Tarefas terminais sem `settled_at` são reenviadas repetidamente.
+- Um 4xx no settle é considerado já impossível / desnecessário de reenviar e é确是 confirmado localmente; erros de rede e 5xx mantêm a entrada no outbox.
+- A API de settle é projetada para ser idempotente.
 
-### 8.4 多窗口 Host 情况
+### 8.4 Caso de múltiplos Hosts
 
-每个窗口 Local Host 都可能启动自己的同步 loop，并访问同一 SQLite。一个 Local Host 可以同时承载多个
-workspaceKey；workspace service scope 不对应独立 Host 进程。Repo 状态写和 server API 都尽量幂等，因此不会直接破坏状态，但会产生重复 status/settle 请求；当前没有选主或全局唯一 sync owner。
+Cada Local Host de janela pode iniciar seu próprio loop de sincronização e acessar o mesmo SQLite. Um Local Host pode hospedar vários workspaceKey ao mesmo tempo; o escopo de workspace service não corresponde a um processo Host separado. Como as escritas de estado do Repo e a API do servidor são tanto quanto possível idempotentes, isso não quebra o estado diretamente, mas gera requisições duplicadas de status/settle; hoje não há eleição de líder nem um owner único global de sync.
 
-## 9. Scheduler、Main、Host 和 Session
+## 9. Scheduler, Main, Host e Session
 
 ### 9.1 Scheduler
 
-- 复用现有 utility process，但 Off-Peak 有独立消息类型、Repo 表和状态机。
-- 每 20 秒 tick；不按 cron misfire 规则跳过。
-- 启动先 `recoverInterrupted`。
-- `claimDue` 只认领 `queued + schedulable`，按 `queued_at` FIFO。
-- in-flight set 用于退出时释放认领；迟到结果仅按 task id 结算，不依赖内存上下文。
-- host 不存在、忙碌、通道暂不可用等为 transient：30 秒起指数退避，上限 15 分钟。
-- permanent config error 直接落 failed。
-- 终态守卫会丢弃迟到派发结果，避免覆盖 cancelled/completed/failed。
+- Reaproveita o utility process existente, mas Off-Peak tem tipos de mensagem, tabela de Repo e máquina de estados próprios.
+- Tick a cada 20 segundos; não pula por regra de cron misfire.
+- Executa `recoverInterrupted` primeiro na inicialização.
+- `claimDue` só reivindica `queued + schedulable`, em FIFO por `queued_at`.
+- O conjunto in-flight é usado para liberar reivindicações na saída; resultados tardios são liquidados apenas por task id, sem depender de contexto em memória.
+- Host inexistente, ocupado ou canal temporariamente indisponível são casos transitórios: backoff exponencial a partir de 30 segundos, com teto de 15 minutos.
+- Erro de configuração permanente vai direto para failed.
+- A guarda de estado terminal descarta resultados de despacho tardios, evitando sobrescrever cancelled/completed/failed.
 
-### 9.2 Main 路由
+### 9.2 Roteamento no Main
 
-- 把 scheduler 的 `OffPeakRun` 路由给与 workspace 对应的 host。
-- 把 host 的 `OffPeakRunResult` 返回 scheduler。
-- 接收 host 的 scheduler wake 请求。
-- 不把 session、ticket、queue 或 snapshot 状态下沉到 main。
+- Rotas o `OffPeakRun` do scheduler para o host correspondente ao workspace.
+- Devolve o `OffPeakRunResult` do host ao scheduler.
+- Recebe pedidos de wake do scheduler enviados pelo host.
+- Não afunda session, ticket, fila ou estado de snapshot no main.
 
-### 9.3 Host 派发
+### 9.3 Despacho pelo Host
 
-- Off-Peak runtime 懒初始化，复用 host 已装配的 credential、provider、coding-plan、task 服务。
-- 首次派发：读取 workspace 默认模型，显式创建带用户模型的 deferred session，再发送原 prompt。
-- 续跑：resume 原 session，发送固定 continuation prompt。
-- 每一段都构造新的 `turnRuntimeModel`，ticket id 写入 header。
-- 按 input/trace id 订阅 terminal outcome，完成后 best-effort 统计 files changed。
-- outcome `success` → completed；`stopped` → cancelled；其他 → failed；若失败含 ticket-expired marker 则不终态，改走重取号续跑。
+- O runtime de Off-Peak é inicializado de forma preguiçosa, reaproveitando credencial, provider, coding-plan e serviço de tasks já montados no host.
+- Primeiro despacho: lê o modelo padrão do workspace, cria explicitamente uma deferred session com o modelo do usuário e só então envia o prompt original.
+- Continuação: retoma a session original e envia o continuation prompt fixo.
+- Cada bloco constrói um novo `turnRuntimeModel` e grava o ticket id no header.
+- Assina o outcome terminal por input/trace id e, ao final, contabiliza best-effort os arquivos alterados.
+- outcome `success` → completed; `stopped` → cancelled; outros → failed; se a falha contiver o marcador de ticket expirado, não é terminal e segue pelo caminho de nova retirada e continuação.
 
-### 9.4 多轮对话逻辑
+### 9.4 Lógica de conversa de múltiplos turnos
 
 ```text
 Task row T (stable)
@@ -549,134 +544,132 @@ Task row T (stable)
   └─ Ticket C ── resume turn 3 ──────┘    idle provider only per automatic turn
 ```
 
-- ticket 可以多张，task/session 仍各一条。
-- 自动 turn 之间以及自动 turn 完成后的普通对话都复用该 session。
-- session 常驻 provider 是用户 workspace 模型；idle-plan 只是 turn overlay。
-- 用户在 agent busy 时补发的消息沿用现有 session queue，不创建另一条 Off-Peak 任务队列。
+- Pode haver vários tickets, mas continua havendo uma única task e uma única session.
+- Entre turns automáticos e na conversa comum depois do turn automático, a mesma session é reutilizada.
+- O provider permanente da session é o modelo do workspace do usuário; o idle-plan é apenas um overlay de turno.
+- Mensagens que o usuário envia enquanto o agent está ocupado seguem a fila de session existente e não criam outra fila de tarefas de Off-Peak.
 
-## 10. 灰度、套餐和额度门控
+## 10. Rollout, plano e gating de cota
 
-### 10.1 客户端配置灰度
+### 10.1 Rollout por configuração do cliente
 
-配置来源：`configs.offPeak`。
+Origem da configuração: `configs.offPeak`.
 
 - `enable_offpeak_task === true`
-- `allowed_models` 非空
+- `allowed_models` não vazio
 
-两者同时满足才暴露新建能力。进入相关界面会强制刷新 client config。配置只控制产品暴露和 idle 模型白名单，不再承载静态免费额度。
+Só quando os dois são satisfeitos a capacidade de criação é exposta. Entrar nas telas相关 força a atualizar o client config. A configuração controla apenas a exposição do produto e a lista branca de modelos idle, e não carrega mais cota gratuita estática.
 
-### 10.2 Coding Plan 判断
+### 10.2 Julgamento do Coding Plan
 
-- host 按当前 provider family / OAuth mode / selected connection key 精确解析脱敏 support；renderer 不再
-  broad-scan provider registry。
-- ZAI 个人、BigModel 个人与 BigModel Team 支持；Start Plan、API Key mode、未选择、登录 provider
-  身份不一致、disabled/stale connection 被排除。
-- 没有合适计划时按钮锁定，点击显示持续约 8 秒、右上角、可执行 Upgrade action 的 info toast。
-- Automations 表单与 New Task 模板入口都复用相同 support，并验证 support 仍对应当前 selection。
+- O host resolve com precisão o support mascarado conforme a família de provider / modo OAuth / selected connection key atuais; o renderer não faz mais varredura ampla do provider registry.
+- ZAI pessoal, BigModel pessoal e BigModel Team têm suporte; Start Plan, modo API Key, nada selecionado, identidade de provider logado inconsistente e conexões disabled/stale são excluídos.
+- Sem plano adequado o botão fica bloqueado e o clique mostra um info toast no canto superior direito, com action de Upgrade executável, por cerca de 8 segundos.
+- O formulário de Automations e a entrada de modelo New Task reaproveitam o mesmo support e validam que ele ainda corresponde à seleção atual.
 
-### 10.3 服务端实时额度 D39
+### 10.3 Cota em tempo real do servidor (D39)
 
-- `GET /ticket/availability` 是即时快照。
-- 只有请求成功且 `canTakeNumber=true` 才放开创建；false、加载中、未知或失败都置灰。
-- UI 在 `nextTakeAt + 100ms` 安排刷新。
-- availability 查询失败、加载中或未知时 fail-closed；下一次成功刷新返回 true 后恢复入口。
-- 真正创建仍以 POST `/ticket` 为最终权威。
-- 遇到 3103 会刷新 snapshot，但不会把“额度耗尽”永久写入本地配置。
+- `GET /ticket/availability` é um snapshot imediato.
+- A criação só é liberada quando a requisição tem sucesso e `canTakeNumber=true`; false, carregando, desconhecido ou falha deixam tudo esmaecido.
+- A UI agenda a atualização em `nextTakeAt + 100ms`.
+- Falha de consulta, carregamento ou estado desconhecido em availability é fail-closed; a entrada volta quando a próxima atualização bem-sucedida retornar true.
+- A criação real ainda tem o POST `/ticket` como autoridade final.
+- Ao encontrar 3103 o snapshot é atualizado, mas "cota esgotada" nunca é gravada permanentemente na configuração local.
 
-### 10.4 被替代的 D36 方案
+### 10.4 O plano D36 que foi substituído
 
-MR 中间曾实现 `limit.max_tasks/sliding_window` 静态配置和按本地 `createdAt` 的预判门控，也写过相应 E2E。D39 后最终代码改成 server availability；阅读提交历史时不能把 D36 当现状。
+No meio do MR chegou a existir a configuração estática `limit.max_tasks/sliding_window` e um gating preditivo pelo `createdAt` local, com E2E correspondente. Depois do D39 o código final passou a usar availability do servidor; ao ler o histórico de commits não se deve tratar o D36 como a situação atual.
 
-## 11. Mock Gateway 与开发验证
+## 11. Mock Gateway e verificação de desenvolvimento
 
-### 11.1 行为
+### 11.1 Comportamento
 
-- 默认固定端口 `45197`，可用 env 覆盖。
-- 多 host 抢占端口时，后启动者遇到 `EADDRINUSE` 会复用已存在网关。
-- 状态按访问时钟惰性推进：queued → ready → active → expired/settled。
-- retake 同一 task 时旧 ticket 过期。
-- 支持 availability、take、batch status、settle 和 messages。
-- 可注入前 N 次 429/3105、前 N 次 take 3103、availability 阻塞。
-- 首个成功 messages 请求把 ready ticket 激活。
-- 可用固定响应做完全离线测试，也可代理到真实个人 Coding Plan 上游。
-- 代理模式会真实消耗用户 Coding Plan key，仅应开发/演示使用。
-- 代理时剥离 hop-by-hop headers；上游失败返回 502。
+- Porta fixa padrão `45197`, com sobreposição por env.
+- Quando vários hosts disputam a porta, quem chega depois encontra `EADDRINUSE` e reaproveita o gateway já existente.
+- O estado avança de forma preguiçosa conforme o relógio de acesso: queued → ready → active → expired/settled.
+- Ao fazer retake da mesma task, o ticket antigo expira.
+- Suporta availability, take, batch status, settle e messages.
+- Permite injetar 429/3105 nas primeiras N vezes, 3103 no take nas primeiras N vezes e bloqueio de availability.
+- A primeira requisição de messages bem-sucedida ativa o ticket ready.
+- Pode ser usado com respostas fixas para testes totalmente offline, ou como proxy do upstream real de um plano pessoal Coding Plan.
+- O modo proxy consome de fato a Coding Plan key do usuário e deve ser usado apenas em desenvolvimento/demonstração.
+- No proxy os headers hop-by-hop são removidos; falha do upstream retorna 502.
 
-### 11.2 环境变量
+### 11.2 Variáveis de ambiente
 
-| 变量 | 作用 |
+| Variável | Efeito |
 |---|---|
-| `ZCODE_OFFPEAK_MOCK` | 开启 mock |
-| `ZCODE_OFFPEAK_MOCK_PORT` | 覆盖固定端口 |
-| `ZCODE_OFFPEAK_MOCK_READY_DELAY_MS` | queued 到 ready 延迟，默认 15 秒 |
-| `ZCODE_OFFPEAK_MOCK_READY_TTL_MS` | ready 未使用有效期，默认 5 分钟 |
-| `ZCODE_OFFPEAK_MOCK_ACTIVE_MS` | active 时长，默认 3 小时 |
-| `ZCODE_OFFPEAK_MOCK_QUEUE_429_COUNT` | messages 前 N 次回 429/3105 |
-| `ZCODE_OFFPEAK_MOCK_QUOTA_COUNT` | take 前 N 次回 3103 |
-| `ZCODE_OFFPEAK_MOCK_AVAILABILITY_BLOCK_MS` | availability 暂时不可取号 |
-| `ZCODE_OFFPEAK_MOCK_RETRY_AFTER_S` | Retry-After，默认 5 秒 |
-| `ZCODE_OFFPEAK_MOCK_NEXT_POLL_S` | next_poll_after，默认 5 秒 |
+| `ZCODE_OFFPEAK_MOCK` | habilita o mock |
+| `ZCODE_OFFPEAK_MOCK_PORT` | sobrepõe a porta fixa |
+| `ZCODE_OFFPEAK_MOCK_READY_DELAY_MS` | atraso de queued a ready, padrão 15 segundos |
+| `ZCODE_OFFPEAK_MOCK_READY_TTL_MS` | validade de ready não usado, padrão 5 minutos |
+| `ZCODE_OFFPEAK_MOCK_ACTIVE_MS` | duração de active, padrão 3 horas |
+| `ZCODE_OFFPEAK_MOCK_QUEUE_429_COUNT` | primeiros N requests de messages retornam 429/3105 |
+| `ZCODE_OFFPEAK_MOCK_QUOTA_COUNT` | primeiros N takes retornam 3103 |
+| `ZCODE_OFFPEAK_MOCK_AVAILABILITY_BLOCK_MS` | availability temporariamente sem número disponível |
+| `ZCODE_OFFPEAK_MOCK_RETRY_AFTER_S` | Retry-After, padrão 5 segundos |
+| `ZCODE_OFFPEAK_MOCK_NEXT_POLL_S` | next_poll_after, padrão 5 segundos |
 
-WDIO 管理流把 ready delay 设为 60 秒，避免任务在 UI 操作过程中抢先执行；额度 pre-gate spec 将 availability block 设为 1 小时。
+O fluxo WDIO de gestão define o ready delay como 60 segundos para evitar que a task seja executada antes do fim das operações de UI; a spec de pre-gate de cota define o bloqueio de availability como 1 hora.
 
-## 12. UI 改动
+## 12. Mudanças de UI
 
-### 12.1 Automations 主视图
+### 12.1 Visão principal de Automations
 
-- 有闲时能力/数据时增加 `All / Scheduled / Idle-time task` 三个 tab。
-- 闲时任务以两列卡片网格展示。
-- 卡片排序优先级：running → awaiting approval → queued → paused → failed → completed → cancelled；同态按新旧排序。
-- 各状态提供不同 menu：Pause、Continue、Cancel、Delete、Go to session 等。
-- queued 显示服务端 `#N in queue`；paused 显示 `#N Paused`。
-- 现有 scheduled automation 仍保留；`AutomationEditView.tsx` 的超大 diff 很多来自格式重排和共享 project option 接入，不是整页业务重写。
+- Quando há capacidade/dados de horário ocioso, aparecem três tabs: `All / Scheduled / Idle-time task`.
+- Tarefas de horário ocioso são exibidas em uma grade de cards de duas colunas.
+- Prioridade de ordenação dos cards: running → awaiting approval → queued → paused → failed → completed → cancelled; dentro do mesmo estado, do mais novo ao mais antigo.
+- Cada estado oferece um menu diferente: Pause, Continue, Cancel, Delete, Go to session etc.
+- Em queued mostra `#N in queue` do servidor; em paused mostra `#N Paused`.
+- As automations agendadas existentes continuam; o diff gigante de `AutomationEditView.tsx` vem em boa parte de reformatação e da adoção de opções compartilhadas de projeto, não de uma reescrita de negócio da página inteira.
 
-### 12.2 创建/编辑表单
+### 12.2 Formulário de criação/edição
 
-- 项目只能选当前桌面已打开且可用的本地 workspace；不再混入 recent、remote 或不可用项目。
-- 标题和 Instructions 必填。
-- permission 复用四档：build/edit/plan/yolo；UI 实际默认常量为 `build`。
-- shared 类型注释仍写默认 `"default"`，与 UI 真实默认不一致，属于文档注释债务。
-- 模型只能选 `allowed_models` 中的 idle-plan 模型。
-- GLM-5.2 展示 `max/high/nothink`，默认 `max`。
-- 创建页和 Automations 页都镜像全局 keep-awake switch。
-- 离开脏草稿有 discard 确认。
-- 首次以非 yolo 模式提交时显示 full-access 提示，但提示不阻断提交。
-- queued/paused 可编辑；running/终态锁定；已有任务的 project 不可改。
+- O projeto só pode ser um workspace local já aberto e disponível no desktop; nada de recent, remote ou projetos indisponíveis.
+- Título e Instructions são obrigatórios.
+- A permissão reaproveita os quatro níveis: build/edit/plan/yolo; a constante real de padrão da UI é `build`.
+- O comentário do tipo compartilhado ainda escreve o padrão `"default"`, inconsistente com o padrão real da UI, o que é uma dívida de comentário de documentação.
+- O modelo só pode ser um modelo idle-plan dentro de `allowed_models`.
+- GLM-5.2 exibe `max/high/nothink`, com `max` como padrão.
+- A página de criação e a página de Automations espelham o switch global de keep-awake.
+- Sair de um rascunho sujo pede confirmação de descarte.
+- Na primeira submissão em modo diferente de yolo aparece o aviso de full-access, mas o aviso não bloqueia a submissão.
+- queued/paused são editáveis; running/terminais ficam bloqueados; o projeto de uma tarefa existente não pode ser alterado.
 
 ### 12.3 History
 
-- 一条 task 只有 0 或 1 条 History 聚合行。
-- 无 `startedAt` 或已有 `historyDeletedAt` 时不显示。
-- completed → Succeeded；failed → Failure；cancelled → Skipped；其余已启动态 → In progress。
-- duration 最少显示 1 分钟。
-- 行动作：Go to session、Delete history。
-- Delete history 无确认/Undo，只写 tombstone。
+- Uma task tem 0 ou 1 linha agregada no History.
+- Não aparece sem `startedAt` ou quando já existe `historyDeletedAt`.
+- completed → Succeeded; failed → Failure; cancelled → Skipped; outros estados já iniciados → In progress.
+- A duração mostra no mínimo 1 minuto.
+- Ações de linha: Go to session, Delete history.
+- Delete history não tem confirmação nem Undo, apenas grava o tombstone.
 
-### 12.4 侧栏和 New task 入口
+### 12.4 Barra lateral e entrada New task
 
-- 桌面 grouped sidebar 增加可折叠 `Idle-time task` 系统组，跨项目汇总任务并显示数量。
-- 点击有 session 的任务进入 session；无 session 时回到 Automations 对应项。
-- New task 空状态新增闲时横幅和模板卡，可带 pending draft 跳到创建页。
-- 横幅关闭只保存在当前 renderer session，不做跨启动持久化。
+- O grouped sidebar do desktop ganha o grupo de sistema `Idle-time task` colapsável, que agrega tarefas entre projetos e mostra a contagem.
+- Clicar em uma tarefa com session entra na session; sem session volta ao item correspondente em Automations.
+- O estado vazio de New task ganha banner de horário ocioso e card de modelo, que pode levar um rascunho pendente para a página de criação.
+- O fechamento do banner fica salvo apenas na session do renderer atual, sem persistência entre inicializações.
 
-### 12.5 通知、对话框和 Toast
+### 12.5 Notificações, diálogos e toasts
 
-- 仅桌面本地监听 completed、failed、awaiting_approval 的边沿变化并发系统通知。
-- 首次 load 只建立 baseline，不补发历史通知。
-- 系统通知按 task/status 去重；cancelled 不通知。
-- awaiting 通知代码存在，但由于运行态不可达，当前不会从真实 permission 流触发。
-- ConfirmDialog 增加 compact、destructive、close 控制和禁用快捷键等能力。
-- Toast 增加 top-right、info/warning、action、dismiss 等变体，用于套餐提示和风险提示。
+- Apenas o desktop local escuta mudanças de borda de completed, failed e awaiting_approval e emite notificação de sistema.
+- O primeiro load apenas estabelece a linha de base e não reenvia notificações de histórico.
+- As notificações de sistema são deduplicadas por task/status; cancelled não notifica.
+- O código de notificação de awaiting existe, mas como o estado de execução é inalcançável, hoje ele não é disparado pelo fluxo real de permissão.
+- O ConfirmDialog ganha capacidades como compact, destructive, controle de fechamento e desativação de atalhos.
+- O Toast ganha variantes top-right, info/warning, action e dismiss, usadas para avisos de plano e de risco.
 
-### 12.6 国际化和测试标识
+### 12.6 Internacionalização e identificadores de teste
 
-- 英文、简体中文补齐闲时任务、状态、错误、表单、History、额度、保持唤醒文案。
-- `IntlProvider` 与 locale shape 同步。
-- shared test ids 增加 Off-Peak 页面/E2E 定位标识。
+- Inglês e简体中文 completam os textos de tarefa de horário ocioso, estados, erros, formulário, History, cota e keep-awake.
+- `IntlProvider` e o shape de locale ficam em sincronia.
+- Os test ids compartilhados ganham identificadores de定位 de página/E2E de Off-Peak.
 
-## 13. Keep Awake 最终语义
+## 13. Semântica final do Keep Awake
 
-早期实现曾按“active task count > 0 且开关开启”启停 blocker；MR 最终提交改为全局开关：
+A implementação inicial ligava e desligava o blocker conforme "active task count > 0 e switch ligado"; o commit final do MR passou para um switch global:
 
 ```text
 AppSettings.keepAwakeWhileRunning
@@ -686,147 +679,143 @@ AppSettings.keepAwakeWhileRunning
                        （与当前是否有运行中闲时任务无关）
 ```
 
-- 默认 false。
-- General Settings、Automations banner、创建/编辑页看到的是同一个 setting。
-- desktop 启动和 setting 更新时立即同步 `powerSaveBlocker`。
-- scheduler 仍会上报 active count，但 main 的 count callback 已不再决定 blocker。
-- 只能阻止应用/系统因空闲自动休眠，不能阻止合盖或用户主动睡眠。
+- O padrão é false.
+- General Settings, o banner de Automations e as páginas de criação/edição veem o mesmo setting.
+- Na inicialização do desktop e a cada atualização do setting, o `powerSaveBlocker` é sincronizado na hora.
+- O scheduler ainda reporta o active count, mas o count callback do main não decide mais o blocker.
+- Só é possível impedir a suspensão automática do app/sistema por ociosidade, e não o fechamento da tampa nem um sleep pedido pelo usuário.
 
-## 14. Desktop / Web / Mobile Remote 边界
+## 14. Fronteiras Desktop / Web / Mobile Remote
 
-- `IOffPeakTaskService` 被加入 common accessor 和 remote service client，是为了统一服务契约，不代表 mobile remote 开放该产品。
-- 手机 `/remote` 隐藏 Automations；命中陈旧 route 会退回 chat。
-- desktop remote workspace 隐藏 idle task 和侧栏组。
-- 创建 project selector 只给本地已打开 workspace。
-- 没有新增独立 remote Agent runtime、local host、SSH/WSL/Docker session。
-- 没有修改 relay 的业务职责，也没有把 task/queue/snapshot 状态放进 relay/main。
-- 桌面派发明确使用 `desktop-continuous`；没有绕过手机 `web-remote-replayable` 的恢复边界。
+- `IOffPeakTaskService` foi adicionada ao common accessor e ao remote service client para unificar o contrato de serviço; isso não significa que o mobile remote abra o produto.
+- O `/remote` do celular esconde Automations; rota obsoleta que ainda é atingida volta para chat.
+- Workspace remoto do desktop esconde idle task e o grupo da barra lateral.
+- O seletor de projeto de criação só oferece workspaces locais já abertos.
+- Não houve novo remote Agent runtime, local host ou session SSH/WSL/Docker.
+- Não se alterou a responsabilidade de negócio do relay nem se colocou estado de task/queue/snapshot dentro do relay/main.
+- O despacho do desktop usa explicitamente `desktop-continuous`; não contornou a fronteira de recuperação do `web-remote-replayable` do celular.
 
-## 15. 测试覆盖与当前验证状态
+## 15. Cobertura de testes e estado atual de verificação
 
-### 15.1 新增/扩展自动化测试
+### 15.1 Testes automatizados novos/estendidos
 
-| 层 | 覆盖 |
+| Camada | Cobertura |
 |---|---|
-| adapter retry | 9 类 429/3105/3102、Retry-After、generate/stream 边界与普通 provider 隔离 |
-| Repo | 16 类建表、状态守卫、claim、恢复、续跑、History、settle outbox |
-| Service | 10 类创建、暂停/继续、同步、续票、取消/核销与错误分流 |
-| Server client/mock | 7 类接口解析、信封、null position、availability、状态推进、错误码 |
-| Runtime model | 5 类双凭证、provider 构造、用户模型选择、多 provider 回退 |
-| Client config/gray | 5 类配置开关、allowed models、availability fail-closed/refresh |
-| 端到端服务集成 | 3 类 mock take → ready → dispatch/续跑闭环 |
-| Scheduler settlement | 3 类 success/permanent/transient 与退避 |
-| UI | project options、store 并发、History 映射、toast、remote mobile 隐藏 |
-| WDIO | 创建/管理流、额度 availability pre-gate 两条 spec |
+| adapter retry | 9 categorias de 429/3105/3102, Retry-After, fronteiras generate/stream e isolamento do provider comum |
+| Repo | 16 categorias de criação de tabela, guarda de estado, claim, recuperação, continuação, History, settle outbox |
+| Service | 10 categorias de criação, pause/continue, sincronização, renovação de ticket, cancel/settle e desvio de erros |
+| Server client/mock | 7 categorias de parsing de interface, envelope, position null, availability, avanço de estado, códigos de erro |
+| Runtime model | 5 categorias de credencial dupla, construção de provider, escolha do modelo do usuário, fallback de múltiplos providers |
+| Client config/gray | 5 categorias de switch de configuração, allowed models, fail-closed/refresh de availability |
+| Integração de serviço ponta a ponta | 3 categorias de mock take → ready → dispatch/ciclo de continuação |
+| Scheduler settlement | 3 categorias de success/permanent/transient e backoff |
+| UI | project options, concorrência do store, mapeamento do History, toast, ocultação no mobile remote |
+| WDIO | fluxo de criação/gestão e duas specs de pre-gate de cota por availability |
 
-### 15.2 Conversation catalog
+### 15.2 Catálogo de conversations
 
-- `docs/conversation-session-case-catalog.md` 增加 OP01–OP09。
-- 覆盖矩阵登记 off-peak 场景和边界。
-- GUI 的 OPF/OPA/OPR/OPB 仍标为 planned。
-- OPP 已写用例，但矩阵仍记录为待目标环境执行。
-- service mechanism 对 OP02/OP04/OP07 有覆盖。
+- `docs/conversation-session-case-catalog.md` ganha OP01–OP09.
+- A matriz de cobertura registra os cenários e fronteiras de off-peak.
+- OPF/OPA/OPR/OPB da GUI continuam marcados como planned.
+- OPP já tem casos escritos, mas a matriz ainda registra que falta executar no ambiente de destino.
+- service mechanism tem cobertura para OP02/OP04/OP07.
 
-### 15.3 不能误读的测试结论
+### 15.3 Conclusões de teste que não podem ser mal lidas
 
-- E2E 能验证 UI 管理和服务门控，不等于真实线上低峰调度、真实套餐计费、3 小时自然过期都已验证。
-- mock 上游代理模式使用用户自己的 Coding Plan key，不能据此证明线上 idle-plan 计费链路。
-- awaiting approval 没有生产事件接线，相应 UI/通知存在也不等于端到端可用。
-- coverage matrix 中的 pending/planned 项仍是待补验证，不应在 MR 描述中写成全覆盖。
+- O E2E consegue verificar gestão de UI e gating de serviço, e isso não significa que o agendamento real de horário ocioso em produção, a cobrança real de plano ou a expiração natural de 3 horas já estejam verificados.
+- O modo proxy do mock upstream usa a Coding Plan key do próprio usuário, e portanto não prova o caminho de cobrança do idle-plan em produção.
+- O awaiting approval não tem fiação de evento de produção, e a existência da UI/notificação correspondente não significa disponibilidade ponta a ponta.
+- Itens pending/planned da matriz de cobertura continuam pendentes de verificação e não devem ser escritos como cobertura total na descrição do MR.
 
-## 16. CI、开发环境和文档改动
+## 16. Mudanças de CI, ambiente de desenvolvimento e documentação
 
 ### 16.1 GitLab CI
 
-- workflow 接受 API pipeline source，避免 API 触发直接被顶层规则过滤。
-- manual conversation E2E、legacy manifest、sandbox upload/preload 等 job 的 source 条件同步允许 API。
-- 这部分是测试/发布触发能力调整，与 Off-Peak 领域逻辑没有直接耦合。
+- O workflow aceita pipeline source do tipo API, evitando que disparos por API sejam filtrados direto pelas regras de nível superior.
+- As condições de source dos jobs de conversation E2E manual, manifest legado e upload/preload de sandbox passam a permitir API.
+- Essa parte é um ajuste de capacidade de disparo de teste/publicação e não está acoplada diretamente à lógica de domínio de Off-Peak.
 
-### 16.2 mise 开发目录隔离
+### 16.2 Isolamento do diretório de desenvolvimento com mise
 
-- `mise run dev` 增加 `ZCODE_DATA_BASE_DIR={{env.HOME}}/.zcode-dev-home`。
-- 开发态桌面数据与默认 `~/.zcode` 生产数据隔离。
-- 文档和 root build script test 同步。
-- `pnpm dev:desktop:test` 的既有语义未被改成相同入口。
-- OAuth 自定义 scheme `zcode://` 仍可能与已安装正式版竞争，这是隔离 data dir 无法解决的系统注册边界。
+- `mise run dev` ganha `ZCODE_DATA_BASE_DIR={{env.HOME}}/.zcode-dev-home`.
+- Os dados do desktop em desenvolvimento ficam isolados dos dados de produção em `~/.zcode`.
+- Documentação e o test de root build script são atualizados junto.
+- A semântica existente de `pnpm dev:desktop:test` não foi mudada para a mesma entrada.
+- O scheme OAuth customizado `zcode://` ainda pode competir com a versão oficial já instalada; esse é um limite de registro de sistema que o isolamento do data dir não resolve.
 
-### 16.3 文档
+### 16.3 Documentação
 
-- `spec.md`：产品语义、状态机、provider、UI 和 History。
-- `decisions.md`：D22–D39 等设计取舍与演进。
-- `tech-design.md`：数据、进程、接口和时序设计。
-- `implementation-notes.md`：最终关键文件图、模型恢复和联调说明。
-- `glossary.md`：术语与状态映射。
-- `table-design.html`：表格化的实现审计、风险与生命周期报告。
-- conversation catalog/coverage matrix：测试登记。
-- scheduled-tasks 主视图文档：澄清两类 Automations 的边界。
+- `spec.md`: semântica de produto, máquina de estados, provider, UI e History.
+- `decisions.md`: escolhas de design e evolução como D22–D39.
+- `tech-design.md`: design de dados, processos, interfaces e sequências.
+- `implementation-notes.md`: mapa final de arquivos críticos, restauração de modelo e notas de integração.
+- `glossary.md`: terminologia e mapeamento de estados.
+- `table-design.html`: auditoria de implementação, riscos e relatório de ciclo de vida em formato de tabelas.
+- catálogo de conversations / matriz de cobertura: registro de testes.
+- documento da visão principal de scheduled-tasks: esclarece a fronteira entre os dois tipos de Automations.
 
-原 MR Head 的 `tech-design.md`、`glossary.md` 与 ADR 早期段落曾混用“规划/尚未实现”、
-register/per-task GET、3001、D36 静态 limit 和批准切 provider 等历史语义。2026-07-22 的
-follow-up 文档修复已把 tech design/glossary/spec 对齐当前代码，并在 `decisions.md` 顶部明确
-ADR supersession 规则；批准切 provider 仍被标为未实现能力，而不是改写成已完成。
+O `tech-design.md`, o `glossary.md` e os parágrafos iniciais do ADR no Head original do MR misturavam semântica histórica como "planejado / ainda não implementado", register/per-task GET, 3001, o limit estático do D36 e a troca de provider na aprovação. O documento de follow-up de 2026-07-22 alinhou tech design/glossary/spec ao código atual e deixou clara no topo de `decisions.md` a regra de supersession de ADR; a troca de provider na aprovação continua marcada como capacidade não implementada, em vez de ser reescrita como concluída.
 
-## 17. MR 内被替代或反复修正的方案
+## 17. Planos substituídos ou corrigidos repetidamente dentro do MR
 
-| 主题 | 中间态 | MR Head 最终态 |
+| Tema | Estado intermediário | Estado final no Head do MR |
 |---|---|---|
-| 额度预判 | D36 `limit.max_tasks/sliding_window` + 本地 createdAt | D39 server availability snapshot + POST 最终权威 |
-| Keep Awake | 开关且 active count > 0 才 blocker | 全局开关打开即 blocker |
-| Session 模型 | 首次创建可能落到 provider 排序第一项 | workspace default → lastUsed → current，保留完整 provider/model |
-| 临时 provider 生命周期 | turn 后恢复时机有排队消息串 provider 风险 | ready/queue drain 前恢复并清理 turn overlay |
-| ticket expired code | 早期 3001 | 3102 为正式码，保留 3001 兼容 |
-| UI | 多轮 Figma 对齐 | 创建 composer、两列卡片、History、边缘态与锁定态收敛 |
-| 接口数量表述 | 四个接口 | 四个 ticket JSON 接口 + 一个 messages endpoint |
-| 立即执行 | 早期方案保留 | v1 删除立即执行入口 |
+| Previsão de cota | D36 `limit.max_tasks/sliding_window` + createdAt local | snapshot de availability do servidor no D39 + POST como autoridade final |
+| Keep Awake | blocker só com switch e active count > 0 | switch global ligado já aciona o blocker |
+| Modelo da Session | na primeira criação podia cair no primeiro provider da ordenação | workspace default → lastUsed → current, preservando provider/model completos |
+| Ciclo de vida do provider temporário | risco de mensagens enfileiradas usarem o provider errado por causa do momento de restauração | restauração e limpeza do overlay de turno antes do ready / drain da fila |
+| Código de ticket expirado | 3001 no início | 3102 como código oficial, mantendo 3001 por compatibilidade |
+| UI | múltiplos alinhamentos de Figma | composer de criação, cards de duas colunas, History, estados de borda e de bloqueio consolidados |
+| Contagem de interfaces | quatro interfaces | quatro interfaces JSON de ticket + um endpoint de messages |
+| Execução imediata | mantida no plano inicial | v1 remove a entrada de execução imediata |
 
-## 18. 已知缺口、风险与技术债务
+## 18. Lacunas, riscos e dívida técnica conhecidos
 
-### 18.1 功能缺口
+### 18.1 Lacunas funcionais
 
-1. `awaiting_approval` 没有从 agent permission 事件接入生产链路。
-2. 批准后切用户 provider 和“继续将使用你自己的套餐配额”提示未实现。
-3. ~~UI 与 runtime 的 Coding Plan 支持矩阵不一致。~~ 已在 D40 统一为 selected credential snapshot，
-   覆盖 ZAI 个人、BigModel 个人与 BigModel Team。
-4. History 不提供 ticket/分段级审计。
+1. `awaiting_approval` não está ligado à cadeia de produção a partir dos eventos de permissão do agent.
+2. A troca para o provider do usuário após a aprovação e o aviso "a continuação usará a cota do seu próprio plano" não estão implementados.
+3. ~~A matriz de suporte do Coding Plan da UI e do runtime é inconsistente.~~ Foi unificada no D40 em um snapshot de credencial selecionada, cobrindo ZAI pessoal, BigModel pessoal e BigModel Team.
+4. O History não oferece auditoria por ticket/bloco.
 
-### 18.2 一致性与恢复风险
+### 18.2 Riscos de consistência e recuperação
 
-1. POST ticket 成功、SQLite insert 失败会产生服务端孤票。
-2. Delete 在 settle 网络/5xx 失败后物理删 row，会丢失 outbox 重试依据。
-3. sync 的 `not_found` 不自动 retake；Continue 才会重取。
-4. take ticket 若意外直接返回 active/expired/settled/not_found，当前仍可能创建 queued 但不可调度的 task；其中只有部分 expired 路径能自动收敛。
-5. 多 host 各自启动 sync loop，会重复 status/settle 请求。
-6. `next_poll_at` 不是逐任务调度器，只是快照；共享 timer 可能比字段语义更粗。
-7. UI `running` 早于 messages 真正 admission，429 等待期间状态表达不精确。
-8. task row 只保存当前 ticket，换票覆盖后无法在本地审计历史 ticket。
+1. POST de ticket bem-sucedido com insert no SQLite falhando gera ticket órfão no servidor.
+2. O Delete, após falha de settle por rede/5xx, apaga a linha fisicamente e perde a base do outbox para retry.
+3. `not_found` no sync não dispara retake automático; só o Continue retira de novo.
+4. Se o take de ticket inesperadamente devolver active/expired/settled/not_found, ainda pode ser criada uma task em queued mas não despachável; só alguns caminhos de expired convergem automaticamente.
+5. Vários hosts iniciam seu próprio loop de sync, gerando requisições duplicadas de status/settle.
+6. `next_poll_at` não é um agendador por tarefa, é apenas um snapshot; o timer compartilhado pode ser mais grosseiro que a semântica do campo.
+7. O `running` da UI antecede a admissão real das messages, e a expressão de estado durante a espera por 429 é imprecisa.
+8. A linha da task guarda apenas o ticket atual; depois que a troca sobrescreve, o histórico de tickets não pode ser auditado localmente.
 
-### 18.3 剩余语义漂移与已修正文档债务
+### 18.3 Derivas semânticas restantes e dívida de documentação já corrigida
 
-1. 源码部分注释仍写“status polling 触发 server promote”；当前服务端事实是自行 timer promote，客户端 polling 只是观察。
-2. shared 类型注释写 permission 默认 `default`，UI 实际默认 `build`（代码注释债务仍在）。
-3. ~~tech design/glossary 的实现状态头过期~~：已于 2026-07-22 改为已实现代码事实快照。
-4. 3001 仅保留为 adapter 兼容和历史 ADR；当前文档统一声明 3102 为正式码。
-5. D36 静态额度只保留在历史 ADR，并已明确被 D39 supersede；当前 spec/tech/glossary 只把 availability + POST 3103 作为现状。
+1. Alguns comentários no código ainda dizem "status polling dispara o server promote"; o fato atual do servidor é que a promote vem de um timer próprio, e o polling do cliente é apenas observação.
+2. O comentário do tipo compartilhado escreve permission padrão `default`, enquanto a UI usa de fato `build` (a dívida de comentário de código continua).
+3. ~~Os cabeçalhos de estado de implementação de tech design/glossary estavam desatualizados~~: em 2026-07-22 passaram a ser um snapshot de fatos do código já implementado.
+4. O 3001 permanece apenas como compatibilidade do adapter e ADR histórico; a documentação atual declara 3102 como o código oficial.
+5. A cota estática do D36 só permanece em ADR histórico e está claramente superseded pelo D39; spec/tech/glossary atuais tratam apenas availability + POST 3103 como a situação atual.
 
-## 19. 建议的合并验收清单
+## 19. Checklist de aceitação de merge sugerido
 
-- [ ] 产品确认：`awaiting_approval` 是本 MR 必须完成，还是明确降级为后续能力。
-- [ ] 若必须完成，补 permission event → awaiting → approve/reject → provider switch 的端到端状态机和配额提示。
-- [x] Team Plan 纳入支持矩阵，并复用现有 runtime-key helper；ZAI/BigModel 个人、Team 与拒绝态已有矩阵测试。
-- [ ] 在目标环境用真实 ZAI 与 Team 凭据各跑一次 availability → take → messages → settle 联调。
-- [ ] 评估孤 ticket 和 Delete 丢 outbox 的补偿策略。
-- [ ] 为 `not_found` 和意外 take 初态定义统一 retake/fail 规则。
-- [ ] 决定是否接受多 host 重复 sync，或增加单 owner。
-- [x] 更新陈旧文档头、接口/额度/3001-3102/approval provider 表述；permission 默认的 shared 代码注释另列代码债务。
-- [ ] 在目标环境执行 pending WDIO/真实服务联调，验证 availability、ready、429、3102、settle。
-- [ ] 确认 CI API source 放宽和 mise data-dir 隔离确实应与该 MR 一起合入。
+- [ ] Confirmação de produto: `awaiting_approval` é algo que este MR precisa concluir, ou é explicitamente rebaixado a capacidade futura.
+- [ ] Se for obrigatório, completar a máquina de estados ponta a ponta permission event → awaiting → approve/reject → troca de provider, com o aviso de cota.
+- [x] Team Plan entra na matriz de suporte reaproveitando o helper de runtime-key existente; ZAI/BigModel pessoal, Team e estados de rejeição já têm testes de matriz.
+- [ ] Rodar uma vez cada uma com credenciais reais de ZAI e Team no ambiente de destino: availability → take → messages → settle.
+- [ ] Avaliar estratégias de compensação para ticket órfão e perda de outbox no Delete.
+- [ ] Definir uma regra única de retake/fail para `not_found` e para o estado inicial inesperado do take.
+- [ ] Decidir se o sync duplicado entre múltiplos hosts é aceitável ou se é preciso um owner único.
+- [x] Atualizar cabeçalhos de documentos obsoletos e as formulações de interfaces/cota/3001-3102/provider de aprovação; o comentário de código sobre o padrão de permission fica listado à parte como dívida.
+- [ ] Executar no ambiente de destino o WDIO pendente e a integração com serviço real, validando availability, ready, 429, 3102 e settle.
+- [ ] Confirmar que a liberação de API source no CI e o isolamento de data-dir do mise realmente devem entrar junto deste MR.
 
 
-## 20. 提交演进全表
+## 20. Tabela completa da evolução dos commits
 
-该表用于解释 MR 内方案为何出现旧文案或被后续提交替代；最终行为仍以 MR Head 代码为准。
+Esta tabela serve para explicar por que o MR tem textos antigos ou planos substituídos por commits posteriores; o comportamento final segue o código do Head do MR.
 
-| # | Commit | 日期 | 主题 |
+| # | Commit | Data | Tema |
 |---:|---|---|---|
 | 1 | `d8ed02147a` | 2026-07-15 | docs(off-peak-task): 设计收敛 D22-D31——四接口契约/长等待策略/Automations 范式定案/灰度开关 |
 | 2 | `ffe085c903` | 2026-07-15 | docs(off-peak-task): 修正领域模型陈旧片段——对齐 D28-D30 定案 |
@@ -889,134 +878,134 @@ ADR supersession 规则；批准切 provider 仍被标为未实现能力，而�
 | 59 | `e50f08b78e` | 2026-07-21 | fix(off-peak): prevent stalled task dispatches |
 | 60 | `cc3980d2a1` | 2026-07-21 | feat(desktop): make keep-awake a global settings switch |
 
-## 21. 115 个改动文件逐项清单
+## 21. Lista item a item dos 115 arquivos alterados
 
-状态：`A`=新增，`M`=修改。行数取自 MR 精确 diff；本表每个 changed path 恰好出现一次。
+Estado: `A`=novo, `M`=modificado. As linhas vêm do diff exato do MR; cada changed path aparece exatamente uma vez nesta tabela.
 
-| # | 状态 | 行数 | 文件 | 具体改动 |
+| # | Estado | Linhas | Arquivo | Mudança concreta |
 |---:|:---:|---:|---|---|
-| 1 | M | +4/-2 | `.gitlab/ci/00-workflow.yml` | 顶层 workflow 放行 API source pipeline，避免 API 触发在创建阶段被过滤。 |
-| 2 | M | +2/-2 | `.gitlab/ci/20-test.yml` | 测试 job 的规则同步接受 API source，覆盖手动 conversation E2E 等入口。 |
-| 3 | M | +1/-1 | `.gitlab/ci/30-build.yml` | 构建阶段的 source 条件补充 API 触发。 |
-| 4 | M | +3/-3 | `.gitlab/ci/50-release.yml` | release/sandbox 相关手动 job 放行 API source。 |
-| 5 | A | +62/-0 | `apps/zcode-cli/packages/adapters/src/model/offpeak-retry.ts` | 新增闲时 provider 专用失败分类：429/3105 排队等待、3102/legacy 3001 票据失效标记、Retry-After 钳制。 |
-| 6 | M | +40/-4 | `apps/zcode-cli/packages/adapters/src/model/runner-generate.ts` | generate runner 接入 Off-Peak 决策；容量等待不消耗普通 retry budget，并支持 abort。 |
-| 7 | M | +75/-5 | `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts` | stream runner 接入同类重试，但仅在尚未越过可见输出边界时重放。 |
-| 8 | A | +296/-0 | `apps/zcode-cli/packages/adapters/tests/offpeak-retry.test.ts` | 覆盖 Off-Peak 专用 generate/stream 重试、Retry-After、业务码和普通 provider 隔离。 |
-| 9 | M | +45/-15 | `apps/zcode-cli/packages/bootstrap/src/app/model-catalog-overlay.ts` | 把 runtime overlay 拆成 workspace 层与 turn 层，支持单轮安装、清理及 registry 刷新。 |
-| 10 | M | +19/-8 | `apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts` | session facade 增加 turn runtime model 生命周期，并在 turn 结束恢复用户模型。 |
-| 11 | M | +14/-1 | `apps/zcode-cli/packages/bootstrap/src/app/types.ts` | 扩展 model catalog overlay/session 类型，表达 turn-scoped overlay。 |
-| 12 | M | +51/-12 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-flow.ts` | session 创建/恢复流处理显式用户模型及 turn overlay 清理顺序。 |
-| 13 | M | +18/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/prompt-turn.ts` | prompt turn 接收并安装 turnRuntimeModel，记录前一模型以便终态恢复。 |
-| 14 | M | +10/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/types.ts` | 命令上下文类型增加 turn runtime model/恢复信息。 |
-| 15 | M | +3/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts` | 把 Off-Peak queued retry 投影为可恢复 rate-limit fault。 |
-| 16 | M | +61/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts` | 旧桥接层透传 turnRuntimeModel，保持 v4 native/bridge 两条命令路径一致。 |
-| 17 | M | +53/-3 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts` | workspace catalog 热更新时保留 turn overlay，并处理已移除原模型的安全回退。 |
-| 18 | M | +69/-0 | `apps/zcode-cli/packages/bootstrap/tests/model-catalog-overlay.test.ts` | 验证 workspace/turn 双层 overlay 的合并、替换和清理。 |
-| 19 | A | +131/-0 | `apps/zcode-cli/packages/bootstrap/tests/offpeak-turn-model-overlay.test.ts` | 验证闲时单轮 provider 生效、终态前恢复、排队用户消息不串用临时 provider。 |
-| 20 | M | +69/-0 | `apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts` | 覆盖 native v4 sendText 的 turnRuntimeModel 参数和 busy 拒绝边界。 |
-| 21 | M | +53/-0 | `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts` | 覆盖 bridge 协议的临时模型透传和恢复行为。 |
-| 22 | M | +2/-0 | `apps/zcode-cli/packages/contracts/src/model/index.ts` | 模型合同增加 Off-Peak queued retry reason。 |
-| 23 | M | +30/-0 | `docs/conversation-session-case-catalog.md` | 登记 OP01–OP09 闲时 session 生命周期、续跑、恢复和 provider 边界案例。 |
-| 24 | M | +6/-1 | `docs/development-mise-runtime.md` | 记录 mise dev 使用独立数据目录及与其他开发入口/OAuth scheme 的边界。 |
-| 25 | M | +277/-4 | `docs/off-peak-task/decisions.md` | 累计 D22–D39 设计决策，包括接口、两轴状态、per-turn provider、UI、额度和 History 演进。 |
-| 26 | M | +14/-2 | `docs/off-peak-task/glossary.md` | 原 MR Head 补充 ticket/task/session 与状态术语但保留讨论稿头；2026-07-22 follow-up 已重写为当前实现术语表。 |
-| 27 | A | +87/-0 | `docs/off-peak-task/implementation-notes.md` | 新增最终实现文件地图、派发链路、用户模型选择、恢复时机、计费和本地演示说明。 |
-| 28 | M | +92/-54 | `docs/off-peak-task/spec.md` | 更新完整产品规范：创建、状态、provider、权限、UI、History、灰度与边缘行为。 |
-| 29 | A | +3083/-0 | `docs/off-peak-task/table-design.html` | 新增 3,083 行可视化生命周期/表格审计，包含当前事实、方案演进和风险清单。 |
-| 30 | M | +327/-128 | `docs/off-peak-task/tech-design.md` | 原 MR Head 扩充设计但混有规划期语义；2026-07-22 follow-up 已对齐最终接口、额度、Provider 和 permission 边界。 |
-| 31 | M | +23/-0 | `docs/testing/conversation-session-e2e-coverage-matrix.md` | 增加 Off-Peak case 覆盖矩阵，区分已覆盖、planned 与 pending execution。 |
-| 32 | M | +9/-4 | `docs/ui/scheduled-tasks-main-view.md` | 明确 Scheduled 与 Idle-time task 在 Automations 主视图中的并存和边界。 |
-| 33 | M | +2/-1 | `mise.toml` | 为 mise dev 注入 ZCODE_DATA_BASE_DIR=~/.zcode-dev-home，隔离正式数据。 |
-| 34 | M | +5/-0 | `packages/client/src/remoteServiceAccess.ts` | remote service accessor 暴露 IOffPeakTaskService 合同；不等于 mobile remote 开启产品。 |
-| 35 | M | +381/-0 | `packages/desktop/src/host/index.ts` | 实现 host 侧 Off-Peak runtime 装配、双凭证、用户模型解析、首次 session 创建、续跑派发、终态订阅与 3102 闭环。 |
-| 36 | M | +62/-0 | `packages/desktop/src/main/desktopCronScheduler.ts` | 在 main 调度桥中转 OffPeakRun/Result、scheduler wake 和 active count 消息。 |
-| 37 | M | +28/-0 | `packages/desktop/src/main/desktopHostProcess.ts` | host process 消息处理新增 Off-Peak 派发结果与唤醒回调。 |
-| 38 | M | +44/-0 | `packages/desktop/src/main/index.ts` | 装配 scheduler/host Off-Peak 路由，并按全局 setting 管理 powerSaveBlocker。 |
-| 39 | M | +113/-1 | `packages/desktop/src/scheduler/index.ts` | scheduler 增加 20 秒认领派发、启动恢复、in-flight 集合、transient backoff 和结果结算。 |
-| 40 | A | +85/-0 | `packages/desktop/src/scheduler/offPeakDispatchSettlement.ts` | 新增派发结果分类器：成功 markRunning、永久失败落终态、暂态释放 claim 并指数退避。 |
-| 41 | M | +31/-0 | `packages/desktop/src/scheduler/schedulerProtocol.ts` | 新增 scheduler 与 main 间 OffPeakRun、Result、wake/active-count 协议类型。 |
-| 42 | M | +2/-0 | `packages/desktop/test/e2e/helpers/e2e-before-session.ts` | E2E 启动辅助接入 Off-Peak mock 环境准备。 |
-| 43 | A | +182/-0 | `packages/desktop/test/e2e/off-peak-create-manage.test.ts` | 新增 WDIO 创建、编辑、暂停、继续、删除和列表管理流程。 |
-| 44 | A | +120/-0 | `packages/desktop/test/e2e/off-peak-limit-pre-gate.test.ts` | 新增 availability/额度预门控 E2E；文件名仍沿用早期限额语义。 |
-| 45 | M | +4/-0 | `packages/desktop/test/e2eBeforeSessionSetup.test.ts` | 为新增 mock 启动钩子补 stub，保持启动 helper 单测稳定。 |
-| 46 | A | +99/-0 | `packages/desktop/test/offPeakDispatchSettlement.test.ts` | 覆盖 scheduler 派发结果的 success/permanent/transient 结算和退避。 |
-| 47 | M | +13/-0 | `packages/desktop/test/root-build-scripts.test.ts` | 断言 mise dev 数据目录隔离配置，保护根构建脚本。 |
-| 48 | M | +51/-19 | `packages/desktop/wdio.conf.ts` | 按 Off-Peak spec 自动注入 mock env、ready/TTL/poll/availability 参数并清理。 |
-| 49 | M | +3/-0 | `packages/services/src/accessor.ts` | 服务访问器加入 IOffPeakTaskService。 |
-| 50 | M | +52/-0 | `packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts` | 从 client configs 解析 Off-Peak enable/allowed_models，并提供计划状态信息。 |
-| 51 | M | +3/-0 | `packages/services/src/coding-plan-subscription/codingPlanSubscription.ts` | 订阅领域合同增加 Off-Peak client config 读取能力。 |
-| 52 | M | +1/-0 | `packages/services/src/coding-plan-subscription/codingPlanSubscriptionService.ts` | service 转发 provider 的 Off-Peak client config。 |
-| 53 | M | +3/-0 | `packages/services/src/index.ts` | 公开导出 Off-Peak service/repo/runtime/server client 等模块。 |
-| 54 | M | +72/-0 | `packages/services/src/node.ts` | Node 服务容器装配 Repo、server client、origin resolver、同步回调和 IOffPeakTaskService。 |
-| 55 | A | +475/-0 | `packages/services/src/session/offPeakMockGateway.ts` | 新增完整进程内 ticket/messages mock 网关，支持状态推进、故障注入、离线响应和真实上游代理。 |
-| 56 | A | +234/-0 | `packages/services/src/session/offPeakRuntimeModel.ts` | 新增永久错误类型、用户常驻模型解析、双凭证解析、单轮内置 provider 构造及 mock origin。 |
-| 57 | A | +251/-0 | `packages/services/src/session/offPeakServerClient.ts` | 新增 availability/take/status/settle HTTP 客户端、Zod 宽容解析、双鉴权、超时和类型化业务错误。 |
-| 58 | A | +44/-0 | `packages/services/src/session/offPeakTask.ts` | 定义 IOffPeakTaskService RPC 合同、编辑参数和 service descriptor。 |
-| 59 | A | +727/-0 | `packages/services/src/session/offPeakTaskRepo.ts` | 新增 off_peak_tasks SQLite schema、迁移、查询、条件状态转换、事务 claim、恢复、续跑及 settle outbox。 |
-| 60 | A | +453/-0 | `packages/services/src/session/offPeakTaskService.ts` | 新增取号后落库、CRUD、暂停/继续、ticket 批量同步、重取、scheduler wake 和核销编排。 |
-| 61 | M | +11/-0 | `packages/services/src/session/zcodeTaskService.ts` | sendText 请求支持可选 turnRuntimeModel。 |
-| 62 | M | +2/-0 | `packages/services/src/zcode-agent/zcodeAgent.ts` | Agent 发送接口类型透传临时 runtime model。 |
-| 63 | M | +5/-0 | `packages/services/src/zcode-agent/zcodeAgentService.ts` | Agent service 继续透传 turnRuntimeModel 到协议层。 |
-| 64 | M | +12/-2 | `packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts` | task adapter 将临时模型放入 session/sendText，并保持旧调用兼容。 |
-| 65 | A | +115/-0 | `packages/services/test/offPeakClientConfig.test.ts` | 覆盖灰度 enable、allowed models、计划状态和配置缺失边界。 |
-| 66 | A | +173/-0 | `packages/services/test/offPeakE2eIntegration.test.ts` | 以 mock 验证取号、ready、消息准入、终态/续跑等服务级闭环。 |
-| 67 | A | +101/-0 | `packages/services/test/offPeakRuntimeModel.test.ts` | 覆盖凭证缺失、provider 配置、header 和多 provider 用户模型选择。 |
-| 68 | A | +259/-0 | `packages/services/test/offPeakServerClient.test.ts` | 覆盖五类 server interaction 的解析、信封、null、超时/错误和 availability 约束。 |
-| 69 | A | +487/-0 | `packages/services/test/offPeakTaskRepo.test.ts` | 系统覆盖 schema、CRUD、编辑守卫、claim、终态、恢复、History 和 outbox。 |
-| 70 | A | +301/-0 | `packages/services/test/offPeakTaskService.test.ts` | 覆盖 create/cancel/pause/continue/sync/retake/settle 与服务端异常分支。 |
-| 71 | M | +2/-0 | `packages/services/test/zcodeAgentService.providerRegistry.test.ts` | 调整 provider registry 测试以容纳临时 runtime model 透传。 |
-| 72 | M | +20/-0 | `packages/services/test/zcodeLegacyTaskCompatTaskIndex.test.ts` | 确保新增 off_peak_tasks 不破坏 legacy task index 兼容和初始化。 |
-| 73 | M | +8/-0 | `packages/shared/src/channels.ts` | 新增 Off-Peak service channel 与跨进程消息名。 |
-| 74 | M | +14/-0 | `packages/shared/src/coding-plan-subscription.ts` | 增加 Off-Peak client config/allowed model 共享类型。 |
-| 75 | M | +1/-0 | `packages/shared/src/index.ts` | 从 shared barrel 导出 off-peak-types。 |
-| 76 | A | +118/-0 | `packages/shared/src/off-peak-types.ts` | 新增客户端七态、常量、availability、任务实体和创建参数。 |
-| 77 | M | +2/-0 | `packages/shared/src/protocol.ts` | 平台/服务协议注册 Off-Peak 相关类型。 |
-| 78 | M | +12/-0 | `packages/shared/src/test-ids.ts` | 新增闲时创建、列表、表单和额度门控 E2E test id。 |
-| 79 | M | +38/-0 | `packages/shared/src/validation.ts` | 为 OffPeakRun、Result、wake 和 sendText 临时模型增加运行时 schema。 |
-| 80 | M | +2/-0 | `packages/shared/src/validationAppSettings.ts` | AppSettings schema 增加 keepAwakeWhileRunning，默认 false。 |
-| 81 | M | +4/-0 | `packages/shared/src/zcode-protocol-v4/command.ts` | v4 sendText command 增加 turnRuntimeModel 字段。 |
-| 82 | M | +2/-0 | `packages/shared/src/zcode-protocol/index.ts` | 协议公共入口导出新的 runtime model 结构。 |
-| 83 | M | +17/-0 | `packages/shared/test/zcodeProtocol.test.ts` | 验证协议 schema 接受合法 turnRuntimeModel 并拒绝非法形态。 |
-| 84 | M | +8/-0 | `packages/ui/src/App.tsx` | 应用根部挂载 Off-Peak 系统通知 hook。 |
-| 85 | M | +26/-20 | `packages/ui/src/ConfirmDialog.tsx` | 扩展确认框 compact/destructive/关闭控制和快捷键行为。 |
-| 86 | M | +15/-0 | `packages/ui/src/SettingsPage.tsx` | General Settings 增加全局 keep-awake switch。 |
-| 87 | M | +56/-36 | `packages/ui/src/WorkspaceSidebar.tsx` | 桌面 grouped sidebar 接入 Idle-time task 系统组并处理 session/Automations 导航。 |
-| 88 | M | +20/-7 | `packages/ui/src/app-shell/WorkspaceShellLayout.tsx` | 根据 desktop/local/remote 布局边界决定 Off-Peak 侧栏数据与显示。 |
-| 89 | M | +68/-4 | `packages/ui/src/components/ui/toast.tsx` | Toast 新增位置、info/warning、action、dismiss 和较长时长能力。 |
-| 90 | A | +43/-0 | `packages/ui/src/hooks/useAutomationProjectOptions.ts` | 统一筛选当前已打开可用的本地 workspace，供 scheduled/off-peak 表单复用。 |
-| 91 | A | +96/-0 | `packages/ui/src/hooks/useOffPeakTaskNotifications.ts` | 新增 completed/failed/awaiting 边沿系统通知、首次 baseline 和去重。 |
-| 92 | M | +2/-2 | `packages/ui/src/i18n/IntlProvider.tsx` | 同步 locale provider 类型以接纳新增消息键。 |
-| 93 | M | +116/-6 | `packages/ui/src/i18n/locales/en-US.ts` | 补齐英文闲时任务、状态、表单、额度、History、keep-awake 和通知文案。 |
-| 94 | M | +107/-5 | `packages/ui/src/i18n/locales/zh-CN.ts` | 补齐对应简体中文文案。 |
-| 95 | M | +1018/-1226 | `packages/ui/src/settings/AutomationEditView.tsx` | 现有 scheduled automation 表单改用共享本地项目候选；大部分行变动为格式化重排。 |
-| 96 | M | +701/-115 | `packages/ui/src/settings/AutomationsSection.tsx` | 主视图接入三 tab、gray/availability、创建/编辑路由、任务列表、模板、History 和 keep-awake banner。 |
-| 97 | A | +65/-0 | `packages/ui/src/settings/OffPeakEditActionsMenu.tsx` | 新增编辑页按任务状态显示 Pause/Continue/Delete 等动作菜单。 |
-| 98 | A | +516/-0 | `packages/ui/src/settings/OffPeakEditView.tsx` | 新增创建/编辑 composer、权限/模型/推理选择、草稿守卫、History tab 和全局设置镜像。 |
-| 99 | A | +135/-0 | `packages/ui/src/settings/OffPeakHistoryTab.tsx` | 新增一任务 0/1 行的聚合 History、状态/时长映射和行菜单。 |
-| 100 | A | +125/-0 | `packages/ui/src/settings/OffPeakSidebarGroup.tsx` | 新增可折叠、跨项目汇总的 Idle-time task 侧栏组。 |
-| 101 | A | +321/-0 | `packages/ui/src/settings/OffPeakTaskList.tsx` | 新增两列任务卡、状态排序、队列位次、状态动作和 session 导航。 |
-| 102 | A | +75/-0 | `packages/ui/src/settings/OffPeakToolbarSelect.tsx` | 新增适配 Off-Peak composer 的工具栏下拉选择器。 |
-| 103 | M | +23/-0 | `packages/ui/src/settingsPageHelpers.tsx` | 设置页辅助组件支持 keep-awake 等新配置项展示。 |
-| 104 | M | +4/-0 | `packages/ui/src/store/confirmDialogStore.ts` | 确认框 store 类型增加 compact/destructive/close 等选项。 |
-| 105 | A | +280/-0 | `packages/ui/src/store/offPeakTaskStore.ts` | 新增任务/灰度/availability/draft 状态、并发 operationId、CRUD action 和轮询刷新。 |
-| 106 | M | +6/-2 | `packages/ui/src/v4/ConversationDraftEmptyState.tsx` | New task 空态插入闲时任务入口。 |
-| 107 | A | +114/-0 | `packages/ui/src/v4/OffPeakNewTaskEntry.tsx` | 新增引导 banner、模板卡、关闭状态和 pending draft 跳转。 |
-| 108 | M | +8/-0 | `packages/ui/src/v4/SessionPane.tsx` | 在 session/new-task pane 中接入 Off-Peak 空态入口与路由。 |
-| 109 | A | +63/-0 | `packages/ui/test/automationProjectOptions.test.ts` | 验证仅返回已打开本地 workspace，排除 recent/remote/不可用项。 |
-| 110 | A | +14/-0 | `packages/ui/test/offPeakHistoryStatus.test.ts` | 验证 History 状态映射和最短时长语义。 |
-| 111 | A | +79/-0 | `packages/ui/test/offPeakTaskStore.test.ts` | 验证 store CRUD、operation 防陈旧覆盖、gray/availability 状态。 |
-| 112 | M | +9/-0 | `packages/ui/test/settingsDataBaseDirControl.test.ts` | 调整设置测试以适配 dev data-base-dir 隔离。 |
-| 113 | M | +25/-0 | `packages/ui/test/toast.test.ts` | 覆盖新增 toast variant、位置、action 和 dismiss。 |
-| 114 | M | +12/-12 | `packages/ui/test/workspaceSidebarWebRemoteMobileLayout.test.ts` | 验证 mobile remote 隐藏 Automations/Off-Peak 并对陈旧路由回退。 |
-| 115 | M | +4/-0 | `packages/web/src/main.tsx` | Web service accessor 补齐 Off-Peak service 合同/fallback 装配。 |
+| 1 | M | +4/-2 | `.gitlab/ci/00-workflow.yml` | O workflow de nível superior libera pipeline com source API, evitando que disparos por API sejam filtrados já na etapa de criação. |
+| 2 | M | +2/-2 | `.gitlab/ci/20-test.yml` | As regras dos jobs de teste passam a aceitar source API, cobrindo entradas como o conversation E2E manual. |
+| 3 | M | +1/-1 | `.gitlab/ci/30-build.yml` | A condição de source da etapa de build ganha o disparo por API. |
+| 4 | M | +3/-3 | `.gitlab/ci/50-release.yml` | Jobs manuais de release/sandbox passam a liberar source API. |
+| 5 | A | +62/-0 | `apps/zcode-cli/packages/adapters/src/model/offpeak-retry.ts` | Nova classificação de falhas exclusiva do provider de horário ocioso: espera de fila 429/3105, marcador de ticket expirado 3102/legacy 3001 e clamp de Retry-After. |
+| 6 | M | +40/-4 | `apps/zcode-cli/packages/adapters/src/model/runner-generate.ts` | O runner de generate adota a decisão de Off-Peak; a espera por capacidade não consome o retry budget comum e há suporte a abort. |
+| 7 | M | +75/-5 | `apps/zcode-cli/packages/adapters/src/model/runner-stream.ts` | O runner de stream adota um retry semelhante, mas só reproduz enquanto não cruzou a fronteira de saída visível. |
+| 8 | A | +296/-0 | `apps/zcode-cli/packages/adapters/tests/offpeak-retry.test.ts` | Cobre o retry generate/stream exclusivo de Off-Peak, Retry-After, códigos de negócio e o isolamento do provider comum. |
+| 9 | M | +45/-15 | `apps/zcode-cli/packages/bootstrap/src/app/model-catalog-overlay.ts` | Separa o overlay de runtime em camada de workspace e de turno, com instalação de turno único, limpeza e refresh do registry. |
+| 10 | M | +19/-8 | `apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts` | O facade de session ganha o ciclo de vida do turn runtime model e restaura o modelo do usuário no fim do turno. |
+| 11 | M | +14/-1 | `apps/zcode-cli/packages/bootstrap/src/app/types.ts` | Estende os tipos de model catalog overlay/session para expressar overlay de escopo de turno. |
+| 12 | M | +51/-12 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-flow.ts` | O fluxo de criação/recuperação de session trata o modelo explícito do usuário e a ordem de limpeza do overlay de turno. |
+| 13 | M | +18/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/prompt-turn.ts` | O prompt turn recebe e instala o turnRuntimeModel, registrando o modelo anterior para restauração no estado terminal. |
+| 14 | M | +10/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/types.ts` | O tipo de contexto de comandos ganha turn runtime model e informações de restauração. |
+| 15 | M | +3/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts` | Projeta o retry de fila de Off-Peak como um rate-limit fault recuperável. |
+| 16 | M | +61/-0 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts` | A camada de bridge antiga repassa o turnRuntimeModel, mantendo os dois caminhos de comando (v4 native e bridge) consistentes. |
+| 17 | M | +53/-3 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts` | O catálogo do workspace preserva o overlay de turno em hot updates e trata o fallback seguro quando o modelo original foi removido. |
+| 18 | M | +69/-0 | `apps/zcode-cli/packages/bootstrap/tests/model-catalog-overlay.test.ts` | Verifica a mesclagem, substituição e limpeza do overlay duplo de workspace/turn. |
+| 19 | A | +131/-0 | `apps/zcode-cli/packages/bootstrap/tests/offpeak-turn-model-overlay.test.ts` | Verifica o provider de horário ocioso valendo por um turno, a restauração antes do estado terminal e mensagens de usuário enfileiradas não usando o provider temporário. |
+| 20 | M | +69/-0 | `apps/zcode-cli/packages/bootstrap/tests/v4-native-commands.test.ts` | Cobre o parâmetro turnRuntimeModel do sendText v4 native e a fronteira de rejeição quando ocupado. |
+| 21 | M | +53/-0 | `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts` | Cobre o repasse do modelo temporário e o comportamento de restauração no protocolo bridge. |
+| 22 | M | +2/-0 | `apps/zcode-cli/packages/contracts/src/model/index.ts` | O contrato de modelo ganha o motivo de retry de fila de Off-Peak. |
+| 23 | M | +30/-0 | `docs/conversation-session-case-catalog.md` | Registra os casos OP01–OP09 de ciclo de vida da session de horário ocioso, continuação, recuperação e fronteiras de provider. |
+| 24 | M | +6/-1 | `docs/development-mise-runtime.md` | Registra que o mise dev usa um diretório de dados separado e seus limites com outras entradas de desenvolvimento e o scheme OAuth. |
+| 25 | M | +277/-4 | `docs/off-peak-task/decisions.md` | Acumula as decisões de design D22–D39, incluindo interfaces, estados de dois eixos, provider por turno, UI, cota e evolução do History. |
+| 26 | M | +14/-2 | `docs/off-peak-task/glossary.md` | O Head original do MR acrescentava termos de ticket/task/session e estados mas mantinha o cabeçalho de minuta; o follow-up de 2026-07-22 reescreveu como glossário da implementação atual. |
+| 27 | A | +87/-0 | `docs/off-peak-task/implementation-notes.md` | Novo mapa final de arquivos de implementação, cadeia de despacho, escolha do modelo do usuário, momento de restauração, cobrança e demonstração local. |
+| 28 | M | +92/-54 | `docs/off-peak-task/spec.md` | Atualiza a especificação completa de produto: criação, estados, provider, permissão, UI, History, rollout e comportamento de borda. |
+| 29 | A | +3083/-0 | `docs/off-peak-task/table-design.html` | Novo relatório visual de ciclo de vida/auditoria em tabelas com 3.083 linhas, contendo fatos atuais, evolução de planos e lista de riscos. |
+| 30 | M | +327/-128 | `docs/off-peak-task/tech-design.md` | O Head original do MR ampliou o design mas misturou semântica de planejamento; o follow-up de 2026-07-22 alinhou as interfaces finais, cota, Provider e fronteira de permission. |
+| 31 | M | +23/-0 | `docs/testing/conversation-session-e2e-coverage-matrix.md` | Acrescenta a matriz de cobertura de casos de Off-Peak, distinguindo coberto, planned e pending execution. |
+| 32 | M | +9/-4 | `docs/ui/scheduled-tasks-main-view.md` | Esclarece a coexistência e a fronteira entre Scheduled e Idle-time task na visão principal de Automations. |
+| 33 | M | +2/-1 | `mise.toml` | Injeta ZCODE_DATA_BASE_DIR=~/.zcode-dev-home no mise dev, isolando os dados de produção. |
+| 34 | M | +5/-0 | `packages/client/src/remoteServiceAccess.ts` | O accessor de serviço remoto expõe o contrato IOffPeakTaskService; isso não equivale a abrir o produto no mobile remote. |
+| 35 | M | +381/-0 | `packages/desktop/src/host/index.ts` | Implementa a montagem do runtime de Off-Peak no host, credencial dupla, resolução do modelo do usuário, criação da primeira session, despacho de continuação, assinatura de estado terminal e ciclo do 3102. |
+| 36 | M | +62/-0 | `packages/desktop/src/main/desktopCronScheduler.ts` | Encaminha OffPeakRun/Result, wake do scheduler e mensagens de active count na ponte de agendamento do main. |
+| 37 | M | +28/-0 | `packages/desktop/src/main/desktopHostProcess.ts` | O tratamento de mensagens do host process ganha resultados de despacho de Off-Peak e o callback de wake. |
+| 38 | M | +44/-0 | `packages/desktop/src/main/index.ts` | Monta o roteamento de Off-Peak entre scheduler e host e gerencia o powerSaveBlocker conforme o setting global. |
+| 39 | M | +113/-1 | `packages/desktop/src/scheduler/index.ts` | O scheduler ganha claim e despacho a cada 20 segundos, recuperação na inicialização, conjunto in-flight, backoff transitório e liquidação de resultados. |
+| 40 | A | +85/-0 | `packages/desktop/src/scheduler/offPeakDispatchSettlement.ts` | Novo classificador de resultado de despacho: sucesso com markRunning, falha permanente indo a estado terminal e falha transitória liberando o claim com backoff exponencial. |
+| 41 | M | +31/-0 | `packages/desktop/src/scheduler/schedulerProtocol.ts` | Novos tipos de protocolo OffPeakRun, Result, wake e active-count entre scheduler e main. |
+| 42 | M | +2/-0 | `packages/desktop/test/e2e/helpers/e2e-before-session.ts` | O auxiliar de inicialização do E2E passa a preparar o ambiente do mock de Off-Peak. |
+| 43 | A | +182/-0 | `packages/desktop/test/e2e/off-peak-create-manage.test.ts` | Novo fluxo WDIO de criação, edição, pausa, continuação, exclusão e gestão da listagem. |
+| 44 | A | +120/-0 | `packages/desktop/test/e2e/off-peak-limit-pre-gate.test.ts` | Novo E2E de availability / pre-gate de cota; o nome do arquivo ainda usa a semântica antiga de limite. |
+| 45 | M | +4/-0 | `packages/desktop/test/e2eBeforeSessionSetup.test.ts` | Acrescenta stubs para o novo hook de inicialização do mock, mantendo o teste unitário do auxiliar estável. |
+| 46 | A | +99/-0 | `packages/desktop/test/offPeakDispatchSettlement.test.ts` | Cobre a liquidação success/permanent/transient do resultado de despacho do scheduler e seu backoff. |
+| 47 | M | +13/-0 | `packages/desktop/test/root-build-scripts.test.ts` | Asserte a configuração de isolamento do data dir do mise dev, protegendo os root build scripts. |
+| 48 | M | +51/-19 | `packages/desktop/wdio.conf.ts` | Injeta e limpa automaticamente mock env e parâmetros de ready/TTL/poll/availability conforme a spec de Off-Peak. |
+| 49 | M | +3/-0 | `packages/services/src/accessor.ts` | O accessor de serviços ganha a IOffPeakTaskService. |
+| 50 | M | +52/-0 | `packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts` | Lê enable/allowed_models de Off-Peak a partir dos client configs e fornece informação de estado do plano. |
+| 51 | M | +3/-0 | `packages/services/src/coding-plan-subscription/codingPlanSubscription.ts` | O contrato de assinatura ganha a capacidade de ler o client config de Off-Peak. |
+| 52 | M | +1/-0 | `packages/services/src/coding-plan-subscription/codingPlanSubscriptionService.ts` | O service repassa o client config de Off-Peak do provider. |
+| 53 | M | +3/-0 | `packages/services/src/index.ts` | Exporta publicamente os módulos de service/repo/runtime/server client de Off-Peak. |
+| 54 | M | +72/-0 | `packages/services/src/node.ts` | O contêiner de serviços Node monta o Repo, o server client, o origin resolver, os callbacks de sincronização e a IOffPeakTaskService. |
+| 55 | A | +475/-0 | `packages/services/src/session/offPeakMockGateway.ts` | Novo gateway mock completo em processo para tickets/messages, com avanço de estado, injeção de falhas, respostas offline e proxy de upstream real. |
+| 56 | A | +234/-0 | `packages/services/src/session/offPeakRuntimeModel.ts` | Novo tipo de erro permanente, resolução do modelo permanente do usuário, resolução de credencial dupla, construção do provider embutido de turno único e mock origin. |
+| 57 | A | +251/-0 | `packages/services/src/session/offPeakServerClient.ts` | Novo cliente HTTP de availability/take/status/settle, parsing tolerante com Zod, dupla autenticação, timeout e erros de negócio tipados. |
+| 58 | A | +44/-0 | `packages/services/src/session/offPeakTask.ts` | Define o contrato RPC da IOffPeakTaskService, parâmetros de edição e o service descriptor. |
+| 59 | A | +727/-0 | `packages/services/src/session/offPeakTaskRepo.ts` | Novo schema SQLite off_peak_tasks, migrações, consultas, transições condicionais de estado, claim transacional, recuperação, continuação e outbox de settle. |
+| 60 | A | +453/-0 | `packages/services/src/session/offPeakTaskService.ts` | Nova orquestração de gravação após retirada de número, CRUD, pause/continue, sincronização em lote de tickets, nova retirada, wake do scheduler e baixa. |
+| 61 | M | +11/-0 | `packages/services/src/session/zcodeTaskService.ts` | A requisição sendText passa a aceitar um turnRuntimeModel opcional. |
+| 62 | M | +2/-0 | `packages/services/src/zcode-agent/zcodeAgent.ts` | O tipo da interface de envio do Agent repassa o runtime model temporário. |
+| 63 | M | +5/-0 | `packages/services/src/zcode-agent/zcodeAgentService.ts` | O Agent service continua repassando o turnRuntimeModel até a camada de protocolo. |
+| 64 | M | +12/-2 | `packages/services/src/zcode-agent/zcodeTaskServiceAdapter.ts` | O task adapter coloca o modelo temporário em session/sendText e mantém a compatibilidade com chamadas antigas. |
+| 65 | A | +115/-0 | `packages/services/test/offPeakClientConfig.test.ts` | Cobre o enable de rollout, allowed models, estado do plano e os limites de configuração ausente. |
+| 66 | A | +173/-0 | `packages/services/test/offPeakE2eIntegration.test.ts` | Com mock, verifica retirada de número, ready, admissão de mensagens e o ciclo de estado terminal/continuação em nível de serviço. |
+| 67 | A | +101/-0 | `packages/services/test/offPeakRuntimeModel.test.ts` | Cobre credencial ausente, configuração de provider, header e a escolha de modelo em usuários com múltiplos providers. |
+| 68 | A | +259/-0 | `packages/services/test/offPeakServerClient.test.ts` | Cobre parsing, envelope, null, timeout/erro e restrições de availability das cinco interações com o servidor. |
+| 69 | A | +487/-0 | `packages/services/test/offPeakTaskRepo.test.ts` | Cobre sistematicamente schema, CRUD, guardas de edição, claim, estados terminais, recuperação, History e outbox. |
+| 70 | A | +301/-0 | `packages/services/test/offPeakTaskService.test.ts` | Cobre create/cancel/pause/continue/sync/retake/settle e os ramos de exceção do servidor. |
+| 71 | M | +2/-0 | `packages/services/test/zcodeAgentService.providerRegistry.test.ts` | Ajusta o teste do provider registry para acomodar o repasse do runtime model temporário. |
+| 72 | M | +20/-0 | `packages/services/test/zcodeLegacyTaskCompatTaskIndex.test.ts` | Garante que o novo off_peak_tasks não quebra a compatibilidade nem a inicialização do legacy task index. |
+| 73 | M | +8/-0 | `packages/shared/src/channels.ts` | Novo canal de serviço de Off-Peak e novos nomes de mensagens entre processos. |
+| 74 | M | +14/-0 | `packages/shared/src/coding-plan-subscription.ts` | Novos tipos compartilhados de client config e allowed model de Off-Peak. |
+| 75 | M | +1/-0 | `packages/shared/src/index.ts` | Exporta off-peak-types pelo barrel do shared. |
+| 76 | A | +118/-0 | `packages/shared/src/off-peak-types.ts` | Novos sete estados do cliente, constantes, availability, entidade de tarefa e parâmetros de criação. |
+| 77 | M | +2/-0 | `packages/shared/src/protocol.ts` | O protocolo de plataforma/serviço registra os tipos relacionados a Off-Peak. |
+| 78 | M | +12/-0 | `packages/shared/src/test-ids.ts` | Novos test ids de E2E para criação, listagem, formulário e gating de cota de horário ocioso. |
+| 79 | M | +38/-0 | `packages/shared/src/validation.ts` | Novos schemas de runtime para OffPeakRun, Result, wake e o modelo temporário do sendText. |
+| 80 | M | +2/-0 | `packages/shared/src/validationAppSettings.ts` | O schema de AppSettings ganha keepAwakeWhileRunning, com padrão false. |
+| 81 | M | +4/-0 | `packages/shared/src/zcode-protocol-v4/command.ts` | O comando sendText v4 ganha o campo turnRuntimeModel. |
+| 82 | M | +2/-0 | `packages/shared/src/zcode-protocol/index.ts` | A entrada pública do protocolo exporta a nova estrutura de runtime model. |
+| 83 | M | +17/-0 | `packages/shared/test/zcodeProtocol.test.ts` | Verifica que o schema do protocolo aceita um turnRuntimeModel válido e rejeita formas inválidas. |
+| 84 | M | +8/-0 | `packages/ui/src/App.tsx` | Monta o hook de notificação de sistema de Off-Peak na raiz da aplicação. |
+| 85 | M | +26/-20 | `packages/ui/src/ConfirmDialog.tsx` | Estende o diálogo de confirmação com compact/destructive, controle de fechamento e comportamento de atalhos. |
+| 86 | M | +15/-0 | `packages/ui/src/SettingsPage.tsx` | General Settings ganha o switch global de keep-awake. |
+| 87 | M | +56/-36 | `packages/ui/src/WorkspaceSidebar.tsx` | O grouped sidebar do desktop adota o grupo de sistema Idle-time task e trata a navegação entre session e Automations. |
+| 88 | M | +20/-7 | `packages/ui/src/app-shell/WorkspaceShellLayout.tsx` | Decide os dados e a exibição da barra lateral de Off-Peak conforme a fronteira de layout desktop/local/remote. |
+| 89 | M | +68/-4 | `packages/ui/src/components/ui/toast.tsx` | O Toast ganha posição, info/warning, action, dismiss e durações mais longas. |
+| 90 | A | +43/-0 | `packages/ui/src/hooks/useAutomationProjectOptions.ts` | Filtra de forma unificada os workspaces locais abertos e disponíveis, reutilizado pelos formulários scheduled/off-peak. |
+| 91 | A | +96/-0 | `packages/ui/src/hooks/useOffPeakTaskNotifications.ts` | Novas notificações de sistema de borda completed/failed/awaiting, linha de base no primeiro load e deduplicação. |
+| 92 | M | +2/-2 | `packages/ui/src/i18n/IntlProvider.tsx` | Sincroniza o tipo do provider de locale para aceitar as novas chaves de mensagem. |
+| 93 | M | +116/-6 | `packages/ui/src/i18n/locales/en-US.ts` | Completa em inglês os textos de tarefa de horário ocioso, estados, formulário, cota, History, keep-awake e notificações. |
+| 94 | M | +107/-5 | `packages/ui/src/i18n/locales/zh-CN.ts` | Completa os textos correspondentes em chinês simplificado. |
+| 95 | M | +1018/-1226 | `packages/ui/src/settings/AutomationEditView.tsx` | O formulário de automation agendada existente passa a usar candidatos locais compartilhados de projeto; a maior parte da variação de linhas é reformatação. |
+| 96 | M | +701/-115 | `packages/ui/src/settings/AutomationsSection.tsx` | A visão principal adota três tabs, gray/availability, rotas de criação/edição, lista de tarefas, modelos, History e banner de keep-awake. |
+| 97 | A | +65/-0 | `packages/ui/src/settings/OffPeakEditActionsMenu.tsx` | Novo menu de ações na página de edição mostrando Pause/Continue/Delete conforme o estado da tarefa. |
+| 98 | A | +516/-0 | `packages/ui/src/settings/OffPeakEditView.tsx` | Novo composer de criação/edição, seleção de permissão/modelo/raciocínio, guarda de rascunho, tab de History e espelho do setting global. |
+| 99 | A | +135/-0 | `packages/ui/src/settings/OffPeakHistoryTab.tsx` | Novo History agregado de 0/1 linha por tarefa, mapeamento de estado/duração e menu de linha. |
+| 100 | A | +125/-0 | `packages/ui/src/settings/OffPeakSidebarGroup.tsx` | Novo grupo de barra lateral Idle-time task, colapsável e agregado entre projetos. |
+| 101 | A | +321/-0 | `packages/ui/src/settings/OffPeakTaskList.tsx` | Novos cards de tarefa em duas colunas, ordenação por estado, posição na fila, ações por estado e navegação para a session. |
+| 102 | A | +75/-0 | `packages/ui/src/settings/OffPeakToolbarSelect.tsx` | Novo seletor dropdown de toolbar adaptado ao composer de Off-Peak. |
+| 103 | M | +23/-0 | `packages/ui/src/settingsPageHelpers.tsx` | Os auxiliares da página de settings passam a exibir novas configurações como keep-awake. |
+| 104 | M | +4/-0 | `packages/ui/src/store/confirmDialogStore.ts` | O store do diálogo de confirmação ganha opções como compact, destructive e close. |
+| 105 | A | +280/-0 | `packages/ui/src/store/offPeakTaskStore.ts` | Novos estados de tarefa/rollout/availability/rascunho, operationId concorrente, ações de CRUD e atualização por polling. |
+| 106 | M | +6/-2 | `packages/ui/src/v4/ConversationDraftEmptyState.tsx` | Insere a entrada de horário ocioso no estado vazio de New task. |
+| 107 | A | +114/-0 | `packages/ui/src/v4/OffPeakNewTaskEntry.tsx` | Novo banner de orientação, card de modelo, estado de fechamento e navegação com rascunho pendente. |
+| 108 | M | +8/-0 | `packages/ui/src/v4/SessionPane.tsx` | Adota a entrada e a rota do estado vazio de Off-Peak no pane de session/new-task. |
+| 109 | A | +63/-0 | `packages/ui/test/automationProjectOptions.test.ts` | Verifica que só workspaces locais abertos são retornados, excluindo recent/remote/indisponíveis. |
+| 110 | A | +14/-0 | `packages/ui/test/offPeakHistoryStatus.test.ts` | Verifica o mapeamento de estados do History e a semântica de duração mínima. |
+| 111 | A | +79/-0 | `packages/ui/test/offPeakTaskStore.test.ts` | Verifica o CRUD do store, a proteção contra sobrescrita obsoleta por operation e os estados gray/availability. |
+| 112 | M | +9/-0 | `packages/ui/test/settingsDataBaseDirControl.test.ts` | Ajusta o teste de settings ao isolamento de dev data-base-dir. |
+| 113 | M | +25/-0 | `packages/ui/test/toast.test.ts` | Cobre as novas variantes de toast, posição, action e dismiss. |
+| 114 | M | +12/-12 | `packages/ui/test/workspaceSidebarWebRemoteMobileLayout.test.ts` | Verifica que o mobile remote esconde Automations/Off-Peak e faz fallback em rotas obsoletas. |
+| 115 | M | +4/-0 | `packages/web/src/main.tsx` | O accessor de serviços da Web completa a montagem do contrato / fallback do serviço de Off-Peak. |
 
-## 22. 本文生成时的机械校验
+## 22. Verificações mecânicas feitas na geração deste documento
 
-| 校验 | 结果 |
+| Verificação | Resultado |
 |---|---|
-| changed path 对账 | 文中 115 条；Git 115 条；无缺失、无额外、无重复 |
-| commit 对账 | 文中 60 条；Git 60 条；顺序完全一致 |
-| `git diff --check` | 通过 |
-| `pnpm typecheck` | 通过 |
-| `pnpm lint` | 通过，0 error；当前分支输出 54 个 warning，本文未修改对应代码 |
+| Conferência de changed paths | 115 no documento; 115 no Git; sem ausências, extras ou duplicatas |
+| Conferência de commits | 60 no documento; 60 no Git; ordem idêntica |
+| `git diff --check` | Passou |
+| `pnpm typecheck` | Passou |
+| `pnpm lint` | Passou, 0 error; o branch atual imprime 54 warnings e este documento não modificou o código correspondente |

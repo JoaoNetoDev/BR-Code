@@ -1,36 +1,31 @@
-# 插件商店按界面模式下发排序
+# Ordenação de entrega da loja de plugins por modo de interface
 
-## 功能与边界
+## Funcionalidade e limites
 
-市场排序范围限定公开分段的分类区块；后续确认输入框 @ / + 复用同一配置（见文末）。按头像菜单的界面模式选择 Code / Work 排序。
-`interfaceMode=coding` 对应 `code`，`interfaceMode=general` 对应 `work`，继续使用现有
-Zustand、本地偏好及窗口广播机制。分类归属仍来自 marketplace listing.category。
+O escopo de ordenação do marketplace se limita aos blocos de categorias da seção pública; ficou confirmado depois que a caixa de entrada @ / + reutiliza a mesma configuração (ver o fim do documento). A seleção Code / Work segue o modo de interface do menu do avatar.
+`interfaceMode=coding` corresponde a `code`, `interfaceMode=general` corresponde a `work`, continuando a usar o Zustand, as preferências locais e o mecanismo de broadcast entre janelas já existentes. A atribuição de categoria continua vindo de marketplace listing.category.
 
-- 只排序已有分类和插件，不创建分类、不移动插件归属、不隐藏未配置项。
-- 配置项先按数组顺序显示；剩余项沿用现有顺序。other 默认最后，显式配置时可调位。
-- 未配置分类：productivity、developer-tools、utilities、finance、legal、template，
-  然后未知 slug 码点序，最后 other。未配置插件：官方 PDF → PPT → Excel → Word 优先，其余按本地化展示名称顺序。
-- 有序列表中重复项取首次、两端空白 trim；不存在的分类或插件忽略。
-  `pluginOrder` 的键使用准确 category slug，插件使用完整 ID 精确匹配。
-- 单个模式无效或缺失时该模式回退默认，不继承另一个模式。空数组表示使用默认顺序。
-- 市场 Featured、个人分段、全局搜索、已安装条的排序不受影响；管理已安装、安装/启停/运行时不变。单独退出展示的恢复插件见下方专节。
-- 每分类默认显示 6 项，折叠预览与展开列表都使用同一份排序结果。
+- Apenas se ordenam categorias e plugins existentes: não se cria categoria, não se move a atribuição de plugin e não se oculta item não configurado.
+- Os itens configurados aparecem primeiro na ordem do array; os restantes mantêm a ordem atual. `other` por padrão é o último, mas pode ser reposicionado quando configurado explicitamente.
+- Categorias não configuradas: productivity, developer-tools, utilities, finance, legal, template,
+  depois slugs desconhecidos em ordem de code point e, por último, `other`. Plugins não configurados: PDF oficial → PPT → Excel → Word têm prioridade; os demais seguem a ordem do nome de exibição localizado.
+- Itens duplicados na lista ordenada usam a primeira ocorrência e os dois extremos são aparados com trim; categorias ou plugins inexistentes são ignorados.
+  As chaves de `pluginOrder` usam o slug de categoria exato e os plugins usam o ID completo em correspondência exata.
+- Quando um único modo é inválido ou está ausente, esse modo volta ao padrão e não herda o outro. Array vazio significa usar a ordem padrão.
+- A ordenação do Featured do marketplace, das seções pessoais, da busca global e da barra de instalados não é afetada; gerenciar instalados, instalar/iniciar-desligar e o runtime ficam inalterados. O plugin de restauração exibido isoladamente é tratado na seção própria abaixo.
+- Cada categoria mostra 6 itens por padrão; a pré-visualização colapsada e a lista expandida usam o mesmo resultado de ordenação.
 
-### 分类调整（2026-09-15）
+### Ajuste de categorias (2026-09-15)
 
-- 取消 `guides` 类目，内置 `zcode-guide` 的目录定义改为 `utilities`。客户端把旧缓存
-  `guides` 归并到 `utilities`，保留插件、安装状态及行为。
-- 新增 `legal` 已知分类，中文“法律”、英文“Legal”；暂不新增插件。
-- 测试环境 Code / Work 排序移除 `guides`，加入 `legal`。空分类沿用不展示规则；
-  新插件未来声明 `category: legal` 后即可按服务端位置展示。
-- 覆盖：旧指南与实用工具合并、无指南标题、法律标签双语、空分类不生成卡片、将来有
-  法律插件时按配置排序。迁移仅改变分类投影与内置目录，不改插件 ID 或功能。
-- 列表与详情页共享分类归并，旧缓存的详情也显示为实用工具。测试环境两套排序均已
-  移除 `guides` 并把 `legal` 放到金融之后；真实 dev 切换两种模式验证通过。
+- A categoria `guides` foi removida; a definição de catálogo do `zcode-guide` embutido passa a ser `utilities`. O cliente agrupa o `guides` antigo em cache em `utilities`, preservando plugin, estado de instalação e comportamento.
+- Nova categoria conhecida `legal`, "法律" em chinês e "Legal" em inglês; nenhum plugin novo por enquanto.
+- As ordenações Code / Work do ambiente de teste removem `guides` e adicionam `legal`. Categoria vazia segue a regra de não exibição; quando um plugin futuro declarar `category: legal` ele já aparece na posição definida pelo servidor.
+- Cobertura: união de guias antigos com utilitários, ausência do título de guias, rótulo Legal bilingue, categoria vazia sem geração de card e ordenação por configuração quando surgir um plugin de Direito. A migração muda apenas a projeção de categorias e o catálogo embutido, não o ID nem a funcionalidade dos plugins.
+- Lista e página de detalhe compartilham o agrupamento de categorias, e o detalhe do cache antigo também aparece como Utilitários. No ambiente de teste as duas ordenações já removeram `guides` e colocaram `legal` logo após finanças; no dev real a troca entre os dois modos foi verificada com sucesso.
 
-## 配置契约
+## Contrato de configuração
 
-`GET /api/v1/client/configs` 的 `data.configs.pluginStoreOrder`：
+`GET /api/v1/client/configs` → `data.configs.pluginStoreOrder`:
 
 ```json
 {
@@ -52,10 +47,10 @@ Zustand、本地偏好及窗口广播机制。分类归属仍来自 marketplace 
 }
 ```
 
-以上 ID 为结构示例；发布时从实际目录复制 ID。每个模式的两个字段均可省略。
-客户端在服务边界用运行时 schema 校验；格式错误不进入排序器。
+Os IDs acima são exemplos estruturais; na publicação, copie os IDs do catálogo real. Os dois campos de cada modo podem ser omitidos.
+O cliente valida com schema de runtime na fronteira de serviço; formato incorreto não entra no ordenador.
 
-## 状态归属与时序
+## Posse do estado e temporização
 
 ```mermaid
 flowchart LR
@@ -69,110 +64,101 @@ flowchart LR
   G --> V[分类区块和展开列表]
 ```
 
-- 使用独立 `IClientConfigService.getSnapshot({ forceRefresh? })` 读取公开字段，
-  通过 `client-config` 普通 RPC 频道暴露；详见 [配置服务契约](../client-config-service.md)。
-- 窗口 Local Host 配置服务是本链路唯一请求/TTL owner；远程 workspace 与手机附件复用
-  同一实例。缓存按 endpoint/version/platform 隔离，1 小时有效；UI 不加 TTL 缓存。
-- 仅迁移本 MR 新增的插件读取；订阅、安全校验、强更、闲时、帮助和 Built-in 的旧链路保持原样。
-- 打开商店时异步读取，目录立即按默认规则显示；配置到达后按当前模式重排。
-- 切换模式只重新计算，不请求、不覆盖界面偏好，不重置展开状态。
-- 手动刷新并行补拉排序配置；不等待配置才刷新目录。读取失败保留当前有效投影，首次失败用默认。
-- 组件卸载、服务切换、较旧请求完成后不能覆盖新投影；服务切换不能展示旧服务配置。
-- 缺失字段（包括配置撤销）为成功的默认配置，必须清除旧排序。无周期轮询或持久化迁移。
-- 桌面、Web、手机共用 UI/hook，通过注入的 service 读取；本功能不触及 workspace
-  identity、shared-host attachment、continuous 或 replayable 的会话数据路径。
+- A leitura dos campos públicos usa um `IClientConfigService.getSnapshot({ forceRefresh? })` dedicado, exposto pelo canal RPC comum `client-config`; veja [Contrato do serviço de configuração](../client-config-service.md).
+- O serviço de configuração do Local Host da janela é o único owner de requisição/TTL desta cadeia; workspace remoto e anexo de celular reutilizam a mesma instância. O cache é isolado por endpoint/version/platform, válido por 1 hora; a UI não adiciona cache com TTL.
+- Só migram as leituras de plugin novas neste MR; as cadeias antigas de assinatura, verificação de segurança, atualização forçada, ocioso, ajuda e Built-in permanecem como estão.
+- Na abertura da loja a leitura é assíncrona e o catálogo aparece imediatamente pelas regras padrão; quando a configuração chega, a reordenação acontece no modo atual.
+- Trocar de modo apenas recalcula: não faz requisição, não sobrescreve a preferência de interface e não reseta o estado de expansão.
+- O refresh manual busca a configuração de ordenação em paralelo; não espera a configuração para atualizar o catálogo. Se a leitura falhar, a projeção válida atual é mantida; na primeira falha, usa-se o padrão.
+- Desmontagem do componente, troca de serviço e conclusão de uma requisição mais antiga não podem sobrescrever a nova projeção; a troca de serviço não pode exibir a configuração do serviço antigo.
+- Campo ausente (inclusive revogação da configuração) é uma configuração padrão bem-sucedida e precisa limpar a ordenação antiga. Não há polling periódico nem migração persistida.
+- Desktop, Web e celular compartilham UI/hook, lendo por meio do service injetado; esta funcionalidade não toca o workspace identity, o shared-host attachment nem o caminho de dados de sessão continuous ou replayable.
 
-## 服务端落点
+## Ponto de implantação no servidor
 
-zcode-server 已支持 `ClientConfigItem.Value:any`，Nacos 更新解析成功后替换快照。
-`GetClientConfigs` 合并数据库固定配置和条件配置；相同 key 后命中的条件配置整体覆盖，
-不是嵌套合并。两种模式放同一个 value 原子发布，不能用两个同名 key 各放一个模式。
-无需新增 Go 业务接口或迁移；服务端提供 Nacos 示例与对象顺序透传回归测试。
+O zcode-server já suporta `ClientConfigItem.Value:any` e substitui o snapshot após o parse bem-sucedido da atualização do Nacos.
+`GetClientConfigs` mescla a configuração fixa do banco com a configuração condicional; a condição com a mesma chave, quando vencida, sobrescreve por inteiro, e não é merge aninhado. Os dois modos vão no mesmo value, publicados atomicamente; não se pode usar duas chaves de mesmo nome com um modo cada.
+Não é preciso novo endpoint de negócio em Go nem migração; o servidor fornece exemplo do Nacos e teste de regressão de passagem de ordem de objeto.
 
-## 影响面（Feature Impact Brief）
+## Impacto da funcionalidade (Feature Impact Brief)
 
-改动层级：option-source、presentation。模式：planning → implementation-handoff。
+Camadas alteradas: option-source, presentation. Modo: planning → implementation-handoff.
 
-| UI 场景               | 入口/共享实现                                                | 显示 owner / 默认源              | 校验与提交            | 权威/持久化           | 模式及隔离                            |
+| Cenário de UI             | Entrada/implementação compartilhada                                       | Owner de exibição / fonte padrão        | Validação e submissão        | Autoridade/persistência     | Modo e isolamento                                    |
 | --------------------- | ------------------------------------------------------------ | -------------------------------- | --------------------- | --------------------- | ------------------------------------- |
-| 公开分类浏览/展开     | PluginStorePage → PluginStoreListView → groupItemsByCategory | hook 配置投影 / 旧排序           | 服务 schema；只读     | Nacos / Host 内存缓存 | desktop/web/mobile 共用，不改插件状态 |
-| 界面模式菜单          | 原有 interfaceMode 设置                                      | Zustand / normalizeInterfaceMode | 原有 setInterfaceMode | 本地偏好及窗口广播    | coding/general 映射 code/work         |
-| 精选/个人/搜索/已安装 | 同一 ListView 的各自 selector                                | 原有目录/安装态                  | 无新增动作            | 原有来源              | 排序完全隔离                          |
+| Navegação/expansão de categorias públicas | PluginStorePage → PluginStoreListView → groupItemsByCategory | projeção de configuração do hook / ordenação antiga | schema do serviço; somente leitura | Nacos / cache em memória do Host | compartilhado por desktop/web/mobile, sem mudar o estado do plugin |
+| Menu de modo de interface        | Configuração interfaceMode existente                                      | Zustand / normalizeInterfaceMode | setInterfaceMode existente    | preferência local e broadcast entre janelas | mapeamento coding/general → code/work |
+| Featured/pessoal/busca/instalados | selectors próprios no mesmo ListView                                    | catálogo/estado de instalação existentes | nenhuma ação nova            | fontes existentes              | ordenação totalmente isolada                            |
 
-共享的是列表组件、配置来源与目录；各入口的筛选、排序和安装动作保留原有语义。
+O que é compartilhado é o componente de lista, a origem da configuração e o catálogo; o filtro, a ordenação e as ações de instalação de cada entrada mantêm a semântica original.
 
-| 级别           | 关系                           | 证据/检查点                                                            |
+| Nível           | Relação                           | Evidência/ponto de checagem                                                    |
 | -------------- | ------------------------------ | ---------------------------------------------------------------------- |
-| must-inspect   | 服务配置 → hook → 分类排序     | ClientConfigService.getSnapshot、PluginStorePage、groupItemsByCategory |
-| must-inspect   | interfaceMode → 排序规则选择   | useIsGeneralMode、StoreProvider                                        |
-| should-inspect | 排序 → 折叠前 6 项及其余项     | PluginStoreListView                                                    |
-| invariant-only | 搜索/精选/个人/已安装 selector | pluginStoreListing、PluginStoreListView                                |
-| invariant-only | 安装/运行时/workspace 隔离     | 不改管理服务或 Agent 协议                                              |
-| evidence-only  | schema、服务、排序和浏览器测试 | 下方覆盖表                                                             |
+| must-inspect   | configuração de serviço → hook → ordenação de categorias | ClientConfigService.getSnapshot, PluginStorePage, groupItemsByCategory |
+| must-inspect   | interfaceMode → escolha da regra de ordenação | useIsGeneralMode, StoreProvider                                        |
+| should-inspect | ordenação → 6 primeiros itens e demais | PluginStoreListView                                                    |
+| invariant-only | selectors de busca/featured/pessoal/instalados | pluginStoreListing, PluginStoreListView                                |
+| invariant-only | isolamento de instalação/runtime/workspace | não alterar serviços de gerenciamento nem o protocolo do Agent                          |
+| evidence-only  | schema, serviços, ordenação e testes de navegador | tabela de cobertura abaixo                                                             |
 
-CodeGraph：两个工作区均无 `.codegraph/`，按约定跳过索引，以 rg 定位实际调用方。
-静态追踪深度 2：Page → ListView → groupItemsByCategory；service → provider → client/configs。
-图谱漂移：已有 interface-mode 能力缺少公开商店排序语义；本次补充明确的 capability 与代码种子。
-状态提交仅发生于原有界面模式设置；排序配置不写本地偏好、插件目录或任务。
+CodeGraph: nenhum dos dois workspaces tem `.codegraph/`, então a indexação foi pulada por convenção e os chamadores reais foram localizados com rg.
+Profundidade de rastreamento estático 2: Page → ListView → groupItemsByCategory; service → provider → client/configs.
+Drift do grafo: a capacidade interface-mode existente não tinha semântica de ordenação da loja pública; esta mudança complementa uma capability explícita e as sementes de código.
+A submissão de estado ocorre apenas na configuração de modo de interface já existente; a configuração de ordenação não escreve preferência local, catálogo de plugins nem tasks.
 
-## 决策与覆盖交接
+## Decisões e handover de cobertura
 
-用户已确认两项边界：公开分类限定；未配置项追加且 other 可显式排序。无待定产品问题。
-主要维度：code/work × 有效/缺失/无效配置 × 初次/切换/刷新 × 展开/折叠。
-平台/主题/语言作代表组合验证，未修改会话交付及插件生命周期，剪枝其笛卡尔积。
+O usuário já confirmou dois limites: categorias públicas limitadas; itens não configurados são adicionados ao final e `other` pode ser ordenado explicitamente. Nenhuma questão de produto pendente.
+Dimensões principais: code/work × configuração válida/ausente/inválida × primeira vez/troca/refresh × expandido/colapsado.
+Plataforma/tema/idioma são combinações representativas; a entrega de sessão e o ciclo de vida de plugins não foram modificados e seu produto cartesiano foi podado.
 
-| ID     | 设置 → 动作 → 断言                                                       | 证据              |
+| ID     | Configuração → ação → asserção                                                       | Evidência              |
 | ------ | ------------------------------------------------------------------------ | ----------------- |
-| PSO-01 | 同一目录和双模式配置 → 切换现有模式状态 → 分类与插件各自重排、请求数不变 | 排序单测 + 浏览器 |
-| PSO-02 | 无配置/空配置/模式字段损坏 → 浏览 → 默认排序，另一模式仍有效             | schema + 排序单测 |
-| PSO-03 | 重复/未知 ID、other 显式项 → 排序 → 首次有效、没有增删或跨类别移动       | 单测              |
-| PSO-04 | 配置未返回/网络失败 → 浏览 → 目录可见；刷新失败保留旧投影                | hook + 服务测试   |
-| PSO-05 | 两服务或较旧请求迟到 → 切换服务/刷新 → 不覆盖新结果                      | hook 测试         |
-| PSO-06 | 超过 6 项 → 展开/收起 → 全部项按统一顺序且展开状态保持                   | 浏览器            |
-| PSO-07 | 同页精选/个人/搜索/已安装 → 切模式 → 原有排序不变                        | 浏览器/已有单测   |
-| PSO-08 | Nacos 双模式嵌套数组 → 解析/覆盖/JSON 序列化 → 两级数组顺序原样保留      | Go 测试           |
-| PSO-09 | 官方恢复插件已安装且被精选 → 两种模式浏览和搜索 → 所有市场入口隐藏，个人同名插件保留 | 浏览器 + 真实 dev |
+| PSO-01 | Mesmo catálogo e configuração de dois modos → alternar o estado de modo existente → categorias e plugins se reordenam, número de requisições inalterado | teste de ordenação + navegador |
+| PSO-02 | Sem configuração/configuração vazia/campo de modo corrompido → navegar → ordenação padrão, o outro modo continua válido             | schema + teste de ordenação |
+| PSO-03 | IDs duplicados/desconhecidos, item explícito em other → ordenar → primeira ocorrência válida, sem adições, remoções nem movements entre categorias | teste unitário              |
+| PSO-04 | Configuração não retornada/falha de rede → navegar → catálogo visível; falha no refresh mantém a projeção antiga                | hook + teste de serviço   |
+| PSO-05 | Dois serviços ou requisição mais antiga atrasada → trocar serviço/refresh → não sobrescreve o resultado novo                      | teste do hook         |
+| PSO-06 | Mais de 6 itens → expandir/recolher → todos os itens na ordem unificada e estado de expansão preservado                   | navegador            |
+| PSO-07 | Featured/pessoal/busca/instalados na mesma página → trocar de modo → ordenação original inalterada                        | navegador/teste unitário existente   |
+| PSO-08 | Array aninhado de dois modos no Nacos → parse/override/serialização JSON → ordem dos arrays de dois níveis preservada como está      | teste em Go           |
+| PSO-09 | Plugin oficial de restauração instalado e listado no featured → navegar e buscar nos dois modos → todas as entradas de mercado ocultas, o plugin pessoal de mesmo nome preservado | navegador + dev real |
 
-浏览器用例放 `packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.*`，
-使用真实 ListView、hook 和界面模式 Zustand，注入有限服务响应；不依赖模型或线上配置。
-覆盖桌面/390px、中文/英文、明/暗主题。它验证共享 UI 交互，不冒充完整 Electron/远控链路验收。
+Os casos de navegador ficam em `packages/ui/test/browser/manual-review/pending/plugin-store-mode-order.*`,
+usando o ListView, o hook e o Zustand de modo de interface reais, com respostas de serviço injetadas e limitadas; não dependem de modelo nem de configuração online.
+Cobrem desktop/390px, chinês/inglês, tema claro/escuro. Validam a interação da UI compartilhada, sem se passar por aceitação completa da cadeia Electron/controle remoto.
 
-## 恢复旧版会话插件退出市场展示
+## Retirar da exibição de mercado o plugin de sessões da versão antiga
 
-- `restore-legacy-sessions@zcode-plugins-official` 不再出现在商店精选、分类（含展开）、搜索及已安装快捷条中；Code / Work、桌面与手机 Web 使用同一规则。
-- 由共享 `PluginStoreListView` 在分类、精选、搜索等派生前统一过滤完整插件 ID，旧目录缓存或服务端精选名单不能使其重新出现；个人来源的同名插件不受影响。
-- 本次仅移除市场展示入口，保留插件包、已安装状态与插件管理页，避免隐藏入口导致已有安装无法管理。排序配置不承担上下架职责，当前下发配置未引用该插件，无需改动 Nacos。
-- 浏览器回归覆盖官方插件已安装且被列入精选、两种模式、搜索和个人来源同名插件。
-- 2026-09-15 两组浏览器用例通过（1200px/en-US/light、390px/zh-CN/dark）；真实 Electron dev 通过头像菜单切换两种模式，市场条目与该插件搜索结果均为零。typecheck、lint（43 条既有警告、0 错误）、架构检查通过。
+- `restore-legacy-sessions@zcode-plugins-official` deixa de aparecer no featured da loja, nas categorias (inclusive expandidas), na busca e na barra de atalhos de instalados; Code / Work, desktop e web de celular usam a mesma regra.
+- O `PluginStoreListView` compartilhado filtra o ID completo do plugin de forma unificada antes de derivar categorias, featured, busca etc., de modo que cache de catálogo antigo ou lista de featured do servidor não o façam reaparecer; plugins de origem pessoal com o mesmo nome não são afetados.
+- Esta mudança remove apenas a entrada de exibição do mercado e preserva o pacote do plugin, o estado de instalado e a página de gerenciamento de plugins, evitando que entradas ocultas tornem inviável gerenciar instalações existentes. A configuração de ordenação não tem responsabilidade de listar/delistar; a configuração atualmente publicada não referencia este plugin e nada precisa mudar no Nacos.
+- A regressão de navegador cobre o plugin oficial instalado e listado no featured, os dois modos, a busca e o plugin pessoal de mesmo nome.
+- Em 2026-09-15 os dois grupos de casos de navegador passaram (1200px/en-US/light, 390px/zh-CN/dark); o dev Electron real passou ao alternar os dois modos pelo menu do avatar, com zero entradas de mercado e zero resultados de busca do plugin. Typecheck, lint (43 avisos existentes, 0 erros) e verificação de arquitetura passaram.
 
-## 本次验证记录
+## Registro de verificação desta mudança
 
-- schema、分类排序、服务缓存、hook 竞态及相邻功能共 114 个定向单测通过。
-- 浏览器用例通过：1200px / en-US / light、390px / zh-CN / dark；验证真实共享组件、
-  hook、Zustand 模式偏好及 DOM 顺序，包含配置延迟、失败、撤销与展开状态保留。
-- `pnpm typecheck` 通过；`pnpm lint` 无错误，43 条既有警告；架构检查零违规。
-- 功能图新增节点、边、代码种子校验通过；图谱基线已有 4 条悬空边，本次新增 0 条。
-- zcode-server 的 config 和 application/client_config 包测试通过。
-- 2026-09-15 已完成真实测试环境链路：MSE `zcode_test / ZCODE / client_config.yaml`
-  仅追加 `pluginStoreOrder`，原 14 项配置内容保持不变；带原 MD5 发布并精确回读成功。
-  在线测试后端 `/api/v1/client/configs` 随即返回完全一致的对象，服务端未重启。
-- 当前工作区 `mise run dev` 启动 Electron，真实 Host 配置 RPC 经商店手动刷新取得新配置。
-  使用头像菜单切换「编程模式 / 通用模式」，验证 Code 顺序为开发者工具、实用工具、生产力、
-  金融、指南；Work 顺序为生产力、金融、实用工具、开发者工具、指南。
-- Code 的开发者工具前三项为 GitHub、GitLab、阿里云 CLI；Work 的生产力前四项为飞书、
-  腾讯会议、钉钉、企业微信。展开全部分类后，对照服务器配置逐项验证配置前缀顺序，
-  分类成员与已安装条保持一致，切换前后展开状态保留，未新增排序配置 RPC。
-- 首次打开因 Host 在发布前已缓存配置而使用旧顺序，手动刷新后生效，符合 1 小时缓存契约。
-  服务端实时加载 Nacos 不等于向已经打开的客户端主动推送。
-- 未运行真实手机 shared-host 联调；浏览器自动用例仍为 manual-review/pending，未宣称进入正式 CI。
+- Passaram 114 testes unitários direcionados cobrindo schema, ordenação de categorias, cache de serviço, corrida no hook e funcionalidades adjacentes.
+- Casos de navegador passaram: 1200px / en-US / light, 390px / zh-CN / dark; validaram o componente compartilhado real, o hook, a preferência de modo no Zustand e a ordem do DOM, incluindo atraso de configuração, falha, revogação e preservação do estado de expansão.
+- `pnpm typecheck` passou; `pnpm lint` sem erros, com 43 avisos existentes; a verificação de arquitetura não apontou violações.
+- A verificação do novo nó, das novas arestas e das sementes de código do mapa de funcionalidades passou; a baseline do mapa já tinha 4 arestas penduradas e nenhuma foi adicionada nesta mudança.
+- Passaram os testes de config e dos pacotes application/client_config do zcode-server.
+- Em 2026-09-15 a cadeia do ambiente de teste real foi concluída: o MSE `zcode_test / ZCODE / client_config.yaml` apenas acrescentou `pluginStoreOrder`, mantendo inalterado o conteúdo das 14 configurações existentes; a publicação com o MD5 original e a releitura exata tiveram sucesso.
+  Logo após o teste online, `/api/v1/client/configs` do backend devolveu exatamente o mesmo objeto, sem reinício do servidor.
+- No workspace atual, `mise run dev` subiu o Electron e a RPC de configuração do Host real obteve a nova configuração pelo refresh manual da loja.
+  Usando o menu do avatar para alternar entre "modo de programação / modo geral", a ordem Code foi ferramentas de desenvolvedor, utilitários, produtividade, finanças e guias; a ordem Work foi produtividade, finanças, utilitários, ferramentas de desenvolvedor e guias.
+- Os três primeiros itens de ferramentas de desenvolvedor no Code foram GitHub, GitLab e Aliyun CLI; os quatro primeiros de produtividade no Work foram Feishu, Tencent Meeting, DingTalk e WeCom. Depois de expandir todas as categorias, o prefixo de ordem da configuração do servidor foi verificado item a item; os membros de categoria e a barra de instalados permaneceram consistentes, o estado de expansão foi preservado antes e depois da troca e nenhuma nova RPC de ordenação foi criada.
+- A primeira abertura usou a ordenação antiga porque o Host já havia cacheado a configuração antes da publicação, e entrou em vigor após o refresh manual, de acordo com o contrato de cache de 1 hora.
+  O carregamento do Nacos em tempo real no servidor não equivale a um push ativo para clientes já abertos.
+- A integração real com shared-host no celular não foi executada; os casos de navegador automatizados continuam em manual-review/pending e não se alega entrada na CI oficial.
 
-## 输入框 @ / + 复用排序
+## Reuso da ordenação na caixa de entrada @ / +
 
-- 两个入口共用 `usePluginsMentionProvider`：仅对 authority catalog 内已启用的官方插件按市场分类及类内顺序排序，展开成一列；个人来源随后保留发现顺序，冲突项可见但禁选。
-- 抽取 shared 纯排序函数供市场和 Picker 共用，含 guides → utilities、默认分类顺序、other 显式排序与本地化名称兜底。配置未到/失败/撤销时 Picker 保持原发现顺序，不阻塞编辑和菜单。
-- 分类是目标 Host 的可变 listing 展示信息，通过完整插件 ID join；不改变 Session 冻结的身份、能力、启用状态，不从市场补入新插件。
-- `plugins/referenceCatalogWithCategory` 复用原查询实现，仅增加 category 展示字段。原方法保持旧响应结构。新版服务仅在新方法返回 -32601 时回退旧方法；其他错误原样抛出。旧目录无 category 时保留原序。
-- 配置请求仍由窗口 Local Host 的 ClientConfigService 缓存与合并；Picker 打开时才请求，关闭后的迟到结果丢弃，Code/Work 切换仅本地重排。远程 workspace 保持自身 catalog authority，手机继续共用 attachment Host。
+- As duas entradas compartilham `usePluginsMentionProvider`: apenas plugins oficiais já habilitados dentro do authority catalog são ordenados pela categoria do marketplace e pela ordem dentro da categoria, expandidos em uma coluna; em seguida itens pessoais mantêm a ordem de descoberta, e conflitos ficam visíveis, porém não selecionáveis.
+- A função de ordenação pura é extraída em shared para ser usada pelo marketplace e pelo Picker, incluindo guides → utilities, a ordem padrão de categorias, a ordenação explícita de `other` e o fallback de nome localizado. Quando a configuração não chega/falha/é revogada, o Picker mantém a ordem de descoberta original, sem bloquear a edição nem o menu.
+- A categoria é informação de exibição de um listing mutável do Host de destino, unida pelo ID completo do plugin; não altera a identidade, as capacidades nem o estado de habilitação congelados na Session e não traz plugins novos do marketplace.
+- `plugins/referenceCatalogWithCategory` reutiliza a implementação de consulta original, apenas acrescentando o campo de exibição `category`. O método antigo mantém a estrutura de resposta antiga. A nova versão do serviço só faz fallback para o método antigo quando o novo retorna -32601; outros erros são propagados como estão. Quando o catálogo antigo não tem category, a ordem original é preservada.
+- A requisição de configuração continua sendo cacheada e mesclada pelo ClientConfigService do Local Host da janela; só é requisitada quando o Picker abre, resultados atrasados após o fechamento são descartados e a troca Code/Work só reordena localmente. O workspace remoto mantém seu próprio catálogo de autoridade e o celular segue compartilhando o Host do attachment.
 
 ```text
 workspace/session catalog ── enabled 与冲突状态 ─┐
@@ -180,17 +166,17 @@ workspace/session catalog ── enabled 与冲突状态 ─┐
 窗口 ClientConfigService ── Code/Work 配置 ─────┘
 ```
 
-| ID | 场景与断言 | 验证 |
+| ID | Cenário e asserção | Verificação |
 | --- | --- | --- |
-| PSO-10 | 同一目录在市场和 Picker 官方子集的 Code/Work 顺序一致；个人项保序 | 纯函数/Provider 单测 |
-| PSO-11 | 配置未到/失败/关闭迟到/撤销不阻塞，切模式不发请求 | Hook + 浏览器 |
-| PSO-12 | Session 身份冻结、category 可更新，旧方法不返回新字段，新方法补 category | 协议测试 |
-| PSO-13 | 新方法 -32601 回退旧方法，其他错误不回退 | 服务测试 |
-| PSO-14 | @ 与 + 实际入口同序，搜索匹配度优先、冲突禁选、禁用隐藏 | 浏览器 |
+| PSO-10 | O mesmo catálogo tem ordem Code/Work consistente entre o marketplace e o subconjunto oficial do Picker; itens pessoais preservam a ordem | teste da função pura/Provider |
+| PSO-11 | Configuração não chegada/falha/atraso após fechamento/revogação não bloqueia, e trocar de modo não dispara requisição | Hook + navegador |
+| PSO-12 | Identidade da Session congelada, category atualizável, método antigo não retorna campos novos e o novo método adiciona category | teste de protocolo |
+| PSO-13 | -32601 no método novo faz fallback para o antigo; outros erros não fazem fallback | teste de serviço |
+| PSO-14 | As entradas reais @ e + têm a mesma ordem, a relevância da busca tem prioridade, conflitos não são selecionáveis e desabilitados ficam ocultos | navegador |
 
-### 输入框排序验证记录
+### Registro de verificação da ordenação na caixa de entrada
 
-- UI/Hook/市场共用排序及服务降级：4 个测试文件、44 项通过；CLI 协议 4 项通过，覆盖旧入口字段保持、新入口分类投影、冻结 Session 及 workspace authority。
-- 真实 @ / + 组件的浏览器用例：1200px/en-US/light、390px/zh-CN/dark 两组通过；既有市场浏览器回归两组通过。用例替换文件/技能/会话等非插件数据源，保留真实插件 provider、引用 Hook、配置 Hook、Lexical @ 面板及 + 菜单。
-- 重启当前工作区 dev 后，真实 Host 的配置和引用目录 RPC 成功。编程模式官方插件以 GitHub、阿里云 CLI、Android 模拟器开头；通用模式以飞书、腾讯会议开头。编程模式 @ / + 已渲染的官方条目同序；个人条目尾部因虚拟滚动挂载范围不同，不以 DOM 数量推断目录全集一致。
-- 根 typecheck、bootstrap typecheck、lint（43 条既有警告、0 错误）、architecture 检查通过。真实手机/远程旧 Agent 混合版本未实机联调，兼容降级由协议与服务测试验证；不发送消息、不改变会话能力或模型配置。
+- Ordenação compartilhada entre UI/Hook/marketplace e degradação de serviço: 4 arquivos de teste, 44 casos passando; 4 casos de protocolo CLI passando, cobrindo a preservação dos campos da entrada antiga, a projeção de categoria da entrada nova, Sessions congeladas e a autoridade do workspace.
+- Casos de navegador dos componentes reais @ / +: dois grupos passando (1200px/en-US/light, 390px/zh-CN/dark); as duas regressões de navegador existentes do marketplace também passaram. Os casos substituem fontes de dados não-plugin como arquivos/habilidades/sessões, preservando o provider de plugin real, o hook de referência, o hook de configuração, o painel @ do Lexical e o menu +.
+- Após reiniciar o dev do workspace atual, as RPCs de configuração e de catálogo de referência do Host real funcionaram. No modo de programação os plugins oficiais começam com GitHub, Aliyun CLI e Android Emulator; no modo geral, com Feishu e Tencent Meeting. Os itens oficiais já renderizados em @ / + no modo de programação têm a mesma ordem; os itens pessoais no fim diferem pelo alcance de montagem da scroll virtual, e a igualdade do catálogo completo não deve ser inferida pela contagem do DOM.
+- Typecheck da raiz, typecheck do bootstrap, lint (43 avisos existentes, 0 erros) e verificação de architecture passaram. A combinação real de celular/agente remoto antigo não foi integrada em aparelho; a degradação de compatibilidade é verificada por testes de protocolo e serviço; nenhuma mensagem foi enviada e nenhuma capacidade de sessão ou configuração de modelo foi alterada.

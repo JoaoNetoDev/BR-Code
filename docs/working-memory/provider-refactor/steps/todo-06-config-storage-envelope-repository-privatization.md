@@ -1,26 +1,23 @@
-# 06 Config 存储外壳 Repository 私有化
+# 06 Privatização do envelope de armazenamento de configuração e do Repository
 
-> 状态：已完成
+> Status: concluído
 >
-> 日期：2026-08-24
+> Data: 2026-08-24
 >
-> 来源审查：[`../provider-implementation-architecture-conformance-review.md`](../provider-implementation-architecture-conformance-review.md)
+> Revisão de origem: [`../provider-implementation-architecture-conformance-review.md`](../provider-implementation-architecture-conformance-review.md)
 >
-> 目标设计：[`../design/registry/configuration.md`](../design/registry/configuration.md)
+> Design alvo: [`../design/registry/configuration.md`](../design/registry/configuration.md)
 >
-> 建议前置：[`todo-03-provider-model-ownership-and-property-totality.md`](./todo-03-provider-model-ownership-and-property-totality.md)、
-> [`todo-05-model-ref-retirement.md`](./todo-05-model-ref-retirement.md)
+> Pré-requisitos sugeridos: [`todo-03-provider-model-ownership-and-property-totality.md`](./todo-03-provider-model-ownership-and-property-totality.md), [`todo-05-model-ref-retirement.md`](./todo-05-model-ref-retirement.md)
 
-## 1. 任务目标
+## 1. Objetivo da tarefa
 
-从 Provider Domain 的公共 API 删除 `ProviderConfigDocument` 和 `ModelSelectionConfigDocument`，把
-`schemaVersion`、JSON 外壳、解析、序列化和 migration 收回 Node Repository 的私有存储实现。
+Remover `ProviderConfigDocument` e `ModelSelectionConfigDocument` da API pública do Domínio de Provider, trazendo `schemaVersion`, o envelope JSON, o parsing, a serialização e as migrações de volta para a implementação privada de armazenamento do Repository do Node.
 
-本 Todo 不删除版本化文件，也不降低持久化可靠性。配置文件仍然需要严格 Schema、版本迁移、备份、原子
-写入、文件锁、revision 和 watcher；变化只在于领域层和调用方不再感知这些物理存储概念。
+Este Todo não remove arquivos versionados nem reduz a confiabilidade da persistência. O arquivo de configuração ainda precisa de Schema estrito, migração de versões, backup, escrita atômica, file lock, revision e watcher; a única mudança é que a camada de domínio e os chamadores deixam de perceber esses conceitos físicos de armazenamento.
 
 ```text
-当前
+Atual
 
 Settings / Config Service / Projection / Legacy Importer
                           |
@@ -34,7 +31,7 @@ Settings / Config Service / Projection / Legacy Importer
                           v
                     Node Repository
 
-目标
+Alvo
 
 Settings / Config Service / Projection / Legacy Importer
                           |
@@ -49,25 +46,24 @@ Settings / Config Service / Projection / Legacy Importer
           `- revision / watcher
 ```
 
-## 2. 核心裁决
+## 2. Decisões centrais
 
-### 2.1 `Document` 不是领域概念
+### 2.1 `Document` não é um conceito de domínio
 
-Provider Domain 只认识：
+O Domínio de Provider só conhece:
 
-- `ProviderConfigMap`；
-- `ModelConfigRules`；
-- `ProviderConfigLayerSnapshot`；
-- `ProviderConfigLayerUpdate`；
-- `ModelSelection`；
-- Config Overlay、完整性校验、Registry 和初始模型选择解析。
+- `ProviderConfigMap`;
+- `ModelConfigRules`;
+- `ProviderConfigLayerSnapshot`;
+- `ProviderConfigLayerUpdate`;
+- `ModelSelection`;
+- Config Overlay, validação de integridade, Registry e resolução da seleção inicial de modelos.
 
-`schemaVersion`、文件顶层对象、JSON 字段布局和 migration 只描述“如何保存”，不构成新的 Config Layer、
-Effective Config 或运行时状态。因此 `@zcode/provider` 不得再导出带 `Document` 语义的对象。
+`schemaVersion`, o objeto de nível superior do arquivo, o layout dos campos JSON e as migrações descrevem apenas "como salvar", e não constituem uma nova Config Layer, Effective Config ou estado de runtime. Portanto, `@zcode/provider` não deve mais exportar objetos com semântica de `Document`.
 
-### 2.2 不用新中间层替代 `Document`
+### 2.2 Não substituir `Document` por uma nova camada intermediária
 
-不新增公共 `ConfigEnvelope`、`ConfigPayload`、`ConfigState`、`SerializedConfig` 或同形 DTO。现有领域值已经足够：
+Não criar um novo `ConfigEnvelope`, `ConfigPayload`, `ConfigState`, `SerializedConfig` público ou DTO equivalente. Os valores de domínio atuais já são suficientes:
 
 ```ts
 interface ProviderConfigLayerSnapshot {
@@ -82,12 +78,11 @@ interface ProviderConfigLayerUpdate {
 }
 ```
 
-Provider Repository 继续以 Snapshot/Update 为边界。Model Selection Repository 的业务读写值直接使用
-`ModelSelection | undefined`；不要仅为了保留 `.configuredDefault` 包装层而建立新的公共对象。
+O Repository de Provider continua usando Snapshot/Update como fronteira. Os valores de negócio de leitura e escrita do Repository de Model Selection usam diretamente `ModelSelection | undefined`; não criar um novo objeto público apenas para preservar a camada de embrulho `.configuredDefault`.
 
-### 2.3 存储结构可以有名字，但必须私有
+### 2.3 A estrutura de armazenamento pode ter nome, mas deve ser privada
 
-`provider-node` 内部可以按版本声明类似结构：
+Dentro de `provider-node` é possível declarar estruturas por versão, por exemplo:
 
 ```ts
 interface StoredProviderConfigV1 {
@@ -102,27 +97,26 @@ interface StoredModelSelectionConfigV1 {
 }
 ```
 
-准确字段类型由私有 Zod Schema 和序列化函数约束。名称可以使用 `Stored*Vn` 或 `*FileVn`，但不能从
-`@zcode/provider-node` 的公共 barrel 导出，也不能成为 Service、UI、Runtime 或 Protocol 的 Contract。
+Os tipos exatos dos campos são restringidos por um Schema Zod privado e pelas funções de serialização. O nome pode ser `Stored*Vn` ou `*FileVn`, mas não pode ser exportado pelo barrel público de `@zcode/provider-node`, nem se tornar Contract de Service, UI, Runtime ou Protocol.
 
-### 2.4 存储可靠性完整保留
+### 2.4 A confiabilidade do armazenamento é preservada integralmente
 
-Repository 私有化不等于直接 `JSON.parse()` 后信任类型。以下能力全部保留：
+Privatizar o Repository não significa simplesmente fazer `JSON.parse()` e confiar no tipo. Todas estas capacidades são preservadas:
 
-- 严格运行时 Schema 校验；
-- 当前 `schemaVersion` 与未来相邻版本 migration；
-- 高版本拒绝与可诊断错误；
-- Personal 文件 migration 前的原文件备份；
-- 私有权限的原子写入和文件锁；
-- 基于规范化内容的 revision；
-- watcher 去重和变更通知；
-- Official Source 与 Personal Repository 对同一正式文件 Schema 的一致理解。
+- Validação estrita por Schema em runtime;
+- `schemaVersion` atual e migração para versões adjacentes futuras;
+- Rejeição de versões mais altas com erros diagnosticáveis;
+- Backup do arquivo original antes da migração de arquivos Personal;
+- Escrita atômica e file lock com permissões privadas;
+- Revision baseada em conteúdo normalizado;
+- Deduplicação do watcher e notificação de mudanças;
+- Compreensão consistente do mesmo Schema de arquivo oficial por parte do Official Source e do Personal Repository.
 
-这些行为由 Repository/codec 测试保证，不能因删除公共 class 而弱化。
+Esses comportamentos são garantidos por testes de Repository/codec e não podem ser enfraquecidos pela remoção de classes públicas.
 
-## 3. Provider Config 目标边界
+## 3. Fronteira alvo da configuração de Provider
 
-### 3.1 Domain 与 Repository
+### 3.1 Domínio e Repository
 
 ```text
 @zcode/provider
@@ -144,32 +138,26 @@ Repository 私有化不等于直接 `JSON.parse()` 后信任类型。以下能�
    `- migrate
 ```
 
-- Official Source 解析文件后返回 `ProviderConfigLayerSnapshot`；
-- Personal Repository 接收 `ProviderConfigLayerUpdate`，内部构造并写入版本化文件；
-- revision 继续由 Repository 根据规范化的持久化内容产生；
-- Domain 不负责选择文件格式，也不调用 `toJSON()` 生成存储外壳。
+- O Official Source retorna `ProviderConfigLayerSnapshot` após fazer o parsing do arquivo;
+- O Personal Repository recebe `ProviderConfigLayerUpdate`, monta internamente e grava o arquivo versionado;
+- O revision continua sendo produzido pelo Repository a partir do conteúdo persistido normalizado;
+- O Domínio não escolhe o formato de arquivo nem chama `toJSON()` para gerar o envelope de armazenamento.
 
-### 3.2 Personal 投影
+### 3.2 Projeção Personal
 
-`projectEffectiveProvidersToPersonalConfig()` 当前返回 `ProviderConfigDocument`。目标是返回
-`ProviderConfigLayerUpdate`，只表达投影得到的 Personal Provider Map 和 Model Rules。
+`projectEffectiveProvidersToPersonalConfig()` hoje retorna `ProviderConfigDocument`. O alvo é retornar `ProviderConfigLayerUpdate`, expressando apenas o Provider Map e as Model Rules resultantes da projeção.
 
-本 Todo 只修正返回边界，不重新认可 Effective -> Personal 作为 Settings 正常保存路径。正式 Settings 继续
-提交用户实际修改形成的稀疏 Personal Overlay；该投影函数只服务于仍在兼容窗口内的明确旧配置导入，后续应随
-Legacy importer 一起退役。
+Este Todo apenas corrige a fronteira de retorno, e não reaprova Effective -> Personal como caminho normal de salvamento das Settings. As Settings oficiais continuam submetendo um Personal Overlay esparso formado pelas modificações reais do usuário; essa função de projeção atende apenas a importação explícita de configurações antigas que ainda estão na janela de compatibilidade, e deverá ser aposentada junto com o Legacy importer.
 
-### 3.3 Migration 类型
+### 3.3 Tipo de migração
 
-`ProviderConfigDocumentMigration = (input: unknown) => unknown` 不再从 Domain 导出。正式版本 migration 是
-存储 Schema 的实现，应由 `provider-node` 私有 codec 管理。
+`ProviderConfigDocumentMigration = (input: unknown) => unknown` deixa de ser exportado pelo Domínio. A migração oficial de versões é uma implementação do Schema de armazenamento e deve ser gerenciada pelo codec privado do `provider-node`.
 
-如果 Bootstrap 在过渡期需要注入无版本 Legacy importer，它返回 `ProviderConfigLayerUpdate | null`；
-Repository 负责校验领域值、套上当前版本文件外壳并写入。Legacy importer 不产生 `schemaVersion`，也不认识
-正式文件的序列化 class。
+Se o Bootstrap precisar injetar um Legacy importer sem versão durante a transição, ele retorna `ProviderConfigLayerUpdate | null`; o Repository fica responsável por validar os valores de domínio, aplicar o envelope de arquivo da versão atual e gravar. O Legacy importer não produz `schemaVersion` nem conhece as classes de serialização do arquivo oficial.
 
-## 4. Model Selection 目标边界
+## 4. Fronteira alvo da Model Selection
 
-当前 `model-selection-config.ts` 混合了文件存储和领域解析，必须拆开：
+Hoje `model-selection-config.ts` mistura armazenamento de arquivo e resolução de domínio, e precisa ser separado:
 
 ```text
 @zcode/provider
@@ -185,22 +173,20 @@ Repository 负责校验领域值、套上当前版本文件外壳并写入。Leg
    `- parse / serialize / migrate
 ```
 
-Repository 公共行为收紧为：
+O comportamento público do Repository é restrito a:
 
 ```ts
 read(): Promise<ModelSelection | undefined>;
 saveConfiguredDefault(selection: ModelSelection | undefined): Promise<void>;
 ```
 
-如果调用方确实需要保存后值，`saveConfiguredDefault()` 可以返回冻结的 `ModelSelection | undefined`，但不能
-返回存储 Document。最终签名以调用方测试证明的最小需要为准。
+Se algum chamador realmente precisar do valor após o salvamento, `saveConfiguredDefault()` pode retornar um `ModelSelection | undefined` congelado, mas nunca deve retornar o Document de armazenamento. A assinatura final deve ser a menor necessidade comprovada por testes dos chamadores.
 
-`resolveInitialModelSelection()` 继续接收 `configuredDefault?: ModelSelection` 和 Registry View；它与文件版本、
-文件缺失和 migration 无关，必须留在 Domain。
+`resolveInitialModelSelection()` continua recebendo `configuredDefault?: ModelSelection` e a Registry View; ela é independente da versão do arquivo, de arquivo ausente e de migração, e deve permanecer no Domínio.
 
-## 5. Legacy 与正式 Migration 的边界
+## 5. Limite entre Legacy e migração oficial
 
-两类迁移必须区分：
+Os dois tipos de migração precisam ser distinguidos:
 
 ```text
 无版本旧配置
@@ -223,120 +209,117 @@ Repository private N -> N+1 migration
 当前版本文件
 ```
 
-- Legacy importer 只转换旧配置明确表达的事实，不猜模型能力；
-- 强制升级窗口结束后，Legacy importer、旧 parser、兼容常量和测试整体删除；
-- 已发布正式文件格式的相邻版本 migration 长期保留；
-- 未发布过的中间 Schema 不建立兼容历史；
-- Legacy 和正式 migration 都不能重新扩散到 Core、Registry、Settings 或 Runtime。
+- O Legacy importer só converte fatos explicitamente expressos pela configuração antiga e não adivinha capacidades de modelos;
+- Depois que a janela de upgrade forçada terminar, o Legacy importer, o parser antigo, as constantes de compatibilidade e os testes são removidos por completo;
+- Migrações de versões adjacentes de formatos oficiais já publicados são mantidas por longo prazo;
+- Schemas intermediários nunca publicados não estabelecem histórico de compatibilidade;
+- Nem a migração Legacy nem a oficial podem se espalhar novamente para Core, Registry, Settings ou Runtime.
 
-## 6. 当前影响面
+## 6. Superfície de impacto atual
 
-实施前至少检查以下消费者：
+Antes da implementação, verificar pelo menos os seguintes consumidores:
 
-| 范围                                                                | 当前泄漏                                  | 目标                       |
-| ------------------------------------------------------------------- | ----------------------------------------- | -------------------------- |
-| `packages/provider/src/config/document.ts`                          | 公开 Provider Document、parser、migration | 删除公共存储外壳           |
-| `packages/provider/src/model-selection-config.ts`                   | 存储与选择解析混合                        | 只保留选择领域逻辑         |
-| `packages/provider/src/personal-config-projection.ts`               | 返回 Document                             | 返回 Layer Update          |
-| `packages/provider-node/src/personal-provider-config-repository.ts` | 导入公共 Document                         | 使用私有 codec             |
-| `packages/provider-node/src/official-provider-config-source.ts`     | 导入公共 migration                        | 使用同一私有 codec         |
-| `packages/provider-node/src/model-selection-config-repository.ts`   | read/save 返回 Document                   | 直接读写 Selection         |
-| `packages/provider-node/src/provider-config-runtime.ts`             | importer 类型泄漏 Document                | importer 返回 Layer Update |
-| CLI/Services Legacy importer                                        | 构造 Document                             | 只产生领域值               |
-| Provider/Provider Node 测试                                         | 以公共 Document 为测试主体                | 按领域与存储职责拆分       |
+| Escopo                                                             | Vazamento atual                                          | Alvo                                            |
+| ------------------------------------------------------------------ | -------------------------------------------------------- | ----------------------------------------------- |
+| `packages/provider/src/config/document.ts`                       | Provider Document, parser e migration públicos           | Remover o envelope de armazenamento público      |
+| `packages/provider/src/model-selection-config.ts`                | Armazenamento e resolução de seleção misturados          | Manter apenas a lógica de domínio da seleção     |
+| `packages/provider/src/personal-config-projection.ts`            | Retorna Document                                         | Retornar Layer Update                           |
+| `packages/provider-node/src/personal-provider-config-repository.ts` | Importa o Document público                              | Usar codec privado                               |
+| `packages/provider-node/src/official-provider-config-source.ts`  | Importa migration pública                                | Usar o mesmo codec privado                       |
+| `packages/provider-node/src/model-selection-config-repository.ts` | read/save retornam Document                              | Ler e gravar Selection diretamente               |
+| `packages/provider-node/src/provider-config-runtime.ts`          | O tipo do importer vaza Document                         | O importer retorna Layer Update                  |
+| CLI/Services Legacy importer                                     | Constrói Document                                        | Produzir apenas valores de domínio               |
+| Testes de Provider/Provider Node                                 | Têm o Document público como sujeito de teste             | Dividir por responsabilidade de domínio/armazenamento |
 
-实施时以 `rg`、TypeScript 引用和 package exports 复核完整范围，不能只按上述文件清单机械迁移。
+Na implementação, conferir o escopo completo com `rg`, referências do TypeScript e os exports dos pacotes, e não migrar mecanicamente apenas pela lista de arquivos acima.
 
-## 7. 测试先行
+## 7. Testes primeiro
 
-### 7.1 Domain
+### 7.1 Domínio
 
-1. Personal 投影返回 `ProviderConfigLayerUpdate`，providers/models 语义不变；
-2. `resolveInitialModelSelection()` 对 configured default、不可用 default 和 Registry fallback 的行为不变；
-3. Domain 测试和 exports 不再引用 `schemaVersion`、Document、parse/migrate 或文件 JSON；
-4. Config Overlay、完整性校验和 Registry 发布行为不变。
+1. A projeção Personal retorna `ProviderConfigLayerUpdate`, com a semântica de providers/models inalterada;
+2. `resolveInitialModelSelection()` mantém o comportamento para configured default, default indisponível e fallback do Registry;
+3. Testes e exports do Domínio não referenciam mais `schemaVersion`, Document, parse/migrate ou JSON de arquivo;
+4. Config Overlay, validação de integridade e comportamento de publicação do Registry permanecem inalterados.
 
-### 7.2 Provider Repository
+### 7.2 Repository de Provider
 
-1. 当前版本 Provider 文件严格解析并得到相同 Layer Snapshot；
-2. Layer Update round-trip 后 providers/models 与 revision 正确；
-3. 缺版本、未来版本、缺失 migration 和非法字段按既有规则拒绝；
-4. 相邻版本 migration 逐级执行且不能跳级；
-5. Personal Legacy import 成功后备份原文件并原子写入当前格式；
-6. importer 失败、Schema 失败、备份失败时不修改原文件；
-7. Official 与 Personal 使用同一正式存储 Schema；
-8. watcher 对相同 revision 去重，真实变更正常通知。
+1. O arquivo de Provider da versão atual é feito em parsing estrito e gera o mesmo Layer Snapshot;
+2. Após o round-trip de um Layer Update, providers/models e revision ficam corretos;
+3. Versão ausente, versão futura, migration ausente e campos ilegais são rejeitados conforme as regras existentes;
+4. As migrations de versões adjacentes são executadas nível a nível e não podem pular etapas;
+5. Após um Legacy import Personal bem-sucedido, o arquivo original é submetido a backup e o formato atual é gravado atomicamente;
+6. Quando o importer falha, o Schema falha ou o backup falha, o arquivo original não é modificado;
+7. Official e Personal usam o mesmo Schema de armazenamento oficial;
+8. O watcher deduplica o mesmo revision e notifica normalmente mudanças reais.
 
-### 7.3 Model Selection Repository
+### 7.3 Repository de Model Selection
 
-1. `undefined` 与完整 `ModelSelection` 正确 round-trip；
-2. Selection options 保持严格校验和冻结语义；
-3. 不支持版本和非法字段拒绝；
-4. 文件缺失、Legacy import、保存和重启恢复行为不变；
-5. 调用方不再访问 `.configuredDefault` Document，而直接消费 Repository 返回的 Selection。
+1. `undefined` e um `ModelSelection` completo fazem round-trip corretamente;
+2. As options de Selection mantêm validação estrita e semântica de congelamento;
+3. Versões não suportadas e campos ilegais são rejeitados;
+4. O comportamento de arquivo ausente, Legacy import, salvamento e restauração após reinício permanece inalterado;
+5. Os chamadores não acessam mais o Document `.configuredDefault` e consomem diretamente a Selection retornada pelo Repository.
 
-### 7.4 机械归零
+### 7.4 Zeração mecânica
 
-- `@zcode/provider` 不再导出 `ProviderConfigDocument*`；
-- `@zcode/provider` 不再导出 `ModelSelectionConfigDocument*`；
-- `packages/provider` 生产代码无 `schemaVersion` 和 Config 文件 migration；
-- Service、Bootstrap、UI、Runtime 不传递 `Document`、`Envelope` 或同形存储 DTO；
-- JSON/version/migration 测试全部归属 `provider-node`；
-- 不新增公共 `Stored*`、`Serialized*`、`ConfigState` 替代类型。
+- `@zcode/provider` não exporta mais `ProviderConfigDocument*`;
+- `@zcode/provider` não exporta mais `ModelSelectionConfigDocument*`;
+- O código de produção de `packages/provider` não tem `schemaVersion` nem migration de arquivos de Config;
+- Service, Bootstrap, UI e Runtime não passam `Document`, `Envelope` nem DTO de armazenamento equivalente;
+- Todos os testes de JSON/version/migration passam a pertencer ao `provider-node`;
+- Não criar novos tipos públicos substitutos `Stored*`, `Serialized*` ou `ConfigState`.
 
-## 8. 实施顺序
+## 8. Ordem de implementação
 
-### Step A：冻结当前存储行为
+### Etapa A: congelar o comportamento atual de armazenamento
 
-- 先在 `provider-node` 补齐 Provider Config 与 Model Selection 文件行为测试；
-- 固定现有 JSON、版本错误、migration、备份、revision、watcher 和原子写行为；
-- 确认 TODO 03 的 Provider/Model 字段结构和 TODO 05 的 `ModelSelection` 已稳定，避免重复修改存储 Schema。
+- Completar primeiro em `provider-node` os testes de comportamento dos arquivos de Provider Config e Model Selection;
+- Fixar o comportamento atual de JSON, erros de versão, migration, backup, revision, watcher e escrita atômica;
+- Confirmar que a estrutura de campos de Provider/Model do TODO 03 e o `ModelSelection` do TODO 05 já estão estáveis, evitando modificar duas vezes o Schema de armazenamento.
 
-### Step B：建立 Repository 私有 codec
+### Etapa B: estabelecer o codec privado do Repository
 
-- 在 `provider-node` 建立私有 Provider Config 和 Model Selection codec；
-- 将存储 Schema、版本常量、parse/serialize/migrate 和错误迁入；
-- Official Source 与 Personal Repository 复用 Provider Config codec；
-- 不从 package barrel 导出 codec 和 Stored 类型。
+- Estabelecer em `provider-node` os codecs privados de Provider Config e Model Selection;
+- Mover para lá o Schema de armazenamento, as constantes de versão, parse/serialize/migrate e os erros;
+- O Official Source e o Personal Repository reutilizam o codec de Provider Config;
+- Não exportar o codec nem os tipos Stored pelo barrel do pacote.
 
-### Step C：收紧 Repository 与 importer API
+### Etapa C: restringir a API do Repository e do importer
 
-- Personal Provider Repository 保持 Snapshot/Update 边界；
-- Personal 投影和 Legacy importer 改为返回 Layer Update；
-- Model Selection Repository 改为直接返回 Selection；
-- Bootstrap、CLI 和 Services 调用方停止读取或构造 Document。
+- O Personal Provider Repository mantém a fronteira Snapshot/Update;
+- A projeção Personal e o Legacy importer passam a retornar Layer Update;
+- O Repository de Model Selection passa a retornar Selection diretamente;
+- Bootstrap, CLI e Services deixam de ler ou construir Documents.
 
-### Step D：删除 Domain Document
+### Etapa D: remover o Document do Domínio
 
-- 从 `@zcode/provider` 删除两个 Document class、存储 parser/migration 和对应 exports；
-- 把 `resolveInitialModelSelection()` 与相关领域类型留在 Provider Domain；
-- 移动并重组测试，删除只证明公共 Document class 存在的测试。
+- Remover de `@zcode/provider` as duas classes de Document, o parser/migration de armazenamento e os exports correspondentes;
+- Manter `resolveInitialModelSelection()` e os tipos de domínio relacionados no Domínio de Provider;
+- Mover e reorganizar os testes, removendo os que só provam a existência das classes públicas de Document.
 
-### Step E：验证与提交
+### Etapa E: verificação e commit
 
-- 运行 Provider、Provider Node、Services、Bootstrap 和 CLI 相关单测；
-- 运行 Legacy import 与重启恢复代表回归；
-- 运行 `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`；
-- 复查 `rg` 机械归零项；
-- 独立 Conventional Commit。
+- Executar os testes unitários relevantes de Provider, Provider Node, Services, Bootstrap e CLI;
+- Executar uma regressão representativa de Legacy import e restauração após reinício;
+- Executar `pnpm typecheck`, `pnpm lint`, `pnpm fmt:check`;
+- Rever os itens de zeração mecânica com `rg`;
+- Conventional Commit independente.
 
-## 9. 非目标与不变量
+## 9. Não objetivos e invariantes
 
-本 Todo 不负责：
+Este Todo não é responsável por:
 
-- 修改 Built-in -> Account Built-in -> Personal 的 Overlay 顺序；
-- 修改 `builtinModelIds` / `modelIds`、冲突或 `enabled` 语义；
-- 修改 Model Config Rule 合并、完整性校验或 Active Model；
-- 修改鉴权、Access Type、Provider API 装配或最终授权；
-- 重构 Settings UI、模型选择器、队列、Session 或远端同步；
-- 提前删除仍在产品兼容窗口内的 Legacy importer；
-- 借机建立通用 Persistence、Document 或 Serialization Framework。
+- Modificar a ordem de Overlay Built-in -> Account Built-in -> Personal;
+- Modificar a semântica de `builtinModelIds` / `modelIds`, de conflitos ou de `enabled`;
+- Modificar a mesclagem de Model Config Rule, a validação de integridade ou o Active Model;
+- Modificar autenticação, Access Type, montagem da API do Provider ou a autorização final;
+- Refatorar a UI de Settings, o seletor de modelos, filas, Session ou sincronização remota;
+- Remover antecipadamente o Legacy importer que ainda está na janela de compatibilidade do produto;
+- Aproveitar a ocasião para criar um framework genérico de Persistence, Document ou Serialization.
 
-必须保持：相同持久化输入产生相同领域 Config，相同领域更新产生兼容的正式文件；运行时、Settings 和 Registry
-看不到文件 Envelope，也不需要知道配置来自 JSON、其他文件格式还是未来的不同 Repository 实现。
+Deve ser mantido: a mesma entrada persistida produz a mesma Config de domínio, e a mesma atualização de domínio produz um arquivo oficial compatível; runtime, Settings e Registry não enxergam o envelope de arquivo e não precisam saber se a configuração vem de JSON, de outro formato de arquivo ou de uma futura implementação diferente de Repository.
 
-## 10. 完成定义
+## 10. Definição de conclusão
 
-Provider Domain 的公开词汇只剩配置层、配置规则、选择和解析结果。所有版本化 JSON 外壳、文件 migration 和
-持久化生命周期均封装在 Node Repository 内；调用方只传递准确的领域值。正式配置文件和兼容行为保持稳定，
-但替换存储实现不再要求修改 Provider Domain、Settings、Registry 或 Runtime。
+O vocabulário público do Domínio de Provider se reduz a camada de configuração, regras de configuração, seleção e resultados de resolução. Todos os envelopes JSON versionados, as migrações de arquivo e o ciclo de vida da persistência ficam encapsulados dentro do Repository do Node; os chamadores passam apenas valores de domínio exatos. O arquivo de configuração oficial e os comportamentos compatíveis permanecem estáveis, mas trocar a implementação de armazenamento não exige mais modificar o Domínio de Provider, as Settings, o Registry ou o Runtime.

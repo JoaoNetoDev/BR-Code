@@ -1,21 +1,27 @@
-# 会话分享与继续工作 V1
+# Compartilhamento de Conversa e Continuação de Trabalho V1
 
-## 状态
+## Status
 
-- 当前事实 spec，日期：2026-08-31。
-- API 基线：会话分享接口 revision 27，加 2026-08-12 联调约定。
-- 本文同时约束发布端、Desktop 导入端和同仓库 `packages/web` 的独立 share 落地页契约。
+- Spec de fatos atuais, data: 2026-08-31.
+- Baseline de API: interface de compartilhamento de conversa revision 27, mais os acordos de
+  integração de 2026-08-12.
+- Este documento também restringe o lado de publicação, o lado de importação do Desktop e o contrato da
+  página de share independente em `packages/web` no mesmo repositório.
 
-## 产品边界
+## Limites de produto
 
-V1 支持 Desktop 本地、SSH、WSL、Docker workspace 发起分享。手机 `/remote` 和普通 Web
-不得发起分享；`packages/web` 的 `/cn/share/:share_code` 只消费 preview API 并通过 deep link 唤起 Desktop。Desktop Server
-Remote 首期不支持。
+O V1 suporta iniciar compartilhamento a partir de workspaces Desktop locais, SSH, WSL e Docker. O
+`/remote` do celular e a Web comum não podem iniciar compartilhamento; o `/cn/share/:share_code` em
+`packages/web` apenas consome a API de preview e invoca o Desktop por deep link. O Desktop Server Remote
+não é suportado na primeira fase.
 
-运行中的会话可以分享此前已经完成的 product turn；运行中的 turn 可展示但不可选择。分享选择以
-`productTurnId` 为身份，`rowId` 只用于 timeline 定位。标题默认当前任务标题并允许仅为本次分享编辑，
-新分享草稿进入确认 Dock 时权限默认 `public_importable`（拥有链接的人可导入并继续）；用户显式切换
-权限后，返回选择阶段或重新打开同一草稿都保留该选择。
+Uma sessão em execução pode compartilhar product turns concluídos anteriormente; um turn em execução pode
+ser exibido, mas não selecionado. A seleção de compartilhamento tem `productTurnId` como identidade, e
+`rowId` é usado apenas para localização no timeline. O título assume por padrão o título da tarefa atual e
+pode ser editado apenas para este compartilhamento; um novo rascunho de compartilhamento entra no Dock de
+confirmação com a permissão padrão `public_importable` (quem tiver o link pode importar e continuar); após
+o usuário trocar explicitamente a permissão, voltar à fase de seleção ou reabrir o mesmo rascunho
+mantém essa escolha.
 
 ```text
 Desktop UI
@@ -32,37 +38,46 @@ Web preview
   -> 当前本地 workspace 新 task/session + shared_context + 全部产物
 ```
 
-Share 落地页是独立静态构建：`pnpm run build:web-share` 使用 Vite `base=/cn/share/`，由
-`Dockerfile.web-share` 和 `nginx.web-share.conf` 发布到 `/cn/share` 与 `/share` 两个语言入口。
-两者共用同一份 SPA 和静态资源，路径前缀决定中文或英文 UI locale；它与 `/remote/v4` 使用独立镜像、
-Deployment、CI Job 和回滚版本；公开 Preview 匿名访问，private Preview 使用同源 Web OAuth。
+A página de share é uma build estática independente: `pnpm run build:web-share` usa Vite `base=/cn/share/`
+e é publicada por `Dockerfile.web-share` e `nginx.web-share.conf` nas duas entradas de idioma `/cn/share` e
+`/share`. As duas compartilham a mesma SPA e os mesmos assets estáticos, e o prefixo de caminho decide a
+locale de UI em chinês ou inglês; ela usa imagem, Deployment, Job de CI e versão de rollback independentes
+de `/remote/v4`; o Preview público é de acesso anônimo e o Preview privado usa o OAuth Web de mesma origem.
 
-镜像和 nginx 路由的手工验收用 `scripts/test-web-share-build.sh`（需要本机 Docker，不需要 CUA Git
-凭据）。它校验构建产物落在 `/cn/share/assets`，
-并确认 `/cn/share`、`/share` 两个入口和 callback 都能访问，同时不服务 `/remote/v4`；这些
-base 路径和路由隔离在单测里覆盖不到，改动 Dockerfile 或 nginx 配置后应该跑一次。
+A verificação manual da imagem e das rotas nginx usa `scripts/test-web-share-build.sh` (requer Docker
+local, sem credenciais Git do CUA). Ele valida que o artefato de build fica em `/cn/share/assets`,
+confirma que as entradas `/cn/share` e `/share` e o callback são acessíveis e, ao mesmo tempo, que
+`/remote/v4` não é servido; esses paths base e o isolamento de rotas não são cobertos por testes
+unitários, então vale rodar uma vez depois de alterar o Dockerfile ou a configuração nginx.
 
-OAuth callback 按语言入口提供 `/cn/share/callback` 与 `/share/callback`，登录凭据仍写入同源
-`BrowserOAuthCredentialRepo`，因此登录后两个 Share 入口、`/remote` 和其他 Web 路径共享同一 Web
-session。Web JWT 不进入 Deep Link，也不传给 Desktop。两个入口不互相重定向，避免英文页面被切换为
-中文 locale；静态资源和 callback 均由 share 镜像独立托管。
+O callback OAuth é oferecido nas entradas por idioma como `/cn/share/callback` e `/share/callback`, e as
+credenciais de login continuam sendo gravadas no `BrowserOAuthCredentialRepo` de mesma origem; assim, após
+o login, as duas entradas de Share, o `/remote` e os demais caminhos Web compartilham a mesma sessão Web.
+O JWT Web não entra no Deep Link nem é passado ao Desktop. As duas entradas não redirecionam uma para a
+outra, evitando que a página em inglês seja trocada para a locale chinesa; assets estáticos e callback são
+hospedados de forma independente pela imagem de share.
 
-权限映射固定为：`private` 需要 owner Web OAuth 后才能 Preview/import；`public_readonly` 和
-`public_importable` 的 Preview 完全匿名开放。匿名请求 private 时，`401/3213` 或隐匿策略下的
-`404/3211` 都只能显示通用登录提示；登录后仍为 `404` 时不得泄漏分享存在性或 owner 信息。
-Desktop continuation 携带可选登录态，客户端不得因本地缺少 JWT 而跳过请求；最终 import 权限由
-服务端根据 share code、访问模式和可选用户身份判定。
+O mapeamento de permissões é fixo: `private` exige o OAuth Web do owner antes de Preview/import;
+`public_readonly` e `public_importable` têm Preview totalmente aberto ao anonimo. Em requests anônimos a
+um share private, tanto `401/3213` quanto `404/3211` sob política de ocultação podem mostrar apenas um
+aviso genérico de login; se mesmo autenticado o resultado continuar `404`, não se pode revelar a existência
+do compartilhamento nem informação do owner. A continuation do Desktop carrega um estado de login
+opcional, e o cliente não pode pular a requisição por falta de JWT local; a permissão final de import é
+decidida pelo servidor com base no share code, no modo de acesso e na identidade de usuário opcional.
 
-### 找不到分享内容页
+### Página de "conteúdo não encontrado"
 
-已登录且 Preview 返回 `not_found` 时，沿用居中状态卡片，显示「找不到分享内容」及
-「链接可能无效、分享已被移除，或当前登录账号无法访问。」；独立一段提示
-「Z.ai 与 BigModel 的账号数据不互通。请检查是否选错了登录平台或使用了其他账号。」
-账号提示是排查建议，不推断分享是否存在、所属平台或 owner。中英文提供同义文案。
+Quando o usuário está autenticado e o Preview retorna `not_found`, mantém-se o cartão de estado
+centralizado, exibindo 「找不到分享内容」 e 「链接可能无效、分享已被移除，或当前登录账号无法访问。」; com um
+parágrafo separado informando 「Z.ai 与 BigModel 的账号数据不互通。请检查是否选错了登录平台或使用了其他账号。」
+A dica de conta é uma sugestão de diagnóstico e não infere se o compartilhamento existe, a qual plataforma
+pertence nem quem é o owner. Chinês e inglês oferecem textos equivalentes.
 
-操作区从左到右为描边「重试」和主按钮「回到首页」。首页复用既有官网地址
-`https://zcode.z.ai`，同标签页导航，不清理登录态。按钮优先并排，窄屏或长文案允许换行；
-使用现有主题与 UI 字号 token，兼容桌面、手机 Web 和深浅主题。
+Na área de ações, da esquerda para a direita, ficam o botão com contorno 「重试」 e o botão principal
+「回到首页」. A página inicial reutiliza o endereço oficial existente `https://zcode.z.ai`, navega na
+mesma aba e não limpa o estado de login. Os botões priorizam o layout lado a lado, permitindo quebra de
+linha em telas estreitas ou textos longos; usam os tokens existentes de tema e de tamanho de fonte da UI,
+sendo compatíveis com desktop, Web no celular e temas claro e escuro.
 
 ```text
 Preview not_found → 现有 Loader
@@ -72,178 +87,235 @@ Preview not_found → 现有 Loader
                    └─ 回到首页 → 官网导航
 ```
 
-状态仍由 `ConversationShareLandingLoader` 唯一持有，状态组件只负责展示。
-不修改错误映射、OAuth、其他错误页、Desktop continuous 或手机 remote replayable 链路。
+O estado continua sendo mantido exclusivamente pelo `ConversationShareLandingLoader`; os componentes de
+estado apenas exibem. Não se modificam o mapeamento de erros, o OAuth, as outras páginas de erro, o
+Desktop continuous nem a cadeia de replay do remote no celular.
 
-验收用例 SHARE-NF01（pending）：启动 `pnpm dev:web-share:mock` 后运行
-`node packages/web/test/e2e/manual-review/pending/share-not-found.mjs`。
-通过匿名访问 fixture → 登录 → 检查账号提示 → 重试 → 同标签页首页导航，验证上述边界；
-另覆盖中英文、320px 手机/桌面视口、深浅主题、无横向溢出及过期页不出现新增内容。
-首页请求由浏览器测试拦截，不依赖外网。组件单测补充其他错误状态的隔离断言。
+Caso de aceitação SHARE-NF01 (pending): depois de iniciar `pnpm dev:web-share:mock`, executar
+`node packages/web/test/e2e/manual-review/pending/share-not-found.mjs`.
+Verificar acesso anônimo ao fixture → login → checar a dica de conta → retry → navegação para a home na
+mesma aba, validando os limites acima; cobrir também chinês e inglês, viewports de celular e desktop de
+320px, temas claro e escuro, ausência de overflow horizontal e a garantia de que a página expirada não
+apresenta conteúdo novo. O request da home é interceptado pelo teste de navegador, sem depender da rede
+externa. Os testes unitários do componente complementam com asserções de isolamento para os outros estados
+de erro.
 
-本地 Share 验证入口：`pnpm dev:web-share:test` 启动与生产相同的 `@zcode/web-share` Vite 入口，
-固定连接测试环境；启动后手动打开
-`http://localhost:5173/cn/share/<share_code>` 或 `http://localhost:5173/share/<share_code>`，分享码只从 URL
-路径读取，不需要环境变量；前者显示中文，后者显示英文。`pnpm dev:web-share:mock` 使用开发态
+Entrada local de verificação do Share: `pnpm dev:web-share:test` inicia a entrada Vite de
+`@zcode/web-share` igual à de produção, conectada fixamente ao ambiente de testes; após iniciar, abrir
+manualmente `http://localhost:5173/cn/share/<share_code>` ou `http://localhost:5173/share/<share_code>`, e o
+share code é lido apenas do path da URL, sem necessidade de variáveis de ambiente; a primeira exibe
+chinês e a segunda inglês. `pnpm dev:web-share:mock` usa os fixtures de desenvolvimento
 `/cn/share/mock-private`、`/cn/share/mock-readonly`、`/cn/share/mock-importable`、`/cn/share/mock-expired`
-和 `/cn/share/mock-not-found` fixture。两者都只启动 Vite，
-不启动 Desktop、relay 或独立 Agent。跨版本兼容另有两个 fixture：
-`/cn/share/mock-partial-unsupported`（认不出的行被跳过，顶部出软提示）和
-`/cn/share/mock-outdated-client`（载荷版本高于本 build，显示「需要更新 ZCode」而不是「格式无效」）。
+e `/cn/share/mock-not-found`. Ambos iniciam apenas o Vite, sem Desktop, relay ou Agente independente.
+Há ainda dois fixtures de compatibilidade entre versões: `/cn/share/mock-partial-unsupported` (linhas não
+reconhecidas são puladas, com um aviso suave no topo) e `/cn/share/mock-outdated-client` (versão do payload
+maior que esta build, mostrando 「需要更新 ZCode」 em vez de 「格式无效」).
 
-Desktop Host 的分享运行时始终使用真实 Share API，API 地址由 `ZCODE_ENV` 解析；不再提供运行时
-Mock 开关。`ConversationShareMockApiClient` 仅用于服务单测和协议 fixture，不能生成可跨进程访问的分享链接。
+O runtime de compartilhamento do Desktop Host sempre usa a Share API real, com o endereço da API resolvido
+por `ZCODE_ENV`; não há mais chave de Mock em runtime. `ConversationShareMockApiClient` serve apenas a
+testes unitários de serviço e a fixtures de protocolo, e não pode gerar links de compartilhamento
+acessíveis de outro processo.
 
-公开页正文展示复用 `packages/ui` 的只读 presentation 层：通过
-`buildConversationTurnRenderUnits` 保持 Desktop 的轮次和工作段顺序，使用同一套
-`ConversationUserInputBody`、`ConversationUserInputContent`、`MessageResponse`、`Reasoning`、
-`ToolLayout` 和 `ToolSummaryRow`。Share 只注入 locale、theme 和 code preview defaults，不注入
-Host、workspace 或 file service；Desktop action、文件打开、编辑、重试和反馈仍只存在于 Desktop。
-Explore/Execute/CUA 等连续工具也先经过 Desktop 的 `buildAssistantWorkRenderItems` 分组，公开页只
-展示安全摘要和只读详情，避免把每条工具结果渲染成独立的大卡片。
+A exibição do corpo da página pública reutiliza a camada de apresentação somente-leitura de
+`packages/ui`: por meio de `buildConversationTurnRenderUnits` mantém a ordem de turnos e blocos de
+trabalho do Desktop, usando o mesmo conjunto de `ConversationUserInputBody`,
+`ConversationUserInputContent`、`MessageResponse`、`Reasoning`、`ToolLayout` e `ToolSummaryRow`. O Share
+apenas injeta locale, theme e code preview defaults, e não injeta Host, workspace nem file service; as
+ações de Desktop, abertura de arquivo, edição, retry e feedback continuam existindo apenas no Desktop.
+Ferramentas contínuas como Explore/Execute/CUA também passam antes pelo agrupamento
+`buildAssistantWorkRenderItems` do Desktop, e a página pública exibe apenas resumo seguro e detalhes
+somente-leitura, evitando que o resultado de cada ferramenta vire um cartão grande independente.
 
-Share 自己承接页面级纵向滚动，不改变全局 `body/#root { overflow: hidden }` 的 Desktop/remote 约定。
-滚动根同时标记 `data-markdown-table-layout-root`，让长 Markdown table 在页面纵向滚动、表格内部横向
-滚动之间保持独立。`MessageResponse` 的公开模式由一次性的 `TooltipProvider`、只读外链 handler 和
-citation 清理组成：本地 citation 不泄漏路径，无法匹配公开 artifact 时不渲染协议 directive。
+O Share assume o próprio scroll vertical da página, sem alterar a convenção Desktop/remote global de
+`body/#root { overflow: hidden }`. A raiz de scroll também é marcada com
+`data-markdown-table-layout-root`, mantendo independentes o scroll vertical da página e o scroll horizontal
+interno das tabelas Markdown longas. O modo público do `MessageResponse` consiste em um `TooltipProvider`
+efêmero, um handler de link externo somente-leitura e a limpeza de citations: citations locais não vazam
+caminhos e diretivas de protocolo não são renderizadas quando não há correspondência com um artifact
+público.
 
-公开分享页顶部固定栏始终保持单行 64px 高度。`ZCode` 品牌、分享标题和继续 CTA 使用同一条连续
-几何轨道；完整 CTA 无法为标题保留最小可见宽度时，切换为保留可访问名称的图标 CTA，再让标题
-通过 CSS ellipsis 收缩。完整标题仍保留在可访问名称/`title` 中。`public_readonly` 始终不显示
-CTA；该响应式策略只影响 Web landing page 的展示，不改变 Deep Link、权限或 Desktop/remote 行为。
+A barra fixa no topo da página pública de compartilhamento sempre mantém altura de linha única de 64px. A
+marca `ZCode`, o título do compartilhamento e o CTA de continuação usam o mesmo trilho geométrico contínuo;
+quando o CTA completo não consegue reservar a largura mínima visível para o título, ele troca por um CTA
+de ícone que preserva o nome acessível e deixa o título encolher via CSS ellipsis. O título completo
+permanece no nome acessível/`title`. `public_readonly` nunca mostra CTA; essa estratégia responsiva afeta
+apenas a exibição da landing page Web e não altera Deep Link, permissões ou comportamento
+Desktop/remote.
 
-当分享可继续导入时，正文时间线末尾还显示一个与顶部 CTA 样式和行为一致的“去 ZCode 继续”按钮，
-按钮在正文内容栏内水平居中并复用同一个 `zcode://share/import` deep link。点击顶部或底部任一入口
-都进入相同的自动打开提示流程；`public_readonly` 仍不显示任何继续入口。底部按钮属于正文流，
-不能遮挡最后一条分享内容，也不改变分享内容的只读语义。
+Quando o compartilhamento pode continuar por importação, o fim da linha do tempo do corpo também mostra um
+botão “去 ZCode 继续” com o mesmo estilo e comportamento do CTA do topo, centralizado horizontalmente na
+coluna de conteúdo do corpo e reutilizando o mesmo deep link `zcode://share/import`. Clicar em qualquer uma
+das entradas, superior ou inferior, entra no mesmo fluxo automático de abertura; `public_readonly` continua
+sem nenhuma entrada de continuação. O botão inferior faz parte do fluxo do corpo, não pode ocultar o
+último conteúdo compartilhado e não altera a semântica somente-leitura do conteúdo compartilhado.
 
-公开页元信息中的“结果物数量”只统计公开 `rows` 内的 `kind: "artifact"` 行，也就是时间线实际展示的
-Assistant 结果物卡片。`preview.artifacts` 是结果物和 `userInput.attachments` 共用的完整下载 manifest，
-不能直接作为结果物计数；用户输入附件继续参与 URL/name 映射和下载，但不计入“结果物”数量。
+O "número de resultados" nos metadados públicos conta apenas linhas `kind: "artifact"` dentro dos `rows`
+públicos, ou seja, os cartões de resultados do Assistant realmente exibidos no timeline.
+`preview.artifacts` é o manifest completo de downloads, compartilhado entre resultados e
+`userInput.attachments`, e não pode ser usado diretamente como contagem de resultados; anexos de entrada
+do usuário continuam三餐icipando do mapeamento de URL/nome e do download, mas não contam como "resultados".
 
-## 协议优先级
+## Prioridade de protocolo
 
-当历史方案、接口示例和本文冲突时采用以下规则：
+Quando soluções históricas, exemplos de interface e este documento entrarem em conflito, aplicam-se as
+regras abaixo:
 
-1. confirm 只提交 `selected_product_turn_ids`、`projection.rows`、两哈希 integrity 和披露确认。
-2. title、schema version、access mode、client request ID 和 payload hash 只在 preparation 提交。
-3. Preview / Continuation 的 integrity 只有 `projection_sha256` 与 `artifact_set_sha256`。
-4. artifact 上传成功响应必须包含非空 `safety_status`；客户端不按其取值分支。
-5. HTTP 409 / code `3215` 是安全检查非终态；同一 preparation 与字节语义相同的 confirm DTO
-   串行轮询，优先合法 Retry-After，否则 5 秒，总等待不超过 2 分钟。
-6. TTL、限额和产物白名单完全以 capabilities 为准；PDF 只有服务端显式声明后才开放。
+1. O confirm envia apenas `selected_product_turn_ids`, `projection.rows`, os dois hashes de integrity e a
+   confirmação de divulgação.
+2. title, schema version, access mode, client request ID e payload hash são enviados apenas na preparation.
+3. O integrity de Preview / Continuation tem apenas `projection_sha256` e `artifact_set_sha256`.
+4. A resposta de sucesso do upload de artifact precisa conter um `safety_status` não vazio; o cliente não
+   faz branch conforme o valor.
+5. HTTP 409 / code `3215` é estado não terminal da verificação de segurança; para a mesma preparation e o
+   mesmo DTO de confirm em termos de bytes, faz polling serial, preferindo um Retry-After legítimo, senão
+   5 segundos, com espera total de no máximo 2 minutos.
+6. TTL, limites e allowlist de produtos seguem estritamente as capabilities; PDF só é liberado após
+   declaração explícita do servidor.
 
-## 跨版本兼容纪律
+## Disciplina de compatibilidade entre versões
 
-分享内容在 **4 个可以各自独立升级/回滚** 的部件之间流动：发布端 Desktop、Share API 后端、
-独立部署的落地页镜像（见上文「独立镜像、Deployment、CI Job 和回滚版本」）、导入端 Desktop。
-它们不可能同版本，所以公开投影事实上是一份**跨版本数据交换格式**。以下纪律不是建议：
+O conteúdo compartilhado flui entre **4 componentes que podem ser atualizados/revertidos de forma
+independente**: o Desktop publicador, o backend Share API, a imagem da landing page implantada de forma
+independente (ver "imagem, Deployment, Job de CI e versão de rollback independentes" acima) e o Desktop
+importador. Eles não podem estar na mesma versão, então a projeção pública é de fato um **formato de
+troca de dados entre versões**. As disciplinas abaixo não são sugestões:
 
-1. **响应宽容、请求严格。** 入站 schema（capabilities / preview / continuation / 错误信封 /
-   artifact descriptor 回显）一律非 strict，未知字段放过；出站 schema（preparation /
-   confirm / continuation request）保持 `.strict()`，多带字段是本端 bug，必须当场炸掉。
-   给入站 schema 加回 `.strict()` 等于让后端下一次加字段打死全部存量客户端。
-2. **完整性只对服务端原样发来的值校验**，不对 zod 解析产物（`verifyConversationShareIntegrity`）。
-   zod 默认剥掉未知字段，拿解析产物重算哈希会把纯 additive 的 row 演进误报成
-   「分享文件校验失败」。摘要与 schema 认知必须永久解耦。
-3. **rows 只能 additive。** 新字段必须 `optional`；**永不删字段、永不收窄 enum、永不改字段
-   语义**——删字段和收窄枚举同样会让对端丢内容，方向只是反过来。
-4. **新增 row kind 或 enum 取值 = 老客户端会跳过该行**（`decodeConversationShareRows` 逐行降级，
-   UI 出「部分内容需要更新 ZCode 查看」软提示）。加之前先问：这行被跳过后，分享是否仍然自洽？
-   需要「不可跳过」的语义变化，才谈得上第 5 条。
-5. **`schema_version` 只在 rows 出现不可跳过的破坏性变化时才 bump**，且 bump 前先确认存量
-   客户端与已部署落地页镜像的版本占比——bump 一次就等于让它们同时看不了新分享。版本高于
-   本端认知时走 `unsupported_schema_version`（「请升级 ZCode」），不得混进 `invalid_contract`
-   （「分享格式无效」）。
-6. **`projectRow`（`conversationSharePublicProjection.ts`）的穷尽 switch 是故意的编译期闸门，
-   不要给它加 `default`。** 新增 row kind 必须让构建失败，强制开发者按第 4 条做决定，而不是
-   悄悄开始往公开投影里发老客户端读不了的东西。
+1. **Resposta tolerante, requisição estrita.** Schemas de entrada (capabilities / preview / continuation /
+   envelope de erro / eco de descriptor de artifact) nunca são strict, e campos desconhecidos passam;
+   schemas de saída (preparation / confirm / continuation request) mantêm `.strict()`, e campos extras são
+   bug local e precisam explodir na hora. Adicionar `.strict()` de volta a um schema de entrada equivale a
+   fazer o próximo campo novo do backend matar todos os clientes já em uso.
+2. **A integridade é validada apenas contra os valores enviados como vieram do servidor**, nunca contra o
+   produto da análise do zod (`verifyConversationShareIntegrity`). O zod remove campos desconhecidos por
+   padrão, e recalcular o hash sobre o produto da análise reportaria uma evolução de row puramente aditiva
+   como 「分享文件校验失败」. Digest e conhecimento de schema precisam ficar permanentemente desacoplados.
+3. **rows só podem ser aditivos.** Novos campos precisam ser `optional`; **nunca remova um campo, nunca
+   estreite um enum, nunca mude a semântica de um campo** — remover campos e estreitar enums também fazem o
+   outro lado perder conteúdo, apenas na direção oposta.
+4. **Um novo row kind ou valor de enum significa que clientes antigos pulam aquela linha**
+   (`decodeConversationShareRows` degrada linha a linha e a UI mostra um aviso suave de 「部分内容需要更新 ZCode 查看」).
+   Antes de adicionar, pergunte: com essa linha pulada, o compartilhamento ainda é coerente? Só mudanças
+   semânticas que não podem ser puladas chegam a justificar o item 5.
+5. **`schema_version` só é incrementado quando rows sofreram uma mudança destrutiva que não pode ser
+   pulada**, e antes de incrementar é preciso confirmar a proporção de versões dos clientes existentes e
+   das imagens de landing page já implantadas — incrementar uma vez equivale a fazer todos eles não
+   conseguirem ver os novos compartilhamentos. Quando a versão é superior ao conhecimento local, usa-se
+   `unsupported_schema_version`（「请升级 ZCode」), sem misturar em `invalid_contract`（「分享格式无效」).
+6. **O switch exaustivo de `projectRow` (`conversationSharePublicProjection.ts`) é uma barreira de
+   compilação proposital; não adicione um `default` a ele.** Um novo row kind precisa fazer o build falhar,
+   forçando o desenvolvedor a tomar a decisão do item 4 em vez de começar悄悄 a emitir na projeção pública
+   algo que clientes antigos não conseguem ler.
 
-回归覆盖在 `packages/shared/test/conversationShareContract.test.ts` 的
-「cross-version forward compatibility」一节，以及 `conversationShareImportService.test.ts`
-里「导入更新版本发布的分享」的端到端用例。改动入站契约后必须跑这两处。
+A cobertura de regressão está na seção "cross-version forward compatibility" de
+`packages/shared/test/conversationShareContract.test.ts`, e no caso de ponta a ponta "importando um
+compartilhamento publicado por uma versão mais nova" em `conversationShareImportService.test.ts`. Após
+alterar um contrato de entrada, é preciso rodar os dois.
 
-## 权威与安全边界
+## Autoridade e fronteiras de segurança
 
-发布 HTTP、JWT 和 staging 临时文件始终属于 Desktop Host。SSH/WSL/Docker 只提供远端 Agent
-Rows、fileChanges 和文件字节，不接收 Desktop 登录凭据。服务必须使用 Host attachment 注入的可信
-`clientMode`：只有 `desktop-continuous` 可以 publish/import；`web-remote-replayable` 必须拒绝。
+O HTTP de publicação, o JWT e os arquivos temporários de staging pertencem sempre ao Desktop Host.
+SSH/WSL/Docker fornecem apenas Rows, fileChanges e bytes de arquivo remotos, e não recebem credenciais de
+login do Desktop. O serviço precisa usar o `clientMode` confiável injetado pelo Host attachment: apenas
+`desktop-continuous` pode publicar/importar; `web-remote-replayable` precisa ser recusado.
 
-Share 读取 Rows/fileChanges 必须复用当前 MessagePort attachment 已完成握手的
-`createZCodeAgentConnectionScope(...).service`。禁止直接调用 raw Agent 的 V4 query，禁止为 Share 另建
-connectionId、hello/clientHello、Host、Agent runtime 或 subscription。connection scope 的生命周期仍由
-attachment owner 管理；Share 只持有当前调用期间的轻量 facade。
+A leitura de Rows/fileChanges do Share precisa reutilizar o
+`createZCodeAgentConnectionScope(...).service` do attachment MessagePort atual, cujo handshake já foi
+concluído. É proibido chamar diretamente a query V4 do Agent cru e proibido criar outro connectionId,
+hello/clientHello, Host, runtime de Agente ou subscription para o Share. O ciclo de vida do connection scope
+continua sendo gerenciado pelo owner do attachment; o Share apenas mantém uma facade leve durante a
+chamada atual.
 
-远端隔离 key 固定为：
+A key de isolamento remoto é fixa:
 
 ```text
 workspaceKey = workspaceIdentity?.trim() || workspacePath
 ```
 
-路径执行和展示仍使用 `workspacePath`。远端路由、缓存、发布 attempt 和文件 source 必须同时携带
-`workspaceIdentity` 与 `remoteSessionId`，不得只按路径判等。
+A execução e a exibição de caminhos continuam usando `workspacePath`. Roteamento remoto, cache, tentativa
+de publicação e file source precisam carregar simultaneamente `workspaceIdentity` e `remoteSessionId`, e
+não podem comparar igualdade apenas por caminho.
 
-发布状态不进入 conversation snapshot、task sqlite、owner/lease、CommandInbox、relay 或 mobile
-replayable mirror。日志不得记录 JWT、Signed URL、Conversation Rows 正文、文件内容或绝对路径。
+O status de publicação não entra no conversation snapshot, no task sqlite, em owner/lease, no CommandInbox,
+no relay nem no mirror mobile replayable. Logs não podem registrar JWT, Signed URL, corpo de Conversation
+Rows, conteúdo de arquivo ou caminho absoluto.
 
-### 公开分享页对第三方内容的防御边界
+### Fronteira defensiva da página pública contra conteúdo de terceiros
 
-公开分享页（`/share`、`/cn/share`）渲染的是**发布者可控的正文**，访客是匿名的，因此在这个入口
-上正文必须被当作不可信内容处理。两道防线都必须在位，缺一不可：
+A página pública de compartilhamento (`/share`, `/cn/share`) renderiza um **corpo controlado pelo
+publicador**, e o visitante é anônimo, então nesse ponto de entrada o corpo precisa ser tratado como
+conteúdo não confiável. As duas defesas precisam estar presentes, nenhuma pode faltar:
 
-1. **渲染侧剥离**：`normalizeConversationShareMarkdown`（`packages/ui/src/v4/conversationShareMarkdown.ts`）
-   把正文与工具输出里的远程图片语法降级为普通链接（`![alt](https://x)` → `[alt](https://x)`）。
-   只处理 `http:` / `https:` / 协议相对 `//`；`data:` 不走网络、相对路径落在自身 origin，保持原样；
-   代码围栏内的写法由 `findMarkdownCodeRanges` 保护不改写。
-   原因：只读时间线不传 `workspacePath` / `sessionId` / `readAttachment`，`MarkdownImage` 会 fallback
-   成 `<img src={远程} loading="lazy">`，于是任意访客一打开页面就自动向发布者指定的第三方发起
-   请求，泄露 IP / UA / Referer —— 等价于发布者可控的 tracking pixel。放在渲染侧的好处是对**已经
-   发布出去的旧分享立即生效**。
+1. **Remoção no lado de renderização**: `normalizeConversationShareMarkdown`
+   (`packages/ui/src/v4/conversationShareMarkdown.ts`) rebaixa a sintaxe de imagens remotas no corpo e na
+   saída de ferramentas para links comuns (`![alt](https://x)` → `[alt](https://x)`). Trata apenas
+   `http:` / `https:` / `//` relativo a protocolo; `data:` não sai pela rede e caminhos relativos caem na
+   própria origin, então ficam como estão; escritas dentro de cercas de código são protegidas por
+   `findMarkdownCodeRanges` e não são reescritas. Motivo: como o timeline somente-leitura não passa
+   `workspacePath` / `sessionId` / `readAttachment`, o `MarkdownImage` cairia no fallback
+   `<img src={remoto} loading="lazy">`, e então qualquer visitante, ao abrir a página, dispararia
+   automaticamente uma requisição para um terceiro especificado pelo publicador, vazando IP / UA / Referer
+   — o equivalente a um tracking pixel controlável pelo publicador. Ficar no lado de renderização tem a
+   vantagem de valer **imediatamente para compartilhamentos antigos já publicados**.
 
-2. **传输侧 CSP**：`nginx.web-share.security-headers.conf` 的 `img-src 'self' data: blob:` 兜住第一道
-   防线漏掉的任何形态。该文件同时提供 `X-Frame-Options` / `X-Content-Type-Options` /
-   `Referrer-Policy`，并且**必须被每个 `location` 显式 include**：nginx 的 `add_header` 不继承，
-   子级一旦出现任何 `add_header`（例如 `Cache-Control`）就会丢弃 server 级整组声明。
+2. **CSP no lado de transporte**: `img-src 'self' data: blob:` em `nginx.web-share.security-headers.conf`
+   cobre qualquer forma que tenha escapado da primeira defesa. Esse arquivo também fornece
+   `X-Frame-Options` / `X-Content-Type-Options` / `Referrer-Policy`, e **precisa ser incluído
+   explicitamente por cada `location`**: o `add_header` do nginx não é herdado, e qualquer `add_header` em
+   um nível filho (por exemplo `Cache-Control`) descarta o conjunto inteiro de declarações do nível server.
 
-CSP 的两个硬约束（改动前先读，否则会静默打断线上页面）：
+Duas restrições rígidas do CSP (leia antes de mexer, senão a página em produção quebra silenciosamente):
 
-- `script-src` 必须带 `'wasm-unsafe-eval'`：shiki 代码高亮默认走 oniguruma wasm
-  （`packages/ui/src/lib/shikiHighlighter.ts` 的 `createHighlighter`），只给 `'self'` 会让分享页
-  所有代码高亮失效。它只放开 wasm 编译，`eval` / `new Function` 仍然被挡住（已实测）。
-- `connect-src` 保持 `https:`：API origin 是 vite 构建期按 `ZCODE_ENV` 注入的
-  （`packages/web-share/vite.config.ts`），写死具体 origin 会让 test/production 各自需要一份 conf。
+- `script-src` precisa ter `'wasm-unsafe-eval'`: o realce de código do shiki usa por padrão wasm oniguruma
+  (`createHighlighter` em `packages/ui/src/lib/shikiHighlighter.ts`), e dar apenas `'self'` quebraria todo
+  o realce de código da página de share. Ele só libera compilação wasm; `eval` / `new Function` continuam
+  bloqueados (já verificado empiricamente).
+- `connect-src` permanece `https:`: a origin da API é injetada em tempo de build do vite conforme `ZCODE_ENV`
+  (`packages/web-share/vite.config.ts`), e fixar uma origin concreta obrigaria test e production a terem
+  um conf cada.
 
-artifact 只经 `window.open` 打开、不做 `<img src>`，因此不受 `img-src` 收紧影响。
+Artifacts são abertos apenas via `window.open`, sem `<img src>`, portanto não são afetados pelo
+endurecimento de `img-src`.
 
-## 发布投影
+## Projeção de publicação
 
-公开投影从正式 `ConversationRow[]` 构建，不从 DOM、legacy MessageWithParts 或 Web DTO 反推。
+A projeção pública é construída a partir de `ConversationRow[]` oficiais, nunca por inferência a partir do
+DOM, de MessageWithParts legados ou de DTOs Web.
 
-- 允许：`turnHeader`、`userInput`、`assistantText`、`reasoning`、`toolCall`、`timelineMarker`、`artifact`。
-- `subagent` 详情过滤，但对应 Agent toolCall 与同轮其它公开 Rows 保留。
-- 每类 Row 使用 allow-list 新建对象，删除 actions、source/root command ID、client ID、approval ID、
-  active progress 和本地 artifact 引用。
-- 确定性重建 public product-turn、turn、row、entity、tool-call、artifact ID；保持 Row 稳定顺序和引用闭包。
-- descriptor 不发送 `original_path`。artifact ref 固定为 `zcode-artifact://share/<artifact_id>`。
+- Permitidos: `turnHeader`、`userInput`、`assistantText`、`reasoning`、`toolCall`、`timelineMarker`、`artifact`.
+- Detalhes de `subagent` são filtrados, mas o toolCall do Agente correspondente e os demais Rows públicos do
+  mesmo turno são mantidos.
+- Cada classe de Row cria um objeto novo por allow-list, removendo actions, source/root command ID,
+  client ID, approval ID, active progress e referências locais de artifact.
+- Reconstrói deterministicamente os IDs públicos de product-turn, turn, row, entity, tool-call e artifact,
+  preservando a ordem estável dos Rows e o fecho de referências.
+- O descriptor não envia `original_path`. A referência de artifact é fixa em
+  `zcode-artifact://share/<artifact_id>`.
 
-选择至少包含一个 terminal product turn。每个被选 ID 必须只有一个 `turnHeader`，且状态不是
-`running`。任一分页 revision/log epoch 不一致时必须在 preparation 前失败。
+A seleção precisa conter pelo menos um product turn terminal. Cada ID selecionado precisa ter exatamente um
+`turnHeader` e o estado não pode ser `running`. Qualquer inconsistência de revision/log epoch entre
+paginação precisa falhar antes da preparation.
 
-## 产物发现与上传
+## Descoberta e upload de produtos
 
-分享候选包括当前轮次的 `userInput.attachments`、当前轮次最终显示的 Assistant 预览卡片，
-以及已完成工具输出的内嵌图片。正式 `artifact` row 不再作为独立发现源；只有它同时形成了预览卡片，
-才通过预览卡片候选进入分享。
+Os candidatos de compartilhamento incluem os `userInput.attachments` do turno atual, os cartões de preview do
+Assistant exibidos finalmente no turno atual, e as imagens embutidas em saídas de ferramentas concluídas. O
+row `artifact` oficial deixa de ser uma fonte de descoberta independente; ele só entra no compartilhamento
+pela via do cartão de preview, se tiver.formado um.
 
-预览卡片候选必须由 shared candidate builder 统一生成，UI 和 Share Service 使用同一套顺序、
-去重和可见数量限制。普通正文中的 `~/...` 路径、Bash input/output、workspace 扫描、孤立
-`fileChanges` 和没有形成预览卡片的文件都不是候选。`fileChanges` 只用于 Markdown/HTML
-卡片的 active/reverted 关联，不独立发现文件。
+Os candidatos de cartão de preview precisam ser gerados uniformemente pelo shared candidate builder, e UI
+e Share Service usam o mesmo conjunto de ordem, deduplicação e limite de quantidade visível. Caminhos
+`~/...` no corpo comum, input/output de Bash, varreduras de workspace, `fileChanges` isolados e arquivos que
+não formaram cartão de preview não são candidatos. `fileChanges` é usado apenas para a associação
+active/reverted de cartões Markdown/HTML e não descobre arquivos de forma independente.
 
-候选文件先经过所属执行端 stat，再取最终可见卡片集合；不存在的 Assistant 卡片文件被视为
-“卡片不显示”，不进入分享且不生成 warning。用户输入附件仍保留附件不存在 warning。
-PDF、Office、Markdown/HTML、视频和音频都可以成为预览候选，但 video/audio 当前只允许进入
-“存在但类型不支持”的 warning，不进入可上传 artifact manifest。相同 canonical path 只上传一次。
+Os arquivos candidatos passam primeiro por stat no lado de execução dono e só então se obtém o conjunto
+final de cartões visíveis; um arquivo de cartão do Assistant que não existe é tratado como "cartão não
+exibido", não entra no compartilhamento e não gera warning. Anexos de entrada do usuário mantêm o warning
+de anexo inexistente.
+
+PDF, Office, Markdown/HTML, vídeo e áudio podem ser candidatos de preview, mas video/audio atualmente só
+entram no warning "existe, mas o tipo não é suportado" e não entram no manifest de artifacts enviável. O
+mesmo canonical path é enviado apenas uma vez.
 
 ```text
 正式 attachment / assistant 文件引用
@@ -257,22 +329,27 @@ PDF、Office、Markdown/HTML、视频和音频都可以成为预览候选，但 
   UI preview card     Share Artifact Row
 ```
 
-文件在所属执行端完成 realpath containment、普通文件、类型、size 与 mtime 校验。远端文件通过
-`readFileRange` 分块进入 Desktop 临时 staging，边写边计算 SHA-256；前后 size/mtime 变化、空 chunk、
-断连或越界均 fail closed。prepare 之后只上传 staging 的不可变字节。上传按稳定 manifest 顺序串行，
-任一失败不 confirm，finally 清理 staging。
+Os arquivos passam por realpath containment, arquivo comum, tipo, tamanho e mtime no lado de execução
+dono. Arquivos remotos entram em staging temporário no Desktop por `readFileRange` em blocos, com cálculo
+de SHA-256 durante a escrita; mudanças de size/mtime, chunk vazio, desconexão ou越界 falham de forma
+fail closed. Depois do prepare só são enviados os bytes imutáveis do staging. O upload é serial na ordem
+de um manifest estável; qualquer falha impede o confirm, e o finally limpa o staging.
 
-`userInput.attachments` 通过当前 Agent connection scope 按 `rowId + entityId + attachmentIndex`
-授权读取，不允许 Renderer 直接把附件路径作为读取目标。长文本粘贴保持现有
-`~/.zcode/tmp/paste-attachments/<date>/<uuid>.txt` 路径处理，不在发送时重新内联正文；分享时
-复用同一读取链路。文件已被清理、读取失败或字节发生变化时，只跳过该附件并在发布成功态展示
-`input_attachment_unavailable` warning，不把失效路径写入公开 projection。可用附件统一改写为
-`zcode-artifact://share/<artifact_id>`，不额外插入 `artifact` Row，直接通过 manifest 闭合。
+`userInput.attachments` são autorizados para leitura pelo connection scope do Agente atual, via
+`rowId + entityId + attachmentIndex`; não é permitido ao Renderer usar o caminho do anexo como alvo de
+leitura. Texto longo colado mantém o tratamento de caminho existente
+`~/.zcode/tmp/paste-attachments/<date>/<uuid>.txt` e não é reintegrado ao corpo no envio; no
+compartilhamento, a mesma cadeia de leitura é reutilizada. Quando o arquivo já foi limpo, a leitura falha ou
+os bytes mudaram, apenas aquele anexo é pulado e um warning `input_attachment_unavailable` é exibido no
+estado de sucesso da publicação, sem gravar caminhos inválidos na projeção pública. Anexos disponíveis são
+reescritos uniformemente como `zcode-artifact://share/<artifact_id>`, sem inserir um Row `artifact`
+adicional e fechando diretamente pelo manifest.
 
-分享 artifact 类型增加 `text`，对应 `txt` / `text/plain`；服务端按 UTF-8 文本走与 Markdown/HTML
-一致的同步安全审核。`text` 类型与客户端、服务端和独立分享落地页同步升级后开启。
+O tipo de artifact de compartilhamento ganha `text`, correspondente a `txt` / `text/plain`; o servidor
+faz a revisão de segurança síncrona de texto UTF-8 igual à de Markdown/HTML. O tipo `text` é habilitado
+depois que cliente, servidor e landing page independente de share forem atualizados juntos.
 
-## UI 状态机
+## Máquina de estados da UI
 
 ```text
 closed
@@ -285,63 +362,98 @@ closed
   -> published | failed
 ```
 
-选择阶段的 `SharePreflight` 是独立的只读检查，不上传文件、不读取完整附件内容，也不改变选择草稿。
-它绑定当前 `sessionId`、`workspaceIdentity/workspacePath`、`remoteSessionId`、selection、rows
-`revision/logEpoch`、capabilities fingerprint 和候选 fingerprint；选择、候选集合、文件变更
-状态或会话水位变化后旧结果必须标记为 stale。
+O `SharePreflight` da fase de seleção é uma verificação somente-leitura independente, que não envia
+arquivos, não lê o conteúdo completo dos anexos e não altera o rascunho de seleção. Ele se liga ao
+`sessionId` atual, a `workspaceIdentity/workspacePath`, ao `remoteSessionId`, à seleção, à
+`revision/logEpoch` das rows, ao fingerprint de capabilities e ao fingerprint de candidatos; depois de
+mudanças na seleção, no conjunto de candidatos, no status de alterações de arquivo ou no nível de água da
+sessão, o resultado antigo precisa ser marcado como stale.
 
-预检结果分为四类：
+Os resultados do preflight são divididos em quatro categorias:
 
-- **阻断**：选择已失效、缺少 product turn、轮次/正文/工具/子 Agent/compact/goal verification 仍在运行、
-  本地或内联 URL、未闭合 artifact 引用、陈旧水位、已知容量超限或没有任何可分享内容。阻断项停留在选择阶段，
-  不允许进入确认阶段。
-- **可跳过**：存在但不支持的预览卡片文件、明确不存在或已变化的用户输入附件。允许继续，发布时跳过对应文件并在成功态展示 warning。
-- **卡片消失**：Assistant 预览候选在 stat 时不存在，视为 UI 不显示的卡片，不进入分享、不生成 warning。
-- **延后确认**：权限不足、远端断开或 stat 超时等无法证明文件不存在的情况。选择阶段只提示“发布时会再次确认”，
-  发布阶段以实际读取结果为准。
+- **Bloqueante**: a seleção ficou inválida, falta product turn, há turno/corpo/ferramenta/subagente/compact/goal
+  verification ainda em execução, URL local ou inline, referência de artifact não fechada, nível de água
+  obsoleto, capacidade conhecida excedida ou não há nenhum conteúdo compartilhável. Itens bloqueantes ficam
+  na fase de seleção e não permitem entrar na fase de confirmação.
+- **Ignorável**: arquivo de cartão de preview que existe mas não é suportado, anexo de entrada do usuário
+  explicitamente inexistente ou alterado. Permite continuar, pulando o arquivo correspondente na publicação
+  e exibindo um warning no estado de sucesso.
+- **Cartão desapareceu**: o candidato de preview do Assistant não existe no stat; é tratado como um cartão
+  que a UI não exibe, não entra no compartilhamento e não gera warning.
+- **Adiado para a confirmação**: permissão insuficiente, desconexão remota ou timeout de stat, ou seja,
+  situações em que não é possível provar que o arquivo não existe. A fase de seleção apenas avisa que isso
+  será reconfirmado na publicação, e a fase de publicação segue o resultado real da leitura.
 
-  分类依据必须是协议侧的稳定 fault 码（`ZCODE_ATTACHMENT_FAULT_CODES`），不能匹配错误文本。
-  `conversationAttachmentStat` 是 metadata-only 探测，其 `totalBytes` 上界（`attachmentStatMaxBytes`）
-  与搬运字节的读取通道上界（`attachmentPreviewMaxBytes`）是两个独立边界：stat 必须能表达超出传输能力的
-  真实文件大小，否则“已知容量超限”这一确定阻断会退化成“延后确认”，发布时静默丢掉附件。
-  类型判定排在体积判定之前——不支持的类型根本不会上传，其体积与分享无关，不应升级成阻断。
+  A classificação precisa se basear nos fault codes estáveis do lado do protocolo
+  (`ZCODE_ATTACHMENT_FAULT_CODES`), e não em casamento de texto de erro. `conversationAttachmentStat` é
+  uma sondagem metadata-only, e seu limite superior de `totalBytes` (`attachmentStatMaxBytes`) e o limite
+  superior do canal de leitura que transporta bytes (`attachmentPreviewMaxBytes`) são duas fronteiras
+  independentes: o stat precisa ser capaz de expressar o tamanho real de um arquivo além da capacidade de
+  transporte, senão o bloqueio determinístico de "capacidade conhecida excedida" degenera em "adiado para
+  confirmação" e o anexo é descartado silenciosamente na publicação. A determinação de tipo vem antes da
+  determinação de tamanho — um tipo não suportado nunca será enviado, seu tamanho é irrelevante para o
+  compartilhamento e não deve ser elevado a bloqueio.
 
-- **静默移除**：`forkNotice`、`forkCreated`、`checkpointRestored` 以及其它已完成但
-  无法在线性公开时间线表达的内部 marker，直接从公开 projection 删除，不生成 warning、不计入跳过数量，也不要求
-  用户取消轮次。若静默移除后整次选择没有其它可分享内容，才按“没有可分享内容”阻断。
+- **Remoção silenciosa**: `forkNotice`、`forkCreated`、`checkpointRestored` e outros markers internos
+  concluídos mas impossíveis de expressar em um timeline público linear são removidos diretamente da
+  projeção pública, sem gerar warning, sem contar como ignorados e sem exigir que o usuário cancele o turno.
+  Se, após a remoção silenciosa, a seleção inteira não tiver outro conteúdo compartilhável, aí sim ela é
+  bloqueada como "sem conteúdo compartilhável".
 
-选择 Dock 在预检期间显示 `checking` 状态；阻断项显示具体轮次和“取消选择该轮”操作（按 issue 携带的
-`productTurnId` 整轮移除，`turnOrdinal` 只用于展示文案——两者编号口径不同，用序号反查目录会取消错轮次）；存在可跳过文件时，操作行显示
-跳过数量。确认和发布阶段仍必须复用同一套校验并重新检查 revision/log epoch、文件 stat、大小和 SHA-256，防止预检后
-的文件或会话发生竞态变化。
+O Dock de seleção exibe o estado `checking` durante o preflight; itens bloqueantes mostram o turno específico
+e a ação "cancelar a seleção deste turno" (a remoção é do turno inteiro conforme o `productTurnId` carregado
+pelo issue, e `turnOrdinal` é usado apenas no texto de exibição — as duas numerações têm critérios
+diferentes, e usar o ordinal para consultar o diretório cancelaria o turno errado); quando há arquivos
+ignoráveis, a linha de ações mostra a quantidade ignorada. As fases de confirmação e publicação ainda
+precisam reutilizar o mesmo conjunto de validações e rechecar revision/log epoch, stat de arquivo, tamanho e
+SHA-256, evitando mudanças por corrida no arquivo ou na sessão depois do preflight.
 
-预检结果由当前分享流程的 renderer-local owner 按 `productTurnId` 缓存，而不是按整个 selection 反复检查。首次进入分享选择阶段时，
-仅批量检查当前尚未命中的轮次；之后新增选择只检查新增且未命中的轮次。取消已检查轮次、重新选择已检查轮次以及
-点击“下一步”都只读取缓存，不重新发起 preflight RPC。缓存绑定 `workspaceKey`、`remoteSessionId`、`sessionId`、
-`productTurnId`、rows revision/log epoch、turn/candidate fingerprint、fileChanges 状态和 capabilities fingerprint；
-当前轮次内容、候选集合、文件变更状态或能力发生变化时，只失效受影响轮次。
-缓存不进入数据库或 conversation snapshot，取消/完成分享或切换 session/workspace 时清理。
+Os resultados do preflight são cacheados pelo owner renderer-local do fluxo de compartilhamento atual por
+`productTurnId`, em vez de rechecar a seleção inteira repetidamente. Ao entrar pela primeira vez na fase de
+seleção, apenas os turnos ainda não atingidos são verificados em lote; seleções posteriores verificam apenas
+as novas e ainda não atingidas. Cancelar turnos já verificados, reselecionar turnos já verificados e clicar
+em "Próximo" apenas leem o cache e não disparam novos RPCs de preflight. O cache está ligado a
+`workspaceKey`, `remoteSessionId`, `sessionId`, `productTurnId`, revision/log epoch das rows, fingerprint
+de turno/candidato, status de fileChanges e fingerprint de capabilities; quando o conteúdo do turno atual, o
+conjunto de candidatos, o status de alterações de arquivo ou as capabilities mudam, apenas os turnos
+afetados são invalidados.
 
-选择 Dock 不再插入独立的“正在检查分享内容”中间条。预检状态通过操作行状态入口表达，
-“下一步”按钮始终只显示短文案，不显示等待图标或保留图标占位；检测完成前保持禁用，完成后沿用阻断问题和选择数量的禁用条件。
-详细阻断/跳过列表通过状态入口的 Popover 展示，避免检查状态变化导致 Dock 高度和按钮
-宽度跳动。
+O cache não entra no banco de dados nem no conversation snapshot, e é limpo ao cancelar/concluir o
+compartilhamento ou ao trocar de session/workspace.
 
-选择 Dock 的批量标签按内容宽度保持单行，复选框、标签与计数不拆分；操作区空间不足时，取消/下一步按钮作为整组换到下一行并右对齐。中英文、放大 UI 字号及窄面板均遵循同一 CSS 布局，不改变选择状态或分享链路。
+O Dock de seleção não insere mais uma barra independente "verificando o conteúdo compartilhado". O estado
+do preflight é expresso pela entrada de estado da linha de ações, e o botão "Próximo" sempre mostra apenas
+texto curto, sem ícone de espera ou placeholder reservado para ícone; permanece desabilitado antes de a
+verificação terminar e, depois, mantém as condições de desabilitação por problema bloqueante e por contagem
+de seleção. A lista detalhada de bloqueios/ignorados é exibida em um Popover da entrada de estado, evitando
+que a mudança de status de verificação faça a altura do Dock e a largura do botão saltarem.
 
-选择与发布确认是两个可逆的 UI 阶段，并始终复用同一个 bottom dock。选择阶段只负责勾选已完成的
-product turn；点击「下一步」后，确认阶段在 dock 内同时展示本次分享的标题、访问权限和敏感信息确认，
-不再打开独立弹窗。新分享草稿首次进入确认阶段时访问权限默认是 `public_importable`；点击「上一步」返回
-选择阶段时，必须保留选择、标题、权限和其它 renderer-local
-草稿。选择阶段中的 timeline 仅用于查看和定位，不改变业务阶段。点击「确认并生成链接」后 dock
-原位切换为整理、上传和安全检查进度；发布开始后阶段不可切换。
+Os labels em lote do Dock de seleção permanecem em linha única conforme a largura do conteúdo, sem separar
+checkbox, label e contagem; quando falta espaço na área de ações, os botões cancelar/próximo vão como um
+grupo inteiro para a linha seguinte e ficam alinhados à direita. Chinês, inglês, tamanho de fonte ampliado e
+painel estreito seguem o mesmo layout CSS, sem alterar o estado de seleção ou a cadeia de compartilhamento.
 
-分享 dock 的 renderer-local 运行态必须按当前 `sessionId` 独立保存，至少包括标题覆盖、敏感信息确认、
-发布中状态、进度、成功链接、失败详情、warning 和本次幂等 attempt。SessionPane 可以复用同一个 pane
-实例来切换会话，但切换只改变当前 dock 的读取 key，不得把上一个 session 的结果投影到当前 session，
-也不得因为结束当前 session 的分享而清理其它 session 的分享状态。选择草稿和 dock 运行态都属于
-renderer-local UI 状态，不进入 conversation snapshot、SQLite、CommandInbox 或手机
-`web-remote-replayable` 恢复消息；预检缓存仍按现有规则在切换 session/workspace 时清理。
+Seleção e confirmação de publicação são duas fases de UI reversíveis que sempre reutilizam o mesmo bottom
+dock. A fase de seleção cuida apenas de marcar product turns concluídos; ao clicar em 「Próximo」, a fase
+de confirmação exibe dentro do dock, simultaneamente, o título deste compartilhamento, a permissão de acesso
+e a confirmação de informações sensíveis, sem abrir um modal separado. Quando um rascunho novo entra pela
+primeira vez na fase de confirmação, a permissão de acesso padrão é `public_importable`; ao clicar em
+「Voltar」 para a fase de seleção, é preciso preservar seleção, título, permissão e o resto do rascunho
+renderer-local. O timeline da fase de seleção serve apenas para visualização e localização e não muda a
+fase de negócio. Após clicar em 「Confirmar e gerar link」, o dock troca no próprio lugar para o progresso de
+organização, upload e verificação de segurança; depois que a publicação começa, a fase não pode mais ser
+trocada.
+
+O estado de runtime renderer-local do dock de compartilhamento precisa ser salvo de forma independente por
+`sessionId` atual, incluindo pelo menos a sobrescrita de título, a confirmação de informações sensíveis, o
+estado "em publicação", o progresso, o link de sucesso, os detalhes de falha, os warnings e a tentativa
+idempotente atual. O SessionPane pode reutilizar a mesma instância de pane para trocar de sessão, mas a
+troca só altera a chave de leitura do dock atual: não pode projetar o resultado da sessão anterior na sessão
+atual, nem limpar o estado de compartilhamento de outras sessões por encerrar o compartilhamento da sessão
+atual. Rascunho de seleção e estado de runtime do dock são estado de UI renderer-local e não entram no
+conversation snapshot, no SQLite, no CommandInbox nem nas mensagens de recuperação mobile
+`web-remote-replayable`; o cache de preflight continua sendo limpo nas trocas de session/workspace pelas
+regras existentes.
 
 ```text
 Session A:  closed -> selecting -> confirming -> publishing -> published
@@ -351,79 +463,131 @@ switch A -> B: read/write dockStates[B] only
 switch B -> A: read/write dockStates[A] only
 ```
 
-发布进度 dock 的底部摘要使用一行自然语言同时表达分享范围和访问权限，例如
-“分享 2 个对话轮次，链接持有者可导入并继续”；私有和只读权限分别替换为“仅自己可见”和
-“链接持有者可查看”。发布进行中不额外展示“不能修改分享内容”的锁定提示，因为标题、权限、返回、取消和确认
-控件已经被隐藏或禁用；进度标题、阶段和禁用按钮共同表达当前状态。窄屏允许该摘要自然换行，不改变语义。
+O resumo na base do dock de progresso de publicação usa uma única linha em linguagem natural que expressa
+ao mesmo tempo o escopo do compartilhamento e a permissão de acesso, por exemplo
+“分享 2 个对话轮次，链接持有者可导入并继续”; as permissões privada e somente-leitura substituem
+respectivamente por “仅自己可见” e “链接持有者可查看”. Durante a publicação não é exibido um aviso extra de
+“não é possível modificar o conteúdo compartilhado”, porque os controles de título, permissão, voltar,
+cancelar e confirmar já estão ocultos ou desabilitados; o título de progresso, a fase e o botão desabilitado
+expressam juntos o estado atual. Telas estreitas permitem essa quebra natural do resumo sem alterar a
+semântica.
 
-顶部分享入口复用工具栏的 `Button variant="ghost" size="icon-md"`，默认热区与背景为 28×28 CSS px，和帮助、终端、侧栏按钮一致；图标使用 Lucide `ShareIcon size-4`，不单独设置 mask 缩放。Windows 继续复用现有 caption control 尺寸覆盖。悬停与选中背景沿用语义 token；保留可访问名称、键盘操作及当前入口可见性，手机 `/remote` 不新增分享入口。此调整只涉及外观，不改变分享草稿所有权和点击语义。
+A entrada de compartilhamento no topo reaproveita o `Button variant="ghost" size="icon-md"` da barra de
+ferramentas, com área de clique e fundo padrão de 28×28 CSS px, igual aos botões de ajuda, terminal e barra
+lateral; o ícone usa o Lucide `ShareIcon size-4`, sem ajuste separado de escala de máscara. O Windows
+continua reaproveitando a sobreposição existente de dimensões do caption control. Hover e fundo de seleção
+seguem os tokens semânticos; nome acessível, operação por teclado e visibilidade atual da entrada são
+preservados, e o `/remote` do celular não ganha entrada de compartilhamento. Essa ajuste afeta apenas a
+aparência e não muda a posse do rascunho de compartilhamento nem a semântica de clique.
 
-点击顶部分享入口进入选择阶段时，候选 product turn 默认全部选中，选择面板默认收起并展示
-timeline。分享已打开时，再次点击顶部入口取消当前 session 的分享，复用 `finishSelection` 清理
-选择草稿和可见 dock 状态；选择、确认、失败和成功阶段行为一致，不影响其它 session。
-发布进行中沿用 dock 的取消保护，顶部入口禁用，避免清理后异步发布结果重新写回。
-调整选择范围通过 timeline 左侧重新打开入口完成。此变更仅涉及 renderer 状态，不改变
-Desktop continuous、手机 replayable 和手机 `/remote` 不发起分享的边界。
+Ao clicar na entrada de compartilhamento do topo para entrar na fase de seleção, os product turns candidatos
+começam todos selecionados, o painel de seleção vem recolhido por padrão e mostra o timeline. Com o
+compartilhamento aberto, clicar de novo na entrada do topo cancela o compartilhamento da sessão atual,
+reaproveitando `finishSelection` para limpar o rascunho de seleção e o estado visível do dock; o
+comportamento é o mesmo nas fases de seleção, confirmação, falha e sucesso e não afeta outras sessões.
+Durante a publicação vale a proteção de cancelamento do dock e a entrada do topo fica desabilitada, evitando
+que o resultado assíncrono da publicação seja reescrito depois da limpeza.
+
+O ajuste do escopo de seleção é feito reabrindo a entrada à esquerda do timeline. Essa mudança envolve
+apenas o estado do renderer e não altera a fronteira de Desktop continuous, celular replayable e a regra de
+que o `/remote` do celular não inicia compartilhamento.
 
 ```text
 普通对话 --顶部分享--> 选择/确认/结果 --顶部分享--> finishSelection(sessionId) --> 普通对话
 发布中   --顶部分享禁用--> 等待发布结束
 ```
 
-未勾选敏感信息确认时，“生成分享链接”保持可点击；点击不发起发布，而是将确认区域滚动到可见位置、聚焦复选框，并以 warning 背景闪亮一次（600ms），结束后恢复原样，不新增提示文字或持续高亮。重复点击重新播放，不叠加动画；减少动态效果偏好下仅定位并聚焦复选框。勾选后不自动发布，必须再次点击按钮。标题为空、未选择内容、发布中仍禁用，失败重试沿用原行为。披露确认仍由现有状态持有，Dock 不新增提示状态；桌面和 Web 共用此行为，不改变发布协议。
+Quando a confirmação de informações sensíveis não está marcada, 「生成分享链接」 permanece clicável; clicar
+não inicia a publicação, e sim rola a área de confirmação para a posição visível, foca o checkbox e pisca uma
+vez com fundo de warning (600ms), voltando ao normal ao final, sem adicionar texto de aviso nem realce
+persistente. Cliques repetidos reproduzem novamente, sem acumular animações; com preferência por menos
+movimento, apenas posiciona e foca o checkbox. Depois de marcar, não há publicação automática e é preciso
+clicar no botão de novo. Título vazio, nada selecionado ou publicação em andamento continuam desabilitados, e
+o retry após falha mantém o comportamento original. A confirmação de divulgação continua sendo mantida pelo
+estado existente, e o Dock não ganha novos estados de aviso; desktop e Web compartilham esse comportamento, e
+o protocolo de publicação não muda.
 
-敏感信息确认区在可用宽度允许时保持单行：左侧为复选框和确认文案，右侧为简短的自动检测说明与
-「查看检查范围」入口，右侧内容使用同一 `text-ui-xs` 字号并整体右对齐。完整的凭证、Token、密码、
-私钥、内部地址和个人信息清单继续放在检查范围 Popover 中；窄屏时右侧内容允许自然换行，不改变确认
-语义或校验条件。
-确认卡片与标题输入框、权限选择器共用同一 `mx-3` 内容轨道，并与权限区域保持独立的 `mt-3` 间距，
-避免敏感信息确认区贴住权限卡片或出现左右边界不一致。
+A área de confirmação de informações sensíveis permanece em linha única quando a largura disponível
+permite: à esquerda o checkbox e o texto de confirmação, à direita uma breve explicação da detecção
+automática e a entrada 「查看检查范围」, com o conteúdo da direita no mesmo tamanho `text-ui-xs` e
+alinhado à direita como um todo. A lista completa de credenciais, tokens, senhas, chaves privadas, endereços
+internos e informações pessoais continua no Popover de escopo de verificação; em telas estreitas o
+conteúdo da direita pode quebrar naturalmente, sem mudar a semântica da confirmação nem as condições de
+validação.
 
-### 分享确认 Dock 窄宽度布局（SHARE28）
+O cartão de confirmação compartilha com o campo de título e o seletor de permissão a mesma trilha de
+conteúdo `mx-3`, mantendo um espaçamento `mt-3` independente em relação à área de permissão, para evitar que
+a área de confirmação fique colada no cartão de permissão ou apresente limites laterais inconsistentes.
 
-确认 Dock 按自身容器内容盒宽度响应，不能用窗口 `md` 断点推断剩余空间。小于 640px 时权限单列，
-标签和说明完整换行；640px 起权限及发布阶段三列。小于 480px 时主操作独占第一行，返回/取消
-位于第二行；480px 起恢复横排。DOM 顺序调整为「生成分享链接」在前、返回/取消在后（窄屏主操作
-第一行即由该顺序直接成立），480px 起宽容器用 `order-last` 把主操作视觉后置到最右。窄屏下 Tab
-焦点顺序与视觉顺序一致；宽容器下 Tab 首停点为主操作、与视觉顺序（返回/取消在前）方向相反——
-这是「窄屏主操作第一行 + 宽屏主操作最右」两套视觉无法共用一份 DOM 顺序的已知取舍，主操作首停
-也符合键盘用户最常用路径。标题输入允许缩小到容器宽度；确认说明在窄屏隐藏装饰盾牌、减少重复缩进，保留复选框、警示边线、
-完整确认文案、自动检测说明和检查范围入口。Dock 总高度不超过 70dvh，正文独立纵向滚动，
-操作区不随正文滚出；不缩小字号、不新增权限文案、不改变发布验证。
+### Layout do Dock de confirmação de compartilhamento em largura estreita (SHARE28)
+
+O Dock de confirmação responde à largura da caixa de conteúdo do próprio contêiner; não é possível inferir o
+espaço restante pelo breakpoint `md` da janela. Abaixo de 640px a permissão fica em coluna única, com labels
+e descrições quebrando por completo; a partir de 640px, permissão e fase de publicação voltam a três
+colunas. Abaixo de 480px a ação principal ocupa a primeira linha sozinha, e voltar/cancelar fica na segunda
+linha; a partir de 480px o layout horizontal é restaurado. A ordem do DOM é ajustada para 「生成分享链接」
+primeiro e voltar/cancelar depois (em tela estreita, a ação principal na primeira linha decorre diretamente
+dessa ordem), e a partir de 480px o container largo usa `order-last` para posicionar visualmente a ação
+principal na extrema direita. Em tela estreita, a ordem de foco por Tab coincide com a ordem visual; em
+container largo, o primeiro ponto de parada do Tab é a ação principal, na direção oposta à ordem visual
+(voltar/cancelar primeiro) — esse é um trade-off conhecido por não ser possível compartilhar uma única
+ordem de DOM entre as duas visuais "ação principal na primeira linha em tela estreita" e "ação principal na
+mais à direita em tela larga", e ter a ação principal como primeiro ponto de parada também corresponde ao
+caminho mais usado por usuários de teclado. O campo de título pode encolher até a largura do contêiner; na
+tela estreita a explicação da confirmação oculta o escudo decorativo e reduz a indentação repetida,
+mantendo o checkbox, a borda de alerta, o texto completo da confirmação, a explicação da detecção
+automática e a entrada de escopo de verificação. A altura total do Dock não passa de 70dvh, o corpo rola
+verticalmente de forma independente e a área de ações não sai junto com o corpo; o tamanho da fonte não
+diminui, nenhum texto de permissão novo é adicionado e a verificação de publicação não muda.
 
 ```text
 container width -> CSS layout only -> single column / wrapped actions
 sessionId      -> existing dock state -> title / permission / acknowledgement
 ```
 
-SHARE28 验证：320/400/640/800px 面板（含宽窗口内窄面板）、中英文、明暗主题、短视口；
-控件与权限文案不横向溢出、操作区可见，缩窄再放宽保留标题、权限和确认勾选。
-复用现有 pending 分享 E2E 增补窄面板几何与状态断言，不提升为 formal。侧栏、公开分享页、
-手机 `/remote` 发布边界和 desktop continuous / mobile replayable 链路均不改变。
+Verificação do SHARE28: painéis de 320/400/640/800px (incluindo painel estreito dentro de janela larga),
+chinês e inglês, temas claro e escuro, viewport baixo; controles e textos de permissão não estouram
+horizontalmente, a área de ações permanece visível e estreitar e depois alargar preserva título, permissão e
+o checkbox de confirmação. Reaproveitando o E2E existente de compartilhamento pendente, acrescentam-se
+asserções de geometria e de estado para painel estreito, sem elevar a formal. Barra lateral, página pública
+de compartilhamento, fronteira de publicação do `/remote` no celular e cadeias desktop continuous / mobile
+replayable permanecem inalteradas.
 
-发布成功后进入独立的 `published` 结果态：保留分享标题作为只读信息，展示持久的“分享已创建”状态和
-说明；隐藏访问权限、选择计数、确认提示、“上一步”和“取消”。业务操作只保留「去浏览器查看」与
-「复制链接」两个按钮，两个操作完成后仍保留结果态，用户可通过关闭图标或 `Esc` 退出。成功 Toast
-仅作为即时反馈，不能替代结果态中的持久成功提示。若存在被跳过的文件，在成功状态下以次级 warning
-展示，不得把部分成功误报为失败。
+Após a publicação bem-sucedida, entra em um estado de resultado `published` independente: o título do
+compartilhamento é mantido como informação somente-leitura, com um estado persistente de "compartilhamento
+criado" e uma explicação; permissão de acesso, contagem de seleção, dicas de confirmação, 「上一步」 e
+「取消」 são ocultados. As ações de negócio ficam apenas em 「去浏览器查看」 e 「复制链接」, e as duas mantêm o
+estado de resultado após concluídas, com saída pelo ícone de fechar ou `Esc`. O Toast de sucesso é apenas
+feedback imediato e não substitui o aviso persistente de sucesso do estado de resultado. Havendo arquivos
+ignorados, eles são exibidos como warning secundário no estado de sucesso, e sucesso parcial não pode ser
+relatado como falha.
 
-选择、确认和发布成功三个分享 bottom dock 与普通 Composer 共用同一基础输入 surface：宽度继承
-timeline 内容列，使用 `rounded-2xl`、`border-input-border` 和 `bg-input`。分享 dock 不再额外使用
-popover ring 或大阴影，避免在普通输入框之间切换时产生不必要的层级和光晕差异。分享专有的内容高度、
-操作按钮、选择阶段 scrim、消息层渐隐 mask 以及 bottom dock 进入/退出动画继续保留；这些效果不改变
-分享状态、发布协议或 desktop continuous / mobile replayable 边界。
+Os três bottom docks de compartilhamento (seleção, confirmação e sucesso) compartilham a mesma superfície
+base de entrada do Composer comum: a largura herda a coluna de conteúdo do timeline e usa `rounded-2xl`,
+`border-input-border` e `bg-input`. O dock de compartilhamento não usa mais ring de popover nem sombra
+grande, evitando diferenças desnecessárias de camadas e halo ao alternar entre campos comuns. As alturas
+de conteúdo exclusivas de compartilhamento, os botões de ação, o scrim da fase de seleção, a máscara de
+fade da camada de mensagens e as animações de entrada/saída do bottom dock continuam; esses efeitos não
+mudam o estado de compartilhamento, o protocolo de publicação nem a fronteira desktop continuous / mobile
+replayable.
 
-### 选择面板高度与底部输入区避让
+### Altura do painel de seleção e desvio da área inferior de entrada
 
-选择阶段左侧的 `ConversationShareSelectionPanel` 使用内容自适应高度：候选较少时面板只包住
-header、列表内容和面板内边距，不因为固定高度产生空白；候选内容超过可视上限时，仅面板内的
-列表 `ScrollArea` 纵向滚动。面板的最终高度取自然内容高度和当前会话容器在底部 composer/share
-dock 之上的可用高度两者的最小值，不设置固定像素高度上限。可用高度由运行时真实测量，底部 dock
-增高、输入框变为多行、窗口 resize 或分屏布局变化时重新计算；面板底部与 dock 顶部至少保留
-16px 间距，不得遮挡或挤压输入区。
-选择面板不显示右上角关闭按钮；用户通过点击遮罩返回 timeline，或使用 timeline 左侧的重新打开入口恢复面板。
-点击面板条目的文字区域只定位正文到对应 turn，不改变选择面板的可见状态；只有点击面板以外的区域
-才收起面板并返回 timeline。点击复选框仍只改变当前 turn 的选择状态，不触发正文定位。
+O `ConversationShareSelectionPanel` à esquerda na fase de seleção usa altura adaptativa ao conteúdo: com
+poucos candidatos, o painel envolve apenas o header, o conteúdo da lista e o padding interno, sem espaço em
+branco por altura fixa; quando o conteúdo dos candidatos excede o limite visível, apenas o `ScrollArea` da
+lista dentro do painel rola verticalmente. A altura final do painel é o menor valor entre a altura natural do
+conteúdo e a altura disponível do contêiner da sessão acima do composer/share dock inferior, sem um teto de
+altura em pixels. A altura disponível é medida de verdade em runtime e recalculada quando o dock inferior
+cresce, o campo de entrada vira multilinha, a janela é redimensionada ou o layout de tela dividida muda; há
+pelo menos 16px de espaço entre o fundo do painel e o topo do dock, e a área de entrada não pode ser
+coberta nem espremida.
+
+O painel de seleção não exibe botão de fechar no canto superior direito; o usuário volta ao timeline
+clicando no overlay ou usando a entrada de reabertura à esquerda do timeline. Clicar na área de texto de
+uma entrada do painel apenas posiciona o corpo no turno correspondente e não muda a visibilidade do painel de
+seleção; somente clicar fora do painel o recolhe e retorna ao timeline. Clicar no checkbox continua mudando
+apenas o estado de seleção do turno atual e não dispara o posicionamento do corpo.
 
 ```text
 会话内容区
@@ -439,100 +603,135 @@ dock 之上的可用高度两者的最小值，不设置固定像素高度上限
 └──────────────────────────────┘
 ```
 
-该布局规则只调整分享选择面板的 renderer 几何，不改变分享选择状态、timeline 滚动锁定、发布
-协议或手机 `/remote` 的分享能力边界。
+Essa regra de layout ajusta apenas a geometria do painel de seleção no renderer e não muda o estado de
+seleção, o bloqueio de scroll do timeline, o protocolo de publicação nem a fronteira de capacidade de
+compartilhamento do `/remote` no celular.
 
-## 发布错误详情契约
+## Contrato dos detalhes de erro de publicação
 
-发布失败不得只显示首个错误或一条无上下文的 Toast。Host 在 prepare 前必须执行一次
-SharePreflight，并在失败时返回最多 5 条脱敏后的 `issues`；超过部分只返回计数。每条 issue
-可包含轮次序号、文件名（仅 basename）、artifact type、扩展名、MIME、实际值与能力上限，
-禁止包含绝对路径、URL、文件内容、哈希、Token 或内部持久化 ID。
+Uma falha de publicação não pode mostrar apenas o primeiro erro ou um Toast sem contexto. Antes do prepare,
+o Host precisa executar um SharePreflight e, em caso de falha, retornar no máximo 5 `issues` desidentificados;
+o excedente é retornado apenas como contagem. Cada issue pode conter o número do turno, o nome do arquivo
+(apenas basename), o artifact type, a extensão, o MIME, o valor real e o limite de capacidade; é proibido
+incluir caminho absoluto, URL, conteúdo do arquivo, hash, Token ou IDs internos de persistência.
 
-结构问题至少细分为运行中的 turn、streaming row、活动工具调用、活动子任务、运行中的 compact/goal
-verification、用户输入附件、本地/内联 URL、未闭合 artifact 引用和陈旧 revision。已完成的 fork/checkpoint
-内部 marker 不属于用户可操作错误，必须静默移除；内嵌工具图片按下述产物转换规则处理。阻断项按同一轮合并展示，并提供取消该轮的操作。
-产物白名单问题必须显示文件名、
-实际的 type/extension/MIME 和当前 capabilities 允许的格式；Markdown 的 `html + text/markdown`
-组合与 HTML 的 `html + text/html` 组合必须区分。
+Problemas estruturais precisam ser subdivididos pelo menos em: turno em execução, row em streaming, chamada
+de ferramenta ativa, subtarefa ativa, compact/goal verification em execução, anexo de entrada do usuário,
+URL local/inline, referência de artifact não fechada e revision obsoleta. Markers internos de
+fork/checkpoint concluídos não são erros acionáveis pelo usuário e precisam ser removidos em silêncio;
+imagens embutidas de ferramentas seguem as regras de conversão de produtos descritas abaixo. Itens
+bloqueantes são agrupados por turno e oferecem a ação de cancelar aquele turno.
 
-行数、产物数量、单文件大小、总产物大小和 JSON payload 大小必须同时报告实际值与上限，
-不能统一退化为“超过分享限制”。网络、上传和安全检查错误必须标记失败阶段；若服务端没有
-返回可定位信息，只显示稳定错误类型、阶段和安全的重试建议，不展示原始服务端文本。
+Problemas de allowlist de produtos precisam mostrar o nome do arquivo, o type/extension/MIME real e os
+formatos permitidos pelas capabilities atuais; a combinação `html + text/markdown` do Markdown e a
+combinação `html + text/html` do HTML precisam ser diferenciadas.
 
-HTTP 错误分类以故障源为先：网关/负载均衡返回的 5xx 非 JSON 错误页（502/504 HTML）是
-基础设施故障，必须归类为 network 类，不得因 body 无法解析而归类为 `invalid_contract`
-（后者语义是服务端违反 API 契约，会误导排障与用户提示）。artifact 上传是用户主动等待的
-大传输，单请求超时按 artifact 字节数动态放宽（保底带宽估算），不能沿用普通 JSON 请求的
-默认超时；confirm 之外的超时放宽规则同源。
+Contagem de linhas, quantidade de produtos, tamanho de arquivo único, tamanho total de produtos e tamanho do
+payload JSON precisam reportar simultaneamente valor real e limite, sem degradar tudo para "excede o limite
+de compartilhamento". Erros de rede, de upload e de verificação de segurança precisam marcar a fase da
+falha; se o servidor não retornou informação localizável, mostra-se apenas o tipo de erro estável, a fase e
+uma sugestão de retry segura, sem exibir o texto original do servidor.
 
-分享 dock 保留打开状态，发布失败继续停留在发布态 dock 中，并在进度信息下方内联显示可滚动的
-错误详情；发布失败不再显示顶部错误 Toast。错误态保留「上一步」「取消」和「重试生成链接」，
-用户修改选择、标题或权限后清除旧详情。所有详情文案必须同时支持中英文、浅色/深色主题和窄屏布局。
+A classificação de erros HTTP parte da fonte da falha: páginas de erro 5xx não-JSON devolvidas por
+gateway/load balancer (502/504 em HTML) são falhas de infraestrutura e precisam ser classificadas como
+`network`, e não como `invalid_contract` só porque o body não pôde ser interpretado (a semântica de
+`invalid_contract` é o servidor violando o contrato da API, o que迷 misleadaria o troubleshooting e a
+mensagem ao usuário). O upload de artifact é uma transmissão grande que o usuário espera ativamente, e o
+timeout de requisição única é ampliado dinamicamente conforme os bytes do artifact (com uma estimativa de
+bandwidth mínima); ele não pode reutilizar o timeout padrão das requisições JSON comuns. As regras de
+ampliação de timeout fora do confirm têm a mesma origem.
 
-错误详情中的服务端 `x-request-id` 默认不在错误 dock 内联展示；错误引导文案末尾提供一个
-click-only 的错误详情按钮，点击后通过向上的 Popover 展示并复制合法的服务端 request-id。
-没有 HTTP 响应 request-id 时仍保留该入口，在 Popover 中显示稳定缺失提示且不提供复制操作；
-不得使用客户端生成的请求头 ID 冒充服务端 ID。多条 issue 共用一个详情入口，不在每条 issue 后重复
-request-id。错误按钮与错误文案保持同一内容列，使用 24px 点击区域和语义 destructive 色，需支持
-键盘触发、Esc/点击外部关闭、窄屏碰撞调整以及浅色/深色主题。选择阶段的面板可关闭到 timeline，并通过左侧
-reopen tab 恢复；该操作只改变 `view`，不清空选择、标题、权限或错误草稿，且 reopen tab 仅在
-`stage=selection` 时显示。
+O dock de compartilhamento permanece aberto, a falha de publicação continua no dock em estado de publicação e
+os detalhes de erro são exibidos inline e roláveis abaixo das informações de progresso; a falha de publicação
+não exibe mais o Toast de erro no topo. O estado de erro mantém 「上一步」, 「取消」 e 「重试生成链接」, e os
+detalhes antigos são limpos quando o usuário muda seleção, título ou permissão. Todos os textos de detalhe
+precisam suportar chinês e inglês, temas claro/escuro e layout estreito.
 
-错误详情卡只有一条可行动文案时采用紧凑单行布局：文案、错误详情按钮和“关闭”操作垂直居中，
-上下内边距保持一致，使用较小的 `p-2`，并将卡片与操作栏的间距收窄为 `mb-2`；包含多条 issue 时才恢复列表所需的
-额外间距，避免单行错误
-提示在底部留下不必要的空白。
+O `x-request-id` do servidor nos detalhes de erro não é exibido inline no dock de erro por padrão; o texto de
+guia de erro coloca no fim um botão de detalhe de erro somente por clique, que exibe e copia o request-id
+legítimo do servidor em um Popover que abre para cima. Quando não há request-id de resposta HTTP, a entrada
+continua presente, com um aviso de ausência estável no Popover e sem ação de copiar; nunca se pode usar um ID
+de request gerado pelo cliente para se passar por ID do servidor. Múltiplas issues compartilham uma única
+entrada de detalhe, sem repetir o request-id depois de cada issue. O botão de erro e o texto de erro mantêm a
+mesma coluna de conteúdo, usam uma área de clique de 24px e cor semântica destructive, e precisam suportar
+ativação por teclado, fechamento por Esc/clique fora, ajuste de colisão em tela estreita e temas claro e
+escuro. Na fase de seleção o painel pode ser fechado para o timeline e restaurado pela reopen tab à
+esquerda; essa ação só muda o `view`, não limpa seleção, título, permissão ou rascunho de erro, e a reopen
+tab aparece apenas quando `stage=selection`.
 
-用户必须显式确认系统不会自动识别敏感信息。发布期间面板不可关闭。真实 `share_url` 只在 confirm
-成功后显示；不得使用 demo URL 或模拟 loading。相同标题、权限、选择和内容重试复用 clientRequestId，
-输入变化后生成新 ID。
+O cartão de detalhes de erro usa layout compacto de linha única quando há apenas um texto acionável: o
+texto, o botão de detalhe e a ação "Fechar" ficam centralizados verticalmente, com padding vertical
+consistente, usando `p-2` menor e estreitando o espaçamento entre o cartão e a barra de ações para `mb-2`;
+com múltiplas issues, o espaçamento extra exigido pela lista é restaurado, evitando que um aviso de erro de
+linha única deixe espaço desnecessário na base.
 
-发布失败必须按稳定错误 kind 显示可操作提示，不得统一退化为“请重试”。Desktop Host 记录
-`operationId`、阶段、kind、HTTP status/code 和安全计数；Server Remote 等主动拒绝记录明确 reason。日志
-不得包含 JWT、Signed URL、Rows 正文、文件名或绝对路径。公开投影和产物 staging 失败还记录稳定
-`reasonCode`（如 `input_attachment`、`running_turn`、`artifact_changed`、`unsafe_url`）及安全的
-`rowKind/rowId/artifactType/phase` 诊断字段；UI 按 reasonCode 提示下一步操作，不展示底层原始错误文本。
+O usuário precisa confirmar explicitamente que o sistema não识别 automaticamente informações sensíveis.
+Durante a publicação o painel não pode ser fechado. O `share_url` real só aparece após o confirm bem-sucedido;
+é proibido usar URL de demo ou loading simulado. Retentativas com o mesmo título, permissão, seleção e
+conteúdo reutilizam o clientRequestId, e uma nova ID é gerada após mudanças na entrada.
 
-## 导入与继续工作
+A falha de publicação precisa exibir uma dica acionável por kind de erro estável, sem degradar tudo para
+"请重试". O Desktop Host registra `operationId`, fase, kind, HTTP status/code e contagens seguras; Server
+Remote e outras rejeições主动 registram um reason explícito. Logs não podem conter JWT, Signed URL, corpo
+de Rows, nomes de arquivo ou caminhos absolutos. Falhas na projeção pública e no staging de produtos
+registram ainda um `reasonCode` estável (como `input_attachment`、`running_turn`、`artifact_changed`、`unsafe_url`)
+e campos de diagnóstico seguros `rowKind/rowId/artifactType/phase`; a UI usa o reasonCode para sugerir a
+próxima ação e não exibe o texto de erro bruto da camada inferior.
 
-Web CTA 使用 `zcode://share/import?code=<share_code>`，deep link 只能携带 share code。main process
-只解析、缓存和投递 intent；Renderer 不按本地登录态前置拦截，统一调用 Host import service，
-由 continuation API 返回最终访问判定。share deep link 的目标窗口解析与其他 deep link 一致，
-必须走调用方注入的 `resolveApplicationWindow`（排除 CUA indicator 等辅助窗口）；窗口未就绪时
-缓存的 pending import 必须绑定目标窗口的 webContents id，只投递给目标窗口，目标窗口关闭时
-清理，不得投递给先 ready 的任意 renderer——导入会写入目标窗口激活 workspace 的
-`.zcode-share`，投递错窗口等于在错误 workspace 创建会话。
+## Importação e continuação de trabalho
 
-导入在当前本地 workspace 下创建新的 conversation task/session；远程 workspace 回退到默认本地
-conversation workspace。产物固定写入 `<workspace>/.zcode-share/<share-id>/shared-artifacts/`，
-同一 `workspaceKey = workspaceIdentity?.trim() || workspacePath` 与分享码幂等复用，不同 workspace 各自创建 session。
-创建 import-owned pending marker 后：
+O CTA Web usa `zcode://share/import?code=<share_code>`, e o deep link só pode carregar o share code. O main
+process apenas parseia, cacheia e entrega a intent; o Renderer não bloqueia antecipadamente conforme o
+estado de login local e chama uniformemente o Host import service, com a continuation API retornando a
+decisão final de acesso. A resolução da janela de destino do deep link de share é igual à de outros deep
+links e precisa passar pelo `resolveApplicationWindow` injetado pelo chamador (excluindo janelas auxiliares
+como o indicador CUA); quando a janela ainda não está pronta, o pending import cacheado precisa estar
+vinculado ao webContents id da janela de destino e ser entregue apenas a ela, sendo limpo quando a janela
+destino fechar — entregá-la a qualquer renderer que ficou ready primeiro significaria criar a sessão no
+workspace errado, já que a importação escreve `.zcode-share` no workspace ativado na janela de destino.
 
-1. 调 continuation 并校验 schema 与两哈希；
-2. 全部 artifact 下载到同文件系统 staging，复验 size/MIME/SHA-256。下载必须带单请求
-   超时（挂住的连接按 network 失败，不得无限停在 downloading 阶段），并在读取 body 前
-   预检 `Content-Length`：超过 manifest 声明的 `size_bytes` 时立即中断，不把已知的
-   超大响应读进内存——完整性校验放在无界下载之后只保证正确性，不保护客户端资源；
-3. 原子 rename 为 `shared-artifacts/`；
-4. `SharedContextFormatterV1` 按 Rows 原序生成确定性 Markdown，并把 artifact ref 改成相对路径；
-5. SQLite 单事务创建 session、唯一 model-only `shared_context` message 和
-   `v4/shared_context_import` provenance，初始状态为 `pending`；
-6. 删除 marker、激活 workspace/session，并显示 Share URL handover。
+A importação cria um novo conversation task/session no workspace local atual; um workspace remoto volta ao
+conversation workspace local padrão. Os produtos são gravados fixamente em
+`<workspace>/.zcode-share/<share-id>/shared-artifacts/`, com reuso idempotente pelo mesmo
+`workspaceKey = workspaceIdentity?.trim() || workspacePath` e pelo share code, e workspaces diferentes
+criam suas próprias sessions. Depois de criar o marker import-owned:
 
-整合约束（Todo103）：导入不执行模型，不依赖当前 Provider 可用性。分享上下文消息沿用当前
-结构化 `modelSelection` 存储合同；有明确选择时保留，未绑定时不伪造模型来源，不重新写入旧
-`model.providerID/modelID` 字段。原子导入与后续正常执行的模型校验是两个边界。
+1. Chamar a continuation e validar o schema e os dois hashes;
+2. Baixar todos os artifacts para um staging no mesmo sistema de arquivos, reconferindo size/MIME/SHA-256.
+   O download precisa ter timeout por requisição (conexões travadas contam como falha de rede e não podem
+   ficar indefinidamente no estágio downloading) e precisa fazer uma pré-verificação de `Content-Length`
+   antes de ler o body: ao exceder o `size_bytes` declarado no manifest, interrompe imediatamente, sem ler
+   uma resposta grande já conhecida para a memória — a verificação de integridade depois de um download sem
+   limite só garante correção e não protege os recursos do cliente;
+3. Fazer rename atômico para `shared-artifacts/`;
+4. `SharedContextFormatterV1` gera Markdown determinístico na ordem original dos Rows e troca as referências
+   de artifact por caminhos relativos;
+5. O SQLite cria em uma única transação a session, a mensagem `shared_context` única apenas para o modelo e o
+   provenance `v4/shared_context_import`, com estado inicial `pending`;
+6. Apagar o marker, ativar o workspace/session e mostrar o handover do Share URL.
 
-### 首次导入的选择初始化（Todo139）
+Restrições de integração (Todo103): a importação não executa modelo e não depende da disponibilidade atual
+do Provider. A mensagem de contexto compartilhado segue o contrato de armazenamento estruturado de
+`modelSelection` atual; quando há uma escolha explícita ela é preservada, quando não há vínculo não se
+fabrica origem de modelo e não se reescrevem os campos antigos `model.providerID/modelID`. A importação
+atômica e a validação de modelo da execução normal posterior são duas fronteiras distintas.
 
-导入服务返回 `reused=false` 后、激活 Session 前，Renderer 按结果中的实际 workspacePath／workspaceIdentity
-准备该 Session 的独立 Composer 草稿。已初始化的 Root 草稿只复制 mode/modelSelection（包括明确空选择），
-不复制正文、附件或提及，不清除 Root。目标草稿已存在时不覆盖；`reused=true` 不初始化。
-无已初始化 Root 时，在同一草稿保存 `initializeFromNewTask` 待初始化标记，普通新任务与该标记共用
-初始化函数：Recent 完整选择及模式优先，否则公共默认选择／build。Registry 尚未就绪先打开内容，
-标记阻止空 Session snapshot 抢先初始化；公共读取就绪后一次完成。用户提前修改模型／模式即结束
-默认初始化意图，迟到结果不得覆盖；正文编辑不清除待初始化标记。已有历史不按空模型推断首次导入。
+### Inicialização da seleção na primeira importação (Todo139)
+
+Depois que o serviço de importação retorna `reused=false` e antes de ativar a Session, o Renderer prepara um
+rascunho de Composer independente para aquela Session, com base no workspacePath/workspaceIdentity real do
+resultado. Um rascunho Root já inicializado copia apenas mode/modelSelection (inclusive uma escolha
+explicitamente vazia), não copia corpo, anexos ou menções e não limpa o Root. Quando o rascunho alvo já
+existe, ele não é sobrescrito; `reused=true` não inicializa.
+
+Sem Root já inicializado, a mesma gravação do rascunho guarda a marca `initializeFromNewTask` de inicialização
+pendente, e a nova tarefa comum e essa marca compartilham a função de inicialização: a seleção completa e o
+modo dos Recents têm prioridade, senão a seleção padrão pública / build. Se o Registry ainda não está
+pronto, o conteúdo é aberto primeiro e a marca impede que um snapshot de Session vazio faça a inicialização
+cedo demais; assim que a leitura pública estiver pronta, a inicialização é concluída uma única vez. Se o
+usuário alterar antecipadamente modelo/modo, isso encerra a intenção de inicialização padrão e um resultado
+tardio não pode sobrescrever; a edição do corpo não limpa a marca de inicialização pendente. Histórico
+existente não infira primeira importação a partir de um modelo vazio.
 
 ```text
 import result (reused=false) → seed independent draft → activate returned workspace/session
@@ -542,95 +741,160 @@ reused=true → existing session/draft unchanged
 user submission → existing context_refs + full modelSelection/mode → accepted updates Recent
 ```
 
-不新增 Host／CLI 字段或同步机制；Renderer 草稿仍与 desktop continuous／mobile replayable 权威消息链路
-分离。标记只属于现有草稿存储，不写会话数据库，不回填历史导入记录。
+Nenhum campo ou mecanismo de sincronismo novo de Host/CLI; o rascunho do Renderer continua separado da cadeia
+autoritativa de mensagens desktop continuous / mobile replayable. A marca pertence apenas ao armazenamento
+de rascunho existente, não é gravada no banco de dados da sessão e não é preenchida retroativamente em
+registros de importação antigos.
 
-V4 projection 会通过 additive 的 `sharedContextImport` snapshot 元数据携带 `contextId`、标题、
-canonical Share URL 和 `pending/reserved/attached/discarded` 状态。删除会话不删除普通
-workspace 文件；导入完成后分享过期不影响本地副本。
+A projection V4 carrega, por metadados de snapshot aditivos de `sharedContextImport`, o `contextId`, o
+título, a Share URL canônica e o estado `pending/reserved/attached/discarded`. Excluir a sessão não exclui
+arquivos comuns do workspace; depois que a importação termina, a expiração do compartilhamento não afeta a
+cópia local.
 
-导入时把公开 rows 与结果物元数据一并落到 `<workspace>/.zcode-share/<share-id>/shared-conversation.json`；
-会话顶部据此渲染**只读块 + 分割线**（复用分享页的 `ConversationShareReadonlyTimeline`），
-分割线的可点击与静态形态统一使用 Lucide `SquareArrowRightEnter` 图标，避免与 Fork 的分支图标混淆；保持现有尺寸、主题色和多端布局。
-分割线之下是用户自己的实时对话。只读块不回源，因此分享过期或未上线也能离线打开；它不是
-`timelineMarker` row，不进 transcript 导出，也不参与重新分享。
+Na importação, os rows públicos e os metadados dos produtos são gravados juntos em
+`<workspace>/.zcode-share/<share-id>/shared-conversation.json`; com base nisso, o topo da sessão renderiza um
+**bloco somente-leitura + linha divisória** (reaproveitando o `ConversationShareReadonlyTimeline` da página
+de share), e tanto a forma clicável quanto a estática da divisória usam uniformemente o ícone Lucide
+`SquareArrowRightEnter`, evitando confusão com o ícone de branch do Fork; tamanhos existentes, cor de tema e
+layout multidispositivo são mantidos.
 
-Desktop 导入块中的 artifact 卡片只在本地副本存在合法 `workspaceRelativePath` 时提供打开动作：
-主按钮复用正常预览卡片的 `OpenSplitButton` 打开 PreviewPane，下拉菜单复用同一套编辑器选择与
-复制绝对/相对路径能力。该路径必须仍位于 `.zcode-share/<share-id>/shared-artifacts/` 内；
-渲染侧校验为形状白名单（`.zcode-share/<dir>/shared-artifacts/<file>` 恰四段、无 `..`/`.`/绝对
-路径），不与 shareId 交叉比对——元数据由导入服务自写自洽，复制 sanitize 规则到 UI 反而有漂移风险，
-取舍详见 `ConversationShareReadonlyTimeline.tsx` 的 `resolveImportedArtifactPath` 注释；
-缺失、绝对路径或包含 `..` 的元数据一律退回纯只读展示。公开 Share 落地页仍只使用服务端
-`artifactUrls` 下载文件，资源卡片按钮统一显示「下载文件」/「Download file」（桌面和手机浏览器一致），不注入 Host、workspace、file service 或本地打开菜单。
+Abaixo da divisória está a conversa ao vivo do próprio usuário. O bloco somente-leitura não busca a origem,
+então funciona offline mesmo com o compartilhamento expirado ou ainda não publicado; ele não é um row
+`timelineMarker`, não entra na exportação de transcript e não participa de um novo compartilhamento.
 
-`ConversationShareReadonlyTimeline` 是公开落地页与 Desktop 共用的安全边界文件，因此
-`OpenSplitButton` 及其 open-with 子树（platform hooks、tab store、文件树模型、编辑器偏好）
-**不由该文件静态引入**，而是由 Desktop 消费方（`ConversationShareImportNotice`）通过
-`artifactOpenAction` 组件注入；时间线文件对 `@/OpenSplitButton.js` 只保留 `import type`
-（构建期擦除）。这保证匿名公开页 bundle 物理上不含该子树，未来往共用时间线里追加依赖时
-必须先考虑公开页包体与无 Desktop 宿主（`window.zcode`、PlatformProvider）的运行环境。
-该约束由 `packages/ui/test/conversationShareBundleBoundary.test.ts` 机械守卫：守卫把边界
-文件里的 import specifier 统一归一化（相对路径按边界文件目录 resolve 后折算回 `@/` 别名
-形态）再比对 denylist，覆盖四种引入形态——带 from 子句的 `import`/`export ... from`（仅
-放行 `type` 子句）、副作用 `import "..."`、动态 `import("...")`（后两者不存在类型擦除
-变体，命中即失败）。守卫提取器自带 fixture 自测，防止正则或归一化逻辑在未来被改出盲区。
+Os cartões de artifact no bloco de importação do Desktop só oferecem ação de abrir quando a cópia local tem
+um `workspaceRelativePath` legal: o botão principal reaproveita o `OpenSplitButton` da正常 visualização para
+abrir o PreviewPane, e o menu suspenso reaproveita o mesmo conjunto de escolha de editor e de cópia de
+caminho absoluto/relativo. O caminho precisa continuar dentro de `.zcode-share/<share-id>/shared-artifacts/`;
+a validação no lado de renderização é uma allowlist de forma (`.zcode-share/<dir>/shared-artifacts/<file>`
+com exatamente quatro segmentos, sem `..`/`.`/caminho absoluto), sem cruzar com o shareId — os metadados são
+gravados de forma autoconsistente pelo próprio serviço de importação, e copiar as regras de sanitização para
+a UI só introduziria risco de drift; o trade-off está detalhado no comentário `resolveImportedArtifactPath` de
+`ConversationShareReadonlyTimeline.tsx`; metadados ausentes, absolutos ou contendo `..` voltam à exibição
+puramente somente-leitura. A página pública de Share continua usando apenas os `artifactUrls` do servidor
+para baixar arquivos, e o botão do cartão de recurso exibe uniformemente 「下载文件」/「Download file」
+(igual em navegador de desktop e de celular), sem injetar Host, workspace, file service ou menu local de
+abertura.
 
-模型侧仍只通过隐藏的 `shared_context` 消息拿到内容：可见即会随第一条消息 attach，
-因此不再提供 Composer Share URL Chip、居中 handover 空状态与导入后自动打开侧栏分享页；
-分享页改由用户点分割线主动打开。`discardSharedContext` 命令与 `discarded` 状态保留但暂无 UI 入口。
-会话标题在导入时定型为带前缀的形式（`来自分享：…` / `From Share: …`，`titleSource: "custom"`）。
+`ConversationShareReadonlyTimeline` é o arquivo de fronteira de segurança compartilhado entre a landing page
+pública e o Desktop, portanto `OpenSplitButton` e sua subárvore open-with (platform hooks, tab store,
+modelo da árvore de arquivos, preferências de editor) **não são importados estaticamente por esse arquivo**;
+em vez disso, são injetados como componente `artifactOpenAction` pelo consumidor do Desktop
+(`ConversationShareImportNotice`); o arquivo do timeline mantém apenas `import type` para
+`@/OpenSplitButton.js` (apagado em tempo de build). Isso garante que o bundle da página pública anônima
+não contenha fisicamente essa subárvore, e que futuras adições de dependência ao timeline compartilhado
+precisem considerar antes o tamanho do pacote da página pública e o ambiente sem host Desktop
+(`window.zcode`, PlatformProvider). A restrição é guardada mecanicamente por
+`packages/ui/test/conversationShareBundleBoundary.test.ts`: o guard normaliza de forma unificada os
+import specifiers do arquivo de fronteira (caminhos relativos resolvidos pelo diretório do arquivo de
+fronteira e reconvertidos para a forma do alias `@/`) e só então compara com a denylist, cobrindo quatro
+formas de importação — `import`/`export ... from` com cláusula from (aceitando apenas a cláusula `type`),
+`import "..."` de efeito colateral e `import("...")` dinâmico (as duas últimas não têm variante de apagamento
+de tipo, então um acerto já falha). O extrator do guard traz um autoteste com fixture próprio, para evitar que
+uma futura alteração de regex ou da lógica de normalização abra pontos cegos.
 
-启动清理器只扫描 `.zcode-share/<share-id>/` 下具有匹配 import ID 的 marker。无 provenance 的
-导入目录删除；已有事务记录但尚未激活的 session 补建索引并激活。失败清理只能删除本次
-importRoot/staging，禁止递归删除用户 workspace。
+O lado do modelo continua recebendo o conteúdo apenas pela mensagem oculta `shared_context`: ela é anexada
+junto com a primeira mensagem quando fica visível, e por isso não são mais oferecidos o Share URL Chip no
+Composer, o empty state centralizado de handover nem a abertura automática da página de share na barra
+lateral depois da importação; a página de share passou a ser aberta pelo usuário ao clicar na divisória. O
+comando `discardSharedContext` e o estado `discarded` são mantidos, mas sem entrada de UI por enquanto. O
+título da sessão é definido na importação para uma forma com prefixo (`来自分享：…` / `From Share: …`,
+`titleSource: "custom"`).
 
-## 验收不变量
+O limpador de inicialização apenas varre markers com import ID correspondente sob `.zcode-share/<share-id>/`.
+Diretórios de importação sem provenance são removidos; sessions com registro transacional mas ainda não
+ativadas têm o índice reconstruído e são ativadas. Uma limpeza que falha só pode apagar o
+importRoot/staging desta tentativa; é proibido apagar recursivamente o workspace do usuário.
 
-### 导入状态提示
+## Invariantes de aceitação
 
-一次 Share Deep Link 导入操作只允许占用一个全局 Toast。下载进度、安装、创建会话等阶段在同一
-Toast 内原位更新，不能按阶段追加多个 Toast。导入成功时，进度 Toast 原位替换为包含会话标题的
-最终结果；不得再额外显示独立的“分享导入完成”提示。导入失败时，进度 Toast 原位替换为错误和
-重试入口，不能留下已经过期的进度提示。快速完成的导入可以跳过中间进度展示，但必须保留最终
-结果提示。
+### Notificações de status da importação
 
-Toast 的按 id 进度更新与既有 dedupeKey 去重共同生效；挂载前暂存的更新也先合入最终 item 再去重，不得因分享接入而让设置页重复堆叠提示。
+Uma operação de importação por Share Deep Link só pode ocupar um Toast global. Os estágios de progresso de
+download, instalação e criação de sessão são atualizados no lugar dentro do mesmo Toast, sem poder anexar
+vários Toasts por estágio. Na importação bem-sucedida, o Toast de progresso é substituído no lugar pelo
+resultado final contendo o título da sessão; nenhum aviso separado de "compartilhamento importado" pode ser
+exibido. Na falha, o Toast de progresso é substituído no lugar pelo erro e pela entrada de retry, sem deixar
+um aviso de progresso já vencido na tela. Uma importação concluída muito rápido pode pular a exibição
+intermediária de progresso, mas precisa preservar o aviso final de resultado.
 
-进度提示使用顶部居中的现有 Toast 容器、现有 `--color-toast` 和 `text-ui-*` 字体层级；进行中和
-工作区回退使用中性信息语义，不使用黄色 warning。该展示约束只影响 Desktop renderer 的通知编排，
-不改变 `ConversationShareImportProgress` 阶段、Share API、导入事务、`workspaceIdentity` 隔离或
-Desktop `desktop-continuous` / 手机 `web-remote-replayable` 边界。
+A atualização de progresso por id do Toast funciona junto com a deduplicação existente por dedupeKey;
+atualizações armazenadas antes da montagem também são mescladas primeiro no item final e só então
+deduplicadas, e a integração do compartilhamento não pode fazer a página de configurações empilhar avisos
+repetidos.
 
-- private 仅 owner preview/import；public_readonly 可匿名 preview 但不能 import；
-  public_importable 可匿名 preview。Desktop 对 continuation 使用可选 JWT，并以服务端响应作为 import
-  权限依据；服务端返回 `authentication_required` 时按不可重试的登录限制展示。
-- 手机发布入口不存在，且 mobile attachment 直接调用 RPC 仍被拒绝。
-- local/SSH/WSL/Docker 使用同一公开投影与 API DTO；远端只替换 Rows/File authority。
-- `pending/reserved/discarded` shared_context 不注入 provider；`attached` 在 hydration/compact
-  后恰好注入一次，不生成可见历史气泡。
-- 首条 Share URL 输入保留 queue/guide 语义：queue/guide accepted 后进入 `reserved`，实际消费时
-  与 user message 原子 attach；删除 queued input 后恢复 `pending`。
-- 合并接线约束：分享 `context_refs` 与当前完整 Submission 同时提交；已有 Session、预热首发、无预热先建 Session 再发送三条路径均不得丢失 modelSelection/mode。分享上下文不负责另选 Provider，不恢复发送前 Registry 等待。
-- 同一 session/context 只打开一个 Browser Tab；Web renderer 和内置 Browser 使用不同 OAuth session。
-- 发布或导入失败不留下半个 share、本地可见半个 workspace、残缺 artifact 目录或半个 session。
-- “能预览，就能分享”仅对 file-backed 且 capabilities 允许的预览候选成立；localhost URL-only 预览不自动
-  转为分享产物。
-- 不实现 workspace 全量文件监听；模型未明确引用且工具未显式登记的 Python/Bash 中间文件不展示、不分享。
+O aviso de progresso usa o contêiner de Toast existente, centralizado no topo, o `--color-toast` existente e
+a hierarquia de fontes `text-ui-*`; em andamento e no fallback para o workspace usa semântica de informação
+neutra, sem o yellow de warning. Essa restrição de exibição afeta apenas a orquestração de notificações do
+renderer do Desktop e não muda os estágios de `ConversationShareImportProgress`, a Share API, a transação de
+importação, o isolamento por `workspaceIdentity` nem a fronteira Desktop `desktop-continuous` / celular
+`web-remote-replayable`.
 
-### 发布失败归因与诊断
+- `private` só permite preview/import pelo owner; `public_readonly` permite preview anônimo, mas não
+  import; `public_importable` permite preview anônimo. O Desktop usa JWT opcional na continuation e toma a
+  resposta do servidor como base para a permissão de import; quando o servidor retorna
+  `authentication_required`, exibe-se como restrição de login não retentável.
+- Não existe entrada de publicação no celular, e o attachment mobile que chama o RPC diretamente continua
+  sendo recusado.
+- local/SSH/WSL/Docker usam a mesma projeção pública e o mesmo DTO de API; no remoto, apenas a autoridade de
+  Rows/File é substituída.
+- `shared_context` `pending/reserved/discarded` não é injetado no provider; `attached` é injetado exatamente
+  uma vez após hydration/compact e não gera bolha de histórico visível.
+- A primeira entrada de Share URL mantém a semântica de queue/guide: depois de aceita pela queue/guide ela
+  entra em `reserved` e, no consumo real, é anexada atomicamente à user message; ao remover a entrada
+  enfileirada, volta para `pending`.
+- Restrição de接线 da mesclagem: os `context_refs` do compartilhamento são enviados junto com a Submission
+  completa atual; nenhum dos três caminhos — Session existente, primeiro envio com pré-aquecimento e criar
+  Session antes de enviar sem pré-aquecimento — pode perder modelSelection/mode. O contexto compartilhado
+  não escolhe outro Provider e não restaura a espera pelo Registry antes do envio.
+- Apenas uma Aba de navegador é aberta por session/context; o renderer Web e o Browser embutido usam sessões
+  OAuth diferentes.
+- Falha na publicação ou na importação não deixa metade de um share, metade de um workspace visível localmente,
+  diretório de artifact incompleto ou metade de uma session.
+- "Se dá para previsualizar, dá para compartilhar" vale apenas para candidatos de preview baseados em arquivo
+  e permitidos pelas capabilities; preview apenas de URL localhost não vira automaticamente um produto
+  compartilhável.
+- Não implementar escuta de todos os arquivos do workspace; arquivos intermediários de Python/Bash que o
+  modelo não referenciou explicitamente e que nenhuma ferramenta registrou explicitamente não são exibidos
+  nem compartilhados.
 
-- 本地内容问题、HTTP 接口契约异常、网络请求或响应体读取失败必须分别呈现；`invalid_contract` 不得映射为取消运行轮次或图片的建议。
-- `checking` 表示发布确认，不能仅根据所在阶段断言安全审核拒绝。失败后保留选择和现有幂等重试身份。
-- 响应体读取失败归类 `network`；在读取前保存 HTTP 状态和服务端请求 ID。客户端请求 ID 与服务端请求 ID 分开保留，并通过既有 RPC details 传到错误详情；operationId 用于关联整次发布。
-- 诊断只记录请求方法、接口路径、HTTP 状态、请求 ID、响应媒体类型、响应字节数与是否重定向，不记录响应正文、鉴权信息或带查询参数的 URL。
+### Atribuição e diagnóstico de falhas de publicação
 
-### 内嵌工具图片与选择阶段一致性
+- Problema de conteúdo local, anomalia de contrato HTTP, falha de requisição de rede ou falha de leitura do
+  corpo da resposta precisam ser apresentados separadamente; `invalid_contract` não pode ser mapeado para a
+  sugestão de cancelar o turno em execução ou a imagem.
+- `checking` significa confirmação de publicação e não permite, sozinho, afirmar rejeição da revisão de
+  segurança. Após a falha, seleção e identidade idempotente de retry existente são preservadas.
+- Falha de leitura do corpo da resposta é classificada como `network`; o status HTTP e o request ID do
+  servidor são salvos antes da leitura. O request ID do cliente e o request ID do servidor são mantidos
+  separadamente e passados pelos detalhes de RPC existentes até os detalhes do erro; o operationId serve
+  para correlacionar a publicação inteira.
+- O diagnóstico registra apenas método da requisição, path da interface, status HTTP, request ID, tipo de
+  mídia da resposta, tamanho em bytes da resposta e se houve redirect; não registra o corpo da resposta,
+  informações de autenticação nem URL com parâmetros de query.
 
-- 已完成工具的 `node_repl_images` 按原顺序转换为既有 image artifact，插入对应工具之后；公开 payload 不携带 base64，上传复用现有 manifest、SHA-256、prepare/upload/confirm 和导入下载链路。
-- 预检与发布共用同一个转换入口；预检仅处理已经随 rows 读入的内嵌数据，不额外读取附件文件。图片类型由服务端 capabilities 决定，不支持或图片数据损坏时保留工具文字并明确提示跳过该图片，不再静默丢失。
-- 公开行数按轮缓存并随当前选择重算，取消轮次后不保留旧的整组超限错误；fingerprint 包含工具 display，图片变化必须使旧预检失效。
-- 可支持图片的已知单文件、总大小、数量限制在预检阶段检查；发布仍重新生成快照并复核。正在运行的工具仍阻断，不把中间图片冒充定稿产物。
-- 接口异常及网络失败不要求取消轮次；发布失败保留选择与幂等身份。音视频与任意文件格式仅在现有协议和服务端能力支持时携带，不伪造 MIME 或扩展名绕过限制。
+### Imagens embutidas de ferramentas e consistência da fase de seleção
 
-验收：含内嵌图片的已完成轮次能通过预检、上传原始图片并产生可下载/导入的 artifact；不支持或损坏图片产生精确 warning；图片容量超限在选择阶段发现；HTTP 405 HTML 和响应体中断显示为接口/网络错误，详情保留关联 ID。
+- `node_repl_images` de ferramentas concluídas são convertidos na ordem original em image artifacts
+  existentes e inseridos após a ferramenta correspondente; o payload público não carrega base64, e o upload
+  reaproveita o manifest existente, o SHA-256, o fluxo prepare/upload/confirm e a cadeia de download da
+  importação.
+- O preflight e a publicação compartilham a mesma entrada de conversão; o preflight processa apenas os
+  dados embutidos já lidos junto com os rows e não lê arquivos de anexo adicionais. O tipo de imagem é
+  determinado pelas capabilities do servidor; quando não suportado ou quando os dados da imagem estão
+  corrompidos, o texto da ferramenta é mantido com um aviso explícito de que aquela imagem foi pulada, sem
+  perda silenciosa.
+- A contagem pública de linhas é cacheada por turno e recalculada conforme a seleção atual; ao cancelar um
+  turno, o grupo antigo de erros de excesso de limite não é mantido; o fingerprint inclui o display da
+  ferramenta, e uma mudança de imagem precisa invalidar o preflight antigo.
+- Os limites conhecidos de arquivo único, tamanho total e quantidade para imagens suportadas são
+  verificados na fase de preflight; a publicação ainda regenera o snapshot e reconfere. Ferramentas em
+  execução continuam bloqueando, e imagens intermediárias não podem se passar por produto final.
+- Falhas de interface e de rede não exigem cancelar o turno; a falha de publicação preserva a seleção e a
+  identidade idempotente. Áudio/vídeo e formatos de arquivo arbitrários só são carregados quando o protocolo
+  existente e a capacidade do servidor suportam, sem forjar MIME ou extensão para burlar limites.
+
+Aceitação: turnos concluídos com imagens embutidas passam pelo preflight, sobem as imagens originais e geram
+artifacts baixáveis/importáveis; imagens não suportadas ou corrompidas geram warnings precisos; o excesso de
+capacidade de imagens é detectado na fase de seleção; HTTP 405 em HTML e corpo de resposta interrompido são
+exibidos como erros de interface/rede, com os detalhes preservando os IDs de correlação.

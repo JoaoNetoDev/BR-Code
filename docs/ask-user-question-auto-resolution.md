@@ -1,16 +1,23 @@
-# AskUserQuestion 五分钟自动继续
+# Continuação automática de cinco minutos do AskUserQuestion
 
-## 目标
+## Objetivo
 
-普通 `AskUserQuestion` 默认不应无限阻塞运行中的 task。每个到达交互队首的普通问答获得一个由 CLI/runtime 管理的五分钟窗口；用户未回答时，runtime 以空答案成功收口，让模型使用最佳判断继续。侧栏只投影该权威状态，不自行决定超时。
+Um `AskUserQuestion` comum não deve bloquear indefinidamente uma task em execução. Cada pergunta
+comum que chega ao início da fila de interação recebe uma janela de cinco minutos gerenciada pelo
+CLI/runtime; se o usuário não responder, o runtime conclui com sucesso usando respostas vazias,
+deixando o modelo seguir com o melhor julgamento. A barra lateral apenas projeta esse estado
+autoritativo e não decide timeout por conta própria.
 
-普通权限请求和 `ExitPlanMode` 计划审批不参与自动结束。
+Solicitações comuns de permissão e a aprovação de plano do `ExitPlanMode` não participam da
+conclusão automática.
 
-用户可以在设置页关闭“提问自动继续”。配置默认开启以保持升级兼容；关闭后，当前所有普通
-`AskUserQuestion` 和关闭期间注册的问答都永久等待用户回答。重新开启只影响开启后新注册的问题，
-不得恢复旧问题的 deadline。
+O usuário pode desativar「提问自动继续」na página de configurações. A configuração vem habilitada
+por padrão para preservar a compatibilidade de atualização; quando desativada, todos os
+`AskUserQuestion` comuns atuais e as perguntas registradas durante o período desativado esperam
+permanentemente pela resposta do usuário. Reativar afeta apenas as perguntas novas registradas
+depois da reativação e não pode restaurar deadlines de perguntas antigas.
 
-## 产品时序
+## Sequência de produto
 
 ```text
 0:00                    1:00                              5:00
@@ -20,24 +27,44 @@
  └────── 用户首次有效操作：永久暂停本次自动结束 ──────────────┘
 ```
 
-- `0..60s`：侧栏显示静态满底“等待确认”，不表达剩余时间。
-- `60..300s`：胶囊尺寸与文字位置保持不变；蓝色强调填充从 100% 线性缩到 0%，左边界固定、右边界向左退。
-- `240..300s`：问答面板右上角额外显示离散秒数 `59秒..1秒`（英文 `59s..1s`）；不显示 `60` 或 `0`，点击秒数只暂停计时。
-- `>=300s`：runtime 提交 `{ answers: {} }`；工具结果明确告诉模型用户未回答，应使用最佳判断继续。
-- 用户在任一阶段产生首次有效操作后，状态永久变为 `snoozed`，胶囊恢复静态满底。本次交互不再自动结束。
+- `0..60s`: a barra lateral exibe o rótulo estático com preenchimento total「等待确认」, sem
+  expressar tempo restante.
+- `60..300s`: o tamanho da cápsula e a posição do texto permanecem iguais; o preenchimento azul de
+  destaque encolhe linearmente de 100% a 0%, com a borda esquerda fixa e a borda direita recuando
+  para a esquerda.
+- `240..300s`: o canto superior direito do painel de perguntas exibe adicionalmente a contagem
+  discreta em segundos `59秒..1秒` (em inglês `59s..1s`); `60` e `0` não são exibidos, e clicar nos
+  segundos apenas pausa a contagem.
+- `>=300s`: o runtime envia `{ answers: {} }`; o resultado da ferramenta diz explicitamente ao
+  modelo que o usuário não respondeu e que ele deve seguir com o melhor julgamento.
+- Após a primeira ação efetiva do usuário em qualquer estágio, o estado se torna permanentemente
+  `snoozed`, e a cápsula volta ao preenchimento total estático. Esta interação não termina mais de
+  forma automática.
 
-## 用户设置
+## Configuração do usuário
 
-- AppSettings 字段为 `askUserQuestionAutoResolutionEnabled`，默认 `true`；旧设置文件缺少该字段时按开启解析，不做迁移。
-- 设置页“交互”分组使用“提问自动继续”开关。关闭动作先持久化 AppSettings，再通知所有窗口把偏好推到各自连接的 local/remote host。
-- 关闭必须立即作用于已经运行的主 Agent、后台任务、Bot 和 subagent；不能等待下一次 session 创建或只隐藏 UI 动画。
-- 关闭时，已有 `hiddenGrace` / `visibleCountdown` 转为持久化 `snoozed`；尚未成为队首的旧问答记录为不可计时，之后即使重新开启也不获得 deadline。
-- 重新开启仅改变新注册问答的资格；用户已经手动暂停、被设置暂停或在关闭期间注册的问答都保持永久等待。
-- 快速连续切换按 host 向 CLI 提交的实际顺序串行应用，不允许旧请求晚到后覆盖新值。
+- O campo de AppSettings é `askUserQuestionAutoResolutionEnabled`, com padrão `true`; quando um
+  arquivo de configurações antigo não tem o campo, ele é interpretado como habilitado, sem
+  migração.
+- O grupo「交互」da página de configurações usa a chave「提问自动继续」。A ação de desativar primeiro
+  persiste o AppSettings e então notifica todas as janelas para levar a preferência ao host
+  local/remote ao qual cada uma está conectada.
+- A desativação precisa ter efeito imediato sobre o Agent principal já em execução, tarefas em
+  segundo plano, bots e subagents; não se pode esperar a próxima criação de session nem apenas
+  esconder a animação da UI.
+- Ao desativar, os `hiddenGrace` / `visibleCountdown` existentes passam para o `snoozed`
+  persistido; perguntas antigas que ainda não chegaram ao início da fila são registradas como não
+  cronometráveis e, mesmo depois de uma reativação, não recebem deadline.
+- Reativar muda apenas a elegibilidade das perguntas novas; perguntas já pausadas manualmente pelo
+  usuário, pausadas pela configuração ou registradas durante o período desativado continuam
+  esperando permanentemente.
+- Alternâncias rápidas em sequência são aplicadas serialmente pela ordem real de envio ao CLI por
+  host, e uma requisição antiga não pode chegar depois e sobrescrever o valor novo.
 
-## 状态模型
+## Modelo de estado
 
-`PendingInteraction.autoResolution` 是可选状态；没有该字段表示不计时。
+`PendingInteraction.autoResolution` é um estado opcional; a ausência do campo significa que não há
+cronometragem.
 
 ```text
                       visibleAt
@@ -55,15 +82,22 @@ setting disabled ──> 当前与关闭期间注册的 Ask 永久无计时资�
 setting re-enabled ──> 仅之后新注册的 Ask 可进入 hiddenGrace
 ```
 
-- `hiddenGrace`：`startedAt`、`visibleAt`、`deadlineAt`。
-- `visibleCountdown`：沿用相同三个绝对时间；阶段变化是可恢复事件，而不是 UI 本地推断出的业务状态。
-- `snoozed`：`startedAt`、`snoozedAt`；不再包含 deadline。
-- 生产常量固定为 `visibleAt = startedAt + 60_000`、`deadlineAt = startedAt + 300_000`。测试通过注入 clock/scheduler 缩短等待，不能改变产品值。
-- Registry 为每个问答在注册时记录计时资格。全局设置关闭会撤销所有当前问答的资格；重新开启不得回填已有 registration。
+- `hiddenGrace`: `startedAt`, `visibleAt`, `deadlineAt`.
+- `visibleCountdown`: reutiliza os mesmos três tempos absolutos; a mudança de estágio é um evento
+  recuperável e não um estado de negócio inferido localmente pela UI.
+- `snoozed`: `startedAt`, `snoozedAt`; não contém mais deadline.
+- As constantes de produção são fixas em `visibleAt = startedAt + 60_000` e
+  `deadlineAt = startedAt + 300_000`. Os testes encurtam a espera por injeção de clock/scheduler e
+  não podem alterar os valores de produto.
+- O Registry registra a elegibilidade de cronometragem de cada pergunta no momento do registro. A
+  desativação global da configuração revoga a elegibilidade de todas as perguntas atuais; a
+  reativação não pode preencher de volta registrations já existentes.
 
-只有队首普通 `AskUserQuestion` 获得 `startedAt`。后续 pending interaction 在前项出队后才开始自己的完整五分钟，避免排队时间消耗其回答窗口。
+Somente um `AskUserQuestion` comum no início da fila recebe `startedAt`. As interações pending
+seguintes só começam seus próprios cinco minutos completos depois que a anterior sai da fila,
+evitando que o tempo de fila consuma a janela de resposta.
 
-## 权威链路与恢复边界
+## Cadeia autoritativa e fronteira de restauração
 
 ```text
 Settings Switch ──> AppSettings ──> cross-window broadcast
@@ -91,53 +125,96 @@ AskUserQuestion tool ───────────> CLI interaction coordina
                                               UI pending dialog + sidebar badge
 ```
 
-- deadline、用户回答、暂停命令按 CLI 命令队列中的实际处理顺序先到先得。
-- 设置关闭与 deadline 竞态也按 CLI 实际处理顺序先到先得：关闭先应用则保留 pending 并持久化
-  `snoozed`；deadline 已先收口时，迟到设置同步不得产生第二份 tool result。
-- 正常回答、stop、turn 终止和交互移除必须清理 timer。
-- CLI/UI 重连或进程恢复后使用持久化的绝对时间恢复；最新阶段以 `runtime/user_input_auto_resolution` session entry 按 interactionId 覆写保存，若恢复时 deadline 已过，立即以空答案收口。
-- 若恢复时全局设置为关闭，任何持久化 active deadline 必须先转为 `snoozed`，不能在恢复窗口内短暂自动收口。
-- `snoozeInteractionAutoResolution { interactionId }` 幂等：重复暂停、已收口或不支持计时的交互均返回 noop。
-- `workspace/updateInteractionPreferences` 是 host 到对应 workspace CLI 的严格控制面方法。参数携带完整 workspace ref；CLI 在持久化所有受影响 interaction 后才 ACK。
-- `userInput.autoResolutionUpdated` 是可恢复事件，记录开始、进入可见阶段与暂停；snapshot 是当前事实，事件用于 continuous 增量与 replayable gap 恢复。
-- `SessionSummary.pendingInteraction` 只携带侧栏需要的轻量 `kind`、`toolName` 与 auto-resolution 状态，后台 task 无需打开详情即可区分普通权限、`AskUserQuestion` 和 `ExitPlanMode`。
+- deadline, resposta do usuário e comando de pausa são atendidos primeiro a chegar, primeiro a ser
+  processado, conforme a ordem real da fila de comandos do CLI.
+- A corrida entre desativação da configuração e o deadline também é resolvida pela ordem real de
+  processamento do CLI: se a desativação for aplicada primeiro, a pending é mantida e o `snoozed`
+  é persistido; se o deadline já tiver concluído primeiro, a sincronização de configuração tardia
+  não pode produzir um segundo tool result.
+- Resposta normal, stop, término de turn e remoção da interação precisam limpar o timer.
+- Após reconexão de CLI/UI ou restauração do processo, usa-se a restauração pelos tempos absolutos
+  persistidos; o estágio mais recente é gravado com sobrescrita pela session entry
+  `runtime/user_input_auto_resolution` por interactionId e, se na restauração o deadline já tiver
+  passado, conclui-se imediatamente com respostas vazias.
+- Se na restauração a configuração global estiver desativada, qualquer deadline active persistido
+  precisa virar `snoozed` primeiro, sem auto-conclusão breve na janela de restauração.
+- `snoozeInteractionAutoResolution { interactionId }` é idempotente: pausa repetida, interação já
+  concluída ou sem suporte a cronometragem retornam noop.
+- `workspace/updateInteractionPreferences` é o método de plano de controle estrito do host para o CLI
+  do workspace correspondente. Os parâmetros carregam o workspace ref completo; o CLI só dá ACK
+  depois de persistir todas as interações afetadas.
+- `userInput.autoResolutionUpdated` é um evento recuperável, que registra o início, a entrada na
+  fase visível e a pausa; o snapshot é o fato atual e o evento serve para a recuperação de incremento
+  continuous e de gap replayable.
+- `SessionSummary.pendingInteraction` carrega apenas o `kind` leve, o `toolName` e o estado de
+  auto-resolution de que a barra lateral precisa, para que uma task em segundo plano possa
+  distinguir permissão comum, `AskUserQuestion` e `ExitPlanMode` sem abrir os detalhes.
 
-### 多端与身份隔离
+### Multiplataforma e isolamento de identidade
 
-- 桌面 renderer 继续使用 `desktop-continuous` 主链路，不拼接手机 replayable 运行态消息。
-- 手机 `/remote` 继续 attachment 到桌面已有 host；不另起 Agent runtime，也不把 timer 状态下沉到 relay/main。
-- 手机使用 `web-remote-replayable` 的 snapshot/gap 恢复同一权威 deadline 或 `snoozed` 状态，不能自行重启五分钟。手机断线期间由设置关闭的 deadline，重连后仍保持永久等待。
-- interaction 的 owner/lease、origin、`workspaceIdentity`、`workspacePath` 与 `remoteSessionId` 路由保持不变。身份 key 继续使用 `workspaceIdentity?.trim() || workspacePath`。
-- background task、Bot、subagent 与普通 task 走同一个 coordinator；subagent origin 不因自动收口丢失。
-- 本地 Bot 复用窗口 Host 的 Agent service；远端 Bot 持有独立的 desktop-attached remote runtime
-  RPC 端口。设置同步必须同时推送到这些**已缓存**的 Bot runtime，且禁止为了同步偏好新建远端
-  Host/Agent；新建 Bot runtime 在暴露 task/session service 前先应用最新偏好。
-- 设置同步不按 `clientMode` 分叉；它改变 shared-host runtime 的同一权威 registry。变更后的 interaction 事实仍分别通过桌面 `continuous` 与手机 `replayable` 投递。
+- O renderer do desktop continua usando a cadeia principal `desktop-continuous` e não concatena
+  mensagens de runtime replayable do celular.
+- O `/remote` do celular continua se anexando ao host do desktop já existente; não inicia outro
+  runtime de Agent e não baixa o estado de timer para o relay/main.
+- O celular usa a recuperação snapshot/gap de `web-remote-replayable` para o mesmo deadline
+  autoritativo ou estado `snoozed` e não pode reiniciar os cinco minutos por conta própria. Um
+  deadline desativado pela configuração durante a desconexão do celular continua em espera
+  permanente após a reconexão.
+- O roteamento de owner/lease, origin, `workspaceIdentity`, `workspacePath` e `remoteSessionId` da
+  interaction permanece inalterado. A chave de identidade continua sendo
+  `workspaceIdentity?.trim() || workspacePath`.
+- background task, bot, subagent e task comum passam pelo mesmo coordinator; a origin de um
+  subagent não se perde por causa da conclusão automática.
+- O bot local reutiliza o Agent service do host da janela; o bot remoto mantém uma porta RPC de
+  remote runtime desktop-attached separada. A sincronização de configurações precisa ser enviada
+  simultaneamente para esses runtimes de bot **já em cache**, e é proibido criar um novo Host/Agent
+  remoto apenas para sincronizar a preferência; um novo bot runtime aplica a preferência mais recente
+  antes de expor o service de task/session.
+- A sincronização de configurações não bifurca por `clientMode`; ela altera o mesmo registry
+  autoritativo do shared-host runtime. Os fatos das interactions alteradas continuam sendo entregues
+  separadamente pelo `continuous` do desktop e pelo `replayable` do celular.
 
-## 有效用户操作
+## Ações efetivas do usuário
 
-下列操作会发送一次暂停命令：
+As ações abaixo enviam um comando de pausa:
 
-- 鼠标首次进入整个普通 `AskUserQuestion` 面板；
-- 点击选项，或用键盘选择选项；
-- 自定义输入的键入或粘贴；
-- 前进/后退题目导航；
-- Bot 多题问答首次记录有效的分题答案。
-- 点击问答面板右上角的末分钟秒数；
-- 点击侧栏 AskUserQuestion 的“停止计时”胶囊。
+- o mouse entra pela primeira vez em todo o painel de `AskUserQuestion` comum;
+- clicar em uma opção, ou selecionar uma opção pelo teclado;
+- digitar ou colar em uma entrada personalizada;
+- navegar para a pergunta anterior/seguinte;
+- o bot registra pela primeira vez uma resposta válida de pergunta dividida;
+- clicar nos segundos do último minuto no canto superior direito do painel de perguntas;
+- clicar na cápsula「停止计时」do AskUserQuestion na barra lateral.
 
-打开 task、程序化自动 focus、滚动或窗口重新可见本身不算有效操作。hover AskUserQuestion 侧栏胶囊只把“等待确认”替换为“停止计时”，不发送命令；点击胶囊才发送暂停。鼠标进入问答面板则是明确的阅读/作答意图，会立即暂停。UI 只发送首次暂停；runtime 仍负责幂等，防止重连或多端竞态造成重复副作用。
+Abrir a task, o focus automático programático, rolar ou a janela voltar a ficar visível não
+constituem ação efetiva. Passar o mouse sobre a cápsula de AskUserQuestion na barra lateral apenas
+substitui「等待确认」por「停止计时」, sem enviar comando; somente o clique na cápsula envia a pausa.
+O mouse entrando no painel de perguntas é uma intenção explícita de leitura/resposta e pausa
+imediatamente. A UI envia apenas a primeira pausa; o runtime continua responsável pela idempotência,
+evitando efeitos colaterais duplicados por reconexão ou corrida multiplataforma.
 
-## 问答面板末分钟提示
+## Aviso de último minuto no painel de perguntas
 
-- 只有仍带 `deadlineAt` 的普通 `AskUserQuestion` 在剩余时间严格小于 60 秒时显示秒数；`snoozed`、普通权限和 `ExitPlanMode` 不显示。
-- 秒数由绝对 `deadlineAt` 推导：先用单次 timeout 等待进入末分钟，再只为当前打开的一个问答面板按秒校准；侧栏 task row 不新增 JS interval。
-- 点击秒数只发送暂停命令，不选择选项、不提交空答案；权威投影进入 `snoozed` 后秒数消失，侧栏恢复蓝色静态“等待确认”。
-- 手机没有 hover，仍由选项点击、输入、导航或点击秒数触发暂停；desktop continuous 与 web remote replayable 都恢复同一绝对 deadline。
+- Somente um `AskUserQuestion` comum que ainda tenha `deadlineAt` exibe os segundos quando o tempo
+  restante é estritamente menor que 60 segundos; `snoozed`, permissões comuns e `ExitPlanMode` não
+  exibem.
+- Os segundos são derivados do `deadlineAt` absoluto: primeiro um timeout único aguarda a entrada no
+  último minuto e depois apenas o painel de perguntas atualmente aberto é calibrado por segundo; as
+  linhas de task da barra lateral não recebem um novo JS interval.
+- Clicar nos segundos envia apenas o comando de pausa, sem selecionar opção e sem enviar resposta
+  vazia; depois que a projeção autoritativa entra em `snoozed` os segundos desaparecem e a barra
+  lateral volta ao「等待确认」azul estático.
+- O celular não tem hover e continua pausando por clique em opção, digitação, navegação ou clique
+  nos segundos; tanto o desktop continuous quanto o web remote replayable restauram o mesmo deadline
+  absoluto.
 
-## 问答本地进度边界
+## Fronteira de progresso local da pergunta
 
-CLI/runtime 权威管理 interaction 生命周期和自动结束状态；已挂载 renderer 中的当前题目、焦点和未提交答案草稿属于本地表单状态。两者以 `interactionId/requestId` 为身份边界，不能用 snapshot 对象引用是否变化判断是不是新问答。
+O CLI/runtime gerencia autoritativamente o ciclo de vida da interaction e o estado de conclusão
+automática; a pergunta atual, o foco e o rascunho de respostas não submetido do renderer já
+montado são estado local de formulário. Os dois usam `interactionId/requestId` como fronteira de
+identidade e não podem decidir se há uma pergunta nova pela mudança ou não da referência do objeto
+snapshot.
 
 ```text
 同一 requestId
@@ -150,54 +227,93 @@ hiddenGrace ── 首次有效操作 ──> snoozed
 新 requestId ──> 新建问答实例 ──> 按 currentQuestionIndex / answerDrafts 初始化
 ```
 
-- 同一 `requestId` 的 `autoResolution`、owner/lease、origin 或其他非题目生命周期 snapshot 更新，不得重置当前 tab、已选答案、自定义输入或首次操作标记。
-- task 切换期间若 `sessionId` 已变化但上一 task 的 snapshot 尚未换代，该旧 snapshot 不得渲染当前 task 的问答，也不得参与当前 task 草稿清理；只有 `snapshot.sessionId === sessionId` 的投影可作为 pending interaction 权威。
-- 新 `requestId` 必须创建新的本地问答实例，不能继承上一轮草稿。
-- 页面首次打开、重连或 replayable snapshot 重新挂载时，仍使用该请求携带的 `currentQuestionIndex` / `answerDrafts` 初始化；挂载后的普通 metadata 更新不反向覆盖本地编辑进度。
-- 桌面与手机各自按 `workspaceKey + taskId + requestId` 保留未提交的 renderer-local 草稿；切换 task 导致问答组件卸载后，切回同一 task 必须恢复当前题目和已填答案。最终 `resolveInteraction` 仍按 runtime 先到先得；请求成功收口后清理对应本地草稿。若未来要求跨端实时同步分题草稿，需要新增显式协议状态，不能借用对象重建隐式同步。
+- Uma atualização de snapshot de `autoResolution`, owner/lease, origin ou de qualquer outro ciclo de
+  vida que não seja o da pergunta, para o mesmo `requestId`, não pode resetar a tab atual, as
+  respostas selecionadas, a entrada personalizada ou a marca de primeira ação.
+- Durante uma troca de task, se o `sessionId` já mudou mas o snapshot da task anterior ainda não foi
+ geracional trocado, esse snapshot antigo não pode renderizar as perguntas da task atual nem
+  participar da limpeza dos rascunhos da task atual; apenas a projeção com
+  `snapshot.sessionId === sessionId` pode valer como pending interaction autoritativa.
+- Um novo `requestId` precisa criar uma nova instância local de pergunta e não pode herdar o rascunho
+  da rodada anterior.
+- Na primeira abertura da página, na reconexão ou na remontagem de um snapshot replayable, a
+  inicialização continua usando o `currentQuestionIndex` / `answerDrafts` trazidos pela requisição;
+  atualizações comuns de metadata após a montagem não sobrescrevem o progresso local de edição.
+- Desktop e celular mantêm cada um seus rascunhos não submetidos renderer-local por
+  `workspaceKey + taskId + requestId`; quando a troca de task desmonta o componente de pergunta, o
+  retorno à mesma task precisa restaurar a pergunta atual e as respostas já preenchidas. O
+  `resolveInteraction` final continua seguindo o primeiro a chegar primeiro a ser processado do
+  runtime; depois que a requisição conclui com sucesso, o rascunho local correspondente é limpo. Se
+  no futuro for exigida sincronização em tempo real de rascunhos de perguntas divididas entre
+  plataformas, será preciso adicionar um estado de protocolo explícito, sem se apoiar em
+  reconstrução implícita de objetos para sincronizar.
 
-## 工具与历史语义
+## Semântica de ferramenta e histórico
 
-- `AskUserQuestion` 成功输出允许 `answers` 为空对象。
-- 空答案不是用户拒绝，不选择默认项，也不产生 permission deny。
-- 模型可见 tool result 使用“用户未回答，请使用最佳判断继续”的明确语义。
-- UI 历史显示“未回答，已自动继续”，不生成伪造 user message。
-- 正常回答、主动拒绝、普通权限与 `ExitPlanMode` 保持现有语义。
+- A saída de sucesso de `AskUserQuestion` permite que `answers` seja um objeto vazio.
+- Resposta vazia não é recusa do usuário, não seleciona um item padrão e não gera permission deny.
+- O tool result visível ao modelo usa a semântica explícita de que o usuário não respondeu e que é
+  preciso seguir com o melhor julgamento.
+- O histórico na UI exibe「未回答，已自动继续」, sem gerar uma user message falsa.
+- Resposta normal, recusa ativa, permissões comuns e `ExitPlanMode` mantêm a semântica existente.
 
-## 侧栏展示
+## Exibição na barra lateral
 
-- 普通权限、`ExitPlanMode` 和其他非 Ask 阻塞交互：绿色静态“等待确认”，无动画，也没有“停止计时”操作。
-- 问答 `hiddenGrace` / `snoozed`：使用独立的浅蓝 surface + 深蓝文字，静态满底“等待确认”。其中 `hiddenGrace` 尚有 deadline，hover 显示灰色“停止计时”并允许点击暂停；`snoozed` 仍保留蓝色“等待确认”，但不再可点击。
-- 问答 `visibleCountdown`：固定蓝色 track + 内层蓝色 fill；默认文字固定居中为“等待确认”，hover/focus-visible 时隐藏 fill 并原位切换为灰色“停止计时”，不改变胶囊宽度；点击后发送现有幂等暂停命令。
-- 不复用 Zai 主题下为黑/白的 `brand`，也不借用 `success` 表达等待态；Ask 与普通确认分别使用稳定的 interaction 语义 token。
-- 普通 task row、timeline row、grouped task row 复用同一个 badge 组件。
-- 使用绝对时间和 CSS `transform: scaleX(...)`/animation 恢复进度，不为每条 task 创建高频 JS interval。
-- `prefers-reduced-motion` 下禁用连续动画，只在协议状态、focus 或 visibility 变化时按绝对时间刷新比例。
-- 桌面与手机宽度、亮暗主题和中英文使用同一语义 token 与 i18n key。
+- Permissões comuns, `ExitPlanMode` e outras interações bloqueantes não-Ask: rótulo estático verde
+  「等待确认」, sem animação e sem ação de「停止计时」.
+- Pergunta em `hiddenGrace` / `snoozed`: surface azul-clara independente com texto azul-escuro e
+  「等待确认」 estático com preenchimento total. Em `hiddenGrace` ainda há deadline, e o hover exibe
+  「停止计时」em cinza permitindo clicar para pausar; em `snoozed` o azul「等待确认」é mantido, mas
+  não é mais clicável.
+- Pergunta em `visibleCountdown`: track azul fixo + fill azul interno; o texto padrão é fixo e
+  centralizado como「等待确认」e, em hover/focus-visible, o fill é ocultado e o texto é trocado no
+  lugar por「停止计时」em cinza, sem alterar a largura da cápsula; o clique envia o comando de pausa
+  idempotente já existente.
+- Não se reaproveita o `brand` preto/branco do tema Zai nem se toma emprestado `success` para
+  expressar o estado de espera; Ask e confirmação comum usam tokens de semântica de interaction
+  estáveis distintas.
+- task row comum, timeline row e grouped task row reutilizam o mesmo componente de badge.
+- O progresso é restaurado com tempo absoluto e `transform: scaleX(...)`/animation em CSS, sem criar
+  um JS interval de alta frequência por task.
+- Sob `prefers-reduced-motion` a animação contínua é desativada e a proporção é atualizada por tempo
+  absoluto apenas nas mudanças de estado de protocolo, focus ou visibility.
+- Desktop e celular, larguras, temas claro e escuro e os idiomas chinês e inglês usam os mesmos
+  tokens semânticos e as mesmas chaves de i18n.
 
-## 验收与剪枝
+## Aceitação e podas
 
-必须覆盖：
+Obrigatório cobrir:
 
-- fake clock 的 0s、59s、60s、180s、末分钟 `59秒..1秒`、300s 阶段与空答案收口；
-- 静默期/可见期暂停、重复暂停 noop、正常回答/stop/turn close 清理；
-- 问答面板 mouseenter、右上角秒数点击、程序化 focus 不暂停和侧栏 hover 不暂停；
-- 多 pending 串行获得完整窗口；
-- sessions-index 的后台摘要和 desktop continuous / web replayable 恢复；
-- 三种侧栏 row、双主题、中英文与桌面/手机布局；
-- 默认开启、关闭前注册、计时中关闭、关闭期间注册与重新开启不追溯；
-- Q09–Q14、Q23–Q25 conversation cases。
+- os estágios 0s, 59s, 60s, 180s, o último minuto `59秒..1秒` e 300s com fake clock, e a conclusão
+  com resposta vazia;
+- pausa durante o período silencioso/visível, pausa repetida noop e limpeza por resposta normal,
+  stop e turn close;
+- mouseenter do painel de perguntas, clique nos segundos do canto superior direito, focus
+  programático que não pausa e hover na barra lateral que não pausa;
+- múltiplas pendentes obtendo em série a janela completa;
+- o resumo de segundo plano do sessions-index e a recuperação de desktop continuous / web replayable;
+- os três tipos de row da barra lateral, os dois temas, os idiomas chinês e inglês e os layouts
+  desktop/celular;
+- padrão habilitado, registro antes da desativação, desativação durante a cronometragem, registro
+  durante o período desativado e reativação sem retroação;
+- Q09–Q14, Q23–Q25 conversation cases.
 
-明确剪枝：
+Podas explícitas:
 
-- 权限和 `ExitPlanMode` 不与倒计时做全排列，因为协议中没有 `autoResolution`。
-- 不对每个具体选项数、题目数和输入法做计时叉乘；以首次有效操作边界覆盖。
-- 不要求真实等待五分钟；自动化注入 clock/scheduler，生产常量另做静态断言。
-- relay/main 不保存业务 timer；恢复只验证 shared-host runtime snapshot/gap。
-- 主 Agent、后台任务、Bot 与 subagent 不分别复制完整 GUI E2E；共享 registry 由 fake-clock/协议测试覆盖，
-  desktop GUI 只保留一条代表路径，mobile replayable 由恢复集成测试覆盖。
+- Permissões e `ExitPlanMode` não fazem permutação completa com a contagem regressiva, porque não há
+  `autoResolution` no protocolo.
+- Não se faz cruzamento de cronometragem por número concreto de opções, de perguntas e por método de
+  entrada; a cobertura é feita pela fronteira da primeira ação efetiva.
+- Não se exige espera real de cinco minutos; clock/scheduler são injetados na automação e as
+  constantes de produção têm asserções estáticas próprias.
+- relay/main não guarda timer de negócio; a restauração valida apenas o snapshot/gap do runtime do
+  shared-host.
+- Agent principal, tarefas em segundo plano, bots e subagents não duplicam E2E completo de GUI; o
+  registry compartilhado é coberto por fake-clock/testes de protocolo, a GUI do desktop mantém apenas
+  um caminho representativo e o mobile replayable é coberto por testes de integração de restauração.
 
-GUI 候选位于
-`packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-ask-user-question-auto-resolution-setting.test.ts`。
-它只允许在 `ZCODE_ENV=test` 下使用 `ZCODE_E2E_ASK_USER_QUESTION_CLOCK_SCALE=20`
-缩放 runtime 的 60 秒/300 秒窗口；生产环境忽略该注入。候选在人工确认前不晋级正式 E2E。
+O candidato de GUI está em
+`packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-ask-user-question-auto-resolution-setting.test.ts`.
+Ele só pode usar `ZCODE_E2E_ASK_USER_QUESTION_CLOCK_SCALE=20` sob `ZCODE_ENV=test` para escalar as
+janelas de 60 segundos/300 segundos do runtime; a produção ignora essa injeção. O candidato não é
+promovido a E2E formal antes da confirmação manual.

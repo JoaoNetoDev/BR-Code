@@ -1,24 +1,24 @@
 # Task Grouped View
 
-`Group` 是侧栏任务区的用户可见视图入口，用于把用户自定义的跨 workspace task group 和未分组 task 放在同一个混排列表里展示。内部状态、接口和持久化仍沿用 `grouped` / `Grouped` 命名，避免破坏已有数据结构。
+`Group` é a entrada visível ao usuário da área de tarefas da barra lateral, usada para exibir em uma mesma lista misturada os task groups entre workspaces definidos pelo usuário e as tasks não agrupadas. O estado interno, as interfaces e a persistência continuam usando a nomenclatura `grouped` / `Grouped`, evitando quebrar as estruturas de dados existentes.
 
-当前实现支持 `Group` 视图入口、`New Group`、跨 workspace task/group 混排展示、菜单移动到 group / 移出 group、SQLite 持久化、乐观提交、group rename、group color、group header 右键菜单，以及限定的 task over task 拖拽移动排序。
+A implementação atual suporta a entrada de visualização `Group`, `New Group`, exibição misturada de tasks/groups entre workspaces, mover para group / mover para fora do group pelo menu, persistência em SQLite, submissão otimista, rename de group, cor de group, menu de contexto no group header e ordenação por arraste task sobre task com escopo limitado.
 
-侧栏进入 `Group` 时，仍在 grouped 主体上方复用全局 `Pinned` 区。Grouped 主体只展示非 pinned、非 archived task；置顶 task 只迁移到同页的 `Pinned` 区，不重复出现在 group 内或顶层。pin/unpin 不修改 task 原有的 group membership 和用户排序，取消置顶后必须回到原位置。
+Ao entrar em `Group` pela barra lateral, a seção global `Pinned` continua sendo reaproveitada acima do corpo grouped. O corpo Grouped só exibe tasks não fixadas e não arquivadas; uma task fixada só é migrada para a seção `Pinned` da mesma página, sem reaparecer dentro do group ou no nível superior. pin/unpin não modifica o group membership nem a ordenação do usuário da task, e após desfixar ela precisa voltar à posição original.
 
-## 视图顺序
+## Ordem das visualizações
 
-任务视图菜单顺序固定为：
+A ordem do menu de visualizações de tarefas é fixa:
 
 1. `Group`
 2. `Workspace`
 3. `Timeline`
 
-`Workspace` 保留当前按 workspace 分组的任务视图；`Timeline` 保留当前按时间线展示的任务视图。
+`Workspace` mantém a visualização de tarefas agrupada por workspace atual; `Timeline` mantém a visualização de tasks apresentada por linha do tempo.
 
-## 列表结构
+## Estrutura da lista
 
-`Grouped` 视图主体结构如下：
+A estrutura do corpo da visualização `Grouped` é a seguinte:
 
 ```tsx
 <task-group-list>
@@ -46,55 +46,55 @@
 </task-group-list>
 ```
 
-- `new-group-item` 和全局 `new-task-item` 固定在混排列表顶部，不参与用户排序持久化。
-- 点击 `new-group-item` 新建出的真实 group 需要立即写入顶层用户排序，并放到混排列表最顶部。
-- 顶层 `task-item` 表示未加入任何 group 的 task。
-- `group-item` 表示用户自定义 group。
-- group 内的 `task-item` 不再出现在顶层。
-- archived 或 deleted task 在 `Grouped` 视图中完全不可见，包括 group 内部。
-- pinned task 不进入 `Grouped` 主体，但在同一个 `Group` 页面顶部的全局 `Pinned` 区可见；这不是删除、归档或解除 group membership。
-- 空 group 保留展示，避免用户创建的容器因为成员暂时不可见而消失。
-- `Grouped` 的 group 归属和混排顺序独立于全局任务排序方式；切换 `Workspaces`/`Timeline` 的创建时间或更新时间排序，不应该改变 `Grouped` 视图。
-- Grouped 视图首次挂载时，在 structure/membership 的第一次请求结束且 sessions-index 首个 snapshot 水合完成前，主体内容区保持为空，不渲染“正在获取任务”、store 中暂存的 grouped draft、group 容器、空状态或空列表；页面顶部已有的 Pinned 区不受影响。两份数据源都 ready 后才一次性展示 draft 和权威列表；后续后台刷新保留已有内容，避免列表闪空或用加载文案打断视线。
+- `new-group-item` e o `new-task-item` global ficam fixos no topo da lista misturada e não participam da persistência da ordenação do usuário.
+- O group real criado ao clicar em `new-group-item` precisa ser escrito imediatamente na ordenação do usuário do nível superior e colocado no topo da lista misturada.
+- `task-item` de nível superior representa uma task que não entrou em nenhum group.
+- `group-item` representa um group definido pelo usuário.
+- `task-item` dentro de um group não aparece mais no nível superior.
+- Tasks arquivadas ou excluídas são totalmente invisíveis na visualização `Grouped`, inclusive dentro de groups.
+- Tasks fixadas não entram no corpo `Grouped`, mas ficam visíveis na seção global `Pinned` no topo da mesma página `Group`; isso não é exclusão, arquivamento nem remoção de group membership.
+- Groups vazios continuam sendo exibidos, evitando que um contêiner criado pelo usuário desapareça porque seus membros estão temporariamente invisíveis.
+- A atribuição de group e a ordem misturada de `Grouped` são independentes do modo global de ordenação de tasks; alternar a ordenação de `Workspaces`/`Timeline` por tempo de criação ou atualização não deve mudar a visualização `Grouped`.
+- Na primeira montagem da visualização Grouped, enquanto a primeira requisição de estrutura/membership não termina e a hidratação do primeiro snapshot do sessions-index não conclui, a área de conteúdo do corpo permanece vazia, sem renderizar "carregando tasks", o grouped draft mantido no store, contêineres de group, estado vazio ou lista vazia; a seção Pinned já existente no topo da página não é afetada. O draft e a lista autoritativa só são exibidos de uma vez quando as duas fontes de dados estão prontas; atualizações posteriores em background preservam o conteúdo existente, evitando esvaziar a lista ou interromper o olhar com textos de carregamento.
 
-## New Task 草稿归属
+## Pertencimento do rascunho de New Task
 
-`Grouped` 模式下，全局 `New task` 入口需要根据当前 active task 推导草稿位置：
+No modo `Grouped`, a entrada global `New task` precisa deduzir a posição do rascunho a partir da task ativa atual:
 
-- 当前 active task 位于某个 group 内时，点击全局 `New task` 应在同一个 group 内创建 grouped draft，并自动展开该 group，保证草稿可见。
-- 当前 active task 是顶层未分组 task 时，点击全局 `New task` 应创建顶层 grouped draft。
-- 当前没有 active task、active task 不在当前 grouped view 中，或 grouped view 尚未完成挂载时，沿用顶层 grouped draft 作为兜底。
-- 如果当前已经处于 grouped draft 态，再次点击全局 `New task` 复用当前 draft 的 placement，避免把正在编辑的 group draft 意外移动到顶层。
-- 单个 group header/menu 内的 `New task` 始终显式创建到对应 group，不受当前 active task 影响。
-- grouped draft 的 placement 只能在 draft session 实际创建或预热 session 实际提升成功后，显式绑定到新 task id。创建命令必须在第一次异步等待前捕获稳定的 draft identity 与 placement；ACK 或 pending command 重发完成时只提交该快照，并仅在当前 draft identity 仍匹配时清除草稿。null-session pending create 还必须持久化来源 workspace scope，并按 `workspaceIdentity?.trim() || workspacePath` 过滤恢复入口，禁止在其他 workspace 展示或消费。普通任务选择、fork 跳转和恢复已有 session 只负责导航，不得据此推断为草稿提升，避免误改已有 task 的 group 归属和排序。
-- root draft 首发提升时，Host 必须在同一个 SQLite transaction 内提交 task row 与顶层 `sort_order`，事务提交后才允许发布 sessions-index/task list 刷新。Renderer 即使先收到 sessions-index 内容帧、后收到 grouped structure，也必须继续沿用 optimistic root 顶部位置，禁止把尚未取得权威 `sort_order` 的新 task 临时补到列表末尾后再上移。
+- Quando a task ativa atual está dentro de um group, clicar na `New task` global deve criar o grouped draft no mesmo group e expandir automaticamente esse group, garantindo que o rascunho fique visível.
+- Quando a task ativa atual é uma task de nível superior não agrupada, clicar na `New task` global deve criar um grouped draft de nível superior.
+- Quando não há task ativa, quando a task ativa não está na visualização grouped atual ou quando a visualização grouped ainda não concluiu a montagem, usa-se como fallback o grouped draft de nível superior.
+- Se já estiver em estado de grouped draft, clicar novamente na `New task` global reaproveita o placement do rascunho atual, evitando mover para o nível superior um group draft em edição por acidente.
+- O `New task` dentro de um group header/menu sempre cria explicitamente no group correspondente, independentemente da task ativa atual.
+- O placement do grouped draft só pode ser vinculado explicitamente ao novo task id depois que a draft session for realmente criada ou que a pré-aquecimento de session for promovido com sucesso. O comando de criação precisa capturar a identidade estável do rascunho e o placement antes da primeira espera assíncrona; quando o ACK ou o reenvio do comando pending completar, apenas esse snapshot é submetido, e o rascunho só é limpo quando a identidade atual do rascunho ainda corresponder. Um create pending de null-session também precisa persistir o workspace scope de origem e filtrar a entrada de restauração por `workspaceIdentity?.trim() || workspacePath`, proibindo exibição ou consumo em outros workspaces. Seleção comum de task, navegação por fork e restauração de session existente cuidam apenas da navegação e não devem ser inferidas como promoção de rascunho, evitando alterar por engano o group e a ordenação de tasks existentes.
+- Na primeira promoção de um rascunho raiz, o Host precisa submeter a task row e o `sort_order` de nível superior na mesma transaction do SQLite, e a publicação da atualização de sessions-index/task list só é permitida após o commit da transaction. Mesmo que o Renderer receba primeiro o quadro de conteúdo do sessions-index e depois a estrutura grouped, ele precisa continuar usando a posição otimista no topo da raiz, proibindo temporariamente colocar no fim da lista a nova task cujo `sort_order` autoritativo ainda não foi obtido e depois movê-la para cima.
 
-## 展开与收起
+## Expandir e recolher
 
-`Grouped` 视图复用侧栏任务区标题旁的 `Expand all` / `Collapse all` 工具按钮。
+A visualização `Grouped` reaproveita os botões de ferramenta `Expand all` / `Collapse all` ao lado do título da área de tarefas da barra lateral.
 
-- 当当前 grouped view 至少存在一个 group 时显示批量按钮。
-- 展开/收起是当前用户、当前设备/浏览器的显示偏好，持久化在 UI 侧 `localStorage`，key 为 `zcode-grouped-task-collapsed-groups`。
-- 持久化值只保存 `{ [groupId]: true }` 形式的收起 group id；未出现的 group 视为展开。这样新建 group 默认展开，也避免把全量 group 顺序复制进 UI 偏好。
-- 若所有 group 都未收起，按钮显示 `Collapse all`，点击后把当前 view 内所有 group id 写入 collapsed set 并同步 localStorage。
-- 若任意 group 已收起，按钮显示 `Expand all`，点击后清空 collapsed set 并同步 localStorage。
-- group 删除或 view 刷新后，需要按当前 group id 列表清理 stale collapsed id，并把清理后的结果写回 localStorage，避免后续新 group 被旧状态误命中。
-- 单个 group 内点击 `New task` 时仍会自动展开该 group，保证新草稿可见。
-- draft task item 的项目标签使用 `text-ui-sm`，hover 时保持显示且位置不变；状态点和关闭按钮共享固定宽度 action 槽并在 hover 时原位切换，点击关闭只清除当前 grouped draft，不归档、不删除真实 task。
+- Os botões em lote são exibidos quando a visualização grouped atual tem pelo menos um group.
+- Expandir/recolher é uma preferência de exibição do usuário atual, do dispositivo/navegador atual, persistida no lado da UI em `localStorage`, com a key `zcode-grouped-task-collapsed-groups`.
+- O valor persistido guarda apenas os group ids recolhidos na forma `{ [groupId]: true }`; groups ausentes são considerados expandidos. Assim um group novo nasce expandido e evita-se copiar a ordem completa de groups para as preferências da UI.
+- Se nenhum group estiver recolhido, o botão mostra `Collapse all` e, ao clicar, grava todos os group ids da view atual no conjunto de recolhidos sincronizando o localStorage.
+- Se algum group estiver recolhido, o botão mostra `Expand all` e, ao clicar, limpa o conjunto de recolhidos sincronizando o localStorage.
+- Após a remoção de um group ou a atualização da view, é preciso limpar os ids recolhidos obsoletos conforme a lista atual de group ids e gravar o resultado limpo de volta no localStorage, evitando que groups novos sejam atingidos por engano por estado antigo.
+- Ao clicar em `New task` dentro de um group, o group continua sendo expandido automaticamente, garantindo que o novo rascunho fique visível.
+- O rótulo do item de rascunho de task usa `text-ui-sm`, permanece visível e na mesma posição no hover; o ponto de status e o botão de fechar compartilham um slot de ação de largura fixa e alternam no lugar no hover, e clicar em fechar limpa apenas o grouped draft atual, sem arquivar nem excluir a task real.
 
-## Group 语义
+## Semântica de Group
 
-Group 是用户自定义的全局任务组织容器：
+Group é um contêiner global de organização de tarefas definido pelo usuário:
 
-- 支持命名。
-- 支持设置颜色，颜色参考 macOS Finder tag color。
-- 可以包含不同 workspace 的 task。
-- 一个 task 最多只能属于一个 group。
-- 删除 group 只解除成员关系，不删除、不归档其中的 task。
+- Suporta nomeação.
+- Suporta definição de cor, com referência à cor de tag do Finder do macOS.
+- Pode conter tasks de workspaces diferentes.
+- Uma task pode pertencer a no máximo um group.
+- Excluir um group apenas remove a associação dos membros, sem excluir nem arquivar as tasks contidas nele.
 
-## Group Header 菜单
+## Menu do Group Header
 
-Group header 用于展开/收起。右键 header 时显示上下文菜单，菜单结构如下：
+O group header serve para expandir/recolher. Ao clicar com o botão direito no header, aparece o menu de contexto, com a estrutura a seguir:
 
 ```txt
 New task
@@ -112,15 +112,15 @@ Change Color >
 Ungroup
 ```
 
-- `New task` 复用侧栏已有的新建 task 入口，不改变当前 group 的成员关系。
-- `Change Color` 使用二级菜单，颜色项只显示文本和小色点。
-- `Rename` 进入和 bot channel 相同语义的标题 inline edit。
-- `Ungroup` 将该 group 内所有 task 移回 root 顶层，同时删除 group；这里不做二次确认，因为 task 本身不会被删除或归档。
-- `Ungroup` 的持久化顺序是先保存新的 root/grouped view 排序，再删除 group。这样删除 group 触发的 membership cascade 不会让原 group 内 task 丢失用户可见顺序。
+- `New task` reaproveita a entrada existente de criação de task da barra lateral, sem alterar a relação de membros do group atual.
+- `Change Color` usa um submenu de segundo nível, e os itens de cor mostram apenas texto e um pequeno ponto colorido.
+- `Rename` entra na edição inline de título com a mesma semântica de bot channel.
+- `Ungroup` move todas as tasks do group de volta para o nível superior raiz e exclui o group; aqui não há confirmação secundária, porque as tasks em si não serão excluídas nem arquivadas.
+- A ordem de persistência de `Ungroup` é salvar primeiro a nova ordenação da view raiz/grouped e só depois excluir o group. Assim, o cascade de membership disparado pela exclusão do group não faz as tasks do group original perderem a ordem visível ao usuário.
 
-## Task Item 菜单
+## Menu do Task Item
 
-`Grouped` 视图里的所有 task item 都显示右键菜单，包括 root task 和 group 内 task。菜单结构如下：
+Todos os task items da visualização `Grouped` exibem menu de contexto, incluindo tasks da raiz e tasks dentro de group. A estrutura é a seguinte:
 
 ```txt
 Move to group >
@@ -143,68 +143,68 @@ Go to config
 Feedback
 ```
 
-- `Move to group` 是二级菜单，列出当前 grouped view 内全部 group，并在名称前显示 group color dot。
-- 当前所在 group 在二级菜单内禁用，避免重复移动。
-- root task 的 `Remove from group` 禁用；group 内 task 点击后移回 root。
-- `Remove from group` 会把 task 放到原 group 后面，保持用户操作后的空间上下文。
-- `Rename task`、`Archive task`、`Mark as unread`、路径复制、配置跳转和反馈入口沿用 workspace 视图的 task 级语义。
+- `Move to group` é um submenu de segundo nível que lista todos os groups da visualização grouped atual, mostrando o ponto de cor do group antes do nome.
+- O group atual fica desabilitado dentro do submenu, evitando movimentação duplicada.
+- O `Remove from group` da task raiz fica desabilitado; em uma task dentro de group, o clique a move de volta para a raiz.
+- `Remove from group` coloca a task depois do group original, preservando o contexto espacial após a ação do usuário.
+- `Rename task`, `Archive task`, `Mark as unread`, a cópia de caminhos, o salto para configuração e a entrada de feedback seguem a semântica de nível de task da visualização de workspace.
 
-## Task 拖拽移动排序
+## Arraste de task para mover e ordenar
 
-Grouped 视图支持 task item 之间的直接拖拽移动，交互参考 dnd-kit virtualized sortable list：
+A visualização Grouped suporta mover por arraste direto entre task items, com interação referenciando a lista ordenável virtualizada do dnd-kit:
 
-- 拖拽排序由 dnd-kit `over` 结果驱动：`collisionDetection` 只负责选出当前 over droppable，`onDragOver` 根据 droppable type 更新 preview view，不再通过 `dragMove` 扫描所有 task 或用指针中线决定插入位置；`dragMove` 只记录相邻两帧 delta 变化得到的当前拖拽方向，并在方向反转但 over 目标不变时复用最近一次 over 目标刷新 preview。
-- 拖拽自动滚动使用 dnd-kit `autoScroll.threshold = { x: 0.1, y: 0.1 }`，即拖拽矩形进入可滚动祖先容器上下左右边缘 10% 区域才触发滚动，避免默认 20% 触发区在短列表容器里过于敏感。
-- 只允许命中 task、group header、group footer、收起 group、empty drop zone 和 group 排序目标；草稿 task、固定的 `New group` / `New task` 行或空白区域不参与排序。
-- 拖拽命中 root task 时，目标父级为 root。
-- 拖拽命中 group task 时，目标父级为该 group。
-- task over task 的插入位置由拖拽过程中持续刷新的当前方向决定：向下移动插到目标 task 后，向上移动插到目标 task 前；同一个 over task 内不再通过 `dragMove` 中线反复切换。
-- group 收起时，收起的 group item 作为独立 droppable；task over 收起 group 由 `dragOver` 方向决定 root 层插到 group 前/后。
-- group 展开时，结构语义为 `<group><header /><content /><footer /></group>`：header 作为独立 droppable，task over header 由 `dragOver` 方向决定，向上移动表示移出到 root 并插到 group 前，向下移动表示移入 group 并插到第一个 task 前；content 内继续按 task over task 排序；footer 是正常布局流里的独立 droppable，不使用 absolute bottom padding，task over footer 由 `dragOver` 方向决定，向上移动插入到 group list 尾部，向下移动则移出到 root 并插到 group 后。
-- group 展开且为空时，empty drop zone 作为独立 droppable，task over empty drop zone 由 `dragOver` 移入该 group 的第一位。
-- empty group drop zone 随空 group 状态同步挂载/卸载，不使用 opacity 淡入淡出，避免隐藏过渡期间仍影响拖拽命中判断。
-- group header 是 group 拖拽手柄；开始拖拽 group 时会临时收起该 group，拖拽结束或取消后恢复拖拽前的收起状态。
-- group 拖拽浮层必须复用正常 header 的展示标题；系统 cron 分组在普通 header、sticky header 和拖拽浮层中都显示本地化名称，不得暴露持久化占位值 `cron`。
-- group 拖拽只在 root 层移动整个 group 块：group over root task 和 group over group 都由 `dragOver` 进入目标时的拖拽方向决定前/后；group over group task/content 不产生嵌套。
-- 同父级移动表现为 reorder；不同父级移动表现为先移出原父级，再插入目标父级。
-- 支持的移动类型限定为：
+- A ordenação por arraste é orientada pelo resultado `over` do dnd-kit: `collisionDetection` apenas escolhe o droppable `over` atual, `onDragOver` atualiza a preview view conforme o tipo do droppable, e não se percorre mais todas as tasks por `dragMove` nem se usa a linha central do ponteiro para decidir a posição de inserção; `dragMove` apenas registra a direção atual de arraste obtida pela variação de delta entre dois quadros adjacentes e, quando a direção inverte mas o alvo `over` não muda, reutiliza o último alvo `over` para atualizar a preview.
+- A rolagem automática do arraste usa `autoScroll.threshold = { x: 0.1, y: 0.1 }` do dnd-kit, isto é, a rolagem só é disparada quando o retângulo de arraste entra na faixa de 10% nas bordas superior, inferior, esquerda e direita do contêiner de ancestral rolável, evitando que a área de disparo padrão de 20% fique sensível demais em contêineres de listas curtas.
+- Só é permitido acertar task, group header, group footer, group recolhido, empty drop zone e alvo de ordenação de group; tasks de rascunho, as linhas fixas `New group` / `New task` ou áreas em branco não participam da ordenação.
+- Quando o arraste acerta uma task da raiz, o pai de destino é a raiz.
+- Quando o arraste acerta uma task de group, o pai de destino é esse group.
+- A posição de inserção task sobre task é determinada pela direção atual, atualizada continuamente ao longo do arraste: mover para baixo insere depois da task alvo, mover para cima insere antes da task alvo; dentro de uma mesma task `over` não se alterna mais pela linha central via `dragMove`.
+- Quando o group está recolhido, o item de group recolhido funciona como droppable independente; task sobre group recolhido tem a camada de destino na raiz, antes ou depois do group conforme a direção do `dragOver`.
+- Quando o group está expandido, a semântica estrutural é `<group><header /><content /><footer /></group>`: o header funciona como droppable independente, e task sobre header é decidida pela direção do `dragOver` — mover para cima significa mover para fora, para a raiz, e inserir antes do group; mover para baixo significa mover para dentro do group e inserir antes da primeira task; dentro do content a ordenação continua task sobre task; o footer é um droppable independente no fluxo normal de layout, sem usar padding absoluto inferior, e task sobre footer é decidida pela direção do `dragOver` — mover para cima insere no fim da group list, mover para baixo move para fora, para a raiz, e insere depois do group.
+- Quando o group está expandido e vazio, o empty drop zone funciona como droppable independente, e task sobre empty drop zone é movida para a primeira posição do group pelo `dragOver`.
+- A empty group drop zone é montada/desmontada em sincronia com o estado de group vazio, sem fade por opacity, evitando que a transição oculta ainda influencie o julgamento de acerto do arraste.
+- O group header é a alça de arraste do group; ao iniciar o arraste de um group, ele é temporariamente recolhido e o estado de recolhimento anterior ao arraste é restaurado ao final ou no cancelamento.
+- A camada flutuante de arraste de group precisa reaproveitar o título de exibição do header normal; os grupos de cron do sistema exibem o nome localizado tanto no header comum quanto no sticky header e na camada flutuante de arraste, sem expor o valor placeholder persistido `cron`.
+- O arraste de group só move o bloco inteiro do group na camada raiz: group sobre task da raiz e group sobre group têm antes/depois determinados pela direção do arraste ao entrar no destino via `dragOver`; group sobre task/conteúdo de group não gera aninhamento.
+- Movimentação dentro do mesmo pai aparece como reorder; movimentação entre pais diferentes aparece como sair primeiro do pai original e depois inserir no pai de destino.
+- Os tipos de movimentação suportados são limitados a:
   - root task over root task
   - root task over group task
   - group A task over group B task
   - group task over root task
-  - task over group item 区域
+  - task over a área do group item
   - task over empty group drop zone
   - group over root task
   - group over group
-- 拖拽结束后通过 `applyGroupedTaskViewOrder` 一次性提交最终 root 顺序和 group membership；取消拖拽或保存失败时回滚到拖拽前 view。
-- 虚拟列表里的 task 以 workspace identity + task id 的稳定 key 作为 draggable/droppable id，避免滚动窗口重挂载时用 index 导致错位。
-- 拖拽 preview 指列表内当前预览落位的 active task row，不是鼠标浮层；root preview 和 group preview 的行样式统一为不可见占位，不显示边框和背景，仅保留所在容器天然的缩进、group 左侧边线等结构差异。
-- 拖拽 overlay 指跟随鼠标的纯展示浮层，通过 portal 挂到 `document.body`，不渲染在 grouped task 的滚动容器内，避免受滚动条和裁剪上下文影响；overlay 使用 `bg-background`，宽度跟随列表内当前 preview row 的实际宽度并在宽度变化时短过渡，不带 tooltip、右键菜单或 hover 操作态，松手后使用短 drop animation 收进最终落点。
-- Grouped task 拖到会话区 Workbench pane 的四个边缘时，复用 Project task 的分屏落点与 session identity 规则；成功分屏不得提交 grouped 排序预览，task 在 grouped 视图中的原有层级与顺序保持不变。拖动 group header 仍只负责 grouped 内部排序，不允许创建分屏。
-- 拖拽移动时对当前已挂载的可见 task row 做 FLIP 让位动画；task 移入/移出 group 时，group 容器高度变化和后续顶层节点位置变化也参与同一节奏的动画；虚拟列表窗口外未挂载的节点不参与动画，并遵守系统 reduced motion 偏好。
-- 拖拽只改变 Grouped 视图的用户组织顺序，不改变 ZCode session、task realtime stream、desktop continuous 或 web remote replayable 的消息恢复语义。
+- Após o fim do arraste, `applyGroupedTaskViewOrder` submete de uma só vez a ordem final da raiz e o group membership; ao cancelar o arraste ou falhar ao salvar, há rollback para a view anterior ao arraste.
+- Tasks na lista virtualizada usam como draggable/droppable id uma key estável de workspace identity + task id, evitando desalinhamento por índice quando a janela de rolagem remonta.
+- A preview de arraste é a active task row da posição prevista atualmente dentro da lista, não uma camada flutuante sob o mouse; o estilo de linha da preview de raiz e da preview de group é uniformizado como placeholder invisível, sem borda nem fundo, mantendo apenas as diferenças estruturais naturais do contêiner, como indentação e a linha lateral do group.
+- A overlay de arraste é a camada puramente visual que segue o mouse, montada via portal em `document.body`, e não renderizada dentro do contêiner rolável das grouped tasks, evitando sofrer influência da barra de rolagem e do contexto de recorte; a overlay usa `bg-background`, tem largura seguindo a largura real da preview row atual dentro da lista com uma transição curta quando a largura muda, não tem tooltip, menu de contexto nem estado de hover, e ao soltar usa uma curta animação de drop para fechar na posição final.
+- Quando uma grouped task é arrastada até as quatro bordas do Workbench pane da área de conversa, reaproveitam-se os pontos de divisão de tela do Project task e as regras de session identity; uma divisão de tela bem-sucedida não pode submeter a preview de ordenação grouped, e o nível e a ordem originais da task na visualização grouped permanecem inalterados. Arrastar o group header continua responsável apenas pela ordenação interna do grouped, sem permitir criar divisões de tela.
+- Durante a movimentação por arraste, as task rows visíveis já montadas recebem animação de cedência FLIP; quando uma task entra/sai de um group, a variação de altura do contêiner do group e a variação de posição dos nós de nível superior seguintes também participam da animação no mesmo ritmo; nós fora da janela da lista virtualizada não são montados e não participam da animação, e a preferência de sistema de reduced motion é respeitada.
+- O arraste só altera a ordem de organização do usuário da visualização Grouped, sem mudar a semântica de recuperação de mensagens da session do ZCode, do realtime stream de tasks, do desktop continuous ou do web remote replayable.
 
-## Fork 与新任务置顶
+## Fork e novo task fixado no topo
 
-顶层新建 task 和 fork 后出现的新 task 必须写入 `task_group_view_node_orders` 的顶层排序，并使用新的最小 `sort_order` 插到 Grouped 列表顶部。group 内的 New task 从草稿提升后必须写入该 group 的 membership，并使用新的最小成员 `sort_order` 插到组内第一位。UI 的乐观落位只是即时反馈，刷新后的真相源仍然是 SQLite。
+Tasks criadas no nível superior e as novas tasks que aparecem após um fork precisam ser gravadas na ordenação de nível superior de `task_group_view_node_orders` e inseridas no topo da lista Grouped com um novo `sort_order` mínimo. O `New task` dentro de um group, depois de promovido a partir do rascunho, precisa ser gravado no membership desse group e inserido na primeira posição dentro do grupo com um novo `sort_order` de membro mínimo. O posicionamento otimista da UI é apenas retorno imediato; a fonte de verdade após a atualização continua sendo o SQLite.
 
-- desktop continuous 的 `createSession` 和 `forkSession` 都通过 `ZCodeTaskIndexSyncer.syncSnapshotAndBroadcast(..., { moveGroupedTaskToTop: true })` 写入 task index 和 grouped 顶层顺序。
-- web remote replayable/shared-host 创建 task 时通过 task adapter 写入 grouped 顶层顺序。
-- 已存在于某个 group 内的 task，以及从 group 草稿提升的新 task，不应因为普通 snapshot 同步被移出 group；顶层置顶只用于 root 新建/fork 这类“新 task 首次进入列表”的入口。
-- 新 task 的顶层顺序初始化必须幂等：同一个 session 的可见状态、首标题和完整 snapshot 可能并发回源，只有第一次发现该 task 尚无 group membership 且尚无顶层顺序时才能分配新的最小 `sort_order`。后续重复同步只更新 task meta，不得再次置顶，否则较慢的旧任务回源会越过其后创建的新任务。
-- 首次顶层顺序写入成功后必须发出 `task_created` 语义事件，让运行中的 Grouped structure 缓存失效并重拉；sessions-index 的可见帧可能早于 SQLite 顺序写入，不能只依赖会话列表变化刷新，否则当前进程会把缺序 task 补到末尾、重启后才恢复正确顺序。
-- group 草稿提升后的 placement 不能依赖 `optimisticTaskListByTaskId` 才生效。V4 首发只保证 active session 与 sessions-index 权威 task 可见；只要 promoted marker 和权威 task 已同时出现，就必须按 marker 写入 group membership 与组内第一位排序。
-- grouped draft 在 create/send accepted 边界提升为真实 task id 时，必须在同一次 renderer store 事务中同时写入 promoted placement 和最小可渲染的 `optimisticTaskListByTaskId` 元数据。不得先清除 draft row 再等待 sessions-index，否则 ACK 与权威列表投影之间会出现任务行空档。该元数据只是短期 UI overlay，不伪造 conversation projection；其 `updatedAt` 必须使用低于任何权威 session 时间的哨兵值，不得用 renderer 本地时钟参与排序或字段权威竞争。desktop continuous 和 web remote replayable 都以后续 sessions-index 权威元数据对账收口。对账必须使用 task meta 字段级合并，最小 overlay 的空标题、默认 mode/provider/status 都不得覆盖 sessions-index 后续下发的权威字段。
+- O `createSession` e o `forkSession` do desktop continuous gravam o task index e a ordenação grouped de nível superior através de `ZCodeTaskIndexSyncer.syncSnapshotAndBroadcast(..., { moveGroupedTaskToTop: true })`.
+- O web remote replayable/shared-host grava a ordenação grouped de nível superior pelo task adapter ao criar tasks.
+- Tasks que já existem dentro de um group, e novas tasks promovidas a partir de um rascunho de group, não devem ser removidas do group por causa de uma sincronização de snapshot comum; a fixação no topo da raiz só é usada para entradas como criação na raiz ou fork, em que uma "nova task entra na lista pela primeira vez".
+- A inicialização da ordem de nível superior de uma nova task precisa ser idempotente: o estado visível, o primeiro título e o snapshot completo da mesma session podem voltar à origem em paralelo, e um novo `sort_order` mínimo só pode ser atribuído quando for a primeira vez que se descobre que a task ainda não tem group membership nem ordenação de nível superior. Sincronizações repetidas seguintes só atualizam o meta da task e não podem fixar no topo de novo, senão uma task antiga mais lenta voltando à origem ultrapassaria a nova task criada depois dela.
+- Depois que a primeira gravação da ordem de nível superior tiver sucesso, é preciso emitir o evento semântico `task_created` para invalidar o cache de estrutura Grouped em execução e re-puxá-lo; o quadro visível do sessions-index pode chegar antes da gravação da ordem no SQLite e não se pode depender apenas da mudança da lista de sessões para atualizar, senão o processo atualacrescenta tasks fora de ordem para o fim e só recupera a ordem correta depois de reiniciar.
+- O placement após a promoção de um group draft não pode depender de `optimisticTaskListByTaskId` para valer. O primeiro envio do V4 só garante que a active session e a task autoritativa do sessions-index estão visíveis; assim que o marcador de promoção e a task autoritativa tiverem aparecido juntos, é preciso gravar o group membership e a primeira posição dentro do grupo conforme o marcador.
+- Quando um grouped draft é promovido a um task id real na fronteira create/send accepted, o placement promovido e o metadata mínimo renderizável de `optimisticTaskListByTaskId` precisam ser gravados na mesma transaction do renderer store. Não se pode limpar primeiro a linha do rascunho e esperar o sessions-index, sob pena de abrir um vão de linha de task entre o ACK e a projeção da lista autoritativa. Esse metadata é apenas um overlay curto de UI e não falsifica conversation projection; seu `updatedAt` precisa usar um valor sentinela menor que qualquer tempo de session autoritativo, e o relógio local do renderer não pode participar da ordenação nem da disputa de autoridade de campos. Desktop continuous e web remote replayable fecham a conta com o metadata autoritativo do sessions-index posterior. A conciliação precisa usar merge no nível de campo do meta da task: título vazio, mode/provider/status padrão do overlay mínimo não podem sobrescrever os campos autoritativos enviados depois pelo sessions-index.
 
-颜色不直接存储 CSS 值，应存储语义枚举，并由 UI 按主题映射为可读颜色：
+As cores não são armazenadas como valores CSS, mas como um enum semântico, mapeado pela UI para cores legíveis conforme o tema:
 
 ```ts
 type TaskGroupColor = "gray" | "red" | "orange" | "yellow" | "green" | "blue" | "purple";
 ```
 
-## 数据模型
+## Modelo de dados
 
-建议在 service 层新增 task group repo/service，避免 UI 直接访问 repo。
+Recomenda-se adicionar um repo/service de task group na camada de serviço, evitando que a UI acesse o repo diretamente.
 
 ```ts
 interface TaskGroup {
@@ -225,7 +225,7 @@ interface TaskGroupMember {
 }
 ```
 
-未分组 task 也需要顶层用户排序，因此需要单独记录 `Grouped` 视图里的顶层节点顺序：
+Tasks não agrupadas também precisam de ordenação do usuário no nível superior, então é preciso registrar separadamente a ordem dos nós de nível superior na visualização `Grouped`:
 
 ```ts
 interface TaskGroupViewNodeOrder {
@@ -237,25 +237,25 @@ interface TaskGroupViewNodeOrder {
 }
 ```
 
-task 类型的 `nodeKey` 必须包含 workspace 身份信息，不能只使用 `taskId`。凡涉及身份隔离或跨 workspace 匹配，统一使用：
+O `nodeKey` do tipo task precisa conter a informação de identidade do workspace e não pode usar apenas `taskId`. Em tudo que envolva isolamento de identidade ou correspondência entre workspaces, usa-se uniformemente:
 
 ```ts
 const workspaceKey = workspaceIdentity?.trim() || workspacePath;
 ```
 
-路径执行语义仍使用 `workspacePath`。
+A semântica de execução de caminho continua usando `workspacePath`.
 
-## SQLite 持久化
+## Persistência em SQLite
 
-Group 相关数据持久化到现有 task 索引库：
+Os dados relacionados a group são persistidos no banco de índice de tasks existente:
 
 ```txt
 ~/.zcode/v2/tasks-index.sqlite
 ```
 
-不要为 group 另建 JSON 真相源，也不要把 group 状态放进 UI store、relay 或 main process。SQLite 仍由 services 层 repo 统一读写，UI 只通过 service/hook 访问。
+Não crie outra fonte de verdade em JSON para group nem coloque o estado de group em UI store, relay ou main process. O SQLite continua sendo lido e escrito de forma unificada pelo repo da camada de services, e a UI acessa apenas por service/hook.
 
-建议新增三张表：
+Recomenda-se adicionar três tabelas:
 
 ```sql
 CREATE TABLE IF NOT EXISTS task_groups (
@@ -290,7 +290,7 @@ CREATE TABLE IF NOT EXISTS task_group_view_node_orders (
 );
 ```
 
-索引：
+Índices:
 
 ```sql
 CREATE INDEX IF NOT EXISTS idx_task_group_members_group_order
@@ -300,27 +300,27 @@ CREATE INDEX IF NOT EXISTS idx_task_group_view_node_orders_order
 ON task_group_view_node_orders (sort_order, created_at);
 ```
 
-约束说明：
+Explicação das restrições:
 
-- `task_group_members` 的主键是 `(workspace_key, task_id)`，机械保证一个 task 最多只能属于一个 group。
-- `group_id` 删除后通过 `ON DELETE CASCADE` 自动解除成员关系。
-- `task_group_view_node_orders` 保存顶层混排顺序；group 自身不再额外保存 `sortOrder`，避免排序真相源分裂。
-- `node_type = 'group'` 时，`node_key = group_id`。
-- `node_type = 'task'` 时，`node_key` 必须由 `workspace_key` 和 `task_id` 组成，并使用不会被 SQLite/JS 字符串截断的安全编码，例如 `JSON.stringify([workspaceKey, taskId])`。
-- `workspace_key` 必须按 `workspaceIdentity?.trim() || workspacePath` 生成。
+- A chave primária de `task_group_members` é `(workspace_key, task_id)`, o que garante mecanicamente que uma task pode pertencer a no máximo um group.
+- Após a exclusão de `group_id`, o `ON DELETE CASCADE` remove automaticamente as associações dos membros.
+- `task_group_view_node_orders` guarda a ordem misturada de nível superior; o group em si não guarda mais um `sortOrder` adicional, evitando dividir a fonte de verdade da ordenação.
+- Quando `node_type = 'group'`, `node_key = group_id`.
+- Quando `node_type = 'task'`, `node_key` precisa ser composto por `workspace_key` e `task_id`, usando uma codificação segura que não seja truncada por strings do SQLite/JS, como `JSON.stringify([workspaceKey, taskId])`.
+- `workspace_key` precisa ser gerado por `workspaceIdentity?.trim() || workspacePath`.
 
-服务层实现应复用 `getTasksIndexDatabasePath()` 打开同一个 SQLite 文件，并沿用现有 task index 的初始化习惯：
+A implementação da camada de serviço deve reaproveitar `getTasksIndexDatabasePath()` para abrir o mesmo arquivo SQLite e seguir as práticas de inicialização do índice de tasks existente:
 
 - `PRAGMA journal_mode = WAL`
 - `PRAGMA synchronous = NORMAL`
-- `CREATE TABLE IF NOT EXISTS` 做幂等 schema 初始化
-- 需要补字段时使用 `PRAGMA table_info` + `ALTER TABLE ADD COLUMN`
+- `CREATE TABLE IF NOT EXISTS` para inicialização idempotente do schema
+- Ao precisar adicionar campos, usar `PRAGMA table_info` + `ALTER TABLE ADD COLUMN`
 
-菜单移动、草稿提升、取消分组产生的排序和 membership 变更必须使用 SQLite transaction 一次性提交。提交成功后再广播 task list/grouped view 失效事件。
+As mudanças de ordenação e de membership geradas por movimentação pelo menu, promoção de rascunho e desagrupamento precisam ser submetidas de uma só vez em uma transaction do SQLite. O evento de invalidação da task list/grouped view só é transmitido após o commit bem-sucedido.
 
-## 查询结果
+## Resultado da consulta
 
-服务层应返回已经规整好的 view model，UI 只负责渲染和交互状态：
+A camada de serviço deve retornar um view model já normalizado, e a UI fica responsável apenas pela renderização e pelo estado de interação:
 
 ```ts
 type GroupedTaskViewNode =
@@ -337,125 +337,102 @@ interface GroupedTaskView {
 }
 ```
 
-服务层查询规则：
+Regras de consulta da camada de serviço:
 
-- 过滤 archived/deleted task。
-- 已分组 task 从顶层剔除。
-- group 内只保留可见 task。
-- group 可跨 workspace。
-- 空 group 保留。
-- 查询时如果当前可见顶层 task/group 缺少 `TaskGroupViewNodeOrder.sortOrder`，服务层立即按创建时间倒序补齐用户排序。
-- 查询时如果当前可见 group 内 task 缺少 `TaskGroupMember.sortOrder`，服务层立即按加入时间倒序补齐用户排序。
-- 查询接口不接收 `sortBy`；`Grouped` 视图只使用 group 自己的用户排序，不跟随全局任务排序方式。
+- Filtrar tasks arquivadas/excluídas.
+- Remover do nível superior as tasks já agrupadas.
+- Dentro de um group, manter apenas as tasks visíveis.
+- Um group pode atravessar workspaces.
+- Groups vazios são preservados.
+- Se, na consulta, os tasks/groups visíveis atuais de nível superior estiverem sem `TaskGroupViewNodeOrder.sortOrder`, a camada de serviço preenche imediatamente a ordenação do usuário em ordem decrescente de tempo de criação.
+- Se, na consulta, as tasks dentro dos groups visíveis atuais estiverem sem `TaskGroupMember.sortOrder`, a camada de serviço preenche imediatamente a ordenação do usuário em ordem decrescente de tempo de inclusão.
+- A interface de consulta não recebe `sortBy`; a visualização `Grouped` usa apenas a ordenação do usuário do próprio group, sem seguir o modo global de ordenação de tasks.
 
-### 可见性真相源与删除收敛
+### Fonte de verdade de visibilidade e convergência de exclusão
 
-Grouped 客户端投影由三份职责不同的数据合并，`sessions-index` 只提供 task 展示内容，不能单独证明 task 仍然可见：
+A projeção cliente do Grouped é a união de três dados com responsabilidades diferentes, em que `sessions-index` só fornece o conteúdo de exibição da task e não pode provar sozinho que a task continua visível:
 
 ```txt
-sessions-index summary（标题/状态等内容） ───────┐
-active task entity keys（可见性 allowlist） ────┼─> Grouped 客户端投影
-group structure（归属和用户排序） ──────────────┘
+sessions-index summary (título/status etc.) ───────┐
+active task entity keys (allowlist de visibilidade) ────┼─> projeção cliente do Grouped
+group structure (atribuição e ordenação do usuário) ──────────────┘
 ```
 
-- active task entity key 必须来自 task index 的 active `listTasks()` 结果，并统一按
-  `workspaceKey = workspaceIdentity?.trim() || workspacePath` 与 `taskId` 组合；只存在于
-  `sessions-index`、但已被 task index 标记为 deleted 的历史摘要不得进入 Grouped 投影。
-- 新 task 在 task index 权威行出现前，继续通过现有 promoted/optimistic overlay 临时展示；active
-  allowlist 不得吞掉已 accepted 的新建 task，也不得把 optimistic 元数据提升为持久化真相源。
-- task 从 active 转为 deleted 时，必须在同一个 SQLite transaction 中写入 `tasks.deleted = 1`，
-  并删除对应 `task_group_members` 与 task 类型顶层 `task_group_view_node_orders`。事务提交后才允许广播列表变更。
-- task index 初始化时必须幂等清理历史 deleted task 遗留的 membership 和顶层顺序引用，修复旧版本已经产生的脏数据。
-- archived/pinned task 的 group membership 和用户排序仍然保留，以支持恢复后回到原位置；上述物理清理只针对 deleted task。
-- service 端 `applyGroupedTaskViewOrder` 继续拒绝不存在、archived、deleted 或 pinned task，作为最终一致性保护，不能用静默忽略替代校验。
-- 禁止把 sessions-index / Controller 的 `kind: "active"` 列表当作「该行仍应留在 grouped 里」的证据。
-  该口径是 `!archived`，**包含 pinned task**，而 grouped 的口径是「非 pinned 非 archived」；用它去抵消
-  「行消失」会让置顶任务被复活并赖在分组里。要区分「归属真的变了」与「左表短暂落后」，只能依赖
-  membership 版本与结构版本，不能依赖活跃度。
+- A active task entity key precisa vir do resultado active de `listTasks()` do task index e ser uniformemente combinada por
+  `workspaceKey = workspaceIdentity?.trim() || workspacePath` com `taskId`; resumos históricos que existem apenas em
+  `sessions-index`, mas que já foram marcados como deleted pelo task index, não podem entrar na projeção Grouped.
+- Antes de a nova task aparecer como linha autoritativa no task index, ela continua sendo exibida temporariamente pelo overlay promoted/optimistic existente; a active allowlist não pode engolir uma task nova já accepted nem promover metadata otimista a fonte de verdade persistida.
+- Quando uma task passa de active para deleted, é preciso gravar `tasks.deleted = 1` na mesma transaction do SQLite e apagar os correspondentes `task_group_members` e os `task_group_view_node_orders` de nível superior do tipo task. A transmissão da mudança da lista só é permitida após o commit da transaction.
+- Na inicialização do task index, é preciso limpar de forma idempotente as referências obsoletas de membership e de ordenação de nível superior deixadas por tasks deleted históricas, corrigindo os dados sujos já produzidos por versões antigas.
+- O group membership e a ordenação do usuário de tasks archived/pinned são preservados para permitir voltar à posição original após a restauração; a limpeza física acima vale apenas para tasks deleted.
+- O `applyGroupedTaskViewOrder` do lado do serviço continua rejeitando tasks inexistentes, arquivadas, excluídas ou fixadas, como proteção final de consistência, e a validação não pode ser substituída por ignorância silenciosa.
+- É proibido tratar a lista `kind: "active"` de sessions-index / Controller como evidência de que a linha ainda deve permanecer no grouped. Essa diretriz é `!archived`, **inclui tasks fixadas**, enquanto a diretriz do grouped é "não fixada e não arquivada"; usá-la para compensar a "desaparição da linha" ressuscitaria a task fixada e a deixaria presa no agrupamento. Para distinguir "a associação realmente mudou" de "a tabela esquerda está temporariamente atrasada", só se pode depender da versão de membership e da versão de estrutura, nunca da atividade.
 
-排序规则：
+Regras de ordenação:
 
-- 顶层 group：按 `TaskGroupViewNodeOrder.sortOrder`。
-- 顶层未分组 task：按 `TaskGroupViewNodeOrder.sortOrder`。
-- group 内 task：按 `TaskGroupMember.sortOrder`。
-- `createdAt` 只用于首次补齐缺失的顶层用户排序，不参与后续顶层排序比较。
-- `addedAt` 只用于首次补齐缺失的 group 内用户排序，不参与后续 group 内排序比较。
-- 新建内容必须先分配置顶 `sortOrder`，不能依赖创建时间兜底。
+- Groups de nível superior: por `TaskGroupViewNodeOrder.sortOrder`.
+- Tasks não agrupadas de nível superior: por `TaskGroupViewNodeOrder.sortOrder`.
+- Tasks dentro de um group: por `TaskGroupMember.sortOrder`.
+- `createdAt` é usado apenas para preencher inicialmente a ordenação do usuário de nível superior ausente e não participa da comparação de ordenação de nível superior posterior.
+- `addedAt` é usado apenas para preencher inicialmente a ordenação do usuário dentro do grupo ausente e não participa da comparação de ordenação dentro do grupo posterior.
+- Conteúdo novo precisa receber um `sortOrder` antes de qualquer coisa e não pode depender do tempo de criação como fallback.
 
-## 交互
+## Interação
 
-Group item 展示：
+O item de group exibe:
 
-- Finder tag 风格颜色点。
-- group title。
-- 可见 task count。
-- 展开/收起入口。
-- 更多菜单。
+- Ponto de cor no estilo de tag do Finder.
+- Título do group.
+- Contagem de tasks visíveis.
+- Entrada de expandir/recolher.
+- Menu de mais opções.
 
-Group 菜单：
+Menu de group:
 
 - Rename
 - Set Color
 - Delete Group
 
-Task 菜单：
+Menu de task:
 
-- 未分组 task 支持 `Add to Group`。
-- group 内 task 支持 `Remove from Group`。
-- 所有 task 支持 `Move to top`，入口包括 hover action 与右键菜单；root task 执行后成为 grouped 视图顶层第一项，group 内 task 执行后移动到当前 group 第一项。
-- 原有 pin、rename、archive、mark unread 等 task 操作继续复用。
+- Tasks não agrupadas suportam `Add to Group`.
+- Tasks dentro de um group suportam `Remove from Group`.
+- Todas as tasks suportam `Move to top`, com entradas na ação de hover e no menu de contexto; uma task raiz, após a execução, torna-se o primeiro item de nível superior da visualização grouped, e uma task dentro de um group, após a execução, move para o primeiro item do group atual.
+- As operações existentes de task como pin, rename, archive e mark unread continuam sendo reaproveitadas.
 
-## 移动与排序
+## Movimentação e ordenação
 
-Grouped task 支持拖拽移动，也支持通过 task item 右键菜单把 task 移入 group、移出 group 或移动到顶部。`Move to top` 是当前层级内的显式置顶动作；它只修改 grouped 视图排序，不改变 task 所属 workspace/session。
+Grouped tasks suportam movimentação por arraste e também permitem mover uma task para dentro de um group, para fora de um group ou para o topo pelo menu de contexto do task item. `Move to top` é uma ação explícita de fixação no topo dentro do nível atual; ela só modifica a ordenação da visualização grouped, sem alterar o workspace/session ao qual a task pertence.
 
-## 渲染稳定性（禁止整块闪）
+## Estabilidade de renderização (proibido piscar o bloco inteiro)
 
-Grouped 主体只在**首屏权威数据未就绪**时允许隐藏；一旦画出过非空列表，之后任何刷新、
-重挂载或瞬时空态都必须继续渲染上一份列表——旧数据优于空白。这条约束是 grouped 专属的，
-因为它是唯一把权威列表放在组件实例状态里、并且带首屏门禁的任务视图（timeline/pinned/archived
-从模块级 query cache 渲染，天然不会出现空白帧）。
+O corpo Grouped só pode ser ocultado enquanto os **dados autoritativos da primeira tela não estão prontos**; uma vez que uma lista não vazia já foi desenhada, qualquer atualização, remontagem ou estado vazio transitório posterior precisa continuar renderizando a lista anterior — dado antigo é melhor que branco. Essa restrição é exclusiva do grouped, porque ele é a única visualização de tarefas que mantém a lista autoritativa em estado de instância de componente e tem um gate de primeira tela (timeline/pinned/archived renderizam a partir de um query cache de nível de módulo e, por isso, não produzem quadros em branco naturalmente).
 
-- 首屏门禁是一次性闩锁，禁止跟随 Controller 列表的瞬时 `loading`。运行中任务的每个流式节点
-  （发出 prompt、首个 tool 展示、输出完成）都会触发一轮重查，跟随它就会整棵子树卸载重挂载。
-- `loading` 只表达「首屏还没有任何权威节点」。已有列表时的后台刷新不得置位，否则空态文案
-  与门禁都会闪。
-- 最后一份权威视图按 workspace scope 签名缓存在模块级，祖先重挂载 / HMR 后立即接着画。
-  该缓存没有主动失效：卸载期间发生的删除 / 归档 / 分组变更不会淘汰它，重挂载后旧行会短暂
-  可见且可点击，脏读窗口上界是一次 refresh 往返。这是「旧数据优于空白」的显式折衷，不是缺陷；
-  要缩窄只能加 TTL 或降级为占位，不得靠扩大窗口换取更少的 RPC。
-- 视图与 scope 相关的 memo 一律按值签名，不按数组身份——否则父级重建同值数组会形成
-  「refresh 换身份 → effect 再刷新 → 再渲染」的自激环。scope 签名的排序比较器必须逐级
-  tie-break 到全部参与字段；只比较首元素时，同 workspaceKey 不同 purpose 的两个 tab
-  在 tabs 数组里互换位置就会换出新签名并触发多余 refresh。
-- 首屏门禁的两个闩锁（`initialized`、`hasPaintedOnce`）在渲染期直接写 ref。这只因为它们
-  单调（`false→true`，永不回落）且新值完全由本次渲染的输入推导：concurrent 下被丢弃的渲染
-  也会执行赋值，对单调闩锁最坏只是提前开门一帧。任何可回落或依赖提交顺序的状态禁止照搬该
-  写法，必须走 effect。
-- 列表与节点的引用稳定化靠内容等价判断短路，其失效是静默的（只表现为整块闪回归，无日志、
-  无指标）。因此嵌套对象等价一律用忽略 key 顺序的结构比较，不用 `JSON.stringify`——上游用
-  条件展开构造对象，key 插入顺序不保证跨帧一致。该口径由 `taskListItemStabilization.test.ts`
-  的 key 顺序回归用例锁定。
+- O gate de primeira tela é um latch único e único, proibido de seguir o `loading` transitório da lista do Controller. Cada nó de streaming de uma task em execução (envio de prompt, primeira exibição de tool, conclusão da saída) dispara uma rodada de reconsulta, e segui-lo desmontaria e remontaria a subárvore inteira.
+- `loading` só expressa que "ainda não há nenhum nó autoritativo na primeira tela". Atualizações em background com lista existente não podem marcar o flag, senão o texto de estado vazio e o gate piscariam.
+- A última visão autoritativa é cacheada no nível de módulo com uma assinatura de workspace scope, para continuar desenhando imediatamente após uma remontagem de ancestral / HMR. Esse cache não tem invalidação ativa: exclusões / arquivamentos / mudanças de agrupamento ocorridas durante o unload não o expiram, então após a remontagem linhas antigas ficam brevemente visíveis e clicáveis, e o limite superior da janela de leitura suja é um refresh de ida e volta. Esse é um compromisso explícito de "dado antigo é melhor que branco", não um defeito; para estreitar a janela só se pode adicionar TTL ou degradar para placeholder, e não se pode ampliar a janela para trocar por menos RPC.
+- Memos relacionados à view e ao scope são sempre assinados por valor, não por identidade de array — caso contrário, a reconstrução de um array de mesmo valor pelo pai formaria um ciclo de autoalimentação "refresh troca a identidade → effect refaz o refresh → renderiza de novo". O comparador de ordenação assinado por scope precisa fazer tie-break em cascata até todos os campos participantes; comparando apenas o primeiro elemento, dois tabs com mesmo workspaceKey e purposes diferentes que trocam de posição no array de tabs produziriam uma nova assinatura e disparariam um refresh desnecessário.
+- Os dois latches do gate de primeira tela (`initialized`, `hasPaintedOnce`) escrevem ref diretamente durante a renderização. Isso só se justifica porque são monotônicos (`false→true`, nunca retornam) e o novo valor é totalmente derivado das entradas desta própria renderização: renders descartados no modo concorrente também executam a atribuição e, para um latch monotônico, o pior caso é abrir a porta um quadro mais cedo. Qualquer estado que possa retroceder ou que dependa da ordem de commit é proibido de copiar esse padrão e precisa passar por effect.
+- A estabilização de referências de listas e nós se apoia em um curto-circuito por equivalência de conteúdo, e sua invalidação é silenciosa (só se manifesta como regressão de piscar o bloco inteiro, sem log e sem métrica). Por isso a equivalência de objetos aninhados usa sempre comparação estrutural que ignora a ordem das chaves, e não `JSON.stringify` — o upstream constrói objetos com expansão condicional, e a ordem de inserção das chaves não é garantida entre quadros. Essa diretriz é travada pelo caso de regressão de ordem de chaves em `taskListItemStabilization.test.ts`.
 
-判定口径与验证要求见 `docs/task-list-refresh-semantics.md` §4.2 / §5.1。复测必须完整重启应用：
-vite HMR 会保留已挂载组件的旧状态，热替换下的观察结果不作为结论。
+Os critérios de julgamento e os requisitos de verificação estão em `docs/task-list-refresh-semantics.md` §4.2 / §5.1. A reverificação precisa reiniciar a aplicação por completo: o vite HMR preserva o estado antigo de componentes já montados, e a observação sob hot replace não vale como conclusão.
 
-## 分组吸顶
+## Cabeçalho fixo dos groups
 
-Grouped 视图滚动时参考文件树吸顶目录的做法，在 masked 滚动容器外层额外渲染当前 group header 的吸顶副本，而不是只依赖原 group header 的 CSS sticky。
+A visualização Grouped, ao rolar, referencia a prática de fixar diretórios no topo da árvore de arquivos e renderiza uma cópia fixa do group header atual em uma camada externa do contêiner de rolagem com máscara, em vez de depender apenas do CSS sticky do group header original.
 
-- 吸顶副本只在 group header 已经滚出滚动容器顶部、且该 group 内容区域仍覆盖顶部时显示。
-- 折叠 group 不显示吸顶副本；折叠态没有可滚动的组内上下文，继续吸顶会误导用户以为当前仍在该 group 内。
-- 吸顶副本必须作为 masked 滚动列表的 sibling/外部 slot 渲染，避免被 sidebar 顶部渐隐 mask 裁切。
-- 拖拽 task/group 时隐藏吸顶副本，避免吸顶 header 与原列表 header 同时注册 dnd hit target。
-- 吸顶 header 复用 group 的颜色、折叠、新建 task、改色、取消分组等入口；排序和 membership 仍由原 grouped view mutation 统一落库。
+- A cópia fixa só aparece quando o group header já saiu pelo topo do contêiner de rolagem e a área de conteúdo daquele group ainda cobre o topo.
+- Groups recolhidos não exibem a cópia fixa; no estado recolhido não há contexto intra-group rolável, e continuar fixando induziria o usuário a achar que ainda está dentro daquele group.
+- A cópia fixa precisa ser renderizada como sibling/slot externo da lista rolada com máscara, evitando ser recortada pela máscara de esmaecimento no topo da sidebar.
+- A cópia fixa é ocultada ao arrastar task/group, evitando que o header fixo e o header da lista original se registrem simultaneamente como alvos de acerto do dnd.
+- O header fixo reaproveita as entradas do group de cor, recolhimento, criação de task, mudança de cor e desagrupamento; a ordenação e o membership continuam sendo persistidos de forma unificada pela mutation da visualização grouped original.
 
-状态分层：
+Camadas de estado:
 
-1. Server snapshot：service 返回的真实 `GroupedTaskView`。
-2. Optimistic view：菜单移动、取消分组、草稿提升后先应用乐观 UI，再调用 service 落库。
+1. Server snapshot: o `GroupedTaskView` real devolvido pelo serviço.
+2. Optimistic view: após movimentação pelo menu, desagrupamento ou promoção de rascunho, aplica-se primeiro a UI otimista e só então se chama o serviço para persistir.
 
-流程：
+Fluxo:
 
 ```ts
 async function applyGroupedViewChange(nextView) {
@@ -471,25 +448,25 @@ async function applyGroupedViewChange(nextView) {
 }
 ```
 
-视图变更过程禁止 bump 无关 workspace 的 task list version，禁止把未展开 workspace 的排序误删。
+O processo de mudança de view é proibido de fazer bump da versão da task list de workspaces sem relação e proibido de apagar por engano a ordenação de um workspace não expandido.
 
-## 服务层校验
+## Validação na camada de serviço
 
-落库 mutation 必须在 service 层统一校验：
+As mutations persistidas precisam ser validadas de forma unificada na camada de serviço:
 
-- task 是否存在。
-- task 是否 archived/deleted。
-- group 是否存在。
-- task 是否已经属于另一个 group。
-- 跨 workspace task ref 是否携带 `workspaceIdentity?`。
-- 排序位置是否合法。
-- 最终仍满足一个 task 最多属于一个 group。
+- Se a task existe.
+- Se a task está arquivada/excluída.
+- Se o group existe.
+- Se a task já pertence a outro group.
+- Se a referência de task entre workspaces carrega `workspaceIdentity?`.
+- Se a posição de ordenação é válida.
+- Se, ao final, ainda vale que uma task pertence a no máximo um group.
 
-## 多端边界
+## Limites multiplataforma
 
-`Grouped` 是跨 workspace 的 UI 组织视图，但 task 执行、归档、删除仍属于原 workspace/task 流程。
+`Grouped` é uma view de organização de UI entre workspaces, mas a execução, o arquivamento e a exclusão de tasks continuam pertencendo ao fluxo do workspace/task original.
 
-- 不把 group 状态下沉到 relay 或 main process。
-- 不改变桌面端 `continuous` 与手机端 `replayable` 的 conversation/task 消息流语义。
-- 远程 workspace 成员引用必须贯穿传递 `workspaceIdentity` 和 `remoteSessionId` 可用上下文，禁止只按 `workspacePath` 匹配。
-- 手机 `/remote` 仍通过 shared-host attachment 复用已有 host，不为 group 视图另起独立 ZCode Agent runtime。
+- Não afundar o estado de group para o relay ou o main process.
+- Não alterar a semântica do fluxo de mensagens de conversa/task do `continuous` da área de trabalho nem do `replayable` do celular.
+- A referência a membros de workspace remoto precisa atravessar passando o contexto disponível de `workspaceIdentity` e `remoteSessionId`, proibindo correspondência apenas por `workspacePath`.
+- O `/remote` do celular continua reaproveitando o host existente pelo shared-host attachment, sem iniciar um runtime de ZCode Agent separado para a view de group.
