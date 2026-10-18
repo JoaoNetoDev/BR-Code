@@ -51,7 +51,7 @@ Cada case N/S precisa confirmar pelo menos as seguintes dimensões. Só depois d
 
 ## Índice de Questões de Protocolo P0
 
-Esta tabela é a superfície de protocolo em nível de case, destinada ao script de auditoria. `Status=unanswered` significa que o fault case ainda não pode ser devolvido como `accepted` nem receber asserções E2E estáveis; nesse caso `产品结论` (a confirmar) deve permanecer `待确认`. Depois que o produto confirmar, escreva primeiro uma conclusão explícita, depois mude a linha correspondente para `answered` e, por fim, devolva ao fault catalog / coverage matrix.
+Esta tabela é a superfície de protocolo em nível de case, destinada ao script de auditoria. `Status=unanswered` significa que o fault case ainda não pode ser devolvido como `accepted` nem receber asserções E2E estáveis; nesse caso `Conclusão de produto` deve permanecer `a confirmar`. Depois que o produto confirmar, escreva primeiro uma conclusão explícita, depois mude a linha correspondente para `answered` e, por fim, devolva ao fault catalog / coverage matrix.
 
 | Questão | Case | Status | Conclusão de produto | O que precisa ser confirmado | Palavras-chave de verificação | Alvo do write-back |
 | --- | --- | --- | --- | --- | --- | --- |

@@ -9,17 +9,19 @@ A timeline do V4 mantém uma máquina de estados explícita de fixação ao fund
 - `isPinnedToBottom=false` indica que o usuário já saiu da parte inferior, e a saída em streaming não pode sobrescrever a posição de leitura atual do usuário.
 
 ```text
-                         用户回到底部 / 点击“回到底部”
+                         usuário volta ao fundo / clica em “回到底部”
                     ┌──────────────────────────────────┐
                     │                                  v
-┌──────────────────────────┐  用户向上滚动且可离底  ┌──────────────────────────┐
+┌──────────────────────────┐  usuário rola para cima e pode sair do fundo  ┌──────────────────────────┐
 │ FOLLOWING                 │ ─────────────────────> │ DETACHED                  │
-│ 内容增长/缩短都继续贴底   │                        │ 所有布局变化都保持阅读权   │
+│ continua colado ao fundo │                        │ toda mudança de layout   │
+│ ao crescer/encolher       │                        │ preserva a leitura        │
 └──────────────────────────┘                        └──────────────────────────┘
           │                                                     │
-          │ running -> terminal：live tail 虚拟化、              │ terminal 折叠、测高、
-          │ “工作中”历史自动折叠、动态测高                       │ virtualizer 补偿
-          └────────────── 保持 FOLLOWING ────────────────────────┴─ 保持 DETACHED
+          │ running -> terminal: virtualização da live tail,     │ colapso em terminal, medição de
+          │ colapso automático do histórico “工作中”,             │ altura, compensação do
+          │ medição dinâmica de altura                          │ virtualizer
+          └────────────── permanece FOLLOWING ────────────────────┴─ permanece DETACHED
 ```
 
 `FOLLOWING / DETACHED` expressa a intenção de rolagem do usuário, e não o resultado geométrico instantâneo obtido a cada leitura de
@@ -39,7 +41,7 @@ A timeline do V4 mantém uma máquina de estados explícita de fixação ao fund
 ## Prioridade dos Eventos de Rolagem
 
 ```text
-同一帧内：用户滚动意图 > 显式定位动作 > 内容/测高/折叠布局变化
+no mesmo quadro: intenção de rolagem do usuário > ação de定位 explícita > mudança de layout de conteúdo/medição/colapso
 ```
 
 | 事件来源                                        | Quando FOLLOWING           | Quando DETACHED                |

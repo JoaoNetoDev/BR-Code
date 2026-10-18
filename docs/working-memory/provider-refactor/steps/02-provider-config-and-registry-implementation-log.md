@@ -414,7 +414,7 @@ As credenciais de requisição ainda não concluíram a migração final. Como o
 
 ## 35. A identidade do Account Access é fixada dentro do Model e chega até a fronteira da requisição
 
-Na criação de um Account Model, o `accountAccessId` atualmente publicado pelo Registry é gravado na configuração privada de execução do Model no Adapter. O chamador de negócio continua submeter apenas o `ModelRequest` genérico; ele não lê a conexão da conta nem transmite o Access ID. O Adapter anexa esse ID ao chamar o Runtime Header Port existente em cada tentativa real de rede, e o Worker o repassa ao Host por um protocolo estrito.
+Na criação de um Account Model, o `accountAccessId` atualmente publicado pelo Registry é gravado na configuração privada de execução do Model no Adapter. O chamador de negócio continua a submeter apenas o `ModelRequest` genérico; ele não lê a conexão da conta nem transmite o Access ID. O Adapter anexa esse ID ao chamar o Runtime Header Port existente em cada tentativa real de rede, e o Worker o repassa ao Host por um protocolo estrito.
 
 ```text
 Registry Account Provider(accessId = A)
@@ -1028,7 +1028,7 @@ A consulta do modelo atual agora distingue explicitamente dois estados: quando o
 
 O Registry agora valida simultaneamente as duas Options que já entraram no contrato público: o nível de Reasoning precisa aparecer no Enum Spec do modelo, e o limite de saída precisa ser um inteiro positivo que não ultrapasse o `max` do Limit Spec. Quando o modelo não declara o Spec correspondente, submeter explicitamente aquela Option também é considerado não suportado. O retorno passou a incluir um código de erro estável, além do modelo relacionado, do valor submetido e da faixa permitida, para que o chamador possa exibir o problema; o Registry não altera o valor nem faz truncamento silencioso.
 
-O 판단 de opcionalidade do Configured Default reutiliza a mesma função de validação de Option e não implementa mais um julgamento de faixa separado. Os testes de domínio cobrem combinações válidas, Reasoning inválido, Reasoning Spec ausente, saída fora do intervalo e valores de saída não positivos construídos diretamente.
+O julgamento de opcionalidade do Configured Default reutiliza a mesma função de validação de Option e não implementa mais um julgamento de faixa separado. Os testes de domínio cobrem combinações válidas, Reasoning inválido, Reasoning Spec ausente, saída fora do intervalo e valores de saída não positivos construídos diretamente.
 
 O `ProviderRegistryModelSource` do Bootstrap também foi estreitado para exigir `validateSelection()`. A inicialização de uma nova Session e o `setModel` ativo leem esse resultado de validação antes de criar a Registry Selection: quando o Provider inteiro ainda não foi migrado, o caminho de compatibilidade de Providers antigos continua acessível; quando falta o Model, o retorno é `ModelNotFound`; quando a Option é inválida, o retorno é `InvalidModelRequest`. A restauração de Sessions históricas continua usando a busca tolerante e não reescreve a intenção do usuário persistida no passado só porque as Option Specs de hoje mudaram.
 
@@ -1068,7 +1068,7 @@ A página de configurações do Subagent já havia parado de assinar o Snapshot 
 
 Esta rodada removeu a importação de `ModelProviderConfig` em `SubagentsSection`, bem como o parâmetro `modelProviders` entre o formulário, o controle de Subagent embutido e as linhas da lista. O estado de carregamento passou a se chamar `modelSelectionLoading`, deixando claro que ele indica se a Model Selection View de nível de processo já foi publicada. Sem Workspace, os Option Specs de reasoning são lidos diretamente dessa View; no modo Workspace, o runtime catalog continua sendo a autoridade do lado de execução, e a prioridade existente não mudou.
 
-O parâmetro de Provider antigo do parser de compatibilidade passou a ser opcional, meant apenas para que as Entries ainda não migradas o passem explicitamente. O ponto de chamada do Subagent não passa mais o array vazio e também não restaura fatos antigos de Provider quando falta a View. Os testes passaram a usar a Registry Selection View para verificar os níveis de reasoning sem Workspace e cobrem o comportamento de continuar usando a last-known View durante a atualização da View.
+O parâmetro de Provider antigo do parser de compatibilidade passou a ser opcional, existindo apenas para que as Entries ainda não migradas o passem explicitamente. O ponto de chamada do Subagent não passa mais o array vazio e também não restaura fatos antigos de Provider quando falta a View. Os testes passaram a usar a Registry Selection View para verificar os níveis de reasoning sem Workspace e cobrem o comportamento de continuar usando a last-known View durante a atualização da View.
 
 ## 116. As configurações de geração do Repo Wiki saem da projeção de Provider Legacy
 
@@ -1120,7 +1120,7 @@ Esta rodada mudou a entrada do Hook para `ProviderSettingsView`. Os quatro ponto
 
 Durante a migração, descobriu-se que a Account Source de produção pulava a resolução da conexão quando `enabled: false`, o que conflita com a decisão já confirmada de que desligar a entrada de modelos não equivale a desconectar o plano. O Resolver de domínio e o Connection Resolver dos Services agora resolvem e guardam o accessId mesmo para Account Providers desabilitados; o Registry final continua excluindo os modelos conforme o `enabled: false` da Configuração Efetiva, enquanto Settings e Usage podem preservar a conexão da conta. Novos testes fixam simultaneamente as três camadas de semântica: Account Overlay, Registry selectable e consulta de entitlement.
 
-A atualização da API Key sob o mesmo accessId não altera mais a impressão digital vista pelo Renderer. As operações de autenticação, compra e configuração já chamam explicitamente a atualização de entitlement; qualquer nova entrada de atualização de credenciaisadded futuramente também terá de notificar os consumidores pelo evento de estado correspondente ou por um refresh explícito, sem voltar a projetar secrets na UI para criar detecção de mudança. Esta fatia não alterou o protocolo de requisição do Usage Service.
+A atualização da API Key sob o mesmo accessId não altera mais a impressão digital vista pelo Renderer. As operações de autenticação, compra e configuração já chamam explicitamente a atualização de entitlement; qualquer nova entrada de atualização de credenciais adicionada futuramente também terá de notificar os consumidores pelo evento de estado correspondente ou por um refresh explícito, sem voltar a projetar secrets na UI para criar detecção de mudança. Esta fatia não alterou o protocolo de requisição do Usage Service.
 
 ## 122. A Plan Identity submetida pela Session passa a usar o Account Access
 
@@ -1372,7 +1372,7 @@ Snapshot antigo do Provider Registry
 └─ não participa da execução local que já montou o novo Provider Runtime
 ```
 
-As entradas locais de Session agora enviam apenas `ModelSelection` e o nível de thought. O Worker consulta o próprio Registry de nível de processo na criação do Loop, e atualizações de Provider Config só afetam Models criados depois; o ciclo de vida dos Models jáoghados não muda. O `runtimeModel` execution-scoped trazido explicitamente pelo chamador é mantido, de modo que Providers temporários do período de migração, como os das tarefas ociosas, não foram removidos por esta mudança.
+As entradas locais de Session agora enviam apenas `ModelSelection` e o nível de thought. O Worker consulta o próprio Registry de nível de processo na criação do Loop, e atualizações de Provider Config só afetam Models criados depois; o ciclo de vida dos Models já criados não muda. O `runtimeModel` execution-scoped trazido explicitamente pelo chamador é mantido, de modo que Providers temporários do período de migração, como os das tarefas ociosas, não foram removidos por esta mudança.
 
 Durante a implementação também se descobriu que `createLocalServices()` criava a `AccountProviderConfigSource` oficial, mas o que era passado ao `ZCodeAgentService` continuava sendo apenas a Legacy Source usada pelo remote anexado ao desktop. Essa omissão faria com que a sincronização local de `provider/updateAccountConfig` nunca obtivesse o novo Account Overlay. Esta rodada conecta a Source oficial ao Agent Service; o remoto continua usando a Legacy Source quando não tem um Registry de mesma origem, sem ampliar a fronteira desta migração.
 
@@ -1725,7 +1725,7 @@ A verificação de segurança da versão oficial depende de uma interação no n
 O que aguardava decisão era a atribuição de serviço dessa operação:
 
 - Estender `IProviderSettingsService.testModelConnectivity()`: conectividade tem, hoje, um único consumidor na página de configurações, a interface fica concentrada, mas isso adiciona uma responsabilidade de execução de rede a um Settings Facade que cuida apenas de Config/View.
-- Criar um novo `IProviderConnectivityService` estreito: Settings continua gerenciando apenas configuração, e Connectivity depende separadamente do Registry, do Account Request Auth e do Adapter de requisição; no futuro, CLI/TUI que precisam de sondagem explícita could reuse diretamente, mas isso adiciona um Service/RPC.
+- Criar um novo `IProviderConnectivityService` estreito: Settings continua gerenciando apenas configuração, e Connectivity depende separadamente do Registry, do Account Request Auth e do Adapter de requisição; no futuro, CLI/TUI que precisam de sondagem explícita poderiam reutilizar diretamente, mas isso adiciona um Service/RPC.
 
 Seja qual for a escolha, `@zcode/provider` continua sem IO; a implementação de execução fica em Services/Host, e o Renderer continua responsável apenas por obter o material interativo de verificação de segurança do Start Plan.
 
@@ -1745,7 +1745,7 @@ A obtenção do material de verificação de segurança da versão oficial e a p
 
 A Account Source gerava antes IDs fixos de tipo de conexão para o Personal Coding Plan e o Start Plan, como `coding-plan:<providerId>`. Ao trocar a conta conectada na mesma máquina, esse ID não mudava, de modo que o Usage Cache, o Credential Store, o Account Config e os Models já criados não conseguiam distinguir as duas contas.
 
-Esta rodada acrescentFooter uma identidade de conta não sensível ao final do ID de conexão de Plan/Team existente:
+Esta rodada acrescentou uma identidade de conta não sensível ao final do ID de conexão de Plan/Team existente:
 
 ```text
 <plan-connection-id>:account:<encoded-account-profile-id>
@@ -1802,7 +1802,7 @@ Ao todo, 274 testes direcionados de Provider, Services e UI passaram, assim como
 
 ## 161. O Environment remoto estabelece seu próprio Provider Runtime
 
-Ao examinar a cadeia real de inicialização do remote anexado ao desktop, descobriu-se que, embora a nova Config/Registry já pudesse ser montada nos Services, o `zcode-server.cjs` remoto não carregava a Official Config. `createStdioServices()` não conseguia, portanto, criar um Provider Runtime, e a execução real continuavaDepending do Desktop Renderer empurrar o Registry local completo e o runtimeModel para o remoto.
+Ao examinar a cadeia real de inicialização do remote anexado ao desktop, descobriu-se que, embora a nova Config/Registry já pudesse ser montada nos Services, o `zcode-server.cjs` remoto não carregava a Official Config. `createStdioServices()` não conseguia, portanto, criar um Provider Runtime, e a execução real continuava dependendo do Desktop Renderer empurrar o Registry local completo e o runtimeModel para o remoto.
 
 Esta rodada primeiro completa a fonte de fatos do remoto. O Server remoto embute, na build, o único `config/provider/official.json` do repositório; na inicialização, o arquivo é materializado por hash de conteúdo como um arquivo de versão imutável e o caminho é entregue ao `createLocalServices()` remoto. A Personal Config continua lendo o diretório de usuário remoto, e a Account Source continua lendo a conta e o Credential Store remotos. Um arquivo de nova versão não sobrescreve o arquivo em uso por processos antigos, e a mesma versão é reutilizada diretamente.
 
@@ -1816,7 +1816,7 @@ Esta fatia ainda não removeu as entradas restantes de sincronização completa 
 
 Com o Remote Provider Runtime pronto, o Desktop ainda tinha quatro escritas legadas: sincronizar o Registry completo ao abrir ou reconectar um remote workspace; transmitir o Registry a todos os workspaces após salvar ou excluir configurações; sincronizar o Registry depois que o Bot obtém a runtime port remota; e resolver e enviar o `runtimeModel` no pré-aquecimento de drafts pelo Renderer. Elas faziam a mesma execução remota ficar controlada ao mesmo tempo pelos fatos remotos e pelo Snapshot do Desktop, e faziam uma modificação local de Provider alterar silenciosamente outro Environment.
 
-Esta rodada removeu essas cadeias de produção. Ao abrir ou conectar um remote workspace e um Bot remoto, passa-se a ler o `ModelSelectionService.getView()` remoto e usá-lo como verificação de que o Remote Provider Facade já está pronto; se a verificação falha, nada é cacheado nem exposto como runtime meio inicializado. O salvamento de configurações escreve apenas a Personal Config, e o Registry é atualizado pela Config Source de cada Environment. O pré-aquecimento de drafts continua submete a Configuração inicial da Session, contendo apenas escolhas do usuário como provider, model e thought; o remoto cria o Model em sua própria etapa de tratamento de comandos, a partir do Registry atual.
+Esta rodada removeu essas cadeias de produção. Ao abrir ou conectar um remote workspace e um Bot remoto, passa-se a ler o `ModelSelectionService.getView()` remoto e usá-lo como verificação de que o Remote Provider Facade já está pronto; se a verificação falha, nada é cacheado nem exposto como runtime meio inicializado. O salvamento de configurações escreve apenas a Personal Config, e o Registry é atualizado pela Config Source de cada Environment. O pré-aquecimento de drafts continua a submeter a Configuração inicial da Session, contendo apenas escolhas do usuário como provider, model e thought; o remoto cria o Model em sua própria etapa de tratamento de comandos, a partir do Registry atual.
 
 O `/model` do Bot também submete apenas `modelRef` quando existe a nova Model Selection Facade. `updateProviderRegistry` é mantido apenas para entradas antigas que ainda não montaram a Facade, e a identidade remota não dispara mais esse ramo de compatibilidade. O protocolo antigo e o cache de Snapshot interno do Agent serão removidos em conjunto depois que todas as entradas antigas passarem a usar o Provider Runtime; esta rodada não amarra a remoção do protocolo à troca de autoridade remota em uma única mudança de alto risco.
 
@@ -2074,7 +2074,7 @@ Ao todo, passaram 184 testes do protocolo Shared, do Provider Registry dos Servi
 
 Depois de auditar todas as Entries de produção, descobriu-se que Desktop, stdio remoto, Prompt CLI e TUI já forneciam a Official Config, mas a Entry HTTP de `packages/server` e o Standalone Server Core de `zcode-server-cli` ainda chamavam `createLocalServices()` diretamente. Essas duas entradas não criavam um Provider Runtime e voltavam ao antigo `ModelProviderService`.
 
-Esta rodada convergiu a capacidade de materialização por versão de conteúdo da Official Config para dentro de `@zcode/provider-node`: na build, o único `config/provider/official.json` é embutido no artefato do Server e, na inicialização, seu conteúdo é escrito por hash no diretório `config/provider` do runtime do Server; o caminho do arquivo de versão é então passado explicitamente aos Services. Conteúdo igual reutiliza o mesmo caminho, uma mudança de conteúdo gera um caminho novo e processos já iniciados continuam lendo a versão antiga sem modification no lugar.
+Esta rodada convergiu a capacidade de materialização por versão de conteúdo da Official Config para dentro de `@zcode/provider-node`: na build, o único `config/provider/official.json` é embutido no artefato do Server e, na inicialização, seu conteúdo é escrito por hash no diretório `config/provider` do runtime do Server; o caminho do arquivo de versão é então passado explicitamente aos Services. Conteúdo igual reutiliza o mesmo caminho, uma mudança de conteúdo gera um caminho novo e processos já iniciados continuam lendo a versão antiga sem modificação no lugar.
 
 ```text
 Official Config Source File
@@ -2112,8 +2112,8 @@ Esta rodada restringiu o login Standalone a dois tipos de estado:
 
 ```text
 Shared Credential Store
-├─ 当前账号身份
-└─ accessId 对应的 API Key
+├─ Identidade da conta atual
+└─ API Key correspondente ao accessId
 
 Model Selection Config
 └─ configuredDefault
@@ -2216,10 +2216,10 @@ Em seguida, o `ZCodeAgentService` de produção removeu a conversão de Registry
 ModelSelectionView
         |
         v
-Host 启动门禁
+Host inicia o portão de entrada
         |
         v
-Worker 启动后使用自己的 Registry 再次解析 Model
+Worker usa seu próprio Registry para resolver o Model novamente após iniciar
 ```
 
 O Registry change event antigo ainda responde temporariamente pelo hot update de compatibilidade do Runtime Model de Sessions já existentes, mas já não consegue iniciar um Worker em espera. Trinta e cinco testes de Provider Registry e 92 testes de Agent Service, V4, Runtime Header e Repo Wiki Lane passaram.
@@ -2241,7 +2241,7 @@ Target Worker Registry
       Model
 ```
 
-`resolveRuntimeModelForV4()` foi removido das APIs de Agent, Session e Task Adapter. Os pedidos de autenticação dinâmica continuam sendo respondidos pelo Host com a API Key/Header necessárias para esta requisição, mas sem atualizar o Runtime da Session. O `runtimeModel` execution-scoped fornecido explicitamente junto de um Submission ou comando V4 continua sendo透传 e é cacheado durante aquele trecho de execução; comandos de Selection comum limpam o cache temporário explícito anterior. Essa entrada temporária atende Providers de nível de execução, como os das tarefas ociosas, e não reintroduz o Registry do Host.
+`resolveRuntimeModelForV4()` foi removido das APIs de Agent, Session e Task Adapter. Os pedidos de autenticação dinâmica continuam sendo respondidos pelo Host com a API Key/Header necessárias para esta requisição, mas sem atualizar o Runtime da Session. O `runtimeModel` execution-scoped fornecido explicitamente junto de um Submission ou comando V4 continua sendo repassado e é cacheado durante aquele trecho de execução; comandos de Selection comum limpam o cache temporário explícito anterior. Essa entrada temporária atende Providers de nível de execução, como os das tarefas ociosas, e não reintroduz o Registry do Host.
 
 O código antigo mantinha um decision token para a reconstrução assíncrona do Runtime Model após o ACK. Com a etapa de reconstrução removida, a atualização do cache se resume a salvar ou limpar sincronamente o `runtimeModel` explícito, e esse pseudo-máquina de estados de concorrência foi removida junto. Os testes de regressão de Bot/Automation remotos passaram a afirmar explicitamente que a carga útil do protocolo contém apenas Selection e nenhum `runtimeModel` do Desktop; os 293 testes direcionados de Service e UI e a verificação TypeScript de todo o repositório passaram; o lint ficou com 0 error e 35 warnings já existentes sem relação com esta fatia.
 
@@ -2264,10 +2264,10 @@ prepare configOptions
         +
 App Recent Model Selection
         +
-当前进程 Model Selection View
+Model Selection View do processo atual
         |
         v
-Composer 模型与 supplier 回显
+Eco de modelo e supplier no Composer
 ```
 
 A identificação de provider de Agente remanescente em sessões antigas é normalizada primeiro para o único `glm` atual e não dispara outra leitura de configuração. A Model Selection View é responsável por decidir se o Provider ainda é selecionável, a resposta de prepare expressa o modelo que o runtime atual já aceitou, e o App Recent só inicializa ou sobrescreve o Composer quando a prioridade existente permite. A Config antiga de Provider do workspace não participa mais dessa cadeia.
@@ -2281,11 +2281,11 @@ A cadeia oficial de Header pontual já obtém, antes de cada requisição de mod
 Esse estado global destrói o escopo das credenciais pontuais:
 
 ```text
-旧链路
-一次性 Header -> Provider 级 Map -> Registry Snapshot -> 任意后续 request
+Cadeia antiga
+Header único -> Map por Provider -> Registry Snapshot -> qualquer request posterior
 
-当前链路
-一次性 Header -> 指定 request response -> 对应模型请求
+Cadeia atual
+Header único -> resposta do request especificado -> requisição do modelo correspondente
 ```
 
 Esta rodada removeu a API do Service, o Map por Provider, os dois helpers de UI já desativados e seus testes. Headers de verificação de segurança da versão oficial que possam restar na configuração antiga de Provider continuam sendo removidos na projeção do Snapshot de compatibilidade, e a Authorization estática do Start Plan continua sendo obtida do Credential atual, sem ser mesclada com o Header pontual. A construção do Header de nível de requisição, a serialização de concorrência, o armazenamento temporário e a lógica de resposta permanecem inalteradas.
@@ -2352,7 +2352,7 @@ Provider Registry
 └─ createModel -> Provider Model Runtime
 ```
 
-`create-app.ts` desliga `includeLegacyProviderModels` nessa condição, o `ApiProviderModelRuntime`负责 executar os modelos e o ramo de Registry do Session Facade responde pela seleção de modelos e pelos níveis de reasoning. Portanto, o antigo `ModelCatalogService` não é mais a fonte da verdade dessas cadeias principais.
+`create-app.ts` desliga `includeLegacyProviderModels` nessa condição, o `ApiProviderModelRuntime` fica responsável por executar os modelos e o ramo de Registry do Session Facade responde pela seleção de modelos e pelos níveis de reasoning. Portanto, o antigo `ModelCatalogService` não é mais a fonte da verdade dessas cadeias principais.
 
 O código antigo do Catalog ainda tem as seguintes referências de compatibilidade:
 
@@ -2380,7 +2380,7 @@ A mudança apenas completa um atributo de mídia já determinado, sem alterar a 
 
 ## 201. Remover a entrada pública de atualização dos Presets antigos
 
-`IModelProviderService.refreshPresetProviders()` não tem mais chamadores de produção. Os novos Host, Worker, Prompt CLI e TUI acionam a atualização do Registry por meio das Official, Personal e Account Source, respectivamente; manter esse método publicly exposto permitiria que qualquer consumidor de RPC voltasse a disparar a sincronização antiga de Presets e a reescrever o Provider Store antigo.
+`IModelProviderService.refreshPresetProviders()` não tem mais chamadores de produção. Os novos Host, Worker, Prompt CLI e TUI acionam a atualização do Registry por meio das Official, Personal e Account Source, respectivamente; manter esse método publicamente exposto permitiria que qualquer consumidor de RPC voltasse a disparar a sincronização antiga de Presets e a reescrever o Provider Store antigo.
 
 Esta rodada removeu a interface e o método público do objeto retornado pelo Service. O `getAll()` antigo continua chamando internamente a função privada de atualização de mesmo nome, que atende apenas a migração única e as leituras de compatibilidade ainda não removidas; essa função interna não pode mais ser chamada ativamente por `IModelProviderService` ou por RPC. Isso estreita a superfície de produção da antiga fonte da verdade sem alterar a importação da Personal Config nem o comportamento de primeira leitura das entradas antigas.
 
@@ -2388,7 +2388,7 @@ Esta rodada removeu a interface e o método público do objeto retornado pelo Se
 
 A nova cadeia de configurações já obtinha os fatos estáticos de Provider pela Provider Settings View e resolvia as credenciais em tempo de requisição pelo `accessId` do Account Overlay; mas o último passo ainda chamava `IModelProviderService.testModelConnectivity()` e usava `requestAuthResolved: true` para impedir que o Service antigo relesse o Snapshot de Provider. Esse interruptor de compatibilidade mantinha o Snapshot antigo como dependência indireta da sondagem de rede.
 
-Esta rodada definiu a sondagem única após a autenticação como um `ProviderSettingsConnectivityProbe` estreito. A camada de composição fica responsável pelas credenciais de Account e pelos Headers de requisição, enquanto o Probe recebe apenas o rascunho de configurações atual, o modelo e a API Key desta tentativa, tratando a validação de entitlement do Start Plan, a verificação de segurança da requisição e a sondagem real do endpoint. A montagem de produção cria o Probe diretamente, sem injetar o antigo `ModelProviderService` na cadeia de configurações e sem passar `requestAuthResolved`. O método de mesmo nome do Service antigo fica para os testes de compatibilidade ainda não removidos e para o canal antigo remoto; ele já não é dependência de produção da nova functionality de configurações e o método antigo e o construtor completo do Snapshot poderão ser removidos independentemente mais adiante.
+Esta rodada definiu a sondagem única após a autenticação como um `ProviderSettingsConnectivityProbe` estreito. A camada de composição fica responsável pelas credenciais de Account e pelos Headers de requisição, enquanto o Probe recebe apenas o rascunho de configurações atual, o modelo e a API Key desta tentativa, tratando a validação de entitlement do Start Plan, a verificação de segurança da requisição e a sondagem real do endpoint. A montagem de produção cria o Probe diretamente, sem injetar o antigo `ModelProviderService` na cadeia de configurações e sem passar `requestAuthResolved`. O método de mesmo nome do Service antigo fica para os testes de compatibilidade ainda não removidos e para o canal antigo remoto; ele já não é dependência de produção da nova funcionalidade de configurações e o método antigo e o construtor completo do Snapshot poderão ser removidos independentemente mais adiante.
 
 ## 203. Remover a API antiga de teste de conectibilidade
 
@@ -2444,7 +2444,7 @@ A sincronização antiga de Presets e o cache de Entry Status dentro de `ModelPr
 
 ## 211. A migração única da configuração antiga sai do ModelProviderService
 
-Os dois consumidores reais do Service antigo precisavam apenas ler o armazenamento físico antigo, sem sincronização de Presets, Entry Status, filtro de Family ou qualquer projeção de runtime. A primeira importação da Personal Config do Local Host passou a chamar diretamente o旧 Store Reader, e a entrada de migração passou a conter apenas os valores de Provider do próprio arquivo antigo, sem passar por `getAllCached()` e混入 o estado de entrada de conta.
+Os dois consumidores reais do Service antigo precisavam apenas ler o armazenamento físico antigo, sem sincronização de Presets, Entry Status, filtro de Family ou qualquer projeção de runtime. A primeira importação da Personal Config do Local Host passou a chamar diretamente o antigo Store Reader, e a entrada de migração passou a conter apenas os valores de Provider do próprio arquivo antigo, sem passar por `getAllCached()` e misturar o estado de entrada de conta.
 
 O lado local do Remote Workspace mantém uma migração única para a Personal Coding Plan Key histórica. Essa cadeia ganhou a função estreita `loadLegacyAccountProviderApiKey(providerId)`, que lê apenas a Key antiga do Provider especificado e a entrega ao Account Credential Store para gravar a credencial com escopo de conta. O Remote Workspace não constrói mais nem registra um `ModelProviderService` local antigo para isso, as fábricas correspondentes e os testes que validavam apenas o comportamento antigo de Preset/ZAPI saíram junto, e a seleção de modelos e as configurações continuam usando diretamente os serviços de Registry do Remote Environment alvo.
 
@@ -2476,7 +2476,7 @@ Esta etapa não alterou o comportamento de produto da página de configurações
 
 Esta rodada fez uma auditoria da superfície de chamadas dos dois itens que ainda apareciam como "em implementação" no plano. O caminho de produção de um API Provider comum passa uniformemente pelo `ApiProviderModelRuntime` quando existe um `ProviderRegistry` de processo; `provider-registry-app-runtime.test.ts` já cobre a criação de Model pelo Registry, o erro direto para modelo ausente, a não entrada do antigo Workspace Overlay no Registry de execução e a reutilização do mesmo Registry de processo pelos Runtimes filhos de Workflow. `createRuntimeModelFactory` ainda aparece em `turn-execution-model-source.ts`, mas ele responde apenas pela fonte de modelos temporários no período de execução e pertence ao escopo posterior de Provider execution-scoped, não à leitura de fatos de um Provider comum de longo prazo.
 
-Ao mesmo tempo, confirmou-se que os modelos e mapeamentos padrão restantes em `presetModelDefaults.ts`, no antigo `modelProviderServiceStorage` e no código auxiliar de Preset que ainda tem consumidores são usados apenas pela migração única Personal/Account ou por Entries internas de compatibilidade que ainda não montaram o novo Registry. Eles não participam da resolução de Provider/Model do novo Registry e não sobrescrevem os novos fatos de configuração Official/Personal/Account. Nenhum código foi removido aqui porque os compatibilizadores internos de CLI/TUI/avaliação ainda dependem dessas entradas; a remoção deve ser marcada para depois que os consumidores correspondentes migrarem, e a entrada de migração não pode se perder deve ser verificada separadamente.
+Ao mesmo tempo, confirmou-se que os modelos e mapeamentos padrão restantes em `presetModelDefaults.ts`, no antigo `modelProviderServiceStorage` e no código auxiliar de Preset que ainda tem consumidores são usados apenas pela migração única Personal/Account ou por Entries internas de compatibilidade que ainda não montaram o novo Registry. Eles não participam da resolução de Provider/Model do novo Registry e não sobrescrevem os novos fatos de configuração Official/Personal/Account. Nenhum código foi removido aqui porque os compatibilizadores internos de CLI/TUI/avaliação ainda dependem dessas entradas; a remoção deve ser marcada para depois que os consumidores correspondentes migrarem, e a perda da entrada de migração deve ser verificada separadamente.
 
 Portanto, tanto o M2.3c quanto o M2.5c podem ser marcados como concluídos. O objetivo de limpeza seguinte é retirar os consumidores de compatibilidade, e não continuar modificando a cadeia de resolução de produção do Registry.
 
@@ -2538,7 +2538,7 @@ A importação da Config antiga da CLI e do Desktop ainda preserva formalmente o
 
 ## 222. Auditoria de fechamento do Human in the Loop
 
-Ao revisar a implementação atual item a item, confirmou-se que as decisões dos itens 1 a 13 do Human in the Loop que afetam os Providers comuns de longo prazo do M2 já foram implementadas: o Account Config reutiliza o Overlay de três camadas, o Registry mantém o last-known-good, Options arbitrários de Model, Headers de nível de modelo e interruptores de Usage saíram, o `accessId` em nível de conta, a autoridade de Provider remota, o desacoplamento de Usage, o estratification `access/api`, a Config oficial v1 e o `reasoningMapping` direto já entraram na cadeia de produção.
+Ao revisar a implementação atual item a item, confirmou-se que as decisões dos itens 1 a 13 do Human in the Loop que afetam os Providers comuns de longo prazo do M2 já foram implementadas: o Account Config reutiliza o Overlay de três camadas, o Registry mantém o last-known-good, Options arbitrários de Model, Headers de nível de modelo e interruptores de Usage saíram, o `accessId` em nível de conta, a autoridade de Provider remota, o desacoplamento de Usage, a estratificação `access/api`, a Config oficial v1 e o `reasoningMapping` direto já entraram na cadeia de produção.
 
 O item 14 descreve o Builtin Provider das tarefas ociosas e o material de autenticação em nível de Turn. Ele pertence à refatoração de Provider execution-scoped do M4; o M2 atual garante apenas que a fonte temporária não entra no Registry de longo prazo e não desenha antecipadamente a capacidade de autenticação nessa rodada. O padrão `GLM-5.2` hardcoded após o login Standalone também pertence à estratégia de inicialização de Selection e será alterado depois, na fase de Interaction, para ser produzido a partir dos candidatos do Registry, sem continuar se espalhando como fato estático de Provider.
 
@@ -2550,17 +2550,17 @@ O preflight de Session usava simultaneamente `app.listModels()` e o antigo Works
 
 Agora, no modo Registry de processo, o `app.listModels()` apoiado no Registry é a única verdade de associação e de primeiro item, e o Workspace Catalog continua salvando apenas o estado de seleção padrão ou recente. As Entries antigas sem o Registry montado mantêm a filtragem original de Catalog, evitando expor um base model oculto da CLI como opção selecionável. Novos testes cobrem respectivamente que o modelo atual do Registry não é vetado pelo Catalog antigo e que, depois da remoção de um modelo, a reversão segue o primeiro item do Registry.
 
-O mesmo arquivo de teste expôs uma regressão já existente do nível padrão do GLM-5.3 temporário de Turn: ao completar os níveis, a camada de compatibilidade trocava o `high` passado explicitamente pelo Host pelo `max` padrão do Catalog. Esta rodada mantém o nível padrão legítimo recebido e completa apenas o mapeamento do protocolo; isso não altera o Registry de longo prazo e não展开 a refatoração de autenticação das tarefas ociosas.
+O mesmo arquivo de teste expôs uma regressão já existente do nível padrão do GLM-5.3 temporário de Turn: ao completar os níveis, a camada de compatibilidade trocava o `high` passado explicitamente pelo Host pelo `max` padrão do Catalog. Esta rodada mantém o nível padrão legítimo recebido e completa apenas o mapeamento do protocolo; isso não altera o Registry de longo prazo e não expande a refatoração de autenticação das tarefas ociosas.
 
 ## 224. O Registry de processo sai da projeção de Workspace Provider e da escrita de volta de Runtime
 
 Esses caminhos alteram de fato atributos, membros visíveis ou resultados de troca de modelos de Providers comuns de longo prazo, violando diretamente a fonte única do M2; por isso não foram adiados como um todo sob a premissa de "remover o protocolo antigo depois". Esta rodada restringiu tudo de uma vez na fronteira `hasProcessProviderRegistry`: a sincronização antiga de Workspace Provider e a escrita de `runtimeModel` do Host viraram no-ops, a inicialização do App não gera mais o bootstrap antigo, a Workspace View exibe apenas o `app.listModels()` apoiado no Registry, o Provider alvo de uma troca é avaliado a partir dessa mesma View, o context window da cold recovery usa as propriedades de modelo já fixadas no Runtime do App atual e a revisão antiga de provider não se faz passar mais por revisão do Registry.
 
-O Workspace Catalog continua guardando o estado de interação de default, last-used e mode, e continua servindo as Entries antigas que ainda não montaram o Registry de processo. O Provider temporário de um único turno ainda usa um Turn Overlay independente, e seu ciclo de vida completo e a reformulação da autenticação ficam para o M4. Os helpers antigos de Active Session Model Limits, sem chamadores de produção, são apenas um item de limpeza e não afetam a autoridade atual; a mesma auditoria confirmou que os helpers antigos de transmissão de Session Settings, também sem chamadores, já foram removidos, evitando continuar sugerindo que o catálogo de Workspace Provider ainda_directiona ativamente a Session do Registry.
+O Workspace Catalog continua guardando o estado de interação de default, last-used e mode, e continua servindo as Entries antigas que ainda não montaram o Registry de processo. O Provider temporário de um único turno ainda usa um Turn Overlay independente, e seu ciclo de vida completo e a reformulação da autenticação ficam para o M4. Os helpers antigos de Active Session Model Limits, sem chamadores de produção, são apenas um item de limpeza e não afetam a autoridade atual; a mesma auditoria confirmou que os helpers antigos de transmissão de Session Settings, também sem chamadores, já foram removidos, evitando continuar sugerindo que o catálogo de Workspace Provider ainda direciona ativamente a Session do Registry.
 
 Novos casos de regressão cobrem o modelo do Registry não ser vetado pelo Catalog antigo, a reversão pelo primeiro item do Registry, o bloqueio de escrita do Overlay/Runtime antigo, o Provider alvo de troca avaliado a partir da Registry View, o context window vindo do Runtime atual e a Workspace View não misturar Provider/revisão antigos. Os testes reais de montagem de Protocolo também passaram a definir apenas a flag de Registry de processo, para impedir que os testes mascarem a lacuna de montagem de produção injetando diretamente App Options.
 
-Ao verificar ainda mais o protocolo de produção, confirmou-se que o `runtimeModel` comum e o `turnRuntimeModel` das tarefas ociosas já têm uma fronteira clara: o primeiro é um snapshot de compatibilidade derivado pelo Host e o segundo entra por um Turn Overlay independente em uma execução única. Impedir a escrita do primeiro no Workspace Catalog no modo Registry de processo não corta as tarefas ociosas. Os campos antigos do protocolo ainda podem ser transmitidos e submeter ModelSelection por enquanto, mas isso não pode ser usado para restaurar a autoridade do Snapshot do Host para Providers comuns.
+Ao verificar ainda mais o protocolo de produção, confirmou-se que o `runtimeModel` comum e o `turnRuntimeModel` das tarefas ociosas já têm uma fronteira clara: o primeiro é um snapshot de compatibilidade derivado pelo Host e o segundo entra por um Turn Overlay independente em uma execução única. Impedir a escrita do primeiro no Workspace Catalog no modo Registry de processo não corta as tarefas ociosas. Os campos antigos do protocolo ainda podem ser transmitidos e ainda podem submeter ModelSelection por enquanto, mas isso não pode ser usado para restaurar a autoridade do Snapshot do Host para Providers comuns.
 
 ## 225. O Workspace Read State sai da responsabilidade de escrita de modelos
 
@@ -2584,13 +2584,13 @@ Embora os chamadores de produção de `createSession` e `switchModelConfig` do V
 
 Esta rodada removeu o campo `runtimeModel` dos dois comandos e restringiu a capacidade da Bridge a `ensureProviderAvailable()`: ela valida apenas o providerId no Registry atual do Worker e não recebe nem instala snapshots de Provider. O `sendText.turnRuntimeModel` das tarefas ociosas permanece independente e continua expressando um Model execution-scoped.
 
-Os testes de regressão também expuseram que o desvio do Repo Snapshot chamava `workspace/readState` para adivinhar o Provider da rodada quando não havia `runtimeModel`, o que podia bloquear o envio lateral e consumir novamente o estado antigo de modelos do Workspace. Agora o desvio usa apenas a Selection transportada explicitamente pelo comando ou o Model temporário de Turn; quando faltam, os metadados de modelo podem ficar vazios, e a atribuição real das requisições continua sendo responsabilidade do Usage/Trace do Model.
+Os testes de regressão também explicitaram que o desvio do Repo Snapshot chamava `workspace/readState` para adivinhar o Provider da rodada quando não havia `runtimeModel`, o que podia bloquear o envio lateral e consumir novamente o estado antigo de modelos do Workspace. Agora o desvio usa apenas a Selection transportada explicitamente pelo comando ou o Model temporário de Turn; quando faltam, os metadados de modelo podem ficar vazios, e a atribuição real das requisições continua sendo responsabilidade do Usage/Trace do Model.
 
 ## 228. O protocolo antigo de Session sai do Host Runtime Snapshot
 
 Depois de fechar os comandos de modelo comum do V4, o protocolo antigo de Session ainda permitia que o Host carregasse um `runtimeModel` completo em create, resume, send, compact, setModel e setThoughtLevel. O Worker gravava esse snapshot no Workspace Catalog, atualizava o Runtime do App e mantinha um conjunto Host/Worker de CAS com `modelRuntimeRevision`. Mesmo sem os chamadores de produção enviando o campo, essa capacidade de protocolo ainda podia recriar uma segunda fonte da verdade de Provider.
 
-; modificações explícitas de modelo e de reasoning continuam passando pelos comandos correspondentes, e o Worker valida e cria o Model pelo Registry do Environment ao qual pertence. Os caches derivados no Worker que existiam junto com o Snapshot do Host, a comparação de revisão, a atualização e os ramos de erro foram removidos em conjunto.
+As modificações explícitas de modelo e de reasoning continuam passando pelos comandos correspondentes, e o Worker valida e cria o Model pelo Registry do Environment ao qual pertence. Os caches derivados no Worker que existiam junto com o Snapshot do Host, a comparação de revisão, a atualização e os ramos de erro foram removidos em conjunto.
 
 O `turnRuntimeModel` de `sendText` do V4 permanece inalterado. Ele é a entrada execution-scoped do Turn atual das tarefas ociosas, cria o Model por um Turn Overlay independente e não é gravado no Registry de longo prazo. O desvio antigo de Session do Repo Snapshot deixa de adivinhar metadados de modelo do Workspace quando não há um modelo de execução explícito; a atribuição real de modelos continua sendo responsabilidade do Usage e do Trace do Model em execução.
 
@@ -2603,11 +2603,11 @@ Depois que o `staging` remoto foi revertido e reconstruído pela equipe, o branc
 Esta rodada preservou a detecção de ausência, a proteção contra requisições expiradas, a única tentativa de retry e a projeção do formulário de configurações, e apenas restringiu a cadeia de sincronização a:
 
 ```text
-目标 Environment Worker Registry
+Registry do Worker do Environment alvo
         |
         | workspace/readState
         v
-Renderer 设置表单投影
+Projeção do formulário de configurações no Renderer
 ```
 
 O Renderer não injeta mais o Registry do Host no Worker local nem no remoto. O Environment alvo mantém seu próprio Registry, e a página de configurações apenas relê o catálogo de modelos publicado pelo ambiente de execução alvo. Dois grupos de testes especializados cobrem a leitura direta, o descarte de resultados expirados, o retry em caso de falha e a troca de Remote Session, com nove testes passando.
@@ -2628,7 +2628,7 @@ O Host Runtime Snapshot das Sessions comuns já foi retirado; o `turnRuntimeMode
 
 A avaliação de limpeza previa que a página de configurações deixaria completamente o antigo `ModelProviderConfig` dentro do M2. Ao verificar melhor, confirmou-se que esse tipo é hoje apenas um DTO de formulário interno do Renderer: a Settings View é projetada como um formulário editável e, ao salvar, é gerada a Config formal de Provider/Model. Ele não lê arquivos, não constrói Registry, não decide se um modelo é selecionável e não cria Models de execução.
 
-Reescrever toda a interface de configurações ao mesmo tempo ampliaria a superfície de regressão de UI antes da liberação sem收敛 ainda mais a fonte da verdade. Por isso esta rodada mantém essa camada de adaptação isolada e a registra explicitamente como ponto de remoção para uma futura refatoração da experiência de configurações. A importação do formato físico antigo também continua usando uma forma Legacy privada, e nenhuma das duas pode ser dependida pelo caminho de estado estável do Registry.
+Reescrever toda a interface de configurações ao mesmo tempo ampliaria a superfície de regressão de UI antes da liberação sem convergir ainda mais a fonte da verdade. Por isso esta rodada mantém essa camada de adaptação isolada e a registra explicitamente como ponto de remoção para uma futura refatoração da experiência de configurações. A importação do formato físico antigo também continua usando uma forma Legacy privada, e nenhuma das duas pode ser dependida pelo caminho de estado estável do Registry.
 
 ## 232. Verificação final do M2
 
@@ -2637,3 +2637,235 @@ Concluída a limpeza de aposentadoria, o `pnpm typecheck` e o `pnpm lint` da rai
 A suíte completa do Bootstrap expôs separadamente uma dívida de testes já existente: mocks de Session Persistence sem o novo método, importações entre domínios já existentes no Native Boundary e vários timeouts históricos. Esta rodada não embrulhou essas falhas como regressões de Provider nem afirmou que a suíte completa passa; esse limite de verificação é preservado na entrega.
 
 ## 233. Adaptar o MCP oficial e o Usage ao staging mais recente
+
+O tratamento de conflitos preservou a semântica de produto das funcionalidades novas: o Header de identidade MCP, os cinco campos de identidade, a requisição de cota, a barra de cota MCP independente, o pop-up de redefinição unificado e a largura do painel de contexto dinâmico. A existência de Provider passou a ler a `ModelSelectionView` oficial, e a autenticação do Usage passou a usar o `AccountRequestAuthService` e o `accessId`, sem restaurar o Snapshot antigo nem o Provider Service antigo.
+
+Após o rebase, o typecheck e o lint da raiz passaram; os 15 arquivos de teste direcionados de MCP, Usage, Provider, Repo Wiki, seleção de modelos e UI, totalizando 258 testes, passaram, e os 6 arquivos de teste de Registry/protocolo do Bootstrap, totalizando 219 testes, passaram. O Node 22 local atual é inferior ao Node 24 declarado pelo repositório, de modo que o pipeline padrão ainda precisa de uma verificação final no runtime oficial.
+
+## 234. O Workspace Snapshot remove o catálogo de Providers duplicado
+
+A auditoria final do protocolo descobriu que `workspace/readState` ainda devolvia um `modelCatalog` adicional, mesmo já retornando `settings.model`. Essa estrutura reprojeta Provider, propriedades de modelo e revision para o protocolo antigo; a UI não a consome mais e o único leitor de negócio é o primeiro despacho das tarefas ociosas, enquanto o `{ modelCatalog }` emitido pelo `state.updated` do Workspace nem sequer é reconhecido pelo parser de Settings existente nos Services.
+
+Esta rodada removeu `ZCodeWorkspaceModelCatalogState`, o campo do Snapshot, o mapeamento do Bootstrap e a lógica de agrupamento de Providers. O despacho das tarefas ociosas passa a herdar diretamente o `settings.model.current` já resolvido pelo Environment alvo e a validá-lo em `settings.model.available`. A notificação de atualização do Workspace envia o mesmo Patch de Settings, e a semântica de revision de default, thought level e mode permanece inalterada.
+
+A auditoria de referências confirmou simultaneamente que `convertModelProviderConfigToZCodeProviderInput()` não tem mais chamadores de produção e sobram apenas testes especializados de projeção de protocolo antigo, de modo que ele foi removido junto com sua lógica privada de endpoint, de capacidade de mídia e de conversão de Provider. A estrutura de migração de reasoning/capacidade ainda chamada de `modelCatalog` dentro do CLI Adapter continua sendo uma fronteira de compatibilidade do lado de execução e não foi confundida nesta rodada.
+
+Ao todo, passaram as 299 regressões direcionadas de Shared, Services, Bootstrap e UI, e as verificações de TypeScript e lint da raiz passaram; o lint ficou com 0 error e as 36 warnings do baseline atual.
+
+## 235. Remover a entrada de escrita do Workspace Provider Overlay do App
+
+Depois da limpeza do protocolo e do Snapshot, a auditoria do Bootstrap continuou e descobriu que `ZCodeApp.setModelCatalogOverlay()` não tem mais chamadores de produção, mas o App ainda guardava um Overlay de Provider/Model em nível de Workspace e o misturava na lista de modelos, nas Properties e no antigo Registry do Adapter. Isso permitia que o Snapshot completo de Workspace, cujo protocolo já havia saído, voltasse a entrar pela API pública do App, em conflito com o princípio da fonte única do Registry de processo.
+
+Esta rodada alterou primeiro os testes para exigir que o App não exponha mais essa entrada, confirmou que a implementação antiga falhava e, então, removeu a API de Workspace Overlay, o estado, os listeners e os fakes de teste. O `RuntimeModelOverlayManager` agora gerencia apenas o Turn Overlay; execuções únicas como as tarefas ociosas ainda podem injetar um Provider temporário, mas um Provider comum de longo prazo não consegue mais contornar o Registry por um Workspace Overlay.
+
+Cinco testes do Overlay, um teste de entrada de escrita do Registry e 45 regressões de Session Facade, cold recovery e Overlay de tarefas ociosas passaram. As seis asserções do teste completo de Registry App passaram, mas sob Node 22 o processo de teste do MCP apresentou uma rejeição não tratada já existente de `ERA_NEGOTIATION_FAILED` ao encerrar, e o Vitest devolveu código diferente de zero por ruído de infraestrutura de teste; esse problema não tem relação com a remoção de Overlay desta rodada, e a validação completa continua sendo feita com o Node 24 exigido pelo repositório.
+
+## 236. A remoção do Legacy no App Factory nu vira migração da base de testes
+
+Depois da remoção do Workspace Overlay, a auditoria descobriu que `createZCodeApp()` ainda permitia não injetar o Process Registry e mantinha os desvios de Runtime Config antiga, Model Catalog e `includeLegacyProviderModels`. Depois de adicionar o teste de portão e fazer a fábrica recusar a ausência de Registry, os casos oficiais de Registry passaram como esperado, mas 56 casos das suítes de Session Persistence, MCP, Workspace Hook e Script Workflow do Bootstrap falharam.
+
+As falhas não eram apenas a ausência de um parâmetro: alguns casos ainda validam a Config antiga de Providers da CLI e outros injetam a forma antiga de ModelPort sem o `createModel()` de que a nova ModelFactory precisa. Usar um Registry falso estático mudaria a semântica dos testes e mascararia lacunas reais de migração. Por isso esta rodada revertiu o portão ainda não submetido no App Factory e não levou uma migração mecânica pouco confiável para o branch de liberação.
+
+O Prompt CLI, a TUI e a Entry de Protocol oficiais já iniciam e injetam o Process Registry, de modo que a cadeia de fatos de produção não é afetada. Um recorte independente posterior precisa primeiro migrar ou remover os testes especializados de Provider antigo, depois converter os demais Harnesses em fixtures reais de Registry Model e atualizar ao mesmo tempo os E2E de Compact/Memory e a ferramenta de Prompt Trajectory; concluído isso, o desvio Legacy do App nu pode ser removido.
+
+## 237. Sincronização e verificação final do branch de liberação
+
+O `staging` remoto avançou até `a9a3a40a53`, com a nova estratégia padrão de build da plataforma MR e correções de CI. Os sete commits do M2 foram rebaseados nessa base sem conflitos, sem restaurar implementações que a equipe já havia removido e sem alterar código de Provider.
+
+Após o rebase, passaram 50 testes de Model Overlay, Session Facade, cold recovery do V4 e Turn Overlay de tarefas ociosas, além do teste de entrada de escrita de Workspace Overlay do Registry App. As verificações TypeScript da raiz, o TypeScript independente do Bootstrap e o lint passaram, com o lint em 0 error e as 36 warnings do baseline atual; `git diff --check` também passou. Todos os itens do Human in the Loop estão confirmados, concluídos ou explicitamente substituídos por decisões posteriores, e não resta nenhuma semântica pendente de confirmação.
+
+## 238. Concluir a migração do App Factory nu e dos Harnesses internos
+
+A auditoria final de liberação reexecutou a migração adiada no item 236. Primeiro fixou com um teste de portão que `createZCodeApp` sem Registry precisa falhar e, depois, passou os testes de Session Persistence, MCP, Workspace Hook e Script Workflow para Harnesses apoiados no Registry. O Harness usa Model Config completo e uma Model Factory executável, mantém as respostas de modelo injetadas originalmente pelos testes e não usa um Registry vazio para mascarar diferenças de execução.
+
+Os E2E de Compact/Microcompact e de Memory, assim como a ferramenta de gravação de Prompt Trajectory, passaram a construir explicitamente um Registry de teste. O arquivo de Harness do Compact mantém apenas configurações não relacionadas a Providers, como Permission, Storage e Feature, e o Fixture de Provider passa a ser lido como entrada de teste separada; os campos antigos `provider` e `model` da CLI não carregam mais fatos de execução.
+
+Em seguida, o lado de produção removeu `bootstrapModelConfig`, a Model Factory de Runtime Model sem Registry, a concatenação da lista antiga de modelos e o desvio `includeLegacyProviderModels`. O `RuntimeModelOverlayManager` foi igualmente reduzido a um contêiner puro de Provider temporário de Turn e não possui mais um segundo modo de operação que atualiza o Registry do Adapter pela Config antiga.
+
+Durante o processo, duas tarefas de manutenção de testes foram tratadas de forma autônoma: os testes de Registry desligam explicitamente o MCP, que é irrelevante para os casos, evitando a rejeição de negociação no encerramento; e o Harness de Telemetry Lifecycle passou a receber caminhos vazios de Official/Personal Config e a completar os mocks mais recentes do MCP Pool. Essas mudanças apenas fazem os testes atenderem à montagem obrigatória das Entries oficiais e não alteram a semântica de produto. A revisão do Human in the Loop não acrescentou nenhum item pendente de decisão.
+
+## 239. Remover a entrada de execução implícita da Config antiga da CLI
+
+Depois que o App Factory nu foi fechado, a auditoria do lado de execução descobriu que `createModelAdapter()` ainda lia a Config antiga da CLI por conta própria quando o chamador não fornecia nenhuma entrada de modelo; o Prompt Trajectory e o Probe de WebSearch do BigModel também usavam o mesmo arquivo como fonte de modelo padrão. Eles contornavam a montagem oficial do Process Registry e permitiam que fatos antigos de Providers, já fora das Entries de produção, voltassem à cadeia de execução por ferramentas internas.
+
+Esta rodada restringiu a fábrica de Model Adapter a dependências explícitas: o chamador precisa fornecer uma Registry Config ou um Runtime Model Config usado apenas para a execução atual. Os tipos TypeScript e um portão de runtime protegem essa restrição em conjunto. O Prompt Trajectory exige que o Fixture ou a linha de comando forneça explicitamente a identidade do modelo, o Endpoint e a origem das credenciais; o Probe de WebSearch passou a receber parâmetros explícitos e não lê mais o arquivo antigo do usuário. O antigo `updateModelSelectionInFileConfig()`, referenciado apenas por testes especializados, foi removido junto com os testes, de modo que a seleção de modelo não pode mais ser gravada de volta na Config antiga da CLI.
+
+O Schema antigo, o Parser e a leitura do arquivo continuam disponíveis para a primeira importação da Personal Config e para as configurações de Harness ainda não migradas, como MCP, Hook e Permission. Eles podem interpretar o formato físico antigo, mas a execução de modelos em estado estável não consome seus campos de Provider, Model ou Model Catalog. Essa é uma separação explícita entre a fronteira de migração e a fronteira de fatos de execução, e não uma segunda cadeia de Provider.
+
+Ao todo, passaram os 86 testes direcionados de Bootstrap, Adapters e Prompt Trajectory, e as verificações TypeScript independentes dos três pacotes passaram; o TypeScript e o lint da raiz passaram, com o lint em 0 error e as 36 warnings do baseline atual.
+
+Após o commit, o `staging` remoto avançou mais sete commits. Os dez commits deste branch foram rebaseados sem conflito sobre `24ef10c138`; o `range-diff` confirmou que oito commits posteriores já existentes são equivalentes em patch, e que apenas o primeiro commit principal foi regerado por mudança de contexto adjacente no upstream. A remoção desta rodada de fontes antigas de fatos é mantida como o décimo commit novo. Após o rebase, os 86 testes direcionados, o TypeScript e o lint da raiz passaram novamente.
+
+## 240. O RuntimeConfig genérico sai dos fatos antigos de modelo
+
+Ao continuar a auditoria da cadeia de consumo da Config antiga da CLI, confirmou-se que o App Runtime oficial já obtém modelos apenas do Process Registry, da Selection da Session e do Turn Overlay explícito, mas que o `RuntimeConfig` genérico, o `ConfigPort` e os metadados de origem de Config ainda guardavam `model`, `modelCatalog` e `hasModel`. Esses campos já não têm consumidores de execução oficiais e ainda fariam com que o código seguinte acreditasse que o arquivo antigo da CLI ou `ZCODE_MODEL` continua sendo uma fonte de fatos de estado estável.
+
+Esta rodada acrescentou primeiro um teste que falha, fixando que campos de modelo do arquivo antigo e de variáveis de ambiente não podem entrar em `createConfig().config`, e então removeu os campos de modelo do `RuntimeConfig` e do ConfigPort, as quatro chaves de Model Config e os metadados de origem `hasModel`. Os campos de compatibilidade no Schema antigo e no `RuntimeConfigPatch` são mantidos por enquanto e marcados como deprecated, servindo à migração única da Personal Config e do Configured Default; eles são descartados na fronteira do ConfigPort e não conseguem mais afetar o Agent Runtime.
+
+A verificação TypeScript de todo o pacote da CLI expôs em seguida que os tipos de montagem do Prompt CLI e da TUI ainda tratavam o inicializador do Process Registry como dependência opcional, embora o `createZCodeApp` já exija um Registry. Por isso as Entries oficiais passaram a reportar diretamente um erro de montagem quando o inicializador está ausente e sempre a injetar o Registry no App; três bases de teste genéricas da CLI receberam um Registry Runtime mínimo, e os casos especializados de ciclo de vida continuam validando que o Prompt CLI pega emprestado e libera o Registry e que a TUI reutiliza o mesmo Registry de processo ao substituir o App. Esse ajuste não acrescentou nenhuma nova fonte de modelos e apenas convergiu os tipos e as bases de teste à restrição de produção já em vigor.
+
+Esta fatia não alterou o Turn Overlay: Providers temporários execution-scoped, como os das tarefas ociosas, continuam criando Model por uma entrada explícita de Submission e pertencem à fronteira de migração do M4. Nenhum item novo de decisão do Human in the Loop foi criado.
+
+Resultados da verificação: os 86 arquivos completos de Adapters, com 1327 testes, passaram e três foram ignorados; 41 testes de Runtime Config, Process Registry Runtime e Legacy Importer do Bootstrap passaram; 2 testes de ciclo de vida do Registry da CLI e 18 testes de CWD e formato de saída passaram; e a verificação TypeScript da raiz passou. O arquivo histórico completo de unidade da CLI continua sendo interrompido no ambiente Node 22 atual por um caso de Skill sem relação com Provider, que cancela em cascata os casos de limpeza assíncrona seguintes; por isso esta rodada registra apenas os casos relevantes que passaram de forma isolada e não reporta esse arquivo como totalmente aprovado. O lint da raiz também passou, mantendo 0 error e as 36 warnings de baseline; a verificação TypeScript independente da CLI passou e `git diff --check` passou.
+
+## 241. Alinhamento com o staging mais recente e revisão pré-liberação
+O `staging` remoto avançou seis commits até `cf009a3b19` durante o fechamento. Os doze commits do M2 foram rebaseados sem conflito, sem nenhuma escolha manual de conflito e sem restaurar código removido pelo upstream. Após o rebase, o TypeScript e o lint da raiz passaram, com o lint em 0 error e as 36 warnings de baseline; os 63 testes de fronteira do Runtime Config, os 41 testes de Registry e Legacy Importer do Bootstrap, os 2 testes de ciclo de vida do Registry da CLI e os 18 testes de CWD e formato de saída passaram.
+
+Um comando de filtro de teste incorreto disparou as suítes completas de Adapters e do Bootstrap e expôs falhas já existentes de timeout de execução, de fronteira de protocolo cruzado do V4, de Session Resident Pool e de timing de Session Persistence. Em seguida, os casos relevantes desta rodada foram executados novamente com caminhos de arquivo explícitos e passaram; essa dívida de baseline completa não foi contornada nem reescrita pelo código de fechamento de Provider.
+
+## 242. O Parser do arquivo antigo de modelos sai do Runtime Config genérico
+
+O item 240 já havia feito o `RuntimeConfig` oficial e o ConfigPort saírem dos fatos de modelo, mas o `RuntimeConfigPatch` ainda mantinha `model` e `modelCatalog` deprecated, e o parser genérico de variáveis de ambiente e o Config Merger continuavam construindo e mesclando esses campos. Embora fossem descartados em uma fronteira posterior, eles ainda faziam `ZCODE_MODEL`, `ZCODE_BASE_URL` e o Schema do arquivo antigo parecerem entradas válidas de configuração comum de runtime.
+
+Esta rodada alterou primeiro os testes, exigindo que as variáveis de ambiente antigas de modelo sejam ignoradas pela Config comum e que a semântica de compatibilidade de modelo do arquivo antigo continue totalmente coberta pelo parser de migração dedicado. Em seguida, os campos de modelo foram removidos do `RuntimeConfigPatch`, do Env Adapter, do Config Merger e da projeção comum de arquivos, e foi adicionado `parseLegacyCliModelConfig()` como entrada única da primeira migração da Personal Config e do Configured Default. As conversões de compatibilidade mais complexas de Provider, capacidade e reasoning foram mantidas, mas seus tipos e pontos de chamada ficam explicitamente limitados à migração da CLI antiga e não são mais expostos pela API de Config comum.
+
+Os 62 testes direcionados de Config dos Adapters e os 9 testes de Legacy Importer do Bootstrap passaram; as verificações TypeScript independentes de Contracts, Adapters e Bootstrap passaram. O ajuste não alterou o resultado da migração única do arquivo antigo nem a semântica do Turn Overlay, da Selection atual da Session ou da execução pelo Adapter. O Human in the Loop não recebeu nenhum item novo a decidir.
+
+## 243. Timing de atualização de Account e fechamento do teste de Connectivity
+
+A revisão estática do MR descobriu que, se a rodada atual de atualização do `AccountProviderService` falhasse, ela sairia do loop mais cedo. Eventos de Config ou de conta que chegassem durante a falha continuariam em `pendingReasons`, mas, depois que o in-flight fosse liberado, não haveria quem os processasse, e o Registry poderia ficar com o Snapshot antigo de Account até que um terceiro evento aparecesse por acaso.
+
+Esta rodada acrescentou primeiro um teste de timing que reproduz o problema: inicialização com sucesso, atualização A bloqueada, chegada do evento B e falha de A; a implementação antiga chamava o Resolver apenas duas vezes. Após a correção, o chamador original de A continua recebendo a falha, o Service publica `onDidRefreshError` e mantém o last-known-good; depois que o in-flight de A é liberado, uma nova rodada é iniciada automaticamente para B e, após o sucesso, o novo Snapshot é publicado. A associação de Providers, a política de falha e as regras de mesclagem de eventos não mudaram.
+
+A mesma revisão estática também descobriu que os três testes especializados de Connectivity ainda chamavam o parâmetro antigo `endpoints/model/provider`. A página de configurações de produção já usa a interface oficial `baseURL/modelId/modelConfig/providerId`, de modo que os testes passaram a construir diretamente o Model Config atual, continuando a validar URL, Headers, reasoning mapping padrão e o comportamento sem mapping, sem modificar a Connectivity de produção.
+
+Seis testes do Account Provider Service e três do Connectivity Probe passaram, e a verificação TypeScript independente do Provider passou. As duas coisas são fechamentos de implementação e de teste sob semântica já confirmada, sem novos itens de decisão do Human in the Loop.
+
+## 244. Fechamento da projeção Personal e do salvamento atômico
+
+A revisão estática do MR descobriu mais três desvios de implementação em relação às regras de Config Overlay já confirmadas.
+
+Primeiro, ao salvar a Configuração Efetiva de um Account Provider na página de configurações, o `accessId` injetado dinamicamente pelo Account Overlay era projetado na Personal Config. Após a correção, quando Official e Access Efetivo são ambos `zhipu-account`, a projeção Personal ignora a identidade dinâmica da conta; a disponibilidade da conta continua vindo apenas da Account Provider Source.
+
+Segundo, `reasoningMapping` é um campo de valor comum no Model Overlay e a camada posterior deve sobrescrevê-lo por inteiro, mas a função de projeção antiga continuava comparando diferenças dentro de cada nível. Após a correção, um Mapping inalterado não escreve campo algum no Personal, e um Mapping alterado salva o campo completo, com leitura e escrita usando a mesma semântica de Overlay.
+
+Terceiro, o `ProviderSettingsFacade` calculava antes a Personal Config inteira a partir do snapshot antigo do Registry e só então entrava no bloqueio de arquivo do Repository para fazer uma substituição total. Um Provider sem relação escrito por outro processo entre o snapshot e a aquisição do bloqueio seria assim perdido. Agora o salvamento Efetivo é feito pelo `ProviderConfigService` dentro do `update()` do Repository: dentro do bloqueio ele lê a Personal Config mais recente, atualiza apenas o Provider alvo e suas regras precisas de modelo, e preserva as regras de Pattern e os demais Providers. A interface de substituição total continua servindo apenas à migração de configuração e à importação total explícita.
+
+Os três pontos receberam testes que falham primeiro, e só então a implementação foi modificada. Dezoito testes de Provider Config Service, Facade e Personal Projection passaram. Eles aplicam os princípios já existentes de estratificação Official/Personal/Account, de sobrescrita total de campos comuns e de atualização atômica do Repository, sem acrescentar item novo de decisão do Human in the Loop.
+
+## 245. Um novo Provider sai da pré-condição da Settings View
+
+A página de configurações ainda usa o adaptador de migração do DTO de edição antigo. Ao editar um Provider existente, o adaptador precisa da Settings View atual para completar campos herdados que o formulário não expõe diretamente; mas um Provider novo ainda não entrou no Registry, de modo que a View atual naturalmente não tem o item correspondente. O Renderer lançava, portanto, um erro "ainda não apareceu na Settings View" antes mesmo de chamar o Config Service, impedindo que um Provider custom novo fosse salvo.
+
+Esta rodada acrescentou primeiro um teste que falha e depois tornou a View uma entrada de herança opcional na fronteira de salvamento. Ao criar, usa-se diretamente o Provider e o Model Draft já construídos de forma completa no formulário de Add Provider; ao editar um Provider existente, continua-se reutilizando a Configuração Efetiva da View. O teste de conexão usa o mesmo construtor de Draft e, por isso, o formulário de criação também consegue disparar o teste de conexão antes de salvar. Essa correção não reescreve o DTO da página de configurações nem altera as regras de herança e de projeção Personal de Official Providers.
+
+Quarenta e seis testes de salvamento de configurações, de Draft e de Provider Config passaram. A saída completa da página de configurações em relação ao DTO antigo continua como um recorte posterior de R1, e o bloqueio de liberação da criação de Provider não depende mais dessa migração de grande escopo.
+
+## 246. O novo login OAuth força a atualização da Coding Plan Key em nível de conta
+
+A Coding Plan Key em nível de conta é cacheada com um `accessId` que inclui a identidade da conta. O Resolver só pulava o cache quando o motivo da atualização continha `oauth-callback`, mas o Renderer, na cadeia real de login concluído, emitia `oauth-login-entitlement`. Ao deslogar e entrar novamente na mesma conta, a Account Source podia, portanto, reutilizar diretamente a Key antiga em vez de obter novas credenciais de requisição a partir do novo OAuth Token.
+
+Esta rodada passou primeiro o teste da Config Source para o evento real do Renderer e reproduziu a falha, e então fez o Resolver reconhecer tanto o evento de login real quanto o evento histórico de callback. A atualização de entitlement após o login agora pula à força o cache de Key em nível de conta; depois que a Key é obtida com sucesso no remoto, ela sobrescreve a credencial de escopo da conta original, e, em caso de falha, não há retorno ao valor antigo.
+
+Vinte testes de Account Config Source, Connection Resolver, Credential Service, Request Auth e OAuth Logout passaram. A remoção precisa da Key com escopo de conta no logout ainda exige que o OAuth Service transmita a identidade da conta antes de limpar a Session, e esta rodada não ampliou a interface de ciclo de vida do OAuth para resolver um problema de limpeza de dados; esse item restante continua registrado na revisão R6 do MR.
+
+## 247. Remover o armazenamento de Providers dos Services antigo sem consumidores
+
+O M2 continua auditando os Services pelo princípio de limpar imediatamente o que consegue reduzir o双轨 atual. O `knip` encontrou quatro arquivos completos sem uso: `codingPlanCache.ts`, `atomicFileRepo.ts`, `glmWorkspaceConfigRepo.ts` e `providerSettingsJson.ts`. O `dep:refs` sem escopo confirmou, item a item, que todas as exportações não têm referência estática nem reexportação, e uma varredura de strings em todo o repositório não encontrou import dinâmico, script ou consumidor de teste.
+
+Esses arquivos guardavam, respectivamente, o estado antigo de entrada de planos, a leitura e escrita da configuração de Providers do GLM em workspace, rascunhos de arquivo atômicos não conectados ao Config Repository oficial e o parser do antigo JSONC de configurações de Providers. Eles já não participam do comportamento atual do produto e ainda mantêm a forma completa de código capaz de restabelecer uma fonte física antiga de fatos de Provider. Esta rodada acrescentou primeiro um portão estrutural que falha e então removeu os quatro arquivos.
+
+Os quatro testes do portão estrutural e a verificação TypeScript da raiz passaram. A revisão do Human in the Loop continua com as 16 itens confirmados, sem nova semântica de produto ou contrato público que precise de decisão.
+
+## 248. A autenticação de requisições sai da reinterpretação do Registry atual
+
+A revisão estática R5 do MR descobriu que, depois de um Account Model já criado obter uma nova API Key/Header em cada tentativa de requisição, ele chamava novamente o `resolve()` completo do Registry do AI SDK atual. Se o Provider Config sofre uma hot update dentro do mesmo Agent Loop, essa atualização de autenticação acabaria trocando também a SDK Factory, o Endpoint, o protocolo, as Provider Options e os Headers estáticos do Model antigo, violando o contrato já estabelecido de que um Model mantém sua identidade e sua configuração estática de execução durante uma execução contínua.
+
+Esta rodada acrescentou primeiro um teste de timing que falha: cria-se um Model com o Provider A, substitui-se o Registry a quente pelo Provider B de mesmo ID e então dispara a autenticação da requisição; a implementação antiga chamava de fato o B. Após a correção, o Adapter captura o snapshot de execução estático do Provider no momento da criação do Model por meio de `bindModel()`. A autenticação da requisição apenas combina a API Key/Header daquela tentativa nesse snapshot e cria, a partir dele, o SDK Model usado na tentativa; a hot update do Registry afeta apenas Models criados depois. Proxy, roteamento físico e verificação de segurança da requisição continuam sendo gerenciados dinamicamente pelas instalações de requisição do Adapter e não se tornam fatos estáticos do Registry.
+
+Cinquenta e seis testes de Model e Registry dos Adapters e a verificação TypeScript independente dos Adapters passaram. Essa correção aplica o desenho de ciclo de vida de Model já existente e não acrescenta item novo de decisão do Human in the Loop.
+
+## 249. O logout OAuth limpa com precisão a Coding Plan Key em nível de conta
+
+O item 246 já garantiu a atualização forçada da Personal Coding Plan Key em nível de conta após um novo login, mas o logout explícito ainda notificava a limpeza dos Providers derivados só depois de esvaziar a Session OAuth. Nesse momento o Logout Handler só conseguia apagar a Key histórica sem escopo de conta e não conseguia construir o `coding-plan:<provider>:account:<identity>` atual, deixando a Key antiga da conta no Credential Store.
+
+Esta rodada alterou primeiro o teste que falha, exigindo que o logout OAuth transporte o Profile ID anterior à limpeza na notificação e que o Logout Handler apague tanto a Key com escopo de conta quanto a Key histórica sem escopo. A implementação agora captura a identidade da conta dentro da mutação da Session, antes de limpar a sessão principal; logout explícito, unlink, invalidação por JWT expirado e logout-all passam essa identidade ao mesmo Handler. A recuperação por credenciais corrompidas, quando a identidade não pode ser lida de forma confiável, mantém o fail-safe original: limpar os fatos principais do OAuth, desconectar o Account Provider e apagar as Keys que puderem ser determinadas com certeza.
+
+Setenta e oito testes do OAuth Service e do Logout Handler passaram. Essa correção completa o problema de limpeza restante da revisão R6 do MR, sem alterar a disponibilidade de conta, a atualização após novo login ou as regras de resolução em tempo de requisição do Team Plan, e sem acrescentar item novo de decisão do Human in the Loop.
+
+## 250. Remover o Header órfão de override de modelo antigo
+Depois de continuar executando o `knip`, o `dep:refs` sem escopo e a varredura de strings de todo o repositório, confirmou-se que `providers/codexModelOverride.ts` exporta apenas a constante `X-ZCode-Codex-Model-Override`, com zero referências, reexportações ou usos dinâmicos. A seleção de modelos atual, o Submission, o Registry, o Request Auth e as requisições do Adapter não leem esse Header; ele já não é um comportamento de compatibilidade, e sim a forma órfã de uma entrada antiga.
+
+Esta rodada primeiro adicionou o arquivo ao portão estrutural Legacy do M2 e verificou a falha, e então removeu o arquivo. O portão estrutural agora cobre cinco arquivos aposentados e passa em todos eles. Nada foi alterado nos parâmetros de modelo do próprio Agent CLI externo nem no script de geração de Changelog, e nenhum item novo de decisão do Human in the Loop foi criado.
+
+## 251. A verificação completa corrige fixtures de Registry aposentados e a inicialização do Server Core a partir do código-fonte
+
+Na primeira execução completa de `verify:pre-push` antes da liberação, os testes da cadeia principal de Provider expuseram duas fronteiras de teste e de execução de código-fonte que passaram despercebidas na troca de interfaces do M2.
+
+Os testes de roteamento do Official MCP ainda injetavam no `ZCodeAgentService` o `providerRegistrySource` já aposentado. Como o Service usa hoje a `ModelSelectionView` para decidir se o Provider e os modelos estão prontos, o fixture antigo não fornecia nenhum modelo executável e os nove testes terminavam logo no portão de inicialização. O fixture agora injeta o `modelSelectionReadinessSource` oficial e continua testando o comportamento original de autenticação MCP e de roteamento remoto.
+
+A build oficial do Server Core embute a Official Provider Config via tsup, mas o teste de integração de runtime inicia o Core diretamente com `tsx`, sem a constante de compilação, e o Core saía antes de enviar o ready. O Core agora aceita um `ZCODE_OFFICIAL_PROVIDER_CONFIG_FILE` explícito como entrada de execução a partir do código-fonte, desenvolvimento e teste; quando ele não é fornecido explicitamente, o bundle oficial continua materializando a Official Config que ele próprio embute. Os dois caminhos apontam para o mesmo tipo de documento Official versionado, sem retorno ao Provider Store antigo e sem criar uma segunda fonte da verdade.
+
+Onze testes de Official MCP e de Server Runtime Integration passaram. Outros dois grupos de falhas no pre-push completo vieram de asserções de estilo de `ConversationDraftSuggestedPrompts` e de asserções de string de código-fonte em `appARMSBootstrap`; os Git blobs dos arquivos de implementação e de teste correspondentes são idênticos aos de `origin/staging`, confirmando que não foram introduzidos pelo M2. Seguindo a convenção desta etapa de executar o pre-push completo apenas uma vez, o fechamento é feito com o TypeScript da raiz, o lint e os testes direcionados de tudo o que foi alterado.
+
+## 252. Remover a cadeia morta do Workspace Model Mirror no Renderer
+
+Ao continuar auditando o Renderer com o Knip, descobriu-se que o arquivo inteiro `workspaceModelMirror.ts` não tinha mais consumidores. Ele mantinha uma fila assíncrona de espelhamento que chamava `setWorkspacePreferredModel` em série por Workspace Identity, um resíduo do momento em que o estado antigo de modelos de Workspace precisava ser perseguido ativamente pelo Renderer. Hoje a seleção de modelos do Composer e da Session já usa a cadeia de controle de Selection ciente de Session, e as referências estáticas, reexportações e referências por string em todo o repositório dos dois exports são zero.
+
+Esta rodada acrescentou primeiro um portão estrutural M2 do Renderer que falha e então removeu o arquivo. O teste do portão e a verificação TypeScript independente da UI passaram. A revisão do Human in the Loop continua com os 16 itens todos confirmados; remover um espelho sem consumidores não introduziu nova decisão de estado, de timing ou de semântica de produto.
+
+## 253. O Direct Seed do Desktop E2E converge para a Personal Config
+
+Ao continuar auditando os fixtures de teste antes da liberação, descobriu-se que `custom-openai-provider-store` ainda escrevia o mesmo Replay Provider simultaneamente no antigo `model-providers.json`, na Config antiga da CLI e no `config.json` do App. O comentário do fixture ainda descrevia essa escrita tripla como necessária para garantir consistência entre UI e Agente, o que fazia com que os testes continuassem mascarando a fonte de fatos de duplo trilho removida pelo M2.
+
+Esta rodada acrescentou primeiro um teste que falha, fixando a fronteira oficial do Direct Seed: escrever apenas a Personal Provider Config versionada, não criar o Provider Store antigo e não modificar conteúdos não relacionados a Providers da Config da CLI, como MCP. Em seguida, a implementação passou a reutilizar diretamente os tipos de Config, as Model Rules precisas e o formato de serialização de `@zcode/provider`. O antigo `ModelProviderConfig` que os chamadores de E2E ainda precisam é gerado apenas no valor de retorno da função e na leitura de diagnóstico, funcionando como uma View de teste que não é persistida.
+
+`desktop-app.readModelProviders()` também passou a oferecer uma projeção que gera o antigo DTO de teste a partir da Personal Config oficial, permitindo que as asserções existentes de E2E migrem gradualmente sem obrigar o fixture a restaurar arquivos antigos. Os novos testes unitários e a verificação TypeScript do Desktop E2E passaram. O Human in the Loop continua com os 16 itens todos confirmados, e a alteração apenas aplica a decisão de fonte única já existente.
+
+## 254. O Restart E2E sai do Provider antigo e da configuração de modelo de inicialização
+
+A auditoria posterior descobriu que o Restart E2E ainda tinha um segundo helper de escrita tripla: o Replay Provider escrevia ao mesmo tempo o Provider Store antigo, a forma antiga de Provider do App e a Config de Providers da CLI, enquanto o modelo padrão de cold start do Turbo escrevia o Provider inteiro, inclusive parâmetros de reasoning de modelo, na Config de CLI do projeto. Esses fixtures faziam com que os casos de reinício continuassem dependendo de fontes de fatos antigas que já saíram da cadeia de produção.
+
+Esta rodada acrescentou primeiro testes que falham para os dois comportamentos. O Replay Provider agora escreve apenas a Personal Config versionada, por meio de `ModelConfigRules.replaceExactForProvider()`, preservando as Pattern Rules existentes e os demais Providers. O modelo padrão de cold start é gravado em um `model-selection.json` versionado e independente, sem copiar mais configuração de Provider ou de reasoning. As capacidades de modelo e o reasoning mapping passam a ser fornecidos pelo Process Registry resolvido a partir de Official, Personal e Account.
+
+O prewarm case que servia para remover artificialmente um Provider da Config da CLI foi atualizado junto. O caso I64 agora verifica que, depois que o Host e o Worker inicializam o Process Registry a partir da mesma Personal Config, a primeira Session de pre-aquecimento permanece com o GLM custom; ele não constrói mais a lacuna de revision de Snapshot do Host e de catálogo da CLI que já foi removida. O Conversation Catalog, a Coverage Matrix e a descrição dos E2E P0 foram atualizados em conjunto.
+
+Três testes unitários de Desktop Provider Seed e a verificação TypeScript do Desktop E2E passaram. O Human in the Loop continua com os 16 itens todos confirmados, sem nova decisão de semântica de produto.
+
+## 255. Remover o Active Model Limits antigo e a cadeia morta de reexportação de MCP do Bootstrap
+
+A auditoria Knip e de referências por strings de todo o repositório encontrou dois arquivos inteiros do Bootstrap sem qualquer consumidor de produção, teste ou script. `active-session-model-limits.ts` guardava a implementação antiga que modificava no lugar a capacidade do Runtime de uma Session ativa após uma hot update do Registry e reenviava ModelSelected; esse comportamento já foi substituído pelo ciclo de vida de Model do M1/M2, em que uma atualização do Registry afeta apenas Models criados depois. `official-mcp-trusted-origins.ts` apenas reexportava a MCP Trust API do Shared sem alterações, e seus consumidores já dependem diretamente do Shared.
+
+Esta rodada acrescentou primeiro um portão estrutural do Bootstrap que falha e então removeu os dois arquivos. O local de implementação da especificação de Official MCP passou a apontar para `packages/shared/src/official-mcp-auth.ts`, e o comentário histórico do adaptador de modelo padrão do Workspace foi atualizado para o fato atual: essa entrada guarda apenas o Workspace ModelSelection, e Provider e capacidades vêm do Registry de processo.
+
+Os dois testes do portão estrutural do Bootstrap e a verificação TypeScript independente passaram. O Human in the Loop continua com os 16 itens todos confirmados; este item não acrescenta caminho de compatibilidade nem altera a semântica de execução.
+
+## 256. O Team Plan E2E sai da escrita tripla antiga de Provider
+
+A auditoria pré-liberação continuou e descobriu que o Team Plan Usage E2E escrevia a mesma Coding Plan Provider do BigModel simultaneamente na Config antiga da CLI, no campo antigo de Provider do `config.json` do App e no `model-providers.json`. Esse caso testa a troca entre conexões Personal/Team e a exibição de uso, e não a migração de configuração antiga; continuar com a escrita tripla mascara os problemas reais de montagem entre as três fontes de fatos Official, Personal e Account.
+
+Esta rodada mudou a preparação do cenário para gravar apenas a Personal Config versionada. A camada Personal fornece ao caso o endpoint, os campos estáticos de modelo e a cobertura de enabled necessários, enquanto as respostas do serviço de conta do teste continuam fornecendo a identidade de conexão Personal/Team por meio do Account Overlay. Os dois são resolvidos segundo as camadas do Registry de produção, e o teste não monta mais por conta própria uma terceira Provider Store.
+
+A verificação TypeScript do Desktop E2E e o lint dos arquivos alterados passaram. O Human in the Loop continua com os 16 itens todos confirmados; essa alteração apenas aplica a decisão de fonte única já existente e não muda o comportamento do Team Plan para o usuário.
+
+## 257. O Reasoning E2E remove o fallback de leitura antiga de Provider
+
+Os quatro E2E de revisão manual de Reasoning, ao resolver o endpoint de replay, contornavam a projeção de teste unificada e liam separadamente o antigo `model-providers.json` e a Config de Providers antiga da CLI. O Direct Seed e a gravação via Settings já foram convergidos para a Personal Config, e esses fallbacks não fornecem nenhum fato válido novo; eles apenas deixam os casos usarem arquivos antigos para continuar rodando quando a configuração oficial está ausente.
+
+Esta rodada removeu as duas camadas de fallback. Os casos continuam priorizando variáveis de ambiente explícitas e o arquivo de runtime de replay; quando precisam ler a configuração de produto, usam uniformemente a projeção de Personal Config de `readModelProviders()`. O próprio helper mantém a compatibilidade com o Store antigo necessária ao diagnóstico da primeira migração, e os casos não duplicam mais a lógica de migração individualmente.
+
+A verificação TypeScript do Desktop E2E e o lint dos quatro arquivos passaram. O Human in the Loop continua com os 16 itens todos confirmados, e a alteração não muda as asserções de requisição de Reasoning nem a interação de configurações.
+
+## 258. A requisição de redefinição de cota passa a ter escopo de Account Access
+
+A auditoria final de lint descobriu que os detalhes das configurações já resolviam o `accessId` do Plan Personal/Team atual a partir da Registry View e o passavam ao `CodingPlanStatusPanel`, mas o Panel não o repassava ao hook de redefinição de cota. O `sourceKey` consegue isolar o estado de exibição local, mas a requisição de serviço ainda precisa do `accessId` para localizar a conexão da conta. A omissão faria com que as requisições de redefinição Personal/Team do mesmo Provider perdessem o escopo oficial de Account Access.
+
+Esta rodada apenas completou a passagem desse parâmetro, sem restaurar credenciais no Renderer nem API Keys de Provider. O spread de objeto sem efeito encontrado na mesma rodada no Model Selection Repository também foi eliminado. Ao todo, 205 testes direcionados de Coding Plan e Model Selection passaram, e o lint dos arquivos relacionados não gera mais warnings do M2. O Human in the Loop continua com os 16 itens todos confirmados.
+
+## 259. Fechamento final estático e de verificação antes da liberação
+
+A última rodada buscou novamente o `origin/staging` e o branch permanece 0 behind. A auditoria Knip de `@zcode/provider` e `@zcode/provider-node` não encontrou arquivos ou exportações sem uso, e as leituras restantes de `model-providers.json` no código de produção estão apenas na primeira importação da Personal Config e na migração única da Account Key, mantidas de propósito como uma fronteira de migração explícita, unidirecional e removível.
+
+O `pnpm typecheck` da raiz passou; o `pnpm lint` da raiz ficou com 0 error e 35 warnings de baseline sem relação com o M2; os 205 testes direcionados de Coding Plan e Model Selection passaram, assim como a verificação TypeScript do Desktop E2E e o lint dos arquivos alterados. Os 16 itens do Human in the Loop estão todos confirmados, sem novos problemas pendentes de decisão.
+
+## 260. O Runtime Model Overlay é estreitado para Turn Model Overlay
+
+Ao continuar auditando o Bootstrap conforme a definição de conclusão do M2, descobriu-se que o Workspace/Session Provider Overlay já havia sido removido, mas o objeto interno ainda se chamava `RuntimeModelOverlayManager` e expunha simultaneamente os pares idênticos `getModelConfig/getTurnModelConfig` e `getModelCatalog/getTurnModelCatalog`. Essa forma de API ainda sugeria que modelos comuns de longo prazo poderiam obter fatos de um Runtime Overlay fora do Registry.
+
+Esta rodada alterou primeiro os testes existentes para fixar a fronteira alvo e então restringiu o objeto a `TurnModelOverlayState`. Ele mantém apenas o `set/clear/hasModel/getModelConfig/getModelCatalog/onDidChange` necessários ao Turn atual, e o arquivo foi renomeado para `turn-model-overlay.ts`. O Session Facade e a Source execution-scoped continuam usando o mesmo estado temporário de modelo, e o protocolo e o comportamento de execução das tarefas ociosas não mudaram. O portão estrutural do M2 ganhou o caminho do arquivo antigo, impedindo que um Runtime Overlay genérico reapareça.
+
+Dezesseis testes de Turn Overlay, Runtime Model Factory, Session Facade e portão estrutural do M2 passaram, e a verificação TypeScript independente do Bootstrap passou. Em seguida, o `pnpm typecheck` da raiz passou e o `pnpm lint` da raiz ficou com 0 error e as 33 warnings do baseline de staging atual. Os 16 itens do Human in the Loop continuam todos confirmados; este item apenas aplica a decisão já confirmada de que Providers comuns vêm apenas do Registry de processo e Providers temporários pertencem apenas ao Turn atual, sem acrescentar semântica de produto.
+
+## 261. O formulário de configurações sai do tipo compartilhado antigo de Provider Store
+
+A auditoria de refutação das condições

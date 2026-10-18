@@ -198,7 +198,7 @@ são geridas pelo razão de execução.
 
 # Complemento final de regressão associado
 
-O botão de ajuda não pode ficar aninhado no label de um campo de entrada; o título se关联a à entrada por
+O botão de ajuda não pode ficar aninhado no label de um campo de entrada; o título se associa à entrada por
 htmlFor/id, e o botão de ajuda é um controle independente na mesma linha, sem roubar o label ou o foco
 da entrada. O título de grupo com vários níveis não é o label de uma única entrada. Esta correção não
 altera o texto da ajuda, o estado nem o comportamento de salvamento.

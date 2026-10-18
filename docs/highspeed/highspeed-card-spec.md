@@ -398,7 +398,7 @@ Regras de corrida:
     exceção, trata-se como não aprovada, evitando bater na interface de draw com combinação inválida. O
     reaproveitamento de uma carta válida existente (regra 2) e o draw em voo não são afetados por essa
     portão. Cenários de Mock passam por liberação para preservar a semântica de validação local.
-15. O prepare Highspeed de um envio主动 do usuário (sendText, incluindo criação de sessão nova e
+15. O prepare Highspeed de um envio ativo do usuário (sendText, incluindo criação de sessão nova e
     promoção de pré-aquecimento) tem a seleção de modelo vinda da mesma origem do `modelSelection` deste
     envio: prefere-se `providerId/modelId/reasoningLevel` da seleção submetida, e campos ausentes caem
     campo a campo na projeção da sessão → rascunho → rascunho inicial. O primeiro envio após trocar de

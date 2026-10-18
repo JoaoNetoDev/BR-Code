@@ -2185,7 +2185,7 @@ HookRunBlocked
 
 Requisitos:
 
-- o project source precisa ser explicitamente visível no判定 `clientVisible` de `display-metadata.ts` / projection;
+- o project source precisa ser explicitamente visível na determinação `clientVisible` de `display-metadata.ts` / projection;
 - `skipped_untrusted`, `skipped_policy` e `skipped_revoked` são mapeados para `HookRunBlocked` + reason code estável, em vez de fingirem ser `HookRunFailed`;
 - state/admission/reason usam o mapa único da §10.2;
 - um Hook que não passa pelo gate async gera apenas o lifecycle blocked, sem started/background-dispatch;
@@ -2841,7 +2841,7 @@ engenharia antes da implementação:
 10. **Ponto de recuperação quando a configuração é gravada mas o rebuild do snapshot falha**: oferecer "abrir o arquivo de origem/tentar o parse de novo" ou retry automático por watcher; em qualquer opção o fail closed é mantido.
 11. **Se `--require-workspace-hooks` deve existir**: se a automation deve falhar ativamente quando algum Hook required for pulado.
 12. **Arquivamento dos designs**: incorporar screenshots de design fornecidos pelo usuário ou links de design interno como anexos de design revisáveis.
-13. **Ciclo de vida do pretrust sem session**: o tempo de回收 ocioso e o feedback de falha do Agent control plane somente leitura podem ser otimizados, mas não podem criar tasks ocultas nem contornar a revalidação do snapshot canônico do Agent.
+13. **Ciclo de vida do pretrust sem session**: o tempo de recuperação ocioso e o feedback de falha do Agent control plane somente leitura podem ser otimizados, mas não podem criar tasks ocultas nem contornar a revalidação do snapshot canônico do Agent.
 
 ## 29. Critérios de aceite
 

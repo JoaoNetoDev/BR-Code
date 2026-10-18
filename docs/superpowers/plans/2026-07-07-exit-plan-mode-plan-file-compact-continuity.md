@@ -1416,4 +1416,5 @@ Esperado: mostra os arquivos de docs, core, testes e E2E alterados por esta impl
 - [ ] O plano grava através do `FileSystemPort`, e não de `node:fs` dentro do runtime do core.
 - [ ] O plano usa `workspaceRoot`, e não `workingDirectory`, para o caminho do plan file.
 - [ ] A source do reminder de compact é explicitamente `plan_file_reference`, e não read-state genérico.
-- [ ] A fase de E2E começa pelo catálogo/matriz de docs e termina com uma execução em janela visível mais a reexecuç
+- [ ] A fase de E2E começa pelo catálogo/matriz de docs e termina com uma execução em janela visível mais a reexecução.
+- [ ] A etapa final para em `git status --short` e não faz commit.

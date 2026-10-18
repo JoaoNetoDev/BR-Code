@@ -13,13 +13,13 @@ depender do token OAuth da Z.AI e sem alterar o fluxo de login e autenticação 
 
 ```http
 GET <host>/api/monitor/usage/quota/limit
-authorization: <完整 API key>
+authorization: <API key completa>
 ```
 
 Atenção:
 
 - O host doméstico pode usar `https://bigmodel.cn` ou `https://open.bigmodel.cn`.
-- Hosts 海外 / Z.AI podem usar `https://api.z.ai`.
+- Hosts internacionais / Z.AI podem usar `https://api.z.ai`.
 - O caminho, o método e a estrutura de retorno das interfaces doméstica e overseas são
   idênticos; a mesma key funciona nos dois hosts, e a principal diferença é que o texto de `msg`
   pode estar em idiomas diferentes.
@@ -242,8 +242,8 @@ requisição.
 
 ## Tratamento de erros
 
-- Sem API key da Z.AI / BigModel configurada: exibe "未找到可查询 quota 的 API key".
-- A interface retorna "当前用户不存在 coding plan": exibe "暂无有效 Coding Plan".
+- Sem API key da Z.AI / BigModel configurada: exibe "未找到可查询 quota 的 API key" (nenhuma API key consultável de quota encontrada).
+- A interface retorna "当前用户不存在 coding plan": exibe "暂无有效 Coding Plan" (nenhum Coding Plan válido no momento).
 - Outros erros: exibe a mensagem de erro da interface e permite que o usuário faça a atualização
   manualmente.
 

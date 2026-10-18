@@ -272,7 +272,7 @@ O interruptor `enabled` exibe o Effective Model Config e, ao ser alternado, escr
 a lista de modelos não oferece uma entrada de "restaurar padrão" para remover essa folha. Modelos disabled continuam aparecendo na página do Provider, mas ficam ocultos no seletor de modelos comum. O interruptor não é igual a
 `selectable`: um Provider com configuração incompleta, uma conta sem entitlement ou um Provider hidden ainda podem tornar um modelo enabled não selecionável.
 
-A linha de navegação de um Personal Provider comum não exibe um bloco de arraste independente; o nome, o ícone ou o espaço não interativo do Provider formam a mesma区域 de arraste da linha inteira.
+A linha de navegação de um Personal Provider comum não exibe um bloco de arraste independente; o nome, o ícone ou o espaço não interativo do Provider formam a mesma região de arraste da linha inteira.
 Clicar continua selecionando o Provider, e só a ordenação é ativada depois que o arraste passa da distância de ativação, evitando confundir um clique comum com arrasto. Os botões reais dentro da linha continuam excluídos da região
 de ativação do arraste; o texto arrastável proíbe a seleção de texto do navegador, e não pode aparecer um falso estado de arraste do tipo "texto selecionado, mas sem reordenação".
 

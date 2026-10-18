@@ -1,45 +1,45 @@
 # Bots
 
-Bots lets a private third-party chat drive the same ZCode task flow as the UI input box. The v2 model removes the old nested allowed-users shape: each `bot` is a complete access instance with provider, credentials, one bound actor, workspace scope, command policy, current options, and reply mode.
+Bots permite que um chat privado de terceiros conduza o mesmo fluxo de tarefas do ZCode que a caixa de entrada da UI. O modelo v2 remove a antiga forma aninhada de allowed-users: cada `bot` é uma instância de acesso completa, com provider, credenciais, um ator vinculado, escopo de workspace, política de comandos, opções atuais e modo de resposta.
 
-## Files
+## Arquivos
 
-- `bot-config.v3.json`: persistent bot configuration. The top-level shape is `{ "version": 3, "bots": [] }`.
-- `bot-state.v3.json`: current runtime state keyed by bot id. It stores active workspace, draft/task mode, active task, pending permissions, Telegram offset, and update time.
-- `bot-config.json` / `bot-state.v2.json` / `bot-state.json`: one-time upgrade inputs, retained unchanged for rollback.
-- Old `bots-model-cache*.json` files are no longer read or written. Model choices come from the owning Environment's Model Selection Service.
+- `bot-config.v3.json`: configuração persistente de bots. A forma de topo é `{ "version": 3, "bots": [] }`.
+- `bot-state.v3.json`: estado de runtime atual, chaveado por id de bot. Armazena o workspace ativo, o modo rascunho/tarefa, a tarefa ativa, permissões pendentes, o offset do Telegram e a hora de atualização.
+- `bot-config.json` / `bot-state.v2.json` / `bot-state.json`: entradas de upgrade único, mantidas sem alteração para rollback.
+- Os antigos arquivos `bots-model-cache*.json` não são mais lidos nem escritos. As escolhas de modelo vêm do Model Selection Service do Environment proprietário.
 
-Secrets still live in `CredentialService`; config files only store refs such as `credentialRef` and `webhookSecretRef`.
+Os segredos continuam morando no `CredentialService`; os arquivos de configuração só guardam referências como `credentialRef` e `webhookSecretRef`.
 
-Workspace isolation uses:
+O isolamento de workspace usa:
 
 ```ts
 workspaceKey = workspaceIdentity?.trim() || workspacePath;
 ```
 
-Path execution and display continue to use `workspacePath`.
+A execução e a exibição de caminhos continuam usando `workspacePath`.
 
-Remote workspace execution is guarded by an injectable runtime connector. A disconnected remote workspace never reconnects as a side effect of a plain message, task command, config command, or permission response. Those commands return a stable "remote disconnected" reply and do not execute. Only `/reconnect` / `/重连` asks the runtime connector to reconnect the selected remote workspace. This prevents a remote bot message from silently falling back to a local workspace with the same path or unexpectedly opening a remote runtime.
+A execução em workspace remoto é protegida por um conector de runtime injetável. Um workspace remoto desconectado nunca reconecta como efeito colateral de uma mensagem comum, de um comando de tarefa, de um comando de configuração ou de uma resposta de permissão. Esses comandos devolvem uma resposta estável de "remoto desconectado" e não executam. Apenas `/reconnect` / `/重连` pede ao conector de runtime que reconecte o workspace remoto selecionado. Isso evita que uma mensagem de um bot remoto caia silenciosamente em um workspace local com o mesmo caminho ou abra inesperadamente um runtime remoto.
 
-## Bot Config
+## Config do Bot
 
-Each bot contains:
+Cada bot contém:
 
 - `id`, `name`, `provider`, `enabled`
-- Provider credentials and provider-specific fields such as `credentialRef`, `webhookUrl`, `feishuAppId`
-- A single bound actor: `providerUserId` and `displayName`
-- `allowedWorkspaces`, where `["*"]` allows every known workspace
+- Credenciais do provider e campos específicos do provider, como `credentialRef`, `webhookUrl`, `feishuAppId`
+- Um único ator vinculado: `providerUserId` e `displayName`
+- `allowedWorkspaces`, onde `["*"]` permite qualquer workspace conhecido
 - `allowedCommands`: `status`, `new`, `workspace`, `model`, `mode`, `thoughtLevel`, `sandboxMode`, `approvalPolicy`, `reply`
-- `currentOptions`: `modelSelection`, `mode`, `sandboxMode`, `approvalPolicy`; reasoning is stored in `modelSelection.options.reasoningLevel`.
-- `replyMode`: `assistant_changes`, `assistant_toolcalls_changes`, `summary_changes`, or `streaming_card`. Feishu / Lark only support `streaming_card`; old Feishu / Lark configs with another value are normalized back to `streaming_card`. Every other provider only supports the three non-card granularities; `streaming_card` is excluded from Settings and `/reply`, and copied or legacy values are normalized to `assistant_changes`.
+- `currentOptions`: `modelSelection`, `mode`, `sandboxMode`, `approvalPolicy`; o raciocínio é armazenado em `modelSelection.options.reasoningLevel`.
+- `replyMode`: `assistant_changes`, `assistant_toolcalls_changes`, `summary_changes` ou `streaming_card`. Feishu / Lark suportam apenas `streaming_card`; configs antigas de Feishu / Lark com outro valor são normalizadas de volta para `streaming_card`. Todos os outros providers suportam apenas as três granularidades sem cartão; `streaming_card` é excluído das Settings e de `/reply`, e valores copiados ou legados são normalizados para `assistant_changes`.
 
-## Feishu / Lark SDK loading
+## Carregamento do SDK do Feishu / Lark
 
-The shared Feishu/Lark provider loads `@larksuiteoapi/node-sdk` only when starting a
-WebSocket connection with a valid App ID and available credentials. Importing the
-provider, constructing adapters, rendering cards, and using the existing HTTP
-request paths must not load the SDK. Node's module cache owns the loaded module;
-the provider does not maintain a second SDK cache or promise lifecycle.
+O provider compartilhado de Feishu/Lark carrega `@larksuiteoapi/node-sdk` apenas ao iniciar uma
+conexão WebSocket com um App ID válido e credenciais disponíveis. Importar o
+provider, construir adaptadores, renderizar cartões e usar os caminhos de requisição
+HTTP existentes não devem carregar o SDK. O cache de módulos do Node é dono do módulo
+carregado; o provider não mantém um segundo cache de SDK nem um ciclo de vida de promises.
 
 ```text
 channel runtime starts connection
@@ -48,73 +48,64 @@ channel runtime starts connection
   → construct SDK client → existing ready/reconnect/close lifecycle
 ```
 
-If cancellation arrives while the module is loading, startup rejects without
-constructing a client. Feishu and Lark retain their respective domains and share
-the same loading path. Closing a connection releases its existing resources but
-does not promise to unload the SDK module. This changes loading cost only; Bot,
-desktop continuous, and mobile replayable routing remain unchanged.
+Se o cancelamento chegar enquanto o módulo está carregando, a inicialização rejeita sem
+construir um client. Feishu e Lark mantêm seus respectivos domínios e compartilham o
+mesmo caminho de carregamento. Fechar uma conexão libera seus recursos existentes, mas
+não promete descarregar o módulo do SDK. Isso altera apenas o custo de carregamento; Bot,
+desktop continuous e o roteamento mobile replayable permanecem inalterados.
 
-Acceptance: provider-only and HTTP/card operations do not evaluate the SDK;
-the first valid connection loads it; invalid credentials and pre-cancelled
-startup do not load it; cancellation during loading never starts a late client;
-both domains and the existing ready/reconnect/timeout/close paths still work.
+Aceitação: operações apenas de provider e HTTP/cartão não avaliam o SDK;
+a primeira conexão válida o carrega; credenciais inválidas e inicialização
+pré-cancelada não o carregam; cancelamento durante o carregamento nunca inicia um
+client tardio; ambos os domínios e os caminhos existentes de ready/reconnect/timeout/close
+continuam funcionando.
 
-## Binding
+## Bind
 
-`/bind <code>` binds a private actor to a specific bot id. Rebinding overwrites that bot's `providerUserId` and `displayName`; it does not append another user. Unbound bots only accept `/bind`; ordinary messages and other commands are ignored or rejected.
+`/bind <code>` vincula um ator privado a um id de bot específico. Revincular sobrescreve o `providerUserId` e o `displayName` daquele bot; não acrescenta outro usuário. Bots não vinculados aceitam apenas `/bind`; mensagens comuns e outros comandos são ignorados ou rejeitados.
 
-At runtime, authorization resolves exactly one enabled bot by:
+Em runtime, a autorização resolve exatamente um bot habilitado por:
 
 ```ts
 provider + providerUserId;
 ```
 
-Feishu/Lark ordinary groups and dedicated topic groups support explicitly enabled collaborative sessions. Topics bind independent tasks; only @ mentions trigger work, and `/history on` opts a group into incremental topic background. Other providers retain their existing behavior. See
-[Feishu group collaboration](bots-feishu-group-collaboration.md) for the normative
-group authorization, input, queue, delivery and lifecycle contract.
+Grupos comuns de Feishu/Lark e grupos de tópico dedicados suportam sessões colaborativas explicitamente habilitadas. Tópicos vinculam tarefas independentes; apenas menções @ disparam trabalho, e `/history on` coloca um grupo em background incremental de tópico. Outros providers mantêm seu comportamento existente. Veja
+[colaboração em grupo do Feishu](bots-feishu-group-collaboration.md) para o contrato normativo
+de autorização de grupo, entrada, fila, entrega e ciclo de vida.
 
-## Settings UI
+## UI de Settings
 
-The Bots dialog right pane follows the same row structure as Settings General: each setting is a full-width row with the label and description on the left, and the input, select, or button group on the right. Provider setup, allowed workspaces, identity, and reply mode all reuse the shared settings row components so control height and spacing stay consistent. Reply mode shows a dynamic subtitle that explains the currently selected granularity: standard replies focus on assistant text and file changes, full replies include tool-call progress, summary replies only send the final result plus change summary, and streaming card replies update one Feishu / Lark card in place. A Feishu / Lark task using streaming-card replies keeps ordinary Agent output independent from blocking interactions. AskUserQuestion, permission, and Plan approval use one current interaction message. Before an interaction is shown, the current streaming card is sealed: its accumulated content remains visible, its running status is removed, and later Agent output must create a new streaming card. Question progress only replaces the current interaction message and never copies the question, answers, or plan back into either streaming card. A pending AskUserQuestion card lists only previously submitted questions and their answers, followed by a divider and the current unanswered question; draft selections for the current question stay in its controls instead of appearing as answered history. The completed card lists every submitted question and answer. For a Feishu/Lark WebSocket card action, BotService first advances the authoritative interaction state and returns the complete outbound message to the transport. The action handler synchronously renders that exact message as `card.raw`, including accumulated answers, the current question, controls, and the new question token. That synchronous response is the only card write for the click: it does not also call `card_update_token`, PATCH the message, synthesize a card from `zcodeCardText`, send a replacement message, or recall the original. Resolving or cancelling the interaction returns the same card as a button-free, read-only result and retains it in chat. Task termination also retains the last interaction card as a read-only terminal result. Feishu and Lark only show streaming card in this selector because their high-quality bot reply path depends on Card JSON 2.0 updates. Telegram, Weixin, webhook, and all other providers only show standard, full, and summary replies; they never expose streaming card. Feishu and Lark channel names in the Bots dialog and Mobile Remote Control bot-channel cards show the same compact region tags as Welcome Screen: Feishu uses BigModel's `中国` / `CN` tag, and Lark uses Z.AI's `全球` / `Global` tag. These tags are display-only and do not affect provider routing.
+O painel direito do diálogo de Bots segue a mesma estrutura de linhas de Settings General: cada configuração é uma linha de largura total com o rótulo e a descrição à esquerda, e o input, select ou grupo de botões à direita. Setup de provider, workspaces permitidos, identidade e modo de resposta reutilizam os componentes compartilhados de linha de settings, para que a altura dos controles e o espaçamento permaneçam consistentes. O modo de resposta mostra um subtítulo dinâmico que explica a granularidade selecionada: respostas padrão focam no texto do assistente e nas alterações de arquivo, respostas completas incluem o progresso das chamadas de ferramenta, respostas de resumo enviam apenas o resultado final mais o resumo de alterações, e respostas de cartão em streaming atualizam um único cartão do Feishu / Lark no lugar. Uma tarefa do Feishu / Lark usando respostas de cartão em streaming mantém a saída comum do Agent independente de interações bloqueantes. AskUserQuestion, permissões e aprovação de plano usam uma única mensagem de interação atual. Antes de uma interação ser exibida, o cartão de streaming atual é selado: seu conteúdo acumulado continua visível, seu status em execução é removido, e a saída posterior do Agent precisa criar um novo cartão de streaming. O progresso de perguntas apenas substitui a mensagem de interação atual e nunca copia a pergunta, as respostas ou o plano de volta para qualquer dos cartões de streaming. Um cartão de AskUserQuestion pendente lista somente perguntas já submetidas e suas respostas, seguido de um divisor e da pergunta atual sem resposta; seleções de rascunho para a pergunta atual ficam em seus controles, em vez de aparecerem como histórico respondido. O cartão concluído lista todas as perguntas e respostas submetidas. Para uma ação de cartão WebSocket do Feishu/Lark, o BotService primeiro avança o estado autoritativo da interação e devolve a mensagem de saída completa ao transporte. O handler da ação renderiza sincronamente essa mensagem exata como `card.raw`, incluindo respostas acumuladas, a pergunta atual, os controles e o novo token da pergunta. Essa resposta síncrona é a única escrita de cartão para o clique: ela também não chama `card_update_token`, não faz PATCH da mensagem, não sintetiza um cartão a partir de `zcodeCardText`, não envia uma mensagem substituta e não revoga a original. Resolver ou cancelar a interação devolve o mesmo cartão como um resultado somente leitura e sem botões, e o mantém no chat. O encerramento da tarefa também mantém o último cartão de interação como resultado terminal somente leitura. Feishu e Lark mostram apenas cartão em streaming neste seletor, porque seu caminho de resposta de bot de alta qualidade depende de atualizações Card JSON 2.0. Telegram, Weixin, webhook e todos os outros providers mostram apenas respostas padrão, completas e de resumo; nunca expõem cartão em streaming. Os nomes de canal de Feishu e Lark no diálogo de Bots e nos cartões de canal de bot do Controle Remóvel Mobile mostram as mesmas tags compactas de região da Welcome Screen: Feishu usa a tag `中国` / `CN` da BigModel, e o Lark usa a tag `全球` / `Global` da Z.AI. Essas tags são apenas de exibição e não afetam o roteamento por provider.
 
-Provider setup intentionally hides stored secret values. Telegram shows a fixed BotFather QR code alongside the token input before a secret is saved; after saving it automatically advances to the private-chat bind code until the bot is connected. Feishu / Lark start with QR authorization for app credentials, then automatically show the private-chat bind code. Weixin starts with QR login; successful QR login saves the bot token and clears the QR detail panel. Because Weixin QR login returns bot credentials rather than the scanning user's deliverable chat id, the user must send any first message in Weixin to activate the chat. That first activation message receives a welcome/help reply and is not sent to ZCode task flow as a prompt.
+O setup de provider esconde deliberadamente os valores de segredos armazenados. O Telegram mostra um QR code fixo do BotFather ao lado do input do token antes de um segredo ser salvo; após salvar, avança automaticamente para o código de bind de chat privado até o bot ser conectado. Feishu / Lark começam com autorização por QR para credenciais do app e depois mostram automaticamente o código de bind de chat privado. Weixin começa com login por QR; um login por QR bem-sucedido salva o token do bot e limpa o painel de detalhes do QR. Como o login por QR do Weixin retorna credenciais do bot em vez do id de chat entregável do usuário que escaneou, o usuário precisa enviar qualquer primeira mensagem no Weixin para ativar o chat. Essa primeira mensagem de ativação recebe uma resposta de boas-vindas/ajuda e não é enviada ao fluxo de tarefas do ZCode como um prompt.
 
-Webhook setup is available from the new bot provider list and provider settings surface. Feishu and Lark are both first-class new bot entries. They share the same provider implementation and registration flow, but the selected provider id must be preserved because it chooses the OpenAPI domain (`open.feishu.cn` for Feishu, `open.larksuite.com` for Lark). DingTalk is shown there only as a coming-soon channel.
+O setup de webhook está disponível na nova lista de providers de bot e na superfície de configurações de provider. Feishu e Lark são ambas entradas de primeira classe na nova lista de bots. Elas compartilham a mesma implementação de provider e o mesmo fluxo de registro, mas o id de provider selecionado precisa ser preservado, porque ele escolhe o domínio da OpenAPI (`open.feishu.cn` para Feishu, `open.larksuite.com` para Lark). O DingTalk aparece ali apenas como um canal "em breve".
 
-## Commands
+## Comandos
 
-- `/status`: reports current workspace, model, task, and runtime state. Custom model providers are shown with their display name, for example `My Provider/my-model`, instead of the internal provider id.
-- `/new` / `/clear`: clears the active task in `bot-state.v3.json` and returns to draft.
-- `/project` / `/workspace` / `/项目`: lists allowed workspaces. Selecting one updates the resolved workspace fields in `bot-state.v3.json`.
-- `/reconnect` / `/重连`: reconnects the currently selected remote workspace. This is the only command with remote connection side effects.
-- `/model`: lists and updates `currentOptions.model`. The provider/model choices are built from
-  target Environment's `ModelSelectionService.getView()` on every menu open. Local workspaces read
-  the Local Environment View; remote workspaces read the Remote Environment View. `/model` keeps a
-  two-level provider -> model flow; it must not synthesize a provider from the active CLI name,
-  deserialize a Provider Registry snapshot, or render directly from persisted Bot caches. Provider
-  and model callbacks carry the real Registry identity. A callback from an expired card is rejected
-  and asks the user to reopen `/model`. `bots-model-cache.v2.json` stores workspace config options
-  only; Provider/Model configuration and credentials are not persisted by the Bot service.
-  A successful empty Selection View clears the in-memory Bot provider menu. Only an actual read
-  failure may reuse the last in-memory View; an empty View must not keep deleted or disabled models
-  selectable.
-- `/mode` / `/模式`: lists and updates `currentOptions.mode`. This is the same ZCode task mode surface used by the UI composer; provider internals own any sandbox or approval mapping.
-- `/think` / `/thoughtLevel` / `/思考`: lists and updates `currentOptions.thoughtLevel`.
-- `/cli`: lists and updates `currentOptions.cli`.
-- `/reply` / `/回复`: lists and updates `replyMode`.
-- `/stop` / `/停止`: stops the active task generation.
+- `/status`: relata o workspace, o modelo, a tarefa e o estado de runtime atuais. Providers de modelo customizados são exibidos com seu nome de exibição, por exemplo `My Provider/my-model`, em vez do id interno do provider.
+- `/new` / `/clear`: limpa a tarefa ativa em `bot-state.v3.json` e volta para rascunho.
+- `/project` / `/workspace` / `/项目`: lista os workspaces permitidos. Selecionar um atualiza os campos de workspace resolvidos em `bot-state.v3.json`.
+- `/reconnect` / `/重连`: reconecta o workspace remoto atualmente selecionado. Este é o único comando com efeitos colaterais de conexão remota.
+- `/model`: lista e atualiza `currentOptions.model`. As escolhas de provider/modelo são construídas a partir do `ModelSelectionService.getView()` do Environment alvo a cada abertura de menu. Workspaces locais leem a Local Environment View; workspaces remotos leem a Remote Environment View. `/model` mantém um fluxo de dois níveis provider -> modelo; ele não deve sintetizar um provider a partir do nome de CLI ativo, desserializar um snapshot do Provider Registry, nem renderizar diretamente a partir de caches de bot persistidos. Os callbacks de provider e modelo carregam a identidade real do Registry. Um callback de um cartão expirado é rejeitado e pede ao usuário para reabrir `/model`. `bots-model-cache.v2.json` armazena apenas as opções de configuração do workspace; configuração e credenciais de Provider/Model não são persistidas pelo serviço de Bot. Uma Selection View vazia bem-sucedida limpa o menu de provider de bot em memória. Apenas uma falha real de leitura pode reutilizar a última View em memória; uma View vazia não pode manter modelos excluídos ou desabilitados selecionáveis.
+- `/mode` / `/模式`: lista e atualiza `currentOptions.mode`. Esta é a mesma superfície de modo de tarefa do ZCode usada pelo composer da UI; os internos do provider são dono de qualquer mapeamento de sandbox ou aprovação.
+- `/think` / `/thoughtLevel` / `/思考`: lista e atualiza `currentOptions.thoughtLevel`.
+- `/cli`: lista e atualiza `currentOptions.cli`.
+- `/reply` / `/回复`: lista e atualiza `replyMode`.
+- `/stop` / `/停止`: interrompe a geração da tarefa ativa.
 
-Configuration commands write to `bot-config.v3.json`, so the next third-party message immediately uses the updated options. Runtime flow such as active task, pending permissions, and Telegram offset writes only to `bot-state.v3.json`.
+Comandos de configuração escrevem em `bot-config.v3.json`, de modo que a próxima mensagem de terceiros já usa as opções atualizadas. O fluxo de runtime, como tarefa ativa, permissões pendentes e offset do Telegram, escreve apenas em `bot-state.v3.json`.
 
-Plain messages behave like the UI input:
+Mensagens comuns se comportam como o input da UI:
 
-- In draft mode, or when no active task exists, the message creates a new ZCode task and becomes the first prompt.
-- Draft model selection invalidates the previously inherited thought level. When the first message creates a task, mode and thought-level validation uses that task's model-specific config options rather than the workspace's previous-model snapshot. Unsupported inherited values are skipped. If initial configuration still fails, the provisional task is deleted before Bot state leaves draft mode, so switching model providers cannot strand an empty active task.
-- In task mode, the message is sent to the active task.
-- Before an ordinary message reuses an active task, query the selected workspace's deleted-task tombstones through its task service (including `workspaceIdentity`). A confirmed deleted task returns the Bot to draft, clears pending permissions/questions/selections, and creates a fresh task for this same message. A task missing from a filtered list, or only archived/pinned, is not evidence of deletion; read failures must not trigger creation.
-- Once the replacement is created and bound, send one localized notice: “原任务已删除，已为你新建任务。本条消息将在新任务中处理，不会继承原任务的对话上下文。” Then process the original message exactly once. Notice delivery is best effort: log failures without releasing the inbound deduplication claim or rerunning the model. Record the old/new task IDs in the host log, and use the existing created/prompt broadcasts for Desktop visibility. New-task configuration failure keeps draft state and must not claim a replacement succeeded.
-- This recovery applies to ordinary messages only. Old permission/card callbacks retain their expired-session behavior. It does not reconnect remote workspaces or alter Desktop continuous / mobile replayable delivery boundaries.
-- Todo103 integration: replacement creation must reuse the current draft initialization and public Model Selection View, then freeze that effective selection across V4 create/configure/first send. Do not restore the staging model/thoughtLevel fields or a second Bot-owned bound selection. A non-deleted bound Session continues to follow Todo99's Session-persisted selection for its next idle input.
+- No modo rascunho, ou quando não existe tarefa ativa, a mensagem cria uma nova tarefa do ZCode e se torna o primeiro prompt.
+- A seleção de modelo do rascunho invalida o nível de pensamento herdado anteriormente. Quando a primeira mensagem cria uma tarefa, a validação de modo e nível de pensamento usa as opções de configuração específicas do modelo daquela tarefa, em vez do snapshot do modelo anterior do workspace. Valores herdados não suportados são ignorados. Se a configuração inicial ainda falhar, a tarefa provisória é apagada antes de o estado do Bot sair do modo rascunho, para que trocar de provider de modelo não possa deixar uma tarefa ativa vazia.
+- No modo tarefa, a mensagem é enviada para a tarefa ativa.
+- Antes de uma mensagem comum reutilizar uma tarefa ativa, consulte as lápides de tarefas excluídas do workspace selecionado através do serviço de tarefas dele (incluindo `workspaceIdentity`). Uma tarefa excluída confirmada devolve o Bot ao rascunho, limpa permissões/perguntas/seleções pendentes e cria uma tarefa nova para esta mesma mensagem. Uma tarefa ausente de uma lista filtrada, ou apenas arquivada/pinada, não é evidência de exclusão; falhas de leitura não devem disparar criação.
+- Uma vez que a substituição é criada e vinculada, envie um único aviso localizado: “原任务已删除，已为你新建任务。本条消息将在新任务中处理，不会继承原任务的对话上下文。” Depois processe a mensagem original exatamente uma vez. A entrega do aviso é de melhor esforço: registre falhas sem liberar a reivindicação de deduplicação de entrada nem reexecutar o modelo. Registre os ids de tarefa antigo/novo no log do host e use as difusões existentes de criação/prompt para a visibilidade no Desktop. Uma falha de configuração de nova tarefa mantém o estado de rascunho e não pode afirmar que a substituição teve sucesso.
+- Essa recuperação se aplica apenas a mensagens comuns. Callbacks antigos de permissão/cartão mantêm seu comportamento de sessão expirada. Ela não reconecta workspaces remotos nem altera os limites de entrega desktop continuous / mobile replayable.
+- Integração do Todo103: a criação da substituição precisa reutilizar a inicialização atual do rascunho e a Model Selection View pública, e então congelar essa seleção efetiva ao longo de create/configure/primeiro envio do V4. Não restaure os campos de staging model/thoughtLevel nem uma segunda seleção vinculada pertencente ao Bot. Uma Session vinculada que não foi excluída continua seguindo a seleção persistida na Session do Todo99 para sua próxima entrada ociosa.
 
 ```text
 ordinary message -> authorized workspace task service -> deleted-task tombstone?
@@ -123,14 +114,14 @@ ordinary message -> authorized workspace task service -> deleted-task tombstone?
       -> created broadcast -> one best-effort notice -> original prompt once
 ```
 
-- If the active task is running, the message is rejected until the task is ready or `/new` is used.
-- If the selected workspace is remote and disconnected, the message is rejected and tells the user to send `/reconnect` first. The original message is not replayed after reconnect.
+- Se a tarefa ativa está em execução, a mensagem é rejeitada até que a tarefa fique pronta ou até que `/new` seja usado.
+- Se o workspace selecionado é remoto e está desconectado, a mensagem é rejeitada e informa ao usuário para enviar `/reconnect` primeiro. A mensagem original não é reproduzida após a reconexão.
 
-## Scheduled-task result delivery
+## Entrega de resultado de tarefa agendada
 
-When a Feishu, Lark, or Weixin Bot turn creates an automation through `CronCreate`, the Host records a private delivery target together with the automation definition. The delivery target contains only the provider, Bot id, stable chat target, and private/group chat kind. It never contains the inbound message id or temporary provider context token, because those values belong to the creation message and are not valid routing identifiers for a future run.
+Quando um turno de Bot do Feishu, Lark ou Weixin cria uma automação através de `CronCreate`, o Host registra um alvo de entrega privado junto com a definição da automação. O alvo de entrega contém apenas o provider, o id do Bot, o alvo de chat estável e o tipo de chat privado/grupo. Nunca contém o id da mensagem de entrada nem o token temporário de contexto do provider, porque esses valores pertencem à mensagem de criação e não são identificadores de roteamento válidos para uma execução futura.
 
-The delivery target is trusted turn metadata injected by `BotsService`; it is not part of the model-visible `CronCreate` arguments and the model cannot choose another Bot or chat. A normal desktop/mobile UI turn does not inject this metadata and therefore does not acquire Bot delivery as a side effect.
+O alvo de entrega é metadata de turno confiável injetada por `BotsService`; não faz parte dos argumentos de `CronCreate` visíveis pelo modelo, e o modelo não pode escolher outro Bot ou chat. Um turno normal de UI desktop/mobile não injeta essa metadata e portanto não adquire entrega de Bot como efeito colateral.
 
 ```text
 Feishu / Weixin inbound message
@@ -146,18 +137,18 @@ Scheduler claims a run
   -> final result or failure is sent to the original Bot chat
 ```
 
-Delivery semantics:
+Semântica de entrega:
 
-- Scheduled and manual runs of a Bot-origin automation both deliver their terminal result to the original chat.
-- The scheduler registers the Bot subscription before sending the prompt, so a fast terminal event cannot beat the listener.
-- Automation delivery uses `summary_changes`: intermediate assistant chunks and tool traces do not create extra chat messages; completion sends the final assistant result plus change summary, and failure sends one localized failure message.
-- The persisted target survives application restart. Workspace isolation still uses `workspaceIdentity?.trim() || workspacePath`; filesystem execution continues to use `workspacePath`.
-- If the Bot was deleted, disabled, changed provider, lost credentials, or the provider send fails, the service records a throttled warning and leaves automation dispatch/outcome settlement untouched. Bot delivery is best-effort and is not a scheduler retry authority.
-- This path keeps the existing `bot-channel-continuous` stream. It does not create a second Agent runtime and does not reuse or weaken mobile `web-remote-replayable` snapshot/gap recovery.
+- Execuções agendadas e manuais de uma automação originada em um Bot entregam seu resultado terminal ao chat original.
+- O scheduler registra a assinatura do Bot antes de enviar o prompt, para que um evento terminal rápido não chegue antes do listener.
+- A entrega de automação usa `summary_changes`: chunks intermediários do assistente e rastros de ferramenta não criam mensagens de chat extras; a conclusão envia o resultado final do assistente mais o resumo de alterações, e a falha envia uma única mensagem localizada de falha.
+- O alvo persistido sobrevive ao reinício do aplicativo. O isolamento de workspace ainda usa `workspaceIdentity?.trim() || workspacePath`; a execução no sistema de arquivos continua usando `workspacePath`.
+- Se o Bot foi apagado, desabilitado, teve o provider alterado, perdeu credenciais, ou o envio pelo provider falhou, o serviço registra um aviso com limitação de frequência e deixa o despacho da automação e o acerto de desfecho intactos. A entrega de Bot é de melhor esforço e não é uma autoridade de retry do scheduler.
+- Este caminho mantém o stream `bot-channel-continuous` existente. Não cria um segundo runtime de Agent e não reutiliza nem enfraquece a recuperação por snapshot/lacuna do `web-remote-replayable` do mobile.
 
 ## AskUserQuestion / Elicitation
 
-ZCode Agent AskUserQuestion is bridged through ZCode Protocol elicitation request/response events. Bot runtime stores the pending request in `bot-state.v3.json` with task id, request id, run id, normalized questions, current question index, and collected answers. The response payload matches the UI shape:
+O AskUserQuestion do ZCode Agent é conectado por eventos de requisição/resposta de elicitation do ZCode Protocol. O runtime de bot armazena a requisição pendente em `bot-state.v3.json` com o id da tarefa, o id da requisição, o id do run, as perguntas normalizadas, o índice da pergunta atual e as respostas coletadas. O payload de resposta tem a mesma forma da UI:
 
 ```json
 {
@@ -167,19 +158,19 @@ ZCode Agent AskUserQuestion is bridged through ZCode Protocol elicitation reques
 }
 ```
 
-`ExitPlanMode` uses the same response mechanism with a dedicated presentation on every channel. Feishu / Lark render the complete plan in a card, followed by a native divider, the localized review prompt (`请审阅此实施计划。` / `Review this implementation plan.`), and the localized approval and custom-answer buttons. Telegram renders the same content as message text with native inline buttons. Weixin renders it as numbered plain text, and webhook includes both the complete text and structured elicitation schema. Plan approval does not render the generic `提问` / `Plan` headings or a separate approval-description line. Only the `plan` field is projected into the Bot elicitation schema; arbitrary permission input is not exposed, and the desktop approval dialog keeps its independent presentation boundary.
+`ExitPlanMode` usa o mesmo mecanismo de resposta com uma apresentação dedicada em cada canal. Feishu / Lark renderizam o plano completo em um cartão, seguido por um divisor nativo, o prompt de revisão localizado (`请审阅此实施计划。` / `Review this implementation plan.`) e os botões localizados de aprovação e de resposta customizada. O Telegram renderiza o mesmo conteúdo como texto de mensagem com botões inline nativos. O Weixin renderiza como texto simples numerado, e o webhook inclui tanto o texto completo quanto o schema de elicitation estruturado. A aprovação de plano não renderiza os títulos genéricos `提问` / `Plan` nem uma linha separada de descrição de aprovação. Apenas o campo `plan` é projetado no schema de elicitation do Bot; input de permissão arbitrário não é exposto, e o diálogo de aprovação do desktop mantém seu limite de apresentação independente.
 
-The live protocol request carries metadata in `schema` and the plan body separately in `input`. The service projection must merge only `input.plan` into a `schema.interaction === "plan_approval"` elicitation. A generic `schema ?? input` choice drops the plan whenever metadata is present and causes Feishu / Lark to fall back to the incorrect `Question / Plan` card.
+A requisição de protocolo ao vivo carrega a metadata em `schema` e o corpo do plano separadamente em `input`. A projeção do serviço precisa mesclar apenas `input.plan` em uma elicitation com `schema.interaction === "plan_approval"`. Uma escolha genérica `schema ?? input` descarta o plano sempre que houver metadata presente e faz Feishu / Lark recorrerem ao cartão incorreto `Question / Plan`.
 
-Plan approval rendering metadata is part of the persisted pending elicitation state. Every in-place card update, including custom-answer expansion, form validation, restart recovery, approval, and cancellation, reconstructs the same restricted `{ interaction: "plan_approval", plan }` schema from that state. Raw permission input is never persisted as Bot render metadata.
+A metadata de renderização da aprovação de plano faz parte do estado de elicitation pendente persistido. Toda atualização de cartão no lugar, incluindo a expansão da resposta customizada, a validação do formulário, a recuperação após reinício, a aprovação e o cancelamento, reconstrói o mesmo schema restrito `{ interaction: "plan_approval", plan }` a partir desse estado. Input de permissão bruto nunca é persistido como metadata de renderização do Bot.
 
-Provider interaction:
+Interação por provider:
 
-- Telegram uses inline buttons. Single-select answers submit immediately; multi-select answers toggle options and use `Done` to submit. Callback data only carries short numeric indexes. When interactive text exceeds Telegram's single-message limit, the inline keyboard is attached to the final chunk containing the decision prompt, never an earlier context chunk.
-- Feishu / Lark use one Card JSON 2.0 interactive card for the whole AskUserQuestion lifecycle. The current question is rendered as flat choices instead of dropdowns. Single-select questions use radio-style rows: clicking a preset answer submits it immediately, while clicking `自定义回答` only updates the original card and expands the bottom custom input with submit/cancel controls. Multi-select questions use checkbox-style rows: clicking a preset answer toggles the draft and refreshes the original card, while clicking `自定义回答` toggles the custom input; users submit all checked answers with the form submit button. Submitting the form sends `/elicitation <token> __form__:<payload>` back through the normal callback path, so stale cards are rejected by the same token check as choice callbacks. For multi-select questions, non-empty custom input is appended to the selected checkbox choices. The top `<answers>` section renders completed answers as h4 markdown titles, such as `#### 1/2 Question`, followed by answer text. Answer blocks are separated only by spacing. If a pending card already has answers, a native Card JSON 2.0 `hr` divider separates `<answers>` from the current `#### 提问` area. When all questions are answered, the same card is updated to a final state with the complete answers only: no form, no buttons, and no extra completion copy.
-- Weixin uses numbered plain text. Users reply with a number for single-select, comma-separated numbers or text for multi-select/custom answers, and `0` cancels.
-- Webhook sends structured outbound messages with `type: "zcode.bot.elicitation_request"` and an `elicitation` object containing `requestId`, `taskId`, `runId`, `currentQuestionIndex`, `questions`, and optional `schema`.
-- Webhook can respond with:
+- O Telegram usa botões inline. Respostas de seleção única submetem imediatamente; respostas de múltipla seleção alternam as opções e usam `Done` para submeter. O callback data carrega apenas índices numéricos curtos. Quando o texto interativo excede o limite de mensagem única do Telegram, o teclado inline é anexado ao chunk final que contém o prompt de decisão, nunca a um chunk de contexto anterior.
+- Feishu / Lark usam um único cartão interativo Card JSON 2.0 para todo o ciclo de vida do AskUserQuestion. A pergunta atual é renderizada como escolhas planas em vez de dropdowns. Perguntas de seleção única usam linhas com estilo de rádio: clicar em uma resposta predefinida a submete imediatamente, enquanto clicar em `自定义回答` apenas atualiza o cartão original e expande o input customizado inferior com controles de enviar/cancelar. Perguntas de múltipla seleção usam linhas com estilo de checkbox: clicar em uma resposta predefinida alterna o rascunho e atualiza o cartão original, enquanto clicar em `自定义回答` alterna o input customizado; os usuários submetem todas as respostas marcadas com o botão de envio do formulário. Enviar o formulário manda `/elicitation <token> __form__:<payload>` de volta pelo caminho normal de callback, de modo que cartões obsoletos são rejeitados pela mesma verificação de token que os callbacks de escolha. Para perguntas de múltipla seleção, o input customizado não vazio é anexado às escolhas de checkbox marcadas. A seção `<answers>` superior renderiza as respostas concluídas como títulos markdown h4, como `#### 1/2 Question`, seguidos do texto da resposta. Blocos de resposta são separados apenas por espaçamento. Se um cartão pendente já tem respostas, um divisor nativo Card JSON 2.0 `hr` separa `<answers>` da área `#### 提问` atual. Quando todas as perguntas são respondidas, o mesmo cartão é atualizado para um estado final apenas com as respostas completas: sem formulário, sem botões e sem texto extra de conclusão.
+- O Weixin usa texto simples numerado. Os usuários respondem com um número para seleção única, números separados por vírgula ou texto para múltipla seleção/respostas customizadas, e `0` cancela.
+- O webhook envia mensagens de saída estruturadas com `type: "zcode.bot.elicitation_request"` e um objeto `elicitation` contendo `requestId`, `taskId`, `runId`, `currentQuestionIndex`, `questions` e `schema` opcional.
+- O webhook pode responder com:
 
 ```json
 {
@@ -194,32 +185,32 @@ Provider interaction:
 }
 ```
 
-Discord and WeCom remain reserved providers. Future Discord support should use select menus and modals; future WeCom support should prefer card buttons and fall back to the Weixin numbered-text flow.
+Discord e WeCom permanecem providers reservados. O suporte futuro a Discord deve usar menus de seleção e modais; o suporte futuro a WeCom deve preferir botões de cartão e recorrer ao fluxo de texto numerado do Weixin.
 
-## Attachments
+## Anexos
 
-Bots accept inbound attachments from every implemented provider. Provider adapters parse native media payloads into a common bot attachment shape; the service downloads or decodes the bytes, stores them under the ZCode app data directory in `bot-attachments/`, and never writes them into the user workspace.
+Bots aceitam anexos de entrada de todos os providers implementados. Os adaptadores de provider convertem payloads de mídia nativa em uma forma comum de anexo de bot; o serviço baixa ou decodifica os bytes, armazena-os sob o diretório de dados do app do ZCode em `bot-attachments/` e nunca os escreve no workspace do usuário.
 
-Attachment handling follows the ZCode prompt capability model:
+O tratamento de anexos segue o modelo de capacidade de prompt do ZCode:
 
-- Images become `ZCodePromptAttachment` entries with `kind: "image"` and are sent as ZCode image content when the active Agent supports image prompts.
-- Audio becomes `ZCodePromptAttachment` entries with `kind: "audio"` and is sent as ZCode audio content when the active Agent supports audio prompts.
-- Video and generic files are cached locally and appended to the prompt as file context with filename, MIME type, size, and local cache path.
-- A message can include up to 4 attachments, with a 5MB limit per attachment.
-- If the user sends attachments without text, the bot uses the default prompt: `请查看附件并根据内容协助我。`
+- Imagens viram entradas `ZCodePromptAttachment` com `kind: "image"` e são enviadas como conteúdo de imagem do ZCode quando o Agent ativo suporta prompts de imagem.
+- Áudio vira entrada `ZCodePromptAttachment` com `kind: "audio"` e é enviado como conteúdo de áudio do ZCode quando o Agent ativo suporta prompts de áudio.
+- Vídeo e arquivos genéricos são armazenados localmente e anexados ao prompt como contexto de arquivo, com nome de arquivo, tipo MIME, tamanho e caminho do cache local.
+- Uma mensagem pode incluir até 4 anexos, com limite de 5MB por anexo.
+- Se o usuário envia anexos sem texto, o bot usa o prompt padrão: `请查看附件并根据内容协助我。`
 
 ## Providers
 
-Bot user-facing text follows the current app locale from settings. Service-layer replies are formatted through the shared bot message catalog before they reach providers. Provider adapters must not introduce new hard-coded user-facing labels when rendering native UI such as buttons, card placeholders, Card JSON 2.0 status text, or text-only selection hints; those labels must either be preformatted by the service or receive the outbound message locale. Feishu / Lark Card JSON 2.0 replies therefore carry the locale alongside the outbound message or streaming-card state so provider-owned controls, AskUserQuestion forms, and streaming status lines stay in the same language as the rest of the bot reply. Protocol command names such as `/status`, `/workspace`, callback payloads, and provider API error diagnostics remain stable English identifiers.
+O texto de bot voltado ao usuário segue o idioma atual do app vindo das settings. As respostas da camada de serviço são formatadas pelo catálogo compartilhado de mensagens de bot antes de chegarem aos providers. Os adaptadores de provider não devem introduzir novos rótulos fixos voltados ao usuário ao renderizar UI nativa, como botões, placeholders de cartão, texto de status Card JSON 2.0 ou dicas de seleção só em texto; esses rótulos devem ser pré-formatados pelo serviço ou receber o idioma da mensagem de saída. Por isso, as respostas Card JSON 2.0 de Feishu / Lark carregam o idioma junto com a mensagem de saída ou o estado de cartão em streaming, para que controles pertencentes ao provider, formulários de AskUserQuestion e linhas de status em streaming permaneçam no mesmo idioma do resto da resposta do bot. Nomes de comando de protocolo como `/status`, `/workspace`, payloads de callback e diagnósticos de erro de API do provider permanecem identificadores estáveis em inglês.
 
-The existing provider adapters are reused:
+Os adaptadores de provider existentes são reutilizados:
 
-- Telegram: host-side long polling; offset is persisted in `bot-state.v3.json` under the bot id. Photo, document, video, audio, and voice messages are parsed as attachments and downloaded with `getFile`.
-- Weixin / 微信: built-in iLink client based on the Tencent openclaw-weixin protocol reference. ZCode starts QR login through `/ilink/bot/get_bot_qrcode`, saves the returned `bot_token` as the bot credential, long-polls `/ilink/bot/getupdates`, sends text with `/ilink/bot/sendmessage` using the `msg.item_list` payload, normalizes outbound multiline replies to hard text line breaks, fetches `typing_ticket` with `/ilink/bot/getconfig` before `/ilink/bot/sendtyping`, and persists `get_updates_buf` plus first-message activation state in `bot-state.v3.json`. Text and recognizable media items in `item_list` are split into message text and attachments. It does not require running an external openclaw-weixin gateway.
-- Webhook: inbound HTTP callback and optional outbound webhook reply.
-- Feishu and Lark are separate bot providers that share the same adapter. The provider id selects the OpenAPI domain (`open.feishu.cn` or `open.larksuite.com`), so bot config does not carry a separate `feishuDomain` field. Both use persistent WebSocket events, Card JSON 2.0 interactive card replies, `Typing` message reactions as the transient typing indicator fallback, and OpenAPI resource downloads for image/file/media attachments. The message API still sends `msg_type: "interactive"` with `content` as a JSON string, while the card payload declares `schema: "2.0"` and stores reply markdown/buttons under `body.elements`.
+- Telegram: long polling no lado do host; o offset é persistido em `bot-state.v3.json` sob o id do bot. Mensagens de foto, documento, vídeo, áudio e voz são convertidas em anexos e baixadas com `getFile`.
+- Weixin / 微信: cliente iLink embutido baseado na referência de protocolo openclaw-weixin da Tencent. O ZCode inicia o login por QR através de `/ilink/bot/get_bot_qrcode`, salva o `bot_token` retornado como credencial do bot, faz long polling em `/ilink/bot/getupdates`, envia texto com `/ilink/bot/sendmessage` usando o payload `msg.item_list`, normaliza respostas de saída multilinha em quebras de linha rígidas, busca `typing_ticket` com `/ilink/bot/getconfig` antes de `/ilink/bot/sendtyping` e persiste `get_updates_buf` mais o estado de ativação de primeira mensagem em `bot-state.v3.json`. Itens de texto e mídia reconhecíveis em `item_list` são divididos em texto de mensagem e anexos. Não exige rodar um gateway openclaw-weixin externo.
+- Webhook: callback HTTP de entrada e resposta opcional de webhook de saída.
+- Feishu e Lark são providers de bot separados que compartilham o mesmo adaptador. O id de provider seleciona o domínio da OpenAPI (`open.feishu.cn` ou `open.larksuite.com`), então a config de bot não carrega um campo `feishuDomain` separado. Ambos usam eventos WebSocket persistentes, respostas em cartão interativo Card JSON 2.0, reações de mensagem `Typing` como indicador de digitação transitório e downloads de recursos da OpenAPI para anexos de imagem/arquivo/mídia. A API de mensagens ainda envia `msg_type: "interactive"` com `content` como uma string JSON, enquanto o payload do cartão declara `schema: "2.0"` e armazena markdown/botões de resposta em `body.elements`.
 
-When `replyMode` is `streaming_card`, only Feishu and Lark use the mode-specific rendering. The task stream creates a Card JSON 2.0 message and updates that card as assistant text arrives and tool calls start or finish. A blocking interaction seals the current card and starts a new card segment for any later Agent output; the interaction itself is never part of a streaming-card timeline. The card body is a timeline of ordered blocks rather than one global text area plus one global tool area: assistant chunks append to the current `message` block; the first tool event after text opens a `tools` block; consecutive tool calls stay in the same `tools` block; the next assistant chunk opens a new `message` block. Tool calls are never expanded into raw inputs, outputs, stdout, stderr, JSON, or trace fields; they are summarized with the same compact summary formatter used by bot tool-call replies. Each contiguous tool run is rendered inside one tool-summary collapsible container so the card reads as `message`, `tool summaries`, `message`, `tool summaries`, `message` without becoming separate chat messages. The container uses the Card JSON 2.0 `collapsible_panel` as the `<tools>` shell: header shows `🛠️ Tool summaries (n)` with a right-side expand arrow, content holds the compact bullet list, and the panel carries a neutral background plus grey border for light and dark client themes. The latest tool block is expanded while its card segment is running; old tool blocks, sealed segments, and terminal cards are collapsed. Other providers keep their existing reply-mode behavior if they receive this value from old or copied config.
+Quando `replyMode` é `streaming_card`, apenas Feishu e Lark usam a renderização específica do modo. O stream da tarefa cria uma mensagem Card JSON 2.0 e atualiza esse cartão à medida que o texto do assistente chega e as chamadas de ferramenta começam ou terminam. Uma interação bloqueante sela o cartão atual e inicia um novo segmento de cartão para qualquer saída posterior do Agent; a própria interação nunca faz parte de uma timeline de cartão em streaming. O corpo do cartão é uma timeline de blocos ordenados, em vez de uma área de texto global mais uma área de ferramentas global: chunks do assistente são anexados ao bloco `message` atual; o primeiro evento de ferramenta depois de texto abre um bloco `tools`; chamadas de ferramenta consecutivas permanecem no mesmo bloco `tools`; o próximo chunk do assistente abre um novo bloco `message`. Chamadas de ferramenta nunca são expandidas em inputs brutos, outputs, stdout, stderr, JSON ou campos de trace; elas são resumidas com o mesmo formatador de resumo compacto usado pelas respostas de chamada de ferramenta do bot. Cada sequência contígua de ferramentas é renderizada dentro de um único contêiner recolhível de resumo de ferramenta, para que o cartão seja lido como `message`, `resumos de ferramenta`, `message`, `resumos de ferramenta`, `message` sem virar mensagens de chat separadas. O contêiner usa o `collapsible_panel` do Card JSON 2.0 como shell `<tools>`: o cabeçalho mostra `🛠️ Tool summaries (n)` com uma seta de expansão à direita, o conteúdo traz a lista compacta de bullets, e o painel tem fundo neutro mais borda cinza para temas claros e escuros. O bloco de ferramentas mais recente fica expandido enquanto seu segmento de cartão está em execução; blocos de ferramentas antigos, segmentos selados e cartões terminais ficam recolhidos. Outros providers mantêm seu comportamento de reply-mode existente se receberem esse valor de config antiga ou copiada.
 
 ```text
 Agent output A -> streaming card A (running)
@@ -235,29 +226,30 @@ Agent output A -> streaming card A (running)
                                +-> later Agent output -> streaming card B (running)
 ```
 
-Streaming-card provider failures follow the turn-local backoff and circuit-breaker
-contract in [Feishu Streaming Card Reliability](./bots-feishu-streaming-card-reliability.md).
-Forced tool or terminal updates cannot bypass this recovery boundary, and production
-logs identify the task event that triggered each failed write or opened the
-circuit.
+Falhas de provider no cartão em streaming seguem o contrato de backoff local ao turno e de
+disjuntor em
+[Confiabilidade do Cartão em Streaming do Feishu](./bots-feishu-streaming-card-reliability.md).
+Atualizações forçadas de ferramenta ou terminais não podem contornar esse limite de
+recuperação, e os logs de produção identificam o evento de tarefa que disparou cada escrita
+falhada ou abriu o circuito.
 
-Feishu / Lark does not expose a native bot typing-state API. The provider reads the inbound `message_id`, adds a `Typing` reaction while the ZCode task is running, and removes the reaction when the task completes, errors, stops, or waits on a permission request. If the callback payload lacks `message_id`, typing is skipped instead of sending a misleading chat-level signal.
+Feishu / Lark não expõe uma API nativa de estado de digitação de bot. O provider lê o `message_id` de entrada, adiciona uma reação `Typing` enquanto a tarefa do ZCode está em execução e remove a reação quando a tarefa é concluída, gera erro, é interrompida ou espera uma requisição de permissão. Se o payload do callback não tiver `message_id`, a digitação é ignorada em vez de enviar um sinal de nível de chat enganoso.
 
-Webhook inbound requests continue through:
+Requisições de entrada do webhook continuam passando por:
 
 ```text
 POST /api/bots/webhook
 ```
 
-The service, RPC service, HTTP route, persisted data, and UI all use the Bots naming.
+O serviço, o serviço RPC, a rota HTTP, os dados persistidos e a UI usam todos a nomenclatura Bots.
 
-### Feishu reply delivery diagnostics (ZCT-2096089929570893824)
+### Diagnóstico de entrega de resposta do Feishu (ZCT-2096089929570893824)
 
-- Only private inbound messages may create or advance tasks; group messages retain the existing private-chat-only response. Private delivery uses `open_id`; no speculative `chat_id` fallback or new retries.
-- Message create/update failures retain HTTP status, business `code`, `msg`, and `log_id` (response body first, response header fallback). Creation diagnostics include receive ID type, never credentials or message content.
-- `BotRuntimeInfo.deliveryError` tracks the latest failed Feishu/Lark message write independently of connection status. A successful message write clears it; a WebSocket reconnect does not. This state is volatile and shown in Bot settings with a localized delivery-failed label and diagnostic detail. While the dialog is open, status refreshes serially every two seconds after the preceding read completes; closing it cancels further polling and ignores late results.
-- Existing bounded streaming retry/circuit and task completion behavior remain unchanged. This change improves diagnosis; it does not claim to resolve the upstream rejection.
-- Bot streams remain `bot-channel-continuous`; desktop `desktop-continuous` and mobile `web-remote-replayable` boundaries and workspace routing do not change.
+- Apenas mensagens de entrada privadas podem criar ou avançar tarefas; mensagens de grupo mantêm a resposta existente de chat privado apenas. A entrega privada usa `open_id`; sem fallback especulativo de `chat_id` nem novas retentativas.
+- Falhas de criação/atualização de mensagens mantêm o status HTTP, o `code` de negócio, `msg` e `log_id` (corpo da resposta primeiro, header da resposta como reserva). Os diagnósticos de criação incluem o tipo de receive ID, nunca credenciais ou conteúdo de mensagem.
+- `BotRuntimeInfo.deliveryError` rastreia a escrita de mensagem do Feishu/Lark que falhou mais recentemente, independentemente do status de conexão. Uma escrita de mensagem bem-sucedida a limpa; uma reconexão WebSocket não. Esse estado é volátil e exibido nas configurações de Bot com um rótulo localizado de falha de entrega e detalhe de diagnóstico. Enquanto o diálogo está aberto, o status é atualizado serialmente a cada dois segundos após a leitura anterior terminar; fechá-lo cancela o polling posterior e ignora resultados atrasados.
+- A retentativa de streaming limitada existente e o comportamento de conclusão de tarefa permanecem inalterados. Esta mudança melhora o diagnóstico; não afirma resolver a rejeição upstream.
+- Os streams de Bot permanecem `bot-channel-continuous`; os limites de `desktop-continuous` do desktop e `web-remote-replayable` do mobile e o roteamento de workspace não mudam.
 
 ```text
 message write -> failure -> deliveryError -> Bot settings
@@ -265,37 +257,21 @@ message write -> failure -> deliveryError -> Bot settings
 WebSocket status ------------------------> connection status (independent)
 ```
 
-References: [send](https://open.feishu.cn/document/server-docs/im-v1/message/create.md), [reply](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md). Official send documentation recommends open_id for user recipients; no documented resolution for this ticket's error text was found.
+Referências: [send](https://open.feishu.cn/document/server-docs/im-v1/message/create.md), [reply](https://open.feishu.cn/document/server-docs/im-v1/message/reply.md). A documentação oficial de send recomenda open_id para destinatários usuário; nenhuma resolução documentada foi encontrada para o texto de erro deste ticket.
 
-## Provider 重构升级与回滚
+## Refatoração de providers, upgrade e rollback
 
-当前配置、状态内容版本均为 3。对应 v3 文件不存在时，Repository 单向导入旧
-`bot-config.json`、`bot-state.v2.json`（更早状态为 `bot-state.json`），立即写入 v3。
-旧文件仅为回滚保留，不修改、不删除、不持续双写。v3 存在后只读新字段，解析或 IO 错误
-直接暴露，不偷偷退回旧文件。旧模型按 Todo 72 的明确身份转换；无法确定时留空并保留 Bot。
-回滚后的旧 App 看到升级前 Bot 快照，不承诺看到新版新增、删除或修改的 Bot。
+A versão atual tanto da configuração quanto do conteúdo de estado é 3. Quando o arquivo v3 correspondente não existe, o Repository importa em uma única direção os antigos `bot-config.json` e `bot-state.v2.json` (estado anterior em `bot-state.json`) e grava v3 imediatamente. Os arquivos antigos são mantidos apenas para rollback, sem modificação, sem remoção e sem escrita dupla contínua. Depois que o v3 existe, apenas os novos campos são lidos, e erros de parsing ou de IO são expostos diretamente, sem voltar secretamente para os arquivos antigos. Modelos antigos são convertidos conforme a identidade explícita do Todo 72; quando não for possível determinar, o campo fica vazio e o Bot é preservado. O App antigo, após o rollback, vê o snapshot de bots de antes do upgrade e não promete ver bots adicionados, removidos ou modificados na versão nova.
 
-### Group reply delivery actions (2026-09-07)
+### Ações de entrega de respostas em grupo (2026-09-07)
 
-Desktop and mobile no longer display the persistent group-sync/shared-workspace
-banner above the composer. Group synchronization and source labels remain active.
-The composer has no delivery panel. Failed or uncertain deliveries expose a small
-localized icon beside the corresponding completed reply timestamp; clicking opens
-retry or reconciliation actions without repeating the reply body or sender ID.
-Successful and in-flight sends stay hidden. The group activation reply retains its
-shared-file disclosure. See the group collaboration spec for per-turn association
-and crash-safe delivery projection.
+Desktop e mobile não exibem mais a faixa persistente de sincronização de grupo/workspace compartilhado acima do composer. A sincronização de grupo e os rótulos de origem continuam ativos.
+O composer não tem painel de entrega. Entregas falhas ou incertas expõem um pequeno ícone localizado ao lado do carimbo de hora da resposta concluída correspondente; clicar abre ações de retentativa ou reconciliação sem repetir o corpo da resposta nem o id do remetente.
+Envios bem-sucedidos e em voo permanecem ocultos. A resposta de ativação de grupo mantém sua divulgação de arquivo compartilhado. Veja a especificação de colaboração em grupo para a associação por turno e a projeção de entrega segura contra crash.
 
-### Group task switching after stop (2026-09-07)
+### Troca de tarefa em grupo após parada (2026-09-07)
 
-Group switching reads the CLI control phase, queue and pending interactions. Cached
-Bot permission/question cards cannot independently block a new draft after stop.
-An idle CLI clears stale interaction records before switching; running, queued,
-and interaction-blocked states return distinct localized guidance. Disconnected
-remote workspaces still require explicit reconnect. Desktop continuous and mobile
-replayable boundaries and the single CLI queue remain unchanged.
+A troca em grupo lê a fase de controle da CLI, a fila e as interações pendentes. Cartões de permissão/pergunta de bot em cache não podem bloquear independentemente um novo rascunho após a parada.
+Uma CLI ociosa limpa registros de interação obsoletos antes de trocar; estados em execução, enfileirados e bloqueados por interação devolvem orientações localizadas distintas. Workspaces remotos desconectados ainda exigem reconexão explícita. Os limites de desktop continuous e mobile replayable e a fila única da CLI permanecem inalterados.
 
-Group member labels use the current chat member directory. Enable the application
-permission `im:chat.members:read` and publish it to show names without requiring
-organization-wide contacts access. Missing permission preserves message handling
-and shows a short stable member identifier. See the group collaboration spec.
+Rótulos de membros de grupo usam o diretório atual de membros do chat. Habilite a permissão de aplicativo `im:chat.members:read` e publique-a para mostrar nomes sem exigir acesso a contatos de toda a organização. A ausência da permissão preserva o tratamento de mensagens e mostra um identificador curto e estável de membro. Veja a especificação de colaboração em grupo.

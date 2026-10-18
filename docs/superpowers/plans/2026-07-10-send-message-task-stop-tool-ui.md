@@ -1,38 +1,38 @@
-# SendMessage And TaskStop Tool UI Implementation Plan
+# Plano de Implementação da UI das Ferramentas SendMessage e TaskStop
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 为 `SendMessage` 和 `TaskStop` 增加与现有 ToolCall 体系一致的紧凑摘要和结构化详情，彻底避免 fallback raw JSON 展示。
+**Objetivo:** adicionar a `SendMessage` e à `TaskStop` resumos compactos e detalhes estruturados consistentes com o sistema de ToolCall existente, eliminando completamente a exibição de fallback raw JSON.
 
-**Architecture:** 在 `@zcode/shared` 固定 canonical tool name 到 presentation family 的映射，UI 的 `resolveToolCallRenderer` 只按 family 路由。Core 复用 `ToolResultDisplayPayload`，从 hook/model serialization 之前的原始 output 生成 `local_agent_message` / `task_stop` display；UI 用集中 reader 统一读取实时 event、持久化 metadata 和 provider 兼容形态，renderer 只消费已校验字段并保留明确的旧数据 fallback。
+**Arquitetura:** fixar em `@zcode/shared` o mapeamento do nome canônico da ferramenta para a família de apresentação, de modo que o `resolveToolCallRenderer` da UI roteie apenas por família. O Core reaproveita `ToolResultDisplayPayload` e gera o display `local_agent_message` / `task_stop` a partir do output original, antes do hook e da serialização do model. A UI usa um reader centralizado para ler uniformemente o event em tempo real, os metadados persistidos e as formas compatíveis de provider; o renderer consome apenas campos já validados e mantém fallbacks explícitos para dados antigos.
 
-**Tech Stack:** TypeScript 6、React 19、Vitest 4、react-dom/server、Tailwind semantic tokens、lucide-react、FormatJS i18n。
+**Stack técnico:** TypeScript 6, React 19, Vitest 4, react-dom/server, tokens semânticos Tailwind, lucide-react, i18n FormatJS.
 
-## Global Constraints
+## Restrições Globais
 
-- 先更新 `docs/ui/tool-display-rendering.md`，再修改实现。
-- `SendMessage` 与 lowercase `send_message` 保持不同 identity；后者继续是 unknown/legacy mailbox surface。
-- UI 只使用 semantic color token、`text-[13px]` 紧凑排版、lucide 图标和现有 `ToolLayout`。
-- 同时兼容桌面、Web、手机窄屏、Zai Light/Zai Dark 和中英文。
-- 允许扩展既有 `ToolResultDisplayPayload` schema 和 Core display 生成逻辑；不改变工具 input/output contract、model content、background task stop 行为、session mailbox 行为或 desktop continuous / web replayable 边界。
-- 按用户工作流不自动提交；实现完成后保留本地分支 diff 供复核。
-- Tasks 1-4 记录最初 renderer 落地过程且对应实现已经存在；最终字段与摘要语义以 Task 5 为准，本轮 review 修复与验证以 Task 6 为准。
+- Atualizar primeiro `docs/ui/tool-display-rendering.md` e só então alterar a implementação.
+- `SendMessage` e `send_message` em minúsculas mantêm identidades distintas; a segunda continua sendo a superfície unknown/legacy de mailbox.
+- A UI usa apenas tokens semânticos de cor, tipografia compacta `text-[13px]`, ícones lucide e o `ToolLayout` existente.
+- Compatível simultaneamente com desktop, web, telas estreitas de celular, Zai Light/Zai Dark e chinês/inglês.
+- É permitido estender o schema `ToolResultDisplayPayload` existente e a lógica de geração de display do Core; não alterar o contrato de input/output das ferramentas, o conteúdo de model, o comportamento de parada de tarefas em background, o comportamento de mailbox da sessão ou a fronteira desktop continuous / web replayable.
+- Não commitar automaticamente conforme o fluxo de trabalho do usuário; ao final da implementação, manter o diff da branch local para revisão.
+- As Tarefas 1-4 registram o processo inicial de implementação dos renderers e o código correspondente já existe; os campos finais e a semântica de resumo são definidos pela Tarefa 5, e as correções e verificações desta rodada de review são definidas pela Tarefa 6.
 
 ---
 
-### Task 1: Register The TaskStop Presentation Identity
+### Tarefa 1: Registrar a identidade de apresentação da TaskStop
 
-**Files:**
+**Arquivos:**
 
-- Modify: `packages/ui/test/toolIdentity.test.ts`
-- Modify: `packages/shared/src/tool-identity.ts`
+- Modificar: `packages/ui/test/toolIdentity.test.ts`
+- Modificar: `packages/shared/src/tool-identity.ts`
 
 **Interfaces:**
 
-- Consumes: `resolveToolCallIdentity(toolCall)` and `getZCodeToolFamilyForName(name)`.
-- Produces: canonical `TaskStop` identity with family `task-control`.
+- Consome: `resolveToolCallIdentity(toolCall)` e `getZCodeToolFamilyForName(name)`.
+- Produz: identidade canônica `TaskStop` com a família `task-control`.
 
-- [x] **Step 1: Write the failing identity test**
+- [x] **Passo 1: Escrever o teste de identidade que falha**
 
 ```ts
 it("recognizes current TaskStop as task control", () => {
@@ -44,13 +44,13 @@ it("recognizes current TaskStop as task control", () => {
 });
 ```
 
-- [x] **Step 2: Run the test and verify RED**
+- [x] **Passo 2: Executar o teste e verificar RED**
 
-Run: `pnpm exec vitest run packages/ui/test/toolIdentity.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/toolIdentity.test.ts`
 
-Expected: FAIL because `TaskStop` is not in `ZCODE_KNOWN_TOOL_NAMES` and resolves to `unknown`.
+Esperado: FAIL porque `TaskStop` não está em `ZCODE_KNOWN_TOOL_NAMES` e resolve como `unknown`.
 
-- [x] **Step 3: Add the canonical name and family**
+- [x] **Passo 3: Adicionar o nome canônico e a família**
 
 ```ts
 export const ZCODE_KNOWN_TOOL_NAMES = [
@@ -68,31 +68,31 @@ const TOOL_FAMILY_BY_NAME = {
 } satisfies Record<ZCodeKnownToolName, ZCodeToolFamily>;
 ```
 
-- [x] **Step 4: Run the identity test and verify GREEN**
+- [x] **Passo 4: Executar o teste de identidade e verificar GREEN**
 
-Run: `pnpm exec vitest run packages/ui/test/toolIdentity.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/toolIdentity.test.ts`
 
-Expected: all tests pass, including the existing assertion that lowercase `send_message` remains `unknown`.
+Esperado: todos os testes passam, incluindo a asserção existente de que `send_message` em minúsculas permanece `unknown`.
 
 ---
 
-### Task 2: Route Both Tools To Dedicated Summary Renderers
+### Tarefa 2: Rotear ambas as ferramentas para renderers de resumo dedicados
 
-**Files:**
+**Arquivos:**
 
-- Create: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
-- Create: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
-- Create: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
-- Modify: `packages/ui/src/ToolCallBlocks.tsx`
-- Modify: `packages/ui/src/i18n/locales/en-US.ts`
-- Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
+- Criar: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+- Criar: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
+- Criar: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
+- Modificar: `packages/ui/src/ToolCallBlocks.tsx`
+- Modificar: `packages/ui/src/i18n/locales/en-US.ts`
+- Modificar: `packages/ui/src/i18n/locales/zh-CN.ts`
 
 **Interfaces:**
 
-- Consumes: `ToolCallBlockRenderContext`, `ToolLayout`, `useZCodeIntl`.
-- Produces: `SendMessageToolCallBlock(context)` and `TaskStopToolCallBlock(context)`.
+- Consome: `ToolCallBlockRenderContext`, `ToolLayout`, `useZCodeIntl`.
+- Produz: `SendMessageToolCallBlock(context)` e `TaskStopToolCallBlock(context)`.
 
-- [x] **Step 1: Write failing route/summary tests through ToolCallBlock**
+- [x] **Passo 1: Escrever testes de roteamento/resumo que falham através do ToolCallBlock**
 
 ```ts
 it("routes SendMessage to a semantic summary", () => {
@@ -132,13 +132,13 @@ it("routes TaskStop to a semantic summary", () => {
 });
 ```
 
-- [x] **Step 2: Run the tests and verify RED**
+- [x] **Passo 2: Executar os testes e verificar RED**
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
 
-Expected: FAIL because both calls still route to `FallbackToolCallBlock`.
+Esperado: FAIL porque ambas as chamadas ainda são roteadas para `FallbackToolCallBlock`.
 
-- [x] **Step 3: Add minimal summary renderers and family routes**
+- [x] **Passo 3: Adicionar renderers de resumo mínimos e rotas por família**
 
 ```ts
 switch (identity.family) {
@@ -150,42 +150,42 @@ switch (identity.family) {
 }
 ```
 
-`SendMessageToolCallBlock` uses `SendIcon`, localized sending/sent kind text, input `summary` as primary text, and input `to` as monospace secondary text. `TaskStopToolCallBlock` uses `CircleStopIcon`, localized stopping/stopped kind text, resolved task id as primary text, and output `task_type` as monospace secondary text.
+`SendMessageToolCallBlock` usa `SendIcon`, texto de kind localizado de enviando/enviado, o `summary` do input como texto primário e o `to` do input como texto secundário em monoespaçado. `TaskStopToolCallBlock` usa `CircleStopIcon`, texto de kind localizado de parando/parado, o id de tarefa resolvido como texto primário e o `task_type` do output como texto secundário em monoespaçado.
 
-- [x] **Step 4: Run the tests and verify GREEN**
+- [x] **Passo 4: Executar os testes e verificar GREEN**
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/toolCallBlocks.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/toolCallBlocks.test.ts`
 
-Expected: all selected tests pass.
+Esperado: todos os testes selecionados passam.
 
 ---
 
-### Task 3: Render Structured Details Without Raw JSON
+### Tarefa 3: Renderizar detalhes estruturados sem raw JSON
 
-**Files:**
+**Arquivos:**
 
-- Modify: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
+- Modificar: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
 
 **Interfaces:**
 
-- Consumes: `toolCall.input`, `toolCall.output`, `toolCall.raw.rawInput`, `toolCall.raw.rawOutput`, `toolCall.raw.result.content`.
-- Produces: field-level details and snapshot field loading support.
+- Consome: `toolCall.input`, `toolCall.output`, `toolCall.raw.rawInput`, `toolCall.raw.rawOutput`, `toolCall.raw.result.content`.
+- Produz: detalhes por campo e suporte a carregamento de campos de snapshot.
 
-- [x] **Step 1: Add failing force-open renderer tests**
+- [x] **Passo 1: Adicionar testes de renderer com force-open que falham**
 
-This step was superseded by Task 5. The final `SendMessage` detail contract contains only target, summary, and message; delivery and all ids remain hidden. The final `TaskStop` detail contract contains task type, command, and result without repeating task id.
+Este passo foi substituído pela Tarefa 5. O contrato final de detalhe da `SendMessage` contém apenas destinatário, resumo e mensagem; delivery e todos os ids permanecem ocultos. O contrato final de detalhe da `TaskStop` contém tipo de tarefa, comando e resultado sem repetir o id da tarefa.
 
-- [x] **Step 2: Run the tests and verify RED**
+- [x] **Passo 2: Executar os testes e verificar RED**
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
 
-Expected: FAIL because minimal renderers do not yet expose expanded fields.
+Esperado: FAIL porque os renderers mínimos ainda não expõem os campos expandidos.
 
-- [x] **Step 3: Implement bounded payload extraction**
+- [x] **Passo 3: Implementar extração limitada do payload**
 
-Each renderer must:
+Cada renderer deve:
 
 ```ts
 function toRecord(value: unknown): Record<string, unknown> | undefined {
@@ -204,228 +204,228 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
 }
 ```
 
-Input precedence is `toolCall.input` then `raw.rawInput`/`raw.input`. Structured output precedence is `toolCall.output` then `raw.rawOutput`/`raw.output` and `raw.result.content`; non-JSON `toolCall.output` or `raw.result.content` is displayed only as the result text. Render only contract fields, use `whitespace-pre-wrap break-words` for prose, `font-mono` for ids/paths/commands, and append `ToolSnapshotFieldNotice` outside the detail panel.
+A precedência do input é `toolCall.input` e depois `raw.rawInput`/`raw.input`. A precedência do output estruturado é `toolCall.output` e depois `raw.rawOutput`/`raw.output` e `raw.result.content`; um `toolCall.output` não-JSON ou um `raw.result.content` é exibido apenas como texto de resultado. Renderizar somente os campos do contrato, usar `whitespace-pre-wrap break-words` para prosa, `font-mono` para ids/caminhos/comandos e anexar `ToolSnapshotFieldNotice` fora do painel de detalhe.
 
-- [x] **Step 4: Run the tests and verify GREEN**
+- [x] **Passo 4: Executar os testes e verificar GREEN**
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
 
-Expected: all renderer tests pass and no fallback raw JSON appears.
+Esperado: todos os testes de renderer passam e nenhum raw JSON de fallback aparece.
 
 ---
 
-### Task 4: Verify The Complete UI Boundary
+### Tarefa 4: Verificar a fronteira completa da UI
 
-**Files:**
+**Arquivos:**
 
-- Review: `docs/ui/tool-display-rendering.md`
-- Review: all files changed by Tasks 1-3.
+- Revisar: `docs/ui/tool-display-rendering.md`
+- Revisar: todos os arquivos alterados pelas Tarefas 1-3.
 
 **Interfaces:**
 
-- Consumes: repository lint/typecheck/test scripts.
-- Produces: a verified worktree diff ready for user review.
+- Consome: scripts de lint/typecheck/test do repositório.
+- Produz: um diff de worktree verificado e pronto para revisão do usuário.
 
-- [x] **Step 1: Run focused regression tests**
+- [x] **Passo 1: Executar testes de regressão focados**
 
-Run: `pnpm exec vitest run packages/ui/test/toolIdentity.test.ts packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/toolCallBlocks.test.ts packages/ui/test/readSessionContextToolCallBlock.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/toolIdentity.test.ts packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/toolCallBlocks.test.ts packages/ui/test/readSessionContextToolCallBlock.test.ts`
 
-Expected: all selected tests pass with zero failures.
+Esperado: todos os testes selecionados passam sem nenhuma falha.
 
-- [x] **Step 2: Run required mechanical checks**
+- [x] **Passo 2: Executar as verificações mecânicas obrigatórias**
 
-Run: `pnpm typecheck`
+Executar: `pnpm typecheck`
 
-Expected: exit code 0.
+Esperado: código de saída 0.
 
-Run: `pnpm lint`
+Executar: `pnpm lint`
 
-Expected: exit code 0.
+Esperado: código de saída 0.
 
-- [x] **Step 3: Review the scoped diff**
+- [x] **Passo 3: Revisar o diff de escopo**
 
-Run: `git diff --check`
+Executar: `git diff --check`
 
-Expected: exit code 0 and no whitespace errors.
+Esperado: código de saída 0 e nenhum erro de whitespace.
 
-Run: `git status --short`
+Executar: `git status --short`
 
-Expected: only the spec, plan, identity, renderer, locale, route, and focused test files from this plan are modified or added.
+Esperado: apenas os arquivos de spec, plano, identidade, renderer, locale, rota e testes focados deste plano foram modificados ou adicionados.
 
 ---
 
-### Task 5: Reduce Message And Task Stop Summary Density
+### Tarefa 5: Reduzir a densidade dos resumos de mensagem e parada de tarefa
 
-**Files:**
+**Arquivos:**
 
-- Modify: `docs/ui/tool-display-rendering.md`
-- Modify: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
-- Modify: `packages/ui/src/i18n/locales/en-US.ts`
-- Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
+- Modificar: `docs/ui/tool-display-rendering.md`
+- Modificar: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
+- Modificar: `packages/ui/src/i18n/locales/en-US.ts`
+- Modificar: `packages/ui/src/i18n/locales/zh-CN.ts`
 
 **Interfaces:**
 
-- Consumes: existing `ToolLayout` primary/secondary summary slots and bounded input/output extraction.
-- Produces: sentence-like `SendMessage` summaries and task-id-only `TaskStop` summaries with reduced expanded fields.
+- Consome: slots de resumo primário/secundário existentes do `ToolLayout` e extração limitada de input/output.
+- Produz: resumos em forma de frase para `SendMessage` e resumos apenas com id de tarefa para `TaskStop`, com campos expandidos reduzidos.
 
-- [x] **Step 1: Update the renderer tests and verify RED**
+- [x] **Passo 1: Atualizar os testes de renderer e verificar RED**
 
-The `SendMessage` route test must require `已发送`, input `summary`, connector `给`, and target agent in the collapsed summary. Its force-open test must require only target, summary, and message fields while rejecting delivery, ids, output path, and result text. The `TaskStop` route test must require `已停止` and task id while rejecting `task_type`; its force-open test must require task type, command, and result while rejecting the repeated `任务 ID` detail label.
+O teste de roteamento da `SendMessage` deve exigir `已发送`, o `summary` do input, o conector `给` e o agente destinatário no resumo recolhido. Seu teste de force-open deve exigir apenas os campos destinatário, resumo e mensagem, rejeitando delivery, ids, caminho de output e texto de resultado. O teste de roteamento da `TaskStop` deve exigir `已停止` e o id da tarefa, rejeitando `task_type`; seu teste de force-open deve exigir tipo de tarefa, comando e resultado, rejeitando o rótulo de detalhe `任务 ID` repetido.
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts`
 
-Expected: FAIL because the current renderers still expose output metadata, show `task_type` in the collapsed summary, and repeat task id in details.
+Esperado: FAIL porque os renderers atuais ainda expõem metadados de output, mostram `task_type` no resumo recolhido e repetem o id da tarefa nos detalhes.
 
-- [x] **Step 2: Implement the minimal renderer and locale changes**
+- [x] **Passo 2: Implementar as alterações mínimas de renderer e locale**
 
-Change the successful/running SendMessage kind labels to `已发送`/`正在发送` (`Sent`/`Sending`), add a localized `给`/`to` connector before the monospace target, and retain output parsing only for failed status and tooltip text. Remove all output metadata fields from its detail panel. Change TaskStop kind labels to `已停止`/`正在停止` (`Stopped`/`Stopping`), remove `task_type` from `secondaryText`, and remove task id from its detail panel.
+Alterar os rótulos de kind de sucesso/em execução da SendMessage para `已发送`/`正在发送` (`Sent`/`Sending`), adicionar um conector localizado `给`/`to` antes do destinatário em monoespaçado e manter o parsing do output apenas para status de falha e texto de tooltip. Remover todos os campos de metadados de output do seu painel de detalhe. Alterar os rótulos de kind da TaskStop para `已停止`/`正在停止` (`Stopped`/`Stopping`), remover `task_type` do `secondaryText` e remover o id da tarefa do seu painel de detalhe.
 
-- [x] **Step 3: Verify GREEN and the repository boundary**
+- [x] **Passo 3: Verificar GREEN e a fronteira do repositório**
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/toolIdentity.test.ts packages/ui/test/toolCallBlocks.test.ts packages/ui/test/readSessionContextToolCallBlock.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/toolIdentity.test.ts packages/ui/test/toolCallBlocks.test.ts packages/ui/test/readSessionContextToolCallBlock.test.ts`
 
-Expected: all selected tests pass with zero failures.
+Esperado: todos os testes selecionados passam sem nenhuma falha.
 
-Run: `pnpm typecheck && pnpm lint && git diff --check`
+Executar: `pnpm typecheck && pnpm lint && git diff --check`
 
-Expected: all commands exit 0; lint may report only pre-existing warnings outside the changed files.
+Esperado: todos os comandos saem com 0; o lint pode reportar apenas avisos preexistentes fora dos arquivos alterados.
 
 ---
 
-### Task 6: Preserve Structured Results And Complete Terminal Semantics
+### Tarefa 6: Preservar resultados estruturados e completar a semântica de estados terminais
 
-**Files:**
+**Arquivos:**
 
-- Modify: `apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/result-display.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`
-- Create: `apps/zcode-cli/packages/core/tests/tool-result-display.test.ts`
-- Create: `packages/ui/src/ToolCallBlocks/toolResultDisplay.ts`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
-- Modify: `packages/ui/src/i18n/locales/en-US.ts`
-- Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
-- Modify: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
-- Review: `packages/ui/test/reactStableReferences.test.ts`
+- Modificar: `apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/result-display.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`
+- Criar: `apps/zcode-cli/packages/core/tests/tool-result-display.test.ts`
+- Criar: `packages/ui/src/ToolCallBlocks/toolResultDisplay.ts`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/send-message.tsx`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
+- Modificar: `packages/ui/src/i18n/locales/en-US.ts`
+- Modificar: `packages/ui/src/i18n/locales/zh-CN.ts`
+- Modificar: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+- Revisar: `packages/ui/test/reactStableReferences.test.ts`
 
 **Interfaces:**
 
-- Consumes: canonical tool name, original runtime output, `ToolCallResult.result.display`, completed tool part metadata, `ToolCallBlockRenderContext`.
-- Produces: strict `local_agent_message` / `task_stop` display payloads and `readToolResultDisplay(raw)` for realtime/persisted/provider raw shapes.
+- Consome: nome canônico da ferramenta, output original de runtime, `ToolCallResult.result.display`, metadados de tool part concluída, `ToolCallBlockRenderContext`.
+- Produz: payloads de display estritos `local_agent_message` / `task_stop` e `readToolResultDisplay(raw)` para formas raw de tempo real/persistidas/de provider.
 
-- [x] **Step 1: Add RED tests for Core display generation**
+- [x] **Passo 1: Adicionar testes RED para geração de display no Core**
 
-Add focused tests that require `createToolResultDisplay("SendMessage", output)` to return only business status/error/message, require `createToolResultDisplay("TaskStop", output)` to return task id/type/command/message, and require lowercase `send_message` not to produce the local-agent display.
+Adicionar testes focados que exigem que `createToolResultDisplay("SendMessage", output)` retorne apenas status de negócio/erro/mensagem, que `createToolResultDisplay("TaskStop", output)` retorne id/tipo/comando/mensagem da tarefa e que `send_message` em minúsculas não produza o display de local-agent.
 
-Run: `apps/zcode-cli/node_modules/.bin/vitest run packages/core/tests/tool-result-display.test.ts`
+Executar: `apps/zcode-cli/node_modules/.bin/vitest run packages/core/tests/tool-result-display.test.ts`
 
-Expected: FAIL because only `file_diff` display exists and `createToolResultDisplay` does not accept a tool name.
+Esperado: FAIL porque apenas o display `file_diff` existe e `createToolResultDisplay` não aceita um nome de ferramenta.
 
-- [x] **Step 2: Implement strict display schemas and Core generation**
+- [x] **Passo 2: Implementar schemas de display estritos e geração no Core**
 
-Extend the discriminated union with `local_agent_message` and `task_stop`. Change `createToolResultDisplay` to receive the canonical tool name, validate the corresponding runtime output schema, and return only fields required by the UI. Keep the existing bounded `file_diff` path unchanged for all tools.
+Estender a união discriminada com `local_agent_message` e `task_stop`. Alterar `createToolResultDisplay` para receber o nome canônico da ferramenta, validar o schema correspondente do output de runtime e retornar apenas os campos exigidos pela UI. Manter inalterado o caminho limitado existente de `file_diff` para todas as ferramentas.
 
-- [x] **Step 3: Verify Core GREEN and unchanged file diff behavior**
+- [x] **Passo 3: Verificar GREEN no Core e comportamento de file diff inalterado**
 
-Run: `apps/zcode-cli/node_modules/.bin/vitest run packages/core/tests/tool-result-display.test.ts packages/core/tests/tool-executor-trace.test.ts`
+Executar: `apps/zcode-cli/node_modules/.bin/vitest run packages/core/tests/tool-result-display.test.ts packages/core/tests/tool-executor-trace.test.ts`
 
-Expected: all selected Core tests pass, including the existing `file_diff` event assertion.
+Esperado: todos os testes selecionados do Core passam, incluindo a asserção existente de event `file_diff`.
 
-- [x] **Step 4: Add RED tests for UI delivery shapes and terminal states**
+- [x] **Passo 4: Adicionar testes RED para formas de entrega da UI e estados terminais**
 
-Add renderer tests for live `raw.result.display`, persisted `raw.display`, provider `raw.rawOutput.display`, explicit legacy hook envelope parsing, SendMessage business failure, and both tools' `denied` / `stopped` labels. Add assertions that no non-success state renders the successful verb.
+Adicionar testes de renderer para `raw.result.display` em tempo real, `raw.display` persistido, `raw.rawOutput.display` de provider, parsing explícito do envelope de hook legacy, falha de negócio da SendMessage e rótulos `denied`/`stopped` de ambas as ferramentas. Adicionar asserções de que nenhum estado sem sucesso renderiza o verbo de sucesso.
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/reactStableReferences.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/reactStableReferences.test.ts`
 
-Expected: FAIL on missing display reader, incomplete terminal labels, hook-augmented TaskStop output, and inline JSX props.
+Esperado: FAIL por falta do reader de display, rótulos terminais incompletos, output de TaskStop augmented por hook e props JSX inline.
 
-- [x] **Step 5: Implement the UI reader, status matrix, and stable JSX props**
+- [x] **Passo 5: Implementar o reader da UI, a matriz de status e props JSX estáveis**
 
-Create one strict reader for the three raw display locations. Prefer display fields in both renderers, retain only explicit legacy output formats as fallback, add localized stopped/denied action labels, and memoize non-primitive `ToolLayout` props with `useMemo`.
+Criar um único reader estrito para as três localizações raw de display. Preferir os campos de display em ambos os renderers, manter apenas formatos de output legacy explícitos como fallback, adicionar rótulos localizados de ação para parado/negado e memoizar props não primitivas do `ToolLayout` com `useMemo`.
 
-- [x] **Step 6: Verify UI GREEN and compatibility**
+- [x] **Passo 6: Verificar GREEN na UI e compatibilidade**
 
-Run: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/reactStableReferences.test.ts packages/ui/test/toolIdentity.test.ts packages/ui/test/toolCallBlocks.test.ts packages/ui/test/readSessionContextToolCallBlock.test.ts`
+Executar: `pnpm exec vitest run packages/ui/test/messageTaskControlToolCallBlock.test.ts packages/ui/test/reactStableReferences.test.ts packages/ui/test/toolIdentity.test.ts packages/ui/test/toolCallBlocks.test.ts packages/ui/test/readSessionContextToolCallBlock.test.ts`
 
-Expected: all selected tests pass; lowercase `send_message` remains unknown and existing renderers remain unchanged.
+Esperado: todos os testes selecionados passam; `send_message` em minúsculas permanece unknown e os renderers existentes permanecem inalterados.
 
-- [x] **Step 7: Run complete repository gates**
+- [x] **Passo 7: Executar as gates completas do repositório**
 
-Run serially: full UI tests, relevant CLI package tests, `pnpm typecheck`, `pnpm lint`, and `git diff --check`. Then run the existing SendMessage/TaskStop Electron E2E cases without adding preview-only code.
+Executar em série: os testes completos da UI, os testes relevantes do pacote CLI, `pnpm typecheck`, `pnpm lint` e `git diff --check`. Depois executar os cases E2E Electron existentes de SendMessage/TaskStop sem adicionar código apenas para preview.
 
-Verification result: full UI tests passed (3810), relevant CLI tests passed (101), root and CLI typechecks passed, root lint passed with pre-existing warnings only, changed CLI sources passed targeted oxlint, and the two existing Electron E2E cases passed. The full nested CLI lint still fails on pre-existing max-lines and related errors outside this change.
-
----
-
-### Task 7: Bound TaskStop Display And Remove Empty Terminal Details
-
-**Files:**
-
-- Modify: `docs/ui/tool-display-rendering.md`
-- Modify: `apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/result-display.ts`
-- Modify: `apps/zcode-cli/packages/core/tests/tool-result-display.test.ts`
-- Modify: `packages/ui/src/ToolCallBlocks/toolResultDisplay.ts`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
-- Modify: `packages/ui/src/i18n/locales/en-US.ts`
-- Modify: `packages/ui/src/i18n/locales/zh-CN.ts`
-- Modify: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
-
-- [x] **Step 1: Add RED coverage for an oversized TaskStop display**
-
-Require the projected command and message to stay within 16 KiB UTF-8 each and expose `truncated: true` when either field is shortened.
-
-- [x] **Step 2: Implement byte-bounded TaskStop display projection**
-
-Bound both fields before the display leaves Core, preserve valid UTF-8 code points, append an explicit truncation marker, and extend the display schema/reader with the optional flag.
-
-- [x] **Step 3: Add RED coverage for terminal details**
-
-Require denied/stopped reasons to appear as the result when available, and require a terminal TaskStop with no detail fields to have no expand affordance or empty panel.
-
-- [x] **Step 4: Implement terminal detail availability**
-
-Reuse `context.errorText` for all unsuccessful terminal states and enable `ToolLayout` toggling only when at least one visible detail or truncation notice exists.
-
-- [x] **Step 5: Run focused and repository verification**
-
-Run Core/UI focused tests, typechecks, lint, `git diff --check`, and review the final scoped diff.
+Resultado da verificação: os testes completos da UI passaram (3810), os testes relevantes da CLI passaram (101), os typechecks da raiz e da CLI passaram, o lint da raiz passou apenas com avisos preexistentes, as fontes da CLI alteradas passaram no oxlint direcionado e os dois cases E2E Electron existentes passaram. O lint completo da CLI aninhada ainda falha em erros preexistentes de max-lines e relacionados fora desta alteração.
 
 ---
 
-### Task 8: Remove Repeated TaskStop Command From The Result Row
+### Tarefa 7: Limitar o display da TaskStop e remover detalhes terminais vazios
 
-**Files:**
+**Arquivos:**
 
-- Modify: `docs/ui/tool-display-rendering.md`
-- Modify: `apps/zcode-cli/packages/core/tests/tool-result-display.test.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/result-display.ts`
-- Modify: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
-- Modify: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
+- Modificar: `docs/ui/tool-display-rendering.md`
+- Modificar: `apps/zcode-cli/packages/contracts/src/tools/tool-result-metadata.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/result-display.ts`
+- Modificar: `apps/zcode-cli/packages/core/tests/tool-result-display.test.ts`
+- Modificar: `packages/ui/src/ToolCallBlocks/toolResultDisplay.ts`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
+- Modificar: `packages/ui/src/i18n/locales/en-US.ts`
+- Modificar: `packages/ui/src/i18n/locales/zh-CN.ts`
+- Modificar: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+
+- [x] **Passo 1: Adicionar cobertura RED para um display de TaskStop superdimensionado**
+
+Exigir que o comando e a mensagem projetados permaneçam dentro de 16 KiB UTF-8 cada e que exponham `truncated: true` quando qualquer um dos campos for encurtado.
+
+- [x] **Passo 2: Implementar a projeção de display da TaskStop limitada em bytes**
+
+Limitar ambos os campos antes de o display sair do Core, preservar code points UTF-8 válidos, anexar um marcador explícito de truncamento e estender o schema/reader de display com a flag opcional.
+
+- [x] **Passo 3: Adicionar cobertura RED para detalhes terminais**
+
+Exigir que as razões de negado/parado apareçam como resultado quando disponíveis e que uma TaskStop terminal sem campos de detalhe não tenha afordância de expansão nem painel vazio.
+
+- [x] **Passo 4: Implementar a disponibilidade de detalhes terminais**
+
+Reutilizar `context.errorText` para todos os estados terminais sem sucesso e habilitar o toggle do `ToolLayout` somente quando existir pelo menos um detalhe visível ou um aviso de truncamento.
+
+- [x] **Passo 5: Executar a verificação focada e a do repositório**
+
+Executar os testes focados de Core/UI, typechecks, lint, `git diff --check` e revisar o diff final de escopo.
+
+---
+
+### Tarefa 8: Remover o comando repetido da TaskStop da linha de resultado
+
+**Arquivos:**
+
+- Modificar: `docs/ui/tool-display-rendering.md`
+- Modificar: `apps/zcode-cli/packages/core/tests/tool-result-display.test.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/result-display.ts`
+- Modificar: `packages/ui/test/messageTaskControlToolCallBlock.test.ts`
+- Modificar: `packages/ui/src/ToolCallBlocks/renderers/task-stop.tsx`
 
 **Interfaces:**
 
-- Consumes: `TaskStopOutput`, `task_stop` display payload, and the explicit legacy TaskStop JSON envelope.
-- Produces: a concise successful display result while preserving the original tool output/model content and arbitrary provider result messages.
+- Consome: `TaskStopOutput`, payload de display `task_stop` e o envelope JSON legacy explícito da TaskStop.
+- Produz: um resultado de exibição de sucesso conciso, preservando o output original da ferramenta, o conteúdo de model e as mensagens arbitrárias de resultado do provider.
 
-- [x] **Step 1: Add RED coverage for Core display projection**
+- [x] **Passo 1: Adicionar cobertura RED para a projeção de display no Core**
 
-Require an output containing `message: "Successfully stopped task: task_alpha (pnpm test)"` and `command: "pnpm test"` to keep `command` unchanged but project `message: "Successfully stopped task: task_alpha"`.
+Exigir que um output contendo `message: "Successfully stopped task: task_alpha (pnpm test)"` e `command: "pnpm test"` mantenha `command` inalterado, mas projete `message: "Successfully stopped task: task_alpha"`.
 
-- [x] **Step 2: Implement exact standard-message compaction in Core**
+- [x] **Passo 2: Implementar a compactação exata da mensagem padrão no Core**
 
-Compare the original message with the full generated success template. Compact only an exact match; then apply the existing UTF-8 display budget. Do not mutate the TaskStop output or model content.
+Comparar a mensagem original com o template de sucesso completo gerado. Compactar apenas em caso de correspondência exata; depois aplicar o orçamento de display UTF-8 existente. Não mutar o output da TaskStop nem o conteúdo de model.
 
-- [x] **Step 3: Add RED coverage for persisted legacy output**
+- [x] **Passo 3: Adicionar cobertura RED para output legacy persistido**
 
-Render a TaskStop without display metadata whose JSON output contains the standard success message and command. Require the command text to appear once, the concise result to remain visible, and a custom result message to remain unchanged.
+Renderizar uma TaskStop sem metadados de display cujo output JSON contenha a mensagem de sucesso padrão e o comando. Exigir que o texto do comando apareça uma vez, que o resultado conciso permaneça visível e que uma mensagem de resultado customizada permaneça inalterada.
 
-- [x] **Step 4: Implement exact legacy normalization in the UI renderer**
+- [x] **Passo 4: Implementar a normalização exata do legacy no renderer da UI**
 
-Normalize only the exact `Successfully stopped task: <taskId> (<command>)` message before rendering the successful result field. Failure, denied, stopped, and custom successful result messages remain untouched.
+Normalizar apenas a mensagem exata `Successfully stopped task: <taskId> (<command>)` antes de renderizar o campo de resultado de sucesso. Mensagens de resultado de falha, negado, parado e sucesso customizado permanecem intocadas.
 
-- [x] **Step 5: Run focused and repository verification**
+- [x] **Passo 5: Executar a verificação focada e a do repositório**
 
-Run Core/UI focused tests, both typechecks, lint, `git diff --check`, and review the final scoped diff.
+Executar os testes focados de Core/UI, ambos os typechecks, lint, `git diff --check` e revisar o diff final de escopo.

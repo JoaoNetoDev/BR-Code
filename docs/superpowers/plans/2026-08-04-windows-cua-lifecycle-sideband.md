@@ -1,48 +1,48 @@
-# Windows CUA Lifecycle Sideband Implementation Plan
+# Plano de Implementação do Sideband de Ciclo de Vida do CUA no Windows
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para trabalhadores agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 让 Windows CUA 顶部提示从 CLI runtime 的真实工具生命周期获得状态，不再依赖当前 v4 桌面对话不会发送的旧 `session/event`。
+**Objetivo:** fazer com que o aviso superior do CUA no Windows obtenha seu estado a partir do ciclo de vida real das ferramentas do runtime do CLI, sem depender mais do antigo `session/event`, que a conversa de desktop v4 atual não envia.
 
-**Architecture:** CLI 在原始 `SessionEvent` 进入协议投影时额外发送严格、精简、不可重放的 `computer-use/operation-event` 通知；通知与 v4 conversation frame 并行，且位于 `record.deliveryKind` 判断之前。Services 只用该通知驱动 `CuaOperationTurnTracker`，再沿既有 Host→Main `cua-operation-state` 链路显示浮层；旧 `session/event`、Renderer、snapshot 和 relay 都不拥有提示状态。
+**Arquitetura:** o CLI envia, adicionalmente, quando o `SessionEvent` bruto entra na projeção de protocolo, uma notificação `computer-use/operation-event` estrita, enxuta e não reprodutível; a notificação corre em paralelo ao frame de conversa v4 e fica antes do teste de `record.deliveryKind`. Os Services usam apenas essa notificação para alimentar o `CuaOperationTurnTracker` e então exibem a camada flutuante pela cadeia Host→Main `cua-operation-state` já existente; o antigo `session/event`, o Renderer, o snapshot e o relay não têm o estado do aviso.
 
-**Tech Stack:** TypeScript 6、Zod、Vitest 4、ZCode Protocol NDJSON、Electron UtilityProcess/BrowserWindow、pnpm。
+**Stack técnico:** TypeScript 6, Zod, Vitest 4, ZCode Protocol NDJSON, Electron UtilityProcess/BrowserWindow, pnpm.
 
-## Global Constraints
+## Restrições globais
 
-- 先修改测试并观察预期失败，再写最小实现；不得先改生产代码。
-- App ↔ Agent 新协议必须定义在 `packages/shared/src/zcode-protocol/index.ts`，使用严格 runtime schema。
-- method 固定为 `computer-use/operation-event`；官方身份只接受 `computer-use` 中划线形式，不新增 `computer_use`。
-- 通知只携带 lifecycle 元数据，不携带 tool input/result、模型文本、截图或用户内容。
-- 通知不受旧 `session/event` 的 `deliveryKind` 或 v4 subscription 状态影响，不进入 snapshot/replayable/v4 topic/relay。
-- tracker 只消费 sideband 的 runtime `sequenceNumber`，不与旧协议 `seq` 混用。
-- Windows desktop-local reporter 行为保持不变；remote workspace/server/Web 不新增浮层，手机 shared-host 仅复用本机 Host。
-- UI、Desktop Main 浮层视觉、capture exclusion、焦点和多窗口聚合行为保持不变。
-- 高频生命周期诊断走 `debug`；状态跃迁走 `info`；旁路异常不能阻断 v4 frame 或工具执行。
-- 最终必须执行定向测试、`pnpm typecheck`、`pnpm lint`、`git diff --check`，并提交 Conventional Commit；不得 push。
-
----
-
-## File Structure
-
-- Modify `packages/shared/src/zcode-protocol/index.ts`: 定义 sideband method、严格判别联合 schema 和导出类型。
-- Modify `packages/shared/test/zcodeProtocol.test.ts`: 验证 method、六类 payload、严格字段和非法输入。
-- Create `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/computer-use-operation-event.ts`: 将 runtime `SessionEvent` 投影为最小 sideband payload。
-- Modify `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`: 在 v4/legacy 分流之前 best-effort 发送 sideband。
-- Modify `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`: 验证无 `deliveryKind` 仍发送、无敏感 payload、发送失败不阻断 v4。
-- Modify `packages/services/src/zcode-agent/cuaOperationTurnTracker.ts`: 改为消费 sideband 类型并按 `eventId`/`sequenceNumber` 去重。
-- Modify `packages/services/test/cuaOperationTurnTracker.test.ts`: 将 fixture 和全部状态机断言迁移到 sideband 生命周期。
-- Modify `packages/services/src/zcode-agent/zcodeAgentService.ts`: 新增 sideband notification 分支，移除旧 `session/event` 对 tracker 的驱动。
-- Modify `packages/services/test/zcodeAgentService.test.ts`: fake agent 只发 sideband，验证 reporter 跃迁且普通 session 流不受影响。
-- Modify `docs/product-capability-map-office-computer-use.md`: 更新真实状态链。
-- Modify `apps/dev-docs/src/data/productCapabilityMap.ts`: 更新能力图 producer/consumer 描述。
-- Modify `apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`: 固化 sideband 状态链。
+- Modificar os testes primeiro e observar a falha esperada, e só então escrever a implementação mínima; nunca alterar antes o código de produção.
+- O novo protocolo App ↔ Agent precisa ser definido em `packages/shared/src/zcode-protocol/index.ts`, usando schema de runtime estrito.
+- O method é fixo como `computer-use/operation-event`; a identidade oficial só aceita a forma com hífen `computer-use`, sem introduzir `computer_use`.
+- A notificação carrega apenas metadados de ciclo de vida, nunca input/result de ferramenta, texto do modelo, capturas de tela ou conteúdo do usuário.
+- A notificação não é afetada pelo `deliveryKind` do antigo `session/event` nem pelo estado de subscription v4, e não entra em snapshot/replayable/v4 topic/relay.
+- O tracker consome apenas o `sequenceNumber` de runtime do sideband e não o mistura com o `seq` do protocolo antigo.
+- O comportamento do reporter no Windows desktop-local permanece inalterado; workspace remoto/server/Web não recebem nova camada flutuante, e o shared-host do celular apenas reutiliza o Host local.
+- UI, visual da camada flutuante no Desktop Main, exclusão de captura, foco e agregação em múltiplas janelas permanecem inalterados.
+- Diagnósticos de ciclo de vida de alta frequência vão para `debug`; transições de estado vão para `info`; exceções no caminho secundário não podem bloquear o frame v4 nem a execução da ferramenta.
+- Ao final é obrigatório executar os testes direcionados, `pnpm typecheck`, `pnpm lint`, `git diff --check` e fazer um Conventional Commit; não dar push.
 
 ---
 
-### Task 1: Strict App ↔ Agent Lifecycle Contract
+## Estrutura de arquivos
 
-**Files:**
+- Modify `packages/shared/src/zcode-protocol/index.ts`: definir o method do sideband, o schema de união discriminada estrita e o tipo exportado.
+- Modify `packages/shared/test/zcodeProtocol.test.ts`: validar o method, os seis tipos de payload, os campos estritos e as entradas inválidas.
+- Create `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/computer-use-operation-event.ts`: projetar o `SessionEvent` de runtime no payload mínimo do sideband.
+- Modify `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`: enviar o sideband em best-effort antes da bifurcação v4/legacy.
+- Modify `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`: validar que envia mesmo sem `deliveryKind`, que não há payload sensível e que falha de envio não bloqueia o v4.
+- Modify `packages/services/src/zcode-agent/cuaOperationTurnTracker.ts`: passar a consumir o tipo do sideband e deduplicar por `eventId`/`sequenceNumber`.
+- Modify `packages/services/test/cuaOperationTurnTracker.test.ts`: migrar fixtures e todas as asserções da máquina de estados para o ciclo de vida do sideband.
+- Modify `packages/services/src/zcode-agent/zcodeAgentService.ts`: adicionar o ramo de notificação do sideband e remover a condução do tracker pelo antigo `session/event`.
+- Modify `packages/services/test/zcodeAgentService.test.ts`: o agente fake envia apenas sideband, validando as transições do reporter e que o fluxo comum de sessão não é afetado.
+- Modify `docs/product-capability-map-office-computer-use.md`: atualizar a cadeia de estado real.
+- Modify `apps/dev-docs/src/data/productCapabilityMap.ts`: atualizar a descrição de produtor/consumidor do grafo de capacidades.
+- Modify `apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`: fixar a cadeia de estado do sideband.
+
+---
+
+### Tarefa 1: Contrato estrito de ciclo de vida App ↔ Agent
+
+**Arquivos:**
 
 - Modify: `packages/shared/src/zcode-protocol/index.ts`
 - Test: `packages/shared/test/zcodeProtocol.test.ts`
@@ -53,9 +53,9 @@
 - Produces: `zcodeComputerUseOperationEventSchema`
 - Produces: `ZCodeComputerUseOperationEvent`
 
-- [ ] **Step 1: Write failing protocol contract tests**
+- [ ] **Passo 1: escrever os testes de contrato de protocolo que falham**
 
-Import the new schema and assert exact method naming plus one valid payload for every kind:
+Importar o novo schema e afirmar a nomenclatura exata do method mais um payload válido para cada kind:
 
 ```ts
 expect(zcodeProtocolMethods.computerUseOperationEvent).toBe("computer-use/operation-event");
@@ -90,17 +90,17 @@ for (const event of [
 }
 ```
 
-Add table cases rejecting empty ids, negative `sequenceNumber`, missing turn/tool fields, `toolName` on an incompatible kind, unknown keys and unknown kinds.
+Adicionar casos em tabela recusando ids vazios, `sequenceNumber` negativo, campos de turn/ferramenta ausentes, `toolName` em um kind incompatível, chaves desconhecidas e kinds desconhecidos.
 
-- [ ] **Step 2: Run RED**
+- [ ] **Passo 2: rodar RED**
 
 Run: `pnpm exec vitest run packages/shared/test/zcodeProtocol.test.ts`
 
-Expected: FAIL because the method and schema exports do not exist.
+Expected: FAIL porque as exportações de method e schema não existem.
 
-- [ ] **Step 3: Add the minimal strict schema**
+- [ ] **Passo 3: adicionar o schema estrito mínimo**
 
-Define a shared strict base and discriminated union:
+Definir uma base estrita compartilhada e uma união discriminada:
 
 ```ts
 const zcodeComputerUseOperationEventBaseSchema = z.object({
@@ -143,19 +143,19 @@ export const zcodeComputerUseOperationEventSchema = z.discriminatedUnion("kind",
 ]);
 ```
 
-Use explicit schema declarations instead of `.map()` if TypeScript cannot preserve the Zod tuple type. Export the inferred type and add the method constant.
+Usar declarações explícitas de schema em vez de `.map()` se o TypeScript não conseguir preservar o tipo de tuple do Zod. Exportar o tipo inferido e adicionar a constante de method.
 
-- [ ] **Step 4: Run GREEN**
+- [ ] **Passo 4: rodar GREEN**
 
 Run: `pnpm exec vitest run packages/shared/test/zcodeProtocol.test.ts`
 
-Expected: PASS with zero failures.
+Expected: PASS com zero falhas.
 
 ---
 
-### Task 2: CLI Runtime Event Sideband
+### Tarefa 2: Sideband de Eventos do Runtime do CLI
 
-**Files:**
+**Arquivos:**
 
 - Create: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/computer-use-operation-event.ts`
 - Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`
@@ -167,9 +167,9 @@ Expected: PASS with zero failures.
 - Produces: `mapComputerUseOperationEvent(event): ZCodeComputerUseOperationEvent | undefined`
 - Emits: `{ method: zcodeProtocolMethods.computerUseOperationEvent, params }`
 
-- [ ] **Step 1: Write failing CLI projection and delivery tests**
+- [ ] **Passo 1: escrever os testes de projeção e entrega do CLI que falham**
 
-Add a test that builds a record without `deliveryKind`, passes `TurnStarted`, `ToolCallScheduled`, `ToolCallStarted`, `ToolCallResult`, `TurnComplete` and `SessionEnded` through `onSessionEvent`, and asserts:
+Adicionar um teste que constrói um record sem `deliveryKind`, passa `TurnStarted`, `ToolCallScheduled`, `ToolCallStarted`, `ToolCallResult`, `TurnComplete` e `SessionEnded` por `onSessionEvent` e afirma:
 
 ```ts
 expect(notify.mock.calls.map(([message]) => message.method)).toEqual([
@@ -190,21 +190,21 @@ expect(notify.mock.calls[1]?.[0].params).not.toHaveProperty("input");
 expect(notify.mock.calls[2]?.[0].params).not.toHaveProperty("result");
 ```
 
-Assert `v4Gateway.ingest` still receives every parent-session event. Add a separate test whose `notify` throws for a relevant event and assert `onSessionEvent` does not throw and `v4Gateway.ingest` still runs.
+Afirmar que `v4Gateway.ingest` ainda recebe todo evento de sessão pai. Adicionar um teste separado cujo `notify` lança para um evento relevante e afirmar que `onSessionEvent` não lança e que `v4Gateway.ingest` continua rodando.
 
-- [ ] **Step 2: Run RED**
+- [ ] **Passo 2: rodar RED**
 
 Run: `pnpm --dir apps/zcode-cli exec vitest run packages/bootstrap/tests/zcode-protocol.test.ts`
 
-Expected: FAIL because no sideband is emitted.
+Expected: FAIL porque nenhum sideband é emitido.
 
-- [ ] **Step 3: Implement the pure mapper**
+- [ ] **Passo 3: implementar o mapper puro**
 
-Create a switch over `SessionEventType` that copies only `id`, `sequenceNumber`, `sessionId`, `turnId`, `timestamp`, `toolCallId` and `toolName`. Return `undefined` for all other events. Add a Chinese bug-cause comment explaining that the v4 desktop path has no legacy `deliveryKind`, so the overlay lifecycle must be emitted before that gate.
+Criar um switch sobre `SessionEventType` que copie apenas `id`, `sequenceNumber`, `sessionId`, `turnId`, `timestamp`, `toolCallId` e `toolName`. Retornar `undefined` para todos os outros eventos. Adicionar um comentário em chinês explicando a causa do bug: o caminho de desktop v4 não tem o `deliveryKind` legado, então o ciclo de vida da camada sobreposta precisa ser emitido antes desse portão.
 
-- [ ] **Step 4: Wire best-effort notification before protocol projection gates**
+- [ ] **Passo 4: ligar a notificação best-effort antes dos portões de projeção de protocolo**
 
-At the top of `onSessionEvent`, before the child-session return and before `record.deliveryKind`, call a helper:
+No topo de `onSessionEvent`, antes do retorno de sessão filha e antes de `record.deliveryKind`, chamar um helper:
 
 ```ts
 const operationEvent = mapComputerUseOperationEvent(event);
@@ -226,19 +226,19 @@ if (operationEvent) {
 }
 ```
 
-The log event identifier may use underscores as a logger key, but method/tool identity must stay `computer-use`. Do not return from the catch.
+O identificador de evento de log pode usar sublinhados como chave de logger, mas a identidade de method/ferramenta precisa permanecer `computer-use`. Não retornar a partir do catch.
 
-- [ ] **Step 5: Run GREEN**
+- [ ] **Passo 5: rodar GREEN**
 
 Run: `pnpm --dir apps/zcode-cli exec vitest run packages/bootstrap/tests/zcode-protocol.test.ts`
 
-Expected: PASS with zero failures.
+Expected: PASS com zero falhas.
 
 ---
 
-### Task 3: Services Tracker and Notification Wiring
+### Tarefa 3: Tracker nos Services e wiring de notificação
 
-**Files:**
+**Arquivos:**
 
 - Modify: `packages/services/src/zcode-agent/cuaOperationTurnTracker.ts`
 - Modify: `packages/services/test/cuaOperationTurnTracker.test.ts`
@@ -248,13 +248,13 @@ Expected: PASS with zero failures.
 **Interfaces:**
 
 - `CuaOperationTurnTracker.accept(workspace, event: ZCodeComputerUseOperationEvent): void`
-- `ZCodeAgentService.wireClient` consumes `zcodeProtocolMethods.computerUseOperationEvent`
+- `ZCodeAgentService.wireClient` consome `zcodeProtocolMethods.computerUseOperationEvent`
 
-- [ ] **Step 1: Migrate tracker tests to the new event contract**
+- [ ] **Passo 1: migrar os testes do tracker para o novo contrato de evento**
 
-Replace `ZCodeSessionEvent` fixtures with sideband fixtures using `kind`, `sequenceNumber` and `eventId`. Preserve every existing activation, exclusion, terminal, workspace isolation and reporter-failure assertion. Remove result/error fixture delivery because the sideband deliberately omits them; retain the assertion that state stays active until a turn terminal.
+Substituir as fixtures `ZCodeSessionEvent` por fixtures de sideband usando `kind`, `sequenceNumber` e `eventId`. Preservar todas as asserções existentes de ativação, exclusão, estado terminal, isolamento de workspace e falha do reporter. Remover a entrega de fixtures de result/error porque o sideband as omite deliberadamente; manter a asserção de que o estado permanece ativo até um terminal de turn.
 
-Add an explicit duplicate-id test:
+Adicionar um teste explícito de id duplicado:
 
 ```ts
 const started = operationEvent("tool-started", {
@@ -267,33 +267,33 @@ tracker.accept(workspace, started);
 expect(states).toHaveLength(1);
 ```
 
-- [ ] **Step 2: Run tracker RED**
+- [ ] **Passo 2: rodar tracker RED**
 
 Run: `pnpm exec vitest run packages/services/test/cuaOperationTurnTracker.test.ts`
 
-Expected: FAIL because `accept` still expects legacy `ZCodeSessionEvent` kinds.
+Expected: FAIL porque `accept` ainda espera os kinds legados de `ZCodeSessionEvent`.
 
-- [ ] **Step 3: Implement the minimal sideband state machine adaptation**
+- [ ] **Passo 3: implementar a adaptação mínima da máquina de estados ao sideband**
 
-Import `ZCodeComputerUseOperationEvent`, replace `seq` with `sequenceNumber`, add a bounded `seenEventIds` set/order, and switch on the new kinds. Keep all existing canonical tool matching, non-operating actions, stop behavior, retired-turn protection, reporter isolation and workspace cleanup. Add a Chinese bug-cause comment explaining why legacy `session/event` and sideband sequence domains must not be mixed.
+Importar `ZCodeComputerUseOperationEvent`, substituir `seq` por `sequenceNumber`, adicionar um conjunto/ordem `seenEventIds` limitado e alternar sobre os novos kinds. Manter todo o casamento de ferramenta canônica existente, as ações não operacionais, o comportamento de stop, a proteção de turn aposentado, o isolamento do reporter e a limpeza de workspace. Adicionar um comentário em chinês explicando a causa do bug: por que os domínios de sequência do `session/event` legado e do sideband não podem ser misturados.
 
-- [ ] **Step 4: Run tracker GREEN**
+- [ ] **Passo 4: rodar tracker GREEN**
 
 Run: `pnpm exec vitest run packages/services/test/cuaOperationTurnTracker.test.ts`
 
-Expected: PASS with zero failures.
+Expected: PASS com zero falhas.
 
-- [ ] **Step 5: Change the service integration fake to sideband-only and observe RED**
+- [ ] **Passo 5: mudar o fake de integração do serviço para apenas sideband e observar RED**
 
-Update `CUA_OPERATION_LIVE_EVENT_FAKE_AGENT` so it sends strict `computer-use/operation-event` notifications after the existing subscribe ACK, but sends no `session/event`. Assert reporter states are `[true, false]`, invalid payload is ignored, duplicate `eventId` is idempotent, and received legacy session events remain empty.
+Atualizar `CUA_OPERATION_LIVE_EVENT_FAKE_AGENT` para enviar notificações estritas `computer-use/operation-event` depois do ACK de subscribe já existente, mas sem enviar nenhum `session/event`. Afirmar que os estados do reporter são `[true, false]`, que payload inválido é ignorado, que `eventId` duplicado é idempotente e que os eventos de sessão legados recebidos permanecem vazios.
 
 Run: `pnpm exec vitest run packages/services/test/zcodeAgentService.test.ts`
 
-Expected: FAIL because `wireClient` ignores the new notification.
+Expected: FAIL porque `wireClient` ignora a nova notificação.
 
-- [ ] **Step 6: Wire the strict notification and detach tracker from legacy events**
+- [ ] **Passo 6: ligar a notificação estrita e desvincular o tracker dos eventos legados**
 
-In `wireClient`, before generic state/interaction branches:
+Em `wireClient`, antes dos ramos genéricos de estado/interação:
 
 ```ts
 if (message.method === zcodeProtocolMethods.computerUseOperationEvent) {
@@ -314,9 +314,9 @@ if (message.method === zcodeProtocolMethods.computerUseOperationEvent) {
 }
 ```
 
-Remove `cuaOperationTurnTracker?.accept(workspace, normalizedEvent)` from `handleSessionEvent`. Do not alter ordinary `session.event` emission or v4 frame forwarding.
+Remover `cuaOperationTurnTracker?.accept(workspace, normalizedEvent)` de `handleSessionEvent`. Não alterar a emissão comum de `session.event` nem o encaminhamento de frames v4.
 
-- [ ] **Step 7: Run services GREEN**
+- [ ] **Passo 7: rodar services GREEN**
 
 Run:
 
@@ -324,36 +324,36 @@ Run:
 pnpm exec vitest run packages/services/test/cuaOperationTurnTracker.test.ts packages/services/test/zcodeAgentService.test.ts packages/services/test/cuaPermissionBrokerProductAgentEnv.test.ts
 ```
 
-Expected: PASS with zero failures.
+Expected: PASS com zero falhas.
 
 ---
 
-### Task 4: Capability Truth and Full Verification
+### Tarefa 4: Verdade das capacidades e verificação completa
 
-**Files:**
+**Arquivos:**
 
 - Modify: `docs/product-capability-map-office-computer-use.md`
 - Modify: `apps/dev-docs/src/data/productCapabilityMap.ts`
 - Modify: `apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`
-- Review: all files above plus `docs/superpowers/specs/2026-08-04-windows-cua-operation-indicator-design.md`
+- Review: todos os arquivos acima mais `docs/superpowers/specs/2026-08-04-windows-cua-operation-indicator-design.md`
 
 **Interfaces:**
 
-- Documents the chain `CLI runtime lifecycle -> computer-use/operation-event -> desktop-local Host tracker -> cua-operation-state -> Desktop Main overlay`.
+- Documenta a cadeia `CLI runtime lifecycle -> computer-use/operation-event -> desktop-local Host tracker -> cua-operation-state -> Desktop Main overlay`.
 
-- [ ] **Step 1: Write the failing capability graph assertion**
+- [ ] **Passo 1: escrever a asserção do grafo de capacidades que falha**
 
-Require the current Computer Use experience node/edge text to include `computer-use/operation-event` and the CLI lifecycle source rather than `validated live session event`.
+Exigir que o texto do nó/aresta atual da experiência de Computer Use inclua `computer-use/operation-event` e a fonte do ciclo de vida do CLI em vez de `validated live session event`.
 
-- [ ] **Step 2: Run RED**
+- [ ] **Passo 2: rodar RED**
 
 Run: `pnpm exec vitest run apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`
 
-Expected: FAIL because capability truth still names the old source.
+Expected: FAIL porque a verdade das capacidades ainda nomeia a fonte antiga.
 
-- [ ] **Step 3: Update capability truth**
+- [ ] **Passo 3: atualizar a verdade das capacidades**
 
-Change only the current source/edge wording; preserve that live video, pause and takeover remain planned. Update the document ASCII chain to:
+Mudar apenas a redação da fonte/aresta atual; preservar que vídeo ao vivo, pausa e takeover permanecem planejados. Atualizar a cadeia ASCII do documento para:
 
 ```text
 CLI runtime lifecycle
@@ -363,7 +363,7 @@ CLI runtime lifecycle
         -> capture-excluded Windows BrowserWindow
 ```
 
-- [ ] **Step 4: Run the focused suite**
+- [ ] **Passo 4: rodar a suíte focada**
 
 Run:
 
@@ -372,9 +372,9 @@ pnpm exec vitest run packages/shared/test/zcodeProtocol.test.ts packages/service
 pnpm --dir apps/zcode-cli exec vitest run packages/bootstrap/tests/zcode-protocol.test.ts
 ```
 
-Expected: both commands pass with zero failed tests.
+Expected: os dois comandos passam com zero testes falhando.
 
-- [ ] **Step 5: Run repository gates**
+- [ ] **Passo 5: rodar os portões do repositório**
 
 Run:
 
@@ -384,11 +384,11 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: every command exits 0. Any failure introduced by this change blocks commit; pre-existing unrelated failures must be reported with exact evidence.
+Expected: todos os comandos saem com 0. Qualquer falha introduzida por esta mudança bloqueia o commit; falhas preexistentes e não relacionadas precisam ser relatadas com evidência exata.
 
-- [ ] **Step 6: Review invariants and commit**
+- [ ] **Passo 6: revisar invariantes e commitar**
 
-Verify:
+Verificar:
 
 ```powershell
 git status --short
@@ -396,7 +396,7 @@ git diff --stat
 rg -n -- "computer_use" packages/shared/src/zcode-protocol apps/zcode-cli/packages/bootstrap/src/zcode-protocol packages/services/src/zcode-agent
 ```
 
-Confirm no new `computer_use` tool/method identity was introduced, `.tmp/` and unrelated user files are not staged, and the final diff matches the approved spec. Then commit only scoped files:
+Confirmar que nenhuma nova identidade de ferramenta/method `computer_use` foi introduzida, que `.tmp/` e arquivos de usuário não relacionados não estão preparados, e que o diff final corresponde à spec aprovada. Então commitar apenas os arquivos no escopo:
 
 ```powershell
 git add -- packages/shared/src/zcode-protocol/index.ts packages/shared/test/zcodeProtocol.test.ts apps/zcode-cli/packages/bootstrap/src/zcode-protocol/computer-use-operation-event.ts apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts packages/services/src/zcode-agent/cuaOperationTurnTracker.ts packages/services/src/zcode-agent/zcodeAgentService.ts packages/services/test/cuaOperationTurnTracker.test.ts packages/services/test/zcodeAgentService.test.ts apps/dev-docs/src/data/productCapabilityMap.ts apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts docs/product-capability-map-office-computer-use.md docs/superpowers/plans/2026-08-04-windows-cua-lifecycle-sideband.md
@@ -404,4 +404,4 @@ git diff --cached --check
 git commit -m "fix(cua): drive Windows indicator from runtime lifecycle"
 ```
 
-Expected: one Conventional Commit, no push.
+Expected: um Conventional Commit, sem push.

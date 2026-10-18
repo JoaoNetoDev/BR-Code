@@ -1,56 +1,56 @@
-# 用户消息附件布局
+# Layout de Anexos da Mensagem do Usuário
 
-## 目标
+## Objetivo
 
-对话时间线中的已发送文件或图片附件显示在用户消息气泡上方，不再占用气泡内部空间。桌面端与手机 Web 远控共用同一结构和显示规则。
+Arquivos ou anexos de imagem já enviados na linha do tempo da conversa são exibidos acima do balão da mensagem do usuário e deixam de ocupar espaço dentro do balão. O desktop e o Web de controle remoto do celular compartilham a mesma estrutura e as mesmas regras de exibição.
 
-## 展示结构
+## Estrutura de Exibição
 
 ```text
-用户消息行（右对齐）
-├─ 附件区域（媒体、文件或上下文引用存在时）
-│  ├─ 媒体卡片行：图片 + 视频（按添加顺序混排）
-│  └─ pill 行：文件 → 评论 → 网页元素 → PPT 元素 → 对话引用
-├─ 对话气泡（存在可见提示词时，由 flex item 自动宽度决定，并由 conversation 容器限制最大宽度）
-└─ 消息操作
+Linha da mensagem do usuário (alinhada à direita)
+├─ Área de anexos (quando há mídia, arquivo ou referência de contexto)
+│  ├─ Linha de cards de mídia: imagens + vídeos (misturados na ordem de adição)
+│  └─ Linha de pills: arquivo → comentário → elemento de página → elemento de PPT → referência de conversa
+├─ Balão da conversa (quando há prompt visível, com largura automática de flex item e largura máxima limitada pelo container de conversation)
+└─ Ações da mensagem
 ```
 
-显示规则：
+Regras de exibição:
 
-| 附件或上下文引用 | 可见提示词 | 结果                                    |
-| ---------------- | ---------- | --------------------------------------- |
-| 有               | 有         | 所有附件/引用在同一区域并排，气泡在下方 |
-| 有               | 无         | 仅显示附件区域，不渲染空的对话气泡      |
-| 无               | 有         | 仅显示对话气泡                          |
-| 无               | 无         | 不渲染对话气泡                          |
+| Anexo ou referência de contexto | Prompt visível | Resultado                                        |
+| --------------------------------- | --------------- | ------------------------------------------------ |
+| Sim                               | Sim             | Todos os anexos/referências ficam lado a lado na mesma área, com o balão abaixo |
+| Sim                               | Não             | Exibe apenas a área de anexos, sem renderizar um balão de conversa vazio |
+| Não                               | Sim             | Exibe apenas o balão da conversa                  |
+| Não                               | Não             | Não renderiza o balão da conversa                |
 
-图片与视频同属媒体卡片行，先以 `size-20`（80 CSS px）的 `rounded-xl` 方形卡片展示，按添加顺序混排；容器不使用参与盒模型的真实边框，改由不拦截交互的 `::after` 覆盖层绘制边框。参考图为 2x，因此不直接使用截图中的物理像素尺寸。sent 态视频在消息行进入虚拟列表可见挂载范围后，按稳定 row target 解析预览来源：Desktop local 优先使用 Main 精确授权的本地路径 URL，其他端或本地路径不可用时读取有界视频 Blob；两者都以无控件、静音、`playsInline` 的 `<video>` 展示首帧缩略图，读取或解码失败时回退视频图标。所有 grid 视频缩略图都通过共享预览组件叠加居中的播放角标：圆形、半透明黑色背景、背景模糊与白色播放图标，浮层不拦截卡片点击。图片与视频进入同一个媒体 gallery，导航集合只包含当前用户消息内可预览的媒体，并保持原附件顺序；点击任意媒体从其所在位置打开，上一项/下一项和左右方向键可以在图片与视频之间循环切换。图片继续保留共享预览的缩放、拖拽和下载能力，视频使用原生 `controls + playsInline`，不继承图片变换。非媒体文件和代码评论、网页元素、PPT 元素、对话选区引用位于下一层 pill 行，严格按“文件 → 评论 → 网页元素 → PPT 元素 → 对话引用”排列。同类型内容保持原始添加顺序。两个层级都使用 `flex-wrap`，空间不足时自然换行并保持右对齐。复制与编辑操作仍位于整条用户消息内容下方。
+Imagens e vídeos pertencem à mesma linha de cards de mídia e são exibidos primeiro como cards quadrados `rounded-xl` de `size-20` (80 CSS px), misturados na ordem de adição; o contêiner não usa borda real que participe do box model, sendo a borda desenhada por uma camada `::after` que não intercepta interações. A imagem de referência é 2x, por isso não se usam diretamente as dimensões físicas de pixel da captura. No estado sent, o vídeo resolve a origem da prévia por um row target estável, depois que a linha da mensagem entra no alcance visível de montagem da lista virtual: no Desktop local, prioriza a URL de path local autorizada precisamente pelo Main; em outras plataformas, ou quando o path local não está disponível, lê um Blob de vídeo limitado. Ambos exibem a miniatura do primeiro frame por meio de um `<video>` sem controles, mudo e com `playsInline`; quando a leitura ou a decodificação falha, há fallback para o ícone de vídeo. Todas as miniaturas de vídeo em grid usam o componente compartilhado de prévia para sobrepor um badge de play centralizado: circular, com fundo preto semitransparente, desfoque de fundo e ícone de play branco, e a sobreposição não intercepta o clique no card. Imagens e vídeos entram no mesmo gallery de mídia; o conjunto de navegação contém apenas as mídias visualizáveis da mensagem atual do usuário e mantém a ordem original dos anexos; ao clicar em qualquer mídia, ela abre a partir da sua posição, e item anterior/próximo e as setas esquerda/direita percorrem imagens e vídeos em ciclo. Imagens continuam com o zoom, arraste e download do preview compartilhado, enquanto vídeos usam `controls + playsInline` nativos e não herdam as transformações de imagem. Arquivos não-mídia e comentários de código, elementos de página, elementos de PPT e referências de seleção de conversa ficam na próxima camada, a linha de pills, estritamente na ordem “arquivo → comentário → elemento de página → elemento de PPT → referência de conversa”. Conteúdo do mesmo tipo mantém a ordem original de adição. Os dois níveis usam `flex-wrap`, quebrando naturalmente quando falta espaço e mantendo o alinhamento à direita. As ações de copiar e editar continuam abaixo de todo o conteúdo da mensagem do usuário.
 
-已发送视频仍按稳定 row target 授权：Desktop local 的 artifact/local_ref 路径必须先由 Host 请求 Main `realpath` 并加入精确授权集合，再生成本地媒体 URL；Renderer URL 中的绝对路径和 MIME 声明本身都不构成授权。不能取得已授权本地路径时才沿用分片 Blob，消息行可见挂载时获得的 URL 同时供首帧缩略图和 gallery 播放复用，避免点击时重复读取。若缩略图读取失败，gallery 首次切到该视频时允许重新读取。切到其他媒体、关闭 Dialog 或卸载消息行时，必须中止未完成的临时读取、暂停当前视频并释放不再使用的 Blob URL。读取失败只属于当前视频项，保留上一项/下一项导航和关闭能力。图片缩略图读取失败后不进入可预览 gallery，避免出现无内容的导航项。预览状态只属于 renderer，不写入 session、snapshot、queue 或协议。
+Vídeos enviados também são autorizados por row target estável: os caminhos artifact/local_ref do Desktop local devem primeiro passar por uma requisição `realpath` ao Main e entrar no conjunto de autorizações precisas, e só então a URL de mídia local é gerada; o path absoluto na URL do Renderer e a declaração de MIME, por si só, não constituem autorização. Só quando não é possível obter o path local autorizado é usado o Blob em chunks, e a URL obtida quando a linha da mensagem fica visível é reaproveitada tanto pela miniatura do primeiro frame quanto pela reprodução no gallery, evitando releitura no momento do clique. Se a leitura da miniatura falhar, o gallery permite uma releitura ao trocar para esse vídeo pela primeira vez. Ao trocar para outra mídia, fechar o Dialog ou desmontar a linha da mensagem, é obrigatório abortar leituras temporárias em andamento, pausar o vídeo atual e liberar os Blob URLs que não estão mais em uso. Uma falha de leitura pertence apenas ao item de vídeo atual, preservando a navegação anterior/próxima e a capacidade de fechar. Se a leitura da miniatura da imagem falhar, ela não entra no gallery de visualização, evitando itens de navegação sem conteúdo. O estado de preview pertence apenas ao renderer e não é escrito em session, snapshot, queue ou protocolo.
 
-附件区域只按视觉类型拆成媒体卡片行和 pill 行；文件和四类上下文引用仍是同一个 pill 行的直接 DOM 子元素，不再按来源建立额外布局容器，也不使用 `display: contents` 模拟扁平布局。附件区域与提示词气泡共享同一右边界。
+A área de anexos é dividida apenas por tipo visual em linha de cards de mídia e linha de pills; arquivos e as quatro categorias de referência de contexto continuam sendo elementos DOM filhos diretos da mesma linha de pills, sem contêineres de layout extras por origem e sem usar `display: contents` para simular layout plano. A área de anexos compartilha o mesmo limite direito do balão de prompt.
 
-评论、网页元素、PPT 元素和对话选区引用复用同一个上下文附件 pill 外壳。外壳统一负责图标、名称、整组删除入口、焦点样式和详情浮层：输入框中存在关闭按钮时使用 `pl-3 pr-1.5`，对话流中没有关闭按钮时恢复对称的 `px-3`；图标与名称内容层只负责 `flex min-w-0 items-center gap-1.5` 布局，不再叠加圆角或水平内边距。第二层整组删除入口保留原交互：`size-5 rounded-full` ghost 按钮默认隐藏，pill hover 时显示，文字从 `text-foreground-subtle` 切换为 `text-foreground`，内部 X 图标使用 `size-3.5`。各类型组件只提供自身的标签、图标和详情列表。详情浮层通过 Portal 展示，不在消息附件容器内增加布局节点；浮层背景与边框复用 Tooltip 的 `bg-tooltip`、`border border-border` token。
+Comentários, elementos de página, elementos de PPT e referências de seleção de conversa reutilizam o mesmo shell de pill de anexo de contexto. O shell é responsável de forma uniforme por ícone, nome, entrada de remoção do grupo inteiro, estilo de foco e overlay de detalhes: quando há botão de fechar na caixa de entrada, usa-se `pl-3 pr-1.5`; no fluxo da conversa, quando não há botão de fechar, restaura-se o `px-3` simétrico; a camada de conteúdo de ícone e nome é responsável apenas pelo layout `flex min-w-0 items-center gap-1.5`, sem sobrepor cantos arredondados ou padding horizontal. A entrada de remoção do grupo inteiro da segunda camada preserva a interação original: botão ghost `size-5 rounded-full` oculto por padrão, exibido no hover do pill, com o texto passando de `text-foreground-subtle` para `text-foreground` e o ícone X interno usando `size-3.5`. Os componentes de cada tipo fornecem apenas seus próprios rótulos, ícones e listas de detalhe. O overlay de detalhes é exibido via Portal, sem adicionar nós de layout dentro do contêiner de anexos da mensagem; o fundo e a borda do overlay reutilizam os tokens `bg-tooltip` e `border border-border` do Tooltip.
 
-消息流中的用户附件位于右侧，四类上下文附件的详情浮层统一使用 `align="end"`，使浮层右边缘与 pill 右边缘对齐并向左展开；编辑器中的附件保持默认 `align="start"`，避免改变输入区既有展开方向。
+Os anexos do usuário no fluxo de mensagens ficam à direita, e o overlay de detalhes das quatro categorias de anexo de contexto usa uniformemente `align="end"`, de modo que a borda direita do overlay fique alinhada com a borda direita do pill e se expanda para a esquerda; os anexos no editor mantêm o `align="start"` padrão, evitando mudar a direção de expansão já existente na área de entrada.
 
-## 验收条件
+## Critérios de Aceitação
 
-- 附件区域和气泡均在用户消息行内右对齐。
-- 文件、图片和上下文引用均不再是气泡的子节点。
-- 图片与视频附件使用可点击的 `size-20 rounded-xl` 媒体卡片，以 `::after` 覆盖层绘制边框且不占据卡片尺寸；图片加载失败时显示静态图片占位并标记不可预览。
-- 已发送视频在可见消息行内按稳定 row target 解析本地 URL 或分片 Blob，并以无控件 `<video>` 展示真实首帧；同一来源与 gallery 复用，卸载消息行时只释放自建 Blob URL，读取或解码失败回退静态视频占位。
-- 点击图片或视频卡片进入同一媒体 gallery；同一消息内可预览的图片与视频按原附件顺序支持上一项/下一项、左右方向键和首尾循环，不能跨消息导航。
-- 图片项保留缩放、拖拽和下载；视频项使用原生 `controls + playsInline`，切离视频时暂停播放并重置图片变换。
-- 已发送视频按稳定 row target（`entityId` + 附件原序号）授权；Desktop local 只播放 Main 精确登记的 canonical path，其他端按需分块读取。读取失败保留 gallery 导航与重试能力，关闭、切换或卸载时中止未完成读取并释放 Blob URL。
-- 每个已发送非图片文件或引用使用 `bg-surface`、`rounded-full`、无边框的 pill 容器。
-- 文件 pill 的内容按“FileDisplay 文件图标 + 文件名”展示；不显示文件大小或 MIME 类型。
-- 仅附件消息不会产生带背景、边框和内边距的空气泡。
-- 有可见提示词时，用户消息气泡不显式设置 `w-fit` 或 `w-full`，保留右对齐 flex item 的自动宽度。默认以 `max-w-full` 限制在宿主可用宽度内；具名 `conversation` 容器达到 `624px`（`max-w-xl` 的 `576px` 加 `48px` 余量）后，以 `max-w-xl` 封顶。
-- 桌面端 hover/focus 操作栏与手机远控常显操作栏行为保持不变。
+- A área de anexos e o balão ficam ambos alinhados à direita dentro da linha da mensagem do usuário.
+- Arquivos, imagens e referências de contexto não são mais filhos do balão.
+- Anexos de imagem e vídeo usam cards de mídia clicáveis `size-20 rounded-xl`, com borda desenhada por camada `::after` que não ocupa o tamanho do card; quando a imagem falha ao carregar, exibe-se um placeholder estático de imagem e ela é marcada como não visualizável.
+- Vídeos enviados resolvem a URL local ou o Blob em chunks por row target estável dentro da linha de mensagem visível e exibem o primeiro frame real com `<video>` sem controles; a mesma origem é reaproveitada no gallery, e ao desmontar a linha da mensagem são liberados apenas os Blob URLs criados pela própria leitura, com fallback para um placeholder estático de vídeo em caso de falha de leitura ou decodificação.
+- Clicar em um card de imagem ou vídeo entra no mesmo gallery de mídia; imagens e vídeos visualizáveis da mesma mensagem suportam item anterior/próximo, setas esquerda/direita e ciclo do primeiro ao último na ordem original dos anexos, sem navegar entre mensagens.
+- Itens de imagem mantêm zoom, arraste e download; itens de vídeo usam `controls + playsInline` nativos, pausam ao sair e redefinem as transformações de imagem.
+- Vídeos enviados são autorizados por row target estável (`entityId` + índice original do anexo); o Desktop local toca apenas o canonical path registrado precisamente pelo Main, e outras plataformas leem em blocos conforme a necessidade. Falhas de leitura preservam a navegação do gallery e a capacidade de retentativa, e no fechamento, troca ou desmontagem as leituras em andamento são abortadas e os Blob URLs liberados.
+- Cada arquivo não-imagem enviado ou referência usa um contêiner de pill `bg-surface`, `rounded-full` e sem borda.
+- O conteúdo do pill de arquivo é exibido como “FileDisplay ícone de arquivo + nome do arquivo”; tamanho de arquivo e tipo MIME não são exibidos.
+- Mensagens só com anexos não produzem um balão vazio com fundo, borda e padding.
+- Quando há prompt visível, o balão da mensagem do usuário não define explicitamente `w-fit` nem `w-full`, preservando a largura automática do flex item alinhado à direita. Por padrão, `max-w-full` limita a mensagem à largura disponível do host; o contêiner nomeado `conversation`, ao atingir `624px` (`576px` de `max-w-xl` mais `48px` de folga), passa a limitar com `max-w-xl`.
+- O comportamento da barra de ações com hover/focus no desktop e da barra de ações sempre visível no controle remoto do celular permanece inalterado.
 
-## 输入框附件
+## Anexos da Caixa de Entrada
 
-输入框附件区明确拆成两层：第一层为“媒体（图片/视频）→ 文件”，媒体组内按添加顺序混排，第二层为“评论 → 网页元素 → PPT 元素 → 对话引用”；两层分别使用 `flex-wrap`，不得让上下文 pill 与媒体或文件进入同一个布局行。图片与视频卡片使用 `size-12`（48 CSS px）与 `rounded-lg`；两者有本地 `objectUrl` 时进入同一个发送前媒体 gallery，点击任意媒体从其所在位置打开，并按原添加顺序支持图片/视频混合的上一项、下一项、左右方向键和首尾循环。视频卡片使用本地 `objectUrl` 显示首帧，并复用 sent 态相同的圆形半透明黑色背景模糊播放角标；gallery 中使用原生播放器，图片保留缩放、拖拽和下载工具。非媒体文件使用 `h-12 w-fit max-w-full rounded-lg` 内容驱动卡片，文件图标底板使用 `rounded-md`，显示文件图标、文件名和扩展名，并以 `pr-6` 为右上角关闭按钮预留空间。文字区域以 `max-w-40` 限制长名称；文件名保持单行截断并以省略号表示，悬停可通过原生标题查看完整名称。各类型内部保持添加顺序。图片与文件使用同一个 `size-3.5 rounded-full bg-primary text-primary-foreground` 主色关闭按钮结构，统一以 `top-0.5 right-0.5` 贴右上角；桌面端默认隐藏，在附件 hover 或按钮键盘聚焦时显示，无 hover 能力的触屏端保持常显。
+A área de anexos da caixa de entrada é claramente dividida em duas camadas: a primeira é “mídia (imagem/vídeo) → arquivo”, com o grupo de mídia misturado na ordem de adição; a segunda é “comentário → elemento de página → elemento de PPT → referência de conversa”. As duas camadas usam `flex-wrap` separadamente, e os pills de contexto não podem entrar na mesma linha de layout que a mídia ou os arquivos. Cards de imagem e vídeo usam `size-12` (48 CSS px) e `rounded-lg`; quando ambos têm `objectUrl` local, entram no mesmo gallery de mídia pré-envio, abrindo a partir da posição de cada mídia e suportando, na ordem original de adição, item anterior/próximo misturando imagens/vídeos, setas esquerda/direita e ciclo do primeiro ao último. O card de vídeo usa o `objectUrl` local para exibir o primeiro frame e reaproveita o mesmo badge de play circular com fundo preto semitransparente e desfoque do estado sent; no gallery usa-se o player nativo, e as imagens mantêm as ferramentas de zoom, arraste e download. Arquivos não-mídia usam um card com `h-12 w-fit max-w-full rounded-lg` dirigido pelo conteúdo; a base do ícone de arquivo usa `rounded-md`, exibindo ícone de arquivo, nome e extensão, com `pr-6` reservando espaço para o botão de fechar do canto superior direito. A área de texto limita nomes longos com `max-w-40`; o nome do arquivo permanece em linha única truncada com reticências, e o nome completo pode ser visto no hover pelo title nativo. Dentro de cada tipo, a ordem de adição é preservada. Imagens e arquivos usam a mesma estrutura de botão de fechar principal `size-3.5 rounded-full bg-primary text-primary-foreground`, posicionada uniformemente em `top-0.5 right-0.5`; por padrão fica oculta no desktop e aparece no hover do anexo ou quando o botão recebe foco por teclado, enquanto em terminais de toque sem hover ela permanece sempre visível.
 
-用户消息的行内编辑器复用上述两层附件规则：第一层即使历史消息中的附件原始顺序为文件在前，也按“媒体（图片/视频）→ 文件”展示，媒体组内保持原序，同时保留附件原始索引作为删除和提交依据；第二层把提示词尾部协议中的评论、网页元素、PPT 元素和对话引用解析为与主输入框一致的上下文 pill，并按固定顺序展示。编辑正文只显示可见提示词，不显示上下文协议原文；删除上下文后，提交时只重新序列化剩余上下文。编辑态不得回退到已发送消息的 `size-20` 图片缩略图或文件 pill；已发送消息的只读样式则不受编辑态规则影响。
+O editor embutido na linha da mensagem do usuário reutiliza as mesmas regras de duas camadas de anexos: a primeira camada é exibida como “mídia (imagem/vídeo) → arquivo” mesmo quando, em mensagens antigas, os anexos vieram com o arquivo antes, mantendo a ordem original dentro do grupo de mídia e preservando o índice original do anexo como base para remoção e submissão; a segunda camada resolve os comentários, elementos de página, elementos de PPT e referências de conversa do protocolo de tail do prompt em pills de contexto idênticos aos da caixa de entrada principal, exibidos em ordem fixa. O corpo da edição mostra apenas o prompt visível, e não o texto bruto do protocolo de contexto; após remover um contexto, a submissão apenas resserializa os contextos restantes. O estado de edição não pode voltar aos thumbnails `size-20` de imagem nem aos pills de arquivo da mensagem enviada; os estilos somente-leitura da mensagem enviada não são afetados pelas regras do estado de edição.

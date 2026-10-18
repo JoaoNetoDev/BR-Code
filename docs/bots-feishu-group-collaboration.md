@@ -1,4 +1,4 @@
-# Feishu group collaboration
+# Colaboração em grupo do Feishu
 
 A nova implementação dos materiais de entrada de tópico segue
 [Talk input materials refactor](bots-topic-input-materials.md);
@@ -6,26 +6,27 @@ as referências por concatenação de corpo de texto e a injeção automática d
 bot_topic_context mentioned nos registros históricos abaixo serão substituídas por
 referências padrão e anexos de texto.
 
-## Identity and activation
+## Identidade e ativação
 
-One enabled group has one default conversation, plus independent topic conversations.
-The default key remains `(botId, chatId)` for backwards compatibility; topics use
-`(botId, chatId, threadId)`. Each conversation has one current task.
-`sender.open_id` is the actor, never the conversation identity. Card callbacks use
-`context.open_chat_id`. Different groups and private chats have independent task,
-workspace, model, pending interaction and history state. Shared workspace files
-are not isolated: activation discloses that concurrent groups can edit the same files. No automatic worktree is created.
+Um grupo habilitado tem uma conversa padrão, mais conversas de tópico independentes.
+A chave padrão permanece `(botId, chatId)` por compatibilidade retroativa; tópicos usam
+`(botId, chatId, threadId)`. Cada conversa tem uma tarefa atual.
+`sender.open_id` é o ator, nunca a identidade da conversa. Callbacks de cartão usam
+`context.open_chat_id`. Grupos diferentes e chats privados têm estado independente de
+tarefa, workspace, modelo, interação pendente e histórico. Arquivos de workspace
+compartilhados não são isolados: a ativação divulga que grupos concorrentes podem editar
+os mesmos arquivos. Nenhum worktree automático é criado.
 
-Only the privately bound owner can `/enable` a group. Initial activation copies
-the private workspace/model/thought level into a new draft, but not its task,
-conversation or automatic permission grants. Missing workspace rejects activation.
-Repeated activation is idempotent. `/disable` stops intake, callbacks and delivery,
-without cancelling accepted work. Re-enable preserves context, not missed output.
-Removal from the group, unbinding or owner replacement revokes group access;
-joining again requires explicit owner activation. Both ordinary Feishu/Lark groups
-and dedicated topic groups are supported. Other providers are excluded.
+Apenas o owner vinculado privadamente pode `/enable` um grupo. A ativação inicial copia o
+workspace/modelo/nível de pensamento privado para um novo rascunho, mas não sua tarefa,
+conversa ou concessões automáticas de permissão. Workspace ausente rejeita a ativação.
+Ativação repetida é idempotente. `/disable` para a entrada, os callbacks e a entrega,
+sem cancelar trabalho já aceito. Reativar preserva o contexto, não a saída perdida.
+Remoção do grupo, desvinculação ou troca de owner revoga o acesso ao grupo; entrar de novo
+exige ativação explícita do owner. Grupos comuns de Feishu/Lark e grupos de tópico
+dedicados são suportados. Outros providers ficam de fora.
 
-## Topic collaboration (implementation contract)
+## Colaboração em tópico (contrato de implementação)
 
 Esta seção é o contrato de implementação atual do comportamento de tópico, substituindo
 os caminhos antigos de @ turno a turno, alias de task padrão, queue e Steer.
@@ -301,30 +302,32 @@ deduplicação de mensagens, falha de materiais, revogação e migração; Feish
 exibição no celular são aceitos manualmente pelo usuário, e o dev não é iniciado nesta rodada. A
 verificação real incompleta precisa ser listada explicitamente na entrega.
 
-### Historical attachment retrieval (local/stdio/WebSocket integration under verification, 2026-09-08)
+### Recuperação histórica de anexos (integração local/stdio/WebSocket em verificação, 2026-09-08)
 
-Remote forwarding uses a private reverse channel on the existing Desktop-to-server
-stdio connection. Only the credential-owning Desktop Host authorizes/downloads the
-resource. The source connection must validate the current logical workspace and
-remoteSessionId before invoking Bot authorization. The model cannot choose a Host,
-URL, credentials or transfer destination. Desktop and mobile stream profiles remain
-unchanged.
+O encaminhamento remoto usa um canal reverso privado na conexão stdio existente entre
+Desktop e servidor. Somente o Desktop Host dono da credencial autoriza/baixa o
+recurso. A conexão de origem precisa validar o workspace lógico e o remoteSessionId
+atuais antes de invocar a autorização de Bot. O modelo não pode escolher um Host,
+URL, credenciais ou destino de transferência. Os perfis de stream do Desktop e do
+mobile permanecem inalterados.
 
-Resource transfer uses begin/chunk/finish/cancel, at most 384 KiB per decoded chunk
-and the existing 20 MiB attachment limit. At most two live downloads per connection
-are retained for 120 seconds; overflow rejects immediately without queuing. Every
-chunk and finish rechecks the original authorization. Cancellation, timeout and
-connection close abort downloads and erase retained bytes. The receiver checks the
-declared byte count and SHA-256 before passing the file to its existing CLI uploader.
-This short-lived resource transfer state is not an accepted input or execution queue.
+A transferência de recursos usa begin/chunk/finish/cancel, no máximo 384 KiB por chunk
+decodificado e o limite de anexos de 20 MiB existente. No máximo dois downloads vivos
+por conexão são retidos por 120 segundos; o excedente é rejeitado de imediato, sem
+enfileiramento. Cada chunk e o finish reconferem a autorização original. Cancelamento,
+timeout e fechamento de conexão abortam downloads e apagam os bytes retidos. O receptor
+confere a contagem de bytes declarada e o SHA-256 antes de passar o arquivo ao seu
+uploader de CLI existente. Esse estado de transferência de recursos de vida curta não é
+uma entrada aceita nem uma fila de execução.
 
-For a shared WebSocket Server, register a private resource peer only on the existing
-capability-authenticated `/ws/host` connection. Bind workspaceIdentity + remoteSessionId
-from trusted V4 facade calls, never message bodies. Two live peers cannot claim the
-same route; closing a peer removes its routes. A normal `/ws` mobile/browser connection
-cannot register a resource peer. Each reverse request resolves exactly one peer and
-the Desktop then revalidates its own current logical session and Bot authorization.
-There is no last-client fallback, broadcast probing, reconnect or new runtime.
+Para um WebSocket Server compartilhado, registre um peer de recurso privado somente na
+conexão `/ws/host` existente, autenticada por capacidade. Vincule workspaceIdentity +
+remoteSessionId a partir de chamadas da facade V4 confiáveis, nunca de corpos de
+mensagem. Dois peers vivos não podem reivindicar a mesma rota; fechar um peer remove suas
+rotas. Uma conexão `/ws` normal de mobile/browser não pode registrar um peer de recurso.
+Cada requisição reversa resolve exatamente um peer, e então o Desktop revalida sua própria
+sessão lógica atual e a autorização de Bot. Não há fallback para o último cliente,
+sondagem por broadcast, reconexão nem novo runtime.
 
 ```text
 Remote CLI -> remote Host -> same stdio reverse channel -> Desktop Host
@@ -332,30 +335,35 @@ Remote CLI -> remote Host -> same stdio reverse channel -> Desktop Host
 Remote CLI <- existing attachment uploader <- bounded chunks + final authorization
 ```
 
-Native verification found that a file reply in the dedicated topic UI offered forward,
-recall and selection actions, but no quote-reply action in the inspected client. The
-archive retains a file placeholder; the optional `ReadSessionContext` topic attachment selector
-now requests the original resource through a trusted input and authorization generation.
-Local, SSH/WSL/Docker stdio and standalone WebSocket Server integration are under
-verification; controlled transport tests do not establish native end-to-end acceptance.
+A verificação nativa encontrou que uma resposta de arquivo na UI de tópico dedicado
+oferecia ações de encaminhar, revogar e selecionar, mas nenhuma ação de citar-resposta no
+cliente inspecionado. O arquivo mantém um placeholder de arquivo; o seletor opcional de
+anexos de tópico do `ReadSessionContext` agora solicita o recurso original por meio de uma
+entrada confiável e de uma geração de autorização.
 
-The Host `readTopicResource` service now resolves a trusted input ID to its accepted
-task/topic archive and validates the supplied authorization generation, group history
-opt-in and workspace identity. It rechecks authorization around native I/O and returns
-one size-checked transport-ready attachment. Provider metadata lookup supports file,
-image and rich-text image messages; cancellation reaches the native download. This
-service is the download boundary. The local Agent reverse request uses existing chunked
-upload into its own CLI, validates the bytes and writes a session binary artifact. A final
-authorization check runs after upload before returning the reference. Stdio callbacks
-use the bounded private reverse channel described above. Native local/remote file
-materialization and original-topic delivery remain pending verification.
+A integração local, SSH/WSL/Docker por stdio e WebSocket Server standalone está em
+verificação; testes de transporte controlados não estabelecem aceitação nativa ponta a
+ponta.
 
-The retrieval capability must bind to the executing task, not model-supplied bot/chat
-identity. A model may select a message/resource reference already present in that
-task's admitted topic background; it cannot request arbitrary group history. Host
-validates the current task/workspace identity, parent and topic authorization generation,
-and the original native message's chat/thread before downloading. Recheck authorization
-after network I/O before exposing bytes. Disabled/rebound/unrelated topics fail closed.
+O serviço `readTopicResource` do Host agora resolve um id de entrada confiável até seu
+arquivo aceito de task/tópico e valida a geração de autorização fornecida, o opt-in de
+histórico de grupo e a identidade de workspace. Ele reconfere a autorização em torno do
+I/O nativo e devolve um único anexo com tamanho conferido, pronto para transporte. A
+consulta de metadata do provider suporta mensagens de arquivo, imagem e imagem de texto
+rico; o cancelamento alcança o download nativo. Este serviço é o limite de download. A
+requisição reversa do Agent local usa o upload em chunks existente para sua própria CLI,
+valida os bytes e escreve um artefato binário de sessão. Uma verificação final de
+autorização roda depois do upload, antes de devolver a referência. Callbacks por stdio usam
+o canal reverso privado limitado descrito acima. A materialização nativa local/remota de
+arquivos e a entrega no tópico original permanecem pendentes de verificação.
+
+A capacidade de recuperação precisa se vincular à task em execução, não à identidade de
+bot/chat fornecida pelo modelo. Um modelo pode selecionar uma referência de
+mensagem/recurso já presente no background de tópico admitido dessa task; ele não pode
+solicitar histórico de grupo arbitrário. O Host valida a identidade atual de
+task/workspace, a geração de autorização do pai e do tópico, e o chat/thread da mensagem
+nativa original antes de baixar. Reconfira a autorização após o I/O de rede, antes de
+expor bytes. Tópicos desabilitados, revinculados ou sem relação falham de forma fechada.
 
 ```text
 current task tool -> typed Agent/Host request (archived message reference)
@@ -365,74 +373,83 @@ current task tool -> typed Agent/Host request (archived message reference)
                   -> bounded tool result / target-local resource reference
 ```
 
-Reuse dependency-injected Agent ports and reverse protocol requests; keep provider
-credentials in Host. Maintain cancellation, resource lifetime and atomic failure
-semantics. Remote requests carry workspaceIdentity and remoteSessionId and return
-target-accessible resources, never Desktop absolute paths. This lookup is read-only
-task work, not a new input queue, approval response or change to execution policy.
+Reutilize as portas de Agent injetadas por dependência e as requisições do protocolo
+reverso; mantenha as credenciais de provider no Host. Preserve o cancelamento, o tempo de
+vida do recurso e a semântica de falha atômica. Requisições remotas carregam
+workspaceIdentity e remoteSessionId e retornam recursos acessíveis ao alvo, nunca caminhos
+absolutos do Desktop. Esta consulta é trabalho de leitura da task, não uma nova fila de
+entrada, resposta de aprovação nem mudança de política de execução.
 
-Required regression: an archived same-topic file can be read on demand; an unarchived,
-cross-task/chat/thread reference, revoked authorization, failed download or interrupted
-transfer returns an explicit failure without exposing partial data. Native acceptance
-must ask for a value found only inside the file, verify runtime content and original-topic
-delivery, and separately record remote workspace coverage.
+Regressão obrigatória: um arquivo arquivado do mesmo tópico pode ser lido sob demanda; uma
+referência não arquivada, de outra task/chat/thread, com autorização revogada, download
+falho ou transferência interrompida devolve uma falha explícita sem expor dados parciais. A
+aceitação nativa deve pedir um valor encontrado apenas dentro do arquivo, verificar o
+conteúdo em runtime e a entrega no tópico original, e registrar separadamente a cobertura
+de workspace remoto.
 
-Group enable/disable is group-wide. Within a topic, new/clear instruct the owner to open
-another topic; task displays its bound task without cross-topic switching. Stop,
-configuration and interaction controls affect only the bound conversation, subject to
-existing role/busy restrictions. Group reauthorization rotates the version for all topic
-contexts; pending deliveries are invalidated, not replayed. Every send/card action checks
-group authorization plus topic/task/run/request identity. An unavailable source message
-may fall back only to the same thread; never to main chat or another task.
+Ativar/desativar grupo é escopo do grupo inteiro. Dentro de um tópico, new/clear mandam o
+owner abrir outro tópico; a task exibe sua task vinculada sem troca entre tópicos. Parada,
+configuração e controles de interação afetam apenas a conversa vinculada, sujeitos às
+restrições existentes de papel/ocupação. A reautorização do grupo rotaciona a versão para
+todos os contextos de tópico; entregas pendentes são invalidadas, não reproduzidas. Cada
+ação de envio/cartão verifica a autorização do grupo mais a identidade de tópico/task/run/
+requisição. Uma mensagem de origem indisponível pode recorrer apenas ao mesmo thread; nunca
+ao chat principal ou a outra task.
 
-UI reuses task list/conversation/queue/approval surfaces. Title defaults to group plus
-topic title. The reply action bar does not expose topic details or a topic context dialog.
-Summary corrections are ordinary task input. Only failed or unknown deliveries expose
-recovery controls in reply actions; do not restore BotGroupTaskNotice or composer result panels. Desktop continuous
-and mobile replayable boundaries, owner/lease and workspace identity remain unchanged.
+A UI reutiliza as superfícies de lista de task/conversa/fila/aprovação. O título tem como
+padrão grupo mais título do tópico. A barra de ações de resposta não expõe detalhes do
+tópico nem um diálogo de contexto de tópico. Correções de resumo são entrada comum de task.
+Apenas entregas falhas ou desconhecidas expõem controles de recuperação nas ações de
+resposta; não restaure BotGroupTaskNotice nem painéis de resultado no composer. Os limites
+de desktop continuous e mobile replayable, owner/lease e identidade de workspace permanecem
+inalterados.
 
-Acceptance includes two ordinary topics, dedicated topic groups, bot-result follow-up,
-plain-message silence, incremental overlap/ACK races, long-context/gap/summary conflict,
-cross-topic card attacks, disable/restart/remote disconnect, attachments and delivery.
-Run protocol/service tests, Desktop E2E/mobile regression and real pnpm dev:desktop CUA
-against Feishu; record Lark/cross-platform limitations separately. Automated fixtures
-are not evidence of real tenant permissions or native topic behavior.
+A aceitação inclui dois tópicos comuns, grupos de tópico dedicados, follow-up de resultado do
+bot, silêncio de mensagem comum, sobreposição incremental/corridas de ACK, conflito de
+contexto longo/lacuna/resumo, ataques de cartão entre tópicos, desativação/reinício/
+desconexão remota, anexos e entrega. Rode testes de protocolo/serviço, regressão de E2E do
+Desktop/mobile e `pnpm dev:desktop` CUA real contra o Feishu; registre as limitações de
+Lark/cross-platform separadamente. Fixtures automatizadas não são evidência de permissões
+reais de tenant nem de comportamento nativo de tópico.
 
-Service-level card acceptance explicitly verifies sibling-topic attacks: a queue card
-from topic A used in B, another chat, with another task or an old authorization version
-must return a toast-only rejection before calling CLI cancellation. An unrelated member
-cannot cancel A's input even with its otherwise valid card. The original author may
-cancel the matching A input; B's input remains accepted. Re-enabling the parent group
-must not make either topic's earlier cards valid again. These controlled tests establish
-service authority only, not native callback delivery or multi-device timing.
+A aceitação de cartões em nível de serviço verifica explicitamente ataques de tópico irmão:
+um cartão de fila do tópico A usado em B, em outro chat, com outra task ou com uma versão
+antiga de autorização precisa devolver uma rejeição só com toast antes de chamar o
+cancelamento da CLI. Um membro sem relação não pode cancelar a entrada de A nem com seu
+cartão, por mais válido que ele esteja. O autor original pode cancelar a entrada
+correspondente de A; a entrada de B permanece aceita. Reativar o grupo pai não pode tornar
+válidos de novo os cartões anteriores de qualquer dos tópicos. Esses testes controlados
+estabelecem apenas a autoridade do serviço, não a entrega nativa de callback nem o timing
+multidispositivo.
 
-## Inputs and commands
+## Entradas e comandos
 
-Only user messages mentioning the current bot are admitted. Strip only that bot's
-mention; preserve other mentions. Deduplicate by provider message ID, not text or
-event ID. Text and rich-text images are supported. A reply mentioning the bot can
-attach the explicitly referenced image/file from the same chat (and same topic when
-applicable). Topic history follows the opt-in contract above. Attachment preparation
-is all-or-nothing and uses existing size/type rules.
+Apenas mensagens de usuário que mencionam o bot atual são admitidas. Remova apenas a
+menção desse bot; preserve as outras. Deduplique pelo id de mensagem do provider, não
+por texto nem por id de evento. Texto e imagens de texto rico são suportados. Uma resposta
+que menciona o bot pode anexar a imagem/arquivo explicitamente referenciado do mesmo chat
+(e do mesmo tópico quando aplicável). O histórico de tópico segue o contrato de opt-in
+acima. O preparo de anexos é tudo-ou-nada e usa as regras existentes de tamanho/tipo.
 
-Everyone can submit prompts and use help/status. Only the initiating actor or the
-owner can answer ordinary questions or cancel that actor's queued request. Only
-the owner can enable/disable, new/clear, stop, workspace/project, model, mode,
-think, reconnect, task, or approve/deny permissions and plans. Existing command
-policy also applies. Bind remains private-only; reply granularity is fixed to
-summary in groups. Help is role-aware; cancel only cancels a menu. Ordinary text
-never implicitly answers a group interaction. Desktop/mobile questions belong to
-the owner. The first valid answer wins; stale or unauthorized callbacks do not
-mutate cards. Owner authorization is checked in the service, not in card markup.
+Todos podem submeter prompts e usar ajuda/status. Apenas o ator que iniciou ou o owner
+pode responder perguntas comuns ou cancelar a requisição enfileirada daquele ator. Apenas
+o owner pode ativar/desativar, new/clear, parar, workspace/project, model, mode, think,
+reconnect, task, ou aprovar/negar permissões e planos. A política de comandos existente
+também se aplica. O bind permanece apenas privado; a granularidade de resposta é fixa em
+summary em grupos. A ajuda tem ciência do papel; cancelar apenas cancela um menu. Texto
+comum nunca responde implicitamente a uma interação de grupo. Perguntas de Desktop/mobile
+pertencem ao owner. A primeira resposta válida vence; callbacks obsoletos ou não
+autorizados não alteram cartões. A autorização do owner é verificada no serviço, não na
+marcação do cartão.
 
-`/new` creates a draft; the next prompt creates the task. Old tasks retain history
-but lose active delivery. Task history/selection is restricted to this group.
-Running, pending interaction or queued input blocks task/workspace switching.
-Stop retains the canonical Desktop queue semantics. Queue cancellation operates on
-the CLI item; racing execution cannot stop the whole task. Message edits/recalls
-do not automatically cancel, edit or roll back accepted input.
+`/new` cria um rascunho; o próximo prompt cria a task. Tasks antigas mantêm o histórico,
+mas perdem a entrega ativa. O histórico/seleção de tasks fica restrito a este grupo.
+Execução, interação pendente ou entrada enfileirada bloqueiam a troca de task/workspace.
+Parar mantém a semântica canônica de fila do Desktop. O cancelamento de fila atua sobre
+o item da CLI; uma execução em corrida não pode parar a task inteira. Edições/recall de
+mensagens não cancelam, editam nem desfazem automaticamente uma entrada aceita.
 
-## One input queue and delivery
+## Uma única fila de entrada e entrega
 
 ```text
 group mention -> verify/deduplicate/prepare attachments --+
@@ -442,82 +459,93 @@ desktop/mobile input -----------------------------------+-> owner route
                                                      UI projection   group result
 ```
 
-Group input requests FIFO delivery, never automatic steering. Order is CLI
-admission order, not client timestamps or attachment download start. Acknowledge
-only after admission; queued replies offer cancellation. Stable command IDs allow
-ACK recovery without duplicate execution. Interactions and cancellation bypass
-ordinary input queueing. Text and attachment references survive queue operations,
-promotion and transcript persistence. No second accepted-input queue in the Host,
-Bot service, renderer or relay.
+Entradas de grupo pedem entrega FIFO, nunca steering automático. A ordem é a ordem de
+admissão da CLI, não os carimbos de tempo do cliente nem o início do download de
+anexos. Confirme apenas depois da admissão; respostas enfileiradas oferecem
+cancelamento. Ids de comando estáveis permitem recuperação de ACK sem execução
+duplicada. Interações e cancelamento contornam o enfileiramento comum de entrada. Texto e
+referências de anexos sobrevivem a operações de fila, promoção e persistência da
+transcrição. Nenhuma segunda fila de entrada aceita no Host, serviço de Bot, renderer ou
+relay.
 
-Groups receive final per-input summaries, necessary questions/approvals and terminal
-failure/stopped/discarded status, never streaming/tool progress. Replies reference the original message when possible. Do not prepend the sender name
-or open_id to reply bodies, including stopped/failed/discarded notifications.
-Desktop/mobile source labels remain for inputs from those devices. A recalled source
-falls back only to the same authorized group. Desktop/mobile inputs also deliver
-to the currently attached group. Private replies keep streaming cards.
+Grupos recebem resumos finais por entrada, perguntas/aprovações necessárias e status
+terminal de falha/parada/descarte, nunca progresso de streaming ou de ferramenta. As
+respostas referenciam a mensagem original quando possível. Não prefixe o nome do remetente
+nem o open_id aos corpos de resposta, inclusive nas notificações de parada/falha/descarte.
+Rótulos de origem de Desktop/mobile permanecem para entradas desses dispositivos. Uma
+origem recalled recorre apenas ao mesmo grupo autorizado. Entradas de Desktop/mobile também
+entregam ao grupo atualmente anexado. Respostas privadas mantêm cartões em streaming.
 
-Group message reactions reflect canonical input lifecycle instead of permanent OK.
-Only after CLI admission may a queued input show waiting; direct execution shows
-working. Run start replaces waiting with working, completion shows success, and
-failure shows error. Cancellation/stop removes the bot's status reaction and
-keeps the existing textual explanation. Late admission acknowledgements cannot
-overwrite running or terminal state. Repeated events must not stack reactions.
-Only this application's reactions may be replaced; member reactions are untouched.
-Provider failures are presentation failures and never resubmit or reject an
-accepted input. Native emoji mapping: waiting `OneSecond`, working `OnIt`, success
-`CheckMark`, error `CrossMark`, cancelled/stopped no reaction. On mutation, list
-the message's reactions to reconcile this application's status after restart;
-never delete member/other-app reactions. This does not resume discarded work.
-Queue acknowledgement uses one compact row with localized waiting text and a
-cancel button, preserving the existing authorization and command payload.
-The same queue card follows the input lifecycle: waiting (cancel enabled), working,
-done, failed, stopped, cancelled or discarded (all without cancel controls).
-Persist the card message ID and input state per canonical input. A card whose
-creation completes after run start/completion must immediately catch up to the
-latest state; late admission and repeated events cannot revert the card. Serialize
-card mutations per input and recheck group authorization/current task before each
-update. Card failures never replay execution. Existing cards without a saved
-message ID are not discoverable by scanning group history.
+As reações a mensagens de grupo refletem o ciclo de vida canônico da entrada, em vez de um
+OK permanente. Só depois da admissão da CLI uma entrada enfileirada pode mostrar
+aguardando; execução direta mostra trabalhando. O início da execução troca aguardando por
+trabalhando, a conclusão mostra sucesso e a falha mostra erro. Cancelamento/parada remove
+a reação de status do bot e mantém a explicação textual existente. Confirmações de
+admissão atrasadas não podem sobrescrever estado em execução ou terminal. Eventos
+repetidos não podem acumular reações. Apenas as reações deste aplicativo podem ser
+substituídas; reações de membros não são tocadas. Falhas de provider são falhas de
+apresentação e nunca resubmetem nem rejeitam uma entrada aceita. Mapeamento nativo de
+emoji: aguardando `OneSecond`, trabalhando `OnIt`, sucesso `CheckMark`, erro `CrossMark`,
+cancelado/parado sem reação. Em mutação, liste as reações da mensagem para reconciliar o
+status deste aplicativo após reinício; nunca delete reações de membros/de outros apps.
+Isso não retoma trabalho descartado.
+O reconhecimento de fila usa uma linha compacta com texto localizado de espera e um botão
+de cancelar, preservando a autorização e o payload de comando existentes.
+O mesmo cartão de fila acompanha o ciclo de vida da entrada: aguardando (cancelar
+habilitado), trabalhando, concluído, falho, parado, cancelado ou descartado (todos sem
+controles de cancelamento).
+Persista o id da mensagem do cartão e o estado da entrada por entrada canônica. Um cartão
+cuja criação termina depois do início/conclusão da execução precisa se atualizar
+imediatamente para o estado mais recente; a admissão atrasada e os eventos repetidos não
+podem reverter o cartão. Serialize as mutações de cartão por entrada e reconfirme a
+autorização do grupo/a task atual antes de cada atualização. Falhas de cartão nunca
+reproduzem execução. Cartões existentes sem id de mensagem salvo não são descobríveis por
+varredura do histórico do grupo.
 
-Persist task/group association and result delivery records, including stable send
-IDs and payload, to support Host recovery and result-only retry. Revalidate bot,
-group and active task before every send/retry. Disable/task-switch invalidates old
-pending delivery. Unknown send outcomes require reconciliation; retries must not
-rerun the task. Respect rate limits and split oversized results. Scheduled output
-also rechecks group authorization. No replay of output suppressed during disable.
+Persista a associação de task/grupo e os registros de entrega de resultado, incluindo ids
+de envio estáveis e payload, para apoiar a recuperação do Host e o retry somente de
+resultado. Revalide bot, grupo e task ativa antes de cada envio/retry. Desativação/troca
+de task invalida entregas pendentes antigas. Resultados de envio desconhecidos exigem
+reconciliação; retries não podem reexecutar a task. Respeite limites de taxa e divida
+resultados grandes demais. A saída agendada também reconfere a autorização do grupo. Não
+há reprodução de saída suprimida durante a desativação.
 
-## UI, authority and recovery
+## UI, autoridade e recuperação
 
-Reuse existing desktop/mobile task, transcript, queue and approval components.
-Show group/source/sender in the task and transcript. The composer does not show a
-persistent group-sync or shared-workspace banner (2026-09-07 product update).
-Only unresolved delivery failures/unknown outcomes show the recovery panel; it
-disappears when all results are resolved. Delivery failure has result-only retry. Status
-uses workspace display names, never internal absolute paths or credentials.
+Reutilize os componentes existentes de task, transcrição, fila e aprovação de
+Desktop/mobile. Mostre grupo/origem/remetente na task e na transcrição. O composer não
+mostra uma faixa persistente de sincronização de grupo ou workspace compartilhado (atualização
+de produto de 2026-09-07).
+Apenas falhas de entrega não resolvidas e resultados desconhecidos mostram o painel de
+recuperação; ele desaparece quando todos os resultados estão resolvidos. Falha de entrega
+tem retry somente de resultado. O status usa nomes de exibição de workspace, nunca
+caminhos absolutos internos ou credenciais.
 
-Default group execution requires approval, without inherited private auto-grants;
-only owner-controlled configuration/approval changes policy. Source metadata is
-trusted attachment data, never authority derived from prompts. New protocol data
-has strict runtime schemas and remains backward compatible for private inputs.
-Persist group state separately from private bot state, serialize shared-file writes.
+A execução de grupo por padrão exige aprovação, sem concessões automáticas privadas
+herdadas; apenas mudanças de configuração/aprovação controladas pelo owner mudam a
+política. Metadata de origem é dado de anexo confiável, nunca autoridade derivada de
+prompts. Dados novos de protocolo têm schemas de runtime estritos e permanecem
+retrocompatíveis para entradas privadas. Persista o estado de grupo separadamente do
+estado privado do bot, serializando escritas de arquivos compartilhados.
 
-Keep desktop-continuous, web-remote-replayable and bot subscriptions separate.
-Preserve owner/lease/stale-run routing, workspaceIdentity and remoteSessionId.
-Disconnected remotes only reconnect via explicit reconnect; do not run locally.
-UI rebuilds use existing queue recovery; CLI restart retains the existing explicit
-discarded semantics. Runtime logs omit secrets/content; high-frequency logs are debug.
+Mantenha separados desktop-continuous, web-remote-replayable e assinaturas de bot.
+Preserve o roteamento de owner/lease/run obsoleto, workspaceIdentity e remoteSessionId.
+Remotos desconectados só reconectam por reconexão explícita; não rode localmente.
+Reconstruções de UI usam a recuperação de fila existente; o reinício da CLI mantém a
+semântica explícita existente de descarte. Logs de runtime omitem segredos/conteúdo; logs
+de alta frequência são de debug.
 
-## Acceptance
+## Aceitação
 
-Tests cover owner activation/revocation; two groups and private isolation; exact
-mentions; duplicate delivery; attachments and cross-chat rejection; one mixed-source
-queue; cancel/start races; actor/owner interaction rules; stale multi-client cards;
-approval isolation; draft/new/history switching; stop/disable/removal; per-input
-summary and Desktop delivery; rate limits/unknown outcomes/result-only retry;
-Host/CLI restart and remote boundaries; mobile, themes and locales. Implement tests
-before code. Run typecheck, lint, focused unit/integration and Desktop E2E. Real
-Feishu and cross-platform results must be reported separately from fixture tests.
+Os testes cobrem ativação/revogação do owner; dois grupos e isolamento privado; menções
+exatas; entrega duplicada; anexos e rejeição entre chats; uma fila de fontes mistas;
+corridas de cancelar/iniciar; regras de interação de ator/owner; cartões obsoletos de
+multi-cliente; isolamento de aprovação; troca rascunho/novo/histórico; parada/desativação/
+remoção; resumo por entrada e entrega no Desktop; limites de taxa/resultados
+desconhecidos/retry somente de resultado; reinício de Host/CLI e limites remotos; mobile,
+temas e idiomas. Implemente os testes antes do código. Rode typecheck, lint, testes
+unitários/integrados focados e E2E do Desktop. Resultados reais de Feishu e entre
+plataformas devem ser relatados separadamente dos testes de fixture.
 
 ### Conferência das permissões de interface do Feishu (2026-09-07)
 
@@ -535,45 +563,49 @@ Base: [Obter o conteúdo de uma mensagem especificada](https://open.feishu.cn/do
 [Obter arquivos de recursos em mensagens](https://open.feishu.cn/document/server-docs/im-v1/message/get-2)
 (atualizado em 2026-08-27). A interface de consulta do histórico completo do grupo não foi usada.
 
-### Delivery reconciliation
+### Reconciliação de entrega
 
-An uncertain send is never retried automatically. Desktop/mobile expose delivery recovery beside the timestamp in the corresponding
-completed reply action bar. No recovery panel is mounted above the composer or
-queue, and saved result bodies and sender IDs are not repeated. A compact localized
-icon opens a popover with retry or reconciliation actions; successful and in-flight
-sends render nothing. Persist an optional sourceCommandId from the trusted task event inputId on each
-delivery segment. Match it against canonical user-input rows in the product turn;
-runtime turnId is not the product turn ID. Records without a source command are
-not guessed onto another reply.
-The service projects in-flight delivery as pending while preserving crash-safe
-unknown persistence; after the operation settles it broadcasts the final state. The operator can
-mark it received, or confirm that it was not received; the latter changes it to a
-definite failure and exposes the existing resend action. This reconciliation does
-not execute a task or read group history. Both reconciliation and resend recheck
-the current group authorization and task association. Concurrent delivery still
-in flight cannot be reconciled. State changes use the same serialized persistence
-path as group lifecycle changes.
+Um envio incerto nunca é repetido automaticamente. Desktop/mobile expõem a recuperação de
+entrega ao lado do carimbo de hora na barra de ações da resposta concluída
+correspondente. Nenhum painel de recuperação é montado acima do composer ou da fila, e os
+corpos de resultado salvos e os ids de remetente não são repetidos. Um ícone compacto
+localizado abre um popover com ações de retentativa ou reconciliação; envios bem-sucedidos
+e em voo não renderizam nada. Persista um `sourceCommandId` opcional, a partir do inputId
+de evento de task confiável, em cada segmento de entrega. Case-o com as linhas canônicas
+de input de usuário no turno de produto; o turnId de runtime não é o id de turno de
+produto. Registros sem comando de origem não são adivinhados em outra resposta.
+O serviço projeta a entrega em voo como pendente, preservando a persistência de
+desconhecidos segura contra crash; depois que a operação se acerta, difunde o estado
+final. O operador pode marcá-la como recebida, ou confirmar que ela não foi recebida; este
+último caminho a transforma em uma falha definida e expõe a ação de reenvio existente. Esta
+reconciliação não executa uma task nem lê o histórico do grupo. Tanto a reconciliação
+quanto o reenvio reconferem a autorização atual do grupo e a associação de task. Uma
+entrega concorrente ainda em voo não pode ser reconciliada. Mudanças de estado usam o
+mesmo caminho de persistência serializada das mudanças de ciclo de vida do grupo.
 
-Input origin labels use an optional `inputOrigin` (`desktop` / `mobile`) injected
-by the trusted Host command attachment, never inferred from prompt text or a
-client-supplied client ID. It travels with the canonical input through queue,
-retry and transcript restoration; bot sender metadata takes precedence in group
-replies. This display field does not change continuous/replayable delivery modes.
+Rótulos de origem de entrada usam um `inputOrigin` opcional (`desktop` / `mobile`)
+injetado pelo anexo de comando confiável do Host, nunca inferido do texto do prompt nem de
+um id de cliente fornecido pelo cliente. Ele viaja com a entrada canônica pela fila, pelo
+retry e pela restauração da transcrição; a metadata de remetente do bot tem precedência nas
+respostas de grupo. Esse campo de exibição não muda os modos de entrega continuous/
+replayable.
 
-Each historical group task also retains its workspace path and optional identity.
-After changing the current workspace, `/task` can still list that group's earlier
-local/connected workspace tasks, and Desktop can label an earlier task as paused.
-The history map is not an access grant for unrelated tasks or a request to connect
-a disconnected remote workspace. Older records fall back to the current workspace.
+Cada task de grupo histórica também retém seu caminho de workspace e sua identidade
+opcional. Depois de mudar o workspace atual, `/task` ainda pode listar as tasks locais ou
+conectadas anteriores desse grupo, e o Desktop pode rotular uma task anterior como pausada.
+O mapa de histórico não é uma concessão de acesso para tasks sem relação nem um pedido
+para conectar um workspace remoto desconectado. Registros mais antigos recorrem ao
+workspace atual.
 
-The per-message input association persists its admission outcome. A repeated
-provider event for an accepted input never issues a new admission, including
-after Host/CLI restart. An unresolved admission is reconciled through the existing
-stable command query while the original request is active; later redelivery does
-not guess that an unknown command was never executed. It reports that the operator
-must check the task, rather than submitting that message again after dedupe expiry.
+A associação de entrada por mensagem persiste seu resultado de admissão. Um evento
+repetido de provider para uma entrada aceita nunca emite uma nova admissão, inclusive após
+reinício de Host/CLI. Uma admissão não resolvida é reconciliada pela consulta de comando
+estável existente enquanto a requisição original está ativa; a reentrega posterior não
+adivinha que um comando desconhecido nunca foi executado. Ela relata que o operador precisa
+verificar a task, em vez de submeter aquela mensagem de novo depois da expiração da
+dedupe.
 
-Remote group controls use the already validated attachment scope:
+Controles de grupo remoto usam o escopo de anexo já validado:
 
 ```text
 Bot group input / queue control
@@ -583,46 +615,49 @@ Bot group input / queue control
   -> existing Agent owner route / CLI CommandInbox
 ```
 
-The three group queue service methods carry optional remote target fields for
-compatibility. A target from another workspace is rejected before uploading any
-attachment or reading/changing its queue. Local calls retain their existing target.
+Os três métodos de serviço de fila de grupo carregam campos opcionais de alvo remoto para
+compatibilidade. Um alvo de outro workspace é rejeitado antes de subir qualquer anexo ou
+ler/alterar sua fila. Chamadas locais mantêm seu alvo existente.
 
-Saved deliveries retain the group authorization generation that created them.
-Disable/re-enable, bot removal and rebinding cannot make an in-flight retry valid
-again merely because the same task remains current. Every retry checks both the
-saved invalidation status and that generation immediately before sending.
+Entregas salvas retêm a geração de autorização do grupo que as criou. Desativar/reativar,
+remoção do bot e revinculação não podem tornar válido de novo um retry em voo apenas porque
+a mesma task continua atual. Cada retry verifica imediatamente antes de enviar tanto o
+status de invalidação salvo quanto essa geração.
 
-Group task creation requests `permissionScope: session` on the V4 create command.
-Only this path persists the task immediately and initializes an empty build-mode
-session ruleset before acknowledging creation; normal Desktop drafts stay deferred.
-Group draft configuration is applied afterwards, so an owner's explicit mode choice
-is retained and cannot update the shared project ruleset. The first-input guard
-remains for older group tasks, but does not reset an already isolated session.
+A criação de task de grupo pede `permissionScope: session` no comando de criação do V4.
+Apenas este caminho persiste a task imediatamente e inicializa um ruleset de sessão vazio
+em modo build antes de confirmar a criação; rascunhos normais do Desktop permanecem
+adiados. A configuração de rascunho de grupo é aplicada depois, de modo que a escolha
+explícita de modo do owner é retida e não pode atualizar o ruleset compartilhado do
+projeto. A guarda de primeira entrada permanece para tasks de grupo mais antigas, mas não
+redefine uma sessão já isolada.
 
-## Group member display names
+## Nomes de exibição de membros de grupo
 
-Group attribution resolves names from the current chat's member directory using
-`GET /im/v1/chats/{chat_id}/members?member_id_type=open_id`, with the application
-permission `im:chat.members:read`. Private chat contact lookup remains unchanged.
-The provider follows pagination, coalesces concurrent requests, and caches names
-per provider, bot, application, credential reference and chat for one minute.
-Failures receive a short retry backoff; partial directories are never published.
+A atribuição de grupo resolve nomes pelo diretório de membros do chat atual usando
+`GET /im/v1/chats/{chat_id}/members?member_id_type=open_id`, com a permissão de aplicativo
+`im:chat.members:read`. A busca de contatos de chat privado permanece inalterada.
+O provider segue a paginação, coalesce requisições concorrentes e mantém em cache os nomes
+por provider, bot, aplicativo, referência de credencial e chat por um minuto.
+Falhas recebem um curto backoff de retentativa; diretórios parciais nunca são publicados.
 
-A read-only service authorizes directory access against the enabled bot and group,
-including a second authorization check after network I/O. The UI shares one lookup
-across historical messages and queued inputs without rewriting saved source IDs.
-Current names take precedence over saved names. Missing names use only the last six ID characters, without a generic member label; hover and click/tap expose the full
-ID. Names never participate in authorization. Directory failure must not reject
-otherwise valid input or delay task/delivery status rendering. No task queue or
-Desktop continuous / mobile replayable semantics change.
+Um serviço somente leitura autoriza o acesso ao diretório contra o bot e o grupo
+habilitados, incluindo uma segunda verificação de autorização após o I/O de rede. A UI
+compartilha uma única busca entre mensagens históricas e entradas enfileiradas sem
+reescrever os ids de origem salvos.
+Nomes atuais têm precedência sobre nomes salvos. Nomes ausentes usam apenas os últimos
+seis caracteres do id, sem um rótulo genérico de membro; hover e clique/toque revelam o id
+completo. Nomes nunca participam da autorização. Falha de diretório não pode rejeitar uma
+entrada por outra válida nem atrasar a renderização de status da task/entrega. Nenhuma
+semântica de fila de task ou de desktop continuous / mobile replayable muda.
 
-Validation covers pagination, request coalescing, failure backoff, bot/chat
-isolation, disabled/rebound access, history and queue attribution, fallback and
-full-ID disclosure. Real tenant verification is separate from controlled E2E.
+A validação cobre paginação, coalescência de requisições, backoff de falha, isolamento
+bot/chat, acesso desabilitado/revinculado, atribuição de histórico e fila, fallback e
+divulgação do id completo. A verificação em tenant real é separada do E2E controlado.
 
-Conversation attribution has an 8px gap before the message bubble, using the
-shared spacing scale. This applies to Desktop and mobile conversation rows;
-queue attribution retains its compact layout.
+A atribuição de conversa tem um espaçamento de 8px antes do balão da mensagem, usando a
+escala de espaçamento compartilhada. Isso vale para linhas de conversa de Desktop e mobile;
+a atribuição de fila mantém seu layout compacto.
 
 # Contrato de implementação da consulta do texto original de tópicos
 
@@ -745,13 +780,14 @@ de autorização; o caminho de cartão temporário não pode contornar as restri
 cartões comuns de grupo, e a normalização do modo de permissão para streaming_card não deve perder
 esses campos.
 
-### Standalone Server reverse resource regression
+### Regressão de recurso reverso do Server standalone
 
-Both HTTP Server entrypoints require transport tests on real loopback WebSockets:
-only capability-authenticated /ws/host attaches a resource peer; ordinary /ws does not.
-Two simultaneous Desktop connections with different remoteSessionId values must receive
-only their own reverse validation requests. Closing one connection removes its route
-without removing the other. These tests use synthetic resource readers, not a live tenant.
+Ambos os entrypoints HTTP do Server exigem testes de transporte em WebSockets reais de
+loopback: apenas o /ws/host autenticado por capacidade anexa um peer de recurso; o /ws
+comum não. Duas conexões Desktop simultâneas com valores distintos de remoteSessionId
+devem receber apenas as próprias requisições reversas de validação. Fechar uma conexão
+remove sua rota sem remover a da outra. Esses testes usam leitores de recurso sintéticos,
+não um tenant real.
 
 ## Grupos já vinculados ao aplicativo (primeira fase)
 

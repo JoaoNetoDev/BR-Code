@@ -1,45 +1,45 @@
-# Session Shell Environment Owner Implementation Plan
+# Plano de Implementação do Owner do Ambiente de Shell da Sessão
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes executores:** SUB-SKILL OBRIGATÓRIA: use `superpowers:executing-plans` para implementar este plano tarefa por tarefa. As etapas usam a sintaxe de caixa de seleção (`- [ ]`) para acompanhamento.
 
-**Goal:**收敛 Bash shell 的 session-start 快照、provider-visible Shell 展示、Bash executor selection、resume 恢复和 Explore 继承到一个 runtime owner，消除当前多层各自维护 shell 状态的复杂度。
+**Objetivo:** convergir o snapshot de shell no início da sessão, a exibição de Shell provider-visible, a seleção do executor Bash, a restauração no resume e a herança do Explore em um único owner de runtime, eliminando a complexidade atual de múltiplas camadas que mantêm o estado de shell separadamente.
 
-**Architecture:**保留现有 `ExecutionShellSelection` / `resolveEffectiveBashShellSelection()` 的解析能力，但新增一个 core runtime owner：`session-shell-environment.ts`。所有 runtime 内部 shell 状态读写、EnvInfo shell patch、snapshot persist/restore 都通过这个 owner；pre-conversation context rebuild 抽到无环的 shared helper，owner 只调用 helper，不反向依赖 `config.ts` / `context.ts`。bootstrap/protocol 只负责提供“当前候选 selection”，不再维护额外 prepared 状态。
+**Arquitetura:** mantém a capacidade de resolução existente de `ExecutionShellSelection` / `resolveEffectiveBashShellSelection()`, mas adiciona um owner de runtime do core: `session-shell-environment.ts`. Todas as leituras e escritas do estado de shell interno do runtime, o patch de shell no EnvInfo e a persistência/restauração do snapshot passam por esse owner; o rebuild do contexto pre-conversation é extraído para um shared helper sem ciclos, e o owner apenas chama o helper, sem depender de volta de `config.ts` / `context.ts`. bootstrap/protocol passa a fornecer apenas a “selection candidata atual”, sem manter estado prepared adicional.
 
-**Tech Stack:** TypeScript, Vitest, `@zcode/contracts`, `@zcode/adapters`, `@zcode/core`, `@zcode/bootstrap`, ZCode Protocol.
+**Stack Tecnológico:** TypeScript, Vitest, `@zcode/contracts`, `@zcode/adapters`, `@zcode/core`, `@zcode/bootstrap`, ZCode Protocol.
 
-## Global Constraints
+## Restrições Globais
 
-- 目标语义：Bash shell 设置只影响新 session；已有 session 使用创建时的 session shell snapshot。
-- deferred draft 预热阶段不读取用户 shell setting；首条真实用户执行边界前读取一次候选 selection。
-- Bash executor 使用的 shell 和 provider-visible `# Environment` 里的 `Shell` 必须来自同一个 session shell environment。
-- resume 优先恢复持久化的 session shell snapshot；snapshot 失效时使用当前候选 selection fallback，并通过 provider-visible reminder 说明 drift。
-- macOS / Linux shell 解析保持现状：优先 zsh/bash；fish 等非 Bash-compatible shell 不作为 Bash tool shell；解析失败走 legacy fallback。
-- Windows shell 解析保持现状：用户显式选择优先；auto 优先 Git Bash；找不到时走 legacy cmd/ComSpec fallback。
-- provider-visible 文本禁止展示绝对 shell path，只展示 `display.name`。
-- 不在本计划里重做 remote-scoped settings；UI setting 仍是现有 global setting 行为。
-- 不自动提交 commit；完成代码和验证后等待用户 review。
-- 每个任务先写/改 focused tests，再改实现；最后执行 focused tests、`pnpm typecheck`、`pnpm lint`。
+- Semântica alvo: a configuração de shell do Bash só afeta novas sessões; sessões existentes usam o session shell snapshot da momento de sua criação.
+- Na fase de prewarm do draft adiado, a configuração de shell do usuário não é lida; a selection candidata é lida uma vez antes da primeira fronteira real de execução do usuário.
+- O shell usado pelo executor Bash e o `Shell` do `# Environment` provider-visible devem vir do mesmo session shell environment.
+- No resume, o session shell snapshot persistido tem prioridade; quando o snapshot é inválido, usa-se a selection candidata atual como fallback, e um reminder provider-visible explica o drift.
+- A resolução de shell em macOS / Linux permanece como está: zsh/bash têm prioridade; shells não compatíveis com Bash, como fish, não são usados como shell do Bash tool; em caso de falha de resolução, usa-se o fallback legado.
+- A resolução de shell no Windows permanece como está: a escolha explícita do usuário tem prioridade; auto prefere o Git Bash; quando não encontrado, usa-se o fallback legado cmd/ComSpec.
+- O texto provider-visible é proibido de exibir o path absoluto do shell; exibe-se apenas `display.name`.
+- Este plano não refaz as settings de escopo remoto; o setting de UI continua com o comportamento de global setting existente.
+- Não fazer commit automático; após o código e as verificações, aguardar o review do usuário.
+- Cada tarefa primeiro escreve/altera testes focados e só depois muda a implementação; ao final, executar testes focados, `pnpm typecheck` e `pnpm lint`.
 
 ---
 
-## Current Problem
+## Problema Atual
 
-当前 `freat/shell-fix` 已经有不少正确能力，但 owner 分散：
+O `freat/shell-fix` atual já tem muitas capacidades corretas, mas o owner está disperso:
 
-- `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts` 只是一组 getter/setter，不能表达完整生命周期。
-- `apps/zcode-cli/packages/core/src/runtime/methods/config.ts` 负责 apply selection、刷新 pre-conversation context、patch envInfo。
-- `apps/zcode-cli/packages/core/src/runtime/methods/context.ts` 直接读取 selection 并传 `effectiveShellDisplayName`。
-- `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts` 直接读 snapshot、fallback、插 drift reminder。
-- `apps/zcode-cli/packages/core/src/runtime/methods/events.ts` 直接持久化 snapshot。
-- `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts` 维护本地 `bashShellSelectionPrepared`，和 runtime 内部 selection 状态重复。
-- `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts` 在 create/resume/send 多处解析和传递 shell candidate。
+- `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts` é apenas um conjunto de getter/setter e não expressa o ciclo de vida completo.
+- `apps/zcode-cli/packages/core/src/runtime/methods/config.ts` aplica a selection, atualiza o contexto pre-conversation e faz patch no envInfo.
+- `apps/zcode-cli/packages/core/src/runtime/methods/context.ts` lê a selection diretamente e passa `effectiveShellDisplayName`.
+- `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts` lê o snapshot, faz fallback e insere o reminder de drift diretamente.
+- `apps/zcode-cli/packages/core/src/runtime/methods/events.ts` persiste o snapshot diretamente.
+- `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts` mantém um `bashShellSelectionPrepared` local, duplicando o estado interno de selection do runtime.
+- `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts` resolve e repassa o shell candidate em vários pontos de create/resume/send.
 
-这导致后续维护者需要同时理解 protocol、bootstrap、runtime config、context、resume、persistence、executor 七处逻辑，容易继续漏掉 `/goal`、workflow、steer、deferred draft、resume 等入口。
+Isso faz com que quem mantém tenha de entender simultaneamente sete pontos de lógica — protocol, bootstrap, runtime config, context, resume, persistence e executor —, aumentando o risco de continuar esquecendo entradas como `/goal`, workflow, steer, deferred draft e resume.
 
-## Target Shape
+## Forma Alvo
 
-新增一个 runtime owner：
+Um novo owner de runtime:
 
 ```ts
 // apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts
@@ -73,7 +73,7 @@ export function applySessionShellToEnvInfo<T extends { shell?: string }>(
 ): T | undefined;
 ```
 
-调用关系收敛为：
+As relações de chamada convergem para:
 
 ```text
 settings/current env
@@ -93,70 +93,70 @@ runtime.initializeSessionShellEnvironmentIfNeeded(candidate)
 
 ---
 
-## File Structure
+## Estrutura de Arquivos
 
-- Create: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
-  - Single owner for session shell environment lifecycle.
-- Create: `apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts`
-  - Shared `buildContextHistoryEntries()` helper，避免 owner/context-refresh 反向 import `context.ts`。
-- Create: `apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts`
-  - Shared context-prefix rebuild helper，供 config model/language/style refresh 和 shell owner pre-conversation refresh 共同使用。
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts`
-  - Delete or reduce to compatibility re-exports after owner migration.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
-  - Remove local shell apply/refresh helpers; delegate to owner.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`
-  - Ask owner for context shell display override.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts`
-  - Ask owner to restore persisted shell environment and emit drift reminder.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/events.ts`
-  - Ask owner to persist current shell environment snapshot.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
-  - Ask owner for inherited child `envInfo.shell` and `bashShellSelection`.
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`
-  - Consume only `getBashShellSelection`; remove `bashShellOverride` fallback after runtime migration.
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
-  - Consume only `context.bashShellSelection`.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/types.ts`
-  - Remove runtime-level `bashShellOverride` once call sites are migrated.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
-  - Rename public method from `initializeBashShellSelectionIfNeeded` to `initializeSessionShellEnvironmentIfNeeded`.
-- Modify: `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
-  - Same method rename for internal interface.
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
-  - Remove local `bashShellSelectionPrepared`; runtime owner decides if initialization is needed.
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/types.ts`
-  - Keep `bashShellSelection` as boundary candidate; add optional app-level `platform` if bootstrap default resolution must preserve protocol test/platform injection.
-- Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`
-  - Keep protocol setting-to-selection resolver, but only pass candidate to user execution boundary/send.
-- Modify: `docs/runtime-tools/bash-effective-shell-snapshot.md`
-  - Update spec to name `session-shell-environment.ts` as single owner.
-- Test: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
-- Test: `apps/zcode-cli/packages/core/tests/runtime-persistence.test.ts`
-- Test: `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
-- Test: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
-- Test: `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
+- Criar: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
+  - Owner único do ciclo de vida do session shell environment.
+- Criar: `apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts`
+  - Shared helper `buildContextHistoryEntries()`, evitando que owner/context-refresh importem `context.ts` de volta.
+- Criar: `apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts`
+  - Shared helper de rebuild do context prefix, usado tanto pelo refresh de model/language/style em config quanto pelo refresh pre-conversation do owner de shell.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts`
+  - Excluir ou reduzir a re-exports de compatibilidade após a migração para o owner.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
+  - Remover helpers locais de aplicação/refresh de shell; delegar ao owner.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`
+  - Pedir ao owner o override de exibição de shell do contexto.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts`
+  - Pedir ao owner que restaure o ambiente de shell persistido e emita o reminder de drift.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/events.ts`
+  - Pedir ao owner que persista o snapshot do ambiente de shell atual.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
+  - Pedir ao owner o `envInfo.shell` e o `bashShellSelection` herdados pelo filho.
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`
+  - Consumir apenas `getBashShellSelection`; remover o fallback `bashShellOverride` após a migração do runtime.
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
+  - Consumir apenas `context.bashShellSelection`.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/types.ts`
+  - Remover o `bashShellOverride` de nível de runtime depois que os call sites forem migrados.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
+  - Renomear o método público de `initializeBashShellSelectionIfNeeded` para `initializeSessionShellEnvironmentIfNeeded`.
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
+  - Mesma renomeação de método na interface interna.
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
+  - Remover o `bashShellSelectionPrepared` local; o owner do runtime decide se a inicialização é necessária.
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/types.ts`
+  - Manter `bashShellSelection` como candidate de fronteira; adicionar `platform` opcional no nível do app se a resolução de default do bootstrap precisar preservar a injeção de plataforma dos testes de protocol.
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`
+  - Manter o resolver de setting-para-selection do protocol, mas passar o candidate apenas para a fronteira de execução do usuário/send.
+- Modificar: `docs/runtime-tools/bash-effective-shell-snapshot.md`
+  - Atualizar a spec para nomear `session-shell-environment.ts` como owner único.
+- Testar: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/runtime-persistence.test.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
+- Testar: `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
 
 ---
 
-### Task 1: Introduce Session Shell Environment Owner
+### Tarefa 1: Introduzir o Owner do Session Shell Environment
 
-**Files:**
-- Create: `apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts`
-- Create: `apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts`
-- Create: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`
-- Test: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
+**Arquivos:**
+- Criar: `apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts`
+- Criar: `apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts`
+- Criar: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
 
 **Interfaces:**
-- Consumes: `ExecutionShellSelection`
-- Produces: `SessionShellEnvironment`, `getSessionShellEnvironment()`, `initializeSessionShellEnvironmentIfNeeded()`, `applySessionShellEnvironment()`, `getContextSourceShellDisplayName()`, `applySessionShellToEnvInfo()`
+- Consome: `ExecutionShellSelection`
+- Produz: `SessionShellEnvironment`, `getSessionShellEnvironment()`, `initializeSessionShellEnvironmentIfNeeded()`, `applySessionShellEnvironment()`, `getContextSourceShellDisplayName()`, `applySessionShellToEnvInfo()`
 
-- [ ] **Step 1: Add failing owner coverage through runtime trace tests**
+- [ ] **Etapa 1: Adicionar cobertura falhando do owner pelos testes de runtime trace**
 
-Add a focused test in `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts` near existing shell snapshot tests:
+Adicione um teste focado em `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`, perto dos testes existentes de shell snapshot:
 
 ```ts
 it("initializes session shell environment once and ignores later candidates", async () => {
@@ -231,9 +231,9 @@ it("initializes session shell environment once and ignores later candidates", as
 });
 ```
 
-- [ ] **Step 2: Extract context history entries helper**
+- [ ] **Etapa 2: Extrair o helper de context history entries**
 
-Create `apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts`:
+Crie `apps/zcode-cli/packages/core/src/runtime/methods/context-history-entries.ts`:
 
 ```ts
 import {
@@ -254,17 +254,17 @@ export function buildContextHistoryEntries(
 }
 ```
 
-Then in `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`, remove the local `buildContextHistoryEntries()` function and import:
+Depois, em `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`, remova a função local `buildContextHistoryEntries()` e importe:
 
 ```ts
 import { buildContextHistoryEntries } from "./context-history-entries.js";
 ```
 
-Also remove now-unused `systemReminderAttachmentEntry` and `RuntimeMessageEntry` imports from `context.ts`.
+Remova também de `context.ts` os imports de `systemReminderAttachmentEntry` e `RuntimeMessageEntry`, que ficaram sem uso.
 
-- [ ] **Step 3: Extract context refresh helper**
+- [ ] **Etapa 3: Extrair o helper de context refresh**
 
-Create `apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts`:
+Crie `apps/zcode-cli/packages/core/src/runtime/methods/context-refresh.ts`:
 
 ```ts
 import { countContextPrefixMessages } from "../deps.js";
@@ -302,27 +302,27 @@ export function refreshContextModelSnapshot(runtime: AgentRuntimeInternal): void
 }
 ```
 
-Then in `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`, replace the local `refreshContextModelSnapshot()` function with an import:
+Depois, em `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`, substitua a função local `refreshContextModelSnapshot()` por um import:
 
 ```ts
 import { refreshContextModelSnapshot } from "./context-refresh.js";
 ```
 
-Update all calls in `config.ts` from:
+Atualize todas as chamadas em `config.ts` de:
 
 ```ts
 refreshContextModelSnapshot.call(this);
 ```
 
-to:
+para:
 
 ```ts
 refreshContextModelSnapshot(this);
 ```
 
-- [ ] **Step 4: Create owner module**
+- [ ] **Etapa 4: Criar o módulo do owner**
 
-Create `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`:
+Crie `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`:
 
 ```ts
 import { countContextPrefixMessages } from "../deps.js";
@@ -423,9 +423,9 @@ function refreshPreConversationShellContext(
 }
 ```
 
-- [ ] **Step 5: Convert old helper to compatibility wrapper**
+- [ ] **Etapa 5: Converter o helper antigo em wrapper de compatibilidade**
 
-Replace `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts` with:
+Substitua `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-selection.ts` por:
 
 ```ts
 export {
@@ -436,44 +436,44 @@ export {
 
 Isso mantém os call sites existentes compilando enquanto as tarefas seguintes migram os nomes.
 
-- [ ] **Step 6: Rename runtime public initialization method in-place**
+- [ ] **Etapa 6: Renomear no local o método público de inicialização do runtime**
 
-In `agent-runtime.ts`, `internal-methods.ts`, and `methods/index.ts`, replace the old method name in-place:
+Em `agent-runtime.ts`, `internal-methods.ts` e `methods/index.ts`, substitua o nome antigo do método no local:
 
 ```ts
 initializeSessionShellEnvironmentIfNeeded(selection: ExecutionShellSelection): boolean;
 ```
 
-Do not keep a temporary public alias for `initializeBashShellSelectionIfNeeded`; update call sites in this same task so there is only one runtime API name.
+Não mantenha um alias público temporário para `initializeBashShellSelectionIfNeeded`; atualize os call sites nesta mesma tarefa para que exista apenas um nome de API do runtime.
 
-- [ ] **Step 7: Run focused test**
+- [ ] **Etapa 7: Executar o teste focado**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/runtime-trace.test.ts
 ```
 
-Expected: runtime trace tests pass. The new test proves the owner API initializes once and produces the provider-visible shell display used by context.
+Esperado: os testes de runtime trace passam. O novo teste prova que a API do owner inicializa uma única vez e produz a exibição de shell provider-visible usada pelo contexto.
 
 ---
 
-### Task 2: Move Runtime Context Mutation Into The Owner
+### Tarefa 2: Mover a Mutação de Contexto do Runtime Para o Owner
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
-- Test: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/runtime-trace.test.ts`
 
 **Interfaces:**
-- Consumes: owner functions from Task 1
-- Produces: public runtime method `initializeSessionShellEnvironmentIfNeeded(selection): boolean`
+- Consome: funções de owner da Tarefa 1
+- Produz: método público do runtime `initializeSessionShellEnvironmentIfNeeded(selection): boolean`
 
-- [ ] **Step 1: Verify there is no config/owner import cycle**
+- [ ] **Etapa 1: Verificar que não há ciclo de import config/owner**
 
-Confirm these import directions:
+Confirme estas direções de import:
 
 ```text
 config.ts -> session-shell-environment.ts
@@ -484,13 +484,13 @@ context.ts -> session-shell-environment.ts
 context.ts -> context-history-entries.ts
 ```
 
-There must be no import from `session-shell-environment.ts` to `config.ts`, and no import from `context-refresh.ts` to `context.ts`.
+Não pode haver import de `session-shell-environment.ts` para `config.ts`, nem import de `context-refresh.ts` para `context.ts`.
 
-- [ ] **Step 2: Replace config shell apply logic**
+- [ ] **Etapa 2: Substituir a lógica de aplicação de shell em config**
 
-In `config.ts`, remove local `applyBashShellSelection()`, `initializeBashShellSelectionIfNeeded()`, `refreshPreConversationShellContext()`, and `updateEnvInfoShell()`.
+Em `config.ts`, remova os locais `applyBashShellSelection()`, `initializeBashShellSelectionIfNeeded()`, `refreshPreConversationShellContext()` e `updateEnvInfoShell()`.
 
-Import the owner:
+Importe o owner:
 
 ```ts
 import {
@@ -499,7 +499,7 @@ import {
 } from "./session-shell-environment.js";
 ```
 
-Update `updateConfig()` shell branch:
+Atualize o ramo de shell de `updateConfig()`:
 
 ```ts
 if ("bashShellSelection" in patch || "bashShellOverride" in patch) {
@@ -509,7 +509,7 @@ if ("bashShellSelection" in patch || "bashShellOverride" in patch) {
 }
 ```
 
-Add exported method:
+Adicione o método exportado:
 
 ```ts
 export function initializeSessionShellEnvironmentIfNeeded(
@@ -520,72 +520,72 @@ export function initializeSessionShellEnvironmentIfNeeded(
 }
 ```
 
-- [ ] **Step 3: Make context consume owner, not raw config**
+- [ ] **Etapa 3: Fazer o contexto consumir o owner, e não a config crua**
 
-In `context.ts`, replace:
+Em `context.ts`, substitua:
 
 ```ts
 const bashShellSelection = getEffectiveBashShellSelection(this);
 ```
 
-with:
+por:
 
 ```ts
 const shellDisplayName = getContextSourceShellDisplayName(this);
 ```
 
-and pass:
+e passe:
 
 ```ts
 effectiveShellDisplayName: shellDisplayName,
 ```
 
-This keeps `ContextSourceRequest.effectiveShellDisplayName` as a dumb transport field; the owner remains the only runtime shell decision point.
+Isso mantém `ContextSourceRequest.effectiveShellDisplayName` como um simples campo de transporte; o owner continua sendo o único ponto de decisão de shell do runtime.
 
-- [ ] **Step 4: Verify runtime public method has a single name**
+- [ ] **Etapa 4: Verificar que o método público do runtime tem um único nome**
 
-Confirm `agent-runtime.ts`, `internal-methods.ts`, and `methods/index.ts` only expose:
+Confirme que `agent-runtime.ts`, `internal-methods.ts` e `methods/index.ts` expõem apenas:
 
 ```ts
 initializeSessionShellEnvironmentIfNeeded(selection: ExecutionShellSelection): boolean;
 ```
 
-and no longer expose:
+e não expõem mais:
 
 ```ts
 initializeBashShellSelectionIfNeeded(selection: ExecutionShellSelection): boolean;
 ```
 
-Update any remaining bootstrap/tests call sites to use `initializeSessionShellEnvironmentIfNeeded`.
+Atualize quaisquer call sites restantes em bootstrap/testes para usar `initializeSessionShellEnvironmentIfNeeded`.
 
-- [ ] **Step 5: Run focused runtime tests**
+- [ ] **Etapa 5: Executar os testes focados do runtime**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/runtime-trace.test.ts tests/context-builder.test.ts
 ```
 
-Expected: runtime trace and context builder tests pass.
+Esperado: os testes de runtime trace e de context builder passam.
 
 ---
 
-### Task 3: Move Snapshot Persistence And Resume Restore Into The Owner
+### Tarefa 3: Mover a Persistência do Snapshot e a Restauração no Resume Para o Owner
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-snapshot.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/events.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts`
-- Test: `apps/zcode-cli/packages/core/tests/runtime-persistence.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/bash-shell-snapshot.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/events.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/resume.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/runtime-persistence.test.ts`
 
 **Interfaces:**
-- Consumes: `readPersistedBashShellSelectionSnapshot()`, `resolveBashShellSnapshotForResume()`, `persistBashShellSelectionSnapshot()`
-- Produces: `persistSessionShellEnvironmentSnapshot(runtime, traceContext)`, `restoreSessionShellEnvironmentSelectionForResume(runtime, options)`, and `announceSessionShellEnvironmentDriftAfterResume(runtime, options)`
+- Consome: `readPersistedBashShellSelectionSnapshot()`, `resolveBashShellSnapshotForResume()`, `persistBashShellSelectionSnapshot()`
+- Produz: `persistSessionShellEnvironmentSnapshot(runtime, traceContext)`, `restoreSessionShellEnvironmentSelectionForResume(runtime, options)` e `announceSessionShellEnvironmentDriftAfterResume(runtime, options)`
 
-- [ ] **Step 1: Add owner persistence wrappers**
+- [ ] **Etapa 1: Adicionar wrappers de persistência do owner**
 
-In `session-shell-environment.ts`, add:
+Em `session-shell-environment.ts`, acrescente:
 
 ```ts
 import type { EnvInfo, TraceContext } from "../deps.js";
@@ -663,19 +663,19 @@ export function announceSessionShellEnvironmentDriftAfterResume(
 }
 ```
 
-- [ ] **Step 2: Simplify events persistence**
+- [ ] **Etapa 2: Simplificar a persistência em events**
 
-In `events.ts`, replace direct `persistBashShellSelectionSnapshot(...)` with:
+Em `events.ts`, substitua a chamada direta `persistBashShellSelectionSnapshot(...)` por:
 
 ```ts
 await persistSessionShellEnvironmentSnapshot(this, traceContext);
 ```
 
-Remove direct imports of `persistBashShellSelectionSnapshot` and `getEffectiveBashShellSelection`.
+Remova os imports diretos de `persistBashShellSelectionSnapshot` e `getEffectiveBashShellSelection`.
 
-- [ ] **Step 3: Simplify resume restore**
+- [ ] **Etapa 3: Simplificar a restauração no resume**
 
-In `resume.ts`, replace the direct snapshot read/resolve/apply block before context initialization with:
+Em `resume.ts`, substitua o bloco direto de leitura/resolução/aplicação do snapshot antes da inicialização do contexto por:
 
 ```ts
 const shellRestore = await restoreSessionShellEnvironmentSelectionForResume(this, {
@@ -684,7 +684,7 @@ const shellRestore = await restoreSessionShellEnvironmentSelectionForResume(this
 });
 ```
 
-Then after `hydrateMessageHistoryFromSession(...)`, replace `announceLegacyBashShellDriftIfNeeded(...)` with:
+Depois, após `hydrateMessageHistoryFromSession(...)`, substitua `announceLegacyBashShellDriftIfNeeded(...)` por:
 
 ```ts
 announceSessionShellEnvironmentDriftAfterResume(this, {
@@ -693,67 +693,67 @@ announceSessionShellEnvironmentDriftAfterResume(this, {
 });
 ```
 
-This timing matters: `messageHistory` is reset and hydrated during resume, so the provider-visible drift attachment must be added after hydration, not during the early selection restore.
+Esse timing importa: `messageHistory` é resetado e hidratado durante o resume, portanto o attachment de drift provider-visible precisa ser adicionado após a hidratação, e não durante a restauração inicial da selection.
 
-- [ ] **Step 4: Keep `bash-shell-snapshot.ts` as storage codec only**
+- [ ] **Etapa 4: Manter `bash-shell-snapshot.ts` apenas como codec de storage**
 
-After Step 3, `bash-shell-snapshot.ts` should only know how to:
+Após a Etapa 3, `bash-shell-snapshot.ts` deve saber apenas como:
 
-- persist serialized selection
-- read serialized selection
-- validate persisted selection usability
-- resolve stale persisted selection against a current fallback candidate
+- persistir a selection serializada
+- ler a selection serializada
+- validar a usabilidade da selection persistida
+- resolver uma selection persistida obsoleta contra um candidate de fallback atual
 
-It must not mutate runtime config or message history.
+Ele não deve alterar a config do runtime nem o histórico de mensagens.
 
-- [ ] **Step 5: Run persistence tests**
+- [ ] **Etapa 5: Executar os testes de persistência**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/runtime-persistence.test.ts
 ```
 
-Expected: tests cover restored snapshot, stale snapshot fallback, legacy session drift reminder, and invalid snapshot fallback.
+Esperado: os testes cobrem snapshot restaurado, fallback de snapshot obsoleto, reminder de drift de sessão legada e fallback de snapshot inválido.
 
 ---
 
-### Task 4: Collapse Bootstrap And Protocol Initialization Around Runtime Owner
+### Tarefa 4: Colapsar a Inicialização de Bootstrap e Protocol Around the Runtime Owner
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/types.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/input-facade.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/workflow-methods.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/workflow-facade.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/src/app/script-workflow-methods.ts`
-- Modify: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`
-- Test: `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/types.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/input-facade.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/workflow-methods.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/workflow-facade.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/app/script-workflow-methods.ts`
+- Modificar: `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server-operations.ts`
+- Testar: `apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts`
 
 **Interfaces:**
-- Consumes: `runtime.initializeSessionShellEnvironmentIfNeeded(candidate)`
-- Produces: one user execution boundary implementation with no local duplicate prepared flag
+- Consome: `runtime.initializeSessionShellEnvironmentIfNeeded(candidate)`
+- Produz: uma única implementação da fronteira de execução do usuário, sem flag prepared local duplicada
 
-- [ ] **Step 1: Add app-level platform injection for default shell resolution**
+- [ ] **Etapa 1: Adicionar injeção de platform no nível do app para a resolução de shell default**
 
-In `apps/zcode-cli/packages/bootstrap/src/app/types.ts`, add to `ZCodeAppOptions`:
+Em `apps/zcode-cli/packages/bootstrap/src/app/types.ts`, acrescente a `ZCodeAppOptions`:
 
 ```ts
 platform?: NodeJS.Platform | string;
 ```
 
-In `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`, pass protocol platform through when creating app options:
+Em `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/workspace-model-catalog.ts`, repasse a platform do protocol ao criar as opções do app:
 
 ```ts
 platform: context.deps.platform,
 ```
 
-Keep existing `env: context.deps.env` behavior unchanged.
+Mantenha o comportamento existente de `env: context.deps.env` inalterado.
 
-- [ ] **Step 2: Remove local prepared state from app bootstrap**
+- [ ] **Etapa 2: Remover o estado prepared local do bootstrap do app**
 
-In `create-app.ts`, delete:
+Em `create-app.ts`, exclua:
 
 ```ts
 let bashShellSelectionPrepared = Boolean(
@@ -761,7 +761,7 @@ let bashShellSelectionPrepared = Boolean(
 );
 ```
 
-Replace `initializeBashShellSelection()` with:
+Substitua `initializeBashShellSelection()` por:
 
 ```ts
 const resolveDefaultShellSelection = (): ExecutionShellSelection =>
@@ -776,38 +776,38 @@ const initializeSessionShellEnvironment = (candidate?: ExecutionShellSelection):
 };
 ```
 
-This makes runtime config the only initialized/not-initialized truth.
+Isso torna a config do runtime a única verdade de inicializado/não inicializado.
 
-- [ ] **Step 3: Update resume boundary**
+- [ ] **Etapa 3: Atualizar a fronteira de resume**
 
-In `resumeFromStore()`, keep current fallback behavior but call the renamed function:
+Em `resumeFromStore()`, mantenha o comportamento de fallback atual, mas chame a função renomeada:
 
 ```ts
 initializeSessionShellEnvironment();
 const result = await runtime.resumeFromStore({ traceContext: resumeTraceContext });
 ```
 
-This current selection is only a fallback candidate; persisted snapshot wins inside runtime owner.
+Essa selection atual é apenas um candidate de fallback; o snapshot persistido tem precedência dentro do owner do runtime.
 
-- [ ] **Step 4: Update user execution boundary**
+- [ ] **Etapa 4: Atualizar a fronteira de execução do usuário**
 
-In `prepareUserExecutionBoundary`, replace:
+Em `prepareUserExecutionBoundary`, substitua:
 
 ```ts
 initializeBashShellSelection(boundaryOptions?.bashShellSelection);
 ```
 
-with:
+por:
 
 ```ts
 initializeSessionShellEnvironment(boundaryOptions?.bashShellSelection);
 ```
 
-Do not add special cases for `/goal`, workflow, or deferred draft here; they should all call this single boundary.
+Não adicione casos especiais para `/goal`, workflow ou deferred draft aqui; todos devem chamar esta única fronteira.
 
-- [ ] **Step 5: Keep protocol resolver as candidate producer only**
+- [ ] **Etapa 5: Manter o resolver do protocol apenas como produtor de candidate**
 
-In `server-operations.ts`, keep `resolveProtocolBashShellSelection()` but treat its result as a candidate:
+Em `server-operations.ts`, mantenha `resolveProtocolBashShellSelection()`, mas trate o resultado como um candidate:
 
 ```ts
 const bashShellSelectionCandidate = resolveProtocolBashShellSelection(
@@ -816,66 +816,66 @@ const bashShellSelectionCandidate = resolveProtocolBashShellSelection(
 );
 ```
 
-Pass it to `record.app.sendInput(..., { bashShellSelection: bashShellSelectionCandidate })`.
+Passe-o para `record.app.sendInput(..., { bashShellSelection: bashShellSelectionCandidate })`.
 
-Do not pass shell selection through `session/create` for non-resume draft creation.
+Não passe shell selection por `session/create` na criação de draft que não seja resume.
 
-- [ ] **Step 6: Update protocol tests**
+- [ ] **Etapa 6: Atualizar os testes de protocol**
 
-In `zcode-protocol.test.ts`, assert:
+Em `zcode-protocol.test.ts`, afirme que:
 
-- deferred `session/create` does not initialize shell selection
-- first `session/send` initializes shell selection from current setting candidate
-- second `session/send` with a different candidate does not overwrite runtime selection
-- cold `session/resume` restores persisted snapshot when present
-- cold legacy resume uses current candidate as fallback and emits shell drift reminder only when prompt-visible shell changed
+- `session/create` adiado não inicializa a shell selection
+- o primeiro `session/send` inicializa a shell selection a partir do candidate da configuração atual
+- um segundo `session/send` com um candidate diferente não sobrescreve a selection do runtime
+- um `session/resume` a frio restaura o snapshot persistido quando presente
+- um resume legado frio usa o candidate atual como fallback e emite o reminder de shell drift somente quando o shell visível no prompt mudou
 
-Use existing test helpers around lines where `recordShellInitialization()` is already present; remove assertions that depend on local bootstrap `bashShellSelectionPrepared`.
+Use os helpers de teste existentes nos pontos em que `recordShellInitialization()` já está presente; remova asserções que dependem do `bashShellSelectionPrepared` local do bootstrap.
 
-- [ ] **Step 7: Run bootstrap protocol tests**
+- [ ] **Etapa 7: Executar os testes de protocol do bootstrap**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/bootstrap exec vitest run tests/zcode-protocol.test.ts
 ```
 
-Expected: protocol tests pass.
+Esperado: os testes de protocol passam.
 
 ---
 
-### Task 5: Remove Runtime `bashShellOverride` As A State Source
+### Tarefa 5: Remover o `bashShellOverride` do Runtime Como Fonte de Estado
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/runtime/types.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
-- Modify: `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/types.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/executor/impl.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/types.ts`
-- Modify: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
-- Test: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/types.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/internal-methods.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/types.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/call-runner.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/executor/impl.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/types.ts`
+- Modificar: `apps/zcode-cli/packages/core/src/tool/handlers/bash.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/bash-handler.test.ts`
 
 **Interfaces:**
-- Consumes: `ExecutionShellSelection`
-- Produces: only one runtime field: `bashShellSelection`
+- Consome: `ExecutionShellSelection`
+- Produz: apenas um campo de runtime: `bashShellSelection`
 
-- [ ] **Step 1: Remove runtime config override field**
+- [ ] **Etapa 1: Remover o campo de override da config do runtime**
 
-In `AgentRuntimeConfig`, delete:
+Em `AgentRuntimeConfig`, exclua:
 
 ```ts
 bashShellOverride?: ExecutionShellOverride | undefined;
 ```
 
-Keep `ExecutionShellOverride` in `@zcode/contracts` because the low-level execution boundary still names `shellOverride` on `ExecutionCommand`.
+Mantenha `ExecutionShellOverride` em `@zcode/contracts` porque a fronteira de execução de baixo nível ainda nomeia `shellOverride` em `ExecutionCommand`.
 
-- [ ] **Step 2: Update runtime updateConfig patch type**
+- [ ] **Etapa 2: Atualizar o tipo de patch de updateConfig do runtime**
 
-In `agent-runtime.ts`, `internal-methods.ts`, and `config.ts`, remove `"bashShellOverride"` from the `Pick<AgentRuntimeConfig, ...>` lists.
+Em `agent-runtime.ts`, `internal-methods.ts` e `config.ts`, remova `"bashShellOverride"` das listas `Pick<AgentRuntimeConfig, ...>`.
 
-In `config.ts`, shell branch becomes:
+Em `config.ts`, o ramo de shell passa a ser:
 
 ```ts
 if ("bashShellSelection" in patch) {
@@ -885,80 +885,80 @@ if ("bashShellSelection" in patch) {
 }
 ```
 
-- [ ] **Step 3: Update tool execution context**
+- [ ] **Etapa 3: Atualizar o contexto de execução de tool**
 
-In `call-runner.ts`, replace:
+Em `call-runner.ts`, substitua:
 
 ```ts
 bashShellSelection: deps.getBashShellSelection?.() ?? deps.bashShellSelection,
 bashShellOverride: deps.getBashShellOverride?.() ?? deps.bashShellOverride,
 ```
 
-with:
+por:
 
 ```ts
 bashShellSelection: deps.getBashShellSelection?.() ?? deps.bashShellSelection,
 ```
 
-Remove `bashShellOverride` from executor dependency types.
+Remova `bashShellOverride` dos tipos de dependências do executor.
 
-- [ ] **Step 4: Update Bash handler**
+- [ ] **Etapa 4: Atualizar o handler Bash**
 
-In `bash.ts`, replace:
+Em `bash.ts`, substitua:
 
 ```ts
 const shellSelection = context.bashShellSelection ?? context.bashShellOverride;
 ```
 
-with:
+por:
 
 ```ts
 const shellSelection = context.bashShellSelection;
 ```
 
-Keep the execution command field name:
+Mantenha o nome do campo do comando de execução:
 
 ```ts
 shellOverride: shellSelection,
 ```
 
-because `ExecutionCommand` is the adapter boundary and already documents that this is Bash-only.
+porque `ExecutionCommand` é a fronteira do adapter e já documenta que isso é exclusivo do Bash.
 
-- [ ] **Step 5: Run Bash handler tests**
+- [ ] **Etapa 5: Executar os testes do handler Bash**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/bash-handler.test.ts
 ```
 
-Expected: Bash tests pass and no call site still references runtime-level `bashShellOverride`.
+Esperado: os testes de Bash passam e nenhum call site referencia mais o `bashShellOverride` de nível de runtime.
 
-- [ ] **Step 6: Confirm no stale runtime override refs**
+- [ ] **Etapa 6: Confirmar que não restam referências obsoletas de override do runtime**
 
-Run:
+Execute:
 
 ```bash
 rg -n "bashShellOverride|getBashShellOverride" apps/zcode-cli/packages/core apps/zcode-cli/packages/bootstrap
 ```
 
-Expected: no hits in core/bootstrap runtime state. Hits in contracts/adapters are acceptable only for the low-level `ExecutionCommand.shellOverride` boundary.
+Esperado: nenhum hit no estado de runtime de core/bootstrap. Hits em contracts/adapters são aceitáveis apenas para a fronteira de baixo nível `ExecutionCommand.shellOverride`.
 
 ---
 
-### Task 6: Update Explore Inheritance Through The Owner
+### Tarefa 6: Atualizar a Herança do Explore Através do Owner
 
-**Files:**
-- Modify: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
-- Test: `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
+**Arquivos:**
+- Modificar: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
+- Testar: `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
 
 **Interfaces:**
-- Consumes: `getSessionShellEnvironment()`
-- Produces: child `envInfo.shell` and child `bashShellSelection` from the same parent environment
+- Consome: `getSessionShellEnvironment()`
+- Produz: `envInfo.shell` e `bashShellSelection` do filho a partir do mesmo ambiente do pai
 
-- [ ] **Step 1: Replace direct selection reads**
+- [ ] **Etapa 1: Substituir as leituras diretas de selection**
 
-In `subagent.ts`, replace:
+Em `subagent.ts`, substitua:
 
 ```ts
 const bashShellSelection = getEffectiveBashShellSelection(this);
@@ -968,7 +968,7 @@ const childEnvInfo = {
 };
 ```
 
-with:
+por:
 
 ```ts
 const shellEnvironment = getSessionShellEnvironment(this);
@@ -979,90 +979,90 @@ const childEnvInfo = {
 const bashShellSelection = shellEnvironment?.selection;
 ```
 
-- [ ] **Step 2: Keep child runtime config minimal**
+- [ ] **Etapa 2: Manter a config do runtime filho mínima**
 
-When creating child `AgentRuntime`, pass only:
+Ao criar o `AgentRuntime` filho, passe apenas:
 
 ```ts
 bashShellSelection,
 envInfo: childEnvInfo,
 ```
 
-Do not pass any shell override alias.
+Não passe nenhum alias de shell override.
 
-- [ ] **Step 3: Run Explore tests**
+- [ ] **Etapa 3: Executar os testes do Explore**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run tests/subagent-explore.test.ts
 ```
 
-Expected: Explore child prompt shell and Bash execution selection both inherit parent session-start shell.
+Esperado: tanto o prompt shell quanto a seleção de execução Bash do filho do Explore herdam o shell de início de sessão do pai.
 
 ---
 
-### Task 7: Update Documentation And Remove Superseded Mental Model
+### Tarefa 7: Atualizar a Documentação e Remover o Modelo Mental Superado
 
-**Files:**
-- Modify: `docs/runtime-tools/bash-effective-shell-snapshot.md`
-- Modify: `docs/superpowers/plans/2026-06-19-bash-effective-shell-snapshot.md`
+**Arquivos:**
+- Modificar: `docs/runtime-tools/bash-effective-shell-snapshot.md`
+- Modificar: `docs/superpowers/plans/2026-06-19-bash-effective-shell-snapshot.md`
 
 **Interfaces:**
-- Produces: docs that name the single owner and mark old plan as historical
+- Produz: documentação que nomeia o owner único e marca o plano antigo como histórico
 
-- [ ] **Step 1: Update runtime tool spec**
+- [ ] **Etapa 1: Atualizar a spec de runtime tool**
 
-In `docs/runtime-tools/bash-effective-shell-snapshot.md`, add a new section after “核心契约”:
+Em `docs/runtime-tools/bash-effective-shell-snapshot.md`, acrescente uma nova seção depois de “核心契约”:
 
 ```md
 ## Runtime Owner
 
-`apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts` 是 session shell environment 的唯一 owner。
+`apps/zcode-cli/packages/core/src/runtime/methods/session-shell-environment.ts` é o owner único do session shell environment.
 
-它负责：
+Ele é responsável por:
 
-- 初始化 session-start shell snapshot。
-- 对 `EnvInfo.shell` 应用 provider-visible display name。
-- 为 Bash executor 提供 `ExecutionShellSelection`。
-- 持久化和恢复 `runtime/bash_shell_selection`。
-- 在 legacy / stale resume fallback 时插入 `shell_environment_change` attachment。
+- inicializar o snapshot de shell de session-start.
+- aplicar o display name visível ao provider em `EnvInfo.shell`.
+- fornecer o `ExecutionShellSelection` ao executor do Bash.
+- persistir e restaurar `runtime/bash_shell_selection`.
+- inserir o attachment `shell_environment_change` no fallback de resume legacy / stale.
 
-bootstrap、protocol、services、UI 只能提供当前候选 selection，不能直接修改已初始化 session 的 shell environment。
+bootstrap, protocol, services e UI só podem fornecer a selection candidata atual; não podem modificar diretamente o shell environment de uma session já inicializada.
 ```
 
-- [ ] **Step 2: Mark old plan as superseded**
+- [ ] **Etapa 2: Marcar o plano antigo como superado**
 
-At the top of `docs/superpowers/plans/2026-06-19-bash-effective-shell-snapshot.md`, add:
+No topo de `docs/superpowers/plans/2026-06-19-bash-effective-shell-snapshot.md`, acrescente:
 
 ```md
-> Superseded by `docs/superpowers/plans/2026-06-23-session-shell-environment-owner.md`.
-> This document records the original shell snapshot implementation plan; the current refactor plan centralizes lifecycle ownership in `session-shell-environment.ts`.
+> Superado por `docs/superpowers/plans/2026-06-23-session-shell-environment-owner.md`.
+> Este documento registra o plano original de implementação do snapshot de shell; o plano de refatoração atual centraliza a posse do ciclo de vida em `session-shell-environment.ts`.
 ```
 
-- [ ] **Step 3: Run markdown grep sanity**
+- [ ] **Etapa 3: Executar o sanity check de grep no markdown**
 
-Run:
+Execute:
 
 ```bash
 rg -n "bashShellOverride|effectiveShellDisplayName|session-shell-environment|runtime/bash_shell_selection" docs/runtime-tools docs/superpowers/plans/2026-06-19-bash-effective-shell-snapshot.md docs/superpowers/plans/2026-06-23-session-shell-environment-owner.md
 ```
 
-Expected: docs mention `bashShellOverride` only as a removed runtime concept or low-level execution boundary; docs name `session-shell-environment.ts` as owner.
+Esperado: a documentação menciona `bashShellOverride` apenas como conceito removido do runtime ou como fronteira de execução de baixo nível; a documentação nomeia `session-shell-environment.ts` como owner.
 
 ---
 
-### Task 8: Full Verification
+### Tarefa 8: Verificação Completa
 
-**Files:**
-- No source edits unless tests reveal a missed migration.
+**Arquivos:**
+- Nenhuma edição de código, a menos que os testes revelem uma migração esquecida.
 
 **Interfaces:**
-- Produces: verified refactor with same behavior and lower complexity
+- Produz: refatoração verificada, com o mesmo comportamento e menor complexidade
 
-- [ ] **Step 1: Run focused package tests**
+- [ ] **Etapa 1: Executar os testes focados do pacote**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/core exec vitest run \
@@ -1072,85 +1072,85 @@ pnpm --filter @zcode/core exec vitest run \
   tests/bash-handler.test.ts
 ```
 
-Expected: all selected core tests pass.
+Esperado: todos os testes selecionados do core passam.
 
-- [ ] **Step 2: Run bootstrap tests**
+- [ ] **Etapa 2: Executar os testes do bootstrap**
 
-Run:
+Execute:
 
 ```bash
 pnpm --filter @zcode/bootstrap exec vitest run tests/zcode-protocol.test.ts
 ```
 
-Expected: protocol shell initialization, deferred draft, resume, and send tests pass.
+Esperado: os testes de inicialização de shell do protocol, de draft adiado, de resume e de send passam.
 
-- [ ] **Step 3: Run adapter tests if shell resolver changed**
+- [ ] **Etapa 3: Executar os testes do adapter se o resolver de shell tiver mudado**
 
-If Task 2 touched `apps/zcode-cli/packages/adapters/src/exec/bash-shell-provider.ts` or `apps/zcode-cli/packages/adapters/src/exec/index.ts`, run:
+Se a Tarefa 2 tiver tocado `apps/zcode-cli/packages/adapters/src/exec/bash-shell-provider.ts` ou `apps/zcode-cli/packages/adapters/src/exec/index.ts`, execute:
 
 ```bash
 pnpm --filter @zcode/adapters exec vitest run tests/exec.test.ts tests/fs-context.test.ts
 ```
 
-Expected: adapters tests pass.
+Esperado: os testes de adapters passam.
 
-- [ ] **Step 4: Run repo-wide required checks**
+- [ ] **Etapa 4: Executar as verificações obrigatórias de todo o repositório**
 
-Run:
+Execute:
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-Expected: both pass.
+Esperado: ambos passam.
 
-- [ ] **Step 5: Final behavior audit**
+- [ ] **Etapa 5: Auditoria final de comportamento**
 
-Run:
+Execute:
 
 ```bash
 rg -n "initializeBashShellSelectionIfNeeded|bashShellSelectionPrepared|getBashShellOverride|bashShellOverride" apps/zcode-cli/packages/core apps/zcode-cli/packages/bootstrap
 ```
 
-Expected:
+Esperado:
 
-- no `initializeBashShellSelectionIfNeeded`
-- no `bashShellSelectionPrepared`
-- no `getBashShellOverride`
-- no runtime-level `bashShellOverride`
+- nenhum `initializeBashShellSelectionIfNeeded`
+- nenhum `bashShellSelectionPrepared`
+- nenhum `getBashShellOverride`
+- nenhum `bashShellOverride` de nível de runtime
 
-Run:
+Execute:
 
 ```bash
 rg -n "getSessionShellEnvironment|initializeSessionShellEnvironmentIfNeeded|restoreSessionShellEnvironmentSelectionForResume|announceSessionShellEnvironmentDriftAfterResume|persistSessionShellEnvironmentSnapshot" apps/zcode-cli/packages/core apps/zcode-cli/packages/bootstrap
 ```
 
-Expected:
+Esperado:
 
-- owner functions are used by context, config, resume, events, subagent, and bootstrap user execution boundary
-- protocol/services do not directly mutate runtime shell state
+- as funções do owner são usadas por context, config, resume, events, subagent e pela fronteira de execução do usuário do bootstrap
+- protocol/services não alteram diretamente o estado de shell do runtime
 
-## Acceptance Criteria
+## Critérios de Aceitação
 
-- New session: shell selection is undefined until first real user execution boundary.
-- First send: current setting candidate initializes session shell environment once.
-- Later send in same session: changed setting candidate is ignored.
-- Bash tool execution and `# Environment` Shell use the same `ExecutionShellSelection.display.name`.
-- deferred draft: prewarm does not freeze shell setting; first send does.
-- `/goal`, expert workflow, script workflow: call the same user execution boundary before first persisted/executed state.
-- resume with valid snapshot: uses persisted shell and does not insert drift reminder.
-- resume with stale snapshot: does not pass stale path to executor; falls back to current candidate and inserts drift reminder if historical Shell differs.
-- legacy resume without snapshot: uses current candidate and inserts drift reminder only when historical Shell differs.
-- Explore child runtime: inherits parent session shell environment for both prompt and Bash execution.
-- No runtime state path still treats `bashShellOverride` as a second source of truth.
-- `pnpm typecheck` and `pnpm lint` pass.
+- Nova sessão: a shell selection é indefinida até a primeira fronteira real de execução do usuário.
+- Primeiro send: o candidate da configuração atual inicializa uma única vez o session shell environment.
+- Send posterior na mesma sessão: um candidate de configuração alterado é ignorado.
+- A execução do Bash tool e o `Shell` do `# Environment` usam o mesmo `ExecutionShellSelection.display.name`.
+- Draft adiado: o prewarm não congela a configuração de shell; o primeiro send congela.
+- `/goal`, expert workflow, script workflow: chamam a mesma fronteira de execução do usuário antes do primeiro estado persistido/executado.
+- Resume com snapshot válido: usa o shell persistido e não insere reminder de drift.
+- Resume com snapshot obsoleto: não passa o path obsoleto ao executor; faz fallback para o candidate atual e insere o reminder de drift se o Shell histórico for diferente.
+- Resume legado sem snapshot: usa o candidate atual e insere o reminder de drift somente quando o Shell histórico é diferente.
+- Runtime filho do Explore: herda o session shell environment do pai tanto para o prompt quanto para a execução Bash.
+- Nenhum caminho de estado do runtime trata mais `bashShellOverride` como segunda fonte de verdade.
+- `pnpm typecheck` e `pnpm lint` passam.
 
-## Self-Review Checklist
+## Checklist de Auto-Revisão
 
-- [ ] 每个 shell lifecycle 行为都能指向 `session-shell-environment.ts` 中的一个 owner function。
-- [ ] bootstrap/protocol 只生产候选 selection，不维护“是否已初始化”的本地状态。
-- [ ] context、Bash executor、Explore、resume、persistence 没有各自拼 shell display 的逻辑。
-- [ ] provider-visible shell name 仍然不包含绝对 path。
-- [ ] Windows/macOS/Linux fallback 行为没有变成 hard spawn error。
-- [ ] 文档和测试都不再要求维护者理解旧的多 owner mental model。
+- [ ] Todo comportamento do ciclo de vida do shell aponta para uma função de owner em `session-shell-environment.ts`.
+- [ ] bootstrap/protocol apenas produzem a selection candidata e não mantêm estado local de “já inicializado”.
+- [ ] context, executor Bash, Explore, resume e persistence não têm mais lógica própria de composição do shell display.
+- [ ] O nome de shell provider-visible continua sem conter path absoluto.
+- [ ] O comportamento de fallback em Windows/macOS/Linux não virou hard spawn error.
+- [ ] A documentação e os testes não exigem mais que quem mantém entenda o antigo modelo mental de múltiplos owners.

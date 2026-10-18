@@ -36,10 +36,10 @@ Esta funcionalidade não usa `Catalog` como nome de domínio. O antigo Model Cat
 A nomenclatura unificada é:
 
 ```text
-Interface do usuário：添加供应商
-Componente de código：ProviderTemplatePicker
-Estado da página：template-picker
-Fonte de dados：ProviderSettingsView.providerTemplates
+Interface do usuário: 添加供应商
+Componente de código: ProviderTemplatePicker
+Estado da página: template-picker
+Fonte de dados: ProviderSettingsView.providerTemplates
 ```
 
 É proibido adicionar:
@@ -57,7 +57,7 @@ ProviderSettingsView.providerTemplates
                 v
        ProviderTemplatePicker
                 |
-        选择 templateId
+        selecionar templateId
                 |
                 v
  createPersonalProvider({ templateId, label })
@@ -124,14 +124,14 @@ O conteúdo Built-in publicado deve fornecer simultaneamente os nomes em chinês
 Ordem de resolução do nome:
 
 ```text
-nameMap[当前 locale]
+nameMap[locale atual]
         |
-        +-- 存在且非空 --> 使用
+        +-- existe e não vazio --> usar
         |
         v
 nameMap["en-US"]
         |
-        +-- 存在且非空 --> 使用
+        +-- existe e não vazio --> usar
         |
         v
 templateId
@@ -144,19 +144,19 @@ templateId
 O nome do Template é uma semente de nome no momento da criação, não um nome dinâmico do Provider depois de criado.
 
 ```text
-当前界面 Locale
+Locale atual da interface
         |
         v
-从 Template.nameMap 解析名称种子
+resolver a semente de nome a partir de Template.nameMap
         |
         v
 createPersonalProvider({ templateId, label: seed })
         |
         v
-Config Service 在 Personal Config 更新锁内重新检查名称
+Config Service reexamina o nome dentro do lock de atualização do Personal Config
         |
         v
-生成唯一 label 并写入 Personal Provider Overlay
+gerar um label único e gravá-lo no Personal Provider Overlay
 ```
 
 Restrições:
@@ -175,7 +175,7 @@ Um Provider puramente personalizado continua usando a semente de nome localizada
 
 ### 5.1 Entrada e Página
 
-- adicionar o botão “添加供应商” no topo da área de descrição da página de configurações, perto do botão de atualizar;
+- adicionar o botão “添加供应商” (Adicionar fornecedor) no topo da área de descrição da página de configurações, perto do botão de atualizar;
 - ao clicar, a navegação de Providers à esquerda permanece inalterada e a área de detalhes à direita muda para `ProviderTemplatePicker`;
 - a página oferece um botão de voltar; ao voltar, os detalhes do Provider anteriores à entrada são restaurados;
 - após a criação bem-sucedida, entrar imediatamente nos detalhes do novo Provider;
@@ -187,7 +187,7 @@ Um Provider puramente personalizado continua usando a semente de nome localizada
 
 - usar a ordem de publicação atual dos Built-in Provider Templates;
 - não manter tabela de ordenação de Provider ID na UI;
-- o primeiro item da página ou uma área explícita oferece a entrada “自定义供应商”;
+- o primeiro item da página ou uma área explícita oferece a entrada “自定义供应商” (Provedor personalizado);
 - o cartão inteiro é clicável e exibe uma seta de entrada unificada à direita;
 - o cartão usa estritamente altura fixa de 64px;
 - o nome permanece em uma única linha e é truncado quando excede a largura disponível;
@@ -201,8 +201,8 @@ Um Provider puramente personalizado continua usando a semente de nome localizada
 - a barra lateral de Provider ajusta apenas as dimensões necessárias ao Logo, sem trazer o line-height, o estado selecionado e os estilos de estado do branch de produto;
 - o ponto de status lê `executable` do Provider: verde quando executável, cinza quando não executável;
 - não restaurar o `enabled` de topo do Provider nem o Provider Switch;
-- não exibir o texto de status “已启用”;
-- “添加模型” é movido para o lado direito do título “模型列表”;
+- não exibir o texto de status “已启用” (Ativado);
+- “添加模型” (Adicionar modelo) é movido para o lado direito do título “模型列表” (Lista de modelos);
 - após excluir um Provider, continua-se usando o fallback de navegação atual, sem implementar seleção de Provider adjacente;
 - quando a exclusão do Provider falha, mantém-se a seleção atual;
 - o nome da marca na página de seleção de Template é publicado pelo `nameMap` do Template; em `Z.AI`, `AI` deve estar em maiúsculas;
@@ -250,9 +250,9 @@ Effective Provider Config.logo
                 v
        Built-in Logo Resolver
                 |
-                +-- 已知 key --> 根据主题选择打包资源
+                +-- key conhecida --> escolher o asset empacotado conforme o tema
                 |
-                `-- 未知/缺失 --> 通用 Package 图标
+                `-- desconhecida/ausente --> ícone genérico de Package
 ```
 
 Uma Official Config pode publicar remotamente uma nova `key` que o cliente ainda não conhece. Isso precisa ser resolvido, salvo e entrar no Registry normalmente; um cliente antigo apenas volta ao ícone genérico, sem gerar erro e sem tornar o Provider inexecutável. Quando o cliente mais tarde empacotar o asset com a mesma key, o Logo aparece naturalmente.
@@ -361,7 +361,7 @@ Todos os Logos empacotados ficam na fronteira de recursos de UI compartilhada po
 6. Atualizar a interface de criação para receber explicitamente a semente de nome e desduplicar atomicamente no servidor;
 7. Adicionar primeiro os E2E de interação da página de configurações, depois implementar a entrada do topo, a página de seleção de Template, o retorno e o destino pós-criação;
 8. Remover o `logoUrl` não publicado e passar a usar `logo`; organizar o primeiro lote de assets empacotados e conectar a resolução unificada com consciência de tema, sem adicionar importer de compatibilidade;
-9. Ajustar as dimensões do Logo na barra lateral, o ponto de status e a posição de “添加模型”;
+9. Ajustar as dimensões do Logo na barra lateral, o ponto de status e a posição de “添加模型” (Adicionar modelo);
 10. Limpar a entrada antiga de Template em dropdown e as tabelas de nome/Logo/ordenação por Provider ID do Renderer;
 11. Revisar de forma abrangente que não há Catalog, `enabled` de Provider nem regressão nas páginas de Account.
 
@@ -398,7 +398,7 @@ Todos os Logos empacotados ficam na fronteira de recursos de UI compartilhada po
 - o Logo não faz o nome do Provider ser lido duplicadamente por tecnologia assistiva;
 - criação a partir de Template e criação puramente personalizada entram ambas nos detalhes do novo Provider;
 - o ponto de status do Provider reflete estritamente `executable`;
-- “添加模型” fica à direita do título;
+- “添加模型” (Adicionar modelo) fica à direita do título;
 - excluir o Provider atual mantém o fallback existente;
 - a página de Account Provider e os cartões de planos não têm regressão de comportamento ou visual;
 - Desktop, Web, mobile, Zai Light, Zai Dark e operação por teclado estão todos cobertos.
@@ -421,7 +421,7 @@ Após a conclusão, fazer um commit Conventional Commit e incluir na mensagem o 
 - `logoUrl` foi removido da Provider Config oficial e substituído por `logo: { type: "builtin", key }` com key aberta; key desconhecida ou falha de carregamento de recurso apenas faz fallback para o ícone genérico, sem afetar a integridade nem a execução do Provider.
 - O primeiro lote de assets de marca foi empacotado na fronteira de recursos comuns de UI, com origem, atribuição e forma de redimensionamento registradas em `model-provider-logo-sources.json`; os assets atuais são reutilizados nos dois temas e o Resolver já preserva o slot opcional de recurso dark.
 - A navegação de Provider, o título de detalhes e o cartão de Template consomem uniformemente o Logo da Effective Provider Config / config do Template; o Renderer não tem mapeamento de Provider ID para marca.
-- A entrada “添加供应商” no topo e a entrada “添加模型” ao lado do título foram concluídas; o dropdown de Template antigo da barra lateral e seus candidatos foram removidos, e as páginas de Account e o fallback de exclusão não mudaram.
+- A entrada “添加供应商” (Adicionar fornecedor) no topo e a entrada “添加模型” (Adicionar modelo) ao lado do título foram concluídas; o dropdown de Template antigo da barra lateral e seus candidatos foram removidos, e as páginas de Account e o fallback de exclusão não mudaram.
 
 ### Registro de Verificação
 

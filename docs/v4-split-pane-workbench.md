@@ -2,7 +2,7 @@
 
 Status: **implementado, com os limites de produto reconfirmados em 2026-07-17**. Arrastar uma session da lista de Tasks
 para a borda da área de conversa ainda cria/restaura um workbench group; em 2026-07-13 apenas os botões explícitos
-“向右拆分 / 向下拆分” do pane chrome foram temporariamente desativados.
+“向右拆分 / 向下拆分” (dividir para a direita / dividir para baixo) do pane chrome foram temporariamente desativados.
 
 ## Objetivo
 
@@ -24,17 +24,17 @@ Elevar o “1+1 dividido lado a lado no mesmo workspace” do M5⑤ para um “w
 ## Topologia de conexão
 
 ```text
-window renderer                          host / 远程 host                  CLI 进程
+window renderer                          host / host remoto                 processo CLI
   pane(A/s1) ─┐
   pane(A/s2) ─┼─ workspaceConnectionRegistry
   pane(B/s3) ─┘   Map<endpointKey+workspaceKey,
   pane(R/s4) ─┐       { transport, SessionDataLayer, refCount, keepWarm }>
               │        │
-              │        ├─ 本地 scope ──→ base services.zcodeAgentService ──→ base local host
+              │        ├─ scope local ──→ base services.zcodeAgentService ──→ base local host
               │        │                   └─ processesByWorkspaceKey ┬─→ agent(A)  conversation/s1,s2
-              │        │                      （每 workspace 一个 CLI）└─→ agent(B)  conversation/s3
-              │        └─ 远程 scope ──→ sessionsById[remoteSessionId].services ──→ remote host ──→ agent(R)  conversation/s4
-              └─ 远程连接不在场 → 断连代理（rejects）→ pane 进 error/等待连接态，不另起 runtime
+              │        │                      (um CLI por workspace)  └─→ agent(B)  conversation/s3
+              │        └─ scope remoto ──→ sessionsById[remoteSessionId].services ──→ remote host ──→ agent(R)  conversation/s4
+              └─ conexão remota ausente → proxy de desconexão (rejects) → pane entra no estado error/aguardando conexão, sem iniciar outro runtime
 ```
 
 Pontos principais:
@@ -57,12 +57,12 @@ Pontos principais:
 LayoutNode = Leaf { paneId }
            | Split { id, direction: "row"|"column", ratio, first, second }
 
-ratio = first 占比，clamp [0.25, 0.75]（沿用一期 splitRatio 语义，每个 Split 节点独立一份）
+ratio = proporção de first, clamp [0.25, 0.75]（沿用一期 splitRatio 语义，每个 Split 节点独立一份）
 
-单 pane:          leaf(main)
-左右分屏:         split(row){ leaf(main), leaf(pane-1) }
-2x2 网格:         split(row){ split(col){ leaf(main), leaf(pane-2) },
-                              split(col){ leaf(pane-1), leaf(pane-3) } }
+pane único:         leaf(main)
+divisão esquerda/direita: split(row){ leaf(main), leaf(pane-1) }
+grade 2x2:          split(row){ split(col){ leaf(main), leaf(pane-2) },
+                                split(col){ leaf(pane-1), leaf(pane-3) } }
 ```
 
 - Estado: `{ root: LayoutNode, panes: Record<paneId, PaneBinding>, focusedPaneId }`; o primary pane (`workspace-main`) é uma
@@ -121,18 +121,18 @@ ratio = first 占比，clamp [0.25, 0.75]（沿用一期 splitRatio 语义，每
 ## Guard de restauração (generalizado por pane)
 
 ```text
-恢复时序（每个 restoredUnvalidated pane 独立）：
+sequência de restauração（cada pane com restoredUnvalidated de forma independente）:
 
-localStorage ─→ paneLayoutStore(v2 恢复, 补 restoredUnvalidated)
+localStorage ─→ paneLayoutStore(v2 restore, adiciona restoredUnvalidated)
                     │
-V4PaneWorkbench ────┼─→ pane 渲染（先渲染，不阻塞）
+V4PaneWorkbench ────┼─→ render do pane（renderiza primeiro, não bloqueia）
                     └─→ PaneRestoredGuard(pane scope)
                           acquireSessionsIndex({ workspaceKey, endpointKey: remoteSessionId })
-                          等首个真 snapshot（workspaceId !== null）
-                            ├─ session 在场 → confirmRestoredPaneSession(paneId)
-                            ├─ session 已删 → closePane(paneId)
-                            └─ 订阅失败/远程 endpoint 不在场 → 不判定，pane 保留为
-                               error/等待连接态（交由 pane 自身 retry 兜底，不误关）
+                          aguarda o primeiro snapshot real（workspaceId !== null）
+                            ├─ sessão presente → confirmRestoredPaneSession(paneId)
+                            ├─ sessão já excluída → closePane(paneId)
+                            └─ falha na assinatura / endpoint remoto ausente → sem veredito, o pane permanece no
+                               estado error/aguardando conexão（o retry do próprio pane serve de fallback, sem fechar por engano）
 ```
 
 Contrato com a camada de dados: **uma sessão aparece, e só aparece, no sessions-index do seu workspace principal** —
@@ -141,7 +141,7 @@ workspaces existir).
 
 ## Entradas
 
-- O arraste, o item de sessão da barra lateral com “在分屏打开” e o clique normal em uma session entram todos em
+- O arraste, o item de sessão da barra lateral com “在分屏打开” (abrir em tela dividida) e o clique normal em uma session entram todos em
   `workbenchSessionPlacement`: um resolver puro decide entre current guard, focus existing, split draft,
   create/extend group ou replace focused pane, e o executor então confirma na ordem “primeiro atualiza o owner do
   pane/group, depois sincroniza o active do shell”. O arraste só aceita uma decisão de split real e passa o side/anchor
@@ -204,7 +204,7 @@ Caminho de extensão do protocolo (aditivo, sem alterar campos existentes): o pa
 | 6 | `packages/ui/src/v4/SessionPane.tsx` | As escutas de Esc-stop e add-to-chat passam de “somente primary” para “pane em foco” (regra 4 da tela dividida do 06-ui); novas props de divisão/fechamento/insígnia repassadas |
 | 7 | `packages/ui/src/v4/ConversationHeader.tsx` | “分屏/关闭分屏” vira “向右拆分/向下拆分/关闭 pane” + insígnia de workspace (exibida quando não é primary e difere do workspace atual do shell, com identificação de host quando remoto); textos entram no i18n nos dois idiomas |
 | 8 | `packages/ui/src/v4/workbenchSessionPlacement.ts` / `V4WorkspaceChatArea.tsx` / `app-shell/WorkspaceShellLayout.tsx` | Arraste, divisão por botão direito e clique normal compartilham o resolver/executor de placement; a entrada fornece apenas intent, side, anchor e o workspace scope completo, e é desabilitada quando o limite de folhas é atingido e o alvo não tem atribuição existente |
-| 9 | Detalhes de subagent child | Já migrados para as tabs à direita do workspace e não entram mais no split-pane workbench; o “在分屏打开” da session comum permanece igual |
+| 9 | Detalhes de subagent child | Já migrados para as tabs à direita do workspace e não entram mais no split-pane workbench; o “在分屏打开” (abrir em tela dividida) da session comum permanece igual |
 | 10 | `packages/ui/src/v4/index.ts` | Superfície de exports atualizada (substituição das antigas funções de transição/tipos) |
 | 11 | `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/v4-bridge.ts` | O `workspaceId` de `createSessionRecord` passa pela resolução pelo par de identidade remota (família `buildRemoteWorkspaceIdentity`), com testes unitários — pré-requisito para criar sessão a partir do primeiro envio de um draft em um pane remoto |
 | 12 | Três `conversation-session-v4-split*.test.ts` antigos | Removidos em 2026-07-13 por causa da desativação dos botões explícitos; a cobertura de regressão da entrada de arraste da lista de Tasks ainda precisa ser mantida |

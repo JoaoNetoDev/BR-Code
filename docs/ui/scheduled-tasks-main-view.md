@@ -53,30 +53,30 @@ O gerenciamento de tarefas agendadas migra de uma seção da página de configur
 
 ```text
 runAutomationNow RPC
-  -> INSERT manual automation_run（不触碰 automation.next_run_at）
-  -> desktop host resume/create task（新 session 使用 deferred persistence，automation 执行 task 隐藏写工具）
+  -> INSERT manual automation_run（não toca em automation.next_run_at）
+  -> desktop host resume/create task（nova session usa deferred persistence，execução da task esconde ferramentas de escrita）
   -> apply mode/model/thought
-  -> sendPrompt（本轮携带 automationId；可能 queued）
-  -> ACK: 回写 dispatched，继续持有 running claim
+  -> sendPrompt（esta turno carrega automationId；pode ficar queued）
+  -> ACK: reescreve dispatched，continua segurando a claim running
   -> queue drain / turn start
-  -> turn terminal: 回写 outcome，按 workspaceKey 释放 manual claim
+  -> turn terminal: reescreve outcome，libera a manual claim por workspaceKey
 
 scheduler stale recovery
   -> host sendPrompt ACK / cron-dispatch-result ok
-  -> scheduler 只回写 dispatched，不释放 claim
+  -> scheduler apenas reescreve dispatched，não libera a claim
   -> host heartbeat + terminal subscription
-  -> turn terminal: host 释放 manual claim
+  -> turn terminal: host libera a manual claim
 
 busy session
   -> enqueueDeferredInput(toolDisallowlist=[CronCreate,CronUpdate,CronDelete])
   -> queue replay / drain
   -> startPromptTurn(toolDisallowlist=[CronCreate,CronUpdate,CronDelete])
-  -> provider automation tools 只保留 CronList
+  -> ferramentas de automation do provider mantêm apenas CronList
 
-第二次 Run Now（首个 run 未终态）
-  -> repo.runNow 看到 running=1
-  -> RPC 返回 duplicate / no-op，不创建第二条 manual run
-  -> 展示“上一条正在运行”信息提示，不展示“已触发”成功提示
+segundo Run Now（primeiro run não terminal）
+  -> repo.runNow vê running=1
+  -> RPC retorna duplicate / no-op，não cria um segundo manual run
+  -> exibe a mensagem informativa “上一条正在运行”，não exibe o sucesso “已触发”
 ```
 
 # Fronteiras de UI
@@ -124,11 +124,11 @@ busy session
 - Todos os Toasts disparados dentro da visão principal de automações priorizam a área `main` de Automations, e não a janela inteira, como referência de centralização horizontal. O Toast continua sendo portalizado para o `body`, evitando ser cortado pelo container de rolagem da visão principal; os limites do ancoramento precisam ser relidos após mudanças de largura da área, resize da janela ou rolagem de layout. Se o ancoramento estiver ausente ou for desmontado durante a exibição, é preciso voltar imediatamente à centralização no topo da janela inteira, e o Toast ainda precisa ser montado e iniciar normalmente o temporizador de desaparecimento automático; é proibido que uma mensagem fique invisível ou permaneça na memória por causa da melhoria de posicionamento por área. O deslocamento superior, o empilhamento e a animação mantêm o contrato global de Toast.
 
 ```text
-窗口
-┌────侧边栏────┬──────── Automations main ────────┐
+janela
+┌────sidebar────┬──────── Automations main ────────┐
 │              │              Toast               │
 │              │                │                 │
-│              │          main 横向中心            │
+│              │     centro horizontal de main    │
 └──────────────┴──────────────────────────────────┘
 
 main resize / layout scroll
@@ -137,7 +137,7 @@ main resize / layout scroll
 getBoundingClientRect()
             │
             ▼
-body portal 更新 fixed left
+body portal atualiza fixed left
 ```
 
 - Tanto criar uma tarefa agendada quanto criar uma tarefa de período ocioso permitem alternar para a aba de histórico de execuções para ver o estado vazio; é proibido desabilitar a entrada de histórico só porque a tarefa ainda não foi salva. No estado de criação, ao entrar no histórico os botões de criação são ocultados e, como ainda não há identificador de tarefa, nenhuma requisição de histórico pode ser iniciada; ao voltar para as configurações a ação de criação é restaurada. Os botões de envio 「创建定时任务 / 创建闲时任务」 das subpáginas de configurações são uniformemente botões de texto puro, sem ícone Play ou qualquer outro antes do texto.
@@ -154,16 +154,16 @@ body portal 更新 fixed left
 - Quando o botão 「自动化」 da barra lateral alterna para a visão principal do workspace, ele precisa gravar Automations como destino de navegação independente no histórico de avançar/retroceder no estilo de navegador compartilhado com as sessões; depois de entrar em Automations a partir de uma sessão, o 「后退」 no topo precisa voltar à sessão original e o 「前进」 precisa entrar novamente em Automations. Quando um card de criação de sessão abre os detalhes carregando um `automationId`, esse ID precisa ser preservado na entrada de navegação, garantindo que o avanço restaure os mesmos detalhes; os prompts recomendados podem carregar a intent renderer-local `automationTab` e, na restauração pelo avanço, a troca ainda deve ocorrer desde que a aba de destino esteja de fato visível. A reprodução do histórico não pode empilhar novamente nem truncar seu próprio ramo de avanço. O celular `/remote` não exibe Automations e, portanto, não deve gerar esse tipo de entrada de navegação.
 
 ```text
-用户选择 task A
+usuário escolhe a task A
       |
       v
-[task A] --打开 Automations--> [automations / automationId?]
+[task A] --abre Automations--> [automations / automationId?]
       ^                              |
-      |----------- 后退 ------------|
-      |----------- 前进 ------------>
+      |----------- voltar ----------|
+      |----------- avançar --------->
 
-历史条目身份：workspaceIdentity?.trim() || workspacePath
-路径执行语义：workspacePath
+identidade da entrada de histórico: workspaceIdentity?.trim() || workspacePath
+semântica de execução de caminho: workspacePath
 ```
 
 - A entrada de criação de tarefas agendadas usa um botão dividido: o texto do botão principal à esquerda é 「创建定时任务」/ `Create scheduled task` e, ao clicar, entra diretamente no formulário de criação da UI; somente ao clicar na seta à direita o menu de item único 「去会话中创建」/ `Create in chat` é expandido, e os itens do menu não exibem ícones. O botão vizinho de tarefas de período ocioso usa a mesma construção de ação 「创建闲时任务」/ `Create idle-time task`, e não pode exibir apenas o nome do tipo de tarefa.
@@ -191,16 +191,16 @@ body portal 更新 fixed left
 ```text
 clientScenesService.list()
         |
-        +--> pending: 当前可见模板区显示两行骨架，手动创建入口保持可用
+        +--> pending: a área visível de modelos exibe duas linhas de esqueleto, a entrada de criação manual permanece disponível
         |
         v settled
-scheduled-task 远程候选目录 -- cron contents 本地校验/解析 --> 模板卡 / 失败空目录
+scheduled-task catálogo remoto de candidatos -- validação/parse local dos contents de cron --> card de modelo / catálogo vazio por falha
         |                                                   |
-        | 后台刷新只更新候选目录                            | 点击时复制当前语言值
+        | a atualização em segundo plano só atualiza o catálogo | ao clicar copia os valores do idioma atual
         v                                                   v
-下一次进入列表                                      AutomationEditView 本地草稿
+próxima entrada na lista                              AutomationEditView rascunho local
                                                             |
-                                                            `-- 用户确认 --> AutomationService --> automation record
+                                                            `-- usuário confirma --> AutomationService --> registro de automation
 ```
 
 - O ícone de modelo interpreta o `img` do prompt item remoto como um nome canônico Lucide e o carrega dinamicamente pelo nome, sem disparar mais requisições de URL de imagem. O SVG usa `currentColor` herdando a cor de texto do slot do ícone; valor em branco, nome desconhecido ou falha no carregamento do módulo caem no fallback local. O ícone de fallback continua mapeado conforme a semântica de tarefa conhecida do id remoto do item para o Lucide: morning/standup usa `Target`, risk/CI usa `Activity`, release/file usa `FileText`, e outros modelos dinâmicos caem uniformemente em `List`; os `imgs` não participam da escolha do ícone, e não é permitido introduzir temporariamente ícones aproximados na página para modelos desconhecidos do servidor.

@@ -1,35 +1,35 @@
-# Conversation Session V4 E2E Migration Implementation Plan
+# Plano de Implementação da Migração E2E de Conversation Session V4
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para agentes de trabalho:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** Upgrade the conversation-session E2E suite after the v4 refactor by retiring old ChatView-helper assertions, rewriting still-valid product semantics against v4 helpers, and keeping the case catalog plus coverage matrix ahead of executable test changes.
+**Objetivo:** Atualizar a suíte E2E de conversation-session após o refactor v4, aposentando as asserções antigas do helper ChatView, reescrevendo as semânticas de produto ainda válidas contra os helpers v4 e mantendo o catálogo de cases e a matriz de cobertura à frente das mudanças de testes executáveis.
 
-**Architecture:** Treat `docs/conversation-session-case-catalog.md` as the product-semantics source of truth and `docs/testing/conversation-session-e2e-coverage-matrix.md` as the automation coverage ledger. Formal v4 E2E must use `packages/desktop/test/e2e/helpers/v4-conversation.ts` and `TID_V4_*` for root/composer/message/queue/action state, plus case-local fixtures and deterministic replay. Specs that still call `prepareConversationE2E()` or import the old aggregate helper are migration corpus only after the 2026-07-05 v4 hard cut. Compatible tool/history/toolbar/summary-panel test ids and focused helper submodules may remain in V4 formal specs.
+**Arquitetura:** Tratar `docs/conversation-session-case-catalog.md` como a fonte de verdade das semânticas de produto e `docs/testing/conversation-session-e2e-coverage-matrix.md` como o registro de cobertura de automação. O E2E formal v4 deve usar `packages/desktop/test/e2e/helpers/v4-conversation.ts` e `TID_V4_*` para o estado de root/composer/message/queue/action, além de fixtures locais do case e replay determinístico. Specs que ainda chamam `prepareConversationE2E()` ou importam o antigo helper agregado só são corpus de migração depois do corte rígido v4 de 2026-07-05. Test ids de tool/history/toolbar/summary-panel compatíveis e submodules de helper focados podem permanecer nas specs formais V4.
 
-**Tech Stack:** WebdriverIO desktop E2E, v4 conversation projection protocol, provider replay fixtures, TypeScript, pnpm audit scripts, Docker headless verification.
+**Stack técnico:** E2E desktop com WebdriverIO, protocolo de projeção de conversa v4, fixtures de replay de provider, TypeScript, scripts de audit em pnpm, verificação headless em Docker.
 
-## Global Constraints
+## Restrições globais
 
-- Update `docs/conversation-session-case-catalog.md` and `docs/testing/conversation-session-e2e-coverage-matrix.md` before creating, rewriting, or deleting conversation-session E2E specs.
-- Do not leave old ChatView-helper specs in the default formal gate. A migrated case is either a v4 formal spec, a documented manual-review/pending item, or a documented product-semantics deletion.
-- Preserve desktop `desktop-continuous` and mobile `web-remote-replayable` boundaries. Replayable recovery checks must not be asserted against the desktop continuous main chain unless the catalog explicitly says so.
-- Use case-local fixtures under the relevant E2E fixture directory. Do not add new provider-basic style shared fixtures.
-- Use absolute imports and existing helper APIs. Any missing helper should be added to the v4 helper layer first, not duplicated inside specs.
-- For UI-affecting E2E work, read root `DESIGN.md` before touching `packages/ui`; this migration plan does not modify UI code.
-- Final implementation must run `pnpm typecheck` and `pnpm lint`. Focused E2E rewrites must also run their replay fixture and, when promoted to gate, Docker headless verification.
+- Atualizar `docs/conversation-session-case-catalog.md` e `docs/testing/conversation-session-e2e-coverage-matrix.md` antes de criar, reescrever ou apagar specs E2E de conversation-session.
+- Não deixar specs antigas de helper ChatView no portão formal padrão. Um case migrado é ou uma spec formal v4, ou um item documentado de revisão manual/pendente, ou uma exclusão documentada de semântica de produto.
+- Preservar as fronteiras de `desktop-continuous` no desktop e `web-remote-replayable` no mobile. Verificações de recuperação replayable não devem ser afirmadas contra a cadeia principal contínua do desktop, a menos que o catálogo diga explicitamente isso.
+- Usar fixtures locais do case sob o diretório de fixtures E2E correspondente. Não adicionar novas fixtures compartilhadas do estilo provider-basic.
+- Usar imports absolutos e as APIs de helper existentes. Qualquer helper ausente deve ser adicionado primeiro à camada de helper v4, não duplicado dentro das specs.
+- Para trabalhos de E2E que afetem a UI, ler o `DESIGN.md` da raiz antes de tocar em `packages/ui`; este plano de migração não modifica código de UI.
+- A implementação final precisa rodar `pnpm typecheck` e `pnpm lint`. Reescritas de E2E focadas também precisam rodar seu fixture de replay e, quando promovidas ao portão, a verificação headless em Docker.
 
-## Current State Baseline
+## Baseline do estado atual
 
-- 2026-07-11 Task 2 完成后共有 121 个 conversation-session spec：formal 29，`manual-review/pending` 92。
-- 32 个实际调用 `prepareConversationE2E()` 的 legacy formal 已原样降回 pending；formal 中精确导入旧聚合 helper 和调用 `prepareConversationE2E()` 的文件均为 0。
-- 2026-07-11 Task 3 完成后，29 个 V4-compatible formal 均具备精确 case manifest 与 case-local provider fixture：formal/manifest/case-local fixture = 29/29/29，逐 spec fixture check = 29 pass、0 error。29 份 fixture 共登记 32 个 case-specific title sidecar（3 个双 session split case 各 2 个），不再让默认 replay 的标题请求回退 legacy `provider-basic.json`。该 admission 只证明确定性输入合同齐备，不提升 coverage 状态。
-- `manual-review/pending`（含本次移入的 32 个 legacy spec）只能作为迁移语料或人工 review 证据，不能表述成当前 V4 formal 门禁通过。
-- 2026-07-11 Task 1 的 RED 基线是 `pnpm audit:conversation-session-coverage` 失败：roadmap 缺 A11/B08/B09/D11、E10 已 covered 仍残留且状态错位、4 个 generated Markdown stale。Task 1 只修文档事实与 audit，不移动 spec、不补 manifest、不改 CI/Docker 脚本。
-- 旧版 111/56/55/28/28 统计、Task 1 的 121/61/60/29/32/25 盘点和下方 28 行初始 triage 表只保留历史分析价值；Task 2 后执行与验收统一以上述 121/29/92/0 legacy formal/25 admission 缺口口径为准。
+- Após a Task 2 de 2026-07-11 há 121 specs de conversation-session: 29 formais, 92 em `manual-review/pending`.
+- Os 32 legacy formal que realmente chamavam `prepareConversationE2E()` foram rebaixados como estão para pending; no conjunto formal, o número de arquivos que importam exatamente o antigo helper agregado e chamam `prepareConversationE2E()` é 0.
+- Após a Task 3 de 2026-07-11, os 29 formais compatíveis com V4 possuem manifest de case exato e fixture de provider local do case: formal/manifest/fixture local do case = 29/29/29, verificação de fixture por spec = 29 pass, 0 error. Os 29 fixtures registram ao todo 32 sidecars de título específicos de case (3 cases de split de dupla sessão com 2 cada), sem deixar mais a requisição de título do replay padrão recorrer ao `provider-basic.json` legado. Essa admissão só prova que o contrato de entrada determinística está completo e não promove o status de cobertura.
+- `manual-review/pending` (incluindo os 32 specs legacy movidos nesta rodada) só pode servir como corpus de migração ou evidência de revisão manual; não pode ser descrito como aprovação do portão formal V4 atual.
+- O baseline RED da Task 1 de 2026-07-11 é a falha de `pnpm audit:conversation-session-coverage`: roadmap sem A11/B08/B09/D11, E10 já covered ainda remanescente e com status deslocado, 4 Markdown gerados stale. A Task 1 só corrige fatos de documentação e o audit, sem mover specs, sem completar manifests e sem alterar scripts de CI/Docker.
+- As estatísticas antigas 111/56/55/28/28, os inventários 121/61/60/29/32/25 da Task 1 e a tabela de triage inicial de 28 linhas abaixo têm apenas valor de análise histórica; após a Task 2, execução e aceitação seguem a contagem acima de 121/29/92/0 legacy formal/25 lacunas de admissão.
 
-## 2026-07-11 Execution Waves
+## Ondas de execução de 2026-07-11
 
-本节是当前可拆 task brief 的执行顺序。它覆盖下方早期任务编号中的旧统计，但不改变 catalog-first、matrix-first 和 V4 helper 的总体约束。
+Esta seção é a ordem de execução para decompor o brief de tarefas atual. Ela cobre as estatísticas antigas da numeração de tarefas abaixo, mas não altera as restrições gerais de catalog-first, matrix-first e do helper V4.
 
 ```text
 Task 1 文档/audit 基线
@@ -50,16 +50,16 @@ Task 5 CI / Docker 路径修正（本轮不运行 Docker）
 Task 6 非 Docker replay + typecheck + lint + 全门禁
 ```
 
-| 波次 | 状态 | 边界与产出 |
+| Onda | Status | Fronteira e entregas |
 | --- | --- | --- |
-| Task 1：文档基线 | completed（2026-07-11） | 已修正 catalog/matrix/roadmap 事实并机械再生成 decision 文档；`pnpm audit:conversation-session-coverage` 通过。未改测试代码、CI、Docker，未运行 Docker。 |
-| Task 2：legacy formal 降级 | completed（2026-07-11） | 32 个实际调用 `prepareConversationE2E()` 的 legacy formal 已原样移到 `manual-review/pending`；`conversation-session-v4-load-older` 改用 V4 helper 的安全 task selection，`conversation-session-fork-merged-assistant` 保留 formal。 |
-| Task 3：V4 admission | completed（2026-07-11） | 29 个 V4-compatible formal 已逐一通过 fixture check；25 个缺口补为真实 case manifest，共登记 72 条 case-local synthetic 请求（63 `fast-text`、9 `controlled-stream`，含 28 条 title）；全量 29 份 manifest 为 85 requests（75 `fast-text`、10 `controlled-stream`，含 32 条 title），formal/manifest/case-local fixture = 29/29/29。未运行 WDIO replay/Docker，未因 admission 提升 coverage 状态。 |
-| Task 4：audit guard | completed（2026-07-11） | 新增可复用 formal admission inspector 与真实临时目录 focused tests；direct-root formal 的 legacy helper、manifest/fixture/path/policy/synthetic reason 和 request ledger id/order/metadata 缺口会阻断 `pnpm audit:conversation-session-coverage --check`。当前 29 admitted / 0 rejected / 92 pending，pending/legacy 不计 formal admission；未提升任何 coverage 状态，未运行 WDIO/Docker。 |
-| Task 5：CI / Docker 路径 | completed（2026-07-11） | macOS/Windows 手动 CI 改为 direct-root formal glob 且删除旧 quarantine；Docker 默认 smoke 删除旧 conversation 路径，历史 diagnostic preset 退出，`conversation-session-verified` 在没有当前 V4 Docker 证据时明确不可用；空集合可由 admission 工具原子写入 preset 与文档表格。31 个 focused tests 与独立复审通过。本执行轮不运行 Docker，也不把 29 个 non-Docker admitted formal 写成 Docker verified。 |
-| Task 6：非 Docker 验证 | pending | 运行 case-local/default replay、fixture check、coverage audit、`pnpm typecheck`、`pnpm lint` 及适用的非 Docker 全门禁；Docker 风险和待补验证单列。 |
+| Task 1: baseline de documentação | concluída (2026-07-11) | Fatos de catalog/matrix/roadmap corrigidos e documentos de decisão regerados mecanicamente; `pnpm audit:conversation-session-coverage` passou. Sem alterar código de teste, CI ou Docker, e sem executar Docker. |
+| Task 2: rebaixamento dos legacy formal | concluída (2026-07-11) | Os 32 legacy formal que realmente chamavam `prepareConversationE2E()` foram movidos como estão para `manual-review/pending`; `conversation-session-v4-load-older` passou a usar a task selection segura do helper V4 e `conversation-session-fork-merged-assistant` foi mantido como formal. |
+| Task 3: admissão V4 | concluída (2026-07-11) | Os 29 formais compatíveis com V4 passaram um a um pela verificação de fixture; as 25 lacunas foram complementadas com manifest de case real, registrando ao todo 72 requisições sintéticas locais de case (63 `fast-text`, 9 `controlled-stream`, incluindo 28 de título); os 29 manifests completos somam 85 requests (75 `fast-text`, 10 `controlled-stream`, incluindo 32 de título), formal/manifest/fixture local do case = 29/29/29. Sem executar replay WDIO/Docker e sem promover o status de cobertura por causa da admissão. |
+| Task 4: guard do audit | concluída (2026-07-11) | Novo inspector reutilizável de admissão formal e focused tests com diretório temporário real; lacunas de helper legacy em formal direct-root, de manifest/fixture/path/policy/synthetic reason e de id/order/metadata do request ledger bloqueiam `pnpm audit:conversation-session-coverage --check`. Currently 29 admitted / 0 rejected / 92 pending, com pending/legacy não contando como admissão formal; nenhum status de cobertura foi promovido e WDIO/Docker não foram executados. |
+| Task 5: caminhos de CI / Docker | concluída (2026-07-11) | O CI manual de macOS/Windows passou a usar o glob formal direct-root e removeu o antigo quarantine; o smoke padrão do Docker removeu os caminhos antigos de conversation, o preset histórico de diagnostic saiu, e `conversation-session-verified` ficou explicitamente indisponível sem evidência V4 de Docker atual; conjuntos vazios podem ser escritos atomicamente no preset e nas tabelas de documentação pela ferramenta de admissão. 31 focused tests e uma revisão independente passaram. Esta onda não executa Docker nem escreve os 29 formais non-Docker admitidos como Docker verified. |
+| Task 6: verificação non-Docker | pendente | Executar replay local do case/padrão, verificação de fixture, audit de cobertura, `pnpm typecheck`, `pnpm lint` e os portões non-Docker aplicáveis; riscos de Docker e verificações pendentes ficam listados à parte. |
 
-## State And Evidence Flow
+## Fluxo de estado e evidência
 
 ```text
 catalog product semantics
@@ -86,182 +86,182 @@ desktop continuous gate evidence
 optional mobile replayable check where catalog requires it
 ```
 
-## P0 Formal Old-Helper Triage Matrix（初始 28 行历史清单）
+## Matriz de triage P0 de formal com helper antigo (lista histórica inicial de 28 linhas)
 
-这张表形成于旧基线，只覆盖当时识别出的 28 个 formal legacy。2026-07-11 执行 Task 2 时必须以 32 个 legacy formal 的新盘点为全集，先生成完整 inventory，再决定降级路径；不能只处理本表 28 行后宣称 formal gate 已清洁。
+Esta tabela foi formada sobre o baseline antigo e cobre apenas os 28 legacy formal identificados na época. Ao executar a Task 2 em 2026-07-11 é preciso usar o novo inventário de 32 legacy formal como conjunto completo, gerar primeiro o inventory completo e só então decidir o caminho de rebaixamento; não se pode tratar apenas as 28 linhas desta tabela e declarar o portão formal limpo.
 
-| # | Old formal spec | Current semantics | Migration action |
+| # | Spec formal antiga | Semântica atual | Ação de migração |
 |---|---|---|---|
-| 1 | `conversation-session-agent-step-message-scope.test.ts` | Same-session second completion should only count agent steps for the current user message. | Rewrite as v4 formal with projection/timeline evidence and provider request assertions. Keep as independent case because it guards turn scoping. |
-| 2 | `conversation-session-ask-user-question-custom-click-multi-question.test.ts` | Multi-question custom answers submitted by click should preserve every answer. | Merge into a v4 AskUserQuestion custom-answer spec that drives `V4InteractionDialogs`. Preserve the click path as one row in the new spec. |
-| 3 | `conversation-session-ask-user-question-custom-enter-manual-multi-question.test.ts` | Multi-question custom answers submitted by Enter should preserve manual typing. | Merge into the same v4 AskUserQuestion custom-answer spec. Keep manual typing because it catches IME/text-control regressions. |
-| 4 | `conversation-session-ask-user-question-custom-enter-multi-question.test.ts` | Enter on a non-final custom question advances rather than prematurely submitting. | Rewrite with v4 keyboard semantics and explicit dialog step assertions. |
-| 5 | `conversation-session-ask-user-question-custom-enter-single-question.test.ts` | Enter on a single custom question submits immediately. | Rewrite with v4 single-question fixture; can live beside the multi-question v4 spec. |
-| 6 | `conversation-session-ask-user-question-custom-mixed-manual-multi-question.test.ts` | Mixed mouse and Enter custom answers should not drop middle questions. | Merge into v4 AskUserQuestion keyboard/mouse spec; keep as a distinct scenario inside that file. |
-| 7 | `conversation-session-ask-user-question-keyboard-navigation.test.ts` | Custom Enter, Escape return, arrow preselect, Space/Enter option selection. | Rewrite as v4 dialog keyboard-navigation spec. Do not rely on old ChatView focus order. |
-| 8 | `conversation-session-background.test.ts` | Background Agent/Bash, task notification, queue/send-now, goal verifier, child tool updates, stop behavior. | Split. Keep notification/queue/stop/goal semantics, but divide into smaller v4 specs and native projection tests. Remove obsolete old-row rendering assertions. |
-| 9 | `conversation-session-bash-read-state.test.ts` | Bash read followed by Edit should surface stale-read protection and formatter hint. | Rewrite against v4 tool cards plus filesystem evidence. Keep as formal because it protects tool-state correctness. |
-| 10 | `conversation-session-built-in-subagent-model-overrides.test.ts` | Built-in subagent model override should reach the child provider request. | Rewrite as v4 send helper plus provider request inspection. UI assertions are secondary. |
-| 11 | `conversation-session-composer-prefix-routing.test.ts` | `@`, `$`, slash, subagent, and skill mentions route through composer suggestions. | Compare against `conversation-session-v4-composer-toolbar.test.ts`; rewrite only uncovered `@`/`$`/subagent/skill routing. Merge duplicated slash coverage into the matrix. |
-| 12 | `conversation-session-file-tools-atomic-write.test.ts` | Write/Edit must preserve POSIX executable bit. | Rewrite as v4 formal with filesystem mode assertions. Keep provider fixture local. |
-| 13 | `conversation-session-fork-merged-assistant.test.ts` | Fork after tool-call final visible assistant should preserve final reply and handoff file. | Rewrite as v4 fork spec and keep marked as bug-candidate until `E10` passes. This is a priority failing probe. |
-| 14 | `conversation-session-markdown-table-layout.test.ts` | Markdown table layout, copy, download, and preview behavior. | Rewrite only v4 `MessageResponse` behaviors still present in product. Move pure visual parity into UI component tests if E2E is brittle. |
-| 15 | `conversation-session-model-switch-image-strip.test.ts` | Switching to a non-image model strips image input before provider request. | Rewrite with v4 composer/model controls and provider request verification. Keep because it protects model-capability projection. |
-| 16 | `conversation-session-native-file-picker-attachments.test.ts` | Native file picker attachment boundaries for text/image/file selection. | Rewrite with v4 composer attachment surfaces. Desktop-only native picker behavior remains formal. |
-| 17 | `conversation-session-oversized-inline-image-attachment.test.ts` | Oversized image attachment limits and error surface. | Rewrite with v4 composer attachment validation. Keep provider non-send assertion for rejected input. |
-| 18 | `conversation-session-plan-approval-feedback-user-message.test.ts` | Custom `ExitPlanMode` feedback persists as a visible user message. | Rewrite with v4 plan approval dialog and user row assertion. |
-| 19 | `conversation-session-plan-file-compact-continuity.test.ts` | Plan file produced by `ExitPlanMode` remains visible after manual compact. | Rewrite with v4 compact flow. Ensure desktop continuous compact does not adopt mobile replayable gap recovery semantics. |
-| 20 | `conversation-session-plan-mode-capabilities.test.ts` | Plan mode blocks mutating tools, permits reads, and decline stops the current turn. | Split into runtime policy assertions and one v4 UI decline-flow spec. |
-| 21 | `conversation-session-plan-mode-mcp-permission.test.ts` | Plan mode allows non-destructive MCP and rejects destructive MCP. | Rewrite or move to native protocol test if no UI behavior is required. Keep permission dialog evidence only for the visible user path. |
-| 22 | `conversation-session-read-session-context-timeout.test.ts` | Slow lite extraction over 45s still lets current turn complete. | Prefer native runtime/protocol test plus one v4 timeline completion assertion. Avoid relying on old spinner text. |
-| 23 | `conversation-session-subagent-interaction-delegate.test.ts` | Child AskUserQuestion and permission requests delegate to parent. | Rewrite against v4 interaction and permission dialogs. Preserve owner/delegation semantics. |
-| 24 | `conversation-session-subagent-prompt-assembly.test.ts` | Subagent system prompt assembly shape. | Rewrite as v4 send/provider request evidence. UI timeline assertion is unnecessary unless catalog says visible content matters. |
-| 25 | `conversation-session-subagent-provider-registry-cold-start.test.ts` | Alternate provider cold start should work for subagent. | Rewrite with v4 send helper and provider registry evidence. Keep cold-start isolation fixture. |
-| 26 | `conversation-session-title-generation-timeout.test.ts` | Skill-link starting message and slow title sidecar writes task title within timeout. | Rewrite with v4 title/sidebar evidence. Keep timeout generous and fixture deterministic. |
-| 27 | `conversation-session-tool-error-surface.test.ts` | Failed tool card shows real provider root cause and does not block sibling tool. | Rewrite with v4 tool card selectors and sibling completion assertion. |
-| 28 | `conversation-session-webfetch.test.ts` | `WebFetch` `HttpClientPort` success injects tool result into the turn. | Rewrite with v4 tool card plus provider/tool-result evidence. |
+| 1 | `conversation-session-agent-step-message-scope.test.ts` | A segunda completion da mesma sessão deve contar apenas os agent steps da mensagem de usuário atual. | Reescrever como formal v4 com evidência de projection/timeline e asserções de requisição ao provider. Manter como case independente porque ele protege o scoping de turno. |
+| 2 | `conversation-session-ask-user-question-custom-click-multi-question.test.ts` | Respostas customizadas de múltiplas perguntas enviadas por clique devem preservar todas as respostas. | Mesclar em uma spec v4 de resposta customizada do AskUserQuestion que acione `V4InteractionDialogs`. Preservar o caminho de clique como uma linha na nova spec. |
+| 3 | `conversation-session-ask-user-question-custom-enter-manual-multi-question.test.ts` | Respostas customizadas de múltiplas perguntas enviadas por Enter devem preservar a digitação manual. | Mesclar na mesma spec v4 de resposta customizada do AskUserQuestion. Manter a digitação manual porque ela pega regressões de IME/controle de texto. |
+| 4 | `conversation-session-ask-user-question-custom-enter-multi-question.test.ts` | Enter em uma pergunta customizada que não é a final avança em vez de enviar prematuramente. | Reescrever com a semântica de teclado v4 e asserções explícitas de etapas do diálogo. |
+| 5 | `conversation-session-ask-user-question-custom-enter-single-question.test.ts` | Enter em uma única pergunta customizada envia imediatamente. | Reescrever com o fixture v4 de pergunta única; pode ficar ao lado da spec v4 de múltiplas perguntas. |
+| 6 | `conversation-session-ask-user-question-custom-mixed-manual-multi-question.test.ts` | Respostas customizadas mistas de mouse e Enter não devem descartar as perguntas do meio. | Mesclar na spec v4 de AskUserQuestion por teclado/mouse; manter como cenário distinto dentro daquele arquivo. |
+| 7 | `conversation-session-ask-user-question-keyboard-navigation.test.ts` | Enter customizado, retorno por Escape, preseleção por setas, seleção de opção por Space/Enter. | Reescrever como spec v4 de navegação por teclado no diálogo. Não depender da antiga ordem de foco do ChatView. |
+| 8 | `conversation-session-background.test.ts` | Agent/Bash em segundo plano, notificação de task, fila/send-now, verificador de goal, atualizações de tool do child, comportamento de stop. | Dividir. Manter a semântica de notificação/fila/stop/goal, mas separar em specs v4 menores e testes nativos de projeção. Remover as asserções obsoletas de renderização de linhas antigas. |
+| 9 | `conversation-session-bash-read-state.test.ts` | Uma leitura com Bash seguida de Edit deve expor a proteção de leitura obsoleta e a dica de formatter. | Reescrever contra os tool cards v4 mais evidência de filesystem. Manter como formal porque protege a corretude do estado de tool. |
+| 10 | `conversation-session-built-in-subagent-model-overrides.test.ts` | O override de modelo do subagent embutido deve chegar à requisição de provider do child. | Reescrever como helper de envio v4 mais inspeção da requisição ao provider. As asserções de UI são secundárias. |
+| 11 | `conversation-session-composer-prefix-routing.test.ts` | Menções de `@`, `$`, slash, subagent e skill passam pelas sugestões do composer. | Comparar com `conversation-session-v4-composer-toolbar.test.ts`; reescrever apenas o roteamento de `@`/`$`/subagent/skill não coberto. Mesclar a cobertura duplicada de slash na matriz. |
+| 12 | `conversation-session-file-tools-atomic-write.test.ts` | Write/Edit devem preservar o bit executável POSIX. | Reescrever como formal v4 com asserções de modo de arquivo. Manter o fixture de provider local. |
+| 13 | `conversation-session-fork-merged-assistant.test.ts` | Fork após o assistant final visível de um tool-call deve preservar a resposta final e o arquivo de handoff. | Reescrever como spec v4 de fork e manter marcada como candidata a bug até `E10` passar. Esta é uma probe falhando prioritária. |
+| 14 | `conversation-session-markdown-table-layout.test.ts` | Layout de tabela Markdown, cópia, download e comportamento de preview. | Reescrever apenas os comportamentos de `MessageResponse` v4 que ainda existem no produto. Mover a paridade puramente visual para testes de componente de UI se o E2E ficar frágil. |
+| 15 | `conversation-session-model-switch-image-strip.test.ts` | Trocar para um modelo sem imagem remove a entrada de imagem antes da requisição ao provider. | Reescrever com os controles de composer/modelo v4 e verificação da requisição ao provider. Manter porque protege a projeção de capacidade de modelo. |
+| 16 | `conversation-session-native-file-picker-attachments.test.ts` | Fronteiras de anexo do seletor de arquivos nativo para seleção de texto/imagem/arquivo. | Reescrever com as superfícies de anexo do composer v4. O comportamento do seletor nativo exclusivo do desktop continua formal. |
+| 17 | `conversation-session-oversized-inline-image-attachment.test.ts` | Limites de anexo de imagem grande demais e superfície de erro. | Reescrever com a validação de anexo do composer v4. Manter a asserção de não-envio ao provider para entrada rejeitada. |
+| 18 | `conversation-session-plan-approval-feedback-user-message.test.ts` | O feedback customizado de `ExitPlanMode` persiste como mensagem de usuário visível. | Reescrever com o diálogo de aprovação de plano v4 e asserção da linha de usuário. |
+| 19 | `conversation-session-plan-file-compact-continuity.test.ts` | O arquivo de plano produzido por `ExitPlanMode` continua visível após um compact manual. | Reescrever com o fluxo de compact v4. Garantir que o compact contínuo do desktop não adote semânticas de recuperação de gap replayable do mobile. |
+| 20 | `conversation-session-plan-mode-capabilities.test.ts` | O modo plano bloqueia tools mutantes, permite leituras, e a recusa interrompe o turno atual. | Dividir em asserções de política de runtime e uma spec v4 de fluxo de recusa na UI. |
+| 21 | `conversation-session-plan-mode-mcp-permission.test.ts` | O modo plano permite MCP não destrutivo e rejeita MCP destrutivo. | Reescrever ou mover para teste de protocolo nativo se não houver comportamento de UI exigido. Manter a evidência do diálogo de permissão apenas para o caminho visível ao usuário. |
+| 22 | `conversation-session-read-session-context-timeout.test.ts` | Extração lite lenta acima de 45s ainda deixa o turno atual completar. | Preferir teste nativo de runtime/protocolo mais uma asserção de conclusão na timeline v4. Evitar depender do antigo texto do spinner. |
+| 23 | `conversation-session-subagent-interaction-delegate.test.ts` | Perguntas de AskUserQuestion e pedidos de permissão do child são delegados ao pai. | Reescrever contra os diálogos de interação e permissão v4. Preservar a semântica de owner/delegação. |
+| 24 | `conversation-session-subagent-prompt-assembly.test.ts` | Forma da montagem do system prompt do subagent. | Reescrever como evidência de envio/requisição ao provider v4. A asserção de timeline da UI é desnecessária, a menos que o catálogo diga que o conteúdo visível importa. |
+| 25 | `conversation-session-subagent-provider-registry-cold-start.test.ts` | O cold start de um provider alternativo deve funcionar para subagent. | Reescrever com o helper de envio v4 e evidência do registry de providers. Manter o fixture de isolamento de cold start. |
+| 26 | `conversation-session-title-generation-timeout.test.ts` | Mensagem inicial com skill-link e sidecar de título lento gravam o título da task dentro do timeout. | Reescrever com evidência de título/sidebar v4. Manter o timeout generoso e o fixture determinístico. |
+| 27 | `conversation-session-tool-error-surface.test.ts` | O tool card de falha mostra a causa raiz real do provider e não bloqueia o tool irmão. | Reescrever com os seletores de tool card v4 e asserção de conclusão do tool irmão. |
+| 28 | `conversation-session-webfetch.test.ts` | O sucesso de `WebFetch` `HttpClientPort` injeta o tool result no turno. | Reescrever com tool card v4 mais evidência de provider/tool-result. |
 
-## Pending Old-Helper Batch Order
+## Ordem dos batches de helper antigo pendentes
 
-| Batch | Count | Scope | Decision |
+| Batch | Quantidade | Escopo | Decisão |
 |---|---:|---|---|
-| main-queue-stop | 11 | Queue, Send Now, stop, interrupted/running actions. | Triage immediately after P0 because many semantics now have v4 coverage and some old cases should merge into `conversation-session-v4-queue*` or `conversation-session-v4-stop-queue*`. |
-| compact | 7 | Manual compact, context continuity, plan continuity. | Migrate after plan-mode P0 cases so compact assertions share helpers. |
-| goal | 6 | Goal state, verifier, reminders. | Migrate with background split because goal verifier interacts with background work. |
-| fork-edit | 3 | Edit/fork branch behavior. | Handle with `E10` failing fork case first, then port remaining pending rows. |
-| model-provider | 22 | Provider/model selection, media capability, registry. | Migrate after model switch image-strip and subagent provider P0 cases establish fixture patterns. |
-| tools-subagent-plan | 21 | Tool cards, subagents, permissions, plan mode. | Migrate in small semantic groups; avoid one giant resurrection PR. |
-| composer-rendering | 5 | Composer routing and markdown/rendering. | Migrate only uncovered rows after v4 composer/toolbar/table audit. |
-| other | 7 | Misc runtime/session continuity. | Triage after formal gate is clean. |
-| multi-session-config | 1 | Config and multiple sessions. | Keep pending until v4 multi-pane/session binding coverage is confirmed. |
+| main-queue-stop | 11 | Fila, Send Now, stop, ações interrupted/running. | Fazer triage imediatamente depois do P0 porque muitas semânticas já têm cobertura v4 e alguns cases antigos devem ser mesclados em `conversation-session-v4-queue*` ou `conversation-session-v4-stop-queue*`. |
+| compact | 7 | Compact manual, continuidade de contexto, continuidade de plano. | Migrar depois dos cases P0 de plan mode para que as asserções de compact compartilhem helpers. |
+| goal | 6 | Estado de goal, verificador, lembretes. | Migrar junto com a divisão de background porque o verificador de goal interage com trabalho em segundo plano. |
+| fork-edit | 3 | Comportamento de branch de edit/fork. | Tratar primeiro o case de fork falhando `E10` e então portar as linhas pending restantes. |
+| model-provider | 22 | Seleção de provider/modelo, capacidade de mídia, registry. | Migrar depois que os cases P0 de image-strip de troca de modelo e de provider de subagent estabelecerem os padrões de fixture. |
+| tools-subagent-plan | 21 | Tool cards, subagents, permissões, plan mode. | Migrar em grupos semânticos pequenos; evitar um único PR gigante de ressurreição. |
+| composer-rendering | 5 | Roteamento do composer e markdown/renderização. | Migrar apenas as linhas não cobertas depois do audit de composer/toolbar/table v4. |
+| other | 7 | Diversas continuidades de runtime/sessão. | Fazer triage depois que o portão formal estiver limpo. |
+| multi-session-config | 1 | Configuração e múltiplas sessões. | Manter pending até que a cobertura v4 de multi-pane/vínculo de sessão esteja confirmada. |
 
-## Task 1: Normalize Documentation Baseline
+## Task 1: Normalizar o baseline de documentação
 
-**Files:**
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Modify: `docs/testing/conversation-session-decision-review-queue.md`
-- Modify: `docs/testing/conversation-session-next-decision-review.md`
-- Modify: `docs/testing/conversation-session-next-decision-answer-template.md`
+**Arquivos:**
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Modificar: `docs/testing/conversation-session-decision-review-queue.md`
+- Modificar: `docs/testing/conversation-session-next-decision-review.md`
+- Modificar: `docs/testing/conversation-session-next-decision-answer-template.md`
 
 **Interfaces:**
-- Consumes: current audit output from `pnpm audit:conversation-session-coverage`.
-- Produces: catalog and matrix counts that match the audit script, with known missing rows explicitly listed.
+- Consome: a saída atual do audit de `pnpm audit:conversation-session-coverage`.
+- Produz: contagens de catalog e matrix que batem com o script de audit, com as linhas faltantes conhecidas explicitamente listadas.
 
-- [x] **Step 1: Fix abbreviation drift**
+- [x] **Passo 1: Corrigir a deriva de abreviações**
 
-Replace unknown `MR` references for `I22`/`I23` with an abbreviation defined in the matrix legend or add a documented abbreviation entry if `MR` is the intended canonical evidence source.
+Substituir as referências `MR` desconhecidas de `I22`/`I23` por uma abreviatura definida na legenda da matriz, ou adicionar uma entrada de abreviatura documentada se `MR` for mesmo a fonte canônica de evidência pretendida.
 
-- [x] **Step 2: Regenerate stale review docs**
+- [x] **Passo 2: Regerar os documentos de review obsoletos**
 
-Use the existing repository script that generated the decision-review docs. If the script name is unclear, locate it with:
+Usar o script existente do repositório que gerou os documentos de decisão/review. Se o nome do script não estiver claro, localizá-lo com:
 
 ```bash
 rg "decision-review|next-decision|conversation-session-coverage" package.json packages docs scripts
 ```
 
-- [x] **Step 3: Run the audit**
+- [x] **Passo 3: Executar o audit**
 
 ```bash
 pnpm audit:conversation-session-coverage
 ```
 
-- [x] **Step 4: Commit docs baseline**
+- [x] **Passo 4: Commitar o baseline de documentação**
 
 ```bash
 git add docs/conversation-session-case-catalog.md docs/testing/conversation-session-e2e-coverage-matrix.md docs/testing/conversation-session-decision-review-queue.md docs/testing/conversation-session-next-decision-review.md docs/testing/conversation-session-next-decision-answer-template.md
 git commit -m "docs(testing): normalize conversation session coverage matrix"
 ```
 
-## Task 2: Remove Old Formal Specs From The Gate
+## Task 2: Remover as specs formais antigas do portão
 
-**Files:**
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Move or rewrite: `packages/desktop/test/e2e/conversation-session/conversation-session-*.test.ts`
-- Modify: `packages/desktop/test/e2e/conversation-session/manual-review/pending/*` as needed
+**Arquivos:**
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Mover ou reescrever: `packages/desktop/test/e2e/conversation-session/conversation-session-*.test.ts`
+- Modificar conforme necessário: `packages/desktop/test/e2e/conversation-session/manual-review/pending/*`
 
 **Interfaces:**
-- Consumes: the 28-row P0 triage matrix above.
-- Produces: zero default formal specs that precisely import old `helpers/conversation-session.js` or call `prepareConversationE2E()`; root/composer/message/queue/action state comes from the V4 helper.
+- Consome: a matriz de triage P0 de 28 linhas acima.
+- Produz: zero specs formais padrão que importem exatamente o antigo `helpers/conversation-session.js` ou chamem `prepareConversationE2E()`; o estado de root/composer/message/queue/action vem do helper V4.
 
-- [x] **Step 1: Generate the old formal list**
+- [x] **Passo 1: Gerar a lista de formais antigos**
 
 ```bash
 rg -l 'prepareConversationE2E\s*\(' packages/desktop/test/e2e/conversation-session -g '*.test.ts' -g '!**/manual-review/**'
 ```
 
-- [x] **Step 2: Move the 32 legacy formal specs without rewriting assertions**
+- [x] **Passo 2: Mover as 32 specs legacy formal sem reescrever as asserções**
 
-The 2026-07-11 execution ruling chose one action for the complete mechanical set: move all 32
-specs that call `prepareConversationE2E()` to `manual-review/pending` unchanged. Preserve
-`conversation-session-fork-merged-assistant.test.ts` as formal. Keep
-`conversation-session-v4-load-older.test.ts` formal and replace its lone legacy
-`selectTaskById` import with `selectV4TaskById` from the V4 helper.
+A decisão de execução de 2026-07-11 escolheu uma única ação para o conjunto mecânico completo: mover
+as 32 specs que chamam `prepareConversationE2E()` sem alterações para `manual-review/pending`. Preservar
+`conversation-session-fork-merged-assistant.test.ts` como formal. Manter
+`conversation-session-v4-load-older.test.ts` como formal e substituir seu único import legado de
+`selectTaskById` por `selectV4TaskById` do helper V4.
 
-- [x] **Step 3: Run the gate hygiene check**
+- [x] **Passo 3: Executar a verificação de higiene do portão**
 
 ```bash
 rg -n "from ['\"][^'\"]*helpers/conversation-session\\.js['\"]" packages/desktop/test/e2e/conversation-session -g '*.test.ts' -g '!**/manual-review/**'
 rg -n 'prepareConversationE2E\s*\(' packages/desktop/test/e2e/conversation-session -g '*.test.ts' -g '!**/manual-review/**'
 ```
 
-Expected output after this task: both commands have no matches. Do not use all `TID_CHAT_*`
-as a guard: V4-compatible formal specs still safely reuse tool/history/toolbar/summary-panel
-test ids and helper submodules.
+Saída esperada após esta tarefa: os dois comandos não têm nenhuma correspondência. Não usar todos os `TID_CHAT_*`
+como guarda: specs formais compatíveis com V4 ainda reutilizam com segurança test ids de
+tool/history/toolbar/summary-panel e submodules de helper.
 
-## Task 3: Rewrite AskUserQuestion Interaction Cases
+## Task 3: Reescrever os cases de interação do AskUserQuestion
 
-**Files:**
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-ask-user-question*.test.ts`
-- Modify: `packages/desktop/test/e2e/helpers/v4-conversation.ts`
+**Arquivos:**
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-ask-user-question*.test.ts`
+- Modificar: `packages/desktop/test/e2e/helpers/v4-conversation.ts`
 
 **Interfaces:**
-- Consumes: v4 interaction dialogs, custom input control, keyboard event dispatch, provider replay fixtures.
-- Produces: v4 coverage for P0 rows 2 through 7.
+- Consome: diálogos de interação v4, controle de input customizado, despacho de eventos de teclado, fixtures de replay de provider.
+- Produz: cobertura v4 das linhas P0 2 a 7.
 
-- [ ] **Step 1: Add catalog rows or map old rows to existing rows**
+- [ ] **Passo 1: Adicionar linhas ao catálogo ou mapear linhas antigas para linhas existentes**
 
-Record single-question custom Enter, multi-question Enter, click submit, mixed mouse/keyboard, Escape return, arrow preselect, and Space/Enter option selection as accepted semantics.
+Registrar Enter customizado de pergunta única, Enter de múltiplas perguntas, envio por clique, mistura de mouse/teclado, retorno por Escape, preseleção por setas e seleção de opção por Space/Enter como semânticas aceitas.
 
-- [ ] **Step 2: Add missing v4 helper selectors**
+- [ ] **Passo 2: Adicionar os seletores de helper v4 que faltam**
 
-Expose helpers for dialog question index, custom input, option buttons, continue/submit button, and dialog close/return behavior.
+Expor helpers para o índice da pergunta do diálogo, o input customizado, os botões de opção, o botão de continuar/enviar e o comportamento de fechar/retornar do diálogo.
 
-- [ ] **Step 3: Write focused v4 specs**
+- [ ] **Passo 3: Escrever specs v4 focadas**
 
-Split into two files: one for custom answer persistence and one for keyboard navigation.
+Dividir em dois arquivos: um para persistência de resposta customizada e outro para navegação por teclado.
 
-- [ ] **Step 4: Run focused replay**
+- [ ] **Passo 4: Executar o replay focado**
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec packages/desktop/test/e2e/conversation-session/conversation-session-v4-ask-user-question*.test.ts
 ```
 
-## Task 4: Split Background, Queue, Stop, And Goal Coverage
+## Task 4: Dividir a cobertura de background, fila, stop e goal
 
-**Files:**
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-background*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-queue*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-stop*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-goal*.test.ts`
+**Arquivos:**
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-background*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-queue*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-stop*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-goal*.test.ts`
 
 **Interfaces:**
-- Consumes: v4 projection active work, queue state, stop state, goal state, desktop notification surface.
-- Produces: smaller deterministic specs replacing `conversation-session-background.test.ts` and related pending queue/goal cases.
+- Consome: trabalho ativo da projeção v4, estado de fila, estado de stop, estado de goal, superfície de notificação do desktop.
+- Produz: specs menores e determinísticas no lugar de `conversation-session-background.test.ts` e dos cases pendentes relacionados de fila/goal.
 
-- [ ] **Step 1: Split the old monolith by state owner**
+- [ ] **Passo 1: Dividir o monólito antigo por owner de estado**
 
-Use projection/native tests for pure state transitions and WDIO only for visible UI behavior.
+Usar testes de projeção/nativos para transições de estado puras e WDIO apenas para comportamento de UI visível.
 
-- [ ] **Step 2: Preserve delivery boundaries**
+- [ ] **Passo 2: Preservar as fronteiras de entrega**
 
-Document for every migrated row whether it is desktop continuous only, web remote replayable only, or shared semantic coverage.
+Documentar para cada linha migrada se ela é só desktop continuous, só web remote replayable ou cobertura semântica compartilhada.
 
-- [ ] **Step 3: Run focused specs**
+- [ ] **Passo 3: Executar as specs focadas**
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
@@ -271,29 +271,29 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
   --spec "packages/desktop/test/e2e/conversation-session/conversation-session-v4-goal*.test.ts"
 ```
 
-## Task 5: Rewrite Tool, Runtime, And Filesystem Cases
+## Task 5: Reescrever os cases de tool, runtime e filesystem
 
-**Files:**
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-tool*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-bash*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-webfetch.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-file-tools*.test.ts`
+**Arquivos:**
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-tool*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-bash*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-webfetch.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-file-tools*.test.ts`
 
 **Interfaces:**
-- Consumes: v4 tool cards, provider replay, filesystem mode checks, `HttpClientPort`, timeout controls.
-- Produces: v4 coverage for P0 rows 1, 9, 12, 22, 27, and 28.
+- Consome: tool cards v4, replay de provider, verificações de modo de arquivo, `HttpClientPort`, controles de timeout.
+- Produz: cobertura v4 das linhas P0 1, 9, 12, 22, 27 e 28.
 
-- [ ] **Step 1: Add helper assertions for v4 tool cards**
+- [ ] **Passo 1: Adicionar asserções de helper para os tool cards v4**
 
-Expose stable selectors for tool status, tool error text, sibling tool completion, and injected tool result text.
+Expor seletores estáveis para o status do tool, o texto de erro do tool, a conclusão do tool irmão e o texto do tool result injetado.
 
-- [ ] **Step 2: Port filesystem-sensitive specs**
+- [ ] **Passo 2: Portar as specs sensíveis a filesystem**
 
-Assert actual file mode and content on disk in addition to visible v4 completion state.
+Afirmar o modo e o conteúdo reais do arquivo em disco, além do estado de conclusão visível do v4.
 
-- [ ] **Step 3: Run focused specs**
+- [ ] **Passo 3: Executar as specs focadas**
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
@@ -303,27 +303,27 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
   --spec "packages/desktop/test/e2e/conversation-session/conversation-session-v4-file-tools*.test.ts"
 ```
 
-## Task 6: Rewrite Provider, Model, And Subagent Cases
+## Task 6: Reescrever os cases de provider, modelo e subagent
 
-**Files:**
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-model*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-subagent*.test.ts`
+**Arquivos:**
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-model*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-subagent*.test.ts`
 
 **Interfaces:**
-- Consumes: v4 composer model controls, provider registry, provider request capture, subagent parent/child interaction routing.
-- Produces: v4 coverage for P0 rows 10, 15, 23, 24, and 25.
+- Consome: controles de modelo do composer v4, registry de providers, captura de requisição ao provider, roteamento de interação pai/child de subagent.
+- Produz: cobertura v4 das linhas P0 10, 15, 23, 24 e 25.
 
-- [ ] **Step 1: Establish provider request fixtures**
+- [ ] **Passo 1: Estabelecer os fixtures de requisição ao provider**
 
-Create one fixture per semantic row so model override, image strip, prompt assembly, and cold-start assertions do not share mutable state.
+Criar um fixture por linha semântica para que as asserções de override de modelo, image strip, montagem de prompt e cold start não compartilhem estado mutável.
 
-- [ ] **Step 2: Port visible delegation paths**
+- [ ] **Passo 2: Portar os caminhos visíveis de delegação**
 
-Use WDIO only for child AskUserQuestion and permission delegation because those are user-visible parent dialog behaviors.
+Usar WDIO apenas para a delegação de AskUserQuestion e permissão do child, porque são comportamentos de diálogo do pai visíveis ao usuário.
 
-- [ ] **Step 3: Run focused specs**
+- [ ] **Passo 3: Executar as specs focadas**
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
@@ -331,32 +331,32 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
   --spec "packages/desktop/test/e2e/conversation-session/conversation-session-v4-subagent*.test.ts"
 ```
 
-## Task 7: Rewrite Composer, Attachment, Markdown, Plan, Compact, Fork, And Title Cases
+## Task 7: Reescrever os cases de composer, anexo, markdown, plano, compact, fork e título
 
-**Files:**
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-composer*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-attachment*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-markdown*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-plan*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-compact*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-fork*.test.ts`
-- Create or modify: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-title*.test.ts`
+**Arquivos:**
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-composer*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-attachment*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-markdown*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-plan*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-compact*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-fork*.test.ts`
+- Criar ou modificar: `packages/desktop/test/e2e/conversation-session/conversation-session-v4-title*.test.ts`
 
 **Interfaces:**
-- Consumes: v4 composer, attachment store, `MessageResponse`, plan approval dialog, compact command, fork command, title sidecar.
-- Produces: v4 coverage for P0 rows 11, 13, 14, 16, 17, 18, 19, 20, 21, and 26.
+- Consome: composer v4, store de anexos, `MessageResponse`, diálogo de aprovação de plano, comando de compact, comando de fork, sidecar de título.
+- Produz: cobertura v4 das linhas P0 11, 13, 14, 16, 17, 18, 19, 20, 21 e 26.
 
-- [ ] **Step 1: Resolve overlap with existing v4 specs**
+- [ ] **Passo 1: Resolver a sobreposição com as specs v4 existentes**
 
-Use the matrix to merge behavior already covered by `conversation-session-v4-composer-toolbar`, `conversation-session-v4-fork*`, `conversation-session-v4-compact*`, and `conversation-session-v4-permission*`.
+Usar a matriz para mesclar o comportamento já coberto por `conversation-session-v4-composer-toolbar`, `conversation-session-v4-fork*`, `conversation-session-v4-compact*` e `conversation-session-v4-permission*`.
 
-- [ ] **Step 2: Keep `E10` visible as a failing probe until fixed**
+- [ ] **Passo 2: Manter `E10` visível como probe falhando até ser corrigido**
 
-Do not mark fork merged-assistant accepted/covered until the v4 spec passes with provider replay and handoff file evidence.
+Não marcar o fork de assistant mesclado como aceito/coberto até que a spec v4 passe com replay de provider e evidência do arquivo de handoff.
 
-- [ ] **Step 3: Run focused specs**
+- [ ] **Passo 3: Executar as specs focadas**
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
@@ -369,45 +369,45 @@ pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts \
   --spec "packages/desktop/test/e2e/conversation-session/conversation-session-v4-title*.test.ts"
 ```
 
-## Task 8: Promote And Verify
+## Task 8: Promover e verificar
 
-**Files:**
-- Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-- Modify: `docs/conversation-session-case-catalog.md`
-- Modify: `packages/desktop/test/e2e/conversation-session/**`
+**Arquivos:**
+- Modificar: `docs/testing/conversation-session-e2e-coverage-matrix.md`
+- Modificar: `docs/conversation-session-case-catalog.md`
+- Modificar: `packages/desktop/test/e2e/conversation-session/**`
 
 **Interfaces:**
-- Consumes: all migrated specs and fixtures.
-- Produces: a clean formal gate and an explicit remaining manual-review queue.
+- Consome: todas as specs e fixtures migradas.
+- Produz: um portão formal limpo e uma fila de revisão manual restante explícita.
 
-- [ ] **Step 1: Run coverage audit**
+- [ ] **Passo 1: Executar o audit de cobertura**
 
 ```bash
 pnpm audit:conversation-session-coverage
 ```
 
-- [ ] **Step 2: Run typecheck and lint**
+- [ ] **Passo 2: Executar typecheck e lint**
 
 ```bash
 pnpm typecheck
 pnpm lint
 ```
 
-- [ ] **Step 3: Run focused E2E group**
+- [ ] **Passo 3: Executar o grupo E2E focado**
 
 ```bash
 pnpm --filter @zcode/desktop exec wdio run wdio.conf.ts --spec "packages/desktop/test/e2e/conversation-session/conversation-session-v4-*.test.ts"
 ```
 
-- [ ] **Step 4: Run Docker headless gate before broad promotion**
+- [ ] **Passo 4: Executar o portão headless em Docker antes de uma promoção ampla**
 
-Use the existing desktop E2E Docker command documented in the repository. If the exact command has drifted, locate it with:
+Usar o comando Docker de E2E desktop existente documentado no repositório. Se o comando exato tiver mudado, localizá-lo com:
 
 ```bash
 rg "docker.*e2e|wdio.*docker|conversation-session-v4" package.json packages docs scripts
 ```
 
-- [ ] **Step 5: Commit migration**
+- [ ] **Passo 5: Commitar a migração**
 
 ```bash
 git add docs/conversation-session-case-catalog.md docs/testing/conversation-session-e2e-coverage-matrix.md packages/desktop/test/e2e/conversation-session
