@@ -1,117 +1,117 @@
-# Subagent Provider-Visible Prompt Assembly Implementation Plan
+# Plano de Implementação da Montagem do Prompt Provider-Visible de Subagent
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agentivos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 将 ZCode subagent child request 的 provider-visible system prompt 组装收敛到统一的普通 subagent 形状，同时保留 `system[0] = "You are ZCode, an interactive coding agent"`；Explore/general-purpose 的 agent-specific body 只以测试中冻结的单一文案为基线。
+**Goal:** convergir a montagem do system prompt provider-visible do child request de subagent do ZCode para uma forma única de subagent comum, preservando `system[0] = "You are ZCode, an interactive coding agent"`; o body agent-specific de Explore/general-purpose usa como linha de base apenas o texto único congelado nos testes.
 
-**Architecture:** 新增一个 subagent 专用 context builder，直接生成 child runtime 的 `ContextBuildResult`，避免先跑主线程 `ContextBuilder` 再覆盖 system messages。Explore、general-purpose、自定义 agent 统一走 `ZCode prefix + agent-specific prompt + common Notes + env/model context`，其中 Explore/general-purpose 的 agent-specific prompt body 只采用单一冻结文案；common Notes 和 env/model context 按 `agentPrompt + common Notes + env/model context` 固定分段，但 env/model context 的数据来源、fallback 和格式化优先复用当前 main runtime/context builder 逻辑。
+**Architecture:** adicionar um context builder dedicado a subagent que gere diretamente o `ContextBuildResult` do child runtime, evitando rodar primeiro o `ContextBuilder` da main thread e depois sobrescrever as system messages. Explore, general-purpose e agent custom passam uniformemente por `prefixo do ZCode + prompt agent-specific + common Notes + env/model context`, em que o body agent-specific de Explore/general-purpose adota somente o texto congelado único; common Notes e env/model context seguem a segmentação fixa `agentPrompt + common Notes + env/model context`, mas a origem dos dados, o fallback e a formatação do env/model context priorizam a reutilização da lógica atual do main runtime/context builder.
 
-**Tech Stack:** TypeScript, Vitest, `AgentRuntime`, `MessageHistoryImpl`, provider-visible request capture through mocked `modelAdapter`.
+**Tech Stack:** TypeScript, Vitest, `AgentRuntime`, `MessageHistoryImpl`, captura de request provider-visible por meio do `modelAdapter` mockado.
 
-## Global Constraints
+## Restrições Globais
 
-- 本计划只处理 subagent provider-visible prompt assembly；不修改父侧 `Agent` tool schema/description、child `tools[]` schema、`SendMessage`、background notification、teammate、worktree isolation、fork/repl hydration。
-- `system[0]` 必须保留现有 ZCode 产品前缀：`You are ZCode, an interactive coding agent`。
-- 强要求：Explore 和 general-purpose 的 agent-specific prompt body 只使用一套冻结文案（以 `subagent-explore.test.ts` / `subagent-prompt-assembly.test.ts` 的精确断言为准）；不按模型、provider 或渠道引入文案变体，也不混入历史版本或 ZCode 临时实验分支文案。
-- Explore/general-purpose body 的标点、换行、操作性措辞都是 provider-visible 验收内容；除 ZCode 产品名替换和 ZCode 当前工具名差异外，不要做“意思差不多”的改写。
-- 除 `system[0]` 外，普通 subagent system body 按固定结构组织：agent-specific prompt、common subagent Notes、env/model context；其中 env/model context 的字段值、fallback、shell 展示、git repo 判定、model name 格式化以当前 main runtime/context builder 已有逻辑为准。
-- 不硬造当前 main 没有的数据；只有 main 已经能提供或已经 provider-visible 的数据才能进入 subagent env/model context。
-- 不新增“你是 subagent”这类额外身份叙事；只保留已有的操作性提示，如 `Agent threads...` 和 `parent agent reads your text output...`。
-- Provider-visible request body 是验收面；不要只断言 runtime config 或 helper 返回的中间对象。
-- 命名使用本地语义，不在代码标识符、注释、测试名里使用外部产品名。
-- 不自动 commit；实现完成后只留下可 review 的工作区变更。
+- Este plano trata apenas da montagem do prompt provider-visible de subagent; não modifica o schema/description da tool `Agent` do lado pai, o schema `tools[]` do child, `SendMessage`, notificação de background, teammate, isolamento por worktree nem hidratação de fork/repl.
+- `system[0]` precisa preservar o prefixo de produto atual do ZCode: `You are ZCode, an interactive coding agent`.
+- Requisito forte: o body agent-specific de Explore e general-purpose só pode usar um único texto congelado (conforme as asserções exatas de `subagent-explore.test.ts` / `subagent-prompt-assembly.test.ts`); não introduzir variantes de texto por modelo, provider ou canal, nem misturar textos de versões históricas ou de branches temporários de experimento do ZCode.
+- A pontuação, as quebras de linha e a redação operacional do body de Explore/general-purpose fazem parte da aceitação provider-visible; além da substituição do nome de produto do ZCode e das diferenças de nomes de ferramentas atuais do ZCode, não faça reescritas do tipo "com o mesmo sentido".
+- Exceto por `system[0]`, o system body do subagent comum é organizado com estrutura fixa: agent-specific prompt, common subagent Notes, env/model context; e os valores de campo, fallback, exibição do shell, deteccao de git repo e formatação do model name do env/model context seguem a lógica já existente do main runtime/context builder.
+- Não fabrique dados que o main atual não tem; só dados que o main já consiga fornecer ou que já são provider-visible podem entrar no subagent env/model context.
+- Não crie narrativas de identidade extras do tipo "você é um subagent"; mantenha apenas as dicas operacionais já existentes, como `Agent threads...` e `parent agent reads your text output...`.
+- O body de request provider-visible é a superfície de aceitação; não afirme apenas a runtime config ou objetos intermediários retornados por helpers.
+- Use nomenclatura semântica local; não use nomes de produtos externos em identificadores de código, comentários ou nomes de teste.
+- Não faça commit automático; ao terminar a implementação, deixe apenas mudanças revisáveis na working tree.
 
 ---
 
-## Scope
+## Escopo
 
-### In Scope
+### Dentro do Escopo
 
-- child `system` messages 的顺序和内容：
-  - `system[0]`: ZCode CLI prefix
+- ordem e conteúdo das `system` messages do child:
+  - `system[0]`: prefixo do ZCode CLI
   - `system[1]`: agent-specific prompt
   - `system[2]`: common subagent Notes
   - `system[3]`: env/model context
-- Explore prompt 中移除内嵌 Notes/env/model context。
-- general-purpose 和 custom profile prompt 也追加同一套 common Notes/env/model context。
-- child request 不再因为 `systemPrompt` 字符串触发 `ContextBuilder` 的 custom prompt 分支，也不通过 `systemMessages` 后置覆盖主 builder 结果。
-- 测试捕获最终 child provider request，断言 `messages.filter(role === "system")` 的精确 shape。
-- 执行过程中必须 double check Explore/general-purpose agent-specific body 是否仍与冻结文案一致；如果发现漂移，本轮必须先修正文案，再继续 system message 拆分和组装收敛。
+- Remover Notes/env/model context embutidos do prompt do Explore.
+- O prompt do general-purpose e do custom profile também passa a receber o mesmo conjunto de common Notes/env/model context.
+- O child request deixa de acionar o branch de custom prompt do `ContextBuilder` por causa da string `systemPrompt` e deixa de sobrescrever o resultado do builder principal via `systemMessages`.
+- Os testes capturam o child provider request final e afirmam o shape preciso de `messages.filter(role === "system")`.
+- Durante a execução é obrigatório fazer double check de se o body agent-specific de Explore/general-purpose continua igual ao texto congelado; se houver drift, é preciso corrigir o texto primeiro nesta rodada e só então seguir com a divisão das system messages e a convergência da montagem.
 
-### Out of Scope
+### Fora do Escopo
 
-- `Agent` tool provider-visible input schema 和 description。
-- `Task` runtime alias / provider-visible filtering。
-- child tool allowlist / disallowlist / MCP required server 语义。
-- `SendMessage` 的 provider-visible schema、result text、child 注入文案。
-- background `<task-notification>` 和 idle wake。
-- 只读 agent 省略项目指令文件、agent memory、追加 subagent system prompt、fork/repl hydration、teammate/worktree isolation 的完整实现。
-- 按模型、provider、渠道、历史版本或实验分支引入 subagent prompt 文案变体。
+- schema de input provider-visible e description da tool `Agent`.
+- alias de runtime `Task` / filtragem provider-visible.
+- allowlist/disallowlist de tools do child / semântica de MCP required server.
+- schema provider-visible, result text e texto de injeção no child de `SendMessage`.
+- `<task-notification>` de background e idle wake.
+- A implementação completa de omissão de arquivos de instruções do projeto por agent somente leitura, agent memory, prompt de sistema adicional de subagent, hidratação de fork/repl e isolamento por teammate/worktree.
+- Introduzir variantes de texto do prompt de subagent por modelo, provider, canal, versão histórica ou branch de experimento.
 
-## Current State Summary
+## Resumo do Estado Atual
 
-当前路径：
+Caminho atual:
 
 - `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
-  - 在 `runExploreAgent` 内计算 `systemPrompt: string`。
-  - Explore 且 profile `systemPrompt` 为空时调用 `buildExploreSystemPrompt(...)`。
-  - child `AgentRuntime` 通过 `systemPrompt` 配置进入 `ContextBuilder`。
+  - calcula `systemPrompt: string` dentro de `runExploreAgent`.
+  - chama `buildExploreSystemPrompt(...)` quando é Explore e o `systemPrompt` do profile está vazio.
+  - o `AgentRuntime` do child entra no `ContextBuilder` configurado por `systemPrompt`.
 - `apps/zcode-cli/packages/core/src/context/builder.ts`
-  - `customSystemPrompt` 存在时输出：
+  - quando `customSystemPrompt` existe, emite:
     - `system[0] = buildCliPrefixSection()`
     - `system[1] = "\n" + customSystemPrompt`
-  - 同时跳过默认 identity/dynamic/env/git/output style system 段。
+  - e ao mesmo tempo pula os system segments padrão de identity/dynamic/env/git/output style.
 - `apps/zcode-cli/packages/core/src/subagent/explore.ts`
-  - 当前 `buildExploreSystemPrompt(...)` 同时包含 Explore agent prompt、common Notes、env/model context。
+  - hoje `buildExploreSystemPrompt(...)` contém ao mesmo tempo o prompt do agent Explore, as common Notes e o env/model context.
 - `apps/zcode-cli/packages/core/src/agent/message-history.ts`
-  - `MessageHistoryImpl.init(...)` 已支持传入 `Array<ModelInputMessage | RuntimeMessageEntry>`，可直接初始化多段 system messages。
+  - `MessageHistoryImpl.init(...)` já aceita `Array<ModelInputMessage | RuntimeMessageEntry>` e pode inicializar várias system messages de uma vez.
 - `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
-  - 当前 `exploreSystemMessages` 断言 `system[0]` 是 ZCode prefix，`system[1]` 是带 leading newline 的整块 Explore prompt。
+  - hoje a asserção `exploreSystemMessages` diz que `system[0]` é o prefixo do ZCode e `system[1]` é o bloco inteiro do prompt Explore com leading newline.
 
-目标路径：
+Caminho alvo:
 
-- `subagent.ts` 不再把 child prompt 作为 `systemPrompt: string` 传入 child runtime。
-- 新增 `SubagentContextBuilder` 输出完整 `ContextBuildResult`，其中 `sections`、`systemMessages`、`metaUserAttachments` 都按 subagent 语义生成。
-- child runtime 使用新的 `subagentContext` 配置选择 subagent builder；`ensureContextInitialized`、`refreshContextModelSnapshot`、resume/lazy context 统一走同一 builder strategy。
+- `subagent.ts` deixa de passar o prompt do child como `systemPrompt: string` para o child runtime.
+- Novo `SubagentContextBuilder` emite o `ContextBuildResult` completo, em que `sections`, `systemMessages` e `metaUserAttachments` são todos gerados segundo a semântica de subagent.
+- O child runtime usa a nova config `subagentContext` para selecionar o subagent builder; `ensureContextInitialized`, `refreshContextModelSnapshot` e resume/lazy context seguem uniformemente a mesma estratégia de builder.
 
-## File Structure
+## Estrutura de Arquivos
 
 - Modify: `apps/zcode-cli/packages/core/src/runtime/types.ts`
-  - 给 `AgentRuntimeConfig` 增加 `subagentContext?: { agentPrompt: string }`，不新增 `systemMessages` 覆盖配置。
+  - adicionar `subagentContext?: { agentPrompt: string }` a `AgentRuntimeConfig`, sem nova config de sobrescrita de `systemMessages`.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/context.ts`
-  - `createContextBuilderFromSnapshot(...)` 根据 `config.subagentContext` 创建 `SubagentContextBuilder`，主 runtime 继续创建 main `ContextBuilder`。
+  - `createContextBuilderFromSnapshot(...)` cria o `SubagentContextBuilder` conforme `config.subagentContext`, e o runtime principal continua criando o `ContextBuilder` principal.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/config.ts`
-  - 确认 lazy `getContextBuilder()` 也走 `createContextBuilderFromSnapshot(...)`，不额外引入 subagent special-case。
+  - garantir que o `getContextBuilder()` lazy também passe por `createContextBuilderFromSnapshot(...)`, sem introduzir special-case de subagent.
 - Modify: `apps/zcode-cli/packages/core/src/context/sections/env-info.ts`
-  - 将 main 当前使用的 git repo 判定逻辑导出为共享 helper，避免 subagent env/model context 复制一套相似但可能漂移的判定。
+  - exportar a lógica atual de deteccao de git repo do main como helper compartilhado, evitando que o subagent env/model context duplique uma deteccao similar que pode derivar.
 - Create: `apps/zcode-cli/packages/core/src/subagent/system-prompt.ts`
-  - 提供 `buildSubagentCommonNotes()`、`buildSubagentEnvironmentContext(...)`；builder 只消费已经按 main 逻辑准备好的 `EnvInfo`。
+  - fornecer `buildSubagentCommonNotes()`, `buildSubagentEnvironmentContext(...)`; o builder consome somente o `EnvInfo` já preparado segundo a lógica do main.
 - Create: `apps/zcode-cli/packages/core/src/subagent/context-builder.ts`
-  - 提供 `SubagentContextBuilder` / `createSubagentContextBuilder(...)`，返回完整 `ContextBuildResult`，并复用 common Notes/env/model helper。
+  - fornecer `SubagentContextBuilder` / `createSubagentContextBuilder(...)`, retornando o `ContextBuildResult` completo e reutilizando os helpers de common Notes/env/model.
 - Modify: `apps/zcode-cli/packages/core/src/subagent/explore.ts`
-  - 将 `buildExploreSystemPrompt(...)` 改为只返回 Explore agent-specific prompt。
+  - mudar `buildExploreSystemPrompt(...)` para retornar apenas o agent-specific prompt do Explore.
 - Modify: `apps/zcode-cli/packages/core/src/subagent/general-purpose.ts`
-  - double check general-purpose agent-specific prompt body 是否与冻结文案一致；如果发现漂移，在本轮一并修正。
+  - fazer double check de se o body agent-specific do general-purpose é igual ao texto congelado; se houver drift, corrigir nesta rodada.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts`
-  - 传入 `subagentContext.agentPrompt` 和 child `envInfo`，由 child runtime 自己的 builder 负责 prompt assembly。
+  - passar `subagentContext.agentPrompt` e o `envInfo` do child, deixando a montagem do prompt por conta do builder do próprio child runtime.
 - Modify: `apps/zcode-cli/packages/core/src/runtime/deps.ts`
-  - 若 runtime deps barrel 当前导出 `buildExploreSystemPrompt`，同步导出/导入新的 builder。
+  - se o barrel de deps do runtime exportar hoje `buildExploreSystemPrompt`, exportar/importar o novo builder em sincronia.
 - Modify: `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`
-  - 更新 Explore provider-visible system message 断言。
+  - atualizar as asserções de system message provider-visible do Explore.
 - Create: `apps/zcode-cli/packages/core/tests/subagent-prompt-assembly.test.ts`
-  - 覆盖 Explore、general-purpose、custom agent 的 child system prompt 组装。
+  - cobrir a montagem do child system prompt de Explore, general-purpose e custom agent.
 - Modify: `docs/conversation-session-case-catalog.md`
-  - 为 subagent prompt assembly 增加或更新 conversation E2E case 条目。
+  - adicionar ou atualizar a entrada de conversation E2E case para subagent prompt assembly.
 - Modify: `docs/testing/conversation-session-e2e-coverage-matrix.md`
-  - 将新增 case 的覆盖状态从 missing/undefined 更新到 covered。
+  - atualizar o status de cobertura dos novos cases de missing/undefined para covered.
 - Create or Modify: `packages/desktop/test/e2e/conversation-session/conversation-session-subagent-prompt-assembly.test.ts`
-  - 通过桌面前台窗口跑真实 conversation/session E2E，验证结果符合预期。
-- Modify: 历史差异审计文档（已删除）
-  - 更新 prompt assembly 现状：本轮只完成 child prompt common context，不宣称 tool/schema/background 对齐。
+  - rodar um E2E real de conversation/session pela janela em primeiro plano do desktop e verificar que o resultado corresponde ao esperado.
+- Modify: documento de auditoria de diferenças históricas (removido)
+  - atualizar o estado do prompt assembly: esta rodada só conclui o common context do child prompt e não reivindica alinhamento de tool/schema/background.
 
 ---
 
-## Phase 1: Golden Tests For Child Prompt Shape
+## Fase 1: Golden Tests For Child Prompt Shape
 
 ### Task 1: Add Provider-Visible Prompt Assembly Tests
 
@@ -136,10 +136,10 @@ rg -n "You are ZCode Explore|You are an agent for ZCode|buildExploreSystemPrompt
 
 Expected:
 
-- ZCode Explore/general-purpose body matches the exact expected text frozen in `subagent-explore.test.ts`.
-- ZCode body does not include model-specific, provider-specific, historical, or experimental copy variants.
+- o body de Explore/general-purpose do ZCode bate exatamente com o texto esperado congelado em `subagent-explore.test.ts`.
+- o body do ZCode não inclui variantes de texto específicas de modelo, de provider, históricas ou experimentais.
 
-If ZCode body does not match the frozen expected text, do not treat this as out of scope. Add the expected body to the failing tests in this task, then align the implementation in Task 2 before changing the system message assembly.
+Se o body do ZCode não bater com o texto esperado congelado, não trate isso como fora de escopo. Adicione o body esperado aos testes que falham nesta tarefa e então alinhe a implementação na Task 2 antes de mudar a montagem das system messages.
 
 - [ ] **Step 2: Create a helper to capture child provider requests**
 
@@ -507,7 +507,7 @@ const exploreSystemMessages = [
 ];
 ```
 
-Keep the exact body text consistent with the new builder from Phase 2. The old expected `system[1]` leading newline should be removed because child system messages are no longer generated through `ContextBuilder` custom prompt wrapping.
+Mantenha o texto do body exatamente consistente com o novo builder da Fase 2. O leading newline esperado no `system[1]` antigo deve ser removido, porque as child system messages não são mais geradas pelo wrapping de custom prompt do `ContextBuilder`.
 
 - [ ] **Step 7: Run failing tests**
 
@@ -519,12 +519,12 @@ pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/sub
 
 Expected before implementation:
 
-- `subagent-prompt-assembly.test.ts` fails because child system messages still have only two system entries or Notes/env are embedded in `system[1]`.
-- `subagent-explore.test.ts` fails after updating the expected split shape.
+- `subagent-prompt-assembly.test.ts` falha porque as child system messages ainda têm apenas duas entradas system ou Notes/env estão embutidos em `system[1]`.
+- `subagent-explore.test.ts` falha depois de atualizar o shape split esperado.
 
 ---
 
-## Phase 2: Shared Subagent Prompt Pieces
+## Fase 2: Shared Subagent Prompt Pieces
 
 **Files:**
 - Modify: `apps/zcode-cli/packages/core/src/context/sections/env-info.ts`
@@ -542,11 +542,11 @@ Expected before implementation:
   - `buildSubagentEnvironmentContext(options): string`
   - `buildExploreAgentPrompt(options): string`
 
-- [ ] **Step 1: Export main git repo判定 helper**
+- [ ] **Step 1: Export main helper de deteccao de git repo**
 
 Modify `apps/zcode-cli/packages/core/src/context/sections/env-info.ts`.
 
-Replace the private helper:
+Substitua o helper privado:
 
 ```ts
 function isGitRepository(info: EnvInfo): boolean {
@@ -555,7 +555,7 @@ function isGitRepository(info: EnvInfo): boolean {
 }
 ```
 
-with:
+por:
 
 ```ts
 export function isEnvInfoGitRepository(info: EnvInfo): boolean {
@@ -564,13 +564,13 @@ export function isEnvInfoGitRepository(info: EnvInfo): boolean {
 }
 ```
 
-Then update the two existing call sites in the same file:
+Depois atualize os dois call sites existentes no mesmo arquivo:
 
 ```ts
 const hasGitRepository = isEnvInfoGitRepository(info);
 ```
 
-and:
+e:
 
 ```ts
 if (!isEnvInfoGitRepository(envInfo)) {
@@ -578,7 +578,7 @@ if (!isEnvInfoGitRepository(envInfo)) {
 }
 ```
 
-This keeps subagent git repo detection tied to the same logic main uses today.
+Isso mantém a detecção de git repo do subagent ligada à mesma lógica que o main usa hoje.
 
 - [ ] **Step 2: Create the shared prompt-piece file**
 
@@ -625,11 +625,11 @@ export function buildSubagentEnvironmentContext(options: SubagentEnvironmentCont
 }
 ```
 
-Important boundary:
+Fronteira importante:
 
-- `buildSubagentEnvironmentContext(...)` uses a fixed subagent env section shape, but values come from the same `EnvInfo` object main already uses.
-- Do not add `additionalWorkingDirectories`, knowledge cutoff, git snapshot details, node version, or other fields unless current main context already exposes them in the relevant provider-visible context.
-- Model name is read from `envInfo.currentModel`, matching main `createContextBuilderFromSnapshot(...)`, instead of formatting model refs inside the builder.
+- `buildSubagentEnvironmentContext(...)` usa um shape de seção de env de subagent fixo, mas os valores vêm do mesmo objeto `EnvInfo` que o main já usa.
+- Não adicione `additionalWorkingDirectories`, knowledge cutoff, detalhes de snapshot do git, versão do node ou outros campos a menos que o context principal atual já os exponha no contexto provider-visible relevante.
+- O model name é lido de `envInfo.currentModel`, seguindo o `createContextBuilderFromSnapshot(...)` do main, em vez de formatar model refs dentro do builder.
 
 - [ ] **Step 3: Refactor Explore prompt to agent-specific prompt only**
 
@@ -689,15 +689,15 @@ export function buildExploreAgentPrompt(options: {
 }
 ```
 
-Remove `workingDirectory`, `workspaceRoot`, `envInfo`, and `modelName` from this function's options because those now belong to `buildSubagentEnvironmentContext(...)`.
+Remova `workingDirectory`, `workspaceRoot`, `envInfo` e `modelName` das options desta função, porque agora pertencem a `buildSubagentEnvironmentContext(...)`.
 
 - [ ] **Step 4: Align general-purpose body if the baseline check found drift**
 
 If Task 1 Step 1 shows `apps/zcode-cli/packages/core/src/subagent/general-purpose.ts` has drifted from the frozen expected body, update `buildGeneralPurposeSystemPrompt()` before wiring the new system message builder.
 
-Keep the body identical to the frozen expected text. Preserve provider-visible punctuation, paragraph breaks, and operational wording exactly.
+Mantenha o body idêntico ao texto esperado congelado. Preserve exatamente a pontuação, as quebras de parágrafo e a redação operacional visíveis para o provider.
 
-Do not change this file if the baseline check proves it is already aligned.
+Não altere este arquivo se a verificação de baseline provar que ele já está alinhado.
 
 - [ ] **Step 5: Keep a temporary compatibility export if needed**
 
@@ -730,12 +730,12 @@ pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/sub
 
 Expected after Task 2 only:
 
-- Tests may still fail because runtime does not yet select the subagent context builder.
-- Any direct import/type errors from the new prompt pieces should be fixed before moving on.
+- Os testes ainda podem falhar porque o runtime ainda não seleciona o subagent context builder.
+- Qualquer erro direto de import/tipo das novas peças de prompt deve ser corrigido antes de prosseguir.
 
 ---
 
-## Phase 3: Runtime Wiring With SubagentContextBuilder
+## Fase 3: Runtime Wiring With SubagentContextBuilder
 
 ### Task 3: Let Child Runtime Select Its Own Context Builder
 
@@ -828,7 +828,7 @@ const agentPrompt =
     : request.systemPrompt?.trim();
 ```
 
-Pass to child `AgentRuntime`:
+Passe ao `AgentRuntime` do child:
 
 ```ts
 envInfo: childPromptEnvInfo,
@@ -843,7 +843,7 @@ Keep the existing `baseChildEnvInfo` source order:
 this.contextSourceSnapshot?.envInfo ?? this.config.envInfo ?? fallbackUnknownEnvInfo
 ```
 
-Keep the existing shell override from `getSessionShellEnvironment(this)` before adding `currentModel`. This mirrors the main context path where `createContextBuilderFromSnapshot(...)` derives provider-visible env info from the current context snapshot and appends `currentModel: formatModelRef(this.defaultModelRef)`.
+Mantenha o shell override existente de `getSessionShellEnvironment(this)` antes de adicionar `currentModel`. Isso reflete o caminho de context do main, em que `createContextBuilderFromSnapshot(...)` deriva o env info provider-visible do snapshot de context atual e acrescenta `currentModel: formatModelRef(this.defaultModelRef)`.
 
 Do not add new env discovery, git probing, node-version output, knowledge-cutoff output, or additional-working-directory output in this task unless the current main prompt path already provides that exact data in provider-visible context.
 
@@ -861,18 +861,18 @@ pnpm --filter @zcode/core exec vitest run apps/zcode-cli/packages/core/tests/sub
 
 Expected:
 
-- New prompt assembly tests pass.
-- Existing Explore test passes after expected system message split is updated.
-- If failures show duplicate default identity/dynamic prompt text, inspect whether `initializeMessageHistoryFromContext` still runs after `systemMessages`.
+- Os novos testes de prompt assembly passam.
+- O teste existente do Explore passa depois de atualizar o split esperado das system messages.
+- Se as falhas mostrarem texto duplicado de identity/dynamic prompt padrão, verifique se `initializeMessageHistoryFromContext` ainda roda depois de `systemMessages`.
 
 ---
 
-## Phase 4: Documentation And Provider-Visible Verification
+## Fase 4: Documentation And Provider-Visible Verification
 
 ### Task 4: Document The Narrow Prompt Assembly Alignment
 
 **Files:**
-- Modify: 历史差异审计文档（已删除）
+- Modify: documento de auditoria de diferenças históricas (removido)
 
 **Interfaces:**
 - Consumes:
@@ -885,22 +885,22 @@ Expected:
 Add a section near the prompt/system context part:
 
 ```md
-## 2026-07-07 subagent prompt assembly 现状
+## 2026-07-07 situação atual do prompt assembly de subagent
 
-本轮只收敛普通 subagent child request 的 provider-visible system prompt 组装，不处理父 `Agent` tool schema、child tool surface、SendMessage、background notification、fork/repl hydration、teammate/worktree。
+Esta rodada só convergei a montagem do system prompt provider-visible do child request de subagent comum, sem tratar o schema da tool `Agent` pai, a superfície de tools do child, SendMessage, notificação de background, hidratação de fork/repl nem teammate/worktree.
 
-Explore/general-purpose 的 agent-specific body 只使用一套冻结文案。本轮执行时已 double check ZCode 当前 body 与冻结文案的一致性；如发现 drift，已在本轮修正后再做 system message 拆分和组装收敛。不引入按模型、provider、历史版本或实验分支区分的文案变体。
+O body agent-specific de Explore/general-purpose usa apenas um texto congelado. Na execução desta rodada já foi feito double check da consistência entre o body atual do ZCode e o texto congelado; se houver drift, ele foi corrigido nesta rodada antes da divisão das system messages e da convergência da montagem. Não são introduzidas variantes de texto diferenciadas por modelo, provider, versão histórica ou branch de experimento.
 
-当前 child system message 顺序：
+Ordem atual das child system messages:
 
 1. `You are ZCode, an interactive coding agent`
-2. agent-specific prompt（Explore / general-purpose / custom profile body）
-3. common subagent Notes（cwd reset、absolute paths、no emoji、no colon before tool calls、不要写 report/summary/findings/analysis `.md`）
+2. agent-specific prompt（body do Explore / general-purpose / custom profile）
+3. common subagent Notes（cwd reset、absolute paths、no emoji、no colon before tool calls、não escrever report/summary/findings/analysis `.md`）
 4. env/model context（working directory、git repo、platform、shell、OS version、model name）
 
-第 4 段的段落位置和外层结构固定，但字段值、fallback、shell 展示、git repo 判定和 model name 格式化以当前 main runtime/context builder 逻辑为准：从 `contextSourceSnapshot.envInfo` / `config.envInfo` 继承，沿用 session shell override，并用 `formatModelRef(childModelRef)` 写入 `envInfo.currentModel`。当前 main 没有提供的数据不在本轮硬造。
+A posição do segmento e a estrutura externa do 4º item são fixas, mas os valores de campo, o fallback, a exibição do shell, a deteccao de git repo e a formatação do model name seguem a lógica atual do main runtime/context builder: herdados de `contextSourceSnapshot.envInfo` / `config.envInfo`, com o shell override da session e `envInfo.currentModel` escrito por `formatModelRef(childModelRef)`. Dados que o main atual não oferece não são fabricados nesta rodada.
 
-这保留了 ZCode 产品身份前缀，同时让后续 child prompt body 统一为 `agentPrompt + common Notes + env/model context` 结构。
+Isso preserva o prefixo de identidade de produto do ZCode e ao mesmo tempo unifica o body do prompt do child como a estrutura `agentPrompt + common Notes + env/model context`.
 ```
 
 - [ ] **Step 2: Update gap matrix entry for child system prompt**
@@ -908,7 +908,7 @@ Explore/general-purpose 的 agent-specific body 只使用一套冻结文案。�
 Find the row about `Child system prompt` and change status from broad unaligned wording to:
 
 ```md
-普通 child system prompt 的 common Notes / env-model context 已通过共享 builder 统一；仍未实现只读 agent 省略项目指令文件、agent memory、追加 subagent system prompt、fork/repl hydration、teammate/worktree 相关控制面。
+As common Notes / env-model context do child system prompt comum já foram unificadas por um builder compartilhado; ainda não foram implementados a omissão de arquivos de instruções do projeto por agent somente leitura, agent memory, prompt de sistema adicional de subagent, a hidratação de fork/repl e a superfície de controle de teammate/worktree.
 ```
 
 - [ ] **Step 3: Run doc grep sanity check**
@@ -916,13 +916,13 @@ Find the row about `Child system prompt` and change status from broad unaligned 
 Run:
 
 ```bash
-# 历史差异审计文档已删除，本步骤不再执行
+# O documento de auditoria de diferenças históricas foi removido; este passo não é mais executado
 ```
 
 Expected:
 
-- The new dated section appears.
-- Remaining out-of-scope features are still explicitly listed.
+- A nova seção datada aparece.
+- As funcionalidades restantes fora de escopo ainda estão listadas explicitamente.
 
 ### Task 5: Final Validation Checklist
 
@@ -1019,7 +1019,7 @@ system[3] contains Working directory / git repo / Platform / Shell / OS Version 
 In `docs/conversation-session-case-catalog.md`, add a case entry for subagent prompt assembly. Use the existing table style in that file, with this semantic content:
 
 ```md
-| <next-id> | Subagent prompt assembly | 用户从前台窗口发起一次会触发 Explore/general-purpose subagent 的对话 | 子 agent provider-visible system prompt 保留 ZCode prefix，并将 agent prompt / common Notes / env-model context 拆成独立 system messages；主线程 prompt 不回归 | covered | `conversation-session-subagent-prompt-assembly.test.ts` |
+| <next-id> | Subagent prompt assembly | o usuário inicia, pela janela em primeiro plano, uma conversa que dispara um subagent Explore/general-purpose | o system prompt provider-visible do sub agent preserva o prefixo do ZCode e separa agent prompt / common Notes / env-model context em system messages independentes; o prompt da thread principal não regride | covered | `conversation-session-subagent-prompt-assembly.test.ts` |
 ```
 
 Use the next valid case id according to the current catalog conventions; do not invent a new numbering family if an existing subagent/conversation family already exists.
@@ -1119,27 +1119,27 @@ If the local machine cannot run foreground Electron E2E, do not mark the task co
 
 ## Risks And Guardrails
 
-- Main prompt regression risk: adding `systemMessages` must not change main runtime `ContextBuilder` behavior. Guard with `context-builder.test.ts` and `runtime-trace.test.ts`.
-- Date context ambiguity: current child tests assert `# currentDate`; the target env/model context does not include date. Do not add a new date section unless current product semantics require it; if retained elsewhere, document the source separately.
-- Main-env logic drift: env/model context should not become a second independent environment formatter. Reuse main `EnvInfo` source order, shell override, git repo boolean helper, and `currentModel` formatting; do not add fields main does not provide.
-- Custom prompt leading newline drift: current `ContextBuilder` custom prompt adds `\n` before `system[1]`. New child system messages should not inherit that leading newline unless a provider-visible fixture proves it is required.
-- Copy-branch drift: Explore/general-purpose body uses a single frozen copy. Execution must double check the current body against the frozen expected text before implementation; if drift is found, align the body in this change before moving sections between system messages.
-- Naming drift: code helper names should be local and semantic, such as `createSubagentContextBuilder`, not external-product-specific.
-- Scope creep: if implementation starts touching tool schemas, background, SendMessage, or MCP required server behavior, stop and split a separate plan.
-- E2E completion risk: unit tests are not enough for this change. Completion requires a desktop E2E spec and a successful foreground-window WDIO run.
-- Commit guardrail: do not create a git commit automatically after implementation or validation. Leave changes in the working tree unless the user explicitly asks for a commit.
+- Risco de regressão do prompt principal: adicionar `systemMessages` não pode mudar o comportamento do `ContextBuilder` do runtime main. Proteja com `context-builder.test.ts` e `runtime-trace.test.ts`.
+- Ambiguidade do contexto de data: os testes child atuais afirmam `# currentDate`; o env/model context alvo não inclui data. Não adicione uma nova seção de data a menos que a semântica atual do produto exija isso; se for mantida em outro lugar, documente a origem separadamente.
+- Drift da lógica de env do main: o env/model context não deve virar um segundo formatador de ambiente independente. Reutilize a ordem de origem do `EnvInfo` do main, o shell override, o helper booleano de git repo e a formatação de `currentModel`; não adicione campos que o main não fornece.
+- Drift do leading newline do custom prompt: o custom prompt atual do `ContextBuilder` adiciona `\n` antes do `system[1]`. As novas child system messages não devem herdar esse leading newline a menos que um fixture provider-visible prove que ele é necessário.
+- Drift de branch de texto: o body de Explore/general-purpose usa um único texto congelado. A execução precisa fazer double check do body atual contra o texto esperado congelado antes da implementação; se houver drift, alinhe o body nesta mudança antes de mover seções entre system messages.
+- Drift de nomenclatura: os nomes de helpers de código devem ser locais e semânticos, como `createSubagentContextBuilder`, e não específicos de produtos externos.
+- Expansão de escopo: se a implementação começar a tocar tool schemas, background, SendMessage ou comportamento de MCP required server, pare e separe um plano próprio.
+- Risco de conclusão do E2E: testes unitários não bastam para esta mudança. A conclusão exige um spec E2E de desktop e uma execução bem-sucedida com WDIO na janela em primeiro plano.
+- Guarda de commit: não crie um commit git automaticamente após a implementação ou a validação. Deixe as mudanças na working tree, a menos que o usuário peça explicitamente um commit.
 
-## Completion Criteria
+## Critérios de Conclusão
 
-- New shared builder exists and is used by Explore, general-purpose, and custom child runtimes.
-- Explore/general-purpose agent-specific body has been double checked against the frozen expected text and remains or has been brought into alignment, with no model-specific/provider-specific/historical/experimental copy mixed in.
-- Explore prompt no longer embeds common Notes/env/model context.
-- Subagent env/model context uses the fixed section placement and outer shape, while field values/fallbacks follow current main runtime/context builder logic.
-- Child provider-visible system messages are split into four entries with ZCode prefix at `system[0]`.
-- Main thread prompt assembly is unchanged.
-- Focused prompt tests pass.
-- A conversation-session E2E spec covers this prompt assembly behavior.
-- The E2E spec has been run through the local foreground Electron window with `ZCODE_E2E_SPEC=./test/e2e/conversation-session/conversation-session-subagent-prompt-assembly.test.ts pnpm --filter @zcode/desktop test:e2e`, and the result is PASS.
-- `pnpm audit:conversation-session-coverage` passes after catalog/matrix updates.
-- `pnpm typecheck` and `pnpm lint` have been run, with any unrelated baseline failures explicitly reported.
-- No automatic commit is created. The final state remains reviewable in the working tree until the user explicitly asks to commit.
+- Existe o novo builder compartilhado e ele é usado pelos runtimes child de Explore, general-purpose e custom.
+- O body agent-specific de Explore/general-purpose passou por double check contra o texto esperado congelado e permanece ou foi trazido para o alinhamento, sem mistura de texto específico de modelo/provider/histórico/experimental.
+- O prompt do Explore não embute mais common Notes/env/model context.
+- O env/model context do subagent usa o posicionamento e a forma externa fixos da seção, enquanto valores de campo/fallbacks seguem a lógica atual do main runtime/context builder.
+- As child system messages provider-visible são divididas em quatro entradas, com o prefixo do ZCode em `system[0]`.
+- A montagem do prompt da thread principal permanece inalterada.
+- Os testes focados de prompt passam.
+- Um spec E2E de conversation-session cobre esse comportamento de prompt assembly.
+- O spec E2E foi executado pela janela local do Electron em primeiro plano com `ZCODE_E2E_SPEC=./test/e2e/conversation-session/conversation-session-subagent-prompt-assembly.test.ts pnpm --filter @zcode/desktop test:e2e`, e o resultado é PASS.
+- `pnpm audit:conversation-session-coverage` passa depois das atualizações de catálogo/matrix.
+- `pnpm typecheck` e `pnpm lint` foram executados, com quaisquer falhas de baseline não relacionadas explicitamente reportadas.
+- Nenhum commit automático é criado. O estado final permanece revisável na working tree até o usuário pedir explicitamente um commit.

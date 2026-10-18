@@ -1,23 +1,23 @@
-# Model Provider JSON Schema
+# JSON Schema de Model Provider
 
-> 历史文档：下一阶段不再使用 `zcode.model-providers.v1` catalog schema，也不再使用
-> `reasoning.levels[level][kind]` patch 作为新配置主格式。新的权威设计见
-> `docs/model-provider-opencode-config.md`。
+> Documento histórico: a próxima fase não usa mais o catalog schema `zcode.model-providers.v1`, nem usa mais
+> o patch `reasoning.levels[level][kind]` como formato principal de nova configuração. O novo design autoritativo está em
+> `docs/model-provider-opencode-config.md`.
 
-## 目标
+## Objetivo
 
-这个 JSON 用来描述一个模型供应商的连接信息、接口格式、模型能力和思考参数映射。
-它应该贴合当前 ZCode runtime 的概念，而不是再发明一套协议命名。
+Este JSON serve para descrever as informações de conexão de um fornecedor de modelo, o formato de interface, as capacidades do modelo e o mapeamento de parâmetros de pensamento.
+Ele deve se adequar aos conceitos do runtime ZCode atual, em vez de inventar mais uma nomenclatura de protocolo.
 
-核心约束：
+Restrições centrais:
 
-- 接口格式统一用现有 `kind`：`anthropic`、`openai`、`openai-compatible`。
-- JSON 里只写 `openai-compatible`，不要出现 `openaiCompatible`。
-- `endpoints` 使用一个公共 `baseURL`，各 `kind` 只配置自己的 URL `path`。
-- `reasoning` 不放 UI 字段，比如 `label`、`rank`、`enabled`。
-- `reasoning` 只描述“某个 level 在某个 kind 下要怎么改请求参数”。
+- O formato de interface usa uniformemente o `kind` existente: `anthropic`, `openai`, `openai-compatible`.
+- No JSON escreve-se apenas `openai-compatible`; `openaiCompatible` não deve aparecer.
+- `endpoints` usa um `baseURL` comum e cada `kind` configura apenas o seu próprio `path` de URL.
+- `reasoning` não guarda campos de UI, como `label`, `rank` ou `enabled`.
+- `reasoning` só descreve "como um determinado level deve alterar os parâmetros da requisição em um determinado kind".
 
-## 顶层结构
+## Estrutura de topo
 
 ```jsonc
 {
@@ -41,19 +41,19 @@
 }
 ```
 
-`endpoints.paths` 的 key 必须是 `kind` 字面量。这样配置里不会同时出现
-`openaiCompatible` 和 `openai-compatible` 两种写法。
+A key de `endpoints.paths` precisa ser o literal de `kind`. Assim a configuração nunca tem ao mesmo tempo
+as duas grafias `openaiCompatible` e `openai-compatible`.
 
-`baseURL + path` 表示该 kind 的完整请求地址。比如：
+`baseURL + path` representa o endereço completo da requisição daquele kind. Por exemplo:
 
 ```text
 https://api.example.com + /v1/chat/completions
 ```
 
-如果某个供应商不同 kind 连 host 都不同，v1 建议拆成两个 provider，不在一个
-provider 里做 per-kind `baseURL` 覆盖。
+Se um fornecedor usa hosts diferentes até para kinds diferentes, a v1 recomenda dividir em dois providers, em vez de fazer
+override de `baseURL` por kind dentro de um único provider.
 
-## Model 结构
+## Estrutura de Model
 
 ```jsonc
 {
@@ -71,29 +71,30 @@ provider 里做 per-kind `baseURL` 覆盖。
 }
 ```
 
-字段说明：
+Descrição dos campos:
 
-- `id`：默认发送给上游的模型名。
-- `kinds`：该模型支持的接口格式，值必须存在于 `provider.endpoints.paths`。
-- `defaultKind`：该模型默认走哪个格式；缺省时用 provider 的 `defaultKind`。
-- `modalities.input` / `modalities.output`：模型输入和输出模态。
-- `contextWindow`：上下文长度，单位 token。
-- `maxOutputTokens`：最大输出长度，单位 token。它表示模型能力上限，也是正常请求的模型级
-  输出预算；只有该值缺失时才 fallback 到 32K，再由 AI SDK 映射为对应协议的标准输出字段。
-  请求侧策略见 [模型请求输出上限策略](./model-request-output-tokens.md)。
-- `options`：透传给具体 provider 的 canonical AI SDK 请求参数。OpenAI-compatible provider
-  需要固定 `max_tokens`、`max_completion_tokens` 等扩展字段时直接配置，例如
-  `{ "max_tokens": 64000 }`。
+- `id`: nome do modelo enviado por padrão ao upstream.
+- `kinds`: os formatos de interface suportados pelo modelo; os valores precisam existir em `provider.endpoints.paths`.
+- `defaultKind`: o formato usado por padrão por esse modelo; quando ausente, vale o `defaultKind` do provider.
+- `modalities.input` / `modalities.output`: as modalidades de entrada e de saída do modelo.
+- `contextWindow`: o tamanho do contexto, em token.
+- `maxOutputTokens`: o tamanho máximo de saída, em token. Ele representa o limite de capacidade do modelo e também é o orçamento
+  de saída em nível de modelo das requisições normais; só quando esse valor está ausente é que há fallback para 32K, e então o AI SDK
+  mapeia para o campo de saída padrão do protocolo correspondente. A política do lado da requisição está em
+  [política de limite de tokens de saída da requisição ao modelo](./model-request-output-tokens.md).
+- `options`: os parâmetros canônicos de requisição do AI SDK repassados ao provider concreto. Um provider OpenAI-compatible
+  que precisa fixar campos estendidos como `max_tokens` ou `max_completion_tokens` configura diretamente, por exemplo
+  `{ "max_tokens": 64000 }`.
 
-不要额外写 `supportsImages` / `supportsVideo`。这些能力可以从 `modalities` 推导：
+Não escreva `supportsImages` / `supportsVideo` à parte. Essas capacidades são derivadas de `modalities`:
 
 ```ts
 const supportsImages = model.modalities.input.includes("image");
 const supportsVideo = model.modalities.input.includes("video");
 ```
 
-如果同一个模型在不同 kind 下必须使用不同上游模型名，再加可选字段
-`modelIdByKind`：
+Se o mesmo modelo precisa obrigatoriamente usar nomes de modelo upstream diferentes conforme o kind, acrescente o campo
+opcional `modelIdByKind`:
 
 ```jsonc
 {
@@ -105,11 +106,11 @@ const supportsVideo = model.modalities.input.includes("video");
 }
 ```
 
-默认情况下不需要这个字段。没有命中 `modelIdByKind[kind]` 时直接使用 `id`。
+Por padrão esse campo não é necessário. Quando não há casamento em `modelIdByKind[kind]`, use `id` diretamente.
 
-## Reasoning 结构
+## Estrutura de Reasoning
 
-`reasoning` 是一个按 level 和 kind 分组的请求参数补丁表。
+`reasoning` é uma tabela de patches de parâmetros de requisição agrupada por level e por kind.
 
 ```jsonc
 {
@@ -176,8 +177,8 @@ const supportsVideo = model.modalities.input.includes("video");
 }
 ```
 
-这里的 `path` 是“字段路径”，不是 URL path。它是字符串数组，表示要设置或删除
-的请求参数位置。例如：
+Aqui `path` é um "caminho de campo", e não um path de URL. É um array de strings que indica a posição do parâmetro de requisição
+a definir ou remover. Por exemplo:
 
 ```jsonc
 ["thinking"]
@@ -185,11 +186,11 @@ const supportsVideo = model.modalities.input.includes("video");
 ["thinking", "type"]
 ```
 
-运行时根据当前模型实际使用的 `kind` 取对应补丁，然后生成当前 adapter 需要的
-provider options。
+Em tempo de execução, o patch correspondente ao `kind` realmente usado pelo modelo atual é buscado e então são geradas as
+provider options exigidas pelo adapter atual.
 
-公开 JSON 不写 `openaiCompatible`。如果当前 kind 是 `openai-compatible`，转换层负责
-把它映射到 AI SDK 内部 namespace：
+O JSON público não escreve `openaiCompatible`. Se o kind atual for `openai-compatible`, a camada de conversão cuida de
+mapeá-lo para o namespace interno do AI SDK:
 
 ```ts
 {
@@ -206,14 +207,14 @@ provider options。
 }
 ```
 
-## 关闭思考
+## Desligar o raciocínio
 
-关闭思考也只是一个普通 level，统一用内部 level id `off`。
+Desligar o raciocínio também é apenas um level comum, usando uniformemente o level id interno `off`.
 
-如果 `levels.off` 存在，表示模型支持关闭思考；如果不存在，表示这个模型不能显式
-关闭思考。
+Se `levels.off` existe, significa que o modelo suporta desligar o raciocínio; se não existe, significa que esse modelo não
+consegue desligar o raciocínio explicitamente.
 
-不同供应商关闭方式不同：
+Cada fornecedor desliga de um jeito:
 
 ```jsonc
 {
@@ -245,10 +246,10 @@ provider options。
 }
 ```
 
-有些接口关闭思考是“不传字段”，这种情况用 `unset`。有些接口要求传
-`disabled` / `none` / `false`，这种情况用 `set`。
+Algumas interfaces desligam o raciocínio "não passando o campo", e nesse caso use `unset`. Outras exigem passar
+`disabled` / `none` / `false`, e nesse caso use `set`.
 
-## TypeScript 草案
+## Rascunho em TypeScript
 
 ```ts
 type ModelProviderKind = "anthropic" | "openai" | "openai-compatible";
@@ -311,7 +312,7 @@ interface FieldUnsetPatch {
 }
 ```
 
-## 完整示例
+## Exemplo completo
 
 ```jsonc
 {
@@ -412,25 +413,24 @@ interface FieldUnsetPatch {
 }
 ```
 
-## 和现有代码的映射
+## Mapeamento com o código existente
 
-- `ProviderSpec.endpoints.paths` 的 key 对应当前 runtime 的 `ModelProviderKind`。
-- `ProviderSpec.defaultKind` 和 `ModelSpec.defaultKind` 决定最终传入
-  `ModelTargetConfig.kind` 的值。
-- `ProviderSpec.endpoints.baseURL` 进入 `ModelTargetConfig.baseURL`。
-- `ModelSpec.contextWindow`、`maxOutputTokens`、`modalities` 会投影到
-  `ModelCapability`。
-- `ReasoningSpec.levels` 只用于投影 reasoning 档位值和默认档位；app 不再把
-  `ReasoningSpec.levels[level][kind]` 转换成
-  `ModelReasoningCapability.providerOptionsByLevel[level]`。
-- 推理强度档位到供应商请求字段的映射由 zcode-cli 维护，app 侧不再维护
-  `anthropic` / `openai` / `openaiCompatible` provider options 命名空间转换。
+- A key de `ProviderSpec.endpoints.paths` corresponde ao `ModelProviderKind` do runtime atual.
+- `ProviderSpec.defaultKind` e `ModelSpec.defaultKind` determinam o valor final passado para
+  `ModelTargetConfig.kind`.
+- `ProviderSpec.endpoints.baseURL` entra em `ModelTargetConfig.baseURL`.
+- `ModelSpec.contextWindow`, `maxOutputTokens` e `modalities` são projetados para
+  `ModelCapability`.
+- `ReasoningSpec.levels` só é usado para projetar os valores de nível de reasoning e o nível padrão; o app não converte mais
+  `ReasoningSpec.levels[level][kind]` em
+  `ModelReasoningCapability.providerOptionsByLevel[level]`.
+- O mapeamento dos níveis de intensidade de raciocínio para os campos de requisição do fornecedor é mantido pelo zcode-cli; o lado do app não mantém mais a
+  conversão de namespace de provider options `anthropic` / `openai` / `openaiCompatible`.
 
-## OpenAI Compatible 流式 Usage
+## Streaming Usage no OpenAI Compatible
 
-`kind: "openai-compatible"` 的 provider 默认请求流式 token usage。adapter 在创建
-OpenAI Compatible SDK provider 时设置 `includeUsage: true`，由 SDK 仅在流式
-Chat Completions 请求中生成：
+Um provider com `kind: "openai-compatible"` pede por padrão o uso de tokens em streaming. O adapter define `includeUsage: true` ao criar
+o provider do SDK OpenAI Compatible, e é o SDK que gera isso apenas em requisições de Chat Completions em streaming:
 
 ```jsonc
 {
@@ -439,7 +439,7 @@ Chat Completions 请求中生成：
 }
 ```
 
-少数不接受 `stream_options` 的兼容服务可以在 provider 连接配置中显式关闭：
+Os poucos serviços compatíveis que não aceitam `stream_options` podem desligar isso explicitamente na configuração de conexão do provider:
 
 ```jsonc
 {
@@ -455,6 +455,6 @@ Chat Completions 请求中生成：
 }
 ```
 
-未配置和显式 `true` 都表示开启；只有显式 `false` 才关闭。该设置属于 provider SDK
-连接选项，不进入模型级 `providerOptions`，也不改变非流式请求、OpenAI Responses 或
-Anthropic 请求。
+Não configurado e explicitamente `true` significam ligado; somente `false` explícito desliga. Essa configuração faz parte das opções de conexão do SDK do
+provider, não entra nos `providerOptions` de nível de modelo e não altera requisições não-streaming, nem requisições OpenAI Responses ou
+Anthropic.

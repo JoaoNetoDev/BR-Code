@@ -1,88 +1,86 @@
-# Subagent 模型与 Reasoning Effort E2E 覆盖矩阵
+# Matriz de cobertura E2E de Model e Reasoning Effort do Subagent
 
-本文记录内置 `general-purpose` / `Explore` 模型覆盖的自动化验收范围。该功能的产品语义见 [内置 Subagent 模型覆盖](../subagents-built-in-model-overrides.md)。
+Este documento registra o escopo de aceitação automatizada das coberturas de modelo embutidas `general-purpose` / `Explore`. A semântica de produto dessa funcionalidade está em [cobertura de modelo embutida do Subagent](../subagents-built-in-model-overrides.md).
 
-## 缩写
+## Abreviações
 
-| 缩写 | Spec                                                                                                                                   |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `SB` | `packages/desktop/test/e2e/conversation-session/conversation-session-built-in-subagent-model-overrides.test.ts`  |
+| Abreviação | Spec |
+| --- | --- |
+| `SB` | `packages/desktop/test/e2e/conversation-session/conversation-session-built-in-subagent-model-overrides.test.ts` |
 | `SX` | `packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-subagent-runtime-catalog-reasoning.test.ts` |
-| `SL` | `packages/desktop/test/e2e/subagent-coding-plan-login-catalog-stale.test.ts`                                                           |
-| `SM` | `packages/desktop/test/e2e/start-plan-manual-claim-experience.test.ts`                                                                 |
-| `SE` | `packages/desktop/test/e2e/settings/settings-subagent-create-edit-persistence.test.ts`                                                 |
-| `SS` | `packages/services/test/subagentsService.test.ts`                                                                                      |
-| `SU` | `packages/ui/test/subagentsSection.test.ts`                                                                                            |
-| `TC` | `packages/ui/test/thoughtLevelCycleControlSelectionValue.test.ts`                                                                      |
-| `SC` | `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`、`apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`           |
-| `BT` | `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`、`apps/zcode-cli/packages/bootstrap/tests/runtime-config.test.ts`          |
-| `RM` | `apps/zcode-cli/packages/bootstrap/tests/runtime-model-metadata.test.ts`                                                               |
+| `SL` | `packages/desktop/test/e2e/subagent-coding-plan-login-catalog-stale.test.ts` |
+| `SM` | `packages/desktop/test/e2e/start-plan-manual-claim-experience.test.ts` |
+| `SE` | `packages/desktop/test/e2e/settings/settings-subagent-create-edit-persistence.test.ts` |
+| `SS` | `packages/services/test/subagentsService.test.ts` |
+| `SU` | `packages/ui/test/subagentsSection.test.ts` |
+| `TC` | `packages/ui/test/thoughtLevelCycleControlSelectionValue.test.ts` |
+| `SC` | `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`、`apps/zcode-cli/packages/core/tests/subagent-profile.test.ts` |
+| `BT` | `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`、`apps/zcode-cli/packages/bootstrap/tests/runtime-config.test.ts` |
+| `RM` | `apps/zcode-cli/packages/bootstrap/tests/runtime-model-metadata.test.ts` |
 
-## 覆盖清单
+## Lista de cobertura
 
-### Todo103 G04-A 接续验收
+### Aceitação de continuação do G04-A do Todo103
 
-- BSM-18/SE-03：保留不可用选择但编辑触发器显示“选择模型”；不恢复旧候选、不写原文件。Pro `desktop-e2e-20260909-143258-266` SE-03通过。
-- 候选新鲜度：公共 `useModelSelectionServiceView` 首读/通知/重挂载；不恢复旧 Family/store 强刷。
-- 同 endpoint 的 Start/Individual/API Key 成员隔离：`packages/provider/test/resolver.test.ts`；
-  该测试替代已删除的旧 modelProviderServiceStorage 归并测试，不恢复其旧数据源。
+- BSM-18/SE-03: mantém a seleção indisponível, mas o gatilho de edição mostra "选择模型"; não restaura candidatos antigos nem escreve no arquivo original. No Pro `desktop-e2e-20260909-143258-266`, SE-03 passou.
+- Frescor dos candidatos: `useModelSelectionServiceView` público de leitura inicial/notificação/remontagem; não restaura a antiga re-verificação forçada por Family/store.
+- Isolamento de membros Start/Individual/API Key do mesmo endpoint: `packages/provider/test/resolver.test.ts`;
+  esse teste substitui o antigo teste de agregação do modelProviderServiceStorage, já removido, e não restaura sua antiga fonte de dados.
 
-### Todo103 G04-B 插件覆盖接续验收
+### Aceitação de continuação da cobertura de plugins do G04-B do Todo103
 
-- SE-04（来源 staging `dbb3ec0ce8` 已有正式用例，迁接而非新晋级）：官方 cache 中 judge 可见；
-  行内主动选模写完整 `pluginAgentModelSelectionOverrides` 并取最高档，再改 high 验证不是只重复默认值；
-  插件行仍不可进入编辑表单，插件 Markdown 字节不变。Pro `desktop-e2e-20260909-150213-807`
-  SE-02/04 2/2通过；同时覆盖全新缓存的首次进入，不要求用户手动刷新。
-- SU：内置/插件共用控件，插件按稳定 agentId 调用结构化保存；不使用旧双字段。
-- SS/BT：无安装记录的官方默认发现、安装/禁用/抑制优先、稳定 ID、规范名/别名同覆盖、
-  model-only 不继承原 effort、清除回到插件默认、冷加载导入均由实际临时文件测试验收。
-- 不扩大运行中热更新或 remote/replayable 语义；既有 profile 的 Todo99 有效选择入口保持不变。
-- PLM-LC-020：在 SE-04 的 UI 保存证据之外补官方 judge 冷启动请求闭环；父 primary/max、child alternate/high，避免错误继承或默认档位回退蒙混通过。新 pending case 的本地 fixture 与请求证据独立留存，不声称手机或热更新覆盖。
+- SE-04 (a spec oficial já existe no staging `dbb3ec0ce8`, portanto é migração e não nova promoção): o judge é visível no cache oficial;
+  ao selecionar o modelo inline, grava o `pluginAgentModelSelectionOverrides` completo e pega o nível mais alto, e depois muda para high para verificar que não está só repetindo o valor padrão;
+  a linha do plugin continua sem acesso ao formulário de edição e os bytes do Markdown do plugin não mudam. No Pro `desktop-e2e-20260909-150213-807`,
+  SE-02/04 passaram 2/2; ao mesmo tempo cobre a primeira entrada em cache totalmente novo, sem exigir que o usuário atualize manualmente.
+- SU: controles compartilhados entre embutido e plugin; o plugin chama o salvamento estruturado pelo agentId estável; não usa os dois campos antigos.
+- SS/BT: descoberta do padrão oficial sem registro de instalação, prioridade entre instalar/desabilitar/suprimir, ID estável, cobertura tanto do nome canônico quanto do alias,
+  model-only sem herdar o effort original, limpeza voltando ao padrão do plugin e importação em cold load, todos verificados por teste com arquivos temporários reais.
+- Não expandir para atualização a quente em execução nem para semântica remote/replayable; a entrada de seleção válida do Todo99 para profile existente permanece inalterada.
+- PLM-LC-020: além da evidência de salvamento de UI do SE-04, acrescentar o ciclo completo de requisição de cold start do judge oficial; primary/max no pai, alternate/high no filho, evitando que herança errada ou queda para o nível padrão passem por engano. A fixture local e a evidência de requisição do novo case pending ficam guardadas à parte, e não se alega cobertura de celular ou de atualização a quente.
 
-### Todo97 新裁决验收（2026-09-08）
+### Aceitação das novas decisões do Todo97 (2026-09-08)
 
-- SA97-04：SE 用户/项目创建、编辑只写 `model` / `thoughtLevel`，内部 JSON 覆盖继续结构化；Pro `desktop-e2e-20260908172422561-p96860-3f1d8f499a4468d5` 的 SE 三项与正式 SB/I20 共4项通过。SB 已在正式目录，下面历史表的 pending 状态不再适用 SB；不据此晋级其他候选 spec。
-- SA97-01/03/07/09：共享文件测试与 Host/Agent 初始化集成覆盖用户目录原地迁移、原字节保留、并发和写失败；项目/插件不改写，不再全 profile 内存转 ID。
-- SA97-05/06/08：删除 Markdown `modelSelection` 中间态分支，内置 JSON 旧双 map 先落盘迁移再正式读取；新 JSON 字段空值不回读旧值。
-- 下面历史 I20 中“自定义 Markdown 保留相冲突的旧 thoughtLevel”被 Todo97 替代：`thoughtLevel` 已是正式字段，不再制造未发布中间态兼容样本。新的验收只用真正发布过的旧 Provider 身份。
+- SA97-04: na criação e edição de usuário/projeto do SE só se grava `model` / `thoughtLevel`, e o JSON interno de cobertura continua estruturado; no Pro `desktop-e2e-20260908172422561-p96860-3f1d8f499a4468d5`, os três itens de SE e os quatro itens oficiais SB/I20 passaram. O SB já está no diretório oficial, portanto o estado pending da tabela histórica abaixo não se aplica mais ao SB; isso não promove nenhuma outra spec candidata.
+- SA97-01/03/07/09: teste de arquivo compartilhado e integração de inicialização Host/Agent cobrem migração no lugar do diretório de usuário, preservação dos bytes originais, concorrência e falha de escrita; projeto/plugin não são reescritos e não há mais conversão de profile inteiro em memória para ID.
+- SA97-05/06/08: remover os ramos intermediários de `modelSelection` do Markdown; os dois mapas antigos do JSON embutido são migrados em disco antes da leitura oficial; o novo campo JSON vazio não relê o valor antigo.
+- A afirmação histórica do I20 abaixo de que "Markdown customizado preserva o thoughtLevel antigo conflitante" foi substituída pelo Todo97: `thoughtLevel` já é um campo oficial, e não se fabricam mais amostras de compatibilidade de estados intermediários não publicados. A nova aceitação usa apenas identidades de Provider realmente publicadas.
 
-| ID     | 状态    | 自动化         | 断言                                                                                                                                                                                                                                                                                                                                                                    |
-| ------ | ------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| BSM-01 | covered | SS、SU         | Settings/service 能保存 `general-purpose` / `Explore` 的 built-in model override，并清空恢复默认值                                                                                                                                                                                                                                                                      |
-| BSM-02 | covered | SU             | 内置 subagent 只显示模型控件，不开放 edit、delete、enabled switch、prompt/tools 编辑                                                                                                                                                                                                                                                                                    |
-| BSM-03 | covered | BT、SC         | bootstrap 读取现有 subagent state，并把 built-in overrides 注入 runtime config 与 built-in profile                                                                                                                                                                                                                                                                      |
-| BSM-04 | partial | SC、SB         | core 已证明 `general-purpose` child 使用覆盖模型；桌面 SB 仍在 manual-review/pending，未计入默认 E2E 门禁                                                                                                                                                                                                                                                               |
-| BSM-05 | partial | SC、SB         | core 已证明 `Explore` child 使用覆盖模型；桌面 SB 仍在 manual-review/pending，未计入默认 E2E 门禁                                                                                                                                                                                                                                                                       |
-| BSM-06 | covered | SC             | `Explore` allowed tools 使用最终 effective child model 计算；native WebSearch 能力分支由 core fake connection 覆盖                                                                                                                                                                                                                                                      |
-| BSM-07 | partial | SB             | 候选 spec 覆盖冷启动回显、父 continuation 主模型和 Explore tools 分支；需从 manual-review/pending 晋级后才算默认 E2E 覆盖                                                                                                                                                                                                                                               |
-| BSM-08 | partial | SC、SB         | provider-visible `Agent` schema 不声明 `model`；历史版本额外传入 `model` 时 runtime 丢弃该字段，child 仍使用当前 profile 模型；桌面 SB 仍在 manual-review/pending                                                                                                                                                                                                       |
-| BSM-09 | covered | SS、SU、SB     | Custom Markdown 与 builtin state 能保存、回显并删除 `thoughtLevel`；builtin model / effort 通过一次 service 写入完整组合                                                                                                                                                                                                                                                |
-| BSM-10 | covered | SU、SB、SX     | 不同模型展示各自 reasoning 档位；模型切换清空 explicit effort，catalog 刷新不清空；SU 使用具体无 reasoning 配置模型覆盖 builtin/custom 隐藏选择器，SX 覆盖 App metadata 缺失但 runtime catalog 可解析的 Claude                                                                                                                                                          |
-| BSM-11 | covered | SU、SC、RM、SB | 非法历史 effort 显示错误并阻止保存；runtime 严格拒绝非法档位，不自动映射                                                                                                                                                                                                                                                                                                |
-| BSM-12 | covered | SC、BT、RM、SB | 具体 profile 模型使用目标模型默认或显式 reasoning provider options；inherit 继续继承父 options                                                                                                                                                                                                                                                                          |
-| BSM-13 | partial | SB             | 候选 spec 已在真实窗口编辑 builtin/custom effort、核对 JSON/Markdown，并通过 provider-visible child request 验证实际生效；仍需从 manual-review/pending 晋级并进入默认 E2E 门禁                                                                                                                                                                                          |
-| BSM-14 | partial | SU、SX         | runtime catalog 对目标模型明确给出非空/空档位时分别保持支持/不支持；目标模型或能力字段缺失时立即回退 App metadata，不等待 workspace status，metadata 首次未就绪才 loading，非法历史值显示原值。SX 覆盖 App metadata 缺失但 runtime 可解析的 Claude，仍需从 manual-review/pending 晋级                                                                                   |
-| BSM-15 | covered | SU、SS、SE、TC | Builtin/custom 尚无 explicit effort 时，Select 仍以 effective 默认档位保持真实选中态；鼠标或键盘再次确认该档位会物化并持久化                                                                                                                                                                                                                                            |
-| BSM-16 | covered | SE             | Settings 覆盖两个 builtin 编辑入口，以及 custom user/workspace 创建与编辑；每次保存均校验最终 scope 路径、完整 frontmatter/正文，重命名后旧文件不存在                                                                                                                                                                                                                   |
-| BSM-17 | covered | SE             | 只选择 reasoning 模型但不操作 effort 控件时，控件展示 catalog 默认档位，但 builtin state 不新增 thought-level key、custom Markdown 不新增 `thoughtLevel`                                                                                                                                                                                                                |
-| BSM-18 | covered | SE             | Custom 保存模型 A 与 effort 后从模型供应商设置删除 A；重新打开编辑页模型触发器显示“选择模型”，下拉菜单不含 A；effort 隐藏、保存禁用，且原 Markdown 保持不变                                                                                                                                                                                                                 |
-| BSM-19 | covered | SU、SL         | BigModel 登录成功后立即进入 Subagent 设置：Coding Plan effort 先由 App metadata 解除 UI 门禁；App/runtime 模型成员分叉同时触发目标 workspace 按需对账，保持 `includeWorkspaceState=false`，再由 `workspace/readState` 最终回填包含 `high` / `max` 的 runtime 目录。SU 与正式 SL 自动通过                                                                                |
-| BSM-20 | covered | SU、SL、SM     | Start、Individual、Team 同属 OAuth mode 时，Subagents 按最新 `modelProviderFamilySelectedKeys` 选择连接。SM 真实领取 Start 后，Builtin 绑定 Start 模型再切回 Individual 时，模型触发器显示“选择模型”且菜单只展示新连接候选；SL 覆盖 Individual 切 Team 且已有模型与 reasoning 继续可用；SU 覆盖 Start → Individual → Team 的分组重建。整个链路不依赖远端 catalog 强刷。 |
+| ID | Estado | Automação | Asserções |
+| --- | --- | --- | --- |
+| BSM-01 | covered | SS、SU | Settings/service consegue salvar a built-in model override de `general-purpose` / `Explore` e limpar voltando ao padrão |
+| BSM-02 | covered | SU | O subagent embutido só mostra o controle de modelo, sem liberar edit, delete, enabled switch nem edição de prompt/tools |
+| BSM-03 | covered | BT、SC | O bootstrap lê o estado de subagent existente e injeta as built-in overrides no runtime config e no built-in profile |
+| BSM-04 | partial | SC、SB | O core já provou que o child de `general-purpose` usa o modelo sobrescrito; o SB de desktop continua em manual-review/pending e não conta para o gate de E2E padrão |
+| BSM-05 | partial | SC、SB | O core já provou que o child de `Explore` usa o modelo sobrescrito; o SB de desktop continua em manual-review/pending e não conta para o gate de E2E padrão |
+| BSM-06 | covered | SC | Os allowed tools do `Explore` são calculados com o child model efetivo final; o ramo de capacidade WebSearch nativa é coberto pela fake connection do core |
+| BSM-07 | partial | SB | A spec candidata cobre a reexibição em cold start, o modelo principal da continuation pai e o ramo de tools do Explore; só conta como cobertura E2E padrão depois de promovida de manual-review/pending |
+| BSM-08 | partial | SC、SB | O schema `Agent` visível ao provider não declara `model`; quando versões antigas passam `model` adicional, o runtime descarta o campo e o child continua usando o modelo do profile atual; o SB de desktop continua em manual-review/pending |
+| BSM-09 | covered | SS、SU、SB | Markdown customizado e estado builtin conseguem salvar, reexibir e apagar `thoughtLevel`; builtin model / effort são gravados como combinação completa em uma única escrita de service |
+| BSM-10 | covered | SU、SB、SX | Modelos diferentes exibem seus próprios níveis de reasoning; trocar de modelo limpa o effort explicitamente, e a atualização do catalog não limpa; SU usa um modelo concreto sem reasoning para cobrir a ocultação do seletor em builtin/custom, e SX cobre o Claude em que o App metadata falta mas o runtime catalog é analisável |
+| BSM-11 | covered | SU、SC、RM、SB | Effort histórico inválido mostra erro e impede o salvamento; o runtime rejeita estritamente níveis inválidos, sem mapeamento automático |
+| BSM-12 | covered | SC、BT、RM、SB | O modelo concreto do profile usa as provider options de reasoning padrão do modelo alvo ou as explícitas; inherit continua herdando as options do pai |
+| BSM-13 | partial | SB | A spec candidata já editou builtin/custom effort em janela real, conferiu JSON/Markdown e validou o efeito real via child request visível ao provider; ainda precisa ser promovida de manual-review/pending e entrar no gate de E2E padrão |
+| BSM-14 | partial | SU、SX | Quando o runtime catalog dá explicitamente níveis não vazios/vazios para o modelo alvo, suporte/não suporte são mantidos; quando o campo de modelo alvo ou de capacidade falta, há fallback imediato para o App metadata, sem esperar o status do workspace; o metadata ainda não pronto na primeira vez mostra loading e valores históricos inválidos exibem o valor original. SX cobre o Claude sem App metadata mas analisável pelo runtime, e ainda precisa ser promovida de manual-review/pending |
+| BSM-15 | covered | SU、SS、SE、TC | Quando builtin/custom ainda não tem effort explícito, o Select continua com o padrão efetivo como estado realmente selecionado; confirmar de novo esse nível com mouse ou teclado materializa e persiste |
+| BSM-16 | covered | SE | Settings cobre as duas entradas de edição de builtin, além da criação e edição de custom de usuário/workspace; cada salvamento valida o caminho final de escopo e o frontmatter/corpo completos, e após renomear o arquivo antigo não existe mais |
+| BSM-17 | covered | SE | Ao escolher só um modelo de reasoning sem mexer no controle de effort, o controle mostra o nível padrão do catalog, mas o estado builtin não ganha chave thought-level e o Markdown customizado não ganha `thoughtLevel` |
+| BSM-18 | covered | SE | Depois de salvar no Custom o modelo A com effort, remove-se A das configurações de fornecedor do modelo; ao reabrir a página de edição o gatilho do modelo mostra "选择模型", o dropdown não contém A, o effort fica oculto, o salvamento desabilitado e o Markdown original permanece inalterado |
+| BSM-19 | covered | SU、SL | Após o login BigModel bem-sucedido, entra-se direto nas configurações de Subagent: o effort do Coding Plan é primeiro liberado do gate de UI pelo App metadata; a divergência entre membros de modelo do App/runtime dispara ao mesmo tempo a reconciliação sob demanda do workspace alvo, mantendo `includeWorkspaceState=false`, e só então o `workspace/readState` preenche finalmente o catálogo de runtime com `high` / `max`. SU e o SL oficial passam automaticamente |
+| BSM-20 | covered | SU、SL、SM | Quando Start, Individual e Team pertencem ao mesmo modo OAuth, os Subagents escolhem a conexão pelo `modelProviderFamilySelectedKeys` mais recente. Depois que o SM realmente resgata o Start e o Builtin fica ligado ao modelo do Start, ao voltar para Individual o gatilho do modelo mostra "选择模型" e o menu só exibe candidatos da nova conexão; o SL cobre a troca de Individual para Team com modelo e reasoning já existentes continuando disponíveis; o SU cobre a reconstrução agrupada de Start → Individual → Team. A cadeia inteira não depende de re-verificação forçada do catalog remoto. |
 
-## 剪枝
+## Podagem
 
-### Todo 88 已接受的旧数据补充
+### Complemento de dados antigos aceito pelo Todo 88
 
-- 主动选择新模型使用该模型最高档位；历史缺失/非法档位不自动补齐。旧 BSM-10/15/17 中“切换清空”“仅显示默认、不保存”的表述由此取代；I20 验证主动切换后的真实持久化最高档，再验证手动 high 的请求结果。
-
-- I20 的设置页保存之后、冷启动之前，将隔离 fixture 的内置覆盖改为已发布旧 `builtInModelOverrides` / `builtInThoughtLevelOverrides`。冷启动必须由 Host 导入，随后不再次修改设置，三个 child 的实际请求仍分别使用指定模型和 high 档位；父请求保持 max。
-- 自定义 Markdown 只写正式 `model` / `thoughtLevel: high`，不注入未发布中间态；冷启动前后文件保持一致，实际 child 请求继续 high。
-
-- 不覆盖 Settings 热保存后已启动 agent 立即生效；当前 desktop agent 在窗口启动早期初始化，热保存行为由 service/UI 单测覆盖，runtime 生效由冷启动链路覆盖。
-- 不覆盖 multi-session 隔离、remote `/remote`、mobile replayable、queue、stop、edit/fork、compact 或后台并发组合。
-- 不新增 workspace 级覆盖；`Explore` 无覆盖默认继承主模型，不再默认使用 lite。
-- 不增加 `Agent` tool 调用级 model / effort 参数，不覆盖热更新、multi-session 或 remote/mobile 状态组合。
-- 不迁移或改写历史 transcript 中已有的 `Agent.model`；只保证它不再参与新一次 child runtime 的模型选择。
-- Claude runtime-catalog parity 已确认采用完整重复矩阵，不以现有 DeepSeek `I20` 代表覆盖；catalog 首次 loading 使用受控 UI 测试，不为 E2E 添加生产测试开关。
-- Settings CRUD E2E 不发送 prompt，不验证冷启动 child、provider request 或 model-io；这些行为继续由 SB/SX 负责，避免 UI 保存回归扩大到 CLI/runtime。
-- SL 是登录后 App provider 快照与 desktop continuous workspace runtime catalog 的双阶段回归门禁：App metadata 保证控件立即可用，后台对账保证 runtime catalog 最终一致；runtime 已有明确能力声明时仍优先。remote workspace、手机 `/remote` replayable、task queue 与 provider request 均剪枝。
+- Selecionar ativamente um novo modelo usa o nível mais alto desse modelo; níveis históricos ausentes ou inválidos não são preenchidos automaticamente. As formulações antigas em BSM-10/15/17 de que "trocar limpa" e "só mostra o padrão, sem salvar" são substituídas por isso; o I20 verifica a persistência real do nível mais alto após a troca ativa e depois verifica o resultado da requisição com high manual.
+- Depois do salvamento na página de configurações do I20 e antes do cold start, a cobertura embutida da fixture isolada é alterada para os antigos `builtInModelOverrides` / `builtInThoughtLevelOverrides` já publicados. O cold start tem de importar pelo Host, sem modificar as configurações de novo, e os pedidos reais dos três children continuam usando o modelo especificado e o nível high; o pedido do pai permanece em max.
+- O Markdown customizado grava apenas os campos oficiais `model` / `thoughtLevel: high`, sem injetar estados intermediários não publicados; o arquivo fica igual antes e depois do cold start e o pedido real do child continua em high.
+- Não cobrir a aplicação imediata em agente já iniciado após salvamento quente nas Settings; o agente de desktop atual é inicializado bem no começo da janela, o comportamento de salvamento quente é coberto por teste unitário de service/UI e a eficácia no runtime é coberta pela cadeia de cold start.
+- Não cobrir isolamento multi-session, remote `/remote`, mobile replayable, queue, stop, edit/fork, compact ou combinações de concorrência em background.
+- Não adicionar cobertura em nível de workspace; o `Explore` sem cobertura herda por padrão o modelo principal e não volta a usar lite por padrão.
+- Não adicionar parâmetros de model/effort na chamada da ferramenta `Agent` em nível de chamada, nem cobrir combinações de hot update, multi-session ou estados remote/mobile.
+- Não migrar nem reescrever o `Agent.model` já existente em transcripts históricos; apenas se garante que ele não participe mais da escolha de modelo de um novo child runtime.
+- A paridade do runtime-catalog do Claude já confirmada adota a matriz completa e repetida, sem usar o `I20` de DeepSeek existente como cobertura representativa; o loading inicial do catalog usa um teste de UI controlado e nenhum switch de teste de produção é adicionado para o E2E.
+- O E2E de CRUD das Settings não envia prompt nem verifica cold start de child, provider request ou model-io; esses comportamentos continuam com SB/SX, evitando que uma regressão de salvamento de UI se expanda para CLI/runtime.
+- O SL é um gate de regressão de duas fases entre o snapshot de provider do App após o login e o runtime catalog contínuo de workspace do desktop: o App metadata garante que o controle fique imediatamente disponível e a reconciliação em background garante que o runtime catalog fique finalmente consistente; quando o runtime já tem uma declaração explícita de capacidade, ela continua prevalecendo. Remote workspace, `/remote` replayable do celular, task queue e provider request são podados.

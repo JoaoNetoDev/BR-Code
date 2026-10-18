@@ -1,64 +1,59 @@
-# Feature Boundary Planner ZCode Domain Map
+# Mapa de Domínios do ZCode para o Feature Boundary Planner
 
-## 背景
+## Contexto
 
-`feature-boundary-planner` 从 conversation 专项 skill 泛化为 ZCode 通用功能边界澄清入口后，主流程保留了
-formal-proof、case catalog 和用户剪枝方法，但核心是先问清功能边界。后续用户提出“切换模型”
-“手机模式”“队列功能”“渲染性能”“持久化数据更新”“监控埋点”“数据跟踪”等问题时，skill 需要先把可能交叉的
-产品状态列出来，再引导用户逐步剪枝，而不是只套 conversation 默认维度。
+Depois que o `feature-boundary-planner` foi generalizado, a partir de um skill de conversation, para se tornar a porta de entrada geral de esclarecimento de fronteiras de funcionalidade do ZCode, o fluxo principal preservou formal-proof, o catálogo de cases e o método de poda do usuário, mas o núcleo passou a ser弄清楚 primeiro a fronteira da funcionalidade. Quando o usuário traz questões como 「切换模型」 (trocar de modelo), 「手机模式」 (modo celular), 「队列功能」 (funcionalidade de fila), 「渲染性能」 (performance de renderização), 「持久化数据更新」 (atualização de dados persistidos), 「监控埋点」 (instrumentação de monitoramento) ou 「数据跟踪」 (rastreamento de dados), o skill precisa primeiro listar os estados de produto possivelmente cruzados e só então guiar o usuário a podar passo a passo, em vez de simplesmente aplicar as dimensões padrão de conversation.
 
-## 目标
+## Objetivos
 
-- 在 skill 内增加一份 ZCode 能力域和交叉轴参考，帮助使用者从自然语言需求定位相关文档、代码和状态所有者。
-- 让矩阵枚举覆盖桌面端、Web 端、手机远控、远程 workspace、model/provider、queue、persistence、telemetry、
-  rendering performance、permission/tool/MCP、theme/locale 等真实产品交叉点。
-- 保持 `SKILL.md` 精简，把详细 domain map 放入 `references/`，按需加载。
-- 保留用户剪枝机制：skill 只能提出候选语义和影响面，不能替用户静默决定产品行为。
+- Adicionar ao skill uma referência de domínios de capacidade e eixos de cruzamento do ZCode, ajudando quem usa a localizar documentos, código e donos de estado a partir de uma necessidade em linguagem natural.
+- Fazer com que a enumeração da matriz cubra os pontos de cruzamento reais de produto: desktop, web, controle remoto pelo celular, workspace remoto, model/provider, queue, persistence, telemetry, performance de renderização, permission/tool/MCP, theme/locale, entre outros.
+- Manter o `SKILL.md` enxuto, colocando o domain map detalhado em `references/`, com carregamento sob demanda.
+- Preservar o mecanismo de poda do usuário: o skill só pode propor semânticas candidatas e superfícies de impacto, e nunca decidir silenciosamente o comportamento de produto pelo usuário.
 
-## 主要事实源
+## Principais Fontes de Fato
 
-| 能力域                         | 代表文档                                                                                                                                              | 代表代码入口                                                                                                                                                                   |
+| Domínio de capacidade                    | Documentos representativos                                                                                                                                     | Entradas de código representativas                                                                                                                                                |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 架构与消息流                   | `docs/architecture/zcode-code-architecture-overview.md`, `docs/architecture/message-flow.md`                                                          | `packages/shared`, `packages/services`, `packages/desktop`, `packages/ui`, `apps/zcode-cli`                                                                                    |
-| Conversation 状态空间          | `docs/zcode-protocol.md`, `docs/conversation-product-state-space.md`, `docs/testing/conversation-session-*.md`                                        | `packages/formal-proof`, `packages/ui/src/v4/conversationProjectionStore.ts`, `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/`                                       |
-| 模型与 Provider                | `docs/working-memory/provider-refactor/design/`                                                                                                       | `packages/provider`, `packages/provider-node`, `packages/services/src/provider-runtime`, `packages/ui/src/settings`                                                            |
-| 手机远控与 replayable          | `docs/web-remote-control/*.md`, `docs/zcode-protocol.md`                                                                                              | `packages/shared/src/zcode-protocol-v4/`, `packages/ui/src/v4/agentConversationTransport.ts`, `packages/desktop/src/main/webRemoteControlManager.ts`                           |
+| Arquitetura e fluxo de mensagens                   | `docs/architecture/zcode-code-architecture-overview.md`, `docs/architecture/message-flow.md`                                                          | `packages/shared`, `packages/services`, `packages/desktop`, `packages/ui`, `apps/zcode-cli`                                                                                    |
+| Espaço de estados de Conversation          | `docs/zcode-protocol.md`, `docs/conversation-product-state-space.md`, `docs/testing/conversation-session-*.md`                                        | `packages/formal-proof`, `packages/ui/src/v4/conversationProjectionStore.ts`, `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/`                                       |
+| Modelos e Providers                | `docs/working-memory/provider-refactor/design/`                                                                                                       | `packages/provider`, `packages/provider-node`, `packages/services/src/provider-runtime`, `packages/ui/src/settings`                                                            |
+| Controle remoto pelo celular e replayable          | `docs/web-remote-control/*.md`, `docs/zcode-protocol.md`                                                                                              | `packages/shared/src/zcode-protocol-v4/`, `packages/ui/src/v4/agentConversationTransport.ts`, `packages/desktop/src/main/webRemoteControlManager.ts`                           |
 | Queue / command                | `docs/ui/chat-message-queue.md`, `docs/zcode-protocol.md`                                                                                             | `packages/shared/src/zcode-protocol-v4/command.ts`, `packages/ui/src/v4/SessionPane.tsx`, `apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/queue.ts` |
 | Persistence / identity         | `docs/task/task-sqlite-index.md`, `docs/task/task-snapshot-on-demand.md`, `docs/remote-workspace-session-unified-settings.md`                         | `packages/services/src/session/taskIndexRepo.ts`, `packages/ui/src/store/tabWorkspaceIdentity.ts`, `packages/shared/src/workspaceSessionRestore.ts`                            |
-| Rendering performance          | `docs/chat/message-render-performance.md`, `docs/performance/streaming-tool-input-backpressure.md`, `docs/performance/renderer-production-logging.md` | `packages/ui/src/v4/ConversationTimeline.tsx`, `packages/ui/src/v4/ConversationRowView.tsx`, `packages/ui/src/v4/conversationProjectionStore.ts`                               |
+| Performance de renderização          | `docs/chat/message-render-performance.md`, `docs/performance/streaming-tool-input-backpressure.md`, `docs/performance/renderer-production-logging.md` | `packages/ui/src/v4/ConversationTimeline.tsx`, `packages/ui/src/v4/ConversationRowView.tsx`, `packages/ui/src/v4/conversationProjectionStore.ts`                               |
 | Monitoring / telemetry / usage | `docs/monitoring/performance-telemetry-catalog.md`, `docs/monitoring/business-monitoring.md`, `docs/usage-stats-app-coding-plan-split.md`             | `packages/ui/src/lib/appTelemetry.ts`, `packages/ui/src/lib/uiPerfArmsTelemetry.ts`, `packages/services/src/telemetry`, `packages/services/src/usage-stats`                    |
 | Permission / tool / MCP        | `docs/permission-project-approval.md`, `docs/mcp-platform-boundary.md`, `docs/agent-tool-call-renderer.md`                                            | `packages/shared/src/zcode-protocol-v4/`, `packages/shared/src/mcp.ts`, `packages/ui/src/v4/V4InteractionDialogs.tsx`, `packages/ui/src/ToolCallBlocks*`                       |
-| Theme / locale / mobile shell  | `docs/ui/zai-themes.md`, `docs/ui/default-theme.md`, `docs/web-remote-control/mobile-theme-control.md`                                                | `packages/ui/src/i18n`, `packages/ui/src/useTheme.ts`, `packages/ui/src/WebRemoteControlMobileShell.tsx`, `packages/shared/src/protocol.ts`                                    |
+| Theme / locale / shell mobile  | `docs/ui/zai-themes.md`, `docs/ui/default-theme.md`, `docs/web-remote-control/mobile-theme-control.md`                                                | `packages/ui/src/i18n`, `packages/ui/src/useTheme.ts`, `packages/ui/src/WebRemoteControlMobileShell.tsx`, `packages/shared/src/protocol.ts`                                    |
 
-## Skill 行为要求
+## Requisitos de Comportamento do Skill
 
-1. 当用户给出 ZCode 功能或 bug-prone interaction 时，先把需求映射到 1-4 个能力域，读相应源文档，再看代码。
-2. 对每个能力域记录状态所有者：UI local state、Zustand store、host service、desktop main、relay、agent runtime、SQLite /
-   session file、remote host 或 backend API。
-3. 维度提取必须包含端类型和交付语义：桌面 `desktop-continuous` 与手机 `web-remote-replayable` 不能互相代替。
-4. 涉及 workspace 级状态时必须区分 `workspaceIdentity`、`workspacePath` 与 `workspaceKey = workspaceIdentity?.trim() || workspacePath`。
-5. 先枚举候选交叉组合，再用 guard、不变量、等价类和代表 case 剪枝；被剪掉的组合必须写明 invariant。
-6. `undefined` case 必须转成给用户的小批量问题，包含候选答案和影响面。
-7. accepted case 必须说明 setup、action、assertion 和证据层，至少包含一个非 UI 证据层。
+1. Quando o usuário traz uma funcionalidade do ZCode ou uma interação propensa a bugs, mapear primeiro a necessidade para 1 a 4 domínios de capacidade, ler os documentos-fonte correspondentes e só então olhar o código.
+2. Para cada domínio de capacidade, registrar os donos de estado: estado local de UI, store Zustand, host service, desktop main, relay, agent runtime, arquivo SQLite / de session, remote host ou backend API.
+3. A extração de dimensões deve incluir o tipo de ponta e a semântica de entrega: o desktop `desktop-continuous` e o celular `web-remote-replayable` não podem se substituir.
+4. Quando envolver estado de nível de workspace, é obrigatório distinguir `workspaceIdentity`, `workspacePath` e `workspaceKey = workspaceIdentity?.trim() || workspacePath`.
+5. Enumerar primeiro as combinações candidatas de cruzamento e então podar com guard, invariantes, classes de equivalência e cases representativos; toda combinação podada precisa deixar registrado o invariante correspondente.
+6. Cases em `undefined` devem virar perguntas ao usuário em lotes pequenos, com respostas candidatas e superfícies de impacto.
+7. Um case aceito precisa declarar setup, action, assertion e camada de evidência, contendo pelo menos uma camada de evidência não-UI.
 
-## 高风险交叉轴
+## Eixos de Cruzamento de Alto Risco
 
-| 交叉轴                                                                  | 为什么必须显式考虑                                                                                                               |
+| Eixo de cruzamento                                                                  | Por que precisa ser considerado explicitamente                                                                                                               |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 模型切换 x task 切换 / 新建 / 发送 / fork / edit / queue                | 模型事实源跨 toolbar、workspace default、task config、task meta、draft session、provider registry 和 runtime `defaultModelRef`。 |
-| 模型/provider x 远程 workspace                                          | 本地 app-global provider registry 与远端 runtime 执行事实源不同，重连和 runtime restart 会暴露旧状态。                           |
-| 手机远控 x queue / permission / elicitation / stop                      | 手机端依赖 replayable mirror、snapshot watermark、owner command 和 host command queue，不能按桌面本地 queue 推断。               |
-| replayable snapshot x 持久化数据                                        | `ZCodeTaskSnapshot.runtime` 是响应态运行时补充，不写回 session JSON；task index 只负责列表元数据。                               |
-| queue x stop / compact / goal / edit / fork                             | queue 是未来用户意图，不能被 compact、edit、fork 隐式改写；stop 后 autoDrain 语义需要明确。                                      |
-| rendering performance x streaming tool input / background task / replay | 大工具输入、Markdown、Mermaid、后台任务和 replayable gap 会放大 store 写入、解析和 React render 成本。                           |
-| telemetry x message stream / tool step / privacy / volume               | 高频 step/chunk 级事件会放大 ARMS 或日志量；用户内容、credential、hash 和原始 payload 不能进入不该进入的通道。                   |
-| theme / locale x desktop / mobile / persisted settings                  | 桌面和手机远控主题本地偏好互不耦合；locale 可能影响命令、菜单、toast、截图断言和测试文案。                                       |
-| workspace identity x cache / task list / skill/plugin/MCP load          | 远程 workspace 不能只按 path 做隔离；缓存、队列、配置、任务列表和远程历史都要用 identity fallback 规则。                         |
-| tool/MCP/permission x mobile remote                                     | MCP 平台能力通过 `IPlatformService` 和 shared-host attachment 走；permission options 必须透传 agent response，不能由 UI 猜。     |
+| Troca de modelo x troca/criação/envio/fork/edit/queue de task                | A fonte de fato do modelo atravessa toolbar, workspace default, task config, task meta, draft session, provider registry e o `defaultModelRef` do runtime. |
+| Modelo/provider x workspace remoto                                          | O provider registry local app-global e a fonte de fato de execução do runtime remoto diferem; reconexões e restarts do runtime expõem estado antigo.                           |
+| Controle remoto pelo celular x queue / permission / elicitation / stop                      | O lado celular depende de mirror replayable, snapshot watermark, owner command e host command queue; não pode ser inferido a partir da queue local do desktop.               |
+| Snapshot replayable x dados persistidos                                        | `ZCodeTaskSnapshot.runtime` é um complemento de runtime responsivo e não é gravado de volta no JSON da session; o task index cuida apenas dos metadados de listagem.                               |
+| Queue x stop / compact / goal / edit / fork                             | A queue é intenção futura do usuário e não pode ser reescrita implicitamente por compact, edit ou fork; a semântica de autoDrain após stop precisa ficar explícita.                                      |
+| Performance de renderização x streaming de tool input / task em background / replay | Entradas grandes de ferramenta, Markdown, Mermaid, tarefas em background e gaps replayable amplificam os custos de escrita no store, parsing e React render.                           |
+| Telemetry x message stream / tool step / privacidade / volume               | Eventos de altíssima frequência por step/chunk amplificam o volume de ARMS ou de logs; conteúdo do usuário, credenciais, hashes e payload bruto não podem entrar em canais onde não deveriam.                   |
+| Theme / locale x desktop / mobile / configurações persistidas                  | As preferências locais de tema do desktop e do controle remoto pelo celular não se acoplam; o locale pode afetar comandos, menus, toasts, asserções de captura de tela e textos de teste.                                       |
+| Workspace identity x cache / lista de tasks / carregamento de skill/plugin/MCP          | Um workspace remoto não pode ser isolado apenas por path; cache, fila, configurações, lista de tasks e histórico remoto precisam usar a regra de fallback de identity.                         |
+| Tool/MCP/permission x remoto pelo celular                                     | As capacidades de plataforma do MCP passam por `IPlatformService` e por shared-host attachment; as opções de permission precisam ser repassadas da resposta do agente e não adivinhadas pela UI.     |
 
-## 验收
+## Aceitação
 
-- `feature-boundary-planner` 的 `SKILL.md` 指向新的 domain map reference，并在流程中要求先澄清功能边界，再做能力域映射。
-- reference 文件覆盖上述能力域、事实源、状态所有者和高风险交叉轴。
-- case planning template 能容纳 domain scope、state owners、高风险交叉和证据层。
-- 运行 skill validation、`pnpm typecheck` 和 `pnpm lint`。
+- O `SKILL.md` do `feature-boundary-planner` aponta para a nova reference de domain map e exige, no fluxo, esclarecer a fronteira da funcionalidade antes de fazer o mapeamento para domínios de capacidade.
+- O arquivo de reference cobre os domínios de capacidade, as fontes de fato, os donos de estado e os eixos de cruzamento de alto risco acima.
+- O template de planejamento de cases comporta domain scope, state owners, cruzamentos de alto risco e camadas de evidência.
+- Executar a validação do skill, `pnpm typecheck` e `pnpm lint`.

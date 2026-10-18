@@ -1,8 +1,8 @@
-# Model 公共契约
+# Contrato público de Model
 
-本篇给出业务调用方可见的 Model 类型。Provider 配置如何形成、Model 如何创建，分别见 [`../registry/configuration.md`](../registry/configuration.md) 和 [`../registry/model-creation.md`](../registry/model-creation.md)。
+Este documento apresenta os tipos de Model visíveis aos chamadores de negócio. Como a configuração de Provider é formada e como o Model é criado estão, respectivamente, em [`../registry/configuration.md`](../registry/configuration.md) e [`../registry/model-creation.md`](../registry/model-creation.md).
 
-## 类型关系
+## Relação entre tipos
 
 ```text
 Model
@@ -25,14 +25,14 @@ ModelRequest
 └─ abortSignal
 ```
 
-四类数据承担不同职责：
+Quatro tipos de dados carregam responsabilidades diferentes:
 
-| 数据            | 含义                                       | Request 能否修改           |
-| --------------- | ------------------------------------------ | -------------------------- |
-| Properties      | 当前模型已经确定的性质                     | 否                         |
-| Option Specs    | 通用 Option 的可选值、顺序、上限和请求映射 | 否                         |
-| Model Options   | 当前 Model 绑定的 Option                   | 通过 `bind()` 派生新 Model |
-| Request Options | 单次调用的 Option 覆盖                     | 是，只影响本次调用         |
+| Dado             | Significado                                                     | O Request pode modificar |
+| ---------------- | --------------------------------------------------------------- | ------------------------ |
+| Properties       | propriedades já determinadas do modelo atual                    | não                       |
+| Option Specs     | valores opcionais, ordem, limite superior e mapeamento de requisição de uma Option genérica | não                       |
+| Model Options    | Option à qual o Model atual está vinculado                      | deriva um novo Model via `bind()` |
+| Request Options  | sobrescrita de Option de uma chamada única                      | sim, afeta só esta chamada |
 
 ## Properties
 
@@ -56,31 +56,28 @@ interface ModelProperties {
 }
 ```
 
-Properties 供调用方选择请求策略，也供 Model 在发送请求前检查请求与模型是否相容。
+As Properties servem ao chamador para escolher a estratégia da requisição e ao Model para verificar, antes de enviar a requisição, se ela é compatível com o modelo.
 
-| Property                        | 使用位置                                    |
-| ------------------------------- | ------------------------------------------- |
-| `contextWindow`                 | Context 预算与 Compact 判断                 |
-| `input_format`                  | Text、Image、Video、Audio、PDF 输入格式检查 |
-| `output_format`                 | 当前 Text 输出格式检查                      |
-| `supportsToolCall`              | Agent Tool 请求检查                         |
-| `supportsJsonSchemaOutput`      | JSON Schema 请求检查                        |
-| `supportsNativeWebSearch`       | 决定是否使用 Provider 原生搜索能力          |
-| `supportsMidConversationSystem` | 决定历史消息的 Provider message 转换策略    |
+| Property                        | Onde é usada                                          |
+| ------------------------------- | ----------------------------------------------------- |
+| `contextWindow`                 | orçamento de Context e decisão de Compact             |
+| `input_format`                  | verificação dos formatos de entrada Text, Image, Video, Audio, PDF |
+| `output_format`                 | verificação do formato de saída Text atual            |
+| `supportsToolCall`              | verificação de requisição de Tool do Agent           |
+| `supportsJsonSchemaOutput`      | verificação de requisição de JSON Schema              |
+| `supportsNativeWebSearch`       | decide se a capacidade nativa de busca do Provider será usada |
+| `supportsMidConversationSystem` | decide a estratégia de conversão das mensagens do Provider no histórico |
 
-`supportsNativeWebSearch` 和 `supportsMidConversationSystem` 是 Effective Model Config 的最终能力事实，在
-Model 创建阶段固定。产生它们的 Model Config Rule 可以根据模型、Provider、API 类型等解析上下文组合
-匹配，并不要求能力只能由 modelId 决定。Core 只读取固定后的结论，不再根据 Provider 类型、URL 或
-modelId 临时推断。
+`supportsNativeWebSearch` e `supportsMidConversationSystem` são os fatos finais de capacidade do Effective Model Config e são fixados na etapa de criação do Model. As Model Config Rules que os produzem podem combinar correspondências conforme o contexto de resolução — modelo, Provider, tipo de API — e não exigem que a capacidade seja determinada apenas pelo modelId. O Core lê apenas a conclusão já fixada e não infere mais nada temporariamente pelo tipo de Provider, URL ou modelId.
 
 ## Option Specs
 
-公共 Option 使用固定字段。每个模型通过 Option Specs 描述合法范围、语义顺序、硬上限和请求映射；Option Spec 不拥有执行默认值：
+Options públicas usam campos fixos. Cada modelo descreve, por meio das Option Specs, a faixa válida, a ordem semântica, o limite superior rígido e o mapeamento de requisição; o Option Spec não possui valor padrão de execução:
 
 ```ts
 interface EnumOptionSpec {
   type: "enum";
-  // 按语义强度从低到高；values[0] 是最低公开档位。
+  // Do mais baixo ao mais alto em força semântica; values[0] é a PUBLICADA mais baixa.
   values: readonly string[];
   map: string;
 }
@@ -102,29 +99,27 @@ interface ModelOptions {
 }
 ```
 
-`reasoningLevel` 是用户期望的推理强度。它是软约束：Adapter 尽可能用目标协议的 effort、level、toggle 或兼容 budget 表达。
-`reasoningLevel.values` 按推理强度从低到高排列；`values[0]` 是模型公开的最低档位，但不保证等于关闭。
-标准模型选择确实缺省时在 Host Selection 边界选择 `values.at(-1)`；明确采用低成本策略的辅助请求显式选择
-`values[0]`。不得扫描 `off`、`nothink`、`none` 等名称猜测关闭能力。
+`reasoningLevel` é a intensidade de raciocínio esperada pelo usuário. É uma restrição suave: o Adapter a expressa, sempre que possível, como effort, level, toggle ou budget compatível do protocolo de destino.
+`reasoningLevel.values` é ordenado da intensidade de raciocínio mais baixa para a mais alta; `values[0]` é o nível publicado mais baixo do modelo, mas não é necessariamente o mesmo que desligado.
+Quando a seleção padrão de modelo realmente precisa de um padrão, o valor `values.at(-1)` é escolhido na fronteira de Host Selection; requisições auxiliares que adotam explicitamente uma estratégia de baixo custo escolhem
+`values[0]`. Não é permitido varrer nomes como `off`, `nothink`, `none` para adivinhar a capacidade de desligamento.
 
-`maxOutputTokens` 是推理与最终回答共享的总生成 Token 硬上限。Model 校验调用值没有超过对应 `LimitOptionSpec.max`，不替调用方静默截断。
+`maxOutputTokens` é o limite superior rígido total de Tokens gerados, compartilhado entre raciocínio e resposta final. O Model valida se o valor da chamada não excede o `LimitOptionSpec.max` correspondente e não trunca silenciosamente no lugar do chamador.
 
-Option 字段是封闭集合。Provider 不能通过公共接口增加任意 `Record<string, unknown>` 参数。新的通用 Option 需要先确定跨 Provider 语义，再进入 `ModelOptionSpecs`、`ModelOptions` 和 Adapter。
+Os campos de Option são um conjunto fechado. O Provider não pode adicionar parâmetros arbitrários do tipo `Record<string, unknown>` pela interface pública. Uma nova Option genérica precisa ter sua semântica entre Providers definida antes de entrar em `ModelOptionSpecs`, `ModelOptions` e no Adapter.
 
-## Option 解析
+## Resolução de Option
 
 ```text
-Model 绑定的具体 Options
+Options concretos vinculados ao Model
         |
-        | ModelRequest.options 覆盖
+        | ModelRequest.options sobrescreve
         v
-Request Effective Options
+Effective Options do Request
 ```
 
-Request 显式值覆盖 Model 绑定值。`ModelOptions` 是绑定/请求阶段的稀疏 Overlay，但进入 Executor 前必须同时
-存在合法 `reasoningLevel` 和 `maxOutputTokens`。缺值在网络 I/O 前失败，Model、Adapter 和 Runner 不从
-Option Spec 猜测执行值。标准初始选择只在 Host Selection 边界按 `values.at(-1)` 补齐一次；辅助调用显式绑定
-`values[0]`。
+O valor explícito do Request sobrescreve o valor vinculado ao Model. `ModelOptions` é um Overlay esparso das etapas de vinculação/requisição, mas antes de entrar no Executor é preciso que existam simultaneamente um `reasoningLevel` e um `maxOutputTokens` válidos. Valor ausente falha antes do I/O de rede; Model, Adapter e Runner não adivinham valores de execução a partir do Option Spec. A seleção inicial padrão completa `values.at(-1)` apenas uma vez, na fronteira de Host Selection; chamadas auxiliares vinculam explicitamente
+`values[0]`.
 
 ```ts
 const model = baseModel.bind({
@@ -140,7 +135,7 @@ await model.generateText({
 });
 ```
 
-上例的请求使用 `reasoningLevel = high` 和 `maxOutputTokens = 8_000`，不会修改 `model.options`。
+No exemplo acima a requisição usa `reasoningLevel = high` e `maxOutputTokens = 8_000`, sem modificar `model.options`.
 
 ## ModelRequest
 
@@ -154,59 +149,55 @@ interface ModelRequest {
 }
 ```
 
-ModelRequest 描述一次模型调用。模型身份、API Key、Request Auth、Endpoint、Provider 类型和 Provider
-专属参数已经由 Model 的执行实现及其依赖确定，不出现在 Request 中。`zhipu-account`
-的动态访问材料在每个 request attempt 上由 Account Request Auth Service 解析，不改变公共 ModelRequest Schema。
+ModelRequest descreve uma chamada ao modelo. A identidade do modelo, a API Key, o Request Auth, o Endpoint, o tipo de Provider e os parâmetros exclusivos de Provider já são determinados pela implementação de execução do Model e por suas dependências, e não aparecem no Request. O material de acesso dinâmico de `zhipu-account` é resolvido pelo Account Request Auth Service em cada request attempt, sem alterar o Schema público do ModelRequest.
 
-## 请求检查
+## Verificação da requisição
 
-Model 在调用 Adapter 前执行统一检查：
+O Model executa verificações uniformes antes de chamar o Adapter:
 
-| Request 内容         | 检查依据                                |
-| -------------------- | --------------------------------------- |
-| 图片消息             | `properties.input_format.support_image` |
-| PDF 消息             | `properties.input_format.support_pdf`   |
-| 视频消息             | `properties.input_format.support_video` |
-| `tools`              | `properties.supportsToolCall`           |
-| `responseJsonSchema` | `properties.supportsJsonSchemaOutput`   |
-| `reasoningLevel`     | `optionSpecs.reasoningLevel.values`     |
-| `maxOutputTokens`    | `optionSpecs.maxOutputTokens.max`       |
+| Conteúdo do Request     | Base da verificação                       |
+| ----------------------- | ----------------------------------------- |
+| mensagem de imagem      | `properties.input_format.support_image`   |
+| mensagem de PDF         | `properties.input_format.support_pdf`     |
+| mensagem de vídeo       | `properties.input_format.support_video`   |
+| `tools`                 | `properties.supportsToolCall`             |
+| `responseJsonSchema`    | `properties.supportsJsonSchemaOutput`     |
+| `reasoningLevel`        | `optionSpecs.reasoningLevel.values`       |
+| `maxOutputTokens`       | `optionSpecs.maxOutputTokens.max`         |
 
-请求超出 Option Spec 时返回明确错误。Request 使用了模型明确声明为不支持的输入或能力时，Model 同样返回明确错误。这层检查是发送请求前的统一 double check；调用方仍可提前读取 Property 选择自己的策略。
+Uma requisição que excede o Option Spec retorna um erro explícito. O Model também retorna um erro explícito quando o Request usa uma entrada ou capacidade que o modelo declara claramente não suportar. Esta camada é um double check uniforme antes do envio; o chamador ainda pode ler a Property mais cedo para escolher sua própria estratégia.
 
-目标 Registry 发布的 ModelConfig 必须具有完整 Property，因此目标设计中不存在 `unknown`。
-输入输出格式的完整结构、Rule Overlay 和迁移边界见
-[`input-output-format.md`](./input-output-format.md)。
+O ModelConfig publicado pelo Registry de destino precisa ter Properties completas, portanto não existe `unknown` no desenho de destino.
+A estrutura completa dos formatos de entrada e saída, o Overlay de Rules e a fronteira de migração estão em
+[`input-output-format.md`](./input-output-format.md).
 
-## Adapter 边界
+## Fronteira do Adapter
 
 ```text
 ModelRequest
       |
       | resolve options + validate
       v
-Provider-neutral request
+requisição neutra de provider
       |
-      | AI SDK / Adapter 序列化
+      | serialização por AI SDK / Adapter
       v
-目标 API 原始 JSON Request Body
+corpo de Request JSON bruto da API de destino
       |
-      | per-option map（reasoningLevel 后 maxOutputTokens）
+      | map por option (reasoningLevel depois maxOutputTokens)
       v
-最终 Provider request
+request final do Provider
 ├─ Option JSON Merge Patch
-├─ 动态 Token / Header
-├─ 路由与重试
-└─ 错误归一
+├─ Token / Header dinâmicos
+├─ roteamento e retry
+└─ normalização de erros
 ```
 
-公共 Model 层分别理解 `reasoningLevel` 和 `maxOutputTokens`，不理解 thinking budget，也不增加 Provider
-专属的组合约束。每个 Option Spec 的 `map` 是最终请求字段的唯一配置权威；Runtime 不再并行传递 AI SDK
-reasoning namespace、标准 max-output 字段或 fixed-thinking 预算换算。完整契约见
-[`model-option-map.md`](./model-option-map.md)。
+A camada pública de Model entende `reasoningLevel` e `maxOutputTokens` separadamente, não entende thinking budget e não acrescenta restrições combinadas exclusivas de Provider. O `map` de cada Option Spec é a única autoridade de configuração do campo final da requisição; o Runtime não transmite mais em paralelo o namespace de reasoning do AI SDK, o campo padrão de max-output ou a conversão de orçamento de fixed-thinking. O contrato completo está em
+[`model-option-map.md`](./model-option-map.md).
 
-## Result、Event 与归因
+## Result, Event e atribuição
 
-`ModelResult` 和 `ModelEvent` 使用 M1 已建立的统一结果类型：前者表达最终消息、usage 和结束原因，后者表达流式增量、tool call、usage 与结束事件。Provider SDK 原始对象留在 Adapter 内，不再为不同调用方形成平行结果类型。
+`ModelResult` e `ModelEvent` usam os tipos de resultado unificados já estabelecidos em M1: o primeiro expressa a mensagem final, o usage e o motivo de encerramento; o segundo expressa deltas de streaming, tool call, usage e o evento de encerramento. Os objetos brutos do SDK do Provider permanecem dentro do Adapter e não formam mais tipos de resultado paralelos para chamadores diferentes.
 
-Usage、Trace、Model IO、cost、quota 和错误归因读取发起请求的 Model identity 与本次 Effective Options，不读取 Composer Selection、后来变化的 Session Selection，也不依赖 Provider 响应中可缺省的 model 字段。
+Usage, Trace, Model IO, cost, quota e atribuição de erros leem a identidade do Model que iniciou a requisição e as Effective Options desta execução; não leem a Composer Selection, nem a Session Selection que possa ter mudado depois, e não dependem do campo model, opcional, da resposta do Provider.

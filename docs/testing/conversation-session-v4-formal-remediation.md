@@ -1,112 +1,112 @@
-# V4 Conversation Formal Replay Remediation
+# Remediação do Replay Formal de Conversation V4
 
-## 背景与证据
+## Contexto e evidências
 
-2026-07-11 使用 non-recursive formal glob 和严格 provider 池执行了第一轮 desktop non-Docker replay：
+Em 2026-07-11 foi executada a primeira rodada de replay desktop non-Docker usando glob formal non-recursive e um pool estrito de providers:
 
-- formal spec：29；实际 worker：29；`manual-review/pending`：0。
-- provider fixture：`common.json` + 29 个 case-local fixture；未加载 `provider-basic` 或 tool-cross fallback。
-- run id：`task6-strict-20260711`。
-- 结果：34 tests，20 passed，14 failed；15 个 spec 全绿，14 个 spec 至少一条失败。
+- formal spec: 29; workers reais: 29; `manual-review/pending`: 0.
+- fixtures de provider: `common.json` + 29 fixtures case-local; `provider-basic` ou o fallback tool-cross não foram carregados.
+- run id: `task6-strict-20260711`.
+- resultado: 34 tests, 20 passed, 14 failed; 15 specs totalmente verdes e 14 specs com pelo menos uma falha.
 
-这 14 条失败不降级回 pending，也不通过提高 timeout、固定英文文案或恢复 legacy shared fixture 变绿。它们继续作为 formal contract，按以下根因组修复后重新执行严格 batch。
+Essas 14 falhas não voltam para pending e não ficam verdes por meio de aumento de timeout, fixação de textos em inglês ou restauração do fixture shared legado. Elas continuam como formal contract e são reexecutadas no batch estrito depois de corrigidas pelos grupos de causa raiz abaixo.
 
-## 统一权威边界
+## Fronteira de autoridade unificada
 
 ```text
-CLI / V4 snapshot authority
+CLI / autoridade de snapshot do V4
           |
           v
-canonical UI materialization
-  ├─ row/marker semantic data attributes
-  ├─ status-panel shell attributes
-  ├─ one visible split-layout owner
-  └─ row-count / render-unit-count separate units
+materialização canônica da UI
+  ├─ data attributes semânticos de row/marker
+  ├─ atributos de shell do status-panel
+  ├─ um único owner visível do split-layout
+  └─ row-count / render-unit-count como unidades separadas
           |
           v
-formal E2E helpers
-  └─ read stable ids/attributes and perform current user interaction
+helpers E2E formais
+  └─ leem ids/atributos estáveis e realizam a interação de usuário atual
 ```
 
-E2E 不允许再次把旧调试 DOM、i18n 文案、隐藏 child 元素或旧 localStorage owner 当成产品权威。
+O E2E não pode voltar a tratar DOM de depuração antigo, textos de i18n, child elements ocultos ou o antigo owner de localStorage como autoridade de produto.
 
-## 失败分组与修复决策
+## Agrupamento das falhas e decisões de correção
 
-| Formal spec | 直接失败 | 根因定性 | 修复合同 |
+| Formal spec | Falha direta | Qualificação da causa raiz | Contrato de correção |
 | --- | --- | --- | --- |
-| `v4-edit` | edited reply 未出现 | E2E 仍把 newText 写入主 composer；当前产品要求行内 Edit → 行内输入 → 行内 Send | helper 精确解析 user rowId，使用 `v4-edit-input/submit-${rowId}`；保留 rewind/rerun 强断言 |
-| `v4-fork-edit-branch` | edited reply 未出现 | 与 `v4-edit` 同源 | 复用同一行内 edit helper，再证明 fork child 只有新分支 |
-| `v4-compact` | 等待 `[compact]` | 旧 debug 文本 oracle；V4 实际 marker status 为 `success` | timeline row 暴露 marker type/status/origin；helper 断言结构化属性，不断言英文/中文文案 |
-| `v4-background-work` | running item 永不出现 | unified status panel 在窄 pane 为 mini，item 只在展开的“终端/智能体”对应区块挂载；cancelled 后 running item 应消失 | 先读 panel shell typed running count，再展开对应区块；取消后断言 ACK 和 item 消失 |
-| `v4-goal` | 旧 goal banner 永不出现 | goal 已迁移到 unified status panel，旧 banner/TID 无生产引用 | panel shell 在 mini/expanded 都暴露 goal objective/status；helper pane-scoped 读取 |
-| `v4-delete` | delete TID 缺失 | WIP header 精简误删冻结协议的 UI 入口和 SessionPane command 接线 | 恢复 touch-accessible delete action；accepted/noop 后才回 draft，failed 不回 draft |
-| `v4-rename` | rename input 缺失 | 与 delete 同一 WIP 精简误删 | 恢复 header rename input/submit 与 `renameSession` ACK 接线 |
-| `v4-sidebar` | rename input 缺失 | 与 rename 同源 | 恢复入口后继续验证 sessions-index custom title 与 delete 后列表收口 |
-| `v4-load-older` | raw rows 期望 70，收到 unit count 1 | `data-row-count` 已从 raw projection rows 漂移成 turn render units；单 turn 70 blocks 又无法证明分页 | 分离 window/raw total/render unit/mounted unit；fixture 改为多 completed turns；anchor 以 turn unit 验证 |
-| `v4-scroll` | raw rows 期望 50，收到 unit count 1 | 与 load-older 同源；单 turn 无法形成稳定长列表 | 多 turn 历史 + controlled-stream 新 turn；不同计数单位禁止互比 |
-| `v4-split-persist` | refresh 后 ratio 无法恢复 | draft split promote 为 group 后仍保留 paneLayout shadow owner，divider 写错 store | promotion 成功即消费 source layout；group 自己持久化 ratio；remote compact 不启用 group |
-| `v4-split` | close 后 pane 复活 | group GC 后 fallback 到未清理 shadow split | 与 split-persist 同一 ownership transfer 根修；close 后只剩 single pane |
-| `v4-stop-queue` B08 | provider request failed | draft prewarm ACK pending 时立即首发，fallback 创建会话只读取尚未水合的 `draftConfigRef`，丢失 provider/model/thought 后误落 builtin/真实请求 | fallback 统一合并同步 initial config → 用户 draft config → app followupMode；pending-prewarm 单测和 B08 strict E2E 同时守门 |
-| `v4-turn-navigator` | `Browser.getWindowForTarget` unknown command | WDIO/Electron window rect API 与当前 ChromeDriver 不兼容 | 复用跨平台可工作的 viewport helper；不改产品 turn navigator 语义 |
+| `v4-edit` | a resposta editada não aparece | o E2E ainda escreve newText no composer principal; o produto atual exige Edit em linha → input em linha → Send em linha | o helper resolve com precisão o user rowId e usa `v4-edit-input/submit-${rowId}`; as asserções fortes de rewind/rerun são mantidas |
+| `v4-fork-edit-branch` | a resposta editada não aparece | mesma origem de `v4-edit` | reutiliza o mesmo helper de edição em linha e depois prova que o child do fork só tem a nova branch |
+| `v4-compact` | espera por `[compact]` | oracle de texto de debug antigo; o status real do marker em V4 é `success` | a timeline row expõe marker type/status/origin; o helper afirma atributos estruturados e não afirma textos em inglês/chinês |
+| `v4-background-work` | o item em running nunca aparece | o status panel unificado é mini em pane estreito e o item só é montado na seção expandida correspondente de "terminal/agente"; após cancelamento o item em running deve sumir | primeiro lê o typed running count do shell do panel e então expande a seção correspondente; após cancelar, afirma o ACK e o desaparecimento do item |
+| `v4-goal` | o banner antigo de goal nunca aparece | o goal migrou para o status panel unificado e o banner/TID antigo não tem referência de produção | o shell do panel expõe goal objective/status tanto em mini quanto em expanded; o helper faz leitura com escopo de pane |
+| `v4-delete` | TID de delete ausente | a enxugada WIP do header removeu por engano a entrada de UI e a fiação de command da SessionPane do protocolo congelado | restaura a delete action acessível por toque; volta para draft só após accepted/noop, e não volta em caso de failed |
+| `v4-rename` | input de rename ausente | mesma enxugada WIP que apagou o delete | restaura o input/submit de rename do header e a fiação do ACK de `renameSession` |
+| `v4-sidebar` | input de rename ausente | mesma origem do rename | depois de restaurar a entrada, continua validando o custom title do sessions-index e o fechamento da lista após delete |
+| `v4-load-older` | raw rows esperadas 70, unit count recebido 1 | `data-row-count` já derivou de raw projection rows para turn render units; um único turn com 70 blocks não prova paginação | separa window/raw total/render unit/mounted unit; o fixture passa a ter múltiplos turns completed; o anchor é verificado em turn unit |
+| `v4-scroll` | raw rows esperadas 50, unit count recebido 1 | mesma origem do load-older; um único turn não forma uma lista longa estável | histórico de múltiplos turns + novo turn de controlled-stream; é proibido comparar unidades de contagem diferentes entre si |
+| `v4-split-persist` | o ratio não é restaurado após refresh | o draft split promovido a group continuava mantendo o shadow owner de paneLayout, e o divider escrevia no store errado | o sucesso da promoção consome o layout de origem; o group persiste seu próprio ratio; remote compact não habilita group |
+| `v4-split` | o pane revive após close | após o GC do group há fallback para o shadow split não limpo | mesma causa raiz de transferência de ownership de split-persist; após close resta apenas um single pane |
+| `v4-stop-queue` B08 | provider request failed | o primeiro envio ocorre logo após o ACK pending do prewarm de draft, e a criação de sessão do fallback lê apenas o `draftConfigRef` ainda não hidratado, perdendo provider/model/thought e caindo em builtin/requisição real | o fallback combina uniformemente initial config síncrona → config de draft do usuário → app followupMode; o teste unitário de pending-prewarm e o E2E estrito de B08 fazem a guarda juntos |
+| `v4-turn-navigator` | `Browser.getWindowForTarget` unknown command | a API de window rect do WDIO/Electron é incompatível com o ChromeDriver atual | reutiliza o viewport helper que funciona entre plataformas; não muda a semântica do turn navigator do produto |
 
-## 可见投影与测试属性
+## Projeção visível e atributos de teste
 
-- V4 `timelineMarker` row 根必须暴露 `data-row-kind="timelineMarker"`、`data-marker-type`、`data-status`；compact 还暴露 `data-origin`。
-- unified status panel shell 必须在 `mini` / `panel` 两种视觉分支保持同一语义属性：goal status/objective、running background count。展开 child 只影响可见详情，不改变 shell authority。
-- timeline 同时暴露：raw `windowRowCount`、raw `totalRowCount`、logical `renderUnitCount`；mounted unit 通过单独 turn-unit 属性计数。禁止把 raw row 与 turn unit 数直接比较。
-- edit/retry/fork/delete/rename 的入口和 command ACK 必须通过稳定 TID/command probe 验证；主 composer 草稿与行内 edit draft 是两个独立状态。
+- A raiz da row `timelineMarker` do V4 precisa expor `data-row-kind="timelineMarker"`, `data-marker-type` e `data-status`; o compact também expõe `data-origin`.
+- O shell do status panel unificado precisa manter os mesmos atributos semânticos nos dois ramos visuais, `mini` e `panel`: goal status/objective e running background count. O child expandido só afeta os detalhes visíveis e não altera a autoridade do shell.
+- A timeline expõe simultaneamente: `windowRowCount` raw, `totalRowCount` raw e `renderUnitCount` lógico; a mounted unit é contada por um atributo de turn-unit separado. É proibido comparar raw row com contagem de turn unit diretamente.
+- As entradas e os command ACKs de edit/retry/fork/delete/rename precisam ser verificados por sondagem estável de TID/command; o rascunho do composer principal e o rascunho de edição em linha são dois estados independentes.
 
-## Split 所有权
+## Ownership do Split
 
 ```text
-draft / ungrouped split
+draft / split não agrupado
   owner = paneLayout:v2
        |
-       | second pane binds a normal session and promotion succeeds
+       | o segundo pane vincula uma session normal e a promoção tem sucesso
        v
-multi-session workbench group
+group de workbench multi-session
   owner = workbench-groups:v1
-  paneLayout:v2 = single primary (consumed source)
+  paneLayout:v2 = single primary (source consumida)
        |
-       +-- divider ratio -> group.root
+       +-- ratio do divider -> group.root
        +-- refresh -> group.root
-       `-- close to one pane -> group GC -> ordinary single pane
+       `-- close para um pane -> GC do group -> single pane comum
 ```
 
-`workspaceIdentity?.trim() || workspacePath` 继续作为 group/session isolation key。该状态只在 renderer-local desktop/普通 Web workbench；手机 `/remote` 的 `web-remote-replayable` 不创建、不恢复、不持久化 group。
+`workspaceIdentity?.trim() || workspacePath` continua sendo a chave de isolamento de group/session. Esse estado existe apenas no workbench desktop renderer-local/Web comum; o `web-remote-replayable` do `/remote` no celular não cria, não restaura e não persiste group.
 
-## 分页与 cold 边界
+## Paginação e fronteira de cold
 
-provider 在一个 turn 内发送多个 text block 不是稳定的持久历史构造：live 可见多个 raw segment，cold transcript 可能合并为一个持久 text part。load-older/scroll fixture 必须用多个真实 completed turn 构造历史，确保 live/cold 都有相同 turn-unit 语义。
+O provider enviar vários text blocks dentro de um turn não é uma construção de histórico persistente estável: ao vivo são visíveis vários segmentos raw, e a transcrição cold pode consolidar tudo em um único text part persistente. Os fixtures de load-older/scroll precisam construir o histórico com vários turns completed reais, garantindo a mesma semântica de turn-unit em live e cold.
 
-另保留独立 bug-candidate：raw row tail 若切在巨大单 turn 中间，UI unit key、prepend anchor 和 viewport 不足时的自动 loadOlder 必须有小型单测；不能靠 E2E 手工假滚动掩盖。
+Permanece também um bug-candidate independente: se a cauda de raw row for cortada no meio de um turn gigantesco, a unit key de UI, a prepend anchor e o loadOlder automático quando o viewport é insuficiente precisam de pequenos testes unitários; não se pode mascarar com scroll manual no E2E.
 
-## 验收顺序与剪枝
+## Ordem de aceitação e poda
 
-- 接受：上述 14 个现有 formal case，修复既有产品语义或测试 materialization。
-- 不新增：Docker admission、mobile replayable E2E、全量 status-panel 视觉叉乘、所有 window manager API 叉乘。
-- 不剪枝：edit rerun、rename/delete、split close/ratio、loadOlder、scroll、B08 和 turn navigator 都保留 formal。
-- 先跑每个失败组的 unit/focused RED→GREEN，再跑对应严格 single-spec，最后重新跑 29-spec strict batch 与默认 CI-style batch。
-- 本轮按用户要求不运行 Docker；desktop batch 只证明 `desktop-continuous`，不宣称手机 `web-remote-replayable` 已覆盖。
-- formal CI 必须先执行 conversation admission audit，并以 strict case-local fixture 模式运行；summary 必须逐文件覆盖展开后的全部 spec，不能只检查 `tests.total > 0`，也不能让 legacy replay fallback 替缺失 matcher 假绿。
+- Aceitar: os 14 formal cases existentes acima, corrigindo a semântica de produto existente ou a materialização do teste.
+- Não adicionar: Docker admission, E2E mobile replayable, multiplicação visual completa do status-panel, multiplicação completa das APIs de window manager.
+- Não podar: edit rerun, rename/delete, split close/ratio, loadOlder, scroll, B08 e turn navigator continuam formais.
+- Rodar primeiro o unit/focused RED→GREEN de cada grupo de falha, depois o single-spec estrito correspondente e, por fim, o batch estrito de 29 specs e o batch default em estilo CI.
+- Nesta rodada Docker não é executado, por exigência do usuário; o batch desktop só prova `desktop-continuous` e não afirma que o `web-remote-replayable` do celular está coberto.
+- A CI formal precisa executar antes o conversation admission audit e rodar no modo estrito de fixture case-local; o summary precisa cobrir arquivo a arquivo todos os specs expandidos, não basta checar `tests.total > 0`, e o fallback de replay legado não pode dar um verde falso no lugar de um matcher ausente.
 
-## Targeted 修复进度
+## Progresso das correções direcionadas
 
-截至 2026-07-11，首轮 14 个失败 spec 已全部用严格 fixture 池单独转绿：
+Até 2026-07-11, os 14 specs que falharam na primeira rodada já ficaram verdes individualmente com o pool estrito de fixtures:
 
-- `background-work`、`compact`、`delete`、`edit`、`fork-edit-branch`、`goal`、`rename`、`sidebar`：run `v4-ui-formals-strict-20260711-032153`，8/8。
-- `load-older`：run `v4-load-older-strict-20260711`，1/1；25 turns、75 raw rows、cold tail 60、prepend anchor 均通过。
-- `scroll`：run `v4-scroll-strict-20260711`，1/1；14 turns、controlled stream、不拉回与回到底部均通过。
-- `stop-queue`：run `v4-stop-queue-strict-after-prewarm-fix-20260711`，3/3（含 B08）。
-- `turn-navigator`：run `task6-turnnav-fix-final-20260711`，1/1。
-- `split`：run `v4-split-strict-after-owner-fix-20260711`，1/1。
-- `split-persist`：run `v4-split-persist-strict-dynamic-owner-20260711`，1/1；同时证明 promoted group 与侧栏普通 split 的动态唯一 owner。
+- `background-work`, `compact`, `delete`, `edit`, `fork-edit-branch`, `goal`, `rename`, `sidebar`: run `v4-ui-formals-strict-20260711-032153`, 8/8.
+- `load-older`: run `v4-load-older-strict-20260711`, 1/1; 25 turns, 75 raw rows, cold tail 60 e prepend anchor passaram.
+- `scroll`: run `v4-scroll-strict-20260711`, 1/1; 14 turns, controlled stream, não puxar de volta e voltar ao fim passaram.
+- `stop-queue`: run `v4-stop-queue-strict-after-prewarm-fix-20260711`, 3/3 (incluindo B08).
+- `turn-navigator`: run `task6-turnnav-fix-final-20260711`, 1/1.
+- `split`: run `v4-split-strict-after-owner-fix-20260711`, 1/1.
+- `split-persist`: run `v4-split-persist-strict-dynamic-owner-20260711`, 1/1; prova ao mesmo tempo o owner único dinâmico do group promovido e do split comum na barra lateral.
 
-## 总门禁闭环
+## Fechamento do gate geral
 
-截至 2026-07-11，两种 desktop non-Docker 全量批次均已通过：
+Até 2026-07-11, os dois batches desktop non-Docker completos já passaram:
 
-- strict provider pool：run `task6-strict-green-20260711`，29 specs、34/34 tests、0 failed；只加载 `common.json` + 29 个 case-local fixture。
-- 默认 CI-style 自动 fixture resolution：首次 33/34，唯一失败为 scroll 只等待 render unit、在最后一个 turn 的 assistant/timeline rows 完整物化前读到 41/42；补成完整 3-row turn barrier 后，single-spec run `v4-scroll-ci-barrier-fix-20260711` 1/1，通过；完整 rerun `task6-ci-style-green-rerun-20260711` 为 29 specs、34/34 tests、0 failed。
+- pool estrito de providers: run `task6-strict-green-20260711`, 29 specs, 34/34 tests, 0 failed; carregou somente `common.json` + 29 fixtures case-local.
+- resolução automática de fixtures em estilo CI (padrão): na primeira vez 33/34, com a única falha em scroll, que esperava apenas a render unit e lia 41/42 antes da materialização completa das assistant/timeline rows do último turn; depois de completar a barreira de turn completo de 3 rows, o single-spec run `v4-scroll-ci-barrier-fix-20260711` passou 1/1, e o rerun completo `task6-ci-style-green-rerun-20260711` ficou em 29 specs, 34/34 tests, 0 failed.
 
-review 追加的 SWG10/SWG11 与 formal CI strictness 不回退上述产品合同：group primary 删除必须回 draft，`web-remote-replayable` 必须绕过 group 的恢复/创建/持久化/消费；CI 必须 admission audit + strict case-local + expected spec 文件覆盖校验。它们分别由 UI 定向测试与 CI/config 测试守门，不把 mobile replayable 冒充成本轮 desktop E2E 证据。
+Os SWG10/SWG11 acrescentados pela review e a strictness da CI formal não regridem o contrato de produto acima: a exclusão do primary de um group precisa voltar para draft e o `web-remote-replayable` precisa contornar restauração/criação/persistência/consumo do group; a CI precisa de admission audit + case-local estrito + validação de cobertura por arquivo de spec esperado. Eles são guardados respectivamente por testes direcionados de UI e por testes de CI/config, e não apresentam o mobile replayable como evidência de E2E desktop desta rodada.

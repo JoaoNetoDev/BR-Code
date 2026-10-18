@@ -1,18 +1,16 @@
-# Desktop Context Prompt 灰度裁决链路与首 Host 门禁
+# Cadeia de decisão de rollout do Desktop Context Prompt e gate do primeiro Host
 
-> spec / 轨迹文档：服务端灰度（Desktop Context Prompt，简称 Desktop SP / DSP）如何决定 Agent
-> 是否输出 `::code-comment` 指令；以及 CR-01 修复的"首个 Host 创建时灰度裁决无生效路径"问题。
+> Documento de spec / trilha: como o rollout do servidor (Desktop Context Prompt, abreviado Desktop SP / DSP) decide se o Agent emite a diretiva `::code-comment`; e o problema corrigido em CR-01, de "a decisão de rollout não tem caminho efetivo quando o primeiro Host é criado".
 
-## 1. 背景：什么是 Desktop Context Prompt
+## 1. Contexto: o que é o Desktop Context Prompt
 
-服务端通过 `/api/v1/client/configs` 下发单功能灰度：`data.configs.desktopContextPrompt.enabled`。
-- `enabled: true`：Agent 以 **desktop surface** 启动，系统提示注入 `::code-comment{...}` 指令段
-  （`apps/zcode-cli/packages/core/src/context/sections/desktop.ts`），助手输出内联 code-comment。
-- `enabled: false` 或未下发：Agent 以 **terminal surface** 启动，跳过该段，输出普通 terminal prompt。
+O servidor distribui um rollout de funcionalidade única por `/api/v1/client/configs`: `data.configs.desktopContextPrompt.enabled`.
+- `enabled: true`: o Agent inicia na **desktop surface**, e o system prompt injeta o bloco de diretivas `::code-comment{...}` (`apps/zcode-cli/packages/core/src/context/sections/desktop.ts`), fazendo o assistente emitir code-comments inline.
+- `enabled: false` ou não distribuído: o Agent inicia na **terminal surface**, pula esse bloco e emite o terminal prompt comum.
 
-## 2. 冻结链路（核心事实）
+## 2. Cadeia congelada (fato central)
 
-裁决一旦离开 desktop main，会被多个进程边界冻结。整条链路如下：
+Uma vez que a decisão sai do desktop main, ela é congelada em várias fronteiras de processo. A cadeia inteira é:
 
 ```
 desktop main 进程
@@ -39,19 +37,16 @@ Agent 子进程（CLI）
   └ context/builder.ts:114 仅当 "zcode_desktop" 注入 desktop context section
 ```
 
-**两个冻结点**决定了：运行中的 Host / Agent 不会重新评估灰度。只有**新 fork 的 Host** 才会读取
-最新快照。因此裁决的"可达性"完全取决于：Host fork 时 `getSnapshot()` 是否已是服务端真值。
+Os **dois pontos de congelamento** decidem: um Host／Agent em execução não reavalia o rollout. Apenas um **Host recém-forkado** lê o snapshot mais recente. Portanto, a "alcançabilidade" da decisão depende inteiramente de: no momento do fork do Host, `getSnapshot()` já refletia a verdade do servidor.
 
-## 3. CR-01 问题：首个 Host 创建时裁决无生效路径
+## 3. Problema CR-01: a decisão não tem caminho efetivo na criação do primeiro Host
 
-### 病根（设计张力）
+### Causa raiz (tensão de design)
 
-- 旁路约束：`index.ts` 注释明确——"网络请求不能阻塞 Local/Remote Host"。bootstrap 的
-  `void rollout.refresh()` 与 `resolveDesktopContextPromptEnabledForHost()` 里的 `void rollout.refresh()`
-  都是 **fire-and-forget**。
-- 冻结约束：surface 在 Host/Agent 启动时冻结（见第 2 节）。
+- Restrição de contorno: o comentário em `index.ts` é explícito — "requisições de rede não podem bloquear Local/Remote Host". Tanto o `void rollout.refresh()` do bootstrap quanto o `void rollout.refresh()` em `resolveDesktopContextPromptEnabledForHost()` são **fire-and-forget**.
+- Restrição de congelamento: a surface é congelada na inicialização do Host／Agent (ver seção 2).
 
-两者叠加后，**异步成功结果对已创建的首个 Host/Agent 没有可达生效路径**：
+Somando as duas, **o resultado assíncrono bem-sucedido não tem caminho efetivo para o primeiro Host／Agent já criado**:
 
 ```
 t=0      app.whenReady → void refresh()（发请求，≤3s，不 await）
@@ -63,12 +58,11 @@ t≈1.8s   网络成功 enabled=true → snapshot 更新（但首 Host 已带 "0
          → Host/Agent 冻结 → 整个应用会话继续用 terminal prompt，不产生 ::code-comment
 ```
 
-只有"请求在首 Host fork 前 resolve"（快网/缓存命中）才能命中灰度；慢网下首会话必漏，
-通常要新建窗口或重启才恢复。远程 workspace 若复用该 Local Host 也继承错误裁决。
+Só o caso em que "a requisição resolve antes do fork do primeiro Host" (rede rápida／cache atingido) acerta o rollout; em rede lenta a primeira sessão sempre perde, e costuma ser preciso criar uma nova janela ou reiniciar para recuperar. Um workspace remoto que reaproveite aquele Local Host também herda a decisão errada.
 
-### 4. 修复：首个 Host 创建前的有界裁决门
+### 4. Correção: gate de decisão limitado antes da criação do primeiro Host
 
-给"成功结果"一条**有界的生效路径**：首个 Host fork 前 await 一次裁决，失败/超时仍 fail-open。
+Dá-se ao "resultado bem-sucedido" um **caminho efetivo limitado**: aguardar uma vez a decisão antes do fork do primeiro Host, mantendo fail-open em caso de falha／timeout.
 
 ```
 app.whenReady
@@ -81,66 +75,57 @@ app.whenReady
               spawnLocalHost()                            ← 此刻快照已是服务端裁决
 ```
 
-### 关键设计点
+### Pontos-chave de design
 
-1. **`rollout.awaitFirstDecision(timeoutMs)`**（`desktopContextPromptRollout.ts`）
-   - `Promise.race([refresh(), setTimeout(timeoutMs)→snapshot])`。
-   - 复用 `refresh()` 的 TTL/inFlight 去重 + 内部 3s 请求超时；两支均 resolve（refresh 内部已 catch，
-     timeout 回退当前 snapshot），永不 reject。
-   - **无状态**——first-only latch 由调用方（desktop main）持有。
+1. **`rollout.awaitFirstDecision(timeoutMs)`** (`desktopContextPromptRollout.ts`)
+   - `Promise.race([refresh(), setTimeout(timeoutMs)→snapshot])`.
+   - Reaproveita a dedupe TTL／inFlight de `refresh()` e o timeout interno de requisição de 3s; ambos os ramos resolvem (o `refresh` já faz catch internamente e o timeout volta ao snapshot atual), nunca rejeitam.
+   - **Sem estado** — o latch first-only é mantido pelo chamador (desktop main).
 
-2. **`firstHostSpawnDecisionPromise` + `awaitFirstHostSpawnDecision()`**（`index.ts`）
-   - 模块级永久 latch（首次创建后不清空）。首个 Host 之后的所有 fork await 已 resolve 的 promise，近乎 0ms。
-   - 超时 `DESKTOP_FIRST_HOST_SPAWN_DECISION_TIMEOUT_MS = 2_000`（< 内部 3s 请求超时，留缓冲）。
-   - 即使首 Host 超时回退 `false`，后台请求最终成功后 `getSnapshot()` 变 true——**后续 Host fork**
-     （新窗口/reload）同步读取 live 快照即可命中，无需 re-arm latch。
+2. **`firstHostSpawnDecisionPromise` + `awaitFirstHostSpawnDecision()`** (`index.ts`)
+   - Latch permanente em nível de módulo (não é limpo após a primeira criação). Todos os forks após o primeiro Host aguardam uma promise já resolvida, com custo próximo de 0ms.
+   - Timeout `DESKTOP_FIRST_HOST_SPAWN_DECISION_TIMEOUT_MS = 2_000` (< o timeout interno de requisição de 3s, mantendo margem).
+   - Mesmo que o primeiro Host caia no fallback `false` por timeout, quando a requisição em background tiver sucesso final `getSnapshot()` passa a true — os **Hosts seguintes** (nova janela／reload) leem de forma síncrona o snapshot live e já acertam, sem necessidade de rearme do latch.
 
-3. **Local 路径**（`desktopWindowLifecycle.ts`）
-   - dom-ready handler 改 `async`；reattach 早退路径之后、`spawnLocalHost` 之前插入
-     `if (options.awaitFirstHostSpawnDecision) { await options.awaitFirstHostSpawnDecision(); }`。
-   - **用 `if` 守卫而非 `await cb?.()`**：cb 缺省时**完全不触发 await**，async handler 同步跑完——
-     既有不注入 gate 的调用方与测试零回归。
-   - `spawnHostProcess` 签名/返回类型**不变**，`spawnLocalHost` 保持同步。
+3. **Caminho Local** (`desktopWindowLifecycle.ts`)
+   - O handler de dom-ready passa a `async`; após os early-return de reattach e antes de `spawnLocalHost` é inserido `if (options.awaitFirstHostSpawnDecision) { await options.awaitFirstHostSpawnDecision(); }`.
+   - **Usa guarda `if` em vez de `await cb?.()`**: quando o cb está ausente, **nenhum await é disparado** e o handler async roda de forma síncrona — chamadores e testes existentes que não injetam o gate têm regressão zero.
+   - A assinatura／o tipo de retorno de `spawnHostProcess` **não mudam**, e `spawnLocalHost` continua síncrono.
 
-4. **Remote 路径**（`desktopRemoteSessions.ts`）
-   - `createRemoteWorkspaceSession`（覆盖 SSH/WSL/Dedicated 三个 fork 点）与
-     `createBotRemoteWorkspaceRuntimePort`（第 4 个 fork 点，不经 createRemoteWorkspaceSession）
-     在 `appShutdownStarted` 检查之后 await gate。
-   - **teardown re-check**：参考 `:1841` 既有"跨 await 期间窗口/app 可能 teardown"防护，await 越过点后
-     必须重新校验 `appShutdownStarted` 与 `win.isDestroyed()`，命中则 throw，禁止在退出 barrier 之外再 fork。
-   - `spawnHostProcess` 签名/类型**不变**，4 个 fork 点无需 async 化、无 pool 连带改动。
+4. **Caminho Remote** (`desktopRemoteSessions.ts`)
+   - `createRemoteWorkspaceSession` (que cobre os três pontos de fork SSH／WSL／Dedicated) e `createBotRemoteWorkspaceRuntimePort` (o 4º ponto de fork, que não passa por `createRemoteWorkspaceSession`) aguardam o gate depois da checagem de `appShutdownStarted`.
+   - **Re-check no teardown**: tomando como referência a proteção já existente em `:1841`, de que "durante um await a janela／o app podem sofrer teardown", depois de cruzar o ponto do await é preciso revalidar `appShutdownStarted` e `win.isDestroyed()`; havendo acerto, deve-se lançar, proibindo um novo fork fora da barreira de saída.
+   - A assinatura／os tipos de `spawnHostProcess` **não mudam**; os 4 pontos de fork não precisam se tornar async nem exigem mudanças em pool.
 
-### 超时 / 延迟语义
+### Semântica de timeout／latência
 
-| 场景 | 首 Host 延迟 |
+| Cenário | Atraso do primeiro Host |
 |---|---|
-| 快网/缓存命中（请求 < 500ms） | ~0ms（gate 在 dom-ready 前已 resolve） |
-| 慢网（请求 > 2s） | 最多 +2s（fail-open 用 `false` 继续） |
-| 首 Host 之后的所有 fork | ~0ms（latch 已 resolve；读 live 快照） |
+| Rede rápida／cache atingido (requisição < 500ms) | ~0ms (o gate já resolveu antes do dom-ready) |
+| Rede lenta (requisição > 2s) | no máximo +2s (fail-open segue com `false`) |
+| Todos os forks após o primeiro Host | ~0ms (o latch já resolveu; leitura do snapshot live) |
 
-慢网下的 +2s 加在"首次打开工作区"前，不在窗口显示前。已确认为可接受 trade-off。
+Em rede lenta, os +2s são adicionados antes da "primeira abertura de workspace", não antes da exibição da janela. Já foi confirmado como um trade-off aceitável.
 
-## 5. 多端 / 边界兼容
+## 5. Compatibilidade entre plataformas／bordas
 
-- **桌面端**：gate 仅在 desktop main 进程；Local 与 Remote(SSH/WSL/Docker) 共享同一 first-only latch。
-- **Web / 手机端**：无 host fork，不受影响。手机 `/remote` 通过 shared-host attachment 连接桌面已存在的
-  Local/Remote Host，继承该 Host 创建时的裁决——这正是 gate 要保证"首 Host 裁决正确"的价值。
-- **Web 远控保护**：gate 不下沉任何 session/task/stream 状态到 relay/main；只是 main 进程内一次性 await。
-  不影响 `continuous`（桌面）与 `replayable`（手机）链路边界。
+- **Desktop**: o gate existe apenas no processo desktop main; Local e Remote (SSH／WSL／Docker) compartilham o mesmo latch first-only.
+- **Web／celular**: não há host fork, portanto não são afetados. O `/remote` do celular se conecta via shared-host attachment ao Local／Remote Host já existente na área de trabalho e herda a decisão existente no momento da criação desse Host — é exatamente esse o valor que o gate garante ao decidir corretamente no primeiro Host.
+- **Proteção do controle remoto Web**: o gate não baixa nenhum estado de session／task／stream para o relay／main; é apenas um await único dentro do processo main. Não afeta os limites de cadeia `continuous` (desktop) e `replayable` (celular).
 
-## 6. 测试覆盖索引
+## 6. Índice de cobertura de testes
 
-| 文件 | 覆盖 |
+| 文件 | Cobertura |
 |---|---|
-| `packages/desktop/test/desktopContextPromptRollout.test.ts` | rollout 解析、TTL、inFlight 去重、3s 超时；`awaitFirstDecision` 慢响应/超时回退/并发；**CR-01 集成式**（慢响应 `enabled=true` + bounded await → 同步读快照为真值） |
-| `packages/desktop/test/desktopWindowLifecycle.test.ts` | Local dom-ready → spawn 流程；**gate 未 resolve 前不 spawn，resolve 后 spawn** |
-| `packages/desktop/test/desktopRemoteSessions.test.ts` | Remote 各 fork 点；**gate 阻塞 spawn、resolve 后完成 session**；**gate await 期间 teardown → re-check 拦截、不 spawn** |
+| `packages/desktop/test/desktopContextPromptRollout.test.ts` | Parsing do rollout, TTL, dedupe inFlight, timeout de 3s; `awaitFirstDecision` com resposta lenta／fallback por timeout／concorrência; **CR-01 de forma integrada** (resposta lenta `enabled=true` + await limitado → leitura síncrona do snapshot como valor verdadeiro) |
+| `packages/desktop/test/desktopWindowLifecycle.test.ts` | Fluxo Local de dom-ready → spawn; **não faz spawn antes do gate resolver, faz spawn depois de resolver** |
+| `packages/desktop/test/desktopRemoteSessions.test.ts` | Cada ponto de fork do Remote; **gate bloqueia o spawn e a sessão é concluída após o resolve**; **teardown durante o await do gate → o re-check bloqueia e não faz spawn** |
 
-## 7. 相关常量 / 环境变量
+## 7. Constantes／variáveis de ambiente relacionadas
 
-| 名称 | 位置 | 说明 |
+| Nome | Local | Descrição |
 |---|---|---|
-| `ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV` | `packages/shared/src/runtimeEnv.ts` | Main→Host 的 env 名（`"0"`/`"1"`） |
-| `DESKTOP_CONTEXT_PROMPT_REQUEST_TIMEOUT_MS` | `desktopContextPromptRollout.ts:9` | 单次请求超时 3s |
-| `DESKTOP_CONTEXT_PROMPT_CACHE_TTL_MS` | `desktopContextPromptRollout.ts:10` | 成功缓存 TTL 1h |
-| `DESKTOP_FIRST_HOST_SPAWN_DECISION_TIMEOUT_MS` | `packages/desktop/src/main/index.ts` | 首 Host 门禁超时 2s |
+| `ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV` | `packages/shared/src/runtimeEnv.ts` | Nome do env de Main→Host (`"0"`/`"1"`) |
+| `DESKTOP_CONTEXT_PROMPT_REQUEST_TIMEOUT_MS` | `desktopContextPromptRollout.ts:9` | Timeout de uma requisição: 3s |
+| `DESKTOP_CONTEXT_PROMPT_CACHE_TTL_MS` | `desktopContextPromptRollout.ts:10` | TTL do cache de sucesso: 1h |
+| `DESKTOP_FIRST_HOST_SPAWN_DECISION_TIMEOUT_MS` | `packages/desktop/src/main/index.ts` | Timeout do gate do primeiro Host: 2s |

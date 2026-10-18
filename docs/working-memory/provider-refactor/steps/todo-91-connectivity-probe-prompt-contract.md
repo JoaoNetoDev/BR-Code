@@ -1,44 +1,44 @@
-# Todo 91：固定连接测试 Prompt 契约
+# Todo 91: contrato de Prompt fixo do teste de conectividade
 
-> 2026-09-12：输出预算由 Todo144 接续调整为独立 1 Token；本文历史的 5,000 预算记录不再作为当前要求，精确 Prompt 契约不变。
+> 2026-09-12: o orçamento de saída foi reajustado pelo Todo144 para 1 Token independente; o registro histórico de orçamento de 5.000 deste documento deixa de valer como requisito atual, e o contrato preciso de Prompt permanece inalterado.
 
-> 验证归属更新（2026-09-09）：本文残余欠测/失败/人工晋级统一转交 [Todo102](todo-102-verification-debt-closeout.md)，关闭在本文中的独立验证排期；历史证据保留，转交不代表测试通过。
+> Atualização de atribuição de verificação (2026-09-09): toda a dívida de teste restante, falha e promoção manual deste documento é transferida para [Todo102](todo-102-verification-debt-closeout.md), encerrando o cronograma de verificação independente aqui; as evidências históricas são preservadas e a transferência não significa que os testes passaram.
 
-> 状态：已实现并完成定向复审、离线请求验证及 Pro 隔离 Electron 验证（2026-09-08）。服务端白名单未修改、未用真实账号试探。
->
-> 核对基线：`c017752329`，`provider-refactor-e2e-recovery`。
+> Status: implementado, com revisão direcionada concluída, verificação de requisição offline e verificação em Electron isolado Pro (2026-09-08). A whitelist do servidor não foi modificada e nenhuma conta real foi usada para experimentally.
 
-## 1. 已确认裁决
+> Baseline de conferência: `c017752329`, `provider-refactor-e2e-recovery`.
 
-连接测试统一使用以下固定消息，保留精确文本、大小写、标点、角色与顺序：
+## 1. Decisão confirmada
+
+O teste de conectividade usa uniformemente a seguinte mensagem fixa, preservando o texto exato, o casing, a pontuação, os papéis e a ordem:
 
 ```yaml
 system: You are ZCode connectivity probe.
 user: hi
 ```
 
-- 保留当前正式 Model 的流式执行链路，消费完整流并沿用现有错误处理。
-- 不恢复 staging 的 Start Plan 权益探测分流，不把“查权益成功”当成模型连接成功。
-- 不向这组消息添加说明、国际化文案、历史对话、工具或另一个 system；不让普通对话、标题、Wiki、Subagent 等其他请求复用这组 Prompt。
-- 普通 API Provider 与 Account Provider 的连接测试使用同一模板。Off-Peak 保持隐藏，不新增设置页测试入口，不获取或消耗 Ticket。
-- 本项不恢复旧 Host HTTP Probe，不修改模型选择、账号连接、Personal Config、持久化格式或迁移。
+- Mantém a cadeia de execução em streaming do Model oficial atual, consumindo o stream completo e usando o tratamento de erros já existente.
+- Não restaura a separação de sondagem de benefícios do Start Plan do staging nem trata "consulta de benefícios bem-sucedida" como conectividade de modelo bem-sucedida.
+- Não acrescenta a esse conjunto de mensagens explicações, textos de internacionalização, histórico de conversa, ferramentas ou outro system; nem deixa outros pedidos, como conversa comum, título, Wiki e Subagent, reutilizarem este Prompt.
+- O teste de conectividade de API Provider comum e de Account Provider usa o mesmo template. Off-Peak continua oculto, não se cria nova entrada de teste na página de configurações e nenhum Ticket é obtido ou consumido.
+- Este item não restaura a antiga HTTP Probe do Host, nem modifica seleção de modelo, conexão de conta, Personal Config, formato de persistência ou migração.
 
-## 2. 背景与纠错记录
+## 2. Contexto e registro de correções
 
-当前 `core/src/runtime/methods/workspace-generate-text.ts` 的 `testModelConnectivity()` 只发送 user 消息 `Reply briefly to confirm connectivity.`；`8ea78019f7` 引入，`49e1f83710d` 后续测试固化了该文本。
+O `testModelConnectivity()` em `core/src/runtime/methods/workspace-generate-text.ts` hoje envia apenas a mensagem de user `Reply briefly to confirm connectivity.`; introduzido em `8ea78019f7`, e o texto foi cristalizado em testes posteriores em `49e1f83710d`.
 
-旧 Start Plan helper 在 `2ae01c7584` 中加入上述 system + hi；但 `3162baa586` 随后将上层正常入口改成只查 billing/balance。固定 staging `16d999f6a48b` 与本地 `origin/staging` `a311537aa6` 均保留提前返回。因此“旧 helper 仍存在”不等于“staging 当前发送这个 Prompt”，更不证明服务端白名单已经废弃。
+O helper antigo do Start Plan adicionou o system + hi acima em `2ae01c7584`; mas `3162baa586` em seguida mudou a entrada normal do nível de cima para consultar apenas billing/balance. Tanto o staging fixado `16d999f6a48b` quanto o `origin/staging` local `a311537aa6` mantêm o retorno antecipado. Portanto, "o helper antigo ainda existe" não equivale a "o staging atual envia este Prompt", e muito menos prova que a whitelist do servidor já foi descontinuada.
 
-用户说明服务端可能按 Prompt 白名单限制账号请求。客户端仓库不能证明白名单当前内容或规则；本次裁决是采用明确的固定模板，不宣称服务端已配置或真实账号已验证通过。未确认前不得用真实账号反复试探。
+O usuário explicou que o servidor pode restringir pedidos da conta por whitelist de Prompt. O repositório do cliente não consegue provar o conteúdo ou as regras atuais da whitelist; a decisão desta rodada é adotar um template fixo e explícito, sem alegar que o servidor já foi configurado nem que uma conta real passou na verificação. Antes da confirmação, não se pode usar contas reais para experimentar repetidamente.
 
-## 3. 影响与状态归属（Impact Brief）
+## 3. Impacto e atribuição de estado (Impact Brief)
 
-模式：planning；层级：commit-effect / 请求内容契约。范围仅连接测试，未改变会话或恢复语义。
+Modo: planning; camada: commit-effect / contrato de conteúdo de requisição. O escopo é apenas o teste de conectividade; a semântica de sessão ou de recuperação não mudou.
 
-| UI 场景 | 共享实现与展示状态 | 来源与校验 | 提交/权威执行 | 模式与隔离 |
+| Cenário de UI | Implementação compartilhada e estado de exibição | Origem e validação | Submissão/execução autoritativa | Modo e isolamento |
 | --- | --- | --- | --- | --- |
-| Account 详情模型行测试 | Detail → ModelRowInput / useModelProviders；行内 pending 与结果反馈 | 已保存 Provider/Model；正式 Registry、Request Auth 校验 | Settings Service → Agent 协议 → testModelConnectivity → Model.streamText | Desktop/Web 共用；保留既有目标 Environment 路由，不改当前连接 |
-| 普通/模板实例模型行测试 | InlineEditableProviderCard → 同一行控件和 hook | 先 flush Provider 草稿；服务等待相关写入，Worker 刷新 Registry | 同上；API 格式及选项映射由正式 Adapter 负责 | 不新增临时 Registry，不改其他模型或正在运行的请求 |
+| Teste na linha de modelo do detalhe da Account | Detail → ModelRowInput / useModelProviders; pending na linha e feedback de resultado | Provider/Model já salvos; Registry oficial e validação de Request Auth | Settings Service → protocolo Agent → testModelConnectivity → Model.streamText | Compartilhado por Desktop/Web; preserva o roteamento de Environment alvo existente e não muda a conexão atual |
+| Teste na linha de modelo de instância comum/de template | InlineEditableProviderCard → o mesmo controle de linha e o mesmo hook | Faz flush antes do rascunho de Provider; o serviço aguarda as escritas relacionadas e o Worker atualiza o Registry | O mesmo; o formato de API e o mapeamento de opções ficam por conta do Adapter oficial | Não cria Registry temporário nem altera outros modelos ou requisições em andamento |
 
 ```text
 点击测试 -> 等待现有保存边界 -> 正式 Registry 创建 Model
@@ -50,57 +50,57 @@ user: hi
                             当前 API 格式的流式请求
 ```
 
-| 分级 | 关系与核对点 |
+| Nível | Relação e pontos de conferência |
 | --- | --- |
-| must-inspect | `testModelConnectivity` 构造消息；Adapter 转为 Anthropic system/messages、Chat messages、Responses instructions/input 的最终请求体 |
-| should-inspect | 当前测试 `workspace-generate-text-streaming.test.ts` 固化旧 user 文本；替换为新契约，并补无历史/无工具断言 |
-| conditional | Account 请求仍依赖当前凭据、正常的请求安全校验链；不能以恢复 Prompt 为由绕过鉴权 |
-| invariant-only | 保存/刷新、最低公开 reasoning 档位、输出预算、超时/重试、错误反馈、工作区隔离均保持；不改 Session/Active Model |
-| evidence-only | 旧 staging helper 与上层 Service、旧权益测试用于说明历史，不整文件恢复 |
+| must-inspect | `testModelConnectivity` constrói as mensagens; o Adapter converte para o corpo final de requisição em Anthropic system/messages, Chat messages, Responses instructions/input |
+| should-inspect | O teste atual `workspace-generate-text-streaming.test.ts` cristaliza o texto de user antigo; substituir pelo novo contrato e acrescentar asserções de ausência de histórico e de ausência de ferramentas |
+| conditional | O pedido de Account continua depending das credenciais atuais e da cadeia normal de validação de segurança da requisição; não se pode contornar a autenticação em nome de restaurar o Prompt |
+| invariant-only | Salvamento/refresh, o nível público mínimo de reasoning, o orçamento de saída, timeout/retry, o feedback de erro e o isolamento de workspace permanecem; não se altera Session/Active Model |
+| evidence-only | O helper antigo do staging e o Service de nível superior, assim como o teste antigo de benefícios, servem para explicar a história e não para restaurar o arquivo inteiro |
 
-代码图工具不可用，已从 `surface.provider-settings` / `service.provider-settings` 的种子以直接调用追踪核对；默认两层，跨 App–Agent 的执行落点进一步追到 Core/Adapter。相关路径为 ModelProviderSection → useModelProviders → Provider Settings Service → zcodeAgentService → workspace-model-runtime → Core testModelConnectivity。图谱增加本 Todo 来源链接；暂不重写其他历史图谱语义。
+A ferramenta de grafo de código não estava disponível, e a conferência foi feita rastreando a partir das sementes de `surface.provider-settings` / `service.provider-settings` por chamadas diretas; duas camadas por padrão, e o ponto de execução entre App e Agent foi rastreado até Core/Adapter. Os caminhos relacionados são ModelProviderSection → useModelProviders → Provider Settings Service → zcodeAgentService → workspace-model-runtime → Core testModelConnectivity. O grafo ganha um link de origem deste Todo; por enquanto não se reescreve a semântica de outros grafos históricos.
 
-## 4. 实现与清理边界
+## 4. Limites de implementação e limpeza
 
-1. 实现前更新当前有效 `design/registry/settings.md` 的连接测试描述，明确固定模板与范围，再先写失败测试。
-2. 在连接测试消息构造处维护唯一的固定模板/命名常量，不散落多份同义 Prompt；无需新增配置项、UI 输入或协议参数。
-3. 删除被替代的旧字符串和相应旧断言；不复制 staging 已不可达的 Start Plan helper，不引入 Provider ID 特判。
-4. 精确文本是硬契约；协议序列化复用现有 Adapter。最终 body 必须保留 system 角色和 user 角色，不能把 system 拼进 user。若服务端要求特定序列化结构且现有 Adapter 不满足，先明确服务端要求，再讨论最小适配，不能猜测改请求。
-5. 输出预算（当前辅助调用最多 5,000）、流式、最低 reasoning、来源头、请求安全校验、超时和重试不随本项改动。此前审计提到的其他差异没有在本轮获准恢复；来源头风险仍须另行讨论，不能以本 Todo 完成宣称已经消除全部网关拒绝风险。
+1. Antes de implementar, atualizar no `design/registry/settings.md` vigente a descrição do teste de conectividade, esclarecendo o template fixo e o escopo, e só então escrever o teste que falha.
+2. Manter um único template fixo/constante de nome no ponto de construção da mensagem de teste de conectividade, sem espalhar várias cópias de Prompts equivalentes; não é preciso adicionar configuração, entrada de UI ou parâmetro de protocolo.
+3. Remover as strings antigas substituídas e as respectivas asserções antigas; não copiar o helper de Start Plan já inalcançável no staging nem introduzir tratamento especial por ID de Provider.
+4. O texto preciso é um contrato rígido; a serialização do protocolo reutiliza o Adapter existente. O body final precisa preservar o papel de system e o papel de user, sem colar o system dentro do user. Se o servidor exigir uma estrutura de serialização específica e o Adapter atual não atender, primeiro esclareça a exigência do servidor e só então discuta a adaptação mínima, sem adivinhar e mexer no pedido.
+5. O orçamento de saída (atualmente até 5.000 na chamada auxiliar), o streaming, o mínimo de reasoning, o header de origem, a validação de segurança da requisição, o timeout e o retry não mudam com este item. As outras diferenças citadas na auditoria anterior não foram autorizadas a voltar nesta rodada; o risco do header de origem ainda precisa ser discutido à parte, e não se pode alegar que a conclusão deste Todo eliminou todo o risco de rejeição pelo gateway.
 
-## 5. 验收与剪枝
+## 5. Aceitação e podagem
 
-| Case | 场景与操作 | 断言/证据 | 状态 |
+| Case | Cenário e operação | Asserção/evidência | Estado |
 | --- | --- | --- | --- |
-| C91-01 | Core 测试连接，mock Model 收集请求 | 恰好 system + user 两条、固定精确文本与顺序，无 tools/历史；流错误仍失败 | accepted；单测待实现 |
-| C91-02 | Anthropic / Chat / Responses 三种正式 Adapter，注入离线 transport | 拦截最终请求体，确认 system/user 文本和角色、stream=true；请求 model ID 不变，不靠 prompt contains 放行 | accepted；协议请求测试待实现 |
-| C91-03 | Account（Start/个人/Team）与普通 Provider 使用假凭据 fixture | 相同模板；身份及凭据不串用；Start 仍走模型请求，不改回权益探测 | accepted；服务/执行路径测试待实现 |
-| C91-04 | 隔离 Electron 环境从模型行点击测试 | 最终请求满足契约，成功/失败反馈正常；正常对话选择与配置不变 | accepted；E2E 待编写/审阅/运行 |
-| 非连接测试消费者 | 标题、Wiki、普通对话、Subagent | invariant-only；不改通用 generateWorkspaceText 或共享辅助选项来传递此 Prompt | 不扩张为全域改造 |
-| 真实账号白名单试探 | 重复发送不同 Prompt | pruned；封号风险，不作为自动化验证方法 | 禁止用于本轮验证 |
-| 所有品牌×所有协议×所有主题 | 全排列 | pruned；固定文本无 locale/theme 分支，协议三类及账号/普通代表足够 | 代表覆盖 |
+| C91-01 | Testar conexão no Core, com Model mock coletando o pedido | Exatamente duas mensagens system + user, com texto e ordem fixos, sem tools/histórico; erro no stream ainda falha | accepted; teste unitário a implementar |
+| C91-02 | Os três Adapter oficiais Anthropic / Chat / Responses, com transport offline injetado | Interceptar o body final da requisição e confirmar texto e papéis system/user, stream=true; o model ID da requisição não muda e a liberação não depende de prompt contains | accepted; teste de requisição de protocolo a implementar |
+| C91-03 | Account (Start/pessoal/Team) e Provider comum usando fixture de credenciais falsas | O mesmo template; identidade e credenciais não se misturam; Start continua fazendo pedido de modelo e não volta à sondagem de benefícios | accepted; teste de serviço/caminho de execução a implementar |
+| C91-04 | Ambiente Electron isolado clicando em testar na linha do modelo | A requisição final cumpre o contrato e o feedback de sucesso/falha funciona; a seleção e a configuração da conversa normal não mudam | accepted; E2E a escrever/revisar/executar |
+| Consumidores que não são teste de conectividade | Título, Wiki, conversa comum, Subagent | invariant-only; não alterar o generateWorkspaceText comum nem as opções auxiliares compartilhadas para passar este Prompt | Não expandir para uma mudança global |
+| Experimentação de whitelist com conta real | Enviar Prompts diferentes repetidamente | pruned; risco de banimento da conta, não serve como método de verificação automática | Proibido para a verificação desta rodada |
+| Todas as marcas × todos os protocolos × todos os temas | Arranjo completo | pruned; o texto fixo não tem ramo por locale/tema, e os três protocolos mais um representante de Account/comum bastam | Cobertura representativa |
 
-实现阶段按现有 E2E 生命周期补模型连接测试用例及 coverage 记录，新增用例先 pending 人工审阅；测试 transport 禁止回落真实网络。MacBook Pro 运行隔离 Electron 验证，手机/远程没有实际验证则明确列出，不以桌面通过替代。执行相关单测、`pnpm typecheck`、`pnpm lint` 后提交。
+Na fase de implementação, acrescentar o caso de teste de conectividade de modelo e o registro de cobertura seguindo o ciclo de vida de E2E existente; os casos novos começam como pending para revisão manual; o transport de teste não pode cair para a rede real. A verificação em Electron isolado roda no MacBook Pro; se celular/remoto não tiverem verificação real, isso é listado explicitamente e não é substituído pela aprovação no desktop. Após rodar os testes unitários relacionados, `pnpm typecheck` e `pnpm lint`, faça o commit.
 
-## 6. 交接与未确认项
+## 6. Passagem de bastão e itens não confirmados
 
-- Todo 90 继续负责添加/编辑模型共用草稿，与本项独立；MFJS 样式和覆盖高亮正在讨论，不混入此 Prompt Todo。
-- 唯一外部未确认项：服务端当前白名单按哪些字段、角色与序列化形式匹配。这里记录客户端目标，不声称服务端已放行。
-- 实施记录见下一节；不将离线验证等同于真实账号白名单已放行。
+- O Todo 90 continua responsável pelo rascunho compartilhado de adicionar/editar modelo, independente deste item; o estilo MFJS e o realce de cobertura estão em discussão e não entram neste Todo de Prompt.
+- Único item externo não confirmado: com quais campos, papéis e forma de serialização a whitelist atual do servidor faz o casamento. Aqui fica registrado o alvo do cliente, sem alegar que o servidor já liberou.
+- O registro de implementação está na seção seguinte; a verificação offline não equivale a a whitelist de conta real já ter sido liberada.
 
-## 7. 实施与复审记录（2026-09-08）
+## 7. Registro de implementação e revisão (2026-09-08)
 
-| 项目 | 结果 |
+| Item | Resultado |
 | --- | --- |
-| C91-01 | Core 四种身份精确消息断言先红（4 条），修改唯一构造点后通过；新增抛错、error event、无 finish 失败断言，原低 reasoning/预算/完整流及 Wiki 行为保留 |
-| C91-02/03 | `connectivity-probe-wire.test.ts` 使用正式配置解析、runner options 和三种 SDK Adapter，离线 transport 截获最终 JSON；六组普通/Account 身份验证精确角色文本、stream/model、假凭据隔离、无 tools；所有请求被拦截，不回落网络 |
-| C91-04 | pending E2E 从真实设置模型行发起，case-local loopback server 返回成功 SSE/400 失败；两次最终请求均为固定模板，Personal 文件、连接选择和 Composer 草稿保持原样 |
-| 代码复审 | 生产只改连接测试消息及命名常量；未修改通用 generateWorkspaceText、Adapter、Request Auth、协议、预算、重试或连接状态。删除旧 Prompt 断言，没有恢复 staging 旧分流 |
-| 本地验证 | CLI 3 个定向文件 32 测试通过；Core typecheck、根 pnpm typecheck 通过；根 lint 0 errors / 40 既有 warnings |
-| Pro | `desktop-e2e-20260908-102455-529`，1/1 通过，隔离目录 `/Users/dev/zcode-todo93-e2e.88xgST`；已重新构建 Agent，复跑只复用该新构建 |
+| C91-01 | Asserções de mensagens exatas para as quatro identidades no Core ficaram vermelhas primeiro (4 casos) e passaram depois de modificar o único ponto de construção; foram acrescentadas asserções de erro lançado, error event e falha sem finish, preservando os comportamentos existentes de reasoning baixo, orçamento, stream completo e Wiki |
+| C91-02/03 | `connectivity-probe-wire.test.ts` usa a resolução de configuração oficial, as runner options e os três Adapter de SDK; o transport offline intercepta o JSON final; seis grupos de identidades comuns/de Account verificam texto e papéis exatos, stream/model, isolamento de credenciais falsas e ausência de tools; todos os pedidos são interceptados e não caem na rede |
+| C91-04 | O E2E pending parte da linha de modelo real das configurações, e o servidor loopback local do case devolve SSE de sucesso/falha 400; as duas requisições finais foram o template fixo, e o arquivo Personal, a seleção de conexão e o rascunho do Composer permaneceram iguais |
+| Revisão de código | Em produção só mudaram a mensagem de teste de conectividade e a constante de nome; generateWorkspaceText comum, Adapter, Request Auth, protocolo, orçamento, retry e estado de conexão não foram modificados. Asserções do Prompt antigo foram removidas e a separação antiga do staging não foi restaurada |
+| Verificação local | 3 arquivos direcionados do CLI com 32 testes passando; typecheck do Core e `pnpm typecheck` da raiz passando; lint da raiz com 0 errors e 40 warnings já existentes |
+| Pro | `desktop-e2e-20260908-102455-529`, 1/1 passando, diretório isolado `/Users/dev/zcode-todo93-e2e.88xgST`; o Agent foi reconstruído e a reexecução reutilizou apenas essa nova build |
 
-首轮 E2E `desktop-e2e-20260908-102321-138` 已出现成功/失败 UI，但失败断言错误期待原始网关文案；正式链路归一化为 `Provider rejected the model request.`。按既有契约修正断言后通过，未为测试改变产品错误处理。
+O E2E da primeira rodada `desktop-e2e-20260908-102321-138` já mostrou a UI de sucesso/falha, mas a asserção de falha esperava erroneamente o texto bruto do gateway; o caminho oficial foi normalizado para `Provider rejected the model request.`. Depois de corrigir a asserção conforme o contrato existente, passou, e o tratamento de erros do produto não foi alterado para agradar o teste.
 
-E2E 文件：`packages/desktop/test/e2e/settings/manual-review/pending/provider-connectivity-prompt.test.ts`。固定白名单禁止追加 Prompt marker，使用独立 `E2E_C91_MODEL`、完整消息数组和 localhost endpoint 识别；synthetic / fast-text 响应只用于连接探测。保持 pending，未代替用户人工审阅转正。手机/远程和真实 Account 网络未实测。
+Arquivo E2E: `packages/desktop/test/e2e/settings/manual-review/pending/provider-connectivity-prompt.test.ts`. A whitelist fixa proíbe acrescentar marcadores de Prompt, e a identificação usa `E2E_C91_MODEL` independente, o array de mensagens completo e o endpoint localhost; respostas synthetic / fast-text são usadas apenas para a sondagem de conectividade. Permanece pending, sem substitutuir a revisão manual do usuário. Celular/remoto e a rede real de Account não foram testados.
 
-额外执行 CLI Core 包级 lint：既有多个无关文件超 400 行等导致失败；本次唯一生产文件的定向 oxlint 通过。未借 Prompt 修复重构这些无关文件，根 lint 仍通过；包级 lint 不记录为绿色。
+Também foi executado o lint de nível de pacote dos pacotes Core do CLI: a execução falhou por vários arquivos sem relação que já ultrapassam 400 linhas; o oxlint direcionado do único arquivo de produção desta rodada passou. Esses arquivos sem relação não foram refatorados às cegas na correção do Prompt, o lint da raiz continua passando e o lint de nível de pacote não é registrado como verde.

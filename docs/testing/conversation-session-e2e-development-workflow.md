@@ -1,6 +1,6 @@
 # Fluxo de desenvolvimento E2E de Conversation Session
 
-Este documento define o pipeline de desenvolvimento da conversation session, da "enumeração de cobertura" até o "E2E formal". O objetivo é que novos casos avançem por etapas fixas, evitando modificar na hora da promoção o fixture de replay compartilhado e descobrir dados incompatíveis só depois de esperar várias vezes por E2E longos.
+Este documento define o pipeline de desenvolvimento da conversation session, da "enumeração de cobertura" até o "E2E formal". O objetivo é que novos casos avançuem por etapas fixas, evitando modificar na hora da promoção o fixture de replay compartilhado e descobrir dados incompatíveis só depois de esperar várias vezes por E2E longos.
 
 ## Duas linhas de pipeline
 
@@ -113,12 +113,12 @@ Casos formais puramente de composer, native picker ou outros que não disparam r
 
 Na gravação é possível capturar tudo; ao converter para fixture, apenas as requests necessárias entram no contrato.
 
-| Categoria | Significado | Tratamento |
-| --- | --- | --- |
-| `main` | requests das quais as asserções centrais do caso dependem, como edit rerun, compact summary, goal verifier | vão para o fixture case-local |
-| `common` | requests auxiliares estavelmente necessárias a múltiplos casos, como geração de título | vão para o common fixture |
-| `ignore` | requests que aparecem na captura mas não pertencem ao contrato de teste | não entram no fixture case-local; se necessário, são explicadas no manifest |
-| `synthetic` | temporizações/falhas instáveis ou impossíveis de construir na captura real, como stream lento, stream interrompido, 429 | vão para o fixture case-local, com `syntheticReason` escrito |
+| Categoria  | Significado                                                                                   | Tratamento                                                                             |
+| ---------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `main`     | requests das quais as asserções centrais do caso dependem, como edit rerun, compact summary, goal verifier | vão para o fixture case-local                                              |
+| `common`   | requests auxiliares estavelmente necessárias a múltiplos casos, como geração de título       | vão para o common fixture                                                               |
+| `ignore`   | requests que aparecem na captura mas não pertencem ao contrato de teste                       | não entram no fixture case-local; se necessário, são explicadas no manifest             |
+| `synthetic`| temporizações/falhas instáveis ou impossíveis de construir na captura real, como stream lento, stream interrompido, 429 | vão para o fixture case-local, com `syntheticReason` escrito             |
 
 Ferramentas podem sugerir a categoria automaticamente com base em marker, path, conteúdo de prompt e ordem das requests, mas a semântica de produto é revisada pelo desenvolvedor.
 
@@ -126,12 +126,12 @@ Ferramentas podem sugerir a categoria automaticamente com base em marker, path, 
 
 Casos diferentes usam estratégias de replay diferentes, evitando que todos os testes fiquem lentos por causa de stream lento e evitando que um case de performance perca o valor por ser reproduzido com body de uma só vez.
 
-| Estratégia             | Cenário aplicável |
-| --------------------- | ----------------- |
-| `fast-text`           | asserções funcionais comuns; basta retorno rápido |
-| `controlled-stream`   | casos de stop, queue, interrupted, que precisam de janela de streaming estável |
-| `recorded-stream`     | casos de performance, renderização de Markdown e ritmo de streaming; precisam preservar `responseEvents` / `responseChunkTimeline` reais |
-| `fault-stream`        | injeção de falhas como stream interrompido, pacote parcial, socket destroy |
+| Estratégia           | Cenário aplicável                                                                     |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| `fast-text`          | asserções funcionais comuns; basta retorno rápido                                     |
+| `controlled-stream`  | casos de stop, queue, interrupted, que precisam de janela de streaming estável        |
+| `recorded-stream`    | casos de performance, renderização de Markdown e ritmo de streaming; precisam preservar `responseEvents` / `responseChunkTimeline` reais |
+| `fault-stream`       | injeção de falhas como stream interrompido, pacote parcial, socket destroy             |
 
 controlled/fault stream sintéticos precisam explicar o motivo. Exemplo típico: o modelo real é rápido demais e não cobre a stop window de forma estável.
 
@@ -187,7 +187,7 @@ Para casos pending já confirmados no review, a ferramenta de promotion faz a pr
 pnpm --filter @zcode/desktop e2e:promote -- --spec ./test/e2e/conversation-session/manual-review/pending/<case>.test.ts --reviewed --apply
 ```
 
-A ferramenta de promotion só faz脚手架 mecânico:
+A ferramenta de promotion só faz scaffolding mecânico:
 
 1. Move a spec de `manual-review/pending` para o diretório formal `conversation-session/`.
 2. Corrige imports relativos de helper comuns.

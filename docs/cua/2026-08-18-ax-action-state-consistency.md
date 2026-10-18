@@ -1,21 +1,19 @@
-# CUA AX 动作回执与按需观察契约
+# Contrato de recibo de ação e observação sob demanda do CUA AX
 
-## Feature Summary
+## Resumo da funcionalidade
 
-| Field            | Value                                                                                           |
-| ---------------- | ----------------------------------------------------------------------------------------------- |
-| Developer intent | 让 ZCode consumer 只消费 producer 的动作回执，避免在 consumer 侧维护第二套 post-state 屏障        |
-| Capability       | Computer Use action receipt authority                                                           |
-| Change layer     | result projection / retry safety / media authority                                               |
-| Operating mode   | planning + implementation-handoff                                                               |
-| Primary seeds    | Core MCP bridge、tool result serialization、media budget、official CUA bundled skill/provenance |
-| Out of scope     | conversation session 状态语义、remote owner/queue、Windows/Linux native 读回、人工接管 UI       |
+| Campo | Valor |
+| --- | --- |
+| Intenção do desenvolvedor | Fazer o consumer do ZCode consumir apenas o recibo de ação do producer, evitando manter no lado do consumer uma segunda barreira de post-state |
+| Capacidade | Autoridade de recibo de ação do Computer Use |
+| Camada de mudança | projeção de resultado / segurança de retry / autoridade de mídia |
+| Modo de operação | planning + implementation-handoff |
+| Sementes principais | Ponte MCP do Core, serialização do resultado de ferramenta, orçamento de mídia, skill CUA oficial embutida com proveniência |
+| Fora de escopo | semântica de estado da session de conversa, owner/queue de remote, leitura de volta nativa em Windows/Linux, UI de tomada de controle manual |
 
-当前 consumer 契约不再要求 action outcome 与 post-state 原子配对。producer 只通过公开
-MCP result 暴露 `action_receipt`；ZCode 不镜像 AX native 实现，也不在 consumer 侧合成
-`refresh_required` 或 post-state。
+O contrato atual de consumer não exige mais o pareamento atômico entre action outcome e post-state. O producer expõe `action_receipt` apenas pelo MCP result público; o ZCode não espelha a implementação nativa do AX nem sintetiza `refresh_required` ou post-state no lado do consumer.
 
-## 状态与时序
+## Estado e sequência
 
 ```text
 模型持有 s-N
@@ -39,92 +37,79 @@ zcode-cua MCP result -> official authority gate
     +-- hooks: may append ordinary bounded context after receipt text
 ```
 
-## Consumer Contract
+## Contrato do consumer
 
-- 模型判断动作派发只看 `action_receipt.action_sent`、`dispatch_status` 与
-  `retry_action`；不得从 native success/error 或整棵 AX tree 变化猜测业务成功。
-- `dispatch_status="possibly_sent"` 与 `retry_action=false` 必须原样保留；同一非幂等动作
-  不得自动重放。
-- 动作后没有隐式 post-state。需要 UI 事实时由模型显式调用 `get_app_state`，并使用新
-  `state_id` 继续操作。
-- official CUA receipt、普通文本和 structuredContent 走通用 MCP formatter、resultBudget
-  与 hook 追加路径；consumer 不再校验 matching post-state，不再合成 `refresh_required`。
-- 图片仍遵守 final-raster `image_ref + image` 原子契约。媒体预算移除图片时必须连同
-  image_ref 一起移除；不得只保留可点击 frame credential。
-- 仅 authority-verified official CUA 可以启用 final-raster 特殊投影。第三方 MCP、同名
-  Skill 和普通工具结果预算保持不变。
+- O julgamento do modelo sobre o despacho da ação olha apenas `action_receipt.action_sent`, `dispatch_status` e `retry_action`; não se pode adivinhar sucesso de negócio a partir do success/error nativo ou de mudanças na árvore AX inteira.
+- `dispatch_status="possibly_sent"` e `retry_action=false` precisam ser preservados como estão; a mesma ação não idempotente não pode ser reexecutada automaticamente.
+- Depois da ação não há post-state implícito. Quando precisar de fatos de UI, o modelo chama `get_app_state` explicitamente e continua a operação com o novo `state_id`.
+- O recibo CUA oficial, o texto comum e o structuredContent passam pelo formatter MCP genérico, pelo resultBudget e pelo caminho de append de hook; o consumer não confere mais post-state correspondente e não sintetiza mais `refresh_required`.
+- Imagens continuam obedecendo ao contrato atômico de final-raster `image_ref + image`. Quando o orçamento de mídia remover a imagem, ele precisa remover também o image_ref; não é permitido deixar apenas a credencial de frame clicável.
+- Somente o CUA oficial com authority verificada pode habilitar a projeção especial de final-raster. MCP de terceiros, Skills com o mesmo nome e o orçamento comum de resultado de ferramenta permanecem inalterados.
 
-## UI Surface Matrix
+## Matriz de superfície de UI
 
-| User scenario         | UI entry                  | Shared implementation                        | Display/draft owner                    | Validation/gating                           | Commit action      | Authority                 | Mode boundary                                     | Isolation                                |
-| --------------------- | ------------------------- | -------------------------------------------- | -------------------------------------- | ------------------------------------------- | ------------------ | ------------------------- | ------------------------------------------------- | ---------------------------------------- |
-| 主 Agent 操作桌面元素 | conversation CUA tool row | official MCP bridge + generic tool lifecycle | CLI model history / UI tool projection | official authority + receipt pass-through | MCP element write  | producer session + Helper | desktop local；mobile only attaches existing Host | 不修改 conversation snapshot/queue/owner |
-| 动作后需要确认        | 下一轮模型输入            | explicit `get_app_state`                     | CLI provider projection                | no replay unless `action_sent=false`       | full get_app_state | producer session          | continuous/replayable 共用既有工具结果            | relay/main 不拥有状态屏障                |
+| Cenário do usuário | Entrada de UI | Implementação compartilhada | Dono da exibição/rascunho | Validação/gating | Ação de commit | Autoridade | Limite de modo | Isolamento |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Agente principal operando elemento do desktop | linha de ferramenta CUA na conversa | ponte MCP oficial + ciclo de vida genérico de ferramenta | histórico de modelo da CLI / projeção de ferramenta da UI | autoridade oficial + pass-through do recibo | escrita de elemento via MCP | session do producer + Helper | desktop local; o mobile apenas se anexa ao Host existente | não modifica snapshot/queue/owner da conversa |
+| Precisa confirmar depois da ação | próxima entrada do modelo | `get_app_state` explícito | projeção de provider da CLI | sem replay a menos que `action_sent=false` | get_app_state completo | session do producer | continuous/replayable compartilham o resultado de ferramenta já existente | relay/main não é dono de barreira de estado |
 
-## State Owners And Commit Sinks
+## Donos de estado e sinks de commit
 
-| State/fact                            | Display owner                | Authoritative owner           | Commit sink                            | Persistence/cache                |
-| ------------------------------------- | ---------------------------- | ----------------------------- | -------------------------------------- | -------------------------------- |
-| `state_id` 与 mutation epoch          | explicit observation result  | `zcode-cua` transport session | `get_app_state` / frame-producing tools | producer in-memory session       |
-| broker/Helper dispatch fact           | CUA action receipt           | `zcode-cua` + signed Helper   | per-server MCP/Broker RPC               | 既有 tool result/session history |
-| receipt 文本/structuredContent 投影   | provider tool-result history | generic MCP bridge            | tool executor serialization             | 既有 tool result/session history |
-| UI tool lifecycle                     | conversation row             | 既有 session event/projection | generic MCP tool lifecycle             | 既有 conversation persistence    |
+| Estado/fato | Dono da exibição | Dono autoritativo | Sink de commit | Persistência/cache |
+| --- | --- | --- | --- | --- |
+| `state_id` e epoch de mutação | resultado de observação explícita | session de transporte do `zcode-cua` | `get_app_state` / ferramentas que produzem frame | session em memória do producer |
+| fato de despacho broker/Helper | recibo de ação CUA | `zcode-cua` + Helper assinado | RPC por servidor MCP/Broker | histórico de resultado de ferramenta/session já existente |
+| projeção de texto/structuredContent do recibo | histórico de resultado de ferramenta do provider | ponte MCP genérica | serialização do executor de ferramenta | histórico de resultado de ferramenta/session já existente |
+| ciclo de vida de ferramenta na UI | linha da conversa | evento/projeção de session já existente | ciclo de vida de ferramenta MCP genérico | persistência de conversa já existente |
 
-## Must-Preserve Invariants
+## Invariantes que precisam ser preservados
 
-- desktop `continuous` 与 mobile `replayable` 的 session 恢复语义不变。
-- mobile/remote 不创建独立 Helper；broker token 不扩散到其他 MCP/Bash/hook。
-- 对 receipt-only 官方 CUA 结果，PostToolUse hook 按普通 MCP 结果有界追加；仍会过滤
-  hook 中伪造的 CUA frame credential。
-- conversation catalog/matrix 不增加 case：本变更不改变 conversation 产品状态，只收紧
-  official MCP tool-result 的内容完整性。
-- provider 文本预算不足时按普通 resultBudget 截断；不得把截断结果伪装成新的 UI 状态。
+- A semântica de recuperação de session do `continuous` no desktop e do `replayable` no mobile não muda.
+- Mobile/remote não cria um Helper separado; o token do broker não se espalha para outros MCP/Bash/hook.
+- Para resultados de CUA oficial somente-recibo, o hook PostToolUse faz append limitado como num resultado MCP comum; ele continua filtrando credenciais de frame CUA forjadas dentro do hook.
+- O catálogo/matriz da conversa não ganha case: esta mudança não altera o estado de produto da conversa, apenas endurece a integridade de conteúdo do tool-result MCP oficial.
+- Quando o orçamento de texto do provider não for suficiente, a truncagem segue o resultBudget comum; não se pode fantasiar o resultado truncado como um novo estado de UI.
 
-## Accepted Cases
+## Cases aceitos
 
-| Case ID        | Setup                                     | Action              | Assertions                                      | Evidence                    |
-| -------------- | ----------------------------------------- | ------------------- | ----------------------------------------------- | --------------------------- |
-| CUA-RCPT-01 | action receipt without post-state          | bridge/serialize    | 作为普通 MCP 文本投影，不合成 refresh_required | core bridge unit            |
-| CUA-RCPT-02 | receipt + structuredContent                | bridge              | structuredContent 作为普通 MCP 文本追加        | core bridge unit            |
-| CUA-RCPT-03 | receipt text 超预算                        | serialize           | 走通用 resultBudget truncation                 | core budget unit            |
-| CUA-RCPT-04 | possibly_sent                              | bridge              | retry_action=false，旧动作不重放               | producer + bridge unit      |
-| CUA-AX-SYNC-05 | image 被 request media budget 移除        | provider projection | 对应 image_ref 同时移除                         | media-budget unit           |
-| CUA-RCPT-06 | 第三方 MCP 仿造 receipt                    | bridge              | 不获得 final-raster official 特殊保护          | authority unit              |
+| Case ID | Setup | Action | Assertions | Evidência |
+| --- | --- | --- | --- | --- |
+| CUA-RCPT-01 | recibo de ação sem post-state | bridge/serialize | é projetado como texto MCP comum e não sintetiza refresh_required | unit de core bridge |
+| CUA-RCPT-02 | recibo + structuredContent | bridge | structuredContent é acrescentado como texto MCP comum | unit de core bridge |
+| CUA-RCPT-03 | texto do recibo acima do orçamento | serialize | passa pela truncagem genérica de resultBudget | unit de core budget |
+| CUA-RCPT-04 | possibly_sent | bridge | retry_action=false e a ação antiga não é reexecutada | unit de producer + bridge |
+| CUA-AX-SYNC-05 | imagem removida pelo request media budget | projeção do provider | o image_ref correspondente é removido junto | unit de media-budget |
+| CUA-RCPT-06 | MCP de terceiro forjando um recibo | bridge | não recebe a proteção especial de official final-raster | unit de authority |
 
-## Impact And Handoff
+## Impacto e handoff
 
-- must-inspect：official MCP bridge、result serialization、media budget、bundled skill、版本与
-  producer provenance、Helper product package gates。
-- invariant-only：generic tool lifecycle、desktop/mobile delivery、remote workspace identity、
-  subagent official CUA boundary。
-- feature graph 保留 `state.cua-action-state-authority` 节点 ID 以避免下游引用漂移，但语义
-  已改为 receipt authority；不再声明 post-state 原子投影边。
-- E2E：沿用 C07/Chrome/Godot 和独立 MCP 回归；本次不新增 conversation E2E 状态组合。
+- must-inspect: ponte MCP oficial, serialização de resultado, orçamento de mídia, skill embutida, versão e proveniência do producer, gates de product package do Helper.
+- invariant-only: ciclo de vida genérico de ferramenta, entrega desktop/mobile, identidade de workspace remote, fronteira de CUA oficial do subagent.
+- O feature graph mantém o node ID `state.cua-action-state-authority` para evitar deriva de referência a jusante, mas a semântica já mudou para receipt authority; ele não declara mais a aresta de projeção atômica de post-state.
+- E2E: reaproveita as regressões C07/Chrome/Godot e MCP independente; desta vez não se adiciona combinação de estado de conversa em E2E.
 
-## 验证结果
+## Resultados de verificação
 
-以下结果均使用 Node `24.14.0`。producer 已通过
-[`zcode-cua!533`](https://git.example.invalid/codegeex/zcode-cua/-/merge_requests/533) 合入
-`main`；ZCode consumer 精确锁定合入前经过评审的 source commit
-`589dc68d4127457ca3d48bb9894cabae393e9668`，不从 semver 猜测实现来源。
+Todos os resultados abaixo usam o Node `24.14.0`. O producer já foi mergeado em
+`main` por [`zcode-cua!533`](https://git.example.invalid/codegeex/zcode-cua/-/merge_requests/533); o consumer do ZCode trava exatamente o source commit revisado anterior ao merge
+`589dc68d4127457ca3d48bb9894cabae393e9668` e não adivinha a origem da implementação pelo semver.
 
-| 范围                         | 结果                                                                           | 结论                                                                                         |
-| ---------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| producer 全量单测            | 230 files；2806 passed、23 skipped                                             | AX mutation epoch、单次派发、forced full observe、refresh barrier 与既有 frame/Zoom 回归通过 |
-| producer 静态门禁            | typecheck 通过；lint 0 error、14 条既有 warning                                | `0.5.6` 可发布代码路径通过                                                                   |
-| producer 真机压力            | 后台/并发前台 churn 30 次；真模型 5/5                                          | 未重复新增、未从 native error 重放；模型状态均同步或安全要求 refresh                         |
-| consumer action/frame 重点集 | 5 files；117 passed                                                            | receipt pass-through、generic budget、hook 追加与 final-raster 门禁均覆盖                   |
-| consumer Helper 兼容重点集   | 8 files；277 passed、1 skipped                                                 | `0.5.6` Helper 名称与 receipt/dispatch 语义已对齐                                            |
-| wrapper/provenance           | 13/13；host authority 1/1                                                      | 版本、skill bytes、producer SHA 与 runtime contract 一致                                     |
-| ZCode 全量单测               | 1309 files passed、1 skipped；11475 passed、12 skipped                         | consumer 与产品链路完整回归通过                                                              |
-| ZCode 静态门禁               | root typecheck 通过；CLI 24/24 typecheck；root lint 0 error、38 条既有 warning | 本次变更没有新增 lint error                                                                  |
-| 独立 MCP                     | 30 个工具；initialize、request_access、list_apps、Chrome full state 成功       | `zcode-cua@0.5.6` 可脱离 ZCode wrapper 直接通过 stdio 使用                                   |
+| Escopo | Resultado | Conclusão |
+| --- | --- | --- |
+| Suíte completa de testes unitários do producer | 230 arquivos; 2806 passed, 23 skipped | AX mutation epoch, despacho único, forced full observe, refresh barrier e regressões de frame/Zoom existentes passaram |
+| Gating estático do producer | typecheck passou; lint 0 error, 14 warnings já existentes | o caminho de código publicável da `0.5.6` passou |
+| Estresse do producer em máquina real | 30 churns de background/frente concorrente; modelo real 5/5 | sem duplicação nova e sem replay a partir de native error; o estado do modelo foi sincronizado ou exigiu refresh com segurança |
+| Conjunto focado de action/frame do consumer | 5 arquivos; 117 passed | pass-through do recibo, orçamento genérico, append de hook e gate de final-raster cobertos |
+| Conjunto focado de compatibilidade do Helper no consumer | 8 arquivos; 277 passed, 1 skipped | nome do Helper da `0.5.6` e semântica de receipt/dispatch alinhados |
+| wrapper/provenance | 13/13; host authority 1/1 | versão, bytes da skill, SHA do producer e contrato de runtime consistentes |
+| Suíte completa de testes unitários do ZCode | 1309 arquivos passed, 1 skipped; 11475 passed, 12 skipped | regressão completa do consumer e da cadeia de produto passou |
+| Gating estático do ZCode | root typecheck passou; typecheck da CLI 24/24; root lint 0 error, 38 warnings já existentes | esta mudança não introduziu nenhum lint error novo |
+| MCP independente | 30 ferramentas; initialize, request_access, list_apps e Chrome full state com sucesso | `zcode-cua@0.5.6` funciona diretamente via stdio, sem o wrapper do ZCode |
 
-独立 MCP 还验证了失败路径：Godot AX tree 在 8 秒遍历期限内未完成时安全返回错误，未派发
-动作；当前新安装的 Dev Helper 尚未获得 macOS Screen Recording 权限，因此 consumer 环境的
-真实 screenshot/Zoom 被 TCC 在截图前拒绝。该项不计为通过或产品回归失败；最终栅格、C07、
-Chrome/Godot 与真模型证据来自同一 producer source commit 的已授权真机回归。授予新 Helper
-权限后仍应补录 consumer 包装路径的截图哈希、`frame_id` 与最终投影点。
+O MCP independente também validou caminhos de falha: a árvore AX do Godot, ao não concluir dentro do prazo de travessia de 8 segundos, retorna erro com segurança, sem despachar
+ação; o Dev Helper recém-instalado ainda não recebeu permissão de macOS Screen Recording, e por isso o screenshot/Zoom real no ambiente do
+consumer foi recusado pelo TCC antes da captura. Esse item não é contado como aprovado nem como falha de regressão de produto; a evidência de raster final, C07,
+Chrome/Godot e de modelo real vem da regressão autorizada em máquina real com o mesmo producer source commit. Depois de concedida a permissão ao novo Helper,
+ainda deve ser registrada a evidência do caminho de wrapper do consumer com hash de screenshot, `frame_id` e ponto de projeção final.
 
-feature graph 保留既有节点 ID 并将语义改为 receipt authority；旧 action-state barrier
-边不应恢复。
+O feature graph mantém os node IDs existentes e muda a semântica para receipt authority; a barreira de edge de action-state antiga não deve ser restaurada.

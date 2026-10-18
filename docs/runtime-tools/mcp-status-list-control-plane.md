@@ -1,62 +1,60 @@
-# MCP 状态批量查询控制面
+# Superfície de controle para consulta em lote do status de MCP
 
-## 背景
+## Contexto
 
-MCP 设置页需要展示当前配置中各 server 的状态。旧方案在设置页初次加载时逐个执行真实连接检查，容易让 UI 刷新触发大量 control-plane 请求，也会把“配置状态展示”和“主动健康检查”混在一起。
+A página de configurações de MCP precisa exibir o status de cada server na configuração atual. A solução antiga executava verificações reais de conexão uma a uma no primeiro carregamento da página, o que facilmente fazia um refresh da UI disparar muitas requisições ao control-plane e ainda misturava "exibição de status de configuração" com "checagem ativa de saúde".
 
-## 目标
+## Objetivos
 
-- 设置页初次加载使用一次批量状态查询，避免按 server 数量触发自动检查。
-- 批量状态查询走独立的 `mcp-status` lane control-plane CLI 进程，与 plugin 管理命令（`plugins/*`）隔离进程；两者共用同一个内部 cwd（数据目录下的 `.zcode/plugin-workspace`，即 `getDataBaseDir()/.zcode/plugin-workspace`，默认等于 `~/.zcode/plugin-workspace`；E2E 隔离 HOME 或自定义 data dir 时不在 `~` 下），但不共用 stdio 连接。
-- 保留单 server 主动检查能力，但只在用户手动检查或启用后检查时触发。
-- 不把 MCP 状态下沉到 desktop main、relay 或 mobile remote 链路。
+- O primeiro carregamento da página de configurações usa uma única consulta em lote de status, evitando disparar checagens automáticas conforme o número de servers.
+- A consulta em lote de status passa por um processo CLI de control-plane em uma lane `mcp-status` independente, isolando o processo dos comandos de gestão de plugins (`plugins/*`); ambos compartilham o mesmo cwd interno (`.zcode/plugin-workspace` dentro do diretório de dados, isto é `getDataBaseDir()/.zcode/plugin-workspace`, por padrão igual a `~/.zcode/plugin-workspace`; em E2E com HOME isolado ou data dir customizado não fica sob `~`), mas não compartilham a conexão stdio.
+- Mantém-se a capacidade de checagem ativa de um único server, mas ela só é acionada quando o usuário checa manualmente ou após habilitar.
+- Não afundar o status de MCP no desktop main, no relay ou na cadeia de remote do celular.
 
-## 协议语义
+## Semântica do protocolo
 
-- `mcp/list`：返回当前配置的 MCP server 状态快照。请求发往独立的 `mcp-status` lane control-plane CLI 进程；该进程持有独立的 `McpPort`，会用 runtime 同款 MCP adapter 刷新可信配置的连接状态，再返回 `status()` 的本地快照。project MCP 在未信任前仍只返回 `untrusted`，不会被连接。
-- 进程生命周期：mcp-status lane 进程在首次 `mcp/list` 时惰性拉起，每个 host 最多一个（进程 key 是固定的内部 cwd）。它通过进程级连接池真正连上可信 MCP server 且完成后不断开，因此进程本身约 45 MB 之外还挂着 MCP 子进程；为避免这部分常驻，manager 对该 lane 启用 `idleTimeoutMs`（默认 5 分钟）：连接上没有请求在飞满 5 分钟即主动回收整棵进程树（`terminationKind=expected`、`terminationReason=idle-timeout`），下一次 `mcp/list` 透明地重新拉起（实测冷启动约 1 s）。chat / plugin lane 不启用空闲回收。
-- 进程可观测性：spawn/ready/exit/error 事件经 `processLifecycleReporter` 上报 host → main → ARMS，payload 带 `lane`（`mcp-status`），与共用同一 cwd 和 command 的 plugin lane 进程可区分。
-- 为什么要独立进程：CLI 的 ZCode Protocol transport 对同一条 stdio 连接上的请求严格串行（FIFO，只有 `session/stop` 可越队）。connect 模式的 `mcp/list` 会真正连接全部 MCP server，任一 server 握手不完成就吃满 30s 超时；此前它与 `plugins/uninstall` 等命令共用 plugin 管理进程，卸载被排在 30s 探测后面，UI 在 5 分钟请求超时内没有任何反馈（2026-09-03 线上复现：`uninstallPlugin` 等待 37s 直到用户强退，`mcp/list` 出现 60.5s = 两个 30s 首尾相接）。拆到独立 lane 后探测再慢也不阻塞插件管理，探测超时触发的进程回收也不再连坐在途的安装/卸载。
-- `mcp/list` 可以带 `mcpServers` 显式输入。桌面设置页已经由 desktop main 解析 `~/.zcode/cli/config.json` 与 `.agents/mcp.json` fallback，并在真实 session create/resume 时把 enabled MCP 下发为 `params.mcpServers`；状态查询必须复用同一批 UI-resolved MCP，避免 control-plane agent 自己 `createConfig()` 读不到 `.agents` fallback 时把实际可用 server 标红。
-- `mcp/probe`：保留为单 server 主动检查语义。只有用户显式检查或启用后检查时使用，结果可以和 `mcp/list` 不同。
+- `mcp/list`: devolve um snapshot do status dos MCP servers da configuração atual. A requisição é enviada a um processo CLI de control-plane da lane `mcp-status`; esse processo mantém um `McpPort` próprio, refresca o status de conexão da configuração confiável usando o mesmo adapter MCP do runtime e então devolve o snapshot local do `status()`. MCPs de projeto, ainda não confiáveis, continuam retornando apenas `untrusted` e não são conectados.
+- Ciclo de vida do processo: o processo da lane mcp-status é iniciado de forma preguiçosa no primeiro `mcp/list`, no máximo um por host (a chave de processo é o cwd interno fixo). Ele realmente conecta aos MCP servers confiáveis pelo pool de conexões de nível de processo e não desconecta após terminar, portanto, além dos cerca de 45 MB do próprio processo, há MCPs filhos pendurados; para evitar essa permanência, o manager habilita `idleTimeoutMs` para essa lane (padrão 5 minutos): se ficar 5 minutos sem nenhuma requisição em voo na conexão, a árvore inteira de processos é recuperada ativamente (`terminationKind=expected`, `terminationReason=idle-timeout`), e o próximo `mcp/list` a sobe de novo de forma transparente (cold start medido em cerca de 1 s). As lanes chat / plugin não têm recuperação por ociosidade.
+- Observabilidade de processo: eventos spawn/ready/exit/error são reportados via `processLifecycleReporter` no fluxo host → main → ARMS, com `lane` (`mcp-status`) no payload, o que permite distinguir do processo da lane de plugins que compartilham o mesmo cwd e command.
+- Por que um processo independente: o transport de ZCode Protocol da CLI serializa estritamente as requisições na mesma conexão stdio (FIFO, apenas `session/stop` consegue furar a fila). Um `mcp/list` no modo connect realmente conecta a todos os MCP servers, e qualquer server cujo handshake não se completa consome o timeout de 30s; antes ele dividia o processo de gestão de plugins com comandos como `plugins/uninstall`, a desinstalação ficava enfileirada atrás da sondagem de 30s e a UI não recebia nenhuma resposta dentro do timeout de requisição de 5 minutos (reprodução em produção em 2026-09-03: `uninstallPlugin` esperou 37s até o usuário forçar a saída, e `mcp/list` apareceu com 60,5s = dois 30s encostados). Depois de separar para uma lane independente, uma sondagem lenta não bloqueia mais a gestão de plugins, e a recuperação de processo disparada por timeout de sondagem também não arrasta mais a instalação/desinstalação em trânsito.
+- `mcp/list` pode receber `mcpServers` explícito como entrada. A página de configurações do desktop já é resolvida pelo desktop main lendo `~/.zcode/cli/config.json` com fallback de `.agents/mcp.json`, e no session create/resume real os MCPs habilitados são enviados como `params.mcpServers`; a consulta de status precisa reutilizar exatamente o mesmo lote de MCP resolvido pela UI, evitando que o agent de control-plane marque em vermelho um server realmente disponível quando o seu próprio `createConfig()` não enxerga o fallback de `.agents`.
+- `mcp/probe`: mantido com a semântica de checagem ativa de um único server. Só é usado quando o usuário checa explicitamente ou após habilitar, e o resultado pode diferir do `mcp/list`.
 
-因此 UI 不应把 `mcp/list` 结果解释成真实健康检查成功；绿色 connected 只表示快照来源报告为 connected。
+Portanto a UI não deve interpretar o resultado de `mcp/list` como sucesso de checagem real de saúde; um connected em verde significa apenas que a origem do snapshot reporta connected.
 
-## 数据流
+## Fluxo de dados
 
-1. UI MCP 设置页加载本地配置后，请求 `zcodeAgentService.listMcpServerStatuses(...)`，并传入当前 workspace 下 enabled 的 ZCode Agent MCP 列表。
-2. service 通过 `getMcpStatusClient()` 使用 `mcpStatusProcessManager`（`lane: "mcp-status"`，独立于 plugin 管理的 `pluginProcessManager`）客户端发送 `mcp/list`。新版 agent 接收 `mcpServers`；旧版 strict agent 若拒绝该可选字段，service 会去掉字段重试一次。
-3. control-plane CLI 进程内按请求 workspace 读取 plugin 配置；若请求携带 `mcpServers`，本地 ZCode Agent MCP 状态以这批显式输入为准，否则回退到 agent 自己 `createConfig()` 读取的 `mcp.servers`。
-4. CLI handler 对可信配置调用进程内 `mcpPort.connectConfiguredServers(...)` 刷新本地 records；project untrusted MCP 从连接输入中剔除。显式 `mcpServers` 与 session create/resume 使用同一个 protocol-to-runtime 转换 helper，保持 timeout/env/header 等字段一致。
-5. CLI handler 包装现有 `listMcpServerStatuses(...)` 返回 status snapshot；`status()` 本身只读本地 records，不再额外连接。
-6. UI store 按当前本地 ZCode Agent MCP 行合并状态；plugin-managed 只读列表继续由 plugin 管理数据驱动，避免同名 server 串状态。
+1. A página de configurações de MCP da UI carrega a configuração local e então chama `zcodeAgentService.listMcpServerStatuses(...)`, passando a lista atual de MCP do ZCode Agent habilitado no workspace atual.
+2. O service usa `getMcpStatusClient()`, que é o cliente do `mcpStatusProcessManager` (`lane: "mcp-status"`, independente do `pluginProcessManager` da gestão de plugins), para enviar `mcp/list`. O agent novo recebe `mcpServers`; se um agent antigo strict rejeitar esse campo opcional, o service remove o campo e tenta uma vez mais.
+3. Dentro do processo CLI de control-plane, a configuração de plugins é lida conforme o workspace da requisição; se a requisição trouxer `mcpServers`, o status local do MCP do ZCode Agent segue essa entrada explícita, senão volta para o `mcp.servers` lido pelo próprio `createConfig()` do agent.
+4. O handler da CLI chama `mcpPort.connectConfiguredServers(...)` em processo para atualizar os records locais da configuração confiável; MCPs de projeto untrusted são removidos da entrada de conexão. O `mcpServers` explícito e o session create/resume usam o mesmo helper de conversão de protocol para runtime, mantendo campos como timeout/env/header consistentes.
+5. O handler da CLI embrulha o `listMcpServerStatuses(...)` existente para devolver o snapshot de status; o próprio `status()` só lê records locais e não conecta de novo.
+6. O store da UI mescla o status pelas linhas locais de MCP do ZCode Agent atuais; a lista somente-leitura gerenciada por plugin continua sendo movida pelos dados de gestão de plugin, evitando que servers homônimos cruzem status.
 
-## UI 合并规则
+## Regras de mesclagem na UI
 
-- 合并仅作用于 `source === "zcodeagentmcp"` 的本地 MCP 行。
-- 合并使用当前行的 `name`，但不得用 name 覆盖 plugin-managed 只读行。
-- 设置页发往 `mcp/list` 的 `mcpServers` 来自当前 UI store 的 enabled ZCode Agent MCP，必须带 workspaceIdentity/workspacePath 的当前输入一起发送，不能复用其他 workspace 的缓存。
-- 请求必须带 epoch 或等价版本保护，迟到的批量结果不能覆盖用户在请求期间编辑产生的 `changed`，也不能覆盖更新的手动检查结果。
-- UI 仅为交互反馈写入的展示态（例如启用后立刻显示 `connecting`、禁用后显示 `unknown`）不得作废当前批量请求；只有配置、启停、workspace 身份这类会改变 agent 读取输入的操作才能推进 epoch。
-- 设置页同一时间只允许一个 `mcp/list` 在飞；如果在飞期间又触发刷新，只合并成完成后的下一轮，避免多次点击开关把整批 MCP 连接排队到十几秒。
-- runtime 状态映射到 UI 状态时，`failed` 映射为 `error`；`connected`、`connecting`、`disconnected` 保持可展示语义；`disabled`、`untrusted` 显示为非成功配置态并带安全说明。
-- status snapshot 可选携带稳定 `failureKind` 与 `serverRequestId`。`error` 继续保存原始详情，UI 不直接把它当用户主文案。
-- 可信官方 HTTP MCP 只读取响应头 `X-Request-Id`；连接、initialize、`tools/list` 的诊断可进入设置页，`tools/call` 的 request id 只进入对应工具结果。无 HTTP response 的 stdio、DNS、timeout 不伪造 id。
-- ZCode envelope `3001`、`1000`，JSON-RPC `error.code=1006/3101`，HTTP 429/5xx 与其他 JSON-RPC error 分别映射为 `server_not_found`、`server_unavailable`、`not_authenticated`、`coding_plan_required`、`rate_limited`、`server_internal_error`、`protocol_error`；无法细分时使用 `connection_failed`。
+- O mesclagem só atua nas linhas locais de MCP com `source === "zcodeagentmcp"`.
+- O mesclagem usa o `name` da linha atual, mas não pode sobrescrever com name a linha somente-leitura gerenciada por plugin.
+- O `mcpServers` que a página de configurações envia para `mcp/list` vem do MCP do ZCode Agent habilitado no UI store atual e precisa ser enviado junto com a entrada atual de workspaceIdentity/workspacePath, sem reaproveitar cache de outro workspace.
+- A requisição precisa trazer epoch ou proteção de versão equivalente: um resultado em lote atrasado não pode sobrescrever o `changed` gerado por edição do usuário durante a requisição, nem sobrescrever um resultado de checagem manual mais recente.
+- O estado de exibição que a UI escreve apenas como feedback de interação (por exemplo, mostrar `connecting` logo após habilitar, ou `unknown` após desabilitar) não pode invalidar a requisição em lote atual; só operações que mudam a entrada lida pelo agent — configuração, ativação/desativação, identidade de workspace — podem avançar o epoch.
+- A página de configurações permite apenas um `mcp/list` em voo por vez; se um refresh for disparado enquanto há um em voo, ele é combinado na próxima rodada após a conclusão, evitando que vários cliques em interruptores enfileirem as conexões de MCP por dezenas de segundos.
+- Ao mapear o status de runtime para o status de UI, `failed` vira `error`; `connected`, `connecting` e `disconnected` mantêm semântica exibível; `disabled` e `untrusted` aparecem como estado de configuração não bem-sucedida com uma explicação segura.
+- O snapshot de status pode carregar opcionalmente um `failureKind` e um `serverRequestId` estáveis. `error` continua guardando o detalhe original, e a UI não o usa diretamente como texto principal para o usuário.
+- MCP HTTP oficial confiável lê apenas o header de resposta `X-Request-Id`; diagnósticos de conexão, initialize e `tools/list` podem entrar na página de configurações, e o request id de `tools/call` vai apenas para o resultado da ferramenta correspondente. Sem HTTP response, stdio, DNS e timeout não forjam id.
+- ZCode envelope `3001`, `1000`, JSON-RPC `error.code=1006/3101`, HTTP 429/5xx e outros erros JSON-RPC são mapeados respectivamente para `server_not_found`, `server_unavailable`, `not_authenticated`, `coding_plan_required`, `rate_limited`, `server_internal_error`, `protocol_error`; quando não é possível detalhar, usa-se `connection_failed`.
 
-## 验证
+## Verificação
 
-2026-09-06 合并恢复：此前插件 UI 已恢复，但服务层的独立 lane 被遗漏。本次按原控制面边界
-接回 manager、请求归零事件与空闲回收，不恢复旧 Provider Store。子进程隔离专项 4/4、
-完整 `zcodeAgentService` 单测 45/45 通过；这不是设置页真实交互验收的替代。
+Recuperação de merge em 2026-09-06: a UI de plugins já havia sido restaurada, mas a lane independente da camada de serviço tinha ficado de fora. Desta vez o manager, o evento de requisição zerada e a recuperação por ociosidade foram religados pelos limites originais de control-plane, sem restaurar o antigo Provider Store. Oespecializado de isolamento de subprocesso passou 4/4 e a suíte completa de testes unitários do `zcodeAgentService` passou 45/45; isso não substitui a aceitação de interação real da página de configurações.
 
-- 初次打开 MCP 设置页只触发一次 `mcp/list`，不在 UI 层逐个自动检查。
-- `mcp/list` 会在 `mcp-status` lane CLI 进程内刷新可信 MCP 的 live status，配置正确但不可达应显示 failed/error，可连接应显示 connected 和工具数。
-- `mcp/list` 在飞（例如某个 MCP server 30s 握手超时）期间，`plugins/uninstall`、`plugins/list` 必须立刻返回，不得排在其后（services 单测 `plugins/uninstall 不会排在挂起的 mcp/list 后面`）。
-- 只有 `.agents/mcp.json` fallback 的 server 在设置页展示时，也会随 `mcpServers` 进入 `mcp/list` 并返回 snapshot，不再出现 `MCP server status was not returned by agent` 假红。
-- 手动检查或启用单个 server 时才触发主动检查。
-- 同名 local/plugin MCP 不串状态。
-- 失败摘要中英文可切换且使用普通次要文字颜色；原始英文错误只在点击信息按钮后通过 Popover 显示，服务端 Request ID 作为详情文本的紧凑后缀出现，不再独立重复展示。成功刷新会清除旧诊断。
-- 批量结果迟到时不会覆盖用户编辑或更新的手动检查结果。
-- 重复点击开关或 React dev 重复触发 effect 时，不会产生重叠的 `mcp/list` 队列；最多在当前请求完成后补跑一轮最新输入。
-- 桌面端通过 CDP 验证 Settings → MCP Servers 无重复刷新循环、console 无错误、状态正常渲染。
+- Abrir a página de configurações de MCP pela primeira vez dispara apenas um `mcp/list`, sem checagem automática item a item na camada de UI.
+- `mcp/list` refresca o status live dos MCPs confiáveis dentro do processo CLI da lane `mcp-status`: configuração correta mas inalcançável deve mostrar failed/error, e o que é conectável deve mostrar connected e a contagem de ferramentas.
+- Enquanto `mcp/list` está em voo (por exemplo, um MCP server com timeout de handshake de 30s), `plugins/uninstall` e `plugins/list` precisam retornar imediatamente, sem ficar enfileirados atrás (teste unitário dos services `plugins/uninstall 不会排在挂起的 mcp/list 后面`).
+- Servers que existem apenas pelo fallback de `.agents/mcp.json` também entram em `mcp/list` com `mcpServers` quando exibidos na página de configurações e devolvem snapshot, sem o falso vermelho `MCP server status was not returned by agent`.
+- A checagem ativa só é disparada ao checar manualmente ou ao habilitar um server individual.
+- MCP local e plugin homônimos não cruzam status.
+- O resumo de falha alterna entre chinês e inglês e usa a cor comum de texto secundário; o erro original em inglês só aparece via Popover após clicar no botão de informação, e o Request ID do servidor aparece como sufixo compacto do texto de detalhe, sem repetição independente. Um refresh bem-sucedido limpa os diagnósticos antigos.
+- Um resultado em lote atrasado não sobrescreve a edição do usuário nem um resultado de checagem manual mais recente.
+- Cliques repetidos no interruptor ou disparo duplicado do effect pelo React dev não produzem filas sobrepostas de `mcp/list`; no máximo uma rodada extra com a entrada mais recente é rodada após a requisição atual terminar.
+- No desktop, verificado via CDP que Settings → MCP Servers não tem loop de refresh duplicado, sem erros no console e com o status renderizado normalmente.

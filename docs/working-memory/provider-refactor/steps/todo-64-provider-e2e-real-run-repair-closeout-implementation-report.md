@@ -1,71 +1,71 @@
-# Todo 64 实施报告：Provider E2E 真实运行修复
+# Relatório de implementação do Todo 64: correção da execução real do E2E de Provider
 
-> 状态：已完成
+> Status: concluído
 >
-> 开始日期：2026-09-02
+> Data de início: 2026-09-02
 
-## 1. 实施基线
+## 1. Baseline da implementação
 
-- 开始 SHA：`64d48f6eee`
-- 本地工作区：独立 worktree
-- MacBook Pro 运行目录：`/private/tmp/zcode-todo64-run.SWhC6y`
-- 初始证据：55 条具备本地环境条件的 Case 中 43 条通过、12 条失败；Remote SSH 1 条因环境条件阻塞。
-- 当前证据：当前受影响清单共 52 条，51 条通过；Remote SSH 1 条因环境条件跳过。初始数量与当前数量的差异来自测试拆分、合并与旧 Case 删除，不把历史数字伪装成当前清单。
+- SHA de início: `64d48f6eee`
+- Workspace local: worktree independente
+- Diretório de execução no MacBook Pro: `/private/tmp/zcode-todo64-run.SWhC6y`
+- Evidência inicial: das 55 Cases com condições locais de ambiente, 43 passaram e 12 falharam; 1 de Remote SSH foi bloqueada por condição de ambiente.
+- Evidência atual: a lista afetada atual tem 52 casos, com 51 passando; 1 de Remote SSH foi pulada por condição de ambiente. A diferença entre o número inicial e o atual vem da divisão, fusão e remoção de Cases antigas, e não se disfarça número histórico como lista atual.
 
-本报告只记录真实运行证据与已经执行的修复。计划与裁决边界见
-`todo-64-provider-e2e-real-run-repair-closeout.md`。
+Este relatório registra apenas evidências de execução real e as correções já executadas. O plano e os limites de decisão estão em
+`todo-64-provider-e2e-real-run-repair-closeout.md`.
 
-## 2. 逐项记录
+## 2. Registro item a item
 
-| Case               | 初始状态 | 最早失败点                                                                            | 根因分类            | 处理                                                        | 定向结果 | 分组结果                       |
-| ------------------ | -------- | ------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------- | -------- | ------------------------------ |
-| MP-UI-01           | 失败     | 测试把名称编辑按钮误当成详情页身份                                                    | test                | 改为断言选中的 Provider 导航身份                            | 通过     | Settings UI 7 通过、1 环境跳过 |
-| MP-UI-06           | 失败     | 旧断言把 placeholder 当成 value                                                       | test                | 空 Overlay 断言空 value；显式 `{}` 断言 canonical value     | 通过     | Settings UI 7 通过、1 环境跳过 |
-| I08                | 失败     | Helper 错读 `maxOutputTokens.default`，而 GUI 保存正式字段 `.max`                     | helper              | 修正 Personal Rule readiness Helper                         | 通过     | 对应 spec 通过                 |
-| Repo Wiki settings | 失败     | Case 附带了非职责范围的无 Provider 断言                                               | test                | 删除该 E2E 断言，空 Ready View 继续由单测覆盖               | 通过     | Repo Wiki spec 通过            |
-| Repo Wiki produces | 失败     | 新模型选择只保留身份，丢失 reasoning                                                  | production          | 统一调用 `completeNewModelSelection()` 形成完整 Selection   | 通过     | Repo Wiki spec 通过            |
-| OTB08-OTB10        | 失败     | 旧期望重复扣除了 usage anchor 已覆盖的 assistant                                      | fixture/test        | cap 修正为 41,671，并同步 replay Fixture 与文档             | 通过     | Preflight spec 通过            |
-| I20                | 失败     | 共享 Helper 断言已删除的 `budget_tokens`；冷启动又发现初始完整 Selection 未落稳定事件 | helper/production   | 删除旧字段断言；创建 Session 后立即持久化初始完整 Selection | 通过     | I20 spec 通过                  |
-| I26                | 失败     | Seed 缺少完整 reasoning/readiness 前提                                                | fixture/helper      | 使用完整 Selection seed 并等待 Registry 就绪                | 通过     | Restart Recovery 4/4 通过      |
-| I27                | 失败     | 旧期望依赖已删除的 Account-first；Configured Default 路由缺 replay                    | fixture/test        | 断言回退有效 Configured Default，并补 DeepSeek replay       | 通过     | Restart Recovery 4/4 通过      |
-| I28                | 失败     | 同 I27                                                                                | fixture/test        | 同 I27                                                      | 通过     | Restart Recovery 4/4 通过      |
-| I31                | 失败     | 重复选择当前原生 option 不保证触发事件；另有无消费者 transition state                 | test/residual state | 改为设置页往返保持；删除残余状态和伪 reconciliation         | 通过     | Settings Transition 3/3 通过   |
-| QR-E2E-09          | 失败     | 初始失败不可稳定复现，隔离及整份 spec 均通过                                          | isolation           | 不改生产语义                                                | 通过     | Coding Plan/Quota 18/18 通过   |
+| Case               | Estado inicial | Primeiro ponto de falha                                                               | Classificação da causa raiz | Tratamento                                                              | Resultado direcionado | Resultado do grupo                 |
+| ------------------ | --------------- | ------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------- | --------------------- | --------------------------------- |
+| MP-UI-01           | falhou          | O teste confundiu o botão de edição de nome com a identidade da página de detalhes     | test                        | Passou a afirmar a identidade de navegação do Provider selecionado        | passou               | Settings UI 7 passou, 1 pulado por ambiente |
+| MP-UI-06           | falhou          | A asserção antiga tratava placeholder como value                                       | test                        | Overlay vazio afirma value vazio; `{}` explícito afirma o canonical value  | passou               | Settings UI 7 passou, 1 pulado por ambiente |
+| I08                | falhou          | O Helper lia `maxOutputTokens.default` errado, e a GUI salva o campo oficial `.max`    | helper                      | Corrigido o Helper de readiness de Personal Rule                        | passou               | spec correspondente passou        |
+| Repo Wiki settings | falhou          | O Case carregava uma asserção de ausência de Provider fora do escopo de responsabilidade | test                        | Asserção de E2E removida; a Empty Ready View segue coberta por teste unitário | passou           | spec do Repo Wiki passou          |
+| Repo Wiki produces | falhou          | A nova seleção de modelo só mantinha a identidade e perdia o reasoning                | production                  | Chamada unificada a `completeNewModelSelection()` formando a Selection completa | passou            | spec do Repo Wiki passou          |
+| OTB08-OTB10        | falhou          | A expectativa antiga descontava de novo um assistant já coberto pelo usage anchor       | fixture/test                | cap corrigido para 41.671, com replay Fixture e documentação sincronizados | passou            | spec do Preflight passou          |
+| I20                | falhou          | O Helper compartilhado afirmava o `budget_tokens` já removido; e no cold start descobriu-se que a Selection completa inicial não era persistida em um evento estável | helper/production | Afirmação de campo antigo removida; a Selection completa inicial é persistida imediatamente após criar a Session | passou     | spec do I20 passou                 |
+| I26                | falhou          | O Seed não tinha as premissas completas de reasoning/readiness                         | fixture/helper              | Seed com Selection completa e espera pelo Registry pronto                 | passou               | Restart Recovery 4/4 passou       |
+| I27                | falhou          | A expectativa antiga dependia do Account-first removido; o roteamento do Configured Default válido faltava replay | fixture/test        | Passou a afirmar o fallback para o Configured Default válido e a adicionar replay do DeepSeek | passou | Restart Recovery 4/4 passou       |
+| I28                | falhou          | Igual ao I27                                                                             | fixture/test                | Igual ao I27                                                            | passou               | Restart Recovery 4/4 passou       |
+| I31                | falhou          | Reselecionar a option nativa atual não garante disparar o evento; e havia um transition state sem consumidor | test/residual state | Passou a usar ida e volta pela página de configurações; estado residual e falsa reconciliação removidos | passou | Settings Transition 3/3 passou |
+| QR-E2E-09          | falhou          | A falha inicial não pôde ser reproduzida de forma estável; tanto o isolamento quanto a spec completa passaram | isolation           | Nenhuma alteração na semântica de produção                              | passou               | Coding Plan/Quota 18/18 passou    |
 
-## 3. 阶段审查
+## 3. Revisão por fase
 
-### 阶段 A：共性基础设施
+### Fase A: infraestrutura comum
 
-共性 Helper 已收口到当前字段与完整 Selection；没有新增 E2E 专属 Registry、旧 Account API seed或固定模型名推断。配置传播使用现有有界状态等待；Template 创建后保留用户已裁决允许的 2 秒 polling 收尾窗口。
+Os Helpers comuns foram consolidados nos campos atuais e na Selection completa; não foi adicionado nenhum Registry exclusivo de E2E, seed da antiga Account API ou inferência de nome de modelo fixo. A propagação de configuração usa a espera de estado limitado já existente; após a criação por Template, mantém-se a janela final de polling de 2 segundos que o usuário já aprovou.
 
-### 阶段 B：Selection Case
+### Fase B: Cases de Selection
 
-Repo Wiki、I26–I28、I31 均按当前 Selection 设计完成。审查确认 Renderer 中没有恢复 Account-first 分支；有效 Configured Default 仍由 Host `preferredSelection` 统一解析。
+Repo Wiki, I26–I28 e I31 foram concluídos conforme o design de Selection atual. A revisão confirmou que não há branch de Account-first restaurado no Renderer; o Configured Default válido continua sendo resolvido de forma unificada pelo `preferredSelection` do Host.
 
-### 阶段 C：未决根因
+### Fase C: causas raiz em aberto
 
-MP-UI-01/I08、OTB08–10 和 QR-E2E-09 均取得可复现证据或隔离结论。唯一新发现的生产 Bug 是冷启动 Session 没有稳定持久化初始完整 Selection；已用失败单测固定并修复。没有剩余需要产品裁决的失败。
+MP-UI-01/I08, OTB08–10 e QR-E2E-09 obtiveram evidência reproduzível ou conclusão de isolamento. O único novo bug de produção descoberto é que uma Session em cold start não persistia de forma estável a Selection completa inicial; isso foi fixado e corrigido com um teste unitário falhando. Não resta nenhuma falha que exija decisão de produto.
 
-## 4. 最终审查
+## 4. Revisão final
 
-- Provider/Selection 抽象：已审查；保留 Active Model 冻结与 Host `preferredSelection` 唯一回退，不新增 Account-first 或模型 ID 特化。
-- 旧字段与特化逻辑：已删除本轮暴露的 `budget_tokens` 强制断言、无消费者 transition state 与旧字段 Helper；最终机械搜索结果见提交前验证。
-- 定向单测：Core `runtime-persistence.test.ts` 65/65，Bootstrap `transcript-hydration.test.ts` 61/61。
-- Desktop E2E typecheck：通过。
-- Desktop E2E：当前受影响清单 51 条通过；各分组 artifact 见下节。
-- Remote SSH：1 条因目标凭据未配置而跳过；补跑条件是提供真实 SSH E2E 环境，不计作产品通过。
-- 根 `typecheck`：通过。
-- 根 `lint`：通过，保留仓库既有 35 条 warning，没有 error。
-- 全量 Unit：1533 个测试文件通过、1 个跳过；13089 条测试通过、25 条跳过。
-- Fixture 校验：Output Token Preflight、Restart Recovery、I08、I20 的 case-local fixture 均通过正式检查；Settings UI 不属于 conversation fixture checker 支持范围。
-- 修改文件格式与 `git diff --check`：通过。
-- Conversation coverage audit：被既有 Hooks lifecycle fixture ledger 顺序和陈旧生成文档阻塞；与本轮修改文件无重叠，未借 Provider 收口修改无关基线。
-- 全仓 `fmt:check`：被既有 vendor/electron 文档非法 HTML 与二进制 `gb2312.js` 阻塞；本轮修改文件均通过 `oxfmt --check`。
-- 剩余风险与待裁决项：无 Provider 产品语义未决项；Remote SSH 仍是环境覆盖缺口。以上两项仓库级基线失败已如实保留，不伪装为本轮通过。
+- Abstrações de Provider/Selection: revisadas; o congelamento do Active Model e o fallback único do Host `preferredSelection` foram mantidos, sem novo Account-first nem especialização de model ID.
+- Campos antigos e lógica de especialização: a asserção forçada de `budget_tokens` exposta nesta rodada, o transition state sem consumidor e o Helper de campo antigo foram removidos; o resultado da busca mecânica final está na verificação pré-commit.
+- Testes unitários direcionados: Core `runtime-persistence.test.ts` 65/65, Bootstrap `transcript-hydration.test.ts` 61/61.
+- Typecheck do Desktop E2E: passou.
+- Desktop E2E: as 51 casos da lista afetada atual passaram; os artifacts de cada grupo estão na seção abaixo.
+- Remote SSH: 1 caso pulado por falta de credenciais do alvo configuradas; a condição para nova execução é fornecer um ambiente real de E2E por SSH, e isso não conta como aprovação de produto.
+- `typecheck` da raiz: passou.
+- `lint` da raiz: passou, mantendo as 35 warnings já existentes do repositório, sem error.
+- Unit completo: 1533 arquivos de teste passaram, 1 pulado; 13089 testes passaram, 25 pulados.
+- Validação de fixtures: os fixtures case-local de Output Token Preflight, Restart Recovery, I08 e I20 passaram na verificação oficial; Settings UI está fora do escopo suportado pelo conversation fixture checker.
+- Formatação dos arquivos modificados e `git diff --check`: passaram.
+- Conversation coverage audit: bloqueado pela ordem do ledger de fixtures de Hooks lifecycle já existente e por documentação de geração defasada; sem sobreposição com os arquivos modificados nesta rodada, e nenhuma baseline não relacionada foi alterada no fechamento de Provider.
+- `fmt:check` de todo o repositório: bloqueado por HTML inválido em documentação de vendor/electron já existente e pelo binário `gb2312.js`; todos os arquivos modificados nesta rodada passaram em `oxfmt --check`.
+- Riscos residuais e itens aguardando decisão: não há item de semântica de produto de Provider em aberto; Remote SSH continua sendo uma lacuna de cobertura de ambiente. Essas duas falhas de baseline de nível de repositório foram fielmente preservadas e não se fazem passar por aprovação desta rodada.
 
-## 5. MacBook Pro 真实运行证据
+## 5. Evidências de execução real no MacBook Pro
 
-运行方式：
+Modo de execução:
 
 ```bash
 export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
@@ -73,23 +73,23 @@ export ZCODE_E2E_SKIP_BUILD=1
 pnpm --filter @zcode/desktop test:e2e:serial -- --spec <spec>
 ```
 
-主要 artifact：
+Principais artifacts:
 
-- I20：`.e2e-artifacts/desktop-e2e-20260902-173941-528/summary.md`
-- Restart Recovery：`.e2e-artifacts/desktop-e2e-20260902-174156-345/summary.md`
-- Settings UI：`.e2e-artifacts/desktop-e2e-20260902-174305-616/summary.md`
-- Repo Wiki：`.e2e-artifacts/desktop-e2e-20260902-174423-848/summary.md`
-- Output Token Preflight：`.e2e-artifacts/desktop-e2e-20260902-174448-752/summary.md`
-- Settings Transition：`.e2e-artifacts/desktop-e2e-20260902-174518-093/summary.md`
-- Coding Plan/Quota：`.e2e-artifacts/desktop-e2e-20260902-174556-904/summary.md`
-- I08：`.e2e-artifacts/desktop-e2e-20260902-175316-125/summary.md`
-- Bot Automation：`.e2e-artifacts/desktop-e2e-20260902-175427-109/summary.md`
-- Feishu Interactions：`.e2e-artifacts/desktop-e2e-20260902-175452-547/summary.md`
-- Feishu Streaming：`.e2e-artifacts/desktop-e2e-20260902-175517-896/summary.md`
-- Upgrade WebView：`.e2e-artifacts/desktop-e2e-20260902-175542-933/summary.md`
-- Context Cold Resume：`.e2e-artifacts/desktop-e2e-20260902-175610-538/summary.md`
-- Output Token Budget：`.e2e-artifacts/desktop-e2e-20260902-175644-701/summary.md`
-- Turbo Recovery：`.e2e-artifacts/desktop-e2e-20260902-175717-490/summary.md`
-- Turbo Switch：`.e2e-artifacts/desktop-e2e-20260902-175755-973/summary.md`
+- I20: `.e2e-artifacts/desktop-e2e-20260902-173941-528/summary.md`
+- Restart Recovery: `.e2e-artifacts/desktop-e2e-20260902-174156-345/summary.md`
+- Settings UI: `.e2e-artifacts/desktop-e2e-20260902-174305-616/summary.md`
+- Repo Wiki: `.e2e-artifacts/desktop-e2e-20260902-174423-848/summary.md`
+- Output Token Preflight: `.e2e-artifacts/desktop-e2e-20260902-174448-752/summary.md`
+- Settings Transition: `.e2e-artifacts/desktop-e2e-20260902-174518-093/summary.md`
+- Coding Plan/Quota: `.e2e-artifacts/desktop-e2e-20260902-174556-904/summary.md`
+- I08: `.e2e-artifacts/desktop-e2e-20260902-175316-125/summary.md`
+- Bot Automation: `.e2e-artifacts/desktop-e2e-20260902-175427-109/summary.md`
+- Feishu Interactions: `.e2e-artifacts/desktop-e2e-20260902-175452-547/summary.md`
+- Feishu Streaming: `.e2e-artifacts/desktop-e2e-20260902-175517-896/summary.md`
+- Upgrade WebView: `.e2e-artifacts/desktop-e2e-20260902-175542-933/summary.md`
+- Context Cold Resume: `.e2e-artifacts/desktop-e2e-20260902-175610-538/summary.md`
+- Output Token Budget: `.e2e-artifacts/desktop-e2e-20260902-175644-701/summary.md`
+- Turbo Recovery: `.e2e-artifacts/desktop-e2e-20260902-175717-490/summary.md`
+- Turbo Switch: `.e2e-artifacts/desktop-e2e-20260902-175755-973/summary.md`
 
-以上路径均相对于 MacBook Pro 运行目录。结束提交为本报告所在最终提交，以 `git log` 为准。
+Todos esses caminhos são relativos ao diretório de execução no MacBook Pro. O commit final é o commit final onde este relatório está, conforme `git log`.

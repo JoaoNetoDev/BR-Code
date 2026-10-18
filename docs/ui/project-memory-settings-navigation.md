@@ -1,10 +1,10 @@
-# Settings Project Memory 分层导航
+# Navegação em camadas do Project Memory nas Settings
 
-## 问题摘要
+## Resumo do problema
 
-Settings 的 Project Memory viewer 需要按 Workspace Scope 查看对应的 Memory 文件，并能用用户选择的编辑器直接打开真实文件。
+O viewer de Project Memory das Settings precisa ver os arquivos de Memory correspondentes por Workspace Scope e conseguir abrir o arquivo real diretamente com o editor escolhido pelo usuário.
 
-Memory 复用能力设置的 Scope 交互，但只提供 Workspace Scope，不提供 User Scope：
+O Memory reaproveita a interação de Scope das configurações de capacidade, mas oferece apenas o Workspace Scope, sem User Scope:
 
 ```text
 Workspace Memory 开关
@@ -13,49 +13,49 @@ Workspace Memory 开关
             └─ 编辑器按钮打开真实文件
 ```
 
-## 产品合同
+## Contrato de produto
 
-### Workspace Scope 与文件列表
+### Workspace Scope e lista de arquivos
 
-- “工作区记忆”开关卡片固定显示在 Scope 工具栏上方；它是 Memory 功能入口设置。
-- 开关卡片使用单段精简说明：“在工作区中保存并复用长期上下文，新会话生效。开启后可能增加模型调用和 Token 成本。”，不再单独重复展示成本提示段落。
-- catalog 加载完成后默认选择第一个 Workspace；Scope 菜单只列出有 Memory catalog 的 Workspace，不显示 User 选项。项目名称优先复用应用已打开 Workspace 与最近 Workspace 记录中的真实名称，保留原始大小写和字符。
-- Scope 菜单以 `settings.json.recentProjects` 的最近使用顺序为准；能通过项目目录名匹配的 Memory Workspace 先按该顺序排列，未匹配的历史 Memory 保留 catalog 原顺序并追加在末尾。当前打开但尚未写入 `recentProjects` 的 Workspace 仅补充名称和末尾顺序，不覆盖 settings 顺序。
-- Scope 工具栏复用 MCP 的按钮、菜单宽度、Workspace 图标和选中态，左侧依次展示 Scope、分隔线和当前 Workspace 的 Memory 数量，右侧展示文件名搜索；`文件` 分组标题右侧展示刷新入口。
-- 切换 Scope 后直接替换下方文件列表，不经过项目列表或面包屑二级导航。Scope 表达 Memory 对项目的生效范围，不表达其物理存储位置；底层仍可存放在 User Home。
-- 搜索只过滤当前 Scope 的文件名，忽略大小写；切换 Workspace 时保留查询。无匹配结果时隐藏“文件”分组标题和列表，展示统一的搜索空状态。
-- 列表视觉与设置页的 MCP、Skills、Hooks 资源列表保持一致：`文件` 分组标题使用统一的 `h-7` 高度；列表容器无外边框、使用 `bg-surface`，各行之间使用独立的 `bg-border/50` 分隔元素。
-- 文件图标使用 `size-9`、`rounded-xl`、`bg-background` 的图标容器；行 hover 使用 `bg-hover`。
-- 数量包含该项目目录中 catalog 返回的全部 `.md` 文件，包括 `MEMORY.md`。
-- 项目继续沿用 service 的最近更新时间倒序，不在 UI 重新排序。
+- O cartão do interruptor 「工作区记忆」 fica sempre visível acima da barra de ferramentas de Scope; ele é o ajuste de entrada da functionality de Memory.
+- O cartão do interruptor usa uma descrição única e enxuta: 「在工作区中保存并复用长期上下文，新会话生效。开启后可能增加模型调用和 Token 成本。」, sem repetir em separado o parágrafo de aviso de custo.
+- Depois que o catalog termina de carregar, o primeiro Workspace é selecionado por padrão; o menu de Scope lista apenas os Workspaces que têm Memory catalog e não mostra a opção User. O nome do projeto prioriza os nomes reais já presentes nos Workspaces abertos pelo app e no registro de Workspaces recentes, preservando a capitalização e os caracteres originais.
+- O menu de Scope respeita a ordem de uso recente de `settings.json.recentProjects`; os Memory Workspaces que podem ser casados pelo nome do diretório do projeto são ordenados primeiro por essa ordem, e o Memory histórico não casado mantém a ordem original do catalog e é acrescentado ao final. Um Workspace atualmente aberto mas ainda não gravado em `recentProjects` apenas complementa o nome e fica no fim, sem sobrescrever a ordem do settings.
+- A barra de ferramentas de Scope reaproveita o botão, a largura de menu, o ícone de Workspace e o estado selecionado do MCP; à esquerda são exibidos, em ordem, o Scope, o separador e a quantidade de Memory do Workspace atual, e à direita a busca por nome de arquivo; à direita do título do grupo `文件` fica a entrada de refresh.
+- Ao trocar o Scope, a lista de arquivos abaixo é substituída diretamente, sem passar por uma lista de projetos ou por uma navegação secundária de breadcrumb. O Scope expressa o escopo de vigência do Memory sobre o projeto e não sua localização física; embaixo ele ainda pode ficar armazenado no User Home.
+- A busca filtra apenas o nome de arquivo do Scope atual e ignora maiúsculas/minúsculas; a consulta é preservada ao trocar de Workspace. Sem resultado, o título do grupo `文件` e a lista são ocultados e o estado vazio de busca unificado é exibido.
+- O visual da lista é consistente com as listas de recursos MCP, Skills e Hooks da página de Settings: o título do grupo `文件` usa a altura unificada `h-7`; o contêiner da lista não tem borda externa, usa `bg-surface`, e cada linha é separada por um elemento divisor próprio `bg-border/50`.
+- O ícone de arquivo usa um contêiner de ícone `size-9`, `rounded-xl`, `bg-background`; o hover da linha usa `bg-hover`.
+- A contagem inclui todos os arquivos `.md` retornados pelo catalog nesse diretório de projeto, incluindo `MEMORY.md`.
+- O projeto continua usando a ordem do service por data de última modificação, em ordem decrescente, sem reordenar na UI.
 
-### Memory 文件列表
+### Lista de arquivos de Memory
 
-- 列表平铺展示 catalog 返回的全部文件；`MEMORY.md` 是普通可选项，不再作为虚拟父节点。
-- 每个文件复用 `FileDisplayIcon`，根据文件扩展名展示文件类型图标；文件行仅展示信息，不读取或展开 Markdown 正文。
-- 文件行中部按两行展示文件名与更新时间：文件名使用 UI 字体、`font-medium` 主文字，更新时间使用次要小号文字；右侧保留独立的编辑器分段菜单。
-- Memory 文件分组标题使用统一的 `h-7` 高度；文件列表使用无边框 `bg-surface` 容器与独立分隔元素。
-- 每个文件行右侧复用顶部工具栏的 `WorkspaceEditorButtonGroup`：主按钮显示当前编辑器图标并直接打开文件，下箭头用于选择其他编辑器。
-- 文件行不显示展开箭头，不设置展开状态；按钮与行主体保持独立交互。
-- 文件行主体不是可展开按钮；只有右侧原生编辑器按钮组可操作。主按钮使用当前编辑器打开真实文件，箭头菜单切换编辑器。
+- A lista exibe em forma plana todos os arquivos retornados pelo catalog; `MEMORY.md` é um item comum e deixa de ser um nó pai virtual.
+- Cada arquivo reaproveita o `FileDisplayIcon` e mostra o ícone do tipo de arquivo conforme a extensão; a linha do arquivo exibe apenas informações e não lê nem expande o corpo em Markdown.
+- O centro da linha do arquivo mostra, em duas linhas, o nome do arquivo e a hora de atualização: o nome usa a fonte da UI, `font-medium` como texto principal, e a atualização usa texto secundário de tamanho menor; à direita permanece um menu segmentado de editor independente.
+- O título do grupo de arquivos de Memory usa a altura unificada `h-7`; a lista de arquivos usa um contêiner `bg-surface` sem borda com elementos divisores próprios.
+- À direita de cada linha de arquivo, o `WorkspaceEditorButtonGroup` da barra de ferramentas superior é reaproveitado: o botão principal mostra o ícone do editor atual e abre o arquivo diretamente, e a seta para baixo serve para escolher outro editor.
+- A linha do arquivo não mostra seta de expansão e não possui estado de expansão; o botão e o corpo da linha mantêm interações independentes.
+- O corpo da linha do arquivo não é um botão expansível; apenas o grupo de botões de editor nativo à direita é operável. O botão principal abre o arquivo real com o editor atual, e o menu de setas troca o editor.
 
-### 滚动合同
+### Contrato de rolagem
 
-- 与 Settings Plugin 列表/详情一致，由 Settings 主内容区统一承担纵向滚动，不为 Memory viewer 锁定外层滚动。
-- Memory 工具栏和文件列表参与同一条页面滚动链。
-- 不在 viewer 内创建第二条纵向滚动条，也不使用固定卡片头部。
+- Assim como nas listas/detalhes de Plugin das Settings, a rolagem vertical é uniformemente assumida pela área principal de conteúdo das Settings, e o viewer de Memory não trava a rolagem externa.
+- A barra de ferramentas de Memory e a lista de arquivos participam da mesma cadeia de rolagem da página.
+- Nenhuma segunda barra de rolagem vertical é criada dentro do viewer, e não se usa um cabeçalho de cartão fixo.
 
-### 刷新
+### Refresh
 
-- Scope 工具栏保留显式刷新入口。
-- 刷新后当前 Workspace 仍存在则保留选择；当前 Workspace 消失时自动选择新的首项。
+- A barra de ferramentas de Scope mantém uma entrada explícita de refresh.
+- Após o refresh, se o Workspace atual ainda existir, a seleção é mantida; se o Workspace atual desaparecer, um novo primeiro item é selecionado automaticamente.
 
-### 空状态与加载状态
+### Estados vazio e de carregamento
 
-- catalog loading、无已保存记忆和仅本地可查看提示统一使用透明背景、`rounded-xl border border-dashed border-border` 的提示容器；功能关闭时只显示上方开关卡片，不渲染额外提示容器。
-- 空状态不伪造 Workspace Scope，不提供新建入口，也不改变现有 Memory 数据来源。
+- O aviso de catalog loading, o de "nenhuma memória salva" e o de "visível apenas localmente" usam uniformemente um contêiner de aviso com fundo transparente, `rounded-xl border border-dashed border-border`; quando a funcionalidade está desligada, apenas o cartão do interruptor acima é exibido e nenhum contêiner de aviso adicional é renderizado.
+- O estado vazio não fabrica um Workspace Scope, não oferece entrada de criação e não altera as fontes de dados de Memory existentes.
 
-## 状态与事件
+## Estado e eventos
 
 ```text
 memories(workspaceId)
@@ -66,41 +66,40 @@ memories(workspaceId)
        └─ workspace missing ───────────────> memories(firstWorkspaceId)
 ```
 
-UI 的 Scope 选择只存在于 `MemorySettingsSection` 挂载期间，不写入 setting、localStorage、Host、Runtime 或 catalog service。
+A escolha de Scope da UI existe apenas enquanto `MemorySettingsSection` está montado e não é gravada em setting, localStorage, Host, Runtime ou catalog service.
 
-## 平台与架构边界
+## Limites de plataforma e arquitetura
 
-- Desktop Settings 仍固定通过本地 Base Host 读取当前本地 profile。
-- Memory 目录解析和打开前的 `stat` 同样固定使用本地 Base Host；当前激活 SSH、WSL 或 Docker
-  workspace 时不得把本机 Memory 路径交给远端 Host。
-- catalog 返回每个文件的真实绝对路径；文件按钮将该路径交给既有 `IPlatformService.openInEditor`，Renderer 不自行拼接路径。
-- Web Remote / Mobile 仍只展示开关和“前往本地桌面端查看”提示，不调用 catalog。
-- 不聚合 SSH、WSL、Docker、custom-agent 或 external storage Memory。
-- 不修改 `memoryEnabled` 的 app-global 持久化与 session materialization 语义。
-- 不新增协议、watcher、polling、内联读取、删除、搜索或导出能力。
+- As Settings do Desktop continuam lendo o profile local atual sempre por meio do Base Host local.
+- A resolução do diretório de Memory e o `stat` antes da abertura também usam fixamente o Base Host local; quando o workspace ativo for SSH, WSL ou Docker, o caminho de Memory local não pode ser entregue ao Host remoto.
+- O catalog retorna o caminho absoluto real de cada arquivo; o botão de arquivo entrega esse caminho ao `IPlatformService.openInEditor` já existente, e o Renderer não monta o caminho por conta própria.
+- Web Remote / Mobile continuam mostrando apenas o interruptor e o aviso 「前往本地桌面端查看」, sem chamar o catalog.
+- Não se agrega Memory de SSH, WSL, Docker, custom-agent ou external storage.
+- Não se modifica a persistência app-global de `memoryEnabled` nem a semântica de session materialization.
+- Não se adiciona capacidade de protocolo, watcher, polling, leitura inline, exclusão, busca ou exportação.
 
-## 响应式与无障碍
+## Responsividade e acessibilidade
 
-- Desktop 和手机宽度使用相同的 Scope 与文件列表语义，不因断点改变信息架构。
-- Scope 使用原生菜单键盘语义；Memory 文件行是静态信息容器，编辑器按钮组使用原生按钮键盘语义。
-- Folder/FileText 图标仅辅助识别，Workspace 名称和文件名仍是可访问名称的主体。
-- 长 Workspace 名和长文件名均允许截断，不展示 Tooltip。
-- 所有文案使用 i18n，所有颜色、字号、间距和圆角使用 `DESIGN.md` 的语义 token。
+- As larguras de Desktop e de celular usam a mesma semântica de Scope e de lista de arquivos, e a arquitetura da informação não muda por breakpoint.
+- O Scope usa a semântica de teclado de menu nativo; a linha de arquivo de Memory é um contêiner de informação estática e o grupo de botões de editor usa a semântica de teclado de botão nativo.
+- Os ícones Folder/FileText apenas ajudam na identificação; o nome do Workspace e o nome do arquivo continuam sendo o principal dos nomes acessíveis.
+- Nomes longos de Workspace e de arquivo podem ser truncados, sem Tooltip.
+- Todos os textos usam i18n, e todas as cores, tamanhos de fonte, espaçamentos e raios usam os tokens semânticos de `DESIGN.md`.
 
-## 验收用例
+## Casos de aceitação
 
 | ID    | Setup                           | Action           | Assertions                                                                                     |
 | ----- | ------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------- |
-| PMN01 | Desktop、Memory 开启、两个项目  | catalog ready    | 开关在上；Scope 默认首项且无 User；工具栏显示数量；下方直接显示当前 Workspace 文件             |
-| PMN02 | Scope 菜单包含多个 Workspace    | 切换 Workspace   | 文件列表替换为目标 Workspace 内容，不出现项目列表或面包屑                                      |
-| PMN03 | 当前 Workspace 文件列表         | 查看并使用文件行 | 文件类型图标、名称、更新时间与右侧编辑器分段菜单正确；主按钮打开真实路径，下箭头选择其他编辑器 |
-| PMN04 | 已选择非首个 Workspace          | 显式刷新         | Workspace 仍存在时保留选择；消失时选择新的首项                                                 |
-| PMN05 | catalog loading、empty 或 error | 加载、重试       | loading/empty 使用统一透明虚线容器；错误保留明确反馈和显式刷新入口                             |
-| PMN06 | Web Remote / Mobile             | 打开 Memory      | 只展示开关和本地查看提示，catalog 零调用                                                       |
-| PMN07 | 文件列表超过视口                | 滚动             | 仅 Settings 主内容区纵向滚动                                                                   |
+| PMN01 | Desktop, Memory ligado, dois projetos | catalog ready | O interruptor fica acima; o Scope tem o primeiro item por padrão e sem User; a barra mostra a contagem; abaixo os arquivos do Workspace atual são exibidos diretamente |
+| PMN02 | O menu de Scope contém vários Workspaces | Trocar de Workspace | A lista de arquivos é substituída pelo conteúdo do Workspace alvo, sem lista de projetos nem breadcrumb |
+| PMN03 | Lista de arquivos do Workspace atual | Ver e usar a linha do arquivo | Ícone de tipo, nome, hora de atualização e menu segmentado de editor à direita corretos; o botão principal abre o caminho real e a seta escolhe outro editor |
+| PMN04 | Workspace não inicial selecionado | Refresh explícito | A seleção é mantida se o Workspace ainda existir e o novo primeiro item é escolhido se tiver desaparecido |
+| PMN05 | catalog loading, empty ou error | Carregar, tentar de novo | loading/empty usam o contêiner tracejado e transparente unificado; o erro mantém feedback claro e a entrada explícita de refresh |
+| PMN06 | Web Remote / Mobile | Abrir Memory | Mostra apenas o interruptor e o aviso de consulta local, com zero chamadas ao catalog |
+| PMN07 | Lista de arquivos maior que a viewport | Rolar | Apenas a área principal de conteúdo das Settings rola verticalmente |
 
-## 剪枝
+## Poda
 
-- 不枚举 Runtime、provider、desktop continuous 与 mobile replayable 消息组合：本改动不触发 Runtime 或协议，只用零调用不变量证明隔离。
-- 不新增 service 文件系统等价类：目录 containment、symlink、并发删除、原子更新和 5 MiB 上限继续由 `memoryService.test.ts` 覆盖。
-- 不保留旧 selector、虚拟树、折叠和 roving-focus 用例：这些交互退出产品合同，由原生按钮列表键盘语义替代。
+- Não se enumeram combinações de mensagens de Runtime, provider, desktop continuous e mobile replayable: esta mudança não dispara Runtime nem protocolo, e o isolamento é provado apenas pelo invariante de zero chamadas.
+- Não se adicionam classes de equivalência de sistema de arquivos no service: containment de diretório, symlink, exclusão concorrente, atualização atômica e o limite de 5 MiB continuam cobertos por `memoryService.test.ts`.
+- Não se mantêm os casos antigos de selector, árvore virtual, colapso e roving-focus: essas interações saem do contrato de produto e são substituídas pela semântica de teclado de uma lista de botões nativos.

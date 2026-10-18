@@ -1,33 +1,33 @@
-# 输入框卡顿埋点(perf_ui_input_lag)实现计划
+# Plano de implementação da telemetria de travamento no input (perf_ui_input_lag)
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Para workers agênticos:** SUB-SKILL OBRIGATÓRIA: use superpowers:subagent-driven-development (recomendado) ou superpowers:executing-plans para implementar este plano tarefa por tarefa. Os passos usam a sintaxe de checkbox (`- [ ]`) para acompanhamento.
 
-**Goal:** 在 Lexical 聊天输入框上新增 `perf_ui_input_lag` 埋点,把单次输入处理超过阈值的卡顿上报到 ARMS。
+**Goal:** adicionar a telemetria `perf_ui_input_lag` na caixa de input de chat do Lexical, reportando ao ARMS os travamentos em que o processamento de uma única entrada excede o limiar.
 
-**Architecture:** 在 `TextContentPlugin` 的 update listener 内用 `performance.now()` 测「getEditorMarkdown + onChange」同步耗时;排除 IME 组合态(`editor.isComposing()`)与程序化改写(自定义 update tag);超 500ms 且 ≤5000ms 时调 telemetry 层的 `recordInputLag`。telemetry 层与现有 `perf_ui_stream_stall` 同文件同组,判定逻辑抽成纯函数单测。
+**Architecture:** dentro do update listener do `TextContentPlugin`, medir com `performance.now()` o tempo síncrono de "getEditorMarkdown + onChange"; excluir o estado de composição do IME (`editor.isComposing()`) e as reescritas programáticas (update tag customizada); quando for maior que 500ms e menor ou igual a 5000ms, chamar `recordInputLag` da camada de telemetry. A camada de telemetry fica no mesmo arquivo e no mesmo grupo do `perf_ui_stream_stall` existente, e a lógica de decisão é extraída para uma função pura testada em unidade.
 
-**Tech Stack:** TypeScript、React、Lexical、vitest、阿里云 RUM(ARMS)自定义事件。
+**Tech Stack:** TypeScript, React, Lexical, vitest, evento customizado do RUM (ARMS) da Alibaba Cloud.
 
-## Global Constraints
+## Restrições Globais
 
-- 当前分支 `feat/input-lag-telemetry`,**永远不要直接提交 staging/主干**。
-- 埋点属观测链路,**上报失败只 warn,绝不阻断输入主流程**(复用现有 `emit()`)。
-- 复用现有分组 `UI_PERF_ARMS_GROUP = "ui_perf"`,不新建 reporter,不改 `Root.tsx`。
-- 阈值 `INPUT_LAG_REPORT_THRESHOLD_MS = 500`;哨兵上限 `INPUT_LAG_SANITY_MAX_MS = 5000`。
-- 单测命令:`pnpm --filter @zcode/ui exec vitest run test/uiPerfArmsTelemetry.test.ts`。
-- 类型检查:`pnpm typecheck`(根目录,含 packages/ui)。
-- 不写组件层重型 E2E:Lexical 在 jsdom 下 update 行为不稳;判定逻辑由纯函数测试覆盖。
+- A branch atual `feat/input-lag-telemetry` **nunca deve receber commit direto em staging/trunk**.
+- A telemetria pertence à cadeia de observabilidade: **falha de envio gera apenas warn e nunca bloqueia o fluxo principal de input** (reaproveitando o `emit()` existente).
+- Reaproveitar o grupo existente `UI_PERF_ARMS_GROUP = "ui_perf"`, sem criar novo reporter e sem mexer em `Root.tsx`.
+- Limiar `INPUT_LAG_REPORT_THRESHOLD_MS = 500`; limite sentinela `INPUT_LAG_SANITY_MAX_MS = 5000`.
+- Comando de teste unitário: `pnpm --filter @zcode/ui exec vitest run test/uiPerfArmsTelemetry.test.ts`.
+- Verificação de tipos: `pnpm typecheck` (na raiz, incluindo packages/ui).
+- Não escrever E2E pesado no nível de componente: o comportamento de update do Lexical é instável sob jsdom; a lógica de decisão é coberta por testes de função pura.
 
 ---
 
-### Task 1: telemetry 层 — 常量、纯函数判定、上报函数
+### Task 1: camada de telemetry — constantes, decisão por função pura, função de envio
 
 **Files:**
-- Modify: `packages/ui/src/lib/uiPerfArmsTelemetry.ts`(在文件末尾、stream stall 段之后追加)
-- Test: `packages/ui/test/uiPerfArmsTelemetry.test.ts`(新增一个 `describe("input lag", ...)`)
+- Modify: `packages/ui/src/lib/uiPerfArmsTelemetry.ts` (acrescentar ao final do arquivo, depois do trecho de stream stall)
+- Test: `packages/ui/test/uiPerfArmsTelemetry.test.ts` (adicionar um `describe("input lag", ...)`)
 
 **Interfaces:**
-- Consumes: 现有 `emit(payload: ArmsCustomEventPayload)`、`UI_PERF_ARMS_GROUP`、`armsReporter`(模块级,已由 `setUiPerfArmsReporter` 注入)。
+- Consumes: `emit(payload: ArmsCustomEventPayload)` existente, `UI_PERF_ARMS_GROUP`, `armsReporter` (em nível de módulo, já injetado por `setUiPerfArmsReporter`).
 - Produces:
   - `INPUT_LAG_REPORT_THRESHOLD_MS: number`(= 500)
   - `INPUT_LAG_SANITY_MAX_MS: number`(= 5000)
@@ -35,9 +35,9 @@
   - `shouldReportInputLag(args: { lagMs: number; isProgrammatic: boolean; isComposing: boolean }): boolean`
   - `recordInputLag(params: { lagMs: number; textLength: number; isProgrammatic: boolean; isComposing: boolean; taskId?: string }): void`
 
-- [ ] **Step 1: 写失败测试**
+- [ ] **Step 1: escrever o teste que falha**
 
-在 `packages/ui/test/uiPerfArmsTelemetry.test.ts` 顶部 import 块追加(与现有同源导入合并):
+Acrescentar ao bloco de import do topo de `packages/ui/test/uiPerfArmsTelemetry.test.ts` (mesclando com os imports da mesma origem já existentes):
 
 ```ts
 import {
@@ -49,7 +49,7 @@ import {
 } from "@/lib/uiPerfArmsTelemetry.js";
 ```
 
-在文件末尾的最后一个 `describe(...)` 之后追加:
+Acrescentar depois do último `describe(...)` do arquivo:
 
 ```ts
 describe("input lag - shouldReportInputLag", () => {
@@ -154,14 +154,14 @@ describe("input lag - recordInputLag", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试,确认失败**
+- [ ] **Step 2: rodar o teste e confirmar a falha**
 
 Run: `pnpm --filter @zcode/ui exec vitest run test/uiPerfArmsTelemetry.test.ts`
-Expected: FAIL —— 报 `shouldReportInputLag`/`recordInputLag`/`UI_PERF_EVENT_INPUT_LAG` 等未导出。
+Expected: FAIL — acusando que `shouldReportInputLag`/`recordInputLag`/`UI_PERF_EVENT_INPUT_LAG` etc. não são exportados.
 
-- [ ] **Step 3: 实现 telemetry 层**
+- [ ] **Step 3: implementar a camada de telemetry**
 
-在 `packages/ui/src/lib/uiPerfArmsTelemetry.ts` 末尾(`clearStreamStallTracking` 之后)追加:
+Acrescentar ao final de `packages/ui/src/lib/uiPerfArmsTelemetry.ts` (depois de `clearStreamStallTracking`):
 
 ```ts
 // 输入框卡顿:在 Lexical update listener 内测「单次输入处理耗时」(getEditorMarkdown+onChange 同步段)。
@@ -220,12 +220,12 @@ export function recordInputLag(params: {
 }
 ```
 
-- [ ] **Step 4: 运行测试,确认通过**
+- [ ] **Step 4: rodar o teste e confirmar a aprovação**
 
 Run: `pnpm --filter @zcode/ui exec vitest run test/uiPerfArmsTelemetry.test.ts`
-Expected: PASS(新增 8 个 case 全绿,原有 case 不受影响)。
+Expected: PASS (os 8 cases novos ficam verdes e os cases existentes não são afetados).
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: commitar**
 
 ```bash
 git add packages/ui/src/lib/uiPerfArmsTelemetry.ts packages/ui/test/uiPerfArmsTelemetry.test.ts
@@ -234,20 +234,20 @@ git commit -m "feat(ui): perf_ui_input_lag 埋点 telemetry 层(判定纯函数+
 
 ---
 
-### Task 2: 组件接线 — 给程序化 update 打 tag,在 TextContentPlugin 计时上报
+### Task 2: integração no componente — marcar os updates programáticos com tag e cronometrar o envio no TextContentPlugin
 
 **Files:**
 - Modify: `packages/ui/src/LexicalChatInput.tsx`
 
 **Interfaces:**
-- Consumes: Task 1 的 `recordInputLag`;Lexical `editor.isComposing()`、update listener 回调的 `tags: Set<string>`、`editor.update(fn, { tag })`。
-- Produces: 模块级常量 `PROGRAMMATIC_UPDATE_TAG = "zcode-programmatic"`(仅本文件内用,无外部消费方)。
+- Consumes: `recordInputLag` da Task 1; `editor.isComposing()` do Lexical, o `tags: Set<string>` do callback do update listener e `editor.update(fn, { tag })`.
+- Produces: constante em nível de módulo `PROGRAMMATIC_UPDATE_TAG = "zcode-programmatic"` (usada apenas dentro deste arquivo, sem consumidor externo).
 
-说明:本任务改动是 Lexical 运行时接线,jsdom 下 update 行为不稳,**不写组件单测**;判定逻辑已由 Task 1 的纯函数测试覆盖。本任务以 `pnpm typecheck` + `oxlint` 作为验证门槛。
+Explicação: as mudanças desta tarefa são a integração com o runtime do Lexical, cujo comportamento de update é instável sob jsdom, então **não se escreve teste unitário de componente**; a lógica de decisão já está coberta pelos testes de função pura da Task 1. Esta tarefa usa `pnpm typecheck` + `oxlint` como porta de verificação.
 
-- [ ] **Step 1: 新增程序化 update tag 常量**
+- [ ] **Step 1: adicionar a constante da tag de update programático**
 
-在 `LexicalChatInput.tsx` 顶部常量区(`const CHINESE_SLASH_ALIAS = "、";` 附近)追加:
+Na área de constantes do topo de `LexicalChatInput.tsx` (perto de `const CHINESE_SLASH_ALIAS = "、";`), acrescentar:
 
 ```ts
 // 程序化改写(setText/mention 插入/历史回填等非用户敲键的 editor.update)统一打此 tag,
@@ -255,17 +255,17 @@ git commit -m "feat(ui): perf_ui_input_lag 埋点 telemetry 层(判定纯函数+
 const PROGRAMMATIC_UPDATE_TAG = "zcode-programmatic";
 ```
 
-- [ ] **Step 2: 给所有程序化 editor.update 加 tag**
+- [ ] **Step 2: marcar com tag todos os editor.update programáticos**
 
-将以下函数里的 `editor.update(() => { ... })` 调用改为带 tag 形式 `editor.update(() => { ... }, { tag: PROGRAMMATIC_UPDATE_TAG })`。逐个修改这些函数的 `editor.update` 调用:
+Alterar as chamadas `editor.update(() => { ... })` das funções abaixo para a forma com tag `editor.update(() => { ... }, { tag: PROGRAMMATIC_UPDATE_TAG })`. Modificar uma a uma as chamadas `editor.update` destas funções:
 
-1. `replaceEditorText`(约 134 行)
-2. `replaceEditorWithSkillMention`(约 161 行)
-3. `replaceEditorWithSlashCommandMention`(约 189 行)
-4. `appendEditorFileMention`(约 216 行)
-5. `appendEditorPlainText`(约 247 行)
+1. `replaceEditorText` (cerca da linha 134)
+2. `replaceEditorWithSkillMention` (cerca da linha 161)
+3. `replaceEditorWithSlashCommandMention` (cerca da linha 189)
+4. `appendEditorFileMention` (cerca da linha 216)
+5. `appendEditorPlainText` (cerca da linha 247)
 
-示例(`replaceEditorText`,其余同样在闭合的 `})` 后补 `, { tag: PROGRAMMATIC_UPDATE_TAG }`):
+Exemplo (`replaceEditorText`; nos demais, acrescentar igualmente `, { tag: PROGRAMMATIC_UPDATE_TAG }` após o `})` de fechamento):
 
 ```ts
 function replaceEditorText(editor: LexicalEditor, text: string) {
@@ -287,7 +287,7 @@ function replaceEditorText(editor: LexicalEditor, text: string) {
 }
 ```
 
-注意:`LeadingChineseSlashAliasPlugin` 里约 696 行那个 `editor.update`(把顿号归一成 `/`)**也是程序化插入**,同样补 tag:
+Atenção: o `editor.update` da linha de aproximadamente 696 em `LeadingChineseSlashPlugin` (que normaliza a vírgula ideográfica para `/`) **também é inserção programática** e precisa receber a tag:
 
 ```ts
       editor.update(() => {
@@ -304,17 +304,17 @@ function replaceEditorText(editor: LexicalEditor, text: string) {
       }, { tag: PROGRAMMATIC_UPDATE_TAG });
 ```
 
-- [ ] **Step 3: 在 TextContentPlugin 内计时并上报**
+- [ ] **Step 3: cronometrar e enviar dentro do TextContentPlugin**
 
-将 `TextContentPlugin`(约 397–427 行)替换为下面版本。改动点:`import` 顶部加入 `recordInputLag`;listener 回调内用 `performance.now()` 包住 `getEditorMarkdown + onChange`,读 `tags` 与 `editor.isComposing()`,算出 `lagMs` 后交给 `recordInputLag`。`taskId` 通过新增可选 prop 传入。
+Substituir `TextContentPlugin` (cerca das linhas 397–427) pela versão abaixo. Pontos de mudança: incluir `recordInputLag` no topo dos imports; dentro do callback do listener, envolver `getEditorMarkdown + onChange` com `performance.now()`, ler `tags` e `editor.isComposing()`, calcular `lagMs` e passá-lo a `recordInputLag`. O `taskId` é passado por meio de uma nova prop opcional.
 
-先在文件 import 区(`import { logger } ...` 附近)追加:
+Primeiro acrescentar na área de imports do arquivo (perto de `import { logger } ...`):
 
 ```ts
 import { recordInputLag } from "./lib/uiPerfArmsTelemetry.js";
 ```
 
-然后替换 `TextContentPlugin`:
+Depois substituir `TextContentPlugin`:
 
 ```tsx
 function TextContentPlugin({
@@ -365,30 +365,30 @@ function TextContentPlugin({
 }
 ```
 
-- [ ] **Step 4: 给 TextContentPlugin 传入 taskId**
+- [ ] **Step 4: passar o taskId para o TextContentPlugin**
 
-`LexicalChatInput` 组件已有 `taskId` prop(约 804 行 `taskId: string | null`)。在 JSX 里(约 945 行)把它传给插件:
+O componente `LexicalChatInput` já tem a prop `taskId` (cerca da linha 804, `taskId: string | null`). Passá-la ao plugin no JSX (cerca da linha 945):
 
 ```tsx
           <TextContentPlugin onChange={onChange} taskId={taskId} />
 ```
 
-- [ ] **Step 5: 类型检查**
+- [ ] **Step 5: verificação de tipos**
 
 Run: `pnpm typecheck`
-Expected: PASS,无新增类型错误。
+Expected: PASS, sem novos erros de tipo.
 
 - [ ] **Step 6: lint**
 
 Run: `pnpm --filter @zcode/ui lint`
-Expected: PASS(无新增告警;`editor.update` 第二参对象写法符合 oxlint 规则)。
+Expected: PASS (sem novos avisos; a escrita do segundo argumento objeto de `editor.update` está de acordo com as regras do oxlint).
 
-- [ ] **Step 7: 回归单测**
+- [ ] **Step 7: regressão nos testes unitários**
 
 Run: `pnpm --filter @zcode/ui exec vitest run test/uiPerfArmsTelemetry.test.ts test/lexicalChatInputEnter.test.ts`
-Expected: PASS(telemetry 测试 + 已有 Lexical Enter 行为测试均不受影响)。
+Expected: PASS (o teste de telemetry e os testes existentes de comportamento de Enter do Lexical não são afetados).
 
-- [ ] **Step 8: 提交**
+- [ ] **Step 8: commitar**
 
 ```bash
 git add packages/ui/src/LexicalChatInput.tsx
@@ -399,20 +399,20 @@ git commit -m "feat(ui): 输入框卡顿接线 perf_ui_input_lag(打程序化 ta
 
 ## Self-Review
 
-**Spec coverage:**
-- 事件 `perf_ui_input_lag` + `ui_perf` 组 → Task 1 Step 3。
-- 测量点在 `TextContentPlugin` 包住 getEditorMarkdown+onChange → Task 2 Step 3。
-- 阈值 500 / 哨兵 5000 → Task 1 常量。
-- 只测同步耗时不追 paint → Task 2 Step 3(`performance.now` 首尾,无 rAF)。
-- 排除 IME(`editor.isComposing()`)→ Task 2 Step 3 + Task 1 判定。
-- 排除程序化改写(update tag)→ Task 2 Step 1/2 + Task 1 判定。
-- 失败只 warn → 复用 `emit()`(现有实现,Task 1 直接调用)。
-- 字段 value/lag_ms/text_length/task_id → Task 1 Step 3 + 测试断言。
-- 不放 model/文本内容/mention 数 → payload 中确无。
-- 判定抽纯函数单测 → Task 1。
-- 不写组件重型 E2E → Task 2 说明。
-- 不改 Root → 两个任务都未触及 `Root.tsx`。
+**Cobertura da spec:**
+- Evento `perf_ui_input_lag` + grupo `ui_perf` → Task 1 Step 3.
+- Ponto de medição no `TextContentPlugin` envolvendo getEditorMarkdown+onChange → Task 2 Step 3.
+- Limiar 500 / sentinela 5000 → constantes da Task 1.
+- Mede apenas o tempo síncrono, sem perseguir paint → Task 2 Step 3 (`performance.now` no início e no fim, sem rAF).
+- Exclusão do IME (`editor.isComposing()`) → Task 2 Step 3 + decisão da Task 1.
+- Exclusão das reescritas programáticas (update tag) → Task 2 Step 1/2 + decisão da Task 1.
+- Falha gera apenas warn → reaproveita `emit()` (implementação existente, chamada diretamente na Task 1).
+- Campos value/lag_ms/text_length/task_id → Task 1 Step 3 + asserções de teste.
+- Sem model/texto do conteúdo/número de mentions → de fato ausentes do payload.
+- Decisão extraída para função pura com teste unitário → Task 1.
+- Sem E2E pesado de componente → explicação da Task 2.
+- Sem mexer em Root → nenhuma das duas tarefas tocou `Root.tsx`.
 
-**Placeholder scan:** 无 TBD/TODO;每个代码步骤均给出完整代码。
+**Varredura de placeholders:** sem TBD/TODO; cada passo de código traz o código completo.
 
-**Type consistency:** `shouldReportInputLag` / `recordInputLag` 的参数名(`lagMs`/`textLength`/`isProgrammatic`/`isComposing`/`taskId`)在 Task 1 定义、Task 2 调用、测试断言三处一致;事件名常量 `UI_PERF_EVENT_INPUT_LAG` 全程统一;tag 常量 `PROGRAMMATIC_UPDATE_TAG` 在 Task 2 内定义并使用。
+**Consistência de tipos:** os nomes de parâmetro de `shouldReportInputLag` / `recordInputLag` (`lagMs`/`textLength`/`isProgrammatic`/`isComposing`/`taskId`) são consistentes na definição da Task 1, na chamada da Task 2 e nas asserções de teste; a constante de nome de evento `UI_PERF_EVENT_INPUT_LAG` é uniforme ao longo do plano; a constante de tag `PROGRAMMATIC_UPDATE_TAG` é definida e usada dentro da Task 2.
