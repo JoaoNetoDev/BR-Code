@@ -6,7 +6,7 @@
 | ----------------------- | --------------------------------------------------------------------------------------------------------- |
 | Mudança                 | O usuário envia um novo prompt enquanto lê o contexto anterior; somente o caminho de envio imediato executa uma vez a ação existente de "rolar até o final" |
 | Superfícies visíveis ao usuário | Composer de conversa V4, item de fila "立即发送" (enviar agora), UI compartilhada desktop/Web/mobile |
-| Documentos existentes    | `docs/conversation-session-case-catalog.md`、`docs/testing/conversation-session-e2e-coverage-matrix.md` |
+| Documentos existentes    | `docs/conversation-session-case-catalog.md`,`docs/testing/conversation-session-e2e-coverage-matrix.md` |
 | Responsáveis pelo código existente | `ConversationTimeline` mantém o estado de rolagem local do renderer; `SessionPane` orquestra o comando composer/queue |
 | Fora de escopo           | Fixar permanentemente no final, mudanças de fila no protocolo/CLI, sincronizar posição de rolagem entre renderers, edit/retry/drenagem automática |
 

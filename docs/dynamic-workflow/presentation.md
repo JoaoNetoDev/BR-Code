@@ -909,7 +909,7 @@ GUI: the main agent fills, and the user talks to the main agent.
 and what remains of the hole is its **head**, kept in a 24 px row above the rail that exists
 only on timelines with a fill: the pen (12 px) centred on the first inserted lamp's x, the
 hole's name (`text-ui-caption` medium, subtle, truncating at 300 px). Its tooltip reads
-「留白「{name}」· 由主代理补全 · {time}」; its click opens the pane on the heading. Hovering
+「留白「{name}」· 由主代理补全 · {time}"; its click opens the pane on the heading. Hovering
 the head, or focusing it from the keyboard, draws the fill's **frame**: one 1 px line in the
 rail's own ink (`--color-workflow-trace`), radius 8, from 8 px left of the first inserted
 column to 8 px right of the last, from the head row's middle down to 8 px under the fill's
@@ -1039,8 +1039,8 @@ An amend that keeps the predecessor's script (`docs/dynamic-workflow/launch.md`,
 the predecessor's script") has neither `script` nor `path` in the row's input, because the
 row shows what the model sent and the script is filled in only after that. A `path` amend
 also lacks `script`, but it submits a revised script, so it is not read as one. Once the input has finished
-streaming, the lineage line then reads "Amends run {id} · script unchanged" / 「调整 run
-{id} · 脚本不变」, the card has no script fold and no draft pen, and the "no script" notice
+streaming, the lineage line then reads "Amends run {id} · script unchanged" / "调整 run
+{id} · 脚本不变", the card has no script fold and no draft pen, and the "no script" notice
 of an empty create does not appear: the missing script is the point of the call, not a
 fault. While the input streams nothing is said, since a script may still be on its way.
 One reader decides it for the card and the window

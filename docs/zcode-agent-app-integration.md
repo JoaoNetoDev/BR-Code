@@ -30,12 +30,12 @@ Renderer / Web UI
 
 | Estado                                                                                           | Autoridade                                                                                                       |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| transcript、turn/row、phase、actions、queue、interaction、goal、background work、session config | CLI V4 projection/runtime                                                                                       |
-| Provider Config、Registry 与凭据                                                                | 当前 Environment；Host/Worker 从该 Environment 的 Config/Credential Source 构建，不跨 Environment 下发 Registry |
-| pin/archive/group/unread、列表搜索兼容 metadata                                                 | host tasks-index                                                                                                |
-| draft、scroll、focus、panel、optimistic pending overlay                                         | renderer/web 本地                                                                                               |
+| transcript, turn/row, phase, actions, queue, interaction, goal, background work, session config | CLI V4 projection/runtime                                                                                       |
+| Provider Config, Registry e credenciais                                                            | Environment atual; Host/Worker constroem a partir da Config/Credential Source desse Environment, sem distribuir o Registry entre Environments |
+| pin/archive/group/unread, metadata de compatibilidade da busca na lista                        | host tasks-index                                                                                                |
+| draft, scroll, focus, panel, optimistic pending overlay                                         | renderer/web local                                                                                               |
 
-O `zcodeSessionStore` ainda承载 o shell do workspace, o cache da lista de tarefas, o estado organizacional de não lidas/otimista e parte das projeções de serviço compatíveis, mas já não possui o transcript de conversa V4 nem a config de sessão vinculada. O caminho de leitura de conversa da UI é
+O `zcodeSessionStore` ainda carrega o shell do workspace, o cache da lista de tarefas, o estado organizacional de não lidas/otimista e parte das projeções de serviço compatíveis, mas já não possui o transcript de conversa V4 nem a config de sessão vinculada. O caminho de leitura de conversa da UI é
 `ConversationProjectionStore` / `SessionDataLayer`, e o caminho de leitura de atividade da lista é o sessions-index.
 
 ## Protocolo
@@ -63,7 +63,7 @@ O plano de controle somente leitura não depende de modelos: `sessions-index`, `
 `provider_not_ready` é um estado normal de espera para usuário novo que ainda não concluiu a configuração, não uma falha de subscription do sessions-index. Quando o Registry fica ready, o
 Agent Service reutiliza o Worker já iniciado pela subscription somente leitura, ou o inicia uma única vez por workspaceKey caso ainda não tenha sido iniciado; o Worker reconstrói o Registry a partir da Config Source do Environment atual; a subscription de topic não precisa esperar pela configuração de modelo nem exigir que o usuário reinicie o App.
 
-Todos os motivos de retry de topic devem usar uma enumeração limitada, é proibido concatenar o `reason` do log da rodada anterior na próxima. Falhas persistentes que não sejam de prontidão podem manter a recuperação automática, mas `warn` de produção para o mesmo erro no máximo uma vez por minuto; após estabelecer a subscription com sucesso, limpar o backoff e o estado de rate limit daquele topic, para que novas falhas后续 ainda registrem imediatamente o primeiro log de diagnóstico.
+Todos os motivos de retry de topic devem usar uma enumeração limitada, é proibido concatenar o `reason` do log da rodada anterior na próxima. Falhas persistentes que não sejam de prontidão podem manter a recuperação automática, mas `warn` de produção para o mesmo erro no máximo uma vez por minuto; após estabelecer a subscription com sucesso, limpar o backoff e o estado de rate limit daquele topic, para que novas falhas posteriores ainda registrem imediatamente o primeiro log de diagnóstico.
 
 Quando o Registry fica ready posteriormente, o Service habilita a capacidade de execução de modelos do workspace registrado em uma única ocorrência por workspaceKey.
 Quando a config depois fica inválida, o Registry do Environment atual é atualizado, mas processos já em execução não são-mortados ativamente. A subscription somente leitura de workspace remoto continua iniciando a CLI alvo pelo attachment de shared host do desktop já existente; o `/remote` do celular não pode iniciar um Agent/runtime adicional por causa disso.
@@ -78,7 +78,7 @@ A inicialização do desktop usa apenas o último workspace local ativo para dec
 - marca como `unavailable-local-directory` pelo tempo de vida do renderer, sem escrever de volta a setting e sem polling em runtime;
 - permite navegação somente leitura, busca, cópia, troca/fechamento de workspace e settings;
 - proíbe entradas que modifiquem sessão/workspace, como envio, retry, fork, compact, mutações de lista, anexos, árvore de arquivos, Git, terminal etc.;
-- o链路 local de recuperação do desktop sempre garante que exista o workspace de backing da conversa gerenciada pelo app e o usa como fallback de spawn do Agent do local Host; qualquer workspace local restaurado (inclusive workspaces históricos não ativos) só degrada para esse diretório quando o próprio cwd está indisponível, e o workspacePath/identity do protocolo mantém o valor original.
+- o link local de recuperação do desktop sempre garante que exista o workspace de backing da conversa gerenciada pelo app e o usa como fallback de spawn do Agent do local Host; qualquer workspace local restaurado (inclusive workspaces históricos não ativos) só degrada para esse diretório quando o próprio cwd está indisponível, e o workspacePath/identity do protocolo mantém o valor original.
 
 Workspaces remotos e workspaces locais não ativos não participam da decisão de disponibilidade da UI na inicialização. Workspaces históricos não ativos são verificados dinamicamente em seu cwd real pelo preflight de spawn do Agent ao estabelecer a subscription de background do tasks-index; diretórios ausentes não podem provocar `ENOENT` no Helper nem reinícios contínuos. O caminho ativo permanece somente leitura após a recuperação em runtime, e a próxima inicialização reavalia.
 

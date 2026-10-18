@@ -40,7 +40,7 @@ tópico a uma mensagem do bot atual no chat principal. É preciso verificar o se
 o native thread ID reais; a identidade do bot não pode ser inferida pelo nome de exibição nem
 pelo corpo do texto. Um tópico onboarded recebe todas as mensagens posteriores de pessoas
 reais, e discussões comuns em tópicos não onboarded não são executadas. Tópicos onboarded
-também recebem mensagens nativas de outros bots, disparando o mesmo tratamento, o mesmo
+também recebem mensagens nativas de outros bots, disparando o mesmo tratamento, a mesma
 retomada após interrupção em execução e as mesmas respostas das pessoas reais; as próprias
 mensagens do bot atual são excluídas pelo open_id nativo, e a igualdade não pode ser decidida
 pelo nome. Outros bots não podem fazer o primeiro onboarding nem reativar um tópico do qual se
@@ -791,7 +791,7 @@ não um tenant real.
 
 ## Grupos já vinculados ao aplicativo (primeira fase)
 
-Nos configurações do bot, abaixo do escopo de acesso ao workspace do bot atual do
+Nas configurações do bot, abaixo do escopo de acesso ao workspace do bot atual do
 Feishu/Lark, exibe-se uma lista plana de grupos. O visual reaproveita o SettingsGroupCard das
 configurações do bot, com título e linhas unificados em px-4/py-3 e borda, fundo e raio
 consistentes com as configurações vizinhas. Cada grupo ocupa uma única linha: nome do grupo (nome
@@ -943,7 +943,7 @@ autorização e o appId; não é exigido que a entrada atual carregue botGroupSo
 citação podem vir de mensagens nativas já recebidas por essa task sob o mesmo vínculo válido,
 suportando no Desktop e no celular a continuação “再 @ 一下他”. O resultado distingue
 sent/failed/unknown/invalidated e apenas sent confirma o envio; um toolCallId estável corresponde
-a um registro de entrega. O corpo nodulizado gera ats nativos em ordem e não pode interpretar
+a um registro de entrega. O corpo nodulizado gera @s nativos em ordem e não pode interpretar
 @name ou Markdown da saída comum do modelo como comando de envio. Os lembretes de
 iniciador/administrador são deduplicados em relação às menções do corpo, e as menções do corpo
 não alteram as permissões de aprovação. Mensagens antigas sem nós mantêm o texto, sem adivinhar
@@ -1046,8 +1046,8 @@ desktop continuous / mobile replayable não muda.
 ### Limite de identidade multi-robô e atribuição (2026-10-09)
 
 A cada rodada o Host injeta o nome da configuração atual do Bot e o próprio open_id verificado
-pelo Provider (sem adivinhar quando uma entrada antiga não tem ID), preservando mentionedBot e
-mentioned nativas.message a message. A identidade é determinada por metadados confiáveis; o nome
+pelo Provider (sem adivinhar quando uma entrada antiga não tem ID), preservando mentionedBot e as
+menções nativas, mensagem a mensagem. A identidade é determinada por metadados confiáveis; o nome
 serve apenas para exibição e não muda por corpo de texto, falas anteriores ou autodenominação do
 robô. O contexto de modelo na CLI explicita que compartilhar uma discussão não significa
 compartilhar uma task: só se assume a parte atribuída quando há um @ explícito de si mesmo; com

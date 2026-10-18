@@ -9,7 +9,7 @@
 
 > Origem: PRD 《z.ai-z.code-闲时任务 PRD v0.2》após consolidação na sessão de grilling.
 > Complementares: `glossary.md` (termos/modelo de domínio), `decisions.md` (registro histórico de decisões D1–D40).
-> As divergências em relação ao PRD estão em«Explicitamente não feito»ao final — **essa lista precisa ser levada a alinhamento com o produto**.
+> As divergências em relação ao PRD estão em «Explicitamente não feito» ao final — **essa lista precisa ser levada a alinhamento com o produto**.
 >
 > **Fonte de verdade do contrato do servidor**: no repositório interno `zcode/zcode-server`, o arquivo `docs/off_peak_design.md`
 > (obtido com `glab api "projects/zcode%2Fzcode-server/repository/files/docs%2Foff_peak_design.md/raw?ref=main"`).
@@ -539,7 +539,7 @@ setCustomSessionTitle do CronCreate); assinatura de estado ativo no cartão; con
 3. ~~verificação do caminho de injeção do provider do Start plan~~ ✅ confirmado: `applyStartPlanCredentialApiKey` é o molde (JWT como provider apiKey); a Coding Plan Key original é legível no domínio do host. Com base nisso, a implementação do Runtime Model por turno do D33 foi definida; o Provider Refactor M4 preservou seu invariante de produto "execução única, zero persistência" e substituiu a implementação por um Built-in Provider oculto + Model Selection padrão + `modelExecution.requestAuth`.
 4. ~~verificação da infraestrutura de retry/backoff~~ ⚠ suporta mas não é reuso puro: é preciso adicionar o retry reason `offpeak_queued`, o mapeamento 429+3105, o bypass de orçamento em três retry loops + um novo clamp de min(Retry-After, 5min) (os 5min atuais são um limiar de rejeição, não um clamp).
 5. ~~verificação do momento de fetch de client/configs~~ ⚠ o canal funciona: passa pelo getClientConfigs do coding plan subscription provider (cache de 1h), e "zero requisições novas" é exato do lado de rede; o refresh forçado ao abrir a entrada exige um parâmetro force, e a virada de rollout pode ficar invisível por até 1h; o endpoint hoje não traz Authorization (tech-design §7.8-⑤).
-6. Agendamento do servidor — o cliente iniciatrabalhando com mock conforme o contrato da §4.
+6. Agendamento do servidor — o cliente iniciará trabalhando com mock conforme o contrato da §4.
 
 ## Atualização do Todo128: consistência do refresh de elegibilidade (2026-09-11)
 

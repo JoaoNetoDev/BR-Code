@@ -27,7 +27,7 @@ O shell do WebView mantém a estrutura original da página de compra do App: sob
 
 A camada de integração do WebView oculta o container de rolagem do host e as barras de rolagem nativas dentro da página guest, mas não desabilita a rolagem da página. O App injeta o estilo `zcode-coding-plan-hide-scrollbar` após cada `dom-ready`, cobrindo a página do site oficial e as páginas posteriores de pagamento de terceiros / retorno, para evitar que o conteúdo do site oficial, somado ao estilo global de barra de rolagem do App, gere ruído visual extra.
 
-As keys de injeção são consistentes com as interfaces de compra do App:
+As chaves de injeção são consistentes com as interfaces de compra do App:
 
 | Provider             | WebView localStorage key      |
 | -------------------- | ----------------------------- |
@@ -104,11 +104,11 @@ As webPreferences dos dois são idênticas (contextIsolation=true / sandbox=true
 
 3 pontos em `components/coding-plan/coding-plan-page.tsx` (o helper `notifyZcodeBridgePurchaseComplete(provider)` já embute o no-op guard, então rodar o site oficial sozinho não tem impacto):
 
-| 支付场景                                | 位置                        | provider   |
+| Cenário de pagamento                     | Local                       | provider   |
 | --------------------------------------- | --------------------------- | ---------- |
-| Alipay 二维码轮询成功（bigmodel 个人）  | alipay-qr useEffect         | `bigmodel` |
-| 企业订单轮询 onSuccess（bigmodel 团队） | `pollEnterpriseOrderStatus` | `bigmodel` |
-| Stripe 支付成功（zai 个人 + 海外团队）  | `onStripePay`               | `zai`      |
+| Sucesso na consulta do QR do Alipay (bigmodel pessoal) | alipay-qr useEffect | `bigmodel` |
+| onSuccess da consulta de pedido corporativo (equipe bigmodel) | `pollEnterpriseOrderStatus` | `bigmodel` |
+| Sucesso do pagamento Stripe (pessoal zai + equipe internacional) | `onStripePay` | `zai` |
 
 ### Segurança
 

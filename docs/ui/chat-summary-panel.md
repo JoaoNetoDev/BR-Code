@@ -115,7 +115,7 @@ O Goal exibe o progresso do objetivo/prompt e não carrega mais o detalhe dos to
 - Itens de prompt não concluídos / em andamento usam uniformemente o ícone de goal à esquerda, por exemplo `prompt... 3/5` continua expressando que o objetivo atual está em avanço; itens de
   prompt concluídos exibem o número da iteração correspondente à esquerda, envolvido em texto verde de 10px com borda circular verde, evitando que o histórico de conclusão continue sendo
   lido por engano como estado atual em andamento. pause / resume aparecem apenas como botões de controle na linha de título.
-- Cada rodada deve preservar uma action e um estado visíveis. A action da rodada 1 prioriza `summaryTitle`, senão objective; as rodagens seguintes priorizam o `nextAction` de fallback não interno
+- Cada rodada deve preservar uma action e um estado visíveis. A action da rodada 1 prioriza `summaryTitle`, senão objective; as rodadas seguintes priorizam o `nextAction` de fallback não interno
   do verifier da rodada anterior, exibindo o título de rodada localizado quando ausente. Assim que uma rodada tiver todos, exibe `completed/total`; somente quando os todos não estão vazios
   e estão todos concluídos, o lado esquerdo passa a ser o círculo de número verde. Rodas sem todos mantêm o ícone de goal e a action da rodada, sem desaparecer inteira por escassez de
   dados de projeção.

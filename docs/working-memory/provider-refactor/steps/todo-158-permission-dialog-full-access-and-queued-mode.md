@@ -46,7 +46,7 @@ A aprovação comum de comandos é apresentada na seguinte ordem; por padrão co
 
 `permission/mode` é o fallback de modo do projeto no momento da criação do Agent; `permission/ruleset` é o conjunto de regras de «Sempre permitir este comando»; o Session execution state e o Composer Recent são fontes de fato diferentes. Este Todo não os unifica, não escreve padrões de projeto nem adiciona regras de permissão.
 
-Nesta rodada, a execução real com o `resolveExecutionState()` existente confirmou: `build + Plan=true` passando apenas `mode=yolo` vira `yolo + Plan=false`; só carregar explicitamente o Plan original mantém true. A implementação atual já complements as regressões de Runtime, SQLite, broker/race, projeção V4 e UI; os resultados reais de verificação estão na seção 9.
+Nesta rodada, a execução real com o `resolveExecutionState()` existente confirmou: `build + Plan=true` passando apenas `mode=yolo` vira `yolo + Plan=false`; só carregar explicitamente o Plan original mantém true. A implementação atual já complementa as regressões de Runtime, SQLite, broker/race, projeção V4 e UI; os resultados reais de verificação estão na seção 9.
 
 ## 4. Atribuição de Estado, Fronteira da Fila e Ordem
 

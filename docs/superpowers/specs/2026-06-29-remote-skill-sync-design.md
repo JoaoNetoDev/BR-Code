@@ -4,13 +4,13 @@
 
 Atualmente os skills do ZCode são lidos pelo sistema de arquivos em tempo de execução. Um workspace local lê os skills de usuário e de projeto da própria máquina; workspaces remotos via SSH / Docker / WSL leem os skills do sistema de arquivos remoto. Um workspace remoto pode usar skills, mas的前提 é que os diretórios com `SKILL.md` correspondentes já existam na máquina remota.
 
-O `SettingsSyncService` existente resolve o problema de "importar de um Agente externo para o ZCode" dentro do mesmo runtime; ele não grava um diretório local em uma máquina remota via SSH. A camada de conexão remota existente tem `IRemoteBackend.upload()` internamente, mas `RemoteConnection` só expõe `services` para as camadas superiores, e não se deve expondo a capacidade genérica de upload diretamente ao renderer só por causa da sincronização de skills.
+O `SettingsSyncService` existente resolve o problema de "importar de um Agente externo para o ZCode" dentro do mesmo runtime; ele não grava um diretório local em uma máquina remota via SSH. A camada de conexão remota existente tem `IRemoteBackend.upload()` internamente, mas `RemoteConnection` só expõe `services` para as camadas superiores, e não se deve expor a capacidade genérica de upload diretamente ao renderer só por causa da sincronização de skills.
 
 ## Objetivos
 
 - Permitir que o usuário, em um workspace SSH remoto já conectado, sincronize os skills locais de nível de usuário para o diretório remoto `~/.zcode/skills` do usuário naquela máquina SSH.
 - Os candidatos locais sincronizáveis devem ter semântica consistente com a descoberta local de skills de nível de usuário: incluir `~/.zcode/skills` e também o diretório compatível `~/.agents/skills`; quando um skill de mesmo nome em `.agents` já tiver sido coberto por `.zcode` pelo nome do diretório, pelo nome do skill ou pelo caminho real de `SKILL.md`, apenas a versão de `.zcode` é exibida. A descoberta de candidatos precisa dar suporte recursivo a diretórios de agrupamento e seguir symlinks de diretório; na sincronização para o remoto, escreve-se conteúdo de diretório comum, sem criar symlinks no remoto.
-- Suportar seleção item a item e selecionar tudo.
+- Permitir seleção item a item e selecionar tudo.
 - Quando um skill de mesmo nome já existe no remoto, pular por padrão, sem sobrescrever.
 - Após a sincronização, exibir os resultados synced / skipped / failed e atualizar a lista de skills remota.
 - A entrada de UI precisa expressar claramente que o alvo da ação atual é "esta máquina SSH", evitando que o usuário acredite se tratar de uma configuração global.

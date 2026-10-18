@@ -11,8 +11,8 @@ Três pontos de comportamento compartilham a mesma chave de ramo de recuperaçã
 
 | branch                  | Main pointer | `MEMORY.md` index | Selector | `relevant_memory` |
 | ----------------------- | ------------ | ----------------- | -------- | ----------------- |
-| `default-index`（当前） | 是           | 加载              | 不启动   | 不注入            |
-| `semantic-recall`       | 否           | 不读取            | 启动     | tool batch 后注入 |
+| `default-index` (atual) | sim         | carrega          | não inicia | não injeta       |
+| `semantic-recall`       | não          | não lê           | inicia    | injeta após o tool batch |
 
 ```text
 PROJECT_MEMORY_SEMANTIC_RECALL_ENABLED = false
@@ -38,7 +38,7 @@ Fluxo fixo de cada Phase:
 - [ ] Atualizar o checklist e as evidências de verificação deste arquivo.
 - [ ] Não fazer commit em nenhum momento.
 
-## 2. Phase 0：convergência da spec e da autoridade de aceitação
+## 2. Phase 0: convergência da spec e da autoridade de aceitação
 
 - [x] Registrar na Memory spec a matriz de dois ramos e a chave de ramo compartilhada pelos três pontos.
 - [x] Esclarecer que os dois conjuntos de comportamento visíveis ao provider são mutuamente exclusivos e que o ramo ativo atual é `default-index`.
@@ -47,7 +47,7 @@ Fluxo fixo de cada Phase:
 - [x] Marcar os metadados dos fixtures como `default-index | semantic-recall | both`.
 - [x] Nomear as duas versões semânticas do fixture do Main prompt como default e semantic.
 
-## 3. Phase 1：autoridade única do branch e as três conexões
+## 3. Phase 1: autoridade única do branch e as três conexões
 
 - [x] Substituir `semantic-recall.ts`, que só expressa a semântica de um lado, por `project-memory-retrieval-branch.ts`.
 - [x] O `PROJECT_MEMORY_SEMANTIC_RECALL_ENABLED=false` bruto é definido apenas uma vez, nesse módulo.
@@ -60,7 +60,7 @@ Fluxo fixo de cada Phase:
 
 Critérios de saída: alterar o único booleano já alterna os três comportamentos de produção, e não existe caminho com pointer/index e Selector/Recall ativos simultaneamente.
 
-## 4. Phase 2：fixtures de dois ramos, testes unitários e trajectory
+## 4. Phase 2: fixtures de dois ramos, testes unitários e trajectory
 
 - [x] Adicionar os fixtures exatos `main-memory-default-index.md` e `main-memory-semantic-recall.md`.
 - [x] Manter `main-memory-index.md`, o request do selector e o fixture MCS de memória recuperada.
@@ -72,7 +72,7 @@ Critérios de saída: alterar o único booleano já alterna os três comportamen
 - [x] O provider scriptado do CLI headless reconhece os dois contratos de ramo; a build atual executa a trajectory default.
 - [x] Não duplicar um segundo WDIO nem adicionar nova entrada de teste de produto.
 
-## 5. Phase 3：validação de ponta a ponta e fechamento de escopo
+## 5. Phase 3: validação de ponta a ponta e fechamento de escopo
 
 - [x] Testes focados de retrieval/context/recall do Core.
 - [x] Testes finais de wire de Memory/MCS do Adapter.

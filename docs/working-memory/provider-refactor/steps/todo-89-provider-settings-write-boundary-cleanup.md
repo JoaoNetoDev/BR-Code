@@ -32,8 +32,8 @@ Personal. Não é só corrigir um ramo de erro, nem reescrever todo o módulo de
 
 Base:
 
-- [Provider 设置页](../design/registry/settings.md) — página de configurações de Provider.
-- [模型成员与启停](../design/registry/model-membership-and-enablement.md) — pertencimento e ativação de
+- [Página de configurações do Provider](../design/registry/settings.md) — página de configurações de Provider.
+- [Pertencimento e ativação de modelos](../design/registry/model-membership-and-enablement.md) — pertencimento e ativação de
   modelos.
 - [Todo 88](todo-88-provider-audit-regression-repair.md).
 

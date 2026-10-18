@@ -127,7 +127,7 @@ motor, recolhido.
 | `apps/zcode-cli/packages/dynamic-workflow/docs/execution-engine.md` | lowering, o sandbox, o núcleo do motor, ciclo de vida do ask, o journal, resume, amend, estados terminais, escalonamento, o leito de testes da matriz de falhas |
 | `docs/dynamic-workflow/concurrency.md` | os dois limites, tickets de requisição, o controlador adaptativo, a política de erros de modelo, requisições do lado da ferramenta |
 | `docs/dynamic-workflow/presentation.md` | o contrato de exibição, o modelo de linha do tempo, o overlay ao vivo, o card de execução e o painel de execuções |
-| `docs/dynamic-workflow/transcript-and-notifications.md` | notificações, o card de conclusão, a transcrição do script, o dobra do epílogo |
+| `docs/dynamic-workflow/transcript-and-notifications.md` | notificações, o card de conclusão, a transcrição do script, o dobro do epílogo |
 
 ## A vida de um workflow
 

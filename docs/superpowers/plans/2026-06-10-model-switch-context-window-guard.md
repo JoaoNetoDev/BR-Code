@@ -1,6 +1,6 @@
 # Plano de Implementação do Guard de Janela de Contexto na Troca de Modelo
 
-> Status (2026-07-15):方案 histórico, substituído pelas decisões da migração do composer
+> Status (2026-07-15): plano histórico, substituído pelas decisões da migração do composer
 > V4; o guard de "compressão automática antes de trocar de modelo" ainda não foi restaurado.
 > A semântica de produto V4 ainda a implementar está em
 > `docs/superpowers/specs/2026-06-10-model-switch-context-window-guard-design.md`; os fatos

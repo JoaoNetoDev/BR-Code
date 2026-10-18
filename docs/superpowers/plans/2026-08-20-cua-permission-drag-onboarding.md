@@ -106,7 +106,7 @@ renderer da janela flutuante: texto + tooltip + title + html lang
 - Test: `packages/shared/test/channels.test.ts`
 
 **Interfaces:**
-- Produces: `PlatformChannels.PrepareCuaHelperPermissionDrag = "zcode:prepare-cua-helper-permission-drag"`、`PlatformChannels.StartCuaHelperPermissionDrag = "zcode:start-cua-helper-permission-drag"`; tipo `PrepareCuaHelperPermissionDragResult { success: boolean; error?: string; helperAppPath?: string; helperDisplayName?: string; helperBundleId?: string }`(**Atenção**: `helperBundleFingerprint` deliberadamente não entra no shared —— ele só pode ser consumido na memória do processo main e não deve ser exposto ao renderer via IPC); platform método `prepareCuaHelperPermissionDrag?(): Promise<PrepareCuaHelperPermissionDragResult>`、`startCuaHelperPermissionDrag?(): void`
+- Produces: `PlatformChannels.PrepareCuaHelperPermissionDrag = "zcode: prepare-cua-helper-permission-drag"`,`PlatformChannels.StartCuaHelperPermissionDrag = "zcode: start-cua-helper-permission-drag"`; tipo `PrepareCuaHelperPermissionDragResult { success: boolean; error?: string; helperAppPath?: string; helperDisplayName?: string; helperBundleId?: string }`(**Atenção**: `helperBundleFingerprint` deliberadamente não entra no shared —— ele só pode ser consumido na memória do processo main e não deve ser exposto ao renderer via IPC); platform método `prepareCuaHelperPermissionDrag?(): Promise<PrepareCuaHelperPermissionDragResult>`,`startCuaHelperPermissionDrag?(): void`
 
 - [ ] **Step 1: escrever teste que falha**
 
@@ -297,7 +297,7 @@ Acrescentar uma linha de comentário no topo do arquivo explicando a mudança:
 - [ ] **Step 4: executar o teste e confirmar a passagem**
 
 Run: `pnpm --filter @zcode/desktop exec vitest run test/cuaAccessibilitySettings.test.ts`
-Expected: PASS。**Atenção**: as asserções originais de que request* é chamado vão falhar; altere uma a uma para asseverar a não chamada; os casos que asseveram a ordem de `openSettingsUrl`, a coordenação de sessão e o direito de recovery devem continuar passando.
+Expected: PASS.**Atenção**: as asserções originais de que request* é chamado vão falhar; altere uma a uma para asseverar a não chamada; os casos que asseveram a ordem de `openSettingsUrl`, a coordenação de sessão e o direito de recovery devem continuar passando.
 
 - [ ] **Step 5: commit**
 
@@ -316,7 +316,7 @@ git commit -m "feat(cua): stop triggering native permission prompts in onboardin
 
 **Interfaces:**
 - Consumes: `PrepareCuaHelperPermissionDragResult` do Task 1
-- Produces: `prepareCuaHelperPermissionDrag(options?: PrepareCuaHelperPermissionDragOptions): Promise<PrepareCuaHelperPermissionDragResult & { helperBundleFingerprint?: CuaHelperBundleFingerprint }>`；`PrepareCuaHelperPermissionDragOptions { env?; platform?; logger?; ensureHelperInstalled?; bundledHelperAppPath?; verifyHelperInstalled?; resolveHelperIdentity? }`
+- Produces: `prepareCuaHelperPermissionDrag(options?: PrepareCuaHelperPermissionDragOptions): Promise<PrepareCuaHelperPermissionDragResult & { helperBundleFingerprint?: CuaHelperBundleFingerprint }>`;`PrepareCuaHelperPermissionDragOptions { env?; platform?; logger?; ensureHelperInstalled?; bundledHelperAppPath?; verifyHelperInstalled?; resolveHelperIdentity? }`
 
 - [ ] **Step 1: escrever teste que falha**
 
@@ -361,7 +361,7 @@ it("预热成功返回路径与身份，但不泄漏指纹给 renderer 形状", 
 });
 ```
 
-Criar `helperFixturePath` com `mkdtempSync`, um bundle falso contendo `Contents/MacOS/x`、`Contents/Info.plist`、`Contents/_CodeSignature/CodeResources`、`Contents/Resources/` ; limpar em `afterEach`.
+Criar `helperFixturePath` com `mkdtempSync`, um bundle falso contendo `Contents/MacOS/x`,`Contents/Info.plist`,`Contents/_CodeSignature/CodeResources`,`Contents/Resources/` ; limpar em `afterEach`.
 
 - [ ] **Step 2: executar o teste e confirmar a falha**
 
@@ -442,7 +442,7 @@ export async function prepareCuaHelperPermissionDrag(
 }
 ```
 
-Remover também o comentário de auditoria obsoleto no fim do arquivo(o comentário `// 2026-08 审计：openCuaAccessibilitySettings / prepareCuaHelperPermissionDrag 已删除…`)，e substituí-lo por um registro do motivo desta restauração.
+Remover também o comentário de auditoria obsoleto no fim do arquivo(o comentário `// 2026-08 审计：openCuaAccessibilitySettings / prepareCuaHelperPermissionDrag 已删除…`), e substituí-lo por um registro do motivo desta restauração.
 
 - [ ] **Step 4: executar o teste e confirmar a passagem**
 
@@ -771,11 +771,11 @@ git commit -m "feat(cua): add macOS system settings window bounds watcher"
 - Create: `packages/desktop/src/main/cuaPermissionPanelPositioner.ts`
 - Create: `packages/desktop/src/main/cuaPermissionDragPanel.ts`
 - Create: `packages/desktop/src/renderer/permission-panel/index.html`
-- Test: `packages/desktop/test/cuaPermissionPanelPositioner.test.ts`、`packages/desktop/test/cuaPermissionDragPanel.test.ts`
+- Test: `packages/desktop/test/cuaPermissionPanelPositioner.test.ts`,`packages/desktop/test/cuaPermissionDragPanel.test.ts`
 
 **Interfaces:**
 - Consumes: `createSystemSettingsWindowWatcher` do Task 5 e os canais do Task 1
-- Produces: `resolvePanelBounds({ settings, display, panel }): Rect`；`createCuaPermissionDragPanel(options): { show(permission: CuaPermissionKind): void; hide(): void; destroy(): void }`
+- Produces: `resolvePanelBounds({ settings, display, panel }): Rect`;`createCuaPermissionDragPanel(options): { show(permission: CuaPermissionKind): void; hide(): void; destroy(): void }`
 
 - [ ] **Step 1: escrever teste que falha**
 
@@ -888,7 +888,7 @@ git commit -m "feat(cua): add draggable permission panel anchored to system sett
 - Test: `packages/ui/test/cuaPermissionChecklistModal.test.tsx`
 
 **Interfaces:**
-- Consumes: `isCuaPermissionTccGranted`（`packages/ui/src/lib/cuaPermissionStatusStore.ts`）、`platform.openCuaPermissionOnboarding`
+- Consumes: `isCuaPermissionTccGranted`(`packages/ui/src/lib/cuaPermissionStatusStore.ts`),`platform.openCuaPermissionOnboarding`
 - Produces: `<CuaPermissionChecklistModal open onContinue onCancel />`
 
 - [ ] **Step 1: escrever teste que falha**
@@ -975,7 +975,7 @@ Expected: sem saída (zero entradas = simular um usuário novo)
 nohup env ZCODE_CUA_DEV_MODE=1 ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/" \
   pnpm run dev:desktop > /tmp/zcode-desktop-dev.log 2>&1 < /dev/null & disown
 ```
-Critério de prontidão: `grep -a "cua helper ready at" /tmp/zcode-desktop-dev.log`。**não** iniciar o dev pelo background do harness (a limpeza da tarefa levaria a cadeia de dev inteira junto); só considerar falha um `ELIFECYCLE` / `exited with code [1-9]`。
+Critério de prontidão: `grep -a "cua helper ready at" /tmp/zcode-desktop-dev.log`.**não** iniciar o dev pelo background do harness (a limpeza da tarefa levaria a cadeia de dev inteira junto); só considerar falha um `ELIFECYCLE` / `exited with code [1-9]`.
 
 - [ ] **Step 3: percorrer o fluxo de autorização conferindo item a item**
 
@@ -1007,4 +1007,4 @@ Acrescentar os resultados medidos ao final deste plano e commitar.
 
 **Consistência de tipos**: `PrepareCuaHelperPermissionDragResult` (shared, sem fingerprint) e `PrepareCuaHelperPermissionDragMainResult` (main, com fingerprint) são estritamente distintos; o handler do Task 4 só devolve ao renderer depois de remover explicitamente o campo de fingerprint. `captureCuaHelperBundleFingerprint` / `cuaHelperBundleFingerprintUnchanged` reaproveitam as exportações existentes de `cuaAccessibilitySettings.ts`, sem redefinição.
 
-**Riscos conhecidos**: sem pop-up, um usuário novo **só consegue entrar na lista arrastando** — não há segunda via; se não vir a janelinha ou não souber arrastar, trava. As mitigações são o encaixe do Task 6 (deixar a janelinha colada no foco do olhar do usuário) e o modal de lista do Task 7 (explicar antes quais duas permissões serão concedidas). Se os testes posteriores mostrarem taxa de arrasto insuficiente, pode-se acrescentar na janela flutuante uma orientação estática do tipo 「não conseguiu abrir? clique aqui para ver o diagrama», mas **não** se deve voltar ao pop-up do sistema — é exatamente o que esta mudança elimina.
+**Riscos conhecidos**: sem pop-up, um usuário novo **só consegue entrar na lista arrastando** — não há segunda via; se não vir a janelinha ou não souber arrastar, trava. As mitigações são o encaixe do Task 6 (deixar a janelinha colada no foco do olhar do usuário) e o modal de lista do Task 7 (explicar antes quais duas permissões serão concedidas). Se os testes posteriores mostrarem taxa de arrasto insuficiente, pode-se acrescentar na janela flutuante uma orientação estática do tipo "não conseguiu abrir? clique aqui para ver o diagrama», mas **não** se deve voltar ao pop-up do sistema — é exatamente o que esta mudança elimina.

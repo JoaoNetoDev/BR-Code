@@ -72,7 +72,7 @@ CDP do desktop para verificar a interação de refresh. O espaço de estados do 
 
 | Item                                                                                 | Motivo / âncora futura                                                                                                                                                  |
 | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Interruptor individual de ligar/desligar MCP server / skill (Switch por linha e engrenagem na linha de MCP) | O backend só tem `plugins/setEnabled` em nível de plugin. Nesta rodada a seção de componentes **apenas lista, sem interruptores**; o interruptor individual exige nova configuração de-disable por componente + método de protocolo + efeito no runtime (merge de MCP, descoberta de skills), em outra iteração. |
+| Interruptor individual de ligar/desligar MCP server / skill (Switch por linha e engrenagem na linha de MCP) | O backend só tem `plugins/setEnabled` em nível de plugin. Nesta rodada a seção de componentes **apenas lista, sem interruptores**; o interruptor individual exige nova configuração de desativação por componente + método de protocolo + efeito no runtime (merge de MCP, descoberta de skills), em outra iteração. |
 | Pills duplas「插件 / 技能」no topo | Skills são uma área de configuração independente e não são mescladas nesta rodada.                                                                                        |
 | Dropdown「本地 / 远程」no topo | A entrada existente de sincronização remota SSH é recolhida na visão de instalados gerenciados, sem troca de visão.                                                       |
 | Scaffold「新建插件」                                             | O botão New do topo abre diretamente「添加市场源」nesta rodada.                                                                                                            |
@@ -193,7 +193,7 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
   "Featured" (i18n). Cartões em duas colunas.
 - **Blocos de categoria**: os demais plugins são agregados por `category`, todos expandidos por padrão. Acima de 6 cartões, a entrada "recolher" é mantida;
   depois que o usuário recolhe manualmente, apenas os 6 primeiros são exibidos e o restante é recolhido em uma linha no rodapé: `[小 icon do 前 3 个] 查看 A、B，以及另外 N 个`,
-  e o clique expande novamente. Nesta rodada não há recolhimento automático por quantidade, e os grupos newly also appear expandidos por padrão; a escolha manual do usuário é preservada na página atual. Plugins sem `category` vão para a seção「其他」（por padrão no final）.
+  e o clique expande novamente. Nesta rodada não há recolhimento automático por quantidade, e os grupos recém-criados também aparecem expandidos por padrão; a escolha manual do usuário é preservada na página atual. Plugins sem `category` vão para a seção「其他」（por padrão no final）.
 - Categorias e plugins dentro de cada categoria suportam ordenação enviada pelo servidor conforme o modo de interface; veja
   [contrato de ordenação por modo](plugins/plugin-store-mode-order.md). O modo de programação usa `code` e o modo geral usa
   `work`; itens não configurados são adicionados na ordem original, e a configuração explícita permite reposicionar「其他」. Destaques e as demais listas não são afetados.

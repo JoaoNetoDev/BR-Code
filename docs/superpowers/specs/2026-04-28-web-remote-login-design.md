@@ -12,9 +12,9 @@ Objetivo desta mudança: introduzir na página de controle remoto Web o fluxo de
 
 | Restrição | Descrição |
 |-----------|-----------|
-| Domínio de deploy | `https://zcode.z.ai`（já está na allowlist do ZAI OAuth） |
-| Provedor OAuth | ZAI（`chat.z.ai/auth`），**não passa pelo deep-link `zcode://` do desktop** |
-| Armazenamento de token | `localStorage` do Web, com as mesmas keys centrais do desktop: `zcodejwttoken`、`oauth:zai:access_token`、`oauth:zai:user_info`、`oauth:active_provider` |
+| Domínio de deploy | `https://zcode.z.ai`(já está na allowlist do ZAI OAuth) |
+| Provedor OAuth | ZAI(`chat.z.ai/auth`),**não passa pelo deep-link `zcode://` do desktop** |
+| Armazenamento de token | `localStorage` do Web, com as mesmas keys centrais do desktop: `zcodejwttoken`,`oauth: zai: access_token`,`oauth: zai: user_info`,`oauth: active_provider` |
 | Mesma origem em produção | A página de controle remoto é implantada sob `zcode.z.ai`, então a chamada a `zcode.z.ai/api/v1/oauth/token` é de mesma origem, sem problema de CORS |
 | Desenvolvimento | O origin local é injetado por variável de ambiente; o callback do ZAI volta primeiro ao domínio de produção e depois é encaminhado de volta ao IP da rede local; a troca de token local precisa passar pelo proxy do Vite ou pela allowlist de CORS do backend, e não se pode assumir que o origin local do Vite já tem `/api/v1/oauth/token` |
 
@@ -149,8 +149,8 @@ Depois que a página intermediária de produção decodifica `return_to`, ela ex
 
 1. `return_to` existe
 2. `return_to` precisa ser analisado primeiro em um objeto URL por `new URL(return_to)`
-3. `returnToUrl.origin !== window.location.origin`（a origem de destino não é a origem da página de callback atual）
-4. `return_to` corresponde à regex de faixas privadas：`/^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?(\/|$)/`
+3. `returnToUrl.origin !== window.location.origin`(a origem de destino não é a origem da página de callback atual)
+4. `return_to` corresponde à regex de faixas privadas:`/^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?(\/|$)/`
 5. O pathname de `return_to` precisa ser `/web-remote/callback`
 6. O ambiente de build ou deploy atual permite explicitamente o encaminhamento de desenvolvimento. O build oficial de produção é fechado por padrão; se for realmente necessário deixar `https://zcode.z.ai` assumir o encaminhamento do desenvolvimento local, é preciso adicionar assinatura de backend ou um deploy de teste dedicado, e não se pode aceitar um `return_to` privado arbitrário sem assinatura em um ambiente de produção público
 
@@ -271,7 +271,7 @@ Componente de UI de login em tela cheia, exibindo o logo do ZCode e o botão “
 Restrições de UI:
 
 - Antes de modificar ou adicionar UI é obrigatório respeitar o `DESIGN.md` na raiz.
-- Usar tokens de cor semântica (como `bg-background`、`text-foreground`、`bg-card`、`border-border`), compatíveis com o Light Theme / Dark Theme assumido pelo Zai.
+- Usar tokens de cor semântica (como `bg-background`,`text-foreground`,`bg-card`,`border-border`), compatíveis com o Light Theme / Dark Theme assumido pelo Zai.
 - O texto precisa ser compatível com `zh-CN` / `en-US`; como a página de login acontece antes do `ZCodeIntlProvider` completo, é preciso fornecer um resolver de locale leve ou reutilizar o dicionário i18n existente.
 - Implementar o botão principal conforme o sistema de botões existente, sem codificar temporariamente cores, raios ou tamanhos de fonte.
 - O layout precisa se adaptar a celular em retrato, desktop largo e textos em inglês mais longos.
@@ -495,9 +495,9 @@ Em produção, a token URL usa o `/api/v1/oauth/token` de mesma origem; em desen
 
 ## Iterações futuras (fora deste escopo)
 
-- Refresh ativo do JWT expirado（o backend não fornece refresh_token, então é adiado por enquanto）
-- Funcionalidade de logout（limpar o localStorage e voltar à página de login）
-- Outros providers OAuth（como BigModel）
-- Sincronização do estado de login com o desktop（mesmo navegador entre dispositivos）
+- Refresh ativo do JWT expirado(o backend não fornece refresh_token, então é adiado por enquanto)
+- Funcionalidade de logout(limpar o localStorage e voltar à página de login)
+- Outros providers OAuth(como BigModel)
+- Sincronização do estado de login com o desktop(mesmo navegador entre dispositivos)
 - Quando a interface de lista de dispositivos do backend estiver completa, a página de login bem-sucedido passa a integrar o fluxo “obter dispositivos conectáveis → selecionar dispositivo → estabelecer conexão de controle remoto”
 - Depois que o lado relay/server concluir a autenticação do `zcodejwttoken`, o frontend integra o token ou um bilhete de conexão de curta duração emitido pelo backend ao fluxo de bootstrap / conexão WebSocket

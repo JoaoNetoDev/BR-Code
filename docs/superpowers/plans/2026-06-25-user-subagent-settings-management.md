@@ -6,7 +6,7 @@
 
 **Arquitetura:** primeiro convergir o caminho de arquivo de subagent em nível de usuário, os campos de profile e o estado de habilitação, hoje implementados de forma temporária na UI/service, para a fronteira efetivamente consumida pelo runtime; só então conectar a UI de Settings. O P0 gerencia apenas agents global/user; agents de workspace/project, agents de plugin, o editor de objetos MCP estruturado e o ajuste dotransportador de dados interno da lista de agents visível ao provider não entram neste plano.
 
-**Stack tecnológico:** TypeScript、React、Zustand、@zcode/services、@zcode/shared、zcode-cli bootstrap/core、Vitest、Tailwind semantic tokens、componentes existentes das páginas de Settings.
+**Stack tecnológico:** TypeScript, React, Zustand,@zcode/services,@zcode/shared, zcode-cli bootstrap/core, Vitest, Tailwind semantic tokens, componentes existentes das páginas de Settings.
 
 ## Restrições Globais
 
@@ -30,7 +30,7 @@
   - project root: `join(workingDirectory, ".zcode", "agents")`
 - `storageRoot` vem por padrão de `DefaultRuntimeConfig.storage.dir = "~/.zcode"`.
 - O App service atual, em `packages/services/src/subagents/subagentsService.ts`, ainda deriva `~/.zcode/cli/agents` e `<workspace>/.zcode/cli/agents` a partir de `ZCODE_AGENT_RUNTIME.nativeConfigDir`, o que é inconsistente com o loader do runtime.
-- O App service atual apenas resolve/grava `name`, `description`, `color`, `model`, `tools` e body; o profile de runtime também suporta `disallowedTools`、`skills`、`permissionMode`、`maxTurns`、`background`、`mcpServers`.
+- O App service atual apenas resolve/grava `name`, `description`, `color`, `model`, `tools` e body; o profile de runtime também suporta `disallowedTools`,`skills`,`permissionMode`,`maxTurns`,`background`,`mcpServers`.
 - O `agents-state.json` hoje é lido e gravado apenas pelo service; o runtime não o consome.
 
 ## Estrutura de Arquivos
@@ -209,7 +209,7 @@ O runtime do P0 consome os state ids de user desabilitados. Os ids de built-in s
 
 **Interfaces:**
 
-- Produces: `AgentProfileModel`、`AgentPermissionMode`、`AgentColor`、`SubagentsListMode` e o `AgentSummary` e `SubAgentConfig` estendidos.
+- Produces: `AgentProfileModel`,`AgentPermissionMode`,`AgentColor`,`SubagentsListMode` e o `AgentSummary` e `SubAgentConfig` estendidos.
 - Consumes: os `AgentSummary` e `SubAgentConfig` existentes nos service/store/hook.
 
 - [ ] **Passo 1: Modificar os tipos compartilhados**
@@ -280,7 +280,7 @@ Expected:
 
 **Interfaces:**
 
-- Consumes: `SubAgentConfig` de `@zcode/shared`。
+- Consumes: `SubAgentConfig` de `@zcode/shared`.
 - Produces:
   - `parseSubagentMarkdown(content: string, path: string, scope: AgentScope): AgentSummary | SubagentMarkdownDiagnostic`
   - `serializeSubagentMarkdown(config: SubAgentConfig): string`
@@ -744,8 +744,8 @@ Expected:
 
 **Interfaces:**
 
-- Produces: settings section id `"subagents"`。
-- Consumes: existing Settings section rendering branch。
+- Produces: settings section id `"subagents"`.
+- Consumes: existing Settings section rendering branch.
 
 - [ ] **Passo 1: Escrever os testes failing de config**
 
@@ -831,7 +831,7 @@ Run:
 pnpm --filter @zcode/ui test -- --run test/settingsPageConfig.test.ts test/settingsNavigation.test.ts
 ```
 
-Expected: PASS。
+Expected: PASS.
 
 ---
 
@@ -848,7 +848,7 @@ Expected: PASS。
 **Interfaces:**
 
 - Consumes: `useSubagents(activeWorkspacePath, ZCODE_AGENT_PROVIDER, { mode: "settingsUserOnly" })`
-- Produces: pontos de entrada de busca/filtro/lista/toggle/edição/exclusão。
+- Produces: pontos de entrada de busca/filtro/lista/toggle/edição/exclusão.
 
 - [ ] **Passo 1: Escrever o teste failing de render**
 
@@ -907,7 +907,7 @@ Regras:
 
 - [ ] **Passo 4: Abrir a pasta de user agents**
 
-Usar o `subagentsService.getPrimaryUserAgentsDirectory({ provider: ZCODE_AGENT_PROVIDER })` existente e então `platform.openInFileManager(path)`. O toast de falha usa o `appHeader.openInFileManagerFailed` existente。
+Usar o `subagentsService.getPrimaryUserAgentsDirectory({ provider: ZCODE_AGENT_PROVIDER })` existente e então `platform.openInFileManager(path)`. O toast de falha usa o `appHeader.openInFileManagerFailed` existente.
 
 - [ ] **Passo 5: Alternar enabled**
 
@@ -926,7 +926,7 @@ Expected:
 - Os built-ins são renderizados como somente leitura.
 - O user agent renderiza ações editáveis.
 - A fixture de workspace fica oculta no modo de settings.
-- O toggle chama `subagentsService.setEnabled` com o id esperado。
+- O toggle chama `subagentsService.setEnabled` com o id esperado.
 
 ---
 
@@ -1067,8 +1067,8 @@ Expected:
 
 **Interfaces:**
 
-- Consumes: existing `useConfirmDialog` pattern from `CommandsSection`。
-- Produces: delete confirm flow and diagnostics/error display。
+- Consumes: existing `useConfirmDialog` pattern from `CommandsSection`.
+- Produces: delete confirm flow and diagnostics/error display.
 
 - [ ] **Passo 1: Escrever o teste de confirmação de exclusão**
 
@@ -1125,7 +1125,7 @@ Expected:
 
 - A exclusão exige confirmação.
 - O botão de excluir não é renderizado nos built-ins.
-- O bloco de diagnostics renderiza sem ocultar os user agents válidos。
+- O bloco de diagnostics renderiza sem ocultar os user agents válidos.
 
 ---
 
@@ -1135,7 +1135,7 @@ Expected:
 
 - Modify: `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`
 - Modify: `apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`
-- Optional Modify: 历史差异审计文档（已删除）
+- Optional Modify: 历史差异审计文档(已删除)
 
 **Interfaces:**
 
@@ -1193,7 +1193,7 @@ expect(result.profiles[0]).toMatchObject({
 
 - [ ] **Passo 3: Atualização opcional de documentação**
 
-Se a implementação mudar os fatos atuais de diff, atualizar 历史差异审计文档（已删除）:
+Se a implementação mudar os fatos atuais de diff, atualizar 历史差异审计文档(已删除):
 
 - O Service/UI agora grava no user root alinhado ao runtime.
 - A GUI do P0 exclui de propósito a edição de workspace.
@@ -1208,7 +1208,7 @@ pnpm --filter @zcode/bootstrap test -- --run tests/subagents.test.ts
 pnpm --filter @zcode/core test -- --run tests/subagent-profile.test.ts
 ```
 
-Expected: PASS。
+Expected: PASS.
 
 ---
 
@@ -1235,7 +1235,7 @@ pnpm --filter @zcode/ui test -- --run \
   test/subagentsSettingsSection.test.tsx
 ```
 
-Expected: PASS。
+Expected: PASS.
 
 - [ ] **Passo 2: Testes de service/runtime**
 
@@ -1247,7 +1247,7 @@ pnpm --filter @zcode/bootstrap test -- --run tests/subagents.test.ts
 pnpm --filter @zcode/core test -- --run tests/subagent-profile.test.ts
 ```
 
-Expected: PASS。
+Expected: PASS.
 
 - [ ] **Passo 3: Verificações obrigatórias do repo**
 
@@ -1258,7 +1258,7 @@ pnpm typecheck
 pnpm lint
 ```
 
-Expected: PASS。
+Expected: PASS.
 
 - [ ] **Passo 4: Smoke manual**
 
@@ -1278,7 +1278,7 @@ Expected:
 
 - A lista de Settings e o corpo visível ao provider do runtime concordam.
 - Nenhuma UI de edição de agent de workspace é exposta.
-- Os built-in agents são visíveis, mas somente leitura。
+- Os built-in agents são visíveis, mas somente leitura.
 
 ---
 

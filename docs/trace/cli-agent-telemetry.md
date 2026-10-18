@@ -455,7 +455,7 @@ Para consulta de erros, usa-se:
 - erro do Attempt que o encerrou (normalmente uma exceção de Transport/SDK): `attributes.zcode.model_attempt.error_message`;
 - endereço da requisição: `provider_origin` e `provider_route`, sem usar a URL original.
 
-Taxas de sucesso precisas, QPS, tokens e P95/P99 devem preferentially usar as Metrics do OTLP; o Trace serve para localizar amostras de execução específicas. As
+Taxas de sucesso precisas, QPS, tokens e P95/P99 devem preferencialmente usar as Metrics do OTLP; o Trace serve para localizar amostras de execução específicas. As
 Saved Queries, Dashboards e fórmulas completas de estatística estão detalhadas em
 [Referência do ARMS](./reference/runtime-and-operations.md#9-arms-查询大盘与统计口径).
 

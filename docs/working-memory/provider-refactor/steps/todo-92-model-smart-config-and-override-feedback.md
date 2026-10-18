@@ -233,7 +233,7 @@ lidos.
 Regressão final conjunta: Pro `desktop-e2e-20260908-110541-867`, 3 specs **9/9**:
 
 - Novo pending `provider-model-smart-config.test.ts`: SC90-01.
-- Existente `settings-ui-polish.test.ts`: UP-01, MP-UI-01～06 (7 itens, excluindo os itens de remote
+- Existente `settings-ui-polish.test.ts`: UP-01, MP-UI-01~06 (7 itens, excluindo os itens de remote
   que exigem explicitamente SSH).
 - Existente pending `provider-settings-write-recovery.test.ts`: entrada de recuperação e preservação do
   rascunho quando a adição falha.

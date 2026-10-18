@@ -39,17 +39,17 @@ Faz apenas o agendamento de plataforma: ciclo de vida das janelas, native dialog
 
 ### Host Process
 
-É inicializado por `createLocalServices({ parentPort })` para os serviços locais da janela e mantém, no mesmo processo, `RemoteConnectionRegistry`, `ControllerProjection` e `AttachmentRegistry`. O Host seleciona ou inicia o CLI local por workspaceKey, ou roteia a facade scoped para o service autoritativo remoto; a membro de listas, os fatos de online/execução/espera e o roteamento de escrita de listas são mantidos pelo Controller, mas o Host não monta rows de conversation, streams, permissões ou runtime snapshot para o reducer do CLI.
+É inicializado por `createLocalServices({ parentPort })` para os serviços locais da janela e mantém, no mesmo processo, `RemoteConnectionRegistry`, `ControllerProjection` e `AttachmentRegistry`. O Host seleciona ou inicia o CLI local por workspaceKey, ou roteia a facade scoped para o service autoritativo remoto; a qualidade de membro de listas, os fatos de online/execução/espera e o roteamento de escrita de listas são mantidos pelo Controller, mas o Host não monta rows de conversation, streams, permissões ou runtime snapshot para o reducer do CLI.
 
 Uma janela registra apenas um `hostId` realtime. Cada attachment mantém de forma independente um `clientMode` confiável, assinatura, seq, backpressure e dispose; fechar um attachment não destrói uma conexão que ainda tem outros owners. Uma desconexão remota preserva a última projeção de task confiável e marca offline; todas as operações de IO/mutação falham de forma fechada e não há retorno ao local; após a reconexão, um novo snapshot da source substitui atomicamente o anterior.
 
-O fechamento real da janela, o quit do app e a instalação de update esperam apenas o Host único daquela janela; internamente o Host faz uma liberação limitada de attachments, do registry remoto e dos serviços locais. A desconexão de um attachment do celular libera apenas o attachment e não entra na barreira de shutdown do Host.
+O fechamento real da janela, o encerramento do app e a instalação de update esperam apenas o Host único daquela janela; internamente o Host faz uma liberação limitada de attachments, do registry remoto e dos serviços locais. A desconexão de um attachment do celular libera apenas o attachment e não entra na barreira de shutdown do Host.
 
 ### zcode-cli
 
 No máximo um processo de CLI de chat por workspaceKey. O CLI hospeda o session/core runtime, a inbox de comandos V4, as decisões de idempotência/CAS, o reducer de ProductProjection, os conversation topics, queues, goals, interactions, tools e o estado de execução do modelo.
 
-## Workspace Identity
+## Identidade do workspace
 
 ```text
 workspaceKey = workspaceIdentity?.trim() || workspacePath
@@ -63,15 +63,15 @@ Não é permitido derivar a mesma identidade de workspace a partir do mesmo cami
 
 ## Camadas do monorepo
 
-| 模块                | 职责                                                     |
+| Módulo               | Responsabilidade                                          |
 | ------------------- | -------------------------------------------------------- |
-| `packages/shared`   | 跨进程类型、V4 schema、workspace identity 与平台契约     |
-| `packages/rpc`      | Channel RPC、MessagePort/WebSocket transport、日志中间件 |
-| `packages/services` | Host 业务服务接口和 Node 实现                            |
-| `packages/client`   | service proxy 与客户端 transport 装配                    |
-| `packages/ui`       | 平台无关 React UI、hooks、V4 projection store            |
-| `packages/desktop`  | Electron main/preload/renderer/host 壳                   |
-| `apps/zcode-cli`    | Agent core、command、projection 与 app-server            |
+| `packages/shared`   | tipos entre processos, schema V4, identidade de workspace e contratos de plataforma |
+| `packages/rpc`      | Channel RPC, transport MessagePort/WebSocket, middleware de logs |
+| `packages/services` | interfaces de serviços de negócio do Host e implementações em Node |
+| `packages/client`   | service proxy e montagem do transport do cliente          |
+| `packages/ui`       | React UI independente de plataforma, hooks, store de projection V4 |
+| `packages/desktop`  | shell Electron main/preload/renderer/host                 |
+| `apps/zcode-cli`    | Agent core, command, projection e app-server              |
 
 ```text
 UI -> hooks/types -> service/protocol contracts

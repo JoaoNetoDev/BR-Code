@@ -1,4 +1,4 @@
-# Especificação de implementação deplemento do Marketing Touch E2E
+# Especificação de implementação do Marketing Touch E2E
 
 ### Refresh ao concluir tarefa (2026-09-18)
 

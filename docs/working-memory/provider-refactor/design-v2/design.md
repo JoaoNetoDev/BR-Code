@@ -105,9 +105,9 @@ Todas as regras continuam sendo escritas em ordem de array, sem introduzir algor
 ### Princípios de manutenção de configuração de Match (decisão de 2026-09-10)
 
 - O Match Built-in se baseia em configurações principais e capacidades oficiais, com prioridade para o oficial; não se reduz a capacidade padrão de modelos conhecidos para suportar implementações de terceiros desatualizadas ou incompletas.
-- Capacidades suportadas por modelos conhecidos sob o API Schema correspondente devem ser escritas nas regras de modelo／modelo API, mantendo o casamento por prefixo e sufixo. Não se deve desligar por padrão apenas por acessar via proxy de terceiros; quando o proxy não suportar, o usuário desliga pela Config pessoal do modelo concreto.
+- Capacidades suportadas por modelos conhecidos sob o API Schema correspondente devem ser escritas nas regras de modelo/modelo API, mantendo o casamento por prefixo e sufixo. Não se deve desligar por padrão apenas por acessar via proxy de terceiros; quando o proxy não suportar, o usuário desliga pela Config pessoal do modelo concreto.
 - Prioridade para o oficial não significa que todos os modelos de uma mesma marca suportem algo: os limites explícitos de suporte por modelo e por API Schema devem ser preservados, sem conceder a capacidade de um modelo a todos os outros por uma regex ampla de marca.
-- Comportamento específico de site vai para `providerSiteRules`, mantido como "uma Base URL concreta, uma regra"; domínios ou endpoints diferentes não são unidos por alternância de regex. A mesma URL pode declarar várias capacidades já confirmadas em uma única regra; regras que precisem ser divididas por condições diferentes de modelo／API continuam separadas.
+- Comportamento específico de site vai para `providerSiteRules`, mantido como "uma Base URL concreta, uma regra"; domínios ou endpoints diferentes não são unidos por alternância de regex. A mesma URL pode declarar várias capacidades já confirmadas em uma única regra; regras que precisem ser divididas por condições diferentes de modelo/API continuam separadas.
 - Formas normalizadas equivalentes da mesma URL (por exemplo, barra final) podem ser tratadas na mesma regra, mas isso não autoriza ampliar para todos os caminhos do site ou para subdomínios arbitrários.
 - As capacidades continuam formando as propriedades finais do Model via Overlay/Resolver unificado; não se restaura no Runtime um caminho alternativo que adivinhe capacidades por nome de modelo ou por domínio. Ao migrar comportamento antigo, verifique cada capacidade separadamente; não confunda remover uma verificação antiga com cancelar a capacidade original.
 
@@ -128,12 +128,12 @@ O escopo de manutenção do Builtin é expresso por uma tabela curta de inventá
 
 ### Princípio de escolha do API Schema
 
-Um mesmo fornecedor pode oferecer vários API Schemas ao mesmo tempo. Templates oficiais priorizam uniformemente Anthropic Messages; só quando o fornecedor ou o modelo／Endpoint concreto não suporta Anthropic é que se escolhe outro Schema que a entrada realmente suporta e que tenha a verificação mais sólida. Essa decisão se baseia na evidência real de requisição do template, não em rótulos de marketing como "OpenAI-compatible". Se na mesma origem diferentes modelos precisarem usar Schemas diferentes, separe a identidade do template ou proponha primeiro um desenho explícito de configuração de API por modelo; não se pode enfiar modelos de protocolos diferentes em um `api.type` fixo. O Schema definido pelo template ainda pode ser sobrescrito por configurações mais específicas, na ordem de overlay estabelecida.
+Um mesmo fornecedor pode oferecer vários API Schemas ao mesmo tempo. Templates oficiais priorizam uniformemente Anthropic Messages; só quando o fornecedor ou o modelo/Endpoint concreto não suporta Anthropic é que se escolhe outro Schema que a entrada realmente suporta e que tenha a verificação mais sólida. Essa decisão se baseia na evidência real de requisição do template, não em rótulos de marketing como "OpenAI-compatible". Se na mesma origem diferentes modelos precisarem usar Schemas diferentes, separe a identidade do template ou proponha primeiro um desenho explícito de configuração de API por modelo; não se pode enfiar modelos de protocolos diferentes em um `api.type` fixo. O Schema definido pelo template ainda pode ser sobrescrito por configurações mais específicas, na ordem de overlay estabelecida.
 
 ### Princípio de lista de modelos de Provider agregador
 
 A lista de modelos de um serviço agregador pode tomar como referência a lista de manutenção do fornecedor upstream: modelos que o upstream já mantém, desde que a aggregating site realmente os ofereça, devem entrar na entrada agregada.
-Por exemplo, o model ID atual do OpenRouter pode ser `openai/gpt-5.6-sol`, enquanto o model ID upstream é `gpt-5.6-sol`; isso é apenas a correspondência atual de nomeação e catálogo desse agregador, não significa que todos os agregadores precisem de prefixo nem exige que o Runtime remova o prefixo antes de resolver. A entrada agregada continua mantendo sua própria configuração de Model／API／Site, porque o mesmo modelo, ao passar por um site agregador, pode ter protocolo, capacidades e mapeamento de parâmetros diferentes.
+Por exemplo, o model ID atual do OpenRouter pode ser `openai/gpt-5.6-sol`, enquanto o model ID upstream é `gpt-5.6-sol`; isso é apenas a correspondência atual de nomeação e catálogo desse agregador, não significa que todos os agregadores precisem de prefixo nem exige que o Runtime remova o prefixo antes de resolver. A entrada agregada continua mantendo sua própria configuração de Model/API/Site, porque o mesmo modelo, ao passar por um site agregador, pode ter protocolo, capacidades e mapeamento de parâmetros diferentes.
 
 ### 2.3 Sparse e Complete devem ficar separados
 
@@ -141,12 +141,12 @@ A fronteira de escrita recebe Config esparsa; a fronteira de execução recebe a
 não outro conjunto de DTO nem um segundo Registry.
 
 Os campos de Model têm como única fonte o schema de dados completo de `@zcode/shared/model-config`; o schema esparso deriva da mesma lista de campos
-a semântica de default／override por null. A construção de entrada, a saída JSON e o tipo completo do Registry usam inferência a partir do schema; as classes de comportamento mantêm apenas congelamento, overlay
-e serialização. A checagem de completude reaproveita esse schema, sem reescrever à mão uma segunda lista de verificação de campos／domínios. O schema de dados puro não referencia classes de comportamento,
-evitando dependência circular entre codec e classe. Provider／API／Access também fornecem um contrato de dados único via `config/provider-data-schema.ts`;
-os tipos ModelProperties／OptionSpecs da CLI e a projeção de campos de mídia do protocolo também derivam do Model schema compartilhado,
+a semântica de default/override por null. A construção de entrada, a saída JSON e o tipo completo do Registry usam inferência a partir do schema; as classes de comportamento mantêm apenas congelamento, overlay
+e serialização. A checagem de completude reaproveita esse schema, sem reescrever à mão uma segunda lista de verificação de campos/domínios. O schema de dados puro não referencia classes de comportamento,
+evitando dependência circular entre codec e classe. Provider/API/Access também fornecem um contrato de dados único via `config/provider-data-schema.ts`;
+os tipos ModelProperties/OptionSpecs da CLI e a projeção de campos de mídia do protocolo também derivam do Model schema compartilhado,
 sem depender inversamente da implementação de comportamento do Provider. A camada compartilhada depende apenas do compilador de expressões puras, sem estado ou IO.
-A completude do Provider só reforça itens já obrigatórios para execução, não exige que todos os campos de exibição／membro sejam obrigatórios, e a permissão de escrita por origem deriva do mesmo schema.
+A completude do Provider só reforça itens já obrigatórios para execução, não exige que todos os campos de exibição/membro sejam obrigatórios, e a permissão de escrita por origem deriva do mesmo schema.
 A fronteira de Personal para endpoints incompletos é preservada; um endereço inválido apenas bloqueia a admissão daquele Provider no Registry. As regras são derivadas por origem por `rule-data-schema.ts`; arquivos de dados não carregam o identificador de camada em memória `type` e a camada da regra não é re-adivinhada pela presença de campos.
 
 ```text
@@ -160,7 +160,7 @@ Sparse Config / Rules
         `--> Complete executable configs   -> Registry
 ```
 
-Providers／Models incompletos, desabilitados ou temporariamente não executáveis podem ser salvos e exibidos na página de configurações; eles não podem entrar no Registry executável.
+Providers/Models incompletos, desabilitados ou temporariamente não executáveis podem ser salvos e exibidos na página de configurações; eles não podem entrar no Registry executável.
 
 ### 2.4 Identidade, capacidade, estado e exibição são ortogonais
 
@@ -174,7 +174,7 @@ Providers／Models incompletos, desabilitados ou temporariamente não executáve
 
 ### 2.5 O Model criado é o fato de execução
 
-O Registry é o catálogo para criar Models, não um estado mutável relido continuamente durante uma execução. O ModelFactory obtém do Registry atual do Environment de destino a Provider／Model Config completa e cria um Model imutável. Atualizações posteriores de Config ou Registry afetam apenas Models criados depois,
+O Registry é o catálogo para criar Models, não um estado mutável relido continuamente durante uma execução. O ModelFactory obtém do Registry atual do Environment de destino a Provider/Model Config completa e cria um Model imutável. Atualizações posteriores de Config ou Registry afetam apenas Models criados depois,
 sem alterar silenciosamente requisições, Compact, Memory ou subagentes já em execução.
 
 ## 3. Contratos de configuração
@@ -211,7 +211,7 @@ Significado dos campos:
 | `builtinModelIds`  | Membros de modelo pertencentes à camada ZCode ou Account                                     |
 | `personalModelIds` | Membros de modelo pertencentes à camada Personal                                             |
 | `modelOrder`       | Intenção de ordem total expressa pelo usuário sobre o conjunto final de membros               |
-| `visibility`       | Se o Provider entra nas projeções comuns de configuração／seleção; não afeta buscas internas precisas no Registry |
+| `visibility`       | Se o Provider entra nas projeções comuns de configuração/seleção; não afeta buscas internas precisas no Registry |
 
 Os conjuntos de membros preservam a origem: membros Built-in primeiro, membros Personal depois; duplicatas dentro de um mesmo conjunto mantêm apenas a primeira; quando Personal e Built-in têm o mesmo nome, mantém-se a identidade Built-in e descarta-se o item Personal duplicado. `modelOrder` apenas ordena membros existentes, não cria modelos.
 
@@ -246,7 +246,7 @@ type ProviderAccessConfig =
 - `mode` é o modo de acesso do Provider para aquela conta.
 
 `entitled` é o único fato de configuração que indica se a conta atual tem qualificação de produto para aquele Account Provider fixo. Não existe `enabled` no nível superior do Provider.
-A Config `zhipu-account` não guarda ID de conexão de conta, ID de produto, escopo de organização／projeto, Token ou protocolo de validação de segurança da requisição. O protocolo de execução da conta ainda pode ter campos como
+A Config `zhipu-account` não guarda ID de conexão de conta, ID de produto, escopo de organização/projeto, Token ou protocolo de validação de segurança da requisição. O protocolo de execução da conta ainda pode ter campos como
 `planKind` e `productId`, mas eles pertencem à conta, ao plano ou ao contexto da requisição, e não ao Schema de Provider Config.
 
 ### 3.3 Model Config
@@ -285,13 +285,13 @@ Esses campos usam o mesmo nome e a mesma estrutura aninhada desde a Config, o Re
 A Effective Model Config deve completar:
 
 - `enabled`; MFJS é `properties.requiresMfjsToolSchema`, sem duplicação no nível superior de ModelConfig;
-- `properties` completas e todas as folhas de input／output format;
+- `properties` completas e todas as folhas de input/output format;
 - o Option Spec de `maxOutputTokens` e seu `map` completo;
 - o Option Spec de `reasoningLevel` e seus `values` ordenados não vazios e o `map` completo; modelos sem suporte a raciocínio usam
   `values: ["disabled"]` e um Patch vazio `map: "{}"`.
 
-Os campos de `reasoningLevel` são apenas `values`／`map`, e de `maxOutputTokens` apenas `max`／`map`; o nome do membro já determina a forma da opção,
-e não se persiste mais o `type: "enum"/"limit"` duplicado. Isso não afeta o discriminator do tipo de união de Provider API／Access.
+Os campos de `reasoningLevel` são apenas `values`/`map`, e de `maxOutputTokens` apenas `max`/`map`; o nome do membro já determina a forma da opção,
+e não se persiste mais o `type: "enum"/"limit"` duplicado. Isso não afeta o discriminator do tipo de união de Provider API/Access.
 
 O comportamento de raciocínio de um modelo concreto só pode ser expresso por Model Config Rules; o Runtime de produção não embute intensidade de pensamento, patch de requisição
 ou estratégia de replay por model ID concreto. O `map(value)` em CEL restrito de cada Option Spec gera diretamente o JSON Merge Patch do Request Body bruto final;
@@ -309,10 +309,10 @@ O conjunto ao qual a regra pertence expressa explicitamente a camada; os registr
 | templateModelRules                    | templateId + modelId                                 | ModelConfig esparsa                       |
 | builtinProviderModelRules             | providerId + modelId                                 | ModelConfig esparsa                       |
 | Personal providerModelRules           | providerId + modelId                                 | sobrescrita exata da configuração inteligente |
-| Personal manualProviderModelRules     | providerId + modelId                                 | configuração manual completa; só `enabled` admite herança／null |
+| Personal manualProviderModelRules     | providerId + modelId                                 | configuração manual completa; só `enabled` admite herança/null |
 
-Os schemas estritos dos três Match rejeitam condições entre camadas e `providerMatch`. As regex casam a string inteira, nomes de modelo ignoram maiúsculas／minúsculas, URLs usam valores normalizados; a ordem dos arrays de cada conjunto é preservada.
-A mesma identidade não pode estar ao mesmo tempo nos conjuntos inteligente／manual. A configuração manual não herda outros parâmetros e mantém apenas a semântica independente de ativar／desativar de `enabled`; ao salvar, todas as folhas aninhadas obrigatórias e expressões são validadas em conjunto.
+Os schemas estritos dos três Match rejeitam condições entre camadas e `providerMatch`. As regex casam a string inteira, nomes de modelo ignoram maiúsculas/minúsculas, URLs usam valores normalizados; a ordem dos arrays de cada conjunto é preservada.
+A mesma identidade não pode estar ao mesmo tempo nos conjuntos inteligente/manual. A configuração manual não herda outros parâmetros e mantém apenas a semântica independente de ativar/desativar de `enabled`; ao salvar, todas as folhas aninhadas obrigatórias e expressões são validadas em conjunto.
 
 ## 4. Resolução, projeção de Settings e Registry
 
@@ -379,7 +379,7 @@ Regras específicas:
 
 - O Account Provider é declarado fixamente pelo Built-in e entra na Family correspondente;
 - quando a conta atual tem explicitamente o produto, grava `access.entitled=true`; quando explicitamente não tem, grava `false`;
-- Individual／Team herdam por padrão os membros de modelo Built-in;
+- Individual/Team herdam por padrão os membros de modelo Built-in;
 - os modelos do Start Plan variam por conta; em caso de sucesso, usa-se o conjunto de modelos retornado pela interface para restringir `builtinModelIds`;
 - quando o Start Plan não tem um conjunto de modelos confiável, mantém-se o último Account Overlay utilizável; na primeira vez sem fatos utilizáveis, adota-se fail-closed;
 - um `unknown` por falha temporária de consulta mantém o último Account Overlay, evitando oscilação; na primeira vez sem fato histórico, adota-se fail-closed;
@@ -388,40 +388,40 @@ Regras específicas:
 O `unavailableReason` opcional do Account State é transmitido com o mesmo snapshot, e o protocolo estrito entre Host e CLI reutiliza o schema de reasons compartilhado.
 Para planos pessoais, se o servidor explicitamente disser que não há direito, exibe-se como não contratado; se o usuário estiver autenticado mas a obtenção da Key falhar, exibe-se falha de obtenção e reutiliza-se a atualização manual para tentar de novo, sem inferir invalidação de OAuth nem forçar novo login só pela ausência da Key.
 Z.ai e BigModel usam a mesma classificação. O reason pertence apenas ao fato de execução e não é gravado na Provider Config;
-a decisão específica e a verificação estão em [Todo114](../steps/todo-114-account-status-sync-and-key-retry.md)（antigo Todo105 upstream）.
+a decisão específica e a verificação estão em [Todo114](../steps/todo-114-account-status-sync-and-key-retry.md)(antigo Todo105 upstream).
 
 O revision de Account e o de Built-in devem estar pareados. Quando o Built-in é atualizado mas a Account ainda está baseada na revisão antiga, o Registry continua servindo o snapshot completo anterior,
 aguardando o recálculo da Account Source para publicar atomicamente; não se pode publicar o estado intermediário "Built-in novo + Account antiga".
 
 ### 4.4 A página de configurações não entende o Account Overlay
 
-A página de configurações consome diretamente o Effective Provider／Model final da Provider Settings View; ela não lê, reproduz nem infere o Account Overlay.
+A página de configurações consome diretamente o Effective Provider/Model final da Provider Settings View; ela não lê, reproduz nem infere o Account Overlay.
 Plano, cota, erro de conexão e status de compra são projeções de produto independentes, que só controlam o cartão de status e as ações correspondentes, e não decidem se a seção de configuração do Effective Provider,
 a lista de modelos ou a entrada de edição de modelo existem.
 
-Individual／Team Coding Plan pode ocultar Endpoint e API Schema na UI de produto, mas esses campos continuam existindo por completo no Effective
+Individual/Team Coding Plan pode ocultar Endpoint e API Schema na UI de produto, mas esses campos continuam existindo por completo no Effective
 Provider Config e são consumidos pelo Registry, pelo ModelFactory e pelo Runtime. Ocultar é uma decisão de exibição, não um DTO de Account sem campos.
 
-Esse fechamento da página foi concluído pela Todo 32: os detalhes de Team／Individual resolvem com precisão por `providerId` a partir da Provider Settings View; o cartão de status do plano
-não controla mais a existência da seção de configuração do Provider nem da lista de modelos; e a página não remove campos do Effective Provider Config ao ocultar Endpoint／API Schema.
+Esse fechamento da página foi concluído pela Todo 32: os detalhes de Team/Individual resolvem com precisão por `providerId` a partir da Provider Settings View; o cartão de status do plano
+não controla mais a existência da seção de configuração do Provider nem da lista de modelos; e a página não remove campos do Effective Provider Config ao ocultar Endpoint/API Schema.
 
 ### 4.5 Start como Provider independente (Todo154)
 
-Em 2026-09-16 o usuário tomou decisões camada por camada: o Start reutiliza o login atual do App, sem conexão separada, e fica disponível simultaneamente com o plano pessoal／de equipe atual; não se inicia a coexistência completa de Todo101 entre pessoal／multiteam.
+Em 2026-09-16 o usuário tomou decisões camada por camada: o Start reutiliza o login atual do App, sem conexão separada, e fica disponível simultaneamente com o plano pessoal/de equipe atual; não se inicia a coexistência completa de Todo101 entre pessoal/multiteam.
 
-- Mantêm-se os dois Start Provider ID, com nome de exibição unificado; cada um mantém o logo de Z.ai／BigModel. Filtrados pela marca atual, são exibidos de forma independente no grupo "智谱" existente, reutilizando os detalhes e removendo apenas conectar／desconectar. Sem Provider virtual, fusão de ID ou mapeamento de identidade de exibição.
-- Mantém-se `current`, interpretado como o contexto de acesso da conta atual. O Start não depende de uma seleção paga; pessoal／equipe continuam dependendo da seleção paga atual. É permitido que o Start e um plano pago estejam ambos com `current=true`; direito, completude de modelo, habilitação e credenciais da requisição são validados de forma independente. A Start connectionKey não inclui a seleção paga.
-- O Start resolve pelo Provider ID／modelId／options salvos e sai do mapeamento de única conexão paga atual; pessoal／equipe mantêm o mapeamento original. Quando o Start expira ou é de outra marca, o Provider não é substituído automaticamente.
+- Mantêm-se os dois Start Provider ID, com nome de exibição unificado; cada um mantém o logo de Z.ai/BigModel. Filtrados pela marca atual, são exibidos de forma independente no grupo "智谱" existente, reutilizando os detalhes e removendo apenas conectar/desconectar. Sem Provider virtual, fusão de ID ou mapeamento de identidade de exibição.
+- Mantém-se `current`, interpretado como o contexto de acesso da conta atual. O Start não depende de uma seleção paga; pessoal/equipe continuam dependendo da seleção paga atual. É permitido que o Start e um plano pago estejam ambos com `current=true`; direito, completude de modelo, habilitação e credenciais da requisição são validados de forma independente. A Start connectionKey não inclui a seleção paga.
+- O Start resolve pelo Provider ID/modelId/options salvos e sai do mapeamento de única conexão paga atual; pessoal/equipe mantêm o mapeamento original. Quando o Start expira ou é de outra marca, o Provider não é substituído automaticamente.
 - As requisições do Start reutilizam diretamente o `zcodeJwtToken` do login atual da marca correspondente, dispensando a condição de que `selection.kind` seja igual a Start; a autenticação original é preservada, sem copiar token, sem nova verificação de corrida ao trocar de conta e sem mecanismo de interrupção.
 - Não se migram dados de modelo, não se cria snapshot de conexão de upgrade, versão de migração extra ou conversão de toda a base. O antigo `kind:start-plan` permanece legível, mas não controla a execução do Start; não se escreve mais esse valor para habilitar o Start. A primeira inicialização paga mantém a ordem original, e valores antigos não podem ser tratados como estado vazio de novo usuário causing escolha indevida de plano.
-- Ao submeter／criar, se o plano atual for pago, o mesmo modelo tiver cota explicitamente disponível no Start e as opções de raciocínio forem compatíveis, exibe-se o aviso "切换套餐／不了" e "不再提示". A troca altera apenas a seleção de modelo da entrada atual e então continua a submissão／gravação original, sem mudar a conexão paga global; cota desconhecida não bloqueia a submissão original.
-- A recomendação cobre novas submissões de conversa, criação／edição de modelo em tarefas agendadas, nova geração manual de Wiki e o salvamento imediato de modelos explícitos em Subagentes customizados, Subagentes embutidos／de plugin. Herança／default não mudam. Bot, execução imediata, disparo／execução em background, ocioso, execução de fila já submetida, retry da requisição original e a tela de falha de Wiki não avisam; salvar e executar avisa apenas uma vez, na etapa de salvamento.
-- "Não avisar de novo" é uma preferência persistente unificada do App／Host atual, válida entre entradas e reinícios, obedecida pelo celular do mesmo Host, sem adicionar sincronização de conta entre dispositivos; ela desliga apenas a recomendação, não define plano padrão, não muda o modelo de outras entradas, e na próxima vez a execução segue a escolha salva em cada entrada, sem mascarar erros reais de cota／credencial.
-- O Start mantém a faixa de cota existente e o feedback de indisponibilidade; a notificação global de falha de conexão observa apenas pessoal／equipe, mantém a sugestão entre planos pagos e remove a ação de trocar escrevendo uma conexão de Start.
+- Ao submeter/criar, se o plano atual for pago, o mesmo modelo tiver cota explicitamente disponível no Start e as opções de raciocínio forem compatíveis, exibe-se o aviso "切换套餐／不了" e "不再提示". A troca altera apenas a seleção de modelo da entrada atual e então continua a submissão/gravação original, sem mudar a conexão paga global; cota desconhecida não bloqueia a submissão original.
+- A recomendação cobre novas submissões de conversa, criação/edição de modelo em tarefas agendadas, nova geração manual de Wiki e o salvamento imediato de modelos explícitos em Subagentes customizados, Subagentes embutidos/de plugin. Herança/default não mudam. Bot, execução imediata, disparo/execução em background, ocioso, execução de fila já submetida, retry da requisição original e a tela de falha de Wiki não avisam; salvar e executar avisa apenas uma vez, na etapa de salvamento.
+- "Não avisar de novo" é uma preferência persistente unificada do App/Host atual, válida entre entradas e reinícios, obedecida pelo celular do mesmo Host, sem adicionar sincronização de conta entre dispositivos; ela desliga apenas a recomendação, não define plano padrão, não muda o modelo de outras entradas, e na próxima vez a execução segue a escolha salva em cada entrada, sem mascarar erros reais de cota/credencial.
+- O Start mantém a faixa de cota existente e o feedback de indisponibilidade; a notificação global de falha de conexão observa apenas pessoal/equipe, mantém a sugestão entre planos pagos e remove a ação de trocar escrevendo uma conexão de Start.
 
-Session／rascunho comuns já têm escrita de volta na submissão; Automation／configuração de Subagente explícita de longo prazo não têm necessariamente escrita de volta. Não migrar é uma escolha de novo comportamento já confirmada e não significa que o resultado válido de toda configuração antiga permaneça idêntico; as evidências específicas e a inferência de migração completa que foi revertida estão em [C25](./evidence-and-contradictions.md#c25-start-独立-provider-与现行单连接语义).
+Session/rascunho comuns já têm escrita de volta na submissão; Automation/configuração de Subagente explícita de longo prazo não têm necessariamente escrita de volta. Não migrar é uma escolha de novo comportamento já confirmada e não significa que o resultado válido de toda configuração antiga permaneça idêntico; as evidências específicas e a inferência de migração completa que foi revertida estão em [C25](./evidence-and-contradictions.md#c25-start-独立-provider-与现行单连接语义).
 
-O objetivo desta seção foi implementado conforme a autorização de 2026-09-16. A semântica completa dos botões, a matriz de entradas, a atribuição de estado e as evidências de verificação são mantidas por [Todo154](../steps/todo-154-start-plan-independent-provider.md). O Start é resolvido com precisão como ordinary na fachada node compartilhada; a recomendação reutiliza UsageEntitlement e SettingService, e o campo de preferência é `startPlanRecommendationDismissed`. Built-in → Account → Personal, o Registry do Environment de destino, continuous／replayable e o owner da submissão original permanecem.
+O objetivo desta seção foi implementado conforme a autorização de 2026-09-16. A semântica completa dos botões, a matriz de entradas, a atribuição de estado e as evidências de verificação são mantidas por [Todo154](../steps/todo-154-start-plan-independent-provider.md). O Start é resolvido com precisão como ordinary na fachada node compartilhada; a recomendação reutiliza UsageEntitlement e SettingService, e o campo de preferência é `startPlanRecommendationDismissed`. Built-in → Account → Personal, o Registry do Environment de destino, continuous/replayable e o owner da submissão original permanecem.
 
 ## 5. Seleção, criação e execução
 
@@ -470,7 +470,7 @@ ModelFactory
 
 ### 5.3 Todos os ramos de execução usam o mesmo Model
 
-Requisição normal, Compact, Memory, subagente e Off-Peak devem usar o Model／ModelFactory formais:
+Requisição normal, Compact, Memory, subagente e Off-Peak devem usar o Model/ModelFactory formais:
 
 - Compact usa o Active Model deste turno, sem voltar ao Model default da Session;
 - trabalhos assíncronos como Memory preservam o Model que os criou ou um fato de execução imutável de estrutura equivalente;
@@ -509,7 +509,7 @@ Fila, etapas de Guide, restauração e troca de modelo não podem fundir essas q
 
 Quando o Guide carrega uma seleção, ele ainda resolve e cria o Model pela Factory existente, garantindo que atualizações de configuração sejam usadas nas requisições seguintes.
 A reconstruction de prefixo de troca de modelo compara apenas o Provider, o modelo e o nível de raciocínio entre o Loop atual e o novo Model de execução; recriação de objeto ou mudança de limite de saída não equivale a troca de modelo. O evento de seleção da Session ainda compara a Session antes e depois da submissão e não substitui a comparação de Loop.
-Este turno não altera o congelamento de estilo de saída de uma troca real de modelo, nem a admission／atribuição do Guide ou o transporte multi-dispositivo.
+Este turno não altera o congelamento de estilo de saída de uma troca real de modelo, nem a admission/atribuição do Guide ou o transporte multi-dispositivo.
 
 ## 7. Environment, refresh e persistência
 
@@ -522,7 +522,7 @@ Cada Environment que realmente executa o modelo possui seu próprio:
 - Account Provider Source;
 - Resolver, Registry e ModelFactory.
 
-Local, SSH, WSL, Docker ou Server são lidos pelo respectivo Host／Worker a partir da configuração deste Environment. O Host não envia snapshot de Registry ao Worker,
+Local, SSH, WSL, Docker ou Server são lidos pelo respectivo Host/Worker a partir da configuração deste Environment. O Host não envia snapshot de Registry ao Worker,
 nem torna o Renderer a autoridade de configuração. Provisionamento remoto, edição remota e sincronização de login são capacidades de produto independentes e não fazem parte do refactor central de Provider.
 
 ### 7.2 Atualizações de Config devem ser atômicas e autotratáveis
@@ -530,9 +530,9 @@ nem torna o Renderer a autoridade de configuração. Provisionamento remoto, edi
 - O Repository usa casca de versão, escrita atômica, lock de arquivo e revision; isso é implementação de armazenamento, não um Config Document no domínio de Provider.
 - O watcher de Source apenas notifica "os fatos podem ter mudado"; o Registry Service relê a Config completa e o snapshot de Account e então resolve e publica de uma vez.
 - Durante o refresh, continua-se servindo o Registry completo anterior; falhas não publicam um resultado parcial e eventos posteriores devem conseguir se recuperar e tentar de novo.
-- A publicação remota de Built-in usa duas camadas: casca de metadados de versão／refresh + conteúdo puro de Provider／Model Config.
+- A publicação remota de Built-in usa duas camadas: casca de metadados de versão/refresh + conteúdo puro de Provider/Model Config.
 - O cache ativo de Built-in é isolado por ZCode Endpoint, evitando que diferentes Environments reutilizem configs erradas.
-- Depois que a gravação em Settings termina, a entrada de execução precisa observar o novo Registry do Environment correspondente; o teste de conexão deve criar o modelo pelo Host Registry／ModelFactory formais, sem montar temporariamente outro Model no Renderer.
+- Depois que a gravação em Settings termina, a entrada de execução precisa observar o novo Registry do Environment correspondente; o teste de conexão deve criar o modelo pelo Host Registry/ModelFactory formais, sem montar temporariamente outro Model no Renderer.
 
 ### 7.3 Nomes de Config e casca física
 
@@ -567,17 +567,17 @@ runtime/provider/
   bundled/zcode-builtin.json
 ```
 
-A cópia embutida tem caminho fixo; conteúdo idêntico é reutilizado e conteúdo alterado é substituído atomicamente; download／refresh continuam isolados nas três dimensões. A atualização pressupõe a saída do processo antigo e não mantém cópias históricas de hash.
-A revision Builtin em runtime inclui o escopo de caminhos canonizados ativos e o número de sequência da publicação, e é一致 entre Host e Worker que lê aquele caminho;
+A cópia embutida tem caminho fixo; conteúdo idêntico é reutilizado e conteúdo alterado é substituído atomicamente; download/refresh continuam isolados nas três dimensões. A atualização pressupõe a saída do processo antigo e não mantém cópias históricas de hash.
+A revision Builtin em runtime inclui o escopo de caminhos canonizados ativos e o número de sequência da publicação, e é consistente entre Host e Worker que lê aquele caminho;
 Endpoints diferentes com o mesmo número de sequência não são mais deduplicados indevidamente pelo Registry. O número de sequência em disco continua monotônico, e a mesma origem com o mesmo número de sequência deve ter o mesmo conteúdo.
 O schemaVersion dos registros de refresh, do estado de distribuição e do envelope de distribuição também é 1; o Bot mantém o version3 atual e não entra no reset.
 
 ## 8. Escrita em Settings e fronteira de interação
 
-- A página de configurações lê a Provider Settings View via Facade／Hooks e não acessa o Repository diretamente.
+- A página de configurações lê a Provider Settings View via Facade/Hooks e não acessa o Repository diretamente.
 - A edição do Draft pertence ao Renderer; o salvamento é executado atomicamente pelo Provider Config Service do Host.
 - Campos estáticos de um Provider Built-in podem ser exibidos como somente leitura; o Personal Overlay grava apenas o que o usuário mudou explicitamente.
-- Renomear, criar, excluir e ordenar Providers／Models são operações de domínio explícitas; um salvamento comum não carrega semântica de criação ou ressurreição.
+- Renomear, criar, excluir e ordenar Providers/Models são operações de domínio explícitas; um salvamento comum não carrega semântica de criação ou ressurreição.
 - Escritas no mesmo Provider são serializadas; Model Draft usa revision para impedir que um salvamento tardio sobrescreva uma edição mais nova.
 - O teste de conexão salva primeiro o Draft atual, aguarda a atualização do Registry formal e então faz uma sondagem real de protocolo pelo ModelFactory; como uma requisição auxiliar de baixo custo ele usa `reasoningLevel.values[0]` e explicitamente
   `min(5000, optionSpecs.maxOutputTokens.max)`.
@@ -601,7 +601,7 @@ Está proibido reaparecer na Config, Registry, Model e Runtime formais:
 - `visibility` de Model;
 - `adapterCompatibility`, `reasoningReplay` e hardcode de Runtime por modelo concreto;
 - `modalities`, `supportsImages/Pdf/Video` achatados ou um segundo conjunto de DTOs de capability;
-- `ModelRef`, `ModelConnectionPort`, Legacy Catalog／Preset e um segundo Registry de execução.
+- `ModelRef`, `ModelConnectionPort`, Legacy Catalog/Preset e um segundo Registry de execução.
 
 ## 10. Invariantes centrais
 
@@ -613,18 +613,18 @@ Está proibido reaparecer na Config, Registry, Model e Runtime formais:
 6. O Account Overlay só restringe Account Providers Built-in; o conjunto de modelos do Start Plan pode variar por conta.
 7. Credenciais dinâmicas de conta não entram na Config; a Config de API Key pode conter a API Key; a autorização final é do servidor.
 8. O ModelFactory só consome a config completa do Registry atual; o Active Model congela após a criação.
-9. A identidade de Provider／Model é sempre `providerId/modelId` e não se pode rotear apenas por modelId.
-10. UI de produto, cartão de plano, Usage e erros de conexão não podem ser fonte de fatos de configuração de Provider／Model.
+9. A identidade de Provider/Model é sempre `providerId/modelId` e não se pode rotear apenas por modelId.
+10. UI de produto, cartão de plano, Usage e erros de conexão não podem ser fonte de fatos de configuração de Provider/Model.
 11. Não se estabelece um segundo conjunto de fatos de modelo para Off-Peak, teste de conexão, Compact, Memory, subagente ou execução remota.
 12. Se o código atual divergir do design já decidido, isso deve ser visto como drift de implementação, e não como novo design implícito.
 
 ## 11. Trabalhos inconclusos que não alteram o design
 
-### Fronteira de start／leitura de Provider (Todo128)
+### Fronteira de start/leitura de Provider (Todo128)
 
 `ProviderRuntime`, `NodeProviderConfigRuntime`, `NodeProviderRegistryRuntime`,
 `ProviderRegistryService` e a camada de repasse de Config dos Services unificam `start(): Promise<void>`.
-Ele apenas aguarda a primeira prontidão e mantém a deduplicação／retry de falha／liberação existentes; não retorna um snapshot de inicialização para cache de longo prazo.
+Ele apenas aguarda a primeira prontidão e mantém a deduplicação/retry de falha/liberação existentes; não retorna um snapshot de inicialização para cache de longo prazo.
 O código de negócio lê explicitamente `configService.read()` ou `registryService.getSnapshot()`, e o refresh explícito continua passando por
 `refresh()`. O estado atual significa o estado concluído mais recente e não espera implicitamente por requisições de conta futuras. A elegibilidade e o despacho em período ocioso seguem a mesma
 resolução de credenciais apoiada pelo Registry, sem novo owner de estado.

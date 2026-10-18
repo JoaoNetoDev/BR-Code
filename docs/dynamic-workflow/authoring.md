@@ -564,7 +564,7 @@ tabela completa e o raciocínio estão em `docs/analysis.md`, "Diagnostics"; o r
 | 9008 | Um artefato preset é declarado no nível de topo, não dentro de um loop, callback ou ramo condicional. O corpo de um hole preenchido não é um callback: ele roda onde o hole está, então um fill pode declarar um preset a menos que o próprio hole esteja em um loop, callback ou ramo. |
 | 9009 | No máximo um id de artefato carrega um `primary: true` literal. |
 | 9010 | O `model` de uma persona é um `ModelRef`, um literal string, ou uma união de literais string, e `model()` recebe um literal string não vazio. |
-| 9011 | Todo nome de modelo que o script usa resolve no catálogo de modelos deste host (verificado no lançamento, não pelo compilador; veia "Escolhendo um modelo por subagent"). |
+| 9011 | Todo nome de modelo que o script usa resolve no catálogo de modelos deste host (verificado no lançamento, não pelo compilador; veja "Escolhendo um modelo por subagent"). |
 | 9012 | Um `hole<T>()` nomeia explicitamente seu argumento de tipo; seu nome é um literal não vazio de no máximo 128 caracteres, único entre os holes e marcadores de fase do script; a chamada é aguardada; fica fora de todo callback de fan-out (um corpo `for...of` serve: ele é sequencial); seu corpo, quando presente, é um literal de função inline que não referencia nenhum binding declarado depois do hole. |
 
 9007, 9008 e 9009 vêm de `dynamic-workflow/src/analysis/artifacts.ts`. 9008 é separado

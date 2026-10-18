@@ -71,9 +71,9 @@
 > sem pressupor migração complexa, arquivo novo ou upgrade de versão; esse é o juízo atual e não é
 > escrito como fato de publicação verificado.
 >
-> Relacionados: [Todo90 添加/编辑共用草稿](./todo-90-model-add-edit-shared-recommended-draft.md),
-> [Todo92 覆盖反馈](./todo-92-model-smart-config-and-override-feedback.md),
-> [Todo104 schema 精修](./todo-104-pre-release-schema-review.md). Este Todo substitui as regras antigas
+> Relacionados: [Todo90 rascunho compartilhado de adicionar/editar](./todo-90-model-add-edit-shared-recommended-draft.md),
+> [Todo92 feedback de override](./todo-92-model-smart-config-and-override-feedback.md),
+> [Todo104 ajuste fino do schema](./todo-104-pre-release-schema-review.md). Este Todo substitui as regras antigas
 > de "desabilitar o switch quando a recomendação não está pronta", "no modo manual fixar a configuração
 > inteira" e "todos os campos do modelo são obrigatórios e limpam a linha de base do sistema"; outros
 > comportamentos, evidências e decisões já concluídos não são reabertos.
@@ -130,7 +130,7 @@ código de produto, conta real, arquivo de configuração ou requisição.
 | Mapeamento de parâmetros de requisição de Token de max output | `optionSpecs.maxOutputTokens.map` |
 | Capacidade de tool call                     | `properties.supportsToolCall`             |
 | Capacidade de entrada de áudio              | `properties.inputFormat.supportsAudio`    |
-| Declaração de entrada de texto fixo e de saída de texto | `properties.inputFormat.supportsText`、`properties.outputFormat.supportsText` |
+| Declaração de entrada de texto fixo e de saída de texto | `properties.inputFormat.supportsText`,`properties.outputFormat.supportsText` |
 
 O ID do modelo pertence à identidade e enabled pertence à ativação independente; nenhum dos dois é
 reescrito pela troca de modo. enabled continua preservando a semântica opcional/null atual e o valor

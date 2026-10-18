@@ -29,7 +29,7 @@ Registro de verificação (2026-09-11): testes unitários de layout 3/3, MP-UI-0
 
 ## 2026-07-02 Camadas de provider family e modo de conexão
 
-- A navegação à esquerda responde apenas pela seleção do provider family ou do provider personalizado. Z.ai / BigModel ocupam 각각 apenas uma entrada à esquerda, sem variar conforme o número de Start Plan, Coding Plan pessoal ou Coding Plan de equipe.
+- A navegação à esquerda responde apenas pela seleção do provider family ou do provider personalizado. Z.ai / BigModel ocupam apenas uma entrada cada à esquerda, sem variar conforme o número de Start Plan, Coding Plan pessoal ou Coding Plan de equipe.
 - Start Plan, Coding Plan pessoal, Coding Plan de equipe e API Key são modos de conexão sob o mesmo provider family, alternados apenas no menu "连接方式" no topo dos detalhes à direita.
 - O Coding Plan de equipe pode ter vários, todos exibidos como itens do menu "连接方式", sem gerar múltiplos nós na navegação esquerda.
 - `selectedNodeKey` representa apenas o nó da navegação esquerda; o item de detalhe atual à direita é derivado das configurações de modo de conexão do family correspondente a `selectedNodeKey` e da key do modo de conexão já salvo.
@@ -141,6 +141,6 @@ O banner de compra dos detalhes do Start Plan também precisa verificar o direit
 
 Quando já existe um plano pessoal ou de equipe válido na mesma plataforma, o botão "升级 · 150% 配额" do card do Start Plan e sua descrição de campanha são ocultados junto, reutilizando a verificação de direito válido do banner de compra. Os saldos e a lista de modelos dos múltiplos cards Start válidos/em transição mantêm a exibição original; as ações de upgrade dos próprios detalhes pessoal/equipe permanecem inalteradas.
 
-A navegação Zhipu à esquerda da página de configurações recupera a marca: BigModel / Z.ai, e a entrada independente de experiência exibe Start Plan; essas nomes são mantidos tanto nas interfaces em chinês quanto em inglês. Ícone, ponto de status, key de navegação, modo de conexão e o título de marca do fornecedor à direita permanecem inalterados.
+A navegação Zhipu à esquerda da página de configurações recupera a marca: BigModel / Z.ai, e a entrada independente de experiência exibe Start Plan; esses nomes são mantidos tanto nas interfaces em chinês quanto em inglês. Ícone, ponto de status, key de navegação, modo de conexão e o título de marca do fornecedor à direita permanecem inalterados.
 
 A identidade de correspondência da página de configurações da conexão de equipe é a plataforma, a organização e o projeto. Quando o ID de produto salvo difere do ID de produto atual da interface de assinatura, a mesma organização/projeto permanece selecionada; nem a inicialização do snapshot de direito nem a lista posterior de produtos podem exibir "连接不可用" ou opções vazias por causa disso. O ID de produto continua sendo metadado do plano; a correspondência não é escrita de volta na seleção e não altera a autenticação da requisição nem a elegibilidade de execução; plataformas, organizações e projetos diferentes permanecem isolados.

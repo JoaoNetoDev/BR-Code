@@ -131,9 +131,9 @@ reinstalls the latest closure from the cached manifest. Changes:
   `comparePluginUpdate` picks the axis: version present → semver compare; else sha
   present → identity (differs ⇒ `update-available`, installed has no sha ⇒
   `version-changed`); neither ⇒ `none`. **Why sha matters:** the Claude official
-  marketplace pins per-plugin versions almost entirely via `source.sha` (实测 243 个
-  插件中仅 14 个带顶层 `version`，192 个用 sha)，so a version-only check left ~229/243
-  官方插件永远 `none`. Local-path entries (no version/sha) are Phase 2 — see
+  marketplace pins per-plugin versions almost entirely via `source.sha` (medido: dos 243 plugins,
+  apenas 14 têm `version` no topo e 192 usam sha), so a version-only check left ~229/243
+  plugins oficiais sempre como `none`. Local-path entries (no version/sha) are Phase 2 — see
   `docs/plugin-marketplace-update-detection-handoff.md`.
 - Surface `updateStatus` + `latestVersion?` (version, or short 7-char sha label) and
   join them into the UI's installed view model (per C2).

@@ -130,7 +130,7 @@ Template e "criar fornecedor personalizado" usam o mesmo esqueleto de cartão:
 
 Os nomes de exibição publicados oficialmente devem permanecer curtos de propósito, evitando transferir a pressão de layout para a altura dinâmica dos cartões. Prioridade de calibração:
 
-| 当前长名称                           | 目标短名称              |
+| Nome longo atual                     | Nome curto alvo          |
 | ------------------------------------ | ----------------------- |
 | Moonshot Kimi                        | Kimi                    |
 | Alibaba Model Studio (China)         | Alibaba Cloud (China)   |
@@ -193,7 +193,7 @@ A implementação oficial não pode reintroduzir o Provider `enabled` por causa 
 6. Refazer o estilo do cartão e da entrada do topo sobre a fonte de dados de Template atual;
 7. Atualizar os E2E de Desktop afetados;
 8. Concluir a verificação estática, automatizada e real no MacBook Air;
-9. Revisar se Catalog, Provider `enabled`, especialização por Provider ID ou um segundo conjunto de的解释 de erro foram trazidos indevidamente de volta;
+9. Revisar se Catalog, Provider `enabled`, especialização por Provider ID ou um segundo conjunto de interpretação de erro foram trazidos indevidamente de volta;
 10. Submeter um Conventional Commit, com o trailer da sessão real do Agent.
 
 ## 7. Plano de verificação

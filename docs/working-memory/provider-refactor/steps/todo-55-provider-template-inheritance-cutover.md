@@ -380,7 +380,7 @@ A API por volume Z.ai/BigModel usa a mesma operação de criação que os outros
 - O login de conta não dispara a criação de instância de Template;
 - A página de configurações permite que o usuário crie mais instâncias a partir do mesmo Template;
 - Criar uma instância de API por volume não grava `ProviderFamilyConnectionSelection` nem altera a seleção atual do Account Family;
-- Não se adiciona campo de vínculo de " qual instância de Template pertence a qual Family" nem lógica de restauração.
+- Não se adiciona campo de vínculo de "qual instância de Template pertence a qual Family" nem lógica de restauração.
 
 ### 4.2 Atualização
 
@@ -398,7 +398,7 @@ Personal providerOrder 成员
 所有精确绑定该 providerId 的 Personal provider-model Rules
 ```
 
-Não são removidos as Rules genéricas `match`, as `template-model` do Built-in, o próprio Template ou as Rules de outros Providers. O limite atômico existente `deletePersonalProvider -> deleteExactForProvider` precisa ser preservado.
+Não são removidas as Rules genéricas `match`, as `template-model` do Built-in, o próprio Template ou as Rules de outros Providers. O limite atômico existente `deletePersonalProvider -> deleteExactForProvider` precisa ser preservado.
 
 Os Z.ai/BigModel API Providers criados a partir de Template usam a mesma semântica de remoção que os outros Personal Providers; na remoção, Provider, membro de ordenação e Personal Model Rules precisas são limpos de forma atômica. Account Family Providers não entram na entrada comum de remoção.
 
@@ -660,7 +660,7 @@ Não remover explicitamente:
 
 - O teste de conexão e a requisição real usam o `providerId` e o Effective Config reais da instância;
 - Instâncias diferentes com o mesmo modelId não misturam Providers;
-- Automation, Subagent e Repo Wiki nãosenses o Template;
+- Automation, Subagent e Repo Wiki não têm ciência do Template;
 - Desktop continuous, Web/Mobile replayable e remote workspace não ganham novo estado de runtime;
 - Testes unitários direcionados e typecheck de Provider, Provider Node, Services e UI;
 - E2E de isolamento de múltiplas instâncias de Template e de settings de Account Family;
@@ -689,7 +689,7 @@ Não se deve preencher Template com Keys falsas, afrouxar a completude final ou 
 
 ### 9.3 Os fatos de origem de Settings vêm de um único Resolver
 
-A relação de herança de Template não é igual a `effectiveBuiltinConfig`. O único Resolver precisa preservar separadamente `templateConfig`, `effectiveBuiltinConfig`, `personalConfig` e `effectiveConfig`, e Settings apenas lê projeta esses fatos; não se pode adicionar um `inheritedConfig` que apague as origens, nem deixar Registry, Settings e Preview montarem um Template cada um, sob pena de a restauração de padrão, a origem de membros, o indicador de modificação e os valores padrão de modelos novos divergirem.
+A relação de herança de Template não é igual a `effectiveBuiltinConfig`. O único Resolver precisa preservar separadamente `templateConfig`, `effectiveBuiltinConfig`, `personalConfig` e `effectiveConfig`, e Settings apenas lê e projeta esses fatos; não se pode adicionar um `inheritedConfig` que apague as origens, nem deixar Registry, Settings e Preview montarem um Template cada um, sob pena de a restauração de padrão, a origem de membros, o indicador de modificação e os valores padrão de modelos novos divergirem.
 
 ### 9.4 O Account Family é um invariante explicitamente mantido
 
