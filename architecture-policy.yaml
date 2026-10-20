@@ -886,3 +886,18 @@ exceptions:
       - packages/ui/src/settings/DynamicWorkflowModeSetting.tsx
       - packages/ui/src/store/dynamicWorkflowAvailabilityStore.ts
     reason: Admitted upstream files edited only to let the user's dynamic workflow mode choice always win and keep the settings row visible; adopting packages/shared/src and packages/ui/src needs a separate module boundary refactor.
+  - id: upstream-v3-16-2-fork-ui-edits
+    rule: unmanaged-new-file
+    paths:
+      - packages/ui/src/components/marketing-touch/MarketingDialogs.tsx
+      - packages/ui/src/components/marketing-touch/MarketingTouchProvider.tsx
+      - packages/ui/src/components/marketing-touch/marketingPopupAdapter.ts
+      - packages/ui/src/components/marketing-touch/useMarketingBannerVisible.ts
+      - packages/ui/src/components/workflow-timeline/useWorkflowSettingsModelChoices.ts
+      - packages/ui/src/request-security-edition/errors.ts
+      - packages/ui/src/sidebar-activity/SidebarBottomActivity.tsx
+    reason: Arquivos do upstream v3.16.2 que o BR Code adaptou ao remover os recursos comerciais (coding plan, marketing e OAuth do plano) e a ajustar o fluxo de workspace; por deixarem de ser cópia idêntica do upstream deixam de ser aceitos pelo snapshot de admissão, e adotar o diretório packages/ui inteiro exige um refactor separado de fronteira de módulo.
+  - id: coding-plan-error-message-new-file
+    rule: unmanaged-new-file
+    paths: [packages/ui/src/settings/model-provider-section/codingPlanErrorMessage.ts]
+    reason: Arquivo novo do BR Code que substitui o removedor manual-claim-plan do upstream ao remover o fluxo de código do Coding Plan; fica ao lado dos demais arquivos da seção de provider e a adoção do diretório exige um refactor separado de fronteira de módulo.
