@@ -14,8 +14,6 @@ export function WorkspaceSettingsLayer({
   captionWorkspacePath,
   onBack,
   onCreateTask,
-  onOpenWorkspace,
-  allowOpenWorkspace,
   onLogin,
   onLogout,
   user,
@@ -40,8 +38,6 @@ export function WorkspaceSettingsLayer({
             captionWorkspacePath={captionWorkspacePath}
             onBack={onBack}
             onCreateTask={onCreateTask}
-            onOpenWorkspace={onOpenWorkspace}
-            allowOpenWorkspace={allowOpenWorkspace}
             onLogin={onLogin}
             onLogout={onLogout}
             user={user}
@@ -57,8 +53,6 @@ export function WorkspaceSettingsLayer({
           captionWorkspacePath={captionWorkspacePath}
           onBack={onBack}
           onCreateTask={onCreateTask}
-          onOpenWorkspace={onOpenWorkspace}
-          allowOpenWorkspace={allowOpenWorkspace}
           onLogin={onLogin}
           onLogout={onLogout}
           user={user}

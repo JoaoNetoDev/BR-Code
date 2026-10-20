@@ -1,9 +1,7 @@
 import { CodingPlanEntryButton } from "@/settings/CodingPlanEntryButton.js";
 /* eslint-disable max-lines -- Coding Plan/Start Plan 状态卡集中编排状态、动作和套餐区块，当前先保持同一文件避免拆散状态语义。 */
 import {
-  BIGMODEL_PROVIDER_ID,
   isStartPlanModelProviderId,
-  resolveModelProviderFamilySpecByProviderId,
   type UsageEntitlementSubscriptionDetail,
   type UsageQuotaLimit,
   type ZCodeAccountAccess,
@@ -42,16 +40,8 @@ import {
 import type { CodingPlanStatusPanelViewState } from "./codingPlanStatusPanelViewState.js";
 import { CodingPlanStatusMeta, StartPlanStatusMeta } from "./CodingPlanStatusMeta.js";
 import { CodingPlanStatusActions, CodingPlanUpgradeAction } from "./CodingPlanStatusActions.js";
-import type { CodingPlanLoginOptions } from "./codingPlanPricingCards.js";
 import type { PurchaseAudience } from "./codingPlanEnterpriseTiers.js";
-import { StartPlanCard } from "./StartPlanCard.js";
-import { StartPlanQuotaStatusCard } from "./StartPlanQuotaStatusCard.js";
-import { resolveStartPlanQuotaCardEntries } from "./StartPlanBalanceCard.js";
-import { useStartPlanPreview } from "./useStartPlanPreview.js";
-import {
-  BigModelRegistrationHint,
-  isBigModelUnregisteredAuthError,
-} from "./BigModelRegistrationHint.js";
+import { ProviderRegistrationHint, isProviderUnregisteredAuthError } from "./ProviderRegistrationHint.js";
 import { formatQuotaModelDisplayName } from "./quotaModelDisplayName.js";
 
 const CODING_PLAN_USAGE_SUMMARY_COLORS = [
@@ -136,7 +126,6 @@ export function PresetProviderPlaceholderCard({
 
 export function CodingPlanStatusPanel({
   providerId,
-  providerName,
   status,
   viewState,
   loginLoading,
@@ -150,21 +139,17 @@ export function CodingPlanStatusPanel({
   quotaLimits = [],
   mcpQuotaLimit = null,
   authError,
+  registrationUrl,
   onOpenRegistration,
-  onLogin,
   onRetry,
-  reloginOnFailure = false,
   onOpenPurchase,
   onDisconnect,
   onOpenUpgradePlans,
   purchaseInitialAudience = "personal",
-  loginActionPlacement = "inline",
-  loginActionVisible = false,
   usageDetailsVisible = true,
   upgradeActionVisible = true,
   upgradePlansVisible: controlledUpgradePlansVisible,
   onUpgradePlansVisibleChange,
-  startPlanPreviewVisible = true,
   statusLabelId,
   statusMessage,
   teamPlanAvailabilityReason,
@@ -173,6 +158,7 @@ export function CodingPlanStatusPanel({
   onQuotaResetEntitlementRefresh,
 }: {
   providerId: CodingPlanProviderId;
+  /** 保留在签名里以兼容既有调用方；状态卡已不再渲染带 provider 名的动作。 */
   providerName: string;
   status: CodingPlanStatus;
   viewState?: CodingPlanStatusPanelViewState;
@@ -188,10 +174,9 @@ export function CodingPlanStatusPanel({
   /** 官方 Server MCP 额度（服务端下发的总额度）。不在 quota.limits[] 里，由 nav item 单独透传。 */
   mcpQuotaLimit?: UsageQuotaLimit | null;
   authError?: string | null;
+  /** RF-08：预设声明注册地址时才展示通用注册提示，不做品牌特判。 */
+  registrationUrl?: string;
   onOpenRegistration?: () => void;
-  onLogin?: (options?: CodingPlanLoginOptions) => number | void | Promise<void>;
-  /** 凭据获取失败提供主动重新登录，不据此自动退出账号。 */
-  reloginOnFailure?: boolean;
   /** Start 套餐获取失败沿用 Host 手动刷新，不强制重新登录。 */
   onRetry?: () => void;
   onOpenPurchase?: (url: string) => void;
@@ -202,13 +187,10 @@ export function CodingPlanStatusPanel({
   }) => void;
   /** 原生面板移除后，Team 状态卡仍须把购买对象传给统一升级入口。 */
   purchaseInitialAudience?: PurchaseAudience;
-  loginActionPlacement?: "inline" | "trailing";
-  loginActionVisible?: boolean;
   usageDetailsVisible?: boolean;
   upgradeActionVisible?: boolean;
   upgradePlansVisible?: boolean;
   onUpgradePlansVisibleChange?: (visible: boolean) => void;
-  startPlanPreviewVisible?: boolean;
   statusLabelId?: string;
   statusMessage?: string | null;
   teamPlanAvailabilityReason?: TeamPlanAvailabilityReason;
@@ -253,10 +235,7 @@ export function CodingPlanStatusPanel({
   const isUnsupported = effectiveViewState.displayStatus === "unsupported";
   const isPurchased = effectiveViewState.displayStatus === "purchased";
   const isNotPurchased = effectiveViewState.displayStatus === "notPurchased";
-  const actionIsDisconnected = effectiveViewState.actionStatus === "disconnected";
   const isStartPlanProvider = isStartPlanModelProviderId(providerId);
-  const providerIcon =
-    resolveModelProviderFamilySpecByProviderId(providerId)?.oauthProviderId ?? null;
   const canDisconnectProvider =
     !isStartPlanProvider &&
     Boolean(onDisconnect) &&
@@ -264,11 +243,6 @@ export function CodingPlanStatusPanel({
     !isChecking &&
     !isUnavailable &&
     !isUnsupported;
-  const loginButtonId = isStartPlanProvider
-    ? isUnavailable
-      ? "chat.error.action.relogin"
-      : "settings.modelProvider.startPlan.login"
-    : "settings.modelProvider.codingPlan.connect";
   const defaultStatusBadgeId = isUnsupported
     ? "settings.modelProvider.codingPlan.status.unsupported"
     : isDisconnected
@@ -297,19 +271,11 @@ export function CodingPlanStatusPanel({
   const teamPlanWarningVisible = !isChecking && teamPlanAvailabilityReason !== undefined;
   const recoverableUnavailable =
     effectiveViewState.actionStatus === "unavailable" && !teamPlanUnavailableStatusVisible;
-  const reloginVisible = recoverableUnavailable && reloginOnFailure && Boolean(onLogin);
+  // RF-05：设置页不再提供 OAuth 登录动作，只保留 Host 手动重试。
   const retryVisible =
     (recoverableUnavailable ||
       statusLabelId === "settings.modelProvider.codingPlan.status.unavailable") &&
-    !reloginVisible &&
     Boolean(onRetry);
-  const trailingLoginVisible =
-    !reloginVisible &&
-    !retryVisible &&
-    loginActionVisible &&
-    loginActionPlacement === "trailing" &&
-    (actionIsDisconnected || recoverableUnavailable) &&
-    Boolean(onLogin);
   const rawPlanLevel = planLevel?.trim() ?? "";
   const normalizedPlanLevel = rawPlanLevel.toUpperCase();
   const isMaxPlanLevel = isMaxCodingPlanLevel(rawPlanLevel);
@@ -326,17 +292,9 @@ export function CodingPlanStatusPanel({
     isPurchased &&
     Boolean(purchaseUrl) &&
     Boolean(onOpenPurchase);
-  const disconnectedStartPlanPricingVisible =
-    isStartPlanProvider && (isDisconnected || isNotPurchased);
-  const startPlanCardVisible =
-    startPlanPreviewVisible && disconnectedStartPlanPricingVisible && !upgradePlansVisible;
-  const startPlanPreview = useStartPlanPreview({
-    enabled: startPlanCardVisible,
-  });
-  const shouldShowBigModelRegistrationHint =
-    isChecking &&
-    providerIcon === BIGMODEL_PROVIDER_ID &&
-    isBigModelUnregisteredAuthError(authError);
+  // RF-08：注册提示只在预设声明注册地址时出现，且只在鉴权返回「账号未注册」时触发。
+  const registrationHintVisible =
+    Boolean(registrationUrl) && isChecking && isProviderUnregisteredAuthError(authError);
   const createSettingPlanCardFunnelContext = (eventText: string) =>
     createCodingPlanFunnelContext({
       providerId,
@@ -443,10 +401,6 @@ export function CodingPlanStatusPanel({
       <span>{intl.formatMessage({ id: statusBadgeId })}</span>
     </span>
   ) : null;
-  const startPlanEntries = resolveStartPlanQuotaCardEntries({
-    plans: subscriptionDetails ?? [],
-    limits: quotaLimits,
-  });
   const statusMeta =
     isPurchased && isStartPlanProvider ? (
       // 产品语义:体验套餐用量卡片不展示「管理」「解绑」操作(免费套餐无管理页,
@@ -454,10 +408,7 @@ export function CodingPlanStatusPanel({
       <StartPlanStatusMeta
         expireTime={subscriptionExpireTime}
         entitlements={subscriptionDetails?.[0]?.entitlements}
-        hasQuota={hasStartPlanEntitlementQuota(
-          subscriptionDetails?.[0]?.entitlements,
-          startPlanEntries[0]?.limits ?? quotaLimits,
-        )}
+        hasQuota={hasStartPlanEntitlementQuota(subscriptionDetails?.[0]?.entitlements, quotaLimits)}
         refreshing={startPlanEntitlementRefreshing}
         onRefresh={refreshStartPlanEntitlement}
       />
@@ -487,8 +438,8 @@ export function CodingPlanStatusPanel({
         }
         onUnlink={canDisconnectProvider ? onDisconnect : undefined}
       />
-    ) : shouldShowBigModelRegistrationHint ? (
-      <BigModelRegistrationHint onOpenRegistration={onOpenRegistration} />
+    ) : registrationHintVisible ? (
+      <ProviderRegistrationHint onOpenRegistration={onOpenRegistration} />
     ) : inlineDisconnectVisible ? (
       <CodingPlanStatusMeta
         statusLabel={notPurchasedStatusLabel ?? intl.formatMessage({ id: statusBadgeId })}
@@ -513,33 +464,15 @@ export function CodingPlanStatusPanel({
         {statusBadgeMessage || intl.formatMessage({ id: statusBadgeId })}
       </span>
     );
+  // RF-06：体验套餐不再有独立的余额卡，用量统一走 Coding Plan 的通用汇总卡。
   const usageCardsVisible =
     usageDetailsVisible &&
     isPurchased &&
-    (isStartPlanProvider || hasDisplayableCodingPlanUsageLimits(quotaLimits));
-  // 同 family 已登录时默认登录动作只刷新；凭据失败后的主动恢复必须强制进入 OAuth。
-  const trailingAction = reloginVisible ? (
-    <Button
-      type="button"
-      size="lg"
-      onClick={() => onLogin?.({ forceOAuth: true })}
-      disabled={effectiveViewState.loginLoading}
-    >
-      {intl.formatMessage({ id: "login.expired.action" })}
-    </Button>
-  ) : retryVisible ? (
+    !isStartPlanProvider &&
+    hasDisplayableCodingPlanUsageLimits(quotaLimits);
+  const trailingAction = retryVisible ? (
     <Button type="button" size="lg" onClick={onRetry} disabled={effectiveViewState.loginLoading}>
       {intl.formatMessage({ id: "common.retry" })}
-    </Button>
-  ) : trailingLoginVisible ? (
-    <Button
-      type="button"
-      size="lg"
-      onClick={() => onLogin?.()}
-      disabled={effectiveViewState.loginLoading}
-    >
-      {effectiveViewState.loginLoading ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
-      {intl.formatMessage({ id: loginButtonId }, { provider: providerName })}
     </Button>
   ) : upgradeAction ? (
     // 升级是 Plan Card 的主操作，和连接入口同属卡片级 action。
@@ -557,104 +490,39 @@ export function CodingPlanStatusPanel({
       ) : null}
       {statusMeta}
       <CodingPlanStatusActions
-        providerName={providerName}
-        isDisconnected={actionIsDisconnected}
-        isUnavailable={recoverableUnavailable}
         isPurchased={isPurchased}
-        loginLoading={effectiveViewState.loginLoading}
-        loginButtonId={loginButtonId}
-        loginVisible={
-          loginActionVisible && !trailingLoginVisible && !reloginVisible && !retryVisible
-        }
         canDisconnectProvider={inlineDisconnectVisible ? false : canDisconnectProvider}
         disconnectLoading={disconnectLoading}
-        onLogin={onLogin}
         onDisconnect={onDisconnect}
       />
     </>
   );
-  const planCards =
-    isStartPlanProvider && isPurchased && startPlanEntries.length > 0
-      ? startPlanEntries.map(({ plan, limits: planLimits }, index) => (
-          <PlanStatusCardSurface
-            key={`${plan.productId}:${index}`}
-            planTitle={plan.productName.trim() || planTitle}
-            statusMeta={
-              index === 0 ? (
-                statusContent
-              ) : (
-                <StartPlanStatusMeta
-                  expireTime={plan.expireTime}
-                  entitlements={plan.entitlements}
-                  hasQuota={hasStartPlanEntitlementQuota(plan.entitlements, planLimits)}
-                  refreshing={startPlanEntitlementRefreshing}
-                  onRefresh={refreshStartPlanEntitlement}
-                />
-              )
-            }
-            trailingAction={index === 0 ? trailingAction : undefined}
-            usageContent={
-              usageDetailsVisible &&
-              (effectiveViewState.balanceStatus === "checking" || planLimits.length > 0) ? (
-                <StartPlanQuotaStatusCard
-                  isChecking={effectiveViewState.balanceStatus === "checking"}
-                  limits={planLimits}
-                  embedded
-                />
-              ) : undefined
-            }
+  const planCard = (
+    <PlanStatusCardSurface
+      planTitle={planTitle}
+      titleAccessory={
+        titleBillingDiscountVisible ? (
+          <CodingPlanBillingDiscountBadge config={billingDiscount.config} size="compact" />
+        ) : undefined
+      }
+      statusMeta={statusContent}
+      trailingAction={trailingAction}
+      usageContent={
+        usageCardsVisible ? (
+          <CodingPlanUsageSummaryCards
+            limits={quotaLimits}
+            mcpQuotaLimit={mcpQuotaLimit}
+            sourceKey={quotaResetSourceKey ?? providerId}
+            preferredProviderId={providerId}
+            accountAccess={quotaResetAccountAccess}
+            onEntitlementRefresh={onQuotaResetEntitlementRefresh}
           />
-        ))
-      : [
-          <PlanStatusCardSurface
-            key="current-plan"
-            planTitle={planTitle}
-            titleAccessory={
-              titleBillingDiscountVisible ? (
-                <CodingPlanBillingDiscountBadge config={billingDiscount.config} size="compact" />
-              ) : undefined
-            }
-            statusMeta={statusContent}
-            trailingAction={trailingAction}
-            usageContent={
-              usageCardsVisible ? (
-                isStartPlanProvider ? (
-                  // 服务端契约保证 balances 只属于 active plans：purchased 快照必带套餐详情，
-                  // 多卡路径必然可用。兜底分支（nav item 无套餐详情）不得把全量 quotaLimits
-                  // 塞进单卡，否则无归属桶违背「无匹配 plan_id 的桶不得附着到任何卡片」的约定；
-                  // 余额未落定时只保留查询占位。
-                  effectiveViewState.balanceStatus === "checking" ? (
-                    <StartPlanQuotaStatusCard
-                      isChecking
-                      limits={[]}
-                      expireTime={subscriptionExpireTime}
-                      embedded
-                    />
-                  ) : undefined
-                ) : (
-                  <CodingPlanUsageSummaryCards
-                    limits={quotaLimits}
-                    mcpQuotaLimit={mcpQuotaLimit}
-                    sourceKey={quotaResetSourceKey ?? providerId}
-                    preferredProviderId={providerId}
-                    accountAccess={quotaResetAccountAccess}
-                    onEntitlementRefresh={onQuotaResetEntitlementRefresh}
-                  />
-                )
-              ) : undefined
-            }
-          />,
-        ];
-
-  return (
-    <div className="space-y-3">
-      {planCards}
-
-      {startPlanCardVisible && !startPlanPreview.loading && startPlanPreview.preview ? (
-        <StartPlanCard preview={startPlanPreview.preview} />
-      ) : null}
-    </div>
+        ) : undefined
+      }
+    />
   );
+
+  return <div className="space-y-3">{planCard}</div>;
 }
 
 export function hasStartPlanEntitlementQuota(
@@ -674,7 +542,6 @@ export function hasStartPlanEntitlementQuota(
 
 export function resolveCodingPlanStatusCardTitle({
   isPurchased,
-  isUnavailable = false,
   isStartPlanProvider,
   inactivePlanTitle,
   rawPlanLevel,

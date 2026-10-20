@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paridade de provedores — remoção de preferências e ofertas Z.ai/BigModel</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9; --card: #ffffff; --text: #1a202c; --muted: #4a5568;
+    --accent: #2b6cb0; --accent-soft: #ebf4ff; --border: #e2e8f0;
+    --ok: #276749; --ok-soft: #e6f4ea; --warn: #975a16; --warn-soft: #fdf3e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181c; --card: #22242a; --text: #e8eaed; --muted: #b0b4bb;
+      --accent: #7fb3e8; --accent-soft: #24313f; --border: #3a3f47;
+      --ok: #7fd39a; --ok-soft: #1f3328; --warn: #e8b96a; --warn-soft: #3a2f1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: "Segoe UI", system-ui, -apple-system, sans-serif; line-height: 1.6; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 .25rem; }
+  h2 { font-size: 1.2rem; margin-top: 2.5rem; border-bottom: 1px solid var(--border); padding-bottom: .35rem; }
+  .subtitle { color: var(--muted); margin-top: 0; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+          padding: 1rem 1.25rem; margin: 1rem 0; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+  ul { padding-left: 1.25rem; }
+  .tag { display: inline-block; background: var(--accent-soft); color: var(--accent);
+         border-radius: 999px; padding: .1rem .7rem; font-size: .8rem; font-weight: 600; margin-right: .4rem; }
+  .timeline { list-style: none; padding: 0; margin: 1rem 0; }
+  .timeline li { position: relative; padding: 0 0 1.1rem 1.9rem; border-left: 2px solid var(--border);
+                 margin-left: .6rem; }
+  .timeline li::before { content: ""; position: absolute; left: -.55rem; top: .3rem;
+                         width: .8rem; height: .8rem; border-radius: 50%; background: var(--accent); }
+  .timeline li:last-child { border-left-color: transparent; }
+  .wave { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .ok-box { background: var(--ok-soft); border-radius: 8px; padding: .75rem 1rem; margin: .75rem 0; }
+  .warn-box { background: var(--warn-soft); border-radius: 8px; padding: .75rem 1rem; margin: .75rem 0; }
+  code { background: var(--accent-soft); border-radius: 4px; padding: .05rem .35rem; font-size: .9em; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Z.ai como qualquer outro provedor</h1>
+<p class="subtitle">Remoção de preferências de login e de ofertas do GLM na interface — visão executiva</p>
+
+<h2>O problema</h2>
+<div class="card">
+  <p>Hoje, ao configurar um provedor de IA no aplicativo, a tela dá um tratamento especial à Z.ai (e ao BigModel, sua operação na China): oferece botões de login com conta, aparece fixada no topo da lista, mostra banners de "oferta por tempo limitado", cartões de desconto, sugestões de plano gratuito e medidores de saldo do plano. Nenhum outro provedor recebe nada disso.</p>
+  <p>Isso cria dois problemas: <strong>preferência indevida</strong> (o produto empurra uma marca específica) e <strong>experiência inconsistente</strong> (caminhos de configuração diferentes para provedores diferentes).</p>
+</div>
+
+<h2>O que será entregue</h2>
+<div class="cards">
+  <div class="card"><strong>Sem login na tela inicial</strong><br>
+    <span class="muted">A tela de boas-vindas passa a oferecer apenas configuração por chave de API, igual para todos os provedores. (Quem preferir login com conta ainda pode usar o comando <code>zcode login</code> no terminal.)</span></div>
+  <div class="card"><strong>Sem ofertas ou propaganda</strong><br>
+    <span class="muted">Banners promocionais, cartões de preço, sugestões de plano e avisos de "oferta" saem de todas as telas: configurações, barra lateral, campo de conversa e telas de automação.</span></div>
+  <div class="card"><strong>Sem provedor favorito</strong><br>
+    <span class="muted">O sistema deixa de assumir uma "conta preferida" ao calcular cotas e uso. Z.ai e BigModel passam a se comportar exatamente como qualquer provedor configurado por chave.</span></div>
+  <div class="card"><strong>Nada se perde</strong><br>
+    <span class="muted">Z.ai e BigModel continuam disponíveis: basta colar uma chave de API, como em qualquer outro provedor. A infraestrutura interna de login e planos permanece intacta para quem usa o terminal.</span></div>
+</div>
+
+<h2>Linha do tempo do trabalho</h2>
+<p class="muted">O trabalho foi dividido em 7 sprints agrupadas em 4 ondas. Sprints da mesma onda acontecem em paralelo, sem tocar nos mesmos arquivos.</p>
+<ul class="timeline">
+  <li><span class="wave">Onda 1 — em paralelo</span><br>
+    <strong>Sprint 1</strong> — Tela inicial 100% chave de API (remove o modo de login).<br>
+    <strong>Sprint 2</strong> — Remove o "provedor preferido" das telas de uso e cota (maior sprint).<br>
+    <strong>Sprint 3</strong> — Remove banners de marketing; ofertas futuras são ignoradas silenciosamente.</li>
+  <li><span class="wave">Onda 2 — em paralelo</span><br>
+    <strong>Sprint 4</strong> — Remove sugestões de plano nas automações e subagentes.<br>
+    <strong>Sprint 5</strong> — Remove cartões, dicas e atalhos de assinatura nas configurações.</li>
+  <li><span class="wave">Onda 3</span><br>
+    <strong>Sprint 6</strong> — Remove fluxos de upgrade/compra e limpa códigos que ficaram sem uso.</li>
+  <li><span class="wave">Onda 4 — fechamento</span><br>
+    <strong>Sprint 7</strong> — Limpa textos de todos os idiomas, adiciona um único evento de medição temporário e fecha a auditoria.</li>
+</ul>
+
+<h2>O que fica de fora (deliberadamente)</h2>
+<div class="card">
+  <ul>
+    <li>O comando de terminal <code>zcode login</code> continua funcionando como hoje.</li>
+    <li>Nada muda nos bastidores (serviços, protocolo, app de celular): a mudança é só na interface.</li>
+    <li>O sistema de "reset de cota" do plano Coding não é tocado nesta etapa.</li>
+  </ul>
+</div>
+
+<h2>Riscos e como estão tratados</h2>
+<div class="warn-box"><strong>Configurações antigas:</strong> quem tinha conta Z.ai/BigModel conectada verá o provedor como comum, pedindo chave de API — o login pelo terminal continua como alternativa.</div>
+<div class="warn-box"><strong>Código que sobra órfão:</strong> cada remoção passa por verificação automática de referências não usadas e checagem de tipos antes de avançar.</div>
+<div class="warn-box"><strong>Como medir o resultado:</strong> um único evento de telemetria, temporário (expira em 1 versão), confirma que as superfícies antigas não aparecem mais e que a configuração por chave funciona.</div>
+
+<h2>Resultado esperado</h2>
+<div class="ok-box">Uma tela de configuração de provedores <strong>igual para todos</strong>: escolheu o provedor, colou a chave, funcionou — sem promoções, sem destaques, sem caminho preferencial para nenhuma marca.</div>
+
+<p class="muted" style="margin-top:2.5rem; font-size:.85rem;">Documentação técnica completa: <code>docs/features/paridade-provider-zai-ui/</code> (PRD, TECH, SPEC e sprints).</p>
+</div>
+</body>
+</html>

@@ -1,6 +1,3 @@
-import type { CodingPlanRegularTpsRequest } from "@zcode/shared";
-import type { IUsageStatsService } from "@zcode/services";
-
 export interface HighspeedTimingMetricsForSavedTime {
   outputTokens: number;
   durationMs: number;
@@ -68,24 +65,5 @@ export function calculateHighspeedSavedDurationFromMetrics(
     ...metrics,
     regularTps,
     highspeedTps,
-  });
-}
-
-export async function readHighspeedRegularTpsFromHealth(params: {
-  usageStatsService: IUsageStatsService;
-  preferredProviderId: string;
-  /**
-   * 当前 Coding Plan 的账号访问上下文。Provider 重构后请求期鉴权只能由它解析，
-   * 缺失时 host 无法确定用哪个账号/团队项目查询，必定抛错。
-   */
-  accountAccess: CodingPlanRegularTpsRequest["accountAccess"];
-  timeZone?: string;
-}): Promise<number | undefined> {
-  const getRegularTps = params.usageStatsService.getCodingPlanRegularTps;
-  if (!getRegularTps) return undefined;
-  return getRegularTps.call(params.usageStatsService, {
-    preferredProviderId: params.preferredProviderId,
-    accountAccess: params.accountAccess,
-    ...(params.timeZone ? { timeZone: params.timeZone } : {}),
   });
 }

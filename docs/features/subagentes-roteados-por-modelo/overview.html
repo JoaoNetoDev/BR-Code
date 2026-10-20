@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sub-agentes roteados por modelo — visão geral</title>
+<style>
+  :root{
+    --bg:#ffffff; --fg:#16181d; --muted:#5b6270; --line:#e3e6ec;
+    --card:#f7f8fa; --accent:#3b5bdb; --accent-soft:#e8ecfb;
+    --warn-bg:#fff6e5; --warn-line:#e8b64c; --warn-fg:#7a5300;
+    --ok-bg:#e7f6ec; --ok-line:#5aa87a; --ok-fg:#1d5c39;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#14161a; --fg:#e8eaee; --muted:#9aa2b1; --line:#2a2e36;
+      --card:#1c1f25; --accent:#8fa5ff; --accent-soft:#232842;
+      --warn-bg:#33280f; --warn-line:#8a6a20; --warn-fg:#f0d08a;
+      --ok-bg:#16301f; --ok-line:#3d7a55; --ok-fg:#a8dcbb;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  main{max-width:860px;margin:0 auto;padding:48px 24px 80px}
+  h1{font-size:2rem;line-height:1.2;margin:0 0 8px;letter-spacing:-.02em}
+  h2{font-size:1.25rem;margin:44px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  h3{font-size:1rem;margin:26px 0 8px}
+  p,li{color:var(--fg)}
+  .sub{color:var(--muted);font-size:1.05rem;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
+  .warn{background:var(--warn-bg);border-left:4px solid var(--warn-line);color:var(--warn-fg);border-radius:8px;padding:14px 18px;margin:18px 0}
+  .ok{background:var(--ok-bg);border-left:4px solid var(--ok-line);color:var(--ok-fg);border-radius:8px;padding:14px 18px;margin:18px 0}
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.95rem}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:.85rem;text-transform:uppercase;letter-spacing:.04em}
+  code{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:.88em;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  ol,ul{padding-left:22px}
+  li{margin:6px 0}
+  .wave{display:flex;gap:12px;flex-wrap:wrap;margin:18px 0}
+  .step{flex:1 1 220px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .step b{display:block;color:var(--accent);font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:.88rem}
+</style>
+</head>
+<body>
+<main>
+
+<h1>Sub-agentes roteados por modelo</h1>
+<p class="sub">Quatro especialistas prontos para uso, e um agente principal que sabe escolher cada um na hora certa.</p>
+
+<div class="card">
+  <strong>Resumo em uma frase:</strong> o aplicativo passa a ganhar quatro assistentes especialistas já
+  configurados — revisor de código, pesquisador de repositório, triador de testes e resumidor — e o
+  assistente principal passa a ser informado de quando usar cada um, em vez de adivinhar pelo nome.
+</div>
+
+<h2>O problema que estamos resolvendo</h2>
+<p>
+  O aplicativo já permitia criar sub-agentes e escolher o modelo de cada um. A peça que faltava não era a
+  mecânica: era o <em>conteúdo</em>. Fora de duas opções genéricas, não existia nenhum especialista de
+  verdade. Um usuário que quisesse um revisor de código precisava construir o perfil à mão, escrever o papel,
+  escolher as ferramentas e torcer para o assistente principal descobrir que aquilo existia.
+</p>
+<p>
+  Pior: o catálogo que chega ao assistente principal era uma lista de nomes. Nada dizia <em>quando usar</em>,
+  <em>quando não usar</em>, nem <em>que ferramentas aquele especialista tem</em>. O resultado é um
+  agente que ou ignora os especialistas ou os usa na hora errada.
+</p>
+
+<h2>O que vamos entregar</h2>
+<div class="ok">
+  <strong>Quatro especialistas, prontos.</strong> Revisão de código, pesquisa ampla no repositório,
+  triagem de testes e resumo de textos longos — cada um com seu papel, suas ferramentas bem definidas e a
+  descrição escrita para que o assistente principal saiba na hora em que vale a pena usá-lo.
+</div>
+<ul>
+  <li>Instalados por padrão, sem configuração nenhuma do usuário.</li>
+  <li>Aparecem desligados por padrão só se o usuário preferir desligar, um por um, sem editar arquivo.</li>
+  <li>Cada um mostra de onde vem o modelo: <em>herdado do assistente principal</em> ou <em>definido por você</em>.</li>
+</ul>
+
+<h3>Um detalhe importante sobre modelo</h3>
+<p>
+  Os especialistas do catálogo <strong>não fixam modelo</strong>. Eles usam o mesmo modelo do assistente principal
+  que está respondendo naquele momento. Isso é deliberado: fixar um modelo num pacote que se distribui a
+  milhares de máquinas é frágil — o provedor escolhido pelo autor do pacote não é necessariamente o que a
+  pessoa usuária tem configurado, e o aplicativo chega a trocar esse identificador automaticamente conforme a
+  conta conectada. Se você quiser um especialista num modelo diferente, isso continua possível: você escolhe
+  o modelo dele na tela de configurações, e a escolha é respeitada e lembrada.
+</p>
+
+<h3>Melhoria no roteamento</h3>
+<p>
+  A lista que o assistente principal recebe deixa de ser uma enumeração seca e passa a dizer, para cada
+  especialista, quando usá-lo, quando <em>não</em> usá-lo, quais ferramentas ele tem e o quão restrito é o
+  escopo dele. Além disso, quando você muda o modelo de um especialista, a lista é atualizada sozinha no
+  turno seguinte — antes, essa mudança simplesmente nunca chegava ao assistente.
+</p>
+
+<h2>Como fica o trabalho</h2>
+<div class="wave">
+  <div class="step"><b>Etapa 1</b>Empacotar os quatro especialistas e registrá-los em todos os canais de distribuição.</div>
+  <div class="step"><b>Etapa 2</b>Melhorar a lista de roteamento. <span class="sub">Em paralelo com a etapa 3.</span></div>
+  <div class="step"><b>Etapa 3</b>Permitir desligar um especialista vindo de pacote.</div>
+  <div class="step"><b>Etapa 4</b>Ajustes na tela de configurações. <span class="sub">Em paralelo com a etapa 5.</span></div>
+  <div class="step"><b>Etapa 5</b>Verificação de ponta a ponta.</div>
+  <div class="step"><b>Etapa 6</b>Medição de impacto no tempo de resposta.</div>
+</div>
+<p class="sub">
+  Cada etapa é executada e revisada por inteiro antes da próxima começar. Etapas 2 e 3 rodam lado a lado,
+  assim como 4 e 5, porque não tocam os mesmos arquivos. A etapa 6 fica sozinha no fim porque a comparação
+  de desempenho precisa de uma medição feita <em>antes</em> das mudanças.
+</p>
+
+<h2>Riscos que estamos acompanhando</h2>
+<table>
+  <thead><tr><th>Risco</th><th>O que fazemos</th></tr></thead>
+  <tbody>
+    <tr><td>O catálogo entra em conflito com o trabalho de remover a preferência por um fornecedor específico</td>
+        <td>Nenhum provedor é apontado como "o oficial", e o pacote assume a identidade do fork, não de terceiros</td></tr>
+    <tr><td>Um especialista novo custa contexto em toda conversa</td>
+        <td>Orçamento explícito de linhas injetadas; hoje o uso fica bem abaixo</td></tr>
+    <tr><td>Especialista com permissão ampla demais vira brecha</td>
+        <td>Nenhum papel recebe permissão de escrita irrestrita; verificado por teste</td></tr>
+    <tr><td>A lista de roteamento cresce sem controle</td>
+        <td>Há limite de tamanho e medição; paginação fica para quando o número de papéis justificar</td></tr>
+  </tbody>
+</table>
+
+<div class="warn">
+  <strong>Fora do escopo desta entrega:</strong> degradação automática de modelo quando o modelo escolhido
+  fica indisponível. É uma mudança de comportamento deliberada do produto e precisa de decisão do
+  proprietário antes de ser feita — está descrita e pronta para ser executada numa etapa posterior.
+  Também ficam de fora: especialistas que chamam outros especialistas, isolamento em áreas de trabalho
+  separadas, e histórico de execuções.
+</div>
+
+<h2>Limitações que aceitamos de saída</h2>
+<p>Três efeitos colaterais foram decididos conscientemente, e vale conhecê-los:</p>
+<ul>
+  <li>A tela mostra <strong>dois</strong> rótulos de origem de modelo, não três. O terceiro — "definido no catálogo" — nunca apareceria, porque o catálogo não fixa modelo; um rótulo que nunca aparece seria pior que a ausência dele.</li>
+  <li>A lista não é paginada ainda. Com quatro especialistas isso não pesa; a paginação entra quando o número de papéis justificar, não antes.</li>
+  <li>A mudança de modelo aparece no <strong>turno seguinte</strong>, não no meio do turno em que foi salva. O assistente mantém a configuração congelada durante o turno por desenho. Na prática, você não precisa fazer mais nada — ela chega sozinha.</li>
+</ul>
+
+<h2>Como saberemos se deu certo</h2>
+<ul>
+  <li>Um usuário que nunca configurou nada despacha um especialista de catálogo.</li>
+  <li>Conversas que pedem revisão de código, varredura de código ou triagem de testes usam especialista.</li>
+  <li>A lista injetada custa menos de 3% do prompt do sistema.</li>
+  <li>Nenhuma regressão acima de 5% no tempo de resposta de um sub-agente.</li>
+</ul>
+
+<footer>
+  <p>Documento gerado a partir de PRD, documento técnico e especificação detalhada da mesma pasta.</p>
+</footer>
+
+</main>
+</body>
+</html>

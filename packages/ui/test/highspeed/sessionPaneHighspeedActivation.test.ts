@@ -100,21 +100,27 @@ const servicesMock = vi.hoisted(() => ({
   },
 }));
 
-// Start 套餐推荐是 sendText 在 prepare 之前的真实 await；用例据此把发送挂在 prepare 之前，
-// 模拟配置屏障 / 推荐 / 建会话期间用户切换 Task。桩必须是稳定引用（发送回调以其为依赖）。
-const startPlanRecommendation = vi.hoisted(() => {
+// 模型就绪门禁是 sendText 在 Highspeed prepare 之前的真实 await；用例据此把发送挂在
+// prepare 之前，模拟配置屏障 / 建会话期间用户切换 Task。桩必须是稳定引用（发送回调以其为依赖）。
+const draftModelReadiness = vi.hoisted(() => {
   const state = { hold: null as Promise<void> | null };
   return {
     state,
-    recommend: vi.fn(async <T>(selection: T): Promise<T> => {
+    ensureReadyForSend: vi.fn(async () => {
       await state.hold;
-      return selection;
+      return true;
     }),
   };
 });
 
-vi.mock("@/hooks/useStartPlanRecommendation.js", () => ({
-  useStartPlanRecommendation: () => startPlanRecommendation.recommend,
+vi.mock("@/v4/composer/useDraftModelReadinessGate.js", () => ({
+  useDraftModelReadinessGate: () => ({
+    agentStartupAllowed: true,
+    error: null,
+    dismissError: vi.fn(),
+    ensureReadyForSend: draftModelReadiness.ensureReadyForSend,
+    markProviderNotReady: vi.fn(),
+  }),
 }));
 
 vi.mock("@/hooks/useSettingService.js", () => ({
@@ -450,7 +456,7 @@ async function sendThroughEdit(): Promise<void> {
 }
 
 /**
- * 走 Composer sendText 路径，并让发送停在 prepare 之前的 Start 套餐推荐 await；
+ * 走 Composer sendText 路径，并让发送停在 prepare 之前的模型就绪 await；
  * 返回的 release 放行后才会进入 Highspeed prepare。
  */
 async function sendTextHeldBeforePrepare(): Promise<{
@@ -458,7 +464,7 @@ async function sendTextHeldBeforePrepare(): Promise<{
   sending: Promise<unknown>;
 }> {
   let release: () => void = () => {};
-  startPlanRecommendation.state.hold = new Promise<void>((resolve) => {
+  draftModelReadiness.state.hold = new Promise<void>((resolve) => {
     release = resolve;
   });
   let sending: Promise<unknown> = Promise.resolve();
@@ -473,7 +479,7 @@ async function sendTextHeldBeforePrepare(): Promise<{
       }) ?? Promise.reject(new Error("composer 未提供 onSendText"));
     await flushMicrotasks();
   });
-  expect(startPlanRecommendation.recommend).toHaveBeenCalledTimes(1);
+  expect(draftModelReadiness.ensureReadyForSend).toHaveBeenCalledTimes(1);
   expect(servicesMock.highspeedCardService.prepareTurn).not.toHaveBeenCalled();
   return { release, sending };
 }
@@ -521,8 +527,8 @@ afterEach(() => {
     drawing: false,
   });
   servicesMock.highspeedCardService.prepareTurn.mockReset();
-  startPlanRecommendation.state.hold = null;
-  startPlanRecommendation.recommend.mockClear();
+  draftModelReadiness.state.hold = null;
+  draftModelReadiness.ensureReadyForSend.mockClear();
   projectionState.current = null;
   delete (globalThis as { document?: unknown }).document;
   delete (globalThis as { window?: unknown }).window;
@@ -819,6 +825,130 @@ describe("SessionPane Highspeed 激活动效请求", () => {
       expect(latestComposer().highspeedCard).toBeNull();
     } finally {
       nowSpy.mockRestore();
+      await act(async () => root.unmount());
+    }
+  });
+  // F-02-15 回归：完成态统计不能依赖 preferred-provider 健康查询补 regularTps。
+  // 卡与用户行都没有 regularTps 时，仍必须用中性来源派发 setHighspeedMetrics，
+  // 否则该轮会永远停在等待队列里且没有任何可见症状。
+  it("卡上没有 regularTps 的新轮次仍派发 setHighspeedMetrics", async () => {
+    const card = { ...makeCard("card-metrics"), expiresAt: Date.now() - 1 };
+    const root = createRoot(installMinimalDom());
+    try {
+      await renderPane(root, "session-a");
+      mockDrawHit(card);
+      // 卡级 healthy 采样：40 tok/s，高于本轮实测的 20 tok/s。
+      servicesMock.highspeedCardService.healthy.mockResolvedValue({
+        cardId: card.cardId,
+        promptTokens: 0,
+        completionTokens: 400,
+        durationSeconds: 10,
+      });
+
+      await act(async () => {
+        await composerProps.at(-1)?.onSendText?.("一轮加速", {
+          submission: {
+            mode: "build",
+            planEnabled: false,
+            modelSelection: { providerId: "builtin:bigmodel-coding-plan", modelId: "GLM-5.3" },
+          },
+        });
+        await flushMicrotasks();
+      });
+
+      const sendTextCall = sendCommandMock.mock.calls
+        .map(([envelope]) => envelope)
+        .find((envelope) => envelope.type === "sendText");
+      expect(sendTextCall).toBeDefined();
+      const sourceCommandId = sendTextCall!.commandId;
+
+      // 权威快照：该轮已完成；用户行只有卡身份，没有任何 regularTps 持久化基线。
+      projectionState.current = {
+        status: "live",
+        snapshot: {
+          ...makeSnapshot("session-a"),
+          rows: {
+            window: [
+              {
+                kind: "userInput",
+                rowId: 1,
+                turnId: "turn-1",
+                entityId: "entity-user-1",
+                createdAt: 1,
+                createdAtSeq: 1,
+                text: "一轮加速",
+                origin: "realUser",
+                sourceCommandId,
+                highspeed: {
+                  schemaVersion: 1,
+                  cardId: card.cardId,
+                  taskId: card.taskId,
+                  provider: card.provider,
+                  model: card.model,
+                  issuedAt: card.issuedAt,
+                  expiresAt: card.expiresAt,
+                },
+              },
+              {
+                kind: "turnHeader",
+                rowId: 2,
+                turnId: "turn-1",
+                entityId: "entity-turn-1",
+                createdAt: 2,
+                createdAtSeq: 2,
+                origin: "userInput",
+                sourceCommandId,
+                state: "completedSuccess",
+                startedAt: 2,
+                endedAt: 4,
+                // 400 tok / 20s = 20 tok/s 实测吞吐，作为中性兜底的 regularTps 基线。
+                outputTokens: 400,
+                activeMs: 20_000,
+              },
+            ],
+            totalCount: 2,
+            firstRowId: 1,
+          },
+        },
+        subscriptionId: "sub-session-a",
+        lastError: null,
+        optimisticCommands: [],
+        loadingOlder: false,
+      };
+      await act(async () => {
+        await flushMicrotasks();
+        await flushMicrotasks();
+      });
+      // 重新渲染，让 SessionPane 的完成态统计 effect 读到新快照。
+      await act(async () => {
+        root.render(
+          createElement(
+            ZCodeIntlProvider,
+            { initialLocale: "zh-CN" },
+            createElement(SessionPane, {
+              paneId: "workspace-main",
+              sessionId: "session-a",
+              workspacePath: "/workspace",
+            }),
+          ),
+        );
+        await flushMicrotasks();
+        await flushMicrotasks();
+      });
+
+      const metricsCall = sendCommandMock.mock.calls
+        .map(([envelope]) => envelope)
+        .find((envelope) => envelope.type === "setHighspeedMetrics");
+      expect(metricsCall).toBeDefined();
+      expect(metricsCall!.payload).toMatchObject({
+        target: { rowId: 1, entityId: "entity-user-1" },
+        regularTps: 20,
+        highspeedTps: 40,
+        outputTokens: 400,
+        durationMs: 20_000,
+      });
+      expect((metricsCall!.payload as { savedDurationMs: number }).savedDurationMs).toBeGreaterThan(0);
+    } finally {
       await act(async () => root.unmount());
     }
   });

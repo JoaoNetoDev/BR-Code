@@ -22,13 +22,9 @@ import type { V4InteractionDialogsProps } from "@/v4/V4InteractionDialogs.js";
 import { pendingCommandRegistry } from "@/v4/pendingCommandRegistry.js";
 import { logger } from "@/logger.js";
 
-const recommendation = vi.hoisted(() =>
-  vi.fn(async (selection: ModelSelection): Promise<ModelSelection | null> => selection),
-);
-vi.mock("@/hooks/useStartPlanRecommendation.js", () => ({
-  useStartPlanRecommendation: () => recommendation,
+const modelSelectionMock = vi.hoisted(() => ({
+  view: null as ModelSelectionView | null,
 }));
-const modelSelectionMock = vi.hoisted(() => ({ view: null as ModelSelectionView | null }));
 vi.mock("@/hooks/useModelSelectionView.js", () => ({
   useModelSelectionView: () => ({
     state: modelSelectionMock.view
@@ -85,13 +81,18 @@ const captured = vi.hoisted(() => ({
 
 const draftConfigMock = vi.hoisted(() => ({
   draftConfigRef: { current: {} as Partial<SessionConfigState> },
-  resolveInitialDraftConfig: vi.fn<() => Partial<SessionConfigState> | undefined>(),
+  resolveInitialDraftConfig:
+    vi.fn<() => Partial<SessionConfigState> | undefined>(),
   handleDraftSelectModel: vi.fn((provider: string, model: string) => {
     draftConfigMock.draftConfigRef.current = {
       ...draftConfigMock.draftConfigRef.current,
       provider,
       model,
-      modelSelection: { providerId: provider, modelId: model, options: { reasoningLevel: "high" } },
+      modelSelection: {
+        providerId: provider,
+        modelId: model,
+        options: { reasoningLevel: "high" },
+      },
     };
   }),
   handleDraftSelectThought: vi.fn((thought: string) => {
@@ -142,7 +143,11 @@ const sessionOpenTelemetryMock = vi.hoisted(() => ({
 
 const mocks = vi.hoisted(() => ({
   highspeedCardService: {
-    getSnapshot: vi.fn(async () => ({ card: null, nextDrawAt: null, drawing: false })),
+    getSnapshot: vi.fn(async () => ({
+      card: null,
+      nextDrawAt: null,
+      drawing: false,
+    })),
     prepareTurn: vi.fn(async () => ({
       kind: "fallback" as const,
       reason: "draw-miss" as const,
@@ -258,17 +263,24 @@ vi.mock("@/lib/composerRecent.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/composerRecent.js")>()),
   captureComposerRecentSubmission:
     (
-      ...args: Parameters<typeof import("@/lib/composerRecent.js").captureComposerRecentSubmission>
+      ...args: Parameters<
+        typeof import("@/lib/composerRecent.js").captureComposerRecentSubmission
+      >
     ) =>
     () =>
       composerRecentMocks.acceptSubmission(...args),
 }));
 
 vi.mock("@/v4/composer/useDraftSessionPrewarm.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/v4/composer/useDraftSessionPrewarm.js")>();
+  const actual =
+    await importOriginal<
+      typeof import("@/v4/composer/useDraftSessionPrewarm.js")
+    >();
   return {
     ...actual,
-    useDraftSessionPrewarm: (params: Parameters<typeof actual.useDraftSessionPrewarm>[0]) => {
+    useDraftSessionPrewarm: (
+      params: Parameters<typeof actual.useDraftSessionPrewarm>[0],
+    ) => {
       prewarmHookMock.lastEnabled = params.enabled;
       // 每个挂载实例冻结 mock/真实分支，避免测试在 rerender 中修改全局 binding
       // 导致 Hook 数量变化；生产 hook 本身不存在这个测试替身问题。
@@ -302,7 +314,10 @@ vi.mock("@/v4/useConversationProjection.js", () => ({
 }));
 
 vi.mock("@/v4/telemetry/useSessionOpenArmsTelemetry.js", () => ({
-  useSessionOpenArmsTelemetry: (params: { sessionId: string | null; enabled?: boolean }) => {
+  useSessionOpenArmsTelemetry: (params: {
+    sessionId: string | null;
+    enabled?: boolean;
+  }) => {
     sessionOpenTelemetryMock.lastParams = params;
   },
 }));
@@ -323,7 +338,10 @@ vi.mock("@/store/StoreProvider.js", () => ({
 }));
 
 vi.mock("@/v4/composer/useDraftConfigControl.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/v4/composer/useDraftConfigControl.js")>();
+  const actual =
+    await importOriginal<
+      typeof import("@/v4/composer/useDraftConfigControl.js")
+    >();
   return {
     ...actual,
     useDraftConfigControl: () => ({
@@ -361,7 +379,8 @@ vi.mock("@/v4/ConversationComposer.js", async () => {
 vi.mock("@/v4/ConversationHeader.js", async () => {
   const React = await import("react");
   return {
-    ConversationHeader: () => React.createElement("div", { "data-testid": "mock-header" }),
+    ConversationHeader: () =>
+      React.createElement("div", { "data-testid": "mock-header" }),
   };
 });
 
@@ -369,21 +388,27 @@ vi.mock("@/v4/ConversationTimeline.js", async () => {
   const React = await import("react");
   return {
     ConversationTimeline: ({ bottomDock }: { bottomDock?: React.ReactNode }) =>
-      React.createElement("div", { "data-testid": "mock-timeline" }, bottomDock),
+      React.createElement(
+        "div",
+        { "data-testid": "mock-timeline" },
+        bottomDock,
+      ),
   };
 });
 
 vi.mock("@/v4/ConversationStatusPanel.js", async () => {
   const React = await import("react");
   return {
-    ConversationStatusPanel: () => React.createElement("div", { "data-testid": "mock-status" }),
+    ConversationStatusPanel: () =>
+      React.createElement("div", { "data-testid": "mock-status" }),
   };
 });
 
 vi.mock("@/v4/ConversationQueuePanel.js", async () => {
   const React = await import("react");
   return {
-    ConversationQueuePanel: () => React.createElement("div", { "data-testid": "mock-queue" }),
+    ConversationQueuePanel: () =>
+      React.createElement("div", { "data-testid": "mock-queue" }),
   };
 });
 
@@ -397,13 +422,16 @@ vi.mock("@/v4/V4InteractionDialogs.js", async () => {
   };
 });
 
-vi.mock("@/request-security-edition/V4ProviderRuntimeHeadersController.js", async () => {
-  const React = await import("react");
-  return {
-    V4ProviderRuntimeHeadersController: () =>
-      React.createElement("div", { "data-testid": "mock-runtime-headers" }),
-  };
-});
+vi.mock(
+  "@/request-security-edition/V4ProviderRuntimeHeadersController.js",
+  async () => {
+    const React = await import("react");
+    return {
+      V4ProviderRuntimeHeadersController: () =>
+        React.createElement("div", { "data-testid": "mock-runtime-headers" }),
+    };
+  },
+);
 
 vi.mock("@/v4/ConversationDraftEmptyState.js", async () => {
   const React = await import("react");
@@ -485,7 +513,10 @@ async function flushMicrotasks(): Promise<void> {
   }
 }
 
-function ackFor(envelope: CommandEnvelope, patch: Partial<CommandAck>): CommandAck {
+function ackFor(
+  envelope: CommandEnvelope,
+  patch: Partial<CommandAck>,
+): CommandAck {
   return {
     commandId: envelope.commandId,
     status: "accepted",
@@ -517,7 +548,10 @@ function makeSnapshot(): ConversationSnapshot {
       switchModelConfig: { allowed: true },
       setFollowupMode: { allowed: true },
       queueEdit: { allowed: true },
-      sendQueuedNow: { allowed: false, reasonCode: "sendQueuedNowRequiresRunning" },
+      sendQueuedNow: {
+        allowed: false,
+        reasonCode: "sendQueuedNowRequiresRunning",
+      },
       pauseGoal: { allowed: false, reasonCode: "noGoalToPause" },
       resumeGoal: { allowed: false, reasonCode: "noGoalToResume" },
     },
@@ -595,10 +629,16 @@ function makeWorkspaceStateSnapshot(): ZCodeWorkspaceStateSnapshot {
     },
     settings: {
       model: {
-        current: { providerId: "alternate-provider", modelId: "deepseek-v4-pro" },
+        current: {
+          providerId: "alternate-provider",
+          modelId: "deepseek-v4-pro",
+        },
         available: [
           {
-            ref: { providerId: "alternate-provider", modelId: "deepseek-v4-pro" },
+            ref: {
+              providerId: "alternate-provider",
+              modelId: "deepseek-v4-pro",
+            },
             label: "DeepSeek V4 Pro",
           },
         ],
@@ -614,7 +654,9 @@ function makeWorkspaceStateSnapshot(): ZCodeWorkspaceStateSnapshot {
   };
 }
 
-function createPaneElement(props: Partial<ComponentProps<typeof SessionPane>> = {}) {
+function createPaneElement(
+  props: Partial<ComponentProps<typeof SessionPane>> = {},
+) {
   return createElement(
     ZCodeIntlProvider,
     { initialLocale: "zh-CN" },
@@ -627,14 +669,19 @@ function createPaneElement(props: Partial<ComponentProps<typeof SessionPane>> = 
   );
 }
 
-async function rerenderPane(root: Root, props: Partial<ComponentProps<typeof SessionPane>> = {}) {
+async function rerenderPane(
+  root: Root,
+  props: Partial<ComponentProps<typeof SessionPane>> = {},
+) {
   await act(async () => {
     root.render(createPaneElement(props));
     await flushMicrotasks();
   });
 }
 
-async function renderPane(props: Partial<ComponentProps<typeof SessionPane>> = {}) {
+async function renderPane(
+  props: Partial<ComponentProps<typeof SessionPane>> = {},
+) {
   // 本文件 mock 了 Composer owner。仅在 fixture 初始挂载时建立完整草稿，不能再让
   // 生产 Submission helper 从 Snapshot/平铺别名救活缺失的 fixture。
   const seed = {
@@ -654,18 +701,25 @@ async function renderPane(props: Partial<ComponentProps<typeof SessionPane>> = {
   if (!modelSelectionMock.view) {
     modelSelectionMock.view = {
       revision: 1,
-      providers: ["primary-provider", "alternate-provider", "e2e-deepseek"].map((providerId) => ({
-        providerId,
-        config: {},
-        models: ["deepseek-v4-flash", "deepseek-v4-pro", "GLM-5.2"].map((modelId) => ({
-          modelId,
-          config: {
-            optionSpecs: {
-              reasoningLevel: { values: ["off", "low", "high", "max"], map: "{}" },
-            },
-          },
-        })),
-      })),
+      providers: ["primary-provider", "alternate-provider", "e2e-deepseek"].map(
+        (providerId) => ({
+          providerId,
+          config: {},
+          models: ["deepseek-v4-flash", "deepseek-v4-pro", "GLM-5.2"].map(
+            (modelId) => ({
+              modelId,
+              config: {
+                optionSpecs: {
+                  reasoningLevel: {
+                    values: ["off", "low", "high", "max"],
+                    map: "{}",
+                  },
+                },
+              },
+            }),
+          ),
+        }),
+      ),
     } as ModelSelectionView;
   }
   const root: Root = createRoot(installMinimalDom());
@@ -674,7 +728,6 @@ async function renderPane(props: Partial<ComponentProps<typeof SessionPane>> = {
 }
 
 afterEach(() => {
-  recommendation.mockReset().mockImplementation(async (selection) => selection);
   modelSelectionMock.view = null;
   captured.composerProps = null;
   captured.interactionProps = null;
@@ -740,7 +793,9 @@ describe("SessionPane draft provider readiness", () => {
       thought: "high",
     });
 
-    const root = await renderPane({ workspaceIdentity: "remote:ssh:dev:/workspace" });
+    const root = await renderPane({
+      workspaceIdentity: "remote:ssh:dev:/workspace",
+    });
     await act(async () => root.unmount());
   });
 
@@ -799,9 +854,12 @@ describe("SessionPane draft provider readiness", () => {
       promote: vi.fn(),
       discard: vi.fn(),
     };
-    const providerNotReady = Object.assign(new Error("当前没有可用的模型供应商和模型"), {
-      code: ZCODE_AGENT_PROVIDER_NOT_READY_CODE,
-    });
+    const providerNotReady = Object.assign(
+      new Error("当前没有可用的模型供应商和模型"),
+      {
+        code: ZCODE_AGENT_PROVIDER_NOT_READY_CODE,
+      },
+    );
     mocks.sendCommand.mockRejectedValue(providerNotReady);
 
     const root = await renderPane({ sessionId: null });
@@ -818,7 +876,9 @@ describe("SessionPane draft provider readiness", () => {
         sessionId: "draft-prewarm-provider-race",
         type: "sendText",
       });
-      expect(pendingCommandRegistry.list("draft-prewarm-provider-race")).toHaveLength(0);
+      expect(
+        pendingCommandRegistry.list("draft-prewarm-provider-race"),
+      ).toHaveLength(0);
       expect(captured.composerProps?.error).toMatchObject({
         code: "model_config_missing",
       });
@@ -839,13 +899,17 @@ describe("SessionPane send failure feedback", () => {
       loadingOlder: false,
     };
     mocks.sendCommand.mockRejectedValue(
-      new Error("switchModelConfig 未在首发前收敛: failed provider.notInRegistry"),
+      new Error(
+        "switchModelConfig 未在首发前收敛: failed provider.notInRegistry",
+      ),
     );
 
     const root = await renderPane();
     try {
       await expect(
-        act(async () => captured.composerProps?.onSendText("keep visible draft")),
+        act(async () =>
+          captured.composerProps?.onSendText("keep visible draft"),
+        ),
       ).rejects.toThrow("provider.notInRegistry");
       await act(async () => flushMicrotasks());
 
@@ -892,12 +956,17 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
     const root = await renderPane({ sessionId: null, onSessionCreated });
     try {
       await act(async () => {
-        await captured.composerProps?.onSendText("promote prewarm without session-open telemetry");
+        await captured.composerProps?.onSendText(
+          "promote prewarm without session-open telemetry",
+        );
         await flushMicrotasks();
       });
       expect(onSessionCreated).toHaveBeenCalledWith(prewarmSessionId);
 
-      await rerenderPane(root, { sessionId: prewarmSessionId, onSessionCreated });
+      await rerenderPane(root, {
+        sessionId: prewarmSessionId,
+        onSessionCreated,
+      });
       expect(sessionOpenTelemetryMock.lastParams).toMatchObject({
         sessionId: prewarmSessionId,
         enabled: false,
@@ -911,7 +980,10 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
         subscriptionId: "existing-session-open-subscription",
       };
       prewarmHookMock.binding = null;
-      await rerenderPane(root, { sessionId: existingSessionId, onSessionCreated });
+      await rerenderPane(root, {
+        sessionId: existingSessionId,
+        onSessionCreated,
+      });
       expect(sessionOpenTelemetryMock.lastParams).toMatchObject({
         sessionId: existingSessionId,
         enabled: true,
@@ -924,7 +996,8 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
   it.each(["existing", "prewarm", "no-prewarm"] as const)(
     "keeps shared context and the complete submission together for %s",
     async (entry) => {
-      const targetSessionId = entry === "existing" ? "session-1" : "share-created";
+      const targetSessionId =
+        entry === "existing" ? "session-1" : "share-created";
       const snapshot = makeSnapshot();
       snapshot.sessionId = targetSessionId;
       projectionState.current = {
@@ -949,20 +1022,32 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
         modelId: "deepseek-v4-pro",
         options: { reasoningLevel: "high" },
       };
-      draftConfigMock.draftConfigRef.current = { modelSelection, mode: "build" };
+      draftConfigMock.draftConfigRef.current = {
+        modelSelection,
+        mode: "build",
+      };
       mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
         ackFor(envelope, {
           status: "accepted",
           ...(envelope.type === "createSession"
-            ? { result: { type: "createSession" as const, sessionId: targetSessionId } }
+            ? {
+                result: {
+                  type: "createSession" as const,
+                  sessionId: targetSessionId,
+                },
+              }
             : {}),
         }),
       );
-      const root = await renderPane({ sessionId: entry === "existing" ? targetSessionId : null });
+      const root = await renderPane({
+        sessionId: entry === "existing" ? targetSessionId : null,
+      });
       try {
         await act(async () => {
           await captured.composerProps?.onSendText("继续分享上下文", {
-            sharedContextRefs: [{ kind: "shared_context_import", context_id: "shared-1" }],
+            sharedContextRefs: [
+              { kind: "shared_context_import", context_id: "shared-1" },
+            ],
           });
           await flushMicrotasks();
         });
@@ -976,7 +1061,9 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
             text: "继续分享上下文",
             modelSelection,
             mode: "build",
-            context_refs: [{ kind: "shared_context_import", context_id: "shared-1" }],
+            context_refs: [
+              { kind: "shared_context_import", context_id: "shared-1" },
+            ],
           },
         });
       } finally {
@@ -1007,7 +1094,12 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
       ackFor(envelope, {
         status: "accepted",
         ...(envelope.type === "createSession"
-          ? { result: { type: "createSession" as const, sessionId: createdSessionId } }
+          ? {
+              result: {
+                type: "createSession" as const,
+                sessionId: createdSessionId,
+              },
+            }
           : {}),
       }),
     );
@@ -1015,7 +1107,9 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
     const root = await renderPane({ sessionId: null, onSessionCreated });
     try {
       await act(async () => {
-        await captured.composerProps?.onSendText("create without prewarm telemetry");
+        await captured.composerProps?.onSendText(
+          "create without prewarm telemetry",
+        );
         await flushMicrotasks();
       });
       expect(onSessionCreated).toHaveBeenCalledWith(createdSessionId);
@@ -1027,7 +1121,10 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
         snapshot: createdSnapshot,
         subscriptionId: "fallback-created-session-open-subscription",
       };
-      await rerenderPane(root, { sessionId: createdSessionId, onSessionCreated });
+      await rerenderPane(root, {
+        sessionId: createdSessionId,
+        onSessionCreated,
+      });
       expect(sessionOpenTelemetryMock.lastParams).toMatchObject({
         sessionId: createdSessionId,
         enabled: false,
@@ -1072,32 +1169,36 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
         promote: vi.fn(),
         discard,
       };
-      mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) => {
-        if (envelope.type === "sendText") {
-          unknownSendEnvelope = envelope;
-          if (sendResult === "failed-ack") {
+      mocks.sendCommand.mockImplementation(
+        async (envelope: CommandEnvelope) => {
+          if (envelope.type === "sendText") {
+            unknownSendEnvelope = envelope;
+            if (sendResult === "failed-ack") {
+              return ackFor(envelope, {
+                status: "failed",
+                reasonCode: "fault.projectionEventCommit.timeout",
+              });
+            }
+            // Bug 复现：写入是否到达 Agent 未知，transport error 不能证明 command 未 admission。
+            throw new Error("connection closed after command write");
+          }
+          if (envelope.type === "createSession") {
             return ackFor(envelope, {
-              status: "failed",
-              reasonCode: "fault.projectionEventCommit.timeout",
+              result: { type: "createSession", sessionId: fallbackSessionId },
             });
           }
-          // Bug 复现：写入是否到达 Agent 未知，transport error 不能证明 command 未 admission。
-          throw new Error("connection closed after command write");
-        }
-        if (envelope.type === "createSession") {
-          return ackFor(envelope, {
-            result: { type: "createSession", sessionId: fallbackSessionId },
-          });
-        }
-        return ackFor(envelope, { status: "accepted" });
-      });
+          return ackFor(envelope, { status: "accepted" });
+        },
+      );
 
       const root = await renderPane({ sessionId: null, onSessionCreated });
       try {
         let sendError: unknown;
         await act(async () => {
           try {
-            await captured.composerProps?.onSendText("must execute exactly once");
+            await captured.composerProps?.onSendText(
+              "must execute exactly once",
+            );
           } catch (error) {
             sendError = error;
           }
@@ -1113,7 +1214,8 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
         });
         expect(
           mocks.sendCommand.mock.calls.filter(
-            ([envelope]) => (envelope as CommandEnvelope).type === "createSession",
+            ([envelope]) =>
+              (envelope as CommandEnvelope).type === "createSession",
           ),
         ).toHaveLength(0);
         expect(discard).not.toHaveBeenCalled();
@@ -1191,7 +1293,8 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
       expect(slashAttempts).toBe(1);
       expect(
         mocks.sendCommand.mock.calls.filter(
-          ([envelope]) => (envelope as CommandEnvelope).type === "createSession",
+          ([envelope]) =>
+            (envelope as CommandEnvelope).type === "createSession",
         ),
       ).toHaveLength(0);
       expect(discard).not.toHaveBeenCalled();
@@ -1251,7 +1354,9 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
 
     let sendPromise!: ReturnType<ComposerProps["onSendText"]>;
     act(() => {
-      sendPromise = captured.composerProps!.onSendText("first input while MCP is starting");
+      sendPromise = captured.composerProps!.onSendText(
+        "first input while MCP is starting",
+      );
     });
     await act(async () => {
       await flushMicrotasks();
@@ -1323,7 +1428,9 @@ describe("SessionPane stop foreground execution", () => {
         } else {
           const listener = vi
             .mocked(window.addEventListener)
-            .mock.calls.find(([type]) => type === "keydown")?.[1] as (event: KeyboardEvent) => void;
+            .mock.calls.find(([type]) => type === "keydown")?.[1] as (
+            event: KeyboardEvent,
+          ) => void;
           expect(listener).toBeTypeOf("function");
           listener({
             key: "Escape",
@@ -1369,10 +1476,13 @@ describe("SessionPane stop foreground execution", () => {
         await flushMicrotasks();
       });
       expect(mocks.sendCommand).not.toHaveBeenCalled();
-      expect(infoSpy).toHaveBeenCalledWith("[v4-pane] stop 命令被跳过（无可停执行）", {
-        source: "button",
-        sessionId: "session-1",
-      });
+      expect(infoSpy).toHaveBeenCalledWith(
+        "[v4-pane] stop 命令被跳过（无可停执行）",
+        {
+          source: "button",
+          sessionId: "session-1",
+        },
+      );
     } finally {
       await act(async () => root.unmount());
     }
@@ -1404,8 +1514,12 @@ describe("SessionPane remote provider admission", () => {
         await flushMicrotasks();
       });
 
-      expect(mocks.zcodeSessionService.updateProviderRegistry).not.toHaveBeenCalled();
-      expect(mocks.sendCommand).toHaveBeenCalledWith(expect.objectContaining({ type: "sendText" }));
+      expect(
+        mocks.zcodeSessionService.updateProviderRegistry,
+      ).not.toHaveBeenCalled();
+      expect(mocks.sendCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "sendText" }),
+      );
     } finally {
       await act(async () => root.unmount());
     }
@@ -1432,8 +1546,12 @@ describe("SessionPane remote provider admission", () => {
         await flushMicrotasks();
       });
 
-      expect(mocks.zcodeSessionService.updateProviderRegistry).not.toHaveBeenCalled();
-      expect(mocks.sendCommand).toHaveBeenCalledWith(expect.objectContaining({ type: "sendText" }));
+      expect(
+        mocks.zcodeSessionService.updateProviderRegistry,
+      ).not.toHaveBeenCalled();
+      expect(mocks.sendCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "sendText" }),
+      );
     } finally {
       await act(async () => root.unmount());
     }
@@ -1464,8 +1582,12 @@ describe("SessionPane remote provider admission", () => {
         await flushMicrotasks();
       });
 
-      expect(mocks.zcodeSessionService.updateProviderRegistry).not.toHaveBeenCalled();
-      expect(mocks.sendCommand).toHaveBeenCalledWith(expect.objectContaining({ type: "sendText" }));
+      expect(
+        mocks.zcodeSessionService.updateProviderRegistry,
+      ).not.toHaveBeenCalled();
+      expect(mocks.sendCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "sendText" }),
+      );
     } finally {
       await act(async () => root.unmount());
     }
@@ -1486,11 +1608,17 @@ describe("SessionPane mobile plan approval recovery", () => {
 
     const root = await renderPane({ compactForRemoteControl: true });
     try {
-      expect(captured.interactionProps?.onPlanInteractionAccepted).toBeTypeOf("function");
+      expect(captured.interactionProps?.onPlanInteractionAccepted).toBeTypeOf(
+        "function",
+      );
 
       act(() => {
-        captured.interactionProps?.onPlanInteractionAccepted?.("plan-request-1");
-        captured.interactionProps?.onPlanInteractionAccepted?.("plan-request-1");
+        captured.interactionProps?.onPlanInteractionAccepted?.(
+          "plan-request-1",
+        );
+        captured.interactionProps?.onPlanInteractionAccepted?.(
+          "plan-request-1",
+        );
       });
       await vi.advanceTimersByTimeAsync(499);
       expect(mocks.recoverFromStaleAuthority).not.toHaveBeenCalled();
@@ -1516,7 +1644,9 @@ describe("SessionPane mobile plan approval recovery", () => {
     const root = await renderPane({ compactForRemoteControl: true });
     try {
       act(() => {
-        captured.interactionProps?.onPlanInteractionAccepted?.("plan-request-1");
+        captured.interactionProps?.onPlanInteractionAccepted?.(
+          "plan-request-1",
+        );
       });
       projectionState.current = {
         ...projectionState.current,
@@ -1545,7 +1675,9 @@ describe("SessionPane mobile plan approval recovery", () => {
 
     const root = await renderPane({ compactForRemoteControl: false });
     try {
-      expect(captured.interactionProps?.onPlanInteractionAccepted).toBeUndefined();
+      expect(
+        captured.interactionProps?.onPlanInteractionAccepted,
+      ).toBeUndefined();
       expect(mocks.recoverFromStaleAuthority).not.toHaveBeenCalled();
     } finally {
       await act(async () => root.unmount());
@@ -1657,7 +1789,10 @@ describe("SessionPane model switch recovery", () => {
     const fallbackAt = Date.now();
     const highspeedRow = (
       sourceCommandId: string,
-      fallbackReason: "highspeed_card_expired" | "highspeed_request_failed" | undefined,
+      fallbackReason:
+        | "highspeed_card_expired"
+        | "highspeed_request_failed"
+        | undefined,
     ): ConversationSnapshot["rows"]["window"][number] => ({
       rowId: 1,
       turnId: "turn-1",
@@ -1685,7 +1820,10 @@ describe("SessionPane model switch recovery", () => {
       const snapshot = makeSnapshot();
       projectionState.current = {
         status: "live",
-        snapshot: { ...snapshot, rows: { window: [row], totalCount: 1, firstRowId: 1 } },
+        snapshot: {
+          ...snapshot,
+          rows: { window: [row], totalCount: 1, firstRowId: 1 },
+        },
         subscriptionId: "sub-1",
         lastError: null,
         optimisticCommands: [],
@@ -1713,7 +1851,9 @@ describe("SessionPane model switch recovery", () => {
       highspeedRow("command-hs-card-expired", "highspeed_card_expired"),
     );
     try {
-      expect(mocks.toast).toHaveBeenCalledWith("加速卡已到期，本轮后续内容将使用原模型继续生成");
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "加速卡已到期，本轮后续内容将使用原模型继续生成",
+      );
     } finally {
       await act(async () => {
         expiredRoot.unmount();
@@ -1721,9 +1861,13 @@ describe("SessionPane model switch recovery", () => {
     }
 
     mocks.toast.mockClear();
-    const legacyRoot = await renderWithRow(highspeedRow("command-hs-legacy", undefined));
+    const legacyRoot = await renderWithRow(
+      highspeedRow("command-hs-legacy", undefined),
+    );
     try {
-      expect(mocks.toast).toHaveBeenCalledWith("加速卡已到期，本轮后续内容将使用原模型继续生成");
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "加速卡已到期，本轮后续内容将使用原模型继续生成",
+      );
     } finally {
       await act(async () => {
         legacyRoot.unmount();
@@ -1732,7 +1876,9 @@ describe("SessionPane model switch recovery", () => {
 
     // 同一 sourceCommandId 重挂载不重复提示（模块级 claim）。
     mocks.toast.mockClear();
-    const remountRoot = await renderWithRow(highspeedRow("command-hs-legacy", undefined));
+    const remountRoot = await renderWithRow(
+      highspeedRow("command-hs-legacy", undefined),
+    );
     try {
       expect(mocks.toast).not.toHaveBeenCalled();
     } finally {
@@ -1791,10 +1937,14 @@ describe("SessionPane model switch recovery", () => {
 
     const root = await renderPane({ sessionId: null });
     await act(async () => {
-      captured.composerProps?.onSelectModel("alternate-provider", "deepseek-v4-pro", {
-        provider: "primary-provider",
-        model: "deepseek-v4-flash",
-      });
+      captured.composerProps?.onSelectModel(
+        "alternate-provider",
+        "deepseek-v4-pro",
+        {
+          provider: "primary-provider",
+          model: "deepseek-v4-flash",
+        },
+      );
       await flushMicrotasks();
     });
 
@@ -1866,10 +2016,14 @@ describe("SessionPane model switch recovery", () => {
 
     const root = await renderPane();
     await act(async () => {
-      captured.composerProps?.onSelectModel("alternate-provider", "deepseek-v4-pro", {
-        provider: "primary-provider",
-        model: "deepseek-v4-flash",
-      });
+      captured.composerProps?.onSelectModel(
+        "alternate-provider",
+        "deepseek-v4-pro",
+        {
+          provider: "primary-provider",
+          model: "deepseek-v4-flash",
+        },
+      );
       await flushMicrotasks();
     });
 
@@ -1943,7 +2097,10 @@ describe("SessionPane model switch recovery", () => {
       },
       nextDrawAt: Date.now() + 60_000,
       execution: {
-        modelSelection: { providerId: "account:zai-highspeed-card", modelId: "GLM-5.3" },
+        modelSelection: {
+          providerId: "account:zai-highspeed-card",
+          modelId: "GLM-5.3",
+        },
         requestAuth: { apiKey: "jwt", headers: {} },
         selectionFallback: {
           providerId: "account:zai-highspeed-card",
@@ -1957,15 +2114,21 @@ describe("SessionPane model switch recovery", () => {
 
     const root = await renderPane();
     await act(async () => {
-      captured.composerProps?.onSelectModel("alternate-provider", "deepseek-v4-pro", {
-        provider: "primary-provider",
-        model: "deepseek-v4-flash",
-      });
+      captured.composerProps?.onSelectModel(
+        "alternate-provider",
+        "deepseek-v4-pro",
+        {
+          provider: "primary-provider",
+          model: "deepseek-v4-flash",
+        },
+      );
       await flushMicrotasks();
     });
 
     await act(async () => {
-      await captured.composerProps?.onSendText("accelerated turn keeps recent on the original");
+      await captured.composerProps?.onSendText(
+        "accelerated turn keeps recent on the original",
+      );
       await flushMicrotasks();
     });
 
@@ -1974,7 +2137,10 @@ describe("SessionPane model switch recovery", () => {
     expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({
       type: "sendText",
       payload: {
-        modelSelection: { providerId: "account:zai-highspeed-card", modelId: "GLM-5.3" },
+        modelSelection: {
+          providerId: "account:zai-highspeed-card",
+          modelId: "GLM-5.3",
+        },
         mode: "build",
       },
     });
@@ -2031,7 +2197,9 @@ describe("SessionPane model switch recovery", () => {
       act(() => draftConfigMock.handleDraftSwitchMode("yolo"));
       let pending: unknown;
       await act(async () => {
-        pending = captured.composerProps?.onSendText("queued permission preference");
+        pending = captured.composerProps?.onSendText(
+          "queued permission preference",
+        );
         await flushMicrotasks();
       });
       expect(composerRecentMocks.acceptSubmission).not.toHaveBeenCalled();
@@ -2042,7 +2210,9 @@ describe("SessionPane model switch recovery", () => {
         else await expect(pending).rejects.toThrow();
       });
       if (status === "accepted") {
-        expect(composerRecentMocks.acceptSubmission).toHaveBeenCalledExactlyOnceWith(
+        expect(
+          composerRecentMocks.acceptSubmission,
+        ).toHaveBeenCalledExactlyOnceWith(
           "/workspace",
           expect.objectContaining({ mode: "yolo" }),
           undefined,
@@ -2156,7 +2326,10 @@ describe("SessionPane model switch recovery", () => {
       modelId: "deepseek-v4-flash",
       options: { reasoningLevel: "high" },
     };
-    draftConfigMock.draftConfigRef.current = { mode: "build", modelSelection: selection };
+    draftConfigMock.draftConfigRef.current = {
+      mode: "build",
+      modelSelection: selection,
+    };
     // Todo71：prewarm 只消费配置，不再拥有 Composer 选择；真正失效由 Ready View 留空。
     draftConfigMock.resolveInitialDraftConfig.mockReturnValue({
       provider: "primary-provider",
@@ -2199,7 +2372,9 @@ describe("SessionPane model switch recovery", () => {
       await flushMicrotasks();
     });
 
-    expect(draftConfigMock.draftConfigRef.current.modelSelection).toEqual(selection);
+    expect(draftConfigMock.draftConfigRef.current.modelSelection).toEqual(
+      selection,
+    );
     expect(composerRecentMocks.acceptSubmission).not.toHaveBeenCalled();
     await act(async () => {
       await captured.composerProps?.onSendText("first input after fallback");
@@ -2210,7 +2385,11 @@ describe("SessionPane model switch recovery", () => {
     expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({
       type: "sendText",
       sessionId: "session-1",
-      payload: { text: "first input after fallback", modelSelection: selection, mode: "build" },
+      payload: {
+        text: "first input after fallback",
+        modelSelection: selection,
+        mode: "build",
+      },
     });
     expect(mocks.sendCommand).not.toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2325,11 +2504,15 @@ describe("SessionPane model switch recovery", () => {
 
     const root = await renderPane({ sessionId: null });
     await act(async () => {
-      await captured.composerProps?.onSendText("first input with explicit intent");
+      await captured.composerProps?.onSendText(
+        "first input with explicit intent",
+      );
       await flushMicrotasks();
     });
 
-    const envelopes = mocks.sendCommand.mock.calls.map(([envelope]) => envelope);
+    const envelopes = mocks.sendCommand.mock.calls.map(
+      ([envelope]) => envelope,
+    );
     expect(envelopes.at(-1)).toMatchObject({
       type: "sendText",
       payload: {
@@ -2342,8 +2525,12 @@ describe("SessionPane model switch recovery", () => {
         mode: "yolo",
       },
     });
-    expect(envelopes.some((envelope) => envelope.type === "switchModelConfig")).toBe(false);
-    expect(envelopes.some((envelope) => envelope.type === "switchCollaborationMode")).toBe(false);
+    expect(
+      envelopes.some((envelope) => envelope.type === "switchModelConfig"),
+    ).toBe(false);
+    expect(
+      envelopes.some((envelope) => envelope.type === "switchCollaborationMode"),
+    ).toBe(false);
     expect(promote).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -2363,15 +2550,21 @@ describe("SessionPane model switch recovery", () => {
     const root = await renderPane({ remoteSessionId: "remote-session-1" });
 
     await act(async () => {
-      captured.composerProps?.onSelectModel("alternate-provider", "deepseek-v4-pro", {
-        provider: "primary-provider",
-        model: "deepseek-v4-flash",
-      });
+      captured.composerProps?.onSelectModel(
+        "alternate-provider",
+        "deepseek-v4-pro",
+        {
+          provider: "primary-provider",
+          model: "deepseek-v4-flash",
+        },
+      );
       await flushMicrotasks();
     });
 
     expect(mocks.sendCommand).not.toHaveBeenCalled();
-    expect(mocks.zcodeSessionService.updateProviderRegistry).not.toHaveBeenCalled();
+    expect(
+      mocks.zcodeSessionService.updateProviderRegistry,
+    ).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
     });
@@ -2397,18 +2590,24 @@ describe("SessionPane model switch recovery", () => {
     const root = await renderPane();
 
     await act(async () => {
-      captured.composerProps?.onSelectModel("alternate-provider", "deepseek-v4-pro", {
-        provider: "primary-provider",
-        model: "deepseek-v4-flash",
-      });
-      await expect(captured.composerProps?.onSendText("local registry rejection")).rejects.toThrow(
-        "provider.notInRegistry",
+      captured.composerProps?.onSelectModel(
+        "alternate-provider",
+        "deepseek-v4-pro",
+        {
+          provider: "primary-provider",
+          model: "deepseek-v4-flash",
+        },
       );
+      await expect(
+        captured.composerProps?.onSendText("local registry rejection"),
+      ).rejects.toThrow("provider.notInRegistry");
       await flushMicrotasks();
     });
 
     expect(mocks.sendCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.zcodeSessionService.updateProviderRegistry).not.toHaveBeenCalled();
+    expect(
+      mocks.zcodeSessionService.updateProviderRegistry,
+    ).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
     });
@@ -2442,18 +2641,24 @@ describe("SessionPane model switch recovery", () => {
     const root = await renderPane({ remoteSessionId: "remote-session-1" });
 
     await act(async () => {
-      captured.composerProps?.onSelectModel("alternate-provider", "deepseek-v4-pro", {
-        provider: "primary-provider",
-        model: "deepseek-v4-flash",
-      });
-      await expect(captured.composerProps?.onSendText("remote registry rejection")).rejects.toThrow(
-        "provider.notInRegistry",
+      captured.composerProps?.onSelectModel(
+        "alternate-provider",
+        "deepseek-v4-pro",
+        {
+          provider: "primary-provider",
+          model: "deepseek-v4-flash",
+        },
       );
+      await expect(
+        captured.composerProps?.onSendText("remote registry rejection"),
+      ).rejects.toThrow("provider.notInRegistry");
       await flushMicrotasks();
     });
 
     expect(mocks.sendCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.zcodeSessionService.updateProviderRegistry).not.toHaveBeenCalled();
+    expect(
+      mocks.zcodeSessionService.updateProviderRegistry,
+    ).not.toHaveBeenCalled();
     await act(async () => {
       root.unmount();
     });
@@ -2492,13 +2697,18 @@ describe("SessionPane model switch recovery", () => {
       "alternate-provider",
       "deepseek-v4-pro",
     );
-    expect(mocks.zcodeTaskService.restartWorkspaceProcess).toHaveBeenCalledWith({
-      workspacePath: "/workspace",
-      workspaceIdentity: undefined,
-      provider: "glm",
-      bumpRuntimeEpoch: true,
-    });
-    expect(mocks.zcodeTaskService.restartWorkspaceProcess.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(mocks.zcodeTaskService.restartWorkspaceProcess).toHaveBeenCalledWith(
+      {
+        workspacePath: "/workspace",
+        workspaceIdentity: undefined,
+        provider: "glm",
+        bumpRuntimeEpoch: true,
+      },
+    );
+    expect(
+      mocks.zcodeTaskService.restartWorkspaceProcess.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(
       draftConfigMock.handleDraftSelectModel.mock.invocationCallOrder[0] ?? 0,
     );
 
@@ -2570,40 +2780,49 @@ describe("SessionPane compact blocked feedback", () => {
   it.each([
     ["activeTurn", "运行中不能压缩上下文，请等待当前任务结束。"],
     ["compactOperationLock", "已有压缩任务正在运行或排队。"],
-  ])("shows a toast when /compact is rejected with %s", async (reasonCode, expectedToast) => {
-    projectionState.current = {
-      status: "live",
-      snapshot: makeSnapshot(),
-      subscriptionId: "sub-1",
-      lastError: null,
-      optimisticCommands: [],
-      loadingOlder: false,
-    };
-    mocks.sendCommand.mockImplementationOnce(async (envelope: CommandEnvelope) =>
-      ackFor(envelope, {
-        status: "failed",
-        reasonCode,
-      }),
-    );
+  ])(
+    "shows a toast when /compact is rejected with %s",
+    async (reasonCode, expectedToast) => {
+      projectionState.current = {
+        status: "live",
+        snapshot: makeSnapshot(),
+        subscriptionId: "sub-1",
+        lastError: null,
+        optimisticCommands: [],
+        loadingOlder: false,
+      };
+      mocks.sendCommand.mockImplementationOnce(
+        async (envelope: CommandEnvelope) =>
+          ackFor(envelope, {
+            status: "failed",
+            reasonCode,
+          }),
+      );
 
-    const root = await renderPane();
+      const root = await renderPane();
 
-    await act(async () => {
-      await captured.composerProps?.onSendText("/compact");
-      await flushMicrotasks();
-    });
+      await act(async () => {
+        await captured.composerProps?.onSendText("/compact");
+        await flushMicrotasks();
+      });
 
-    expect(mocks.sendCommand).toHaveBeenCalledTimes(1);
-    expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({
-      type: "compact",
-    });
-    expect(Object.hasOwn(mocks.sendCommand.mock.calls[0]?.[0] ?? {}, "baseRevision")).toBe(false);
-    expect(mocks.toast).toHaveBeenCalledWith(expectedToast);
+      expect(mocks.sendCommand).toHaveBeenCalledTimes(1);
+      expect(mocks.sendCommand.mock.calls[0]?.[0]).toMatchObject({
+        type: "compact",
+      });
+      expect(
+        Object.hasOwn(
+          mocks.sendCommand.mock.calls[0]?.[0] ?? {},
+          "baseRevision",
+        ),
+      ).toBe(false);
+      expect(mocks.toast).toHaveBeenCalledWith(expectedToast);
 
-    await act(async () => {
-      root.unmount();
-    });
-  });
+      await act(async () => {
+        root.unmount();
+      });
+    },
+  );
 
   it("shows an accepted toast when running /compact enters the FIFO", async () => {
     const running = makeSnapshot();
@@ -2624,8 +2843,9 @@ describe("SessionPane compact blocked feedback", () => {
       optimisticCommands: [],
       loadingOlder: false,
     };
-    mocks.sendCommand.mockImplementationOnce(async (envelope: CommandEnvelope) =>
-      ackFor(envelope, { status: "accepted" }),
+    mocks.sendCommand.mockImplementationOnce(
+      async (envelope: CommandEnvelope) =>
+        ackFor(envelope, { status: "accepted" }),
     );
 
     const root = await renderPane();
@@ -2634,7 +2854,9 @@ describe("SessionPane compact blocked feedback", () => {
       await flushMicrotasks();
     });
 
-    expect(mocks.toast).toHaveBeenCalledWith("已加入队列，将按顺序压缩上下文。");
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "已加入队列，将按顺序压缩上下文。",
+    );
     await act(async () => {
       root.unmount();
     });
@@ -2663,7 +2885,9 @@ describe("SessionPane /plan shortcut", () => {
     });
 
     expect(sendResult).toBe("sent");
-    const envelopes = mocks.sendCommand.mock.calls.map(([envelope]) => envelope);
+    const envelopes = mocks.sendCommand.mock.calls.map(
+      ([envelope]) => envelope,
+    );
     expect(envelopes.map((envelope) => envelope.type)).toEqual(["sendText"]);
     expect(envelopes[0]).toMatchObject({
       payload: { text: "帮我做 X", mode: "build", planEnabled: true },
@@ -2683,7 +2907,8 @@ describe("SessionPane /plan shortcut", () => {
     };
     mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
       ackFor(envelope, {
-        status: envelope.type === "switchCollaborationMode" ? "noop" : "accepted",
+        status:
+          envelope.type === "switchCollaborationMode" ? "noop" : "accepted",
       }),
     );
 
@@ -2695,7 +2920,9 @@ describe("SessionPane /plan shortcut", () => {
     });
 
     expect(sendResult).toBe("sent");
-    expect(mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type)).toEqual(["sendText"]);
+    expect(
+      mocks.sendCommand.mock.calls.map(([envelope]) => envelope.type),
+    ).toEqual(["sendText"]);
 
     await act(async () => root.unmount());
   });
@@ -2709,15 +2936,16 @@ describe("SessionPane /plan shortcut", () => {
       optimisticCommands: [],
       loadingOlder: false,
     };
-    mocks.sendCommand.mockImplementationOnce(async (envelope: CommandEnvelope) =>
-      ackFor(envelope, { status: "failed", reasonCode: "admission.denied" }),
+    mocks.sendCommand.mockImplementationOnce(
+      async (envelope: CommandEnvelope) =>
+        ackFor(envelope, { status: "failed", reasonCode: "admission.denied" }),
     );
 
     const root = await renderPane();
     await act(async () => {
-      await expect(captured.composerProps?.onSendText("/plan 保留草稿")).rejects.toThrow(
-        "admission.denied",
-      );
+      await expect(
+        captured.composerProps?.onSendText("/plan 保留草稿"),
+      ).rejects.toThrow("admission.denied");
       await flushMicrotasks();
     });
 
@@ -2809,7 +3037,9 @@ describe("SessionPane /plan shortcut", () => {
       };
     });
     mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
-      ackFor(envelope, { result: { type: "createSession", sessionId: "created-plan" } }),
+      ackFor(envelope, {
+        result: { type: "createSession", sessionId: "created-plan" },
+      }),
     );
 
     const root = await renderPane({ sessionId: null });
@@ -2817,7 +3047,8 @@ describe("SessionPane /plan shortcut", () => {
       const callsBeforeSubmit = mocks.sendCommand.mock.calls.length;
       let sendResult: unknown;
       await act(async () => {
-        sendResult = await captured.composerProps?.onSendText("/plan 先列出步骤");
+        sendResult =
+          await captured.composerProps?.onSendText("/plan 先列出步骤");
         await flushMicrotasks();
       });
 
@@ -2855,7 +3086,12 @@ describe("SessionPane /plan shortcut", () => {
     await act(async () => {
       sendResult = await captured.composerProps?.onSendText("/plan 检查附件", {
         attachments: [
-          { ref: "zcode-artifact://a", fileName: "a.txt", mime: "text/plain", bytes: 1 },
+          {
+            ref: "zcode-artifact://a",
+            fileName: "a.txt",
+            mime: "text/plain",
+            bytes: 1,
+          },
         ],
       });
       await flushMicrotasks();
@@ -2863,14 +3099,21 @@ describe("SessionPane /plan shortcut", () => {
 
     expect(sendResult).toBe("blocked");
     expect(mocks.sendCommand.mock.calls.length).toBe(callsBeforeSubmit);
-    expect(mocks.toast).toHaveBeenCalledWith("首版 /plan 仅支持纯文本，请移除附件或上下文后重试。");
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "首版 /plan 仅支持纯文本，请移除附件或上下文后重试。",
+    );
 
     await act(async () => root.unmount());
   });
 });
 
 describe("SessionPane Plan mode goal guard", () => {
-  it.each(["/goal", "/goal 保留这段输入", "/target 保留别名输入", "/goal resume"])(
+  it.each([
+    "/goal",
+    "/goal 保留这段输入",
+    "/target 保留别名输入",
+    "/goal resume",
+  ])(
     "blocks %s before any conversation command is dispatched",
     async (command) => {
       const planSnapshot = makeSnapshot();
@@ -2893,7 +3136,9 @@ describe("SessionPane Plan mode goal guard", () => {
 
       expect(sendResult).toBe("blocked");
       expect(mocks.sendCommand).not.toHaveBeenCalled();
-      expect(mocks.toast).toHaveBeenCalledWith("Goal 无法在 Plan 模式下使用，请切换模式。");
+      expect(mocks.toast).toHaveBeenCalledWith(
+        "Goal 无法在 Plan 模式下使用，请切换模式。",
+      );
 
       await act(async () => {
         root.unmount();
@@ -2910,8 +3155,9 @@ describe("SessionPane Plan mode goal guard", () => {
       optimisticCommands: [],
       loadingOlder: false,
     };
-    mocks.sendCommand.mockImplementationOnce(async (envelope: CommandEnvelope) =>
-      ackFor(envelope, { status: "accepted" }),
+    mocks.sendCommand.mockImplementationOnce(
+      async (envelope: CommandEnvelope) =>
+        ackFor(envelope, { status: "accepted" }),
     );
 
     const root = await renderPane();
@@ -2959,163 +3205,21 @@ describe("SessionPane Plan mode goal guard", () => {
 
     let result: unknown;
     await act(async () => {
-      result = await captured.composerProps?.onSendText("/goal draft objective");
+      result = await captured.composerProps?.onSendText(
+        "/goal draft objective",
+      );
       await flushMicrotasks();
     });
 
     expect(result).toBe("blocked");
     expect(mocks.sendCommand).toHaveBeenCalledTimes(callsBeforeSubmit);
     expect(onSessionCreated).not.toHaveBeenCalled();
-    expect(mocks.toast).toHaveBeenCalledWith("Goal 无法在 Plan 模式下使用，请切换模式。");
+    expect(mocks.toast).toHaveBeenCalledWith(
+      "Goal 无法在 Plan 模式下使用，请切换模式。",
+    );
 
     await act(async () => {
       root.unmount();
     });
   });
-});
-
-describe("Start 提交推荐只修改本次 Submission", () => {
-  it.each([false, true])("桌面/手机(%s)确认切换保留思考强度且只发送一次", async (mobile) => {
-    projectionState.current = {
-      status: "live",
-      snapshot: makeSnapshot(),
-      subscriptionId: "start154",
-      lastError: null,
-      optimisticCommands: [],
-      loadingOlder: false,
-    };
-    recommendation.mockImplementation(async (selection) => ({
-      ...selection,
-      providerId: "account:bigmodel-start-plan",
-    }));
-    mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
-      ackFor(envelope, { status: "accepted" }),
-    );
-    const root = await renderPane({ compactForRemoteControl: mobile });
-    try {
-      await act(async () => {
-        await captured.composerProps?.onSendText("start154-submit");
-      });
-      expect(recommendation).toHaveBeenCalledOnce();
-      const original = recommendation.mock.calls[0]![0];
-      const commands = mocks.sendCommand.mock.calls
-        .map(([envelope]) => envelope)
-        .filter((envelope) => envelope.type === "sendText");
-      expect(commands).toHaveLength(1);
-      expect(commands[0]).toMatchObject({
-        payload: { modelSelection: { ...original, providerId: "account:bigmodel-start-plan" } },
-      });
-    } finally {
-      await act(async () => root.unmount());
-    }
-  });
-  it("关闭推荐框不提交新消息，沿用原预热规则", async () => {
-    projectionState.current = {
-      status: "live",
-      snapshot: makeSnapshot(),
-      subscriptionId: "start154",
-      lastError: null,
-      optimisticCommands: [],
-      loadingOlder: false,
-    };
-    recommendation.mockResolvedValue(null);
-    const root = await renderPane({ sessionId: null });
-    try {
-      let result: unknown;
-      await act(async () => {
-        result = await captured.composerProps?.onSendText("keep-draft");
-      });
-      expect(result).toBe("blocked");
-      expect(
-        mocks.sendCommand.mock.calls
-          .map(([envelope]) => envelope)
-          .filter((envelope) => envelope.type !== "createSession"),
-      ).toEqual([]);
-    } finally {
-      await act(async () => root.unmount());
-    }
-  });
-});
-
-describe("副屏首条推荐的桌面与手机提交边界", () => {
-  for (const mobile of [false, true]) {
-    it.each(["confirm", "decline", "close"] as const)(
-      `mobile=${mobile}：%s 只决定 child 首条，不改父草稿`,
-      async (choice) => {
-        projectionState.current = {
-          status: "live",
-          snapshot: makeSnapshot(),
-          subscriptionId: "start156-side",
-          lastError: null,
-          optimisticCommands: [],
-          loadingOlder: false,
-        };
-        draftConfigMock.draftConfigRef.current = {
-          modelSelection: {
-            providerId: "alternate-provider",
-            modelId: "deepseek-v4-pro",
-            options: { reasoningLevel: "low" },
-          },
-        };
-        recommendation.mockImplementation(async (selection) =>
-          choice === "close"
-            ? null
-            : choice === "confirm"
-              ? { ...selection, providerId: "account:bigmodel-start-plan" }
-              : selection,
-        );
-        mocks.sendCommand.mockImplementation(async (envelope: CommandEnvelope) =>
-          ackFor(envelope, {
-            result: { type: "createSelectionSideSession", childSessionId: "start156-child" },
-          }),
-        );
-        const onOpenSelectionSideChat = vi.fn();
-        const root = await renderPane({ compactForRemoteControl: mobile, onOpenSelectionSideChat });
-        try {
-          const before = structuredClone(draftConfigMock.draftConfigRef.current);
-          let result: unknown;
-          await act(async () => {
-            result = await captured.composerProps?.onSendText("/side explain this");
-          });
-          expect(recommendation).toHaveBeenCalledExactlyOnceWith({
-            providerId: "primary-provider",
-            modelId: "deepseek-v4-flash",
-            options: { reasoningLevel: "high" },
-          });
-          expect(draftConfigMock.draftConfigRef.current).toEqual(before);
-          expect(result).toBe(choice === "close" ? "blocked" : "sent");
-          if (choice === "close") {
-            expect(mocks.sendCommand).not.toHaveBeenCalled();
-            expect(onOpenSelectionSideChat).not.toHaveBeenCalled();
-          } else {
-            expect(mocks.sendCommand).toHaveBeenCalledOnce();
-            expect(mocks.sendCommand.mock.calls[0]![0]).toMatchObject({
-              type: "createSelectionSideSession",
-              payload: {
-                firstInput: {
-                  text: "explain this",
-                  ...(choice === "confirm"
-                    ? {
-                        modelSelection: {
-                          providerId: "account:bigmodel-start-plan",
-                          modelId: "deepseek-v4-flash",
-                          options: { reasoningLevel: "high" },
-                        },
-                      }
-                    : {}),
-                },
-              },
-            });
-            if (choice === "decline")
-              expect(mocks.sendCommand.mock.calls[0]![0].payload).toEqual({
-                firstInput: { text: "explain this" },
-              });
-            expect(onOpenSelectionSideChat).toHaveBeenCalledOnce();
-          }
-        } finally {
-          await act(async () => root.unmount());
-        }
-      },
-    );
-  }
 });

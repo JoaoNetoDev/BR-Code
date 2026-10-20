@@ -3,9 +3,20 @@
 import { readFileSync } from "node:fs";
 import { createElement, type ChangeEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TID_SUBAGENT_BUILT_IN_MODEL_TRIGGER, TID_SUBAGENT_ROW, testId } from "@zcode/shared";
+import {
+  TID_SUBAGENT_BUILT_IN_MODEL_TRIGGER,
+  TID_SUBAGENT_ROW,
+  testId,
+} from "@zcode/shared";
 import { encodeCustomModelValue } from "../src/lib/zcodeCustomModelValue.js";
 
 const capturedButtons: Array<Record<string, unknown>> = [];
@@ -32,7 +43,9 @@ const mockSubagentsService = vi.hoisted(() => ({
   setBuiltInModelOverride: vi.fn(),
   setPluginAgentModelOverride: vi.fn(),
 }));
-const mockRefreshLoadedSubagentsStoreForWorkspace = vi.hoisted(() => vi.fn(async () => {}));
+const mockRefreshLoadedSubagentsStoreForWorkspace = vi.hoisted(() =>
+  vi.fn(async () => {}),
+);
 const mockUseModelProviders = vi.hoisted(() =>
   vi.fn(() => ({
     displayOrder: { providerIds: [] },
@@ -134,7 +147,10 @@ vi.mock("react", async () => {
   const actual = await vi.importActual<typeof import("react")>("react");
   return {
     ...actual,
-    useEffect: (effect: () => void | (() => void), dependencies?: readonly unknown[]) =>
+    useEffect: (
+      effect: () => void | (() => void),
+      dependencies?: readonly unknown[],
+    ) =>
       useRealReactHooks ? actual.useEffect(effect, dependencies) : undefined,
     useState: (initialValue: unknown) => {
       if (useRealReactHooks) {
@@ -148,7 +164,10 @@ vi.mock("react", async () => {
         return [[], vi.fn()] as const;
       }
       if (useStateCallCount === 2) {
-        return [{ userScopeAvailable: false, userScopeReason: "desktop_only" }, vi.fn()] as const;
+        return [
+          { userScopeAvailable: false, userScopeReason: "desktop_only" },
+          vi.fn(),
+        ] as const;
       }
       if (useStateCallCount === 3) {
         return [false, vi.fn()] as const;
@@ -156,7 +175,10 @@ vi.mock("react", async () => {
       if (useStateCallCount === 4) {
         return [false, vi.fn()] as const;
       }
-      return [typeof initialValue === "function" ? initialValue() : initialValue, vi.fn()] as const;
+      return [
+        typeof initialValue === "function" ? initialValue() : initialValue,
+        vi.fn(),
+      ] as const;
     },
   };
 });
@@ -169,12 +191,15 @@ vi.mock("lucide-react", () => ({
   CircleHelp: (props: Record<string, unknown>) =>
     createElement("svg", { ...props, "data-icon": "reasoning-unavailable" }),
   FolderOpen: (props: Record<string, unknown>) => createElement("svg", props),
-  InfoIcon: (props: Record<string, unknown>) => createElement("svg", props, "info"),
+  InfoIcon: (props: Record<string, unknown>) =>
+    createElement("svg", props, "info"),
   Download: (props: Record<string, unknown>) => createElement("svg", props),
   Import: (props: Record<string, unknown>) => createElement("svg", props),
-  SquareArrowRightEnter: (props: Record<string, unknown>) => createElement("svg", props),
+  SquareArrowRightEnter: (props: Record<string, unknown>) =>
+    createElement("svg", props),
   Loader2: (props: Record<string, unknown>) => createElement("svg", props),
-  MoreHorizontal: (props: Record<string, unknown>) => createElement("svg", props),
+  MoreHorizontal: (props: Record<string, unknown>) =>
+    createElement("svg", props),
   Pencil: (props: Record<string, unknown>) => createElement("svg", props),
   Plus: (props: Record<string, unknown>) => createElement("svg", props),
   RefreshCw: (props: Record<string, unknown>) => createElement("svg", props),
@@ -185,14 +210,24 @@ vi.mock("lucide-react", () => ({
 }));
 
 vi.mock("@/components/ui/button.js", () => ({
-  Button: ({ children, ...props }: { children: unknown; [key: string]: unknown }) => {
+  Button: ({
+    children,
+    ...props
+  }: {
+    children: unknown;
+    [key: string]: unknown;
+  }) => {
     capturedButtons.push({ children, ...props });
     return createElement("button", props, children);
   },
 }));
 
 vi.mock("@/ModelConfigSelect.js", () => ({
-  ModelConfigSelect: ({ triggerLabel, normalizedValue, ...props }: Record<string, unknown>) => {
+  ModelConfigSelect: ({
+    triggerLabel,
+    normalizedValue,
+    ...props
+  }: Record<string, unknown>) => {
     capturedModelConfigSelects.push({
       triggerLabel,
       normalizedValue,
@@ -214,12 +249,19 @@ vi.mock("@/ControlHintTooltip.js", () => ({
 }));
 
 vi.mock("@/store/TabStoreProvider.js", () => ({
-  useTabStore: (selector: (state: { tabs: unknown[] }) => unknown) => selector(mockTabs),
+  useTabStore: (selector: (state: { tabs: unknown[] }) => unknown) =>
+    selector(mockTabs),
 }));
 
 vi.mock("@/store/pluginManagementStore.js", () => ({
-  usePluginManagementStore: (selector: (state: Record<string, unknown>) => unknown) =>
-    selector({ plugins: [], availablePlugins: [], initialize: mockInitializePlugins }),
+  usePluginManagementStore: (
+    selector: (state: Record<string, unknown>) => unknown,
+  ) =>
+    selector({
+      plugins: [],
+      availablePlugins: [],
+      initialize: mockInitializePlugins,
+    }),
 }));
 
 vi.mock("@/settings/PluginScopeMenu.js", () => ({
@@ -243,16 +285,22 @@ vi.mock("@/components/ui/input.js", () => ({
 }));
 
 vi.mock("@/components/ui/select.js", () => ({
-  Select: ({ children }: { children: unknown }) => createElement("div", null, children),
-  SelectContent: ({ children }: { children: unknown }) => createElement("div", null, children),
-  SelectItem: ({ children }: { children: unknown }) => createElement("div", null, children),
-  SelectTrigger: ({ children }: { children: unknown }) => createElement("button", null, children),
+  Select: ({ children }: { children: unknown }) =>
+    createElement("div", null, children),
+  SelectContent: ({ children }: { children: unknown }) =>
+    createElement("div", null, children),
+  SelectItem: ({ children }: { children: unknown }) =>
+    createElement("div", null, children),
+  SelectTrigger: ({ children }: { children: unknown }) =>
+    createElement("button", null, children),
   SelectValue: () => createElement("span"),
 }));
 
 vi.mock("@/components/ui/tabs.js", () => ({
-  Tabs: ({ children }: { children: unknown }) => createElement("div", null, children),
-  TabsList: ({ children }: { children: unknown }) => createElement("div", null, children),
+  Tabs: ({ children }: { children: unknown }) =>
+    createElement("div", null, children),
+  TabsList: ({ children }: { children: unknown }) =>
+    createElement("div", null, children),
   TabsTrigger: ({ children, value }: { children: unknown; value: string }) =>
     createElement("button", { type: "button", "data-value": value }, children),
 }));
@@ -272,7 +320,8 @@ vi.mock("@/components/ui/switch.js", () => ({
 }));
 
 vi.mock("@/components/ui/textarea.js", () => ({
-  Textarea: (props: Record<string, unknown>) => createElement("textarea", props),
+  Textarea: (props: Record<string, unknown>) =>
+    createElement("textarea", props),
 }));
 
 vi.mock("@/components/ui/toast.js", () => ({
@@ -297,7 +346,8 @@ vi.mock("@/hooks/useServices.js", () => ({
 }));
 
 vi.mock("@/store/subagentsStore.js", () => ({
-  refreshLoadedSubagentsStoreForWorkspace: mockRefreshLoadedSubagentsStoreForWorkspace,
+  refreshLoadedSubagentsStoreForWorkspace:
+    mockRefreshLoadedSubagentsStoreForWorkspace,
 }));
 
 vi.mock("@/hooks/useModelProviders.js", () => ({
@@ -326,19 +376,25 @@ vi.mock("@/hooks/useZCodeConfig.js", () => ({
   }),
 }));
 
-vi.mock("@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js", () => ({
-  useEnterpriseCodingPlanProducts: () => ({
-    snapshot: null,
-    loading: false,
-    error: null,
-    refresh: vi.fn(async () => {}),
+vi.mock(
+  "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js",
+  () => ({
+    useEnterpriseCodingPlanProducts: () => ({
+      snapshot: null,
+      loading: false,
+      error: null,
+      refresh: vi.fn(async () => {}),
+    }),
   }),
-}));
+);
 
 vi.mock("@/i18n/IntlProvider.js", () => ({
   useZCodeIntl: () => ({
     intl: {
-      formatMessage: ({ id }: { id: string }, values?: Record<string, string | number>) => {
+      formatMessage: (
+        { id }: { id: string },
+        values?: Record<string, string | number>,
+      ) => {
         const messages: Record<string, string> = {
           "settings.subagents.description": "Manage subagents.",
           "settings.subagents.workspaceScopeUnsupported":
@@ -350,18 +406,22 @@ vi.mock("@/i18n/IntlProvider.js", () => ({
           "settings.resourceActions.more": "More actions",
           "common.loading": "Loading...",
           "common.refresh": "Refresh",
-          "settings.subagents.openUserAgentsFolder": "Open user subagents folder",
+          "settings.subagents.openUserAgentsFolder":
+            "Open user subagents folder",
           "settings.subagents.noDescription": "No description",
           "settings.skills.refresh": "Refresh",
           "settings.skills.refreshing": "Refreshing...",
           "settings.subagents.searchPlaceholder": "Search subagents",
-          "settings.subagents.userScopeDesktopOnly": "Subagents are desktop only.",
+          "settings.subagents.userScopeDesktopOnly":
+            "Subagents are desktop only.",
           "settings.subagents.empty": "No subagents found",
           "settings.subagents.group.user": "Installed",
           "settings.subagents.group.plugin": "Plugin subagents",
-          "settings.subagents.group.plugin.hint": "Plugin agents are read-only.",
+          "settings.subagents.group.plugin.hint":
+            "Plugin agents are read-only.",
           "settings.subagents.group.builtIn": "Built-in subagents",
-          "settings.subagents.group.builtIn.hint": "Built-in agents are read-only.",
+          "settings.subagents.group.builtIn.hint":
+            "Built-in agents are read-only.",
           "settings.modelProvider.connectionMode.apiKeyBadge": "API",
           "settings.modelProvider.connectionMode.codingPlanBadge": "Individual",
           "settings.modelProvider.connectionMode.startPlan": "Start Plan",
@@ -375,7 +435,8 @@ vi.mock("@/i18n/IntlProvider.js", () => ({
           "settings.subagents.model.inherit": "Inherit default",
           "settings.subagents.model.defaultMain": "Inherit default",
           "settings.subagents.model.main": "Main model",
-          "settings.subagents.reasoningUnavailable": "Reasoning effort unavailable",
+          "settings.subagents.reasoningUnavailable":
+            "Reasoning effort unavailable",
           "settings.subagents.toolsCount": `${values?.count ?? 0} tools`,
           "settings.subagents.tools.all": "All tools",
           "settings.subagents.tools.inherit": "Inherit tools",
@@ -384,7 +445,8 @@ vi.mock("@/i18n/IntlProvider.js", () => ({
           "settings.modelProvider.apiKey": "API key",
           "settings.modelProvider.connectionMode.codingPlan": "Individual Plan",
           "chat.toolbar.model.manageModels": "Manage models",
-          "settings.subagents.form.validation.thoughtLevelUnavailable": "Select a supported effort",
+          "settings.subagents.form.validation.thoughtLevelUnavailable":
+            "Select a supported effort",
         };
         return messages[id] ?? id;
       },
@@ -393,12 +455,14 @@ vi.mock("@/i18n/IntlProvider.js", () => ({
 }));
 
 vi.mock("@/settings/SettingsResourceGroupHeader.js", () => ({
-  SettingsResourceGroupHeader: ({ title }: { title: string }) => createElement("h3", null, title),
+  SettingsResourceGroupHeader: ({ title }: { title: string }) =>
+    createElement("h3", null, title),
 }));
 
 async function renderSubagentsSection() {
   useStateCallCount = 0;
-  const { SubagentsSection } = await import("../src/settings/SubagentsSection.js");
+  const { SubagentsSection } =
+    await import("../src/settings/SubagentsSection.js");
   return renderToStaticMarkup(
     createElement(SubagentsSection, {
       onManageModels,
@@ -409,7 +473,8 @@ async function renderSubagentsSection() {
 
 async function renderInteractiveSubagentsSection() {
   useRealReactHooks = true;
-  const { SubagentsSection } = await import("../src/settings/SubagentsSection.js");
+  const { SubagentsSection } =
+    await import("../src/settings/SubagentsSection.js");
   return render(
     createElement(SubagentsSection, {
       onManageModels,
@@ -454,7 +519,9 @@ describe("SubagentsSection", () => {
   it.each([false, true])(
     "插件初始化晚于首读时刷新用户页资源；卸载=%s 不消费迟到结果",
     async (unmounted) => {
-      mockTabs.tabs = [{ kind: "workspace", id: "local", workspacePath: "/repo" }];
+      mockTabs.tabs = [
+        { kind: "workspace", id: "local", workspacePath: "/repo" },
+      ];
       let resolveInventory!: () => void;
       mockInitializePlugins.mockImplementationOnce(
         () =>
@@ -463,24 +530,35 @@ describe("SubagentsSection", () => {
           }),
       );
       await renderInteractiveSubagentsSection();
-      await waitFor(() => expect(mockSubagentsService.list).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(mockSubagentsService.list).toHaveBeenCalledTimes(1),
+      );
       expect(mockInitializePlugins).toHaveBeenCalledWith(
-        expect.objectContaining({ workspacePath: "/repo", configScope: "user" }),
+        expect.objectContaining({
+          workspacePath: "/repo",
+          configScope: "user",
+        }),
       );
       if (unmounted) cleanup();
       await act(async () => {
         resolveInventory();
         await Promise.resolve();
       });
-      expect(mockSubagentsService.list).toHaveBeenCalledTimes(unmounted ? 1 : 2);
+      expect(mockSubagentsService.list).toHaveBeenCalledTimes(
+        unmounted ? 1 : 2,
+      );
       expect(mockSubagentsService.list).toHaveBeenLastCalledWith(
-        expect.objectContaining({ workspacePath: "", mode: "settingsUserOnly" }),
+        expect.objectContaining({
+          workspacePath: "",
+          mode: "settingsUserOnly",
+        }),
       );
     },
   );
 
   it("keeps same-name plugin subagents in separate marketplace groups", async () => {
-    const { groupPluginAgentsById } = await import("../src/settings/SubagentsSection.js");
+    const { groupPluginAgentsById } =
+      await import("../src/settings/SubagentsSection.js");
     const groups = groupPluginAgentsById([
       {
         id: "official-agent",
@@ -519,7 +597,9 @@ describe("SubagentsSection", () => {
 
     expect(findButton("New")).toBeUndefined();
     expect(findButton("Open user subagents folder")).toBeUndefined();
-    expect(html).not.toContain("Workspace-level creation or editing is unsupported");
+    expect(html).not.toContain(
+      "Workspace-level creation or editing is unsupported",
+    );
     expect(html).toContain("Subagents are desktop only.");
   });
 
@@ -553,15 +633,23 @@ describe("SubagentsSection", () => {
     // Bugfix 回归：workspace profile 可编辑之后仍不能展示启用开关——runtime 只对 user scope
     // 应用 disabledAgentIds（CLI isDisabledUserProfile 对 source !== "user" 直接 false，
     // workspace profile 的 source 是 "project"），开关点了会静默回弹。
-    const source = readFileSync("packages/ui/src/settings/SubagentsSection.tsx", "utf8");
-    expect(source).toMatch(/function supportsEnabledToggle\([\s\S]*?agent\.scope === "user"/);
+    const source = readFileSync(
+      "packages/ui/src/settings/SubagentsSection.tsx",
+      "utf8",
+    );
+    expect(source).toMatch(
+      /function supportsEnabledToggle\([\s\S]*?agent\.scope === "user"/,
+    );
     expect(source).toMatch(/\{showEnabledToggle \? \(\s*<Switch/);
-    expect(source).toContain("const showEnabledToggle = supportsEnabledToggle(agent);");
+    expect(source).toContain(
+      "const showEnabledToggle = supportsEnabledToggle(agent);",
+    );
     expect(source).toContain("if (!supportsEnabledToggle(agent)) {");
   });
 
   it("projects one settings row per plugin agent file while keeping runtime aliases separate", async () => {
-    const { projectSettingsSubagents } = await import("../src/settings/SubagentsSection.js");
+    const { projectSettingsSubagents } =
+      await import("../src/settings/SubagentsSection.js");
     const canonical = {
       id: "plugin:feature-dev@claude-plugins-official:code-architect",
       name: "feature-dev:code-architect",
@@ -679,14 +767,30 @@ describe("SubagentsSection", () => {
     const userRow = container.querySelector(
       `[data-testid="${testId(TID_SUBAGENT_ROW, "code-reviewer")}"]`,
     );
-    expect(builtInRow?.classList.contains("grid-cols-[auto_minmax(0,1fr)]")).toBe(true);
-    expect(builtInRow?.classList.contains("sm:grid-cols-[auto_minmax(0,1fr)_auto]")).toBe(true);
-    expect(builtInRow?.lastElementChild?.classList.contains("col-span-2")).toBe(true);
-    expect(builtInRow?.lastElementChild?.classList.contains("sm:col-span-1")).toBe(true);
-    expect(userRow?.classList.contains("grid-cols-[auto_minmax(0,1fr)_auto]")).toBe(true);
-    expect(userRow?.classList.contains("sm:grid-cols-[auto_minmax(0,1fr)_auto]")).toBe(false);
-    expect(userRow?.lastElementChild?.classList.contains("shrink-0")).toBe(true);
-    expect(userRow?.lastElementChild?.classList.contains("col-span-2")).toBe(false);
+    expect(
+      builtInRow?.classList.contains("grid-cols-[auto_minmax(0,1fr)]"),
+    ).toBe(true);
+    expect(
+      builtInRow?.classList.contains("sm:grid-cols-[auto_minmax(0,1fr)_auto]"),
+    ).toBe(true);
+    expect(builtInRow?.lastElementChild?.classList.contains("col-span-2")).toBe(
+      true,
+    );
+    expect(
+      builtInRow?.lastElementChild?.classList.contains("sm:col-span-1"),
+    ).toBe(true);
+    expect(
+      userRow?.classList.contains("grid-cols-[auto_minmax(0,1fr)_auto]"),
+    ).toBe(true);
+    expect(
+      userRow?.classList.contains("sm:grid-cols-[auto_minmax(0,1fr)_auto]"),
+    ).toBe(false);
+    expect(userRow?.lastElementChild?.classList.contains("shrink-0")).toBe(
+      true,
+    );
+    expect(userRow?.lastElementChild?.classList.contains("col-span-2")).toBe(
+      false,
+    );
     expect(capturedModelConfigSelects).toEqual([
       expect.objectContaining({
         normalizedValue: "inherit",
@@ -727,8 +831,14 @@ describe("SubagentsSection", () => {
             source: "built-in",
             enabled: true,
             readOnly: true,
-            modelSelection: { providerId: "custom-openai", modelId: "plain-chat" },
-            modelSelectionOverride: { providerId: "custom-openai", modelId: "plain-chat" },
+            modelSelection: {
+              providerId: "custom-openai",
+              modelId: "plain-chat",
+            },
+            modelSelectionOverride: {
+              providerId: "custom-openai",
+              modelId: "plain-chat",
+            },
             tools: ["Read"],
           },
         ],
@@ -830,6 +940,19 @@ describe("SubagentsSection", () => {
       showManageModelsAction: false,
     });
     expect(explorePicker?.tooltipTitle).toBeUndefined();
+    // RF-12a：子代理模型下拉必须隐藏账号营销徽标（Free/Individual/Team）。
+    for (const picker of capturedModelConfigSelects) {
+      const groups = (picker.modelGroups ?? []) as Array<{
+        labelBadge?: string;
+        key: string;
+      }>;
+      expect(
+        groups.filter((group) => group.key.startsWith("registry-provider:")),
+      ).not.toHaveLength(0);
+      expect(groups.every((group) => group.labelBadge === undefined)).toBe(
+        true,
+      );
+    }
     expect(explorePicker?.footerActions).toContainEqual(
       expect.objectContaining({
         key: "subagent-model:built-in-default",
@@ -838,9 +961,9 @@ describe("SubagentsSection", () => {
       }),
     );
     expect(generalPurposePicker?.onValueChange).toBeTypeOf("function");
-    await (generalPurposePicker!.onValueChange as (value: string) => Promise<void>)(
-      "custom:custom-openai:gpt-5.4",
-    );
+    await (
+      generalPurposePicker!.onValueChange as (value: string) => Promise<void>
+    )("custom:custom-openai:gpt-5.4");
 
     expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith({
       agentName: "general-purpose",
@@ -876,7 +999,10 @@ describe("SubagentsSection", () => {
             enabled: true,
             readOnly: true,
             modelSelection: { providerId: "custom-openai", modelId: "gpt-5.4" },
-            modelSelectionOverride: { providerId: "custom-openai", modelId: "gpt-5.4" },
+            modelSelectionOverride: {
+              providerId: "custom-openai",
+              modelId: "gpt-5.4",
+            },
             tools: ["Read"],
           },
         ],
@@ -887,7 +1013,9 @@ describe("SubagentsSection", () => {
     await renderSubagentsSection();
     const effortControl = capturedThoughtLevelControls[0];
     if (!effortControl) {
-      throw new Error("Expected the built-in reasoning effort control to render");
+      throw new Error(
+        "Expected the built-in reasoning effort control to render",
+      );
     }
 
     expect(effortControl.option).toMatchObject({
@@ -899,27 +1027,31 @@ describe("SubagentsSection", () => {
     (effortControl.onCurrentValueCommit as (value: string) => void)("high");
 
     await waitFor(() => {
-      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith({
-        agentName: "Explore",
-        modelSelection: {
-          providerId: "custom-openai",
-          modelId: "gpt-5.4",
-          options: { reasoningLevel: "high" },
+      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith(
+        {
+          agentName: "Explore",
+          modelSelection: {
+            providerId: "custom-openai",
+            modelId: "gpt-5.4",
+            options: { reasoningLevel: "high" },
+          },
         },
-      });
+      );
     });
     mockSubagentsService.setBuiltInModelOverride.mockClear();
     (effortControl.onValueChange as (value: string) => void)("low");
 
     await waitFor(() => {
-      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith({
-        agentName: "Explore",
-        modelSelection: {
-          providerId: "custom-openai",
-          modelId: "gpt-5.4",
-          options: { reasoningLevel: "low" },
+      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith(
+        {
+          agentName: "Explore",
+          modelSelection: {
+            providerId: "custom-openai",
+            modelId: "gpt-5.4",
+            options: { reasoningLevel: "low" },
+          },
         },
-      });
+      );
     });
   });
 
@@ -943,7 +1075,10 @@ describe("SubagentsSection", () => {
       enabled: true,
       readOnly: true,
       tools: ["Read", "Bash"],
-      defaultModelSelection: { providerId: "custom-openai", modelId: "gpt-5.4" },
+      defaultModelSelection: {
+        providerId: "custom-openai",
+        modelId: "gpt-5.4",
+      },
       modelSelection: selection,
       modelSelectionOverride: selection,
     };
@@ -957,19 +1092,29 @@ describe("SubagentsSection", () => {
       `[data-testid="${testId(TID_SUBAGENT_ROW, pluginAgent.name)}"]`,
     );
     expect(row?.getAttribute("role")).toBeNull();
-    expect(row?.classList.contains("sm:grid-cols-[auto_minmax(0,1fr)_auto]")).toBe(true);
+    expect(
+      row?.classList.contains("sm:grid-cols-[auto_minmax(0,1fr)_auto]"),
+    ).toBe(true);
     expect(
       container.querySelector(
         `[data-testid="${testId(TID_SUBAGENT_BUILT_IN_MODEL_TRIGGER, pluginAgent.name)}"]`,
       ),
     ).not.toBeNull();
     const picker = capturedModelConfigSelects.find(
-      (candidate) => candidate.normalizedValue === "custom:custom-openai:glm-5.2",
+      (candidate) =>
+        candidate.normalizedValue === "custom:custom-openai:glm-5.2",
     );
-    expect(picker).toMatchObject({ triggerLabel: "glm-5.2", showManageModelsAction: false });
-    (picker!.onValueChange as (value: string) => void)("custom:custom-openai:gpt-5.4");
+    expect(picker).toMatchObject({
+      triggerLabel: "glm-5.2",
+      showManageModelsAction: false,
+    });
+    (picker!.onValueChange as (value: string) => void)(
+      "custom:custom-openai:gpt-5.4",
+    );
     await waitFor(() =>
-      expect(mockSubagentsService.setPluginAgentModelOverride).toHaveBeenCalledWith({
+      expect(
+        mockSubagentsService.setPluginAgentModelOverride,
+      ).toHaveBeenCalledWith({
         agentId: pluginAgent.id,
         modelSelection: {
           providerId: "custom-openai",
@@ -1016,7 +1161,8 @@ describe("SubagentsSection", () => {
 
     await renderSubagentsSection();
     const picker = capturedModelConfigSelects.find(
-      (candidate) => candidate.normalizedValue === "custom:custom-openai:glm-5.2",
+      (candidate) =>
+        candidate.normalizedValue === "custom:custom-openai:glm-5.2",
     );
     const onValueChange = picker?.onValueChange as (value: string) => void;
     onValueChange("custom:custom-openai:glm-5.2");
@@ -1024,14 +1170,16 @@ describe("SubagentsSection", () => {
 
     onValueChange("custom:custom-openai:gpt-5.4");
     await waitFor(() => {
-      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith({
-        agentName: "Explore",
-        modelSelection: {
-          providerId: "custom-openai",
-          modelId: "gpt-5.4",
-          options: { reasoningLevel: "high" },
+      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith(
+        {
+          agentName: "Explore",
+          modelSelection: {
+            providerId: "custom-openai",
+            modelId: "gpt-5.4",
+            options: { reasoningLevel: "high" },
+          },
         },
-      });
+      );
     });
   });
 
@@ -1076,25 +1224,32 @@ describe("SubagentsSection", () => {
     await waitFor(() => {
       expect(
         capturedModelConfigSelects.some(
-          (candidate) => candidate.normalizedValue === "custom:custom-openai:glm-5.2",
+          (candidate) =>
+            candidate.normalizedValue === "custom:custom-openai:glm-5.2",
         ),
       ).toBe(true);
     });
 
     const initialPicker = capturedModelConfigSelects.findLast(
-      (candidate) => candidate.normalizedValue === "custom:custom-openai:glm-5.2",
+      (candidate) =>
+        candidate.normalizedValue === "custom:custom-openai:glm-5.2",
     );
     const onModelValueChange = initialPicker?.onValueChange;
     expect(onModelValueChange).toBeTypeOf("function");
     const beforeOptimisticRender = capturedModelConfigSelects.length;
     act(() => {
-      (onModelValueChange as (value: string) => void)("custom:custom-openai:gpt-5.4");
+      (onModelValueChange as (value: string) => void)(
+        "custom:custom-openai:gpt-5.4",
+      );
     });
     await waitFor(() => {
       expect(
         capturedModelConfigSelects
           .slice(beforeOptimisticRender)
-          .some((candidate) => candidate.normalizedValue === "custom:custom-openai:gpt-5.4"),
+          .some(
+            (candidate) =>
+              candidate.normalizedValue === "custom:custom-openai:gpt-5.4",
+          ),
       ).toBe(true);
     });
 
@@ -1110,7 +1265,10 @@ describe("SubagentsSection", () => {
       expect(
         capturedModelConfigSelects
           .slice(beforeRollbackRender)
-          .some((candidate) => candidate.normalizedValue === "custom:custom-openai:glm-5.2"),
+          .some(
+            (candidate) =>
+              candidate.normalizedValue === "custom:custom-openai:glm-5.2",
+          ),
       ).toBe(true);
       expect(
         capturedThoughtLevelControls
@@ -1149,7 +1307,9 @@ describe("SubagentsSection", () => {
       pluginAgents: [],
       capability: { userScopeAvailable: true },
     });
-    mockRefreshLoadedSubagentsStoreForWorkspace.mockRejectedValueOnce(new Error("refresh failed"));
+    mockRefreshLoadedSubagentsStoreForWorkspace.mockRejectedValueOnce(
+      new Error("refresh failed"),
+    );
     let resolveWrite: (() => void) | undefined;
     mockSubagentsService.setBuiltInModelOverride.mockImplementationOnce(
       () =>
@@ -1165,21 +1325,24 @@ describe("SubagentsSection", () => {
       });
     });
 
-    const onThoughtLevelChange = capturedThoughtLevelControls.at(-1)?.onValueChange;
+    const onThoughtLevelChange =
+      capturedThoughtLevelControls.at(-1)?.onValueChange;
     expect(onThoughtLevelChange).toBeTypeOf("function");
     act(() => {
       (onThoughtLevelChange as (value: string) => void)("max");
     });
 
     await waitFor(() => {
-      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith({
-        agentName: "Explore",
-        modelSelection: {
-          providerId: "custom-openai",
-          modelId: "glm-5.2",
-          options: { reasoningLevel: "max" },
+      expect(mockSubagentsService.setBuiltInModelOverride).toHaveBeenCalledWith(
+        {
+          agentName: "Explore",
+          modelSelection: {
+            providerId: "custom-openai",
+            modelId: "glm-5.2",
+            options: { reasoningLevel: "max" },
+          },
         },
-      });
+      );
       expect(capturedThoughtLevelControls.at(-1)).toMatchObject({
         disabled: true,
         option: expect.objectContaining({ currentValue: "max" }),
@@ -1194,7 +1357,9 @@ describe("SubagentsSection", () => {
     });
 
     await waitFor(() => {
-      expect(mockRefreshLoadedSubagentsStoreForWorkspace).toHaveBeenCalledTimes(1);
+      expect(mockRefreshLoadedSubagentsStoreForWorkspace).toHaveBeenCalledTimes(
+        1,
+      );
       expect(capturedThoughtLevelControls.at(-1)).toMatchObject({
         disabled: false,
         option: expect.objectContaining({ currentValue: "max" }),
@@ -1218,7 +1383,10 @@ describe("SubagentsSection", () => {
             enabled: true,
             readOnly: true,
             modelSelection: { providerId: "custom-openai", modelId: "glm-5.2" },
-            modelSelectionOverride: { providerId: "custom-openai", modelId: "glm-5.2" },
+            modelSelectionOverride: {
+              providerId: "custom-openai",
+              modelId: "glm-5.2",
+            },
             tools: ["Read"],
           },
         ],
@@ -1261,7 +1429,10 @@ describe("SubagentsSection", () => {
             source: "built-in",
             enabled: true,
             readOnly: true,
-            modelSelection: { providerId: "retired-provider", modelId: "GLM-5-Turbo" },
+            modelSelection: {
+              providerId: "retired-provider",
+              modelId: "GLM-5-Turbo",
+            },
             modelSelectionOverride: {
               providerId: "retired-provider",
               modelId: "GLM-5-Turbo",
@@ -1290,9 +1461,9 @@ describe("SubagentsSection", () => {
     const stalePicker = capturedModelConfigSelects.find(
       (picker) => picker.normalizedValue === staleModel,
     );
-    const selectableValues = ((stalePicker?.modelGroups ?? []) as ModelSelectGroup[]).flatMap(
-      (group) => group.items.map((item) => item.value),
-    );
+    const selectableValues = (
+      (stalePicker?.modelGroups ?? []) as ModelSelectGroup[]
+    ).flatMap((group) => group.items.map((item) => item.value));
     expect(selectableValues).not.toContain(staleModel);
   });
 
@@ -1328,7 +1499,9 @@ describe("SubagentsSection", () => {
           items: Array<{ value: string; name: string }>;
         }>
       | undefined;
-    const modelValues = modelGroups?.flatMap((group) => group.items.map((item) => item.value));
+    const modelValues = modelGroups?.flatMap((group) =>
+      group.items.map((item) => item.value),
+    );
 
     expect(html).toContain("Inherit default");
     expect(modelPicker).toMatchObject({
@@ -1359,8 +1532,10 @@ describe("SubagentsSection", () => {
   });
 
   it("derives refreshed edit form state from the saved custom model value", async () => {
-    const { createSubagentFormInitialState } = await import("../src/settings/SubagentsSection.js");
-    const customModel = "custom:728858ba-605a-4be5-80f8-15cf4de51eae:mimo-v2.5-pro";
+    const { createSubagentFormInitialState } =
+      await import("../src/settings/SubagentsSection.js");
+    const customModel =
+      "custom:728858ba-605a-4be5-80f8-15cf4de51eae:mimo-v2.5-pro";
 
     const formState = createSubagentFormInitialState({
       name: "qa-reviewer",
@@ -1409,7 +1584,9 @@ describe("SubagentsSection", () => {
       thoughtLevel: initial.thoughtLevel,
     });
     expect(unknownState).toEqual({ kind: "unknown", status: "loading" });
-    expect(isSubagentThoughtLevelAvailable(unknownState, initial.thoughtLevel)).toBe(true);
+    expect(
+      isSubagentThoughtLevelAvailable(unknownState, initial.thoughtLevel),
+    ).toBe(true);
 
     const supportedState = resolveSubagentThoughtOptionState({
       model,
@@ -1420,7 +1597,9 @@ describe("SubagentsSection", () => {
     });
     expect(supportedState.option?.currentValue).toBe("");
     expect(initial.thoughtLevel).toBe("medium");
-    expect(isSubagentThoughtLevelAvailable(supportedState, initial.thoughtLevel)).toBe(false);
+    expect(
+      isSubagentThoughtLevelAvailable(supportedState, initial.thoughtLevel),
+    ).toBe(false);
     expect(isSubagentThoughtLevelAvailable(supportedState, "high")).toBe(true);
   });
 
@@ -1462,8 +1641,14 @@ describe("SubagentsSection", () => {
               source: "built-in",
               enabled: true,
               readOnly: true,
-              modelSelection: { providerId: "custom-openai", modelId: "gpt-5.4" },
-              modelSelectionOverride: { providerId: "custom-openai", modelId: "gpt-5.4" },
+              modelSelection: {
+                providerId: "custom-openai",
+                modelId: "gpt-5.4",
+              },
+              modelSelectionOverride: {
+                providerId: "custom-openai",
+                modelId: "gpt-5.4",
+              },
               tools: ["Read"],
             },
           ],
@@ -1475,13 +1660,17 @@ describe("SubagentsSection", () => {
       await renderSubagentsSection();
 
       expect(capturedThoughtLevelControls).toHaveLength(1);
-      expect(capturedThoughtLevelControls[0]?.option).toMatchObject({ currentValue: "" });
+      expect(capturedThoughtLevelControls[0]?.option).toMatchObject({
+        currentValue: "",
+      });
     },
   );
 
   it("uses only the Local Host view to resolve reasoning capability", async () => {
-    const { isSubagentThoughtLevelAvailable, resolveSubagentThoughtOptionState } =
-      await import("../src/settings/SubagentsSection.js");
+    const {
+      isSubagentThoughtLevelAvailable,
+      resolveSubagentThoughtOptionState,
+    } = await import("../src/settings/SubagentsSection.js");
     const base = {
       model: "custom:custom-openai:gpt-5.4",
       modelAvailable: true,
@@ -1511,7 +1700,9 @@ describe("SubagentsSection", () => {
       modelSelectionView: mockModelSelectionView,
     });
     expect(targetModelMissing).toEqual({ kind: "unsupported" });
-    expect(isSubagentThoughtLevelAvailable(targetModelMissing, "max")).toBe(false);
+    expect(isSubagentThoughtLevelAvailable(targetModelMissing, "max")).toBe(
+      false,
+    );
 
     const targetModelReconciling = resolveSubagentThoughtOptionState({
       ...base,
@@ -1519,7 +1710,10 @@ describe("SubagentsSection", () => {
       modelSelectionView: null,
       modelSelectionLoading: true,
     });
-    expect(targetModelReconciling).toEqual({ kind: "unknown", status: "loading" });
+    expect(targetModelReconciling).toEqual({
+      kind: "unknown",
+      status: "loading",
+    });
 
     const authoritative = resolveSubagentThoughtOptionState({
       ...base,
@@ -1549,8 +1743,14 @@ describe("SubagentsSection", () => {
             source: "built-in",
             enabled: true,
             readOnly: true,
-            modelSelection: { providerId: "custom-openai", modelId: "plain-chat" },
-            modelSelectionOverride: { providerId: "custom-openai", modelId: "plain-chat" },
+            modelSelection: {
+              providerId: "custom-openai",
+              modelId: "plain-chat",
+            },
+            modelSelectionOverride: {
+              providerId: "custom-openai",
+              modelId: "plain-chat",
+            },
             tools: ["Read"],
           },
         ],
@@ -1584,8 +1784,14 @@ describe("SubagentsSection", () => {
             source: "built-in",
             enabled: true,
             readOnly: true,
-            modelSelection: { providerId: "custom-openai", modelId: "plain-chat" },
-            modelSelectionOverride: { providerId: "custom-openai", modelId: "plain-chat" },
+            modelSelection: {
+              providerId: "custom-openai",
+              modelId: "plain-chat",
+            },
+            modelSelectionOverride: {
+              providerId: "custom-openai",
+              modelId: "plain-chat",
+            },
             tools: ["Read"],
           },
         ],
@@ -1601,7 +1807,9 @@ describe("SubagentsSection", () => {
         option: expect.objectContaining({ currentValue: "" }),
       }),
     ]);
-    expect(html).not.toContain('data-subagent-thought-level-unavailable="true"');
+    expect(html).not.toContain(
+      'data-subagent-thought-level-unavailable="true"',
+    );
     expect(html).not.toContain('data-subagent-thought-level-loading="true"');
   });
 
@@ -1679,8 +1887,10 @@ describe("SubagentsSection", () => {
   });
 
   it("uses the Registry disabled option instead of App metadata", async () => {
-    const { isSubagentThoughtLevelAvailable, resolveSubagentThoughtOptionState } =
-      await import("../src/settings/SubagentsSection.js");
+    const {
+      isSubagentThoughtLevelAvailable,
+      resolveSubagentThoughtOptionState,
+    } = await import("../src/settings/SubagentsSection.js");
     const base = {
       model: "custom:custom-openai:plain-chat",
       modelAvailable: true,
@@ -1701,7 +1911,8 @@ describe("SubagentsSection", () => {
   });
 
   it("defers persisted model availability validation only during initial provider loading", async () => {
-    const { isSubagentModelAvailable } = await import("../src/settings/SubagentsSection.js");
+    const { isSubagentModelAvailable } =
+      await import("../src/settings/SubagentsSection.js");
     const model = "custom:custom-anthropic:claude-opus-4-8";
 
     expect(isSubagentModelAvailable([], model, true)).toBe(true);
@@ -1709,7 +1920,8 @@ describe("SubagentsSection", () => {
   });
 
   it("defaults new and legacy custom agents to AGENTS.md injection and preserves false", async () => {
-    const { createSubagentFormInitialState } = await import("../src/settings/SubagentsSection.js");
+    const { createSubagentFormInitialState } =
+      await import("../src/settings/SubagentsSection.js");
 
     expect(createSubagentFormInitialState().injectAgentsMd).toBe(true);
     expect(
@@ -1744,7 +1956,9 @@ describe("SubagentsSection", () => {
     const onModelChange = capturedModelConfigSelects.at(-1)?.onValueChange;
     expect(onModelChange).toBeTypeOf("function");
     act(() => {
-      (onModelChange as (value: string) => void)("custom:custom-openai:gpt-5.4");
+      (onModelChange as (value: string) => void)(
+        "custom:custom-openai:gpt-5.4",
+      );
     });
     await waitFor(() => {
       expect(capturedThoughtLevelControls.at(-1)).toMatchObject({
@@ -1753,7 +1967,8 @@ describe("SubagentsSection", () => {
         onCurrentValueCommit: expect.any(Function),
       });
     });
-    const onCurrentValueCommit = capturedThoughtLevelControls.at(-1)?.onCurrentValueCommit;
+    const onCurrentValueCommit =
+      capturedThoughtLevelControls.at(-1)?.onCurrentValueCommit;
     expect(onCurrentValueCommit).toBeTypeOf("function");
     act(() => {
       (onCurrentValueCommit as (value: string) => void)("low");
@@ -1768,21 +1983,32 @@ describe("SubagentsSection", () => {
     expect(systemPromptInput.compareDocumentPosition(injectSwitch)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
-    expect(injectSwitch.parentElement?.classList.contains("items-center")).toBe(true);
-    expect(screen.queryByText("Include parent user and workspace instructions.")).toBeNull();
+    expect(injectSwitch.parentElement?.classList.contains("items-center")).toBe(
+      true,
+    );
+    expect(
+      screen.queryByText("Include parent user and workspace instructions."),
+    ).toBeNull();
     expect((injectSwitch as HTMLInputElement).checked).toBe(true);
     fireEvent.click(injectSwitch);
     expect((injectSwitch as HTMLInputElement).checked).toBe(false);
 
-    fireEvent.change(screen.getByPlaceholderText("settings.subagents.form.name.placeholder"), {
-      target: { value: "isolated-reviewer" },
-    });
     fireEvent.change(
-      screen.getByPlaceholderText("settings.subagents.form.description.placeholder"),
+      screen.getByPlaceholderText("settings.subagents.form.name.placeholder"),
+      {
+        target: { value: "isolated-reviewer" },
+      },
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "settings.subagents.form.description.placeholder",
+      ),
       { target: { value: "Review without parent instructions" } },
     );
     fireEvent.change(
-      screen.getByPlaceholderText("settings.subagents.form.systemPrompt.placeholder"),
+      screen.getByPlaceholderText(
+        "settings.subagents.form.systemPrompt.placeholder",
+      ),
       { target: { value: "Review carefully." } },
     );
     fireEvent.submit(view.container.querySelector("form")!);
@@ -1804,7 +2030,8 @@ describe("SubagentsSection", () => {
   });
 
   it("preserves the unavailable selection but prompts to select a model in the edit form", async () => {
-    const customModel = "custom:728858ba-605a-4be5-80f8-15cf4de51eae:mimo-v2.5-pro";
+    const customModel =
+      "custom:728858ba-605a-4be5-80f8-15cf4de51eae:mimo-v2.5-pro";
     const agent = {
       id: "user:qa-reviewer",
       name: "qa-reviewer",
@@ -1836,11 +2063,14 @@ describe("SubagentsSection", () => {
       triggerLabel: "Select model",
     });
     expect(capturedThoughtLevelControls).toHaveLength(0);
-    expect(html).not.toContain('data-subagent-thought-level-unavailable="true"');
+    expect(html).not.toContain(
+      'data-subagent-thought-level-unavailable="true"',
+    );
   });
 
   it("treats unavailable persisted models as invalid form selections", async () => {
-    const { isSubagentModelAvailable } = await import("../src/settings/SubagentsSection.js");
+    const { isSubagentModelAvailable } =
+      await import("../src/settings/SubagentsSection.js");
     const modelGroups = [
       {
         key: "custom-openai",
@@ -1855,9 +2085,15 @@ describe("SubagentsSection", () => {
       },
     ];
 
-    expect(isSubagentModelAvailable(modelGroups, "custom:missing:mimo-v2.5-pro")).toBe(false);
-    expect(isSubagentModelAvailable([], "custom:missing:mimo-v2.5-pro", true)).toBe(true);
-    expect(isSubagentModelAvailable(modelGroups, "custom:custom-openai:gpt-5.4")).toBe(true);
+    expect(
+      isSubagentModelAvailable(modelGroups, "custom:missing:mimo-v2.5-pro"),
+    ).toBe(false);
+    expect(
+      isSubagentModelAvailable([], "custom:missing:mimo-v2.5-pro", true),
+    ).toBe(true);
+    expect(
+      isSubagentModelAvailable(modelGroups, "custom:custom-openai:gpt-5.4"),
+    ).toBe(true);
     expect(isSubagentModelAvailable(modelGroups, "inherit")).toBe(true);
     expect(isSubagentModelAvailable(modelGroups, undefined)).toBe(true);
   });
@@ -1904,7 +2140,9 @@ describe("SubagentsSection", () => {
     expect(html).not.toContain("/tmp/agents/code-reviewer.md");
     expect(html).not.toContain("built-in:general-purpose");
     expect(html).toContain("general-purpose");
-    expect(html).not.toContain("Workspace-level creation or editing is unsupported");
+    expect(html).not.toContain(
+      "Workspace-level creation or editing is unsupported",
+    );
     expect(findButton("New")).toBeDefined();
     expect(findButton("Open user subagents folder")).toBeUndefined();
   });

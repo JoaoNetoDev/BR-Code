@@ -8,43 +8,23 @@ import {
   CodingPlanBillingDiscountInfoDialog,
 } from "@/CodingPlanBillingDiscount.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import type { CodingPlanLoginOptions } from "./codingPlanPricingCards.js";
 
 export function CodingPlanStatusActions({
-  providerName,
-  isDisconnected,
-  isUnavailable,
   isPurchased,
-  loginLoading,
-  loginButtonId,
-  loginVisible,
   canDisconnectProvider,
   disconnectLoading,
-  onLogin,
   onDisconnect,
 }: {
-  providerName: string;
-  isDisconnected: boolean;
-  isUnavailable: boolean;
   isPurchased: boolean;
-  loginLoading?: boolean;
-  loginButtonId: string;
-  loginVisible: boolean;
   canDisconnectProvider: boolean;
   disconnectLoading?: boolean;
-  onLogin?: (options?: CodingPlanLoginOptions) => void;
   onDisconnect?: () => void;
 }) {
   const { intl } = useZCodeIntl();
 
   return (
     <div className="flex shrink-0 flex-wrap justify-start gap-2">
-      {loginVisible && (isDisconnected || isUnavailable) && onLogin ? (
-        <Button type="button" size="lg" onClick={() => onLogin()} disabled={loginLoading}>
-          {loginLoading ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
-          {intl.formatMessage({ id: loginButtonId }, { provider: providerName })}
-        </Button>
-      ) : null}
+      {/* RF-05：设置页不再发起 OAuth 登录，连接统一走 API key 预设入口。 */}
       {canDisconnectProvider && onDisconnect && !isPurchased ? (
         <Button
           type="button"

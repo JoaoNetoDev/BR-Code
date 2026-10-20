@@ -29,6 +29,11 @@ export interface PresetProviderSpec {
   id: BuiltinModelProviderId;
   displayName: string;
   oauthProviderId?: OAuthProviderId;
+  /**
+   * RF-08：按 API key 接入的预设可以声明注册地址。
+   * 声明后才在鉴权报「账号未注册」时展示通用注册提示，不对品牌做特判。
+   */
+  registrationUrl?: string;
 }
 
 export const PRESET_PROVIDER_SPECS: PresetProviderSpec[] = [
@@ -41,6 +46,7 @@ export const PRESET_PROVIDER_SPECS: PresetProviderSpec[] = [
     id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
     displayName: "BigModel",
     oauthProviderId: BIGMODEL_PROVIDER_ID,
+    registrationUrl: BIGMODEL_REGISTRATION_URL,
   },
 ];
 
@@ -72,6 +78,8 @@ interface CodingPlanProviderSpec {
   label: string;
   providerName: string;
   purchaseUrl?: string;
+  /** RF-08：可选注册地址，仅用于通用注册提示。 */
+  registrationUrl?: string;
 }
 
 export const CODING_PLAN_PROVIDER_SPECS: CodingPlanProviderSpec[] = [
@@ -95,6 +103,7 @@ export const CODING_PLAN_PROVIDER_SPECS: CodingPlanProviderSpec[] = [
     label: "BigModel - Coding Plan",
     providerName: "BigModel",
     purchaseUrl: BIGMODEL_CODING_PLAN_PERSONAL_MANAGE_URL,
+    registrationUrl: BIGMODEL_REGISTRATION_URL,
   },
   {
     id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
@@ -102,8 +111,19 @@ export const CODING_PLAN_PROVIDER_SPECS: CodingPlanProviderSpec[] = [
     label: "BigModel- Coding Plan",
     providerName: "BigModel",
     purchaseUrl: BIGMODEL_CODING_PLAN_PERSONAL_MANAGE_URL,
+    registrationUrl: BIGMODEL_REGISTRATION_URL,
   },
 ];
+
+/** RF-08：读取预设声明的注册地址；未声明返回 undefined，设置页不显示注册提示。 */
+export function resolveProviderRegistrationUrl(
+  presetId: BuiltinModelProviderId,
+): string | undefined {
+  return (
+    PRESET_PROVIDER_SPEC_BY_ID.get(presetId)?.registrationUrl ??
+    CODING_PLAN_PROVIDER_SPECS.find((spec) => spec.id === presetId)?.registrationUrl
+  );
+}
 
 export interface CodingPlanEntitlementState {
   snapshot: UsageEntitlementSnapshot | null;
@@ -226,4 +246,23 @@ export interface ModelProviderNavGroup {
   id: ModelProviderNavGroupId;
   title: string;
   items: ModelProviderNavItem[];
+}
+
+/** RF-05：设置页已无 OAuth 登录动作；该类型只描述凭据恢复选项，保留给后续 Host 刷新契约。 */
+export type CodingPlanLoginOptions = {
+  forceOAuth?: boolean;
+};
+
+// 修复原因：Start Plan 是免费入口，套餐列表必须读取对应付费 Coding Plan 的商品源，
+// 否则会把免费 SKU 当成可购买套餐重复展示。原先随原生购买卡下线后迁移到预设常量文件。
+export function resolveCodingPlanUpgradeProductsProviderId(
+  providerId: CodingPlanProviderId,
+): CodingPlanProviderId {
+  if (providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan) {
+    return BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan;
+  }
+
+  return providerId === BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan
+    ? BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
+    : providerId;
 }

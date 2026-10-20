@@ -2,9 +2,7 @@ import { readFile } from "node:fs/promises";
 import {
   BIGMODEL_PROVIDER_ID,
   TID_LOGIN_TRIGGER,
-  TID_OAUTH_ERROR,
-  TID_OAUTH_LOGIN_BUTTON,
-  testId,
+  TID_LOGIN_USE_API_KEY_BUTTON,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
 import {
@@ -31,41 +29,17 @@ describe("OAuth 凭据损坏恢复", () => {
     await clearAppData();
   });
 
-  it("冷启动遇到无法解密的 OAuth 凭据时仍展示登录渠道并清理损坏登录态", async () => {
-    await ensureOAuthLoginPanelOpen();
-    await waitForTestIdByDom(testId(TID_OAUTH_LOGIN_BUTTON, ZAI_PROVIDER_ID), {
+  it("冷启动遇到无法解密的 OAuth 凭据时仍展示登录入口并清理损坏登录态", async () => {
+    await ensureLoginEntryOpen();
+    // RF-01：登录入口已收敛为 API Key 单路径，这里断言入口可用即可；
+    // 损坏凭据的清理行为属于 desktop 凭据层，与 UI 的登录方式无关，保持覆盖。
+    await waitForTestIdByDom(TID_LOGIN_USE_API_KEY_BUTTON, {
       timeout: 20000,
-      timeoutMsg: "损坏 OAuth 凭据恢复后没有展示 Z.ai 登录入口",
+      timeoutMsg: "损坏 OAuth 凭据恢复后没有展示登录入口",
     });
-    await waitForTestIdByDom(TID_OAUTH_LOGIN_BUTTON, {
-      timeout: 20000,
-      timeoutMsg: "损坏 OAuth 凭据恢复后没有展示 BigModel 登录入口",
-    });
-    await expectBigModelLoginButton();
-    await expectNoOAuthErrorAlert();
     await waitForCorruptOAuthCredentialsCleanup();
   });
 });
-
-async function expectBigModelLoginButton() {
-  const buttonText = (await browser.execute((testId) => {
-    return (
-      document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.textContent?.trim() ?? ""
-    );
-  }, TID_OAUTH_LOGIN_BUTTON)) as string;
-
-  expect(buttonText).toContain("BigModel");
-}
-
-async function expectNoOAuthErrorAlert() {
-  const errorText = (await browser.execute((testId) => {
-    return (
-      document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)?.textContent?.trim() ?? null
-    );
-  }, TID_OAUTH_ERROR)) as string | null;
-
-  expect(errorText).toBeNull();
-}
 
 async function waitForCorruptOAuthCredentialsCleanup() {
   try {
@@ -88,31 +62,26 @@ async function waitForCorruptOAuthCredentialsCleanup() {
   }
 }
 
-async function ensureOAuthLoginPanelOpen() {
-  const zaiLoginButtonId = testId(TID_OAUTH_LOGIN_BUTTON, ZAI_PROVIDER_ID);
-
+async function ensureLoginEntryOpen() {
   try {
     await browser.waitUntil(
       async () => {
-        const state = await readLoginEntryState(zaiLoginButtonId);
-        return state.hasZaiLoginButton || state.hasLoginTrigger;
+        const state = await readLoginEntryState();
+        return state.hasLoginEntry || state.hasLoginTrigger;
       },
       {
         timeout: 60000,
-        timeoutMsg: "启动后没有出现 OAuth 登录面板或手动登录入口",
+        timeoutMsg: "启动后没有出现登录面板或手动登录入口",
       },
     );
   } catch (error) {
-    throw new Error(
-      await buildLoginEntryTimeoutMessage("启动后没有出现 OAuth 登录面板或手动登录入口"),
-      {
-        cause: error,
-      },
-    );
+    throw new Error(await buildLoginEntryTimeoutMessage("启动后没有出现登录面板或手动登录入口"), {
+      cause: error,
+    });
   }
 
-  const state = await readLoginEntryState(zaiLoginButtonId);
-  if (state.hasZaiLoginButton) {
+  const state = await readLoginEntryState();
+  if (state.hasLoginEntry) {
     return;
   }
 
@@ -125,24 +94,22 @@ async function ensureOAuthLoginPanelOpen() {
   });
 }
 
-async function readLoginEntryState(zaiLoginButtonId: string): Promise<{
+async function readLoginEntryState(): Promise<{
   hasLoginTrigger: boolean;
-  hasZaiLoginButton: boolean;
+  hasLoginEntry: boolean;
 }> {
   return (await browser.execute(
-    (loginTriggerId, currentZaiLoginButtonId) => {
+    (loginTriggerId, loginEntryButtonId) => {
       return {
         hasLoginTrigger: Boolean(document.querySelector(`[data-testid="${loginTriggerId}"]`)),
-        hasZaiLoginButton: Boolean(
-          document.querySelector(`[data-testid="${currentZaiLoginButtonId}"]`),
-        ),
+        hasLoginEntry: Boolean(document.querySelector(`[data-testid="${loginEntryButtonId}"]`)),
       };
     },
     TID_LOGIN_TRIGGER,
-    zaiLoginButtonId,
+    TID_LOGIN_USE_API_KEY_BUTTON,
   )) as {
     hasLoginTrigger: boolean;
-    hasZaiLoginButton: boolean;
+    hasLoginEntry: boolean;
   };
 }
 

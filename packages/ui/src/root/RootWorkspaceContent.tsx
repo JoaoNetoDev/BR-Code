@@ -147,6 +147,7 @@ export function RootWorkspaceContent({
               <StableWorkspaceApp
               services={workspaceScopedServices}
               baseFeedbackService={baseFeedbackService}
+              onOpenWorkspace={handleOpenWorkspace}
               onConnectRemote={handleConnectRemote}
               onSelectRemoteProject={handleSelectRemoteProject}
               onCancelRemoteProject={handleCancelRemoteProject}
@@ -166,8 +167,7 @@ export function RootWorkspaceContent({
               onCreateTask={handleCreateTask}
               onCreateConversationTask={handleCreateConversationTask}
               onResolveConversationWorkspace={handleResolveConversationWorkspace}
-              onOpenWorkspace={handleOpenWorkspace}
-              onOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}
+                onOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}
               onOpenRemoteWorkspace={handleOpenRemoteWorkspace}
               onCreateScratchWorkspace={handleCreateScratchWorkspace}
               remoteConnectionInProgress={remoteConnectionInProgress}
@@ -210,8 +210,6 @@ export function RootWorkspaceContent({
             captionWorkspacePath={activeWorkspacePath}
             onBack={activeWorkspacePath ? handleBackFromSettings : undefined}
             onCreateTask={handleCreateTask}
-            onOpenWorkspace={handleOpenWorkspace}
-            allowOpenWorkspace={allowOpenWorkspace}
             onLogin={onLogin}
             onLogout={handleLogout}
             user={user}

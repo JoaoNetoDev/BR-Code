@@ -5,36 +5,63 @@ import { buildRegistryModelSelectGroups } from "../src/lib/modelSelectionGroups.
 
 describe("model selection groups", () => {
   it.each([
-    [{ type: "zhipu-account", accountType: "zai", mode: "individual-coding-plan" }, false],
-    [{ type: "zhipu-account", accountType: "bigmodel", mode: "team-coding-plan" }, false],
+    [
+      {
+        type: "zhipu-account",
+        accountType: "zai",
+        mode: "individual-coding-plan",
+      },
+      false,
+    ],
+    [
+      {
+        type: "zhipu-account",
+        accountType: "bigmodel",
+        mode: "team-coding-plan",
+      },
+      false,
+    ],
     [{ type: "zhipu-coding-plan-api-key" }, false],
     [{ type: "zhipu-account", accountType: "zai", mode: "start-plan" }, false],
-    [{ type: "zhipu-account", accountType: "bigmodel", mode: "start-plan" }, false],
-    [{ type: "zhipu-account", accountType: "bigmodel", mode: "off-peak" }, true],
+    [
+      { type: "zhipu-account", accountType: "bigmodel", mode: "start-plan" },
+      false,
+    ],
+    [
+      { type: "zhipu-account", accountType: "bigmodel", mode: "off-peak" },
+      true,
+    ],
     [{ type: "api-key" }, true],
-  ])("仅套餐 GLM-5.3 隐藏视觉标，不影响 Flash/真实能力：%j", (access, expected) => {
-    const view: ModelSelectionView = {
-      revision: 1,
-      providers: [
-        {
-          providerId: "fixture",
-          config: {
-            access: access as ModelSelectionView["providers"][number]["config"]["access"],
-            api: { type: "anthropic-messages" },
+  ])(
+    "仅套餐 GLM-5.3 隐藏视觉标，不影响 Flash/真实能力：%j",
+    (access, expected) => {
+      const view: ModelSelectionView = {
+        revision: 1,
+        providers: [
+          {
+            providerId: "fixture",
+            config: {
+              access:
+                access as ModelSelectionView["providers"][number]["config"]["access"],
+              api: { type: "anthropic-messages" },
+            },
+            models: ["GLM-5.3", "GLM-5.3-Flash", "GLM-4.7"].map((modelId) => ({
+              modelId,
+              config: { properties: { inputFormat: { supportsImage: true } } },
+            })),
           },
-          models: ["GLM-5.3", "GLM-5.3-Flash", "GLM-4.7"].map((modelId) => ({
-            modelId,
-            config: { properties: { inputFormat: { supportsImage: true } } },
-          })),
-        },
-      ],
-    };
-    const items = buildRegistryModelSelectGroups("glm", view)[0]!.items;
-    expect(items[0]!.supportsVisionInput === true).toBe(expected);
-    expect(items[1]!.supportsVisionInput).toBe(true);
-    expect(items[2]!.supportsVisionInput).toBe(true);
-    expect(view.providers[0]!.models[0]!.config.properties?.inputFormat?.supportsImage).toBe(true);
-  });
+        ],
+      };
+      const items = buildRegistryModelSelectGroups("glm", view)[0]!.items;
+      expect(items[0]!.supportsVisionInput === true).toBe(expected);
+      expect(items[1]!.supportsVisionInput).toBe(true);
+      expect(items[2]!.supportsVisionInput).toBe(true);
+      expect(
+        view.providers[0]!.models[0]!.config.properties?.inputFormat
+          ?.supportsImage,
+      ).toBe(true);
+    },
+  );
   it("保留带前缀和多段斜杠的精确模型 ID；不从名称推断视觉能力", () => {
     const modelId = "upstream/family/vision-preview";
     const view: ModelSelectionView = {
@@ -42,8 +69,18 @@ describe("model selection groups", () => {
       providers: [
         {
           providerId: "aggregator",
-          config: { api: { type: "openai-chat-completions", baseUrl: "https://example.test/v1" } },
-          models: [{ modelId, config: { properties: { inputFormat: { supportsImage: true } } } }],
+          config: {
+            api: {
+              type: "openai-chat-completions",
+              baseUrl: "https://example.test/v1",
+            },
+          },
+          models: [
+            {
+              modelId,
+              config: { properties: { inputFormat: { supportsImage: true } } },
+            },
+          ],
         },
       ],
     };
@@ -56,9 +93,9 @@ describe("model selection groups", () => {
       },
     ]);
     view.providers[0]!.models[0]!.config = {};
-    expect(buildRegistryModelSelectGroups("glm", view)[0]?.items[0]).not.toHaveProperty(
-      "supportsVisionInput",
-    );
+    expect(
+      buildRegistryModelSelectGroups("glm", view)[0]?.items[0],
+    ).not.toHaveProperty("supportsVisionInput");
   });
   it("直接把 Registry API Provider 投影为有序模型组", () => {
     const selectionView: ModelSelectionView = {
@@ -172,5 +209,60 @@ describe("model selection groups", () => {
         ],
       },
     ]);
+  });
+
+  // RF-12a：hideAccountBadges 是自动化/子代理模型下拉唯一的徽标开关。
+  // 若 early-return 被挪动，硬编码的 Free/Individual/Team 营销徽标会静默回流，且没有任何测试失败。
+  it("hideAccountBadges 关闭账号分组徽标，但保留分组名称", () => {
+    const providers = [
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+        mode: "individual-coding-plan",
+        badge: "Individual",
+      },
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+        mode: "team-coding-plan",
+        badge: "Team",
+      },
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
+        mode: "start-plan",
+        badge: "Free",
+      },
+    ] as const;
+
+    for (const { providerId, mode, badge } of providers) {
+      const selectionView: ModelSelectionView = {
+        revision: 1,
+        providers: [
+          {
+            providerId,
+            config: {
+              access: {
+                type: "zhipu-account",
+                accountType: mode === "team-coding-plan" ? "bigmodel" : "zai",
+                mode,
+                entitled: true,
+              },
+              api: { type: "anthropic-messages" },
+              models: ["GLM-5.2"],
+            },
+            models: [{ modelId: "GLM-5.2", config: {} }],
+          },
+        ],
+      };
+
+      const [hidden] = buildRegistryModelSelectGroups("glm", selectionView, {
+        hideAccountBadges: true,
+      });
+      expect(hidden).toBeDefined();
+      expect(hidden!.labelBadge).toBeUndefined();
+      expect(hidden!.label).toBeTruthy();
+
+      // 回归护栏：不传该选项时营销徽标必须继续存在（其它界面保持默认展示）。
+      const [shown] = buildRegistryModelSelectGroups("glm", selectionView);
+      expect(shown!.labelBadge).toBe(badge);
+    }
   });
 });

@@ -23,8 +23,9 @@ describe("settings model provider upgrade intent", () => {
       "packages/ui/src/settings/model-provider-section/StatusCards.tsx",
     );
 
-    expect(settingsPageSource).toContain("useCodingPlanUpgradeDialog");
-    expect(settingsPageSource).toContain("openCodingPlanUpgrade({");
+    // S2：SettingsPage 不再承载 Coding Plan 升级弹窗入口。
+    expect(settingsPageSource).not.toContain("useCodingPlanUpgradeDialog");
+    expect(settingsPageSource).not.toContain("openCodingPlanUpgrade({");
     expect(settingsPageSource).not.toContain("<CodingPlanUpgradeDialog");
     expect(settingsPageSource).not.toContain("codingPlanUpgradeProviderId");
     // 修复原因：JSX 格式化可能把属性换行，断言应验证绑定语义而不是排版。
@@ -65,25 +66,6 @@ describe("settings model provider upgrade intent", () => {
     expect(CODING_PLAN_PROVIDER_SPECS.map((spec) => spec.id)).not.toContain(
       BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
     );
-  });
-
-  it("opens workspace upgrade entries without switching to Settings", () => {
-    const appSource = readSource("packages/ui/src/App.tsx");
-    const rootSource = readSource("packages/ui/src/Root.tsx");
-    const workspaceSidebarSource = readSource("packages/ui/src/WorkspaceSidebar.tsx");
-    const v4ComposerToolbarSource = readSource("packages/ui/src/v4/composer/V4ComposerToolbar.tsx");
-    const contextUsageSource = readSource("packages/ui/src/chat-input-toolbar/contextUsage.tsx");
-
-    expect(appSource).not.toContain("handleOpenCodingPlanUpgrade");
-    expect(appSource).not.toContain("<CodingPlanUpgradeDialog");
-    expect(rootSource).toContain("<CodingPlanUpgradeDialogProvider>");
-    expect(workspaceSidebarSource).toContain("useCodingPlanUpgradeDialog");
-    expect(v4ComposerToolbarSource).toContain("useCodingPlanUpgradeDialog");
-    expect(v4ComposerToolbarSource).toContain("openCodingPlanUpgrade({");
-    expect(v4ComposerToolbarSource).toContain("startPlanBalance={contextStartPlanBalance}");
-    expect(contextUsageSource).toContain("startPlanBalance.onUpgradeClick?.()");
-    expect(workspaceSidebarSource).not.toContain("codingPlanUpgradeProviderId");
-    expect(v4ComposerToolbarSource).not.toContain("codingPlanUpgradeProviderId");
   });
 
   it("routes both idle-time Upgrade entries through the shared purchase funnel context", () => {

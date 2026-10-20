@@ -807,6 +807,8 @@ const enUS: Record<string, string> = {
   "bots.channel.discord": "Discord",
   "bots.channel.wecom": "WeCom",
   "bots.channel.webhook": "Webhook",
+  "bots.channel.regionTag.lark": "Global",
+  "bots.channel.regionTag.feishu": "CN",
   "bots.newBot.title": "New bot",
   "bots.newBot.chooseChannel": "Choose channel",
   "bots.newBot.description":
@@ -3155,9 +3157,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.connectionMode.teamPlan": "Team Plan",
   "settings.modelProvider.connectionMode.apiKeyBadge": "API",
   "settings.modelProvider.connectionMode.usageBasedApi": "Usage-based API",
-  "settings.modelProvider.connectionMode.codingPlanBadge": "Individual",
-  "settings.modelProvider.connectionMode.startPlanBadge": "Free",
-  "settings.modelProvider.connectionMode.teamPlanBadge": "Team",
   "settings.modelProvider.connectionMode.loadFailed": "Connection settings failed",
   "settings.modelProvider.connectionMode.noAvailablePlan": "No available plan",
   "settings.modelProvider.accountProviderConfigMissing":
@@ -3215,9 +3214,9 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.status.teamUnavailable":
     "Team plan not assigned. Contact your team admin.",
   "settings.modelProvider.codingPlan.status.unsupported": "Not supported yet",
-  "settings.modelProvider.codingPlan.bigmodel.unregisteredHint":
-    "This BigModel account is not registered yet. Register first.",
-  "settings.modelProvider.codingPlan.bigmodel.registerAction": "Register",
+  "settings.modelProvider.registration.unregisteredHint":
+    "This account is not registered yet. Register first.",
+  "settings.modelProvider.registration.registerAction": "Register",
   "settings.modelProvider.codingPlan.description.disconnected":
     "Connect to view Coding Plan entitlements.",
   "settings.modelProvider.codingPlan.description.checking":

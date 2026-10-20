@@ -731,6 +731,8 @@ const zhCN: Record<string, string> = {
   "bots.channel.discord": "Discord",
   "bots.channel.wecom": "企业微信",
   "bots.channel.webhook": "Webhook",
+  "bots.channel.regionTag.lark": "全球",
+  "bots.channel.regionTag.feishu": "中国",
   "bots.newBot.title": "新建机器人",
   "bots.newBot.chooseChannel": "选择渠道",
   "bots.newBot.description":
@@ -2959,9 +2961,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.connectionMode.teamPlan": "团队套餐",
   "settings.modelProvider.connectionMode.apiKeyBadge": "API",
   "settings.modelProvider.connectionMode.usageBasedApi": "按量 API",
-  "settings.modelProvider.connectionMode.codingPlanBadge": "个人",
-  "settings.modelProvider.connectionMode.startPlanBadge": "免费",
-  "settings.modelProvider.connectionMode.teamPlanBadge": "团队",
   "settings.modelProvider.connectionMode.loadFailed": "连接方式获取失败",
   "settings.modelProvider.connectionMode.noAvailablePlan": "无可用套餐",
   "settings.modelProvider.accountProviderConfigMissing":
@@ -3013,9 +3012,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.status.teamExpired": "团队套餐已过期，请联系团队管理员。",
   "settings.modelProvider.codingPlan.status.teamUnavailable": "团队套餐未分配，请联系团队管理员。",
   "settings.modelProvider.codingPlan.status.unsupported": "暂未支持",
-  "settings.modelProvider.codingPlan.bigmodel.unregisteredHint":
-    "该 BigModel 账号尚未注册，请先完成注册。",
-  "settings.modelProvider.codingPlan.bigmodel.registerAction": "去注册",
+  "settings.modelProvider.registration.unregisteredHint": "该账号尚未注册，请先完成注册。",
+  "settings.modelProvider.registration.registerAction": "去注册",
   // Coding Plan 卡片直接使用这些 id，中文漏配会把 key 原样渲染到界面。
   "settings.modelProvider.codingPlan.description.disconnected": "请连接后查看 Coding Plan 权益。",
   "settings.modelProvider.codingPlan.description.checking":
