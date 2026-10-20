@@ -1,67 +1,67 @@
-# 12 — 侧栏、会话头部与菜单
+# 12 — Barra lateral, cabeçalho da sessão e menus
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Especificação pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：** [03 — 远程连接展示模型、5 种状态与术语](./03-presentation-model-states-and-glossary.md)、[06 — 交互原型与评审](./06-interaction-prototype-review.md)
+**Bloqueado por:** [03 — Modelo de apresentação da conexão remota, 5 estados e glossário](./03-presentation-model-states-and-glossary.md), [06 — Protótipo de interação e revisão](./06-interaction-prototype-review.md)
 
-**要交付的行为：**
+**Comportamento a entregar:**
 
-- **项目行**：
-  - 改成单行布局：一个状态图标位、项目名、设备名。
-  - 状态图标四种形态：单个转圈、划掉的云、云加 `!`、云加 `✕`。
-  - 设备名用次要文字色，并限制宽度；设备不在线时，这个位置改为显示简短的状态文字。
-  - 去掉 ⓘ 图标、重复的转圈和常驻的重连按钮；行尾的操作只在悬停或键盘聚焦时出现。
-- **详情卡**：
-  - 点击设备标签立即弹出；悬停约 400ms 后弹出。
-  - 显示设备、连接、路径、状态和原因。
-  - 提供的操作：连接或断开、编辑连接、在设置中管理（跳到设置页并定位到这台设备的卡片）。
-- **"项目 +" 菜单**："打开远程项目"展开为设备列表。在线设备直接进入选目录；离线设备先连接再选目录。菜单最后一项是"新建远程连接…"。
-- **会话头部**：常驻显示设备名和状态图标。
-- **其他位置**：
-  - 输入框里的项目切换菜单显示设备名。
-  - 任务行上的设备标签，在所有视图里样式统一。
+- **Linha de projeto**:
+  - Passa a ter layout de uma linha só: um espaço para o ícone de status, o nome do projeto e o nome do dispositivo.
+  - O ícone de status tem quatro formas: um único spinner, nuvem riscada, nuvem com `!` e nuvem com `✕`.
+  - O nome do dispositivo usa a cor de texto secundária e tem largura limitada; quando o dispositivo está offline, esse espaço passa a mostrar um texto de status curto.
+  - Removem-se o ícone ⓘ, o spinner duplicado e o botão de reconexão permanente; as ações no fim da linha só aparecem no hover ou quando o elemento recebe foco pelo teclado.
+- **Cartão de detalhes**:
+  - Abre imediatamente ao clicar na aba do dispositivo; após um hover de cerca de 400 ms.
+  - Mostra dispositivo, conexão, caminho, status e motivo.
+  - Ações oferecidas: conectar ou desconectar, editar a conexão e gerenciar nas configurações (ir para a página de configurações e posicionar no cartão deste dispositivo).
+- **Menu "Projeto +"**: "Abrir projeto remoto" expande para a lista de dispositivos. Dispositivos online entram direto na seleção de diretório; dispositivos offline são conectados primeiro e só então é selecionado o diretório. O último item do menu é "Nova conexão remota…".
+- **Cabeçalho da sessão**: exibe de forma permanente o nome do dispositivo e o ícone de status.
+- **Outros lugares**:
+  - O menu de troca de projeto dentro do campo de entrada exibe o nome do dispositivo.
+  - A aba de dispositivo na linha da tarefa tem estilo unificado em todas as visões.
 
-对应父规格「侧栏、详情卡与会话头部」一节。
+Corresponde à seção "Barra lateral, cartão de detalhes e cabeçalho da sessão" da especificação pai.
 
-范围：
+Escopo:
 
-- **详情卡布局修正**：
-  - 分隔线撑满卡片宽度。
-  - 状态标签右对齐。
-  - 不遮挡行内操作和时间列。
-  - 类型标签用正常大小写。
-- **其他修复**：
-  - 项目菜单关闭后不再残留 tooltip。
-  - 会话头部悬停提示里的名称和路径与侧栏一致。
-  - 只连接了设备、还没打开项目的在线设备，也要出现在"打开远程项目"的列表里。
+- **Correção de layout do cartão de detalhes**:
+  - O separador ocupa toda a largura do cartão.
+  - A aba de status fica alinhada à direita.
+  - Não cobre as ações da linha nem a coluna de tempo.
+  - A aba de tipo usa capitalização normal.
+- **Outras correções**:
+  - Depois que o menu de projeto fecha, não sobra nenhum tooltip.
+  - O nome e o caminho no tooltip de hover do cabeçalho da sessão são os mesmos da barra lateral.
+  - Dispositivos online que estão apenas conectados, sem projeto aberto, também aparecem na lista de "Abrir projeto remoto".
 
-**原型评审结论**（[06 评审结论](./06-interaction-prototype-review.md#comments)）：界面按评审通过的原型实现，以下几点以 06 为准。
+**Conclusão da revisão do protótipo** ([Conclusão da revisão em 06](./06-interaction-prototype-review.md#comments)): a interface é implementada conforme o protótipo aprovado na revisão; nos pontos abaixo, vale o 06.
 
-- 详情卡锚定整行、从侧栏右侧弹出，不遮挡行尾操作。
-- 设备状态标签写成“状态 · 原因短语”，例如“连接中 · 自动恢复 2/3”，不再直接拼接。
-- 项目行使用短恢复文案“自动恢复 2/3”，完整句子只放在详情卡里。
-- 连接描述使用正常大小写，例如 `Docker · …`，不再输出 `DOCKER`。
+- O cartão de detalhes é ancorado à linha inteira e aparece à direita da barra lateral, sem cobrir as ações do fim da linha.
+- A aba de status do dispositivo é escrita como "status · frase curta do motivo", por exemplo "Conectando · recuperação automática 2/3", sem mais concatenação direta.
+- A linha de projeto usa o texto curto de recuperação "recuperação automática 2/3"; a frase completa fica somente no cartão de detalhes.
+- A descrição da conexão usa capitalização normal, por exemplo `Docker · …`, sem mais gerar `DOCKER`.
 
-验收标准：
+Critérios de aceite:
 
-- [x] 侧栏默认宽度 264px 时，项目名的可见宽度相比走查基线明显增加，用截图对比确认。
-- [x] 5 种状态下项目行的样子与原型一致：组件测试断言图标和短状态文字来自展示模型，并附截图。
-- [x] 详情卡的弹出延迟、各项操作、跳转并定位到设置页都有测试；"在设置中管理"用 E2E 覆盖。
-- [x] "打开远程项目"菜单能列出设备，已连接但没打开项目的在线设备也在其中。
-- [x] 会话头部和项目切换菜单都显示设备名，不同设备上的同名项目能区分开。
-- [x] 所有任务视图里，任务行设备标签的样式一致。
-- [x] 截图覆盖浅色和深色主题、中文和英文、900px 宽的窗口。
-- [x] 更新导航规格，并同步 E2E 用例目录。
-- [x] `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 E2E 全部通过后，在本地提交。
+- [x] Com a largura padrão da barra lateral de 264px, a largura visível do nome do projeto aumenta de forma perceptível em relação à linha de base do walkthrough, confirmado por comparação de capturas de tela.
+- [x] A aparência da linha de projeto nos 5 estados é igual à do protótipo: o teste de componente afirma que o ícone e o texto curto de status vêm do modelo de apresentação, com capturas de tela anexadas.
+- [x] O atraso de abertura do cartão de detalhes, cada ação e o salto para a página de configurações posicionado no dispositivo têm teste; "Gerenciar nas configurações" tem cobertura E2E.
+- [x] O menu "Abrir projeto remoto" lista os dispositivos, inclusive os dispositivos online conectados que ainda não abriram projeto.
+- [x] O cabeçalho da sessão e o menu de troca de projeto exibem o nome do dispositivo, e projetos com o mesmo nome em dispositivos diferentes podem ser distinguidos.
+- [x] O estilo da aba de dispositivo na linha da tarefa é consistente em todas as visões de tarefa.
+- [x] As capturas de tela cobrem os temas claro e escuro, chinês e inglês, e janelas de 900px de largura.
+- [x] Atualiza a especificação de navegação e sincroniza o catálogo de casos E2E.
+- [x] Commit local depois de `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, os testes unitários afetados e os E2E afetados passarem.
 
-## 验证记录（2026-09-29）
+## Registro de verificação (2026-09-29)
 
-- 项目行使用唯一状态图标、限宽设备名/模型短状态；详情共用一个 400ms 悬停/点击浮层，编辑、设备断开、原目录连接与设置卡定位均复用既有入口。会话及远程草稿头部、项目切换菜单与任务标签已同步。
-- 规范/需求双轴评审通过。评审发现的多线路偏好覆盖、草稿头部缺口、定位意图重复消费和焦点接管计时器均已修复并回归。真实 E2E 另复现并修复 Radix 自动锚点覆盖虚拟锚点的问题，确保返回项目页后仍在行右侧。
-- 五态真实组件与起始 HEAD 行组件并排比较：264px 中文项目名空间在线 101→105px、恢复 64→125px、离线 126→154px、需要处理 116→144px、失败 12→144px；截图覆盖中英、深浅、1400/900px，共 8 张，位于 `packages/desktop/.e2e-artifacts/rdux12-visual`。临时视觉入口已清理，未提交。
-- 真实 SSH E2E `conversation-session-remote-sidebar-menus` 通过，run `desktop-e2e-20260928191550395-p40953-3f34da887a24cf8d`。覆盖无项目在线设备进入目录、头部设备名、编辑连接、管理定位、断开及原目录重连、菜单关闭无 tooltip；应用中英/深浅/1400/900px 在线/离线截图共 16 张，并断言详情在整行右侧。新增用例保持 pending，fixture 校验通过；同步 catalog、coverage matrix、服务器执行队列。
-- 最终 UI 定向回归 66 项通过；两处旧验收不一致（远程 spec 队列登记、草稿头部静态断言）修正后相关 21 项通过。手机仅做既有单测回归，未做真机视觉验证；未执行 Linux 全量远程队列。
-- `pnpm typecheck`、桌面 E2E 类型检查、`pnpm lint`（64 条存量警告，0 错误）、`pnpm architecture:check --changed`（0 违规）通过。
-- 全量单测已执行完毕（`ZCODE_TEST_POOL=forks`、2 workers）：2,034 文件 / 18,741 项通过，2 文件 / 14 项按既有条件跳过；两项失败正是上述远程清单登记与旧草稿源码断言，均已修复并由 21 项定向回归验证。最终没有遗留失败。本机 threads 高并发曾触发内存压力并中断，最终采用仓库支持的隔离运行模式完成全量。
+- A linha de projeto usa um ícone de status único, nome do dispositivo com largura limitada e texto curto de status do modelo; os detalhes compartilham uma camada flutuante única de hover/clique de 400ms, e a edição, o desligamento do dispositivo, a conexão do diretório original e a posição do cartão nas configurações reutilizam as entradas existentes. O cabeçalho da sessão e dos rascunhos remotos, o menu de troca de projeto e a aba da tarefa foram sincronizados.
+- A revisão de spec e de especificação passou. Os problemas encontrados na revisão — cobertura de preferências de múltiplas linhas, lacuna no cabeçalho de rascunho, consumo duplicado da intenção de posicionamento e temporizador de assunção de foco — foram corrigidos e voltaram a passar na regressão. O E2E real reproduziu e corrigiu ainda o problema em que a âncora automática do Radix sobrescrevia a âncora virtual, garantindo que, ao voltar para a página de projeto, a camada continue à direita da linha.
+- Comparação lado a lado do componente real nos cinco estados com o componente de linha do HEAD inicial: 264px, nome de projeto em chinês — online 101→105px, recuperando 64→125px, offline 126→154px, requer ação 116→144px, falha 12→144px; as capturas de tela cobrem chinês/inglês, claro/escuro, 1400/900px, num total de 8, em `packages/desktop/.e2e-artifacts/rdux12-visual`. A entrada visual temporária foi removida e não foi commitada.
+- O E2E SSH real `conversation-session-remote-sidebar-menus` passou, run `desktop-e2e-20260928191550395-p40953-3f34da887a24cf8d`. Cobre dispositivo online sem projeto entrando no diretório, nome do dispositivo no cabeçalho, edição da conexão, posicionamento do gerenciamento, desconexão e reconexão do diretório original, e menu fechando sem tooltip; foram geradas 16 capturas de tela do aplicativo em chinês/inglês, claro/escuro, 1400/900px, online/offline, com asserção de que os detalhes ficam à direita da linha inteira. O novo caso permanece pending e a validação de fixtures passou; catálogo, matriz de cobertura e fila de execução do servidor foram sincronizados.
+- A regressão final de UI direcionada passou em 66 itens; duas inconsistências antigas de aceitação (registro da fila do spec remoto e asserção estática do cabeçalho de rascunho) foram corrigidas e os 21 itens relacionados passaram. No celular foi feita apenas a regressão dos testes unitários existentes, sem verificação visual em aparelho real; a fila remota completa do Linux não foi executada.
+- `pnpm typecheck`, a checagem de tipos do E2E do desktop, `pnpm lint` (64 avisos pré-existentes, 0 erros) e `pnpm architecture:check --changed` (0 violações) passaram.
+- A suíte completa de testes unitários foi executada (`ZCODE_TEST_POOL=forks`, 2 workers): 2.034 arquivos / 18.741 itens passaram, 2 arquivos / 14 itens foram pulados conforme as condições já existentes; as duas falhas eram exatamente o registro da lista remota e a antiga asserção de código-fonte do rascunho, ambas corrigidas e verificadas pela regressão direcionada de 21 itens. Não restou nenhuma falha no final. O uso de threads com alta concorrência nesta máquina já havia provoca pressão de memória e interrompido a execução; a execução completa foi concluída com o modo de execução isolado suportado pelo repositório.

@@ -1,94 +1,94 @@
-# Relay V2 共享契约与配对
+# Relay V2 — Contrato compartilhado e pareamento
 
-本页定义 [Relay V2](../issues/web-remote-control-relay-v2/01-relay-v2-login-pairing.md) 的最终共享契约、连接行为与验收边界。桌面 device、手机 terminal 与 shared 均只使用 V2。
+Esta página define o contrato compartilhado final, o comportamento de conexão e os limites de aceitação de [Relay V2](../issues/web-remote-control-relay-v2/01-relay-v2-login-pairing.md). Desktop device, terminal do celular e shared usam apenas a V2.
 
-契约依据：zcode-server `origin/staging` 提交 `5a947caea3a022b12b5d051ef25c807952feefa7` 的 `docs/remote-relay.md`、`internal/domain/relay_v2/proto.go`、`service.go` 和 `internal/interfaces/web/{dto,controller}/remote_v2.go`。HTTP 请求及 WebSocket 消息采用严格字段校验，禁止把 V1 字段意外发到 V2；HTTP 响应采用下述兼容性校验。服务端 Go JSON 解码本身可能忽略多余字段。
+Base do contrato: zcode-server, commit `5a947caea3a022b12b5d051ef25c807952feefa7` da `origin/staging`, com `docs/remote-relay.md`, `internal/domain/relay_v2/proto.go`, `service.go` e `internal/interfaces/web/{dto,controller}/remote_v2.go`. Requisições HTTP e mensagens WebSocket usam validação estrita de campos; é proibido enviar campos da V1 por acidente para a V2; as respostas HTTP seguem a validação de compatibilidade descrita abaixo. A decodificação JSON do Go no servidor pode, por si só, ignorar campos extras.
 
-## HTTP 契约
+## Contrato HTTP
 
-所有接口使用 `Authorization: Bearer <jwt>`，用户来自登录上下文。成功信封为 `{code: 0, msg: string, data: T}`；失败信封为 `{code: 非零整数, msg: string, data?: null}`，HTTP 非 2xx 也可能没有 JSON 正文。
+Todas as interfaces usam `Authorization: Bearer <jwt>` e o usuário vem do contexto de login. O envelope de sucesso é `{code: 0, msg: string, data: T}`; o envelope de falha é `{code: inteiro diferente de zero, msg: string, data?: null}`, e respostas HTTP fora do 2xx também podem não ter corpo JSON.
 
-HTTP 响应允许服务端增加字段：注册、列表、删除和 token 的成功/失败信封，以及设备记录、设备 `meta` 和 token 数据对象中的未知字段，在解析时忽略并从返回值中移除。`logid` 等客户端不使用的元数据不单独列入 schema，也不限制其类型；无需随服务端新增字段发布客户端。已声明字段的必填性、类型与值约束继续校验，`code !== 0` 仍按失败处理。新增字段兼容不意味着缺失设备 SID、非法 token 或错误业务状态可以被接受。
+A resposta HTTP permite que o servidor acrescente campos: nos envelopes de sucesso/falha de registro, listagem, exclusão e token, bem como em campos desconhecidos do registro de dispositivo, do `meta` do dispositivo e do objeto de dados do token, esses campos são ignorados na análise e removidos do valor de retorno. Metadados que o cliente não usa, como `logid`, não são listados separadamente no schema e seu tipo não é restringido; não é preciso publicar o cliente junto com novos campos do servidor. A obrigatoriedade, o tipo e as restrições de valor dos campos já declarados continuam sendo validados, e `code !== 0` continua sendo tratado como falha. A compatibilidade com novos campos não significa que a ausência do SID do dispositivo, um token inválido ou um estado de negócio incorreto possam ser aceitos.
 
-验收：响应增加顶层追踪字段、设备属性、`meta` 属性或 token 属性时，桌面注册/token 与手机列表/token 继续成功且只返回已声明字段；已有业务字段缺失或类型错误时仍失败。HTTP 请求与 WebSocket 的字段校验不受此策略影响。
+Aceitação: quando a resposta ganha campos de rastreamento de primeiro nível, atributos de dispositivo, atributos de `meta` ou atributos de token, o registro/token no desktop e a listagem/token no celular continuam tendo sucesso e retornam apenas os campos declarados; quando um campo de negócio existente está ausente ou tem tipo errado, ainda falha. A validação de campos das requisições HTTP e do WebSocket não é afetada por essa política.
 
-| 方法与路径                          | 请求                                          | 成功 data                               |
-| ----------------------------------- | --------------------------------------------- | --------------------------------------- |
-| POST `/api/v1/remote/device`        | `{device_mid: string}`，非空白、最多 128 字符 | 设备记录                                |
-| GET `/api/v1/remote/device`         | 无 body、无查询参数                           | 当前用户的设备记录数组                  |
-| POST `/api/v1/remote/device/delete` | `{device_sid: string}`，非空白、最多 128 字符 | `null` 或省略 data                      |
-| POST `/api/v1/remote/token`         | `{role: "device" \| "terminal"}`              | `{token: string, expires_in: 正整数秒}` |
+| Método e caminho                     | Requisição                                         | data de sucesso                                    |
+| ----------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
+| POST `/api/v1/remote/device`        | `{device_mid: string}`, não vazio, até 128 caracteres | registro do dispositivo                            |
+| GET `/api/v1/remote/device`         | sem body, sem parâmetros de query                  | array com os registros de dispositivo do usuário atual |
+| POST `/api/v1/remote/device/delete` | `{device_sid: string}`, não vazio, até 128 caracteres | `null` ou o campo data omitido                     |
+| POST `/api/v1/remote/token`         | `{role: "device" \| "terminal"}`                   | `{token: string, expires_in: segundos inteiros positivos}` |
 
-设备记录为 `{device_sid, device_mid, online: boolean, created_at: Unix秒, meta}`。`meta` 是 `{name?: string, platform?: string, version?: string}`；离线为 `{}`。注册不接收 `meta`，同 MID 每次注册都产生新 SID。只能删除自己的离线设备，删除后的 SID 无法再认证。删除不存在的 SID 幂等成功；删除异账号设备返回 HTTP 200、`code: 1006`、`msg: "no permission"`；删除在线设备返回 HTTP 400、`code: 3005`、`msg: "wrong status"`。调用方必须同时检查 HTTP 状态和业务 `code`。请求参数非法返回 HTTP 400、`code: 3001`、`msg: "parameter error"`。
+O registro de dispositivo é `{device_sid, device_mid, online: boolean, created_at: Unix em segundos, meta}`. O `meta` é `{name?: string, platform?: string, version?: string}`; offline é `{}`. O registro não recebe `meta`, e cada registro com o mesmo MID produz um novo SID. Só é possível excluir o próprio dispositivo offline; após a exclusão, o SID não consegue mais autenticar. Excluir um SID inexistente tem sucesso idempotente; excluir o dispositivo de outra conta devolve HTTP 200, `code: 1006`, `msg: "no permission"`; excluir um dispositivo online devolve HTTP 400, `code: 3005`, `msg: "wrong status"`. O chamador precisa verificar simultaneamente o status HTTP e o `code` de negócio. Parâmetros de requisição inválidos devolvem HTTP 400, `code: 3001`, `msg: "parameter error"`.
 
-Token 是 16 随机字节的 22 字符 Base64URL 无填充编码，绑定用户与角色，不绑定 SID；签发带 `Cache-Control: no-store`，有效期 60 秒。在 WS Upgrade 前原子消费，失败不恢复，重连必须重新申请。过期不影响已建立的连接。JWT/token 不进入二维码或业务消息。
+O token é a codificação Base64URL sem padding de 16 bytes aleatórios, com 22 caracteres, vinculado ao usuário e ao papel, sem vínculo com o SID; é emitido com `Cache-Control: no-store` e vale por 60 segundos. É consumido atomicamente antes do WS Upgrade; em caso de falha não é restaurado, e uma reconexão exige solicitar um novo token. A expiração não afeta conexões já estabelecidas. JWT/token não entram no QR code nem nas mensagens de negócio.
 
-## WebSocket 契约
+## Contrato WebSocket
 
-入口 `/api/v1/remote/ws2?token=...`，可携带网关路由提示 `mid`。缺失、无效、过期或重复 token 在升级前返回 401。只接受 JSON 文本，单消息最大 1 MiB。
+Entrada `/api/v1/remote/ws2?token=...`, que pode carregar a dica de roteamento do gateway `mid`. Token ausente, inválido, expirado ou duplicado devolve 401 antes do upgrade. Só aceita texto JSON, com mensagem de no máximo 1 MiB.
 
-| 方向           | 消息                | 字段                                                                                  |
-| -------------- | ------------------- | ------------------------------------------------------------------------------------- |
-| 客户端 → relay | `auth_init`         | `device_sid`（非空白、最多 128 UTF-8 字节）、可选 `meta`、可选 `client_ts`；无 `role` |
-| 客户端 → relay | `pair_status_query` | 可选 `client_ts`；无 `device_sid`                                                     |
-| 客户端 → relay | `data`              | 必须有 `payload`（任意 JSON）、可选 `client_ts`                                       |
-| relay → 客户端 | `auth_ack`          | `device_sid`、`terminal_sid`、`pair_status`、可选 `server_ts`                         |
-| relay → 客户端 | `pair_status_ack`   | `terminal_sid`、`pair_status`、可选 `server_ts`                                       |
-| relay → 客户端 | `data`              | `payload`、可选 `server_ts`；无 `client_ts`                                           |
-| relay → 客户端 | `error`             | `code`、可选 `message`、可选 `server_ts`                                              |
+| Direção           | Mensagem            | Campos                                                                                |
+| ----------------- | ------------------- | ------------------------------------------------------------------------------------- |
+| cliente → relay   | `auth_init`         | `device_sid` (não vazio, até 128 bytes UTF-8), `meta` opcional, `client_ts` opcional; sem `role` |
+| cliente → relay   | `pair_status_query` | `client_ts` opcional; sem `device_sid`                                               |
+| cliente → relay   | `data`              | `payload` obrigatório (JSON qualquer), `client_ts` opcional                          |
+| relay → cliente   | `auth_ack`          | `device_sid`, `terminal_sid`, `pair_status`, `server_ts` opcional                    |
+| relay → cliente   | `pair_status_ack`   | `terminal_sid`, `pair_status`, `server_ts` opcional                                  |
+| relay → cliente   | `data`              | `payload`, `server_ts` opcional; sem `client_ts`                                      |
+| relay → cliente   | `error`             | `code`, `message` opcional, `server_ts` opcional                                     |
 
-`terminal_sid` 允许空字符串或缺省：device 的 auth ACK 为空，terminal 的 auth ACK 是分配的 SID；查询 ACK 是对端 terminal SID，推送 ACK 为空。`pair_status` 仅 `waiting | matched`。错误码仅 `AUTH_FAILED | WRONG_PARAM | KICKED | INTERNAL | DEVICE_OFFLINE`。
+`terminal_sid` permite string vazia ou ausência: no auth ACK do device é vazio, no auth ACK do terminal é o SID atribuído; o ACK de consulta é o SID do terminal do par, e o ACK de push é vazio. `pair_status` é apenas `waiting | matched`. Os códigos de erro são apenas `AUTH_FAILED | WRONG_PARAM | KICKED | INTERNAL | DEVICE_OFFLINE`.
 
-时间戳为非负整数 Unix 秒（不超过公元 9999 年末，拒绝毫秒值），不参与授权。V2 心跳基准 5,000ms、jitter ±1,000ms、ACK deadline 15,000ms；心跳 delay helper 默认即为 V2 常量，不再保留 V1 默认值。
+Os timestamps são segundos Unix inteiros não negativos (até o fim do ano 9999 da era comum, valores em milissegundos são rejeitados) e não participam da autorização. A referência de heartbeat da V2 é 5,000ms, jitter ±1,000ms, deadline de ACK 15,000ms; o helper de delay do heartbeat já tem por padrão as constantes da V2, e os padrões da V1 não são mais mantidos.
 
 ```mermaid
 sequenceDiagram
-    participant D as 桌面 device
-    participant R as relay（唯一设备/token/连接 owner）
-    participant T as 手机 terminal
+    participant D as desktop device
+    participant R as relay (único owner de device/token/conexão)
+    participant T as terminal do celular
     D->>R: JWT + POST device → SID
     D->>R: JWT + POST token(role=device)
-    D->>R: ws2(token) → 消费 token → auth_init(SID, meta)
+    D->>R: ws2(token) → consome token → auth_init(SID, meta)
     R-->>D: auth_ack(waiting)
-    T->>R: 同账号 JWT + POST token(role=terminal)
-    T->>R: ws2(token) → 消费 token → auth_init(SID)
+    T->>R: mesmo JWT de conta + POST token(role=terminal)
+    T->>R: ws2(token) → consome token → auth_init(SID)
     R-->>T: auth_ack(matched)
     R-->>D: pair_status_ack(matched)
-    D->>R: pair_status_query(client_ts 秒)
-    R-->>D: pair_status_ack(server_ts 秒)
+    D->>R: pair_status_query(client_ts em segundos)
+    R-->>D: pair_status_ack(server_ts em segundos)
     T->>R: data(payload, client_ts)
     R-->>D: data(payload, server_ts)
 ```
 
-状态归属：假 relay 单独拥有设备、未消费 token、连接与 `(SID, role)` 当前 owner。先验证归属，再替换同角色旧 owner、发送 `KICKED` 并关闭旧连接；旧连接异步 close 不得移除新 owner。未认证不能发 data/query，重复认证或非法字段关闭连接。设备断开时通知 terminal `waiting`、`DEVICE_OFFLINE` 并关闭；terminal 断开仅通知 device `waiting`。数据只发给同 SID 的另一角色，不读取 payload 内用户/设备信息。
+Posse do estado: o relay falso possui sozinho o dispositivo, o token não consumido, a conexão e o owner atual de `(SID, role)`. Primeiro verifica a posse, depois substitui o owner antigo do mesmo papel, envia `KICKED` e fecha a conexão antiga; o close assíncrono da conexão antiga não pode remover o novo owner. Sem autenticação não se pode enviar data/query; autenticação repetida ou campos inválidos fecham a conexão. Quando o dispositivo desconecta, o terminal é notificado com `waiting`, `DEVICE_OFFLINE` e a conexão é fechada; quando o terminal desconecta, apenas o device é notificado com `waiting`. Os dados só são enviados ao outro papel do mesmo SID, sem ler informações de usuário/dispositivo dentro do payload.
 
-Relay 不保有 task、workspace、stream 或已提交输入；桌面 `desktop-continuous` 与手机 `web-remote-replayable` 的 owner、snapshot/gap 恢复边界不变。
+O Relay não mantém task, workspace, stream nem entradas já submetidas; os limites de owner e de recuperação por snapshot/gap do `desktop-continuous` do desktop e do `web-remote-replayable` do celular permanecem inalterados.
 
-## 二维码最终契约
+## Contrato final do QR code
 
-`buildWebRemoteControlExternalQrUrl` 仅接受 V2 的 `sid`、`mid`、`name`、`app_version` 路由提示，均可选；输出清除 base URL 中残留的 `hash`/`t`。
+`buildWebRemoteControlExternalQrUrl` aceita apenas as dicas de roteamento da V2 `sid`, `mid`, `name`, `app_version`, todas opcionais; a saída limpa da URL base o `hash`/`t` residual.
 
-`parseWebRemoteControlExternalQrParams(params)` 仅返回 V2 参数，空白参数按缺省处理，无参数允许进入设备列表。带 `hash` 或 `t` 的旧链接返回 null，不存在 V1 overload 或解析回退。共享 V1 消息类型、proof 向量和心跳常量删除；心跳 helper 默认使用 V2 的 5 秒 ±1 秒。
+`parseWebRemoteControlExternalQrParams(params)` retorna apenas os parâmetros da V2; parâmetros em branco são tratados como ausentes, e a ausência de parâmetros permite entrar na lista de dispositivos. Links antigos com `hash` ou `t` retornam null; não existe overload V1 nem fallback de análise. Os tipos de mensagem compartilhados da V1, os vetores de proof e as constantes de heartbeat são removidos; o helper de heartbeat passa a usar 5 segundos ±1 segundo da V2.
 
-## 共用假 relay
+## Relay falso compartilhado
 
-位置：`packages/shared/test/fixtures/fake-relay-v2.ts`，独立测试子路径 `@zcode/shared/testing/fake-relay-v2`。只在 Node 测试进程导入，不从生产 shared 根入口导出，不向浏览器 bundle 引入 Node HTTP 或 `ws`。真实 loopback HTTP/WS 可服务 Node `ws` 与浏览器 WebSocket API 兼容客户端。
+Local: `packages/shared/test/fixtures/fake-relay-v2.ts`, subcaminho de teste independente `@zcode/shared/testing/fake-relay-v2`. Importado apenas em processos de teste Node, não exportado pela entrada raiz shared de produção, e não introduz HTTP do Node nem `ws` no bundle do navegador. HTTP/WS reais de loopback podem atender clientes compatíveis com o pacote Node `ws` e com a API WebSocket do navegador.
 
-`createFakeRelayV2({users: {测试JWT: 用户ID}, now?, onHttp?, onMessage?})` 返回 `httpUrl`、`wsUrl`、`httpCalls`、`messages`、`sendError(target, code)`、`disconnect(target)` 和异步 `close()`。`now` 返回毫秒；target 可按 `connectionId`、`deviceSid`、`role` 筛选。`onHttp(call)` 返回 `{status, body?}` 或 `{networkError: true}`；`onMessage(record)` 返回 `{pairStatus}`、`{error}`、`{disconnect: true}` 或 `{drop: true}`（忽略该条请求，不改变连接状态、不发 ACK），返回空值走正常行为。测试必须在清理阶段 `await relay.close()`。
+`createFakeRelayV2({users: {JWT de teste: ID de usuário}, now?, onHttp?, onMessage?})` retorna `httpUrl`, `wsUrl`, `httpCalls`, `messages`, `sendError(target, code)`, `disconnect(target)` e o `close()` assíncrono. `now` retorna milissegundos; o target pode ser filtrado por `connectionId`, `deviceSid`, `role`. `onHttp(call)` retorna `{status, body?}` ou `{networkError: true}`; `onMessage(record)` retorna `{pairStatus}`, `{error}`, `{disconnect: true}` ou `{drop: true}` (ignora aquela requisição, sem alterar o estado da conexão e sem enviar ACK); um retorno vazio segue o comportamento normal. Os testes devem fazer `await relay.close()` na fase de limpeza.
 
-测试控制面支持按请求注入 HTTP 401/5xx/网络断开，按连接角色与 SID 编排 auth/pair ACK 状态（含丢弃 ACK 供 watchdog 测试）、注入任意协议错误、主动关闭。每次 HTTP 调用和每条 WS 消息均在内存留存供断言（含非法消息），测试凭据不写日志。
+O plano de controle de teste permite injetar HTTP 401/5xx/queda de rede por requisição, orquestrar estados de ACK de auth/pair por papel de conexão e SID (inclusive descartando ACKs para testes de watchdog), injetar erros de protocolo arbitrários e fechar ativamente. Cada chamada HTTP e cada mensagem WS ficam retidas em memória para asserção (inclusive mensagens inválidas), e as credenciais de teste não são registradas em log.
 
-能力边界：提供注册/列表/离线删除、用户隔离、一次性 token/过期、鉴权/配对/替换、数据透传、错误注入与清理。使用测试 JWT→用户映射，不验证真实 JWT/OAuth，不模拟 Redis、多实例 owner TTL、IP 封禁、TLS、网关 mid 路由、自动 Ping/认证超时或客户端重连策略；这些仍需后续 transport 测试和线上联调。ACK 状态覆盖只改变应答，不伪造对端连接或业务状态。
+Limites de capacidade: oferece registro/listagem/exclusão offline, isolamento de usuário, token de uso único/expiração, autenticação/pareamento/substituição, passagem de dados, injeção de erros e limpeza. Usa o mapeamento JWT de teste → usuário, não valida JWT/OAuth reais e não simula Redis, TTL de owner multi-instância, bloqueio por IP, TLS, roteamento de mid do gateway, Ping automático/timeout de autenticação ou política de reconexão do cliente; esses ainda exigem testes de transporte posteriores e integração em produção. A cobertura de estado de ACK só altera a resposta, não falsifica a conexão ou o estado de negócio do par.
 
-## 验收接缝
+## Costuras de aceitação
 
-- shared 公共解析函数：合法 wire/HTTP 样例、非法字段/类型/时间单位、V2 二维码与旧凭据参数拒绝、V2 心跳参数。
-- 假 relay 的真实 HTTP/WS：注册/列表/删除、跨用户拒绝、一次性 token 与有效期、同角色替换后的旧 close、双向透明路由、心跳 ACK、全部错误码/断连/HTTP 故障与调用记录。
-- Node `ws` 与全局标准 WebSocket 各走一次配对传输；不替代桌面/手机生产 transport 或真机 E2E。
+- Funções públicas de parsing do shared: amostras válidas de wire/HTTP, campos/tipos/unidades de tempo inválidos, rejeição do QR code da V2 e de parâmetros de credencial antigos, parâmetros de heartbeat da V2.
+- HTTP/WS reais do relay falso: registro/listagem/exclusão, rejeição entre usuários, token de uso único e validade, close antigo após substituição do mesmo papel, roteamento transparente bidirecional, ACK de heartbeat, todos os códigos de erro/queda de rede/falhas HTTP e os registros de chamadas.
+- Node `ws` e o WebSocket padrão global fazem uma passagem cada pelo transporte de pareamento; não substitui o transporte de produção desktop/celular nem o E2E em aparelho real.
 
-## 桌面 device 生命周期（03）
+## Ciclo de vida do desktop device (03)
 
-Main manager 是设备身份与窗口 runtime 的唯一 owner；AppSettings 的 `webRemoteControlRelayV2Device` 只保存 `{deviceSid, userId, endpointOrigin}`。首次启动清除 V1 `webRemoteControlExternalRelayDevice` 和 `web-remote-control:external-relay:pass_hash` credential；V2 不写 credential。JWT 从 main 现有 credential 读取入口按当前账号只读加载，不经过 services 进程的网络层，不触发登出。
+O Main manager é o owner único da identidade do dispositivo e do runtime da janela; o `webRemoteControlRelayV2Device` do AppSettings guarda apenas `{deviceSid, userId, endpointOrigin}`. Na primeira inicialização, limpa a V1 `webRemoteControlExternalRelayDevice` e a credential `web-remote-control:external-relay:pass_hash`; a V2 não grava credential. O JWT é carregado, somente leitura, pela entrada de leitura de credential já existente do main, para a conta atual, sem passar pela camada de rede do processo de services e sem disparar logout.
 
 ```mermaid
 sequenceDiagram
@@ -97,563 +97,641 @@ sequenceDiagram
     participant S as AppSettings / credential
     participant D as Device V2 transport
     participant R as Relay V2
-    UI->>M: authorizeStart → startAuthorized（一次性内部票据）
-    M->>S: 读取当前用户/JWT、清理 V1、读取 V2 身份
-    alt 无 JWT
-        M-->>UI: auth-required（不注册、不建连）
-    else 身份缺失或用户/endpoint 改变
-        M->>R: 尽力删除旧 SID（仅同 origin 携带当前 JWT）
+    UI->>M: authorizeStart → startAuthorized (ticket interno de uso único)
+    M->>S: ler usuário/JWT atual, limpar V1, ler identidade V2
+    alt sem JWT
+        M-->>UI: auth-required (não registra, não conecta)
+    else identidade ausente ou usuário/endpoint alterados
+        M->>R: tentar excluir o SID antigo (apenas no mesmo origin, com o JWT atual)
         M->>R: POST device {device_mid}
-        R-->>M: 新 device_sid
-        M->>S: 保存 SID / userId / endpointOrigin
+        R-->>M: novo device_sid
+        M->>S: salvar SID / userId / endpointOrigin
     end
-    M->>D: start（注入 token 获取与重新注册函数）
-    D->>R: POST token {role: device}，Bearer JWT
-    R-->>D: 一次性 token
-    D->>R: ws2?token&mid → auth_init {device_sid, meta, client_ts秒}
+    M->>D: start (injeta a obtenção de token e a função de novo registro)
+    D->>R: POST token {role: device}, Bearer JWT
+    R-->>D: token de uso único
+    D->>R: ws2?token&mid → auth_init {device_sid, meta, client_ts em segundos}
     R-->>D: auth_ack waiting
     D-->>M: waiting_terminal
     M-->>UI: running + /remote/v4?app_version&sid&mid&name
-    loop 每 4~6 秒
-        D->>R: pair_status_query {client_ts秒}
+    loop a cada 4~6 segundos
+        D->>R: pair_status_query {client_ts em segundos}
         R-->>D: pair_status_ack waiting / matched
     end
-    opt auth_init AUTH_FAILED（同次启动最多恢复一次）
-        D->>M: 关闭旧 socket 后请求重新注册
-        M->>R: 尽力删除旧设备 → 注册新设备
-        M->>S: 更新身份
-        D->>R: 新 token → 新 socket → auth_init
+    opt auth_init AUTH_FAILED (no máximo uma recuperação por inicialização)
+        D->>M: fecha o socket antigo e solicita novo registro
+        M->>R: tenta excluir o dispositivo antigo → registra um novo
+        M->>S: atualiza a identidade
+        D->>R: novo token → novo socket → auth_init
     end
 ```
 
-注册接口只接受 `device_mid`；主机名通过 `auth_init.meta.name` 上报（以 02 核实的服务端契约为准）。跨 endpoint 时不向旧域发送新域 JWT，因此旧记录的删除跳过；同域换账号的无权限删除失败不阻塞注册。
+O endpoint de registro aceita apenas `device_mid`; o hostname é reportado por `auth_init.meta.name` (vale o contrato do servidor verificado em 02). Em caso de troca de endpoint, o JWT do novo domínio não é enviado ao domínio antigo, então a exclusão do registro antigo é pulada; a exclusão sem permissão ao trocar de conta no mesmo domínio falha sem bloquear o registro.
 
-注册成功但本地身份保存失败时，manager 尽力删除刚注册的新 SID，记录真实保存错误，并以不可重试的 `relay-unavailable` 结束本次启动、保留 `error` 状态。补偿删除失败只记录警告，仍结束启动，不进入网络退避重注册；本地旧身份和启用意图不被失败写入覆盖。网络/5xx 继续退避，`AUTH_FAILED` 同次启动最多恢复一次的约定不变。
+Quando o registro tem sucesso mas o salvamento da identidade local falha, o manager tenta excluir o novo SID recém-registrado, registra o erro real de salvamento e encerra esta inicialização com `relay-unavailable` irrecuperável, mantendo o estado `error`. Se a exclusão compensatória falhar, apenas se registra um aviso, e a inicialização ainda encerra, sem entrar em re-registro com backoff de rede; a identidade local antiga e a intenção de ativação não são sobrescritas por uma escrita falha. Falhas de rede/5xx continuam com backoff, e a convenção de no máximo uma recuperação por inicialização no `AUTH_FAILED` permanece inalterada.
 
 ```text
-修复前：relay 注册新 SID → 本地保存失败 → transport 按网络退避 → 再注册新 SID
-修复后：relay 注册新 SID → 本地保存失败 → 尽力删除新 SID → 不可重试 error
+Antes da correção: relay registra novo SID → falha no salvamento local → transport faz backoff de rede → registra outro novo SID
+Depois da correção: relay registra novo SID → falha no salvamento local → tenta excluir o novo SID → error irrecuperável
 ```
 
-该边界位于 main 的 device 注册、建连之前，只持有设备身份，不改变 shared-host attachment、桌面 `desktop-continuous` 或手机 `web-remote-replayable` 的 stream/snapshot/queue 语义。
+Essa fronteira fica antes do registro do device e da conexão no main, mantém apenas a identidade do dispositivo e não altera a semântica de stream/snapshot/queue do attachment do shared-host, do `desktop-continuous` do desktop ou do `web-remote-replayable` do celular.
 
 ```mermaid
 stateDiagram-v2
     [*] --> idle
-    idle --> connecting: start / 获取新 token
+    idle --> connecting: start / obter novo token
     connecting --> authenticating: WebSocket open / auth_init
     authenticating --> waiting_terminal: auth_ack waiting
     authenticating --> paired: auth_ack matched
     waiting_terminal --> paired: pair_status_ack matched
     paired --> waiting_terminal: pair_status_ack waiting
-    waiting_terminal --> connecting: 15秒无ACK / 断连
-    paired --> connecting: 15秒无ACK / 断连
-    authenticating --> connecting: AUTH_FAILED / 重新注册一次
-    connecting --> connecting: 网络或5xx / 指数退避
-    paired --> connecting: 首次KICKED / 随机2~5秒
-    waiting_terminal --> connecting: 首次KICKED / 随机2~5秒
-    connecting --> error: HTTP401 auth-required / 其他4xx relay-unavailable
-    paired --> kicked: 60秒内第二次KICKED
-    waiting_terminal --> kicked: 60秒内第二次KICKED
+    waiting_terminal --> connecting: 15s sem ACK / desconexão
+    paired --> connecting: 15s sem ACK / desconexão
+    authenticating --> connecting: AUTH_FAILED / um novo registro
+    connecting --> connecting: rede ou 5xx / backoff exponencial
+    paired --> connecting: primeiro KICKED / aleatório 2~5s
+    waiting_terminal --> connecting: primeiro KICKED / aleatório 2~5s
+    connecting --> error: HTTP401 auth-required / outros 4xx relay-unavailable
+    paired --> kicked: segundo KICKED em até 60s
+    waiting_terminal --> kicked: segundo KICKED em até 60s
     error --> idle: stop
     kicked --> idle: stop
 ```
 
-Transport 独占 socket、重试次数与计时器；共享 helper 负责心跳调度、waiting/matched 映射与有界重试。首次获取 SID 与 AUTH_FAILED 后的强制重注册统一通过 manager 的身份解析回调执行，串行注册与身份持久化仍由 manager 独占；首次注册也纳入 transport 的退避、取消和30秒首次等待期限。每轮 heartbeat 重新抽样 5秒±1秒，15秒 ACK watchdog 独立计时；握手也有 15秒 deadline。断连和 HTTP 网络/5xx 从1秒开始指数退避，jitter ±20%，最大30秒，`auth_ack` 清零。首次 KICKED 随机2~5秒后重连；60秒内第二次置 kicked，manager 对外保留 `error/session-conflict`。超过窗口允许下一次有界恢复。任何重连先关闭旧连接再申请新 token；generation 与 AbortSignal 丢弃 stop/重启后的过期异步结果。
+O transport é dono exclusivo do socket, da contagem de retentativas e dos timers; o helper compartilhado cuida do agendamento do heartbeat, do mapeamento waiting/matched e das retentativas limitadas. A obtenção inicial do SID e o re-registro forçado após o AUTH_FAILED são executados uniformemente pelo callback de resolução de identidade do manager, e o registro serial e a persistência da identidade continuam exclusivos do manager; o primeiro registro também entra no backoff, no cancelamento e no prazo de espera inicial de 30 segundos do transport. Cada rodada de heartbeat reamostra 5s ±1s, o watchdog de ACK de 15s tem contagem independente; o handshake também tem deadline de 15 segundos. Desconexões e falhas de rede/5xx em HTTP partem de 1 segundo com backoff exponencial, jitter ±20%, máximo de 30 segundos, e `auth_ack` zera o contador. Após o primeiro KICKED, reconecta em 2~5 segundos aleatórios; o segundo KICKED em até 60 segundos leva a `kicked`, e o manager mantém externamente `error/session-conflict`. Depois da janela, uma nova recuperação limitada é permitida. Qualquer reconexão fecha a conexão antiga antes de solicitar um novo token; generation e AbortSignal descartam resultados assíncronos obsoletos após stop/restart.
 
-HTTP401 置 `auth-required` 并停止自动重连；其他4xx、无效响应或重复 AUTH_FAILED 置 `error/relay-unavailable`。保留上次启用意图，既不全局登出也不清除启用记录；登录通知按下节恢复。二维码在 auth_ack 后可用，重注册后更新 SID；JWT/token 不进入状态或日志。30秒首次调用等待超时后报告失败并保留可恢复 runtime，后台退避继续，用户 stop 才撤销启用意图。
+HTTP401 coloca `auth-required` e interrompe a reconexão automática; outros 4xx, respostas inválidas ou AUTH_FAILED repetido colocam `error/relay-unavailable`. A última intenção de ativação é preservada, sem logout global e sem limpar o registro de ativação; a notificação de login é usada na seção seguinte. O QR code fica disponível após o auth_ack e o SID é atualizado após um novo registro; JWT/token não entram no estado nem nos logs. Após o timeout de espera da primeira chamada de 30 segundos, a falha é reportada e um runtime recuperável é mantido, com o backoff em segundo plano continuando, e só um stop do usuário revoga a intenção de ativação.
 
-Renderer 可达依赖面仅 `authorizeStart/startAuthorized/stop/getStatus`；刷新二维码的按钮、确认弹窗、平台方法和 IPC 删除，不新增 UI 文案。桌面 continuous 与手机 replayable 的业务 owner、workspaceIdentity 隔离、snapshot/gap 与 acknowledged replay 保持不变。
+A superfície de dependências alcançável pelo Renderer é apenas `authorizeStart/startAuthorized/stop/getStatus`; o botão de atualização do QR code, o diálogo de confirmação, os métodos de plataforma e a remoção via IPC não adicionam novo texto de UI. O owner de negócio do continuous do desktop e do replayable do celular, o isolamento por workspaceIdentity, o snapshot/gap e o replay reconhecido permanecem inalterados.
 
-## 桌面登录门禁与恢复（04）
+## Portão de login do desktop e recuperação (04)
 
-`auth-required` 表示远控等待应用登录：不显示二维码或复制链接，不注册设备、不申请 token、不连接 relay，也不创建 host、远程 session 或 Agent runtime。弹窗登录按钮关闭远控弹窗并复用现有 `requestLoginEntry`。它不是全局 OAuth 登出命令；HTTP 401 仅停止远控。
+`auth-required` significa que o controle remoto aguarda o login do app: não mostra QR code nem link de cópia, não registra dispositivo, não solicita token, não conecta no relay e não cria host, sessão remota ou runtime de Agent. O botão de login do diálogo fecha o diálogo de controle remoto e reutiliza o `requestLoginEntry` existente. Não é um comando de logout OAuth global; um HTTP 401 apenas para o controle remoto.
 
-| 内容     | zh-CN                                                  | en-US                                                                                   |
+| Conteúdo  | zh-CN                                                  | en-US                                                                                   |
 | -------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| 标题     | 需要先登录                                             | Sign in required                                                                        |
-| 说明     | 登录后即可使用手机远程控制。手机和电脑需登录同一账号。 | Sign in to control this computer from your phone. Use the same account on both devices. |
-| 登录按钮 | 登录                                                   | Sign in                                                                                 |
+| Título    | 需要先登录                                             | Sign in required                                                                        |
+| Descrição | 登录后即可使用手机远程控制。手机和电脑需登录同一账号。 | Sign in to control this computer from your phone. Use the same account on both devices. |
+| Botão de login | 登录                                             | Sign in                                                                                 |
 
-以上为本票实现及视觉验收文案。主进程 manager 是远控运行态与恢复 admission 的唯一 owner；OAuth credential 仍是登录事实来源。OAuthService 在会话串行队列中完成登录凭据写入或登出清理后，通过 `onDidChangeSession` 发布 `signed-in | signed-out`，早于派生 provider 清理、设置刷新和 UI 用户投影更新。取消或回滚的登录、未成功清理的登出不发布完成事件；同账号重新认证也发布。renderer 订阅该事件，经既有单向 IPC 发送严格 `{state: "signed-in" | "signed-out"}`，不携带 JWT、用户或 workspace；本地会话恢复完成时仍同步一次初始状态。main 校验 payload 和发送窗口，登录通知只触发重新读取 credential，不能授权设备注册。
+Acima está o texto de implementação e de aceitação visual desta ticket. O manager do processo principal é o owner único do estado de execução do controle remoto e da admissão de recuperação; a credential OAuth continua sendo a fonte de verdade do login. O OAuthService, na fila serial de sessão, publica `signed-in | signed-out` via `onDidChangeSession` depois de concluir a escrita das credenciais de login ou a limpeza do logout, antes da limpeza dos providers derivados, da atualização das configurações e da atualização da projeção de usuário na UI. Logins cancelados ou revertidos, e logouts cuja limpeza não teve sucesso, não publicam o evento de conclusão; a reautenticação da mesma conta também publica. O renderer assina esse evento e envia, pelo IPC unidirecional existente, estritamente `{state: "signed-in" | "signed-out"}`, sem JWT, usuário ou workspace; na restauração local de sessão ainda sincroniza uma vez o estado inicial. O main valida o payload e a janela de envio; a notificação de login apenas dispara a releitura da credential e não autoriza o registro de dispositivo.
 
 ```text
-修复前：凭据清除 → provider/设置更新失败 → UI 用户未清空 → 漏发登出 → 旧远控仍连接
-修复后：OAuthService 凭据清除 → 会话事件 → renderer IPC → Main 撤销连接/attachment
-                            └→ provider/设置后处理（失败仍报告，不撤销会话事件）
-同账号登录：凭据写入 → 会话事件 → Main 重读凭据并恢复；不等待 UI 成功计数变化
+Antes da correção: credencial limpa → falha na atualização de provider/configurações → usuário não limpo na UI → logout perdido → controle remoto antigo ainda conectado
+Depois da correção: credencial do OAuthService limpa → evento de sessão → IPC do renderer → Main revoga conexões/attachments
+                           └→ pós-processamento de provider/configurações (mesmo com falha, o evento de sessão não é revogado)
+Login na mesma conta: credencial escrita → evento de sessão → Main relê a credencial e recupera; não espera a contagem de sucesso da UI
 ```
 
-回归覆盖：已配对后登出，即使派生 provider 清理或 UI 设置更新失败，Main 仍转为 `auth-required`、关闭旧 WS 并释放 attachment，保留上次启用记录；同账号重新认证后即使设置刷新失败仍能恢复。事件订阅在 Root 卸载时释放，普通 Web/手机平台不订阅桌面会话通知；continuous/replayable 的业务恢复边界不变。多窗口恢复异常不在本节验收范围内。
+Cobertura de regressão: logout após o pareamento, mesmo que a limpeza dos providers derivados ou a atualização das configurações da UI falhe, o Main ainda passa para `auth-required`, fecha o WS antigo e libera o attachment, preservando o último registro de ativação; após a reautenticação da mesma conta, a recuperação funciona mesmo se a atualização das configurações falhar. A assinatura do evento é liberada na desmontagem do Root, e as plataformas Web/cellular comuns não assinam a notificação de sessão do desktop; os limites de recuperação de negócio de continuous/replayable não mudam. Anomalias de restauração em múltiplas janelas estão fora do escopo de aceitação desta seção.
 
 ```mermaid
 sequenceDiagram
-    participant O as OAuthService / credential（经 renderer IPC）
+    participant O as OAuthService / credential (via renderer IPC)
     participant M as Main manager
-    participant W as 已有窗口 workspace
+    participant W as workspace de janela existente
     participant R as Relay V2
-    W->>M: 同步 workspaceIdentity/path + 当前 remoteSessionId
-    M->>O: 读取 JWT
-    alt 无 JWT
-        M-->>W: auth-required，保留上次启用目标
+    W->>M: sincroniza workspaceIdentity/path + remoteSessionId atual
+    M->>O: lê o JWT
+    alt sem JWT
+        M-->>W: auth-required, preserva o último alvo ativado
     end
-    O->>M: signed-in（凭据已写入）
-    M->>O: 重读 JWT
-    alt 有 JWT 且存在已启用目标，workspace 已同步
-        M->>R: 注册/复用设备 → token → WS
+    O->>M: signed-in (credencial já escrita)
+    M->>O: relê o JWT
+    alt há JWT e existe alvo ativado, workspace já sincronizado
+        M->>R: registra/reusa dispositivo → token → WS
         M-->>W: running / active
-    else workspace 尚未同步
-        M-->>W: idle，等待后续同步；不创建 workspace
-        W->>M: workspace sync 后重新尝试恢复
+    else workspace ainda não sincronizado
+        M-->>W: idle, aguardando a sincronização seguinte; não cria workspace
+        W->>M: nova tentativa de recuperação após o sync do workspace
     end
     O->>M: signed-out
-    M->>M: 使旧恢复结果失效，abort 待启动，释放所有窗口 transport/attachment
-    M-->>W: auth-required，保留已启用记录
+    M->>M: invalida os resultados de recuperação antigos, aborta inicializações pendentes, libera transport/attachment de todas as janelas
+    M-->>W: auth-required, preserva o registro de ativação
 ```
 
-每个窗口的启动/连接生命周期绑定 `{userId, endpointOrigin}`。登录通知重读凭据后，若身份变化，main 先撤销所有不匹配的待启动操作与连接/attachment，再按已启用目标恢复。身份读取期间到达的新通知会使旧读取作废；不能让旧账号的迟到结果覆盖新连接。同账号重复通知不重连。
+O ciclo de vida de inicialização/conexão de cada janela é vinculado a `{userId, endpointOrigin}`. Depois que a notificação de login relê a credencial, se a identidade mudou, o main primeiro revoga todas as inicializações pendentes e as conexões/attachments que não correspondem, e só então recupera conforme o alvo ativado. Uma nova notificação que chega durante a leitura da identidade invalida a leitura anterior; um resultado tardio da conta antiga não pode sobrescrever a nova conexão. Notificações repetidas da mesma conta não reconectam.
 
 ```text
-修复前：A 连接 → 登录 B → 只检查 JWT 存在 → A 连接仍可访问
-修复后：A 连接/待启动 → 登录 B → main 撤销旧代 → B 注册/连接
-首次注册：runtime/首次等待期限 → 身份解析 → 网络失败 → transport 退避 → 重试
+Antes da correção: conexão A → login B → apenas verifica se o JWT existe → a conexão A ainda tem acesso
+Depois da correção: conexão/inicialização pendente de A → login B → main revoga a geração antiga → B registra/conecta
+Primeiro registro: runtime/prazo de espera inicial → resolução de identidade → falha de rede → backoff do transport → nova tentativa
 ```
 
-同一进程只认领一次上次启用目标；重复登录通知不能重复建连。登出、手动停止或窗口销毁后的旧异步恢复结果不得重新启动。手动停止清除启用记录，后续登录不复活它。窗口已同步的候选必须始终保留，即使尚未建立 runtime；`SyncWebRemoteControlWorkspaces` 始终发布本地和远端完整快照（包括空列表删除），远控恢复不再消费仅含本地路径的 `SyncWindowTabs`；远程目标用 workspaceIdentity 匹配，并使用本进程同步的 remoteSessionId。无 JWT 时保持等待，不把失败标记为已恢复。
+Um mesmo processo reivindica o último alvo ativado apenas uma vez; notificações de login repetidas não podem criar conexões duplicadas. Resultados de recuperação antigos, posteriores a um logout, parada manual ou destruição de janela, não podem reiniciar nada. A parada manual limpa o registro de ativação, e um login posterior não o revive. Candidatos de janelas já sincronizadas devem ser sempre preservados, mesmo sem runtime estabelecido; o `SyncWebRemoteControlWorkspaces` sempre publica o snapshot completo local e remoto (inclusive a remoção por lista vazia), e a recuperação do controle remoto não consome mais o `SyncWindowTabs`, que contém apenas caminhos locais; alvos remotos são casados por workspaceIdentity e usam o remoteSessionId sincronizado neste processo. Sem JWT, permanece em espera, sem marcar a falha como já recuperada.
 
-桌面 `desktop-continuous` 和手机 `web-remote-replayable` 的 owner、snapshot/gap、host attachment 边界不变。验收使用 manager 公开接口 + 可变假登录源 + 真实 loopback relay、IPC schema、弹窗渲染；桌面 E2E 覆盖无登录打开弹窗、零远控 HTTP/WS 及 Zai Light/Dark × zh-CN/en-US 截图。
+Os limites de owner, de snapshot/gap e de host attachment do `desktop-continuous` do desktop e do `web-remote-replayable` do celular permanecem inalterados. A aceitação usa as interfaces públicas do manager + uma fonte de login falso mutável + relay real de loopback, o schema do IPC e a renderização do diálogo; o E2E do desktop cobre a abertura do diálogo sem login, zero HTTP/WS de controle remoto e capturas de tela em Zai Light/Dark × zh-CN/en-US.
 
-## 手机首次进入与恢复（05）
+## Primeira entrada pelo celular e recuperação (05)
 
-前置编排只拥有入口流程，凭据 owner 是 `BrowserOAuthCredentialRepo` / `WebAuthService`；transport 独占 socket、generation、AbortController、心跳与重试。无 SID 按 06 查询当前账号设备并选择落点；选定目标前不申请 token、不创建业务 runtime。
+A pré-orchestração possui apenas o fluxo de entrada; o owner das credenciais é `BrowserOAuthCredentialRepo` / `WebAuthService`; o transport é exclusivo de socket, generation, AbortController, heartbeat e retry. Sem SID, consulta conforme 06 os dispositivos da conta atual e escolhe o destino; antes de escolher o destino não solicita token nem cria runtime de negócio.
 
 ```mermaid
 sequenceDiagram
-    participant P as /remote/v4 前置编排
-    participant A as WebAuthService / 同源 storage
-    participant O as OAuth provider
-    participant T as Terminal V2 transport
+    participant P as /remote/v4 pré-orchestração
+    participant A as WebAuthService / storage de mesma origem
+    participant O as provedor OAuth
+    participant T as transport Terminal V2
     participant R as Relay V2
-    alt code + state（或 error + state）
-        P->>A: 复用 WebCallbackPage / handleCallback
-        A->>A: 校验 nonce；按构建环境交换 token 并保存登录态
-        A-->>P: replace 安全 app_return_to（含 sid/mid/name/app_version）
-    else 正常进入
-        P->>A: 读取本地 JWT（校验缓存与过期时间）
-        alt 无 JWT
-            P-->>O: 登录页 → authorize，app_return_to 为当前完整 URL
-            O-->>P: endpoint origin /remote/v4 + 原 app_version/sid/mid/name + 授权参数
-        else 无 SID
-            P-->>P: 按 06 查询设备 → 最近在线设备 / 设备列表
-        else 有 SID
-            P->>T: 创建唯一 transport
+    alt code + state (ou error + state)
+        P->>A: reutiliza WebCallbackPage / handleCallback
+        A->>A: valida nonce; troca token conforme o ambiente de build e salva o estado de login
+        A-->>P: replace seguro de app_return_to (com sid/mid/name/app_version)
+    else entrada normal
+        P->>A: lê o JWT local (valida cache e expiração)
+        alt sem JWT
+            P-->>O: página de login → authorize, com app_return_to sendo a URL completa atual
+            O-->>P: endpoint origin /remote/v4 + app_version/sid/mid/name originais + parâmetros de autorização
+        else sem SID
+            P-->>P: consulta dispositivos conforme 06 → dispositivo online mais recente / lista de dispositivos
+        else com SID
+            P->>T: cria o transport único
             T->>R: Bearer JWT + POST token {role: terminal}
-            T->>R: ws2?token&mid → auth_init {device_sid, meta, client_ts秒}
+            T->>R: ws2?token&mid → auth_init {device_sid, meta, client_ts em segundos}
             R-->>T: auth_ack matched
-            T-->>P: paired → 既有 bootstrap → workspace bridge → rpc-frame/ack
+            T-->>P: paired → bootstrap existente → workspace bridge → rpc-frame/ack
         end
     end
 ```
 
-回调模式先于普通入口；生产回调地址由 endpoint origin 推导，本地调试仍经允许的私网 `return_to=/remote/v4` 转发，只有显式启用开发转发的构建接受它。`app_return_to` 只允许同源 `/remote/v4`、保留的 `/remote/__test__`（均可有尾斜杠）和已有分享路径；远控 query 仅放行 `app_version`、`sid`、`mid`、`name`，其他参数与 fragment 不进入 OAuth 安全回跳。测试入口复用 `/remote/v4` 回调后返回原测试链接，不新增 OAuth 或私网 callback 路径；验收见 [测试入口登录回跳](./web-remote-login.md#独立测试入口的登录回跳)。
+O modo de callback vem antes da entrada normal; o endereço de callback em produção é derivado do endpoint origin, e o debug local continua passando pelo encaminhamento privado permitido `return_to=/remote/v4`, aceito apenas por builds com o encaminhamento de desenvolvimento explicitamente habilitado. `app_return_to` só permite `/remote/v4` de mesma origem, o `/remote/__test__` reservado (ambos podem ter barra final) e os caminhos de compartilhamento já existentes; a query do controle remoto só deixa passar `app_version`, `sid`, `mid` e `name`; outros parâmetros e o fragment não entram no retorno seguro do OAuth. A entrada de teste reutiliza o callback de `/remote/v4` e depois retorna ao link de teste original, sem criar novos caminhos de OAuth nem de callback privado; a aceitação está em [teste entrada login retorno](./web-remote-login.md#独立测试入口的登录回跳).
 
-发起授权时，回调地址与私网 return_to 同样保留上述白名单参数，保证网关在加载 JS 前能按 app_version 选取资源。凭据仓储在同源 localStorage 按 nonce 保存本次登录记录（含完整回调地址），回调取出匹配记录后按该地址交换 token。具体边界与回归见 [回调保留扫码参数](./web-remote-login.md#回调保留扫码参数) 与 [回调落到同一浏览器的其他标签页](./web-remote-login.md#回调落到同一浏览器的其他标签页)。
+Ao iniciar a autorização, o endereço de callback e o return_to privado também preservam os parâmetros da lista acima, garantindo que o gateway consiga escolher os recursos por app_version antes de carregar o JS. O repositório de credenciais salva no localStorage de mesma origem, por nonce, o registro deste login (incluindo o endereço de callback completo); o callback recupera o registro correspondente e troca o token por esse endereço. Os limites específicos e as regressões estão em [callback preserva parâmetros de varredura](./web-remote-login.md#回调保留扫码参数) e [callback caindo em outras abas do mesmo navegador](./web-remote-login.md#回调落到同一浏览器的其他标签页).
 
-有 SID 直接认证，不先查询设备列表。V1 hash/t 链接显示 invalid-mobile-connection，不计算 HMAC。每次重连重新读 JWT、申请并消费一次性 terminal token；transport 使用共享 V2 心跳（5秒±1秒/15秒 watchdog）、pair_status 映射和 KICKED 窗口。手机网络/5xx 保留 500ms×2ⁿ、最大10秒退避；桌面保留既有1秒起步/最大30秒/jitter。首次 KICKED 随机2~5秒后恢复，60秒内第二次终止为 session-conflict，回前台不能绕过该终态。
+Com SID, autentica-se direto, sem consultar a lista de dispositivos antes. Links V1 hash/t exibem invalid-mobile-connection, sem calcular HMAC. A cada reconexão relê o JWT, solicita e consome um token terminal de uso único; o transport usa o heartbeat V2 compartilhado (5 s ±1 s / watchdog de 15 s), o mapeamento de pair_status e a janela KICKED. No celular, rede/5xx mantêm backoff de 500 ms×2ⁿ, máximo de 10 s; no desktop, mantêm o existente de 1 s inicial / 30 s no máximo / jitter. Após o primeiro KICKED, retoma após 2~5 s aleatórios; um segundo evento em 60 s encerra como session-conflict, e voltar ao primeiro plano não contorna esse estado terminal.
 
-HTTP401 或重连前 JWT 缺失：关闭连接、清除本地会话、回登录页，当前完整 URL 作为再次登录返回地址。auth_init 后 AUTH_FAILED：device-not-owned；切换账号同样清除会话并保留返回地址。WRONG_PARAM：invalid-mobile-connection。DEVICE_OFFLINE 保留15秒宽限恢复；INTERNAL 维持现有可恢复等待/重连。waiting 是合法配对态，继续心跳；业务 data 仅在已认证 paired 时可接收。dispose/挂起/重建使迟到 token、旧 socket 消息失效。
+HTTP401 ou JWT ausente antes da reconexão: fecha a conexão, limpa a sessão local, volta à página de login usando a URL completa atual como endereço de retorno do novo login. AUTH_FAILED após auth_init: device-not-owned; trocar de conta também limpa a sessão e preserva o endereço de retorno. WRONG_PARAM: invalid-mobile-connection. DEVICE_OFFLINE mantém 15 s de tolerância para recuperação; INTERNAL mantém a espera/ reconexão recuperável já existente. waiting é um estado de pareamento legítimo e continua com heartbeat; os data de negócio só podem ser recebidos quando já autenticado e paired. dispose/suspensão/reconstrução invalidam tokens atrasados e mensagens do socket antigo.
 
-前后台恢复继续先探测同一 socket，必要时重新申请 token；重配对后按原顺序校验桌面版本、恢复 bootstrap/mobile-view-state、bridge、ACK 未确认帧与 snapshot/gap。桌面 `desktop-continuous`、手机 `web-remote-replayable` 的业务 owner、workspaceIdentity 和恢复顺序不变。
+A recuperação entre primeiro e segundo plano continua sondando o mesmo socket primeiro e, se necessário, solicita um novo token; após o novo pareamento, valida na ordem original a versão do desktop, restaura bootstrap/mobile-view-state, bridge, quadros ACK não confirmados e snapshot/gap. O owner de negócio, o workspaceIdentity e a ordem de recuperação do desktop `desktop-continuous` e do celular `web-remote-replayable` permanecem inalterados.
 
-### 浏览器 HTTP 取消兼容
+### Compatibilidade de cancelamento HTTP no navegador
 
-terminal token 与设备列表 HTTP adapter 不依赖 `AbortSignal.any()`、`AbortSignal.timeout()` 或 `throwIfAborted()`。缺少这些方法时，仍须完成真实请求和配对，不能在构造请求参数时抛错并持续重连。
+O token terminal e o adaptador HTTP da lista de dispositivos não dependem de `AbortSignal.any()`, `AbortSignal.timeout()` ou `throwIfAborted()`. Sem esses métodos, ainda é preciso completar a requisição real e o pareamento, sem lançar erro ao montar os parâmetros da requisição nem ficar reconectando em laço.
 
-两个 adapter 共用请求作用域的 `AbortController`，将调用方取消和既有 15 秒期限连接到同一请求信号。期限覆盖 fetch 和完整正文读取；收到响应头时不能提前释放。调用方已取消时不发请求；成功、HTTP/业务错误、网络失败、取消或超时后，均清理定时器和调用方监听。提前拒绝 HTTP 状态时也终止未读正文，避免取消期限后留下无期限请求。HTTP 401、业务错误与可重试网络错误沿用原分类，不吞错或返回部分正文。
+Os dois adaptadores compartilham o `AbortController` de escopo da requisição, conectando o cancelamento do chamador e o prazo de 15 s já existente ao mesmo sinal de requisição. O prazo cobre o fetch e a leitura completa do corpo; não pode ser liberado antecipadamente ao receber os cabeçalhos da resposta. Quando o chamador já cancelou, nenhuma requisição é enviada; após sucesso, erro HTTP/de negócio, falha de rede, cancelamento ou timeout, o temporizador e o listener do chamador são sempre limpos. Ao rejeitar antecipadamente por status HTTP, o corpo ainda não lido também é encerrado, evitando deixar requisições sem prazo após o cancelamento do prazo. HTTP 401, erros de negócio e erros de rede reentrantes mantêm a classificação original, sem engolir erros nem devolver corpo parcial.
 
 ```text
-修复前：token / list → 缺少静态 API → fetch 未执行 → 重连 / 列表失败
-修复后：入口 / transport 的取消信号 → 请求内 AbortController → fetch + 完整正文
-                                               ├─ 15 秒期限
-                                               └─ finally 清理计时器 / 监听
+Antes da correção: token / list → falta da API estática → fetch não executado → reconexão / falha na lista
+Depois da correção: sinal de cancelamento da entrada / transport → AbortController dentro da requisição → fetch + corpo completo
+                                               ├─ prazo de 15 s
+                                               └─ finally limpa temporizador / listener
 ```
 
-helper 只拥有一次 HTTP 请求的取消资源；导航由 Entry 持有，socket/generation/重试由 transport 持有。配对协议、账号隔离、桌面 continuous 和手机 replayable 的状态归属不变。
+O helper é dono dos recursos de cancelamento de uma única requisição HTTP; a navegação é mantida pela Entry, e socket/generation/retry são mantidos pelo transport. O protocolo de pareamento, o isolamento de contas e a atribuição de estado do continuous do desktop e do replayable do celular permanecem inalterados.
 
-回归：两种静态 API 分别缺失及同时缺失时，token/list 成功；取消覆盖请求头和正文阶段，已取消输入零请求，正文期限与成功/异常清理均有 adapter 测试；真实 loopback relay 验证配对和 bootstrap 透传。ML08 pending 浏览器用例覆盖扫码直连、无码选设备到配对发送 bootstrap，矩阵为三种 API 缺失 × 两入口 × 手机/宽屏 × 深浅主题，交错使用中英文。此证据不替代真机浏览器、生产 relay 或用户现场事故验证。
+Regressão: com cada uma das duas APIs estáticas ausente e com ambas ausentes, token/list têm sucesso; o cancelamento cobre as fases de cabeçalho e de corpo, entradas já canceladas geram zero requisições, o prazo do corpo e a limpeza em sucesso/exceção têm teste em cada adapter; um relay loopback real valida o pareamento e o repasse do bootstrap. O caso pendente de navegador ML08 cobre a conexão direta por varredura de código e a seleção de dispositivo sem código até o pareamento com envio do bootstrap, com matriz de três ausências de API × duas entradas × celular/tela larga × temas claro/escuro, intercalando chinês e inglês. Esta evidência não substitui a validação em navegador de aparelho real, o relay de produção nem a verificação de incidentes em campo do usuário.
 
-2026-10-19 本地验证：修复前兼容回归 27 项失败，浏览器缺少 `any` 时 token/WS/bootstrap 均为零；候选的未读错误正文清理另以 2 项失败测试确认。最终受影响 UT 为 21 文件、223 项通过；ML08 的 24 组浏览器回归均只取一次 token、建立一次 WS 并配对发送 bootstrap，证据在 `.tmp/remote-abort-api-compat-e2e/`。正常环境、缺少 `any`、缺少 `timeout` 的真实 HTTP/WS 探针均配对成功。typecheck、桌面 E2E typecheck、lint、architecture 和改动文件格式检查通过；lint 告警位于未修改文件。真机与生产环境仍未验证，用例保持 pending。
+Verificação local de 2026-10-19: antes da correção, 27 casos de regressão de compatibilidade falhavam, e com a ausência de `any` no navegador o token/WS/bootstrap eram todos zero; a limpeza do corpo de erro ainda não lido do candidato foi confirmada por mais 2 testes falhando. Os UT afetados finais foram 21 arquivos, 223 testes passando; as 24 configurações de regressão de navegador do ML08 obtiveram token uma única vez,estableceram uma única WS e parearam com envio do bootstrap, com evidências em `.tmp/remote-abort-api-compat-e2e/`. As sondas reais de HTTP/WS em ambiente normal, sem `any` e sem `timeout` parearam com sucesso. typecheck, typecheck do E2E do desktop, lint, architecture e a checagem de formatação dos arquivos alterados passaram; os avisos de lint estão em arquivos não modificados. Aparelho real e produção continuam sem validação, e os casos permanecem pending.
 
-### 手机文案与截图验收
+### Aceitação de textos e capturas de tela no celular
 
-以下表格保留 05 阶段文案；06 已以设备列表替代无 SID 扫码占位，并启用“选择其他设备”。当前设备列表及归属失败动作以 06 为准；失败页次级动作在主按钮下方使用 Button ghost。
+A tabela abaixo preserva os textos da fase 05; a 06 já substituiu o placeholder de varredura sem SID pela lista de dispositivos e habilitou "选择其他设备". Os dispositivos da lista atual e as ações de falha de titularidade seguem a 06; na página de falha, a ação secundária usa Button ghost abaixo do botão principal.
 
-| 页面/元素            | zh-CN                                                | en-US                                                                       |
-| -------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
-| 登录标题             | 登录后继续使用 Web 远程控制                          | Sign In To Continue                                                         |
-| 登录说明             | 请选择与电脑端相同的登录平台，并使用同一账号。       | Choose the same sign-in provider and account as on your computer.           |
-| Z.AI 登录按钮        | 连接 Z.ai 继续使用（全球）                           | Connect to Z.ai (Global)                                                    |
-| BigModel 登录按钮    | 连接 BigModel 继续使用（中国）                       | Connect to BigModel (CN)                                                    |
-| 无 sid 标题          | 请扫描桌面二维码                                     | Scan the desktop QR code                                                    |
-| 无 sid 说明          | 在电脑端打开 Web 远程控制，再用手机扫描二维码连接。  | Open Web remote control on your computer, then scan its QR code to connect. |
-| 归属失败标题         | 该设备不属于当前账号                                 | This device does not belong to this account                                 |
-| 归属失败说明         | 请使用与电脑端相同的账号登录。                       | Sign in with the same account as the computer.                              |
-| 归属失败主按钮       | 重新连接                                             | Try Again                                                                   |
-| 归属失败次级按钮     | 切换账号                                             | Switch account                                                              |
-| 预留设备动作（隐藏） | 选择其他设备                                         | Choose another device                                                       |
-| 参数失败标题         | 手机连接已失效                                       | Mobile Connection Invalid                                                   |
-| 参数失败说明         | 当前页面的二维码参数无效，请扫描桌面端的最新二维码。 | The QR parameters are invalid. Scan the latest desktop QR code.             |
-| 参数失败按钮         | 重新连接                                             | Try Again                                                                   |
+| Página/elemento         | zh-CN                                                | en-US                                                                       |
+| ----------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| Título do login        | 登录后继续使用 Web 远程控制                          | Sign In To Continue                                                         |
+| Descrição do login     | 请选择与电脑端相同的登录平台，并使用同一账号。       | Choose the same sign-in provider and account as on your computer.           |
+| Botão de login Z.AI    | 连接 Z.ai 继续使用（全球）                           | Connect to Z.ai (Global)                                                    |
+| Botão de login BigModel| 连接 BigModel 继续使用（中国）                       | Connect to BigModel (CN)                                                    |
+| Título sem sid         | 请扫描桌面二维码                                     | Scan the desktop QR code                                                    |
+| Descrição sem sid      | 在电脑端打开 Web 远程控制，再用手机扫描二维码连接。  | Open Web remote control on your computer, then scan its QR code to connect. |
+| Título de falha de titularidade | 该设备不属于当前账号                       | This device does not belong to this account                                 |
+| Descrição de falha de titularidade | 请使用与电脑端相同的账号登录。          | Sign in with the same account as the computer.                              |
+| Botão principal de falha de titularidade | 重新连接                     | Try Again                                                                   |
+| Botão secundário de falha de titularidade | 切换账号                 | Switch account                                                              |
+| Ação de dispositivo reservada (oculta) | 选择其他设备                        | Choose another device                                                       |
+| Título de falha de parâmetro | 手机连接已失效                              | Mobile Connection Invalid                                                   |
+| Descrição de falha de parâmetro | 当前页面的二维码参数无效，请扫描桌面端的最新二维码。 | The QR parameters are invalid. Scan the latest desktop QR code.             |
+| Botão de falha de parâmetro | 重新连接                                   | Try Again                                                                   |
 
-截图矩阵：登录门禁 / 无 SID / device-not-owned × 390px / 1024px × Zai Light / Zai Dark × zh-CN / en-US，共24张；pending 用例 `packages/web/test/e2e/manual-review/pending/remote-login-v2.mjs`，不自动转正。测试接缝沿用本票已定义的前置编排 + 注入 auth/fetch/location/storage/transport，以及真实 loopback 假 relay。
+Matriz de capturas: portal de login / sem SID / device-not-owned × 390px / 1024px × Zai Light / Zai Dark × zh-CN / en-US, 24 no total; os casos pendentes ficam em `packages/web/test/e2e/manual-review/pending/remote-login-v2.mjs` e não são promovidos automaticamente. A costura de teste segue a pré-orchestração já definida por esta história, com auth/fetch/location/storage/transport injetados e um relay loopback falso real.
 
-| 用例 | 行为与断言                                                                                                      | 自动化层级                                    |
-| ---- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| ML01 | 无 JWT 显示双平台登录门禁，零 token/WS；24张矩阵中的8张                                                         | pending 浏览器                                |
-| ML02 | 已登录无 SID 查询设备并显示列表，选定前零 token/WS；06 更新为混合/空列表16张                                    | pending 浏览器                                |
-| ML03 | AUTH_FAILED 展示归属失败；切换账号清会话且保留 URL；8张                                                         | pending 浏览器                                |
-| ML04 | 两平台 × 手机/宽屏保留回调的扫码参数，保存 nonce/provider/回调地址，按原地址换 token 并回跳、配对发送 bootstrap | pending 浏览器，受控 OAuth/relay              |
-| ML05 | 已登录直接 terminal token/auth_init/配对发送 bootstrap                                                          | pending 浏览器                                |
-| ML06 | token401 清凭据回登录并保留 URL，无 WS                                                                          | pending 浏览器                                |
-| ML08 | 缺少 AbortSignal 静态 API 时，扫码直连和设备列表选择均完成 token/WS/auth/配对并发送 bootstrap                   | pending 浏览器，`remote-abort-api-compat.mjs` |
+| Caso  | Comportamento e asserções                                                                                          | Nível de automação                                     |
+| ----- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| ML01  | Sem JWT exibe o portal de login de duas plataformas, com zero token/WS; 8 das 24 imagens da matriz                   | pending navegador                                     |
+| ML02  | Com login e sem SID consulta dispositivos e exibe a lista, com zero token/WS antes da seleção; a 06 foi atualizada para 16 imagens de lista mista/vazia | pending navegador                     |
+| ML03  | AUTH_FAILED exibe a falha de titularidade; trocar de conta limpa a sessão e preserva a URL; 8 imagens               | pending navegador                                     |
+| ML04  | Duas plataformas × celular/tela larga preservam os parâmetros de varredura do callback, salvam nonce/provider/endereço de callback, trocam o token pelo endereço original e retornam, pareando com envio do bootstrap | pending navegador, com OAuth/relay controlados |
+| ML05  | Já logado vai direto para terminal token/auth_init/pareamento com envio do bootstrap                                | pending navegador                                     |
+| ML06  | token401 limpa as credenciais, volta ao login e preserva a URL, sem WS                                             | pending navegador                                     |
+| ML08  | Na falta das APIs estáticas de AbortSignal, tanto a conexão direta por varredura quanto a seleção na lista de dispositivos completam token/WS/auth/pareamento e enviam o bootstrap | pending navegador, `remote-abort-api-compat.mjs` |
 
-### 环境验收记录
+### Registro de aceitação por ambiente
 
-根版本保持 `3.13.0`。OSS 测试流水线覆盖 `3.13.0/` 前需知会仍使用该版本 V1 桌面的同事；真机“扫码首次登录 → 回跳 → 连接”和“已登录直连”需单独记录。自动化本地证据不等于真实 OAuth、OSS 网关、真机及跨实例 relay 验收。
+A versão da raiz permanece `3.13.0`. Antes de a este pipeline de testes OSS cobrir `3.13.0/`, é preciso avisar os colegas que ainda usam a versão V1 do desktop; o "primeiro login por varredura → retorno → conexão" em aparelho real e o "acesso direto já logado" precisam ser registrados separadamente. Evidência de automação local não equivale à aceitação com OAuth real, gateway OSS, aparelho real e relay entre instâncias.
 
-2026-09-19 本地自动化：ML01–ML06 共27项检查通过，24张矩阵截图与结果在 `.tmp/remote-login-v2-e2e/`（`index.html`、`matrix.jpg`、`results.json`）；新扫码卡圆角与归属失败徽标对比度调整后分别更新8张截图。RV01–RV03 六组浏览器配置通过；home-only 已有动态会话/工作区事件订阅缺失告警仍存在，未声称覆盖其任务操作。Web31文件296项通过，设备/手机 transport 定向48项通过；typecheck/lint/architecture通过。
+Automação local de 2026-09-19: 27 verificações de ML01–ML06 passaram, com as 24 imagens da matriz e os resultados em `.tmp/remote-login-v2-e2e/` (`index.html`, `matrix.jpg`, `results.json`); após o ajuste do novo cartão de varredura e do contraste do selo de falha de titularidade, 8 imagens foram atualizadas em cada caso. As seis configurações de navegador de RV01–RV03 passaram; o alerta já existente de ausência de assinatura de eventos de sessão/workspace dinâmicos no home-only continua presente, e não se afirma cobertura de suas operações de tarefa. Web: 296 testes em 31 arquivos passaram, e 48 testes direcionados de device/transport do celular passaram; typecheck/lint/architecture passaram.
 
-全量单测仍被已有反馈 E2E `/private/tmp` 路径断言阻塞，源文件与任务开始快照一致；本票测试 fixture 的 location.href 缺失已修复并通过 Web 全集。尚无 OSS 覆盖与真实手机 OAuth 证据，不标记测试环境验收完成，不自动本地提交。Standards/Spec 双轴评审发现的等待定时器、挂起迟到事件与扫码卡圆角问题已修复并定向复核通过。
+A suíte completa de testes unitários continua bloqueada pela asserção de caminho `/private/tmp` no E2E de feedback já existente, com o arquivo-fonte idêntico ao snapshot do início da tarefa; a ausência de `location.href` no fixture de teste desta história foi corrigida e passou com o conjunto Web. Ainda não há cobertura OSS nem evidência de OAuth em celular real, portanto o aceite do ambiente de teste não é marcado como concluído e nada é submetido localmente de forma automática. Os problemas de temporizador de espera, eventos atrasados em suspensão e raio de canto do cartão de varredura encontrados na revisão de dois eixos Standards/Spec foram corrigidos e reconfirmados de forma direcionada.
 
-## 手机设备列表与最近设备（06）
+## Lista de dispositivos do celular e dispositivo recente (06)
 
-本节对应 [06 issue](../issues/web-remote-control-relay-v2/06-mobile-device-list-and-last-device.md)，2026-09-19 用户已确认线框、文案与行为方案。本节取代 05 的无 SID 扫码占位和隐藏的“选择其他设备”动作；05 的有 SID 直连、OAuth 回跳与业务恢复契约继续适用。
+Esta seção corresponde à [issue 06](../issues/web-remote-control-relay-v2/06-mobile-device-list-and-last-device.md), com wireframe, textos e plano de comportamento já confirmados pelo usuário em 2026-09-19. Esta seção substitui o placeholder de varredura sem SID da 05 e a ação oculta "选择其他设备"; a conexão direta com SID, o retorno do OAuth e o contrato de recuperação de negócio da 05 continuam aplicáveis.
 
-### 落点、状态归属与刷新
+### Destino, atribuição de estado e atualização
 
-`WebRemoteControlEntry` 是入口视图、设备列表请求和自动连接 admission 的唯一 owner；页面只渲染其投影并发送选择、刷新和切换账号命令。凭据继续由 `WebAuthService` 持有，设备在线事实来自当前账号的 `GET /api/v1/remote/device`，localStorage 最近 SID/MID 仅是偏好，不能证明归属或在线；同源 localStorage 记住的设备名和平台同样只是展示偏好，不参与身份、归属或在线判断。
+`WebRemoteControlEntry` é o owner único da view de entrada, da requisição da lista de dispositivos e do admission de conexão automática; a página apenas renderiza sua projeção e envia comandos de seleção, atualização e troca de conta. As credenciais continuam com `WebAuthService`; o fato de um dispositivo estar online vem de `GET /api/v1/remote/device` da conta atual; o SID/MID recente guardado no localStorage é apenas uma preferência e não prova titularidade nem presença on-line; o nome e a plataforma do dispositivo lembrados no localStorage de mesma origem também são apenas preferências de exibição e não participam de decisões de identidade, titularidade ou presença on-line.
 
-1. 回调模式和登录门禁保持优先；有 SID 沿用 05 直接连接，不查询设备列表。
-2. 已登录且无 SID 时，读取同源 localStorage 的 `zcode-web-remote-last-device-sid` 与 `zcode-web-remote-last-device-mid`，拉取当前账号的设备列表，按以下顺序决定落点：
-   - 返回列表包含最近 SID 且 `online=true`：自动连接该 SID。
-   - 最近 SID 不在线（离线或已被桌面重新注册删除），但最近 MID 在当前列表中恰好只有 1 个在线 SID：自动连接这个 SID。同一台电脑重新注册后 SID 会变化，MID 代表同一台机器，列表已限定为当前账号，因此可以直接接上。最近 MID 缺失（只记录过 SID 的旧偏好）时，取列表中最近 SID 记录的 MID。
-   - 同 MID 有多个在线 SID、无记录、或上述都不满足：展示列表，不任选其他电脑或连接。
-3. 最近设备自动连接只在本次无码入口首次成功获取列表时尝试一次。进入列表后，手动刷新和回前台刷新只更新列表，不突然跳入连接。失败页主动“选择其他设备”始终跳过最近设备自动连接，避免回到刚失败的设备。
-4. 列表进入时请求一次，点击刷新请求一次，`visibilitychange` 变为 `visible` 时请求一次；隐藏时不请求，不轮询。请求中的刷新按钮禁用，重叠触发合并到当前请求；离开列表、切换账号或开始连接时取消请求并使旧结果失效。
-5. 首次加载展示加载文案；刷新期间保留当前列表但暂时禁用选择。请求失败时显示列表内错误与刷新入口，不伪装成空列表，旧数据若存在则保留且不可连接，直到刷新成功。HTTP 401 清会话回登录，保留当前返回 URL；网络、5xx、非成功业务码或非法响应均显示加载失败，不启动轮询。
-6. localStorage 读取失败按无最近记录处理，写入失败不阻断连接。换账号后必须重新拉当前账号列表验证最近 SID/MID，不复用旧列表或旧请求的结果。
+1. O modo de callback e o portal de login continuam prioritários; com SID, vale a conexão direta da 05, sem consultar a lista de dispositivos.
+2. Com login e sem SID, lê-se `zcode-web-remote-last-device-sid` e `zcode-web-remote-last-device-mid` do localStorage de mesma origem, busca-se a lista de dispositivos da conta atual e decide-se o destino na ordem a seguir:
+   - A lista devolvida contém o SID recente com `online=true`: conecta-se automaticamente a esse SID.
+   - O SID recente está offline (offline ou removido por um novo registro feito pelo desktop), mas o MID recente tem exatamente 1 SID online na lista atual: conecta-se automaticamente a esse SID. Quando o mesmo computador se registra de novo, o SID muda, enquanto o MID representa a mesma máquina; como a lista já está restrita à conta atual, é possível continuar diretamente. Se o MID recente estiver ausente (preferência antiga em que só o SID foi registrado), usa-se o MID do registro do SID mais recente da lista.
+   - Há vários SIDs online com o mesmo MID, não há registro, ou nenhuma das condições acima vale: exibe-se a lista, sem escolher arbitrariamente outro computador nem conectar.
+3. A conexão automática ao dispositivo recente só é tentada uma vez, quando esta entrada sem código obtém a lista com sucesso pela primeira vez. Depois de entrar na lista, a atualização manual e a atualização ao voltar ao primeiro plano apenas atualizam a lista, sem saltar de repente para a conexão. A ação ativa "选择其他设备" na página de falha sempre pula a conexão automática ao dispositivo recente, evitando voltar ao dispositivo que acabou de falhar.
+4. Uma requisição ao entrar na lista, uma ao clicar em atualizar e uma quando `visibilitychange` fica `visible`; nenhuma requisição é feita quando oculto, e não há polling. O botão de atualizar fica desabilitado durante a requisição, e disparos sobrepostos são mesclados na requisição em andamento; ao sair da lista, trocar de conta ou iniciar a conexão, a requisição é cancelada e os resultados antigos são invalidados.
+5. A primeira carga exibe o texto de carregamento; durante a atualização, a lista atual é mantida, mas a seleção fica temporariamente desabilitada. Em caso de falha da requisição, mostra-se o erro dentro da lista com a entrada de atualização, sem se passar por uma lista vazia; se houver dados antigos, eles são mantidos e ficam não conectáveis até que a atualização tenha sucesso. HTTP 401 limpa a sessão e volta ao login, preservando a URL de retorno atual; rede, 5xx, código de negócio sem sucesso ou resposta inválida exibem falha de carregamento, sem iniciar polling.
+6. Falha de leitura do localStorage é tratada como ausência de registro recente, e falha de escrita não bloqueia a conexão. Após trocar de conta, é preciso buscar de novo a lista da conta atual para validar o SID/MID recente, sem reaproveitar a lista antiga ou o resultado de requisições antigas.
 
 ```mermaid
 sequenceDiagram
-    participant P as 入口编排（列表与 admission owner）
-    participant S as 同源 localStorage（最近 SID/MID 偏好）
-    participant R as Relay V2（设备与在线事实）
-    participant T as 既有 terminal transport
-    P->>S: 无 SID 入口读取最近 SID/MID
-    P->>R: 当前 JWT + GET device
-    R-->>P: 当前账号设备列表
-    alt 最近 SID 在线
-        P->>P: replaceState 写 sid/mid/name，保留 app_version
-        P->>S: 写最近 SID/MID
-        P->>T: 复用 05 建连路径
-    else 最近 SID 不在线，但最近 MID 恰好 1 个在线 SID
-        P->>P: 以该在线 SID replaceState
-        P->>S: 写最近 SID/MID
-        P->>T: 复用 05 建连路径
-    else 无记录、MID 多个在线 SID 或全离线
-        P-->>P: 展示排序后的列表
-        P->>R: 手动刷新 / 回前台 → GET device（不轮询）
-        R-->>P: 仅在本次入口仍有效时更新列表
-        P->>P: 选择在线设备 → replaceState
-        P->>S: 写最近 SID/MID
-        P->>T: 复用 05 建连路径
+    participant P as orquestração de entrada (owner da lista e do admission)
+    participant S as localStorage de mesma origem (preferência de SID/MID recente)
+    participant R as Relay V2 (fatos de dispositivo e presença on-line)
+    participant T as transport terminal existente
+    P->>S: entrada sem SID lê o SID/MID recente
+    P->>R: JWT atual + GET device
+    R-->>P: lista de dispositivos da conta atual
+    alt SID recente está online
+        P->>P: replaceState grava sid/mid/name, preservando app_version
+        P->>S: grava o SID/MID recente
+        P->>T: reutiliza o caminho de conexão da 05
+    else SID recente está offline, mas o MID recente tem exatamente 1 SID online
+        P->>P: replaceState com esse SID online
+        P->>S: grava o SID/MID recente
+        P->>T: reutiliza o caminho de conexão da 05
+    else sem registro, MID com vários SIDs online ou todos offline
+        P-->>P: exibe a lista ordenada
+        P->>R: atualização manual / voltar ao primeiro plano → GET device (sem polling)
+        R-->>P: atualiza a lista apenas se esta entrada ainda for válida
+        P->>P: selecionar dispositivo online → replaceState
+        P->>S: grava o SID/MID recente
+        P->>T: reutiliza o caminho de conexão da 05
     end
 ```
 
-进入连接时撤销列表刷新监听。配对后仍由既有 bootstrap/bridge 接管；桌面 `desktop-continuous`、手机 `web-remote-replayable` 的 owner、workspaceIdentity、ACK、snapshot/gap 顺序不变。
+Ao entrar na conexão, os listeners de atualização da lista são revogados. Depois do pareamento, o bootstrap/bridge existentes continuam assumindo; o owner, o workspaceIdentity e a ordem ACK/snapshot/gap do desktop `desktop-continuous` e do celular `web-remote-replayable` permanecem inalterados.
 
-### 列表排布与文本线框
+### Layout da lista e wireframe de textos
 
-2026-09-23 改版（原型确认存档于 `prototype/mobile-remote-redesign` 分支）：独立全屏页，采用原生 App 分组列表风格，不再使用居中卡片。页面横向 16px 留白，顶部留出安全区；宽屏（≥768px）同样居中一列、最大宽度 `max-w-md`，不套外层卡片。分组容器为 `rounded-xl`，容器内平台图标块为 `rounded-lg`；行的可点击高度不低于 64px。入口提供视口高度的滚动容器，内容超高时纵向滚动，保证设备末行可达。默认主题为 `zai-dark`，遵循现有已保存主题；不新增主题或语言切换控件。
+Redesign de 2026-09-23 (protótipo arquivado na branch `prototype/mobile-remote-redesign`): página independente em tela cheia, com estilo de lista agrupada do App nativo, sem cards centralizados. A página tem 16px de respiro horizontal e reserva a área segura no topo; em tela larga (≥768px) também há uma única coluna centralizada, com largura máxima `max-w-md` e sem card externo. O contêiner de grupo é `rounded-xl`, e o bloco de ícone de plataforma dentro do contêiner é `rounded-lg`; a altura clicável da linha não é menor que 64px. A entrada oferece um contêiner de rolagem com a altura da viewport, rolando verticalmente quando o conteúdo é mais alto, garantindo que a última linha de dispositivos seja alcançável. O tema padrão é `zai-dark`, seguindo o tema já salvo; não há novos controles de tema ou de idioma.
 
 ```text
 ┌──────────────────────────────────────┐
-│ [Z] ZCode                            │
-│ 选择电脑                        (⟳) │
-│ (J) jyrong · Z.ai  切换              │
+│[Z] ZCode                             │
+│Escolher computador                 (⟳)│
+│(J) jyrong · Z.ai  Trocar             │
 │                                      │
-│ 在线 2                               │
-│ ┌──────────────────────────────────┐ │
-│ │ [] Alice’s MacBook Pro         › │ │
-│ │ ●  macOS · ZCode 3.15.0          │ │
-│ ├──────────────────────────────────┤ │
-│ │ [⊞] Workstation     2 个连接   › │ │
-│ │ ●   Windows                      │ │
-│ └──────────────────────────────────┘ │
-│ 离线 2                               │
-│ ┌──────────────────────────────────┐ │
-│ │ [L] Home PC                       │ │
-│ │      Linux · 离线                 │ │
-│ ├──────────────────────────────────┤ │
-│ │ [▭] 未命名设备                    │ │
-│ │      离线                         │ │
-│ └──────────────────────────────────┘ │
-│ 没看到你的电脑？在电脑端 ZCode 登录  │
-│ 同一账号并开启远程控制，然后刷新。   │
+│Online 2                              │
+│┌──────────────────────────────────┐  │
+││[] Alice’s MacBook Pro           ›│  │
+││●  macOS · ZCode 3.15.0           │  │
+│├──────────────────────────────────┤  │
+││[⊞] Workstation     2 conexões   ›│  │
+││●   Windows                       │  │
+│└──────────────────────────────────┘  │
+│Offline 2                             │
+│┌──────────────────────────────────┐  │
+││[L] Home PC                       │  │
+││     Linux · Offline              │  │
+│├──────────────────────────────────┤  │
+││[▭] Dispositivo sem nome          │  │
+││     Offline                      │  │
+│└──────────────────────────────────┘  │
+│Não vê seu computador? No ZCode do    │
+│computador, entre com a mesma conta   │
+│e ative o controle remoto; atualize.  │
 └──────────────────────────────────────┘
 
-“Home PC”是本手机此前见过在线、现在离线的设备，名字与平台来自本地记住的记录；“未命名设备”是从未在本手机上线过的离线记录，显示通用电脑图标。
+"Home PC" é um dispositivo que este celular já viu online e que agora está offline; o nome e a plataforma vêm do registro lembrado localmente; "Dispositivo sem nome" é um registro offline que nunca ficou online neste celular e exibe o ícone genérico de computador.
 
-空列表：保留页头、标题、账号行和刷新图标；列表区域替换为居中的电脑图标、
-“暂无设备”、说明“在电脑端登录同一账号并开启 Web 远程控制，然后刷新列表。”
-和一个带文字的“刷新”按钮。
+Lista vazia: manter o cabeçalho da página, o título, a linha da conta e o ícone de atualização; a área da lista é substituída por um ícone de computador centralizado,
+"Nenhum dispositivo", a observação "Entre com a mesma conta no computador e ative o controle remoto do Web,
+depois atualize a lista." e um botão "Atualizar" com texto.
 ```
 
-- 页头左侧品牌为桌面端标题栏同款应用 logo 图标（`logo-zai.svg`，20px，自带底色，深浅主题共用）加“ZCode”文字，纯静态标识，不可点击；图标为装饰性图片，可读名称由文字承担。线框中的 `[Z]` 即该图标。
-- 标题“选择电脑”右侧为刷新图标按钮（点击区域 40px，带可读名称“刷新”，请求中转圈并禁用）；不做下拉刷新，避免与移动浏览器及内置浏览器自带的下拉手势冲突。
-- 标题下一行是当前账号：头像（`avatarUrl`，缺失时取显示名首字）、显示名、“·”、登录平台（`Z.ai` / `BigModel`），右侧文字按钮“切换”打开[手动切换账号确认弹窗](./web-remote-login.md#手动切换账号确认)。账号资料只从本机已保存的登录资料只读读取，不校验或清理凭据；读取不到时该行只显示文字按钮“切换账号”。
-- 当前账号的注册记录按完整 `device_mid` 聚合为设备项，同 MID 始终只展示一项；SID 仍是连接与本地业务状态的隔离键，不合并不同 SID 的业务状态，不删除或改写服务端记录。
-- 设备项分为“在线 {n}”与“离线 {n}”两组，分组标题为弱化小字加数量；没有成员的分组整体不显示。离线组整体弱化，不折叠，不提供删除。
-- 每条记录的显示名取去除首尾空白的 `meta.name`，缺失时取本地记住的设备名（见下节），仍缺失为空名。在线记录在前、显示名非空在前，再按显示名以当前语言排序，同名/空名按完整 MID、SID 确定稳定顺序。入口编排按这个顺序聚合：设备名取首条记录的显示名；任意 SID 在线即归入在线组，全离线仅显示一项。每次成功刷新从当前响应重建在线事实与连接投影，不缓存历史连接；只有设备名和平台允许回退到本地记住的记录。
-- 设备行左侧为 36px 平台图标块：`meta.platform` 为 `darwin` / `win32` / `linux` 时分别显示 macOS / Windows / Linux 品牌图标（Simple Icons，CC0），未知或缺失显示通用电脑图标；在线设备在图标右下角叠加成功色圆点。首行为设备名（单行截断，空名显示“未命名设备”），次行为说明：在线单连接为“{平台} · ZCode {version}”，在线多连接为“{平台}”，离线为“{平台} · 离线”，平台未知时省略平台段。
-- 设备 ID 默认不显示；只有同一分组中出现同名设备项时，才在这些项的次行末尾追加 `device_mid` 前 8 位（“· ID a12b34c5”）用于区分，前 8 位不参与身份判断。不用 MID 片段冒充名字。
-- 只有一个在线 SID 时，在线整行是可聚焦按钮，支持触摸、Enter/Space，点击连接该 SID，右侧显示进入箭头。全离线行原生禁用、弱化、无进入箭头。状态不只依靠颜色区分：离线行次行带“离线”文字，在线行带进入箭头。
-- 多个 SID 在线时仍只有一个设备项，行右侧显示“{n} 个连接”和进入箭头；点击后从底部弹出选择层（见“多连接选择”），用户明确选择后才连接，不按注册时间猜测或丢弃连接目标。
-- 列表末尾为弱化说明“没看到你的电脑？在电脑端 ZCode 登录同一账号并开启远程控制，然后刷新。”。
-- 标题使用 `text-ui-xl font-semibold`，设备名使用 `text-ui-base font-medium`，次行、分组标题与说明使用 `text-ui-sm`；颜色使用已有语义 token。
+- À esquerda do cabeçalho, a marca é o ícone de logo do app igual ao da barra de título do desktop (`logo-zai.svg`, 20px, com fundo próprio, compartilhado entre temas claro e escuro) mais o texto "ZCode", uma identificação puramente estática e não clicável; o ícone é uma imagem decorativa e o nome acessível fica a cargo do texto. O `[Z]` do wireframe é esse ícone.
+- À direita do título "选择电脑" há um botão com ícone de atualização (área de clique de 40px, nome acessível "刷新", que gira e fica desabilitado durante a requisição); não há pull-to-refresh, para evitar conflito com o gesto de arraste dos navegadores móveis e dos navegadores embutidos.
+- A linha abaixo do título é a conta atual: avatar (`avatarUrl`, usando a inicial do nome de exibição quando ausente), nome de exibição, "·" e a plataforma de login (`Z.ai` / `BigModel`), com o botão de texto "切换" à direita abrindo a [confirmação de troca manual de conta](./web-remote-login.md#手动切换账号确认). Os dados da conta são lidos somente, a partir das informações de login salvas nesta máquina, sem validar nem limpar credenciais; quando não dá para ler, a linha mostra apenas o botão de texto "切换账号".
+- Os registros de registro da conta atual são agregados em itens de dispositivo pelo `device_mid` completo, e sempre há apenas um item por MID; o SID continua sendo a chave de isolamento da conexão e do estado de negócio local, sem mesclar estados de negócio de SIDs diferentes e sem apagar nem reescrever registros do servidor.
+- Os itens de dispositivo são divididos nos grupos "在线 {n}" e "离线 {n}", com o título do grupo em texto pequeno atenuado e a quantidade; um grupo sem membros não é exibido. O grupo offline é atenuado por inteiro, não é recolhido e não oferece remoção.
+- O nome de exibição de cada registro vem de `meta.name` sem espaços nas pontas; quando ausente, usa o nome de dispositivo lembrado localmente (ver a seção a seguir), e ainda ausente fica como nome vazio. Registros online vêm primeiro, depois os de nome de exibição não vazio, e por fim a ordenação por nome de exibição no idioma atual; nomes iguais ou vazios recebem ordem estável pelo MID e SID completos. A orquestração de entrada agrega nesta ordem: o nome do dispositivo vem do nome de exibição do primeiro registro; qualquer SID online coloca o item no grupo online, e com tudo offline mostra-se apenas um item. Cada atualização bem-sucedida reconstrói os fatos de presença on-line e a projeção de conexão a partir da resposta atual, sem cachear conexões históricas; apenas o nome do dispositivo e a plataforma podem recorrer ao registro lembrado localmente.
+- À esquerda da linha de dispositivo há um bloco de ícone de plataforma de 36px: quando `meta.platform` é `darwin` / `win32` / `linux`, mostra-se o ícone de marca macOS / Windows / Linux (Simple Icons, CC0), e plataforma desconhecida ou ausente mostra o ícone genérico de computador; dispositivos online recebem um ponto na cor de sucesso sobreposto no canto inferior direito do ícone. A primeira linha é o nome do dispositivo (truncado em uma linha, com "未命名设备" para nome vazio), e a segunda linha é a descrição: com uma única conexão online, "{平台} · ZCode {version}"; com várias conexões online, "{平台}"; offline, "{平台} · 离线"; com plataforma desconhecida, o trecho da plataforma é omitido.
+- O ID do dispositivo não é exibido por padrão; só quando itens de dispositivo com o mesmo nome aparecem no mesmo grupo é que se acrescenta, ao final da segunda linha desses itens, os 8 primeiros dígitos de `device_mid` ("· ID a12b34c5") para diferenciá-los, e esses 8 primeiros dígitos não participam da decisão de identidade. Não se usa um fragmento de MID para fingir um nome.
+- Com apenas um SID online, a linha online inteira é um botão focável, com suporte a toque, Enter/Space, que conecta a esse SID, com a seta de entrada à direita. Linhas totalmente offline são nativamente desabilitadas, atenuadas e sem seta de entrada. O estado não depende apenas da cor: a segunda linha offline traz o texto "离线", e a linha online traz a seta de entrada.
+- Com vários SIDs online ainda há apenas um item de dispositivo, e o lado direito da linha exibe "{n} 个连接" e a seta de entrada; ao clicar, abre-se uma camada de seleção a partir da parte inferior (ver "Seleção de múltiplas conexões"), e a conexão só é feita depois que o usuário escolher explicitamente, sem adivinhar pelo tempo de registro nem descartar o alvo de conexão.
+- No fim da lista há a observação atenuada "没看到你的电脑？在电脑端 ZCode 登录同一账号并开启远程控制，然后刷新。".
+- O título usa `text-ui-xl font-semibold`, o nome do dispositivo usa `text-ui-base font-medium`, e a segunda linha, os títulos de grupo e as observações usam `text-ui-sm`; as cores usam os tokens semânticos já existentes.
 
-### 多连接选择
+### Seleção de múltiplas conexões
 
-底部弹层标题为设备名，说明为“这台电脑上有 {n} 个 ZCode 在线，选择要连接的一个”。每个在线连接一行：左侧平台图标，首行“ZCode {version}”（缺版本时为“ZCode”），次行“{相对时间}启动 · ID {SID 末 6 位}”，其中启动时间取该 SID 的 `created_at`；右侧进入箭头。底部为全宽“取消”按钮。弹层外壳遵守 DESIGN 的 `bg-popover`、`border-popover-border` 与 `rounded-t-2xl`；弹层遵循对话框的焦点与 Esc 关闭语义，选择后关闭弹层并走与单连接相同的 admission；刷新中或刷新失败时弹层内连接行同样禁用。完整 SID 不在界面展示，仍写入 URL 与最近记录。
+O título da camada inferior é o nome do dispositivo, e a descrição é "这台电脑上有 {n} 个 ZCode 在线，选择要连接的一个". Cada conexão online ocupa uma linha: à esquerda, o ícone de plataforma; primeira linha "ZCode {version}" ("ZCode" quando falta a versão); segunda linha "{相对时间}启动 · ID {SID末6位}", em que o horário de inicialização vem do `created_at` daquele SID; e a seta de entrada à direita. No rodapé há um botão "取消" de largura total. O invólucro da camada segue o `bg-popover`, o `border-popover-border` e o `rounded-t-2xl` do DESIGN; a camada respeita a semântica de foco e de fechamento por Esc dos diálogos, e, após a seleção, é fechada e segue o mesmo admission da conexão única; durante a atualização ou em caso de falha na atualização, as linhas de conexão dentro da camada também ficam desabilitadas. O SID completo não é exibido na interface, mas continua sendo gravado na URL e no registro recente.
 
-### 本地记住的设备名与平台
+### Nome e plataforma de dispositivo lembrados localmente
 
-服务端只在设备在线时通过 `auth_init.meta` 携带主机名和平台，离线记录的 `meta` 为空。为了让离线设备仍可辨认，手机端把见过的在线设备名和平台记在本机，作用范围是这台手机的同源 localStorage，不同步到服务端或其他手机。
+O servidor só transporta hostname e plataforma via `auth_init.meta` enquanto o dispositivo está online, e o `meta` dos registros offline é vazio. Para que dispositivos offline continuem reconhecíveis, o celular guarda localmente o nome e a plataforma dos dispositivos online que já viu, com escopo no localStorage de mesma origem deste celular, sem sincronizar com o servidor nem com outros celulares.
 
-- 存储键 `zcode-web-remote-device-names`，值为 JSON 数组 `[[device_mid, name, platform?], …]`，按最近更新顺序排列，最多 50 条；超出时淘汰最久未更新的条目。键是完整 `device_mid`，同一台电脑每次注册产生的新 SID 共用同一份记录。读取兼容只有 `[device_mid, name]` 两项的旧条目（平台视为未知）。
-- 写入时机：每次设备列表刷新成功并通过账号校验后，把当前响应中有在线连接、且显示名或平台非空的设备项按 MID 写入，并移到最近位置；电脑改名后下次上线即覆盖旧名。选择设备、配对成功和扫码直连不额外写入。
-- 读取时机：同一次刷新中先读取缓存，再用它补全离线记录的显示名与平台。显示名的优先级为当前响应的 `meta.name`、本地记住的名字、空名（显示“未命名设备”）；平台同理。连接过程页的平台图标也按当前连接的 MID 读取这份记录，读不到时显示通用电脑图标。
-- 读取失败、内容不是合法 JSON 或条目形状不对，按没有记住任何记录处理；写入失败静默忽略。两者都不阻断列表展示与连接。
-- 切换账号不清除该缓存：记录属于机器而非账号，且另一账号的列表里不会出现不属于它的 MID，缓存条目不会被展示。
-- 缓存不参与最近设备自动连接、归属校验或 SID 隔离；有 SID 的扫码入口不读取它来决定连接目标。
+- A chave de armazenamento é `zcode-web-remote-device-names`, e o valor é um array JSON `[[device_mid, name, platform?], …]`, ordenado pela atualização mais recente, com no máximo 50 entradas; ao exceder, a entrada não atualizada há mais tempo é descartada. A chave é o `device_mid` completo, e cada novo SID gerado a cada registro do mesmo computador compartilha o mesmo registro. A leitura é compatível com entradas antigas de apenas dois itens `[device_mid, name]`, com a plataforma considerada desconhecida.
+- Momento da escrita: a cada atualização bem-sucedida da lista de dispositivos, após a validação da conta, os itens de dispositivo que têm conexão online e nome de exibição ou plataforma não vazios são gravados por MID e movidos para a posição mais recente; quando o computador muda de nome, o nome antigo é sobrescrito na próxima subida. Selecionar dispositivo, parear com sucesso e a conexão direta por varredura não fazem gravações adicionais.
+- Momento da leitura: na mesma atualização, o cache é lido primeiro e usado para completar o nome de exibição e a plataforma dos registros offline. A prioridade do nome de exibição é `meta.name` da resposta atual, o nome lembrado localmente e o nome vazio (exibindo "未命名设备"); a plataforma segue a mesma ordem. O ícone de plataforma na página de conexão do processo também lê esse registro pelo MID da conexão atual, exibindo o ícone genérico de computador quando não o encontra.
+- Falha de leitura, conteúdo que não é JSON válido ou entrada com formato errado é tratado como não haver nenhum registro lembrado; falhas de escrita são silenciosamente ignoradas. Nenhuma das duas bloqueia a exibição da lista nem a conexão.
+- Trocar de conta não limpa esse cache: os registros pertencem à máquina e não à conta, e a lista de outra conta não contém MIDs que não lhe pertencem, de modo que as entradas do cache não são exibidas.
+- O cache não participa da conexão automática ao dispositivo recente, da validação de titularidade nem do isolamento por SID; a entrada de varredura com SID não o lê para decidir o alvo de conexão.
 
 ```text
-GET 设备记录成功 → 账号校验通过 → 读取本地设备名/平台缓存
-                → 用缓存补全离线记录显示名与平台 → 按 MID 聚合、排序
-                → 把有在线连接且有名字或平台的设备项写回缓存（LRU，≤50）
-                → 页面展示投影
+GET de registros de dispositivo bem-sucedido → validação de conta aprovada → leitura do cache local de nomes/plataformas
+                → completa nome de exibição e plataforma dos registros offline com o cache → agrega por MID e ordena
+                → grava de volta no cache os itens de dispositivo com conexão online e nome ou plataforma (LRU, ≤50)
+                → projeção exibida na página
 ```
 
-设备聚合的 owner 与事件顺序：
+O owner da agregação de dispositivos e a ordem dos eventos:
 
 ```text
-当前账号 GET 设备记录 → WebRemoteControlEntry 校验账号/请求有效性
-                     → 按完整 MID 派生设备项（保留所有在线 SID）
-                     → 页面展示一个设备项 → 用户选择该项内的在线 SID
-                     → Entry 再校验当前列表/账号 → 原 SID 建连路径
+GET de registros de dispositivos da conta atual → WebRemoteControlEntry valida a conta/a validade da requisição
+                     → deriva os itens de dispositivo pelo MID completo (preservando todos os SIDs online)
+                     → a página exibe um item de dispositivo → o usuário escolhe o SID online dentro desse item
+                     → a Entry valida novamente a lista/conta atual → caminho de conexão pelo SID original
 ```
 
-最近设备自动连接按“落点”一节的顺序：最近 SID 在线优先；否则仅当最近 MID 恰好 1 个在线 SID 时替换为该 SID，多个在线 SID 时仍由用户选择。有 SID 的扫码入口不受聚合影响。刷新中、刷新失败或账号变化后，所有连接按钮遵循原有 admission，迟到结果不能提供新连接依据。桌面 continuous、手机 replayable、workspaceIdentity 与按 SID 保存的业务状态不变。
+A conexão automática ao dispositivo recente segue a ordem da seção "Destino": o SID recente online tem prioridade; caso contrário, apenas quando o MID recente tem exatamente 1 SID online ele é substituído por esse SID, e com vários SIDs online a escolha continua sendo do usuário. A entrada de varredura com SID não é afetada pela agregação. Após mudança de conta, falha de atualização ou durante a atualização, todos os botões de conexão seguem o admission original, e resultados atrasados não podem fornecer nova base para conexão. O continuous do desktop, o replayable do celular, o workspaceIdentity e o estado de negócio salvo por SID permanecem inalterados.
 
-### 连接过程页
+### Página do processo de conexão
 
-选中设备（或自动连接）后到任务首页之间的连接过程页改为全屏：左上角保留 ZCode 品牌，页面中部为 64px 平台图标块、“正在连接 {设备名}”（无名称时为“正在连接电脑”）、带转圈的当前阶段文案，以及 4 段进度条（连接中转服务 → 设备鉴权 → 等待桌面端配对 → 同步工作区）。只改呈现，阶段来源仍是 terminal transport 状态，不改变阶段逻辑或恢复语义；重连中、后台等待等非线性状态不高亮进度段，并在阶段文案下补充原有说明。
+A página de conexão, entre a seleção do dispositivo (ou a conexão automática) e a tela inicial de tarefas, passa a ser de tela cheia: no canto superior esquerdo permanece a marca ZCode, e no centro da página ficam um bloco de ícone de plataforma de 64px, "正在连接 {设备名}" ("正在连接电脑" quando não há nome), o texto da etapa atual com rotação e uma barra de progresso de 4 segmentos (conectando ao serviço → autenticação do dispositivo → aguardando o pareamento no desktop → sincronizando o workspace). Apenas a apresentação muda; a origem das etapas continua sendo o estado do transport terminal, sem alterar a lógica de etapas nem a semântica de recuperação; estados não lineares, como reconexão em curso e espera em segundo plano, não realçam os segmentos de progresso, e a explicação original é acrescida abaixo do texto da etapa.
 
-### 双语文案
+### Textos bilíngues
 
-| 页面/元素    | zh-CN                                                                 | en-US                                                                                                        |
-| ------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 品牌         | ZCode                                                                 | ZCode                                                                                                        |
-| 标题         | 选择电脑                                                              | Choose a computer                                                                                            |
-| 刷新按钮名   | 刷新                                                                  | Refresh                                                                                                      |
-| 账号行动作   | 切换                                                                  | Switch                                                                                                       |
-| 账号保底动作 | 切换账号                                                              | Switch account                                                                                               |
-| 在线分组     | 在线                                                                  | Online                                                                                                       |
-| 离线分组     | 离线                                                                  | Offline                                                                                                      |
-| 首次加载     | 正在加载设备…                                                         | Loading devices…                                                                                             |
-| 离线说明     | 离线                                                                  | Offline                                                                                                      |
-| 无名称       | 未命名设备                                                            | Unnamed device                                                                                               |
-| 多连接       | {n} 个连接                                                            | {n} connections                                                                                              |
-| 多连接说明   | 这台电脑上有 {n} 个 ZCode 在线，选择要连接的一个                      | {n} ZCode instances are online on this computer. Choose one.                                                 |
-| 连接启动时间 | {相对时间}启动                                                        | started {relative time}                                                                                      |
-| 取消         | 取消                                                                  | Cancel                                                                                                       |
-| 找不到提示   | 没看到你的电脑？在电脑端 ZCode 登录同一账号并开启远程控制，然后刷新。 | Don't see your computer? Sign in to ZCode on it with the same account, turn on remote control, then refresh. |
-| 空态标题     | 暂无设备                                                              | No devices yet                                                                                               |
-| 空态说明     | 在电脑端登录同一账号并开启 Web 远程控制，然后刷新列表。               | Sign in with the same account on your computer, enable Web remote control, then refresh this list.           |
-| 加载失败     | 无法加载设备，请检查网络后刷新。                                      | Could not load devices. Check your connection and refresh.                                                   |
-| 连接过程标题 | 正在连接 {设备名} / 正在连接电脑                                      | Connecting to {device} / Connecting to your computer                                                         |
-| 失败页选设备 | 选择其他设备                                                          | Choose another device                                                                                        |
+| Página/elemento          | zh-CN                                                                 | en-US                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Marca                    | ZCode                                                                 | ZCode                                                                                                        |
+| Título                   | 选择电脑                                                              | Choose a computer                                                                                            |
+| Nome do botão de atualização | 刷新                                                               | Refresh                                                                                                      |
+| Ação de conta            | 切换                                                                  | Switch                                                                                                       |
+| Ação de reserva da conta | 切换账号                                                              | Switch account                                                                                               |
+| Grupo online             | 在线                                                                  | Online                                                                                                       |
+| Grupo offline            | 离线                                                                  | Offline                                                                                                      |
+| Primeira carga           | 正在加载设备…                                                         | Loading devices…                                                                                             |
+| Descrição offline        | 离线                                                                  | Offline                                                                                                      |
+| Sem nome                 | 未命名设备                                                            | Unnamed device                                                                                               |
+| Múltiplas conexões       | {n} 个连接                                                            | {n} connections                                                                                              |
+| Descrição de múltiplas conexões | 这台电脑上有 {n} 个 ZCode 在线，选择要连接的一个            | {n} ZCode instances are online on this computer. Choose one.                                                 |
+| Horário de início da conexão | {相对时间}启动                                                    | started {relative time}                                                                                      |
+| Cancelar                 | 取消                                                                  | Cancel                                                                                                       |
+| Aviso de não encontrado  | 没看到你的电脑？在电脑端 ZCode 登录同一账号并开启远程控制，然后刷新。 | Don't see your computer? Sign in to ZCode on it with the same account, turn on remote control, then refresh. |
+| Título do estado vazio   | 暂无设备                                                              | No devices yet                                                                                               |
+| Descrição do estado vazio| 在电脑端登录同一账号并开启 Web 远程控制，然后刷新列表。               | Sign in with the same account on your computer, enable Web remote control, then refresh this list.           |
+| Falha de carga           | 无法加载设备，请检查网络后刷新。                                      | Could not load devices. Check your connection and refresh.                                                   |
+| Título do processo de conexão | 正在连接 {设备名} / 正在连接电脑                              | Connecting to {device} / Connecting to your computer                                                         |
+| Seleção de dispositivo na página de falha | 选择其他设备                                             | Choose another device                                                                                        |
 
-### URL、最近设备与失败页动作
+### URL, dispositivo recente e ações da página de falha
 
-手动选择与最近设备自动连接共用一次 admission：从当前设备项的在线连接中取所选 SID 对应的 `device_sid`、`device_mid`、`meta.name`，用 `history.replaceState` 覆盖 `sid`、`mid`、`name` 并保留原 `app_version`；没有名字时移除旧 `name`，不把“未命名设备”写入 URL。随后写入最近 SID 与 MID，再调用既有连接路径。存储失败不阻断连接；不能重复接纳同一次点击。页面刷新按 05 的有 SID 路径恢复。
+A seleção manual e a conexão automática ao dispositivo recente compartilham um único admission: a partir das conexões online do item de dispositivo atual, toma-se o `device_sid`, o `device_mid` e o `meta.name` correspondentes ao SID escolhido, e sobrescreve-se `sid`, `mid` e `name` via `history.replaceState`, preservando o `app_version` original; sem nome, remove-se o `name` antigo e não se grava "未命名设备" na URL. Em seguida grava-se o SID e o MID recentes e chama-se o caminho de conexão já existente. Falha de armazenamento não bloqueia a conexão, e o mesmo clique não pode ser admitido duas vezes. O recarregamento da página é recuperado pelo caminho com SID da 05.
 
-有 SID 的扫码/历史链接在 relay 配对成功后也更新最近 SID（URL 带 `mid` 时同时更新最近 MID），使“最近用过”包含扫码进入；归属失败的直连不覆盖最近记录。已有按 SID 保存的 client ID、工作区选择与 mobile-view-state 均保留原键和隔离方式。
+Links de varredura/histórico com SID também atualizam o SID recente após o pareamento bem-sucedido no relay (e o MID recente quando a URL traz `mid`), de modo que "usado recentemente" inclua a entrada por varredura; uma conexão direta com falha de titularidade não sobrescreve o registro recente. O client ID salvo por SID, a seleção de workspace e o mobile-view-state existentes mantêm as chaves e o isolamento originais.
 
-失败页“选择其他设备”清除 URL 的 `sid`、`mid`、`name`（及非法旧链接遗留的 `hash`、`t`），保留 `app_version`，释放当前连接与业务资源，再进入明确跳过自动连接的列表流程。它不清除按 SID 保存的业务状态。`device-not-owned` 显示两个动作：“切换账号”为主按钮，与列表页共用[手动切换账号确认弹窗](./web-remote-login.md#手动切换账号确认)，确认登出后保留当前目标 URL 回登录；“选择其他设备”为下方 ghost 按钮，留在当前账号选设备。其余连接失败保留既有重试主按钮并增加选设备次级动作。
+A ação "选择其他设备" da página de falha limpa `sid`, `mid` e `name` da URL (e o `hash` e o `t` legados de links antigos inválidos), preserva o `app_version`, libera a conexão atual e os recursos de negócio e então entra no fluxo de lista que pula explicitamente a conexão automática. Ela não limpa o estado de negócio salvo por SID. `device-not-owned` exibe duas ações: "切换账号" como botão principal, compartilhando com a página de lista a [confirmação de troca manual de conta](./web-remote-login.md#手动切换账号确认), e, após a confirmação do logout, preservando a URL de destino atual para voltar ao login; "选择其他设备" como botão ghost abaixo, para permanecer na conta atual e escolher o dispositivo. As demais falhas de conexão mantêm o botão principal de retry existente e ganham uma ação secundária de seleção de dispositivo.
 
-### 已连接页面的设备入口
+### Entrada de dispositivo nas páginas já conectadas
 
-宽屏远控侧栏与手机任务首页共用项目侧栏，均在侧栏导航下方显示“当前设备：{name}”及文字按钮“切换设备”（英文 `Current device: {name}` / `Switch device`）。名称使用本次连接参数的 `deviceName`，去除首尾空白；缺失时显示“未命名设备” / `Unnamed device`。手机聊天页沿用返回任务首页入口。
+A barra lateral do controle remoto em tela larga e a tela inicial de tarefas do celular compartilham a barra lateral do projeto, e ambas exibem "当前设备：{name}" abaixo da navegação da barra lateral, com o botão de texto "切换设备" (`Current device: {name}` / `Switch device` em inglês). O nome usa o `deviceName` dos parâmetros desta conexão, sem espaços nas pontas; quando ausente, exibe "未命名设备" / `Unnamed device`. A página de chat do celular mantém a entrada de retorno à tela inicial de tarefas.
 
-`WebRemoteControlWorkspaceSwitcherApi` 增加可选 `deviceNavigation`，由 Web bootstrap 注入展示名称、平台及选择设备命令；它是 UI 导航能力，不通过 workspace bridge/RPC 传递。普通桌面、普通 Web 或未注入该能力的调用方不显示设备入口。正常 bridge 和仅首页（home-only）两种连接均注入同一能力。
+`WebRemoteControlWorkspaceSwitcherApi` ganha um `deviceNavigation` opcional, injetado pelo bootstrap do Web com o nome de exibição, a plataforma e o comando de seleção de dispositivo; é uma capacidade de navegação de UI e não é transmitida pelo workspace bridge/RPC. Chamadores de desktop comum, Web comum ou que não injetaram essa capacidade não exibem a entrada de dispositivo. Tanto a conexão normal por bridge quanto a somente-inicial (home-only) injetam a mesma capacidade.
 
-点击后复用 `WebRemoteControlEntry.chooseOtherDevice()`，不刷新整页，不重新登录，不新增设备列表或连接状态 owner。其 abort 先释放当前 bootstrap 的 transport、requester、bridge 注册、版本校验和生命周期监听，再展示列表；旧异步结果不得重新挂载原设备。保留现有 URL 清理与 SID 隔离规则，显式跳过最近设备自动连接；用户选择在线设备后才发起新连接。
+Após o clique, reutiliza-se `WebRemoteControlEntry.chooseOtherDevice()`, sem recarregar a página inteira, sem refazer login e sem criar novos owners de lista de dispositivos ou de estado de conexão. Seu abort libera primeiro o transport, o requester, o registro do bridge, a verificação de versão e os listeners de ciclo de vida do bootstrap atual, e só então exibe a lista; resultados assíncronos antigos não podem remontar o dispositivo original. Mantêm-se as regras existentes de limpeza de URL e de isolamento por SID, pulando explicitamente a conexão automática ao dispositivo recente; só depois que o usuário escolhe um dispositivo online é que uma nova conexão é iniciada.
 
 ```text
-修复前：已连接首页 → 仅工作区/任务导航，无法主动进入设备列表
-修复后：页头按钮 → Entry.chooseOtherDevice → abort 当前 bootstrap
-                 → 清理连接/bridge → 无自动连接的设备列表 → 选择设备 → 新 bootstrap
-业务边界：desktop continuous / mobile replayable → 原 task owner（均不变）
+Antes da correção: inicial já conectada → apenas navegação de workspace/tarefa, sem entrar ativamente na lista de dispositivos
+Depois da correção: botão do cabeçalho → Entry.chooseOtherDevice → abort do bootstrap atual
+                 → limpeza de conexão/bridge → lista de dispositivos sem conexão automática → escolha do dispositivo → novo bootstrap
+Limite de negócio: desktop continuous / mobile replayable → owner de task original (ambos inalterados)
 ```
 
-验收：新增 pending 浏览器用例 `packages/web/test/e2e/manual-review/pending/remote-device-switch.mjs`，覆盖扫码连接后的入口、最近设备仍在线时保持列表、选择另一设备并回写 URL/名称、旧连接释放和迟到响应、刷新按新 SID 恢复；手机/宽屏、深浅主题、中文/英文核对入口布局与长设备名。组件回归覆盖能力缺省和无设备名，入口编排复用取消/最近设备的现有测试。受控 relay/桌面响应不等于真实手机 OAuth 和线上部署验证。
+Aceitação: novo caso pendente de navegador `packages/web/test/e2e/manual-review/pending/remote-device-switch.mjs`, cobrindo a entrada após a conexão por varredura, a permanência na lista quando o dispositivo recente ainda está online, a escolha de outro dispositivo com reescrita de URL/nome, a liberação da conexão antiga e das respostas atrasadas, e a recuperação por refresh com o novo SID; em celular/tela larga, temas claro/escuro e chinês/inglês, conferindo o layout da entrada e nomes de dispositivo longos. A regressão de componentes cobre a ausência da capacidade e a ausência de nome de dispositivo, e a orquestração de entrada reaproveita os testes existentes de cancelamento e de dispositivo recente. Relay controlado e respostas de desktop não equivalem à validação com OAuth em celular real e em deploy de produção.
 
-2026-09-19 本地验证：Web 与相关 UI 共39文件417项单测通过；`pnpm exec tsx packages/web/test/e2e/manual-review/pending/remote-device-switch.mjs` 的12组配置通过（手机 bridge/home-only、宽屏 bridge × 深浅主题 × 中英文），并核对旧 remote session 注销、新 SID 注册和刷新恢复。截图和逐项结果在 `.tmp/remote-device-switch-e2e/`。typecheck、lint（61条既有 warning / 0 error）、architecture 和桌面 E2E typecheck 通过。
+Verificação local de 2026-09-19: 417 testes unitários em 39 arquivos de Web e UI relacionados passaram; as 12 configurações de `pnpm exec tsx packages/web/test/e2e/manual-review/pending/remote-device-switch.mjs` passaram (bridge/home-only em celular, bridge em tela larga × temas claro/escuro × chinês/inglês), com verificação do logout da sessão remote antiga, do registro do novo SID e da recuperação por refresh. As capturas e os resultados item a item estão em `.tmp/remote-device-switch-e2e/`. typecheck, lint (61 warnings existentes / 0 error), architecture e o typecheck do E2E do desktop passaram.
 
-验证限制：宽屏 home-only 仍被既有 `onDynamicWorkspaceEvent` / `onDynamicLocalTtftFacts` 订阅缺口阻断，未列入通过矩阵；手机 home-only 保留并记录已有 `onDynamicSessionsIndexFrame` 异常。`createHomeOnlyWebRemoteControlServices` 与修复前 HEAD 完全一致，本次未扩展其服务契约。宽屏 home-only 未完成验收；真实手机、OAuth 和线上部署仍未验证。
+Limitações da verificação: o home-only em tela larga continua bloqueado pela lacuna já existente de assinatura de `onDynamicWorkspaceEvent` / `onDynamicLocalTtftFacts` e não entrou na matriz de aprovação; o home-only em celular mantém e registra a exceção já existente de `onDynamicSessionsIndexFrame`. `createHomeOnlyWebRemoteControlServices` está idêntico ao HEAD anterior à correção, e desta vez seu contrato de serviços não foi ampliado. O home-only em tela larga não concluiu a aceitação; celular real, OAuth e deploy de produção continuam sem validação.
 
-2026-10-11 更新：home-only 空服务改按 RPC 事件命名契约返回空 Event，home-only `Root` 挂载后标记 ready（配对状态抖动不再重挂首页）。`remote-device-switch.mjs` 去掉已知异常豁免，扩为16组配置（手机/宽屏 × bridge/home-only × 深浅主题 × 中英文）全部通过，页面无异常。同日 home-only 首页改由项目侧栏展示 `listWorkspaces` 工作区列表与重连入口（见[虚拟项目 §6.0.3](../superpowers/specs/2026-09-09-virtual-project-design.md#603-手机项目新目录的-shared-host-admission)），pending 用例 `remote-home-only-workspaces.mjs` 8组配置（手机/宽屏 × 深浅主题 × 中英文）通过，覆盖重连失败提示、重连成功后行变为可打开、点击后建 bridge。真实手机、OAuth 和线上部署仍未验证。
+Atualização de 2026-10-11: o serviço vazio do home-only passou a devolver um Event vazio conforme o contrato de nomenclatura de eventos RPC, e o `Root` do home-only é marcado como ready após a montagem (a oscilação do estado de pareamento não remonta mais a tela inicial). `remote-device-switch.mjs` removeu a isenção da exceção conhecida e foi ampliado para 16 configurações (celular/tela larga × bridge/home-only × temas claro/escuro × chinês/inglês), todas passando, sem exceções na página. No mesmo dia, a tela inicial do home-only passou a exibir, pela barra lateral do projeto, a lista de workspaces de `listWorkspaces` e a entrada de reconexão (ver [projeto virtual §6.0.3](../superpowers/specs/2026-09-09-virtual-project-design.md#603-手机项目新目录的-shared-host-admission)); o caso pendente `remote-home-only-workspaces.mjs` passou em 8 configurações (celular/tela larga × temas claro/escuro × chinês/inglês), cobrindo o aviso de falha de reconexão, a linha se tornando abrável após a reconexão bem-sucedida e a criação do bridge após o clique. Celular real, OAuth e deploy de produção continuam sem validação.
 
-### 验收计划与记录
+### Plano e registros de aceitação
 
-2026-09-23 设备页改版（分组列表、账号行、平台图标、多连接底部弹层、同 MID 自动接续、全屏连接过程页）：单测覆盖设备名/平台缓存新旧格式、最近 SID/MID 落点（在线原 SID 优先、同 MID 唯一在线 SID 接续、多个在线或全离线展示列表）、账号只读资料、分组/重名 ID/多连接行与连接过程阶段。pending 浏览器用例已随新布局更新：`remote-login-v2.mjs` 75 项、`remote-device-groups.mjs` 24 组（含多连接弹层键盘选择与截图）、`remote-device-switch.mjs` 12 组通过；连接过程页按 390/1024 × 深浅主题 × 中英文截图人工核对。受控接口不等于真实手机、OAuth 或线上部署验收。
+Redesign da página de dispositivos em 2026-09-23 (lista agrupada, linha de conta, ícones de plataforma, camada inferior de múltiplas conexões, continuação automática pelo mesmo MID, página de conexão em tela cheia): os testes unitários cobrem o cache de nomes/plataformas nos formatos novo e antigo, o destino por SID/MID recente (SID original online com prioridade, continuação pelo único SID online do mesmo MID, exibição da lista com vários SIDs online ou tudo offline), os dados de conta somente leitura, os grupos/ID para nomes repetidos/as linhas de múltiplas conexões e as etapas do processo de conexão. Os casos pendentes de navegador foram atualizados junto com o novo layout: `remote-login-v2.mjs` 75 casos, `remote-device-groups.mjs` 24 configurações (incluindo seleção por teclado na camada de múltiplas conexões e capturas) e `remote-device-switch.mjs` 12 configurações passaram; a página do processo de conexão foi conferida manualmente por captura em 390/1024 × temas claro/escuro × chinês/inglês. Interfaces controladas não equivalem à aceitação com celular real, OAuth ou deploy de produção.
 
-2026-09-22 设备聚合回归（MD08–MD10）：入口单测覆盖同 MID 的 1 在线 + 11 离线、全离线、多个在线 SID、前 8 位相同但完整 MID 不同、最近 SID 仍按原身份匹配、刷新后旧 SID 禁止选择、账号隔离及响应顺序变化。pending 浏览器用例 `packages/web/test/e2e/manual-review/pending/remote-device-groups.mjs` 覆盖单设备展示、项内多连接键盘选择与 URL 精确回写、刷新禁用/失败/恢复；390px/1024px × 深浅主题 × 中英文核对布局和长 ID。复用既有登录和切换设备浏览器回归，不自动转正；受控接口不等于真实手机或线上部署验收。
+Regressão de agregação de dispositivos em 2026-09-22 (MD08–MD10): os testes unitários da entrada cobrem 1 online + 11 offline com o mesmo MID, tudo offline, vários SIDs online, 8 primeiros dígitos iguais com MID completo diferente, o SID recente ainda correspondendo pela identidade original, proibição de escolher SIDs antigos após a atualização, isolamento de contas e mudanças na ordem das respostas. O caso pendente de navegador `packages/web/test/e2e/manual-review/pending/remote-device-groups.mjs` cobre a exibição de um único dispositivo, a seleção por teclado de múltiplas conexões dentro de um item e a reescrita exata da URL, além de atualização desabilitada/com falha/recuperada; 390px/1024px × temas claro/escuro × chinês/inglês conferem o layout e os IDs longos. Reaproveitam-se as regressões de navegador existentes de login e de troca de dispositivo, sem promoção automática; interfaces controladas não equivalem à aceitação com celular real ou deploy de produção.
 
-本地验证：修复前新增聚合回归有4项失败；修复后 `pnpm exec vitest run packages/web/test/webRemoteControlEntry.test.ts packages/web/test/webRemoteControlDeviceListPage.test.ts packages/web/test/webRemoteControlDeviceClient.test.ts` 共35项通过。现场捕获的12条记录回放到真实 Entry 后为1个设备项、1个在线连接。`node packages/web/test/e2e/manual-review/pending/remote-device-groups.mjs` 的24组通过，截图及结果在 `.tmp/remote-device-groups-e2e/`；同目录的 `remote-login-v2.mjs` 59项通过，`pnpm exec tsx packages/web/test/e2e/manual-review/pending/remote-device-switch.mjs` 12组通过。新增用例修正了“错误提示消失早于刷新完成”的测试等待时序；既有切换用例首次运行被职业引导阻断，调试复跑通过，仍记录上述 home-only 订阅告警，未修改引导或空服务行为。typecheck、桌面 E2E typecheck、lint（60条既有 warning / 0 error）、architecture、修改代码的格式检查通过；当时架构 gate 尚未覆盖 Web 模块，owner 边界由上述编排回归核对；当前受管范围见下文“模块边界与架构验收”。未删除线上注册、未部署、未执行真实手机/OAuth 验收。
+Verificação local: antes da correção, a nova regressão de agregação tinha 4 falhas; depois da correção, `pnpm exec vitest run packages/web/test/webRemoteControlEntry.test.ts packages/web/test/webRemoteControlDeviceListPage.test.ts packages/web/test/webRemoteControlDeviceClient.test.ts` passou com 35 testes. As 12 linhas capturadas em campo, reproduzidas na Entry real, resultaram em 1 item de dispositivo e 1 conexão online. As 24 configurações de `node packages/web/test/e2e/manual-review/pending/remote-device-groups.mjs` passaram, com capturas e resultados em `.tmp/remote-device-groups-e2e/`; no mesmo diretório, `remote-login-v2.mjs` passou com 59 casos, e `pnpm exec tsx packages/web/test/e2e/manual-review/pending/remote-device-switch.mjs` passou com 12 configurações. O novo caso corrigiu o tempo de espera de teste da "mensagem de erro que desaparece antes de a atualização terminar"; na primeira execução, o caso existente de troca foi bloqueado pelo onboarding profissional, e a repetição de depuração passou, mantendo-se o registro do alerta de assinatura do home-only acima, sem modificação do onboarding nem do comportamento do serviço vazio. typecheck, typecheck do E2E do desktop, lint (60 warnings existentes / 0 error), architecture e a checagem de formatação do código alterado passaram; na época o gate de arquitetura ainda não cobria o módulo Web, e a fronteira de owner foi conferida pela regressão de orquestração acima; o escopo gerenciado atual está na seção "Limites de módulo e aceitação de arquitetura". Nenhum registro online foi removido, nada foi implantado e não se executou a aceitação com celular real/OAuth.
 
-测试接缝沿用父 issue 已指定的前置编排公开接口（注入 auth、假设备接口、location/history/storage 与连接回调），以及列表页渲染，不对私有状态写测试。覆盖最近在线/离线/不存在、跨账号列表、排序与同名、三种刷新触发、无轮询、刷新不会自动跳转、迟到响应丢弃、401/网络失败、URL 与最近 SID 写入、存储不可用、空列表和失败页两个动作。设备 HTTP 适配器复用共享 V2 解析器，以假 relay 验证当前账号隔离与信封错误。
+A costura de teste segue a interface pública da pré-orchestração já especificada pela issue pai (auth injetado, interface falsa de dispositivos, location/history/storage e callback de conexão), além da renderização da página de lista, sem testes sobre estado privado. São cobertos: recente online/offline/inexistente, listas entre contas, ordenação e nomes repetidos, três gatilhos de atualização, ausência de polling, a atualização não saltar automaticamente, descarte de respostas atrasadas, 401/falha de rede, escrita de URL e do SID recente, armazenamento indisponível, lista vazia e as duas ações da página de falha. O adaptador HTTP de dispositivos reaproveita o parser V2 compartilhado, e um relay falso valida o isolamento da conta atual e os erros de envelope.
 
-沿用 `packages/web/test/e2e/manual-review/pending/remote-login-v2.mjs`，新增混合在线/离线与空列表 × 390px/1024px × Zai Light/Zai Dark × zh-CN/en-US 的16张截图；将 ML02 扫码占位验收更新为设备列表入口，保留登录与归属失败截图。交互验证覆盖手动刷新、回前台刷新、选设备后 URL、刷新直连以及从失败页换设备。
+Segue-se o `packages/web/test/e2e/manual-review/pending/remote-login-v2.mjs`, adicionando 16 capturas de lista mista (online/offline) e vazia × 390px/1024px × Zai Light/Zai Dark × zh-CN/en-US; a aceitação de varredura no ML02 é atualizada para a entrada de lista de dispositivos, preservando as capturas de login e de falha de titularidade. A verificação de interação cobre a atualização manual, a atualização ao voltar ao primeiro plano, a URL após escolher o dispositivo, a conexão direta por refresh e a troca de dispositivo a partir da página de falha.
 
-真机验收待在测试环境执行并记录：无码打开选设备连接、刷新恢复、另一账号访问有 SID 链接出现归属失败、切换同账号后连接。实现已完成，自动化与截图核对结果记录如下；仍无真实手机、OAuth 提供方与 OSS 测试网关的验收证据。
+A aceitação em aparelho real depende de execução e registro no ambiente de teste: abertura sem código escolhendo o dispositivo e conectando, recuperação por refresh, falha de titularidade ao acessar um link com SID por outra conta e conexão após trocar para a mesma conta. A implementação está concluída, e os resultados da automação e da conferência de capturas são registrados a seguir; ainda não há evidência de aceitação com celular real, provedor OAuth e gateway de teste OSS.
 
-2026-09-19，06 本地实现验收记录：
+Registro de aceitação local da 06 em 2026-09-19:
 
-| 验证                                | 结果与证据                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 前置编排、设备接口、组件与 Web 回归 | Web 33 文件312项通过；涵盖最近设备分流、当前账号列表验证、三种刷新/合并与无轮询、迟到响应取消、存储不可用、URL 回写、失败页动作                                                                                                                                                                                            |
-| ML01–ML06 / MD01–MD06 浏览器        | 41项通过：32张入口截图（其中设备列表16张）以及选设备/刷新恢复/最近设备分流/失败后换设备/切账号/矮屏滚动与键盘选择/原登录回跳路径                                                                                                                                                                                           |
-| 截图                                | `.tmp/remote-login-v2-e2e/index.html` 为完整索引；`device-matrix.html` / `device-matrix.png` 为设备列表16张概览，原图保留390px和1024px完整视口；`results.json` 保存逐项结果                                                                                                                                                |
-| 既有版本恢复 RV01–RV03              | 6组配置通过；既有 home-only 动态会话/工作区事件订阅告警仍存在，不声称覆盖其任务操作                                                                                                                                                                                                                                        |
-| 代码与构建                          | `pnpm typecheck`、`pnpm lint`（60 warning / 0 error）、`pnpm architecture:check --changed`、`pnpm --filter @zcode/desktop typecheck:e2e`、当时的 v4 单目录构建通过（该命令已在 07 删除，现使用 OSS 版本目录构建）；当时 Web 模块未纳入 managed architecture；当前范围见“模块边界与架构验收”，检查通过不替代 owner/时序核对 |
-| 双轴评审                            | Standards 与 Spec 的已报问题均关闭；为全局禁止滚动的根容器添加入口滚动层，为键盘提供焦点反馈，补齐离线背景/圆角；Web 入口增加自身 Tailwind 扫描，生产 CSS 与浏览器计算样式均验证状态类存在且生效                                                                                                                           |
-| 全量单测                            | 1921文件/18002项通过，3文件/3项失败，2文件/12项跳过，另1个 Vitest teardown 异常；详见下述边界，不宣称全量通过                                                                                                                                                                                                              |
-| 测试环境真机                        | 未执行：仍需真实手机无码选设备连接、刷新恢复、跨账号归属失败与切换账号；本地受控 OAuth/relay 不替代该项                                                                                                                                                                                                                    |
+| Verificação                             | Resultado e evidência                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pré-orchestração, interface de dispositivos, componentes e regressão Web | Web: 312 testes em 33 arquivos passaram; cobrindo o desvio para o dispositivo recente, a validação da lista da conta atual, as três modalities de atualização/mesclagem e a ausência de polling, o cancelamento de respostas atrasadas, o armazenamento indisponível, a reescrita de URL, as ações da página de falha                                                                                                            |
+| ML01–ML06 / MD01–MD06 no navegador      | 41 casos passaram: 32 capturas de entrada (das quais 16 da lista de dispositivos) e seleção de dispositivo/recuperação por refresh/desvio para o dispositivo recente/troca de dispositivo após falha/troca de conta/rolagem em tela baixa e seleção por teclado/caminho de retorno do login original                                                                                                                                             |
+| Capturas                                 | `.tmp/remote-login-v2-e2e/index.html` é o índice completo; `device-matrix.html` / `device-matrix.png` são a visão geral das 16 capturas da lista de dispositivos, com as imagens originais preservando as viewports completas de 390px e 1024px; `results.json` guarda os resultados item a item                                                                                                                                          |
+| Restauração da versão existente RV01–RV03 | 6 configurações passaram; o alerta já existente de assinatura de eventos dinâmicos de sessão/workspace no home-only continua presente, e não se afirma cobertura de suas operações de tarefa                                                                                                                                                                                                                     |
+| Código e build                           | `pnpm typecheck`, `pnpm lint` (60 warning / 0 error), `pnpm architecture:check --changed`, `pnpm --filter @zcode/desktop typecheck:e2e` e o build v4 de diretório único da época passaram (esse comando foi removido na 07, usando-se hoje o build com o diretório de versão OSS); naquela época o módulo Web não estava na arquitetura gerenciada; o escopo atual está em "Limites de módulo e aceitação de arquitetura", e a aprovação da checagem não substitui a conferência de owner/ordem                                                                                    |
+| Revisão de dois eixos                     | Os problemas relatados de Standards e de Spec foram encerrados; foi adicionada uma camada de rolagem na entrada ao contêiner raiz com rolagem global proibida, foco visível para o teclado, e completados o fundo offline e o raio de canto; a entrada do Web ganhou varredura própria de Tailwind, e o CSS de produção e os estilos calculados no navegador verificaram a presença e a efetividade das classes de estado                                                                                                                                              |
+| Suíte completa de testes unitários       | 1921 arquivos/18002 testes passaram, 3 arquivos/3 testes falharam, 2 arquivos/12 testes foram pulados, além de 1 exceção de teardown do Vitest; ver os limites descritos abaixo, sem alegar aprovação total                                                                                                                                                                                                                              |
+| Ambiente de teste em aparelho real       | Não executado: ainda são necessários celular real para escolher o dispositivo e conectar sem código, recuperação por refresh, falha de titularidade entre contas e troca de conta; o OAuth/relay local controlado não substitui esse item                                                                                                                                                                                                                        |
 
-全量失败中，`packages/desktop/test/e2eRuntimePaths.test.ts` 指出已有 `feedback/manual-review/pending/feedback-upload-privacy.test.ts` 使用裸系统临时路径，定向重跑仍失败且本票未修改该文件。`packages/provider-node/test/zcode-builtin-process.test.ts` 全量运行等待子进程超时、`packages/desktop/test/webRemoteControlTransport.test.ts` 的 KICKED 恢复时序断言失败，分别定向重跑通过（1项/11项）；`packages/services/test/conversationShareComposition.test.ts` 报 Vitest worker teardown 异常，定向2项通过。不能用这些定向通过替代全量成功。本票依根规则保留改动、不自动提交，issue 在真机与剩余验证完成前保持 `in-progress`。
+Entre as falhas da suíte completa, `packages/desktop/test/e2eRuntimePaths.test.ts` apontou que o `feedback/manual-review/pending/feedback-upload-privacy.test.ts` já existente usa um caminho cru de diretório temporário do sistema, e a reexecução direcionada continua falhando, sem que esta história tenha modificado esse arquivo. `packages/provider-node/test/zcode-builtin-process.test.ts` esgotou o tempo de espera do subprocesso na execução completa, e a asserção de ordem temporal de recuperação do KICKED em `packages/desktop/test/webRemoteControlTransport.test.ts` falhou; ambas passaram na reexecução direcionada (1 e 11 testes, respectivamente); `packages/services/test/conversationShareComposition.test.ts` reportou uma exceção de teardown de worker do Vitest, com 2 testes direcionados passando. Esses resultados direcionados não substituem uma execução completa bem-sucedida. Por causa da regra da raiz, esta história preserva as alterações, não faz submissão automática, e a issue permanece `in-progress` até a conclusão do aparelho real e das verificações restantes.
 
-## 模块边界与架构验收（2026-10-11）
+## Limites de módulo e verificação de arquitetura (2026-10-11)
 
-本分支的远控实现按方案 A 迁入专属 managed 模块。原来平铺在 legacy 根目录的新文件
-不受模块约束，导致以目标分支为基准的 CI 报 `unmanaged-new-file`；仅比较 upstream
-会漏掉已推送的新增文件。修复不增加 exceptions、不更新 baseline，也不扩张上游接纳范围。
+A implementação de controle remoto deste branch foi migrada, conforme a Opção A, para
+módulos managed dedicados. Os arquivos novos antes espalhados na raiz legacy não eram
+sujeitos às restrições de módulo, o que fazia o CI, com base na branch de destino,
+reportar `unmanaged-new-file`; comparar apenas com o upstream deixaria passar os
+arquivos novos já enviados. A correção não adiciona exceptions, não atualiza o
+baseline e também não amplia o escopo de aceitação do upstream.
 
-| 模块                     | 根目录                                       | 职责与公开边界                                                                        |
-| ------------------------ | -------------------------------------------- | ------------------------------------------------------------------------------------- |
-| web-remote-relay         | `packages/shared/src/web-remote-relay`       | V2 wire schema、错误分类、退避与心跳；schema/纯计算与定时器适配分层                   |
-| desktop-web-remote-relay | `packages/desktop/src/main/web-remote-relay` | Node HTTP、非敏感设备存储与 device transport；Main 经公开入口装配                     |
-| web-remote-control       | `packages/web/src/web-remote-control`        | 手机 admission、设备展示、terminal transport；页面依赖只读契约，HTTP/存储通过端口注入 |
-| web-remote-control-ui    | `packages/ui/src/web-remote-control`         | 桌面弹窗、设备导航和 OAuth 完成事件订阅；不保存第二份凭据事实                         |
-| mobile-ui                | `packages/ui/src/components/mobile-ui`       | 共用品牌、设备图标与底部弹层；保留已有包子路径和主题/可访问性语义                     |
+| Módulo                   | Raiz                                          | Responsabilidade e fronteira pública                                                                    |
+| ------------------------ | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| web-remote-relay         | `packages/shared/src/web-remote-relay`        | V2 wire schema, classificação de erros, backoff e heartbeat; schema/cálculo puro e adaptador de timer em camadas |
+| desktop-web-remote-relay | `packages/desktop/src/main/web-remote-relay`  | Node HTTP, armazenamento de dispositivos não sensíveis e device transport; o Main monta tudo pelo ponto de entrada público |
+| web-remote-control       | `packages/web/src/web-remote-control`         | admission do celular, exibição de dispositivos, terminal transport; a página depende de contratos somente-leitura, HTTP/armazenamento injetados por porta |
+| web-remote-control-ui    | `packages/ui/src/web-remote-control`          | Diálogo desktop, navegação de dispositivos e assinatura de eventos de conclusão do OAuth; não guarda uma segunda cópia do fato de credencial |
+| mobile-ui                | `packages/ui/src/components/mobile-ui`        | Marca compartilhada, ícones de dispositivo e bottom sheet; preserva os subcaminhos de pacote existentes e a semântica de tema/acessibilidade |
 
-每个模块提供 manifest、contract、调用示例、契约测试与短契约说明。跨模块使用公开入口；
-类型与实现分开，避免设备分组和存储相互依赖。transport 的 socket/generation、entry 的
-AbortController 仍各有唯一 owner；只提取数据解析、类型和独立请求关联职责，不拆分状态机。
+Cada módulo fornece manifest, contract, exemplo de chamada, testes de contrato e uma
+descrição curta do contrato. O uso entre módulos passa pelos pontos de entrada
+públicos; tipos e implementação ficam separados, evitando dependência mútua entre
+agrupamento de dispositivos e armazenamento. O socket/generation do transport e o
+AbortController da entry continuam com um único owner cada; extrai-se apenas a
+responsabilidade de análise de dados, tipos e correlação de requisições independentes,
+sem dividir a máquina de estados.
 
 ```text
-OAuth owner 完成凭据写入 → UI 通知 → Main 重读凭据 → device transport
-手机 entry（本次 AbortSignal） → terminal transport → relay → Main attachment → 既有 Host/CLI
-桌面 continuous ────────────────────────────────────────────────────────────┤
-手机 replayable（snapshot + gap）────────────────────────────────────────────┘
+OAuth owner conclui a gravação de credenciais → UI notifica → Main relê as credenciais → device transport
+entry do celular (AbortSignal desta execução) → terminal transport → relay → attachment do Main → Host/CLI existentes
+desktop continuous ────────────────────────────────────────────────────────────┤
+celular replayable (snapshot + gap)────────────────────────────────────────────┘
 ```
 
-Main manager、Web bootstrap 与既有 app payload 契约继续承担原装配职责；迁移不改变 SID/MID、
-workspaceIdentity、remoteSessionId、owner/lease、CommandInbox 或 continuous/replayable 语义。
-停止、换账号和后续导航继续使旧请求失效；JWT 与一次性 token 不进入设置和日志。
+O Main manager, o bootstrap do Web e o contrato de payload de app existente seguem
+com as responsabilidades de montagem originais; a migração não altera SID/MID,
+workspaceIdentity, remoteSessionId, owner/lease, CommandInbox nem a semântica
+continuous/replayable. Parar, trocar de conta e navegações subsequentes continuam
+invalidando as requisições antigas; JWT e tokens de uso único não entram nas
+configurações nem nos logs.
 
-验收覆盖整个分支端点差异：模块门禁使用固定 staging SHA；检查源码导入、包导出、构建/部署
-脚本、spec、受影响单测和 E2E 源码路径。回归沿用 AUTH-08 两份 Electron 用例及手机登录、
-设备分组/切换、home-only、版本恢复和分享 OAuth 用例；pending 用例不自动转正。
+A verificação cobre as diferenças de endpoints de todo o branch: o gate de módulos usa
+um SHA de staging fixo; são verificados imports de código-fonte, exports de pacote,
+scripts de build/deploy, spec, testes unitários afetados e caminhos de código-fonte
+dos E2E. A regressão reaproveita os dois casos Electron do AUTH-08 e os casos de
+login no celular, agrupamento/troca de dispositivos, home-only, recuperação de versão
+e OAuth de compartilhamento; casos pending não são promovidos automaticamente.
 
-### 方案 A 的回归证据
+### Evidências de regressão da Opção A
 
-- 五模块完成目录、契约、公开入口与依赖登记；同时更新包子路径、分享镜像 COPY、历史 tag
-  路由能力识别、源码路径读取测试与 feature map。未增加门禁例外或刷新 baseline。
-- JSONC 解析回归先复现两种别名都未建边，再修正为 TypeScript 解析器。真实别名恢复后，补齐
-  `mobile-ui`、`web-remote-control-ui` 和既有 `workspace-config-catalog` 对 UI 适配入口的依赖。
-- 固定 staging 基准 `6295a71ff38a242af5704061fea6b3947ce7241b` 的架构检查为 0 违规；
-  37 项架构测试、12 项新模块契约测试、全仓类型检查、lint、Web/分享页构建与 CUA 版本检查通过。
-- 整个分支的 affected 选择 2203 个测试文件：Vitest 首轮 2185 文件通过、5 文件失败、2 文件跳过；
-  Node runner 103 项通过。失败涉及一项独立进程超时、测试的全局 `#src` 覆盖、已移除的 V1 刷新
-  配对清单、迁移后的 mock/导出入口。修正测试边界后，七个相关文件共 61 项通过；未修改数据库迁移
-  或会话行为，也未通过全量测试回退扩张选择范围。
-- 桌面 AUTH-08 四个场景通过：登录门禁与远控 401 重新认证使用完整重建产物；随后复用该产物验证
-  注册保存失败与登出写锁失败。夹具把账号业务请求隔离到 loopback；只持有设置写锁，保持设置读取
-  和凭据写入可用，并要求观察真实 `setting.update FAIL` 后才释放锁。
-- 手机入口 75 项、设备分组 24 组通过。底部弹层先复现 12px 圆角不符，再按 DESIGN 的弹窗表面
-  和 16px 顶部圆角修复；390px/1024px、深浅主题与中英文沿用浏览器断言和截图核对。
-- 手机设备切换 16 组、home-only 8 组、版本恢复 6 组、分享 OAuth 16 组通过。设备切换的 store
-  探针依赖相同 Vite 模块实例；开发中热更新生成不同模块 URL 时，用全新服务器复验，未改变产品状态逻辑。
+- Os cinco módulos completaram diretório, contrato, pontos de entrada públicos e
+  registro de dependências; foram atualizados também o subcaminho de pacote, o COPY
+  da imagem de compartilhamento, o reconhecimento da capacidade de roteamento por tag
+  histórica, o teste de leitura de caminhos de código-fonte e o feature map. Nenhuma
+  exceção de gate foi adicionada nem o baseline foi atualizado.
+- A regressão de parsing de JSONC reproduziu primeiro que nenhum dos dois aliases
+  gerava aresta, e só então foi corrigida para o parser de TypeScript. Depois que os
+  aliases reais foram restaurados, foram completadas as dependências de `mobile-ui`,
+  `web-remote-control-ui` e do já existente `workspace-config-catalog` sobre o ponto
+  de entrada de adaptação de UI.
+- A verificação de arquitetura com a base de staging fixa
+  `6295a71ff38a242af5704061fea6b3947ce7241b` deu 0 violações; 37 testes de
+  arquitetura, 12 testes de contrato dos novos módulos, a checagem de tipos de todo o
+  repositório, o lint, os builds de Web/página de compartilhamento e a checagem de
+  versão do CUA passaram.
+- A seleção affected de todo o branch alcança 2203 arquivos de teste: na primeira
+  rodada do Vitest 2185 arquivos passaram, 5 falharam, 2 foram pulados; o runner Node
+  passou 103 casos. As falhas envolvem um timeout de processo independente, a coverage
+  global `#src` do teste, o manifesto de pareamento de refresh V1 já removido e
+  mocks/pontos de entrada de export migrados. Depois de corrigidas as fronteiras de
+  teste, 61 casos em sete arquivos relacionados passaram; não se modificou migrações de
+  banco nem o comportamento de sessão, e não se recuou a seleção ampliada para
+anunciar aprovação com base na suíte completa.
+- Os quatro cenários desktop do AUTH-08 passaram: o gate de login e a reautenticação
+  401 do controle remoto usam o artefato reconstruído por completo; em seguida o
+  mesmo artefato foi reutilizado para verificar a falha de gravação do registro e a
+  falha de escrita no logout. As fixtures isolam as requisições de negócio da conta
+  em loopback; mantêm apenas o lock de escrita das configurações, preservando a
+  leitura de configurações e a gravação de credenciais, e exigem observar um
+  `setting.update FAIL` real antes de liberar o lock.
+- Entry do celular: 75 casos e 24 grupos de agrupamento de dispositivos passaram. O
+  bottom sheet reproduziu primeiro o raio de 12px fora do padrão e foi corrigido
+  conforme a superfície de diálogo do DESIGN e o raio superior de 16px; 390px/1024px,
+  temas claro e escuro e os idiomas zh-CN/en-US reaproveitam as asserções de navegador
+  e a conferência por capturas de tela.
+- Troca de dispositivos no celular: 16 grupos; home-only: 8 grupos; recuperação de
+  versão: 6 grupos; OAuth de compartilhamento: 16 grupos, todos aprovados. A sonda de
+  store da troca de dispositivos depende da mesma instância de módulo do Vite; quando
+  o hot reload em desenvolvimento gera uma URL de módulo diferente, a reverificação
+  foi feita com um servidor novo, sem alterar a lógica de estado do produto.
 
-以上为本地受控验证。E2E 保持 pending；真实手机、线上 OAuth/relay、Windows/Linux 实机和完整
-Docker 镜像构建不在本轮验证范围。分享镜像验证本地 COPY 源存在，并完成真实前端生产构建。
+Acima está a verificação local controlada. O E2E permanece pending; celular real,
+OAuth/relay em produção, máquinas reais Windows/Linux e a construção completa da
+imagem Docker ficam fora do escopo de verificação desta rodada. A verificação da
+imagem de compartilhamento confirma a existência da fonte local do COPY e completa o
+build de produção real do frontend.
 
-## 已知限制（07）
+## Limitações conhecidas (07)
 
-- 升级前保存的旧链接带旧 `app_version`，网关仍加载旧 V1 页面。该页面连接新 V2 桌面会停在等待页，不能自动纠正；用户需重新扫描当前二维码。新 V2 页面自身拒绝 `hash`/`t` 参数。
-- 服务端不提供离线设备的在线 `meta` 内容，列表以 `device_mid` 片段显示离线设备，不能将其当作仍可连接的具名设备。
-- `KICKED` 同时表示同角色被替换与 relay owner 丢失，客户端无法直接区分。首次延迟 2–5 秒重新取 token，60 秒内第二次停止并显示 `session-conflict`；因此两台手机接管可能出现一次反向抢回。服务端区分错误码后才能实现立即且稳定的停止策略。
+- Links antigos salvos antes da atualização carregam o `app_version` antigo, e o
+  gateway ainda carrega a página V1 antiga. Ao se conectar a um desktop V2 novo, essa
+  página fica parada na tela de espera e não se corrige sozinha; o usuário precisa
+  escanear novamente o QR code atual. A nova página V2 em si rejeita os parâmetros
+  `hash`/`t`.
+- O servidor não fornece o conteúdo de `meta` online para dispositivos offline; a
+  lista exibe dispositivos offline por um fragmento de `device_mid`, e eles não devem
+  ser tratados como dispositivos nomeados ainda conectáveis.
+- `KICKED` significa ao mesmo tempo substituição pelo mesmo papel e perda do owner do
+  relay, e o cliente não consegue distinguish diretamente. Na primeira vez, espera de
+  2–5 segundos para obter um novo token; dentro de 60 segundos, a segunda tentativa
+  para e exibe `session-conflict`; portanto, o takeover por dois celulares pode
+  provocar uma recuperação inversa. Só após o servidor distinguir os códigos de erro
+  será possível uma política de parada imediata e estável.
 
-## 外部依赖与发布顺序（07）
+## Dependências externas e ordem de publicação (07)
 
-以下沿用父 spec 的依赖记录，尚未在本次任务重新取得生产验收证据；不能据此宣布生产可发布。
+A seguir está o registro de dependências herdado da spec pai; a aceitação em produção
+ainda não foi obtida novamente nesta tarefa, e não é possível anunciar prontidão para
+publicação em produção com base nisso.
 
-| 外部依赖                                                   | 归属         | 放行证据                                                                                                      |
-| ---------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------- |
-| 生产 zcode-server 部署 V2 HTTP/WS                          | 服务端维护方 | token 接口无 JWT 返回 401，合法账号完成设备注册与一次性 token 配对                                            |
-| `/api/v1/remote/ws2` 精确路由，同 MID 双端落同一实例       | 网关维护方   | 无 token 返回 401，同 MID 稳定配对，滚动后恢复                                                                |
-| `/remote/v4` 按 `app_version` 取 OSS index，资源按目录路由 | 网关维护方   | 两个版本加载各自资源，release-manifest 返回 JSON，不能是 SPA HTML                                             |
-| ZAI/BigModel OAuth 回调白名单                              | OAuth 提供方 | `https://zcode.z.ai/remote/v4` 与 `https://zcode.z.ai/remote/v4` 已登记，测试环境真实登录后回跳原 URL |
+| Dependência externa                                            | Responsável  | Evidência de liberação                                                                                     |
+| -------------------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
+| zcode-server de produção com HTTP/WS V2                        | Time do servidor | A interface de token retorna 401 sem JWT e uma conta válida conclui o registro do dispositivo e o pareamento com token de uso único |
+| Rota exata `/api/v1/remote/ws2`, com as duas pontas do mesmo MID na mesma instância | Time do gateway | Retorna 401 sem token, pareamento estável para o mesmo MID e recuperação após rolling restart |
+| `/remote/v4` busca o índice OSS por `app_version`, com os recursos roteados por diretório | Time do gateway | As duas versões carregam seus respectivos recursos e o release-manifest retorna JSON, não HTML de SPA |
+| Whitelist de callback do OAuth ZAI/BigModel                    | Provedor de OAuth | `https://zcode.z.ai/remote/v4` e `https://zcode.z.ai/remote/v4` estão registrados e, após login real no ambiente de teste, há retorno à URL original |
 
-发布顺序：生产服务端 V2 → 网关 WS 与 OSS 规则 → OAuth 白名单 → 手机页面新版本目录 → 同版本桌面 App。网关支持版本目录前不运行手动 latest job。当前根版本为 `3.13.0`，覆盖测试 OSS 的同版本目录前必须知会仍使用该版本 V1 桌面的同事。
+Ordem de publicação: servidor de produção V2 → regras de WS e OSS do gateway →
+whitelist de OAuth → novo diretório de versão da página do celular → App desktop da
+mesma versão. Não se executa o job manual de latest antes de o gateway suportar
+diretórios de versão. A versão raiz atual é `3.13.0`; antes de sobrescrever o
+diretório da mesma versão no OSS de teste, é preciso avisar os colegas que ainda usam
+o desktop V1 dessa versão.
 
-## 测试环境真机验收矩阵（07）
+## Matriz de aceitação com celular real no ambiente de teste (07)
 
-记录日期：2026-09-19。目标入口为测试环境 `/remote/v4`；执行需要已部署对应版本页面、登录桌面、两台真实手机、两个账号，以及 relay 滚动操作方。当前会话未获得这些设备和账号接入信息，以下均为 **未执行**，本地假 relay 与浏览器测试不替代真机证据。
+Data do registro: 2026-09-19. O ponto de entrada alvo é o `/remote/v4` do ambiente de
+teste; a execução exige a página da versão correspondente já implantada, o desktop
+logado, dois celulares reais, duas contas e a parte responsável pelo rolling restart
+do relay. A sessão atual não recebeu as informações de acesso a esses dispositivos e
+contas, portanto tudo a seguir está **não executado**; o relay local falso e os
+testes de navegador não substituem a evidência de aparelho real.
 
-| 场景                   | 步骤与期望                                                                                        | 状态 / 证据 |
-| ---------------------- | ------------------------------------------------------------------------------------------------- | ----------- |
-| 扫码首次登录           | 手机清除测试登录态，扫当前桌面二维码 → OAuth → 原 sid/mid/name/app_version 恢复 → 配对并进入任务  | 未执行      |
-| 已登录直连             | 同账号手机再次扫码 → 不显示登录页 → 配对并进入现有 workspace bridge                               | 未执行      |
-| 无码选设备             | 打开无 sid 入口，最近设备不可用时展示列表 → 选择在线设备 → URL 回写 → 刷新恢复                    | 未执行      |
-| 账号不匹配与切换账号   | 另一账号打开带 sid URL → 归属失败 → 切换桌面账号 → 恢复原 URL 并连接                              | 未执行      |
-| 另一台手机接管         | 两机同账号连接同 SID，记录 KICKED 与首次有界重试；原机再次被替换后停止重连并提示                  | 未执行      |
-| 桌面登出与重新登录     | 已连接时桌面登出 → 手机断开；桌面同账号登录 → enabled 记录保留、重新注册/配对恢复                 | 未执行      |
-| Relay 滚动 KICKED 恢复 | 维护方滚动实例并触发 owner 丢失 → 首次 KICKED 延迟后新 token → 恢复配对与 replayable snapshot/gap | 未执行      |
+| Cenário                        | Passos e expectativa                                                                                           | Status / evidência |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Primeiro login por QR code     | O celular limpa o estado de login de teste e escaneia o QR code atual do desktop → OAuth → restauração do sid/mid/name/app_version originais → pareamento e entrada na tarefa | Não executado      |
+| Conexão direta já logado       | O celular da mesma conta escaneia de novo → não mostra a página de login → pareamento e entrada no workspace bridge existente | Não executado      |
+| Seleção de dispositivo sem QR code | Abre a entry sem sid e, quando o dispositivo recente está indisponível, mostra a lista → seleciona um dispositivo online → escrita da URL na mão → recuperação ao atualizar | Não executado      |
+| Conta incompatível e troca de conta | Outra conta abre a URL com sid → falha de atribuição → troca a conta do desktop → restaura a URL original e conecta | Não executado      |
+| Takeover por outro celular     | Dois celulares da mesma conta conectam ao mesmo SID, registrando o KICKED e a primeira retentativa limitada; quando o aparelho original é substituído de novo, para de reconectar e avisa | Não executado      |
+| Logout e novo login no desktop | Com a conexão ativa, o desktop faz logout → o celular desconecta; login do desktop na mesma conta → o registro enabled é preservado e o registro/pareamento é recuperado | Não executado      |
+| Recuperação de KICKED no rolling do Relay | O responsável faz rolling restart da instância e dispara a perda de owner → primeiro KICKED com atraso → novo token → recuperação do pareamento e do snapshot/gap replayable | Não executado      |
 
-执行时每行补充 App/页面版本、设备 OS/浏览器、账号匿名代号、时间、截图/脱敏日志与结果。不得记录 JWT、一次性 token 或凭据。未执行项保持开放，07 不标记完成。
+Na execução, cada linha deve ser complementada com versão do App/página, SO/navegador
+do dispositivo, código anônimo da conta, horário, capturas de tela/logs anonimizados e
+o resultado. Não registrar JWT, tokens de uso único ou credenciais. Itens não
+executados permanecem abertos e 07 não é marcado como concluído.
 
-## 本地验证记录（07）
+## Registro de verificação local (07)
 
-2026-09-19，基于当前工作区（保留 02–06 前置未提交改动）执行：
+2026-09-19, com base no workspace atual (preservando as alterações não commitadas
+prévias de 02–06), executou-se:
 
-| 验证                                 | 结果与边界                                                                                                                            |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm typecheck`                     | 通过                                                                                                                                  |
-| `pnpm lint`                          | 通过，60 warning / 0 error                                                                                                            |
-| `pnpm architecture:check --changed`  | 通过，0 violation；相关 legacy 模块不等于运行时行为已验证                                                                             |
-| 定向远控回归                         | 15 文件、250 项通过，涵盖共享契约/QR/心跳、假 relay、双端 transport、manager、入口和 rpc-frame gap 恢复                               |
-| OSS / 构建工具 / 序列化器回归        | 7 文件、131 项通过；补齐测试镜像输入后追加 2 文件、25 项通过                                                                          |
-| `pnpm build:web-remote-control:test` | 通过；存在既有 bundle 大小与动态导入告警                                                                                              |
-| 测试镜像 smoke                       | 未通过：初次缺 patches 已修复；重试进入私有 CUA Git 依赖下载，因容器无仓库凭据报无法读取 Username，尚未执行 nginx 路由/二进制响应断言 |
-| nginx 与本地产物                     | 独立容器验证通过：入口、重定向、静态资源、非法前缀 404 和 CMap 二进制响应；使用宿主 Vite 产物，不替代完整 Dockerfile 构建             |
-| 测试发布脚本                         | Bash 语法及隔离 Docker stub smoke 通过：只 build/push 测试镜像，空 tag 在调用 Docker 前失败；未真实推送镜像                           |
-| `pnpm verify:pre-push`               | 命令通过；其 affected 脚本比较已提交 HEAD，当前无对应已提交代码差异而跳过单测，因此不作为当前工作区单测通过的证据                     |
-| 文档与引用                           | 修改文档的 38 个相对路径链接存在；已删除基础设施引用与生产 V1 消息/心跳导出，保留旧数据清理与拒绝旧消息的负例                         |
-| 双轴评审                             | Standards 无发现；Spec 发现设备列表与刷新 IPC 的旧文案，已修正并复查通过。真机与镜像环境阻塞继续开放                                  |
+| Verificação                                | Resultado e limites                                                                                                                            |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm typecheck`                          | Passou                                                                                                                                          |
+| `pnpm lint`                               | Passou, 60 warning / 0 error                                                                                                                    |
+| `pnpm architecture:check --changed`       | Passou, 0 violation; módulos legacy relacionados não equivalem a comportamento em runtime verificado                                              |
+| Regressão dirigida do controle remoto      | 15 arquivos, 250 casos aprovados, cobrindo contrato compartilhado/QR/heartbeat, relay falso, transport dos dois lados, manager, entry e recuperação de gap em rpc-frame |
+| Regressão de OSS / ferramentas de build / serializador | 7 arquivos, 131 casos aprovados; após completar as entradas de imagem de teste, mais 2 arquivos e 25 casos aprovados |
+| `pnpm build:web-remote-control:test`      | Passou; existem avisos preexistentes de tamanho de bundle e de import dinâmico                                                                 |
+| Smoke da imagem de teste                   | Falhou: a ausência inicial de patches já foi corrigida; a retentativa entrou no download de dependências Git privadas do CUA e, por o container não ter credenciais do repositório, reportou inability to read Username; as asserções de rota nginx/resposta binária ainda não foram executadas |
+| nginx e artefatos locais                   | Verificação com container independente aprovada: entry, redirecionamento, recursos estáticos, 404 de prefixo inválido e resposta binária do CMap; usa os artefatos Vite do host e não substitui a construção completa do Dockerfile |
+| Script de publicação de teste             | Smoke da sintaxe Bash e do stub Docker isolado aprovado: faz apenas build/push da imagem de teste, e a tag vazia falha antes de chamar o Docker; nenhuma imagem foi realmente enviada |
+| `pnpm verify:pre-push`                    | O comando passou; seu script affected compara o HEAD já commitado e, como não há diferença de código commitado correspondente no momento, pula os testes unitários, portanto não serve como evidência de testes unitários aprovados no workspace atual |
+| Documentação e referências                 | Os 38 links de caminho relativo dos documentos modificados existem; foram removidas as referências de infraestrutura e as exportações de mensagem/heartbeat da V1 em produção, mantendo o caso negativo de limpeza de dados antigos e rejeição de mensagens antigas |
+| Revisão de dois eixos                      | Standards sem achados; Spec encontrou texto antigo da lista de dispositivos e do IPC de refresh, que foi corrigido e reconferido. O bloqueio de aparelho real e de ambiente de imagem continua aberto |
 
-`pnpm test:unit` 全量结果：1,923 文件通过、1 文件失败、2 文件跳过；17,988 项通过、1 项失败、12 项跳过，用时 418.96 秒。唯一失败是 `packages/desktop/test/e2eRuntimePaths.test.ts` 检出已有 `feedback/manual-review/pending/feedback-upload-privacy.test.ts` 使用裸系统临时路径；该违规文件本票未修改，定向重跑仍失败，与 06 既有记录一致。
+Resultado completo de `pnpm test:unit`: 1.923 arquivos aprovados, 1 arquivo falhou,
+2 arquivos foram pulados; 17.988 casos aprovados, 1 falhou, 12 foram pulados, em 418,96
+segundos. A única falha é `packages/desktop/test/e2eRuntimePaths.test.ts` detectando que
+o já existente `feedback/manual-review/pending/feedback-upload-privacy.test.ts` usa
+caminho temporário cru do sistema; esse arquivo em violação não foi modificado nesta
+tarefa e a reexecução dirigida continua falhando, de forma consistente com o registro
+existente em 06.
 
-代码收口与可执行本地验证已完成，完整 Docker 镜像仍受私有 CUA 依赖认证阻塞，七项测试环境真机矩阵均未执行。必要验证未完成且全量存在既有失败，按根 AGENTS.md 保留工作区改动、不自动提交，07 保持 `in-progress`。
+A consolidação do código e a verificação local executável foram concluídas, mas a
+imagem Docker completa continua bloqueada pela autenticação da dependência privada do
+CUA, e as sete matrizes de aceitação com celular real no ambiente de teste não foram
+executadas. Como as verificações necessárias não foram concluídas e a suíte completa
+apresenta falhas preexistentes, conforme o AGENTS.md raiz as alterações do workspace
+são mantidas, sem commit automático, e 07 permanece `in-progress`.

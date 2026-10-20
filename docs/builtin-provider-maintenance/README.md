@@ -1,35 +1,35 @@
-# 内置 Provider 模板与模型维护
+# Manutenção de templates e modelos de Providers embutidos
 
-本目录是内置 Provider 模板、模型成员和模型规则的日常维护入口。维护目标是持续覆盖主流供应商与主流编程、Agent 模型，并让每项配置都有来源、验证和交付记录。
+Este diretório é o ponto de entrada para a manutenção diária dos templates de Providers embutidos, dos membros de modelo e das regras de modelo. O objetivo da manutenção é cobrir continuamente os fornecedores principais e os modelos principais de programação e de Agent, e garantir que cada configuração tenha origem, validação e registro de entrega.
 
-本目录整理现有合同和维护流程。符合范围与现有协议的新增可直接推进；修改、停用或删除已有配置先讨论确认。Google 原生协议短期暂缓，具体边界见范围原则。本次基线为 2026-10-14 的 staging `68fac8de4fcc`，Builtin revision 33。后续配置 MR 应同步更新本目录的当前状态。
+Este diretório organiza o contrato atual e o processo de manutenção. Novas adições que estejam dentro do escopo e do protocolo existente podem seguir direto; modificações, desativações ou remoções de configurações existentes exigem discussão e confirmação antes. O protocolo nativo do Google fica suspenso no curto prazo, e os limites concretos estão nos princípios de escopo. O baseline desta rodada é o staging `68fac8de4fcc` de 2026-10-14, com a Builtin revision 33. Configurações subsequentes em MR devem atualizar ao mesmo tempo o estado atual deste diretório.
 
-本目录独立提供维护所需的背景、概念、规则、理由和操作步骤，不以前置阅读其他文档为条件。目录内链接用于展开说明；代码链接用于核验实现；官方资料链接用于核对带日期的外部证据。历史材料中的有效结论已经纳入正文，未实施的方案明确保留为候选。
+Este diretório oferece de forma independente o contexto, os conceitos, as regras, as justificativas e os passos operacionais necessários para a manutenção, sem condicionar-se à leitura prévia de outros documentos. Os links dentro do diretório servem para aprofundar a explicação; os links de código servem para conferir a implementação; os links de material oficial servem para verificar evidências externas datadas. As conclusões válidas do material histórico já foram incorporadas ao texto, e as propostas não implementadas foram mantidas explicitamente como candidatas.
 
-## 从任务进入
+## Ponto de entrada por tarefa
 
-| 要做的事情                                     | 阅读入口                                   |
-| ---------------------------------------------- | ------------------------------------------ |
-| 决定维护哪些供应商、模型，如何扩展和下线       | [范围与原则](./scope.md)                   |
-| 理解模板、成员、规则、参数映射及正式/测试配置  | [配置规范](./configuration.md)             |
-| 查看当前模板、完整模型列表、默认启停与已知缺口 | [当前状态](./current-state.md)             |
-| 查看最新扩展建议、规则差异和分批计划           | [2026-10-14 扩展计划](./expansion-plan.md) |
-| 持续跟踪新闻、官方目录和退役公告               | [资料跟踪与本轮发现](./research.md)        |
-| 从候选推进到配置 MR，分配人工协作              | [维护工作流](./workflow.md)                |
-| 获取 API Key、做真实验证、留下可复核证据       | [验证规范](./validation.md)                |
-| 合并 MR、随版本交付、必要时动态上线和回退      | [交付规范](./delivery.md)                  |
+| O que fazer                                                  | Ponto de entrada de leitura                                |
+| ------------------------------------------------------------ | ---------------------------------------------------------- |
+| Decidir quais fornecedores e modelos manter, como estender e descontinuar | [Escopo e princípios](./scope.md)                           |
+| Entender templates, membros, regras, mapeamento de parâmetros e configuração formal/de teste | [Especificação de configuração](./configuration.md)         |
+| Ver os templates atuais, a lista completa de modelos, a habilitação/desabilitação padrão e as lacunas conhecidas | [Estado atual](./current-state.md)                          |
+| Ver as recomendações de expansão mais recentes, as diferenças de regras e o plano em lotes | [Plano de expansão 2026-10-14](./expansion-plan.md)         |
+| Acompanhar continuamente notícias, catálogos oficiais e anúncios de descontinuação | [Pesquisa e achados desta rodada](./research.md)            |
+| Avançar de candidata até MR de configuração e distribuir a colaboração manual | [Fluxo de manutenção](./workflow.md)                        |
+| Obter API Key, fazer validação real e deixar evidência revisável | [Especificação de validação](./validation.md)               |
+| Mesclar MR, entregar junto da versão, e fazer rollout dinâmico e rollback quando necessário | [Especificação de entrega](./delivery.md)                  |
 
-## 事实边界
+## Limites de fato
 
-- **配置事实**：`config/provider/zcode-builtin.json` 是正式编辑源；测试配置由脚本派生。Schema、Resolver 和 Adapter 定义实际可表达及可执行的范围。
-- **维护决定**：本目录记录接入范围、优先级、默认启停和操作规范；符合已确认范围的新增直接推进；已有调整/删除先讨论，超出现有协议能力的方案保留为候选。
-- **验证事实**：仓库有配置、官方有文档、某账号能调用、客户端已交付，是四件不同的事。不能互相代替。
-- **历史与现状**：[当前状态](./current-state.md)记录本基线及已知差异，[配置规范](./configuration.md)解释现行规则及取舍。旧清单或历史待办与代码冲突时，重新核验，不自动恢复旧配置。
+- **Fatos de configuração**: `config/provider/zcode-builtin.json` é a fonte formal de edição; a configuração de teste é derivada por script. Schema, Resolver e Adapter definem o que de fato pode ser expresso e executado.
+- **Decisões de manutenção**: este diretório registra o escopo de integração, as prioridades, a habilitação/desabilitação padrão e as normas de operação; novas adições que estejam dentro do escopo confirmado seguem direto; ajustes/remoções de itens existentes exigem discussão antes, e propostas que ultrapassem a capacidade do protocolo atual são mantidas como candidatas.
+- **Fatos de validação**: o repositório ter a configuração, o oficial ter a documentação, uma conta conseguir chamar a API e o cliente já ter entregue são quatro coisas diferentes. Elas não se substituem umas às outras.
+- **Histórico e estado atual**: [Estado atual](./current-state.md) registra este baseline e as diferenças conhecidas; [Especificação de configuração](./configuration.md) explica as regras vigentes e as trade-offs. Quando listas antigas ou pendências históricas entrarem em conflito com o código, revalidar e não restaurar automaticamente a configuração antiga.
 
-模型维护单位是 **供应商产品入口 × 原始模型 ID × API 协议**。同品牌不同套餐、同模型不同聚合入口、同端点不同协议，不能共用一次验证结论。
+A unidade de manutenção de modelo é **entrada de produto do fornecedor × ID de modelo original × protocolo de API**. Mesma marca com pacotes diferentes, mesmo modelo com entradas de agregação diferentes, mesmo endpoint com protocolos diferentes não podem compartilhar uma única conclusão de validação.
 
-## 完成条件
+## Critérios de conclusão
 
-一项配置维护完成，需要范围已确认、正式/测试配置同源、相关检查通过、真实验证及缺口明确、MR 合并和交付状态可追溯。缺 Key 可以继续研究、补测试和准备 MR，但必须保留待人工验证状态；不能写成已经可用或已经上线。
+Uma manutenção de configuração só está concluída quando o escopo foi confirmado, a configuração formal e a de teste têm a mesma origem, as checagens relevantes passaram, a validação real foi feita e as lacunas estão claras, e o MR foi mesclado e o estado de entrega é rastreável. A falta de Key permite continuar a pesquisa, completar os testes e preparar o MR, mas o estado pendente de validação manual deve ser preservado; não pode ser escrito como já disponível nem como já em produção.
 
-固定账号 Provider 与普通模板共享 Release、模型规则和环境转换。本目录说明维护时必须保留的账号权益、配置所有权和生效边界；账号登录产品、会话系统及远控协议的开发不属于模板维护范围。
+Providers de conta fixa e templates comuns compartilham Release, regras de modelo e conversão de ambiente. Este diretório explica os direitos de conta, a propriedade da configuração e os limites de vigência que precisam ser preservados na manutenção; o desenvolvimento de produtos de login de conta, do sistema de sessões e do protocolo de controle remoto não faz parte do escopo de manutenção de templates.

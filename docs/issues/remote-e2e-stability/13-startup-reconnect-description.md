@@ -1,22 +1,36 @@
-# 自动重连设置仍描述已取消的 7 天过滤
+# A configuração de reconexão automática ainda descreve o filtro de 7 dias que foi cancelado
 
 Status: ready-for-human
 
-业务基线 `d31e735905cf744e75a0a93548a80acabe871ae5`。
-批次 `r3-server-20261011105317614-4a6780` 的 `version-optional` 运行日志实际读取到设置页说明：
-“启动时静默重连最近 7 天内在线过的设备”。这是可见设置文案，不是测试夹具中的预期字符串。
+Baseline de negócio `d31e735905cf744e75a0a93548a80acabe871ae5`.
+O log de execução `version-optional` do lote `r3-server-20261011105317614-4a6780` leu de fato a
+descrição na página de configurações:
+"启动时静默重连最近 7 天内在线过的设备" ("reconecta silenciosamente na inicialização os
+devices que ficaram online nos últimos 7 dias").
+Esse é um texto de configuração visível, não a string esperada em uma fixture de teste.
 
-[当前恢复合同](../../remote/desktop-remote-session-renderer-reattach.md) 明确：全部保存连接按最近在线时间
-排序，各尝试一次，不再按 7 天过滤；全局关闭开关与可静默取得凭据的限制保留。
-设置说明因此会让用户误以为超过 7 天的设备不会自动连接。
+O [contrato atual de recuperação](../../remote/desktop-remote-session-renderer-reattach.md) é
+explícito: todas as conexões salvas são ordenadas pelo tempo de último acesso online, cada uma é
+tentada uma vez, sem filtro de 7 dias; a chave global de desligamento e a restrição de conseguir
+credenciais silenciosamente permanecem.
+Por isso a descrição da configuração leva o usuário a acreditar que devices com mais de 7 dias
+não se conectam automaticamente.
 
-应把说明改为当前范围与排序规则，同时核对中英文。较早 R3 主规格及 case catalog 仍有 7 天条目，
-应按上述现行恢复合同同步，而不是把产品逻辑改回旧过滤条件。本轮只记录，未修改业务文案或逻辑。
+A descrição deve ser alterada para o escopo e a regra de ordenação atuais, verificando também o
+chinês e o inglês. A especificação principal do R3 e o case catalog ainda possuem entradas de
+7 dias,
+devendo ser sincronizados conforme o contrato de recuperação vigente acima, e não alterando a
+lógica do produto de volta para o filtro antigo. Esta rodada apenas registra, sem modificar o
+texto ou a lógica de negócio.
 
-此项是独立的说明不一致；`version-optional` 的实际失败是更新提示未在首次读取时出现，
-不能用本记录代替该失败的继续分诊与复验。
+Este item é uma inconsistência de descrição independente; a falha real de `version-optional` é a
+ausência do aviso de atualização na primeira leitura,
+não podendo este registro substituir a triagem e a revalidação daquela falha.
 
-补充实机证据：批次 `r3-server-20261011125749338-152f05` 的 `recov/recovery-guards.json`
-记录 Source.lastOnlineAt 被设置为 8 天前后，冷启动得到新的 remoteSessionId、hostCount=1、
-dialogShown=false，证明实际没有按 7 天排除该连接。该 case 后续的手动恢复失败，
-本记录仅引用已到达的冷启动阶段，不把整个 case 记为 PASS。
+Evidência adicional em máquina real: o arquivo `recov/recovery-guards.json` do lote
+`r3-server-20261011125749338-152f05` registra Source.lastOnlineAt definido para cerca de 8 dias
+atrás, e o cold start obteve um novo remoteSessionId, hostCount=1,
+dialogShown=false, o que prova que a conexão não foi excluída pela regra de 7 dias. A recuperação
+manual desse case falhou depois;
+este registro cita apenas a fase de cold start já alcançada e não classifica o case inteiro
+como PASS.

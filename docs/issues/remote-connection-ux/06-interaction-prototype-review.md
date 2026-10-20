@@ -1,80 +1,80 @@
-# 06 — 交互原型与评审
+# 06 — Protótipo de interação e revisão
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Especificação pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：** 无，可立即开始。
+**Bloqueado por:** nada, pode começar imediatamente.
 
-**要交付的行为：**
+**Comportamento a entregar:**
 
-在 `pnpm dev:web` 里挂一个临时原型页，让用户在正式实现之前判断新交互"好不好用、好不好看"。
+Montar uma página de protótipo temporária em `pnpm dev:web` para que o usuário possa julgar, antes da implementação definitiva, se a nova interação "é boa de usar e boa de ver".
 
-- **做法**：原型直接使用项目真实的设计 token 和基础组件，数据全部写死，可以切换浅色和深色主题、侧栏 264px 宽度、900px 窗口。
-- **用途**：评审结论决定 [10](./10-three-screen-wizard-and-selection.md)～[13](./13-settings-device-cards-and-updates.md) 按什么样子实现。
-- **不合入**：原型代码不合入。
+- **Como fazer**: o protótipo usa diretamente os design tokens e os componentes básicos reais do projeto, todos os dados são fixos, e é possível alternar entre tema claro e escuro, largura de 264px na barra lateral e janela de 900px.
+- **Para que serve**: as conclusões da revisão definem como [10](./10-three-screen-wizard-and-selection.md)～[13](./13-settings-device-cards-and-updates.md) serão implementados.
+- **Não entra no merge**: o código do protótipo não é mesclado.
 
-范围：
+Escopo:
 
-- **三屏向导**：选择、连接中、选目录三屏，包含以下状态：
-  - 缺少密码
-  - 安装确认
-  - 认证失败
-  - 拒绝连接
-  - 部署阶段失败
-  - 已在线复用的提示
-- **侧栏**：
-  - 项目行的 5 种状态和详情卡
-  - 收起向导后的侧栏进度行
-- **会话区**：断线横幅和输入框
-- **设置页**：
-  - 设备卡
-  - 未完成的连接
-  - 更新横幅（可选更新和必须更新各一种）
-- **截图对比**：本机的 dev 走查环境仍保留着，可以和走查截图放在一起对比。
+- **Assistente de três telas**: seleção, conectando e escolha de diretório, com os seguintes estados:
+  - senha ausente
+  - confirmação de instalação
+  - falha de autenticação
+  - conexão recusada
+  - falha na fase de implantação
+  - aviso de reaproveitamento de um dispositivo já online
+- **Barra lateral**:
+  - os 5 estados da linha de projeto e o cartão de detalhes
+  - a linha de progresso da barra lateral com o assistente recolhido
+- **Área da sessão**: banner de desconexão e caixa de entrada
+- **Página de configurações**:
+  - cartão de dispositivo
+  - conexões incompletas
+  - banner de atualização (uma variante de atualização opcional e uma de atualização obrigatória)
+- **Comparação de capturas de tela**: o ambiente de walkthrough de dev local ainda existe, então as capturas podem ser comparadas lado a lado com as capturas do walkthrough.
 
-验收标准：
+Critérios de aceite:
 
-- [x] 原型页覆盖上面列出的所有界面和状态。
-- [x] 截图覆盖浅色、深色两种主题，以及侧栏 264px、窗口 900px 两种尺寸，并和走查截图并排对比。截图存放在临时目录，不入库。
-- [x] 用户评审通过。评审结论追加到本票末尾的 `## Comments`。
-- [x] 如果评审改动了已定的交互决策，同步更新对应的事实规格，并在受影响的票里注明。
-- [x] 原型代码不进入任何提交，工作区保持干净。
+- [x] A página de protótipo cobre todas as telas e estados listados acima.
+- [x] As capturas cobrem os temas claro e escuro, assim como os dois tamanhos — barra lateral de 264px e janela de 900px — e são comparadas lado a lado com as capturas do walkthrough. As capturas ficam em um diretório temporário, fora do repositório.
+- [x] Revisão do usuário aprovada. A conclusão da revisão foi anexada ao final desta issue, na seção `## Comments`.
+- [x] Se a revisão alterou alguma decisão de interação já definida, a especificação de fatos correspondente foi atualizada, e as issues afetadas mencionam a mudança.
+- [x] O código do protótipo não entra em nenhum commit; o workspace permanece limpo.
 
 ## Comments
 
-### 评审结论（2026-09-27，用户整体通过）
+### Conclusão da revisão (2026-09-27, usuário aprovou no geral)
 
-原型挂在 `pnpm dev:web` 的 `?prototype=remote-ux` 临时入口，覆盖范围内全部界面和状态：侧栏 8 个状态、向导 12 个状态、设置页 4 个状态。截图覆盖深浅主题 × 1440 窗口（侧栏 264px）/ 900px 窗口，共 96 张，另有 24 张与走查截图的并排对比，均放在本机临时目录，不入库。评审后原型代码已删除，未进入任何提交。
+O protótipo ficou na entrada temporária `?prototype=remote-ux` de `pnpm dev:web`, cobrindo todas as telas e estados do escopo: 8 estados da barra lateral, 12 estados do assistente e 4 estados da página de configurações. As capturas cobrem tema claro/escuro × janela de 1440 (barra lateral de 264px) / janela de 900px, totalizando 96 imagens, mais 24 imagens comparadas lado a lado com as capturas do walkthrough, todas em um diretório temporário local, fora do repositório. Após a revisão o código do protótipo foi removido e não entrou em nenhum commit.
 
-**按原型实现**：10～13 的布局、信息层级、间距和语义色以原型为准，要点如下。
+**Implementar conforme o protótipo**: o layout, a hierarquia de informação, o espaçamento e as cores semânticas de 10～13 seguem o protótipo. Os pontos principais:
 
-- **向导**：顶部三段式进度提示（选择设备 → 连接 → 选择目录）；高度随内容自适应，列表过长时在弹窗内滚动。
-- **选择屏**：一个可搜索列表，按“已保存的设备 / SSH config 中的 Host / WSL 发行版（仅 Windows）/ 运行中的容器”分组；已保存设备右侧显示状态，下方用 chip 列出最近目录；底部是“新建 SSH 连接”和手动输入入口；页脚提示键盘操作。
-- **新建 SSH 表单**：主机单独一行，用户名与端口并排；认证方式用分段按钮；密码框带显示/隐藏；“高级选项”折叠；页脚左“返回列表”，右“连接”。
-- **连接中屏**：标题为设备名加类型标签，下面一行等宽地址；阶段用带连接线的竖向列表，完成项显示耗时，当前项加粗；安装阶段内再列子步骤，上传时显示进度条、已传大小、速度和剩余时间；等待点（密码、安装确认）和错误都直接嵌在对应阶段下面；日志默认折叠，失败时展开，展开后才出现“复制日志”。
-- **选目录屏**：边界说明是一行可关闭的提示；“最近 / 远端记录”两行 chip；路径栏加目录列表，底部显示“将打开 <完整路径>”；页脚左“稍后选择”，右“打开此目录”；标题下方可以直接重命名设备，保存后提示“已保存”。
-- **侧栏**：项目行只有一个状态图标位；在线时显示次要文字色的设备名，不在线时换成语义色短状态胶囊；行尾操作只在悬停或聚焦时出现。详情卡锚定整行、从侧栏右侧弹出，不遮挡行尾操作：标题行右侧是状态标签，下面是原因块、分隔线、设备/连接/路径和操作行。
-- **会话区**：顶部横幅整块使用语义色底；中性状态的标题用主文字色；输入框保留草稿，发送按钮旁写明不能发送的原因。
+- **Assistente**: indicador de progresso de três etapas no topo (escolher dispositivo → conectar → escolher diretório); a altura se ajusta ao conteúdo e, quando a lista é longa, a rolagem acontece dentro do modal.
+- **Tela de seleção**: uma lista pesquisável, agrupada por "dispositivos salvos / Hosts do SSH config / distribuições WSL (somente Windows) / contêineres em execução"; os dispositivos salvos exibem o status à direita e, abaixo, listam os diretórios recentes em chips; no rodapé ficam "Nova conexão SSH" e a entrada manual; o rodapé também informa a operação por teclado.
+- **Formulário de nova conexão SSH**: o host ocupa uma linha isolada, usuário e porta ficam lado a lado; o método de autenticação usa botões segmentados; o campo de senha tem mostrar/ocultar; "Opções avançadas" fica recolhido; no rodapé, "Voltar à lista" à esquerda e "Conectar" à direita.
+- **Tela de conectando**: o título é o nome do dispositivo mais uma etiqueta de tipo, e abaixo uma linha com o endereço em largura fixa; as fases são uma lista vertical com linha de conexão, itens concluídos mostram o tempo decorrido e o item atual fica em negrito; dentro da fase de instalação são listados sub-passos, com barra de progresso durante o upload, tamanho enviado, velocidade e tempo restante; os pontos de espera (senha, confirmação de instalação) e os erros são embutidos logo abaixo da fase correspondente; o log vem recolhido por padrão, expande-se na falha e só depois de expandido aparece "Copiar log".
+- **Tela de escolha de diretório**: a explicação de escopo é uma linha de aviso que pode ser fechada; duas linhas de chips "Recentes / Registros remotos"; a barra de caminho é acompanhada da lista de diretórios e, no rodapé, aparece "Abrirá <caminho completo>"; no rodapé, "Escolher depois" à esquerda e "Abrir este diretório" à direita; abaixo do título o dispositivo pode ser renomeado diretamente, e após salvar aparece o aviso "Salvo".
+- **Barra lateral**: a linha de projeto tem apenas um slot de ícone de status; quando online, mostra o nome do dispositivo na cor de texto secundária; quando offline, troca por uma cápsula curta de status na cor semântica; as ações no fim da linha só aparecem no hover ou foco. O cartão de detalhes é ancorado à linha inteira, aparece à direita da barra lateral e não cobre as ações do fim da linha: à direita da linha de título fica a etiqueta de status, e abaixo o bloco de motivo, o separador e as linhas de dispositivo/conexão/caminho e de ações.
+- **Área da sessão**: o banner do topo usa fundo na cor semântica em toda a extensão; o título de um estado neutro usa a cor de texto principal; a caixa de entrada preserva o rascunho, e ao lado do botão de envio é escrito o motivo que impede o envio.
 
-**与父规格不同、以本结论为准**
+**Divergências em relação à especificação pai; vale esta conclusão**
 
-1. **收起后的进度行**改为两行小卡片：第一行是“正在连接 <设备名>…”和百分比，第二行是当前阶段，下面一条进度条。264px 侧栏放不下单行写法。失败后保留为危险色卡片，写明原因并可点击查看。影响 [10](./10-three-screen-wizard-and-selection.md)。
-2. **认证失败**时在连接中屏就地重新输入密码或私钥口令，和“需要密码”用同一交互；只有需要更换用户名或私钥文件时才回到表单。已同步更新 UX 规格的错误分类表。影响 [11](./11-connecting-and-directory-screens.md)。
-3. **阶段名称**：“确认连接”改为“识别设备”，因为原名像是在等用户确认；去掉“连接就绪”阶段，成功后直接进入选目录屏或按意图打开项目。影响 [11](./11-connecting-and-directory-screens.md)。
-4. **部署失败时的次要操作**文案改为“改用设备直接下载”。已同步更新 UX 规格。影响 [11](./11-connecting-and-directory-screens.md)。
+1. A **linha de progresso após recolher** passa a ser um pequeno cartão de duas linhas: a primeira é "Conectando a <nome do dispositivo>…" e a porcentagem, a segunda é a fase atual, com uma barra de progresso abaixo. A barra lateral de 264px não comporta a versão de uma linha só. Após a falha, mantém-se como um cartão na cor de perigo, com o motivo indicado e clicável para visualização. Impacta [10](./10-three-screen-wizard-and-selection.md).
+2. Em caso de **falha de autenticação**, a senha ou a passphrase da chave privada é digitada novamente na própria tela de conectando, com a mesma interação de "senha necessária"; só se volta ao formulário quando for preciso trocar o usuário ou o arquivo de chave privada. A tabela de classificação de erros da especificação de UX foi atualizada. Impacta [11](./11-connecting-and-directory-screens.md).
+3. **Nomes das fases**: "Confirmar conexão" passou a "Identificar dispositivo", porque o nome original parecia aguardar uma confirmação do usuário; a fase "Conexão pronta" foi removida — após o sucesso, entra-se diretamente na tela de escolha de diretório ou abre-se o projeto conforme a intenção. Impacta [11](./11-connecting-and-directory-screens.md).
+4. O texto da **ação secundária em caso de falha na implantação** passou a "Baixar direto no dispositivo". A especificação de UX foi atualizada. Impacta [11](./11-connecting-and-directory-screens.md).
 
-**现有实现需修正**（原型已按目标样子绘制）
+**Correções necessárias na implementação atual** (o protótipo já foi desenhado no formato desejado)
 
-5. 设备状态标签把状态和恢复进度直接拼在一起，显示成“连接中正在自动恢复连接（2/3）”；应写成“连接中 · 自动恢复 2/3”。影响 [12](./12-sidebar-header-and-menus.md)、[13](./13-settings-device-cards-and-updates.md)。
-6. 项目行需要短恢复文案“自动恢复 2/3”；完整句子只放在详情卡里。影响 [12](./12-sidebar-header-and-menus.md)。
-7. 连接描述目前输出 `DOCKER · …`，应使用正常大小写 `Docker · …`。影响 [12](./12-sidebar-header-and-menus.md)、[13](./13-settings-device-cards-and-updates.md)。
+5. A etiqueta de status do dispositivo concatena o status com o progresso de recuperação, aparecendo como "Conectando, retomando a conexão automaticamente (2/3)"; deve ser "Conectando · Retomada automática 2/3". Impacta [12](./12-sidebar-header-and-menus.md) e [13](./13-settings-device-cards-and-updates.md).
+6. A linha de projeto precisa de um texto curto de recuperação "Retomada automática 2/3"; a frase completa fica apenas no cartão de detalhes. Impacta [12](./12-sidebar-header-and-menus.md).
+7. A descrição da conexão hoje emite `DOCKER · …`; deve usar capitalização normal `Docker · …`. Impacta [12](./12-sidebar-header-and-menus.md) e [13](./13-settings-device-cards-and-updates.md).
 
-**确认的视觉取舍**
+**Compromissos visuais confirmados**
 
-8. 设备卡上的主操作（连接、重试、更新远端等）统一用描边按钮，紧急程度由状态标签和卡内横幅表达；设置页只有“新建连接”是实心主按钮。影响 [13](./13-settings-device-cards-and-updates.md)。
-9. **必须更新**：状态标签 + 警告色横幅说明版本和影响 + 卡片右上角的“更新远端”；横幅内不重复放按钮。**可选更新**：中性横幅，带“稍后 / 更新”。影响 [13](./13-settings-device-cards-and-updates.md)。
-10. **其他连接**：卡片第二行标出“当前 · 默认”；展开区只列其余连接，“设为默认 / 删除”常驻显示，不依赖悬停。影响 [13](./13-settings-device-cards-and-updates.md)。
-11. **会话区的两种展示**：连接失败或重连中时，已加载内容以变淡的只读样子保留（仍受“不新增缓存 owner”约束）；主动断开且没有已加载内容时，显示“设备未连接，连接后继续此会话”占位。影响 [08](./08-disconnect-experience-and-in-place-reconnect.md)。
+8. A ação principal do cartão de dispositivo (conectar, tentar de novo, atualizar o remoto etc.) usa uniformemente botão com contorno; a urgência é expressa pela etiqueta de status e pelos banners dentro do cartão; na página de configurações apenas "Nova conexão" é botão principal sólido. Impacta [13](./13-settings-device-cards-and-updates.md).
+9. **Atualização obrigatória**: etiqueta de status + banner em cor de aviso explicando a versão e o impacto + "Atualizar remoto" no canto superior direito do cartão; o banner não repete botões. **Atualização opcional**: banner neutro, com "Mais tarde / Atualizar". Impacta [13](./13-settings-device-cards-and-updates.md).
+10. **Outras conexões**: a segunda linha do cartão indica "Atual · Padrão"; a área expandida lista apenas as demais conexões, e "Definir como padrão / Remover" ficam sempre visíveis, sem depender do hover. Impacta [13](./13-settings-device-cards-and-updates.md).
+11. **As duas exibições da área da sessão**: quando a conexão falha ou está reconectando, o conteúdo já carregado permanece de forma esmaecida e somente leitura (continua sujeito à restrição de "não adicionar novo owner de cache"); quando o usuário desconecta ativamente e não há conteúdo carregado, exibe-se o placeholder "Dispositivo não conectado, continue esta sessão após conectar". Impacta [08](./08-disconnect-experience-and-in-place-reconnect.md).
 
-**原型未覆盖**：英文界面、选择屏的 ↑↓ 键盘导航、WSL 和 Docker 的阶段文案（只画了 SSH），分别由 [11](./11-connecting-and-directory-screens.md)、[14](./14-visual-polish-and-accessibility.md) 处理。
+**Não coberto pelo protótipo**: interface em inglês, navegação por teclado ↑↓ na tela de seleção e textos de fase de WSL e Docker (só o SSH foi desenhado), tratados respectivamente por [11](./11-connecting-and-directory-screens.md) e [14](./14-visual-polish-and-accessibility.md).

@@ -1,29 +1,29 @@
-# 04 — 桌面端登录门禁与远控生命周期联动
+# 04 — Barreira de login do desktop e integração com o ciclo de vida do controle remoto
 
-**What to build:** 未登录的桌面用户打开远控弹窗时看到"需要先登录"并有登录入口，main 不注册设备也不连接 relay；用户登录成功后 main 收到通知，若存在"上次已启用"目标且窗口 workspace 已同步则自动恢复远控；用户登出后远控立即停止并停在 `auth-required`；应用启动时若无 JWT，恢复流程停在 `auth-required` 等待登录。附一条桌面 E2E。
+**O que construir:** O usuário de desktop sem login que abre a janela de controle remoto vê "é preciso fazer login primeiro" e tem acesso ao ponto de entrada de login; o main não registra o dispositivo nem conecta ao relay; quando o usuário faz login com sucesso, o main recebe a notificação e, se existir um alvo "já habilitado" e o workspace da janela já estiver sincronizado, restaura o controle remoto automaticamente; após o logout, o controle remoto para imediatamente e fica em `auth-required`; na inicialização do app, sem JWT, o fluxo de restauração para em `auth-required` aguardando o login. Mais um E2E de desktop.
 
-**Blocked by:** 03
+**Bloqueado por:** 03
 
 **Status:** in-progress
 
-**Parent:** [Web 远控接入 Relay V2：手机登录后连接桌面](./01-relay-v2-login-pairing.md)
+**Pai:** [Controle remoto Web com Relay V2: conectar o desktop após o login no celular](./01-relay-v2-login-pairing.md)
 
-## 验收标准
+## Critérios de aceite
 
-- [ ] 文档先行：`relay-v2-pairing.md` 补登录/登出与远控生命周期的时序图及 `auth-required` 语义；架构文档"桌面应用重启后的启用状态恢复"一节更新为需等待 JWT；列出 `auth-required` 状态的 zh-CN/en-US 文案表（标题、说明、登录按钮）供确认。
-- [x] 远控状态新增 `auth-required` 呈现：弹窗显示"需要先登录"文案与登录入口（复用现有登录触发），不展示二维码；zh-CN 与 en-US 文案齐备。
-- [x] 视觉核对：实现后提供弹窗 `auth-required` 状态截图（深浅主题 × zh-CN/en-US），由本票 E2E 顺带产出。
-- [x] 新增 renderer→main 单向 IPC 登录状态通知（登录成功 / 登出），renderer 在 OAuth 会话变化时发送；协议使用严格类型与运行时 schema 校验。
-- [x] main 收到"登录成功"：若存在已启用目标且该窗口 workspace 已同步，重试恢复；收到"登出"：停止当前 runtime、状态置 `auth-required`、不清除已启用记录。应用启动恢复时无 JWT → 保持 `auth-required` 等待通知，不另起 host、远程 session 或 Agent runtime。
-- [x] 测试（manager 公开接口 + 假登录状态源）：无 JWT 拒绝启动且无任何 HTTP/WS 调用；登录通知触发恢复；登出通知停止并保留已启用记录；启动恢复在无 JWT 时等待。IPC schema 有拒绝非法字段的测试；弹窗 `auth-required` 状态有渲染测试。
-- [ ] 桌面 E2E 一条：未登录状态打开远控弹窗显示需要登录，且 main 未发起注册或 relay 连接；按 E2E 工作流 skill 新增、验证并转正。
-- [ ] `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响单测与新增 E2E 通过。
+- [ ] Documento primeiro: `relay-v2-pairing.md` recebe o diagrama de sequência do login/logout com o ciclo de vida do controle remoto e a semântica de `auth-required`; a seção "restauração do estado de habilitação após reiniciar o app de desktop" do documento de arquitetura é atualizada para exigir a espera pelo JWT; listar a tabela de textos de `auth-required` em zh-CN/en-US (título, descrição, botão de login) para confirmação.
+- [x] O estado de controle remoto ganha a apresentação `auth-required`: a janela exibe o texto "é preciso fazer login primeiro" e o ponto de entrada de login (reaproveitando o gatilho de login existente), sem exibir o QR code; textos em zh-CN e en-US completos.
+- [x] Conferência visual: após a implementação, entregar a captura de tela da janela no estado `auth-required` (tema claro/escuro × zh-CN/en-US), produzida junto com o E2E deste ticket.
+- [x] Novo IPC unidirecional renderer→main de notificação de estado de login (login bem-sucedido / logout), enviado pelo renderer quando a sessão OAuth muda; o protocolo usa tipos estritos e validação por schema em runtime.
+- [x] O main recebe "login bem-sucedido": se existir um alvo já habilitado e o workspace da janela já estiver sincronizado, retenta a restauração; recebe "logout": para o runtime atual, coloca o estado em `auth-required` e não limpa o registro de habilitação. Na restauração na inicialização do app, sem JWT → mantém `auth-required` aguardando a notificação, sem iniciar outro host, sessão remota ou runtime do Agent.
+- [x] Testes (interface pública do manager + fonte de estado de login falsa): sem JWT, recusa a inicialização e não faz nenhuma chamada HTTP/WS; a notificação de login dispara a restauração; a notificação de logout para e preserva o registro de habilitação; a restauração na inicialização aguarda quando não há JWT. O schema do IPC tem teste que rejeita campos inválidos; o estado `auth-required` da janela tem teste de renderização.
+- [ ] Um E2E de desktop: no estado sem login, abrir a janela de controle remoto mostra a necessidade de login e o main não inicia nenhum registro nem conexão de relay; adicionado, verificado e promovido conforme o skill de workflow de E2E.
+- [ ] `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, testes unitários afetados e o novo E2E passam.
 
-## 实施与验证
+## Implementação e verificação
 
-- 已补登录生命周期时序、双语文案表、严格单向 IPC、manager 登录门禁/恢复，以及登录入口。远控 workspace 改为完整快照唯一入口；等待登录、磁盘读取期间关闭目标、远程占位缺 session、重复通知和迟到异步结果均有回归。
-- 桌面 pending E2E 完整构建后 1/1 通过，远控 HTTP/WS 次数均为 0；深浅主题 × 中英文截图位于 `packages/desktop/.e2e-artifacts/desktop-e2e-20260919054022407-p76850-149c65ccfe5737d4/`。已请求人工确认，尚未转正。
-- 全仓单测已运行：17,958 通过、1 失败、12 跳过。唯一失败为 `e2eRuntimePaths.test.ts` 检测到原有 `feedback/manual-review/pending/feedback-upload-privacy.test.ts` 的 `/tmp` 字面量；该文件与任务开始基线及 HEAD 内容一致，单独复跑仍失败。本票最终增量另跑 10 个文件、125 项相关测试全部通过。
-- `pnpm typecheck`、`typecheck:e2e`、`pnpm lint`（60 个既有 warning、0 error）、`pnpm architecture:check --changed` 和 diff 空白检查通过；Standards/Spec 两路复核剩余发现均为 0。
-- `e2e:fixture:check` 当前只支持 conversation-session/plugins，auth-config 路径不受支持；无模型请求 manifest 按本领域现有契约直接核验。
-- 未修改用户已有 02/03 票改动。按项目规则，全仓单测未全绿且人工转正尚未完成，暂不自动 commit。手机与 Windows/Linux 未实测。
+- Já foram adicionados o diagrama de sequência do ciclo de vida de login, a tabela de textos bilíngue, o IPC estrito unidirecional, a barreira de login/restauração do manager e o ponto de entrada de login. O workspace do controle remoto passou a ter o snapshot completo como única entrada; há regressões cobrindo a espera pelo login, o fechamento do alvo durante a leitura do disco, o placeholder remoto sem session, as notificações repetidas e os resultados assíncronos atrasados.
+- O E2E pendente do desktop passou 1/1 após o build completo, com contagem de HTTP/WS do controle remoto igual a 0; as capturas de tela de tema claro/escuro × zh-CN/en-US estão em `packages/desktop/.e2e-artifacts/desktop-e2e-20260919054022407-p76850-149c65ccfe5737d4/`. A confirmação manual foi solicitada, ainda sem promoção.
+- Os testes unitários de todo o repositório foram executados: 17.958 passaram, 1 falhou, 12 foram pulados. A única falha é `e2eRuntimePaths.test.ts`, que detectou o literal `/tmp` no arquivo já existente `feedback/manual-review/pending/feedback-upload-privacy.test.ts`; o arquivo está idêntico à baseline do início da tarefa e ao conteúdo do HEAD, e continua falhando em uma execução isolada. O incremento final deste ticket rodou mais 10 arquivos, com 125 testes relacionados, todos passando.
+- `pnpm typecheck`, `typecheck:e2e`, `pnpm lint` (60 warnings já existentes, 0 erros), `pnpm architecture:check --changed` e a verificação de espaços em branco do diff passaram; as revisões Standards/Spec ficaram com 0 achados restantes.
+- `e2e:fixture:check` hoje só suporta conversation-session/plugins; o caminho auth-config não é suportado; não havendo manifest de requisição de modelo, a verificação foi feita direto conforme o contrato já existente nesta área.
+- Não foram modificadas as alterações que o usuário já tinha nas tickets 02/03. Por regra do projeto, como os testes unitários de todo o repositório não ficaram todos verdes e a promoção manual ainda não foi concluída, nenhum commit automático foi feito. Não houve teste no celular nem em Windows/Linux.

@@ -1,50 +1,50 @@
-# 配置验证与人工协作
+# Validação de configuração e colaboração humana
 
-## 验证分层
+## Camadas de validação
 
-| 层                | 能证明什么                           | 不能证明什么                         |
-| ----------------- | ------------------------------------ | ------------------------------------ |
-| 官方资料          | 声明的型号、协议、参数和生命周期     | 指定账号/地区/套餐实际可用           |
-| Decoder/Schema    | 文件结构、字段和值域合法             | 每个模型最终完整、远端支持这些参数   |
-| Resolver/Map 测试 | 覆盖顺序、完整执行配置、参数映射     | 供应商实际接受请求                   |
-| 本地 HTTP/replay  | 请求编码、流消费、工具闭环与配置接线 | 当前公网端点、Key 权限和真实模型行为 |
-| 真实 API          | 本次入口、模型、协议和账号的实测结果 | 其他套餐、地区、协议或未来始终可用   |
-| 产品 E2E/包验证   | UI 配置到目标执行链及实际资源        | 所有供应商和平台全部通过             |
+| Camada             | O que comprova                                              | O que não comprova                                       |
+| ----------------- | ----------------------------------------------------------- | -------------------------------------------------------- |
+| Material oficial   | Modelos, protocolos, parâmetros e ciclo de vida declarados  | Se ficam realmente disponíveis na conta/região/plano indicado |
+| Decoder/Schema     | Estrutura do arquivo, campos e legalidade das faixas de valor | Que cada modelo fique completo no final e que o remoto aceite esses parâmetros |
+| Testes de Resolver/Map | Ordem de cobertura, execução completa da configuração, mapeamento de parâmetros | Que o fornecedor realmente aceite as requisições |
+| HTTP/replay local  | Codificação da requisição, consumo do stream, ciclo do tool e fiação da configuração | O endpoint público atual, as permissões da Key e o comportamento real do modelo |
+| API real           | O resultado medido nesta entrada, modelo, protocolo e conta   | Outros planos, regiões, protocolos ou a disponibilidade futura |
+| E2E de produto/validação de pacote | Da configuração na UI até a cadeia de execução alvo e os recursos reais | Que todos os fornecedores e plataformas passem |
 
-任何层都记录范围和日期。不能把 `GET /models` 成功、SDK 可创建或一次连接测试成功写成完整 Agent 支持。
+Toda camada registra escopo e data. Não se pode registrar `GET /models` bem-sucedido, SDK criável ou um teste de conexão bem-sucedido como suporte completo do Agent.
 
-## 获取 API Key 的人工交接
+## Handoff manual para obter API Key
 
-先完成不依赖凭据的资料、spec、测试和候选 diff，再向协作者给出可执行请求：供应商、具体产品/地区、模型名单、普通 API 或套餐 Key、所需权限、预计请求次数、最高费用及测试数据用途。新购订阅、充值和提高额度由人确认；不得为“全面验证”擅自扩大消费。
+Primeiro conclua o material, a spec, os testes e o diff candidato que não dependem de credenciais; só então apresente ao colaborador uma requisição executável: fornecedor, produto/região específica, lista de modelos, Key de API comum ou de plano, permissões necessárias, número estimado de requisições, custo máximo e uso pretendido dos dados de teste. Novas assinaturas, recargas e aumentos de limite são confirmados por uma pessoa; não é permitido ampliar o consumo por conta própria para uma "validação completa".
 
-协作者在官方控制台开通相应产品、确认模型权限和余额，通过批准的 Secret 管理/受限本地配置交付。需要环境变量时只记录变量名，由进程读取；不把 Key 写入命令参数、聊天、Git、MR、截图或日志。临时 Key 优先最小权限和可撤销，验证结束按协作者约定撤销或归还管理。
+O colaborador ativa o produto correspondente no console oficial, confirma as permissões de modelo e o saldo, e entrega por meio de gerenciamento de Secret aprovado ou configuração local restrita. Quando forem necessárias variáveis de ambiente, registre apenas o nome da variável, para que o processo a leia; não grave a Key em argumentos de comando, chat, Git, MR, capturas de tela ou logs. Prefira Keys temporárias com o menor privilégio possível e revogáveis; ao fim da validação, revogue-as ou devolva a gestão conforme combinado com o colaborador.
 
-测试环境不会自动提供免费 Key：当前测试 JSON 的普通模板仍用正式供应商地址。API Key、Coding Plan/Token Plan Key、网页登录权益不可混用；同品牌也要分别确认。权限不足、余额不足、地区不支持、限流、服务故障和参数错误分别记录，不能统一归因为模型不兼容。
+O ambiente de teste não fornece Keys gratuitas automaticamente: o template comum do JSON de teste atual ainda usa o endereço do fornecedor em produção. API Key, Coding Plan/Token Plan Key e benefícios de login via web não podem ser misturados; mesmo entre produtos da mesma marca, confirme cada um separadamente. Permissão insuficiente, saldo insuficiente, região não suportada, limitação de taxa, falha de serviço e erro de parâmetro são registrados separadamente; não atribua tudo a "modelo incompatível".
 
-本轮文档整理没有请求或取得这些 Key；每个新观察项仍需这一交接。未来无法取得 Key 时，可以准备带明确阻塞的 MR；不得编造通过记录、扩大已有验证范围或自行动态上线。
+Esta rodada de organização documental não solicitou nem obteve essas Keys; cada novo item observado ainda exige esse handoff. Quando não for possível obter uma Key no futuro, pode-se preparar um MR com bloqueio explícito; não é permitido inventar registro de aprovação, ampliar o escopo de uma validação já feita nem fazer rollout dinâmico por conta própria.
 
-## 真实请求最小矩阵
+## Matriz mínima de requisições reais
 
-按变更范围裁剪。新增/变更成员逐个确认 ID 可调用；参数和协议差异逐个覆盖，不能用一个旗舰型号代表整个品牌。
+Recorte conforme o escopo da mudança. Confirme um a um que o ID dos membros novos/alterados é chamável; cubra um a um as diferenças de parâmetros e de protocolo, sem usar um único modelo de flagship para representar a marca inteira.
 
-| 场景         | 核验内容                                                                         |
-| ------------ | -------------------------------------------------------------------------------- |
-| 连接与基础流 | 实际 URL/协议/Header、模型身份；流正常结束、usage 与结束原因；中途错误不能算成功 |
-| 工具闭环     | 声明工具 → 流式参数组装 → 回传工具结果 → 继续回答；工具 ID/消息顺序正确          |
-| 思考档位     | 每个公开 values 对应 Map 的最终 Body，尤其关闭/最低/最高档及不支持关闭的型号     |
-| 输出限制     | 上限与显式预算分别验证，非法值明确失败；不静默截断或偷偷加预算重试               |
-| 媒体与结构化 | 对本次声明/调整的图片、视频、音频、PDF、JSON Schema 分别验证；未测项标明         |
-| 系统与历史   | 涉及 MCS、推理历史、加密内容或新协议时，检查多轮回放、工具后续轮及系统消息处理   |
-| 相邻变体     | 基础型号/Flash/FlashX/视觉/聚合前后缀；确认规则不串用                            |
-| 用户配置     | 继承值刷新、显式个人覆盖保留、默认启停、已有实例地址/名称和保存选择              |
+| Cenário            | O que verificar                                                                                          |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| Conexão e fluxo básico | URL/protocolo/Header reais, identidade do modelo; término normal do stream, usage e razão de fim; erros no meio do caminho não contam como sucesso |
+| Ciclo de tools     | Tool declarado → montagem em streaming dos parâmetros → devolução do resultado da tool → continuação da resposta; ID da tool e ordem das mensagens corretos |
+| Níveis de raciocínio | Para cada `values` público, o Body final do Map, em especial desligado/mínimo/máximo e nos modelos que não suportam desligar |
+| Limites de saída   | Limite e orçamento explícito validados separadamente, valores inválidos falham de forma explícita; sem truncamento silencioso nem retry disfarçado com orçamento ampliado |
+| Mídia e estruturado | Validar separadamente as imagens, vídeos, áudios, PDF e JSON Schema declarados/ajustados nesta rodada; marcar o que não foi testado |
+| Sistema e histórico | Ao envolver MCS, histórico de raciocínio, conteúdo criptografado ou novo protocolo, verificar o replay de múltiplas rodadas, as rodadas seguintes a tools e o tratamento de mensagens de sistema |
+| Variantes adjacentes | Modelo base/Flash/FlashX/visão/prefixo-sufixo de agregação; confirmar que as regras não se misturam |
+| Configuração do usuário | Renovação de valores herdados, preservação de sobrescritas pessoais explícitas, ativação/desativação padrão, endereço/nome de instâncias existentes e seleção salva |
 
-使用无个人信息的最小提示与测试附件。百万上下文、最大输出压力测试需要单独预算，不能为验证配置数值默认发满容量请求。普通 smoke 不宣称覆盖容量上界。实时延迟和限流波动记录为观察，避免用随意 sleep 掩盖配置问题。
+Use prompts mínimos e anexos de teste sem informações pessoais. Testes de pressão de contexto de um milhão e de saída máxima exigem orçamento separado; não envie requisições com a capacidade cheia por padrão só para validar valores de configuração. O smoke comum não declara cobertura do limite superior de capacidade. Latência ao vivo e flutuação de limitação de taxa são registradas como observação, para evitar que um sleep aleatório mascare problemas de configuração.
 
-产品连接探测只证明其实际执行过的连接步骤，不能自动等同于上述矩阵。需要调整探测预算时，先从当前代码核对取值、请求路径和成功判据，在本目录记录拟改变的行为并补回归；不能把历史建议值当成当前事实。
+A detecção de conexão do produto só prova os passos de conexão que ela realmente executou e não equivale automaticamente à matriz acima. Ao ajustar o orçamento da detecção, primeiro confira no código atual os valores, o caminho da requisição e o critério de sucesso, registre neste diretório o comportamento que se pretende mudar e acrescente regressão; não trate valores sugeridos no passado como fato atual.
 
-## 仓库检查入口
+## Entradas de verificação no repositório
 
-以下命令从仓库根目录执行。根据本项变更选文件，不运行未经授权的全量单测：
+Os comandos abaixo são executados a partir da raiz do repositório. Selecione os arquivos conforme o escopo desta mudança e não rode a suíte completa de testes unitários sem autorização:
 
 ```bash
 pnpm provider:config:check-test
@@ -53,26 +53,26 @@ pnpm exec vitest run packages/provider/test/model-config-rules.test.ts packages/
 pnpm exec vitest run packages/provider-node/test/zcode-builtin-reasoning-map.test.ts
 ```
 
-参考测试还有 `packages/provider-node/test/new-model-catalog*.test.ts`、`opencode-go.test.ts`、`openrouter-reasoning-contract.test.ts`、`zhipu-api-templates.test.ts`；按本项新增边界补充，不只修改快照以让失败消失。
+Há também testes de referência: `packages/provider-node/test/new-model-catalog*.test.ts`, `opencode-go.test.ts`, `openrouter-reasoning-contract.test.ts`, `zhipu-api-templates.test.ts`; acrescente casos conforme os novos limites desta mudança, em vez de apenas alterar snapshots para fazer a falha sumir.
 
-最终文件完整性测试支持 `ZCODE_BUILTIN_RELEASE_TEST_FILE` 指定实际文件；分别验证正式和生成的测试配置。POSIX shell 示例：
+O teste de integridade final de arquivos suporta `ZCODE_BUILTIN_RELEASE_TEST_FILE` para indicar o arquivo real; valide separadamente a configuração de produção e a configuração de teste gerada. Exemplo em shell POSIX:
 
 ```bash
 ZCODE_BUILTIN_RELEASE_TEST_FILE="$PWD/config/provider/zcode-builtin.test.json" pnpm exec vitest run packages/provider-node/test/zcode-builtin-integrity.test.ts
 ```
 
-其他 shell 使用相应环境变量设置方式，变量值仍为实际绝对路径。此测试包含当前目录业务断言，不是任意旧 Release 的通用兼容测试；不应为了验收历史文件而放松断言。
+Outros shells usam a forma de definição da variável de ambiente correspondente, mantendo o valor da variável como o caminho absoluto real. Este teste contém as asserções de negócio do diretório atual; não é um teste de compatibilidade genérico para qualquer Release antigo, e as asserções não devem ser afrouxadas só para aceitar arquivos históricos.
 
-普通代码变更执行 `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 和 `pnpm test:unit:affected --base <起点commit>`。CLI 代码另执行 `pnpm --dir apps/zcode-cli typecheck`、`pnpm --dir apps/zcode-cli lint`，并使用其包脚本/Turbo 选择受影响包及调用方的测试；根 affected 单测不能代替 CLI 测试。CLI 范围无法可靠确定或改动公共测试基础设施时，执行 `pnpm --dir apps/zcode-cli test`。
+Mudanças de código comuns executam `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed` e `pnpm test:unit:affected --base <commit inicial>`. Código do CLI executa ainda `pnpm --dir apps/zcode-cli typecheck` e `pnpm --dir apps/zcode-cli lint`, e usa os scripts do pacote/Turbo para selecionar os testes dos pacotes afetados e de seus chamadores; os testes unitários affected da raiz não substituem os testes do CLI. Quando o escopo do CLI não puder ser determinado com segurança ou quando a infraestrutura de testes públicos for alterada, execute `pnpm --dir apps/zcode-cli test`.
 
-APP 交互变化先补桌面 E2E 场景，再实现；覆盖新增实例、已有实例继承、显式覆盖保留、模型选择及真实执行链，按影响补手机路径。场景、spec 和测试 case 保持一致；验证使用 `pnpm test:e2e` 并按实际受影响 spec 选择范围，不把一次本地 HTTP fixture 的通过当作供应商公网验证。视觉变化还需桌面/手机、深浅主题及相关语言检查。缺环境时列出未验证组合，不写成全部通过。
+Mudanças de interação no APP recebem primeiro o cenário de E2E desktop, e só então a implementação; cubra instância nova, herança de instância existente, preservação de sobrescrita explícita, seleção de modelo e cadeia de execução real, acrescentando o caminho mobile conforme o impacto. Cenário, spec e caso de teste devem permanecer coerentes; a verificação usa `pnpm test:e2e` com o escopo escolhido conforme as specs realmente afetadas, sem tomar a aprovação de um fixture HTTP local como verificação do fornecedor na internet pública. Mudanças visuais exigem ainda verificações de desktop/mobile, temas claro/escuro e dos idiomas pertinentes. Quando faltar ambiente, liste as combinações não verificadas, sem escrevê-las como tudo aprovado.
 
-双环境构建或生成策略变化还应覆盖 `packages/provider-node/test/builtin-provider-build.test.ts`、`builtin-provider-test-config-sync.test.ts` 及 `scripts/test/` 下对应脚本测试。用不同内容的临时 Release 验证环境优先级、缺失/坏文件、同环境内容更新、已有 JS 时刷新资源、SEA 和最终嵌入内容。两份真实 JSON 分别解码，不要求为构建验证调用计费模型。
+Mudanças na estratégia de build de dois ambientes ou de geração também devem cobrir `packages/provider-node/test/builtin-provider-build.test.ts`, `builtin-provider-test-config-sync.test.ts` e os testes dos scripts correspondentes em `scripts/test/`. Use Releases temporários com conteúdos diferentes para validar a prioridade entre ambientes, arquivo ausente/inválido, atualização de conteúdo no mesmo ambiente, renovação de recursos quando já existe JS, SEA e o conteúdo final embutido. Decodifique os dois JSON reais separadamente; não exija chamada a um modelo tarifado para validar o build.
 
-纯文档只检查链接、命令、引用和一致性。必要检查失败或环境阻塞时保留改动及证据，不自动提交；通过后自检 diff 并提交本次内容。Push 保留 `pnpm verify:pre-push` 门禁，不绕过 hook；未经明确要求不运行根全量单测。
+Alterações puramente documentais verificam apenas links, comandos, referências e consistência. Quando uma verificação necessária falhar ou o ambiente bloquear, preserve as alterações e as evidências, sem commitar automaticamente; após aprovado, revise o diff você mesmo e faça o commit do conteúdo desta rodada. O Push mantém o gate `pnpm verify:pre-push`, sem contornar o hook; não rode a suíte completa de testes unitários da raiz sem pedido explícito.
 
-## 证据留存
+## Retenção de evidências
 
-记录时间、commit、正式/测试、配置 revision/hash、templateId/modelId/协议、账号产品与地区（不含个人身份）、用例及通过/失败/未执行。请求/响应证据保留脱敏的参数、状态码、结束原因和必要日志；清除 Authorization、Cookie、Key、签名 URL query、私人提示和推理正文。需要 replay 时先检查采集器实际保存的字段，再脱敏、人工复查并验证可回放，禁止直接提交原始网络抓包。
+Registre hora, commit, produção/teste, revision/hash da configuração, templateId/modelId/protocolo, produto e região da conta (sem identidade pessoal), casos de uso e o resultado aprovado/reprovado/não executado. As evidências de requisição/resposta preservam parâmetros anonimizados, código de status, razão de término e os logs necessários; limpe Authorization, Cookie, Key, query de URL assinada, prompts privados e o corpo do raciocínio. Quando precisar fazer replay, verifique primeiro quais campos o coletor realmente salvou, depois anonimize, faça a revisão manual e valide a reprodutibilidade; é proibido enviar diretamente capturas de rede brutas.
 
-一个入口的验证记录不得复用为另一个套餐或聚合站点的通过结论。失败先保留最小复现和运行日志，区分规则、Adapter、权限和上游问题，再决定是配置修复还是需要设计变更。
+O registro de validação de uma entrada não pode ser reutilizado como conclusão de aprovação de outro plano ou de outro site agregador. Em caso de falha, preserve primeiro a reprodução mínima e o log de execução, diferencie problema de regra, de Adapter, de permissão e de upstream, e só então decida se é correção de configuração ou se é preciso mudar o design.

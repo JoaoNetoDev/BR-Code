@@ -1,88 +1,88 @@
-# 22: 后台连接与显式恢复
+# 22: Conexão em segundo plano e retomada explícita
 
 Status: done
 
-2026-10-14：本票保留已完成的后台生命周期合同。聊天来源显式继续后的目标改按 [#21 的待实施修订](21-chat-settings-round-trip.md)：显示远程文件夹选择，确定项目后再进入；本票旧证据不覆盖该新目标流程。后台完成不抢导航、请求失效和共享连接保护继续有效。
+2026-10-14: este ticket preserva o contrato de ciclo de vida em segundo plano já concluído. O alvo após a continuação explícita da origem do chat passa a ser o da [revisão pendente de implementação do #21](21-chat-settings-round-trip.md): exibir a seleção de pasta remota, e só então entrar no projeto após determinar o projeto; as evidências antigas deste ticket não cobrem esse novo fluxo de alvo. A conclusão em segundo plano não rouba a navegação, a invalidação de requisições e a proteção da conexão compartilhada continuam válidas.
 
-**Parent:** [#15 — 项目创建与远程连接管理分离](15-project-device-selection-and-connection-management.md)
+**Parent:** [#15 — Separação entre criação de projeto e gestão de conexão remota](15-project-device-selection-and-connection-management.md)
 
-**What to build:** 用户连接设备时可以选择「在后台继续」，在设置的设备卡或未完成连接项查看同一操作的进度、错误与待处理事项。成功只提示完成并提供继续入口，不抢占当前页面；用户显式继续时，按有效的原意图恢复项目、已有项目列表或聊天后续操作。
+**O que construir:** quando o usuário conectar um dispositivo, ele pode escolher «Continuar em segundo plano» e acompanhar o progresso, os erros e os itens pendentes dessa mesma operação no cartão de dispositivo das configurações ou no item de conexão inacabado. O sucesso apenas avisa que terminou e oferece uma entrada para continuar, sem roubar a página atual; quando o usuário continua explicitamente, o projeto, a lista de projetos existentes ou a ação seguinte do chat são restaurados conforme a intenção original que ainda for válida.
 
-**Blocked by:**
+**Bloqueado por:**
 
-- [#19 — 添加已有远程项目](19-add-existing-remote-project.md)：后台恢复需要保留继续已有项目列表的意图，不能误回新建项目。
-- [#20 — 创建项目往返设置并恢复草稿](20-project-draft-settings-round-trip.md)：提供项目草稿的返回与设备切换确认。
-- [#21 — 聊天连接后必选远程文件夹并进入项目](21-chat-settings-round-trip.md)：提供聊天来源的完成目标；本票原完成记录对应其旧版本，新目标须另行验证。
+- [#19 — Adicionar projeto remoto existente](19-add-existing-remote-project.md): a retomada em segundo plano precisa preservar a intenção de continuar a lista de projetos existentes, sem voltar indevidamente para a criação de um novo projeto.
+- [#20 — Criar projeto com ida e volta às configurações e restaurar o rascunho](20-project-draft-settings-round-trip.md): fornece o retorno do rascunho do projeto e a confirmação de troca de dispositivo.
+- [#21 — Pasta remota obrigatória após a conexão no chat e entrada no projeto](21-chat-settings-round-trip.md): fornece o alvo de conclusão da origem do chat; o registro de conclusão original deste ticket corresponde à versão antiga dele, e o novo alvo precisa ser verificado separadamente.
 
-**Spec coverage:** Q12，以及 Q9／Q10／Q11 的后台延续；RDUX15-19、RDUX15-20，并复验 RDUX15-13／14／15／18／21 的相关后台分支。RDUX15-23／24／25 覆盖进度承接、显式恢复和多端边界。
+**Cobertura da spec:** Q12, além da continuidade em segundo plano de Q9/Q10/Q11; RDUX15-19, RDUX15-20, e reverificação dos ramos em segundo plano de RDUX15-13/14/15/18/21. RDUX15-23/24/25 cobrem o encadeamento do progresso, a retomada explícita e o limite entre múltiplos dispositivos.
 
 ```mermaid
 stateDiagram-v2
-    前台连接 --> 后台连接: 在后台继续
-    后台连接 --> 后台待处理: 需要凭据或确认
-    后台待处理 --> 前台连接: 用户显式查看并处理
-    后台连接 --> 后台失败: 失败
-    后台失败 --> 前台连接: 用户显式修正并重试
-    后台连接 --> 完成提示: 成功，不自动跳页
-    完成提示 --> 恢复原意图: 用户显式继续且原意图有效
-    完成提示 --> 保持当前页面: 原意图失效
-    前台连接 --> 已取消: 关闭 / 取消 / 连接层 Esc
+    ConexaoPrimeiroPlano --> ConexaoSegundoPlano: Continuar em segundo plano
+    ConexaoSegundoPlano --> PendenteSegundoPlano: Precisa de credenciais ou confirmação
+    PendenteSegundoPlano --> ConexaoPrimeiroPlano: Usuário vê e trata explicitamente
+    ConexaoSegundoPlano --> FalhaSegundoPlano: Falha
+    FalhaSegundoPlano --> ConexaoPrimeiroPlano: Usuário corrige e tenta de novo explicitamente
+    ConexaoSegundoPlano --> AvisoConclusao: Sucesso, sem salto de página automático
+    AvisoConclusao --> RestaurarIntencaoOriginal: Usuário continua explicitamente e a intenção original é válida
+    AvisoConclusao --> ManterPaginaAtual: A intenção original expirou
+    ConexaoPrimeiroPlano --> Cancelado: Fechar / cancelar / Esc na camada de conexão
 ```
 
 ## Acceptance criteria
 
-- [x] 「在后台继续」只收起交互，不取消请求、不清空配置与发起意图；已识别设备由设置设备卡承接，尚未识别的连接由未完成连接项承接，不伪造设备身份。
-- [x] 弹窗、设备卡和未完成连接项展示同一操作的真实进度、错误及需要处理状态。设备识别或复用后正确归入对应设备，不重复建立连接或复制日志／状态 owner。
-- [x] 用户手动离开设置后，后台成功不打开目录页、项目表单或原聊天，也不改变当前任务设备；只提示完成并提供适合该来源的显式继续入口。
-- [x] 原意图仍有效时，用户显式继续可恢复目录选择、已有项目列表、原项目草稿或聊天来源的继续操作；项目已有目录时仍需原切换确认，不绕过 #20 的保护，不自动创建项目或任务。
-- [x] 已有后台流程占用连接入口时，从设置「新建连接」或另一设备的普通连接按钮重新打开，恢复同一流程。连接在途时解除后台标记，后续结果按前台完成；连接已完成时一次消费原完成动作，不停在空的连接进度页，不重复拨号。关闭、取消和过期恢复仍按原请求归属处理。
-- [x] 直接从设置发起的后台连接可回到对应设备管理状态，不被带入项目创建；后台完成后关闭提示或界面不等于断开设备。
-- [x] 后台失败和需要补凭据／确认的状态保持可访问，用户可查看详情、修正、重试或取消；不强行弹出失败窗口，也不把真实失败改写为主动取消。
-- [x] 关闭或取消本次尚未完成的连接沿用原请求失效语义；后台继续与取消行为明确区分。取消不删除已保存记录、不影响其他项目共享连接，临时资源只按本次归属清理。
-- [x] 原项目／聊天草稿已放弃、原入口已失效、请求已被取消或替换时，迟到结果不复活旧界面，旧继续操作不覆盖新草稿或抢导航。重复查看或点击继续不重复连接、保存项目或提交完成结果。
-- [x] 从前台到后台、识别设备、恢复待处理和成功提示的时序均由已有请求与完成事件驱动，不添加定时器、独立轮询或跨重启草稿存储来补状态同步。
-- [x] 进度项、错误、待处理和继续操作在键盘、中英文、当前深浅主题与窄窗口下可达；提示不靠颜色表达，恢复后焦点合理，长设备名和错误不遮挡主操作。
-- [x] 桌面与手机仍使用原有 Host 及 continuous／replayable 边界；后台连接不会为手机建立独立 session，不因共享 UI 显示而扩大 Web／手机管理能力。
-- [x] 先补后台完整路径及失效时序测试再实现，完成各来源的明确恢复验收；替代侧栏旧收起进度入口后，确认不残留双份卡片、重复恢复入口或无人消费的旧接线。
+- [x] «Continuar em segundo plano» apenas recolhe a interação: não cancela a requisição, não limpa a configuração nem a intenção de origem; os dispositivos já identificados ficam a cargo do cartão de dispositivo das configurações, e as conexões ainda não identificadas ficam a cargo do item de conexão inacabado, sem forjar a identidade do dispositivo.
+- [x] O diálogo, o cartão de dispositivo e o item de conexão inacabado exibem o progresso real, os erros e os estados que exigem tratamento da mesma operação. Depois da identificação ou do reaproveitamento do dispositivo, ele é corretamente agrupado no dispositivo correspondente, sem estabelecer a conexão de novo nem duplicar o owner de logs/estado.
+- [x] Depois que o usuário sai manualmente das configurações, o sucesso em segundo plano não abre a página de diretórios, o formulário de projeto nem o chat original, e não altera o dispositivo da tarefa atual; apenas avisa que terminou e oferece a entrada explícita para continuar adequada à origem.
+- [x] Quando a intenção original ainda é válida, a continuação explícita pelo usuário pode restaurar a seleção de diretórios, a lista de projetos existentes, o rascunho do projeto original ou a ação de continuação da origem do chat; quando o projeto já tem diretório, a confirmação de troca original ainda é exigida, sem contornar a proteção do #20 e sem criar projeto ou tarefa automaticamente.
+- [x] Quando um fluxo em segundo plano já ocupa a entrada de conexão, reabrir a partir de «Nova conexão» nas configurações ou do botão de conexão comum de outro dispositivo retoma o mesmo fluxo. Se a conexão estiver em andamento, a marcação de segundo plano é removida e o resultado subsequente é tratado como conclusão em primeiro plano; se a conexão já tiver sido concluída, a ação de conclusão original é consumida uma única vez, sem parar em uma página de progresso de conexão vazia e sem discar de novo. Fechar, cancelar e a retomada expirada continuam sendo tratados conforme a atribuição original da requisição.
+- [x] Uma conexão em segundo plano iniciada diretamente das configurações pode voltar ao estado de gestão de dispositivos correspondente, sem ser levada à criação de projeto; concluir o segundo plano, fechar o aviso ou a interface não equivale a desconectar o dispositivo.
+- [x] A falha em segundo plano e os estados que exigem credenciais complementares/confirmação permanecem acessíveis, e o usuário pode ver os detalhes, corrigir, tentar de novo ou cancelar; nenhuma janela de falha é forçada, e nenhuma falha real é reescrita como cancelamento voluntário.
+- [x] Fechar ou cancelar esta conexão ainda não concluída mantém a semântica original de invalidação da requisição; o comportamento de continuar em segundo plano e o de cancelar são claramente distinguidos. Cancelar não apaga registros já salvos, não afeta a conexão compartilhada por outros projetos, e os recursos temporários são limpos apenas conforme a atribuição desta execução.
+- [x] Quando o rascunho do projeto/chat original foi abandonado, a entrada original expirou, ou a requisição foi cancelada ou substituída, um resultado tardio não revive a interface antiga, a ação antiga de continuação não sobrescreve um rascunho novo nem rouba a navegação. Ver ou clicar em continuar repetidamente não repete a conexão, o salvamento do projeto nem o envio do resultado de conclusão.
+- [x] A sequência da passagem de primeiro para segundo plano, da identificação do dispositivo, da retomada do pendente e do aviso de sucesso é toda conduzida pelas requisições e pelos eventos de conclusão já existentes, sem adicionar temporizadores, polling independente ou armazenamento de rascunho entre reinicializações para compensar a sincronização de estado.
+- [x] O item de progresso, os erros, os pendentes e a ação de continuação são acessíveis por teclado, em português e inglês, nos temas claro e escuro atuais e em janelas estreitas; os avisos não se apoiam na cor, o foco após a retomada é razoável e nomes longos de dispositivo e erros não ocultam a ação principal.
+- [x] Desktop e celular continuam usando o Host e os limites continuous/replayable já existentes; a conexão em segundo plano não cria uma session separada para o celular e não amplia as capacidades de gestão de Web/celular por causa da UI compartilhada.
+- [x] Os testes do caminho completo em segundo plano e da temporização de invalidação são escritos antes da implementação, com a aceitação de retomada explícita concluída para cada origem; depois de substituir a antiga entrada de progresso recolhido na barra lateral, confirma-se que não sobraram cartões duplicados, entradas de retomada repetidas ou conexões antigas sem consumo.
 
 ## Verification
 
-- 从设置、创建项目、聊天和已有项目选择路径分别发起连接并转后台；用户离开设置后，让操作成功、失败或需要处理，断言当前页面及输入保持不变，状态有可访问的承接位置。
-- 对有效来源显式继续，核对恢复目标、原草稿和设备切换确认；对已失效来源及重复继续操作，断言无旧导航、项目新增或重复连接副作用。
-- 在现有 UI／服务端口控制取消后成功、凭据迟到、安装确认迟到和来源失效，复用真实 SSH／WSL／Docker 链路验证实际进度与安装等待；记录各类型与操作系统的真实执行范围。
-- 实施需通过类型检查、lint、架构门禁、受影响单测、对应 Desktop E2E、适用 Web／手机回归和视觉／键盘检查。新 E2E 按原候选审核流程保留证据，不把本票完成等同于 formal／CI 准入。
+- Iniciar a conexão a partir das rotas de configurações, criação de projeto, chat e seleção de projeto existente, e passá-la para segundo plano; depois que o usuário sai das configurações, deixar a operação ter sucesso, falhar ou exigir tratamento, e afirmar que a página atual e a entrada permanecem inalteradas e que o estado tem um local de acompanhamento acessível.
+- Para origens válidas, continuar explicitamente e conferir o alvo restaurado, o rascunho original e a confirmação de troca de dispositivo; para origens já expiradas e para continuações repetidas, afirmar a ausência de navegação antiga, de novo projeto e de efeito colateral de conexão repetida.
+- Com o cancelamento controlado pela UI/porta de serviço já existente, cobrir sucesso após cancelamento, credencial tardia, confirmação de instalação tardia e origem expirada, reutilizando as cadeias reais de SSH/WSL/Docker para verificar o progresso real e a espera de instalação; registrar a faixa real de execução de cada tipo e sistema operacional.
+- A implementação deve passar pela checagem de tipos, pelo lint, pelo portão de arquitetura, pelos testes unitários afetados, pelo E2E de Desktop correspondente, pela regressão aplicável de Web/celular e pela checagem visual/de teclado. Os novos E2E mantêm as evidências pelo processo de revisão de candidatos original, e a conclusão deste ticket não equivale à admissão em formal/CI.
 
 ## Scope and handoff
 
-- 本票是后台行为的完整交付，不是前面各票的统一补测票。#16–#21 的前台取消、凭据隔离、迟到结果保护、主题及适用平台回归必须在各自验收时完成。
-- 仅整合本轮已接受来源的后台继续与恢复；不重做物理连接状态机、远端任务运行、消息恢复协议或设备卡全部视觉。
-- 完成记录只列本票实际实现和执行的证据；不自动关闭或修改父票 #15，不把先前票的旧 PASS 当作新后台路径验证。
+- Este ticket é a entrega completa do comportamento em segundo plano, não uma unification ticket de reteste das anteriores. O cancelamento em primeiro plano, o isolamento de credenciais, a proteção contra resultados tardios, o tema e a regressão das plataformas aplicáveis de #16–#21 devem ser concluídos na aceitação de cada um.
+- Apenas integra a continuação em segundo plano e a retomada das origens já aceitas nesta rodada; não refaz a máquina de estados da conexão física, a execução remota de tarefas, o protocolo de recuperação de mensagens nem todos os visuais do cartão de dispositivo.
+- O registro de conclusão lista apenas as evidências realmente implementadas e executadas neste ticket; não fecha nem altera automaticamente o ticket pai #15, nem considera o PASS antigo das tickets anteriores como validação do novo caminho em segundo plano.
 
-## 完成记录（2026-10-12）
+## Registro de conclusão (2026-10-12)
 
-### 已实现
+### Implementado
 
-- 项目目录、已有项目列表、项目新增设备、聊天新增设备和设置共用 Root 的连接 flow。删除无生产调用的 `ProjectConnection` 与旧侧栏 slot；静态 `dep:refs` 为 0，旧临时 attachment 测试迁入统一 flow。
-- 后台只保留原请求与一次性完成动作。设备管理成功立即释放本次独占 attachment；其他来源保留必要 session。显式继续按 entryEpoch 和实时 Source 状态校验；取消、替换、来源失效或重复继续不交付旧结果，复用其他项目的 session 不被释放。
-- 设置卡与未完成连接项读取同一份无凭据的 UI 投影。发布与订阅 Context 分离，避免投影回写触发自身 render；不增加连接 owner、日志缓存或定时轮询。成功通知提供继续与关闭，关闭通知不会断开设备。
-- 后台取消不激活原 tab；项目 portal 在用户返回原 tab 前保持隐藏，聊天取消不抢焦点。异步继续完成后释放 Root 入口门禁，后续添加不被旧请求阻塞。
+- O diretório do projeto, a lista de projetos existentes, o novo dispositivo do projeto, o novo dispositivo do chat e as configurações compartilham o fluxo de conexão da Root. Foram removidos o `ProjectConnection` sem chamadas em produção e o slot antigo da barra lateral; o `dep:refs` estático é 0, e os testes temporários de attachment antigos migraram para o fluxo unificado.
+- O segundo plano mantém apenas a requisição original e a ação de conclusão de uso único. O sucesso da gestão de dispositivos libera imediatamente o attachment exclusivo desta execução; as demais origens mantêm a session necessária. A continuação explícita valida por `entryEpoch` e pelo estado real do Source; cancelar, substituir, a expiração da origem ou a continuação repetida não entregam o resultado antigo, e a session reaproveitada de outro projeto não é liberada.
+- O cartão das configurações e o item de conexão inacabado leem a mesma projeção de UI sem credenciais. O contexto de publicação e o de assinatura são separados, evitando que a write-back da projeção dispare o próprio render; não são adicionados owner de conexão, cache de logs ou polling temporizado. O aviso de sucesso oferece continuar e fechar, e fechar o aviso não desconecta o dispositivo.
+- O cancelamento em segundo plano não ativa a tab original; o portal do projeto permanece oculto até o usuário retornar à tab original, e o cancelamento no chat não rouba o foco. Depois da conclusão assíncrona da continuação, o portão de entrada da Root é liberado, e as adições seguintes não ficam bloqueadas pela requisição antiga.
 
-### 实际验证与证据
+### Verificação real e evidências
 
-| 实际运行                | 结果与范围                                                                                                                                                                                                             | 证据目录（`packages/desktop/.e2e-artifacts/`）                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| macOS 原生后台候选      | 1/1 PASS：设置、项目新增、离线目录、已有项目列表、聊天五条入口/后续分支；真实 SSH 成功/认证失败与 Docker 安装待确认/成功；不抢导航、显式继续、项目和任务身份/草稿保持、取消不复活；中英/两主题/480px，宽窗通知与设备卡 | `desktop-e2e-20261012113752972-p61904-ed5d187f22de48de`                        |
-| 前台 #20/#21/#19 回归   | 三项各 1/1 PASS：原项目草稿目录切换确认、聊天文字附件/项目与焦点、已有项目身份/旧列表取消。该批原项目 handoff 的第四项被假 OAuth 前置拦截，未记作 PASS                                                                 | `desktop-e2e-20261012113931623-p66484-a0568e0c04891939`                        |
-| 原项目 handoff 定向重跑 | 1/1 PASS：Personal-only 启动前置修正后，默认线路、备用失败与 bind 期间移除入口不提交旧导航                                                                                                                             | `desktop-e2e-20261012114148131-p72672-335281107679ef8c`                        |
-| UI/flow 时序与组件测试  | 后台失败/缺凭据/安装/更新等待、迟到确认与结果、Source 断开、重复继续、共享 session 释放、发布回环与异步门禁、来源失效；受影响范围 669 文件 / 6488 测试 PASS；启动前置定向测试 30 项 PASS                               | 本票工作区测试日志；核心 #185/门禁定位截图另存 `project-device-22-diagnostics` |
+| Execução real                   | Resultado e escopo                                                                                                                                                                                                             | Diretório de evidências (`packages/desktop/.e2e-artifacts/`)                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| Candidato nativo em macOS       | 1/1 PASS: configurações, novo projeto, diretório offline, lista de projetos existentes e chat — cinco entradas/ramos de continuação; SSH real com sucesso/falha de autenticação e Docker com instalação pendente/com sucesso; sem roubo de navegação, continuação explícita, identidade de projeto e tarefa/rascunho preservados, cancelamento sem ressurreição; zh/en, dois temas, 480px, notificação em janela larga e cartão de dispositivo | `desktop-e2e-20261012113752972-p61904-ed5d187f22de48de`                        |
+| Regressão de primeiro plano #20/#21/#19 | 1/1 PASS cada: confirmação de troca de diretório no rascunho do projeto original, anexo de texto do chat/projeto e foco, identidade de projeto existente/cancelamento da lista antiga. O quarto item do handoff do projeto original foi interceptado por um pré-requisito OAuth falso e não foi registrado como PASS                                                                 | `desktop-e2e-20261012113931623-p66484-a0568e0c04891939`                        |
+| Reexecução dirigida do handoff do projeto original | 1/1 PASS: correção do pré-requisito de inicialização somente-Personal, depois linha padrão, falha alternativa e remoção da entrada durante o bind sem submeter navegação antiga                                                                                                                             | `desktop-e2e-20261012114148131-p72672-335281107679ef8c`                        |
+| Testes de temporização e de componentes de UI/flow | Falha em segundo plano/falta de credenciais/instalação/espera de atualização, confirmação e resultado tardios, desconexão do Source, continuação repetida, liberação de session compartilhada, ciclo de publicação e portão assíncrono, expiração da origem; escopo afetado de 669 arquivos / 6488 testes PASS; 30 testes dirigidos de pré-requisito de inicialização PASS                               | Log de testes do workspace deste ticket; capturas de diagnóstico do #185/portão salvas em `project-device-22-diagnostics` |
 
-- 最终 `pnpm typecheck`、`pnpm lint`（0 error；208 条仓库原有 warning）、默认 `pnpm architecture:check --changed`、fixture checker、格式与 diff 检查通过。受影响测试基线为 `9c94409bca387d129516500cb9b60ee18c2b948f`。不将 早期试跑 的失败或旧票 PASS 计入本票新路径结果。
-- 成功与回归证据已复制到集成 worktree 的上述目录。远端资产复用前核对了 10 个源码 tree；UI 使用本次源码重新构建。候选仍处于 `manual-review/pending`，未转正或加入 CI。
-- TODO（用户明确暂缓）：真实 WSL、真实手机/relay。Windows/Linux 原生界面未在本机运行；多端 Host/continuous/replayable 边界由既有协议及受影响单测回归，不能视为这些平台的实机 PASS。
-- 未修改父票 #15 状态；仅本地提交，不推送、不创建 MR。
+- O `pnpm typecheck` final, o `pnpm lint` (0 error; 208 warnings já existentes no repositório), o `pnpm architecture:check --changed` padrão, o fixture checker, a formatação e a checagem de diff passaram. A baseline dos testes afetados é `9c94409bca387d129516500cb9b60ee18c2b948f`. Não se contam as falhas da execução inicial nem o PASS de tickets antigos no resultado dos novos caminhos deste ticket.
+- As evidências de sucesso e regressão foram copiadas para o diretório acima do worktree de integração. Foram conferidas 10 árvores de código-fonte antes do reaproveitamento dos assets remotos; a UI foi reconstruída a partir do código-fonte desta rodada. O candidato continua em `manual-review/pending`, sem promoção nem inclusion em CI.
+- TODO (adiado explicitamente pelo usuário): WSL real, celular/relay reais. A interface nativa de Windows/Linux não foi executada nesta máquina; os limites de Host/continuous/replayable entre múltiplos dispositivos são cobertos pela regressão do protocolo existente e dos testes unitários afetados, o que não pode ser tratado como PASS real nessas plataformas.
+- O status do ticket pai #15 não foi modificado; apenas commit local, sem push e sem criação de MR.
 
-2026-10-12 本轮审查修复复验：后台候选在 macOS 原生 Desktop + 独立 Linux SSH/Docker 容器 1/1 PASS，补验普通设置入口在连接中与完成后恢复同一操作，完成结果只消费一次；证据 `packages/desktop/.e2e-artifacts/r3-server-review-20261012-background/`。旧三屏候选同步迁移设置内进度卡与显式取消后新建，1/1 PASS，证据 `r3-server-review-20261012-threescreen-r4/`；真实运行另外发现通用断开 helper 返回侧栏而旧断言仍等待设置卡，已改为在 Source 卡操作并验证离线状态，没有修改产品超时。
+2026-10-12 reverificação das correções de revisão desta rodada: o candidato em segundo plano passou 1/1 no Desktop nativo em macOS com contêiner Linux SSH/Docker independente, com verificação adicional da entrada comum das configurações retomando a mesma operação durante a conexão e após a conclusão, e com o resultado de conclusão consumido apenas uma vez; evidências em `packages/desktop/.e2e-artifacts/r3-server-review-20261012-background/`. O candidato antigo de três telas migrou em sincronia para o cartão de progresso dentro das configurações e para o cancelamento explícito seguido de nova criação, 1/1 PASS, evidências em `r3-server-review-20261012-threescreen-r4/`; a execução real encontrou ainda que o helper genérico de desconexão retorna à barra lateral, enquanto a asserção antiga esperava o cartão de configurações — foi alterado para operar no cartão do Source e verificar o estado offline, sem modificar o timeout do produto.
 
-远程全量回归清单补入五份本轮候选，仍为 pending，不表示 formal/CI 准入。清单回归先红后绿，12/12 PASS。最终 Desktop 从当前源码构建，五份关键 UI 的 sourcemap 与源码逐字一致；核对十个远端源码 tree 及 Linux archive 的 descriptor SHA/size。构建凭据在 `packages/desktop/.e2e-artifacts/r3-server/review-final-build-source-verification.json`。早期 runner 参数校验失败、重负载时 Electron session 启动超时及迁移遗漏失败均单独保留，不计入 PASS。
+A lista de regressão remota completa foi ampliada com cinco candidatos desta rodada, ainda pendentes, o que não indica admissão em formal/CI. A regressão da lista ficou vermelha antes de ficar verde, 12/12 PASS. O Desktop final foi construído a partir do código-fonte atual, e o sourcemap das cinco interfaces críticas coincide palavra por palavra com o código-fonte; foram conferidas as dez árvores de código-fonte remotas e o descriptor SHA/size do archive Linux. As credenciais de build estão em `packages/desktop/.e2e-artifacts/r3-server/review-final-build-source-verification.json`. As falhas de validação de parâmetros do runner no início, o timeout de início de session do Electron sob carga e as falhas de migração omitidas foram mantidas separadamente e não contadas como PASS.
 
-本轮受影响测试首跑仅清单用例在并行构建／类型检查负载下超过原 30 秒限制，其余 408 个文件、4688 项通过；负载结束后原命令定向串行 12/12 通过，未修改代码或超时。根类型检查、lint、架构门禁和最终 Desktop E2E 类型检查通过；四份 E2E fixture、全部改动代码格式通过，新增认证 fixture 2/2 通过。最终代码 lint 为 0 error，保留连接 flow 既有的 max-lines warning。
+Na primeira execução dos testes afetados desta rodada, apenas os casos da lista excederam o limite original de 30 segundos sob a carga de build/checagem de tipos em paralelo; os outros 408 arquivos e 4688 itens passaram; após o fim da carga, o comando original de forma dirigida e serial passou 12/12, sem alteração de código ou de timeout. A checagem de tipos da raiz, o lint, o portão de arquitetura e a checagem de tipos do E2E final de Desktop passaram; os quatro fixtures de E2E, a formatação de todo o código alterado e os novos fixtures de autenticação 2/2 passaram. O lint final do código ficou com 0 error, mantendo o warning max-lines já existente do fluxo de conexão.

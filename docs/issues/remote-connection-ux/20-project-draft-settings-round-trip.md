@@ -1,66 +1,65 @@
-# 20: 创建项目往返设置并恢复草稿
+# 20: Criar projeto com ida e volta às configurações e restaurar o rascunho
 
 Status: done
 
-**Parent:** [#15 — 项目创建与远程连接管理分离](15-project-device-selection-and-connection-management.md)
+**Parent:** [#15 — Separação entre criação de projeto e gestão de conexão remota](15-project-device-selection-and-connection-management.md)
 
-**What to build:** 用户在创建项目的设备下拉菜单点击「添加远程设备…」，进入设置的分类添加窗口；前台成功后返回同一项目草稿并选择新设备，取消则恢复原选择。项目名称和目录不会因跨页丢失，已有目录仍需经过换设备确认。
+**O que construir:** o usuário, no menu suspenso de dispositivos da criação de projeto, clica em «Adicionar dispositivo remoto…» e entra na janela de adição categorizada das configurações; depois do sucesso em primeiro plano, volta ao mesmo rascunho de projeto e seleciona o novo dispositivo; ao cancelar, restaura a seleção original. O nome e o diretório do projeto não se perdem na troca de página, e um diretório já existente ainda passa pela confirmação de troca de dispositivo.
 
-**Blocked by:**
+**Bloqueado por:**
 
-- [#17 — 按类型添加 SSH／WSL／Docker](17-typed-remote-device-addition.md)：提供设置内完整的添加路径。
-- [#18 — 直接创建项目与选择已有设备](18-direct-project-creation-and-device-selection.md)：提供待恢复的表单、单一草稿和设备切换确认。
+- [#17 — Adicionar SSH/WSL/Docker por tipo](17-typed-remote-device-addition.md): fornece o caminho completo de adição dentro das configurações.
+- [#18 — Criação direta de projeto e seleção de dispositivo existente](18-direct-project-creation-and-device-selection.md): fornece o formulário a ser restaurado, o rascunho único e a confirmação de troca de dispositivo.
 
-**Spec coverage:** Q1、Q7、Q10、Q12；RDUX15-04 的项目入口、RDUX15-11、RDUX15-12、RDUX15-13，以及 RDUX15-20 的跨页草稿保护；RDUX15-23／24／25 覆盖焦点、布局与能力门禁。
+**Cobertura da spec:** Q1, Q7, Q10, Q12; a entrada de projeto de RDUX15-04, RDUX15-11, RDUX15-12, RDUX15-13, além da proteção do rascunho entre páginas de RDUX15-20; RDUX15-23/24/25 cobrem o foco, o layout e o portão de capacidade.
 
 ```mermaid
 flowchart TD
-    A[原项目草稿] --> B[设置：添加远程设备]
-    B -- 前台成功 --> C[恢复同一草稿]
-    C -- 无已选目录 --> D[选择新设备，保留名称]
-    C -- 已有目录 --> E[确认是否切换设备]
-    E -- 接受 --> D
-    E -- 拒绝 --> F[原设备和目录不变，新设备已添加]
-    B -- 取消 --> G[恢复原名称、设备和目录]
+    A[Rascunho original do projeto] --> B[Configurações: adicionar dispositivo remoto]
+    B -- sucesso em primeiro plano --> C[Restaurar o mesmo rascunho]
+    C -- sem diretório selecionado --> D[Selecionar o novo dispositivo, mantendo o nome]
+    C -- com diretório já existente --> E[Confirmar a troca de dispositivo]
+    E -- Aceitar --> D
+    E -- Recusar --> F[Dispositivo e diretório originais intactos, novo dispositivo adicionado]
+    B -- Cancelar --> G[Restaurar nome, dispositivo e diretório originais]
 ```
 
 ## Acceptance criteria
 
-- [x] 项目设备下拉的新增入口关闭原菜单并进入「设置 → 远程设备」，直接打开 #17 的分类添加窗口；设置已经打开或重新挂载时都只消费本次导航意图一次。
-- [x] 跨页期间由原项目草稿的单一 owner 保留名称、设备和源文件夹；导航只携带发起位置及草稿引用，不复制另一份可写草稿，不在返回意图里保存密码。
-- [x] 前台连接成功且原意图仍有效时，返回同一创建表单，保留名称；原草稿没有目录时选择新设备，尚未显式创建前项目和任务数量不增加。
-- [x] 原草稿已有目录时，返回必须经过与普通设备切换一致的确认。接受后清目录并选择新设备；拒绝后保留原设备与目录，新设备仍已添加且可以稍后选择。
-- [x] 在添加表单、连接中或等待凭据／安装确认时取消，均返回原项目草稿并恢复原值；不删除已保存连接记录，不断开其他项目共享连接，不把取消解释为放弃项目草稿。
-- [x] 添加失败留在添加流程，配置和可理解的错误保留，可修正重试；最终成功或取消仍回同一个有效发起意图。
-- [x] 原草稿被明确放弃、替换或原流程已经失效后，迟到的连接和设置导航结果不得重新打开旧表单或覆盖新草稿；清理仅作用于本次独占资源。
-- [x] 一次往返只恢复一次；不靠延迟跳转、超时或轮询修复页面时序，也不额外持久化跨重启草稿。
-- [x] 键盘、Esc 顶层语义、返回焦点、中英文、当前深浅主题和窄窗口下，前台往返及切换确认都可完成；无设备管理能力的平台不暴露不可完成的跳转。
-- [x] 先补真实入口 E2E 与必要的时序集成测试，再接入导航；删除本入口被替代的独立新增连接接线前确认其其他调用者仍可用。
+- [x] A nova entrada do menu suspenso de dispositivos do projeto fecha o menu original e entra em «Configurações → Dispositivos remotos», abrindo diretamente a janela de adição categorizada do #17; quando as configurações já estão abertas ou são remontadas, a intenção de navegação atual é consumida apenas uma vez.
+- [x] Durante a troca de página, um único owner do rascunho original do projeto mantém o nome, o dispositivo e a pasta de origem; a navegação carrega apenas a posição de origem e a referência do rascunho, sem duplicar outro rascunho gravável e sem guardar senha na intenção de retorno.
+- [x] Quando a conexão em primeiro plano tem sucesso e a intenção original ainda é válida, volta-se ao mesmo formulário de criação, mantendo o nome; quando o rascunho original não tem diretório, seleciona-se o novo dispositivo, e a quantidade de projetos e de tarefas não aumenta antes da criação explícita.
+- [x] Quando o rascunho original já tem diretório, o retorno precisa passar pela mesma confirmação de troca de dispositivo comum. Após aceitar, o diretório é limpo e o novo dispositivo é selecionado; após recusar, o dispositivo e o diretório originais são mantidos, e o novo dispositivo continua adicionado e pode ser selecionado mais tarde.
+- [x] Cancelar no formulário de adição, durante a conexão ou enquanto se aguarda a confirmação de credenciais/instalação retorna sempre ao rascunho original do projeto e restaura os valores originais; não apaga registros de conexão salvos, não desconecta a conexão compartilhada por outros projetos e não interpreta o cancelamento como abandono do rascunho do projeto.
+- [x] Quando a adição falha, permanece-se no fluxo de adição, com a configuração e um erro compreensível preservados para correção e nova tentativa; o sucesso ou o cancelamento final volta sempre à mesma intenção de origem válida.
+- [x] Depois que o rascunho original é explicitamente abandonado ou substituído, ou que o fluxo original já está inválido, resultados tardios de conexão e de navegação nas configurações não podem reabrir o formulário antigo nem sobrescrever o novo rascunho; a limpeza afeta apenas os recursos exclusivos desta execução.
+- [x] Uma ida e volta restaura apenas uma vez; não se corrigem problemas de temporização de página com salto atrasado, timeout ou polling, nem se persiste adicionalmente um rascunho entre reinicializações.
+- [x] Com teclado, a semântica de topo do Esc, o foco de retorno, os idiomas português e inglês, os temas claro e escuro atuais e janelas estreitas, a ida e volta em primeiro plano e a confirmação de troca podem ser concluídas; plataformas sem capacidade de gestão de dispositivos não expõem saltos impossíveis de concluir.
+- [x] Primeiro são adicionados o E2E da entrada real e os testes de integração de temporização necessários, e só então a navegação é conectada; antes de remover a ligação antiga de «nova conexão» substituída por esta entrada, confirma-se que seus outros chamadores continuam funcionando.
 
 ## Verification
 
-- 从真实项目表单分别以空目录和已有目录草稿新增设备，执行成功、拒绝换设备、接受换设备、失败重试和各等待阶段取消，逐项核对原值、设备状态和项目数量。
-- 不使用直接打开添加窗口来绕过待测导航；同时验证设置首次挂载和已经打开的分区切换，防止重复消费及错误返回。
-- 在现有服务接缝延迟连接／凭据结果，放弃或替换原草稿后释放，断言不复活旧表单、不影响新草稿或共享项目。
-- 实施需通过类型检查、lint、架构门禁、受影响单测、对应 Desktop E2E 和适用的平台／主题回归；记录真实远程证据与未验证项。
+- A partir do formulário real de projeto, adicionar um dispositivo, respectivamente, com rascunhos de diretório vazio e de diretório já existente, executando sucesso, recusa da troca de dispositivo, aceitação da troca de dispositivo, nova tentativa após falha e cancelamento em cada etapa de espera, conferindo item a item os valores originais, o estado do dispositivo e a quantidade de projetos.
+- Não se abre a janela de adição diretamente para contornar a navegação em teste; verifica-se ao mesmo tempo a primeira montagem das configurações e a troca de seção com as configurações já abertas, impedindo o consumo duplicado e o retorno incorreto.
+- No ponto de integração de serviço já existente, atrasar os resultados de conexão/credenciais e liberá-los depois de abandonar ou substituir o rascunho original, afirmando que o formulário antigo não é revivido e que o novo rascunho ou o projeto compartilhado não são afetados.
+- A implementação precisa passar pela checagem de tipos, pelo lint, pelo portão de arquitetura, pelos testes unitários afetados, pelo E2E de Desktop correspondente e pela regressão aplicável de plataforma/tema; registrar as evidências remotas reais e os itens não verificados.
 
 ## Scope and handoff
 
-- 本票负责前台的项目草稿往返，不依赖 [#19](19-add-existing-remote-project.md) 的已有项目列表或 [#21](21-chat-settings-round-trip.md) 的聊天往返；满足前置条件即可推进。
-- 后台成功只提示且需用户显式继续的分支由 [#22](22-background-connection-and-explicit-resume.md) 完成。本票不将连接完成意图迁入任务协议，不修改 Host 的连接状态机。
+- Este ticket é responsável pela ida e volta do rascunho do projeto em primeiro plano, sem depender da lista de projetos existentes do #19 nem da ida e volta do chat do #21; basta cumprir os pré-requisitos para avançar.
+- O ramo em que o sucesso em segundo plano apenas avisa e exige que o usuário continue explicitamente é entregue pelo #22. Este ticket não migra a intenção de conclusão da conexão para o protocolo de tarefas nem modifica a máquina de estados de conexão do Host.
 
+## Notas de implementação
 
-## Implementation notes
+- `ProjectEditor` mantém a instância original e o rascunho único; `ProjectCreation` guarda apenas a referência de retorno desta execução e o estado recolhido. A navegação das configurações não copia nome, diretório nem credenciais.
+- A Root usa `returnTarget` para guardar a referência do owner original e a identidade exata de aba/workspace; o sucesso e o cancelamento explícito consomem primeiro a referência e só então retornam. Owner, aba ou workspace inválido não é restaurado. Recolher a conexão não é tratado como cancelamento; a continuação em segundo plano é integrada pelo #22.
+- O novo dispositivo retornado continua chamando o `changeDevice` original, reutilizando a confirmação de diretório. Depois que o rascunho antigo é descarregado, resultados tardios de dispositivo e de registro da entrada de projeto não podem afetar o novo rascunho.
+- O novo candidato usa o contrato de inicialização de E2E sem conta; o OAuth falso dispara o diálogo real de login expirado do plano de controle, que oculta a entrada de projeto. O teste de retorno do projeto espera apenas a conclusão da janela de conexão, sem interpretar a confirmação de troca de dispositivo que aparece em seguida como falha de conexão.
+- TODO (adiado pelo usuário): validação real de WSL e do controle remoto pelo celular, sem substituir por SSH da própria máquina ou por testes de componentes compartilhados.
 
-- `ProjectEditor` 保持原实例和唯一草稿；`ProjectCreation` 只保存本次返回引用与收起状态。设置导航不复制名称、目录或凭据。
-- Root 通过 `returnTarget` 保存原 owner 引用和精确页签／workspace 身份；成功和明确取消先消费引用，再返回。失效 owner、页签或 workspace 不恢复。连接收起不当作取消，后台延续由 #22 接入。
-- 返回的新设备仍调用原 `changeDevice`，复用目录确认。旧草稿卸载后，迟到的设备结果和项目入口登记结果不能影响新草稿。
-- 新候选使用无账号的 E2E 启动合同；假 OAuth 会触发真实控制面的登录过期弹窗，遮挡项目入口。项目返回测试仅等待连接窗口完成，不把随后正常出现的换设备确认误判为连接失败。
-- TODO（用户确认暂缓）：真实 WSL 与手机远控验证，不以本机 SSH 或共享组件测试替代。
+## Resultados da verificação
 
-## Verification results
-
-- `pnpm typecheck`、`pnpm lint`（0 errors，208 条既有 warnings）、架构门禁（0 violations）、E2E 类型和 fixture 校验通过。
-- 从实施基线运行受影响测试：405 文件、4589 测试通过；测试选择器辅助套件通过。新增无账号启动回归 26 测试、项目草稿与连接时序定向测试通过。
-- macOS 原生真实 SSH E2E 通过：`desktop-e2e-20261012110624292-p87138-e361604dfca379e7`。覆盖真实项目入口、表单取消、握手中取消、错误密码修正、成功返回后的拒绝／接受换设备确认、无目录草稿与无隐式项目创建。
-- 中英 × 深浅主题 × 1440／480px 的 8 组前台往返、焦点和按钮可达性通过，截图在过渡结束后采集并检查。测试仍为 pending，未转正或纳入 CI。
+- O `pnpm typecheck`, o `pnpm lint` (0 errors, 208 warnings já existentes), o portão de arquitetura (0 violations) e a checagem de tipos do E2E e de fixture passaram.
+- A partir da baseline de implementação, os testes afetados rodaram: 405 arquivos e 4589 testes passaram; a suíte auxiliar do seletor de testes passou. Passaram os 26 novos testes de regressão de inicialização sem conta e os testes dirigidos de rascunho de projeto e de temporização da conexão.
+- O E2E de SSH real no macOS nativo passou: `desktop-e2e-20261012110624292-p87138-e361604dfca379e7`. Cobriu a entrada real de projeto, o cancelamento do formulário, o cancelamento durante o handshake, a correção de senha errada, a recusa e a aceitação da confirmação de troca de dispositivo após o retorno bem-sucedido, o rascunho sem diretório e a ausência de criação implícita de projeto.
+- As 8 combinações de português/inglês × temas claro/escuro × 1440/480px de ida e volta em primeiro plano, foco e acessibilidade dos botões passaram; as capturas foram coletadas e verificadas após o fim da transição. Os testes ainda estão como pending, não promovidos nem incluídos no CI.

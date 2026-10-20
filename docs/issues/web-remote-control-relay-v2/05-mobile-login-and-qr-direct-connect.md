@@ -1,34 +1,34 @@
-# 05 — 手机端登录后凭二维码直连桌面
+# 05 — Login no celular e conexão direta ao desktop pelo QR code
 
-**What to build:** 手机打开 `/remote/v4?app_version&sid&mid&name`：未登录先进入登录页，OAuth 回调直接回到 `/remote/v4`（页面识别 `code`+`state`），登录态写入同源 localStorage 后回跳原 URL；已登录时申请 `role=terminal` token、连接 `/api/v1/remote/ws2`、`auth_init(sid)`，配对后进入现有 bootstrap → workspace bridge → `rpc-frame` 链路，聊天体验与升级前一致。账号不匹配显示"该设备不属于当前账号"并可切换账号；登录态失效回登录页并在登录后回到原位置；`KICKED` 有界重试。手机端此后只有 V2 实现，`/web-remote` 旧入口移除。
+**O que construir:** O celular abre `/remote/v4?app_version&sid&mid&name`: se não estiver logado, entra primeiro na página de login; o callback do OAuth volta direto para `/remote/v4` (a página reconhece `code`+`state`), o estado de login é gravado no localStorage de mesma origem e depois há o redirecionamento de volta para a URL original; já logado, solicita um token `role=terminal`, conecta em `/api/v1/remote/ws2` e envia `auth_init(sid)`; após o pareamento entra na cadeia existente bootstrap → workspace bridge → `rpc-frame`, com a experiência de chat igual à anterior à atualização. Se a conta não corresponder, exibe "该设备不属于当前账号" e permite trocar de conta; se o estado de login expirar, volta para a página de login e retorna à posição original depois do login; `KICKED` tem retry limitado. A partir daí, o celular tem apenas a implementação V2 e a entrada antiga `/web-remote` é removida.
 
-**Blocked by:** 02（真机联调另需 03 已可用）
+**Bloqueado por:** 02 (a integração com aparelho real exige adicionalmente que 03 já esteja disponível)
 
 **Status:** in-progress
 
-**Parent:** [Web 远控接入 Relay V2：手机登录后连接桌面](./01-relay-v2-login-pairing.md)
+**Pai:** [Controle remoto Web com Relay V2: conectar o desktop após o login no celular](./01-relay-v2-login-pairing.md)
 
-## 验收标准
+## Critérios de aceite
 
-- [x] 文档先行：`relay-v2-pairing.md` 补手机首次进入时序图（回调模式 / 登录门禁 / 有 sid 直连）；`web-remote-login.md` 改写为 `/remote/v4` 的 V2 登录门禁；架构文档 Web 节改为 V2；列出登录门禁、无 `sid` 占位页、`device-not-owned` 与 `invalid-mobile-connection` 失败页的 zh-CN/en-US 文案表供确认。
-- [x] 入口：`/remote/v4` 含 `code`+`state` 时进入 OAuth 回调模式（复用回调页与 Web 认证服务）；OAuth `redirect_uri` 改为 `<origin>/remote/v4`，shared 的回调地址推导同步修改；`app_return_to` 白名单允许 `/remote/v4`（含尾斜杠）与既有分享路径，query 放行 `app_version`、`sid`、`mid`、`name`；开发态 `return_to` 转发机制保留。
-- [x] 登录门禁：无 JWT 渲染现有登录页（provider 跟随构建环境），`appReturnTo` 为当前完整 URL；登录成功回跳后自动继续连接。
-- [x] 新增连接前置编排模块（可注入登录态、设备接口、location/history/localStorage、transport 工厂）：有 `sid` → 直接连接；无 `sid` → 本票先渲染"请扫描桌面二维码"占位（设备列表由 06 提供）。
-- [x] 新的 terminal transport V2（与桌面共用心跳/pair_status/有界重试 helper）：建连前用 localStorage 中的 JWT 申请 `role=terminal` token；地址 `wss://<origin>/api/v1/remote/ws2?token=…&mid=…`（`mid` 取 URL 参数）；`auth_init` 字段、`client_ts` 秒、5 秒心跳、15 秒 watchdog、每次重连重新申请 token、`KICKED` 有界重试与桌面一致。
-- [x] 错误映射：token 401 → 清除本地会话、回登录页并保留当前完整 URL 为返回地址；5xx/网络错误沿用现有 500ms×2ⁿ、上限 10 秒退避；`auth_init` 后 `AUTH_FAILED` → 新 failure reason `device-not-owned`，失败页含"切换账号"（登出后回登录页并保留返回地址）与"选择其他设备"（06 前隐藏或禁用），失败页为此新增次级动作位（主按钮下方、ghost 样式，遵循 DESIGN.md）；`WRONG_PARAM` → `invalid-mobile-connection`；`DEVICE_OFFLINE`、`INTERNAL` 沿用现有可恢复处理；二次 `KICKED` → `session-conflict`。
-- [x] 视觉核对：实现后提供手机端截图矩阵（登录门禁页、无 `sid` 占位页、`device-not-owned` 失败页；窄屏/宽屏 × 深浅主题 × zh-CN/en-US），参考 `packages/web/test/e2e/manual-review/pending/remote-version.mjs` 新增 pending 截图用例，不自动转正。
-- [x] 手机 V1 terminal transport、浏览器端 HMAC proof 计算、`/web-remote` 路由判断、已登录等待页、`remoteControlToken`/`relayOrigin` 旧 bootstrap 及其 `/api/remote-control/*` 请求代码删除；对应旧测试删除或改写。
-- [x] bootstrap-request/response、workspace-list、workspace-bridge-open/ready、`rpc-frame`/ack、`mobile-view-state-update`、版本同步守卫、replayable 恢复顺序不变，既有回归测试全部通过。
-- [x] 测试（接缝：前置编排模块 + 假 relay + 假 fetch/location/storage）：回调模式识别与回跳、登录门禁、有 sid 直连、401 回登录并保留返回地址、`device-not-owned` 动作；transport 对假 relay 的线级测试同桌面；shared/web 的 URL 解析、白名单与 query 放行测试。
-- [ ] 测试环境验收：分支保持根 `package.json` 版本 `3.13.0`，用 OSS 测试流水线覆盖 `3.13.0/` 目录（先知会仍用 3.13.0 V1 桌面版的同事）；真机完成"扫码首次登录 → 回跳 → 连接"与"已登录直连"两条路径，记录到 `relay-v2-pairing.md` 验收节。
-- [x] `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响单测通过。
+- [x] Documentação primeiro: `relay-v2-pairing.md` recebe o diagrama de sequência da primeira entrada do celular (modo de callback / barreira de login / conexão direta com `sid`); `web-remote-login.md` é reescrito como a barreira de login V2 de `/remote/v4`; a seção Web do documento de arquitetura passa a ser V2; listar, para confirmação, a tabela de textos zh-CN/en-US da barreira de login, da página de placeholder sem `sid` e das páginas de falha `device-not-owned` e `invalid-mobile-connection`.
+- [x] Entrada: `/remote/v4` com `code`+`state` entra no modo de callback do OAuth (reutilizando a página de callback e o serviço de autenticação Web); o `redirect_uri` do OAuth passa a ser `<origin>/remote/v4`, e a derivação do endereço de callback no shared é alterada em conjunto; a lista de permissões `app_return_to` permite `/remote/v4` (inclusive com barra final) e os caminhos de compartilhamento já existentes, liberando na query `app_version`, `sid`, `mid`, `name`; o mecanismo de encaminhamento `return_to` do modo de desenvolvimento é mantido.
+- [x] Barreira de login: sem JWT renderiza a página de login existente (o provider segue o ambiente de build), com `appReturnTo` sendo a URL completa atual; após o login bem-sucedido e o redirecionamento de volta, a conexão continua automaticamente.
+- [x] Novo módulo de orquestração pré-conexão (com injeção do estado de login, da interface de dispositivos, de location/history/localStorage e da fábrica de transport): com `sid` → conecta direto; sem `sid` → esta ticket renderiza primeiro o placeholder "请扫描桌面二维码" (a lista de dispositivos é fornecida por 06).
+- [x] Novo terminal transport V2 (compartilhando com o desktop o heartbeat/pair_status e os helpers de retry limitado): antes de estabelecer a conexão, solicita com o JWT do localStorage um token `role=terminal`; endereço `wss://<origin>/api/v1/remote/ws2?token=…&mid=…` (o `mid` vem do parâmetro da URL); campos de `auth_init`, `client_ts` em segundos, heartbeat de 5 segundos, watchdog de 15 segundos, novo token a cada reconexão, retry limitado de `KICKED` — igual ao desktop.
+- [x] Mapeamento de erros: token 401 → limpa a sessão local, volta para a página de login preservando a URL completa atual como endereço de retorno; 5xx/erro de rede seguem o backoff existente de 500ms×2ⁿ, com teto de 10 segundos; `AUTH_FAILED` após o `auth_init` → novo failure reason `device-not-owned`, com página de falha contendo "切换账号" (deslogar e voltar à página de login preservando o endereço de retorno) e "选择其他设备" (oculto ou desabilitado até a 06); a página de falha ganha um novo slot de ação secundária (abaixo do botão principal, no estilo ghost, seguindo o DESIGN.md); `WRONG_PARAM` → `invalid-mobile-connection`; `DEVICE_OFFLINE` e `INTERNAL` seguem o tratamento recuperável já existente; segundo `KICKED` → `session-conflict`.
+- [x] Conferência visual: após a implementação, entregar uma matriz de capturas de tela do celular (página de barreira de login, página de placeholder sem `sid`, página de falha `device-not-owned`; tela estreita/larga × tema claro/escuro × zh-CN/en-US), adicionando casos de captura pendentes com base em `packages/web/test/e2e/manual-review/pending/remote-version.mjs`, sem aprovação automática.
+- [x] Remover o terminal transport V1 do celular, o cálculo de prova HMAC no navegador, a verificação de rota `/web-remote`, a página de espera para quem já está logado e o bootstrap antigo `remoteControlToken`/`relayOrigin` com suas requisições `/api/remote-control/*`; apagar ou reescrever os testes antigos correspondentes.
+- [x] bootstrap-request/response, workspace-list, workspace-bridge-open/ready, `rpc-frame`/ack, `mobile-view-state-update`, o guard de sincronização de versão e a ordem de recuperação replayable permanecem inalterados; todos os testes de regressão existentes passam.
+- [x] Testes (costura: módulo de orquestração pré-conexão + relay falso + fetch/location/storage falsos): reconhecimento do modo de callback e o redirecionamento de volta, barreira de login, conexão direta com `sid`, 401 voltando ao login e preservando o endereço de retorno, ações de `device-not-owned`; testes de nível de linha do transport contra o relay falso, iguais aos do desktop; testes de parsing de URL, lista de permissões e liberação de query em shared/web.
+- [ ] Aceitação no ambiente de testes: manter a versão `3.13.0` do `package.json` raiz na branch, cobrindo o diretório `3.13.0/` com a pipeline de testes OSS (comunicar antes aos colegas que ainda usam a versão desktop V1 3.13.0); no aparelho real, concluir os dois caminhos "escanear → primeiro login → redirecionar de volta → conectar" e "já logado, conectar direto", registrando na seção de aceite de `relay-v2-pairing.md`.
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed` e os testes unitários afetados passam.
 
-## 验证记录（2026-09-19）
+## Registro de verificação (2026-09-19)
 
-- 本地实现与评审完成；保留 in-progress，等待 OSS/真实手机验收。
-- Web 测试集31文件296项通过；桌面/手机 transport 定向回归48项通过；开发启动脚本回归通过。新增挂起迟到 open/ACK、KICKED 跨代 waiting timer 回归均先复现再修复。
-- `pnpm typecheck`、`pnpm lint`（60条既有 warning，0 error）、`pnpm architecture:check --changed` 通过。
-- ML01–ML06 浏览器27项检查通过，24张窄/宽屏×主题×语言截图位于 `.tmp/remote-login-v2-e2e/`；圆角、浅色徽标对比度调整后对应截图已更新，保持 pending。RV01–RV03 浏览器6组配置通过，原有 home-only 动态订阅告警如实保留。
-- 全量 `pnpm test:unit`：17,988通过、12跳过、1失败；失败来自本票未改动的 `packages/desktop/test/e2e/feedback/manual-review/pending/feedback-upload-privacy.test.ts:105` 使用 `/private/tmp`，触发 e2eRuntimePaths 检查。另发现旧 home-only fixture 缺少 location.href 的未处理错误，已补齐并由上述 Web 全集复跑确认消除；未再次全跑无关用例。
-- 按根 AGENTS.md 必要验证失败不自动提交的规则保留工作区；用户原有02–04改动不纳入本票提交。
-- 未触发 OSS 覆盖流水线，未通知同事，未执行真实手机 OAuth 两条路径；需先完成3.13.0 V1使用者协调及测试部署，人工结果写入 relay-v2-pairing.md。
+- Implementação local e revisão concluídas; mantido in-progress, aguardando a aceitação com OSS/aparelho real.
+- Conjunto de testes Web: 31 arquivos e 296 casos passando; regressão direcionada de transport desktop/celular: 48 casos passando; regressão dos scripts de inicialização em desenvolvimento passando. As novas regressões de open/ACK atrasado pendente e de waiting timer de `KICKED` entre gerações foram reproduzidas antes de serem corrigidas.
+- `pnpm typecheck`, `pnpm lint` (60 warnings já existentes, 0 erro) e `pnpm architecture:check --changed` passaram.
+- ML01–ML06: 27 verificações de navegador passaram, com 24 capturas de tela em tela estreita/larga × tema × idioma em `.tmp/remote-login-v2-e2e/`; após o ajuste de raio de canto e do contraste do logo claro, as capturas correspondentes foram atualizadas e seguem pendentes. RV01–RV03: 6 grupos de configuração de navegador passaram; o alerta existente de assinatura dinâmica home-only foi mantido, como era.
+- `pnpm test:unit` completo: 17.988 passando, 12 pulados, 1 falhando; a falha vem de `packages/desktop/test/e2e/feedback/manual-review/pending/feedback-upload-privacy.test.ts:105`, não alterado por esta ticket, que usa `/private/tmp` e dispara a checagem e2eRuntimePaths. Também foi encontrado um erro não tratado de fixture home-only antigo sem `location.href`, já corrigido e confirmado como eliminado pela nova execução do conjunto Web acima; casos não relacionados não foram reexecutados.
+- Seguindo a regra do AGENTS.md raiz de não commitar automaticamente quando uma verificação obrigatória falha, o workspace foi preservado; as alterações originais do usuário em 02–04 não entram no commit desta ticket.
+- A pipeline de cobertura OSS não foi acionada, os colegas não foram notificados e os dois caminhos de OAuth em aparelho real não foram executados; é preciso antes concluir a coordenação com os usuários da V1 3.13.0 e o deploy de testes, com o resultado manual registrado em relay-v2-pairing.md.

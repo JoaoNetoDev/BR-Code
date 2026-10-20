@@ -1,43 +1,41 @@
-# R3 远程主链过程文档归档
+# Arquivo de documentos do processo da cadeia principal remota R3
 
-2026-09-13 归档，2026-10-10 压缩过程正文。这些文档记录 R3 Source Server 远程主链的规格草案、评审、实施计划与实机测试过程，内容已被当前事实文档取代或并入，只作历史背景，不作实现依据。当前阅读入口见 [`docs/remote/README.md`](../../remote/README.md)。
+Arquivado em 2026-09-13; o corpo do processo foi condensado em 2026-10-10. Estes documentos registram o rascunho de especificação, as revisões, o plano de implementação e o processo de teste em máquina real da cadeia principal remota do R3 Source Server. O conteúdo foi substituído pelos documentos de fatos atuais ou incorporado a eles, servindo apenas como contexto histórico, não como base de implementação. O ponto de entrada atual de leitura está em [`docs/remote/README.md`](../../remote/README.md).
 
-| 文件                                                                     | 归档原因                                                                                                                                |
+| Arquivo                                                                     | Motivo do arquivamento                                                                                                                        |
 | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `r3-remote-ui-prototype-gap-audit.md`                                    | §8 实施合同已并入主规格 §8.4；其余为原型逐界面差异审计与十二轮复审记录                                                                  |
-| `r3-remote-ui-prototype-gap-audit-review.md`                             | 上述审计的复审记录                                                                                                                      |
-| `r3-remote-ui-implementation.md`                                         | 实施记录；「新线路资源下载方式默认值」一条与代码矛盾（该偏好已于 2026-08-28 撤销），以主规格 §8.4.4 与 ux-spec 为准                     |
-| `r3-provider-refactor-merge.md`                                          | Provider 重构合并过程记录；§7 遗留项已并入主规格 §15                                                                                    |
-| `r3-controller-remote-row-migration-inventory.md`                        | 逐表盘点已并入主规格 §9.1                                                                                                               |
-| `r3-source-server-remote-impact-brief.md`                                | 实施前影响简报                                                                                                                          |
-| `r3-source-server-remote-implementation-review.md`                       | 实施评审记录                                                                                                                            |
-| `r3-source-server-remote-completion-plan.md`                             | 完成计划；产品面缺口已随实现关闭或转入问题台账                                                                                          |
-| `r3-source-server-remote-completion-review.md`                           | 完成计划评审记录                                                                                                                        |
-| `remote-domain-simplification-and-conversation-workspace-spec-review.md` | 领域简化规格评审记录                                                                                                                    |
-| `r3-source-server-release-test-plan.md`                                  | 旧发布测试方案；R3-REMOTE-xx 编号由 `conversation-session-case-catalog.md` 承载，执行方案由 `testing/r3-remote-automation-plan.md` 接替 |
-| `r3-remote-automation-readiness-2026-09-07.md`                           | 自动化准备度记录                                                                                                                        |
-| `r3-remote-environment-readiness-2026-09-08.md`                          | 环境准备度记录                                                                                                                          |
-| `r3-remote-automation-live-run-2026-09-08.md`                            | 首批实跑台账；后续全量结果见 `testing/r3-remote-full-rerun-2026-09-10.md`                                                               |
-| `r3-remote-full-validation-2026-09-08.md`                                | 早期全量验证记录，已被 2026-09-10 重跑取代                                                                                              |
-| `r3-source-server-ssh-live-test-record-2026-08-20.md`                    | 实机记录，基线 commit 不是当前 HEAD 祖先（问题台账 R3-ISSUE-020）                                                                       |
-| `r3-source-server-expanded-live-test-record-2026-08-21.md`               | 同上                                                                                                                                    |
-| `ssh-project-entry-helper.md`                                            | 已并入 `testing/ssh-remote-p0-e2e-plan.md`「SSH 项目入口编排」                                                                          |
+| `r3-remote-ui-prototype-gap-audit.md`                                    | O contrato de implementação da §8 foi incorporado à especificação principal §8.4; o restante é a auditoria de diferenças do protótipo tela a tela e o registro de doze rodadas de revisão                                     |
+| `r3-remote-ui-prototype-gap-audit-review.md`                             | Registro de revisão da auditoria acima                                                                                                                      |
+| `r3-remote-ui-implementation.md`                                         | Registro de implementação; o item «valor padrão da forma de download de recursos da nova linha» entra em contradição com o código (essa preferência foi revogada em 2026-08-28), prevalecem a especificação principal §8.4.4 e a ux-spec                     |
+| `r3-provider-refactor-merge.md`                                          | Registro do processo de merge da refatoração do Provider; os itens pendentes da §7 foram incorporados à especificação principal §15                                                                                    |
+| `r3-controller-remote-row-migration-inventory.md`                        | O inventário tabela por tabela foi incorporado à especificação principal §9.1                                                                                                               |
+| `r3-source-server-remote-impact-brief.md`                                | Brief de impacto antes da implementação                                                                                                                          |
+| `r3-source-server-remote-implementation-review.md`                       | Registro de revisão da implementação                                                                                                                            |
+| `r3-source-server-remote-completion-plan.md`                             | Plano de conclusão; as lacunas do lado do produto foram fechadas junto com a implementação ou transferidas para o registro de problemas                                                                  |
+| `r3-source-server-remote-completion-review.md`                           | Registro de revisão do plano de conclusão                                                                                                                        |
+| `remote-domain-simplification-and-conversation-workspace-spec-review.md` | Registro de revisão da especificação de simplificação de domínio                                                                                                                    |
+| `r3-source-server-release-test-plan.md`                                  | Plano de teste de release antigo; a numeração R3-REMOTE-xx é sustentada por `conversation-session-case-catalog.md`, e o plano de execução é substituído por `testing/r3-remote-automation-plan.md` |
+| `r3-remote-automation-readiness-2026-09-07.md`                           | Registro de prontidão da automação                                                                                                                        |
+| `r3-remote-environment-readiness-2026-09-08.md`                          | Registro de prontidão do ambiente                                                                                                                          |
+| `r3-remote-automation-live-run-2026-09-08.md`                            | Registro da primeira rodada real; os resultados completos posteriores estão em `testing/r3-remote-full-rerun-2026-09-10.md`                                                               |
+| `r3-remote-full-validation-2026-09-08.md`                                | Registro de validação completa inicial, substituído pela reexecução de 2026-09-10                                                                                              |
+| `r3-source-server-ssh-live-test-record-2026-08-20.md`                    | Registro em máquina real; o commit de baseline não é ancestral do HEAD atual (registro de problemas R3-ISSUE-020)                                                                       |
+| `r3-source-server-expanded-live-test-record-2026-08-21.md`               | O mesmo                                                                                                                                    |
+| `ssh-project-entry-helper.md`                                            | Incorporado a `testing/ssh-remote-p0-e2e-plan.md`, na seção «Orquestração da entrada de projeto SSH»                                                                          |
 
-## 原始证据与读取方式
+## Evidências originais e forma de leitura
 
-每个原文件保留历史入口。完整正文冻结在提交 `a17a875588b8d66c2bee49236292e174df651363`，使用入口中的
-`git show <commit>:<path>` 读取；历史章节和行号均以该快照为准。此提交是文档快照，
-不是这些实跑共同的产品基线。读取需要包含该提交的原始仓库历史；浅克隆或导出副本缺少对象时，应明确报告证据不可用，不能据入口推定验证通过。旧评审的未决项以当前问题台账逐项核对，不因压缩正文关闭。
+Cada arquivo original mantém o ponto de entrada histórico. O corpo completo está congelado no commit `a17a875588b8d66c2bee49236292e174df651363` e deve ser lido com `git show <commit>:<path>` a partir do ponto de entrada; os capítulos históricos e os números de linha se baseiam nesse snapshot. Este commit é um snapshot de documentação, não a linha de base de produto comum dessas execuções reais. A leitura exige o histórico do repositório original que contenha esse commit; quando um clone raso ou uma cópia exportada não tiver os objetos, a indisponibilidade da evidência deve ser reportada explicitamente, e não se deve presumir a aprovação da verificação a partir do ponto de entrada. Os itens em aberto das revisões antigas devem ser conferidos um a um no registro de problemas atual, e não são encerrados pela condensação do corpo do texto.
 
-| 证据 | 必须保留的解释边界 |
+| Evidência | Limite de interpretação que deve ser preservado |
 | --- | --- |
-| 2026-08-20/21 SSH 实跑 | 基线并非当前分支祖先，不能证明当前 HEAD；R3-ISSUE-020 仍待验证。原始环境、artifact 路径、通过与阻塞项在对应快照。 |
-| 2026-09-08 首批验证 | 产品基线 `2af3a51991`；原三项 SSH E2E 为 0/3，后续代表通过不等于整套通过。原 artifact 根为 `packages/desktop/.e2e-artifacts/r3-20260907-155200/`。 |
-| 环境准备度 / 早期全量 | 连接、登录、配对探针只能证明前置；历史 FAIL、BLOCKED 与清理记录保留在原快照，不转换为当前 PASS。 |
-| Provider 合并决策 | 采用本地编辑、自动 Provisioning；当前合同见 [Provider Provisioning](../../remote/provider-provisioning.md)，遗留项见主规格 §15。 |
-| 旧发布计划和审查 | 用例稳定 ID 由 case 目录承接；执行要求见当前测试方案。历史评论不是新增实施授权。 |
+| Execuções reais SSH de 2026-08-20/21 | A baseline não é ancestral da branch atual e não prova o HEAD atual; R3-ISSUE-020 ainda aguarda verificação. O ambiente original, os caminhos dos artifacts e os itens aprovados e bloqueados estão nos snapshots correspondentes. |
+| Primeira rodada de validação de 2026-09-08 | Baseline de produto `2af3a51991`; os três casos SSH E2E originais deram 0/3, e a aprovação posterior de um caso representativo não equivale à aprovação do conjunto. A raiz original dos artifacts era `packages/desktop/.e2e-artifacts/r3-20260907-155200/`. |
+| Prontidão do ambiente / validação completa inicial | Sondas de conexão, login e pareamento só provam pré-requisitos; os FAIL, BLOCKED e registros de limpeza históricos são mantidos no snapshot original e não são convertidos em PASS atual. |
+| Decisão de merge do Provider | Adota edição local e Provisioning automático; o contrato atual está em [Provider Provisioning](../../remote/provider-provisioning.md), e os itens pendentes na especificação principal §15. |
+| Plano de release e revisões antigos | Os IDs estáveis dos casos são assumidos pelo catálogo de cases; os requisitos de execução estão no plano de teste atual. Comentários históricos não constituem nova autorização de implementação. |
 
-当前验证入口为[测试方案](../../testing/r3-remote-automation-plan.md)、
-[9 月 10 日历史重跑](../../testing/r3-remote-full-rerun-2026-09-10.md)和
-[10 月桌面 SSH 指南回归](../../testing/desktop-ssh-guide-regression.md)。各报告独立保留基线、范围与未验证项；
-不同基线的 PASS 不相加为当前全量通过。原始日志、录像不在本次整理中移动或删除。
+Os pontos de entrada de verificação atuais são o [plano de testes](../../testing/r3-remote-automation-plan.md),
+a [reexecução histórica de 10 de setembro](../../testing/r3-remote-full-rerun-2026-09-10.md)e a
+[regressão do guia SSH do desktop de outubro](../../testing/desktop-ssh-guide-regression.md). Cada relatório mantém de forma independente sua baseline, seu escopo e os itens não verificados;
+PASS de baselines diferentes não são somados como aprovação completa atual. Os logs e gravações originais não foram movidos nem removidos nesta organização.

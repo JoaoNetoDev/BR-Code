@@ -1,85 +1,85 @@
-# 11 — 连接中屏与选目录屏重做
+# 11 — Redesenho das telas de "Conectando" e de Seleção de Diretório
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Especificação pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：**
+**Bloqueado por:**
 
-- [03 — 远程连接展示模型、5 种状态与术语](./03-presentation-model-states-and-glossary.md)：错误分类展示依赖它。
-- [10 — 三屏向导：骨架、统一选择屏与收起进度行](./10-three-screen-wizard-and-selection.md)
+- [03 — Modelo de exibição da conexão remota, 5 estados e glossário](./03-presentation-model-states-and-glossary.md): a exibição das categorias de erro depende dele.
+- [10 — Assistente de três telas: esqueleto, tela unificada de seleção e linha de progresso recolhida](./10-three-screen-wizard-and-selection.md)
 
-**要交付的行为：**
+**Comportamentos a entregar:**
 
-**连接中屏**
+**Tela de "Conectando"**
 
-- **顶部与阶段清单**：
-  - 顶部显示设备名和连接方式标签。
-  - 阶段清单按连接方式分别生成；当前阶段加粗，并显示已用时间。
-  - 上传和下载阶段显示进度条和速度。
-- **需要用户确认的情况**，都直接在清单里确认，不另外弹窗：
-  - 安装新组件：显示真实的版本、安装位置和占用空间。
-  - 设备已重新安装：确认后作为新设备使用。
-  - 强制更新时仍有任务在运行：列出这些任务。
-- **日志与错误**：
-  - 日志默认折叠，失败时自动展开。
-  - 错误按 03 的分类展示：标题、原因、修复操作，以及可复制的详细信息。
-- **底部与移除项**：
-  - 底部左边是"在后台继续"，右边是"取消连接"。
-  - 去掉链路图和设备短 ID。
+- **Topo e lista de etapas**:
+  - No topo são exibidos o nome do dispositivo e a etiqueta do método de conexão.
+  - A lista de etapas é gerada conforme o método de conexão; a etapa atual aparece em negrito e mostra o tempo decorrido.
+  - As etapas de upload e download exibem barra de progresso e velocidade.
+- **Situações que exigem confirmação do usuário** são confirmadas diretamente na lista, sem janelas adicionais:
+  - Instalação de novo componente: exibe a versão real, o local de instalação e o espaço ocupado.
+  - O dispositivo já foi reinstalado: após a confirmação, passa a ser usado como um novo dispositivo.
+  - Há tarefas em execução durante uma atualização forçada: lista essas tarefas.
+- **Log e erros**:
+  - O log vem recolhido por padrão e é expandido automaticamente em caso de falha.
+  - Os erros são exibidos conforme as categorias definidas em 03: título, causa, ação de correção e detalhes copiáveis.
+- **Rodapé e remoção de itens**:
+  - No rodapé, à esquerda fica "Continuar em segundo plano" e, à direita, "Cancelar conexão".
+  - Removem-se o diagrama de cadeia de links e o ID curto do dispositivo.
 
-**选目录屏**
+**Tela de seleção de diretório**
 
-- **路径与跳转**：
-  - 显示完整路径。
-  - 点击"最近"或"远端记录"里的 chip，目录浏览器会同步跳转过去。
-- **错误与稍后选择**：
-  - 目录打不开时使用友好的文案。
-  - 保留 [08](./08-disconnect-experience-and-in-place-reconnect.md) 加上的"稍后选择"。
-- **边界说明**："本地离线，任务照常运行"改为页面里一行可关闭的提示，只显示一次。
-- **状态条与改名**：
-  - 状态条不再重复显示设备名。
-  - 修改设备名后给出保存反馈。
+- **Caminho e navegação**:
+  - Exibe o caminho completo.
+  - Ao clicar em um chip de "Recentes" ou "Histórico remoto", o navegador de diretórios salta para o destino correspondente.
+- **Erros e "escolher depois"**:
+  - Quando o diretório não pode ser aberto, usa-se uma mensagem amigável.
+  - Mantém-se o "Escolher depois" adicionado por [08](./08-disconnect-experience-and-in-place-reconnect.md).
+- **Nota de limite**: "Local offline, as tarefas continuam rodando" passa a ser uma linha dispensável na página, exibida apenas uma vez.
+- **Barra de status e renomeação**:
+  - A barra de status deixa de repetir o nome do dispositivo.
+  - Após renomear o dispositivo, exibe-se um feedback de salvamento.
 
-对应父规格「连接向导（三屏）」一节中的第二屏、第三屏和连接中屏布局。
+Corresponde à segunda e à terceira telas da seção "Assistente de conexão (três telas)" da especificação pai, bem como ao layout da tela de "Conectando".
 
-范围：
+Escopo:
 
-- **一并修复的缺陷**：
-  - 安装确认显示假版本、写死的位置。
-  - 阶段列表的第一项被截掉。
-  - 成功横幅里出现占位符。
-  - 修改设备名后没有任何反馈。
-  - 边界说明以弹框形式打断连接。
-- **下载进度**：沿用已有的进度事件。
+- **Defeitos corrigidos junto**:
+  - A confirmação de instalação exibe uma versão falsa e um local fixo no código.
+  - O primeiro item da lista de etapas é cortado.
+  - Aparecem placeholders no banner de sucesso.
+  - Não há nenhum feedback após renomear o dispositivo.
+  - A nota de limite interrompe a conexão na forma de pop-up.
+- **Progresso de download**: reaproveita os eventos de progresso já existentes.
 
-**原型评审结论**（[06 评审结论](./06-interaction-prototype-review.md#comments)）：界面按评审通过的原型实现，以下几点以 06 为准。
+**Conclusões da revisão do protótipo** ([06 — Conclusões da revisão](./06-interaction-prototype-review.md#comments)): a interface segue o protótipo aprovado na revisão; os pontos abaixo prevalecem conforme o 06.
 
-- 认证失败时在本屏就地重新输入密码或私钥口令，和“需要密码”用同一交互；只有需要更换用户名或私钥文件时才回到表单。UX 规格的错误分类表已同步。
-- 阶段名称：“确认连接”改为“识别设备”；去掉“连接就绪”阶段，成功后直接进入选目录屏或按意图打开项目。
-- 部署失败的次要操作文案为“改用设备直接下载”。UX 规格已同步。
-- 连接中屏的阶段列表、嵌入式等待点与错误块、日志折叠规则，以及选目录屏的布局，按原型实现。
+- Em caso de falha de autenticação, a senha ou a passphrase da chave privada são reinseridas nesta própria tela, com a mesma interação de "precisa de senha"; só se retorna ao formulário quando for necessário trocar o usuário ou o arquivo de chave privada. A tabela de categorias de erro da especificação de UX já foi sincronizada.
+- Nomes das etapas: "Confirmar conexão" passa a "Identificar dispositivo"; a etapa "Conexão pronta" é removida e, após o sucesso, o fluxo vai direto para a tela de seleção de diretório ou abre o projeto conforme a intenção.
+- O texto da ação secundária para falha de deploy é "Baixar direto no dispositivo". A especificação de UX já foi sincronizada.
+- A lista de etapas da tela de "Conectando", os pontos de espera embutidos e os blocos de erro, as regras de recolhimento do log, bem como o layout da tela de seleção de diretório, seguem o protótipo.
 
-验收标准：
+Critérios de aceite:
 
-- [x] 连接中屏的各项元素都有向导测试覆盖；E2E 在安装确认环节断言显示的是真实版本和安装位置。
-- [x] 上传和下载阶段显示进度条和速度。
-- [x] 认证失败、拒绝连接、部署阶段失败三种情况，都能展示错误和对应的修复操作；前两种有 E2E 覆盖。
-- [x] 选目录屏的完整路径、chip 跳转、目录错误文案、"稍后选择"都有测试覆盖。
-- [x] 边界说明不再以弹框形式打断连接，有 E2E 覆盖。
-- [x] 与原型对照；截取浅色、深色主题和 900px 窗口下的截图。
-- [x] 更新 UX 规格，并同步 E2E 用例目录。
-- [x] `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测和受影响的 SSH E2E 全部通过后，在本地提交。
+- [x] Todos os elementos da tela de "Conectando" têm cobertura de testes do assistente; o E2E faz asserção, na etapa de confirmação de instalação, de que são exibidos a versão real e o local de instalação.
+- [x] As etapas de upload e download exibem barra de progresso e velocidade.
+- [x] As três situações — falha de autenticação, recusa de conexão e falha na etapa de deploy — exibem o erro e a ação de correção correspondente; as duas primeiras têm cobertura E2E.
+- [x] O caminho completo, a navegação por chips, a mensagem de erro de diretório e o "Escolher depois" da tela de seleção de diretório têm cobertura de testes.
+- [x] A nota de limite não interrompe mais a conexão na forma de pop-up, com cobertura E2E.
+- [x] Comparação com o protótipo; capturas de tela nos temas claro e escuro e em janela de 900px.
+- [x] Atualização da especificação de UX e sincronização do catálogo de casos E2E.
+- [x] Commit local após passarem `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, os testes unitários afetados e os E2E de SSH afetados.
 
 
 ## Comments
 
-### 实施与验证（2026-09-29）
+### Implementação e verificação (2026-09-29)
 
-- 连接阶段内统一密码/私钥口令、安装预览、设备重装确认和运行任务强制更新确认；保留取消、收起和原目录意图。阶段耗时覆盖普通跨秒与午夜；上传/下载包含速度、大小及预计剩余时间，日志继续合并进度。真实 SSH 的中文认证错误虽被 preflight 包裹，仍正确回到阶段内凭据输入。
-- 目录 chip 同步导航并丢弃迟到请求，加载/错误期间不能打开未经确认的目录；完整路径、友好错误、稍后选择、名称保存/失败反馈和一次性非阻断提示均落地。目录状态条不重复设备名。
-- Standards 与 Spec 双轴评审的技术发现已修复并复核。**用户已于 2026-09-29 确认范围扩展**：允许管理快照中的只读安装预览与运行任务清单，以及 `running-tasks --json`。父规格已同步，不修改持久化 status 格式、任务 owner、身份隔离或 continuous/replayable。
-- `pnpm typecheck`、`pnpm lint`（64 条存量警告，0 error）、`pnpm architecture:check --changed`、桌面 `typecheck:e2e`、三屏 fixture 检查通过。最终受影响回归 32 文件、356 项通过；随后中文认证/等待图标/状态条回归 67 项通过。
-- implement 要求的全量单测已执行：18,718 通过、14 跳过、5 失败。1 项是被 06“识别设备”决策替代的术语断言，已更新并复验通过；其余为 `desktopResourceTelemetry` 1 项、`r3RemoteProcess` 2 项、`settingService` 1 项超时/子进程退出问题，未改这些文件，独立串行复验相关 66 项全部通过。没有宣称首轮全量全绿，也未重复整套执行。
-- 最终真实 SSH E2E **4/4 spec 通过**：`desktop-e2e-20260928171512189-p86116-9ec1bbe80ceb67aa`，含 RDUX-10/11 首装/目录、SSH-P0-CONN-01/02 认证重试、CONN-06/07 缺凭据和在线复用、RDUX-LOG 拒绝连接。首装为 **4 次点击、1 次输入**，真实版本 `3.12.2`、远端绝对安装位置均有断言。安装/目录、选择屏与失败卡片共 24 张浅色/深色 × 1440/900px 截图，另有拒绝连接截图；已对照 06 原型检查。截图保留在该 run 的本地 artifact 目录。
-- 已同步用例目录与 coverage matrix。Pending 用例未自动人工转正或准入 CI。手机 `/remote` 未改管理入口，沿现有全量回归；未实跑手机 relay、实体手机或 WSL/Docker 实机，后两种阶段文案有 DOM 回归。
+- Dentro da etapa de conexão, unificou-se a entrada de senha/passphrase, a pré-visualização da instalação, a confirmação de reinstalação do dispositivo e a confirmação de atualização forçada com tarefas em execução; cancelamento, recolhimento e a intenção original de diretório foram preservados. A duração de cada etapa cobre casos normais que cruzam o segundo e o caso da meia-noite; upload/download incluem velocidade, tamanho e tempo restante estimado, e o log continua consolidando o progresso. Mesmo com o erro de autenticação em chinês do SSH real envolvido pelo preflight, o fluxo retorna corretamente ao input de credenciais dentro da etapa.
+- Os chips de diretório navegam de forma sincronizada e descartam requisições atrasadas; durante carregamento/erro não é possível abrir um diretório não confirmado; caminho completo, erros amigáveis, "escolher depois", feedback de salvamento/falha de nome e a notificação única e não bloqueante foram implementados. A barra de status do diretório não repete o nome do dispositivo.
+- Os achados técnicos da revisão de dois eixos (Standards e Spec) foram corrigidos e reconferidos. **O usuário confirmou em 2026-09-29 a expansão de escopo**: passam a ser permitidos a pré-visualização de instalação somente-leitura e a lista de tarefas em execução no snapshot de gerenciamento, bem como o `running-tasks --json`. A especificação pai foi sincronizada, sem alterar o formato persistido de status, o owner de tarefas, o isolamento de identidade nem continuous/replayable.
+- `pnpm typecheck`, `pnpm lint` (64 avisos pré-existentes, 0 error), `pnpm architecture:check --changed`, `typecheck:e2e` do desktop e a verificação de fixtures das três telas passaram. A regressão final afetada passou com 32 arquivos e 356 testes; em seguida, a regressão de autenticação em chinês/ícone de espera/barra de status passou com 67 testes.
+- A suíte completa de testes unitários exigida pelo implement foi executada: 18.718 passaram, 14 ignorados, 5 falharam. 1 deles é uma asserção de terminologia substituída pela decisão "Identificar dispositivo" do 06, já atualizada e verificada com sucesso; os demais são 1 de `desktopResourceTelemetry`, 2 de `r3RemoteProcess` e 1 de `settingService` com problema de timeout/saída de subprocesso — esses arquivos não foram alterados e a reverificação serial independente dos 66 testes relacionados passou integralmente. Não se alegou que a primeira rodada completa ficou toda verde, nem se repetiu a suíte inteira.
+- O E2E com SSH real final passou em **4/4 specs**: `desktop-e2e-20260928171512189-p86116-9ec1bbe80ceb67aa`, cobrindo RDUX-10/11 de primeira instalação/diretório, SSH-P0-CONN-01/02 de nova tentativa de autenticação, CONN-06/07 de credenciais ausentes e reaproveitamento online, e RDUX-LOG de recusa de conexão. A primeira instalação exigiu **4 cliques e 1 input**, com asserções sobre a versão real `3.12.2` e o local absoluto de instalação remota. Foram tiradas 24 capturas de tela (instalação/diretório, tela de seleção e cartões de falha) em tema claro/escuro × 1440/900px, além de capturas de recusa de conexão; todas foram conferidas contra o protótipo do 06. As capturas foram mantidas no diretório local de artifacts daquele run.
+- O catálogo de casos e a coverage matrix foram sincronizados. Casos pendentes não foram promovidos manualmente nem admitidos no CI. O `/remote` do celular não alterou a entrada de gerenciamento e seguiu a regressão completa existente; não foram executados na prática o relay do celular, um celular físico ou máquinas reais com WSL/Docker — para estes dois últimos há regressão de DOM na linguagem das etapas.

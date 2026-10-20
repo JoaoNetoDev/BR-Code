@@ -1,48 +1,81 @@
-# 开源导出完整性
+# Integridade da exportação open source
 
-## 范围
+## Escopo
 
-从最新 staging 建立修复分支，修复导出工具、占位类型、文档和测试元数据。
-应用运行逻辑、协议值、请求时序、UI 行为和测试断言保持不变。
+A partir do `staging` mais recente, criar uma branch de correção e corrigir a ferramenta de
+exportação, os tipos de placeholder, a documentação e os metadados de testes.
+A lógica de execução da aplicação, os valores de protocolo, a temporização das requisições, o
+comportamento da UI e as asserções de teste permanecem inalterados.
 
-## 契约
+## Contrato
 
-1. Computer Use 占位包提供公共构建与类型检查入口，日志回调类型与真实 producer 一致；
-   构建只验证随包声明，不产出原生能力；保留根单测项目入口并验证占位行为。
-2. 孤立测试识别按完整文件名或路径匹配，不能因文件名子串相同删除公共测试。
-3. 公共 case catalog、coverage matrix 和账号夹具测试继续导出；官方版本专属内容归入已有主题文件。
-4. 文档和注释使用本项目行为描述，去掉个人路径、账号和产品对标；协议、provider 和兼容导入名称保留。
-5. 竞品门禁识别完整名称，允许明确的分页术语与协议键；同一行中的描述性产品提及仍被拦截。
-6. E2E manifest 的 providerFixtures 指向现存 upstream 夹具；不移动候选 spec、不改变转正状态。
-7. 许可标识修复绑定精确包版本与发布方原文；不能用宽泛白名单或更新哈希掩盖材料缺口。
-8. 开源 README 的最新版本与源版本一致。
+1. O pacote placeholder de Computer Use oferece pontos de entrada públicos de build e checagem
+   de tipos, e o tipo do callback de log é consistente com o producer real;
+   o build apenas valida o que é declarado junto ao pacote, sem produzir capacidade nativa; manter
+   o ponto de entrada do projeto de testes unitários raiz e validar o comportamento do placeholder.
+2. A identificação de testes órfãos casa por nome de arquivo completo ou caminho, e não pode
+   apagar um teste público por causa de um nome de arquivo idêntico como substring.
+3. O catálogo público de casos, a matriz de cobertura e os testes de fixtures de conta continuam
+   sendo exportados; o conteúdo exclusivo da versão oficial vai para os arquivos temáticos já
+   existentes.
+4. A documentação e os comentários usam descrições do comportamento deste projeto, removendo
+   caminhos pessoais, contas e comparações com outros produtos; nomes de protocolo, provider e de
+   importações compatíveis são preservados.
+5. O gate de concorrentes identifica nomes completos, permite terminologia explícita de paginação e
+   chaves de protocolo; menções descritivas a produtos na mesma linha continuam sendo bloqueadas.
+6. O `providerFixtures` do manifesto E2E aponta para fixtures upstream existentes; specs candidatos
+   não são movidos e o estado de promoção não é alterado.
+7. As correções de identificação de licença ficam vinculadas à versão exata do pacote e ao texto
+   original do publicador; não se pode usar uma whitelist ampla nem atualizar hashes para mascarar
+   lacunas de material.
+8. A versão mais recente do README open source é consistente com a versão de origem.
 
-### 独立 Git 历史的存量准入
+### Admissão de preexistentes em um histórico Git independente
 
-导出后的 lint 与架构检查不能依赖未公开的 Git 对象。导出器先验证既有准入提交属于指定源 ref，
-再为导出后仍与准入版本一致的源码生成固定的 Git blob 与文件模式清单，同时保留公开的上游新增路径。
-开源策略使用该清单，闭源继续使用原有提交准入；两种来源不能同时启用。
+O lint e a checagem de arquitetura após a exportação não podem depender de objetos Git não
+publicados. O exportador primeiro valida que os commits de admissão existentes pertencem ao ref de
+origem especificado; depois gera um manifesto fixo de blobs Git e modos de arquivo para o código
+fonte que, após a exportação, ainda corresponde à versão de admissão, preservando ao mesmo tempo os
+caminhos upstream recém-publicados.
+A política open source usa esse manifesto, e o código fechado continua usando a admissão por
+commits original; as duas origens não podem ser habilitadas ao mesmo tempo.
 
-清单只描述本次公开文件，不公开已排除路径，不自动接纳改写后的文件。
-新增路径按指定源 ref 的规则生效日期筛选；导出提交的日期不能让原本不受追溯的存量路径重新进入准入范围。
-首次进入公开历史的旧路径另存固定内容与模式，只恢复源历史原有的日期归属；不参与 lint 行数准入。
-检查器同时比较暂存区和工作区；提交后编辑、暂存后恢复、改名、模式变化及未跟踪文件均不能继承豁免。
-存量准入只沿用原有 max-lines 与 unmanaged-new-file 规则，不豁免其他 lint 或模块结构错误。
+O manifesto descreve apenas os arquivos publicados nesta rodada, não expõe caminhos excluídos e não
+aceita automaticamente arquivos reescritos.
+Os caminhos novos seguem a data de vigência das regras do ref de origem especificado; a data do
+commit de exportação não pode fazer com que caminhos preexistentes e não retroativos voltem a entrar
+no escopo de admissão.
+Caminhos antigos que entram pela primeira vez no histórico público guardam separadamente o
+conteúdo e o modo fixos, apenas restaurando a atribuição de data que existia no histórico de
+origem; eles não participam da admissão de limite de linhas do lint.
+O verificador compara simultaneamente a área de stage e a área de trabalho; edições após o commit,
+restaurações após o stage, renomeações, mudanças de modo e arquivos não rastreados não herdam
+isenção.
+A admissão de preexistentes só reaproveita as regras originais de `max-lines` e `unmanaged-new-file`, e não
+isenta outros erros de lint ou de estrutura de módulo.
 
 ```text
-指定源 ref + 已合入的准入提交 → 导出器 → 公开文件的固定内容与模式清单
+ref de origem especificado + commits de admissão já mesclados → exportador → manifesto fixo de conteúdo e modo dos arquivos públicos
                                            ↓
-独立开源历史中的暂存区 + 工作区 → 原样比较 → 原有 lint / 架构规则
+área de stage + área de trabalho em um histórico open source independente → comparação literal → regras originais de lint / arquitetura
 ```
 
-回归必须在全新 Git 仓库中运行，证明没有闭源提交对象也能检查，并覆盖修改后退出准入的情况。
-占位包的 `vitest.config.ts` 只装配单测项目，通过精确路径登记该测试配置；不扩大到 producer 实现文件。
+A regressão deve rodar em um repositório Git novo, provando que a verificação funciona sem objetos
+de commits fechados, e cobrindo o caso de saída da admissão após modificação.
+O `vitest.config.ts` do pacote placeholder apenas monta o projeto de testes unitários, registrando
+essa configuração de teste por caminho exato; não se expande para os arquivos de implementação do
+producer.
 
-## 验收
+## Aceitação
 
-- 先复现占位包构建/类型、孤立测试误删和词条误报，再验证修复。
-- 重新导出，硬门禁为零；公共文档和测试存在，补丁栈为空。
-- 在独立开源树冻结安装，执行构建入口、根与 CLI 类型检查、lint、完整单测及覆盖清单审计。
-- 闭源执行架构检查、受影响测试、类型检查和 lint。夹具检查覆盖修改的全部 manifest。
-- 基础许可检查与严格材料检查分别报告；既有材料缺口不计为已修复。
-
+- Primeiro reproduzir o build/tipos do pacote placeholder, a remoção indevida de testes órfãos e os
+  falsos positivos de termos; depois validar as correções.
+- Reexportar: os hard gates ficam zerados; a documentação e os testes públicos existem e a pilha de
+  patches está vazia.
+- Em uma árvore open source independente com instalação congelada, executar o ponto de entrada de
+  build, a checagem de tipos da raiz e da CLI, o lint, os testes unitários completos e a auditoria
+  do manifesto de cobertura.
+- No código fechado, executar a checagem de arquitetura, os testes afetados, a checagem de tipos e
+  o lint. A verificação de fixtures cobre todos os manifestos modificados.
+- A checagem básica de licença e a checagem estrita de material são reportadas separadamente; lacunas
+  de material já existentes não contam como corrigidas.

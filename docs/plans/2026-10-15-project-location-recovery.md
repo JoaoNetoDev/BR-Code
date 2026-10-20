@@ -1,86 +1,76 @@
-# Project Location Recovery Implementation Plan
+# Plano de implementação da recuperação da localização do projeto
 
-**Goal:** 可重建的位置缓存异常先局部自愈，保留有效登录；不扩展登录失效条件。
+**Objetivo:** anomalias no cache de localização reconstruível se auto-curam primeiro de forma localizada, preservando um login válido; não ampliar as condições de invalidação de login.
 
-**Architecture:** ProjectAccessTokenClient owns pending/代次/位置重建；CredentialService owns
-共享文件锁内的条件恢复。OAuthService 保持身份 authority，沿用已有业务鉴权核验。
+**Arquitetura:** ProjectAccessTokenClient é o owner de pending/geração/ reconstrução de localização; CredentialService é o owner da recuperação condicional dentro do lock de arquivo compartilhado. OAuthService permanece como a autoridade de identidade, mantendo a verificação de autenticação de negócio já existente.
 
-**Tech Stack:** TypeScript、Vitest、Electron/WDIO、本地 HTTP 合成夹具。
+**Stack técnico:** TypeScript, Vitest, Electron/WDIO, fixtures HTTP locais sintéticos.
 
-## 实施顺序
+## Ordem de implementação
 
-1. 更新 `docs/oauth/jwt-401-auto-logout.md` 与 auth-config case 清单。
-2. 先补共享客户端失败分支、单飞与存储并发测试，运行确认失败。
-3. 删除全局登出接线；实现 Host 私有 `recoverUnreadable` 缓存端口及共享客户端一次重建。
-4. 修改 pending Electron case，验证自动恢复与 503 后保留登录，并记录运行时文件/HTTP/UI 证据。
-5. 执行类型、Lint、格式、架构、受影响测试；复查 diff 后整理为一个提交，创建 staging MR。
+1. Atualizar `docs/oauth/jwt-401-auto-logout.md` e a lista de casos de auth-config.
+2. Primeiro complementar o cliente compartilhado com os ramos de falha, single-flight e os testes de concorrência de armazenamento; executar para confirmar a falha.
+3. Remover a fiação do logout global; implementar a porta de cache privada `recoverUnreadable` do Host e a reconstrução única pelo cliente compartilhado.
+4. Modificar o caso Electron de pending; verificar a recuperação automática e a preservação do login após um 503, e registrar as evidências de arquivo/HTTP/UI em runtime.
+5. Executar tipos, Lint, formatação, arquitetura e testes afetados; revisar o diff e consolidar em um único commit, criando um MR de staging.
 
-## Impact Brief（planning）
+## Impact Brief (planning)
 
 ### Feature Summary
 
-- Capability：`capability.provider-registry`；变化层级：persistence / recovery / validation。
-- Seeds：ProjectAccessTokenClient、createAccountProjectTokenClient、createCredentialService。
-- 非目标：修改密钥推导、登录协议、整个账号的事务模型、平台 403 语义或 Standalone CLI 行为。
+- Capability: `capability.provider-registry`; camada de mudança: persistence / recovery / validation.
+- Seeds: ProjectAccessTokenClient, createAccountProjectTokenClient, createCredentialService.
+- Não objetivos: alterar a derivação de chaves, o protocolo de login, o modelo transacional da conta inteira, a semântica de 403 de plataforma ou o comportamento do Standalone CLI.
 
 ### UI Surface Matrix
 
-| 场景 / UI 入口                      | 共享实现 / 显示 owner                   | 校验与提交                      | authority / 落点                    | 模式与隔离                                  |
-| ----------------------------------- | --------------------------------------- | ------------------------------- | ----------------------------------- | ------------------------------------------- |
-| 设置套餐连接 / ModelProviderSection | Account Provider → ProviderSettingsView | 请求期 Token 解析，位置异常重建 | Host Token owner / credentials.json | 桌面、shared-host；不能退出有效登录         |
-| 侧栏头像 / useRootOAuthEffects      | OAuth cached session / Root user        | 原有鉴权确认后才重登            | OAuthService / oauth:\*             | 保留身份、无新增 UI 状态                    |
-| 用量与模型请求                      | Account request auth / Token client     | 请求前换证，不重放已建立模型流  | Host runtime / 内存 Token           | 个人/团队命名空间隔离；远程继续原 authority |
+| Cenário / entrada de UI | Implementação compartilhada / owner de exibição | Validação e submissão | authority / ponto de gravação | Modos e isolamento |
+| --- | --- | --- | --- | --- |
+| Conexão de plano em Configurações / ModelProviderSection | Account Provider → ProviderSettingsView | Resolução do Token durante a requisição, reconstrução em caso de anomalia de localização | Host é o owner do Token / credentials.json | Desktop, shared-host; não pode encerrar um login válido |
+| Avatar da barra lateral / useRootOAuthEffects | Sessão OAuth em cache / usuário Root | Novo login apenas após a confirmação de autenticação original | OAuthService / oauth:\* | Preserva a identidade, sem novo estado de UI |
+| Uso e requisições de modelo | Autenticação de requisição de conta / cliente de Token | Troca de credencial antes da requisição, sem reproduzir fluxos de modelo já estabelecidos | Runtime do Host / Token em memória | Isolamento dos namespaces pessoal/equipe; no remoto mantém a authority original |
 
 ### Shared And Divergent Behavior
 
-所有 Host 消费位置缓存的入口共用一次重建及文件锁。Renderer 不读写缓存；没有恢复端口的
-Standalone CLI 保持原有错误语义。本次不修改 UI 组件、主题、文案、手机 replayable 路由。
+Todas as entradas de Host que consomem o cache de localização compartilham uma única reconstrução e o lock de arquivo. O Renderer não lê nem escreve o cache; o Standalone CLI, que não tem porta de recuperação, mantém a semântica de erro original. Esta rodada não modifica componentes de UI, tema, textos, nem a rota replayable do celular.
 
 ### Feature Relationships
 
-- must-inspect：`capability.provider-registry` → `surface.provider-settings`，套餐可用性与配置独立。
-- must-inspect：OAuth/Credential → Account Token client，身份不能被派生缓存反向撤销。
-- should-inspect：个人/团队用量、官方 MCP、请求期鉴权，均消费 Host 项目 Token。
-- invariant-only：`service.oauth`、`state.oauth-pending-callback`，成功恢复不改变登录或 pending。
+- must-inspect: `capability.provider-registry` → `surface.provider-settings`; disponibilidade do plano e configuração são independentes.
+- must-inspect: OAuth/Credential → Account Token client; a identidade não pode ser revogada reversamente por um cache derivado.
+- should-inspect: uso pessoal/equipe, MCP oficial e autenticação durante a requisição — todos consomem o Token de projeto do Host.
+- invariant-only: `service.oauth`, `state.oauth-pending-callback`; uma recuperação bem-sucedida não altera o login nem o pending.
 
 ### State Owners And Commit Sinks
 
-位置 pending / 代次：ProjectAccessTokenClient；OAuth：OAuthService；密文文件修改：CredentialService
-和现有 withFileLock；UI 仅读既有 ProviderSettingsView，不增加计时器或第二份缓存。
+Pending de localização / geração: ProjectAccessTokenClient; OAuth: OAuthService; modificação do arquivo cifrado: CredentialService e o `withFileLock` existente; a UI apenas lê a ProviderSettingsView já existente, sem adicionar temporizadores nem uma segunda cópia do cache.
 
 ### Must-Preserve Invariants
 
-普通 IO 不删除；仅删仍无法解密的目标缓存；锁内复核已修复则复用；clear 后旧任务不恢复；
-恢复失败保留 OAuth；不记录 Token、账号 ID 或密文；不写短期 Token；不自动重放模型请求。
+IO comum não apaga nada; apaga-se apenas o cache alvo que continua impossível de decifrar; dentro do lock revalida-se e, se já estiver corrigido, reaproveita-se; após clear, tarefas antigas não são restauradas; se a recuperação falhar, o OAuth é preservado; não registrar Token, account ID ou texto cifrado; não gravar Token de curto prazo; não reproduzir automaticamente requisições de modelo.
 
 ### Codegraph Evidence
 
-当前无可用 codegraph 工具或索引，使用 dep:refs 和 rg 核对直接调用，展开两层：
-node.ts → accountProjectTokenClient → ProjectAccessTokenClient；个人/团队 runtime → 同一 client；
-CredentialService → withFileLock → 原子文件替换；Root OAuth 广播链路只作为不变边界。
+Atualmente não há ferramenta ou índice de codegraph disponível; usam-se dep:refs e rg para conferir as chamadas diretas, expandindo dois níveis: node.ts → accountProjectTokenClient → ProjectAccessTokenClient; runtime pessoal/equipe → o mesmo client; CredentialService → withFileLock → substituição atômica de arquivo; a cadeia de broadcast do OAuth Root serve apenas como fronteira de invariância.
 
 ### Graph Drift Candidates / Graph Delta
 
-图中 provider-registry 未列项目 Token 和 credential store 的精确 seeds；补充已确认的 seeds
-和缓存恢复隔离不变量，不新增能力或 UI surface。其余静态调用仅作为证据。
+O grafo não lista em provider-registry as seeds exatas do Token de projeto e do credential store; complementam-se as seeds confirmadas e o invariante de isolamento da recuperação de cache, sem novas capacidades ou UI surface. As demais chamadas estáticas servem apenas como evidência.
 
 ### Unresolved Questions
 
-额外对账：历史 reasoning Map 的新增型号匹配规则漏列为新增型号，补齐测试排除清单；远端旧任务断言按现行首次迁移 spec 校正。两处仅修测试，不改模型配置或迁移实现。
-原始用户异常触发原因仍未确定；不阻塞修复已经复现的局部恢复缺口，不在 MR 中宣称根因已定。
+Contabilidade adicional: o histórico da regra de correspondência de novos modelos no reasoning Map omitiu os novos modelos; completa-se a lista de exclusão nos testes; as asserções de tarefas remotas antigas são corrigidas conforme a spec de primeira migração vigente. Os dois pontos corrigem apenas testes, sem alterar a configuração de modelos nem a implementação da migração.
+A causa original que disparou a anomalia do usuário ainda não foi determinada; isso não bloqueia a correção da lacuna de recuperação local já reproduzida, e o MR não deve alegar que a causa raiz está definida.
 
 ### Accepted Cases / Planning Handoff
 
-接受：损坏缓存自动恢复；503 保留登录；修复先提交；多个恢复合并；clear 后失败无副作用。
-剪枝：主题/语言不改变 Host 条件恢复，以现有双语 UI 和不改渲染规则为不变量；平台差异由
-原异步文件锁适配，本轮 macOS Electron，其他平台和手机真机如实列未验证。
-Spec 与 case 清单为上列两篇文档；E2E 继续 pending，不做转正或 CI admission。
+Aceitos: recuperação automática de cache corrompido; 503 preserva o login; a correção é submetida primeiro; múltiplas recuperações são combinadas; após clear, a falha não tem efeitos colaterais.
+Podados: tema/idioma não alteram a recuperação condicional do Host, mantendo como invariantes a UI bilíngue existente e a ausência de mudança nas regras de renderização; as diferenças entre plataformas são tratadas pela adaptação ao lock de arquivo assíncrono original, nesta rodada macOS Electron, listando honestamente as outras plataformas e o celular real como não verificados.
+A spec e a lista de casos são os dois documentos acima; o E2E continua pending, sem promoção nem admissão em CI.
 
-## 评审修正范围
+## Escopo de correção da revisão
 
-起点 `6546165b3e`；仅处理已批准的 SG-01 前置诊断事件、单测及 SG-02 契约引用。
-先在共享客户端测试中验证恢复内 IO / 后续查询失败的事件顺序、普通读取错误不报恢复，
-再补固定事件及 Host 日志标签；不新增恢复结果类型或改变恢复/登录行为。
-两项基线测试仅补 spec 与现有独立覆盖的路径，断言不变。完成后运行定向与受影响测试、
-类型、Lint、架构检查，并回放已有 Electron 恢复用例核对日志，提交推送后等待同提交评审。
-评审图谱起点为 48 affected files / 466 impacted nodes；53 testGaps 仅为待核验候选。
+Ponto de partida `6546165b3e`; trata-se apenas dos eventos de diagnóstico prévios aprovados SG-01, dos testes unitários e das referências de contrato SG-02.
+Primeiro validar, nos testes do cliente compartilhado, a ordem dos eventos de IO interno da recuperação / falha na consulta seguinte e que erros de leitura comuns não disparam recuperação; depois complementar os eventos fixos e as tags de log do Host; não criar novos tipos de resultado de recuperação nem mudar o comportamento de recuperação/login.
+Os dois testes de baseline apenas passam a citar a spec e o caminho já coberto de forma independente, mantendo as asserções. Concluído isso, executar os testes direcionados e os afetados, tipos, Lint, a checagem de arquitetura, e reproduzir os casos Electron de recuperação existentes para conferir os logs; após o push do commit, aguardar a revisão do mesmo commit.
+O ponto de partida do grafo da revisão é de 48 affected files / 466 impacted nodes; os 53 testGaps são apenas candidatos pendentes de verificação.

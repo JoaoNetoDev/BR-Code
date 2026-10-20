@@ -1,292 +1,295 @@
-# Composer 模型与思考档位合并入口
+# Entrada unificada de modelo e nível de raciocínio do Composer
 
-## 交互
+## Interação
 
-普通输入框的模型与 Think 使用一个入口。入口不显示 Provider 前缀：
+O modelo e o Think do campo de entrada comum usam uma única entrada. A entrada não exibe o prefixo do Provider:
 
 ```text
-[ GLM-5.3-Flash High ▾ ]  → [ GLM-5.3-Flash ▮ ] → [ 模型图标 ▮ ]
+[ GLM-5.3-Flash High ▾ ]  → [ GLM-5.3-Flash ▮ ] → [ ícone de modelo ▮ ]
 ```
 
-菜单显示 Models（中文「模型」）分区标题，使用 text-ui-sm 和次要文字色；模型名称保持基础字号，能力标签保持原样。
+O menu exibe o título da seção Models (em chinês, "模型"), usando text-ui-sm e a cor de texto secundária; o nome do modelo mantém o tamanho de fonte base, e as etiquetas de capacidade permanecem como são.
 
-High 使用次要文字色。绿条始终是同一按钮内的展示，不单独响应点击；按模型声明的档位显示强度，关闭或无效选择为空槽。
+High usa a cor de texto secundária. A barra verde é sempre uma exibição dentro do mesmo botão, não responde a cliques isoladamente; exibe a intensidade conforme os níveis declarados pelo modelo, e fica vazia quando fechada ou com seleção inválida.
 
-模型菜单相对入口居中对齐（`align="center"`），保留视口边缘避让。
+O menu de modelos é alinhado ao centro em relação à entrada (`align="center"`), preservando o desvio das bordas do viewport.
 
-入口保留原有 `rounded-lg` 圆角按钮样式，不使用胶囊造型。菜单展开期间保持主题 hover 灰色底，即使指针已移入菜单也不消失；关闭后恢复 ghost 底色。展开前测量按钮宽度，展开期间取原宽度与 `8rem` 最小宽度的较大值并锁定，避免短模型名或图标态导致「选择模型」被截断；展开时隐藏模型和档位，改为居中的 Select model（中文：选择模型），不显示下箭头；关闭后释放固定宽度并恢复模型和档位及原压缩优先级。宽度只在一次展开前捕获，不随调档或模型变化重新测量。
+A entrada mantém o estilo de botão arredondado `rounded-lg` original, sem forma de cápsula. Enquanto o menu está expandido, mantém o fundo cinza de hover do tema, mesmo que o ponteiro já tenha entrado no menu; ao fechar, restaura o fundo ghost. Antes de expandir, mede a largura do botão; durante a expansão, usa o maior valor entre a largura original e a largura mínima de `8rem` e o fixa, evitando que nomes de modelo curtos ou o estado de ícone truncquem "Selecionar modelo"; enquanto expandido, oculta o modelo e o nível, trocando por Select model (em chinês, 选择模型) centralizado, sem seta para baixo; após fechar, libera a largura fixa e restaura o modelo e o nível, bem como a prioridade de compressão original. A largura é capturada apenas uma vez, antes de uma expansão, e não é remedida quando o nível ou o modelo mudam.
 
-未选模型时，入口无论展开或关闭均显示次要文字色的「选择模型」，不显示思考档位占位横线或绿条。未选模型时无障碍名称只显示选择模型文案，不拼接 `· —`；选中模型后按钮和无障碍名称显示模型与有效档位。普通 Tooltip 始终显示操作文案「选择模型」（Select model）及快捷键，不重复模型和档位；菜单展开时隐藏 Tooltip，引导提示保持原有专用文案。
+Quando nenhum modelo está selecionado, a entrada exibe "Selecionar modelo" na cor de texto secundária, tanto expandida quanto fechada, sem mostrar a linha de espaço reservado do nível de raciocínio nem a barra verde. Sem modelo selecionado, o nome acessível mostra apenas o texto de seleção de modelo, sem concatenar `· —`; após selecionar um modelo, o botão e o nome acessível exibem o modelo e o nível válido. O Tooltip comum sempre mostra o texto de ação "Selecionar modelo" (Select model) e o atalho, sem repetir modelo e nível; quando o menu está expandido, o Tooltip é ocultado, e a dica mantém o seu texto dedicado original.
 
-Think 滑杆采用胶囊轨道、离散档位圆点和白色圆形滑块。低于最高档时，已选轨道保持 success 纯绿色；只有有效选择达到最高档时才显示从右至左的蓝到绿渐变（右蓝、左绿），蓝色使用滑杆专属变量 --composer-thought-max-accent（blue-500），两套主题均保持高饱和度，绿色使用 success 主题色；渐变使用 OKLCH shorter hue 插值，从左至右经过绿、青、蓝，保持过渡色度，不包含紫色。离开最高档以 200ms 淡出渐变恢复纯绿色，工具栏竖条继续使用 success 绿色，未选轨道及圆点使用主题中性颜色；关闭或无效档位不填充。轨道描边仅显示在未选中的灰色区域：描边置于底层，渐变填充覆盖选中区域的描边，不缩进到描边内部。轨道 24px 高，滑块 28px，操作区域 32px 高；每个档位对应一个圆点，位置与原生 range 的离散索引一致。保留原生 range 的键盘、指针与触屏行为及现有焦点保护，仅自定义视觉。
+O slider do Think usa trilho em cápsula, pontos discretos por nível e cursor circular branco. Abaixo do nível máximo, o trilho selecionado permanece em verde puro (success); somente quando uma seleção válida alcança o nível máximo é exibido o gradiente azul→verde da direita para a esquerda (azul à direita, verde à esquerda), com o azul usando a variável exclusiva do slider --composer-thought-max-accent (blue-500), mantendo alta saturação em ambos os temas, e o verde usando a cor de tema success; o gradiente usa interpolação OKLCH shorter hue, passando de verde, ciano a azul da esquerda para a direita, preservando a croma da transição e sem incluir roxo. Ao sair do nível máximo, o gradiente desvanece em 200ms e o trilho volta ao verde puro; a barra vertical da barra de ferramentas continua usando o verde success, e o trilho e os pontos não selecionados usam as cores neutras do tema; fechado ou com nível inválido, não há preenchimento. O contorno do trilho aparece apenas nas regiões cinzas não selecionadas: o contorno fica na camada inferior, e o preenchimento em gradiente cobre o contorno da região selecionada, sem recuar para dentro do contorno. O trilho tem 24px de altura, o cursor 28px e a área de operação 32px de altura; cada nível corresponde a um ponto, com posição consistente com o índice discreto do range nativo. Mantém o comportamento de teclado, ponteiro e toque do range nativo e a proteção de foco existente, customizando apenas o visual.
 
-点击或键盘调档时，滑块位置和渐变填充同步使用 120ms ease-out 过渡。拖拽逐档移动时也保持同样的短过渡，让滑块与渐变填充同步平滑移动。切换模型、Provider 或档位目录时仅重置视觉层，不跨模型补间，也不重建原生 input 或移动焦点。系统 prefers-reduced-motion 时取消过渡。
+Ao clicar ou ajustar o nível pelo teclado, a posição do cursor e o preenchimento em gradiente mudam em sincronia com uma transição de 120ms ease-out. O arraste nível a nível também mantém a mesma transição curta, para que o cursor e o preenchimento em gradiente se movam de forma sincronizada e suave. Ao trocar de modelo, Provider ou catálogo de níveis, apenas a camada visual é reiniciada: não há interpolação entre modelos, nem reconstrução do input nativo, nem movimentação de foco. Com prefers-reduced-motion do sistema, as transições são canceladas.
 
-弹层结构：供应商图标、名称、接入标签（箭头靠右）→ 分割线 → Models 标题与模型列表 → 分割线 → Effort 标题（text-ui-sm）与当前档位（基础字号，同排靠左，下间距 mb-1）→ 离散滑杆。不显示最低／最高档位标签，也不保留该行空间；桌面与手机 Web 共用此布局，滑杆的键盘、指针、触屏操作及无障碍档位文字保持不变。管理模型入口与已有 provider family 连接方式仍然可达。主菜单与供应商子菜单的分割线统一使用 border/50。
+Estrutura da camada: ícone do fornecedor, nome, etiqueta de acesso (seta à direita) → divisor → título Models e lista de modelos → divisor → título Effort (text-ui-sm) e nível atual (tamanho base, alinhado à esquerda na mesma linha, espaçamento inferior mb-1) → slider discreto. Não são exibidas etiquetas de nível mínimo/máximo, nem é reservado espaço para essa linha; desktop e Web em celular compartilham este layout, e as operações de teclado, ponteiro e toque do slider e o texto acessível dos níveis permanecem iguais. O acesso ao gerenciamento de modelos e a forma existente de conexão por provider family continuam acessíveis. Os divisores do menu principal e do submenu de fornecedores usam uniformemente border/50.
 
-Provider 行左侧依次为当前供应商图标、名称、接入方式标识，子菜单箭头靠右，不再显示 Provider 标题。图标复用供应商配置中的 logo 和已有深浅主题资源，无 logo 时使用通用模型图标。供应商子菜单中的接入方式标识紧跟名称（间距 8px），不推到行尾；当前选中标记保留在右侧，末尾分割线下放置 Manage models；合并弹层底部不重复显示此入口。空目录时仍可打开子菜单进入模型管理。其他使用 ModelConfigSelect 的界面保持原布局。
+À esquerda da linha do Provider vêm, sucessivamente, o ícone do fornecedor atual, o nome e o indicador do modo de acesso, com a seta do submenu à direita, e o título de Provider não é mais exibido. Os ícones reutilizam o logo da configuração do fornecedor e os recursos de tema claro/escuro já existentes, usando o ícone genérico de modelo quando não há logo. No submenu do fornecedor, o indicador do modo de acesso acompanha de perto o nome (espaçamento de 8px), sem ser empurrado para o fim da linha; o marcador de seleção atual permanece à direita, e o Manage models é colocado depois do divisor final; a camada unificada não repete essa entrada no rodapé. Com o catálogo vazio, o submenu ainda pode ser aberto para acessar o gerenciamento de modelos. Outras interfaces que usam ModelConfigSelect mantêm o layout original.
 
-接入标识复用目录的 `labelBadge`：账号套餐显示个人／团队／免费，API Key 接入显示 API；由配置 access 生成，不从名称推断，不暴露凭据。
+O indicador de acesso reutiliza o `labelBadge` do catálogo: planos de conta exibem individual/equipe/gratuito, e o acesso por API Key exibe API; é gerado a partir do `access` da configuração, não inferido a partir do nome, e não expõe credenciais.
 
-子菜单使用 Portal 避免父菜单裁切。窄屏侧向空间不足时，子菜单允许覆盖父菜单并避开 Provider 触发器行，保持高于父菜单的层级；不改变 Provider 选择和模型切换逻辑。
+O submenu usa Portal para evitar o recorte do menu pai. Quando a largura estreita não oferece espaço lateral, o submenu pode sobrepor o menu pai e se afastar da linha gatilho do Provider, mantendo um nível acima do menu pai; isso não altera a lógica de seleção de Provider nem de troca de modelo.
 
-切换 Provider 立即选择该分组按目录顺序的第一个未锁定模型，沿用已有 onSelectModel 更新 Composer，Think 由既有模型切换逻辑同步为有效档位，弹层保持打开。重复选择当前 Provider 保留其当前可用模型。没有可用模型的 Provider 仍可浏览和配置，但不覆盖当前模型，Think 禁用。滑杆按 Option Spec 的原始顺序逐格选择，不排序、不转换成 Token Budget。仅 Off 单档隐藏整个 Effort 区域及分割线；其他单档禁用滑杆但显示档位；无模型／无有效档位不制造默认选择。选择档位保持弹层打开，点击外部或 Escape 收起。桌面关闭后恢复输入焦点；手机不主动弹出软键盘。
+Trocar de Provider seleciona imediatamente o primeiro modelo não bloqueado daquele grupo na ordem do catálogo, reutiliza o onSelectModel existente para atualizar o Composer, o Think é sincronizado para um nível válido pela lógica existente de troca de modelo, e a camada permanece aberta. Selecionar novamente o Provider atual mantém o modelo atualmente disponível daquele grupo. Um Provider sem modelos disponíveis ainda pode ser navegado e configurado, mas não sobrescreve o modelo atual, e o Think fica desabilitado. O slider seleciona graduadamente na ordem original do Option Spec, sem ordenar nem converter para Token Budget. Apenas o nível único Off oculta toda a área de Effort e o seu divisor; outros níveis únicos desabilitam o slider, mas exibem o nível; ausência de modelo ou de nível válido não cria uma seleção padrão. Selecionar um nível mantém a camada aberta; clicar fora ou pressionar Escape a recolhe. No desktop, fechar restaura o foco no campo de entrada; no celular, o teclado virtual não é aberto ativamente.
 
-### 模型菜单关闭
+### Fechamento do menu de modelos
 
-- 点击或键盘确认可用模型后保持菜单打开，包括重复选择当前模型，便于继续调整思考档位；锁定模型不提交、不关闭。切换 Provider 和调档仍保持菜单打开。
-- 普通输入框、全屏插件中的浮动输入框共用同一个菜单打开状态。点击菜单外侧一次即关闭，包括插件 webview 所占区域；该次点击只关闭菜单，不触发底下插件操作。Escape 保持关闭行为。
-- 菜单关闭后沿用现有焦点规则：桌面恢复输入框，手机不主动弹出软键盘。不改变模型选择 owner、提交和协议。
+- Depois de confirmar um modelo disponível por clique ou teclado, o menu permanece aberto, inclusive ao reselecionar o modelo atual, para permitir continuar ajustando o nível de raciocínio; modelos bloqueados não são submetidos e não fecham o menu. Trocar de Provider e ajustar níveis também mantêm o menu aberto.
+- O campo de entrada comum e o campo de entrada flutuante em plugins em tela cheia compartilham o mesmo estado de abertura do menu. Um único clique fora do menu fecha-o, incluindo a área ocupada pelo webview do plugin; esse clique apenas fecha o menu e não aciona a ação do plugin subjacente. O Escape mantém o comportamento de fechamento.
+- Depois que o menu fecha, valem as regras de foco existentes: o desktop restaura o campo de entrada, o celular não abre ativamente o teclado virtual. Não são alterados o owner da seleção de modelo, o envio nem o protocolo.
 
 ```text
-确认可用模型 → 既有模型选择回调 → 菜单保持打开
-菜单外侧指针 → 宿主菜单外部交互 → 菜单 open=false
-Provider / Effort 操作 → 原有选择链路 → 菜单保持打开
+Confirmar modelo disponível → callback existente de seleção de modelo → menu permanece aberto
+Ponteiro fora do menu → interação externa do menu hospedeiro → menu open=false
+Operações de Provider / Effort → cadeia de seleção existente → menu permanece aberto
 ```
 
-外侧点击回归原因：Radix 打开 modal 菜单后将 body 的 pointer-events 设为 none，但插件 webview 显式设置 auto，继续接收点击；guest 内事件不冒泡到宿主 document，因此菜单没有收到外部 pointerdown。Electron 事件采样确认该次点击执行了插件按钮，菜单仍为打开态。合并菜单打开期间提供透明指针层，放在插件页面之上、Composer 和浮窗之下，复用 Radix 的外部关闭逻辑，保留工具栏菜单互切。该层与菜单共用 open，不保存额外状态。
+Motivo da regressão no clique externo: depois que o Radix abre um menu modal, ele define `pointer-events` do body como none, mas o webview do plugin define explicitamente auto e continua recebendo cliques; eventos dentro do guest não borbulham até o document hospedeiro, de modo que o menu não recebeu o pointerdown externo. A amostragem de eventos do Electron confirmou que aquele clique executou o botão do plugin, com o menu ainda aberto. Enquanto a camada unificada está aberta, é fornecida uma camada de ponteiro transparente, posicionada acima da página do plugin e abaixo do Composer e das janelas flutuantes, reutilizando a lógica externa de fechamento do Radix e preservando a alternância mútua entre os menus da barra de ferramentas. Essa camada compartilha o `open` com o menu e não mantém estado adicional.
 
-回归验证：菜单组件单测 47 条、Electron webview / 手机宽度 iframe 深浅主题交互 4 条、完整桌面工具栏 11 条通过，覆盖选模型后保持打开及随后一次外侧点击关闭。浏览器候选通过 `node --test packages/ui/test/browser/manual-review/pending/composer-menu-dismiss.test.mjs` 运行，产物在 `packages/desktop/.e2e-artifacts/composer-menu-dismiss/`。未覆盖 Windows/Linux 原生窗口、手机真机和远控连接；插件资源采用测试页，不验证插件安装或 Agent 握手。
+Verificação de regressão: 47 testes unitários do componente de menu, 4 testes de interação do webview do Electron / iframe em largura de celular nos temas claro e escuro e 11 testes da barra de ferramentas completa do desktop passaram, cobrindo a permanência do menu aberto após selecionar um modelo e o subsequente fechamento por um único clique externo. O candidato de navegador foi executado com `node --test packages/ui/test/browser/manual-review/pending/composer-menu-dismiss.test.mjs`, com artefatos em `packages/desktop/.e2e-artifacts/composer-menu-dismiss/`. Não são cobertas janelas nativas Windows/Linux, aparelhos móveis reais e conexões de controle remoto; os recursos de plugin usam uma página de teste e não validam a instalação de plugin nem o handshake do Agent.
 
-## 整体压缩优先级
+## Prioridade geral de compressão
 
-统一由 useComposerToolbarFit 测量全部左右控件及间距，每一级仍溢出才进入下一级：
+Tudo é medido de forma unificada por useComposerToolbarFit, que considera todos os controles à esquerda e à direita e seus espaçamentos; só se passa para o próximo nível quando o nível atual ainda transborda:
 
-1. Computer 文字收起。
-2. Mode 文字与箭头收起。
-3. Plan 文字收起。
-4. 合并入口 High 与箭头替换为绿条，模型名完整保留。
-5. 模型名替换为模型图标，绿条保留。
+1. Recolhe o texto de Computer.
+2. Recolhe o texto e a seta de Mode.
+3. Recolhe o texto de Plan.
+4. Substitui High e a seta da entrada unificada pela barra verde, mantendo o nome do modelo por completo.
+5. Substitui o nome do modelo pelo ícone do modelo, mantendo a barra verde.
 
-不存在隐藏绿条、仅模型名、截断模型名的中间阶段。未渲染的控件跳过，宽度恢复时逆序展开；按钮不因压缩重新挂载，打开的菜单、焦点和选择不丢失。Highspeed 锁定模型的既有专用指示器与独立思考控制保持现有行为。
+Não existe um estágio intermediário de ocultar a barra verde, mostrar apenas o nome do modelo ou truncar o nome do modelo. Controles não renderizados são ignorados, e a expansão acontece na ordem inversa quando a largura é restaurada; os botões não são remontados por causa da compressão, de modo que menus abertos, foco e seleção não se perdem. O indicador dedicado e o controle de pensamento independente já existentes para modelos bloqueados Highspeed mantêm o comportamento atual.
 
-## 状态与边界
+## Estado e limites
 
 ```text
-ModelSelectionView（支持的模型与档位）
+ModelSelectionView (modelos e níveis suportados)
                  ↓
-选择 Provider → 当前可用模型或首个可用模型 → 现有 onSelectModel → Composer 草稿
-合并弹层 → 现有 onSelectModel / onSelectThought → Composer 草稿（唯一选择 owner）
-                                                     ↓ 发送
-                                               冻结 Submission
+Escolher Provider → modelo atual disponível ou primeiro modelo disponível → onSelectModel existente → rascunho do Composer
+Camada unificada → onSelectModel / onSelectThought existentes → rascunho do Composer (único owner da seleção)
+                                                     ↓ enviar
+                                               Submission congelada
 ```
 
-弹层只拥有打开状态和浏览的 Provider，不复制模型、档位状态。不改变请求映射、服务协议、accepted queue 或实时流：桌面 desktop-continuous 和手机 web-remote-replayable 继续使用各自原有链路。Ctrl+M 打开合并入口，Ctrl+T 保留循环档位。
+A camada possui apenas o estado de abertura e o Provider em navegação; ela não duplica o estado de modelo nem de nível. Não são alterados o mapeamento de requisições, o protocolo de serviço, a fila de aceitação nem o streaming em tempo real: o desktop `desktop-continuous` e o celular `web-remote-replayable` continuam usando as respective cadeias originais. Ctrl+M abre a entrada unificada e Ctrl+T mantém o ciclo de níveis.
 
-## 验证
+## Verificação
 
-- 组件交互：Provider 自动选择可用模型、跳过锁定模型、重复选择当前 Provider、无可用模型、模型选中后菜单保持打开、视觉标签、离散滑杆、单档／无效档、继承的连接方式和管理入口。
-- 布局：各级收缩与逆向恢复、缺失 Computer/Plan、最终图标＋绿条；真实浏览器桌面与手机宽度、深浅主题。
-- Desktop E2E：模型与档位修改仍更新 Composer；普通模式不再渲染独立 Think 入口；合并菜单与 Mode 互斥。
+- Interação de componentes: seleção automática de um modelo disponível pelo Provider, pulo de modelos bloqueados, reseleção do Provider atual, Provider sem modelos disponíveis, permanência do menu aberto após a seleção do modelo, etiquetas visuais, slider discreto, nível único/nível inválido, modo de conexão herdado e entrada de gerenciamento.
+- Layout: contração em cada nível e restauração inversa, ausência de Computer/Plan, ícone＋barra verde final; navegador real nas larguras de desktop e celular, nos temas claro e escuro.
+- E2E de Desktop: a modificação de modelo e de nível continua atualizando o Composer; o modo comum deixa de renderizar uma entrada de Think independente; o menu unificado e o Mode são mutuamente exclusivos.
 
-本次验证：相关单测 7 个文件共 155 条通过，Desktop 工具栏 E2E 覆盖 Provider 自动选模型和子菜单模型管理跳转；typecheck、lint（0 errors）及 architecture:check --changed 通过。实际桌面窗口确认三档收缩；浏览器组件验证 320、390、1200 像素及深浅主题，未执行手机 `/remote` 真机链路验证。
+Verificação desta rodada: 7 arquivos de testes relacionados, 155 casos no total, passaram; o E2E da barra de ferramentas do Desktop cobre a seleção automática de modelo por Provider e o salto para o gerenciamento de modelos no submenu; typecheck, lint (0 errors) e architecture:check --changed passaram. A janela real do desktop confirmou a contração nos três níveis; a verificação do componente no navegador foi feita em 320, 390 e 1200 pixels e nos temas claro e escuro, sem execução da cadeia `/remote` em aparelho móvel real.
 
-## 调档期间的焦点
+## Foco durante o ajuste de nível
 
-真实 Desktop E2E 观察到调档或切模型后 Host View 会短暂进入 loading，旧实现将目录一起清空，导致菜单高度闪烁。原生 `disabled` 会将焦点从 range 移回菜单，后续方向键不再调整档位。合并菜单使用 `aria-disabled` 和事件门禁暂停交互，保留同一 range 节点与焦点；Hook 在同一 Host 的输入重读期间只保留 revision/providers 目录展示，不保留 effectiveSelection、preferredSelection 等旧解析结果；Toolbar 读取该目录，当前选择仍来自 Composer 草稿，提交仍要求 ready。快速切换继续沿用 generation/requestId 防迟到覆盖。Host 切换、禁用或不可用时立即丢弃旧目录，不改变桌面 continuous 或手机 replayable 边界；不用超时恢复焦点。新目录返回后原位更新。未选档位时，首格位置不代表用户已选，只有明确的 change／键盘释放／指针释放才提交。
+No E2E real do Desktop foi observado que, após ajustar o nível ou trocar de modelo, o Host View entra brevemente em loading; a implementação antiga limpava o catálogo junto, o que fazia a altura do menu piscar. O `disabled` nativo remove o foco do range de volta para o menu, e as setas do teclado deixam de ajustar o nível. O menu unificado usa `aria-disabled` e um bloqueio de eventos para pausar a interação, preservando o mesmo nó de range e o foco; durante a releitura de entrada do mesmo Host, o Hook mantém apenas a exibição do catálogo revision/providers, sem manter resultados de resolução antigos como effectiveSelection e preferredSelection; a Toolbar lê esse catálogo, e a seleção atual continua vindo do rascunho do Composer, com o envio ainda exigindo `ready`. Trocas rápidas continuam usando generation/requestId para evitar sobrescritas atrasadas. Na troca de Host, desabilitação ou indisponibilidade, o catálogo antigo é descartado imediatamente, sem alterar os limites do continuous do desktop nem do replayable do celular; não se usa tempo limite para recuperar o foco. Quando o novo catálogo retorna, a atualização ocorre na mesma posição. Quando nenhum nível está selecionado, a posição da primeira casa não significa que o usuário tenha escolhido; apenas uma mudança explícita, um evento de teclado liberado ou um ponteiro liberado executam o commit.
 
-该规则同时覆盖 Provider 切换。有保留目录的重读不禁用菜单入口，避免按钮透明度闪动；首次加载、错误、不可用与运行锁定仍沿用原门禁。回归测试监测真实 DOM，要求调档、模型和 Provider 切换期间模型列表无空帧，入口无瞬间禁用，并覆盖跨 Host 清理和快速切换的迟到回包。
+Essa regra também cobre a troca de Provider. Uma releitura que mantém o catálogo não desabilita a entrada do menu, evitando o piscar da opacidade do botão; o primeiro carregamento, os erros, a indisponibilidade e o bloqueio em execução continuam usando os bloqueios originais. Os testes de regressão monitoram o DOM real e exigem que a lista de modelos não tenha quadros vazios durante o ajuste de nível e as trocas de modelo e Provider, e que a entrada nunca fique instantaneamente desabilitada, cobrindo também a limpeza entre Hosts e as respostas atrasadas de trocas rápidas.
 
-档位圆点：已填充区域的圆点使用 30% 白色，两套主题一致，不使用黑色圆点；未填充区域保留原灰色。鼠标接近圆点横向 10px 范围时，以 120ms ease-out 放大到 1.75 倍并变为完全不透明，离开后恢复。触屏和禁用态不触发悬停；减少动态效果设置下取消过渡。圆点仅负责展示，原生 range 继续接收点击和拖拽。
+Pontos de nível: os pontos da região preenchida usam 30% de branco, igual nos dois temas, e não usam pontos pretos; a região não preenchida mantém o cinza original. Quando o mouse se aproxima a até 10px horizontalmente de um ponto, ele é ampliado para 1,75 vez com ease-out de 120ms e se torna totalmente opaco, voltando ao normal ao sair. Toque e estado desabilitado não acionam o hover; com a configuração de redução de efeitos, a transição é cancelada. Os pontos têm apenas função de exibição; o range nativo continua recebendo cliques e arrastes.
 
-最高档气泡：保留现有渐变和颜色，在填充内部叠加 12 个低透明度白色小圆点，大小 2–4px、周期 2.6–3.6s，错开相位从右向左漂移并淡入淡出。气泡裁切在轨道内，位于档位点和滑块下方，不接收指针事件。仅可调且有效的最高档渲染气泡；降档、切到单档／无效模型或关闭菜单即移除。prefers-reduced-motion 下隐藏气泡并关闭动画；不新增 Canvas、定时器或独立状态。
+Bolha do nível máximo: o gradiente e as cores existentes são mantidos, e 12 pequenos pontos brancos de baixa opacidade são sobrepostos dentro do preenchimento, com tamanho de 2–4px e ciclo de 2,6–3,6s, com fases deslocadas que derivam da direita para a esquerda e desvanecem. A bolha é recortada dentro do trilho, fica abaixo dos pontos de nível e do cursor, e não recebe eventos de ponteiro. A bolha é renderizada apenas para o nível máximo ajustável e válido; descer de nível, mudar para um nível único ou um modelo inválido, ou fechar o menu a remove. Com prefers-reduced-motion, a bolha é ocultada e a animação desligada; não são adicionados Canvas, temporizadores nem estado próprio.
 
-滑杆交互后的收起：原生 range 的 pointerdown 必须冒泡到 document，让 Radix DismissableLayer 清理内部点击标记；只阻止 click 触发菜单项选择。点击或拖拽调档后，第一次点击菜单外部就关闭，不需要第二次点击。禁用态仍用 preventDefault 阻止调档。
+Recolhimento após a interação com o slider: o `pointerdown` do range nativo precisa borbulhar até o document, para que o DismissableLayer do Radix limpe a marca de clique interno; apenas o `click` que selecionaria um item de menu é bloqueado. Depois de ajustar o nível por clique ou arraste, o primeiro clique fora do menu já o fecha, sem necessidade de um segundo clique. No estado desabilitado, o preventDefault continua bloqueando o ajuste de nível.
 
-菜单打开态响应式：打开时锁定的宽度（至少 128px）仅用于空间充足的文案态。工具栏继续按 Computer → mode → Plan → think → 模型图标的既有优先级收缩；到模型图标态时解除宽度和最小宽度限制，显示模型图标与思考条，隐藏居中的选择模型文案和下箭头。拉宽后恢复原打开态宽度与文案，保持同一个触发按钮与菜单实例，不重置选项、焦点或开关状态。桌面面板 resize 与手机 Web 共用此规则。
+Comportamento responsivo do estado aberto: a largura travada na abertura (mínimo de 128px) é usada apenas no estado de texto com espaço suficiente. A barra de ferramentas continua contraindo pela prioridade existente Computer → mode → Plan → think → ícone de modelo; ao chegar ao estado de ícone de modelo, a restrição de largura e de largura mínima é removida, exibindo o ícone do modelo e a barra de raciocínio, e ocultando o texto centralizado de seleção de modelo e a seta para baixo. Ao alargar novamente, a largura e o texto originais do estado aberto são restaurados, mantendo o mesmo botão gatilho e a mesma instância do menu, sem reiniciar opções, foco ou estado de chaves. O redimensionamento do painel do desktop e o Web em celular compartilham essa regra.
 
-## E2E 覆盖复核（2026-09-28）
+## Revisão de cobertura E2E (2026-09-28)
 
-本次为 presentation 层的既有 CT 用例增强，不新增产品语义、provider 请求或独立候选 spec。已确认边界来自上述交互规格和用户对合并入口、一次关闭、图标＋思考条的要求。
+Esta rodada é um reforço dos casos CT já existentes na camada de apresentação, sem nova semântica de produto, requisições a provider ou spec candidata independente. Os limites confirmados vêm da especificação de interação acima e dos requisitos do usuário sobre a entrada unificada, o fechamento em um clique e o ícone＋barra de raciocínio.
 
-- accepted：滑杆点击和拖拽分别从最低档开始，明确改变目标档位；断言 range 和 Composer config 都到达目标，随后一次外部点击关闭且选择不回退。
-- accepted：鼠标置于菜单外、通过键盘聚焦滑杆后，打开态缩窄再恢复，保留同一按钮、菜单、range 节点和滑杆焦点；模型/Provider/档位不被 resize 改写；窄态继续按 End 调档，思考条与 config 同步；关闭再打开仍是图标＋思考条。
-- pruned：主题/语言/全部宽度不与 desktop E2E 全量叉乘；共享 CSS 的浏览器视觉证据单列，不能算作手机 `/remote` 真机或原生侧栏拖拽覆盖。当前 E2E 设置工具栏容器宽度以确定性触发真实 ResizeObserver，不伪造 compact 属性。
-- 已有覆盖保留：Provider 自动选模型、模型/Provider 切换不清空目录、Tooltip 操作文案、最高档渐变与气泡、模式菜单互斥、管理模型、scope reset。
+- accepted: o clique e o arraste do slider partem do nível mínimo e alteram explicitamente o nível alvo; é afirmado que o range e a config do Composer chegam ao alvo, e que um clique externo encerra o menu sem reverter a seleção.
+- accepted: com o mouse fora do menu e o slider focado por teclado, a largura do estado aberto é estreitada e depois restaurada, preservando o mesmo botão, menu, nó de range e foco do slider; modelo/Provider/nível não são reescritos pelo resize; no estado estreito o ajuste por End continua funcionando, com a barra de raciocínio e a config sincronizadas; fechar e reabrir continua mostrando ícone＋barra de raciocínio.
+- pruned: tema/idioma/todas as larguras não são multiplicados em cruzamento com a suíte E2E de desktop; a evidência visual de navegador que compartilha CSS é registrada à parte e não conta como cobertura de `/remote` em aparelho móvel nem de arraste da barra lateral nativa. A configuração atual do E2E ajusta a largura do contêiner da barra de ferramentas para disparar de forma determinística um ResizeObserver real, sem forjar o atributo compact.
+- Cobertura existente preservada: seleção automática de modelo pelo Provider, troca de modelo/Provider sem limpar o catálogo, texto de ação do Tooltip, gradiente e bolha do nível máximo, exclusão mútua do menu de modos, gerenciamento de modelos e reset de scope.
 
-影响面：must-inspect 为 V4ComposerToolbar → ModelConfigSelect/ComposerModelMenu 与 useComposerToolbarFit；选择权威仍为 Composer 草稿，布局测量只投影 DOM。AutomationEditView、OffPeakEditView、SubagentsSection 与 workflow settings 虽复用 ModelConfigSelect，但各自持久化边界不同且不启用 composerOptions，属隔离边界；本次不修改产品代码。Desktop continuous 与手机 replayable 不涉及改动。当前环境无可调用 codegraph，未执行图索引的 depth-2 扫描，以当前源码调用点和现有用例核对，不宣称完成 codegraph 影响扫描；无新增语义图节点或 owner 关系。沿用 CT 已有 case-local fixture，不新增发送或 fixture 请求。
+Superfície de impacto: must-inspect é V4ComposerToolbar → ModelConfigSelect/ComposerModelMenu e useComposerToolbarFit; a autoridade da seleção continua sendo o rascunho do Composer, e a medição de layout apenas projeta o DOM. AutomationEditView, OffPeakEditView, SubagentsSection e as configurações de workflow reutilizam ModelConfigSelect, mas possuem limites de persistência próprios e não habilitam composerOptions, constituindo limites isolados; desta rodada não modifica código de produto. O continuous do desktop e o replayable do celular não são afetados. O ambiente atual não possui codegraph invocável, de modo que não foi executada a varredura de profundidade 2 do grafo indexado; a verificação foi feita pelos pontos de chamada no código-fonte atual e pelos casos existentes, e não se declara concluída a varredura de impacto via codegraph; não há novos nós semânticos nem relações de owner. Reutiliza-se o fixture case-local já existente no CT, sem novas requisições de envio ou de fixture.
 
-复核结果：增强后的工具栏 Electron E2E 11 项通过，case-local fixture 校验、typecheck:e2e、全仓 typecheck、lint（62 条既有 warning、0 error）和 architecture check 通过。全仓 conversation coverage audit 被未修改的 Highspeed card fixture 两条 syntheticReason 与 manifest 不一致阻断（REQUEST_LEDGER_METADATA_MISMATCH），不计为本次工具栏测试失败；未执行 Docker admission 或手机远控真机验证。
+Resultado da revisão: os 11 casos do E2E Electron da barra de ferramentas reforçada passaram, a validação do fixture case-local, typecheck:e2e, o typecheck de todo o repositório, o lint (62 warnings existentes, 0 error) e a verificação de arquitetura passaram. A auditoria de cobertura de conversas de todo o repositório foi bloqueada por duas syntheticReason divergentes no fixture de card Highspeed não modificado, inconsistentes com o manifest (REQUEST_LEDGER_METADATA_MISMATCH), o que não é contabilizado como falha dos testes da barra de ferramentas desta rodada; não foram executados admission via Docker nem a verificação em aparelho móvel com controle remoto.
 
-## Effort 控件按档位数量展示
+## Exibição do controle Effort conforme a quantidade de níveis
 
-两个及以上档位使用离散滑杆，包括 Off/On、Low/High、Off/High；单一档位显示标题与状态文字，空档位隐藏。保留原始值和目录顺序，不按翻译文字判断控件。滑杆沿用既有 onValueChange、键盘、指针与触屏操作，不维护第二份选择状态。不可选 Provider 禁止调档；菜单 Escape 和首次外部点击关闭规则不变。
+Dois ou mais níveis usam o slider discreto, incluindo Off/On, Low/High e Off/High; um único nível exibe o título e o texto de estado, e o nível vazio é ocultado. Os valores originais e a ordem do catálogo são preservados, e o controle não é decidido pelo texto traduzido. O slider reutiliza o onValueChange existente e as operações de teclado, ponteiro e toque, sem manter um segundo estado de seleção. Providers não selecionáveis proíbem o ajuste de nível; as regras de fechamento por Escape e pelo primeiro clique externo permanecem inalteradas.
 
-以下为此前二态开关方案的历史验证记录，当前展示规则以“按档位数量统一展示”为准。
+A seguir estão os registros de validação histórica do anterior esquema de chave de dois estados; a regra de exibição vigente é a exibição unificada conforme a quantidade de níveis.
 
-验证：组件覆盖 Off 别名、On 别名与反向顺序、Low/High 和 Off/High 仍为 slider、单 Off 隐藏与模型切换恢复；扩展既有 Turbo I37 E2E 断言双态开关和 config 同步，并更新合并选档 helper 兼容开关及不可调的 Off。浏览器组件验证两主题与手机/桌面宽度；不新增 provider 请求、fixture 或运行态协议。
+Verificação: a cobertura de componentes cobre o alias Off, o alias On e a ordem inversa, e confirma que Low/High e Off/High continuam sendo slider, que um único Off é ocultado e restaurado na troca de modelo; os E2E existentes do Turbo I37 foram estendidos com asserções da chave de dois estados e da sincronia com a config, e o helper de seleção de nível do menu unificado foi atualizado para ser compatível com a chave e com o Off não ajustável. A verificação do componente no navegador cobriu os dois temas e as larguras de celular/desktop; sem novas requisições a provider, fixture ou protocolo de estado de execução.
 
-本轮验证结果：42 项相关组件单测、11 项工具栏 Electron E2E、3 项 Turbo Electron E2E 通过；两主题 × 390px 触屏／1200px 桌面浏览器验证开关点击、空格、一次外部关闭、单 Off 隐藏及切回恢复通过。typecheck、typecheck:e2e、lint（0 error）、architecture check 与 Turbo fixture check 通过。Turbo 用例显式加入当前默认目录已移除的模型候选，并使用当前目录的 disabled/enabled 原始值，避免依赖历史默认模型和 off 原始值。
+Resultado desta rodada: 42 testes unitários de componentes relacionados, 11 E2E Electron da barra de ferramentas e 3 E2E Electron do Turbo passaram; nos dois temas × 390px (toque)/1200px (desktop) no navegador, a verificação do clique na chave, do espaço, do fechamento por um clique externo, da ocultação de um único Off e da restauração ao voltar passou. typecheck, typecheck:e2e, lint (0 error), architecture check e Turbo fixture check passaram. Os casos do Turbo adicionam explicitamente candidatos de modelo já removidos do catálogo padrão atual e usam os valores originais disabled/enabled do catálogo atual, evitando depender do modelo padrão histórico e do valor original de off.
 
-Effort 当前档位文字复用 `RollingToolbarLabel`：变化时 200ms 向上翻滚并淡入淡出，仅动画 `{level}`，标题与滑杆位置保持原样。首次打开不播放入场，快速连续调档以当前草稿为准，减少动态效果时直接替换文字。复用 CT 工具栏调档回归验证文字更新与菜单/滑杆稳定性，不新增状态或提交路径。
+O texto do nível atual do Effort reutiliza `RollingToolbarLabel`: nas mudanças, ele rola para cima com 200ms e desvanece, animando apenas `{level}`, mantendo o título e a posição do slider inalterados. A primeira abertura não reproduz a animação de entrada; ajustes rápidos consecutivos seguem o rascunho atual, e com a redução de efeitos o texto é substituído diretamente. Reutiliza-se a regressão de ajuste de nível da barra de ferramentas do CT para validar a atualização do texto e a estabilidade do menu/slider, sem novo estado nem caminho de envio.
 
-翻滚验证：28 项组件单测、最新一轮 11 项工具栏 Electron E2E 通过；390px / 1200px 真实浏览器帧采样确认正常模式有 transform 动画、减少动态效果无动画，最终文字与 slider 一致且焦点保持。typecheck、typecheck:e2e、lint（62 条既有 warning、0 error）及架构检查通过。早期回归运行曾出现测试初始档位干扰和菜单定位失败，最终将文字断言并入原有点击/拖拽步骤，最新完整工具栏回归通过。
+Verificação da rolagem: 28 testes unitários de componentes e a última rodada de 11 E2E Electron da barra de ferramentas passaram; a amostragem de quadros no navegador real em 390px / 1200px confirmou a animação com transform no modo normal e a ausência de animação com a redução de efeitos, com o texto final igual ao do slider e o foco preservado. typecheck, typecheck:e2e, lint (62 warnings existentes, 0 error) e a verificação de arquitetura passaram. Execuções de regressão anteriores apresentaram interferência do nível inicial de teste e falha de posicionamento do menu; o texto foi finalmente incorporado aos passos existentes de clique/arraste, e a regressão completa mais recente da barra de ferramentas passou.
 
-滑杆背景过渡：success 纯绿底保持不变，最高档渐变使用常驻伪元素层，以 opacity 200ms ease-out 在 0 与 1 之间切换；进入最高档淡入、离开最高档淡出，快速反向调档从当前透明度继续。填充宽度和滑块位置仍为 120ms；气泡保持最高档规则。减少动态效果时取消背景过渡。沿用现有滑杆 E2E 验证两端透明度及过渡属性，真实浏览器采样中间帧确认渐变不再瞬切。
+Transição de fundo do slider: o fundo verde puro de success permanece inalterado, e o gradiente do nível máximo usa uma camada de pseudo-elemento permanente, alternando entre 0 e 1 com opacity de 200ms ease-out; ao entrar no nível máximo ele aparece, ao sair desaparece, e em um ajuste rápido na direção oposta continua a partir da opacidade atual. A largura do preenchimento e a posição do cursor continuam em 120ms; a bolha mantém a regra do nível máximo. Com a redução de efeitos, a transição de fundo é cancelada. Reutiliza-se o E2E existente do slider para verificar a opacidade nas duas pontas e as propriedades de transição, e a amostragem de quadros intermediários no navegador real confirma que o gradiente não muda mais de forma instantânea.
 
-背景过渡验证：工具栏 Electron E2E 11 项通过；两主题真实浏览器帧采样确认进入／离开最高档均有 0–1 中间透明度，减少动态效果无中间帧。typecheck、typecheck:e2e、lint（62 条既有 warning、0 error）及架构检查通过。
+Verificação da transição de fundo: os 11 E2E Electron da barra de ferramentas passaram; a amostragem de quadros no navegador real nos dois temas confirmou opacidades intermediárias entre 0 e 1 ao entrar e ao sair do nível máximo, e nenhum quadro intermediário com a redução de efeitos. typecheck, typecheck:e2e, lint (62 warnings existentes, 0 error) e a verificação de arquitetura passaram.
 
-Effort 滑杆标题行：左侧 Effort 与当前档位，右侧用工具栏共享 ControlShortcutBadge 显示当前生效的 cycleThoughtLevel 快捷键。使用 Toolbar 已有 thoughtShortcutLabel 传入，不硬编码 Ctrl+T；未绑定时不显示空键帽。两个及以上档位均显示滑杆与快捷键，单一档位仅显示文字，不新增快捷键处理或状态。
+Linha de título do slider de Effort: à esquerda, Effort e o nível atual; à direita, o ControlShortcutBadge compartilhado da barra de ferramentas exibindo o atalho cycleThoughtLevel vigente. Usa o thoughtShortcutLabel já existente na Toolbar, sem codificar Ctrl+T; quando não há atalho vinculado, nenhum keycap vazio é exibido. Com dois ou mais níveis, o slider e o atalho são exibidos; com um único nível, apenas o texto é exibido, sem novo tratamento de atalho ou estado.
 
-快捷键标题行验证：29 项组件单测与最终 11 项工具栏 Electron E2E 通过，包含自定义/空绑定、右对齐和同排几何断言。typecheck、typecheck:e2e、lint（62 条既有 warning、0 error）及架构检查通过；未新增手机远控真机验证。
+Verificação da linha de título do atalho: 29 testes unitários de componentes e os 11 E2E Electron finais da barra de ferramentas passaram, incluindo vínculo personalizado/vazio, alinhamento à direita e asserções geométricas na mesma linha. typecheck, typecheck:e2e, lint (62 warnings existentes, 0 error) e a verificação de arquitetura passaram; sem nova verificação em aparelho móvel com controle remoto.
 
-模式入口动效回归：V4 权限模式按钮恢复共享 RollingToolbarLabel，沿用 200ms 向上翻滚与淡入淡出、首次渲染无动画和减少动态效果规则。Plan 独立勾选、模式草稿归属、图标、颜色与响应式压缩不变。原因为 Plan 菜单重写时用普通 span 替代旧 ConfigSelect，遗漏文字动效。
+Regressão de animação da entrada de modo: o botão de modo de permissões do V4 recupera o RollingToolbarLabel compartilhado, reutilizando a rolagem para cima de 200ms com desvanecimento, a ausência de animação na primeira renderização e a regra de redução de efeitos. A marcação independente de Plan, a atribuição do rascunho de modo, os ícones, as cores e a compressão responsiva permanecem inalterados. A causa foi a reescrita do menu de Plan, que substituiu o ConfigSelect antigo por um span comum e omitiu a animação de texto.
 
-模式动效恢复验证：5 项模式组件单测、11 项工具栏 Electron E2E 通过；真实模式切换采样捕获 transform/opacity 中间帧，验证按钮节点保留、文字更新及 Plan 独立开关。typecheck、typecheck:e2e、lint（62 条既有 warning、0 error）和架构检查通过。
+Verificação da restauração da animação de modo: 5 testes unitários do componente de modo e 11 E2E Electron da barra de ferramentas passaram; a amostragem da troca real de modo capturou quadros intermediários de transform/opacity, validando a preservação do nó do botão, a atualização do texto e a chave independente de Plan. typecheck, typecheck:e2e, lint (62 warnings existentes, 0 error) e a verificação de arquitetura passaram.
 
-合并入口开关动效：已选模型时，打开/关闭菜单在“模型名＋思考档位”和居中 Select model 之间执行 200ms 向上翻滚及淡入淡出；首次渲染不播放，减少动态效果时直接切换。动画只呈现既有 open 状态，不维护第二份选择或延迟开关；保持原按钮、打开态锁宽、窄屏图标＋思考条、焦点与一次外部关闭规则。
+Animação da chave da entrada unificada: com um modelo selecionado, abrir/fechar o menu executa uma rolagem para cima de 200ms com desvanecimento entre "nome do modelo＋nível de raciocínio" e o Select model centralizado; a primeira renderização não reproduz a animação, e com a redução de efeitos a troca é direta. A animação apenas representa o estado `open` já existente, sem manter uma segunda seleção nem atraso na chave; o botão original, a largura travada na abertura, o ícone＋barra de raciocínio em tela estreita, o foco e a regra de fechamento por um clique externo são preservados.
 
-打开态文案不显示箭头：Select model 保持居中，关闭态继续沿用原箭头与压缩规则；窄屏打开态仍为图标＋思考条。
+O texto no estado aberto não exibe seta: Select model permanece centralizado, e o estado fechado continua usando a seta e as regras de compressão originais; no estado aberto em tela estreita continua sendo ícone＋barra de raciocínio.
 
-合并入口开关动画验证：45 项组件单测、最终 11 项工具栏 Electron E2E 通过，覆盖无打开态箭头、文案容纳、按钮身份及锁宽/缩窄恢复。真实浏览器采样确认打开与关闭均有透明度中间帧，减少动态效果无中间帧；打开宽度至少 128px，关闭恢复内容宽度。typecheck、typecheck:e2e、lint（62 条既有 warning、0 error）和架构检查通过。宽度断言改为测量实际 Select model 文案，避免将离场文字的溢出计作当前文案截断。
+Verificação da animação da chave da entrada unificada: 45 testes unitários de componentes e os 11 E2E Electron finais da barra de ferramentas passaram, cobrindo a ausência de seta no estado aberto, o espaço reservado para o texto, a identidade do botão e a restauração da largura travada/estreitada. A amostragem no navegador real confirmou quadros intermediários de opacidade tanto na abertura quanto no fechamento, e nenhum quadro intermediário com a redução de efeitos; a largura de abertura tem no mínimo 128px, e o fechamento restaura a largura do conteúdo. typecheck, typecheck:e2e, lint (62 warnings existentes, 0 error) e a verificação de arquitetura passaram. A asserção de largura passou a medir o texto real de Select model, evitando contar o transbordo do texto que está saindo como truncamento do texto atual.
 
-Effort 快捷键外观复用 ControlHintTooltip 的键帽：h-4、rounded-md、tooltip-tag 背景和文字色、text-ui-xs，以及平台专用符号字体。通用 Kbd 引用未定义 muted token 导致裸文字，避免在 Effort 中继续使用；不修改其他 Kbd 入口。
+A aparência do atalho de Effort reutiliza o keycap do ControlHintTooltip: h-4, rounded-md, fundo tooltip-tag e cor de texto, text-ui-xs e a fonte de símbolos específica da plataforma. A referência genérica ao Kbd causava texto puro por usar um token muted indefinido, e isso deixa de ser usado no Effort; os demais pontos de entrada de Kbd não são modificados.
 
-快捷键样式修复验证：35 项单测与 11 项工具栏 E2E 通过；390px 两主题截图确认非透明键帽背景、16px 高与 6px 圆角，Tooltip 与 Effort 共用同一外观。typecheck、typecheck:e2e、lint（0 error）和架构检查通过。
+Verificação do estilo do atalho: 35 testes unitários e 11 E2E da barra de ferramentas passaram; capturas em 390px nos dois temas confirmam o fundo não transparente do keycap, a altura de 16px e o raio de 6px, com o Tooltip e o Effort compartilhando a mesma aparência. typecheck, typecheck:e2e, lint (0 error) e a verificação de arquitetura passaram.
 
-供应商子菜单使用 max-content 内容宽度，取消固定 224px；按最长名称＋接入标签＋勾选预留空间决定宽度，继续受 Radix 可用视口宽度约束。常规桌面长名称不因固定宽度折行，窄屏必要时允许名称换行，标签紧跟名称、勾选靠右；保留 Portal 与窄屏避让。
+O submenu do fornecedor usa a largura de conteúdo max-content, cancelando os 224px fixos; a largura é determinada pelo maior nome＋etiqueta de acesso＋espaço reservado para a marcação, continuando sujeita à largura de viewport disponível do Radix. Nomes longos em desktop comuns não quebram linha por causa da largura fixa; em tela estreita, o nome pode quebrar linha quando necessário, com a etiqueta logo após o nome e a marcação à direita; o Portal e o desvio em tela estreita são preservados.
 
-供应商内容宽度验证：11 项工具栏 E2E 通过；真实浏览器长名称 ZAPI（Chat Completions）在 1200px 视口单行展示，子菜单自然宽度约 257px；320/390px 视口按可用空间折行且无溢出。typecheck、typecheck:e2e、lint（0 error）及架构检查通过。
+Verificação da largura de conteúdo do fornecedor: os 11 E2E da barra de ferramentas passaram; no navegador real, o nome longo ZAPI (Chat Completions) é exibido em uma única linha no viewport de 1200px, com a largura natural do submenu em torno de 257px; nos viewports de 320/390px, o texto quebra conforme o espaço disponível, sem transbordo. typecheck, typecheck:e2e, lint (0 error) e a verificação de arquitetura passaram.
 
-多模型与窗口拖拽边界：合并主菜单外层不滚动；供应商、Models 标题、分隔线和 Effort 不收缩，只有 Models 列表随可用高度收缩并纵向滚动（保留 max-h-60）。主菜单和供应商子菜单显式 app-region:no-drag，覆盖 Electron 顶部拖拽区域时继续接收鼠标事件。根因为共享 DropdownMenuContent 的 overflow-y-auto 和默认 flex shrink 使整个菜单滚动，且 Portal 菜单缺少 no-drag 命中声明。
+Limites de múltiplos modelos e arraste de janela: o contêiner externo do menu principal unificado não rola; o fornecedor, o título Models, os divisores e o Effort não encolhem, e apenas a lista de Models encolhe conforme a altura disponível e rola verticalmente (mantendo max-h-60). O menu principal e o submenu de fornecedores declaram explicitamente app-region:no-drag, continuando a receber eventos de mouse quando cobrem a área de arraste superior do Electron. A causa foi o overflow-y-auto e o flex shrink padrão do DropdownMenuContent compartilhado, que faz o menu inteiro rolar, combinada com a ausência da declaração de hit de no-drag nos menus em Portal.
 
-滚动/拖拽验证：11 项 Electron 工具栏 E2E 通过，实际 computed style 验证外层 overflow-y:hidden、Models overflow-y:auto、主/子菜单 app-region:no-drag。真实浏览器 42 模型分别在 1200×720、390×360 视口滚动 500px，外层 scrollTop 保持 0、供应商/Effort 坐标不变且供应商可点击。typecheck、typecheck:e2e、lint（0 error）及架构检查通过；自动化验证的是 Electron CSS 与 DOM 鼠标交互，未执行操作系统原生窗口拖拽命中测试。
+Verificação de rolagem/arraste: os 11 E2E Electron da barra de ferramentas passaram, e o computed style real confirmou overflow-y:hidden no contêiner externo, overflow-y:auto em Models e app-region:no-drag no menu principal e no submenu. No navegador real, 42 modelos foram rolados 500px em viewports de 1200×720 e 390×360, com o scrollTop externo permanecendo em 0, as coordenadas do fornecedor e do Effort inalteradas e o fornecedor clicável. typecheck, typecheck:e2e, lint (0 error) e a verificação de arquitetura passaram; a automação valida o CSS do Electron e a interação de mouse do DOM, sem teste de acerto de arraste de janela nativa do sistema operacional.
 
-## 菜单安全边距与供应商导航（2026-09-29）
+## Margens de segurança do menu e navegação de fornecedores (2026-09-29)
 
-主菜单与供应商子菜单保留 12px 视口安全边距及 no-drag。宽屏供应商子菜单外框与主菜单顶部对齐，外框相隔 4px；碰撞时优先保证可见。Provider 高亮使用 menu-hover/50。供应商列表独立收缩/滚动，Manage models 固定。
+O menu principal e o submenu de fornecedores mantêm 12px de margem de segurança do viewport e no-drag. Em telas largas, a moldura do submenu de fornecedores é alinhada ao topo do menu principal, com 4px de separação entre as molduras; em caso de colisão, a visibilidade tem prioridade. O realce do Provider usa menu-hover/50. A lista de fornecedores contrai e rola de forma independente, e o Manage models permanece fixo.
 
-小于 640px 时在原菜单内显示供应商页，顶部为本地化返回入口，不叠加左右两层。菜单页状态由 ComposerProviderMenu 唯一持有；关闭后自然重置，返回不修改模型，选择供应商复用现有自动选模型链路并返回模型页。视口变宽后恢复子菜单导航。模型页仍仅 Models 滚动，不改变桌面/远控数据链路。
+Abaixo de 640px, a página de fornecedores é exibida dentro do menu original, com uma entrada de retorno localizada no topo, sem sobrepor dois níveis laterais. O estado da página de menu é mantido exclusivamente por ComposerProviderMenu; ele é reiniciado naturalmente ao fechar, o retorno não modifica o modelo, e a seleção de fornecedor reutiliza a cadeia existente de seleção automática de modelo e retorna à página de modelos. Ao alargar o viewport, a navegação por submenu é restaurada. A página de modelos continua rolando apenas em Models, sem alterar as cadeias de dados do desktop/controle remoto.
 
-验证计划：扩展既有管理模型 E2E 检查安全边距、对齐和供应商滚动样式；组件验证窄屏返回与选择；真实浏览器验证两主题、桌面/手机宽度及长列表滚动。原生窗口拖拽命中和手机远控真机另行验证。
+Plano de verificação: estender o E2E existente de gerenciamento de modelos para checar as margens de segurança, o alinhamento e o estilo de rolagem dos fornecedores; validar em componentes o retorno e a seleção em tela estreita; validar no navegador real os dois temas, as larguras de desktop/cellular e a rolagem de listas longas. O acerto de arraste de janela nativa e o controle remoto em aparelho móvel são verificados separadamente.
 
-本轮验证：46 项组件测试通过；真实 Chrome 在两套主题、320/390/1200px × 480px 下验证 32 个供应商滚动 500px、12px 边距、宽屏顶部对齐/约 4px 间距，管理入口坐标不变，窄屏返回和选择成功。鼠标连续移动进入子菜单可正常滚动；瞬移式自动化 hover 会触发 Radix 离开/焦点规则，未据此添加超时兜底。typecheck、lint（62 条既有 warning/0 error）、architecture check 和 typecheck:e2e 通过。
-最终 Electron 工具栏 E2E 11/11 通过；几何断言等待菜单入场动画完成再采样，避免缩放中间帧误判对齐。
+Verificação desta rodada: 46 testes de componentes passaram; no Chrome real, com os dois temas em 320/390/1200px × 480px, foram verificados a rolagem de 500px de 32 fornecedores, a margem de 12px, o alinhamento no topo em tela larga e o espaçamento de cerca de 4px, com as coordenadas da entrada de gerenciamento inalteradas e o retorno e a seleção funcionando em tela estreita. O movimento contínuo do mouse entrando no submenu permite a rolagem normalmente; o hover automatizado por teleporte dispara as regras de saída/foco do Radix, e nenhum fallback por tempo limite foi adicionado com base nisso. typecheck, lint (62 warnings existentes/0 error), architecture check e typecheck:e2e passaram.
+Os 11/11 E2E finais do Electron para a barra de ferramentas passaram; as asserções geométricas aguardam o término da animação de entrada do menu antes da amostragem, evitando interpretar quadros intermediários de escala como desalinhamento.
 
-## GLM Highspeed 最高档视觉
+## Visual do nível máximo do GLM Highspeed
 
-仅当前已选模型显示名称包含 glm，且包含 highspeed 或 flashx（忽略大小写）时启用特殊最高档样式，不按 provider 名称或模型 value 猜测。最高档从左到右蓝 → 紫，仅保留 0% 蓝色和 100% 紫色两个色标，采用 OKLab 插值平滑过渡。普通模型保留绿 → 青 → 蓝，低档绿色；命中 GLM Highspeed / FlashX 的低档蓝色。
+O estilo especial de nível máximo é ativado somente quando o modelo atualmente selecionado exibe um nome que contenha glm e contenha highspeed ou flashx (ignorando maiúsculas/minúsculas), sem adivinhar pelo nome do provider ou pelo value do modelo. No nível máximo, a cor vai de azul a roxo da esquerda para a direita, mantendo apenas dois marcadores de cor, 0% azul e 100% roxo, com uma transição suave por interpolação OKLab. Modelos comuns mantêm verde → ciano → azul, com verde no nível baixo; os níveis baixos que atingem GLM Highspeed / FlashX usam azul.
 
-GLM Highspeed 最高档气泡固定 32 个（普通 12 个），周期约 0.8–1.2s，从右到左，保持 2–4px 和最高 40% 透明度；降档移除气泡，减少动态效果隐藏气泡。现有 200ms 渐变透明度过渡、模型切换视觉层重置保持不变。模型名称 → 派生视觉变体 → 最高档填充/气泡，不新增状态、定时器或协议。
+A bolha do GLM Highspeed no nível máximo é fixa em 32 pontos (12 nos comuns), com ciclo de cerca de 0,8–1,2s, da direita para a esquerda, mantendo 2–4px e no máximo 40% de opacidade; descer de nível remove a bolha, e a redução de efeitos oculta a bolha. A transição existente de opacidade de gradiente de 200ms e o reset da camada visual na troca de modelo permanecem inalterados. Nome do modelo → variante visual derivada → preenchimento/bolha do nível máximo, sem novo estado, temporizador ou protocolo.
 
-验证：组件覆盖大小写、仅 GLM、仅 Highspeed、名称与 value 区分、降档及切换；既有工具栏 E2E 验证普通模型不启用特殊效果，浏览器补充 Highspeed 两主题/窄屏和 reduced-motion。
+Verificação: os componentes cobrem maiúsculas/minúsculas, apenas GLM, apenas Highspeed, a distinção entre nome e value, a descida de nível e a troca; o E2E existente da barra de ferramentas verifica que modelos comuns não ativam o efeito especial, e o navegador complementa com Highspeed nos dois temas, em tela estreita e com reduced-motion.
 
-验证结果：50 项组件测试、11 项 Electron 工具栏 E2E 通过；Chrome 两主题 × 390/1200px × 默认/减少动态效果验证绿紫渐变、32 气泡/0.8–1.2s、降档消失及普通模型恢复 12 气泡。typecheck、typecheck:e2e、lint（62 条既有 warning，0 error）、architecture check 通过。未执行手机远控真机或 Docker 回放。首次 Electron 回放在既有 slider 键盘降档断言超时并影响下一用例，最终版本完整重跑 11/11 通过。
+Resultado da verificação: 50 testes de componentes e 11 E2E Electron da barra de ferramentas passaram; no Chrome, com os dois temas × 390/1200px × padrão/redução de efeitos, foram verificados o gradiente verde-roxo, as 32 bolhas com 0,8–1,2s, o desaparecimento ao descer de nível e a restauração das 12 bolhas nos modelos comuns. typecheck, typecheck:e2e, lint (62 warnings existentes, 0 error) e architecture check passaram. Não foram executados o controle remoto em aparelho móvel nem a reprodução via Docker. Na primeira reprodução do Electron, a asserção de descida de nível por teclado no slider existente expirou e afetou o caso seguinte; a versão final foi reexecutada por completo, com 11/11 aprovados.
 
-## Models 滚动边缘遮罩
+## Máscara de borda da rolagem de Models
 
-复用 ScrollFadeViewport 的 24px 上下渐隐 mask，仅作用于 Models 列表。无溢出不遮罩；顶部只淡出底边，中间双边渐隐，到底只淡出顶边。沿用共享组件的滚动/ResizeObserver 更新，不新增模型状态或定时器。保留 max-h-60、flex 收缩及 Provider/Effort 固定布局；两主题、桌面与手机 Web 共用。
+Reutiliza-se a máscara de esmaecimento superior e inferior de 24px do ScrollFadeViewport, aplicada apenas à lista de Models. Sem transbordo, não há máscara; no topo, apenas a borda inferior esmaece, no meio, ambos os lados esmaecem, e na base, apenas a borda superior esmaece. Segue a atualização de rolagem/ResizeObserver do componente compartilhado, sem novo estado de modelo nem temporizador. Mantêm-se max-h-60, o encolhimento flex e o layout fixo de Provider/Effort; os dois temas, o desktop e o Web em celular compartilham o comportamento.
 
-验收：既有工具栏 E2E 临时缩短真实列表视口，验证顶部/中间/底部 mask 和清除约束后的恢复；共享组件测试覆盖边界，浏览器验证长列表及两主题。
+Aceitação: o E2E existente da barra de ferramentas encurta temporariamente o viewport real da lista, verificando as máscaras de topo/meio/base e a restauração após a remoção da restrição; os testes do componente compartilhado cobrem as bordas, e o navegador valida listas longas nos dois temas.
 
-验证结果：52 项组件测试、11 项 Electron 工具栏 E2E 通过；真实 Chrome 两主题 × 390/1200px 验证长列表顶部 bottom、中间 both、底部 top 的 computed mask，外层 scrollTop 始终为 0。typecheck、typecheck:e2e、lint（62 条既有 warning、0 error）与架构检查通过。未执行手机远控真机或 Docker 回放。
+Resultado da verificação: 52 testes de componentes e 11 E2E Electron da barra de ferramentas passaram; no Chrome real, com os dois temas × 390/1200px, foi verificada a máscara calculada de topo (bottom), meio (both) e base (top) em listas longas, com o scrollTop externo sempre em 0. typecheck, typecheck:e2e, lint (62 warnings existentes, 0 error) e a verificação de arquitetura passaram. Não foram executados o controle remoto em aparelho móvel nem a reprodução via Docker.
 
-颜色调整：GLM Highspeed 最高档最终使用 blue-500 → purple-500 的 OKLab 渐变，移除绿色起点；普通模型渐变及所有气泡参数不变。浏览器检查 computed gradient 的色彩空间与端点，验证两主题和窄屏。
-蓝紫调整验证：Chrome 两主题 × 390/1200px × 默认/减少动态效果通过；蓝紫端点、32 气泡、降档和普通模型切换正常。typecheck、lint（0 error）、architecture check 通过；本次仅 CSS 色值/插值调整，未重跑 Electron 全套。
+Ajuste de cores: o nível máximo do GLM Highspeed passa a usar o gradiente OKLab de blue-500 → purple-500, removendo o ponto de partida verde; o gradiente dos modelos comuns e todos os parâmetros das bolhas permanecem inalterados. A verificação no navegador inspeciona o espaço de cores e os extremos do gradiente calculado, validando os dois temas e a tela estreita.
 
-GLM Highspeed 普通档与入口竖条：普通思考档填充使用 blue-500；最高档仍为蓝紫渐变及 32 个快速气泡。入口竖条在开/关菜单与图标压缩态统一使用 blue-500，Off 仍为空槽。其他模型沿用 success 绿色。菜单与入口复用同一名称判定（GLM + Highspeed 或 GLM + FlashX），不按 provider 或 value 判定，不增加状态。
-蓝色基础填充验证：50 项组件测试通过；Chrome 两主题 × 390/1200px × 默认/减少动态效果验证普通档填充与竖条同为 blue-500，最高档和切回普通模型正常。typecheck、typecheck:e2e、lint（0 error）与架构检查通过。
-Electron 工具栏 E2E 11/11 通过；未执行手机远控真机或 Docker 回放。
+Verificação do ajuste azul-roxo: passou no Chrome com os dois temas × 390/1200px × padrão/redução de efeitos; os extremos azul e roxo, as 32 bolhas, a descida de nível e a troca para modelos comuns funcionam normalmente. typecheck, lint (0 error) e architecture check passaram; desta rodada foi apenas um ajuste de valor de cor/interpolação de CSS, sem reexecutar a suíte completa do Electron.
 
-MR !2820 CR-01：模型能力目录为空（levels=[]）时与 sole Off 一样隐藏整个 Effort 区域及其分隔线。此前只排除 sole Off，导致无思考能力模型显示禁用的空滑杆。修复边界：review source 71f5ed4731；仅 ComposerModelMenu 与对应测试/规格；旧 graph 为 66 affected files / 470 impacted nodes，编辑后不视为当前图快照。
+Níveis comuns do GLM Highspeed e barra vertical da entrada: o preenchimento dos níveis de raciocínio comuns usa blue-500; o nível máximo continua sendo o gradiente azul-roxo com 32 bolhas rápidas. A barra vertical da entrada usa blue-500 de forma unificada nos estados de menu aberto/fechado e de compressão em ícone, e Off continua sendo um espaço vazio. Os demais modelos mantêm o verde success. O menu e a entrada reutilizam a mesma determinação por nome (GLM + Highspeed ou GLM + FlashX), sem decidir por provider ou value e sem adicionar estado.
 
-CR-01 刷新边界：已有模型选择但 groups=[] 的目录未就绪状态保留禁用滑杆以维持焦点；目录已包含模型且 levels=[] 才表示确定无思考能力并隐藏。继续使用输入目录派生，无新增缓存或计时器。
-CR-01 验证：新增测试先复现空 Effort；修复后 51 项组件测试、11 项 Electron 工具栏 E2E、typecheck、lint（62 条既有 warning，0 error）、architecture check 通过。真实 Chrome 390/1200px 验证无能力隐藏及模型选择正常。远端 fetch 两次因自动审批超时未执行，尚未提交/推送或调用 Ready；当前旧图快照不作为修复后影响面证据。
+Verificação do preenchimento azul base: 50 testes de componentes passaram; no Chrome, com os dois temas × 390/1200px × padrão/redução de efeitos, o preenchimento dos níveis comuns e a barra vertical foram verificados como blue-500, com o nível máximo e a volta para modelos comuns funcionando normalmente. typecheck, typecheck:e2e, lint (0 error) e a verificação de arquitetura passaram.
+Os 11/11 E2E Electron da barra de ferramentas passaram; não foram executados o controle remoto em aparelho móvel nem a reprodução via Docker.
 
-## Composer 供应商列表中的团队入口（2026-10-08）
+MR !2820 CR-01: quando o catálogo de capacidades do modelo está vazio (levels=[]), toda a área de Effort e o seu divisor são ocultados, assim como no caso de Off único. Antes, apenas o Off único era excluído, o que fazia modelos sem capacidade de raciocínio exibirem um slider vazio desabilitado. Limite da correção: review source 71f5ed4731; apenas ComposerModelMenu e os testes/specs correspondentes; o grafo antigo indicava 66 affected files / 470 impacted nodes e, após a edição, não é considerado um retrato atual do grafo.
 
-沿用主菜单的「供应商 → Models → Effort」布局，不增加连接方式行。供应商子菜单按同一品牌依次展示个人 Coding Plan 和具体团队：`BigModel [Individual]`、`BigModel [团队名称 1]`、`BigModel [团队名称 2]`；团队块之后用弱分割线区分原有 API 供应商列表。Start Plan 和 API 行保持各自现有行为，不合并品牌或 API。主菜单顶部显示当前品牌和当前个人/团队标签。
+Limite de atualização do CR-01: o estado de catálogo não pronto com models já selecionado e groups=[] mantém o slider desabilitado para preservar o foco; apenas um catálogo que já contém o modelo e tem levels=[] indica ausência definitiva de capacidade de raciocínio e oculta a área. Continua-se usando a derivação a partir do catálogo de entrada, sem novo cache ou temporizador.
 
-团队入口来自已有企业 pricing 的 subscribed 产品，使用真实组织名，身份包含 family/productId/organizationId/projectId；身份不完整或无组织名不制造入口，同名不同身份不得去重。未选团队额度 unknown 不等于未购买；入口以已购目录为准，执行模型在选择后校验。
+Verificação do CR-01: os novos testes reproduzem primeiro o Effort vazio; após a correção, 51 testes de componentes, 11 E2E Electron da barra de ferramentas, typecheck, lint (62 warnings existentes, 0 error) e architecture check passaram. No Chrome real em 390/1200px foram verificadas a ocultação por ausência de capacidade e a seleção normal de modelo. O fetch remoto não foi executado em duas tentativas por expiração da aprovação automática, e nada foi submetido/enviado nem o Ready invocado; o retrato antigo do grafo não serve como evidência de impacto pós-correção.
+
+## Entrada de equipe na lista de fornecedores do Composer (2026-10-08)
+
+Reutiliza-se o layout "fornecedor → Models → Effort" do menu principal, sem adicionar uma linha de modo de conexão. O submenu do fornecedor exibe, pela mesma marca, o Coding Plan individual e as equipes concretas: `BigModel [Individual]`, `BigModel [nome da equipe 1]`, `BigModel [nome da equipe 2]`; após os blocos de equipe, uma linha divisória fraca separa a lista original de fornecedores por API. As linhas Start Plan e de API mantêm seus comportamentos atuais, sem mesclar marca nem API. O topo do menu principal exibe a marca atual e a etiqueta individual/equipe atual.
+
+A entrada de equipe vem dos produtos assinados da pricing empresarial existente, usando o nome real da organização, e a identidade contém family/productId/organizationId/projectId; uma identidade incompleta ou sem nome de organização não gera entrada, e identidades homônimas diferentes não podem ser deduplicadas. Uma cota de equipe não selecionada com status unknown não equivale a não comprada; a entrada segue o catálogo de compras, e o modelo em execução é validado após a seleção.
 
 ```text
-点击个人/团队行 → 根设置保存完整身份 → 现有 Provider 刷新 → 目标 Host 可用模型
+Clicar na linha individual/equipe → as configurações da raiz salvam a identidade completa → refresh existente do Provider → modelos disponíveis no Host de destino
                                                         ↓
-             保留可用同名模型，否则第一个可用模型 → Composer 模型 owner → 勾选/标题
-失败 → 恢复原设置并同步 → 保留原模型并显示可重试错误
+             manter o modelo disponível homônimo, senão o primeiro disponível → owner do modelo no Composer → marcação/título
+Falha → restaurar as configurações originais e sincronizar → manter o modelo original e exibir um erro reexecutável
 ```
 
-共享设置为套餐身份唯一来源，Composer 仍持有模型选择。团队多行是目录投影，不创建 Provider 或额外 runtime。同步时禁用供应商、模型和 Effort 重复操作，保持主菜单打开；完整同步后才采用新菜单身份。异步结果绑定 Host 与 workspaceIdentity.trim() || workspacePath；远端须比对根/目标 Provider connectionKey，避免旧团队同名模型误判成功。API 选择不写套餐设置。关闭菜单及窄屏返回不修改模型；使用现有窄屏返回导航、主题 token 和国际化。桌面 continuous 与手机 replayable 消息链路不变。
+As configurações compartilhadas são a única fonte da identidade do plano, e o Composer continua sendo o dono da seleção de modelo. As múltiplas linhas de equipe são uma projeção do catálogo e não criam Provider nem runtime adicional. Durante a sincronização, as operações repetidas de fornecedor, modelo e Effort são desabilitadas, e o menu principal permanece aberto; a nova identidade do menu só é adotada após a sincronização completa. O resultado assíncrono é vinculado ao Host e a `workspaceIdentity.trim() || workspacePath`; no remoto, é preciso comparar a connectionKey do Provider da raiz/destino, para evitar que um modelo homônimo de equipe antiga seja julgado como sucesso. A escolha de API não escreve as configurações de plano. Fechar o menu e o retorno em tela estreita não modificam o modelo; usam-se a navegação de retorno em tela estreita, os tokens de tema e a internacionalização existentes. As cadeias de mensagens do continuous do desktop e do replayable do celular não mudam.
 
-验收覆盖个人/多个团队行及标签、团队身份去重、API 顺序不变、切换同名模型、失败回滚、重复选择、过期 Host 结果和窄屏导航；桌面 E2E 验证个人→团队→个人、持久化身份、勾选与标题。真实账号鉴权及其他平台实机验证单独报告。
+A aceitação cobre as linhas individual/múltiplas equipes e suas etiquetas, a deduplicação de identidade de equipe, a ordem inalterada da API, a troca para modelos homônimos, o rollback de falha, a seleção repetida, os resultados de Host obsoleto e a navegação em tela estreita; o E2E de desktop verifica individual→equipe→individual, a identidade persistida, a marcação e o título. A autenticação com contas reais e a verificação em outros platforms são reportadas separadamente.
 
-验证记录：8 个相关单测文件共 93 条通过，覆盖多团队同模型勾选、未选团队 unknown、Agent 格式过滤、窄屏返回、失败恢复及旧 Host 结果。macOS Electron CTP-02 与 CTP-20 通过；最终 CTP-20 再次通过，完整核对 product/org/project 和主行标签。typecheck、lint（63 个既有 warning，0 error）、architecture:check 与 diff check 通过。E2E 使用隔离 mock 账号；真实账号请求、Windows/Linux 及手机真机远控尚未验证。
+Registro de verificação: 8 arquivos de testes unitários relacionados, 93 casos no total, passaram, cobrindo a marcação de modelos homônimos em múltiplas equipes, o unknown de equipe não selecionada, o filtro do formato Agent, o retorno em tela estreita, a recuperação de falha e o resultado de Host antigo. No macOS, os casos Electron CTP-02 e CTP-20 passaram; o CTP-20 foi executado novamente com sucesso, com a conferência completa de product/org/project e da etiqueta da linha principal. typecheck, lint (63 warnings existentes, 0 error), architecture:check e diff check passaram. O E2E usou uma conta mock isolada; ainda não foram verificados requisições com conta real, Windows/Linux nem o controle remoto em aparelho móvel.
 
-连接切换回归修复（2026-10-08）：同账号族个人/团队的同名模型由既有 Effective Selection resolver 映射并保留有效 reasoning options，不再调用普通选模重建意图。原实现的重复选模清空 reasoning，并因输入变化重读目录，导致 Effort 短暂消失再显示“—”。目标不存在同名模型时仍走原选模流程；不引入默认最高档、额外档位记忆或延迟逻辑。桌面回放从 high→空复现，修复后个人→团队→个人保持 high，切换全过程 DOM 采样检查档位、候选档位和控件存在性；相关 87 条单测通过。
+Correção de regressão da troca de conexão (2026-10-08): o modelo homônimo do plano individual/da equipe da mesma conta de família é mapeado pelo resolver de Effective Selection existente e preserva as opções válidas de reasoning, sem acionar a reconstrução de intenção da seleção de modelo comum. A implementação anterior limpava o reasoning na seleção duplicada de modelo e, por causa da mudança na entrada, relia o catálogo, fazendo o Effort desaparecer brevemente e reaparecer como "—". Quando o modelo homônimo não existe no destino, o fluxo original de seleção de modelo continua sendo usado; não são introduzidos nível padrão máximo, memória extra de nível nem lógica de atraso. A reprodução no desktop reproduziu a queda de high para vazio; após a correção, individual→equipe→individual mantém high, e a verificação por amostragem do DOM durante todo o processo de troca checa o nível, os níveis candidatos e a existência dos controles; 87 testes unitários relacionados passaram.
 
-连接切换 loading：供应商主行沿用 connectionSwitch.pending，在原右箭头的固定 size-4 槽位显示加载图标，不新增行或遮罩、不设置最短显示时间。保留现有选中名称、模型与思考档位；主行标记 aria-busy，并继续禁用重复切换、模型与档位操作。成功/失败均由实际同步结果结束 loading，失败沿用可重试错误。桌面与窄屏共用状态；加载标签使用现有 common.loading 国际化，图标遵循 motion-reduce。
+Loading da troca de conexão: a linha principal do fornecedor reutiliza connectionSwitch.pending e exibe um ícone de carregamento no slot fixo size-4 da seta à direita, sem nova linha ou overlay e sem tempo mínimo de exibição. O nome selecionado, o modelo e o nível de raciocínio atuais são preservados; a linha principal recebe aria-busy e continua desabilitando trocas repetidas e operações de modelo e nível. Sucesso e falha encerram o loading pelo resultado real da sincronização, e a falha mantém o erro reexecutável. Desktop e tela estreita compartilham o estado; a etiqueta de loading usa a internacionalização common.loading existente, e o ícone segue motion-reduce.
 
-团队可用性：pricing 项目明确 apiKeyStatus=unavailable 时隐藏对应行（项目未提供状态时继承产品状态），不渲染禁用项；unknown 仍按已购完整身份发现。已加载目录中的团队全部不可用时，也不得回退为泛化 Team 行；目录尚未到达时才保留当前可执行团队的原入口。
+Disponibilidade de equipes: quando o item de pricing indica explicitamente apiKeyStatus=unavailable, a linha correspondente é ocultada (quando o projeto não fornece status, herda o status do produto), sem renderizar itens desabilitados; unknown continua sendo descoberto pela identidade completa já comprada. Quando todas as equipes do catálogo carregado estão indisponíveis, também não se pode recair em uma linha genérica Team; apenas enquanto o catálogo ainda não chegou a entrada original da equipe executável atual é preservada.
 
-本次验证：52 条相关单测通过，macOS Electron CTP-20 同场景验证 loading 生命周期、不可用团队隐藏及双向切换档位保持；运行日志确认被隐藏项目返回「暂无有效的团队套餐授权记录」。typecheck、lint（既有 63 warning，0 error）、architecture:check 与 diff check 通过。手机窄屏加载及失败恢复有组件覆盖，手机真机和 Windows/Linux 未实测。
+Verificação desta rodada: 52 testes unitários relacionados passaram, e no macOS o caso Electron CTP-20 validou no mesmo cenário o ciclo de vida do loading, a ocultação de equipes indisponíveis e a manutenção dos níveis na troca bidirecional; os logs de execução confirmaram que o projeto ocultado retornou «暂无有效的团队套餐授权记录» (não há registro válido de autorização de pacote de equipe). typecheck, lint (63 warnings existentes, 0 error), architecture:check e diff check passaram. O loading em tela estreita de celular e a recuperação de falha têm cobertura de componentes; não foram testados em aparelhos móveis reais nem em Windows/Linux.
 
-### 2026-10-08：解析期间主动选模丢失思考
+### 2026-10-08: perda do raciocínio ao selecionar o modelo ativamente durante a resolução
 
-调档改变 Selection 输入后，读取状态暂时变为 loading；菜单保留同 Host 的目录，但草稿选模处理只读取 ready view，导致在该窗口主动选模写入缺少 reasoningLevel 的 Selection，并永久显示“—”。主动选模 completion 必须复用 loading.catalog；该目录只用于构造新意图，不作为 effectiveSelection 或提交就绪证明。跨 Host 不保留目录。回归覆盖调档后挂起解析、再选模型，以及桌面实际菜单连续操作。
+Após o ajuste de nível alterar a entrada de Selection, o estado de leitura se torna temporariamente loading; o menu mantém o catálogo do mesmo Host, mas o processamento do rascunho de seleção de modelo lê apenas a view pronta, de modo que a seleção ativa de modelo nesse momento grava uma Selection sem reasoningLevel e exibe "—" de forma permanente. A conclusão da seleção ativa de modelo precisa reutilizar loading.catalog; esse catálogo é usado apenas para construir a nova intenção e não serve como prova de effectiveSelection nem de prontidão para envio. O catálogo não é preservado entre Hosts. A regressão cobre a resolução pendente após o ajuste de nível, a seleção de modelo subsequente e a operação contínua no menu real do desktop.
 
-个人 → 普通 API → 团队：团队未激活时不在旧 Renderer 候选目录中。连接同步返回的目标目录已包含团队模型，但普通选模回调仍闭包捕获旧 API 目录，因此补齐失败。连接切换应从已同步的目标目录构造完整模型选择，将 reasoningLevel 随模型身份原子传给草稿 owner；不能拆成先选模型再调思考，也不能等待任意延时。直接个人/团队同名映射继续保留现有档位。
+Individual → API comum → equipe: quando a equipe não está ativa, ela não consta no catálogo de candidatos antigo do Renderer. O catálogo de destino retornado pela sincronização da conexão já contém os modelos de equipe, mas o callback de seleção de modelo comum ainda captura o catálogo de API antigo, fazendo a correção falhar. A troca de conexão deve construir a seleção completa de modelo a partir do catálogo de destino já sincronizado, passando o reasoningLevel de forma atômica ao owner do rascunho; não pode ser dividida em selecionar o modelo e depois ajustar o raciocínio, nem esperar por um atraso arbitrário. O mapeamento direto de modelos homônimos entre individual e equipe continua preservando os níveis existentes.
 
-供应商列表横向边界回归（2026-10-12）：个人、团队与 API 列表只允许纵向滚动。列表内套餐/API 分隔线不使用菜单根容器的负横向边距；否则分隔线越过右边界 4px，`overflow-y-auto` 使横向 overflow 计算为 auto，显示横向滚动条。只在该分隔线覆盖横向边距，不改变全局分隔线或连接 pending。Electron 在宽/窄屏、两主题中采样个人→团队→个人全过程，所有已挂载列表满足 `scrollWidth <= clientWidth`，并验证纵向滚动仍可用。
+Regressão do limite horizontal da lista de fornecedores (2026-10-12): as listas individual, de equipe e de API permitem apenas rolagem vertical. O divisor entre planos/API dentro da lista não usa a margem horizontal negativa do contêiner raiz do menu; caso contrário, o divisor ultrapassa a borda direita em 4px e o `overflow-y-auto` faz o overflow horizontal ser calculado como auto, exibindo uma barra de rolagem horizontal. Apenas esse divisor cobre a margem horizontal, sem alterar o divisor global nem o pending de conexão. No Electron, em tela larga e estreita e nos dois temas, foi amostrada todo o processo individual→equipe→individual, e todas as listas montadas atendem a `scrollWidth <= clientWidth`, com a rolagem vertical ainda funcional.
 
-### 连接 loading 范围（2026-10-08）
+### Escopo do loading de conexão (2026-10-08)
 
-个人→团队、团队→个人、个人→普通 API→团队、团队→普通 API→个人，供应商连接切换均进入同一 connectionSwitch pending 生命周期；普通 API 不再绕过该 owner。API 仍不写套餐设置，只读取目标 Host 模型目录并写入选择。同一连接内选模型、调思考不显示连接 loading，不设置最短显示时间。E2E 分别检查经过 API 的两段 loading，沿用直接个人/团队切换回归。
+Nas trocas individual→equipe, equipe→individual, individual→API comum→equipe e equipe→API comum→individual, a troca de conexão do fornecedor entra no mesmo ciclo de vida de pending de connectionSwitch; a API comum deixa de contornar esse owner. A API continua não escrevendo as configurações de plano, apenas lendo o catálogo de modelos do Host de destino e gravando a seleção. Selecionar modelo e ajustar o raciocínio dentro da mesma conexão não exibe loading de conexão, e não há tempo mínimo de exibição. O E2E verifica separadamente os dois segmentos de loading da passagem pela API, reutilizando a regressão da troca direta individual/equipe.
 
-闪烁原因：连接 RPC 完成与 Renderer Selection 解析返回是两个事件；此前 RPC 返回即结束 loading，暴露了新配置与旧目录混合帧。pending 必须持续到目标选择在 ready View 中显示；期间 ModelConfigSelect 固定上一个完整菜单展示，保留当前 owner 的 pending/error。完成后一次采用新展示；错误/不可用解除等待，不用超时或最短动画时长。该快照只用于显示，不能参与提交。
+Causa do piscar: a conclusão do RPC de conexão e o retorno da resolução de Selection no Renderer são dois eventos; antes, o retorno do RPC encerrava o loading, expondo um quadro com a nova configuração misturada ao catálogo antigo. O pending precisa durar até que a seleção de destino apareça na View pronta; durante esse período, o ModelConfigSelect fixa a exibição do último menu completo, preservando o pending/error do owner atual. A conclusão adota a nova exibição de uma única vez; erro/indisponibilidade liberam a espera, sem usar tempo limite ou duração mínima de animação. Esse snapshot é usado apenas para exibição e não pode participar do envio.
 
-验证：129 条相关单测、4 条 macOS Electron 用例通过；双向 API 中转各有 2 次 loading，加载期间共 41 次 DOM 采样，模型列表和思考控件展示不变。typecheck、lint（63 个既有 warning，0 error）、architecture 与 diff check 通过。手机 Web 共用组件及状态 owner，手机真机、Windows/Linux 未实测；未修改 continuous/replayable 消息链路。
+Verificação: 129 testes unitários relacionados e 4 casos no macOS Electron passaram; nos dois sentidos de passagem pela API houve 2 loadings cada, com 41 amostras de DOM durante o carregamento e a exibição da lista de modelos e dos controles de raciocínio inalterada. typecheck, lint (63 warnings existentes, 0 error), architecture e diff check passaram. O Web em celular compartilha os componentes e o owner de estado; aparelhos móveis reais, Windows/Linux não foram testados; a cadeia de mensagens continuous/replayable não foi modificada.
 
-### 补充套餐项国际化修复（2026-10-08）
+### Correção de internacionalização dos itens de plano complementares (2026-10-08)
 
-团队激活后个人套餐可能不在目标 Host 可执行模型目录中，Composer 从根 ProviderSettings 补充其入口；这条投影路径原先未传分组标签，回退为英文 Individual。普通目录和补充目录必须复用当前 intl 生成的同一份标签：中文显示“个人”、英文显示 Individual，团队实际名称不翻译。桌面及手机 Web 共用投影；不修改套餐、模型、连接与档位状态。
+Após a ativação de uma equipe, o plano individual pode não constar no catálogo de modelos executáveis do Host de destino, e o Composer complementa sua entrada a partir das ProviderSettings da raiz; esse caminho de projeção não passava a etiqueta de agrupamento e caía para o Individual em inglês. O catálogo comum e o complementar precisam reutilizar a mesma etiqueta gerada pelo intl atual: o chinês exibe "个人" (individual) e o inglês exibe Individual; o nome real da equipe não é traduzido. Desktop e Web em celular compartilham a projeção; não são modificados os estados de plano, modelo, conexão e nível.
 
-### MR !2820 同名连接等待核验（2026-10-08）
+### Verificação da espera por conexão homônima no MR !2820 (2026-10-08)
 
-评审基线 `8f7a638cc4` 的 CR-01 假设工具栏始终读取原始草稿 provider。实际链路为原始 `composerDraft.modelSelection` → Host `resolveEffectiveModelSelection` → `useDraftConfigControl.draftConfig` → 工具栏编码值 → connection switch 呈现确认。同名个人/团队切换不改写原始意图；ready View 映射到当前账号 provider 并保留有效 reasoning，因此目标编码值能够结束 pending。不能将持久化意图与有效展示选择混为一层，也不能用原始 provider 作为呈现完成条件。
+A hipótese CR-01 da linha de base de revisão `8f7a638cc4` supunha que a barra de ferramentas sempre lia o provider do rascunho original. A cadeia real é `composerDraft.modelSelection` original → `resolveEffectiveModelSelection` do Host → `useDraftConfigControl.draftConfig` → valor codificado da barra de ferramentas → apresentação da troca de conexão. A troca entre individual e equipe homônimos não reescreve a intenção original; a View pronta é mapeada para o provider da conta atual e preserva o reasoning válido, de modo que o valor codificado de destino consegue encerrar o pending. Não se pode confundir a intenção persistida com a escolha efetiva exibida, nem usar o provider original como condição de conclusão da apresentação.
 
-参数化回归使用真实有效选择解析器，保留两侧同名模型与旧 provider 候选，覆盖个人→团队→个人及团队→个人→团队。开启 `waitForPresentation`，断言每次 pending 结束、high 保留、不调用普通选模、第二次连接命令可达。CTP-20 使用两侧共用的 `GLM-5.3`；usage mock 中 `glm-personal-e2e`/`glm-team-e2e` 是用量报表名称，不是模型候选目录。此核验仅补回归证据，不修改生产状态机；桌面 E2E 账号前置状态未就绪仍为独立待验证项。
+A regressão parametrizada usa o resolver real de seleção efetiva, preservando modelos homônimos dos dois lados e os candidatos do provider antigo, cobrindo individual→equipe→individual e equipe→individual→equipe. Com `waitForPresentation` habilitado, é afirmado que cada pending termina, que high é preservado, que a seleção comum de modelo não é chamada e que o segundo comando de conexão é alcançável. O CTP-20 usa o `GLM-5.3` compartilhado pelos dois lados; no mock de uso, `glm-personal-e2e`/`glm-team-e2e` são nomes de relatórios de uso, não catálogos de candidatos de modelo. Esta verificação apenas complementa a evidência de regressão e não modifica a máquina de estados de produção; o estado pré-requisito da conta no E2E de desktop continua sendo um item de verificação independente.
 
-修复循环快照边界：review source 为 `8f7a638cc4`；本次仅修改 connection switch 单测与本 spec。旧 graph 为 191 affected files / 489 impacted nodes / 0 related tests / 239 test gaps，范围包含本 MR diff 外的节点，编辑后不将其当作新快照或已验证影响面。
+Limite do snapshot do ciclo de correção: o review source é `8f7a638cc4`; desta rodada modifica apenas o teste unitário da troca de conexão e esta spec. O grafo antigo indicava 191 affected files / 489 impacted nodes / 0 related tests / 239 test gaps, e inclui nós fora do diff deste MR; após a edição, não é tratado como novo snapshot nem como impacto verificado.
 
-### 按档位数量统一展示
+### Exibição unificada conforme a quantidade de níveis
 
-两个及以上档位统一使用离散滑杆，包括 Off/On 二态；单一档位（开启或关闭）仅显示标题与当前值，不显示滑杆、开关或调档快捷键。空能力目录仍隐藏区域，加载中仍保留既有焦点保护。保留模型目录原始值与顺序、现有键盘/指针/触屏行为，桌面与手机 Web 共用布局。此规则取代本文此前的二态开关及仅关闭隐藏规则。
+Dois ou mais níveis usam uniformemente o slider discreto, incluindo o estado Off/On; um único nível (ligado ou desligado) exibe apenas o título e o valor atual, sem slider, chave ou atalho de ajuste de nível. O catálogo de capacidades vazio continua ocultando a área, e o carregamento mantém a proteção de foco existente. São preservados os valores e a ordem originais do catálogo de modelos, o comportamento existente de teclado/ponteiro/toque e o layout compartilhado entre desktop e Web em celular. Esta regra substitui as regras anteriores deste documento sobre chave de dois estados e ocultação apenas do estado desligado.
 
-### Composer 不可用 Provider 过滤
+### Filtro de Providers indisponíveis no Composer
 
-Composer 以 ProviderSettingsView 的 accountState.availability 为可用状态来源：个人、API 等非团队 Provider 明确 unavailable 时隐藏，unknown 或尚无状态时保留。团队共用 Provider ID，其 availability 只描述当前连接选择；当前团队明确 unavailable 时仅隐藏与当前完整 product/org/project 身份一致的团队行，其他团队继续按自身 apiKeyStatus 判断，unknown 保留。模型目录缺少团队 Provider 时仍可从设置与已购记录补充其他团队，不得补回已确认不可用的当前团队或泛化 Team 行。设置页详情保持可见。桌面和手机共用该投影，不新增请求、超时或状态缓存。
+O Composer usa `accountState.availability` de ProviderSettingsView como fonte do estado de disponibilidade: Providers não de equipe, como individual e API, são ocultos quando explicitamente unavailable, e unknown ou sem status ainda são preservados. As equipes compartilham o Provider ID, e sua availability descreve apenas a seleção de conexão atual; quando a equipe atual está explicitamente unavailable, apenas a linha de equipe com identidade completa product/org/project idêntica à atual é ocultada, e as demais equipes continuam sendo julgadas pelo próprio apiKeyStatus, com unknown preservado. Quando o catálogo de modelos não tem o Provider da equipe, ainda é possível complementar outras equipes a partir das configurações e dos registros de compra, sem restaurar a equipe atual já confirmada como indisponível nem uma linha genérica Team. Os detalhes na página de configurações permanecem visíveis. Desktop e celular compartilham essa projeção, sem novas requisições, tempos limite ou cache de estado.
 
-连接同步失败的回滚必须核对本次写入的品牌、版本和连接身份；另一窗口已改写品牌或版本时，旧请求不得恢复全局品牌或覆盖新连接。
+O rollback em caso de falha da sincronização da conexão precisa conferir a marca, a versão e a identidade de conexão escritas nesta rodada; quando outra janela já alterou a marca ou a versão, a requisição antiga não pode restaurar a marca global nem sobrescrever a nova conexão.
 
-### 未登录与空配置
+### Não autenticado e configuração vazia
 
-未登录但已有 API Provider 时，Composer 正常选择 API 和模型；团队目录的 OAuth 错误不得污染 API 菜单。账号状态明确未登录时不请求鉴权团队目录。配置加载完成且没有可选 Provider 时，模型按钮点击直接进入 Provider 设置，不展开空菜单。连接切换错误显示在 Provider 选择区域，模型加载错误保留在模型区域；正常未登录和空配置不显示错误。
+Quando não há autenticação mas já existe um Provider de API, o Composer seleciona a API e o modelo normalmente; erros de OAuth do catálogo de equipes não podem contaminar o menu de API. Quando o estado da conta indica explicitamente ausência de autenticação, o catálogo de equipes autenticadas não é solicitado. Quando o carregamento da configuração termina e não há Provider selecionável, o clique no botão de modelo entra direto nas configurações de Provider, sem abrir um menu vazio. Erros de troca de conexão são exibidos na área de seleção de Provider, e erros de carregamento de modelos permanecem na área de modelos; a situação normal de não autenticado e configuração vazia não exibe erros.
 
-### 连接并发、鉴权目录与展示终态（2026-10-12）
+### Conexão concorrente, catálogo autenticado e estado final de exibição (2026-10-12)
 
-- 连接设置唯一 owner 是 SettingService。提交与失败回滚均使用 update(patch, expectedAccountSettings) 在写锁内比较 family、完整连接映射与已有 providerFamilyDomainUpdatedAt 操作版本。缺少持久版本按 0 比较；所有完整连接映射写入必须提供 expected family、完整映射和操作版本，SettingService 拒绝缺少版本的写入，并在成功提交时递增版本。设置页、OAuth 初始化/回包、失效建议和 Host Provisioning 提交/回滚使用同一准入规则。普通设置补丁保留原契约。CAS 冲突明确失败，不自动重试，用户可再次选择。回滚冲突时保留新设置，不发布恢复目录；另一操作再次选择同一连接也必须由版本比较保护。
-- 团队目录按 service、family、账号与登录会话隔离。普通菜单关闭可保留同身份快照；登出、账号变化或 family 变化立即隐藏旧快照，迟到请求不得重新发布旧目录。团队用量来源缓存同样绑定 service、family、userId 与 authSessionSeq；登出在 Provider 刷新前即清空来源、隐藏旧额度并禁用团队权益查询。权益请求的迟到响应不写入共享/本地缓存。
-- 展示回执沿用目标目录 revision 判断归属，保留的旧 ready 不作为本次回执；loading 或低于目标 revision 的旧快照保持 pending。本次 ready 是终态：匹配则成功，不匹配则失败并解除操作锁；error/unavailable 同样失败。已有 ready 的展示刷新失败仍保留旧目录，但必须同时发布绑定当前 service/input 与事件 revision 的失败回执；目标 revision 的失败解除连接锁，旧 revision 或旧 owner 的失败不得终结新操作。每次连接操作显式请求当前展示 owner 按当前输入重读，复用其请求序号隔离迟到回包；同 revision、无事件的重试仍取得独立终态，成功重读清除失败回执。沿用可重试提示，失败后允许重新选择当前连接，不增加超时。
+- O owner único das configurações de conexão é o SettingService. Tanto o envio quanto o rollback de falha usam `update(patch, expectedAccountSettings)` para comparar, dentro do lock de escrita, a family, o mapeamento completo de conexões e a versão de operação `providerFamilyDomainUpdatedAt`. Uma versão persistente ausente é comparada como 0; toda escrita de mapeamento completo de conexões precisa fornecer a family esperada, o mapeamento completo e a versão de operação, e o SettingService rejeita escritas sem versão, incrementando a versão no envio bem-sucedido. A página de configurações, a inicialização/OAuth e o retorno, as sugestões de invalidez e o envio/rollback do Provisioning do Host usam a mesma regra de admissão. Patches de configuração comuns mantêm o contrato original. Um conflito de CAS falha explicitamente, sem retentativa automática, e o usuário pode escolher novamente. Em caso de conflito no rollback, a nova configuração é preservada e o catálogo restaurado não é publicado; outra operação que escolha a mesma conexão também precisa ser protegida pela comparação de versão.
+- O catálogo de equipes é isolado por service, family, conta e sessão de login. O fechamento do menu comum pode manter um snapshot da mesma identidade; logout, troca de conta ou mudança de family ocultam imediatamente o snapshot antigo, e requisições atrasadas não podem republicar o catálogo antigo. O cache da origem de uso das equipes é igualmente vinculado a service, family, userId e authSessionSeq; o logout limpa a origem antes do refresh do Provider, oculta a cota antiga e desabilita a consulta de benefícios da equipe. Respostas atrasadas de benefícios não são gravadas em cache compartilhado ou local.
+- O recibo de exibição usa a revisão do catálogo de destino para determinar a atribuição, e um ready antigo preservado não vale como recibo desta rodada; snapshots em loading ou abaixo da revisão de destino mantêm o pending. O ready atual é um estado final: se corresponde, é sucesso; se não corresponde, é falha e o bloqueio da operação é liberado; error/unavailable também são falha. Uma falha na exibição de um ready já existente mantém o catálogo antigo, mas precisa publicar simultaneamente um recibo de falha vinculado ao service/input atual e à revisão do evento; a falha da revisão de destino libera o lock de conexão, e a falha de uma revisão antiga ou de um owner antigo não pode encerrar a nova operação. Cada operação de conexão solicita explicitamente que o owner de exibição atual releia conforme a entrada atual, reutilizando o número de sequência da requisição para isolar respostas atrasadas; uma retentativa com a mesma revisão e sem evento ainda obtém um estado final independente, e uma releitura bem-sucedida limpa o recibo de falha. Mantém-se a mensagem de retentativa, permitindo escolher novamente a conexão atual após a falha, sem acrescentar tempo limite.
 
 ```mermaid
 flowchart LR
-  A[用户选择] --> B[SettingService 锁内 CAS]
-  B -->|冲突| F[失败并允许重试]
-  B -->|成功| C[Provider 同步]
-  C --> D[展示回执]
-  D -->|ready 匹配| E[完成]
-  D -->|ready 不匹配或 error/unavailable| F
-  C -->|失败| G[CAS 回滚]
-  G -->|冲突| H[保留新设置]
-  I[登出或身份变化] --> J[隔离旧目录及迟到响应]
+  A[Usuário escolhe] --> B[CAS dentro do lock do SettingService]
+  B -->|conflito| F[Falha e permite retentativa]
+  B -->|sucesso| C[Sincronização do Provider]
+  C --> D[Recibo de exibição]
+  D -->|ready corresponde| E[Concluído]
+  D -->|ready não corresponde ou error/unavailable| F
+  C -->|falha| G[Rollback por CAS]
+  G -->|conflito| H[Preserva a nova configuração]
+  I[Logout ou mudança de identidade] --> J[Isola o catálogo antigo e as respostas atrasadas]
 ```
 
-回归覆盖两个 deferred 请求同读后写、回滚检查后的并发写入、后一个请求同步失败、ready 不匹配后重试、已登录团队目录到登出、登出期间迟到 pricing。桌面与手机共用 hook 和 owner，不改变 continuous/replayable 传输。
+A regressão cobre dois requests deferred lendo antes de escrever, a escrita concorrente após a verificação de rollback, a falha de sincronização do request posterior, a retentativa após um ready não correspondente, o catálogo de equipes autenticadas até o logout e o pricing atrasado durante o logout. Desktop e celular compartilham o hook e o owner, sem alterar o transporte continuous/replayable.
 
-FlashX 动画范围（2026-10-12）：GLM + FlashX 复用 GLM + Highspeed 的蓝色普通档/入口竖条、最高档蓝紫 OKLab 渐变及 32 个快速气泡。单独 FlashX、普通 GLM、其他品牌 Highspeed 不启用；匹配不区分大小写，只读取显示名称。降档、切回普通模型、减少动态效果沿用既有规则。
+Escopo da animação do FlashX (2026-10-12): GLM + FlashX reutiliza o azul de nível comum/barra vertical da entrada, o gradiente azul-roxo OKLab do nível máximo e as 32 bolhas rápidas do GLM + Highspeed. Somente FlashX, GLM comum e Highspeed de outras marcas não são ativados; a correspondência não distingue maiúsculas/minúsculas e lê apenas o nome exibido. A descida de nível, a volta a modelos comuns e a redução de efeitos seguem as regras existentes.
 
-FlashX 验证：新增 GLM FlashX 大小写用例先复现 12 气泡；修复后相关受影响测试 4,625 条通过。macOS Electron 分别回放 GLM FlashX、GLM Highspeed 与普通模型，3/3 通过，验证 32/12 气泡、快速周期、渐变、入口标记及降档退出。命名模型通过正式 Personal Config 测试数据提供，不发送模型请求；首轮仍使用录制 fixture。FlashX 证据目录 `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-094941-814/`。typecheck、typecheck:e2e、lint 与架构检查通过；本次未验证手机真机、Windows/Linux。
+Verificação do FlashX: os novos casos de GLM FlashX com variação de maiúsculas/minúsculas reproduziram primeiro as 12 bolhas; após a correção, os 4.625 testes afetados relacionados passaram. No macOS Electron foram reproduzidos separadamente GLM FlashX, GLM Highspeed e o modelo comum, com 3/3 aprovados, validando as 32/12 bolhas, o ciclo rápido, o gradiente, a marcação da entrada e a saída na descida de nível. Os modelos nomeados são fornecidos pelos dados de teste formais do Personal Config, sem enviar requisições de modelo; a primeira rodada ainda usa o fixture gravado. O diretório de evidências do FlashX é `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-094941-814/`. typecheck, typecheck:e2e, lint e a verificação de arquitetura passaram; desta rodada não validou aparelhos móveis reais, Windows/Linux.
 
-展示读取消费者隔离（MR review）：显式 refresh 返回 ready 或 superseded 回执；已被同 owner 新请求或新 input 取代的读取，其成功和失败均不得决定连接终态。当前请求失败仍拒绝并发布失败回执。Composer 仅在重读结束后按当前展示 state 与目标 revision/选择结算。OAuth session 成功后，连接域初始化属于独立辅助步骤；CAS 冲突保留并发新设置、单独记录初始化失败，继续 Provider 刷新及登录成功标记，不自动重试初始化。
+Isolamento dos consumidores da leitura de exibição (revisão de MR): a refresh explícita retorna um recibo ready ou superseded; leituras substituídas por uma nova requisição do mesmo owner ou por uma nova input não podem, nem por sucesso nem por falha, determinar o estado final da conexão. A falha da requisição atual ainda recusa e publica um recibo de falha. O Composer só liquida a seleção após o término da releitura, conforme o estado de exibição atual e a revisão/seleção de destino. Após o sucesso da sessão OAuth, a inicialização do domínio de conexão é uma etapa auxiliar independente; um conflito de CAS preserva a configuração concorrente nova, registra a falha de inicialização separadamente e prossegue com o refresh do Provider e a marcação de login bem-sucedido, sem retentativa automática da inicialização.
 
-OAuth 连接初始化冲突后不再执行自动连接校正：该登录操作失去自动写入资格，只读取最新 App settings 快照并刷新 Provider 事实，随后完成登录成功标记。不得重读新版本为旧登录操作重新取得 CAS 写入资格；正常初始化仍执行已有自动选择流程。
+Após um conflito de inicialização de conexão OAuth, a correção automática de conexão não é mais executada: essa operação de login perde a elegibilidade para escrita automática, apenas lê o snapshot mais recente das configurações do App e atualiza os fatos do Provider, concluindo em seguida a marcação de login bem-sucedido. Não se pode reler a nova versão para readquirir a elegibilidade de escrita CAS para a operação de login antiga; a inicialização normal continua executando o fluxo existente de seleção automática.

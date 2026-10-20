@@ -1,75 +1,75 @@
-# 虚拟项目实施记录
+# Registro de implementação do projeto virtual
 
-开发中与预期不符的情况单独记录于 [开发偏差记录](2026-09-11-virtual-project-development-deviations.md)，后续持续更新。
+Situações em que o desenvolvimento divergiu do previsto são registradas separadamente em [Registro de desvios de desenvolvimento](2026-09-11-virtual-project-development-deviations.md), atualizado continuamente ao longo do tempo.
 
-## Feature Summary
+## Resumo da feature
 
-| 字段   | 决定                                                                                                                      |
-| ------ | ------------------------------------------------------------------------------------------------------------------------- |
-| 目标   | 实施 `2026-09-09-virtual-project-design.md`，按第 8 节顺序交付                                                            |
-| 层级   | presentation、option-source、draft-default、validation、commit-effect、persistence、recovery                              |
-| 模式   | planning → implementation                                                                                                 |
-| 种子   | `taskIndexRepo`、`createZCodeTaskIndexSyncer`、`IZCodeTaskService`、`WorkspaceSidebar`、`V4Gateway`、`SqliteSessionStore` |
-| 范围外 | workbench 分屏组、队列 owner、bridge identity、目录 hash、普通会话配置解析链                                              |
+| Campo      | Decisão                                                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Objetivo   | Implementar `2026-09-09-virtual-project-design.md`, entregando na ordem da seção 8                                             |
+| Camadas    | presentation, option-source, draft-default, validation, commit-effect, persistence, recovery                              |
+| Modo       | planning → implementation                                                                                                 |
+| Sementes   | `taskIndexRepo`, `createZCodeTaskIndexSyncer`, `IZCodeTaskService`, `WorkspaceSidebar`, `V4Gateway`, `SqliteSessionStore` |
+| Fora de escopo | workbench split groups, fila de owner, identidade de bridge, hash de diretório, cadeia de resolução de configuração de sessão comum |
 
-## UI Surface Matrix
+## Matriz de superfície de UI
 
-| 场景 / 入口                     | 共享实现                    | 草稿 / 默认值              | 校验与提交                 | 权威落点                     | 模式边界 / 隔离                                     |
-| ------------------------------- | --------------------------- | -------------------------- | -------------------------- | ---------------------------- | --------------------------------------------------- |
-| 侧栏项目 / 时间线 / 置顶        | 项目查询、任务行组件        | UI 只保存折叠、排序偏好    | Host project CRUD / move   | app SQLite                   | 桌面、Web、手机相同归属；远端独立 Host              |
-| 新建任务                        | 现有 createSession 链路     | 项目主要目录；全局独立目录 | Host 解析 roots 后创建     | CLI 会话 + app 归属          | cwd 创建后固定                                      |
-| 打开历史 / 重连                 | V4 subscribe 与 cold resume | 任务明确 project_id        | Host 同一读快照解析目录    | CLI single-flight runtime    | continuous / replayable 各自订阅，不刷新 live roots |
-| composer 文件 / 技能 / 子 Agent | 既有能力发现与建议列表      | 当前任务目录范围           | qualifiedName / 路径       | CLI 能力目录                 | 不合并附加目录的 settings、MCP、hooks               |
-| 设置页 Agent 配置               | 目录选择器                  | 全部 roots 去重            | 既有目录配置服务           | 目录级配置                   | 不把虚拟项目用作路径或配置身份                      |
-| 定时 / 闲时 / Bots              | 各自配置编辑器              | 项目主要目录与其余 roots   | 创建时固化执行配置         | 各自 Host repo               | 之后不追随项目 roots 编辑                           |
-| 离线远程项目                    | 本机入口列表                | 最近成功基础信息缓存       | 只移除入口；在线编辑经远端 | 本机 entries / 远端 projects | 迟到刷新只 UPDATE，禁止重建入口                     |
+| Cenário / entrada                   | Implementação compartilhada     | Rascunho / padrão                 | Validação e commit              | Local de autoridade             | Limite de modo / isolamento                                    |
+| ----------------------------------- | ------------------------------- | -------------------------------- | ------------------------------- | ------------------------------ | --------------------------------------------------------------- |
+| Projeto na barra lateral / linha do tempo / fixado | Consulta de projetos, componentes de linha de tarefa | A UI só guarda estado de recolhimento e preferência de ordenação | Host project CRUD / move | app SQLite | Mesma titularidade no desktop, Web e celular; Host remoto independente |
+| Nova tarefa                         | Cadeia createSession existente  | Diretório principal do projeto; diretório global separado | Criação após resolução de roots pelo Host | Sessão no CLI + titularidade no app | cwd fixado após a criação |
+| Abrir histórico / reconectar        | V4 subscribe e cold resume      | Tarefa com project_id explícito  | Mesmo snapshot de leitura do Host resolve o diretório | Runtime single-flight do CLI | continuous / replayable assinam cada um por conta própria, sem recarregar live roots |
+| Arquivos / skills / subagentes no composer | Descoberta de capacidades e listas de sugestão existentes | Escopo de diretório da tarefa atual | qualifiedName / caminho | Catálogo de capacidades do CLI | Não mescla settings, MCP e hooks de diretórios adicionais |
+| Configuração de Agent na página de settings | Seletor de diretório | Todos os roots deduplicados | Serviço de configuração de diretórios existente | Configuração por diretório | Não usa projeto virtual como identidade de caminho ou de configuração |
+| Agendadas / ociosas / Bots         | Editores de configuração próprios | Diretório principal do projeto e demais roots | Configuração de execução fixada na criação | Repo próprio de cada Host | Não acompanha edições de roots do projeto depois |
+| Projeto remoto offline              | Lista de entradas local          | Cache das últimas informações básicas bem-sucedidas | Remove apenas a entrada; edição online passa pelo remoto | entries local / projects remoto | Refresh tardio só faz UPDATE, proíbe recriar a entrada |
 
-## Shared And Divergent Behavior / Feature Relationships
+## Comportamento compartilhado e divergente / Relacionamentos entre features
 
-- must-inspect：CLI store → sessions-index → Host syncer → task index。会话事实唯一写者是 CLI，Host 只能镜像。
-- must-inspect：项目服务 → create / resume / V4 cold subscribe。统一目录解析，不在 UI 拼 roots。
-- must-inspect：schema runner → desktop startup / remote server / CLI startup。表级备份与事务失败关闭。
-- should-inspect：composer、设置、automations、off-peak、Bots 的目录选项与创建默认值。
-- conditional：SSH/WSL/Docker/server 重连与旧远端单 root 降级。
-- invariant-only：CommandInbox、owner/lease、workspaceIdentity、手机 replayable、desktop continuous。
-- evidence-only：现有 session-store、v4-cold-resume、sessions-index、task index、task title/unread 单测与 TSL 系列 E2E。
+- must-inspect: store do CLI → sessions-index → syncer do Host → índice de tarefas. O único escritor dos fatos de sessão é o CLI, o Host apenas espelha.
+- must-inspect: serviço de projetos → create / resume / V4 cold subscribe. Resolução de diretório unificada, sem montar roots na UI.
+- must-inspect: schema runner → startup do desktop / servidor remoto / startup do CLI. Backup em nível de tabela e falha de transação fecha o processo.
+- should-inspect: opções de diretório e padrões de criação de composer, settings, automations, off-peak e Bots.
+- conditional: reconexão de SSH/WSL/Docker/server e degradação do root único do remoto legado.
+- invariant-only: CommandInbox, owner/lease, workspaceIdentity, replayable do celular, continuous do desktop.
+- evidence-only: testes unitários existentes de session-store, v4-cold-resume, sessions-index, task index, task title/unread e a série E2E TSL.
 
-## State Owners And Commit Sinks
+## Donos de estado e destinos de commit
 
 ```text
 CLI db.sqlite ── facts / sessions-index ──> Host syncer ── cli_* ──> app SQLite
                                            ↑                         ↑
                                  rename/delete commands      project/pin/archive/read
 
-task + project roots（同一读快照）→ Host → create/resume/cold subscribe
+task + project roots（mesmo snapshot de leitura）→ Host → create/resume/cold subscribe
                                              ↓
-                                    CLI 单一运行实例初始化
+                                    Inicialização da instância de runtime única do CLI
 desktop continuous ───────────────────┤
 mobile replayable ─ snapshot/gap ─────┘
 ```
 
-组织态只保留原列；CLI 时间不得由 Host `Date.now()` 合成。标题意图 / 删除意图保留到交接确认；snapshot 缺席通过 reconcile 查询，不能当作删除。会话目录、workspace identity、remoteSessionId 不随项目移动改变。
+A organização mantém apenas as colunas originais; o tempo do CLI não pode ser sintetizado por `Date.now()` do Host. A intenção de renomear / a intenção de excluir persistem até a confirmação da entrega; a ausência em um snapshot é tratada por consulta de reconcile e não pode ser tomada como exclusão. O diretório da sessão, a workspace identity e o remoteSessionId não mudam quando o projeto é movido.
 
-离线标题 / 删除命令复用 CLI 的 READY 冷恢复：CommandInbox 先查幂等结果并取得 session admission，再初始化运行实例，随后执行原有命令。重复删除先返回已记录结果，不因会话已删除而再次恢复；Host 不维护第二个命令队列。
+Os comandos de título / exclusão offline reutilizam a recuperação fria READY do CLI: o CommandInbox consulta primeiro o resultado idempotente e obtém a admission de sessão, depois inicializa a instância de runtime e, por fim, executa os comandos existentes. Uma exclusão repetida retorna primeiro o resultado já registrado e não restaura a sessão de novo só porque ela foi excluída; o Host não mantém uma segunda fila de comandos.
 
 ```text
-rename/delete → CLI CommandInbox（去重、FIFO）→ READY → 原有 handler → CLI 持久事实 → Host 镜像
+rename/delete → CLI CommandInbox（dedup、FIFO）→ READY → handler original → fatos persistidos no CLI → espelho no Host
 ```
 
-## 重构边界与删除清单（2026-09-11）
+## Limites da refatoração e lista de remoções (2026-09-11)
 
-用户明确本次为重构：先追踪旧任务管理依赖，再删除被替代的实现，不保留并行写者。现有 `session` / `services` 仅为 unmanaged 目录划分，不能作为新抽象的完成证据。
+O usuário deixou explícito que desta vez trata-se de refatoração: primeiro rastrear as dependências do antigo gerenciamento de tarefas, depois remover as implementações substituídas, sem manter escritores paralelos. Os diretórios `session` / `services` atuais são apenas uma divisão de diretórios não gerenciada (unmanaged) e não podem servir como evidência de conclusão de novas abstrações.
 
-| 旧实现                                                                   | 处理                                   | 新职责                                                |
+| Implementação antiga                                                        | Tratamento                                   | Nova responsabilidade                                     |
 | ------------------------------------------------------------------------ | -------------------------------------- | ----------------------------------------------------- |
-| TaskOverlay / overlays / applyOverlayToMeta                              | 删除                                   | Host SQLite 组织态经服务读取；UI 只保留未提交草稿     |
-| adapter.updateTaskIndexFromStreamEvent                                   | 删除                                   | sessions-index / reconcile 唯一事实摄入               |
-| applyAgentPatch、snapshot status 合并、shouldPreserveNewerTerminalStatus | 删除                                   | CLI 明确 last_outcome；实时 phase 仅用于活动展示      |
-| rename/delete 的 Host 先写与 best-effort CLI 同步                        | 删除                                   | CLI 命令确认 → syncer 读取事实；失败保持原值          |
-| closeTask 写 deleted                                                     | 删除                                   | close 仅释放 runtime；delete 独立命令                 |
-| task_groups 管理、混排与 workspace 自动建组                              | 迁移完成后删除运行 API / UI / 排序缓存 | project / roots / task.project_id；旧表只用于首次迁移 |
-| 完整 snapshot 回写 title/status/time                                     | 删除事实写入；搜索正文和展示信息独立   | 展示缓存不得写 cli\_\*                                |
-| 旧版本数据兼容                                                           | 限定在启动迁移与惰性交接               | 不新增永久 fallback 或第二套运行实现                  |
+| TaskOverlay / overlays / applyOverlayToMeta                              | Remover                                     | O estado organizacional do Host SQLite é lido por serviço; a UI só mantém rascunhos não submetidos |
+| adapter.updateTaskIndexFromStreamEvent                                   | Remover                                     | sessions-index / reconcile é a única ingestão de fatos |
+| applyAgentPatch, merge de status do snapshot, shouldPreserveNewerTerminalStatus | Remover                                     | O CLI define explicitamente last_outcome; a phase em tempo real serve só para exibição de atividade |
+| Escrita prévia no Host de rename/delete e sincronização best-effort no CLI | Remover                                     | Confirmação do comando no CLI → syncer lê o fato; em falha o valor é preservado |
+| closeTask escrevendo deleted                                             | Remover                                     | close só libera o runtime; delete é um comando independente |
+| Gestão de task_groups, ordenação mista e criação automática de grupos por workspace | Remover API de runtime / UI / cache de ordenação após a migração | project / roots / task.project_id; tabelas antigas servem só para a primeira migração |
+| Reescrita completa de title/status/time a partir do snapshot               | Remover a escrita de fatos; corpo de busca e informação de exibição independentes | O cache de exibição não pode escrever cli\_\* |
+| Compatibilidade com dados de versões antigas                              | Limitada à migração de startup e à entrega lazy | Não criar fallback permanente nem uma segunda implementação de runtime |
 
 ```text
 CLI command / session store                         Host organization
@@ -81,138 +81,138 @@ CLI command / session store                         Host organization
                 |                                                  |
        generic topic transport                         project tree / timeline
                 |
- desktop continuous / mobile replayable（保留各自恢复边界）
+ desktop continuous / mobile replayable（cada um preserva seu próprio limite de recuperação）
 ```
 
-`CommandInbox`、owner/lease、remote attachment、会话运行态的协议适配与本次组织态重构分离；删除前按引用证据确认，不把仍服务手机、bot 或跨 Host 路由的代码当成无用状态。每个新模块按架构 skill 提供五件套、运行时输入校验、失败语义和契约测试。完成时报告删除项与净行数，不能仅以新增模块数量宣称重构完成。
+`CommandInbox`, owner/lease, remote attachment e a adaptação de protocolo do estado de runtime da sessão ficam separados desta refatoração de estado organizacional; antes de remover, confirmar por evidência de referências, sem tratar como estado inútil o código que ainda serve ao celular, a bots ou ao roteamento entre Hosts. Cada módulo novo deve fornecer, conforme a skill de arquitetura, o conjunto de cinco itens, a validação de entrada em runtime, a semântica de falha e testes de contrato. Ao concluir, reportar os itens removidos e o total líquido de linhas, sem alegar refatoração concluída apenas pela contagem de módulos novos.
 
-## Must-Preserve Invariants
+## Invariantes que devem ser preservados
 
-执行 session-management I1–I17（I17 的旧“仅时间线”文字以裁决 A5/F3 为准：空归属进入任务区）。数据库只加列/表/索引；历史 migration checksum 不改；恢复时关外键并逐表校验后提交，不删除正文。普通运行实例初始化后目录范围固定；跨 host 拖动拒绝，缺 root 必须确认后原子写入。
+Executar session-management I1–I17 (o texto antigo de I17, "apenas linha do tempo", obedece às decisões A5/F3: titularidade vazia entra na área de tarefas). O banco só recebe colunas/tabelas/índices; o checksum das migrations históricas não muda; na recuperação, desabilita-se as chaves estrangeiras e a validação é feita tabela a tabela antes do commit, sem apagar o corpo. Depois que a instância de runtime comum é inicializada, o escopo de diretórios fica fixo; arrastar entre hosts é recusado e diretório ausente exige confirmação antes da escrita atômica.
 
-## Codegraph Evidence / Graph Drift Candidates / Graph Delta
+## Evidência de CodeGraph / Candidatos de graph drift / Graph delta
 
-CodeGraph 返回本工作区无索引，未执行 CodeGraph 影响面扫描；改用上述种子的定向检索，限制为调用入口、权威 owner 与相邻测试。现有 graph 的 grouped-task-list 将被项目树替代，实施完成后更新已验证的 seed 与语义边，不把静态可达当作功能依赖。
+O CodeGraph retornou que não há índice neste workspace, portanto não foi executada a varredura de superfície de impacto do CodeGraph; foi usada a busca direcionada a partir das sementes acima, restrita a entradas de chamada, owners autoritativos e testes adjacentes. O grouped-task-list existente do graph será substituído pela árvore de projetos; após a implementação, atualizar as sementes verificadas e as arestas semânticas, sem tomar alcance estático como dependência funcional.
 
-## Clarification Log / Boundary Decisions
+## Log de esclarecimentos / Decisões de fronteira
 
-- 第 3 节裁决优先：修正 6.1 的“多匹配按主要目录归入”“无匹配仅时间线”旧文本。
-- 当前代码已有 `0019_dwf_journal`（2026-09-10），新增软删除迁移使用下一个编号 `0020_session_soft_delete_outcome`，不改已占用迁移。
-- 初始架构门禁：0 baseline / 0 new。完整 freshness 的 fetch 返回 HTTP 504；`--no-fetch` 检查通过，ahead main 1095 / behind 6；远端新鲜度暂未确认。
-- 已有未跟踪 `packages/remote-desktop/` 与本次任务无关，不纳入修改或提交。
+- As decisões da seção 3 têm precedência: corrigir o texto antigo de 6.1, "múltiplos matches são atribuídos pelo diretório principal" e "sem match, apenas linha do tempo".
+- O código atual já tem `0019_dwf_journal` (2026-09-10); a nova migration de soft delete usa o próximo número, `0020_session_soft_delete_outcome`, sem alterar migrations já ocupadas.
+- Portão de arquitetura inicial: 0 baseline / 0 new. O fetch do freshness completo retorna HTTP 504; a checagem com `--no-fetch` passou, ahead main 1095 / behind 6; a atualidade do remoto ainda não foi confirmada.
+- Já existe `packages/remote-desktop/` não rastreado, sem relação com esta tarefa; não entra em modificação nem em commit.
 
-## Dimensions / Accepted Cases
+## Dimensões / Casos aceitos
 
-| ID   | Setup → Action                                         | 断言                                                    | 证据层                   |
-| ---- | ------------------------------------------------------ | ------------------------------------------------------- | ------------------------ |
-| VP01 | 旧库含正文 → 升级 / 备份恢复                           | 仅 touchedTables 变化；message/part 完整；checksum 不变 | SQLite fixture / unit    |
-| VP02 | 升级 → 旧写者删除、改标题、新建 → 再升级               | 意图交接、orphan、空归属只判一次                        | SQLite fixture / service |
-| VP03 | 冷种子遗漏 / 删除事件丢失 → reconcile                  | exists/deleted 区分；缺席不删行                         | protocol / CLI / Host    |
-| VP04 | 0 / 1 / 多 roots → 创建编辑、软删、同集恢复            | cwd 固定、名称唯一、同 host、取消无副作用               | service / UI E2E         |
-| VP05 | NULL 归属、0/1/多匹配 → 首次发现 / 重启                | 仅唯一匹配归位；之后不再归位；任意 cwd 进任务区         | service / UI E2E         |
-| VP06 | A+B 项目 → create / explicit resume / subscribe 冷恢复 | B skills/subagents/可写范围可用；AGENTS/config 仅 A     | CLI / Host / E2E         |
-| VP07 | live B 改 C / 换主要目录 / 同 cwd 双项目 / 并发订阅    | live 范围固定；重建按归属；不串用；single-flight        | unit / E2E               |
-| VP08 | 离线入口删除 + 迟到刷新 / 重启重连 → 手动重新添加      | 不复活、不改远端项目和会话；主动添加原 ID               | repo / service / E2E     |
-| VP09 | 未置顶超期旧任务（不看结果/未读）→ Host 定时扫描 / 设置变更补扫（2026-09-14 起不随项目树加载或点击触发） | 任意 cwd 自动归档；置顶/运行中除外；组织操作不重排；点击任务不改 archived | unit / E2E               |
-| VP10 | 项目创建定时/闲时/Bot → 修改 roots → 执行恢复          | 继续使用固化 cwd/additionalDirectories                  | unit / E2E               |
+| ID   | Setup → Action                                         | Asserção                                                   | Camada de evidência           |
+| ---- | ------------------------------------------------------ | ---------------------------------------------------------- | ------------------------ |
+| VP01 | Banco antigo com corpo → upgrade / restauração de backup | Apenas touchedTables muda; message/part intactos; checksum inalterado | Fixture SQLite / unit    |
+| VP02 | Upgrade → escritor antigo exclui, renomeia título, cria → novo upgrade | Entrega da intenção, orphan, titularidade vazia julgada só uma vez | Fixture SQLite / service |
+| VP03 | Semente fria omite / evento de exclusão perdido → reconcile | exists/deleted diferenciados; ausência não apaga linha | protocol / CLI / Host    |
+| VP04 | 0 / 1 / múltiplos roots → criação e edição, soft delete, restauração do mesmo conjunto | cwd fixo, nome único, mesmo host, cancelamento sem efeito colateral | service / UI E2E         |
+| VP05 | Titularidade NULL, 0/1/múltiplos matches → primeira descoberta / reinício | Só o match único é posicionado; depois disso não é reposicionado; qualquer cwd entra na área de tarefas | service / UI E2E         |
+| VP06 | Projeto A+B → create / explicit resume / subscribe com cold resume | skills/subagents/escopo gravável de B disponíveis; AGENTS/config só de A | CLI / Host / E2E         |
+| VP07 | B live muda para C / troca de diretório principal / dois projetos com o mesmo cwd / assinaturas concorrentes | Escopo live fixo; reconstrução pela titularidade; sem uso cruzado; single-flight | unit / E2E               |
+| VP08 | Exclusão de entrada offline + refresh tardio / reconexão após reinício → readição manual | Sem ressurreição, sem alterar projetos e sessões remotos; adição ativa com o ID original | repo / service / E2E     |
+| VP09 | Tarefa antiga não fixada fora do prazo (sem olhar resultado/não lida) → varredura periódica do Host / varredura complementar por mudança de settings (a partir de 2026-09-14 não é disparada pelo carregamento nem pelo clique na árvore de projetos) | Qualquer cwd é arquivado automaticamente; fixadas e em execução, excetuadas; operações organizacionais não reordenam; clicar na tarefa não altera archived | unit / E2E               |
+| VP10 | Projeto cria agendada/ociosa/Bot → altera roots → execução na restauração | Segue usando o cwd/additionalDirectories fixado | unit / E2E               |
 
-## Pruning Decisions / Unresolved Questions
+## Decisões de poda / Questões em aberto
 
-跨 host 移动由 D2/G2 排除；运行中刷新 roots 由 B15 排除；空归属自动建项目由 F3 排除；彻底删项目由 E1b 排除。核心行为已由用户指定 spec 裁决，无需重复确认。桌面与手机、本地与远端分别保留代表用例；不把 Linux/Windows/真 SSH 尚未运行的检查标记为通过。
+A movimentação entre hosts é excluída por D2/G2; a atualização de roots durante a execução é excluída por B15; a criação automática de projeto para titularidade vazia é excluída por F3; a exclusão definitiva de projeto é excluída por E1b. O comportamento central foi decidido pelo spec indicado pelo usuário e não precisa de confirmação repetida. Casos representativos são mantidos separadamente para desktop e celular, local e remoto; verificações de Linux/Windows/SSH real que ainda não rodaram não são marcadas como aprovadas.
 
-## Planning Handoff / Matrix Backfill / E2E Handoff Notes
+## Entrega do planejamento / Preenchimento da matriz / Notas de handoff de E2E
 
-先 contract / spec，再失败测试，再实现。新增 GUI 用例放 manual-review/pending；使用隔离 HOME、真实 SQLite 与确定性 provider fixtures。沿用已有 E2E helpers，不自动 promotion。各阶段完成后把实际证据回填本文件及 conversation catalog/matrix。
+Primeiro contract / spec, depois testes de falha, depois a implementação. Novos casos de GUI vão para manual-review/pending; usar HOME isolado, SQLite real e fixtures determinísticas de provider. Reutilizar os helpers de E2E existentes, sem promotion automática. Ao fim de cada etapa, preencher este arquivo e o catálogo/matriz de conversas com as evidências reais.
 
-## 实施结果与验证（2026-09-11）
+## Resultado da implementação e verificação (2026-09-11)
 
-核心实现与最终代码门禁已完成，以下单独列出外部环境及尚未实机验证的范围。数据库迁移、任务事实单向摄入、项目/roots、侧栏、旧 Group 退场、全局独立 cwd、按 CLI 活动归档、桌面/手机导航、Composer、配置目录与定时/闲时/Bot 绑定均已接入。定时/闲时保持既有“只允许新建到本地项目”的限制；远端项目及普通远端会话可新建。手机保持没有设置页的既有产品边界。
+A implementação central e o portão final de código foram concluídos; abaixo são listados separadamente o ambiente externo e os escopos ainda não verificados em máquina real. Já foram conectados: migration de banco, ingestão unidirecional dos fatos de tarefa, projeto/roots, barra lateral, saída do Group antigo, cwd global separado, arquivamento por atividade do CLI, navegação desktop/celular, Composer, diretório de configuração e vínculo de agendadas/ociosas/Bot. Agendadas/ociosas mantêm a restrição existente de "só é permitido criar em projeto local"; projetos remotos e sessões remotas comuns podem criar. O celular mantém o limite de produto existente de não ter página de settings.
 
-### 架构与删除结果
+### Resultados de arquitetura e remoções
 
-| 受管模块                                   | 唯一职责与状态 owner                                              |
-| ------------------------------------------ | ----------------------------------------------------------------- |
-| sqlite-migrations / startup-storage        | 两库共用异步 migration runner、表级备份、验证恢复与建窗前失败关闭 |
-| project-storage / project                  | Host 项目/roots/任务归属持久化；统一 create/resume/cold 目录解析  |
-| task-facts                                 | CLI 事实的唯一摄入与交接 owner；组织态不写 cli\_\*                |
-| remote-projects                            | Controller 的连接成员、项目入口与基础缓存；远端组织态仍在 Source  |
-| project-catalog / bot-project-runtime      | 项目候选与 Bot 固化执行绑定；通过现有 Source/Registry 路由        |
-| project-workspace-navigation               | shared-host 草稿/历史任务 admission 与代际防护                    |
-| project-sidebar / workspace-config-catalog | 项目展示与配置目录候选，均通过服务契约读取                        |
+| Módulo gerenciado                                    | Responsabilidade única e owner de estado                                             |
+| ---------------------------------------------------- | --------------------------------------------------------------------- |
+| sqlite-migrations / startup-storage                 | Migration runner assíncrono compartilhado pelos dois bancos, backup em nível de tabela, restauração verificada e falha que fecha o processo antes de abrir as janelas |
+| project-storage / project                           | Persistência de projeto/roots/titularidade de tarefa no Host; resolução unificada de diretório em create/resume/cold |
+| task-facts                                          | Ingestão e entrega de fatos do CLI, único owner; o estado organizacional não escreve cli\_\* |
+| remote-projects                                     | Membros de conexão do Controller, entradas de projeto e cache básico; o estado organizacional remoto continua no Source |
+| project-catalog / bot-project-runtime               | Candidatos de projeto e vínculo de execução fixado do Bot; roteamento pelo Source/Registry já existente |
+| project-workspace-navigation                        | Admission de rascunho/tarefa histórica do shared-host e proteção por geração |
+| project-sidebar / workspace-config-catalog          | Exibição de projeto e candidatos de diretório de configuração, ambos lidos por contrato de serviço |
 
-已删除 TaskOverlay、流事件回写任务状态、Host 先改名/删除再 best-effort 同步、Group 管理 API/UI、旧 workspace 自动建组、旧 timeline/pinned/archived 侧栏实现、无消费者的远端任务缓存、Scratch 弹窗回调链和 Bot main bridge。保留当前消费者使用的查询投影、CLI CommandInbox、owner/lease、workspaceIdentity、remote attachment。普通运行实例的目录范围固定；定义类任务保存不可变执行快照。
+Foram removidos TaskOverlay, a escrita de status de tarefa a partir de eventos de stream, a renomeação/exclusão prévia no Host seguida de sincronização best-effort, a API/UI de gestão de Group, a criação automática de grupo por workspace antigo, as implementações antigas de timeline/pinned/archived na barra lateral, o cache de tarefas remotas sem consumidores, a cadeia de callbacks do pop-up de Scratch e o Bot main bridge. Mantidos as projeções de consulta usadas pelos consumidores atuais, o CLI CommandInbox, owner/lease, workspaceIdentity e o remote attachment. O escopo de diretórios da instância de runtime comum fica fixo; tarefas de classe de definição guardam um snapshot de execução imutável.
 
-按暂存区 numstat 统计，源码/测试/SQL/脚本合计新增 24,859 行、删除 39,226 行，净删除 14,367 行（不含 docs 与配置）。
+Segundo o numstat da área de staging, código/testes/SQL/scripts somam 24.859 linhas adicionadas e 39.226 removidas, net −14.367 linhas (sem docs e configuração).
 
-新模块均已登记 policy、提供五件套与运行时契约；architecture baseline 没有扩张。CodeGraph 无工作区索引，未执行 CodeGraph 影响面扫描，使用依赖引用与定向检索，不能将其宣称为 CodeGraph 证据。
+Os módulos novos foram todos registrados em policy e fornecem o conjunto de cinco itens e o contrato de runtime; o baseline de arquitetura não expandiu. O CodeGraph não tem índice de workspace, portanto não foi executada a varredura de superfície de impacto do CodeGraph; foram usadas referências de dependência e busca direcionada, e não se pode alegar isso como evidência do CodeGraph.
 
-### 验证证据
+### Evidências de verificação
 
-| 验证                   | 实际结果与边界                                                                                                                                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 完整受影响单测         | 最终第 9 轮 1724 文件 / 14942 测试通过；2 文件 / 14 测试按配置跳过，341.12 秒。包含 D84～D89 的全部源码修改                                                                                              |
-| 两库 schema            | 第 3 轮实际迁移产物与只增约束检查通过；CLI 历史 SQL/checksum 保留                                                                                                                                        |
-| 架构门禁               | 最终第 69 轮 violations 0 / baseline 0 / new 0                                                                                                                                                           |
-| 类型与 lint            | 最终 typecheck 87 通过；lint 32 为 48 warnings / 0 errors；460 个候选变更文件的格式检查通过（oxfmt 实际检查 459 文件）                                                                                   |
-| 桌面与 URL 远端        | 第 53 轮 8/8 通过：迁移账本、全局唯一 cwd/NULL 归属、CRUD/同 roots 恢复、离线入口、URL 元数据/真实 Agent/附加 root/重开/冷恢复、定时定义、配置 roots、Bot 授权 JSON                                      |
-| Composer 与拖动        | 第 52 轮 VP14/15 通过：同名多 root 文件、项目分组引用、原生拖动缺 root 取消/确认、固定 cwd、移动后重开正文                                                                                               |
-| 手机 shared-host       | 第 34/36/40/48 轮通过：390px、真实 relay、项目草稿 reload、发送/任务切走重开，并验证 taskId/projectId/cwd/正文及桌面 tab/Host 数。第 52/54 轮在导航前被 relay WSS 的证书错误阻塞，不能记最新组合整轮通过 |
-| 本地多目录完整冷恢复   | 第 42/48/52 轮通过：CREATE/LIVE 使用 A+B，完整退出 Electron/Host/CLI 后，同 taskId/cwd 的 COLD 使用 A+C；AGENTS 始终仅 A                                                                                 |
-| URL 远端 Agent 冷恢复  | 第 52/53 轮 VP18 通过：旧 CLI 退出、新 runtime identity、实际 COLD 模型请求包含 C 且不含 B 的 skill；taskId/cwd/projectId 固定，Controller 没有远端权威 task 副本                                        |
-| 旧源码升级/降级/再升级 | 独立旧 checkout 与当前源码四阶段通过，见下方复现；不等同旧应用二进制升级安装                                                                                                                             |
-| Bot runtime            | 193 项定向单测与第 52 轮 3 项 synthetic E2E 通过；真实远端第三方发送/流订阅未执行                                                                                                                        |
+| Verificação                  | Resultado real e limites                                                                                                                                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Suíte completa de testes afetados | Na 9ª rodada final, 1724 arquivos / 14942 testes passaram; 2 arquivos / 14 testes pulados por configuração, 341,12 s. Inclui todas as alterações de código-fonte de D84～D89                                                                                              |
+| Schema dos dois bancos       | Na 3ª rodada, o artefato real de migration e a checagem de restrição apenas-inclusiva passaram; SQL/checksum históricos do CLI preservados                                                                                                                                        |
+| Portão de arquitetura        | Na 69ª rodada final: 0 violations / baseline 0 / new 0                                                                                                                                                           |
+| Tipos e lint                 | typecheck final: 87 passaram; lint 32: 48 warnings / 0 errors; checagem de formato de 460 arquivos candidatos alterados passou (oxfmt verificou de fato 459 arquivos)                                                                                   |
+| Desktop e remoto por URL     | Na 53ª rodada, 8/8 passaram: razão de migrations, cwd global único/titularidade NULL, CRUD/restauração dos mesmos roots, entrada offline, metadados de URL/Agent real/root adicional/reabertura/cold resume, definição de agendadas, roots de configuração, JSON de autorização de Bot                                      |
+| Composer e arrastar          | Na 52ª rodada, VP14/15 passaram: arquivo de múltiplos roots com mesmo nome, referência de agrupamento de projeto, cancelamento/confirmação por falta de root no arrastar nativo, cwd fixo, reabertura do corpo após mover                                                                                               |
+| Celular shared-host          | Nas rodadas 34/36/40/48: 390px, relay real, reload de rascunho de projeto, envio/troca de tarefa e reabertura, verificando taskId/projectId/cwd/corpo e o número de tab/Host do desktop. As rodadas 52/54 foram bloqueadas antes da navegação por erro de certificado do relay WSS, portanto a combinação mais recente não pode ser registrada como rodada inteira aprovada |
+| Cold resume local com múltiplos diretórios | Nas rodadas 42/48/52: CREATE/LIVE usam A+B; após sair completamente do Electron/Host/CLI, o COLD com o mesmo taskId/cwd usa A+C; AGENTS permanece sempre só em A                                                                                 |
+| Cold resume de Agent remoto por URL | Nas rodadas 52/53, VP18 passou: CLI antigo sai, nova runtime identity, requisição de modelo COLD real contendo o skill de C e não o de B; taskId/cwd/projectId fixos, o Controller sem cópia autoritativa da task remota                                        |
+| Upgrade/downgrade/novo upgrade de código-fonte antigo | Quatro fases passaram com um checkout antigo independente e o código-fonte atual, ver a reprodução abaixo; não equivale a upgrade de instalação do binário do aplicativo antigo                                                                                                                             |
+| Runtime de Bot                | 193 testes unitários direcionados e 3 E2E synthetic na 52ª rodada passaram; envio real a terceiro remoto e assinatura de stream não executados                                                                                                                        |
 
-第 52 轮 `desktop-e2e-20260911030401818-p18811-a137ff2609ad1117` 共 14 例，12 pass / 2 fail：VP11 在菜单动画期间过早读取文字，VP13 在 relay TLS 握手失败。修正 VP11 等待条件后，第 53 轮 `desktop-e2e-20260911030852184-p21904-e7779266b9d13bb3` 主文件 8/8 通过（42 秒）。不得将这些证据合写为“最新整轮全部通过”。新增交互用例保留 manual-review/pending，未自动晋升或加入 Docker verified preset。
+A 52ª rodada `desktop-e2e-20260911030401818-p18811-a137ff2609ad1117` teve 14 casos, 12 pass / 2 fail: VP11 leu o texto cedo demais durante a animação do menu e VP13 falhou no handshake TLS do relay. Depois de corrigir a condição de espera de VP11, a 53ª rodada `desktop-e2e-20260911030852184-p21904-e7779266b9d13bb3` passou 8/8 no arquivo principal (42 s). Não se deve reescrever essas evidências como "a rodada mais recente inteira passou". Os novos casos de interação permanecem em manual-review/pending, sem promotion automática e sem entrada no preset Docker verified.
 
-D82 的 Web transport 偶发等待超时保留记录：当前与重构前 checkout 均独立 27 例通过，第 8 轮串行完整集通过。负载相关仍是推测，未放宽超时或宣称根因已修复。D91 的手机 WSS 错误已有 CDP/截图证据；独立 HTTPS 成功且证书来自本机 Proxyman，未修改代理或 TLS 信任配置，不能据此断言证书异常已消除。
+O timeout de espera esporádico do Web transport em D82 fica registrado: tanto o checkout atual quanto o anterior à refatoração passaram 27 casos de forma independente, e a 8ª rodada passou o conjunto completo em série. A relação com carga continua sendo especulação; não se afrouxou o timeout nem se declarou a causa raiz corrigida. O erro de WSS do celular em D91 já tem evidência de CDP/captura de tela; o HTTPS isolado funcionou e o certificado veio do Proxyman local, sem alteração de proxy ou configuração de confiança TLS, portanto não se pode afirmar que a anomalia de certificado foi eliminada.
 
-### 跨版本数据验证复现
+### Reprodução da verificação de dados entre versões
 
-旧 checkout 为 `ad1fc7d414ee71c58d3539efdeb028b5d6e2e8f4`。先在旧 checkout 执行 `pnpm install --offline --ignore-scripts --frozen-lockfile`、`pnpm exec tsc -b apps/zcode-cli/packages/contracts`；不将新版 workspace 包软链给旧代码。通过现有 Node tsx loader 执行 `scripts/verify-project-upgrade.mts <对应 checkout 根> <phase> <隔离目录>`，四个 phase 依次为 `old-seed`、`upgrade`、`old-write`、`reupgrade`。
+O checkout antigo é `ad1fc7d414ee71c58d3539efdeb028b5d6e2e8f4`. Primeiro, no checkout antigo, executar `pnpm install --offline --ignore-scripts --frozen-lockfile` e `pnpm exec tsc -b apps/zcode-cli/packages/contracts`; não criar symlink dos novos pacotes de workspace para o código antigo. Executar, pelo loader Node tsx existente, `scripts/verify-project-upgrade.mts <raiz do checkout correspondente> <phase> <diretório isolado>`, com as quatro phases em sequência: `old-seed`, `upgrade`, `old-write`, `reupgrade`.
 
-隔离目录名必须以 `zcode-project-upgrade-` 开头，HOME/USERPROFILE/ZCODE_DATA_BASE_DIR 在每个进程启动前全部指向该目录。旧版真实 TaskIndexRepo/SqliteSessionStore 新建数据，新版升级，旧版实际改名/删除/新建，新版再升级。正文/FK、旧 checksum、已有归属、新行首次归属、旧意图交接及清位均通过。CLI 端口在进程内直连真实 Store；旧 CLI 仍列出新软删除会话是已接受的降级限制。
+O nome do diretório isolado deve começar com `zcode-project-upgrade-`, e HOME/USERPROFILE/ZCODE_DATA_BASE_DIR devem apontar para esse diretório antes do início de cada processo. A versão antiga cria dados com o TaskIndexRepo/SqliteSessionStore reais, a nova versão faz o upgrade, a antiga de fato renomeia/exclui/cria e a nova faz o upgrade de novo. Corpo/FK, checksum antigo, titularidade já existente, primeira atribuição das linhas novas, entrega de intenções antigas e limpeza de posição passaram. A porta do CLI é conectada em processo ao Store real; o CLI antigo ainda listar as novas sessões com soft delete é uma limitação de degradação aceita.
 
-### 未验证范围与收尾
+### Escopos não verificados e encerramento
 
-真实旧 Server 二进制、SSH/WSL、Windows/Linux GUI、真实远端 Bot、手机远端执行、Source Server 进程重启、远端运行中权限交互和 Docker preset 尚无运行证据；本地多目录模型请求 E2E 不替代工具权限/settings/MCP/hooks 的独立断言。最终第 9 轮完整受影响测试、类型/lint/架构与变更文件格式检查已通过。测试隔离 HOME 和诊断产物保留供复核；本次 Vite 服务与独立旧 checkout 已清理。当前运行时明确提供 CODEX_SESSION_ID，已与本次 session_meta.id / cwd 核对一致；提交使用该实际 ID，不猜测或复用其他会话 ID。
+Ainda não há evidência de execução para o binário real de Server antigo, SSH/WSL, GUI Windows/Linux, Bot remoto real, execução remota pelo celular, reinício do processo Source Server, interação de permissões durante execução remota e preset Docker; o E2E de requisição de modelo com múltiplos diretórios local não substitui asserções independentes de permissão de ferramenta/settings/MCP/hooks. A 9ª rodada final da suíte completa de testes afetados, o typecheck/lint/arquitetura e a checagem de formato dos arquivos alterados passaram. O HOME isolado de teste e os artefatos de diagnóstico foram preservados para revisão; o serviço Vite desta rodada e o checkout antigo independente foram limpos. O runtime atual fornece explicitamente CODEX_SESSION_ID, e ele foi conferido como igual ao session_meta.id / cwd desta sessão; o commit usa esse ID real, sem adivinhar nem reutilizar outros IDs de sessão.
 
-开发意外、失败回合与根因均保存在 [开发偏差记录](2026-09-11-virtual-project-development-deviations.md)。D50 包含测试隔离失效导致真实 settings 被写入及恢复边界，不能从完成报告中抹去。
+Acidentes de desenvolvimento, rodadas com falha e causas raiz estão preservados no [Registro de desvios de desenvolvimento](2026-09-11-virtual-project-development-deviations.md). D50 contém a falha de isolamento de teste que levou a settings reais a serem escritos e o limite de restauração; isso não pode ser apagado do relatório de conclusão.
 
-## 残留清理（2026-09-12）
+## Limpeza residual (2026-09-12)
 
-用户复核后指出「删除清单」并未清干净。本轮用三种证据交叉审计：按区域人工审计（services 事实层 / 存储与身份 / UI / shared-desktop-web / CLI / 测试与文档）、knip，以及「不把单测当入口」的 import 可达性分析（对比 58c1b0d484 与当前树每个文件的生产 importer）。最后一种抓到了 knip 漏掉的一整类：源码被删、其 helper 只剩单测在 import。
+Após a revisão do usuário, ficou claro que a "lista de remoções" não estava limpa. Esta rodada fez uma auditoria cruzada com três tipos de evidência: auditoria manual por área (camada de fatos dos services / armazenamento e identidade / UI / shared-desktop-web / CLI / testes e documentação), knip e uma análise de alcançabilidade por import que "não trata teste unitário como entrada" (comparando cada arquivo com os importers de produção da árvore em 58c1b0d484 e da árvore atual). O último tipo pegou uma classe inteira que o knip deixou passar: o código-fonte foi removido e seus helpers só restaram importados por testes unitários.
 
-### 已删除
+### Removidos
 
-| 批次            | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | 主要位置                          |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| 孤儿模块        | 27 个失去生产消费者的 UI 模块（约 2,900 行）及 23 个只为它们存在的单测：WebRemoteControlTaskIndex(.Row)、buildTaskListResultFromSessions、taskStatusUnreadSync、workspaceTaskListDisplayGroups / OptimisticOverlay / RefreshSignatures、taskListRefreshPolicy、taskListWorkspaceEventCoordinator、WorkspaceSourceGroupHeader、workspaceSourceGroups、CollapsedRail、workspaceSidebarSelection、taskTimelineGroups、workspaceRemovalSafety、chatStatus、workspaceSourceConnection、sidebarTaskPreferences、workspaceRuntimeRelease、restrictVerticalDragWithinContainer、workspacePurpose、workbenchNewTaskTarget、chatActionHelpers、useLocalWorkspaceScopes、TaskListRemoteSyncHint、taskRuntimeDisplayStatus；taskListMetaSync 只保留 Bot 广播仍用的两个函数 | packages/ui                       |
-| 手机任务快照链  | Root 三个 useGlobalTaskList → IPC SyncWebRemoteControlTasks → main availableTasksByWindowId → workspace-list/bootstrap 的 tasks 字段，唯一读者已随手机旧首页删除；task target 上只供旧首页签名用的 displayStatus/pinned/archived 同删                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | shared、desktop main/preload、web |
-| services 死接口 | closeTask、createTask.draftSessionId（含 sameModelSelection）、taskIndexRepo.listSessionsByAutomation、TaskIndexWriteRecord.writeUnreadAt/searchableText 与 @write_unread_at CASE、syncer 接口上的 refreshSessionFacts 与 ensureSessionSubscription.includeSnapshot、ISettingService.ensureDefaultProject、ProjectCatalogContract、resolveStartupWorkspacePath                                                                                                                                                                                                                                                                                                                                                                                                 | packages/services、desktop main   |
-| CLI 归档字段链  | SessionInfo.time.archived / timeArchived / includeArchived / archivedAt（含 shared 协议与 services 参数）、createSession 显式写 time_archived=null、旧 runner 孤儿 ensureParentDir / SchemaMigrationRow、cold-session-resume 三层三元兼容调用                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | apps/zcode-cli、shared、services  |
-| 文案与注释      | 116 个无引用 i18n 键 × 2 语言；十余处仍描述 grouped / overlay / applyAgentPatch / closeSession 的注释                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | ui、services、CLI                 |
-| 文档            | sidebar-task-view-switcher.md、CLI multi-workspace.md 加废弃横幅；e2e 覆盖矩阵与 case catalog 退场 Group 语义用例（TSL22/27/37、CWP05）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | docs                              |
+| Lote               | Conteúdo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Local principal                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Módulos órfãos     | 27 módulos de UI sem consumidores de produção (cerca de 2.900 linhas) e 23 testes unitários que existiam só para eles: WebRemoteControlTaskIndex(.Row), buildTaskListResultFromSessions, taskStatusUnreadSync, workspaceTaskListDisplayGroups / OptimisticOverlay / RefreshSignatures, taskListRefreshPolicy, taskListWorkspaceEventCoordinator, WorkspaceSourceGroupHeader, workspaceSourceGroups, CollapsedRail, workspaceSidebarSelection, taskTimelineGroups, workspaceRemovalSafety, chatStatus, workspaceSourceConnection, sidebarTaskPreferences, workspaceRuntimeRelease, restrictVerticalDragWithinContainer, workspacePurpose, workbenchNewTaskTarget, chatActionHelpers, useLocalWorkspaceScopes, TaskListRemoteSyncHint, taskRuntimeDisplayStatus; taskListMetaSync mantém apenas as duas funções ainda usadas pela broadcast de Bot | packages/ui                       |
+| Cadeia de snapshot de tarefas do celular | Três useGlobalTaskList na Root → IPC SyncWebRemoteControlTasks → main availableTasksByWindowId → campo tasks em workspace-list/bootstrap; o único leitor foi removido junto com a homepage antiga do celular; displayStatus/pinned/archived no task target, usados só pela assinatura da homepage antiga, também foram removidos                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | shared, desktop main/preload, web |
+| Interfaces mortas dos services | closeTask, createTask.draftSessionId (incluindo sameModelSelection), taskIndexRepo.listSessionsByAutomation, TaskIndexWriteRecord.writeUnreadAt/searchableText e o CASE @write_unread_at, refreshSessionFacts na interface do syncer e ensureSessionSubscription.includeSnapshot, ISettingService.ensureDefaultProject, ProjectCatalogContract, resolveStartupWorkspacePath                                                                                                                                                                                                                                                                                                                                                                                                 | packages/services, desktop main   |
+| Cadeia de campos de arquivamento do CLI | SessionInfo.time.archived / timeArchived / includeArchived / archivedAt (incluindo protocolo shared e parâmetros dos services), escrita explícita de time_archived=null em createSession, ensureParentDir / SchemaMigrationRow órfãos do runner antigo, chamada ternária de compatibilidade em três camadas do cold-session-resume                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | apps/zcode-cli, shared, services |
+| Textos e comentários             | 116 chaves i18n sem referência × 2 idiomas; dezenas de comentários que ainda descreviam grouped / overlay / applyAgentPatch / closeSession                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | ui, services, CLI                 |
+| Documentação         | sidebar-task-view-switcher.md, CLI multi-workspace.md com banner de depreciação; a matriz de cobertura de e2e e o catálogo de casos perderam os casos de semântica de Group (TSL22/27/37、CWP05)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | docs                              |
 
-### 顺带修复
+### Correções feitas de passagem
 
-- 闲时任务绑定会话的忙碌判断已失效：归属收口后 tasks-index 行的 status 只镜像 CLI last_outcome，永远不会是 running，host 按 `listTasks(...).status === "running"` 的守卫形同虚设。新增 `IZCodeTaskService.listActiveTaskIds`（来自 syncer 活动集合），host 改用它；offPeakHostDispatch 测试按活动集合断言 busy。
-- 分支上两处已失效的旧测试：pinnedTaskFileTreeAction 断言 79de8c7fab 已移除的文件树按钮（删除）；workspaceShellRemoteMobileLayout 的 TabStoreProvider mock 缺 useTabStore（8d06343e22 后 useProjectTree 直接订阅），24 例报错（补 mock）。
-- core resume 改为拒绝恢复已软删除会话（旧 time.archived 判断永远 false）。
+- A verificação de ocupado da sessão vinculada a uma tarefa ociosa estava inválida: depois da convergência da titularidade, o status da linha em tasks-index espelha apenas o last_outcome do CLI e nunca será running, então a guarda do host `listTasks(...).status === "running"` ficou sem efeito. Foi adicionado `IZCodeTaskService.listActiveTaskIds` (vindo do conjunto ativo do syncer) e o host passou a usá-lo; o teste offPeakHostDispatch passa a afirmar ocupado pelo conjunto ativo.
+- Dois testes antigos que já estavam inválidos no branch: pinnedTaskFileTreeAction afirmava o botão de árvore de arquivos removido em 79de8c7fab (removido); o mock de TabStoreProvider em workspaceShellRemoteMobileLayout não tinha useTabStore (após 8d06343e22 o useProjectTree assina diretamente), e 24 casos falhavam (mock adicionado).
+- O core resume passou a recusar a restauração de sessões com soft delete (a verificação antiga de time.archived era sempre false).
 
-### 验证
+### Verificação
 
-每批提交前：`tsc -b` 对应包、oxlint / oxfmt 变更文件、`pnpm architecture:check --changed`（0 violations）、`pnpm test:unit:affected` 三轮全绿（1715 文件 / 14789 例）；CLI 侧 `pnpm -r run typecheck` 通过，adapters / bootstrap / core 相关单测通过。`v4-gateway.test.ts` 的「Core admission ACK 不等待 TurnStarted projection」在清理前的 HEAD 上就已失败，与本轮无关，未处理。
+Antes de cada lote de commits: `tsc -b` dos pacotes correspondentes, oxlint / oxfmt nos arquivos alterados, `pnpm architecture:check --changed` (0 violations), `pnpm test:unit:affected` com três rodadas todas verdes (1715 arquivos / 14789 casos); no lado do CLI, `pnpm -r run typecheck` passou, e os testes unitários de adapters / bootstrap / core passaram. O caso "Core admission ACK não espera TurnStarted projection" de `v4-gateway.test.ts` já falhava no HEAD antes da limpeza e não tem relação com esta rodada, portanto não foi tratado.
 
-### e2e 切换到新侧栏 test id
+### E2E migrado para os novos testids da barra lateral
 
-src 已不渲染 `TID_WORKSPACE_ITEM / LIST / CLOSE / FILE_TREE_BUTTON / OPEN_BUTTON`、`TID_CONVERSATION_NEW_TASK`，但 47 个 e2e 文件（含 15 个正式 spec）仍经 helper 依赖它们，实施记录里的 e2e 证据只覆盖 VP 系列。本轮把 helper 整体切到项目侧栏：`ensureProjectExpanded` / `waitForRestoredProjects` / `openWorkspaceDraftFromSidebar`（hover 项目行 → create-task）/ `openProjectFileTree` / `removeRemoteProjectEntry` / `reconnectRemoteProjectHost` / `readTaskRowInProject`，项目行按 `data-project-name` = 目录 basename 定位（老 workspace 首次迁移成同名单 root 项目）；`selectTaskOrganizeMode` 与 app.page 的 tabBar / workspaceList getter 删除；test-ids.ts 删除 9 个死常量、新增 `TID_VIRTUAL_PROJECT_*` / `TID_PROJECT_PINNED_TASKS` / `TID_REMOTE_PROJECT_HOST` 并登记到 testid contract。删除 Group 视图专属 e2e（grouped-archive-resurrection、grouped-header-pin-visibility）及其 4 个 fixture json，marquee fixture 去掉 group 三表；wdio.conf 里对这两个 spec 的 fixture 分支同步删除。
+O src já não renderiza `TID_WORKSPACE_ITEM / LIST / CLOSE / FILE_TREE_BUTTON / OPEN_BUTTON` nem `TID_CONVERSATION_NEW_TASK`, mas 47 arquivos de e2e (incluindo 15 specs oficiais) ainda dependem deles via helper, e a evidência de e2e no registro de implementação cobre apenas a série VP. Esta rodada migrou o helper inteiro para a barra lateral de projetos: `ensureProjectExpanded` / `waitForRestoredProjects` / `openWorkspaceDraftFromSidebar` (hover na linha do projeto → create-task) / `openProjectFileTree` / `removeRemoteProjectEntry` / `reconnectRemoteProjectHost` / `readTaskRowInProject`, com a linha do projeto localizada por `data-project-name` = basename do diretório (o workspace antigo migrou na primeira vez para um projeto root com o mesmo nome); `selectTaskOrganizeMode` e os getters tabBar / workspaceList de app.page foram removidos; test-ids.ts remove 9 constantes mortas e adiciona `TID_VIRTUAL_PROJECT_*` / `TID_PROJECT_PINNED_TASKS` / `TID_REMOTE_PROJECT_HOST`, registradas no contrato de testid. Foram removidos os e2e exclusivos da visão de Group (grouped-archive-resurrection, grouped-header-pin-visibility) e seus 4 fixtures json; o fixture marquee perdeu as três tabelas de group; em wdio.conf, o ramo de fixture desses dois specs foi removido.
 
-实跑：`desktop-e2e-20260912125729585-p62209-5ccdd017382630da` 通过 workspace-file-tree-refresh、task-list-archive-confirmation、conversation-session-conversation-workspace、conversation-session-task-title-marquee、repo-wiki-generation-settings；`desktop-e2e-20260912130133547-p67653-79b12a4ab84b4780` 通过 workspace-agent-warmup-small-set / -lifecycle、workspace-passive-agent-startup、workspace-provider-save-dormant-agent、browser-tab-close-cross-workspace（预热 fixture 期望按 spec F13 由 3 个改为 1 个，TSL29/31/36 文档同步）。未实跑：SSH 系列（无真实 SSH 环境，helper 只改到语义一致）、repo-wiki 其余三条 / workspace-file-tree/\* / configurable-data-directory / pasted-image-path-projection / markdown-preview-selection（同一 helper 路径已由上面用例验证）、manual-review/pending 下约 30 个 spec 只做机械替换。`workspace-removal-runtime-release` 因侧栏已无「移除 workspace」入口降级到 pending：删除项目是否应释放该目录的 Agent runtime 待裁决。src 侧待补：项目 section 加 `data-primary-root`（同名目录的项目目前无法区分）；project-sidebar 仍硬编码 testid 字符串，应改用新增常量。
+Execução real: `desktop-e2e-20260912125729585-p62209-5ccdd017382630da` passou workspace-file-tree-refresh, task-list-archive-confirmation, conversation-session-conversation-workspace, conversation-session-task-title-marquee, repo-wiki-generation-settings; `desktop-e2e-20260912130133547-p67653-79b12a4ab84b4780` passou workspace-agent-warmup-small-set / -lifecycle, workspace-passive-agent-startup, workspace-provider-save-dormant-agent, browser-tab-close-cross-workspace (o fixture de aquecimento passou a esperar 1 em vez de 3 conforme o spec F13, com TSL29/31/36 documentados em sincronia). Não executados de fato: a série SSH (sem ambiente SSH real, o helper foi alterado só até consistência semântica), as outras três de repo-wiki / workspace-file-tree/\* / configurable-data-directory / pasted-image-path-projection / markdown-preview-selection (o mesmo caminho de helper já foi validado pelos casos acima) e cerca de 30 specs sob manual-review/pending, que receberam apenas substituição mecânica. `workspace-removal-runtime-release` foi rebaixado para pending porque a barra lateral não tem mais entrada "remover workspace": se a exclusão de projeto deve liberar o runtime de Agent daquele diretório, isso aguarda decisão. Pendente no lado do src: a seção de projeto precisa de `data-primary-root` (hoje projetos com diretórios de mesmo nome não podem ser diferenciados); o project-sidebar ainda tem strings de testid hardcoded e deve passar a usar as novas constantes.
 
-### 保留待裁决（未删，需要产品/设计决定）
+### Mantido para decisão (não removido, precisa de decisão de produto/design)
 
-- `taskIndexRepo.applyCliFacts` 里 `cli_updated_at=max(...)`、`cli_last_outcome=coalesce(...)` 的「取较新 / 保留旧终态」合并：删除清单要求删的 snapshot status 合并以 SQL 形式仍在，D15 已用请求代际解决迟到问题；两条以已删 applyAgentPatch 为前提的单测（zcodeTaskIndexSyncer.test.ts:1839-1922）因此仍能通过。
-- 两套未读源并存：窗口角标读 store 的 taskUnreadByTaskId / optimisticTaskListByTaskId / taskListCache，侧栏读 task query cache 的 unreadAt；新侧栏不读前者但 WorkspaceHeaderSections 仍在写。
-- 旧 group 四表的运行时维护：controllerRemoteIdentityMigration.ts 与 sourceServerWorkspaceAliasRepo.ts 在 identity 迁移事务里仍改写 task*group*\_ 三表（约 150 行），spec F2/F4 规定迁移后只读一次；taskIndexRepo.initialize 仍为新库建这四张表；mergeTaskDatabase 只合并旧列不合并 cli\_\_ / project_id。
-- 旧列只读违规的小项：listDeletedTaskIds 只读 deleted 不看 cli_deleted；旧索引按 updated_at 而查询已改 cli_updated_at（补索引需要新 migration）；legacy ACP 迁移每次启动读旧列且不在 runner 里。
-- bots/workspaceHelpers.resolveCanonicalWorkspaceId 的三重旧格式永久 fallback；adapter 六个 unsupported 存根与 checkCodexConnectivity / getTaskTokenUsage（legacy ACP 接口面，零调用）；CLI migration 0020 的 `apply` 列存在兼容分支；`packages/ui/src/workspace-grouped-tasks/` 目录名（只剩一个活文件，ProjectNode.tsx 有用户未提交改动暂不动）；TaskList.tsx 在单行调用下不可达的分支与 TaskListItem timeline variant。
+- Em `taskIndexRepo.applyCliFacts`, a mescla de `cli_updated_at=max(...)` e `cli_last_outcome=coalesce(...)`, de "ficar com o mais novo / preservar o estado terminal antigo": o merge de status do snapshot que a lista de remoções exigia apagar ainda existe na forma de SQL, e D15 já resolveu o problema de atraso com a geração da requisição; por isso os dois testes unitários que pressupõem o applyAgentPatch removido (zcodeTaskIndexSyncer.test.ts:1839-1922) ainda passam.
+- Duas fontes de não lidas coexistem: o badge da janela lê do store taskUnreadByTaskId / optimisticTaskListByTaskId / taskListCache, e a barra lateral lê o unreadAt do cache de consulta de tasks; a nova barra lateral não lê o primeiro, mas o WorkspaceHeaderSections ainda escreve nele.
+- Manutenção em runtime das quatro tabelas antigas de group: controllerRemoteIdentityMigration.ts e sourceServerWorkspaceAliasRepo.ts ainda reescrevem as três tabelas task*group*\_ dentro da transação de migração de identidade (cerca de 150 linhas), e o spec F2/F4 determina leitura única após a migração; taskIndexRepo.initialize ainda cria essas quatro tabelas para bancos novos; mergeTaskDatabase só mescla as colunas antigas e não mescla cli\_\_ / project_id.
+- Pequenos itens de violação da leitura das colunas antigas: listDeletedTaskIds lê só deleted e não cli_deleted; o índice antigo usa updated_at enquanto a consulta já usa cli_updated_at (completar o índice exige nova migration); a migration legacy ACP lê as colunas antigas a cada startup e não está no runner.
+- Fallback permanente de três formatos antigos em bots/workspaceHelpers.resolveCanonicalWorkspaceId; seis stubs unsupported no adapter e checkCodexConnectivity / getTaskTokenUsage (superfície de API legacy ACP, zero chamadas); a coluna `apply` da migration 0020 do CLI tem ramo de compatibilidade; o nome de diretório `packages/ui/src/workspace-grouped-tasks/` (resta apenas um arquivo vivo; ProjectNode.tsx tem alterações do usuário ainda não commitadas, então fica por enquanto); em TaskList.tsx, os ramos inalcançáveis sob a chamada de uma linha só e a variante timeline de TaskListItem.

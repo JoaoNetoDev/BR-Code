@@ -43,7 +43,7 @@ execução que perguntou.
 ### Quando o modelo pode chamá-la
 
 Somente quando o usuário pediu um workflow: por meio de `/workflow`, ou em prosa que nomeie
-workflow como o meio ("use um workflow para …", "用工作流 …"). Então a chamada é obrigatória,
+workflow como o meio ("use um workflow para …"). Então a chamada é obrigatória,
 por menor que seja a tarefa, e o tamanho decide apenas quantos subagentes o script recebe. Sem
 um pedido desses o modelo não inicia um workflow, qualquer que seja a forma da tarefa;
 trabalho de múltiplos passos ou múltiplos subagentes vai para a ferramenta `Agent` ou é feito
@@ -1559,7 +1559,7 @@ Abaixo do título: um subtítulo
 (「保存在已打开项目里的工作流，填好参数就能再跑一次。」), o cabeçalho de seção 「已保存的工作流」 com
 a contagem total, e, à direita, um botão fantasma 「工作流设置」 (Workflow settings) seguido do
 rótulo do modo atual na cor de texto terciária, e então um botão de atualizar 「刷新」 que faz cada
-grupo recarregar além do seu cache. O botão de configurações abre Settings › 常规, onde mora a
+grupo recarregar além do seu cache. O botão de configurações abre Settings › Geral, onde mora a
 linha do modo (veja "A escolha do usuário"), e está presente exatamente quando aquela linha está,
 o que é sempre que o hub é mostrado, exceto por um snapshot de um Host mais antigo.
 
@@ -1614,7 +1614,7 @@ execução que o modelo iniciou sob outro `name` não pertence a nenhum workflow
 
 ### A página de detalhe
 
-A página de detalhe substitui a lista. Seu breadcrumb é 自动化 › nome, e o crumb de seção volta
+A página de detalhe substitui a lista. Seu breadcrumb é 「自动化」 (Automações) › nome, e o crumb de seção volta
 para a lista. O breadcrumb não tem nível de projeto: um projeto é um grupo na lista, não uma
 página, então um crumb para ele não teria para onde levar. A página diz a qual projeto o workflow
 pertence no seu cabeçalho, no lugar. Toda ação na página tem como alvo o projeto próprio do
@@ -2727,8 +2727,9 @@ carrega a string vazia, que o normalizador de patch de configurações transform
 `undefined` não sobrevive ao salto do RPC). Uma instalação intocada portanto continua seguindo
 viradas posteriores do servidor, por exemplo `onDemand` hoje e `alwaysOn` em uma versão futura.
 
-**Onde é mostrada.** Settings › 常规, no cartão que contém 交互行为, logo abaixo de
-提问自动继续: rótulo 「动态工作流」, descrição
+**Onde é mostrada.** Settings › Geral, no cartão que contém «Comportamento de interação», logo
+abaixo de «Continuar automaticamente ao perguntar»: rótulo 「动态工作流」 (Workflow dinâmico),
+descrição
 「让模型用脚本编排大量子代理并行工作，处理复杂任务、交付专业结果。」, e um select de 260 px à
 direita. A linha usa a coluna de controle larga (280 px, empilhada abaixo do rótulo em larguras de
 telefone); a coluna padrão de 192 px encolheria o select. A lista abre abaixo do gatilho
@@ -2737,14 +2738,14 @@ que quebra dentro da lista:
 
 | Valor | Título | Descrição |
 |---|---|---|
-| `disabled` | 关闭 / Off | 禁用动态工作流。不能创建新的工作流，自动化页也不再显示「工作流」；对话历史中已有的工作流仍可正常查看。 |
-| `onDemand` | 通过命令启用 / On command | 只有输入 /workflow 命令才会运行新的工作流。 |
-| `alwaysOn` | 始终开启 / Always on | 除了 /workflow 命令，模型也会根据你的意图主动运行工作流。 |
+| `disabled` | 关闭 / Off | Desativa o workflow dinâmico. Não se podem criar novos workflows, a página de automações deixa de mostrar a aba 「工作流」; os workflows já existentes no histórico da conversa continuam visíveis normalmente. |
+| `onDemand` | 通过命令启用 / On command | Somente o comando /workflow executa novos workflows. |
+| `alwaysOn` | 始终开启 / Always on | Além do comando /workflow, o modelo também executa workflows por conta própria conforme a sua intenção. |
 
 A opção igual ao modo oferecido carrega uma etiqueta 「默认」 (Default); o gatilho mostra apenas o
 título do modo efetivo. A linha é sempre desenhada assim que o snapshot de disponibilidade está
-pronto, qualquer que seja a oferta: sob uma oferta de `disabled` o gatilho mostra 关闭 e a
-etiqueta fica em 关闭. Ela não é desenhada enquanto o snapshot está carregando, quando a leitura
+pronto, qualquer que seja a oferta: sob uma oferta de `disabled` o gatilho mostra Off e a
+etiqueta fica em Off. Ela não é desenhada enquanto o snapshot está carregando, quando a leitura
 falhou, ou para um snapshot de um Host mais antigo (acima). A
 linha não tem nota sobre temporização; sessões abertas mantendo suas ferramentas é a regra abaixo,
 não algo que a linha explica.
@@ -2780,7 +2781,7 @@ seu próprio Host e, uma vez que isso resolve, recarrega seu snapshot de disponi
 **O link do hub.** A linha de cabeçalho de seção do hub carrega 「工作流设置」 e o rótulo do modo
 atual (veja "A página do hub"). Ela é mostrada apenas enquanto o próprio hub é mostrado, ou seja,
 enquanto o modo efetivo não é `disabled`. Sob `disabled` a página volta ao título simples
-「自动化」 e nada aponta para a configuração; o caminho de volta é Settings › 常规, onde o
+「自动化」 e nada aponta para a configuração; o caminho de volta é Settings › Geral, onde o
 usuário a desligou. A linha está sempre presente. Um usuário que escolheu Off e um usuário cujo
 padrão é Off veem a mesma página de automações.
 
@@ -2890,8 +2891,8 @@ nem o padrão de produto fail-closed.
 | DWG-19 | Patch de configurações: `dynamicWorkflowMode: ""` apaga o valor armazenado; um modo é armazenado como está; um valor armazenado desconhecido não quebra a leitura do arquivo |
 | DWG-20 | Host: com uma oferta travada `alwaysOn`, uma escolha armazenada `onDemand` faz a próxima criação de sessão carregar `dynamicWorkflowMode: "onDemand"` sem uma nova leitura do servidor; uma escolha `disabled` faz ela não carregar campo de workflow algum; com uma oferta travada `disabled`, ou uma leitura da oferta que lançou, uma escolha armazenada `alwaysOn` envia a política `enabled: true` e faz a criação de sessão carregar o modo; sem um resolvedor de oferta a escolha é ignorada; `syncDynamicWorkflowUserMode` reenvia a política para todo workspace vivo (`enabled: false` para `disabled`) apenas quando o modo efetivo mudou, na ordem das chamadas |
 | DWG-21 | Host remoto conectado ao desktop: sem um resolvedor de configurações local ele aplica o último valor empurrado; o desktop empurra o valor de configurações quando constrói os serviços de workspace remotos e encaminha mudanças posteriores para conexões remotas vivas |
-| DWG-22 | Linha de Settings da UI: ausente enquanto carrega, em falha, e para um snapshot sem `offeredMode` legível (um Host mais antigo), onde o botão de configurações do hub também está ausente; presente sob uma oferta `disabled`, mostrando 关闭 com a etiqueta; com uma oferta `disabled` e uma escolha `alwaysOn` o hub mostra seu botão de configurações; mostra o modo efetivo; a etiqueta 「默认」 fica no modo oferecido; escolher o modo oferecido escreve `""`, escolher outro escreve esse modo; o armazenamento recarrega depois de uma mudança |
-| DWG-23 | E2E do desktop contra um `/client/configs` simulado enviando `alwaysOn`: a linha mostra 始终开启 com a etiqueta; escolher 关闭 remove a palavra de título 「工作流」 e, em um rascunho novo, a entrada de menu mais; escolher 始终开启 de novo limpa o valor armazenado. Oferta `disabled`: a linha mostra 关闭 com a etiqueta; escolher 始终开启 o armazena e traz de volta a aba 「工作流」 e, em um rascunho novo, a entrada de menu mais |
+| DWG-22 | Linha de Settings da UI: ausente enquanto carrega, em falha, e para um snapshot sem `offeredMode` legível (um Host mais antigo), onde o botão de configurações do hub também está ausente; presente sob uma oferta `disabled`, mostrando Off com a etiqueta; com uma oferta `disabled` e uma escolha `alwaysOn` o hub mostra seu botão de configurações; mostra o modo efetivo; a etiqueta 「默认」 fica no modo oferecido; escolher o modo oferecido escreve `""`, escolher outro escreve esse modo; o armazenamento recarrega depois de uma mudança |
+| DWG-23 | E2E do desktop contra um `/client/configs` simulado enviando `alwaysOn`: a linha mostra Always on com a etiqueta; escolher Off remove a palavra de título 「工作流」 e, em um rascunho novo, a entrada de menu mais; escolher Always on de novo limpa o valor armazenado. Oferta `disabled`: a linha mostra Off com a etiqueta; escolher Always on o armazena e traz de volta a aba 「工作流」 e, em um rascunho novo, a entrada de menu mais |
 
 ## Alternativas não adotadas
 

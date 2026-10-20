@@ -1,205 +1,205 @@
-# 01 — Web 远控接入 Relay V2：手机登录后连接桌面
+# 01 — Controle remoto Web com Relay V2: conectar o desktop após o login no celular
 
-**What to build:** 把 Web 远控的 relay 层从 V1（匿名注册 + 二维码携带 `pass_hash` 的 nonce/HMAC 挑战应答）切换到 zcode-server 的 Relay V2（JWT 注册设备 + 一次性连接 token）。桌面端与手机端都只实现 V2；手机端必须用与桌面相同的账号登录，才能扫码或从设备列表选择桌面并进入现有的 workspace bridge / `rpc-frame` 链路。手机页面继续部署在 `/remote/v4`，靠 OSS 版本目录与旧版本 App 隔离。
+**O que construir:** Trocar a camada relay do controle remoto Web de V1 (registro anônimo + desafio/resposta nonce/HMAC com `pass_hash` no QR code) para o Relay V2 do zcode-server (registro de dispositivo via JWT + token de conexão único). Desktop e celular implementam apenas V2; o celular precisa estar logado com a mesma conta do desktop para escanear o QR code ou escolher o desktop na lista de dispositivos e entrar na cadeia existente de workspace bridge / `rpc-frame`. A página do celular continua publicada em `/remote/v4`, isolada das versões antigas do App pelo diretório de versão no OSS.
 
-**Blocked by:** 开发不受阻。生产发布受「补充说明 → 外部依赖」中的四项阻塞。
+**Bloqueado por:** O desenvolvimento não é impedido. A publicação em produção é bloqueada pelos quatro itens de «Observações adicionais → Dependências externas».
 
 **Status:** ready-for-agent
 
-**Parent:** [Web 远程控制概览与外部 Relay 架构](../../web-remote-control/web-remote-control-architecture.md)
+**Pai:** [Visão geral do controle remoto Web e arquitetura do Relay externo](../../web-remote-control/web-remote-control-architecture.md)
 
-## 问题陈述
+## Problema
 
-- 服务端 Relay V2 已合入 zcode-server `staging` 并在测试环境生效，V1 入口成为受 `relay.disable_v1` 控制的遗留路径。客户端至今只有 V1 实现，V1 一旦关闭，所有版本的 Web 远控全部失效。
-- V1 的安全模型是"拿到二维码 URL 的人就能控制电脑"：`pass_hash` 明文出现在 URL 中，与用户身份无关。手机端没有登录，也无法知道"我的设备有哪些"。
-- 4 月为"手机登录后选设备"预留的 `/web-remote` 入口从未真正上线，生产与测试环境都被边缘网关重定向到官网 404，OAuth 回调地址也随之失效。
+- O Relay V2 do servidor já foi integrado ao `staging` do zcode-server e está em vigor no ambiente de testes; a entrada V1 virou um caminho legado controlado por `relay.disable_v1`. Até hoje o cliente só tem a implementação V1 — assim que o V1 for desligado, todas as versões do controle remoto Web deixam de funcionar.
+- O modelo de segurança do V1 é "quem obtiver a URL do QR code controla o computador": o `pass_hash` aparece em texto claro na URL e não tem relação com a identidade do usuário. O celular não tem login e também não consegue saber "quais são os meus dispositivos".
+- A entrada `/web-remote`, reservada em abril para "escolher o dispositivo após login no celular", nunca chegou a subir: em produção e em testes o gateway de borda redireciona tudo para o 404 do site oficial, e o endereço de callback do OAuth também ficou inválido.
 
-## 解决方案
+## Solução
 
-- 桌面端启动远控前必须已登录（ZAI 或 BigModel 任一能签发 zcode JWT 的 provider）。首次启动时用 JWT 向服务端注册设备并持久化 `device_sid`；每次建连前申请一次性 `role=device` token，连接 `/api/v1/remote/ws2`。
-- 二维码只携带 `app_version`、`sid`、`mid`、`name`，不再携带任何鉴权材料。
-- 手机打开 `/remote/v4` 后先经过登录门禁；登录成功后，有 `sid` 直接连接该设备，无 `sid` 则连接上次设备或展示当前账号的在线设备列表。每次建连前申请 `role=terminal` token。
-- OAuth 回调直接回到 `/remote/v4`（页面识别 `code`+`state`），登录态写入同源 localStorage，随后回跳到携带完整参数的原 URL。
-- relay 之上的 App payload、workspace bridge、`rpc-frame` 分片/ACK、replayable 恢复、版本同步守卫全部保持不变。
+- Antes de iniciar o controle remoto, o desktop precisa já estar logado (ZAI ou BigModel, qualquer provider que emita o JWT do zcode). Na primeira inicialização, registra o dispositivo no servidor com o JWT e persiste o `device_sid`; antes de cada conexão, solicita um token único com `role=device` e conecta em `/api/v1/remote/ws2`.
+- O QR code carrega apenas `app_version`, `sid`, `mid` e `name` — nenhum material de autenticação.
+- Depois de abrir `/remote/v4`, o celular passa primeiro pela barreira de login; após o login bem-sucedido, com `sid` ele conecta direto no dispositivo, sem `sid` ele conecta no último dispositivo usado ou exibe a lista de dispositivos online da conta atual. Antes de cada conexão, solicita um token com `role=terminal`.
+- O callback do OAuth volta direto para `/remote/v4` (a página reconhece `code`+`state`), o estado de login é gravado no localStorage de mesma origem e, em seguida, há o redirecionamento de volta para a URL original com todos os parâmetros.
+- O payload do App sobre o relay, o workspace bridge, a fragmentação/ACK de `rpc-frame`, a recuperação replayable e o guard de sincronização de versão permanecem inalterados.
 
-## 用户故事
+## Histórias de usuário
 
-1. 作为桌面用户，我希望在已登录的情况下打开远控弹窗就能直接得到二维码，以便像以前一样扫码开始远控。
-2. 作为桌面用户，我希望在未登录时打开远控弹窗看到"需要先登录"的提示和登录入口，以便知道为什么拿不到二维码。
-3. 作为桌面用户，我希望二维码里不再包含任何秘密，以便截图或转发链接时不会泄露对电脑的控制权。
-4. 作为桌面用户，我希望应用重启后"上次已开启远控"的意图仍被恢复，以便不必每次手动重开。
-5. 作为桌面用户，我希望登录态失效时远控停在明确的"需要重新登录"状态而不是把整个应用登出，以便在重新登录后自动恢复远控。
-6. 作为桌面用户，我希望在应用内登出时远控立即停止，以便别人不能用旧连接继续控制我的电脑。
-7. 作为桌面用户，我希望切换到另一个账号后远控自动以新账号重新注册设备，以便新账号的手机能连上、旧账号的手机连不上。
-8. 作为桌面用户，我希望切换 endpoint（生产/测试）后设备身份自动重建，以便不会把测试环境的 sid 带到生产。
-9. 作为桌面用户，我希望远控弹窗不再出现"刷新二维码"，以便不会误以为需要刷新才能让手机连接。
-10. 作为桌面用户，我希望仍能"复制链接"发到手机，以便没有扫码条件时也能进入。
-11. 作为手机用户，我希望扫码后如果未登录就看到登录页，登录完成后自动回到扫码的目标设备，以便一次扫码完成全部流程。
-12. 作为手机用户，我希望使用 ZAI 或 BigModel 登录，与桌面端可用的登录方式一致，以便账号能对得上。
-13. 作为手机用户，我希望已登录时扫码后直接连接目标设备，不再经过任何中间页，以便速度与今天一样快。
-14. 作为手机用户，我希望不扫码直接打开远控页也能登录并从列表选择我的电脑，以便电脑不在身边或二维码不方便时也能用。
-15. 作为手机用户，我希望设备列表把在线设备置顶、按名字排序，离线设备灰显不可点，以便一眼找到能连的电脑。
-16. 作为手机用户，我希望设备列表能手动刷新，回到前台时也自动刷新，以便电脑刚开机就能看到它上线。
-17. 作为手机用户，我希望无参数打开页面时优先自动连接上次用过的电脑（若在线），以便刷新或重新打开不用重选。
-18. 作为手机用户，我希望从列表选中设备后地址栏 URL 带上该设备参数，以便刷新页面或从历史记录进入都能直接恢复。
-19. 作为手机用户，我希望用错误账号登录时看到"该设备不属于当前账号"并能一键切换账号，以便知道该怎么做。
-20. 作为手机用户，我希望目标设备已被移除时也能被告知并可去选择其他设备，以便不卡在错误页。
-21. 作为手机用户，我希望电脑端短暂断线、relay 滚动发布时页面能自动恢复，以便不必手动刷新。
-22. 作为手机用户，我希望登录态过期时被带回登录页并在登录后回到原来的位置，以便中断最小。
-23. 作为手机用户，我希望另一台手机接管连接时本机停止重连并明确提示，以便两台手机不会互相踢来踢去。
-24. 作为手机用户，我希望进入聊天后的任务列表、消息流、权限请求、断线重连、快照对齐都与现在完全一样，以便升级对我不可见。
-25. 作为手机用户，我希望桌面升级到新版本后页面提示我重新加载到匹配版本，以便不会停在过期页面。
-26. 作为安全评审者，我希望手机能否控制电脑完全由"是否为同一账号"决定，以便 URL 泄露不再等于失控。
-27. 作为安全评审者，我希望一次性 token 只在建连前申请、不落盘、不进日志，以便凭据暴露面最小。
-28. 作为安全评审者，我希望 JWT 只保存在既有的凭据存储（桌面 credential service、手机同源 localStorage）中，不进入二维码、relay 消息或设置文件。
-29. 作为运维人员，我希望新版本桌面只走 V2、旧版本继续走 V1，以便可以按现有 `relay.disable_v1` 节奏关闭 V1。
-30. 作为运维人员，我希望新手机页面只以新版本目录发布，不覆盖旧 App 使用的页面，以便发布不会打挂在网旧版本。
-31. 作为运维人员，我希望旧的 Docker 构建链从仓库移除，以便不会有人误把 V2 页面发到旧的单一部署上。
-32. 作为运维人员，我希望配对成功/失败等既有遥测保持不变，以便升级前后的指标可比。
-33. 作为开发者，我希望能用测试环境（已部署 V2）与真实手机完成联调，且不占用新的正式版本号。
-34. 作为开发者，我希望两端 transport、manager、手机端前置编排都有针对假 relay 的自动化测试，以便不依赖线上环境验证握手、心跳与错误处理。
-35. 作为开发者，我希望 spec 与架构文档更新到 V2 的最终行为，以便后续维护不再对照 V1 描述。
+1. Como usuário do desktop, quero abrir a janela de controle remoto já logado e receber o QR code diretamente, para escanear e iniciar o controle remoto como antes.
+2. Como usuário do desktop, quero ver a mensagem "é preciso fazer login primeiro" e o ponto de entrada de login ao abrir a janela de controle remoto sem sessão iniciada, para entender por que não recebo o QR code.
+3. Como usuário do desktop, quero que o QR code não contenha mais nenhum segredo, para não vazar o controle do computador ao tirar print ou encaminhar o link.
+4. Como usuário do desktop, quero que a intenção de "controle remoto já ativado" seja restaurada depois que o app reinicia, para não precisar reativar manualmente toda vez.
+5. Como usuário do desktop, quero que o controle remoto pare num estado claro de "é preciso fazer login de novo" quando o estado de login expira, em vez de deslogar o app inteiro, para que o controle remoto se restaure automaticamente após o novo login.
+6. Como usuário do desktop, quero que o controle remoto pare imediatamente ao deslogar dentro do app, para que ninguém mais continue controlando meu computador pela conexão antiga.
+7. Como usuário do desktop, quero que o controle remoto registre o dispositivo de novo com a nova conta ao trocar de conta, para que o celular da conta nova conecte e o da conta antiga não.
+8. Como usuário do desktop, quero que a identidade do dispositivo seja reconstruída ao trocar de endpoint (produção/testes), para não levar o sid do ambiente de testes para produção.
+9. Como usuário do desktop, quero que a janela de controle remoto não mostre mais "atualizar QR code", para não achar que é preciso atualizar para o celular conectar.
+10. Como usuário do desktop, quero continuar podendo "copiar link" para mandar ao celular, para entrar mesmo quando não for possível escanear.
+11. Como usuário do celular, quero ver a página de login se eu escanear sem estar logado e voltar automaticamente ao dispositivo alvo do QR code depois de logar, para resolver todo o fluxo com uma única leitura.
+12. Como usuário do celular, quero fazer login com ZAI ou BigModel, igual às opções disponíveis no desktop, para que a conta seja a mesma.
+13. Como usuário do celular, quero conectar direto no dispositivo alvo ao escanear já logado, sem passar por nenhuma página intermediária, para a velocidade ser a mesma de hoje.
+14. Como usuário do celular, quero poder fazer login e escolher meu computador pela lista ao abrir a página de controle remoto sem escanear, para usar mesmo com o computador longe ou o QR code inviável.
+15. Como usuário do celular, quero que a lista de dispositivos coloque os online no topo e ordene por nome, e mostre os offline esmaecidos e não clicáveis, para achar de relance um computador conectável.
+16. Como usuário do celular, quero atualizar a lista de dispositivos manualmente e também automaticamente ao voltar para o primeiro plano, para ver o computador recém-ligado aparecer online.
+17. Como usuário do celular, quero que, ao abrir a página sem parâmetros, conecte primeiro no último computador usado (se estiver online), para não ter que escolher de novo ao recarregar ou reabrir.
+18. Como usuário do celular, quero que a URL da barra de endereço carregue os parâmetros do dispositivo ao selecioná-lo na lista, para poder restaurar direto ao recarregar a página ou entrar pelo histórico.
+19. Como usuário do celular, quero ver "este dispositivo não pertence à conta atual" e poder trocar de conta com um clique ao logar com a conta errada, para saber como agir.
+20. Como usuário do celular, quero ser avisado quando o dispositivo alvo tiver sido removido e poder escolher outro, para não ficar preso numa página de erro.
+21. Como usuário do celular, quero que a página se recupere sozinha quando o computador desconectar por pouco tempo ou o relay for publicado em rolling release, para não precisar recarregar manualmente.
+22. Como usuário do celular, quero ser levado de volta à página de login quando o estado de login expirar e retornar ao ponto original depois de logar, para que a interrupção seja mínima.
+23. Como usuário do celular, quero que o aparelho pare de reconectar e exiba um aviso claro quando outro celular assumir a conexão, para que os dois não fiquem expulsando um ao outro.
+24. Como usuário do celular, quero que a lista de tarefas, o fluxo de mensagens, os pedidos de permissão, a reconexão e o alinhamento de snapshots dentro do chat sejam exatamente iguais aos de hoje, para que a atualização seja invisível para mim.
+25. Como usuário do celular, quero que a página me avise para recarregar na versão correspondente quando o desktop for atualizado, para não ficar numa página desatualizada.
+26. Como revisor de segurança, quero que a possibilidade de o celular controlar o computador dependa apenas de "ser a mesma conta", para que o vazamento de URL não signifique mais perda de controle.
+27. Como revisor de segurança, quero que o token único seja solicitado só antes da conexão, não seja gravado em disco e não entre em logs, para que a superfície de exposição de credenciais seja mínima.
+28. Como revisor de segurança, quero que o JWT fique apenas no armazenamento de credenciais já existente (credential service do desktop, localStorage de mesma origem do celular) e não entre no QR code, nas mensagens do relay nem em arquivos de configuração.
+29. Como pessoa de operações, quero que a nova versão do desktop use apenas o V2 e as versões antigas continuem no V1, para poder desligar o V1 no ritmo do `relay.disable_v1` já existente.
+30. Como pessoa de operações, quero que a nova página do celular seja publicada apenas em um novo diretório de versão, sem sobrescrever a página usada pelo App antigo, para que a publicação não afete as versões antigas em uso.
+31. Como pessoa de operações, quero que a antiga cadeia de build Docker seja removida do repositório, para que ninguém publique por engano as páginas do V2 na implantação legada de instância única.
+32. Como pessoa de operações, quero que a telemetria existente (pareamento com sucesso/falha etc.) permaneça inalterada, para que as métricas antes e depois da atualização sejam comparáveis.
+33. Como desenvolvedor, quero poder fazer a integração com um celular real usando o ambiente de testes (com V2 já implantado) e sem consumir um novo número de versão oficial.
+34. Como desenvolvedor, quero que o transport dos dois lados, o manager e a pré-orchestração do celular tenham testes automatizados contra um relay falso, para validar handshake, heartbeat e tratamento de erros sem depender do ambiente online.
+35. Como desenvolvedor, quero que a spec e a documentação de arquitetura sejam atualizadas para o comportamento final do V2, para que a manutenção futura não se oriente mais pelas descrições do V1.
 
-## 实现决策
+## Decisões de implementação
 
-### A. 范围与兼容
+### A. Escopo e compatibilidade
 
-- 新版本桌面与手机页面只实现 V2。删除两端 V1 transport、HMAC proof 计算、`pass_hash` 存储，以及 shared 中的 V1 relay 消息类型和 proof 测试向量；新增 V2 relay 消息类型和设备/token HTTP 契约类型，两端共用。
-- 手机入口保持 `/remote/v4`。版本隔离依赖 OSS 多版本发布：桌面二维码携带自身 `app_version`，网关按版本目录取页面；3.13.0 及更早的 App 继续使用各自 tag 构建的 V1 页面。不做双模式，不新增 `/remote/v5`。
-- 删除 `/remote`、`/remote/v3`、`/remote/v4` 三条 Docker 构建链（Dockerfile、nginx 配置、构建/推送/验证脚本、package.json 命令及文档中对 旧基础设施仓库及其路径变量 的引用）；保留 `/remote/__test__` 测试链和 OSS 流水线。文档标注旧部署冻结在最后一次 V1 镜像。
-- 删除 `/web-remote` 路由判断、已登录等待页、`remoteControlToken`/`relayOrigin` 旧 bootstrap 及其 `/api/remote-control/*` 请求；复用登录页、回调页、Web 认证服务、浏览器 OAuth 凭据仓库和 OAuth state 编解码。4 月的 Web 远控登录设计文档顶部标注被本 spec 取代。
-- 纯客户端适配，不向 zcode-server 提任何改动，全部按 staging 现有契约实现。
+- A nova versão do desktop e a página do celular implementam apenas V2. Remover o transport V1 dos dois lados, o cálculo do proof HMAC, o armazenamento de `pass_hash`, além dos tipos de mensagem relay V1 e dos vetores de teste de proof no shared; adicionar os tipos de mensagem relay V2 e os tipos de contrato HTTP de dispositivo/token, compartilhados pelos dois lados.
+- A entrada do celular permanece `/remote/v4`. O isolamento entre versões depende da publicação multi-versão no OSS: o QR code do desktop carrega o próprio `app_version` e o gateway busca a página pelo diretório de versão; Apps 3.13.0 e anteriores continuam usando a página V1 construída a partir da tag correspondente. Sem modo duplo e sem novo `/remote/v5`.
+- Remover as três cadeias de build Docker de `/remote`, `/remote/v3` e `/remote/v4` (Dockerfile, configuração do nginx, scripts de build/push/verificação, comandos do package.json e as referências no documento ao repositório de infraestrutura legado e às suas variáveis de path); manter a cadeia de teste `/remote/__test__` e o pipeline OSS. Documentar que a implantação legada está congelada na última imagem V1.
+- Remover a verificação de rota `/web-remote`, a página de espera de "já logado", o bootstrap legado `remoteControlToken`/`relayOrigin` e suas requisições `/api/remote-control/*`; reaproveitar a página de login, a página de callback, o serviço de autenticação Web, o repositório de credenciais OAuth do navegador e a codificação/decodificação do state do OAuth. O documento de design de login do controle remoto Web de abril recebe, no topo, a marcação de que foi substituído por esta spec.
+- Adaptação puramente do cliente, sem nenhuma alteração proposta ao zcode-server: tudo implementado conforme os contratos já existentes no staging.
 
-### B. 桌面端：登录门禁与设备身份
+### B. Desktop: barreira de login e identidade do dispositivo
 
-- 已登录的判定：凭据存储中存在 `zcodejwttoken`。ZAI 与 BigModel 两个 provider 都满足。
-- 未登录时远控弹窗展示"需要先登录"状态并提供登录入口；此时不注册设备、不连接 relay、不签发内部启动票据。
-- 懒注册：首次启动远控且已登录时调用设备注册接口，`device_mid` 沿用现有桌面 deviceMid（uuid，仅展示与网关哈希用途），`meta.name` 为主机名。持久化 `{deviceSid, userId, endpointOrigin}` 到 AppSettings，不再写入 credential。
-- 身份重绑：启动远控时若当前登录用户 id 或 endpoint origin 与持久化记录不一致，或服务端在 `auth_init` 返回 `AUTH_FAILED`，则重新注册并尽力调用删除接口清理旧记录（失败忽略，不阻塞）。
-- 首次进入 V2 时直接删除 V1 遗留的 `deviceSid` 设置与 `passHash` credential，不迁移。
-- 新增 renderer→main 单向登录状态通知：登录成功后 main 重试恢复"上次已启用"目标（仍要求窗口 workspace 已同步）；登出后 main 停止当前 runtime、状态置 `auth-required`，但不清除已启用记录。应用启动时若无 JWT，恢复流程停在 `auth-required` 等待该通知。
-- 弹窗删除"刷新二维码"按钮、确认弹窗及 `resetPairingAuthorized` IPC；保留"复制链接"。IPC 依赖面收敛为 `authorizeStart`、`startAuthorized`、`stop`、`getStatus`。
+- Critério de "logado": existe `zcodejwttoken` no armazenamento de credenciais. Ambos os providers, ZAI e BigModel, satisfazem a condição.
+- Sem login, a janela de controle remoto exibe o estado "é preciso fazer login primeiro" e oferece o ponto de entrada de login; nesse momento não registra dispositivo, não conecta ao relay e não emite o ticket interno de inicialização.
+- Registro preguiçoso: na primeira vez em que o controle remoto é iniciado já logado, chama-se a interface de registro de dispositivo; o `device_mid` reaproveita o deviceMid atual do desktop (uuid, usado apenas para exibição e para o hash do gateway) e `meta.name` é o nome da máquina. Persiste `{deviceSid, userId, endpointOrigin}` no AppSettings; não grava mais em credential.
+- Rebind de identidade: ao iniciar o controle remoto, se o id do usuário logado ou o endpoint origin divergirem do registro persistido, ou se o servidor devolver `AUTH_FAILED` em `auth_init`, re-registra o dispositivo e tenta chamar a interface de exclusão para limpar o registro antigo (falha ignorada, não bloqueia).
+- Na primeira entrada no V2, apagar diretamente o setting `deviceSid` remanescente do V1 e o credential `passHash`, sem migração.
+- Nova notificação unidirecional de estado de login renderer→main: após o login bem-sucedido, o main retenta restaurar o alvo "já habilitado" (ainda exigindo que o workspace da janela já esteja sincronizado); após o logout, o main para o runtime atual e coloca o estado em `auth-required`, mas não limpa o registro de habilitação. Na inicialização do app, sem JWT, o fluxo de restauração para em `auth-required` aguardando essa notificação.
+- A janela remove o botão "atualizar QR code", o diálogo de confirmação e o IPC `resetPairingAuthorized`; mantém "copiar link". A superfície de dependência de IPC fica restrita a `authorizeStart`, `startAuthorized`, `stop` e `getStatus`.
 
-### C. 桌面端：连接与 token
+### C. Desktop: conexão e token
 
-- 每次建连前用 JWT 调用 token 接口申请 `role=device` 的一次性 token；WebSocket 地址为 `wss://<endpoint origin>/api/v1/remote/ws2?token=<token>&mid=<deviceMid>`。任何一次 WebSocket 失败都重新申请 token，不复用 URL。删除 `X-Device-ID` 请求头。`ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` 调试覆盖保留，语义改为 V2 地址；test endpoint 继续映射到测试域名。
-- `auth_init` 只带 `device_sid`、`meta`、`client_ts`，不带 `role`；`pair_status_query` 不带 `device_sid`；`client_ts` 使用 Unix 秒。
-- 心跳基准 5 秒、jitter ±1 秒、ACK watchdog 15 秒；沿用递归 `setTimeout`、不补发历史心跳、watchdog 触发重连附加小幅随机延迟的既有约束。
-- `KICKED` 有界重试：延迟 2~5 秒随机后换新 token 重连一次；60 秒内再次收到 `KICKED` 则停止自动重连，状态置 `kicked`，对外 failure 为 `session-conflict`。
-- token 接口 401 → 新 failure reason `auth-required`，runtime 进入 `error` 并停止自动重连，不触发全局登出，不清除已启用记录。5xx 与网络错误按 1 秒起、上限 30 秒、带 jitter 的指数退避重试，`auth_ack` 后清零；其他 4xx → `relay-unavailable` 终态。
-- 桌面 main 直接用 Node 全局 fetch 携带 `Authorization: Bearer <jwt>` 调用设备与 token 接口，不经过 services 进程，不复用 services 侧的 401 全局登出观察器。
+- Antes de cada conexão, usa-se o JWT para chamar a interface de token e solicitar um token único com `role=device`; o endereço WebSocket é `wss://<endpoint origin>/api/v1/remote/ws2?token=<token>&mid=<deviceMid>`. Qualquer falha de WebSocket leva a solicitar um novo token, sem reusar a URL. Remover o header `X-Device-ID`. O override de debug `ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` é mantido, com a semântica alterada para o endereço V2; o test endpoint continua mapeando para o domínio de testes.
+- `auth_init` leva apenas `device_sid`, `meta` e `client_ts`, sem `role`; `pair_status_query` não leva `device_sid`; `client_ts` usa segundos Unix.
+- Heartbeat com base de 5 segundos, jitter ±1 segundo e watchdog de ACK de 15 segundos; mantidas as restrições já existentes de `setTimeout` recursivo, de não reenviar heartbeats perdidos e de anexar um pequeno atraso aleatório à reconexão disparada pelo watchdog.
+- `KICKED` com retentativa limitada: após um atraso aleatório de 2~5 segundos, troca o token e reconecta uma vez; se `KICKED` chegar de novo em até 60 segundos, a reconexão automática para, o estado vira `kicked` e a failure exposta é `session-conflict`.
+- 401 na interface de token → nova failure reason `auth-required`; o runtime entra em `error` e para de reconectar automaticamente, sem disparar logout global e sem limpar o registro de habilitação. 5xx e erros de rede: retentativa com backoff exponencial começando em 1 segundo, teto de 30 segundos e com jitter, zerando após o `auth_ack`; outros 4xx → estado terminal `relay-unavailable`.
+- O main do desktop chama diretamente as interfaces de dispositivo e de token com o fetch global do Node, enviando `Authorization: Bearer <jwt>`, sem passar pelo processo de services e sem reaproveitar o observador de logout global de 401 do lado de services.
 
 ```text
-桌面 device 状态机（V2）
-idle ─start─▶ auth-check ─无JWT─▶ auth-required（等待登录通知）
-   │                └有JWT─▶ registering（无 sid / 身份不一致时）─ack─▶ token-acquiring
+Máquina de estados do device do desktop (V2)
+idle ─start─▶ auth-check ─semJWT─▶ auth-required (aguardando a notificação de login)
+   │                └comJWT─▶ registering (sem sid / identidade divergente)─ack─▶ token-acquiring
    │                                                            └────────▶ token-acquiring
 token-acquiring ─token─▶ connecting ─open─▶ authenticating(auth_init) ─auth_ack─▶ waiting_terminal | paired
-   │ 401 → auth-required（终态，等待登录通知）
-   │ 5xx/网络 → backoff → token-acquiring
-paired/waiting_terminal ─KICKED(首次)─▶ delay 2~5s → token-acquiring
-                        ─KICKED(60s 内第二次)─▶ kicked（终态，session-conflict）
+   │ 401 → auth-required (estado final, aguardando a notificação de login)
+   │ 5xx/rede → backoff → token-acquiring
+paired/waiting_terminal ─KICKED(primeira)─▶ delay 2~5s → token-acquiring
+                        ─KICKED(segunda em até 60s)─▶ kicked (estado final, session-conflict)
                         ─ACK watchdog 15s / socket close─▶ token-acquiring
 ```
 
-### D. 手机端：登录、选设备与连接
+### D. Celular: login, escolha de dispositivo e conexão
 
-- `/remote/v4` 的解析：URL 含 `code`+`state` 时进入 OAuth 回调模式；否则读取 `app_version`、`sid`、`mid`、`name`，三者均可选。删除 `hash`、`t`。
-- OAuth `redirect_uri` 为 `<origin>/remote/v4`。`app_return_to` 白名单从只允许 `/web-remote` 改为允许 `/remote/v4`（含尾斜杠）与既有分享路径；query 放行 `app_version`、`sid`、`mid`、`name`。回调完成后 `location.replace` 到 `app_return_to`，由网关按 `app_version` 选版本。开发态 `return_to` 转发机制保留。
-- 登录门禁：未登录先渲染现有登录页（provider 跟随构建环境）；已登录进入连接前置编排。
-- 落点规则：有 `sid` → 直接连接；无 `sid` → 读 localStorage 最近设备，调用设备列表接口确认在线则直接连接，否则渲染设备列表页。连接失败页提供"选择其他设备"进入列表。
-- 设备列表：进入时拉取、手动刷新、`visibilitychange` 回前台再拉，不轮询。在线设备置顶并按 `meta.name` 排序；离线设备灰显、不可点，显示 `device_mid` 前 8 位。列表页与登录页都是连接前的独立全屏页，窄屏宽屏同一布局，不进入 `Root`/侧栏 shell，沿用登录页样式与 `zai-dark` 默认主题，文案进 `zh-CN`/`en-US`。
-- 选中设备后用 `history.replaceState` 把 `app_version`（保留原值）、`sid`、`mid`、`name` 写回 URL，并把最近 sid 写入 localStorage；按 sid 键控的既有本地状态继续可用。
-- 每次建连前用 localStorage 中的 JWT 申请 `role=terminal` token，连接 `wss://<origin>/api/v1/remote/ws2?token=…&mid=…`（`mid` 取 URL 参数或设备列表的 `device_mid`）。401 → 清除本地会话、回登录页，`app_return_to` 保留当前完整 URL。5xx/网络错误沿用现有 500ms×2ⁿ、上限 10 秒退避。
-- 错误映射：`auth_init` 后 `AUTH_FAILED` → 新 failure reason `device-not-owned`，失败页提供"切换账号"（登出后回登录页并保留返回地址）与"选择其他设备"两个动作；`WRONG_PARAM` → `invalid-mobile-connection`；`DEVICE_OFFLINE` 沿用现有宽限恢复；`KICKED` 与桌面同一有界重试策略，二次 `KICKED` → `session-conflict`；`INTERNAL` 沿用现有可恢复处理。
-- 心跳、watchdog、`client_ts`、`auth_init`/`pair_status_query` 字段与桌面一致。
-- bootstrap-request/response、workspace-list、workspace-bridge-open/ready、rpc-frame/ack、`mobile-view-state-update`、版本同步守卫、replayable 恢复顺序全部不变。
+- Parsing de `/remote/v4`: quando a URL contém `code`+`state`, entra em modo de callback do OAuth; caso contrário, lê `app_version`, `sid`, `mid` e `name`, todos opcionais. Remover `hash` e `t`.
+- O `redirect_uri` do OAuth é `<origin>/remote/v4`. A allowlist de `app_return_to` passa de apenas `/web-remote` para permitir `/remote/v4` (com barra final) e os caminhos de compartilhamento já existentes; a query libera `app_version`, `sid`, `mid` e `name`. Após o callback, `location.replace` para `app_return_to`, e o gateway escolhe a versão conforme o `app_version`. O mecanismo de encaminhamento `return_to` do modo de desenvolvimento é mantido.
+- Barreira de login: sem login, renderiza primeiro a página de login existente (o provider segue o ambiente de build); com login, entra na pré-orchestração de conexão.
+- Regra de destino: com `sid` → conecta direto; sem `sid` → lê o dispositivo mais recente do localStorage e, chamando a interface de lista de dispositivos, confirma se está online para conectar direto; caso contrário, renderiza a página de lista de dispositivos. A página de falha de conexão oferece "escolher outro dispositivo" para ir à lista.
+- Lista de dispositivos: busca ao entrar, permite atualização manual e busca de novo no `visibilitychange` ao voltar para o primeiro plano, sem polling. Dispositivos online vão para o topo e são ordenados por `meta.name`; dispositivos offline ficam esmaecidos, não clicáveis e exibem os 8 primeiros caracteres do `device_mid`. A página de lista e a de login são páginas de tela cheia independentes, anteriores à conexão, com o mesmo layout em tela estreita e larga, sem entrar no shell `Root`/da barra lateral, reaproveitando o estilo da página de login e o tema padrão `zai-dark`, com os textos em `zh-CN`/`en-US`.
+- Depois de selecionar um dispositivo, `history.replaceState` grava de volta na URL `app_version` (preservando o valor original), `sid`, `mid` e `name`, e o sid mais recente é gravado no localStorage; o estado local existente, indexado por sid, continua utilizável.
+- Antes de cada conexão, usa-se o JWT do localStorage para solicitar um token `role=terminal` e conecta em `wss://<origin>/api/v1/remote/ws2?token=…&mid=…` (o `mid` vem do parâmetro da URL ou do `device_mid` da lista de dispositivos). 401 → limpa a sessão local e volta à página de login, mantendo o `app_return_to` com a URL completa atual. 5xx/erros de rede mantêm o backoff existente de 500ms×2ⁿ, com teto de 10 segundos.
+- Mapeamento de erros: `AUTH_FAILED` após `auth_init` → nova failure reason `device-not-owned`; a página de falha oferece duas ações, "trocar de conta" (logout e volta à página de login preservando o endereço de retorno) e "escolher outro dispositivo"; `WRONG_PARAM` → `invalid-mobile-connection`; `DEVICE_OFFLINE` mantém a recuperação com a tolerância já existente; `KICKED` usa a mesma política de retentativa limitada do desktop, com o segundo `KICKED` → `session-conflict`; `INTERNAL` mantém o tratamento recuperável já existente.
+- Heartbeat, watchdog, `client_ts` e os campos de `auth_init`/`pair_status_query` são idênticos aos do desktop.
+- bootstrap-request/response, workspace-list, workspace-bridge-open/ready, rpc-frame/ack, `mobile-view-state-update`, guard de sincronização de versão e a ordem da recuperação replayable permanecem inalterados.
 
 ```text
-手机端首次进入（V2）
-打开 /remote/v4?app_version&sid&mid&name
-  ├─ 含 code+state ─▶ 回调页换 token → localStorage → replace(app_return_to)
-  ├─ 无 JWT ─▶ 登录页 ─▶ OAuth（redirect_uri=/remote/v4，state.app_return_to=当前 URL）
-  └─ 有 JWT
-       ├─ 有 sid ─▶ 申请 terminal token ─▶ ws2 ─▶ auth_init(sid) ─▶ auth_ack
-       │                                          └─ AUTH_FAILED → device-not-owned 失败页
-       └─ 无 sid ─▶ 最近设备在线? ─是─▶ 同上
-                                  └否─▶ 设备列表页 ─选中─▶ replaceState(URL) ─▶ 同上
-auth_ack(matched) ─▶ bootstrap-request ─▶ 版本守卫 ─▶ workspace-bridge-open ─▶ 现有链路
+Primeira entrada do celular (V2)
+Abrir /remote/v4?app_version&sid&mid&name
+  ├─ com code+state ─▶ página de callback troca o token → localStorage → replace(app_return_to)
+  ├─ sem JWT ─▶ página de login ─▶ OAuth (redirect_uri=/remote/v4, state.app_return_to=URL atual)
+  └─ com JWT
+       ├─ com sid ─▶ solicita token terminal ─▶ ws2 ─▶ auth_init(sid) ─▶ auth_ack
+       │                                          └─ AUTH_FAILED → página de falha device-not-owned
+       └─ sem sid ─▶ último dispositivo online? ─sim─▶ o mesmo acima
+                                  └não─▶ página de lista de dispositivos ─selecionar─▶ replaceState(URL) ─▶ o mesmo acima
+auth_ack(matched) ─▶ bootstrap-request ─▶ guard de versão ─▶ workspace-bridge-open ─▶ cadeia existente
 ```
 
-### E. 部署与联调
+### E. Deploy e integração
 
-- 手机页面通过既有 OSS 多版本流水线发布到 `/remote/v4/<version>/`，页面路由仍是 `/remote/v4`。桌面二维码路径选择逻辑（≥3.4.0 用 v4）不变。
-- 联调阶段分支保持根 `package.json` 版本 `3.13.0`，用 OSS 测试流水线覆盖测试环境 `3.13.0/` 目录；桌面 dev 走 test endpoint。本地快速迭代用开发态 `return_to` 转发在测试域名完成一次登录后读同源 localStorage。测试环境仍使用 3.13.0 V1 桌面版的同事在此期间无法配对，需知会。
+- A página do celular é publicada em `/remote/v4/<version>/` pelo pipeline multi-versão OSS já existente, e a rota da página continua sendo `/remote/v4`. A lógica de escolha de caminho no QR code do desktop (≥3.4.0 usa v4) não muda.
+- Durante a integração, o branch mantém a versão `3.13.0` no `package.json` da raiz e usa o pipeline de testes OSS para cobrir o diretório `3.13.0/` do ambiente de testes; o dev do desktop usa o test endpoint. Para iteração local rápida, usa-se o encaminhamento `return_to` do modo de desenvolvimento: após um login no domínio de testes, lê-se o localStorage de mesma origem. Os colegas que ainda estiverem na versão desktop V1 3.13.0 no ambiente de testes não conseguirão parear durante esse período e precisam ser avisados.
 
-### F. 文档
+### F. Documentação
 
-- 新建 `docs/web-remote-control/relay-v2-pairing.md`：注册/token/握手时序图、两端 transport 状态机、KICKED 有界重试、`auth-required`/`device-not-owned` 语义、验收场景与已知限制。
-- 架构文档的 Transport、Desktop Main、Web 三节改为 V2 描述并链接新文档，删除 V1 与 Docker 部署段落；`remote-v4-static-deployment.md` 删除 Docker 链路描述、保留 OSS 与版本同步；`web-remote-login.md` 改写为 `/remote/v4` 的 V2 登录门禁。
+- Criar `docs/web-remote-control/relay-v2-pairing.md`: diagramas de sequência de registro/token/handshake, máquinas de estado do transport dos dois lados, retentativa limitada de KICKED, semântica de `auth-required`/`device-not-owned`, cenários de aceite e limitações conhecidas.
+- As três seções Transport, Desktop Main e Web do documento de arquitetura passam a descrever o V2 e passam a linkar o novo documento, removendo os trechos de V1 e de implantação Docker; `remote-v4-static-deployment.md` perde a descrição da cadeia Docker e mantém OSS e sincronização de versão; `web-remote-login.md` é reescrito como a barreira de login do V2 em `/remote/v4`.
 
-## 测试决策
+## Decisões de teste
 
-- 好的测试只观察外部行为：relay 线上收到了什么消息、HTTP 接口被以什么参数调用、runtime status/failure 对外呈现什么、页面在什么状态渲染什么、URL/localStorage 变成什么。不断言私有状态或定时器句柄。
-- 唯一新增的测试夹具是**假 relay V2**：进程内同时提供设备注册/列表/删除、token 签发的 HTTP 处理器和 `/ws2` WebSocket 服务器，可编排 `auth_ack` 的 `pair_status`、`KICKED`、`AUTH_FAILED`、`DEVICE_OFFLINE`、`INTERNAL`、断连以及 HTTP 401/5xx。桌面与手机两端测试共用。先例：两端现有 transport 测试用本地 WebSocketServer 扮演 relay。
-- 桌面端主接缝是 manager 公开接口：注入真实 V2 transport、假 relay、假凭据读取与假登录状态通知，覆盖未登录拒绝启动、懒注册与持久化、用户/endpoint 变化重注册并尽力删除、`AUTH_FAILED` 重注册、token 401 → `auth-required` 且不清已启用记录、登出停止、登录后恢复、二维码 URL 形态、`KICKED` 有界重试的对外 status。先例：manager 外部 relay 测试。心跳 5 秒/jitter/watchdog 15 秒、`client_ts` 秒、`auth_init` 字段、`pair_status_query` 字段、退避序列等线级细节在 transport 对假 relay 的测试中用 fake timers 覆盖。先例：两端 transport 测试、shared 心跳测试。
-- 手机端主接缝是抽出的连接前置编排模块：注入登录态、设备接口、location/history/localStorage 与 transport 工厂，覆盖回调模式识别、登录门禁、有/无 sid 落点、最近设备在线/离线分流、列表排序与刷新触发、选中后 URL 回写、401 回登录并保留返回地址、`device-not-owned` 动作。先例：web 路由、失败原因、bootstrap shell 与 lifecycle 测试。terminal transport 对假 relay 的测试同桌面。
-- shared：二维码 URL 构建/解析（无 `hash`/`t`，`sid` 可选）、V2 消息类型的运行时校验、OAuth state 白名单与 query 放行。先例：shared web remote control 测试、web 认证相关测试。
-- UI 验收：06 的设备列表页是唯一全新页面，实现前在 `relay-v2-pairing.md` 附文本线框与文案表（页头与切换账号入口、列表项排布、在线标识、离线灰显、空态、刷新按钮落点），经用户确认后再实现；03/04/05 只在既有弹窗、登录页、失败页上增减状态，新增文案在各票文档先行时列出供确认。所有触及 UI 的票实现后提供截图矩阵：桌面为深浅主题 × zh-CN/en-US（04 的 E2E 顺带产出），手机为窄屏/宽屏 × 深浅主题 × zh-CN/en-US（参考 `packages/web/test/e2e/manual-review/pending/remote-version.mjs` 新增 pending 截图用例，不自动转正）。
-- 桌面 E2E 只新增一条："未登录时打开远控弹窗展示需要登录，且 main 未发起任何注册或 relay 连接"，按 E2E 工作流 skill 新增与转正。
-- 真机验收在测试环境手工执行并写入新文档：扫码首次登录、已登录直连、无码选设备、账号不匹配、另一台手机接管、桌面登出/登录、relay 滚动导致的 `KICKED` 恢复。
-- 必要验证按 AGENTS：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响单测与新增 E2E。
+- Um bom teste observa apenas o comportamento externo: quais mensagens o relay recebeu, com quais parâmetros as interfaces HTTP foram chamadas, o que o status/failure do runtime expõe, o que a página renderiza em cada estado e em que a URL/localStorage se transformam. Não afirmar estado privado nem handles de timer.
+- O único novo fixture de teste é o **relay V2 falso**: um servidor em processo que oferece simultaneamente handlers HTTP de registro/listagem/exclusão de dispositivo, emissão de token e um servidor WebSocket em `/ws2`, com encenação de `pair_status` no `auth_ack`, `KICKED`, `AUTH_FAILED`, `DEVICE_OFFLINE`, `INTERNAL`, desconexão e HTTP 401/5xx. Os testes dos dois lados (desktop e celular) o compartilham. Precedente: os testes de transport já existentes dos dois lados usam um WebSocketServer local como relay.
+- A principal costura do desktop é a interface pública do manager: injetar o transport V2 real, o relay falso, a leitura de credenciais falsa e a notificação falsa de estado de login, cobrindo a recusa de início sem login, o registro preguiçoso e a persistência, o re-registro e a tentativa de exclusão em caso de mudança de usuário/endpoint, o re-registro por `AUTH_FAILED`, o 401 de token → `auth-required` sem limpar o registro de habilitação, a parada no logout, a restauração após o login, o formato da URL do QR code e o status exposto na retentativa limitada de `KICKED`. Precedente: os testes do manager com relay externo. Detalhes de nível de linha, como heartbeat de 5 segundos/jitter/watchdog de 15 segundos, `client_ts` em segundos, os campos de `auth_init` e `pair_status_query` e a sequência de backoff, ficam cobertos nos testes do transport contra o relay falso com fake timers. Precedente: os testes de transport dos dois lados e os testes de heartbeat do shared.
+- A principal costura do celular é o módulo de pré-orchestração de conexão extraído: injetar o estado de login, as interfaces de dispositivo, location/history/localStorage e a fábrica de transport, cobrindo o reconhecimento do modo de callback, a barreira de login, o destino com/sem sid, o desvio de dispositivo recente online/offline, a ordenação da lista e os gatilhos de atualização, a gravação de volta na URL após a seleção, o 401 voltando ao login com o endereço de retorno preservado e as ações de `device-not-owned`. Precedente: os testes de rota web, de failure reason, de bootstrap shell e de lifecycle. Os testes do terminal transport contra o relay falso são iguais aos do desktop.
+- shared: construção/parsing da URL do QR code (sem `hash`/`t`, com `sid` opcional), validação em runtime dos tipos de mensagem V2, allowlist de state do OAuth e liberação de query. Precedente: os testes de web remote control do shared e os testes de autenticação web.
+- Aceite de UI: a página de lista de dispositivos do ticket 06 é a única página totalmente nova; antes de implementar, anexar a `relay-v2-pairing.md` um wireframe em texto e uma tabela de textos (cabeçalho e entrada de troca de conta, disposição dos itens da lista, marcador de online, esmaecimento dos offline, estado vazio, posição do botão de atualização), confirmados pelo usuário antes da implementação; os tickets 03/04/05 apenas somam ou retiram estados nos painéis, na página de login e nas páginas de falha já existentes, e os textos novos são listados em cada documento de ticket para confirmação. Todos os tickets que tocam em UI devem entregar, após a implementação, uma matriz de capturas de tela: desktop com temas claro/escuro × zh-CN/en-US (produzida junto com o E2E do 04) e celular com tela estreita/larga × temas claro/escuro × zh-CN/en-US (adicionando casos de captura pendentes com base em `packages/web/test/e2e/manual-review/pending/remote-version.mjs`, sem promoção automática).
+- O E2E do desktop ganha apenas um caso: "ao abrir a janela de controle remoto sem login, exibe a necessidade de login e o main não inicia nenhum registro nem conexão de relay", adicionado e promovido conforme o skill de workflow de E2E.
+- O aceite em aparelho real é executado manualmente no ambiente de testes e registrado no novo documento: primeiro login por QR code, conexão direta já logado, seleção de dispositivo sem QR code, conta divergente, tomada de controle por outro celular, logout/login no desktop e recuperação de `KICKED` por rolling release do relay.
+- Verificações necessárias conforme o AGENTS: `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, testes unitários afetados e o novo E2E.
 
-## 范围外
+## Fora de escopo
 
-- 多窗口各自启动远控共用同一设备身份导致互踢；保持现状，仅在文档记录风险。
-- 手机端删除设备、重命名设备、设备管理页；桌面端"重新注册此设备"排障入口。
-- 任何 zcode-server 改动（区分 `KICKED` 与 owner 丢失、持久化离线设备 `meta`、`client_ts` 单位说明）。
-- V1 关闭时机与 `relay.disable_v1` 切换；旧版本 App 的兼容维护。
-- 未登录用户的远控能力；除 ZAI、BigModel 外的登录方式。
-- 网关、ESA、OSS、OAuth 白名单等基础设施变更本身（只在本 spec 列出需求与验收方法）。
-- 遥测新增协议版本维度；`WebRemoteControlStatus` 中与本次无关的历史字段清理；`/remote/__test__` 链路与分享页。
+- Janelas múltiplas iniciando o controle remoto cada uma por sua conta compartilham a mesma identidade de dispositivo e expulsam uma à outra; manter como está e registrar apenas o risco na documentação.
+- No celular: excluir dispositivo, renomear dispositivo, página de gestão de dispositivos. No desktop: a entrada de diagnóstico "registrar este dispositivo novamente".
+- Qualquer alteração no zcode-server (distinguir `KICKED` de perda de owner, persistir `meta` de dispositivos offline, documentação da unidade de `client_ts`).
+- O momento de desligar o V1 e a troca de `relay.disable_v1`; manutenção de compatibilidade das versões antigas do App.
+- Capacidade de controle remoto para usuários sem login; formas de login além de ZAI e BigModel.
+- As próprias mudanças de infraestrutura — gateway, ESA, OSS, allowlist do OAuth (aqui a spec apenas lista requisitos e método de aceite).
+- Nova dimensão de versão de protocolo na telemetria; limpeza de campos legados sem relação com este trabalho em `WebRemoteControlStatus`; cadeia `/remote/__test__` e página de compartilhamento.
 
-## 补充说明
+## Observações adicionais
 
-### 外部依赖（阻塞生产发布，不阻塞开发）
+### Dependências externas (bloqueiam a publicação em produção, não bloqueiam o desenvolvimento)
 
-| 项                                                                                           | 归属                              | 现状                                                                                                      | 验收方法                                                   |
+| Item                                                                                           | Responsável                        | Situação atual                                                                                            | Método de aceite                                           |
 | -------------------------------------------------------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| 生产 zcode-server 部署 V2                                                                    | 服务端                            | `zcode.z.ai/api/v1/remote/token` 返回 404                                                                 | 该接口无 JWT 返回 401                                      |
-| 生产网关将 `/api/v1/remote/ws2` 精确转发到 V2 relay，device 与 terminal 按 `mid` 落同一实例  | ESA/阿里云网关维护方              | 当前按 `/api/v1/remote/ws` 前缀落到 V1 处理器（返回 400）                                                 | 无 token 返回 401；同 `mid` 两端配对稳定                   |
-| 生产网关按 `app_version` 取 OSS `<version>/index.html`，`/remote/v4/<dir>/<path>` 取对应目录 | ESA/阿里云网关维护方              | 测试环境已生效；生产对所有版本返回同一份 index，`/remote/v4/3.13.0/release-manifest.json` 返回 index.html | 该 manifest 返回 JSON；不同 `app_version` 返回各自版本资源 |
-| OAuth 白名单登记 `https://zcode.z.ai/remote/v4` 与 `https://zcode.z.ai/remote/v4`    | 与 ZAI、BigModel OAuth 提供方沟通 | 未开始                                                                                                    | 测试环境完成一次真实登录回跳                               |
+| Implantar V2 no zcode-server de produção                                                   | Servidor                           | `zcode.z.ai/api/v1/remote/token` retorna 404                                                            | A interface retorna 401 sem JWT                            |
+| O gateway de produção encaminhar `/api/v1/remote/ws2` com precisão ao relay V2, com device e terminal caindo na mesma instância por `mid` | ESA/maintenance do gateway Alibaba Cloud | Hoje o prefixo `/api/v1/remote/ws` cai no handler V1 (retorna 400)                               | Sem token retorna 401; pareamento estável dos dois lados com o mesmo `mid` |
+| O gateway de produção buscar no OSS `<version>/index.html` conforme `app_version`, com `/remote/v4/<dir>/<path>` buscando o diretório correspondente | ESA/maintenance do gateway Alibaba Cloud | Já em vigor no ambiente de testes; em produção todas as versões retornam o mesmo index, e `/remote/v4/3.13.0/release-manifest.json` retorna index.html | O manifest retorna JSON; `app_version` diferentes retornam seus respectivos recursos de versão |
+| Registrar `https://zcode.z.ai/remote/v4` e `https://zcode.z.ai/remote/v4` na allowlist do OAuth | Alinhamento com os provedores OAuth ZAI e BigModel | Não iniciado                                                                                             | Um login real com retorno concluído no ambiente de testes  |
 
-旧基础设施仓库已不再承载 zcode.z.ai 的后端与前端配置，本任务不对其做任何改动。
+O repositório de infraestrutura legado não hospeda mais a configuração de backend e frontend do zcode.z.ai, e esta tarefa não faz nenhuma alteração nele.
 
-### 发布顺序
+### Ordem de publicação
 
-生产服务端 V2 → 网关两条规则 → OAuth 白名单 → 手机页面以新版本目录发布 → 携带该版本号的桌面 App 发布。手动 latest job 在网关支持版本目录之前不运行。
+V2 no servidor de produção → as duas regras do gateway → allowlist do OAuth → publicação da página do celular em um novo diretório de versão → publicação do App do desktop com esse número de versão. O job manual de latest não roda antes de o gateway suportar diretórios de versão.
 
-### 已知限制
+### Limitações conhecidas
 
-- 手机若使用升级前保存的旧链接（旧 `app_version`）连接 V2 桌面，会进入 V1 页面并停在"等待电脑端"，无法自动纠正，需重新扫描当前二维码。
-- 服务端对离线设备不返回 `meta`，列表中离线设备只能显示 `device_mid` 片段。
-- 服务端对"被替换"与"owner 丢失"都发送 `KICKED`，客户端以有界重试折中；服务端若日后区分错误码，可退回"收到即停止"。
+- Se o celular usar um link salvo antes da atualização (com `app_version` antigo) para se conectar a um desktop V2, ele cai na página V1 e fica parado em "aguardando o computador"; não há correção automática e é preciso escanear o QR code atual novamente.
+- O servidor não devolve `meta` para dispositivos offline, então na lista os dispositivos offline só exibem um trecho do `device_mid`.
+- O servidor envia `KICKED` tanto para "substituído" quanto para "owner perdido", e o cliente faz um meio-termo com retentativa limitada; se o servidor passar a distinguir os códigos de erro, dá para voltar a "parar ao receber".
 
-### 与上位规则的关系
+### Relação com as regras superiores
 
-- 桌面 `desktop-continuous` 与手机 `web-remote-replayable` 的恢复边界、workspaceIdentity/workspacePath 分离、relay 不解析业务 payload、main 不持有 task/stream 状态等既有约束全部保持。
-- 一次性内部启动票据、IPC 依赖面收敛（去掉 `resetPairingAuthorized`）与 Office XSS 补偿边界的说明保持有效。
+- Permanecem todas as restrições já existentes: os limites de recuperação de `desktop-continuous` no desktop e de `web-remote-replayable` no celular, a separação entre workspaceIdentity e workspacePath, o relay não interpretar payload de negócio e o main não manter estado de task/stream.
+- Permanecem válidos as descrições do ticket interno de inicialização de uso único, da redução da superfície de dependência de IPC (remoção de `resetPairingAuthorized`) e da fronteira de compensação de XSS do Office.
 
-## 验收标准
+## Critérios de aceite
 
-- [ ] 未登录桌面打开远控弹窗：显示需要登录，不注册设备、不连接 relay、状态不含二维码。
-- [ ] 已登录首次启动：完成注册并持久化 `{deviceSid, userId, endpointOrigin}`，二维码为 `/remote/v4?app_version&sid&mid&name`，不含 `hash`/`t`；V1 遗留 sid/passHash 已清除。
-- [ ] 用户或 endpoint 变化、`auth_init` 返回 `AUTH_FAILED`：重新注册并尽力删除旧记录；删除失败不影响启动。
-- [ ] 每次建连前申请新 token，`auth_init` 无 `role`，`pair_status_query` 无 `device_sid`，`client_ts` 为秒，心跳 5 秒 ±1 秒，15 秒无 ACK 重连。
-- [ ] token 401：状态 `error`/`auth-required`，停止重连，不登出，已启用记录保留；登录通知后自动恢复。登出通知：runtime 停止并置 `auth-required`。
-- [ ] `KICKED`：首次延迟 2~5 秒换 token 重连；60 秒内第二次停止并报 `session-conflict`。
-- [ ] 手机带 `sid` 未登录：登录页 → OAuth 回到 `/remote/v4` 回调模式 → 回跳原 URL → 直接连接。已登录带 `sid`：直接连接。
-- [ ] 手机无 `sid`：最近设备在线则直连，否则列表页；列表在线置顶按名排序、离线灰显不可点、支持手动与回前台刷新；选中后 URL 回写且刷新可恢复。
-- [ ] 手机 `AUTH_FAILED`：`device-not-owned` 失败页含"切换账号"与"选择其他设备"；401：回登录页并在登录后回到原 URL。
-- [ ] 进入聊天后 bootstrap、bridge、`rpc-frame`、replayable 恢复、版本守卫行为与升级前一致。
-- [ ] 仓库不再包含 v2/v3/v4 Docker 构建链与 已迁走基础设施的引用；`/remote/__test__` 与 OSS 流水线可用；两端 V1 代码与 shared V1 类型已删除。
-- [ ] 新文档与三份既有文档更新到最终行为；4 月登录设计文档标注被取代。
-- [ ] typecheck、lint、架构检查、受影响单测、新增 E2E 通过；测试环境真机验收步骤已记录。
+- [ ] Desktop sem login abre a janela de controle remoto: exibe a necessidade de login, não registra dispositivo, não conecta ao relay e o estado não contém QR code.
+- [ ] Primeiro início já logado: completa o registro e persiste `{deviceSid, userId, endpointOrigin}`; o QR code é `/remote/v4?app_version&sid&mid&name`, sem `hash`/`t`; o sid/passHash remanescentes do V1 foram removidos.
+- [ ] Mudança de usuário ou de endpoint, ou `auth_init` retornando `AUTH_FAILED`: re-registra e tenta excluir o registro antigo; a falha na exclusão não afeta o início.
+- [ ] Antes de cada conexão é solicitado um token novo; `auth_init` sem `role`; `pair_status_query` sem `device_sid`; `client_ts` em segundos; heartbeat de 5 segundos ±1 segundo; reconexão após 15 segundos sem ACK.
+- [ ] 401 no token: estado `error`/`auth-required`, para de reconectar, não desloga e preserva o registro de habilitação; retoma automaticamente após a notificação de login. Notificação de logout: o runtime para e vai para `auth-required`.
+- [ ] `KICKED`: na primeira, reconecta com um token novo após 2~5 segundos de atraso; na segunda dentro de 60 segundos, para e reporta `session-conflict`.
+- [ ] Celular com `sid` e sem login: página de login → OAuth volta para o modo de callback de `/remote/v4` → redireciona para a URL original → conecta direto. Celular com `sid` e logado: conecta direto.
+- [ ] Celular sem `sid`: se o dispositivo mais recente estiver online, conecta direto; senão, abre a página de lista, com os online no topo ordenados por nome, os offline esmaecidos e não clicáveis, atualização manual e ao voltar para o primeiro plano; após a seleção, a URL é gravada de volta e sobrevive a um recarregamento.
+- [ ] `AUTH_FAILED` no celular: página de falha `device-not-owned` com "trocar de conta" e "escolher outro dispositivo"; 401: volta à página de login e retorna à URL original depois do login.
+- [ ] Depois de entrar no chat, o bootstrap, o bridge, o `rpc-frame`, a recuperação replayable e o guard de versão se comportam como antes da atualização.
+- [ ] O repositório não contém mais as cadeias de build Docker v2/v3/v4 nem as referências à infraestrutura migrada; `/remote/__test__` e o pipeline OSS funcionam; o código V1 dos dois lados e os tipos V1 do shared foram removidos.
+- [ ] O novo documento e os três documentos já existentes são atualizados para o comportamento final; o documento de design de login de abril recebe a marcação de substituído.
+- [ ] typecheck, lint, checagem de arquitetura, testes unitários afetados e o novo E2E passam; os passos do aceite em aparelho real no ambiente de testes estão registrados.

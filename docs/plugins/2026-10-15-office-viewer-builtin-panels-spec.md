@@ -1,20 +1,20 @@
-# 内置文档插件查看面板规格：documents / pdf / presentations / spreadsheets 0.2.0
+# Painéis de visualização dos plugins de documentos integrados: documents / pdf / presentations / spreadsheets 0.2.0
 
-> 日期：2026-10-15
-> 状态：已实现，桌面端真机验证待补
-> 关联：插件仓库测试市场已发布同名插件 0.2.0（含查看面板）；本次把面板并入随应用发布的内置插件。
+> Data: 2026-10-15
+> Status: implementado, verificação real no desktop pendente
+> Relacionado: o mercado de testes do repositório de plugins já publicou um plugin com o mesmo nome na versão 0.2.0 (com os painéis de visualização); desta vez os painéis são incorporados aos plugins integrados que acompanham o aplicativo.
 
-## 1. 背景与决策
+## 1. Contexto e decisão
 
-四个文档插件是随应用发布的内置插件（`zcode-plugins-official`），插件 ID 为 `<name>@zcode-plugins-official`。插件仓库的 CDN 目录若发布同名条目，合并目录会以 CDN 条目展示，但运行时发现先加载内置副本、同 ID 的市场安装被判为重复忽略，内置插件也不参与市场更新。因此查看面板不能从插件仓库单独发布，必须随内置插件升级。
+Os quatro plugins de documentos são plugins integrados que acompanham o aplicativo (`zcode-plugins-official`), com IDs de plugin no formato `<name>@zcode-plugins-official`. Caso o diretório CDN do repositório de plugins publique um item com o mesmo nome, o diretório combinado exibirá o item do CDN, mas a descoberta em tempo de execução carrega primeiro a cópia integrada, e uma instalação do mercado com o mesmo ID é descartada como duplicata; os plugins integrados também não participam das atualizações do mercado. Portanto, os painéis de visualização não podem ser publicados separadamente pelo repositório de plugins: precisam ser publicados junto com a atualização dos plugins integrados.
 
-决策：
+Decisão:
 
-- 四个插件统一升到 0.2.0，在原有生产技能之外新增一个查看技能（`docx-viewer`、`pdf-viewer`、`pptx-viewer`、`xlsx-viewer`）、一个 stdio MCP server 和一个 `availability: "session"` 的 UI surface。
-- 面板实现放在共享包 `@zcode/office-runtime`（`apps/zcode-cli/packages/office-runtime`）。每个插件在 package.json 的 `office` 字段声明面板标题与格式，`build` 脚本调用 `../office-runtime/scripts/build.mjs`，只打包该格式的解析器与查看器。
-- 生产技能、视觉评审 Agent 与许可证（Apache-2.0）保持不变；面板与 server 代码随 office-runtime 的 MIT 许可写入 `dist/LICENSE`。
+- Os quatro plugins sobem uniformemente para 0.2.0, adicionando, além das skills de produção existentes, uma skill de visualização (`docx-viewer`, `pdf-viewer`, `pptx-viewer`, `xlsx-viewer`), um MCP server via stdio e uma UI surface com `availability: "session"`.
+- A implementação dos painéis fica no pacote compartilhado `@zcode/office-runtime` (`apps/zcode-cli/packages/office-runtime`). Cada plugin declara o título do painel e os formatos no campo `office` do package.json, e o script `build` chama `../office-runtime/scripts/build.mjs`, empacotando apenas o parser e o visualizador daquele formato.
+- As skills de produção, o Agent de revisão visual e a licença (Apache-2.0) permanecem inalterados; o código do painel e do server, sob a licença MIT do office-runtime, é gravado em `dist/LICENSE`.
 
-## 2. 构建与产物
+## 2. Build e artefatos
 
 ```text
 apps/zcode-cli/packages/<name>-plugin/package.json  ── office.title / office.kinds
@@ -29,72 +29,72 @@ office-runtime/scripts/build.mjs（插件名取自 .zcode-plugin/plugin.json）
   LICENSE, THIRD_PARTY_NOTICES.txt
 ```
 
-- 插件名必须取自 manifest：它是 MCP 服务名、surface id 与 `ui://<name>/` 前缀，而内置包目录名带 `-plugin` 后缀。
-- `dist/` 不入 git（`apps/zcode-cli/.gitignore`）。turbo 的插件 `build` 依赖 office-runtime 的 `build`（仅类型检查），office-runtime 源码变化会使四个插件的构建缓存失效。
-- 查看器依赖（pdfjs-dist、docx-preview、pptx-renderer、react-xlsx、exceljs 等）声明为 office-runtime 的 devDependencies：它们只在构建期被打包，不作为运行时 npm 依赖分发；被打包部分的许可随产物写入 `dist/THIRD_PARTY_NOTICES.txt`。exceljs 的流式读写依赖（archiver、unzipper、tmp、fast-csv）在构建时以桩模块替换，不进入产物。
+- O nome do plugin deve ser obtido do manifest: ele é o nome do serviço MCP, o id da surface e o prefixo `ui://<name>/`, enquanto o diretório do pacote integrado tem o sufixo `-plugin`.
+- `dist/` não entra no git (`apps/zcode-cli/.gitignore`). O `build` de plugins do turbo depende do `build` do office-runtime (somente checagem de tipos), e mudanças no código-fonte do office-runtime invalidam o cache de build dos quatro plugins.
+- As dependências dos visualizadores (pdfjs-dist, docx-preview, pptx-renderer, react-xlsx, exceljs etc.) são declaradas como devDependencies do office-runtime: elas só são empacotadas na fase de build e não são distribuídas como dependências npm de runtime; as licenças das partes empacotadas são gravadas junto dos artefatos em `dist/THIRD_PARTY_NOTICES.txt`. As dependências de leitura/escrita em streaming do exceljs (archiver, unzipper, tmp, fast-csv) são substituídas por módulos stub no build e não entram nos artefatos.
 
-## 3. 必需资产与版本事实源
+## 3. Ativos obrigatórios e fonte de verdade das versões
 
-产物路径的唯一定义是 office-runtime `contract.ts` 的 `OFFICE_RUNTIME_OUTPUTS`：`dist/server.mjs`、`dist/ui/assets.json`、`dist/ui/panel.html`。以下清单都要同步：
+A definição única dos caminhos dos artefatos é o `OFFICE_RUNTIME_OUTPUTS` do `contract.ts` do office-runtime: `dist/server.mjs`, `dist/ui/assets.json`, `dist/ui/panel.html`. A lista a seguir precisa ser mantida em sincronia:
 
-| 位置                                                  | 内容                                                                                                                     |
+| Local                                                  | Conteúdo                                                                                                                     |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `bootstrap/src/app/official-plugin-definitions.ts`    | 版本 0.2.0（pdf 0.2.1，按插件各自声明）；`requiredSeedPaths` 增加 viewer skill 与 `OFFICIAL_OFFICE_VIEWER_RUNTIME_PATHS` |
-| `cli/scripts/sea-official-plugin-assets.mjs`          | 版本 0.2.0（pdf 0.2.1）；`requiresRuntime: true`，`requiredRuntimePaths` 为面板产物                                      |
-| `desktop/scripts/prepare-agent-node-bundle.mjs`       | `requiresRuntime: true`，`runtimeBuildScript` 指向 office-runtime 构建脚本                                               |
-| `scripts/build-desktop-agent-cli.mjs`                 | dev 链路构建四个插件并校验 `dist/server.mjs`                                                                             |
-| `server/src/remote/zcodeAgentOfficialPluginAssets.ts` | 远端必需资产加入 viewer skill 与面板产物                                                                                 |
-| `docker/plugin-eval/Dockerfile`                       | 评测镜像在 stage 前构建四个插件                                                                                          |
-| 各插件 `package.json` / `.zcode-plugin/plugin.json`   | 版本 0.2.0（pdf 0.2.1）                                                                                                  |
+| `bootstrap/src/app/official-plugin-definitions.ts`    | versão 0.2.0 (pdf 0.2.1, conforme a declaração de cada plugin); `requiredSeedPaths` recebe a viewer skill e `OFFICIAL_OFFICE_VIEWER_RUNTIME_PATHS` |
+| `cli/scripts/sea-official-plugin-assets.mjs`          | versão 0.2.0 (pdf 0.2.1); `requiresRuntime: true`, `requiredRuntimePaths` são os artefatos dos painéis                     |
+| `desktop/scripts/prepare-agent-node-bundle.mjs`       | `requiresRuntime: true`, `runtimeBuildScript` aponta para o script de build do office-runtime                              |
+| `scripts/build-desktop-agent-cli.mjs`                 | a cadeia de dev constrói os quatro plugins e valida `dist/server.mjs`                                                        |
+| `server/src/remote/zcodeAgentOfficialPluginAssets.ts` | os ativos obrigatórios do remoto recebem a viewer skill e os artefatos dos painéis                                            |
+| `docker/plugin-eval/Dockerfile`                       | a imagem de avaliação constrói os quatro plugins antes do stage                                                               |
+| `package.json` / `.zcode-plugin/plugin.json` de cada plugin | versão 0.2.0 (pdf 0.2.1)                                                                                                |
 
-`requiredSeedPaths` 缺项时 seed 只拒绝该插件并回退到可用旧缓存，不影响其他插件；因此未构建的开发环境会看到这四个插件停留在旧缓存或缺失，而不是全部插件失败。
+Quando `requiredSeedPaths` está incompleto, o seed recusa apenas aquele plugin e faz fallback para um cache antigo utilizável, sem afetar os demais plugins; por isso, um ambiente de desenvolvimento sem build verá esses quatro plugins parados no cache antigo ou ausentes, e não a falha de todos os plugins.
 
-桌面 bootstrap 构建路径原先对每个运行时插件先跑 `tsc` 再跑构建脚本；文档插件没有自己的 tsconfig，现改为仅在插件根目录存在 `tsconfig.json` 时运行 `tsc`。
+O caminho de bootstrap do desktop rodava antes `tsc` e depois o script de build para cada plugin de runtime; como os plugins de documentos não têm tsconfig próprio, agora `tsc` só é executado quando existe `tsconfig.json` na raiz do plugin.
 
-## 4. 验收
+## 4. Aceitação
 
-- office-runtime：`typecheck`、`lint`、单测（解析器、锚点、文本、i18n、对齐、契约）。
-- 四个插件：`build` 后 `smoke`（真实 stdio MCP：打开、读取、搜索、定位、越界路径拒绝）与 `test:e2e`（Chrome 中按 MCP Apps 沙箱 CSP 加载面板，覆盖选区引用、Agent 定位、查找、抽屉、截图、深色中文内联卡片）。
-- 版本与资产一致性：bootstrap `plugins.test.ts`、`build-sea.test.mjs`、desktop `runtime-asset-scripts.test.ts`、server `remoteDeploy.test.ts`。
-- 待补：在 ZCode 桌面端（含远程工作区）实际打开四种面板；e2e 不覆盖 Electron 沙箱本身。
+- office-runtime: `typecheck`, `lint`, testes unitários (parser, âncoras, texto, i18n, alinhamento, contrato).
+- Os quatro plugins: após o `build`, `smoke` (MCP stdio real: abrir, ler, buscar, localizar, rejeição de caminhos fora do escopo) e `test:e2e` (carregamento do painel no Chrome sob a CSP do sandbox de MCP Apps, cobrindo referência de seleção, localização pelo Agent, busca, gaveta, captura de tela e cards inline escuros em chinês).
+- Consistência de versões e ativos: bootstrap `plugins.test.ts`, `build-sea.test.mjs`, desktop `runtime-asset-scripts.test.ts`, server `remoteDeploy.test.ts`.
+- Pendente: abrir de fato os quatro painéis no ZCode desktop (incluindo workspaces remotos); o e2e não cobre o sandbox do Electron em si.
 
-## 5. 本地文件与窗口恢复（2026-10-16）
+## 5. Arquivos locais e restauração de janela (2026-10-16)
 
-- 空状态为标题、描述、打开文件按钮与格式说明。按钮调用系统文件选择器，支持工作区外文件；取消不改变页面。
-- 文件按 4 MiB 分块导入 `.zcode/document-imports/<uuid>/<filename>`，沿用 100 MiB 上限。预览与 Agent 引用副本，不修改原文件，不开放任意路径读取。同名文件独立保存。
-- 手动新建文档窗口生成 instanceId，随标签页持久化。普通插件与工具驱动 surface 保持原路由。
-- 完整 workspace/session/plugin/server/resource/surface instance 的 SHA-256 构成不透明 stateKey，面板 localStorage 保存该窗口最后成功加载的路径，不从服务器全局最后文档恢复。存储不可用时仍能预览，但不能保证恢复。
+- O estado vazio tem título, descrição, botão de abrir arquivo e explicação dos formatos. O botão chama o seletor de arquivos do sistema e suporta arquivos de fora do workspace; cancelar não altera a página.
+- Os arquivos são importados em blocos de 4 MiB para `.zcode/document-imports/<uuid>/<filename>`, mantendo o limite de 100 MiB. A pré-visualização e as referências do Agent usam uma cópia, sem modificar o arquivo original e sem abrir leitura de caminhos arbitrários. Arquivos com o mesmo nome são salvos de forma independente.
+- A criação manual de uma janela de documento gera um instanceId, persistido junto com a aba. Plugins comuns e surfaces dirigidas por ferramentas mantêm o roteamento original.
+- O SHA-256 da instância completa de workspace/session/plugin/server/resource/surface compõe um stateKey opaco; o localStorage do painel salva o último caminho carregado com sucesso nessa janela, sem restaurar do último documento global do servidor. Quando o armazenamento não está disponível, a pré-visualização ainda funciona, mas a restauração não é garantida.
 
 ```mermaid
 flowchart LR
-  A[新建标签页] --> B[新 instanceId / 空状态]
-  B --> C[选文件并成功加载]
-  C --> D[按 stateKey 保存路径]
-  E[回到原 session] --> F[恢复原标签页 instanceId]
+  A[Nova aba] --> B[Novo instanceId / estado vazio]
+  B --> C[Selecionar arquivo e carregar com sucesso]
+  C --> D[Salvar caminho por stateKey]
+  E[Voltar à session original] --> F[Restaurar o instanceId da aba original]
   F --> D
-  D --> G[加载该窗口上次的文件]
+  D --> G[Carregar o último arquivo desta janela]
 ```
 
-官方插件入口从内置原始 manifest 重建，保留真实入口及参数，修正错误缓存；HTTP/SSE 不按 stdio 校验。服务导出 main，直接执行时才自行启动。确认发送弹窗与选区提问浮层采用紧凑间距、输入区与统一边框，保留发送、取消及键盘行为。
+A entrada oficial do plugin é reconstruída a partir do manifest integrado original, preservando a entrada e os parâmetros reais e corrigindo o cache corrompido; HTTP/SSE não são validados como stdio. O serviço exporta `main` e só se inicia sozinho quando executado diretamente. Os popups de confirmação de envio e de pergunta por seleção adotam espaçamento compacto, área de entrada e borda unificada, preservando envio, cancelamento e comportamento de teclado.
 
-### 场景与覆盖矩阵
+### Cenários e matriz de cobertura
 
-| 场景                                       | 覆盖位置                                         | 边界                                               |
+| Cenário                                       | Local de cobertura                                         | Limite                                               |
 | ------------------------------------------ | ------------------------------------------------ | -------------------------------------------------- |
-| 缓存入口修复、参数保留、HTTP 配置          | bootstrap/tests/official-plugin-runtime.test.ts  | 单元测试                                           |
-| 分块顺序、未完成拒绝、同名隔离、取消清理   | office-runtime/src/adapters/files.test.ts        | 单元测试                                           |
-| 新窗口隔离、序列化作用域稳定、session 隔离 | packages/ui/src/plugin-ui/contract.test.ts       | 单元测试                                           |
-| 本地导入、重载恢复、新窗口空状态           | office-runtime/scripts/e2e.mjs 的 documents 分支 | 浏览器 AppBridge + 真实 MCP，不是 Electron E2E     |
-| PDF/PPT 原生文件选择、PDF 同会话双窗口     | macOS 开发实例人工验收                           | 已验证；跨 session、远程工作区、Windows/Linux 待补 |
-| 紧凑浮层与确认框                           | 原有交互回归与人工检查                           | 双主题、手机远控视觉验收待补                       |
+| Correção da entrada em cache, preservação de parâmetros, configuração HTTP | bootstrap/tests/official-plugin-runtime.test.ts  | Teste unitário                                           |
+| Ordem dos blocos, rejeição de importações incompletas, isolamento de nomes iguais, limpeza ao cancelar   | office-runtime/src/adapters/files.test.ts        | Teste unitário                                           |
+| Isolamento de janelas, estabilidade do escopo de serialização, isolamento por session | packages/ui/src/plugin-ui/contract.test.ts       | Teste unitário                                           |
+| Importação local, restauração ao recarregar, estado vazio em nova janela | ramo de documents em office-runtime/scripts/e2e.mjs | AppBridge do navegador + MCP real, não é E2E de Electron     |
+| Seleção nativa de arquivo em PDF/PPT, duas janelas de PDF na mesma session | aceitação manual em instância de desenvolvimento no macOS | Validado; entre sessions, workspace remoto e Windows/Linux pendentes |
+| Popups compactos e caixas de confirmação                     | regressão de interação existente e verificação manual                 | Aceitação visual dos dois temas e do controle remoto pelo celular pendente                       |
 
-## 6. PDF 中日韩文字
+## 6. Texto CJK em PDF
 
-PDF 面板（`office-runtime/ui/viewers/PdfView.tsx`，pdf.js 5.4.296）对中日韩（CJK）文字的约定。随 pdf 插件 0.2.1 发布：升版让已装用户换到新的缓存目录，不沿用 0.2.0 的旧面板产物（其余三个文档插件仍为 0.2.0）。嵌入字体由 pdf.js 直接加载，不经下面的字体链；本节只处理**未嵌入字体**和**文字提取**。
+Convenções do painel de PDF (`office-runtime/ui/viewers/PdfView.tsx`, pdf.js 5.4.296) para texto CJK (chinês, japonês, coreano). Publicado junto com o plugin pdf 0.2.1: a atualização de versão leva quem já instalou a um novo diretório de cache, sem reaproveitar os artefatos do painel antigo da 0.2.0 (os outros três plugins de documentos continuam em 0.2.0). As fontes embutidas são carregadas diretamente pelo pdf.js, sem passar pela cadeia de fontes abaixo; esta seção trata apenas de **fontes não embutidas** e de **extração de texto**.
 
-### 6.1 未嵌入字体的字体链
+### 6.1 Cadeia de fontes para fontes não embutidas
 
-pdf.js 对未嵌入字体只按字体名找同名系统字体，找不到就退回通用 `serif` / `sans-serif`，因此宋体常被画成黑体；字体名是 GBK 等多字节编码（如 `/#CB#CE#CC#E5` = 宋体）时 pdf.js 直接放弃替换。面板在 pdf.js 画布设置字体处接管字体链：
+Para fontes não embutidas, o pdf.js procura pelo nome uma fonte do sistema com o mesmo nome e, se não encontrar, recorre às famílias genéricas `serif` / `sans-serif`; por isso o SimSun costuma ser desenhado como uma fonte sem serifa. Quando o nome da fonte está em codificação multibyte como GBK (por exemplo `/#CB#CE#CC#E5` = 宋体), o pdf.js desiste de substituir. O painel assume a cadeia de fontes no ponto em que o pdf.js define a fonte no canvas:
 
 ```text
 PDF 字体（未嵌入）── 名称（含 GBK / Big5 / Shift-JIS / EUC-KR 解码）+ pdf.js 的 Serif 标志
@@ -106,32 +106,32 @@ canvas font = <pdf.js 原字体链（去掉末尾通用族）>, "zcode-cjk-<文�
               ["zcode-cjk-<文种>-serif"（kai / fang 时）], ["zcode-cjk-fallback"], <通用族>
 ```
 
-- `zcode-cjk-*` 是面板注册的 `FontFace`：来源为三端常见同类字体的 `local()` 列表（macOS 宋体-简 / 苹方 / 楷体-简…，Windows SimSun / Microsoft YaHei / KaiTi…，Linux Noto / Source Han / 文泉驿…），`unicode-range` 只覆盖 CJK 字符与全角标点，因此不改变拉丁文字的回退。
-- 面板在文档打开前加载全部 `zcode-cjk-*`（`local()` 查找，无下载）。pdf.js 的原字体链放在最前：系统真的装有同名字体（如 Windows 的 SimSun）时仍用它。
-- 只作用于 pdf.js 标记为缺字体文件的字体（`missingFile`），Type 3 与嵌入字体不变。
-- 实现方式：构建时 esbuild 插件改写 pdf.js 画布 `setFont` 中计算字体链的一行（找不到原文即构建失败），调用 `ui/cjkFonts.ts` 的 `pdfTypeface`。
+- `zcode-cjk-*` são os `FontFace` registrados pelo painel: a origem é uma lista de `local()` de fontes equivalentes comuns nas três plataformas (macOS 宋体-简 / 苹方 / 楷体-简…, Windows SimSun / Microsoft YaHei / KaiTi…, Linux Noto / Source Han / 文泉驿…), e o `unicode-range` cobre apenas caracteres CJK e pontuação de largura inteira, portanto não altera o fallback do texto latino.
+- O painel carrega todos os `zcode-cjk-*` antes de abrir o documento (busca via `local()`, sem download). A cadeia original do pdf.js fica em primeiro lugar: quando o sistema realmente tem uma fonte com o mesmo nome (como a SimSun no Windows), ela continua sendo usada.
+- Só se aplica às fontes que o pdf.js marca como arquivo ausente (`missingFile`); Type 3 e fontes embutidas não mudam.
+- Forma de implementação: na fase de build, um plugin do esbuild reescreve a linha que calcula a cadeia de fontes no `setFont` do canvas do pdf.js (a build falha se o texto original não for encontrado), chamando o `pdfTypeface` de `ui/cjkFonts.ts`.
 
-### 6.2 内置兜底字体
+### 6.2 Fontes de fallback integradas
 
-系统没有任何 CJK 字体（全部 `zcode-cjk-*` 都加载失败，常见于精简 Linux）时，面板在打开第一个 PDF 前加载随插件分发的 Noto Sans SC 400（Fontsource 5.3.1，OFL-1.1，按 unicode-range 切成 97 片、约 2.4 MiB、覆盖 GB2312 99.5%），注册为 `zcode-cjk-fallback`，排在字体链的通用族之前。画布绘制不等待字体，所以兜底字体必须在首次绘制前就绪，而不是绘制后补加载再重画。面板生命周期内只加载一次；有任一系统 CJK 字体的机器不会加载。字体文件以 `ui://pdf/assets/fonts/*.woff2` 资源读取，清单为 `ui://pdf/assets/cjk-fallback.json`；只有 pdf 插件的构建产出它们。
+Quando o sistema não tem nenhuma fonte CJK (todos os `zcode-cjk-*` falham ao carregar, comum em Linux enxuto), o painel carrega, antes de abrir o primeiro PDF, o Noto Sans SC 400 distribuído com o plugin (Fontsource 5.3.1, OFL-1.1, dividido por `unicode-range` em 97 arquivos, cerca de 2.4 MiB, cobrindo 99.5% do GB2312), registrado como `zcode-cjk-fallback`, posicionado antes da família genérica na cadeia de fontes. O canvas não espera a fonte no desenho, então a fonte de fallback precisa estar pronta antes do primeiro desenho, e não carregada depois com um redesenhe. Ela é carregada apenas uma vez no ciclo de vida do painel; máquinas com alguma fonte CJK do sistema não a carregam. Os arquivos de fonte são lidos como recursos `ui://pdf/assets/fonts/*.woff2`, com o manifesto em `ui://pdf/assets/cjk-fallback.json`; apenas o build do plugin pdf os produz.
 
-### 6.3 文字提取归一
+### 6.3 Normalização da extração de texto
 
-Chrome / Skia 打印出的 PDF 常把部分汉字的 ToUnicode 写成部首兼容字符（文→⽂ U+2F42，黄→⻩ U+2EE9），画面正确但复制、查找、引用全错。server 解析（`read_document`、`search_document`）与面板文字层、查找统一经 `src/domain/cjk.ts` 的 `normalizeCjkCompat` 归一：康熙部首（U+2F00–2FD5）按 NFKC，部首补充（U+2E80–2EF3）按 Unicode 16.0 `EquivalentUnifiedIdeograph.txt`，只收等价字在 BMP 的 100 条（另 14 条是扩展区的部件字，不作替换）。不做整体 NFKC（会把全角标点变成半角）。替换前后都是一个 UTF-16 单元。
+PDFs impressos por Chrome / Skia costumam escrever o ToUnicode de alguns hanzi como caracteres compatíveis com radicais (文→⽂ U+2F42, 黄→⻩ U+2EE9): a imagem fica correta, mas copiar, buscar e referenciar ficam todos errados. A análise no server (`read_document`, `search_document`) e a camada de texto e a busca do painel passam uniformemente por `normalizeCjkCompat` em `src/domain/cjk.ts`: radicais Kangxi (U+2F00–2FD5) por NFKC, suplemento de radicais (U+2E80–2EF3) pelo `EquivalentUnifiedIdeograph.txt` do Unicode 16.0, aceitando apenas as 100 entradas cujo ideógrafo equivalente está no BMP (outras 14 são caracteres de componente em áreas estendidas e não são substituídas). Não se faz NFKC completo (transformaria pontuação de largura inteira em meia largura). Antes e depois da substituição, o resultado é uma única unidade UTF-16.
 
-### 6.4 pdf.js 资源
+### 6.4 Recursos do pdf.js
 
-面板资源白名单允许 `pdfjs/wasm/*.wasm`（openjpeg 解 JPEG 2000 图像、qcms 处理 ICC 颜色），此前被拒导致这两类内容无法解码。
+A whitelist de recursos do painel permite `pdfjs/wasm/*.wasm` (openjpeg para decodificar imagens JPEG 2000, qcms para processar cores ICC), antes recusados e por isso impossibilitando a decodificação desses dois tipos de conteúdo.
 
-### 6.5 验收
+### 6.5 Aceitação
 
-- 单测：字体分类与字体链（`ui/cjkFonts.test.ts`）、部首归一（`src/domain/cjk.test.ts`）、`fixtures/cjk.pdf` 的提取与搜索（`parse.test.ts`）、资源白名单（`src/adapters/assets.test.ts`）。
-- pdf 插件 `test:e2e`：打开 `docs/cjk.pdf`，断言 `zcode-cjk-*` 字体在绘制前已加载、按归一后的引文定位与查找命中；另开一页让所有 `local()` 查找失败，断言只注册了 `zcode-cjk-fallback` 并截图留档；`smoke` 读取 wasm 与兜底字体资源。
-- 待补：Windows / Linux 真机与无 CJK 字体环境的人工验证。
+- Testes unitários: classificação de fontes e cadeia de fontes (`ui/cjkFonts.test.ts`), normalização de radicais (`src/domain/cjk.test.ts`), extração e busca em `fixtures/cjk.pdf` (`parse.test.ts`), whitelist de recursos (`src/adapters/assets.test.ts`).
+- `test:e2e` do plugin pdf: abrir `docs/cjk.pdf`, afirmar que as fontes `zcode-cjk-*` já estão carregadas antes do desenho, que a localização pela citação normalizada e a busca têm acerto; abrir outra página de modo que todas as buscas `local()` falhem, afirmar que apenas `zcode-cjk-fallback` foi registrada e tirar uma captura de tela para registro; o `smoke` lê os recursos wasm e de fonte de fallback.
+- Pendente: verificação manual em máquinas reais com Windows / Linux e em ambientes sem fontes CJK.
 
-## 7. Review 收口：隐私、视图与导入生命周期
+## 7. Fechamento da revisão: privacidade, views e ciclo de vida da importação
 
-- 宿主仅下发完整作用域的 SHA-256 恢复键，不下发路径或 sessionId。窗口恢复与最近文件共用窗口级缓存，最多保留 128 个最近使用窗口；超出后最旧窗口回到空状态。
-- report_view 携带 viewId，DocumentOwner 按窗口保存。get_view 可指定 viewId；多个窗口且未指定时返回窗口清单及歧义提示，不任选最后上报者。页面正常离开时释放视图；异常退出的旧视图最多造成保守的歧义提示，不串答。Agent 定位继续打开专用 surface，工具文案明确该行为。
-- 导入由服务端串行管理；新导入准入前清理超过 10 分钟没有数据的未完成导入。服务端启动只清扫过期的 `.partial`，保留成品和近期其他进程导入。并发 begin 不突破 4 槽上限，失败与退出清理不产生未处理 rejection。资源过期只用于回收，不用来决定页面同步顺序。
-- 覆盖：恢复键隐私、窗口缓存上限与隔离、多视图歧义、并发上限、超时回收、启动清扫及完成副本保留。
+- O host envia apenas a chave de restauração SHA-256 do escopo completo, sem enviar caminhos nem sessionId. A restauração de janela e os arquivos recentes compartilham um cache de nível de janela, mantendo no máximo as 128 janelas usadas recentemente; ao exceder, a janela mais antiga volta ao estado vazio.
+- report_view carrega o viewId, e o DocumentOwner salva por janela. get_view pode especificar o viewId; com várias janelas e sem viewId especificado, retorna a lista de janelas e um aviso de ambiguidade, sem escolher arbitrariamente o último que reportou. A visão é liberada quando a página é deixada normalmente; uma visão antiga de saída anormal pode causar, no máximo, um aviso de ambiguidade conservador, sem responder por outra. A localização pelo Agent continua abrindo uma surface dedicada, e o texto da ferramenta deixa esse comportamento explícito.
+- A importação é gerenciada serialmente pelo servidor; antes de admitir uma nova importação, são limpas as importações incompletas sem dados há mais de 10 minutos. Na inicialização do servidor, apenas `.partial` expirados são varridos, preservando os produtos prontos e as importações recentes de outros processos. Importações begin concorrentes não ultrapassam o limite de 4 slots, e falhas e limpezas na saída não geram rejection não tratado. A expiração de recursos serve apenas para coleta, e não para determinar a ordem de sincronização da página.
+- Cobertura: privacidade da chave de restauração, limite e isolamento do cache de janelas, ambiguidade de múltiplas views, limite de concorrência, coleta por timeout, varredura na inicialização e preservação das cópias concluídas.

@@ -1,44 +1,44 @@
-# 04 — 向导止血与流程控制器抽取
+# 04 — Correções P0 do assistente e extração do controlador de fluxo
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Especificação pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：** 无，可立即开始。
+**Bloqueado por:** nada, pode começar imediatamente.
 
-**要交付的行为：**
+**Comportamentos a entregar:**
 
-先修好连接向导里几处会卡住用户的问题：
+Primeiro corrigir alguns problemas do assistente de conexão que travam o usuário:
 
-- **缺少已保存的密码**：主按钮改为"补充密码"，点击后回到表单，并让密码框获得焦点。
-- **目标设备已经在线**：明确告诉用户"已直接使用现有连接"，不保存这次新输入的凭据。
-- **正在连接时**：主按钮改为"取消连接"，并且可以点击。
-- **WSL 和 Docker 连接**：阶段文案不再显示 SSH 的说法。
-- **用户主动取消**：不再显示为错误。
+- **Credenciais salvas ausentes**: o botão principal passa a ser "Adicionar a senha"; ao clicar, o usuário volta ao formulário e o campo de senha recebe o foco.
+- **Dispositivo de destino já online**: informa explicitamente ao usuário "já foi usada a conexão existente" e não salva as credenciais recém-digitadas.
+- **Enquanto está conectando**: o botão principal passa a ser "Cancelar conexão" e fica clicável.
+- **Conexões WSL e Docker**: o texto de fase não exibe mais a nomenclatura de SSH.
+- **Cancelamento pelo usuário**: deixa de ser exibido como erro.
 
-然后在行为不变的前提下，把向导的流程抽成一个可测试的控制器，包括入口意图、等待点、收起和关闭、结果去向。这样三屏重做（[10](./10-three-screen-wizard-and-selection.md)、[11](./11-connecting-and-directory-screens.md)）改起来会更容易。
+Depois, sem alterar o comportamento, extrair o fluxo do assistente para um controlador testável, incluindo a intenção de entrada, os pontos de espera, o recolhimento e o fechamento e o destino do resultado. Assim fica mais fácil refazer as três telas ([10](./10-three-screen-wizard-and-selection.md), [11](./11-connecting-and-directory-screens.md)).
 
-范围：
+Escopo:
 
-- **向导 P0 缺陷**：
-  - 缺凭据时点"重试"会反复失败。
-  - 目标设备已在线时被静默复用，没有任何提示。
-  - 正在连接时主按钮一直不能点。
-  - WSL 和 Docker 连接时显示 SSH 的阶段文案。
-  - 用户取消安装后，界面用红色错误面板展示。
-- **预重构**：
-  - 抽出流程控制器，所有可观察行为保持不变。
-  - 现有向导测试是通过截取子组件 props 来断言的，这次覆盖到的流程要改写成通过 DOM 和服务端口断言行为的测试。
+- **Defeitos P0 do assistente**:
+  - Ao clicar em "Tentar novamente" sem credenciais, a falha se repete indefinidamente.
+  - Quando o dispositivo de destino já está online, a conexão é reutilizada em silêncio, sem nenhuma indicação.
+  - Durante a conexão, o botão principal permanece sempre não clicável.
+  - Nas conexões WSL e Docker, é exibido o texto de fase de SSH.
+  - Depois de o usuário cancelar a instalação, a interface exibe um painel de erro em vermelho.
+- **Pré-refatoração**:
+  - Extrair o controlador de fluxo mantendo inalterados todos os comportamentos observáveis.
+  - Os testes atuais do assistente afirmam por meio da captura das props de subcomponentes; os fluxos cobertos nesta rodada precisam ser reescritos como testes que afirmam o comportamento pelo DOM e pelas portas de serviço.
 
-验收标准：
+Critérios de aceite:
 
-- [x] **缺凭据**：主按钮显示"补充密码"，点击后回到表单并聚焦密码框，不再出现必然失败的重试循环。需要向导测试和 E2E 覆盖。
-- [x] **目标设备已在线**：手动新建连接时，如果目标是一台已经在线的设备，显示"这台设备已通过 `<连接描述>` 连接，已直接使用现有连接"，并且不保存这次新输入的凭据。需要测试覆盖。
-- [x] **连接中**：主按钮是"取消连接"且可用；连接成功后自动进入下一步。
-- [x] **阶段文案**：SSH、WSL、Docker 三种连接方式各有自己的阶段文案，中英文都要有。
-- [x] **主动取消**：用户取消安装或取消连接后，界面显示"已取消"，而不是错误面板。
-- [x] **预重构**：流程控制器抽出后，改写前后的同一批行为用例都能通过；新写的测试不再截取子组件 props。
-- [x] **更新规格**：把"已在线复用提示"写进 UX 规格。其余缺陷用回归测试留痕。
-- [x] **必跑检查**：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 SSH E2E 全部通过后，本地提交。
+- [x] **Credenciais ausentes**: o botão principal exibe "Adicionar a senha"; ao clicar, o usuário volta ao formulário e o campo de senha recebe o foco, sem o loop de novas tentativas que necessariamente falha. É preciso haver cobertura de teste do assistente e de E2E.
+- [x] **Dispositivo de destino já online**: ao criar uma conexão manualmente, se o destino for um dispositivo que já está online, a interface exibe "este dispositivo já está conectado por `<descrição da conexão>`, e a conexão existente foi usada diretamente", sem salvar as credenciais recém-digitadas. É preciso haver cobertura de teste.
+- [x] **Em conexão**: o botão principal é "Cancelar conexão" e está disponível; após a conexão bem-sucedida, o fluxo avança automaticamente para a próxima etapa.
+- [x] **Texto de fase**: SSH, WSL e Docker têm cada um seu próprio texto de fase, em português e em inglês.
+- [x] **Cancelamento explícito**: depois que o usuário cancela a instalação ou a conexão, a interface exibe "Cancelado", e não um painel de erro.
+- [x] **Pré-refatoração**: depois da extração do controlador de fluxo, os mesmos casos de comportamento de antes e depois passam; os novos testes não capturam mais as props de subcomponentes.
+- [x] **Atualização das especificações**: registrar na especificação de UX o "aviso de reutilização quando o dispositivo já está online". Os demais defeitos ficam registrados por testes de regressão.
+- [x] **Verificações obrigatórias**: após `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, os testes unitários afetados e os E2E de SSH afetados passarem, fazer o commit local.
 
-验收记录（2026-09-27）：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、`pnpm --filter @zcode/desktop typecheck:e2e` 通过；`pnpm test:unit --retry=1` 全量 2,028 文件、18,628 测试通过（既有 14 测试跳过），最后的流程收尾变更另经向导 DOM 34 用例验证。SSH CONN-01/02、CONN-03、CONN-06/07 对应三份 spec 实跑通过，artifact 见 [SSH P0 计划](../../testing/ssh-remote-p0-e2e-plan.md#rdux-04-向导回归)。Standards / Spec 两轴评审无未解决项；新 E2E 保留 pending，尚未人工转正。
+Registro de aceite (2026-09-27): `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed` e `pnpm --filter @zcode/desktop typecheck:e2e` passaram; `pnpm test:unit --retry=1` passou na íntegra com 2.028 arquivos e 18.628 testes (14 testes preexistentes ignorados), e a última alteração de encerramento do fluxo foi verificada por mais 34 casos de DOM do assistente. SSH CONN-01/02, CONN-03 e CONN-06/07 correspondentes às três specs foram executados de verdade e passaram; os artefatos estão em [Plano SSH P0](../../testing/ssh-remote-p0-e2e-plan.md#rdux-04-向导回归). As revisões dos eixos Standards / Spec não tiveram pendências; o novo E2E permanece pending e ainda não foi promovido manualmente.

@@ -1,39 +1,41 @@
-# CUA Action Receipt State Simplification
+# Simplificação do estado de comprovante de ação CUA
 
-## Contract
+## Contrato
 
-Mutating element actions are single-dispatch operations. A stale native element
-must return `action_sent=false` and ask the model to observe again; the tool
-must not capture a fresh tree, find a similar element by fingerprint, and retry
-the action.
+Ações mutáveis de elemento são operações de despacho único. Um elemento nativo
+obsoleto deve retornar `action_sent=false` e pedir ao modelo que observe
+novamente; a ferramenta não deve capturar uma árvore nova, encontrar um elemento
+semelhante por impressão digital (fingerprint) e tentar a ação novamente.
 
-When a broker action is accepted or becomes `possibly_sent`, the session only
-consumes the `pre_state_id` that supplied the target element. Other cached
-states for the same app or window remain usable. There is no app/window-wide
-`refresh_required` write lock.
+Quando uma ação do broker é aceita ou passa a `possibly_sent`, a sessão consome
+apenas o `pre_state_id` que forneceu o elemento alvo. Outros estados em cache do
+mesmo app ou janela continuam utilizáveis. Não existe um bloqueio de escrita
+`refresh_required` de escopo app/janela.
 
-A native element returned by a fresh coordinate hit-test has no `pre_state_id`.
-Dispatching it therefore consumes no cached accessibility state; the app scope
-is still verified independently before the action RPC.
+Um elemento nativo retornado por um hit-test de coordenadas fresco não tem
+`pre_state_id`. Despachá-lo, portanto, não consome nenhum estado de
+acessibilidade em cache; o escopo do app ainda é verificado de forma
+independente antes do RPC da ação.
 
-Pointer `strategy="auto"` is scoped to the current call. It does not remember
-or infer a future event fallback from AX tree quality. A fallback from semantic
-AXPress to coordinate/event click is allowed only when the broker proves the
-semantic capability check did not dispatch (`action_sent=false`).
+O ponteiro `strategy="auto"` tem escopo na chamada atual. Ele não lembra nem
+infere um fallback futuro de evento a partir da qualidade da árvore AX. Um
+fallback de AXPress semântico para clique por coordenada/evento só é permitido
+quando o broker prova que a verificação de capacidade semântica não despachou
+(`action_sent=false`).
 
-## Preserved Read-Only Matching
+## Correspondência somente leitura preservada
 
-Fingerprint matching remains available for visual same-capture consumers, i.e.
-the per-app raster returned by `get_app_state` with `include_screenshot`. That
-path matches elements inside an already captured raster and does not issue a
-second mutating native action.
+A correspondência por impressão digital continua disponível para consumidores
+visuais de mesma captura, ou seja, o raster por app retornado por `get_app_state`
+com `include_screenshot`. Esse caminho corresponde elementos dentro de um raster
+já capturado e não emite uma segunda ação nativa mutável.
 
-## Regression Requirements
+## Requisitos de regressão
 
-- `accepted` and `possibly_sent` consume only the referenced `pre_state_id`.
-- stale element action errors perform one native action attempt and zero
-  `capture_app` retries.
-- same-app/same-window states with different `state_id` values are not locked
-  out by a prior action.
-- `strategy="auto"` keeps its requested strategy unless the current broker
-  response proves a no-dispatch capability fallback.
+- `accepted` e `possibly_sent` consomem apenas o `pre_state_id` referenciado.
+- erros de ação com elemento obsoleto executam uma tentativa de ação nativa e
+  zero retentativas de `capture_app`.
+- estados de mesmo app/mesma janela com valores de `state_id` diferentes não
+  são bloqueados por uma ação anterior.
+- `strategy="auto"` mantém a estratégia solicitada, a menos que a resposta
+  atual do broker prove um fallback de capacidade sem despacho.

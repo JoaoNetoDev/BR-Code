@@ -1,263 +1,260 @@
-# 闲时后台执行与 Selection 职责拆分计划
+# Plano de execução em background fora do pico e separação de responsabilidades da Seleção
 
-状态：主体实现及 review 发现的迟到取消、换票确认丢失竞态已修复。本文保留目标设计、实施轨迹及验证边界。
-当前实现基线见 [闲时任务 spec](./spec.md)；本文涉及的目标行为在实现前先回填对应规格，完成后以最终 spec 为准。
+Status: a implementação principal e as correções apontadas no review — cancelamento tardio e race de perda da confirmação de troca de ticket — já foram corrigidas. Este documento preserva o design alvo, o rastro de implementação e os limites de verificação.
+A linha de base da implementação atual está na [spec de tarefas fora do pico](./spec.md); os comportamentos-alvo tratados aqui são primeiro preenchidos de volta na spec correspondente antes da implementação, e, ao final, a spec final prevalece.
 
-## 1. 目标与边界
+## 1. Objetivos e limites
 
-闲时任务能够启动后台 subagent、调用 SendMessage、启动后台 Bash；主 agent 自然结束后，后台回复或完成通知能够继续驱动主 agent。票据与整项任务的生命周期分开管理，主执行循环复用普通 agent 机制。
+As tarefas fora do pico conseguem iniciar subagents em background, chamar SendMessage e iniciar Bash em background; depois de o agente principal terminar de forma natural, a resposta em background ou a notificação de conclusão conseguem continuar conduzindo o agente principal. O ciclo de vida do ticket e o ciclo de vida da tarefa como um todo são gerenciados separadamente, e o loop de execução principal reutiliza os mecanismos do agente comum.
 
-| 已确认事项     | 目标行为                                                                           |
-| -------------- | ---------------------------------------------------------------------------------- |
-| 后台能力       | 支持已有显式后台启动及普通 agent 的转后台路径，不只解除工具可见性限制              |
-| 消息           | SendMessage 支持运行中投递与终态 agent 恢复；RespondToCoordinator 沿用现有回复队列 |
-| 主轮自然结束   | 存在关联后台工作、待处理回复/通知或等待新票的续跑时，整项任务不完成                |
-| 用户接管       | 真实用户消息被权威入口接受时接管整项任务；发送失败、只改模型、审批响应不触发接管   |
-| 已运行子 agent | 接管时当前子 agent 轮保留原模型跑完；后续唤起和恢复使用用户选择                    |
-| 票据过期       | 本地 Bash 允许跑完并保存结果；模型续跑等待新票，不重跑已完成的工具                 |
-| 聊天停止       | 沿用普通 agent 的停止范围和通知规则，不增加闲时专属差异                            |
-| 任务卡取消     | 保持现有取消终态语义；关联后台迟到事件不得重新派发闲时执行                         |
-| 重启           | 不恢复后台进程、待唤起通知或临时闲时执行状态；不新增恢复队列                       |
-| 迁移           | 不需要配置迁移或数据库迁移；复用现有字段、记录与格式                               |
+| Item confirmado         | Comportamento-alvo                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| Capacidade de background | Suporta a inicialização explícita em background já existente e a passagem para background do agente comum, não apenas a remoção das restrições de visibilidade de ferramentas |
+| Mensagens              | SendMessage suporta entrega em execução e retomada de agente em estado terminal; RespondToCoordinator reutiliza a fila de respostas existente |
+| Encerramento natural do turno principal | Com trabalho em background associado, respostas/notificações pendentes ou continuação à espera de um novo ticket, a tarefa como um todo não é concluída |
+| Takeover pelo usuário  | Quando uma mensagem real do usuário é aceita pela entrada autoritativa, o takeover assume a tarefa como um todo; falha de envio, troca apenas de modelo e resposta de aprovação não disparam takeover |
+| Subagent já em execução | No takeover, o turno corrente do subagent mantém o modelo original até o fim; as ativações e retomadas seguintes usam a escolha do usuário |
+| Expiração de ticket    | O Bash local pode terminar e salva o resultado; a continuação do modelo aguarda um novo ticket e não reexecuta ferramentas já concluídas |
+| Parada do chat         | Reutiliza o escopo de parada e as regras de notificação do agente comum, sem diferenças exclusivas de fora do pico |
+| Cancelamento do cartão de tarefa | Mantém a semântica terminal de cancelamento existente; eventos tardios de background associados não podem reexpedir execuções fora do pico |
+| Reinício              | Não restaura processos em background, notificações pendentes de ativação nem estado temporário de execução fora do pico; não adiciona fila de restauração |
+| Migração              | Não requer migração de configuração nem de banco de dados; reutiliza campos, registros e formatos existentes |
 
-不扩大 Workflow、递归 OffPeakCreate/CronCreate、嵌套 subagent 或 child runtime 内后台 Bash 的既有能力边界。闲时自动项目记忆提取继续跳过，不修改会话 Memory 配置。既有闲时任务持久化调度与本次不恢复的后台工作分别处理，不借本次变更取消原有调度能力。
+Não amplia os limites de capacidade existentes de Workflow, criação recursiva de OffPeakCreate/CronCreate, subagent aninhado ou Bash em background dentro de um child runtime. A extração automática de memória de projeto fora do pico continua sendo ignorada e não modifica a configuração de Memory da sessão. A persistência do agendamento existente de tarefas fora do pico e o trabalho em background que não será restaurado nesta rodada são tratados separadamente, e esta mudança não cancela a capacidade de agendamento original.
 
-## 2. Selection 的职责与存储
+## 2. Responsabilidades e armazenamento da Seleção
 
-| 概念                         | 唯一职责                                         | owner / 存储                                                                                                       |
-| ---------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
-| Configured Default           | 新 CLI 会话的用户选型初始化偏好                  | Personal Provider 配置的 `config.defaultModelSelection`；默认 `~/.zcode/v2/provider_config.json`，允许现有路径覆盖 |
-| `cliDefaultSelection`        | 当前 CLI/TUI 会话中，未显式选型的用户输入默认值  | bootstrap 会话层内存；复用每会话普通用户选择记录恢复                                                               |
-| App Composer Selection       | 下一条 App 用户消息的选择                        | 现有 renderer 草稿与 localStorage；不新增 CLI 状态副本                                                             |
-| `sessionModelSelection`      | 会话后续执行、后台唤起及 Goal 自动续轮使用的选择 | CLI Runtime；闲时选择只在本次运行生命周期内生效                                                                    |
-| Submission Selection         | 某条已接纳输入固定的模型选择                     | 现有 canonical intent；排队期间不重新读取可变默认值                                                                |
-| Active Model                 | 当前轮实际使用的模型实例                         | 当前执行轮；普通选择更新不修改其他已运行轮的模型                                                                   |
-| `highspeedFallbackSelection` | 加速卡规定的回退场景所使用的普通模型选择         | 加速轮启动时固定的执行快照；专属于加速卡，不是闲时换票或通用降级配置                                               |
+| Conceito                       | Responsabilidade única                                                     | owner / armazenamento                                                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Configured Default             | Preferência de inicialização da escolha do usuário para uma nova sessão de CLI | `config.defaultModelSelection` da configuração do Personal Provider; por padrão `~/.zcode/v2/provider_config.json`, permitindo sobrescrita pelos caminhos existentes |
+| `cliDefaultSelection`          | Valor padrão da entrada do usuário sem escolha explícita na sessão de CLI/TUI atual | Memória no nível da sessão no bootstrap; a restauração reaproveita o registro de escolhas comuns por sessão |
+| App Composer Selection         | Escolha da próxima mensagem do usuário no App                              | Rascunho existente do renderer e localStorage; sem nova cópia de estado no CLI                                                        |
+| `sessionModelSelection`        | Escolha usada pelas execuções seguintes da sessão, pelas ativações em background e pela rodada automática do Goal | CLI Runtime; a escolha fora do pico só vale no ciclo de vida desta execução |
+| Submission Selection           | Escolha de modelo fixada por uma entrada aceita                            | Intent canônico existente; durante a fila não se relê o valor padrão mutável                                                          |
+| Active Model                   | Instância de modelo efetivamente usada no turno corrente                 | Turno de execução corrente; a atualização de uma escolha comum não altera o modelo de outros turnos já em execução |
+| `highspeedFallbackSelection`   | Escolha de modelo comum usada nos cenários de fallback previstos pelo cartão de aceleração | Snapshot de execução fixado na inicialização do turno acelerado; exclusivo do cartão de aceleração, não é troca de ticket fora do pico nem configuração geral de degradação |
 
-现有 SQLite `session_entry` 中的 `runtime/model_selection` 记录继续保存用户普通选择，保留原 id、type 和数据格式。通过明确的读写接口区分它与 Runtime 临时续跑选择，不把闲时选择写入该记录。App Recent、Configured Default 同样不能被闲时执行覆盖。
+O registro `runtime/model_selection` do SQLite existente em `session_entry` continua guardando a escolha comum do usuário, preservando o id, o type e o formato de dados originais. Interfaces explícitas de leitura e escrita o distinguem da escolha temporária de continuação do Runtime, e a escolha fora do pico não é gravada nesse registro. App Recent e Configured Default também não podem ser sobrescritos por uma execução fora do pico.
 
-### 2.1 CLI 输入规则
+### 2.1 Regras de entrada do CLI
 
-1. 新会话按现有全局默认解析规则初始化 `cliDefaultSelection`；旧会话读取自己的用户选择，不被别的会话修改的全局默认覆盖。
-2. `/model`、`/effort` 更新 CLI 输入默认选择及其会话记录，保留现有同步保存全局默认偏好的行为；尚未发送普通消息时不改变后台续跑选择。
-3. CLI 用户消息缺少 Selection 时，在接纳入口补齐并固定到 Submission。App 继续显式提交 Composer Selection。
-4. 缺失、不可用或不完整选择按现有校验报错，不借 Session 的闲时选择或 Registry 任意首项兜底。
-5. 旧协议缺省输入的兼容读取必须明确来自用户输入偏好；Bot 等已有独立提交契约单独审查，不能机械改变其 `/model` 语义。
+1. Uma nova sessão inicializa `cliDefaultSelection` pelas regras existentes de resolução do padrão global; uma sessão antiga lê a própria escolha do usuário e não é sobrescrita pelo padrão global alterado por outra sessão.
+2. `/model` e `/effort` atualizam a escolha padrão de entrada do CLI e seu registro de sessão, preservando o comportamento existente de salvar sincronamente a preferência de padrão global; enquanto nenhuma mensagem comum foi enviada, a escolha de continuação em background não muda.
+3. Quando uma mensagem de usuário do CLI chega sem Seleção, ela é completada na entrada de admissão e fixada na Submission. O App continua submeter explicitamente a Composer Selection.
+4. Seleção ausente, indisponível ou incompleta gera erro conforme a validação existente, sem recorrer à escolha fora do pico da Session nem a qualquer primeiro item do Registry.
+5. A leitura de compatibilidade de entradas omissas do protocolo antigo precisa vir explicitamente da preferência de entrada do usuário; contratos de submissão já independentes, como o do Bot, são revisados à parte e sua semântica de `/model` não muda mecanicamente.
 
-### 2.2 更新顺序与并发
+### 2.2 Ordem de atualização e concorrência
 
-真实用户消息经 CLI 串行 admission 接受后，更新会话续跑选择并触发接管；未接受的候选不得产生这些副作用。已经接受的输入随后开始执行时，只使用自己的 Submission 快照，不得把较早选择回写成最新 Session Selection。Guide 仍按原有 model-step 边界作用于当前轮。
+Depois que uma mensagem real do usuário é aceita pela admissão serial do CLI, a escolha de continuação da sessão é atualizada e o takeover é disparado; candidatos não aceitos não podem produzir esses efeitos colaterais. Quando uma entrada já aceita começa a executar, ela usa apenas o próprio snapshot de Submission e não pode reescrever uma escolha mais antiga como a Selection mais recente da Session. O Guide continua valendo sobre o turno corrente conforme a fronteira original de model-step.
 
 ```mermaid
 sequenceDiagram
-    participant Input as 用户输入默认/草稿
-    participant Queue as CLI admission 与现有队列
-    participant Session as Runtime Session Selection
-    participant Life as 闲时生命周期
-    participant Loop as 执行轮
-    Life->>Session: 闲时开始，设置 I（不保存用户偏好）
-    Input->>Input: 改选 B，尚未发送
-    Note over Session: 仍为 I，后台唤起继续闲时执行
-    Input->>Queue: 提交消息及 B
-    Queue->>Queue: 校验并接纳，固定 Submission
-    Queue->>Session: 按接纳顺序更新 B
-    Queue->>Life: 用户接管，停止后续闲时派发
-    Queue->>Loop: 按原有队列/Guide 规则执行本条快照
-    Note over Loop: 已运行子 agent 当前轮不热切换
+    participant Input as Padrão de entrada do usuário/rascunho
+    participant Queue as Admissão do CLI e fila existente
+    participant Session as Session Selection do Runtime
+    participant Life as Ciclo de vida fora do pico
+    participant Loop as Turno de execução
+    Life->>Session: fora do pico começa, define I (não salva preferência do usuário)
+    Input->>Input: muda para B, ainda não enviada
+    Note over Session: continua I, as ativações em background seguem a execução fora do pico
+    Input->>Queue: envia a mensagem e B
+    Queue->>Queue: valida e aceita, fixa a Submission
+    Queue->>Session: atualiza B conforme a ordem de aceitação
+    Queue->>Life: takeover do usuário, para as expedições fora do pico seguintes
+    Queue->>Loop: executa este snapshot pelas regras originais de fila/Guide
+    Note over Loop: o turno corrente do subagent já em execução não faz troca a quente
 ```
 
-任务生命周期解除后不得遗留可被普通执行误用的无票闲时选择。恢复/清理依据已接纳的普通用户选择或未绑定状态，不读取未发送草稿；迟到的闲时结束回调不得覆盖接管后的 Session Selection。
+Após a liberação do ciclo de vida da tarefa, não pode restar uma escolha fora do pico sem ticket que possa ser usada por engano por uma execução comum. A restauração/limpeza parte da escolha comum de usuário já aceita ou do estado não vinculado, e não lê rascunhos não enviados; um callback de fim fora do pico tardio não pode sobrescrever a Session Selection depois do takeover.
 
-## 3. 闲时生命周期与 owner
+## 3. Ciclo de vida fora do pico e owner
 
-| 事实                             | owner                                    | 禁止的重复状态                               |
-| -------------------------------- | ---------------------------------------- | -------------------------------------------- |
-| 主轮、后台任务、命令与通知       | CLI RuntimeTaskRegistry、现有命令队列    | Host 再维护一份 accepted queue 或后台计数表  |
-| 闲时工作归属、接管与本地生命周期 | CLI 侧独立生命周期协调，使用通用执行事实 | 在每个主循环步骤散布闲时专属分支             |
-| 申请、换票、结算                 | 现有 OffPeakTaskService                  | 工具 handler 自行请求/续期票据               |
-| 任务卡持久状态                   | 现有服务与 Repo，消费明确事件            | 根据首轮 terminal 或 UI loading 推断整项完成 |
-| 主轮 Active Model                | 当前轮                                   | 用可变 Session Selection 反推正在执行的模型  |
+| Fato                                                | owner                                            | Estado duplicado proibido                                  |
+| --------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------- |
+| Turno principal, tarefas em background, comandos e notificações | CLI RuntimeTaskRegistry, fila de comandos existente | O Host manter uma segunda accepted queue ou uma tabela de contagem de background |
+| Pertencimento do trabalho fora do pico, takeover e ciclo de vida local | Coordenação de ciclo de vida independente no lado do CLI, usando fatos de execução genéricos | Espalhar branches exclusivos de fora do pico por cada passo do loop principal |
+| Pedido, troca e liquidação de ticket                 | OffPeakTaskService existente                    | O handler da ferramenta pedir/renovar ticket por conta própria |
+| Estado persistido do cartão de tarefa               | Serviço e Repo existentes, consumindo eventos explícitos | Inferir a conclusão da tarefa como um todo pelo terminal da primeira rodada ou pelo loading da UI |
+| Active Model do turno principal                     | Turno corrente                                   | Deduzir o modelo em execução a partir da Session Selection mutável |
 
 ```mermaid
 stateDiagram-v2
-    state "闲时执行" as Idle
-    state "等待后台" as Background
-    state "等待新票" as Ticket
-    state "用户接管后执行" as User
-    state "整项完成" as Done
-    Idle --> Background: 主轮结束，关联后台未收口
-    Background --> Idle: 回复/完成通知唤起，票有效
-    Idle --> Ticket: 模型续跑需要新票
-    Background --> Ticket: 唤起需要新票
-    Ticket --> Idle: 新票可用，消费保留工作
-    Idle --> User: 用户消息被接受
-    Background --> User: 用户消息被接受
-    Ticket --> User: 用户消息被接受
-    Idle --> Done: 无剩余工作
-    Background --> Done: 无剩余工作
-    User --> Done: 无剩余工作
+    state "Execução fora do pico" as Idle
+    state "Aguardando background" as Background
+    state "Aguardando novo ticket" as Ticket
+    state "Execução após takeover do usuário" as User
+    state "Conclusão da tarefa como um todo" as Done
+    Idle --> Background: turno principal termina, background associado não fechado
+    Background --> Idle: resposta/notificação de conclusão desperta, ticket válido
+    Idle --> Ticket: a continuação do modelo precisa de novo ticket
+    Background --> Ticket: a ativação precisa de novo ticket
+    Ticket --> Idle: novo ticket disponível, o trabalho consumido é preservado
+    Idle --> User: a mensagem do usuário é aceita
+    Background --> User: a mensagem do usuário é aceita
+    Ticket --> User: a mensagem do usuário é aceita
+    Idle --> Done: não resta trabalho
+    Background --> Done: não resta trabalho
+    User --> Done: não resta trabalho
 ```
 
-自然完成要求本项任务无正在执行的主轮、无未结束的关联后台工作、无待消费的回复/通知，也无等待票据的续跑。只统计属于本项任务的工作；不得把会话里无关或历史任务混入。登记表终态、通知入队、队列 claim 和收口事件必须有明确顺序，防止后台终态到通知入队之间产生假空闲。不用轮询延迟或第二份待处理队列修补竞态。
+A conclusão natural exige que esta tarefa não tenha turno principal em execução, nem trabalho em background associado por encerrar, nem respostas/notificações a consumir, nem continuação à espera de ticket. Só é contado o trabalho pertencente a esta tarefa; tarefas sem relação ou históricas da sessão não podem ser misturadas. O estado terminal do registro, o enfileiramento da notificação, o claim da fila e o evento de fechamento precisam ter uma ordem explícita, para evitar o falso ocioso entre o estado terminal em background e o enfileiramento da notificação. Não se deve corrigir race com atraso de polling nem com uma segunda fila de pendências.
 
-等待后台可以是内部状态，卡片仍显示进行中；等待新票复用既有闲时排队展示。失败、取消与自然完成分别按其结果收口，不把“无剩余工作”等同于成功。
+A espera por background pode ser um estado interno, e o cartão continua exibindo em andamento; a espera por novo ticket reaproveita a exibição de fila fora do pico já existente. Falha, cancelamento e conclusão natural fecham cada um conforme o seu resultado, e "não resta trabalho" não equivale a sucesso.
 
-## 4. 后台执行与票据
+## 4. Execução em background e tickets
 
-- 复用现有 task-notification、subagent-message 命令与 active-loop drain。主轮正在执行时按原规则合流；新起主轮时使用 Session Selection。
-- 后台 subagent 显式启动、前台转后台、SendMessage 终态恢复均传递正确的执行归属与请求依赖，不能只修第一条路径。
-- 票据与鉴权通过独立生命周期及现有请求依赖/准入边界提供；通知、普通持久化输入不得固化凭据或旧票据。
-- 票过期保留本地 Bash、结果 artifact 和现有待处理命令；模型执行等待有效票后继续。多个并发过期事件复用同一次换票过程。
-- 用户接管后停止后续闲时派发；仍使用旧闲时执行上下文的子 agent 当前轮按已确认规则收尾。过期/失败等迟到事件必须校验归属版本，不能把已接管任务重新排队。
-- 旧票不再有使用者后按现有服务契约结算。释放票据不意味着任务完成，主轮结束也不意味着可以立即释放。
-- 停止沿用普通行为；取消、分支失效、runtime teardown 继续使用原有通知抑制与幂等边界。重启不补投递后台结果，已有账本只按原规则留痕收口。
+- Reutiliza a task-notification existente, os comandos de subagent-message e o active-loop drain. Enquanto o turno principal está em execução, a convergência segue as regras originais; quando se inicia um novo turno principal, usa-se a Session Selection.
+- A inicialização explícita de subagent em background, a passagem de foreground para background e a retomada de SendMessage em estado terminal transmitem o pertencimento de execução e a dependência de requisição corretos; não se pode corrigir apenas o primeiro caminho.
+- Ticket e autenticação são fornecidos por um ciclo de vida independente e pelas fronteiras existentes de dependência de requisição/admissão; notificações e entradas persistidas comuns não podem cristalizar credenciais ou tickets antigos.
+- Na expiração do ticket, preservam-se o Bash local, o artifact de resultado e os comandos pendentes existentes; a execução do modelo aguarda um ticket válido e continua. Vários eventos de expiração concorrentes reutilizam o mesmo processo de troca de ticket.
+- Após o takeover do usuário, param-se as expedições fora do pico seguintes; o turno corrente do subagent que ainda usa o contexto antigo de execução fora do pico encerra conforme as regras já confirmadas. Eventos tardios de expiração/falha precisam validar a versão de pertencimento e não podem re-enfileirar uma tarefa já sob takeover.
+- Depois que um ticket antigo não tem mais usuários, ele é liquidado conforme o contrato de serviço existente. Liberar o ticket não significa concluir a tarefa, e o fim do turno principal não significa que ele pode ser liberado imediatamente.
+- A parada segue o comportamento comum; cancelamento, invalidação de ramo e teardown de runtime continuam usando a supressão de notificação e as fronteiras de idempotência originais. O reinício não reentrega resultados de background, e o razão existente só deixa rastro e fecha conforme as regras originais.
 
-Selection 只描述 provider/model/options。票据、是否可执行、任务状态不进入 Selection；Core 只接通用执行上下文、请求准入和工作事实通知，不引入另一套主执行循环。
+Seleção descreve apenas provider/model/options. Ticket, se é executável e status da tarefa não entram na Seleção; o Core recebe apenas contexto de execução genérico, admissão de requisição e notificações de fatos de trabalho, sem introduzir um segundo loop de execução principal.
 
-## 5. 影响面与代码落点
+## 5. Superfície de impacto e pontos de código
 
-### Review 修正：标题请求与流清理（2026-10-12）
+### Correção de review: requisição de título e limpeza de stream (2026-10-12)
 
-- 标题入队时冻结模型选择与执行归属，必须早于 session store 等异步读取。继承闲时执行的标题独立持有模型轮租约，并使用同一票据 authority；主轮结束不能释放标题仍在使用的票据，3102 继续走已有换票通路。成功、失败及无需生成的早退均释放租约。
-- 显式配置的标题模型保持独立调用；普通/外部标题调用不能仅因 Session 暂存闲时选择就继承闲时模型。用户接管后新标题按用户选择执行；已经启动的标题保留原请求归属。
-- 流请求每次尝试有独立取消信号。退出尝试时先取消底层请求，再以 best-effort 方式关闭 iterator；关闭异常不得覆盖原请求错误，未完成的关闭不得阻塞换票、取消或整项收口。不增加清理超时和自动重放已交付内容。
+- Na entrada na fila, o título congela a escolha de modelo e o pertencimento de execução, obrigatoriamente antes das leituras assíncronas como o session store. O título que herda a execução fora do pico mantém de forma independente o lease do turno de modelo e usa a mesma autoridade de ticket; o fim do turno principal não pode liberar o ticket que o título ainda usa, e 3102 continua pelo caminho de troca de ticket existente. Sucesso, falha e as saídas antecipadas sem necessidade de geração liberam o lease.
+- O modelo de título explicitamente configurado mantém uma chamada independente; chamadas comuns/externas de título não podem herdar o modelo fora do pico só porque a Session tem temporariamente uma escolha fora do pico. Após o takeover do usuário, um novo título executa conforme a escolha do usuário; títulos já iniciados mantêm o pertencimento da requisição original.
+- Cada tentativa de requisição de stream tem um sinal de cancelamento próprio. Ao sair de uma tentativa, cancela-se primeiro a requisição subjacente e depois fecha-se o iterator em best-effort; uma falha no fechamento não pode sobrescrever o erro original da requisição, e um fechamento incompleto não pode bloquear a troca de ticket, o cancelamento ou o fechamento da tarefa como um todo. Não se adicionam timeout de limpeza nem replays automáticos de conteúdo já entregue.
 
 ```text
-标题入队并保留租约 → 读取会话 → 生成标题（过期则换票） → 保存/早退/失败 → 释放租约
-流尝试失败 → 取消该尝试 + 异步关闭 iterator → 保留原错误或等待新票重试
+Título entra na fila e retém o lease → lê a sessão → gera o título (expirado, troca de ticket) → salva/saída antecipada/falha → libera o lease
+Falha na tentativa de stream → cancela a tentativa + fecha o iterator de forma assíncrona → preserva o erro original ou aguarda um novo ticket para tentar de novo
 ```
 
-回归覆盖：默认标题鉴权、主轮先结束、标题换票、早退/错误释放、显式标题模型隔离；iterator.return 拒绝/不结束、原始错误和取消保留、已交付流不重放。桌面 OP10 保留默认标题路径并校验其闲时票据；不改变 continuous/replayable 消息交付边界。
+Cobertura de regressão: autenticação padrão do título, turno principal encerrando antes, troca de ticket do título, liberação em saída antecipada/erro, isolamento do modelo de título explícito; iterator.return rejeitando/não encerrando, preservação do erro original e do cancelamento, stream já entregue não é repetido. O OP10 do desktop mantém o caminho de título padrão e valida seu ticket fora do pico; a fronteira de entrega de mensagens continuous/replayable não muda.
 
-| 优先级 | 模块/入口                                                      | 预期改动                                                             |
-| ------ | -------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 必改   | CLI command-center、bootstrap session/input facade             | CLI 输入默认选择、切模型/档位、显式 Submission、旧请求缺省规则       |
-| 必改   | Core turn-model、admission、恢复与持久化接口                   | 分离已接纳选择更新、单轮模型创建和用户偏好保存，处理 FIFO/Guide 竞态 |
-| 必改   | 加速卡 selection fallback                                      | 启动时固定加速卡专属回退选择，不在失败时读取可变 Session             |
-| 必改   | 工具可见性、Bash/SendMessage handler、subagent runner          | 同步解除对应限制；保持 Workflow、递归创建等其他约束                  |
-| 必改   | subagent port、后台启动/转后台/消息恢复                        | 模型选择、执行归属与请求依赖一致传递                                 |
-| 必改   | CLI background notifications、command queue、runtime residency | 复用通知通路；补工作生命周期事件，等待票据时不丢工作                 |
-| 必改   | Host dispatch/track/finalize、OffPeakTaskService、任务适配器   | 用整项生命周期替代首轮 terminal 收口；换票、接管、结算与旧回调失效   |
-| 必查   | App/协议 settings 与模型投影                                   | 输入选型显示用户选择；实际执行模型来自执行事实                       |
-| 必查   | 标题、记忆、sampling、Compact                                  | 显式区分独立配置与所属执行；不能只继承闲时 model id 而丢失请求鉴权   |
-| 必查   | Cron、Fork、会话冷恢复、Workflow 模型 pin                      | 防止临时闲时选择进入未来普通执行；保留各功能既有显式模型契约         |
-| 不变量 | 普通后台、Goal、权限响应、child Bash cleanup                   | 不扩大停止、嵌套、权限、结果可见性等产品语义                         |
+| Prioridade | Módulo/entrada                                                          | Mudança esperada                                                                 |
+| ---------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Obrigatório | CLI command-center, facade de sessão/entrada do bootstrap              | Escolha padrão de entrada do CLI, troca de modelo/nível, Submission explícita, regra de omissão de requisições antigas |
+| Obrigatório | Core turn-model, admissão, interfaces de restauração e persistência    | Separar a atualização da escolha aceita, a criação do modelo de um turno e o salvamento da preferência do usuário, tratando as races de FIFO/Guide |
+| Obrigatório | fallback de selection do cartão de aceleração                           | Fixar na inicialização o fallback exclusivo do cartão de aceleração, sem ler a Session mutável em caso de falha |
+| Obrigatório | Visibilidade de ferramentas, handler de Bash/SendMessage, runner de subagent | Remover as restrições correspondentes de forma sincronizada; manter Workflow, criação recursiva e outras restrições |
+| Obrigatório | Porta de subagent, inicialização em background/passa para background/retomada de mensagem | Passar de forma consistente a escolha de modelo, o pertencimento de execução e a dependência de requisição |
+| Obrigatório | Notificações de background do CLI, fila de comandos, residência do runtime | Reutilizar o caminho de notificação; acrescentar eventos de ciclo de vida do trabalho, sem perder trabalho à espera de ticket |
+| Obrigatório | dispatch/track/finalize do Host, OffPeakTaskService, adaptador de tarefa | Substituir o fechamento pelo terminal da primeira rodada pelo ciclo de vida da tarefa como um todo; troca de ticket, takeover, liquidação e invalidação de callbacks antigos |
+| A verificar  | settings do App/protocolo e projeção de modelo                          | A escolha exibida na entrada é a escolha do usuário; o modelo realmente executado vem dos fatos de execução |
+| A verificar  | Título, memória, sampling, Compact                                      | Distinguir explicitamente configuração independente de execução pertencente; não pode herdar apenas o model id fora do pico e perder a autenticação da requisição |
+| A verificar  | Cron, Fork, restauração a frio de sessão, pin de modelo de Workflow    | Impedir que escolhas temporárias fora do pico entrem em execuções comuns futuras; preservar os contratos explícitos de modelo de cada função |
+| Invariante   | Background comum, Goal, resposta de permissão, limpeza de Bash filho   | Não ampliar a semântica de produto de parada, aninhamento, permissão e visibilidade de resultados |
 
-App/Agent 新增或修改的契约需要严格类型及运行时 schema。沿现有协议入口导出，Host 消费 CLI 事实，不让 Service 导入 Runtime 实现。所有 workspace 身份隔离继续使用 workspaceIdentity；真实路径仍使用 workspacePath。
+Os contratos novos ou modificados de App/Agent precisam de tipos estritos e schema em runtime. Exportar pelo ponto de entrada do protocolo existente; o Host consome fatos do CLI e nenhum Service importa implementações do Runtime. Todo o isolamento de identidade de workspace continua usando `workspaceIdentity`; caminhos reais continuam usando `workspacePath`.
 
-桌面与手机接入同一个已有 owner：桌面保持 continuous，手机保持 replayable，命令 FIFO 由 CLI admission 决定。不得为手机新增 runtime，不把手机恢复逻辑扩散到桌面主链路。App 草稿保持每端已有隔离；不以全局默认替代其他会话的选择。
+Desktop e celular acessam o mesmo owner existente: o desktop mantém continuous, o celular mantém replayable, e o FIFO de comandos é decidido pela admissão do CLI. Não se pode criar um runtime novo para o celular nem espalhar a lógica de restauração do celular para a cadeia principal do desktop. O rascunho do App mantém o isolamento existente por terminal; o padrão global não substitui a escolha de outras sessões.
 
-## 6. 规格与能力图回填
+## 6. Preenchimento de volta das specs e do mapa de capacidades
 
-| 文件                                                                                                                          | 实施前/随实现更新                                                        |
-| ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| [闲时 spec](./spec.md)、[技术设计](./tech-design.md)                                                                          | 开放后台能力、整项收口、换票、接管及当前实现/目标设计边界                |
-| [Selection 状态设计](../working-memory/provider-refactor/design/interaction/selection-state.md)                               | cliDefaultSelection、接纳时更新、存储语义；删除过时的独立默认文件描述    |
-| [执行选型设计](../working-memory/provider-refactor/design/execution/execution.md)                                             | Session 续跑选择、子 agent 当前轮、加速卡专属回退、独立辅助调用          |
-| [后台覆盖矩阵](../testing/conversation-session-background-e2e-coverage-matrix.md)                                             | 加入闲时代表场景并链接手机专项验证；保留原桌面矩阵范围                   |
-| [会话用例目录](../conversation-session-case-catalog.md)、[总覆盖矩阵](../testing/conversation-session-e2e-coverage-matrix.md) | 注册新场景；更新 OP10 的后台拒绝断言；计划用例不得标为已覆盖             |
-| [能力图](../../.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml)                                   | 标注待实现设计；落地时替换“闲时不写 Runtime Session、拒绝后台”的旧不变量 |
+| Arquivo                                                                                                                          | Atualização antes/durante a implementação                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [Spec de fora do pico](./spec.md), [design técnico](./tech-design.md)                                                          | Abrir a capacidade de background, o fechamento da tarefa como um todo, a troca de ticket, o takeover e a fronteira entre implementação atual e design alvo |
+| [Design de estado da Seleção](../working-memory/provider-refactor/design/interaction/selection-state.md)                          | cliDefaultSelection, atualização na aceitação, semântica de armazenamento; remover a descrição obsoleta de arquivo de padrão separado |
+| [Design de seleção de execução](../working-memory/provider-refactor/design/execution/execution.md)                                 | Seleção de continuação da Session, turno corrente do subagent, fallback exclusivo do cartão de aceleração, chamadas auxiliares independentes |
+| [Matriz de cobertura de background](../testing/conversation-session-background-e2e-coverage-matrix.md)                            | Adicionar cenários representativos de fora do pico e vincular a verificação específica do celular; manter o escopo original da matriz do desktop |
+| [Catálogo de casos de sessão](../conversation-session-case-catalog.md), [matriz de cobertura geral](../testing/conversation-session-e2e-coverage-matrix.md) | Registrar novos cenários; atualizar as asserções de rejeição de background do OP10; casos planejados não podem ser marcados como cobertos |
+| [Mapa de capacidades](../../.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml)                              | Marcar o design a implementar; na implementação, substituir a invariante antiga "fora do pico não escreve na Runtime Session, rejeita background" |
 
-本次影响分析依据源码调用链和现有规格；当前无可用 codegraph，未将文本扫描冒充图查询。尚未确定的接口签名、事件名称、测试文件拆分属于实现细化，不改变已确认产品边界。
+A análise de impacto desta rodada se baseia nas cadeias de chamada do código-fonte e nas specs existentes; não há codegraph disponível, e varredura textual não foi passada por consulta de grafo. As assinaturas de interface, os nomes de evento e a divisão de arquivos de teste ainda não determinados são detalhamento de implementação e não alteram as fronteiras de produto já confirmadas.
 
-## 7. 验收场景
+## 7. Cenários de aceitação
 
-| 编号 | 场景与动作                               | 关键断言                                                      | 证据层                     |
-| ---- | ---------------------------------------- | ------------------------------------------------------------- | -------------------------- |
-| IL01 | 闲时显式后台 Agent，主轮先结束           | 后台继续；通知唤起仍走闲时；卡片不提前完成                    | Core + 桌面 E2E/请求记录   |
-| IL02 | 闲时后台 Bash，覆盖显式与可转后台超时    | 命令只执行一次，artifact 保留；完成能唤起                     | adapter/Core + E2E         |
-| IL03 | SendMessage 到运行中与已结束 agent       | 投递/恢复有效，执行选择与鉴权正确，回复可唤起                 | Core + 代表 E2E            |
-| IL04 | 后台通知赶上主轮、或主轮结束后到达       | 合流/新起轮分别沿现有规则；无丢失、无重复                     | Core 时序测试              |
-| IL05 | Bash 在票过期后完成，新票稍后到达        | Bash 不重跑，结果不丢，模型等待票后继续                       | 服务 + Core 集成           |
-| IL06 | 多个后台同时遇到票过期                   | 单次换票、工作不重复，旧票事件不覆盖新票                      | 服务并发测试               |
-| IL07 | 等后台/等新票时用户发 B                  | 接纳后 Session 为 B；当前子 agent 轮保留 I，后续唤起/恢复用 B | CLI + 桌面/手机 E2E        |
-| IL08 | 接管后旧票过期或 ready 回调到达          | 不重新排队，不抢回选择，不重发原任务                          | 服务/协议测试              |
-| IL09 | CLI /model、App 菜单改 B 但不发送        | 只改用户输入选择，后台仍按 I 续跑                             | CLI + UI 测试              |
-| IL10 | 连续接纳 B、C，较早 B 随后开跑           | B 轮用 B，最新续跑选择保持 C                                  | admission/queue/Guide 测试 |
-| IL11 | 会话 B 修改全局默认，会话 A 再发送       | A 保持自己的输入默认；新会话才使用新默认                      | CLI 多会话测试             |
-| IL12 | 加速卡启动后用户选择变化，再触发规定回退 | 使用启动时固定的加速卡回退选择                                | Core 回归                  |
-| IL13 | 聊天停止、后台单项停止、任务卡取消       | 各入口范围保持原契约，取消后无闲时复活                        | Core + 服务 + 代表 E2E     |
-| IL14 | 重启/分支失效/teardown                   | 不恢复临时闲时选择或补唤起，用户选择可正常恢复                | 存储/协议测试              |
-| IL15 | 后台终态、通知入队与收口交错             | 仅整项真正收口一次；不因中间假空闲完成                        | 确定性并发测试             |
-| IL16 | 权限响应与辅助模型调用                   | 审批不触发用户接管；辅助调用选择与请求归属匹配                | Core/协议回归              |
+| Número | Cenário e ação                                             | Asserções-chave                                                                | Camada de evidência              |
+| ------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------- |
+| IL01   | Agente em background explícito fora do pico, turno principal termina antes | O background continua; a notificação que desperta segue fora do pico; o cartão não conclui antes | Core + E2E do desktop/registro de requisições |
+| IL02   | Bash em background fora do pico, cobrindo o timeout explícito e o convertível para background | O comando executa só uma vez, o artifact é preservado; a conclusão consegue despertar | adapter/Core + E2E |
+| IL03   | SendMessage para agente em execução e para agente já encerrado | Entrega/retomada válidas, escolha de execução e autenticação corretas, a resposta consegue despertar | Core + E2E representativo |
+| IL04   | Notificação de background chega durante o turno principal ou após o fim dele | A convergência/o novo turno seguem as regras existentes; sem perda nem duplicação | Teste de sequenciamento do Core |
+| IL05   | Bash termina após a expiração do ticket, e o novo ticket chega depois | O Bash não reexecuta, o resultado não se perde, o modelo continua após aguardar o ticket | Serviço + integração do Core |
+| IL06   | Vários backgrounds enfrentam a expiração de ticket ao mesmo tempo | Troca de ticket única, trabalho não duplicado, evento do ticket antigo não sobrescreve o novo | Teste de concorrência do serviço |
+| IL07   | Usuário envia B enquanto se espera background/novo ticket | Após a aceitação a Session é B; o turno corrente do subagent mantém I, as ativações/retomadas seguintes usam B | CLI + E2E desktop/celular |
+| IL08   | Após o takeover, o ticket antigo expira ou chega o callback ready | Não re-enfileira, não retoma a seleção, não reenvia a tarefa original | Teste de serviço/protocolo |
+| IL09   | CLI /model, menu do App muda para B mas não envia             | Só muda a escolha de entrada do usuário; o background continua usando I na continuação | CLI + teste de UI |
+| IL10   | Aceitações consecutivas de B e C, e o B mais antigo começa depois | O turno de B usa B, a seleção de continuação mais recente permanece C | Teste de admissão/fila/Guide |
+| IL11   | A sessão B muda o padrão global e a sessão A envia depois     | A mantém o seu próprio padrão de entrada; só uma nova sessão usa o novo padrão | Teste de múltiplas sessões do CLI |
+| IL12   | Após a inicialização do cartão de aceleração, a escolha do usuário muda e depois dispara o fallback previsto | Usa o fallback do cartão de aceleração fixado na inicialização | Regressão do Core |
+| IL13   | Parada do chat, parada de um item em background, cancelamento do cartão de tarefa | Cada entrada mantém o contrato original de escopo, e não há ressurreição fora do pico após o cancelamento | Core + serviço + E2E representativo |
+| IL14   | Reinício/invalidação de ramo/teardown                            | Não restaura escolhas temporárias fora do pico nem ativações pendentes, e a escolha do usuário pode ser restaurada normalmente | Teste de armazenamento/protocolo |
+| IL15   | Estado terminal em background, enfileiramento de notificação e fechamento intercalados | A tarefa como um todo fecha de fato apenas uma vez; não conclui por causa de um falso ocioso intermediário | Teste de concorrência determinístico |
+| IL16   | Resposta de permissão e chamada de modelo auxiliar               | A aprovação não dispara takeover do usuário; a escolha da chamada auxiliar corresponde ao pertencimento da requisição | Regressão de Core/protocolo |
 
-不枚举所有模型供应商与后台数量的笛卡尔积；用普通/闲时/加速卡、单项/多项、接管前/后、票有效/过期代表关键差异。嵌套 Bash 仅保持 child cleanup 既有边界；跨重启后台恢复明确排除。
+Não se enumera o produto cartesiano de todos os fornecedores de modelo e de todas as quantidades de background; usam-se comum/fora do pico/cartão de aceleração, um/múltiplos itens, antes/depois do takeover, ticket válido/expirado para representar as diferenças relevantes. O Bash aninhado mantém apenas a fronteira existente de limpeza do filho; a recuperação de background entre reinícios fica explicitamente excluída.
 
-E2E 使用受控流和票据 fixture 制造时序，不以任意 sleep 证明同步。新候选按既有 manual-review 流程维护，未取得准入证据不得声称正式回放或容器套件覆盖。移动到正式用例沿用已有人工评审与提升流程。
+O E2E usa streams controlados e fixtures de ticket para criar o sequenciamento, sem comprovar a sincronia por meio de sleep arbitrário. Novos candidatos seguem o fluxo existente de revisão manual e, sem evidência de admissão, não se pode afirmar replay oficial nem cobertura pelo conjunto em contêiner. A promoção para caso oficial segue o processo existente de revisão manual e promoção.
 
-## 8. 实施顺序与检查点
+## 8. Ordem de implementação e pontos de verificação
 
-- [x] P0：从当前 staging 建立独立开发容器；检查源码基线、工具链、依赖；复现并分类已有测试失败。
-- [x] P1：更新上述 spec、用例目录与矩阵；先写 CLI 默认/Session 分离、接纳顺序及加速卡回退测试，再实现 Selection 拆分。
-- [x] P2：先写工作归属、后台收口、换票、接管与旧回调竞态测试，再实现独立生命周期及通用契约。
-- [x] P3：先写后台 Agent/Bash/SendMessage 及恢复测试，再打通上下文传递并解除对应限制。
-- [x] P4：接通 Host/服务整项收口；OP10 桌面三种变体与既有 continuous/replayable 协议边界回归完成。手机浏览器整机交互未验证，保留为验证限制。
-- [x] P5：完成相关验证与 diff 自检，更新 spec 并本地提交；全量基线失败和未验证平台如下明确记录。用户请求后再推送/MR。
+- [x] P0: a partir do staging atual, estabelecer um contêiner de desenvolvimento isolado; verificar a linha de base do código-fonte, o toolchain e as dependências; reproduzir e classificar as falhas de teste existentes.
+- [x] P1: atualizar as specs, o catálogo de casos e as matrizes acima; escrever primeiro os testes de padrão do CLI/separação da Session, ordem de aceitação e fallback do cartão de aceleração, e só então implementar a separação da Seleção.
+- [x] P2: escrever primeiro os testes de pertencimento de trabalho, fechamento de background, troca de ticket, takeover e race de callbacks antigos, e só então implementar o ciclo de vida independente e os contratos genéricos.
+- [x] P3: escrever primeiro os testes de Agente/Bash/SendMessage em background e de retomada, e só então ligar a passagem de contexto e remover as restrições correspondentes.
+- [x] P4: conectar o fechamento da tarefa como um todo no Host/serviço; as três variantes do OP10 no desktop e a regressão das fronteiras continuous/replayable existentes foram concluídas. A interação completa do navegador do celular não foi verificada e permanece como limitação de verificação.
+- [x] P5: concluir a verificação pertinente e a autoverificação de diff, atualizar a spec e fazer o commit local; as falhas de linha de base completas e as plataformas não verificadas ficam registradas explicitamente. Push/MR só após solicitação do usuário.
 
-开发和执行检查使用独立开发容器。容器仅通过工具链检查不代表支持 Electron E2E；需分别确认图形依赖、回放资源与容器测试入口，缺失能力明确记录，不能用单测替代。
+O desenvolvimento e as verificações de execução usam um contêiner de desenvolvimento isolado. O contêiner passar apenas na verificação do toolchain não significa suportar E2E de Electron; é preciso confirmar separadamente as dependências gráficas, os recursos de replay e a entrada de teste em contêiner, registrando explicitamente as capacidades ausentes, sem substituir por testes unitários.
 
-普通代码必要验证：根 `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 和受影响单测；CLI 另按其 AGENTS 执行独立 typecheck/lint/测试；App 交互执行对应 E2E。检查失败时区分基线与本次引入，不以跳过 hook 提交代码。
+Verificação necessária para o código comum: `pnpm typecheck` na raiz, `pnpm lint`, `pnpm architecture:check --changed` e os testes unitários afetados; o CLI faz typecheck/lint/testes próprios conforme o seu AGENTS; a interação do App executa o E2E correspondente. Ao falhar a verificação, distinguir a linha de base do que foi introduzido nesta rodada e não enviar código pulando o hook.
 
-前期调查基线曾出现两个待定位失败：后台通知 snapshot batch 对 system-reminder 的断言，以及 execution-scoped foreground child 测试预期三次执行但实际为零。它们是已有失败线索，不代表本次设计已验证；应在新容器/当前基线重新取得证据。
+Na investigação inicial apareceram duas falhas a localizar: a asserção de system-reminder no batch de snapshot de notificações de background, e o teste de foreground child com escopo de execução, que esperava três execuções mas obteve zero. São pistas de falhas existentes e não significam que este design foi verificado; é preciso obter evidência de novo no contêiner/na linha de base atual.
 
-文档阶段只做链接、格式、术语、约束一致性与开源检查，不把产品代码检查记为已通过。
+A fase de documentação faz apenas checagem de links, formatação, terminologia, consistência de restrições e verificação de código aberto, sem registrar a verificação do código de produto como aprovada.
 
-### 实施记录
+### Registro de implementação
 
-Selection 拆分已进入实现与回归：CLI 装配维护 `cliDefaultSelection`，输入接纳更新续跑选择，旧队列输入不会倒写；加速卡回退在启动时固定快照。模型实例仍在实际执行时创建，接纳仅保存选择意图，`ModelSelected` 继续表达实际执行切换。普通配置入口及 Session entry 复用，未新增迁移。
+A separação da Seleção já entrou em implementação e regressão: a montagem do CLI mantém `cliDefaultSelection`, a aceitação da entrada atualiza a escolha de continuação, e entradas antigas na fila não escrevem de volta; o fallback do cartão de aceleração fixa um snapshot na inicialização. A instância de modelo continua sendo criada na execução efetiva, a aceitação apenas salva a intenção da escolha, e `ModelSelected` continua expressando a troca efetiva de execução. Os pontos de entrada de configuração comum e a Session entry são reutilizados, sem nova migração.
 
-已执行根 typecheck/lint、CLI 完整 typecheck 和架构检查。CLI 默认/TUI、冷恢复、协议接纳和加速队列代表测试通过。Core 全量回归发现的本次模型重复创建问题已修正；六个历史失败在原基线隔离副本复现：I/O 边界名单、消息锚点 mock、compact 默认预算、trace cacheControl、unbound 默认测试及后台通知包装旧断言。CLI 全量测试入口另被缺少 CUA producer 仓库的环境条件阻断。CLI 原 lint 入口受根忽略规则影响，显式扫描与基线均为相同 58 个已有 max-lines 错误、31 个警告；未将它记为通过。后台通知包装断言随后按现行系统通知语义修正，所在文件 29 项通过。
+Foram executados o typecheck/lint da raiz, o typecheck completo do CLI e a checagem de arquitetura. Passaram os testes representativos de padrão do CLI/TUI, restauração a frio, aceitação de protocolo e fila de aceleração. A regressão completa do Core encontrou um problema de criação duplicada de modelo desta rodada, já corrigido; seis falhas históricas foram reproduzidas numa cópia isolada da linha de base original: a lista de fronteiras de I/O, o mock de âncora de mensagem, o orçamento padrão do compact, o trace cacheControl, o teste de unbound padrão e a antiga asserção de wrapper de notificação de background. A entrada de teste completa do CLI ficou bloqueada por uma condição de ambiente (falta o repositório do producer CUA). A entrada de lint original do CLI foi afetada pelas regras de ignore da raiz, e a varredura explícita e a linha de base deram os mesmos 58 erros max-lines e 31 avisos; não foi registrada como aprovada. A asserção do wrapper de notificação de background foi depois corrigida conforme a semântica vigente de notificação do sistema, e o arquivo correspondente passou em 29 itens.
 
-生命周期实现采用独立组件，输入为现有执行层提供的工作快照；组件不保存第二份后台任务表或输入队列。仅维护票据版本、续票请求编号、闲时/用户归属、持票模型轮引用及任务终态。主轮自然结束时按快照决定等待后台或完成；用户接纳改变归属，旧续票回执通过执行身份和续票编号拒绝。票据只有在没有闲时模型轮继续使用时释放，释放本身不产生整项完成。聊天 Stop 仅报告原有主轮结果，任务卡取消才显式终止生命周期。
+A implementação do ciclo de vida adota um componente independente, com entrada sendo o snapshot de trabalho fornecido pela camada de execução existente; o componente não guarda uma segunda tabela de tarefas em background nem uma fila de entradas. Mantém apenas a versão do ticket, o número do pedido de renovação, o pertencimento fora do pico/do usuário, a referência do turno de modelo portador do ticket e o estado terminal da tarefa. Quando o turno principal termina de forma natural, o snapshot decide entre aguardar background ou concluir; quando o usuário é aceito, o pertencimento muda, e o recibo de renovação antigo é rejeitado pela identidade de execução e pelo número de renovação. O ticket só é liberado quando não há mais turno de modelo fora do pico em uso, e a liberação em si não produz a conclusão da tarefa como um todo. O Stop do chat apenas relata o resultado original do turno principal, e só o cancelamento do cartão de tarefa encerra explicitamente o ciclo de vida.
 
-接入边界：`modelExecution.offPeak` 只携带执行 ID、初始票 ID 和票过期业务码；动态凭据仍由执行请求鉴权提供。
-CLI 发出严格校验的 `v4/offPeak/lifecycle` 驻内存通知，由 Host 消费；它不属于聊天行、遥测或冷恢复事件。
-Host 经 `v4/conversation/offPeakControl` 发送换票/取消，按 session、executionId 与 renewalId 校验；
-控制请求只更新现存生命周期，不创建 Session、不重新提交 prompt，也不进入普通持久化输入。
-真实用户消息继续通过现有 CommandInbox 接纳。桌面 continuous 与手机 replayable 的对话交付规则不变。
-Host 只持有票据请求关联，完成条件始终由 CLI 决定。跨 App/CLI 重启不补发这些通知。
+Fronteiras de integração: `modelExecution.offPeak` carrega apenas o ID de execução, o ID do ticket inicial e o código de negócio de expiração do ticket; as credenciais dinâmicas continuam sendo fornecidas pela autenticação da requisição de execução.
+O CLI emite uma notificação em memória `v4/offPeak/lifecycle` com validação estrita, consumida pelo Host; ela não pertence às linhas de chat, à telemetria nem aos eventos de restauração a frio.
+O Host envia troca de ticket/cancelamento por `v4/conversation/offPeakControl`, validando por session, executionId e renewalId; a requisição de controle apenas atualiza o ciclo de vida existente, não cria Session, não reenvia prompt nem entra na entrada persistida comum.
+As mensagens reais do usuário continuam sendo aceitas pelo CommandInbox existente. As regras de entrega de conversa do desktop continuous e do celular replayable não mudam.
+O Host mantém apenas a correlação de requisição de ticket, e a condição de conclusão é sempre decidida pelo CLI. Essas notificações não são reenviadas entre reinícios de App/CLI.
 
-### 实施核对补充
+### Complemento da conferência de implementação
 
-- 续票交接按 `executionId + renewalId + ticketId` 确认，最近一次安装允许重复确认；终态的迟到派发只释放票，不重发 prompt。
-- 工作流的限制覆盖现有动态入口 `CreateWorkflow`、`AmendWorkflow`、`ResumeWorkflowRun`、`EvalWorkflowSnippet`，这些运行器尚未接入闲时票据；查询与保存定义仍沿用既有权限。
+- A entrega de renovação é confirmada por `executionId + renewalId + ticketId`, e a instalação mais recente permite confirmação duplicada; uma expedição tardia em estado terminal apenas libera o ticket e não reenvia o prompt.
+- As restrições de Workflow cobrem as entradas dinâmicas existentes `CreateWorkflow`, `AmendWorkflow`, `ResumeWorkflowRun` e `EvalWorkflowSnippet`; esses runners ainda não estão integrados aos tickets fora do pico, e as definições de consulta e salvamento continuam com as permissões existentes.
 
-OP10 运行夹具增加 `ZCODE_E2E_OFFPEAK_EXPIRE_WAKE=1` 变体：第一次后台唤起请求返回 3102，安装新票后重试相同模型请求；断言初始指令及 Bash 均仅执行一次，并消费保存的 Bash 结果。
+O fixture de execução do OP10 ganha a variante `ZCODE_E2E_OFFPEAK_EXPIRE_WAKE=1`: a primeira requisição de ativação em background retorna 3102, e, depois de instalar um novo ticket, a mesma requisição de modelo é tentada de novo; a asserção verifica que a instrução inicial e o Bash executam apenas uma vez e que o resultado salvo do Bash é consumido.
 
-OP10 的 `ZCODE_E2E_OFFPEAK_TAKEOVER=1` 变体在后台屏障放行前发送用户消息，验证既有子轮仍由闲时请求完成，而主 agent 后续后台唤起使用用户模型；默认变体只切工具栏未发送，仍用闲时模型。两种变体分别执行，不组合。
+A variante `ZCODE_E2E_OFFPEAK_TAKEOVER=1` do OP10 envia a mensagem do usuário antes de a barreira de background liberar, verificando que o subturno existente ainda é concluído pela requisição fora do pico, enquanto as ativações posteriores em background do agente principal usam o modelo do usuário; a variante padrão apenas troca a barra de ferramentas sem enviar e continua usando o modelo fora do pico. As duas variantes são executadas separadamente, sem combinação.
 
-### 最终验证记录（2026-10-08）
+### Registro de verificação final (2026-10-08)
 
-- OP10 本地 Electron/Xvfb + 实际 Host/CLI + HTTP replay：普通后台唤起、3102 换票、等待后台时用户接管三种变体各 1/1 通过。四类前台、两类后台 Agent 的真实请求使用闲时模型；真实后台 Bash 只启动一次，输出保存在通知指定文件。仅切工具栏仍走闲时唤起；用户发送后后续唤起走普通 provider。
-- 3102 变体核对新旧票不同、重试请求正文相同、初始任务和 Bash 未重跑。测试场景通过请求屏障控制时序。用例仍在 `manual-review/pending`，没有提升正式准入，也不声称正式容器集合已覆盖。
-- 本次相关单测 270/270（根 138、CLI 132）、CLI/TUI 13/13 通过。另补终态控制器不得覆盖后来用户 Selection 持久化和普通后台唤起、会话准备期间取消、首轮 admission 前取消的确定性回归。
-- 根与 CLI 类型检查、根 lint、架构检查、E2E 类型检查通过。并行类型检查曾以 137 退出，串行执行完成；不改项目配置绕过检查。
-- 全量 Core 曾为 3895 passed / 21 failed（含 15 个缺少 Browser Use 资源、6 个历史失败）；本次修改过的后台通知旧断言现已修正。全量 Bootstrap 为 2923 passed / 34 failed；两个受影响的旧限制/加速队列断言已修正。余下包含旧 Provider fixture、PDF adapter、启动事件与超时等问题，不能称全量绿灯。与本次接纳相关的三个 cold-resume、一个 stale-revision、一个 unbound-default 失败已在 HEAD 的 Bootstrap 隔离源码复现；代表性正常恢复与新 CLI 默认测试通过。
-- CLI Core/Bootstrap/CLI 源码显式 lint 与同范围基线均为 52 个 max-lines 错误、31 个警告，未新增诊断；未改全仓规则或跳过 hook。开源词汇检查未发现问题；影响面使用文本扫描，未执行 codegraph 影响面扫描。
+- OP10 com Electron/Xvfb local + Host/CLI reais + replay HTTP: as três variantes — ativação comum em background, troca de ticket 3102 e takeover do usuário durante a espera por background — passaram 1/1 cada. As requisições reais das quatro classes de foreground e duas classes de Agent em background usaram o modelo fora do pico; o Bash real em background iniciou só uma vez e a saída ficou salva no arquivo indicado pela notificação. Apenas trocar a barra de ferramentas continua indo pela ativação fora do pico; depois que o usuário envia, as ativações seguintes vão pelo provider comum.
+- A variante 3102 conferiu ticket novo diferente do antigo, corpo da requisição repetida idêntico e tarefa inicial e Bash não reexecutados. O cenário de teste controla o sequenciamento por barreira de requisição. O caso continua em `manual-review/pending`, sem promoção para admissão oficial e sem afirmar que o conjunto oficial em contêiner cobriu.
+- Os testes unitários pertinentes desta rodada passaram 270/270 (138 da raiz, 132 do CLI), e o CLI/TUI passou 13/13. Foram acrescentadas ainda regressões determinísticas: o controlador em estado terminal não pode sobrescrever a Selection do usuário persistida depois, a ativação em background comum e o cancelamento durante a preparação da sessão, e o cancelamento antes do admission da primeira rodada.
+- O typecheck da raiz e do CLI, o lint da raiz, a checagem de arquitetura e o typecheck do E2E passaram. A execução paralela de typecheck já saiu com 137, e a execução serial foi concluída; não se alterou a configuração do projeto para contornar a checagem.
+- O Core completo teve 3895 passed / 21 failed (incluindo 15 sem recursos de Browser Use e 6 falhas históricas); a antiga asserção de notificação de background modificada nesta rodada já foi corrigida. O Bootstrap completo teve 2923 passed / 34 failed; as duas asserções afetadas de restrição antiga/fila de aceleração foram corrigidas. O restante inclui problemas de fixture antiga de Provider, adapter de PDF, eventos de inicialização e timeouts, e não pode ser chamado de verde total. As três falhas de cold-resume relacionadas a esta aceitação, uma de stale-revision e uma de unbound-default foram reproduzidas no código-fonte isolado do Bootstrap no HEAD; passaram os testes representativos de restauração normal e de novo padrão do CLI.
+- O lint explícito do Core/Bootstrap/código-fonte do CLI e a linha de base do mesmo escopo tiveram 52 erros max-lines e 31 avisos, sem novos diagnósticos; não se alteraram as regras de todo o repositório nem se pulou o hook. A verificação de vocabulário de código aberto não encontrou problemas; a superfície de impacto usou varredura textual, sem varredura de impacto por codegraph.
 
-验证边界：没有手机浏览器整机、macOS 或 Windows 实机验证；手机 shared-host 的工作归属继续由同一 CLI admission 接管，未新增 Host 输入队列，未改变 continuous/replayable 交付边界。已跑协议代表回归不替代手机 UI E2E。跨进程重启补唤起按需求排除。
+Limites de verificação: não há verificação completa em navegador de celular, macOS ou Windows em máquina real; o pertencimento de trabalho do shared-host do celular continua sendo assumido pela mesma admissão do CLI, sem nova fila de entrada do Host e sem mudança na fronteira de entrega continuous/replayable. A regressão de protocolo representativa executada não substitui o E2E de UI do celular. O re-despertar entre reinícios de processo fica excluído por requisito.
 
-最终重新构建后的桌面证据：默认 `desktop-e2e-20261008-162457-528`、换票 `desktop-e2e-20261008-162734-140`、接管 `desktop-e2e-20261008-162815-060`，均 1/1 通过。报告保留在开发容器 `packages/desktop/.e2e-artifacts/`。基线在开工时已同步并检查；收尾新鲜度检查通过。进行中的功能分支没有自动重放到开发期间新增的远端提交上。
+Evidências do desktop após a reconstrução final: padrão `desktop-e2e-20261008-162457-528`, troca de ticket `desktop-e2e-20261008-162734-140` e takeover `desktop-e2e-20261008-162815-060`, todos passaram 1/1. Os relatórios ficam no contêiner de desenvolvimento, em `packages/desktop/.e2e-artifacts/`. A linha de base já estava sincronizada e verificada no início; a checagem de frescor no encerramento passou. O branch de functionality em andamento não foi reaplicado automaticamente sobre os commits remotos adicionados durante o desenvolvimento.
 
-### 合入 staging 与 MR 门禁复验（2026-10-08）
+### Reverificação do merge em staging e do gate de MR (2026-10-08)
 
-重新 fetch staging 后执行 merge，目标已包含在功能分支，无新增合并差异。推送门禁的关联集合首次为 13,854 passed / 3 failed；三项在独立 staging 源码副本中同样复现。两项 CUA 用例将 Linux 同步 native.captureApp 伪造为异步方法，动作提前错误结束；现改在真实 await 的截图接口设闸，并提供可解码 PNG。目录替换用例先删除再 mkdir，文件系统可能复用 inode；现保留旧目录再创建新目录，确定性构造目录身份替换。两文件 78 项通过，断言及平台覆盖范围未削减，产品实现未变。发布工作副本另外补齐 CLI 构建产物，以满足相关测试的包入口解析。
+Após um novo fetch de staging foi executado o merge, e o alvo já estava contido no branch de funcionalidade em andamento, sem nova divergência de merge. O conjunto relacionado do gate de push deu 13,854 passed / 3 failed na primeira vez; os três se reproduzem igualmente numa cópia isolada do código-fonte do staging. Dois casos CUA forçavam `native.captureApp` do Linux a ser um método assíncrono, encerrando a ação com erro cedo demais; agora o portão é colocado na interface de captura de tela com await real, fornecendo um PNG decodificável. O caso de substituição de diretório apagava antes de fazer mkdir, e o sistema de arquivos pode reutilizar o inode; agora o diretório antigo é preservado antes de criar o novo, construindo de forma determinística a substituição de identidade de diretório. Os dois arquivos passaram em 78 itens, sem redução das asserções nem do escopo de cobertura de plataforma, e sem alteração da implementação de produto. A cópia de trabalho de release recebeu ainda os artefatos de build do CLI, para satisfazer a resolução da entrada de pacote exigida pelos testes relacionados.
 
+### Correção e verificação de races de review (2026-10-09)
 
-### Review 竞态修复与验证（2026-10-09）
+- Cancelamento tardio: o controlador fora do pico em estado terminal retorna diretamente; o cancelamento ativo captura o ID da execução foreground corrente antes de atualizar o registro e para por esse ID. Isso evita que um callback de conclusão síncrono ou um cancelamento duplicado interrompa um turno do usuário iniciado depois na mesma sessão.
+- Perda do recibo de troca de ticket: o Host mantém em memória a mesma execução/renovação/ticket e as credenciais da requisição, reutilizando o ciclo de sincronização existente para a confirmação. Enquanto o resultado é desconhecido, não se volta à fila para buscar um ticket novo; confirmações concorrentes da mesma entrega são fundidas em um único RPC. Quando a nova renovação chega primeiro, o ACK antigo não pode escrever de volta; apenas uma rejeição explícita libera o ticket candidato e solicita um novo. Após o takeover do usuário ou a conclusão, o ticket candidato ainda não instalado precisa ser liberado.
+- Primeiro se reproduziu com testes novos, e só depois se implementou. Os testes unitários relacionados da raiz passaram 50/50 e os do CLI 18/18; o typecheck da raiz e do CLI, o typecheck do E2E, o lint da raiz e a checagem de arquitetura passaram. O lint de todo o repositório do CLI ainda tem os erros max-lines históricos; o lint explícito dos arquivos de Core modificados nesta rodada deu 0 erros e 0 avisos.
+- A variante de falha do OP10 passou 1/1: `desktop-e2e-20261009-082511-005`. A fronteira real Host/CLI via stdio substituiu a primeira confirmação do ticket instalado por um erro de protocolo, mantendo a notificação de conclusão até que a mesma entrega tentasse a confirmação de novo; verificou-se que o cartão finalmente conclui e que o prompt inicial e o Bash real executam só uma vez. O caso continua como manual-review/pending.
+- Diagnóstico de teste: a falta inicial de parâmetros do contêiner causou falha de carregamento de recursos do renderer; a disputa de agendamento entre duas janelas e a incompatibilidade do frame injetado com o protocolo estrito foram corrigidas no helper de teste e os testes reexecutados. Essas tentativas com falha não são contadas como aprovação.
+- Não houve novos timers de produção, campos de protocolo, filas persistidas ou migrações; o loop de execução principal e a fronteira replayable do celular não mudaram. Navegador de celular, macOS e Windows em máquina real seguem sem verificação, e a restauração por reinício continua excluída.
 
-- 迟到取消：终态闲时控制器直接返回；活动取消在更新登记表前捕获当前 foreground execution ID，并按该 ID 停止。避免同步完成回调或重复取消中断同会话后来启动的用户轮。
-- 换票回执丢失：Host 在内存中保留同一次 execution/renewal/ticket 及请求凭据，复用既有同步周期确认。未知结果期间不回队取新票；同一交接的并发确认合并为一次 RPC。新续票先到时旧 ACK 不能倒写；明确拒绝才释放候选票并重新申请。用户接管/完成后，未安装的候选票仍需释放。
-- 先增加失败回归再实现。根相关单测 50/50、CLI 相关单测 18/18；根与 CLI 类型检查、E2E 类型检查、根 lint、架构检查通过。CLI 全仓 lint 仍有历史 max-lines 错误，本次修改的 Core 文件显式 lint 为 0 错误、0 警告。
-- OP10 故障变体 1/1 通过：`desktop-e2e-20261009-082511-005`。实际 Host/CLI stdio 边界将已安装票的首个确认替换为协议错误，保留完成通知直到相同交接重试确认；验证卡片最终完成、初始 prompt 与真实 Bash 只执行一次。用例仍为 manual-review/pending。
-- 测试排障：初次缺少容器参数导致 renderer 资源加载失败；双窗口调度竞争与注入帧不符合严格协议均在测试 helper 修正后重跑。不把这些失败尝试算作通过。
-- 没有新增生产计时器、协议字段、持久化队列或迁移；主执行循环与手机 replayable 边界未改。手机浏览器、macOS、Windows 实机仍未验证，重启恢复仍排除。
+## Verificação das correções de review (2026-10-12)
 
-
-## Review 修复验证（2026-10-12）
-
-- 先以新增测试复现：标题没有票据、iterator.return 拒绝覆盖原错误/不结束阻塞换票，修复前 6 项失败；修复后连同既有闲时、模型选择与标题持久化测试共 134/134 通过。
-- 默认标题在入队时保留独立模型租约；覆盖主轮先结束、3102 换票、标题失败、异步读库早退、用户接管与显式独立标题模型。流关闭拒绝/不结束均不阻塞续跑，原业务错误与取消原因保持不变。
-- 根和 CLI 完整 typecheck/lint 通过（既有 lint 告警保留）；架构 0 新违规，conversation 覆盖审计通过。
-- Linux Electron + 真实 Host/CLI + HTTP replay：OP10 默认标题与主轮票据/模型一致，后台唤起和整项完成通过，run `desktop-e2e-20261012-105708-319`；换票回执丢失变体通过，run `desktop-e2e-20261012-105924-792`。两例仍为 manual-review/pending。
-- 更新 Selection/执行设计与 feature graph，去掉待实现和后台拒绝等旧基线描述。未新增配置或数据库迁移；手机浏览器、macOS、Windows 和远程 workspace 整机未验证。
+- Primeiro reproduzido com testes novos: o título sem ticket, e iterator.return rejeitando, sobrescrevendo o erro original ou não encerrando e bloqueando a troca de ticket; antes da correção havia 6 falhas; depois da correção passaram 134/134, incluindo os testes existentes de fora do pico, de escolha de modelo e de persistência de título.
+- O título padrão retém um lease de modelo independente na entrada na fila; foram cobertos o turno principal encerrando antes, a troca de ticket 3102, a falha do título, a saída antecipada por leitura assíncrona do banco, o takeover do usuário e o modelo de título explicitamente independente. Rejeição/não encerramento no fechamento do stream não bloqueia a continuação, e o erro de negócio original e a causa do cancelamento permanecem inalterados.
+- O typecheck/lint completo da raiz e do CLI passaram (os avisos de lint existentes foram preservados); 0 novas violações de arquitetura, e a auditoria de cobertura de conversation passou.
+- Electron no Linux + Host/CLI reais + replay HTTP: o OP10 com título padrão consistente em ticket/modelo do turno principal, a ativação em background e a conclusão da tarefa como um todo passaram, run `desktop-e2e-20261012-105708-319`; a variante de perda do recibo de troca de ticket passou, run `desktop-e2e-20261012-105924-792`. Os dois casos continuam como manual-review/pending.
+- O design de Seleção/execução e o feature graph foram atualizados, removendo as descrições de linha de base antigas de "a implementar" e de "rejeita background". Não houve nova migração de configuração ou de banco de dados; navegador de celular, macOS, Windows e a máquina completa com workspace remoto seguem sem verificação.

@@ -1,48 +1,48 @@
-# 02 — 连接日志与错误契约
+# 02 — Log de conexão e contrato de erros
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Spec pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：** 无，可立即开始。
+**Bloqueado por:** nenhum, pode começar imediatamente.
 
-**要交付的行为：**
+**Comportamentos a entregar:**
 
-- **日志干净可读**：连接过程中，用户看到的日志只包含本次连接的内容，并且已脱敏。
-- **失败有结果**：连接被拒、超时、找不到主机时，界面会在合理时间内给出中文错误，不会一直停在"正在连接"。
-- **失败后仍能查日志**：失败后即使关掉向导，也能在设置页的设备卡上查看这台设备最近一次连接或更新的日志。
+- **Log limpo e legível**: durante a conexão, o log visto pelo usuário contém apenas o conteúdo desta conexão, e já está sanitizado.
+- **Falha com resultado**: quando a conexão é recusada, dá timeout ou o host não é encontrado, a interface exibe um erro em chinês em tempo razoável, sem ficar presa em "Conectando".
+- **Log consultável após a falha**: mesmo que o assistente seja fechado depois da falha, ainda é possível ver na página de configurações, no cartão do dispositivo, o log da última conexão ou atualização deste dispositivo.
 
-对应父规格中「连接错误分类」的契约部分和「连接日志与操作日志」一节。
+Isso corresponde à parte de contrato de "classificação de erros de conexão" e à seção "Log de conexão e log de operações" da spec pai.
 
-范围：
+Escopo:
 
-- **转发范围**：连接进度上下文只转发连接流水线主动上报的日志。同一异步上下文里其他服务打出的周边日志一律不进入用户可见日志，例如设置服务写配置时打印的完整设置内容。
-- **脱敏**：统一去掉本地绝对路径、token、凭据引用和设备标识。反馈附带的日志使用同一份过滤后的结果。
-- **日志级别**：等待用户确认安装记为 info，不记为 error。
-- **错误码契约**：扩展错误码集合。
-  - 覆盖这些情况：拒绝连接或不可达、超时、找不到主机、主机密钥变化（能可靠识别时）、下载失败、上传失败、预检失败、安装失败、远端空间或权限不足、用户取消、未知。
-  - 共享类型和运行时 schema 同步更新。
-  - `AggregateError` 取内层的错误码。
-  - 消息为空或无法识别时，归为"未知"。host 响应不能因为 schema 校验失败而被丢弃。
-- **错误文案过渡**：新错误码先接入现有的错误文案映射，中英文都要有。完整的分类展示由 [03](./03-presentation-model-states-and-glossary.md) 接管。
-- **最近操作日志**：服务层为每台设备保留最近一次连接或更新的操作日志，并新增查询接口。日志只保存在本次运行的内存里，行数有上限，设备之间互相隔离。设置页设备卡提供"查看最近日志"的入口。
+- **Escopo de encaminhamento**: o contexto de progresso da conexão encaminha apenas os logs que o pipeline de conexão reporta ativamente. Outros logs periféricos emitidos por outros serviços no mesmo contexto assíncrono nunca entram no log visível ao usuário, como o conteúdo completo das configurações impresso pelo serviço de configurações ao gravar a configuração.
+- **Sanitização**: remover uniformemente caminhos absolutos locais, tokens, referências a credenciais e identificadores de dispositivo. Os logs anexados ao feedback usam o mesmo resultado filtrado.
+- **Nível de log**: a espera por confirmação do usuário para instalar é registrada como info, não como error.
+- **Contrato de códigos de erro**: estender o conjunto de códigos de erro.
+  - Cobrir estes casos: conexão recusada ou host inalcançável, timeout, host não encontrado, mudança da chave do host (quando detectável de forma confiável), falha de download, falha de upload, falha na verificação prévia, falha de instalação, espaço ou permissões insuficientes no remoto, cancelamento pelo usuário, desconhecido.
+  - Os tipos compartilhados e o schema de runtime são atualizados em sincronia.
+  - `AggregateError` adota o código de erro interno.
+  - Quando a mensagem está vazia ou não é reconhecível, classificar como "desconhecido". A resposta do host não pode ser descartada por falha na validação de schema.
+- **Transição dos textos de erro**: os novos códigos de erro entram primeiro no mapeamento de textos de erro existente, e o texto precisa existir em chinês e em inglês. A exibição completa por categoria fica a cargo de [03](./03-presentation-model-states-and-glossary.md).
+- **Log das últimas operações**: a camada de serviço mantém, por dispositivo, o log de operações da última conexão ou atualização, e adiciona uma interface de consulta. O log é mantido apenas na memória desta execução, com limite de linhas e isolamento entre dispositivos. O cartão do dispositivo na página de configurações oferece a entrada "Ver log recente".
 
-验收标准：
+Critérios de aceitação:
 
-- [x] **日志不泄露**：连接测试容器的整个过程中，用户可见日志和反馈附件里都不出现设置内容、本地项目路径、连接档案和设备标识。需要主进程/host 契约层测试，E2E 也要断言。
-- [x] **等待确认不显示为错误**：等待安装确认时，日志级别是 info，界面不显示成红色错误。
-- [x] **拒绝连接不再挂起**：连接一个未被占用的端口，5 秒内显示"无法连接到主机"。
-  - 用 `AggregateError`、空消息的失败做契约层测试，断言得到已分类的错误码、消息非空，并且 host 响应能通过 schema 校验。
-- [x] **超时和找不到主机**：各自返回对应的错误码和中文文案；UI 遇到未知错误码时退回通用文案。
-- [x] **两端同步**：共享类型和运行时 schema 同步扩展，App 侧和 host 侧的校验结果一致。
-- [x] **失败后可查日志**：关掉向导后，仍能在设置页设备卡上看到这台设备最近一次连接或更新的日志；多台设备的日志不串扰。需要服务层测试和组件测试。
-- [x] **更新事实文档**：远程主链事实文档中关于连接日志、错误码、操作日志的段落改到最新行为。
-- [x] **必跑检查**：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 SSH E2E 全部通过后，本地提交。
+- [x] **O log não vaza**: durante todo o processo do contêiner de teste de conexão, o log visível ao usuário e os anexos do feedback nunca contêm o conteúdo das configurações, o caminho local do projeto, o perfil de conexão nem o identificador do dispositivo. Exige teste na camada de contrato do processo principal/host, e o E2E também deve afirmar.
+- [x] **A espera por confirmação não aparece como erro**: enquanto se aguarda a confirmação de instalação, o nível de log é info e a interface não mostra o erro em vermelho.
+- [x] **Conexão recusada não fica pendurada**: ao conectar a uma porta não ocupada, o erro em chinês "Não foi possível conectar ao host" é exibido em até 5 segundos.
+  - Fazer teste de camada de contrato com `AggregateError` e com falha de mensagem vazia, afirmando que se obtém um código de erro já classificado, mensagem não vazia, e que a resposta do host passa na validação de schema.
+- [x] **Timeout e host não encontrado**: cada um devolve seu código de erro e o texto em chinês correspondente; a UI recai no texto genérico quando encontra um código de erro desconhecido.
+- [x] **Sincronia dos dois lados**: os tipos compartilhados e o schema de runtime são estendidos em sincronia, e o resultado da validação é o mesmo no lado do App e no lado do host.
+- [x] **Log consultável após a falha**: depois de fechar o assistente, ainda é possível ver no cartão do dispositivo na página de configurações o log da última conexão ou atualização deste dispositivo; os logs de múltiplos dispositivos não se misturam. Exige teste da camada de serviço e teste de componente.
+- [x] **Atualizar o documento de fatos**: no documento de fatos da cadeia principal remota, os trechos sobre log de conexão, códigos de erro e log de operações passam a refletir o comportamento mais recente.
+- [x] **Verificações obrigatórias**: `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, os testes unitários afetados e o E2E de SSH afetado passam todos, e só então o commit local é feito.
 
-## 验证记录（2026-09-27）
+## Registro de verificação (2026-09-27)
 
-- 已实现并通过规范/规格双轴评审；评审发现的自动重连闭包保留、身份换代日志串扰已修复并回归。
-- `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；15 个相关单测文件共 251 项通过，覆盖并发/迟到输出、每设备 100 行上限、身份换代、Host schema 和组件重开查询。lint 的存量警告未在本票扩大处理。
-- 真实 SSH 容器验证：错误密码后重试、首装、目录选择、全程日志过滤，以及未占用端口 5 秒内中文失败、反馈预填，最终一轮 2/2 通过（artifact `remote-log-contract-20260927-verified`）。深浅主题、1400/480px 截图已检查；480px 是桌面响应式验证，不等同于手机 replayable 实机。新增 RDUX-LOG 保持 pending，未自动人工转正。
-- **全量验证限制**：implement 技能要求执行的 `pnpm test:unit` 全量运行出现未改动模块失败及 worker 挂起，运行超过 15 分钟后停止。单独复现 `packages/services/test/repoSnapshotUploadTransport.test.ts:133` 两项失败：`ReferenceError: mode is not defined`，HEAD 基线有相同代码；`autoUpdaterReadyState.test.ts` 在 threads/forks 单独运行仍长时间不退出。本票未修改这些模块；用户知悉上述限制后，明确授权本地提交。
-- 全局 coverage audit 的新增 pending fixture 校验通过；整体 audit 因基线 D19/I74/I75 引用、既有统计与生成文档过期失败。本票新增 case 的 fixture check 和 E2E 类型检查通过。
+- Implementado e aprovado pela revisão nos dois eixos de spec/especificação; o closure de reconexão automática preservado e o crosstalk de logs na troca de identidade encontrados na revisão foram corrigidos e voltaram a ser testados.
+- `pnpm typecheck`, `pnpm lint` e `pnpm architecture:check --changed` passaram; 251 casos em 15 arquivos de testes unitários relacionados passaram, cobrindo concorrência/saída tardia, o limite de 100 linhas por dispositivo, troca de identidade, schema do Host e reconsulta ao reabrir o componente. Os avisos pré-existentes do lint não foram ampliados nesta ticket.
+- Validação com contêiner SSH real: nova tentativa após senha errada, primeira instalação, seleção de diretório, filtragem de log durante todo o percurso, e falha em chinês em até 5 segundos em porta não ocupada com o feedback pré-preenchido; a última rodada passou 2/2 (artifact `remote-log-contract-20260927-verified`). Os screenshots de tema claro e escuro e de 1400/480px foram conferidos; 480px é validação responsiva do desktop, e não equivale a um aparelho real com replayable. O novo RDUX-LOG permanece pending, sem conversão automática para humano.
+- **Limitação da verificação completa**: a execução completa de `pnpm test:unit` exigida pela skill de implementacao apresentou falhas em módulos não alterados e travamento de worker, e foi interrompida depois de mais de 15 minutos. Reproduzidos isoladamente dois casos de falha em `packages/services/test/repoSnapshotUploadTransport.test.ts:133`: `ReferenceError: mode is not defined`, com o mesmo código na baseline HEAD; `autoUpdaterReadyState.test.ts` ainda não sai em execução isolada com threads/forks. Esta ticket não modificou esses módulos; ciente das limitações acima, o usuário autorizou explicitamente o commit local.
+- A validação de fixture do novo pending case na auditoria global de coverage passou; a auditoria completa falhou por referências de baseline D19/I74/I75, estatísticas existentes e documento gerado desatualizado. A checagem de fixture do novo case desta ticket e a checagem de tipos do E2E passaram.

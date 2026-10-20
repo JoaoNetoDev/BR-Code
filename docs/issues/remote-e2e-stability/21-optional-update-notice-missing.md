@@ -1,30 +1,25 @@
-# 兼容版本连接成功后，设备卡缺少可延后的更新提示
+# Após conectar com sucesso em uma versão compatível, o cartão do dispositivo não tem aviso de atualização adiável
 
 Status: ready-for-human
 
-业务基线 `d31e735905cf744e75a0a93548a80acabe871ae5`，测试补丁 07。
-批次 `r3-server-20261011125749338-152f05` 的 `version-optional` 在 214.2 秒失败。
-版本夹具使用完整当前 runtime，只修改编译版本与兼容元数据，不代表真实未来版本实现。
+Baseline de negócio `d31e735905cf744e75a0a93548a80acabe871ae5`, patch de teste 07.
+O `version-optional` do lote `r3-server-20261011125749338-152f05` falhou em 214.2 segundos.
+O fixture de versão usa o runtime atual completo, alterando apenas a versão compilada e os metadados de compatibilidade; não representa a implementação real de uma versão futura.
 
-## 运行事实
+## Fatos de execução
 
-首装版本为 `3.15.1`，夹具安装为 `3.16.0`、minimum=`3.15.0`。连接后 A/B 均恢复新 attachment，
-最终远端仍为 `3.16.0`，没有发生强制降级。设备卡连续等待 30 秒后仍只显示已连接、SSH、
-原 A/B 项目及断开/编辑/日志入口，没有更新提示或“稍后”按钮。
-`version-policy.json` 保存了两个 restoredProjects 和完整 optionalPanelText；这次已排除
-设置页刚挂载时读取单帧过早的问题。延后提示及重挂设置页的去重断言尚未到达。
+A versão instalada inicialmente era `3.15.1`; o fixture instala `3.16.0`, com minimum=`3.15.0`. Após a conexão, tanto A quanto B restauraram o novo attachment, e no fim o remoto continuava em `3.16.0`, sem nenhuma queda forçada de versão. Mesmo após o cartão do dispositivo esperar 30 segundos seguidos, ele só mostrava conectado, SSH, os projetos originais de A/B e as entradas de desconectar/editar/logs — nenhum aviso de atualização nem o botão "depois".
+O `version-policy.json` guardou os dois restoredProjects e o optionalPanelText completo; desta vez já foi excluído o problema de leitura de um único quadro logo após a montagem da página de configurações. A asserção de deduplicação do aviso adiado e da remontagem da página de configurações ainda não foi alcançada.
 
 ```text
-兼容的更高 Server 版本 → 原 A/B 恢复 → 打开远程设备设置
-  → 30 秒内卡片仍无更新提示 → 无法验证“稍后”与去重
+Versão de Server superior e compatível → restauração original de A/B → abertura das configurações de dispositivos remotos
+  → após 30 segundos o cartão ainda não tem aviso de atualização → impossível validar "depois" e a deduplicação
 ```
 
-## 合同与边界
+## Contrato e limites
 
-[设备卡更新合同](../remote-connection-ux/13-settings-device-cards-and-updates.md) 要求可选更新
-使用中性横幅和“稍后 / 更新”，不弹 toast。当前兼容判定将版本不同且兼容的端点记为可选更新；
-在本夹具版本关系下，更新方向应是桌面端，不能误称远端必须升级。
-设置卡代码已有 `upgradeTarget=controller` 的分支，但当前页面没有收到或展示对应状态。
-需继续定位连接兼容状态到设备卡的投影；本轮没有修改业务代码，也不把正常恢复的项目记为连接失败。
+O [contrato de atualização do cartão do dispositivo](../remote-connection-ux/13-settings-device-cards-and-updates.md) exige que a atualização opcional use uma faixa neutra com "depois / atualizar", sem toast. A determinação de compatibilidade atual registra endpoints com versão diferente e compatível como atualização opcional; nesta relação de versões do fixture, a direção da atualização deve ser o desktop, e não se pode afirmar que o remoto precisa necessariamente atualizar.
+O código do cartão de configurações já tem um ramo com `upgradeTarget=controller`, mas a página atual não recebe nem exibe o estado correspondente.
+É preciso continuar localizando a projeção do estado de compatibilidade da conexão para o cartão do dispositivo; esta rodada não alterou código de negócio e também não registra um projeto restaurado normalmente como falha de conexão.
 
-证据：上述批次 `version-optional` 的 `version-policy.json`、运行日志和失败录像。
+Evidências: o `version-policy.json` do lote `version-optional` acima, os logs de execução e a gravação de falha.

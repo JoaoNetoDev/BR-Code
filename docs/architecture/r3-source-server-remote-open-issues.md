@@ -1,490 +1,467 @@
-# R3 Source Server 远程主链问题台账
-
-> **2026-09-07 更新**：合并 Provider 重构 M2（路线 A）后，R3 早期的 Provider「一键同步」、模型设置页设备选择器、`provider-sync` channel、`source-settings` scope 中的 `model-provider` 注册以及旧 `modelProviderService` 已全部删除，改为「设置页绑定本地 + Provider Provisioning 自动单向下发」。本文中涉及这些能力的条目随之作废，不逐条改写：R3-ISSUE-010 的修复记录里「模型设置先注册 `source-settings` attachment … `model-provider.*` 调用成功」属于已删除路径的历史证据；R3-ISSUE-012 引用的 `packages/services/src/model-provider/modelProviderService.ts` 与 `apiKeyCredentialKey` 逻辑已不存在，Personal Provider Config 按 Provider 重构 M2 以明文 Personal Config 持久化，该 issue 的「规格与实现冲突」以 [docs/remote/provider-provisioning.md](../remote/provider-provisioning.md) 与 [../archive/remote-r3/r3-provider-refactor-merge.md](../archive/remote-r3/r3-provider-refactor-merge.md) 为新基线重新评估。其余非 Provider 条目不受影响。
-
-## 文档状态
-
-- 状态：Open
-- 建立日期：2026-08-28
-- 审阅基线：`feat/multi-device-remote-3-real-ssh-feature@ed0fe80b1391`
-- 原审阅范围：2026-08-28 当时的 `staging...HEAD`，不是当前分支的最新 diff
-- 用途：记录当前分支全面审阅中发现的问题，供后续按稳定 ID 逐项修复、验证和关闭
-- 当前说明：状态按单项维护；关闭项保留修复与验证摘要，未关闭项保留完整待办。文档整理不改变验证结论。
-- 2026-09-13 文档整理：R3 过程文档归档到 `docs/archive/remote-r3/`，本文引用已同步；R3-ISSUE-012 因前提失效改为不修复，R3-ISSUE-019 进入修复中；当前阅读入口见 [docs/remote/README.md](../remote/README.md)
-- 2026-09-13 补登：R3-ISSUE-023（恢复态手动连接成功不发 reconnect）来自同日分支审查 RV-P1-2，随修复一并关闭
-- 2026-09-14 补登：R3-ISSUE-024（wsl.exe 默认 shell 提前展开命令变量，WSL 安装误报缺少 tar）来自同日 Windows 实机复现，随修复登记为待验证
-
-## 状态定义
-
-| 状态     | 含义                                       |
-| -------- | ------------------------------------------ |
-| `待修复` | 问题已登记，尚未开始修改                   |
-| `修复中` | 已有对应实现或测试工作正在进行             |
-| `待验证` | 实现已完成，仍缺自动化或运行时证据         |
-| `已关闭` | 根因修复、相关测试与必要运行时验证均已完成 |
-| `不修复` | 经产品或架构决策接受现状，必须记录决策依据 |
-
-严重度口径：
-
-- `P0`：发布阻断、数据安全或主链不可用；
-- `P1`：高影响功能、权限、身份隔离或生命周期错误；
-- `P2`：中低影响缺陷、架构债务、验证或文档缺口。
-
-置信度口径：
-
-- `已确认`：静态调用链已经能够证明问题成立；
-- `高风险待复现`：代码结构允许问题发生，仍需先补失败测试或运行时复现确认具体触发条件。
-
-## 总览
-
-| ID           | 严重度 | 领域             | 问题摘要                                                                  | 置信度       | 状态   |
-| ------------ | ------ | ---------------- | ------------------------------------------------------------------------- | ------------ | ------ |
-| R3-ISSUE-001 | P0     | 发布             | 正式 release validator 仍校验旧 remote assets                             | 已确认       | 待验证 |
-| R3-ISSUE-002 | P1     | Desktop IPC      | Preload 丢失 workspace scope                                              | 已确认       | 已关闭 |
-| R3-ISSUE-003 | P1     | Mobile 权限      | 手机 attachment 可访问 Terminal RPC                                       | 已确认       | 已关闭 |
-| R3-ISSUE-004 | P1     | 生命周期         | retrying 时显式断开不能收口                                               | 已确认       | 已关闭 |
-| R3-ISSUE-005 | P1     | 生命周期         | 同一 Source 的不同 Profile 可能产生两个 logical owner                     | 已确认       | 已关闭 |
-| R3-ISSUE-006 | P1     | 生命周期         | 删除 Profile 后 Manager 仍可能使用旧线路重连                              | 已确认       | 已关闭 |
-| R3-ISSUE-007 | P1     | 恢复             | 自动恢复遇到用户动作状态仍继续重试                                        | 已确认       | 已关闭 |
-| R3-ISSUE-008 | P1     | 设置             | 启动自动重连偏好被完整 AppSettings schema 丢弃                            | 已确认       | 已关闭 |
-| R3-ISSUE-009 | P1     | Mobile 恢复      | bridge 重建预算耗尽后没有明确终态                                         | 已确认       | 已关闭 |
-| R3-ISSUE-010 | P2     | Source Settings  | 旧端口迟到关闭可能删除新一代服务                                          | 已确认       | 已关闭 |
-| R3-ISSUE-011 | P1     | 恢复             | 多 workspace logical replacement 不是完整原子操作                         | 已确认       | 已关闭 |
-| R3-ISSUE-012 | P2     | Provider 安全    | API Key 明文持久化规格与实现冲突                                          | 已确认       | 不修复 |
-| R3-ISSUE-013 | P2     | 迁移             | 首次 Directory 迁移失败可能遗留孤儿凭据                                   | 已确认       | 已关闭 |
-| R3-ISSUE-014 | P2     | Release Resolver | 下载缺少取消和 cache single-flight                                        | 高风险待复现 | 待修复 |
-| R3-ISSUE-015 | P2     | UI 架构          | RemoteWorkspaceController 尚未成为统一写入口                              | 已确认       | 已关闭 |
-| R3-ISSUE-016 | P2     | UI 投影          | RemoteWorkspaceProjection 未完全接线且会误投影本地 tab                    | 已确认       | 已关闭 |
-| R3-ISSUE-017 | P2     | Mobile UI        | 手机 Source 组头状态与名称可能降级失真                                    | 高风险待复现 | 待修复 |
-| R3-ISSUE-018 | P2     | 设计系统         | 新增远程 UI 存在任意尺寸和 ad-hoc alpha                                   | 已确认       | 待验证 |
-| R3-ISSUE-019 | P2     | 文档             | 架构、计划、coverage 与实机记录状态漂移                                   | 已确认       | 修复中 |
-| R3-ISSUE-020 | P1     | 发布证据         | 历史实机记录不能证明当前 HEAD                                             | 已确认       | 待验证 |
-| R3-ISSUE-021 | P1     | 生命周期         | 握手落盘期间断连被丢弃，死连接被发布为 online                             | 已确认       | 已关闭 |
-| R3-ISSUE-022 | P1     | 发布             | 远端 archive 缺 android/ios 插件 MCP runtime                              | 已确认       | 已关闭 |
-| R3-ISSUE-023 | P1     | 恢复             | 恢复态手动连接成功不发 reconnect，Registry 停在 recovering                | 已确认       | 已关闭 |
-| R3-ISSUE-024 | P0     | WSL Transport    | wsl.exe 非 --exec 模式让默认 shell 提前展开命令变量，WSL 安装误报缺少 tar | 已确认       | 待验证 |
-| R3-ISSUE-029 | P2 | 恢复 | logical replacement 在途时不保留后续 reconnect，当前连接收口时序未触发 | 已确认（条件性） | 待修复 |
-| R3-ISSUE-030 | P2 | Provider 取消 | 等待共享 Registry 刷新期间不能及时取消，当前生产调用方不传 signal | 已确认（条件性） | 待修复 |
-
-## 问题详情
-
-
-关闭项的完整定位、旧路径与逐轮记录保存在 `git show a17a875588b8d66c2bee49236292e174df651363:docs/architecture/r3-source-server-remote-open-issues.md`；以下摘要不提升原验证等级。
-
-### R3-ISSUE-001：正式 release validator 仍校验旧 remote assets
-
-- 严重度：P0
-- 置信度：已确认
-- 状态：待验证
-- 现象：新构建链只生成 `source-server-release.json` 和四个 `zcode-server-*.tar.gz`，正式 `release:validate` 仍要求 `manifest-*.json` 与 `components/**`。
-- 影响：干净发布目录会稳定失败；脏目录可能用旧产物通过校验，却没有验证本轮真正发布的 Source Server archive。
-- 证据：
-  - [`.gitlab/ci/30-build.yml`](../../.gitlab/ci/30-build.yml) 的 `build:remote:assets` 只收集 descriptor 和四个 archive；
-  - [`.gitlab/ci/50-release.yml`](../../.gitlab/ci/50-release.yml) 的上传合同只包含新产物；
-  - [`scripts/validate-release-artifacts.mjs`](../../scripts/validate-release-artifacts.mjs) 的 `validateRemoteAssets()` 仍只认识 legacy manifest/components；
-  - `gitlabCiBuildGraph.test.ts` 与 `validateReleaseArtifacts.test.ts` 分别验证两套互斥合同，缺少端到端对接测试。
-- 关闭条件：validator 严格校验 descriptor 的版本、四个 target、文件名、size、SHA-256、URL 和真实 archive；构建输出能够直接通过正式发布校验；旧残留不会影响结果。
-
-#### 修复记录 2026-09-13
-
-- 状态：待验证
-- 修复提交：`feat/multi-device-remote-3-real-ssh-feature` 上包含本记录的提交（`fix(release): validate Source Server descriptor and archives`）
-- 根因：构建/上传两端已切换到 descriptor+archive 合同，`validateRemoteAssets()` 未同步，且 `build:remote:assets` 切换时删掉了共享目录旧产物清理。复现：用真实脚本对"6 平台 + descriptor + 4 archive"目录校验抛 `missing remote manifest: manifest-darwin-arm64.json`；目录残留旧 manifest 时把 archive 改坏、甚至删掉 descriptor 都能通过。
-- 修复：`validateRemoteAssets()` 改为 `validateSourceServerRelease()`，校验 descriptor 的 `schemaVersion`、版本、四个 target、`fileName`、`version`、`urls`（必须含指向 archive 的安全相对路径）、`sizeBytes`、`sha256` 与真实 archive，并 fail-closed 拒绝残留 `manifest-*.json` / `components/` 及未被引用的 `zcode-server-*.tar.gz`；`build:remote:assets` 在复制前清掉自己负责的根目录产物；`docs/desktop-ci-cd.md` validate 描述同步。
-- 自动化验证：`packages/desktop/test/validateReleaseArtifacts.test.ts` 重写为新布局（含 target 常量与 `@zcode/shared` 的 `SOURCE_SERVER_RELEASE_TARGETS` 对接断言）；`gitlabCiBuildGraph.test.ts` 新增“CI 收集 target 集合 == validator 期望集合、复制前有清理”断言。
-- 运行时验证：未在真实 tag / `ci*` 管道上运行，需下一次 `CI_RELEASE_BRANCH=1` 演练确认后关闭。
-- 剩余风险：`scripts/upload-oss.sh` 仍保留 `manifest-*.json` 特判分支（死代码，未清理）；validator 拒绝 legacy 残留后，若 runner 共享目录被人工放入旧文件会直接阻断 validate，需清理目录后重试。
-
-### R3-ISSUE-002：Preload 丢失 workspace scope
-
-- 严重度：P1
-- 置信度：已确认
-- 状态：已关闭
-- 现象：Main 投递 `ScopedServicePort` 时携带 `workspacePath`、`workspaceIdentity`、`workspacePurpose`，Preload 转发时只保留 `attachmentId`、`sessionId`、`target`、`sourceServerId`。
-- 影响：Renderer 注册的 remote session 缺少 workspace 和 purpose 信息；从项目进入 Source conversation 时，可能不创建独立 logical session，而把原项目 session rebind 到 conversation backing workspace。
-- 证据：
-  - [`packages/desktop/src/main/desktopRemoteSessions.ts`](../../packages/desktop/src/main/desktopRemoteSessions.ts) 的 Main payload 含完整 scope；
-  - [`packages/desktop/src/preload/index.ts`](../../packages/desktop/src/preload/index.ts) 截断上述三字段；
-  - [`packages/desktop/src/renderer/src/remoteWorkspaceServicePortBridge.ts`](../../packages/desktop/src/renderer/src/remoteWorkspaceServicePortBridge.ts) 已准备解析这三字段；
-  - [`packages/ui/src/root/useRemoteWorkspaceHistory.ts`](../../packages/ui/src/root/useRemoteWorkspaceHistory.ts) 依赖 session 的 path/purpose 决定是否新建 conversation session。
-- 关闭条件：Main、Preload、Renderer 共享严格 payload schema；三字段端到端保留；集成测试证明项目与 conversation 使用不同 logical session，且不会共用同一 `remoteSessionId`。
-- 当前进展（2026-08-28）：
-  - 已新增共享 strict payload schema，并由 Main、Preload、Renderer 共同消费；Preload 不再手工白名单重建 payload；
-  - focused tests 已覆盖 Main payload、真实 Preload listener → Renderer parser 透传、缺失 scope fail-closed、unbound session 直接绑定 conversation，以及 project → conversation 使用独立 logical session；
-  - 真实 SSH Electron pending case `conversation-session-ssh-remote-project-conversation-scope.test.ts` 在 `linux-amd64-dev` 通过，证明 project/conversation 使用不同 `remoteSessionId` 且复用同一 Window Host；artifact：`desktop-e2e-20260828023242575-p87386-071a9e0ea38732ee`。
-  - 当前 HEAD `86f5701e10` 再次通过真实 SSH 运行时复验：`dev@localhost:2222` 握手到 Source `32a10b89-141c-469b-aa97-850f41ab7deb`；project `/home/dev` 返回 `remoteSessionId=58423030-60c1-4dda-b21e-3c5254b7d08a`，conversation `/home/dev/.zcode/workspace/default` 返回 `remoteSessionId=a1188548-5cfe-4162-ae74-b4cf1315dd6f`。两者 stable identity 各自保留，conversation bind 明确返回 `workspacePurpose=conversation`，连接请求均完成 Renderer attachment ready ACK。
+# R3 Source Server — registro de problemas da cadeia principal remota
+
+> **Atualização de 2026-09-07**: após a fusão da refatoração de Provider M2 (Rota A), a sincronização "de um clique" de Provider do início do R3, o seletor de dispositivo na página de configurações de modelo, o channel `provider-sync`, o registro `model-provider` no scope `source-settings` e o antigo `modelProviderService` foram todos removidos, sendo substituídos por "vínculo local na página de configurações + Provisioning automático com envio unidirecional". Os itens deste documento que envolvem essas capacidades ficam sem efeito e não são reescritos um a um: no registro de correção de R3-ISSUE-010, o trecho "o modelo registra primeiro o attachment `source-settings` … a chamada `model-provider.*` tem sucesso" é evidência histórica de um caminho já removido; R3-ISSUE-012 referencia `packages/services/src/model-provider/modelProviderService.ts` e a lógica `apiKeyCredentialKey`, que não existem mais — o Personal Provider Config passou a persistir o Personal Config em texto claro conforme a refatoração de Provider M2, e o "conflito entre especificação e implementação" desse issue é reavaliado com [docs/remote/provider-provisioning.md](../remote/provider-provisioning.md) e [../archive/remote-r3/r3-provider-refactor-merge.md](../archive/remote-r3/r3-provider-refactor-merge.md) como nova linha de base. Os demais itens que não são de Provider não são afetados.
+
+## Estado do documento
+
+- Estado: Open
+- Data de criação: 2026-08-28
+- Linha de base da revisão: `feat/multi-device-remote-3-real-ssh-feature@ed0fe80b1391`
+- Escopo original da revisão: o `staging...HEAD` em 2026-08-28, não o diff mais recente do branch atual
+- Finalidade: registrar os problemas encontrados na revisão completa do branch atual, para correção, verificação e fechamento posteriores item a item com IDs estáveis
+- Nota atual: o estado é mantido por item; os itens fechados mantêm o resumo da correção e da verificação, os itens em aberto mantêm a lista completa de pendências. A organização do documento não altera as conclusões de verificação.
+- 2026-09-13 organização do documento: os documentos de processo do R3 foram arquivados em `docs/archive/remote-r3/` e as referências deste texto foram sincronizadas; R3-ISSUE-012 passou a "não corrigir" por perda de premissa, R3-ISSUE-019 entrou em "em correção"; a porta de leitura atual está em [docs/remote/README.md](../remote/README.md)
+- 2026-09-13 registro adicional: R3-ISSUE-023 (conexão manual bem-sucedida no estado de recuperação não emite reconnect) veio da revisão de branch do mesmo dia RV-P1-2 e foi fechado junto com a correção
+- 2026-09-14 registro adicional: R3-ISSUE-024 (o shell padrão do `wsl.exe` expande as variáveis de comando antes da hora, install do WSL reporta falsamente falta de tar) veio da reprodução em máquina Windows real do mesmo dia e foi registrado como pendente de verificação
+
+## Definições de estado
+
+| Estado        | Significado                                                        |
+| ------------- | ------------------------------------------------------------------ |
+| `待修复`      | Problema registrado, modificação ainda não iniciada                |
+| `修复中`      | Já existe implementação ou trabalho de teste em andamento         |
+| `待验证`      | Implementação concluída, ainda falta evidência automatizada ou de runtime |
+| `已关闭`      | Correção da causa raiz, testes relacionados e verificação de runtime necessária concluídos |
+| `不修复`      | Situação aceita por decisão de produto ou arquitetura; a base da decisão deve ser registrada |
+
+Critérios de severidade:
+
+- `P0`: bloqueio de release, segurança de dados ou indisponibilidade da cadeia principal;
+- `P1`: funcionalidade de alto impacto, permissões, isolamento de identidade ou erro de ciclo de vida;
+- `P2`: defeitos de impacto médio ou baixo, dívida de arquitetura, lacunas de verificação ou de documentação.
+
+Critérios de confiança:
+
+- `已确认`: a cadeia de chamadas estática já prova que o problema existe;
+- `高风险待复现`: a estrutura do código permite que o problema ocorra; ainda é preciso adicionar um teste de falha ou uma reprodução de runtime para confirmar as condições de acionamento específicas.
+
+## Visão geral
+
+| ID            | Severidade | Área                 | Resumo do problema                                                             | Confiança        | Estado   |
+| ------------- | ---------- | -------------------- | ------------------------------------------------------------------------------ | ---------------- | -------- |
+| R3-ISSUE-001 | P0         | Release              | O validador de release oficial ainda valida os remote assets antigos            | 已确认           | 待验证  |
+| R3-ISSUE-002 | P1         | Desktop IPC          | O Preload perde o workspace scope                                              | 已确认           | 已关闭  |
+| R3-ISSUE-003 | P1         | Permissões Mobile    | O attachment do celular pode acessar o Terminal RPC                            | 已确认           | 已关闭  |
+| R3-ISSUE-004 | P1         | Ciclo de vida        | Desconexão explícita durante retrying não converge                             | 已确认           | 已关闭  |
+| R3-ISSUE-005 | P1         | Ciclo de vida        | Profiles diferentes do mesmo Source podem gerar dois logical owner             | 已确认           | 已关闭  |
+| R3-ISSUE-006 | P1         | Ciclo de vida        | Após excluir um Profile, o Manager ainda pode reconectar usando a linha antiga | 已确认           | 已关闭  |
+| R3-ISSUE-007 | P1         | Recuperação          | A recuperação automática continua tentando mesmo em estado de ação do usuário  | 已确认           | 已关闭  |
+| R3-ISSUE-008 | P1         | Configurações       | A preferência de reconexão automática no startup é descartada pelo schema completo de AppSettings | 已确认 | 已关闭 |
+| R3-ISSUE-009 | P1         | Recuperação Mobile   | Não há estado terminal claro depois de esgotado o orçamento de reconstrução do bridge | 已确认      | 已关闭  |
+| R3-ISSUE-010 | P2         | Source Settings      | O fechamento tardio da porta antiga pode remover o serviço da nova geração      | 已确认           | 已关闭  |
+| R3-ISSUE-011 | P1         | Recuperação          | A substituição lógica de múltiplos workspaces não é uma operação atômica completa | 已确认       | 已关闭  |
+| R3-ISSUE-012 | P2         | Segurança do Provider| Conflito entre a especificação e a implementação de persistir a API Key em texto claro | 已确认 | 不修复 |
+| R3-ISSUE-013 | P2         | Migração             | A primeira migração do Directory pode deixar credenciais órfãs                 | 已确认           | 已关闭  |
+| R3-ISSUE-014 | P2         | Release Resolver     | O download não tem cancelamento nem cache single-flight                         | 高风险待复现     | 待修复  |
+| R3-ISSUE-015 | P2         | Arquitetura de UI    | O RemoteWorkspaceController ainda não é um ponto de escrita único              | 已确认           | 已关闭  |
+| R3-ISSUE-016 | P2         | Projeção de UI       | O RemoteWorkspaceProjection não está totalmente conectado e projeta tabs locais por engano | 已确认 | 已关闭 |
+| R3-ISSUE-017 | P2         | UI Mobile            | O estado e o nome do cabeçalho do grupo de Sources no celular podem degradar e ficar distorcidos | 高风险待复现 | 待修复 |
+| R3-ISSUE-018 | P2         | Sistema de design    | A nova UI remota tem tamanhos arbitrários e alpha ad-hoc                       | 已确认           | 待验证  |
+| R3-ISSUE-019 | P2         | Documentação         | Arquitetura, planos, coverage e registros reais divergem de estado              | 已确认           | 修复中  |
+| R3-ISSUE-020 | P1         | Evidência de release | Registros históricos de máquina real não provam o HEAD atual                    | 已确认           | 待验证  |
+| R3-ISSUE-021 | P1         | Ciclo de vida        | A desconexão durante a gravação do handshake é descartada e a conexão morta é publicada como online | 已确认 | 已关闭 |
+| R3-ISSUE-022 | P1         | Release              | O archive remoto não tem o MCP runtime dos plugins android/ios                  | 已确认           | 已关闭  |
+| R3-ISSUE-023 | P1         | Recuperação          | Conexão manual bem-sucedida no estado de recuperação não emite reconnect e o Registry fica parado em recovering | 已确认 | 已关闭 |
+| R3-ISSUE-024 | P0         | WSL Transport        | No modo não `--exec` do `wsl.exe` o shell padrão expande as variáveis de comando antes da hora e o install do WSL reporta falsamente falta de tar | 已确认 | 待验证 |
+| R3-ISSUE-029 | P2         | Recuperação          | A substituição lógica em curso não preserva o reconnect seguinte e a convergência da conexão atual não é acionada | 已确认（condicional） | 待修复 |
+| R3-ISSUE-030 | P2         | Cancelamento do Provider | A espera pela atualização do Registry compartilhado não pode ser cancelada a tempo e o chamador de produção atual não passa signal | 已确认（condicional） | 待修复 |
+
+## Detalhes dos problemas
+
+A localização completa, os caminhos antigos e os registros de cada rodada dos itens fechados ficam em `git show a17a875588b8d66c2bee49236292e174df651363:docs/architecture/r3-source-server-remote-open-issues.md`; os resumos abaixo não elevam o nível de verificação original.
+
+### R3-ISSUE-001: o validador de release oficial ainda valida os remote assets antigos
+
+- Severidade: P0
+- Confiança: 已确认
+- Estado: 待验证
+- Fenômeno: a nova cadeia de build só gera `source-server-release.json` e quatro `zcode-server-*.tar.gz`, mas o `release:validate` oficial ainda exige `manifest-*.json` e `components/**`.
+- Impacto: um diretório de release limpo falha de forma estável; um diretório sujo pode passar a validação usando artefatos antigos, sem validar o Source Server archive realmente publicado nesta rodada.
+- Evidências:
+  - [`build:remote:assets`](../../.gitlab/ci/30-build.yml) em [`.gitlab/ci/30-build.yml`](../../.gitlab/ci/30-build.yml) coleta apenas o descriptor e os quatro archives;
+  - o contrato de upload de [`.gitlab/ci/50-release.yml`](../../.gitlab/ci/50-release.yml) inclui somente os novos artefatos;
+  - a função `validateRemoteAssets()` em [`scripts/validate-release-artifacts.mjs`](../../scripts/validate-release-artifacts.mjs) ainda reconhece apenas manifest/components legados;
+  - `gitlabCiBuildGraph.test.ts` e `validateReleaseArtifacts.test.ts` validam dois contratos mutuamente exclusivos, faltando um teste de integração ponta a ponta.
+- Condição de fechamento: o validador passa a validar estritamente a versão do descriptor, os quatro targets, o nome de arquivo, size, SHA-256, URL e o archive real; a saída de build passa diretamente pela validação oficial de release; resíduos antigos não afetam o resultado.
+
+#### Registro de correção 2026-09-13
+
+- Estado: 待验证
+- Commit de correção: os commits que contêm este registro em `feat/multi-device-remote-3-real-ssh-feature` (`fix(release): validate Source Server descriptor and archives`)
+- Causa raiz: as duas pontas (build e upload) já habían mudado para o contrato descriptor+archive, mas `validateRemoteAssets()` não foi sincronizada, e a troca em `build:remote:assets` removeu a limpeza dos artefatos antigos do diretório compartilhado. Reprodução: validar com o script real um diretório com "6 plataformas + descriptor + 4 archives" lança `missing remote manifest: manifest-darwin-arm64.json`; quando o diretório mantém o manifest antigo, basta corromper o archive — ou até remover o descriptor — para a validação passar.
+- Correção: `validateRemoteAssets()` passa a ser `validateSourceServerRelease()`, validando o `schemaVersion`, a versão, os quatro targets, `fileName`, `version`, `urls` (que devem conter caminhos relativos seguros apontando para o archive), `sizeBytes`, `sha256` do descriptor e o archive real, e falhando de forma fechada (fail-closed) na presença de `manifest-*.json` / `components/` residuais e de `zcode-server-*.tar.gz` não referenciados; `build:remote:assets` limpa os artefatos do diretório raiz sob sua responsabilidade antes de copiar; a descrição de validação em `docs/desktop-ci-cd.md` foi sincronizada.
+- Verificação automatizada: `packages/desktop/test/validateReleaseArtifacts.test.ts` foi reescrito para o novo layout (incluindo a constante de targets e a asserção de integração com `SOURCE_SERVER_RELEASE_TARGETS` de `@zcode/shared`); `gitlabCiBuildGraph.test.ts` ganhou as asserções "o conjunto de targets coletado pela CI == o conjunto esperado pelo validador" e "há limpeza antes da cópia".
+- Verificação de runtime: não executado em uma tag real / pipeline `ci*`; precisa ser confirmado na próxima simulação com `CI_RELEASE_BRANCH=1` antes do fechamento.
+- Riscos restantes: `scripts/upload-oss.sh` ainda mantém um ramo especial para `manifest-*.json` (código morto, não removido); com o validador rejeitando resíduos legados, se alguém colocar arquivos antigos manualmente no diretório compartilhado do runner, a validação será bloqueada — é preciso limpar o diretório e tentar de novo.
+
+### R3-ISSUE-002: o Preload perde o workspace scope
+
+- Severidade: P1
+- Confiança: 已确认
+- Estado: 已关闭
+- Fenômeno: o Main entrega `ScopedServicePort` com `workspacePath`, `workspaceIdentity` e `workspacePurpose`, mas o Preload, ao repassar, mantém apenas `attachmentId`, `sessionId`, `target` e `sourceServerId`.
+- Impacto: a remote session registrada pelo Renderer fica sem informações de workspace e purpose; ao entrar em uma Source conversation a partir de um projeto, pode não ser criada uma logical session independente, e a session do projeto original é reaproveitada (rebind) para o conversation backing workspace.
+- Evidências:
+  - o payload do Main em [`packages/desktop/src/main/desktopRemoteSessions.ts`](../../packages/desktop/src/main/desktopRemoteSessions.ts) contém o scope completo;
+  - [`packages/desktop/src/preload/index.ts`](../../packages/desktop/src/preload/index.ts) trunca os três campos acima;
+  - [`packages/desktop/src/renderer/src/remoteWorkspaceServicePortBridge.ts`](../../packages/desktop/src/renderer/src/remoteWorkspaceServicePortBridge.ts) já está preparado para analisar esses três campos;
+  - [`packages/ui/src/root/useRemoteWorkspaceHistory.ts`](../../packages/ui/src/root/useRemoteWorkspaceHistory.ts) depende do path/purpose da session para decidir se cria uma conversation session.
+- Condição de fechamento: Main, Preload e Renderer compartilham um schema estrito de payload; os três campos são preservados de ponta a ponta; um teste de integração prova que projeto e conversation usam logical sessions diferentes e não compartilham o mesmo `remoteSessionId`.
+- Progresso atual (2026-08-28):
+  - foi adicionado um schema estrito compartilhado de payload, consumido em conjunto por Main, Preload e Renderer; o Preload não reconstrói mais o payload por allowlist manual;
+  - testes focados cobrem o payload do Main, a passagem pelo listener real do Preload → parser do Renderer, o fail-closed na ausência de scope, o binding direto de session unbound e o uso de logical session independente de project → conversation;
+  - o caso pending de Electron com SSH real `conversation-session-ssh-remote-project-conversation-scope.test.ts` passou em `linux-amd64-dev`, provando que project/conversation usam `remoteSessionId` diferentes e reutilizam o mesmo Window Host; artefato: `desktop-e2e-20260828023242575-p87386-071a9e0ea38732ee`.
+  - o HEAD atual `86f5701e10` passou novamente pela reverificação de runtime com SSH real: handshake de `dev@localhost:2222` até o Source `32a10b89-141c-469b-aa97-850f41ab7deb`; o project `/home/dev` retorna `remoteSessionId=58423030-60c1-4dda-b21e-3c5254b7d08a` e o conversation `/home/dev/.zcode/workspace/default` retorna `remoteSessionId=a1188548-5cfe-4162-ae74-b4cf1315dd6f`. As duas stable identity são preservadas separadamente, o bind do conversation retorna explicitamente `workspacePurpose=conversation` e as duas solicitações de conexão completaram o Renderer attachment ready ACK.
 
-### R3-ISSUE-003：手机 attachment 可访问 Terminal RPC
+### R3-ISSUE-003: o attachment do celular pode acessar o Terminal RPC
 
-- 状态：已关闭
+- Estado: 已关闭
 
-#### 修复记录 2026-08-28
+#### Registro de correção 2026-08-28
 
-- 状态：已关闭
-- 根因：Window Host 把完整 `ServiceCollection` 当成 attachment 授权，只用 denylist 排除 Source Management；`ITerminalService` 因而被注册到 `web-remote-replayable` 的 `ChannelServer`。
-- 修复：`ServiceCollection.exposeOnChannelServer()` 改为显式 allowlist policy；Window Host 为 mobile attachment 维护独立已审阅 channel 合同，明确不包含 Terminal 和 Source Management，未审阅的新 channel 默认 fail-closed；Desktop attachment 保持完整服务面。
-- 验证：mobile 内存 RPC 调用 Terminal 返回 Unknown，且底层 `terminal.create` 未执行；Desktop Terminal RPC 仍成功；相关 5 个测试文件 18 项通过；`pnpm typecheck` 与 `pnpm lint` 通过。
-- 本轮真实 SSH 复验按用户要求不包含手机端，未新增手机实机证据。
+- Estado: 已关闭
+- Causa raiz: o Window Host tratava o `ServiceCollection` completo como autorização de attachment, usando apenas uma denylist para excluir o Source Management; com isso, `ITerminalService` era registrado no `ChannelServer` do `web-remote-replayable`.
+- Correção: `ServiceCollection.exposeOnChannelServer()` passa a usar uma política de allowlist explícita; o Window Host mantém, para o attachment mobile, um contrato de channel revisado à parte, que não inclui Terminal nem Source Management, e channels novos não revisados ficam fail-closed por padrão; o attachment do Desktop mantém a superfície completa de serviços.
+- Verificação: a chamada de Terminal via RPC em memória do mobile retorna Unknown e o `terminal.create` de baixo nível não é executado; o Terminal RPC do Desktop continua com sucesso; 18 itens dos 5 arquivos de teste relacionados passaram; `pnpm typecheck` e `pnpm lint` passaram.
+- A reverificação real desta rodada via SSH não incluiu o lado do celular, por solicitação do usuário, e não houve nova evidência de celular em máquina real.
 
-### R3-ISSUE-004：retrying 时显式断开不能收口
+### R3-ISSUE-004: desconexão explícita durante retrying não converge
 
-- 状态：已关闭
+- Estado: 已关闭
 
-#### 修复记录 2026-08-28
+#### Registro de correção 2026-08-28
 
-- 根因：`disconnect()` 把 online 物理 owner 误当成 Source 生命周期是否存在的判据；意外断线已经摘除该 owner，因此显式断开只清理恢复 timer 后提前返回。已经启动的恢复 flight 也没有 Source 级取消 owner，迟到成功仍可重新发布 online。
-- 修复：显式断开先捕获 Source 的全部 Profile，再清理恢复状态并统一发布 offline；已识别 Source 的 connect flight 持有可取消 owner，disconnect 会使旧 flight 失效，异步边界在发布状态前检查取消信号，迟到连接只释放、不发布 online 或 reconnect event。
-- 验证：Manager focused tests 24 项通过，覆盖多 Profile retrying-disconnect、取消全部 timer/probe 和 in-flight 迟到成功；Registry、Main、Renderer 三条终态 focused tests 通过；真实定时器最小复现保持 offline、无恢复次数且没有新增连接；全量 unit 1496 个文件、13247 项通过；`pnpm typecheck`、`pnpm lint` 与 `pnpm verify:pre-push` 通过。
-- 当前 HEAD `86f5701e10` 通过真实 SSH/进程故障注入复验：停止专用 `zcode-ssh-linux-amd64` 容器后，Source 从“已连接”进入“连接中”；在 mounted `SourceServerManagementPanel` 使用的真实 `ISourceServerManagementService` 上调用 `disconnectSource(sourceServerId)`，Host 日志记录 `source-server-management.disconnectSource OK (3.1ms)`，状态立即变为“未连接”。恢复容器并等待 6 秒后仍保持“未连接”，没有迟到 reconnect 复活；测试后容器、daemon 与 Desktop 均已恢复在线。
-- 交互边界：设置页和 Sidebar 当前只在 aggregated status 为 online 时展示“断开”，retrying/connecting 时没有可点击的用户入口。因此本轮证明的是生产 Renderer → MessagePort RPC → Host → Manager 的运行时合同，不是纯 UI 点击路径；若产品要求用户在恢复中主动取消，需要另补交互入口或调整按钮可见性。
+- Causa raiz: `disconnect()` tratava o owner físico online como critério de existência do ciclo de vida do Source; como uma desconexão inesperada já havia removido esse owner, a desconexão explícita apenas limpava o timer de recuperação e retornava cedo. O flight de recuperação já iniciado também não tinha um owner de cancelamento no nível do Source, de modo que um sucesso tardio ainda podia republicar online.
+- Correção: a desconexão explícita captura primeiro todos os Profiles do Source, depois limpa o estado de recuperação e publica offline de forma unificada; os connect flights de Sources já identificados mantêm um owner cancelável, e o disconnect invalida o flight antigo; as fronteiras assíncronas verificam o sinal de cancelamento antes de publicar estado, e uma conexão tardia apenas libera recursos, sem publicar online nem evento de reconnect.
+- Verificação: 24 testes focados do Manager passaram, cobrindo retrying-disconnect com múltiplos Profiles, cancelamento de todos os timers/probes e sucesso tardio em voo; os testes focados de estado terminal do Registry, Main e Renderer passaram; a reprodução mínima com temporizador real permaneceu offline, sem contagem de recuperação e sem nova conexão; a suíte unitária completa passou com 1496 arquivos e 13247 itens; `pnpm typecheck`, `pnpm lint` e `pnpm verify:pre-push` passaram.
+- O HEAD atual `86f5701e10` passou pela reverificação real via SSH com injeção de falha de processo: ao parar o container dedicado `zcode-ssh-linux-amd64`, o Source saiu de "已连接" para "连接中"; chamando `disconnectSource(sourceServerId)` no `ISourceServerManagementService` real, usado no `SourceServerManagementPanel` montado, o log do Host registrou `source-server-management.disconnectSource OK (3.1ms)` e o estado mudou imediatamente para "未连接". Após restaurar o container e esperar 6 segundos, o estado continuou "未连接", sem revive de reconnect tardio; ao final do teste, container, daemon e Desktop voltaram a estar online.
+- Limite de interação: a página de configurações e a Sidebar hoje só exibem "断开" quando o status agregado é online; nos estados retrying/connecting não existe entrada clicável para o usuário. Portanto, esta rodada prova o contrato de runtime Renderer → MessagePort RPC → Host → Manager, e não um caminho puramente de clique na UI; se o produto exigir que o usuário cancele ativamente durante a recuperação, é preciso adicionar uma entrada de interação ou ajustar a visibilidade do botão.
 
-### R3-ISSUE-005：同一 Source 的不同 Profile 可能产生两个 logical owner
+### R3-ISSUE-005: Profiles diferentes do mesmo Source podem gerar dois logical owner
 
-- 状态：已关闭
+- Estado: 已关闭
 
-#### 修复记录 2026-08-28
+#### Registro de correção 2026-08-28
 
-- 根因：Registry 把 SSH/WSL/Docker route key 同时当成握手前 lookup key 和握手后的最终 owner key；Manager 已按 `sourceServerId` 复用物理连接后，不同 Profile 的 entry 仍会分别发布 online，workspace join 又只检查同一个 entry。
-- 修复：Registry 在握手后以 `sourceServerId` 原子 claim canonical Source entry；竞争失败的 route entry 把 pending logical session 转交给 canonical owner，只回收 wrapper/订阅并保留 route alias。recovering Source 经另一 Profile 获得新 handle 时，在同一 canonical entry 上换代 handle、active target、`remoteSessionId` 与 generation，不创建第二个 owner。
-- 验证：新增同 workspace、不同 workspace、反序并发握手、跨 Profile recovery takeover 和 Main canonical target join 测试；相关 5 个测试文件 103 项通过；`pnpm typecheck`、`pnpm lint` 通过；最小运行时回放从 `connectionCount=2/logicalSessionCount=2` 收敛为 `1/1`，两次请求返回同一 `remoteSessionId`，`findSessionForWorkspace()` 唯一命中。
-- 当前 HEAD `86f5701e10` 通过真实双 Profile SSH 复验：Profile A `dev@localhost:2222` 与 Profile B `dev@127.0.0.1:2222` 握手后均归属 Source `32a10b89-141c-469b-aa97-850f41ab7deb`；两条 route 打开 `/home/dev` 均返回 `remoteSessionId=58423030-60c1-4dda-b21e-3c5254b7d08a`。第二 route 完成后 Host topology 仍为 `connections=1, logicalSessions=2`，其中两个 logical session 分别对应 project 与 conversation，没有生成第二个 project owner。
+- Causa raiz: o Registry usava a route key de SSH/WSL/Docker simultaneamente como chave de lookup antes do handshake e como chave final de owner após o handshake; depois que o Manager passou a reutilizar a conexão física por `sourceServerId`, as entries de Profiles diferentes ainda eram publicadas individualmente como online, e o workspace join verificava apenas a mesma entry.
+- Correção: após o handshake, o Registry faz o claim atômico da entry canônica do Source por `sourceServerId`; a route entry que perde a concorrência transfere a pending logical session para o owner canônico, recuperando apenas wrapper/assinaturas e preservando o alias de rota. Quando um Source em recuperação obtém um novo handle por outro Profile, o handle, o target ativo, o `remoteSessionId` e a generation são trocados na mesma entry canônica, sem criar um segundo owner.
+- Verificação: novos testes de handshake concorrente no mesmo workspace, em workspaces diferentes, em ordem inversa, de takeover de recuperação entre Profiles e de join do target canônico no Main; 103 itens dos 5 arquivos de teste relacionados passaram; `pnpm typecheck` e `pnpm lint` passaram; a reprodução mínima de runtime convergiu de `connectionCount=2/logicalSessionCount=2` para `1/1`, as duas solicitações retornaram o mesmo `remoteSessionId` e `findSessionForWorkspace()` teve um único acerto.
+- O HEAD atual `86f5701e10` passou pela reverificação real com dois Profiles via SSH: o Profile A `dev@localhost:2222` e o Profile B `dev@127.0.0.1:2222`, após o handshake, pertencem ambos ao Source `32a10b89-141c-469b-aa97-850f41ab7deb`; as duas rotas abrindo `/home/dev` retornam ambas `remoteSessionId=58423030-60c1-4dda-b21e-3c5254b7d08a`. Após a segunda rota, a topologia do Host continua `connections=1, logicalSessions=2`, sendo que as duas logical sessions correspondem a project e a conversation, sem gerar um segundo owner de project.
 
-#### 补充修复记录 2026-09-13（review finding RV-P1-3）
+#### Registro de correção complementar 2026-09-13 (finding de revisão RV-P1-3)
 
-- 现象：Registry `connect()` 命中已在线 Source entry 时直接拿到 `sourceServerId`，却不把 workspace identity 归一成 `remote:server:*`；调用方带 legacy route identity（Renderer 对未换代条目手动重连，或 Host 为无 context 的 connect 补 route identity）时，owner 去重按原值比对不命中，同一 workspace 发布第二个 online logical session，`connect()` 还把 legacy identity 当权威值返回。main 在 bind 时归一后两条 session 同 key，`findSessionForWorkspace()` 抛“匹配到多个 logical session”，Controller `resolveSource` 与 Automation 目标解析随之失败。
-- 根因：同一条“Source 身份已知后 identity 只能是 stable”的规则在握手上线、Source owner 转交、`bindWorkspaceContext` 三处各写一份，在线 entry 直接 join 这第四处漏掉。启动自动重连只接受 stable 条目，因此端到端触发窄，但 Host 不变量确定被违反。
-- 修复：Registry 抽出 `applyStableWorkspaceIdentity()`，握手上线、owner 转交与在线 entry join 三条路径统一调用；`connect()` 在 `sourceServerId` 已知时先归一再参与 owner 匹配与返回。
-- 验证：`windowRemoteConnectionRegistry.test.ts` 新增“在线 Source 上以 legacy identity join 时复用唯一 owner 并返回 stable identity”“在线 Source 上以 legacy identity 打开新 workspace 时立即归一为 stable identity”，修复前失败、修复后 44 项通过；相邻 Host 远程连接测试、`pnpm architecture:check --changed`、`pnpm typecheck`、`pnpm lint` 结果见提交说明。
+- Fenômeno: quando o `connect()` do Registry acerta uma entry de Source já online, ele obtém direto o `sourceServerId` mas não normaliza a workspace identity para `remote:server:*`; quando o chamador traz a route identity legada (o Renderer reconecta manualmente entradas não trocadas, ou o Host completa a route identity para um connect sem context), a deduplicação de owner compara pelo valor original e não acerta, o mesmo workspace publica um segundo online logical session e o `connect()` ainda devolve a identity legada como valor autoritativo. Com a normalização no bind, o main deixa as duas sessions com a mesma key, `findSessionForWorkspace()` lança "匹配到多个 logical session" e o `resolveSource` do Controller e a resolução de alvo da Automação passam a falhar.
+- Causa raiz: a mesma regra "depois que a identidade do Source é conhecida, a identity só pode ser stable" foi escrita em três lugares — publicação no handshake, transferência de owner e `bindWorkspaceContext` — e o join direto da entry online, que é a quarta ocorrência, ficou de fora. Como a reconexão automática no startup só aceita entradas stable, o acionamento ponta a ponta é estreito, mas a invariante do Host é violada de forma determinística.
+- Correção: o Registry extrai `applyStableWorkspaceIdentity()`, chamado de forma unificada pelas três caminhos (publicação no handshake, transferência de owner e join de entry online); o `connect()` normaliza antes de participar da correspondência de owner e da devolução quando o `sourceServerId` já é conhecido.
+- Verificação: `windowRemoteConnectionRegistry.test.ts` ganhou os casos "join com legacy identity em Source online reutiliza o owner único e devolve a stable identity" e "abrir novo workspace com legacy identity em Source online normaliza imediatamente para stable identity", que falhavam antes da correção e, depois, 44 itens passaram; os testes adjacentes de conexão remota do Host, `pnpm architecture:check --changed`, `pnpm typecheck` e `pnpm lint` têm os resultados na descrição do commit.
 
-### R3-ISSUE-006：删除 Profile 后 Manager 仍可能使用旧线路重连
+### R3-ISSUE-006: após excluir um Profile, o Manager ainda pode reconectar usando a linha antiga
 
-- 状态：已关闭
-
-#### 修复记录 2026-08-28
-
-- 产品语义：删除当前 physical/recovery/connecting Profile 等价于显式断开整个 Source；剩余 Profile 只保留为可手动连接线路，不参与自动接管。
-- 根因：旧 `forgetProfile()` 只删除展示状态和部分索引，没有删除 `OnlineConnection.profileIds`、Source 级 `reconnectInputs`、timer/flight 及其中已解析的 target/secret；删除后旧恢复 owner 仍能进入 transport。
-- 修复：Manager 以 `removeProfile()` 统一处理 Profile 生命周期。删除当前 owner 时先取消 timer/flight、摘除 online/recovery owner，再发布 `profile-removed` terminal invalidation、释放 transport，并只把剩余已知 Profile 置为 offline；删除非当前 Profile 只清理自身。未识别和已识别的连接 flight 都持有可取消 owner，迟到异步结果不会重新发布被删 Profile。
-- 验证：Manager、Management Service、Directory 与 Window Registry 四个 focused test 文件共 115 项通过，覆盖 online、retrying、未识别/已识别 in-flight、非当前 Profile 和持久化失败；`pnpm verify:pre-push` 因 upstream affected 分析遇到已删除文件自动升级全量 unit，1496 个文件、13258 项通过，`pnpm typecheck`、`pnpm lint` 通过。真实生产类运行时回放中，删除当前 SSH Profile 后 Source 为 terminal offline、剩余 Profile 为 offline，等待首个 2 秒恢复窗口后旧 host 没有新增 probe，自动重连次数为 0。
-- 当前提交 `6a1de7485c` 完成真实 Electron + SSH `linux-amd64-dev` 复验：`pnpm bootstrap:with-remote` 构建并上传 3.9.1 linux-x64 archive，Desktop 经 `dev@localhost:2222` 连接 Source `32a10b89-141c-469b-aa97-850f41ab7deb`；另建 `dev@127.0.0.1:2222` Profile、显式断开后以该 Profile 建立当前物理连接，同时保留 `localhost` 与 `linux-amd64-dev` 两条可用 Profile。设置页确认删除当前 `127.0.0.1` Profile 后，Host 记录 `source-server-management.removeProfile OK (20.3ms)`，Source 立即显示“未连接”，被删 Profile 与凭据引用从 Directory 消失，剩余线路保持 offline。自 14:51:33 删除至 14:53:49 Desktop 停止的 136 秒观察窗口内没有新的 `connecting window-scoped remote source`、`remote-connected`、retry 或 reconnect 记录，完整跨过 2/4/8 秒恢复和 2 分钟 offline probe 边界，证明没有旧线路重试或其他线路自动接管。测试新增 Profile 已清理，Desktop 已停止，Source 恢复到测试前的离线状态。
+- Estado: 已关闭
 
-### R3-ISSUE-007：自动恢复遇到用户动作状态仍继续重试
+#### Registro de correção 2026-08-28
 
-- 状态：已关闭
+- Semântica de produto: excluir o Profile físico/de recuperação/conectando atual equivale a desconectar explicitamente todo o Source; os Profiles restantes são mantidos apenas como linhas conectáveis manualmente e não participam de takeover automático.
+- Causa raiz: o antigo `forgetProfile()` removia apenas o estado de exibição e parte dos índices, sem remover `OnlineConnection.profileIds`, o `reconnectInputs` de nível Source, timers/flights e neles os target/secret já resolvidos; depois da exclusão, o antigo owner de recuperação ainda conseguia entrar no transport.
+- Correção: o Manager passa a tratar o ciclo de vida de Profile de forma unificada em `removeProfile()`. Ao excluir o owner atual, cancela primeiro timer/flight, remove o owner online/de recuperação, publica a invalidação terminal `profile-removed`, libera o transport e marca apenas os Profiles conhecidos restantes como offline; ao excluir um Profile que não é o atual, limpa apenas a si mesmo. Os connect flights, tanto não identificados quanto identificados, mantêm um owner cancelável, e resultados assíncronos tardios não republicam o Profile excluído.
+- Verificação: 115 itens nos quatro arquivos de teste focados de Manager, Management Service, Directory e Window Registry passaram, cobrindo online, retrying, in-flight não identificado/identificado, Profile não atual e falha de persistência; `pnpm verify:pre-push` promoveu automaticamente para a suíte unitária completa por causa de arquivos já deletados no branch, com 1496 arquivos e 13258 itens passando, e `pnpm typecheck` e `pnpm lint` passaram. Na reprodução de runtime com as classes reais de produção, após excluir o Profile SSH atual o Source ficou em terminal offline e os Profiles restantes em offline; após esperar a primeira janela de recuperação de 2 segundos, o host antigo não registrou novo probe e o número de reconexões automáticas foi 0.
+- O commit atual `6a1de7485c` concluiu a reverificação real com Electron + SSH `linux-amd64-dev`: `pnpm bootstrap:with-remote` constrói e sobe o archive 3.9.1 linux-x64, e o Desktop conecta via `dev@localhost:2222` ao Source `32a10b89-141c-469b-aa97-850f41ab7deb`; foi criado também o Profile `dev@127.0.0.1:2222`, desconectado explicitamente para estabelecer a conexão física atual com esse Profile, mantendo as linhas `localhost` e `linux-amd64-dev` disponíveis. Após confirmar na página de configurações a exclusão do Profile `127.0.0.1` atual, o Host registrou `source-server-management.removeProfile OK (20.3ms)`, o Source exibiu imediatamente "未连接", o Profile excluído e as referências de credencial sumiram do Directory e as linhas restantes permaneceram offline. Na janela de observação de 136 segundos, da exclusão às 14:51:33 até o Desktop parar às 14:53:49, não houve novos registros de `connecting window-scoped remote source`, `remote-connected`, retry ou reconnect, atravessando por completo as fronteiras de recuperação de 2/4/8 segundos e de probe offline de 2 minutos, o que prova que não houve retry da linha antiga nem takeover automático de outra linha. O Profile de teste foi removido, o Desktop foi parado e o Source retornou ao estado offline anterior ao teste.
 
-#### 修复记录 2026-08-28
+### R3-ISSUE-007: a recuperação automática continua tentando mesmo em estado de ação do usuário
 
-- 根因：retry 与 offline probe 各自维护终止条件，且只硬编码识别 `SourceServerUpgradeRequiredError`；`connectOnce()` 已发布的 install/identity/non-retryable 终态随后又被调度器覆盖。Host 同时只转发 `retrying/offline`，pending 状态无法让 logical recovery 收口。
-- 修复：Manager 在更新断连、2/4/8 秒 retry 和 2 分钟 probe 三个入口统一按公开错误码、原始 `retryable` 与 recovery owner 状态终止自动路径；owner 保留 actionable 状态，sibling Profile 收口为 terminal offline。Host 复用纯 recovery policy，把 pending 与 `failed + retryable:false` 转为既有 `recoverable:false` close，不修改 Registry、relay、main 或 realtime delivery 合同。
-- 验证：Manager、recovery policy、Window Registry 与 Directory 四个 focused test 文件共 110 项通过，覆盖 install/upgrade/identity、普通 `retryable:false`、offline probe、更新断连、同 Source 多 Profile、瞬态预算和手动恢复；fake timer 运行时回放跨过 4/8 秒及 2 分钟边界后没有新增 probe。`pnpm typecheck`、`pnpm lint` 以及新增 policy/test 与本 issue 文档的 `oxfmt --check` 通过；lint 仅报告仓库既有 warning。
-- 实机验证：当前修复提交 `9b56031ac2` 执行 `pnpm bootstrap:with-remote` 与真实 Electron `pnpm dev:desktop`，通过 CDP 9229 将 SSH `linux-amd64-dev`（Ubuntu x64、用户 `dev`）连接到 Source `32a10b89-141c-469b-aa97-850f41ab7deb`。15:49:40 UTC 临时移走 `/home/dev/.zcode/server/bin/zcode` 并由备份 launcher 正常停止 daemon；约 2 秒后 UI 从首次 recovery 直接收口为“未连接 / 远端已卸载 ZCode Server”，3 个项目历史保留。176 秒观察窗口完整跨过 2/4/8 秒和 2 分钟 probe 边界，UI 未进入 2/3、3/3 或 offline probe，Host 在首次 recoverable close 后只再发布一次 terminal close，日志没有新的 connect、remote-connected、upload 或 recovery-budget 记录，远端始终保持 `stopped`。恢复 launcher 后等待 8 秒仍未自动复活；用户显式点击“重新安装并连接”后于 15:55:03 恢复 online，Desktop 退出后远端保持 3.9.1 `ready`，临时备份已清除。截图证据位于 `packages/desktop/.e2e-artifacts/r3-issue-007-live-20260828-9b56031a/`。
-- 实机覆盖边界：本次确认 SSH install-required、Desktop continuous logical terminal 与显式恢复；identity-change、普通 `retryable:false` 和 Mobile replayable 仍由 focused state matrix 覆盖，未以修改共享 installation identity 或未建立的手机配对环境伪报实测。
+- Estado: 已关闭
 
-### R3-ISSUE-008：启动自动重连偏好被完整 AppSettings schema 丢弃
+#### Registro de correção 2026-08-28
 
-- 状态：已关闭
+- Causa raiz: o retry e o offline probe mantinham condições de término separadas e só reconheciam de forma hardcoded `SourceServerUpgradeRequiredError`; os estados terminais install/identity/non-retryable publicados por `connectOnce()` eram depois sobrescritos pelo agendador. O Host só encaminhava `retrying/offline`, de modo que o estado pending não permitia que a logical recovery convergisse.
+- Correção: o Manager termina o caminho automático de forma unificada nos três pontos de entrada — atualização de desconexão, retry de 2/4/8 segundos e probe de 2 minutos — usando o código de erro público, o `retryable` original e o estado do recovery owner; o owner mantém um estado acionável e o Profile irmão converge para terminal offline. O Host reutiliza a policy de recovery pura, convertendo pending e `failed + retryable:false` no close já existente `recoverable:false`, sem modificar os contratos de Registry, relay, main ou realtime delivery.
+- Verificação: 110 itens nos quatro arquivos de teste focados de Manager, recovery policy, Window Registry e Directory passaram, cobrindo install/upgrade/identity, `retryable:false` comum, offline probe, atualização de desconexão, múltiplos Profiles do mesmo Source, orçamento transitório e recuperação manual; a reprodução de runtime com fake timer, ao cruzar as fronteiras de 4/8 segundos e de 2 minutos, não gerou novo probe. `pnpm typecheck`, `pnpm lint` e o `oxfmt --check` da nova policy/test e deste documento de issue passaram; o lint só reportou warnings já existentes no repositório.
+- Verificação em máquina real: o commit de correção atual `9b56031ac2` executou `pnpm bootstrap:with-remote` e o Electron real `pnpm dev:desktop`, conectando via CDP 9229 o SSH `linux-amd64-dev` (Ubuntu x64, usuário `dev`) ao Source `32a10b89-141c-469b-aa97-850f41ab7deb`. Às 15:49:40 UTC, `/home/dev/.zcode/server/bin/zcode` foi temporariamente removido e o daemon parado de forma normal pelo launcher de backup; cerca de 2 segundos depois a UI convergiu da primeira recovery diretamente para "未连接 / 远端已卸载 ZCode Server", com os 3 históricos de projeto preservados. A janela de observação de 176 segundos atravessou por completo as fronteiras de 2/4/8 segundos e de probe de 2 minutos; a UI não entrou em 2/3, 3/3 nem no offline probe, o Host publicou apenas mais um terminal close após o primeiro recoverable close e o log não teve novos registros de connect, remote-connected, upload ou recovery-budget, mantendo o remoto sempre `stopped`. Após restaurar o launcher e esperar 8 segundos, não houve ressurreição automática; o usuário clicou explicitamente em "重新安装并连接" e às 15:55:03 o estado voltou a online, permanecendo `ready` na versão 3.9.1 depois que o Desktop saiu, e o backup temporário foi removido. As evidências em screenshot estão em `packages/desktop/.e2e-artifacts/r3-issue-007-live-20260828-9b56031a/`.
+- Limite de cobertura em máquina real: desta vez foram confirmados o install-required via SSH, o terminal lógico Desktop continuous e a recuperação explícita; identity-change, `retryable:false` comum e o Mobile replayable continuam cobertos pela matriz de estados focada, sem se reportar medição real usando modificação da installation identity compartilhada ou um ambiente de pareamento mobile não estabelecido.
 
-#### 修复记录 2026-08-28
+### R3-ISSUE-008: a preferência de reconexão automática no startup é descartada pelo schema completo de AppSettings
 
-- 根因：`remoteStartupAutoReconnectEnabled` 只进入 patch schema，SettingService 合并补丁后再次执行完整 AppSettings schema 时会在写盘前剥离显式 `false`；Host 门禁本身已经存在，原台账“Host 未读取”的判断已更正。
-- 修复：完整 schema 增加可选布尔字段，保持旧配置缺字段即开启且不触发迁移；按产品决策从 AppSettings、patch、设置页、i18n 与 SSH 表单预填链删除全局 `remoteDefaultAssetInstallMode`。线路级 `assetInstallMode`、Profile 持久化与 release resolver 不变；新建连接弹窗每次打开固定重置为 `local-download-upload`，避免形成隐藏的“上次选择”偏好。
-- 验证：6 个 focused test 文件 68 项通过，覆盖 schema full/patch、SettingService 跨实例重建、Host `false/true/undefined` 三态门禁、设置页只保留启动开关、i18n 删除与新建表单 reopen 重置；全量 `pnpm test:unit` 为 1497 files / 13271 tests 通过（另 1 file / 11 tests skipped），`pnpm typecheck` 通过，`pnpm lint` 0 error（仅仓库既有 warning）。
-- 进程级验证：两个独立 Node/tsx 进程依次执行“SettingService 写入 false”与“新进程重读后调用 `runStartupReconnectBatch`”，观察到 `readAfterProcessRestart=false`、候选枚举 0 次、reconnect 0 次、结果 `[]`，证明持久化事实先于 Host recovery 生效。
-- 实机验证：在提交 `645958b80b` 执行 `pnpm bootstrap:with-remote` 与真实 Electron `pnpm dev:desktop`，通过 CDP 9229 操作 SSH `linux-amd64-dev`（Ubuntu x64、`dev@localhost:2222`）。首次显式连接完成 74.2 MB Source Server archive 上传并安装/握手 3.9.1，Source `32a10b89-141c-469b-aa97-850f41ab7deb` 显示“已连接”；设置页只显示“启动时自动重连”，不再出现全局“默认资源下载方式”，新建 SSH 线路的高级选项仍显示“本地下载后上传 / 远端服务器下载”且默认前者，已保存 Profile 的 `remote-download` 保持。关闭开关并重启后，16:47:02 Host 记录 `Source Server startup reconnect finished, online=0, failed=0`，页面保持“未连接”；16:47:54 用户显式点击连接后恢复为“已连接”，证明手动路径不受门禁。重新开启并再次重启后，16:48:57 Host 记录 `online=1, failed=0`，无需用户动作恢复在线；对应截图位于 `packages/desktop/.e2e-artifacts/r3-issue-008-live-20260828-645958b8/`。测试结束后停止 Dev Desktop，并用测试前 SHA-256 备份恢复本机 `setting.json` 与 `credentials.json`；原始未配置开关、4 条 Profile、6 条历史均恢复。
+- Estado: 已关闭
 
-### R3-ISSUE-009：手机 bridge 重建预算耗尽后没有明确终态
+#### Registro de correção 2026-08-28
 
-- 状态：已关闭
+- Causa raiz: `remoteStartupAutoReconnectEnabled` entrava apenas no patch schema; ao aplicar o patch, o SettingService executava novamente o schema completo de AppSettings e removia o `false` explícito antes de gravar em disco. O gate do Host já existia, e o julgamento original do registro ("o Host não lê") foi corrigido.
+- Correção: o schema completo passa a ter um campo booleano opcional, mantendo o comportamento de configs antigas (campo ausente significa habilitado) sem disparar migração; por decisão de produto, o `remoteDefaultAssetInstallMode` global é removido de AppSettings, do patch, da página de configurações, do i18n e da cadeia de pré-preenchimento do formulário SSH. O `assetInstallMode` por linha, a persistência de Profile e o release resolver permanecem inalterados; o diálogo de nova conexão é redefinido a cada abertura para `local-download-upload`, evitando formar uma preferência oculta de "última escolha".
+- Verificação: 68 itens em 6 arquivos de teste focados passaram, cobrindo schema full/patch, reconstrução do SettingService entre instâncias, o gate do Host nos três estados `false/true/undefined`, a página de configurações mantendo apenas o switch de startup, a remoção do i18n e o reset na reabertura do novo formulário; a suíte completa `pnpm test:unit` passou com 1497 files / 13271 tests (mais 1 file / 11 tests skipped), `pnpm typecheck` passou e `pnpm lint` teve 0 error (apenas warnings já existentes no repositório).
+- Verificação em nível de processo: dois processos Node/tsx independentes executaram em sequência "SettingService grava false" e "novo processo relê e chama `runStartupReconnectBatch`", observando `readAfterProcessRestart=false`, enumeração de candidatos 0 vezes, 0 reconnects e resultado `[]`, provando que o fato persistido prevalece sobre o recovery do Host.
+- Verificação em máquina real: no commit `645958b80b` foram executados `pnpm bootstrap:with-remote` e o Electron real `pnpm dev:desktop`, operados via CDP 9229 no SSH `linux-amd64-dev` (Ubuntu x64, `dev@localhost:2222`). A primeira conexão explícita concluiu o upload de um Source Server archive de 74.2 MB e a instalação/handshake da 3.9.1, e o Source `32a10b89-141c-469b-aa97-850f41ab7deb` exibiu "已连接"; a página de configurações passou a mostrar apenas "启动时自动重连", sem o "默认资源下载方式" global, e as opções avançadas da nova linha SSH continuaram exibindo "本地下载后上传 / 远端服务器下载" com a primeira como padrão, mantendo o `remote-download` do Profile já salvo. Após desligar o switch e reiniciar, às 16:47:02 o Host registrou `Source Server startup reconnect finished, online=0, failed=0` e a página permaneceu "未连接"; às 16:47:54 o usuário clicou explicitamente em conectar e o estado voltou a "已连接", provando que o caminho manual não é afetado pelo gate. Ao religar e reiniciar novamente, às 16:48:57 o Host registrou `online=1, failed=0`, voltando a online sem ação do usuário; os screenshots correspondentes estão em `packages/desktop/.e2e-artifacts/r3-issue-008-live-20260828-645958b8/`. Ao final do teste o Dev Desktop foi parado e o `setting.json` e `credentials.json` locais foram restaurados a partir do backup SHA-256 anterior ao teste; o switch não configurado original, as 4 Profiles e os 6 históricos foram restaurados.
 
-#### 修复记录 2026-08-28
+### R3-ISSUE-009: não há estado terminal claro depois de esgotado o orçamento de reconstrução do bridge mobile
 
-- 根因：`scheduleBridgeRecoveryRetry()` 把有界退避返回的 `null` 当成静默停止，没有把“恢复预算耗尽”转换为终态；此时 Desktop 已释放旧 attachment，手机端却仍保留 degraded protocol、service registration 与旧 React Root。
-- 修复：预算耗尽后复用既有 `renderBootstrapFailure()` 终态边界，发布 `connection-recovery-timeout`，依次销毁 service registration、protocol、requester 与 terminal transport，并渲染带整页重试入口的错误页。正常恢复、1s/2s/5s 预算、同 flight `recoveryId` 和逐次换代的 bridge generation 保持不变。
-- 验证：外部 relay 入口集成测试真实驱动 initial bridge、hard degrade、连续四次 bridge-open 失败和 1s/2s/5s fake timer，确认终态错误页、远程 session registration 清理、protocol/transport 释放、预算耗尽后不再发送 open，以及手动 reload；相关 4 个测试文件 12 项通过，`pnpm typecheck` 通过，`pnpm lint` 0 error（仅仓库既有 warning）。
+- Estado: 已关闭
 
-### R3-ISSUE-010：Source Settings 旧端口迟到关闭可能删除新一代服务
+#### Registro de correção 2026-08-28
 
-- 状态：已关闭
+- Causa raiz: `scheduleBridgeRecoveryRetry()` tratava o `null` devolvido pelo backoff limitado como uma parada silenciosa, sem converter "orçamento de recuperação esgotado" em um estado terminal; nesse momento o Desktop já havia liberado o attachment antigo, mas o celular ainda mantinha o protocolo degradado, o registro de serviços e o React Root antigo.
+- Correção: depois de esgotado o orçamento, reutiliza-se a fronteira de estado terminal existente `renderBootstrapFailure()`, publicando `connection-recovery-timeout` e destruindo, em sequência, o registro de serviços, o protocolo, o requester e o terminal transport, para então renderizar uma página de erro com entrada de retry em tela cheia. A recuperação normal, os orçamentos de 1s/2s/5s, o `recoveryId` do mesmo flight e a troca de geração do bridge permanecem inalterados.
+- Verificação: o teste de integração da entrada do relay externo realmente conduz o bridge inicial, o hard degrade, quatro falhas consecutivas de abertura de bridge e o fake timer de 1s/2s/5s, confirmando a página de erro terminal, a limpeza do registro da remote session, a liberação de protocolo/transport, a ausência de novos envios de open após o esgotamento do orçamento e o reload manual; 12 itens dos 4 arquivos de teste relacionados passaram, `pnpm typecheck` passou e `pnpm lint` teve 0 error (apenas warnings já existentes no repositório).
 
-#### 修复记录 2026-08-28
+### R3-ISSUE-010: o fechamento tardio da porta antiga de Source Settings pode remover o serviço da nova geração
 
-- 根因：Renderer store 只以 `sourceServerId` 保存裸 `IServiceAccessor`，port close 也只按该 ID 删除；Port B 覆盖 Port A 后，A 的迟到 close 因而会删除当前 B。bridge 同时使用只返回 services 的 `connectViaMessagePort()`，丢失了主动释放旧 connection 所需的生命周期句柄。
-- 修复：store 注册项携带 attachment identity、services 与 disposer，并以 entry 对象作为 owner token；注册 B 时先把 B 设为当前 owner，再主动 dispose A。每次注册返回绑定自身 entry 的 release，close 只有在该 entry 仍是当前 owner 时才删除。Renderer bridge 改用 `createMessagePortServiceConnection()` 保留幂等 disposer，复用既有 `attachmentId` 注册并在 port close 时调用 owner-aware release。
-- 验证：新增 store owner 与真实 MessageChannel bridge 回归测试，覆盖 A→B→A-close 后 B 保持可用、替换主动 dispose A、B close 才删除及重复 release 幂等；相关 4 个 focused 文件 14 项通过，`pnpm typecheck` 通过，`pnpm lint` 0 error（仅仓库既有 warning）。`pnpm verify:pre-push` 因分支已有删除文件自动升级全量 unit，1496 个文件、13269 项通过，另有 3 个无关文件 5 项在高并发下超时；三文件单独复跑 35 项全部通过。
-- 实机验证：提交 `d8a919b7ee` 执行 `pnpm bootstrap:with-remote` 和 `pnpm dev:desktop`，通过 CDP 9229 将 SSH `linux-amd64-dev`（`dev@localhost:2222`）连接到 Source `32a10b89-141c-469b-aa97-850f41ab7deb`，远端运行 3.9.1。模型设置先注册 attachment `source-settings-fa670e48-...`，再经真实 Preload → Main → Window Host 链路连续请求 `source-settings-7c315610-...` 与 `source-settings-0e7c8ddd-...`；Host 在第二次换代后仍为 `connections=1, logicalSessions=1, attachments=4`，没有继续增长为 5。最新 attachment 随后的 `model-provider.getDisplayOrder/getAllCached/getProviderRegistrySnapshot/getAll` 全部成功；页面刷新后继续选中远端 Source，供应商与模型列表可用，未进入 loading/error。截图位于 `packages/desktop/.e2e-artifacts/r3-issue-010-live-20260828-d8a919b7/after-two-replacements.png`。测试结束后通过管理服务“移除全部连接”清理临时 Source/Profile/凭据，恢复 `sourceServers=[]` 与原 4 条 Profile，Desktop 已停止；SSH 直查远端 daemon 仍为 3.9.1 `ready`。
+- Estado: 已关闭
 
-### R3-ISSUE-011：多 workspace logical replacement 不是完整原子操作
+#### Registro de correção 2026-08-28
 
-- 状态：已关闭
+- Causa raiz: a store do Renderer guardava apenas o `IServiceAccessor` pelo `sourceServerId`, e o close da porta removia apenas por esse ID; quando a Port B substituía a Port A, o close tardio da A removia a B corrente. O bridge usava ao mesmo tempo `connectViaMessagePort()`, que devolve apenas services e perde o handle de ciclo de vida necessário para liberar ativamente a conexão antiga.
+- Correção: a entrada de registro da store carrega a identidade do attachment, os services e o disposer, usando o objeto de entrada como owner token; ao registrar a B, a B é posta como owner corrente e a A é descartada ativamente. Cada registro devolve um release vinculado à sua própria entrada, e o close só remove quando a entrada ainda é o owner corrente. O bridge do Renderer passa a usar `createMessagePortServiceConnection()`, preservando o disposer idempotente, reutilizando o registro de `attachmentId` existente e chamando o release owner-aware no close da porta.
+- Verificação: novos testes de regressão de owner da store e de bridge com MessageChannel real, cobrindo A→B→A-close com a B ainda utilizável, o descarte ativo da A na substituição, a remoção apenas no close da B e a idempotência de release repetido; 14 itens dos 4 arquivos focados relacionados passaram, `pnpm typecheck` passou e `pnpm lint` teve 0 error (apenas warnings já existentes no repositório). `pnpm verify:pre-push` promoveu automaticamente para a suíte unitária completa por causa de arquivos já deletados no branch, com 1496 arquivos e 13269 itens passando; outros 3 arquivos sem relação, com 5 itens falharam por timeout sob alta concorrência; a execução isolada dos três arquivos passou com 35 itens.
+- Verificação em máquina real: o commit `d8a919b7ee` executou `pnpm bootstrap:with-remote` e `pnpm dev:desktop`, conectando via CDP 9229 o SSH `linux-amd64-dev` (`dev@localhost:2222`) ao Source `32a10b89-141c-469b-aa97-850f41ab7deb`, rodando 3.9.1 no remoto. O modelo registrou primeiro o attachment `source-settings-fa670e48-...` e depois, pela cadeia real Preload → Main → Window Host, solicitou consecutivamente `source-settings-7c315610-...` e `source-settings-0e7c8ddd-...`; após a segunda troca, o Host ainda estava em `connections=1, logicalSessions=1, attachments=4`, sem crescer para 5. As chamadas `model-provider.getDisplayOrder/getAllCached/getProviderRegistrySnapshot/getAll` do attachment mais recente tiveram sucesso; após recarregar a página, o Source remoto continuou selecionado e as listas de fornecedores e modelos ficaram utilizáveis, sem entrar em loading/error. O screenshot está em `packages/desktop/.e2e-artifacts/r3-issue-010-live-20260828-d8a919b7/after-two-replacements.png`. Ao final do teste, o serviço de gerenciamento foi usado para "移除全部连接", limpando o Source/Profile/credenciais temporários e restaurando `sourceServers=[]` e as 4 Profiles originais, e o Desktop foi parado; a verificação direta via SSH do daemon remoto mostrou 3.9.1 `ready`.
 
-#### 修复记录 2026-08-28
+### R3-ISSUE-011: a substituição lógica de múltiplos workspaces não é uma operação atômica completa
 
-- 根因：Registry 以整个 Source entry 作为 rollback 单位，却以逐 workspace `onSessionReconnected`
-  作为外部提交单位；workspace A 的 Controller/Main generation 已发布后，workspace B 失败仍会把 A 的
-  internal session map 回滚到旧 generation。Controller replacement 同时缺少 Registry epoch 的 commit CAS，
-  失败后还可能保留已经失去 logical owner 的 provisional source/订阅。
-- 修复：logical replacement 改为逐 workspace 串行 prepare/commit。Registry 只把当前尚未提交的 pair 放入
-  rollback 集合，通过 `isCurrent + commit` 在 Controller snapshot 成功且 epoch/owner 仍有效时提升 generation；
-  已提交 sibling 永不再参与后续回滚。物理 Source 在单 workspace replacement 失败时保持 online，retry 与
-  预算耗尽只处理仍 disconnected 的 workspace。Controller 在 commit 前执行 Registry CAS，并在 CAS/读取失败时
-  静默丢弃 provisional source、订阅和 pending replacement，保留上一代离线可信投影。
-- 验证：Registry、Controller、Desktop Main attachment 与 Mobile replayable 四个 focused test 文件共 136 项
-  通过；新增双 workspace 第二项失败、只重试未提交 workspace、commit 后通知异常、提交后再次物理断连和
-  Controller CAS 清理覆盖。
-  `pnpm typecheck`、`pnpm lint` 通过（lint 仅有仓库既有 warning）。最小运行时回放中 workspace A 从
-  `session-1/gen1` 收敛到 `session-3/gen2/online`，workspace B 保持 `session-2/gen1/disconnected` 且只有 B
-  收到 terminal close；Registry 与外部投影对两个 workspace 的 sessionId/generation 完全一致。
-- 实机验证：提交 `927f819ca4` 执行 `pnpm bootstrap:with-remote` 与真实 Electron `pnpm dev:desktop`，通过
-  CDP 9229 将 SSH `linux-amd64-dev`（Ubuntu x64、`dev@localhost:2222`）连接到 Source
-  `32a10b89-141c-469b-aa97-850f41ab7deb`，上传并运行 3.9.1 linux-x64 release。打开
-  `/home/dev/r3-issue-011-a`、`/home/dev/r3-issue-011-b` 与 Source conversation 后，Host 稳定为
-  `connections=1, logicalSessions=3, attachments=4`。首次真实 `zcode restart --json` 后三条旧 session
-  同时 fail-closed，并在约 2.6 秒内全部换代恢复。随后使用仅存在于本次实测构建、测试后已删除的一次性
-  fault injection 拒绝 B 的首次 `onSessionReconnected`：A 从 `7b9f032a-...` 单次换代为
-  `7f940331-...`，conversation 单次换代为 `d37b04dd-...`；B 保持旧 `eb878642-...`，未产生对外 ghost
-  generation，并在约 0.5 秒后的独立 retry 换代为 `d61d448a-...`。过程中 logical session 始终为 3，
-  attachment 按 `1 → 3 → 4` 收敛，最终设置页显示设备在线且 2 个项目仍在。截图位于
-  `packages/desktop/.e2e-artifacts/r3-issue-011-live-20260828-927f819c/after-fault-recovery-settings.png`。
-  测试结束后已移除临时 fault injection、Source/Profile/凭据/历史与远端测试目录，恢复测试前设置；远端
-  daemon 保持 3.9.1 `ready`、`runningTaskCount=0`。
+- Estado: 已关闭
 
-### R3-ISSUE-012：Provider API Key 明文持久化规格与实现冲突
+#### Registro de correção 2026-08-28
 
-- 严重度：P2
-- 置信度：已确认
-- 状态：不修复（前提失效，2026-09-13）
-- 现象：R3 主规格和 release 安全门禁要求 Provider store 不含明文 API Key；当前实现与降级兼容文档要求普通 Provider 在 `config.json#options.apiKey` 保留明文，并同时写 encrypted mirror。
-- 影响：发布安全门禁无法与实现同时满足，后续开发者可能按错误规格进行破坏性清理或误报 Secret scan。
-- 证据：
-  - [`docs/architecture/r3-source-server-remote-architecture.md`](./r3-source-server-remote-architecture.md)；
-  - [`../archive/remote-r3/r3-source-server-release-test-plan.md`](../archive/remote-r3/r3-source-server-release-test-plan.md)；
-  - [`docs/model-provider-opencode-config.md`](../model-provider-opencode-config.md)；
-  - `packages/services/src/model-provider/modelProviderService.ts`（已随 Provider 重构 M2 删除）。
-- 关闭条件：明确兼容期真实策略；统一架构规格、存储文档和 Secret scan；若继续双写，明确普通 Provider 与 Start Plan 的不同安全边界。
+- Causa raiz: o Registry usava a entry completa do Source como unidade de rollback, mas usava o `onSessionReconnected` por workspace como unidade externa de commit; depois de publicados a generation do Controller/Main do workspace A, a falha do workspace B ainda fazia o internal session map de A voltar à generation antiga. A substituição do Controller também não tinha o commit CAS do epoch do Registry e, após a falha, ainda podia manter o provisional source/assinaturas que já perderam o logical owner.
+- Correção: a substituição lógica passa a ser um prepare/commit serial por workspace. O Registry coloca no conjunto de rollback apenas o par ainda não submetido, e usa `isCurrent + commit` para promover a generation quando o snapshot do Controller tem sucesso e o epoch/owner ainda é válido; um sibling já submetido nunca mais participa de rollbacks posteriores. O Source físico permanece online quando a substituição de um único workspace falha, e o retry e o esgotamento de orçamento tratam apenas do workspace que ainda está disconnected. O Controller executa o CAS do Registry antes do commit e, em caso de falha de CAS/leitura, descarta silenciosamente o provisional source, as assinaturas e o pending replacement, preservando a projeção offline confiável da geração anterior.
+- Verificação: 136 itens nos quatro arquivos de teste focados de Registry, Controller, Desktop Main attachment e Mobile replayable passaram; foram adicionadas as coberturas de falha do segundo item em dois workspaces, retry apenas do workspace não submetido, exceção na notificação após o commit, nova desconexão física após o commit e limpeza do CAS do Controller.
+  `pnpm typecheck` e `pnpm lint` passaram (o lint apenas com warnings já existentes no repositório). Na reprodução mínima de runtime, o workspace A convergiu de `session-1/gen1` para `session-3/gen2/online`, o workspace B permaneceu `session-2/gen1/disconnected` e apenas B recebeu o terminal close; o Registry e a projeção externa ficaram totalmente consistentes com o sessionId/generation dos dois workspaces.
+- Verificação em máquina real: o commit `927f819ca4` executou `pnpm bootstrap:with-remote` e o Electron real `pnpm dev:desktop`, conectando via CDP 9229 o SSH `linux-amd64-dev` (Ubuntu x64, `dev@localhost:2222`) ao Source `32a10b89-141c-469b-aa97-850f41ab7deb`, com upload e execução do release 3.9.1 linux-x64. Depois de abrir `/home/dev/r3-issue-011-a`, `/home/dev/r3-issue-011-b` e a Source conversation, o Host estabilizou em `connections=1, logicalSessions=3, attachments=4`. Após o primeiro `zcode restart --json` real, as três sessions antigas falharam de forma fechada e todas foram trocadas e recuperadas em cerca de 2,6 segundos. Em seguida, usando uma fault injection descartável que existia apenas nesta build de teste e foi removida depois, o primeiro `onSessionReconnected` do B foi rejeitado: A trocou uma única vez de `7b9f032a-...` para `7f940331-...` e a conversation trocou uma única vez para `d37b04dd-...`; B manteve o `eb878642-...` antigo, não gerou generation fantasma externa e, cerca de 0,5 segundo depois, trocou de geração em um retry independente para `d61d448a-...`. Durante todo o processo as logical sessions foram sempre 3, os attachments convergiram de `1 → 3 → 4` e a página de configurações final mostrou o dispositivo online e os 2 projetos ainda presentes. O screenshot está em `packages/desktop/.e2e-artifacts/r3-issue-011-live-20260828-927f819c/after-fault-recovery-settings.png`.
+  Ao final do teste, a fault injection temporária, o Source/Profile/credenciais/histórico e o diretório de teste remoto foram removidos, restaurando as configurações anteriores ao teste; o daemon remoto permaneceu em 3.9.1 `ready`, com `runningTaskCount=0`.
 
-#### 决策记录 2026-09-13
-
-- 依据：Provider 重构合并（路线 A，Q3）接受明文 Personal Config；`modelProviderService`、`zcode.apiKeyCredentialKey` 加密镜像与 provider-sync 只读校验路径已全部删除，代码中不再有 `apiKeyCredentialKey` 引用。主规格 §8 已改为「设置页绑定本地 + Provisioning 单向下发」，不再要求 Provider store 无明文；原要求该门禁的发布测试方案已归档。
-- 结论：「规格与实现冲突」的两端都已不存在，按 `不修复` 关闭。`docs/model-provider-opencode-config.md` 中描述该镜像的小节同日删除。
-
-### R3-ISSUE-013：首次 Directory 迁移失败可能遗留孤儿凭据
-
-- 状态：已关闭
-
-#### 修复记录 2026-08-28
-
-- 根因：`migrateProfileTarget()` 在 Directory settings 提交前就把 legacy secret 复制到新 Profile key，`migrateLegacyRemoteEntries()` 却没有持有这些写入的 before state。settings 失败后初始化允许用新 `profileId` 重试，首代 key 因而永久失去引用；密码与私钥口令并行复制时，先失败的 Promise 还会让另一条迟到写越过 rollback。
-- 修复：首次迁移以整个 Directory 写入为凭据事务边界，记录每个目标 key 的旧值，任一凭据或 settings 写入失败都在返回前恢复本轮全部变更；密码与私钥口令改为顺序等待，禁止迟到 save。已有 `connectionProfiles` 作为提交权威时不再为被排除的临时 Profile 复制 secret。
-- 验证：新增 settings 失败后回滚并以新 Profile ID 重试、双凭据部分失败迟到写和未进入提交集的临时 Profile 三组回归；`sourceServerDirectory.test.ts` 38 项全部通过，`pnpm typecheck` 通过，`pnpm lint` 0 error（仅 38 个仓库既有 warning）。
-- 实机验证：提交 `8d25737576` 执行 `pnpm bootstrap:with-remote` 与 `pnpm dev:desktop`，通过 CDP 9229（`agent-browser` daemon 启动失败后按 Electron skill 回退 Playwright CDP）使用 SSH `linux-amd64-dev`（`dev@localhost:2222`、用户 `dev`）连接真实 Source `32a10b89-141c-469b-aa97-850f41ab7deb`，UI/Host 日志确认 `direct-tcpip 通道已建立`、远端 `ZCode v3.9.1`、握手成功与链路就绪。
-- 隔离迁移回放：在独立 `/tmp` 数据目录预置一条 legacy SSH entry 和加密 legacy credential，首次 Desktop 启动用一次性 `ENOSPC` settings fault 命中 `setting.json`；Host 日志记录 `Source Server directory initialization failed`，此时 `migrationVersion=null`、Profile/history 均为 0，credentials 仅剩 legacy key。移除 fault 后重启同一 Desktop，最终 `migrationVersion=1`、Profile/history 引用同一 canonical Profile，credentials 仅有 legacy + canonical 两个 key 且解密值一致；真实 settings 中由连接验证临时创建的 Profile/Source 已通过 Directory API 清理恢复，隔离目录已移入 `/tmp/.Trash/`。
+### R3-ISSUE-012: conflito entre a especificação e a implementação de persistir a API Key do Provider em texto claro
 
-### R3-ISSUE-014：Release Resolver 下载缺少取消和 cache single-flight
-
-- 严重度：P2
-- 置信度：高风险待复现
-- 状态：待修复
-- 现象：descriptor/archive fetch 未完整传递 AbortSignal，同 version/target 的并发请求没有共享 single-flight，可能同时操作同一 cache 文件。
-- 影响：用户取消后下载继续；多 Source 同时下载时可能竞争 delete/download/rename，Windows 行为尤其需要验证。
-- 证据：[`packages/desktop/src/host/sourceServerReleaseResolver.ts`](../../packages/desktop/src/host/sourceServerReleaseResolver.ts)。
-- 关闭条件：补 cancel、并发、Windows cache 竞争测试；相同 cache key 共享下载 flight；所有调用者取消时停止底层 fetch；原子发布 cache 文件。
-
-### R3-ISSUE-015：RemoteWorkspaceController 尚未成为统一写入口
-
-- 状态：已关闭
-
-#### 修复记录 2026-08-28
-
-- 根因：controller handler 全部为 optional，生产只装配 `open-conversation`；Root 继续向 Sidebar、Settings、Dialog 和 tab lifecycle 暴露分散的连接、断开、项目打开、重连和关闭回调。
-- 修复：六类 handler 改为强类型必填，在 `useRemoteWorkspaceHistory` 内按 Source/attachment/persistence owner 完整装配单一 controller，并通过 Root provider 供 UI 使用；普通 Profile 连接统一携带 `open-conversation` completion intent。项目选择、设备断开、workspace 重连和 user-close 均先 dispatch，再进入既有 owner helper。
-- 验证：controller 全 intent/错误传播、Root production wiring、Settings disconnect 和 Sidebar 禁止直接 `disconnectSource` 的 focused tests 通过；全量 unit（1500 passed，1 skipped）、`pnpm typecheck` 与 `pnpm lint` 通过。`pnpm bootstrap:with-remote` 构建成功，`VITE_ZCODE_E2E_STORE_BRIDGE=1 pnpm dev:desktop` 启动成功并监听 CDP 9229。
-- 真实 SSH/CDP（2026-08-28）：使用 SSH alias `linux-amd64-dev`（`dev@localhost:2222`，密码由测试环境注入）连接真实设备，远端 `~/.zcode/server/current.json` 为 `3.9.1`，设备 `4fedce9b49f0`，Source Server 为 `32a10b89-141c-469b-aa97-850f41ab7deb`。设置页普通连接完成后自动打开 `/home/dev/.zcode/workspace/default` 的 `conversation` tab，`workspaceIdentity=remote:server:<sourceServerId>:/home/dev/.zcode/workspace/default`；断开后卡片由“已连接”变为“未连接”，远程 attachment/session 被释放；再次连接生成新的 `remoteSessionId` 并重新打开 conversation。随后从 conversation 选择 `/home/dev` 打开 project，project 与 conversation 使用不同 `remoteSessionId`；通过真实 tab close 触发 user-close 后 project 被移除且 conversation 保留。
-- 自动化 SSH E2E：`E2E_SSH_REMOTE_PROJECT_CONVERSATION_SCOPE` 1 项通过，报告 [`desktop-e2e-20260828-153721-524`](../../packages/desktop/.e2e-artifacts/desktop-e2e-20260828-153721-524/summary.md)。同轮执行的 pending-cancel 手工复核因代理 socket 在 30 秒断言窗口后约 1.5 秒才关闭而失败（`desktop-e2e-20260828-153846-870`）；该失败路径不涉及本 issue 的 controller 写入口变更，未将其计入 R3-ISSUE-015 关闭条件。
-
-### R3-ISSUE-016：RemoteWorkspaceProjection 未完全接线且会误投影本地 tab
+- Severidade: P2
+- Confiança: 已确认
+- Estado: 不修复（premissa inválida, 2026-09-13）
+- Fenômeno: a especificação principal do R3 e o gate de segurança de release exigem que a store do Provider não contenha API Key em texto claro; a implementação atual e o documento de compatibilidade degradada exigem que o Provider comum mantenha o texto claro em `config.json#options.apiKey` e escreva simultaneamente um mirror criptografado.
+- Impacto: o gate de segurança de release não pode ser satisfeito junto da implementação, e desenvolvedores futuros podem fazer uma limpeza destrutiva com base em uma especificação errada ou relatar um falso positivo no Secret scan.
+- Evidências:
+  - [`docs/architecture/r3-source-server-remote-architecture.md`](./r3-source-server-remote-architecture.md);
+  - [`../archive/remote-r3/r3-source-server-release-test-plan.md`](../archive/remote-r3/r3-source-server-release-test-plan.md);
+  - [`docs/model-provider-opencode-config.md`](../model-provider-opencode-config.md);
+  - `packages/services/src/model-provider/modelProviderService.ts` (removido junto com a refatoração de Provider M2).
+- Condição de fechamento: esclarecer a estratégia real do período de compatibilidade; unificar a especificação de arquitetura, o documento de armazenamento e o Secret scan; se a escrita dupla continuar, deixar explícita a fronteira de segurança diferente entre o Provider comum e o Start Plan.
 
-- 状态：已关闭
+#### Registro de decisão 2026-09-13
 
-#### 修复记录 2026-08-29
+- Base: a fusão da refatoração de Provider (Rota A, Q3) aceitou o Personal Config em texto claro; `modelProviderService`, o mirror criptografado `zcode.apiKeyCredentialKey` e o caminho de verificação somente-leitura do provider-sync foram todos removidos, e não há mais nenhuma referência a `apiKeyCredentialKey` no código. O §8 da especificação principal passou a "vínculo local na página de configurações + envio unidirecional pelo Provisioning" e não exige mais que a store do Provider esteja sem texto claro; o plano de teste de release que exigia esse gate foi arquivado.
+- Conclusão: os dois lados do "conflito entre especificação e implementação" não existem mais, e o item é fechado como 不修复. A seção do `docs/model-provider-opencode-config.md` que descrevia esse mirror foi removida no mesmo dia.
 
-- 状态：已关闭
-- 修复提交：`aecaf1f410`
-- 根因：`buildRemoteWorkspaceProjection()` 使用全部 `input.tabs` 构建 `openWorkspaces`；本地 tab 没有 `remoteSessionId`，随后被 `stateForOpenWorkspace()` 误标为 `disconnected`。同时 Sidebar、Root 和 Source 管理面板没有完整消费 projection join 结果。
-- 修复：`openWorkspaces` 先按统一 remote-tab 判定过滤；`executionContexts` 保留全部 local/remote tab，并只为 remote context 关联 open workspace。Sidebar 合并为单次 projection 计算，Root 的 Source open-tab 集合及 Source 管理面板的设备 Profile/聚合状态改从 projection 读取；新增本地 tab 回归与生产接线测试，并将边界合同写入远程 workspace 规格。
-- 自动化验证：受影响的 6 个 UI 测试文件 56 项通过；全量单测 1500 个文件、13290 项通过（1 个文件 skipped、11 项 skipped）；`pnpm typecheck` 通过；`pnpm lint` 0 errors（保留 38 个既有 warning）。`pnpm verify:pre-push` 首轮因旧静态断言失败，修正该断言后等价全量 `pnpm test:unit` 已通过。
-- 运行时验证：`VITE_ZCODE_E2E_STORE_BRIDGE=1 pnpm dev:desktop` 成功完成 Desktop/Host 构建，Electron 监听 CDP 9229，Renderer 加载 ZCode 页面并显示本地与远程历史 workspace。已补做真实 local + SSH remote 混合 TabStore/Projection/Sidebar 复验，详见下方 SSH/CDP 记录。
-- 剩余风险：真实 attachment fact 仍未由该 projection 在所有入口注入，远程 workspace 的 ready/attaching 细节需继续由各 attachment 生命周期验证；该风险不会使 local tab 进入 `openWorkspaces`。手机 `/remote` relay 实机不在本次 SSH 环境内，沿用 focused mobile tests，属于独立跨端验证项。
+### R3-ISSUE-013: a primeira migração do Directory pode deixar credenciais órfãs
 
-#### 真实 SSH/CDP 复验 2026-08-29
+- Estado: 已关闭
 
-- 环境：`pnpm bootstrap:with-remote` 与 `pnpm dev:desktop`；SSH alias `linux-amd64-dev`，`dev@localhost:2222`，真实密码认证由连接向导完成。
-- 连接结果：Source `32a10b89-141c-469b-aa97-850f41ab7deb` 显示“已连接/刚刚在线”；连接向导经历 SSH 通道、Server 启动与握手后正常收口。
-- Projection 结果：真实 TabStore 读取到 13 个 workspace tabs（6 local、7 remote）；动态加载当前 `buildRemoteWorkspaceProjection` 后得到 7 个 `openWorkspaces`，`openWorkspaces` 不含 local，6 个 local `executionContexts` 均不带 `attachmentState`，两个 SSH Source ID 正确保留。
-- Sidebar 结果：切换到项目视图后真实 DOM 出现“本机”、两个已连接 Source 组和两个未连接 pending 组；本地 workspace 没有被画成断连远程组。
-- 断开/重连：真实点击 `4fedce9b49f0 · dev` 的“断开”后卡片变为“未连接”，对应 remote tabs 保留且 projection 行变为 `disconnected`；再次点击“连接”后卡片恢复“已连接”，三个目标 workspace 的 `remoteSessionId` 恢复。
-- Source 管理面板：真实卡片显示 `dev@localhost:2222`、`online`、`2 个项目`，设备状态与 Profile 事实正常渲染。
-- 边界：运行时只使用 `desktop-continuous` attachment；未创建额外 Host/Agent。真实手机 `/remote` relay 与 Source 管理 mobile denylist 不在本次 SSH 环境内，继续沿用 focused mobile tests 验证。
+#### Registro de correção 2026-08-28
 
-### R3-ISSUE-017：手机 Source 组头状态与名称可能降级失真
+- Causa raiz: `migrateProfileTarget()` copiava o secret legado para a nova Profile key antes do commit das settings do Directory, e `migrateLegacyRemoteEntries()` não mantinha o before state dessas escritas. Se as settings falhassem, a inicialização permitia tentar de novo com o novo `profileId`, e a key de primeira geração ficava permanentemente sem referência; quando senha e passphrase de chave privada eram copiadas em paralelo, a Promise que falhasse primeiro ainda deixava a outra escrita tardia ultrapassar o rollback.
+- Correção: a primeira migração passa a ter a escrita completa do Directory como fronteira transacional de credenciais, registrando o valor antigo de cada key de destino; se qualquer credencial ou escrita de settings falhar, todas as alterações da rodada são restauradas antes do retorno; senha e passphrase de chave privada passam a ser aguardadas em sequência, com save tardio proibido. Quando `connectionProfiles` já existente é a autoridade de commit, não se copia mais secret para o Profile temporário excluído.
+- Verificação: três grupos de regressão novos — rollback após falha de settings e nova tentativa com novo Profile ID, escrita tardia com falha parcial das duas credenciais e Profile temporário fora do conjunto de commit; os 38 itens de `sourceServerDirectory.test.ts` passaram, `pnpm typecheck` passou e `pnpm lint` teve 0 error (apenas os 38 warnings já existentes no repositório).
+- Verificação em máquina real: o commit `8d25737576` executou `pnpm bootstrap:with-remote` e `pnpm dev:desktop`, usando CDP 9229 (após a falha de inicialização do daemon `agent-browser`, houve fallback para Playwright CDP conforme a skill do Electron) para conectar via SSH `linux-amd64-dev` (`dev@localhost:2222`, usuário `dev`) ao Source real `32a10b89-141c-469b-aa97-850f41ab7deb`; o log de UI/Host confirmou `direct-tcpip 通道已建立`, o remoto com `ZCode v3.9.1`, o handshake bem-sucedido e o link pronto.
+- Reprodução isolada da migração: em um diretório de dados isolado em `/tmp` foi previamente colocada uma entry SSH legada e uma credencial legada criptografada; o primeiro boot do Desktop atingiu `setting.json` com uma fault pontual de `ENOSPC`; o log do Host registrou `Source Server directory initialization failed`, com `migrationVersion=null`, Profile/histórico 0 e apenas a key legada restante em credentials. Removida a fault e reiniciado o mesmo Desktop, o resultado final foi `migrationVersion=1`, com o Profile/histórico referenciando o mesmo Profile canônico e credentials contendo apenas as duas keys (legada + canônica) com valores descriptografados idênticos; os Profiles/Sources criados temporariamente pela validação de conexão foram limpos pela API do Directory, e o diretório isolado foi movido para `/tmp/.Trash/`.
 
-- 严重度：P2
-- 置信度：高风险待复现
-- 状态：待修复
-- 现象：手机不能读取 Desktop-only management channel，只能从 workspace identity 分组，缺少 Source displayName 和聚合状态。
-- 影响：attachment 实际可用时仍可能显示通用“远程设备”或“未连接”；任务可操作，但状态文案误导。
-- 证据：手机 workspace projection 与 Source 分组 UI 的数据来源缺少 display/status 权威字段。
-- 关闭条件：在不开放 Source 管理能力的前提下，通过既有 workspace attachment 投影必要的只读 Source 展示事实；补 mobile online/offline/recovering 展示测试。
+### R3-ISSUE-014: o download do Release Resolver não tem cancelamento nem cache single-flight
 
-### R3-ISSUE-018：新增远程 UI 存在任意尺寸和 ad-hoc alpha
+- Severidade: P2
+- Confiança: 高风险待复现
+- Estado: 待修复
+- Fenômeno: o fetch de descriptor/archive não transmite completamente o AbortSignal, e requisições concorrentes para a mesma versão/target não compartilham um single-flight, podendo operar simultaneamente sobre o mesmo arquivo de cache.
+- Impacto: o download continua depois que o usuário cancela; com vários Sources baixando ao mesmo tempo, pode haver competição entre delete/download/rename, e o comportamento no Windows em especial precisa ser verificado.
+- Evidência: [`packages/desktop/src/host/sourceServerReleaseResolver.ts`](../../packages/desktop/src/host/sourceServerReleaseResolver.ts).
+- Condição de fechamento: adicionar testes de cancelamento, concorrência e competição de cache no Windows; downloads com a mesma cache key compartilham o flight; todos os chamadores cancelando param o fetch subjacente; publicação atômica do arquivo de cache.
 
-- 严重度：P2
-- 置信度：已确认
-- 状态：待修复
-- 现象：新增向导中仍存在 `rounded-[14px]`、`rounded-[10px]`、`size-[22px]`、`border-warning/35`、`border-success/35` 等写法。
-- 影响：不符合根 [`DESIGN.md`](../../DESIGN.md) 的固定 radius/size 和 semantic surface token 规则，主题与后续视觉维护容易漂移。
-- 证据：远程向导、连接状态和 continuity UI 中的任意 Tailwind 值。
-- 关闭条件：替换为仓库现有 token/组件尺寸；补 descriptor token 和 continuity panel 的多主题对比度/视觉回归证据。
+### R3-ISSUE-015: o RemoteWorkspaceController ainda não é um ponto de escrita único
 
-#### 修复记录 2026-08-29
+- Estado: 已关闭
 
-- 状态：待验证
-- 修复提交：`b53f1652c4`
-- 根因：原型精确像素和透明描边直接进入远程 UI JSX class，绕过已有 radius/size/semantic surface token；既有布局测试还把部分 arbitrary class 当作预期输出。
-- 修复：远程连接方式卡片改用 `min-h-32`、`rounded-lg`、`rounded-md` 和 `size-5`；连接面板、LinkRail、设置页离线点和 Source boundary dialog 统一使用既有语义边框/表面 token，移除组件级 alpha 与 340/180px 固定值；新增远程 UI token conformance 检查，并补 descriptor/continuity token 的四主题解析与对比度测试。
-- 自动化验证：相关 6 个 UI 测试文件 37 项通过；全量 `pnpm test:unit` 通过（1501 files / 13293 tests，1 skipped file / 11 skipped tests）；`pnpm typecheck` 通过；`pnpm lint` 0 error（38 条既有 warning）。
-- 运行时验证：Electron test 环境通过 CDP 9229 验证设置页和连接弹窗设备/连接方式步骤，Zai Light/Zai Dark 截图归档于 `packages/desktop/.e2e-artifacts/r3-issue-018-live-20260829/`；截图中 SSH/WSL/Docker descriptor 与状态 token 正常显示。
-- 剩余风险：connecting 状态面板和 continuity dialog 尚未在当前 Electron 会话中单独截图；语义 token 对比度已有自动化覆盖，仍需补两类场景的最终视觉 artifact 后关闭 issue。
+#### Registro de correção 2026-08-28
 
-### R3-ISSUE-019：架构、计划、coverage 与实机记录状态漂移
+- Causa raiz: todos os handlers do controller eram opcionais, e em produção só era montado o `open-conversation`; o Root continuava expondo à Sidebar, às Settings, ao Dialog e ao ciclo de vida de tabs callbacks dispersos de conexão, desconexão, abertura de projeto, reconexão e fechamento.
+- Correção: as seis categorias de handler passam a ter tipagem forte e obrigatórias, são montadas por completo em `useRemoteWorkspaceHistory` conforme o owner de Source/attachment/persistence, em um controller único disponibilizado à UI pelo provider do Root; a conexão de um Profile comum passa a carregar uniformemente a completion intent `open-conversation`. A seleção de projeto, a desconexão de dispositivo, a reconexão de workspace e o user-close fazem dispatch antes de entrar no owner helper já existente.
+- Verificação: os testes focados de controller para todas as intents/propagação de erros, o wiring de produção do Root, o disconnect das Settings e a proibição de `disconnectSource` direto na Sidebar passaram; a suíte unitária completa passou (1500 passed, 1 skipped), assim como `pnpm typecheck` e `pnpm lint`. `pnpm bootstrap:with-remote` construiu com sucesso, e `VITE_ZCODE_E2E_STORE_BRIDGE=1 pnpm dev:desktop` iniciou com sucesso, escutando o CDP 9229.
+- SSH/CDP real (2026-08-28): usando o alias SSH `linux-amd64-dev` (`dev@localhost:2222`, com senha injetada pelo ambiente de teste) foi conectado um dispositivo real, com `~/.zcode/server/current.json` em `3.9.1`, dispositivo `4fedce9b49f0` e Source Server `32a10b89-141c-469b-aa97-850f41ab7deb`. Depois que a conexão comum na página de configurações foi concluída, a tab `conversation` de `/home/dev/.zcode/workspace/default` foi aberta automaticamente, com `workspaceIdentity=remote:server:<sourceServerId>:/home/dev/.zcode/workspace/default`; após a desconexão, o cartão passou de "已连接" para "未连接" e o attachment/session remoto foi liberado; ao conectar de novo, um novo `remoteSessionId` foi gerado e a conversation reaberta. Em seguida, a partir da conversation, `/home/dev` foi aberto como project, e project e conversation usaram `remoteSessionId` diferentes; pelo fechamento real da tab, disparando o user-close, o project foi removido e a conversation foi mantida.
+- E2E SSH automatizado: `E2E_SSH_REMOTE_PROJECT_CONVERSATION_SCOPE` passou com 1 item, relatório [`desktop-e2e-20260828-153721-524`](../../packages/desktop/.e2e-artifacts/desktop-e2e-20260828-153721-524/summary.md). A revisão manual de pending-cancel executada na mesma rodada falhou porque o socket do proxy só fechou cerca de 1,5 segundo após a janela de asserção de 30 segundos (`desktop-e2e-20260828-153846-870`); esse caminho de falha não envolve a alteração do ponto de escrita do controller deste issue e não foi contabilizado na condição de fechamento de R3-ISSUE-015.
 
-- 严重度：P2
-- 置信度：已确认
-- 状态：修复中
-- 现象：主规格、completion plan、conversation spec、UI 规格、release plan、coverage matrix 与实机记录分别使用“设计中、实现中、代码完成、已实测、partial/planned”等不同口径；部分构建文档仍描述 legacy manifest/components。
-- 影响：无法可靠判断当前事实和发布剩余项，旧 artifact 或旧架构容易被误用。
-- 证据：
-  - [`r3-source-server-remote-architecture.md`](./r3-source-server-remote-architecture.md)；
-  - [`../archive/remote-r3/r3-source-server-remote-completion-plan.md`](../archive/remote-r3/r3-source-server-remote-completion-plan.md)；
-  - [`remote-domain-simplification-and-conversation-workspace-spec.md`](./remote-domain-simplification-and-conversation-workspace-spec.md)；
-  - [`../archive/remote-r3/r3-source-server-release-test-plan.md`](../archive/remote-r3/r3-source-server-release-test-plan.md)；
-  - [`../testing/conversation-session-e2e-coverage-matrix.md`](../testing/conversation-session-e2e-coverage-matrix.md)；
-  - [`../archive/remote-r3/r3-source-server-expanded-live-test-record-2026-08-21.md`](../archive/remote-r3/r3-source-server-expanded-live-test-record-2026-08-21.md)。
-- 关闭条件：建立当前候选统一状态入口，记录规格状态、candidate SHA、自动化结果、实机 artifact、blocked 环境与发布结论；其他文档引用该入口，不再分别维护漂移的当前状态。
+### R3-ISSUE-016: o RemoteWorkspaceProjection não está totalmente conectado e projeta tabs locais por engano
 
-#### 修复记录 2026-09-13
-
-- 已做：新增 `docs/remote/README.md` 作为远程主链阅读入口并在 AGENTS.md 登记；主规格 §1 状态改为「已实现（基线 `fad93b9e57`）」、§7.1 启动重连门禁字段改为 `lastOnlineAt`、新增 §8.4 设备管理合同、§9.1 并入控制端逐表盘点、§15 并入 Provider 合并遗留项；领域简化规格标注 Phase 0–4 已实现；`desktop-remote-session-renderer-reattach.md` 门禁描述改为「Host 设备级 7 天 + Renderer 不按 connected 历史过滤」；18 份过程 / 评审 / 实机记录文档移入 `docs/archive/remote-r3/`，全部入站链接（含 `.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml`）已改指归档路径；`r3-remote-ui-redesign.md` 删除 §11–§19 历史日志并标注原型未入库；`zcode-agent-remote-deployment.md`、`server-remote-workspace-connection.md` 加旧主链状态注记；coverage matrix 修正 SSH-P0-LIFE-03 的不存在 spec 引用。
-- 未做：统一「candidate SHA + 自动化结果 + 实机 artifact」的发布状态入口仍由本文与 `docs/testing/r3-remote-full-rerun-2026-09-10.md` 分担；R3-ISSUE-001 / 020 关闭后在本文补发布结论即可关闭本项。
+- Estado: 已关闭
 
-### R3-ISSUE-020：历史实机记录不能证明当前 HEAD
+#### Registro de correção 2026-08-29
 
-- 严重度：P1
-- 置信度：已确认
-- 状态：待验证
-- 现象：SSH 和扩展实机记录绑定的 commit 不是当前 HEAD 的祖先；当前分支后续又修改了自动升级、workspace 恢复、conversation、OAuth、Team Plan 和 mobile bridge。
-- 影响：历史记录能证明故障模式和早期能力，但不能作为当前候选发布签字。
-- 证据：
-  - SSH record 基线 `d684ee1af7`；
-  - expanded record 基线 `069250a399`；
-  - 当前基线 `ed0fe80b1391`；
-  - release plan 仍有 WSL、launchd、物理手机、长稳和当前 commit artifact 缺口。
-- 关闭条件：在最终候选 SHA 上执行并归档必要的 SSH、Docker、Windows WSL、Mobile、更新、卸载/重装、permission/elicitation 和恢复测试；artifact 自包含、可被其他机器独立复核；coverage matrix 与结果同步。
+- Estado: 已关闭
+- Commit de correção: `aecaf1f410`
+- Causa raiz: `buildRemoteWorkspaceProjection()` usava todos os `input.tabs` para construir `openWorkspaces`; a tab local não tem `remoteSessionId` e em seguida era marcada erroneamente como `disconnected` por `stateForOpenWorkspace()`. Ao mesmo tempo, a Sidebar, o Root e o painel de gerenciamento de Source não consumiam por completo o resultado do join da projeção.
+- Correção: `openWorkspaces` passa a ser filtrado primeiro pela definição unificada de remote tab; `executionContexts` mantém todas as tabs local/remote e só associa open workspace aos contextos remotos. A Sidebar é consolidada em um único cálculo de projeção, e o conjunto de open tabs de Source do Root e os Profiles/estado agregado do dispositivo no painel de gerenciamento de Source passam a ser lidos da projeção; foram adicionados testes de regressão de tab local e de wiring de produção, e o contrato de fronteira foi escrito na especificação de workspace remoto.
+- Verificação automatizada: os 6 arquivos de teste de UI afetados passaram com 56 itens; a suíte unitária completa passou com 1500 arquivos e 13290 itens (1 arquivo skipped, 11 itens skipped); `pnpm typecheck` passou; `pnpm lint` teve 0 errors (mantidos os 38 warnings já existentes). A primeira rodada de `pnpm verify:pre-push` falhou por causa de uma asserção estática antiga; após corrigir a asserção, o `pnpm test:unit` completo equivalente passou.
+- Verificação de runtime: `VITE_ZCODE_E2E_STORE_BRIDGE=1 pnpm dev:desktop` concluiu com sucesso o build de Desktop/Host, o Electron escutou o CDP 9229 e o Renderer carregou a página do ZCode mostrando os workspaces de histórico local e remoto. Foi feita também a reverificação real com TabStore/Projection/Sidebar misturando tab local e remoto via SSH, detalhada no registro SSH/CDP abaixo.
+- Riscos restantes: o fato real do attachment ainda não é injetado por essa projeção em todas as entradas, e os detalhes de ready/attaching do workspace remoto continuam devendo ser validados pelo ciclo de vida de cada attachment; esse risco não faz a tab local entrar em `openWorkspaces`. O relay `/remote` do celular em máquina real não está neste ambiente SSH e segue validado pelos testes mobile focados, como um item de verificação cruzada independente.
 
-### R3-ISSUE-021：握手落盘期间断连被丢弃，死连接被发布为 online
+#### Reverificação real SSH/CDP 2026-08-29
 
-- 状态：已关闭
+- Ambiente: `pnpm bootstrap:with-remote` e `pnpm dev:desktop`; alias SSH `linux-amd64-dev`, `dev@localhost:2222`, com autenticação por senha real concluída pelo assistente de conexão.
+- Resultado da conexão: o Source `32a10b89-141c-469b-aa97-850f41ab7deb` exibiu "已连接/刚刚在线"; o assistente percorreu o canal SSH, a inicialização do Server e o handshake, encerrando normalmente.
+- Resultado da projeção: o TabStore real leu 13 workspace tabs (6 local, 7 remote); após carregar dinamicamente o `buildRemoteWorkspaceProjection` atual, obtiveram-se 7 `openWorkspaces`, sem local em `openWorkspaces`; os 6 `executionContexts` locais não têm `attachmentState` e os dois IDs de Source SSH foram preservados corretamente.
+- Resultado da Sidebar: ao alternar para a visão de projetos, o DOM real passou a mostrar "本机", dois grupos de Source conectados e dois grupos pending desconectados; o workspace local não foi desenhado como grupo remoto desconectado.
+- Desconexão/reconexão: após clicar em "断开" no `4fedce9b49f0 · dev`, o cartão passou a "未连接", as remote tabs correspondentes foram mantidas e a linha da projeção passou a `disconnected`; após clicar em "连接" novamente, o cartão voltou a "已连接" e o `remoteSessionId` dos três workspaces-alvo foi restaurado.
+- Painel de gerenciamento de Source: o cartão real mostra `dev@localhost:2222`, `online`, `2 个项目`, e o estado do dispositivo e o fato do Profile foram renderizados normalmente.
+- Limites: o runtime usou apenas o attachment `desktop-continuous`; nenhum Host/Agent adicional foi criado. O relay `/remote` real do celular e a denylist mobile de gerenciamento de Source não estão neste ambiente SSH e continuam validados pelos testes mobile focados.
 
-#### 修复记录 2026-09-13
+### R3-ISSUE-017: o estado e o nome do cabeçalho do grupo de Sources no celular podem degradar e ficar distorcidos
 
-- 根因：close 事件按 Source 键路由而非按连接身份路由，且“连接已关闭但尚未发布”没有状态承载。
-- 修复：`connectOnce` 只在把连接登记为 online owner 之后才把 close 交给 `handleUnexpectedClose`，并传入连接对象；发布前的关闭只记录原因，发布点在 sibling join 之后检查该标记，命中则 dispose 并抛出 `retryable:true` 的握手期关闭错误，走既有 connect 失败路径。`handleUnexpectedClose` 核对 `online.connection === connection`，迟到或不属于 owner 的 close 直接忽略。主规格 §7.1 新增「发布前断连」条目。
-- 验证：`sourceServerConnectionManager.test.ts` 新增 3 项（握手期关闭→failed retryable、sibling 握手期关闭 join owner、重试阶梯中握手期关闭继续下一档），修复前 3 项均失败、修复后 37 项全部通过；`sourceServerHostReleaseWiring.test.ts` 通过；`pnpm typecheck`、`pnpm lint`（0 错误）、`pnpm architecture:check --changed` 通过。未做真实 SSH/Docker 运行时故障注入。
+- Severidade: P2
+- Confiança: 高风险待复现
+- Estado: 待修复
+- Fenômeno: o celular não consegue ler o management channel exclusivo do Desktop e só consegue agrupar pela workspace identity, ficando sem o displayName e o estado agregado do Source.
+- Impacto: mesmo com o attachment de fato disponível, ainda pode ser exibido um "远程设备" ou "未连接" genérico; as tarefas são operáveis, mas o texto de status é enganoso.
+- Evidência: a origem dos dados da projeção de workspace do celular e da UI de agrupamento de Sources não tem campos autoritativos de display/status.
+- Condição de fechamento: sem abrir as capacidades de gerenciamento de Source, projetar via o attachment de workspace já existente os fatos de exibição somente-leitura necessários do Source; adicionar testes de exibição mobile de online/offline/recovering.
 
-### R3-ISSUE-022：远端 archive 缺 android-emulator / ios-simulator 插件 MCP runtime
+### R3-ISSUE-018: a nova UI remota tem tamanhos arbitrários e alpha ad-hoc
 
-- 状态：已关闭
+- Severidade: P2
+- Confiança: 已确认
+- Estado: 待修复
+- Fenômeno: no novo assistente ainda existem escritas como `rounded-[14px]`, `rounded-[10px]`, `size-[22px]`, `border-warning/35` e `border-success/35`.
+- Impacto: não está de acordo com as regras de radius/size fixos e de semantic surface token do [`DESIGN.md`](../../DESIGN.md) raiz, e a manutenção visual do tema e das telas seguintes tende a derivar.
+- Evidência: valores Tailwind arbitrários no assistente remoto, no status de conexão e na UI de continuity.
+- Condição de fechamento: substituir pelos tokens/dimensões de componentes já existentes no repositório; adicionar evidência de contraste/regressão visual em múltiplos temas para os tokens de descriptor e para o continuity panel.
 
-#### 修复记录 2026-09-13
+#### Registro de correção 2026-08-29
 
-- 状态：已关闭
-- 根因：删除 legacy 资产链时，“构建并断言官方插件 MCP runtime”的责任没有落到新 staging 链任何一环。
-- 修复：`scripts/build-desktop-agent-cli.mjs` 的 MCP runtime 清单补入 `@zcode/android-emulator-plugin` 与 `@zcode/ios-simulator-plugin`，该脚本是桌面与 Source Server staging 共用的唯一构建入口；`stage.ts` 复制每个插件后新增 `assertOfficialPluginRuntime`，manifest 缺失或 `mcpServers` 引用的 `${ZCODE_PLUGIN_ROOT}/...` 文件不存在即抛错。R2 spec 新增“官方插件 MCP runtime 不变量”条目。
-- 自动化验证：`packaging.test.ts` 新增 2 项 fail-closed 用例（缺 MCP 入口、缺 manifest），修复前失败、修复后通过；既有插件 staging 用例补断言 `dist/mcp/server.js` 被打包；`runtime-asset-scripts.test.ts` 清单断言同步。
-- 运行时验证：本地删除 `apps/zcode-cli/packages/{android-emulator,ios-simulator}-plugin/dist` 后执行 `pnpm --filter @zcode/server-cli stage --target linux-x64`，构建链实际重建两个插件，`zcode-server-linux-x64.tar.gz` 内四个 MCP 插件的 `runtime/packages/*/dist/mcp/server.js` 均存在，耗时约 1 分钟。未运行真实 CI `build:remote:assets`。
-- 剩余风险：`stageRelease` 现在会对所有被复制的 `*-plugin` 目录做校验，若未来新增声明 mcpServers 却不在构建清单中的官方插件，staging 会显式失败而非静默残缺，这是预期行为。
+- Estado: 待验证
+- Commit de correção: `b53f1652c4`
+- Causa raiz: os pixels exatos do protótipo e os contornos translúcidos entraram diretamente nas classes JSX da UI remota, contornando os tokens existentes de radius/size/semantic surface; os testes de layout existentes ainda tratavam parte das classes arbitrárias como saída esperada.
+- Correção: os cartões de modo de conexão remoto passam a usar `min-h-32`, `rounded-lg`, `rounded-md` e `size-5`; o painel de conexão, o LinkRail, o ponto offline das Settings e o diálogo de fronteira de Source passam a usar de forma unificada os tokens semânticos de borda/superfície já existentes, removendo o alpha no nível de componente e os valores fixos de 340/180px; foi adicionada uma verificação de conformidade de tokens da UI remota, com testes de resolução e contraste dos tokens de descriptor/continuity nos quatro temas.
+- Verificação automatizada: os 6 arquivos de teste de UI relacionados passaram com 37 itens; o `pnpm test:unit` completo passou (1501 files / 13293 tests, 1 skipped file / 11 skipped tests); `pnpm typecheck` passou; `pnpm lint` teve 0 error (38 warnings já existentes).
+- Verificação de runtime: no ambiente de teste do Electron, via CDP 9229, foram verificadas as etapas de dispositivo/modo de conexão da página de configurações e do diálogo de conexão, com os screenshots Zai Light/Zai Dark arquivados em `packages/desktop/.e2e-artifacts/r3-issue-018-live-20260829/`; nos screenshots, os descriptors SSH/WSL/Docker e os tokens de status são exibidos normalmente.
+- Riscos restantes: o painel de estado connecting e o diálogo de continuity ainda não foram capturados separadamente na sessão Electron atual; o contraste dos tokens semânticos já tem cobertura automatizada, mas ainda falta o artifact visual final dessas duas situações para fechar o issue.
 
-### R3-ISSUE-023：恢复态手动连接成功不发 reconnect，Registry 停在 recovering
+### R3-ISSUE-019: divergência de estado entre arquitetura, planos, coverage e registros reais
 
-- 状态：已关闭
+- Severidade: P2
+- Confiança: 已确认
+- Estado: 修复中
+- Fenômeno: a especificação principal, o completion plan, a especificação de conversation, a especificação de UI, o release plan, a coverage matrix e os registros de máquina real usam respectivamente, com termos diferentes ("em design", "em implementação", "código concluído", "já testado em máquina", "partial/planned"); alguns documentos de build ainda descrevem manifest/components legados.
+- Impacto: não é possível julgar de forma confiável qual é o fato atual e o que falta para o release, e artefatos ou arquiteturas antigas podem ser usados por engano.
+- Evidências:
+  - [`r3-source-server-remote-architecture.md`](./r3-source-server-remote-architecture.md);
+  - [`../archive/remote-r3/r3-source-server-remote-completion-plan.md`](../archive/remote-r3/r3-source-server-remote-completion-plan.md);
+  - [`remote-domain-simplification-and-conversation-workspace-spec.md`](./remote-domain-simplification-and-conversation-workspace-spec.md);
+  - [`../archive/remote-r3/r3-source-server-release-test-plan.md`](../archive/remote-r3/r3-source-server-release-test-plan.md);
+  - [`../testing/conversation-session-e2e-coverage-matrix.md`](../testing/conversation-session-e2e-coverage-matrix.md);
+  - [`../archive/remote-r3/r3-source-server-expanded-live-test-record-2026-08-21.md`](../archive/remote-r3/r3-source-server-expanded-live-test-record-2026-08-21.md).
+- Condição de fechamento: estabelecer uma entrada única de estado do candidato atual, registrando o estado da especificação, o candidate SHA, os resultados automatizados, o artefato de máquina real, os ambientes bloqueados e a conclusão de release; os demais documentos referenciam essa entrada e não mantêm mais separadamente um estado atual divergente.
 
-#### 修复记录 2026-09-13
+#### Registro de correção 2026-09-13
 
-- 状态：已关闭
-- 根因：重连事件的发布责任分散在三个调用方，而不是放在 Manager 唯一知道「非在线 → 在线」的发布点；新增的手动 `connect()` 路径没有复制这一职责。
-- 修复：`connectOnce` 发布点以 `reconnectInputs.has(sourceServerId)`（首次发布写入、显式断开删除）判定「再次发布」，命中即在 `setState(online)` 之后 fire 一次 `onDidReconnect`；删除 `scheduleOnlineRetry`、`enterOfflineProbe` 的 `.then(fire)` 与 `updateServer` 的显式 fire，避免双触发。Registry 的接管注释同步更新。主规格 §7.1 新增「`onDidReconnect` 唯一事实源」条目。
-- 验证：`sourceServerConnectionManager.test.ts` 新增 2 项（retrying 期间手动连接、offline 期间手动连接均 fire 一次且后续 timer 不再触发），修复前均失败、修复后 39 项全部通过；`windowRemoteConnectionRegistry.test.ts`、`sourceServerHostReleaseWiring.test.ts` 通过（3 文件 85 项）；`pnpm typecheck`、`pnpm architecture:check --changed` 通过；oxlint 对改动文件 0 错误。未运行 Electron E2E 与真实 SSH/Docker 断连注入；未对 Host wrapper → Registry 的联动写集成测试。
-- 行为变化：不同 Profile 手动连回 recovering Source 时，旧 wrapper 现在会先收到 reconnect 并把 entry 置回 online，provisional entry 走 join 分支而非接管分支；两条路径的结果都是唯一 canonical entry。`updateServer` 对从未在线过的 Source 不再 fire reconnect（此前无消费者）。
+- Feito: foi adicionado `docs/remote/README.md` como porta de leitura da cadeia principal remota e registrado no AGENTS.md; o §1 da especificação principal passou a "已实现（基线 `fad93b9e57`）", o §7.1 (gate de reconexão no startup) passou a usar o campo `lastOnlineAt`, foram adicionados o §8.4 (contrato de gerenciamento de dispositivos), o §9.1 (inventário por tabela do lado de controle) e o §15 (itens remanescentes da fusão de Provider); a especificação de simplificação de domínio marca as Phases 0–4 como implementadas; a descrição de gate de `desktop-remote-session-renderer-reattach.md` passou a "gate de 7 dias no nível do Host no dispositivo + Renderer não filtra pelo histórico de connected"; 18 documentos de processo/revisão/registro de máquina real foram movidos para `docs/archive/remote-r3/` e todos os links de entrada (incluindo `.agents/skills/feature-boundary-planner/references/zcode-feature-graph.yaml`) passaram a apontar para o caminho arquivado; o §11–§19 de `r3-remote-ui-redesign.md` (log histórico) foi removido e o protótipo foi marcado como não versionado; `zcode-agent-remote-deployment.md` e `server-remote-workspace-connection.md` receberam notas sobre o estado da cadeia principal antiga; a coverage matrix corrigiu a referência a spec inexistente de SSH-P0-LIFE-03.
+- Não feito: a entrada unificada de estado de release "candidate SHA + resultados automatizados + artefato de máquina real" ainda é dividida entre este documento e `docs/testing/r3-remote-full-rerun-2026-09-10.md`; depois que R3-ISSUE-001 / 020 forem fechados, basta acrescentar a conclusão de release neste documento para encerrar este item.
 
-### R3-ISSUE-024：wsl.exe 非 `--exec` 模式让默认 shell 提前展开命令变量，WSL 安装误报「远端缺少 tar」
+### R3-ISSUE-020: registros históricos de máquina real não provam o HEAD atual
 
-- 严重度：P0
-- 置信度：已确认
-- 状态：待验证
-- 现象：Windows 3.12.0（`0d926421`）连接 WSL Ubuntu，五步弹窗在「部署 ZCode Server」阶段报「远端服务器缺少 tar，无法解压 ZCode Source Server。请安装 tar 后重试。」；同一台机器用线上 3.12.1 旧主链连接正常。日志里 `[connect-remote] caught error` 之前没有任何部署日志，失败点是 `transportAdapter.installOrUpdate` 本地上传分支的 `detectRemoteTarTool` 预检；该预检要求远端退出码为 0，所以只能是「脚本成功但 `tar=` 为空」。
-- 根因：`WSLBackend.exec` / `execDirect` 以 `spawn("wsl.exe", ["-d", distro, "-u", user, "--", "bash", "-lc", command])` 启动。Node 对含空格/引号的参数加双引号并把内部双引号转义；wsl.exe 不带 `--exec` 时把 `--` 之后的原始命令行整段交给用户默认 shell 以 `-c` 执行（microsoft/WSL `WslClient.cpp` 非 exec 分支把整段 commandLineString 作为 argv[0]，经用户默认 shell 以 -c 执行）。外层 bash 解析这段双引号字串时先把 `"$tar_tool"` 展开成空串，内层 `bash -lc` 实际收到 `printf 'tar=%s\n' ""`，远端输出 `tar=`、退出码 0，预检判定缺少 tar。同一机制还让 `installOrUpdate` 的过期 staging 清理循环（`$candidate`、`${name##*-}`）与 `probeSourceServer` 的 `$status_pid` 存活检查在 WSL 上静默失效。旧主链只引用 `$HOME` 类环境变量（外层展开结果相同），部署锁（`77433f1616`）与 agent wrapper 写入又各自做了落盘绕行，所以从未暴露。
-- 证据：隔离探针用真实 `detectRemoteTarTool` + libuv `quote_cmd_arg` 规则 + `$SHELL -c <原始尾巴>` 稳定复现同一报错（stdout `tar=\n`、exit 0）；改为 `--exec` argv 直传或 SSH 后端的 `/bin/sh -c '…'` 包装均得到 `tar=tar`。现有 `remoteAssetPreflight.test.ts` 6 项全部通过，因为假后端直接回传正确文本，覆盖不到引号链路。
+- Severidade: P1
+- Confiança: 已确认
+- Estado: 待验证
+- Fenômeno: os commits vinculados aos registros reais de SSH e de extensão não são ancestrais do HEAD atual; o branch atual alterou depois o auto-upgrade, a recuperação de workspace, o conversation, o OAuth, o Team Plan e o mobile bridge.
+- Impacto: os registros históricos provam modos de falha e capacidades iniciais, mas não podem servir como assinatura de release do candidato atual.
+- Evidências:
+  - linha de base do registro SSH `d684ee1af7`;
+  - linha de base do registro expandido `069250a399`;
+  - linha de base atual `ed0fe80b1391`;
+  - o release plan ainda tem lacunas de WSL, launchd, celular físico, estabilidade prolongada e artefato do commit atual.
+- Condição de fechamento: executar e arquivar no SHA final do candidato os testes necessários de SSH, Docker, Windows WSL, Mobile, atualização, desinstalação/reinstalação, permission/elicitation e recuperação; artefatos autocontidos e que possam ser revisados de forma independente por outras máquinas; coverage matrix e resultados sincronizados.
 
-#### 修复记录 2026-09-14
+### R3-ISSUE-021: a desconexão durante a gravação do handshake é descartada e a conexão morta é publicada como online
 
-- 状态：待验证
-- 修复提交：`feat/multi-device-remote-3-real-ssh-feature` 上包含本记录的提交（`fix(remote): run wsl.exe commands in --exec mode so the default shell cannot pre-expand them`）
-- 根因：见上；责任边界是 `WSLBackend` 向 wsl.exe 交付命令的方式，不是 preflight 或错误文案。
-- 修复：`buildWslArgs` 的分隔符由 `--` 改为 `--exec`。wsl.exe 按 `CommandLineToArgvW` 解析 argv 后直接 exec `bash -lc <command>`，该解析与 Node 的加引号规则互逆，命令字节原样到达 bash；登录环境仍由显式的 `bash -lc` 提供。`exec`（部署、上传流）与 `execSimple` / `execDirect`（身份解析、`uname`、代理探测）同时生效；preflight、错误文案与部署锁/agent wrapper 的既有落盘路径不动。
-- 自动化验证：`packages/server/test/wslBackend.test.ts` 新增「exec 与 execSimple 都以 --exec 直传 argv，命令不经默认 shell 二次解析」，并把 3 处 `--` 参数期望改为 `--exec`；修复前 3 项失败、修复后 18 项通过。`wslProxy`、`remoteAssetPreflight`、`sourceServerTransportAdapter`、`remoteDeployLock`、`remoteAssetInstaller` 合计 6 文件 75 项通过；`tsc -b packages/server`、`pnpm architecture:check --changed`、oxlint、oxfmt 通过。隔离探针：真实 `buildWslArgs` → libuv 加引号 → `CommandLineToArgvW` 规则解析回 argv 后直接 exec，对 tar preflight、完整资源 preflight、Source Server probe、WSL 网关探测四条真实命令均字节一致回环，真实 `detectRemoteTarTool` 返回 `tar`，`probeSourceServer` 正常解析。
-- 运行时验证：未在真实 Windows/WSL 上运行。关闭条件：Windows 实机用本修复构建连接 WSL Ubuntu，五步弹窗走到「链路就绪」，且 `~/.zcode/server/.bootstrap-*` 过期目录会被清理、`status.json` 存活时 `ensureDaemon` 不再重复 `serve --daemon`。
-- 剩余风险：`--exec` 要求 distro 内 PATH 能解析 `bash`，与现有 `bash -lc` 依赖一致；此前被外层 shell 掩盖的脚本（stale staging 清理、`$status_pid` 检查、网关 `route=` 行）在 WSL 上首次真正执行，语义与 SSH 路径一致。若用户默认 shell 不是 POSIX shell，旧路径本会以非零退出码失败，新路径不再经过它。
+- Estado: 已关闭
 
-### R3-ISSUE-029：replacement 在途时不保留后续 reconnect
+#### Registro de correção 2026-09-13
 
-- 状态：待修复，当前生产时序未触发；2026-10-11 登记，评审核对基线 `f5c233df918e`（CR-02）。
-- 责任位置：`windowRemoteConnectionRegistry.ts` 的 `handleConnectionReconnected`。已有 flight 时直接返回；flight 以 stale 结束后不重试，也不复查是否收到新 reconnect。
-- 证据：交接探针分别运行真实 Registry、ChannelClient，以及 Manager + Registry 联动。只有在 replacement 中注入与旧连接无关的等待时，第二次 reconnect 被丢弃，等待者保持 pending。按生产顺序先 dispose 旧连接并拒绝 RPC，旧 flight 在同一 tick 收口，2 秒后的 reconnect 可正常恢复。
-- 当前处理：仅登记，不增加运行时状态。今后若 replacement 新增不随 transport 关闭而结束的等待，必须重新核对本项。
-- 后续修复边界：entry 记录待处理 reconnect，终态关闭清除；旧 flight 完成后串行补跑。不得并行执行两个 replacement，因为 rollback 操作 entry 级状态。
-- 关闭条件：覆盖独立等待跨两次重连、终态关闭、迟到回滚与真实 RPC 断线收口；共享 entry 只保留一代恢复 owner。
+- Causa raiz: o evento close era roteado pela chave do Source em vez da identidade da conexão, e o estado "conexão já fechada mas ainda não publicada" não tinha onde ser carregado.
+- Correção: `connectOnce` só entrega o close a `handleUnexpectedClose` depois de registrar a conexão como owner online, e passa o objeto de conexão; um fechamento anterior à publicação apenas registra o motivo, e o ponto de publicação verifica essa marca depois do join do sibling, descartando-a com dispose e lançando um erro de fechamento em fase de handshake com `retryable:true`, seguindo o caminho existente de falha de connect. `handleUnexpectedClose` confere `online.connection === connection`, e um close tardio ou pertencente a outro owner é simplesmente ignorado. O §7.1 da especificação principal ganhou o item "desconexão antes da publicação".
+- Verificação: `sourceServerConnectionManager.test.ts` ganhou 3 casos (fechamento em fase de handshake → failed retryable, join de owner com fechamento em fase de handshake no sibling, fechamento em fase de handshake na escada de retry avançando para o próximo degrau), que falhavam antes da correção e, depois, os 37 itens passaram; `sourceServerHostReleaseWiring.test.ts` passou; `pnpm typecheck`, `pnpm lint` (0 erros) e `pnpm architecture:check --changed` passaram. Não foi feita injeção de falha de runtime com SSH/Docker reais.
 
-### R3-ISSUE-030：Provider 共享刷新等待没有接入单调用者取消
+### R3-ISSUE-022: o archive remoto não tem o MCP runtime dos plugins android-emulator / ios-simulator
 
-- 状态：待修复，当前无传 signal 的生产调用方；2026-10-11 登记，评审核对基线 `f5c233df918e`（CR-07）。
-- 责任位置：`zcodeAgentService.ts` 的 `generateWorkspaceText` / `testProviderModelConnectivity` 等待 `ensureAccountProviderConfigSynced` 时未消费 signal。
-- 证据：真实 Service 探针中取消后仍等待刷新结束，随后以 AbortError 收口；协议客户端在后续请求发出前检查 signal，因此不会执行已取消的模型请求。该证据证明收口延迟，不表示取消失效。
-- 当前处理：仅登记。首个支持取消的生产调用方接入时，单个等待者与 signal 竞速；共享 `accountConfigSyncByClient` 刷新继续完成，不能由一个调用者取消其他调用者依赖的刷新。
-- 关闭条件：一个等待者取消时及时拒绝，其他等待者仍可完成，且已取消的模型请求不会发送；共享刷新失败仍向未取消调用者传播。
+- Estado: 已关闭
 
-## 连接体验后续议题（RDUX 范围外）
+#### Registro de correção 2026-09-13
 
-来源：[体验优化范围外](../issues/remote-connection-ux/01-remote-connection-ux-optimization.md#out-of-scope)。以下均未纳入 RDUX-03 实施，也不修改状态机或手机恢复协议。
+- Estado: 已关闭
+- Causa raiz: ao remover a cadeia legada de assets, a responsabilidade de "construir e afirmar o MCP runtime dos plugins oficiais" não caiu em nenhuma etapa da nova cadeia de staging.
+- Correção: a lista de MCP runtime de `scripts/build-desktop-agent-cli.mjs` passa a incluir `@zcode/android-emulator-plugin` e `@zcode/ios-simulator-plugin`, sendo esse script a única entrada de build compartilhada pelo staging do desktop e do Source Server; após copiar cada plugin, `stage.ts` acrescenta `assertOfficialPluginRuntime`, que lança erro se o manifest estiver ausente ou se o arquivo `${ZCODE_PLUGIN_ROOT}/...` referenciado por `mcpServers` não existir. A spec do R2 ganhou o item "invariante do MCP runtime dos plugins oficiais".
+- Verificação automatizada: `packaging.test.ts` ganhou 2 casos fail-closed (sem entrada de MCP, sem manifest), que falhavam antes da correção e passaram depois; os casos existentes de staging de plugins receberam a asserção de que `dist/mcp/server.js` é empacotado; as asserções da lista em `runtime-asset-scripts.test.ts` foram sincronizadas.
+- Verificação de runtime: após remover localmente `apps/zcode-cli/packages/{android-emulator,ios-simulator}-plugin/dist` e executar `pnpm --filter @zcode/server-cli stage --target linux-x64`, a cadeia de build reconstruiu de fato os dois plugins e, dentro de `zcode-server-linux-x64.tar.gz`, o `runtime/packages/*/dist/mcp/server.js` dos quatro plugins MCP existia, em cerca de 1 minuto. O `build:remote:assets` real da CI não foi executado.
+- Riscos restantes: `stageRelease` agora valida todos os diretórios `*-plugin` copiados; se no futuro houver um plugin oficial que declare `mcpServers` mas não esteja na lista de build, o staging falhará explicitamente em vez de ficar silenciosamente incompleto, o que é o comportamento esperado.
 
-| ID           | 后续议题                                                        | 状态   |
-| ------------ | --------------------------------------------------------------- | ------ |
-| R3-ISSUE-017 | 手机 Web 设备名和状态展示失真；复用既有 issue，另行评估手机展示 | 待修复 |
-| R3-ISSUE-025 | 20 台以上设备/项目的搜索、筛选与分组                            | 待修复 |
-| R3-ISSUE-026 | 设备在线但无打开项目时的空闲超时断开                            | 待修复 |
-| R3-ISSUE-027 | 统一设置分区的本机/远端作用域归属                               | 待修复 |
-| R3-ISSUE-028 | 钩子在远端作用域下的真实行为验证                                | 待验证 |
+### R3-ISSUE-023: conexão manual bem-sucedida no estado de recuperação não emite reconnect e o Registry fica parado em recovering
 
-## 剩余工作
+- Estado: 已关闭
 
-- 发布验证：R3-ISSUE-001、020；WSL 实机验证：024。历史自动化通过不能替代最终 candidate / 对应平台验证。
-- 待修复或待复现：014、017，以及后续议题 025–027。
-- 待验证：018、028；文档与覆盖状态核对：019。
-- 条件性后续项：029、030；仅在各自触发前提变化或新增调用方时实施。
-- 已关闭项不再列入修复顺序。012 的不修复决策继续保留，不重新引入已退出的 Provider 方案。
-- 2026-10-10 文档收敛移除重复过程与过期 UI 规则；019 仍保持修复中，不能由文档链接检查推定代码、覆盖率与最终发布证据已全部一致。
+#### Registro de correção 2026-09-13
 
-## 单项更新模板
+- Estado: 已关闭
+- Causa raiz: a responsabilidade de publicar o evento de reconexão estava distribuída por três chamadores, em vez de estar no ponto único de publicação do Manager, que é quem sabe a transição "não online → online"; o novo caminho manual de `connect()` não replicou essa responsabilidade.
+- Correção: o ponto de publicação de `connectOnce` usa `reconnectInputs.has(sourceServerId)` (escrito na primeira publicação, removido na desconexão explícita) para determinar "publicar de novo"; quando acerta, dispara uma única vez `onDidReconnect` depois de `setState(online)`; o `.then(fire)` de `scheduleOnlineRetry` e `enterOfflineProbe` e o fire explícito de `updateServer` foram removidos, evitando disparo duplo. O comentário de takeover do Registry foi atualizado. O §7.1 da especificação principal ganhou o item "fonte única da verdade de `onDidReconnect`".
+- Verificação: `sourceServerConnectionManager.test.ts` ganhou 2 casos (conexão manual durante retrying e durante offline, ambos disparam uma vez e os timers seguintes não disparam), que falhavam antes da correção e, depois, os 39 itens passaram; `windowRemoteConnectionRegistry.test.ts` e `sourceServerHostReleaseWiring.test.ts` passaram (3 arquivos, 85 itens); `pnpm typecheck` e `pnpm architecture:check --changed` passaram; o oxlint não reportou erros nos arquivos alterados. O E2E do Electron e a injeção de desconexão com SSH/Docker reais não foram executados; não foi escrito teste de integração para a articulação wrapper do Host → Registry.
+- Mudança de comportamento: quando diferentes Profiles reconectam manualmente a um Source em recuperação, o wrapper antigo agora recebe primeiro o reconnect e devolve a entry para online, e a entry provisional passa pelo ramo de join em vez do ramo de takeover; o resultado dos dois caminhos é a mesma entry canônica única. O `updateServer` não dispara mais reconnect para Sources que nunca ficaram online (antes não havia consumidor).
 
-后续修复单项问题时，在对应章节追加：
+### R3-ISSUE-024: no modo não `--exec` do `wsl.exe` o shell padrão expande as variáveis de comando antes da hora e o install do WSL reporta falsamente "远端缺少 tar"
+
+- Severidade: P0
+- Confiança: 已确认
+- Estado: 待验证
+- Fenômeno: ao conectar do Windows 3.12.0 (`0d926421`) ao Ubuntu no WSL, o diálogo de cinco etapas reportou, na etapa "部署 ZCode Server", que "远端服务器缺少 tar，无法解压 ZCode Source Server。请安装 tar 后重试。"; na mesma máquina, a cadeia principal antiga 3.12.1 online conecta normalmente. No log, antes de `[connect-remote] caught error` não há nenhuma mensagem de deploy, e o ponto de falha é a pre-verificação `detectRemoteTarTool` do ramo de upload local de `transportAdapter.installOrUpdate`; essa pre-verificação exige código de saída 0 no remoto, então só pode ser o caso "o script foi bem-sucedido mas `tar=` ficou vazio".
+- Causa raiz: `WSLBackend.exec` / `execDirect` iniciam com `spawn("wsl.exe", ["-d", distro, "-u", user, "--", "bash", "-lc", command])`. O Node coloca aspas duplas nos argumentos com espaços/aspas e escapa as aspas duplas internas; sem `--exec`, o wsl.exe entrega toda a linha de comando original após o `--` ao shell padrão do usuário para execução com `-c` (no branch não exec da microsoft/WSL, `WslClient.cpp` usa a commandLineString inteira como argv[0], executada pelo shell padrão do usuário com -c). Quando o bash externo analisa essa string com aspas duplas, ele expande `"$tar_tool"` primeiro para string vazia, e o `bash -lc` interno recebe de fato `printf 'tar=%s\n' ""`; o remoto imprime `tar=` e sai com código 0, e a pre-verificação conclui que falta tar. O mesmo mecanismo também faz o loop de limpeza de staging obsoleto de `installOrUpdate` (`$candidate`, `${name##*-}`) e a verificação de vivacidade de `$status_pid` em `probeSourceServer` falharem silenciosamente no WSL. A cadeia principal antiga só referenciava variáveis de ambiente do tipo `$HOME` (cujo resultado de expansão externa é o mesmo), e o lock de deploy (`77433f1616`) e a escrita do agent wrapper faziam cada um seu próprio contorno em disco, por isso nunca ficou exposto.
+- Evidência: uma sonda isolada com o `detectRemoteTarTool` real + as regras de `quote_cmd_arg` do libuv + `$SHELL -c <cauda original>` reproduz de forma estável o mesmo erro (stdout `tar=\n`, exit 0); ao trocar para o argv direto do `--exec` ou para o wrapper `/bin/sh -c '…'` do backend SSH, o resultado é `tar=tar`. Os 6 itens do `remoteAssetPreflight.test.ts` atual passam, porque o backend falso devolve direto o texto correto e não cobre a cadeia de aspas.
+
+#### Registro de correção 2026-09-14
+
+- Estado: 待验证
+- Commit de correção: os commits que contêm este registro em `feat/multi-device-remote-3-real-ssh-feature` (`fix(remote): run wsl.exe commands in --exec mode so the default shell cannot pre-expand them`)
+- Causa raiz: ver acima; a fronteira de responsabilidade é a forma como o `WSLBackend` entrega comandos ao wsl.exe, e não o preflight nem o texto do erro.
+- Correção: o separador de `buildWslArgs` muda de `--` para `--exec`. O wsl.exe analisa o argv com `CommandLineToArgvW` e faz exec direto de `bash -lc <command>`; essa análise é a inversa das regras de aspas do Node, e os bytes do comando chegam intactos ao bash; o ambiente de login continua sendo fornecido pelo `bash -lc` explícito. `exec` (deploy, fluxo de upload) e `execSimple` / `execDirect` (resolução de identidade, `uname`, sondagem de proxy) passam a valer ao mesmo tempo; o preflight, o texto do erro e os caminhos de escrita existentes do lock de deploy/agent wrapper permanecem intocados.
+- Verificação automatizada: `packages/server/test/wslBackend.test.ts` ganhou o caso "exec e execSimple passam o argv direto com --exec e o comando não é reanalisado pelo shell padrão", e as 3 expectativas do argumento `--` foram alteradas para `--exec`; antes da correção 3 casos falhavam e, depois, 18 passaram. `wslProxy`, `remoteAssetPreflight`, `sourceServerTransportAdapter`, `remoteDeployLock` e `remoteAssetInstaller` somaram 75 itens em 6 arquivos, todos passando; `tsc -b packages/server`, `pnpm architecture:check --changed`, oxlint e oxfmt passaram. Sonda isolada: `buildWslArgs` real → aspas do libuv → análise de volta ao argv pelas regras de `CommandLineToArgvW` → exec direto, com consistência byte a byte no retorno para as quatro comandos reais (tar preflight, preflight completo de assets, probe do Source Server e sondagem do gateway WSL); o `detectRemoteTarTool` real retorna `tar` e o `probeSourceServer` faz o parse normalmente.
+- Verificação de runtime: não executado em Windows/WSL reais. Condição de fechamento: em máquina Windows real, conectar ao Ubuntu do WSL com esta correção e fazer o diálogo de cinco etapas chegar a "链路就绪", com o diretório obsoleto `~/.zcode/server/.bootstrap-*` sendo limpo e, com `status.json` vivo, o `ensureDaemon` não repetindo `serve --daemon`.
+- Riscos restantes: o `--exec` exige que o PATH dentro da distro resolva `bash`, o que é consistente com a dependência existente de `bash -lc`; scripts antes mascarados pelo shell externo (limpeza de staging obsoleto, verificação de `$status_pid`, linhas `route=` do gateway) passam a ser executados de fato pela primeira vez no WSL, com semântica idêntica à do caminho SSH. Se o shell padrão do usuário não for um shell POSIX, o caminho antigo falhava com código de saída diferente de zero; o novo caminho não passa mais por ele.
+
+### R3-ISSUE-029: a substituição em curso não preserva o reconnect seguinte
+
+- Estado: 待修复, a temporização atual de produção não foi acionada; registrado em 2026-10-11, linha de base da revisão `f5c233df918e` (CR-02).
+- Local da responsabilidade: `handleConnectionReconnected` em `windowRemoteConnectionRegistry.ts`. Com um flight já existente, ele retorna diretamente; quando o flight termina como stale, não há retry nem nova verificação de se um reconnect novo foi recebido.
+- Evidência: sondas de passagem executam o Registry real, o ChannelClient e a articulação Manager + Registry. Somente ao injetar, durante a substituição, uma espera independente da conexão antiga, o segundo reconnect é descartado e o esperador permanece pending. Na ordem de produção, com o descarte da conexão antiga e a rejeição de RPC antes, o flight antigo converge no mesmo tick e o reconnect de 2 segundos depois recupera normalmente.
+- Tratamento atual: apenas registrado, sem acréscimo de estado de runtime. Se a substituição passar a ter esperas que não terminam com o fechamento do transport, este item deverá ser reavaliado.
+- Fronteira da correção futura: a entry registra o reconnect pendente, limpo no fechamento de estado terminal; depois que o flight antigo termina, a execução é refeita em série. Não se deve executar duas substituições em paralelo, pois o rollback opera sobre o estado de nível da entry.
+- Condição de fechamento: cobrir a espera independente atravessando duas reconexões, o fechamento de estado terminal, o rollback tardio e a convergência de desconexão de RPC real; a entry compartilhada mantém apenas uma geração de owner de recuperação.
+
+### R3-ISSUE-030: a espera pela atualização compartilhada do Provider não está ligada ao cancelamento por chamador
+
+- Estado: 待修复, não há chamador de produção que passe signal; registrado em 2026-10-11, linha de base da revisão `f5c233df918e` (CR-07).
+- Local da responsabilidade: `generateWorkspaceText` / `testProviderModelConnectivity` em `zcodeAgentService.ts` não consomem signal enquanto esperam `ensureAccountProviderConfigSynced`.
+- Evidência: em uma sonda com o Service real, após o cancelamento a espera pela atualização ainda termina e só então encerra com AbortError; o cliente de protocolo verifica o signal antes de enviar as requisições seguintes, portanto não executa requisições de modelo já canceladas. Essa evidência prova atraso na convergência, não a invalidez do cancelamento.
+- Tratamento atual: apenas registrado. Quando o primeiro chamador de produção que suporta cancelamento for conectado, o cancelamento será posto em disputa com o signal de um único esperador; a atualização compartilhada `accountConfigSyncByClient` continua até o fim, e um chamador não pode cancelar a atualização de que os demais dependem.
+- Condição de fechamento: quando um esperador cancela, a rejeição é imediata, os demais esperadores ainda conseguem concluir, as requisições de modelo já canceladas não são enviadas e a falha da atualização compartilhada continua sendo propagada aos chamadores não cancelados.
+
+## Tópicos posteriores de experiência de conexão (fora do escopo de RDUX)
+
+Origem: [体验优化范围外](../issues/remote-connection-ux/01-remote-connection-ux-optimization.md#out-of-scope). Nenhum deles foi incluído na implementação do RDUX-03, e nenhum modifica a máquina de estados ou o protocolo de recuperação do celular.
+
+| ID           | Tópico posterior                                                                | Estado   |
+| ------------ | ------------------------------------------------------------------------------- | -------- |
+| R3-ISSUE-017 | Exibição distorcida do nome e do status do dispositivo Web no celular; reutilizar o issue existente e avaliar a exibição no celular separadamente | 待修复 |
+| R3-ISSUE-025 | Busca, filtro e agrupamento para mais de 20 dispositivos/projetos                   | 待修复  |
+| R3-ISSUE-026 | Timeout de desconexão por ociosidade quando o dispositivo está online mas não há projeto aberto | 待修复 |
+| R3-ISSUE-027 | Atribuição de escopo local/remoto unificada nas seções de configurações           | 待修复  |
+| R3-ISSUE-028 | Verificação do comportamento real dos hooks sob escopo remoto                     | 待验证  |
+
+## Trabalho restante
+
+- Verificação de release: R3-ISSUE-001, 020; verificação em máquina real de WSL: 024. A aprovação histórica da automação não substitui a verificação do candidato final / da plataforma correspondente.
+- Pendentes de correção ou de reprodução: 014, 017, além dos tópicos posteriores 025–027.
+- Pendentes de verificação: 018, 028; conferência de documentação e de estado do coverage: 019.
+- Itens posteriores condicionais: 029, 030; a implementar somente quando a premissa de acionamento de cada um mudar ou quando houver novos chamadores.
+- Os itens fechados não entram mais na ordem de correção. A decisão de não corrigir o 012 é mantida, sem reintroduzir a solução de Provider que já saiu.
+- 2026-10-10 convergência da documentação: removidos processos duplicados e regras de UI obsoletas; o 019 continua em "em correção" e não se pode inferir, por meio de uma checagem de links de documentação, que código, cobertura e evidência final de release já estão totalmente consistentes.
+
+## Modelo de atualização de item individual
+
+Ao corrigir um item individual posteriormente, acrescente na seção correspondente:
 
 ```md
 #### 修复记录 YYYY-MM-DD

@@ -1,12 +1,13 @@
-# CUA Action Receipt and Observation Contract
+# Contrato de comprovante de ação e de observação CUA
 
-This spec supersedes the previous model-visible post-action state and
-delta/no_change execution contract for the TypeScript CUA tool layer.
+Esta spec substitui o contrato anterior de execução por delta/no_change e de
+estado pós-ação visível ao model para a camada de ferramentas CUA em TypeScript.
 
-## Contract
+## Contrato
 
-Mutating tools return an action receipt by default. The default
-`return_state` is `none` for pointer, keyboard/text, and semantic actions.
+Ferramentas mutantes retornam um comprovante de ação por padrão. O
+`return_state` padrão é `none` para ações de ponteiro, de teclado/texto e
+semânticas.
 
 ```json
 {
@@ -19,17 +20,17 @@ Mutating tools return an action receipt by default. The default
 }
 ```
 
-`dispatch_status` is `accepted`, `possibly_sent`, or `not_sent`. `possibly_sent`
-means the request may already have reached native dispatch, so the caller must
-not replay non-idempotent actions automatically. A stale element that the
-Helper proves was not dispatched returns an error receipt with
-`action_sent=false`, `dispatch_status="not_sent"`, and no automatic heal.
+`dispatch_status` é `accepted`, `possibly_sent` ou `not_sent`. `possibly_sent`
+significa que a requisição pode já ter alcançado o despacho nativo, então o
+chamador não deve reproduzir automaticamente ações não idempotentes. Um elemento
+obsoleto que o Helper prova que não foi despachado retorna um comprovante de erro
+com `action_sent=false`, `dispatch_status="not_sent"` e sem cura automática.
 
-When `return_state="none"`, the tool returns the action note plus the receipt
-and performs no `capture_app` call.
+Quando `return_state="none"`, a ferramenta retorna a nota de ação mais o
+comprovante e não executa nenhuma chamada `capture_app`.
 
-When `return_state="compact"` or `return_state="full"`, the tool performs
-exactly one post-action `capture_app` call with:
+Quando `return_state="compact"` ou `return_state="full"`, a ferramenta executa
+exatamente uma chamada `capture_app` pós-ação com:
 
 ```json
 {
@@ -38,56 +39,59 @@ exactly one post-action `capture_app` call with:
 }
 ```
 
-The result is still a full CUA observation. `compact` and `full` only control
-how much of that full state is formatted for the model.
+O resultado continua sendo uma observação CUA completa. `compact` e `full` só
+controlam quanto desse estado completo é formatado para o model.
 
-If the optional post-action observation fails, the receipt is preserved and the
-state is reported as unavailable. The tool must not replay the action.
+Se a observação pós-ação opcional falhar, o comprovante é preservado e o estado é
+reportado como indisponível. A ferramenta não deve reproduzir a ação.
 
-The receipt content block precedes the accessibility tree whenever an explicit
-observation is returned. This ordering is part of the safety contract: a host
-that bounds or truncates a long tree must retain `dispatch_status` and
-`retry_action=false`.
+O bloco de conteúdo do comprovante precede a árvore de acessibilidade sempre que
+uma observação explícita é retornada. Essa ordenação faz parte do contrato de
+segurança: um host que limita ou trunca uma árvore longa deve reter
+`dispatch_status` e `retry_action=false`.
 
-Target read-back must verify the intended effect of the exact control action.
-`AXSelected` is a valid postcondition for selecting a row or toggling a
-selection-bearing control, but it is not a generic `AXPress` success signal. In
-particular, a menu-bearing button can expose `AXSelected=false` before and after
-opening its menu. That unchanged value must not produce
-`target_verification_status="mismatched"`; menu visibility needs its own
-observable postcondition, otherwise the receipt remains accepted without a
-target-verification claim.
+A leitura de volta do alvo deve verificar o efeito pretendido da ação exata do
+controle. `AXSelected` é uma pós-condição válida para selecionar uma linha ou
+alternar um controle que carrega seleção, mas não é um sinal genérico de sucesso
+de `AXPress`. Em particular, um botão com menu pode expor `AXSelected=false` antes
+e depois de abrir o seu menu. Esse valor inalterado não pode produzir
+`target_verification_status="mismatched"`; a visibilidade do menu precisa da sua
+própria pós-condição observável, caso contrário o comprovante permanece aceito sem
+uma alegação de verificação do alvo.
 
-## Producer and Helper Version Boundary
+## Fronteira de versão entre Producer e Helper
 
-Mixed producer/Helper versions are unsupported. Installing a new producer must
-install or replace the bundled Helper from that same build. The plugin launcher
-pins its default server spec to the plugin version, and production Helper
-startup verifies the embedded build id before reuse. A stale Helper is replaced
-at install/startup; runtime action classification does not carry compatibility
-branches for older Helper wire formats.
+Versões misturadas de producer/Helper não são suportadas. Instalar um novo
+producer precisa instalar ou substituir o Helper embutido daquele mesmo build. O
+launcher do plugin fixa seu server spec padrão na versão do plugin, e a
+inicialização do Helper em produção verifica o build id embutido antes do reuso. Um
+Helper obsoleto é substituído na instalação/inicialização; a classificação de ação
+em runtime não carrega ramos de compatibilidade para formatos de wire de Helpers
+mais antigos.
 
 ## get_app_state
 
-`get_app_state` is always model-visible full state. The tool layer always sends
-`force_full=true` to `capture_app`.
+`get_app_state` é sempre o estado completo visível ao model. A camada de
+ferramentas sempre envia `force_full=true` para `capture_app`.
 
-Broker-internal `delta` and `no_change` replies are not exposed as executable
-model state. They must not publish a reused `state_id`, a partial patch, or a
-`repeat_observation` hint.
+Respostas `delta` e `no_change` internas do broker não são expostas como estado
+executável para o model. Elas não devem publicar um `state_id` reutilizado, um
+patch parcial ou uma dica de `repeat_observation`.
 
-An empty full accessibility tree is a valid observation. The tool layer does
-not perform an empty-tree warmup retry.
+Uma árvore de acessibilidade completa vazia é uma observação válida. A camada de
+ferramentas não executa uma nova tentativa de warmup para árvore vazia.
 
-## Out of Scope
+## Fora de escopo
 
-This contract does not change exact raster delivery, image/image_ref adjacency,
-full-display provenance, WindowServer owner checks, overlay behavior, topology
-validation, native dispatch guards, or `possibly_sent` delivery safety.
+Este contrato não altera a entrega exata de raster, a adjacência
+imagem/image_ref, a proveniência de display completo, as checagens de dono do
+WindowServer, o comportamento de overlay, a validação de topologia, as guardas de
+despacho nativo ou a segurança de entrega de `possibly_sent`.
 
-## Release Evidence
+## Evidência de release
 
-The final model-in-the-loop canvas and element-mutation lanes must use the
-real-model gate model designated in the eval provider configuration.
-Both lanes require fixture-owned postconditions and must reject duplicate native
-dispatch; a successful MCP return alone is not release evidence.
+Os lanes finais de canvas e de mutação de elemento com o model no loop devem usar
+o modelo de gate de model real designado na configuração do eval provider. Ambos
+os lanes exigem pós-condições pertencentes à fixture e devem rejeitar despacho
+nativo duplicado; um retorno MCP bem-sucedido por si só não é evidência de
+release.

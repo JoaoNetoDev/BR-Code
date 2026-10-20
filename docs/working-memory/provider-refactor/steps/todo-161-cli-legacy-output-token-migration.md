@@ -1,74 +1,168 @@
-# Todo161：CLI 旧 config.json 首次迁移保留输出上限
+# Todo161: primeira migração do CLI preserva o limite de saída do `config.json` antigo
 
-状态：2026-10-14 基于最新 staging 重新移植，生产修复、61 项定向回归及必要静态检查已通过；当前验证记录见末节。9 月结果保留为历史证据。
+Status: em 2026-10-14 reposicionado com base no staging mais recente; a correção de produção, as 61 regressões
+direcionadas e as checagens estáticas necessárias passaram; o registro de verificação atual está na seção final.
+O resultado de setembro é mantido como evidência histórica.
 
-## 背景与调查结论
+## Contexto e conclusões da investigação
 
-评测团队仍使用 CLI 配置目录下的旧 `config.json` 定义 Provider 和模型输出上限，需要在首次导入新 Provider 配置时保留该值。
+O time de avaliação ainda usa o `config.json` antigo, no diretório de configuração do CLI, para definir o Provider
+e o limite de saída do modelo, e precisa que esse valor seja preservado na primeira importação das novas
+configurações de Provider.
 
-- 默认来源为 `~/.zcode/cli/config.json`，由 `getDefaultConfigPath()` 定位；Standalone 的既有 `legacyCliUserConfigFilePath` 注入入口保持可用。
-- [旧格式 parser](../../../../apps/zcode-cli/packages/bootstrap/src/app/legacy-cli-model-config.ts)已经接受模型的 `maxOutputTokens`、`limit.output` 和 `options`。
-- [CLI 导入器](../../../../apps/zcode-cli/packages/bootstrap/src/app/legacy-cli-personal-provider-config-importer.ts)的成员投影只保留 `contextWindow`，创建模型规则时还会跳过没有 context 的成员，导致输出上限丢失。
-- [旧配置测试](../../../../apps/zcode-cli/packages/adapters/tests/config.test.ts)记录的优先级为 `limit.output` → `options.max_tokens` → 模型顶层 `maxOutputTokens`。
-- [当前导入测试](../../../../apps/zcode-cli/packages/bootstrap/tests/legacy-cli-personal-provider-config-importer.test.ts)仍有“不迁移历史 model options 中的输出上限”的断言，需要按本项裁决调整。
+- A origem padrão é `~/.zcode/cli/config.json`, localizada por `getDefaultConfigPath()`; o ponto de injeção
+  existente do Standalone, `legacyCliUserConfigFilePath`, continua disponível.
+- O [parser do formato antigo](../../../../apps/zcode-cli/packages/bootstrap/src/app/legacy-cli-model-config.ts)
+  já aceita `maxOutputTokens`, `limit.output` e `options` do modelo.
+- A projeção de membros do [importador do CLI](../../../../apps/zcode-cli/packages/bootstrap/src/app/legacy-cli-personal-provider-config-importer.ts)
+  mantém apenas `contextWindow`, e a criação das regras de modelo ainda pula membros sem contexto, o que
+  provoca a perda do limite de saída.
+- O [teste da configuração antiga](../../../../apps/zcode-cli/packages/adapters/tests/config.test.ts) registra a
+  prioridade `limit.output` → `options.max_tokens` → `maxOutputTokens` no nível superior do modelo.
+- O [teste atual de importação](../../../../apps/zcode-cli/packages/bootstrap/tests/legacy-cli-personal-provider-config-importer.test.ts)
+  ainda tem a asserção "não migra o limite de saída das opções de modelo históricas", que precisa ser ajustada
+  conforme a decisão deste item.
 
-2026-09-16 调查时运行 CLI 导入测试，13 项中 5 项通过、8 项失败，主要涉及测试仍按旧序列化结构断言；这是修改前的证据，不是本项修复结果。当前机器没有上述默认旧配置文件，尚未核对评测团队真实样本，不保存 Key 或完整用户配置。
+Na investigação de 2026-09-16 a execução dos testes de importação do CLI teve 5 aprovações e 8 falhas em 13
+casos, envolvendo principalmente testes que ainda faziam asserções sobre a estrutura de serialização antiga; essa
+é a evidência anterior à modificação, não o resultado da correção deste item. A máquina atual não possui o arquivo
+de configuração antigo padrão acima, a amostra real do time de avaliação ainda não foi conferida e nenhuma Key nem
+configuração completa de usuário foi salva.
 
-## 已确认范围与字段契约
+## Escopo confirmado e contrato de campos
 
-1. 仅修改 **Standalone CLI 旧配置首次导入**，输入为旧用户文件的 `provider.<providerId>.models.<modelId>`。沿用既有 Provider 身份、来源、删除项与重复成员过滤规则。
-2. 输出上限按 `limit.output` → `options.max_tokens` → `maxOutputTokens` 取有效正整数，写入对应新模型规则的 `config.optionSpecs.maxOutputTokens.max`。不物化整个 Built-in 模型配置，不复制 API 参数映射或任意 options；map 继续由现有配置合成链提供。
-3. 仅有输出上限而没有 `contextWindow` 的模型也必须生成规则；两者都有时同时保留。两者都缺失时维持现有行为，输出字段缺失时不写入默认值。
-4. 非法值不进入新配置，保持现有 parser 的输入校验边界；明确测试合法候选的优先级与非法 options 值的处理，不用隐式数值转换接受字符串或小数。
-5. **已迁移用户不处理**。正式 Personal 配置已存在时沿用直接读取行为，不补迁、不覆写、不增加迁移版本或标记，也不持续读取旧文件。评测在旧文件中修改输出上限后再次启动是否生效，仍受这一首次导入边界约束。
-6. 不修改 Desktop 的 `legacyPersonalProviderConfigImporter`，不导入桌面旧 Store、项目配置或环境变量中的输出值。保留原始 CLI 旧文件，不双写。
-7. 不扩展 `options.extra_body.max_tokens`、`max_completion_tokens` 等额外兼容字段，不改变推理档位、账号、默认选择或其他迁移语义；本项只落实本次确认的三种输出上限字段。
+1. Modifica-se somente a **primeira importação da configuração antiga do CLI Standalone**, com entrada em
+   `provider.<providerId>.models.<modelId>` do arquivo antigo do usuário. Reutilizam-se as regras existentes de
+   identidade de Provider, origem, itens removidos e filtragem de membros duplicados.
+2. O limite de saída é obtido como inteiro positivo válido na ordem `limit.output` → `options.max_tokens` →
+   `maxOutputTokens` e gravado em `config.optionSpecs.maxOutputTokens.max` da nova regra de modelo
+   correspondente. Não se materializa a configuração completa do modelo Built-in, nem se copiam o mapeamento de
+   parâmetros de API ou options arbitrários; o map continua sendo fornecido pela cadeia de síntese de
+   configuração existente.
+3. Modelos que têm apenas limite de saída, sem `contextWindow`, também devem gerar regra; quando ambos existem,
+   ambos são preservados. Quando ambos estão ausentes, o comportamento atual é mantido e, na ausência do campo
+   de saída, nenhum valor padrão é gravado.
+4. Valores inválidos não entram na nova configuração, mantendo o limite de validação de entrada do parser atual;
+   testa-se explicitamente a prioridade dos candidatos válidos e o tratamento de valores de options inválidos,
+   sem aceitar string ou decimal por conversão numérica implícita.
+5. **Usuários já migrados não são tratados.** Quando a configuração Personal oficial já existe, o comportamento de
+   leitura direta é mantido: sem migração adicional, sem sobrescrita, sem versão ou marcador de migração e sem
+   leitura contínua do arquivo antigo. Se a avaliação alterar o limite de saída no arquivo antigo e iniciar
+   novamente, a efetividade continua sujeita a esse limite de primeira importação.
+6. Não se modifica o `legacyPersonalProviderConfigImporter` do Desktop, e não se importam valores de saída do
+   Store antigo do desktop, das configurações de projeto ou de variáveis de ambiente. O arquivo antigo original
+   do CLI é preservado, sem escrita dupla.
+7. Não se estendem campos de compatibilidade adicionais como `options.extra_body.max_tokens` ou
+   `max_completion_tokens`, e não se alteram o nível de raciocínio, a conta, a seleção padrão ou outras semânticas
+   de migração; este item implementa apenas os três campos de limite de saída confirmados nesta rodada.
 
-迁移与执行顺序沿用 [Todo33](todo-33-personal-provider-config-file-cutover.md) 的唯一持久化 owner：
+A ordem de migração e execução segue o único owner de persistência de [Todo33](todo-33-personal-provider-config-file-cutover.md):
 
 ```text
 Standalone Provider Runtime
-  → Personal Repository 检查正式文件
-      ├─ 已存在：读取正式配置，结束旧文件导入
-      └─ 不存在：锁内重查 → CLI Legacy Importer 读取旧 config.json
-                 → 提取 context / output 稀疏规则
-                 → 原子保存 Personal 配置 → Registry 合成 → 正常模型请求
+  → Personal Repository verifica o arquivo oficial
+      ├─ já existe: lê a configuração oficial e encerra a importação do arquivo antigo
+      └─ não existe: reconfere dentro do lock → CLI Legacy Importer lê o config.json antigo
+                 → extrai as regras esparsas de context / output
+                 → salva atomicamente a configuração Personal → Registry sintetiza → requisição normal de modelo
 ```
 
-本项取代 CLI 导入测试中“输出上限不迁移”的预期；不扩大 Desktop 或已迁移用户的兼容范围。
+Este item substitui a expectativa "o limite de saída não é migrado" nos testes de importação do CLI; não amplia a
+compatibilidade do Desktop nem de usuários já migrados.
 
-## 实施与验收
+## Implementação e aceitação
 
-- [x] 实施前把适用的现行迁移规格同步到上述最终契约；历史记录保留，避免将旧阶段说明当作当前行为。
-- [x] 先补回归：三种字段分别迁移、同时存在时的优先级、只有 output、context 与 output 并存、output 缺省与非法值、删除和重复模型过滤；证明旧实现会丢值，再修改 CLI 导入器。
-- [x] 修正该导入测试文件过时的序列化断言，优先断言当前正式规则与字段；不将顺带修正断言扩展为其他产品语义变更。
-- [x] 使用临时 CLI 配置目录及离线 Provider fixture，覆盖旧文件读取 → 首次导入 → 正式文件保存与重读 → Registry 合成；断言显式输出值保留、API map 仍继承、旧文件内容不变。
-- [x] 正式配置存在时，改变旧文件输出值并重启，确认不重新导入；本项不承诺持续读取评测旧配置。
-- [x] 通过本地 scripted Provider 捕获实际 CLI 模型请求，证明迁移值进入对应 API 输出预算字段；不以 JSON 保存成功代替请求生效验证，不使用真实 Key 或付费模型。
-- [x] 按根与 CLI 规则运行受影响测试、typecheck、lint、架构检查并自审；明确区分既有失败、本次结果与未验证项。测试命令可从 `pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/legacy-cli-personal-provider-config-importer.test.ts` 开始，不能用根单测代替 CLI 验证。
+- [x] Antes da implementação, a especificação de migração vigente aplicável foi sincronizada com o contrato
+  final acima; o registro histórico é preservado, para evitar que descrições de fases antigas sejam tomadas como
+  comportamento atual.
+- [x] Primeiro foram adicionadas as regressões: migração de cada um dos três campos, prioridade quando coexistem,
+  apenas output, context e output juntos, output ausente e valores inválidos, remoção e filtragem de modelos
+  duplicados; provou-se que a implementação antiga perdia valores e só então o importador do CLI foi modificado.
+- [x] Corrigiram-se as asserções de serialização obsoletas naquele arquivo de teste de importação, priorizando
+  asserções sobre as regras e os campos oficiais atuais; a correção incidental das asserções não foi estendida
+  a outras mudanças de semântica de produto.
+- [x] Com um diretório temporário de configuração do CLI e fixture de Provider offline, foram cobertos leitura do
+  arquivo antigo → primeira importação → salvamento e releitura do arquivo oficial → síntese do Registry; foram
+  verificados a preservação do valor explícito de saída, a herança do API map e a invariância do conteúdo do
+  arquivo antigo.
+- [x] Com a configuração oficial presente, alterou-se o valor de saída no arquivo antigo e reiniciou-se, confirmando
+  que não há nova importação; este item não promete leitura contínua da configuração antiga da avaliação.
+- [x] Com um Provider local roteirizado, capturou-se a requisição real de modelo do CLI, provando que o valor
+  migrado entra no campo de orçamento de saída da API correspondente; a gravação bem-sucedida do JSON não é
+  usada como substituto da verificação de efeito na requisição, e nenhuma Key real ou modelo pago é usado.
+- [x] Executaram-se os testes afetados, typecheck, lint e checagem de arquitetura segundo as regras da raiz e do
+  CLI, com auto-revisão; distinguem-se explicitamente as falhas preexistentes, o resultado desta rodada e o que
+  não foi verificado. Os comandos de teste podem começar por
+  `pnpm --dir apps/zcode-cli --filter @zcode/bootstrap exec vitest run tests/legacy-cli-personal-provider-config-importer.test.ts`,
+  e os testes unitários da raiz não substituem a verificação do CLI.
 
-## 2026-09-17 实施与验证记录
+## Registro de implementação e verificação de 2026-09-17
 
-生产改动仅在 CLI Legacy Importer：按已确认优先级取有限正整数，为仅输出值或 context/output 并存的模型生成稀疏规则；未改 parser、Desktop 导入器、Repository 生命周期或持久化 Schema。已同步现行 configuration 规格与 Todo35 后续裁决，并将旧导入测试改为当前规则结构断言。
+A mudança de produção ficou apenas no CLI Legacy Importer: foi obtida a primeira prioridade como inteiro positivo
+finito, gerando regras esparsas para modelos com apenas valor de saída ou com context/output coexistindo; o parser,
+o importador do Desktop, o ciclo de vida do Repository e o Schema de persistência não foram alterados. A
+especificação vigente de configuração e as decisões posteriores do Todo35 foram sincronizadas, e os testes de
+importação antigos passaram a fazer asserções sobre a estrutura de regras atual.
 
-- 先在未修改实现时运行回归，34 项中 17 项失败，失败均指向合法输出规则缺失；修改后导入、字段边界、默认选择集成和本地请求集成共 40 项通过。另运行进程 Registry 与模型工厂调用方测试，19 项通过，合计 59 项。
-- 新增 runtime 测试通过临时 CLI `config.json`、真实 Standalone 组合根、Personal 文件和 Registry 启动普通 Agent Turn，向本地 HTTP fixture 发送真实 SDK 请求。三种 API 的 `max_tokens`、`max_completion_tokens`、`max_output_tokens` 均捕获到 `24000`；未从测试调用方手动指定请求预算。fixture 故意返回 400 终止本轮，验证目标是出站参数，不代表上游模型生成成功。
-- 重启测试读取已落盘正式文件；即使旧文件改为 `8000`，Registry 仍为 `24000`，正式文件字节不变。首次导入也确认旧文件字节不变，未访问真实 Key 或付费模型。
-- `pnpm typecheck`、`pnpm lint`（54 warnings / 0 errors）、`pnpm --dir apps/zcode-cli typecheck`（28 tasks）及 `pnpm architecture:check --changed`（0 violations）通过。架构策略中的 CLI 为 legacy 模块，门禁通过不等同于完整运行时证明。
-- 本次 4 个 TypeScript 文件的局部 lint、格式检查，以及 diff 和文档链接检查通过。
-- `pnpm --dir apps/zcode-cli lint` 失败：例如未修改的 `contracts/src/workflow/index.ts`、`interfaces/session-store.port.ts`、`interfaces/browser-control.port.ts`、`events/event-reducer.ts`、`model/index.ts` 共 5 个 `max-lines` 错误；Bootstrap 还有 `plugins.ts` 等既有超限文件。上述示例已与 HEAD 比对、无改动。未通过改规则或扩大重构绕过失败。
+- Executando primeiro as regressões sem modificar a implementação, 17 de 34 casos falharam, com todas as falhas
+  apontando para regras de saída válida ausentes; após a modificação, 40 casos passaram entre importação, limites
+  de campo, integração de seleção padrão e integração de requisição local. Também foram executados os testes de
+  chamadores do Registry de processo e da fábrica de modelos, com 19 casos passando, totalizando 59.
+- O novo teste de runtime usa um `config.json` temporário do CLI, a raiz de composição real do Standalone, o
+  arquivo Personal e o Registry para iniciar um Turn normal do Agent, enviando uma requisição real do SDK a uma
+  fixture HTTP local. As três APIs — `max_tokens`, `max_completion_tokens` e `max_output_tokens` — capturaram
+  `24000`; o orçamento da requisição não foi especificado manualmente pelo chamador do teste. A fixture retorna
+  400 de propósito para encerrar a rodada; o alvo da verificação são os parâmetros de saída, e isso não
+  representa sucesso de geração do modelo upstream.
+- O teste de reinício lê o arquivo oficial já gravado em disco; mesmo com o arquivo antigo alterado para `8000`,
+  o Registry permanece em `24000` e os bytes do arquivo oficial não mudam. A primeira importação também confirma
+  que os bytes do arquivo antigo não mudam, e nenhuma Key real ou modelo pago foi acessado.
+- `pnpm typecheck`, `pnpm lint` (54 warnings / 0 errors), `pnpm --dir apps/zcode-cli typecheck` (28 tasks) e
+  `pnpm architecture:check --changed` (0 violations) passaram. Na política de arquitetura o CLI é um módulo
+  legacy, e a aprovação do gate não equivale a uma prova completa de runtime.
+- Passaram a checagem de lint e de formatação local dos 4 arquivos TypeScript desta rodada, a verificação de diff e
+  de links de documentação.
+- `pnpm --dir apps/zcode-cli lint` falhou: por exemplo, 5 erros de `max-lines` em arquivos não modificados —
+  `contracts/src/workflow/index.ts`, `interfaces/session-store.port.ts`, `interfaces/browser-control.port.ts`,
+  `events/event-reducer.ts`, `model/index.ts`; o Bootstrap ainda tem arquivos preexistentes acima do limite, como
+  `plugins.ts`. Os exemplos foram comparados com o HEAD e não têm alterações. A falha não foi contornada mudando
+  as regras ou ampliando a refatoração.
 
-未验证真实评测团队配置、外部模型成功响应、Windows/macOS 实机；本项未改变桌面或手机交互。CLI 全量 lint 尚未收口，不宣称必要验证全部通过；用户知悉既有行数错误后明确要求直接 commit，本次按授权提交并保留失败记录。工作区同时存在其他任务改动，本项未修改或收录它们。
+Não foram verificados a configuração real do time de avaliação, a resposta de sucesso de um modelo externo nem
+execuções reais em Windows/macOS; este item não alterou a interação do desktop nem do celular. O lint completo do
+CLI ainda não foi fechado, e não se afirma que todas as verificações necessárias passaram; ciente dos erros de
+linha preexistentes, o usuário pediu explicitamente o commit direto, e assim esta rodada foi submetida conforme a
+autorização, mantendo o registro de falha. O workspace continha ao mesmo tempo alterações de outras tarefas, que
+esta rodada não modificou nem incluiu.
 
-## 2026-10-14 基于 staging 重新移植
+## Reposicionamento com base no staging em 2026-10-14
 
-旧修复提交 `bb7f88002c` 留在旧特性分支，未进入 staging。本次从 `5e74234f49` 建立独立修复分支，只移植本项修复、测试与规格，不合入旧分支的其他功能。
+O commit de correção antigo `bb7f88002c` permaneceu na branch de feature antiga e não entrou no staging. Desta
+vez uma branch de correção independente foi criada a partir de `5e74234f49`, portando apenas a correção, os testes e
+a especificação deste item, sem trazer as demais funcionalidades da branch antiga.
 
-- 生产转换逻辑沿用原修复；当前 staging 的测试已修正序列化结构，保留这些断言，仅增加输出预算预期。
-- 实际运行发现 `createSqliteSessionStore()` 已变为异步工厂；请求集成夹具改为等待初始化，生产存储和请求链路不变。
-- 修改生产实现前，34 项导入回归中 17 项因输出上限丢失失败；修复后相关 6 个测试文件共 61 项通过，包括原有调用方新增的回归。
-- 三种 API 的真实 SDK 请求均由本地 HTTP fixture 捕获到 `24000`；正式文件重读、旧文件不变、重启不重新导入仍通过。fixture 返回 400 是主动终止请求的测试设计，不代表外部模型成功响应。
-- 根 affected 预览与正式执行均选中 0/2633；CLI 不属于根测试套件，由上述 CLI 定向回归覆盖。未运行全量单测。
-- 根 `pnpm typecheck`、CLI `typecheck`（30 tasks）通过；根 lint 为 0 errors / 210 warnings，CLI lint 为 0 errors / 68 warnings，另按现有策略接纳 14 项原样上游行数诊断。本次不再有 9 月的行数阻塞。
-- `pnpm architecture:check --changed` 为 0 violations；4 个 TypeScript 文件通过 CLI 自有 formatter 检查，diff、文档引用及开源词汇检查通过。只验证当前任务范围，不扩大为全量测试。
-- 真实评测配置、外部模型成功响应和 Windows/macOS 实机未验证。产品范围仍限 CLI 首次迁移；本地分支准备完成不代表已合入远端 staging。
+- A lógica de conversão de produção reaproveita a correção original; os testes do staging atual já corrigiram a
+  estrutura de serialização, e essas asserções foram mantidas, apenas acrescentando a expectativa de orçamento de
+  saída.
+- Na execução real verificou-se que `createSqliteSessionStore()` passou a ser uma fábrica assíncrona; a fixture de
+  integração de requisição passou a aguardar a inicialização, sem alteração no armazenamento de produção nem na
+  cadeia de requisições.
+- Antes da modificação da implementação de produção, 17 das 34 regressões de importação falharam por perda do
+  limite de saída; após a correção, 61 casos passaram nos 6 arquivos de teste relacionados, incluindo as regressões
+  novas adicionadas pelos chamadores existentes.
+- As requisições reais do SDK das três APIs foram capturadas pela fixture HTTP local em `24000`; a releitura do
+  arquivo oficial, a invariância do arquivo antigo e a ausência de nova importação no reinício continuam
+  passando. O 400 retornado pela fixture é um desenho de teste que encerra a requeração ativamente, e não
+  representa uma resposta de sucesso de um modelo externo.
+- A pré-visualização e a execução efetiva do affected da raiz selecionaram 0/2633; o CLI não faz parte do suite de
+  testes da raiz, sendo coberto pelas regressões direcionadas do CLI acima. Não se executou a suíte completa de
+  testes unitários.
+- O `pnpm typecheck` da raiz e o `typecheck` do CLI (30 tasks) passaram; o lint da raiz ficou em 0 errors / 210
+  warnings e o do CLI em 0 errors / 68 warnings, com mais 14 diagnósticos de contagem de linhas do upstream
+  aceitos como estão conforme a política vigente. Não há mais o bloqueio de contagem de linhas de setembro.
+- `pnpm architecture:check --changed` ficou em 0 violations; os 4 arquivos TypeScript passaram na checagem de
+  formatter próprio do CLI, e as verificações de diff, de referências a documentação e de vocabulário de open
+  source passaram. Só se verificou o escopo da tarefa atual, sem ampliar para a suíte completa.
+- Não foram verificados a configuração real de avaliação, a resposta de sucesso de um modelo externo nem execuções
+  reais em Windows/macOS. O escopo de produto continua restrito à primeira migração do CLI; a preparação da branch
+  local não significa que ela já foi mesclada no staging remoto.

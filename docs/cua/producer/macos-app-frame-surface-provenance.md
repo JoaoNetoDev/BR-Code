@@ -1,187 +1,209 @@
-# macOS App Frame Surface Provenance
+# Procedência das surfaces de frame de app no macOS
 
-Status: implementation contract (2026-08-23)
+Status: contrato de implementação (2026-08-23)
 
-## Problem
+## Problema
 
-An application capture can contain more than the requested root window. AppKit sheets,
-open/save panels, and popovers can own pixels inside the returned raster while carrying a
-different `CGWindowID`; an open/save panel can also be hosted by an XPC process. Before this
-contract, an app frame stored only the root `(pid, window_id)`. Raw coordinate input therefore
-posted every pixel to the root with `SLEventPostToPid`. The OS was not allowed to hit-test the
-pixel, so a correctly visible panel could silently receive no event while the tool reported a
-successful dispatch.
+Uma captura de aplicação pode conter mais do que a janela raiz solicitada. Sheets
+do AppKit, painéis de open/save e popovers podem ser donos de pixels dentro do raster
+retornado carregando um `CGWindowID` diferente; um painel de open/save também pode
+ser hospedado por um processo XPC. Antes deste contrato, um frame de app guardava
+apenas o `(pid, window_id)` raiz. Portanto, a entrada bruta de coordenadas enviava
+todo pixel para a raiz com `SLEventPostToPid`. O SO não podia fazer hit-test do
+pixel, de modo que um painel corretamente visível podia silenciosamente não receber
+nenhum evento enquanto a ferramenta reportava um despacho bem-sucedido.
 
-The regression is captured by `test/fixtures/file-panel-surface-trajectories.json`. The fixture
-contains only window identities, bounds, action classes, and outcomes; prompts, file names,
-account data, and image bytes were removed from the supplied trajectories.
+A regressão está capturada em `test/fixtures/file-panel-surface-trajectories.json`.
+A fixture contém apenas identidades de janela, bounds, classes de ação e
+resultados; prompts, nomes de arquivo, dados de conta e bytes de imagem foram
+removidos das trajetórias fornecidas.
 
-## Trust boundary
+## Fronteira de confiança
 
-Surface membership is evidence, not a geometry heuristic. A surface belongs to an app frame
-only when all of the following are true:
+A pertença a uma surface é uma evidência, não uma heurística de geometria. Uma
+surface pertence a um frame de app somente quando todas as condições abaixo são
+verdadeiras:
 
-1. macOS Accessibility reaches it from the logical application's focused, main, or top-level
-   window through a bounded relationship walk;
-2. `_AXUIElementGetWindow` returns a real `CGWindowID`;
-3. WindowServer reports the same window before and after capture with stable owner PID, bundle,
-   layer, and bounds; and
-4. the screenshot geometry and display topology remain stable.
+1. o macOS Accessibility a alcança a partir da janela focada, principal ou de
+   top-level da aplicação lógica, por meio de uma caminhada de relação limitada;
+2. `_AXUIElementGetWindow` retorna um `CGWindowID` real;
+3. o WindowServer relata a mesma janela antes e depois da captura com PID dono,
+   bundle, layer e bounds estáveis; e
+4. a geometria da captura e a topologia de displays permanecem estáveis.
 
-The relationship walk is bounded to 8 levels and 64 nodes. Titles and overlapping bounds are
-never used to infer membership. A cross-process surface is allowed only when the AX walk proves
-the relationship; dispatch uses its WindowServer owner, while observation retains the logical
-application identity.
+A caminhada de relação é limitada a 8 níveis e 64 nós. Títulos e bounds
+sobrepostos nunca são usados para inferir pertença. Uma surface cross-process é
+permitida apenas quando a caminhada AX prova a relação; o despacho usa o dono
+do WindowServer, enquanto a observação retém a identidade da aplicação lógica.
 
 ```text
-logical application pid
+pid da aplicação lógica
         |
-        +-- AX focused/main/windows seeds
+        +-- seeds AX focused/main/windows
         |          |
-        |          `-- AX child surface relationship (<= 8 levels / 64 nodes)
+        |          `-- relação de surface filha AX (<= 8 níveis / 64 nós)
         |                         |
-        |                         `-- actual CGWindowID + AX owner pid
+        |                         `-- CGWindowID real + pid dono AX
         |
-        +-- WindowServer snapshot before image
-        +-- capture pixels
-        `-- WindowServer snapshot after image
+        +-- snapshot do WindowServer antes da imagem
+        +-- captura de pixels
+        `-- snapshot do WindowServer depois da imagem
                          |
                          v
-            stable AppFrameSurfaceSet
+            AppFrameSurfaceSet estável
 ```
 
-An app frame records an ordered, front-to-back `capture_surfaces` set. Each entry contains:
+Um frame de app registra um conjunto `capture_surfaces` ordenado, da frente para
+trás. Cada entrada contém:
 
-- `actual_window_id` and `presentation_window_id`;
-- neutral `surface_kind` and AX-proven `relation`;
-- real dispatch owner PID and canonical bundle ID;
-- capture-time bounds and WindowServer layer.
+- `actual_window_id` e `presentation_window_id`;
+- `surface_kind` neutro e `relation` comprovado pelo AX;
+- PID dono real do despacho e bundle ID canônico;
+- bounds no momento da captura e layer do WindowServer.
 
-If the capture contains only the ordinary presentation root and the additive WindowServer
-surface ABI is unavailable, no surface record is issued; the root frame keeps the existing live
-root-window verification path. This compatibility case must not make the whole observation fail.
-If AX has already proved an attached surface but its WindowServer identity is unavailable or
-changes during capture, the observation is still returned but its raster is non-actionable with
-`capture_surfaces_unavailable` or `capture_surfaces_changed`. Thus the accessibility tree remains
-usable while panel pixels remain fail-closed. Malformed or over-limit surface sets follow the same
-non-actionable path.
+Se a captura contiver apenas a raiz de apresentação comum e a ABI aditiva de
+surfaces do WindowServer estiver indisponível, nenhum registro de surface é
+emitido; o frame raiz mantém o caminho existente de verificação da janela raiz
+live. Esse caso de compatibilidade não pode fazer a observação inteira falhar. Se
+o AX já provou uma surface anexada, mas sua identidade de WindowServer está
+indisponível ou muda durante a captura, a observação ainda é retornada, mas seu
+raster é não-acionável com `capture_surfaces_unavailable` ou
+`capture_surfaces_changed`. Assim, a árvore de acessibilidade continua utilizável
+enquanto os pixels de painel permanecem fail-closed. Conjuntos de surface
+malformados ou acima do limite seguem o mesmo caminho não-acionável.
 
-## Observe, act, and lifecycle
+## Observar, agir e ciclo de vida
 
 ```text
 capture(before surfaces)
         |
-        +-- image + AX tree
+        +-- imagem + árvore AX
         |
 capture(after surfaces)
         |
-        +-- changed ----------------------------> return tree + non-actionable raster
+        +-- mudou ------------------------------> devolve a árvore + raster não-acionável
         |
-        `-- stable -> issue frame_id
+        `-- estável -> emite frame_id
                          |
-coordinate pixel --------+
+pixel de coordenada --------+
         |
-front-to-back hit inside capture_surfaces
+hit da frente para trás dentro de capture_surfaces
         |
-        +-- no proven surface -----------------> action_sent=false
+        +-- nenhuma surface comprovada ---------> action_sent=false
         |
-live WindowServer identity check
+checagem de identidade live do WindowServer
         |
-        +-- closed/replaced/moved/owner changed -> surface_replaced, action_sent=false
+        +-- fechada/substituída/movida/dono trocado -> surface_replaced, action_sent=false
         |
-        `-- exact match
+        `-- correspondência exata
                 |
-                +-- presentation app already frontmost AND ordinary OS hit-test
-                |   also resolves to this exact surface -> foreground CGEvent
+                +-- app de apresentação já em foreground E o hit-test comum do OS
+                |   também resolve para esta surface exata -> CGEvent de foreground
                 |
-                `-- otherwise -> post to actual owner pid + actual window id
+                `-- caso contrário -> envia para o pid dono real + o id de janela real
 ```
 
-An unrelated covering window is not part of an app frame and therefore cannot steal its
-coordinate authority. It also prevents the foreground path from being selected: the event stays
-window-scoped, so the unrelated window cannot receive it. The foreground split is required because
-AppKit can acknowledge a SkyLight window-targeted event without delivering an `NSEvent` to the
-sheet responder. Full-display frames keep their separate, ordinary WindowServer hit-test contract.
+Uma janela de cobertura não relacionada não faz parte de um frame de app e,
+portanto, não pode roubar sua autoridade de coordenadas. Ela também impede que o
+caminho de foreground seja escolhido: o evento permanece com escopo de janela,
+então a janela não relacionada não pode recebê-lo. A separação de foreground é
+necessária porque o AppKit pode confirmar um evento do SkyLight direcionado a
+janela sem entregar um `NSEvent` ao responder da sheet. Frames de display
+completo mantêm seu próprio contrato de hit-test comum do WindowServer.
 
-An observation without a delivered actionable raster suspends implicit coordinate authority.
-The latest retained frame remains usable only when the caller explicitly supplies its
-`frame_id`; an unqualified coordinate fails with guidance to use an element target or request a
-new screenshot. This prevents global AX bounds from being interpreted as pixels in an older
-image.
+Uma observação sem um raster acionável entregue suspende a autoridade implícita de
+coordenadas. O frame retido mais recente continua utilizável apenas quando o
+chamador fornece explicitamente o seu `frame_id`; uma coordenada sem qualificação
+falha com uma orientação para usar um element target ou solicitar um novo
+screenshot. Isso evita que bounds globais do AX sejam interpretados como pixels em
+uma imagem mais antiga.
 
-Keyboard calls with only a logical PID resolve the currently focused attached surface. When the
-logical application is already frontmost, the broker uses the foreground event chain so AppKit
-routes shortcuts and text to that focused surface; it never activates the application implicitly.
-When it is not frontmost, input remains scoped to the resolved actual owner and window. An
-explicit stale `window_id` never heals to a new generation or to the presentation root; it fails
-with `surface_replaced` and requires a new observation. Element re-resolution includes actual
-surface identity for the same reason.
+Chamadas de teclado com apenas um PID lógico resolvem a surface anexada
+atualmente em foco. Quando a aplicação lógica já está em foreground, o broker usa
+a cadeia de eventos de foreground para que o AppKit roteie atalhos e texto para
+essa surface em foco; ele nunca ativa a aplicação implicitamente. Quando ela não
+está em foreground, a entrada permanece com escopo do dono e da janela reais
+resolvidos. Um `window_id` explicitamente obsoleto nunca se cura para uma nova
+geração nem para a raiz de apresentação; ele falha com `surface_replaced` e exige
+uma nova observação. A re-resolução de elemento inclui a identidade real da
+surface pelo mesmo motivo.
 
-### Confirmed foreground recovery for file panels
+### Recuperação de foreground confirmada para painéis de arquivo
 
-Some AppKit commands and Chromium file inputs acknowledge PID/window-targeted events without
-executing the responder command while the logical application is in the background. The only
-product recovery path is the explicit activation action:
+Alguns comandos do AppKit e inputs de arquivo do Chromium confirmam eventos
+direcionados a PID/janela sem executar o comando do responder enquanto a
+aplicação lógica está em background. O único caminho de recuperação do produto é a
+ação de ativação explícita:
 
 ```text
 open_application(app={pid,bundle_id,window_id}, activate=true)
 ```
 
-On macOS this exception is accepted only when the fresh `window_id` resolves to a stable
-`open_panel`, `save_panel`, or an `attached_dialog` whose AX lineage contains an open/save panel
-under the same presentation root. The Helper activates the logical application and focuses that
-exact AX-proven surface, then rechecks the actual/presentation identities before reporting
-`active=true`. Ordinary windows, popovers, missing lineage, and replaced generations remain
-background-only or fail closed. The previously frontmost application is not restored.
+No macOS esta exceção é aceita apenas quando o `window_id` novo resolve para um
+`open_panel`, `save_panel` ou `attached_dialog` estável cujo linhagem AX contenha
+um painel de open/save sob a mesma raiz de apresentação. O Helper ativa a
+aplicação lógica e foca essa surface exata comprovada pelo AX, e então re-confere
+as identidades real/de apresentação antes de reportar `active=true`. Janelas
+comuns, popovers, linhagem ausente e gerações substituídas permanecem
+background-only ou falham de forma fechada. A aplicação que estava em foreground
+não é restaurada.
 
-`key` and `type` with `strategy=event` never activate implicitly. They require the confirmed
-foreground recovery above, a fresh observation, and the exact current `actual_window_id`.
-Failure to satisfy that precondition is `foreground_required` with `action_sent=false`, not a
-macOS TCC permission error.
+`key` e `type` com `strategy=event` nunca ativam implicitamente. Eles exigem a
+recuperação de foreground confirmada acima, uma nova observação e o
+`actual_window_id` exato e atual. Falhar em satisfazer essa precondição é
+`foreground_required` com `action_sent=false`, não um erro de permissão TCC do
+macOS.
 
-## Model-facing state
+## Estado visível ao model
 
-The existing 14-tool surface remains unchanged. `AppState.window` adds neutral surface fields:
+A superfície existente de 14 ferramentas permanece inalterada. `AppState.window`
+adiciona campos neutros de surface:
 
-- `surface_kind`: `window`, `attached_dialog`, `open_panel`, `save_panel`, or `popover`;
-- `actual_window_id` and `presentation_window_id`;
-- `surface_lifecycle`: `stable`, `replaced`, or `closed`.
+- `surface_kind`: `window`, `attached_dialog`, `open_panel`, `save_panel` ou
+  `popover`;
+- `actual_window_id` e `presentation_window_id`;
+- `surface_lifecycle`: `stable`, `replaced` ou `closed`.
 
-Elements add `selected` and `default_action`. For open/save panels, the formatted state puts a
-short dialog summary before the full element list: selected item(s), default confirmation
-control, and its enabled state. Compact output retains these controls and gives one deterministic
-path workflow:
+Elementos adicionam `selected` e `default_action`. Para painéis de open/save, o
+estado formatado coloca um resumo curto do diálogo antes da lista completa de
+elementos: item(ns) selecionado(s), controle de confirmação padrão e o estado
+habilitado dele. A saída compacta mantém esses controles e dá um caminho de
+workflow determinístico:
 
 ```text
-Cmd+Shift+G -> observe the attached surface again -> type the full path -> confirm once
+Cmd+Shift+G -> observar de novo a surface anexada -> digitar o caminho completo -> confirmar uma vez
 ```
 
-## Mutation outcome
+## Resultado da mutação
 
-A dispatch receipt proves only that the event was accepted by the native layer. Mutation
-verification is target-specific:
+Um comprovante de despacho prova apenas que o evento foi aceito pela camada
+nativa. A verificação de mutação é específica do alvo:
 
-- selection requires `selected=true` or a change in the default confirmation control;
-- open/confirm may be proved when the panel closes and control returns to the same presentation
-  root;
-- a generic accessibility-tree digest change is never sufficient by itself.
+- a seleção exige `selected=true` ou uma mudança no controle de confirmação padrão;
+- abrir/confirmar pode ser provado quando o painel fecha e o controle retorna à
+  mesma raiz de apresentação;
+- uma mudança genérica no digest da árvore de acessibilidade nunca é suficiente
+  por si só.
 
-Even `return_state="none"` reports the actual dispatch surface, whether retrying the action is
-safe, and why an effect is unverified. Post-send uncertainty is never replayed automatically.
-These fields are broker-internal surface evidence; the model-facing action result remains
-`zcode-cua-action-receipt-v1`. The existing flat permission response remains
-unchanged.
+Mesmo `return_state="none"` reporta a surface de despacho real, se é seguro
+tentar a ação novamente e por que um efeito não foi verificado. A incerteza
+pós-envio nunca é reproduzida automaticamente. Esses campos são evidência de
+surface interna do broker; o resultado de ação visível ao model permanece
+`zcode-cua-action-receipt-v1`. A resposta de permissão plana existente permanece
+inalterada.
 
-The same rule applies to PID-only `type`: it resolves the focused attached surface, records its
-dispatch receipt, and enters the mutation barrier before settling state. A capture that briefly
-falls back to the presentation root is not proof that the panel closed when the returned tree
-still contains a default panel action. This prevents an ordinary sidebar click from being
-misreported as a successful confirmation.
+A mesma regra se aplica ao `type` só-PID: ele resolve a surface anexada em foco,
+registra seu comprovante de despacho e entra na barreira de mutação antes de
+assentar o estado. Uma captura que brevemente recorre à raiz de apresentação não
+é prova de que o painel fechou quando a árvore retornada ainda contém uma ação
+de painel padrão. Isso impede que um clique comum na barra lateral seja reportado
+como uma confirmação bem-sucedida.
 
-## Differential native E2E
+## E2E nativo diferencial
 
-The disposable AppKit fixture and M14–M16 task packs exercise the real MCP server, native addon,
-WindowServer identities, NSOpenPanel lifecycle, and application-owned oracle. No task uses
+A fixture descartável do AppKit e os packs de tarefas M14–M16 exercitam o
+servidor MCP real, o addon nativo, as identidades do WindowServer, o ciclo de
+vida do NSOpenPanel e o oráculo pertencente à aplicação. Nenhuma tarefa usa
 `osascript`.
 
 ```text
@@ -192,13 +214,13 @@ M16 raster frame -> state-only observe -> naked coordinate rejected
 M17 background Chrome file panel -> confirmed exact-surface activation -> exact path -> DOM oracle
 ```
 
-| Case | `main@e0d27a36` before fix | multi-surface implementation |
+| Caso | `main@e0d27a36` antes da correção | implementação multi-surface |
 |---|---|---|
-| M14 | panel AX tree was visible, but no actionable panel raster or actual/presentation surface identity was delivered | coordinate dispatched to the actual panel window; panel closed into the same root; fixture oracle selected the exact file |
-| M15 | Escape returned `Key pressed 1 time(s).` while the first panel remained open, demonstrating accepted-without-effect feedback | first generation closes, second generation differs, old explicit window returns `surface_replaced`, and PID-only text reports the focused sheet dispatch surface |
-| M16 | no actionable panel raster was available, so coordinate authority could not be established | state-only observation rejects the naked coordinate with `action_sent=false`; the explicit retained frame dispatches to the exact captured surface and leaves its generation unchanged |
+| M14 | a árvore AX do painel era visível, mas nenhum raster de painel acionável nem identidade real/de apresentação de surface era entregue | a coordenada foi despachada para a janela real do painel; o painel fechou na mesma raiz; o oráculo da fixture selecionou o arquivo exato |
+| M15 | o Escape retornou `Key pressed 1 time(s).` enquanto o primeiro painel permanecia aberto, demonstrando um feedback aceito-sem-efeito | a primeira geração fecha, a segunda geração difere, a janela explícita antiga retorna `surface_replaced`, e o texto só-PID reporta a surface de despacho da sheet em foco |
+| M16 | não havia raster de painel acionável disponível, então a autoridade de coordenadas não podia ser estabelecida | a observação somente-estado rejeita a coordenada nua com `action_sent=false`; o frame retido explícito despacha para a surface capturada exata e deixa sua geração inalterada |
 
-Run the current implementation:
+Execute a implementação atual:
 
 ```bash
 node evals/zcode-gui-eval/bin/zge.mjs validate M14
@@ -206,16 +228,20 @@ node evals/zcode-gui-eval/bin/zge.mjs validate M15
 node evals/zcode-gui-eval/bin/zge.mjs validate M16
 ```
 
-For a before/after checkout comparison, point `ZCODE_CUA_TS_SERVER_DIST` at the built `dist/cli.js`
-for each revision while running the same task definitions. Performance latency is retained as a
-non-blocking diagnostic; all behavior, safety, lifecycle, and oracle checks are blocking.
+Para uma comparação de checkout antes/depois, aponte
+`ZCODE_CUA_TS_SERVER_DIST` para o `dist/cli.js` construído de cada revisão
+enquanto se executa as mesmas definições de tarefa. A latência de performance é
+mantida como um diagnóstico não bloqueante; todas as checagens de comportamento,
+segurança, ciclo de vida e oráculo são bloqueantes.
 
-## Cross-platform boundary
+## Fronteira entre plataformas
 
-- macOS uses the surface set and the verified foreground/background split described above.
-- Windows keeps foreground verification plus SendInput/UIA routing. It does not consume macOS AX
-  surface relations.
-- Linux keeps the single-surface AT-SPI/X11 fallback.
+- o macOS usa o conjunto de surfaces e a separação verificada foreground/background
+  descrita acima.
+- O Windows mantém a verificação de foreground mais o roteamento
+  SendInput/UIA. Ele não consome as relações de surface do AX do macOS.
+- O Linux mantém o fallback de surface única AT-SPI/X11.
 
-Platform dispatch policies remain separate; the shared frame descriptor carries optional neutral
-provenance but does not force the three implementations through one raw input path.
+As políticas de despacho por plataforma permanecem separadas; o descritor de
+frame compartilhado carrega uma proveniência neutra opcional, mas não força as
+três implementações por um único caminho de entrada bruta.

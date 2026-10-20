@@ -1,72 +1,72 @@
-# 25: 无匹配项目时创建并进入
+# 25: Criar e entrar quando não houver projeto correspondente
 
 Status: done
 
-**Parent:** [#21 — 聊天连接后必选远程文件夹并进入项目](21-chat-settings-round-trip.md)
+**Parent:** [#21 — Seleção obrigatória de pasta remota após conectar no chat e entrada no projeto](21-chat-settings-round-trip.md)
 
-**What to build:** 用户从聊天连接远端并确认一个没有现存匹配项目的文件夹后，使用文件夹名作为默认项目名，沿用已有创建／恢复和目录确认流程。保存项目、登记入口并准备工作区后进入该项目的新任务草稿；失败时可重试或取消，不重复创建，也不向本地发送。
+**O que construir:** quando o usuário conectar um dispositivo remoto a partir do chat e confirmar uma pasta que não tenha projeto existente correspondente, usa-se o nome da pasta como nome de projeto padrão, reaproveitando o fluxo existente de criação/restauração e de confirmação de diretório. Depois de salvar o projeto, registrar a entrada e preparar o workspace, entra-se no novo rascunho de tarefa desse projeto; em caso de falha, é possível repetir ou cancelar, sem criar duplicata e sem enviar para o local.
 
-**Blocked by:**
+**Bloqueado por:**
 
-- [#23 — 选文件夹并进入唯一匹配的已有项目](23-chat-remote-folder-existing-project.md)：提供目录确认、权威匹配结果、有效操作归属及进入目标项目的完整路径。
+- [#23 — Selecionar pasta e entrar no projeto existente com correspondência única](23-chat-remote-folder-existing-project.md): fornece a confirmação de diretório, o resultado de correspondência autoritativo, a atribuição válida das ações e o caminho completo até o projeto de destino.
 
-**Spec coverage:** RDUX21-07、RDUX21-17、RDUX21-21；RDUX21-08、RDUX21-10–12、RDUX21-14、RDUX21-16 的创建／恢复分支。RDUX21-22–24 随本票路径验证。
+**Cobertura da spec:** RDUX21-07, RDUX21-17, RDUX21-21; o ramo de criação/restauração de RDUX21-08, RDUX21-10–12, RDUX21-14, RDUX21-16. RDUX21-22–24 são verificadas pelo caminho desta ticket.
 
 ```mermaid
 flowchart TD
-    A[用户确认目录；权威读取为零个现存匹配] --> B[默认文件夹名与远程单目录]
-    B --> C[沿用已有恢复选择及目录确认]
-    C --> D[远端保存项目]
-    D --> E[登记本机入口]
-    E --> F[准备并进入项目新草稿]
-    F --> G[用户手动发送]
-    E -->|登记失败| H[保留已创建项目 ID]
-    H -->|重试登记| E
-    C -->|取消当前确认| B
+    A[Usuário confirma o diretório; a leitura autoritativa retorna zero projetos existentes correspondentes] --> B[Nome padrão da pasta e diretório único remoto]
+    B --> C[Reaproveita a escolha de restauração existente e a confirmação do diretório]
+    C --> D[Salva o projeto no remoto]
+    D --> E[Registra a entrada nesta máquina]
+    E --> F[Prepara e entra no novo rascunho do projeto]
+    F --> G[Usuário envia manualmente]
+    E -->|Falha no registro| H[Preserva o ID do projeto já criado]
+    H -->|Repetir o registro| E
+    C -->|Cancelar a confirmação atual| B
 ```
 
 ## Acceptance criteria
 
-- [x] 只有用户已确认目录且目标设备的权威项目读取成功、现存未删除项目匹配数为零时，才进入创建分支；读取失败、目录失效或身份变化不能被当成零匹配。
-- [x] 默认名称取所选文件夹名，目标设备及唯一固定 root 来自本次确认；不要求用户重复填写相同目录，不使用本机目录或新生成的替代目录。
-- [x] 复用现有共享项目创建与目录确认；选文件夹不等于信任目录。命中已删除项目时沿用恢复或继续新建的选择，恢复使用原项目 ID，不静默恢复或覆盖其他项目。
-- [x] 确认阶段展示和保存的设备、目录、名称及恢复目标一致。嵌套目录确认的取消／关闭／Escape 返回当前流程并保留选择，不提交、不串到聊天发送；顶层取消仍撤销整次远程切换并恢复原目标。
-- [x] 保存并登记成功后，交付实际项目 ID、Host 和 root，准备目标工作区并进入项目新任务草稿；只新增侧栏入口不算完成。首次手动发送实际使用该远端项目，旧目标不接收消息。
-- [x] 整个创建、登记和准备期间维持按钮与键盘发送约束；完成不自动发消息。重复确认或双击不能重复创建项目、登记入口或发起聊天。
-- [x] 再次从聊天连接并选择相同目录时，已有项目由 #23 的匹配路径复用，不因重复连接新建同目录项目；不把通用保存接口改为全局按目录去重。
-- [x] 目录无权限、确认期间被删除、设备断连或保存失败时显示原错误并保留可重试的选择，不生成替代目录或幽灵入口；取消时保留原聊天草稿和共享设备连接。
-- [x] 远端已返回保存成功而本机登记失败时，保留返回的项目 ID；重试只登记已创建结果，不再次创建或重复索取本次已完成的目录确认。已成功保存的项目不因关闭而自动删除。
-- [x] 原请求被取消、替换、隐藏或卸载，或 Host membership 失效后，迟到的查询、确认、保存和登记结果不导航、不覆盖新目标、不继续发起过期写入；只处理本次归属资源。
-- [x] 旧远端仅有项目读取能力时，显示现有新建限制；不能通过该入口绕过能力检查。其他显式新建同目录项目入口、项目身份及历史任务合同不变。
-- [x] 从真实聊天入口补零匹配创建并远程首发的 E2E，先测试再实现；同时覆盖共享恢复／目录确认、保存失败与登记重试。验证真实项目数量、ID、单一 root 和首条消息归属。
-- [x] 本票完成创建确认的语言、主题、长路径、窄窗、焦点及键盘验证；按实际平台和 SSH／WSL／Docker 环境记录结果，维持 Web／手机能力门禁。
+- [x] O ramo de criação só é atingido quando o usuário já confirmou o diretório e a leitura autoritativa de projetos do dispositivo de destino foi bem-sucedida com zero correspondências de projetos existentes não removidos; falha de leitura, diretório inválido ou mudança de identidade não podem ser tratados como zero correspondências.
+- [x] O nome padrão vem do nome da pasta selecionada, e o dispositivo de destino e o root fixo único vêm desta confirmação; não se exige que o usuário preencha novamente o mesmo diretório, e não se usa o diretório local nem um diretório substituto recém-gerado.
+- [x] Reaproveita a criação compartilhada de projeto existente e a confirmação de diretório; escolher a pasta não equivale a confiar no diretório. Ao atingir um projeto removido, mantém-se a escolha entre restaurar ou continuar criando; a restauração usa o ID do projeto original, sem restaurar silenciosamente nem sobrescrever outro projeto.
+- [x] O dispositivo, o diretório, o nome e o alvo de restauração exibidos e salvos na etapa de confirmação são consistentes. O cancelamento/fechamento/Escape da confirmação de diretório aninhado retorna ao fluxo atual e preserva a seleção, sem submeter e sem vazar para o envio do chat; o cancelamento no nível superior ainda revoga toda a troca remota e restaura o alvo original.
+- [x] Depois de salvar e registrar com sucesso, entrega-se o ID real do projeto, o Host e o root, prepara-se o workspace de destino e entra-se no novo rascunho de tarefa do projeto; apenas adicionar a entrada na barra lateral não conta como conclusão. O primeiro envio manual usa de fato esse projeto remoto, e o alvo antigo não recebe mensagens.
+- [x] Durante toda a criação, o registro e a preparação, mantêm-se as restrições de envio por botão e teclado; a conclusão não envia mensagem automaticamente. Confirmações repetidas ou clique duplo não podem criar projeto, registrar entrada ou iniciar o chat em duplicata.
+- [x] Ao conectar novamente a partir do chat e escolher o mesmo diretório, o projeto existente é reaproveitado pelo caminho de correspondência de #23, sem criar um novo projeto para o mesmo diretório por causa da reconexão; a interface genérica de salvamento não é alterada para deduplicação global por diretório.
+- [x] Quando o diretório está sem permissão, foi removido durante a confirmação, o dispositivo se desconectou ou o salvamento falhou, exibe-se o erro original e preserva-se a seleção repetível, sem gerar diretório substituto nem entrada fantasma; ao cancelar, preservam-se o rascunho original do chat e a conexão compartilhada do dispositivo.
+- [x] Quando o remoto já retornou sucesso no salvamento mas o registro local falhou, preserva-se o ID de projeto retornado; a repetição registra apenas o resultado já criado, sem criar de novo nem solicitar novamente a confirmação de diretório já concluída nesta tentativa. Um projeto salvo com sucesso não é apagado automaticamente por fechar.
+- [x] Depois que a requisição original é cancelada, substituída, ocultada ou desinstalada, ou que o membership do Host fica inválido, resultados tardios de consulta, confirmação, salvamento e registro não navegam, não sobrescrevem o novo alvo e não iniciam escritas obsoletas; apenas os recursos pertencentes a esta tentativa são tratados.
+- [x] Quando o remoto antigo só tem a capacidade de leitura de projetos, exibe-se a limitação atual de criação; não é possível contornar a verificação de capacidade por essa entrada. Outras entradas explícitas de criação de projeto no mesmo diretório, a identidade do projeto e o contrato das tarefas históricas permanecem inalterados.
+- [x] Complementa o E2E de criação por zero correspondência e de primeiro envio remoto a partir da entrada real de chat, testando antes de implementar; cobre também a restauração/confirmação compartilhadas, a falha de salvamento e a repetição do registro. Verifica a contagem real de projetos, o ID, o root único e a atribuição da primeira mensagem.
+- [x] Esta ticket conclui a verificação de idioma, tema, caminho longo, janela estreita, foco e teclado da confirmação de criação; registra os resultados conforme a plataforma real e o ambiente SSH/WSL/Docker, mantendo o gate de capacidade de Web/celular.
 
 ## Verification
 
-- 主路径复用聊天入口 E2E 和共享项目目录确认能力；软删恢复与只读兼容沿用项目服务合同测试。
-- 保存成功、登记失败以既有服务端口构造，证明重试后仍为同一个项目；不通过新增测试专用 API 或无限网络重试绕过问题。
-- 成功切换使用空草稿；原文字／附件只验证取消和失败时保留，不在本票增加跨设备迁移。
-- 完成类型检查、lint、架构门禁、受影响单测、本票 Desktop E2E 和适用共享 UI 回归，同步 case 与运行证据。缺失平台明确记录，旧 PASS 不继承，候选不自动获得 CI 准入。
+- O caminho principal reaproveita o E2E da entrada de chat e a capacidade compartilhada de confirmação de diretório de projeto; a restauração por exclusão suave e a compatibilidade somente leitura seguem o contrato de testes do serviço de projeto.
+- O sucesso de salvamento com falha de registro é construído pelas portas de serviço existentes, provando que após a repetição continua sendo o mesmo projeto; não se contorna o problema com API nova só para teste nem com repetição de rede infinita.
+- A troca bem-sucedida usa rascunho vazio; o texto/anexo original é verificado apenas quanto à preservação no cancelamento e na falha, sem migração entre dispositivos nesta ticket.
+- Concluir checagem de tipos, lint, gate de arquitetura, testes unitários afetados, o E2E Desktop desta ticket e a regressão de UI compartilhada aplicável, sincronizando case e evidência de execução. Plataformas ausentes são registradas explicitamente, PASS antigo não é herdado e o candidato não recebe admissão automática no CI.
 
 ## Scope and handoff
 
-- 不依赖 #24 或 #26；复用 #23 的公共完成、发送和取消约束。与多匹配分支共用真实项目结果，不按目录重写全局项目身份。
-- 不新增永久目录信任、Hook 授权、数据库迁移、分布式目录唯一性、草稿迁移或全局网络重试机制。
-- 不修改或关闭父 Issue；本票只记录零匹配创建／恢复路径的实施和验证。
+- Não depende de #24 nem de #26; reaproveita as restrições públicas de conclusão, envio e cancelamento de #23. Compartilha o resultado real de projeto com o ramo de múltiplas correspondências, sem reescrever a identidade global de projeto por diretório.
+- Não adiciona confiança permanente de diretório, autorização de Hook, migração de banco, unicidade de diretório distribuída, migração de rascunho nem mecanismo de repetição de rede global.
+- Não modifica nem encerra o Issue pai; esta ticket registra apenas a implementação e a verificação do caminho de criação/restauração por zero correspondências.
 
 ## Implementation decisions
 
-- `ChatRemoteFolderSelection` 持有确认的 Host/目录与有效请求；零匹配交给共享 `ProjectEditor`。表单固定本次目录并显示默认文件夹名；信任确认显示本次名称，恢复时显示已确认恢复项目名，不新增创建 owner。
-- `ProjectEditor` 保持恢复选择、信任确认、在途互斥与已创建结果缓存。保存前复验请求、Host membership、目录和远端能力；保存后经既有 `enterProject` 登记、准备和进入草稿。登记失败重试同一 ID。
-- 端口测试使用既有项目服务与远程入口服务；真实 Desktop 候选从聊天连接入口验证创建和首发，仍保留 pending。
+- `ChatRemoteFolderSelection` mantém o Host/diretório confirmado e a requisição válida; o caso de zero correspondências é delegado ao `ProjectEditor` compartilhado. O formulário fixa o diretório desta tentativa e exibe o nome padrão da pasta; a confirmação de confiança exibe o nome desta tentativa, e a restauração exibe o nome do projeto de restauração já confirmado, sem novo owner de criação.
+- O `ProjectEditor` mantém a escolha de restauração, a confirmação de confiança, o mutex de requisições em trânsito e o cache do resultado já criado. Antes de salvar, revalida a requisição, o membership do Host, o diretório e as capacidades remotas; depois de salvar, usa o `enterProject` existente para registrar, preparar e entrar no rascunho. Falha no registro repete o mesmo ID.
+- Os testes de porta usam o serviço de projeto existente e o serviço de entrada remota existente; o candidato real de Desktop valida a criação e o primeiro envio a partir da entrada de conexão do chat, permanecendo como pending.
 
 ## Verification evidence
 
-- 先补零匹配 UI／服务端口红灯，再实现共享创建；迟到查询失效和恢复名称展示分别保留红绿回归。`chatRemoteFolderCreation.test.ts` 的 11 条涵盖固定 Host/root、显式信任、恢复或继续新建、保存失败、权限失败、重复确认、只读能力、登记重试和过期结果。
-- 根 `typecheck`、Desktop `typecheck:e2e`、lint（0 errors，209 条已有 warnings）、架构门禁（0 violations）通过。基于本任务起点的 affected：608 文件、6852 通过、1 条既有跳过。合入 #24 后目录分派及共享确认 4 文件 47 条通过。
-- 新增候选 manifest 与 provider fixture 检查通过；候选维持 `manual-review/pending`，不自动转正或纳入 CI。
-- 首轮真实 SSH 运行 `desktop-e2e-20261014051020488-p50885-83b993467e37b894` 在安装更新阶段被既有等待辅助函数判为失败，未抵达创建分支；该运行不计创建红灯或通过证据。
+- Primeiro complementa-se o teste vermelho de UI/porta de serviço do caso de zero correspondências, e só então se implementa a criação compartilhada; a invalidação de consulta tardia e a exibição do nome na restauração mantêm regressões vermelhas e verdes separadas. As 11 asserções de `chatRemoteFolderCreation.test.ts` cobrem Host/root fixos, confiança explícita, restauração ou continuar criando, falha de salvamento, falha de permissão, confirmação repetida, capacidade somente leitura, repetição de registro e resultado obsoleto.
+- `typecheck` da raiz, `typecheck:e2e` do Desktop, lint (0 errors, 209 warnings existentes), gate de arquitetura (0 violations) passam. Com base no affected no ponto de partida desta tarefa: 608 arquivos, 6852 passando, 1 skip existente. Após integrar #24, a dispensa de diretório e a confirmação compartilhada passam em 4 arquivos com 47 asserções.
+- O novo manifest de candidato e a verificação de provider fixture passam; o candidato permanece como `manual-review/pending`, sem promoção automática nem inclusão no CI.
+- A primeira execução real por SSH, `desktop-e2e-20261014051020488-p50885-83b993467e37b894`, foi considerada falha pelos helpers de espera existentes na etapa de instalação/atualização e não chegou ao ramo de criação; essa execução não conta como prova de vermelho nem de sucesso da criação.
 
-- macOS Desktop → Linux arm64 SSH 创建候选 1/1 通过：`desktop-e2e-20261014055401059-p80988-2f9ef70df764ec75`。检查零匹配默认文件夹名、单一固定 root、信任 Escape 不保存、真实远端首发的 Host/project/task/cwd、原本地无该消息、再次连接复用同一项目且入口仅一份，以及取消保留远程草稿。
-- 合入 #24、#26 后目录分派、后台归属及共享确认 4 文件 52 条通过，根类型检查再次通过。已审阅英文浅色 1440px 与中文深色 480px 信任确认截图：名称、设备、长路径和按钮可读，无裁切；窄桌面窗口不计手机证据。
-- 本票未执行 Windows/WSL、Docker 传输创建分支或实体手机；普通 Web／手机远程连接能力门禁沿用壳层，并有受影响 UI 回归。本次不改变 shared-host 或 continuous/replayable 合同，不将未运行平台记为 PASS。
+- O candidato de criação por SSH de macOS Desktop → Linux arm64 passou 1/1: `desktop-e2e-20261014055401059-p80988-2f9ef70df764ec75`. Verifica o nome padrão da pasta em zero correspondências, o root fixo único, o Escape na confiança sem salvar, o Host/project/task/cwd do primeiro envio remoto real, a ausência da mensagem no local original, o reuso do mesmo projeto ao conectar de novo com entrada única, e a preservação do rascunho remoto no cancelamento.
+- Após integrar #24 e #26, a dispensa de diretório, a atribuição em background e a confirmação compartilhada passam em 4 arquivos com 52 asserções, e a checagem de tipos da raiz passa novamente. Foram revisadas as capturas da confirmação de confiança em inglês claro a 1440px e em chinês escuro a 480px: nome, dispositivo, caminho longo e botões legíveis, sem cortes; a janela estreita de Desktop não conta como evidência de celular.
+- Esta ticket não executou Windows/WSL, o ramo de criação por transporte Docker nem o celular físico; o gate de capacidade de conexão remota Web/celular comum segue o shell, com regressão de UI afetada. Esta rodada não altera o contrato de shared-host nem de continuous/replayable, e plataformas não executadas não são registradas como PASS.

@@ -1,63 +1,63 @@
-# Conversation workspace 目标解析模块
+# Módulo de resolução do alvo de workspace da conversa
 
-## 问题与修复范围
+## Problema e escopo da correção
 
-`resolveConversationWorkspaceTarget.ts` 在 2026-09-13 新增到未受管的 `ui` 根模块，触发 `unmanaged-new-file`，导致 `verify:pre-push` 在业务单测前退出。
+`resolveConversationWorkspaceTarget.ts` foi adicionado em 2026-09-13 ao módulo raiz `ui` não gerenciado, disparando `unmanaged-new-file` e fazendo `verify:pre-push` encerrar antes dos testes unitários de negócio.
 
-将解析器移入 `packages/ui/src/conversation-workspace-target/`，以 `conversation-workspace-target` 登记为 managed 模块，补齐契约、示例与契约测试。原 Root 调用改用公开入口。保留架构规则、日期阈值与 baseline。
+O resolvedor foi movido para `packages/ui/src/conversation-workspace-target/`, registrado como módulo gerenciado com o nome `conversation-workspace-target`, completando contrato, exemplos e testes de contrato. A chamada original do Root passa a usar a entrada pública. Regras de arquitetura, limiar de data e baseline foram preservados.
 
-## 实现前决策
+## Decisões antes da implementação
 
-- 层级：契约定义最小 tab 只读视图和操作端口；app 层组合端口，不直接导入 Zustand store、Host 或平台实现。
-- 唯一 owner：窗口 tab store 拥有 tab，Registry / SourceManager 拥有远程连接及 Source 归属。模块不持有可变状态或持久化数据。
-- 唯一路径：Root 注入既有 `openRemoteConversation`、Source 查询及本地目录解析，不引入新的打开命令或连接。
-- 时序与失败：沿用当前实现，先等待远程打开完成，再读取 Source 与最新 tabs；按 Source 匹配 conversation tab，返回其 path 与 identity。Source 未知、tab 缺失或端口失败时向上传播错误，不回落本地。
-- 重试与并发：复用原打开端口的 admission；不增加 lease、超时、去重缓存或队列。
+- Camada: o contrato define a visão somente leitura do tab mínimo e a porta de operações; a camada app compõe a porta, sem importar diretamente a store Zustand, o Host ou implementações de plataforma.
+- Único owner: a store de tabs da janela possui os tabs; o Registry / SourceManager possui as conexões remotas e a atribuição de Source. O módulo não mantém estado mutável nem dados persistidos.
+- Caminho único: o Root injeta o `openRemoteConversation` já existente, a consulta de Source e a resolução de diretório local, sem introduzir novos comandos de abertura nem conexões.
+- Temporização e falhas: mantém a implementação atual, aguardando primeiro a conclusão da abertura remota, depois lendo o Source e os tabs mais recentes; casa o tab de conversa pelo Source e retorna o path e a identity correspondentes. Quando o Source é desconhecido, o tab está ausente ou a porta falha, o erro é propagado para cima, sem retorno ao local.
+- Retentativas e concorrência: reaproveita a admission da porta de abertura original; não acrescenta lease, timeout, cache de dedupe ou fila.
 
 ```mermaid
 sequenceDiagram
   participant Root
-  participant Resolver as 目标解析器
-  participant Owner as 既有 store / Registry
-  Root->>Resolver: 当前 workspace + 操作端口
-  Resolver->>Owner: 读取当前 tab
+  participant Resolver as Resolvedor de alvo
+  participant Owner as store / Registry existente
+  Root->>Resolver: workspace atual + porta de operações
+  Resolver->>Owner: ler o tab atual
   Resolver->>Owner: await openRemoteConversation
-  Owner-->>Resolver: 打开完成
-  Resolver->>Owner: 重读 Source 与 tabs
-  Resolver-->>Root: 同 Source 的 path + identity
+  Owner-->>Resolver: abertura concluída
+  Resolver->>Owner: reler Source e tabs
+  Resolver-->>Root: path + identity do mesmo Source
 ```
 
-## 不变量与兼容边界
+## Invariantes e limites de compatibilidade
 
-已有 conversation tab 直接返回自身；本地项目沿用本地目录解析。相同路径的本地与远程、不同 Source 之间仍按 identity 隔离。设置 tab 不参与 workspace 选择。迁移仅改变模块归属与 import，不修改数据库、协议、UI、主题或文案；桌面 continuous 与手机 web-remote-replayable/shared-host 链路均沿用原路径。
+Um tab de conversa existente retorna a si mesmo; projetos locais seguem a resolução de diretório local. Locais e remotos com o mesmo caminho, assim como Sources diferentes, continuam isolados por identity. O tab de configurações não participa da seleção de workspace. A migração altera apenas a perteniência do módulo e os imports, sem modificar banco de dados, protocolo, UI, tema ou textos; os links de desktop continuous e de celular web-remote-replayable/shared-host seguem os caminhos originais.
 
-## 验证要求
+## Requisitos de verificação
 
-先将现有六项真实 tab store 回归用例切换到公开入口，确认新入口不存在时失败，再迁移实现。契约测试补充非 workspace tab、端口异常和打开后的 Source 回读。执行相关单测、typecheck、lint、默认分支范围的架构检查与完整 `verify:pre-push`。此次无交互行为变更，检查现有 E2E 覆盖，未运行的环境验证单独列明。
+Primeiro, migrar os seis casos de regressão existentes do tab store real para a entrada pública e confirmar que falham quando a nova entrada não existe; em seguida, migrar a implementação. Os testes de contrato acrescentam tab que não é de workspace, exceção na porta e releitura do Source após a abertura. Executar os testes unitários relacionados, typecheck, lint, a checagem de arquitetura no escopo da branch padrão e o `verify:pre-push` completo. Como não houve mudança de comportamento interativo, verificar a cobertura E2E existente; as validações de ambiente não executadas são listadas separadamente.
 
-## 后续门禁：迁移测试预期
+## Portão seguinte: expectativa dos testes de migração
 
-解除架构门禁后，全量单测发现 `taskIndexRepoWorkspaceIdentity.test.ts` 的启动屏障断言只期待 `0005_projects`，未包含已登记的 `0006_default_workspace_tasks`。修正测试为按 ID 排序验证两项迁移，并在重新打开后验证 ledger 不变；保留“不重新导入 settings”的断言。此修正不修改迁移实现、SQL 或 checksum。
+Após a liberação do portão de arquitetura, a execução completa dos testes unitários revelou que a asserção de barreira de inicialização em `taskIndexRepoWorkspaceIdentity.test.ts` esperava apenas `0005_projects`, sem incluir a migração já registrada `0006_default_workspace_tasks`. O teste foi corrigido para validar as duas migrações ordenadas por ID e para verificar que o ledger permanece inalterado após a reabertura; a asserção de "não reimportar settings" foi preservada. Esta correção não altera a implementação das migrações, o SQL nem o checksum.
 
-## 后续门禁：项目行默认引用
+## Portão seguinte: referência padrão da linha de projeto
 
-`reactStableReferences.test.ts` 发现 `ProjectNodeContent` 的 `availability` 和 `additionalActions` 默认值每次渲染都创建新引用。将两个只读消费的默认值提升为模块常量；仍使用原项目行渲染、菜单和操作路径，状态 owner、UI、默认在线语义与操作集合不变。先记录原检查失败，再运行引用检查和既有项目行组件测试。
+`reactStableReferences.test.ts` revelou que os valores padrão de `availability` e `additionalActions` de `ProjectNodeContent` criavam novas referências a cada renderização. Os valores padrão dos dois consumidores somente leitura foram elevados a constantes de módulo; continuam em uso o renderizador original da linha de projeto, o menu e o caminho de operações, sem alteração do owner de estado, da UI, da semântica padrão de online nem do conjunto de operações. Registra-se primeiro a falha do check original e, depois, executam-se a checagem de referências e os testes existentes de componente da linha de projeto.
 
-## 后续门禁：设置顺序与归档测试时序
+## Portão seguinte: ordem das configurações e temporização do teste de arquivamento
 
-- 项目仓库已按“新建排在同 Host 最前面”返回项目，设置兼容投影沿用该顺序。`workspace-settings/contract.test.ts` 的重复 root 去重预期更新为 `/shared`、`/local`，保留删除后不复活的所有断言。
-- `projectAutoArchiveSelection.test.ts` 原本等待第二次 refresh 后才释放第一次；当前 `docs/task-first-submit-visibility.md` 规定重叠刷新共享 flight，因此测试自锁。将迟到响应场景改为切换 service：新 service 的树先被接受，再释放旧 service 归档结果，验证旧响应不会清理任务或覆盖新树；不改变刷新或归档实现。
+- O repositório de projetos já devolve os projetos na ordem "novo primeiro entre os do mesmo Host", e a projeção compatível das configurações segue essa ordem. A expectativa de dedupe de root duplicado em `workspace-settings/contract.test.ts` foi atualizada para `/shared`, `/local`, preservando todas as asserções de não ressurreição após a remoção.
+- `projectAutoArchiveSelection.test.ts` aguardava a segunda refresh para liberar a primeira; atualmente `docs/task-first-submit-visibility.md` determina que refreshes sobrepostos compartilham o mesmo flight, portanto o teste se auto-bloqueia. O cenário de resposta tardia passou a trocar de service: a árvore do novo service é aceita primeiro, e só então o resultado de arquivamento do service antigo é liberado, verificando que a resposta antiga não limpa tarefas nem sobrescreve a nova árvore; a implementação de refresh e de arquivamento não é alterada.
 
 ```text
-旧测试：read A 在途 → await refresh（复用 A）→ 释放 A（永远到不了）
-修正：旧 service 的 A 在途 → 切换 service → 接受新树 → 释放 A → 旧结果被拒绝
+Teste antigo: read A em trânsito → await refresh (reaproveita A) → libera A (nunca chega)
+Correção: A do service antigo em trânsito → troca de service → aceita nova árvore → libera A → resultado antigo é rejeitado
 ```
 
-## 验证记录（2026-09-16）
+## Registro de verificação (2026-09-16)
 
-- 解析模块、真实 tab store、现有本地目录 hook：3 文件 / 10 项通过；去除类型后，解析函数与原实现内联既有 workspace kind guard 的结果一致。
-- 迁移启动屏障与 project-storage 契约通过；React 引用检查、项目行在线/离线组件交互及下载测试：3 文件 / 11 项通过。
-- 最终 typecheck、修改文件格式检查通过；lint 保留 47 个既有 warnings、0 errors；默认 origin/staging 范围架构检查为 0 violations，未调整 baseline。
-- 初轮全量检查在修复前暴露迁移断言和默认引用问题，并出现设置写入/下载计时失败；两个计时用例分别复跑通过，未修改其生产实现或测试超时。旧轮次已停止，最终完整结果单独记录。
-- 第二轮完整运行耗时 504 秒：1,785 文件 / 15,522 项通过，2 文件 / 14 项跳过，仅设置顺序与旧归档时序两项失败。修正这两份测试后，与首发回归一起运行 3 文件 / 10 项通过。此处区分完整运行与修正后定向验证，实际 push 仍执行完整 hook。
-- 已检查 `conversation-session-ssh-remote-project-conversation-scope.test.ts` 的 CWP13/CWP15，用例仍为 manual-review/pending。本次未重跑真实 SSH、手机 shared-host、Windows/Linux GUI，不将历史 E2E 作为当前提交证据。
+- Módulo de resolução, tab store real e hook existente de diretório local: 3 arquivos / 10 casos aprovados; após remover os tipos, o resultado da função de resolução coincide com o kind guard de workspace já embutido na implementação original.
+- Barreira de inicialização das migrações e contrato do project-storage aprovados; checagem de referências React, interação dos componentes de linha de projeto online/offline e teste de download: 3 arquivos / 11 casos aprovados.
+- typecheck final e checagem de formatação dos arquivos alterados aprovados; lint manteve 47 warnings existentes e 0 errors; checagem de arquitetura no escopo padrão origin/staging com 0 violations, sem ajuste do baseline.
+- A primeira rodada completa expôs, antes das correções, problemas nas asserções de migração e nas referências padrão, além de falhas de temporização de escrita das configurações e de download; os dois casos de temporização passaram na repetição, sem alteração de sua implementação de produção ou do timeout dos testes. A rodada antiga foi interrompida e o resultado completo final foi registrado separadamente.
+- A segunda rodada completa levou 504 segundos: 1.785 arquivos / 15.522 casos aprovados, 2 arquivos / 14 casos ignorados, com falha apenas na ordem das configurações e na temporização do arquivamento antigo. Depois de corrigir esses dois testes, a execução junto com a regressão de estreia aprovou 3 arquivos / 10 casos. Aqui se distingue a execução completa da verificação direcionada após a correção; o push real ainda executa o hook completo.
+- Verificados os CWP13/CWP15 de `conversation-session-ssh-remote-project-conversation-scope.test.ts`; os casos permanecem como manual-review/pending. Nesta rodada não foram reexecutados SSH real, shared-host no celular ou GUI Windows/Linux, e o E2E histórico não é usado como evidência do commit atual.

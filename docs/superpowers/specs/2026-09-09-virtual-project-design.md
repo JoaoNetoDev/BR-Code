@@ -1,275 +1,257 @@
-# 虚拟项目设计规划
+# Planejamento de design de projetos virtuais
 
-> 新建草稿、模型与权限默认值及未归类任务目录生命周期以 [统一设计](../../ui/project-task-draft-lifecycle.md) 为准：按客户端、目标主机及项目 ID 隔离；首发接纳后消费未归类待发送目录。本文其他组织态与执行目录约束继续适用。
+> A criação de rascunhos, os padrões de modelo e permissão e o ciclo de vida do diretório de tarefas não classificadas seguem o [design unificado](../../ui/project-task-draft-lifecycle.md): isolamento por cliente, host de destino e ID de projeto; após a aceitação no primeiro envio, o diretório de pendentes não classificados é consumido. As demais restrições de estado organizacional e de diretório de execução deste documento continuam valendo.
 
-> 2026-10-13 裁决覆盖：Project 与 Group 并存。恢复筛选菜单中的“按分组”，
-> Group 是控制端保存的跨项目、跨设备组织视图，不决定执行目录或项目归属。
-> 首次升级保留 workspace → Project，取消 Group → Project；旧分组表继续作为权威数据。
-> 不恢复 workspace 自动建组和分组查询时的强制归档。具体行为与验收见
-> [任务分组视图](../../ui/task-grouped-view.md)。下文有关合并 Group、两种视图、
-> F9/F10 手工 Group 转项目、M6 分组转换与分组 API 下线的旧裁决均由本条替代。
-> 已执行旧转换的开发库不自动反向清理；不修改既有 migration ID 或 SQL checksum。
+> Adjudicação de 2026-10-13 (substitui decisões anteriores): Project e Group coexistem. O filtro “por grouping” do menu de recuperação é restaurado; Group é uma visão organizacional entre projetos e entre dispositivos, salva no lado do controlador, e não determina o diretório de execução nem a atribuição de projeto. Na primeira atualização, mantém-se workspace → Project e cancela-se Group → Project; as tabelas de grupos antigos continuam como dados autoritativos. Não se restaura a criação automática de grupos por workspace nem o arquivamento forçado na consulta de grupos. O comportamento e os critérios de aceitação estão em [visão de tarefas agrupadas](../../ui/task-grouped-view.md). Todas as decisões posteriores deste documento sobre mesclar Group, as duas visões, a conversão manual de Group em projeto por F9/F10, a conversão de grupos por M6 e a descontinuação da API de grupos são substituídas por esta. Bancos de desenvolvimento que já executaram a conversão antiga não são limpos automaticamente em sentido inverso; não se modificam IDs de migration existentes nem o SQL checksum.
 >
-> 2026-10-15 裁决补充（远端旧任务归入项目）：桌面控制的旧版远程工作区清单只保存在控制端
-> setting.json（`kind=remote`），远端 Source Server 自己的 `lastWorkspaceSession` 为空。
-> 原 F8/M5 只读持库 Host 自己的清单，远端首次迁移建出 0 个项目，旧会话全部被判定为未归类，
-> 而远端未归类会话不进入侧栏，升级后选择原目录只能新建空项目。现按 F8 例外处理：
-> 持库 owner 不是 local 时，首次迁移也按历史任务目录建单 root 项目并归入。
-> 已执行过 `0005_projects` 的库不补跑、不修复；migration ID 与 SQL checksum 不变。
+> Adjudicação complementar de 2026-10-15 (tarefas antigas remotas incorporadas a projetos): a lista de workspaces remotos legados controlada pelo desktop existe somente no setting.json do lado controlador (`kind=remote`); o `lastWorkspaceSession` do próprio Source Server remoto está vazio. F8/M5 originais liam apenas a lista do próprio Host que detém o banco, de modo que a primeira migração remota criava 0 projetos, todas as sessões antigas eram classificadas como não classificadas e as sessões remotas não classificadas não entram no painel lateral — após a atualização, selecionar o diretório original só permitiria criar um projeto vazio. Agora, por exceção de F8: quando o owner do banco detentor não é `local`, a primeira migração também cria um projeto de root único a partir dos diretórios de tarefas históricas e os incorpora. Bancos que já executaram `0005_projects` não são reprocessados nem corrigidos; o ID de migration e o SQL checksum permanecem inalterados.
 >
-> 2026-10-19 止血补充（同机多持库 owner）：同一台机器上本机桌面（owner=local）与 Source Server
-> （owner=server）共用 `~/.zcode/v2/tasks-index.sqlite`。`0005_projects` 按库只执行一次，只写入
-> 首个打开者的 host 行；后打开的 owner 缺少自己的 hosts 行，新建项目因 `projects.host_id` 外键失败。
-> 每个 owner 每次启动在 `reconcileLegacy` 中幂等补齐自己的 host 行（`INSERT OR IGNORE`），
-> 不改 schema、migration ID 与 checksum，不改任何任务的 `host_id` 与项目归属。
-> 遗留问题（未修复）：旧行 `host_id IS NULL` 由首个处理者认领；local 按 workspace_key 形态判定，
-> server 不看 key 全部归自己，A 本机旧会话可能被 Source Server 认领、SSH 旧会话可能被本机归入
-> ssh 地址 host。认领规则与已错归数据的修正另行裁决。
+> Adjudicação complementar de 2026-10-19 (contensão de contenção para múltiplos owners do mesmo banco na mesma máquina): na mesma máquina, o desktop local (owner=local) e o Source Server (owner=server) compartilham `~/.zcode/v2/tasks-index.sqlite`. `0005_projects` é executada uma única vez por banco e grava apenas a linha de host do primeiro a abrir; o owner que abre depois fica sem a própria linha em hosts, e a criação de projeto falha por causa da foreign key `projects.host_id`. A cada inicialização, cada owner repõe idempotentemente a própria linha de host em `reconcileLegacy` (`INSERT OR IGNORE`), sem alterar schema, ID de migration e checksum, e sem alterar o `host_id` nem a atribuição de projeto de nenhuma tarefa. Questão remanescente (não corrigida): linhas antigas com `host_id IS NULL` são reivindicadas pelo primeiro processador; `local` decide pela forma do workspace_key, `server` não olha a key e atribui tudo a si, de modo que sessões antigas da máquina A podem ser reivindicadas pelo Source Server e sessões antigas via SSH podem ser atribuídas pela máquina local ao host de endereço ssh. A regra de reivindicação e a correção de dados mal atribuídos serão adjudicadas à parte.
 
-状态：**实施中**（2026-09-10）。第 3 节是裁决记录（2026-09-09 至 09-10 与 维护者 逐条对齐），第 4 节起是按裁决展开的方案。实现前若发现与裁决冲突，以裁决记录为准并回来更新本文。实施边界、测试与进度见 [实施记录](../plans/2026-09-10-virtual-project-implementation.md)。
+Status: **em implementação** (2026-09-10). A seção 3 é o registro de decisões (2026-09-09 a 09-10, alinhado item a item com o mantenedor), e a seção 4 em diante é o plano expandido conforme as decisões. Se, antes da implementação, for encontrado algum conflito com as decisões, o registro de decisões prevalece e este documento deve ser atualizado. Limites de implementação, testes e progresso estão em [registro de implementação](../plans/2026-09-10-virtual-project-implementation.md).
 
-## 1. 产品结论（输入）
+## 1. Conclusões de produto (entradas)
 
-1. Group 与 Project 合并，产品中只保留 Project。
-2. Project 不再等同于一个 Folder Path，而是按任务主题组织 Session 的容器；一个 Project 可以有 0 个或多个本地文件夹（Repo / Worktree / Remote Workspace 本次不做）。
-3. UI 采用传统「项目 / 文件夹」层级，不采用 Chrome 标签组式。
-4. 可以不先建 Project 直接建未归类 Session，之后拖拽移入 / 移出。
-5. 移除 group 与 project 的公共管理入口。
-6. 本地与远程 Session 不混合管理；远程项目与本地项目平铺展示，设备仅作为身份与连接信息。
-7. 数据库改造是核心：丢掉 `tasks-index.sqlite`，收敛为单一数据源；迁移可降级、可跨版本、迁移前备份。
+1. Group e Project são mesclados; no produto resta apenas Project.
+2. Project deixa de equivaler a um Folder Path e passa a ser um contêiner que organiza Sessions por tema de tarefa; um Project pode ter 0 ou mais pastas locais (Repo / Worktree / Remote Workspace não são tratados nesta rodada).
+3. A UI adota a hierarquia tradicional “projeto / pasta”, e não o estilo de grupos de abas do Chrome.
+4. É possível criar uma Session não classificada sem antes criar um Project e depois arrastá-la para dentro ou para fora.
+5. Remove-se a entrada pública de gerenciamento de group e project.
+6. Sessions locais e remotas não são gerenciadas em conjunto; projetos remotos e locais são exibidos lado a lado, e o dispositivo serve apenas como identidade e informação de conexão.
+7. A reformulação do banco é o núcleo: descarta-se `tasks-index.sqlite`, convergindo para uma única fonte de dados; a migração pode ser revertida, é capaz de atravessar versões e faz backup antes da migração.
 
-## 2. 现状（调研结论）
+## 2. Situação atual (conclusões da pesquisa)
 
-### 2.1 左侧列表的数据源今天有 4 个
+### 2.1 Hoje a lista da esquerda tem 4 fontes de dados
 
 ```text
 setting.json (~/.zcode/v2/settings/setting.json)
-  ├─ recentProjects: string[]              本地路径历史（最多 10）
-  └─ lastWorkspaceSession: Entry[]          真正的侧栏 workspace 列表（顺序 = 侧栏顺序）
+  ├─ recentProjects: string[]              histórico de caminhos locais (máx. 10)
+  └─ lastWorkspaceSession: Entry[]          lista real de workspaces da barra lateral (ordem = ordem da barra lateral)
        ├─ {kind:"local",  workspacePath, workspacePurpose}
-       └─ {kind:"remote", workspacePath, workspaceIdentity, target(快照), lastConnectionStatus...}
+       └─ {kind:"remote", workspacePath, workspaceIdentity, target(snapshot), lastConnectionStatus...}
 
-tasks-index.sqlite (~/.zcode/v2/tasks-index.sqlite，注意文件名带 s)
+tasks-index.sqlite (~/.zcode/v2/tasks-index.sqlite, note que o nome do arquivo tem "s")
   ├─ tasks                      title / searchable_text / pinned / archived / deleted / unread / status
   │                              PK = (workspace_key, task_id)
-  ├─ task_groups                 group 元数据（title/color）
-  ├─ task_group_members          task ↔ group（一 task 一组）
-  ├─ task_group_view_node_orders 顶层混排顺序
-  ├─ task_group_workspace_bootstraps  "按 workspace 自动建组"一次性标记
-  ├─ off_peak_tasks              闲时任务
-  └─ automations / automation_runs   定时任务
+  ├─ task_groups                 metadados de group (title/color)
+  ├─ task_group_members          task ↔ group (uma task por group)
+  ├─ task_group_view_node_orders ordem de mistura do nível superior
+  ├─ task_group_workspace_bootstraps  marca de uso único de "criar group automaticamente por workspace"
+  ├─ off_peak_tasks              tarefas ociosas
+  └─ automations / automation_runs   tarefas agendadas
 
-cli/db/db.sqlite (~/.zcode/cli/db/db.sqlite，CLI 自有，有正规 migration runner)
-  └─ session / message / part / local_setting / session_task_link ...  会话正文与 CLI 侧状态
+cli/db/db.sqlite (~/.zcode/cli/db/db.sqlite, db do próprio CLI, com migration runner de verdade)
+  └─ session / message / part / local_setting / session_task_link ...  corpo das sessões e estado do lado do CLI
 
 renderer localStorage
-  └─ 视图偏好、折叠状态、workbench 分屏 group（与侧栏 group 无关）
+  └─ preferências de visualização, estado de recolhimento, group de split do workbench (sem relação com o group da barra lateral)
 ```
 
-UI 在 `useGroupedTaskView` / `useWorkspaceTaskLists` 里做客户端 join：`listGroupedTaskViewStructure` + `listTasks/listPinned/listArchived/...` + v4 `sessions-index` 实时帧 → 内存拼装。这就是 bug 多的根源。
+A UI faz o join no cliente em `useGroupedTaskView` / `useWorkspaceTaskLists`: `listGroupedTaskViewStructure` + `listTasks/listPinned/listArchived/...` + frames ao vivo do `sessions-index` v4 → montagem em memória. Essa é a raiz da abundância de bugs.
 
-### 2.2 `workspace_key` 的污染
+### 2.2 A contaminação de `workspace_key`
 
-- 口径：`workspaceKey = workspaceIdentity?.trim() || workspacePath`（`packages/shared/src/task-realtime-core.ts:92`）。
-- remote 落库值形如 `remote:ssh:dev.internal:22:developer:/work/demo`，即把 ssh 账号写进了主键。
-- 同一口径还被用于：`~/.zcode/v2/sessions/{hash}`、`agent-config/{provider}/{hash}`、CLI memory 目录 hash、web-remote bridge key、automation/off-peak 的 `workspaceKey` 字段。**改主键的同时这些派生 hash 也会变**，需要一并迁移或保留兼容映射。
-- remote 的 `zcodeTaskService` 是 RPC 代理到远端 Host，写的是远端机器自己的 `tasks-index.sqlite`，本机没有远程 session 的索引副本。
+- Definição: `workspaceKey = workspaceIdentity?.trim() || workspacePath` (`packages/shared/src/task-realtime-core.ts:92`).
+- O valor gravado para remote tem a forma `remote:ssh:dev.internal:22:developer:/work/demo`, ou seja, a conta ssh entra na chave primária.
+- A mesma definição é usada em: `~/.zcode/v2/sessions/{hash}`, `agent-config/{provider}/{hash}`, hash de diretório de memória do CLI, chave do bridge web-remote e campo `workspaceKey` de automation/off-peak. **Ao mudar a chave primária, esses hashes derivados também mudam**, o que exige migrá-los em conjunto ou manter um mapa de compatibilidade.
+- O `zcodeTaskService` do remote é um proxy RPC para o Host remoto e escreve no `tasks-index.sqlite` da própria máquina remota; a máquina local não tem cópia do índice das sessões remotas.
 
-### 2.3 现有迁移基础设施
+### 2.3 Infraestrutura de migração existente
 
-- app 侧：**没有** schema 版本号、没有「上次运行版本」记录。sqlite 用 `CREATE TABLE IF NOT EXISTS + ensureColumn`，setting.json 用 zod preprocess 链就地迁移。
-- CLI 侧：`schema_migration(id, checksum, app_version)` + 18 条顺序 migration（`apps/zcode-cli/packages/adapters/src/storage/session-store/migration-runner.ts`），可以直接复用这套模式。
-- 备份/压缩：已有 `yazl`（exportLogs、feedback）、`backupCorruptFile`、`copyDataDirectory`（basedir 切换用）。**没有**磁盘空间检查。
-- 启动链：main `whenReady` → `mainSettingService.get()` → spawn cron scheduler → 建窗口 → Host `InitLocal` 时首次打开 sqlite。renderer 有 `RootStartupLoading`（`shouldShowRootStartupLoading`）可加一个 `isMigrating` 输入。
+- Lado do app: **não há** número de versão de schema nem registro de “última versão executada”. O sqlite usa `CREATE TABLE IF NOT EXISTS + ensureColumn`, e o setting.json usa uma cadeia de preprocess do zod para migrar no lugar.
+- Lado do CLI: `schema_migration(id, checksum, app_version)` + 18 migrations sequenciais (`apps/zcode-cli/packages/adapters/src/storage/session-store/migration-runner.ts`), padrão que pode ser reutilizado diretamente.
+- Backup/compressão: já existem `yazl` (exportLogs, feedback), `backupCorruptFile` e `copyDataDirectory` (usados na troca de basedir). **Não há** verificação de espaço em disco.
+- Cadeia de inicialização: main `whenReady` → `mainSettingService.get()` → spawn do cron scheduler → criação da janela → na primeira abertura do sqlite durante o `InitLocal` do Host. O renderer tem `RootStartupLoading` (`shouldShowRootStartupLoading`), ao qual se pode adicionar uma entrada `isMigrating`.
 
-### 2.4 agent 侧「按目录解析」的配置清单（当前根规则）
+### 2.4 Lista de configurações do agent com “resolução por diretório” (regras de raiz atuais)
 
-| 配置                                    | 用户级                                    | 项目级路径                                                                  | 解析根                                  | 多层合并规则                                                                                   |
-| --------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| settings（model/permission/ui/storage） | `~/.zcode/cli/config.json`                | `<dir>/zcode.json`、`<dir>/.zcode/config.json`                              | cwd 向上到 git root，根在前 cwd 在后    | 深合并，后者覆盖                                                                               |
-| MCP servers                             | 同上 `mcp.servers`                        | 同上                                                                        | 同上                                    | 按 name：system → project → **user** → env → cli（用户级覆盖项目级）；project 来源标 untrusted |
-| hooks                                   | `config.json.hooks` 直接可执行            | 同上                                                                        | 同上                                    | 项目级只生成 hookCandidate，走 workspace hook trust                                            |
-| skills                                  | `~/.zcode/skills`、`~/.agents/skills`     | `<dir>/.zcode/skills`、`<dir>/.agents/skills`                               | cwd 向上到 git root 每一级              | 全部可见；同名先发现者胜（用户级 shadow 项目级）                                               |
-| commands                                | `~/.zcode/commands`、`~/.agents/commands` | `<dir>/.zcode/commands`、`<dir>/.agents/commands`                           | 同 skills                               | 同名先到先赢 + duplicate diagnostic                                                            |
-| subagents                               | `~/.zcode/cli/agents/*.md`                | `<cwd>/.zcode/agents/*.md`                                                  | **仅 cwd 本级，不向上**                 | Map 按 name，后加载覆盖（项目级覆盖用户级）                                                    |
-| AGENTS.md                               | `~/.zcode/AGENTS.md`                      | `<dir>/AGENTS.md`                                                           | cwd 向上到 git root，**只取第一个命中** | user + workspace 两段拼接                                                                      |
-| agent 自写 memory                       | —                                         | `~/.zcode/cli/memories/projects/<slug>-<sha(identity‖path)>/memory`         | 按 workspaceKey hash                    | 一目录一份                                                                                     |
-| permissions ruleset                     | —                                         | sqlite `local_setting(scope=project, scope_id=projectIdFromDirectory(cwd))` | cwd 精确目录                            | 一目录一份                                                                                     |
-| plugins                                 | `~/.zcode/cli/plugins` + `config.json`    | 项目 config 的 plugin 段                                                    | 同 settings                             | `resolvePluginConfigSources`                                                                   |
-| workspace-config topic（设置页）        | —                                         | —                                                                           | key = `workspace-config/<workspaceId>`  | 一 workspace 一份                                                                              |
+| Configuração                                | Nível de usuário                                                      | Caminho em nível de projeto                                                   | Raiz de resolução                                         | Regra de mesclamento em múltiplos níveis                                                            |
+| ----------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| settings (model/permission/ui/storage)     | `~/.zcode/cli/config.json`                                             | `<dir>/zcode.json`, `<dir>/.zcode/config.json`                               | do cwd até o git root, raiz primeiro e cwd depois            | merge profundo, o posterior sobrescreve                                                            |
+| MCP servers                                 | o mesmo `mcp.servers`                                                  | o mesmo                                                                      | o mesmo                                                   | por name: system → project → **user** → env → cli (usuário sobrescreve projeto); fonte de projeto marcada untrusted |
+| hooks                                       | `config.json.hooks` diretamente executável                            | o mesmo                                                                      | o mesmo                                                   | em nível de projeto só gera hookCandidate e passa pelo workspace hook trust                      |
+| skills                                      | `~/.zcode/skills`, `~/.agents/skills`                                  | `<dir>/.zcode/skills`, `<dir>/.agents/skills`                                | do cwd até o git root, cada nível                           | todos visíveis; em caso de nome duplicado vence o primeiro descoberto (nível de usuário faz shadow do de projeto) |
+| commands                                    | `~/.zcode/commands`, `~/.agents/commands`                              | `<dir>/.zcode/commands`, `<dir>/.agents/commands`                            | igual a skills                                             | em caso de nome duplicado vence o que chegar primeiro + duplicate diagnostic                    |
+| subagents                                   | `~/.zcode/cli/agents/*.md`                                             | `<cwd>/.zcode/agents/*.md`                                                   | **apenas o nível do cwd, sem subir**                        | Map por name, o carregado depois sobrescreve (projeto sobrescreve usuário)                        |
+| AGENTS.md                                   | `~/.zcode/AGENTS.md`                                                   | `<dir>/AGENTS.md`                                                            | do cwd até o git root, **apenas a primeira ocorrência**    | concatenação dos trechos user + workspace                                                        |
+| memory escrita pelo próprio agent          | —                                                                       | `~/.zcode/cli/memories/projects/<slug>-<sha(identity‖path)>/memory`          | hash por workspaceKey                                      | um diretório por item                                                                              |
+| permissions ruleset                         | —                                                                       | sqlite `local_setting(scope=project, scope_id=projectIdFromDirectory(cwd))`   | diretório exato do cwd                                     | um diretório por item                                                                              |
+| plugins                                     | `~/.zcode/cli/plugins` + `config.json`                                 | seção plugin do config do projeto                                            | igual a settings                                           | `resolvePluginConfigSources`                                                                       |
+| workspace-config topic (página de settings) | —                                                                       | —                                                                            | key = `workspace-config/<workspaceId>`                     | um por workspace                                                                                    |
 
-CLI 侧已有一份多工作区草案 `apps/zcode-cli/docs/design/v2/multi-workspace.md`（`WorkspaceScope{primaryRoot, additionalRoots}`、`--add-dir`、roots 存 `local_setting(scope=workspace)`），尚未实现，可作为本次 agent 侧改动的落点。
+O lado do CLI já tem um rascunho de multi-workspace em `apps/zcode-cli/docs/design/v2/multi-workspace.md` (`WorkspaceScope{primaryRoot, additionalRoots}`, `--add-dir`, roots em `local_setting(scope=workspace)`), ainda não implementado, que pode servir de ponto de apoio para as mudanças do lado do agent nesta rodada.
 
-> 2026-10-10：远程单目录、无 Host 分组、项目先于会话、控制端统一混排的最新裁决见 [整合规格](2026-10-10-session-manage-upstream-integration.md)。本篇与其冲突的历史过程记录不再作为实现依据。
+> 2026-10-10: a decisão mais recente — remote de diretório único, sem agrupamento de Hosts, projeto antes da sessão, mistura unificada no lado controlador — está em [spec de integração](2026-10-10-session-manage-upstream-integration.md). Os registros de processo históricos deste documento que conflitam com ela deixam de servir de base para a implementação.
 
-## 3. 裁决记录（2026-09-09 ～ 09-10，维护者）
+## 3. Registro de decisões (2026-09-09 a 09-10, mantenedor)
 
-### 3.1 概念与边界
+### 3.1 Conceitos e limites
 
-| #   | 问题                      | 裁决                                                                                                                                                                                                            |
-| --- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A1  | 侧栏两种形态              | 形态一 = 「项目 / 任务」两个区块；形态二 = 按时间排序（时间线）                                                                                                                                                 |
-| A2  | 真实目录是否作为可见节点  | 不作为节点，只是项目的 root 属性                                                                                                                                                                                |
-| A3  | 公共管理移除              | 移除 Group/Project 视图切换器、group 管理菜单与新建 group 入口、集中管理页；图 7 工具栏整体移除，排序（按时间 / 按项目）放入「项目」标题右键菜单；时间线保留实现但隐藏入口，归档入口与展开/折叠全部图标不再保留 |
-| A4  | 视图模式                  | 只保留项目树 + 时间线                                                                                                                                                                                           |
-| A5  | 「任务」区                | 未归类 session 的分类：`project_id IS NULL`，不限制绑定目录；session 一定有 workspace，全局新建任务默认创建 `~/.zcode/workspace/<唯一目录>` 作为 cwd；项目里的 session 只能拖到另一个项目，不能拖到项目外       |
-| A6  | 同一真实目录属于多个项目  | 允许                                                                                                                                                                                                            |
-| A7  | 0 root 项目新建 session   | 自动创建 `~/.zcode/workspace/<时间戳>`，并把它加为该项目的 root 且设为主要目录                                                                                                                                  |
-| A8  | session 绑定目录（cwd）   | 创建后永远不变                                                                                                                                                                                                  |
-| A9  | 项目内新建 session 的 cwd | 固定为主要目录，不提供选择                                                                                                                                                                                      |
+| #   | Questão                                    | Decisão                                                                                                                                                                                                     |
+| --- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A1  | Duas formas da barra lateral               | Forma 1 = dois blocos “projeto / tarefa”; forma 2 = ordenação por tempo (linha do tempo)                                                                                                                     |
+| A2  | O diretório real como nó visível           | Não é um nó, é apenas um atributo root do projeto                                                                                                                                                        |
+| A3  | Remoção da gestão pública                  | Remove-se o alternador de visão Group/Project, o menu de gerenciamento de group e a entrada de novo group e a página de gerenciamento centralizado; a barra de ferramentas da figura 7 é removida por completo, e a ordenação (por tempo / por projeto) vai para o menu de contexto do título “projeto”; a linha do tempo mantém a implementação, mas oculta a entrada, e a entrada de arquivamento e todos os ícones de expandir/recolher deixam de existir |
+| A4  | Modos de visualização                      | Mantém-se apenas a árvore de projetos + a linha do tempo                                                                                                                                                    |
+| A5  | Área “tarefa”                              | Classificação das sessions não classificadas: `project_id IS NULL`, sem restringir o diretório vinculado; toda session tem workspace, e a criação global de tarefa cria por padrão `~/.zcode/workspace/<diretório único>` como cwd; sessions dentro de um projeto só podem ser arrastadas para outro projeto, nunca para fora de um projeto |
+| A6  | Mesmo diretório real em vários projetos    | Permitido                                                                                                                                                                                                    |
+| A7  | Session nova em projeto com 0 root         | Cria-se automaticamente `~/.zcode/workspace/<timestamp>`, que é adicionado como root do projeto e definido como diretório principal                                                                                |
+| A8  | Diretório vinculado à session (cwd)        | Nunca muda após a criação                                                                                                                                                                                    |
+| A9  | cwd de session nova dentro do projeto       | Fixo no diretório principal, sem opção de escolha                                                                                                                                                           |
 
-### 3.2 运行模型与 agent 侧配置
+### 3.2 Modelo de execução e configurações do lado do agent
 
-| #   | 问题                                    | 裁决                                                                                                              |
-| --- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| B1  | 运行模型                                | 单 cwd（session 绑定目录）+ 项目当前 roots 中除该 cwd 外的目录作为附加目录                                        |
-| B2  | CLI 是否感知项目                        | 不感知，只收目录列表；`multi-workspace.md` 草案作废，数据结构由本文重新设计                                       |
-| B3  | AGENTS.md                               | 只读 session 绑定目录链                                                                                           |
-| B4  | skills / commands                       | 全部 roots 可用；同名并存标来源；模型也能看到全部 roots 的 skill                                                  |
-| B5  | subagents                               | 全部 roots 加载，同名并存标来源                                                                                   |
-| B6  | MCP（项目级 mcp.servers）               | 只读 session 绑定目录链                                                                                           |
-| B7  | settings（model/permission/ui/storage） | 只读 session 绑定目录链                                                                                           |
-| B8  | hooks                                   | 执行只跑 session 绑定目录链；设置页展示与 trust 按真实工作区                                                      |
-| B9  | plugins 项目级配置                      | 只按 session 绑定目录链生效；其他 roots 仅在设置页扫描展示                                                        |
-| B10 | permissions ruleset                     | 按 session 绑定目录                                                                                               |
-| B11 | agent 自写 memory                       | 按 session 绑定目录                                                                                               |
-| B12 | 工具路径策略 / 沙箱                     | 全部 roots 可读写                                                                                                 |
-| B13 | composer @文件                          | 全部 roots 可 @，文件名右侧追加 root 名                                                                           |
-| B14 | 实现原则                                | 保留 CLI 按 workingDirectory 的配置消费链；附加目录用于 skills、subagents、可写范围，并在环境 prompt 中仅列出路径 |
-| B15 | roots 变更生效时机                      | 会话运行实例下次重建时生效；普通订阅、重订阅和网络重连不刷新运行实例的目录范围（见 4.3.1）                        |
-| B16 | 同名 skill 标来源                       | CLI 赋予限定名（`<rootName>/<skill>`），prompt 与 UI 共用                                                         |
-| B17 | 附加目录来源                            | Host 统一解析目录，覆盖 create / 显式 resume / V4 订阅触发的冷恢复；普通任务不存创建时目录快照（见 4.3.1）        |
-| B18 | agent 管理页 / 定时闲时                 | agent 能力管理的 workspace 切换用真实工作区；定时任务、闲时任务、Bots 用虚拟项目                                  |
+| #   | Questão                                        | Decisão                                                                                     |
+| --- | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| B1  | Modelo de execução                             | cwd único (diretório vinculado à session) + os diretórios, entre os roots atuais do projeto, que não sejam esse cwd, como diretórios adicionais |
+| B2  | O CLI conhece o projeto?                       | Não conhece, recebe apenas a lista de diretórios; o rascunho `multi-workspace.md` é cancelado e a estrutura de dados é redesenhada neste documento |
+| B3  | AGENTS.md                                       | Lê apenas a cadeia do diretório vinculado à session                                       |
+| B4  | skills / commands                               | Disponíveis em todos os roots; duplicatas coexistem com marcação de origem; o modelo também enxerga as skills de todos os roots |
+| B5  | subagents                                       | Carregados de todos os roots; duplicatas coexistem com marcação de origem                  |
+| B6  | MCP (mcp.servers em nível de projeto)           | Lê apenas a cadeia do diretório vinculado à session                                       |
+| B7  | settings (model/permission/ui/storage)         | Lê apenas a cadeia do diretório vinculado à session                                       |
+| B8  | hooks                                           | Na execução, roda apenas a cadeia do diretório vinculado à session; a exibição na página de settings e o trust seguem o workspace real |
+| B9  | Configuração de plugins em nível de projeto    | Vale apenas pela cadeia do diretório vinculado à session; os demais roots são apenas escaneados e exibidos na página de settings |
+| B10 | permissions ruleset                             | Pelo diretório vinculado à session                                                        |
+| B11 | memory escrita pelo próprio agent              | Pelo diretório vinculado à session                                                        |
+| B12 | Política de caminhos de ferramenta / sandbox    | Todos os roots são legíveis e graváveis                                                  |
+| B13 | composer @arquivo                              | Todos os roots podem ser citados com @, e o nome do root é acrescentado à direita do nome do arquivo |
+| B14 | Princípio de implementação                      | Mantém-se a cadeia de consumo de configuração do CLI por workingDirectory; os diretórios adicionais servem a skills, subagents e à faixa gravável, e no prompt de ambiente são listados apenas os caminhos |
+| B15 | Momento de efeito da mudança de roots           | Vale na próxima reconstrução da instância de execução da sessão; subscribe comum, resubscribe e reconexão de rede não atualizam o alcance de diretórios da instância de execução (ver 4.3.1) |
+| B16 | Marcar origem de skill com nome duplicado       | O CLI atribui um nome qualificado (`<rootName>/<skill>`), compartilhado entre prompt e UI |
+| B17 | Origem dos diretórios adicionais                | O Host resolve os diretórios de forma unificada, cobrindo create / resume explícito / cold restore disparado por subscribe V4; tarefas comuns não guardam snapshot de diretórios da criação (ver 4.3.1) |
+| B18 | Página de gerenciamento do agent / ociosidade programada | A troca de workspace do gerenciamento de capacidades do agent usa o workspace real; tarefas agendadas, tarefas ociosas e Bots usam projetos virtuais |
 
-### 3.3 列表与交互
+### 3.3 Lista e interação
 
-| #   | 问题                      | 裁决                                                                                                                                                                             |
-| --- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | 置顶                      | 保留全局置顶 session 区；项目也可置顶，置顶到全局置顶区并排在 session 之下；远程 session 也可置顶                                                                                |
-| D2  | 拖拽                      | session 跨项目、从「任务」区拖入项目、项目排序；不做项目内手动排序与多选拖拽；目标项目不含该 session 的真实工作区时弹窗确认加入                                                  |
-| D3  | 新建任务入口              | 项目行在该项目主要目录建草稿；Cmd/Ctrl+N 与左上角新建继承当前会话或草稿的项目，无项目才在自动创建的 `~/.zcode/workspace/<唯一目录>` 建未归类草稿；任务分区新建显式创建未归类草稿 |
-| D4  | 项目右键菜单              | 编辑项目、置顶、删除项目；可编辑的远程项目与本地项目一致，不显示「从本机移除」「添加远程项目」；「从本机移除」只在不可编辑（离线 / error、legacy 单 root）时显示（2026-10-16）   |
-| D5  | Web / 手机远控侧栏        | 都显示项目层级                                                                                                                                                                   |
-| D6  | 右侧 workbench 分屏 group | 与本次无关，不动                                                                                                                                                                 |
+| #   | Questão                       | Decisão                                                                                                                                                                                                        |
+| --- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Fixar no topo                 | Mantém-se a área global de sessions fixadas; projetos também podem ser fixados, indo para a área global de fixados e abaixo das sessions; sessions remotas também podem ser fixadas |
+| D2  | Arrastar                      | Arrastar session entre projetos, da área “tarefa” para um projeto e reordenar projetos; não há ordenação manual dentro do projeto nem arraste com multisseleção; quando o projeto de destino não contém o workspace real da session, exibe-se uma confirmação de inclusão |
+| D3  | Entrada de nova tarefa        | A linha do projeto cria um rascunho no diretório principal daquele projeto; Cmd/Ctrl+N e o novo no canto superior esquerdo herdam o projeto da sessão ou rascunho atual, e sem projeto criam um rascunho não classificado em `~/.zcode/workspace/<diretório único>` criado automaticamente; o novo na seção de tarefas cria explicitamente um rascunho não classificado |
+| D4  | Menu de contexto do projeto   | Editar projeto, fixar, excluir projeto; projetos remotos editáveis se comportam igual aos locais e não exibem “remover desta máquina” nem “adicionar projeto remoto”; “remover desta máquina” só aparece quando o projeto não é editável (offline / error, legacy de root único) (2026-10-16) |
+| D5  | Controle remoto via Web / celular | Mostra a hierarquia de projetos                                                                                                                                                                                 |
+| D6  | Group de split do workbench à direita | Não tem relação com esta rodada, não é tocado                                                                                                            |
 
-2026-10-15 侧栏新建与展开规则：
+Regras de criação e expansão na barra lateral em 2026-10-15:
 
-- 项目分区、任务分区的新建按钮与项目行的新建 session 按钮右边缘对齐；深浅主题、桌面和手机共用布局。
-- 项目分区新建按钮左侧提供「收起全部项目 / 展开全部项目」。有任一可展开项目展开时收起全部，否则展开全部；包含置顶项目。离线项目仍不可展开，不触发连接。无可展开项目时按钮禁用。
-- 批量操作一次更新现有按 Host + projectId 索引的展开偏好，保留分区自身的折叠、排序和当前会话，刷新后保持。
-- 当前会话的项目归属取 Host 的 task 索引，以 workspaceKey + taskId 精确查找，不能按 cwd 猜项目；当前草稿读取 draftProjectId。显式 projectId（包括 null）优先。桌面与手机在同一入口解析意图，手机仍由 bridge 准备目录并交接；异步读取后导航已改变则丢弃结果。
+- O botão de novo da seção de projetos e o da seção de tarefas alinham o canto direito com o botão de nova session da linha do projeto; o layout é compartilhado entre temas claro e escuro, desktop e celular.
+- À esquerda do botão de novo da seção de projetos há “recolher todos os projetos / expandir todos os projetos”. Se houver algum projeto expansível expandido, recolhe-se tudo; caso contrário, expande-se tudo, incluindo os projetos fixados. Projetos offline continuam não expansíveis e não disparam conexão. O botão fica desabilitado quando não há projetos expansíveis.
+- A operação em lote atualiza de uma só vez a preferência de expansão existente, indexada por Host + projectId, preservando o colapso, a ordenação e a sessão atual da própria seção, e mantendo o estado após a atualização.
+- A atribuição de projeto da sessão atual vem do índice de tasks do Host, com busca exata por workspaceKey + taskId, sem adivinhar o projeto pelo cwd; o rascunho atual lê draftProjectId. Um projectId explícito (inclusive null) tem prioridade. Desktop e celular resolvem a intenção no mesmo ponto de entrada, e o celular ainda prepara os diretórios via bridge e faz a passagem; se, após a leitura assíncrona, a navegação tiver mudado, o resultado é descartado.
 
 ```text
-快捷键 / 左上角新建 → 当前会话或草稿 → 项目归属 → Host prepareSession → 草稿
-任务分区新建       → 显式无项目 ────────────────┘
-全部收起 / 展开    → 现有 expanded 偏好 → 项目行展示（不导航、不连接）
+atalho / novo no canto superior esquerdo → sessão ou rascunho atual → atribuição de projeto → Host prepareSession → rascunho
+novo na seção de tarefas         → explicitamente sem projeto ────────────────┘
+recolher tudo / expandir tudo    → preferência expanded existente → exibição nas linhas de projeto (sem navegação, sem conexão)
 ```
 
-### 3.4 新建 / 编辑 / 删除
+### 3.4 Criar / editar / excluir
 
-| #   | 问题       | 裁决                                                                                                                                                                                                                                           |
-| --- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| E1  | 删除项目   | 软删除容器：项目行标记 deleted，session 保留 project_id，CLI 库不受影响（消息、标题原样）；时间线仍可见、可打开、可拖入其他项目；远程项目离线时的删除仅移除本机入口（G5），不执行本条的远端软删除                                              |
-| E1a | 恢复       | 唯一入口：新建项目时若 roots 集合与某个同 host 已删项目完全相等（不看顺序与主要目录）则提示恢复；恢复 = deleted 置 0 并按本次填写更新名称 / 主要目录，session 原样回来；拒绝则新建空项目；重新添加已从本机移除的远程项目入口不属于恢复远端项目 |
-| E1b | 彻底删除   | 不提供；软删除项目永久保留                                                                                                                                                                                                                     |
-| E2  | 移除 root  | 绑定该目录的 session 留在项目里                                                                                                                                                                                                                |
-| E3  | 运行中确认 | 删除项目 / 移除 root 不弹确认                                                                                                                                                                                                                  |
-| E4  | 项目名     | 未手改则跟随首个 root 名（`name_overridden`）；同 host 内唯一，重名自动加序号；无 root 无名时叫「新项目」                                                                                                                                      |
-| E5  | roots 校验 | 允许父子嵌套；完全重复去重；不存在的目录拒绝添加                                                                                                                                                                                               |
+| #   | Questão         | Decisão                                                                                                                                                                                                                                                                             |
+| --- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E1  | Excluir projeto | Exclusão suave do contêiner: a linha do projeto é marcada como deleted, as sessions mantêm project_id e o banco do CLI não é afetado (mensagens e título intactos); a linha do tempo continua exibindo, permitindo abrir e arrastar para outros projetos; a exclusão de um projeto remoto offline remove apenas a entrada local (G5) e não executa esta exclusão suave remota |
+| E1a | Restauração     | Entrada única: ao criar um projeto, se o conjunto de roots for exatamente igual ao de algum projeto já excluído do mesmo host (sem olhar ordem nem diretório principal), sugere-se restaurar; restaurar = deleted para 0 e atualização do nome / diretório principal conforme o preenchimento atual, e as sessions voltam como estavam; recusar cria um projeto vazio; readicionar a entrada de um projeto remoto removido desta máquina não conta como restauração de projeto remoto |
+| E1b | Exclusão definitiva | Não existe; projetos excluídos suavemente são retidos permanentemente                                                                                                                                                                                                            |
+| E2  | Remover root    | As sessions vinculadas a esse diretório permanecem no projeto                                                                                                                                                                                                                     |
+| E3  | Confirmação em execução | Excluir projeto / remover root não exibe confirmação                                                                                                                                                                                                                       |
+| E4  | Nome do projeto | Se não for editado manualmente, segue o nome do primeiro root (`name_overridden`); único dentro do mesmo host, nomes repetidos recebem um sufixo numérico; sem root e sem nome, chama-se “novo projeto”                                                                                                                                   |
+| E5  | Validação de roots | Permite aninhamento pai-filho; remove duplicatas exatas; recusa adicionar diretórios inexistentes                                                                                                                                                                                                                    |
 
-### 3.4.1 新建项目默认排在最前（2026-09-15）
+### 3.4.1 Projetos novos criados vêm primeiro (2026-09-15)
 
-显式新建、恢复或添加的项目在当前控制端所属展示区首位；本地和远程统一混排。偏好键为 (hostId, projectId)，重连、刷新、改名保留位置。置顶与普通区分离，拖动不改 pinned，不向远端写 position。
+Projetos criados explicitamente, restaurados ou adicionados ficam em primeiro na área de exibição do controlador atual; locais e remotos são misturados de forma unificada. A chave de preferência é (hostId, projectId), e a posição é preservada em reconexão, atualização e renomeação. Fixados e área comum ficam separados, arrastar não altera o estado fixado e nada é gravado como position no lado remoto.
 
-唯一排序 owner 是 Host 项目仓库的 `projects.position`。在现有创建写事务中分配同 Host 的 `min(position) - 1`，该 Host 没有项目时为 0；不重排历史行，不按 UI 时间倒排，不在保存后再发一次 reorder。失败随同一事务回滚；串行 admission 下后提交的新建自然在前，读取及重启复用已持久化顺序。无 schema/迁移变更，本地与远端仓库共用该规则，桌面 continuous、手机 replayable 及 workspace 身份边界不变。
+O único owner da ordenação é `projects.position` no repositório de projetos do Host. Na transação de criação existente, atribui-se `min(position) - 1` entre os projetos do mesmo Host, sendo 0 quando o Host não tem projetos; não se reordena histórico, não se ordena por tempo da UI em ordem inversa e não se dispara um reorder após a gravação. A falha sofre rollback na mesma transação; sob admission serial, uma criação submetida depois entra naturalmente à frente, e a leitura e o reinício reutilizam a ordem já persistida. Não há mudança de schema/migração, os repositórios local e remoto compartilham essa regra, e as identidades de workspace do desktop continuous, do celular replayable e dos limites de identidade permanecem inalteradas.
 
 ```text
-保存新项目 → Host 原子分配首位 position 并写入 → readTree → 桌面 / Web / 手机列表
-手动拖拽 → 原 reorderProjects → 同一个 projects.position
+salvar novo projeto → Host atribui atomicamente a position de primeira e grava → readTree → listas do desktop / Web / celular
+arraste manual      → reorderProjects original → a mesma projects.position
 ```
 
-PRO01（accepted/pending）：已有项目时创建新项目，侧栏立即排首位，刷新后仍在首位；沿用 `ui-shell/manual-review/pending/project-native-directory-picker.test.ts` 的真实创建路径。仓库单测覆盖空库、连续创建、手动重排后新建、编辑/恢复保序以及不同 Host 隔离。不以本地 E2E 声称真实手机/远端传输已验证。
+PRO01 (accepted/pending): com projetos existentes, a criação de um novo projeto o coloca imediatamente em primeiro na barra lateral, e ele permanece em primeiro após a atualização; segue o caminho real de criação de `ui-shell/manual-review/pending/project-native-directory-picker.test.ts`. Os testes unitários do repositório cobrem banco vazio, criações consecutivas, criação após reordenação manual, preservação de ordem em edição/restauração e isolamento entre Hosts diferentes. Não se afirma, por meio de E2E local, que o transporte real para celular/remoto foi verificado.
 
-PRO01 验证：`desktop-e2e-20260915130441227-p90013-a508c06fba08fa3a` 1/1 通过，断言保存后与刷新后的实际项目行顺序；相关单测 8 文件 / 54 项通过，root/E2E typecheck、lint（0 errors / 47 既有 warnings）、相对 HEAD 架构检查通过。默认 staging 基线仍有开工前既存的 root resolver unmanaged-new-file；真实远端/手机链路及 Windows/Linux GUI 未复跑。保持 pending。
+Verificação de PRO01: `desktop-e2e-20260915130441227-p90013-a508c06fba08fa3a` 1/1 aprovado, com asserção da ordem real das linhas de projeto após a gravação e após a atualização; 8 arquivos de teste unitário relacionados / 54 casos aprovados, typecheck de root/E2E, lint (0 erros / 47 warnings preexistentes) e verificação de arquitetura relativa ao HEAD aprovados. A linha de base de staging padrão ainda tem o root resolver unmanaged-new-file preexistente ao início do trabalho; a cadeia real remota/de celular e a GUI em Windows/Linux não foram reexecutadas. Mantém-se como pending.
 
-### 3.5 数据归属
+### 3.5 Propriedade dos dados
 
-| #   | 问题                          | 裁决                                                                                                                                                                                                                                                                                                                                   |
-| --- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| C1  | 单一数据源                    | 两库并存、每个字段唯一归属：**会话事实归 CLI，组织态归 Host**                                                                                                                                                                                                                                                                          |
-| C2  | CLI 唯一写 db.sqlite          | 存在性与软删除、title + title_source、time_created/updated、正文、goal、fork、trace、last_outcome                                                                                                                                                                                                                                      |
-| C3  | Host 唯一写 app 库            | `project_id`、pinned、archived、unread + CAS、`sort_order`、项目 / roots / hosts / 定时 / 闲时；这些组织态只存在原列，不做副本。CLI 事实以 `cli_*` 镜像列存放，唯一写者 taskIndexSyncer；Host 不再写任何推导时间 / 状态。旧列 `deleted`、`title_overridden+title` 在新设计中定义为「Host 的删除 / 重命名意图」，需交接给 CLI（见 7.4） |
-| C4  | 标题离线重命名                | 经 CLI renameSession 命令，必要时拉起 CLI；成功后再镜像                                                                                                                                                                                                                                                                                |
-| C5  | 归档                          | Host 独有；CLI 删除死列 `time_archived`（以 migration 标记废弃，不物理删）                                                                                                                                                                                                                                                             |
-| C6  | 删除                          | CLI 软删除：新增 `time_deleted`，deleteSession 语义改为删除；冷种子 / listSessions / TUI 过滤；app `deleted` 列 = Host 删除意图（立即隐藏并待交接），`cli_deleted` = CLI 已确认；显示规则 `deleted OR cli_deleted`。snapshot 缺席不等于删除，必须经 `sessionsIndex/reconcile` 确认（见 5.2、7.4）                                      |
-| C7  | 一轮结束结果                  | CLI 新增 `last_outcome` 与 summary 字段；app task_status 退为镜像                                                                                                                                                                                                                                                                      |
-| C8  | searchable_text               | 保留现状                                                                                                                                                                                                                                                                                                                               |
-| C9  | tasks-index 与 sessions-index | app 库 = 行集合 + 组织态 + CLI 事实只读镜像；sessions-index = CLI 权威实时活性流                                                                                                                                                                                                                                                       |
-| C10 | app 库形态                    | 就地升级现有 `tasks-index.sqlite`，引入版本化 migration                                                                                                                                                                                                                                                                                |
-| C11 | 主键                          | 物理主键保持 `(workspace_key, task_id)`；新增 `UNIQUE(host_id, task_id)` 作为逻辑键；新增 hosts 表                                                                                                                                                                                                                                     |
-| C12 | 派生目录 hash                 | 保留不动                                                                                                                                                                                                                                                                                                                               |
-| C13 | 远程组织态                    | 远端 app 库保存项目内容、roots 与 session 归属的权威数据；本机持久化 hosts 连接记录、已添加的远程项目入口列表及名称 / roots / 主要目录等基础信息缓存。入口列表归本机所有，缓存不替代远端组织态；未连接不可展开，离线删除只移除本机入口与缓存（见 4.2.1）                                                                               |
-| C14 | 项目字段                      | 名称、roots、主要目录、置顶、排序、软删除；不要颜色 / 图标 / 归档 / 描述                                                                                                                                                                                                                                                               |
-| C15 | 顶层排序                      | 项目区与任务区独立，不混排                                                                                                                                                                                                                                                                                                             |
+| #   | Questão                        | Decisão                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| C1  | Fonte única de dados           | Dois bancos coexistem, com atribuição única de cada campo: **os fatos da sessão pertencem ao CLI, o estado organizacional pertence ao Host**                                                                                                                                                                                |
+| C2  | O CLI é o único escritor de db.sqlite | Existência e exclusão suave, title + title_source, time_created/updated, corpo, goal, fork, trace, last_outcome                                                                                                                                                                                                 |
+| C3  | O Host é o único escritor do banco do app | `project_id`, pinned, archived, unread + CAS, `sort_order`, projetos / roots / hosts / agendamentos / ociosidade; esse estado organizacional existe só nas colunas originais, sem cópias. Os fatos do CLI ficam em colunas espelho `cli_*`, com o taskIndexSyncer como único escritor; o Host deixa de escrever qualquer tempo / status derivado. As colunas antigas `deleted` e `title_overridden+title` passam a significar, no novo design, a “intenção de exclusão / renomeação do Host”, a ser entregue ao CLI (ver 7.4) |
+| C4  | Renomear offline               | Pelo comando renameSession do CLI, acionando o CLI se necessário; o espelho é atualizado só depois do sucesso                                                                                                                                                                                                |
+| C5  | Arquivamento                   | Exclusivo do Host; o CLI remove a coluna morta `time_archived` (marcada como obsoleta por migration, sem remoção física)                                                                                                                                                                                  |
+| C6  | Exclusão                      | Exclusão suave no CLI: nova coluna `time_deleted` e a semântica de deleteSession passa a ser exclusão; cold seed / listSessions / TUI filtram; a coluna `deleted` do app = intenção de exclusão do Host (oculta imediatamente e aguardando entrega), `cli_deleted` = já confirmado pelo CLI; a regra de exibição é `deleted OR cli_deleted`. A ausência em snapshot não equivale a exclusão: é preciso confirmar via `sessionsIndex/reconcile` (ver 5.2, 7.4) |
+| C7  | Resultado de uma rodada       | O CLI ganha os campos `last_outcome` e summary; task_status do app passa a ser espelho                                                                                                                                                                                                                     |
+| C8  | searchable_text               | Mantém-se como está                                                                                                                                                                                                                                                                                       |
+| C9  | tasks-index e sessions-index    | Banco do app = conjunto de linhas + estado organizacional + espelho somente leitura dos fatos do CLI; sessions-index = fluxo ao vivo e autoritativo de atividade do CLI                                                                                                                                                              |
+| C10 | Forma do banco do app          | Atualização no lugar do `tasks-index.sqlite` existente, com introduction de migrations versionadas                                                                                                                                                                                                           |
+| C11 | Chave primária                 | A chave primária física permanece `(workspace_key, task_id)`; adiciona-se `UNIQUE(host_id, task_id)` como chave lógica; adiciona-se a tabela hosts                                                                                                                                                                   |
+| C12 | Hash de diretório derivado     | Fica como está                                                                                                                                                                                                                                                                                           |
+| C13 | Estado organizacional remoto   | O banco do app remoto guarda os dados autoritativos do conteúdo dos projetos, dos roots e da atribuição das sessions; a máquina local persiste o registro de conexão de hosts, a lista de entradas de projetos remotos adicionados e um cache de informações básicas como nome / roots / diretório principal. A lista de entradas pertence à máquina local e o cache não substitui o estado organizacional remoto; offline não é expansível, e a exclusão offline remove apenas a entrada e o cache locais (ver 4.2.1)     |
+| C14 | Campos do projeto              | Nome, roots, diretório principal, fixado, ordenação, exclusão suave; sem cor / ícone / arquivamento / descrição                                                                                                                                                                                            |
+| C15 | Ordenação de nível superior    | A área de projetos e a área de tarefas são independentes, sem mistura                                                                                                                                                                                                                                        |
 
-### 3.6 兼容与迁移
+### 3.6 Compatibilidade e migração
 
-| #   | 问题                                                                             | 裁决                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| --- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| F1  | 降级纪律                                                                         | 两库只加不删不改旧列语义；Host 拥有的组织态（`pinned/archived/unread/title_overridden+title/deleted` 意图）只存在于原列不复制；CLI 事实以 `cli_*` 镜像列存放；每次启动对全表做「旧列意图 vs 镜像」对账（见 7.4），不只补 NULL；`schema.baseline.sql` + CI 只增 diff；e2e 覆盖升级→降级（含修改既有行）→再升级                                                                                                                                                                                                                                                                                      |
-| F2  | 兼容退场                                                                         | 三阶段，包袱不永久保留：V1 **只从新列/新表读**，旧列只写不读（双写仅供 V1 之前版本）；V2 写 `schema_floor=V1`、低于 floor 拒绝打开，停止双写与 setting.json 派生写回与 NULL 补齐，upsert 改用 `ON CONFLICT(host_id, task_id)`；V3 物理删旧列、旧 group 四表、CLI `time_archived`，重建主键 (host_id, task_id)。V2→V1、V3→V2 降级仍完整可用                                                                                                                                                                                                                                                         |
-| F3  | 无归属 session 首次归位（首次迁移遗留、降级期新建、CLI 首次发现的新 session 等） | 仅在首次迁移或首次发现时判定一次：绑定目录恰好是同 host 下唯一一个未删除项目的 root → 归入；匹配零个或多个项目 → 保留 `project_id = NULL`，显示在任务区。不按主要目录优先选项目、不自动建项目、不改 cwd。全局新建任务显式保持未归类；已完成判定的 NULL 是合法组织态，后续启动、对账或新增项目不再自动归位                                                                                                                                                                                                                                                                                          |
-| F4  | 降级期 group 增删改                                                              | 忽略；group→项目只在首次升级迁移一次                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| F5  | setting.json                                                                     | 继续双写 lastWorkspaceSession / recentProjects；远程条目从本机仍保留的远程项目入口派生，移除入口后清理对应旧条目，不从远端全量项目列表重新生成                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| F6  | 执行位置                                                                         | main whenReady 后、起 Host 前同步执行；失败 fail-closed（重试 / 打开备份目录），不做第二套实现                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| F7  | 备份                                                                             | 定位：只保证「迁移失败 / 迁移把库写坏」时能恢复到升级前，不作为降级机制，也不作为通用数据保险；正常流程只产生不消费。做法：通用表级备份（见 7.1），仅在有待执行 migration 时、事务前，把这些 migration 声明的 `touchedTables` 在同一读事务里逐表导出到 `~/.zcode/backup/<版本>-<时间>/<库名>.sqlite`，写 backup.json，保留 2 份；不做整库快照（本机实测整库 770MB/12s，gzip 160MB/19s；表级 CLI 1.9MB/70ms、tasks-index 14MB/165ms）。当前卷不足依次试其他可写卷，都不足则跳过并提示，不删轨迹                                                                                                     |
-| F8  | 老 workspace                                                                     | 本地及远端各自仅将旧 lastWorkspaceSession 中保留的项目 workspace → 同名单 root 项目，其下全部 session 归入；仅历史 tasks 或 recentProjects 中的目录不建项目，其任务保留原 cwd 与组织态，无匹配项目时保持未归类；本机 lastWorkspaceSession 中的 remote 条目只在首次迁移时导入本机远程项目入口及基础信息缓存，不在本机创建远端权威项目。远端例外（2026-10-15）：持库 owner 不是 local 时，首次迁移另把仍有未删除任务、不在 `*/.zcode/workspace/*` 系统目录下、且未被 settings 标为 conversation 的历史任务 root 建为同名单 root 项目并归入；远端项目只经本机入口进入桌面侧栏，推断不会复活已移除入口 |
-| F9  | 手建 group                                                                       | 仅迁移包含未删除 session 的手建 group（归档成员有效），空/悬空/仅已删成员跳过；roots = 有效成员目录去重，主要 = 成员最多的目录；名字沿用并标 name_overridden；颜色丢弃                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| F10 | 混合 host 的 group                                                               | 按 host 拆成多个项目，名字后缀 host 名                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| F11 | 系统组（定时 / 闲时）                                                            | 不转项目，成员归各自 workspace 项目，保留 cron / off-peak 图标                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| F12 | 自动归档                                                                         | bootstrap 的 7 天强制归档随 Group 视图下线。设置页自动归档（`taskAutoArchiveEnabled` / `taskAutoArchiveOlderThanDays`）必须继续生效：触发点是 Host 定时扫描（服务启动后首轮、之后每小时、两个自动归档设置键变更后立即补扫；2026-09-14 裁决，见文末），不挂在项目树查询或任何 UI 动作上；范围 = 当前 host 全部项目 roots 与任务区 session 的绑定目录（去重，含默认目录之外的 cwd；远程在远端 host 执行），判据（2026-09-15 裁决）：纯按时间，`cli_updated_at` 早于 N 天即归档；只有置顶与 syncer 观察到的运行中会话除外，不再看 completed / error / 未读                                            |
-| F13 | 启动预热                                                                         | 只预热上次活动的目录                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| #   | Questão                                                                                | Decisão                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | Disciplina de reversão                                                                 | Nos dois bancos só se adiciona, não se remove e não se muda a semântica das colunas antigas; o estado organizacional do Host (`pinned/archived/unread/title_overridden+title/deleted`) existe apenas nas colunas originais, sem cópia; os fatos do CLI ficam em colunas espelho `cli_*`; a cada inicialização faz-se a conciliação de tabela inteira entre “intenção da coluna antiga” e “espelho” (ver 7.4), e não apenas o preenchimento de NULL; `schema.baseline.sql` + CI só acumulam diff; o e2e cobre upgrade→downgrade (inclusive modificando linhas existentes)→upgrade novamente                                                                                                                                                                                                                                                           |
+| F2  | Saída da compatibilidade                                                               | Três fases, sem carregar lastro permanentemente: V1 **lê apenas das novas colunas/novas tabelas**, e as colunas antigas são apenas escritas, nunca lidas (a escrita dupla serve só para versões anteriores a V1); V2 grava `schema_floor=V1`, recusa abrir abaixo do floor, interrompe a escrita dupla, a escrita de volta de derivados do setting.json e o preenchimento de NULL, e o upsert passa a usar `ON CONFLICT(host_id, task_id)`; V3 remove fisicamente as colunas antigas, as quatro tabelas antigas de group e o `time_archived` do CLI, reconstruindo a chave primária (host_id, task_id). O downgrade V2→V1 e V3→V2 continua plenamente utilizável                                                                                                                                                                                                                                  |
+| F3  | Primeira colocação de session sem atribuição (resíduo da primeira migração, criadas durante o período de downgrade, sessions recém-descobertas pelo CLI etc.) | A decisão é tomada uma única vez, apenas na primeira migração ou no primeiro despertar: se o diretório vinculado for exatamente o root de um único projeto não excluído do mesmo host → é atribuído a ele; se casar com zero ou mais de um projeto → mantém `project_id = NULL` e aparece na área de tarefas. Não se escolhe projeto pelo diretório principal, não se cria projeto automaticamente e não se altera o cwd. A criação global de tarefa mantém explicitamente a condição não classificada; um NULL já decidido é um estado organizacional legítimo, e inicializações, conciliações ou novos projetos posteriores não reposicionam automaticamente                                                                                                                                                                              |
+| F4  | Criação/alteração/exclusão de group durante o período de downgrade | Ignorada; group→projeto ocorre apenas uma vez, na primeira migração de upgrade                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| F5  | setting.json                                                                            | Continua gravando lastWorkspaceSession / recentProjects em ambos os lados; as entradas remotas são derivadas das entradas de projetos remotos que ainda existem localmente, e ao remover uma entrada os antigos itens correspondentes são limpos; não se regenera a lista a partir da lista completa de projetos remotos                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| F6  | Ponto de execução                                                                       | Executado de forma síncrona depois do `whenReady` do main e antes de subir o Host; em caso de falha, fail-closed (tentativa de novo / abertura do diretório de backup), sem uma segunda implementação                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| F7  | Backup                                                                                  | Posicionamento: garante apenas a recuperação para o estado anterior ao upgrade quando “a migração falha / a migração estraga o banco”, não serve como mecanismo de reversão nem como seguro geral de dados; no fluxo normal, apenas produz e não consome. Método: backup genérico por tabela (ver 7.1); somente quando há migrations pendentes e antes da transação, exporta-se tabela a tabela os `touchedTables` declarados por essas migrations, dentro de uma mesma transação de leitura, para `~/.zcode/backup/<versão>-<horário>/<nome-do-banco>.sqlite`, grava-se backup.json e mantêm-se 2 cópias; não se faz snapshot do banco inteiro (medição local: banco inteiro 770MB/12s, gzip 160MB/19s; por tabela CLI 1.9MB/70ms, tasks-index 14MB/165ms). Se o volume atual não tiver espaço, tenta-se cada um dos outros volumes graváveis; se nenhum servir, o passo é pulado com um aviso, e nenhum rastro é apagado                                                                                                                                                                                                        |
+| F8  | Workspaces antigos                                                                      | Local e remoto mantêm, cada um, apenas o projeto de root único derivado dos workspaces antigos preservados no lastWorkspaceSession, com todas as sessions abaixo dele atribuídas; diretórios que existem apenas em tasks históricos ou em recentProjects não geram projeto, e suas tarefas mantêm o cwd e o estado organizacional originais, permanecendo não classificadas quando não há projeto correspondente; as entradas remote do lastWorkspaceSession local são importadas, apenas na primeira migração, para as entradas locais de projetos remotos e para o cache de informações básicas, sem criar no local o projeto autoritativo remoto. Exceção remota (2026-10-15): quando o owner do banco detentor não é `local`, a primeira migração cria também, a partir dos roots de tarefas históricas que ainda tenham tarefas não excluídas, não estejam no diretório de sistema `*/.zcode/workspace/*` e não estejam marcados como conversation nos settings, um projeto de root único com o mesmo nome, atribuindo-lhe essas tarefas; projetos remotos só entram na barra lateral do desktop pela entrada local, e não se espera que entradas removidas sejam ressuscitadas                    |
+| F9  | Groups criados manualmente                                                               | Só são migrados os groups criados manualmente que contenham sessions não excluídas (membros arquivados contam como válidos); groups vazios, pendentes ou com apenas membros já excluídos são ignorados; roots = diretórios dos membros válidos deduplicados, principal = o diretório com mais membros; o nome é mantido e marcado como name_overridden; a cor é descartada                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| F10 | Groups com hosts misturados                                                              | São divididos em vários projetos por host, com o nome do host como sufixo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| F11 | Groups de sistema (agendados / ociosos)                                                    | Não são convertidos em projetos; os membros vão para o projeto de seu workspace, preservando os ícones de cron / off-peak                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| F12 | Arquivamento automático                                                                  | O arquivamento forçado de 7 dias do bootstrap sai junto com a descontinuação da visão Group. O arquivamento automático da página de settings (`taskAutoArchiveEnabled` / `taskAutoArchiveOlderThanDays`) deve continuar valendo: o gatilho é a varredura periódica do Host (primeira rodada após o serviço iniciar, depois a cada hora e varredura complementar imediata quando as duas chaves de arquivamento automático mudam; decisão de 2026-09-14, ver o fim do documento), e não fica preso à consulta da árvore de projetos nem a qualquer ação de UI; o escopo = todos os roots de projetos do host atual e os diretórios vinculados às sessions da área de tarefas (deduplicados, incluindo cwds fora do diretório padrão; no remoto, executado no host remoto), e o critério (decisão de 2026-09-15) é puramente temporal: `cli_updated_at` anterior a N dias implica arquivamento; só ficam de fora as sessions fixadas e as sessões em execução observadas pelo syncer, e não se olha mais completed / error / não lidas                                                                            |
+| F13 | Pré-aquecimento na inicialização                                                          | Pré-aquece-se apenas o diretório da última atividade                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
-#### 2026-10-15 旧执行后端会话可见性修复
+#### Correção da visibilidade de sessões do backend de execução antigo (2026-10-15)
 
-项目树与既有任务列表/Controller 使用同一执行后端准入规则：只读取 `tasks.provider = ZCODE_AGENT_PROVIDER`（当前为 `glm`）的任务。此列是执行后端，不是模型供应商；新导入到当前 CLI 的会话仍保留，不能按 `migration_source` 或标题过滤。项目、置顶、未归类、时间线、归档与未读展示均消费该 Host 项目树，远端在所属 Host 执行相同读取。
+A árvore de projetos e a lista de tarefas existente / o Controller usam a mesma regra de admissão do backend de execução: só são lidas as tarefas com `tasks.provider = ZCODE_AGENT_PROVIDER` (atualmente `glm`). Essa coluna é o backend de execução, não o fornecedor do modelo; sessões recém-importadas para o CLI atual continuam sendo preservadas e não podem ser filtradas por `migration_source` nem por título. Projeto, fixados, não classificadas, linha do tempo, arquivamento e exibição de não lidas consomem todos essa árvore de projetos do Host, e no remoto a mesma leitura é executada no Host de destino.
 
-根因：迁移为旧行补齐 `cli_*` 后，项目仓库漏掉旧列表的 provider 过滤，使旧后端行可见，Controller 操作前的列表却找不到它。修复只收口读取，不删除旧行、不重写 provider/时间/组织态、不改已发布 migration/checksum；已有迁移 ledger 的库同样立即生效。不按目录是否存在或是否打开 tab 隐藏正常历史。
+Causa raiz: depois que a migração preencheu `cli_*` para as linhas antigas, o repositório de projetos deixou de aplicar o filtro de provider da lista antiga, tornando visíveis as linhas do backend antigo, que a lista do Controller não encontrava antes de operar. A correção apenas fecha o caminho de leitura, não apaga linhas antigas, não reescreve provider/tempo/estado organizacional e não altera migrations/checksum já publicados; o efeito é imediato também em bancos que já têm ledger de migração. Não se oculta histórico normal com base na existência do diretório ou na abertura de uma aba.
 
 ```text
-首次迁移 / 已迁移数据库 -> Host 按当前执行后端读取 -> 桌面 / 手机共享项目树
-                       -> 原任务列表相同准入     -> Controller 任务操作
+primeira migração / banco já migrado -> Host lê pelo backend de execução atual -> árvore de projetos compartilhada entre desktop e celular
+                                      -> mesma admissão da lista de tarefas original -> operações de task do Controller
 ```
 
-验收补充 VP28：旧后端的普通、置顶、归档行均不可见，数据库原行保持；正常 CLI 会话与新导入会话可见且可取消置顶/归档。覆盖首次升级、已有 ledger、本地与远端 owner；真实桌面升级和手机 shared-host 读取，零模型请求夹具不代表真实旧 CLI 执行。
+Complemento de aceitação VP28: linhas comuns, fixadas e arquivadas do backend antigo são invisíveis, e as linhas originais do banco são preservadas; sessões normais do CLI e sessões recém-importadas são visíveis e podem ser desafixadas e desarquivadas. Cobre a primeira atualização, o ledger existente e os owners local e remoto; uma fixture sem requisições de modelo não representa a execução real de um CLI antigo.
 
-### 3.7 远程与关联能力
+### 3.7 Remoto e capacidades relacionadas
 
-| #   | 问题                  | 裁决                                                                                                                                                                                                                                        |
-| --- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| G1  | 远端旧库              | 远端 server bundle 升级时跑同一套迁移；本机新版连旧远端时按旧协议降级展示为单 root 项目                                                                                                                                                     |
-| G2  | 远程单 root           | 创建时必须选择一个有效目录，创建后固定；本地仍允许 0..n roots                                                                                                                                                                               |
-| G3  | 自动连接              | 启动自动连接所有已保存 host；连接成功后只刷新本机已添加的远程项目入口，不自动导入远端全部项目，也不重新添加已从本机删除的项目                                                                                                               |
-| G4  | 上限                  | 远程 host 上限 20                                                                                                                                                                                                                           |
-| G5  | 离线 / error 态操作   | 远程虚拟项目不可展开，不能改名、编辑 roots 或主要目录，项目操作仅允许删除本机保存的入口和缓存；保留远端项目、roots 与会话，不创建待同步删除操作。连接级仍允许重连、删除本机 host 连接记录；删除 host 一并移除其本机项目入口，不删除远端数据 |
-| G6  | 重新添加远程项目      | 用户主动连接并选择远端已有项目后，重新建立本机入口并读取最新信息；仍访问原项目及会话。在线创建远程项目成功后也显式添加入口；常规重连或刷新不执行添加                                                                                        |
-| H1  | 定时 / 闲时 / Bots    | 绑定虚拟项目；创建时取主要目录为 cwd、其余 roots 为附加目录，之后固定                                                                                                                                                                       |
-| H2  | 设置页 agent 配置目录 | 所有项目 roots 去重平铺                                                                                                                                                                                                                     |
-| H3  | composer # 提及       | 按项目分组                                                                                                                                                                                                                                  |
-| H4  | 全局搜索              | 维持现状                                                                                                                                                                                                                                    |
-| H5  | 手机远控 bridge key   | 维持 workspaceKey                                                                                                                                                                                                                           |
-| I1  | 上线                  | 分 MR、同一版本发布                                                                                                                                                                                                                         |
-| I2  | E2E                   | 项目 CRUD、拖拽与拒绝、升降级与备份、4.3.2 多目录恢复、自动归档在项目树下生效；任务区归属与首次归位覆盖 6.1 验收场景；远程离线入口管理覆盖 6.2 验收场景                                                                                     |
+| #   | Questão                        | Decisão                                                                                                                                                                                                                                                |
+| --- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| G1  | Bancos remotos antigos         | Na atualização do server bundle remoto roda-se o mesmo conjunto de migrations; quando a máquina local nova se conecta a um remoto antigo, exibe-se em modo de compatibilidade, conforme o protocolo antigo, como projeto de root único                                                                                              |
+| G2  | Remote com root único          | Na criação é obrigatório escolher um diretório válido, e ele é fixo depois de criado; no local ainda são permitidos de 0..n roots                                                                                                                     |
+| G3  | Conexão automática              | Conecta-se automaticamente a todos os hosts salvos; após a conexão bem-sucedida, apenas se atualizam as entradas locais de projetos remotos adicionados, sem importar automaticamente todos os projetos remotos e sem readicionar projetos removidos da máquina local                                                             |
+| G4  | Limite                         | Limite de 20 hosts remotos                                                                                                                                                                                                                             |
+| G5  | Operações em estado offline / error | Projetos virtuais remotos não são expansíveis, não podem ser renomeados nem ter roots ou diretório principal editados, e as operações de projeto só permitem excluir a entrada e o cache salvos localmente; preservam-se o projeto remoto, os roots e as sessões, e não se cria operação de exclusão pendente de sincronização. No nível de conexão ainda são permitidos reconectar e excluir o registro de conexão do host local; excluir o host remove junto as entradas locais de seus projetos, sem apagar os dados remotos |
+| G6  | Readicionar projeto remoto     | Depois que o usuário se conecta ativamente e escolhe um projeto já existente no remoto, a entrada local é recriada e as informações mais recentes são lidas; o acesso ao projeto original e às suas sessions continua. Após criar um projeto remoto com sucesso, a entrada também é adicionada explicitamente; reconexões ou atualizações comuns não executam a adição                          |
+| H1  | Agendados / ociosos / Bots     | Ligados a projetos virtuais; na criação, o diretório principal vira o cwd e os demais roots viram diretórios adicionais, e isso é fixo                                                                                                                |
+| H2  | Diretório de configuração do agent na página de settings | Todos os roots de todos os projetos, deduplicados e achatados                                                                                                                                |
+| H3  | Menções # no composer          | Agrupadas por projeto                                                                                                                                                                                                                                 |
+| H4  | Busca global                   | Mantém-se como está                                                                                                                                                                                                                                   |
+| H5  | Bridge key do controle remoto pelo celular | Mantém-se o workspaceKey                                                                                                                                                                                                                |
+| I1  | Lançamento                     | Dividido em MRs, publicado na mesma versão                                                                                                                                                                                                           |
+| I2  | E2E                            | CRUD de projetos, arraste e recusa, upgrade/downgrade e backup, restauração com múltiplos diretórios de 4.3.2, arquivamento automático valendo na árvore de projetos; a atribuição na área de tarefas e a primeira colocação cobrem os cenários de aceitação de 6.1; o gerenciamento de entradas remotas offline cobre os cenários de aceitação de 6.2                                                  |
 
-## 4. 目标架构
+## 4. Arquitetura-alvo
 
-G1 按握手 virtualProjects 能力选择适配器，不以 RPC proxy 是否存在判断，也不把新版读取错误当作旧版。旧 Server 的项目列表从其旧 settings 中本地目录投影成稳定 ID 的单 root 只读容器，任务行仍读取远端 app 索引；conversation 目录的任务保持未归类。旧版仅在有效单目录项目内支持创建/恢复会话且附加目录固定为空；不展示项目编辑、置顶、排序、移动或创建多 root 的能力，不把这些操作缓存在本机。正常任务命令继续走现有远端 owner。
+G1 escolhe o adaptador conforme a capacidade `virtualProjects` do handshake, sem depender da existência de um RPC proxy e sem tratar erro de leitura da versão nova como se fosse versão antiga. A lista de projetos do Server antigo é projetada, a partir dos seus antigos settings, como um contêiner de root único somente leitura com ID estável, derivado de diretórios locais; as linhas de tarefas continuam lendo o índice `app` remoto; as tarefas do diretório `conversation` permanecem não categorizadas. A versão antiga só suporta criar/restaurar sessão dentro de projetos válidos de diretório único, com os diretórios adicionais fixados em vazio; não exibe capacidades de edição de projeto, fixar, ordenação, movimentação ou criação de múltiplos roots, nem armazena essas operações em cache localmente. Comandos normais de tarefa continuam passando pelo owner remoto existente.
 
-旧单 root 入口的 ID 使用明确的 legacy-single-root 前缀，仅是读适配器标识；Server 升级后，按已保留入口的单 root 唯一匹配真实项目，并在原 entry ID/版本上 CAS 换为真实 ID。零个或多个匹配保持未解析，用户显式选择；迟到响应仍不得新增入口。本机不会创建远端权威项目行。
+O ID da entrada antiga de root único usa o prefixo explícito `legacy-single-root`, apenas como identificador do adaptador de leitura; após a atualização do Server, o root único da entrada retida corresponde de forma única ao projeto real e o ID é trocado pelo ID real via CAS sobre o ID/versão original da entry. Correspondências zero ou múltiplas permanecem não resolvidas, com escolha explícita do usuário; respostas tardias ainda não podem adicionar entradas. A máquina local não cria linhas de projeto autoritativas remotas.
 
-旧 Server 不一定保存 Controller 的目录打开记录；适配器的目录候选同时接受本机仍保留入口里的 roots/旧 cwd。该输入只是旧协议查询的寻址信息，不创建远端或本机权威项目，不从已删除的旧 settings/history 重建入口。
+O Server antigo nem sempre salva o registro de diretório aberto pelo Controller; os candidatos de diretório do adaptador aceitam simultaneamente os roots/o antigo cwd das entradas que ainda restam localmente. Essa entrada é apenas informação de endereçamento para a consulta do protocolo antigo: não cria projeto autoritativo remoto ou local e não reconstrói entradas a partir de settings/history já removidos.
 
-套用同一物理连接及 logical attachment：
+Aplica-se à mesma conexão física e ao mesmo logical attachment:
 
 ```text
 server handshake → virtualProjects=true  → remote project RPC
@@ -277,74 +259,74 @@ server handshake → virtualProjects=true  → remote project RPC
 retained entry + request version → remote read → CAS refresh retained entry
 ```
 
-### 4.1 概念模型
+### 4.1 Modelo conceitual
 
 ```text
-Host（实体机）  local | remote:ssh:<host>:<port>:<user> | remote:wsl:<distro>[:<user>] | remote:docker:<c> | remote:server:<id>
- ├─ Project（本地 0..n roots；远程恰好一个固定 root）
+Host（máquina física）  local | remote:ssh:<host>:<port>:<user> | remote:wsl:<distro>[:<user>] | remote:docker:<c> | remote:server:<id>
+ ├─ Project（local 0..n roots; remoto exatamente um root fixo）
  │    ├─ roots[]: {root_path, position, is_primary}
  │    ├─ name(+name_overridden) / position / pinned / deleted
- │    └─ sessions[]（project_id 唯一归属）
- └─ 「任务」区：project_id 为空的 session，不限制 root_path
+ │    └─ sessions[]（project_id com atribuição única）
+ └─ Área de Tarefas（「任务」）: sessão com project_id vazio, sem restrição de root_path
 
 Session
- ├─ 绑定目录 root_path（= CLI directory，永不变）  ├─ host_id  ├─ project_id?（可空）
- ├─ Host 组织态：pinned / archived / unread_at / sort_order
- └─ CLI 事实镜像：cli_title / cli_title_source / cli_updated_at / cli_created_at / cli_last_outcome / cli_deleted
+ ├─ Diretório vinculado root_path（= CLI directory, nunca muda）  ├─ host_id  ├─ project_id?（anulável）
+ ├─ Estado organizacional do Host: pinned / archived / unread_at / sort_order
+ └─ Espelho dos fatos do CLI: cli_title / cli_title_source / cli_updated_at / cli_created_at / cli_last_outcome / cli_deleted
 ```
 
-普通分区由项目归属决定；置顶、归档和 session 删除继续按各自规则过滤。`~/.zcode/workspace/*` 是全局新建任务的默认执行目录，不是任务区筛选条件。
+A partição comum é determinada pela atribuição de projeto; fixar, arquivar e a exclusão de sessão continuam filtrando pelas respectivas regras. `~/.zcode/workspace/*` é o diretório de execução padrão para criação global de novas tarefas, não um critério de filtro da área de tarefas.
 
 ```text
-Session（cwd 始终不变）
+Session（cwd nunca muda）
   |
-  +-- project_id 指向正常项目 --> 项目区
+  +-- project_id aponta para um projeto normal --> área de projetos
   |
-  +-- project_id = NULL ------> 任务区（任意 cwd）
+  +-- project_id = NULL ------> área de tarefas（qualquer cwd）
   |
-  +-- project_id 指向已删项目 -> 时间线（沿用 E1，保留归属）
+  +-- project_id aponta para um projeto excluído -> linha do tempo（segue E1, preserva a atribuição）
 ```
 
-### 4.2 进程与数据流
+### 4.2 Processos e fluxo de dados
 
 ```text
-CLI（每 workspace 一进程，可不在线）                      Host（每窗口一进程）                               Renderer
-────────────────────────────────                         ─────────────────────────                          ────────
-db.sqlite  ── sessions-index / conversation snapshot ──►  taskIndexSyncer ──写 cli_* 镜像列──► tasks-index.sqlite ──► useProjectTree()
-  ▲                                                        ▲                                       ▲               （一次查询：projects ⨝ tasks，
-  │ renameSession / deleteSession / createSession           │ pin / archive / read / move / project CRUD │                叠 sessions-index 实时字段）
-  └──────────── Host 经 v4 命令写会话事实 ◄────────────────┘ Host 直接写组织态 ◄────────────────────────┘
-禁止：CLI 写 app 库；Host 写 db.sqlite；Host 对 cli_* 列写 Date.now() 或推导值。
+CLI（um processo por workspace, pode estar offline）          Host（um processo por janela）                     Renderer
+────────────────────────────────                         ─────────────────────────                     ────────
+db.sqlite  ── sessions-index / conversation snapshot ──►  taskIndexSyncer ──escreve colunas cli_*──► tasks-index.sqlite ──► useProjectTree()
+  ▲                                                        ▲                                       ▲               （uma consulta: projects ⨝ tasks,
+  │ renameSession / deleteSession / createSession           │ pin / archive / read / move / project CRUD │                sobrepõe campos em tempo real de sessions-index）
+  └──────────── Host escreve fatos da sessão via comando v4 ◄──── Host escreve diretamente o estado organizacional ◄────────────┘
+Proibido: CLI escreve na app lib; Host escreve em db.sqlite; Host escreve Date.now() ou valores derivados nas colunas cli_*.
 ```
 
-#### 4.2.1 本机远程项目入口与远端组织态
+#### 4.2.1 Entradas locais de projeto remoto e estado organizacional remoto
 
-本机保存“用户已添加的远程虚拟项目列表”，用于侧栏展示；hosts 保存连接目标与重连所需信息。项目入口中的名称、roots 和主要目录是最近一次成功读取的缓存，只供离线展示与定位。项目内容、任务归属及运行目录仍由远端 Host 的 app 库提供权威数据，不能用本机缓存执行远端项目编辑或恢复任务。
+A máquina local guarda a "lista de projetos virtuais remotos que o usuário adicionou", usada para exibição no painel lateral; `hosts` guarda o alvo de conexão e as informações necessárias para reconectar. O nome, os roots e o diretório principal nas entradas de projeto são o cache da última leitura bem-sucedida, usados apenas para exibição offline e localização. O conteúdo dos projetos, a atribuição de tarefas e os diretórios de execução continuam sendo fornecidos de forma autoritativa pela app lib do Host remoto; o cache local não pode ser usado para executar edição de projeto remoto ou restauração de tarefas.
 
 ```text
-本机 hosts 连接记录 ----------------------> 重连指定 host
+registros de hosts locais ------------> reconectar o host indicado
                                                 |
-本机已添加的远程项目入口列表                     v
-  |                                  读取这些入口对应的远端项目
-  +-- 离线：显示缓存，不可展开                   |
+entradas locais de projetos remotos               v
+  |                                  ler os projetos remotos dessas entradas
+  +-- offline: mostra o cache, não expande       |
   |                                             v
-  +-- 删除：移除本机入口与缓存 <------ 仅更新仍存在的入口缓存
+  +-- excluir: remove a entrada e o cache local <- só atualiza o cache das entradas que ainda existem
                                                 |
-                                     不插入或恢复已移除的入口
+                        não insere nem restaura entradas removidas
 
-远端项目 / roots / session 归属：本机离线删除不改变这些数据
+projeto remoto / roots / atribuição de sessão: a exclusão local offline não altera esses dados
 ```
 
-- 本机项目服务提供明确的移除入口操作；它不调用远端项目软删除、session 删除或停止任务，也不写待同步删除队列。该操作与在线删除权威项目（E1）分开；在线删除遇到断线失败时，不得自动切换为本机移除并报告成功。
-- 重连刷新只对仍存在的入口更新缓存，不使用无条件 upsert。用户在请求发出后删除入口，迟到的响应也不能重新插入；setting.json 写回以本机已提交的入口列表为准。
+- O serviço de projetos local oferece uma operação explícita de remoção de entrada; ela não chama a soft delete de projetos remotos, a exclusão de sessão nem o encerramento de tarefas, e não escreve fila de exclusões pendentes de sincronização. Essa operação é separada da exclusão online de projetos autoritativos (E1); quando a exclusão online falha por desconexão, não se pode alternar automaticamente para a remoção local e reportar sucesso.
+- A atualização de reconexão só atualiza o cache das entradas que ainda existem, sem usar upsert incondicional. Se o usuário remover a entrada após o envio da requisição, a resposta tardia também não pode reinseri-la; a escrita de volta em `setting.json` parte da lista de entradas já confirmadas localmente.
 
-F5 的写入边界：`lastWorkspaceSession` / `recentProjects` / `lastActiveTabIndex` 由 Host 在 settings 文件锁内读取已提交的 projects/roots 与本机 remote_project_entries 派生，远端全量目录、tab 列表和重连响应均无权写入入口集合。旧字段只供降级使用；新版启动仅恢复新的 `lastActiveWorkspace`（可空），项目列表直接读取 SQLite。该字段只表达上次活动的执行目录，不创建项目或连接成员；初次升级可从旧 active index 取一次选择，之后不再回读旧字段。远程选择必须仍有本机连接成员；普通项目目录还必须属于仍保留的项目入口，conversation 目录仅要求连接成员仍存在。清空选择用显式 null，避免被旧字段重新填回。
+Fronteira de escrita de F5: `lastWorkspaceSession` / `recentProjects` / `lastActiveTabIndex` são derivados pelo Host, dentro do lock do arquivo de settings, a partir de projects/roots já confirmados e de `remote_project_entries` locais; o catálogo remoto completo, a lista de tabs e as respostas de reconexão não têm autoridade para escrever o conjunto de entradas. Campos antigos servem apenas para degradação; o startup da nova versão restaura somente o novo `lastActiveWorkspace` (anulável), e a lista de projetos é lida direto do SQLite. Esse campo expressa apenas o diretório de execução da última atividade: não cria projeto nem membro de conexão; na primeira atualização pode-se retirar uma única escolha do active index antigo, sem reler o campo antigo depois. A seleção remota ainda precisa ter um membro de conexão local; o diretório de um projeto comum ainda precisa pertencer a uma entrada de projeto retida, e o diretório `conversation` exige apenas que o membro de conexão ainda exista. Limpar a seleção usa null explícito, para evitar que o campo antigo a preencha de novo.
 
-settings 更新的文件锁覆盖完整的「重读最新配置 → 合并补丁 → 从 SQLite 派生 → 原子替换」，不只锁 rename；同一机器多个窗口的 Host 不得各自从旧快照覆盖其他字段。派生端口只读取本机数据库，不调用 settings、连接管理器或网络，避免递归和锁内握手。项目/入口 mutation 提交后等待兼容派生再广播；若兼容写失败，SQLite 提交仍有效，错误显式返回，下一次读取/更新重试派生。无远端删除队列。desktop continuous 与 mobile replayable 的会话通道和 owner 不变。
+O lock de arquivo da atualização de settings cobre o fluxo completo "reler a configuração mais recente → aplicar o patch → derivar do SQLite → substituir atomicamente", e não apenas o rename; Hosts de várias janelas na mesma máquina não podem sobrescrever campos alheios a partir de snapshots antigos. A porta derivada lê apenas o banco local, sem chamar settings, gerenciador de conexões ou rede, evitando recursão e handshake dentro do lock. Após o commit de uma mutação de projeto/entrada, aguarda-se a derivação compatível antes do broadcast; se a escrita compatível falhar, o commit do SQLite continua válido, o erro é retornado explicitamente e a próxima leitura/atualização tenta a derivação de novo. Não há fila de exclusão remota. O canal de sessão e o owner do desktop continuous e do mobile replayable permanecem inalterados.
 
-main 启动目录选择、Renderer 恢复和草稿预热均使用 lastActiveWorkspace 已绑定的 cwd。新版的独立 conversation cwd 不再套用旧的“归一到 default”规则；只有没有活动选择时才准备默认空白入口。
+A seleção de diretório no startup do main, a restauração no Renderer e o pré-aquecimento do rascunho usam o cwd já vinculado ao `lastActiveWorkspace`. O cwd de conversation independente da nova versão não aplica mais a regra antiga de "normalizar para default"; o ponto de entrada em branco padrão só é preparado quando não há seleção ativa.
 
-项目主目录失效时，侧栏标题置灰但可展开历史，新建与查看文件入口禁用；状态由所属 Host 实时派生，编辑入口保留。行为、刷新与新建复检边界见 [项目主目录可用性](../../project-primary-root-availability.md)。
+Quando o diretório principal do projeto fica inválido, o título no painel lateral é esmaecido, mas o histórico continua expansível, e as entradas de criar e de ver arquivos são desabilitadas; o estado é derivado em tempo real pelo Host de origem, e a entrada de edição é mantida. Os limites de comportamento, atualização e revalidação na criação estão em [disponibilidade do diretório principal do projeto](../../project-primary-root-availability.md).
 
 ```text
 project / retained-entry mutation → SQLite commit → settings file lock
@@ -353,27 +335,27 @@ project / retained-entry mutation → SQLite commit → settings file lock
 renderer activation → lastActiveWorkspace ───────────┘
 ```
 
-- 远端全量项目列表只用于用户主动选择添加项目；远端新增项目或旧项目名称 / roots 与缓存相同，都不是自动添加本机入口的依据。删除某个入口不删除 host 或同 host 的其他入口，删除最后一个入口也不影响用户之后重连并手动添加。
-- 本机移除入口不触发 E1/E1a 的远端软删除或恢复逻辑。用户以后重新添加同一个远端项目时，使用原项目 ID，读取现有内容及会话。
+- A lista remota completa de projetos é usada apenas quando o usuário escolhe ativamente adicionar um projeto; projetos novos no remoto ou nomes/roots remotos idênticos ao cache não são critério para adicionar automaticamente uma entrada local. Remover uma entrada não remove o host nem as outras entradas do mesmo host, e remover a última entrada também não impede que o usuário reconecte depois e adicione manualmente.
+- A remoção local de uma entrada não dispara a soft delete nem a lógica de restauração remotas de E1/E1a. Quando o usuário adicionar de novo o mesmo projeto remoto, usa-se o ID de projeto original, lendo o conteúdo e as sessões existentes.
 
-保存的物理连接启动时均可进入现有重连批次，不按最近在线时间淘汰；继续尊重 `remoteStartupAutoReconnectEnabled=false` 和静默凭据要求，不为了项目展开新建 Agent。旧 workspace history 恢复逻辑 tab 的独立门禁不改变此物理连接资格。
+Todas as conexões físicas salvas podem entrar no lote de reconexão existente no startup, sem descarte por tempo de último acesso online; continuam sendo respeitados `remoteStartupAutoReconnectEnabled=false` e a exigência de credenciais silenciosas, e nenhum Agent é criado para expandir projetos. O gate independente de tabs na lógica de restauração do workspace history antigo não altera esta elegibilidade de conexão física.
 
-连接成员关系与连接运行态分开：本机 remote-projects 是保存了哪些物理 Host/项目入口的唯一写者；现有 Source Directory 继续拥有 Profile 路由与凭据引用，ConnectionManager 继续拥有连接实例/重试。新建或显式重加连接获得不可变 `hosts.membership_id`；握手只可凭开始时的 membership ID 将旧地址 Host 合并为稳定 Source Host。移除再重加生成新 membership ID，旧握手不得复活或改绑新入口。合并与入口 host_id 调整在同一 app 库事务中进行；不移动远端权威项目、不复制 task 索引。已知稳定 Source 发生身份更换仍走现有显式确认，不把旧 Source 项目入口迁到另一台机器。
+A relação de membro de conexão é separada do estado de execução da conexão: o `remote-projects` local é o único escritor de quais Hosts/entrada de projeto físicos estão salvos; o Source Directory existente continua sendo dono do roteamento de Profile e das referências a credenciais, e o ConnectionManager continua sendo dono das instâncias de conexão e das retentativas. Uma conexão nova ou readicionada explicitamente recebe um `hosts.membership_id` imutável; o handshake só pode, com base no membership ID do início, mesclar um Host de endereço antigo em um Source Host estável. Remover e readicionar gera um novo membership ID, e um handshake antigo não pode reviver nem religar a nova entrada. A mesclagem e o ajuste do host_id da entrada ocorrem na mesma transação da app lib; o projeto autoritativo remoto não é movido e o índice de tarefas não é copiado. Uma troca de identidade em um Source estável conhecido continua passando pela confirmação explícita existente, sem migrar as entradas de projeto do Source antigo para outra máquina.
 
 ```text
-显式保存 → Host membership ID → 现有 ConnectionManager 连接/握手
-                              → 比较 membership ID → 合并到稳定 Source ID
-移除连接 → 删除 membership + 本机入口
-迟到握手 → membership 不匹配 → 丢弃，不能 INSERT
+salvar explicitamente → Host membership ID → conexão/handshake do ConnectionManager existente
+                              → comparar o membership ID → mesclar no Source ID estável
+remover a conexão → apagar o membership + as entradas locais
+handshake tardio → membership não corresponde → descartar, não pode fazer INSERT
 ```
 
-ConnectionManager 在 probe 前通过注入端口取得成员实例，握手确认之后、发布 online 之前提交绑定；拒绝时释放本次连接。用户显式连接可新增成员，启动及故障自动重连只能保留已存在成员，不能重新保存。用户确认 Source 身份更换时，在旧成员仍有效的条件下新增独立的新 Source 连接记录，旧 Source 及其入口留在原位；新 Source 单独计算容量。该条件检查与写入在同一事务执行。
+O ConnectionManager obtém a instância membro por uma porta injetada antes do probe, e confirma o vínculo após a confirmação do handshake e antes de publicar `online`; em caso de rejeição, a conexão desta tentativa é liberada. Uma conexão explícita do usuário pode adicionar membros; a reconexão automática no startup e por falha só pode manter membros já existentes, sem ressalvar. Quando o usuário confirma a troca de identidade de um Source, é criada uma nova entrada de conexão de Source independente, desde que o membro antigo ainda seja válido; o Source antigo e suas entradas permanecem no lugar, e o novo Source calcula a capacidade separadamente. Essa verificação de condição e a escrita acontecem na mesma transação.
 
-本机入口服务的 connectHost 是已有连接器的窄重连入口，只针对仍保留成员；其装配端口使用 retain admission，不保存新成员或入口。连接状态从 ConnectionManager 读取并附加在 readDirectory 结果中，不落 SQLite、不另建状态机。scope 内当前服务不支持连接管理时显式拒绝。
+O `connectHost` do serviço local de entradas é uma entrada estreita de reconexão do conector existente, válida apenas para membros ainda retidos; sua porta de montagem usa a admission de retenção, sem salvar novos membros nem entradas. O estado de conexão é lido do ConnectionManager e anexado ao resultado de `readDirectory`, sem ir para o SQLite e sem criar outra máquina de estados. Quando o serviço no scope atual não suporta gerenciamento de conexões, a operação é explicitamente recusada.
 
-URL Server 的物理连接仍由 WindowRemoteConnectionRegistry 唯一持有。项目查询/启动重连通过 Registry 的 Host 连接入口，不创建 logical session 或 Agent；打开执行目录时才创建 workspace attachment，并复用同一物理连接。Registry 提供当前连接的只读枚举和稳定 Source 查询，不新增连接状态存储。SSH/WSL/Docker 继续由原 SourceManager 持有物理连接。
+A conexão física do URL Server continua sendo mantida exclusivamente pelo WindowRemoteConnectionRegistry. A consulta de projetos e a reconexão no startup passam pela entrada de conexão de Host do Registry, sem criar logical session nem Agent; o workspace attachment só é criado ao abrir o diretório de execução, reutilizando a mesma conexão física. O Registry oferece enumeração somente leitura da conexão atual e consulta de Source estável, sem novo armazenamento de estado de conexão. SSH/WSL/Docker continuam sendo mantidos pelo SourceManager original.
 
-URL 握手前保存/取得 Host membership，token 只进 CredentialService，hosts 只存 credential key。自动重连只读已有成员和凭据；已移除/重加的旧握手必须失效。URL 未知 serverId 时的地址身份可在首次握手后绑定稳定 Source，绑定同时固化 target.serverId；已有 serverId 发生变化显式报错，不把旧项目迁走。连接失败释放尚未发布的 socket；同一 URL/稳定 Source 的并发请求复用 Registry owner。移除成员不终止现有 task，但禁止新目录/项目连接和自动重连。桌面 continuous 与手机 replayable 继续走同一个既有 workspace owner。
+A partir do handshake de URL, salvar/obter o Host membership; o token vai apenas para o CredentialService, e `hosts` guarda apenas a credential key. A reconexão automática lê somente membros e credenciais já existentes; handshakes antigos de membros removidos/readicionados devem perder a validade. Quando o serverId do URL é desconhecido, a identidade de endereço pode ser vinculada a um Source estável após o primeiro handshake, e a vinculação fixa também `target.serverId`; um serverId existente que mude gera erro explícito, sem migrar projetos antigos. Uma falha de conexão libera sockets ainda não publicados; requisições concorrentes para a mesma URL/Source estável reutilizam o owner do Registry. Remover um membro não encerra tarefas existentes, mas proíbe novas conexões de diretório/projeto e a reconexão automática. O desktop continuous e o mobile replayable continuam passando pelo mesmo workspace owner existente.
 
 ```text
 saved URL member → credential lookup → Registry physical connection → membership CAS
@@ -381,95 +363,95 @@ saved URL member → credential lookup → Registry physical connection → memb
                                                        └─ workspace attachment → existing task owner
 ```
 
-远端连接列表只枚举有可用连接目标的本机 hosts 记录；历史 task 影子所需的 target_json=NULL 身份占位不表示用户保存了连接，不展示、不占 20 个连接名额。缓存刷新始终推进比较交换版本，内容未变时不发项目变更广播，避免 read → refresh → broadcast → read 的反馈循环。
+A lista de conexões remotas enumera apenas os registros `hosts` locais que têm alvo de conexão utilizável; o placeholder de identidade com `target_json=NULL`, necessário para a sombra de tarefas históricas, não significa que o usuário salvou uma conexão, não é exibido e não ocupa uma das 20 vagas de conexão. A atualização de cache sempre avança a versão de compare-and-swap, e não emite broadcast de mudança de projeto quando o conteúdo não mudou, evitando o ciclo de feedback read → refresh → broadcast → read.
 
-迁移的旧 workspace 入口只在同 Host 唯一项目包含旧 cwd 时解析项目 ID；零个或多个匹配保留待选择入口。多个旧 cwd 解析到同一项目时保留已解析入口的 ID，删除重复旧入口；该去重与 CAS 刷新同一事务执行。侧栏只聚合本机保留入口的远端项目和任务；保存 Host 下的未归类任务进入任务区，已软删项目的历史仍进时间线。离线不展示或缓存远端 task 索引。
+A entrada antiga de workspace da migração só resolve o ID de projeto quando o mesmo Host tem um único projeto que contém o antigo cwd; correspondências zero ou múltiplas mantêm a entrada aguardando escolha. Quando múltiplos antigos cwd resolvem para o mesmo projeto, mantém-se o ID da entrada já resolvida e removem-se as entradas antigas duplicadas; essa deduplicação e a atualização CAS ocorrem na mesma transação. O painel lateral agrega apenas os projetos e as tarefas remotos das entradas retidas localmente; tarefas não categorizadas sob um Host salvo entram na área de tarefas, e o histórico de projetos com soft delete continua entrando na linha do tempo. Offline, o índice de tarefas remoto não é exibido nem cacheado.
 
-直接接入远端 owner 的 Web/客户端，projectService 返回该 owner 的权威树，remote-projects 入口查询返回空目录；不能伪造 Controller 成员表，入口写命令拒绝。桌面窗口的 Controller 查询仍使用本机 base attachment，与 workspace-scoped 的远端服务分开。
+Para o Web/cliente que acessa diretamente o owner remoto, o projectService devolve a árvore autoritativa daquele owner, e a consulta de entradas `remote-projects` devolve um diretório vazio; não se pode forjar a tabela de membros do Controller, e os comandos de escrita de entradas são recusados. A consulta de Controller da janela desktop continua usando o base attachment local, separada do serviço remoto com escopo de workspace.
 
-### 4.3 与 CLI 的接口（B14 增量）
+### 4.3 Interface com a CLI (incremento B14)
 
-附加目录是项目中除会话默认工作目录外、供该任务一起使用的其他文件夹。例如项目包含前端和后端两个目录，任务绑定前端目录时，后端就是附加目录。新建任务和重启后打开历史任务都必须完整加载对应目录提供的能力。
+Diretórios adicionais são as outras pastas do projeto, além do diretório de trabalho padrão da sessão, usadas em conjunto por aquela tarefa. Por exemplo, se o projeto contém os diretórios de frontend e backend, e a tarefa está vinculada ao diretório de frontend, o backend é o diretório adicional. Tanto a criação de tarefa quanto a abertura de tarefa histórica após o restart devem carregar integralmente as capacidades fornecidas pelos diretórios correspondentes.
 
 ```text
-createSession / 显式 resume / v4/conversation/subscribe 参数新增（可选）
-  additionalDirectories: string[]        // Host 解析的目录列表；本地绝对路径或远端实际路径
-                                        // 仅初始化运行实例时消费；live subscribe 不更新目录范围
-CLI 消费点
-  1. skillPort.discoverSkills/loadSkill(roots?)  → 为每个附加目录追加 <dir>/.zcode/skills、<dir>/.agents/skills、<dir>/.zcode/commands
-                                                   来自附加目录的 skill.qualifiedName = `${basename(dir)}/${name}`；prompt 与 mention 列表使用 qualifiedName
-  2. subagents roots                             → 追加 <dir>/.zcode/agents；同名并存，qualifiedName 同上
-  3. tool path policy                            → additionalDirectories 并入可读写根
-  4. 环境 prompt                                 → 主目录之后列出 Additional directories，仅含路径；空列表不输出
-不变：AGENTS.md、config(settings/mcp/hooks/plugins)、memory、permissions 仍只按 workingDirectory 解析。
+createSession / resume explícito / v4/conversation/subscribe 参数新增（可选）
+  additionalDirectories: string[]        // lista de diretórios resolvida pelo Host; caminho absoluto local ou caminho real remoto
+                                        // consumida apenas ao inicializar a instância de execução; o live subscribe não atualiza o escopo de diretórios
+Pontos de consumo na CLI
+  1. skillPort.discoverSkills/loadSkill(roots?)  → acrescentar <dir>/.zcode/skills、<dir>/.agents/skills、<dir>/.zcode/commands para cada diretório adicional
+                                                   skill.qualifiedName vinda do diretório adicional = `${basename(dir)}/${name}`; as listas de prompt e mention usam qualifiedName
+  2. subagents roots                             → acrescentar <dir>/.zcode/agents; nomes iguais coexistem, qualifiedName idem
+  3. tool path policy                            → mesclar additionalDirectories às raízes graváveis e legíveis
+  4. prompt de ambiente                          → listar Additional directories depois do diretório principal, apenas caminhos; lista vazia não é impressa
+Sem mudança: AGENTS.md、config(settings/mcp/hooks/plugins)、memory、permissions ainda são resolvidos apenas por workingDirectory.
 ```
 
-环境 prompt 使用本次运行实例初始化时收到的 `additionalDirectories`，逐项保留路径，不扫描附加目录内容、不增加权限说明。该列表仅经 Runtime 配置透传到 ContextBuilder，不写入环境快照或新增持久化字段；目录变更仍按 4.3.1 在运行实例重建时生效。
+O prompt de ambiente usa o `additionalDirectories` recebido na inicialização da instância de execução desta rodada, preservando os caminhos item a item, sem varrer o conteúdo dos diretórios adicionais e sem acrescentar explicações de permissão. Essa lista é apenas repassada ao ContextBuilder pela configuração do Runtime, sem gravar no snapshot de ambiente e sem criar campos persistentes novos; mudanças de diretório continuam valendo conforme 4.3.1, na reconstrução da instância de execução.
 
-#### 4.3.1 目录来源与生效时机
+#### 4.3.1 Origem dos diretórios e momento de efeito
 
-创建时序：UI 只传选中的 `projectId`（全局创建显式为 NULL）；Host 按 create command 的幂等 ID 分配稳定 session ID，在 app 同一事务预留归属并读取目录，然后才向 CLI 发送 create/firstInput。预留行的 `cli_created_at` 为空，所有列表隐藏，直到 CLI 发布持久会话事实。重复 create 不覆盖已经移动过的归属；失败不伪造会话事实。CLI 不接收项目 ID，只接收 session ID 和 `additionalDirectories`，并拒绝覆盖已存在的运行实例或持久会话；命令重试仍由 CommandInbox 去重。
+Sequência de criação: a UI envia apenas o `projectId` selecionado (NULL explícito na criação global); o Host atribui um session ID estável conforme o ID idempotente do comando de criação, reserva a atribuição e lê os diretórios na mesma transação do app, e só então envia create/firstInput ao CLI. A linha reservada tem `cli_created_at` vazio e fica oculta em todas as listas até o CLI publicar os fatos persistentes da sessão. Um create repetido não sobrescreve uma atribuição que já foi movida; uma falha não fabrica fatos de sessão. O CLI não recebe ID de projeto, apenas session ID e `additionalDirectories`, e recusa sobrescrever instâncias de execução ou sessões persistentes já existentes; novas tentativas de comando continuam deduplicadas pelo CommandInbox.
 
 ```text
-选择项目 → Host 预留 session 归属 + 读取 roots（事务）
+selecionar o projeto → o Host reserva a atribuição da sessão + lê os roots (transação)
                          ↓
-         CLI CommandInbox 去重 → 创建 runtime → 首条输入 → 持久事实
+         deduplicação pelo CLI CommandInbox → criar o runtime → primeira entrada → fatos persistentes
                          ↓
-                  Host 镜像后列表可见
+                  visível na lista após o espelho no Host
 ```
 
-项目归属与 roots 的唯一持久来源仍是 Host 的 app 库。Host 项目服务提供统一目录解析逻辑，供创建、显式恢复和 V4 冷恢复入口复用；CLI 只接收目录列表，不读取 app 库、不理解 project_id，也不新增普通任务的 roots 持久化副本或目录同步协议。新版 Host 在解析成功后显式传入数组（含 `[]`）；字段可选只为兼容旧调用，不能用省略参数掩盖查询失败。
+A única fonte persistente da atribuição de projeto e dos roots continua sendo a app lib do Host. O serviço de projetos do Host oferece uma lógica unificada de resolução de diretórios, reutilizada pelas entradas de criação, restauração explícita e restauração fria V4; o CLI recebe apenas a lista de diretórios, não lê a app lib, não entende `project_id` e não ganha cópia persistente de roots para tarefas comuns nem protocolo de sincronização de diretórios. O novo Host passa explicitamente o array (incluindo `[]`) após a resolução bem-sucedida; o campo é opcional apenas por compatibilidade com chamadas antigas, e omitir o argumento não pode mascarar uma falha de consulta.
 
-- 新建普通任务：Host 使用本次选定并校验的项目；恢复普通任务：按任务的 workspaceKey + taskId 查询其明确的 project_id，再读取项目当前 roots。不能按 cwd 猜项目，因为同一真实目录可以属于多个项目。一次读取中的任务归属与 roots 必须来自同一数据库读快照。
-- `additionalDirectories = 项目当前 roots 去重后排除 session 固定 cwd`。排除的是会话绑定目录，不是项目当前主要目录；换主要目录或从项目移除原 cwd，都不改变历史任务的 cwd。路径规范化与去重复用所在 Host 的平台路径规则。
-- 未归类任务明确使用 `[]`；软删除项目仍保留归属与 roots，历史任务沿用这些 roots 恢复。三种缺失分开处理：app 库无该 task 行（TUI 新建、sessions-index 先于 seed 到达）视为未归类传 `[]`；行存在但 `project_id` 指向不存在的项目 → 显式报错；app 库读取失败 → 显式报错。报错必须冒泡到 UI（错误提示 + 重试），不得当作 `[]` 启动不完整的运行实例，也不得静默失败。
-- 定时任务、闲时任务和 Bots 沿用 H1：Host 从该能力创建时固化的配置提供 cwd 与附加目录，恢复时也不重新取项目当前 roots。生成新 session 的归属预留同事务写入 `tasks.execution_directories` 不可变快照（nullable TEXT JSON）；普通 session 为 NULL，仍从项目当前 roots 解析。该快照属于生成 session 的初始化配置，唯一写者是 Host 创建预留；删除调度/Bot 定义或重试预留不得清除/覆盖，手动打开历史任务的三种恢复入口也读取它。它不是普通项目 roots 的同步副本。会话内绑定定义沿用既有 session，不把工作会话改成永久冻结目录。
-- CLI 仅在创建或真正重建会话运行实例时使用传入列表，作为本次运行的固定初始化参数。运行实例已存在时，普通订阅、重订阅、手机重连及显式 resume 的复用路径均不刷新目录；项目编辑或任务移动的影响在下次重建时生效。多个订阅并发恢复同一会话，复用现有 Gateway READY / cold-resume single-flight；本次恢复采用一次确定的目录列表，后续订阅不合并或覆盖它。
-- 远程任务由拥有该项目组织数据的远端 Host 解析，传递远端实际路径；workspaceIdentity、remoteSessionId 和可信 clientMode 继续沿现有 attachment 链路传递。桌面保持 desktop-continuous，手机保持 web-remote-replayable，并共享原有会话运行实例。
+- Nova tarefa comum: o Host usa o projeto selecionado e validado nesta rodada; restauração de tarefa comum: consulta o `project_id` explícito da tarefa por workspaceKey + taskId e então lê os roots atuais do projeto. Não é possível adivinhar o projeto pelo cwd, porque o mesmo diretório real pode pertencer a vários projetos. A atribuição da tarefa e os roots de uma mesma leitura precisam vir do mesmo snapshot de leitura do banco.
+- `additionalDirectories = roots atuais do projeto, deduplicados, excluindo o cwd fixo da sessão`. Exclui-se o diretório vinculado à sessão, não o diretório principal atual do projeto; trocar o diretório principal ou remover o cwd original do projeto não altera o cwd das tarefas históricas. A normalização de caminhos e a deduplicação seguem as regras de caminho da plataforma do Host em questão.
+- Tarefas não categorizadas usam explicitamente `[]`; projetos com soft delete mantêm atribuição e roots, e as tarefas históricas reutilizam esses roots na restauração. Os três casos de ausência são tratados separadamente: a app lib não tem a linha da task (criação pelo TUI, sessions-index chegando antes do seed) é tratada como não categorizada e envia `[]`; a linha existe mas `project_id` aponta para um projeto inexistente gera erro explícito; falha de leitura da app lib gera erro explícito. Os erros precisam borbulhar até a UI (mensagem de erro + retry), e não podem ser tratados como `[]` para iniciar uma instância de execução incompleta, nem falhar silenciosamente.
+- Tarefas agendadas, tarefas de ociosidade e Bots seguem H1: o Host fornece o cwd e os diretórios adicionais a partir da configuração fixada quando a capacidade foi criada, e também não busca os roots atuais do projeto na restauração. A reserva de atribuição de uma nova sessão grava, na mesma transação, um snapshot imutável em `tasks.execution_directories` (TEXT JSON anulável); uma sessão comum fica com NULL e continua sendo resolvida a partir dos roots atuais do projeto. Esse snapshot pertence à configuração de inicialização da sessão gerada, e seu único escritor é a reserva de criação do Host; excluir a definição de agendamento/Bot ou repetir a reserva não pode limpá-lo nem sobrescrevê-lo, e as três entradas de restauração de tarefas históricas abertas manualmente também o leem. Ele não é uma cópia sincronizada dos roots de um projeto comum. A definição de vínculo dentro da sessão continua usando a sessão existente, sem transformar a sessão de trabalho em diretório permanentemente congelado.
+- O CLI usa a lista recebida apenas ao criar ou realmente reconstruir a instância de execução da sessão, como parâmetro fixo de inicialização desta rodada. Quando a instância de execução já existe, os caminhos de reuso de assinatura normal, ressubscrição, reconexão do celular e resume explícito não atualizam os diretórios; o efeito de edição de projeto ou movimentação de tarefa entra em vigor na próxima reconstrução. Múltiplas assinaturas restaurando a mesma sessão em paralelo reutilizam o READY / cold-resume single-flight existente; esta restauração adota uma lista de diretórios determinada, e as assinaturas seguintes não a mesclam nem sobrescrevem.
+- Tarefas remotas são resolvidas pelo Host remoto que possui os dados organizacionais do projeto e passam os caminhos reais remotos; `workspaceIdentity`, `remoteSessionId` e o `clientMode` confiável continuam passando pela cadeia de attachment existente. O desktop mantém desktop-continuous, o celular mantém web-remote-replayable, e ambos compartilham a instância de execução de sessão original.
 
 ```text
-Host app 库：任务归属 + 项目当前 roots（唯一配置来源）
+app lib do Host: atribuição da tarefa + roots atuais do projeto (única origem de configuração)
                          |
-                Host 统一解析目录列表
+                o Host resolve a lista de diretórios de forma unificada
                          |
           +--------------+-------------------+
           |              |                   |
-       create        显式 resume        V4 subscribe
+       create        resume explícito   V4 subscribe
           |              |                   |
           +--------------+-------------------+
                          |
-               CLI 是否已有运行实例？
+               a CLI já tem uma instância de execução?
                  /                 \
-               否                   是
+              não                  sim
                |                    |
-      使用目录列表初始化一次      复用现有实例和目录范围
+      inicializa uma vez com a lista   reutiliza a instância e o escopo de diretórios
                |
-       本次运行期间目录范围固定
+     o escopo de diretórios é fixo durante esta execução
 ```
 
-实现落点：在 Host 的 `subscribeConversationV4` 发出请求前调用同一目录解析逻辑；可沿用已有 `resumeThoughtLevel` 的参数传递路径，但目录查询错误不能被静默吞掉。同步更新 `packages/shared/src/zcode-protocol/index.ts` 的 create/resume schema 和 `packages/shared/src/zcode-protocol-v4/transport.ts` 的 subscribe schema；将 `additionalDirectories` 贯穿 Gateway → `ColdSessionResumeCoordinator` → `resumePersistedSession` → `activateSessionForResume`，在运行实例构建前交给能力与环境 prompt 消费点。Host 通过服务接口注入解析能力，Renderer 不负责拼装目录列表。
+Ponto de implementação: chamar a mesma lógica de resolução de diretórios no `subscribeConversationV4` do Host antes de enviar a requisição; pode-se reaproveitar o caminho de passagem de parâmetros já existente de `resumeThoughtLevel`, mas erros na consulta de diretórios não podem ser engolidos silenciosamente. Atualizar em sincronia o schema de create/resume em `packages/shared/src/zcode-protocol/index.ts` e o schema de subscribe em `packages/shared/src/zcode-protocol-v4/transport.ts`; atravessar `additionalDirectories` por Gateway → `ColdSessionResumeCoordinator` → `resumePersistedSession` → `activateSessionForResume`, entregando-o aos pontos de consumo de capacidades e do prompt de ambiente antes da construção da instância de execução. O Host injeta a capacidade de resolução por interface de serviço; o Renderer não é responsável por montar a lista de diretórios.
 
-实施补充（2026-09-10）：当前 rowsRange / search 等查询也可能先于 subscribe 触发冷恢复。该路径复用既有 `session/requestRuntimePreferences` 的 runtime-materialization 请求，从 Host 同一目录解析接口取得 `additionalDirectories`；不建立另一个目录缓存或同步协议。显式 create/resume/subscribe 的数组仍只在新实例初始化时使用；Host 查询失败必须拒绝初始化。该反向请求已由 READY single-flight 覆盖，因此查询与订阅竞争时只读取一次目录快照。
+Complemento de implementação (2026-09-10): consultas como `rowsRange` / `search` também podem disparar a restauração fria antes do subscribe. Esse caminho reutiliza a requisição de materialização de runtime já existente (`session/requestRuntimePreferences`), obtendo `additionalDirectories` pela mesma interface de resolução de diretórios do Host; não se cria outro cache de diretórios nem outro protocolo de sincronização. Os arrays de create/resume/subscribe explícitos continuam sendo usados apenas na inicialização de uma nova instância; uma falha de consulta do Host precisa recusar a inicialização. Essa requisição inversa já é coberta pelo READY single-flight, de modo que, quando consulta e assinatura disputam, o snapshot de diretórios é lido apenas uma vez.
 
-#### 4.3.2 本地多目录恢复验收
+#### 4.3.2 Aceitação de restauração local com múltiplos diretórios
 
-远程项目固定单目录，下表涉及附加目录/更换 roots 的场景仅适用于本地；远端创建及冷恢复均要求空附加目录，禁止用改项目目录验证远端恢复。
+Projetos remotos têm um único diretório fixo, de modo que os cenários da tabela que envolvem diretórios adicionais/troca de roots valem apenas para o local; a criação remota e a restauração fria exigem diretórios adicionais vazios, e não se pode validar a restauração remota alterando os diretórios do projeto.
 
-| 场景                                                                         | 预期                                                                                |
+| Cenário                                                                        | Esperado                                                                                |
 | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 项目有主目录 A、附加目录 B；创建任务后重启 CLI，再仅通过 V4 订阅打开历史任务 | cwd 仍为 A，B 的技能、subagent 与工具目录范围和显式 resume 一致；不能只验证列表显示 |
-| 运行中把项目附加目录 B 改成 C，再切页或手机断线重连                          | 当前实例仍使用 B；运行实例重建后才使用 C                                            |
-| 项目主要目录从 A 改成 B，再冷恢复绑定 A 的历史任务                           | cwd 仍为 A，B 作为附加目录；不能按新主要目录排除 B                                  |
-| 两个项目都含 A，但分别附加 B、C；两个任务 cwd 均为 A                         | 各自按明确 project_id 取目录；同一 CLI 进程内不同会话也不串用目录范围               |
-| 桌面与手机并发订阅同一冷会话                                                 | 只初始化一个运行实例，两个订阅共享本次目录范围，保留各自 delivery profile           |
-| 未归类任务、已软删除项目的历史任务、项目查询失败                             | 分别使用空附加目录、保留项目的 roots、显式错误；不能把这三种情况合并成空目录兜底    |
-| 修改项目 roots 后恢复已有定时任务、闲时任务或 Bot                            | 继续使用该能力创建时固化的 cwd 与附加目录                                           |
+| Projeto tem diretório principal A e diretório adicional B; após criar a tarefa, reiniciar o CLI e abrir a tarefa histórica apenas via assinatura V4 | O cwd continua sendo A, e o escopo de skills, subagents e diretórios de ferramentas de B é o mesmo do resume explícito; não basta validar a exibição na lista |
+| Em execução, mudar o diretório adicional B do projeto para C e depois trocar de aba ou reconectar o celular | A instância atual continua usando B; C só é usado após a reconstrução da instância de execução |
+| Mudar o diretório principal do projeto de A para B e fazer a restauração fria de uma tarefa histórica vinculada a A | O cwd continua sendo A, e B é o diretório adicional; não se pode excluir B por causa do novo diretório principal |
+| Dois projetos contêm A, mas adicionam B e C, respectivamente; as duas tarefas têm cwd A | Cada uma obtém os diretórios pelo project_id explícito; sessões diferentes no mesmo processo CLI também não compartilham o escopo de diretórios |
+| Desktop e celular assinando a mesma sessão fria em paralelo | Apenas uma instância de execução é inicializada, as duas assinaturas compartilham o escopo de diretórios desta rodada e mantêm seus respectivos delivery profile |
+| Tarefa não categorizada, tarefa histórica de projeto com soft delete, falha na consulta de projeto | Usam, respectivamente, diretórios adicionais vazios, os roots preservados do projeto e erro explícito; esses três casos não podem ser fundidos em um fallback de diretório vazio |
+| Restaurar uma tarefa agendada, de ociosidade ou Bot já existente depois de modificar os roots do projeto | Continua usando o cwd e os diretórios adicionais fixados quando a capacidade foi criada                                           |
 
-协议与 CLI 单测覆盖参数贯穿、目录消费及并发恢复；Host 单测覆盖归属解析、路径去重和失败分支。E2E 覆盖桌面与手机、本地与远程的创建和冷恢复入口，并验证附加目录不会改变 AGENTS.md / settings / MCP / hooks 的绑定目录规则。所有远端固定单 root；旧远端能力降级仍按 G1，不展示多目录操作；上述均为实施阶段待执行的验收项。
+Testes de protocolo e de CLI cobrem a passagem de parâmetros, o consumo de diretórios e a restauração concorrente; testes de Host cobrem a resolução de atribuição, a deduplicação de caminhos e os ramos de falha. O E2E cobre as entradas de criação e de restauração fria no desktop e no celular, local e remoto, e verifica que os diretórios adicionais não alteram as regras de diretório de vínculo de AGENTS.md / settings / MCP / hooks. Todos os remotos têm um único root fixo; a degradação para capacidades de remoto antigo segue G1, sem exibir operações de múltiplos diretórios; todos esses pontos são itens de aceitação a executar na fase de implementação.
 
-## 5. 数据模型
+## 5. Modelo de dados
 
-### 5.1 app 库 `tasks-index.sqlite`（只加法，V1）
+### 5.1 app lib `tasks-index.sqlite` (apenas adições, V1)
 
 ```sql
 CREATE TABLE IF NOT EXISTS schema_migration (id TEXT PRIMARY KEY, checksum TEXT NOT NULL, app_version TEXT, applied_at INTEGER NOT NULL);
@@ -504,15 +486,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_host_task ON tasks(host_id, task_id)
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id, archived, cli_updated_at DESC) WHERE deleted = 0;
 ```
 
-镜像列与旧列的关系：Host 组织态（`pinned/archived/unread/title_overridden/deleted` 意图）**只有原列**，无副本。CLI 事实：代码只读 `cli_*`，旧列 `title`（非 override 时）、`updated_at`、`task_status` 仅供 V1 之前版本读，由 syncer 双写。显示规则：标题 = `title_overridden ? title : cli_title`；隐藏 = `deleted OR cli_deleted`；排序 = `cli_updated_at`。automations / off_peak_tasks 增加可空 `project_id`、`host_id`。
+Relação entre colunas de espelho e colunas antigas: o estado organizacional do Host (`pinned/archived/unread/title_overridden/deleted` — intenções) **tem apenas as colunas originais**, sem cópia. Fatos do CLI: o código lê apenas `cli_*`; as colunas antigas `title` (quando não é override), `updated_at` e `task_status` servem apenas às versões anteriores à V1, com escrita dupla pelo syncer. Regras de exibição: título = `title_overridden ? title : cli_title`; oculto = `deleted OR cli_deleted`; ordenação = `cli_updated_at`. `automations` / `off_peak_tasks` recebem `project_id` e `host_id` anuláveis.
 
-运行时删除接受整份 `TaskMeta` 的通用持久化入口。恢复快照只更新模型、目标、错误详情和搜索正文；标题、时间、存在性和结果必须先经 CLI reconcile 摄入。无持久事实的草稿只返回临时展示值，不插入列表。Claude 导入必须先创建真实 CLI session，再通过同一事实入口摄入；备份 JSON 不承担索引写入或复活删除会话的职责。显式再次导入创建新的 CLI 会话 ID，不按外部来源 hash 覆盖已有或已删除会话；旧确定性 ID 只用于已有备份的读取与修复。回归测试人为污染旧事实列与 `meta_json`，验证所有列表排序、搜索和展示仍只读镜像。
+A exclusão em runtime passa por uma entrada genérica de persistência que aceita o `TaskMeta` completo. O snapshot de restauração atualiza apenas modelo, alvo, detalhes de erro e corpo da busca; título, tempo, existência e resultado precisam antes passar pela ingestão de reconciliação do CLI. Rascunhos sem fato persistente retornam apenas valores temporários de exibição, sem entrar na lista. A importação do Claude precisa criar primeiro uma sessão CLI real e depois ingerir os fatos pelo mesmo ponto de entrada; o JSON de backup não assume a responsabilidade de escrita de índice nem de ressuscitar sessões excluídas. Uma nova importação explícita cria um novo ID de sessão CLI, sem sobrescrever sessões existentes ou já excluídas por hash da origem externa; os IDs determinísticos antigos servem apenas à leitura e ao reparo de backups existentes. O teste de regressão contamina artificialmente as colunas de fatos antigos e `meta_json`, verificando que ordenação, busca e exibição de todas as listas continuam lendo apenas o espelho.
 
-旧 `session/create` 与 V4 创建也共用归属预留：Host 在 wire 请求前生成会话 ID，并原子保存 project_id（未指定时为 NULL）；CLI 接受尚不存在的分配 ID，统一拒绝覆盖内存、持久化或正在创建的同 ID。创建期间只保留短期 ID 占用，失败即释放；它不接收用户输入，不构成第二个命令队列。V4 幂等结果仍由 CommandInbox 保存。旧 native 创建的附加目录由 Host 归属解析，定时/闲时等已固化配置沿显式参数传递。
+O `session/create` antigo e a criação V4 compartilham a reserva de atribuição: o Host gera o session ID antes da requisição no wire e salva atomicamente o project_id (NULL quando não especificado); o CLI aceita o ID atribuído que ainda não existe e recusa uniformemente sobrescrever memória, persistência ou criação em andamento do mesmo ID. Durante a criação só permanece uma occupation curta do ID, liberada em caso de falha; ele não recebe entrada do usuário e não constitui uma segunda fila de comandos. O resultado idempotente da V4 continua sendo salvo pelo CommandInbox. Os diretórios adicionais da criação nativa antiga são resolvidos pela atribuição do Host, e configurações já fixadas (agendadas/de ociosidade etc.) são passadas por parâmetros explícitos.
 
-### 5.2 CLI 库 `db.sqlite`（新增 migration 0020）
+### 5.2 CLI lib `db.sqlite` (nova migration 0020)
 
-`0019_dwf_journal` 已被历史版本占用，本次使用 `0020_session_soft_delete_outcome`，不改历史 SQL 与 checksum。
+`0019_dwf_journal` já foi ocupado por versões históricas; desta vez usamos `0020_session_soft_delete_outcome`, sem alterar o SQL histórico nem o checksum.
 
 ```sql
 ALTER TABLE session ADD COLUMN time_deleted INTEGER;   -- 软删除
@@ -520,13 +502,13 @@ ALTER TABLE session ADD COLUMN last_outcome TEXT;      -- completed|error|interr
 -- time_archived 保留列，代码标记 @deprecated，不再读写
 ```
 
-`listSessions` / sessions-index 冷种子增加 `time_deleted is null` 过滤；`SessionSummary` 新增可选 `lastOutcome`，冷种子 phase 由 `last_outcome` 推导（NULL 回退 completedSuccess）。v4 `deleteSession` 改为写 `time_deleted` 并 closeSession，发 `session.removed`。
+`listSessions` / sessions-index cold seed ganha o filtro `time_deleted is null`; `SessionSummary` recebe o novo `lastOutcome` opcional, e a fase do cold seed é derivada de `last_outcome` (NULL volta a completedSuccess). O `deleteSession` da v4 passa a gravar `time_deleted` e chamar closeSession, emitindo `session.removed`.
 
-新增请求式命令 `sessionsIndex/reconcile { workspaceId, sessionIds[] }` → 每个 id 返回 `{ exists, deleted, title, titleSource, updatedAt, lastOutcome }`（含软删除行）。用途：Host 订阅 snapshot 后对「本地未标删除但 snapshot 缺席」的行对账，以及交接后的回读校验。snapshot 缺席本身永不导致 app 删行。
+Novo comando por requisição `sessionsIndex/reconcile { workspaceId, sessionIds[] }` → para cada id devolve `{ exists, deleted, title, titleSource, updatedAt, lastOutcome }` (incluindo linhas com soft delete). Uso: o Host reconcilia, após assinar o snapshot, as linhas "não marcadas como deletadas localmente, mas ausentes do snapshot", e faz a verificação de releitura após a passagem de mão. A ausência no snapshot, por si só, nunca causa a remoção de linhas na app lib.
 
-### 5.3 本机远程项目入口与缓存
+### 5.3 Entradas locais de projeto remoto e cache
 
-在本机 app 库单独保存入口及基础信息缓存，避免把它们作为远端 `projects` / `project_roots` 的第二份可编辑组织态。连接参数继续保存在 `hosts.target_json`，凭据仍沿用现有凭据存储。
+As entradas e o cache de informações básicas são guardados separadamente na app lib local, para evitar que se tornem uma segunda cópia editável do estado organizacional dos `projects` / `project_roots` remotos. Os parâmetros de conexão continuam em `hosts.target_json`, e as credenciais continuam no armazenamento de credenciais existente.
 
 ```sql
 CREATE TABLE IF NOT EXISTS remote_project_entries (
@@ -540,350 +522,325 @@ CREATE TABLE IF NOT EXISTS remote_project_entries (
   UNIQUE (host_id, remote_project_id));
 ```
 
-首次迁移的旧远程 workspace 可在尚未连接时保存入口及原始标识；连接成功后，只对仍存在的入口解析远端项目 ID 并更新缓存，旧远端沿用 G1 的单 root 展示。入口新增只来自首次迁移、用户明确添加或在线创建项目成功；普通刷新没有创建入口的权限。删除入口即删除这一行及其缓存，重启后也不从旧 setting.json 或远端列表重建。该表不保存远程 session 索引、任务内容或待执行的远端删除意图。
+O workspace remoto antigo da primeira migração pode salvar a entrada e a identificação original mesmo sem estar conectado; após a conexão bem-sucedida, o ID do projeto remoto é resolvido apenas para as entradas que ainda existem e o cache é atualizado, com o remoto antigo mantendo a exibição de root único conforme G1. A criação de entradas vem apenas da primeira migração, da adição explícita do usuário ou da criação bem-sucedida de um projeto online; um refresh comum não tem permissão para criar entradas. Excluir uma entrada significa excluir essa linha e seu cache, e ela também não é reconstruída após o restart a partir do antigo `setting.json` ou da lista remota. Essa tabela não guarda índice de sessões remotas, conteúdo de tarefas nem intenções remotas de exclusão pendentes.
 
-项目服务在 base attachment 上按显式 `hostId` 路由。当前 Host 的请求进入自身仓库；其他 Host 只从现有连接管理器取得在线的项目服务代理，断线直接失败，不落本机库。读取远端树后通过既有 Source workspace identity 解析登记 canonical/stable 映射。手机也复用该 base attachment 路由，不申请被禁止的 source-settings attachment，不创建新的 runtime。
+O serviço de projetos roteia pelo `hostId` explícito sobre o base attachment. As requisições do Host atual entram no próprio repositório; os demais Hosts obtêm um proxy de serviço de projetos online apenas do gerenciador de conexões existente, falhando direto em caso de desconexão, sem gravar no banco local. Depois de ler a árvore remota, o registro da resolução canonical/stable é feito pela identidade de workspace do Source existente. O celular também reutiliza esse roteamento por base attachment, sem solicitar o source-settings attachment proibido e sem criar um novo runtime.
 
-workspace attachment 同样转发远端项目服务，入口目录始终从 Controller base attachment 读取。新增服务不加入旧版 v1 必需频道集合，避免旧 Server 因缺频道连不上；握手以可选 `capabilities.virtualProjects` 明确声明新能力，缺省代表旧版单 root，不能仅凭客户端生成的代理对象判断远端支持。远端全局新建每次分配独立 cwd，已经绑定任意 workspace 的 logical session 不得重绑到新 cwd；复用同一物理连接并新建 logical attachment。
+O workspace attachment também encaminha o serviço de projetos remoto, e o diretório de entradas é sempre lido do base attachment do Controller. O novo serviço não entra no conjunto de canais obrigatórios da v1 antiga, evitando que o Server antigo falhe ao connectar por falta de canal; o handshake declara a nova capacidade de forma explícita via `capabilities.virtualProjects` opcional, e a ausência significa, por padrão, a versão antiga de root único: não é possível julgar o suporte remoto apenas com base no objeto proxy gerado pelo cliente. Cada criação global remota recebe um cwd independente, e uma logical session já vinculada a qualquer workspace não pode se revincular a um novo cwd; reutiliza-se a mesma conexão física e cria-se um novo logical attachment.
 
-项目树包含未打开 tab 的远端任务。其列表命令复用 Window Controller 的 mutateTask 路由：以稳定 Source + workspaceIdentity 定位现有在线物理连接，先读取该 owner 的任务行验证地址，再执行同一 task service；重命名也转交原 CLI 命令。查询和 pin/archive/read 不为列表创建 logical workspace、切换 tab 或启动 Agent。打开会话时才建立/复用 workspace attachment，手机仍走 shared-host replayable switcher；不能为未打开 tab 的列表命令伪造 remoteSessionId。离线或身份不匹配直接拒绝，绝不落本机。
+A árvore de projetos inclui tarefas remotas de abas não abertas. O comando de listagem reaproveita a rota `mutateTask` do Window Controller: localiza a conexão física online existente por Source estável + workspaceIdentity, lê primeiro a linha de tarefas daquele owner para validar o endereço e então executa o mesmo task service; a renomeação também é repassada ao comando original da CLI. Consultas e pin/archive/read não criam logical workspace, não trocam de aba e não iniciam Agent para a listagem. O workspace attachment é criado/reutilizado apenas ao abrir a sessão, e o celular continua passando pelo shared-host replayable switcher; não se pode fabricar um `remoteSessionId` para comandos de listagem de abas não abertas. Offline ou com identidade divergente, a operação é recusada direto, e nunca é gravada localmente.
 
-本机入口管理收口到 `remote-projects` 服务契约：`readDirectory / saveHost / removeHost / addEntry / refreshEntry / removeEntry`。项目服务只处理持库 Host 的权威项目，入口服务不接收任务索引或远端写操作。新增入口产生新的 entry ID；缓存刷新必须携带请求发出时的 entry ID 与 lastSyncedAt，SQL 只 UPDATE 并做比较交换。入口删除后，迟到响应不再有写入目标；移除后主动添加同一 project ID 会产生新 entry ID，旧响应仍不能覆盖它。Host 删除与所属入口删除在同一 SQLite 事务，20 个远端 host 上限在写事务内检查。连接运行态继续归现有连接管理器，凭据继续归凭据服务，不能保存在 target JSON。
+O gerenciamento local de entradas é concentrado no contrato de serviço `remote-projects`: `readDirectory / saveHost / removeHost / addEntry / refreshEntry / removeEntry`. O serviço de projetos trata apenas os projetos autoritativos do Host que detém o banco; o serviço de entradas não recebe índice de tarefas nem operações de escrita remota. A adição de uma entrada produz um novo entry ID; o refresh do cache precisa carregar o entry ID e o lastSyncedAt do momento do envio da requisição, e o SQL faz apenas UPDATE com compare-and-swap. Depois da exclusão da entrada, a resposta tardia não tem mais alvo de escrita; adicionar de novo o mesmo project ID após a remoção produz um novo entry ID, e a resposta antiga continua sem poder sobrescrevê-lo. A exclusão do Host e a exclusão da entrada pertencente ocorrem na mesma transação do SQLite, e o limite de 20 hosts remotos é verificado dentro da transação de escrita. O estado de execução da conexão continua pertencendo ao gerenciador de conexões existente, e as credenciais continuam pertencendo ao serviço de credenciais, sem serem guardadas no target JSON.
 
 ```text
-显式添加 → 本机入口行（新 entry ID）→ 发起远端读取
+adição explícita → linha de entrada local (novo entry ID) → inicia a leitura remota
                                       │
-移除入口 ────────────────── DELETE    │
+remover a entrada ───────────────── DELETE │
                                       ↓
-迟到读取 → UPDATE WHERE entry_id AND last_synced_at → 0 行，无重建
+leitura tardia → UPDATE WHERE entry_id AND last_synced_at → 0 linhas, sem reconstrução
 ```
 
-连接 admission 每次 await 后都要复查取消与当前 owner：在线连接复用也不能在成员提交等待后返回已断开的旧对象。新建 transport 在发布 online 前由当前 connect 调用独占；目录记录、身份确认或成员提交任一失败，都通过同一清理路径释放未发布连接。未发布连接的 close 不能触发另一个已在线连接的恢复逻辑；发布前已关闭则拒绝。
+A admission de conexão precisa reavaliar o cancelamento e o owner atual a cada await: mesmo uma conexão online reutilizada não pode devolver um objeto antigo já desconectado depois de esperar pelo commit do membro. Um transport novo é exclusivo da chamada `connect` corrente antes de publicar `online`; se o registro de diretório, a confirmação de identidade ou o commit do membro falhar, a conexão ainda não publicada é liberada pelo mesmo caminho de limpeza. O close de uma conexão não publicada não pode disparar a lógica de recuperação de outra conexão já online; se ela foi fechada antes da publicação, a operação é recusada.
 
-自动化与闲时定义的 `project_id / host_id / additional_directories` 在创建提交时固化。表单选择项目只提交项目 ID，Host 用项目服务解析 cwd 与附加目录；无效或已删项目必须在取号/落定义前失败。定时调度、重试与闲时恢复读取已保存配置，不重新按项目当前 roots 求值；项目之后的 roots 编辑不修改这些定义。会话内绑定任务的既有语义继续保留，绑定不会因目录选项重构变成新建会话。绑定 task 与新选项目不得同时提交。派发携带 Host 已保存的附加目录（含明确空数组），归属预留仅校验项目仍存在且同 Host，不再用当前 roots 或软删除位否定既有定义；普通新建仍校验当前 roots 和未删除项目。CLI 仅接收目录，不接收项目 ID。
+O `project_id` / `host_id` / `additional_directories` das definições de automação e de ociosidade são fixados no commit da criação. O formulário de seleção de projeto envia apenas o ID do projeto, e o Host usa o serviço de projetos para resolver o cwd e os diretórios adicionais; um projeto inválido ou já excluído precisa falhar antes da obtenção do ID e da gravação da definição. O agendamento, as novas tentativas e a restauração de ociosidade leem a configuração já salva, sem reavaliar pelos roots atuais do projeto; edições de roots feitas depois não alteram essas definições. A semântica existente de vínculo de tarefas dentro da sessão é preservada, e o vínculo não se transforma em criação de nova sessão por causa da remodelagem das opções de diretório. Tarefa vinculada e novo projeto selecionado não podem ser submetidos em conjunto. O despacho carrega os diretórios adicionais já salvos pelo Host (incluindo array vazio explícito), e a reserva de atribuição apenas verifica se o projeto ainda existe e é do mesmo Host, sem mais negar a definição existente pelos roots atuais ou pelo bit de soft delete; a criação comum continua validando os roots atuais e o projeto não excluído. O CLI recebe apenas diretórios, não recebe ID de projeto.
 
-## 6. UI 行为要点
+## 6. Pontos de comportamento da UI
 
-### 创建后选择草稿项目（2026-10-16）
+### Selecionar o projeto de rascunho após a criação (2026-10-16)
 
-侧栏「新项目」与草稿左上角项目菜单共用创建完成行为：项目保存成功（远端还需登记本机入口）并刷新目录后，若发起时的聊天仍是同一草稿，自动选中新项目。沿用 Root/Host 项目导航，保留当前草稿的正文、富文本 mention、附件和分组意图，不发送消息。普通手动选择项目仍按各工作区恢复草稿。已有会话、创建失败、取消、添加已有项目和编辑项目不触发此动作。
+O「新项目」(novo projeto) da barra lateral e o menu de projeto do canto superior esquerdo do rascunho compartilham o comportamento de conclusão da criação: depois que o projeto for salvo com sucesso (no remoto ainda é preciso registrar a entrada local) e o diretório for atualizado, se o chat que originou a ação ainda for o mesmo rascunho, o novo projeto é selecionado automaticamente. Reutiliza-se a navegação de projetos do Root/Host, preservando o corpo do rascunho atual, as menções em rich text, os anexos e a intenção de agrupamento, sem enviar mensagem. A seleção manual comum de projeto continua restaurando o rascunho por workspace. Sessões já existentes, falha de criação, cancelamento, adição de projeto existente e edição de projeto não disparam esta ação.
 
 ```text
-ProjectEditor 保存 → ProjectCreation 登记并刷新 → 校验原 tab / workspace / 草稿代次
-                                               ├─ 同一草稿 → 读取编辑器快照 → Root 准备新项目 → 恢复正文与附件
-                                               └─ 已切换或发送 → 仅保留创建结果
+ProjectEditor salva → ProjectCreation registra e atualiza → valida tab / workspace / geração do rascunho originais
+                                               ├─ mesmo rascunho → lê o snapshot do editor → Root prepara o novo projeto → restaura corpo e anexos
+                                               └─ já trocado ou enviado → mantém apenas o resultado da criação
 ```
 
-项目和目录仍归 Host；组织意图仍归 session store，正文归 composer draft owner，附件归现有上传 owner。快照仅作 renderer 内存中的一次性交接命令；正文写目标草稿，附件使用原始 File/路径在目标重新准备，不复用旧 session 的上传引用，也不新增附件落盘。手机 Root 重建后使用相同交接命令；附件交接只允许目标草稿的同一代次消费一次。准备失败时源草稿保持原状。保存或刷新期间切换 workspace、选择会话或重建草稿后，迟到结果不能切换当前工作区。桌面与手机复用同一完成动作，各自沿用 continuous / replayable 导航。验收 PCD01–03 覆盖本地/远端完成、两种入口、草稿失效及失败隔离。
+Projeto e diretórios continuam pertencendo ao Host; a intenção de organização continua pertencendo ao session store, o corpo ao composer draft owner e os anexos ao owner de upload existente. O snapshot serve apenas como um comando de passagem único na memória do renderer; o corpo é escrito no rascunho de destino, os anexos são preparados novamente no destino usando o File/caminho original, sem reutilizar as referências de upload da sessão antiga e sem adicionar gravação de anexos em disco. Após a reconstrução do Root no celular, usa-se o mesmo comando de passagem; a passagem de anexos só pode ser consumida uma vez pela mesma geração do rascunho de destino. Quando a preparação falha, o rascunho de origem permanece intacto. Se durante o salvamento ou a atualização houver troca de workspace, seleção de sessão ou reconstrução do rascunho, um resultado tardio não pode trocar o workspace atual. Desktop e celular reutilizam a mesma ação de conclusão, cada um seguindo sua navegação continuous / replayable. A aceitação PCD01–03 cobre a conclusão local/remota, as duas entradas, a invalidação do rascunho e o isolamento de falhas.
 
-实施清理：新项目树替代旧 WorkspaceSidebarItem、SortableWorkspaceSidebar、旧 Timeline/Pinned/Archived 分区与 useWorkspaceTaskLists；引用审计确认无生产调用后删除，不保留并行任务列表聚合和 workspace/group 排序状态。共享的任务行展示、workbench 拖拽、搜索和 Header 仍使用原公共能力。逐条引用稳定化继续复用既有 taskListItemStabilization：相同快照不重建整树，项目归属或 activity 真正变化才更新相应行；Host + 项目 ID、workspaceKey + task ID 分别作为身份。
+Limpeza de implementação: a nova árvore de projetos substitui o antigo WorkspaceSidebarItem, o SortableWorkspaceSidebar, as antigas seções Timeline/Pinned/Archived e o useWorkspaceTaskLists; após a auditoria de referências confirmar que não há chamadas em produção, eles são removidos, sem manter agregação paralela de listas de tarefas nem estado de ordenação de workspace/group. A exibição compartilhada de linhas de tarefa, o arraste do workbench, a busca e o Header continuam usando as capacidades públicas originais. A estabilização de referências item a item continua reutilizando o taskListItemStabilization existente: o mesmo snapshot não reconstrói a árvore inteira, e só a linha correspondente é atualizada quando a atribuição de projeto ou a activity realmente mudam; Host + ID do projeto e workspaceKey + ID da tarefa servem como identidades.
 
-旧 workspace store 的 draftSessionId / setDraftSessionId 已无生产写入者，随旧 session 管理路径删除。预热 session 只由 V4 pane 持有；项目、技能或插件变化通过 workspaceIdentity 隔离的失效版本通知 pane 回收并重建。配置 UI 不直接 close 草稿 session，不向全局 store 复制运行态 ID；侧面板仅按正式 activeTaskId 归属，草稿按现有空归属语义处理。
+O draftSessionId / setDraftSessionId do antigo workspace store já não têm escritor em produção e são removidos junto com os velhos caminhos de gestão de sessão. A sessão de pré-aquecimento é mantida apenas pela pane do V4; mudanças de projeto, skill ou plugin notificam a pane por meio de uma versão de invalidação isolada por workspaceIdentity, para que ela recolha e reconstrua. A UI de configuração não fecha diretamente a sessão de rascunho nem copia IDs de runtime para o store global; o painel lateral atribui apenas pelo activeTaskId formal, e o rascunho segue a semântica de atribuição vazia existente.
 
-- 侧栏：顶部全局置顶区（session + 置顶项目）→「项目」区（标题右键菜单：按时间 / 按项目排序）→「任务」区。时间线实现保留，当前隐藏切换入口。
-- 新建项目向导：类型（本地 / 远程）→ 远程先选连接 → 多选文件夹（可不选）→ 名称（默认首 root 名 / 「新项目」）→ 主要目录（默认第一个）。
-- 编辑弹窗：名称、roots 增删、设主要（主要被删自动后补首位）。项目操作菜单使用非模态导航，只有编辑弹窗拥有模态指针/焦点限制；菜单退出动画尚未结束时打开并快速保存弹窗，也必须恢复页面交互，不能手动改 body 样式或用超时解锁。
-- 拖拽：session → 其他项目（同 host 才可投放；仅本地目标缺该 root 时弹窗「将文件夹加入项目」，远程目标目录不匹配直接拒绝）；任务区 session → 项目（同上，使用该 session 的真实绑定目录，允许默认目录之外的 cwd）；项目节点排序。
-- 删除项目：本地项目及在线远端权威项目沿用 E1 软删除；时间线仍显示其 session；新建 roots 集合完全相等（同 host）的项目时弹窗「发现已删除的项目 P（N 个会话），是否恢复」，恢复即 undelete；无其他恢复入口，不提供彻底删除。
-- 远程项目节点：离线或连接失败时显示缓存及离线 / error 状态，不可展开，不可改名、编辑 roots 或主要目录；项目操作仅允许“删除”，语义为从本机移除入口及缓存，远端项目和会话保留。连接级仍可重连或删除本机 host；重连不自动恢复已移除的项目入口。
-- composer：@文件跨 roots 加 root 后缀；skill / subagent 用 qualifiedName；# 提及按项目分组。
-- 设置页 agent 配置管理：目录下拉 = 所有 roots 去重平铺；hooks trust 按真实目录。
-- 定时 / 闲时 / Bots：选项目；创建时固化 cwd = 主要目录、附加目录 = 其余 roots。表单候选来自项目服务，与已打开的目录 tab 无关；同 cwd 的多个项目按项目 ID 独立选择。空 roots 项目可直接选中，只在提交时由 Host 创建默认目录，模型列表预览使用该 Host 的模型服务。编辑已存在定义保留其原 cwd/目录快照。
+- Barra lateral: topo com a área global de fixados (session + projetos fixados) → área「项目」(menu de clique direito no título: ordenar por tempo / por projeto) → área「任务」. A implementação da linha do tempo é mantida, com a entrada de alternância atualmente oculta.
+- Assistente de novo projeto: tipo (local / remoto) → no remoto, escolher a conexão primeiro → múltiplas pastas (opcional) → nome (padrão: nome do primeiro root /「新项目」) → diretório principal (padrão: o primeiro).
+- Diálogo de edição: nome, adição/remoção de roots, definir o principal (se o principal for removido, o primeiro entra automaticamente). O menu de ações do projeto usa navegação não modal; somente o diálogo de edição tem o foco/pont.modal restrito; se o diálogo for aberto e salvo rapidamente enquanto a animação de saída do menu ainda não terminou, a interação com a página também deve ser restaurada, sem alterar manualmente o estilo do body nem destravar por timeout.
+- Arraste: session → outro projeto (só é possível soltar no mesmo host; quando o alvo local não tem aquele root, aparece o diálogo「将文件夹加入项目」, e um diretório remoto incompatível é recusado diretamente); na área de tarefas, session → projeto (o mesmo, usando o diretório de vínculo real da session, permitindo cwd fora do diretório padrão); ordenação dos nós de projeto.
+- Exclusão de projeto: projetos locais e projetos remotos autoritativos online seguem a soft delete do E1; a linha do tempo ainda mostra suas sessions; ao criar um projeto cujo conjunto de roots é exatamente igual (mesmo host), aparece o diálogo「发现已删除的项目 P（N 个会话），是否恢复」, e a restauração equivale ao undelete; não há outra entrada de restauração e não se oferece exclusão definitiva.
+- Nó de projeto remoto: quando offline ou com falha de conexão, mostra o cache e o estado offline / error, não pode ser expandido, renomeado, nem ter seus roots ou diretório principal editados; as únicas ações de projeto permitidas são「删除」, com o sentido de remover a entrada e o cache local, preservando o projeto e as sessões remotas. No nível de conexão ainda é possível reconectar ou remover o host local; reconectar não restaura automaticamente as entradas de projeto removidas.
+- composer: @arquivo recebe o sufixo do root quando atravessa roots; skill / subagent usam qualifiedName; menções com # são agrupadas por projeto.
+- Gerenciamento da configuração de Agent na página de configurações: a lista suspensa de diretórios = todos os roots deduplicados e achatados; o hooks trust usa os diretórios reais.
+- Agendamento / ociosidade / Bots: seleção de projeto; na criação, cwd = diretório principal e diretórios adicionais = os demais roots, fixados. Os candidatos do formulário vêm do serviço de projetos, sem relação com as abas de diretório abertas; múltiplos projetos com o mesmo cwd são escolhidos de forma independente pelo ID do projeto. Projetos sem roots podem ser selecionados diretamente, e o Host só cria o diretório padrão no momento do envio; a prévia da lista de modelos usa o serviço de modelos daquele Host. Editar uma definição existente preserva seu snapshot original de cwd/diretórios.
 
-#### 6.0.1 Bot 项目绑定与旧状态交接
+#### 6.0.1 Vinculação de projeto do Bot e passagem do estado antigo
 
-Bot 的多项目授权沿用既有 `allowedWorkspaces` 字段与 `/workspace` 命令，但新版候选 ID 表示 Host + 项目，不再表示 cwd。候选共用项目目录读取契约：当前 owner 的项目，以及本机仍保留入口的在线远端项目；不从 tab/history 造项目、不为枚举启动 Agent。相同 cwd 的多个项目分别展示；目录/名称输入有歧义时要求选择明确项目。
+A autorização multi-projeto do Bot continua usando o campo existente `allowedWorkspaces` e o comando `/workspace`, mas o ID de candidato da nova versão representa Host + projeto, e não mais cwd. Os candidatos compartilham o contrato de leitura de diretórios de projeto: os projetos do owner atual e os projetos remotos online para os quais a máquina local ainda mantém a entrada; não se criam projetos a partir de tab/history e não se inicia um Agent para enumeração. Múltiplos projetos com o mesmo cwd são exibidos separadamente; quando a entrada de diretório/nome é ambígua, exige-se a escolha de um projeto explícito.
 
-Bot context 是该 Bot 执行绑定的唯一持久来源。首次创建 context（含 provider offset 首次持久化），或用户明确切换项目时，调用该 Host 的 `prepareSession`，保存 projectId、hostId、cwd、workspaceIdentity 与 additionalDirectories。此后 `/new`、状态读取、模型预览、重启均保留这份快照，不按最新 roots 改写 cwd。新生成任务将此快照传入既有任务创建预留；恢复已存在任务继续以其自身 Host 预留为准。
+O Bot context é a única fonte persistente do vínculo de execução do Bot. Na criação inicial do context (incluindo a primeira persistência do offset do provider) ou quando o usuário troca explicitamente de projeto, chama-se `prepareSession` daquele Host, salvando projectId, hostId, cwd, workspaceIdentity e additionalDirectories. A partir daí, `/new`, a leitura de status, a prévia de modelos e as reinicializações preservam esse snapshot, sem reescrever o cwd conforme os roots mais recentes. Tarefas novas geradas passam esse snapshot para a reserva existente de criação de tarefa; a retomada de tarefas existentes continua seguindo a reserva do seu próprio Host.
 
-Bot Repo 在同一文件锁内读取并更新单个 context，命令、provider cursor 与删除均走该入口，禁止用服务层读出的整份旧 state 覆盖其他 Bot。首次绑定以 Repo 内当前 context 为 CAS 依据；命令更新保留独立 writer 的 Telegram/微信 cursor。文件地址在 Repo 实例创建时固定，异步操作不重新解释环境路径。
+O Bot Repo lê e atualiza um único context sob o mesmo lock de arquivo, e comandos, cursor do provider e remoções passam todos por essa entrada, proibindo sobrescrever outros Bots com o state antigo inteiro lido na camada de serviço. A primeira vinculação usa o context atual dentro do Repo como base do CAS; a atualização de comandos preserva o cursor Telegram/WeChat do writer independente. O endereço do arquivo é fixado na criação da instância do Repo, e operações assíncronas não reinterpretam caminhos de ambiente.
 
-历史 context 仅在缺少 hostId 时交接一次：保留原 cwd，补全可唯一确认的身份/项目归属，additionalDirectories 为 `[]`。多个同 cwd 项目不猜测归属，保存明确 NULL；已处理 NULL 不因后来新增项目自动归入。旧路径授权仅在候选唯一时转换为项目 ID，歧义不扩大权限。选择菜单的迟到点击必须再次验证当前授权、入口成员和项目存在性，不能直接执行旧菜单对象。
+O context histórico só é transferido uma única vez, quando falta o hostId: mantém-se o cwd original, completa-se a atribuição de identidade/projeto quando ela pode ser unicamente confirmada, e additionalDirectories fica como `[]`. Múltiplos projetos com o mesmo cwd não têm a atribuição adivinhada, e um NULL explícito é salvo; um NULL já tratado não entra automaticamente em projetos criados depois. A autorização por caminho antigo só é convertida em ID de projeto quando o candidato é único, e a ambiguidade não amplia permissões. Cliques tardios no menu de seleção devem validar novamente a autorização atual, a entrada de membro e a existência do projeto, não podendo executar diretamente o objeto de menu antigo.
 
-`/task` 的候选从所属 Host 项目树读取，只包含当前固定 cwd/identity 与明确 projectId 的任务；同 cwd 其他项目不能混入，任务 ID 或旧菜单也不能绕过这条校验。切换既有任务只改 activeTaskId，不覆盖 Bot 的项目选择 ID 或执行目录快照。
+Os candidatos de `/task` são lidos da árvore de projetos do Host pertence, incluindo apenas as tarefas com cwd/identity fixados e projectId explícito; outros projetos com o mesmo cwd não podem se misturar, e o ID da tarefa ou o menu antigo também não pode contornar essa validação. Trocar de tarefa existente altera apenas o activeTaskId, sem sobrescrever o ID de seleção de projeto do Bot nem o snapshot de diretório de execução.
 
 ```text
-项目/入口 owner → 读取候选（前后校验成员与入口）
-明确选择 → prepareSession → Bot Repo 固化执行绑定 → 既有任务创建预留
-roots 编辑 ─────────────────╳ 不改 Bot context
-桌面 continuous / 手机 replayable → 原 owner、CommandInbox 与恢复链路
+owner do projeto/entrada → lê candidatos (valida membro e entrada antes e depois)
+escolha explícita → prepareSession → Bot Repo fixa o vínculo de execução → reserva existente de criação de tarefa
+edição de roots ─────────────────╳ não altera o Bot context
+desktop continuous / celular replayable → owner original, CommandInbox e cadeia de recuperação
 ```
 
-- 自动归档：设置页开关与天数保留；扫描器在单个写事务内纯按 CLI 最后活动时间镜像筛选，只改 archived；只排除置顶与 syncer 已观察到的非终态会话（2026-09-15 起不再看结果与未读），不为查询启动 CLI，也不持久化实时 phase。触发点是 Host 定时扫描器（启动首轮 + 每 5 分钟 + 设置变更补扫），项目树查询与点击任务都不再触发；覆盖全部项目 roots 与任务区 session 的绑定目录；归档后行进入时间线的归档态，不影响项目归属。
+- Arquivamento automático: o interruptor e o número de dias na página de configurações são mantidos; o scanner, dentro de um único write transaction, filtra apenas pelo espelho do último tempo de atividade da CLI e altera apenas `archived`; exclui somente as sessões fixadas e as sessões em estado não terminal já observadas pelo syncer (desde 2026-09-15 não olha mais resultado nem não lidas), sem iniciar a CLI para a consulta e sem persistir phase em tempo real. O gatilho é o scanner periódico do Host (primeira rodada na inicialização + a cada 5 minutos + varredura extra quando as configurações mudam); a consulta à árvore de projetos e o clique em uma tarefa não disparam mais isso; cobre todos os roots de projeto e os diretórios de vínculo das sessions da área de tarefas; após o arquivamento a linha entra no estado arquivado da linha do tempo, sem afetar a atribuição de projeto.
 
-#### 6.0.2 Bot 远端执行的 Host 依赖注入
+#### 6.0.2 Injeção de dependência do Host para execução remota do Bot
 
-Bot 远端执行直接使用窗口 Host 中已在线的 SourceServerConnectionManager / URL Registry 服务，不再经 main 查询 workspace session、创建 Bot logical session 或转交第二条 runtime MessagePort。`/reconnect` 只调用已保留 host 的 connectHost；删除成员后的请求失败，不读旧 settings 复活连接。Server 自身的 Bot 使用所属 Host 本地服务。
+A execução remota do Bot usa diretamente os serviços SourceServerConnectionManager / URL Registry já online na janela do Host, sem passar pelo main para consultar workspace sessions, criar uma logical session do Bot ou repassar uma segunda MessagePort de runtime. `/reconnect` chama apenas o connectHost do host retido; requisições que falham após a remoção de um membro não leem settings antigos para ressuscitar a conexão. O próprio Bot do Server usa os serviços locais do Host ao qual pertence.
 
-旧 Bot canonical identity 通过已保留入口的 legacyWorkspace 解析持库 host，只在首次交接时保存 hostId；后续以保存的 hostId 路由，入口移除不改写已绑定 cwd/identity。稳定 server identity 与显式 hostId 不一致时拒绝。项目绑定前后同时检查 host membershipId 与入口 ID，移除再添加不能接受旧 prepareSession 结果。
+A identidade canônica antiga do Bot é resolvida pelo legacyWorkspace da entrada retida para o host que detém o banco, e o hostId é salvo apenas na primeira transferência; depois disso o roteamento usa o hostId salvo, e a remoção da entrada não reescreve o cwd/identity já vinculado. Recusa-se quando a identidade estável do server e o hostId explícito não coincidem. Antes e depois da vinculação de projeto, verificam-se simultaneamente o membershipId do host e o ID da entrada, de modo que remover e adicionar de novo não aceita resultados antigos de prepareSession.
 
-远端目录 admission 复用 Source workspace alias；等待期间按物理连接对象及 membershipId 校验，迟到结果拒绝。配置候选、项目归属及 CLI 内容仍分别由现有 owner 决定，router 不存项目、TaskMeta 或连接状态副本。Bot 的动态事件维持 `bot-channel-continuous`：连接换代只更换 live 订阅，不拼接手机 snapshot/replay；命令沿原 task service / owner lease / CommandInbox。
+O admission de diretórios remotos reutiliza o alias de workspace da Source; durante a espera, a validação é feita pelo objeto de conexão física e pelo membershipId, e resultados tardios são recusados. Os candidatos de configuração, a atribuição de projeto e o conteúdo da CLI continuam sendo determinados respectivamente pelos owners existentes, e o router não guarda cópias de projeto, TaskMeta ou estado de conexão. Os eventos dinâmicos do Bot mantêm `bot-channel-continuous`: a troca de conexão substitui apenas a subscrição ao vivo, sem emendar o snapshot/replay do celular; os comandos seguem o task service / owner lease / CommandInbox originais.
 
-Bot router 可持有自己消费者的订阅句柄，源连接通知驱动重订阅，关闭后丢弃迟到事件；不能用定时器轮询连接或创建第二份已接受输入队列。App runtime preferences 从现有设置读取，只有已持久化 Bot 绑定的在线目标参与主动同步。
+O Bot router pode manter o handle de subscrição dos seus próprios consumidores; a notificação da conexão de origem dirige a re-subscrição, e eventos tardios são descartados após o fechamento; não se pode usar temporizador para fazer polling da conexão nem criar uma segunda fila de entradas aceitas. As preferências de runtime do App são lidas das configurações existentes, e apenas os alvos online com vínculo de Bot já persistido participam da sincronização ativa.
 
 ```text
-Bot context 固定地址 → Host router → 已存在 Source/URL services → 同一 CLI owner
-显式 /reconnect      → retained host connectHost
-Source 连接换代       → 替换 Bot live subscription（不做 replay）
-desktop continuous / mobile replayable → 各自原 attachment，不受 Bot 路由替换影响
+Bot context fixa o endereço → Host router → serviços Source/URL já existentes → mesmo owner da CLI
+/reconnect explícito      → connectHost do host retido
+troca da conexão Source   → substitui a subscrição ao vivo do Bot (sem replay)
+desktop continuous / mobile replayable → seus attachments originais, sem impacto da troca de roteamento do Bot
 ```
 
-#### 6.0.3 手机项目新目录的 shared-host admission
+#### 6.0.3 Admission de shared-host para novos diretórios de projeto no celular
 
-手机 home 与桌面 sidebar 挂载同一个 ProjectSidebar，从同一 base attachment 的项目契约读取行集合；删除手机专属的 workspace 分组、标题/状态推导和重复的列表缓存。手机 shell 只负责 home/chat、浏览器 back 和侧栏弹层，不拥有项目/任务副本。ProjectSidebar 的打开事件经原 replayable switcher 成功后进入 chat；新草稿经下述 Host admission。视图/排序共用项目侧栏控件，不继续读取已退场的手机 workspace 分组偏好。
+O home do celular e a sidebar do desktop montam o mesmo ProjectSidebar e leem o conjunto de linhas do contrato de projetos do mesmo base attachment; removem-se o agrupamento de workspace exclusivo do celular, a derivação de título/status e o cache de lista duplicado. O shell do celular responde apenas por home/chat, o botão back do navegador e a camada de sobreposição da barra lateral, e não possui cópias de projetos/tarefas. O evento de abertura do ProjectSidebar entra no chat após o sucesso do switcher replayable original; novos rascunhos passam pelo Host admission descrito abaixo. Visualização/ordenação compartilham os controles da barra lateral de projetos, sem continuar lendo as preferências de agrupamento de workspace do celular que já saíram de cena.
 
-home-only（初始目标工作区不能建 bridge，Root 没有 projectService）时没有 base attachment，也就没有项目契约。此时 ProjectSidebar 的项目/任务区改为展示 relay 层 `listWorkspaces` 返回的桌面窗口工作区列表，手机和宽屏共用；项目树读取失败不在这里展示。列表事实只来自桌面：挂载时请求一次，之后只采用 `workspace-list-updated` 推送，不轮询。请求发出后若收到推送或新请求，迟到的旧响应丢弃。每行展示工作区名称与连接状态：
+No modo home-only (o workspace de destino inicial não pode criar bridge, o Root não tem projectService) não existe base attachment e, portanto, não existe contrato de projetos. Nesse caso, as áreas de projeto/tarefa do ProjectSidebar passam a exibir a lista de workspaces da janela do desktop retornada por `listWorkspaces` na camada de relay, compartilhada entre celular e tela larga; falhas na leitura da árvore de projetos não são exibidas aqui. Os fatos da lista vêm apenas do desktop: são solicitados uma vez na montagem e, depois, apenas os push de `workspace-list-updated` são adotados, sem polling. Se, depois do envio da requisição, chegar um push ou uma nova requisição, a resposta antiga tardia é descartada. Cada linha exibe o nome do workspace e o estado da conexão:
 
-- 可建 bridge（本地，或远程且带 workspaceIdentity + remoteSessionId）：点击经 `switchWorkspace` 打开该工作区的 bridge Root，落在首页，不自动进入聊天。
-- 不能建 bridge：显示“未连接 · 连接”（有 `lastConnectionError` 时显示连接失败），点击经 `reconnectWorkspace` 交给桌面已有重连 owner；成功后重新请求列表，行变为可打开，不自动切换。
-- 桌面报告 `reconnecting` 或本页请求进行中：行禁用并显示连接中。请求失败用 toast 提示，列表保持桌面最新事实。
+- Quando é possível criar bridge (local, ou remoto com workspaceIdentity + remoteSessionId): o clique abre, via `switchWorkspace`, o bridge Root daquele workspace, caindo na home, sem entrar automaticamente no chat.
+- Quando não é possível criar bridge: exibe「未连接 · 连接」(com `lastConnectionError`, exibe falha de conexão); o clique é entregue via `reconnectWorkspace` ao owner de reconexão já existente no desktop; após o sucesso, a lista é solicitada novamente, a linha passa a ser abrível e não há troca automática.
+- Quando o desktop reporta `reconnecting` ou a requisição desta página está em andamento: a linha fica desabilitada e exibe conectando. Falha na requisição gera um toast, e a lista mantém o fato mais recente vindo do desktop.
 
 ```text
-home-only Root (无 projectService)
+home-only Root (sem projectService)
   ProjectSidebar → listWorkspaces ─┐   desktop workspace-list-updated ─┐
-                                    └→ 工作区行（迟到响应丢弃）←─────────┘
-  可 bridge 行 → switchWorkspace → bridge Root（首页）
-  断开行     → reconnectWorkspace → desktop 重连 owner → 列表带回 remoteSessionId → 可 bridge 行
+                                    └→ linha de workspace (respostas tardias descartadas)←───────┘
+  linha com bridge → switchWorkspace → bridge Root (home)
+  linha desconectada → reconnectWorkspace → owner de reconexão do desktop → lista traz remoteSessionId → linha com bridge
 ```
 
-手机发出项目/host 意图，由窗口 Host 调用同一个 ProjectService.prepareSession 解析目录。手机不先调用一次 prepare 再通过 main 重复准备。main 只转交请求与 Host 返回的脱敏 workspace descriptor，不读取项目/任务库。全局任务的每次用户创建分配新目录，同一导航请求的重试不得重复创建。多个导航 join 同一个目录 scope 时，共享首次 Provider 配置同步屏障；scope 换代使旧 bridge identity 立即失效。手机创建的 scope 后来由桌面显式采用时，仍等待 desktop renderer ready 后才记为连接成功。
+O celular emite a intenção de projeto/host, e o Host da janela chama o mesmo ProjectService.prepareSession para resolver o diretório. O celular não chama prepare uma vez para depois repetir a preparação pelo main. O main apenas repassa a requisição e o workspace descriptor higienizado retornado pelo Host, sem ler o banco de projetos/tarefas. Cada criação de tarefa global pelo usuário recebe um novo diretório, e a repetição de uma mesma requisição de navegação não pode criar diretórios em duplicidade. Quando múltiplas navegações fazem join no mesmo escopo de diretório, elas compartilham a primeira barreira de sincronização de configuração do Provider; a troca de escopo invalida imediatamente a identidade antiga do bridge. Quando um escopo criado no celular é depois adotado explicitamente pelo desktop, a conexão só é registrada como bem-sucedida depois que o desktop renderer estiver pronto.
 
-远端 admission 只可复用当前已在线的物理 Source 连接，在该窗口 Registry 中创建或复用目录对应的 logical scope；不得隐式建立新 SSH/WSL/Docker/URL transport、独立 Host 或 Agent。准备前后验证保留 host 的 membershipId 与物理连接 owner，创建 scope 后再次验证，移除/换代的迟到结果拒绝。离线保留当前 bridge 和草稿，显式重连沿原入口执行。
+O admission remoto só pode reutilizar a conexão física Source já online, criando ou reutilizando o escopo lógico do diretório correspondente no Registry daquela janela; não pode estabelecer implicitamente um novo transport SSH/WSL/Docker/URL, um Host separado ou um Agent. Antes e depois da preparação, validam-se o membershipId do host retido e o owner da conexão física, e após criar o escopo a validação é repetida, com resultados tardios de remoção/troca recusados. Offline, o bridge e o rascunho atuais são mantidos, e a reconexão explícita segue a entrada original.
 
-手机 scope 的 remoteSessionId、workspaceIdentity 与 cwd 必须匹配 Host descriptor。新 scope 仍经现有 shared-host attachWorkspaceHost，以可信 web-remote-replayable 创建独立订阅；桌面 continuous 原链路不变。手机 Root 替换时携带项目草稿、provider 与初始输入，先完成草稿初始化，再允许 prewarm；旧 Root 不在异步返回后写入新 Root 的状态。
+O remoteSessionId, o workspaceIdentity e o cwd do escopo do celular precisam corresponder ao descriptor do Host. O escopo novo ainda passa pelo shared-host attachWorkspaceHost existente, criando uma subscrição independente via web-remote-replayable confiável; a cadeia continuous do desktop não muda. A substituição do Root no celular carrega o rascunho do projeto, o provider e a entrada inicial, concluindo primeiro a inicialização do rascunho e só depois permitindo o prewarm; o Root antigo não escreve no estado do Root novo depois de um retorno assíncrono.
 
-未提交项目归属与正文/模型一样属于浏览器草稿：在既有 V4 composer 的 workspaceKey + `__draft__` scope 中保存可选 projectId（null 为显式未归类）。普通文本/模型保存不得清除归属，显式新建覆盖它，任务创建成功后随原 draft promotion 清理。手机 replayable 的 Root 重建与页面 reload 从同一草稿读取归属，显式 initialTaskDraft 优先，已有 initialTaskId 不读取草稿；desktop continuous 仍按原初始 workspace 语义进入新草稿。不得为此增加 main/relay 的项目状态副本或 accepted input queue。
+A atribuição de projeto ainda não submetida pertence ao rascunho do navegador, assim como o corpo/modelo: no scope existente do composer do V4 (workspaceKey + `__draft__`) salva-se um projectId opcional (null significa explicitamente não classificado). Salvar texto/modelo comum não pode limpar a atribuição, uma criação explícita a sobrescreve, e ela é limpa junto com a promoção original do rascunho após a criação bem-sucedida da tarefa. A reconstrução do Root no replayable do celular e o reload da página leem a atribuição do mesmo rascunho, com o initialTaskDraft explícito tendo prioridade, e um initialTaskId existente não lê o rascunho; o desktop continuous continua entrando no novo rascunho com a semântica original de workspace inicial. Não se deve adicionar para isso uma cópia do estado de projeto no main/relay nem uma fila de entradas aceitas.
 
 ```text
-mobile draft edit -> existing browser composer scope (workspaceKey, __draft__)
-bridge recovery / reload -> Root restores projectId before prewarm
-first submit -> Host validates project -> CLI accepts -> existing draft promotion
+edição de rascunho no mobile -> scope existente do composer do navegador (workspaceKey, __draft__)
+recuperação do bridge / reload -> Root restaura o projectId antes do prewarm
+primeiro envio -> Host valida o projeto -> CLI aceita -> promoção existente do rascunho
 ```
 
-打开项目树中的既有任务也使用这一 admission：客户端只提交 taskId、workspaceKey 与所属 hostId，Host 从权威任务树确认该地址确实存在，再 resolveSessionDirectories；不得调用 prepareSession 或为历史任务分配新目录。远端先检查已保留 Host 与在线物理 owner，再确认本机保留的项目入口；打开未分类任务只要求 Host 成员仍在。所有迟到结果沿同一 membership/entry/physical owner 校验。bridge 的 workspaceKey 仍为原执行目录身份，不改成项目 ID。
+Abrir uma tarefa existente da árvore de projetos também usa esse admission: o cliente submete apenas taskId, workspaceKey e o hostId pertencente, e o Host confirma na árvore de tarefas autoritativa que aquele endereço realmente existe, antes de resolveSessionDirectories; não se pode chamar prepareSession nem atribuir um novo diretório a tarefas históricas. No remoto, verificam-se primeiro o Host retido e o owner físico online, e depois a entrada de projeto mantida localmente; abrir uma tarefa não classificada exige apenas que o membro do Host ainda esteja lá. Todos os resultados tardios passam pela mesma validação de membership/entry/physical owner. O workspaceKey do bridge continua sendo a identidade do diretório de execução original, e não passa a ser o ID do projeto.
 
 ```text
-mobile project intent -> main request routing -> Window Host ProjectService
-                                                     | prepare cwd
-                                             online Source lease check
-                                                     | Registry logical scope
-mobile replayable <- existing shared-host bridge <- trusted descriptor
+intenção de projeto no mobile -> roteamento de requisição no main -> Window Host ProjectService
+                                                     | prepara o cwd
+                                             verificação de lease da Source online
+                                                     | escopo lógico no Registry
+mobile replayable <- bridge shared-host existente <- descriptor confiável
 ```
 
-#### 6.0.4 Composer 项目候选的只读边界
+#### 6.0.4 Limite de leitura dos candidatos de projeto do composer
 
-旧的空态命名 scratch workspace 弹窗及 Root → App → Shell 创建回调链退场。新建目录统一由已选虚拟项目的 prepareSession 或全局任务分配入口负责，不保留没有实际 UI 消费者的第二套创建动作。
+O antigo pop-up de workspace scratch do estado vazio e a cadeia de callbacks de criação Root → App → Shell saem de cena. A criação de diretório passa a ser responsabilidade uniforme do prepareSession do projeto virtual selecionado ou da entrada de alocação de tarefa global, sem manter um segundo conjunto de ações de criação sem consumidor real de UI.
 
-`#` 从当前实际 Host 的 ProjectService.readTree 读取候选，包含未打开 tab 目录的未删除任务，按 `(hostId, projectId)` 分组；空归属显示本地化的任务区标题，软删除容器下的既有任务仍按该项目名显示。只读取当前 attachment 的 Host，禁止为了候选连接另一 Host 或从其他 Host 聚合不可读取的 session ID。每组独立搜索后最多 20 条，排序来自 CLI 活动时间镜像。`@` 中的会话候选继续限当前 workspaceKey，但行集合也改为同一权威项目树。项目事件使只读查询刷新，owner/地址变化后丢弃迟到结果。
+O `#` lê os candidatos do ProjectService.readTree do Host atual, incluindo as tarefas não excluídas de diretórios de tabs não abertos, agrupados por `(hostId, projectId)`; a atribuição vazia exibe um título localizado de área de tarefas, e as tarefas existentes sob contêineres em soft delete continuam exibidas com o nome daquele projeto. Só se lê o Host do attachment atual, e é proibido conectar outro Host só para obter candidatos ou agregar session IDs ilegíveis de outros Hosts. Cada grupo tem busca independente com no máximo 20 itens, e a ordenação vem do espelho do tempo de atividade da CLI. Os candidatos de sessão dentro do `@` continuam restritos ao workspaceKey atual, mas o conjunto de linhas passa a vir da mesma árvore de projetos autoritativa. Eventos de projeto fazem as consultas somente-leitura se atualizarem, e resultados tardios são descartados após mudanças de owner/endereço.
 
-`@` 文件覆盖绑定 cwd 与项目的其余 roots。已有任务使用 resolveSessionDirectories，草稿使用已选 projectId 的 readProjects；未分类草稿只有当前 cwd。读取候选不能调用 prepareSession、不能创建目录或 Agent。已移除 root 的旧任务仍保留自身 cwd。文件查找通过当前 Host 的 fileService 执行，真实绝对路径作为去重 key；保留原 relativePath，当前 cwd 内 canonical 链接继续相对路径，其余 root 使用绝对路径，避免同名相对路径指向错误文件。候选右侧显示 root 名，名称只是展示信息，不参与身份或执行路径。
+O `@` de arquivos cobre o cwd vinculado e os demais roots do projeto. Tarefas existentes usam resolveSessionDirectories, rascunhos usam o readProjects do projectId selecionado, e rascunhos não classificados têm apenas o cwd atual. A leitura de candidatos não pode chamar prepareSession, criar diretórios nem Agents. Tarefas antigas cujo root foi removido continuam com o próprio cwd. A busca de arquivos é executada pelo fileService do Host atual, usando o caminho absoluto real como chave de deduplicação; o relativePath original é preservado, links canônicos dentro do cwd atual continuam como caminho relativo, e os demais roots usam caminho absoluto, evitando que caminhos relativos de mesmo nome apontem para o arquivo errado. O nome do root é exibido à direita do candidato, sendo apenas informação de exibição, sem participar da identidade nem do caminho de execução.
 
 ```text
-composer # -> current Host ProjectService.readTree -> project groups
-composer @ -> task directories / selected project roots -> same Host fileService
-                identity + request owner changed -> discard old response
-desktop continuous / mobile replayable -> original attachment, no new runtime
+composer # -> ProjectService.readTree do Host atual -> grupos de projeto
+composer @ -> diretórios da tarefa / roots do projeto selecionado -> mesmo fileService do Host
+                identidade + owner da requisição alterados -> descarta resposta antiga
+desktop continuous / mobile replayable -> attachment original, sem novo runtime
 ```
 
-### 6.1 任务区归属与首次归位验收
+### 6.1 Atribuição da área de tarefas e aceitação da primeira posicionagem
 
-定时/闲时的项目选择复用 readProjects，只读取目录与项目，不为展示候选加载 task tree 或触发自动归档。此处将原“已打开的本地 workspace”改为“所有未删除的本地虚拟项目”，保留既有产品 spec 的本地新建范围、创建后目录固定及旧远端任务管理能力；开放远端新建需要独立明确裁决。
+A seleção de projeto do agendamento/ociosidade reutiliza readProjects, lendo apenas diretórios e projetos, sem carregar a task tree para exibir candidatos nem disparar arquivamento automático. Aqui, o「已打开的本地 workspace」original passa a ser「todos os projetos virtuais locais não excluídos», preservando o escopo de criação local da spec de produto existente, a fixação do diretório após a criação e a capacidade de gestão de tarefas remotas antigas; abrir a criação remota exige uma decisão explícita e separada.
 
-| 场景                                                                            | 预期                                                                         |
+| Cenário                                                                            | Expectativa                                                                  |
 | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| 全局新建任务                                                                    | 在 `~/.zcode/workspace/<唯一目录>` 下创建，`project_id = NULL`，显示在任务区 |
-| 首次发现默认目录之外的历史 session，绑定目录匹配同 host 下唯一一个未删除项目    | 归入该项目，cwd 不变                                                         |
-| 首次发现默认目录之外的历史 session，绑定目录匹配多个未删除项目                  | 保持未归类，显示在任务区；不按主要目录优先选择，不新建项目                   |
-| 首次发现默认目录之外的历史 session，绑定目录不匹配任何未删除项目                | 保持未归类，显示在任务区，不新建项目                                         |
-| 同目录仅匹配已删除项目或其他 host 的项目                                        | 不作为有效匹配，保持未归类，不恢复已删项目、不跨 host 归入                   |
-| 未归类 session 已完成首次判定（bit 8），之后新增包含其 cwd 的项目，再启动或对账 | 仍在任务区，不因目录变成唯一匹配而自动归入                                   |
-| 时间线中的空归属 session 拖入同 host 项目，目标缺该目录                         | 弹窗确认加入真实绑定目录；确认后移动，拒绝则目录与归属均不变                 |
-| 空归属 session 满足 F12 自动归档条件                                            | 同样触发自动归档，不因无项目归属而遗漏                                       |
-| 删除本地项目或在线远端权威项目                                                  | session 保留原 `project_id`，时间线仍可见，不转入任务区                      |
+| Nova tarefa global                                                                | Criada em `~/.zcode/workspace/<diretório único>`, com `project_id = NULL`, exibida na área de tarefas |
+| Primeira descoberta de uma session histórica fora do diretório padrão, cujo diretório de vínculo corresponde a exatamente um projeto não excluído do mesmo host | Atribuída a esse projeto, com o cwd inalterado                              |
+| Primeira descoberta de uma session histórica fora do diretório padrão, cujo diretório de vínculo corresponde a vários projetos não excluídos | Permanece não classificada, exibida na área de tarefas; sem escolher pelo diretório principal e sem criar projeto |
+| Primeira descoberta de uma session histórica fora do diretório padrão, cujo diretório de vínculo não corresponde a nenhum projeto não excluído | Permanece não classificada, exibida na área de tarefas, sem criar projeto     |
+| O mesmo diretório corresponde apenas a projetos excluídos ou a projetos de outro host | Não conta como correspondência válida: permanece não classificada, sem restaurar projeto excluído e sem atribuição entre hosts |
+| Session não classificada já passou pela primeira decisão (bit 8); depois é criado um projeto que contém o seu cwd e a aplicação é reiniciada ou reconciliada | Continua na área de tarefas, sem ser atribuída automaticamente por o diretório ter passado a ser uma correspondência única |
+| Session sem atribuição da linha do tempo arrastada para um projeto do mesmo host cujo destino não tem aquele diretório | Diálogo confirmando a inclusão do diretório de vínculo real; após a confirmação a session é movida, e a recusa não altera nem o diretório nem a atribuição |
+| Session sem atribuição que satisfaz a condição de arquivamento automático do F12 | Dispara igualmente o arquivamento automático, sem omissão por não ter atribuição de projeto |
+| Exclusão de um projeto local ou de um projeto remoto autoritativo online                 | A session mantém o `project_id` original, continua visível na linha do tempo e não migra para a área de tarefas |
 
-以上场景在桌面与手机 Web 远控中保持一致；涉及远程时沿用同 host 限制及 workspaceIdentity 隔离，不改变桌面 continuous 与手机 replayable 的恢复边界。
+Os cenários acima são consistentes no desktop e no controle remoto Web do celular; quando envolvem o remoto, vale a mesma limitação de host e o isolamento por workspaceIdentity, sem alterar os limites de recuperação do desktop continuous e do celular replayable.
 
-### 6.2 远程离线项目入口验收
+### 6.2 Aceitação de entradas de projetos remotos offline
 
-远端 Server 的 `host_id` 使用可信启动入口注入的稳定 Source Server 身份。库内 `workspace_key` 仍可保留旧 SSH/WSL canonical key，由既有 identity mapper 转换对外身份；不得从这些历史连接地址推断不同物理 host，也不改 cwd、CLI 配置 hash 或 canonical key。Server Core 在创建 services / 开放 RPC 前完成自身 app 库迁移。
+O `host_id` do Server remoto usa a identidade estável de Source Server injetada pela entrada de inicialização confiável. O `workspace_key` no banco ainda pode preservar a antiga chave canônica SSH/WSL, convertida pelo identity mapper existente para a identidade externa; não se pode inferir hosts físicos diferentes a partir desses endereços de conexão históricos, nem alterar o cwd, o hash de configuração da CLI ou a chave canônica. O Server Core conclui a migração do seu próprio banco app antes de criar os services / abrir o RPC.
 
-| 场景                                               | 预期                                                                                            |
+| Cenário                                               | Expectativa                                                                                            |
 | -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| 已添加远程项目断线或连接失败                       | 本机基础信息仍可见；不可展开、改名或编辑 roots / 主要目录，项目操作仅允许删除本机入口           |
-| 离线删除远程项目后重启应用，再重连同一 host        | 本机入口及缓存已移除，项目不自动回来；远端项目、roots、session 归属与内容不变，无待同步删除操作 |
-| 刷新请求已发出，随后删除本机项目入口，最后收到响应 | 迟到响应不重建入口或缓存，setting.json 不重新写回已移除的远程条目                               |
-| host 重连时远端返回已移除项目或新增其他项目        | 只刷新本机仍保留的入口；全量列表不会自动添加项目                                                |
-| 用户主动重新添加同一远端项目                       | 恢复本机入口并读取最新信息，可访问原会话；不新建远端项目、不触发 E1a 的 undelete                |
-| 删除同 host 的一个项目入口，或删除该 host          | 前者保留连接及其他项目入口；后者仅移除本机连接和所属入口，两者都不删除远端数据                  |
-| 在线删除远端项目时连接中断、未确认成功             | 显式报告未确认或失败，不偷偷改为删除本机入口，不制造远端删除已成功的假象                        |
+| Projeto remoto adicionado fica offline ou a conexão falha | As informações locais continuam visíveis; não pode expandir, renomear ou editar roots / diretório principal, e a única ação de projeto permitida é remover a entrada local |
+| Após excluir offline um projeto remoto, reiniciar o aplicativo e reconectar ao mesmo host | A entrada e o cache locais foram removidos e o projeto não volta sozinho; o projeto remoto, os roots, a atribuição e o conteúdo das sessions não mudam, e não há operação de exclusão pendente para sincronizar |
+| Uma requisição de atualização foi enviada, depois a entrada local do projeto é removida e a resposta chega por último | A resposta tardia não reconstrói a entrada nem o cache, e o setting.json não reescreve os itens remotos já removidos |
+| Na reconexão do host, o remoto devolve projetos já removidos ou novos projetos | Só se atualizam as entradas ainda mantidas localmente; a lista completa não adiciona projetos automaticamente |
+| O usuário adiciona ativamente o mesmo projeto remoto de novo | A entrada local é restaurada e as informações mais recentes são lidas, com acesso às sessions originais; não se cria um novo projeto remoto nem se dispara o undelete do E1a |
+| Excluir a entrada de um projeto do mesmo host, ou excluir esse host | O primeiro caso mantém a conexão e as demais entradas de projeto; o segundo remove apenas a conexão local e as entradas pertencentes, e nenhum dos dois apaga dados remotos |
+| A conexão cai durante a exclusão online de um projeto remoto, sem confirmação de sucesso | Relata-se explicitamente que não foi confirmado ou que falhou, sem trocar silenciosamente para a remoção da entrada local e sem criar a falsa impressão de que a exclusão remota teve sucesso |
 
-桌面各窗口与手机 Web 远控使用同一本机入口数据源，由已有 Host 服务读写；手机不额外维护一份可编辑入口清单。实施阶段补对应服务单测与桌面 / 手机 E2E，确认本机入口移除不会修改远端组织态或会话运行状态。
+As janelas do desktop e o controle remoto Web do celular usam a mesma fonte de dados de entradas locais, lida e escrita pelos serviços Host já existentes; o celular não mantém uma lista editável extra de entradas. A fase de implementação acrescenta os testes unitários do serviço correspondente e os E2E de desktop / celular, confirmando que a remoção de uma entrada local não altera o estado organizacional remoto nem o estado de execução das sessões.
 
-## 7. 迁移（启动门禁，复用同一迁移实现）
+## 7. Migração (gate de inicialização, reutilizando a mesma implementação de migração)
 
-共享迁移模块通过 `@zcode/shared/sqlite-migrations` 导出；CLI/desktop agent 的构建子路径映射必须从 shared 包的 exports 派生，不维护第二份手工子路径清单。实际 bundle 构建与导入属于迁移交付验证，不能只检查 TypeScript 源码。
+O módulo compartilhado de migração é exportado por `@zcode/shared/sqlite-migrations`; o mapeamento de subpath de build do CLI/desktop agent deve derivar dos exports do pacote shared, sem manter uma segunda lista manual de subpaths. A construção e a importação reais do bundle pertencem à verificação de entrega da migração, e não se pode verificar apenas o código-fonte TypeScript.
 
-2026-10-10 合并后采用上游的可观测启动门禁：Host Worker 在业务服务初始化前准备 app 库，再用同一 CLI bundle 的存储准备入口准备会话库。Worker 必须读取旧 settings 并传给项目迁移，不能先记账再丢掉旧项目种子。两边复用既有 SQL、checksum、表级备份及 Repo；锁等待异步，提交成功后才发布 ready，不创建第二套会话迁移实现。失败进入启动错误/重试流程；重试以完整 migration ID 幂等跳过已完成的库，不假设两库之间存在原子事务。CLI 正常打开数据库仍检查 migration，覆盖独立 TUI 与远端运行。两个不同名称的 0004 和 CLI 双方迁移都保留，不按序号覆盖；0023_session_soft_delete_outcome 识别开发期已执行的 0020 同内容记录。
+Após a mesclagem de 2026-10-10 adotou-se o gate de inicialização observável do upstream: o Host Worker prepara o banco app antes de inicializar os serviços de negócio e, em seguida, prepara o banco de sessões pela entrada de preparação de armazenamento do mesmo bundle da CLI. O Worker precisa ler as configurações antigas e repassá-las à migração de projetos, sem contabilizar primeiro e descartar depois as sementes de projeto antigas. Os dois lados reutilizam o SQL, o checksum, o backup em nível de tabela e o Repo existentes; a espera por lock é assíncrona, o ready só é publicado após o commit bem-sucedido, e não se cria uma segunda implementação de migração de sessões. A falha entra no fluxo de erro/retry da inicialização; o retry pula idempotentemente os bancos já concluídos pelo migration ID completo, sem supor que exista transação atômica entre os dois bancos. A abertura normal do banco pela CLI continua verificando a migração, cobrindo o TUI independente e a execução remota. Os dois 0004 de nomes diferentes e as migrações de ambos os lados da CLI são mantidos, sem sobrescrita por número de sequência; 0023_session_soft_delete_outcome identifica o registro 0020 de mesmo conteúdo já executado em desenvolvimento.
 
-### 7.1 通用 migration runner（两库共用，抽自 CLI 现有 runner）
+### 7.1 migration runner genérico (comum aos dois bancos, extraído do runner atual da CLI)
 
 ```text
-migration 定义
-  { id, appVersion, up: SQL | fn, touchedTables: string[] }   ← 显式声明会写入的表
+definição de migration
+  { id, appVersion, up: SQL | fn, touchedTables: string[] }   ← declara explicitamente as tabelas em que escreve
 
-runner（备份只为迁移失败恢复；未触及的表迁移前后是同一份数据，因此表级备份 + 未触及表 = 升级前完整状态）
-  pending = SQLITE_MIGRATIONS 中未记录在 schema_migration 的项（未知 id 忽略，checksum 不符报错，沿用现有语义）
+runner (o backup serve só para recuperar de migration falha; as tabelas não tocadas têm os mesmos dados antes e depois, portanto backup por tabela + tabelas não tocadas = estado completo anterior à atualização)
+  pending = itens de SQLITE_MIGRATIONS não registrados em schema_migration (ids desconhecidos são ignorados, checksum divergente gera erro, mantendo a semântica existente)
   tables  = ∪ pending[i].touchedTables
-  1. 备份：ATTACH <backupDir>/<db>.sqlite AS b；对 tables 逐表 CREATE TABLE b.<t> AS SELECT * FROM main.<t>；DETACH
-     空间：需要量 = 这些表体积之和；当前卷不足 → 其他已挂载可写卷 → 都不足则跳过并在 backup.json 标记 skipped
-  2. BEGIN IMMEDIATE → 依次执行 up → INSERT schema_migration → COMMIT
-  3. 失败 ROLLBACK，备份保留；main 弹错误（重试 / 打开备份目录）
+  1. Backup: ATTACH <backupDir>/<db>.sqlite AS b; para cada table, CREATE TABLE b.<t> AS SELECT * FROM main.<t>; DETACH
+     Espaço: necessário = soma dos volumes dessas tabelas; sem espaço no volume atual → outro volume gravável montado → sem espaço em ambos, pula e marca skipped em backup.json
+  2. BEGIN IMMEDIATE → executa up em sequência → INSERT schema_migration → COMMIT
+  3. Em caso de falha, ROLLBACK, o backup é mantido; o main exibe o erro (retry / abrir o diretório de backup)
 
-备份元数据 backup.json：每表的列清单、行数、内容哈希（CLI 库外键 message/part/session_entry/session_target → session 均 ON DELETE CASCADE，恢复必须防级联）
+Metadados do backup backup.json: lista de colunas por tabela, contagem de linhas, hash de conteúdo (as foreign keys da CLI ligam message/part/session_entry/session_target → session por ON DELETE CASCADE, a restauração precisa impedir cascatas)
 
-恢复工具（工程用，scripts/，禁止手工 DELETE）
-  恢复连接 PRAGMA foreign_keys=OFF → BEGIN IMMEDIATE
-  对每张 touched 表：DELETE main.t；INSERT INTO main.t(<备份列清单>) SELECT <同列> FROM b.t（迁移新增列留默认）
-  PRAGMA foreign_key_check 必须为空；逐表行数与哈希须等于 backup.json
-  COMMIT；删除对应 schema_migration 行；任何校验失败则 ROLLBACK 并保留备份
+Ferramenta de restauração (uso de engenharia, scripts/, é proibido DELETE manual)
+  conexão de restauração PRAGMA foreign_keys=OFF → BEGIN IMMEDIATE
+  para cada tabela tocada: DELETE main.t; INSERT INTO main.t(<lista de colunas do backup>) SELECT <mesmas colunas> FROM b.t (colunas novas da migration ficam com o default)
+  PRAGMA foreign_key_check precisa estar vazio; contagem de linhas e hash por tabela devem ser iguais aos de backup.json
+  COMMIT; apaga a linha correspondente em schema_migration; qualquer falha de verificação → ROLLBACK e o backup é mantido
 
-机械保证
-  每条 migration 一个单测：fixture 库上执行前后对全部表做内容哈希对比，只允许 touchedTables 变化，否则失败
-  schema.baseline.sql + CI diff：只允许新增表 / 列 / 索引
+Garantias mecânicas
+  um teste unitário por migration: numa fixture de banco, compara o hash de conteúdo de todas as tabelas antes e depois; só as touchedTables podem mudar, caso contrário falha
+  schema.baseline.sql + diff no CI: apenas tabelas / colunas / índices novos são permitidos
 ```
 
-本次 migration 声明：CLI `0020_session_soft_delete_outcome` → `touchedTables: ["session"]`；app `0001_projects` → `touchedTables: ["tasks","task_groups","task_group_members","task_group_view_node_orders","task_group_workspace_bootstraps","automations","off_peak_tasks"]`（group 表只读但纳入备份以便整体恢复）。
+Declaração das migrations deste lote: CLI `0020_session_soft_delete_outcome` → `touchedTables: ["session"]`; app `0001_projects` → `touchedTables: ["tasks","task_groups","task_group_members","task_group_view_node_orders","task_group_workspace_bootstraps","automations","off_peak_tasks"]` (as tabelas de grupo são somente leitura, mas entram no backup para permitir a restauração completa).
 
-### 7.2 步骤
+### 7.2 Passos
 
-2026-10-19 首次升级排序补充：从 3.15 尚未执行项目迁移的控制端升级时，保留旧
-`lastWorkspaceSession` 的本地/远程混排顺序。本地复用 `projects.position`，远程入口保存
-可空的 `initial_position`，仅供侧栏首次排序初始化；不把控制端位置写到远端项目。
-新增独立加法 migration，只有同一迁移事务实际执行了 `0005_projects` 时才写初始位置，
-已有 `0005_projects` 或旧 ID `0001_projects` 的数据库不补排，不改旧 checksum。
-仅带此次迁移标记的远程入口在 `legacy:<entryId>` 解析成真实项目 ID 时原位替换排序键；
-沿用现有排序算法和偏好 owner，不全局切换排序身份。首屏离线、连接完成、Host 身份绑定、
-刷新以及升级后手动拖动均保持位置；失败回滚后可重试，重复启动不覆盖新排序。
+Complemento de 2026-10-19 sobre a ordenação na primeira atualização: ao atualizar a partir de um terminal de controle que ainda não executou a migração de projetos da 3.15, a ordem mista local/remota do antigo `lastWorkspaceSession` é preservada. O local reutiliza `projects.position`, e a entrada remota guarda um `initial_position` anulável, usado apenas para a inicialização da primeira ordenação da barra lateral; a posição do terminal de controle não é gravada no projeto remoto. Adiciona-se uma migration apenas aditiva, que só escreve a posição inicial quando a mesma transação de migration executou de fato `0005_projects`; bancos que já têm `0005_projects` ou o ID antigo `0001_projects` não recebem a ordenação e o checksum antigo não muda. Somente as entradas remotas marcadas por esta migration, quando `legacy:<entryId>` é resolvida em um ID de projeto real, substituem a chave de ordenação no lugar; o algoritmo de ordenação existente e o owner das preferências são mantidos, sem trocar globalmente a identidade de ordenação. A primeira tela offline, a conexão concluída, a vinculação de identidade do Host, a atualização e o arraste manual após a atualização preservam a posição; após um rollback é possível repetir, e inicializações repetidas não sobrescrevem a nova ordenação.
 
 ```text
-3.15 的 A → Remote R → B → 首次事务保存 0/1/2 → 现有侧栏偏好
-                                      legacy:R → project:R（同一排序槽位）
+A → Remote R → B da 3.15 → primeira transação salva 0/1/2 → preferências existentes da barra lateral
+                                      legacy:R → project:R (mesma ranhura de ordenação)
 ```
 
-VP28 补充验证：真实冷启动迁移本地/remote 混排与离线刷新；SQLite 和 React 回归覆盖
-连接后身份替换、同路径不同 Host、手动排序、旧 ledger 不回填与迁移幂等。沿用 shared-host
-手机目录及同一排序逻辑，不改 CLI、会话归属、continuous/replayable 或连接调度。
+Verificação complementar do VP28: migração real de cold start com a mistura local/remote e atualização offline; regressão de SQLite e React cobrindo a substituição de identidade após a conexão, o mesmo caminho em Hosts diferentes, a ordenação manual, o não-preenchimento do ledger antigo e a idempotência da migração. Reutiliza-se o diretório do celular com shared-host e a mesma lógica de ordenação, sem alterar a CLI, a atribuição de sessão, continuous/replayable ou o agendamento de conexões.
 
 ```text
-M0 探测：tasks-index 无 schema_migration 或缺 '0001_projects' → 进入迁移；否则跳过
-M1 备份：按 7.1 表级备份两库 → ~/.zcode/backup/<ver>-<ts>/
-M2 建表加列（5.1、5.3）；本机远程项目入口与远端权威项目分开保存
-M3 hosts：'local' + 从 tasks.workspace_key / setting.json remote 条目解析出的 remote authority
-M4 tasks 回填：host_id、root_path（= workspace_path）、cli_* 从旧列拷贝一份初值；`deleted=1` 的行置 handoff_pending|=1，`title_overridden=1` 的行置 handoff_pending|=2（历史 Host 事实待交接给 CLI，见 7.4）
-M5 本地及远端各自仅将旧 lastWorkspaceSession 中保留的项目 workspace → 单 root 项目（name = 目录名，name_overridden=0，primary = 该 root）；
-    首次 position 仅按 setting.json 的 lastWorkspaceSession 中本 Host 项目条目的原顺序分配（同目录去重、无 session 的已保存项目也保留）；conversation 条目不参与。历史 tasks、recentProjects 和 Group 都不能扩充项目集合；已移除目录、仅已归档或已删除任务的目录不因历史记录重建项目。未归属任务按 F3 保留原 cwd、标题、时间、归档/删除/置顶/未读状态；settings 缺失或列表为空时也不从任务记录推断项目。持库 owner 不是 local 时按 F8 远端例外补充：settings 条目之后，按历史任务最近活动时间倒序，把未删除、非 `*/.zcode/workspace/*`、非 conversation 条目、尚无同目录项目的 root 建为单 root 项目；归属仍由 M6a 的唯一目录匹配完成。
-    position 只在首次迁移初始化；已有 ledger 时不重跑转换、不从 settings 重排，也不自动清理已生成的项目，保留升级后用户的编辑与手动排序。远端条目仍按原 Host/入口边界导入，不把本机排列写成远端权威项目顺序；默认手动模式读取 position，显式选择按活动排序或置顶时沿用对应展示规则。
-    其下所有 tasks.project_id = 该项目；定时/闲时定义按同 Host + workspace_path 匹配已保存项目，远端身份 key 不作为真实目录；未匹配者保留 NULL 与原执行范围。bootstrap 组（task_group_workspace_bootstraps）不再单独建项目。
-    本机 lastWorkspaceSession 的 remote 条目只在首次迁移时导入 remote_project_entries，保留基础信息与原 workspace 标识，等待连接后解析远端项目 ID；不在本机建远端权威项目。已保存 Source/有效 Profile 同时导入连接成员关系，优先已有稳定 Source ID 和首选 Profile；旧地址入口关联到同一稳定 Host，未握手过的地址保留临时地址身份。已有 migration ledger 后不再从 settings 反向导入
-M6 只转换当前持库 Host 的成员；本机遗留远端影子成员保留在旧表作迁移证据，不在本机创建远端权威项目。
-    手建 group → 项目：roots = 成员目录去重，primary = 成员最多者；含多 host 的按 host 拆并后缀 host 名；成员 project_id 改为新项目；系统组跳过
-M6a 对 M5/M6 后仍未归属的历史 tasks 按 F3 判定一次；不覆盖已有 project_id，零个或多个匹配保留 NULL
-M7 automations / off_peak_tasks 回填 project_id（按 workspaceKey → 其单 root 项目）、host_id，并把旧定义的 additional_directories 固化为 []（旧版仅绑定 cwd，不凭后来项目 roots 扩权）
-M8 写 schema_migration('0001_projects')；旧 group 四表原地保留
-启动每次：在同一事务内先识别 host_id IS NULL 的旧版本新增行；补齐这些行的 host_id/root_path，并仅对其中尚未归属的行按 F3 判定一次后提交。
-  project_id IS NULL 本身不表示待迁移；host_id 已补齐的未归类行不重复判定。
-  CLI 首次发现的新 session 在首次插入 app 行时按 F3 判定并原子写入 host_id/project_id；全局新建任务直接写入 host_id 与 project_id=NULL。
-  随后执行 7.4 事实对账（不重算已有行的 project_id）；从本机 projects/hosts 及仍保留的 remote_project_entries 派生并写回 setting.json（F5）；不把旧 remote 条目再次导入入口表
+M0 Sonda: tasks-index sem schema_migration ou sem '0001_projects' → entra na migração; caso contrário pula
+M1 Backup: backup por tabela dos dois bancos conforme 7.1 → ~/.zcode/backup/<ver>-<ts>/
+M2 Criação de tabelas e colunas (5.1, 5.3); a entrada local de projeto remoto e o projeto remoto autoritativo são salvos separadamente
+M3 hosts: 'local' + a autoridade remote resolvida dos itens remote de tasks.workspace_key / setting.json
+M4 Preenchimento de tasks: host_id, root_path (= workspace_path), cli_* copiados das colunas antigas como valores iniciais; linhas com `deleted=1` recebem handoff_pending|=1, e linhas com `title_overridden=1` recebem handoff_pending|=2 (fatos de Host históricos a serem entregues à CLI, ver 7.4)
+M5 Local e remoto, cada um apenas, convertem os projetos de workspace mantidos no antigo lastWorkspaceSession → projeto de root único (name = nome do diretório, name_overridden=0, primary = esse root);
+    a position inicial é atribuída apenas pela ordem original dos itens de projeto deste Host no lastWorkspaceSession do setting.json (deduplicando o mesmo diretório, mantendo também projetos salvos sem session); itens de conversation não participam. tasks históricos, recentProjects e Group não podem ampliar o conjunto de projetos; diretórios removidos e diretórios de tarefas apenas arquivadas ou excluídas não recriam projetos por causa do histórico. Tarefas sem atribuição mantêm, conforme o F3, o cwd, o título, o tempo e o estado de arquivamento/exclusão/fixação/não lida originais; quando o settings está ausente ou a lista está vazia, também não se infere projeto a partir do registro de tarefas. Quando o owner do banco não é local, aplica-se a exceção remota do F8: depois dos itens do settings, por ordem decrescente da atividade recente das tarefas históricas, cria-se um projeto de root único para cada root não excluído, que não seja `*/.zcode/workspace/*`, que não seja item de conversation e que ainda não tenha projeto no mesmo diretório; a atribuição continua sendo feita pelo casamento único de diretório do M6a.
+    position só é inicializada na primeira migração; com ledger existente não se reexecuta a conversão, não se reordena a partir do settings e não se limpa automaticamente os projetos já gerados, preservando as edições e a ordenação manual do usuário após a atualização. Os itens remotos continuam sendo importados pelos limites originais de Host/entrada, sem escrever a ordenação local como ordem autoritativa dos projetos remotos; o modo manual padrão lê position, e a escolha explícita de ordenar por atividade ou por fixação segue a regra de exibição correspondente.
+    Sob eles, tasks.project_id = esse projeto; as definições de agendamento/ociosidade casam com os projetos salvos por mesmo Host + workspace_path, e a identidade remote não é usada como diretório real; as que não casam mantêm NULL e o escopo de execução original. O grupo de bootstrap (task_group_workspace_bootstraps) não cria mais projetos separados.
+    Os itens remote do lastWorkspaceSession local só são importados para remote_project_entries na primeira migração, preservando as informações básicas e o identificador de workspace original, aguardando a resolução do ID do projeto remoto após a conexão; não se cria um projeto remoto autoritativo localmente. Source/Profile válidos salvos também importam a relação de membros da conexão, priorizando o Source ID estável já existente e o Profile preferido; entradas com endereço antigo são associadas ao mesmo Host estável, e endereços que nunca fizeram handshake mantêm a identidade de endereço temporária. Depois que existe ledger de migração, não se importa mais a partir do settings
+M6 Converte somente os membros do Host atual que detém o banco; os membros remotos sombra legados permanecem na tabela antiga como evidência de migração, e não se cria projeto remoto autoritativo localmente.
+    Grupo criado manualmente → projeto: roots = diretórios dos membros deduplicados, primary = o mais frequente entre os membros; grupos com múltiplos hosts são divididos por host com o sufixo do nome do host; o project_id dos membros passa a ser o novo projeto; grupos do sistema são pulados
+M6a Julga uma vez, conforme o F3, as tasks históricas que continuam sem atribuição após M5/M6; não sobrescreve um project_id existente, e com zero ou múltiplos casamentos mantém NULL
+M7 Preenche project_id em automations / off_peak_tasks (por workspaceKey → seu projeto de root único) e host_id, e fixa additional_directories das definições antigas como [] (a versão antiga vinculava apenas o cwd, sem ampliar permissões pelos roots de projeto posteriores)
+M8 Grava schema_migration('0001_projects'); as quatro tabelas antigas de group são mantidas no lugar
+A cada inicialização: dentro da mesma transação, identificar primeiro as linhas novas da versão antiga com host_id IS NULL; completar host_id/root_path dessas linhas e, apenas nas que ainda não têm atribuição, decidir uma vez conforme o F3, e então fazer o commit.
+  project_id IS NULL, por si só, não indica pendência de migração; linhas não classificadas cujo host_id já foi completado não são decididas de novo.
+  As novas sessions descobertas pela CLI recebem, na primeira inserção da linha app, a decisão conforme o F3 com escrita atômica de host_id/project_id; as novas tarefas globais gravam host_id e project_id=NULL diretamente.
+  Em seguida, executa a reconciliação de fatos de 7.4 (sem recalcular o project_id de linhas já existentes); deriva de projects/hosts locais e das remote_project_entries ainda mantidas e grava de volta no setting.json (F5); não importa de novo os itens remotos antigos para a tabela de entradas
 ```
 
-### 7.4 对账与交接（每次启动 + 每次 workspace CLI 可用时）
+### 7.4 Reconciliação e entrega (a cada inicialização + a cada vez que a workspace CLI está disponível)
 
 ```text
-启动全表比对（4085 行量级，毫秒级）
-  deleted=1 AND cli_deleted=0                         → handoff_pending |= 1   （旧版本或历史的删除意图）
+Comparação completa de tabelas na inicialização (escala de 4085 linhas, nível de milissegundos)
+  deleted=1 AND cli_deleted=0                         → handoff_pending |= 1   (intenção de exclusão de versão antiga ou histórica)
   title_overridden=1 AND (cli_title_source<>'custom' OR cli_title<>title) → handoff_pending |= 2
-  updated_at / task_status 与镜像不一致                → 忽略（V1 只读镜像）
+  updated_at / task_status divergentes do espelho     → ignora (V1 é espelho somente leitura)
 
-workspace 的 CLI 因任何原因可用时（不为交接单独拉起 Agent）
-  批量：bit1 → deleteSession；bit2 → renameSession(title)
-  成功 → 清位并由 sessions-index 回写镜像；CLI 回 not found → bit1 清位（视为已删），bit2 置 orphan(4) 保留 app 标题
+Quando a CLI de um workspace está disponível por qualquer motivo (sem levantar um Agent só para a entrega)
+  Em lote: bit1 → deleteSession; bit2 → renameSession(title)
+  Sucesso → limpa o bit e o sessions-index reescreve o espelho; CLI responde not found → bit1 é limpo (considerado já excluído), bit2 vai para orphan(4) preservando o título do app
 
-订阅 sessions-index 收到 snapshot 后
-  本地 cli_deleted=0 且不在 snapshot 的行 → sessionsIndex/reconcile
-    deleted=true  → cli_deleted=1（并双写 deleted=1）
-    exists=false  → handoff_pending |= 4，告警日志，不删行
-    exists=true   → 用返回值刷新 cli_*（说明只是 summary 尚未到达）
+Ao assinar o sessions-index e receber um snapshot
+  Linhas locais com cli_deleted=0 e ausentes do snapshot → sessionsIndex/reconcile
+    deleted=true  → cli_deleted=1 (e escreve também deleted=1)
+    exists=false  → handoff_pending |= 4, log de alerta, sem apagar a linha
+    exists=true   → atualiza cli_* com o valor retornado (indica que o summary ainda não chegou)
 ```
 
-显示规则不等交接完成：隐藏 = `deleted OR cli_deleted`，标题 = `title_overridden ? title : cli_title`，因此交接前后用户所见一致。
+As regras de exibição não dependem da conclusão da entrega: ocultar = `deleted OR cli_deleted`, título = `title_overridden ? title : cli_title`, de modo que o que o usuário vê é o mesmo antes e depois da entrega.
 
-本机实测：M2～M8 合计 175 ms；表级备份 CLI 70 ms（1.9 MB）、tasks-index 165 ms（14 MB）。
+Medição local: M2～M8 totalizam 175 ms; backup por tabela da CLI 70 ms (1.9 MB), tasks-index 165 ms (14 MB).
 
-## 8. 分阶段 MR（同一版本发布）
+## 8. MRs por fase (publicados na mesma versão)
 
-| MR  | 内容                                                                                                                                                                                                                                                    | 主要目录                                             | 验证                                                                                 |
+| MR  | Conteúdo                                                                                                                                                                                                                                                    | Diretórios principais                                     | Verificação                                                                       |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| 1   | CLI 0020 migration、time_deleted / last_outcome、deleteSession 语义、SessionSummary.lastOutcome、`sessionsIndex/reconcile` 命令、additionalDirectories 消费点及 V4 冷恢复参数贯穿、skill/subagent qualifiedName                                         | apps/zcode-cli                                       | 单测 + 协议 schema 测试                                                              |
-| 2   | 通用 migration runner（抽自 CLI，加 touchedTables 与表级备份、恢复脚本、逐表哈希单测）、5.1 schema、空间守卫、main 建窗前执行、schema.baseline.sql + CI diff                                                                                            | packages/services、packages/desktop/main、scripts/ci | 单测：各分支 + 升降级 fixture                                                        |
-| 3   | 归属收口：syncer 只写 cli\_\* 与旧列镜像；删 3 处 Date.now；renameTask / deleteTask 改经 CLI 命令并写意图位；7.4 启动对账、惰性交接、snapshot 缺席 reconcile                                                                                            | packages/services                                    | 单测 + e2e 标题 / 状态回归                                                           |
-| 4   | 项目服务：projects/hosts/roots CRUD、move session、软删除与恢复匹配、4.3.1 统一目录解析与三入口注入、F3 首次归位与 NULL 组织态保留、setting.json 双写、预热改上次活动目录、自动归档触发点迁到项目树查询、本机远程项目入口与缓存、离线移除及防止重连重建 | packages/services、packages/shared                   | 单测：含首次归位、重复启动不改归属、默认目录之外的任务自动归档；含入口移除与迟到刷新 |
-| 5   | UI：项目树、任务区、时间线、新建 / 编辑向导、拖拽与确认弹窗、右键、置顶项目、远程节点、移除工具栏与 group UI                                                                                                                                            | packages/ui                                          | e2e：项目 CRUD、拖拽与拒绝、6.1 任务区归属场景、6.2 离线入口操作                     |
-| 6   | composer 与设置页：@文件后缀、qualifiedName 列表、# 按项目、设置页目录源                                                                                                                                                                                | packages/ui                                          | e2e：4.3.2 多 root 能力与冷恢复                                                      |
-| 7   | 定时 / 闲时 / Bots 改选项目                                                                                                                                                                                                                             | packages/ui/settings、services                       | e2e：定时任务选项目                                                                  |
-| 8   | 远端 server bundle 迁移 + 旧远端降级展示 + Web / 手机侧栏项目层级                                                                                                                                                                                       | packages/server、web、desktop/main                   | 远控 e2e：含 4.3.2 并发订阅与远端目录恢复；含 6.2 离线删除不改远端数据、手动重新添加 |
-| 9   | 文档回写：废弃 grouped / bootstrap / task-sqlite-index 等 spec，标注指向本文                                                                                                                                                                            | docs                                                 | —                                                                                    |
+| 1   | migration 0020 da CLI, time_deleted / last_outcome, semântica de deleteSession, SessionSummary.lastOutcome, comando `sessionsIndex/reconcile`, ponto de consumo de additionalDirectories e parâmetros de cold restore do V4, qualifiedName de skill/subagent                                          | apps/zcode-cli                                       | teste unitário + teste de schema do protocolo                                                               |
+| 2   | migration runner genérico (extraído da CLI, com touchedTables, backup por tabela, script de restauração e teste unitário de hash por tabela), schema de 5.1, guarda de espaço, execução antes da criação de janelas no main, schema.baseline.sql + diff no CI                                                                                            | packages/services、packages/desktop/main、scripts/ci | teste unitário: cada ramo + fixtures de upgrade/downgrade                                                    |
+| 3   | Convergência da atribuição: o syncer escreve apenas cli\_\* e o espelho das colunas antigas; remoção de 3 usos de Date.now; renameTask / deleteTask passam pelo comando da CLI e gravam o bit de intenção; reconciliação da inicialização em 7.4, entrega preguiçosa, reconcile por ausência no snapshot                                                                                            | packages/services                                    | teste unitário + e2e de regressão de título / status                                                          |
+| 4   | Serviço de projetos: CRUD de projects/hosts/roots, move session, soft delete e casamento de restauração, resolução unificada de diretórios de 4.3.1 e injeção dos três pontos de entrada, primeira posicionagem do F3 e preservação do estado organizacional NULL, double write do setting.json, prewarm passa a usar o diretório de última atividade, ponto de disparo do arquivamento automático migra para a consulta à árvore de projetos, entradas e cache de projeto remoto local, remoção offline e prevenção de reconstrução na reconexão | packages/services、packages/shared                   | teste unitário: incluindo primeira posicionagem, reinício repetido sem mudar a atribuição, arquivamento automático de tarefas fora do diretório padrão; incluindo remoção de entrada e atualização tardia |
+| 5   | UI: árvore de projetos, área de tarefas, linha do tempo, assistentes de criação / edição, arraste e diálogos de confirmação, clique direito, projetos fixados, nós remotos, barra de remoção e UI de group                                                                                                                                            | packages/ui                                          | e2e: CRUD de projetos, arraste e recusa, cenários de atribuição da área de tarefas de 6.1, operações de entrada offline de 6.2                 |
+| 6   | composer e página de configurações: sufixo de @arquivo, lista de qualifiedName, # por projeto, fonte de diretórios da página de configurações                                                                                                                                                                                | packages/ui                                          | e2e: capacidade de múltiplos roots de 4.3.2 e cold restore                                                      |
+| 7   | Agendamento / ociosidade / Bots passam a selecionar projeto                                                                                                                                                                                                                             | packages/ui/settings、services                       | e2e: seleção de projeto em tarefa agendada                                                                  |
+| 8   | Migração do bundle do server remoto + exibição degradada do remoto antigo + hierarquia de projetos na barra lateral do Web / celular                                                                                                                                                                                       | packages/server、web、desktop/main                   | e2e de controle remoto: incluindo subscrições concorrentes de 4.3.2 e recuperação de diretórios remotos; incluindo exclusão offline de 6.2 sem alterar dados remotos e readição manual |
+| 9   | Escrita de volta da documentação: descontinuar grouped / bootstrap / task-sqlite-index e outras specs, apontando para este documento                                                                                                                                                                            | docs                                                 | —                                                                                    |
 
-## 9. 风险与待验证
+## 9. Riscos e itens a verificar
 
-- 2026-09-10 review 修正：恢复级联删正文（7.1 外键关闭 + 校验）、降级期修改既有行（7.4 全表意图对账）、历史 Host 事实交接（M4 标记 + 惰性交接）、删除对账来源（`sessionsIndex/reconcile`）。这四项在 MR 2 / MR 3 的单测里必须有对应用例：恢复后 message/part 行数不变；旧版本写 `deleted=1` 后再升级仍隐藏；旧 tombstone 交接与 orphan；丢失 `session.removed` 后经 reconcile 收敛。
+- Correção de 2026-09-10 na review: restauração com exclusão em cascata do corpo (foreign keys desligadas em 7.1 + verificação), modificação de linhas existentes no período de degradação (reconciliação de intenções na tabela inteira em 7.4), entrega dos fatos de Host históricos (marcação em M4 + entrega preguiçosa), fonte da reconciliação de exclusões (`sessionsIndex/reconcile`). Esses quatro pontos precisam de casos correspondentes nos testes unitários dos MR 2 / MR 3: após a restauração, o número de linhas de message/part não muda; após uma versão antiga escrever `deleted=1` e uma nova atualização, tudo continua oculto; tombstone antigo e orphan; perda de `session.removed` e convergência via reconcile.
 
-- 远端 server bundle 与本机版本错配窗口内的降级展示需要真机验证（SSH、WSL）。
-- CLI 软删除对外部 TUI 的可见性变化（旧 TUI 仍显示）已接受，需在发布说明写明。
-- `UNIQUE(host_id, task_id)`：若历史数据存在同 host 不同 workspace_key 的同 task_id（ACP 迁移遗留），建索引会失败，M4 前需先探测并记录冲突，冲突时索引降级为非唯一并告警。
-- 项目名同 host 唯一索引与老 workspace 同目录名冲突（如两个不同路径的 `z-code`）：M5 自动加序号。
+- A exibição degradada na janela de incompatibilidade de versão entre o bundle do server remoto e a versão local precisa de verificação em máquina real (SSH, WSL).
+- A mudança de visibilidade da soft delete da CLI para o TUI externo (o TUI antigo ainda exibe) foi aceita e precisa ser registrada nas notas de publicação.
+- `UNIQUE(host_id, task_id)`: se os dados históricos contiverem o mesmo task_id com workspace_key diferente no mesmo host (herança da migração ACP), a criação do índice falhará, e é preciso sondar e registrar os conflitos antes do M4; em caso de conflito, o índice degrada para não único e dispara um alerta.
+- O índice único de nome de projeto por host pode conflitar com nomes de diretório iguais de workspaces antigos (por exemplo, dois `z-code` em caminhos diferentes): o M5 adiciona um sufixo numérico automaticamente.
 
-Schema 自动门禁补充：现有表的 CHECK、表/列级自动 UNIQUE 与索引排序/collation 属于旧写入合同；删除或改写必须拒绝，不能因 sqlite_schema.sql=NULL 的自动索引被漏检。旧表新增约束可能让降级写入失败，门禁要求 CHECK/自动 UNIQUE 集合保持一致；新表可自由声明约束。SQL 比较只归一化关键字/空白，保留字符串字面量大小写，避免 WHERE 值变化漏检。此检查只读内存数据库，不修改 migration 历史 checksum 或基线。
+Complemento ao gate automático de schema: os CHECKs das tabelas existentes, o UNIQUE automático em nível de tabela/coluna e a ordenação/collation de índices pertencem ao contrato antigo de escrita; removê-los ou reescrevê-los deve ser recusado, e índices automáticos com sqlite_schema.sql=NULL não podem passar despercebidos. Novas constraints em tabelas antigas podem fazer a escrita degrada falhar, e o gate exige que o conjunto de CHECK/UNIQUE automático se mantenha consistente; tabelas novas podem declarar constraints livremente. A comparação de SQL normaliza apenas palavras-chave/espaçamento, preservando a capitalização dos literais de string para que mudanças de valor em WHERE não passem despercebidas. Esta verificação opera apenas sobre o banco em memória e não modifica o checksum do histórico de migration nem a baseline.
 
-远端实时活动复用 WindowControllerTaskListRegistry 的共享订阅。项目树仅按完整 workspaceIdentity/workspacePath + taskId 叠加 phase/pending interaction，不改变 SQLite 返回的行集合、标题、组织态或 CLI 排序时间。任务 cwd/roots 构成观察 scopes，通过既有 listTaskList 注册 owner 观察器，不创建 logical workspace 或 Agent。没有 Controller 的直接 owner 客户端继续使用自身 sessions-index。来源离线或 overlay 删除后去掉实时属性，不把旧 running 当作持久化终态。
+A atividade remota em tempo real reutiliza a subscrição compartilhada do WindowControllerTaskListRegistry. A árvore de projetos apenas sobrepõe phase/interação pendente por workspaceIdentity/workspacePath completo + taskId, sem alterar o conjunto de linhas retornado pelo SQLite, o título, o estado organizacional ou o tempo de ordenação da CLI. O cwd/roots da tarefa formam os escopos de observação, registrados por observadores de owner via o listTaskList existente, sem criar logical workspace nem Agent. Clientes owner direto sem Controller continuam usando o próprio sessions-index. Quando a origem fica offline ou o overlay é removido, os atributos em tempo real são retirado, e um running antigo não é tratado como estado terminal persistido.
 
-删除已无读取者的 Renderer remotePinnedTaskStore / remoteTimelineTaskStore。连接完成只提交 attachment、目录身份与草稿；不再为这两份旧缓存读取远端任务列表。Header 的组织命令仍走原 Host task service，当前 Header/全局搜索需要的 query projection 保留，但不重复写无人读取的远端列表镜像。项目侧栏由其既有 ProjectService 查询/变更事件刷新，owner/lease 与 continuous/replayable 边界不变。
+Remover o Renderer remotePinnedTaskStore / remoteTimelineTaskStore, que já não têm leitores. A conclusão da conexão submete apenas o attachment, a identidade do diretório e o rascunho; a lista de tarefas remotas não é mais lida para essas duas caches antigas. Os comandos de organização do Header continuam passando pelo task service original do Host; a projeção de query necessária ao Header e à busca global é mantida, sem reescrever uma imagem espelho da lista remota que ninguém lê. A barra lateral de projetos é atualizada pelas consultas/eventos de mudança do seu ProjectService existente, e os limites de owner/lease e continuous/replayable permanecem inalterados.
 
-D2 原生拖拽：task 行同时服务 workbench 复制和项目归属移动，drag source 的 effectAllowed 必须允许 copyMove；workbench 继续选择 copy，项目选择 move。只在 drop 后发送 Host moveTask，缺 root 的确认取消不改变任何持久状态。不能只用构造 DataTransfer 的组件测试代替浏览器原生事件验收。
+D2 de arraste nativo: a linha de tarefa serve simultaneamente à cópia no workbench e à movimentação de atribuição de projeto, e o effectAllowed da origem do arraste precisa permitir copyMove; o workbench continua escolhendo copy e a seleção de projeto, move. O moveTask do Host só é enviado depois do drop, e o cancelamento da confirmação de root ausente não altera nenhum estado persistente. Não se pode substituir a aceitação de evento nativo do navegador por um teste de componente que apenas constrói DataTransfer.
 
-2026-10-16 远程项目菜单收口：可编辑（在线且非 legacy 单 root）的远程项目菜单与本地项目一致，不再显示「从本机移除」和「添加远程项目」；远程同步与连接动作不变。「从本机移除」只作为不可编辑时的唯一管理动作保留（G5）。只隐藏菜单项，`removeEntry`、RemoteProjectPicker 与 `addEntry` 的逻辑保留；添加远程项目仍走新建项目、设备连接后的选择器等其他入口。
+2026-10-16, convergência do menu de projetos remotos: o menu de projetos remotos editáveis (online e não legacy de root único) fica igual ao dos projetos locais, sem exibir「从本机移除」e「添加远程项目」; a sincronização remota e as ações de conexão não mudam.「从本机移除」é mantido apenas como a única ação de gestão quando o projeto não é editável (G5). Apenas os itens de menu são ocultados; a lógica de `removeEntry`, RemoteProjectPicker e `addEntry` é mantida; adicionar projeto remoto continua disponível por outras entradas, como a criação de novo projeto e o seletor após conectar o dispositivo.
 
-2026-10-14 项目菜单图标：右键、更多和多目录文件菜单共用动作图标：新建任务 MessageCirclePlus、查看文件 ListTree、编辑 Pencil、置顶 Pin／取消置顶 PinOff、删除 Trash2、移除入口 FolderMinus、连接 Plug、添加远程项目 FolderPlus、同步 RefreshCw。图标位于文字左侧，统一 `size-4`、禁止收缩、`aria-hidden`，沿用菜单的 `gap-2` 与文字颜色（含删除、禁用和悬停）。菜单顺序、文案和动作不变；桌面及手机窄屏在 Zai Light / Zai Dark 下保持图文对齐。
+2026-10-14, ícones do menu de projeto: clique direito, "mais" e o menu de arquivos de múltiplos diretórios compartilham os ícones de ação: nova tarefa MessageCirclePlus, ver arquivos ListTree, editar Pencil, fixar Pin／desafixar PinOff, excluir Trash2, remover entrada FolderMinus, conectar Plug, adicionar projeto remoto FolderPlus, sincronizar RefreshCw. Os ícones ficam à esquerda do texto, com `size-4` unificado, sem encolher, com `aria-hidden`, reaproveitando o `gap-2` do menu e a cor do texto (inclusive em exclusão, desabilitado e hover). A ordem, o texto e as ações do menu não mudam; no desktop e em telas estreitas do celular, Zai Light / Zai Dark mantêm o alinhamento entre ícone e texto.
 
-置顶项目名称右侧不再常显钉子。支持 hover 的设备上，鼠标进入项目行时，左侧原图标在同一个 `size-4` 槽位切换为 Pin，移出恢复当前文件夹或远程连接图标；未置顶项目和无 hover 的触屏保持原图标。通过 CSS 派生显示，不新增状态或改变标题展开、拖拽及菜单置顶操作。验收覆盖置顶／未置顶、移入／移出、多目录展开态、远程图标、深浅主题和窄屏，文字与操作按钮位置不跳动。
+O nome do projeto fixado não exibe mais o prego permanentemente à direita. Em dispositivos com suporte a hover, quando o ponteiro entra na linha do projeto, o ícone original à esquerda muda para Pin no mesmo slot `size-4`, e ao sair volta o ícone de pasta atual ou de conexão remota; projetos não fixados e telas de toque sem hover mantêm o ícone original. A exibição é derivada por CSS, sem novo estado e sem alterar a expansão do título, o arraste ou a ação de fixar pelo menu. A aceitação cobre fixado／não fixado, entrada／saída, estado expandido de múltiplos diretórios, ícone remoto, temas claro e escuro e tela estreita, e as posições do texto e dos botões de ação não saltam.
 
-2026-10-13 多目录图标：本地项目直接按当前 `project.roots.length > 1` 显示多目录标识，
-不按任务数、打开 tab 数或当前 cwd 推断。0/1 个 root 使用 Folder / FolderOpen，多个 root
-使用 Lucide Folders / 对应的 FoldersOpen；打开版保留叠放轮廓并展开前层文件夹。
-侧栏按现有展开态选择开/关图标；composer 当前项目 chip 和项目选项使用收起图标，
-不新增菜单开合语义。两处共用图标组件，roots 更新后直接重绘，无独立缓存或持久化字段。
-远程项目继续使用既有连接状态/云图标。尺寸、线宽、主题色和可访问名称沿用所在控件。
-验收覆盖 0/1/多 root、侧栏展开/收起、composer 当前项/候选及 roots 由多变单；
-复用 VP14 桌面和 VP13 手机用例，在深浅主题检查实际图形与项目选择路径。
+2026-10-13, ícone de múltiplos diretórios: os projetos locais exibem diretamente a indicação de múltiplos diretórios conforme `project.roots.length > 1`, sem inferir pelo número de tarefas, de tabs abertas ou pelo cwd atual. Com 0/1 root, usa-se Folder / FolderOpen; com múltiplos roots, usam-se Lucide Folders / FoldersOpen correspondentes; a versão aberta mantém o contorno sobreposto e expande a pasta da frente. A barra lateral escolhe o ícone de aberto/fechado conforme o estado de expansão atual; o chip de projeto atual do composer e as opções de projeto usam o ícone recolhido, sem introduzir nova semântica de abertura/fechamento de menu. Os dois lugares compartilham o componente de ícone, que é redesenhado quando os roots são atualizados, sem cache independente ou campo persistido. Projetos remotos continuam usando o estado de conexão / ícone de nuvem existentes. Tamanho, espessura de linha, cor de tema e nome acessível seguem o controle em que se encontram. A aceitação cobre 0/1/múltiplos roots, expansão/colapso da barra lateral, item atual/candidatos do composer e roots passando de múltiplos para um; reutilizam-se os casos de desktop do VP14 e de celular do VP13, verificando o gráfico real e o caminho de seleção de projeto nos temas claro e escuro.
 
-2026-10-13 D2 目标反馈：拖动 session 进入可编辑项目时，整个项目容器显示蓝色 2px 描边
-（`border-icon-blue`）和浅色强调底（`bg-accent`），圆角使用 `rounded-xl`。范围包括标题与
-当前展开的任务列表；折叠项目只覆盖当前标题，不自动展开。装饰层不接收事件、不改变尺寸。
-反馈沿用原生 session payload 与现有项目接收条件，不混用项目排序的插入线。
-在同一项目的标题、任务及操作按钮间移动时保持高亮；离开项目、drop 或 dragend（包括 Escape）
-立即清除。无关文件/文字拖拽和离线/旧版只读项目不显示反馈。
+2026-10-13, feedback do alvo D2: ao arrastar uma session para dentro de um projeto editável, o contêiner inteiro do projeto exibe um contorno azul de 2px (`border-icon-blue`) e um fundo de destaque claro (`bg-accent`), com o raio de canto em `rounded-xl`. O escopo inclui o título e a lista de tarefas atualmente expandida; projetos recolhidos cobrem apenas o título atual, sem expandir automaticamente. A camada decorativa não recebe eventos e não altera as dimensões. O feedback reaproveita o payload nativo de session e as condições existentes de aceitação do projeto, sem misturar a linha de inserção da ordenação de projetos. O destaque é mantido ao se mover entre o título, as tarefas e os botões de ação do mesmo projeto; sair do projeto, dropar ou dragend (inclusive Escape) limpa imediatamente. Arrastes não relacionados de arquivo/texto e projetos offline/antigos somente leitura não exibem feedback.
 
 ```text
-session drag -> 项目 dragenter/dragover -> 项目整体高亮（仅 renderer 临时态）
-              -> 内部子节点切换 -> 保持
-              -> 离开/drop/dragend -> 清除
-              -> drop -> 现有 moveTask / 缺目录确认 -> Host 项目归属
+session drag -> dragenter/dragover do projeto -> projeto inteiro em destaque (apenas estado temporário do renderer)
+              -> troca para nós internos -> mantém
+              -> sai/drop/dragend -> limpa
+              -> drop -> moveTask existente / confirmação de diretório ausente -> atribuição de projeto pelo Host
 ```
 
-沿用 VP15 原生拖拽用例，补充整块边界、无布局位移、离开/取消清除、确认前清除、
-双向移动和深浅主题截图。原生 Escape 由组件 dragend 清理回归覆盖；WebDriver 按键未取消
-Chromium 原生拖拽，桌面 E2E 使用拖离项目再松手验证取消，不把该步骤记作 Escape 验证。
-手机远控目前不启用原生 session 拖拽（由 Shell 的分屏入口统一控制）；
-本次检查共享项目容器在手机窄视口的深浅主题显示，并断言该入口仍关闭，不新增触屏手势。
+Reutiliza-se o caso de arraste nativo do VP15, complementando o limite de bloco inteiro, a ausência de deslocamento de layout, a limpeza ao sair/cancelar, a limpeza antes da confirmação, a movimentação bidirecional e as capturas de tela nos temas claro e escuro. O Escape nativo é coberto pela regressão de limpeza via dragend do componente; como o WebDriver não cancela o arraste nativo do Chromium, o E2E de desktop valida o cancelamento arrastando para fora do projeto e soltando, e esse passo não é registrado como verificação de Escape. O controle remoto do celular ainda não habilita o arraste nativo de session (controlado de forma unificada pela entrada de tela dividida do Shell); esta verificação confere a exibição do contêiner compartilhado de projeto no viewport estreito do celular nos temas claro e escuro, e afirma que essa entrada continua desligada, sem novos gestos de toque.
 
 ```text
 project tree (SQLite rows) ---------------------+
@@ -891,313 +848,313 @@ existing Controller -> sessions-index activity -+-> keyed UI overlay
                  metadata cursor/gap repair; conversation delivery unchanged
 ```
 
-Controller 的元数据 snapshot/gap 协调沿用既有协议；会话桌面 continuous 与手机 replayable 恢复边界不变。
+A coordenação de snapshot/gap de metadados do Controller segue o protocolo existente; os limites de recuperação do desktop continuous e do celular replayable permanecem inalterados.
 
-远端项目变更通知：物理连接 owner 在成功握手后订阅该连接的 state:projects，转发为本机同频道的“需要重读”通知；不透传项目数据、不写缓存。SourceManager 与 URL Registry 各自持有并释放自己 transport 的订阅；换代/断开后迟到事件按原 connection 对象身份丢弃。Controller 重读远端权威库后仅对本机仍保留入口执行 CAS 刷新，不能据广播新增入口。其他 settings/state 频道不进入此桥接。
+Notificações de mudança de projetos remotos: o owner da conexão física assina o state:projects da conexão após um handshake bem-sucedido e encaminha isso como uma notificação "precisa reler" do mesmo canal local; não repassa dados de projeto nem escreve cache. SourceManager e URL Registry mantêm e liberam cada um as assinaturas do seu próprio transport; após troca/desconexão, eventos tardios são descartados conforme a identidade do objeto de conexão original. Após o Controller reler o banco remoto autoritativo, ele executa a atualização CAS apenas nas entradas ainda mantidas localmente, sem poder adicionar entradas com base no broadcast. Outros canais de settings/state não entram nesta ponte.
 
-所有提供项目 RPC 的独立 Server 入口使用同一 Host 装配：稳定 serverId → app migration(owner hostId) → workspace identity mapper/alias service → createLocalServices(standalone-server) → HTTP/RPC。该装配保留 CLI canonical workspace key，HTTP 与 ServerCore 都通过同一个 mapper 转译稳定 remote identity。仅完成此装配的入口声明 virtualProjects；迁移失败不开放端口。配置目录仍按 cwd/identity，serverId 不参与真实路径计算。
+Todas as entradas de Server independentes que oferecem RPC de projetos usam a mesma montagem de Host: serverId estável → app migration (owner hostId) → workspace identity mapper/alias service → createLocalServices(standalone-server) → HTTP/RPC. Essa montagem preserva a chave canônica de workspace da CLI, e tanto o HTTP quanto o ServerCore traduzem a identidade remote estável pelo mesmo mapper. Somente as entradas com essa montagem concluída declaram virtualProjects; se a migração falhar, a porta não é aberta. O diretório de configuração continua sendo calculado por cwd/identity, e o serverId não participa do cálculo de caminhos reais.
 
-设置服务的配置文件地址在实例创建时固定到该 Host 的 HOME；异步投影、迁移与写队列沿同一路径读取/加锁/替换，不能因随后环境变量变化跨 Host 写入。独立 Server 装配集成测试必须使用子进程级临时 HOME，父进程不在后台任务尚可能运行时撤销隔离。
+O endereço do arquivo de configuração do serviço de configurações é fixado, na criação da instância, no HOME daquele Host; projeções assíncronas, migração e fila de escrita leem/travam/substituem pelo mesmo caminho, sem escrita entre Hosts por mudança posterior de variáveis de ambiente. O teste de integração da montagem do Server independente precisa usar um HOME temporário em nível de subprocesso, sem o processo pai revogar o isolamento enquanto tarefas em segundo plano ainda podem estar em execução.
 
-全新 URL Server 工作目录没有 SSH/WSL/Docker route hint 时，独立 Host 提供自身稳定 server identity 作为初次 canonical key；已登记 alias 与有历史的 legacy key 始终优先，不因入口升级改写旧 CLI identity。新 alias 允许合法 server route，真实 IO 仍使用 cwd。
+Uma URL Server totalmente nova, sem route hint de SSH/WSL/Docker, tem como chave canônica inicial a identidade estável de server da própria identidade, fornecida pelo Host independente; aliases já registrados e legacy keys com histórico têm sempre prioridade, sem reescrever a identidade antiga da CLI por causa da atualização da entrada. O novo alias permite rotas válidas de server, e a IO real continua usando o cwd.
 
-H2 实施边界：设置页候选通过纯项目目录读取（readProjects），本机所有未删除项目 roots 与仍保留、在线远端项目 roots 按 workspaceIdentity/path 去重；不读取 task tree，不借 tab 成员判断目录存在。tab 仅补充已存在的 remoteSessionId/localWorkspacePath。候选使用配置目录类型，禁止合成 tab ID 或 fake session。远端响应返回前重读成员/入口，移除后重加也按 membership 拒绝旧结果。
+Limite de implementação do H2: os candidatos da página de configurações passam pela leitura pura de diretórios de projeto (readProjects), com todos os roots dos projetos locais não excluídos e os roots dos projetos remotos ainda mantidos e online deduplicados por workspaceIdentity/path; não se lê a task tree e não se usa a membro de tab para inferir a existência de um diretório. A tab apenas complementa o remoteSessionId/localWorkspacePath já existente. Os candidatos usam o tipo de diretório de configuração, e é proibido sintetizar IDs de tab ou fake session. Antes de a resposta remota chegar, os membros/entradas são relidos, e a remoção seguida de readição também recusa resultados antigos por membership.
 
-Desktop 配置 hooks 可请求现有 Source settings attachment，选定 root 才请求，物理连接仍由 Registry/SourceManager 所有；配置集合不暴露 Agent，不能作为会话恢复链路。手机保持原可信 workspace attachment，Source settings 权限边界不变。
+A configuração de hooks do Desktop pode solicitar o attachment existente de Source settings, e só o faz depois que um root é escolhido; a conexão física continua pertencendo ao Registry/SourceManager. O conjunto de configurações não expõe Agent e não pode servir como cadeia de recuperação de sessão. O celular mantém o attachment de workspace confiável original, e o limite de permissão de Source settings não muda.
 
-未打开 logical workspace 的远端配置写入前，配置 attachment 通过既有 sourceServerWorkspaceService 绑定 cwd 的 canonical key。Host 提供的 legacy route hint 仅用于已有历史恢复；绑定完成前保持 remote-waiting，目标/attachment 换代后的旧结果不能开放新目标写入。Source settings 仍不暴露 Agent、task、文件或 provider 写入口。
+Antes da escrita de configuração remota de um logical workspace não aberto, o attachment de configuração se vincula à chave canônica do cwd pelo sourceServerWorkspaceService existente. O route hint legado fornecido pelo Host serve apenas para recuperações históricas existentes; até a vinculação ser concluída, o destino permanece remote-waiting, e resultados antigos de depois da troca de destino/attachment não podem abrir escrita em um novo destino. Source settings continua não expondo escrita de Agent, task, arquivo ou provider.
 
-降级期新增的定时/闲时定义以 host_id IS NULL 标识尚未交接。每次启动与任务意图对账同事务补 owner、按同 Host 唯一 root 决定一次项目归属，additional_directories 固定为旧版支持的 []；不随当前项目多 roots 扩大旧定义执行范围。已经补齐 host_id 的定义（包括合法 NULL project_id）不再重算，既有目录快照不覆盖；不修改 workspace_key/cwd 或历史 migration checksum。
+As definições de agendamento/ociosidade adicionadas no período de degradação são identificadas por host_id IS NULL, ainda não entregues. A cada inicialização, na mesma transação da reconciliação de intenções de tarefas, o owner é preenchido e a atribuição de projeto é decidida uma única vez pelo root único do mesmo Host, com additional_directories fixado em [] (o suportado pela versão antiga); o escopo de execução das definições antigas não cresce com os múltiplos roots do projeto atual. Definições cujo host_id já foi preenchido (inclusive project_id NULL legítimo) não são recalculadas, seus snapshots de diretório existentes não são sobrescritos, e workspace_key/cwd e o checksum histórico de migration não são modificados.
 
-界面 scope 不变量补充：项目侧栏 footer 的远控入口仍接收当前执行 workspacePath、workspaceIdentity 与 remoteSessionId；项目展示重构不能丢弃这一身份链路，也不能据 cwd 推断远端归属。
+Complemento ao invariante de escopo da interface: a entrada de controle remoto no footer da barra lateral de projetos continua recebendo o workspacePath, o workspaceIdentity e o remoteSessionId da execução atual; a refatoração da exibição de projetos não pode descartar essa cadeia de identidade nem inferir a atribuição remota pelo cwd.
 
-远端项目导航的目录归属：ProjectService 的 prepareSession / 历史 task 已提供所属 Host 的 cwd 与 workspaceIdentity，Renderer 将这对值交给既有 Host bind，不能再次 realpath 后用另一条路径重建 identity。普通文件夹选择仍由原目录浏览器解析 canonical path。Host 保留身份/成员校验，UI 保留绑定结果的精确 identity 校验；不为 `/tmp` 与 `/private/tmp` 等路径别名放宽 owner 判断或改写历史 cwd。
+Atribuição de diretórios na navegação remota de projetos: prepareSession / task histórica do ProjectService já fornecem o cwd e o workspaceIdentity do Host pertencente, e o Renderer entrega esse par ao bind já existente do Host, sem refazer realpath e reconstruir a identidade por outro caminho. A seleção comum de pasta continua sendo resolvida pelo navegador de diretórios original, com caminho canônico. O Host mantém a validação de identidade/membro e a UI mantém a verificação exata de identidade do resultado do vínculo; o julgamento de owner não é afrouxado por apelidos de caminho como `/tmp` e `/private/tmp`, nem o cwd histórico é reescrito.
 
 ```text
-Host project/task -> fixed cwd + identity -> existing Host bind -> exact identity check
-folder picker     -> existing canonical resolver -> existing Host bind
+Host project/task -> cwd fixo + identity -> Host bind existente -> verificação exata de identity
+folder picker     -> resolvedor canônico existente -> Host bind existente
 ```
 
-V4 远端可替换 transport 必须完整转发 createSession 的 client context（projectId），包括 service proxy 换代之后。projectId 不属于 CLI envelope，但必须到达所属 Host 的 prepareSessionCreation，才能在 CLI 创建前原子预留归属和解析附加目录；不得在恢复代理层截断该参数，也不得由 Server 按 cwd 重新猜归属。
+O transport substituível do V4 no remoto precisa encaminhar integralmente o client context (projectId) de createSession, inclusive depois da troca do proxy de serviço. O projectId não faz parte do envelope da CLI, mas precisa chegar ao prepareSessionCreation do Host pertencente, para que a atribuição seja reservada atomicamente e os diretórios adicionais sejam resolvidos antes da criação na CLI; não se pode truncar esse parâmetro na camada de recuperação do proxy, nem o Server pode adivinhar a atribuição pelo cwd.
 
-远端历史任务重开复用已绑定 tab 时，只可释放本次额外申请的临时 logical attachment；如果传入 sessionId 就是该 tab 的 owner，必须保留它。不得因复用成功而取消当前仍承载任务的 attachment。
+Ao reabrir uma tarefa histórica remota reutilizando uma tab já vinculada, só se pode liberar o attachment lógico temporário adicional pedido nesta ocasião; se o sessionId recebido for o owner da própria tab, ele precisa ser mantido. Não se pode cancelar o attachment que ainda carrega a tarefa atual por causa do sucesso da reutilização.
 
-冷恢复与 runtime 换代：在途 subscribe 的 ACK 跨代后仍必须丢弃。`fault.subscription.runtimeRestarted` 属于已知换代中断，进入现有有界订阅恢复流程，不能落成永久 error；不重放已提交 command，不引入新队列或另一套重试计时器，desktop continuous / mobile replayable 的订阅与恢复语义保持原边界。
+Cold restore e troca de runtime: o ACK de um subscribe em trânsito, depois de uma troca de geração, continua sendo descartado. `fault.subscription.runtimeRestarted` é uma interrupção de troca conhecida e entra no fluxo existente de recuperação de subscrição limitada, não pode virar um error permanente; não se reproduzem commands já submetidos e não se introduzem nova fila nem outro conjunto de temporizadores de retry, e as semânticas de subscrição e recuperação do desktop continuous / mobile replayable mantêm seus limites originais.
 
 ```text
 subscribe in flight -> runtime available/restart -> old ACK rejected
                   -> existing bounded subscription recovery -> current owner ACK
 ```
 
-## 2026-09-11 用户 UI 纠偏与迁移补充（覆盖旧 UI 裁决）
+## 2026-09-11 Correções de UI do usuário e complements de migração (substituem as decisões anteriores de UI)
 
-- 沿用本项目的项目行和分区交互，恢复项目/任务折叠、分区拖动顺序与 hover 操作，沿用原偏好。项目区新增为 Plus，任务新增为 MessageCirclePlus。时间线能力保留但暂不展示入口；项目排序移入标题右键菜单。项目行不显示独立箭头，以 Folder/FolderOpen 表达折叠状态；hover/focus/touch 保留“更多、查看文件、新建任务”三个按钮。右键包含查看文件、新建任务与更多菜单的全部操作，兼容键盘菜单键/Shift+F10 与触屏长按。
-- 创建向导先选本地/远端，再填名称和源文件夹。名称使用文件夹图标组合输入，源文件夹使用整块可点击添加区；路径输入仅属于目录浏览器。0 root 项目仍合法。远端可选择已保存连接或在向导内添加连接，选择已有项目或创建远端项目；侧栏不提供独立“添加连接”。
-- 名称聚焦时只保留组合输入外层已有的 ring，内层 Input 不叠加 outline；自动聚焦、鼠标点击和 Tab 返回均遵守此规则，深浅主题、窄屏及强制颜色模式一致。`ui-shell/manual-review/pending/command-center-focus.test.ts` 的 DIALOG-FOCUS-01 验证共享创建弹窗，并用取消退出，不写入项目。
-- 复用现有连接对话框、目录浏览器和 Host 服务，不创建 workspace tab 或 Agent 来浏览目录。连接归连接管理器，表单只持有草稿，保存归所属 Host；取消/切换目标后拒绝迟到 UI 结果。只有显式选中已有项目或新项目保存成功才添加本机入口。桌面 continuous 与手机 replayable 不变。
+- Reutiliza as interações de linha de projeto e de seção deste projeto: restaura o recolhimento de projetos/tarefas, a ordem de arrastar das seções e as ações de hover, preservando as preferências originais. A nova ação de projeto é `Plus`, a nova ação de tarefa é `MessageCirclePlus`. A capacidade de linha do tempo é mantida, mas o ponto de entrada fica oculto por enquanto; a ordenação de projetos passa para o menu de contexto do título. A linha de projeto não exibe uma seta independente: o estado de recolhimento é expresso por Folder/FolderOpen; hover/focus/touch mantêm os três botões "mais", "ver arquivos" e "nova tarefa". O menu de contexto contém todas as ações de "ver arquivos", "nova tarefa" e "mais", compatível com a tecla de menu do teclado/Shift+F10 e o toque longo em telas sensíveis ao toque.
+- O assistente de criação primeiro escolhe local/remoto e depois preenche nome e pasta de origem. O nome usa um input composto com ícone de pasta; a pasta de origem usa uma área inteira clicável de adição; a entrada de caminho pertence apenas ao navegador de diretórios. Projeto com 0 root continua válido. No remoto é possível escolher uma conexão salva ou adicionar uma conexão dentro do assistente, selecionando um projeto existente ou criando um projeto remoto; a barra lateral não oferece uma ação independente "adicionar conexão".
+- Quando o nome está em foco, mantém-se apenas o ring já existente na camada externa do input composto; o Input interno não soma um outline. Foco automático, clique com o mouse e retorno por Tab obedecem a essa regra, de forma consistente entre temas claro/escuro, tela estreita e modo de cores forçadas. O DIALOG-FOCUS-01 de `ui-shell/manual-review/pending/command-center-focus.test.ts` valida o diálogo compartilhado de criação e sai por cancelar, sem gravar projeto.
+- Reutiliza o diálogo de conexão existente, o navegador de diretórios e os serviços do Host; não cria workspace tab nem Agent para navegar em diretórios. A conexão pertence ao gerenciador de conexões, o formulário apenas guarda o rascunho e a gravação pertence ao Host de destino; resultados de UI atrasados são rejeitados após cancelar ou trocar o alvo. Só se adiciona a entrada local quando um projeto existente é explicitamente selecionado ou quando o salvamento de um novo projeto tem sucesso. Desktop continuous e celular replayable permanecem inalterados.
 
 ```text
-创建 -> 本地/远端 -> 连接管理器(远端) -> 文件服务选目录 -> Host.saveProject
+criação -> local/remoto -> gerenciador de conexões (remoto) -> serviço de arquivos escolhe diretório -> Host.saveProject
                                                             |
-                                   本机入口 <- 远端保存成功 --+
+                                    entrada local <- salvamento remoto bem-sucedido --+
 ```
 
-- 手建 Group 只有存在未删除 session 成员才迁移；空 Group、仅悬空成员、仅已删成员不创建项目。归档但未删除成员仍有效。名称与有效成员目录保留；显式新建的空项目不受影响。
-- 0001_projects 已执行的 SQL/checksum 保持不可变，只修复首次升级的转换分支。已迁移的开发版数据不按名称批量删除；本机修复须通过旧 Group、成员和迁移备份核对来源，备份后只清理被证实误迁移且无任务/调度引用的空容器。
+- Um Group criado manualmente só é migrado quando possui membros de session não deletados; Group vazio, apenas membros pendurados ou apenas membros já deletados não criam projeto. Membros arquivados, mas não deletados, continuam válidos. Nome e diretório de membros válidos são preservados; projetos vazios criados explicitamente não são afetados.
+- O SQL/checksum já executado de `0001_projects` permanece imutável; apenas o ramo de conversão da primeira atualização é corrigido. Dados de versões de desenvolvimento já migrados não são apagados em lote por nome; o reparo local deve conferir a origem pelo Group antigo, pelos membros e pelo backup de migração, e depois do backup só limpa contêineres vazios comprovadamente migrados por engano e sem referência de tarefa/agendamento.
 
-项目目录选择由 projectService.readDirectory 按 hostId 路由到所属 Host，再复用该 Host 的 fileService/systemService。UI DirectoryBrowser 只适配此契约，桌面和手机共用；不依赖 desktop-only Source settings attachment，也不解析/创建 workspace 身份。查询不读写项目数据库、不启动 Agent；路径不存在/连接断开明确报错。
+A seleção do diretório do projeto é roteada por `projectService.readDirectory` conforme o `hostId` até o Host de destino, reutilizando o `fileService`/`systemService` desse Host. O DirectoryBrowser da UI apenas se adapta a este contrato, compartilhado entre desktop e celular; não depende do attachment de Source settings exclusivo do desktop e não resolve/cria identidade de workspace. A consulta não lê nem grava o banco de dados de projetos e não inicia Agent; caminho inexistente/conexão desconectada gera erro explícito.
 
-创建向导连接某个已保存 Host 时，暂停其他连接入口与返回操作，连接完成或失败后再开放，避免同时进入两个连接流程。
+Quando o assistente de criação se conecta a um Host já salvo, as outras entradas e ações de retorno de conexão ficam suspensas e só são liberadas após a conexão terminar com sucesso ou falha, evitando entrar em dois fluxos de conexão ao mesmo tempo.
 
-### Migration ID 命名
+### Nomenclatura de Migration ID
 
-两个库均使用四位补零、库内递增的序号加 `snake_case` 语义名称（`NNNN_description`），不把产品版本或 schema 代号混入 ID。task-index 第一条版本化迁移统一为 `0001_projects`，后续从 `0002_...` 递增；CLI 的 `0001_base_session_store` 至 `0020_session_soft_delete_outcome` 保持不变，两库各自编号。
+Os dois bancos usam um número de quatro dígitos com zero à esquerda, sequencial dentro do banco, mais um nome semântico em `snake_case` (`NNNN_description`), sem misturar versão de produto ou código de schema no ID. A primeira migração versionada do task-index é unificada como `0001_projects`, e as seguintes incrementam a partir de `0002_...`; a faixa `0001_base_session_store` até `0020_session_soft_delete_outcome` da CLI permanece inalterada, cada banco com sua própria numeração.
 
-此次仅修正开发期间使用的 `v3_projects` 名称，SQL 文本、checksum、app_version、执行时间和数据转换逻辑不变。正式升级使用新 ID；已运行本分支开发版的本机数据库通过一次性维护核对旧 checksum、备份，再在事务中只更新 schema_migration.id。不在公共 runner 添加历史别名或第二条转换路径，不把已执行数据当成首次升级重新迁移；本机维护须验证所有业务表内容不变。
+Desta vez corrige-se apenas o nome `v3_projects`, usado durante o desenvolvimento; o texto SQL, o checksum, o app_version, o tempo de execução e a lógica de conversão de dados permanecem inalterados. A atualização oficial usa o novo ID; os bancos locais que já rodaram esta branch de desenvolvimento fazem a conferência do checksum antigo, fazem backup e então, dentro de uma transação, atualizam apenas o `schema_migration.id`. Não se adiciona alias histórico nem um segundo caminho de conversão no runner público, e dados já executados não são tratados como primeira atualização para remigrar; a manutenção local deve verificar que o conteúdo de todas as tabelas de negócio permanece inalterado.
 
-### 项目行快捷入口补充
+### Complemento das ações rápidas na linha de projeto
 
-更多下拉与右键复用同一组操作定义，菜单均为非模态，快捷按钮不触发行折叠。查看文件复用现有 WorkspaceFileTree：单 root 直接打开，多 root 由文件按钮菜单选择；零 root 保留禁用按钮，不创建目录或任务。离线远端仍只允许移除本机入口，不借本机文件服务读远端路径。
+O menu "mais" e o menu de contexto reutilizam a mesma definição de ações, e ambos são não modais; os botões de atalho não acionam o recolhimento da linha. "Ver arquivos" reutiliza o `WorkspaceFileTree` existente: com um único root abre diretamente; com múltiplos roots a escolha acontece no menu do botão de arquivos; com zero roots o botão permanece desabilitado e nenhum diretório ou tarefa é criado. Remoto offline ainda permite apenas remover a entrada local e não usa o serviço de arquivos local para ler caminhos remotos.
 
-文件树展示目标归侧栏 UI，项目折叠状态按 Host + project ID 归常驻侧栏，查看文件后返回列表时保持。远端连接/绑定归现有连接管理器；只有显式查看文件才请求工作区绑定，手机只走可信 shared-host switchWorkspace。迟到的旧打开请求不得覆盖新选择，任务归属和 continuous/replayable 语义不变。
+O alvo de exibição da árvore de arquivos pertence à UI da barra lateral; o estado de recolhimento do projeto é mantido na barra lateral persistente por Host + ID de projeto e é preservado ao voltar para a lista após ver arquivos. Conexão/binding remoto pertence ao gerenciador de conexões existente; apenas a ação explícita "ver arquivos" solicita o binding do workspace, e no celular só se usa a troca confiável de workspace do shared-host. Requisições de abertura antigas e atrasadas não podem sobrescrever a nova seleção; a atribuição de tarefas e a semântica continuous/replayable permanecem inalteradas.
 
 ```text
-项目行点击 / 右键 -> 同一操作定义 -> 选 root
-  本地 -> 现有文件树(path)
-  桌面远端 -> 现有 Host 连接与 workspace 绑定 -> 文件树(path + identity + sessionId)
-  手机 -> shared-host 切换 -> 已绑定文件树
+clique na linha do projeto / menu de contexto -> mesma definição de ações -> escolher root
+  local    -> árvore de arquivos existente (path)
+  desktop remoto -> conexão existente do Host e binding de workspace -> árvore de arquivos (path + identity + sessionId)
+  celular  -> troca no shared-host -> árvore de arquivos já vinculada
 ```
 
-### 项目编辑器源文件夹列表（2026-09-11 用户纠偏）
+### Lista de pastas de origem no editor de projeto (correção do usuário de 2026-09-11)
 
-- 零 root 显示整块“添加 ZCode 可读取和编辑的文件夹”；已有 root 后切换为同一个带边框的列表，末行是 FolderPlus +“添加文件夹”，不继续显示空态大卡片。每个 root 行显示文件夹图标、末级目录名（完整路径放 title），右侧为“主要”标记或“设为主要”按钮，以及移除按钮。
-- “设为主要”只修改编辑器草稿，保存才经既有 saveProject(primaryRoot) 写入所属 Host；取消不写入。第一个目录默认主要，移除主要目录后选择剩余首项，全部移除后无主要。新任务经 prepareSession 使用最新主要目录，已有任务 cwd 不变。
-- 编辑已有项目时，底部左侧恢复删除项目按钮；创建时无删除按钮。沿用 deleteProject 的软删除语义，不删除文件或任务，不增加确认层；远端必须传原 hostId，失败停留弹窗并显示错误，不降级成本机移除。保存/删除共用提交互斥状态，成功后刷新并关闭。
-- 表单草稿归 ProjectEditor，持久态归 Host projectService，复用已有目录浏览器和 API；不增加 schema、migration 或同步队列。桌面与手机使用相同 UI/服务路径，continuous/replayable 边界不变。明暗主题、长路径与 390px 布局均需验证。
+- Com zero roots, mostra o bloco inteiro "Adicionar pastas que o ZCode pode ler e editar"; depois que existe ao menos um root, passa a ser a mesma lista com borda, cuja última linha é FolderPlus + "Adicionar pasta", sem continuar exibindo o cartão grande de estado vazio. Cada linha de root mostra o ícone de pasta, o nome do diretório de último nível (o caminho completo fica no title), à direita a marca "principal" ou o botão "definir como principal" e o botão de remoção.
+- "Definir como principal" altera apenas o rascunho do editor; só a gravação, via `saveProject(primaryRoot)` existente, escreve no Host de destino; cancelar não grava. O primeiro diretório é principal por padrão; ao remover o diretório principal, escolhe-se o primeiro restante; ao remover todos, não há principal. Novas tarefas usam o diretório principal mais recente via `prepareSession`; o cwd das tarefas existentes não muda.
+- Ao editar um projeto existente, o botão de excluir o projeto é restaurado no canto inferior esquerdo; na criação não há botão de exclusão. Reutiliza-se a semântica de exclusão lógica de `deleteProject`, sem apagar arquivos ou tarefas e sem camada extra de confirmação; no remoto é obrigatório enviar o `hostId` original, e a falha mantém o diálogo aberto mostrando o erro, sem degradar para remoção local. Gravar/excluir compartilham o estado de exclusividade de submissão e, após o sucesso, a lista é atualizada e o editor fechado.
+- O rascunho do formulário pertence ao ProjectEditor, o estado persistido pertence ao `projectService` do Host, e reutilizam-se o navegador de diretórios e a API já existentes; não são adicionados schema, migration ou fila de sincronização. Desktop e celular usam o mesmo caminho de UI/serviço, e os limites continuous/replayable não mudam. Temas claro/escuro, caminhos longos e layout de 390px precisam ser verificados.
 
 ```text
-设为主要 / 移除 root -> 编辑器草稿 -> 保存 -> 所属 Host.saveProject
-                                                 -> 新任务 prepareSession 取主要目录
-                                                 -> 旧任务 cwd 保持
-删除项目 -> 所属 Host.deleteProject -> 刷新 -> 关闭编辑器
+definir como principal / remover root -> rascunho do editor -> salvar -> Host.saveProject do destino
+                                                 -> nova task prepareSession usa o diretório principal
+                                                 -> cwd das tarefas antigas permanece
+excluir projeto -> Host.deleteProject do destino -> atualizar -> fechar o editor
 ```
 
-### 旧产品体验保留（2026-09-11 用户最终确认）
+### Preservação da experiência antiga do produto (confirmação final do usuário de 2026-09-11)
 
-#### 2026-09-14 侧栏回归修复
+#### Correções de regressão na barra lateral (2026-09-14)
 
-- 删除顺序稳定性（2026-10-15）：项目菜单、编辑器删除及离线入口移除都只通过既有命令更新权威目录。命令返回到目录刷新之间，项目保留原位置；新目录到达后直接消失，其他项目的相对顺序不变。删除不提前清理控制端排序键，否则旧目录里的项目会被当作未排序项追加到末尾。沿用偏好保留暂时不可见项目位置的规则，刷新失败仍保留旧目录和顺序；不增加删除副本、计时器或动画补偿。桌面与手机继续共用目录 owner，远端命令仍按原 hostId 路由。
+- Estabilidade da ordem após exclusão (2026-10-15): o menu do projeto, a exclusão pelo editor e a remoção da entrada offline atualizam o diretório autoritativo apenas por meio dos comandos existentes. Entre o retorno do comando e a atualização do diretório, o projeto permanece na posição original; quando o novo diretório chega, ele desaparece diretamente e a ordem relativa dos demais projetos não muda. A exclusão não limpa antecipadamente as chaves de ordenação do lado controlador, caso contrário os projetos do diretório antigo seriam tratados como itens sem ordenação e anexados ao final. Reutiliza-se a regra de preferência que preserva a posição de projetos temporariamente invisíveis; se a atualização falhar, o diretório antigo e a ordem são mantidos. Não são adicionados cópias de exclusão, temporizadores nem compensações de animação. Desktop e celular continuam compartilhando o owner do diretório, e o comando remoto continua sendo roteado pelo `hostId` original.
 
 ```text
-删除 / 移除入口 -> 所属服务命令 -> 权威目录刷新 -> 项目从原位置消失
-控制端排序偏好 -------------------------------> 保持其他项目相对顺序
+excluir / remover entrada -> comando do serviço dono -> atualização do diretório autoritativo -> o projeto some da posição original
+preferência de ordenação do controlador -------------------------------> mantém a ordem relativa dos demais projetos
 ```
 
-- “已置顶”恢复 `text-ui-base font-medium text-foreground-subtlest`；与项目/任务分区标题左边缘一致（约 18px）。置顶任务恢复外层 8px 横向留白。分区标题补回 8px 外层留白，不叠加到项目行。
-- “任务”分区的会话列表与项目内会话共用 8px 左侧留白，整行悬停背景、文字、空态和分页入口一起内缩；明暗主题与 390px 布局保持一致（2026-10-14 纠偏）。
-- 项目列表恢复 dnd-kit 垂直排序位移和过渡，支持指针及键盘。同置顶分区内允许跨 Host 交换位置；仅写当前控制端侧栏偏好，不改远端 position。任务拖入项目继续走原生 session payload 和 moveTask，不触发项目排序。点击、菜单、新建与文件入口不误启动拖拽，Escape 取消不写入。
-- Host 是项目顺序的唯一已提交 owner；拖动期间只有 UI transform，落下通过 reorderProjects 提交后刷新，失败保留权威树并提示。桌面 continuous、手机 shared-host/replayable 边界不变。
-- 已展开空项目、在线 Host 的空任务列表显示国际化 `taskList.noTasks`（中文“暂无任务”），沿用旧任务文字缩进；空置顶区不显示标题或空态，离线/加载态不伪造“暂无任务”。
-- 系统 `~/.zcode/workspace/default` 曾因旧 settings 缺失/误写 purpose 被首次迁移建成项目。新增一次性 `0006_default_workspace_tasks`，不改已发布 0005 SQL/checksum：仅纠正旧迁移时创建、单 root 为系统 default、未改名/编辑的自动项目；任务 project_id 清空，误建容器软删。普通路径下的 default、手建/改名/多 root 项目保留。只写 Host tasks/projects，任务 cwd、CLI 镜像、置顶/归档/未读、定时/闲时执行快照不变。迁移有表级备份且事务失败回滚，重复启动不重算归属。
+- "Fixado" restaura `text-ui-base font-medium text-foreground-subtlest`, alinhado à margem esquerda dos títulos de seção de projeto/tarefa (cerca de 18px). Tarefas fixadas restauram o padding horizontal externo de 8px. Os títulos de seção recuperam o padding externo de 8px, sem somá-lo às linhas de projeto.
+- A lista de sessões da seção "Tarefas" compartilha o padding esquerdo de 8px das sessões dentro do projeto: fundo de hover da linha inteira, texto, estado vazio e entrada de paginação recuam juntos; temas claro/escuro e layout de 390px permanecem consistentes (correção de 2026-10-14).
+- A lista de projetos restaura o deslocamento e a transição da ordenação vertical com dnd-kit, com suporte a ponteiro e teclado. Dentro da seção de fixados, é permitido trocar posições entre Hosts diferentes; grava-se apenas a preferência da barra lateral do controlador atual, sem alterar a `position` remota. Arrastar tarefas para dentro de um projeto continua passando pelo payload nativo de session e por `moveTask`, sem acionar a ordenação de projetos. Cliques, menus, criação e a entrada de arquivos não iniciam arrasto por engano, e cancelar com Escape não grava nada.
+- O Host é o único owner da ordem dos projetos já submetida; durante o arrasto há apenas transformações de UI e, ao soltar, a ordem é submetida por `reorderProjects` e a lista é atualizada; em caso de falha, a árvore autoritativa é mantida e um aviso é exibido. Os limites de desktop continuous e de celular shared-host/replayable não mudam.
+- Projetos expandidos e vazios e listas de tarefas vazias de Hosts online exibem a internationalização `taskList.noTasks` (em chinês "暂无任务"), preservando o recuo de texto das tarefas antigas; a seção de fixados vazia não exibe título nem estado vazio, e os estados offline/carregando não forjam "暂无任务".
+- O `~/.zcode/workspace/default` do sistema às vezes foi criado como projeto pela primeira migração, por settings antigos ausentes ou com `purpose` gravado errado. A nova migração pontual `0006_default_workspace_tasks` não altera o SQL/checksum do 0005 já publicado: corrige apenas o projeto automático criado na migração antiga, com root único apontando para o default do sistema, sem renomeação/edição; o `project_id` das tarefas é esvaziado e o contêiner criado por engano é excluído logicamente. O default em caminhos comuns e os projetos criados manualmente/renomeados/com múltiplos roots são preservados. Só se grava nas tasks/projects do Host; o cwd das tarefas, o espelho da CLI, fixado/arquivado/não lida e os snapshots de execução agendada/periódica permanecem inalterados. A migração tem backup por tabela e rollback em caso de falha de transação; inicializações repetidas não recalculam a atribuição.
 
 ```text
-拖动 -> UI 位移 -> 同 Host reorderProjects -> Host 顺序 -> readTree
-旧迁移 default 项目 -> 0006 事务 -> tasks.project_id=NULL -> 原任务区
-                               -> projects.deleted=1 -> 不显示误建项目
+arrastar -> deslocamento na UI -> reorderProjects no mesmo Host -> ordem do Host -> readTree
+projeto default da migração antiga -> transação 0006 -> tasks.project_id=NULL -> área de tarefas original
+                               -> projects.deleted=1 -> não exibe o projeto criado por engano
 ```
 
-验收：VP31（字号/缩进/空态、指针排序动画、键盘取消/排序、刷新顺序，明暗与390px）；VP28 增补 purpose 误标的系统 default 升级及任务保留。存储单测覆盖已有 ledger、首次升级、Windows 路径、归档/置顶/未读与其它表哈希、同名手建项目和幂等。实际手机/SSH/WSL 未执行时单列限制。
+Aceitação: VP31 (tamanho de fonte/recuo/estado vazio, animação de ordenação por ponteiro, cancelamento/ordenação por teclado, ordem após atualização, temas claro/escuro e 390px); VP28 Complementa a atualização do system default com `purpose` marcado errado e a preservação das tarefas. Testes unitários de armazenamento cobrem o ledger existente, a primeira atualização, caminhos do Windows, arquivado/fixado/não lida e hash das outras tabelas, projetos criados manualmente com o mesmo nome e a idempotência. Quando a execução real em celular/SSH/WSL não for feita, isso é listado como limitação à parte.
 
-本节覆盖实施期间简化的排序和展示规则。老 Group 及其颜色、手动成员排序、吸顶标题不恢复；点击项目仅折叠/展开，不进入目录草稿。此前明确隐藏的时间线、归档和独立连接入口不恢复。其余沿用旧产品体验：
+Esta seção substitui as regras de ordenação e exibição simplificadas durante a implementação. Group antigo e suas cores, ordenação manual de membros e títulos fixos no topo não são restaurados; clicar no projeto apenas recolhe/expande e não entra no rascunho de diretórios. A linha do tempo, o arquivamento e a entrada independente de conexão, antes escondidos de forma explícita, não são restaurados. O restante preserva a experiência antiga do produto:
 
-- 项目和未归类列表默认 5 条，每次增加 5 条；置顶区保留“已置顶”标题，默认 20 条，可显示全部与显示更少。分页不随等价快照刷新重置。
-- 项目和置顶任务的 running/prewarming 优先，运行层按 CLI 创建时间降序、taskId 降序；普通层按创建/更新时间偏好排序，另一时间为第二关键字，taskId 降序。复用原比较器，禁止将 Host 组织修改时间或 Date.now 写入排序；CLI 事实来源与 UI 排序策略是两个边界。
-- 创建/更新时间选择放项目标题右键，和项目容器排序明确区分；旧任务时间偏好继续读取。项目容器排序模式和 Host+projectId 折叠偏好在浏览器持久化；本地单 root 历史项目初始可读原 workspace 折叠偏好，显式新偏好优先，不读取旧 Group 状态。
-- 当前任务高亮必须同时匹配 Shell 当前 workspaceKey 与该 workspace 的 activeTaskId。桌面复用现有远控状态订阅，按完整 workspaceKey+taskId 显示手机访问标记，不改变 desktop continuous / mobile replayable 链路。
-- 收起项目且存在未归档的未读成员时，在项目名右侧显示原大小的蓝点；包括仍属于该项目的置顶任务，排除其它 Host 的同项目 ID。展开后由任务行显示未读；点击展开不清除未读。未读从 Host readTree 派生，不新增计数表或同步状态；离线没有任务事实时不伪造未读。
-- 归档成功清理对应任务 UI 状态，当前任务退出详情，与 Header 一致；失败保留会话并提示。置顶/取消置顶先显示在途意图，失败撤销并提示；权威行仍来自 Host。按完整任务地址限制同任务在途置顶，迟到旧响应不得覆盖新树。未读继续使用 expectedUnreadAt CAS。
-- 普通任务行不提供右侧文件树按钮；置顶区任务恢复查看文件入口（2026-10-12）；项目行保留查看文件入口。定时任务/插件按钮恢复选中态。
-- 远端项目恢复原 Skills/MCP/Plugins 同步快捷菜单及原平台适用范围（桌面在线 SSH/WSL，手机不新增同步能力）；同步使用既有 dialogs、workspace services 和刷新流程。远程以唯一固定目录为操作范围，禁止追加或合并其它 root 配置；未就绪 attachment 不发 RPC。
-- 连接行复用现有重连日志展示及失败详情/复制；连接进度归连接管理器，UI 不另建连接状态机。列表错误与具体连接错误分开呈现。
+- As listas de projetos e de não classificados mostram 5 itens por padrão, somando 5 a cada vez; a seção de fixados mantém o título "Fixados", com 20 itens por padrão, e pode mostrar todos ou mostrar menos. A paginação não é reiniciada por atualizações com snapshots equivalentes.
+- Tarefas running/prewarming têm prioridade nos projetos e nos fixados; a camada de execução é ordenada por data de criação da CLI em ordem decrescente e por taskId em ordem decrescente; a camada comum usa a preferência de criação/atualização, com o outro tempo como segunda chave e taskId em ordem decrescente. Reutiliza-se o comparador original e é proibido gravar o tempo de modificação da organização do Host ou `Date.now` na ordenação; a fonte de verdade da CLI e a política de ordenação da UI são dois limites distintos.
+- A escolha de criação/atualização vai para o menu de contexto do título do projeto, claramente distinta da ordenação dos contêineres de projeto; a preferência de tempo das tarefas antigas continua sendo lida. O modo de ordenação dos contêineres de projeto e a preferência de recolhimento por Host+projectId são persistidos no navegador; projetos históricos locais de root único podem ler inicialmente a preferência de recolhimento do workspace original, e a preferência nova explícita tem precedência, sem ler o estado dos Groups antigos.
+- O realce da tarefa atual precisa casar ao mesmo tempo com o workspaceKey atual do Shell e com o `activeTaskId` daquele workspace. O desktop reutiliza a assinatura de estado de controle remoto existente, exibindo a marca de acesso pelo celular conforme o workspaceKey+taskId completo, sem alterar o encadeamento desktop continuous / mobile replayable.
+- Quando um projeto está recolhido e possui membros não arquivados e não lidos, exibe-se um ponto azul do tamanho original à direita do nome do projeto; isso inclui tarefas fixadas que ainda pertencem ao projeto e exclui IDs de projeto iguais de outros Hosts. Depois de expandir, a não lida é exibida pela linha da tarefa; clicar para expandir não limpa a não lida. A não lida é derivada do `readTree` do Host, sem nova tabela de contagem nem estado de sincronização; offline, sem fatos de tarefas, não se forja não lida.
+- O arquivamento bem-sucedido limpa o estado de UI da tarefa correspondente, e a tarefa atual sai dos detalhes, em coerência com o Header; em caso de falha, a sessão é mantida e um aviso é exibido. Fixar/desafixar exibe primeiro a intenção em trânsito, que é revertida com aviso em caso de falha; a linha autoritativa continua vindo do Host. A intenção de fixação em trânsito é limitada pela direção completa da tarefa, e respostas antigas atrasadas não podem sobrescrever a nova árvore. A não lida continua usando o CAS `expectedUnreadAt`.
+- Linhas de tarefas comuns não oferecem o botão de árvore de arquivos à direita; tarefas na seção de fixados recuperam a entrada "ver arquivos" (2026-10-12); linhas de projeto mantêm a entrada "ver arquivos". Botões de tarefa agendada/plugin recuperam o estado selecionado.
+- Projetos remotos recuperam o menu rápido de sincronia de Skills/MCP/Plugins e o escopo de plataforma original (desktop online SSH/WSL; o celular não ganha capacidade nova de sincronia); a sincronia usa os dialogs, workspace services e fluxo de atualização já existentes. No remoto, o escopo de operação é o diretório único e fixo, e é proibido acrescentar ou mesclar a configuração de outros roots; attachments não prontos não enviam RPC.
+- A linha de conexão reutiliza a exibição existente de log de reconexão e de detalhes de falha/cópia; o progresso de conexão pertence ao gerenciador de conexões e a UI não cria outra máquina de estados de conexão. Erros da lista e erros de uma conexão específica são apresentados separadamente.
 
-分层：project-sidebar 是 UI 模块，纯选择器只派生数据；偏好 hook 只管理显示偏好；任务交互 hook 只适配既有 task command 与在途 UI 意图；远端操作组件只适配既有连接/同步接口。业务归属、命令校验与落盘仍留 Host Service，不在 UI 新建 Repository、事实缓存或已接受命令队列。现有 TaskList 仅新增必要可选展示参数/文件回调，保持其它调用兼容。
+Camadas: `project-sidebar` é o módulo de UI, e seletores puros apenas derivam dados; o hook de preferências gerencia apenas preferências de exibição; o hook de interação de tarefas apenas adapta comandos de tarefa existentes e intenções de UI em trânsito; os componentes de operações remotas apenas adaptam as interfaces existentes de conexão/sincronia. A atribuição de negócio, a validação de comandos e a gravação em disco permanecem no Host Service, sem criar novos Repository, cache de fatos ou filas de comandos aceitos na UI. O `TaskList` existente ganha apenas parâmetros opcionais de exibição/callback de arquivo necessários, mantendo compatibilidade com as demais chamadas.
 
 ```text
-Host readTree + CLI activity -> 纯选择器 -> 排序 / 折叠未读展示
-Shell active workspace + task UI -> 选中态；mobileViewState -> 手机标记
-用户 pin -> UI 在途意图 -> 既有 Host command -> 权威刷新 -> 释放意图
-                          失败 -> 撤销意图 + 提示
-用户 archive -> 既有 Host command 成功 -> 清理任务 UI + 刷新
-远端菜单 -> 已有 workspace attachment -> 原同步 dialog / service
+Host readTree + atividade da CLI -> seletor puro -> ordenação / exibição de recolhido e não lida
+Shell active workspace + UI da tarefa -> estado selecionado; mobileViewState -> marca do celular
+usuário fixa -> intenção em trânsito na UI -> comando Host existente -> atualização autoritativa -> libera a intenção
+                          falha -> reverte a intenção + aviso
+usuário arquiva -> sucesso do comando Host existente -> limpa a UI da tarefa + atualização
+menu remoto -> attachment de workspace existente -> dialog/service de sincronização original
 ```
 
-本次不修改 schema/migration 或本机数据库。回归包含本地/远端完整身份隔离、刷新/失败/晚到结果、390px 与明暗主题；真实手机/SSH/WSL 未实际执行时必须单列限制。
+Desta vez não se modifica schema/migration nem o banco de dados local. A regressão inclui isolamento completo de identidade local/remota, atualização/falha/resultados atrasados, 390px e temas claro/escuro; se a execução real em celular/SSH/WSL não ocorrer, as limitações devem ser listadas à parte.
 
-连接诊断实施补充：remote-projects.readDirectory 从同一装配端口取得连接管理器的 status/error，恢复 online 即清除旧错误，均不写 SQLite。项目连接的进度复用现有 AsyncLocalStorage requestId 日志链，关联 hostId+membershipId；UI 只展示当前成员的日志，移除/重加不能收到旧成员日志。不新建连接 owner 或重试机制。
+Complemento de implementação para o diagnóstico de conexões: `remote-projects.readDirectory` obtém o status/erro do gerenciador de conexões a partir da mesma porta de montagem, e a recuperação para `online` limpa o erro antigo, sem escrever no SQLite. O progresso da conexão do projeto reutiliza a cadeia de logs do `requestId` do AsyncLocalStorage existente, associando `hostId+membershipId`; a UI exibe apenas os logs do membro atual, e remover/re-adicionar não pode receber os logs do membro antigo. Não se cria um novo owner de conexão nem mecanismo de retry.
 
-连接日志端口继续沿用 `TransportContext.onLog`：Host 装配时注入统一上报回调，管理服务只向既有 manager 的 connect context 传递回调；不新增连接状态 owner。项目文件树保持当前 root/Host 路由与可信 shared-host attachment；关闭或新选择使迟到文件目标失效。
+A porta de logs de conexão continua usando `TransportContext.onLog`: na montagem do Host injeta-se um callback unificado de relato, e o serviço de gerenciamento apenas repassa o callback ao connect context do manager existente; não se adiciona um novo owner de estado de conexão. A árvore de arquivos do projeto mantém o roteamento atual de root/Host e o attachment confiável do shared-host; fechar ou escolher um novo alvo invalida o alvo de arquivo atrasado.
 
-置顶意图生命周期：只覆盖 Host 命令和本次权威刷新在途期间；刷新完成（或失败）即释放，不以查询值必须等于期望值作为释放条件。另一客户端可能在此期间再次修改 pin，必须显示最新 Host 事实，禁止把已完成的意图保留成第二份状态。
+Ciclo de vida da intenção de fixação: cobre apenas o comando do Host e o período em trânsito desta atualização autoritativa; a intenção é liberada quando a atualização termina (com sucesso ou falha), sem exigir que o valor consultado seja igual ao valor esperado. Outro cliente pode modificar o pin novamente nesse período, e é preciso mostrar o fato mais recente do Host, sem manter a intenção concluída como uma segunda cópia de estado.
 
-### 项目折叠动效与任务行入口纠偏（2026-09-11）
+### Correção da animação de recolhimento de projeto e das entradas na linha de tarefa (2026-09-11)
 
-项目展开/收起复用旧 WorkspaceSidebarItem 使用的 Collapsible、CollapsibleTrigger、CollapsibleContent：300ms 高度过渡和内容淡入淡出，收起动画结束后才卸载任务列表；快速反向点击由同一个受控 open 值驱动，不增加计时器或另一份折叠状态。折叠偏好仍归 useProjectSidebarPreferences，展开不导航、不改未读，离线不可展开。
+A expansão/recolhimento do projeto reutiliza o Collapsible, CollapsibleTrigger e CollapsibleContent usados pelo antigo WorkspaceSidebarItem: transição de altura de 300ms e fade do conteúdo, e a lista de tarefas só é desmontada depois de a animação de recolhimento terminar; cliques rápidos em sentido inverso são dirigidos pelo mesmo valor `open` controlado, sem temporizador adicional nem outra cópia do estado de recolhimento. A preferência de recolhimento continua pertencendo a `useProjectSidebarPreferences`; expandir não navega, não altera a não lida e não funciona offline.
 
-项目、未归类和时间线行不显示文件树按钮。置顶区任务恢复右侧查看文件入口：复用 TaskRowActionButton 和 ListTree 图标，在 hover/focus/touch 时显示；点击不选择任务、不修改未读，打开任务固化的 workspacePath，而非项目当前主目录。本地任务不依赖打开的 tab；远端任务仅在对应 identity 的 session 存在时提供入口，禁止退回本机文件读取。手机先复用可信工作区切换；项目与任务文件打开/关闭共用一个请求序号，迟到切换不得覆盖新选择或关闭。保留项目行查看文件、归档/置顶与原右键动作。桌面和手机使用同一个渲染入口，不修改 Host/CLI、workspaceIdentity 或 continuous/replayable 链路，无 schema/migration 改动。
+As linhas de projeto, não classificado e linha do tempo não exibem o botão de árvore de arquivos. As tarefas na seção de fixados recuperam a entrada "ver arquivos" à direita: reutiliza-se `TaskRowActionButton` e o ícone `ListTree`, exibidos em hover/focus/touch; o clique não seleciona a tarefa, não modifica a não lida e abre o `workspacePath` fixado na tarefa, e não o diretório principal atual do projeto. Tarefas locais não dependem de uma tab aberta; tarefas remotas só oferecem a entrada quando existe uma session para a identity correspondente, e é proibido recorrer à leitura local de arquivos. No celular, primeiro reutiliza-se a troca confiável de workspace; a abertura/fechamento de arquivos de projeto e de tarefa compartilha um único número de requisição, e trocas atrasadas não podem sobrescrever a nova seleção nem fechá-la. Mantêm-se o "ver arquivos" da linha de projeto, o arquivamento/fixação e as ações originais de menu de contexto. Desktop e celular usam o mesmo ponto de renderização, sem modificar Host/CLI, `workspaceIdentity` ou o encadeamento continuous/replayable, e sem mudanças de schema/migration.
 
 ```text
-点击项目 -> 原折叠偏好 owner -> Collapsible.open
-                             -> 高度/透明度动画 -> 收起完成卸载内容
-快速反向点击 ----------------> 同一 open 值更新（无额外 timeout）
+clique no projeto -> owner original da preferência de recolhimento -> Collapsible.open
+                             -> animação de altura/opacidade -> conteúdo desmontado ao final do recolhimento
+clique reverso rápido ----------------> mesma atualização do valor open (sem timeout extra)
 ```
 
-共享 Collapsible 的透明度动画必须由当前 content 的 data-state 直接作用于其子层，不能用可命中任意祖先的同名 group 选择器；项目区内嵌套项目节点时，外层保持 open 不得覆盖内层 closed 的淡出。高度仍由当前 content 自身驱动，无额外动画状态。
+A animação de opacidade do Collapsible compartilhado deve ser aplicada diretamente pelo `data-state` do content atual à sua camada filha, e não por um seletor de grupo homônimo que possa atingir qualquer ancestral; quando há nós de projeto aninhados dentro da área de projetos, o externo manter-se `open` não pode sobrescrever o fade-out do `closed` interno. A altura continua sendo dirigida pelo próprio content atual, sem estado de animação adicional.
 
-### 2026-09-11 补充：输入框项目选择器与侧栏同源
+### Complemento de 2026-09-11: seletor de projeto do campo de entrada com a mesma origem da barra lateral
 
-- 项目选择器列出侧栏完整的未删除虚拟项目，包含未打开目录、零 root、自定义名称与本机保留的远程入口；不再读取 workspace tabs，不截断为前 5 项。项目排序复用侧栏偏好；置顶项目排在普通项前，区内顺序不变。搜索文案为“搜索项目” / “Search projects”，按项目名称和 roots 搜索。
-- `project-sidebar` 的窗口级 Provider 单独持有项目树读取及偏好；侧栏与 composer 读取同一投影。Host 仍是项目、roots、远端入口的唯一权威，UI 不写库、不创建第二份项目缓存。读取错误显式显示，不退回 tabs。远端离线/未解析入口可见但不可选。
-- 选中态取草稿 `projectId` 与 workspace 的 Host 身份，同 cwd 的不同项目独立。无项目归属显示“选择项目”。选择项只调用现有 `onCreateTask({projectId, hostId})`，由 Root/Host 的 `prepareSession` 准备主要目录（零 root 自动补齐），再进入草稿；不自行按目录推断归属、不为展示项目拉起 Agent。已提交 session 的 cwd 与归属不改。
-- 维持原菜单外观、搜索、远程连接和不在项目中工作/脱离入口；长列表在菜单内部滚动。项目改名、移除及顺序变化同时反映到两处。
-- 2026-10-13：底部“打开文件夹”替换为“创建项目” / “Create project”（复用 `project.create`）。选择后关闭菜单，挂载侧栏同一个 `ProjectCreation`，沿用设备/名称/roots、目录信任确认、保存与刷新流程。默认设备也与侧栏一致：已有远程会话取所属设备，其余默认本地。保存或取消不打开工作区、不创建会话、不改变当前项目/草稿；保存后可从共享列表显式选择新项目。手机同样使用项目服务，不受原生打开文件夹能力开关限制；新增远程设备仍沿用原能力限制。聊天新建远程连接完成后，按 [#21](../../issues/remote-connection-ux/21-chat-settings-round-trip.md) 进入必选目录流程；普通创建独立使用上述默认设备，不继承连接结果。
+- O seletor de projeto lista os projetos virtuais completos e não deletados da barra lateral, incluindo diretórios não abertos, projetos com zero root, nomes customizados e entradas remotas retidas localmente; não lê mais as workspace tabs e não trunca nos 5 primeiros. A ordenação de projetos reutiliza as preferências da barra lateral; projetos fixados vêm antes dos comuns e a ordem dentro da área é preservada. O texto de busca é "搜索项目" / "Search projects", buscando por nome de projeto e por roots.
+- O Provider de nível de janela de `project-sidebar` guarda sozinho a leitura da árvore de projetos e as preferências; a barra lateral e o composer leem a mesma projeção. O Host continua sendo a única autoridade sobre projetos, roots e entradas remotas; a UI não grava no banco e não cria um segundo cache de projetos. Erros de leitura são exibidos explicitamente, sem recorrer às tabs. Entradas remotas offline/não resolvidas são visíveis, mas não selecionáveis.
+- O estado selecionado usa o `projectId` do rascunho e a identidade Host do workspace; projetos diferentes com o mesmo cwd são independentes. Sem atribuição de projeto, exibe-se "选择项目". A seleção chama apenas o `onCreateTask({projectId, hostId})` existente, e o `prepareSession` do Root/Host prepara o diretório principal (com zero root, completa automaticamente) antes de entrar no rascunho; não infere atribuição por diretório e não sobe um Agent só para exibir projetos. O cwd e a atribuição de sessões já submetidas não mudam.
+- Mantêm-se a aparência original do menu, a busca, a conexão remota e as entradas "trabalhar fora do projeto"/"sair"; listas longas rolam dentro do menu. Renomeação, remoção e mudanças de ordem de projetos refletem-se nos dois lugares ao mesmo tempo.
+- 2026-10-13: o "打开文件夹" do rodapé é substituído por "创建项目" / "Create project" (reutilizando `project.create`). Após a escolha, o menu fecha e o mesmo `ProjectCreation` da barra lateral é montado, reutilizando dispositivo/nome/roots, a confirmação de confiança do diretório, o fluxo de gravação e atualização. O dispositivo padrão também é o mesmo da barra lateral: sessões remotas existentes usam o dispositivo de destino e o padrão é local. Gravar ou cancelar não abre workspace, não cria sessão e não altera o projeto/rascunho atual; após gravar, o novo projeto pode ser selecionado explicitamente a partir da lista compartilhada. O celular também usa o serviço de projetos e não é afetado pela chave de capacidade nativa de abrir pastas; novos dispositivos remotos continuam sujeitos às limitações de capacidade originais. Depois que o chat cria uma conexão remota, ele entra no fluxo de diretório obrigatório via [#21](../../issues/remote-connection-ux/21-chat-settings-round-trip.md); a criação comum usa o dispositivo padrão acima e não herda o resultado da conexão.
 
-- 2026-10-13：composer 头部在分支选择器（办公模式为插件入口）之后显示 Plus 快捷按钮，提示与无障碍名称为“编辑项目” / “Edit project”。按钮只对当前选中的可编辑项目显示；无归属、已删除、离线或旧版只读项目不显示。当前项目仍由同一菜单按 projectId + Host 解析，不按 cwd 推断。点击直接打开侧栏同一个 `ProjectEditor`，可改名和管理目录，沿用原删除与远端限制。保存/删除通过原项目服务并刷新共享目录；取消不写入，编辑不触发任务创建或目录导航，文本草稿保留。聊天/草稿身份变化时旧编辑器失效，不得在切回后复活。该快捷入口仅由聊天壳层启用，自动化等复用选择器不新增按钮。
+- 2026-10-13: o cabeçalho do composer, depois do seletor de branch (que no modo escritório é a entrada de plugins), exibe um botão rápido `Plus`, com tooltip e nome de acessibilidade "编辑项目" / "Edit project". O botão só aparece para o projeto selecionado que seja editável; não aparece sem atribuição, para projeto deletado, offline ou em projetos antigos somente leitura. O projeto atual continua sendo resolvido pelo mesmo menu por `projectId` + Host, sem inferência por cwd. O clique abre diretamente o mesmo `ProjectEditor` da barra lateral, permitindo renomear e gerenciar diretórios, reutilizando as restrições originais de exclusão e de remoto. Gravar/excluir passam pelo serviço de projetos original e atualizam o diretório compartilhado; cancelar não grava, e editar não dispara criação de tarefa nem navegação de diretório, e o rascunho de texto é preservado. Quando a identidade do chat/rascunho muda, o editor antigo fica inválido e não pode ressuscitar ao voltar. Este atalho é habilitado apenas pelo shell de chat; automações e outros consumidores do seletor não ganham o botão.
 
 ```text
-Host readTree + retained remote entries -> ProjectDirectoryProvider -> sidebar / composer
-composer 创建 / sidebar + -> ProjectCreation -> ProjectEditor -> 目录确认 -> Host saveProject -> refresh
-                         -> 取消 / 保存完成 -> 当前会话和草稿保持
-composer + -> 当前 projectId + Host -> ProjectEditor -> Host saveProject / deleteProject -> refresh
-           -> 取消 -> 当前会话和草稿保持
-user selects {hostId, projectId} -> existing Root createTask -> Host prepareSession -> draft
- desktop: existing continuous navigation
- mobile: existing shared-host attachment -> replayable navigation
+Host readTree + entradas remotas retidas -> ProjectDirectoryProvider -> sidebar / composer
+criação pelo composer / sidebar + -> ProjectCreation -> ProjectEditor -> confirmação de diretório -> Host saveProject -> refresh
+                         -> cancelar / gravação concluída -> sessão e rascunho atuais preservados
+composer + -> projectId + Host atuais -> ProjectEditor -> Host saveProject / deleteProject -> refresh
+           -> cancelar -> sessão e rascunho atuais preservados
+usuário seleciona {hostId, projectId} -> createTask existente do Root -> Host prepareSession -> rascunho
+ desktop: navegação continuous existente
+ mobile: attachment shared-host existente -> navegação replayable
 ```
 
-异步读取复用既有请求序号和远程 membership 校验；没有新增 stream、owner、accepted queue 或持久化迁移。手机仅复用已在线 Source，仍走原 shared-host admission，不创建另一套 runtime。
+As leituras assíncronas reutilizam o número de requisição existente e a verificação remota de membership; não há novo stream, owner, fila de aceitação ou migração persistente. O celular reutiliza apenas o Source já online, passando pela admission original do shared-host, sem criar outro runtime.
 
-### 当前任务元数据与自动归档收尾（2026-09-11）
+### Metadados da tarefa atual e finalização do arquivamento automático (2026-09-11)
 
-- 详情元数据通过已有 workspace-scoped `ZCodeTaskService.getTaskMeta` 读取 Host 索引（CLI 事实镜像 + Host 组织态），不再读取 CLI active runtime 的 `readSession`，也不依赖旧列表/query cache 是否恰好含当前任务。已归档历史直接打开仍可读取标题。首发尚未落索引时只复用现有未提交乐观元数据，不新增事实写者。
-- 详情读取由现有 active-task hook 拥有；监听当前 workspace 的列表变更、已有 taskListVersion 和 projects 广播重读。请求按 service/attachment + workspaceKey + taskId 隔离；后发请求优先，切换身份或卸载即丢弃迟到结果。失败记录日志，不能拿前一任务标题填当前任务，也不为标题恢复 CLI。
-- 自动归档判据、七天追溯生效及未读 CAS 不变。项目树接受新结果时，只对同 Host + workspaceKey + taskId 从 `archived=false` 变为 `true` 的任务，调用既有 `removeTaskState` 清理本窗口选中态/详情；手动、自动、另一端归档保持相同效果。不把首次读到已归档记录、离线缺行、移除项目入口或失败响应当成归档事件；明确打开既有归档历史仍可查看。
-- 自动归档发生时退出当前详情到原工作区草稿，不自动选中下一条同名任务。导航和草稿仍由现有 session UI store 拥有；项目读取 hook 只比较两个已接受快照，不持久化第二份 archived 或新增同步计时器。
-- CLI/Host schema、migration、owner/lease 以及消息流协议均不变。远端元数据经现有 scoped service/attachment，桌面保持 continuous，手机保持 shared-host + replayable；归档清理不发送停止/删除 CLI 命令。
+- Os metadados dos detalhes são lidos pelo `ZCodeTaskService.getTaskMeta` já escopado por workspace, que lê o índice do Host (espelho de fatos da CLI + estado organizacional do Host); não lê mais o `readSession` do runtime ativo da CLI e não depende de a lista/cache de consulta antiga conter por acaso a tarefa atual. Histórico já arquivado, aberto explicitamente, continua legível. Quando o índice ainda não existe na primeira versão, reutiliza-se apenas a metadata otimista ainda não submetida, sem novo escritor de fatos.
+- A leitura dos detalhes é possuída pelo hook de tarefa ativa existente; escuta as mudanças de lista do workspace atual, o `taskListVersion` existente e o broadcast de projects para reler. As requisições são isoladas por service/attachment + workspaceKey + taskId; requisições posteriores têm precedência, e trocar de identidade ou desmontar descarta resultados atrasados. As falhas são registradas em log, e não se usa o título da tarefa anterior para preencher a atual, nem se restaura a CLI por causa do título.
+- O critério de arquivamento automático, a vigência retroativa de sete dias e o CAS de não lida permanecem inalterados. Quando a árvore de projetos aceita um novo resultado, apenas para tarefas do mesmo Host + workspaceKey + taskId que passem de `archived=false` para `true`, chama-se o `removeTaskState` existente para limpar o estado selecionado/los detalhes desta janela; arquivamento manual, automático ou pelo outro lado produz o mesmo efeito. Ler um registro já arquivado pela primeira vez, linhas ausentes offline, a remoção da entrada de projeto ou respostas com falha não são tratados como evento de arquivamento; abrir explicitamente um histórico já arquivado continua visualizável.
+- Quando o arquivamento automático ocorre, sai-se dos detalhes atuais para o rascunho do workspace original, sem selecionar automaticamente a próxima tarefa de mesmo nome. Navegação e rascunho continuam possuídos pelo store de UI de session existente; o hook de leitura de projetos compara apenas dois snapshots aceitos, sem persistir uma segunda cópia de `archived` nem adicionar temporizador de sincronização.
+- Schema/migration da CLI/Host, owner/lease e o protocolo de fluxo de mensagens permanecem inalterados. Metadados remotos passam pelo service/attachment escopado existente; o desktop mantém continuous e o celular mantém shared-host + replayable; a limpeza do arquivamento não envia comandos de parada/exclusão de CLI.
 
 ```text
-CLI 事实 -> Host tasks-index <- Host archive 命令 / 自动归档
+fato da CLI -> Host tasks-index <- comando de archive do Host / arquivamento automático
                  |                              |
-         getTaskMeta + 变更事件             readTree 已接受结果
+         getTaskMeta + evento de mudança    resultado aceito do readTree
                  |                              |
-           当前任务详情标题           false -> true -> removeTaskState
-正文：desktop continuous / mobile replayable，各沿原 V4 subscribe 恢复
+           título da tarefa atual           false -> true -> removeTaskState
+corpo: desktop continuous / mobile replayable, cada um seguindo a recuperação subscribe V4 original
 ```
 
-验收：AMT01 冷历史正文恢复前即可读到真实标题，rename 后同步；AMT02（2026-09-14 改写）一条同名旧已读 + 一条旧未读，开启七天归档后已读那条由设置变更扫描归档并离开列表；点开未读那条只清未读，保持打开且在列，另一条不变；AMT03 已归档历史显式打开可读，缺行/离线/迟到查询不得误清当前选中态；AMT04 同路径不同远端 identity、切换任务、乱序返回不串标题/归档。单测覆盖时序和隔离；pending E2E 覆盖真实 Host/SQLite/renderer，桌面与手机/远端执行证据分别报告。
+Aceitação: AMT01 o título real pode ser lido antes da restauração do corpo do histórico frio, e é sincronizado após o rename; AMT02 (reescrito em 2026-09-14) uma tarefa antiga já lida e outra antiga não lida, com mesmo nome, com o arquivamento de sete dias ligado, a já lida é arquivada pela varredura de mudança de settings e sai da lista; ao abrir a não lida, apenas a não lida é limpa, ela permanece aberta e na lista, e a outra não muda; AMT03 um histórico arquivado aberto explicitamente é legível, e linhas ausentes/offline/consultas atrasadas não podem limpar por engano o estado selecionado atual; AMT04 identities remotas diferentes no mesmo caminho, troca de tarefa e retornos fora de ordem não misturam títulos/arquivamento. Testes unitários cobrem tempo e isolamento; E2E pendente cobre Host/SQLite/renderer reais, com a evidência de execução de desktop e de celular/remoto reportada separadamente.
 
-### 自动归档触发点脱离 UI 动作（2026-09-14，维护者）
+### O ponto de disparo do arquivamento automático sai das ações de UI (2026-09-14, mantenedor)
 
-用户裁决：符合判据的任务应当已经从列表消失，是否归档的判定不能由「点击某条 session」触发。此前触发点挂在项目树查询 `readTree` 上：点开旧未读任务 → CAS 清未读 → 侧栏按 taskListVersion 刷新 → readTree 顺手执行 archiveInactive → 刚打开的任务在 1 秒内被归档并退出详情，用户感知为「打不开」（`sess_aa1fce05…`，2026-09-14 CDP 复现）。
+Decisão do usuário: tarefas que atendem ao critério já deveriam ter desaparecido da lista, e a decisão de arquivar não pode ser disparada por "clicar em uma session". Antes, o ponto de disparo estava pendurado na consulta da árvore de projetos `readTree`: abrir uma tarefa antiga não lida → CAS limpa a não lida → a barra lateral atualiza conforme o taskListVersion → o readTree executa archiveInactive de passagem → a tarefa recém-aberta é arquivada em menos de 1 segundo e sai dos detalhes, e o usuário percebe como "não abre" (`sess_aa1fce05…`, reproduzido via CDP em 2026-09-14).
 
-- 触发点改为 Host 定时扫描器（`packages/services/src/project/autoArchiveScheduler.ts`）：服务装配完成即扫描一次，之后每 5 分钟一次（2026-09-15 由每小时缩短）；`taskAutoArchiveEnabled` / `taskAutoArchiveOlderThanDays` 变更后立即补扫。扫描串行，扫描进行中的重复请求合并为一次补扫；desktop-attached-remote 不启动，远端 Host 扫描自己的库。
-- `readTree` / `readProjects` 只读，项目服务不再持有 `autoArchive` / `beforeRead` 入口；点击、刷新、切换任务不改变任何 archived。
-- 判据不变；仍不豁免「正在查看的已完成任务」（沿用 2026-09-11 裁决）：定时扫描命中当前详情时，项目树 false → true 的既有清理照常退出详情。
-- 删除无发射者的 `workspace_task_list_changed.reason` 取值 `auto_archive` / `realtime_sync`。
+- O ponto de disparo passa a ser o agendador periódico do Host (`packages/services/src/project/autoArchiveScheduler.ts`): a varredura ocorre uma vez assim que a montagem do serviço termina e depois a cada 5 minutos (reduzido de uma hora em 2026-09-15); mudanças em `taskAutoArchiveEnabled` / `taskAutoArchiveOlderThanDays` disparam uma varredura complementar imediata. As varreduras são seriais, e requisições repetidas durante uma varredura em andamento são combinadas em uma única varredura complementar; desktop-attached-remote não inicia o agendador, e o Host remoto varre o próprio banco.
+- `readTree` / `readProjects` são somente leitura, e o serviço de projetos não mantém mais entradas `autoArchive` / `beforeRead`; clicar, atualizar ou trocar de tarefa não altera nenhum `archived`.
+- O critério permanece inalterado; continua havendo isenção para "tarefa concluída que está sendo visualizada" (decisão de 2026-09-11): quando a varredura periódica atinge os detalhes atuais, a limpeza existente da árvore de projetos para false → true sai dos detalhes normalmente.
+- Remover os valores `auto_archive` / `realtime_sync` de `workspace_task_list_changed.reason`, que não tinham emissor.
 
 ```text
-设置变更 ──┐
-启动首轮 ──┼─► scheduler.scan() ─► archiveInactive(cutoff, activeTasks) ─► publishProjectChange ─► 项目树 false→true ─► removeTaskState
-每 5 分钟 ─┘
-点击任务 ─► setTaskUnread(CAS) ─► V4 subscribe            （不再进入左侧链路）
+mudança de settings ──┐
+primeira rodada ──────┼─► scheduler.scan() ─► archiveInactive(cutoff, activeTasks) ─► publishProjectChange ─► árvore de projetos false→true ─► removeTaskState
+a cada 5 minutos ─────┘
+clique na tarefa ─► setTaskUnread(CAS) ─► V4 subscribe            (não entra mais na cadeia da esquerda)
 ```
 
-验收：AMT02 改为「开启七天归档 → 已读旧任务由设置变更扫描归档并离开列表；点开旧未读任务只清未读，任务保持打开且在列」；扫描器的首轮/间隔/设置补扫/串行合并/dispose 由单测覆盖。
+Aceitação: AMT02 passa a ser "ligar o arquivamento de sete dias → a tarefa antiga já lida é arquivada pela varredura de mudança de settings e sai da lista; abrir uma tarefa antiga não lida apenas limpa a não lida, e a tarefa permanece aberta e na lista"; a primeira rodada, o intervalo, a varredura complementar por mudança de settings, a combinação serial e o dispose do agendador são cobertos por testes unitários.
 
-### 自动归档判据改为纯按时间（2026-09-15，维护者）
+### O critério do arquivamento automático passa a ser puramente por tempo (2026-09-15, mantenedor)
 
-用户看到 31 天前的 `error` 任务仍在列表，裁决「纯按时间，置顶不受影响」。本机数据：超期、已读、未归档的任务里 error 324 条、无 CLI 结果 346 条，旧判据（仅 completed）让它们永远留在列表；未读也不再是保护条件。
+O usuário viu uma tarefa `error` de 31 dias atrás ainda na lista e decidiu "puramente por tempo, fixadas não são afetadas". Dados locais: entre as tarefas vencidas, já lidas e não arquivadas, há 324 do tipo error e 346 sem resultado da CLI; o critério antigo (apenas completed) as mantinha para sempre na lista; e não lida deixou de ser condição de proteção.
 
-- `archiveInactive` 判据：`archived=0 ∧ pinned=0 ∧ deleted=0 ∧ cli_deleted=0 ∧ cli_updated_at < now − N 天 ∧ host_id = 本 Host`，再排除 `activeTasks`（syncer 观察到的非终态会话，作为安全兜底）。`cli_updated_at` 为 NULL 的无事实预留行不满足比较，不归档。
-- 归档不改未读、不改 CLI 事实；被归档的未读任务在归档管理里仍带未读。
-- 扫描间隔 1 小时 → 5 分钟；触发点仍是启动首轮、定时、设置变更补扫，不挂任何 UI 动作。
-- 设置页文案同步为「将最后活动时间超过保留期的任务自动归档；置顶和运行中的任务不受影响」。
+- Critério de `archiveInactive`: `archived=0 ∧ pinned=0 ∧ deleted=0 ∧ cli_deleted=0 ∧ cli_updated_at < now − N dias ∧ host_id = este Host`, excluindo em seguida `activeTasks` (sessões em estado não terminal observadas pelo syncer, como rede de segurança). Linhas de reserva sem fato, com `cli_updated_at` NULL, não satisfazem a comparação e não são arquivadas.
+- O arquivamento não altera a não lida nem os fatos da CLI; tarefas não lidas que são arquivadas continuam aparecendo com não lida na gestão de arquivamento.
+- O intervalo de varredura passa de 1 hora para 5 minutos; os pontos de disparo continuam sendo a primeira rodada na inicialização, a varredura periódica e a varredura complementar por mudança de settings, sem ficar pendurado em nenhuma ação de UI.
+- O texto da página de settings é sincronizado para "arquiva automaticamente as tarefas cuja última atividade ultrapassa o período de retenção; tarefas fixadas e em execução não são afetadas".
 
-验收：AMT02 改为「开启七天归档 → 28 天前的已读与未读任务都归档，置顶旧任务与 6 天前任务保留；点开 6 天前的未读任务只清未读并保持打开」；仓库单测覆盖 pinned / running / recent / nofacts 例外与 unread / error / NULL 归档。
+Aceitação: AMT02 passa a ser "ligar o arquivamento de sete dias → as tarefas já lidas e não lidas de 28 dias atrás são arquivadas, e as tarefas antigas fixadas e as de 6 dias atrás são preservadas; abrir a tarefa não lida de 6 dias atrás apenas limpa a não lida e a mantém aberta"; os testes unitários do repositório cobrem as exceções pinned / running / recent / nofacts e o arquivamento de unread / error / NULL.
 
-### 自动归档修复后的重新开启（2026-10-14）
+### Reativação após a correção do arquivamento automático (2026-10-14)
 
-旧版本自动归档未生效时，用户可能已经打开开关。修复后不能仅凭旧值在升级首轮扫描中批量归档历史会话；必须由用户在新版重新开启。
+Quando o arquivamento automático das versões antigas não funcionava, o usuário pode ter já ligado a opção. Depois da correção, não se pode arquivar em lote sessões históricas com base apenas no valor antigo durante a primeira varredura da atualização; o usuário precisa religar na nova versão.
 
-- 设置迁移新增内部标记 `taskAutoArchiveResetVersion: 1`。原始设置缺少该标记时，一次性将 `taskAutoArchiveEnabled` 归位为 `false` 并写入标记，保留 `taskAutoArchiveOlderThanDays` 及其他设置。新用户仍默认关闭。
-- 复用完整设置 schema 的迁移入口与 SettingService 的写队列、文件锁、锁内重读和原子写入。`get()` 完成迁移持久化后才返回；写入失败时扫描失败，不读取旧的开启值继续归档。并发读取不得覆盖用户刚保存的新选择。
-- 用户从归档管理重新开启后，沿用设置提交事件立即扫描；后续重启、重复读取和升级保留用户选择。迁移标记只供设置迁移使用，扫描器仍只消费开关与保留天数，UI 无新增状态或确认弹窗。
-- 每个 Host 的 SettingService 只迁移自己的配置；远端任务由远端 Host 执行，desktop-attached-remote 不在本机代迁移远端设置。桌面 continuous 与手机 shared-host/replayable 边界不变。
-- 不改会话数据，不恢复此前已归档的会话，也不调整归档判据、周期或保留天数。
+- A migração de settings ganha a marca interna `taskAutoArchiveResetVersion: 1`. Quando o setting original não tem a marca, `taskAutoArchiveEnabled` é reposto uma única vez para `false` e a marca é gravada, preservando `taskAutoArchiveOlderThanDays` e os demais settings. Usuários novos continuam com o padrão desligado.
+- Reutiliza-se o ponto de entrada de migração do schema completo de settings, junto com a fila de escrita, o lock de arquivo, a releitura dentro do lock e a escrita atômica do SettingService. O `get()` só retorna depois que a migração foi persistida; se a escrita falhar, a varredura falha e não lê o valor antigo de ligado para continuar arquivando. Leituras concorrentes não podem sobrescrever a escolha nova que o usuário acabou de salvar.
+- Depois que o usuário religa na gestão de arquivamento, o evento de submissão de settings dispara a varredura imediata; reinícios posteriores, leituras repetidas e upgrades preservam a escolha do usuário. A marca de migração serve apenas para a migração de settings; o agendador continua consumindo apenas a opção e o número de dias de retenção, e a UI não ganha novo estado nem diálogo de confirmação.
+- O SettingService de cada Host migra apenas a própria configuração; tarefas remotas são executadas pelo Host remoto, e desktop-attached-remote não migra settings remotos localmente. Os limites de desktop continuous e de celular shared-host/replayable não mudam.
+- Não se alteram dados de sessão, não se restauram sessões antes arquivadas e não se ajustam critério, período ou dias de retenção do arquivamento.
 
 ```text
-Host 首轮/定时扫描 → SettingService.get → 锁内重读旧配置
-                                          ├─ 无标记：关闭开关并写入标记
-                                          └─ 有标记：保留当前选择
-                                      → 持久化成功 → 返回策略 → 决定是否归档
-用户重新开启 → SettingService.update 提交 → 设置事件 → 立即扫描
+Host primeira rodada/varredura periódica → SettingService.get → releitura da config antiga dentro do lock
+                                          ├─ sem marca: desliga a opção e grava a marca
+                                          └─ com marca: mantém a escolha atual
+                                      → persistência bem-sucedida → retorna a política → decide se arquiva
+usuário religa → SettingService.update confirma → evento de settings → varredura imediata
 ```
 
-验收 AMT05：旧配置开启、存在超期会话 → 冷启动 → 开关关闭、天数保留、会话仍在；手动开启 → 旧会话归档；再次冷启动 → 开关保持开启。单测覆盖新配置、旧开关各取值、重复迁移、并发读写、独立 Host 设置及迁移落盘失败；E2E 复用 AMT02 的隔离历史 fixture，保持 pending。
+Aceitação AMT05: config antiga ligada, com sessão vencida → cold start → opção desligada, dias preservados, sessão ainda presente; ativação manual → sessão antiga arquivada; novo cold start → a opção continua ligada. Testes unitários cobrem config nova, cada valor da opção antiga, migração repetida, leitura/escrita concorrentes, settings de Host independente e falha de persistência da migração; o E2E reutiliza o fixture de histórico isolado do AMT02, permanecendo pending.
 
-验证：macOS Electron `desktop-e2e-20261014095631138-p83694-9cfbd531c2af7be8` 2/2 通过，覆盖旧配置冷启动关闭、手动开启后的真实 SQLite 归档、第二次冷启动保留开启，以及既有标题/置顶/未读路径。截图与 Host 日志确认仅在手动开启后归档两条超期会话。根增量单测 1432 文件 / 16280 项通过、6 项跳过，root/E2E typecheck、lint、架构与 fixture check 通过。真实手机配对、SSH/WSL 和 Windows/Linux GUI 未实测；独立 Host 配置隔离由服务单测覆盖，用例保持 pending。
+Verificação: macOS Electron `desktop-e2e-20261014095631138-p83694-9cfbd531c2af7be8` 2/2 aprovado, cobrindo o desligamento no cold start com config antiga, o arquivamento real em SQLite após a ativação manual, a preservação da ativação no segundo cold start e os caminhos existentes de título/fixação/não lida. Capturas de tela e logs do Host confirmam que apenas duas sessões vencidas foram arquivadas, depois da ativação manual. Testes unitários do root: 1432 arquivos / 16280 casos aprovados, 6 pulados; typecheck de root/E2E, lint, arquitetura e fixture check aprovados. O pareamento real em celular, SSH/WSL e a GUI em Windows/Linux não foram testados; o isolamento de configuração por Host independente é coberto por testes unitários de serviço, e o caso permanece pending.
 
-## 侧栏搜索与视图切换（2026-09-15，SBV01–SBV06）
+## Busca na barra lateral e troca de visualização (2026-09-15, SBV01–SBV06)
 
-本节覆盖此前「时间线隐藏入口、右键选择项目/任务排序、读取旧时间偏好」的规则。
+Esta seção substitui as regras anteriores de "entrada da linha do tempo oculta, ordenação de projetos/tarefas por menu de contexto, leitura das preferências de tempo antigas".
 
-- 导航区（新建任务、自动化、插件市场）与列表区分开，两区之间使用 1px border-border/50 分隔线，横线延伸覆盖侧栏右侧 4px 调宽区域，装饰不接收指针事件，不改变拖拽尺寸及交互；切换文件视图时横线随任务列表隐藏；列表头部距分隔线 12px，头部下方到列表滚动区间距 8px。列表区有独立固定头部，头部不属于导航组件，也不进入列表滚动及渐隐容器；项目/任务分区在头部下方独立滚动。头部展示标题与搜索、筛选图标行：左侧总标题显示「任务列表」（分区标题保持不变），右侧依次 Search、ListFilter。两个图标按钮均为 icon-sm（24px），图标 14px，按钮间距 4px；总标题使用 text-ui-lg（默认 16px）和次级文字色 text-foreground-subtle，分区标题保持 text-ui-base（默认 14px）和 text-foreground-subtlest。搜索入口为带国际化 aria-label 和快捷键 tooltip 的按钮（提示标题与 shortcut 参数分开传入，快捷键复用 ControlShortcutBadge，不拼接分隔符），点击仍调用原 Shell 全局搜索，不显示输入框或常驻快捷键文字，不新增搜索状态或快捷键监听。明暗主题、桌面和手机沿用同一布局。
-- 筛选菜单仅「按项目 / 最近更新」两项，左侧分别显示 Folder / Clock 图标，右侧勾选当前视图；移除项目分区右键中的两组排序选项，其余项目/任务操作保留。
-- 按项目：保留置顶、项目、任务分区，不显示 Host 分组；项目按当前控制端复合身份偏好手动排序；任务 running/prewarming 优先，运行层创建时间倒序及 taskId 决胜，普通层更新时间倒序。项目/未归类 5/+5，置顶 20/全部/更少。
-- 最近更新：从同一 ProjectTree 中取所有未归档任务，包括置顶、未归类和树中已删除项目的历史；不显示项目或 Host 分组，恢复今天、昨天、2/3 天前、本周、上周、本月、上月、更早的日期标题，无独立置顶区，每行只出现一次。严格 updatedAt 倒序，再 createdAt、taskId 倒序，以完整 Host/workspaceKey/taskId 稳定决胜；运行态不改变顺序。首屏 20，每次 +20，刷新数据不重置数量；重新进入视图从首屏开始。
-- 最近更新复用现有 timeline 双行任务样式：首行状态与标题，第二行左侧为任务绑定工作目录的末级名称（不是虚拟项目名），右侧为相对更新时间及原有元信息。无状态任务不显示圆点，保留图标槽以对齐标题；未读/错误/运行/置顶/手机激活状态沿用共享行规则。按项目仍用紧凑单行。
-- 日期标题只在已排序并分页的相邻日期段首项前显示，不占分页名额、不重复创建任务分组，也不改变完整任务 key。日期按客户端本地日历和语言计算（en-US 周日开周，zh-CN 周一开周），跨日以日历日期判定，避免夏令时误差；刷新投影/重新渲染时重新派生。追加分页不重复同段标题，时间变化可跨段重排，操作中的行仍由完整任务身份保持。
-- 选择器和渲染层显式接收展示模式，避免渲染层重新套用运行优先。排序时间只来自 CLI 镜像，不从 Host 组织修改时间或 Date.now 派生；pin 不影响时间顺序，archive 成功后退出两种视图。
-- 唯一偏好 owner 为 ProjectDirectoryProvider 中的 useProjectSidebarPreferences。既有 zcode-project-sidebar-preferences 新增 view=projects|timeline，默认/非法值回落 projects；继续保存 expanded。旧 sort 和 zcode-sidebar-task-preferences.sortBy 不再读取，旧折叠保留，Host position 仅作首次种子，项目显示顺序改存控制端 order=[hostId,projectId]。localStorage 不可用时当前窗口仍可切换，桌面/手机各自保存偏好。
-- 视图切换不改任务归属、当前任务与项目折叠；composer 项目选择器继续共用目录并按手动项目顺序显示，不响应侧栏视图切换。无 Host/CLI/RPC/SQLite 变更。
-- 本地/远端任务来源沿用原项目树可见范围，不为列表建立新连接或任务缓存；身份仍是 Host + (workspaceIdentity.trim() || workspacePath) + taskId。桌面 desktop-continuous 和手机 web-remote-replayable 保持原 shared-host 导航与传输边界。
+- A área de navegação (nova tarefa, automação, mercado de plugins) é separada da área de lista, e entre as duas usa uma linha divisória de 1px `border-border/50`, que se estende horizontalmente até a região de 4px de alargamento à direita da barra lateral; a decoração não recebe eventos de ponteiro e não altera o dimensionamento nem a interação de arrastar; ao alternar para a visualização de arquivos, a linha é ocultada junto com a lista de tarefas; o cabeçalho da lista fica a 12px da linha divisória e, abaixo do cabeçalho, há 8px até a área de rolagem da lista. A área de lista tem um cabeçalho fixo próprio, que não faz parte do componente de navegação nem entra na rolagem da lista nem no contêiner de fade; as seções de projeto/tarefa rolam independentemente abaixo do cabeçalho. O cabeçalho mostra o título e a linha com busca e ícone de filtro: à esquerda, o título geral exibe "任务列表" (os títulos de seção permanecem inalterados) e, à direita, Search e ListFilter, nessa ordem. Os dois botões de ícone são icon-sm (24px), com ícone de 14px e espaçamento de 4px; o título geral usa text-ui-lg (16px por padrão) e a cor de texto secundária text-foreground-subtle, e os títulos de seção mantêm text-ui-base (14px por padrão) e text-foreground-subtlest. A entrada de busca é um botão com `aria-label` internacionalizado e tooltip de atalho (o título do tooltip e o parâmetro de shortcut são passados separadamente, o atalho reutiliza `ControlShortcutBadge`, sem concatenar separadores); o clique continua chamando a busca global original do Shell, sem exibir campo de entrada nem texto de atalho permanente, e sem novo estado de busca nem listener de atalhos. Temas claro/escuro, desktop e celular usam o mesmo layout.
+- O menu de filtro tem apenas dois itens, "按项目" / "Por projeto" e "最近更新" / "Atualizações recentes"; à esquerda são exibidos os ícones Folder e Clock, e à direita há a marcação do item da visão atual. São removidas as duas opções de ordenação do menu de contexto da seção de projetos; as demais ações de projeto/tarefa são preservadas.
+- Por projeto: mantém as seções de fixados, projetos e tarefas, sem exibir agrupamento por Host; os projetos são ordenados manualmente pela preferência de identidade composta do controlador atual; tarefas running/prewarming têm prioridade, com a camada de execução em data de criação decrescente e taskId como desempate, e a camada comum em data de atualização decrescente. Projetos/não classificados 5/+5, fixados 20/todos/menos.
+- Atualizações recentes: extrai de um mesmo ProjectTree todas as tarefas não arquivadas, incluindo fixadas, não classificadas e o histórico de projetos já deletados na árvore; não exibe agrupamento de projetos nem de Host, e restaura os títulos de data de hoje, ontem, 2/3 dias atrás, esta semana, semana passada, este mês, mês passado e mais antigo, sem seção de fixados independente e com cada linha aparecendo uma única vez. Ordem estritamente decrescente por `updatedAt`, depois `createdAt` e `taskId` em ordem decrescente, com desempate estável pelo Host/workspaceKey/taskId completos; o estado de execução não altera a ordem. Primeira tela de 20, +20 a cada vez, e a atualização dos dados não reseta a quantidade; ao entrar novamente na visão, recomeça pela primeira tela.
+- Atualizações recentes reutilizam o estilo de tarefa de duas linhas da timeline existente: a primeira linha com status e título e a segunda com, à esquerda, o nome de último nível do diretório de trabalho vinculado à tarefa (não o nome do projeto virtual) e, à direita, o tempo relativo de atualização e os metadados originais. Tarefas sem status não exibem o ponto, mantendo o slot de ícone para alinhar o título; os estados de não lida/erro/execução/fixada/ativação no celular seguem as regras compartilhadas de linha. Por projeto continua usando a linha única compacta.
+- Os títulos de data só aparecem antes do primeiro item de segmentos de data adjacentes já ordenados e paginados; não ocupam vaga de paginação, não criam grupos de tarefas duplicados e não alteram a key completa da tarefa. As datas são calculadas pelo calendário local e pelo idioma do cliente (en-US começa a semana no domingo, zh-CN no segunda-feira), e a virada de dia é determinada pela data de calendário, evitando erros de horário de verão; são rederivadas ao atualizar a projeção/reexibir. A paginação incremental não repete o título do mesmo segmento, mudanças de tempo podem reordenar entre segmentos e as linhas em operação permanecem estáveis pela identidade completa da tarefa.
+- A camada de seleção e a de renderização recebem explicitamente o modo de exibição, para que a renderização não reaplique a prioridade de execução. O tempo de ordenação vem só do espelho da CLI, não do tempo de modificação da organização do Host nem de `Date.now`; o pin não influencia a ordem temporal, e após o arquivamento bem-sucedido a tarefa sai das duas visões.
+- O único owner das preferências é `useProjectSidebarPreferences` dentro do ProjectDirectoryProvider. O `zcode-project-sidebar-preferences` existente ganha `view=projects|timeline`, com fallback para `projects` em caso de valor padrão/inválido; `expanded` continua sendo salvo. O `sort` antigo e o `zcode-sidebar-task-preferences.sortBy` deixam de ser lidos, o recolhimento antigo é preservado, a `position` do Host serve apenas como semente inicial e a ordem de exibição dos projetos passa a ser guardada no controlador como `order=[hostId,projectId]`. Com o localStorage indisponível, a janela atual ainda pode alternar, e desktop e celular salvam as preferências separadamente.
+- A troca de visualização não altera a atribuição de tarefas, a tarefa atual nem o recolhimento de projetos; o seletor de projetos do composer continua compartilhando o diretório e exibindo pela ordem manual de projetos, sem reagir à troca de visualização da barra lateral. Não há mudanças de Host/CLI/RPC/SQLite.
+- A origem de tarefas local/remota segue a visibilidade original da árvore de projetos, sem criar nova conexão nem cache de tarefas para a lista; a identidade continua sendo Host + (workspaceIdentity.trim() || workspacePath) + taskId. O desktop continuous e o web-remote-replayable do celular mantêm os limites originais de navegação e transmissão do shared-host.
 
 ```text
-用户选择 -> 共享偏好 owner -> 当前客户端 localStorage
+usuário escolhe -> owner de preferência compartilhado -> localStorage do cliente atual
                     |
-Host readTree + CLI 时间镜像 -> 纯选择器 -> 项目列表 / 最近更新列表
-搜索点击 / 原快捷键 -> Shell -> 现有全局搜索
-任务操作 -> 既有 Host command -> 权威树刷新 -> 当前视图重新派生
+Host readTree + espelho de tempo da CLI -> seletor puro -> lista de projetos / lista de atualizações recentes
+clique na busca / atalho original -> Shell -> busca global existente
+ação de tarefa -> comando Host existente -> atualização da árvore autoritativa -> rederivação da visão atual
 ```
 
-影响面：presentation / option-source / persistence。必须检查导航、ProjectTaskRows、view 选择器、共享目录偏好；composer 项目菜单是共享顺序消费者，归档管理只回归行集合边界。代码图查询因 unresolved_refs 索引错误失败两次，本次按真实引用追踪；功能图旧 WorkspaceSidebarItem / Group / Pinned / 行投影 seeds 已更新为当前项目侧栏入口。无新的异步 owner、队列或同步策略。
+Superfície de impacto: presentation / option-source / persistence. É preciso verificar a navegação, ProjectTaskRows, o seletor de view e as preferências do diretório compartilhado; o menu de projetos do composer é um consumidor da ordem compartilhada, e a gestão de arquivamento apenas faz regressão do limite do conjunto de linhas. As consultas ao grafo de código falharam duas vezes por erro de índice `unresolved_refs`; desta vez o rastreamento seguiu as referências reais; no grafo funcional, as seeds antigas de WorkspaceSidebarItem / Group / Pinned / projeção de linhas foram atualizadas para a entrada atual da barra lateral de projetos. Nenhum novo owner assíncrono, fila ou política de sincronização.
 
-### 已接受验收
+### Aceitação aceita
 
-| Case  | Setup → Action → Assertion                                                                       | 非 UI 证据                     |
+| Case  | Setup → Action → Assertion                                                                       | Evidência não-UI                     |
 | ----- | ------------------------------------------------------------------------------------------------ | ------------------------------ |
-| SBV01 | 插件市场导航 → 点击搜索图标/原快捷键 → 同一全局搜索、菜单仅两项、正确平台键帽                    | Shell callback / 键盘测试      |
-| SBV02 | 展开/收起项目并打开任务 → 切换视图/刷新 → 当前任务及折叠保留、view 恢复                          | localStorage、导航 store       |
-| SBV03 | 项目/未归类/已删除项目、置顶/运行/归档、跨 Host 同路径任务 → 最近更新 → 纯时间、无重复、不含归档 | 纯选择器 fixture / Host 树     |
-| SBV04 | 旧 created/updated 偏好和手动 position → 加载 → 忽略旧排序、composer 与侧栏项目顺序一致          | localStorage、同一目录读取次数 |
-| SBV05 | 超过 20 条任务 → 更多/刷新/时间更新/pin/archive → 连续分页、重排、pin 不搬行、archive 移除       | fixture 镜像与命令结果         |
-| SBV06 | 桌面和真实手机 shared-host → 搜索/切换/重开 → 同一任务身份、桌面 tab/Host 数不增加               | Host 进程、导航 store、身份    |
+| SBV01 | Navegação do mercado de plugins → clique no ícone de busca/atalho original → mesma busca global, menu com apenas dois itens,teclas de plataforma corretas                    | Callback do Shell / teste de teclado      |
+| SBV02 | Expandir/recolher projeto e abrir tarefa → alternar visão/refresh → tarefa atual e recolhimento preservados, view restaurada                          | localStorage, store de navegação       |
+| SBV03 | Projeto/não classificado/projeto deletado, fixada/execução/arquivada, tarefas do mesmo caminho em Hosts diferentes → atualizações recentes → só tempo, sem duplicatas, sem arquivadas | Fixture de seletor puro / árvore do Host     |
+| SBV04 | Preferências antigas de created/updated e position manual → carregar → ignorar ordenação antiga, ordem de projetos do composer igual à da barra lateral          | localStorage, mesma contagem de leitura do diretório |
+| SBV05 | Mais de 20 tarefas → mais/refresh/atualização de tempo/pin/archive → paginação contínua, reordenação, pin não move a linha, archive remove       | Espelho de fixture e resultado de comando         |
+| SBV06 | Desktop e celular real com shared-host → busca/alternância/reabertura → mesma identidade de tarefa, sem aumento de tab/Host no desktop               | Processo do Host, store de navegação, identidade    |
 
-用例先落 manual-review/pending，复用隔离 HOME、case-local fixture；纯列表新增断言不发模型请求。明暗主题、390px 截图不替代真实手机验证。已确认剪枝：全局搜索范围扩展、旧排序选项、归档混排、远端连接策略、模型/provider 组合均不在本变更内；无待定产品问题。
+Os casos entram primeiro em manual-review/pending, reutilizando HOME isolado e fixture case-local; as novas asserções de lista pura não disparam requisições de modelo. Capturas de tela de temas claro/escuro e 390px não substituem a validação em celular real. Poda já confirmada: a amplitude da busca global, as antigas opções de ordenação, a mistura com arquivadas, a estratégia de conexão remota e as combinações de modelo/provider não estão nesta mudança; não há questões de produto pendentes.
 
-### SBV 验证记录
+### Registro de validação SBV
 
-桌面验证：`desktop-e2e-20260915131918480-p99856-ceccb6286a056017`，8/8 通过；含 SBV01–05、旧项目交互及 1200/390px 明暗主题截图。相关单测 7 文件 / 45 条通过；`pnpm typecheck`、`pnpm lint`（47 条既有 warning，0 error）及 desktop E2E 类型检查通过。相对 HEAD 的架构检查 0 违规；默认相对 origin/staging 仍有开工前已存在的 `packages/ui/src/root/resolveConversationWorkspaceTarget.ts` 未受管文件错误，本次不改其模块归属。
+Validação em desktop: `desktop-e2e-20260915131918480-p99856-ceccb6286a056017`, 8/8 aprovado; inclui SBV01–05, as interações antigas de projeto e capturas de tela em 1200/390px nos temas claro/escuro. Testes unitários relacionados: 7 arquivos / 45 casos aprovados; `pnpm typecheck`, `pnpm lint` (47 warnings existentes, 0 erros) e a checagem de tipos do E2E de desktop aprovados. Checagem de arquitetura em relação ao HEAD: 0 violações; em relação ao origin/staging padrão ainda há o erro pré-existente de arquivo não gerenciado `packages/ui/src/root/resolveConversationWorkspaceTarget.ts`, cuja atribuição de módulo não é alterada por esta mudança.
 
-手机验证：`desktop-e2e-20260915133055419-p10183-be1302f33f03e81a`，1/1 通过；Chrome for Testing 以 390×844、hasTouch/isMobile 访问本仓 Web，经真实 relay/shared-host 完成搜索、两种视图与刷新恢复、任务重开和连续切换保留当前任务，桌面 task 标记及 Host/tab 数断言通过。用例使用隔离 HOME 与既有 synthetic provider fixture；新入口使用 touch tap，菜单关闭后继续下一操作。取 Host 证据后关闭资源管理器，避免检查器持续采样干扰待启动 CLI。通过 `ZCODE_E2E_BROWSER_NO_PROXY=1` 与 `ZCODE_E2E_MOBILE_BROWSER_EXECUTABLE` 选用测试浏览器直连，未关闭 TLS 校验。
+Validação em celular: `desktop-e2e-20260915133055419-p10183-be1302f33f03e81a`, 1/1 aprovado; Chrome for Testing a 390×844, com hasTouch/isMobile, acessando o Web deste repositório, completing pelo relay/shared-host reais a busca, as duas visões e a restauração após refresh, a reabertura de tarefa e a preservação da tarefa atual em trocas consecutivas, com as asserções de marca de tarefa no desktop e de contagem de Host/tab aprovadas. O caso usa HOME isolado e o fixture de provider sintético existente; a nova entrada usa tap por toque, e a continuação após o fechamento do menu segue para a próxima operação. Depois de colher a evidência do Host, o gerenciador de arquivos foi fechado para evitar que o inspetor continuasse amostrando e interferisse na inicialização da CLI. Através de `ZCODE_E2E_BROWSER_NO_PROXY=1` e `ZCODE_E2E_MOBILE_BROWSER_EXECUTABLE` escolheu-se o navegador de teste com conexão direta, sem desativar a validação de TLS.
 
-范围说明：手机证据为浏览器触屏模拟中的真实 shared-host 链路，不是实体手机；Windows/Linux 快捷键由单测覆盖，未在对应操作系统跑 GUI。跨 Host 同路径/同 taskId 的排序身份由单测覆盖，未新增 SSH/WSL 真机验证。默认 staging 架构基线问题保持单独记录，不记为本次增量通过。
+Nota de escopo: a evidência de celular é a cadeia real de shared-host dentro de uma simulação de toque em navegador, e não um celular físico; os atalhos de Windows/Linux são cobertos por testes unitários, sem execução de GUI nos sistemas operacionais correspondentes. A identidade de ordenação de mesmo caminho/mesmo taskId entre Hosts é coberta por testes unitários, sem nova validação em máquina real SSH/WSL. O problema de baseline de arquitetura do staging padrão permanece registrado separadamente e não é contabilizado como aprovação do incremento.
 
-## 查看文件的侧栏切换动效
+## Transição de visualização da barra lateral ao ver arquivos
 
-点击项目「查看文件」后，项目导航向左移出，文件树从右侧移入；返回时反向滑动。沿用 200ms ease-out 的 transform 动效，两面板在切换期间保留 DOM，离场面板禁止交互并对辅助技术隐藏。尊重减少动态效果设置。关闭时逻辑打开状态立即为 false，最后一个文件目标仅保留到浏览器退场动画完成；完成后卸载文件树，释放目录 watcher、取消待刷新任务并丢弃迟到结果。减少动态效果或没有实际动画时立即卸载，不用固定超时决定业务生命周期。退场期间重新打开会取消旧的卸载，切换目标沿用数据层的 workspace 清理；晚到的目录解析仍由原有请求序号丢弃。桌面和手机共用此行为，不改变目录身份、主题或语言。
+Após clicar em "ver arquivos" de um projeto, a navegação de projetos desliza para a esquerda e sai, e a árvore de arquivos entra pela direita; na volta, o deslizamento é invertido. Reutiliza-se a animação de transform com 200ms ease-out, e os dois painéis mantêm o DOM durante a troca, com o painel que sai proibido de interagir e oculto para tecnologias assistivas. A configuração de reduzir efeitos dinâmicos é respeitada. Ao fechar, o estado lógico de abertura passa imediatamente para false, e o último alvo de arquivo é mantido apenas até a animação de saída do navegador terminar; depois disso a árvore de arquivos é desmontada, liberando o watcher de diretório, cancelando tarefas de atualização pendentes e descartando resultados atrasados. Com redução de efeitos dinâmicos ou sem animação efetiva, a desmontagem é imediata, sem timeout fixo determinar o ciclo de vida de negócio. Reabrir durante a saída cancela a desmontagem antiga, e a troca de alvo reutiliza a limpeza de workspace da camada de dados; a resolução de diretório atrasada continua descartada pelo número de requisição original. Desktop e celular compartilham este comportamento, sem alterar a identidade de diretório, o tema ou o idioma.
 
-## Task 列表滚动边缘渐隐
+## Fade nas bordas de rolagem da lista de Task
 
-项目视图和 task 时间线共用滚动容器，复用 ScrollFadeViewport 的 24px mask。内容未溢出时无 mask；顶部仅下缘渐隐，中间上下缘渐隐，底部仅上缘渐隐。内容或容器尺寸变化后重新计算，导航栏和底部账户区域不参与 mask。保留列表原有间距、纵向滚动、拖拽边界，桌面和手机、深浅主题共用透明度渐变，不增加颜色或业务状态。
+A visão de projetos e a linha do tempo de tasks compartilham o contêiner de rolagem e reutilizam a mask de 24px do ScrollFadeViewport. Sem overflow de conteúdo não há mask; no topo há fade apenas na borda inferior, no meio há fade nas bordas superior e inferior e embaixo há fade apenas na borda superior. Após mudança no conteúdo ou nas dimensões do contêiner o cálculo é refeito, e a barra de navegação e a área de conta do rodapé não participam da mask. Mantêm-se o espaçamento original da lista, a rolagem vertical e os limites de arrasto; desktop e celular e os temas claro/escuro compartilham o gradiente de opacidade, sem adicionar cores nem estados de negócio.
 
-MR !2897 手机文件导航：identity 的权威 session 映射与实际 services 注册共同证明连接有效，不要求 session 重复保存 identity 字段。跨 workspace 的 `workspace-bridge-open` 使用 `fileTreeTaskId` 与 `taskHostId` 定位可信任务 cwd，不能同时携带选择任务的 `taskId` 或 project 草稿。Host 复用任务目录准备，不设置 `initialTaskId`；手机新 Root 初始打开文件树，不选任务、不清除未读。旧 Root 的待返回请求仍遵循原有 generation 清理。关闭文件树后清除壳层已消费的打开请求，侧栏重挂载不得再次消费旧入口。
+MR !2897 navegação de arquivos no celular: o mapeamento autoritativo de session da identity e o registro real dos services comprovam juntos que a conexão é válida, e não é exigido que a session grave novamente o campo de identity. O uso de `workspace-bridge-open` entre workspaces usa `fileTreeTaskId` e `taskHostId` para localizar o cwd confiável da tarefa, e não pode carregar simultaneamente o `taskId` da tarefa selecionada nem o rascunho de projeto. O Host reutiliza a preparação do diretório da tarefa e não define `initialTaskId`; o novo Root do celular abre inicialmente a árvore de arquivos, sem selecionar tarefa e sem limpar a não lida. As requisições de retorno pendentes do Root antigo continuam seguindo a limpeza por generation original. Depois de fechar a árvore de arquivos, a requisição de abertura já consumida pelo shell é limpa, e a remontagem da barra lateral não pode consumir de novo a entrada antiga.

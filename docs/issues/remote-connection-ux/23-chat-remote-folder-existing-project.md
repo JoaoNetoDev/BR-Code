@@ -1,75 +1,75 @@
-# 23: 选文件夹并进入唯一匹配的已有项目
+# 23: Selecionar pasta e entrar no projeto existente com correspondência única
 
 Status: done
 
-**Parent:** [#21 — 聊天连接后必选远程文件夹并进入项目](21-chat-settings-round-trip.md)
+**Parent:** [#21 — Pasta remota obrigatória após a conexão no chat e entrada no projeto](21-chat-settings-round-trip.md)
 
-**What to build:** 用户从聊天新任务草稿连接远程设备后，每次都选择目标设备上的文件夹。确认的目录恰好属于一个现存项目时，进入该项目的新任务草稿并在远端发送首条消息。未完成选择与准备时不能发往原目标；取消整次切换则恢复并明确显示原聊天目标。
+**O que construir:** quando o usuário conecta um dispositivo remoto a partir de um novo rascunho de tarefa no chat, ele escolhe a pasta no dispositivo de destino a cada conexão. Quando o diretório confirmado pertence exatamente a um projeto existente, entra-se no novo rascunho de tarefa desse projeto e a primeira mensagem é enviada no remoto. Não se pode enviar para o destino original enquanto a seleção e a preparação não forem concluídas; cancelar a troca por completo restaura e exibe claramente o destino original do chat.
 
-**Blocked by:** None (can start immediately).
+**Bloqueado por:** Nenhum (pode começar imediatamente).
 
-**Spec coverage:** RDUX21-01–05、RDUX21-08–13、RDUX21-15–16、RDUX21-19–20；RDUX21-14 的文件夹与嵌套层级、RDUX21-21 的已有项目只读兼容。RDUX21-22–24 随本票路径验证。
+**Cobertura da spec:** RDUX21-01–05, RDUX21-08–13, RDUX21-15–16, RDUX21-19–20; pastas e níveis aninhados de RDUX21-14, compatibilidade somente leitura com projetos existentes de RDUX21-21. RDUX21-22–24 são verificadas pelo caminho desta ticket.
 
 ```mermaid
 flowchart TD
-    A[聊天新任务草稿] --> B[连接或复用远程设备]
-    B --> C[必须显示文件夹选择]
-    C --> D[用户确认目录并读取该设备的项目]
-    D -->|唯一匹配| E[沿用原项目身份并准备工作区]
-    E --> F[进入项目新草稿；用户手动发送]
-    C -->|取消或关闭| G[恢复并显示原聊天目标]
-    D -->|读取或校验失败| H[显示原因；可重试或取消]
-    E -->|准备失败| H
-    H -->|取消| G
+    A[Novo rascunho de tarefa no chat] --> B[Conectar ou reaproveitar o dispositivo remoto]
+    B --> C[A seleção de pasta deve ser exibida]
+    C --> D[Usuário confirma o diretório e lê os projetos do dispositivo]
+    D -->|Correspondência única| E[Reutiliza a identidade original do projeto e prepara o workspace]
+    E --> F[Entra no novo rascunho do projeto; envio manual pelo usuário]
+    C -->|Cancelar ou fechar| G[Restaura e exibe o destino original do chat]
+    D -->|Falha na leitura ou validação| H[Exibe o motivo; permite repetir ou cancelar]
+    E -->|Falha na preparação| H
+    H -->|Cancelar| G
 ```
 
 ## Acceptance criteria
 
-- [x] 首页无项目草稿、已有本地项目草稿、已有远程项目草稿均从真实聊天项目菜单进入同一流程；原来的“返回原聊天，仅显示在此设备创建项目”不再作为成功终点。
-- [x] 每次连接成功或复用在线设备后都显示文件夹选择；设备只有一个项目、有最近项目或原草稿已有项目时也不自动打开。路径输入、跳转、目录浏览和隐藏目录控制沿用现有能力，目标设备与路径明确可见。
-- [x] 确认目录后，按实际 Source／Host 与精确固定 root 匹配现存、未删除项目；不使用本机文件系统、显示名称、父目录、路径前缀或另一设备的同名路径替代远端判断。
-- [x] 唯一匹配时保留真实项目 ID、root 和历史任务归属，完成必要入口登记及目标工作区准备后进入该项目的新任务草稿；不能只刷新列表，也不自动打开某个历史会话。
-- [x] 本次前台切换尚未完成或取消时，发起草稿的发送按钮、Enter 和其他既有提交入口均不能向旧目标提交消息。准备完成只恢复正常发送能力，不自动提交；首次手动发送的实际 Host、项目和执行目录均为选定远端。
-- [x] 无效路径、非目录、无权限、项目读取失败、目录在确认后失效及准备期间断连都显示实际原因并允许重试或取消；失败不作为零匹配，不创建替代项目，不切回本地发送。
-- [x] 顶层文件夹选择的取消、关闭和 Escape 撤销本次远程切换，恢复仍有效的原目标、原草稿和合理焦点，并明确显示目标。嵌套下拉只先关闭当前层；“稍后选择”不能留下可发送的远程无项目状态。
-- [x] 连接前／连接中取消、原目标为本地无项目／本地项目／远程项目时均能正确返回。明确取消后，本地无项目聊天继续可用。
-- [x] 仅释放本次独占临时 attachment，保留已建立的设备连接、设备记录及其他项目共享 session。重复确认或重复登记不新增重复入口。
-- [x] 切换草稿、替换连接请求、取消、成员移除或卸载后，迟到的连接、目录、项目读取及工作区准备结果不能重开旧界面、覆盖新目标或释放共享资源；沿用请求身份与 owner，不靠超时同步。
-- [x] 设置设备添加、原项目重连、已有任务续聊保持原完成规则；只读旧远端可继续使用已有项目。普通 Web／手机不出现超出壳层能力的入口，既有 Host 和 continuous／replayable 边界不变。
-- [x] 从真实菜单补 E2E 并先证明原无项目路径会错误提交到本地，再实现修正；测试核对实际首条消息归属、项目数量和历史身份，不能仅断言按钮样式或局部回调。
-- [x] 本票完成对应中英文、深浅主题、长路径、窄窗和键盘验证；SSH／WSL／Docker 与操作系统按实际支持及执行范围记录，不以窄桌面代替手机证据。
+- [x] A página inicial sem projeto em rascunho, o rascunho com projeto local existente e o rascunho com projeto remoto existente entram no mesmo fluxo a partir do menu real de projetos do chat; o antigo «voltar ao chat original, mostrando apenas a criação de projeto neste dispositivo» deixa de ser um destino de sucesso.
+- [x] A seleção de pasta é exibida a cada conexão bem-sucedida ou reaproveitamento de dispositivo online; ela não abre automaticamente quando o dispositivo tem apenas um projeto, quando há projetos recentes ou quando o rascunho original já tem um projeto. A entrada de caminho, o salto, a navegação de diretórios e o controle de diretórios ocultos reaproveitam as capacidades existentes, com o dispositivo de destino e o caminho claramente visíveis.
+- [x] Depois de confirmar o diretório, os projetos existentes, não removidos, são casados pelo Source／Host real e pelo root fixo exato; o julgamento remoto não usa o sistema de arquivos local, o nome de exibição, o diretório pai, o prefixo do caminho nem o caminho homônimo de outro dispositivo.
+- [x] No caso de correspondência única, o ID real do projeto, o root e a atribuição das tarefas históricas são preservados; após o registro necessário da entrada e a preparação do workspace de destino, entra-se no novo rascunho de tarefa daquele projeto; não basta apenas atualizar a lista, e nenhuma sessão histórica é aberta automaticamente.
+- [x] Enquanto a troca em primeiro plano ainda não for concluída ou for cancelada, o botão de envio do rascunho, o Enter e as demais entradas de envio existentes não podem submeter mensagens ao destino antigo. A preparação concluída apenas restaura a capacidade de envio normal, sem submeter automaticamente; no primeiro envio manual, o Host, o projeto e o diretório de execução reais são os do remoto selecionado.
+- [x] Caminho inválido, elemento que não é diretório, falta de permissão, falha de leitura do projeto, diretório invalidado após a confirmação e desconexão durante a preparação exibem o motivo real e permitem repetir ou cancelar; a falha não conta como zero correspondências, não cria projeto substituto e não volta ao envio local.
+- [x] O cancelamento, o fechamento e o Escape da seleção de pasta de nível superior desfazem esta troca remota, restauram o destino original ainda válido, o rascunho original e o foco razoável, e exibem claramente o destino. O menu aninhado apenas fecha o nível atual; «escolher depois» não pode deixar um estado remoto sem projeto em que o envio seja possível.
+- [x] Cancelar antes／durante a conexão e os casos de destino original local sem projeto／projeto local／projeto remoto retornam corretamente. Após um cancelamento explícito, o chat local sem projeto continua utilizável.
+- [x] Apenas o attachment temporário exclusivo desta execução é liberado; a conexão de dispositivo já estabelecida, o registro de dispositivos e a session compartilhada por outros projetos são mantidos. Confirmações ou registros repetidos não geram entradas duplicadas.
+- [x] Após a troca de rascunho, a substituição da requisição de conexão, o cancelamento, a remoção de um membro ou a desinstalação, resultados tardios de conexão, de diretório, de leitura de projeto e de preparação de workspace não podem reabrir a interface antiga, sobrescrever o novo destino nem liberar recursos compartilhados; a identidade da requisição e o owner são reaproveitados, sem depender de timeout para sincronizar.
+- [x] A adição de dispositivo nas configurações, a reconexão do projeto original e a continuação de uma tarefa existente mantêm as regras de conclusão originais; um remoto antigo somente leitura pode continuar usando os projetos existentes. O Web／celular comum não exibe entradas além da capacidade da camada de shell, e os limites existentes de Host e continuous／replayable não mudam.
+- [x] Completar o E2E a partir do menu real e provar primeiro que o caminho original sem projeto submeteria incorretamente para o local, só então implementar a correção; os testes conferem a atribuição real da primeira mensagem, a quantidade de projetos e a identidade histórica, e não apenas a aparência dos botões ou um callback local.
+- [x] Esta ticket completa a validação em chinês e inglês, nos temas claro e escuro, com caminho longo, janela estreita e teclado; SSH／WSL／Docker e sistemas operacionais são registrados conforme o suporte e o escopo de execução reais, sem substituir a evidência de celular por uma desktop estreita.
 
 ## Verification
 
-- 主接缝复用已有聊天设备往返 Desktop E2E，使用真实远程连接及项目数据；成功切换使用空草稿，取消／失败使用有内容的原草稿验证保留。
-- 复用已有远程项目场景验证重复打开、同路径不同设备、同名前缀及父目录不误匹配。用既有 UI／服务端口控制迟到结果和准备失败，不新增测试专用产品 API。
-- 草稿预热可能已创建运行时，断言应是“没有向原本地目标提交该条消息”，不能以“没有启动任何本地 runtime”替代。
-- 完成类型检查、lint、架构门禁、受影响单测、本票 Desktop E2E 及适用共享 UI 回归，更新场景与覆盖证据。候选保持既有审核流程；缺失环境如实记录，不沿用父票旧 PASS。
+- A principal costura reaproveita o Desktop E2E de ida e volta de dispositivo do chat que já existe, usando conexão remota real e dados reais de projeto; a troca bem-sucedida usa um rascunho vazio, e o cancelamento／falha usa o rascunho original com conteúdo para verificar a preservação.
+- Reaproveitar os cenários de projeto remoto existente para verificar a reabertura duplicada, o mesmo caminho em dispositivos diferentes, o prefixo de mesmo nome e o diretório pai sem casamento indevido. Usar as portas de UI／serviço existentes para controlar resultados tardios e falhas de preparação, sem adicionar API de produto exclusiva para testes.
+- O pré-aquecimento do rascunho pode já ter criado um runtime; a asserção deve ser «a mensagem não foi submetida ao destino local original», e não pode ser substituída por «nenhum runtime local foi iniciado».
+- Concluir a checagem de tipos, o lint, o portão de arquitetura, os testes unitários afetados, o Desktop E2E desta ticket e a regressão aplicável da UI compartilhada, atualizando os cenários e as evidências de cobertura. O candidato mantém o fluxo de revisão existente; ambientes ausentes são registrados com honestidade, sem reaproveitar o PASS antigo da ticket pai.
 
 ## Scope and handoff
 
-- 若需整理完成结果交接，先在本票内使现有意图能交付实际设备、目录和项目结果，再连接完整用户路径；不新增第二份草稿、连接 owner、数据库迁移或宽泛框架。
-- [#24](24-chat-remote-folder-project-choice.md)、[#25](25-chat-remote-folder-create-project.md)、[#26](26-chat-remote-folder-background-resume.md)分别承接多匹配、零匹配和后台继续。交接给它们的是同一目录确认结果、有效请求归属、发送约束、取消及项目进入能力；不复制另一条连接／发送链。
-- 多匹配与零匹配不算本票完成的功能，交接期间仍须保持不可发送、可重新选择或取消，不用自动挑选或临时造项目填补后续票。父规格完成需四票均完成。
-- 草稿／附件跨设备迁移与冲突处理沿用现有行为，不在本票实现。不修改或关闭父 Issue；本票只登记自身实施及验证状态。
+- Se for necessário organizar a entrega do resultado de conclusão, primeiro fazer com que, dentro desta ticket, a intenção existente possa entregar o resultado real de dispositivo, diretório e projeto, e só então conectar o caminho completo do usuário; não criar uma segunda cópia do rascunho, do owner da conexão, de migração de banco de dados ou de um framework amplo.
+- [#24](24-chat-remote-folder-project-choice.md), [#25](25-chat-remote-folder-create-project.md) e [#26](26-chat-remote-folder-background-resume.md) assumem respectivamente múltiplas correspondências, zero correspondências e a continuação em segundo plano. O que se entrega a elas é o mesmo resultado de confirmação de diretório, a atribuição válida da requisição, as restrições de envio, o cancelamento e a capacidade de entrar no projeto; não se duplica outra cadeia de conexão／envio.
+- Múltiplas e zero correspondências não contam como funcionalidade concluída nesta ticket; durante a passagem, é preciso manter o estado não-enviável e a possibilidade de reselecionar ou cancelar, sem preenchimento por escolha automática nem por criação temporária de projeto para tickets posteriores. A especificação pai exige as quatro tickets concluídas.
+- A migração de rascunho／attachment entre dispositivos e o tratamento de conflitos seguem o comportamento existente e não são implementados nesta ticket. Não se modifica nem se fecha a Issue pai; esta ticket apenas registra o próprio estado de implementação e verificação.
 
-## 实施约定
+## Implementation notes
 
-聊天菜单持有本次切换意图和目录选择；Root 继续持有连接及 workspace 准备。Composer 只接收菜单的提交阻塞投影，不复制草稿。`CreateTaskOptions` 增加 renderer 内有效性与失败回传接缝：Root 在准备和导航前复验发起意图，错误交回目录流程后仍可重试。设备成员以 membership 校验；项目匹配读取目标 Host 权威列表，使用固定 root 的精确路径，不调用本机路径规则。
+O menu do chat mantém a intenção desta troca e a seleção de diretório; a Root continua sendo dona da conexão e da preparação do workspace. O Composer recebe apenas a projeção de bloqueio de envio vinda do menu, sem copiar o rascunho. `CreateTaskOptions` ganha uma costura de validade dentro do renderizador e de retorno de falha: a Root reverifica a intenção de origem antes da preparação e da navegação, e o erro devolvido ao fluxo de diretório ainda permite repetir. Os membros do dispositivo são validados por membership; o casamento de projetos lê a lista autoritativa do Host de destino, usando o caminho exato do root fixo, sem chamar as regras de caminho da máquina local.
 
 ```text
-聊天意图 → 连接 → 目录确认 → 权威项目匹配 → 登记入口 → Root 准备 → 新项目草稿
+Intenção do chat → Conexão → Confirmação do diretório → Casamento autoritativo de projetos → Registro da entrada → Preparação na Root → Novo rascunho do projeto
    │                  │              │               │
-   └─取消/换草稿───────┴─旧结果失效────┴─不可导航───────┘
+   └─cancelar/trocar rascunho─┴─resultado antigo inválido─┴─não navegável──────┘
 ```
 
-### #23 实施与验证（2026-10-14）
+### #23 Implementação e verificação (2026-10-14)
 
-- 候选 `manual-review/pending/conversation-session-chat-remote-folder.test.ts`：真实聊天菜单、SSH 连接与在线复用、无项目／远程项目草稿取消、必选目录、按钮／Enter／form 提交禁发、无效长路径错误、唯一项目首发、再次选目录保留项目和历史任务身份、不重复登记入口。
-- 更新 `manual-review/pending/conversation-session-chat-device-return.test.ts`：本地项目草稿的连接失败重试、连接前后取消、正文／附件／原任务归属，以及中英 × 深浅主题 × 1440／480px 的目录弹窗与焦点。
-- 真实 RED `desktop-e2e-20261014044755117-p28723-fd57f544f073042f`：`old-local-submission.json` 证明旧流程在连接后向本地无项目任务提交了该条消息。GREEN `desktop-e2e-20261014050039448-p42395-acef074fec4b900a`：两候选 2/2 通过，远程首发的 Host／项目／任务／cwd／identity 见 `remote-first-submission.json`；代表截图已审阅。
-- UI／服务端口回归覆盖不同 Host、父目录、前缀及已删除项目不误匹配；列表错误与准备失败不解除门禁；取消后迟到结果、Store 提交到 React 渲染前的旧请求失效；attachment 绑定前复验成员与项目，失败仅释放独占资源。旧远端只读目录浏览继续经远端文件服务，Windows 路径规则由远端平台确定。
-- 实机范围：macOS 客户端 → Linux arm64 的真实 SSH。Docker 在本轮作为独占 SSH fixture，不算 Docker 传输验收；WSL／Windows／Linux 客户端与物理手机未执行。共享 Web／手机壳层能力门禁保留 UI 回归，集成后的共享手机回归由母任务记录。
-- 多项目选择、零项创建／恢复、后台显式继续分别由 #24／#25／#26 承接。候选仍为 pending，不宣称人工审核、formal 或 CI 准入。
+- Candidato `manual-review/pending/conversation-session-chat-remote-folder.test.ts`: menu real do chat, conexão SSH e reaproveitamento online, cancelamento de rascunho sem projeto／com projeto remoto, diretório obrigatório, bloqueio de envio por botão／Enter／submissão do form, erro de caminho longo inválido, primeiro envio em projeto único, nova seleção de diretório preservando a identidade do projeto e das tarefas históricas, e ausência de registro duplicado de entrada.
+- Atualização de `manual-review/pending/conversation-session-chat-device-return.test.ts`: repetição da falha de conexão a partir de um rascunho com projeto local, cancelamento antes／depois da conexão, atribuição do corpo／anexo／tarefa original, e o diálogo de diretório e o foco em zh/en × tema claro／escuro × 1440／480px.
+- RED real `desktop-e2e-20261014044755117-p28723-fd57f544f073042f`: `old-local-submission.json` prova que o fluxo antigo submetia aquela mensagem a uma tarefa local sem projeto após a conexão. GREEN `desktop-e2e-20261014050039448-p42395-acef074fec4b900a`: os dois candidatos passaram 2/2; o Host／projeto／tarefa／cwd／identity do primeiro envio remoto estão em `remote-first-submission.json`; as capturas representativas foram revisadas.
+- A regressão das portas de UI／serviço cobre Host diferente, diretório pai, prefixo e projetos já removidos sem casamento indevido; erros de listagem e falhas de preparação não liberam o portão; resultados tardios após o cancelamento e requisições antigas são invalidadas antes da renderização do React; a membresia e o projeto são reverificados antes da vinculação do attachment, e a falha libera apenas os recursos exclusivos. A navegação de diretórios de remotos antigos somente leitura continua pelo serviço de arquivos remoto, e as regras de caminho do Windows são determinadas pela plataforma remota.
+- Escopo real: cliente macOS → SSH real para Linux arm64. O Docker funcionou nesta rodada como fixture SSH exclusivo e não conta como aceitação de transporte Docker; WSL／Windows／Linux cliente e celular físico não foram executados. O portão de capacidades da camada compartilhada Web／celular mantém a regressão de UI, e a regressão compartilhada de celular integrada é registrada pela tarefa matriz.
+- A seleção de múltiplos projetos, a criação／restauração de zero itens e a continuação explícita em segundo plano são assumidas por #24／#25／#26. O candidato continua pending, sem alegar revisão manual, formal ou admissão em CI.
 
-- 必要代码检查：`pnpm typecheck`、`pnpm lint`（209 条既有 warning，0 error）、`pnpm architecture:check --changed`（0 violation）、候选 fixture check、diff 与格式自检通过。受影响范围为 607/2615 文件：606 文件先通过；新增的提交／渲染间隙断言在旧组件已加载的在途测试中失败，修正后只复跑该文件 16/16 通过。合并结果为 6841 个测试通过、1 个既有 skip；未扩大全量。
+- Checagens de código necessárias: `pnpm typecheck`, `pnpm lint` (209 warnings já existentes, 0 error), `pnpm architecture:check --changed` (0 violation), checagem de fixture do candidato, e diff e verificação de formatação aprovados. O escopo afetado foi de 607/2615 arquivos: 606 arquivos passaram primeiro; as novas asserções do intervalo entre submissão／renderização falharam em um teste em trânsito com o componente antigo já carregado e, depois da correção, apenas aquele arquivo foi reexecutado com 16/16 aprovados. O resultado da mesclagem foi de 6841 testes aprovados e 1 skip já existente; não foi ampliado para a suíte completa.

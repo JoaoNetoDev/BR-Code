@@ -1,28 +1,30 @@
-# Installing zcode-cua on Linux
+# Instalando o zcode-cua no Linux
 
-> DEPRECATED. The Python MCP server that lived in this repo is **removed**. The
-> canonical CUA MCP tool is now the TypeScript package **@zcode/zcode-cua**
-> (npm). This document described the old `uvx --from zcode-cua[linux]@<wheel>
-> zcode-cua` install path plus the `scripts/zcode-cua-linux` distro-`pyatspi`
-> launcher — all of which targeted the removed Python server and no longer apply.
+> DEPRECADO. O servidor MCP em Python que ficava neste repositório foi
+> **removido**. A ferramenta MCP canônica de CUA agora é o pacote TypeScript
+> **@zcode/zcode-cua** (npm). Este documento descrevia o caminho de instalação
+> antigo `uvx --from zcode-cua[linux]@<wheel> zcode-cua` e o launcher de distro
+> `scripts/zcode-cua-linux` baseado em `pyatspi` — todos eles voltados para o
+> servidor Python removido e que não se aplicam mais.
 
-Install the canonical tool from npm:
+Instale a ferramenta canônica pelo npm:
 
 ```bash
 npm install @zcode/zcode-cua
-# or, without installing:
+# ou, sem instalar:
 npx @zcode/zcode-cua
 ```
 
-Source and the Linux/AT-SPI backend live in the z-code repo:
+O código-fonte e o backend Linux/AT-SPI ficam no repositório z-code:
 [git.example.invalid/codegeex/z-code](https://git.example.invalid/codegeex/z-code)
-→ package [@zcode/zcode-cua](https://www.npmjs.com/package/@zcode/zcode-cua).
+→ pacote [@zcode/zcode-cua](https://www.npmjs.com/package/@zcode/zcode-cua).
 
-What this repo still hosts (the real-model act-verify harness, the canonical
-skill, screenshot-pipeline parity fixtures) is described in the top-level
-`README.md`. The earlier Python-server Linux install guide is preserved in the
-git history of this repo (see the commit prior to `refactor/deprecate-python`).
+O que este repositório ainda hospeda (o harness act-verify de modelo real, a
+skill canônica, os fixtures de paridade do pipeline de screenshot) está
+descrito no `README.md` de nível superior. O guia anterior de instalação do
+servidor Python no Linux está preservado no histórico git deste repositório
+(veja o commit anterior a `refactor/deprecate-python`).
 
-For background on the TypeScript rewrite and this deprecation, see the Feishu
-design doc:
+Para o contexto da reescrita em TypeScript e desta depreciação, veja o documento
+de design no Feishu:
 [BE9UdI4zMo4HjRx4659cTHOnn9f](https://internal-docs.example.invalid/redacted).

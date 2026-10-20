@@ -1,30 +1,43 @@
-# 自动重连执行三次，但项目页不显示重试进度
+# A reconexão automática é executada três vezes, mas a página do projeto não exibe o progresso das tentativas
 
 Status: ready-for-human
 
-业务基线 `d31e735905cf744e75a0a93548a80acabe871ae5`，测试补丁 07。
-批次 `r3-server-20261011125749338-152f05` 的 `retry-budget` 在 122.7 秒失败。
-真实 TCP gate 中断连接并拒绝后续连接；`retry-budget.json` 记录拒绝次数为 3，
-整个重试期间的 DOM MutationObserver 没有观察到任何 `1/3`、`2/3`、`3/3`。
-项目最终已处于 offline，并显示连接错误入口。
+Baseline de negócio `d31e735905cf744e75a0a93548a80acabe871ae5`, patch de teste 07.
+O `retry-budget` do lote `r3-server-20261011125749338-152f05` falhou em 122.7 segundos.
+O gate TCP real interrompeu a conexão e recusou as conexões seguintes; o `retry-budget.json`
+registrou 3 recusas, e o MutationObserver do DOM não observou nenhum `1/3`, `2/3`, `3/3` durante
+toda a janela de retry.
+Ao final, o projeto já estava em offline e exibia a entrada de erro de conexão.
 
 ```text
-真实断线 → 三次 TCP 重连均被拒绝 → offline + 错误入口
-  └─ 页面观察：进度计数始终为空
+Queda real → as três reconexões TCP foram recusadas → offline + entrada de erro
+  └─ observação da página: o contador de progresso permaneceu sempre vazio
 ```
 
-[连接展示验收](../remote-connection-ux/12-sidebar-header-and-menus.md) 要求展示“自动恢复 2/3”
-这样的进度。当前 `ProjectConnectionStatus` 只接收 connecting/error/logs，连接中仅显示 spinner；
-`RemoteConversationBanner` 虽获取 presentation，却没有渲染其中的 recovery 计数。
-本次只确认项目/会话页面缺少进度，不声称设置页也没有，更不把它误报为后台没执行重试。
+A [aceitação de exibição da conexão](../remote-connection-ux/12-sidebar-header-and-menus.md) exige
+exibir um progresso como “自动恢复 2/3”. Atualmente `ProjectConnectionStatus` recebe apenas
+connecting/error/logs, e durante a conexão exibe somente o spinner;
+`RemoteConversationBanner`, embora obtenha a presentation, não renderiza a contagem de recovery
+contida nela.
+Desta vez confirmamos apenas que as páginas de projeto/sessão não têm progresso; não afirmamos que a
+página de configurações também não tenha, e muito menos reportamos isso como "o retry não foi
+executado em segundo plano".
 
-本轮保留业务实现。测试将此非前置的展示断言移到场景末尾，保留失败要求，同时继续验证
-网络放通后的静默恢复与手动接管。补丁 08 的批次 `r3-server-20261011143037600-31012b`
-已完成这两段：静默恢复和手动接管分别获得不同的新 session，Host 数量保持；最后仍因
-displayedAttempts=[] 失败（276.8 秒）。因此当前剩余缺陷是可见进度，后台恢复路径已有独立通过证据。
+Nesta rodada a implementação de negócio foi preservada. O teste moveu esta asserção de exibição,
+não pré-requisito, para o final do cenário, mantendo a exigência de falha e continuando a validar a
+recuperação silenciosa após a liberação da rede e a tomada de controle manual. O lote
+`r3-server-20261011143037600-31012b` do patch 08 concluiu essas duas etapas: a recuperação
+silenciosa e a tomada manual de controle receberam sessions diferentes, e a contagem de Hosts foi
+mantida; ainda assim a execução falhou ao final por causa de displayedAttempts=[] (276.8 segundos).
+Portanto, o defeito remanescente é a visibilidade do progresso; o caminho de recuperação em
+segundo plano já tem evidência independente de aprovação.
 
-证据：上述批次 `retry-budget` 的 `retry-budget.json`、run log 和失败录像。
+Evidências: o `retry-budget.json` do lote `retry-budget` acima, o run log e o vídeo de falha.
 
-2026-10-15 进展：项目行远程身份详情顶部新增连接进度区，读取状态注册表的 `recoveryAttempt/Limit` 显示“自动恢复 n/3”。
-`retry-budget` 改为连接中打开详情并保持到终态，`hovercard-retry-20261015-r3` 观察到 `displayedAttempts=[1,2,3]` 并 PASS。
-项目行本身按已确认设计只显示“连接中”，不常驻计数；会话横幅仍未渲染 recovery 计数，是否补充待人工确认。
+Progresso de 2026-10-15: a linha do projeto recebeu, no topo dos detalhes de identidade remota, uma
+área de progresso de conexão que lê `recoveryAttempt/Limit` do registro de estado e exibe
+“自动恢复 n/3”. O `retry-budget` passou a abrir os detalhes durante a conexão e a mantê-los até o
+estado final; o `hovercard-retry-20261015-r3` observou `displayedAttempts=[1,2,3]` e passou com PASS.
+A própria linha do projeto, conforme o design já confirmado, exibe apenas “连接中”, sem contador
+permanente; a faixa da sessão ainda não renderiza a contagem de recovery, e se ela deve ser incluída
+permanece pendente de confirmação humana.

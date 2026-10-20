@@ -1,87 +1,89 @@
-# 维护范围与原则
+# Escopo e princípios de manutenção
 
-## 主流范围怎样确定
+## Como o escopo mainstream é determinado
 
-覆盖目标是用户实际需要的主流供应商与主流编程、Agent 模型，不是照抄某个平台的全量目录，也不是永久固定少数品牌。
+O objetivo de cobertura são os fornecedores mainstream e os modelos mainstream de programação e de Agent que os usuários realmente precisam, e não copiar o catálogo completo de alguma plataforma nem fixar permanentemente poucas marcas.
 
-评估一个供应商或模型时，记录以下依据：
+Ao avaliar um fornecedor ou um modelo, registre os seguintes fundamentos:
 
-1. 产品相关性：代码、推理、工具调用、多轮 Agent 或必要多模态输入，是否适合当前执行链。
-2. 需求：用户反馈、已有使用、明确接入需求；新闻热度和榜单只提供线索，不单独决定准入。
-3. 可获得性：有可用 API 产品、合法模型 ID、可取得的凭据及明确地区/套餐要求；聊天网页可用不等于 API 可用。
-4. 维护成本：协议、工具循环、流式响应和认证能否由现有能力可靠表达；是否有持续维护者和验证资源。
-5. 生命周期：正式、预览、别名、退役日期、替代型号及接口变更。不能仅按版本号新旧删除模型。
+1. Relevância para o produto: código, raciocínio, chamada de ferramentas, Agent de múltiplas rodadas ou entrada multimodal necessária — é adequado à cadeia de execução atual?
+2. Demanda: retorno dos usuários, uso existente, necessidade explícita de integração; a repercussão em notícias e as listas de classificação servem apenas de pistas e não decidem a entrada sozinhos.
+3. Disponibilidade: existe um produto de API utilizável, um ID de modelo legal, credenciais obteníveis e requisitos explícitos de região/plano; um chat web disponível não significa uma API disponível.
+4. Custo de manutenção: o protocolo, o loop de ferramentas, a resposta em streaming e a autenticação podem ser expressos de forma confiável pelas capacidades atuais; existe mantenedor contínuo e recurso de validação?
+5. Ciclo de vida: status oficial, preview, apelido, data de descontinuação, modelos substitutos e mudanças de interface. Não se pode remover um modelo apenas com base na idade do número de versão.
 
-## 新增与既有变更的授权边界
+<a id="新增与既有变更的授权边界"></a>
 
-2026-10-14 确认：**符合既定范围、现有协议与验证要求的新增项，维护者可直接研究、补 spec/测试、实现和提交 MR，不逐个请求产品批准；修改或删除已有配置，先向人说明方案并讨论确认，再执行。** 这项授权不等于可以发布、付费调用或改变用户配置。
+## Limites de autorização para novas adições e mudanças existentes
 
-| 动作                                                                          | 处理方式                                                                                          |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 新增模板、新模型成员及仅作用于新增身份的规则                                  | 资料和协议证据充分即可推进；缺真实 Key 验证时默认关闭并明确待验证，不因此停止所有可完成的准备工作 |
-| 调整已有模型能力、思考值/Map、默认启停、排序，修改既有 URL、Access 或模板身份 | 先列出现状、拟改值、理由、受影响入口/用户及兼容方案，讨论确认后实施                               |
-| 删除、降级、停用、替换模型或模板                                              | 同上；官方退役公告和目录缺项是讨论证据，不是自动执行授权                                          |
-| 新增宽规则，但会命中已有模型或其他入口                                        | 按已有变更处理，不能用“只是追加 JSON”绕过讨论；先比较旧成员的解析结果                             |
-| 为新增项递增 revision、派生测试配置、更新库存和维护文档                       | 属于新增工作的必要配套，可直接完成；不得夹带其他配置修改                                          |
+Confirmado em 2026-10-14: **as novas adições que estão de acordo com o escopo estabelecido, com o protocolo atual e com os requisitos de validação podem ser pesquisadas, especificadas/testadas, implementadas e submetidas em MR diretamente pelo mantenedor, sem pedir aprovação de produto item a item; modificações ou remoções de configurações existentes exigem antes explicar o plano a uma pessoa e discuti-lo até a confirmação, e só então executar.** Essa autorização não equivale a poder publicar, fazer chamadas pagas ou alterar a configuração do usuário.
 
-讨论以具体的前后差异为单位；授权范围已清楚时不重复询问。研究和缺口记录可以继续推进，未确认的已有变更单独列为待讨论，不阻塞独立新增项。缺 Key 的状态与是否已获准新增分别记录。
+| Ação                                                                               | Tratamento                                                                                                                                             |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Adicionar template, novo membro de modelo e regras que afetam apenas identidades novas | Pode avançar com evidência suficiente de material e protocolo; na falta de uma Key real para validação, desabilitar por padrão e marcar explicitamente como pendente de validação, sem parar por isso todo o trabalho preparatório que pode ser concluído |
+| Ajustar as capacidades de um modelo existente, os valores de raciocínio/Map, a habilitação/desabilitação padrão, a ordenação, ou modificar URL, Access ou identidade de template já existentes | Listar primeiro o estado atual, os valores propostos, o motivo, as entradas/usuários afetados e a solução de compatibilidade; implementar após a confirmação da discussão |
+| Remover, rebaixar, desabilitar, substituir um modelo ou template                        | O mesmo; o anúncio oficial de descontinuação e a ausência no catálogo são evidência para a discussão, não autorização automática de execução |
+| Adicionar uma regra ampla, que vá atingir modelos existentes ou outras entradas        | Tratar como mudança existente; não contornar a discussão com "é só acrescentar JSON" — comparar antes os resultados de resolução dos membros antigos |
+| Incrementar a revision para as novas adições, derivar a configuração de teste, atualizar o inventário e a documentação de manutenção | Parte necessária do trabalho de adição, pode ser concluída diretamente; não deve embutir outras mudanças de configuração |
 
-2026-10-15 补充确认：**需要额外接入适配的都先不接；现有执行链能够直接支持的供应商、产品入口和模型均可推进，不再逐项请求接入批准。** 批次只表示实施顺序，不能把“随后”或“按需求”误读为尚未授权。判断单位仍是具体产品入口、模型和协议，不按品牌一概允许或排除。
+A discussão é feita por diferenças concretas antes/depois; quando o escopo da autorização já está claro, não se pergunta de novo. A pesquisa e o registro de lacunas podem continuar avançando, e as mudanças existentes não confirmadas são listadas separadamente como pendentes de discussão, sem bloquear as adições novas e independentes. O estado de ausência de Key e a autorização de nova adição são registrados separadamente.
 
-短期只使用 `anthropic-messages`、`openai-chat-completions`、`openai-responses` 三种现有 API type。新增模板、成员、能力字段和现有 CEL Option Map 中的参数映射属于配置维护；新增协议或认证方式、动态凭据/Header、请求编码、响应流或历史转换，以及为兼容性新增/升级 SDK，都属于额外适配，本轮暂缓。常规测试、文档、Logo 和名称维护不属于协议适配。
+Complementar confirmado em 2026-10-15: **tudo o que exigir uma adaptação de integração adicional fica adiado; os fornecedores, as entradas de produto e os modelos que a cadeia de execução atual consegue suportar diretamente podem avançar, sem pedir aprovação de integração item a item.** Lotes indicam apenas a ordem de implementação, e não se deve ler "em seguida" ou "conforme a demanda" como se ainda não houvesse autorização. A unidade de julgamento continua sendo a entrada de produto, o modelo e o protocolo específicos, e não a marca como um todo.
 
-Google 原生 Gemini API 暂缓；官方 Chat 兼容入口和聚合入口若能证明现有执行链无需改动即可支持，也可按新增原则推进，不能将其描述成原生协议支持。Mistral 需要响应/历史块转换的路径、需要认证刷新的云入口、需要新增会话 Header 接线的路径同样暂缓；记录缺口即可，不在这轮扩展中顺带开发适配。官方有兼容端点不代表工具循环已通过；资料、Key 验证和默认启用要求不变，已有配置保持原样。
+No curto prazo, são usados apenas os três API type existentes: `anthropic-messages`, `openai-chat-completions` e `openai-responses`. Adicionar templates, membros, campos de capacidade e o mapeamento de parâmetros no Option Map existente é manutenção de configuração; adicionar protocolos ou métodos de autenticação, credenciais/Headers dinâmicos, codificação de requisição, fluxo de resposta ou conversão de histórico, além de adicionar/upgradear SDK por compatibilidade, é adaptação adicional e fica adiado nesta rodada. Testes de rotina, documentação, Logo e manutenção de nomes não são adaptação de protocolo.
 
-新增原则在形成结论的同一轮更新本目录：范围写入本页，流程同步到维护工作流，具体候选/例外更新扩展计划；不能只留在聊天或 MR 评论。
+A API Gemini nativa do Google fica adiada; a entrada oficial compatível e as entradas agregadas podem avançar conforme o princípio de adição caso se prove que a cadeia de execução atual não precisa de mudanças, e não podem ser descritas como suporte a protocolo nativo. A Mistral também fica adiada nos caminhos que exigem conversão de blocos de resposta/histórico, nas entradas em nuvem que exigem renovação de autenticação e nos caminhos que exigem nova fiação de Header de sessão; basta registrar a lacuna, sem desenvolver a adaptação junto desta rodada de expansão. O fato de o oficial ter um endpoint compatível não significa que o loop de ferramentas já passou; os requisitos de material, validação com Key e habilitação padrão permanecem iguais, e as configurações existentes ficam como estão.
 
-## 三类清单
+No mesmo turno em que a conclusão é formada, o princípio de adição é atualizado neste diretório: o escopo entra nesta página, o processo é sincronizado com o fluxo de manutenção, os candidatos/exceções concretos atualizam o plano de expansão; não pode ficar só no chat ou em comentários de MR.
 
-| 清单       | 含义                                         | 如何进入配置                                         |
-| ---------- | -------------------------------------------- | ---------------------------------------------------- |
-| 已维护     | 当前 JSON 中的模板及模型成员                 | 见[当前状态](./current-state.md)，不代表本轮全部实测 |
-| 持续观察   | 主流供应商新型号、已有入口缺项、潜在新供应商 | 收集证据、验证并单独提交配置 MR                      |
-| 待能力设计 | 新协议、云凭据、部署身份等超出现有合同       | 本轮暂缓并记录缺口；后续单独确认，不用伪兼容配置绕过 |
+## As três listas
 
-已有覆盖包括 Z.AI、BigModel、Kimi、MiniMax、DeepSeek、Qwen、MiMo、OpenAI、Anthropic、xAI，以及 OpenRouter、OpenCode Go/Zen。具体入口与型号以当前状态和 JSON 为准。
+| Lista                | Significado                                        | Como entra na configuração                                                                          |
+| -------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Mantida              | Templates e membros de modelo do JSON atual         | Ver [Estado atual](./current-state.md); não significa que tudo foi testado nesta rodada             |
+| Em observação        | Novos modelos de fornecedores mainstream, lacunas em entradas existentes, possíveis novos fornecedores | Coletar evidências, validar e submeter um MR de configuração separadamente           |
+| Aguardando design de capacidade | Novos protocolos, credenciais de nuvem, identidades de deploy, etc., além do contrato atual | Adiados nesta rodada com a lacuna registrada; confirmados separadamente mais adiante, sem contornar com configuração de compatibilidade falsa |
 
-扩展观察范围包括 Google Gemini、Mistral、腾讯 TokenHub、Volcano Ark、StepFun、SiliconFlow，以及 Azure、AWS Bedrock 等云入口；这不是所有候选均已满足接入条件的清单；符合上述新增原则的项无需逐个重新批准。当前证据、具体型号、优先级和未验证条件见[扩展计划](./expansion-plan.md)。Google 原生协议与 Vertex、云平台凭据/部署名等分别评估；兼容 API、原生协议与云身份认证不能混为一个结论。
+A cobertura existente inclui Z.AI, BigModel, Kimi, MiniMax, DeepSeek, Qwen, MiMo, OpenAI, Anthropic, xAI, além de OpenRouter e OpenCode Go/Zen. As entradas e os modelos concretos são os do estado atual e do JSON.
 
-云入口调查必须先明确实际产品路径，再决定能否用普通模板表达。2026-10-14 已核对以下官方合同，真实凭据与执行链尚未验证；证据链接和候选在扩展计划内：
+O escopo de observação da expansão inclui Google Gemini, Mistral, Tencent TokenHub, Volcano Ark, StepFun, SiliconFlow e entradas em nuvem como Azure e AWS Bedrock; esta não é a lista de todos os candidatos que já atendem às condições de integração; os itens de acordo com o princípio de adição acima não precisam de nova aprovação item a item. As evidências atuais, os modelos concretos, a prioridade e as condições não verificadas estão no [Plano de expansão](./expansion-plan.md). O protocolo nativo do Google e o Vertex, as credenciais de plataforma em nuvem/nomes de deploy, etc. são avaliados separadamente; API compatível, protocolo nativo e autenticação por identidade em nuvem não podem ser fundidos em uma única conclusão.
 
-- Azure：v1 的 API Key 路径可使用兼容客户端，不需日期式 API version；仍须验证资源 URL、Deployment 与模型能力的关系。需要新增 Entra 身份或自动刷新适配的路径本轮暂缓。
-- Volcano Ark：普通 API、Coding Plan、Agent Plan 的 Key、端点、Model / Endpoint ID 分开确认；套餐型号不能直接当普通 API 身份。
-- AWS Bedrock：先区分 API Key + Responses 兼容路径与 IAM / 签名路径。前者不自动要求新协议；Region、runtime / mantle、Profile ID 和权限仍要验证。需要凭据刷新等现有 Access 不具备的能力时本轮暂缓。
-- Gemini/Vertex：原生与兼容协议分别验证；模型能力、工具编码、认证和产品入口不能互相代证。原生协议尚未接入，不意味着停止观察其模型变化。
+A investigação de entradas em nuvem precisa primeiro esclarecer o caminho real de produto, para só então decidir se dá para expressar com um template comum. Em 2026-10-14, os seguintes contratos oficiais foram conferidos, mas as credenciais reais e a cadeia de execução ainda não foram validadas; os links de evidência e os candidatos estão no plano de expansão:
 
-## 维护等级与默认启用
+- Azure: o caminho de API Key da v1 pode usar um cliente compatível e não exige a api-version em formato de data; ainda é preciso verificar a relação entre URL do recurso, Deployment e capacidade do modelo. Caminhos que exigem nova identidade Entra ou adaptação de renovação automática ficam adiados nesta rodada.
+- Volcano Ark: Key, endpoint e Model / Endpoint ID da API comum, do Coding Plan e do Agent Plan são confirmados separadamente; um modelo de plano não pode ser usado diretamente como identidade da API comum.
+- AWS Bedrock: primeiro distinguir o caminho de API Key + Responses compatível do caminho IAM / assinatura. O primeiro não exige automaticamente um novo protocolo; Region, runtime / mantle, Profile ID e permissões ainda precisam ser validados. Quando for necessária uma capacidade que o Access atual não tem, como renovação de credenciais, a item fica adiado nesta rodada.
+- Gemini/Vertex: protocolo nativo e protocolo compatível são validados separadamente; capacidade do modelo, codificação de ferramentas, autenticação e entrada de produto não se validam uns pelos outros. O protocolo nativo ainda não foi integrado, o que não significa parar de observar as mudanças de seus modelos.
 
-- **重点维护**：当前主推且适合 Agent 的模型，通常默认启用；同时考虑能力、速度、成本与稳定性，不机械地只选最大模型。
-- **一般维护**：官方入口仍接受且有使用价值的其他型号，通常默认关闭，允许用户选择。
-- **观察/待验证**：先留记录；新增默认启用必须有对应入口的验证证据，不能因免费、热门或新闻宣布就自动加入。
-- **退出维护**：明确退役、实际入口不再接受，或经产品确认移出范围；记录原因与替代方案。
+## Níveis de manutenção e habilitação padrão
 
-这是维护原则。当前已有默认启停存在历史差异，见当前状态；改变现有值属于配置行为变更，需在对应 MR 明确说明。
+- **Manutenção prioritária**: modelos atualmente promovidos e adequados ao Agent, normalmente habilitados por padrão; considera-se capacidade, velocidade, custo e estabilidade, sem escolher mecanicamente só o modelo maior.
+- **Manutenção geral**: os demais modelos ainda aceitos pela entrada oficial e com valor de uso, normalmente desabilitados por padrão, permitindo que o usuário escolha.
+- **Observação/pendente de validação**: registrar primeiro; a nova habilitação padrão exige evidência de validação da entrada correspondente, e um item não entra automaticamente por ser gratuito, popular ou anunciado em notícias.
+- **Fora de manutenção**: descontinuação explícita, entrada que não aceita mais o modelo de fato, ou remoção do escopo confirmada pelo produto; registrar o motivo e a alternativa.
 
-默认启停写在 `templateModelRules`，不是按 UI 名称推断。模板成员、默认启停、能力规则三者分别审查。重点转一般维护不等于删除；模板移除也不等于删除用户自定义模型或历史选择。
+Estes são os princípios de manutenção. Os padrões de habilitação e desabilitação atuais já existentes têm diferenças históricas, que estão no estado atual; alterar um valor existente é mudança de comportamento de configuração e precisa ser explicada no MR correspondente.
 
-## 产品入口与协议
+A habilitação e desabilitação padrão ficam em `templateModelRules`, e não são inferidas pelo nome na UI. Membros de template, habilitação/desabilitação padrão e regras de capacidade são revisados separadamente. Passar de manutenção prioritária para geral não equivale a remover; remover um template também não equivale a remover modelos personalizados do usuário nem escolhas históricas.
 
-- 普通 API、Coding Plan、Token Plan 的端点或凭据不同，就按产品入口区分模板。地区只有在实际配置/产品要求不同且无法由现有模板清楚表达时才拆分。
-- 沿用既定原则：官方模板优先使用已经验证支持的 Anthropic Messages；不支持时使用该入口实际支持且验证充分的其他协议。不是要求迁移现有 Responses/Chat 模板。
-- 一个模板只有一个 `api.type`。同站点不同模型需要不同协议时，沿现有方式拆模板，不能把不兼容模型放入同一模板后在 Runtime 猜协议。
-- `templateId` 稳定，实例 `providerId` 独立。修改模板不应重命名用户实例、覆盖用户地址或重写已保存选择。
-- 能力依据官方型号及协议，不能为落后的第三方代理降低全部同型号模型的能力。已知站点差异放 Site 规则；用户自己的代理限制由精确个人覆盖表达。
+## Entradas de produto e protocolos
 
-## 聚合服务商
+- Se a API comum, o Coding Plan e o Token Plan tiverem endpoints ou credenciais diferentes, o template é separado por entrada de produto. A região só é separada quando a configuração/produto realmente exigir algo diferente e isso não puder ser expresso claramente por um template existente.
+- Segue-se o princípio estabelecido: o template oficial prioriza o Anthropic Messages já validado e suportado; quando não for suportado, usa-se outro protocolo que aquela entrada realmente suporte e tenha validação suficiente. Isso não é uma exigência de migrar os templates Responses/Chat existentes.
+- Um template tem apenas um `api.type`. Quando modelos diferentes do mesmo site exigirem protocolos diferentes, o template é dividido da forma já existente; não se pode colocar modelos incompatíveis no mesmo template e deixar o Runtime adivinhar o protocolo.
+- `templateId` é estável e o `providerId` da instância é independente. Modificar um template não deve renomear instâncias do usuário, sobrescrever endereços do usuário nem reescrever escolhas já salvas.
+- As capacidades se baseiam nos modelos e protocolos oficiais; não se pode rebaixar a capacidade de todos os modelos de um mesmo tipo por causa de um proxy de terceiros atrasado. Diferenças conhecidas de site vão para as regras de Site; limitações do proxy do próprio usuário são expressas por uma sobrescrita pessoal precisa.
 
-OpenRouter 的目标范围是“已维护的上游模型”与“该入口实际提供且可用的模型”的交集。不要复制全部动态目录，也不要只覆盖少数品牌；每个纳入的上游品牌应有合适的重点模型，其余按维护等级选择。
+## Provedores agregadores
 
-OpenCode Go 与 Zen 是不同产品目录，分别核实模型权限、端点和协议。已有三协议模板应继续分开维护；不能把 Zen 返回的 ID 或权益当作 Go 的证据。其他聚合服务商接入时重新明确范围，不能照搬某家的目录结构。
+O escopo-alvo do OpenRouter é a interseção entre "os upstreams já mantidos" e "os modelos que essa entrada realmente oferece e que estão disponíveis". Não se copia o catálogo dinâmico completo, nem se cobre apenas poucas marcas; cada marca upstream incluída deve ter um modelo em foco adequado, e o restante é selecionado pelo nível de manutenção.
 
-聚合模型 ID 原样保存，包括供应商前缀、大小写和有实际路由意义的后缀。不得运行时统一剥前缀。批处理、图像生成、Embedding、TTS、专用补全等不能仅因出现在 Models API 就加入当前对话/Agent 模板；需要对应产品执行能力。
+OpenCode Go e Zen são catálogos de produtos diferentes, e as permissões de modelo, os endpoints e os protocolos são verificados separadamente. Os templates de três protocolos existentes devem continuar mantidos separadamente; não se pode tomar os IDs ou as entitlements devolvidos pelo Zen como evidência do Go. Ao integrar outro provedor agregador, o escopo é definido de novo, sem copiar a estrutura de catálogo de ninguém.
 
-## 移除与兼容
+Os IDs de modelos agregados são preservados como são, incluindo prefixo de fornecedor, maiúsculas/minúsculas e sufixos com significado real de roteamento. Não se pode remover prefixos de forma padronizada em runtime. Batch, geração de imagem, Embedding, TTS, completion especializado etc. não entram nos templates de conversa/Agent só por aparecerem na Models API; é preciso a capacidade de execução do produto correspondente.
 
-先核对官方退役/别名路由变化，再区分移除成员、关闭默认启用、删除能力规则、迁移身份四种动作。通用规则可能仍供其他模板或用户自定义模型使用；脱离静态成员的精确规则也可能作用于个人新增同 ID 模型，不能仅做集合差集就删除。
+## Remoção e compatibilidade
 
-已保存的型号或思考档位失效时沿既有选择校验处理，不静默替换成新模型或最高档。任何自动迁移都需要独立、明确的产品决定及回归证据。
+Primeiro, conferir as mudanças oficiais de descontinuação/roteamento de apelidos, e então distinguir as quatro ações: remover membro, desabilitar a habilitação padrão, remover regra de capacidade e migrar identidade. Uma regra genérica ainda pode servir a outros templates ou a modelos personalizados do usuário; uma regra precisa que se desvinculou dos membros estáticos também pode valer para um modelo pessoal adicionado com o mesmo ID, e não se pode removê-la fazendo apenas a diferença de conjuntos.
+
+Quando um modelo ou um nível de raciocínio salvo deixa de ser válido, o tratamento segue a validação de escolhas já existente, sem substituição silenciosa por um modelo novo ou pelo nível mais alto. Qualquer migração automática exige uma decisão de produto separada e explícita, com evidência de regressão.

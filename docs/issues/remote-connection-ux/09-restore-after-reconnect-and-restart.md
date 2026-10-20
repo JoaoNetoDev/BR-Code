@@ -1,48 +1,48 @@
-# 09 — 重连或重启后回到原处
+# 09 — Voltar ao ponto de origem após reconexão ou reinício
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Spec pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：** [08 — 断线体验与原地重连](./08-disconnect-experience-and-in-place-reconnect.md)。挂回完成前显示的占位和横幅由 08 提供。
+**Bloqueado por:** [08 — Experiência de desconexão e reconexão no lugar](./08-disconnect-experience-and-in-place-reconnect.md). O placeholder e o banner exibidos até a conclusão do reattach são fornecidos pela 08.
 
-**要交付的行为：**
+**Comportamentos a entregar:**
 
-- **重连后**：回到断开前正在看的会话。如果那个会话已经不存在，就打开该项目的新任务页。
-- **重启应用后**：恢复上次激活的项目和会话。
-  - 远程项目挂回完成之前，只显示"连接中"的占位。
-  - 如果挂回最终是"未连接"或"失败"，就停留在这个页签上并显示横幅，不自动跳到本地项目。
-- **影响范围**：这些改动只作用于桌面端的持续恢复（continuous），手机端的可重放恢复（replayable）保持不变。
+- **Após a reconexão**: voltar para a sessão que estava sendo vista antes da desconexão. Se essa sessão já não existir, abrir a página de novas tarefas do projeto.
+- **Após reiniciar o aplicativo**: restaurar o último projeto e a última sessão ativados.
+  - Antes da conclusão do reattach do projeto remoto, apenas exibir o placeholder "Conectando".
+  - Se o reattach terminar como "não conectado" ou "falha", permanecer nesta aba e exibir o banner, sem pular automaticamente para o projeto local.
+- **Escopo de impacto**: essas alterações afetam apenas a recuperação contínua (continuous) do desktop; a recuperação reproduzível (replayable) do celular permanece inalterada.
 
-对应父规格「重连与恢复」一节中的"回到原处"部分和时序图。
+Isso corresponde à parte "voltar ao ponto de origem" e ao diagrama de sequência da seção "Reconexão e recuperação" da spec pai.
 
-范围：
+Escopo:
 
-- **恢复目标由谁负责**：复用已有的页签持久化来记录恢复目标，不新增 owner。
-- **挂回门禁**：规则不放宽，挂回完成前不渲染任何远端会话内容。
-- **动手前**：先核对 [Renderer 挂回门禁文档](../../remote/desktop-remote-session-renderer-reattach.md)，再把时序图、owner 和事件顺序写进 [导航规格](../../remote/project-first-remote-navigation-spec.md)。
+- **Quem é responsável pelo alvo de recuperação**: reaproveitar a persistência de abas já existente para registrar o alvo de recuperação, sem criar um novo owner.
+- **Gate de reattach**: as regras não são afrouxadas; nenhum conteúdo de sessão remota é renderizado antes da conclusão do reattach.
+- **Antes de mexer**: conferir primeiro o [documento do gate de reattach do Renderer](../../remote/desktop-remote-session-renderer-reattach.md) e depois escrever o diagrama de sequência, o owner e a ordem dos eventos na [spec de navegação](../../remote/project-first-remote-navigation-spec.md).
 
-验收标准：
+Critérios de aceite:
 
-- [x] 导航规格已写入时序图、恢复目标的 owner 和事件顺序，并与挂回门禁文档一致。
-- [x] 重连后回到原会话；原会话已不存在时，打开该项目的新任务页。需要有页签持久化测试和 E2E 覆盖。
-- [x] 重启后恢复上次激活的远程项目和会话；挂回完成前只渲染占位。需要有挂回测试，并覆盖 E2E 的冷启动重连用例。
-- [x] 挂回失败时停留在原页签并显示横幅，不会自动跳到本地项目。
-- [x] 回归桌面持续恢复和手机可重放两条恢复路径，手机远控的现有测试全部通过。
-- [x] 以下检查全部通过后在本地提交：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 E2E。
+- [x] A spec de navegação contém o diagrama de sequência, o owner do alvo de recuperação e a ordem dos eventos, e está consistente com o documento do gate de reattach.
+- [x] Após a reconexão, volta-se à sessão original; quando a sessão original já não existe, abre-se a página de novas tarefas do projeto. Precisa de teste de persistência de abas e cobertura de E2E.
+- [x] Após o reinício, restaura-se o último projeto e a última sessão remotos ativados; até a conclusão do reattach, renderiza-se apenas o placeholder. Precisa de teste de reattach e de cobertura de E2E do caso de reconexão em cold start.
+- [x] Quando o reattach falha, permanece-se na aba original e exibe-se o banner, sem pular automaticamente para o projeto local.
+- [x] Regressão das duas rotas de recuperação — desktop continuous e celular replayable —; todos os testes existentes de controle remoto do celular passam.
+- [x] Após a aprovação das verificações abaixo, commit local: `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, testes unitários afetados, E2E afetados.
 
 
-## 实施与验证记录（2026-09-28）
+## Registro de implementação e verificação (2026-09-28)
 
-- 导航恢复继续复用 TabStore 的项目/激活位置与 Layout 既有 pane 选择持久化。冷启动保留原远程焦点；后台补齐与 Source 挂回不抢焦点；原会话已不存在时回到该项目新任务页。
-- 恢复查询只在启动恢复或 attachment 挂回边界读取远端权威 task-index；新任务 ACK 早于索引写入，不参与删除判定。RPC 错误保留目标，导航/attachment 换代取消旧查询。重连携带恢复选择意图，普通目录选择保持原语义。
-- 页签持久化、同路径身份隔离、pane 恢复、查询取消、手机禁用、新建任务索引竞态回归先红后绿；原有 Renderer readiness 测试验证挂回前不挂载远端数据层。本地规范和规格双线评审的问题已修复并复核通过。
-- `pnpm typecheck`、`pnpm lint`（0 错误、64 条既有警告）、`pnpm architecture:check --changed`（0 违规）、E2E 类型检查和两个受影响 fixture 检查通过。
-- 真实 SSH 冷启动 E2E PASS：`r3-server-rdux09-cold-20260928-03`，覆盖原地重连、完整 Electron/Main/Host 重启后原 B 会话、关闭自动重连后的原页签横幅与无远端内容占位、失效会话 ID 的新任务回退。
-- 混合项目恢复 E2E PASS：`r3-server-rdux09-mixed-20260928-01`，覆盖原远程焦点、active-first 补齐、open set 不丢失/不重复、siblings 独立挂回与原任务续发。
-- 手机真实 relay + SSH E2E PASS：`r3-server-rdux09-mobile-20260928-01`，覆盖桌面 continuous 与手机 replayable 联动恢复；测试页面从当前分支源码构建。均使用 macOS Electron → 本机隔离 Linux Docker SSH 目标，手机为 Chrome viewport，未做实体手机或跨机 WAN 验证。
-- 首轮 SSH 被线上公告阻挡，按录像证据为这两条导航用例接入既有账号 mock；第二轮首发暴露新任务索引时序问题，已由回归测试和后续真实 SSH PASS 验证修复。全量单测初次与构建并发因内存压力主动中止，最终单独运行，不将中止计为通过。
-- E2E 继续保留 manual-review/pending，未进行人工转正或 Docker CI 准入。
+- A recuperação de navegação continua reaproveitando a posição de projeto/ativação do TabStore e a persistência existente da seleção de pane do Layout. O cold start preserva o foco remoto original; o preenchimento em background e o reattach da Source não disputam o foco; quando a sessão original já não existe, volta-se à página de novas tarefas do projeto.
+- A consulta de recuperação lê o task-index autoritativo remoto apenas na restauração de inicialização ou no limite de reattach do attachment; o ACK de nova tarefa chega antes da escrita do índice e não participa da decisão de remoção. Erros de RPC preservam o alvo; a troca de geração de navegação/attachment cancela a consulta antiga. A reconexão carrega a intenção de seleção de recuperação; a seleção comum de diretório mantém a semântica original.
+- Persistência de abas, isolamento de identidade pelo mesmo caminho, restauração de pane, cancelamento de consulta, desabilitação no celular e regressão da corrida de índice de nova tarefa: primero vermelho, depois verde; os testes existentes de readiness do Renderer verificam que a camada de dados remota não é montada antes do reattach. Os problemas levantados na revisão dupla de spec e especificação local foram corrigidos e reconferidos.
+- `pnpm typecheck`, `pnpm lint` (0 erros, 64 avisos preexistentes), `pnpm architecture:check --changed` (0 violações), verificação de tipos do E2E e verificação dos dois fixtures afetados passaram.
+- E2E real de cold start via SSH PASS: `r3-server-rdux09-cold-20260928-03`, cobrindo reconexão no lugar, sessão B original após reinício completo de Electron/Main/Host, banner na aba original e placeholder sem conteúdo remoto com a reconexão automática desativada, e fallback para nova tarefa com ID de sessão inválido.
+- E2E de recuperação com projetos mistos PASS: `r3-server-rdux09-mixed-20260928-01`, cobrindo foco remoto original, preenchimento active-first, open set sem perda/duplicação, reattach independente de siblings e retomada da tarefa original.
+- E2E real de relay do celular + SSH PASS: `r3-server-rdux09-mobile-20260928-01`, cobrindo a recuperação conjunta do desktop continuous e do celular replayable; a página de teste foi construída a partir do código-fonte da branch atual. Todos usaram Electron em macOS → alvo SSH em Docker Linux isolado da própria máquina, celular em viewport do Chrome, sem verificação em aparelho físico ou em WAN entre máquinas.
+- A primeira rodada de SSH foi bloqueada por um aviso publicado; com base na evidência de gravação, essas duas cases de navegação passaram a usar o mock de conta já existente. A segunda rodada expôs um problema de timing do índice de nova tarefa, corrigido e verificado por testes de regressão e pelo PASS de SSH real subsequente. A suíte completa de testes unitários foi abortada ativamente na primeira execução por pressão de memória em concorrência com o build; foi executada separadamente depois, e o aborto não foi contabilizado como aprovação.
+- O E2E continua em manual-review/pending, sem promoção manual nem admissão no CI via Docker.
 
-- 完整单测最终完整运行：`ZCODE_TEST_POOL=forks pnpm test:unit --maxWorkers=2 --reporter=dot`，2,031 文件 / 18,683 项通过，2 文件 / 14 项按配置跳过，3 文件 / 25 项失败。22 项因布局测试的旧 mock 缺少新读取的 selector/resolver 接口，补齐后 24 项布局断言通过；另 3 项来自未改动的更新器测试（超时及其后调用次数异常）和 256 MiB slow 上传独立进程测试。最终对全部失败文件和本次改动测试串行复测：7 文件 / 217 项全部通过，未修改更新器或上传实现/测试。没有把全量首次退出码描述为通过；后续只改测试替身，没有再次重复全量。
-- 必要验证、失败项复测与 diff 自检已完成；按实施约定在当前分支本地提交，不推送。
+- Execução final completa da suíte unitária: `ZCODE_TEST_POOL=forks pnpm test:unit --maxWorkers=2 --reporter=dot`, 2.031 arquivos / 18.683 itens aprovados, 2 arquivos / 14 itens ignorados conforme a configuração, 3 arquivos / 25 itens falhando. 22 itens falharam porque os mocks antigos dos testes de layout não tinham as interfaces de selector/resolver recém-lidas; após completá-los, 24 asserções de layout passaram; outros 3 itens vieram dos testes do atualizador não modificados (timeout e contagem de chamadas anormal em seguida) e do teste de upload lento de 256 MiB em processo independente. Por fim, todos os arquivos que falharam e os testes desta alteração foram retestados em série: 7 arquivos / 217 itens, todos aprovados, sem modificar a implementação ou os testes do atualizador e do upload. O código de saída da primeira execução completa não foi descrito como aprovação; depois disso, apenas os dublês de teste foram alterados, sem repetir a execução completa.
+- As verificações necessárias, o reteste dos itens que falharam e a autoinspeção do diff foram concluídos; commit local no branch atual conforme o acordo de implementação, sem push.

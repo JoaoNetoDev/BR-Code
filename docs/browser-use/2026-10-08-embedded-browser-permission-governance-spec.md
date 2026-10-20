@@ -1,72 +1,72 @@
-# 内置浏览器权限治理 Spec
+# Spec de Governança de Permissões do Navegador Integrado
 
-## 背景
+## Contexto
 
-CNVD 报告「ZCode 内置浏览器未授权访问」（中危）：内置浏览器对不可信网页缺少默认拒绝的权限控制，攻击者页面可在无产品弹窗确认的情况下静默获取摄像头/麦克风、剪贴板、地理位置等敏感能力。
+O relatório CNVD `ZCode 内置浏览器未授权访问` (「acesso não autorizado do navegador integrado do ZCode», risco médio): o navegador integrado não tem controle de permissões com negação padrão para páginas não confiáveis; uma página atacante pode obter de forma silenciosa capacidades sensíveis como câmera/microfone, área de transferência e geolocalização, sem nenhum popup de confirmação do produto.
 
-现状核实（2026-10-08）：
+Verificação do estado atual (2026-10-08):
 
-- 内置浏览器为标准 Electron 41 `<webview>`（`packages/ui/src/browser-use/BrowserViewportSurface.tsx:151`），session 为持久分区 `persist:zcode-embedded-browser`（`packages/desktop/src/main/browserDataManager.ts:32`）。
-- 该 partition 未注册任何 `setPermissionRequestHandler` / `setPermissionCheckHandler` / `setDevicePermissionHandler`；`desktopNetworkPolicy.ts` 只覆盖代理与证书。Electron 默认行为是**自动批准所有权限请求**，因此恶意页面 `getUserMedia` / `clipboard.readText` / `geolocation` 等请求被静默放行，无 UI、无日志。
-- 现有加固（`desktopWindowChrome.ts` `will-attach-webview`：sandbox / contextIsolation / URL 协议白名单 / 开窗路由）只做进程隔离，不做能力闸门。插件沙箱 partition 已有权限闸门（`pluginSandbox/session.ts` + `permissionGate.ts`），其 inflight 去重与内存同意模式被本 spec 复用。
-- 设备类（WebHID/WebUSB/WebSerial/蓝牙）在 Electron 中未监听 `select-*` 事件时**默认静默授权第一个匹配设备**；屏幕共享在未注册 `setDisplayMediaRequestHandler` 时请求直接失败。
+- O navegador integrado é um `<webview>` padrão do Electron 41 (`packages/ui/src/browser-use/BrowserViewportSurface.tsx:151`), e a session usa a partition persistente `persist:zcode-embedded-browser` (`packages/desktop/src/main/browserDataManager.ts:32`).
+- Essa partition não registra nenhum `setPermissionRequestHandler` / `setPermissionCheckHandler` / `setDevicePermissionHandler`; `desktopNetworkPolicy.ts` cobre apenas proxy e certificados. O comportamento padrão do Electron é **aprovar automaticamente todas as solicitações de permissão**, portanto requisições de páginas maliciosas como `getUserMedia` / `clipboard.readText` / `geolocation` são liberadas silenciosamente, sem UI e sem log.
+- O endurecimento existente (`desktopWindowChrome.ts` `will-attach-webview`: sandbox / contextIsolation / lista de protocolos de URL / roteamento de abertura de janela) faz apenas isolamento de processo, não barreira de capacidade. A partition de sandbox de plugin já tem uma barreira de permissões (`pluginSandbox/session.ts` + `permissionGate.ts`), e seu modo de consentimento em memória com deduplicação de inflight é reaproveitado por esta spec.
+- Categorias de dispositivo (WebHID/WebUSB/WebSerial/bluetooth), no Electron, quando os eventos `select-*` não são escutados, **concedem silenciosamente a autorização do primeiro dispositivo correspondente**; o compartilhamento de tela falha imediatamente quando `setDisplayMediaRequestHandler` não está registrado.
 
-## 目标
+## Objetivos
 
-- 内置浏览器 partition 的所有权限请求默认不自动放行：无害白名单静默放行，敏感能力经产品级弹窗由用户决策，其余显式拒绝。
-- 三类产品弹窗：权限确认气泡（"仅本次允许/访问此网站时允许/不允许/关闭"四态）、屏幕共享源选择器、设备选择器。
-- 持久化站点同意记录 + 设置页「网站权限」管理（允许/阻止/询问）。
-- 每条权限决策输出审计日志（info 级，低频，生产保留）。
-- 摄像头、麦克风、剪贴板读取、地理位置、通知、MIDI、USB、HID、Serial、蓝牙、屏幕共享等能力全部纳入上述治理。
+- Nenhuma solicitação de permissão da partition do navegador integrado é liberada automaticamente por padrão: a lista de permissões inofensivas é liberada silenciosamente, as capacidades sensíveis passam por um popup de nível de produto decidido pelo usuário, e todas as demais são explicitamente negadas.
+- Três popups de produto: balão de confirmação de permissão (quatro estados: "仅本次允许/访问此网站时允许/不允许/关闭"), seletor de fonte de compartilhamento de tela e seletor de dispositivo.
+- Registro persistente de consentimento por site + gestão de "网站权限" na página de configurações (permitir/bloquear/perguntar).
+- Cada decisão de permissão gera um log de auditoria (nível info, baixa frequência, mantido em produção).
+- Câmera, microfone, leitura da área de transferência, geolocalização, notificações, MIDI, USB, HID, Serial, bluetooth, compartilhamento de tela e demais capacidades entram todas nessa governança.
 
-## 非目标
+## Não objetivos
 
-- 不改动 defaultSession、Coding Plan、Rewards、插件沙箱、录屏临时 session 的权限行为（范围按 2026-10-08 决策收窄为仅内置浏览器 partition）。
-- 不改变分区持久化策略（登录态为产品功能，CNVD「非持久化隔离分区」建议以权限默认治理为主要防线回应）。
-- 不实现 Chrome 式"记住站点设备授权"（设备类每次弹选择器）；不做"仅本次允许"的 tab 级作用域（按应用运行期）。
-- 不做 macOS 系统级（TCC）授权引导；网页层允许后仍受系统约束，属 Chromium 层行为。
-- 不影响 Web 端与手机远控链路；权限弹窗只存在于承载 `<webview>` 的桌面端内置浏览器面板。
+- Não alterar o comportamento de permissões de defaultSession, Coding Plan, Rewards, sandbox de plugin e session temporária de gravação de tela (o escopo foi reduzido, pela decisão de 2026-10-08, à apenas a partition do navegador integrado).
+- Não mudar a estratégia de persistência da partition (o estado de login é uma funcionalidade do produto; a recomendação do CNVD de "partition de isolamento não persistente" é respondida com a governança de permissões por negação padrão como principal linha de defesa).
+- Não implementar a autorização de dispositivos por site no estilo Chrome (para categorias de dispositivo, o seletor aparece a cada vez); não fazer o escopo por tab do "仅本次允许" (o escopo é o período de execução do aplicativo).
+- Não fazer a condução de autorização em nível de sistema (TCC) do macOS; mesmo após a camada web permitir, a restrição do sistema continua valendo, o que é comportamento da camada Chromium.
+- Não afetar o lado Web nem o link de controle remoto pelo celular; os popups de permissão existem apenas no painel do navegador integrado do desktop, que hospeda o `<webview>`.
 
-## 架构与决策链路
+## Arquitetura e cadeia de decisão
 
-main 进程新增 `embeddedBrowserPermissionPolicy` 模块，应用启动时对 `fromPartition(EMBEDDED_BROWSER_PARTITION)` 一次性注册全部 handler（紧随 `applyDesktopChromiumNetworkPolicies` 之后）：
+O processo main ganha um novo módulo `embeddedBrowserPermissionPolicy`, que registra todos os handlers de uma só vez para `fromPartition(EMBEDDED_BROWSER_PARTITION)` na inicialização do aplicativo (logo após `applyDesktopChromiumNetworkPolicies`):
 
 ```text
-guest 页面发起请求
+a página guest dispara a requisição
   │
-  ├─ permission request ──► ① 无害白名单？ ──是──► 放行 + info 日志
-  │                            │否
+  ├─ permission request ──► ① lista de permissões inofensivas? ──sim──► liberar + log info
+  │                            │não
   │                            ▼
-  │                    ② 查同意记录（内存 sessionAllow → 持久 JSON）
-  │                       ├─ 命中 allow（任一层）──► 放行 + info 日志
-  │                       ├─ 命中持久 deny ────────► 拒绝 + info 日志（不再弹）
-  │                       └─ 无记录 ──► 弹窗 A：确认气泡
-  │                                      允许/仅本次/阻止/✕超时 → 回写记录 + 日志
+  │                    ② consultar o registro de consentimento (sessionAllow em memória → JSON persistente)
+  │                       ├─ acerto em allow (em qualquer camada)──► liberar + log info
+  │                       ├─ acerto em deny persistente ────────► negar + log info (não abre popup)
+  │                       └─ sem registro ──► popup A: balão de confirmação
+  │                                      允许/仅本次/阻止/✕超时 → gravar o registro + log
   ├─ getDisplayMedia ──► setDisplayMediaRequestHandler
-  │                       └─► 弹窗 B：源选择器（每次询问，不记住）
-  ├─ requestDevice（hid/usb/serial/蓝牙）──► select-* 事件监听
-  │                       └─► 弹窗 C：设备选择器（每次询问，不记住）
-  │                       （注册监听本身阻断"静默授权第一个设备"默认路径）
-  └─ permission check ──► 与同意记录一致：allow（任一层）→ granted，其余 → 非 granted
+  │                       └─► popup B: seletor de fonte (pergunta a cada vez, não memoriza)
+  ├─ requestDevice（hid/usb/serial/蓝牙）──► listener de eventos select-*
+  │                       └─► popup C: seletor de dispositivo (pergunta a cada vez, não memoriza)
+  │                       （o próprio registro do listener bloqueia o caminho padrão de "autorizar silenciosamente o primeiro dispositivo"）
+  └─ permission check ──► consistente com o registro de consentimento: allow (em qualquer camada) → granted, o resto → não granted
 ```
 
-弹窗时序：request handler 挂起 callback → main 经 IPC 通知主窗口 renderer → 内置浏览器面板内渲染弹窗（同 origin+权限去重单弹，复用 pluginSandbox 的 inflight 模式）→ 用户操作或 20s 超时 → renderer 回传 main → callback → 页面拿到结果。面板不可见时弹窗无法交互，20s 超时自然拒绝——agent 后台跑的页面天然被拒，无需特殊分支。
+Sequenciamento do popup: o request handler suspende o callback → o main notifica o renderer da janela principal via IPC → o popup é renderizado dentro do painel do navegador integrado (mesma origin + deduplicação de permissão, um único popup, reaproveitando o modo de inflight do pluginSandbox) → ação do usuário ou timeout de 20s → o renderer devolve ao main → callback → a página recebe o resultado. Quando o painel não está visível, o popup não pode ser interagido e o timeout de 20s nega naturalmente — páginas executadas em background pelo agent são negadas por natureza, sem ramo especial.
 
-## 权限分级表
+## Tabela de classificação de permissões
 
-| 级别 | 权限 | 记忆策略 |
+| Nível | Permissão | Estratégia de memorização |
 |---|---|---|
-| 静默放行 | `clipboard-sanitized-write`、`fullscreen`、`pointerLock`、`mediaKeySystem` | 无 |
-| 弹窗 A：确认气泡 | `media`（按 `details.mediaTypes` 标明摄像头/麦克风）、`clipboard-read`、`geolocation`、`notifications`、`midi`、`midiSysex`、`idle-detection`、`speaker-selection`、`window-management`、`storage-access`、`top-level-storage-access`、`keyboardLock`、`fileSystem` | 见弹窗 A 四态 |
-| 弹窗 B：源选择器 | `display-capture`（屏幕共享） | 每次询问，不记住 |
-| 弹窗 C：设备选择器 | `hid` / `usb` / `serial` / 蓝牙 | 每次询问，不记住 |
-| 显式拒绝 | `openExternal`（外部协议开窗已有独立的"默认浏览器打开"路由）、`unknown`、`deprecated-sync-clipboard-read` | — |
+| Liberação silenciosa | `clipboard-sanitized-write`、`fullscreen`、`pointerLock`、`mediaKeySystem` | Nenhuma |
+| Popup A: balão de confirmação | `media`（com `details.mediaTypes` indicando câmera/microfone）、`clipboard-read`、`geolocation`、`notifications`、`midi`、`midiSysex`、`idle-detection`、`speaker-selection`、`window-management`、`storage-access`、`top-level-storage-access`、`keyboardLock`、`fileSystem` | Ver os quatro estados do popup A |
+| Popup B: seletor de fonte | `display-capture`（compartilhamento de tela） | Perguntar a cada vez, não memorizar |
+| Popup C: seletor de dispositivo | `hid` / `usb` / `serial` / bluetooth | Perguntar a cada vez, não memorizar |
+| Negação explícita | `openExternal`（a abertura de protocolo externo já tem uma rota própria de "abrir no navegador padrão"）、`unknown`、`deprecated-sync-clipboard-read` | — |
 
-未在上表中的任何 permission 字符串一律显式拒绝并打 warn 日志（fail-closed，防 Electron 后续版本新增枚举）。
+Qualquer string de permission que não esteja na tabela acima é explicitamente negada e gera log warn (fail-closed, para impedir novas enumerações em versões futuras do Electron).
 
-## 弹窗交互
+## Interação dos popups
 
-### A. 确认气泡（地址栏下方左侧，内置浏览器面板内，自动弹出）
+### A. Balão de confirmação (abaixo da barra de endereço, à esquerda, dentro do painel do navegador integrado, exibido automaticamente)
 
 ```text
 ┌──────────────────────────────────────┐
@@ -82,109 +82,108 @@ guest 页面发起请求
 └──────────────────────────────────────┘
 ```
 
-请求到达即自动弹出（Chrome 式锚定气泡，`w-80` popover 卡片：`rounded-xl` +
-`bg-popover` + `border-popover-border` + `shadow-md`）。头部为 origin 标题与 ✕ 关闭；
-正文为能力图标逐行列表（摄像头/麦克风/剪贴板等，复用 `BrowserPermissionIcon` 字形）；
-三选项为竖排胶囊按钮（`rounded-full` secondary，左对齐、可换行）。
-2026-10-08 实测定稿：不做「永久阻止」按钮——误点后站点异常难以自愈，持久 deny 只保留在
-站点权限设置里管理（弹窗层不提供）。✕ 关闭与「不允许」同为本次拒绝不记忆。
+O popup aparece automaticamente assim que a requisição chega (balão ancorado no estilo Chrome, cartão popover `w-80`: `rounded-xl` +
+`bg-popover` + `border-popover-border` + `shadow-md`). O cabeçalho traz o título da origin e o fechamento ✕;
+o corpo traz a lista linha a linha de ícones de capacidade (câmera/microfone/área de transferência etc., reaproveitando os glifos de `BrowserPermissionIcon`);
+as três opções são botões cápsula empilhados verticalmente (`rounded-full` secondary, alinhados à esquerda, com quebra de linha).
+Definição final medida em 2026-10-08: não há botão "永久阻止" — após um clique acidental, a anomalia do site é difícil de se recuperar sozinha, e o deny persistente é mantido apenas na gestão de permissões de site
+(o popup não o oferece). O fechamento ✕ equivale a "不允许" como negação desta vez sem memorização.
 
-| 操作 | 语义 | 存储 |
+| Ação | Semântica | Armazenamento |
 |---|---|---|
-| 访问此网站时允许 | 持久放行，之后不再询问 | 持久层 `origin+permission → allow` |
-| 仅本次允许 | 本次应用运行期间放行，重启失效 | main 内存 `Map<origin, Set<permission>>` |
-| 不允许 / 20s 超时 | 本次拒绝，不记忆，下次再弹 | 无 |
+| 访问此网站时允许 | Liberação persistente, sem novas perguntas depois | Camada persistente `origin+permission → allow` |
+| 仅本次允许 | Liberação durante esta execução do aplicativo, inválida após reinício | Memória do main `Map<origin, Set<permission>>` |
+| 不允许 / timeout de 20s | Negação desta vez, sem memorização, volta a aparecer na próxima | Nenhum |
 
-### B. 源选择器 Dialog（屏幕共享）
+### B. Dialog do seletor de fonte (compartilhamento de tela)
 
-`desktopCapturer.getSources()` 缩略图列表（整个屏幕 / 各窗口）→ 选中即共享该源（`callback({ video: source })`）；取消/超时 → `callback({})`，页面拿到 `NotAllowedError`。
+Lista de miniaturas de `desktopCapturer.getSources()` (tela inteira / cada janela) → selecionar significa compartilhar aquela fonte (`callback({ video: source })`); cancelar/timeout → `callback({})`, e a página recebe `NotAllowedError`.
 
-### C. 设备选择器 Dialog（WebHID/USB/Serial/蓝牙）
+### C. Dialog do seletor de dispositivo (WebHID/USB/Serial/bluetooth)
 
-请求站点名 + 设备列表（名称/厂商/序列号）+ 允许/取消 → `event.callback(选中设备)` 或 `callback(undefined)`。
+Nome do site solicitante + lista de dispositivos (nome/fabricante/número de série) + permitir/cancelar → `event.callback(dispositivo selecionado)` ou `callback(undefined)`.
 
-三个弹窗遵循 `DESIGN.md`，双语 + 双主题，兼顾桌面端与手机远控两端显示。
+Os três popups seguem o `DESIGN.md`, bilíngues + com dois temas, cobrindo tanto a exibição no desktop quanto no controle remoto pelo celular.
 
-## 数据模型与持久化
+## Modelo de dados e persistência
 
-- 持久层：独立 JSON（`embedded-browser-site-permissions.json`，main 原子读写），结构 `{ [origin]: { [permission]: "allow" | "deny" } }`，未记录 = 询问。不进全局 settings，避免与跨窗口广播耦合。
-- 内存层：main 进程 `sessionAllow`（仅本次允许）+ `inflight`（同 origin+权限去重）。
-- 「仅本次」作用域 = 本次应用运行期间。
+- Camada persistente: um JSON independente (`embedded-browser-site-permissions.json`, leitura/escrita atômica no main), com estrutura `{ [origin]: { [permission]: "allow" | "deny" } }`; sem registro = perguntar. Não entra no settings global, para evitar acoplamento com a broadcast entre janelas.
+- Camada em memória: `sessionAllow` do processo main (仅本次允许) + `inflight` (deduplicação por mesma origin+permissão).
+- O escopo de "仅本次" = o período desta execução do aplicativo.
 
-## 站点权限的数据清理
+## Limpeza dos dados de permissões de site
 
-设置页「内置浏览器」区**不再提供**「网站权限」区块（2026-10-09 决策：编辑入口收敛到站点权限设置标签页，避免双入口）。「清空数据」操作仍同步清掉站点权限 JSON 与 embedded partition 存储（修复现状 `desktopCommandHandlers.ts` 清数据只清 defaultSession、漏清内置浏览器分区的附带问题）。
+A seção "内置浏览器" da página de configurações **não oferece mais** o bloco "网站权限" (decisão de 2026-10-09: a entrada de edição converge para a aba de configurações de permissões de site, evitando entrada dupla). A ação "清空数据" continua limpando em sincronia o JSON de permissões de site e o armazenamento da partition embedded (corrige o problema incidental de que, hoje, a limpeza em `desktopCommandHandlers.ts` só limpa a defaultSession e se esquece da partition do navegador integrado).
 
-## 站点权限设置标签页（2026-10-09 整合新增）
+## Aba de configurações de permissões de site (novo, consolidado em 2026-10-09)
 
-站点权限编辑的唯一产品入口，位于浏览器面板内：
+Única entrada de produto para edição das permissões de site, localizada dentro do painel do navegador:
 
-- **入口**：地址栏输入框左侧常驻滑杆图标（不随权限请求变化；聚焦编辑 URL 时隐藏且不结算任何待处理申请）。点击弹出小气泡，展示当前站点 origin 与唯一操作「权限设置」，进入独立设置标签页。
-- **设置标签页**：sidepane 内的独立设置标签，按工作区/对话作用域复用（同一作用域重复打开复用同一标签）。不创建 webview、不计入站点存活页面、不暴露给 Agent 作为可操作网页。
-- **页面能力**：展示该站点在 main 持久层已记录的各权限状态，逐项可设为 询问/允许/阻止（询问即删除记录回到每次询问）；支持整站重置（main 侧 `resetSite(origin)`，清除该 origin 全部持久决定）；「仅本次」临时态不展示（与设置页区块口径一致）。
-- **数据源唯一**：读写全部经 main 站点权限 store（`getEmbeddedBrowserSitePermissions` / `setEmbeddedBrowserSitePermission` / `resetEmbeddedBrowserSitePermission`），页面持有独立的读取失败/写入失败状态与显式重试，不推测修改后的授权，不加授权缓存、自动重试或操作队列。
-- 地址栏 URL 非编辑态居中，聚焦编辑时左对齐并隐藏左侧图标。
+- **Entrada**: ícone permanente de sliders à esquerda do campo de URL da barra de endereço (não muda com as solicitações de permissão; fica oculto ao focar a edição da URL e não resolve nenhuma requisição pendente). O clique abre um pequeno balão mostrando a origin do site atual e a única ação "权限设置", que leva a uma aba de configurações independente.
+- **Aba de configurações**: aba de configurações independente dentro do sidepane, reutilizada por escopo de workspace/conversa (abrir no mesmo escopo de novo reusa a mesma aba). Não cria webview, não conta como página viva do site e não é exposta ao Agent como página operável.
+- **Capacidades da página**: exibe o estado de cada permissão que o site já tem registrado na camada persistente do main, com ajuste item a item para 询问/允许/阻止 (perguntar remove o registro e volta a perguntar a cada vez); suporta reset do site inteiro (`resetSite(origin)` no main, que limpa todas as decisões persistentes daquela origin); o estado temporário "仅本次" não é exibido (coerente com o bloco da página de configurações).
+- **Fonte de dados única**: todas as leituras e escritas passam pelo store de permissões de site do main (`getEmbeddedBrowserSitePermissions` / `setEmbeddedBrowserSitePermission` / `resetEmbeddedBrowserSitePermission`); a página mantém estados explícitos e separados de falha de leitura/falha de escrita com retry explícito, sem inferir a autorização modificada e sem cache de autorização, retry automático ou fila de operações.
+- A URL da barra de endereço fica centralizada quando não está em edição e alinhada à esquerda, com o ícone da esquerda oculto, quando o campo está em foco.
 
-## 整合决策记录（2026-10-09）
+## Registro das decisões de consolidação (2026-10-09)
 
-`fix/missing_tool` 分支（ZP-20260916-09，spec 见其 `2026-09-24-embedded-browser-permissions-spec.md`）
-与本 spec（CNVD）为同一权限治理的并行实现。整合结论：
+O branch `fix/missing_tool` (ZP-20260916-09, spec em seu `2026-09-24-embedded-browser-permissions-spec.md`)
+e esta spec (CNVD) são implementações paralelas do mesmo modelo de governança de permissões. Conclusões da consolidação:
 
-- **逻辑以本 spec 为准**：main 决策链、权限分级表、三类弹窗语义、20s 超时、fail-closed、
-  持久层结构与审计日志全部保留；`fix/missing_tool` 的 main 侧实现与协议接线弃用。
-- **弹窗视觉采纳 fix 分支**：确认气泡的卡片结构、能力图标列表、竖排胶囊按钮与 ✕ 关闭；
-  交互仍为本 spec 的自动弹出 + 三态语义（第三按钮为「不允许·本次」，非 fix 分支的持久「从不允许」）。
-- **站点权限设置标签页采纳 fix 分支**：地址栏滑杆入口 + 独立设置标签页 + sidepane 作用域复用，
-  数据层适配到本 spec 的 main store。设置页原有「网站权限」区块随后移除（2026-10-09
-  用户定稿：单一入口，避免两处编辑面漂移）；其专属 i18n 键与死测试一并删除，
-  `clearEmbeddedBrowserSitePermissions` 协议保留（「清空数据」链路与整站清空能力仍在 main 侧）。
-- fix 分支的「地址栏图标随请求变化、点击展开申请气泡」交互不采纳（请求气泡自动弹出）；
-  其 iframe 级取消、请求生命周期重构、MessagePort 握手等 main 侧增强不采纳（属弃用的逻辑侧）。
+- **A lógica segue esta spec**: a cadeia de decisão no main, a tabela de classificação de permissões, a semântica dos três popups, o timeout de 20s, o fail-closed, a
+  estrutura da camada persistente e o log de auditoria são mantidos; a implementação no main e o wiring de protocolo do `fix/missing_tool` são descontinuados.
+- **O visual dos popups adota o branch fix**: a estrutura de cartão do balão de confirmação, a lista de ícones de capacidade, os botões cápsula empilhados verticalmente e o fechamento ✕;
+  a interação continua sendo a exibição automática e a semântica de três estados desta spec (o terceiro botão é "不允许·本次", e não o "从不允许" persistente do branch fix).
+- **A aba de configurações de permissões de site adota o branch fix**: entrada de sliders na barra de endereço + aba de configurações independente + reutilização do escopo do sidepane,
+  com a camada de dados adaptada ao store do main desta spec. O bloco original "网站权限" da página de configurações foi removido em seguida (definição final do usuário em 2026-10-09: entrada única, para evitar divergência entre duas superfícies de edição); suas chaves de i18n dedicadas e os testes mortos foram removidos junto,
+  e o protocolo `clearEmbeddedBrowserSitePermissions` foi mantido (a cadeia "清空 dados" e a capacidade de limpeza por site inteiro continuam no lado do main).
+- A interação do branch fix de "ícone da barra de endereço mudando conforme a requisição, com clique expandindo o balão de solicitações" não é adotada (o balão de requisição aparece automaticamente);
+  suas melhorias de cancelamento em nível de iframe, refatoração do ciclo de vida da requisição e handshake por MessagePort no lado do main também não são adotadas (pertencem à lógica descontinuada).
 
-## 审计日志
+## Log de auditoria
 
 ```text
 [embedded-browser-permission] decision=granted|denied origin=… permission=… source=allowlist|site-setting|session-allow|user-prompt|prompt-timeout|device-picker|source-picker|default-deny
 ```
 
-info 级（低频、生产保留）；弹窗类路径日志量与权限请求数同数量级（极低频）。
+Nível info (baixa frequência, mantido em produção); o volume de logs dos caminhos com popup é da mesma ordem de grandeza do número de solicitações de permissão (frequência muito baixa).
 
-## 兼容性影响面（已逐项验证）
+## Superfície de impacto em compatibilidade (verificada item a item)
 
-| 链路 | 影响 |
+| Cadeia | Impacto |
 |---|---|
-| agent browser-use（CDP 截图、虚拟剪贴板） | 零影响——截图走 `Page.captureScreenshot`，粘贴走合成 `ClipboardEvent` + `execCommand`（`browserVirtualClipboardPageScript.ts`），均不触发 permission |
-| 网页复制按钮 / DRM 视频站 / 网页全屏 | 不受影响（白名单） |
-| `window.open` / 新标签路由 / 「默认浏览器打开」 | 不受影响（已有 `setWindowOpenHandler` 独立机制） |
-| 屏幕共享 | 从静默失败变为弹窗可控可用，由源选择器把关 |
+| agent browser-use (captura via CDP, área de transferência virtual) | Impacto zero — a captura usa `Page.captureScreenshot`, e a colagem usa um `ClipboardEvent` sintético + `execCommand` (`browserVirtualClipboardPageScript.ts`); nenhuma delas dispara permission |
+| Botão de copiar da página / site de vídeo com DRM / tela cheia da página | Não afetado (lista de permissões) |
+| `window.open` / roteamento de nova tab / "abrir no navegador padrão" | Não afetado (já existe o mecanismo independente `setWindowOpenHandler`) |
+| Compartilhamento de tela | Deixou de falhar silenciosamente e passa a ser controlado por popup, com o seletor de fonte fazendo a guarda |
 
-## 测试要求
+## Requisitos de teste
 
-- 权限 E2E 必须先发起页面请求而不等待它完成，再点击产品确认条，最后读取页面结果。
-  `executeJavaScript` 会等待返回的 Promise；发起 `getUserMedia` 时使用 `void`，避免测试自身等待用户决策而无法点击。
-  顺序：发起请求 -> 确认条可见 -> 点击允许/拒绝 -> 断言结果与二次请求行为。
+- O E2E de permissões deve primeiro disparar a requisição da página sem esperar que ela termine, depois clicar na barra de confirmação do produto e, por fim, ler o resultado na página.
+  `executeJavaScript` espera o Promise retornado; ao disparar `getUserMedia` use `void`, para o próprio teste não esperar a decisão do usuário e não conseguir clicar.
+  Ordem: disparar a requisição -> a barra de confirmação fica visível -> clicar em permitir/negar -> asseverar o resultado e o comportamento da requisição seguinte.
 
-- 单测：决策表全枚举（白名单/记录命中/无记录无弹窗能力时拒绝/未知权限 fail-closed）、check 与 request 一致性、持久层读写与原子写、sessionAllow 生命周期、inflight 去重、20s 超时拒绝、select-* 与 displayMedia 的拒绝回调。
-- e2e（desktop e2e）：确认气泡出现 → 三种按钮 + ✕ 各自的页面侧结果与二次请求行为；重启后持久记忆生效；设置页改状态后生效；源选择器选源后 `getDisplayMedia` 成功、取消失败；`requestDevice` 弹设备选择器，负向断言"未选择设备时不再静默授权第一个设备"。
+- Testes unitários: enumeração completa da tabela de decisão (lista de permissões/registro encontrado/sem registro e sem capacidade de popup nega/permissão desconhecida com fail-closed), consistência entre check e request, leitura/escrita da camada persistente e escrita atômica, ciclo de vida do sessionAllow, deduplicação de inflight, negação por timeout de 20s, callbacks de negação de `select-*` e displayMedia.
+- E2E (desktop e2e): o balão de confirmação aparece -> para cada um dos três botões e do ✕, o resultado do lado da página e o comportamento da requisição seguinte; a memória persistente vale após reiniciar; alterar o estado na página de configurações tem efeito; selecionar uma fonte no seletor de fontes faz `getDisplayMedia` ter sucesso, e cancelar faz falhar; `requestDevice` abre o seletor de dispositivos, com asserção negativa de que "sem escolher um dispositivo, o primeiro não é mais autorizado silenciosamente".
 
-### 权限查询与请求的 origin 一致性
+### Consistência de origin entre consulta e requisição de permissão
 
-修复测试自身等待权限 Promise 的死锁后，`browser-permission-prompt.test.ts` 仍在持久允许后的
-`permissions.query('camera')` 断言失败。运行时记录显示 `getUserMedia` 已返回 `ok`，查询仍为
-`denied`：授权写入标准 origin，而 Electron check 回调传入带尾部 `/` 的 origin，原样查询未命中。
-证据见本地 `packages/desktop/.e2e-artifacts/desktop-e2e-accountless-diagnosis-20261014b/`。
-request 与 check 都使用 URL.origin 归一化后查询同一份记录；持久允许和本次允许均遵循此约束。
-单测覆盖裸 origin、尾部斜杠、页面路径，以及协议、站点、权限隔离；E2E 保留授权后 `granted` 断言。
+Depois de corrigido o deadlock em que o próprio teste esperava o Promise de permissão, `browser-permission-prompt.test.ts` ainda falhava na
+asserção de `permissions.query('camera')` após a permissão persistente. O log de runtime mostra que `getUserMedia` já retornou `ok`, mas a consulta continuava como
+`denied`: a autorização foi gravada na origin padrão, enquanto o callback de check do Electron passa a origin com `/` final, e a consulta feita sem normalização não encontrou. A
+evidência está em `packages/desktop/.e2e-artifacts/desktop-e2e-accountless-diagnosis-20261014b/` local.
+Request e check usam ambos a normalização por URL.origin para consultar o mesmo registro; a permissão persistente e a permissão desta vez seguem essa restrição.
+Os testes unitários cobrem origin crua, barra final, caminho da página, além do isolamento por protocolo, site e permissão; o E2E mantém a asserção de `granted` após a autorização.
 
-## 实施顺序（四步提交，每步独立可验证）
+## Ordem de implementação (quatro commits, cada um verificável de forma independente)
 
-1. main 策略模块：request/check/device handler + `select-*` / displayMedia 监听全量注册；弹窗未实现前敏感项一律拒绝 + 日志（安全闭环，可单独发版堵漏）。
-2. 弹窗层：确认气泡 + 源选择器 + 设备选择器（IPC + UI + 去重 + 超时）。
-3. 持久化 + 设置页：站点权限列表 + 清数据联动。
-4. 单测/e2e 补齐与文档收尾。
+1. Módulo de política no main: registro completo dos handlers de request/check/device + listeners de `select-*` / displayMedia; antes da implementação dos popups, todo item sensível é negado + log (ciclo de segurança fechado, publicável isoladamente para fechar o vazamento).
+2. Camada de popups: balão de confirmação + seletor de fontes + seletor de dispositivos (IPC + UI + deduplicação + timeout).
+3. Persistência + página de configurações: lista de permissões de site + integração da limpeza de dados.
+4. Complemento dos testes unitários/E2E e fechamento da documentação.
 
-## 验收标准
+## Critérios de aceitação
 
-- 任意网页在无用户确认的情况下无法获得摄像头、麦克风、剪贴板读取、地理位置、通知、MIDI、设备、屏幕共享能力（自动放行路径不存在）。
-- 敏感权限的每条决策可审计；白名单权限不产生功能性故障（复制、全屏、DRM 播放正常）。
-- agent browser-use 现有回归（CDP 截图、虚拟剪贴板粘贴、tab 生命周期）不受影响。
+- Nenhuma página consegue obter, sem confirmação do usuário, as capacidades de câmera, microfone, leitura da área de transferência, geolocalização, notificações, MIDI, dispositivos e compartilhamento de tela (não existe caminho de liberação automática).
+- Cada decisão sobre permissões sensíveis é auditável; as permissões da lista de permissões não geram falhas funcionais (copiar, tela cheia e reprodução com DRM funcionam normalmente).
+- As regressões existentes do agent browser-use (captura via CDP, colagem pela área de transferência virtual, ciclo de vida de tab) não são afetadas.

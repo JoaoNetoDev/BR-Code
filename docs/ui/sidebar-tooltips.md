@@ -1,29 +1,29 @@
-# 左侧边栏悬停提示
+# Tooltips da Barra Lateral
 
-## 行为
+## Comportamento
 
-左侧项目/任务导航、分组与时间线、底部账户/设置/移动远控入口、文件树，以及左上角侧栏与任务导航工具区的提示，统一在鼠标连续停留 **300ms** 后出现。
+Os tooltips da navegação de projetos/tarefas da barra lateral esquerda, de grupos e linha do tempo, das entradas de conta/configurações/controle remoto móvel na parte inferior, da árvore de arquivos e da área de ferramentas da barra lateral e da navegação de tarefas no canto superior esquerdo passam a aparecer de forma unificada após o mouse permanecer continuamente sobre o alvo por **300ms**.
 
 ```text
-移入触发器 → Radix 计时 300ms → 显示提示
-       └─ 提前移出 → 取消
-切换触发器 → 重新计时 300ms（不跳过延迟）
+Entrar no gatilho → Temporizador Radix de 300ms → Exibir tooltip
+       └─ Sair antes → Cancelar
+Trocar de gatilho → Reinicia o temporizador de 300ms (não pula o atraso)
 ```
 
-- 由侧栏共享 Tooltip Provider 配置延迟、`skipDelayDuration=0` 和严格延迟策略。严格范围内每条提示使用独立 Radix 计时，避免共享快速打开状态在同次指针移动中绕过延迟；侧栏外不增加逐提示 Provider。计时、移出取消和键盘 focus 沿用 Radix，不增加业务计时器。
-- 普通提示只展示说明，离开触发器即关闭，不启用跨入提示内容的悬停走廊，浮层不拦截鼠标事件，避免旧提示挡住相邻按钮的新提示；可交互的远程详情仍使用原 HoverCard。
-- 项目行“更多 / 显示文件树 / 新建任务”、分区和分组操作、任务操作和状态、工作流信息、底部入口、文件树按钮及 Git 状态均继承同一策略。分组任务整行不能用独立零延迟 Provider 覆盖它。
-- “项目”分区的新项目按钮与“任务”分区的新建任务按钮补齐提示，复用现有国际化文案与无障碍名称。
-- 侧栏原生 `title` 提示改用共享 Tooltip，包括分组名、草稿名/目录、旧项目说明、home-only 工作区、文件路径、文件树更多/清空搜索、账户信息及菜单禁用原因。保留触发器尺寸、拖拽、点击和键盘行为。
-- 远程项目详情 HoverCard 已采用 300ms，继续保持；关闭延迟与详情内复制交互不变。
-- 普通任务标题已有 1 秒悬停滚动，不添加标题 Tooltip；点击菜单、Popover、Dialog 的打开时机不变。侧栏外的提示继续使用原有策略。
-- 鼠标 hover 的延迟不改变键盘 focus 提示或触屏点击行为。桌面和手机共享组件，中英文、Zai Light / Dark 均适用。
+- O Tooltip Provider compartilhado da barra lateral configura o atraso, `skipDelayDuration=0` e a política de atraso estrito. Dentro do escopo estrito, cada tooltip usa um temporizador Radix independente, evitando que o estado de abertura rápida compartilhado contorne o atraso em um mesmo movimento do ponteiro; fora da barra lateral não são adicionados Providers por tooltip. Temporização, cancelamento ao sair e focus por teclado seguem o Radix, sem cronômetros de negócio adicionais.
+- Os tooltips comuns apenas exibem a descrição, fecham ao sair do gatilho e não habilitam um corredor de hover para o conteúdo do tooltip; a camada flutuante não intercepta eventos de mouse, evitando que um tooltip antigo bloqueie o novo tooltip de um botão vizinho; os detalhes remotos interativos continuam usando o HoverCard original.
+- A linha de projeto ("mais / mostrar árvore de arquivos / nova tarefa"), as ações de seção e de grupo, as ações e o status das tarefas, as informações de workflow, as entradas inferiores, os botões da árvore de arquivos e o status do Git herdam a mesma política. A linha inteira de uma tarefa em grupo não pode sobrescrevê-la com um Provider independente de atraso zero.
+- O botão de novo projeto da seção "Projetos" e o botão de nova tarefa da seção "Tarefas" passam a ter tooltip, reaproveitando o texto de internacionalização existente e os nomes de acessibilidade.
+- Os tooltips nativos `title` da barra lateral passam a usar o Tooltip compartilhado, incluindo nome do grupo, nome/diretório do rascunho, descrição do projeto antigo, workspace home-only, caminho do arquivo, mais/limpar busca da árvore de arquivos, informações da conta e motivo de menu desabilitado. Preservar as dimensões do gatilho, o arraste, o clique e o comportamento de teclado.
+- O HoverCard de detalhes do projeto remoto já adotou 300ms e assim permanece; o atraso de fechamento e a interação de cópia dentro dos detalhes não mudam.
+- O título comum de tarefa já possui rolagem por hover de 1 segundo, sem adição de Tooltip no título; o momento de abertura do menu de clique, do Popover e do Dialog não muda. Os tooltips fora da barra lateral continuam usando a política original.
+- O atraso do hover do mouse não altera os tooltips por focus de teclado nem o comportamento de clique por toque. Desktop e celular compartilham os componentes, válidos tanto em chinês/inglês quanto nos temas Zai Light / Dark.
 
-## 验证
+## Verificação
 
-- SBT01：短暂划过不出现；停留后出现；相邻按钮每次重新等待；移出取消。
-- SBT02：项目行三个按钮、项目/任务分区新建按钮、搜索/筛选及底部入口文案正确，点击仍执行原操作。
-- SBT03：分组整行/操作、原生提示迁移、文件树和远程详情遵循 300ms；侧栏外提示保持原策略。
-- SBT04：桌面/手机布局、中英文与深浅主题；触屏点击无需等待 tooltip，保留键盘可用性。
+- SBT01: uma passagem rápida não exibe nada; após a permanência, exibe; botões adjacentes esperam novamente a cada vez; sair cancela.
+- SBT02: os três botões da linha de projeto, os botões de criação das seções de projeto/tarefa, busca/filtro e os textos das entradas inferiores estão corretos, e o clique continua executando a ação original.
+- SBT03: a linha inteira e as ações dos grupos, a migração dos tooltips nativos, a árvore de arquivos e os detalhes remotos seguem 300ms; os tooltips fora da barra lateral mantêm a política original.
+- SBT04: layouts de desktop/celular, chinês/inglês e temas claro/escuro; o clique por toque não espera tooltip e a usabilidade por teclado é preservada.
 
-浏览器候选挂载真实生产组件并注入服务数据；Desktop 候选验证完整应用入口。候选用例保持 manual-review/pending，不以浏览器夹具代替远程传输或原生多平台验证。
+Os candidatos de browser montam os componentes reais de produção e injetam dados de serviço; os candidatos de Desktop validam o entrypoint da aplicação completa. Os casos candidatos permanecem em manual-review/pending, sem substituir a transmissão remota nem a validação nativa multiplataforma por fixtures de browser.

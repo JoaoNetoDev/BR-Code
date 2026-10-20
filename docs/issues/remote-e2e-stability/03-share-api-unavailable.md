@@ -1,33 +1,33 @@
-# SSH 产物分享的生产接口间歇性失败
+# Falha intermitente da interface de produção de compartilhamento de artefatos SSH
 
 Status: needs-triage
 
-## 已确认的运行事实
+## Fatos de execução confirmados
 
-业务基线 `54ece08f23f79ae54aea1f51e0d941497d627392`，同源码 production 构建，使用已验证可用的真实账号。
-Desktop 经正式 SSH 连接在 Source 上生成 `report.html`，文件包含测试标记；发布通过产品 UI 确认。
+Baseline de negócio `54ece08f23f79ae54aea1f51e0d941497d627392`, build de produção do mesmo código-fonte, usando uma conta real já validada como funcional.
+O Desktop gerou `report.html` na Source por meio de uma conexão SSH oficial, e o arquivo contém os marcadores de teste; a publicação foi confirmada pela UI do produto.
 
-- `r3-server-20260924090435267-55e0c4` 成功发布，公开预览与下载文件均通过断言。
-- `r3-server-20260924091406992-dde620`、`r3-server-20260924091613035-7dbace` 独立失败，产物已上传，停在 checking 阶段。
-- `r3-server-20260924093538609-e2bdb1` 再次成功，说明不是始终不可用的账号或缺失远端文件。
-- `r3-server-20260924094553403-374a70` 再次失败。对该用例专属 Source Core 的 Node HTTP 诊断事件只读观察，记录到生产
-  `POST /api/v1/shares/preparations/<id>/confirm` 返回 **HTTP 503**，响应类型为 JSON。
-  请求 ID：`20260924094737fb81e1d45bbdf211785c`，响应观测时间 `2026-09-24 09:48:07.717 UTC`。
+- `r3-server-20260924090435267-55e0c4` publicou com sucesso, e a pré-visualização pública e o download do arquivo passaram nas asserções.
+- `r3-server-20260924091406992-dde620` e `r3-server-20260924091613035-7dbace` falharam de forma independente, com o artefato já enviado e o processo parado na etapa checking.
+- `r3-server-20260924093538609-e2bdb1` voltou a ter sucesso, o que mostra que não se trata de uma conta sempre indisponível nem de arquivo remoto ausente.
+- `r3-server-20260924094553403-374a70` falhou novamente. Para o Source Core exclusivo deste caso, foi feita apenas uma observação de leitura dos eventos de diagnóstico HTTP do Node, que registrou na produção
+  `POST /api/v1/shares/preparations/<id>/confirm` retornando **HTTP 503**, com tipo de resposta JSON.
+  ID da requisição: `20260924094737fb81e1d45bbdf211785c`, momento de observação da resposta `2026-09-24 09:48:07.717 UTC`.
 
-HTTP 证据见 [安全字段记录](../../../packages/desktop/.e2e-artifacts/remote-stability-20260924/share-http-observation2.jsonl)；
-两次独立失败的阶段见 [第一次](../../../packages/desktop/.e2e-artifacts/remote-stability-20260924/share-final-1.json)、
-[第二次](../../../packages/desktop/.e2e-artifacts/remote-stability-20260924/share-final-2.json)。
-观察未修改请求或响应、未保存鉴权头和正文；观察进程随用例容器回收。
+As evidências HTTP estão em [registro de campos seguros](../../../packages/desktop/.e2e-artifacts/remote-stability-20260924/share-http-observation2.jsonl);
+as etapas das duas falhas independentes estão em [primeira](../../../packages/desktop/.e2e-artifacts/remote-stability-20260924/share-final-1.json) e
+[segunda](../../../packages/desktop/.e2e-artifacts/remote-stability-20260924/share-final-2.json).
+A observação não modificou requisição nem resposta e não salvou cabeçalhos de autenticação nem corpo; o processo de observação foi descartado junto com o contêiner do caso.
 
-## 边界与剩余调查
+## Limites e investigação restante
 
-已确认本次失败有真实服务端 503，不能归为 WDIO 等待超时，也不能靠自动重试隐藏。
-503 的后端根因尚未确定，需要按请求 ID 查分享服务或上游日志。
-前两次 checking 失败与更早一次 uploading 失败未采集 HTTP 状态，不能直接断言全部同因。
-界面仅显示失败阶段和“服务端未返回可定位详情”，没有可用请求 ID；错误可诊断性仍需排查。
+Está confirmado que desta falha houve um 503 real do servidor, portanto ela não pode ser classificada como tempo de espera do WDIO nem ser escondida por retentativas automáticas.
+A causa raiz do 503 no backend ainda não foi determinada; é necessário consultar os logs do serviço de compartilhamento ou do upstream pelo ID da requisição.
+As duas falhas anteriores na etapa checking e uma falha mais antiga na etapa uploading não coletaram o status HTTP, portanto não é possível afirmar que todas têm a mesma causa.
+A interface mostra apenas a etapa de falha e a mensagem "服务端未返回可定位详情" (o servidor não retornou detalhes localizáveis), sem um ID de requisição utilizável; a diagnosticabilidade do erro ainda precisa ser investigada.
 
-测试已改为同时等待成功与明确失败终态，失败立即记录阶段、文案和耗时；成功仍要求下载字节对账。
-两次 checking 失败分别约 12.5 秒得到终态，避免旧逻辑无条件空等 120 秒。未修改业务或服务端代码。
+O teste passou a aguardar simultaneamente um estado final de sucesso e um estado final de falha explícita, registrando imediatamente etapa, texto e tempo decorrido em caso de falha; em caso de sucesso, ainda exige a reconciliação dos bytes baixados.
+As duas falhas na etapa checking chegaram a um estado final em cerca de 12,5 segundos cada, evitando a espera incondicional de 120 segundos da lógica antiga. Nenhum código de negócio ou de servidor foi modificado.
 
-复现入口：在独立生产构建部署目录，以 `R3_BUILD_ENV=production R3_LIVE_HOME=<账号材料HOME>`
-运行 `node harness/remote/run-queue.mjs share`。保留每次独立结果，不能只汇总成功轮次。
+Ponto de entrada para reprodução: em um diretório de implantação de build de produção isolado, execute `node harness/remote/run-queue.mjs share` com `R3_BUILD_ENV=production R3_LIVE_HOME=<HOME dos materiais da conta>`.
+Preserve cada resultado independente; não agregue apenas as rodadas bem-sucedidas.

@@ -1,33 +1,45 @@
-# macOS 后台输入模式
+# Modo de entrada em background no macOS
 
-## 现状（2026-09-16 校正）
+## Situação atual (corrigido em 2026-09-16)
 
-本文若干处把 `open_application(activate=true)` 当作前台化/恢复手段（见「重新观察后再派发」
-与 Chrome fixture 的验收步骤）。**macOS 面已经没有这个工具**：`open_application` 于
-2026-09-11 从 darwin 收缩掉（src/tools/platform-surface.ts），模型手上没有任何激活手段，
-`FOREGROUND_REQUIRED` 在 macOS 上因此是不可满足的。真机 2026-09-16（LibreOffice 后台
-open panel）证实：`Cmd+Shift+G` 一字不落地被忽略，而侧栏 cell 的 `AXOpen` 可靠。
-模型面的 file_panel 引导已改为教 `AXOpen`（src/targeting/format.ts）。下文涉及
-「先前台化再按键」的步骤按此校正阅读；要恢复那条 lane，得先补回自动提升能力。
+Vários pontos deste documento tratam `open_application(activate=true)` como meio de
+trazer o app para foreground/restaurá-lo (veja "observar novamente antes de despachar"
+e os passos de aceitação do fixture do Chrome). **No lado macOS essa ferramenta já
+não existe**: `open_application` foi retraído do darwin em 2026-09-11
+(src/tools/platform-surface.ts), o modelo não tem mais nenhuma forma de ativar, e
+por isso `FOREGROUND_REQUIRED` é insatisfazível no macOS. Em máquina real, em
+2026-09-16 (open panel em background do LibreOffice), comprovou-se: `Cmd+Shift+G` é
+totalmente ignorado, enquanto `AXOpen` da célula da barra lateral é confiável. A
+orientação de file_panel do lado do modelo passou a ensinar `AXOpen`
+(src/targeting/format.ts). Os passos abaixo que envolvem "trazer para foreground
+antes de pressionar as teclas" devem ser lidos conforme essa correção; para
+restaurar essa lane, é preciso antes repor a capacidade de elevação automática.
 
-> 2026-08 更新：本文的 native owner、后台投递和 possibly_sent 安全边界仍有效。
-> “动作后强制 compact/full state、action_outcome、state_sync_status、delta/no_change
-> 解锁屏障”已被 `docs/cua-receipt-observation-contract.md` 取代。当前模型可见动作结果
-> 默认是 `zcode-cua-action-receipt-v1`；只有显式 `return_state=compact|full` 时才抓一次
-> `force_full` 状态。
+> Atualização de 2026-08: o native owner, o despacho em background e a fronteira de
+> segurança possibly_sent deste documento continuam válidos. A "força de compact/full
+> state após a ação, action_outcome, state_sync_status, barreira de desbloqueio
+> delta/no_change" foi substituída por
+> `docs/cua-receipt-observation-contract.md`. O resultado de ação visível ao modelo
+> hoje é, por padrão, `zcode-cua-action-receipt-v1`; o estado `force_full` é
+> capturado uma única vez apenas quando há `return_state=compact|full` explícito.
 
-## 目标
+## Objetivo
 
-zcode-cua 在 macOS 上默认不得改变用户当前的系统前台应用、key window、窗口层级或
-物理鼠标位置。动作必须显式绑定到一个 live 逻辑应用、presentation window 和实际
-surface；证据不足时失败关闭。仅当逻辑应用已经是前台，且 WindowServer 证明普通 OS
-hit-test 与截图 surface 完全一致时，允许用 `kCGHIDEventTap` 把事件交给 AppKit 当前
-responder；该路径不隐式激活应用。
+Por padrão, o zcode-cua no macOS não pode alterar o app de foreground atual do
+sistema, a key window, a hierarquia de janelas ou a posição física do mouse. A
+ação precisa estar explicitamente vinculada a um app lógico vivo, a uma
+presentation window e a uma surface real; quando a evidência é insuficiente, a
+operação falha de forma fechada (fail-closed). Somente quando o app lógico já está
+em foreground e o WindowServer prova que o hit-test comum do OS coincide
+exatamente com a surface capturada, é permitido usar `kCGHIDEventTap` para
+entregar o evento ao responder atual do AppKit; esse caminho não ativa o app
+implicitamente.
 
-Linux 与 Windows 继续保持当前平台语义。私有 SkyLight ABI 仅存在于 macOS native
-Helper 内，不进入跨平台 MCP schema。
+Linux e Windows continuam com a semântica de plataforma atual. A ABI privada
+SkyLight existe apenas dentro do Helper nativo do macOS e não entra no schema MCP
+cross-platform.
 
-## 状态与时序
+## Estado e sequência
 
 ```text
 MCP target/state_id + actionable frame
@@ -39,7 +51,7 @@ AX relationship graph ---> presentation root + attached surface(s)
     v
 pixel -> exact actual owner PID + CGWindowID + live bounds
     |
-    +-- stale/replaced/关系不明 --------------------> action_sent=false
+    +-- stale/replaced/relação incerta ----------------> action_sent=false
     |
     +-- logical app frontmost + OS hit-test == actual surface
     |           |
@@ -51,123 +63,172 @@ pixel -> exact actual owner PID + CGWindowID + live bounds
                     -> SLEventPostToPid(actual owner, actual window)
 ```
 
-## 行为契约
+## Contrato de comportamento
 
-1. `left_click` 及其 `click_count` 2/3 与 `mouse_button` right/middle 形态
-   共用 surface 路由。后台或存在无关遮挡时使用 window-scoped recipe；
-   逻辑应用已在前台且 OS hit-test 精确命中同一 actual surface 时走 foreground CGEvent，
-   因为 NSOpenPanel 实测会接受 window-scoped SkyLight event 却不产生 AppKit responder
-   副作用。click state 依次为 1/2/3。
-2. `scroll`、`left_click_drag` 走相同的
-   PID/window 定向事件通道；`left_click_drag` 内部按下会保存目标窗口和虚拟坐标，
-   释放必须复用同一目标。模型侧没有独立的按下/移动/释放入口。
-3. `type`、`key`（含 hold 时长形态）保留 AX 优先。逻辑应用不在前台时，默认真实键盘事件以
-   actual PID/window 后台会话投递；已经在前台时交给 OS 当前 focused attached surface。
-   `strategy=event` 本身不激活应用：它只在 logical PID 已前台且 fresh
-   `app_ref.window_id` 仍是当前 focused file-panel surface 时走一次全局真实键盘事件。
-   需要前台化时，调用方必须先执行
-   `open_application(activate=true)`，重新观察后再派发。
-   未满足前台/焦点前置条件返回 `foreground_required + action_sent=false`，不能伪装成
-   TCC `permission_denied`，也不能静默降级回 window_event。
-   Chromium renderer 的 Tab/Enter/组合键也属于该例外：后台 PID/window receipt 不能证明
-   renderer 收到事件。已由 fixture 前台复核的工作流必须显式使用精确 `window_id` 和
-   `strategy=event`，并以 DOM keydown/keyup/submit 结果验收。
-4. `type(target=element)`、`set_value`、`select_text`、`perform_action` 继续优先使用
-   AX token。元素 `set_value(strategy=event)` 与第 3 条相同，必须激活并复核精确窗口后
-   走全局选择/输入，不能被 background mode 截获；默认/AX 策略仍由 native synthetic
-   focus 包裹，不激活系统应用。
-5. `open_application` 在 macOS 默认后台打开。唯一前台化例外是调用方同时传入
-   `activate=true`，且 `app.window_id` 经 fresh AX/WindowServer
-   证据确认为 `open_panel`、`save_panel`，或同一 presentation root 下从文件面板派生的
-   `attached_dialog`。该路径激活 logical app、聚焦 exact actual surface 并复核后返回；
-   普通窗口、popover、缺 lineage、旧 generation 不得借此前台化。无 URL、非
-   `new_instance` 的普通启动继续使用原生
-   `NSWorkspaceOpenConfiguration`，固定 `activates=false`、
-   `allowsRunningApplicationSubstitution=true`：窗口正常出现在屏幕上（可交互、AX
-   可读），但不激活、不抢键盘焦点。注意不能设 `hides=true`：窗口会在隐藏态创建，
-   unhide 也
-   拉不回屏幕，AX 树遍历超时，且违反本节第 7 条“输入目标必须是 on-screen 窗口”。
-   Helper 必须保持请求存活并等待
-   `openApplicationAtURL` 的 completion 成功后，才能进入 AX window 后置条件验证；不能把
-   “LaunchServices 请求已提交”当成成功提前返回。completion 返回的
-   `NSRunningApplication` pid 必须随结果上报 broker——枚举源（NSWorkspace KVO /
-   `CGWindowList(OnScreenOnly)`）对刚启动的 app 有数秒滞后，身份解析优先走
-   `applicationInfo(pid)` 直查。目标进程已存在但 `AXWindows=0` 时也要
-   重新分发，并等待真实 AX window 出现后才返回；否则明确失败，不能让后续观测退化成
-   `elements(0)`。整个过程不激活目标，也不通过事后恢复前台应用来掩盖瞬时抢焦点。
-6. macOS 上无 `app_ref`/窗口证据的 raw action 一律拒绝；旧 Helper 缺少后台 ABI
-   时也拒绝，绝不降级到全局输入。
-7. 目标必须是当前 on-screen 且仍属于绑定 PID 的真实窗口。隐藏、最小化、其他
-   Space、失效/负 fallback window id 都返回 `action_sent=false`。
-8. 已写入 PID、window id 与窗口内坐标的事件只通过 `SLEventPostToPid` 投递一次。
-   不得对同一 `CGEventRef` 再调用 `CGEventPostToPid`；双通道会令 Chromium 收到重复的
-   `mousedown` / `mouseup` / `contextmenu`，使“工具成功”掩盖重复业务副作用。
+1. `left_click` e suas formas com `click_count` 2/3 e `mouse_button` right/middle
+   compartilham o roteamento por surface. Em background ou na presença de
+   obstrução irrelevante, usa-se a recipe com escopo de window; quando o app
+   lógico já está em foreground e o hit-test do OS acerta exatamente a mesma
+   actual surface, usa-se o CGEvent de foreground, porque a NSOpenPanel foi
+   medida em aceitando o evento SkyLight com escopo de window e ainda assim não
+   produzir efeito colateral de responder do AppKit. O click state é
+   sequencialmente 1/2/3.
+2. `scroll` e `left_click_drag` usam o mesmo canal de eventos direcionados por
+   PID/window; dentro de `left_click_drag`, a pressão salva a janela alvo e as
+   coordenadas virtuais, e a liberação precisa reutilizar o mesmo alvo. No lado do
+   modelo não há entradas separadas de pressão/movimento/liberação.
+3. `type` e `key` (incluindo a forma com duração de hold) mantêm a prioridade do
+   AX. Quando o app lógico não está em foreground, o padrão é entregar eventos
+   de teclado reais em uma sessão de background com actual PID/window; quando já
+   está em foreground, o evento vai para a attached surface atualmente focada do
+   OS. O próprio `strategy=event` não ativa o app: ele só emite um evento de
+   teclado real global quando o logical PID já está em foreground e o
+   `app_ref.window_id` fresco ainda é a current focused file-panel surface.
+   Quando for necessária a elevação para foreground, o chamador precisa executar
+   antes `open_application(activate=true)`, observar novamente e só então
+   despachar. Se a precondição de foreground/foco não for satisfeita, retorna-se
+   `foreground_required + action_sent=false`, sem se passar por
+   TCC `permission_denied` e sem degradar silenciosamente para window_event.
+   As teclas Tab/Enter/combinações do renderer do Chromium também caem nessa
+   exceção: um receipt de background PID/window não prova que o renderer recebeu
+   o evento. Fluxos já revalidados em foreground pelo fixture precisam usar
+   explicitamente o `window_id` exato e `strategy=event`, e ser aceitos pelo
+   resultado de DOM keydown/keyup/submit.
+4. `type(target=element)`, `set_value`, `select_text` e `perform_action`
+   continuam preferindo o token AX. O `set_value(strategy=event)` de elemento é
+   idêntico ao item 3: exige ativar e revalidar a janela exata e então fazer a
+   seleção/entrada global, sem ser interceptado pelo background mode; as
+   estratégias padrão/AX continuam sendo encapsuladas por synthetic focus nativo,
+   que não ativa apps do sistema.
+5. `open_application` no macOS abre em background por padrão. A única exceção de
+   elevação para foreground é quando o chamador passa simultaneamente
+   `activate=true` e `app.window_id` é confirmado por evidência fresca de
+   AX/WindowServer como `open_panel`, `save_panel` ou um `attached_dialog`
+   derivado do painel de arquivos sob o mesmo presentation root. Esse caminho
+   ativa o logical app, foca a exact actual surface, revalida e então retorna;
+   janelas comuns, popovers, lineage ausente e generation antiga não podem se
+   valer dessa elevação. Inicialização comum sem URL e sem `new_instance`
+   continua usando o `NSWorkspaceOpenConfiguration` nativo, com
+   `activates=false` e `allowsRunningApplicationSubstitution=true` fixos: a janela
+   aparece normalmente na tela (interativa, legível por AX), mas não ativa nem
+   rouba o foco do teclado. Atenção: não se pode definir `hides=true`: a janela
+   seria criada em estado oculto, o unhide também não a traz de volta para a
+   tela, a travessia da árvore AX estoura o tempo e isso viola o item 7 desta
+   seção, "o alvo de entrada deve ser uma janela on-screen". O Helper precisa
+   manter a requisição viva e aguardar o sucesso do completion de
+   `openApplicationAtURL` antes de entrar na validação das pós-condições de
+   janela AX; não se pode tratar "requisição do LaunchServices submetida" como
+   sucesso e retornar antes. O pid do `NSRunningApplication` devolvido pelo
+   completion precisa ser reportado ao broker junto com o resultado — as fontes
+   de enumeração (NSWorkspace KVO / `CGWindowList(OnScreenOnly)`) têm atraso de
+   alguns segundos para apps recém-iniciados, então a resolução de identidade
+   prioriza a consulta direta por `applicationInfo(pid)`. Quando o processo alvo
+   já existe mas `AXWindows=0`, é preciso redistribuir e aguardar o
+   aparecimento da janela AX real antes de retornar; caso contrário, falhar de
+   forma explícita, sem deixar as observações seguintes degenerarem em
+   `elements(0)`. Todo o processo não ativa o alvo e não mascara um roubo
+   momentâneo de foco restaurando depois o app de foreground.
+6. No macOS, toda raw action sem `app_ref`/evidência de janela é rejeitada; um
+   Helper antigo sem a ABI de background também é rejeitado, sem jamais degradar
+   para entrada global.
+7. O alvo precisa ser uma janela real, atualmente on-screen e ainda pertencente
+   ao PID vinculado. Janelas ocultas, minimizadas, em outro Space e window id
+   inválido/negativo de fallback retornam `action_sent=false`.
+8. Eventos com PID, window id e coordenadas dentro da janela já gravados são
+   entregues uma única vez, apenas por `SLEventPostToPid`. Não se deve chamar
+   `CGEventPostToPid` de novo para o mesmo `CGEventRef`; o canal duplo faria o
+   Chromium receber `mousedown` / `mouseup` / `contextmenu` duplicados, e o
+   "sucesso da ferramenta" viraria uma máscara para efeitos colaterais de
+   negócio repetidos.
 
-## AX 动作后的 receipt 边界
+## Fronteira de receipt após ações AX
 
-`AXUIElementPerformAction` 等写 API 的返回值不是应用业务状态的事务确认。macOS 可能先把
-动作交给目标应用，应用已经新增条目、打开编辑器或改变选择，随后 AX API 仍返回
-`kAXErrorAttributeUnsupported`、`kAXErrorFailure` 或 `kAXErrorCannotComplete`。因此进入原生
-调用以后，错误只能表示 `possibly_sent`，不能表示“动作没有发生”，也不能触发自动重试。
+O valor de retorno de APIs de escrita como `AXUIElementPerformAction` não é uma
+confirmação transacional do estado de negócio do app. O macOS pode entregar a
+ação ao app alvo primeiro — o app já adicionou o item, abriu o editor ou mudou a
+seleção — e ainda assim a API AX retornar `kAXErrorAttributeUnsupported`,
+`kAXErrorFailure` ou `kAXErrorCannotComplete`. Portanto, depois de entrar na
+chamada nativa, o erro só pode significar `possibly_sent`, não pode significar
+"a ação não aconteceu" e não pode disparar retentativa automática.
 
 ```text
-模型状态 s-N
+Estado do modelo s-N
     |
     v
-原生调用前校验 ----失败/target stale----> not_sent receipt
-    |                                      仅废弃被证明 stale 的 s-N
+Validação pré-chamada nativa ----falha/target stale----> not_sent receipt
+    |                                      descarta apenas o s-N comprovadamente stale
     v
-进入一次原生调用
+Entra em uma única chamada nativa
     | accepted / possibly_sent
     v
-accepted/possibly_sent receipt（retry_action=false）
+accepted/possibly_sent receipt (retry_action=false)
     |
-    +-- return_state=none ----------> 结束，不 capture
+    +-- return_state=none ----------> termina, sem capture
     |
-    `-- return_state=compact/full --> 一次 force_full capture --> 新状态 s-(N+1)
+    `-- return_state=compact/full --> uma captura force_full --> novo estado s-(N+1)
 ```
 
-模型可见动作结果现在统一为 `zcode-cua-action-receipt-v1`：
+O resultado de ação visível ao modelo agora é uniformemente
+`zcode-cua-action-receipt-v1`:
 
-- `dispatch_status="accepted" | "possibly_sent" | "not_sent"` 只描述派发事实；
-- `retry_action=false` 禁止宿主或模型原样重放非幂等调用；
-- 默认 `return_state="none"`，不再隐式 capture、settle 或等待状态屏障；
-- 显式 `return_state="compact" | "full"` 只执行一次 `force_full` observation；
-- receipt 排在长 AX tree 前，避免宿主截断时丢失防重放证据。
+- `dispatch_status="accepted" | "possibly_sent" | "not_sent"` descreve apenas o
+  fato do despacho;
+- `retry_action=false` proíbe que o host ou o modelo reexecute a chamada não
+  idempotente tal e qual;
+- o padrão é `return_state="none"`, sem capture, settle ou espera de barreira de
+  estado implícitos;
+- `return_state="compact" | "full"` explícito executa uma única observation
+  `force_full`;
+- o receipt vem antes da árvore AX longa, para evitar que a evidência de
+  proteção contra reexecução se perca quando o host trunca a saída.
 
-元素动作只废弃本次 target 引用的 `pre_state_id`；相同 app/window 的其它 state 不受
-scope-wide 写锁影响。坐标 hit-test 产生的 fresh native token 没有 `pre_state_id`，因此
-不会误废弃最近状态。`possibly_sent` 对 element、coordinate、drag、mouse down/up 和
-keyboard 使用同一 receipt 契约，不再退化为 `CUA_NOT_READY` 后让模型猜测是否重放。
-缺失 pid/bundle/name 的 mutation scope 仍必须在派发前以 `action_sent=false` 拒绝。
+Ações de elemento descartam apenas o `pre_state_id` referenciado por este
+target; outros states do mesmo app/window não são afetados pelo lock de escrita
+de escopo amplo. O fresh native token gerado por hit-test de coordenadas não tem
+`pre_state_id`, portanto não descarta indevidamente o state mais recente.
+`possibly_sent` usa o mesmo contrato de receipt para element, coordinate, drag,
+mouse down/up e keyboard, sem mais degradar para `CUA_NOT_READY` e deixar o
+modelo adivinhar se deve reexecutar. Mutation scope sem pid/bundle/name
+continua devendo ser rejeitado antes do despacho com `action_sent=false`.
 
-contextual AX 的 synthetic-focus 只是一项派发前置条件。若它明确返回
-`action_sent=false`，允许绕过该前置条件直接执行一次 AX；一旦 wrapper 已调用原生动作或
-派发事实不明确，不得 fallback、重新解析 token 或再次 AXPress。
+O synthetic-focus do AX contextual é apenas uma precondição de despacho. Se ele
+retornar explicitamente `action_sent=false`, é permitido contornar essa
+precondição e executar uma única ação AX; assim que o wrapper já tiver chamado a
+ação nativa, ou o fato do despacho for ambíguo, não se deve fazer fallback,
+reanalisar o token nem dar AXPress de novo.
 
-## 兼容与风险
+## Compatibilidade e riscos
 
-- SkyLight 是私有 ABI，系统升级可能使 capability 不可用；运行时逐符号探测并明确
-  报错，不做全局回退。
-- “后台”不等于可操作无渲染窗口。窗口可被其他窗口遮挡，但必须仍在当前 Space 且
-  WindowServer 标记为 on-screen。
-- 目标应用仍可能拒绝合成输入。动作成功只代表事件已定向投递；最终效果由既有
-  post-action observation 验证。
-- producer 与 Helper 不支持混版本。安装新 producer 时必须用同一 build id 的 bundled
-  Helper 覆盖旧安装；启动校验不通过则明确失败，不在动作路径兼容旧 wire payload。
+- SkyLight é uma ABI privada e uma atualização do sistema pode torná-la
+  indisponível; a detecção é feita símbolo a símbolo em tempo de execução, com
+  erro explícito e sem fallback global.
+- "Background" não significa poder operar uma janela sem renderização. A janela
+  pode estar encoberta por outras, mas precisa continuar no Space atual e com o
+  WindowServer marcando-a como on-screen.
+- O app alvo ainda pode recusar entrada sintética. O sucesso da ação significa
+  apenas que o evento foi direcionado e entregue; o efeito final é verificado
+  pela observation pós-ação já existente.
+- producer e Helper não suportam versões misturadas. Ao instalar um novo
+  producer é obrigatório cobrir a instalação antiga com o Helper empacotado do
+  mesmo build id; se a checagem de inicialização não passar, falhar de forma
+  explícita, sem compatibilizar payloads de wire antigos no caminho de ação.
 
-## Begin 失败诊断
+## Diagnóstico de falha no Begin
 
-后台键盘会话的 begin 不能只返回一个布尔值。布尔值会把 session busy、AX 未授权、
-SkyLight 符号缺失、窗口不在当前 Space、窗口 owner/bounds 变化、`GetProcessForPID`
-失败以及 synthetic-focus record 被 WindowServer 拒绝全部压成同一条错误，运行时无法
-区分“目标 stale”和“私有 ABI 失效”。Helper 的 additive detailed ABI 必须返回：
+O begin de uma sessão de teclado em background não pode devolver apenas um
+booleano. O booleano esmagaria em uma única mensagem de erro session busy, AX
+não autorizado, símbolo SkyLight ausente, janela fora do Space atual, mudança de
+owner/bounds da janela, falha de `GetProcessForPID` e registro de synthetic-focus
+rejeitado pelo WindowServer, impossibilitando ao runtime distinguir "alvo
+stale" de "ABI privada inoperante". A ABI detalhada e aditiva do Helper precisa
+retornar:
 
-- 稳定的 `reason`；
-- `native_status`（仅底层 SPI 返回状态码时有值）；
-- `pid`、`window_id`、预期 bounds；
-- 能读到时的 live owner、on-screen 和 live bounds；
-- SkyLight 缺失符号列表。
+- um `reason` estável;
+- `native_status` (com valor apenas quando o SPI de baixo nível retorna um
+  código de status);
+- `pid`, `window_id` e bounds esperados;
+- live owner, on-screen e live bounds, quando legíveis;
+- a lista de símbolos SkyLight ausentes.
 
 ```text
 MCP key/type/hold
@@ -175,92 +236,134 @@ MCP key/type/hold
     v
 beginBackgroundWindowInputDetailed
     |
-    +-- parse/AX/SkyLight/live-window/focus-record 分支
+    +-- ramo parse/AX/SkyLight/live-window/focus-record
     |                         |
     |                         v
     |              { ok:false, reason, evidence }
     |                         |
-    |                         +--> Helper warn 日志
+    |                         +--> log warn do Helper
     |                         +--> BrokerError.details
     v
-verified PID keyboard dispatch（仅 ok=true 时执行）
+verified PID keyboard dispatch (executado apenas quando ok=true)
 ```
 
-失败发生在 verified keyboard dispatch 之前，因此所有 begin 失败必须保留
-`action_sent=false`。旧 addon 没有 detailed ABI 时继续 fail-closed，并以
-`legacy_unclassified` 标记为不可精确分类，不能伪装成某一个具体 native 原因。
+A falha ocorre antes do verified keyboard dispatch, portanto todas as falhas de
+begin devem preservar `action_sent=false`. Quando o addon antigo não tem a ABI
+detalhada, continua falhando de forma fechada (fail-closed) e é marcado como
+`legacy_unclassified`, não classificável com precisão, sem se passar por um motivo
+nativo específico.
 
-## End 失败诊断
+## Diagnóstico de falha no End
 
-同一条论证适用于收尾：布尔值会把 session 不匹配、合成焦点解除失败、真实前台变化、
-物理光标移动压成一条错误。detailed end ABI 必须返回稳定 `reason`、`native_status`、
-`pid`/`window_id`，以及派发前后各量一次的 frontmost pid 与 physical cursor。
+O mesmo raciocínio vale para o encerramento: o booleano esmagaria em um único
+erro a incompatibilidade de session, a falha ao desfazer o foco sintético, uma
+mudança real de foreground e o deslocamento do cursor físico. A ABI detalhada de
+end precisa retornar `reason` estável, `native_status`, `pid`/`window_id`, além
+do frontmost pid e do physical cursor medidos uma vez antes e uma vez depois do
+despacho.
 
-end 发生在 verified dispatch **之后**，因此每一种 reason 都必须按 `action_sent=true`
-解读，绝不能让调用方把它读成“动作没送达、可以重试”。
+O end ocorre **depois** do verified dispatch, portanto cada `reason` deve ser
+lido como `action_sent=true`, e nunca pode levar o chamador a interpretá-lo como
+"a ação não chegou, é possível reexecutar".
 
-**键盘路径不把 `frontmost_changed` / `cursor_moved` 当失败。** 理由是这两个量本路径
-改不动：app-scoped 键盘走 `CGEventPostToPid`（pid 定向投递），既不移动系统光标，也不
-调用 `SetFrontProcess`。所以观测到的漂移只有两个来源——
+**O caminho de teclado não trata `frontmost_changed` / `cursor_moved` como
+falha.** A razão é que esses dois valores não são alteráveis por este caminho: o
+teclado com escopo de app usa `CGEventPostToPid` (entrega direcionada por pid),
+que não move o cursor do sistema nem chama `SetFrontProcess`. Portanto, a
+deriva observada tem apenas duas origens —
 
-1. 用户自己动了鼠标（收尾含 100ms + 40ms 等待，人手一碰即触发）；
-2. 目标 App 对按键的正常反应，例如 `escape` 关掉菜单后该 App 交还前台。
+1. o próprio usuário moveu o mouse (o encerramento inclui esperas de 100ms +
+   40ms, e basta a mão tocar para disparar);
+2. a reação normal do App alvo às teclas, por exemplo o `escape` fechando um
+   menu e o app devolvendo o foreground.
 
-第 2 种情况下，动作越是生效，校验越是失败。把它们报成失败会让模型认为按键没送达并
-重试，造成重复输入。因此：记 `warn` 日志与遥测，工具结果仍为成功。
+No segundo caso, quanto mais a ação é eficaz, mais a validação falha. Reportá-los
+como falha faria o modelo achar que a tecla não chegou e reexecutar, causando
+entrada duplicada. Portanto: registrar log `warn` e telemetria; o resultado da
+ferramenta continua sendo sucesso.
 
-`session_mismatch`、`unfocus_record_failed`、`action_failed` 与各类
-`*_unclassified` 继续报错——它们是真实的状态泄漏或不可分类风险，只是必须报出确切
-reason，而不是笼统的“invariant changed”。指针路径仍沿用原策略，未随本次变更调整。
+`session_mismatch`, `unfocus_record_failed`, `action_failed` e as diversas
+`*_unclassified` continuam reportando erro — são vazamentos reais de estado ou
+riscos não classificáveis, apenas precisam reportar o `reason` exato, em vez de
+um vago "invariant changed". O caminho de ponteiro mantém a estratégia original,
+sem ajuste por esta mudança.
 
-## 验收
+## Aceitação
 
-- broker 单测证明五种 click profile 在后台全部选择 window-scoped ABI；逻辑应用已在
-  前台且 actual surface 同时通过 WindowServer hit-test 时才选择 foreground ABI；无关
-  遮挡存在时不走全局路径。
-- scroll/drag/mouse hold 单测证明 app/window scope 始终保留且无全局 fallback。
-- Chromium keyboard 单测证明不再激活或全局发送。
-- native 源码测试锁定私有符号、字段、click recipe、target-only focus 和 fail-closed。
-- 实机以一个保持前台的观察应用为基线，对后台 Calculator/TextEdit/Chromium 执行动作，
-  比较动作前后 frontmost PID、物理 cursor、窗口 bounds/order，并验证目标状态变化。
-- broker 单测证明键盘 end 的 `frontmost_changed` / `cursor_moved` 只记日志、不改变工具
-  结果，而 `session_mismatch` / `unfocus_record_failed` 仍然 fail-closed 且报出确切 reason。
-- **实机验收必须包含「派发期间人为移动鼠标」和「目标 App 菜单打开时按 escape」两档。**
-  只在无人触碰机器的静默环境下验收，会让 frontmost/cursor 不变量看起来永远成立——
-  下方 2026-08-13 的证据就是这样通过的，而实机反馈里同一条路径 7 次调用失败 6 次。
-- AppKit fixture 必须使用 `NSOpenPanel.beginSheetModal(for:)` 真正建立 modal response，
-  验证 `Cmd+Shift+G` 子 surface、完整路径、默认确认按钮状态和确认关闭，再由应用内
-  oracle 校验精确文件；目标 lane 不超过 15 次 CUA 调用，且不得调用 `osascript`。
-- Chrome fixture 必须从后台 `open_panel` 开始，经双确认 `open_application` 前台化 exact
-  surface 后完成 `Cmd+Shift+G`、路径输入、Enter 和确认；页面 AX/DOM 文本是最终 oracle，
-  整条被测路径不得用 CDP/Playwright 设置文件。
+- Os testes unitários do broker provam que os cinco perfis de click em background
+  escolhem todos a ABI com escopo de window; a ABI de foreground só é escolhida
+  quando o app lógico já está em foreground e a actual surface passa
+  simultaneamente pelo hit-test do WindowServer; com obstrução irrelevante
+  presente, o caminho global não é usado.
+- Testes unitários de scroll/drag/mouse hold provam que o escopo app/window é
+  sempre preservado e que não há fallback global.
+- Testes unitários de teclado do Chromium provam que não há mais ativação nem
+  envio global.
+- Os testes de código nativo travam os símbolos privados, os campos, o click
+  recipe, o focus somente no target e o fail-closed.
+- Em máquina real, usando um app observador que permanece em foreground como
+  linha de base, executar ações em Calculator/TextEdit/Chromium em background e
+  comparar o frontmost PID, o cursor físico e os bounds/ordem das janelas antes
+  e depois da ação, verificando a mudança de estado do alvo.
+- Testes unitários do broker provam que `frontmost_changed` / `cursor_moved` no
+  end do teclado apenas geram log e não alteram o resultado da ferramenta,
+  enquanto `session_mismatch` / `unfocus_record_failed` continuam em fail-closed
+  e reportam o `reason` exato.
+- **A aceitação em máquina real precisa incluir as duas situações "mover o
+  mouse manualmente durante o despacho" e "pressionar escape com o menu do App
+  alvo aberto".** Aceitar apenas em um ambiente silencioso, sem ninguém
+  tocando a máquina, faz os invariantes de frontmost/cursor parecerem sempre
+  válidos — foi assim que a evidência de 2026-08-13 abaixo passou, enquanto no
+  feedback de máquina real a mesma rota falhou em 6 de 7 chamadas.
+- O fixture AppKit precisa usar `NSOpenPanel.beginSheetModal(for:)` para
+  estabelecer de fato a modal response, validar a sub-surface de `Cmd+Shift+G`,
+  o caminho completo, o estado padrão do botão de confirmação e o fechamento por
+  confirmação, e então o oracle interno do app valida o arquivo exato; a lane
+  alvo não pode exceder 15 chamadas CUA e não pode chamar `osascript`.
+- O fixture do Chrome precisa partir de um `open_panel` em background e, após a
+  dupla confirmação de `open_application` trazer a exact surface para
+  foreground, completar `Cmd+Shift+G`, a entrada do caminho, o Enter e a
+  confirmação; o texto AX/DOM da página é o oracle final, e todo o caminho
+  testado não pode usar CDP/Playwright para definir o arquivo.
 
-## 2026-08-23 文件面板实机证据
+## Evidência em máquina real do painel de arquivos, 2026-08-23
 
-- presentation root、NSOpenPanel 和 `Cmd+Shift+G` 子 sheet 分别解析为三个真实 window id，
-  且共享同一个 presentation root。
-- 8 次 CUA 调用完成完整路径输入、目标文件选择与确认关闭；应用内 oracle 返回
-  `response=ok`、`target_selected=true`，`osascript_calls=0`。
-- 确认点击的 outcome 报告 actual panel owner/window 和 `surface_kind=open_panel`；
-  文件面板关闭后回到同一 presentation root。
+- presentation root, NSOpenPanel e a sub-sheet de `Cmd+Shift+G` foram
+  resolvidos como três window id reais distintos, compartilhando o mesmo
+  presentation root.
+- 8 chamadas CUA completaram a entrada do caminho, a seleção do arquivo alvo e
+  o fechamento por confirmação; o oracle interno do app retornou
+  `response=ok`, `target_selected=true`, `osascript_calls=0`.
+- O outcome do clique de confirmação reporta o actual panel owner/window e
+  `surface_kind=open_panel`; após o fechamento do painel de arquivos, o app
+  retorna ao mesmo presentation root.
 
-## 2026-08-24 文件面板差异 E2E
+## E2E de diferenças do painel de arquivos, 2026-08-24
 
-- M14–M16 三个独立 task pack 分别锁定坐标 surface 路由、panel 代际键盘身份和
-  state-only 坐标权限；均使用真实 AppKit NSOpenPanel 和原生 MCP 调用。
-- M14/M15 在前台原始键盘步骤前显式执行 `activate=true`，
-  直接覆盖“重新激活后立即输入”的恢复路径；`return_state:none` 仍必须返回实际
-  dispatch surface 和不可重试 outcome。
-- `main@e0d27a36`：M14/M16 无法交付 actionable panel raster；M15 的 Escape 返回
-  成功文本但 panel 不关闭。
-- 修复分支：M14、M15、M16 的 blocking checks 全部通过；`osascript_calls=0`。
-- M16 额外证明普通 panel 点击只返回 `accepted/not_proven`，不会因 settle 中短暂捕获
-  presentation root 而误报 panel 已关闭。
+- Três task packs independentes, M14–M16, travam respectivamente o roteamento
+  de surface por coordenadas, a identidade de teclado por geração do panel e a
+  permissão de coordenadas state-only; todos usam o NSOpenPanel real do AppKit e
+  chamadas MCP nativas.
+- M14/M15 executam explicitamente `activate=true` antes dos passos de teclado
+  originais em foreground, cobrindo diretamente o caminho de recuperação
+  "reativar e então digitar imediatamente"; `return_state:none` ainda precisa
+  retornar a actual dispatch surface e o outcome não reexecutável.
+- `main@e0d27a36`: M14/M16 não conseguem entregar o raster de painel acionável;
+  o Escape de M15 retorna texto de sucesso, mas o painel não fecha.
+- Ramo de correção: todos os blocking checks de M14, M15 e M16 passam;
+  `osascript_calls=0`.
+- M16 prova adicionalmente que o clique em um painel comum só retorna
+  `accepted/not_proven` e não reporta erroneamente o painel como fechado por
+  causa da captura transitória do presentation root durante o settle.
 
-## 2026-08-13 实机证据
+## Evidência em máquina real, 2026-08-13
 
-- 后台 Calculator（PID 23325，CGWindowID 168257）接收单击后显示值变为 `7`。
-- 同一窗口的双击、三击、右击、中击均由 native 返回成功；每次事件前后的系统
-  frontmost PID 都保持为 17641，物理 cursor 保持 `(985.21484375, 300.1875)`。
-- synthetic-focus keyboard session 的 begin、verified key、end 均成功；Calculator 显示
-  更新为 `78,888,891`，frontmost PID 与 cursor 仍保持不变。
+- A Calculator em background (PID 23325, CGWindowID 168257), após receber um
+  clique simples, passou a exibir o valor `7`.
+- O clique duplo, o triplo, o botão direito e o botão do meio na mesma janela
+  foram todos retornados com sucesso pelo native; o frontmost PID do sistema
+  antes e depois de cada evento permaneceu em 17641, e o cursor físico permaneceu
+  em `(985.21484375, 300.1875)`.
+- O begin, a verified key e o end da sessão de teclado com synthetic-focus
+  tiveram sucesso; a Calculator passou a exibir `78,888,891`, e o frontmost PID e
+  o cursor permaneceram inalterados.

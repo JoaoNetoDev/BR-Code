@@ -1,15 +1,15 @@
-# 项目侧栏宽度稳定性
+# Estabilidade da largura da barra lateral de projetos
 
-2026-09-11 用户反馈“显示更多”静止时持续闪动且偏右；本条补充虚拟项目 spec 的分区布局边界。
+2026-09-11: O usuário relatou que “Mostrar mais” (Show More) piscava continuamente ao ficar parado e ficava deslocado para a direita; esta entrada complementa os limites de layout por seção da spec do projeto virtual.
 
-项目/任务分区的单列宽度由侧栏可用宽度决定。任务标题及其走马灯副本不能撑开分区；标题溢出由原 TaskTitleOverflowText 管理，分页数量仍由 ProjectTaskRows 管理。“显示更多”在所属任务列表宽度内居中，分页前后保持稳定。
+A largura da coluna única das seções de projeto/tarefa é determinada pela largura disponível da barra lateral. O título da tarefa e sua cópia em marquee não podem expandir a seção; o overflow do título continua sendo gerenciado por TaskTitleOverflowText, e a quantidade paginada continua sendo gerenciada por ProjectTaskRows. “Mostrar mais” fica centralizado dentro da largura da lista de tarefas à qual pertence e permanece estável antes e depois da paginação.
 
 ```text
-侧栏可用宽度 -> 分区列宽 -> 标题溢出检测 -> 标题副本
-                   ^                         |
-                   +------ 禁止反向撑宽 ------+
+Largura disponível da barra lateral -> Largura da coluna da seção -> Detecção de overflow do título -> Cópia do título
+                                       ^                                                                             |
+                                       +------ Proibido expandir na direção oposta ------+
 ```
 
-修复在 project-sidebar UI 模块约束 Grid 单列的最小宽度；复用原列间距、折叠、任务标题、分页和数据 owner，不添加状态、observer 或定时器。桌面及手机共享这层布局，不改变 continuous / replayable 和 Host / CLI 数据链路。
+A correção restringe a largura mínima da coluna única do Grid no módulo de UI project-sidebar; reutiliza o espaçamento original das colunas, o colapso, o título da tarefa, a paginação e o owner dos dados, sem adicionar estado, observer ou temporizador. Desktop e celular compartilham essa camada de layout, sem alterar continuous / replayable e o caminho de dados Host / CLI.
 
-验收 VP-WIDTH-01（accepted / pending）：真实 Electron renderer 使用隔离 HOME 的合成任务索引，项目与任务区各 25 条混合长短标题；无 provider 请求。静止观察一个时间窗口，分区无横向溢出、按钮宽度不跳变、文字在任务列表内居中；点击“显示更多”后 20 条展开为 25 条。检查明暗主题以及正常/窄分区宽度。合成索引仅用于布局及分页，不证明会话恢复或 CLI 同步。
+Aceitação VP-WIDTH-01 (accepted / pending): renderer Electron real usando um índice de tarefas sintético com HOME isolado, com 25 tarefas de títulos curtos e longos misturados na área de projetos e na área de tarefas; sem requisições ao provider. Observa-se em repouso por uma janela de tempo: a seção não tem overflow horizontal, a largura do botão não oscila e o texto fica centralizado dentro da lista de tarefas; após clicar em “Mostrar mais”, 20 itens expandem para 25. Verificam-se os temas claro e escuro e as larguras normal e estreita da seção. O índice sintético serve apenas ao layout e à paginação e não comprova restauração de sessão nem sincronização com o CLI.

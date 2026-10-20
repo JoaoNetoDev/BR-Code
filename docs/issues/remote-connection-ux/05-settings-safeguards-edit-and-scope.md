@@ -1,51 +1,51 @@
-# 05 — 设置页防护、编辑连接与作用域标注
+# 05 — Salvaguardas da página de configurações, edição de conexão e marcação de escopo
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Especificação pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：** 无，可立即开始。
+**Bloqueado por:** nada, pode começar imediatamente.
 
-**要交付的行为：**
+**Comportamentos a entregar:**
 
-- **危险操作更安全**：
-  - 破坏性确认框默认聚焦"取消"，按回车不会触发确认。
-  - 移除设备的确认框写明会断开哪些已打开的项目，标题和按钮的用词一致。
-  - 断开设备不弹确认框，但要说明"远端任务会继续运行"。
-- **操作反馈更清楚**：
-  - 按钮执行中不能重复点击。
-  - 加载完成前不显示空态；空态里提供"新建连接"按钮。
-  - 开关保存失败时回滚。
-  - "最近在线"的时间准确。
-  - "在侧边栏中显示"能定位到对应的设备。
-  - "重新安装并连接"会带上这台设备的信息。
-  - 同一个错误不会显示两遍。
-- **编辑连接**：
-  - 编辑弹窗的字段和控件与新建表单保持一致。
-  - 连接名和设备名分开编辑。
-  - 保存时有加载状态，失败时显示真实原因，文案如实写"下次连接时生效"。
-- **作用域标注**：仅在作用域菜单中保留设备名；设置分区和编辑表单统一移除“正在编辑”提示行。
+- **Operações perigosas mais seguras**:
+  - A caixa de confirmação destrutiva tem o foco padrão em "Cancelar" e pressionar Enter não dispara a confirmação.
+  - A caixa de confirmação de remoção de dispositivo informa quais projetos abertos serão desconectados, e o título e os botões usam a mesma redação.
+  - Desconectar um dispositivo não abre caixa de confirmação, mas explica que "as tarefas remotas continuarão em execução".
+- **Feedback de operação mais claro**:
+  - Botões em execução não podem ser clicados novamente.
+  - O estado vazio não é exibido antes da conclusão do carregamento; o estado vazio oferece um botão "Nova conexão".
+  - Quando o salvamento de um switch falha, o valor é revertido.
+  - O horário de "visto por último" é preciso.
+  - "Mostrar na barra lateral" consegue localizar o dispositivo correspondente.
+  - "Reinstalar e conectar" carrega as informações deste dispositivo.
+  - O mesmo erro não é exibido duas vezes.
+- **Edição de conexão**:
+  - Os campos e controles do diálogo de edição são consistentes com o formulário de nova conexão.
+  - O nome da conexão e o nome do dispositivo são editados separadamente.
+  - O salvamento tem estado de carregamento e, em caso de falha, mostra a causa real; a redação diz com honestidade que "vale na próxima conexão".
+- **Marcação de escopo**: o nome do dispositivo é mantido apenas no menu de escopo; a seção de configurações e o formulário de edição removem de forma unificada a linha de aviso "editando".
 
-对应父规格中的「设置页"远程设备"」一节（反馈与状态、确认框、作用域标注），以及「连接向导」一节里编辑连接弹窗的部分。
+Corresponde à seção "Dispositivos remotos" da página de configurações na especificação pai (feedback e estado, caixas de confirmação, marcação de escopo), e à parte sobre o diálogo de edição de conexão da seção "Assistente de conexão".
 
-范围：
+Escopo:
 
-- **影响全应用的改动**：破坏性确认框的默认焦点和回车行为，对应用里所有破坏性确认框都生效。
-- **作用域标注覆盖范围**：
-  - 常规、插件、MCP、技能、命令、钩子和子智能体均不显示独立机器提示行。
-  - Docker 工作区同样适用。
-  - 桌面与手机、深浅主题、中英文均适用，列表与编辑表单一致。
-  - 作用域菜单写出设备名，远程工作区不再使用显示器图标。
-- **作用域规则不变**：各分区"跟随哪台机器"的归属规则本次不改。
-- **编辑连接的字段**：包括主机、认证方式分段按钮、别名、资源下载方式和私钥文件选择。
+- **Alterações que afetam todo o aplicativo**: o foco padrão e o comportamento do Enter nas caixas de confirmação destrutivas valem para todas as caixas de confirmação destrutivas do aplicativo.
+- **Cobertura da marcação de escopo**:
+  - Rotinas, plugins, MCP, habilidades, comandos, hooks e subagentes não exibem uma linha de aviso de máquina independente.
+  - O mesmo vale para workspaces Docker.
+  - Vale para desktop e celular, temas claro e escuro, português e inglês, com consistência entre lista e formulário de edição.
+  - O menu de escopo exibe o nome do dispositivo; o workspace remoto deixa de usar o ícone de monitor.
+- **Regras de escopo inalteradas**: as regras de "qual máquina seguir" de cada seção não mudam nesta rodada.
+- **Campos de edição da conexão**: incluem host, botões segmentados de método de autenticação, apelido, forma de download de recursos e seleção de arquivo de chave privada.
 
-验收标准：
+Critérios de aceite:
 
-- [x] **破坏性确认框**：默认焦点在"取消"，按回车不触发确认。需要确认框测试覆盖，并回归应用里其他的破坏性确认框。
-- [x] **移除与断开**：移除设备的确认框列出会被断开的项目，用词一致；断开时不弹确认框，改为内联说明。
-- [x] **按钮与状态反馈**：执行中的按钮显示忙碌状态、不能重复点击；加载态和空态区分清楚；开关保存失败会回滚并给出提示。需要设置面板的组件测试覆盖。
-- [x] **定位与重装**："在侧边栏中显示"能定位到设备的项目；"重新安装并连接"会预填这台设备的信息；"最近在线"的时间准确。
-- [x] **编辑弹窗**：字段与新建表单一致；改连接名不会改到设备名；保存时有加载态，失败时显示真实原因。
-- [x] **作用域标注**：各分区与表单不显示“正在编辑”提示行，作用域菜单里保留设备名。组件与 E2E 断言同步到该行为。
-- [x] **更新规格**：UX 规格中设置页和编辑连接的段落更新到最新行为；同步设置页相关的 E2E 用例。
-- [x] **必跑检查**：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 E2E 全部通过后，本地提交。
+- [x] **Caixa de confirmação destrutiva**: o foco padrão está em "Cancelar" e pressionar Enter não dispara a confirmação. É preciso haver cobertura de teste das caixas de confirmação, com regressão das demais caixas destrutivas do aplicativo.
+- [x] **Remoção e desconexão**: a caixa de confirmação de remoção de dispositivo lista os projetos que serão desconectados, com redação consistente; a desconexão não abre caixa de confirmação e passa a ter uma explicação inline.
+- [x] **Feedback de botões e estado**: botões em execução exibem estado de ocupado e não podem ser clicados novamente; estado de carregamento e estado vazio são bem distinguidos; falha ao salvar o switch reverte o valor e exibe um aviso. É preciso haver cobertura de testes de componente do painel de configurações.
+- [x] **Localização e reinstalação**: "Mostrar na barra lateral" localiza os projetos do dispositivo; "Reinstalar e conectar" pré-preenche as informações deste dispositivo; o horário de "visto por último" é preciso.
+- [x] **Diálogo de edição**: os campos são consistentes com o formulário de nova conexão; alterar o nome da conexão não altera o nome do dispositivo; o salvamento tem estado de carregamento e, em caso de falha, exibe a causa real.
+- [x] **Marcação de escopo**: as seções e o formulário não exibem a linha de aviso "editando", e o menu de escopo mantém o nome do dispositivo. As asserções de componente e E2E foram sincronizadas com esse comportamento.
+- [x] **Atualização das especificações**: os trechos da página de configurações e da edição de conexão na especificação de UX foram atualizados para o comportamento mais recente; os casos de E2E relacionados às configurações foram sincronizados.
+- [x] **Verificações obrigatórias**: após `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, os testes unitários afetados e os E2E afetados passarem, fazer o commit local.

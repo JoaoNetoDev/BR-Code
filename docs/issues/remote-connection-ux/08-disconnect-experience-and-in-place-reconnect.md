@@ -1,65 +1,65 @@
-# 08 — 断线体验与原地重连
+# 08 — Experiência de desconexão e reconexão no lugar
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Spec pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：**
+**Bloqueado por:**
 
-- [03 — 远程连接展示模型、5 种状态与术语](./03-presentation-model-states-and-glossary.md)：横幅和项目行的状态都从展示模型读取。
-- [04 — 向导止血与流程控制器抽取](./04-wizard-p0-fixes-and-flow-controller.md)：向导需要直接落到对应的等待点。
+- [03 — Modelo de apresentação da conexão remota, 5 estados e glossário](./03-presentation-model-states-and-glossary.md): o estado do banner e da linha do projeto é lido a partir do modelo de apresentação.
+- [04 — Correções P0 do assistente e extração do controlador de fluxo](./04-wizard-p0-fixes-and-flow-controller.md): o assistente precisa cair direto no ponto de espera correspondente.
 
-**要交付的行为：**
+**Comportamentos a entregar:**
 
-- **断线时的会话区**：
-  - 会话顶部出现横幅，写明状态和原因，并提供"重新连接"和"详情"两个操作。如果远端还有任务在运行，横幅要说明这些任务会继续运行。
-  - 会话页不再是一片空白。
-  - 输入框保留草稿，但暂时不能发送，并说明原因。离线期间不排队，重连后也不自动发送。
-- **断线时的任务视图**：
-  - 离线项目在时间线、分组、置顶、归档这几个视图里，各保留一行占位。
-  - ⌘K 搜索显示可读的文案。
-- **重连**：
-  - 凭据齐全时，点击重连直接在项目行里完成，不弹出向导。
-  - 重连失败时，项目行显示失败原因；点击后打开向导的"连接中"屏，并展开日志。
-  - 需要用户处理时（例如需要补充信息），向导直接停在对应的等待点。
-- **入口规则统一**：
-  - 这四个入口遵循同一条意图规则：侧栏的重连按钮、点击离线项目行、详情卡里的"连接"、设置页里的"连接"。
-  - 如果入口没有带目录，连接后进入选目录，并且可以选择"稍后选择"。
+- **Área da sessão durante a desconexão**:
+  - No topo da sessão aparece um banner, com o estado e o motivo, oferecendo as ações "Reconectar" e "Detalhes". Se ainda houver tarefas em execução no remoto, o banner informa que essas tarefas continuam rodando.
+  - A página da sessão deixa de ficar completamente em branco.
+  - O campo de entrada preserva o rascunho, mas não permite o envio por enquanto, e explica o motivo. Nada é enfileirado durante o período offline, e nada é enviado automaticamente após a reconexão.
+- **Visões de tarefa durante a desconexão**:
+  - O projeto offline mantém uma linha de placeholder nas visões de linha do tempo, agrupamento, fixados e arquivados.
+  - A busca ⌘K exibe um texto legível.
+- **Reconexão**:
+  - Com as credenciais completas, clicar em reconectar conclui diretamente na linha do projeto, sem abrir o assistente.
+  - Quando a reconexão falha, a linha do projeto exibe o motivo da falha; ao clicar, abre-se a tela "Conectando" do assistente, com o log expandido.
+  - Quando for necessária a ação do usuário (por exemplo, quando faltarem informações), o assistente para direto no ponto de espera correspondente.
+- **Regra unificada dos pontos de entrada**:
+  - Os quatro pontos de entrada seguem a mesma regra de intenção: o botão de reconectar da barra lateral, o clique na linha de um projeto offline, o "Conectar" do cartão de detalhes e o "Conectar" da página de configurações.
+  - Se o ponto de entrada não tiver um diretório, depois de conectar o usuário entra na seleção de diretório e pode escolher "Selecionar depois".
 
-对应父规格中的「会话区」一节，以及「重连与恢复」一节里原地重连和入口意图的部分。
+Isso corresponde à seção "Área da sessão" da spec pai e à parte de reconexão no lugar e de intenção dos pontos de entrada da seção "Reconexão e recuperação".
 
-范围：
+Escopo:
 
-- **内容区占位**：内容区至少显示"设备未连接，连接后继续此会话"的占位。已加载的会话内容，只有在现有 owner 仍持有时才以只读方式保留；不要为此新增缓存 owner。
-- **竞态下的发送失败**：显示分类后的错误文案，并提供"重新连接"。反馈分类不能写成"模型调用报错"。
-- **"稍后选择"**：在现有的选目录步骤里加上这个选项，[11](./11-connecting-and-directory-screens.md) 重做选目录屏时保留它。
+- **Placeholder na área de conteúdo**: a área de conteúdo exibe pelo menos o placeholder "O dispositivo não está conectado; conecte-se para continuar esta sessão". O conteúdo de sessão já carregado só é mantido em modo somente leitura enquanto o owner existente ainda o tiver; não crie um novo owner de cache para isso.
+- **Falha de envio em condição de corrida**: exibir a mensagem de erro categorizada e oferecer "Reconectar". A categoria do retorno não pode ser escrita como "erro na chamada do modelo".
+- **"Selecionar depois"**: adicionar essa opção ao passo existente de seleção de diretório; preservá-la quando a [11](./11-connecting-and-directory-screens.md) refizer a tela de seleção de diretório.
 
-**原型评审结论**（[06 评审结论](./06-interaction-prototype-review.md#comments)）：界面按评审通过的原型实现，以下几点以 06 为准。
+**Conclusões da revisão de protótipo** ([conclusões da 06](./06-interaction-prototype-review.md#comments)): a interface é implementada conforme o protótipo aprovado na revisão; nos pontos abaixo, prevalece o 06.
 
-- 会话横幅整块使用语义色底，中性状态的标题用主文字色，右侧是“详情”和主操作。
-- 连接失败或重连中时，已加载内容以变淡的只读样子保留（不新增缓存 owner）；主动断开且没有已加载内容时，显示“设备未连接，连接后继续此会话”占位。
-- 输入框保留草稿，发送按钮旁写明不能发送的原因。
+- O banner da sessão usa, em todo o seu bloco, um fundo com cor semântica; o título do estado neutro usa a cor principal de texto, e à direita ficam "Detalhes" e a ação principal.
+- Na falha de conexão ou durante a reconexão, o conteúdo já carregado é mantido em versão esmaecida e somente leitura (sem novo owner de cache); na desconexão voluntária e sem conteúdo já carregado, exibe-se o placeholder "O dispositivo não está conectado; conecte-se para continuar esta sessão".
+- O campo de entrada preserva o rascunho, e o motivo de não ser possível enviar é escrito ao lado do botão de envio.
 
-验收标准：
+Critérios de aceite:
 
-- [x] 主动断开后，会话页显示横幅和占位，不再是空白。用 E2E 覆盖走查时复现出空白页的那条路径。
-- [x] 输入框保留草稿，发送不可用，占位文字说明原因；不会排队，也不会在重连后自动发送。需要有会话区测试。
-- [x] 竞态导致发送失败时，显示分类后的错误文案和"重新连接"，反馈分类正确。
-- [x] 每个任务视图里，离线项目都保留一行占位，并且可以从这里发起连接。
-- [x] ⌘K 搜索里不再出现 `ZCODE_REMOTE_WORKSPACE_DISCONNECTED`。
-- [x] 凭据齐全时原地重连：不弹向导，项目行显示"连接中"，成功后不打扰用户。用 E2E 覆盖。
-- [x] 重连失败，或需要用户处理时，向导落在正确的屏和等待点。需要有向导测试。
-- [x] 四个入口的意图规则一致；从设置页连接后进入选目录，并且可以"稍后选择"。用 E2E 覆盖。
-- [x] 更新 UX 规格和导航规格中对应的段落，并同步 E2E 用例目录。
-- [x] 以下检查全部通过后在本地提交：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 SSH E2E。
+- [x] Após uma desconexão voluntária, a página da sessão exibe o banner e o placeholder, e deixa de ficar em branco. Ao cobrir o fluxo com E2E, reproduzir o caminho que gerava a página em branco.
+- [x] O campo de entrada preserva o rascunho, o envio fica indisponível e o texto do placeholder explica o motivo; nada é enfileirado nem enviado automaticamente após a reconexão. Precisa de testes da área da sessão.
+- [x] Quando uma condição de corrida faz o envio falhar, a mensagem de erro categorizada e "Reconectar" são exibidos, com a categoria do retorno correta.
+- [x] Em cada visão de tarefa, o projeto offline mantém uma linha de placeholder, e a conexão pode ser iniciada dali.
+- [x] `ZCODE_REMOTE_WORKSPACE_DISCONNECTED` não aparece mais na busca ⌘K.
+- [x] Reconexão no lugar com credenciais completas: não abre o assistente, a linha do projeto mostra "Conectando" e, no sucesso, não incomoda o usuário. Coberto por E2E.
+- [x] Quando a reconexão falha ou é necessária a ação do usuário, o assistente para na tela e no ponto de espera corretos. Precisa de testes do assistente.
+- [x] A regra de intenção dos quatro pontos de entrada é consistente; depois de conectar pela página de configurações, o usuário entra na seleção de diretório e pode escolher "Selecionar depois". Coberto por E2E.
+- [x] Atualizar os trechos correspondentes da spec de UX e da spec de navegação, e sincronizar o catálogo de casos E2E.
+- [x] Após a aprovação de todas as verificações abaixo, fazer o commit local: `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, testes unitários afetados e E2E de SSH afetados.
 
-## 实施与验证记录（2026-09-28）
+## Registro de implementação e verificação (2026-09-28)
 
-- 断线会话横幅、只读内容/草稿、发送门禁、任务视图占位、分类反馈和统一重连入口已实现。普通失败与日志保留在现有 owner；需要交互时交给唯一向导，保留原目录意图。
-- 手机实测补齐了 Source 断开后注销失效 services、保留当前 Root 和重建 replayable bridge 的路径。显式重连成功等待旧恢复结束后重新核对 workspace，避免丢失恢复唤醒或跨项目恢复；相应竞态回归测试先红后绿。
-- 规范和规格双线评审无遗留问题。`pnpm typecheck`、`pnpm lint`（0 错误、64 条既有警告）、`pnpm architecture:check --changed`（0 违规）、E2E 类型与 fixture 检查通过；定向单测通过。完整单测使用仓库提供的 `ZCODE_TEST_POOL=forks pnpm test:unit` 跑完：2,033 文件 / 18,694 项通过，2 文件 / 14 项按配置跳过；唯一失败文件的两条旧断言仍要求侧栏直接打开向导。依据本票已确认合同更新为统一项目重连入口后，最终全部改动单测及失败文件串行复测：20 文件 / 294 项通过。最后仅修改测试断言与初始化错误检查，生产代码未变，未再重复整套全量；不把首次全量的退出码写成成功。此前默认线程池的内存溢出亦不作为通过证据。
-- 本地 Electron RPN E2E PASS：`desktop-e2e-20260927163345863-p2314-13cd15bfd21db756`，覆盖分组、时间线、置顶、归档的离线占位、设备详情及凭据等待入口。
-- 真实 SSH E2E PASS：`r3-server-rdux08-visual-20260928-04`，覆盖原空白页路径、草稿保留且不提交、凭据完整原地重连、设置页连接后的“稍后选择”；桌面 1400/480px 深浅主题截图检查通过。
-- 手机真实 relay + SSH E2E PASS：`r3-server-rdux08-mobile-20260928-11`。覆盖手机网络断开时桌面持续运行、手机 replay 恢复、双端 FIFO 无丢失重复、不增加 Host/SSH/Agent，以及 SSH Source 断开后的手机横幅、草稿禁发送、手机原地重连和 390px 深浅主题。
-- SSH 参数由仓库 [harness](../../../harness/remote/README.md) 创建隔离容器、生成并注入临时凭据。首次绕过该入口导致缺少环境变量，不代表需要用户补配置。测试账号通过既有账号 mock 隔离线上营销弹窗，并通过正常 UI 完成首次引导的偏好初始化。测试环境为 macOS Desktop → 本机隔离 Linux Docker 容器，手机为 Chrome mobile viewport + 真实 test relay；未覆盖实体手机或跨机 WAN。
-- 候选 E2E 保留 pending；未做人工转正或 Docker CI 准入。必要检查、失败回归复测及 diff 自检完成，按实施约定本地提交，不推送。
+- O banner de sessão desconectada, o conteúdo somente leitura e o rascunho, o bloqueio de envio, o placeholder nas visões de tarefa, o retorno categorizado e o ponto de entrada unificado de reconexão foram implementados. Falhas comuns e logs permanecem com o owner existente; quando é necessária interação, é entregue a um único assistente, preservando a intenção do diretório original.
+- O teste real no celular cobriu o caminho de deslogar os services inválidos depois que o Source se desconecta, mantendo o Root atual e reconstruindo a bridge replayable. A reconexão explícita bem-sucedida espera o fim da recuperação antiga e então reverifica o workspace, evitando perder o despertar da recuperação ou recuperar em outro projeto; os testes de regressão de concorrência correspondentes falharam antes e passaram depois.
+- A revisão de spec e de especificação não deixou pendências. `pnpm typecheck`, `pnpm lint` (0 erros, 64 avisos já existentes), `pnpm architecture:check --changed` (0 violações), a checagem de tipos E2E e de fixtures passaram; os testes unitários direcionados passaram. A suíte completa de testes unitários foi executada com o `ZCODE_TEST_POOL=forks pnpm test:unit` fornecido pelo repositório: 2.033 arquivos / 18.694 itens passaram, 2 arquivos / 14 itens foram pulados conforme a configuração; as duas asserções antigas do único arquivo que falhou ainda exigiam que a barra lateral abrisse o assistente diretamente. Depois de atualizar o contrato unificado de entrada de reconexão do projeto já confirmado nesta ticket, todos os testes unitários modificados e o arquivo que falhou foram retestados em série: 20 arquivos / 294 itens passaram. Por fim, apenas as asserções de teste e a checagem de erro de inicialização foram modificadas, sem alteração do código de produção; a suíte completa não foi repetida, e o código de saída da primeira execução completa não foi registrado como sucesso. A estouro de memória do pool de threads padrão também não é evidência de aprovação.
+- E2E local do Electron RPN PASS: `desktop-e2e-20260927163345863-p2314-13cd15bfd21db756`, cobrindo os placeholders offline de agrupamento, linha do tempo, fixados e arquivados, o detalhe do dispositivo e o ponto de entrada de espera por credenciais.
+- E2E de SSH real PASS: `r3-server-rdux08-visual-20260928-04`, cobrindo o caminho que antes gerava a página em branco, a preservação do rascunho sem envio, a reconexão no lugar com credenciais completas e o "Selecionar depois" após conectar pela página de configurações; a checagem visual das capturas de tela do desktop em 1400/480px nos temas claro e escuro passou.
+- E2E real de relay + SSH no celular PASS: `r3-server-rdux08-mobile-20260928-11`. Cobrindo o desktop continuando a rodar quando a rede do celular cai, a recuperação via replay no celular, o FIFO nas duas pontas sem perdas nem duplicatas, sem Host/SSH/Agent adicionais, além do banner no celular depois que o SSH Source se desconecta, o rascunho com envio bloqueado, a reconexão no lugar no celular e o tema claro/escuro a 390px.
+- Os parâmetros de SSH foram criados pelo [harness](../../../harness/remote/README.md) do repositório, que sobe um container isolado e gera e injeta credenciais temporárias. A primeira execução contornou essa entrada e ficou sem as variáveis de ambiente, o que não significa que o usuário precise completar a configuração. A conta de teste foi isolada das janelas de marketing online por meio do mock de conta já existente, e a inicialização de preferências do primeiro onboarding foi concluída pela UI normal. O ambiente de teste foi macOS Desktop → container Docker Linux isolado local; o celular usou o viewport Chrome mobile e um relay de teste real; não foram cobertos celular físico nem WAN entre máquinas.
+- Os E2E candidatos permanecem como pending; não houve promoção manual nem admissão no Docker CI. As verificações necessárias, o reteste de regressão da falha e a autoverificação do diff foram concluídos, com commit local conforme o acordo de implementação, sem push.

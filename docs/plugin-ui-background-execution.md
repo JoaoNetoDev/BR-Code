@@ -1,88 +1,88 @@
-# MCP 页面保留与后台执行
+# Retenção de páginas MCP e execução em segundo plano
 
-## 问题与边界
+## Problema e limites
 
-协议握手早于编辑器初始化完成；session 停止也不代表插件没有内部工作。
-宿主不能从这两个状态推断任意插件何时可以停帧，更不能要求插件增加私有执行上报。
-无锚点时等待 React 挂载、将 guest 置于 `display:none`、按空闲期限销毁 guest，
-都会使后台初始化或依赖 `requestAnimationFrame` 的操作失败。
+O handshake do protocolo ocorre antes da conclusão da inicialização do editor; a interrupção da sessão também não significa que o plugin não tenha trabalho interno.
+O host não pode, a partir desses dois estados, inferir quando um plugin arbitrário pode parar de renderizar, e ainda menos exigir que o plugin acrescente relatórios privados de execução.
+Sem âncora, esperar o React montar, colocar o guest em `display:none` ou destruir o guest por prazo de ociosidade
+fazem falhar a inicialização em segundo plano ou operações que dependem de `requestAnimationFrame`.
 
-## 生命周期
+## Ciclo de vida
 
-### 首次打开与会话恢复的连接屏障
+### Barreira de conexão na primeira abertura e na recuperação de sessão
 
-会话恢复完成不等于目标 MCP 已连接。`mcp/uiOpenInstance` 必须等待该 server 已有的
-连接任务完成，再读取连接身份并签发页面凭证。等待由 MCP adapter / pool 持有，不等待
-其它 server，不重新连接，不在 UI 增加轮询、延迟或自动重试计数。
-
-```text
-session 恢复 → 打开 App → 等待目标 MCP 现有 connecting
-                            ├─ connected → 校验 session / lease / 连接身份 → 创建页面
-                            └─ failed / owner 已释放或替换 → 拒绝创建
-```
-
-已有页面的同步身份校验不等待、不重连。连接失败仍显示错误并保留重新加载入口。
-等待期间关闭或替换会话、释放 lease 或更换连接时，旧请求不得给新 owner 签发凭证。
-Web / 手机 / remote 的不支持回退与 continuous / replayable 边界不变。
-
-回归 `PLM-UI-CONNECTION-READY`：真实 Electron 页面在 MCP initialize 被控制闸门阻塞时
-保持准备中；放行后无需点击重新加载即可运行，且只创建一个实例。adapter / pool / 协议
-单测覆盖失败、并发等待和 owner 失效。入口沿用 `--managed-only`。
+A recuperação da sessão concluída não significa que o MCP de destino já esteja conectado. `mcp/uiOpenInstance` deve aguardar a conclusão da tarefa de conexão já existente desse server,
+para então ler a identidade de conexão e emitir as credenciais da página. A espera é mantida pelo MCP adapter / pool, não espera
+outros servers, não reconecta, não acrescenta polling, atraso ou contagem de retentativas automáticas na UI.
 
 ```text
-当前执行的成功 UI 工具结果 → 窗口级接收器 → page owner 准入 → 立即创建 guest
-历史卡片 / 手动面板打开 ────────────────────┘       （不等待展示锚点）
-                           ├─ 可见：正常展示
-                           └─ 不可见：有尺寸、不可交互的后台表面 + 目标 guest 活动
-任务删除 / 显式重载 / 来源或 runtime 失效 / 窗口关闭 → 撤销凭证与活动 → 释放 guest 和租约
+recuperação da sessão → abrir App → aguardar o connecting existente do MCP alvo
+                            ├─ connected → validar session / lease / identidade de conexão → criar página
+                            └─ failed / owner já liberado ou substituído → recusar criação
 ```
 
-- 所有 MCP 页面使用相同宿主规则，不改插件代码、不新增插件协议、不区分插件名称。
-  page owner 在准入完成后立即启动，即使请求方此时已切页、没有绑定锚点。
-- 首次创建不能依赖工具卡片或 SessionPane 挂载。Agent 在当前执行的成功工具结果完成投影后，
-  经 `v4/plugin-ui/tool-result` 向所属本地宿主发送 UI 描述和原始输入；不要求 conversation 订阅。
-  Host 校验 schema、当前 runtime 来源与本地范围，只有可信桌面 attachment 可订阅；窗口接收器
-  复用相同逻辑键和准入 Promise。卡片与接收器并发只能创建一个页面。
-  历史 hydration、失败、取消和 MCP isError 不产生此通知；不扫描历史或保活所有会话投影。
-  后台结果只更新页面的工具数据，不绑定锚点、不抢焦点或改当前侧栏；返回会话后复用同一 guest。
-  Web/手机/远程不接收创建副作用，仍使用普通工具记录。页面订阅与删除清理由既有 owner 持有。
-- 已创建的 MCP guest 在整个有效生命周期内保持可执行；握手完成、session 空闲、
-  停止回合均不改变这个规则。workspace/session 租约与资源 feed 随页面保留；
-  session 的执行投影不再作为页面运行的开关。
-- 有展示尺寸的内联锚点保留在原滚动树中。没有可展示锚点（含 forceMount 隐藏 tab）
-  时迁移到非零尺寸、不可交互的后台表面；恢复展示仍是同一个 guest，不重建编辑器。
-- 页面不可见或 owner document 隐藏/窗口最小化时，宿主为对应 guest 保持已有可逆
-  capturer 活动。Main 按 sender、sandboxId、initId 校验；旧请求不能控制新实例。
-  加载期间提前收到的活动请求保留到 `did-stop-loading` 再启用；DOM 就绪事件中仍可能处于加载态，不能吞掉首次请求。
-  不设置全窗口 `backgroundThrottling:false`，不唤醒不属于该生命周期的普通页面。
-- MCP 页面拒绝自动 `suspend()`；切页、离屏五分钟和容量压力不能丢失插件的内存状态。
-  显式 `suspend(true)` 沿用凭证撤销、取消调用、teardown、关闭 guest 和释放租约的路径。
-  迟到事件不能重建已删除页面。
-- 性能边界：只创建实际请求过的页面；保留最多三十个任务、六十四个活页面的准入限制。
-  没有可回收页时拒绝新建，不能淘汰已有 MCP 页面。Main 继续使用已有间隔至少 200ms
-  的目标 guest 探测，不引入新的忙闲推断、定时回收或恢复快照。该间隔不是插件帧率上限。
-  通用后台执行与保留编辑状态需要资源，不承诺后台零 CPU 或释放这些页面占用的内存。
-- Gen UI 沿用连续离屏五分钟和容量回收；普通 Browser、Web/手机/远程的不支持回退不变。
-  不预加载全部历史工具行，不承诺应用退出、崩溃或显式重载后的未保存状态恢复。
+A validação de identidade de sincronização de páginas já existentes não espera nem reconecta. Uma falha de conexão ainda exibe o erro e mantém a entrada de recarregar.
+Ao fechar ou substituir a sessão, liberar o lease ou trocar a conexão durante a espera, a requisição antiga não pode emitir credenciais para o novo owner.
+Os fallbacks de não suporte de Web / celular / remote e as fronteiras continuous / replayable permanecem inalterados.
 
-## 回归契约
+Regressão `PLM-UI-CONNECTION-READY`: a página Electron real permanece em preparação enquanto o initialize do MCP é bloqueado por um portão de controle;
+após a liberação ela roda sem precisar clicar em recarregar, e apenas uma instância é criada. Testes unitários de adapter / pool / protocolo
+cobrem falha, espera concorrente e invalidação do owner. A entrada continua sendo `--managed-only`.
 
-使用真实 Electron、生产 page owner、Agent 和无私有执行协议的受控 MCP 页面验证：
+```text
+resultado de ferramenta bem-sucedido da execução atual → receptor de nível de janela → admissão do page owner → criar o guest imediatamente
+abertura por cartão histórico / painel manual ────────────────────┘       (não espera âncora de exibição)
+                           ├─ visível: exibição normal
+                           └─ invisível: superfície de fundo com dimensões, não interativa + atividade do guest alvo
+exclusão de tarefa / recarregamento explícito / invalidação da origem ou do runtime / fechamento da janela → revogar credenciais e atividade → liberar guest e lease
+```
 
-| 场景                     | 必须断言                                                                              |
+- Todas as páginas MCP seguem as mesmas regras do host, sem alterar o código do plugin, sem adicionar protocolo de plugin e sem distinguir nomes de plugin.
+  O page owner inicia imediatamente após a admissão, mesmo que o solicitante já tenha trocado de aba e não tenha âncora vinculada.
+- A primeira criação não pode depender da montagem do cartão de ferramenta ou do SessionPane. Após a projeção do resultado de ferramenta bem-sucedido da execução atual,
+  o Agent envia a descrição de UI e a entrada original ao host local de origem via `v4/plugin-ui/tool-result`; não é exigida assinatura de conversation.
+  O Host valida o schema, a origem do runtime atual e o escopo local; apenas attachments de desktop confiáveis podem assinar; o receptor de janela
+  reutiliza a mesma chave lógica e a mesma Promise de admissão. Cartões e receptor concorrentes podem criar apenas uma página.
+  Hidratação de histórico, falhas, cancelamentos e MCP isError não geram esta notificação; não se varre o histórico nem se mantém vivo a projeção de todas as sessões.
+  Resultados em segundo plano atualizam apenas os dados de ferramenta da página, sem vincular âncora, sem roubar foco e sem alterar o painel lateral atual; ao retornar à sessão o mesmo guest é reutilizado.
+  Web/celular/remoto não recebem o efeito colateral de criação e continuam usando o registro comum de ferramenta. A assinatura da página e a limpeza na exclusão continuam sob o owner existente.
+- O MCP guest já criado permanece executável durante todo o ciclo de vida válido; handshake concluído, sessão ociosa
+  e parada de turno não alteram essa regra. Os leases de workspace/session e o feed de recursos acompanham a retenção da página;
+  a projeção de execução da sessão deixa de ser um interruptor para o funcionamento da página.
+- Âncoras inline com dimensões de exibição permanecem na árvore de rolagem original. Sem âncora exibível (incluindo tab oculta com forceMount),
+  a página migra para uma superfície de fundo de dimensões não nulas e não interativa; restaurar a exibição continua sendo o mesmo guest, sem reconstruir o editor.
+- Quando a página está invisível ou o document do owner está oculto / a janela está minimizada, o host mantém para o guest correspondente a atividade de capturador reversível já existente.
+  O Main valida por sender, sandboxId, initId; requisições antigas não podem controlar novas instâncias.
+  Requisições de atividade recebidas durante o carregamento são retidas até `did-stop-loading` antes de serem habilitadas; o evento de DOM pronto ainda pode estar em estado de carregamento, portanto a primeira requisição não pode ser descartada.
+  Não se define `backgroundThrottling:false` em toda a janela, e não se acordam páginas comuns que não pertencem a esse ciclo de vida.
+- Páginas MCP recusam `suspend()` automático; troca de aba, cinco minutos fora de tela e pressão de capacidade não podem perder o estado em memória do plugin.
+  O `suspend(true)` explícito segue o caminho de revogação de credenciais, cancelamento de chamadas, teardown, fechamento do guest e liberação do lease.
+  Eventos tardios não podem recriar uma página excluída.
+- Limites de desempenho: criar apenas as páginas efetivamente solicitadas; manter o limite de admissão de trinta tarefas e sessenta e quatro páginas vivas.
+  Quando não há página reciclável, novas criações são recusadas, sem despejar páginas MCP existentes. O Main continua usando a sondagem do guest alvo com intervalo existente de pelo menos 200ms,
+  sem introduzir nova inferência de ociosidade, coleta temporária ou snapshots de recuperação. Esse intervalo não é um limite de taxa de quadros do plugin.
+  A execução genérica em segundo plano e a retenção do estado de edição exigem recursos; não se promete CPU zero em segundo plano nem a liberação da memória ocupada por essas páginas.
+- O Gen UI segue a regra de cinco minutos contínuos fora de tela e a coleta por capacidade; o fallback de não suporte do Browser comum, Web/celular/remoto permanece inalterado.
+  Não se pré-carrega todas as linhas de ferramentas do histórico, e não se promete recuperação do estado não salvo após saída do app, crash ou recarregamento explícito.
+
+## Contrato de regressão
+
+Validar com Electron real, page owner de produção, Agent e página MCP controlada sem protocolo privado de execução:
+
+| Cenário                     | Deve ser affirms                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------- |
-| 工具结果到达前切离会话   | 无工具卡片、无 conversation 订阅时由真实 Agent 结果创建；后台完成工作，返回复用 guest |
-| 无锚点 / 隐藏 tab 冷启动 | session 空闲时完成握手后多帧初始化，页面尺寸非零                                      |
-| session 空闲 / 停止回合  | 页面内部 rAF 工作仍能完成，无需新模型回合或宿主工具调用                               |
-| 窗口最小化               | 后台操作完成；恢复展示后 guest 身份和编辑状态不变                                     |
-| 离屏期限 / 容量压力      | 已有 MCP guest 和内存状态保留，无可回收页时拒绝新建                                   |
-| 原生隔离                 | 不唤醒未申请活动的旁路 guest；错 owner / 旧 initId 被拒绝                             |
-| 隐藏与恢复               | 后台表面不接收鼠标，内联滚动不漂移，恢复后可正常显示                                  |
-| 删除 / runtime 失效      | 活动、guest 和租约释放，迟到事件不复活                                                |
-| Web / remote             | 不创建本地沙箱，不产生额外订阅                                                        |
+| Troca de sessão antes da chegada do resultado da ferramenta | Criado pelo resultado do Agent real sem cartão de ferramenta e sem assinatura de conversation; trabalho concluído em segundo plano, retorno reutiliza o guest |
+| Cold start sem âncora / tab oculta | Múltiplos quadros de inicialização concluídos após o handshake com a sessão ociosa, dimensão da página diferente de zero                                      |
+| Sessão ociosa / turno interrompido | Trabalho interno com rAF ainda consegue concluir, sem novo turno de modelo nem chamada de ferramenta do host                               |
+| Janela minimizada               | Operação em segundo plano concluída; após restaurar a exibição a identidade do guest e o estado de edição permanecem iguais                                     |
+| Prazo fora de tela / pressão de capacidade | Guest MCP existente e estado em memória preservados, novas criações recusadas quando não há página reciclável                                   |
+| Isolamento nativo             | Guests de desvio que não solicitaram atividade não são acordados; owner errado / initId antigo são recusados                             |
+| Ocultar e restaurar               | A superfície de fundo não recebe mouse, a rolagem inline não deriva, a exibição volta a funcionar normalmente                                  |
+| Exclusão / invalidação do runtime      | Atividade, guest e lease liberados, eventos tardios não ressuscitam                                                |
+| Web / remoto             | Nenhum sandbox local criado, nenhuma assinatura adicional                                                        |
 
-入口：`node packages/desktop/scripts/mcp-apps-host-e2e.mjs --background-only`；
-既有生命周期与回退使用 `--managed-only`。真实插件验证直接使用未修改的 PhotoCraft 0.2.2：
-`ZCODE_PHOTOCRAFT_SERVER=/path/to/photocraft/dist/server.mjs node packages/desktop/scripts/mcp-apps-host-e2e.mjs --photocraft-background-only`。
-macOS Electron 已验证：宿主先最小化再首次创建插件、后台初始化与编辑、跨离屏期限保留和恢复截图 `photocraft-restored.png`。
-测试外壳的白底不是插件成功证据，必须结合实际命令结果和恢复截图；该夹具不覆盖商店安装路径。
+Entrada: `node packages/desktop/scripts/mcp-apps-host-e2e.mjs --background-only`;
+o ciclo de vida e os fallbacks existentes usam `--managed-only`. A validação com plugin real usa diretamente o PhotoCraft 0.2.2 sem modificações:
+`ZCODE_PHOTOCRAFT_SERVER=/path/to/photocraft/dist/server.mjs node packages/desktop/scripts/mcp-apps-host-e2e.mjs --photocraft-background-only`.
+Electron no macOS foi validado: o host minimiza primeiro e então cria o plugin pela primeira vez, inicialização e edição em segundo plano, retenção através do prazo fora de tela e screenshot de restauração `photocraft-restored.png`.
+O fundo branco do shell de teste não é prova de sucesso do plugin; é preciso combinar o resultado real dos comandos com o screenshot de restauração; esse fixture não cobre o caminho de instalação pela loja.

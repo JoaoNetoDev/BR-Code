@@ -1,78 +1,78 @@
-# R3 Source Server 统一远程主链规格
+# Especificação da cadeia principal unificada de acesso remoto R3 Source Server
 
-## 1. 状态与范围
+## 1. Status e escopo
 
-- 状态：已实现（代码基线 `fad93b9e57`，2026-09-13）。正式发布校验与真实 SSH E2E 复跑仍在进行，以 [问题台账](./r3-source-server-remote-open-issues.md) R3-ISSUE-001 / 020 为准。本文是当前事实规格；R3 过程文档已归档到 `docs/archive/remote-r3/`，阅读入口见 [docs/remote/README.md](../remote/README.md)
-- 修订：2026-09-07 合并 Provider 重构 M2（Provider 重构 M1~M4 + Remote Provider Provisioning）后，§1/§2/§3.1/§6.2/§7.1/§8/§10/§11 中的模型配置语义改为「设置页绑定本地 + Provisioning 自动单向下发」；Provider 侧以 [Remote Provider Provisioning](../remote/provider-provisioning.md) 与 [SSH 远端 Workspace 状态权威边界](../ssh-remote-app-global-state-authority.md) 为事实文档，合并过程与决策见 [r3-provider-refactor-merge.md（已归档）](../archive/remote-r3/r3-provider-refactor-merge.md)
-- 阶段：统一多端远程架构 R3 / D5—D11
-- 发布方式：SSH、WSL、Docker 在同一 App 版本统一切换新主链；不按连接方式分版本或灰度；R3 App 内不保留可运行的旧远程主链
-- 核心目标：引入 Source Server、`sourceServerId`、Connection Profile、Transport Adapter、Source 权威、身份迁移与版本兼容，让三种连接方式在「窗口级 Local Host（R1）↔ 常驻 ZCode Server daemon（R2）」的新主链上完成产品闭环
+- Status: implementado (baseline de código `fad93b9e57`, 2026-09-13). A verificação oficial de lançamento e a reexecução do E2E SSH real ainda estão em andamento, conforme o [registro de pendências](./r3-source-server-remote-open-issues.md) R3-ISSUE-001 / 020. Este documento é a especificação factual atual; os documentos de processo do R3 foram arquivados em `docs/archive/remote-r3/`, com o ponto de entrada de leitura em [docs/remote/README.md](../remote/README.md)
+- Revisão: em 2026-09-07, após a fusão do M2 do refactor de Provider (Provider refactor M1~M4 + Remote Provider Provisioning), a semântica de configuração de modelo em §1/§2/§3.1/§6.2/§7.1/§8/§10/§11 passou a ser «vinculação local na página de Configurações + Provisioning automático de envio unidirecional»; do lado do Provider, [Remote Provider Provisioning](../remote/provider-provisioning.md) e [Fronteira de autoridade do estado do Workspace remoto via SSH](../ssh-remote-app-global-state-authority.md) são os documentos factuais; o processo de fusão e as decisões estão em [r3-provider-refactor-merge.md (arquivado)](../archive/remote-r3/r3-provider-refactor-merge.md)
+- Fase: arquitetura unificada multi-dispositivo de acesso remoto R3 / D5—D11
+- Forma de lançamento: SSH, WSL e Docker migram para a nova cadeia principal na mesma versão do App; sem versionamento nem rollout gradual por forma de conexão; dentro do App R3 não se mantém nenhuma cadeia principal remota antiga executável
+- Objetivo central: introduzir Source Server, `sourceServerId`, Connection Profile, Transport Adapter, autoridade do Source, migração de identidade e compatibilidade de versão, para que as três formas de conexão completem o ciclo de produto sobre a nova cadeia principal «Local Host de nível de janela (R1) ↔ ZCode Server daemon residente (R2)»
 
-本文基于：
+Este documento parte de:
 
-- [ZCode 统一多端远程连接架构与产品方案（评审稿）](https://internal-docs.example.invalid/redacted)（D5—D11 定义）
-- [R1 窗口级单 Host 进程重构规格](./r1-single-window-host-refactor.md)（已实施，当前架构事实）
-- [R2 独立 Server CLI 与 daemon 规格](./r2-server-cli-and-daemon.md)（已实施；`verify-remote-ssh.mjs` 为 R3 SSH Transport 的最小形态预演）
-- [R3 Source Server 发布测试方案（历史，已归档）](../archive/remote-r3/r3-source-server-release-test-plan.md)：REMOTE-01—15 稳定编号现由 [conversation-session-case-catalog.md](../conversation-session-case-catalog.md) 承载，当前执行方案见 [r3-remote-automation-plan.md](../testing/r3-remote-automation-plan.md)
-- [远程工作区投影与持久化兼容](./remote-domain-simplification-and-conversation-workspace-spec.md)（统一 projection、open set、strict schema 与 R4 剩余事项）
-- [ZCode Lite / Server 统一多端架构实施计划](./unified-zcode-lite-server-multi-server-plan.md)（目标架构背景）
-- [Remote Target 抽象](./remote-target-abstraction.md)（现有旧主链的 target/backend 事实）
+- [Arquitetura e solução de produto de conexão remota unificada multi-dispositivo do ZCode (rascunho de revisão)](https://internal-docs.example.invalid/redacted)（definições D5—D11）
+- [Especificação de refactor do processo único de Host em nível de janela do R1](./r1-single-window-host-refactor.md)（implementado, fato da arquitetura atual）
+- [Especificação de Server CLI e daemon independentes do R2](./r2-server-cli-and-daemon.md)（implementado; `verify-remote-ssh.mjs` é a pré-forma mínima do SSH Transport do R3）
+- [Plano de teste de lançamento do R3 Source Server (histórico, arquivado)](../archive/remote-r3/r3-source-server-release-test-plan.md)：a numeração estável REMOTE-01—15 agora é suportada por [conversation-session-case-catalog.md](../conversation-session-case-catalog.md); o plano de execução atual está em [r3-remote-automation-plan.md](../testing/r3-remote-automation-plan.md)
+- [Projeção de workspace remoto e compatibilidade de persistência](./remote-domain-simplification-and-conversation-workspace-spec.md)（projection unificada, open set, strict schema e itens remanescentes do R4）
+- [Plano de implementação da arquitetura unificada multi-dispositivo ZCode Lite / Server](./unified-zcode-lite-server-multi-server-plan.md)（contexto da arquitetura-alvo）
+- [Abstração de Remote Target](./remote-target-abstraction.md)（fatos de target/backend da cadeia principal antiga existente)
 
-R3 交付：
+Entregas do R3:
 
-- 远程领域模型与协议：`SourceServerRecord`、`ConnectionProfile`、`sourceServerId`、compatibility manifest、握手/迁移/同步 schema（D5）；
-- Transport 框架与 SSH、WSL、Docker 三种 Adapter：只负责发现、安装、启动、传输（D6）；
-- 稳定 `sourceServerId` 握手、Profile 归并、Source 写路由与身份迁移（D7）；
-- 统一远程主链：三种连接方式全部改为连接常驻 Server daemon，删除「部署临时 stdio zcode-server」的旧业务主链；旧连接记录与远端旧数据完成迁移（D8）；
-- 生命周期与恢复：启动自动重连、在线断连重试、离线探测、断连数据恢复、待确认请求恢复（D9）；
-- 版本兼容与更新：双端 compatibility manifest、只升级旧端、完整 Server CLI 远程更新与重新握手（D10）；
-- 多 Source 产品面：连接管理页、平铺项目与任务来源标识、非阻断持续运行提示、完整更新交互（D11）。模型配置与登录信息**不再**提供设备选择器与「一键同步」入口：由 Provider Provisioning 在首连 / 重连 / 本机保存成功时自动单向下发，设置页「模型设置」永远绑定本地 Environment（2026-09-07 合并 Provider 重构 M2 时拍板，路线 A；见 §8.2、§8.3 与 [Remote Provider Provisioning](../remote/provider-provisioning.md)）。
+- Modelo de domínio remoto e protocolo: `SourceServerRecord`, `ConnectionProfile`, `sourceServerId`, compatibility manifest, schema de handshake/migração/sincronização (D5);
+- Framework de Transport e os três Adapter SSH, WSL e Docker: responsáveis apenas por descoberta, instalação, inicialização e transporte (D6);
+- Handshake estável de `sourceServerId`, mesclagem de Profile, roteamento de escrita do Source e migração de identidade (D7);
+- Cadeia principal remota unificada: as três formas de conexão passam a conectar ao Server daemon residente, removendo a antiga cadeia principal de negócio «implantar um zcode-server stdio temporário»; registros de conexão antigos e dados remotos antigos concluem a migração (D8);
+- Ciclo de vida e recuperação: reconexão automática na inicialização, retentativas de desconexão em modo online, sondagem offline, recuperação de dados após desconexão e recuperação de requisições pendentes de confirmação (D9);
+- Compatibilidade de versão e atualização: compatibility manifest nas duas pontas, atualização apenas da ponta antiga, atualização remota completa do Server CLI e novo handshake (D10);
+- Superfície de produto multi-Source: página de gerenciamento de conexões, identificação da origem de projetos e tarefas no modo lado a lado, aviso de execução contínua não bloqueante e interação completa de atualização (D11). A configuração de modelo e as informações de login **não** oferecem mais seletor de dispositivo nem entrada de «sincronização em um clique»: o Provider Provisioning faz o envio unidirecional automático na primeira conexão / reconexão / após salvar com sucesso localmente; «模型设置» na página de Configurações fica sempre vinculado ao Environment local (decidido na fusão do M2 do refactor de Provider em 2026-09-07, rota A; ver §8.2, §8.3 e [Remote Provider Provisioning](../remote/provider-provisioning.md)).
 
-R3 不交付：
+O R3 não entrega:
 
-- Direct URL 新入口（`kind: "server"` 直连保留为 dev-only 调试入口，不进入一期产品面）；
-- 跨网络远程控制、Mobile 新产品能力、任务完成推送（现有手机扫码 attachment 与 replayable 边界必须回归不退化）；
-- 手机专属沙盒；Resource Store 化的附件协议（沿用现有 prompt-attachment-transfer 合同）；
-- Server/Agent 崩溃后运行中 Task 的自动续跑；模型配置的远端编辑、反向（远端 → 本机）同步与远端配置管理 UI（远端只是本机配置的可丢弃执行镜像，见 §8.3）；远端 automation（cron 调度仍是本地 workspace 能力，调度器留在窗口 Host）；
-- Desktop Local Host 与同机独立 daemon 共用同一数据目录（明确不支持）；
-- 旧数据迁移兼容代码的删除（留待 R4 / D12）。
+- Nova entrada Direct URL (a conexão direta `kind: "server"` permanece como entrada de depuração dev-only, sem entrar na superfície de produto da primeira fase);
+- Controle remoto entre redes, novas capacidades de produto Mobile, notificação de conclusão de tarefa (os limites existentes de attachment por QR code no celular e replayable devem regredir sem degradação);
+- Sandbox exclusivo para celular; protocolo de anexos em Resource Store (mantém-se o contrato existente prompt-attachment-transfer);
+- Retomada automática de tarefas em execução após crash do Server/Agent; edição remota da configuração de modelo, sincronização inversa (remoto → local) e UI de gerenciamento de configuração remota (o remoto é apenas uma imagem de execução descartável da configuração local, ver §8.3); automação remota (a agendamento por cron continua sendo uma capacidade do workspace local, com o agendador no Host da janela);
+- Desktop Local Host e daemon independente na mesma máquina compartilhando o mesmo diretório de dados (explicitamente não suportado);
+- Remoção do código de compatibilidade de migração de dados antigos (deixada para o R4 / D12).
 
-## 2. 核心决策
+## 2. Decisões centrais
 
-| 决策项           | R3 结论                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sourceServerId` | 直接采用远端 Server 安装的 `install.json.installationId`（R2 已实现：UUID、原子生成、保留数据卸载时保留、经 `/api/server-info.serverId` 暴露）。不引入第二个身份体系                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 身份边界         | `sourceServerId` 表示「Server 环境 + 登录账号」：不同 OS 账号/WSL distro/容器各有独立 server root → 天然不同 id；换 IP/域名/端口/连接方式不换 id；正式卸载保留用户数据与身份，原地重装沿用原 Source Server、Profile 和项目；连接目标换成独立数据环境时才确认新身份。数据目录被克隆导致 id 重复的检测不在 R3 范围                                                                                                                                                                                                                                                                        |
-| workspace 身份   | 控制端 identity 统一为 `remote:server:<sourceServerId>:<posixPath>`（复用既有 `buildServerRemoteWorkspaceIdentity`）。远端权威存储 key 在 R3 **保持旧 route-derived 格式不做全量重写**：每个 path 选举一个 canonical key，新主链读写统一路由到它（见 §3.2/§9.2）；真正的 server-local 清洁化留待 R4。route-derived 格式停止在控制端生成，Host 仅以 hint 形式下发供 canonical 选举                                                                                                                                                                                                       |
-| 连接拓扑         | Host 通过 Transport Adapter 建立到远端 loopback ingress 的字节通道，其上跑与 `kind:"server"` 直连完全相同的 HTTP+WS 握手链（server-info → capability ticket → `/ws/host`）。`connectServerRemote` 与 `createServerRemoteWorkspaceServiceCollection` 是新主链的既有骨架                                                                                                                                                                                                                                                                                                                  |
-| Adapter 通道     | SSH 用 `ssh2 forwardOut`（direct-tcpip 到远端 loopback 动态端口）；WSL、Docker 统一 stdio 桥（新增内部命令 `zcode server proxy-stdio`）。WSL 宿主 localhost 直连不进一期（减少测试矩阵，留作后续性能优化）                                                                                                                                                                                                                                                                                                                                                                              |
-| bootstrap 底座   | 复用现有 `IRemoteBackend` 的 `detect/exec/upload` 原语（SSH sftp、WSL UNC 直拷、docker cp 全部保留）；`deployServer` 旧资产编排整体废弃                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| 远端安装         | 上传 R2 六平台发行包 archive，远端执行本地 archive 安装（与 R2 update 同一 immutable promote 语义），随后 `serve --daemon`。首装与升级共用同一条链                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| daemon 保活      | 三种 Transport 都先按远端实际能力选择启动方式：可访问的 launchd/systemd --user 注册 OS service（`serviceRegistered=true`）；服务管理器缺失、未启动或当前用户会话不可访问时自动走 detached fallback（`serviceRegistered=false`）。服务管理器探测已成功但真实注册失败仍 fail-closed，禁止用 fallback 掩盖权限、descriptor 或系统错误。fallback 常驻性以上层环境存活为前提，重启后由下一次自动/手动连接重新 `ensureDaemon`                                                                                                                                                                 |
-| ingress 鉴权     | 新增 server root 下 `run/ingress-token`（0600）文件 token。Adapter 以目标用户身份经传输通道读取，HTTP/WS 请求全部携带。把 R2 的「网络位置边界」升级为「OS 用户身份边界」；R2 的一次性 host capability ticket 机制保留在 token 之上                                                                                                                                                                                                                                                                                                                                                      |
-| 版本兼容         | 双端生成 compatibility manifest `{schemaVersion, productVersion, minCompatibleVersion}`；由较新端 manifest 判断旧端；只升级旧端。R2 存量 server 无 manifest 字段 → 一律判为「过旧需升级」                                                                                                                                                                                                                                                                                                                                                                                               |
-| 远端更新         | Desktop 解析并校验当前 Server release archive，经 Adapter `installOrUpdate(..., { force })` 统一执行 `zcode update --from-archive`（复用 R2 running-task guard、原子切换和失败回滚）；目标版本 CLI 必须让 Supervisor/Core/Agent 全部收敛到同一 immutable release 后才返回 `applied:true`，不得依赖远端 manifest URL。完成后自动重新握手                                                                                                                                                                                                                                                 |
-| 权威切换         | 远端 daemon 以 `standalone-server` authority 运行（R2 Core 已是）；删除 `desktop-attached-remote` 的 provider 下发主链。模型 Provider 配置由远端 Environment 自权威（Core `createLocalServices({ providerProvisioningTargetEnabled: true, zcodeBuiltinProviderConfigFilePath })`）；本机 Personal Layer、Configured Default、账号窄设置与 allowlist 凭据由 Provider Provisioning 在首连 / 重连 / 本机保存成功时**自动单向下发**。设置页「模型设置」永远绑定本地 Environment，不提供设备选择器、远端编辑与手动「一键同步」（2026-09-07 合并 Provider 重构 M2 时拍板，路线 A；§8.2/§8.3） |
-| 服务集合         | 三种连接方式统一采用「全转发」模式（与现有 server transport 的 `createServerRemoteWorkspaceServiceCollection` 一致）；`LegacyRemoteWorkspaceRpcContract` 更名为版本化的 `RemoteWorkspaceRpcContract` 并作为握手校验的一部分                                                                                                                                                                                                                                                                                                                                                             |
-| 连接记录模型     | `lastWorkspaceSession` 的「连接与 workspace 合一实体」拆分为三实体：`SourceServerRecord`（握手后建立）、`ConnectionProfile`（线路+凭据引用）、workspace 打开历史（引用前两者）。凭据 key 从 `remote-workspace:<workspaceKey>:*` 迁到 `connection-profile:<profileId>:*`                                                                                                                                                                                                                                                                                                                 |
-| 远端数据迁移     | **R3 不做破坏性 key 重写**。Server Core 维护 path → canonical key 的 alias 解析层，按 workspace 打开惰性执行；单线路历史零数据改动（新旧版本读写同一批行，回退与混连天然兼容）；仅多线路变体历史做一次性合并到 canonical（备份 + ledger），失败按 workspace 粒度阻止打开、不阻塞连接。R4 才执行 server-local 清洁化                                                                                                                                                                                                                                                                     |
-| 目录共存         | 旧主链资产（`~/.zcode/server` 下 `node`、`zcode-server.cjs`、`agents/`、`tools/`、`build/` 散文件）与 R2 release 布局同目录共存。R3 安装不清理旧散文件（保护未升级 Desktop 的回滚路径），清理留待 R4                                                                                                                                                                                                                                                                                                                                                                                    |
-| 自动重连         | 启动按最近在线排序尝试全部保存连接，不按 7 天过滤（并发和单次预算见[当前恢复合同](../remote/desktop-remote-session-renderer-reattach.md)，各尝试一次）；在线断连按 2/4/8s 重试 3 次；离线每 2 分钟静默探测。仅对「凭据可静默获得」的 Profile 生效；需要交互（密码未存、版本不兼容、迁移失败）时停在离线态等待用户                                                                                                                                                                                                                                                                       |
-| 窗口模型         | 沿用 R1 窗口级隔离；一期按单窗口（主窗口）设计与验收，启动自动重连由主窗口 Host 执行，多窗口行为不做产品承诺                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| 远端 automation  | 一期不支持。cron 调度与 run 生命周期当前在窗口 Host 进程内（`cronAutomationRepo`/`cronRunLifecycle`），迁往 Core 涉及调度器移植、错过补跑语义（方案已列为后续能力）与管理 UI 多 Source 化，改动独立且不小；daemon 常驻已为后续实现铺路，R3 架构不设障碍                                                                                                                                                                                                                                                                                                                                 |
-| 灰度与回滚       | 按 App/用户版本灰度；回滚 = 装回旧 Desktop 版本。canonical key 方案下单线路用户回退零成本（远端数据零改动）；多线路合并前备份 + ledger 可对账，见 §9.3/§9.4                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Item de decisão | Conclusão no R3 |
+| ---------------- | --------------- |
+| `sourceServerId` | Adota-se diretamente o `install.json.installationId` da instalação do Server remoto (já implementado no R2: UUID, geração atômica, preservado na desinstalação que mantém os dados, exposto via `/api/server-info.serverId`). Não se introduz um segundo sistema de identidade |
+| Limite de identidade | `sourceServerId` representa «ambiente de Server + conta de login»: contas de OS diferentes / distros WSL / contêineres têm cada um seu próprio server root → ids naturalmente diferentes; trocar IP/domínio/porta/forma de conexão não troca o id; a desinstalação oficial mantém dados do usuário e identidade, e a reinstalação no lugar reutiliza o Source Server, o Profile e os projetos originais; a confirmação de nova identidade só ocorre quando o destino da conexão passa a ser um ambiente de dados independente. A detecção de id duplicado por clonagem do diretório de dados está fora do escopo do R3 |
+| Identidade de workspace | A identidade do lado controlador é unificada como `remote:server:<sourceServerId>:<posixPath>` (reaproveitando o `buildServerRemoteWorkspaceIdentity` existente). A chave de armazenamento autoritativa no R3 **mantém o formato antigo derivado da rota, sem reescrita total**: cada path elege uma canonical key, e a nova cadeia principal roteia uniformly leitura e escrita para ela (ver §3.2/§9.2); a limpeza verdadeiramente server-local fica para o R4. O formato derivado da rota deixa de ser gerado no lado controlador, e o Host o entrega apenas como hint para a eleição da canonical |
+| Topologia de conexão | O Host estabelece, via Transport Adapter, um canal de bytes até o ingress loopback remoto, sobre o qual roda exatamente a mesma cadeia de handshake HTTP+WS da conexão direta `kind:"server"` (server-info → capability ticket → `/ws/host`). `connectServerRemote` e `createServerRemoteWorkspaceServiceCollection` são o esqueleto já existente da nova cadeia principal |
+| Canal do Adapter | SSH usa `ssh2 forwardOut` (direct-tcpip para uma porta loopback dinâmica remota); WSL e Docker usam uniformemente uma ponte stdio (novo comando interno `zcode server proxy-stdio`). A conexão direta via localhost do host WSL não entra na primeira fase (reduz a matriz de testes, fica como otimização de performance posterior) |
+| Base de bootstrap | Reaproveitam-se as primitivas `detect/exec/upload` do `IRemoteBackend` existente (sftp do SSH, cópia direta por UNC do WSL, docker cp preservados); a orquestração de ativos legados `deployServer` é descartada por completo |
+| Instalação remota | Envia-se o archive do pacote de release R2 para as seis plataformas; o remoto executa a instalação local do archive (mesma semântica immutable promote da update do R2) e em seguida `serve --daemon`. Primeira instalação e upgrade compartilham a mesma cadeia |
+| Persistência do daemon | Os três Transports escolhem primeiro o modo de inicialização conforme a capacidade real do remoto: registro de OS service via launchd/systemd --user acessível (`serviceRegistered=true`); quando o gerenciador de serviços está ausente, não iniciado ou a sessão do usuário atual não pode acessá-lo, usa-se automaticamente o fallback detached (`serviceRegistered=false`). A detecção do gerenciador de serviços ter sido bem-sucedida mas o registro real falhar continua fail-closed, e é proibido mascarar permissões, descritores ou erros de sistema com o fallback. A permanência do fallback pressupõe a sobrevivência do ambiente de camada superior; após o reinício, a próxima conexão automática/manual executa novamente `ensureDaemon` |
+| Autenticação do ingress | Novo token em arquivo `run/ingress-token` (0600) sob o server root. O Adapter o lê como o usuário-alvo pelo canal de transporte, e todas as requisições HTTP/WS o carregam. O «limite de posição de rede» do R2 é elevado a «limite de identidade de usuário do OS»; o mecanismo de capability ticket único do host do R2 é mantido por cima do token |
+| Compatibilidade de versão | As duas pontas geram um compatibility manifest `{schemaVersion, productVersion, minCompatibleVersion}`; a ponta mais nova julga a ponta antiga a partir do manifest; atualiza-se apenas a ponta antiga. Servidores já existentes do R2 sem o campo manifest → são sempre julgados «muito antigos, precisam de atualização» |
+| Atualização remota | O Desktop analisa e valida o archive de release do Server atual e executa uniformemente, via Adapter, `installOrUpdate(..., { force })`, que executa `zcode update --from-archive` (reaproveitando o running-task guard, a troca atômica e o rollback de falha do R2); a CLI da versão alvo só pode retornar `applied:true` depois de Supervisor/Core/Agent convergirem todos para o mesmo release imutável, e não pode depender da URL do manifest remoto. Depois disso, um novo handshake é feito automaticamente |
+| Troca de autoridade | O daemon remoto roda com a authority `standalone-server` (o Core do R2 já é assim); remove-se a cadeia principal de provisionamento de provider do `desktop-attached-remote`. A configuração de Provider de modelo tem autoridade própria no Environment remoto (Core `createLocalServices({ providerProvisioningTargetEnabled: true, zcodeBuiltinProviderConfigFilePath })`); o Personal Layer local, o Configured Default, as configurações estreitas de conta e as credenciais de allowlist são enviados pelo Provider Provisioning de forma **automática e unidirecional** na primeira conexão / reconexão / após salvar com sucesso localmente. «模型设置» na página de Configurações fica sempre vinculado ao Environment local, sem seletor de dispositivo, edição remota e «sincronização em um clique» manual (decidido na fusão do M2 do refactor de Provider em 2026-09-07, rota A; §8.2/§8.3) |
+| Coleção de serviços | As três formas de conexão adotam uniformemente o modo «total forward» (consistente com o `createServerRemoteWorkspaceServiceCollection` do server transport existente); o `LegacyRemoteWorkspaceRpcContract` é renomeado para o `RemoteWorkspaceRpcContract` versionado e passa a fazer parte da validação de handshake |
+| Modelo de registro de conexão | A entidade «unificada de conexão e workspace» de `lastWorkspaceSession` é dividida em três entidades: `SourceServerRecord` (criada após o handshake), `ConnectionProfile` (linha + referência de credencial) e o histórico de workspaces abertos (referenciando as duas anteriores). As chaves de credencial migram de `remote-workspace:<workspaceKey>:*` para `connection-profile:<profileId>:*` |
+| Migração de dados remotos | **O R3 não faz reescrita destrutiva de chaves.** O Server Core mantém uma camada de resolução de alias path → canonical key, executada de forma preguiçosa conforme a abertura do workspace; o histórico de uma única linha não tem nenhuma alteração de dados (versões nova e antiga leem e escrevem as mesmas linhas, e rollback e conexões mistas são naturalmente compatíveis); apenas o histórico com variantes de múltiplas linhas sofre uma fusão única para a canonical (backup + ledger), e, em caso de falha, a abertura é bloqueada na granularidade de workspace, sem bloquear a conexão. A limpeza server-local acontece no R4 |
+| Coexistência de diretórios | Os ativos da cadeia principal antiga (arquivos soltos `node`, `zcode-server.cjs`, `agents/`, `tools/`, `build/` sob `~/.zcode/server`) coexistem no mesmo diretório que o layout de release do R2. A instalação do R3 não limpa os arquivos soltos antigos (protegendo o caminho de rollback de um Desktop não atualizado); a limpeza fica para o R4 |
+| Reconexão automática | Na inicialização, tenta-se todas as conexões salvas ordenadas pelo último online, sem filtro de 7 dias (concorrência e orçamento por tentativa ver [contrato de recuperação atual](../remote/desktop-remote-session-renderer-reattach.md), uma tentativa cada); em desconexão online, 3 retentativas em 2/4/8s; offline, sondagem silenciosa a cada 2 minutos. Vale apenas para Profiles cujas «credenciais podem ser obtidas silenciosamente»; quando há interação necessária (senha não armazenada, versão incompatível, migração falha), o estado fica em offline aguardando o usuário |
+| Modelo de janela | Mantém-se o isolamento de nível de janela do R1; a primeira fase é projetada e validada como janela única (janela principal), e a reconexão automática na inicialização é executada pelo Host da janela principal, sem promessa de produto quanto ao comportamento multi-janela |
+| Automação remota | Não suportada na primeira fase. O agendamento por cron e o ciclo de vida do run hoje vivem dentro do processo Host da janela (`cronAutomationRepo`/`cronRunLifecycle`); migrá-los para o Core envolve portar o agendador, a semântica de compensação de execuções perdidas (a solução já está listada como capacidade posterior) e a multi-Source da UI de gerenciamento — mudanças independentes e não pequenas; o daemon residente já prepara o terreno para a implementação posterior, e a arquitetura do R3 não cria obstáculos |
+| Rollout e rollback | Rollout por versão de App/usuário; rollback = reinstalar a versão antiga do Desktop. Com a solução da canonical key, o rollback de usuários de linha única é sem custo (zero mudança nos dados remotos); antes da fusão de múltiplas linhas, o backup + ledger permite reconciliação, ver §9.3/§9.4 |
 
-既有不变量（全部保持）：
+Invariantes existentes (todos preservados):
 
-- `workspaceKey = workspaceIdentity?.trim() || workspacePath`；路径 IO 继续使用 `workspacePath`。
-- Desktop `continuous` 与手机 Web `replayable` 的队列、seq、gap、恢复边界相互隔离；手机 `/remote` 只 attachment 既有窗口 Host。
-- Main 和 relay 不持有业务状态；`remoteSessionId` 由 Host 分配，仍是窗口内路由句柄，不进入全局身份。
-- CLI 是 Session 正文与运行态权威；Supervisor 不持有业务状态；崩溃/更新中断的 Task 不自动续跑。
-- Secret 不进入日志、任务事件、snapshot 或迁移报告。
+- `workspaceKey = workspaceIdentity?.trim() || workspacePath`; o IO de caminhos continua usando `workspacePath`.
+- As filas, seq, gap e limites de recuperação do `continuous` do Desktop e do `replayable` do Web no celular são mutuamente isolados; o `/remote` do celular apenas faz attachment ao Host da janela existente.
+- Main e relay não mantêm estado de negócio; o `remoteSessionId` é atribuído pelo Host e continua sendo um handle de roteamento dentro da janela, sem entrar na identidade global.
+- A CLI é a autoridade do corpo da Session e do estado de execução; o Supervisor não mantém estado de negócio; Tasks interrompidas por crash/update não são retomadas automaticamente.
+- Secrets não entram em logs, eventos de tarefa, snapshot ou relatórios de migração.
 
-## 3. 领域模型与身份
+## 3. Modelo de domínio e identidade
 
-### 3.1 新增共享类型（D5，落点 `packages/shared/src/source-server/`）
+### 3.1 Novos tipos compartilhados (D5, ponto de chegada `packages/shared/src/source-server/`)
 
 ```ts
 /** 控制端持久化：一条到达某个 Server 的线路。 */
@@ -131,86 +131,63 @@ interface CompatibilityManifest {
 }
 ```
 
-以上类型全部配套 zod 严格 schema（`.strict()`），放入 `packages/shared/src/validation*` 体系并有契约测试。`RemoteTarget` 的 `ssh/wsl/docker` 三种连接参数形状不变，继续作为 Adapter 的输入。模型配置下发使用 `ProviderProvisioningEnvelope`（Personal Layer + Configured Default + 账号窄设置 + allowlist 凭据），其字段与事务语义以 [Remote Provider Provisioning](../remote/provider-provisioning.md) 为准，R3 不再定义自己的同步快照类型。
+Todos esses tipos são acompanhados por zod strict schema (`.strict()`), colocados no sistema `packages/shared/src/validation*` e com testes de contrato. As três formas dos parâmetros de conexão `ssh/wsl/docker` de `RemoteTarget` permanecem inalteradas e continuam sendo a entrada dos Adapter. O envio da configuração de modelo usa o `ProviderProvisioningEnvelope` (Personal Layer + Configured Default + configurações estreitas de conta + credenciais de allowlist), cujos campos e semântica transacional seguem [Remote Provider Provisioning](../remote/provider-provisioning.md); o R3 não define mais seus próprios tipos de snapshot de sincronização.
 
-### 保留数据的卸载重装（2026-10-10）
+### Desinstalação com preservação de dados e reinstalação (2026-10-10)
 
-`sourceServerId` 表示远端持久用户数据环境，继续以 `install.json.installationId` 为唯一来源。
-正式 `uninstall` 清理程序运行资产，保留用户数据及 `install.json`；重新安装沿用原 UUID。
-App 不触发身份换代，不归档原 Profile、不新增设备或项目，原任务可见且可继续使用。
-普通更新和保留数据重装均不改 workspace identity；连接的临时 `remoteSessionId` 可重新分配。
+O `sourceServerId` representa o ambiente de dados persistentes do usuário no remoto e continua tendo `install.json.installationId` como única fonte. O `uninstall` oficial limpa os ativos de execução do programa, mas preserva os dados do usuário e o `install.json`; a reinstalação reutiliza o UUID original. O App não dispara troca de identidade, não arquiva o Profile original, não adiciona dispositivos ou projetos; as tarefas originais ficam visíveis e podem continuar em uso.
 
 ```text
-原设备 / Profile / 项目 / 历史
-  -> uninstall：保留数据与 install.json，写 uninstalled.json 禁止启动
-  -> archive 安装完成：清除卸载标记，握手仍返回原 sourceServerId
-  -> 复用原设备、Profile 和项目，打开原任务并续聊
+dispositivo / Profile / projeto / historico original
+  -> uninstall: preserva dados e install.json, grava uninstalled.json proibindo a inicializacao
+  -> instalacao do archive concluida: limpa a marca de desinstalacao, o handshake ainda devolve o sourceServerId original
+  -> reutiliza o dispositivo, o Profile e o projeto originais, abre a tarefa original e continua a conversa
 ```
 
-同一线路实际连接到独立数据环境时，仍按不同 UUID 进入身份确认：取消不改记录，确认建立
-新设备和独立 Profile，原连接归档、原项目身份保留。测试必须替换完整数据环境，不能只换 UUID
-却共享历史数据库。身份变化文案表达连接目标变化，不把保留数据的重新安装描述为新设备。
-本版本尚未上线，不增加旧版身份丢失恢复或历史重复设备合并。数据克隆仍遵循 §2 的范围约束。
+Quando a mesma linha realmente se conecta a um ambiente de dados independente, a confirmação de identidade ainda entra em vigor com um UUID diferente: cancelar não altera o registro; confirmar cria um novo dispositivo e um Profile independente, e a conexão original é arquivada, com a identidade dos projetos originais preservada. Os testes devem substituir o ambiente de dados por completo, e não apenas trocar o UUID compartilhando o banco de histórico. O texto de mudança de identidade expressa a mudança do destino da conexão e não descreve a reinstalação com preservação de dados como um novo dispositivo. Esta versão ainda não foi publicada, portanto não se adiciona recuperação de perda de identidade de versões antigas nem mesclagem de dispositivos duplicados do histórico. A clonagem de dados continua seguindo as restrições de escopo da §2.
 
-### 3.2 workspace 身份的三层结构
+### 3.2 Estrutura em três camadas da identidade de workspace
 
-现状问题：旧 identity `remote:ssh:<host>:<port>:<user>:<path>` 把线路编进身份（`packages/shared/src/remote-workspace-identity.ts`），换 IP/别名即形成新 key 丢历史；同一目录经多条线路连接会在远端两套数据库（`~/.zcode/v2/tasks-index.sqlite`、`~/.zcode/cli/db/db.sqlite`）留下多套并行历史。
+Problema atual: a identity antiga `remote:ssh:<host>:<port>:<user>:<path>` embute a linha na identidade (`packages/shared/src/remote-workspace-identity.ts`), de modo que trocar IP/alias cria uma nova key e perde o histórico; o mesmo diretório acessado por várias linhas deixa múltiplos históricos paralelos em dois bancos de dados no remoto (`~/.zcode/v2/tasks-index.sqlite`, `~/.zcode/cli/db/db.sqlite`).
 
-R3 的身份分三层。核心取舍：**控制端身份彻底 route 无关；远端存储 key 在迁移窗口期保持旧格式（canonical key），保证旧版本 Desktop 回退/混连时读写同一批数据**；存储 key 的 server-local 清洁化推迟到 R4（旧版本退出支持窗口后）。
+A identidade do R3 é dividida em três camadas. Trade-off central: **a identidade do lado controlador é totalmente independente da rota; a chave de armazenamento no remoto mantém o formato antigo durante a janela de migração (canonical key), garantindo que o rollback / a conexão mista com um Desktop antigo leiam e escrevam o mesmo conjunto de dados**; a limpeza server-local da chave de armazenamento fica adiada para o R4 (depois da janela de suporte às versões antigas).
 
 ```text
-控制端（Host / Renderer / 手机 bridge / credential key / tab 去重）
-  workspaceIdentity = remote:server:<sourceServerId>:<posixPath>   ← route 无关，换线路不变
+lado controlador (Host / Renderer / bridge do celular / credential key / dedup de tab)
+  workspaceIdentity = remote:server:<sourceServerId>:<posixPath>   <- independende da rota, nao muda ao trocar de linha
   workspaceKey      = workspaceIdentity
-        │
-        │  wire：Host 下发 { workspacePath, legacyRouteHint? }
-        │        legacyRouteHint = 按当前线路构造的旧格式 key（仅供 canonical 选举，R4 删）
-        ▼
-远端 Server Core（唯一映射点：workspace 定位层）
-  canonical key 解析：path ──alias 表──► canonical key（旧 route-derived 格式）
-        │
-        ▼
-远端权威存储（Server Core / Agent CLI / SQLite / sessions/<hash>/ 配置目录）
-  workspaceKey = canonical key（R3 迁移窗口期）──R4──► server-local path
+        |
+        |  wire: o Host envia { workspacePath, legacyRouteHint? }
+        |        legacyRouteHint = key no formato antigo construido pela linha atual (apenas para a eleicao da canonical, removido no R4)
+        v
+Server Core remoto (unico ponto de mapeamento: camada de localizacao de workspace)
+  resolucao da canonical key: path --tabela de alias--> canonical key (formato antigo derivado da rota)
+        |
+        v
+armazenamento autoritativo remoto (Server Core / Agent CLI / SQLite / diretorio de configuracao sessions/<hash>/)
+  workspaceKey = canonical key (janela de migracao do R3) --R4--> path server-local
 ```
 
-- 控制端格式复用既有 `buildServerRemoteWorkspaceIdentity({ serverId: sourceServerId, workspacePath })`，`isRemoteWorkspaceIdentity` 判定、手机链路贯穿 `workspaceIdentity + remoteSessionId`、realtime `workspaceKey + taskId` 路由全部不改语义，只换值。
-- 换线路不换控制端 identity；远端侧由 alias 层把任意线路收敛到同一 canonical key → 同一历史（REMOTE-09）。
-- 不同 OS 账号 → 不同 server root → 不同 `sourceServerId`，且远端数据库本就分属不同账号 → 严格隔离（REMOTE-10）。
-- canonical key 是旧格式 → 旧版本 Desktop（旧主链）按旧 key 读写**同一批任务行与 session 行**：回退后已有会话可见、可续聊（messages/parts 按 session_id 关联，双向可见）；`sessions/<hash>` 配置目录 hash 不变。新旧兼容不依赖旧代码理解任何新概念。
-- 远端本机 TUI 打开同一目录仍是 path key，与远程历史暂不共享——保持与旧版本一致的现状，R4 清洁化时统一。
-- 打开 workspace 前仍先在远端 `fileService.resolvePath` 做 realpath（沿用现状），避免 symlink 别名产生两个身份。
-- Renderer 不再根据 SSH/WSL/Docker target 构造正式 identity。`bindRemoteWorkspaceSessionContext`
-  必须在 Host 完成 canonical 准备且新 attachment ready 后返回权威
-  `{ sourceServerId, workspacePath, workspaceIdentity }`；tab、history、credential 与重连
-  匹配统一消费该返回值。route-derived identity 只作为 Host 内部 `legacyRouteHint`，不得回传 Renderer/手机。
+- O formato do lado controlador reaproveita o `buildServerRemoteWorkspaceIdentity({ serverId: sourceServerId, workspacePath })` existente; o julgamento por `isRemoteWorkspaceIdentity`, a propagação de `workspaceIdentity + remoteSessionId` no link do celular e o roteamento realtime de `workspaceKey + taskId` mantêm suas semânticas — apenas mudam de valor.
+- Trocar de linha não troca a identity do lado controlador; no lado remoto, a camada de alias converge qualquer linha para a mesma canonical key → o mesmo histórico (REMOTE-09).
+- Contas de OS diferentes → server root diferente → `sourceServerId` diferente, e os bancos de dados remotos já pertencem a contas diferentes → isolamento estrito (REMOTE-10).
+- A canonical key usa o formato antigo → um Desktop de versão antiga (cadeia principal antiga) lê e escreve por chaves antigas **o mesmo conjunto de linhas de tarefas e de sessões**: após o rollback, as sessões existentes ficam visíveis e a conversa pode continuar (messages/parts são associados por session_id, com visibilidade nos dois sentidos); o hash do diretório de configuração `sessions/<hash>` não muda. A compatibilidade entre novo e antigo não depende de o código antigo entender qualquer conceito novo.
+- A TUI local no remoto que abre o mesmo diretório continua usando uma path key, e por enquanto não compartilha o histórico remoto — mantém-se o estado atual, consistente com versões antigas, e a unificação acontece na limpeza do R4.
+- Antes de abrir um workspace, continua-se fazendo realpath no `fileService.resolvePath` do remoto (como hoje), evitando que aliases de symlink gerem duas identidades.
+- O Renderer deixa de construir a identity oficial a partir do target SSH/WSL/Docker. `bindRemoteWorkspaceSessionContext` precisa retornar o `{ sourceServerId, workspacePath, workspaceIdentity }` autoritativo depois que o Host conclui o preparo canonical e o novo attachment está pronto; tab, history, credential e o casamento de reconexão consomem uniformemente esse valor de retorno. A identity derivada da rota existe apenas como o `legacyRouteHint` interno do Host e não pode voltar ao Renderer/celular.
 
-Core 映射 seam 固定如下：
+O seam de mapeamento do Core fica fixado assim:
 
-- `source-server-workspace.resolveWorkspace` 在远端解析 alias 后，把
-  `remote:server:<sourceServerId>:<workspacePath> ↔ canonical key` 注册到 Core 内存映射表；
-- 普通 RPC 值的映射装配在远端 Core 的 `IChannelServer` 装饰层，对所有业务
-  channel 的 call 参数、返回值和 listen 事件做 workspace identity 值级替换；
-- V4 topic logical frame 是例外：Source Server 内部 CLI wire 可能已按 canonical identity 做
-  JSON + CRC32 + base64 分片，因此不得只改 fragment outer object。Core 对外 seam 必须在
-  16 MiB/1,024 片的既有有界预算内先重组内部 logical frame，映射 topic、
-  snapshot.workspaceId 与 session.workspaceId，再重新 JSON encode/CRC32/fragment 为对外 stable
-  wire；任何 checksum/schema/limit 失败继续 fail-closed，禁止部分 apply；
-- conversation、sessions-index、workspace-config 三种 V4 topic 共用上述 physical fragment seam。
-  assembler 同批返回 fault 与 complete 时必须逐项处理；fault 或重新编码失败只能向控制端发送不含
-  canonical payload 的 typed recovery candidate，禁止透传原始 base64，也禁止让异常越过 event listener
-  关闭整条 CLI runtime；
-- 未分片的普通映射字符串分为两类：① 完整值等于 identity；② 已登记的协议复合值
-  `sessions-index/<identity>`、`workspace-config/<identity>`。复合值必须用对应 parser/builder codec
-  解析和重建，禁止通用 substring replace，避免误改路径、日志和用户文本；新增复合 identity 字符串
-  必须先更新本节与 codec 合同测试；
-- 二进制、`Date`、`ArrayBuffer`、typed array 和其他非 plain object 必须原样透传；映射器不得用
-  `Object.entries` 深拷贝任意对象；
-- `source-server-workspace` 自身不经过映射，仍返回真实 canonical key 供迁移诊断；Desktop Host 不保存、
-  不消费 canonical key，也不再包装 `IServiceAccessor`；
-- 该 seam 保证 R4 清洗只替换远端映射实现，不要求 Desktop/Renderer/手机配合发版。
+- `source-server-workspace.resolveWorkspace`, após resolver o alias no remoto, registra no mapa em memória do Core o mapeamento `remote:server:<sourceServerId>:<workspacePath> ↔ canonical key`;
+- O montagem do mapeamento para valores de RPC comuns fica na camada decoradora `IChannelServer` do Core remoto, que faz substituição em nível de valor da workspace identity nos parâmetros de call, nos valores de retorno e nos eventos listen de todos os channels de negócio;
+- O logical frame de topic V4 é uma exceção: o wire da CLI interna do Source Server já pode ter fragmentado o payload em JSON + CRC32 + base64 segundo a identity canonical, portanto não se pode alterar apenas o fragment outer object. O seam externo do Core precisa, dentro do orçamento limitado já existente de 16 MiB/1.024 fragmentos, remontar primeiro o logical frame interno, mapear o topic, o `snapshot.workspaceId` e o `session.workspaceId`, e então refazer o JSON encode/CRC32/fragment para o wire stable externo; qualquer falha de checksum/schema/limite continua fail-closed, e é proibido um apply parcial;
+- Os três topics V4 `conversation`, `sessions-index` e `workspace-config` compartilham o mesmo seam de fragment físico descrito acima. Quando o assembler devolve fault e complete na mesma leva, cada item deve ser tratado individualmente; fault ou falha na re codificação só pode enviar ao controlador um typed recovery candidate sem o payload canonical, é proibido repassar o base64 original e também é proibido deixar a exceção ultrapassar o event listener e encerrar toda a CLI runtime;
+- As strings de mapeamento comuns não fragmentadas se dividem em duas categorias: ① o valor completo é igual à identity; ② valores compostos de protocolo já registrados `sessions-index/<identity>` e `workspace-config/<identity>`. Os valores compostos devem ser analisados e reconstruídos com o parser/builder codec correspondente, é proibido o uso de substituição genérica de substring, para não alterar indevidamente caminhos, logs e textos do usuário; qualquer nova string de identity composta exige atualizar esta seção e os testes de contrato do codec antes;
+- Binários, `Date`, `ArrayBuffer`, typed array e outros objetos que não são plain object devem ser repassados como são; o mapeador não pode usar `Object.entries` para fazer deep copy de objetos arbitrários;
+- O próprio `source-server-workspace` não passa pelo mapeamento e continua retornando a canonical key real para diagnóstico de migração; o Desktop Host não armazena nem consome a canonical key e deixa de encapsular o `IServiceAccessor`;
+- Esse seam garante que a limpeza do R4 substitua apenas a implementação de mapeamento remoto, sem exigir versão coordenada de Desktop/Renderer/celular.
 
-### 3.3 任务地址演进
+### 3.3 Evolução do endereço de tarefa
 
 ```ts
 interface WindowHostTaskAddress {
@@ -222,52 +199,52 @@ interface WindowHostTaskAddress {
 }
 ```
 
-Controller 写路由（pin/archive/delete/open/resume）以 `sourceServerId + workspaceKey + taskId` 定位唯一 source；`remoteSessionId` 只用于把请求路由到当前窗口内的活跃连接。断线重连后 `remoteSessionId` 换代但地址中的稳定三元组不变，R1 的 `replaceDisconnectedSource` 原子替换语义保持。
+O roteamento de escrita do Controller (pin/archive/delete/open/resume) localiza o source único por `sourceServerId + workspaceKey + taskId`; o `remoteSessionId` serve apenas para rotear a requisição para a conexão ativa dentro da janela. Após reconexão, o `remoteSessionId` muda de geração, mas a tripla estável do endereço não muda, e a semântica de substituição atômica `replaceDisconnectedSource` do R1 é preservada.
 
-## 4. 进程与连接拓扑
+## 4. Topologia de processos e conexões
 
-改造前（R1 完成后的旧远程主链）：
+Antes da mudança (a cadeia principal remota antiga, após a conclusão do R1):
 
 ```text
 Window Host（R1）
 ├─ LocalSource ── stdio ── local zcode-cli
 └─ RemoteConnectionRegistry
-   ├─ SSH entry ─ ssh2 exec ─ deployServer 部署散资产 ─ 启动前台 stdio zcode-server（entry-stdio）
-   │                               版本必须严格相等          │ SERVICE_AUTHORITY_MODE=desktop-attached-remote
-   │                                                       └─ 远端 Agent CLI（随连接 EOF 退出）
-   ├─ WSL entry ─ wsl.exe ─ 同上（60s idle TTL）
-   ├─ Docker entry ─ docker exec ─ 同上（per-session dedicated）
-   └─ Server entry ─ HTTP+WS ─ 已运行 zcode-server /ws/host（dev-only）
-identity = remote:ssh:<host>:<port>:<user>:<path>（route-derived）
-模型配置 = Desktop 下发覆盖远端
+   ├─ SSH entry ─ ssh2 exec ─ deployServer implanta ativos soltos ─ inicia zcode-server stdio em primeiro plano（entry-stdio）
+   │                               as versoes devem ser estritamente iguais          │ SERVICE_AUTHORITY_MODE=desktop-attached-remote
+   │                                                       └─ Agent CLI remoto（sai junto com o EOF da conexao）
+   ├─ WSL entry ─ wsl.exe ─ idem（60s idle TTL）
+   ├─ Docker entry ─ docker exec ─ idem（per-session dedicated）
+   └─ Server entry ─ HTTP+WS ─ zcode-server ja em execucao /ws/host（dev-only）
+identity = remote:ssh:<host>:<port>:<user>:<path>（derivada da rota）
+configuracao de modelo = Desktop envia e sobrescreve o remoto
 ```
 
-R3 后：
+Após o R3:
 
 ```text
 Window Host（R3）
-├─ LocalSource ── stdio ── local zcode-cli（不变）
-└─ SourceServerConnectionManager（RemoteConnectionRegistry 演进）
-   ├─ ServerDirectory（app 级持久化读写：SourceServerRecord + ConnectionProfile）
-   ├─ 每个在线 Source Server 一条窗口级连接
+├─ LocalSource ── stdio ── local zcode-cli（inalterado）
+└─ SourceServerConnectionManager（evolucao do RemoteConnectionRegistry）
+   ├─ ServerDirectory（leitura e escrita persistidas em nivel de app: SourceServerRecord + ConnectionProfile）
+   ├─ uma conexao de nivel de janela por Source Server online
    │  ├─ TransportAdapter(ssh|wsl|docker)
-   │  │  ├─ bootstrap：probe → (确认后 install/update) → ensure daemon → 读 port/token
-   │  │  └─ channel：Duplex 字节通道 → 远端 127.0.0.1:<动态端口>
-   │  ├─ 握手：/api/server-info（版本兼容 + 迁移门）→ ticket → WS /ws/host
-   │  └─ @zcode/rpc 服务集合（全转发）+ 多 logical remote session（remoteSessionId）
-   │                         │
-   │                         ▼
-   │              远端 ZCode Server daemon（R2）
+   │  │  ├─ bootstrap: probe -> (apos confirmacao, install/update) -> ensure daemon -> le port/token
+   │  │  └─ channel: canal de bytes Duplex -> 127.0.0.1:<porta dinamica> remoto
+   │  ├─ handshake: /api/server-info（compatibilidade de versao + portao de migracao）-> ticket -> WS /ws/host
+   │  └─ conjunto de servicos @zcode/rpc（total forward）+ multiplas logical remote session（remoteSessionId）
+   │                         |
+   │                         v
+   │              ZCode Server daemon remoto（R2）
    │              OS service / detached ── Supervisor ── Server Core ── Workspace Agent CLI
-   │              Desktop 断开只释放 attachment；daemon 与任务继续运行
-   └─ ControllerProjection（source 维度 = sourceServerId）
+   │              desconectar o Desktop apenas libera o attachment; o daemon e as tarefas continuam em execucao
+   └─ ControllerProjection（dimensao source = sourceServerId）
 ```
 
-窗口关闭/App 退出只断开 attachment 与传输通道，绝不停止远端 daemon（REMOTE-03）。同一 Server 被多窗口/多台 Desktop 连接时，Core 天然支持多 attachment，互不影响。
+Fechar a janela ou sair do App apenas desconecta o attachment e o canal de transporte, e nunca para o daemon remoto (REMOTE-03). Quando o mesmo Server é conectado por múltiplas janelas / múltiplos Desktops, o Core suporta nativamente múltiplos attachments, sem interferência entre eles.
 
-## 5. Transport Adapter 合同（D6）
+## 5. Contrato do Transport Adapter (D6)
 
-### 5.1 接口
+### 5.1 Interface
 
 ```ts
 interface SourceServerTransportAdapter {
@@ -308,116 +285,121 @@ interface SourceServerIngressInfo {
 }
 ```
 
-合同约束（连接方式无关性，REMOTE-15）：Adapter 之上的握手、服务集合、身份、生命周期、错误语义完全一致；合同测试用同一套用例跑三种 Adapter 的 fake/真实实现，禁止任何 `kind` 专属业务分支泄漏到 Manager 层以上。
+Restrições do contrato (independência do meio de conexão, REMOTE-15): o handshake, o conjunto de serviços, a identidade, o ciclo de vida e a semântica de erros acima do Adapter são totalmente idênticos; os testes de contrato executam o mesmo conjunto de casos sobre as implementações fake/reais dos três Adapters, proibindo que qualquer ramo de negócio específico de `kind` vaze para a camada do Manager ou acima.
 
-远端平台支持沿用现状：三种 transport 的远端环境均要求 POSIX（linux/darwin），win32 远端继续拒绝（`assertSupportedRemoteEnvironment` 语义保留）；R2 发行包的 win32 资产仅服务「本机手动安装 Server CLI」场景，不属于 R3 远程连接矩阵。
+O suporte às plataformas remotas permanece como está: o ambiente remoto dos três transports exige POSIX (linux/darwin), e o remoto win32 continua sendo rejeitado (a semântica de `assertSupportedRemoteEnvironment` é preservada); os assets win32 do pacote de release R2 atendem apenas ao cenário de «instalação manual do Server CLI na própria máquina», não pertencendo à matriz de conexões remotas do R3.
 
-### 5.2 三种实现
+### 5.2 Três implementações
 
-| 能力        | SSH                                                                                                                                                                               | WSL                                                                                                                                                                                                  | Docker                                                                     |
-| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| 底座        | 现有 `SSHBackend`（ssh2；exec 强制 `/bin/sh`）                                                                                                                                    | 现有 `WSLBackend`（wsl.exe -d distro -u user）                                                                                                                                                       | 现有 `DockerBackend`（docker exec -i）                                     |
-| probe/exec  | `client.exec`                                                                                                                                                                     | `spawn wsl.exe`                                                                                                                                                                                      | `spawn docker exec`                                                        |
-| 上传        | SFTP，失败回退 `cat >` 管道                                                                                                                                                       | `\\wsl.localhost\` UNC 直拷，回退流式                                                                                                                                                                | `docker cp`，回退 `cat >`                                                  |
-| channel     | `client.forwardOut` → 远端 `127.0.0.1:<port>`（direct-tcpip，不占 exec channel）；sshd 禁用转发（`AllowTcpForwarding no`）时回退 stdio 桥（同一 proxy-stdio 命令经 exec channel） | stdio 桥（`wsl.exe -d <distro> -u <user> --exec bash -lc '<serverRoot>/bin/zcode server proxy-stdio --server-root <serverRoot>'`；必须 `--exec`，`--` 会让默认 shell 提前展开命令，见 R3-ISSUE-024） | `docker exec -i <c> <serverRoot>/bin/zcode server proxy-stdio`（stdio 桥） |
-| daemon 常驻 | `serve --daemon` 优先注册 launchd/systemd --user；服务管理器不可访问时 detached fallback，下一次连接负责重启                                                                      | detached fallback；若未来具备可访问服务管理器也消费同一能力探测合同                                                                                                                                  | detached fallback；容器 stop 即退出                                        |
-| 连接复用    | 同 `buildSshRemoteHostKey` 一条 ssh2 Client（exec/sftp/forwardOut 多 channel 复用）                                                                                               | 按 normalized distro+user 复用 wsl.exe 调用上下文                                                                                                                                                    | 按 container 复用                                                          |
+| Capacidade     | SSH                                                                                                                                                                               | WSL                                                                                                                                                                                                  | Docker                                                                     |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Base           | `SSHBackend` existente (ssh2; exec força `/bin/sh`)                                                                                                                                    | `WSLBackend` existente (wsl.exe -d distro -u user)                                                                                                                                                       | `DockerBackend` existente (docker exec -i)                                     |
+| probe/exec     | `client.exec`                                                                                                                                                                     | `spawn wsl.exe`                                                                                                                                                                                      | `spawn docker exec`                                                        |
+| Upload         | SFTP, com fallback para o pipe `cat >`                                                                                                                                               | cópia direta via UNC `\\wsl.localhost\`, com fallback em streaming                                                                                                                                    | `docker cp`, com fallback `cat >`                                          |
+| canal          | `client.forwardOut` → `127.0.0.1:<port>` remoto (direct-tcpip, sem ocupar canal exec); quando o sshd desabilita o forward (`AllowTcpForwarding no`), faz fallback para a ponte stdio (mesmo comando proxy-stdio via canal exec) | ponte stdio (`wsl.exe -d <distro> -u <user> --exec bash -lc '<serverRoot>/bin/zcode server proxy-stdio --server-root <serverRoot>'`; é obrigatório `--exec`, pois `--` faz o shell padrão expandir o comando antes da hora, ver R3-ISSUE-024) | `docker exec -i <c> <serverRoot>/bin/zcode server proxy-stdio` (ponte stdio) |
+| daemon residente | `serve --daemon` prioriza o registro em launchd/systemd --user; quando o gerenciador de serviços está inacessível, faz fallback para detached, e a próxima conexão fica responsável por reiniciar | fallback detached; se futuramente houver um gerenciador de serviços acessível, consome o mesmo contrato de detecção de capacidade | fallback detached; o container sai ao parar                             |
+| Reuso de conexão | um único Client ssh2 para o mesmo `buildSshRemoteHostKey` (reuso de múltiplos canais exec/sftp/forwardOut)                                                                              | reuso do contexto de chamada do wsl.exe por distro+user normalizado                                                                                                                                    | reuso por container                                                        |
 
-- `zcode server proxy-stdio`（新增内部子命令）：读取本 root `status.json` 端口后做 stdin/stdout ↔ `127.0.0.1:<port>` 的纯字节双向转发；daemon 未运行时输出一行结构化错误后退出。它不调用 `createLocalServices`，不持有任何业务状态。
-- Host 侧在任意 Duplex 上执行 HTTP 请求与 WS 升级（`http.request`/`ws` 均支持自定义 `createConnection`），SSH forwardOut 流与 stdio 桥流走完全相同的上层代码。
-- 旧主链的 WSL 60s idle TTL、Docker per-session dedicated 生命周期差异全部废除：连接生命周期统一为「窗口级连接 ↔ 常驻 daemon」，workspace runtime 的启停完全由远端 Core 管理。
-- Docker Backend 的直接 exec 与 home 相对路径读取在调用 CLI 前校验容器引用：去除首尾空白后必须匹配 `^[A-Za-z0-9][A-Za-z0-9_.-]*$`，接受名称、完整 ID 与 ID 前缀；非法引用明确拒绝，不增加容器枚举或 CLI 往返。
-- R1 registry 的 generation/fail-closed/两阶段 attachment 换代等机制原样保留。
+- `zcode server proxy-stdio` (novo subcomando interno): lê a porta de `status.json` deste root e faz um encaminhamento bidirecional de bytes puros entre stdin/stdout e `127.0.0.1:<port>`; quando o daemon não está em execução, imprime uma linha de erro estruturada e sai. Ele não chama `createLocalServices` e não mantém nenhum estado de negócio.
+- O lado do Host executa requisições HTTP e o upgrade para WS sobre qualquer Duplex (`http.request`/`ws` suportam `createConnection` customizado); o fluxo de forwardOut do SSH e o fluxo da ponte stdio passam pelo exatamente mesmo código de camada superior.
+- As diferenças da cadeia antiga — TTL de 60s de ociosidade no WSL e ciclo de vida dedicado por sessão no Docker — são todas abolidas: o ciclo de vida da conexão é unificado como «conexão de nível de janela ↔ daemon residente», e o start/stop do runtime do workspace passa a ser gerenciado inteiramente pelo Core remoto.
+- O exec direto do Docker Backend e a leitura de caminhos relativos ao home validam a referência do container antes de chamar a CLI: após remover espaços nas pontas, ela deve casar com `^[A-Za-z0-9][A-Za-z0-9_.-]*$`, aceitando nome, ID completo e prefixo de ID; referências inválidas são explicitamente rejeitadas, sem adicionar enumeração de containers nem ida-e-volta à CLI.
+- Os mecanismos de generation/fail-closed/troca de attachment em duas fases do registry R1 são preservados como são.
 
-daemon 启动能力判定固定为：
+A determinação da capacidade de inicialização do daemon é fixa:
 
 ```text
 serve --daemon
-  ├─ 显式 opt-out（WSL/Docker）────────────────────────► detached fallback
-  └─ 默认路径
-       ├─ OS 用户服务管理器不可访问────────────────────► detached fallback
-       │    Linux 非交互 SSH 先尝试 /run/user/<uid>/bus
-       │    恢复 XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS
-       └─ 服务管理器可访问
-            ├─ register/start 成功─────────────────────► OS service
-            └─ register/start 失败─────────────────────► fail-closed（不 fallback）
+  ├─ opt-out explícito (WSL/Docker)─────────────────────► detached fallback
+  └─ caminho padrão
+       ├─ gerenciador de serviços de usuário do SO inacessível ► detached fallback
+       │    no SSH Linux não interativo, tenta antes /run/user/<uid>/bus
+       │    restaura XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS
+       └─ gerenciador de serviços acessível
+            ├─ register/start com sucesso────────────────► OS service
+            └─ register/start falha─────────────────────► fail-closed (sem fallback)
 ```
 
-- “服务管理器不可访问”是能力事实，不等于安装失败：常见于 SSH 进入容器、最小系统、未启动 user manager，或 macOS SSH 会话没有可访问的 launchd user domain。
-- 自动 fallback 不改变 Source/Task/Session 权威；Desktop 断开只释放 attachment。fallback 进程在远端环境存活期间继续运行，宿主/容器重启后由既有启动重连或手动连接重新拉起。
-- Linux SSH 若 `/run/user/<uid>/bus` 存在，即使 sshd 未注入 `XDG_RUNTIME_DIR`/`DBUS_SESSION_BUS_ADDRESS`，也应使用该用户 bus 完成 service 探测和注册；不得把“环境变量缺失”误判为“systemd 不存在”。
-- Linux 能力探测读取 `systemctl --user show --property=Version`，只有退出码为 0 且返回非空 `Version` 属性才确认 user manager 可访问。chroot / offline 环境可能跳过命令并返回 0；这种没有属性响应的结果必须进入既有 detached fallback，不能依赖本地化 stderr 文案判断，也不能覆盖用户的离线环境设置。
-- 能力探测沿用 2 秒进程超时。命令被信号终止后，执行器必须关闭本端 stdout/stderr 管道并返回失败，不能继续等待持有管道的 D-Bus 辅助进程退出；正常退出仍等到 `close` 后读取完整响应。该收口不改变服务注册错误传播，也不新增启动路径。
-- 探测成功后的真实注册错误仍直接返回；不得把权限、服务文件或启动错误统一吞掉。daemon 启动 owner 仍由 Server CLI 在 OS service 与 detached Supervisor 之间选择，不新增重试、状态缓存或并行启动路径。
-- `serve --daemon --json` 非零退出时，Adapter 必须优先解析 stdout 的结构化 `{ error, code?, retryable? }`，再把 stderr 作为补充诊断。Node warning、登录 banner 或 shell 噪音不得覆盖真实 CLI 错误。
-- Server CLI `--json` 的结果（成功或失败）是 stdout 中最后一个单行 JSON 对象；Adapter 读取结果时跳过其前后的纯文本行。部分 SSH 堡垒机会把远端 stderr 合并进 stdout，并在 stdout 结束后才投递，Node warning 因此可能排在结果行之后，不能把最后一个非空行当作结果。
-- Source Server bootstrap 可执行文件放在最终可执行根（`~/.zcode/server`）的临时 staging 内，不从常见 `noexec` 的 `/tmp` 执行；archive 临时文件仍须在成功、失败和取消后清理。
-- 远端直下只把 curl/wget、tar 和 SHA-256 工具作为必需能力；awk/wc/date 等仅用于增强进度，缺失时降级为无速度进度而不是阻断下载。Desktop 下载后上传同样必须在上传前探测 tar，避免传完大 archive 才失败。
-- archive 内置官方 Node 22 Linux 构建，动态链接要求 glibc 2.28 及以上。probe 在同一次只读 round-trip 中读取 `getconf GNU_LIBC_VERSION`；Linux 远端（含 WSL、Docker）低于 2.28 时（如 CentOS 7、RHEL 7、Ubuntu 18.04），probe 以预检失败拒绝，不进入安装确认、上传或远端直下，消息写明实测版本和所需版本。读不到 glibc 版本（musl、缺 getconf、输出无法识别）时不拦截，沿用原安装链。
-- macOS 构建 POSIX archive 时必须显式禁用 bsdtar xattr/PAX metadata；仅设置 `COPYFILE_DISABLE=1` 不足以移除 `LIBARCHIVE.xattr.*`，否则 Linux 解压会按条目刷出数千行 unknown extended header 并掩盖真实错误。
+- «O gerenciador de serviços está inacessível» é um fato de capacidade, não equivale a falha de instalação: é comum ao entrar via SSH em um container, em sistemas mínimos, quando o user manager não foi iniciado ou em sessões SSH no macOS sem um domínio de usuário do launchd acessível.
+- O fallback automático não altera a autoridade de Source/Task/Session; a desconexão do Desktop apenas libera o attachment. O processo de fallback continua rodando enquanto o ambiente remoto viver, e é relançado pela reconexão existente ou por conexão manual após o reinício do host/container.
+- No Linux via SSH, se `/run/user/<uid>/bus` existir, mesmo que o sshd não injete `XDG_RUNTIME_DIR`/`DBUS_SESSION_BUS_ADDRESS`, deve-se usar o bus daquele usuário para concluir a detecção e o registro do service; não se pode interpretar «variável de ambiente ausente» como «systemd inexistente».
+- A detecção de capacidade no Linux lê `systemctl --user show --property=Version`, e só confirma o user manager acessível quando o código de saída é 0 e o atributo `Version` retornado é não vazio. Ambientes chroot/offline podem pular o comando e retornar 0; um resultado sem resposta de atributo precisa entrar no fallback detached já existente, sem depender do texto de stderr localizado e sem sobrescrever as configurações de ambiente offline do usuário.
+- A detecção de capacidade mantém o timeout de processo de 2 segundos. Quando o comando é encerrado por sinal, o executor precisa fechar os pipes locais de stdout/stderr e retornar falha, sem continuar aguardando a saída do processo auxiliar D-Bus que mantém os pipes; na saída normal, ainda se aguarda o `close` para ler a resposta completa. Esse fechamento não altera a propagação de erros de registro de serviço nem cria novos caminhos de inicialização.
+- Erros reais de registro após uma detecção bem-sucedida continuam sendo retornados diretamente; não se pode engolir de forma unificada erros de permissão, de arquivo de serviço ou de inicialização. O owner da inicialização do daemon continua sendo escolhido pelo Server CLI entre o OS service e o Supervisor detached, sem novos retries, cache de estado ou caminho de inicialização paralela.
+- Quando `serve --daemon --json` sai com código diferente de zero, o Adapter deve priorizar a análise do `{ error, code?, retryable? }` estruturado no stdout e usar o stderr apenas como diagnóstico complementar. Warnings do Node, banner de login ou ruído de shell não podem sobrescrever o erro real da CLI.
+- O resultado de `--json` do Server CLI (com sucesso ou falha) é o último objeto JSON de uma única linha no stdout; o Adapter pula as linhas de texto puro antes e depois dele ao ler o resultado. Alguns bastiões SSH mesclam o stderr remoto no stdout e o entregam só após o fim do stdout, de modo que o warning do Node pode vir depois da linha de resultado; não é possível tomar a última linha não vazia como o resultado.
+- O executável de bootstrap do Source Server fica em um staging temporário dentro do root executável final (`~/.zcode/server`) e não é executado a partir do `/tmp` comum, que costuma ter `noexec`; o arquivo temporário do archive continua precisando ser limpo em caso de sucesso, falha ou cancelamento.
+- O download direto no remoto exige como capacidades mínimas apenas curl/wget, tar e a ferramenta de SHA-256; awk/wc/date são usados apenas para melhorar o progresso e, quando ausentes, o progresso degrada para sem velocidade em vez de bloquear o download. O upload após o download pelo Desktop também precisa sondar o tar antes do upload, para não falhar só depois de enviar um archive grande.
+- O archive traz embutida a build oficial do Node 22 para Linux, que exige linkagem dinâmica com glibc 2.28 ou superior. O probe lê `getconf GNU_LIBC_VERSION` no mesmo round-trip somente-leitura; em remoto Linux (incluindo WSL e Docker) abaixo de 2.28 (como CentOS 7, RHEL 7, Ubuntu 18.04), o probe rejeita com falha de pré-verificação, sem entrar na confirmação de instalação, no upload ou no download direto remoto, e a mensagem informa a versão medida e a versão exigida. Quando a versão do glibc não pode ser lida (musl, ausência de getconf, saída irreconhecível), não se bloqueia e a cadeia de instalação original é mantida.
+- O build para macOS precisa desabilitar explicitamente os metadados bsdtar xattr/PAX ao gerar o archive POSIX; definir apenas `COPYFILE_DISABLE=1` não basta para remover `LIBARCHIVE.xattr.*`, senão a extração no Linux despeja milhares de linhas de unknown extended header por entrada e mascara o erro real.
 
-### 5.3 发现、安装与升级链
+### 5.3 Cadeia de descoberta, instalação e upgrade
 
 ```text
-probe ──已安装且 daemon ready──────────────────────────────► ensureDaemon（复用）
+probe ──já instalado e daemon ready───────────────────────► ensureDaemon (reuso)
   │
-  ├─ 未安装 ──► 展示目标账号/版本/安装位置，用户确认 ──► 上传 archive（平台匹配的 R2 发行包）
-  │                                                        └─► 远端本地 archive 安装（immutable promote）
-  │                                                              └─► serve --daemon ──► ready
-  └─ 已安装但版本不兼容 ──► §6.3 升级流程（同一条 install/update 链）
+  ├─ não instalado ──► exibe conta/versão/local de destino, confirmação do usuário
+  │                    ──► upload do archive (pacote R2 compatível com a plataforma)
+  │                          └─► instalação local do archive no remoto (immutable promote)
+  │                                └─► serve --daemon ──► ready
+  └─ instalado mas versão incompatível ──► fluxo de upgrade da §6.3 (mesma cadeia install/update)
 ```
 
-- 发行包来源：沿用现有远端资产分发模式（CDN manifest + 本地缓存 + `assetInstallMode` 远端直下选项），资产内容从「散文件集合」换成 `linux/darwin × x64/arm64` 四个平台的 `zcode-server-<os>-<arch>.tar.gz`。版本根必须同时发布独立的 `source-server-release.json`，按 target 记录 `version`、`fileName`、`sha256`、`sizeBytes` 与相对 `urls`；Desktop 和远端直下必须消费同一份描述并在安装前校验 SHA-256。Windows stage 仍可产出 `.zip` 供 R2 本地验证，但 R3 远端环境不接受 win32，不进入 Desktop Source Server resolver 的发布合同。
-- 正式 `build:remote-assets` 只执行四个目标的 Server CLI stage，把 descriptor/archive 复制到当前版本 release 根并上传；R3 起不再构建或发布 legacy `manifest-*.json` / `components/**`。CI 在复制和上传前逐文件 fail-closed 校验，禁止用开发 worktree 的 `dist-release` 缓存充当发布证据。已发布旧版本的 legacy 对象继续由 CDN/OSS 保留，删除新版本构建入口不得删除历史对象。
-- `assetInstallMode` 只决定 archive 在哪一侧获取：`local-download-upload` 由 Desktop 下载、校验后经 Backend 上传，`remote-download` 由 SSH 目标使用 descriptor URL 下载并校验；两条路径从远端临时 archive 开始必须汇合到同一个 `zcode update --from-archive`，禁止恢复旧散组件安装器。
-- 远端应用入口：`zcode update --from-archive <path> --json`（R2 update 增加本地 archive 源；首装时先解包出 `bin/zcode` 引导）。安装、升级、组件缓存、原子切换、失败回滚全部复用 R2 已验证的 release 语义，Adapter 不自造第二套安装逻辑。
-- 首次安装即执行 `serve --daemon`：能访问 OS 用户服务管理器时返回 `serviceRegistered=true`；否则自动 detached fallback 并返回 `false`，连接日志明确说明“当前远端环境存活期间常驻、重启后由连接自动拉起”。
-- Source Server 部署策略必须显式区分 `release-versioned` 与 `development-content-addressed`。两者只在「是否需要更新」的判定上不同：打包态 Desktop 固定使用前者，只按版本兼容性判定；未打包开发态 SSH 使用后者，在 Server version 与当前 archive version 相同但 `archiveSha256` 不同或远端身份缺失时判定为需要更新。SHA 相同继续复用；不得把该判定扩散到生产态或 WSL/Docker。
-- 判定为需要更新之后，两种策略的更新逻辑必须完全一致：连接流程只把 Profile 置为 `needs-upgrade + updateAvailability: required` 并以 `source-server-upgrade-required` 拒绝连接，不得在连接流程内直接执行 archive update；更新本身统一由 §6.3 的 `updateSource → Manager.updateServer` 执行（`updating` 状态、操作日志、`force:false` 先行、running-task guard 后由用户显式确认再 `force:true`）。因此连接向导内的自动更新、启动重连/断线恢复的「立即更新」入口和强制更新确认对开发态同样生效。（R3A-B-06 修正：此前开发态在连接流程内直接 `installOrUpdate`，guard 只能表现为普通连接失败，UI 没有强制更新入口。）
-- 开发态内容刷新只接受本轮本地 staging 的 descriptor/archive，并统一走 Desktop 上传；即使 SSH Profile 保存的是 `remote-download` 也不得改从 CDN 获取同版本产物。若本地产物缺失、校验失败或更新被 running-task guard 阻断，连接必须 fail-closed，禁止回退 CDN 或继续运行旧 release。
-- 开发态 `bootstrap:with-remote` 必须调用与 CI 相同的 Source Server staging 入口并刷新 descriptor/archive；普通 `bootstrap` 继续跳过远端资源。成功返回表示所有仓库源码派生的 runtime、插件与 archive 都在本轮构建，只有固定版本且经校验的外部二进制允许复用缓存。staging 开始先使旧 descriptor 失效，四个平台 archive 全部原子落盘并校验后再原子发布新 descriptor；失败不得留下可被开发连接消费的旧 generation。Linux 开发专用入口 `prepare:remote-assets:linux` 复用同一路径，只构建并发布 `linux-x64` / `linux-arm64`，descriptor 只列本轮目标，不混入历史 macOS 条目；环境与使用约定见 [Bootstrap 命令](../bootstrap.md)。
-- 远端 `~/.zcode/server` 内旧主链散文件（`node`、`zcode-server.cjs`、`agents/`、`build/`、`tools/`）与 R2 布局共目录：R3 安装**不删除**这些旧文件——未升级的旧版本 Desktop 仍依赖它们运行旧主链；清理属于 R4。R2 的 uninstall allowlist 需扩展列出这批旧路径，保证 R3 之后的 `zcode uninstall` 能一并清理并写入 `preservedPaths` 对账。
+- Origem dos pacotes de release: segue o padrão existente de distribuição de assets remotos (manifest da CDN + cache local + a opção de download direto remoto `assetInstallMode`); o conteúdo dos assets muda de «conjunto de arquivos soltos» para `zcode-server-<os>-<arch>.tar.gz` nas quatro plataformas `linux/darwin × x64/arm64`. A raiz de versão deve publicar também um `source-server-release.json` independente, registrando por target `version`, `fileName`, `sha256`, `sizeBytes` e os `urls` relativos; o Desktop e o download direto remoto precisam consumir a mesma descrição e validar o SHA-256 antes da instalação. O stage para Windows ainda pode produzir `.zip` para a validação local do R2, mas o ambiente remoto do R3 não aceita win32, que não entra no contrato de publicação do resolver de Source Server do Desktop.
+- O `build:remote-assets` oficial executa apenas o stage do Server CLI para os quatro alvos, copia o descriptor/archive para a raiz de release da versão corrente e faz o upload; a partir do R3 não se constrói nem publica mais o legado `manifest-*.json` / `components/**`. A CI faz a verificação fail-closed arquivo por arquivo antes da cópia e do upload, proibindo usar o cache `dist-release` de um worktree de desenvolvimento como evidência de publicação. Os objetos legados de versões já publicadas continuam mantidos pela CDN/OSS; remover a entrada de build de novas versões não pode apagar objetos históricos.
+- O `assetInstallMode` determina apenas de que lado o archive é obtido: `local-download-upload` faz o Desktop baixar, verificar e enviar pelo Backend; `remote-download` faz o alvo SSH baixar pela URL do descriptor e verificar; as duas caminhos, a partir do archive temporário remoto, precisam convergir para o mesmo `zcode update --from-archive`, e é proibido restaurar o instalador legado de componentes soltos.
+- Ponto de entrada da aplicação remota: `zcode update --from-archive <path> --json` (o update do R2 ganha a origem de archive local; na primeira instalação, o bootstrap extrai `bin/zcode`). Instalação, upgrade, cache de componentes, troca atômica e rollback em caso de falha reutilizam integralmente a semântica de release já validada no R2; o Adapter não cria um segundo conjunto de lógica de instalação.
+- A primeira instalação já executa `serve --daemon`: quando o gerenciador de serviços de usuário do SO está acessível, retorna `serviceRegistered=true`; caso contrário, faz fallback detached automático e retorna `false`, e o log de conexão explica claramente que «fica residente enquanto o ambiente remoto atual estiver vivo e é relançado pela conexão após o reinício».
+- A política de implantação do Source Server precisa distinguir explicitamente `release-versioned` de `development-content-addressed`. As duas diferem apenas no julgamento de «é preciso atualizar»: o Desktop empacotado usa sempre a primeira, julgando somente pela compatibilidade de versão; o SSH em modo de desenvolvimento usa a segunda, e considera que é preciso atualizar quando a versão do Server é igual à versão do archive corrente, mas o `archiveSha256` difere ou a identidade remota está ausente. Com SHA igual, continua reutilizando; não é permitido espalhar esse julgamento para o estado de produção ou para WSL/Docker.
+- Depois de o julgamento indicar que é preciso atualizar, a lógica de atualização das duas políticas precisa ser exatamente a mesma: o fluxo de conexão apenas coloca o Profile em `needs-upgrade + updateAvailability: required` e rejeita a conexão com `source-server-upgrade-required`, sem executar o update do archive dentro do próprio fluxo de conexão; a atualização em si é executada uniformemente por `updateSource → Manager.updateServer` da §6.3 (estado `updating`, log de operações, `force:false` primeiro, e, após o running-task guard, confirmação explícita do usuário e então `force:true`). Portanto, a atualização automática dentro do assistente de conexão, a entrada de «atualizar agora» do reconectar na inicialização/recuperação de queda e a confirmação de atualização forçada também valem para o modo de desenvolvimento. (Correção R3A-B-06: antes, no modo de desenvolvimento o `installOrUpdate` era chamado dentro do fluxo de conexão, o guard só conseguia se manifestar como uma falha comum de conexão e a UI não tinha entrada de atualização forçada.)
+- A atualização de conteúdo no modo de desenvolvimento aceita apenas o descriptor/archive do staging local da rodada atual e segue uniformemente pelo upload do Desktop; mesmo que o Profile SSH salvo seja `remote-download`, ele não pode passar a obter o artefato da mesma versão pela CDN. Se o artefato local estiver ausente, a verificação falhar ou a atualização for bloqueada pelo running-task guard, a conexão precisa falhar de forma fail-closed, sem fallback para a CDN e sem continuar rodando o release antigo.
+- O `bootstrap:with-remote` do modo de desenvolvimento precisa chamar a mesma entrada de staging do Source Server usada pela CI e renovar o descriptor/archive; o `bootstrap` comum continua pulando os recursos remotos. Um retorno bem-sucedido significa que todos os runtimes, plugins e archives derivados do código-fonte dos repositórios foram construídos nesta rodada, e apenas binários externos de versão fixa e verificados podem reutilizar cache. O staging começa invalidando o descriptor antigo, grava atomicamente os archives das quatro plataformas e só publica atomicamente o novo descriptor depois da verificação; em caso de falha, não pode sobrar uma generation antiga consumível por conexões de desenvolvimento. A entrada de desenvolvimento exclusiva para Linux `prepare:remote-assets:linux` reusa o mesmo caminho, construindo e publicando apenas `linux-x64` / `linux-arm64`, com o descriptor listando apenas os alvos da rodada e sem misturar entradas históricas de macOS; as convenções de ambiente e de uso estão em [Comandos de Bootstrap](../bootstrap.md).
+- Os arquivos soltos da cadeia antiga em `~/.zcode/server` remoto (`node`, `zcode-server.cjs`, `agents/`, `build/`, `tools/`) convivem no mesmo diretório do layout do R2: a instalação do R3 **não remove** esses arquivos antigos — Desktops com versões não atualizadas ainda dependem deles para rodar a cadeia antiga; a limpeza pertence ao R4. A uninstall allowlist do R2 precisa ser estendida para listar esse conjunto de caminhos antigos, garantindo que o `zcode uninstall` posterior ao R3 possa limpá-los junto e registrá-los na reconciliação de `preservedPaths`.
 
-## 6. 握手、鉴权与版本兼容
+## 6. Handshake, autenticação e compatibilidade de versão
 
-### 6.1 ingress 鉴权（补 R2 遗留的安全边界）
+### 6.1 Autenticação do ingress (complementando a fronteira de segurança remanescente do R2)
 
-R2 的 loopback-only 是网络位置边界：多用户服务器上任何本地进程都能访问 `/ws` 与 capability 签发端点。R3 隧道把这个端口暴露给「任何能连到该机器的 ZCode 用户」，必须先收口：
+O loopback-only do R2 é uma fronteira de posição de rede: em um servidor multiusuário, qualquer processo local consegue acessar `/ws` e o endpoint de emissão de capabilities. O túnel do R3 expõe essa porta a «qualquer usuário ZCode que consiga se conectar a essa máquina», então é preciso fechar o escopo primeiro:
 
-- daemon 启动时在 `<serverRoot>/run/ingress-token` 写入随机 token（0600，每次 daemon 启动轮换）；
-- Core ingress 对 `/api/*`、`/ws`、`/ws/host` 全部要求 `authorization: Bearer <token>`（或 `?token=`，复用现有 server transport 客户端已实现的携带方式）；`/api/server-info` 允许匿名返回**仅版本与兼容字段**的降级形态，供升级提示使用；
-- Adapter 在 bootstrap 阶段以目标用户身份经传输通道读取该文件——能读到 0600 文件即证明调用方是同一 OS 用户，鉴权边界从「网络位置」升级为「OS 用户身份」；
-- token 只驻 Host 内存，不写控制端持久化与日志；WS 重连时重读文件（daemon 重启后 token 已轮换）；
-- 一次性 host capability ticket（30s TTL、consume 即删）保留为 `/ws/host` 的第二层门，语义不变；
-- `server-info.authRequired` 从硬编码 `false` 改为如实反映 token 要求。
+- na inicialização do daemon, um token aleatório é escrito em `<serverRoot>/run/ingress-token` (0600, rotacionado a cada inicialização do daemon);
+- o ingress do Core exige `authorization: Bearer <token>` (ou `?token=`, reaproveitando o modo de transporte já implementado pelos clientes de server transport existentes) para todas as rotas `/api/*`, `/ws` e `/ws/host`; `/api/server-info` permite retorno anônimo em forma reduzida, com **apenas campos de versão e compatibilidade**, para uso nas dicas de upgrade;
+- na fase de bootstrap, o Adapter lê esse arquivo pelo canal de transporte na identidade do usuário alvo — conseguir ler o arquivo 0600 prova que quem chama é o mesmo usuário do SO, elevando a fronteira de autenticação de «posição de rede» para «identidade de usuário do SO»;
+- o token reside apenas na memória do Host, sem gravação na persistência nem nos logs do controlador; na reconexão do WS o arquivo é relido (o token já foi rotacionado após o restart do daemon);
+- o ticket de capability de host de uso único (TTL de 30s, consumido e apagado) permanece como a segunda camada de porta de `/ws/host`, com semântica inalterada;
+- `server-info.authRequired` deixa de ser o `false` fixo e passa a refletir fielmente a exigência do token.
 
-### 6.2 握手时序
+### 6.2 Sequência do handshake
 
 ```text
-Adapter                                    远端 daemon（Server Core）
-  │ probe：exec bin/zcode status --json / 读 status.json
-  │ ensureDaemon：serve --daemon（必要时）
-  │ 读 run/ingress-token（0600）
+Adapter                                    daemon remoto (Server Core)
+  │ probe: exec bin/zcode status --json / lê status.json
+  │ ensureDaemon: serve --daemon (se necessário)
+  │ lê run/ingress-token (0600)
   │ openChannel ══ Duplex → 127.0.0.1:<port> ══════════════╗
   │                                                        ║
   │ GET /api/server-info (Bearer token) ──────────────────►║
   │ ◄── { serverId, version, compatibility{min…}, migration{failedPathCount}, identity{osUser,hostname}, … }
   │
-  │ ① 版本兼容判断（较新端 manifest，见 §6.3）→ 不兼容则停在 needs-upgrade
-  │ ② Profile.sourceServerId 回填/校验：与已有记录不一致 → 按新 Source Server 处理并提示
+  │ ① Julgamento de compatibilidade de versão (manifest da ponta mais nova, ver §6.3)
+  │   → incompatível, para em needs-upgrade
+  │ ② Preenchimento/validação de Profile.sourceServerId: divergente do registro existente
+  │   → trata como novo Source Server e avisa
   │
   │ POST /api/rpc-host-capability (Bearer token) → ticket
   │ WS /ws/host + ticket + token ─────────────────────────►║ desktop-continuous / trusted-host-relay
-  │ assertRemoteWorkspaceRpcContract（channel 完整性）
-  │ → Main：ProviderProvisioningEnvironmentCoordinator.register(...).initialSync
-  │   （首连屏障，§8.3.2：applied/already-applied 才发布 ready；failed/rollback_failed/unsupported 走连接失败）
-  │ → online：注册 Controller source，读取权威任务事实
+  │ assertRemoteWorkspaceRpcContract (integridade do channel)
+  │ → Main: ProviderProvisioningEnvironmentCoordinator.register(...).initialSync
+  │   (barreira de primeira conexão, §8.3.2: só applied/already-applied publica ready;
+  │    failed/rollback_failed/unsupported levam a falha de conexão)
+  │ → online: registra o Controller source e lê os fatos autoritativos de tasks
   │
-  │ （canonical key 解析/合并不在握手阶段：按 workspace 打开惰性执行，
-  │   失败只阻止该 workspace 打开，见 §9.2；migration.failedPathCount 仅供连接页展示报告入口）
+  │ (a resolução/mescla de canonical key não ocorre no handshake: é executada de forma
+  │  preguiçosa na abertura do workspace; a falha só impede a abertura daquele workspace,
+  │  ver §9.2; migration.failedPathCount serve apenas para exibir o relatório na página de conexão)
 ```
 
-`/api/server-info` 扩展（新增字段全部 optional，`protocolVersion` 保持 1）：
+Extensão de `/api/server-info` (todos os campos novos são optional, `protocolVersion` permanece 1):
 
 ```ts
 interface ServerRemoteInfo {
@@ -432,299 +414,241 @@ interface ServerRemoteInfo {
 }
 ```
 
-Server 构造自身出参时使用 strict schema 自校验；Desktop/控制端解析 wire 入参时忽略未知字段，保证
-`protocolVersion=1` 下新增 optional 字段不会击穿旧客户端。匿名 server-info 使用独立 schema，只暴露
-`version/protocolVersion/authRequired/compatibility`，不得强行套完整握手 schema。
+O Server usa auto-validação com schema estrito ao construir os próprios parâmetros de saída; ao analisar os parâmetros de entrada do wire, o Desktop/controlador ignora campos desconhecidos, garantindo que novos campos optional sob `protocolVersion=1` não atravessem clientes antigos. O server-info anônimo usa um schema separado, expondo apenas `version/protocolVersion/authRequired/compatibility`, sem forçar o schema completo de handshake.
 
-### 6.3 版本兼容与远端更新（D10）
+### 6.3 Compatibilidade de versão e atualização remota (D10)
 
-- Desktop 构建产物与 Server CLI 发行包各内嵌 `CompatibilityManifest`；判断规则：取 `productVersion` 较新的一端，用其 `minCompatibleVersion` 判断较旧端；兼容且版本不同 → 连接成功后主动显示一次非阻塞「可更新」提示，并在 Source 管理页保留更新入口；不兼容 → 阻止业务连接，展示当前版本/最低版本/应升级端。
-- Server 较旧：用户显式点击连接时，在连接向导内自动发起一次 `force:false` 的受保护更新；没有运行中
-  Task 时直接更新并继续原连接意图，只有收到 running-task guard 后才向用户确认是否强制中断。启动重连、
-  断线恢复和离线探测仍停在 `needs-upgrade`，只提供「立即更新」，不得静默更新或弹出确认。升级命令以
-  `profileId + target` 为寻址边界，不要求预先握手得到 `sourceServerId`；Desktop 解析当前 release archive 后
-  统一调用 Adapter `installOrUpdate`，因此 pre-R3 也能先升级再握手。存在运行 Task 时默认返回 guard
-  错误等待，用户明确选择强制才允许继续。**更新是显式编排操作**：连接进入 `updating` 状态、暂停被动
-  断连重试；更新完成后主动重新握手并回填 `sourceServerId`，失败展示原因与重试，不依赖 §7 的被动探测。
-- Host 状态快照是版本判断唯一权威，固定携带
-  `updateAvailability: none | available | required`、`currentVersion`、`availableVersion`、
-  `minimumVersion`、`upgradeTarget`、`errorCode`、`retryable`；Renderer 不自行比较版本。
-- `source-server-upgrade-required` 的连接失败保留 Host 实际使用的 `profileId`，由严格 Host 响应 schema 校验并经 Main 透传。它只标识本次失败的线路，升级资格仍须读取最新 Host 快照；不传凭据、不新增持久化状态。WSL 参数规范化后，向导以该线路的实际目标继续更新和重连，避免默认用户与 UI 原始参数不一致导致升级入口空操作。
-- 自动升级以失败时的不可变目标身份为约束，`profileId` 只标识可编辑记录。WSL 升级失败与安装等待均返回本次解析的 `resolvedWslTarget`。向导先核验最新 Profile 的目标，再提交 `updateSource({ profileId, expectedTarget, force })`；`expectedTarget` 只包含 SSH 地址/端口/用户/配置别名、WSL 实际发行版/用户或 Docker 容器，不含凭据。
-- Host 对 `expectedTarget` 做严格运行时校验，并比较当前 Profile 与解析目标。更新使用同一 Profile 快照解析出的固定 target，不能在校验后再按 ID 取目标；不匹配返回 `remote-target-changed`，不 probe/install/reconnect，UI 终止旧升级并显示显式重试。force 确认期间仍携带原身份。旧的无 expectedTarget 管理入口保持兼容；不改变桌面 continuous / 手机 replayable 及远端任务 owner。
+- O artefato de build do Desktop e o pacote de release do Server CLI embutem cada um seu `CompatibilityManifest`; a regra de julgamento é: pega a ponta com o `productVersion` mais novo e usa o `minCompatibleVersion` dela para avaliar a ponta mais antiga; compatível mas com versões diferentes → após a conexão bem-sucedida, exibe-se uma única vez, de forma não bloqueante, a dica «atualização disponível», mantendo-se também a entrada de atualização na página de gestão de Source; incompatível → a conexão de negócio é bloqueada, exibindo a versão atual, a versão mínima e qual ponta deve ser atualizada.
+- Quando o Server é mais antigo: ao o usuário clicar explicitamente em conectar, o assistente de conexão inicia automaticamente uma única atualização protegida com `force:false`; sem Task em execução, a atualização acontece direto e a intenção original de conexão continua, e só após receber o running-task guard o usuário é consultado sobre a interrupção forçada. O reconectar na inicialização, a recuperação de queda e a sondagem offline continuam parados em `needs-upgrade`, oferecendo apenas «atualizar agora», sem atualizar silenciosamente nem exibir confirmação. O comando de upgrade tem `profileId + target` como limite de endereçamento e não exige obter `sourceServerId` por handshake prévio; como o Desktop resolve o release archive corrente e chama uniformemente o `installOrUpdate` do Adapter, o pre-R3 também consegue atualizar antes do handshake. Havendo Task em execução, o erro de guard é retornado por padrão aguardando o usuário, e só a escolha explícita de força permite continuar. **A atualização é uma operação orquestrada explicitamente**: a conexão entra no estado `updating` e pausa as retentativas passivas de reconexão; após a conclusão, um novo handshake é feito ativamente e o `sourceServerId` é preenchido, e em caso de falha são mostradas a causa e a retentativa, sem depender da sondagem passiva da §7.
+- O snapshot de estado do Host é a única autoridade para o julgamento de versão e carrega de forma fixa `updateAvailability: none | available | required`, `currentVersion`, `availableVersion`, `minimumVersion`, `upgradeTarget`, `errorCode`, `retryable`; o Renderer não compara versões por conta própria.
+- A falha de conexão `source-server-upgrade-required` preserva o `profileId` efetivamente usado pelo Host, validado por um schema estrito de resposta do Host e repassado pelo Main. Ela identifica apenas a linha que falhou nesta ocorrência; a elegibilidade para upgrade ainda precisa ser lida do snapshot mais recente do Host; não transmite credenciais nem adiciona estado persistido. Após a normalização dos parâmetros de WSL, o assistente continua a atualização e a reconexão usando o alvo real daquela linha, evitando que a entrada de upgrade fique sem efeito por divergência entre o usuário padrão e os parâmetros originais da UI.
+- O upgrade automático é limitado pela identidade de alvo imutável do momento da falha; o `profileId` apenas identifica o registro editável. Falhas de upgrade no WSL e as esperas de instalação retornam o `resolvedWslTarget` resolvido nesta rodada. O assistente verifica primeiro o alvo do Profile mais recente e então envia `updateSource({ profileId, expectedTarget, force })`; o `expectedTarget` contém apenas endereço/porta/usuário/alias de configuração do SSH, a distro/usuário reais do WSL ou o container Docker, sem credenciais.
+- O Host faz uma validação estrita em runtime do `expectedTarget` e compara o Profile atual com o alvo resolvido. A atualização usa o alvo fixo resolvido a partir do mesmo snapshot do Profile, e não pode buscar o alvo por ID depois da validação; em caso de divergência, retorna `remote-target-changed`, sem probe/install/reconnect, e a UI encerra o upgrade antigo e mostra uma retentativa explícita. Durante a confirmação do force, a identidade original continua sendo carregada. A entrada de gestão antiga, sem expectedTarget, permanece compatível; isso não altera o desktop continuous / o replayable do celular nem o owner das tarefas remotas.
 
 ```text
-失败目标 A → UI 最新 Profile 校验 → expectedTarget=A → Host 校验并固定 A → 更新
-                    改为 B ─拒绝──────┘           改为 B ─拒绝──────┘
-Host 已固定 A → 后续 Profile 编辑 B → 在途操作仍只使用 A
+alvo que falhou A → validação pelo Profile mais recente na UI → expectedTarget=A
+                   → validação pelo Host e fixação de A → atualização
+              alterado para B ─rejeitado──────┘        alterado para B ─rejeitado──────┘
+Host já fixou A → edição posterior do Profile para B → a operação em andamento continua usando A
 ```
 
-- `source-server-install-required` 同样保留实际 `profileId`。WSL 安装失败响应另带严格校验的 `resolvedWslTarget: { kind: "wsl", distro, user }`，两个身份字段均非空，不含凭据。它来自本次 Host 连接请求的已解析目标，独立于附加安装预览；预览不可用时仍可确认同一目标。该字段经 Main、平台和原项目失败交接保留，不改变发现缓存、持久化、安装授权或桌面/手机传输边界。
-- 公开错误码统一由 `@zcode/shared` 登记并由 CLI/Host 消费：running-task guard 使用
-  `source-server-update-running-tasks`（`retryable:false`，允许用户显式 `force`），兼容阻断使用
-  `source-server-upgrade-required`；workspace migration 与 bind cancel 同样不得维护各自白名单。
-- 连接/部署失败统一经 shared 分类：拒绝连接/不可达、超时、主机不存在、明确的 SSH host-key 校验失败、下载、上传、预检、安装、远端空间/权限、取消与未知都有公开码。AggregateError 读取内层码，空消息补非空兜底，Host 失败响应不能因 schema 拒收而悬挂；UI 映射中英文，未知码显示通用文案。
-- 用户可见日志只接收流水线显式进度，Host console/其他服务的诊断不转发。绝对路径、token、凭据引用与设备标识统一脱敏；等待安装确认是 info。连接反馈预填这份日志，不默认上传全量诊断文件。
-- 连接日志的凭据字段还包括各类 `apiKey` / `api_key` / `api-key`、`secret`、Authorization 与 Cookie / Set-Cookie；Bearer 与 Basic 凭据均遮蔽。普通 Authorization/Cookie Header 的值覆盖至行尾，带引号键名的结构化字段按完整转义字符串过滤；重复过滤保持幂等，后续日志行仍保留。
-- Server CLI 原生提供 `version --json`/`--version`，不得把版本输出委托给 Agent `zcode.cjs`。探测 pre-R3
-  安装时允许从旧文本输出提取唯一合法 semver；无法证明兼容时保守进入 `needs-upgrade`。
-- Desktop 较旧：只提示升级 Desktop，不降级 Server。
-- R2 存量 server（无 compatibility 字段）判为过旧，走同一升级链；R3 Desktop 的 `minCompatibleVersion` 设为首个携带 R3 握手合同的 Server 版本。
-- 当前发布默认不在根 `package.json` 中声明 `zcodeCompatibility` 覆盖；Desktop 与 Server CLI 构建都将缺失的 `minCompatibleVersion` 回退为当前 `productVersion`，因此默认只承诺同版本兼容。只有在完成跨版本合同与发布验证后，才可重新显式声明更低的 `zcodeCompatibility.minCompatibleVersion`。
-- Server 较旧且必须升级时，启动重连提示、连接向导失败面板和连接管理页都必须提供就地「立即更新」，并统一提交到 `SourceServerManagementService.updateSource`；不得要求用户记住或寻找 Settings 中的唯一入口。Desktop 较旧时仍只导向 Desktop 升级，不显示 Server 更新动作。
-- 启动/任务列表重连的 Source Server 更新 Toast 使用独立展示变体：顶部居中、完整换行展示设备与版本文案、完整「立即更新」和关闭入口。该变体只服务 Source Server，不改变 Desktop 应用更新等既有 compact update Toast 的位置与截断规则。
-- 连接向导接管某个目标后，该目标的 Server 必须升级提示由向导呈现，全局 Toast 不重复提示；收起向导仍保留接管，退出/改选目标才释放，其他设备和 Desktop 升级提示不受影响。向导在发起连接前同步发布目标，不能等 `needs-upgrade` 后才抑制提示。Host 进入 `updating`、升级需求解除或 Profile 被移除时立即撤销旧升级 Toast；点击动作须重新核对当前快照，同一提示只提交一次更新。失败回到需升级状态后保留重试入口，不因旧提示去重永久丢失通知。
-- 更新动作默认先以 `force:false` 执行；只有收到 `source-server-update-running-tasks` guard 后，才向用户二次确认并以 `force:true` 重试。「版本不兼容」本身不等于授权强制中断运行中 Task。
-- 「更新中」必须在所有入口中覆盖旧的 required/error 文案，展示明确的 loading、当前结构化阶段和可展开日志；只在上传/下载产生可验证数字时展示百分比，其他阶段使用不定进度。成功后自动重新握手并继续原连接意图；失败保留阶段、日志、重试和手动指引。
-- `applied:true` 是完整远端运行时收敛合同：`current.json`、Supervisor、Server Core、Agent/Plugin Host
-  必须来自同一个目标 release。当前 Supervisor 可以先验证候选 Core ready，但目标版本 CLI 随后必须停止
-  旧 Supervisor，从目标 immutable release 重新执行 `serve --daemon`，并经 control runtime identity 校验后
-  才允许成功；不得把 `status.version` 或新 Core ready 当作整个 daemon 已换代。更新中的短暂离线属于
-  `updating`，不能发布新的 online attachment。
-- 已识别 Source 的显式更新必须复用 §7.1 的 physical → logical 换代 seam：只有旧物理连接实际从 Manager online owner 中移除时，才把该 Source 的既有 logical workspace 标为 recoverable offline；新物理连接握手成功后，必须发布同一 Source 的 reconnect handle，由 `WindowRemoteConnectionRegistry` 换代 `remoteSessionId`、generation、scoped services 与 Desktop/Mobile attachment。running-task guard 或更新准备失败且旧物理连接仍存活时，禁止失效或换代 logical workspace。
+- `source-server-install-required` também preserva o `profileId` real. A resposta de falha de instalação no WSL traz adicionalmente o `resolvedWslTarget: { kind: "wsl", distro, user }` com validação estrita, com ambos os campos de identidade não vazios e sem credenciais. Ele vem do alvo já resolvido desta requisição de conexão do Host, independente da prévia de instalação anexada; quando a prévia não está disponível, ainda é possível confirmar o mesmo alvo. Esse campo é preservado pelo Main, pela plataforma e pela passagem de falha do projeto original, sem alterar o cache de descoberta, a persistência, a autorização de instalação nem a fronteira de transporte desktop/célular.
+- Os códigos de erro públicos são registrados uniformemente por `@zcode/shared` e consumidos por CLI/Host: o running-task guard usa `source-server-update-running-tasks` (`retryable:false`, permitindo `force` explícito do usuário), o bloqueio por incompatibilidade usa `source-server-upgrade-required`; a workspace migration e o cancelamento de bind também não devem manter listas de permissões próprias.
+- Falhas de conexão/implantação são classificadas uniformemente pelo shared: recusa de conexão/inacessível, timeout, host inexistente, falha explícita de verificação de host-key SSH, download, upload, pré-verificação, instalação, espaço/permissão remotos, cancelamento e desconhecido têm todos códigos públicos. O AggregateError lê os códigos internos, mensagem vazia recebe um fallback não vazio e uma resposta de falha do Host não pode ficar pendurada por recusa de schema; o mapeamento da UI fica em português e em inglês, e códigos desconhecidos exibem um texto genérico.
+- Os logs visíveis ao usuário recebem apenas o progresso explícito do pipeline; diagnósticos do console do Host e de outros serviços não são encaminhados. Caminhos absolutos, tokens, referências a credenciais e identificadores de dispositivo são uniformemente anonimizados; a espera por confirmação de instalação é info. O retorno de conexão pré-preenche esse log, sem enviar por padrão o arquivo completo de diagnóstico.
+- Os campos de credencial do log de conexão também incluem todos os tipos de `apiKey` / `api_key` / `api-key`, `secret`, Authorization e Cookie / Set-Cookie; credenciais Bearer e Basic são mascarados. O valor de um Header Authorization/Cookie comum é coberto até o fim da linha, e campos estruturados com nome entre aspas são filtrados como a string de escape completa; a filtragem repetida permanece idempotente e as linhas de log seguintes são preservadas.
+- O Server CLI oferece nativamente `version --json`/`--version`, e a saída de versão não pode ser delegada ao Agent `zcode.cjs`. Na sondagem de instalações pre-R3, é permitido extrair um único semver válido da saída textual antiga; quando não é possível provar a compatibilidade, entra-se de forma conservadora em `needs-upgrade`.
+- Quando o Desktop é mais antigo: apenas sugere-se atualizar o Desktop, nunca fazer downgrade do Server.
+- Servers R2 existentes (sem o campo compatibility) são julgados como antigos demais e seguem a mesma cadeia de upgrade; o `minCompatibleVersion` do Desktop do R3 é definido como a primeira versão de Server que carrega o contrato de handshake do R3.
+- A publicação corrente não declara override de `zcodeCompatibility` no `package.json` raiz por padrão; tanto o build do Desktop quanto o do Server CLI fazem fallback do `minCompatibleVersion` ausente para o `productVersion` corrente, de modo que, por padrão, só a compatibilidade de mesma versão é prometida. Só depois de concluírem a validação do contrato entre versões e da publicação é possível declarar explicitamente um `zcodeCompatibility.minCompatibleVersion` mais baixo.
+- Quando o Server é mais antigo e precisa ser atualizado, o aviso de reconexão da inicialização, o painel de falha do assistente de conexão e a página de gestão de conexões precisam oferecer «atualizar agora» no local, submetevendo uniformemente a `SourceServerManagementService.updateSource`; não se pode exigir que o usuário memorize ou procure a única entrada em Settings. Quando o Desktop é mais antigo, continua-se apontando apenas para a atualização do Desktop, sem exibir ações de atualização do Server.
+- O Toast de atualização do Source Server no start/lista de tarefas usa uma variante de exibição própria: centralizado no topo, com quebra de linha completa mostrando o dispositivo e o texto de versão, além de um «atualizar agora» completo e do controle de fechar. Essa variante atende apenas ao Source Server e não altera a posição nem as regras de truncamento dos Toasts compactos de atualização já existentes, como o da aplicação Desktop.
+- Depois que o assistente de conexão assume um alvo, o aviso de que o Server daquele alvo precisa ser atualizado é apresentado pelo assistente, sem repetição no Toast global; recolher o assistente mantém a assunção, e apenas sair ou trocar o alvo a libera, sem afetar os outros dispositivos nem os avisos de atualização do Desktop. O assistente publica o alvo de forma síncrona antes de iniciar a conexão e não pode esperar o `needs-upgrade` para suprimir o aviso. O Host revoga imediatamente o Toast de upgrade antigo ao entrar em `updating`, quando a necessidade de upgrade é resolvida ou quando o Profile é removido; o clique precisa reconferir o snapshot atual, e o mesmo aviso só submete uma atualização. Após uma falha que devolve o estado de needing upgrade, a entrada de retentativa é mantida, e a notificação não se perde permanentemente por causa da deduplicação do aviso antigo.
+- A ação de atualização é executada primeiro com `force:false` por padrão; só após receber o guard `source-server-update-running-tasks` é que se pede uma segunda confirmação ao usuário e se tenta de novo com `force:true». «Versão incompatível» por si só não autoriza a interrupção forçada de uma Task em execução.
+- O estado «atualizando» precisa cobrir o texto antigo de required/error em todas as entradas, exibindo um loading explícito, a fase estruturada corrente e logs expansíveis; o percentual só é mostrado quando upload/download produzem números verificáveis, e as demais fases usam progresso indeterminado. Após o sucesso, um novo handshake é feito e a intenção original de conexão continua; em caso de falha, permanecem a fase, o log, a retentativa e a orientação manual.
+- `applied:true` é o contrato completo de convergência do runtime remoto: `current.json`, Supervisor, Server Core e Agent/Plugin Host precisam vir do mesmo release de destino. O Supervisor atual pode validar primeiro que o Core candidato está pronto, mas a CLI da versão de destino precisa em seguida parar o Supervisor antigo, reexecutar `serve --daemon` a partir do release imutável de destino e só ter sucesso após a validação pelo control runtime identity; não se pode tomar `status.version` nem um Core novo pronto como prova de que todo o daemon já trocou de geração. A breve desconexão durante a atualização pertence ao estado `updating` e não pode publicar um novo attachment online.
+- A atualização explícita de um Source já identificado precisa reutilizar a seam de troca physical → logical da §7.1: só quando a antiga conexão física for efetivamente removida do online owner do Manager é que o logical workspace existente daquele Source é marcado como recoverable offline; depois que a nova conexão física completar o handshake com sucesso, precisa-se publicar o reconnect handle do mesmo Source, e o `WindowRemoteConnectionRegistry` troca o `remoteSessionId`, a generation, os scoped services e os attachments de Desktop/Mobile. Quando o running-task guard ou a preparação da atualização falha e a antiga conexão física ainda está viva, é proibido invalidar ou trocar o logical workspace.
 
 ```text
-版本不兼容
-  ├─ 用户显式连接 ─────────► 连接向导自动 updateSource(force=false)
-  ├─ 启动/重连 Toast ──────►「立即更新」─┐
-  └─ 远程设备 Server card ─►「立即更新」─┴─► updateSource(force=false)
+versão incompatível
+  ├─ conexão explícita pelo usuário ───► assistente de conexão faz updateSource(force=false)
+  ├─ Toast de inicialização/reconexão ►「atualizar agora」─┐
+  └─ card do Server no dispositivo remoto ►「atualizar agora」─┴─► updateSource(force=false)
                                                            │
                                                            ├─► Host operation log Event
                                                            │      └─ phase / message / real progress
                                                            ├─ running-task guard
-                                                           │      └─ 用户确认 ─► force=true
+                                                           │      └─ confirmação do usuário ─► force=true
                                                            └─ old physical owner removed
                                                                   └─ logical offline
                                                                        └─ success ─► re-handshake
-                                                                            └─ logical/attachment 换代
-                                                                                 └─ 继续原连接意图
+                                                                            └─ troca de logical/attachment
+                                                                                 └─ continua a intenção original de conexão
 ```
 
-- 更新失败：更新操作状态与兼容状态分栏。若更新前 Source 在线且版本兼容，running-task guard、下载/上传或安装失败后必须恢复原 `online + updateAvailability` 事实，只附加本次更新错误与重试/强制更新入口；不得把可用 Source 改判为 `needs-upgrade + required`。只有握手 compatibility 明确不兼容，或开发态内容寻址判定 archive SHA 不一致（连接前必须先更新）时才进入阻塞式 `needs-upgrade`。一期不在控制端追加额外 release 回滚编排。
-- 显式断开、删除更新中的 Profile 或 Host 释放必须取消 Manager 持有的在途更新，覆盖 probe、release 解析、安装、running-task 清单读取和重新握手。Profile 尚未取得 `sourceServerId` 时也按 Profile 取消；Source 断开取消该 Source 的全部更新。迟到成功、失败及清理不得重新拨号、发布 online、恢复旧状态、安排重试或覆盖后续手动连接。取消只终止本机连接意图，不承诺回滚远端已应用的 release；正常更新及意外断线恢复沿用既有合同。
-- 删除非当前更新线路时，若更新已使旧物理连接失效，且该 Source 没有其他在途更新，Manager 必须在删除操作中把恢复交回仍保留的原恢复线路，复用既有重试；不得等待被取消更新的迟到结果。仍在线、后续已连接或其他更新尚在进行时不另启恢复。删除当前恢复线路、显式断开或 Host 释放仍是终态，不选择替代线路；桌面与手机继续消费同一 Source 恢复 owner。
-- Host 释放还必须清除离线 Source 的恢复输入，覆盖正在 retry 或 offline probe 的连接；中止 flight 后的迟到 catch 不得重新安排定时器或发布无 owner 的连接。
+- Falha na atualização: o estado da operação de atualização e o estado de compatibilidade ficam em colunas separadas. Se o Source estava online antes da atualização e era compatível, depois de um running-task guard, de uma falha de download/upload ou de instalação é preciso restaurar o fato original `online + updateAvailability`, apenas anexando o erro desta atualização e a entrada de retentativa/atualização forçada; não se pode reclassificar um Source disponível como `needs-upgrade + required`. Só entra no `needs-upgrade` bloqueante quando a compatibilidade do handshake é explicitamente incompatível ou quando, no modo de desenvolvimento com endereçamento por conteúdo, o SHA do archive difere (o que exige atualizar antes de conectar). A primeira versão não acrescenta no controlador orquestração extra de rollback de release.
+- Desconexão explícita, remoção de um Profile em atualização ou liberação pelo Host precisa cancelar a atualização em andamento que o Manager mantém, cobrindo probe, resolução de release, instalação, leitura da lista de running tasks e novo handshake. Quando o Profile ainda não conseguiu `sourceServerId`, a cancelamento também é feito por Profile; a desconexão do Source cancela todas as atualizações daquele Source. Sucessos, falhas e limpezas tardias não podem rediscar, publicar online, restaurar estado antigo, agendar retentativas nem sobrescrever uma conexão manual posterior. O cancelamento encerra apenas a intenção de conexão local e não promete rollback de um release remoto já aplicado; a atualização normal e a recuperação após desconexão inesperada seguem o contrato já existente.
+- Ao remover uma linha que não é a atualização corrente, se a atualização já invalidou a antiga conexão física e aquele Source não tem nenhuma outra atualização em andamento, o Manager precisa devolver a recuperação à linha de recuperação original ainda mantida, reutilizando a retentativa existente; não é preciso esperar pelo resultado tardio da atualização cancelada. Se a linha ainda está online, se já reconectou depois ou se outra atualização ainda está em curso, não se inicia uma nova recuperação. Remover a linha de recuperação corrente, a desconexão explícita ou a liberação pelo Host continuam sendo estados terminais, sem escolher uma linha substituta; desktop e celular continuam consumindo o mesmo recovery owner do Source.
+- A liberação pelo Host também precisa limpar as entradas de recuperação dos Sources offline, cobrindo conexões em retry ou em offline probe; um catch tardio após o aborto do flight não pode reagendar temporizador nem publicar uma conexão sem owner.
 
 ```text
-更新 → Manager 登记独立操作 → probe / archive / 安装 / 重握手 → online
+atualização → o Manager registra uma operação independente → probe / archive / instalação / re-handshake → online
               │
-断开 / 删除 / 释放 → 取消并移除该操作 → 迟到结果只退出
-                                           └─ 保留 offline / 已删除状态 / 后续新连接
+desconexão / remoção / liberação → cancela e remove essa operação → resultado tardio apenas encerra
+                                           └─ preserva o estado offline / removido / a próxima conexão
 ```
 
 ```text
-A 在线 → B 更新 → 旧物理连接失效 → 删除 B
-                                  ├─ 仍有其他更新 → 由该更新收口
-                                  └─ 原恢复线路 A 仍保留 → 既有重试 → A 在线
+A online → atualização de B → a antiga conexão física fica inválida → remoção de B
+                                  ├─ ainda há outra atualização → essa atualização encerra o caso
+                                  └─ a linha de recuperação original A permanece → retentativa existente → A online
 ```
 
-## 7. 连接生命周期与自动重连（D9）
+## 7. Ciclo de vida da conexão e reconexão automática (D9)
 
-### 7.1 状态机（窗口级，每 Source Server 一份）
+### 7.1 Máquina de estados (nível de janela, uma por Source Server)
 
 ```text
-                ┌────────────── App 启动：近 7 天使用过的 Server
-                │               （≤3 并发、单节点 10s、只试一次、静默）
+                ┌────────────── Início do app: Servers usados nos últimos 7 dias
+                │               (≤3 concorrência, 10s por nó, só uma tentativa, silencioso)
                 ▼
- absent ──connect──► bootstrapping ──不兼容──► needs-upgrade（用户动作）
-                │        │ probe→install?→daemon→channel→握手
-                │        └─成功
+ absent ──connect──► bootstrapping ──incompatível──► needs-upgrade (ação do usuário)
+                │        │ probe→install?→daemon→channel→handshake
+                │        └─sucesso
                 ▼        ▼
-             failed    online ◄────resync 完成──────┐
-                          │ 通道/WS 断开             │
-                          ▼                         │
-                       retrying（2s → 4s → 8s，×3）──┘
-                          │ 全部失败
+             failed    online ◄────resync concluído──────┐
+                          │ canal/WS desconectado       │
+                          ▼                             │
+                       retrying (2s → 4s → 8s, ×3)──────┘
+                          │ todas falharam
                           ▼
-                       offline（每 2 分钟静默探测 + 手动重试 + 「最近在线时间」）
-                          │ 探测可达 且 凭据可静默获得
-                          └────────► bootstrapping（无交互路径：不弹凭据、不装新版本）
+                       offline (sondagem silenciosa a cada 2 minutos + retentativa manual
+                          + «último horário online»)
+                          │ sondagem acessível e credenciais obtidas em silêncio
+                          └────────► bootstrapping (caminho sem interação: sem prompt de
+                                     credenciais, sem instalar nova versão)
 ```
 
-- **静默前提**：自动路径（启动重连/断连重试/离线探测）只允许无交互步骤——凭据必须能从 credential store 静默取得（私钥无口令、或密码/口令已保存）；需要输入密码、需要安装确认、版本不兼容的一律停在对应状态等待用户。
-- **终态后的新恢复周期**：同一 Source 重新发布物理连接时，Registry 先为旧 terminal owner 建立新的恢复屏障并清除旧失败，再开始异步挂回。其他线路此时 join 同一 Source 必须等待新周期，不得读到旧安装/升级等待错误；恢复预算和 Manager 的连接单飞语义保持不变。
-- **断连期间**：沿用 R1 语义——保留最后可信 task 投影并标记 `sourceAvailability=offline`，所有写与 IO fail-closed，不回落本地；重连成功后由新 source snapshot 原子替换（`replaceDisconnectedSource` 既有路径）。
-- **恢复完成**：补齐 Task/Session/待确认请求（复用现有断连数据恢复：权威状态查询 + 增量收敛）；存在待确认请求时，由底部阻塞卡片消费 `pendingInteractions` 投影，不再显示顶部 warning 提示及“去处理”入口，不新增第二事实源。该展示规则适用于本地桌面、远端桌面和手机 Web。远端在断连期间继续运行是 daemon 的自然行为，恢复只是重新读取权威状态，不重放输入。
-- **启动重连的范围**：主窗口 Host 启动时对「近 7 天有 `lastOnlineAt` 的 Server（`SourceServerRecord.lastOnlineAt`，取其默认线路）」发起（一期按单窗口设计；Profile 的 `lastConnectedAt` 只用于线路排序，不参与门禁）。设备 online 后 Renderer 挂回当前窗口该设备下全部 open 的 `remote:server:*` 断连 tab，不再按工作区年龄或上次 connected 历史过滤（见 [remote-device-sidebar-device-level-connect-spec.md](./remote-device-sidebar-device-level-connect-spec.md) C3）；这是对现状「冷启动只恢复断连条目、等待手动重连」（SSH-P0-LIFE-01）的显式行为变更，case catalog 需同步更新。
-- **探测**：轻量路径（传输拨号 + 匿名 server-info），成功才进入完整 bootstrap；探测不产生用户可见 UI 变化，除状态徽标外。
-- **最近在线**：握手成功初始化 `lastOnlineAt`；Manager 从 online 离开时，用 Host 时钟向 Directory 的串行写队列提交最后在线时刻，落盘后通过原目录事件刷新投影。后续离线重试不推进时间；迟到写入不得覆盖更晚握手，也不得重建已移除的 Source。此元数据更新不改变 desktop continuous / mobile replayable 的恢复链。
-- daemon 不在（如服务器重启且未注册自启动的 WSL/Docker）时，自动重连允许执行 `ensureDaemon`（不含安装/升级）。
-- **发布前断连**：物理连接只有在 Manager 把它登记为该 Source 的 online owner 之后才进入「通道/WS 断开 → retrying」路径。握手落盘（`recordHandshake`）期间连接关闭时，Manager 不得把已关闭连接发布为 online，而是按普通连接失败收口（`failed` 且 `retryable:true`，自动路径继续下一档重试）；同一 Source 上其他 Profile 的握手期断连不得影响已在线的 owner。close 事件只作用于它所属的那条连接，不按 `sourceServerId` 泛化。
+- **Pré-requisito de silêncio**: o caminho automático (reconexão na inicialização/retry de queda/sondagem offline) só permite etapas sem interação — as credenciais precisam poder ser obtidas silenciosamente do credential store (chave privada sem passphrase, ou senha/passphrase já salva); tudo que exigir digitação de senha, confirmação de instalação ou versão incompatível fica parado no estado correspondente aguardando o usuário.
+- **Novo ciclo de recuperação após um estado terminal**: quando o mesmo Source republica a conexão física, o Registry primeiro cria uma nova barreira de recuperação para o antigo terminal owner e limpa a falha antiga, e só então inicia o religamento assíncrono. Outras linhas que fizerem join no mesmo Source nesse momento precisam esperar o novo ciclo e não podem ler erros antigos de espera de instalação/upgrade; o orçamento de recuperação e a semântica de single-flight de conexão do Manager permanecem inalterados.
+- **Durante a desconexão**: segue a semântica do R1 — mantém-se a última projeção confiável de tasks e marca-se `sourceAvailability=offline`, todas as escritas e IOs ficam fail-closed e não há retorno ao local; após a reconexão bem-sucedida, um novo source snapshot substitui o anterior atomicamente (caminho `replaceDisconnectedSource` já existente).
+- **Conclusão da recuperação**: completam-se Tasks/Sessions/requests aguardando confirmação (reaproveitando a recuperação de dados já existente após queda: consulta de estado autoritativo + convergência incremental); havendo requests aguardando confirmação, o cartão bloqueante no rodapé consome a projeção de `pendingInteractions`, sem exibir mais o aviso no topo nem a entrada «ir tratar», e sem criar uma segunda fonte de verdade. Essa regra de exibição vale para o desktop local, o desktop remoto e o Web no celular. No remoto, continuar rodando durante a desconexão é o comportamento natural do daemon; a recuperação consiste apenas em reler o estado autoritativo, sem reproduzir entradas.
+- **Escopo da reconexão na inicialização**: quando o Host da janela principal inicia, ele dispara a conexão para os «Servers com `lastOnlineAt` nos últimos 7 dias (`SourceServerRecord.lastOnlineAt`, tomando a sua linha padrão)» (primeira versão projetada para janela única; o `lastConnectedAt` do Profile serve apenas para ordenar linhas e não participa do gate). Com o dispositivo online, o Renderer religa todas as tabs desconectadas `remote:server:*` abertas para aquele dispositivo na janela atual, sem mais filtrar por idade do workspace ou histórico de connected anterior (ver [remote-device-sidebar-device-level-connect-spec.md](./remote-device-sidebar-device-level-connect-spec.md) C3); essa é uma mudança de comportamento explícita em relação ao estado atual de «cold start restaura apenas entradas desconectadas, aguardando reconexão manual» (SSH-P0-LIFE-01), e o case catalog precisa ser atualizado.
+- **Sondagem**: caminho leve (dial do transport + server-info anônimo), e só com sucesso se entra no bootstrap completo; a sondagem não produz mudança visível na UI, além do selo de estado.
+- **Último horário online**: o handshake bem-sucedido inicializa `lastOnlineAt`; ao sair de online, o Manager submete o último horário online à fila de escrita serial do Directory usando o relógio do Host e, após persistir, renova a projeção pelo evento de diretório original. As retentativas offline seguintes não avançam o horário; uma escrita tardia não pode sobrescrever um handshake mais recente nem recriar um Source removido. Essa atualização de metadados não altera a cadeia de recuperação do desktop continuous / mobile replayable.
+- Quando o daemon não está presente (por exemplo, o servidor reiniciou e o WSL/Docker não foi registrado para autostart), a reconexão automática pode executar `ensureDaemon` (sem instalação/upgrade).
+- **Desconexão antes da publicação**: a conexão física só entra no caminho «canal/WS desconectado → retrying» depois que o Manager a registra como online owner daquele Source. Quando a conexão fecha durante a gravação do handshake (`recordHandshake`), o Manager não pode publicar a conexão já fechada como online, e sim encerrar como uma falha de conexão comum (`failed` e `retryable:true`, e o caminho automático segue para a próxima etapa de retry); desconexões durante o handshake de outros Profiles do mesmo Source não podem afetar o owner já online. O evento close só atua na conexão à qual pertence e não é generalizado por `sourceServerId`.
 
-恢复 owner 与换代 seam：
+O recovery owner e a seam de troca:
 
 ```text
-Source transport 断开
-  -> SourceServerConnectionManager 只负责 2/4/8s transport reconnect flight
-  -> WindowRemoteConnectionRegistry 保留同一 connection entry，并把旧 logical session generation 标为 offline
-  -> Host 关闭旧 scoped port；Desktop/手机分别进入 reconnecting/recovering，Controller 保留最后可信投影
-  -> Manager 产出新 connection handle
-  -> Registry 以 entry + generation CAS 为仍打开的 workspace 换代 remoteSessionId/generation
-  -> Host/Main 原子重建 Desktop attachment
-  -> Main 摘掉绑定旧 remoteSessionId 的 Provisioning lane，以新 remoteSessionId 重新 register
-     （触发一次 environment-online 整份重下发；失败只 warn，不拆 Workspace，§8.3.2）
-  -> Main 先完成 Desktop attachment 并通知 Renderer；手机恢复不参与 Desktop 成功与否的裁决
-  -> Main 向旧手机 bridge 发送非终态 bridge-degraded，Web 主动以新 bridgeSessionId/generation
-     重建 replayable attachment，完成 gap/snapshot 恢复后再回到 ready
-  -> 释放旧 connection/session/port
+Source transport desconectado
+  -> o SourceServerConnectionManager cuida apenas do flight de reconexão 2/4/8s do transport
+  -> o WindowRemoteConnectionRegistry mantém a mesma connection entry e marca a generation
+     antiga da logical session como offline
+  -> o Host fecha a antiga scoped port; Desktop/celular entram em reconnecting/recovering,
+     e o Controller mantém a última projeção confiável
+  -> o Manager produz o novo connection handle
+  -> o Registry troca remoteSessionId/generation dos workspaces ainda abertos via CAS de entry + generation
+  -> o Host/Main reconstroem atomicamente o attachment do Desktop
+  -> o Main remove a Provisioning lane ligada ao antigo remoteSessionId e registra de novo
+     com o novo remoteSessionId
+     (dispara um reenvio integral de environment-online; em caso de falha, apenas um warn,
+      sem desmontar o Workspace, §8.3.2)
+  -> o Main conclui primeiro o attachment do Desktop e notifica o Renderer; a recuperação do
+     celular não participa do veredito de sucesso do Desktop
+  -> o Main envia bridge-degraded (não terminal) para o bridge antigo do celular; o Web
+     reconstroi ativamente o attachment replayable com o novo bridgeSessionId/generation,
+     e só volta a ready após concluir a recuperação de gap/snapshot
+  -> libera a antiga connection/session/port
 ```
 
-- `WindowRemoteConnectionRegistry` 是 connection handle、logical session、`remoteSessionId`、generation 与
-  `sourceAvailability` 的唯一恢复 owner；Manager 不直接持有或替换 Renderer/手机 attachment。
-- SSH/WSL/Docker route key 只允许作为握手前的 provisional lookup key。握手取得
-  `sourceServerId` 后，managed connection entry 的 canonical owner key 必须收敛为
-  `source:<sourceServerId>`；同一窗口内允许多条 route alias 指向该 Source entry，但禁止每条 Profile
-  各自保留一个 online/recovering entry。Source owner claim 必须发生在 entry、logical session 或 attachment
-  发布 online 之前；竞争失败的 provisional entry 只回收 logical wrapper/订阅，不能断开 Manager 持有的
-  物理 Source connection。
-- transient close 后 persistent Source entry 继续占有 connection key；手动重连只触发或加入同一个
-  Manager/Registry recovery flight，不得创建第二个 entry。任何 `entriesByKey` 写入和 logical replacement
-  都必须验证预期 entry/generation，迟到 flight 不能覆盖新 owner。
-- 每个 connection entry 维护单调 `transitionEpoch`。recovery replacement、手动 connect join、workspace
-  prepare 与 attachment 换代在跨 `await` 前捕获 epoch，恢复后必须同时校验 entry owner、epoch、
-  `closePhase/state` 和 logical session identity；期间到达 terminal close 时旧 flight 必须 fail-closed，
-  禁止重新发布 online。
-- `connectionKey + workspaceKey` 同时只能有一个 online/recovering logical owner。Bot/手机触发的重连必须
-  join 已有 recovery，返回换代后的唯一 session；不得另建第二个 logical session 再由上层事后清理。
-- logical replacement 的提交与回滚单位是单个 `connectionKey + workspaceKey`，不是整个 Source entry。
-  同一物理 Source 上 workspace A 的 Controller/Main attachment 已完成 generation 换代后，workspace B 的
-  prepare、Controller snapshot 或 attachment replacement 失败只能回滚并重试 B；不得把 A 的 Registry owner
-  回滚到旧 `remoteSessionId`。物理 transport 在 logical replacement 失败期间继续保持 online，仍未提交的
-  workspace 保持 offline 且所有 scoped IO fail-closed；预算耗尽也只终态化这些 workspace。
-- `SourceServerConnectionManager` 拥有常驻物理 Source 连接与离线探测；Window registry entry 只拥有
-  logical wrapper 和订阅。最后一个 logical owner 释放或 entry 被新 owner 替代时必须回收 wrapper/订阅，
-  但不得隐式调用 Manager 的物理 `disconnect`。物理断开只来自连接管理页的显式操作或 Host shutdown。
-  被替代 entry 上仍 pending 的 recovery 等待者必须以连接取消错误结束；仅 abort transport 不能代替
-  拒绝 recovery Promise。已转交到 canonical Source owner 的请求继续由该 owner 完成，不受旧 entry 释放影响。
-- logical replacement/attachment replacement 失败有自己的有界重试；物理 connection 已恢复后不得等待
-  下一次断线才重新触发。被替换的 `ServerRemoteConnection` 必须显式 dispose。
-- logical replacement 定时重试只属于安排时的 transport epoch；执行时 entry 必须仍 online 且
-  `transitionEpoch` 未变。再次收到物理 close（包括 recoverable 与 terminal）时立即取消旧定时器；
-  迟到回调不得把 disconnected 改为 online、消耗新恢复周期的预算或清除新周期的定时器。
-  recoverable close 后等待者继续等待真实重连，terminal close 则拒绝等待者；只有真实重连或
-  已连接 handle 接管能启动新一轮换代，定时器不能充当 transport 已恢复的证据。
-- Manager 的 `onDidReconnect` 只有一个事实源：同一 Source 在首次发布 online 之后、显式断开之前再次被发布
-  为 online（无论由 2/4/8s retry、离线探测、`updateServer`，还是 `connectProfile` / `confirmIdentityChange`
-  等手动 `connect()` 触发）。手动连接成功也必须让 Host wrapper 换 services、Registry 完成 logical 换代；
-  不允许出现「Manager online、Registry 仍 recovering、新 join 永久等待」的分叉。首次发布与 sibling Profile
-  join 已在线 owner 不是重连，不 fire。
-- 重连成功不能只更新 Manager 内部 `services` 快照；在 Registry 完成 handle/session 换代之前，旧 source
-  始终保持 offline，所有写与 IO fail-closed。
-- Desktop attachment 继续注入 `desktop-continuous`，手机 attachment 继续注入
-  `web-remote-replayable`；换代只重建各自 connection-owned subscription，不把 replayable snapshot/gap
-  语义扩散到 Desktop。
-- 手机 bridge 在 transient retry 期间只发送 recovering 状态，不发送终态 `workspace-bridge-error`；只有
-  恢复预算耗尽、凭据/版本/迁移需要用户动作或用户显式断开时才进入终态错误。
-- Renderer 必须区分自动恢复与用户手动重连：自动恢复显示当前尝试次数与固定预算（1/3、2/3、3/3），
-  手动重连不伪造自动重试计数；预算耗尽进入明确终态并展示 Host 提供的 `reasonCode/retryable` 映射。
-  recovering 期间 scoped services 已释放，sidebar 的 workspace 展开、task 点击、新建任务及写操作全部
-  fail-closed，直到 replacement attachment ready。Bot 的连接状态查询只认 attachable route，不得把 closed /
-  recovering route 报为 connected。
-- Manager 的每次 retry 状态必须穿过 Registry/Main 到达 Renderer；Registry 处于 recovering 时不能把后续
-  recoverable close 当作重复终态丢弃。预算耗尽使用公开 `reasonCode` 与本地化文案收口，不得用 Host 内
-  硬编码中文正文覆盖客户端 locale。
-- Main 不得使用相同 `bridgeSessionId + bridgeGeneration + recoveryId` 新建 seq 从 1 开始的
-  acknowledged relay protocol；新 protocol 必须具有新 identity。手机 attachment 重建失败不得
-  dispose 已就绪的 Desktop logical session。
-- `bridge-degraded` 是 bridge generation 的持久 invalidation latch，不进入普通 5 秒 app payload buffer。
-  Source 换代后立即释放旧手机 attachment，并在 relay paired/send-ready 时重复发送 invalidation，直到
-  手机以新 bridge identity 完成 `workspace-bridge-ready`。Web bridge rebuild 失败按同一 recovery generation
-  有界重试；普通 transport 后台恢复不得误建新 Agent/Host/session。
-- 旧 `remoteSessionId`、旧 generation 和旧 scoped port 在新 attachment ready 后统一释放；任何迟到事件、
-  owner command 或写请求必须被旧 scope 拒绝。
-- workspace bind 以 `requestId` 建立 Main deadline。deadline 到期后 Main 必须向 Host 发送 cancel；Host 在
-  每个跨 `await` 的远端 RPC 前后检查 cancel epoch，特别是 `recordWorkspaceOpen` 后、发布 success 前必须再查。
-  迟到完成只回收该 bind request 新建且独占的资源；join 到既有 logical session 或仍有其他 attachment owner
-  时不得无条件 `disposeSession`。Main timeout 自身也返回 `remote-bind-canceled`，迟到 ACK 幂等忽略，禁止超时
-  调用方消失后留下幽灵 scope或连坐其他 owner。
+- O `WindowRemoteConnectionRegistry` é o único recovery owner do connection handle, do logical session, do `remoteSessionId`, da generation e do `sourceAvailability`; o Manager não segura nem substitui diretamente os attachments do Renderer/celular.
+- A route key SSH/WSL/Docker só pode servir como chave de lookup provisional antes do handshake. Depois que o handshake obtém o `sourceServerId`, a canonical owner key da managed connection entry precisa convergir para `source:<sourceServerId>`; dentro da mesma janela é permitido que várias route aliases apontem para aquela entry do Source, mas é proibido que cada Profile mantenha sua própria entry online/recovering. O Source owner claim precisa acontecer antes de a entry, a logical session ou o attachment serem publicados como online; uma entry provisional que perde a concorrência só recupera o logical wrapper/a assinatura e não pode desconectar a conexão física do Source mantida pelo Manager.
+- Depois de um close transitório, a entry persistente do Source continua ocupando a connection key; a reconexão manual apenas dispara ou entra no mesmo flight de recuperação do Manager/Registry e não pode criar uma segunda entry. Toda escrita em `entriesByKey` e todo logical replacement precisam validar o entry/generation esperado, e um flight tardio não pode sobrescrever o novo owner.
+- Cada connection entry mantém um `transitionEpoch` monotônico. O recovery replacement, o join da reconexão manual, o prepare de workspace e a troca de attachment capturam o epoch antes de atravessar `await`, e depois de retornarem precisam validar simultaneamente o entry owner, o epoch, o `closePhase/state` e a identidade da logical session; se um close terminal chegar nesse intervalo, o flight antigo precisa falhar de forma fail-closed, sem republicar online.
+- `connectionKey + workspaceKey` só pode ter um único online/recovering logical owner. Uma reconexão disparada por Bot/celular precisa entrar no recovery já existente e retornar a session única pós-troca; não pode criar uma segunda logical session para depois ser limpa pela camada superior.
+- A unidade de commit e rollback do logical replacement é um único `connectionKey + workspaceKey`, e não a entry inteira do Source. Depois que o Controller/Main attachment do workspace A no mesmo Source físico já concluiu a troca de generation, uma falha no prepare, no snapshot do Controller ou no replacement de attachment do workspace B só pode reverter e repetir B; não é possível reverter o Registry owner de A para o antigo `remoteSessionId`. O transport físico permanece online durante a falha do logical replacement, os workspaces ainda não submetidos permanecem offline e todo o IO scoped fica fail-closed; esgotar o orçamento apenas finaliza esses workspaces.
+- O `SourceServerConnectionManager` possui a conexão física residente do Source e a sondagem offline; a entry do registry da janela possui apenas o logical wrapper e as assinaturas. Quando o último logical owner é liberado ou a entry é substituída por um novo owner, é preciso recuperar o wrapper/assinaturas, mas não chamar implicitamente o `disconnect` físico do Manager. O disconnect físico só vem de uma operação explícita na página de gestão de conexões ou do shutdown do Host. Os waitingers de recovery ainda pendentes em uma entry substituída precisam terminar com erro de cancelamento de conexão; abortar apenas o transport não substitui a rejeição da Promise de recovery. As requisições já transferidas para o canonical Source owner continuam sendo concluídas por ele, sem sofrer com a liberação da entry antiga.
+- A falha de logical replacement/attachment replacement tem suas próprias retentativas limitadas; depois que a conexão física foi recuperada, não se pode esperar a próxima queda para voltar a disparar. A `ServerRemoteConnection` substituída precisa ser descartada explicitamente com `dispose`.
+- A retentativa temporizada do logical replacement pertence apenas ao epoch de transport no momento do agendamento; no momento da execução a entry ainda precisa estar online e o `transitionEpoch` precisa estar inalterado. Ao receber um novo close físico (recuperável ou terminal), os temporizadores antigos são cancelados imediatamente; callbacks tardios não podem mudar disconnected para online, consumir o orçamento de um novo ciclo de recuperação nem limpar o temporizador do ciclo novo. Depois de um close recuperável, os waitingers continuam aguardando o reconectar real; um close terminal rejeita os waitingers; só um reconectar real ou a assunção por um handle já conectado pode iniciar um novo ciclo de troca, e o temporizador não serve como evidência de que o transport foi recuperado.
+- O `onDidReconnect` do Manager tem uma única fonte de verdade: o mesmo Source é publicado como online novamente após a primeira publicação online e antes de uma desconexão explícita (seja pelo retry de 2/4/8s, pela sondagem offline, por `updateServer`, ou por `connect()` manual como `connectProfile` / `confirmIdentityChange`). Uma conexão manual bem-sucedida também precisa fazer o wrapper do Host trocar de services e o Registry concluir a troca logical; não pode existir a divergência «Manager online, Registry ainda recovering, novos joins esperando para sempre». A primeira publicação e o join de um Profile irmão a um owner já online não são reconexão e não disparam o evento.
+- Uma reconexão bem-sucedida não pode atualizar apenas o snapshot interno de `services` do Manager; até que o Registry conclua a troca de handle/session, o Source antigo permanece offline, e todas as escritas e IOs ficam fail-closed.
+- O attachment do Desktop continua injetando `desktop-continuous`, e o attachment do celular continua injetando `web-remote-replayable`; a troca apenas reconstrói a subscription de cada um, sem espalhar a semântica de snapshot/gap do replayable para o Desktop.
+- O bridge do celular envia apenas o estado recovering durante o retry transitório, sem enviar o `workspace-bridge-error` terminal; só se entra em erro terminal quando o orçamento de recuperação se esgota, quando credenciais/versão/migração exigem ação do usuário ou quando o usuário se desconecta explicitamente.
+- O Renderer precisa distinguir a recuperação automática da reconexão manual do usuário: a recuperação automática mostra a tentativa corrente e o orçamento fixo (1/3, 2/3, 3/3), e a reconexão manual não falsifica a contagem de retries automáticos; esgotar o orçamento entra em um estado terminal explícito, exibindo o mapeamento de `reasonCode/retryable` fornecido pelo Host. Durante o recovering, os scoped services já foram liberados, e a expansão de workspace na sidebar, o clique em task, a criação de nova task e as operações de escrita estão todas fail-closed, até que o replacement attachment esteja pronto. A consulta de status de conexão do Bot só reconhece rotas attachable e não pode reportar rotas closed/recovering como connected.
+- Cada estado de retry do Manager precisa atravessar Registry/Main até o Renderer; quando o Registry está recovering, ele não pode descartar um close recuperável seguinte como um terminal duplicado. Esgotar o orçamento usa o `reasonCode` público e um texto localizado, sem que um corpo de texto em chinês fixo no Host sobrescreva o locale do cliente.
+- O Main não pode criar um seq começando em 1 do acknowledged relay protocol com o mesmo `bridgeSessionId + bridgeGeneration + recoveryId`; o novo protocol precisa ter uma nova identidade. Uma falha na reconstrução do attachment do celular não pode descartar a logical session do Desktop que já está pronta.
+- `bridge-degraded` é um latch de invalidação persistente da bridge generation e não entra no buffer comum de payload de 5 segundos do app. Depois da troca de Source, o antigo attachment do celular é liberado imediatamente e a invalidação é reenviada enquanto o relay estiver paired/send-ready, até que o celular conclua `workspace-bridge-ready` com a nova identidade de bridge. Uma falha de reconstrução do Web bridge tem retentativas limitadas dentro da mesma recovery generation; a recuperação de fundo de um transport comum não pode criar por engano um novo Agent/Host/session.
+- O antigo `remoteSessionId`, a antiga generation e o antigo scoped port são liberados de forma unificada depois que o novo attachment fica ready; quaisquer eventos tardios, owner commands ou requisições de escrita precisam ser rejeitados pelo scope antigo.
+- O workspace bind estabelece um deadline do Main com base no `requestId`. Quando o deadline expira, o Main precisa enviar cancel ao Host; o Host verifica o cancel epoch antes e depois de cada RPC remoto que atravessa um `await`, especialmente depois de `recordWorkspaceOpen` e antes de publicar o sucesso. Uma conclusão tardia só recupera os recursos criados e exclusivos por aquele bind request; ao entrar em uma logical session existente, ou havendo ainda outro owner de attachment, não se pode chamar `disposeSession` incondicionalmente. O próprio timeout do Main também retorna `remote-bind-canceled`, e um ACK tardio é ignorado de forma idempotente, proibindo que o desaparecimento do chamador com timeout deixe um scope fantasma ou afete outros owners.
 
-### 7.2 等待用户确认（3.11）
+### 7.2 Aguardando confirmação do usuário (3.11)
 
-权限/输入等阻塞请求保存在 Source Server（Agent/Core 既有行为）；控制端断开不拒绝请求、Agent 不因失去 attachment 退出（daemon 化后自然成立，取代旧主链「连接断开 server 即死」的行为）。重连后按恢复流程重新拉取 `pendingInteractions`：Desktop 自动恢复、Desktop 手动重连和手机 replayable attachment 都以首次 snapshot 重新投影请求。底部权限/问答卡片读取该投影；resolve 后随下一帧权威 snapshot 消失。顶部不再重复显示待处理请求提示。
+Requests de bloqueio como permissão/entrada ficam armazenados no Source Server (comportamento já existente de Agent/Core); a desconexão do controlador não rejeita o request, e o Agent não sai por perder o attachment (depois da daemonização isso vale naturalmente, substituindo o comportamento da cadeia antiga de «server morre quando a conexão cai»). Após a reconexão, o `pendingInteractions` é buscado novamente pelo fluxo de recuperação: a recuperação automática do Desktop, a reconexão manual do Desktop e o attachment replayable do celular reprojetam os requests a partir do primeiro snapshot. O cartão de permissão/pergunta no rodapé lê essa projeção; após o resolve, ele desaparece junto com o próximo snapshot autoritativo. O topo não exibe mais o aviso de requests pendentes.
 
-## 8. Source 权威与配置面（D7 / D11）
+## 8. Source autoritativo e superfície de configuração (D7 / D11)
 
-### 8.1 权威表
+### 8.1 Tabela de autoridades
 
-| 数据/能力                                            | 权威                                      | R3 变化                                                                                                                                                                                                                                                                                                                                 |
+| Dados/capacidade                                            | Autoridade                                  | Mudanças no R3                                                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace 文件、Git、Terminal、Task、Session、运行态 | Source Server / Agent CLI                 | 不变（远端权威），服务改为全转发                                                                                                                                                                                                                                                                                                        |
-| Task 索引、pin/archive、workspace 设置               | Source Server                             | 不变；Controller 只聚合与路由                                                                                                                                                                                                                                                                                                           |
-| MCP、Skills、Hooks、插件、Commands、权限模式         | Source Server                             | Skills/Plugins/Commands/Hooks 已远端；**Subagents/Memory/OutputStyle/settings-sync 从本地切到远端**，消除 UI 与 runtime 事实源分裂                                                                                                                                                                                                      |
-| 模型 Provider 配置、模型可用性                       | Source Server（执行镜像）；本机是编辑权威 | **主链切换**：删除 desktop-attached 下发；远端 `standalone-server` 自权威读取自己的 Built-in Release + Personal Layer 并构建 Registry。Personal Layer、Configured Default 由本机 Provider Provisioning 自动单向覆盖，远端不提供编辑入口；对话区 / Subagents / Automation 的模型目录从目标 Host 的 `model-selection` Facade 读取（§8.2） |
-| OAuth / `zcodejwttoken` 登录态                       | 各端自持；本机为源                        | Provisioning allowlist 凭据（`oauth:active_provider`、`oauth:zai\|bigmodel:*`、`zcodejwttoken`、`account-provider:*:api-key`）随每次下发 replace 到目标 Source，Source 端解密、目标端用自身 Credential Store 重新加密；本机登出 / 换号在下一次触发时收敛。远端不能自行发起浏览器 OAuth                                                  |
-| Connection Profile、窗口、Theme、Locale              | 控制端                                    | Theme/Locale 由窗口 base attachment 的本地服务提供，不随 Source 切换                                                                                                                                                                                                                                                                    |
+| Arquivos do Workspace, Git, Terminal, Task, Session, estado de execução | Source Server / Agent CLI                 | Inalterado (autoridade remota), o serviço passa a encaminhar tudo                                                                                                                                                                                                                                                                        |
+| Índice de Task, pin/archive, configurações do workspace               | Source Server                             | Inalterado; o Controller apenas agrega e roteia                                                                                                                                                                                                                                                                                                           |
+| MCP, Skills, Hooks, plugins, Commands, modos de permissão         | Source Server                             | Skills/Plugins/Commands/Hooks já são remotos; **Subagents/Memory/OutputStyle/settings-sync passam de local para remoto**, eliminando a divisão da fonte de verdade entre UI e runtime                                                                                                                                                                                                      |
+| Configuração de Provider de modelo, disponibilidade de modelos                       | Source Server (espelho de execução); a máquina local é a autoridade de edição | **Comutação da cadeia principal**: remoção do downlink via desktop-attached; o `standalone-server` remoto lê de forma autoritativa o próprio Built-in Release + Personal Layer e constrói o Registry. Personal Layer e Configured Default são sobrescritos de forma unidirecional e automática pelo Provisioning de Provider da máquina local; o lado remoto não oferece entrada de edição; o catálogo de modelos da área de conversa / Subagents / Automation é lido da Facade `model-selection` do Host de destino (§8.2) |
+| OAuth / estado de login `zcodejwttoken`                       | Cada lado mantém o seu; a máquina local é a origem                        | Credenciais no allowlist de Provisioning (`oauth:active_provider`, `oauth:zai\|bigmodel:*`, `zcodejwttoken`, `account-provider:*:api-key`) são substituídas para o Source de destino a cada downlink; o lado Source descriptografa e o lado de destino recriptografa com o seu próprio Credential Store; logout / troca de conta na máquina local converge na próxima disparo. O remoto não pode iniciar OAuth pelo navegador por conta própria                                                  |
+| Connection Profile, janelas, Theme, Locale              | Lado controlador                                    | Theme/Locale são fornecidos pelo serviço local do attachment base da janela e não acompanham a troca de Source                                                                                                                                                                                                                                                                    |
 
-服务集合落点：三种 transport 统一改用 `createServerRemoteWorkspaceServiceCollection({ connectionServices, sourceServices })` 的全转发模式（`packages/desktop/src/host/remoteWorkspaceServiceCollection.ts`），删除 SSH/WSL/Docker 专用的「本地权威混装」分支；`onDynamicSessionRuntimePreferencesRequest` 反向桥随 desktop-attached 模式一并退役。全转发集合同时把 Host 私有的 `RemoteProviderProvisioningExecutor`（本机 `ProviderProvisioningSource` + 远端 `IProviderProvisioningTargetService`）登记在 WeakMap 上供 Main 调度，不进入 Renderer RPC（§8.3）。
+Ponto de aterrissagem do conjunto de serviços: os três transports passam uniformemente a usar o modo de encaminhamento total de `createServerRemoteWorkspaceServiceCollection({ connectionServices, sourceServices })` (`packages/desktop/src/host/remoteWorkspaceServiceCollection.ts`), removendo os branches de "mistura de autoridade local" exclusivos de SSH/WSL/Docker; a ponte reversa `onDynamicSessionRuntimePreferencesRequest` é aposentada junto com o modo desktop-attached. O conjunto de encaminhamento total também registra o `RemoteProviderProvisioningExecutor` privado do Host (o `ProviderProvisioningSource` local + o `IProviderProvisioningTargetService` remoto) em um WeakMap para agendamento pelo Main, sem entrar no RPC do Renderer (§8.3).
 
-全转发下 app-global 类服务（OAuth、usage-stats、bots、coding-plan-subscription 等）在 remote scope 的行为需在实施切片 5 按 channel 清单逐项确认，其中已定：远端 Source 不能直接发起浏览器 OAuth（控制端浏览器无法服务远端回调），而是由 Provider Provisioning 自动接收本机当前 active OAuth 会话（allowlist 凭据）；目标未持有可用模型时，对话区显示「此远程设备尚无可用模型，请先在本机配置模型，保存后会自动同步到远程设备」，配置 / 升级动作始终指向本机。
+Sob o encaminhamento total, o comportamento de serviços app-global (OAuth, usage-stats, bots, coding-plan-subscription etc.) no escopo remote precisa ser confirmado item a item pela lista de channels na fatia de implementação 5, sendo já definido: o Source remoto não pode iniciar OAuth pelo navegador (o navegador do lado controlador não consegue atender ao callback remoto), e sim recebe automaticamente a sessão OAuth ativa atual da máquina local via Provider Provisioning (credenciais de allowlist); quando o destino não possui modelo utilizável, a área de conversa exibe «Este dispositivo remoto ainda não tem modelos disponíveis, configure os modelos na máquina local primeiro e eles serão sincronizados automaticamente com o dispositivo remoto», e as ações de configuração / upgrade sempre apontam para a máquina local.
 
-实施确认后的 `RemoteWorkspaceRpcContract v1` 清单：
+Lista de `RemoteWorkspaceRpcContract v1` confirmada após a implementação:
 
-| channel 组                                                              | remote scope 权威/行为                                                                         | 一期限制                                                                                                                                                                                                                           |
+| Grupo de channels                                                              | Autoridade/comportamento no escopo remote                                                                         | Limitações da primeira fase                                                                                                                                                                                                                           |
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| file/file-watcher/git/git-checkpoint/system/terminal                    | Source Server 全转发                                                                           | `workspacePath` 只用于远端 IO                                                                                                                                                                                                      |
-| zcode-task/zcode-agent/zcode-session                                    | Source Server/CLI 全转发                                                                       | Desktop continuous；手机保持 replayable attachment                                                                                                                                                                                 |
-| setting/credential/broadcast                                            | Source Server 全转发                                                                           | Connection Profile、Theme、Locale 仍属控制端 base attachment                                                                                                                                                                       |
-| onboarding-record                                                       | Source Server 全转发（与 setting/OAuth 同源）                                                  | 不借用控制端记录；手机 replayable allowlist 放行，见 onboarding-record-spec §5.1                                                                                                                                                   |
-| provider-settings/model-selection/media-preview                         | Source Server 全转发（远端 Facade 读远端 Registry）                                            | 设置页「模型设置」不消费远端 `provider-settings`（永远绑定本地，§8.2）；对话区 / Subagents / Automation 模型目录消费目标 Host 的 `model-selection`；`media-preview` 是合同必有 channel，由 `assertRemoteWorkspaceRpcContract` 校验 |
-| provider-provisioning-target                                            | 远端 Environment 内部 Provisioning target；**Host-only**                                       | 不在 `RemoteWorkspaceRpcContract v1` 内，不进 Renderer、不进手机 allowlist；`/ws` replayable 连接拿到抛错 stub（§8.3.4）                                                                                                           |
-| OAuth/usage-stats/coding-plan/client-scenes/bots                        | Source Server 全转发                                                                           | 远端不直接启动浏览器 OAuth；消费 Provisioning 下发的会话且不回落控制端服务                                                                                                                                                         |
-| skills/MCP/plugins/commands/hooks/subagents/memory/output/settings-sync | Source Server 全转发                                                                           | Source 离线 fail-closed                                                                                                                                                                                                            |
-| conversation-share                                                      | Source Server 使用目标 OAuth/JWT、HTTP、Rows/File 执行；Desktop 转发 trusted attachment 上下文 | SSH/WSL/Docker 可发布；Server 直连与手机仍禁用；详见会话分享 spec 的 R3 权威约定                                                                                                                                                   |
-| prompt-attachment-transfer                                              | Source 本地实现保留；SSH/WSL/Docker 的 Window Host attachment 覆盖跨机 staging                 | 复用当前 Transport backend 上传 desktop localPath；operation 由 attachment 持有，关闭时取消未 adopt 内容；不引入 Resource Store，见附件物化 spec                                                                                   |
-| repo-wiki                                                               | Source Server 全转发                                                                           | 使用远端文件和模型                                                                                                                                                                                                                 |
-| source-server-workspace                                                 | Source Server canonical alias/迁移权威                                                         | `legacyRouteHint` 只在 Host→Core 边界使用，不进入 Renderer/手机身份                                                                                                                                                                |
+| file/file-watcher/git/git-checkpoint/system/terminal                    | Encaminhamento total pelo Source Server                                                                           | `workspacePath` só é usado para IO remoto                                                                                                                                                                                                      |
+| zcode-task/zcode-agent/zcode-session                                    | Encaminhamento total pelo Source Server/CLI                                                                       | Desktop continuous; o celular mantém attachment replayable                                                                                                                                                                                 |
+| setting/credential/broadcast                                            | Encaminhamento total pelo Source Server                                                                           | Connection Profile, Theme e Locale continuam pertencendo ao attachment base do lado controlador                                                                                                                                                                       |
+| onboarding-record                                                       | Encaminhamento total pelo Source Server (mesma origem de setting/OAuth)                                                  | Não toma emprestado o registro do lado controlador; o allowlist replayable do celular libera, ver onboarding-record-spec §5.1                                                                                                                                                   |
+| provider-settings/model-selection/media-preview                         | Encaminhamento total pelo Source Server (a Facade remota lê o Registry remoto)                                            | «Configurações de modelo» na página de configurações não consome o `provider-settings` remoto (sempre ligado ao local, §8.2); o catálogo de modelos da área de conversa / Subagents / Automation consome o `model-selection` do Host de destino; `media-preview` é um channel obrigatório do contrato, validado por `assertRemoteWorkspaceRpcContract` |
+| provider-provisioning-target                                            | Provisioning target interno do Environment remoto; **Host-only**                                       | Fora de `RemoteWorkspaceRpcContract v1`, não entra no Renderer nem no allowlist do celular; conexões replayable de `/ws` recebem um stub que lança erro (§8.3.4)                                                                                                           |
+| OAuth/usage-stats/coding-plan/client-scenes/bots                        | Encaminhamento total pelo Source Server                                                                           | O remoto não inicia OAuth pelo navegador diretamente; consome a sessão entregue pelo Provisioning e não recorre aos serviços do lado controlador                                                                                                                                                         |
+| skills/MCP/plugins/commands/hooks/subagents/memory/output/settings-sync | Encaminhamento total pelo Source Server                                                                           | Source offline fail-closed                                                                                                                                                                                                            |
+| conversation-share                                                      | O Source Server usa o OAuth/JWT do destino, HTTP, Rows/File para executar; o Desktop encaminha o contexto do attachment confiável | SSH/WSL/Docker podem publicar; conexão direta via Server e celular continuam desabilitados; ver as convenções de autoridade do R3 na spec de compartilhamento de sessão                                                                                                                                                   |
+| prompt-attachment-transfer                                              | A implementação local do Source é mantida; o Window Host attachment de SSH/WSL/Docker cobre o staging entre máquinas                 | Reutiliza o upload do desktop localPath no backend de Transport atual; a operation é mantida pelo attachment e conteúdo não adotado é cancelado no fechamento; não se introduz Resource Store, ver a spec de materialização de anexos                                                                                   |
+| repo-wiki                                                               | Encaminhamento total pelo Source Server                                                                           | Usa arquivos e modelos remotos                                                                                                                                                                                                                 |
+| source-server-workspace                                                 | Alias canônico / autoridade de migração do Source Server                                                         | `legacyRouteHint` só é usado na fronteira Host→Core e não entra na identidade do Renderer/celular                                                                                                                                                                |
 
-新增 channel 必须先更新本表与 `RemoteWorkspaceRpcContract v1`；控制端本地仍只保留 Source/Profile
-目录、窗口、Theme/Locale、Web 远控配对、attachment 调度，以及模型 Provider 的编辑权威（本地 `IProviderSettingsService`）与 Provisioning Source。
+Qualquer novo channel exige atualizar primeiro esta tabela e o `RemoteWorkspaceRpcContract v1`; o lado controlador local continua mantendo apenas o diretório de Source/Profile, as janelas, Theme/Locale, o pareamento do controle remoto Web, o agendamento de attachments e a autoridade de edição dos Providers de modelo (o `IProviderSettingsService` local) e o Provisioning Source.
 
-`REMOTE_WORKSPACE_RPC_CHANNELS`（`packages/desktop/src/host/remoteWorkspaceRpcContract.ts`，`REMOTE_WORKSPACE_RPC_CONTRACT_VERSION = 1`）当前清单，握手时 `assertRemoteWorkspaceRpcContract` 逐项要求远端提供：
+Lista atual do `REMOTE_WORKSPACE_RPC_CHANNELS` (`packages/desktop/src/host/remoteWorkspaceRpcContract.ts`, `REMOTE_WORKSPACE_RPC_CONTRACT_VERSION = 1`), que o `assertRemoteWorkspaceRpcContract` exige do remoto item a item durante o handshake:
 
 ```text
 fileService gitService gitCheckpointService systemService terminalService
 settingService onboardingRecordService credentialService broadcastService
 zcodeTaskService zcodeAgentService zcodeSessionService conversationShareService botsService fileWatcherService oauthService
-providerSettingsService modelSelectionService mediaPreviewService          ← 2026-09-07 起替代 modelProviderService / providerSyncService
+providerSettingsService modelSelectionService mediaPreviewService          ← desde 2026-09-07 substitui modelProviderService / providerSyncService
 sourceServerWorkspaceService usageStatsService codingPlanSubscriptionService clientScenesService
 skillsService skillSyncService mcpSyncService pluginSyncService pluginsService pluginManagementService
 subagentsService commandsService hooksService memoryService outputStyleService settingsSyncService
 promptAttachmentTransferService repoWikiService
 ```
 
-`modelProviderService`、`providerSyncService` 已从合同中移除；`providerProvisioningTargetService` 不在合同内（Host 从 `connectionServices` 上按需读取，不校验、不转发）。合同版本号保持 v1：兼容门默认只承诺同版本连接，旧远端在握手前已被更新，是否升 v2 见 [r3-provider-refactor-merge.md（已归档）](../archive/remote-r3/r3-provider-refactor-merge.md)。
+`modelProviderService` e `providerSyncService` foram removidos do contrato; `providerProvisioningTargetService` não está no contrato (o Host o lê sob demanda de `connectionServices`, sem validar e sem encaminhar). O número de versão do contrato permanece v1: o gate de compatibilidade por padrão só promete conexões da mesma versão, e um remoto antigo já foi atualizado antes do handshake; se vale subir para v2, ver [r3-provider-refactor-merge.md (arquivado)](../archive/remote-r3/r3-provider-refactor-merge.md).
 
-#### 控制端设置持久化事务
+#### Transação de persistência das configurações do lado controlador
 
-Main 保存窗口偏好、Local Host 保存 Source Directory 均沿用 `SettingService` 补丁更新；Source/工作区历史 owner 不变。共享 `setting.json` 的写入必须按同一文件的进程间锁执行「获取锁 → 重读最新磁盘 → 合并本次补丁/迁移 → 原子替换 → 释放锁」，不能只保护最后的 rename。锁内原子写复用已持有的锁，避免重入；失败释放锁，提交前超时撤销写入 generation，迟到旧写不能覆盖后续设置；进入 rename 提交后沿用现有提交屏障直至完成。窗口尺寸保存不得抹掉刚记录的远程目录。
+O Main, ao salvar as preferências da janela, e o Local Host, ao salvar o Source Directory, continuam usando a atualização por patch do `SettingService`; o owner do histórico de Source/workspace não muda. A escrita do `setting.json` compartilhado precisa executar, sob um lock entre processos do mesmo arquivo, a sequência "adquirir lock → reler o disco mais recente → combinar este patch/migração → substituição atômica → liberar o lock", protegendo não apenas o rename final. A escrita atômica dentro do lock reaproveita o lock já adquirido, evitando reentrância; em caso de falha, o lock é liberado, e antes do commit um timeout revoga a generation da escrita, de modo que uma escrita antiga e tardia não possa sobrescrever as configurações seguintes; depois de entrar no commit por rename, o barreira de commit existente é mantida até a conclusão. O salvamento do tamanho da janela não pode apagar o diretório remoto recém-registrado.
 
-### 8.2 模型设置页绑定本地 Environment
+### 8.2 A página de configurações de modelos é vinculada ao Environment local
 
-2026-09-07 合并 Provider 重构 M2 时拍板（路线 A）：设置页「模型设置」**永远绑定本地 Environment**，不提供设备选择器、不可编辑远端、没有手动「一键同步」按钮。依据是 Provider Refactor Design V2 §7.1（每个执行 Environment 自己读本环境配置，Host 不向 Worker 发 Registry Snapshot；远程编辑与登录同步是独立产品能力，不属于 Provider 核心）与 [Remote Provider Provisioning](../remote/provider-provisioning.md)「Desktop 模型配置页」一节。
+Na fusão do refactor de Provider M2 em 2026-09-07 foi decidido (rota A): a «Configurações de modelo» da página de configurações **sempre fica vinculada ao Environment local**, sem seletor de dispositivo, sem edição do remoto e sem botão manual de «sincronizar em um clique». A base é o Provider Refactor Design V2 §7.1 (cada Environment de execução lê as configurações do próprio ambiente, o Host não envia Registry Snapshot ao Worker; edição remota e sincronização de login são capacidades de produto independentes, fora do núcleo de Provider) e a seção «página de configuração de modelos do Desktop» de [Remote Provider Provisioning](../remote/provider-provisioning.md).
 
 ```text
 SettingsPage
   └─ activeSection === "modelProvider"
-       └─ ServiceProvider(localHostServices)            ← useBaseWorkspaceServices()，与激活的 workspace 无关
+       └─ ServiceProvider(localHostServices)            ← useBaseWorkspaceServices(), independente do workspace ativado
             └─ ModelProviderSection
-                 ├─ 读写：本地 IProviderSettingsService（provider_config.json / model-selection.json / setting.json 窄字段）
-                 ├─ 连通性测试：connectivityWorkspacePath 强制本地 workspace；激活远端 workspace 且无本地 workspace 时返回不可用
-                 └─ 保存成功 ──► 本地 Provisioning Source 触发 ──► §8.3 自动下发到全部在线 Source
+                 ├─ leitura/escrita: IProviderSettingsService local (provider_config.json / model-selection.json / campos estreitos de setting.json)
+                 ├─ teste de conectividade: connectivityWorkspacePath forçado ao workspace local; retorna indisponível quando há workspace remoto ativado e nenhum workspace local
+                 └─ save bem-sucedido ──► o Provisioning Source local dispara ──► §8.3 downlink automático para todos os Sources online
 
-Active workspace（local / remote）──只决定工作区上下文，不改变模型配置数据源
+Workspace ativo (local / remote) ── apenas determina o contexto do workspace, não muda a origem dos dados de configuração de modelos
 ```
 
-- 设置页不再有「本机 / 各远端 Server」设备菜单，也不记忆 `lastAgentSettingsSourceServerId`；`ModelProviderSourceControls.tsx`、`useSourceSettingsAttachment.ts`、`providerSyncSnapshot.ts` 及 `AppSettings.lastAgentSettingsSourceServerId|providerSyncDefaultModel|providerSyncRuntimeCredentialBindings` 已删除。远端缺模型时设置页不显示任何远端引导；引导只出现在对话区（§8.3）。
-- 保留的 `source-settings` attachment scope（`sourceSettingsServiceCollection.ts`）不注册 `provider-settings` / `model-selection`，只服务 Skills / MCP / Plugins / Commands / Hooks / Subagents / Memory / OutputStyle / settings-sync 等非 Provider 配置面；其它能力页继续使用各自的 User/Workspace Scope 控件和当前 workspace 路由，禁止把「模型设置绑定本地」扩散成「所有设置页都绑定本地」。
-- 对话区、Subagents、Automation 的模型目录来自**目标 Host**：`useModelSelectionView(workspacePath, remoteSessionId, workspaceIdentity)` 经 `useWorkspaceServicesResolution` 解析到该 workspace 的服务集合，再读其 `modelSelectionService`（ssh/wsl/docker/server 全部远端一致）；等待远端 attachment 期间保持 `remote-waiting`，绝不回落本机 Local Host 目录。首次 bind/rekey 期间即使 tab 仍短暂携带 legacy `remote:ssh|wsl|docker:*` identity，也不得读取本机目录。
-- 远端 workspace 缺模型时 `ChatErrorBanner` 的 `modelConfigTarget: "remote"` 只切换措辞（`chat.error.remoteNoAvailableModel`：「此远程设备尚无可用模型，请先在本机配置模型，保存后会自动同步到远程设备」），按钮仍是「配置」（打开本机模型设置）/「升级」；「去同步」入口已删除。
-- Renderer 收到远端 scoped service port 时，是否采用 Source Server 全权威服务集合仍以 Host 注入的 `sourceServerId` 为准；SSH/WSL/Docker 只描述 transport，不能据此回落 legacy mixed services。已识别 Source 即使通过 SSH 连接，`settingService`、credential、usage 与 `modelSelectionService` 也必须来自远端。
+- A página de configurações não tem mais o menu de dispositivos «máquina local / cada Server remoto», e nem registra `lastAgentSettingsSourceServerId`; `ModelProviderSourceControls.tsx`, `useSourceSettingsAttachment.ts`, `providerSyncSnapshot.ts` e `AppSettings.lastAgentSettingsSourceServerId|providerSyncDefaultModel|providerSyncRuntimeCredentialBindings` foram removidos. Quando falta modelo no remoto, a página de configurações não exibe nenhuma orientação remota; a orientação aparece apenas na área de conversa (§8.3).
+- O scope de attachment `source-settings` mantido (`sourceSettingsServiceCollection.ts`) não registra `provider-settings` / `model-selection`; serve apenas às superfícies de configuração não-Provider como Skills / MCP / Plugins / Commands / Hooks / Subagents / Memory / OutputStyle / settings-sync; as demais páginas de capacidade continuam usando seus próprios controles de User/Workspace Scope e o roteamento do workspace atual, e é proibido espalhar «modelos vinculados ao local» para «todas as páginas de configurações vinculadas ao local».
+- O catálogo de modelos da área de conversa, de Subagents e de Automation vem do **Host de destino**: `useModelSelectionView(workspacePath, remoteSessionId, workspaceIdentity)` é resolvido por `useWorkspaceServicesResolution` até o conjunto de serviços daquele workspace e então lê o seu `modelSelectionService` (ssh/wsl/docker/server todos iguais para o remoto); enquanto se aguarda o attachment remoto, mantém-se `remote-waiting`, jamais caindo de volta para o diretório do Local Host local. Mesmo durante o primeiro bind/rekey, quando a tab ainda carrega brevemente a identity legacy `remote:ssh|wsl|docker:*`, o diretório local não pode ser lido.
+- Quando o workspace remoto não tem modelo, o `modelConfigTarget: "remote"` do `ChatErrorBanner` só troca a redação (`chat.error.remoteNoAvailableModel`: «Este dispositivo remoto ainda não tem modelos disponíveis, configure os modelos na máquina local primeiro e eles serão sincronizados automaticamente com o dispositivo remoto»), e os botões continuam sendo «Configurar» (abre as configurações de modelos da máquina local) / «Fazer upgrade»; a entrada «Ir para sincronizar» foi removida.
+- Quando o Renderer recebe uma porta de serviço com escopo remoto, a adoção do conjunto de serviços de autoridade total do Source Server ainda é definida pelo `sourceServerId` injetado pelo Host; SSH/WSL/Docker apenas descrevem o transport e não autorizam voltar aos serviços mistos legados. Mesmo um Source já identificado, conectado via SSH, precisa ter `settingService`, credenciais, usage e `modelSelectionService` vindos do remoto.
 
-### 8.3 Provider Provisioning 接入 R3 主链
+### 8.3 Provider Provisioning integrado à cadeia principal do R3
 
-模型配置没有用户触发的同步入口。本机是 Provider 配置的唯一编辑权威，每个在线 Source Server 是本机配置的可丢弃执行镜像；Envelope 内容、目标端事务 / 回滚、`syncId` 幂等、校验边界以 [Remote Provider Provisioning](../remote/provider-provisioning.md) 为事实文档，本节只描述它如何挂到 R3 Source Server 主链上，不得与之矛盾。
+A configuração de modelos não tem entrada de sincronização disparada pelo usuário. A máquina local é a única autoridade de edição da configuração de Provider, e cada Source Server online é um espelho de execução descartável da configuração local; o conteúdo do Envelope, a transação / rollback do lado de destino, a idempotência por `syncId` e os limites de validação têm [Remote Provider Provisioning](../remote/provider-provisioning.md) como documento factual. Esta seção descreve apenas como ele é ligado à cadeia principal de Source Server do R3 e não pode contradizê-lo.
 
-#### 8.3.1 链路：Main coordinator → Window Host executor → Source Server target
+#### 8.3.1 Cadeia: Main coordinator → Window Host executor → Source Server target
 
 ```text
 Desktop Main                         Window Host                              Source Server daemon (zcode-server-cli Core)
@@ -759,254 +683,363 @@ EnvironmentCoordinator               (registered by                             
         | otherwise: trigger == environment-online -> reject (first connect fails); other triggers -> warn (no Secret)
 ```
 
-- Main 只持有 Environment key、Host 登记、trigger、generation 与 `requestId` 关联，不读也不转发配置与 Secret；Envelope 只在 Window Host 内存中经过一次，落盘只发生在目标 Source 的正式 Store。
-- 触发源（`ProviderProvisioningTrigger`）：`environment-online`（首连 / 重连）、`personal-config`、`configured-default`、`account-settings`、`credential`。后四者由本机 Local Services 在持久化成功后经 `HostResponse ProviderProvisioningSourceChanged` 上报，Main 调 `coordinator.requestAll(trigger)` 对全部在线 Environment 推进 generation；同步期间的新触发只推进 generation，本轮结束后再读一次最新快照形成尾随同步。
-- 与旧「一键同步」相比：没有目标确认界面、没有 journal + write barrier，目标端改为事务暂存 + 反向回滚 + `syncId` 幂等；Team Plan runtime Key 绑定、family 运行选择整包等 ours 专有字段不再存在，账号侧只同步 `providerFamilyDomain` / `providerFamilyConnectionSelections` 窄字段与 allowlist 凭据。
+- O Main mantém apenas a environment key, o registro no Host, o trigger, a generation e a correlação por `requestId`; ele não lê nem encaminha configurações e Segredos; o Envelope passa uma única vez pela memória do Window Host, e a gravação em disco acontece somente no Store oficial do Source de destino.
+- Fontes de disparo (`ProviderProvisioningTrigger`): `environment-online` (primeira conexão / reconexão), `personal-config`, `configured-default`, `account-settings`, `credential`. As quatro últimas são reportadas pelos Local Services locais da máquina após a persistência bem-sucedida, via `HostResponse ProviderProvisioningSourceChanged`, e o Main chama `coordinator.requestAll(trigger)` para avançar a generation de todos os Environments online; novos disparos durante a sincronização apenas avançam a generation, e um novo snapshot é lido ao final da rodada para formar a sincronização de cauda.
+- Em comparação com o antigo «sincronizar em um clique»: não há tela de confirmação de destino, não há journal + write barrier, e o lado de destino passa a usar staging transacional + rollback reverso + idempotência por `syncId`; campos exclusivos de ours como a vinculação de runtime key do Team Plan e a seleção de execução do family em pacote não existem mais, e o lado da conta sincroniza apenas os campos estreitos `providerFamilyDomain` / `providerFamilyConnectionSelections` e as credenciais do allowlist.
 
-#### 8.3.2 首连屏障与重连重注册
+#### 8.3.2 Barreira da primeira conexão e reregistro na reconexão
 
 ```text
-首连（desktopRemoteSessions.ts handleConnected）
+Primeira conexão (desktopRemoteSessions.ts handleConnected)
   RemoteWorkspaceConnected(descriptor)
     -> routesBySessionId.set(remoteSessionId, route)
     -> registration = coordinator.register(environmentKey, remoteSessionId, execute)
     -> route.providerProvisioningDispose = registration.dispose
-    -> await registration.initialSync                       ← Remote Workspace ready 屏障
-         ├─ applied / already-applied ──► attachRendererPort ──► pending.resolve（连接成功）
+    -> await registration.initialSync                       ← barreira Remote Workspace ready
+         ├─ applied / already-applied ──► attachRendererPort ──► pending.resolve (conexão bem-sucedida)
          └─ failed / rollback_failed / unsupported
-               ──► dispose lane、删除 route、DisposeRemoteWorkspaceSession ──► pending.reject（连接失败）
+               ──► dispose lane, remover route, DisposeRemoteWorkspaceSession ──► pending.reject (falha de conexão)
 
-重连换代（handleReconnected；§7.1 Source 自动重连 / 显式更新后重新握手）
+Troca de geração na reconexão (handleReconnected; §7.1 reconexão automática do Source / novo handshake após atualização explícita)
   RemoteWorkspaceReconnected(previousRemoteSessionId, descriptor)
-    -> route 从旧 sessionId 迁到新 sessionId
-    -> route.providerProvisioningDispose()                   ← 摘掉绑定旧 sessionId 的 lane
-    -> registration = coordinator.register(environmentKey, 新 remoteSessionId, execute)
-    -> registration.initialSync.catch(warn)                  ← 重连不是发布屏障：失败只记 warning，不拆 Workspace
+    -> a route migra do sessionId antigo para o novo sessionId
+    -> route.providerProvisioningDispose()                   ← remove a lane vinculada ao sessionId antigo
+    -> registration = coordinator.register(environmentKey, novo remoteSessionId, execute)
+    -> registration.initialSync.catch(warn)                  ← a reconexão não é barreira de publicação: falha só gera warning, não desmonta o Workspace
     -> attachRendererPort(win, route, "source-server-reconnected")
 ```
 
-- 屏障只作用于 `environment-online` 触发的首连；同一 Environment 的第二个 Workspace join 已有 lane，不产生第二次首次同步（E2E `SSH-P0-TASK-01` 断言远端 `~/.zcode/v2/provider-provisioning-state.json` 的 `records[]` 在第二个 Workspace 连接后不增加）。
-- 重连必须重新 register：lane 以 `remoteSessionId` 登记、execute 闭包也绑定旧 sessionId，Source 换代后若不重注册，后续下发会命中 Host 已失效的旧 session，远端再也收不到配置。重新 register 触发一次 `environment-online` 整份重下发，补齐离线期间的本机配置变更；单测 `desktopRemoteSessions.test.ts` 覆盖「重连后以新 sessionId 重新登记并重新下发」与「重连触发的失败只 warn」。
-- Environment key 由 `buildRemoteEnvironmentKey(target)` 按 transport 派生（`ssh:<hostKey>` / `wsl:<distro>` / `docker:<container>` / `server:<serverId|url>`），不是 `sourceServerId`；同一 Source 经不同线路连接会形成不同 lane（各自首连同步，结果幂等）。收敛到 `sourceServerId` 是后续可选项，见 [r3-provider-refactor-merge.md（已归档）](../archive/remote-r3/r3-provider-refactor-merge.md)。
+- A barreira só atua na primeira conexão disparada por `environment-online`; um segundo join de Workspace do mesmo Environment já tem lane e não gera uma segunda sincronização inicial (o E2E `SSH-P0-TASK-01` afirma que o `records[]` de `~/.zcode/v2/provider-provisioning-state.json` no remoto não aumenta depois que o segundo Workspace se conecta).
+- A reconexão precisa se registrar de novo: a lane é registrada por `remoteSessionId` e o closure de execute também fica preso ao sessionId antigo; depois que o Source troca de geração, sem um novo registro os downlinks subsequentes acertariam o session antigo, já inválido no Host, e o remoto nunca mais receberia a configuração. O novo registro dispara um reenvio completo de `environment-online`, complementando as mudanças locais de configuração feitas enquanto o destino estava offline; o teste unitário `desktopRemoteSessions.test.ts` cobre «re-registro com o novo sessionId e reenvio após a reconexão» e «falha disparada pela reconexão gera apenas warning».
+- A environment key é derivada por `buildRemoteEnvironmentKey(target)` conforme o transport (`ssh:<hostKey>` / `wsl:<distro>` / `docker:<container>` / `server:<serverId|url>`), e não é o `sourceServerId`; o mesmo Source conectado por linhas diferentes forma lanes distintas (cada uma com sua sincronização inicial, com resultado idempotente). Convergir para `sourceServerId` é uma opção futura, ver [r3-provider-refactor-merge.md (arquivado)](../archive/remote-r3/r3-provider-refactor-merge.md).
 
-#### 8.3.3 `unsupported` 拒连与兼容门自动更新
+#### 8.3.3 Rejeição de conexão `unsupported` e atualização automática pelo gate de compatibilidade
 
 ```text
-连接向导 / 自动重连
-  -> 握手 /api/server-info → compatibility 判断（§6.3）
-       ├─ 远端 < minCompatibleVersion（默认 = 本机产品版本）
-       │     ├─ 显式连接：向导原地 updateSource(force=false) → 重新握手 → 继续原连接意图
-       │     └─ 启动 / 离线重连：停在 needs-upgrade，等用户「立即更新」
-       └─ 兼容 → /ws/host → assertRemoteWorkspaceRpcContract → Provisioning 首连屏障（§8.3.2）
+Assistente de conexão / reconexão automática
+  -> handshake /api/server-info → verificação de compatibilidade (§6.3)
+       ├─ remoto < minCompatibleVersion (padrão = versão de produto da máquina local)
+       │     ├─ conexão explícita: updateSource(force=false) no lugar → novo handshake → continua a intenção de conexão original
+       │     └─ início / reconexão offline: para em needs-upgrade, aguardando o usuário clicar «atualizar agora»
+       └─ compatível → /ws/host → assertRemoteWorkspaceRpcContract → barreira da primeira conexão de Provisioning (§8.3.2)
 ```
 
-- `ZCODE_MIN_COMPATIBLE_VERSION` 默认等于产品版本（根 `package.json` 未声明 `zcodeCompatibility`），因此不带 Provisioning target 的旧 daemon 在握手阶段就被判「需升级」并先走 §6.3 更新，更新后的 Core 必然注册 target；R3 主链不会对 pre-Provisioning daemon 发出 Envelope。
-- `unsupported` 拒连语义按 Provisioning 事实文档原样保留，仍覆盖：本机 `ProviderProvisioningSource` 不可用（Window Host 尚无 active local services，`sourceServices` 为空）、远端 Core 未注册 target（例如 `kind:"server"` dev 直连到未配置 `ZCODE_SERVER_AUTH_TOKEN` 的 `packages/server` HTTP zcode-server）。
-- `unsupported` / `failed` / `rollback_failed` 首连一律走正式连接失败通道：不发布 Remote Workspace ready、不发送 Secret、不静默重试；Renderer 看到普通连接失败与日志，用户修正后重连即重试。
+- `ZCODE_MIN_COMPATIBLE_VERSION` por padrão é igual à versão de produto (o `package.json` da raiz não declara `zcodeCompatibility`), portanto um daemon antigo sem Provisioning target já é julgado como «precisa de atualização» na etapa de handshake e passa primeiro pela atualização da §6.3; o Core atualizado necessariamente registra o target, e a cadeia principal do R3 não emite Envelope para daemons pré-Provisioning.
+- A semântica de rejeição `unsupported` é mantida como está no documento factual do Provisioning, cobrindo ainda: `ProviderProvisioningSource` local indisponível (o Window Host ainda não tem local services ativos, `sourceServices` está vazio), Core remoto sem target registrado (por exemplo `kind:"server"` em dev conectado diretamente ao `packages/server` HTTP zcode-server sem `ZCODE_SERVER_AUTH_TOKEN` configurado).
+- `unsupported` / `failed` / `rollback_failed` na primeira conexão seguem sempre o canal formal de falha de conexão: não publicar Remote Workspace ready, não enviar Secret, não tentar novamente em silêncio; o Renderer vê uma falha de conexão comum e logs, e o usuário, ao corrigir, reconecta e a tentativa é refeita.
 
-#### 8.3.4 非桌面 clientMode 拒绝 stub
+#### 8.3.4 Stub de recusa para clientMode não-desktop
 
 ```text
-Source Server Core（server-core/http.ts exposeWebSocket）
-  /ws/host  clientMode = desktop-continuous（受信 Desktop Host：capability ticket + ingress token）
-     └─ overrides 不替换 → IProviderProvisioningTargetService 真实实现
-  /ws       clientMode = web-remote-replayable（手机 / Web）
+Source Server Core (server-core/http.ts exposeWebSocket)
+  /ws/host  clientMode = desktop-continuous (Desktop Host confiável: capability ticket + ingress token)
+     └─ overrides não substitui → implementação real de IProviderProvisioningTargetService
+  /ws       clientMode = web-remote-replayable (celular / Web)
      └─ overrides.set("provider-provisioning-target",
             { apply: () => throw Error("Provider Provisioning 仅支持受信 Desktop Host") })
 
-Window Host（windowHostAttachmentRpcPolicy.ts）
-  web-remote-replayable allowlist：含 ProviderSettings / ModelSelection / MediaPreview，不含 ProviderProvisioningTarget
+Window Host (windowHostAttachmentRpcPolicy.ts)
+  allowlist de web-remote-replayable: inclui ProviderSettings / ModelSelection / MediaPreview, não inclui ProviderProvisioningTarget
 ```
 
-- Core 始终注册 target（R3 ingress token 常在，不存在 HTTP zcode-server 那种「未配置鉴权则不支持」的分支）；隔离在 clientMode 层完成：手机 replayable 连接即使知道频道名也只能拿到抛错 stub，不能把跨 Environment 凭据写进 Source Server。
-- `RemoteProviderProvisioningExecutor` 存于 Host 私有 WeakMap，不随 ServiceCollection 暴露到 Renderer；Renderer / 手机没有任何触发同步的入口。
+- O Core sempre registra o target (o ingress token do R3 é comum, e não existe o branch do tipo «sem auth configurada então não suportado» do HTTP zcode-server); o isolamento é feito na camada de clientMode: mesmo que a conexão replayable do celular conheça o nome do channel, ela só obtém um stub que lança erro e não consegue escrever credenciais entre Environments no Source Server.
+- O `RemoteProviderProvisioningExecutor` fica em um WeakMap privado do Host, sem ser exposto ao Renderer junto com o ServiceCollection; o Renderer e o celular não têm nenhuma entrada para disparar a sincronização.
 
-#### 8.3.5 Built-in Provider Config 物化目录
+#### 8.3.5 Diretório de materialização do Built-in Provider Config
 
 ```text
-zcode-server-cli 构建
+Build do zcode-server-cli
   tsup define SERVER_CLI_DEFINES = { __ZCODE_VERSION__, __ZCODE_MIN_COMPATIBLE_VERSION__, __ZCODE_BUILTIN_PROVIDER_CONFIG_JSON__ }
         │
-Core 启动（server-core/core.ts runServerCore）
+Início do Core (server-core/core.ts runServerCore)
   layout = resolveServerLayout(ZCODE_SERVER_ROOT)
-  ├─ ZCODE_BUILTIN_PROVIDER_CONFIG_FILE 显式指定 ──► 直接使用该文件
-  ├─ 否则 materializeZCodeBuiltinProviderConfig({ runtimeRoot: layout.serverRoot, content })
-  │     └─► ~/.zcode/server/config/provider/zcode-builtin-<sha256(content)>.json（tmp + rename；同 hash 幂等，内容不一致则失败）
-  └─ 两者皆无 ──► 启动失败（fail-closed）
+  ├─ ZCODE_BUILTIN_PROVIDER_CONFIG_FILE explicitado ──► usa esse arquivo diretamente
+  ├─ senão materializeZCodeBuiltinProviderConfig({ runtimeRoot: layout.serverRoot, content })
+  │     └─► ~/.zcode/server/config/provider/zcode-builtin-<sha256(content)>.json (tmp + rename; idempotente para o mesmo hash, falha se o conteúdo divergir)
+  └─ nenhum dos dois ──► falha na inicialização (fail-closed)
 ```
 
-- 物化目录是 `serverRoot`（`~/.zcode/server`），**不是** release 自带的 `runtime/`：release 目录不可变，同一 releaseId 重装时 `assertExistingReleaseMatches` 会重算整棵树的内容哈希，多出的物化文件会让校验失败；文件名含内容 hash，跨 release 共用安全。`config/` 目前不在 `zcode uninstall` allowlist 内，卸载后会作为 `preservedPaths` 保留（见 [r2-server-cli-and-daemon.md](./r2-server-cli-and-daemon.md)）。
-- 远端 Built-in Release 不随 Provisioning 复制：本机 Personal Layer 引用远端 Built-in 不存在的 Provider/Model 时，目标返回结构化错误并回滚本次配置写入。
+- O diretório de materialização é `serverRoot` (`~/.zcode/server`), e **não** o `runtime/` que acompanha o release: o diretório do release é imutável e, ao reinstalar o mesmo releaseId, `assertExistingReleaseMatches` recalcula o hash de conteúdo de toda a árvore, e arquivos materializados extras fariam a validação falhar; o nome do arquivo contém o hash do conteúdo, então o compartilhamento entre releases é seguro. O `config/` hoje não está no allowlist do `zcode uninstall` e, após a desinstalação, é preservado como `preservedPaths` (ver [r2-server-cli-and-daemon.md](./r2-server-cli-and-daemon.md)).
+- O Built-in Release remoto não é copiado pelo Provisioning: quando a Personal Layer local referencia um Provider/Model que não existe no Built-in remoto, o destino retorna um erro estruturado e faz rollback da escrita de configuração desta vez.
 
-### 8.4 设备管理合同（2026-09-13 自 `docs/archive/remote-r3/r3-remote-ui-prototype-gap-audit.md` §8 并入，原文已归档）
+### 8.4 Contrato de gerenciamento de dispositivos (incorporado em 2026-09-13 a partir de `docs/archive/remote-r3/r3-remote-ui-prototype-gap-audit.md` §8, original já arquivado)
 
-以下合同已实现。代码事实源：`packages/shared/src/source-server/contracts.ts`、`packages/shared/src/source-server/errorCodes.ts`、`packages/desktop/src/host/sourceServerDirectory.ts`、`packages/desktop/src/host/sourceServerManagementService.ts`、`packages/shared/src/validationAppSettings.ts`。
+O contrato abaixo já está implementado. Fontes factuais do código: `packages/shared/src/source-server/contracts.ts`, `packages/shared/src/source-server/errorCodes.ts`, `packages/desktop/src/host/sourceServerDirectory.ts`, `packages/desktop/src/host/sourceServerManagementService.ts`, `packages/shared/src/validationAppSettings.ts`.
 
-**8.4.1 `declaredWorkspaces`（远端已知目录）**
+**8.4.1 `declaredWorkspaces` (diretórios conhecidos do remoto)**
 
-- 挂在 `SourceServerRecord` 上，条目 `{ workspacePath, workspaceIdentity, label? }`，schema `.default([])`，旧持久化数据缺键时在 parse 阶段补空数组；不新增 AppSettings 键，随设备记录一起换代、删除。
-- 写入点只有 `recordHandshake`：成功握手用远端 `ServerRemoteInfo.workspaces[]` 整体替换（返回空数组即清空），每设备最多 20 条；连接失败 / 断线不触碰。协议缺 `workspaces` 字段走既有握手失败路径，不做静默空数组降级。
-- 身份：远端条目 `workspaceIdentity` 缺失或与设备 / 路径不匹配时，用 `buildServerRemoteWorkspaceIdentity({ serverId: sourceServerId, workspacePath })` 补全为设备级 stable identity；与本地 `workspaceHistory` 合并去重一律按 `workspaceKey`，禁止仅按路径判等。该字段不携带 `profileId`，quick-open 只回填路径，由当前已建立的连接提交。
+- Fica preso a `SourceServerRecord`, com entradas `{ workspacePath, workspaceIdentity, label? }`, schema `.default([])`, e dados persistidos antigos sem a chave recebem array vazio na etapa de parse; não cria chave nova em AppSettings e troca de vida junto com o registro do dispositivo.
+- O único ponto de escrita é `recordHandshake`: um handshake bem-sucedido substitui o conjunto pelo `ServerRemoteInfo.workspaces[]` remoto (retornar array vazio significa limpar), no máximo 20 entradas por dispositivo; falha de conexão / desconexão não toca nada. Protocolo sem o campo `workspaces` segue o caminho já existente de falha de handshake, sem degradação silenciosa para array vazio.
+- Identidade: quando a entrada remota não tem `workspaceIdentity` ou ele não corresponde ao dispositivo / ao caminho, completa-se com `buildServerRemoteWorkspaceIdentity({ serverId: sourceServerId, workspacePath })` como identity estável de nível de dispositivo; a mesclagem e deduplicação com o `workspaceHistory` local são sempre feitas por `workspaceKey`, e é proibido igualar apenas pelo caminho. Esse campo não carrega `profileId`, e o quick-open apenas preenche o caminho, submetido pela conexão já estabelecida.
 
-**8.4.2 `removeSourceServer(sourceServerId)`（移除全部连接）**
+**8.4.2 `removeSourceServer(sourceServerId)` (remove todas as conexões)**
 
-- 删除面：该设备全部 Profile（active / retired）及其凭据、全部 `workspaceHistory` 条目、`sourceServers` 记录本体（含 `declaredWorkspaces`）；迁移 ledger 与远端数据不受影响。
-- 顺序：① Manager 幂等 dispose 运行中连接 → ② `await onBeforeSourceServerRemoved(sourceServerId)`（桌面 Host 生产装配必须注入，回调内 detach 该设备的 Runtime 资源）→ ③ Directory 单次 `enqueue` 内一次写入 AppSettings，凭据沿用 `removeProfile` 的先备份后删、失败回滚 → ④ 发布管理快照。
-- 错误码：缺回调拒绝执行 `source-server-remove-callback-missing`；回调失败中止且不删除任何持久化记录 `source-server-remove-callback-failed`；持久化 / 凭据删除失败进入「设备记录保留、连接已断开」恢复态 `source-server-remove-persist-failed`。设备不存在返回成功空操作。服务层与 UI 测试断言错误码而非异常文本。
-- UI：设备更多菜单在所有已安装状态都提供「移除全部连接」，不依赖设备在线，danger 二次确认；只有「在侧边栏中显示」依赖在线。
+- Superfície de remoção: todos os Profiles do dispositivo (active / retired) e suas credenciais, todas as entradas do `workspaceHistory`, o próprio registro em `sourceServers` (incluindo `declaredWorkspaces`); o ledger de migração e os dados remotos não são afetados.
+- Ordem: ① o Manager descarta de forma idempotente as conexões em execução → ② `await onBeforeSourceServerRemoved(sourceServerId)` (a montagem de produção do Host desktop precisa injetar essa callback; dentro dela, o callback desanexa os recursos de Runtime do dispositivo) → ③ o Directory faz uma única escrita em AppSettings dentro de um único `enqueue`, e as credenciais seguem o backup-antes-de-apagar e o rollback-em-caso-de-falha de `removeProfile` → ④ publica o snapshot de gerenciamento.
+- Códigos de erro: a ausência da callback impede a execução com `source-server-remove-callback-missing`; a falha da callback aborta sem apagar nenhum registro persistido com `source-server-remove-callback-failed`; falha de persistência / remoção de credenciais entra no estado de recuperação «registro do dispositivo preservado, conexões já desconectadas» com `source-server-remove-persist-failed`. Dispositivo inexistente retorna sucesso como operação vazia. Os testes de camada de serviço e de UI afirmam os códigos de erro, e não o texto das exceções.
+- UI: o menu de mais do dispositivo oferece «remover todas as conexões» em todos os estados de instalação, sem depender de o dispositivo estar online, com confirmação secundária em danger; apenas «mostrar na barra lateral» depende de estar online.
 
-**8.4.3 目录变更事件与统一 generation**
+**8.4.3 Evento de mudança do diretório e generation unificada**
 
-- `SourceServerDirectory.onDidChange` 在每次 `enqueue` 持久化成功后 fire；管理服务把它与 `manager.onDidChangeState` 汇入同一个单调 `generation`，经 RPC 暴露 `onDidChangeDirectory`，payload `{ generation }`（`sourceServerManagementDirectoryDeltaSchema`）。快照内容变化必然伴随 generation 递增。
-- `getSnapshot()` 采用乐观读：记 `startGeneration` → 读 directory / states / counts → 比对 `endGeneration`，不一致则整体重读，不产出「旧内容 + 新版本号」。
-- 管理快照不得等待远端统计 RPC：directory 与连接状态先返回，Host 按当前物理连接独立读取迁移统计。`migrationCounts` 区分 `loading`、`unavailable`、`requires-connection` 与携带真实数值的 `available`；顶层总数只汇总 available 项，不代表其他项为零。每个连接至多一组统计请求在途，统计完成通过既有目录变更事件提升 generation、通知刷新；一个 Source 慢或失败不阻塞其他 Source 或手动断开。连接换代、删除与 dispose 后的旧结果不得发布。目录变更和迁移重试/放弃使统计失效；在途失效合并为完成后的单次重新读取，不增加定时轮询或无限重试。
-- 页面显式进入/刷新使用 `getSnapshot({ refreshMigrationCounts: true })` 请求后台更新统计；事件驱动的读取使用默认值 false，只读取投影，避免统计完成事件再次触发远端读取。该可选参数由 Host 严格 schema 校验，仅属于同版 Desktop 的本机管理服务，不改变远端 Server/Agent 协议。
-- Renderer 全部管理快照订阅点同时订阅两个事件，并汇入同一个 in-flight / queued 刷新队列，按「generation 低于已观察值即丢弃」判序；`useRemoteWorkspaceHistory` 的 directory 回调只刷新快照，不触发自动重连。
+- `SourceServerDirectory.onDidChange` dispara a cada persistência bem-sucedida no `enqueue`; o serviço de gerenciamento combina esse evento com `manager.onDidChangeState` em uma mesma `generation` monotônica, exposta via RPC como `onDidChangeDirectory`, com payload `{ generation }` (`sourceServerManagementDirectoryDeltaSchema`). Uma mudança no conteúdo do snapshot sempre vem acompanhada de incremento da generation.
+- `getSnapshot()` usa leitura otimista: registra `startGeneration` → lê directory / states / counts → compara com `endGeneration` e, se divergirem, relê tudo, sem produzir «conteúdo antigo + número de versão novo».
+- O snapshot de gerenciamento não pode esperar o RPC de estatísticas remotas: o directory e o estado das conexões são retornados primeiro, e o Host lê as estatísticas de migração de forma independente, conforme as conexões físicas atuais. `migrationCounts` distingue `loading`, `unavailable`, `requires-connection` e o `available` com valores reais; o total de topo só agrega os itens available e não representa os demais como zero. Há no máximo um conjunto de requisições de estatísticas em trânsito por conexão, e a conclusão das estatísticas eleva a generation pelo evento de mudança de diretório já existente, notificando a atualização; um Source lento ou com falha não bloqueia os outros Sources nem a desconexão manual. Resultados antigos de troca de conexão, remoção e dispose não podem ser publicados. Mudanças no diretório e as tentativas de migração / desistência invalidam as estatísticas; invalidações em trânsito são combinadas em uma única releitura após a conclusão, sem acrescentar polling temporário nem retentativas infinitas.
+- A entrada explícita de refresh da página usa `getSnapshot({ refreshMigrationCounts: true })` para solicitar a atualização das estatísticas em segundo plano; leituras orientadas a evento usam o padrão false e leem apenas a projeção, evitando que o evento de conclusão das estatísticas dispare uma nova leitura remota. Esse parâmetro opcional é validado pelo Host por schema estrito e pertence apenas ao serviço de gerenciamento local da mesma versão de Desktop, sem alterar o protocolo de Server/Agent remoto.
+- Todos os pontos de assinatura de snapshots de gerenciamento no Renderer assinam os dois eventos e os convergem em uma mesma fila de refresh in-flight / queued, ordenando por «generation abaixo do valor já observado é descartado»; o callback de directory de `useRemoteWorkspaceHistory` apenas atualiza o snapshot e não dispara reconexão automática.
 
-**8.4.4 连接偏好 `remoteStartupAutoReconnectEnabled`**
+**8.4.4 Preferência de conexão `remoteStartupAutoReconnectEnabled`**
 
-- AppSettings 顶层布尔，默认 `true`，缺字段视为 `true`；full schema 与 patch schema 都声明该字段，显式 `false` 不得在写盘前被剥离。
-- 只门禁 Host 启动静默重连入口（`listStartupReconnectCandidates → reconnectOnStartup`），不影响手动连接与断线后的 retrying / offline 恢复；修改立即持久化、下次启动生效。仅桌面设置页提供入口，不新增跨端 RPC。
-- 不提供全局下载方式默认偏好（2026-08-28 决策撤销 `remoteDefaultAssetInstallMode`）；SSH 新建线路表单每次从 `local-download-upload` 开始，Profile 自身 `assetInstallMode` 优先。
+- Booleano de topo em AppSettings, com padrão `true` e campo ausente tratado como `true`; tanto o schema completo quanto o schema de patch declaram o campo, e um `false` explícito não pode ser removido antes da gravação em disco.
+- Serve apenas de gate para a entrada de reconexão silenciosa na inicialização do Host (`listStartupReconnectCandidates → reconnectOnStartup`), sem afetar a conexão manual nem a recuperação retrying / offline após desconexão; a alteração é persistida imediatamente e vale na próxima inicialização. Só a página de configurações do desktop oferece a entrada, e nenhum novo RPC entre lados é criado.
+- Não se oferece uma preferência global de modo de download padrão (a decisão de 2026-08-28 revogou `remoteDefaultAssetInstallMode`); o formulário de nova linha SSH parte sempre de `local-download-upload`, e o `assetInstallMode` do próprio Profile tem precedência.
 
-## 9. 数据迁移（D7 / D8）
+## 9. Migração de dados (D7 / D8)
 
-结构升级统一进入物理库的正式 migration 账本：Controller/Source 附加表按用途进入
-`tasks_schema_migration`，session identity 表进入 CLI `schema_migration`。
-Repo 不再独立建表/补列。旧 schema、未完成计划与回退兼容规则见
-[`Task SQLite Index：R3 附加表纳入库级账本`](../task/task-sqlite-index.md#r3-附加表纳入库级账本)。
-以下 workspace 级数据合并 ledger 仍负责业务进度，不代替库级 schema 版本。
+As evoluções de schema entram unificadas no ledger (livro-razão) oficial de migration do banco
+físico: as tabelas anexas de Controller/Source entram, conforme a finalidade, em
+`tasks_schema_migration`, e a tabela de session identity entra no `schema_migration` do CLI.
+O Repo deixa de criar tabelas/acrescentar colunas por conta própria. Regras de compatibilidade
+do schema antigo, de planos não concluídos e de rollback estão em
+[`Task SQLite Index: tabelas anexas do R3 no ledger de nível de banco`](../task/task-sqlite-index.md#r3-附加表纳入库级账本).
+Os seguintes ledgers de workspace, que mesclam dados por workspace, continuam responsáveis pelo
+progresso de negócio e não substituem a versão de schema de nível de banco.
 
-### 9.1 控制端迁移（App 升级后首次启动）
+### 9.1 Migração do lado do Controller (primeira inicialização após upgrade do App)
 
-输入：`~/.zcode/v2/setting.json#lastWorkspaceSession[kind="remote"]`（连接与 workspace 合一，≤20 条）+ `credentials.json` 中 `remote-workspace:<workspaceKey>:{password,private-key-passphrase,server-token}`。
+Entrada: `~/.zcode/v2/setting.json#lastWorkspaceSession[kind="remote"]` (conexão e workspace
+unificados, ≤20 entradas) + em `credentials.json` as chaves
+`remote-workspace:<workspaceKey>:{password,private-key-passphrase,server-token}`.
 
 ```text
-每条 remote entry
-  ├─ target snapshot ──按 (transport, 归一化 target) 去重──► ConnectionProfile（新 profileId）
-  │     └─ credential key 重定向：remote-workspace:<key>:* → connection-profile:<profileId>:*
-  │        （同 host 多目录的 N 份凭据收敛为 1 份；旧 key 保留到 R4 再删）
-  ├─ workspacePath + lastOpenedAt ──► workspace 打开历史（引用 profileId；sourceServerId 待握手回填）
-  └─ 旧 identity 保留在历史条目上，用于打开时的远端历史匹配兜底
+cada remote entry
+  ├─ target snapshot ──deduplicado por (transport, target normalizado)──► ConnectionProfile (novo profileId)
+  │     └─ redirecionamento de credential key: remote-workspace:<key>:* → connection-profile:<profileId>:*
+  │        (as N credenciais de vários diretórios do mesmo host convergem para 1; a key antiga
+  │         é mantida até o R4 para então ser removida)
+  ├─ workspacePath + lastOpenedAt ──► histórico de abertura de workspace (referencia o profileId;
+  │                                    o sourceServerId será preenchido no handshake)
+  └─ a identity antiga é preservada na entrada de histórico, como fallback para o casamento
+     com o histórico remoto na abertura
 ```
 
-- 迁移是纯本地、幂等、schema 解析阶段完成（沿用 `migrateLegacyWorkspaceSession` 的既有模式）；失败不阻塞 App 启动，只影响连接页展示并可重试。Directory 的 rejected initialize flight 必须清空，允许后续显式重试；Window Host 无论迁移结果如何都必须先暴露 local base attachment，禁止让 Source Server 目录故障把本地工作区一起卡死。
-- 同一 target 存在多份凭据（不同 workspace 条目各存一份）时，非敏感 target 元数据取 `lastOpenedAt` 最新条目；密码与私钥口令分别取按 `lastOpenedAt` 降序扫描后第一个“credential value 实际存在”的条目。空源不得遮蔽较旧的有效 sibling。
-- 新建 Profile 与迁移使用同一凭据 seam：拥有 plaintext target 的 Host 生成 `profileId` 后，把密码/私钥口令写入 `connection-profile:<profileId>:*` 并在同一持久化操作中写入引用。迁移只有在 value 复制成功后才写新引用；空源继续表达需要交互凭据，禁止制造悬空 key。
-- R4 兼容窗口内，Renderer 为旧 Desktop 投影 stable Source workspace 时，必须把 Profile secret 物化到每个 workspace 独立的 `remote-workspace:<legacyWorkspaceKey>:*` mirror，且先写 secret、后提交 `lastWorkspaceSession` 引用。旧 key 仅用于回退兼容，当前主链仍只消费 Profile credential。
-- `sourceServerDirectoryMigrationVersion=1` 不代表 credential 一定完整；Host initialize 对 active SSH Profile 做幂等审计，仅用相同标准化 route 的 legacy siblings 修复缺失 canonical value，不按 alias/hostname 相似度猜测。
-- `SourceServerRecord` 不在此阶段创建——它只能来自真实握手（`sourceServerId` 未知）；未握手 Profile 在连接页独立展示，首次连接成功后按 `sourceServerId` 归并到 Server 卡片。
-- 控制端本地 `tasks-index.sqlite` 中引用旧 remote identity 的行在对应 Server 首次握手后重写为新 identity，禁止静默丢弃。逐表盘点如下（已实现：`packages/services/src/session/controllerRemoteIdentityMigration.ts`；2026-09-13 自 `docs/archive/remote-r3/r3-controller-remote-row-migration-inventory.md` 并入）。控制端 `tasks-index.sqlite` 只是 Controller 壳层 / 调度记录，不是远端 Session 正文权威；旧 `lastWorkspaceSession` 与旧 credential key 保留只读到 R4。
+- A migração é puramente local, idempotente e concluída na etapa de parsing do schema (seguindo
+  o padrão já existente de `migrateLegacyWorkspaceSession`); a falha não bloqueia a inicialização
+  do App, apenas afeta a exibição na página de conexões e pode ser repetida. O rejected
+  initialize flight do Directory precisa ser limpo, permitindo a retentativa explícita posterior; o
+  Window Host, independentemente do resultado da migração, precisa expor primeiro o local base
+  attachment, proibindo que a falha de diretório do Source Server trave junto o workspace local.
+- Quando existem múltiplas credenciais para o mesmo target (cada entrada de workspace guarda uma),
+  os metadados não sensíveis do target vêm da entrada com o `lastOpenedAt` mais recente; a senha e
+  a passphrase da chave privada são tomadas, cada uma, da primeira entrada em que o "valor de
+  credential de fato existe" após varredura em ordem decrescente de `lastOpenedAt`. Uma origem
+  vazia não pode sombrear uma irmã válida mais antiga.
+- A criação de um novo Profile e a migração usam a mesma seam de credenciais: o Host que possui o
+  target em texto claro gera o `profileId` e então grava a senha/passphrase em
+  `connection-profile:<profileId>:*` e a referência na mesma operação de persistência. A migração
+  só grava a nova referência depois de a cópia do valor ter sucesso; uma origem vazia continua
+  expressando a necessidade de credencial interativa, proibindo criar key pendurada.
+- Dentro da janela de compatibilidade do R4, ao projetar um workspace Source estável para um
+  Desktop antigo, o Renderer precisa materializar o secret do Profile em um mirror independente
+  por workspace, `remote-workspace:<legacyWorkspaceKey>:*`, e gravar primeiro o secret e só depois
+  submeter a referência de `lastWorkspaceSession`. A key antiga serve apenas para compatibilidade
+  de rollback; a cadeia principal atual continua consumindo apenas a credential do Profile.
+- `sourceServerDirectoryMigrationVersion=1` não garante que a credential esteja completa; o
+  initialize do Host faz uma auditoria idempotente nos Profiles SSH ativos, reparando apenas
+  valores canônicos ausentes com irmãos legacy de mesma route normalizada, sem adivinhar por
+  similaridade de alias/hostname.
+- `SourceServerRecord` não é criada nesta etapa — ela só pode vir de um handshake real
+  (`sourceServerId` desconhecido); um Profile sem handshake é exibido de forma independente na
+  página de conexões e, após a primeira conexão bem-sucedida, é mesclado ao card do Server por
+  `sourceServerId`.
+- Linhas do `tasks-index.sqlite` local do Controller que referenciam a identity remote antiga são
+  reescritas para a nova identity após o primeiro handshake do Server correspondente, nunca
+  descartadas silenciosamente. O inventário por tabela está abaixo (já implementado:
+  `packages/services/src/session/controllerRemoteIdentityMigration.ts`; incorporado em 2026-09-13
+  a partir de `docs/archive/remote-r3/r3-controller-remote-row-migration-inventory.md`). O
+  `tasks-index.sqlite` do lado do Controller é apenas uma casca de Controller / registro de
+  agendamento, não a autoridade do corpo das Sessions remotas; o `lastWorkspaceSession` antigo e as
+  credential keys antigas permanecem somente para leitura até o R4.
 
-| 表/字段                                                      | 现有语义                                        | R3 动作                                                            | 冲突/对账规则                                                                    |
-| ------------------------------------------------------------ | ----------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| `tasks.workspace_key/workspace_identity/meta_json`           | Controller task membership/cache                | 按 `(oldWorkspaceKey, task_id)` 重写新 key；同步修正 meta identity | 新 key 已有同 task 时保留更新时间较新的壳行；正文不在此库，不做 Session 内容裁决 |
-| `task_group_members.workspace_key/workspace_identity`        | 本地 group membership 引用                      | 与 task 行同事务重写                                               | 同 task 冲突保留目标 membership；不得产生重复 member                             |
-| `task_group_workspace_bootstraps.workspace_key`              | workspace 首次 group bootstrap 标记             | 重写 key                                                           | 目标已有标记时删除旧标记；group id 保持，避免重排                                |
-| `task_group_view_node_orders.node_key`（`node_type='task'`） | `JSON.stringify([workspaceKey, taskId])` 排序键 | 解析 JSON 后只替换 workspace key                                   | 目标 node 已存在时保留目标排序；非法历史 key 跳过并计入报告                      |
-| `automations.workspace_key/workspace_identity`               | 控制端 cron 定义                                | 保留记录并重写身份，`location_kind` 不改                           | R3 remote automation 不开放执行入口；迁移只防止记录失联，不改变调度能力边界      |
-| `automation_runs.workspace_key`                              | cron run 对账/历史                              | 随 automation identity 重写                                        | `run_id` 是主键，不会因 workspace key 更新合并                                   |
-| `off_peak_tasks.workspace_key/workspace_identity`            | 闲时任务记录                                    | 保留记录并重写身份                                                 | 同 session 活跃绑定冲突按下述裁决取消源行；R3 不扩大远端闲时调度                 |
-| `workspace_alias` / `workspace_migration_*`                  | 远端 Server 专用 canonical/ledger               | 控制端不创建、不读取                                               | 这些表只属于 Source Server tasks-index，禁止与控制端迁移混用                     |
+| Tabela/campo                                                   | Semântica atual                                        | Ação no R3                                                              | Regra de conflito/reconciliação                                                                    |
+| -------------------------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `tasks.workspace_key/workspace_identity/meta_json`            | Membership/cache de task do Controller                | Reescreve a nova key por `(oldWorkspaceKey, task_id)`; corrige a identity do meta em sincronia | Quando a nova key já tem a mesma task, mantém a casca com data de atualização mais recente; o corpo não está neste banco, não há julgamento de conteúdo de Session |
+| `task_group_members.workspace_key/workspace_identity`         | Referência de membership de group local                | Reescreve na mesma transação das linhas de task                        | Em conflito na mesma task, mantém o membership de destino; não pode gerar member duplicado          |
+| `task_group_workspace_bootstraps.workspace_key`               | Marcador do primeiro bootstrap de group do workspace   | Reescreve a key                                                        | Se o destino já tiver marcador, remove o antigo; o id do group é mantido, evitando reordenação       |
+| `task_group_view_node_orders.node_key` (`node_type='task'`)    | Chave de ordenação `JSON.stringify([workspaceKey, taskId])` | Após o parsing do JSON, substitui apenas a workspace key             | Se o node de destino já existir, mantém a ordenação de destino; key histórico inválido é pulado e contado no relatório |
+| `automations.workspace_key/workspace_identity`                 | Definições de cron do lado do Controller               | Mantém o registro e reescreve a identity, sem alterar `location_kind` | Automations remotas do R3 não abrem entrada de execução; a migração só impede que o registro se perca, não muda o limite de capacidade de agendamento |
+| `automation_runs.workspace_key`                                | Reconciliação/histórico de execuções de cron           | Reescreve junto com a identity da automation                           | `run_id` é chave primária, não é mesclado por atualização da workspace key                        |
+| `off_peak_tasks.workspace_key/workspace_identity`              | Registros de tarefas ociosas                            | Mantém o registro e reescreve a identity                                | Conflito de binding ativo da mesma session é cancelado conforme o julgamento abaixo; o R3 não amplia o agendamento remoto ocioso |
+| `workspace_alias` / `workspace_migration_*`                    | Canonical/ledger exclusivos do Server remoto           | O lado do Controller não cria nem lê                                    | Essas tabelas pertencem só ao tasks-index do Source Server; é proibido misturá-las com a migração do Controller |
 
-不需要改写：`task_groups`（不以 workspace key 定位）、`task_group_view_node_orders` 的 `node_type='group'` 行、本地 workspace 行与远端本机 path-key 行、CLI `db.sqlite` 的 `session/message/part`（由 Source Server 侧 canonical migration 处理）、Controller 内存投影（首次握手 / 重连用新 source snapshot 原子替换）。
+Não precisam de reescrita: `task_groups` (não é localizado por workspace key), as linhas de
+`task_group_view_node_orders` com `node_type='group'`, as linhas de workspace local e as linhas de
+path-key do próprio host remoto, o `session/message/part` do `db.sqlite` do CLI (tratado pela
+migration canonical do lado do Source Server) e a projeção em memória do Controller (substituída
+atomicamente pelo novo source snapshot no primeiro handshake / na reconexão).
 
-事务与回滚：每个 workspace 单事务重写，写入 `controller_remote_identity_migrations` ledger（old/new key、各表 before/after 行数、状态、错误）；任何表失败整事务回滚。迁移后机械对账 `tasks` membership、group member、automation、automation run、off-peak 数量前后一致，旧 key 对应行数必须为 0。
+Transações e rollback: cada workspace é reescrito em uma única transação, gravando o ledger
+`controller_remote_identity_migrations` (key antiga/nova, contagem de linhas antes/depois por
+tabela, status, erro); a falha em qualquer tabela reverte a transação inteira. Depois da migração
+há uma reconciliação mecânica: as contagens de membership de `tasks`, member de group, automation,
+automation run e off-peak devem ser iguais antes e depois, e a contagem de linhas da key antiga
+deve ser 0.
 
-失败收口必须保留原始迁移错误。SQLite 因 FULL/IOERR 自动回滚后，清理不得用“无活动事务”覆盖原错误；控制端 failed 审计写入按 best-effort 执行，即使审计库不可写也返回带原始错误的 failed 报告，不因二次审计失败中断握手。远端 alias 合并的事务回滚同样遵守此规则。
+O fechamento de falha precisa preservar o erro de migração original. Depois que o SQLite reverte
+automaticamente por FULL/IOERR, a limpeza não pode sobrescrever o erro original com "sem transação
+ativa"; a auditoria failed do lado do Controller é escrita em best-effort e, mesmo que a base de
+auditoria não possa ser gravada, retorna um relatório failed com o erro original, sem interromper o
+handshake por causa de uma segunda falha de auditoria. O rollback transacional da mesclagem de
+aliases remotos segue a mesma regra.
 
-闲时绑定冲突裁决（CR-03，控制端与远端 canonical 合并共用）：同一数据库中，源 key 与目标 key
-下存在相同非空 `session_id`，且双方 `status` 均不属于 `completed/failed/cancelled` 时，保留
-目标活跃行；源冲突行先转为 `cancelled`，再与其他源行一起改写身份，不删除历史。
-取消沿用终态落库语义：写入迁移时刻的 `ended_at/updated_at`，清空 `failure_reason`，设置
-`schedulable=0`、`claim_running=0`、`claimed_at=NULL`；对象 id、session/conversation 引用、
-票据与既有核销状态保持不变，未核销终态交由既有 outbox 处理。目标行、既有终态行、空 session、
-不同 session 及其他 workspace 的运行状态保持不变。冲突裁决与 rekey 必须在同一
-`BEGIN IMMEDIATE` 事务内，后续失败时连同取消一起回滚；重试不重复修改已迁移行。
-多个 source 变体按 frozen plan 的既定顺序处理；目标原本没有该 session 活跃行时，先迁入的
-行成为后续冲突的保留目标。Source Server 既有 task identity 冲突仍由预检拒绝，不能借此绕过。
+Julgamento de conflito de binding ocioso (CR-03, compartilhado entre o Controller e a mesclagem
+canonical remota): no mesmo banco, quando a key de origem e a key de destino têm o mesmo
+`session_id` não vazio e o `status` de ambas não é `completed/failed/cancelled`, a linha ativa de
+destino é mantida; a linha conflitante de origem passa primeiro a `cancelled` e só então tem sua
+identity reescrita junto com as demais linhas de origem, sem apagar histórico. O cancelamento
+segue a semântica de persistência de estado terminal: grava `ended_at/updated_at` do momento da
+migração, limpa `failure_reason`, define `schedulable=0`, `claim_running=0`, `claimed_at=NULL`; o id
+do objeto, as referências de session/conversation, os tickets e o estado de baixa existente
+permanecem inalterados, e o estado terminal não baixado fica por conta do outbox existente. A linha
+de destino, as linhas de estado terminal já existentes, as sessions vazias, outras sessions e o
+estado de execução de outros workspaces permanecem inalterados. O julgamento de conflito e o
+rekey devem ocorrer na mesma transação `BEGIN IMMEDIATE`; em falha posterior, o rollback também
+reverte o cancelamento; a retentativa não modifica de novo linhas já migradas. Múltiplas variantes
+de source são processadas na ordem já estabelecida do frozen plan; quando o destino originalmente não tem a
+linha ativa daquela session, a linha migrada primeiro passa a ser o destino de retenção das
+conflitos seguintes. Conflitos de task identity já existentes no Source Server continuam sendo
+rejeitados pela pré-verificação, e não podem ser contornados por isso.
 
-### 9.2 远端 canonical key 解析与合并（Server Core 自治）
+### 9.2 Resolução e mesclagem da canonical key remota (autonomia do Server Core)
 
-R3 对远端存量数据的原则：**能不动就不动**。旧版本 Desktop（旧主链跑旧代码）只认旧 route-derived key，任何需要旧代码配合的兼容层都无效，因此兼容只能发生在数据形态层——R3 让新主链**继续读写旧格式 key**，通过 alias 解析获得 route 无关性：
+O princípio do R3 para os dados remotos já existentes: **se não precisa mexer, não mexe**. O
+Desktop de versão antiga (a cadeia principal antiga rodando o código antigo) reconhece apenas a
+antiga key derivada da route, de modo que qualquer camada de compatibilidade que dependa da
+cooperação do código antigo é inválida; por isso a compatibilidade só pode acontecer na camada de
+forma dos dados — o R3 faz a nova cadeia principal **continuar lendo e escrevendo keys no formato
+antigo**, obtendo independência de route pela resolução de alias:
 
 ```text
-Core workspace 定位层收到 { workspacePath, legacyRouteHint? }
+Camada de localização de workspace do Core recebe { workspacePath, legacyRouteHint? }
   │
-  ├─ alias 表已有该 path 记录 ──────────────► 使用记录的 canonical key（零数据改动）
+  ├─ a tabela de alias já tem registro deste path ──────────────► usa a canonical key do registro (zero mudança de dados)
   │
-  ├─ 无记录，扫描两库中该 path 的 remote:* 变体
-  │    ├─ 恰有一个 key（单线路用户，绝大多数）─► 该 key 即 canonical，写入 alias 表（零数据改动）
-  │    ├─ 多个 key（多线路历史）──► 选最近活跃 key 为 canonical，其余变体行一次性合并进 canonical
-  │    │                            （备份先行 + migration ledger + 冲突报告，见下）
-  │    └─ 同时存在本机 path key 的历史 ──► 不合并（远端本机历史保持独立，R4 统一）
+  ├─ sem registro, varre as variantes remote:* deste path nos dois bancos
+  │    ├─ exatamente uma key (usuário de uma única linha, a maioria)─► essa key é a canonical, grava na tabela de alias (zero mudança de dados)
+  │    ├─ múltiplas keys (histórico de múltiplas linhas)──► escolhe a key mais recentemente ativa como canonical, as demais linhas de variante são mescladas de uma vez na canonical
+  │    │                            (backup antes + migration ledger + relatório de conflitos, ver abaixo)
+  │    └─ existe também histórico do path-key local da própria máquina ──► não mescla (o histórico local remoto permanece independente, unificado no R4)
   │
-  └─ 完全无历史（新 workspace）──► 以 legacyRouteHint 为 canonical 并写入 alias 表
-                                    （保证旧版本从同线路连接时新任务同样可见）
+  └─ sem histórico algum (workspace novo)──► usa legacyRouteHint como canonical e grava na tabela de alias
+                                    (garante que, na versão antiga, ao conectar pela mesma linha as
+                                     novas tasks também fiquem visíveis)
 ```
 
-- alias 表落远端 `tasks-index.sqlite`（`workspace_alias(path, canonical_key, created_at)`），是新代码专用的小型附加表，旧代码不感知、不受影响。
-- **单线路用户（绝大多数）：任务行、session 行、`sessions/<hash>` 配置目录全部零改动**。新旧版本读写同一批行：回退后已有会话可见、可续聊；新版本在同一 session 里追加的消息旧版本同样可见（messages/parts 按 session_id 关联）；反之亦然。
-- 多线路合并仅处理「同 path 多个 remote:\* 变体」，迁移对象与裁决固定如下：
+- A tabela de alias fica no `tasks-index.sqlite` remoto
+  (`workspace_alias(path, canonical_key, created_at)`), é uma pequena tabela anexa exclusiva do
+  código novo, e o código antigo não a percebe nem é afetado.
+- **Usuários de uma única linha (a maioria): linhas de task, linhas de session e o diretório de
+  configuração `sessions/<hash>` não têm nenhuma mudança**. Versões nova e antiga leem e escrevem
+  o mesmo conjunto de linhas: após o rollback, as sessões existentes ficam visíveis e podem ser
+  continuadas; as mensagens acrescentadas na mesma session pela versão nova também ficam visíveis
+  na versão antiga (messages/parts são relacionadas por session_id), e vice-versa.
+- A mesclagem de múltiplas linhas trata apenas "múltiplas variantes remote:\* do mesmo path", com
+  objeto de migração e julgamento fixos como segue:
 
-  | 对象                                                     | 合并规则                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-  | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `tasks`                                                  | 唯一 task 迁到 canonical；同 `taskId` 合并 shell metadata；meta 字段按 `updated_at` 较新者优先（相同时间沿用 source 优先），状态/provider/mode/model/migration/fork/cron/off-peak 投影与合并后的 meta 保持一致；`createdAt` 取最早、`updatedAt` 取最新、title 优先用户手工版本，pinned/archived/deleted 按 `deleted > archived > pinned > normal`；正文索引保留 canonical 的非空值，否则取 source；`unreadAt` 取双方非空最大值，`lastUnreadAt` 取双方历史 marker 与合并后 unread 的最大值；cron/off-peak/fork 身份不兼容则整 workspace 冲突 |
-  | `task_group_members` / `task_group_workspace_bootstraps` | 随 task/workspace rekey；canonical 已有同 task/bootstrap 时保留 canonical 行并删除 source 重复行                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-  | `task_group_view_node_orders`                            | 只改 `node_type='task'` 且 `node_key=[workspaceKey,taskId]` 的结构化 key；canonical 已有同 key 时保留 canonical 顺序                                                                                                                                                                                                                                                                                                                                                                                                                        |
-  | `automations` / `automation_runs`                        | `workspace_key` 全量 rekey；存在 `workspace_identity` 时同步改为 canonical；对象 id、task/session 引用与运行状态不改写                                                                                                                                                                                                                                                                                                                                                                                                                      |
-  | `off_peak_tasks`                                         | 按 §9.1 的闲时绑定冲突裁决保留 canonical 活跃行、取消 source 冲突行后全量 rekey；保留全部历史及对象引用，非冲突行运行状态不变                                                                                                                                                                                                                                                                                                                                                                                                               |
-  | `~/.zcode/cli/db/db.sqlite#session`                      | 只把同 path 变体的 `workspace_id` 改为 canonical；messages/parts 正文不改写                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-  | `~/.zcode/v2/sessions/<hash>`                            | 递归合并 source hash 目录：目标不存在则移动；同相对路径且字节相同则去重；类型不同或字节不同则在任何备份/搬运前整 workspace fail-closed                                                                                                                                                                                                                                                                                                                                                                                                      |
+  | Objeto                                                     | Regra de mesclagem                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+  | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `tasks`                                                    | A task única é migrada para a canonical; tasks com o mesmo `taskId` mesclam os metadados de shell; os campos do meta priorizam o registro com `updated_at` mais recente (em caso de empate, o source tem precedência), e a projeção de status/provider/mode/model/migration/fork/cron/off-peak permanece consistente com o meta mesclado; `createdAt` toma o mais antigo, `updatedAt` o mais recente, o title prioriza a versão manual do usuário, e pinned/archived/deleted seguem `deleted > archived > pinned > normal`; o índice do corpo mantém o valor não vazio da canonical, senão o do source; `unreadAt` toma o maior valor não vazio dos dois lados, `lastUnreadAt` toma o maior entre os marcadores históricos dos dois lados e o unread mesclado; se as identidades de cron/off-peak/fork forem incompatíveis, há conflito de workspace inteiro |
+  | `task_group_members` / `task_group_workspace_bootstraps`  | Acompanham o rekey de task/workspace; quando a canonical já tem a mesma task/bootstrap, mantém a linha da canonical e remove a linha duplicada do source                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+  | `task_group_view_node_orders`                             | Altera apenas a key estruturada com `node_type='task'` e `node_key=[workspaceKey,taskId]`; quando a canonical já tem a mesma key, mantém a ordenação da canonical                                                                                                                                                                                                                                                                                                                                                                                                                        |
+  | `automations` / `automation_runs`                           | Rekey total de `workspace_key`; quando existe `workspace_identity`, altera em sincronia para a canonical; o id do objeto, as referências de task/session e o estado de execução não são reescritos                                                                                                                                                                                                                                                                                                                                                                                                                      |
+  | `off_peak_tasks`                                          | Após manter a linha ativa da canonical e cancelar a linha conflitante do source conforme o julgamento de binding ocioso de §9.1, faz o rekey total; preserva todo o histórico e as referências de objeto, e o estado de execução das linhas sem conflito não muda                                                                                                                                                                                                                                                                                                                                                                                                               |
+  | `~/.zcode/cli/db/db.sqlite#session`                       | Altera apenas o `workspace_id` das variantes do mesmo path para a canonical; o corpo de messages/parts não é reescrito                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+  | `~/.zcode/v2/sessions/<hash>`                             | Mescla recursivamente o diretório de hash do source: se o destino não existe, move; se o mesmo caminho relativo tem bytes idênticos, deduplica; se o tipo é diferente ou os bytes diferem, faz fail-closed do workspace inteiro antes de qualquer backup/movimentação                                                                                                                                                                                                                                                                                                                                                                                                      |
 
-- 重复 task 的 meta 合并仍按字段进行：较新记录缺少某字段时保留较旧记录的值，不能用较新行的
-  NULL 投影覆盖该值。旧 meta 未携带字段时，保留双方索引中较新行优先的非空投影，兼容历史
-  cron/off-peak 仅回填索引列的记录。投影修复、meta 写入和 source 删除在同一 task DB 事务内完成；
-  cron/off-peak/fork 仍以 meta 字段为准、历史索引列作缺失字段的来源，再执行身份冲突预检；
-  即使两份 meta JSON 相同，双方有效身份不同也必须拒绝，不能按新旧覆盖身份。
-- 项目化 task 索引从 `cli_*` 列投影标题、创建/更新时间与状态，合并必须同步这些 CLI 事实，
-  规则与 `TaskIndexRepo.applyCliFacts` 一致：`cli_created_at` 取最早、`cli_updated_at` 取最新；
-  较新行的 `cli_last_outcome` 为空时保留较旧值；custom 标题来源不被非 custom 覆盖；
-  `cli_deleted` 取最大、`handoff_pending` 取并集。Source Server 的行共用同一 owner host，
-  `host_id`/`root_path`/`project_id` 沿用 canonical 行；只跑过 tasks schema 迁移、没有这些列的库按旧列合并。
-- CLI 事实的“较新行”只按双方 `cli_updated_at` 判定，与壳字段按 `updated_at` 的裁决相互独立；
-  没有 CLI 事实（`cli_updated_at` 为空）的一方不胜出，时间相同时沿用 source 优先。旧 ACP ID 迁移
-  只抬高 `updated_at`、不改 `cli_*`，两列在存量库中可以分叉，不能用 `updated_at` 代替。
+- A mesclagem do meta de tasks duplicados continua sendo feita por campo: quando o registro mais
+  recente não tem um determinado campo, mantém-se o valor do registro mais antigo, e o valor não
+  pode ser sobrescrito pela projeção NULL da linha mais recente. Quando o meta antigo não carrega
+  o campo, mantém-se a projeção não vazia da linha mais recente entre os dois índices, o que
+  dá compatibilidade com os registros históricos de cron/off-peak que só preenchem as colunas de
+  índice. O reparo da projeção, a gravação do meta e a remoção do source ocorrem na mesma
+  transação do task DB; cron/off-peak/fork continuam tomando o meta como campo de referência e
+  as colunas de índice históricos como fonte dos campos ausentes, e só então se executa a
+  pré-verificação de conflito de identidade; mesmo que os dois JSON de meta sejam idênticos, se as
+  identidades efetivas dos dois lados forem diferentes a operação deve ser rejeitada, e não é
+  permitido sobrescrever a identidade pelo mais novo.
+- O índice de task projetado deriva de colunas `cli_*` o título, as datas de criação/atualização e
+  o status, e a mesclagem precisa sincronizar esses fatos de CLI, com as mesmas regras de
+  `TaskIndexRepo.applyCliFacts`: `cli_created_at` toma o mais antigo, `cli_updated_at` o mais
+  recente; quando o `cli_last_outcome` da linha mais recente está vazio, mantém-se o valor mais
+  antigo; a origem de título custom não é sobrescrita por uma não custom; `cli_deleted` toma o
+  máximo e `handoff_pending` a união. As linhas do Source Server compartilham o mesmo owner host,
+  então `host_id`/`root_path`/`project_id` seguem a linha da canonical; bancos que passaram
+  apenas pela migration de schema de tasks, sem essas colunas, são mesclados pelas colunas
+  antigas.
+- O "registro mais recente" dos fatos de CLI é determinado apenas pelo `cli_updated_at` dos dois
+  lados, independentemente do julgamento dos campos de casca por `updated_at`; o lado sem fatos de
+  CLI (`cli_updated_at` vazio) não vence, e em caso de empate vale a precedência do source. A
+  migration do ACP ID antigo apenas eleva `updated_at` e não altera `cli_*`; as duas colunas podem
+  divergir em bancos existentes, e `updated_at` não pode substituí-la.
 
   ```text
-  较旧 meta + 较新 meta → 合并 meta → 同一事务更新索引投影 → 删除 source 行
-                                      └─ 失败 → 整个 task DB 事务回滚
+  meta mais antigo + meta mais recente → meta mesclado → atualização da projeção do índice na mesma transação → remoção da linha do source
+                                      └─ falha → rollback da transação inteira do task DB
   ```
 
-- 冲突预检覆盖 task identity 与 `sessions/<hash>` 文件碰撞。冲突默认保持 workspace fail-closed，双方数据
-  原地零搬运；此时冲突检测早于备份，因此不得声称“已有备份”。相同未变化冲突重复打开只更新同一失败
-  ledger/冲突集，不新建 ledger、不创建备份。身份冲突是确定性用户决策，`migrate retry` 在冲突未解决时
-  返回结构化 `workspace-task-identity-conflict` 且 `retryable:false`，不得空转后宣称已重试。
-  写事务按 source 顺序逐个并入 canonical，后一个 source 与已累积的合并结果比较；task identity 预检
-  必须按同一顺序累积每个 `taskId` 的合并结果，不能只比 canonical 快照。canonical 缺该 task 或缺对应
-  身份字段时，source 之间的身份冲突同样在建账和备份前发现：
+- A pré-verificação de conflitos cobre a task identity e as colisões de arquivos em
+  `sessions/<hash>`. Por padrão o conflito mantém o workspace em fail-closed, com os dados de
+  ambos os lados no local, sem qualquer movimentação; nesse caso a detecção de conflito vem antes
+  do backup, portanto não se pode afirmar que "já existe backup". Reabrir o mesmo conflito
+  inalterado apenas atualiza o mesmo ledger/conjunto de conflitos em falha, sem criar novo ledger
+  nem criar backup. O conflito de identidade é uma decisão determinística do usuário; o
+  `migrate retry`, com o conflito não resolvido, devolve um `workspace-task-identity-conflict`
+  estruturado com `retryable:false` e não pode rodar em vazio e dizer que reteve.
+  A transação de escrita incorpora um por um os sources na canonical na ordem dos sources, e cada
+  source posterior é comparado com o resultado acumulado da mesclagem; a pré-verificação de task
+  identity precisa acumular o resultado da mesclagem de cada `taskId` na mesma ordem, não pode
+  comparar apenas o snapshot da canonical. Quando a canonical não tem a task ou não tem o
+  campo de identidade correspondente, o conflito de identidade entre os sources é também
+  detectado antes de contabilizar e fazer o backup:
 
   ```text
-  canonical A 无 T（或 T 无 cron）；source B.T cron=b，source C.T cron=c
-    预检：merged[T] ← B.T → C.T vs merged[T] → 冲突 → 复用失败 ledger，不备份
+  canonical A sem T (ou T sem cron); source B.T cron=b, source C.T cron=c
+    pré-verificação: merged[T] ← B.T → C.T vs merged[T] → conflito → reutiliza o ledger em falha, sem backup
   ```
 
-- 管理面提供**整目录粒度**显式「保守放弃合并」：最近活跃变体成为 canonical，其他变体原地封存且不搬运；
-  禁止 task 粒度跳过。ledger 使用 `status='abandoned'`，记录 canonical、时间、触发方式和覆盖上述全部迁移
-  对象的 activity digest。后续查询发现 digest 变化时投影 `abandoned-diverged` 并提供重新尝试合并；
-  `failedPathCount` 只统计 `failed`，`abandonedPathCount` 独立统计，二者禁止互相推断。
-- abandon 在读取配置快照后取得 task DB 写锁，并在事务内复查同一 migration 的 `status='failed'`、`phase IS NULL`、canonical 与 variants 均未变化。已完成、已恢复、已删除或计划已变化时拒绝并返回可重试错误，保持当前 ledger/alias；不能用毫秒 `updated_at` 代替计划比较。同一 Source Server Repo 内，resolve、retry、abandon 按 trim 后的 workspacePath 共用一条串行队列，覆盖读计划、异步备份、目录搬运、alias 发布与连接关闭；retry 在队列内复用内部 resolve，不重复排队。前一次失败仍释放队列，下一次从已提交 ledger 恢复；不同 path 独立排队。该队列不替代 SQLite 写事务，也不承诺跨进程串行。
-- resolve 入口在 alias/variant 扫描前查询当前 path 的 `abandoned` ledger。用户未显式“重新尝试合并”时，
-  无论 digest 是否变化都直接返回冻结 canonical 与 `mergedKeys=[]`，允许 workspace 打开；digest 变化只把报告
-  投影为 `abandoned-diverged`。显式 retry 才把 ledger 重新激活并进入 conflict preflight。
-- 无冲突时先创建两库备份，再按 phase forward-only 推进；备份仅供人工灾难恢复，不自动回滚已提交阶段：
+- A camada de gestão oferece um "abandono conservado" explícito, em granularidade de **diretório
+  inteiro**: a variante mais recentemente ativa passa a ser a canonical, e as demais variantes são
+  seladas no local, sem movimentação; é proibido pular em granularidade de task. O ledger usa
+  `status='abandoned'`, registra a canonical, o horário, o modo de disparo e o activity digest
+  de todos os objetos de migração acima. Quando uma consulta posterior percebe mudança no digest,
+  projeta `abandoned-diverged` e oferece uma nova tentativa de mesclagem; `failedPathCount`
+  conta apenas `failed`, `abandonedPathCount` é uma contagem independente, e é proibido inferir
+  um a partir do outro.
+- O abandon obtém o lock de escrita do task DB depois de ler o snapshot de configuração e, dentro
+  da transação, reexamina o `status='failed'`, o `phase IS NULL` e a não alteração da canonical e
+  das variantes da mesma migration. Quando o plano já foi concluído, recuperado, removido ou
+  alterado, rejeita e devolve um erro retentável, mantendo o ledger/alias atual; não se pode usar
+  `updated_at` em milissegundos no lugar da comparação de planos. Dentro do mesmo Repo do Source
+  Server, resolve, retry e abandon compartilham uma única fila serial por workspacePath
+  (após trim), cobrindo a leitura do plano, o backup assíncrono, a movimentação de diretórios, a
+  publicação do alias e o fechamento da conexão; o retry reutiliza o resolve interno dentro da
+  fila, sem enfileirar de novo. A falha anterior ainda libera a fila, e a seguinte retoma a partir
+  do ledger já confirmado; paths diferentes entram na fila de forma independente. Essa fila não
+  substitui as transações de escrita do SQLite nem promete serialização entre processos.
+- A entrada resolve consulta o ledger `abandoned` do path atual antes da varredura de
+  alias/variantes. Quando o usuário não pediu explicitamente "tentar mesclar de novo", devolve
+  diretamente a canonical congelada e `mergedKeys=[]`, independentemente de o digest ter mudado,
+  permitindo a abertura do workspace; a mudança de digest apenas projeta o relatório como
+  `abandoned-diverged`. Somente o retry explícito reativa o ledger e entra no conflict preflight.
+- Sem conflito, primeiro são criados os backups dos dois bancos e então o progresso avança por
+  phase em forward-only; os backups servem apenas para recuperação manual de desastre e não
+  automaticamente revertem fases já confirmadas:
 
   ```text
   resolve(path)
-    ├─ 有 running/failed + phase 的活动 ledger
-    │    └─ 冻结 migrationId + canonical + variants，从已记录 phase 继续
-    └─ 无活动 ledger
-         └─ 扫描 variants + 选举 canonical + conflict preflight
+    ├─ ledger ativo com running/failed + phase
+    │    └─ congela migrationId + canonical + variants, continua a partir da phase registrada
+    └─ sem ledger ativo
+         └─ varre variants + elege canonical + conflict preflight
                 │
                 ▼
             phase=preflight
@@ -1018,152 +1051,286 @@ Core workspace 定位层收到 { workspacePath, legacyRouteHint? }
                 -> completed
   ```
 
-  每个阶段的写入都必须幂等，阶段完成后才推进 ledger；阶段工作已完成但 ledger 尚未推进时，重放同阶段也
-  必须收敛。活动 ledger 优先级高于 alias/variant 扫描，恢复期间禁止重选 canonical 或创建第二条 ledger；
-  迁移开始后出现的新 variant 留给本轮 completed 后的下一次增量迁移。
+  A escrita de cada fase precisa ser idempotente, e o ledger só avança depois de a fase terminar;
+  quando o trabalho da fase já foi feito mas o ledger ainda não avançou, a reexecução da mesma
+  fase também precisa convergir. O ledger ativo tem prioridade sobre a varredura de
+  alias/variantes; durante a recuperação é proibido reelegir a canonical ou criar um segundo
+  ledger; as novas variantes que surgirem depois do início da migração ficam para a próxima
+  migração incremental, após o completed desta rodada.
 
-- resume 不能跳过仍可能变化的冲突条件。进入 `task-db-merged` 前必须在同一个 task DB 写事务内重新验证
-  frozen variants 的 task identity；发现新冲突时整阶段 rollback、ledger 保持 failed，禁止“保留冲突 task
-  但继续 rekey membership/automation/session”后标记 completed。config 目录在实际搬运时发现 preflight 后
-  新冲突也保持当前 phase failed，不发布 alias/completed。
-- ledger schema 必须版本化重建，保留存量行，并一次加入 phase 与 `abandoned` 审计字段；不得依赖
-  `CREATE TABLE IF NOT EXISTS` 改写既有 CHECK 约束。
-- 合并是幂等增量的：旧版本 Desktop 混连期间从「非 canonical 线路」写出的新变体行，在下一次 Core 解析该 path 时并入。
-- `legacyRouteHint` 的来源优先级：Host 优先取该 workspace 历史条目上保留的旧 identity（更精确指向历史），
-  否则按当前 SSH/WSL/Docker 线路构造；Renderer 传入的 stable identity 不能充当 hint。
-- `sourceServerWorkspaceHistory.legacyWorkspaceIdentity` 是回滚 identity 的单一来源。`recordWorkspaceOpen`
-  未收到新 legacy hint 时必须保留旧值；所有 `lastWorkspaceSession` 写入者必须基于同一份最新 history
-  生成 legacy-compatible snapshot，禁止默认空 history 把 frozen legacy identity 改写成当前线路。
-- 冲突 ledger 以 `path + conflict kind` 作为未解决事件身份；canonical 候选变化只能原子更新同一 ledger
-  和当前冲突集，不能重复建账。resolved ledger 的冲突明细作为审计记录保留；当前态查询必须 join ledger
-  并过滤 `status='failed'`，不得把历史明细误显示为未解决冲突。
-- `kind:"server"` 仅是本地开发直连入口，不参与 SSH/WSL/Docker 的 R3 route compatibility。它必须使用
-  stable identity 作为 dev storage key，或装配与 Source Server Core 完全相同的 alias mapper；禁止把
-  `remote:server:*` 送入只接受 legacy route key 的 `legacyRouteHint`。
+- O resume não pode pular condições de conflito que ainda podem mudar. Antes de entrar em
+  `task-db-merged` é preciso revalidar, dentro da mesma transação de escrita do task DB, a task
+  identity das variantes congeladas; ao encontrar um novo conflito, faz rollback da fase
+  inteira, o ledger permanece failed, e é proibido marcar como completed com o "conflito mantido
+  mas memberships/automation/session rekeyed". Quando a movimentação real dos diretórios de
+  config encontra um conflito novo após o preflight, a phase atual também permanece failed, sem
+  publicar alias/completed.
+- O schema do ledger precisa ser reconstruído de forma versionada, preservando as linhas
+  existentes e adicionando de uma vez as colunas de phase e de auditoria `abandoned`; não se
+  pode depender de `CREATE TABLE IF NOT EXISTS` para reescrever constraints CHECK já existentes.
+- A mesclagem é idempotente e incremental: as novas linhas de variante escritas a partir de uma
+  "linha não canonical" durante a coexistência com o Desktop de versão antiga são incorporadas na
+  próxima vez em que o Core resolver aquele path.
 
-### 9.3 新旧版本兼容边界（混连与回退）
+### 9.3 Limite de compatibilidade entre versões antigas e novas (coexistência e rollback)
 
-| 场景                                | 行为                                                                                                                                                     |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 单线路用户升级 R3 后回退            | 数据零改动，旧主链按原 key 读写同一批行：历史完整、可续聊，R3 期间产生的新任务/新消息同样可见                                                            |
-| 新旧 Desktop 混连同一远端（同线路） | 双方读写同一 canonical key 的行：任务与会话双向可见、续聊互通。差异仅在架构层（旧端起临时 stdio server、新端连 daemon），互不干扰                        |
-| 多线路用户：从被合并线路回退/混连   | 该线路的旧 key 行已并入 canonical，旧端从此线路看不到已合并历史（数据未删除，备份与 ledger 可对账）；从 canonical 线路访问完整。属于窄边缘，灰度文案覆盖 |
-| 新装服务器上 R3 创建的 workspace    | canonical = 当前线路的旧格式 key：旧版本从同线路连接可见、可续聊                                                                                         |
+| Cenário                                    | Comportamento                                                                                                                                                                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Usuário de uma única linha faz upgrade para o R3 e depois faz rollback | Zero mudança de dados; a cadeia principal antiga lê e escreve o mesmo conjunto de linhas com as keys de sempre: o histórico fica completo, é possível continuar a conversa, e as novas tasks/novas mensagens geradas durante o R3 também ficam visíveis                                |
+| Desktop novo e antigo convivendo no mesmo remoto (mesma linha) | Ambos leem e escrevem as linhas da mesma canonical key: tasks e sessões ficam visíveis nos dois sentidos e a continuação de conversa é interoperável. A diferença está apenas na camada de arquitetura (o lado antigo sobe um stdio server temporário, o lado novo conecta ao daemon), e não se atrapalham                    |
+| Usuário de múltiplas linhas: rollback/coexistência a partir de uma linha mesclada | As linhas de key antiga daquela linha já foram incorporadas à canonical, então o lado antigo deixa de ver o histórico mesclado ao acessar por aquela linha (os dados não foram apagados; backup e ledger permitem a reconciliação); a partir da linha canonical o acesso é completo. É uma borda estreita, coberta pelo texto de gradual rollout |
+| Workspace criado pelo R3 em um servidor novo | canonical = a key no formato antigo da linha atual: visível e continuável a partir da versão antiga conectada pela mesma linha                                                                                 |
 
-### 9.4 回滚安全
+### 9.4 Segurança de rollback
 
-- 远端：单线路用户天然无损（无数据改动）；多线路合并有备份 + ledger + 报告，极端情况可手工恢复；session 正文（messages/parts）任何情况下不改写。alias 表与 ledger 是纯附加物，旧代码忽略。
-- 控制端：`lastWorkspaceSession` 中的 remote entry 在 R3 继续保存 legacy route-compatible
-  representation，禁止写入 `remote:server:*`；回滚旧版本后旧字段仍可用。R3 运行态 tab/history/credential/UI store
-  必须通过 `sourceServerWorkspaceHistory.legacyWorkspaceIdentity -> workspaceIdentity` 投影为唯一 stable
-  workspaceKey，不得在 UI 同时恢复 legacy 与 stable 两条。
-- Desktop 首次绑定 Source workspace 时，Host bind 回包可携带一次性
-  `previousWorkspaceIdentity` rekey hint；Renderer 必须复用既有 `ensureWorkspaceTab()` 原地把
-  legacy tab 换代为 stable tab，不能通过 `addTab()` 产生第二个 workspace。该字段不是任务路由身份，
-  仅用于 Desktop `continuous` tab rekey，手机 `replayable` attachment 忽略。
-- 灰度顺序：内部验证 → 小比例灰度（重点核对 alias 命中率、多线路合并 ledger 与任务对账）→ 扩大 → 全量；三种连接方式同版本切换，不按 transport 拆分。
-- R4（迁移窗口结束、旧版本退出支持范围后）分两步，可解耦：① 删兼容代码（旧连接记录读取、`legacyRouteHint`、旧格式解析、旧散文件清理）——纯代码，风险低；② canonical key 清洗——R4 版 Server CLI 启动时一次性把 canonical key 改写为 server-local key、合并远端本机历史、删除 alias 层。清洗对 Desktop 完全透明：R3 的 Source Server workspace 定位 wire 只传 `{ workspacePath, legacyRouteHint? }`，stable `workspaceIdentity` 只用于 Desktop/Host 侧隔离，canonical 始终是 Core 内部存储细节。因此清洗只是远端 Server 的一次版本升级，不需要控制端配合发版；排期紧时可推迟到 R4 之后。
+- Remoto: para o usuário de uma única linha não há perda por natureza (zero mudança de dados); a
+  mesclagem de múltiplas linhas tem backup + ledger + relatório, e em casos extremos é possível
+  recuperar manualmente; o corpo das sessions (messages/parts) nunca é reescrito. A tabela de alias
+  e o ledger são acréscimos puros, ignorados pelo código antigo.
+- Controlador: a remote entry de `lastWorkspaceSession` continua sendo salva no R3 em uma
+  representação legacy route-compatible, proibindo gravar `remote:server:*`; após o rollback para
+  a versão antiga, os campos antigos continuam utilizáveis. Em tempo de execução no R3, as tabs de
+  tab/history/credential/UI store precisam ser projetadas como uma única workspaceKey stable pela
+  projeção `sourceServerWorkspaceHistory.legacyWorkspaceIdentity -> workspaceIdentity`, e a UI não
+  pode restaurar simultaneamente a legacy e a stable.
+- Quando o Desktop faz o primeiro binding de um workspace Source, a resposta do bind do Host pode
+  carregar um hint de rekey `previousWorkspaceIdentity` de uso único; o Renderer precisa reutilizar
+  o `ensureWorkspaceTab()` existente para trocar a tab legacy pela stable no lugar, sem produzir um
+  segundo workspace via `addTab()`. Esse campo não é a identidade de roteamento de tasks, serve
+  apenas para o rekey de tab `continuous` do Desktop; o attachment `replayable` do celular o
+  ignora.
+- Ordem do gradual rollout: validação interna → rollout em pequena proporção (com conferência
+  especial da taxa de acerto de alias, do ledger de mesclagem de múltiplas linhas e da reconciliação
+  de tasks) → ampliação → total; as três formas de conexão trocam de versão em conjunto, sem
+  separar por transport.
+- R4 (fim da janela de migração, depois que a versão antiga sai do suporte) é feito em duas
+  etapas, que podem ser desacopladas: ① remover o código de compatibilidade (leitura dos registros
+  de conexão antigos, `legacyRouteHint`, parsing do formato antigo, limpeza dos arquivos soltos
+  antigos) — só código, risco baixo; ② limpeza da canonical key — na inicialização do CLI do
+  Server da versão R4, reescreve de uma vez a canonical key como server-local key, mescla o
+  histórico local do próprio host remoto e remove a camada de alias. A limpeza é totalmente
+  transparente para o Desktop: o wire de localização de workspace do Source Server no R3 só
+  transporta `{ workspacePath, legacyRouteHint? }`, e o `workspaceIdentity` stable é usado apenas
+  para o isolamento do lado Desktop/Host, sendo a canonical sempre um detalhe interno de armazenamento
+  do Core. Portanto, a limpeza é apenas uma atualização de versão do Server remoto, sem exigir uma
+  release coordenada do Controlador; quando o cronograma apertar, pode ser adiada para depois do
+  R4.
 
-## 10. Controller 投影与多 Source 产品面（D11）
+## 10. Projeção do Controller e superfície de produto multi-Source (D11)
 
-### 10.1 投影演进
+### 10.1 Evolução da projeção
 
-Source 管理状态与命令由 Window Host 单点拥有：
+O estado e os comandos de gestão de Sources são possuídos em um único ponto pelo Window Host:
 
 ```text
 Desktop Renderer ── SourceServerManagementService ──► Directory + ConnectionManager
-Desktop Renderer ── source-settings attachment ─────► 在线 Source 配置 channels
-Mobile /remote   ── existing workspace attachment ──► 禁止 management/source-settings
+Desktop Renderer ── source-settings attachment ─────► channels de configuração online do Source
+Mobile /remote   ── existing workspace attachment ──► proibido management/source-settings
 ```
 
-- `getRecentOperationLogs(profileId)` 查询所属设备最近一次连接或更新的最多 100 行日志；`onDidAppendOperationLog` 通知界面重读。唯一记录归 Host ConnectionManager 的运行时内存，更新后的内部重连属于同一次操作，新操作替换旧记录；并发迟到输出不能覆盖，身份换代迁移到新的 Source/Profile，旧设备保留此前历史。关闭面板不清除，删除对应记录及 Host 退出时清理，不写入 settings。
-- `SourceServerManagementService` 提供初始 directory/state snapshot、单调 generation 状态增量、
-  connect/disconnect/update/rename/preferred/remove 与迁移计数；Directory 变化必须通过完整 snapshot 或 typed
-  directory delta 刷新 `servers/profiles/history`，不能只更新 `states`。迁移计数按 Source 表达
-  `available | requires-connection | value`，离线不能伪装为 0。Renderer 不再直接整数组覆盖 settings。
-- `source-settings` attachment 不绑定 workspace、不启动 Agent runtime，只暴露
-  MCP/skills/plugins/commands/hooks/subagents/memory/output/settings-sync 等非 Provider 配置 channels；Source 离线即销毁。
-  Provider 配置面不在其中：模型设置页绑定本地（§8.2），远端配置由 Provisioning 下发（§8.3）。
-- 两项能力只在 `desktop-continuous` attachment 注册，`web-remote-replayable` 即使构造 scope 也由 Host
-  拒绝；手机只继续消费既有 workspace/task 投影。
+- `getRecentOperationLogs(profileId)` consulta até 100 linhas de log da última conexão ou
+  atualização do dispositivo correspondente; `onDidAppendOperationLog` notifica a interface para
+  reler. O registro único pertence à memória de runtime do ConnectionManager do Host; uma
+  reconexão interna atualizada faz parte da mesma operação, e uma nova operação substitui o
+  registro antigo; saídas concorrentes que chegam atrasadas não podem sobrescrever, e a troca de
+  identidade migra para o novo Source/Profile, mantendo o dispositivo antigo com o histórico
+  anterior. Fechar o painel não limpa nada: a limpeza ocorre ao remover o registro correspondente e
+  na saída do Host, e nada é gravado em settings.
+- `SourceServerManagementService` oferece o snapshot inicial de directory/state, o incremento de
+  estado por generation monotônica, connect/disconnect/update/rename/preferred/remove e a
+  contagem de migração; mudanças no Directory precisam ser aplicadas por snapshot completo ou por
+  delta de directory tipado para atualizar `servers/profiles/history`, e não é permitido atualizar
+  apenas `states`. A contagem de migração é expressa por Source como
+  `available | requires-connection | value`, e o offline não pode se passar por 0. O Renderer não
+  sobrescreve mais o settings com o array inteiro.
+- O attachment `source-settings` não é vinculado a workspace nem inicia o Agent runtime, e expõe
+  apenas channels de configuração não Provider, como MCP/skills/plugins/commands/hooks/subagents/
+  memory/output/settings-sync; é destruído assim que o Source fica offline.
+  A superfície de configuração de Provider não está nele: a página de settings de modelo é
+  vinculada ao local (§8.2) e a configuração remota é enviada pelo Provisioning (§8.3).
+- As duas capacidades são registradas apenas no attachment `desktop-continuous`; o
+  `web-remote-replayable` é rejeitado pelo Host mesmo que o scope seja construído; o celular segue
+  consumindo apenas as projeções existentes de workspace/task.
 
-- `ControllerProjection` 的 source scope 从 `remote\0remoteSessionId\0workspaceKey` 升级为以 `sourceServerId` 为一级维度（本地 source 保持 `local\0workspaceKey`）；`controller/workspaces` 的 workspace facts 增加 `sourceServerId`、`serverDisplayName`、在线状态与「最近在线时间」。
-- R1 的订阅/seq/gap/resync、query 级失效、single-flight、离线冻结语义全部不变。
-- workspace、timeline、grouped、archived 与 pinned 入口保留任务的 Source 归属；项目列表平铺，
-  设备信息、离线占位、排序和动作以[项目导航规格](../remote/project-first-remote-navigation-spec.md)为准。
-  展示名不参与身份、去重或持久化隔离，不以设备 online 代替 attachment ready。
-- 写操作（打开/pin/archive/继续）始终路由到任务所属 Source Server；离线时明确失败并回滚乐观状态（R1 fail-closed 语义）。
+- O source scope de `ControllerProjection` evolui de `remote\0remoteSessionId\0workspaceKey` para
+  ter `sourceServerId` como primeira dimensão (o source local mantém `local\0workspaceKey`); os
+  workspace facts de `controller/workspaces` ganham `sourceServerId`, `serverDisplayName`, o
+  estado online e o "último horário online".
+- As semânticas de assinatura/seq/gap/resync do R1, a invalidação em nível de query, o
+  single-flight e o congelamento offline permanecem inalteradas.
+- As entradas de workspace, timeline, grouped, archived e pinned preservam a atribuição de Source
+  da task; a lista de projetos é achatada, e as informações de dispositivo, o placeholder offline, a
+  ordenação e as ações seguem a [especificação de navegação de projetos](../remote/project-first-remote-navigation-spec.md).
+  O nome de exibição não participa da identidade, da deduplicação nem do isolamento de
+  persistência, e o online do dispositivo não substitui o attachment ready.
+- As operações de escrita (abrir/pin/archive/continuar) são sempre roteadas para o Source Server
+  ao qual a task pertence; quando offline, falham explicitamente e revertem o estado otimista
+  (semântica fail-closed do R1).
 
-### 10.2 产品面清单
+### 10.2 Lista da superfície de produto
 
-- [连接 UX](remote-device-connection-ux-spec.md)维护统一五态、三屏向导、安装确认、设备卡、日志、只读任务清单与更新提示；不再使用旧三 tab/五步方案。
-- [项目导航](../remote/project-first-remote-navigation-spec.md)维护平铺项目、连接后选目录、原项目续接、断线和重启恢复；远程无项目聊天 UI 停用，数据保留。
-- 首次持续运行说明位于目录页，一次性、非阻断，沿用版本化 onboarding 记录；不再弹出要求确认的边界模态。
-- [投影与持久化兼容](remote-domain-simplification-and-conversation-workspace-spec.md)维护 open set、显式关闭、strict schema 与 R4 剩余迁移。
-- [Renderer 重挂](../remote/desktop-remote-session-renderer-reattach.md)维护设备上线后的项目挂回；底层连接生命周期仍以 §7 为准。
-- 模型设置绑定本地（§8.2），Provider 自动下发（§8.3）；其它能力页遵循其 User/Workspace Scope。
-- 删除当前物理连接或 recovery owner 使用的 Profile 等价于当前窗口显式断开整个 Source：取消 timer/flight，释放连接、清除 target/secret 并发布 terminal offline。即使有其它 active Profile 也不自动切换；删除非当前 Profile 不打断其它连接。
-- uninstall 后由用户决定是否移除本机记录；保留数据卸载重装的身份连续性以 §3 为准。
+- [UX de conexão](remote-device-connection-ux-spec.md) mantém o assistente unificado de cinco
+  estados e três telas, a confirmação de instalação, o card de dispositivo, os logs, a lista de
+  tasks somente leitura e os avisos de atualização; o antigo esquema de três tabs/cinco passos
+  não é mais usado.
+- [Navegação de projetos](../remote/project-first-remote-navigation-spec.md) mantém os projetos
+  achatados, a seleção de diretório após a conexão, a retomada de projetos existentes, a
+  recuperação após desconexão e reinício; a UI de chat sem projeto no remoto é desativada, mas os
+  dados são preservados.
+- A primeira explicação de execução contínua fica na página de diretório, é pontual, não
+  bloqueante e segue o registro de onboarding versionado; o modal de fronteira que exigia
+  confirmação não aparece mais.
+- [Compatibilidade de projeção e persistência](remote-domain-simplification-and-conversation-workspace-spec.md)
+  mantém o open set, o fechamento explícito, o strict schema e as migrações restantes do R4.
+- [Reanexação do Renderer](../remote/desktop-remote-session-renderer-reattach.md) mantém o
+  reanexamento de projetos quando o dispositivo fica online; o ciclo de vida da conexão
+  subjacente continua conforme §7.
+- O settings de modelo é vinculado ao local (§8.2) e o Provider é enviado automaticamente
+  (§8.3); as demais páginas de capacidade seguem seu próprio User/Workspace Scope.
+- Remover o Profile usado pela conexão física atual ou pelo recovery owner equivale à desconexão
+  explícita de todo o Source pela janela atual: cancela timer/flight, libera a conexão, limpa
+  target/secret e publica um offline terminal. Mesmo havendo outros Profiles ativos, não há
+  troca automática; remover um Profile que não é o atual não interrompe as outras conexões.
+- Após o uninstall, o usuário decide se remove os registros da própria máquina; a desinstalação
+  com reinstalação preserva a continuidade de identidade conforme §3.
 
-## 11. 旧主链移除与保留清单
+## 11. Remoção da cadeia principal antiga e lista de retenção
 
-R3 内删除或禁用的可运行路径：
+Caminhos executáveis removidos ou desabilitados dentro do R3:
 
-| 处理项                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | R3 落点                                                                                                                                                                                                                                                                                                                          |
+| Item tratado                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Destino no R3                                                                                                                                                                                                                                                                                                                          |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `desktop-attached-remote` provider 下发主链与本地权威混装服务集合                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 删除 `createRemoteWorkspaceServiceCollection` 及其只验证旧分支的测试；统一只保留全转发集合                                                                                                                                                                                                                                       |
-| Web/Lite 旧远程连接入口 `POST /api/connect-remote` + `/ws/remote/:id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 两条配对 route 一并删除，并以 404 不可达测试锁定；Server 不再能启动临时 stdio 主链                                                                                                                                                                                                                                               |
-| 把 route-derived identity 当作正式 Controller/workspace identity 的调用方                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | 删除零调用方；stable identity 继续由 `sourceServerId + workspacePath` 构造                                                                                                                                                                                                                                                       |
-| R3 早期的 Provider「一键同步」与模型设置页设备选择器：`provider-sync` channel、`IProviderSyncService`、`packages/services/src/provider-sync/*`、`shared/src/source-server/contracts.ts` 的 `encryptedProviderSyncSnapshotSchema` / `providerSync*` schema、`ModelProviderSourceControls.tsx`、`useSourceSettingsAttachment.ts`、`providerSyncSnapshot.ts`、`packages/ui/src/lib/remoteWorkspaceProviderSync.ts`、`packages/ui/src/lib/zcodeModelSelectionResolution.ts`、`AppSettings.lastAgentSettingsSourceServerId\|providerSyncDefaultModel\|providerSyncRuntimeCredentialBindings`、`ServiceChannels.ModelProvider\|ProviderSync`、`oauthService.exportSessionForSync\|replaceSessionForSync`、对话横幅「去同步」动作 | 2026-09-07 合并 Provider 重构 M2 时随路线 A 一并删除（详见 [r3-provider-refactor-merge.md（已归档）](../archive/remote-r3/r3-provider-refactor-merge.md)）；替代物为 Provider Provisioning（§8.3）与绑定本地的模型设置页（§8.2）。`source-settings` scope 与 `sourceSettingsServiceCollection.ts` 保留，只服务非 Provider 配置面 |
+| A cadeia principal e o conjunto de serviços com autoridade local misturada sob o provider `desktop-attached-remote`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Remover `createRemoteWorkspaceServiceCollection` e seus testes que só validam o ramo antigo; manter unicamente o conjunto de encaminhamento total                                                                                                                                                                                                                                       |
+| A antiga entrada de conexão remota do Web/Lite `POST /api/connect-remote` + `/ws/remote/:id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Remover as duas routes de pareamento em conjunto e travar com testes de 404 inacessível; o Server não pode mais iniciar a cadeia principal temporária por stdio                                                                                                                                                                                                                                               |
+| Chamadores que tratam a identity derivada da route como a identity oficial de Controller/workspace                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Remover os chamadores sem chamada; a identity stable continua sendo construída por `sourceServerId + workspacePath`                                                                                                                                                                                                                                                       |
+| O "sincronizar em um clique" do Provider e o seletor de dispositivo da página de settings de modelo, do começo do R3: channel `provider-sync`, `IProviderSyncService`, `packages/services/src/provider-sync/*`, os schemas `encryptedProviderSyncSnapshotSchema` / `providerSync*` de `shared/src/source-server/contracts.ts`, `ModelProviderSourceControls.tsx`, `useSourceSettingsAttachment.ts`, `providerSyncSnapshot.ts`, `packages/ui/src/lib/remoteWorkspaceProviderSync.ts`, `packages/ui/src/lib/zcodeModelSelectionResolution.ts`, `AppSettings.lastAgentSettingsSourceServerId\|providerSyncDefaultModel\|providerSyncRuntimeCredentialBindings`, `ServiceChannels.ModelProvider\|ProviderSync`, `oauthService.exportSessionForSync\|replaceSessionForSync` e a ação "ir sincronizar" do banner de conversa | Removidos em conjunto pela rota A quando o refactor do Provider foi mesclado na fase M2, em 2026-09-07 (ver [r3-provider-refactor-merge.md (arquivado)](../archive/remote-r3/r3-provider-refactor-merge.md)); os substitutos são o Provider Provisioning (§8.3) e a página de settings de modelo vinculada ao local (§8.2). O scope `source-settings` e o `sourceSettingsServiceCollection.ts` são mantidos, servindo apenas à superfície de configuração não Provider |
 
-2026-09-29 视觉收尾：平铺项目导航上线后，删除无生产引用的 `WorkspaceSourceGroupHeader` 及设备分组/折叠偏好辅助函数与旧专属测试；`getWorkspaceSourceServerId` 及精确 legacy alias 解析继续保留。此清理不触及下列 R4 兼容链。
+2026-09-29, acabamento visual: depois que a navegação de projetos achatados entrou em produção,
+foram removidos o `WorkspaceSourceGroupHeader` sem referência em produção, os helpers de
+preferências de agrupamento/colapso de dispositivos e seus testes dedicados antigos; o
+`getWorkspaceSourceServerId` e a resolução de alias legacy preciso são mantidos. Essa limpeza não
+toca a cadeia de compatibilidade do R4 listada abaixo.
 
-R3 保留源码但已从生产入口不可达、R4 再物理删除：
+Código-fonte mantido no R3, mas já inacessível a partir das entradas de produção, removido
+fisicamente no R4:
 
-- `packages/server/src/remote/connect.ts`（及 `handshake.ts`、`stdio-socket.ts` 直接旧链依赖）、`deploy.ts`（及仍被它静态调用的 `remoteAssetDeployDecision.ts`、`zcodeAgentDeploy.ts`）与 `packages/server/src/entry-stdio.ts`。R3 先通过删除 `/api/connect-remote` 和 Desktop 旧调用方切断运行路径，保留一个迁移窗口用于 R2 回滚/升级排查，避免在主链稳定期混入大范围历史模块删除；`pnpm dep:refs` 已确认后两者仍有生产调用方，不能按死代码删除；
-- `buildRemoteWorkspaceIdentity` 的 SSH/WSL/Docker 构造。Host 仍在没有历史精确值时用它生成 `legacyRouteHint`，它不是正式 stable identity；随 R4 删除 hint 时一并删除；
-- 旧连接记录（`lastWorkspaceSession` remote entry、`remote-workspace:*` credential key）的读取与解析；
-- `parseRemoteWorkspaceIdentity` 对 `remote:ssh/wsl/docker:*` 的解析（远端迁移扫描用）；
-- 远端 `~/.zcode/server` 旧散文件（未升级 Desktop 的回滚依赖）；
-- 迁移 ledger/报告的兼容读取。
+- `packages/server/src/remote/connect.ts` (e as dependências diretas da cadeia antiga:
+  `handshake.ts`, `stdio-socket.ts`), `deploy.ts` (e `remoteAssetDeployDecision.ts`,
+  `zcodeAgentDeploy.ts`, ainda chamados estaticamente por ele) e
+  `packages/server/src/entry-stdio.ts`. O R3 primeiro corta o caminho de execução removendo
+  `/api/connect-remote` e os antigos chamadores do Desktop, mantendo uma janela de migração para
+  rollback/diagnóstico do R2, para não misturar uma remoção ampla de módulos históricos no
+  período de estabilidade da cadeia principal; o `pnpm dep:refs` já confirmou que os dois
+  últimos ainda têm chamadores em produção, então não podem ser removidos como código morto;
+- A construção SSH/WSL/Docker de `buildRemoteWorkspaceIdentity`. O Host ainda a usa para gerar
+  o `legacyRouteHint` quando não há um valor histórico preciso; não é a stable identity oficial, e
+  é removida junto com o hint no R4;
+- A leitura e o parsing dos registros de conexão antigos (remote entry de `lastWorkspaceSession`,
+  credential key `remote-workspace:*`);
+- O parsing de `remote:ssh/wsl/docker:*` por `parseRemoteWorkspaceIdentity` (usado na varredura da
+  migração remota);
+- Os arquivos soltos antigos de `~/.zcode/server` no remoto (dependência de rollback do Desktop
+  não atualizado);
+- A leitura de compatibilidade do ledger/relatório de migração.
 
-长期保留：`IRemoteBackend` 三实现的 exec/upload/detect 原语（Adapter 底座）、`kind:"server"` dev 直连、手机 attachment 全链路。
+Retidos em longo prazo: as primitivas exec/upload/detect das três implementações de
+`IRemoteBackend` (base dos Adapters), o dev de conexão direta `kind:"server"` e toda a cadeia de
+attachments do celular.
 
-## 12. 实施记录
+## 12. Registro de implementação
 
-原实施切片已完成，过程保存在 Git 历史。发布剩余项仍以[问题台账](r3-source-server-remote-open-issues.md)为准；
-本规格标为已实现不表示当前候选已完成全平台发布验证。
+Os cortes de implementação originais foram concluídos, e o processo está preservado no histórico
+Git. Os itens restantes de release continuam conforme o [caderno de problemas](r3-source-server-remote-open-issues.md);
+marcar esta especificação como implementada não significa que o candidato atual tenha concluído a
+validação de release em todas as plataformas.
 
-## 13. 验收映射与测试策略
+## 13. Mapeamento de aceitação e estratégia de testes
 
-- 总方案验收矩阵 REMOTE-01—15 全部由 R3 收口（REMOTE-01 已由 R1 覆盖，此处回归）。关键映射：REMOTE-02→§5.3；REMOTE-03→§4/§7；REMOTE-04/05→§7；REMOTE-06→§10；REMOTE-07（Agent 设置切换 Source）与 REMOTE-11（一键同步）随 2026-09-07 决策作废，替代验收为 §8.2 模型设置页绑定本地 + §8.3 Provisioning 首连屏障 / 重连重注册 / `unsupported` 拒连 / 手机 replayable 拒绝 stub / Secret 不进日志（E2E 落点 `SSH-P0-TASK-01` 的 `provider-provisioning-state.json` 断言）；REMOTE-08→§6.3；REMOTE-09/10→§3.2；REMOTE-12→R2 回归+§7 恢复；REMOTE-13→§5.3 卸载与 §10.2 卸载感知；REMOTE-14→§10.2；REMOTE-15→§5.1 合同测试。
-- 证据层按总方案 5.3：UI / Process（每窗口一 Host、远端每 root 一 daemon、每 workspace ≤1 Agent）/ Protocol（握手返回版本与 `sourceServerId`、写路由带 Source）/ Network（三 transport 承载同一 RPC、断线不杀远端、secret 不进日志）/ Persistence（迁移 ledger、Profile、同步结果可对账）/ Recovery（重连、Core 崩溃、升级后状态符合规则）。
-- 合同测试是「连接方式无关」的唯一证明方式：同一套用例分别以三种 Adapter + fake Core 运行；业务层测试全部不感知 transport。
+- Toda a matriz de aceitação do plano geral, REMOTE-01—15, é fechada pelo R3 (REMOTE-01 já é
+  coberta pelo R1, com regressão aqui). Mapeamentos principais: REMOTE-02→§5.3; REMOTE-03→§4/§7;
+  REMOTE-04/05→§7; REMOTE-06→§10; REMOTE-07 (troca de Source nos settings do Agent) e
+  REMOTE-11 (sincronizar em um clique) foram invalidados pela decisão de 2026-09-07, e a aceitação
+  substituta é a página de settings de modelo vinculada ao local de §8.2 + a barreira de primeira
+  conexão do Provisioning de §8.3 / re-registro na reconexão / recusa de conexão por `unsupported` /
+  recusa de stub replayable no celular / Secret fora dos logs (ponto de E2E: asserção de
+  `provider-provisioning-state.json` em `SSH-P0-TASK-01`); REMOTE-08→§6.3; REMOTE-09/10→§3.2;
+  REMOTE-12→regressão do R2+§7 recuperação; REMOTE-13→§5.3 desinstalação e §10.2 detecção de
+  desinstalação; REMOTE-14→§10.2; REMOTE-15→testes de contrato de §5.1.
+- A camada de evidências segue o item 5.3 do plano geral: UI / Process (um Host por janela, um
+  daemon por root remoto, ≤1 Agent por workspace) / Protocol (o handshake retorna a versão e o
+  `sourceServerId`, a escrita de rota carrega o Source) / Network (os três transports carregam o
+  mesmo RPC, a desconexão não mata o remoto, secret não vai para o log) / Persistence (ledger de
+  migração, Profile, resultados de sincronização reconciliáveis) / Recovery (reconexão, crash do
+  Core, estado após upgrade conforme as regras).
+- Testes de contrato são a única prova de "independente da forma de conexão": o mesmo conjunto de
+  casos é executado com os três Adapters + Core fake; os testes da camada de negócio não têm
+  ciência do transport.
 
-## 14. 可观测性
+## 14. Observabilidade
 
-- 连接状态机每次迁移、bootstrap 各阶段、迁移 saga 各阶段使用生产 `info`；自动重试/探测失败用 `warn`；握手/迁移不可恢复失败用 `error`；WS frame、探测心跳等高频细节一律 `debug`。
-- `RemoteWorkspaceConnectionLog` 继续按 `windowId + requestId` 归属，bootstrap 全阶段结构化上报（检测/上传进度/安装/daemon/握手/迁移门）。
-- Process Monitor 增加 Source Server 维度：连接状态、`sourceServerId`、daemon 版本、attachment 数。
-- ingress token、capability、Provisioning Envelope（Personal Layer 与 allowlist 凭据）、SSH 凭据在任何日志/遥测中不可出现；Provisioning 结果日志只记录 `environmentKey`、trigger、status、耗时与计数。
+- A máquina de estados de conexão usa `info` de produção em cada transição, em cada fase do
+  bootstrap e em cada fase da saga de migração; falha de retentativa automática/sondagem usa
+  `warn`; falha irrecuperável de handshake/migração usa `error`; detalhes de alta frequência, como
+  frame WS e heartbeat de sondagem, usam `debug`.
+- `RemoteWorkspaceConnectionLog` continua atribuído por `windowId + requestId`, e o bootstrap
+  reporta todas as fases de forma estruturada (detecção/progresso de upload/instalação/daemon/
+  handshake/portão de migração).
+- O Process Monitor ganha a dimensão Source Server: estado da conexão, `sourceServerId`, versão do
+  daemon e número de attachments.
+- ingress token, capability, Provisioning Envelope (Personal Layer e credenciais da allowlist) e
+  credenciais SSH não podem aparecer em nenhum log/telemetria; o log de resultado do Provisioning
+  registra apenas `environmentKey`, trigger, status, tempo decorrido e contagens.
 
-## 15. 已决事项与遗留确认
+## 15. Decisões tomadas e confirmações pendentes
 
-以下事项已随评审反馈定案（2026-08-18）：
+Os itens a seguir foram decididos com o feedback de revisão (2026-08-18):
 
-1. **回退与混连兼容**：远端不做破坏性 key 重写，采用 canonical key + alias 解析（§3.2/§9.2）。单线路用户回退旧版本后历史完整、可续聊，新旧混连读写同一批行；server-local 清洁化留待 R4。
-2. **WSL 通道**：一期统一 stdio 桥，不做宿主 localhost 直连（留作后续性能优化）。
-3. **远端 automation**：一期不支持（调度器在窗口 Host 内，移植成本独立且不小；方案已把错过补跑列为后续能力）；daemon 常驻为后续实现铺路，架构不设障碍。
-4. **模型配置下发的加密边界**（原「一键同步加密」，2026-09-07 随路线 A 改由 Provisioning 承接）：wire 不做应用层二次加密（credential cipher 是本机指纹密钥，跨机不可行且通道受信）；Source 端解密 allowlist 值、目标端用自身 Credential Store 重新加密落盘；secret 不落日志（§8.3、provider-provisioning.md）。
-5. **`kind:"server"` dev 入口**：接入 ingress token（同一客户端代码路径）。
-6. **窗口语义**：一期按单窗口设计与验收，启动自动重连由主窗口 Host 执行。
+1. **Compatibilidade de rollback e coexistência**: no remoto não há reescrita destrutiva de keys;
+   adota-se canonical key + resolução de alias (§3.2/§9.2). O usuário de uma única linha, após o
+   rollback para a versão antiga, tem o histórico completo e pode continuar a conversa; a
+   coexistência entre versões nova e antiga lê e escreve o mesmo conjunto de linhas; a limpeza
+   server-local fica para o R4.
+2. **Canal WSL**: na primeira fase, ponte stdio unificada, sem conexão direta ao localhost do host
+   (deixado para otimização de performance posterior).
+3. **Automations remotas**: não suportadas na primeira fase (o agendador está no Window Host, e o
+   custo de portar é independente e considerável; o plano já lista a execução de tarefas
+   perdidas como capacidade posterior); o daemon residente prepara o terreno para a implementação
+   posterior, e a arquitetura não cria obstáculos.
+4. **Limite de criptografia do envio de configuração de modelo** (originalmente "criptografia do
+   sincronizar em um clique", em 2026-09-07 assumida pela rota A, que passou a ser assumida pelo
+   Provisioning): o wire não faz uma segunda criptografia de camada de aplicação (o cipher de
+   credential é uma chave de impressão digital local, inviável entre máquinas e com canal
+   confiável); o lado do Source decifra os valores da allowlist e o lado de destino regrava em
+   disco com o seu próprio Credential Store; secret não vai para o log (§8.3,
+   provider-provisioning.md).
+5. **Entrada dev `kind:"server"`**: usa o ingress token (o mesmo caminho de código do cliente).
+6. **Semântica de janela**: projetada e aceita como janela única na primeira fase, e a reconexão
+   automática na inicialização é executada pelo Host da janela principal.
 
-遗留确认（非阻塞）：
+Confirmações pendentes (não bloqueantes):
 
-- 多线路历史合并的窄边缘（§9.3：从被合并线路回退后该线路视图看不到已合并历史）的灰度文案口径。
-- 以下五项来自 Provider 重构合并（2026-09-13 自 [r3-provider-refactor-merge.md（已归档）](../archive/remote-r3/r3-provider-refactor-merge.md) §7 并入）：
-  - 若产品仍需要「查看 / 手动同步某台远端的模型配置」，在 `IProviderSettingsService` 之上重建只读设备视图 + 显式「立即下发」按钮（复用 `coordinator.requestAll("personal-config")`），不复活 `provider-sync` / journal 体系。
-  - Provisioning lane 的 Environment key 由 `buildRemoteEnvironmentKey(target)` 按 transport 派生，未接入 `sourceServerId`；同一 Source 经不同线路连接会形成两条 lane（结果幂等，但重复首连同步）。可评估在 descriptor 携带 `sourceServerId` 时以其为 key。
-  - `REMOTE_WORKSPACE_RPC_CONTRACT_VERSION` 仍为 v1，但 channel 集合已变；当前靠「兼容门默认同版本」兜底，若未来放宽 `zcodeCompatibility.minCompatibleVersion`，需先决定是否升 v2 并在握手中协商。
-  - `zcode uninstall` allowlist 不含 `config/`，`config/provider/zcode-builtin-*.json` 卸载后会留在 `preservedPaths`；是否纳入 allowlist 待定。
-  - R3-ISSUE-012（API Key 明文持久化规格冲突）已按明文 Personal Config 新基线关闭为不修复，见问题台账。
+- A redação do gradual rollout para a borda estreita da mesclagem do histórico de múltiplas
+  linhas (§9.3: após o rollback a partir de uma linha mesclada, a visão daquela linha não mostra
+  o histórico já mesclado).
+- Os cinco itens a seguir vêm da mesclagem do refactor do Provider (incorporados em 2026-09-13 a
+  partir de [r3-provider-refactor-merge.md (arquivado)](../archive/remote-r3/r3-provider-refactor-merge.md) §7):
+  - Caso o produto ainda precise de "ver / sincronizar manualmente a configuração de modelo de
+    um remoto específico", reconstruir uma visão de dispositivo somente leitura sobre
+    `IProviderSettingsService` com um botão explícito de "enviar agora" (reaproveitando
+    `coordinator.requestAll("personal-config")`), sem ressuscitar o sistema `provider-sync` /
+    journal.
+  - A Environment key da lane de Provisioning é derivada por
+    `buildRemoteEnvironmentKey(target)` conforme o transport e não é ligada ao `sourceServerId`;
+    o mesmo Source conectado por linhas diferentes forma duas lanes (o resultado é idempotente,
+    mas a sincronização de primeira conexão é duplicada). Pode-se avaliar usar o `sourceServerId`
+    como key quando ele for carregado no descriptor.
+  - `REMOTE_WORKSPACE_RPC_CONTRACT_VERSION` continua v1, mas o conjunto de channels mudou; hoje
+    isso é coberto pela "porta de compatibilidade que exige a mesma versão por padrão". Se no
+    futuro `zcodeCompatibility.minCompatibleVersion` for relaxado, é preciso primeiro decidir se
+    se sobe para v2 e negociar isso no handshake.
+  - A allowlist de `zcode uninstall` não inclui `config/`, e por isso
+    `config/provider/zcode-builtin-*.json` permanece em `preservedPaths` após a desinstalação;
+    incluí-la ou não na allowlist está pendente.
+  - R3-ISSUE-012 (conflito de especificação sobre a persistência de API Key em texto claro) foi
+    fechado como "não corrigir" conforme a nova linha de base de Personal Config em texto claro,
+    conforme o caderno de problemas.

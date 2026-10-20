@@ -1,55 +1,71 @@
-# 本地评测 Computer Use Helper(dev 构建)— Runbook
+# Computer Use Helper local de avaliação (build dev) — Runbook
 
-> 本笔记记录 dev Helper 构建相关的关键事实。dev Helper 的构建脚本、SEA 打包、
-> TCC 持久化流程都在 z-code-toolset 仓——完整流程见 z-code-toolset 的
-> `docs/refactor-port-specs/DEV-HELPER-TCC-RUNBOOK.md` 与
-> `docs/cua-permission-broker/`。本文件只登记跨仓可见、影响评测的关键变更。
+> Esta nota registra os fatos principais relacionados ao build do Helper dev. Os scripts
+> de build do Helper dev, o empacotamento SEA e o fluxo de persistência do TCC estão no
+> repositório z-code-toolset — o fluxo completo está em
+> `docs/refactor-port-specs/DEV-HELPER-TCC-RUNBOOK.md` e em
+> `docs/cua-permission-broker/` do z-code-toolset. Este arquivo registra apenas as
+> mudanças relevantes visíveis entre repositórios e que afetam a avaliação.
 
-## 稳定 TCC 授权（一次性设置，消除每次 rebuild 重新授权）
+## Autorização TCC estável (configuração única, elimina a reautorização a cada rebuild)
 
-**问题**：dev Helper 每次 rebuild 后 CDHash 变化，macOS 把它当新 app，要求重新授予
-Accessibility + Screen Recording——开发迭代时每轮都要手动授权，严重拖慢速度。
+**Problema**: após cada rebuild do Helper dev o CDHash muda, o macOS o trata como um
+app novo e exige conceder novamente Accessibility + Screen Recording — durante a
+iteração de desenvolvimento é preciso autorizar manualmente a cada rodada, o que
+atrasa muito o trabalho.
 
-**解决**（z-code 仓 `scripts/ensure-cua-helper-dev-identity.mjs`）：一次性创建自签
-证书 `zcode-cua-helper-dev` 存入 login keychain，此后所有 dev Helper 用它签名 →
-designated requirement 锚定证书公钥（稳定）而非 CDHash → **TCC 授权跨 rebuild 持久**。
+**Solução** (no repositório z-code, `scripts/ensure-cua-helper-dev-identity.mjs`):
+criar uma vez o certificado autoassinado `zcode-cua-helper-dev` e armazená-lo no
+login keychain; a partir daí todos os Helpers dev são assinados com ele → o
+designated requirement passa a ancorar na chave pública do certificado (estável) e
+não no CDHash → **a autorização TCC persiste entre rebuilds**.
 
-**标准流程**（新机器 / 首次）：
+**Fluxo padrão** (máquina nova / primeira vez):
 
 ```bash
-# ⚠️ 必须在本地 GUI 终端（Terminal/ghostty）跑，SSH 会话会被 macOS 拒绝
-#    （"User interaction is not allowed"——keychain 写操作要求 GUI audit session）
+# ⚠️ Precisa ser executado em um terminal GUI local (Terminal/ghostty); sessões SSH são rejeitadas pelo macOS
+#    ("User interaction is not allowed" — a escrita no keychain exige uma GUI audit session)
 cd <z-code 仓> && node scripts/ensure-cua-helper-dev-identity.mjs
-# 弹出信任对话框时点「始终信任」。之后 rebuild 永远不再弹 TCC 授权。
+# Ao aparecer a caixa de diálogo de confiança, clique em «Sempre confiar». Depois disso,
+# nenhum rebuild exibe novamente a autorização TCC.
 ```
 
-**SSH/agent 会话的协作流程**（2026-08-16 固化）：
+**Fluxo de colaboração em sessões SSH/agent** (consolidado em 2026-08-16):
 
-1. 任何会话（含 SSH）跑一次 `node scripts/ensure-cua-helper-dev-identity.mjs`——
-   它会生成并把密钥**持久化**到 `~/.zcode/cua-helper-dev-identity/`，然后 import
-   失败并给出精确指引（`import_needs_gui_session`）。
-2. 用户在**本地 GUI 终端**跑 `node scripts/ensure-cua-helper-dev-identity.mjs
-   --reimport`——复用第 1 步持久化的同一密钥（不重新生成），完成 import + trust。
-3. 之后 `pnpm build:cua-helper` 自动用稳定身份签名；构建输出不再出现 adhoc 警告。
+1. Qualquer sessão (inclusive SSH) executa uma vez `node scripts/ensure-cua-helper-dev-identity.mjs` —
+   ela gera e **persiste** a chave em `~/.zcode/cua-helper-dev-identity/`, depois o import
+   falha e são dadas instruções precisas (`import_needs_gui_session`).
+2. O usuário executa em um **terminal GUI local** `node scripts/ensure-cua-helper-dev-identity.mjs
+   --reimport` — reutiliza a mesma chave persistida no passo 1 (não gera outra), concluindo
+   o import + trust.
+3. Depois disso, `pnpm build:cua-helper` assina automaticamente com a identidade estável; a
+   saída do build não mostra mais o aviso de adhoc.
 
-**防护**（同步固化）：
-- build 脚本在退回 adhoc 签名时会打印醒目黄色警告（说明 TCC 后果 + 一次性修复
-  命令）；测试可用 `ZCODE_CUA_HELPER_QUIET_ADHOC=1` 静音。
-- `ZCODE_CUA_ADDON_PATH=<producer>/build/Release/ax_native.node` 允许 producer
-  worktree 的 freshly-built addon 直接进 helper 包——否则 build 静默使用 consumer
-  `node_modules` 里的**旧 addon**（按 pinned commit 编译），producer native 修复
-  根本没进包，白烧一轮 TCC 授权才能发现（2026-08-16 实际踩坑）。
+**Proteções** (consolidadas junto):
+- o script de build imprime um aviso destacado em amarelo quando volta para a assinatura
+  adhoc (explicando as consequências para o TCC e o comando de correção pontual); os
+  testes podem silenciá-lo com `ZCODE_CUA_HELPER_QUIET_ADHOC=1`.
+- `ZCODE_CUA_ADDON_PATH=<producer>/build/Release/ax_native.node` permite que o addon
+  recém-compilado no worktree do producer entre direto no pacote do helper — caso
+  contrário o build usa silenciosamente o **addon antigo** em `node_modules` do consumer
+  (compilado pelo commit fixado), a correção nativa do producer nunca entra no pacote e
+  só se descobre depois de perder uma rodada inteira de autorização TCC (problema real
+  em 2026-08-16).
 
-## Native 模块:sharp 已正确打进 dev Helper(wave-10)
+## Módulo nativo: o sharp já foi empacotado corretamente no Helper dev (wave-10)
 
-dev Helper 现在会把 `sharp` 的原生 prebuild 暂存进
-`ZCode Computer Use.app/Contents/Resources/node_modules/`(镜像产品侧 D-018 的做法)。
-`require('sharp')` 返回一个 function;RGBA→resize→JPEG 的功能管线已真机验证通过。
+O Helper dev agora armazena o prebuild nativo do `sharp` em
+`ZCode Computer Use.app/Contents/Resources/node_modules/` (espelhando a abordagem do lado do
+produto em D-018). `require('sharp')` retorna uma function; o pipeline funcional
+RGBA→resize→JPEG foi verificado em máquina real.
 
-- 修复脚本:`scripts/build-cua-helper-app.mjs`(z-code-toolset 仓)。
-- 此前症状:dev Helper 内 `require('sharp')` 失败,截图后端跑不了 resize / 编码。
-- 验证口径:wave-10 真机测试,functional RGBA→resize→JPEG pipeline 通过。
+- Script de correção: `scripts/build-cua-helper-app.mjs` (repositório z-code-toolset).
+- Sintoma anterior: dentro do Helper dev, `require('sharp')` falhava e o backend de
+  captura de tela não conseguia executar resize / codificação.
+- Critério de verificação: teste em máquina real da wave-10, pipeline funcional
+  RGBA→resize→JPEG aprovado.
 
-> 历史背景:产品侧 D-018(commit `f811c910fd`,`fix(desktop): package sharp into
-> ZCode.app for product CUA server`)已把 sharp 打进 product Helper;wave-10 把
-> 同一套暂存逻辑补进 dev Helper 构建脚本,消除 dev / product 在 sharp 上的差异。
+> Contexto histórico: do lado do produto, D-018 (commit `f811c910fd`, `fix(desktop): package sharp into
+> ZCode.app for product CUA server`) já empacotou o sharp no Helper do produto; a wave-10
+> adicionou a mesma lógica de staging ao script de build do Helper dev, eliminando a
+> diferença entre dev e produto no que se refere ao sharp.

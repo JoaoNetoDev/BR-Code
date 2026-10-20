@@ -1,70 +1,106 @@
-# 目录权限收回后仍挂回为可用远程会话
+# Permissão do diretório revogada ainda é religada como sessão remota utilizável
 
 Status: done
 
-## 预期
+## Expectativa
 
-桌面 SSH 指南的“单个目录失效”要求：目录不存在、变成文件或当前账号无访问权限时，仅该项目
-失败并提示目录不可用；设备与其他项目仍可恢复。不自动重建目录或删除历史。
+O requisito de "falha de diretório individual" do guia SSH do desktop: quando o diretório não
+existe, vira arquivo ou a conta atual não tem permissão de acesso, apenas aquele projeto
+falha e informa que o diretório está indisponível; o dispositivo e os demais projetos ainda
+podem ser recuperados. O diretório não é recriado automaticamente e o histórico não é apagado.
 
-## 当前证据
+## Evidência atual
 
-- 业务基线：`a13999a28927f629d0c64080a5096cf8b4f23bae`，服务器构建，独立 Linux SSH 目标。
-- case：`conversation-session-ssh-remote-directory-resilience.test.ts`，`R3_DIRECTORY_FAILURE_CASE=denied`。
-- 批次：`r3-server-20261009170002590-cabde7`，任务 `directory-denied`。
-- 步骤：同设备打开 A/B/C，保存真实 A/B 对话；切回 B，主动断开；将 A 权限改为 `000`；重连 B。
-- 结果：B/C 已恢复，A 的 `remoteSessionId` 仍为非空，未按“目录不可用”保留断开状态。
-  原始断言在验证 A 不可用时失败，未放宽断言。
-- 静态依据：`prepareRemoteWorkspaceIdentity` 只调用远端 `FileService.stat` 并检查类型为 directory。
-  Linux 对目录自身的 stat 成功并不证明当前账号可以遍历或读取其内容，因此该检查无法覆盖叶目录
-  权限被撤销的情况。
+- Baseline de negócio: `a13999a28927f629d0c64080a5096cf8b4f23bae`, build do servidor, alvo SSH
+  Linux independente.
+- case: `conversation-session-ssh-remote-directory-resilience.test.ts`,
+  `R3_DIRECTORY_FAILURE_CASE=denied`.
+- Lote: `r3-server-20261009170002590-cabde7`, tarefa `directory-denied`.
+- Passos: abrir A/B/C no mesmo dispositivo, salvar as conversas reais de A/B; voltar para B e
+  desconectar ativamente; alterar as permissões de A para `000`; reconectar B.
+- Resultado: B/C foram recuperados, mas o `remoteSessionId` de A continuava não vazio, sem manter
+  o estado desconectado como "diretório indisponível". A asserção original falhou ao validar
+  que A estava indisponível, e a asserção não foi afrouxada.
+- Base estática: `prepareRemoteWorkspaceIdentity` chama apenas o `FileService.stat` remoto e
+  verifica se o tipo é directory. No Linux, o `stat` da própria pasta ter sucesso não prova que a
+  conta atual consiga percorrer ou ler o conteúdo dela; portanto essa verificação não cobre o
+  caso de permissão da pasta folha ter sido revogada.
 
-## 运行身份复核（2026-10-10）
+## Revisão da identidade de execução (2026-10-10)
 
-- 批次 `r3-server-20261009221305938-a3e800`，任务 `directory-denied`。
-- `directory-resilience.json` 记录 SSH 用户 UID 为 1000，Core `/proc/<pid>/status` 的 real / effective /
-  saved / filesystem UID 均为 1000；非 root 运行。
-- 同一 SSH 用户对 A 的 `test -r` / `test -x` 为 `INACCESSIBLE`，`ls` 为 `READ_DENIED`。
-- 重连 B 后，A 的 `remoteSessionId` 仍非空，第二个独立目标复跑也得到相同行为。
-  B 保持原激活路径，A 没有以目录不可用状态隔离。实际拒绝与 session 挂回的记录在同一
-  case 的 artifact 中，排除了测试账号特权造成的误判。
+- Lote `r3-server-20261009221305938-a3e800`, tarefa `directory-denied`.
+- `directory-resilience.json` registra o UID do usuário SSH como 1000; em `/proc/<pid>/status` do
+  Core, os UIDs real / effective / saved / filesystem são todos 1000; execução sem root.
+- Para o mesmo usuário SSH, `test -r` / `test -x` sobre A retornaram `INACCESSIBLE` e `ls`
+  retornou `READ_DENIED`.
+- Após reconectar B, o `remoteSessionId` de A continuou não vazio, e a segunda execução com alvo
+  independente reproduziu o mesmo comportamento. B manteve o caminho de ativação original e A
+  não foi isolado com o estado de diretório indisponível. A negação real e o registro de religação
+  da session estão no mesmo artifact do case, o que descarta um falso positivo causado por
+  privilégios da conta de teste.
 
-## 原回归轮次的待处理项
+## Pendências da rodada de regressão original
 
-业务修复需检查目录可访问性与恢复门禁的关系，不能仅以目录自身 `stat` 成功认定可用。
-本任务不修改业务。失败断言保持原样，后续可用相同独立故障 case 复验。
+A correção de negócio precisa verificar a relação entre acessibilidade do diretório e o portão de
+recuperação; não pode considerar o diretório como utilizável apenas porque o `stat` da própria
+pasta tem sucesso. Esta tarefa não modifica o negócio. A asserção que falhou permanece como
+está, e a verificação posterior pode ser refeita com o mesmo case de falha independente.
 
-本轮按要求只记录，未修改业务逻辑。权限恢复已由 case 的 finally 完成；所有故障均发生在
-该 case 的独立目标中。
+Nesta rodada, conforme solicitado, apenas o registro foi feito, sem alteração da lógica de
+negócio. A recuperação de permissão foi feita pelo finally do case; todas as falhas ocorreram no
+alvo independente desse case.
 
-## 根因修复（2026-10-10）
+## Correção da causa raiz (2026-10-10)
 
-上述段落保留原回归批次的证据。修复基于 `5516284630ccff3552f37466266de270af661188`，
-该版本的相关业务代码与原测试基线相同。
+Os parágrafos acima preservam as evidências da rodada de regressão original. A correção foi
+baseada em `5516284630ccff3552f37466266de270af661188`, cuja versão do código de negócio relevante
+é igual à do baseline de teste original.
 
-Host 的 `prepareRemoteWorkspaceIdentity` 改用已有远端 `FileService.readdir` 读取 `目录/.`。
-目录元信息可读不代表目录内容可访问；末尾 `/.` 同时要求目标目录可遍历，避免只读权限
-`0400` 的空目录被普通 `readdir(目录)` 放行。检查成功才绑定身份，检查路径不改变原项目身份。
-错误继续映射为原目录不可用错误，只使该项目失败；不新增 RPC、不要求更新 Server、不要求目录可写。
+O `prepareRemoteWorkspaceIdentity` do Host passou a usar o `FileService.readdir` remoto já
+existente para ler `diretório/.`. Metadados legíveis do diretório não significam conteúdo
+acessível; o sufixo `/.` exige adicionalmente que o diretório de destino seja percorrível, evitando
+que um diretório vazio com permissão somente de leitura `0400` seja liberado por um `readdir(diretório)`
+comum. A identidade só é vinculada quando a verificação passa, e o caminho verificado não altera a
+identidade original do projeto. O erro continua mapeado para o erro original de diretório
+indisponível, fazendo falhar apenas aquele projeto; nenhum RPC novo é adicionado, não é exigida
+atualização do Server e não é exigida permissão de escrita no diretório.
 
-回归覆盖真实 `000`、`0400`、`0100` 权限下的手动/自动恢复、同设备其他项目隔离、恢复权限后重试，
-以及可读取和遍历但不可写的 `0500` 目录。修复前 6 项权限恢复断言失败；修复后定向单测 32 项通过，
-包含真实 File RPC 与取消后迟到结果的保护。
+A regressão cobre a recuperação manual/automática sob permissões reais `000`, `0400` e `0100`, o
+isolamento dos demais projetos do mesmo dispositivo, a nova tentativa após restaurar a
+permissão, bem como diretórios `0500` legíveis e percorríveis, mas não graváveis. Antes da correção
+6 asserções de recuperação de permissão falhavam; depois da correção, 32 testes unitários
+direcionados passaram, incluindo o File RPC real e a proteção contra resultados tardios após
+cancelamento.
 
-最终验证：
+Verificação final:
 
-- `pnpm test:unit:affected --base 5516284630ccff3552f37466266de270af661188`：405 个 Vitest 文件、4911 项用例及 28 项 Node 审计通过。
-- 根类型检查、E2E 类型检查、lint、架构检查、fixture 检查和改动文件格式检查通过；lint 保留 81 条既有警告。
-- macOS Electron → 独立 Linux SSH 容器，`R3_DIRECTORY_FAILURE_CASE=denied`：
-  `desktop-e2e-20261010-directory-fix-denied-serial` 1/1 通过。非 root UID 1000 实际无法读取/遍历 A；
-  A 保留且 session 为空，B/C 获得新 session；目录不可用提示、恢复权限后原地重试、原任务续聊与哨兵保留均通过。
-  `directory-resilience.json`、截图、运行日志和源码/构建摘要保存在该 run 的 `.e2e-artifacts` 下。
-- 前一轮 `desktop-e2e-20261010-directory-fix-denied` 在与受影响单测并行时，首装等待 Server ready 超时，
-  尚未进入权限故障；日志同时记录本机 `ps` 启动超时。保留失败证据，待单测结束后使用同一修复构建、
-  新 HOME 和新 SSH 目标单独复跑通过，不将首轮记为通过或删掉。
-- 首轮构建记录为 `fresh-stable`；单独复跑沿用构建，原始记录为 `unverified-reused-build`。
-  已额外交叉核验两轮全部 5286 个产物摘要一致，且首轮准入模块的源码摘要与当前修复文件一致；
-  校验结果保存为复跑 artifact 的 `source-reuse-verification.json`，未改写原始构建状态。
+- `pnpm test:unit:affected --base 5516284630ccff3552f37466266de270af661188`: 405 arquivos Vitest,
+  4911 casos de teste e 28 auditorias Node passaram.
+- Checagem de tipos raiz, checagem de tipos do E2E, lint, checagem de arquitetura, checagem de
+  fixture e checagem de formatação dos arquivos alterados passaram; o lint manteve 81 avisos
+  preexistentes.
+- macOS Electron → contêiner SSH Linux independente, `R3_DIRECTORY_FAILURE_CASE=denied`:
+  `desktop-e2e-20261010-directory-fix-denied-serial` 1/1 passou. O UID 1000 sem root realmente não
+  conseguiu ler/perorrer A; A foi preservado com session vazia, e B/C receberam novas sessions; a
+  aviso de diretório indisponível, a nova tentativa no local após restaurar a permissão, a
+  continuidade de conversa da tarefa original e a preservação do sentinela passaram.
+  `directory-resilience.json`, capturas de tela, logs de execução e resumos de código-fonte/build
+  foram salvos em `.e2e-artifacts` desse run.
+- A rodada anterior `desktop-e2e-20261010-directory-fix-denied`, executada em paralelo com os
+  testes unitários afetados, expirou na espera de readiness do Server durante a primeira
+  instalação, sem ainda ter entrado na falha de permissão; os logs registraram também timeout de
+  `ps` local. A evidência de falha foi mantida, e a reexecução isolada, após o término dos testes
+  unitários, usando o mesmo build de correção, um novo HOME e um novo alvo SSH, passou — a
+  primeira rodada não é registrada como aprovada nem apagada.
+- O build da primeira rodada foi registrado como `fresh-stable`; a reexecução isolada reutilizou o
+  build, com o registro original `unverified-reused-build`. Foi feita uma verificação cruzada
+  adicional de que os resumos dos 5286 artefatos das duas rodadas são idênticos, e de que o resumo
+  do código-fonte dos módulos de admissão da primeira rodada coincide com os arquivos de correção
+  atuais; o resultado da verificação foi salvo como `source-reuse-verification.json` no artifact da
+  reexecução, sem reescrever o status de build original.
 
-本轮完整 E2E 只复跑失败的权限变体；删除/变文件由原完整 E2E 记录和本轮真实文件系统/RPC 单测对照。
-未重新验证原生 Windows、手机 relay 整链路或 Linux 桌面宿主；未做人工转正或 CI 准入。
+Nesta rodada o E2E completo reexecutou apenas a variante de permissão que falhou; a remoção e a
+conversão em arquivo são cobertas pelo registro do E2E completo original e pela comparação com
+os testes unitários reais de sistema de arquivos/RPC desta rodada. Não foram revalidados o
+Windows nativo, o relay móvel de ponta a ponta nem o desktop host Linux; não houve promoção
+manual nem admissão em CI.

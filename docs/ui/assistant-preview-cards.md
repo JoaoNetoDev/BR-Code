@@ -1,277 +1,297 @@
-# Assistant File Preview Cards
+# Cartões de Pré-visualização de Arquivos do Assistente
 
-Assistant file preview cards render inside the latest terminal assistant row,
-above message actions and before the per-turn change summary. Assistant body text
-keeps the existing Streamdown behavior: plain file-name mentions are not
-automatically rewritten into clickable links. A complete
-`::zcode-file-citation{...}` directive is a separate, explicit projection and is
-rendered with the same file-link UI and opening behavior as a Markdown
-`[label](path)` link.
+Os cartões de pré-visualização de arquivos do Assistente são renderizados dentro da
+última linha do assistente no terminal, acima das ações de mensagem e antes do
+resumo de alterações por turno. O texto do corpo do Assistente mantém o
+comportamento existente do Streamdown: menções de nome de arquivo comuns não são
+automaticamente reescritas em links clicáveis. Uma diretiva completa
+`::zcode-file-citation{...}` é uma projeção separada e explícita, e é
+renderizada com a mesma UI de link de arquivo e o mesmo comportamento de
+abertura de um link Markdown `[label](path)`.
 
-`::zcode-file-citation{...}` remains the canonical syntax emitted by prompts and
-Skills. The renderer also accepts the model compatibility form
-`:zcode-file-citation{...}` with one missing leading colon. This tolerance is
-limited to file citations: both forms share the same parameter parsing, path
-validation, body-link projection, and preview-card eligibility, while other
-directives such as `::code-comment{...}` remain strict.
+`::zcode-file-citation{...}` continua sendo a sintaxe canônica emitida por prompts e
+Skills. O renderizador também aceita a forma de compatibilidade com o modelo
+`:zcode-file-citation{...}`, com um dois-pontos inicial faltando. Essa tolerância é
+limitada a citações de arquivo: ambas as formas compartilham o mesmo parsing de
+parâmetros, validação de caminho, projeção de link no corpo e elegibilidade para
+cartão de pré-visualização, enquanto outras diretivas como `::code-comment{...}`
+permanecem estritas.
 
-## Scope
+## Escopo
 
-- Preview card file types: Markdown, HTML, DOCX, XLSX, PPTX, PDF, MP4, MOV,
-  WebM, M4V, MP3, WAV, M4A, OGG, Opus, FLAC, and WEBA.
-- Every preview card uses a 24 x 24 px leading icon for website, recognized-file,
-  and fallback-file presentation, inside the existing card icon container.
-- The file type registry owns extension, subtitle, and opening behavior so another
-  previewable file type can be added without changing the extraction pipeline.
-- Card extraction supports explicit Markdown file links and plain file path
-  mentions. The shared extractor accepts Unicode file and directory names, paths
-  containing spaces, Unix paths, and Windows drive-letter paths for every
-  registered file type, including Markdown and HTML.
-- Local file references accept balanced ASCII quotes (`"..."`, `'...'`) and
-  Chinese smart quotes (`“...”`, `‘...’`) around citation parameters, Markdown
-  destinations, and plain path mentions. Mismatched or unclosed quotes are kept
-  as raw text and do not become file links, so malformed model output cannot
-  silently change the target path.
-- Home-relative paths beginning with `~/` or `~\\` are resolved against the
-  `homedir` reported by the current workspace Host. This applies consistently to
-  preview cards, Assistant body links, citations, code comments, and local
-  Markdown images. The renderer never expands `~` with its own process home;
-  when the Host Home is unavailable, the path fails closed instead of being
-  treated as a workspace-relative path.
-- Workspace-relative references are lexically normalized across `/` and `\\`
-  separators before they become cards. `.` segments are removed,
-  `..` segments may only cancel a preceding segment, and any traversal that
-  would move above the workspace root is rejected before Host file I/O. Safe
-  forms such as `./a/../report.pdf` resolve to the normalized workspace path;
-  unsafe forms such as `foo/../../private.pdf` do not generate a card.
-- Explicit absolute paths remain a separate, existing product capability. They
-  are not joined to or authorized by the workspace-relative resolver; opening
-  them continues to use the selected local or remote Host and its existing file
-  access permissions.
-- Plain file-name mentions in Assistant body text are not auto-linked. Existing
-  explicit Markdown-link handling remains outside this card feature and keeps
-  its pre-existing behavior.
-- `zcode-file-citation` accepts `path`, `purpose`, and `artifact_kind` as its
-  current common parameters. `path` is required; `purpose` is parsed but does not
-  change presentation or opening behavior. Other syntactically valid parameters
-  are tolerated and ignored by this projection.
-- A valid citation path is rendered in the Assistant body as a file link whose
-  label is the path's leaf name. Citation body links are not limited to preview
-  card extensions and do not perform an eager existence check.
-- Citation preview cards are limited to DOCX, XLSX, PPTX, PDF, video, and audio. The supported
-  `artifact_kind` mapping is `document -> docx`, `presentation -> pptx`,
-  `workbook -> xlsx`, `video -> video`, and `audio -> audio`; when `artifact_kind` is absent, the type is inferred from
-  the path extension. An unknown or extension-incompatible `artifact_kind`
-  suppresses only the citation card, not an otherwise valid body link.
-- A complete citation occupies one protected extraction range. Its inner path is
-  not extracted again as a Markdown, HTML, or plain file reference, so citation
-  card eligibility cannot be bypassed by the generic path regex.
-- During streaming, an unclosed citation on the final standalone line is hidden
-  from the body until it closes. A valid-looking inline tail is treated the same
-  way. If malformed output has already continued onto later prose, the raw text
-  is retained so a missing `}` cannot swallow the rest of the answer. Code-fenced
-  and inline-code examples are never projected.
-- Card candidates are ordered by reverse body occurrence, then deduplicated by
-  resolved file path or URL.
-- At most the first 15 ordered candidates are checked. The Host checks those files
-  concurrently, caches positive and negative results for one minute, and the UI
-  renders at most the first 10 valid cards. Invalid candidates are not backfilled
-  from positions after the first 15.
-- Renderer validation is keyed by the semantic card signature and the selected
-  workspace file service. Re-rendering an equivalent card list with a new array
-  identity reuses the settled validation result without another Host RPC; changing
-  either the card signature or workspace file service starts a new validation.
-- Markdown and HTML cards require a matching active file in the current turn's
-  `fileChanges`. Office, PDF, and video/audio cards do not use this gate.
-- Current-turn `fileChanges` requests are deduplicated above virtualized rows in
-  `SessionPane`. Running-turn requests include the current projection revision
-  in their key and share only the in-flight promise; the settled result is
-  removed because that turn can still grow. Terminal-turn requests use
-  `sessionId + logEpoch + turnHeader rowId + entityId + fileChanges state`, share
-  both in-flight and successful results, and remain in the renderer-local LRU of
-  at most 20 entries. A projection transition from `active` to `reverted`
-  therefore cannot reuse the pre-rewind result. Failed requests are always
-  removed.
-- File-reference extraction is memoized once per terminal turn text and
-  workspace path. The Markdown/HTML `fileChanges` gate and final card builder
-  consume the same extracted references; rebuilding an equivalent assistant-row
-  array does not repeat Unicode/path parsing.
+- Tipos de arquivo de cartão de pré-visualização: Markdown, HTML, DOCX, XLSX, PPTX, PDF, MP4, MOV,
+  WebM, M4V, MP3, WAV, M4A, OGG, Opus, FLAC e WEBA.
+- Todo cartão de pré-visualização usa um ícone inicial de 24 x 24 px para site, arquivo
+  reconhecido e arquivo de fallback, dentro do contêiner de ícone de cartão existente.
+- O registro de tipos de arquivo é dono da extensão, do subtítulo e do comportamento de
+  abertura, para que outro tipo de arquivo pré-visualizável possa ser adicionado sem
+  alterar o pipeline de extração.
+- A extração de cartões suporta links de arquivo explícitos em Markdown e menções de
+  caminho de arquivo comuns. O extrator compartilhado aceita nomes de arquivo e
+  diretório Unicode, caminhos com espaços, caminhos Unix e caminhos com letra de
+  unidade do Windows para todo tipo de arquivo registrado, incluindo Markdown e HTML.
+- Referências a arquivos locais aceitam aspas ASCII balanceadas (`"..."`, `'...'`) e
+  aspas curvas chinesas (`“...”`, `‘...’`) em torno de parâmetros de citação,
+  destinos Markdown e menções de caminho comuns. Aspas desbalanceadas ou não fechadas
+  são mantidas como texto bruto e não se tornam links de arquivo, de modo que uma
+  saída malformada do modelo não possa alterar silenciosamente o caminho de destino.
+- Caminhos relativos ao home começando com `~/` ou `~\\` são resolvidos contra o
+  `homedir` informado pelo Host do workspace atual. Isso se aplica de forma
+  consistente a cartões de pré-visualização, links no corpo do Assistente, citações,
+  comentários de código e imagens Markdown locais. O renderizador nunca expande `~`
+  com o home do seu próprio processo; quando o Home do Host está indisponível, o
+  caminho falha de forma fechada em vez de ser tratado como caminho relativo ao
+  workspace.
+- Referências relativas ao workspace são normalizadas lexicalmente entre os
+  separadores `/` e `\\` antes de se tornarem cartões. Segmentos `.` são removidos,
+  segmentos `..` só podem cancelar um segmento anterior, e qualquer travessia que
+  moveria acima da raiz do workspace é rejeitada antes do I/O de arquivos do Host.
+  Formas seguras como `./a/../report.pdf` resolvem para o caminho normalizado do
+  workspace; formas inseguras como `foo/../../private.pdf` não geram cartão.
+- Caminhos absolutos explícitos permanecem uma capacidade de produto separada e
+  existente. Eles não são concatenados ao resolvedor relativo ao workspace nem
+  autorizados por ele; abri-los continua usando o Host local ou remoto selecionado e
+  suas permissões de acesso a arquivos existentes.
+- Menções de nome de arquivo comuns no texto do corpo do Assistente não são
+  auto-ligadas. O tratamento existente de links Markdown explícitos permanece fora
+  deste recurso de cartões e mantém seu comportamento pré-existente.
+- `zcode-file-citation` aceita `path`, `purpose` e `artifact_kind` como seus
+  parâmetros comuns atuais. `path` é obrigatório; `purpose` é analisado mas não
+  altera a apresentação nem o comportamento de abertura. Outros parâmetros
+  sintaticamente válidos são tolerados e ignorados por esta projeção.
+- Um caminho de citação válido é renderizado no corpo do Assistente como um link de
+  arquivo cujo rótulo é o nome folha do caminho. Links no corpo de citação não são
+  limitados às extensões de cartão de pré-visualização e não fazem uma verificação
+  de existência antecipada.
+- Cartões de pré-visualização de citação são limitados a DOCX, XLSX, PPTX, PDF, vídeo e
+  áudio. O mapeamento `artifact_kind` suportado é `document -> docx`, `presentation -> pptx`,
+  `workbook -> xlsx`, `video -> video` e `audio -> audio`; quando `artifact_kind` está
+  ausente, o tipo é inferido pela extensão do caminho. Um `artifact_kind` desconhecido
+  ou incompatível com a extensão suprime apenas o cartão de citação, e não um link no
+  corpo que seria válido.
+- Uma citação completa ocupa um intervalo de extração protegido. Seu caminho interno
+  não é extraído novamente como referência Markdown, HTML ou de arquivo comum, de modo
+  que a elegibilidade para cartão de citação não possa ser contornada pela regex
+  genérica de caminho.
+- Durante o streaming, uma citação não fechada na última linha isolada é ocultada do
+  corpo até ser fechada. Uma cauda inline de aparência válida é tratada do mesmo
+  jeito. Se a saída malformada já tiver continuado em prosa posterior, o texto bruto
+  é retido para que um `}` ausente não possa engolir o resto da resposta. Exemplos
+  cercados por cercas de código e em código inline nunca são projetados.
+- Candidatos a cartão são ordenados pela ocorrência inversa no corpo e depois
+  deduplicados por caminho de arquivo resolvido ou URL.
+- No máximo os primeiros 15 candidatos ordenados são verificados. O Host verifica
+  esses arquivos concorrentemente, armazena em cache os resultados positivos e
+  negativos por um minuto, e a UI renderiza no máximo os primeiros 10 cartões válidos.
+  Candidatos inválidos não são preenchidos a partir de posições após os primeiros 15.
+- A validação do renderizador é indexada pela assinatura semântica do cartão e pelo
+  serviço de arquivos do workspace selecionado. Renderizar de novo uma lista de
+  cartões equivalente com uma nova identidade de array reutiliza o resultado de
+  validação já resolvido sem outro RPC ao Host; alterar a assinatura do cartão ou o
+  serviço de arquivos do workspace inicia uma nova validação.
+- Cartões Markdown e HTML exigem um arquivo ativo correspondente no `fileChanges` do
+  turno atual. Cartões de Office, PDF e vídeo/áudio não usam esse portão.
+- Requisições de `fileChanges` do turno atual são deduplicadas acima das linhas
+  virtualizadas em `SessionPane`. Requisições de turno em execução incluem a revisão
+  atual da projeção em sua chave e compartilham apenas a promise em voo; o resultado
+  resolvido é removido porque esse turno ainda pode crescer. Requisições de turno
+  terminal usam `sessionId + logEpoch + turnHeader rowId + entityId + fileChanges state`,
+  compartilham tanto os resultados em voo quanto os bem-sucedidos, e permanecem no LRU
+  local do renderizador de no máximo 20 entradas. Uma transição de projeção de
+  `active` para `reverted` portanto não pode reutilizar o resultado anterior ao
+  rewind. Requisições com falha são sempre removidas.
+- A extração de referências a arquivos é memoizada uma vez por texto de turno terminal
+  e caminho de workspace. O portão `fileChanges` de Markdown/HTML e o construtor
+  final de cartões consomem as mesmas referências extraídas; reconstruir um array
+  equivalente de linhas do assistente não repete o parsing de Unicode/caminho.
 
-## Projection and state boundary
+## Projeção e limite de estado
 
-Preview cards remain a UI-only projection from already delivered V4 rows. They do
-not add protocol rows, snapshot fields, replayable events, relay state, or
-agent-side metadata.
+Os cartões de pré-visualização permanecem uma projeção somente de UI a partir de
+linhas V4 já entregues. Eles não adicionam linhas de protocolo, campos de snapshot,
+eventos replayable, estado de relay ou metadados do lado do agente.
 
 ```text
-assistantText rows (desktop continuous / mobile replayable hydration)
+linhas assistantText (hidratação desktop continuous / mobile replayable)
   |
-  +-- complete zcode-file-citation
-  |     +-- body: render leaf-name link through existing MessageFileLink
-  |     `-- cards: admit only compatible docx/xlsx/pptx/pdf references
+  +-- zcode-file-citation completo
+  |     +-- corpo: renderiza o link de nome folha pelo MessageFileLink existente
+  |     `-- cartões: só admite referências docx/xlsx/pptx/pdf compatíveis
   |
-  +-- streaming / failed / non-tail row ----------------------> no cards
+  +-- linha streaming / failed / non-tail ----------------------> sem cartões
   |
-  `-- latest complete|interrupted row
+  `-- última linha complete|interrupted
         |
-        +-- join assistant text in body order once
-        +-- extract file references once; reuse them for gate + card build
-        +-- extract localhost candidates
-        +-- fetch this turn's fileChanges with the turnHeader target when md/html is present
-        |     +-- running: revision key + in-flight only
-        |     +-- terminal: target + active|reverted key + settled success, shared LRU <= 20 entries
-        |     `-- active md/html paths only
-        +-- reverse occurrence order + dedupe
-        +-- take first 15 candidates
-        `-- workspace-scoped fileService.checkFilesExist()
+        +-- junta o texto do assistente em ordem de corpo uma única vez
+        +-- extrai referências de arquivo uma vez; reutiliza para portão + construção de cartões
+        +-- extrai candidatos localhost
+        +-- busca os fileChanges deste turno com o alvo do turnHeader quando houver md/html
+        |     +-- running: chave de revisão + apenas em voo
+        |     +-- terminal: alvo + chave active|reverted + sucesso resolvido, LRU compartilhado <= 20 entradas
+        |     `-- apenas caminhos md/html ativos
+        +-- ordem de ocorrência inversa + dedupe
+        +-- pega os primeiros 15 candidatos
+        `-- fileService.checkFilesExist() no escopo do workspace
               |
-              +-- Host cache: workspace host instance + path, TTL 60 s
-              +-- concurrent checks: at most 15
-              `-- keep valid candidates, take first 10 -> render cards
+              +-- cache do Host: instância do host do workspace + caminho, TTL 60 s
+              +-- verificações concorrentes: no máximo 15
+              `-- mantém candidatos válidos, pega os primeiros 10 -> renderiza os cartões
 ```
 
-The Host file service instance already belongs to one local or remote workspace
-host. Cache entries are therefore isolated by the host instance; renderer code
-must resolve the service with `useWorkspaceServices(workspacePath,
-remoteSessionId, workspaceIdentity)` so remote paths are checked by their remote
-workspace host.
+A instância do serviço de arquivos do Host já pertence a um host de workspace local
+ou remoto. As entradas do cache são portanto isoladas por instância de host; o
+código do renderizador deve resolver o serviço com `useWorkspaceServices(workspacePath,
+remoteSessionId, workspaceIdentity)` para que caminhos remotos sejam verificados pelo
+host de workspace remoto.
 
-The same workspace-scoped Host provides `systemService.info().homedir` for Home-
-relative Assistant paths. Desktop local uses the local Host Home; SSH/WSL/Docker
-and Web `/remote` use the attached remote Host Home. The Home result is cached per
-`workspaceIdentity?.trim() || workspacePath` plus `remoteSessionId` and refreshed
-when the Host service instance changes.
+O mesmo Host no escopo do workspace fornece `systemService.info().homedir` para
+caminhos do Assistente relativos ao Home. O desktop local usa o Home do Host local;
+SSH/WSL/Docker e o Web `/remote` usam o Home do Host remoto anexado. O resultado do
+Home é cacheado por `workspaceIdentity?.trim() || workspacePath` mais
+`remoteSessionId` e é atualizado quando a instância do serviço do Host muda.
 
-Workspace-scoped service selection identifies which Host performs file I/O; it
-does not by itself prove that an input path is under the workspace directory.
-That directory boundary is enforced earlier for relative Assistant card
-references by the shared lexical resolver. Rejected card candidates must never
-reach `checkFilesExist`, Preview Pane, Browser, or external-editor actions.
+A seleção de serviço no escopo do workspace identifica qual Host faz o I/O de
+arquivos; por si só ela não prova que um caminho de entrada está sob o diretório do
+workspace. Esse limite de diretório é imposto antes, para referências relativas de
+cartão do Assistente, pelo resolvedor lexical compartilhado. Candidatos de cartão
+rejeitados nunca devem chegar a `checkFilesExist`, ao Preview Pane, ao Browser ou a
+ações de editor externo.
 
-Citation body links deliberately remain outside this eager validation pipeline.
-They reuse the existing Markdown file-link click path, including its workspace
-scope, traversal rejection, Windows/UNC normalization, and click-time file stat.
-The one-minute `checkFilesExist` cache is used only when a citation becomes a
-preview-card candidate.
+Links no corpo de citação permanecem deliberadamente fora deste pipeline de
+validação antecipada. Eles reutilizam o caminho de clique de link de arquivo Markdown
+existente, incluindo seu escopo de workspace, rejeição de travessia, normalização
+Windows/UNC e stat de arquivo no momento do clique. O cache de um minuto de
+`checkFilesExist` é usado apenas quando uma citação se torna candidata a cartão de
+pré-visualização.
 
-## Current-turn fileChanges gate
+## Portão de fileChanges do turno atual
 
-Markdown and HTML are source-like formats that appear frequently in discussion.
-Their preview cards are shown only when the terminal row's turn reports an
-`active` fileChanges result containing the resolved path. A missing target,
-unavailable fetch function, reverted result, or failed request yields no Markdown
-or HTML cards. This failure does not suppress DOCX/XLSX/PPTX/PDF/video/audio cards.
+Markdown e HTML são formatos similares a código-fonte que aparecem com frequência em
+discussões. Seus cartões de pré-visualização só são exibidos quando o turno terminal
+reporta um resultado `active` de fileChanges contendo o caminho resolvido. Um alvo
+ausente, uma função de busca indisponível, um resultado revertido ou uma requisição
+com falha não produzem cartões Markdown ou HTML. Essa falha não suprime cartões
+DOCX/XLSX/PPTX/PDF/vídeo/áudio.
 
-The turn header's `fileChanges.state` is the authoritative rewind state. When it
-changes to `reverted`, the card projection immediately clears previously loaded
-Markdown/HTML paths and does not wait for a detail query to rediscover the state.
-The same primitive state is part of the shared terminal query key so the file
-summary panel cannot reuse an `active` Promise/result after rewind.
+O `fileChanges.state` do cabeçalho do turno é o estado de rewind autoritativo. Quando
+ele muda para `reverted`, a projeção de cartões limpa imediatamente os caminhos
+Markdown/HTML carregados antes e não espera uma consulta de detalhe para
+rediscoverir o estado. O mesmo estado primitivo faz parte da chave compartilhada da
+consulta terminal, de modo que o painel de resumo de arquivos não possa reutilizar
+uma Promise/resultado `active` após o rewind.
 
-The query target must be the same turn's `turnHeader` row. The terminal
-`assistantText` row remains the body/card render anchor, but it is not a valid V4
-`fileChanges` action target. If the turn header or its entity id is unavailable,
-the UI fails closed for Markdown/HTML cards instead of querying with an assistant
-row.
+O alvo da consulta precisa ser a linha `turnHeader` do mesmo turno. A linha
+`assistantText` terminal permanece a âncora de renderização de corpo/cartão, mas não
+é um alvo válido de ação `fileChanges` do V4. Se o cabeçalho do turno ou seu id de
+entidade estiver indisponível, a UI falha de forma fechada para cartões
+Markdown/HTML em vez de consultar com uma linha de assistente.
 
-The gate compares normalized workspace paths. For a bare name, it may resolve to
-a fileChanges path only when that name identifies a matching file in the current
-turn; otherwise normal workspace-relative card resolution is used.
+O portão compara caminhos normalizados do workspace. Para um nome isolado, ele só
+pode resolver para um caminho de fileChanges quando esse nome identifica um arquivo
+correspondente no turno atual; caso contrário, é usada a resolução normal de cartão
+relativo ao workspace.
 
-The shared cache lives above `ConversationTimeline` virtualization, so scrolling
-a completed turn out of view and back does not repeat the full-detail query. A
-running turn may expose a partial file summary; consumers therefore request it
-with an in-flight-only policy and refetch after the header enters a terminal
-state. This prevents an earlier projection revision from suppressing final
-Markdown/HTML cards or leaving a remounted file-change panel incomplete. It is
-recreated when the session, `logEpoch`, or fileChanges transport changes;
-failures are never retained. This cache is separate from the Host's one-minute
-file-existence cache because it stores turn diff results, including patch lines,
-instead of path existence booleans.
+O cache compartilhado vive acima da virtualização de `ConversationTimeline`, então
+rolar um turno concluído para fora da vista e de volta não repete a consulta de
+detalhe completo. Um turno em execução pode expor um resumo de arquivos parcial;
+portanto os consumidores o solicitam com uma política de apenas-em-voo e revalidam
+depois que o cabeçalho entra em um estado terminal. Isso impede que uma revisão de
+projeção anterior suprima os cartões Markdown/HTML finais ou deixe um painel de
+alterações de arquivo remontado incompleto. Ele é recriado quando a sessão, o
+`logEpoch` ou o transporte de fileChanges muda; falhas nunca são retidas. Esse cache
+é separado do cache de existência de arquivos de um minuto do Host porque armazena
+resultados de diff de turno, incluindo linhas de patch, em vez de booleanos de
+existência de caminho.
 
-## Opening behavior
+## Comportamento de abertura
 
-- DOCX, XLSX, PPTX, PDF, supported video/audio, and Markdown open in Preview Pane using a file source
-  carrying `workspacePath`, optional `workspaceIdentity`, and optional
-  `workspaceRemoteSessionId`.
-- After the latest assistant turn reaches `complete`, the renderer automatically
-  opens the PPTX cards that survived the existing candidate limit and file
-  existence validation. `interrupted`, `streaming`, `failed`, historical, and
-  cold-resumed turns do not trigger automatic opening.
-- When one completed turn produces multiple visible PPTX cards, every card is
-  opened as a separate right-side Code Viewer tab. Existing tabs are reused by
-  the normal workspace-scoped source key, and the first PPTX card in the card
-  order becomes the active tab. This is tabbed preview, not a new split-pane
-  layout.
-- Local desktop HTML keeps the Browser side-pane behavior.
-- Remote workspace HTML on Desktop degrades from `file://` Browser navigation to
-  the file Preview Pane because the browser cannot safely resolve the host
-  workspace path.
-- Web `/remote` does not project localhost/127.0.0.1 URL cards or HTML
-  output cards. Without port forwarding or a URL proxy those URLs cannot reach
-  the Desktop host, and Preview Pane would only show HTML source rather than the
-  rendered page. Markdown, DOCX, XLSX, PPTX, PDF, and video/audio cards remain available.
-- Desktop localhost HTTP cards keep the Browser side-pane behavior. When a URL
-  maps to a generated HTML file, the backing file must also pass the existence
-  check.
-- Desktop local and Desktop remote workspaces support the automatic PPTX open
-  because they expose a right-side Preview Pane. Web `/remote` keeps the cards
-  visible, but does not auto-open when the current surface has no usable right-
-  side Preview Pane.
+- DOCX, XLSX, PPTX, PDF, vídeo/áudio suportado e Markdown abrem no Preview Pane usando uma
+  fonte de arquivo que carrega `workspacePath`, `workspaceIdentity` opcional e
+  `workspaceRemoteSessionId` opcional.
+- Depois que o último turno do Assistente atinge `complete`, o renderizador abre
+  automaticamente os cartões PPTX que sobreviveram ao limite de candidatos existente e
+  à validação de existência de arquivo. Turnos `interrupted`, `streaming`, `failed`,
+  históricos e retomados a frio não acionam a abertura automática.
+- Quando um turno concluído produz múltiplos cartões PPTX visíveis, cada cartão é
+  aberto como uma aba separada do Code Viewer à direita. As abas existentes são
+  reutilizadas pela chave de fonte normal no escopo do workspace, e o primeiro cartão
+  PPTX na ordem dos cartões se torna a aba ativa. Isso é pré-visualização em abas, não
+  um novo layout de painel dividido.
+- HTML local do desktop mantém o comportamento de painel lateral do Browser.
+- HTML de workspace remoto no Desktop degrada da navegação `file://` no Browser para o
+  Preview Pane de arquivo, porque o browser não consegue resolver com segurança o
+  caminho do host de workspace.
+- O Web `/remote` não projeta cartões de URL localhost/127.0.0.1 nem cartões de saída
+  HTML. Sem encaminhamento de porta ou um proxy de URL, essas URLs não alcançam o
+  host do Desktop, e o Preview Pane mostraria apenas o código-fonte HTML em vez da
+  página renderizada. Cartões Markdown, DOCX, XLSX, PPTX, PDF e vídeo/áudio permanecem
+  disponíveis.
+- Cartões HTTP localhost do Desktop mantêm o comportamento de painel lateral do
+  Browser. Quando uma URL mapeia para um arquivo HTML gerado, o arquivo de suporte
+  também precisa passar na verificação de existência.
+- Workspaces locais e remotos do Desktop suportam a abertura automática de PPTX
+  porque expõem um Preview Pane à direita. O Web `/remote` mantém os cartões
+  visíveis, mas não abre automaticamente quando a superfície atual não tem um
+  Preview Pane utilizável à direita.
 
-## Compatibility
+## Compatibilidade
 
-- Desktop stays on the existing `desktop-continuous` message path.
-- Web remote stays on `web-remote-replayable`; card projection runs only after
-  row hydration and does not enter gap/snapshot recovery. Unsupported local URL
-  and HTML candidates are filtered in renderer projection before the 15-card
-  existence-check window, without adding protocol or Host state.
-- The `fileChanges` cache is renderer-local query state. It does not add relay,
-  Host, snapshot, or replayable state and does not alter delivery semantics.
-- No service or cache key uses `workspacePath` as workspace identity. Remote
-  routing continues to carry `workspaceIdentity` and `remoteSessionId` through
-  the existing workspace service accessor.
-- Existing Preview Pane Office/PDF renderers are reused; this feature does not
-  add another document parser.
-- Automatic opening is a renderer-local side effect. It does not add protocol
-  rows, snapshot fields, relay state, or Agent metadata. A one-shot key scoped by
-  workspace, session, log epoch, turn, and card signature prevents virtualized
-  remounts and equivalent re-renders from reopening a tab after the user closes
-  it.
+- O Desktop continua no caminho de mensagens `desktop-continuous` existente.
+- O Web remoto continua em `web-remote-replayable`; a projeção de cartões roda
+  somente após a hidratação das linhas e não entra na recuperação de gap/snapshot.
+  Candidatos locais de URL e HTML não suportados são filtrados na projeção do
+  renderizador antes da janela de verificação de existência de 15 cartões, sem
+  adicionar estado de protocolo ou de Host.
+- O cache de `fileChanges` é estado de consulta local do renderizador. Ele não
+  adiciona relay, Host, snapshot ou estado replayable e não altera as semânticas de
+  entrega.
+- Nenhum serviço ou chave de cache usa `workspacePath` como identidade de workspace.
+  O roteamento remoto continua carregando `workspaceIdentity` e `remoteSessionId`
+  pelo acessor de serviço de workspace existente.
+- Os renderizadores existentes de Office/PDF do Preview Pane são reutilizados; este
+  recurso não adiciona outro parser de documentos.
+- A abertura automática é um efeito colateral local do renderizador. Ela não adiciona
+  linhas de protocolo, campos de snapshot, estado de relay ou metadados do Agent. Uma
+  chave de disparo único no escopo de workspace, sessão, época de log, turno e
+  assinatura do cartão impede que remontagens virtualizadas e re-renderizações
+  equivalentes reabram uma aba depois que o usuário a fecha.
 
-## Card action menus
+## Menus de ação do cartão
 
-The entire card supports a context menu. The existing Open button and dropdown retain their original labels, flat
-application list, width and path-action order. Only the card context menu adds
-new actions; both entry points reuse the same opening handlers. File context
-menus offer Preview, Open (the system default application), an Open with submenu,
-then copying relative and absolute paths. The context menu omits Open containing
-folder and its separator. Chinese labels are 预览 and 打开.
-Website cards use the same Preview and Open labels for side-pane and browser
-actions, followed by copying the URL; file-backed local HTML additionally offers path actions.
-The card primary button continues to read Open for all card types.
+O cartão inteiro suporta um menu de contexto. O botão Open existente e seu dropdown
+mantêm seus rótulos originais, a lista de aplicativos plana, a largura e a ordem das
+ações de caminho. Somente o menu de contexto do cartão adiciona novas ações; ambos os
+pontos de entrada reutilizam os mesmos handlers de abertura. Os menus de contexto de
+arquivo oferecem Preview, Open (o aplicativo padrão do sistema), um submenu Open
+with, e depois a cópia dos caminhos relativo e absoluto. O menu de contexto omite Open
+containing folder e seu separador. Os rótulos chineses são 预览 e 打开.
+Cartões de site usam os mesmos rótulos Preview e Open para as ações de painel lateral e
+browser, seguidos da cópia da URL; HTML local com backing de arquivo oferece também as
+ações de caminho. O botão principal do cartão continua exibindo Open para todos os
+tipos de cartão.
 
-Native file actions require the platform's explicit `canOpenLocalFiles` capability.
-Web and mobile omit them. Remote files never use the local default application;
-Open with retains the existing exact workspace identity/session match.
-Unavailable platform actions are omitted, while temporarily loading application
-choices display a disabled loading row. Preview keeps the existing scoped source
-and mobile pane presentation.
+As ações nativas de arquivo exigem a capacidade explícita `canOpenLocalFiles` da
+plataforma. Web e mobile as omitem. Arquivos remotos nunca usam o aplicativo padrão
+local; Open with mantém o casamento exato de identidade/sessão do workspace existente.
+Ações de plataforma indisponíveis são omitidas, enquanto escolhas de aplicativo
+temporariamente em carregamento exibem uma linha de carregamento desabilitada. Preview
+mantém a fonte com escopo existente e a apresentação de painel no mobile.
 
 ```text
-card context menu / unchanged Open dropdown
-              -> shared action owner (OpenSplitButton)
-              -> existing preview callback / platform port / file action hook
+menu de contexto do cartão / dropdown Open inalterado
+              -> dono de ação compartilhado (OpenSplitButton)
+              -> callback de preview existente / porta de plataforma / hook de ação de arquivo
 ```
 
-The menu owns only transient UI state. It adds no runtime queue, protocol,
-snapshot, or recovery state; desktop continuous and mobile replayable delivery
-remain unchanged. Async app discovery is scoped to the target and ignores stale
-results after the target changes or unmounts. Both menus reuse the design system
-primitives, keyboard navigation, light/dark tokens and localized labels.
+O menu é dono apenas de estado transitório de UI. Ele não adiciona fila de runtime,
+protocolo, snapshot ou estado de recuperação; a entrega contínua do desktop e a
+replayable do mobile permanecem inalteradas. A descoberta assíncrona de aplicativos é
+limitada ao alvo e ignora resultados obsoletos depois que o alvo muda ou é desmontado.
+Ambos os menus reutilizam as primitivas do design system, a navegação por teclado, os
+tokens de tema claro/escuro e os rótulos localizados.
 
-APC14 acceptance: right-click a real Office card, verify its dropdown remains unchanged,
-assert the compact labels and absence of the directory entry, preview the file,
-and verify the default-app shell call with a mock. Focused
-component tests cover website links, HTML paths, unavailable preview, Web and
-remote-native capability exclusion.
+Aceitação APC14: clicar com o botão direito em um cartão real de Office, verificar que
+seu dropdown permanece inalterado, afirmar os rótulos compactos e a ausência da
+entrada de diretório, pré-visualizar o arquivo e verificar a chamada de shell do
+aplicativo padrão com um mock. Testes de componente focados cobrem links de site,
+caminhos HTML, preview indisponível, exclusão de capacidade no Web e nativo remoto.

@@ -1,30 +1,30 @@
-# Grouped task workspace bootstrap
+# Bootstrap de workspace de tarefas agrupadas
 
-> 历史文档：2026-09 虚拟项目重构已替代本文的运行模型。当前行为以[虚拟项目设计](superpowers/specs/2026-09-09-virtual-project-design.md)为准。旧 Group 表仅保留迁移/降级证据，运行 API、视图和 workspace bootstrap 已删除；CLI 拥有会话事实，Host 拥有项目与组织态。下文只作历史设计记录。
+> Documento histórico: a refatoração de projetos virtuais de 2026-09 substituiu o modelo de execução descrito aqui. O comportamento atual segue o[design de projetos virtuais](superpowers/specs/2026-09-09-virtual-project-design.md). A antiga tabela Group foi mantida apenas como evidência de migração/degradação; a API de execução, as visualizações e o bootstrap de workspace foram removidos; a CLI possui a verdade da sessão, e o Host possui o projeto e os estados de organização. O texto abaixo serve apenas como registro de design histórico.
 
-Grouped task view bootstraps existing visible tasks by workspace.
+A visualização de tarefas agrupadas inicializa as tarefas visíveis existentes por workspace.
 
-## Behavior
+## Comportamento
 
-- On the first grouped-view query that runs workspace bootstrap, visible tasks in the current scopes are moved into generated workspace groups.
-- Completed tasks older than seven days in the current scopes are archived before workspace bootstrap reads visible tasks.
-- The generated group title uses the workspace path leaf, such as `z-code`.
-- The generated group id is deterministic from `workspaceIdentity || workspacePath`, so remote workspace identity remains isolated from local path display.
-- The generated group color is deterministically distributed across the non-gray palette from the same workspace key.
-- The generated group receives top-level grouped ordering.
-- Tasks inside the generated group receive group-member ordering by recent activity.
-- Generated workspace groups are only shown when their workspace is part of the current grouped-view scope.
-- Workspace scopes with `workspacePurpose=conversation` participate in grouped task queries but are excluded from workspace-group bootstrap. Their tasks start as top-level ungrouped tasks and may be moved into ordinary user groups.
+- Na primeira consulta da visualização agrupada que executa o bootstrap de workspace, as tarefas visíveis nos escopos atuais são movidas para grupos de workspace gerados.
+- Tarefas concluídas com mais de sete dias nos escopos atuais são arquivadas antes de o bootstrap de workspace ler as tarefas visíveis.
+- O título do grupo gerado usa a folha do caminho do workspace, como `z-code`.
+- O id do grupo gerado é determinístico a partir de `workspaceIdentity || workspacePath`, de modo que a identidade remota do workspace permanece isolada da exibição do caminho local.
+- A cor do grupo gerado é distribuída de forma determinística na paleta não cinza, a partir da mesma chave de workspace.
+- O grupo gerado recebe a ordenação agrupada de nível superior.
+- As tarefas dentro do grupo gerado recebem a ordenação de membros do grupo por atividade recente.
+- Grupos de workspace gerados só são exibidos quando o respectivo workspace faz parte do escopo atual da visualização agrupada.
+- Escopos de workspace com `workspacePurpose=conversation` participam das consultas de tarefas agrupadas, mas são excluídos do bootstrap de grupos de workspace. Suas tarefas começam como tarefas não agrupadas de nível superior e podem ser movidas para grupos comuns do usuário.
 
-## Boundaries
+## Limites
 
-- Bootstrap ignores existing group membership and rebuilds current visible task membership by workspace.
-- Auto-archive during bootstrap is independent of settings and uses a fixed seven-day retention window.
-- Workspace bootstrap writes a global marker after initialization, so deleting or ungrouping generated groups does not cause them to be recreated on the next refresh.
-- New workspaces that appear after this one-time bootstrap do not receive generated workspace groups automatically.
-- The managed conversation backing directory must never create a generated group named from its internal `default` path leaf.
-- In grouped mode, clicking the global sidebar New task creates a UI-only draft row at the top level.
-- In grouped mode, clicking a group-level New task entry creates the UI-only draft row at the top of that group.
-- Repeated clicks on the same New task entry reuse the current draft row. Clicking a different New task entry repositions that same draft row to the latest requested placement.
-- The grouped draft row is not persisted, cannot be renamed, cannot be dragged, and disappears when the user leaves it.
-- When the first prompt creates a real task, the real task inherits the draft row placement before grouped order is persisted.
+- O bootstrap ignora a associação de grupo existente e reconstrói a associação atual de tarefas visíveis por workspace.
+- O arquivamento automático durante o bootstrap é independente das configurações e usa uma janela fixa de retenção de sete dias.
+- O bootstrap de workspace grava um marcador global após a inicialização, de modo que apagar ou desagrupar grupos gerados não faz com que sejam recriados na próxima atualização.
+- Novos workspaces que surgirem depois deste bootstrap único não recebem grupos de workspace gerados automaticamente.
+- O diretório de backing da conversa gerenciada nunca pode criar um grupo gerado nomeado a partir da folha `default` de seu caminho interno.
+- No modo agrupado, clicar em New task da barra lateral global cria uma linha de rascunho apenas de UI no nível superior.
+- No modo agrupado, clicar em uma entrada New task de nível de grupo cria a linha de rascunho apenas de UI no topo daquele grupo.
+- Cliques repetidos na mesma entrada New task reutilizam a linha de rascunho atual. Clicar em uma entrada New task diferente reposiciona essa mesma linha de rascunho para o posicionamento solicitado mais recente.
+- A linha de rascunho agrupada não é persistida, não pode ser renomeada, não pode ser arrastada e desaparece quando o usuário a abandona.
+- Quando o primeiro prompt cria uma tarefa real, a tarefa real herda o posicionamento da linha de rascunho antes de a ordenação agrupada ser persistida.

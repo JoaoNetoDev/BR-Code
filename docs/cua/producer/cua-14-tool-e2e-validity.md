@@ -1,126 +1,154 @@
-# CUA 14-tool E2E validity contract
+# Contrato de validade E2E das 14 ferramentas CUA
 
-Status: normative regression contract
+Status: contrato normativo de regressão
 
-## Goal
+## Objetivo
 
-`run-cua --all` and `run-cua --common-apps` must prove observable behavior, not merely that an
-MCP request returned without an error. The frozen 14-tool manifest remains the protocol source of
-truth, while C18 proves that every tool can execute in one controlled session.
+`run-cua --all` e `run-cua --common-apps` devem provar comportamento observável,
+e não apenas que uma requisição MCP retornou sem erro. O manifesto congelado de 14
+ferramentas permanece a fonte da verdade do protocolo, enquanto C18 prova que toda
+ferramenta pode ser executada em uma única sessão controlada.
 
-## Unfreeze
+## Descongelamento
 
-The frozen 30-tool manifest was **deliberately** reduced to 14. This is a designed contraction, not
-accidental drift, and it is recorded here so a future reader does not treat the smaller baseline as
-a regression. The rationale, the per-tool judgement and the explicit unfreeze decision live in
-`docs/refactor-port-specs/2026-09-10-cua-sdk-v3-api.md` §3 and §4.3.
+O manifesto congelado de 30 ferramentas foi **deliberadamente** reduzido para 14.
+Esta é uma contração projetada, não um drift acidental, e está registrada aqui
+para que um leitor futuro não trate a baseline menor como uma regressão. A
+justificativa, o julgamento por ferramenta e a decisão explícita de descongelamento
+vivem em `docs/refactor-port-specs/2026-09-10-cua-sdk-v3-api.md` §3 e §4.3.
 
-The new baseline is **14**. The 4-way drift gate (`TOOL_NAMES` + `TIER_TABLE` + `TOOL_REGISTRY` +
-the cross-repo evaluator manifest) is **retained**, now asserted at 14 instead of 30. The gate
-exists to prevent unintended drift, not to forbid an intentional deletion recorded in this section.
+A nova baseline é **14**. O gate de drift de 4 vias (`TOOL_NAMES` + `TIER_TABLE` +
+`TOOL_REGISTRY` + o manifesto do evaluador cross-repo) é **mantido**, agora
+asseverado em 14 em vez de 30. O gate existe para impedir drift não intencional,
+não para proibir uma remoção intencional registrada nesta seção.
 
-The 17 removed names and their replacement path:
+Os 17 nomes removidos e seu caminho substituto:
 
-| Removed tool | Replacement path |
+| Ferramenta removida | Caminho substituto |
 |---|---|
-| `double_click` | `left_click` with `click_count` 2 |
-| `triple_click` | `left_click` with `click_count` 3 |
-| `right_click` | `left_click` with `mouse_button` `"right"` |
-| `middle_click` | `left_click` with `mouse_button` `"middle"` |
-| `hold_key` | `key` with a hold duration |
-| `screenshot` (full desktop) | `get_app_state` with `include_screenshot` (per-app raster only) |
-| `zoom` | none — per-app raster is delivered at usable scale |
-| `list_displays` | none — per-app capture follows the window's display |
-| `switch_display` | none — same |
-| `cursor_position` | none — pure diagnostic |
-| `wait` | none — the SDK settles internally; never sleep |
-| `mouse_move` | none — accepted capability loss |
-| `left_mouse_down` | `left_click_drag` for drags; press-and-hold is an accepted loss |
-| `left_mouse_up` | same |
-| `read_clipboard` | none — accepted capability loss |
-| `write_clipboard` | the native `paste` tool, one of the frozen 14 (Helper-side save → write → platform paste key → restore) |
-| `open_application` | `get_app_state` with an `app_ref` — an app that is not running is cold-launched **in the background** inside the observation path. The three sub-capabilities have no replacement: `activate` (foreground it), `url` (launch with a document) and `new_instance` (a second same-bundle process) are all gone. Harnesses that need a document or folder already open must arrange it as fixture setup before the tool surface is used. |
+| `double_click` | `left_click` com `click_count` 2 |
+| `triple_click` | `left_click` com `click_count` 3 |
+| `right_click` | `left_click` com `mouse_button` `"right"` |
+| `middle_click` | `left_click` com `mouse_button` `"middle"` |
+| `hold_key` | `key` com uma duração de hold |
+| `screenshot` (desktop inteiro) | `get_app_state` com `include_screenshot` (apenas raster por app) |
+| `zoom` | nenhum — o raster por app é entregue em escala utilizável |
+| `list_displays` | nenhum — a captura por app segue o display da janela |
+| `switch_display` | nenhum — o mesmo |
+| `cursor_position` | nenhum — puramente diagnóstico |
+| `wait` | nenhum — o SDK assenta internamente; nunca dormir |
+| `mouse_move` | nenhum — perda de capacidade aceita |
+| `left_mouse_down` | `left_click_drag` para arrastos; press-and-hold é uma perda aceita |
+| `left_mouse_up` | o mesmo |
+| `read_clipboard` | nenhum — perda de capacidade aceita |
+| `write_clipboard` | a ferramenta nativa `paste`, uma das 14 congeladas (salvar no Helper → escrever → tecla de paste da plataforma → restaurar) |
+| `open_application` | `get_app_state` com um `app_ref` — um app que não está rodando é iniciado a frio **em background** dentro do caminho de observação. As três sub-capacidades não têm substituto: `activate` (trazer para foreground), `url` (lançar com um documento) e `new_instance` (um segundo processo do mesmo bundle) sumiram. Harnesses que precisarem de um documento ou pasta já abertos precisam providenciá-los como setup de fixture antes de usar a superfície de ferramentas. |
 
-The count is 30 − 17 removals + 1 new tool (`paste`) = 14. Any row added or dropped here must keep
-that arithmetic true against the frozen manifest, otherwise the table is no longer a contract.
+A contagem é 30 − 17 remoções + 1 nova ferramenta (`paste`) = 14. Qualquer linha
+adicionada ou removida aqui precisa manter essa aritmética verdadeira contra o
+manifesto congelado, caso contrário a tabela deixa de ser um contrato.
 
-There is no full-desktop raster in the 14-tool surface. Anything that previously reasoned over the
-whole screen must now name an app and read its per-app capture.
+Não existe raster de desktop inteiro na superfície de 14 ferramentas. Tudo que
+antes raciocinava sobre a tela inteira agora precisa nomear um app e ler a captura
+por app dele.
 
-## Evidence boundary
+## Fronteira de evidência
 
-Every mutating tool needs an oracle outside the tool result:
+Toda ferramenta mutante precisa de um oráculo fora do resultado da ferramenta:
 
-- pointer actions require a trusted DOM/native event with the expected button, event family and
-  target region;
-- keyboard and semantic actions require a resulting DOM/AX state change;
-- macOS native keyboard workflows that depend on the active responder chain use
-  explicit `strategy=event` with an exact verified `window_id`, then require a
-  filesystem/RTF oracle; a returned “Key pressed” string is never sufficient;
-- per-app raster requires deterministic raster content plus an actionable `image_ref`; the
-  evaluator reads the adjacent `image_ref.frame_id` only as internal lineage evidence, while the
-  model-facing action path submits coordinates without relaying that token;
-- lifecycle tools require ordering (`request_access` first, `stop_computer_control` last) and the
-  runtime effect appropriate to the tool.
+- ações de ponteiro exigem um evento DOM/nativo confiável com o botão, a família
+  de evento e a região de alvo esperados;
+- ações de teclado e semânticas exigem uma mudança de estado DOM/AX resultante;
+- fluxos nativos de teclado do macOS que dependem da cadeia de responder ativa
+  usam `strategy=event` explícito com um `window_id` verificado exatamente, e então
+  exigem um oráculo de sistema de arquivos/RTF; uma string "Key pressed" retornada
+  nunca é suficiente;
+- o raster por app exige conteúdo de raster determinístico mais um `image_ref`
+  acionável; o evaluador lê o `image_ref.frame_id` adjacente apenas como evidência
+  de linhagem interna, enquanto o caminho de ação visível ao model envia
+  coordenadas sem repassar esse token;
+- ferramentas de ciclo de vida exigem ordenação (`request_access` primeiro,
+  `stop_computer_control` por último) e o efeito de runtime apropriado à
+  ferramenta.
 
-An evaluator must fail when a required behavior oracle is missing even if the tool returned
-`isError=false`. Diagnostic screenshots are retained after the oracle settles. An optional bounded
-hold may make manual observation easier, but the hold is never the pass condition.
+Um evaluator deve falhar quando falta um oráculo de comportamento obrigatório,
+mesmo que a ferramenta tenha retornado `isError=false`. Screenshots de diagnóstico
+são retidos depois que o oráculo assenta. Um hold opcional e limitado pode facilitar
+a observação manual, mas o hold nunca é a condição de aprovação.
 
-Agent traces retain the exact model-facing MCP text, which may omit `structuredContent` and truncate
-large payloads. A native AX oracle may parse a text AppState only from a successful official CUA
-tool result and only when `state_id`, the expected bundle id, `window_id`, and an element section are
-all present. Model final prose is never evidence. For large `list_windows` results, identity changes
-use the ingestion-time `windowIds` extracted before model-facing truncation; parsing the shortened
-JSON alone can turn a real new window into a false failure.
+Traces do Agent retêm o texto MCP exato visível ao model, que pode omitir
+`structuredContent` e truncar payloads grandes. Um oráculo AX nativo pode fazer
+parse de um AppState textual apenas a partir de um resultado de ferramenta CUA
+oficial bem-sucedido e apenas quando `state_id`, o bundle id esperado, o `window_id`
+e uma seção de elementos estão todos presentes. A prosa final do model nunca é
+evidência. Para resultados grandes de `list_windows`, as mudanças de identidade
+usam o `windowIds` extraído na ingestão, antes da truncagem visível ao model; fazer
+parse apenas do JSON encurtado pode transformar uma janela nova real em uma falha
+falsa.
 
-## Fresh authority
+## Autoridade fresca
 
-Element `state_id` and the transport's current pixel frame are single-authority snapshots. After an
-action that may mutate the app, the evaluator must explicitly re-observe before the next element
-action; the tool no longer performs that `get_app_state` call implicitly by default. An explicit
-`return_state="compact"` remains available for a one-off post-action state. After
-a pixel action, it must obtain a new actionable raster before another coordinate action. The
-default model lane submits only raster `x/y`; transport binding plus dispatch-time supersession
-checks enforce freshness. Deterministic compatibility tests may pass an explicit
-`image_ref.frame_id`, and must prove stale or invalid ids fail closed instead of falling back to the
-latest frame. Reusing stale visual evidence is a test bug, not a product failure.
+O `state_id` de um elemento e o frame de pixels atual do transporte são snapshots
+de autoridade única. Depois de uma ação que possa mutar o app, o evaluator precisa
+reobservar explicitamente antes da próxima ação de elemento; a ferramenta não faz
+mais essa chamada `get_app_state` implicitamente por padrão. Um
+`return_state="compact"` explícito continua disponível para um estado pontual
+pós-ação. Depois de uma ação de pixel, ele precisa obter um novo raster acionável
+antes de outra ação de coordenada. O lane padrão do model envia apenas `x/y` de
+raster; o binding do transporte mais as checagens de supersessão no despacho
+garantem a atualidade. Testes determinísticos de compatibilidade podem passar um
+`image_ref.frame_id` explícito, e devem provar que ids obsoletos ou inválidos
+falham de forma fechada em vez de recorrer ao frame mais recente. Reutilizar
+evidência visual obsoleta é um bug de teste, não uma falha de produto.
 
-## Fixture isolation
+## Isolamento de fixture
 
-Chrome fixture cases bind to the exact launched pid and unique window title. They must not fall back
-to another user Chrome process. Foreground readiness uses macOS built-in process/session probes and
-must not depend on the removed Python/PyObjC project. Optional PyObjC-based Chrome AX enabling may
-run only when an explicit usable Python environment exists; its absence is diagnostic and must not
-poison an otherwise valid fixture run.
+Os casos de fixture do Chrome se ligam ao pid exato lançado e ao título único da
+janela. Eles não podem recorrer a outro processo Chrome do usuário. A prontidão de
+foreground usa as sondas nativas de processo/sessão do macOS e não pode depender do
+projeto Python/PyObjC removido. A habilitação opcional do AX do Chrome baseada em
+PyObjC pode rodar apenas quando existir um ambiente Python explicitamente utilizável;
+sua ausência é um diagnóstico e não pode envenenar uma execução de fixture
+validada.
 
-## Coverage audit
+## Auditoria de cobertura
 
-C18 must reach all 14 manifest names before it can pass. Early exit records the exact missing set.
-The broader C01-C18 and M01-M13 suites provide independent scenario coverage so C18 is not the only
-oracle for a tool family. Reports distinguish `infra_fail`, evaluator-contract failures, and product
-behavior failures; none of them may be presented as a successful E2E run.
+C18 precisa alcançar todos os 14 nomes do manifesto antes de poder passar. A saída
+antecipada registra o conjunto exato de ausentes. As suítes mais amplas C01-C18 e
+M01-M13 fornecem cobertura de cenário independente, para que C18 não seja o único
+oráculo para uma família de ferramentas. Os relatórios distinguem `infra_fail`,
+falhas de contrato do evaluator e falhas de comportamento do produto; nenhuma
+delas pode ser apresentada como uma execução E2E bem-sucedida.
 
-`FULL_SURFACE_ORACLE_CHECKS` is the mechanically tested one-to-many mapping from each frozen tool
-name to its independent checks. It covers inventory and exact fixture identity; per-app raster
-signature and frame lineage; trusted pointer event family, button, multiplicity and drag geometry —
-including the `click_count` 2 and 3 forms and the right/middle `mouse_button` forms now routed
-through `left_click`; exact text/selection/key/action effects, where `key` also covers the
-hold-duration form; access readiness; and the stop latch plus rejection of a subsequent action.
-`protocol.all_14_tools_have_passing_oracles` fails if any mapping entry is absent or non-passing.
+`FULL_SURFACE_ORACLE_CHECKS` é o mapeamento de um para muitos, testado
+mecanicamente, de cada nome de ferramenta congelado para suas checagens
+independentes. Ele cobre inventário e identidade exata da fixture; assinatura do
+raster por app e linhagem do frame; família de evento de ponteiro confiável, botão,
+multiplicidade e geometria de arrasto — incluindo as formas `click_count` 2 e 3 e
+as formas `mouse_button` right/middle agora roteadas por `left_click`; efeitos
+exatos de texto/seleção/tecla/ação, onde `key` também cobre a forma com duração de
+hold; prontidão de acesso; e o latch de parada mais a rejeição de uma ação
+subsequente. `protocol.all_14_tools_have_passing_oracles` falha se alguma entrada do
+mapeamento estiver ausente ou não passando.
 
-Finder is a deliberate foreground exception. Its AppKit inline-editor responder accepts the
-window-scoped background event receipt without performing the rename. M01 and M04 therefore bind an
-exact live `window_id`, select the observed item, and send `Return/name/Return` in one
-`strategy=event` batch. Only the temporary-directory filesystem state can pass those workflows.
+O Finder é uma exceção deliberada de foreground. Seu responder de edição inline do
+AppKit aceita o comprovante de evento de background com escopo de janela sem
+executar a renomeação. Por isso M01 e M04 ligam um `window_id` live exato,
+selecionam o item observado e enviam `Return/name/Return` em um único lote
+`strategy=event`. Somente o estado do sistema de arquivos do diretório temporário
+pode fazer esses fluxos passarem.
 
-TextEdit character styles are another responder-chain case. M08/M09/M10 focus and re-observe the
-editor, select an exact AX text range, then send the style and save shortcuts with the verified
-`window_id`, `strategy=event`, and `return_state=none`. The saved RTF control word is the only pass
-condition. M05 instead tests append persistence: TextEdit may autosave before a redundant `cmd+s`
-can be sent, so its contract ends when the external file oracle is stably true.
+Os estilos de caractere do TextEdit são outro caso de cadeia de responder.
+M08/M09/M10 focam e reobservam o editor, selecionam um intervalo de texto AX exato e
+então enviam os atalhos de estilo e de salvar com o `window_id` verificado,
+`strategy=event` e `return_state=none`. A control word RTF salva é a única
+condição de aprovação. M05 em vez disso testa a persistência de acréscimo: o
+TextEdit pode salvar automaticamente antes que um `cmd+s` redundante possa ser
+enviado, então seu contrato termina quando o oráculo de arquivo externo é
+estavelmente verdadeiro.
 
-Chromium keyboard navigation cannot use the background auto route merely because the broker
-accepted it. C16 binds the exact fixture window and requires `strategy=event` for type, Tab, the
-held `key` form, and Enter. Passing requires both the submitted DOM value and trusted Shift
-keydown/keyup records. A successful `Key pressed` response without those DOM events is a failure.
+A navegação por teclado do Chromium não pode usar a rota automática de background
+apenas porque o broker a aceitou. C16 liga a janela exata da fixture e exige
+`strategy=event` para type, Tab, a forma `key` com hold e Enter. Passar exige
+tanto o valor DOM submetido quanto registros confiáveis de keydown/keyup de Shift.
+Uma resposta bem-sucedida de `Key pressed` sem esses eventos DOM é uma falha.

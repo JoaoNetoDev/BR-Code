@@ -1,25 +1,25 @@
-# 从项目菜单打开编辑器后焦点仍在页面 body
+# Foco continua no body da página depois de abrir o editor pelo menu do projeto
 
 Status: ready-for-human
 
-业务基线 `d31e735905cf744e75a0a93548a80acabe871ae5`，测试补丁 08。
-批次 `r3-server-20261011143037600-31012b` 的 `uipairwise` 在 132.2 秒失败。
+Baseline de negócio `d31e735905cf744e75a0a93548a80acabe871ae5`, patch de teste 08.
+O `uipairwise` do lote `r3-server-20261011143037600-31012b` falhou em 132,2 segundos.
 
-## 运行证据
+## Evidências de execução
 
-英文、深色、960×700 场景中，通过真实项目菜单点击 Edit project，编辑器和正确目录都已显示。
-测试等待 5 秒，要求 activeElement 位于可见编辑器内；最终 `focusFailure={tag: "BODY", testId: null}`。
-录像末帧显示编辑器输入框没有焦点环。这次没有手动 focus 输入框，也没有立即读取挂载首帧就失败。
+No cenário em inglês, tema escuro, 960×700, ao clicar em Edit project pelo menu real do projeto, o editor e o diretório correto já foram exibidos.
+O teste esperou 5 segundos e exigiu que o activeElement estivesse dentro do editor visível; ao final, `focusFailure={tag: "BODY", testId: null}`.
+O último frame da gravação mostra o campo de entrada do editor sem anel de foco. Desta vez não houve focus manual no campo de entrada, nem leitura imediata do primeiro frame de montagem com falha.
 
 ```text
-项目菜单 → Edit project → 编辑器显示
-  → 等待可见焦点进入编辑器（5 秒）
-  → activeElement 仍为 BODY
+Menu do projeto → Edit project → editor exibido
+  → aguardar o foco visível entrar no editor (5 segundos)
+  → activeElement ainda é BODY
 ```
 
-`ProjectEditor` 名称输入框声明 autoFocus，项目菜单通过 `onSelect` 打开编辑器。
-需核对菜单退出时的焦点归还与 Dialog 焦点管理之间的顺序；当前证据尚未唯一定位到某个回调。
-本轮不修改业务实现，不在测试中强制 focus 掩盖问题。后续中文/浅色、离线与重连矩阵未到达。
+O campo de nome do `ProjectEditor` declara autoFocus e o menu do projeto abre o editor por `onSelect`.
+É preciso conferir a ordem entre a devolução do foco no fechamento do menu e o gerenciamento de foco do Dialog; as evidências atuais ainda não localizam de forma única um callback específico.
+Nesta rodada não se altera a implementação de negócio, nem se força focus no teste para mascarar o problema. A matriz subsequente de idioma chinês/tema claro, offline e reconexão não chegou.
 
-本项对应 [R3A-UI-03](../../testing/r3-remote-automation-case-matrix.md) 的焦点可用要求。
-证据位于上述批次 `uipairwise` 的 `ui-pairwise.json`、失败录像和日志。
+Este item corresponde ao requisito de usabilidade de foco do [R3A-UI-03](../../testing/r3-remote-automation-case-matrix.md).
+As evidências estão no `ui-pairwise.json`, na gravação da falha e nos logs do `uipairwise` do lote acima.

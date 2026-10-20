@@ -1,56 +1,56 @@
-# 项目拖拽插入线
+# Linha de inserção ao arrastar projetos
 
-## 行为
+## Comportamento
 
-- 拖动侧栏项目到可排序的另一项目时，在目标边缘显示 2px 蓝线，左端为 8px 空心圆；采用 `icon-blue` 主题 token，左右随侧栏宽度伸缩。
-- 向上排序显示在目标项目之前，向下排序显示在目标项目之后；位置跟随原有排序位移动画，展开项目按整个项目节点边界显示，不能落进任务行。
-- 只提示同置顶分区（可跨 Host）内的有效项目排序；原位置、不可排序项目和原生任务拖入不显示。指针与键盘共用提示，释放或 Escape 取消立即清除。
-- 指示线不占布局、不拦截指针、对辅助技术隐藏；保留项目折叠、菜单、文件入口和原排序动画。
+- Ao arrastar um projeto da barra lateral sobre outro projeto ordenável, exibe-se uma linha azul de 2px na borda do alvo, com um círculo vazado de 8px na extremidade; usa o token de tema `icon-blue` e se estica à esquerda e à direita conforme a largura da barra lateral.
+- A ordenação para cima é exibida antes do projeto alvo e a ordenação para baixo, depois do projeto alvo; a posição acompanha a animação de movimento do slot de ordenação original, projetos expandidos são exibidos pelo limite do nó inteiro do projeto e não podem cair dentro de linhas de tarefa.
+- Só exibe ordenação de projetos válidos dentro da mesma seção fixada no topo (pode atravessar Host); a posição original, projetos não ordenáveis e o arraste nativo de tarefas não exibem nada. O ponteiro e o teclado compartilham a mesma dica, e soltar ou pressionar Escape cancela e limpa imediatamente.
+- A linha de inserção não ocupa layout, não intercepta o ponteiro e é oculta para tecnologias assistivas; preserva o colapso de projetos, o menu, a entrada de arquivos e a animação de ordenação original.
 
-## 所有权与边界
+## Propriedade e limites
 
-直接从现有 `useSortable` 的 active / over / index 派生显示，不新增 React 状态、计时器或持久化字段。当前控制端侧栏偏好是显示顺序的唯一 owner；提交复用 preferences.reorder，以 (hostId, projectId) 保存，本地与离线远端可以混排，不写远端 position。
-
-```text
-指针 / 键盘 → dnd-kit active + over → 目标边缘蓝线
-                                  → 松手 → preferences.reorder → 控制端 → readTree
-                                  → Escape → 清除暂态
-```
-
-桌面与手机共用 ProjectNode；不改变 shared-host、workspaceIdentity、desktop continuous 或 mobile replayable 边界，不涉及协议和 migration。使用两种主题和窄屏布局验收，不把 390px 桌面模拟等同真实手机远控验证。
-
-## 验收
-
-扩展 VP31 pending E2E：拖动前无指示线；向下指针拖动、向上键盘拖动分别显示唯一正确目标和方向；检查线宽、主题颜色、空心圆、布局边界；取消和提交后清除，刷新顺序保留。截图覆盖明暗主题与 390px 布局。
-
-## 验证记录（2026-09-15）
-
-- Electron `desktop-e2e-20260915035627450-p99736-fbdae0bb806b2ae3`：6/6 通过；已检查 1200px / 390px 的 Zai Light、Zai Dark 插入线截图。窄屏先等待原有自动收起策略完成，再通过侧栏按钮重新展开。
-- 实际开发应用通过 CDP 确认拖动时显示插入线、Escape 清除；未提交项目顺序变更。
-- `pnpm typecheck`、`pnpm lint`、desktop `typecheck:e2e`、fixture check 与 HEAD 增量架构检查通过。lint 保留 48 个既有 warnings；全分支架构检查开工时已有 `resolveConversationWorkspaceTarget.ts` unmanaged-new-file，与本次无关。
-- 用例保留 pending；真实手机 shared-host、SSH/WSL、Windows/Linux GUI 未执行。本次只修改 UI 展示，不改变主机通信和持久化。
-
-## 拖拽渲染预算（2026-09-15）
-
-用户 Trace-20260915T121805：启动时 41 个项目连续渲染 4 轮，含 656 次 ControlHintTooltip 渲染；最长主线程任务 1410ms，布局约 6ms，其余主要为 React 与 DEV 调试记录。原因是 useSortable 的 context 更新直接进入完整项目内容。
-
-- ProjectNode 的排序外壳独占 useSortable 订阅、节点 ref、位移与插入线；标题/操作菜单/任务内容设为独立 memo 边界，不订阅拖拽 context。只将稳定的 activator ref、listeners、attributes 传给标题；激活状态变化最多刷新当前活动项目内容，目标和旁观项目内容保持复用。
-- 保留 props 的正常浅比较：项目、任务、可用性、折叠、回调变化必须及时更新；不使用忽略函数的比较器、不保存第二份项目数据、不通过延迟或关闭调试记录掩盖卡顿。
-- 排序 data 只随 hostId/pinned 改变。保持同置顶分区判定，允许跨 Host、键盘 ARIA、原生任务拖入及展开项目的整块位移。
+A exibição é derivada diretamente do active / over / index existentes do `useSortable`, sem adicionar estado React, temporizadores ou campos persistidos. Hoje a preferência da barra lateral no lado de controle é o único owner da ordem de exibição; o envio reutiliza preferences.reorder, salvo por (hostId, projectId), o local e o remoto offline podem ser misturados e não grava position remota.
 
 ```text
-Pointer/Keyboard → DndContext → ProjectNode 外壳（transform / 插入线）
-项目投影 / 操作回调 ──────────→ memo 项目内容（标题 / 菜单 / 任务）
-松手 → preferences.reorder → 控制端侧栏偏好；Escape → 清除暂态
+Ponteiro / teclado → dnd-kit active + over → linha azul na borda do alvo
+                                    → soltar → preferences.reorder → lado de controle → readTree
+                                    → Escape → limpar estado transitório
 ```
 
-验收：单测模拟 41 个节点的激活、移动、换目标和取消，旁观节点不重复渲染提示框/任务内容，活动项的 ARIA 与最新回调正常；VP31 在隔离 HOME 补充至少 41 项真实指针拖动、蓝线、取消和帧间隔/longtask 采样。发布构建拖拽采样最大帧间隔小于 100ms；性能数值随环境变化，保留原始指标并用同条件开发应用录制比较。既有键盘排序持久化、两种主题、390px 和菜单回归继续执行。共享 UI 生效于桌面/Web；不更改手机 replayable、Host/CLI、协议或 migration。
+Desktop e celular compartilham o ProjectNode; não altera os limites de shared-host, workspaceIdentity, desktop continuous ou mobile replayable, e não envolve protocolo nem migration. A aceitação é feita com os dois temas e o layout de tela estreita, e não se deve tratar a simulação de desktop de 390px como equivalente à verificação real de controle remoto por celular.
 
-### 性能修复验证
+## Aceitação
 
-- 同一开发应用、41 项、相同指针激活→向上落点→Escape 手势，使用 PerformanceObserver + rAF 采样（不与用户带 CPU profiler 的原 Trace 直接比较）：修改前最大帧间隔 366.6ms、最长 longtask 387ms、ControlHintTooltip 1152 次；修改后两次为 67.6/34.1ms、77/59ms、均 8 次。前后项目顺序一致，蓝线出现且取消清除。
-- 最终发布构建 Electron run `desktop-e2e-20260915044016567-p17170-a27487f8d3a22534`：7/7 通过；性能 fixture 实际 42 项（含初始化项目），最大帧间隔 17.6ms、无 longtask，原始指标在该 run 的 `project-drag-performance.json`。已检查 1200px 深色及 390px 浅色插入线截图。
-- 新单测先红：单次激活触发 164 次 tooltip；修复后激活/取消各最多 4 次，位移/换目标 0 次，项目标题和最新操作回调仍更新。4 个相关测试文件 16/16 通过。
-- 同步旧 Server 单测的标题 ARIA 断言：沿用上一主目录可用性修复的 `aria-disabled={!canOpen}`，标题可展开时为 false；排序禁用仍由 useSortable.disabled 控制，本次未更改此产品语义。
-- root typecheck、desktop typecheck:e2e、lint（48 个既有 warnings，0 errors）、fixture check、格式及 HEAD 增量架构检查通过。全分支仍有开工前的 `resolveConversationWorkspaceTarget.ts` unmanaged-new-file，未增加违规。
-- 用例仍为 pending；未运行真实手机 shared-host、SSH/WSL、Windows/Linux GUI。只调整共享 UI 渲染边界，不改数据/通信语义。
+Estende o E2E pending do VP31: nenhuma linha de inserção antes do arraste; o arraste com ponteiro para baixo e o arraste por teclado para cima exibem respectivamente o único alvo correto e a direção correta; verifica a espessura da linha, a cor do tema, o círculo vazado e os limites de layout; limpeza após cancelar e enviar, e a ordem é preservada após recarregar. As capturas cobrem os temas claro e escuro e o layout de 390px.
+
+## Registro de verificação (2026-09-15)
+
+- Electron `desktop-e2e-20260915035627450-p99736-fbdae0bb806b2ae3`: 6/6 aprovados; as capturas da linha de inserção em Zai Light e Zai Dark a 1200px / 390px foram verificadas. Em tela estreita, primeiro aguarda-se a conclusão da política automática de recolhimento existente e depois a barra lateral é reaberta pelo botão.
+- No aplicativo de desenvolvimento real, confirmou-se via CDP que a linha de inserção é exibida durante o arraste e que o Escape limpa; nenhuma alteração de ordem de projetos foi enviada.
+- `pnpm typecheck`, `pnpm lint`, `typecheck:e2e` do desktop, verificação de fixtures e checagem incremental de arquitetura do HEAD passaram. O lint mantém 48 warnings existentes; a checagem de arquitetura de toda a branch já tinha, no início do trabalho, `resolveConversationWorkspaceTarget.ts` como unmanaged-new-file, sem relação com esta alteração.
+- Os casos permanecem pending; não foram executados shared-host real de celular, SSH/WSL nem GUI em Windows/Linux. desta vez apenas a exibição de UI foi modificada, sem alterar comunicação de host e persistência.
+
+## Orçamento de renderização do arraste (2026-09-15)
+
+Trace do usuário Trace-20260915T121805: na inicialização, 41 projetos foram renderizados consecutivamente por 4 rodadas, com 656 renderizações de ControlHintTooltip; a tarefa mais longa na thread principal foi de 1410ms, o layout cerca de 6ms e o restante principalmente React e registros de depuração DEV. A causa é que a atualização de context do useSortable entra diretamente no conteúdo completo do projeto.
+
+- O invólucro de ordenação do ProjectNode recebe exclusivamente a assinatura do useSortable, a ref do nó, o deslocamento e a linha de inserção; título/menu de ações/conteúdo de tarefas viram limites de memo independentes e não assinam o context de arraste. Apenas a ref do activator, os listeners e os attributes estáveis são passados ao título; a mudança de estado de ativação no máximo re-renderiza o conteúdo do projeto atualmente ativo, e o conteúdo dos projetos alvo e das testemunhas continua sendo reaproveitado.
+- Mantém-se a comparação rasa normal das props: mudanças em projeto, tarefa, disponibilidade, colapso e callbacks devem atualizar prontamente; não se usa comparador que ignore funções, não se guarda uma segunda cópia dos dados de projeto e não se mascara o travamento com atraso ou desligamento dos registros de depuração.
+- Os data de ordenação mudam apenas com hostId/pinned. Mantém-se a determinação da mesma seção fixada no topo, permitindo atravessar Host, ARIA de teclado, arraste nativo de tarefas e o deslocamento do bloco inteiro de projetos expandidos.
+
+```text
+Ponteiro/Teclado → DndContext → invólucro do ProjectNode (transform / linha de inserção)
+Projeção do projeto / callbacks de ação ──────────→ conteúdo memo do projeto (título / menu / tarefas)
+Soltar → preferences.reorder → preferência da barra lateral no lado de controle; Escape → limpar estado transitório
+```
+
+Aceitação: teste unitário simulando ativação, movimento, troca de alvo e cancelamento de 41 nós, sem re-renderização repetida das dicas/conteúdo de tarefas nas nós de testemunho, com ARIA e callbacks mais recentes do item ativo funcionando; o VP31 complementa em HOME isolado ao menos 41 arrastes reais com ponteiro, linha azul, cancelamento e amostragem de intervalo de quadros/longtask. Na build de release, a amostragem de arraste deve ter intervalo máximo de quadro menor que 100ms; os valores de desempenho variam com o ambiente, mantendo-se as métricas originais e comparando-se com gravação do aplicativo de desenvolvimento nas mesmas condições. A persistência da ordenação por teclado existente, os dois temas, 390px e a regressão do menu continuam sendo executados. A UI compartilhada vale para desktop/Web; não se altera o replayable do celular, Host/CLI, protocolo ou migration.
+
+### Verificação da correção de desempenho
+
+- Mesmo aplicativo de desenvolvimento, 41 itens, o mesmo gesto de ativação por ponteiro→ponto de soltura para cima→Escape, usando amostragem com PerformanceObserver + rAF (sem comparação direta com o Trace original do usuário, que trazia CPU profiler): antes da modificação o maior intervalo de quadro foi de 366.6ms, o longtask mais longo de 387ms e 1152 ControlHintTooltip; depois da modificação, os dois foram 67.6/34.1ms, 77/59ms, ambos 8 vezes. A ordem dos projetos antes e depois ficou igual, a linha azul apareceu e o cancelamento limpou.
+- Run final do Electron em build de release `desktop-e2e-20260915044016567-p17170-a27487f8d3a22534`: 7/7 aprovados; a fixture de desempenho teve efetivamente 42 itens (incluindo projetos de inicialização), o maior intervalo de quadro foi de 17.6ms, sem longtask, e as métricas originais estão no `project-drag-performance.json` desse run. As capturas da linha de inserção em 1200px escuro e 390px claro foram verificadas.
+- O novo teste unitário começou vermelho: uma única ativação disparou 164 tooltips; após a correção, ativação/cancelamento disparam no máximo 4 vezes cada, deslocamento/troca de alvo 0 vezes, e o título do projeto e o callback de ação mais recente continuam atualizando. 4 arquivos de teste relacionados, 16/16 aprovados.
+- Sincronizada a asserção de ARIA do título do teste unitário antigo do Server: mantém-se o `aria-disabled={!canOpen}` do anterior fix de disponibilidade do diretório principal, com false quando o título é expansível; a ordenação desabilitada continua controlada por useSortable.disabled, e esta não altera essa semântica de produto.
+- typecheck da root, typecheck:e2e do desktop, lint (48 warnings existentes, 0 errors), verificação de fixtures, formatação e checagem incremental de arquitetura do HEAD passaram. Em toda a branch continua presente o `resolveConversationWorkspaceTarget.ts` unmanaged-new-file anterior ao início do trabalho, sem aumento de violações.
+- Os casos ainda estão pending; não foram executados shared-host real de celular, SSH/WSL nem GUI em Windows/Linux. Apenas os limites de renderização da UI compartilhada foram ajustados, sem mudar semântica de dados/comunicação.

@@ -1,202 +1,202 @@
-# 项目与未归类任务的草稿、默认配置及目录生命周期
+# Ciclo de vida de rascunhos, configurações padrão e diretórios de projetos e tarefas não categorizadas
 
-状态：2026-10-16 用户确认；实现及本轮必要回归完成；未发布安装包。
+Status: 2026-10-16 confirmado pelo usuário; implementação e regressões necessárias desta rodada concluídas; pacote de instalação não publicado.
 
-## 术语与边界
+## Termos e limites
 
-- Project（项目）是组织 session 的逻辑容器，用目标主机身份与项目 ID 标识。
-- root（项目目录）是真实文件夹；primary root（主要目录）是项目新建 session 时选用的目录。
-- workspace（工作区）承载运行与数据隔离；workspaceKey = workspaceIdentity?.trim() || workspacePath。
-- workspacePath 是实际路径；session 执行目录（cwd）在 session 创建后固定。移动项目归属不改变它。
-- “任务”入口创建未归类任务。它拥有独立的新建草稿和默认配置，不是一个伪造的 Project。
-- 客户端本地存储隔离桌面与手机；远控连接的目标主机也必须隔离。重连不能用临时 bridge ID 生成新的归属。
+- Project (projeto) é o contêiner lógico que organiza sessions, identificado pela identidade do host de destino e pelo ID do projeto.
+- root (diretório do projeto) é uma pasta real; primary root (diretório principal) é o diretório escolhido quando o projeto cria uma nova session.
+- workspace carrega a execução e o isolamento de dados; workspaceKey = workspaceIdentity?.trim() || workspacePath.
+- workspacePath é o caminho real; o diretório de execução da session (cwd) é fixado após a criação da session. Mover o pertencimento do projeto não o altera.
+- A entrada de tarefa cria uma tarefa não categorizada. Ela tem seu próprio rascunho novo e sua própria configuração padrão; não é um Project falsificado.
+- O armazenamento local do cliente isola desktop e celular; o host de destino de uma conexão de controle remoto também precisa ser isolado. Uma reconexão não pode gerar um novo pertencimento a partir de um bridge ID temporário.
 
-## 统一状态与唯一写者
+## Estado unificado e escritor único
 
-| 状态                     | 归属/唯一写者                            | 持久化与用途                                                                   |
-| ------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------ |
-| 新建草稿                 | Composer owner，按项目或未归类任务作用域 | 有非空白文字才保存 text、editorState、mention、完整 ModelSelection、mode、Plan |
-| 当前输入框               | useDraftConfigControl                    | 用户编辑优先；普通 render、View 或 Snapshot 回包不能重置当前编辑               |
-| 新建默认配置（Recent）   | 接纳真实用户 Submission 的统一路径       | 模型 Provider/model/options 与权限一起保存；每项目一份，未归类任务一份         |
-| 未归类任务待发送目录引用 | 新建导航生命周期 owner                   | 保存 draftId 与准备结果；空文字也可保留目录引用，不伪造文字草稿                |
-| 正式 session 的后续草稿  | 原 session Composer                      | 工作区身份 + session ID，不改为按项目存储                                      |
-| session 事实与执行目录   | CLI；Host 只持有组织态及事实镜像         | 不由草稿存储、目录扫描或 UI snapshot 制造 session 事实                         |
+| Estado                                     | Pertencimento / escritor único                     | Persistência e uso                                                              |
+| ------------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Rascunho novo                              | Owner do Composer, com escopo por projeto ou por tarefa não categorizada | Só salva text, editorState, mention, ModelSelection completo, mode e Plan quando há texto não em branco |
+| Campo de entrada atual                     | useDraftConfigControl                             | A edição do usuário tem prioridade; um render comum ou a resposta de View/Snapshot não pode resetar a edição atual |
+| Configuração padrão nova (Recent)          | Caminho único que aceita a Submission real do usuário | Provider/model/options do modelo são salvos junto das permissões; uma cópia por projeto e uma por tarefa não categorizada |
+| Referência de diretório pendente de envio da tarefa não categorizada | Owner do ciclo de vida da navegação de criação | Salva o draftId e o resultado da preparação; mesmo com texto vazio a referência de diretório pode ser mantida, sem forjar um rascunho de texto |
+| Rascunhos posteriores de uma session oficial | Composer da session original                       | Identidade do workspace + session ID; não passa a ser armazenado por projeto    |
+| Fatos da session e diretório de execução    | CLI; o Host só mantém o estado organizacional e o espelho dos fatos | O armazenamento de rascunhos, a varredura de diretórios ou o snapshot de UI não criam fatos de session |
 
-项目 P、Q 即使主要目录相同，也分别保存新建草稿和 Recent。项目改名不影响归属；项目换主要目录仍保留它的文字草稿与 Recent。
-分组只表达组织意图，不产生另一套默认配置范围。
+Os projetos P e Q, mesmo com o mesmo diretório principal, salvam rascunhos novos e Recent separadamente. Renomear o projeto não afeta o pertencimento; trocar o diretório principal do projeto ainda preserva o rascunho de texto e o Recent dele.
+O agrupamento expressa apenas a intenção organizacional e não cria outro escopo de configuração padrão.
 
-## 用户行为
+## Comportamento do usuário
 
-### 普通项目
+### Projeto comum
 
-新建读取该项目的草稿；有文字恢复完整选择，没有文字读取该项目 Recent，Plan 默认关闭。
-项目主要目录用于准备预热 session。首次输入被接纳后，成为正式 session；后续新建继续使用项目当时的主要目录。
-没有 root 的项目沿用 prepareSession 初始化主要目录的现有流程。
-旧 session 执行目录不随项目主要目录修改或 session 移动而改变。
+A criação lê o rascunho do projeto; com texto, restaura a seleção completa; sem texto, lê o Recent desse projeto, com Plan desligado por padrão.
+O diretório principal do projeto é usado para preparar o prewarm da session. Depois que a primeira entrada é aceita, ela se torna uma session oficial; as criações seguintes continuam usando o diretório principal que o projeto tinha naquele momento.
+Projetos sem root seguem o fluxo existente de prepareSession para inicializar o diretório principal.
+O diretório de execução de uma session antiga não muda com a alteração do diretório principal do projeto nem com a movimentação da session.
 
-### 未归类任务
+### Tarefa não categorizada
 
-第一次新建生成 draftId，准备真实目录并保存引用。切走再新建复用同一目录与草稿。
-首次输入被接纳后消费该引用，下一次新建生成新 draftId 和新目录。
-重复点击和并发准备复用同一个准备结果；不能只挡住导航而仍创建多个目录。
-不得全局改变无参 prepareSession 的语义，Bots、自动化及其他调用方仍有自己的目录准备语义。
+A primeira criação gera um draftId, prepara o diretório real e salva a referência. Trocar de contexto e criar de novo reutiliza o mesmo diretório e o mesmo rascunho.
+Depois que a primeira entrada é aceita, a referência é consumida; a criação seguinte gera um novo draftId e um novo diretório.
+Cliques repetidos e preparações concorrentes reutilizam o mesmo resultado de preparação; não é possível bloquear apenas a navegação e ainda criar vários diretórios.
+Não se deve mudar globalmente a semântica de prepareSession sem argumentos; Bots, automações e outros chamadores mantêm suas próprias semânticas de preparação de diretório.
 
-### 默认配置
+### Configuração padrão
 
-仅真实用户发送被接纳时更新 Recent；模型回复完成不是边界。改菜单、预热、权限确认、读取历史、打开设置、失败发送不更新 Recent。
-已有 session 的真实发送也更新其发送时所属项目或未归类任务范围；从权威组织态读取归属，不从 cwd 猜项目。
-辅助对话不在主任务索引中，续发使用侧栏记录的所属主会话查询 Recent 项目归属，命令仍发送给辅助 child；普通会话和 fork 仍查询自身任务。
-发送前冻结归属与完整配置；迟到回执只更新该归属，不因当前导航变化改写其他项目。
-跨 Pane 按发起顺序保留最近已接纳提交，旧回执不能覆盖较新的已接纳配置。
-其他发送更新 Recent 时不覆盖正在编辑的草稿。
-ModelSelection 按当前 schema 保存 providerId/modelId/options；当前 options 为 reasoningLevel。followup 等 app 设置不并入 Recent。
-Plan 仍是草稿/运行态，不作为全新任务继承的开关。无有效模型时使用现有 ModelSelection View 校验规则，不把菜单第一项另存为默认值。
+O Recent só é atualizado quando o envio real do usuário é aceito; a conclusão da resposta do modelo não é um limite. Alterar o menu, o prewarm, a confirmação de permissões, ler o histórico, abrir as configurações ou um envio com falha não atualizam o Recent.
+O envio real de uma session já existente também atualiza o escopo do projeto ou da tarefa não categorizada a que ela pertencia no momento do envio; o pertencimento é lido do estado organizacional autoritativo, não inferido do cwd.
+Conversas auxiliares não estão no índice de tarefas principal; a continuação usa a sessão principal registrada na barra lateral para consultar o Recent e o pertencimento do projeto, mas o comando continua sendo enviado ao child auxiliar; sessões comuns e forks continuam consultando a própria tarefa.
+Antes do envio, o pertencimento e a configuração completa são congelados; um recibo tardio atualiza apenas aquele pertencimento e não reescreve outros projetos por causa de mudanças na navegação atual.
+Entre Panes, as submissões aceitas mais recentes são mantidas pela ordem de início; um recibo antigo não pode sobrescrever uma configuração aceita mais recentemente.
+Quando outro envio atualiza o Recent, ele não sobrescreve o rascunho em edição.
+ModelSelection salva providerId/modelId/options conforme o schema atual; hoje options é reasoningLevel. Configurações do app como followup não são incorporadas ao Recent.
+Plan continua sendo um estado de rascunho/execução, e não uma chave herdada por novas tasks. Sem um modelo válido, valem as regras existentes de validação da ModelSelection View, e o primeiro item do menu não é salvo como valor padrão.
 
-### 原有文字草稿规则
+### Regras existentes de rascunho de texto
 
-非空白正文才构成持久文字草稿。只改选项不保存；删空删除文字记录，目录引用不因此消失。
-返回有文字的新建草稿恢复其完整选择；重新进入空白新建页取所属范围 Recent。
-正式 session 重开时恢复正文与草稿模型，权限/Plan 取该 session 最新 Snapshot。挂载期间的显式选择沿用现有观察规则。
-首发期间的新输入属于同一编辑周期，迁移到正式 session 后保留，不被新建草稿清理覆盖。
-附件沿用现有准备与上传流程；本次不增加附件跨重启持久化。
+Só um corpo de texto não em branco constitui um rascunho de texto persistente. Alterar apenas as opções não salva; apagar o texto remove o registro de texto, mas a referência de diretório não desaparece por isso.
+Voltar a uma criação com texto restaura sua seleção completa; entrar de novo em uma página de criação em branco usa o Recent do escopo de pertencimento.
+Ao reabrir uma session oficial, o corpo e o modelo do rascunho são restaurados; permissões e Plan vêm do Snapshot mais recente da session. Escolhas explícitas durante a montagem seguem as regras de observação existentes.
+Uma nova entrada digitada durante o primeiro envio pertence ao mesmo ciclo de edição; após migrar para a session oficial, ela é preservada e não é sobrescrita pela limpeza do rascunho de criação.
+Anexos seguem o fluxo existente de preparação e upload; esta rodada não adiciona persistência de anexos entre reinicializações.
 
-## 生命周期与时序
+## Ciclo de vida e sequenciamento
 
 ```mermaid
 flowchart TD
-    A[入口解析归属] --> B{项目或任务}
-    B -->|项目| C[读取项目主要目录]
-    B -->|任务| D[读取或分配待发送 draftId 与目录]
-    C --> E[读取归属草稿或 Recent]
+    A[Entrada resolve o pertencimento] --> B{Projeto ou tarefa}
+    B -->|Projeto| C[Lê o diretório principal do projeto]
+    B -->|Tarefa| D[Lê ou atribui o draftId pendente e o diretório]
+    C --> E[Lê o rascunho ou o Recent do pertencimento]
     D --> E
-    E --> F[Composer 编辑与预热]
-    F --> G[冻结提交及归属，登记已有命令恢复记录]
-    G --> H{权威接纳结果}
-    H -->|拒绝| F
-    H -->|未知| I[保留上下文，查询已有命令]
+    E --> F[Composer edita e faz o prewarm]
+    F --> G[Congela a submissão e o pertencimento, registra o contexto de recuperação de comandos existentes]
+    G --> H{Resultado autoritativo da aceitação}
+    H -->|Rejeitado| F
+    H -->|Desconhecido| I[Preserva o contexto, consulta comandos existentes]
     I --> H
-    H -->|已接纳| J[更新该归属 Recent；消费匹配的任务目录引用]
-    J --> K[原 Composer 迁移到正式 session]
+    H -->|Aceito| J[Atualiza o Recent daquele pertencimento; consome a referência de diretório correspondente da tarefa]
+    J --> K[O Composer original migra para a session oficial]
 ```
 
-- 消费目录引用以首个输入的 accepted 或可核实的 duplicate 为准，不以 prewarm create ACK、Host 预留行、列表投影或导航成功为准。
-- 使用已有 pendingCommandRegistry 持久命令上下文保存归属与草稿身份；不增加第二份 accepted 队列。
-- 本地首发副作用需可重入：重复回执、恢复查询不能重复消费，也不能覆盖更新的 Recent。
-- 消费用 draftId 匹配；旧 ACK 不能清掉下一份草稿引用。先完成可恢复的本地交接，再删除命令恢复证据。
-- 结果未知不等于失败；断线、超时、记录过期、列表暂时缺席均不能证明目录可再次用于新任务。复用现有查询机制，不以定时猜测同步。
-- 导航切换可以使 UI 绑定失效，但不能撤销已经接纳的发送或跳过持久化交接。
-- 切回草稿时，上一代预热创建仍在退出并不代表本次发送失效。等待既有创建收口，再校验点击时的目标代际；不另建并行 session，也不通过超时猜测。
-- 首发未挂载时接纳，将等待期间的新正文交接给正式 session；恢复对账使用提交前的原始正文，避免附加上下文的协议文本使已发送正文复活。
-- 草稿隔离须贯穿存储 key、Hook scope、内存组织意图、预热 owner、附件及回调，不只修改 localStorage。
-- 桌面 continuous、手机 replayable 仍使用已有传输与命令恢复边界；手机切换 workspace 时归属须通过 bridge/navigation 显式交付。
+- O consumo da referência de diretório se baseia no accepted do primeiro envio ou em um duplicate verificável, e não no ACK de criação do prewarm, na linha reservada pelo Host, na projeção da lista ou no sucesso da navegação.
+- Usa o contexto de comandos persistentes já existente, pendingCommandRegistry, para guardar o pertencimento e a identidade do rascunho; não é criada uma segunda fila de accepted.
+- O efeito local do primeiro envio precisa ser reentrante: recibos repetidos e consultas de recuperação não podem consumir duas vezes nem sobrescrever um Recent mais novo.
+- O consumo é casado pelo draftId; um ACK antigo não pode limpar a referência da próxima rascunho. Conclui-se primeiro a entrega local recuperável e só então se remove a evidência de recuperação do comando.
+- Um resultado desconhecido não equivale a falha; desconexão, timeout, registro expirado ou ausência temporária na lista não provam que o diretório pode ser usado de novo para uma nova task. Reutiliza-se o mecanismo de consulta existente, sem sincronizar por adivinhação temporizada.
+- A troca de navegação pode invalidar os vínculos de UI, mas não pode revogar um envio já aceito nem pular a entrega persistida.
+- Ao voltar para um rascunho, o prewarm da geração anterior ainda encerrando não significa que este envio falhou. Aguarda-se a conclusão da criação existente e então valida-se a geração-alvo no momento do clique; não se cria uma session paralela e não se adivinha por timeout.
+- Se a aceitação ocorrer enquanto o primeiro envio ainda não está montado, o novo corpo digitado durante a espera é entregue à session oficial; a reconciliação da recuperação usa o corpo original anterior à submissão, evitando que o texto do protocolo com contexto anexado traga de volta um corpo já enviado.
+- O isolamento dos rascunhos deve atravessar a storage key, o escopo do Hook, a intenção organizacional em memória, o owner do prewarm, os anexos e os callbacks, e não apenas modificar o localStorage.
+- O continuous do desktop e o replayable do celular continuam usando as fronteiras existentes de transporte e recuperação de comandos; ao trocar de workspace no celular, o pertencimento precisa ser entregue explicitamente por bridge/navigation.
 
-## 目录变化、导入及兼容
+## Mudanças de diretório, importações e compatibilidade
 
-项目换主要目录后，文字与 Recent 留在项目；预热需在目标目录重新准备，文件引用与附件按现有校验重检，不把旧运行实例换 cwd。
-目录缺失/不可用时保留草稿并报告现有目录错误，不静默复活目录或选其他 root。
-移动正式 session 只改组织归属，不搬项目新建草稿和 Recent；后续发送按提交时的归属记录默认配置。
-首次分享导入、模板预填、显式项目切换沿用已有明确交接动作；普通导航不自动将一个项目正文搬到另一项目，也不覆盖目标已有草稿。
-旧文字记录保留。仅草稿保存的 projectId 与目标匹配时允许认领；未归类旧草稿必须有明确当前上下文，不能扫描最新目录猜测。
-旧 Recent 没有项目归属；不批量复制到所有同目录项目，不合并历史记录。新范围无记录时走正常默认解析。
-迁移读操作不写盘；明确保存/清除后记录旧数据已认领，防止项目换目录或正文删空后重新读出旧草稿。保留旧版可读取数据，不批量删除历史目录。
-导航另外记住每个工作区最后打开的新建作用域，仅用于刷新恢复入口；正文与 Recent 仍以项目/任务作用域为唯一数据源。
+Depois que o projeto troca o diretório principal, o texto e o Recent permanecem no projeto; o prewarm precisa ser preparado de novo no diretório de destino, as referências a arquivos e os anexos são reconferidos pelas validações existentes, e não se troca o cwd da instância de execução antiga.
+Quando o diretório está ausente ou indisponível, o rascunho é preservado e o erro de diretório existente é reportado, sem ressuscitar silenciosamente o diretório nem escolher outro root.
+Mover uma session oficial altera apenas o pertencimento organizacional, sem mover o rascunho de criação do projeto nem o Recent; os envios seguintes registram a configuração padrão conforme o pertencimento no momento da submissão.
+A primeira importação por compartilhamento, o pré-preenchimento por modelo e a troca explícita de projeto seguem as ações de entrega explícita já existentes; a navegação comum não move automaticamente o corpo de um projeto para outro e não sobrescreve o rascunho já existente no destino.
+Os registros de texto antigos são preservados. Um registro antigo só pode ser reivindicado quando o projectId salvo no rascunho corresponde ao destino; um rascunho antigo não categorizado exige um contexto atual explícito e não pode ser adivinhado varrendo o diretório mais recente.
+Os Recent antigos não têm pertencimento de projeto; não são copiados em lote para todos os projetos do mesmo diretório nem mesclados com o histórico. Quando um escopo novo não tem registro, vale a resolução padrão normal.
+As leituras de migração não escrevem em disco; após um salvamento ou limpeza explícito, o dado antigo é marcado como reivindicado, evitando reler um rascunho antigo depois que o projeto troca de diretório ou que o corpo é apagado. Os dados legíveis da versão antiga são preservados e os diretórios históricos não são removidos em lote.
+A navegação lembra ainda, por workspace, o escopo de criação aberto por último, usado apenas para restaurar o ponto de entrada após um refresh; o corpo e o Recent continuam tendo como única fonte de dados o escopo de projeto/tarefa.
 
-## 功能影响简报
+## Resumo do impacto funcional
 
-变更层级：draft-default、persistence、commit-effect、recovery。模式：implementation-handoff。
+Camadas de alteração: draft-default, persistence, commit-effect, recovery. Modo: implementation-handoff.
 
-| UI 场景                | 共享路径与 owner                           | 默认来源/校验                         | 提交与落点                                                  | 边界及等级                           |
-| ---------------------- | ------------------------------------------ | ------------------------------------- | ----------------------------------------------------------- | ------------------------------------ |
-| 任务分区加号           | useRootWorkspaceActions → Composer         | tasks scope Recent / View             | prepareSession → 用户 Submission → CLI；客户端草稿与 Recent | 桌面/手机 must-inspect               |
-| 项目行/快捷键新建      | 同一导航与 Composer；明确 projectId/hostId | project scope Recent / 主要目录可用性 | 项目 prepareSession；同一发送链                             | 同目录项目 must-inspect              |
-| 已有 session           | SessionPane/useDraftConfigControl          | 当前 Snapshot + session 文字草稿      | CLI admission；所属范围 Recent                              | 归属移动、迟到 ACK must-inspect      |
-| 手机新建/恢复          | Web openProjectDraft、共享 Root            | 目标主机 + 项目/任务作用域            | project-workspace-navigation、原 replayable 恢复            | conditional                          |
-| 分享/模板/分组         | 显式导航交接、原创建意图                   | 同一初始化规则，用户编辑优先          | 原首发与组织归属路径                                        | should-inspect                       |
-| 自动化/Bots/Subagent   | 各自 record/CLI owner                      | 原配置来源                            | 原命令/存储                                                 | invariant-only，不消费 Composer 草稿 |
-| Provider 设置/模型候选 | 原 ModelSelection View                     | 原可用性校验                          | 原 provider 服务                                            | invariant-only                       |
+| Cenário de UI                     | Caminho compartilhado e owner                             | Origem padrão / validação                              | Submissão e destino                                                  | Fronteira e nível                        |
+| --------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------- |
+| Botão de adicionar na seção de tarefas | useRootWorkspaceActions → Composer                           | Recent do escopo de tasks / View                        | prepareSession → Submission do usuário → CLI; rascunho e Recent do cliente | desktop/celular must-inspect               |
+| Nova criação por linha de projeto/atalho | Mesma navegação e Composer; projectId/hostId explícitos   | Recent do escopo de project / disponibilidade do diretório principal | prepareSession do projeto; mesma cadeia de envio          | Projetos de mesmo diretório must-inspect  |
+| Session existente                 | SessionPane/useDraftConfigControl                          | Snapshot atual + rascunho de texto da session           | CLI admission; Recent do escopo de pertencimento                     | Movimentação de pertencimento, ACK tardio must-inspect |
+| Criação/recuperação no celular    | Web openProjectDraft, Root compartilhado                   | Host de destino + escopo de projeto/tarefa              | project-workspace-navigation, recuperação replayable original        | conditional                              |
+| Compartilhamento/modelo/grupo     | Entrega por navegação explícita, intenção de criação original | Mesma regra de inicialização, edição do usuário com prioridade | Caminho original de primeiro envio e de pertencimento organizacional | should-inspect                           |
+| Automação/Bots/Subagent           | Seus respectivos record/CLI owner                          | Origem de configuração original                         | Comando/armazenamento originais                                     | invariant-only, não consome rascunhos do Composer |
+| Configurações de Provider/candidatos de modelo | ModelSelection View original                  | Validação de disponibilidade original                   | Serviço de provider original                                        | invariant-only                           |
 
-共享：草稿读写、Recent、模型校验、提交冻结、接纳回调。差异：归属标识与目录准备策略。
-权威边界保持：Host 管组织，CLI 管 session，客户端管草稿；执行路径不使用 project ID 或 workspaceIdentity 替代。
+Compartilhado: leitura e escrita de rascunhos, Recent, validação de modelo, congelamento da submissão e callbacks de aceitação. Diferenças: identificação de pertencimento e estratégia de preparação de diretório.
+Fronteiras autoritativas mantidas: o Host cuida da organização, o CLI cuida das sessions e o cliente cuida dos rascunhos; o caminho de execução não usa project ID nem workspaceIdentity como substitutos.
 
-当前精确源码种子：composerDraftStore/useDraftConfigControl/newTaskDraft/composerRecent、useRootWorkspaceActions、SessionPane/pendingCommandRegistry、project.prepareSession、project-workspace-navigation、Web openProjectDraft。
-直接路径已通过源码检索核对；codegraph 工具不可用，未宣称图扫描。范围为上述主链及一跳导入、分组、附件，未扫描全部静态可达功能。
-Graph drift：现有文本草稿节点只表达 workspace Recent；历史 new-task-model-resolution-chain 仍含旧 last-selected 规则。随实现更新索引及当前规则入口，不据旧文档恢复旧代码。
+Sementes de código-fonte exatas e atuais: composerDraftStore/useDraftConfigControl/newTaskDraft/composerRecent, useRootWorkspaceActions, SessionPane/pendingCommandRegistry, project.prepareSession, project-workspace-navigation, Web openProjectDraft.
+Os caminhos diretos foram conferidos por busca no código-fonte; a ferramenta codegraph não está disponível, portanto não se reivindica uma varredura do grafo. O escopo é a cadeia principal acima mais importações de um salto, agrupamento e anexos; não foi varrida toda funcionalidade estaticamente alcançável.
+Graph drift: o nó existente de rascunho de texto expressa apenas o Recent do workspace; o new-task-model-resolution-chain histórico ainda contém a antiga regra last-selected. Com a implementação, o índice e o ponto de entrada das regras atuais são atualizados, e o código antigo não é restaurado com base em documentos antigos.
 
-## 裁决、维度与剪枝
+## Decisões, dimensões e poda
 
-用户已确认：未发送复用目录；每端独立；只在发送成功记忆；模型与权限统一；项目草稿与 Recent 按项目隔离。
-主要维度：项目/任务、非空/空草稿、同/异目录、首发/后续、accepted/rejected/unknown/late、桌面/手机、主机身份、目录变更/归属移动。
-剪枝：不增加多桌面窗口产品规则、跨端草稿同步、附件跨重启保存、自动化默认继承；不改变正式 session cwd、运行队列与权限规则。
-多主机同路径、双项目同目录、迟到 ACK、刷新恢复必须保留代表用例；主题语言按代表界面检查，不做全组合。
+Confirmado pelo usuário: reaproveitar o diretório quando o envio não ocorreu; independência por cliente; lembrar apenas após envio bem-sucedido; unificar modelo e permissões; isolar por projeto os rascunhos e os Recent do projeto.
+Dimensões principais: projeto/tarefa, rascunho não vazio/vazio, mesmo/diretório diferente, primeiro/envio posterior, accepted/rejected/unknown/late, desktop/celular, identidade de host, mudança de diretório/movimentação de pertencimento.
+Poda: não se adicionam regras de produto para múltiplas janelas do desktop, sincronização de rascunhos entre clientes, salvamento de anexos entre reinicializações nem herança de padrões para automação; não se alteram o cwd de sessões oficiais, a fila de execução nem as regras de permissão.
+Casos representativos para hosts múltiplos no mesmo caminho, dois projetos no mesmo diretório, ACK tardio e recuperação por refresh devem ser mantidos; temas e idiomas são verificados por interfaces representativas, sem todas as combinações.
 
-## 验收用例与 E2E 交接
+## Casos de aceite e handoff de E2E
 
-| ID   | 前置 → 操作                                      | 必须断言                                             | 证据                              |
-| ---- | ------------------------------------------------ | ---------------------------------------------------- | --------------------------------- |
-| PD01 | 任务输入文字及模型权限 → 切 session → 点任务加号 | 目录、正文、选择恢复；未额外 mkdir                   | UT + Desktop/手机 E2E、文件与日志 |
-| PD02 | 任务发送接纳 → 再新建                            | 新目录、空正文、继承完整 Recent                      | E2E + CLI ACK/目录                |
-| PD03 | 双项目同目录各写不同正文选择 → 来回新建          | 草稿及内存/预热归属隔离，不能覆写 projectId          | UT + E2E                          |
-| PD04 | P/Q/任务分别成功发送不同配置 → 新建              | 三个 Recent 隔离；同一项目后续发送更新               | UT + E2E                          |
-| PD05 | 只改选项/正文删空 → 切走回来                     | 不生成文字草稿；按 Recent 初始化；任务目录引用仍在   | UT + E2E                          |
-| PD06 | 首发拒绝、未知、重连 duplicate                   | 不丢输入、不误释放目录；最终交接恰好一次             | UT + 故障 E2E                     |
-| PD07 | 连点新建、准备晚回、发送后快速切项目             | 准备不重复；旧回调不写新 scope；接纳仍完成原归属交接 | UT + E2E                          |
-| PD08 | 首发过程中键入下一条 → ACK/投影晚到              | 下一条保留在正式 session，不复活新建 Root            | UT + E2E                          |
-| PD09 | 项目改名/换主要目录/移动 session                 | 项目草稿与 Recent 保留；旧 session cwd 不变          | UT + E2E                          |
-| PD10 | 刷新、重启、同路径不同主机、桌面与手机分别编辑   | 身份稳定且各端独立；未知发送可查询恢复               | UT + Desktop/手机 E2E             |
-| PD11 | 合法旧 projectId 草稿、歧义旧记录、存储失败      | 仅可证明归属时认领；保留旧数据；写失败不清源         | UT                                |
-| PD12 | 文件/截图附件、分享导入、模板、分组、不可用模型  | 原流程可用；不误更新 Recent、不串归属                | 受影响 UT + 代表 E2E              |
+| ID   | Pré-condição → Ação                                                     | Asserções obrigatórias                                                  | Evidência                        |
+| ---- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------------- |
+| PD01 | Digitar texto na tarefa e definir modelo/permissões → trocar de session → clicar no botão de adicionar da tarefa | Diretório, corpo e seleção restaurados; nenhum mkdir extra              | UT + E2E de desktop/celular, arquivos e logs |
+| PD02 | Envio da tarefa aceito → criar de novo                                  | Novo diretório, corpo vazio, Recent completo herdado                    | E2E + ACK/diretório do CLI        |
+| PD03 | Dois projetos no mesmo diretório escrevem corpos e seleções diferentes → criar várias vezes | Isolamento dos rascunhos e do pertencimento em memória/prewarm; não sobrescrever o projectId | UT + E2E                          |
+| PD04 | P/Q/tarefa enviam com sucesso configurações diferentes → criar de novo  | Os três Recent ficam isolados; um envio posterior no mesmo projeto atualiza | UT + E2E                          |
+| PD05 | Alterar apenas as opções/apagar o corpo → sair e voltar                | Nenhum rascunho de texto gerado; inicialização pelo Recent; a referência de diretório da tarefa permanece | UT + E2E                          |
+| PD06 | Primeiro envio rejeitado, desconhecido ou reconexão com duplicate      | Nenhuma entrada perdida, nenhuma liberação indevida de diretório; entrega final exatamente uma vez | UT + E2E de falha                 |
+| PD07 | Cliques repetidos em criar, retorno tardio da preparação, troca rápida de projeto após o envio | Preparação não repetida; callback antigo não escreve no novo scope; a aceitação ainda conclui a entrega do pertencimento original | UT + E2E                          |
+| PD08 | Digitar a próxima mensagem durante o primeiro envio → ACK/projeção tardia | A próxima mensagem permanece na session oficial; o Root de criação não é ressuscitado | UT + E2E                          |
+| PD09 | Renomear o projeto/trocar o diretório principal/mover a session         | Rascunho e Recent do projeto preservados; o cwd da session antiga não muda | UT + E2E                          |
+| PD10 | Refresh, reinício, mesmo caminho com hosts diferentes, edições separadas em desktop e celular | Identidade estável e independência por cliente; envios desconhecidos podem ser recuperados por consulta | UT + E2E de desktop/celular        |
+| PD11 | Rascunho com projectId antigo válido, registro antigo ambíguo, falha de armazenamento | Reivindicação apenas quando o pertencimento é provável; dados antigos preservados; uma falha de escrita não limpa a origem | UT                                |
+| PD12 | Anexos de arquivo/captura, importação por compartilhamento, modelos, agrupamento, modelo indisponível | Fluxo original funcional; Recent não atualizado indevidamente; pertencimentos não misturados | UT afetadas + E2E representativa   |
 
-所有 PD 用例产品语义 accepted。自动化按下面的分层证据核验；不把一个代表交互通过扩大为全部组合通过。
-E2E 使用 manual-review/pending；真实侧栏按钮，受控 Provider fast-text 与故障/延迟夹具；不通过 sleep 推断成功。
-主断言同时检查 UI、工作区身份、目录、CLI admission 与客户端持久化。覆盖桌面及手机 shared-host/replayable。
-优先复用 composer-recent-mode、virtual-project-mobile 的 helpers 与 case-local fixtures；不自动转正或加入 CI。
-本轮运行时定位并修复预热代际等待问题；以任务切回后的真实发送验证，不仅依赖 Hook 单测。
+Todos os casos PD têm semântica de produto accepted. A automação é verificada pelas evidências em camadas abaixo; a aprovação de uma interação representativa não é generalizada para todas as combinações.
+O E2E usa manual-review/pending; botões reais da barra lateral, Provider fast-text controlado e fixtures de falha/atraso; o sucesso não é inferido por sleep.
+A asserção principal verifica simultaneamente a UI, a identidade do workspace, o diretório, o CLI admission e a persistência do cliente. A cobertura inclui desktop e celular shared-host/replayable.
+Reutilizam-se preferencialmente os helpers e as fixtures case-local de composer-recent-mode e virtual-project-mobile; sem promoção automática nem inclusão no CI.
+Nesta rodada o problema de espera da geração de prewarm foi localizado e corrigido em runtime; a verificação usa o envio real após voltar à task, e não se apoia apenas em testes unitários do Hook.
 
-## 实施顺序与完成条件
+## Ordem de implementação e condições de conclusão
 
-1. 落盘设计、catalog、coverage、功能图；记录基线与运行时复现。
-2. 先写 scope/存储/Recent/目录幂等/恢复的回归，以及桌面手机交互用例，确认旧实现失败。
-3. 在现有 owner 中统一归属解析，替换 workspace 新建 key 与默认配置来源，避免另造状态副本。
-4. 完成任务目录复用、首发交接与命令恢复；接通项目、快捷键、分享、手机导航及附件。
-5. 运行受影响单测、typecheck、lint、architecture、E2E 类型与目标交互验证；检查 diff。
-6. 必要验证通过后本地提交。未验证项明确记录；不自动 push/MR，不宣称未完成验证已通过。
+1. Gravar em disco o design, o catalog, o coverage e o grafo de funcionalidades; registrar a baseline e a reprodução em runtime.
+2. Escrever primeiro as regressões de scope/armazenamento/Recent/idempotência de diretório/recuperação, além dos casos de interação de desktop e celular, confirmando que a implementação antiga falha.
+3. Unificar a resolução de pertencimento nos owners existentes, substituir a key de criação do workspace e a origem da configuração padrão, evitando criar outra cópia de estado.
+4. Concluir a reutilização de diretório da tarefa, a entrega do primeiro envio e a recuperação de comandos; conectar projeto, atalho, compartilhamento, navegação no celular e anexos.
+5. Executar as UT afetadas, typecheck, lint, architecture, os tipos de E2E e a verificação das interações-alvo; revisar o diff.
+6. Após a aprovação das verificações necessárias, fazer commit local. Itens não verificados são registrados explicitamente; sem push/MR automático e sem declarar como aprovados itens não verificados.
 
-## 本轮验证记录（2026-10-16）
+## Registro de verificação desta rodada (2026-10-16)
 
-基线 `dd10b6e7bf36f7073f6edfc1b9305ddb25d34c4f`。独立 Linux 容器运行 Electron desktop-continuous 与手机浏览器 replayable，共用真实 Host/Agent，模型输出使用 synthetic case-local replay。
+A baseline `dd10b6e7bf36f7073f6edfc1b9305ddb25d34c4f`. Execução independente em contêiner Linux do Electron desktop-continuous e do navegador replayable do celular, compartilhando o Host/Agent reais, com a saída do modelo usando synthetic case-local replay.
 
-| 验证                  | 结果与实际覆盖                                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Composer 生命周期整组 | `desktop-e2e-20261016-095920-188`，5/5；PD01–05、PD07、PD09 的项目改名/换主要目录、PD10 刷新；包含首发在途切走与回执交接 |
-| 首发单飞与下一条输入  | `desktop-e2e-20261016-093955-345`，1/1；PD08 等待首发期间的新输入保留；未重复创建 session                                |
-| 文字与附件草稿切换    | `desktop-e2e-20261016-100030-743`，1/1；completed/running/新建草稿切换保留正文与内存附件引用                             |
-| 手机完整项目流程      | `desktop-e2e-20261016-100100-797`，1/1；PD01/02/10 切回、刷新、目录复用及接纳后换目录；兼顾既有项目、分组、文件导航      |
-| 受影响单测            | 官方 affected 最终选择 1,444 个文件，与实际分批清单完全一致；16,503 项通过、28 项跳过；未运行全量套件                    |
-| 类型、Lint、架构      | 根 typecheck、桌面 E2E typecheck 通过；Lint 0 error、210 个存量 warning；架构 0 violation                                |
-| 回放契约与格式        | 回放契约 5/5；变更文件格式、diff 空白及新规格链接检查通过                                                                |
+| Verificação                  | Resultado e cobertura real                                                                                                       |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Grupo completo do ciclo de vida do Composer | `desktop-e2e-20261016-095920-188`, 5/5; PD01–05, renomear/trocar o diretório principal em PD07 e PD09, refresh de PD10; inclui trocar de contexto com o primeiro envio em trânsito e a entrega do recibo |
+| Envio único do primeiro disparo e próxima entrada | `desktop-e2e-20261016-093955-345`, 1/1; PD08 aguarda a preservação da nova entrada durante o primeiro envio; nenhuma session duplicada                |
+| Alternância entre rascunhos de texto e anexos | `desktop-e2e-20261016-100030-743`, 1/1; a alternância entre completed/running/rascunho novo preserva o corpo e a referência de anexo em memória  |
+| Fluxo completo de projeto no celular | `desktop-e2e-20261016-100100-797`, 1/1; PD01/02/10 com volta, refresh, reutilização de diretório e troca de diretório após a aceitação; também cobre projetos existentes, agrupamento e navegação de arquivos |
+| UT afetadas                  | A seleção oficial affected escolheu 1.444 arquivos, idêntica à lista real em lotes; 16.503 aprovadas, 28 ignoradas; a suíte completa não foi executada |
+| Tipos, Lint, arquitetura      | O typecheck da raiz e o typecheck do E2E do desktop passaram; Lint com 0 error e 210 warnings preexistentes; arquitetura com 0 violation     |
+| Contrato de replay e formatação | Contrato de replay 5/5; a formatação dos arquivos alterados, os espaços em branco do diff e a verificação dos novos links de especificação passaram   |
 
-PD06 的 rejected/unknown/duplicate、刷新重建账本、TTL 与旧 ACK，PD07 的目录准备并发，PD09 的 session 归属解析，PD10 的同路径不同主机及客户端隔离，PD11 的认领与存储失败由单测覆盖；不把在途延迟 E2E 表述为所有断网组合的真机验证。PD12 使用受影响回归与代表 UI 切换，未增加附件跨重启持久化，也未重新验证所有文件选择、截图和导入组合。
+O rejected/unknown/duplicate de PD06, a reconstrução do razão por refresh, o TTL e o ACK antigo, a concorrência de preparação de diretório de PD07, a resolução de pertencimento de session de PD09, o mesmo caminho com hosts diferentes e o isolamento entre clientes de PD10, e a reivindicação e a falha de armazenamento de PD11 são cobertos por testes unitários; o E2E de atraso em trânsito não é descrito como verificação em aparelho real de todas as combinações de rede. PD12 usa as regressões afetadas e a alternância de UI representativa, não adiciona persistência de anexos entre reinicializações e não revalida todas as combinações de seleção de arquivo, captura de tela e importação.
 
-测试助手现在等待本次 draftFocusVersion 前进，避免同项目已有草稿 DOM 提前满足新建等待条件。旧权限用例适配当前可用模式及“正式会话重开取 Snapshot”的既有规则；回放补齐 Write 工具结果及切模型后的压缩响应。保留初次失败记录，不将 fixture 缺失或旧用例前提错误归为产品故障。
+O helper de teste agora aguarda o avanço do draftFocusVersion desta rodada, evitando que o DOM de um rascunho já existente no mesmo projeto satisfaça cedo a condição de espera de criação. Os casos de permissão antigos foram adaptados aos modos disponíveis atuais e à regra existente de "reabertura de sessão oficial obtém o Snapshot"; o replay foi completado com o resultado da ferramenta Write e com a resposta comprimida após a troca de modelo. Os registros da primeira falha são preservados, sem atribuir falhas de produto a fixtures ausentes ou premissas erradas de casos antigos.
 
-环境限制：最初大批测试与浏览器并发触发 8 GB 容器 OOM，改为按官方选择分批、两个 fork worker；两项打包测试在安装缺少的 zip 后通过，一处 Root mock 补齐客户端 namespace 后通过。Electron file URL 在该环境出现模块加载失败，最终使用支持的 localhost renderer URL；刷新曾出现空页面，最终桌面整组刷新与手机刷新均通过。本轮没有 MacBook Air 安装包、Windows GUI、实体手机或跨端文字同步验证。
+Limitações de ambiente: a execução inicial de grandes lotes de testes em paralelo com o navegador provocou OOM no contêiner de 8 GB; passou-se a executar em lotes conforme a seleção oficial, com dois fork workers; dois testes de empacotamento passaram após instalar o zip ausente, e um mock de Root passou após completar o namespace do cliente. O file URL do Electron apresentou falha de carregamento de módulo nesse ambiente e, por fim, foi-se usar a URL de renderer em localhost suportada; o refresh chegou a mostrar uma página vazia, mas o refresh do grupo completo do desktop e o do celular passaram ao final. Esta rodada não teve pacote de instalação em MacBook Air, GUI no Windows, aparelho físico ou verificação de sincronização de texto entre clientes.
 
-功能图本次六个源码种子存在且节点无重复；全图仍有四条基线悬空引用与一个旧源码种子缺失，未扩大本次范围修复，不能宣称全图完整性通过。用例保持 manual-review/pending，未自动转正或加入 CI。
+No grafo de funcionalidades, os seis seeds de código-fonte desta rodada existem e não há nós duplicados; o grafo completo ainda tem quatro referências pendentes da baseline e um seed de código-fonte antigo ausente; a correção não foi ampliada para fora do escopo desta rodada e não se pode declarar a integridade completa do grafo como aprovada. Os casos permanecem manual-review/pending, sem promoção automática nem inclusão no CI.
 
-开源词检查的八处命中全部来自原虚拟项目历史设计，逐条与基线相同；本次只在该文档添加当前规格入口。新规格无命中，不将存量发现报告为全量检查通过。
+As oito ocorrências da checagem de palavras de open source vêm todas do design histórico original do projeto virtual, idênticas à baseline item a item; nesta rodada apenas foi adicionado o ponto de entrada da especificação atual nesse documento. A nova especificação não tem ocorrências, e as descobertas preexistentes não são reportadas como uma verificação completa aprovada.
 
-## MR 集成验证
+## Verificação de integração do MR
 
-准备 MR 时迁移到 staging 的 `f05db3e645`，排除起点中未合入的 Provider 提交。保留主干的预热订阅身份校验及主输入框定位。新建项目的草稿交接、分组草稿关闭使用同一客户端/项目作用域；同目录的新项目也显式接收附件交接，由目标 draftFocusVersion 消费一次。编辑器注册与交接消费识别带项目身份的 Root scope。
+Na preparação do MR, migrou-se para o staging `f05db3e645`, excluindo os commits de Provider ainda não mesclados na origem. Preservaram-se a validação de identidade da assinatura de prewarm e a localização do campo de entrada principal do trunk. A entrega de rascunhos de um projeto novo e o fechamento de rascunhos de grupo usam o mesmo escopo cliente/projeto; um projeto novo no mesmo diretório também recebe explicitamente a entrega de anexos, consumida uma vez pelo draftFocusVersion de destino. O registro do editor e o consumo da entrega identificam um Root scope com identidade de projeto.
 
-三项单测先复现旧目录 key 读写及同目录附件跳过问题，再修复；分组关闭用例补充正文及刷新断言。直接调用方核对包含 ProjectCreation、TaskGroupedView、Root actions 和 ConversationComposer，功能图补齐交接与分组清理种子。前节证据对应原开发基线，集成后的复验结果另行记录。
+Três testes unitários reproduziram primeiro a leitura e escrita pela key de diretório antiga e o salto de anexo no mesmo diretório, e só então foram corrigidos; o caso de fechamento de grupo ganhou asserções de corpo e de refresh. A conferência dos chamadores diretos inclui ProjectCreation, TaskGroupedView, Root actions e ConversationComposer, e o grafo de funcionalidades recebeu os seeds de entrega e de limpeza de grupo. As evidências da seção anterior correspondem à baseline de desenvolvimento original; os resultados da reverificação após a integração são registrados separadamente.
 
-| 集成验证           | 结果                                                                                                                                                                                                                                    |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 桌面 Composer      | `desktop-e2e-20261016-103617-676`，5/5，完整运行项目/任务草稿与 Recent 用例                                                                                                                                                             |
-| 分组关闭及刷新     | `desktop-e2e-20261016-104001-042`，GRP02/03/11 1/1；中英及深浅主题代表组合                                                                                                                                                              |
-| 手机与项目创建交接 | `desktop-e2e-20261016-104236-866`，VP13 1/1；同时执行 PCD01/02 桌面两入口 × 深浅主题，PCD03 手机正文与 ready 附件保持                                                                                                                   |
-| 单测               | affected 选中 1,417 文件；首轮 15,832 通过、3 失败、28 跳过。含修复前同目录附件失败，修复后草稿存储/交接 26/26；另两项网络退避在系统 Node 24.19 下失败，使用仓库指定 Node 24.14.0 后两文件 22/22 通过。最终推送门禁结果以 MR 验证栏为准 |
-| 类型与门禁         | 根及 E2E 类型检查、Lint（0 error）、架构（0 violation）、数据库 schema 与架构脚本测试通过                                                                                                                                               |
+| Verificação de integração | Resultado                                                                                                                                                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Composer do desktop       | `desktop-e2e-20261016-103617-676`, 5/5, execução completa dos casos de rascunho e Recent de projeto/tarefa                                                                                                                                                             |
+| Fechamento de grupo e refresh | `desktop-e2e-20261016-104001-042`, GRP02/03/11 1/1; combinações representativas de chinês/inglês e de temas claro/escuro                                                                                                                                                              |
+| Celular e entrega da criação de projeto | `desktop-e2e-20261016-104236-866`, VP13 1/1; executa simultaneamente PCD01/02 nos dois pontos de entrada do desktop × temas claro/escuro, e PCD03 com corpo no celular e anexo ready preservados                                                                           |
+| UT                        | affected selecionou 1.417 arquivos; primeira rodada com 15.832 aprovadas, 3 falhas e 28 ignoradas. Inclui a falha de anexo no mesmo diretório antes da correção; após a correção, armazenamento/entrega de rascunhos 26/26; outras duas falhas de backoff de rede no Node 24.19 do sistema foram resolvidas com o Node 24.14.0 especificado no repositório, com 22/22 nos dois arquivos. O resultado final do gate de push consta na coluna de verificação do MR |
+| Tipos e gates             | Checagem de tipos da raiz e do E2E, Lint (0 error), arquitetura (0 violation), testes de schema de banco e de script de arquitetura passaram                                                                                                                                               |
 
-初次手机运行在主干新增的分组长按菜单等待超时；运行时触摸事件采样验证菜单可正常打开。CDP 坐标输入前补充 Playwright 可交互检查，保留真实 touch 长按，最终完整流程通过。最初集成构建因 rebase 后依赖未刷新缺少字体包，重新按当前 lockfile 安装后完成。失败记录保留，不以成功复跑掩盖环境与用例准备问题。截图已核对桌面权限继承、项目交接及手机正文/附件；本轮平台限制与前节相同。
+A primeira execução no celular teve timeout de espera no menu de long-press do grupo recém-adicionado no trunk; a amostragem de eventos de toque em runtime verificou que o menu abre normalmente. Antes da entrada de coordenadas via CDP foi acrescentada uma checagem de interatividade com Playwright, mantendo o long-press de toque real, e o fluxo completo passou ao final. A primeira build de integração faltava com o pacote de fontes por causa das dependências não atualizadas após o rebase e foi concluída após reinstalar conforme o lockfile atual. Os registros de falha são preservados, sem encobrir problemas de ambiente e de preparação de casos com uma repetição bem-sucedida. As capturas de tela foram conferidas quanto à herança de permissões no desktop, à entrega do projeto e ao corpo/anexo no celular; as limitações de plataforma desta rodada são as mesmas da seção anterior.

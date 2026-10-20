@@ -1,17 +1,21 @@
-# Subagent runtime scope boundary
+# Limite de escopo de runtime do subagent
 
-The zcode-cua MCP server is shared by the parent and child runtime in some launch
-paths. The request metadata namespace `com.zcode/request-context` therefore carries
-the trusted `runtime_scope` value from the ZCode MCP adapter.
+O servidor MCP zcode-cua é compartilhado pelo runtime pai e filho em alguns
+caminhos de lançamento. Portanto, o namespace de metadados de requisição
+`com.zcode/request-context` carrega o valor confiável de `runtime_scope` vindo do
+adaptador MCP do ZCode.
 
-When the nested value is exactly `subagent`, the registration middleware returns an
-`isError` result with the text `Computer Use is not available in subagent` and the
-stable `structuredContent.code` value `SUBAGENT_COMPUTER_USE_UNAVAILABLE` before
-kill-switch checks, session work, Broker I/O, or tool handlers. This applies to all
-30 tools, including lifecycle and clipboard tools. Missing, malformed, or `main`
-metadata remains compatible with standalone MCP clients. A top-level unnamespaced
-`runtime_scope` is ignored.
+Quando o valor aninhado é exatamente `subagent`, o middleware de registro
+retorna um resultado `isError` com o texto `Computer Use is not available in
+subagent` e o valor estável `structuredContent.code`
+`SUBAGENT_COMPUTER_USE_UNAVAILABLE` antes das verificações de kill-switch, do
+trabalho de sessão, da E/O do Broker ou dos handlers de ferramenta. Isso se
+aplica a todas as 30 ferramentas, incluindo as de ciclo de vida e de
+clipboard. Metadados ausentes, malformados ou com `main` permanecem compatíveis
+com clientes MCP standalone. Um `runtime_scope` de nível superior sem namespace
+é ignorado.
 
-This is an execution backstop only. ZCode Core remains responsible for removing the
-authority-verified official CUA server and Skill from child provider-visible surfaces.
-No tool name, schema, annotation, permission group, or MCP protocol field changes.
+Isto é apenas uma barreira de execução. O ZCode Core continua responsável por
+remover o servidor CUA oficial verificado por autoridade e a Skill das
+superfícies visíveis ao provider filho. Nenhum nome de ferramenta, schema,
+anotação, grupo de permissões ou campo do protocolo MCP muda.

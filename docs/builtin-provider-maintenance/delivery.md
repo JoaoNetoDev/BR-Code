@@ -1,82 +1,82 @@
-# MR、版本与动态配置交付
+# Entrega de MR, versão e configuração dinâmica
 
-本页解释模板/模型配置怎样交付，不授权维护者自动发布。创建 MR、合并、版本发布、修改在线配置指针是不同动作，各自保留结果和责任。
+Esta página explica como a configuração de templates/modelos é entregue, sem autorizar publicação automática por parte de quem mantém. Criar MR, fazer merge, publicar versão e alterar o ponteiro da configuração online são ações distintas, cada uma com seus resultados e responsabilidades.
 
-## Git 与 MR
+## Git e MR
 
-正式配置是唯一编辑源，测试配置和必要文档/测试同一 MR 提交。内容变更使用新的 revision；两份环境文件保持相同 revision，但内容按各自环境派生。合并冲突后重新检查上游最新 revision，不能只解决文本冲突而复用已经被不同内容占用的版本号。
+A configuração oficial é a única fonte de edição; a configuração de teste e a documentação/testes necessários são submetidos no mesmo MR. Alterações de conteúdo usam uma nova revision; os dois arquivos de ambiente mantêm a mesma revision, mas o conteúdo é derivado conforme cada ambiente. Depois de um conflito de merge, reexamine a revision mais recente do upstream — não basta resolver o conflito de texto reaproveitando um número de versão já ocupado por conteúdo diferente.
 
-MR 说明至少列出模板与型号增删、默认启停、能力/Map/URL 的具体差异、正式/测试派生结果、官方证据、真实验证及缺口、旧实例/选择影响、交付方式与回退方案。内容按以下五章组织：
+A descrição do MR deve listar, no mínimo: adições e remoções de templates e modelos, diferenças concretas de habilitação/desabilitação padrão, capacidades/Map/URL, resultados da derivação oficial/de teste, evidências oficiais, validação real e lacunas, impacto em instâncias existentes/seleções, forma de entrega e plano de rollback. O conteúdo segue a organização em cinco seções:
 
-| 章节       | 本领域应说明的内容                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------------------ |
-| TL;DR      | 具体问题与改变后的行为；真实文件数及增删行数                                                           |
-| 目标       | 背景、原有行为、接入或修正的入口/型号、设计意图和验收条件；bugfix 附根因证据、反馈关联与本目录工作记录 |
-| 改动范围   | 正式/测试配置、代码、测试、本目录规范与库存的实际变化，以及非目标                                      |
-| 验证       | 实际命令及结果，Key/地区/套餐/协议矩阵，未验证项；bugfix 对应回归用例，有交互变化时附证据              |
-| 风险与回滚 | 旧实例、个人覆盖、目标客户端版本、上线方式和恢复方案                                                   |
+| Seção        | O que esta área deve explicar                                                                                     |
+| ------------ | ---------------------------------------------------------------------------------------------------------------- |
+| TL;DR        | Problema concreto e comportamento após a mudança; número real de arquivos e linhas adicionadas/removidas           |
+| Objetivo     | Contexto, comportamento anterior, pontos de entrada/modelos integrados ou corrigidos, intenção de design e condições de aceite; em bugfix, anexar evidência da causa raiz, vínculo com o relato de feedback e o registro de trabalho deste diretório |
+| Escopo       | Mudanças reais na configuração oficial/de teste, código, testes, normas e inventário deste diretório, além do que está fora do escopo |
+| Verificação  | Comandos reais e resultados, matriz de Key/região/plano/protocolo, itens não verificados; em bugfix, o caso de regressão correspondente, com evidência anexada quando houver mudança de interação |
+| Riscos e rollback | Instâncias existentes, substituições pessoais, versões do cliente de destino, forma de publicação e plano de recuperação |
 
-提交标题采用 `<type>(<scope>): <subject>`，例如文档整理使用 `docs(provider)`；内容变更与纯文档区分。文件规模来自 `git diff --shortstat origin/staging...HEAD`，描述契约以仓库 `zcode-mr` skill 为准，不能编造根因、反馈关联或验证结果。
+O título do commit segue `<type>(<scope>): <subject>`; por exemplo, organização de documentação usa `docs(provider)`, distinguindo alteração de conteúdo de documentação pura. O tamanho dos arquivos vem de `git diff --shortstat origin/staging...HEAD`; o contrato de descrição segue a skill `zcode-mr` do repositório, e não se pode inventar causa raiz, vínculo com feedback ou resultados de validação.
 
-创建/更新 MR 使用仓库 `zcode-mr` 工具：在干净的特性分支先运行 `python3 .agents/skills/zcode-mr/scripts/zcode_git_workflow.py setup` 检查认证，将五章描述写入临时 UTF-8 文件，再运行 `python3 .agents/skills/zcode-mr/scripts/zcode_git_workflow.py mr --description-file <描述文件> staging`。工具会保留 push hook、查找同源/目标 MR 并只在缺少时创建。检查返回的真实 MR URL；仅生成预填链接不算创建成功。已有 MR 的正文变化还需通过 glab 更新并核对。认证失败保留本地成果，不把凭据写入描述或命令。
+Para criar/atualizar o MR, use a ferramenta `zcode-mr` do repositório: em uma branch de feature limpa, rode primeiro `python3 .agents/skills/zcode-mr/scripts/zcode_git_workflow.py setup` para verificar a autenticação, escreva a descrição em cinco seções em um arquivo temporário UTF-8 e então rode `python3 .agents/skills/zcode-mr/scripts/zcode_git_workflow.py mr --description-file <arquivo-de-descrição> staging`. A ferramenta preserva o push hook, procura MRs de mesma origem/destino e só cria um quando ele falta. Verifique a URL real do MR retornada; apenas gerar um link pré-preenchido não conta como criação bem-sucedida. Alterações no corpo de um MR existente ainda precisam ser aplicadas via glab e conferidas. Em caso de falha de autenticação, preserve o trabalho local e não grave credenciais na descrição ou no comando.
 
-普通目录改动走配置 MR；新协议、Access、Adapter、Logo 资源或 UI 行为需要对应代码和测试，不能以“只是模型更新”省略检查。缺 Key 的变更在 MR 中清楚保留待验证，是否接受例外由负责角色明确决定。
+Alterações comuns de diretório passam por MR de configuração; novo protocolo, Access, Adapter, recurso de Logo ou comportamento de UI exigem o código e os testes correspondentes — não se pode omitir a verificação sob o argumento "apenas uma atualização de modelo". Alterações sem Key ficam claramente registradas como pendentes de validação no MR, e a aceitação de exceções é uma decisão explícita da função responsável.
 
-## 选择交付方式
+## Escolha da forma de entrega
 
-| 情况                                                              | 交付方式与条件                                                                |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 常规模板/模型维护                                                 | 随产品版本携带完整配置，验证最终包资源                                        |
-| 仅使用目标客户端已经支持的字段、协议和能力，确需提前更新目录/规则 | 可评估动态配置；仍来自已审查 Git 内容和最终文件验证                           |
-| 新 Schema/Access/协议、Adapter 行为、图片资源或 UI 能力           | 先交付客户端能力；不能仅推 JSON 给旧客户端                                    |
-| 已上线内容错误                                                    | 纠正后的内容以更高 revision 发布；同时修复 Git/包内基线，避免两条链路长期分叉 |
+| Situação                                                                 | Forma de entrega e condições                                                             |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Manutenção rotineira de templates/modelos                                 | Carrega a configuração completa junto da versão do produto, validando os recursos do pacote final |
+| Usa apenas campos, protocolos e capacidades já suportados pelo cliente de destino, com necessidade real de antecipar catálogo/regras | Pode-se avaliar configuração dinâmica; ainda assim a origem é conteúdo Git já revisado e a validação é sobre o arquivo final |
+| Novo Schema/Access/protocolo, comportamento de Adapter, recurso de imagem ou capacidade de UI | Entregar primeiro a capacidade do cliente; não basta enviar JSON a clientes antigos |
+| Conteúdo já publicado está incorreto                                        | Publicar o conteúdo corrigido com uma revision maior; corrigir em paralelo a linha de base no Git/no pacote, para evitar a divergência de longo prazo entre os dois caminhos |
 
-`schemaVersion=1` 相同不证明所有旧客户端都理解新字段、值或 Map。动态更新前对目标产品版本/平台确认实际 decoder、Adapter 和已知行为；不得只在开发分支验证。灰度、版本分流、执行人和权限以实际控制面为准，本仓库未提供可假定存在的一键配置发布/自动回滚工具。
+Um mesmo `schemaVersion=1` não prova que todos os clientes antigos entendem campos, valores ou Map novos. Antes da atualização dinâmica, confirme o decoder, o Adapter e os comportamentos conhecidos reais para a versão/plataforma de destino do produto; não valide apenas na branch de desenvolvimento.Liberação gradual (canário), desvio por versão, executor e permissões seguem o painel de controle real; este repositório não oferece nenhuma ferramenta de publicação de configuração em um clique nem de rollback automático que se possa presumir existente.
 
-## 随版本交付
+## Entrega junto da versão
 
-1. 合并后的正式源和派生测试源分别通过检查。
-2. 按真实 `ZCODE_ENV` 构建，检查实际包内/嵌入内容的 revision、hash 和目标模板，不只看源码。环境选源、Desktop/CLI/SEA/Server 资源位置及缓存要求见本目录[配置规范](./configuration.md#构建选源与最终资源)。
-3. 记录包含该提交的产品版本与测试/生产产物，确认安装后目标 Host 采用的配置；已有更高 revision 的有效缓存可能继续优先，不能仅因包升级就推断生效。
-4. 按本次变更检查新增实例与已有继承实例、个人覆盖和模型实际请求。记录未覆盖的平台/远程模式。
+1. A fonte oficial após o merge e a fonte de teste derivada passam pelas verificações, cada uma por vez.
+2. Construa conforme o `ZCODE_ENV` real e verifique a revision, o hash e os templates de destino no conteúdo realmente embutido no pacote — não apenas no código-fonte. A seleção de fonte por ambiente, a posição dos recursos em Desktop/CLI/SEA/Server e os requisitos de cache estão em [Especificação de configuração](./configuration.md#seleção-de-origem-na-build-e-recurso-final) deste diretório.
+3. Registre a versão do produto que contém o commit e os artefatos de teste/produção, e confirme qual configuração o Host de destino adota após a instalação; um cache válido já existente com revision maior pode continuar prevalecendo — não se pode inferir a adoção só porque o pacote foi atualizado.
+4. Verifique, para esta alteração, instâncias novas e instâncias herdadas existentes, substituições pessoais e as requisições reais de modelo. Registre as plataformas/modos remotos não cobertos.
 
-## 必要时动态上线
+## Publicação dinâmica quando necessária
 
-现有客户端使用两阶段下载：控制面 `/api/v1/client/configs` 按 app_version/platform 返回 `data.configs.builtin_provider_config_json`，该字段是 HTTPS 下载 URL；URL 内容是完整 Release。没有该字段表示本次无发布，不清空已有配置。
+Os clientes existentes usam download em duas fases: o painel de controle `/api/v1/client/configs` retorna `data.configs.builtin_provider_config_json` conforme `app_version`/`platform`; esse campo é uma URL de download HTTPS, e o conteúdo da URL é um Release completo. A ausência do campo significa que não houve publicação nesta rodada e não limpa a configuração existente.
 
 ```mermaid
 sequenceDiagram
-    participant M as 维护/发布方
-    participant C as 控制面与CDN
-    participant H as Host或独立CLI
+    participant M as Mantenedor/Publicador
+    participant C as Painel de controle e CDN
+    participant H as Host ou CLI avulso
     participant R as Registry
-    M->>M: 核验Git内容、目标客户端、最终文件和hash
-    M->>C: 上传新的版本化URL
-    M->>C: 下载比对成功后更新对应环境/版本指针
-    H->>C: 获取URL并下载完整Release
-    H->>H: 校验版本并原子更新Active
-    H->>R: 等Account与Builtin版本对齐后发布完整组合
-    M->>H: 核验采用revision与实际新建Model请求
+    M->>M: Verificar conteúdo Git, cliente de destino, arquivo final e hash
+    M->>C: Enviar nova URL versionada
+    M->>C: Após comparar o download, atualizar o ponteiro do ambiente/versão
+    H->>C: Obter a URL e baixar o Release completo
+    H->>H: Validar a versão e atualizar o Active atomicamente
+    H->>R: Após alinhar Account e Builtin, publicar a combinação completa
+    M->>H: Verificar a revision adotada e a requisição real de novo Model
 ```
 
-操作顺序：
+Ordem das operações:
 
-1. 确认必要性、目标客户端/平台、正式或测试环境、发布责任与授权，记录前一内容和恢复方案。
-2. 从待交付 Git 内容准备最终文件，对该文件执行 Decoder、完整性及本次规则/请求验证，记录 hash。正式与测试分别验证和投递；同 revision 的两份文件不可混用。
-3. 上传**新的 URL**，下载后核对 hash/完整内容，再切换对应控制面指针。不覆盖长期缓存的旧 URL，不临时在线手改 JSON 绕开 Git。
-4. 验证实际客户端的下载结果、Active revision、完整 Registry 和后续创建 Model 的请求。成功下载不是成功采用，页面列表变化也不代表所有调用方已更新。
-5. 观察受影响入口的鉴权、参数拒绝、工具流和用户反馈；按下述边界恢复。记录采用证据，更新工作项交付状态。
+1. Confirmar a necessidade, o cliente/plataforma de destino, o ambiente oficial ou de teste, a responsabilidade e a autorização de publicação, e registrar o conteúdo anterior e o plano de recuperação.
+2. Preparar o arquivo final a partir do conteúdo Git a ser entregue, executar Decoder, verificação de integridade e a validação de regras/requisições desta rodada sobre esse arquivo, e registrar o hash. Oficial e teste são validados e entregues separadamente; os dois arquivos com a mesma revision não podem ser misturados.
+3. Enviar a **nova URL**, conferir o hash/o conteúdo completo após o download e só então alternar o ponteiro correspondente no painel de controle. Não sobrescreva a URL antiga mantida em cache de longo prazo, nem edite JSON manualmente online para contornar o Git.
+4. Verificar o resultado do download no cliente real, a revision do Active, o Registry completo e as requisições de criação de Model seguintes. Baixar com sucesso não é adotar com sucesso, e uma mudança na lista da página não significa que todos os chamadores foram atualizados.
+5. Observar a autenticação, as rejeições de parâmetros, o fluxo de ferramentas e o feedback dos usuários nos pontos de entrada afetados; recuperar conforme os limites abaixo. Registrar as evidências de adoção e atualizar o status de entrega do item de trabalho.
 
-下载器限制 HTTPS、无 URL userinfo、无重定向，不携带账号 Token/Key；两次请求总预算 20 秒，正文按实际字节限制为 10,000,000。以[下载实现](../../packages/provider-node/src/zcode-builtin-download.ts)为准，不复制一套发布客户端。
+O downloader exige HTTPS, não aceita userinfo na URL nem redirecionamentos, e não carrega Token/Key de conta; o orçamento total das duas requisições é de 20 segundos, com o corpo limitado a 10.000.000 bytes reais. A [implementação de download](../../packages/provider-node/src/zcode-builtin-download.ts) é a referência; não duplique um cliente de publicação.
 
-## 生效与恢复边界
+## Limites de adoção e recuperação
 
-- 启动在兼容有效的包内/Active 候选中选较高 revision；在线低版本忽略，同版本同内容不变，同版本不同内容拒绝。启动遇到同号缓存内容冲突会回包内可信候选。
-- Provider 与 Model 规则整体替换；结构合法不保证业务正确。下载失败保留基线，不承诺错误业务配置会自动回滚。
-- Host/独立 CLI 持有刷新；每分钟检查、成功默认一小时后再下载，失败按分钟指数退避至一小时。手动 force 绕到期限制，不绕有效 lease。
-- 缓存按平台、App 版本、控制面 Endpoint 隔离；换 CDN URL 不重置来源版本。测试/正式不能只凭相同 revision 判断内容一致。
-- Managed Worker 不独立下载；手机使用目标 Host。Builtin 与 Account 未对齐时保留上一份完整 Registry，不能把状态混合发布。
-- Personal 意图不被覆盖，已有执行 Model 不原地变更；不要承诺当前请求或所有存量运行立即切换。
-- 回退发布**更高 revision 的已验证旧行为/纠正内容**。仅把 URL 指回低 revision 不能让已经升级的客户端回退；客户端代码不兼容则需要修正版客户端或经过验证的投放限制。
+- Na inicialização, entre os candidatos válidos em pacote/Active, escolhe-se a revision maior; versão online menor é ignorada, mesma versão com mesmo conteúdo não muda, e mesma versão com conteúdo diferente é rejeitada. Na inicialização, um conflito de conteúdo de cache com o mesmo número faz voltar ao candidato confiável do pacote.
+- As regras de Provider e Model são substituídas por inteiro; estrutura válida não garante correção de negócio. Falha no download preserva a linha de base, e não se promete rollback automático de configuração de negócio incorreta.
+- Host/CLI avulso mantém o refresh; a checagem é a cada minuto, e após o sucesso o download padrão acontece uma hora depois, com backoff exponencial por minuto em caso de falha, até uma hora. O `force` manual contorna o limite de validade, mas não um lease válido.
+- O cache é isolado por plataforma, versão do App e Endpoint do painel de controle; trocar a URL da CDN não reinicia a versão de origem. Teste e oficial não podem ser julgados consistentes só por terem a mesma revision.
+- O Managed Worker não baixa de forma independente; o celular usa o Host de destino. Enquanto Builtin e Account não estiverem alinhados, mantém-se o Registry completo anterior, e não se pode publicar um estado misturado.
+- A intenção Personal não é sobrescrita, e Model já em execução não muda no lugar; não prometa que a requisição atual ou todas as execuções existentes mudam imediatamente.
+- O rollback publica **uma revision maior com o comportamento antigo verificado ou o conteúdo corrigido**. Apontar a URL de volta para uma revision menor não faz o cliente já atualizado regredir; se o código do cliente for incompatível, é preciso um cliente corrigido ou uma restrição de entrega verificada.
 
-实现核验：[Release Source](../../packages/provider-node/src/zcode-builtin-provider-config-source.ts)、[刷新协调](../../packages/provider-node/src/zcode-builtin-remote-synchronizer.ts)、[Registry 版本配对](../../packages/provider/src/registry-service.ts)。本轮没有查询当前线上指针；任何历史线上 revision 都不能代替今天的生产状态。
+Verificação da implementação: [Release Source](../../packages/provider-node/src/zcode-builtin-provider-config-source.ts), [coordenação de refresh](../../packages/provider-node/src/zcode-builtin-remote-synchronizer.ts), [pareamento de versão do Registry](../../packages/provider/src/registry-service.ts). Esta rodada não consultou o ponteiro online atual; nenhuma revision online histórica substitui o estado de produção de hoje.

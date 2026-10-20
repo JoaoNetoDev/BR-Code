@@ -1,128 +1,174 @@
-# 桌面设置和数据目录变更后冷启动失败
+# Falha na inicialização a frio após alteração das configurações do desktop e do diretório de dados
 
 Status: done
 
-业务基线 `d31e735905cf744e75a0a93548a80acabe871ae5`，补丁 09。
-批次 `r3-server-20261011150809016-2aeaba` 的 `desktopauthority` 在 203.1 秒失败。
+Baseline de negócio `d31e735905cf744e75a0a93548a80acabe871ae5`, patch 09.
+O `desktopauthority` do lote `r3-server-20261011150809016-2aeaba` falhou em 203,1 segundos.
 
-远程项目激活时，通过真实设置页更改硬件加速、浏览器证书策略与本机数据目录，并保存后立即完整重启。
-重启前已经核对：桌面字段只写本机，Source 自动归档反向对照正常；Source 桌面字段没有污染，
-本机 canary 已复制到新数据目录。`settings-authority.json` 保存这些阶段的成功事实。
+Com um projeto remoto ativado, pela página real de configurações foram alterados a aceleração de
+hardware, a política de certificados do navegador e o diretório de dados local; após salvar, foi feito
+um reinício completo imediato. Antes do reinício já havia sido conferido: os campos do desktop são
+escritos apenas localmente, o arquivamento reverso automático do Source funciona normalmente; os campos
+do desktop do Source não foram contaminados e o canary local já havia sido copiado para o novo diretório
+de dados. O `settings-authority.json` guarda os fatos bem-sucedidos dessas etapas.
 
-新 Main 没有进入主界面，而是显示“无法完成启动准备 / 数据准备进程意外退出或连接中断”。
-数据库启动 attempt `6bae681b-502c-4a44-9231-634811d33575` 在 2692ms 后以
-`status=failed, errorCode=transport_closed` 结束；Host 日志记录 Worker exit 后
-`Storage preparation failed: transport_closed`。盘面可用空间仍超过 128GB。
-
-```text
-远程项目激活 → 桌面设置与数据目录保存、canary 复制成功
-  → 正常退出旧进程 → 新 Main / Host 启动
-  → 数据准备 Worker 连接关闭 → 启动失败页
-```
-
-这不是等待了错误的默认项目：本轮只等待可操作主界面，失败页仍持续显示。
-尚未唯一定位 Worker 退出原因，也不能仅凭该组合场景认定只由数据目录或硬件加速其中一项导致。
-本轮业务代码未改；重启后读取新本机配置的最终断言未到达。
-
-证据：上述批次 `desktopauthority` 的 `settings-authority.json`、失败录像和 Desktop 日志。
-
-## 2026-10-12 继续定位（未修改业务实现）
-
-将事故堆栈 `host/index.js:2:458` 对照尚未重建的同版本 test bundle，位置落在
-`prepareSessionStorage` 的 Worker exit 分支。因此退出的是 **CLI 会话库准备 Worker**，
-不是 `prepareHostStorage` 的任务索引库 Worker；外围 `transport_closed` 不能作为数据库根因。
-该分支只有收到 storagePrepared、正常退出且无先前错误才成功；未收到完成帧或异常退出均可产生当前错误。
-现有代码直接排空该 Worker stderr，历史日志没有保存原始 CLI 错误与退出码。
-
-只读检查事故日志后，在隔离临时目录调用同业务版本的真实构建入口：任务索引 Worker 使用
-保留的旧目录数据库副本，默认目录与自定义目录均返回 done、exit 0；CLI 会话库 Worker
-在显式临时数据库路径下，分别使用 Node 与 Electron Node runtime，两种目录布局均返回
-storagePrepared、exit 0，stderr 为空。
-这些探针不复现完整设置保存与冷启动，也没有使用已被旧用例清理的新目录数据库，
-所以只能缩小排查范围，不能排除复制时数据库状态、实际环境或其他启动输入问题。
-
-下一项有效检查：在原组合场景重启前保留新目录数据库副本和解析后的存储路径，
-采集 CLI Worker 的 stderr、退出码及最后控制帧，再与单独数据目录变更对照。
-硬件加速、证书策略和数据复制均未被认定为唯一根因；本轮不改这些实现。
-
-## 2026-10-12 Worker 取证与已确认根因
-
-本项本轮仅诊断，不修改启动业务。批次 `r3-server-20261012012923737-60d156` 的
-`desktopauthority` 205.4 秒后仍失败；业务构建与问题 11 复验相同。
-测试专用 `storage-worker-diagnostics.mjs` 通过 E2E 预加载旁观 Worker，未替换存储入口、
-控制帧、退出码或恢复流程；stderr 最多保留 64 KiB，仅写本次 artifact 的 0600 文件。
-
-| 时点           | 退出码 | stderr                                                                   | 最后控制帧              |
-| -------------- | ------ | ------------------------------------------------------------------------ | ----------------------- |
-| 修改数据目录前 | 0      | 空                                                                       | startup/storagePrepared |
-| 保存并冷重启后 | 1      | `--cwd path is not accessible: <new-data-root>/.zcode/workspace/default` | 无                      |
-
-在失败页仍存在时检查文件系统：新 data root 和 `.zcode` 存在，但 `.zcode/workspace`
-及其 `default` 子目录均不存在。这是缺少启动工作目录，不是已观察到的数据库损坏或硬件加速故障。
+O novo Main não entrou na interface principal e exibiu “无法完成启动准备 / 数据准备进程意外退出或连接中断”
+(“Não foi possível concluir a preparação da inicialização / o processo de preparação de dados saiu
+inesperadamente ou a conexão foi interrompida”). A tentativa de inicialização do banco
+`6bae681b-502c-4a44-9231-634811d33575` terminou após 2692 ms com
+`status=failed, errorCode=transport_closed`; os logs do Host registraram, após o exit do Worker,
+`Storage preparation failed: transport_closed`. O espaço disponível em disco ainda era superior a 128 GB.
 
 ```text
-远程项目为 lastActiveWorkspace + 新数据根
-  → copyDataDirectory 只复制 .zcode/v2
-  → resolveStartupWindowBootstrap 远程活动分支返回 {}，未创建本机默认 cwd
-  → Main 仍把新根下 default 作为 agentSpawnFallbackCwd
-  → Host 无本地 warmup targets，选用该 cwd 准备会话库
-  → CLI --cwd 校验失败，exit 1，尚未发送 storagePath
-  → Host 丢弃 stderr，以 transport_closed 呈现
+Projeto remoto ativado → configurações do desktop e diretório de dados salvos, cópia do canary bem-sucedida
+  → saída normal do processo antigo → inicialização do novo Main / Host
+  → conexão do Worker de preparação de dados fechada → página de falha na inicialização
 ```
 
-责任边界：`packages/desktop/src/main/startupWorkspace.ts:resolveStartupWindowBootstrap`
-与 `index.ts` 的 `agentSpawnFallbackCwd` 交接，未保证交给存储准备的 app-owned cwd 存在。
-`resolveZCodeAgentSpawnCwd` 在请求与备用目录都不可用时保留原路径，CLI 的拒绝符合路径准入契约。
+Não se trata de estar esperando o projeto padrão errado: nesta rodada só se esperou a interface
+principal operável, e a página de falha continuou aparecendo. A causa do exit do Worker ainda não foi
+localizada de forma única, e não é possível atribuir a falha exclusivamente ao diretório de dados ou
+à aceleração de hardware só com base nesse cenário combinado. O código de negócio não foi alterado
+nesta rodada; a asserção final de leitura da nova configuração local após o reinício não foi alcançada.
 
-反证与最小探针：
+Evidências: o `settings-authority.json` do `desktopauthority` do lote acima, a gravação da falha e os
+logs do Desktop.
 
-- 当前真实 bootstrap + cwd resolver 输入远程活动选择、新的默认目录，返回 bootstrap={}、
-  cwdCreated=false、cwdExists=false；没有改写原源码。
-- 同版本真实 CLI bundle、Electron Node runtime、相同 argv/环境/隔离数据库：cwd 不存在时
-  exit=1、stderr 同现场、frames=[]；仅创建该目录后 exit=0、stderr 为空并收到 storagePrepared。
-  没有切换硬件加速/证书配置、修改数据库或增加重试。
-- 测试观察器自身使用真实 Worker 验证：原 exit=23 不变，stderr 与最后帧完整保留。
+## 2026-10-12 Continuação da localização (sem alteração da implementação de negócio)
 
-判定：问题成立、根因已确认、repair_ready=true；原端到端已复现，边界反事实已验证。
-后续修复目标是启动 owner 在 Host 存储准备前确保其 app-owned cwd 可用；不扩大为重建失效用户项目目录。
-完整设置序列修复后的成功仍未验证，本轮不把诊断成功写成产品用例 PASS。
-证据：本机 `packages/desktop/.e2e-artifacts/issue15-20261012/` 中的
-`worker-cwd-observation.json`、`worker-cwd-counterfactual.jsonl`、`bootstrap-probe.json`，
-以及上述服务器 case 的 `storage-workers/*.json`。
+O stack do incidente `host/index.js:2:458` foi confrontado com o test bundle da mesma versão, ainda não
+reconstruído; a posição recai no ramo de exit do Worker de `prepareSessionStorage`. Portanto, o que
+saiu foi o **Worker de preparação da biblioteca de sessões da CLI**, e não o Worker de biblioteca de
+índice de tarefas de `prepareHostStorage`; o `transport_closed` periférico não pode servir de causa
+raiz do banco. Esse ramo só tem sucesso quando recebe storagePrepared, sai normalmente e não há erro
+anterior; não receber o quadro de conclusão ou sair com exceção pode produzir o erro atual.
+O código existente descarta diretamente o stderr desse Worker, e os logs históricos não guardaram o
+erro original da CLI nem o código de saída.
 
-## 2026-10-12 最小修复实施
+Após uma inspeção somente leitura dos logs do incidente, a entrada real de build da mesma versão de
+negócio foi chamada em um diretório temporário isolado: o Worker de índice de tarefas usou uma cópia
+do banco do diretório antigo preservado e, tanto no diretório padrão quanto no diretório personalizado,
+retornou done, exit 0; o Worker de biblioteca de sessões da CLI, sob um caminho explícito de banco
+temporário, foi executado tanto com o runtime Node quanto com o runtime Node do Electron e, nas duas
+layouts de diretório, retornou storagePrepared, exit 0, com stderr vazio.
+Essas sondas não reproduzem o salvamento completo das configurações nem a inicialização a frio, e não
+usaram o novo banco do diretório já removido pelos casos antigos, de modo que só podem estreitar o
+escopo da investigação, sem excluir problemas de estado do banco durante a cópia, de ambiente real ou de
+outras entradas de inicialização.
 
-修复目标 `56ca74621f0da771728e310e36d967afd5259c6d`，根因相关代码未变化。
-Main 的 `resolveStartupWindowBootstrap` 在没有本地活动预热目标的远程活动分支返回前，
-异步创建已由数据根解析出的 `conversationWorkspaceDir`，等目录就绪再交给 Host。
-返回的导航/预热结果仍为空，不创建用户远程路径、不增加本地项目、不抢占远程焦点。
-沿用现有首次启动与失效本地目录的 mkdir 契约，错误直接传播，不吞错或新增重试。
+Próxima verificação válida: manter, no cenário combinado original, uma cópia do novo banco do
+diretório e os caminhos de armazenamento resolvidos antes do reinício, coletando o stderr, o código de
+saída e o último quadro de controle do Worker da CLI, e então comparar com a alteração isolada do
+diretório de dados. Aceleração de hardware, política de certificados e cópia de dados não foram
+reconhecidos como causa raiz única; esta rodada não altera essas implementações.
 
-先验证新版活动字段、旧列表导入、既有目录内容保留及创建失败；再重跑原 desktopauthority
-组合场景（远程激活、硬件加速、证书策略、数据目录保存、完整冷重启）。E2E 保留 Source 设置
-不被污染及重启后配置读取的断言，并增加新根默认 cwd 的前后存在性证据。
+## 2026-10-12 Forense do Worker e causa raiz confirmada
 
-局部验证：新旧远程活动设置和目录创建失败三个回归在修复前均失败，修复后通过。
-`startupWorkspace`、`hostDatabaseStartup`、`storagePreparationWorker` 三文件 20 项通过；
-受影响测试 17 文件 219 项通过。根类型、lint（207 条既有警告、0 error）、架构（0 violation）、
-fixture 与改动格式检查通过。服务器原场景及冷启动回归均通过，见下表。
+Esta rodada é apenas de diagnóstico, sem alteração da inicialização de negócio. O `desktopauthority`
+do lote `r3-server-20261012012923737-60d156` ainda falhou após 205,4 segundos; o build de negócio é o
+mesmo da reverificação do problema 11.
+O `storage-worker-diagnostics.mjs` específico de teste observa um Worker terceirizado via preloading do
+E2E, sem substituir a entrada de armazenamento, os quadros de controle, o código de saída ou o fluxo de
+recuperação; o stderr retém no máximo 64 KiB e é gravado apenas no arquivo 0600 do artifact desta rodada.
 
-### 最终复验
+| Momento                | Código de saída | stderr                                                                   | Último quadro de controle |
+| ---------------------- | --------------- | ------------------------------------------------------------------------ | ------------------------ |
+| Antes de alterar o diretório de dados | 0 | vazio                                                                    | startup/storagePrepared   |
+| Após salvar e reiniciar a frio | 1 | `--cwd path is not accessible: <new-data-root>/.zcode/workspace/default` | nenhum                   |
 
-实施状态：已实施；验证状态：计划内必要验证通过。
-批次 `r3-server-20261012013853643-f32109`，同一 test 部署重新构建业务包；输入为修复起点
-加本次补丁，完整源码清单 SHA-256：
-`8a674355697c004b22a12bbe6e973df9adf75501652f43fbd2d8f01f8810a94a`。
+Verificando o sistema de arquivos enquanto a página de falha ainda existia: o novo data root e `.zcode`
+existiam, mas `.zcode/workspace` e seu subdiretório `default` não existiam. Trata-se da ausência do
+diretório de trabalho de inicialização, não de corrupção de banco observada nem de falha de aceleração
+de hardware.
 
-| 场景             | 结果           | 已确认行为                                                                                                      |
-| ---------------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
-| desktopauthority | PASS，107.7 秒 | 保留原设置组合与完整重启；重启前新根默认 cwd 不存在，重启后存在；桌面设置保留、Source 未被污染、canary 复制成功 |
-| coldreconnect    | PASS，150.0 秒 | 活动远程任务冷恢复、按需打开另一项目、双方续聊、关闭自动重连和手动恢复均通过                                    |
+```text
+Projeto remoto como lastActiveWorkspace + novo data root
+  → copyDataDirectory copia apenas .zcode/v2
+  → resolveStartupWindowBootstrap retorna {} no ramo de atividade remota, sem criar o cwd local padrão
+  → o Main ainda usa o default sob o novo root como agentSpawnFallbackCwd
+  → o Host não tem alvos locais de warmup e usa esse cwd para preparar a biblioteca de sessões
+  → a validação --cwd da CLI falha, exit 1, e storagePath ainda não foi enviado
+  → o Host descarta o stderr e apresenta transport_closed
+```
 
-Worker 观察器记录重启前后均为 exit=0、stderr 为空、最后帧为 startup/storagePrepared；
-与修复前 exit=1、cwd 不可访问且无控制帧形成同场景对照。
-没有改变 CLI 路径校验或存储协议，没有扩大目录复制范围，也没有新增恢复重试。
-E2E 为 Linux 服务器；本机聚焦测试覆盖 macOS 文件系统行为，不将其外推为原生 Windows E2E。
-本机证据：`packages/desktop/.e2e-artifacts/issue25-fix-20261012/` 的 `summary.json`、
-`settings-authority.json` 与 `storage-workers/`。队列、测试容器和锁已回收。
-回滚只需撤销远程活动分支的目录准备；已创建目录内的数据不随回滚删除，原启动故障会再次暴露。
+Limite de responsabilidade: a passagem entre
+`packages/desktop/src/main/startupWorkspace.ts:resolveStartupWindowBootstrap` e o
+`agentSpawnFallbackCwd` de `index.ts` não garante a existência do cwd pertencente à aplicação entregue
+à preparação do armazenamento. `resolveZCodeAgentSpawnCwd` mantém o caminho original quando tanto a
+requisição quanto o diretório alternativo estão indisponíveis, e a recusa da CLI está de acordo com o
+contrato de admissão de caminhos.
+
+Contraprovas e sondas mínimas:
+
+- Com o bootstrap e a entrada do resolvedor de cwd reais atuais, usando a seleção de atividade remota e
+  o novo diretório padrão, o resultado é bootstrap={}, cwdCreated=false, cwdExists=false; o código-fonte
+  original não foi reescrito.
+- Com o bundle real da CLI da mesma versão, o runtime Node do Electron, os mesmos argv/ambiente e banco
+  isolado: quando o cwd não existe, exit=1, stderr igual ao da cena e frames=[]; apenas criando o
+  diretório, exit=0, stderr vazio e storagePrepared recebido. Não houve troca de aceleração de
+  hardware/configuração de certificados, alteração do banco nem adição de retentativas.
+- O próprio observador de teste usando o Worker real confirmou: o exit=23 original permanece, e o stderr
+  e o último quadro são integralmente preservados.
+
+Julgamento: o problema se confirma, a causa raiz está confirmada, repair_ready=true; o fim a fim original
+foi reproduzido e o contrafactual de fronteira foi verificado. O objetivo da correção seguinte é que o
+owner da inicialização garanta que o seu cwd pertencente à aplicação esteja disponível antes da
+preparação de armazenamento do Host; não ampliar para reconstrução de diretórios de projetos de
+usuários inválidos. O sucesso após a correção da sequência completa de configurações ainda não foi
+verificado, de modo que esta rodada não registra o sucesso do diagnóstico como PASS de caso de
+produto.
+Evidências: `worker-cwd-observation.json`, `worker-cwd-counterfactual.jsonl` e `bootstrap-probe.json`
+em `packages/desktop/.e2e-artifacts/issue15-20261012/` na máquina local, além dos
+`storage-workers/*.json` do caso do servidor acima.
+
+## 2026-10-12 Implementação da correção mínima
+
+Alvo da correção `56ca74621f0da771728e310e36d967afd5259c6d`; o código relacionado à causa raiz não
+mudou. Antes de retornar no ramo de atividade remota sem alvos locais de warmup ativos, o
+`resolveStartupWindowBootstrap` do Main cria de forma assíncrona o `conversationWorkspaceDir` já
+resolvido a partir do data root, aguardando o diretório ficar pronto antes de entregá-lo ao Host.
+O resultado de navegação/warmup retornado continua vazio; não se criam caminhos remotos do usuário, não
+se adiciona projeto local e não se toma o foco remoto.
+Segue-se o contrato de mkdir já existente para a primeira inicialização e para diretórios locais
+inválidos; os erros são propagados diretamente, sem engolir erros nem adicionar retentativas.
+
+Primeiro foram validados os campos de atividade novos, a importação da lista antiga, a preservação do
+conteúdo de diretórios existentes e a falha de criação; então foi reexecutado o cenário combinado
+original de desktopauthority (ativação remota, aceleração de hardware, política de certificados,
+salvamento do diretório de dados, reinício completo a frio). O E2E mantém as asserções de que as
+configurações do Source não foram contaminadas e de leitura de configuração após o reinício, e adiciona
+evidência de existência antes e depois do cwd padrão do novo root.
+
+Verificação parcial: as três regressões — atividade remota nova e antiga e falha de criação de
+diretório — falhavam antes da correção e passaram depois. Os três arquivos `startupWorkspace`,
+`hostDatabaseStartup` e `storagePreparationWorker` passaram em 20 itens; os testes afetados passaram em
+17 arquivos e 219 itens. Checagem de tipos da raiz, lint (207 avisos preexistentes, 0 error),
+arquitetura (0 violação), fixture e verificação de formatação das alterações passaram. O cenário
+original no servidor e a regressão de inicialização a frio passaram, conforme a tabela abaixo.
+
+### Reverificação final
+
+Status de implementação: implementada; status de verificação: as verificações necessárias planejadas
+passaram. Lote `r3-server-20261012013853643-f32109`, com o mesmo deploy de teste reconstruindo o pacote
+de negócio; a entrada foi o ponto de partida da correção mais este patch, com o SHA-256 da lista
+completa de fontes:
+`8a674355697c004b22a12bbe6e973df9adf75501652f43fbd2d8f01f8810a94a`.
+
+| Cenário           | Resultado         | Comportamento confirmado                                                                                                          |
+| ----------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| desktopauthority | PASS, 107,7 s    | Mantida a combinação original de configurações e o reinício completo; antes do reinício o cwd padrão do novo root não existia, depois existe; as configurações do desktop foram preservadas, o Source não foi contaminado e a cópia do canary teve sucesso |
+| coldreconnect    | PASS, 150,0 s    | Recuperação a frio da task remota ativa, abertura sob demanda de outro projeto, retomada da conversa em ambos os lados, desativação da reconexão automática e recuperação manual passaram                     |
+
+O observador do Worker registrou exit=0 antes e depois do reinício, stderr vazio e o último quadro
+`startup/storagePrepared`; isso forma o contraste no mesmo cenário com o exit=1, cwd inacessível e
+ausência de quadro de controle antes da correção.
+Não foi alterada a validação de caminhos da CLI nem o protocolo de armazenamento, não foi ampliada a
+extensão da cópia de diretórios e não foram adicionadas retentativas de recuperação.
+O E2E é de servidor Linux; os testes focados na máquina local cobrem o comportamento do sistema de
+arquivos do macOS, sem extrapolar para um E2E nativo de Windows.
+Evidências na máquina local: `summary.json`, `settings-authority.json` e `storage-workers/` em
+`packages/desktop/.e2e-artifacts/issue25-fix-20261012/`. A fila, os contêineres de teste e os locks
+foram reciclados.
+O rollback exige apenas desfazer a preparação de diretório do ramo de atividade remota; os dados dentro
+dos diretórios já criados não são removidos no rollback, e a falha original de inicialização voltará a
+aparecer.

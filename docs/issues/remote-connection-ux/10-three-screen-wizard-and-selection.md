@@ -1,71 +1,71 @@
-# 10 — 三屏向导：骨架、统一选择屏与收起进度行
+# 10 — Assistente de três telas: esqueleto, tela unificada de seleção e linha de progresso recolhida
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Especificação pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：**
+**Bloqueado por:**
 
-- [04 — 向导止血与流程控制器抽取](./04-wizard-p0-fixes-and-flow-controller.md)
-- [06 — 交互原型与评审](./06-interaction-prototype-review.md)
+- [04 — Correções P0 do assistente e extração do controlador de fluxo](./04-wizard-p0-fixes-and-flow-controller.md)
+- [06 — Protótipo de interação e revisão](./06-interaction-prototype-review.md)
 
-**要交付的行为：**
+**Comportamentos a entregar:**
 
-按评审通过的原型，把连接向导改为三屏：选择 → 连接中 → 选目录。
+Conforme o protótipo aprovado na revisão, mudar o assistente de conexão para três telas: seleção → conectando → escolha de diretório.
 
-- **整体结构**：去掉左侧的步骤栏，换成顶部一条轻量的进度提示；向导高度随内容自适应。
-- **第一屏：可搜索的统一列表**，包含：
-  - 已保存的设备，并附上各自的最近目录；
-  - `~/.ssh/config` 里的 Host；
-  - 检测到的 WSL 发行版，只在 Windows 上出现；
-  - 正在运行的 Docker 容器，只在 Docker 可用时出现。
+- **Estrutura geral**: remover a barra de etapas do lado esquerdo e substituí-la por uma dica de progresso leve no topo; a altura do assistente se adapta ao conteúdo.
+- **Primeira tela: lista unificada e pesquisável**, contendo:
+  - os dispositivos salvos, com o diretório recente de cada um;
+  - os Hosts do `~/.ssh/config`;
+  - as distribuições WSL detectadas, exibidas apenas no Windows;
+  - os contêineres Docker em execução, exibidos apenas quando o Docker está disponível.
 
-  列表底部是"新建 SSH 连接"，以及 WSL 和 Docker 的手动输入入口。点击任意一项就直接开始连接。离线设备的最近目录也可以点击，效果是"连接并打开"。
+  No fim da lista ficam "Nova conexão SSH" e as entradas manuais de WSL e Docker. Clicar em qualquer item já inicia a conexão. O diretório recente de um dispositivo offline também pode ser clicado, e o efeito é "conectar e abrir".
 
-- **收起**：收起向导后，侧栏项目区顶部显示一行进度，点击可恢复向导；连接失败的结果会保留，直到用户查看为止。
-- **关闭**：关闭向导即取消连接，并清空草稿；输入历史保留。
+- **Recolher**: com o assistente recolhido, o topo da área de projetos da barra lateral exibe uma linha de progresso; clicar nela restaura o assistente; o resultado de uma conexão com falha é preservado até o usuário visualizá-lo.
+- **Fechar**: fechar o assistente cancela a conexão e limpa o rascunho; o histórico de entradas é preservado.
 
-对应父规格「连接向导（三屏）」一节中的整体结构、第一屏、表单、收起与关闭部分。
+Corresponde às partes de estrutura geral, primeira tela, formulário, recolhimento e fechamento da seção "Assistente de conexão (três telas)" da especificação pai.
 
-范围：
+Escopo:
 
-- **表单**：
-  - 字段级校验：端口必须是数字，主机和用户名自动去掉首尾空格。
-  - 可以按回车提交，切换屏幕时焦点跟着移到新屏。
-- **一并修复的缺陷**：
-  - 别名提示只在真的选了别名时才出现，而且不重复。
-  - Docker 的下拉选择和手动输入互斥，并各有标签；"Docker 不可用"和"没有运行中的容器"分成两种提示。
-  - macOS 上不显示 WSL。
-  - 正式版不显示开发模式的提示。
-  - 首次使用的用户被标成"已完成第 1 步"，以及有已知连接时第 2 步先闪一下。
-- **状态 owner**：连接中的状态只有一个 owner，就是向导会话；侧栏进度行只读取这份状态，不另存副本。
+- **Formulário**:
+  - Validação por campo: a porta precisa ser numérica, e host e usuário removem automaticamente os espaços no início e no fim.
+  - É possível submeter com Enter, e ao trocar de tela o foco acompanha para a nova tela.
+- **Defeitos corrigidos junto**:
+  - A dica de alias só aparece quando um alias realmente foi escolhido, e não se repete.
+  - A seleção no dropdown do Docker e a entrada manual são mutuamente exclusivas, e cada uma tem seu rótulo; "Docker indisponível" e "Nenhum contêiner em execução" são dois avisos distintos.
+  - No macOS o WSL não é exibido.
+  - A versão oficial não exibe a dica do modo de desenvolvimento.
+  - Usuários de primeiro uso são marcados como "Etapa 1 concluída", e com conexões conhecidas a etapa 2 pisca antes.
+- **Owner do estado**: o estado de "conectando" tem um único owner, que é a sessão do assistente; a linha de progresso da barra lateral apenas lê esse estado, sem guardar uma cópia própria.
 
-**原型评审结论**（[06 评审结论](./06-interaction-prototype-review.md#comments)）：界面按评审通过的原型实现，以下几点以 06 为准。
+**Conclusão da revisão do protótipo** ([Conclusão da revisão em 06](./06-interaction-prototype-review.md#comments)): a interface é implementada conforme o protótipo aprovado na revisão, e os pontos abaixo seguem o 06.
 
-- 收起后的侧栏进度行改为两行小卡片：第一行是“正在连接 <设备名>…”和百分比，第二行是当前阶段，下面一条进度条；失败后保留为危险色卡片，写明原因并可点击查看。这一点与父规格的单行写法不同，以本票为准。
-- 选择屏和新建 SSH 表单的分组、布局与页脚按原型实现。
+- A linha de progresso da barra lateral com o assistente recolhido passa a ser um cartão pequeno de duas linhas: a primeira linha é "Conectando <nome do dispositivo>…" e a porcentagem, e a segunda é a etapa atual, com uma barra de progresso logo abaixo; após uma falha, ela permanece como um cartão em cor de perigo, indicando o motivo e permitindo clicar para visualizar. Isso diverge da formulação de linha única da especificação pai; esta issue prevalece.
+- Os agrupamentos, o layout e o rodapé da tela de seleção e do formulário de nova conexão SSH seguem o protótipo.
 
-验收标准：
+Critérios de aceite:
 
-- [x] **首次 SSH 连接的操作量**：从 config Host 开始，经过输入密码、安装确认、选目录，总共约 4～5 次点击、1 次输入。E2E 记录实际点击次数。
-- [x] **第一屏列表**：列表来源、搜索、点击即连接都按规格工作，有向导测试覆盖；离线设备的最近目录点击后能连接并打开该目录，有 E2E 覆盖。
-- [x] **表单与缺陷修复**：表单校验、回车提交、焦点移动，以及 Docker、WSL、macOS、开发提示这几处修复，都有测试覆盖。
-- [x] **收起与关闭**：收起后侧栏显示进度行，失败结果会保留；关闭后草稿被清空。有测试和 E2E 覆盖。
-- [x] **单一 owner**：侧栏进度行只读取向导会话的状态，没有第二份副本。
-- [x] **视觉核对**：界面与原型截图一致；另截浅色、深色和 900px 窗口下的截图。
-- [x] **规格更新**：更新 UX 规格和导航规格，并同步 E2E 用例目录。
-- [x] **提交前检查**：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 SSH E2E 全部通过后，在本地提交。
+- [x] **Quantidade de operações da primeira conexão SSH**: a partir de um Host do config, passando pela digitação da senha, pela confirmação de instalação e pela escolha do diretório, o total é de cerca de 4～5 cliques e 1 digitação. O E2E registra a quantidade real de cliques.
+- [x] **Lista da primeira tela**: as origens da lista, a busca e o "clique para conectar" funcionam conforme a especificação, com cobertura de teste do assistente; o diretório recente de um dispositivo offline conecta e abre o diretório ao ser clicado, com cobertura de E2E.
+- [x] **Formulário e correções de defeitos**: a validação do formulário, o envio com Enter, a mudança de foco e as correções de Docker, WSL, macOS e dicas de desenvolvimento têm cobertura de teste.
+- [x] **Recolhimento e fechamento**: com o assistente recolhido, a barra lateral exibe a linha de progresso e o resultado de falha é preservado; após o fechamento, o rascunho é limpo. Há cobertura de teste e de E2E.
+- [x] **Owner único**: a linha de progresso da barra lateral apenas lê o estado da sessão do assistente, sem uma segunda cópia.
+- [x] **Conferência visual**: a interface é idêntica às capturas do protótipo; também são tiradas capturas nos temas claro, escuro e com janela de 900px.
+- [x] **Atualização das especificações**: atualizar a especificação de UX e a de navegação, e sincronizar o catálogo de casos de E2E.
+- [x] **Verificações antes do commit**: `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, os testes unitários afetados e os E2E de SSH afetados passam; só então o commit local é feito.
 
 
 ## Comments
 
-### 实施与验收（2026-09-29）
+### Implementação e aceite (2026-09-29)
 
-- 三屏顶部进度、统一搜索列表、SSH 表单布局及 Docker/WSL 手动入口已实现；离线最近目录沿原线路连接并打开。配置、连接、目录各屏均可收起恢复；目录请求卸载撤销，关闭与换目标清理草稿。侧栏只注册 DOM 容器，卡片由唯一向导会话直接渲染。
-- 向导 DOM 回归 54 条通过；覆盖 WSL 外部偏好、config 读取失败后的别名保留、目录迟到响应、关闭清空、后台成功收尾和已有连接意图。编辑连接及 SSH helper 回归同步。
-- RDUX-10-01～04 真实 SSH E2E 通过：`desktop-e2e-20260928160405047-p51001-d93013e144937095`。config Host 首装到打开目录实测 **5 次按钮点击、1 次密码输入**；离线最近目录、收起失败留存、查看与关闭草稿均有断言。共 16 张浅色/深色 × 1440/900px 截图（选择屏、已保存设备、新建 SSH、失败卡片），已对照 06 原型核对；截图保留在该 run 的本地 artifact 目录。
-- SSH CONN-01/02、CONN-03 通过：`desktop-e2e-20260928160027687-p49292-629542e903aac76c` 的对应两个 spec；CONN-06/07 通过：上述 `desktop-e2e-20260928160405047-p51001-d93013e144937095`。新用例仍为 Pending，未人工转正或准入 CI。
-- Standards / Spec 两轴复核无未解决发现。
-- 额外的全局 case coverage audit 仍报告原有 D19/I74/I75 引用与统计、生成文档漂移；使用实施起点 `bcc1ae5fc885d451975d59925cbb3f6e75195801` 的 catalog/matrix 复核得到相同错误。本次新增 fixture 合同检查通过，不扩展修改这些既有文档问题。
+- O progresso no topo das três telas, a lista unificada com busca, o layout do formulário SSH e as entradas manuais de Docker/WSL foram implementados; o diretório recente de um dispositivo offline conecta pela rota original e é aberto. As telas de configuração, conexão e diretório podem ser recolhidas e restauradas; o pedido de diretório é desfeito ao desmontar, e o fechamento e a troca de destino limpam o rascunho. A barra lateral registra apenas o contêiner DOM, e o cartão é renderizado diretamente pela única sessão do assistente.
+- A regressão de DOM do assistente passou em 54 casos; cobre a preferência externa de WSL, a retenção do alias após falha de leitura do config, a resposta tardia de diretório, a limpeza ao fechar, o encerramento bem-sucedido em segundo plano e a intenção de conexão existente. A regressão de edição de conexão e do helper de SSH foi verificada junto.
+- Os E2E reais de SSH RDUX-10-01～04 passaram: `desktop-e2e-20260928160405047-p51001-d93013e144937095`. Da primeira instalação via config Host até a abertura do diretório, foram medidos **5 cliques de botão e 1 digitação de senha**; o diretório recente de um dispositivo offline, a retenção da falha após recolher, a visualização e a limpeza do rascunho ao fechar têm as devidas asserções. Foram geradas 16 capturas de tela no total, em temas claro/escuro × 1440/900px (tela de seleção, dispositivos salvos, nova conexão SSH e cartão de falha), conferidas contra o protótipo do 06; as capturas ficam no diretório local de artefatos desse run.
+- SSH CONN-01/02 e CONN-03 passaram: os dois specs correspondentes de `desktop-e2e-20260928160027687-p49292-629542e903aac76c`; CONN-06/07 passaram: o `desktop-e2e-20260928160405047-p51001-d93013e144937095` acima. Os novos casos continuam como Pending, sem promoção manual nem admissão no CI.
+- A revisão pelos eixos Standards / Spec não deixou apontamentos em aberto.
+- A auditoria global adicional de case coverage ainda reporta as referências e estatísticas pré-existentes D19/I74/I75 e o drift de documentos gerados; a conferência com o catalog/matrix usando o ponto de partida da implementação `bcc1ae5fc885d451975d59925cbb3f6e75195801` obtém os mesmos erros. A nova checagem de contrato de fixture passou, e não se estende a modificação desses problemas de documentos já existentes.
 
-- 最终验证：`pnpm typecheck`、`pnpm lint`（64 条既有警告、0 error）、`pnpm architecture:check --changed`、桌面 `typecheck:e2e`、新 fixture 检查通过。最终单测完整收集 2,035 文件、18,726 条测试，**18,712 通过、14 条原有跳过**；此前并发运行中两类原生/子进程加载检查发生超时，其独立串行复验 4/4 通过，最终全量也通过。手机 `/remote` 未改交互，相关现有单测随全量回归，未重复实跑手机 relay E2E。
+- Verificação final: `pnpm typecheck`, `pnpm lint` (64 avisos preexistentes, 0 erro), `pnpm architecture:check --changed`, `typecheck:e2e` do desktop e a checagem dos novos fixtures passaram. A coleta completa final de testes unitários reuniu 2.035 arquivos e 18.726 testes, com **18.712 aprovados e 14 skips preexistentes**; em uma execução concorrente anterior, as duas categorias de checagens de carregamento nativo/subprocesso sofreram timeout, mas a reverificação seriada independente passou 4/4, e a execução completa final também passou. O `/remote` do celular não teve a interação alterada, e os testes unitários existentes relacionados acompanharam a regressão completa, sem nova execução do E2E de relay do celular.

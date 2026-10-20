@@ -1,51 +1,82 @@
-# 草稿首发：任务列表与详情同时提交
+# Primeiro envio do rascunho: a lista de tarefas e o detalhe são enviados juntos
 
-## 行为与原因
+## Comportamento e motivo
 
-用户裁决（2026-09-15）：草稿按发送、成功转圈结束时，左侧已有并选中该任务，右侧进入同一任务详情。复用已有首发生命周期，不新增协议 ACK 字段、任务状态或超时补偿。
+Decisão do usuário (2026-09-15): quando o rascunho é enviado, no fim do giro de sucesso a
+tarefa já existe e está selecionada à esquerda, e a direita entra no detalhe da mesma tarefa.
+Reaproveita o ciclo de vida de primeiro envio já existente, sem adicionar campos de ACK ao
+protocolo, novos estados de tarefa nem compensação por timeout.
 
-实测首发 accepted 已返回，初始化与 SessionStart hook 仍在运行。首输入标题事件发生于 deferred 提升之前，被 CLI 列表发布器过滤；后续摘要虽已持久化，运行 phase 仍可能是 draft，又被 Host 过滤。旧侧栏还会在每个活动帧启动全树读取并废弃在途结果，放大延迟。
+Medido em campo, o primeiro envio já retornou `accepted`, enquanto a inicialização e o hook
+SessionStart ainda estavam rodando. O evento de título do primeiro input ocorreu antes da
+elevação deferida e foi filtrado pelo publicador de lista do CLI; o resumo seguinte, embora já
+persistido, ainda podia ter `phase` = `draft` e foi filtrado pelo Host. A barra lateral
+antiga ainda iniciava uma leitura da árvore inteira a cada quadro ativo e descartava
+resultados em trânsito, amplificando a latência.
 
-## 所有者和顺序
+## Donos e ordem
 
 ```text
-CommandInbox 接受输入 → 现有 deferred 提升 → publishCurrentSummaryToIndex
-                                                ↓
-                         task-facts 摄入 → tasks-index 提交 → task_created
-                                                ↓
-                  ProjectDirectoryProvider 接受包含真实行的 readTree
-                                                ↓
-               同一 UI 提交：更新目录 + handleDraftSessionCreated
-                                                ↓
-                       首发 Promise 完成，composer 结束 pending
+CommandInbox aceita o input → elevação deferred existente → publishCurrentSummaryToIndex
+                                               ↓
+                        ingestão de task-facts → commit em tasks-index → task_created
+                                               ↓
+                 ProjectDirectoryProvider aceita readTree com as linhas reais
+                                               ↓
+              mesmo commit da UI: atualiza o diretório + handleDraftSessionCreated
+                                               ↓
+                    Promise de primeiro envio conclui, o composer sai de pending
 ```
 
-- CLI persistence 决定是否为未提交草稿，runtime phase 只表达执行状态。未提交预热不发布到 sessions-index；已提交但未 TurnStarted 的摘要允许落入 Host 索引。
-- task-facts 仍是 CLI 事实摄入入口，project Host 仍拥有 projectId/pin/archive。首次摘要落库后直接发布 task_created，不为了补行读取完整会话或等待模型/Hook。
-- 共享目录仍只接受 Host readTree 的真实行。首发回调等待完整 workspaceKey + taskId 匹配，目录与原导航在同次 React 提交中更新；不构造 optimistic 项目行。
-- 目录刷新合并重叠请求，在途期间收到失效通知只追加一次读取。当前读取可提交，不因持续活动饿死；切换 service/attachment 或卸载后旧结果失效。
-- accepted 回调仅是 UI 在途完成工作，不是第二份输入队列。读取失败向调用方报告，离开原 pane 取消导航；都不得自动重发已接受输入。重复通知不会重复导航或生成任务。
-- 桌面 continuous 与手机 replayable 共用该 UI/事实链；保留原 owner/lease、CommandInbox 去重及 replay gap/snapshot 恢复，不改 main/relay 或 runtime 创建路径。远端匹配使用 workspaceIdentity，携带原 remoteSessionId。
-- 无数据库迁移。不改变已有任务发送、fork、历史打开、项目归属与排序策略。
+- A persistência do CLI decide se um rascunho ainda não foi submetido; a `phase` do runtime
+  expressa apenas o estado de execução. O pré-aquecimento não submetido não é publicado no
+  `sessions-index`; um resumo já submetido mas sem `TurnStarted` pode cair no índice do Host.
+- O `task-facts` continua sendo a entrada de ingestão de fatos do CLI, e o Host de projeto
+  continua sendo o dono de `projectId`/pin/archive. Depois que o primeiro resumo vai para o
+  banco, `task_created` é publicado diretamente, sem ler a sessão completa para completar a
+  linha nem esperar pelo modelo/Hook.
+- O diretório compartilhado só aceita linhas reais vindas do `readTree` do Host. O callback de
+  primeiro envio espera a correspondência completa de `workspaceKey` + `taskId`; o diretório e a
+  navegação original são atualizados no mesmo commit do React; nenhuma linha de projeto
+  otimista é construída.
+- A atualização do diretório funde requisições sobrepostas e, durante uma requisição em
+  trânsito, uma notificação de invalidação received acrescenta apenas mais uma leitura. A
+  leitura atual pode ser submetida e não passa fome mesmo com atividade contínua; trocar de
+  service/attachment ou desmontar invalida os resultados antigos.
+- O callback de `accepted` é apenas o trabalho de UI em trânsito concluído, não uma segunda
+  fila de inputs. Falhas de leitura são reportadas a quem chamou; sair do pane original cancela
+  a navegação; nada disso reenvia automaticamente um input já aceito. Notificações repetidas não
+  repetem a navegação nem geram tarefa.
+- O desktop continuous e o celular replayable compartilham essa cadeia de UI/fatos; preserva-se
+  o owner/lease original, a deduplicação do CommandInbox e a restauração por replay gap/snapshot,
+  sem mexer em main/relay nem no caminho de criação do runtime. A correspondência remota usa
+  `workspaceIdentity`, carregando o `remoteSessionId` original.
+- Sem migração de banco. Não altera o envio de tarefas já existente, o fork, a abertura de
+  histórico, a atribuição de projeto nem a política de ordenação.
 
-## 验收
+## Aceitação
 
-| Case | 场景/动作 | 必须断言 | 验证层 |
+| Case | Cenário/ação | Deve afirmar | Camada de verificação |
 | --- | --- | --- | --- |
-| FSV01 | 预热草稿首发，初始化未产生下一事件 | accepted 前发布已提升摘要；未提交草稿仍不进列表 | CLI 单测 |
-| FSV02 | 收到已持久化、phase=draft 摘要 | 真任务行 + task_created；零 readSession/resumeSession；重复摘要不重复创建广播 | Host 单测 |
-| FSV03 | 首发完成时已有目录读取在途，持续失效通知 | 不并发堆叠、不饿死；目录含行与详情绑定同次提交；同 cwd 不同 identity 不匹配 | UI 单测 |
-| FSV04 | service 切换/卸载、目录错误 | 旧响应不导航，错误可观察，不重新提交输入 | UI 单测 |
-| FSV05 | 真实桌面发送草稿 | 每帧采样：首次详情帧已有侧栏行且选中；CLI/Host 存在对应事实；未首发时无任务行 | pending E2E |
+| FSV01 | primeiro envio de um rascunho pré-aquecido, com a inicialização sem produzir o próximo evento | antes do `accepted` o resumo elevado já foi publicado; um rascunho não submetido ainda não entra na lista | teste unitário do CLI |
+| FSV02 | recebe um resumo já persistido, com `phase=draft` | linha de tarefa real + `task_created`; zero `readSession`/`resumeSession`; resumos repetidos não repetem o broadcast de criação | teste unitário do Host |
+| FSV03 | primeiro envio concluído com uma leitura de diretório em trânsito e notificações de invalidação contínuas | sem empilhamento concorrente e sem passar fome; diretório com linhas e vínculo do detalhe no mesmo commit; mesmo `cwd` com `identity` diferente não corresponde | teste unitário de UI |
+| FSV04 | troca de service/desmontagem, erro de diretório | respostas antigas não navegam, o erro é observável, o input não é reenviado | teste unitário de UI |
+| FSV05 | envio real de um rascunho no desktop | amostragem por quadro: no primeiro quadro de detalhe já há linha na barra lateral e ela está selecionada; o CLI/Host têm o fato correspondente; enquanto não houve primeiro envio não há linha de tarefa | E2E pendente |
 
-文本与附件共用首发回调，分别保留 prewarm 与 createSession(firstInput) 原路径。移动端用共享组件与身份单测覆盖接线，实机回归结果单独记录。codegraph 查询因 unresolved_refs 表缺失失败，影响面按源码追踪，未完成图扫描。
+Texto e anexos compartilham o callback de primeiro envio, preservando respectivamente os
+caminhos originais de `prewarm` e `createSession(firstInput)`. O mobile cobre a fiação com
+componentes compartilhados e teste unitário de identidade; o resultado da regressão em
+aparelho real é registrado separadamente. A consulta ao codegraph falhou por causa da tabela
+`unresolved_refs` ausente; a superfície de impacto foi rastreada pelo código-fonte e a varredura
+do grafo não foi concluída.
 
-## 验证记录（2026-09-15）
+## Registro de verificação (2026-09-15)
 
-- CLI sessions-index：21/21；Host syncer：68/68；UI 首发/身份/取消/服务换代、目录刷新与稳定化：9/9；原 composer 连续性：8/8。
-- 桌面回放 `desktop-e2e-20260915132619485-p5768-b01dc2cd458ba130`：全局、项目内首发 2/2。逐帧分别记录 231/49 帧；首个详情帧都是一条新增行、可见且选中，之前的草稿帧新增行数均为 0。同时校验 Host projectId/CLI 创建时间、真实用户消息、回复及 idle；两个主请求和两个标题请求均 200。
-- `pnpm typecheck`、`pnpm lint`（47 项既有 warning，0 error）、desktop `typecheck:e2e`、bootstrap `typecheck`、本 case `e2e:fixture:check` 通过。未进行手机、Windows、Linux 实机回归；没有改变这几端的接口或传输语义。
-- 修改前后架构门禁均只有既有 `root/resolveConversationWorkspaceTarget.ts` 的 unmanaged-new-file；本修复没有增加违规。bootstrap scoped lint 原有 19 个 max-lines 错误（包括既有大文件 gateway）未处理。
-- 扩跑 gateway 的 93 个用例有一个既有失败：Core admission ACK 后旧 revision retry/file rewind 预期 stale，实际 executionFailed。临时移除本修复的 gateway 改动重跑仍失败，其余 92 个通过。
-- 全量 case coverage audit 仍受既有 28 个 pending fixture 元数据、D19/I74/I75 缩写与生成文档统计过期阻塞；本 case fixture 检查通过，不自动晋升 formal。
-- 前一次双入口运行：全局通过，项目用例重复执行初始化导致等待默认工作区失败，已改为点击真实项目新建入口；一次构建在用例启动前遇到共享输出目录 ENOTEMPTY。最终使用现有 KEEP_BUILD_CACHE 开关重新编译，并由 runner 复制到本轮独立 app 目录后通过，未跳过源码构建。
+- CLI `sessions-index`: 21/21; syncer do Host: 68/68; UI de primeiro envio/identidade/cancelamento/troca de service, atualização e estabilização do diretório: 9/9; continuidade original do composer: 8/8.
+- Replay de desktop `desktop-e2e-20260915132619485-p5768-b01dc2cd458ba130`: primeiro envio global e dentro do projeto 2/2. Foram registrados quadro a quadro 231/49 quadros; o primeiro quadro de detalhe foi sempre uma linha nova, visível e selecionada, e os quadros de rascunho anteriores tiveram 0 linhas novas. Ao mesmo tempo foram verificados `projectId` do Host/data de criação do CLI, a mensagem real do usuário, a resposta e o estado `idle`; as duas requisições principais e as duas requisições de título retornaram 200.
+- `pnpm typecheck`, `pnpm lint` (47 warnings existentes, 0 error), `typecheck:e2e` do desktop, `typecheck` do bootstrap e `e2e:fixture:check` deste case passaram. Não foi feita regressão em aparelho real de celular, Windows ou Linux; a interface e a semântica de transporte dessas pontas não foram alteradas.
+- O gate de arquitetura, antes e depois da alteração, mostrou apenas o `unmanaged-new-file` já existente de `root/resolveConversationWorkspaceTarget.ts`; esta correção não acrescentou nenhuma violação. Os 19 erros de `max-lines` já existentes do lint scoped do bootstrap (incluindo o arquivo grande `gateway`) não foram tratados.
+- Ao rodar os 93 casos do gateway em amplitude ampliada, houve uma falha já existente: após o ACK de admissão do Core, a repetição com revisão antiga/file rewind esperava `stale`, mas obteve `executionFailed`. Removendo temporariamente as alterações do gateway feitas nesta correção e rodando de novo, a falha persiste, e os outros 92 passam.
+- A auditoria completa de cobertura de cases segue bloqueada pelos 28 fixtures pendentes já existentes, pelas abreviações D19/I74/I75 e pela contagem desatualizada dos documentos gerados; a checagem de fixture deste case passou e não promove automaticamente para formal.
+- Execução anterior de dupla entrada: o fluxo global passou; no case de projeto, a repetição da inicialização levou à falha de espera pelo workspace padrão, e foi alterado para clicar na entrada real de novo projeto; uma build encontrou `ENOTEMPTY` no diretório de saída compartilhado antes do case iniciar. Por fim, recompilou-se usando a opção `KEEP_BUILD_CACHE` existente e o runner copiou para o diretório de app independente deste ciclo, passando sem pular a build do código-fonte.

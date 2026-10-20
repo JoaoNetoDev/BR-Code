@@ -1,54 +1,54 @@
-# 文件预览的外部打开应用
+# Aplicativos externos para abrir na pré-visualização de arquivo
 
-## 范围
+## Escopo
 
-在现有 Open 上拉菜单中追加已安装且匹配当前文件扩展名的应用。原有编辑器、终端、Finder/QSpace/Explorer 的展示与顺序保持不变；不增加入口、分组、默认应用项或“选择其他应用”，复制路径和 Open 主按钮不变。
+No menu suspenso Open existente, acrescentar os aplicativos instalados que correspondem à extensão do arquivo atual. A exibição e a ordem originais dos editores, terminais, Finder/QSpace/Explorer permanecem inalteradas; não são adicionados entradas, agrupamentos, item de aplicativo padrão nem "escolher outro aplicativo", e a cópia de caminho e o botão principal Open permanecem inalterados.
 
-| 类型 | macOS                                                 | Windows                                                  | Linux                                 |
+| Tipo | macOS                                                 | Windows                                                  | Linux                                 |
 | ---- | ----------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- |
-| PDF  | Preview、Adobe Acrobat/Reader、PDF Expert、WPS Office | Adobe Acrobat/Reader、Foxit PDF Reader、WPS Office、Edge | Evince、Okular、Firefox               |
-| DOCX | Word、Pages、WPS Office、LibreOffice Writer           | Word、WPS Office、LibreOffice Writer                     | WPS Office、LibreOffice Writer        |
-| PPTX | PowerPoint、Keynote、WPS Office、LibreOffice Impress  | PowerPoint、WPS Office、LibreOffice Impress              | WPS Presentation、LibreOffice Impress |
-| XLSX | Excel、Numbers、WPS Office、LibreOffice Calc          | Excel、WPS Office、LibreOffice Calc                      | WPS Spreadsheets、LibreOffice Calc    |
-| MP3  | Music、QuickTime Player、IINA、VLC                    | Windows Media Player、VLC                                | VLC、mpv                              |
-| MP4  | QuickTime Player、IINA、VLC                           | Windows Media Player、VLC、PotPlayer                     | VLC、mpv                              |
+| PDF  | Preview, Adobe Acrobat/Reader, PDF Expert, WPS Office | Adobe Acrobat/Reader, Foxit PDF Reader, WPS Office, Edge | Evince, Okular, Firefox               |
+| DOCX | Word, Pages, WPS Office, LibreOffice Writer           | Word, WPS Office, LibreOffice Writer                     | WPS Office, LibreOffice Writer        |
+| PPTX | PowerPoint, Keynote, WPS Office, LibreOffice Impress  | PowerPoint, WPS Office, LibreOffice Impress              | WPS Presentation, LibreOffice Impress |
+| XLSX | Excel, Numbers, WPS Office, LibreOffice Calc          | Excel, WPS Office, LibreOffice Calc                      | WPS Spreadsheets, LibreOffice Calc    |
+| MP3  | Music, QuickTime Player, IINA, VLC                    | Windows Media Player, VLC                                | VLC, mpv                              |
+| MP4  | QuickTime Player, IINA, VLC                           | Windows Media Player, VLC, PotPlayer                     | VLC, mpv                              |
 
-## 数据与平台边界
+## Dados e fronteira de plataforma
 
-`IPlatformService.getInstalledEditors(filePath?)` 保持无参数兼容：不传文件路径时仅返回原有清单，避免改变工作区菜单。传路径时主进程按大小写无关的扩展名匹配新增清单并异步检测安装位置（macOS 系统/全局/用户 Applications，Windows 常见安装位置与 App Paths 注册，Linux PATH）。主进程是安装检测与缓存的唯一 owner；UI 不维护另一份格式映射。
+`IPlatformService.getInstalledEditors(filePath?)` mantém a compatibilidade sem argumentos: quando nenhum caminho de arquivo é informado, retorna apenas a lista original, evitando alterar o menu do workspace. Quando um caminho é informado, o processo principal casa a nova lista pela extensão sem diferenciar maiúsculas/minúsculas e detecta de forma assíncrona os locais de instalação (Applications de sistema/global/usuário no macOS, locais de instalação comuns e registros App Paths no Windows, PATH no Linux). O processo principal é o único owner da detecção de instalação e do cache; a UI não mantém um segundo mapeamento de formatos.
 
 ```mermaid
 sequenceDiagram
-    participant UI as 文件 Open 菜单
-    participant P as 平台接口 / IPC
-    participant M as 主进程
+    participant UI as Menu Open de arquivo
+    participant P as Interface de plataforma / IPC
+    participant M as Processo principal
     UI->>P: getInstalledEditors(filePath)
-    P->>M: 可选文件路径
-    M->>M: 原有列表 + 匹配扩展名且已安装的应用
-    M-->>UI: 带现有图标结构的列表
+    P->>M: Caminho de arquivo opcional
+    M->>M: Lista original + aplicativos instalados que casam com a extensão
+    M-->>UI: Lista com a estrutura de ícones existente
     UI->>P: openInEditor(id, filePath, options)
-    P->>M: 复用现有打开链路
+    P->>M: Reaproveita a cadeia de abertura existente
 ```
 
-文件卡片和 Preview Pane 使用当前文件路径查询。未知扩展名、目录及无路径查询不追加应用。切换预览文件时，旧查询结果不得覆盖新文件的列表。新增应用通过参数数组打开文件，不经 shell 拼接。
+O cartão de arquivo e o Preview Pane consultam usando o caminho do arquivo atual. Extensões desconhecidas, diretórios e consultas sem caminho não acrescentam aplicativos. Ao trocar o arquivo em pré-visualização, o resultado da consulta anterior não pode sobrescrever a lista do novo arquivo. Os novos aplicativos abrem o arquivo por meio de um array de argumentos, sem concatenação via shell.
 
-SSH/WSL/Docker 继续通过现有 `resolveWorkspaceEditorSelection` 限制可用应用，不把远端文件路径传给新增本机阅读器。手机 Web 继续返回空清单，桌面 continuous / 手机 replayable 消息流、workspaceIdentity 和 owner 路由不变。
+SSH/WSL/Docker continuam usando o `resolveWorkspaceEditorSelection` existente para limitar os aplicativos disponíveis, e não repassam caminhos de arquivo remotos para os novos leitores locais. A Web no celular continua retornando lista vazia; os fluxos de mensagens desktop continuous / celular replayable, `workspaceIdentity` e o roteamento por owner permanecem inalterados.
 
-## 验证
+## Verificação
 
-单测覆盖六种扩展名、大小写与含空格路径、缺失应用、无参数兼容、多平台安装位置以及参数化打开。现有文件卡片 E2E 覆盖按路径传递和菜单内容/打开目标；系统应用安装与真实启动另需平台运行时验证。
+Os testes unitários cobrem os seis tipos de extensão, caixa (maiúsculas/minúsculas) e caminhos com espaços, aplicativo ausente, compatibilidade sem argumentos, locais de instalação em múltiplas plataformas e a abertura parametrizada. O E2E existente do cartão de arquivo cobre o repasse por caminho e o conteúdo do menu/alvo de abertura; a instalação de aplicativos do sistema e o lançamento real exigem validação adicional em runtime de plataforma.
 
-主进程在启动文件应用前校验本机绝对路径与真实文件类型，不信任 renderer 的 `pathKind`。
-macOS 使用系统 `open`；Windows/Linux 使用独立子进程并忽略 stdio，收到 `spawn` 后返回成功，
-不等待阅读器退出，也不让应用日志触发缓冲上限终止进程。启动失败返回原有失败结果。
+O processo principal valida o caminho absoluto local e o tipo real do arquivo antes de iniciar o aplicativo, sem confiar no `pathKind` do renderer.
+No macOS usa o `open` do sistema; no Windows/Linux usa subprocesso próprio ignorando o stdio, retornando sucesso após receber o `spawn`,
+sem esperar o leitor encerrar e sem deixar o log do aplicativo disparar o limite de buffer que encerra o processo. Falha na inicialização retorna o resultado de falha original.
 
 ```text
-renderer 打开请求 → main 校验本机文件 → 启动应用 → spawn / error → 返回结果
-                                                └─ 应用独立运行，关闭时无需回写状态
+requisição de abertura do renderer → main valida o arquivo local → inicia o aplicativo → spawn / error → retorna o resultado
+                                                └─ o aplicativo roda de forma independente, sem necessidade de reescrever estado ao fechar
 ```
 
-## 打开失败与安装变化
+## Falha na abertura e mudanças de instalação
 
-打开应用返回失败或请求抛异常时，都记录日志并显示同一条本地化失败 Toast。远端菜单继续复用工作区能力过滤：SSH 仅 VS Code 系；WSL 额外允许 Explorer；未解析目标和不支持的目标不展示本机应用。
+Quando o retorno da abertura do aplicativo é falha ou a requisição lança exceção, ambos registram log e exibem o mesmo Toast de falha localizado. O menu remoto continua reaproveitando o filtro de capacidades do workspace: no SSH somente a família VS Code; no WSL o Explorer é permitido adicionalmente; alvos não resolvidos e alvos sem suporte não exibem aplicativos locais.
 
-文件应用探测只缓存成功结果和在途请求；未安装、图标缺失和异常都释放缓存。下次菜单查询重新探测，不用 TTL 或要求重启。清理只针对原请求，不能删除更新的请求。
+A detecção de aplicativos de arquivo só mantém em cache resultados bem-sucedidos e requisições em andamento; não instalado, ícone ausente e exceções liberam o cache. A próxima consulta de menu faz nova detecção, sem TTL e sem exigir reinício. A limpeza afeta apenas a requisição original e não pode apagar requisições mais novas.

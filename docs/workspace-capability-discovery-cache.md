@@ -1,74 +1,74 @@
-# Workspace 外置能力发现缓存
+# Cache de descoberta de capacidades externas do workspace
 
-> 状态：设计草案，2026-10-09；未实现、未完成性能验收。本文给出推荐决策，不把候选测试记作已覆盖。
-> 范围：同一 Agent 进程内，新建／冷恢复 session 对外置配置发现、读取和解析结果的复用。
-> 改动层级：option-source、persistence（仅内存缓存）、recovery。运行时执行状态和消息交付协议保持原有归属。
+> Estado: rascunho de design, 2026-10-09; não implementado, sem aceitação de performance concluída. Este documento apresenta a decisão recomendada e não registra os casos de teste candidatos como já cobertos.
+> Escopo: dentro do mesmo processo do Agent, reutilização da descoberta, leitura e resultados de parsing de configurações externas por sessões criadas novamente / restauradas a frio.
+> Níveis de mudança: option-source, persistence (apenas cache em memória), recovery. O estado de execução em runtime e o protocolo de entrega de mensagens mantêm sua atribuição original.
 
-## 1. 目标与现状
+## 1. Objetivo e situação atual
 
-目标是同一 workspace 的 Session A 已加载能力后，Session B 不再重复读取未变化的 Skill、插件 manifest、插件 Agent Markdown 和配置正文，也不重复解析这些内容。仍允许必要的文件元数据校验，不承诺命中时零文件系统操作。
+O objetivo é que, depois que a Session A do mesmo workspace já carregou as capacidades, a Session B não leia novamente Skills, manifests de plugin, Markdown de Agent de plugin e o corpo das configurações que não mudaram, nem faça parsing deles novamente. Permitem-se ainda as validações de metadados de arquivo necessárias, sem prometer zero operações no sistema de arquivos em caso de acerto de cache.
 
-当前 `createZCodeApp()` 每次创建 App 都调用 `createConfig()`、`resolveStartupPlugins()`、`loadPluginAgentTemplates()`，并创建独立 `NodeSkillAdapter`。`ensureContextInitialized()` 把发现结果存入本 Runtime；这不能为另一个 Runtime 提供解析缓存。
+Atualmente `createZCodeApp()` chama `createConfig()`, `resolveStartupPlugins()` e `loadPluginAgentTemplates()` toda vez que cria um App, e cria um `NodeSkillAdapter` independente. `ensureContextInitialized()` armazena o resultado da descoberta neste Runtime; isso não pode fornecer um cache de parsing para outro Runtime.
 
-已有能力应复用，不另建 owner：
+Capacidades existentes devem ser reutilizadas, sem criar outro owner:
 
-| 现有事实                                 | 当前 owner                                    | 本设计处理                                    |
-| ---------------------------------------- | --------------------------------------------- | --------------------------------------------- |
-| 用户／项目 Subagent 解析快照             | Local Host `createSubagentRuntimeConfigCache` | 保留；本地初始化及新父 turn 继续读 Host 快照  |
-| Skill／插件引用目录                      | `AgentRuntime`／session App                   | 保留冻结目录；新 Runtime 从共享材料构建新快照 |
-| MCP live 连接和工具列表                  | 现有 MCP adapter／connection pool             | 保留默认 session 隔离与显式 workspace 隔离    |
-| 插件安装文件、配置文件、Markdown         | 文件系统及现有配置写入口                      | 仍是权威源；缓存不是新持久化源                |
-| Provider Registry、账号、凭据、Hook 信任 | 各自现有 owner                                | 获取执行事实时继续读取，不从能力缓存恢复      |
+| Fato existente                                      | Owner atual                                        | Tratamento neste design                              |
+| -------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| Snapshot de parsing de Subagent do usuário/projeto  | Local Host `createSubagentRuntimeConfigCache`       | Preservar; a inicialização local e os novos turnos pai continuam lendo o snapshot do Host |
+| Catálogo de referências de Skill/plugin              | `AgentRuntime`/App da sessão                        | Preservar o catálogo congelado; novos Runtime constroem novo snapshot a partir do material compartilhado |
+| Conexões MCP ativas e lista de ferramentas           | Adapter MCP / connection pool existentes           | Preservar o isolamento padrão de sessão e o isolamento explícito por workspace |
+| Arquivos de instalação de plugin, arquivos de config, Markdown | Sistema de arquivos e os pontos de escrita de config existentes | Continuam sendo a fonte autoritativa; o cache não é uma nova fonte de persistência |
+| Provider Registry, contas, credenciais, confiança de Hook | Cada owner existente                            | Continuar lendo ao obter fatos de execução; não restaurar a partir do cache de capacidades |
 
-相关事实文档：[Skill 目录生命周期](ui/conversation-skill-catalog-lifecycle.md)、[Subagent 按父上下文刷新](subagent-runtime-refresh.md)、[Workspace 插件](plugins/workspace-level-plugin-architecture.md)、[冷恢复](v4-refactor/17-cold-resume-runtime-activation.md)。
+Documentos de fato relacionados: [Ciclo de vida do catálogo de skills](ui/conversation-skill-catalog-lifecycle.md), [Refresh de subagents conforme o contexto pai](subagent-runtime-refresh.md), [Plugins de workspace](plugins/workspace-level-plugin-architecture.md), [Restauração a frio](v4-refactor/17-cold-resume-runtime-activation.md).
 
-## 2. 推荐边界
+## 2. Limites recomendados
 
-1. 第一阶段只有进程内缓存。Agent 重启后重新构建；磁盘 `plugins/cache` 继续只表达已安装资源，不作为解析缓存。
-2. 缓存命中与未命中必须生成同等的能力、优先级、命名空间、诊断和禁用规则。优化重复工作，不扩大可执行能力。
-3. 新建、冷恢复、fork 的 App 可复用共享解析材料；已初始化的 session 继续持有自己的不可变目录，不热更新。
-4. 自定义 Subagent 保持现有“初始化／新父 turn 读取 Host，轮内固定”的独立规则，不能被统一冻结到 session 生命周期。插件 Agent 只缓存原始模板，模型覆盖每个父上下文按既有规则重新合并。
-5. 本设计不改变 `SessionStart` 执行时机，也不缓存 Hook 输出、执行结果或“已运行”标志。浏览历史是否触发执行属于另一项生命周期决策。
-6. 不改变 MCP 工具声明等待、live readiness、权限、sampling、elicitation 或 App ownership。规划中的 [MCP tool catalog cache](mcp-async-tool-catalog-cache.md) 是独立优化，不作为已实现依赖。
+1. Na primeira fase há apenas cache em processo. Após reiniciar o Agent o cache é reconstruído; o `plugins/cache` em disco continua expressando apenas recursos instalados, não serve como cache de parsing.
+2. Acerto e erro de cache devem produzir capacidades, prioridades, namespaces, diagnósticos e regras de desabilitação equivalentes. Otimiza-se trabalho repetido, não se amplia a capacidade executável.
+3. Apps criados novamente, restaurados a frio ou derivados por fork podem reutilizar o material de parsing compartilhado; sessões já inicializadas continuam com o próprio catálogo imutável, sem hot update.
+4. Subagents customizados mantêm a regra existente e independente de "inicialização / novo turno pai lê o Host, fixo dentro do turno", e não podem ser congelados uniformemente no ciclo de vida da sessão. Agent de plugin armazena em cache apenas o template bruto; a cobertura de modelo por contexto pai é remixada de novo a cada turno pai conforme as regras existentes.
+5. Este design não altera o momento de execução de `SessionStart`, nem armazena em cache a saída de Hooks, os resultados de execução ou as flags de "já executado". Se a leitura do histórico dispara execução é uma decisão de ciclo de vida separada.
+6. Não se alteram a espera pela declaração de ferramentas MCP, a prontidão ao vivo (live readiness), permissões, sampling, elicitation ou o ownership de App. O [MCP tool catalog cache](mcp-async-tool-catalog-cache.md) planejado é uma otimização independente, não é uma dependência já implementada.
 
-## 3. 单一 owner 与两级缓存
+## 3. Owner único e cache de dois níveis
 
-bootstrap 在 `app-server` 启动时创建一个 `CapabilityDiscoveryService`，通过依赖注入供各 App 使用；独立 CLI 在自己的进程创建同一实现。资源不得放到模块全局 singleton，以免测试、嵌入调用和不同配置源串用。
+O bootstrap cria um `CapabilityDiscoveryService` na inicialização do `app-server`, disponibilizado via injeção de dependência para os Apps; o CLI standalone cria a mesma implementação em seu próprio processo. O recurso não deve ficar em um singleton global de módulo, para que testes, chamadas embarcadas e diferentes origens de configuração não se misturem.
 
-adapter 负责文件 I/O、解析缓存、watcher、generation 和并发调度；bootstrap 负责配置层合并、依赖装配及每次 activation 的最终投影；core 只消费严格类型的不可变结果，不导入 adapter 具体实现。名称是拟定契约，不表示已有 API。
+O adapter é responsável por I/O de arquivos, cache de parsing, watcher, generation e agendamento de concorrência; o bootstrap é responsável pela mesclagem da camada de configuração, montagem das dependências e pela projeção final de cada activation; o core apenas consome resultados estritamente tipados e imutáveis, sem importar a implementação concreta do adapter. Os nomes são contratos propostos e não representam APIs já existentes.
 
-插件 seed、离线配置迁移、安装事务等有副作用的准备工作仍由原 owner 完成；它们发布成功后的资源 revision 才能进入缓存。不得直接给整个 `createConfig()` 或 `createZCodeApp()` 加 memoization，把迁移、存储打开和 session 装配一起跳过。
+Preparações com efeitos colaterais, como seed de plugins, migração de configuração offline e transações de instalação, continuam sendo feitas pelo owner original; somente a revision dos recursos publicada com sucesso pode entrar no cache. Não se deve aplicar memoization diretamente a todo `createConfig()` ou `createZCodeApp()`, o que saltaria migração, abertura de storage e montagem de sessão.
 
 ```mermaid
 flowchart TB
-    F[配置文件、插件安装资源、Skill / Agent Markdown] --> S[Agent 进程 CapabilityDiscoveryService]
-    S --> L1[L1 按来源缓存解析材料]
-    L1 --> L2[L2 按有效配置缓存能力目录]
-    L2 --> A[Session A 冻结目录]
-    L2 --> B[Session B 冻结目录]
-    H[Host 自定义 Subagent 缓存] --> T[各父 turn 固定 definitions]
+    F[Arquivos de configuração, recursos de instalação de plugin, Markdown de Skill / Agent] --> S[CapabilityDiscoveryService do processo do Agent]
+    S --> L1[L1 Cache de material de parsing por origem]
+    L1 --> L2[L2 Cache do catálogo de capacidades por configuração efetiva]
+    L2 --> A[Catálogo congelado da Session A]
+    L2 --> B[Catálogo congelado da Session B]
+    H[Cache de Subagents customizados do Host] --> T[Definitions fixas por turno pai]
     A --> T
     B --> T
-    P[既有 MCP 连接池] --> M[Session MCP lease / live readiness]
+    P[Connection pool MCP existente] --> M[Lease MCP / live readiness da sessão]
 ```
 
-| 层级             | 保存内容                                                                                     | 不保存的内容                                                                                  |
-| ---------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| L1 来源解析      | config AST／校验结果、manifest 与组件声明、Skill 元数据、插件 Agent 模板、来源诊断与依赖清单 | client、进程句柄、会话历史、模型对象、Hook 执行、凭据服务查询结果                             |
-| L2 有效目录      | 按配置合并后的插件身份、Skill catalog、插件 Agent 模板索引、MCP／Hook 配置声明模板           | 插值后的会话专属路径、broker token、当前 OAuth header、信任批准、最终模型可用性、工具执行状态 |
-| Session／父 turn | 本次 activation／父上下文最终接受的快照与现有运行态                                          | 其他 session 可写引用、共享 accepted input queue                                              |
+| Nível                | Conteúdo guardado                                                                                | Conteúdo não guardado                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| L1 parsing por origem | AST/resultado de validação da config, manifest e declarações de componentes, metadados de Skill, templates de Agent de plugin, diagnósticos de origem e lista de dependências | client, handle de processo, histórico de sessão, objetos de modelo, execução de Hook, resultados de consulta a serviço de credenciais |
+| L2 catálogo efetivo | Identidade de plugin mesclada por config, catálogo de Skills, índice de templates de Agent de plugin, templates de declaração de config de MCP/Hook | Caminhos interpolados exclusivos da sessão, broker token, header OAuth corrente, aprovações de confiança, disponibilidade final de modelo, estado de execução de ferramentas |
+| Sessão / turno pai   | Snapshot final aceito nesta activation / contexto pai e o estado de execução existente         | Referências graváveis de outras sessões, fila de accepted input compartilhada                        |
 
-L1 中来自配置文件的敏感字段仍按配置敏感数据处理：只在内存使用，不持久化、不写日志、不暴露调试 dump。环境变量与凭据引用尽量保留声明形式，在现有执行装配边界解析。
+Campos sensíveis em L1 que venham de arquivos de configuração continuam sendo tratados como dados sensíveis de configuração: usados apenas em memória, sem persistência, sem logs e sem exposição em dumps de depuração. Referências a variáveis de ambiente e credenciais preservam, na medida do possível, a forma declarada e são resolvidas na fronteira de montagem de execução existente.
 
-本地自定义 Subagent 不在 CLI 再建一份可更新解析缓存；CLI 只持有该轮 Host 返回的副本。独立 CLI／远程未接入 Host 端口时，其既有文件加载路径可接入 L1，但不得因此获得本地 Host 的逐父轮刷新语义。
+O CLI não cria uma segunda cópia atualizável de cache de parsing para Subagents customizados locais; o CLI mantém apenas a cópia devolvida pelo Host naquele turno. Quando o CLI standalone / remoto não tem a porta do Host conectada, seu caminho de carregamento de arquivos existente pode entrar no L1, mas isso não lhe confere a semântica de refresh por turno pai do Local Host.
 
-## 4. Key 与来源身份
+## 4. Chave e identidade de origem
 
-不能用 `sessionId` 建共享 key，也不能只用 cwd。定义：
+Não se pode construir uma chave compartilhada com `sessionId`, nem apenas com o cwd. Define-se:
 
 ```text
 workspaceKey = workspaceIdentity?.trim() || workspacePath
-scope = ownerInstanceEpoch + workspaceKey + remoteSessionId（远程逻辑 attachment 存在时）
+scope = ownerInstanceEpoch + workspaceKey + remoteSessionId (quando existe o attachment lógico remoto)
 
 L1 key = scope + sourceKind + logicalPath + canonicalPath
        + parserVersion + discoveryPolicy + sourceRevision
@@ -76,22 +76,22 @@ L1 key = scope + sourceKind + logicalPath + canonicalPath
 L2 key = scope + effectiveDiscoveryFingerprint + dependencyRevisionVector
 ```
 
-`ownerInstanceEpoch` 是进程内隔离标识，重启重建。远端请求必须先验证 `workspaceIdentity`、`remoteSessionId` 和现有 Host 绑定，再选择目标 Agent owner；缺失远端身份时不得退化到本机同路径缓存。跨窗口或不同 Agent 进程不共享缓存。
+`ownerInstanceEpoch` é um identificador de isolamento dentro do processo, reconstruído no reinício. Requisições remotas devem validar primeiro `workspaceIdentity`, `remoteSessionId` e o binding do Host existente, e só então escolher o Agent owner alvo; na ausência da identidade remota não se pode degradar para o cache local do mesmo caminho. Não há compartilhamento de cache entre janelas ou entre processos de Agent diferentes.
 
-`effectiveDiscoveryFingerprint` 必须覆盖：
+`effectiveDiscoveryFingerprint` deve cobrir:
 
-- 用户／项目配置来源、storage root、按优先级排序的 capability roots；每个 root 的来源、scope、namespace 和 symlink 策略。
-- 插件安装清单 revision、启用／禁用／suppressed 状态、版本／安装内容 revision、相关 options。
-- Skill 禁用路径、功能开关、内置资源版本、影响发现的 CLI／session override。
-- 影响路径解析的环境输入；若加载结果实际依赖账号或身份，则纳入该来源的 opaque revision。不能仅因当前实现碰巧不使用而遗漏后续依赖。
+- Origens de configuração do usuário/projeto, storage root, capability roots ordenados por prioridade; para cada root: origem, scope, namespace e política de symlink.
+- Revision do manifesto de instalação de plugins, estado de habilitado/desabilitado/suppressed, revision da versão/conteúdo instalado e as options relacionadas.
+- Caminhos desabilitados de Skill, feature switches, versão dos recursos embutidos e overrides de CLI/sessão que afetam a descoberta.
+- Entradas de ambiente que afetam a resolução de caminhos; se o resultado do carregamento de fato depender de conta ou identidade, incluir a revision opaca dessa origem. Não se pode omitir uma dependência futura só porque a implementação atual por acaso não a usa.
 
-等价对象用确定性序列化；数组按产品规定的优先级保留顺序，不能为去重随意排序。hash 碰撞不得直接视为等价，entry 同时保存内部 canonical descriptor 校验。含敏感材料的 key 不输出日志。
+Objetos equivalentes usam serialização determinística; arrays mantêm a ordem definida pela prioridade do produto e não podem ser reordenados livremente para desduplicação. Colisão de hash não pode ser tratada diretamente como equivalência; a entry também guarda a verificação por descritor canonical interno. Chaves com material sensível não vão para log.
 
-L1 第一阶段按 scope 隔离，优先解决同 workspace 多 session；不跨 workspace 复用用户／插件 AST，以免在来源权限和命名空间尚未验证时扩大范围。Host 已有用户 Subagent 共享保持原样。
+Na primeira fase, L1 é isolado por scope, resolvendo primeiro múltiplas sessões do mesmo workspace; não se reutilizam ASTs de usuário/plugin entre workspaces, para não ampliar o escopo antes de as permissões de origem e os namespaces serem verificados. O compartilhamento existente de Subagents do usuário no Host permanece como está.
 
-## 5. 获取、冻结与共享加载
+## 5. Aquisição, congelamento e carregamento compartilhado
 
-推荐内部契约：
+Contrato interno recomendado:
 
 ```ts
 interface CapabilityDiscoveryService {
@@ -107,227 +107,227 @@ interface CapabilityDiscoveryService {
 }
 ```
 
-`DiscoveryInput` 只接受已验证的 scope、发现配置与来源 revision；不接收 UI 任意指定的全局缓存 key。snapshot 包含 `snapshotId`、依赖 revision、不可变材料和诊断，不包含 session 可变字段。
+`DiscoveryInput` aceita apenas scope, configuração de descoberta e revision de origem já validados; não recebe uma chave global de cache arbitrariamente especificada pela UI. O snapshot contém `snapshotId`, revisions de dependências, material imutável e diagnósticos, e não contém campos variáveis da sessão.
 
 ```mermaid
 sequenceDiagram
-    participant A as Session A activation
-    participant B as Session B activation
-    participant C as 共享服务
-    participant F as 文件系统
+    participant A as Activation da Session A
+    participant B as Activation da Session B
+    participant C as Serviço compartilhado
+    participant F as Sistema de arquivos
     A->>C: acquire(scope, effectiveConfig)
-    C->>F: 校验来源与目录依赖
-    B->>C: acquire(相同输入)
-    Note over C: 并发校验与相同 generation 的加载合并
-    C->>F: 只读取变化或缺失的解析材料
-    C->>C: 确定性合并，确认 generation 未变化
+    C->>F: Validar origens e dependências de diretórios
+    B->>C: acquire(mesma entrada)
+    Note over C: Validações concorrentes e carregamentos com a mesma generation são mesclados
+    C->>F: Ler apenas o material de parsing que mudou ou está faltando
+    C->>C: Mesclagem determinística, confirmando que a generation não mudou
     C-->>A: immutable snapshot R1
     C-->>B: immutable snapshot R1
-    Note over A,B: 各自完成 Hook/MCP/权限/模型等执行装配
+    Note over A,B: Cada uma completa a montagem de execução (Hook/MCP/permissões/modelo)
 ```
 
-- 每个相同 key＋generation 只有一个共享 Promise。先登记 flight，再启动 I/O；等待并发许可后重新检查缓存及 revision。
-- cache hit 仍先完成来源新鲜度校验；不会因为存在目录 entry 就跳过新增／删除文件检查。并发 activation 共用正在进行的校验，后续 activation 不以短 TTL 代替校验。
-- 消费者取消只取消自己的等待，不中止其他等待者的加载。第一阶段即使所有等待者离开，也允许有界加载完成并供后续使用；owner dispose 必须取消全部 I/O，并禁止迟到发布。
-- 共享结果只读。现有代码若会改写 `PluginLoadOutcome.skillRoots` 等字段，必须改为派生新对象或在 session 装配边界复制，不能把可变引用交给多个 App。wire 返回防御性副本。
-- cache eviction 只删除服务持有的引用；已初始化的 session 快照不受影响。Runtime 被回收不清空同进程共享缓存。
-- Skill 缓存只固定 catalog 元数据；显式 `Skill` tool 的正文读取、动态查找、截断和错误语义沿用现有规则，不顺带把正文永久冻结。
+- Para cada key＋generation idênticos há apenas uma Promise compartilhada. Registra-se o flight antes de iniciar o I/O; após aguardar a permissão de concorrência, reexaminam-se o cache e a revision.
+- Mesmo em acerto de cache, a validação de frescor (freshness) das origens é concluída primeiro; não se pula a verificação de arquivos adicionados/removidos só porque existe uma entry de diretório. Ativações concorrentes compartilham a validação em andamento; ativações seguintes não substituem a validação por um TTL curto.
+- O cancelamento do consumidor cancela apenas a sua própria espera, sem abortar o carregamento dos outros esperadores. Na primeira fase, mesmo que todos os esperadores saiam, permite-se que o carregamento limitado termine e fique disponível para uso posterior; o dispose do owner deve cancelar todo o I/O e proibir publicações atrasadas.
+- O resultado compartilhado é somente leitura. Código existente que reescreva campos como `PluginLoadOutcome.skillRoots` deve passar a derivar um novo objeto ou copiar na fronteira de montagem da sessão; não se pode entregar uma referência mutável a vários Apps. O wire devolve cópias defensivas.
+- A evicção de cache remove apenas as referências mantidas pelo serviço; snapshots de sessões já inicializadas não são afetados. O Runtime descartado não limpa o cache compartilhado do mesmo processo.
+- O cache de Skill fixa apenas os metadados do catálogo; a leitura do corpo, a busca dinâmica, o truncamento e as semânticas de erro da ferramenta `Skill` explícita seguem as regras existentes, sem congelar permanentemente o corpo.
 
-## 6. 来源校验与失效
+## 6. Validação de origem e invalidação
 
-L1 每份材料必须有显式依赖清单：已读文件、已扫描目录、候选但不存在的路径、symlink 及目标、配置祖先候选、插件安装记录和内置资源 revision。否则新增文件和目录重建无法使旧空结果失效。
+Cada material em L1 precisa de uma lista explícita de dependências: arquivos lidos, diretórios percorridos, caminhos candidatos inexistentes, symlinks e seus alvos, candidatos de ancestrais de configuração, registros de instalação de plugins e revision dos recursos embutidos. Caso contrário, arquivos novos e diretórios recriados não conseguem invalidar um resultado antigo vazio.
 
-### 6.1 新鲜度规则
+### 6.1 Regras de freshness
 
-第一阶段每次 activation 对可变来源进行异步元数据校验：目录成员清单及文件 `dev/ino/size/mtime/ctime` 等可用指纹；精度使用平台支持的最高值。保持当前发现深度和祖先边界，不能通过扩大递归扫描引入新能力。变化项才读取正文、校验和解析；无法可靠判定指纹时按变化处理。
+Na primeira fase, cada activation faz uma validação assíncrona de metadados das origens mutáveis: lista de membros de diretório e impressões digitais disponíveis de arquivo, como `dev/ino/size/mtime/ctime`; a precisão usa o maior valor suportado pela plataforma. Mantém-se a profundidade de descoberta e os limites de ancestrais atuais, sem introduzir novas capacidades por ampliar a varredura recursiva. Somente itens alterados têm seu corpo lido, checksum verificado e parsing realizado; quando a impressão digital não pode ser determinada com confiabilidade, trata-se como alteração.
 
-初次读取前后校验文件指纹；扫描／构建前后校验依赖 revision。检测到变化则丢弃候选并重取。元数据无法识别的原地替换由文件事件强制 dirty／显式 force reload 补充；这不是对任意并发外部写入的文件系统事务保证。测试要覆盖同长度写入、原子替换和保留 mtime 的写入。
+Valida-se a impressão digital do arquivo antes e depois da primeira leitura; valida-se a revision de dependências antes e depois da varredura/construção. Alterações detectadas descartam o candidato e exigem nova leitura. Substituições no lugar que os metadados não conseguem identificar são cobertas por eventos de arquivo que forçam dirty / reload explícito; isso não é uma garantia transacional de sistema de arquivos para escritas externas arbitrárias concorrentes. Os testes devem cobrir escrita de mesmo tamanho, substituição atômica e escrita que preserva o mtime.
 
-对受发布版本管理的不可变内置资产，可用安装完成后的资源 revision 代替逐文件校验；inline、本地开发路径、用户可编辑的市场安装目录不能仅凭版本号视为不可变。
+Para assets embutidos imutáveis e gerenciados por versão publicada, pode-se usar a revision do recurso após a instalação em vez da verificação arquivo a arquivo; conteúdo inline, caminhos de desenvolvimento local e diretórios de instalação de marketplace editáveis pelo usuário não podem ser considerados imutáveis apenas pelo número de versão.
 
-watcher 是提前失效和减少无效构建的机制，不是唯一正确性来源。事件可合并，但收到第一个有效事件时立即增加 generation、标记 dirty，再进行异步刷新；debounce 仅用于合并 I/O，不决定快照是否过期。
+O watcher é o mecanismo de invalidação antecipada e de redução de construções inúteis, não a única fonte de correção. Eventos podem ser mesclados, mas ao receber o primeiro evento válido incrementa-se imediatamente a generation, marca-se dirty e só então se faz o refresh assíncrono; o debounce serve apenas para mesclar I/O e não decide se o snapshot está expirado.
 
-### 6.2 失效矩阵
+### 6.2 Matriz de invalidação
 
-| 事件                                            | 失效范围                                                           | 已运行 Session                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
-| Skill 新增／修改／删除、root 改变               | 受影响 L1；依赖它的 L2                                             | 保持冻结目录，新 Runtime 重取                                    |
-| 插件安装／升级／卸载／suppressed／启停／options | 安装索引、相应模板及 L2；插件关联 Skill／Agent／MCP／Hook 一起失效 | 沿用现有插件生命周期，不借缓存强制刷新                           |
-| user／project config 改变                       | 依赖该配置的 L2；发现 roots 改变时重建依赖                         | 原有运行期设置生效规则保持                                       |
-| Host 自定义 Subagent 改变                       | 既有 Host watcher；CLI 不复制 owner                                | 下一个父上下文读取，当前轮／child 不变                           |
-| trust revoke、账号／凭据切换                    | 既有 live 校验立即处理；涉及发现结果的 revision 同时失效           | 不允许旧缓存替代现有执行校验                                     |
-| watcher 丢失／目录删除重建／远端连接换代        | 来源 unhealthy，撤销旧 entry 的可命中资格，重建监听和校验          | 不修改既有快照；错误按原运行逻辑处理                             |
-| 显式刷新                                        | force reload，绕过对应范围的 L1/L2，不复用旧 flight                | Settings／workspace query 取当前值；session query 仍取本 session |
-| Runtime eviction／普通 UI unsubscribe           | 不失效进程缓存                                                     | 释放该 Runtime 自身引用                                          |
-| Agent shutdown                                  | 取消 flight、关闭 watcher、清空缓存                                | 由既有 runtime lifecycle 收尾                                    |
+| Evento                                          | Escopo de invalidação                                                   | Sessões já em execução                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| Skill adicionada/modificada/removida, root alterada | L1 afetado; o L2 que depende dela                                      | Mantém o catálogo congelado; um novo Runtime busca novamente          |
+| Instalação/upgrade/remoção/suppressed/ativação/desativação de plugin/options | Índice de instalação, templates correspondentes e L2; Skills/Agent/MCP/Hook vinculados ao plugin são invalidados juntos | Segue o ciclo de vida de plugin existente, sem forçar refresh por causa do cache |
+| Alteração de config de user/project             | O L2 que depende daquela config; dependências são reconstruídas quando os roots de descoberta mudam | As regras vigentes de settings de runtime continuam valendo |
+| Alteração de Subagent customizado do Host       | Watcher existente do Host; o CLI não duplica o owner                      | O próximo contexto pai lê; o turno atual/child não muda               |
+| Revogação de confiança, troca de conta/credencial | A verificação live existente trata na hora; a revision que envolve o resultado da descoberta é invalidada junto | Não se permite que cache antigo substitua a verificação de execução existente |
+| Perda de watcher/diretório removido e recriado/troca de geração da conexão remota | Origem fica unhealthy, a elegibilidade de acerto da entry antiga é revogada, listeners e validações são reconstruídos | Snapshots existentes não são modificados; erros seguem a lógica de runtime original |
+| Refresh explícito                                | force reload, contornando L1/L2 do escopo correspondente, sem reutilizar flight antigo | Settings/workspace query obtém o valor corrente; session query continua obtendo o da própria sessão |
+| Eviction de Runtime / unsubscribe comum da UI  | Não invalida o cache do processo                                         | Libera as referências próprias daquele Runtime                         |
+| Shutdown do Agent                                | Cancela flights, fecha watchers, limpa o cache                           | Encerrado pelo ciclo de vida de runtime existente                      |
 
-CLI 内现有插件／配置写入口在成功写入后同步 invalidate，再完成响应。Host 写配置不新增跨 Host ACK 屏障：新 activation 的来源校验和既有 watcher 负责发现变化。保持 Subagent 现有“各 Host 独立观察”的合同；不新建配置广播协议。
+Os pontos de escrita existentes de plugin/config dentro do CLI sincronizam a invalidação após a escrita bem-sucedida, antes de completar a resposta. O Host não ganha uma nova barreira de ACK entre Hosts: a validação de origens da nova activation e os watchers existentes são responsáveis por descobrir as mudanças. Mantém-se o contrato existente de Subagents de "cada Host observa por si"; não se cria um protocolo de broadcast de configuração.
 
-workspace 无 session 的目录查询和 Settings 显式刷新继续走当前权威读取路径；第一阶段不把这些入口改成直接返回 L2。后续若接入，也必须保留当前目录语义及 force reload。草稿 prewarm 的失效沿用现有管理入口，新快照不能原地替换已提升的正式 Runtime。
+Consultas de diretório de workspace sem sessão e o refresh explícito de Settings continuam pelo caminho de leitura autoritativo atual; na primeira fase esses acessos não passam a retornar L2 diretamente. Se forem integrados mais adiante, devem preservar a semântica atual de catálogo e o force reload. A invalidação do prewarm de rascunho segue o ponto de gestão existente, e um novo snapshot não pode substituir no lugar um Runtime oficial já promovido.
 
-### 6.3 迟到结果与错误
+### 6.3 Resultados atrasados e erros
 
 ```text
-generation 7 开始读取
-    → 文件变化：generation 8，旧 entry dirty
-    → generation 7 完成：既不写缓存，也不返回给尚未完成 acquire 的新 Runtime
-    → acquire 重取 generation 8
+generation 7 começa a leitura
+    → arquivo mudou: generation 8, entry antiga dirty
+    → generation 7 termina: não escreve no cache nem é devolvida a um novo Runtime cujo acquire ainda não terminou
+    → o acquire busca novamente a generation 8
 ```
 
-发布条件同时检查 owner epoch、entry token、完整 dependency revision vector；避免 LRU 删除重建造成 ABA。失效既影响缓存写回，也影响进行中的 waiter，不能只阻止旧结果入缓存却仍返回给 Session B。
+A condição de publicação verifica simultaneamente o owner epoch, o token da entry e o vetor completo de revisions de dependências; evita-se o problema ABA causado por remoção e recriação no LRU. A invalidação afeta tanto a escrita de volta no cache quanto os waiters em andamento; não se pode apenas impedir a entrada de resultados antigos no cache e ainda assim devolvê-los à Session B.
 
-持续修改导致无法取得稳定材料时，最多 3 次因来源变化重建；之后返回可识别的 `sources_changed_during_load`，通过已有初始化重试入口重试，不以 sleep 等待。普通 I/O 错误按当前 loader 的诊断／失败规则返回，失败 Promise 立即移除；不得长期缓存空目录或把旧成功结果静默作为当前值。
+Quando modificações contínuas impedem a obtenção de material estável, há no máximo 3 reconstruções por alteração de origem; depois disso retorna-se um `sources_changed_during_load` identificável, com nova tentativa pela entrada de retry de inicialização já existente, sem esperar por sleep. Erros comuns de I/O são devolvidos conforme as regras de diagnóstico/falha do loader atual, e a Promise de falha é removida imediatamente; não se pode manter em cache por muito tempo um diretório vazio nem tratar silenciosamente um resultado antigo bem-sucedido como o valor corrente.
 
-确定性解析错误可以随来源指纹缓存诊断；缺失的可选目录可以缓存空结果，但其父目录／候选路径必须纳入依赖。I/O 故障导致的降级结果不进入可复用 L2；下一次 activation 可恢复。
+Erros de parsing determinísticos podem ser armazenados em cache junto da impressão digital da origem; diretórios opcionais ausentes podem ter o resultado vazio armazenado, mas seu diretório pai/caminhos candidatos precisam entrar nas dependências. Resultados degradados por falha de I/O não entram em um L2 reutilizável; a próxima activation pode se recuperar.
 
-## 7. 并发与内存预算
+## 7. Concorrência e orçamento de memória
 
-建议初始内部常量，需用实际 fixture 调整，不直接作为用户设置：
+Constantes internas iniciais sugeridas, a ajustar com fixtures reais, sem exposição como setting do usuário:
 
-| 项目                   | 初始建议        | 约束                                                              |
-| ---------------------- | --------------- | ----------------------------------------------------------------- |
-| 同时构建不同有效目录   | 4               | 同 key 合并；等待队列可取消                                       |
-| root 扫描              | 8               | 整个 owner 共用 semaphore，不能每个 session 各开 8 个             |
-| 文件读取／解析任务     | 32              | owner 全局上限，不是每 root 32；CPU 解析也分批让出事件循环        |
-| 完成的 L2／L1 条目     | 64／512         | LRU；同时受字节预算约束                                           |
-| 缓存保留数据           | 32 MiB 估算预算 | 不计 session 自身保留的快照，指标分别记录；单条超限可返回但不保留 |
-| 排队的不同 acquire key | 64              | 超限返回结构化 busy，可在既有重试入口重试；不无限排队             |
+| Item                                  | Sugestão inicial   | Restrição                                                                |
+| ------------------------------------- | ------------------ | ------------------------------------------------------------------------ |
+| Construções simultâneas de catálogos efetivos diferentes | 4  | Mesclagem por key; a fila de espera pode ser cancelada                    |
+| Varredura de root                    | 8                  | Semaphore compartilhado por todo o owner, não 8 por sessão               |
+| Tarefas de leitura/parsing de arquivo | 32                 | Limite global do owner, não 32 por root; o parsing de CPU também cede o event loop em lotes |
+| Entries concluídas de L2／L1         | 64／512            | LRU; sujeitas também ao orçamento de bytes                                |
+| Dados retidos pelo cache             | orçamento estimado de 32 MiB | Não inclui os snapshots retidos pela própria sessão; métricas registradas separadamente; uma entry que exceda o limite pode ser devolvida sem ser retida |
+| Keys de acquire diferentes na fila   | 64                 | Ao exceder, retorna busy estruturado, com retry pela entrada existente; sem fila infinita |
 
-只读小段文本和所需元数据，不缓存 Skill 完整正文、Hook stdout 或图片等资产。移除无引用的来源索引时同时释放 watcher、反向依赖和 revision bookkeeping；flight 中的来源不能被提前清理。预算达到上限时 eviction 不改变能力结果。
+Lê-se apenas trechos pequenos de texto somente-leitura e os metadados necessários; não se armazenam em cache o corpo completo de Skills, o stdout de Hooks ou assets como imagens. Ao remover um índice de origens sem referências, liberam-se também watcher, dependências inversas e bookkeeping de revisions; origens que estão em flight não podem ser limpas antecipadamente. Ao atingir o limite do orçamento, a evicção não altera o resultado de capacidades.
 
-把当前同步文件发现改为 adapter 内异步 I/O 是实现前提；在 `Promise.all()` 外包同步 `readdirSync/readFileSync` 不能改善 CLI 事件循环阻塞。并发完成后按原 roots 优先级和稳定路径顺序合并，保持同名／同路径规则和诊断顺序。
+Mudar a descoberta de arquivos síncrona atual para I/O assíncrono dentro do adapter é pré-requisito de implementação; envolver `readdirSync/readFileSync` síncronos fora de `Promise.all()` não melhora o bloqueio do event loop do CLI. Após a concorrência terminar, a mesclagem segue a prioridade original dos roots e a ordem estável de caminhos, preservando as regras de nomes/caminhos iguais e a ordem dos diagnósticos.
 
-## 8. MCP、Hook 与多端边界
+## 8. MCP, Hook e fronteiras multi-dispositivo
 
-- MCP 缓存只覆盖配置声明模板的发现和解析。runtime cwd、环境、broker 数据与 auth header 在原有装配边界生成，之后交给现有 pool 的完整配置 key；默认 `session` 隔离绝不自动改成 `workspace`。
-- 已有 workspace MCP pool 条目可照常复用。cache hit 不等于 connected，不跳过 live tool schema、权限、sampling／elicitation 路由和 MCP App session 归属校验。
-- Hook 只缓存声明；信任检查与执行仍由原 owner 负责。一个 session 执行过不意味着其他 session 可以跳过。
-- 自定义 Subagent Host snapshot、插件模板、用户模型覆盖、当前 Provider Registry 分别保留来源。父轮先读取完整 Host snapshot，再合并被冻结的插件模板和当前覆盖；不把最终 profile 当成跨父轮永久缓存。
-- 桌面固定 `desktop-continuous`；手机固定 `web-remote-replayable`。两者访问同一已有 Host／Agent，缓存不放到 renderer、relay 或 desktop main，不生成新 runtime，也不持有 projection、seq、queue 或 owner lease。
-- `workspacePath` 用于文件执行；隔离使用 workspaceKey。remote 请求贯穿 `workspaceIdentity`／`remoteSessionId`；断线重连不重放配置副作用。Windows 路径、大小写和 symlink 解析复用现有路径工具。
-- history-first 与本缓存独立：历史读取无需 acquire；runtime 初始化可以使用缓存，但命中不能直接把 execution readiness 标为完成。初始化失败仍保留历史。
+- O cache de MCP cobre apenas a descoberta e o parsing dos templates de declaração de config. O cwd do runtime, o ambiente, os dados do broker e o header de auth são gerados na fronteira de montagem original e depois entregues ao key de config completo do pool existente; o isolamento padrão `session` nunca muda automaticamente para `workspace`.
+- Entradas existentes do workspace MCP pool podem ser reutilizadas como de costume. Acerto de cache não significa conectado: não se pula o live tool schema, as permissões, o roteamento de sampling/elicitation nem a verificação de atribuição de sessão MCP do App.
+- Hooks armazenam em cache apenas a declaração; a verificação de confiança e a execução continuam com o owner original. O fato de uma sessão já ter executado um Hook não significa que outras sessões possam pulá-lo.
+- O snapshot de Subagents customizados do Host, os templates de plugin, as coberturas de modelo do usuário e o Provider Registry corrente mantêm suas origens. O turno pai lê primeiro o snapshot completo do Host e então mescla os templates de plugin congelados e as coberturas correntes; o profile final não é tratado como cache permanente entre turnos pai.
+- O desktop fixa `desktop-continuous`; o celular fixa `web-remote-replayable`. Ambos acessam o mesmo Host/Agent já existente; o cache não fica no renderer, no relay ou no desktop main, não gera runtime novo e não mantém projection, seq, queue nem owner lease.
+- `workspacePath` é usado para a execução de arquivos; o isolamento usa workspaceKey. Requisições remotas atravessam `workspaceIdentity`/`remoteSessionId`; reconexão após queda não reproduz efeitos colaterais de configuração. Caminhos do Windows, caixa e resolução de symlinks reutilizam as ferramentas de caminho existentes.
+- history-first é independente deste cache: a leitura do histórico não precisa de acquire; a inicialização do runtime pode usar o cache, mas um acerto não pode marcar a execution readiness como concluída. Uma inicialização falha continua preservando o histórico.
 
 ## 9. Impact Brief
 
-### Feature Summary 与 UI Surface Matrix
+### Feature Summary e UI Surface Matrix
 
-模式为 planning；只形成设计和候选验证。无新增 UI、schema 持久化或用户设置；不修改模型选择、队列和 Hook 事件合同。
+O modo é planning; forma-se apenas design e validação candidata. Não há nova UI, persistência de schema ou setting do usuário; não se modificam a seleção de modelo, as filas nem o contrato de eventos de Hook.
 
-| 用户场景／入口          | 共享实现                                 | 展示／草稿与默认来源                               | 校验与提交                            | 权威 owner／落点                      | 模式／隔离                                 |
-| ----------------------- | ---------------------------------------- | -------------------------------------------------- | ------------------------------------- | ------------------------------------- | ------------------------------------------ |
-| 打开历史 `SessionPane`  | activation → `createZCodeApp`            | 历史 projection；草稿仍在 renderer                 | 原 runtime readiness；原 send command | CLI Runtime、持久 transcript          | desktop continuous／mobile replayable 不变 |
-| `/`、`$` Skill Picker   | `useSkills` → `getSkillReferenceCatalog` | 有 session 取冻结目录，无 session 取当前 workspace | 原查询与 canonical mention            | Runtime 或文件系统；不保存新 UI cache | 旧 scope 请求不得回填新 scope              |
-| `@` 插件 Picker         | plugin reference catalog                 | 当前 session 冻结身份                              | 原引用校验与输入提交                  | session App catalog／transcript       | 不扩展插件启用状态                         |
-| Skill／插件设置页       | Skills／Plugins service                  | 磁盘当前状态与页面草稿                             | 原安装／启停／刷新入口                | 文件和安装记录                        | 设置页刷新不热更新正式 session             |
-| Subagent 设置／父轮启动 | Host runtime config、插件模板            | 表单 draft；父轮最新 Host snapshot                 | 原保存／模型可用性／launch            | Markdown、state、父轮 definitions     | 当前 child 模型不变                        |
-| MCP 设置／工具执行      | MCP config、现有 connection pool         | live 状态；无 cache-connected 状态                 | 原 connect／auth／permission／call    | live adapter／原配置文件              | 保留 session isolation 和可信路由          |
+| Cenário/ponto de entrada do usuário | Implementação compartilhada                  | Exibição/rascunho e origem padrão                    | Validação e envio                                   | Owner autoritativo/destino                        | Modo/isolamento                                                  |
+| ----------------------------------- | ------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------- |
+| Abrir `SessionPane` de histórico   | activation → `createZCodeApp`                | projection de histórico; o rascunho continua no renderer | readiness de runtime original; comando de envio original | CLI Runtime, transcript persistido            | desktop continuous/mobile replayable inalterados                     |
+| Picker de Skills `/`、`$`          | `useSkills` → `getSkillReferenceCatalog`    | Com sessão, o catálogo congelado; sem sessão, o workspace corrente | Consulta e mention canônicos originais             | Runtime ou sistema de arquivos; sem novo cache de UI | Requisições de scope antigo não podem preencher um scope novo         |
+| Picker de plugins `@`              | plugin reference catalog                     | Identidade congelada da sessão corrente            | Validação de referência e envio de entrada originais | Catálogo do App de sessão/transcript              | Não amplia o estado de habilitação de plugins                       |
+| Página de settings de Skill/plugin  | Serviços de Skills/Plugins                   | Estado atual em disco e rascunho da página          | Entradas originais de instalação/ativação/refresh    | Arquivos e registros de instalação                | Refresh da página de settings não faz hot update da sessão oficial   |
+| Settings de Subagent/início do turno pai | Host runtime config, templates de plugin   | draft do formulário; snapshot mais recente do Host no turno pai | Salvar/disponibilidade de modelo/launch originais   | Markdown, state, definitions do turno pai         | O modelo da child atual não muda                                   |
+| Settings de MCP/execução de ferramenta | MCP config, connection pool existente      | Estado live; sem estado cache-connected            | connect/auth/permission/call originais              | Adapter live/arquivo de config original           | Preserva o session isolation e o roteamento confiável              |
 
 ### Shared And Divergent Behavior
 
-共享的是 adapter 解析和确定性目录合并。各 UI 继续拥有原草稿，各域继续执行原校验与提交；用户／项目配置仍决定默认和覆盖。持久化不变；恢复只更换 Runtime 使用的材料来源。Skill／插件按 session 固定，Subagent 按父上下文固定，MCP 状态实时，不能统一成一种刷新规则。
+O que é compartilhado é o parsing do adapter e a mesclagem determinística do catálogo. Cada UI continua dono do seu rascunho original, cada domínio continua executando suas validações e envios originais; a configuração de usuário/projeto continua determinando padrões e coberturas. A persistência não muda; a restauração apenas troca a origem do material usado pelo Runtime. Skills/plugins são fixos por sessão, Subagents são fixos por contexto pai, o estado de MCP é em tempo real — não é possível unificar em uma única regra de refresh.
 
-### Feature Relationships、State Owners And Commit Sinks
+### Feature Relationships, State Owners And Commit Sinks
 
-| 等级           | 来源 → 语义边 → 目标                             | 原因／证据                                                                          |
-| -------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| must-inspect   | bootstrap → 装配 → discovery service             | `createZCodeApp`、`resolveStartupPlugins`、`NodeSkillAdapter`                       |
-| must-inspect   | cache snapshot → 冻结材料 → Runtime catalog      | `ensureContextInitialized`、`getSkillReferenceCatalog`、`getPluginReferenceCatalog` |
-| must-inspect   | Host Subagents → 提供定义 → 新父上下文           | `createSubagentRuntimeConfigCache`、`subagent-runtime-refresh.md`                   |
-| should-inspect | 设置／安装写入口 → 使来源变化 → cache validation | `createSkillsService`、workspace plugin 配置与安装记录                              |
-| conditional    | remote attachment → 选择 owner → scope           | 远程 identity 与当前 logical session 绑定                                           |
-| invariant-only | cached MCP 声明 → 装配 → pool／live client       | `createMcpConnectionPool`，不共享未授权 live 状态                                   |
-| invariant-only | cache → 不拥有 → CommandInbox／projection        | 三篇 remote 当前事实文档及 conversation protocol                                    |
-| evidence-only  | 既有单测 → 验证基线 → 新测试                     | 下节列出的测试只证明已有语义，不证明缓存已实现                                      |
+| Nível             | Origem → aresta semântica → destino                     | Motivo/evidência                                                                 |
+| ----------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| must-inspect      | bootstrap → montagem → discovery service                  | `createZCodeApp`, `resolveStartupPlugins`, `NodeSkillAdapter`                        |
+| must-inspect      | cache snapshot → material congelado → catálogo do Runtime | `ensureContextInitialized`, `getSkillReferenceCatalog`, `getPluginReferenceCatalog` |
+| must-inspect      | Subagents do Host → fornece definições → novo contexto pai | `createSubagentRuntimeConfigCache`, `subagent-runtime-refresh.md`                   |
+| should-inspect    | pontos de escrita de settings/instalação → mudam a origem → cache validation | `createSkillsService`, config de plugin de workspace e registros de instalação     |
+| conditional       | remote attachment → escolhe o owner → scope               | Identidade remota ligada à sessão lógica corrente                                    |
+| invariant-only    | declaração de MCP em cache → montagem → pool/live client  | `createMcpConnectionPool`, sem compartilhar estado live não autorizado               |
+| invariant-only    | cache → não possui → CommandInbox/projection              | Os três documentos de fatos remotos atuais e o conversation protocol                |
+| evidence-only     | testes unitários existentes → validam a baseline → novos testes | Os testes listados na seção seguinte provam apenas a semântica existente, não que o cache esteja implementado |
 
-L1/L2 的 owner 是新 adapter 服务；权威输入来自文件／配置 owner；唯一缓存 mutation 是 acquire 发布、invalidate 和 dispose。session 安装快照后不再由缓存反向写入。Host Subagent cache 和 MCP pool 不迁移 owner。
+O owner de L1/L2 é o novo serviço adapter; as entradas autoritativas vêm dos owners de arquivo/config; as únicas mutações de cache são a publicação no acquire, o invalidate e o dispose. Depois de a sessão instalar o snapshot, o cache não escreve mais de volta. O cache de Subagents do Host e o pool de MCP não mudam de owner.
 
 ### Codegraph Evidence
 
-已使用 codegraph，以直接调用方和一跳 owner 为主要范围（分析目标深度 2）。工具未提供严格 depth 参数，因此不宣称进行了完整两层可达性枚举；静态同名关系只作导航，结论以本轮源码和事实文档为准。
+Foi usado o codegraph, com escopo principal em chamadores diretos e owners a um salto (profundidade de análise 2). A ferramenta não oferece um parâmetro de profundidade estrito, portanto não se afirma ter feito uma enumação completa de alcançabilidade em dois níveis; relações estáticas de mesmo nome servem apenas de navegação, e as conclusões se baseiam no código-fonte deste ciclo e nos documentos de fato.
 
-| Seed                               | 直接调用方／关键链路                          | 既有测试证据                                                                    |
-| ---------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `resolveStartupPlugins`            | `createZCodeApp`、协议 MCP 列表               | bootstrap `plugins.test.ts`、`visualize-skill-gate.test.ts`                     |
-| `createZCodeApp`                   | protocol entrypoint、独立／嵌入式调用         | bootstrap `mcp-project-config.test.ts`、`provider-registry-app-runtime.test.ts` |
-| `getSkillReferenceCatalog`         | protocol server、UI `useSkills`               | bootstrap `skill-reference-catalog.test.ts`                                     |
-| `getPluginReferenceCatalog`        | protocol server、MCP App notification         | bootstrap `plugin-reference-protocol.test.ts`                                   |
-| `createSubagentRuntimeConfigCache` | `createSubagentsService` → service collection | services `subagentRuntimeConfig.test.ts`、watcher tests                         |
-| `createMcpConnectionPool`          | MCP adapter factory → protocol entrypoint     | adapters `mcp-connection-pool.test.ts`、appConnections tests                    |
+| Seed                               | Chamadores diretos/cadeia chave                | Evidência de testes existentes                                                     |
+| ---------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `resolveStartupPlugins`            | `createZCodeApp`, lista MCP do protocolo       | bootstrap `plugins.test.ts`, `visualize-skill-gate.test.ts`                         |
+| `createZCodeApp`                   | entrypoint do protocolo, chamadas standalone/embarcadas | bootstrap `mcp-project-config.test.ts`, `provider-registry-app-runtime.test.ts` |
+| `getSkillReferenceCatalog`         | servidor do protocolo, UI `useSkills`          | bootstrap `skill-reference-catalog.test.ts`                                         |
+| `getPluginReferenceCatalog`        | servidor do protocolo, notificação do App MCP  | bootstrap `plugin-reference-protocol.test.ts`                                       |
+| `createSubagentRuntimeConfigCache` | `createSubagentsService` → service collection | services `subagentRuntimeConfig.test.ts`, testes de watcher                        |
+| `createMcpConnectionPool`          | factory do adapter MCP → entrypoint do protocolo | adapters `mcp-connection-pool.test.ts`, testes de appConnections                 |
 
-### Graph Drift Candidates 与 Graph Delta
+### Graph Drift Candidates e Graph Delta
 
-- 新 cache owner 尚不存在；拟新增 `capability.workspace-capability-discovery-cache`、`state.capability-discovery-cache` 和 bootstrap injection service，再连到已有 `state.session-skill-catalog`、`state.plugin-reference-session-catalog`。
-- 既有 `capability.subagents` 应补充按父上下文刷新及 Host cache 文档关系；属于待核对的 graph-drift-candidate。
-- graph 中 tool catalog cache 节点可能描述规划，不能推断已有运行时接线。
-- 本轮只记录 proposed delta；正式语义图、conversation catalog 和 coverage matrix 已有相邻工作，且本设计尚未批准实施，不将拟议节点或候选用例登记为现有行为。
+- O novo owner de cache ainda não existe; propõe-se adicionar `capability.workspace-capability-discovery-cache`, `state.capability-discovery-cache` e o serviço de injeção do bootstrap, conectando-os a `state.session-skill-catalog` e `state.plugin-reference-session-catalog` já existentes.
+- O `capability.subagents` existente deve ganhar a relação com o refresh por contexto pai e com o documento de cache do Host; trata-se de um graph-drift-candidate a conferir.
+- O nó de tool catalog cache no graph pode descrever algo planejado; não se pode inferir uma fiação de runtime já existente.
+- Neste ciclo registra-se apenas o delta proposto: o grafo semântico oficial, o catálogo de conversas e a coverage matrix já têm trabalhos adjacentes, e este design ainda não foi aprovado para implementação, portanto não se registram nós propostos nem casos candidatos como comportamento existente.
 
-## 10. 决策与验证交接
+## 10. Decisões e entrega de validação
 
-### Clarification Log、Boundary Decisions、Unresolved Questions
+### Clarification Log, Boundary Decisions, Unresolved Questions
 
-| 决策                                                    | 来源／状态           | 含义                             |
-| ------------------------------------------------------- | -------------------- | -------------------------------- |
-| 设计同 workspace 多 session 缓存                        | 用户明确要求         | 设计授权，不包含运行时代码实施   |
-| session catalog 冻结、Subagent 按父轮更新、MCP 默认隔离 | 现有合同，accepted   | 缓存必须保持                     |
-| 进程内两级缓存、metadata validation、全局并发上限       | 本文推荐，待设计评审 | 具体数值可随基准调整             |
-| 磁盘持久化／跨进程共享／MCP tool advertisement cache    | 本期 pruned          | 独立协议与失效成本，不是本期目标 |
+| Decisão                                                                | Origem/estado            | Significado                                                       |
+| --------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------ |
+| Design de cache de múltiplas sessões no mesmo workspace               | Requisito explícito do usuário | Autorização de design; não inclui implementação de código em runtime |
+| Catálogo de sessão congelado, Subagent atualizado por turno pai, isolamento padrão de MCP | Contrato existente, accepted | O cache precisa preservar                                        |
+| Cache em processo de dois níveis, validação de metadados, limite global de concorrência | Recomendado neste documento, aguardando revisão de design | Os valores concretos podem ser ajustados com o benchmark            |
+| Persistência em disco/compartilhamento entre processos/cache de anúncio de ferramentas MCP | Podado nesta edição | Protocolo e custo de invalidação próprios, não é objetivo desta edição |
 
-没有阻止产出本设计的待答问题。若要求“Agent 进程重启也不再发现”或“缓存命中完全不做文件系统操作”，必须另行修改第一期范围和新鲜度合同，不能在实现中静默放宽。
+Não há perguntas em aberto que impeçam a produção deste design. Se for exigido que "após reiniciar o processo do Agent não haja mais descoberta" ou que "um acerto de cache não faça nenhuma operação no sistema de arquivos", é preciso alterar à parte o escopo da primeira fase e o contrato de freshness; não se pode afrouxar isso silenciosamente durante a implementação.
 
-### Domain Scope、Concept Map 与 Dimensions
+### Domain Scope, Concept Map e Dimensions
 
-主域为能力发现、session 生命周期、配置权威／持久化、多端身份。关键概念是 source revision、有效配置、冻结快照、live 执行事实，分别对应来源、缓存、Runtime 和现有执行 owner。
+O domínio principal é a descoberta de capacidades, o ciclo de vida de sessão, a autoridade/persistência de configuração e a identidade multi-dispositivo. Os conceitos-chave são source revision, configuração efetiva, snapshot congelado e fato de execução live, correspondendo respectivamente a origem, cache, Runtime e owners de execução existentes.
 
-| 维度     | 代表值                                                    | 高风险交叉                     |
-| -------- | --------------------------------------------------------- | ------------------------------ |
-| 生命周期 | 首次 miss、同进程 hit、Runtime eviction、进程 restart     | eviction × frozen snapshot     |
-| 竞争     | 相同 key、不同 key、取消、失效中加载、dispose             | invalidation × late completion |
-| 配置     | 等价／不同 override、启停、插件更新、信任变化             | config identity × reuse        |
-| 文件     | 新增、修改、删除、rename、symlink、权限错误、watcher loss | source health × freshness      |
-| 执行环境 | local、SSH／WSL／Docker、相同 path 不同 identity          | remote scope × cache key       |
-| 客户端   | desktop continuous、mobile replayable、双端同时访问       | delivery × single owner        |
+| Dimensão      | Valores representativos                                                     | Cruzamentos de alto risco                   |
+| ------------- | --------------------------------------------------------------------------- | ------------------------------------------- |
+| Ciclo de vida | Primeiro miss, hit no mesmo processo, eviction de Runtime, restart de processo | eviction × snapshot congelado               |
+| Concorrência  | Mesma key, keys diferentes, cancelamento, carregamento em invalidação, dispose | invalidação × conclusão atrasada           |
+| Configuração  | Overrides equivalentes/diferentes, ativação/desativação, atualização de plugin, mudança de confiança | config identity × reuse                    |
+| Arquivos      | Adição, modificação, remoção, rename, symlink, erro de permissão, perda de watcher | source health × freshness                |
+| Ambiente de execução | local, SSH/WSL/Docker, mesmo path com identidade diferente | remote scope × cache key                   |
+| Clientes      | desktop continuous, mobile replayable, acesso simultâneo pelos dois lados | delivery × single owner                  |
 
-### Candidate Combinations 与 Accepted Cases
+### Candidate Combinations e Accepted Cases
 
-以下 C01–C13 是推荐实施用例，状态为 `undefined`（等待本设计评审，并非产品语义未知）；既有冻结／隔离不变量为 accepted，但其新增缓存证据均为 planned。未执行新的单测／E2E，不宣称 covered。
+Os casos C01–C13 abaixo são casos de implementação recomendados, com estado `undefined` (aguardando a revisão deste design, e não uma semântica de produto desconhecida); os invariantes existentes de congelamento/isolamento são accepted, mas suas novas evidências de cache são planned. Nenhum teste unitário/E2E novo foi executado, e não se afirma cobertura.
 
-| ID  | Setup → Action                                                    | 必须断言的 guard／effect                                                   | 证据层／E2E 状态                              |
-| --- | ----------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------- |
-| C01 | 固定 workspace，A 完成 → 冷建 B                                   | 不变文件正文读取和解析次数为 0；允许 metadata 校验；结果与未缓存路径相同   | adapter + bootstrap，planned                  |
-| C02 | 空缓存，同时创建 10 个 session                                    | 每个源／generation 最多一次解析；稳定排序；全局并发峰值不越界              | controlled Promise + I/O counters，planned    |
-| C03 | A/B 共用 flight → 取消 A                                          | B 成功；A 不接收结果；dispose 后所有迟到结果不发布                         | adapter，planned                              |
-| C04 | 暂停旧读取 → 修改文件／配置 → 释放                                | 旧 generation 不写回也不交给新 Runtime；不会 ABA 命中                      | adapter + bootstrap，planned                  |
-| C05 | 热 A → 安装／禁用 Skill 或插件 → 新 B                             | A catalog 固定；B 最新；Settings 当前；draft prewarm 沿用既有失效          | Desktop UI + Agent snapshot／文件，planned    |
-| C06 | 同 workspace 不同 roots／options／override；不同 identity 同 path | 不误命中；同名不同来源和 symlink 策略保留                                  | adapter/protocol，planned                     |
-| C07 | Host 自定义 Agent 与插件模板 → 改模型覆盖 → 新父 turn             | 复用模板解析；新轮使用新覆盖；旧轮／child 不变                             | services + core + provider fixture，planned   |
-| C08 | 首次文件 EACCES／不存在 → 修复／创建                              | 不缓存失败空结果；新增 root 被发现；下一 acquire 恢复                      | real temp filesystem，planned                 |
-| C09 | watcher 丢失、root 原子替换、同长改写保留 mtime                   | 校验发现依赖变化或走强制重读，不沿用不可信 cache                           | macOS/Windows/Linux fixture，planned          |
-| C10 | Runtime eviction、缓存 LRU、超大 entry、进程 restart              | eviction 不影响已接受快照；超大项可用不保留；进程重启 miss                 | adapter + process harness，planned            |
-| C11 | 两 session 同 MCP 配置，分别 session/workspace isolation          | session 隔离不合并；workspace 可按既有规则复用；cache hit 不伪造 connected | MCP pool + auth/elicitation/App 回归，planned |
-| C12 | 桌面／手机同时冷订阅，同 path 的不同 remote identity              | 同 owner 可共享材料；跨身份不共享；continuous/replayable 恢复边界不变      | protocol + remote fixture，planned            |
-| C13 | 缓存加载慢／失败，与 history-first 同时运行                       | 历史仍可读；readiness 不提前；重试单飞；不制造新输入队列                   | gateway + Desktop E2E，planned                |
+| ID  | Setup → Action                                                    | Guardas/efeitos que devem ser afirmados                                          | Camada de evidência/status de E2E                        |
+| --- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| C01 | Workspace fixo, A completa → criação a frio de B                    | Número de leituras e parsings do corpo de arquivos inalterados é 0; validação de metadados é permitida; o resultado é igual ao do caminho sem cache | adapter + bootstrap, planned                  |
+| C02 | Cache vazio, criação simultânea de 10 sessões                       | No máximo um parsing por origem/generation; ordenação estável; o pico global de concorrência não ultrapassa o limite | Promise controlada + contadores de I/O, planned    |
+| C03 | A/B compartilham o flight → cancelamento de A                       | B tem sucesso; A não recebe o resultado; após o dispose nenhum resultado atrasado é publicado | adapter, planned                              |
+| C04 | Pausa da leitura antiga → modificação de arquivo/config → liberação | A generation antiga não é escrita de volta nem entregue a um novo Runtime; não há acerto por ABA | adapter + bootstrap, planned                  |
+| C05 | A quente → instalação/desativação de Skill ou plugin → novo B        | O catálogo de A fica fixo; B é o mais recente; Settings é o corrente; o prewarm de rascunho segue a invalidação existente | UI do Desktop + snapshot do Agent/arquivos, planned |
+| C06 | Mesmo workspace com roots/options/overrides diferentes; identidades diferentes no mesmo path | Sem acertos indevidos; nomes iguais de origens diferentes e a política de symlink são preservados | adapter/protocol, planned                     |
+| C07 | Agent customizado do Host e template de plugin → mudança na cobertura de modelo → novo turno pai | Reaproveita o parsing do template; o novo turno usa a nova cobertura; turno antigo/child não muda | services + core + fixture de provider, planned   |
+| C08 | Primeiro EACCES/arquivo inexistente → correção/criação              | Não armazena resultado vazio de falha; o novo root é descoberto; o próximo acquire se recupera | sistema de arquivos temporário real, planned                 |
+| C09 | Perda de watcher, substituição atômica de root, reescrita do mesmo tamanho preservando mtime | A validação detecta a mudança de dependência ou faz uma releitura forçada; não se reaproveita cache não confiável | fixtures macOS/Windows/Linux, planned          |
+| C10 | Eviction de Runtime, LRU do cache, entry muito grande, restart de processo | A eviction não afeta snapshots já aceitos; itens muito grandes podem ser usados sem serem retidos; restart do processo é um miss | adapter + process harness, planned            |
+| C11 | Duas sessões com a mesma config MCP, respectivamente session/workspace isolation | O isolamento por sessão não mescla; o workspace pode ser reutilizado conforme as regras existentes; acerto de cache não falsifica "connected" | MCP pool + regressão de auth/elicitation/App, planned |
+| C12 | Desktop/celular assinando a frio ao mesmo tempo, identidades remotas diferentes no mesmo path | O mesmo owner pode compartilhar material; identidades diferentes não compartilham; os limites de recuperação continuous/replayable não mudam | protocol + fixture remoto, planned            |
+| C13 | Cache lento/em falha, rodando junto com history-first                  | O histórico continua legível; readiness não é antecipada; o retry é single-flight; não se cria nova fila de entrada | gateway + E2E do Desktop, planned                |
 
-剪枝：主题／语言／所有模型不全排列，因无 UI 和模型选择变化，复用一次窄屏／双端入口代表；不枚举所有 MCP 工具，只选普通工具、auth、elicitation、sampling／App 路由的高风险代表。Hook 时间调整与磁盘缓存为独立功能；本期只断言 Hook 不因 hit/miss 少执行或重复执行。
+Poda: tema/idioma/todos os modelos não são enumerados porque não há mudança de UI nem de seleção de modelo, e reutiliza-se um único representative de entrada estreita/dual; não se enumeram todas as ferramentas MCP, apenas representantes de alto risco: ferramenta comum, auth, elicitation e roteamento sampling/App. Ajuste de tempo de Hook e cache em disco são funcionalidades separadas; nesta edição apenas se afirma que o Hook não é executado a menos nem a mais por causa de acerto/erro de cache.
 
-### Matrix Backfill 与 E2E Handoff
+### Matrix Backfill e E2E Handoff
 
-设计确认并进入实现前，将 C05/C12/C13 回填 conversation case catalog 与 coverage matrix；C07 回填 Subagent refresh 验证矩阵；新 cache 核心用例写入 adapter/bootstrap 测试。复用现有 S08、MCP pool、Subagent watcher、cold resume 测试，不覆盖或替换相邻 history-first 用例编号。
+Antes da confirmação do design e do início da implementação, C05/C12/C13 devem voltar ao conversation case catalog e à coverage matrix; C07 deve voltar à matriz de validação de refresh de Subagents; novos casos centrais de cache vão para os testes de adapter/bootstrap. Reutilizam-se os testes existentes S08, de MCP pool, de Subagent watcher e de cold resume, sem sobrepor ou substituir a numeração de casos adjacente de history-first.
 
-E2E 先进入 manual-review/pending。fixture 使用临时目录、受控插件／Skill 文件、固定 provider replay；通过 latch／Promise 控制 load/invalidate 顺序，不用 sleep 猜事件完成。Docker 先跑 isolated 单例，验证后再加入 conversation/plugins preset。未连接真实手机／SSH／WSL／Docker 时明确保留待补项。
+Os E2E entram primeiro em manual-review/pending. As fixtures usam diretórios temporários, arquivos controlados de plugin/Skill e replay fixo de provider; a ordem de load/invalidate é controlada por latch/Promise, sem sleep para adivinhar a conclusão de eventos. O Docker roda primeiro instâncias isoladas, e só depois entra no preset de conversation/plugins. Sem celular/SSH/WSL/Docker reais conectados, os itens pendentes são mantidos explicitamente.
 
-## 11. 度量、实施顺序与回退
+## 11. Métricas, ordem de implementação e rollback
 
-每次 activation 聚合一次 `capability.discovery.completed`：hit/miss/shared-flight、validate/read/parse/merge 各阶段耗时、正文读取数、解析数、候选重建次数、entry 数／估算 bytes／并发峰值。字段不含文件内容、敏感 key 或凭据。高频 lookup 只用 debug；失效计数聚合，不逐文件写生产 info。
+A cada activation, agrega-se uma vez `capability.discovery.completed`: hit/miss/shared-flight, duração de cada etapa (validate/read/parse/merge), número de leituras de corpo, número de parsings, número de reconstruções de candidatos, número de entries/bytes estimados/pico de concorrência. Os campos não contêm conteúdo de arquivo, chaves sensíveis ou credenciais. Lookups de alta frequência usam apenas debug; a contagem de invalidações é agregada, sem escrever info de produção por arquivo.
 
-基准同时覆盖全新进程首个 session、同进程第二个 session、10 个并发 session、文件变更、Runtime eviction 后重建。记录 runtime-ready 与 history-first-frame 两种耗时，另记首轮 MCP wait 和 Hook 时间，不能把它们算作配置缓存收益。先以 C01/C02 的工作量断言验收，再比较同机多次 p50/p95 和事件循环延迟；不提前承诺具体毫秒数。
+O benchmark cobre ao mesmo tempo o primeiro session em um processo novo, o segundo session no mesmo processo, 10 sessões concorrentes, mudanças de arquivo e a reconstrução após eviction de Runtime. Registram-se as durações de runtime-ready e de history-first-frame, além do tempo da primeira espera de MCP e do tempo de Hook, que não podem ser contados como ganho do cache de config. Primeiro aceita-se pela asserção de volume de trabalho de C01/C02, depois comparam-se p50/p95 de várias execuções na mesma máquina e a latência do event loop; não se promete antecipadamente um número de milissegundos.
 
-实施顺序：
+Ordem de implementação:
 
-1. 建立阶段计时及可控 loader 测试；把共享发现路径改成真正异步 I/O，保持顺序和能力合同。
-2. 在现有 adapter 内引入 L1、来源校验、共享加载、generation、容量管理；先覆盖配置／插件／Skill／插件 Agent，保留原公共调用路径。
-3. bootstrap 注入进程 owner，接入 L2 和 session 不可变装配；接通写入口 invalidation，完成新旧结果等价测试。
-4. 跑 C01–C13 与相关回归，在实际构建启动的 dev／production CLI 上测量；首屏与初始化分别报告。
+1. Estabelecer o cronômetro de fases e testes com loader controlável; mudar o caminho de descoberta compartilhada para I/O realmente assíncrono, preservando a ordem e o contrato de capacidades.
+2. Introduzir L1, validação de origens, carregamento compartilhado, generation e gestão de capacidade dentro do adapter existente; cobrir primeiro config/plugin/Skill/Agent de plugin, preservando os caminhos públicos de chamada originais.
+3. O bootstrap injeta o owner de processo, conecta o L2 e a montagem imutável da sessão; ligar a invalidação aos pontos de escrita e concluir os testes de equivalência entre resultados novos e antigos.
+4. Rodar C01–C13 e as regressões relacionadas, medindo no CLI dev/production realmente compilado; reportar a primeira tela e a inicialização separadamente.
 
-不做新的缓存开关 UI。开发验证可通过注入无缓存实现做等价对照；生产回退撤回 bootstrap 缓存装配，继续使用同一异步 loader。两条路径不得维护不同发现规则。
+Não se cria uma nova UI de chave de cache. Na validação de desenvolvimento pode-se injetar uma implementação sem cache para comparação de equivalência; o rollback em produção retira a montagem de cache do bootstrap, continuando a usar o mesmo loader assíncrono. Os dois caminhos não podem manter regras de descoberta diferentes.
 
-验证门禁：实现前跑架构检查并取相关模块 context；代码实现按 spec 先写测试。实现后执行 root typecheck/lint、CLI typecheck/lint、受影响 adapter/core/bootstrap/services 测试以及涉及交互的 E2E。本轮仅提交设计文档，检查结果在交付说明中记录，不把设计检查当成实现验收。
+Portões de validação: antes da implementação, rodar a checagem de arquitetura e obter o contexto dos módulos relevantes; a implementação do código escreve os testes primeiro, conforme a spec. Após a implementação, executar o typecheck/lint da raiz, o typecheck/lint do CLI, os testes afetados de adapter/core/bootstrap/services e os E2E que envolvem interação. Este ciclo entrega apenas o documento de design; os resultados das checagens são registrados nas notas de entrega, e a checagem de design não é tomada como aceitação da implementação.

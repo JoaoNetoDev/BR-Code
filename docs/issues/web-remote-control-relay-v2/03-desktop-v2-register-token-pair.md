@@ -1,41 +1,41 @@
-# 03 — 桌面端以 V2 注册设备、申请 token 并配对
+# 03 — Desktop registra o dispositivo em V2, solicita o token e faz o pareamento
 
-**What to build:** 已登录的桌面用户打开远控弹窗后，桌面 main 用 zcode JWT 懒注册设备并持久化身份，每次建连前申请一次性 `role=device` token，连接 `/api/v1/remote/ws2` 完成 `auth_init`/`auth_ack`，弹窗展示新的二维码 `/remote/v4?app_version&sid&mid&name`。5 秒心跳、15 秒 ACK watchdog、`KICKED` 有界重试、token 失败退避全部生效；"刷新二维码"入口移除。桌面端此后只有 V2 实现。在测试环境可演示：桌面拿到二维码并进入等待手机状态；配对成功可用假 relay 验证。
+**O que construir:** O usuário de desktop já logado abre o pop-up de controle remoto; o main do desktop registra o dispositivo de forma lazy usando o JWT do zcode e persiste a identidade; antes de cada conexão solicita um token único com `role=device`, conecta em `/api/v1/remote/ws2` e completa `auth_init`/`auth_ack`; o pop-up exibe o novo QR code `/remote/v4?app_version&sid&mid&name`. Heartbeat de 5 segundos, watchdog de ACK de 15 segundos, retentativa limitada de `KICKED` e backoff em caso de falha de token estão todos ativos; a entrada "Atualizar QR code" foi removida. A partir de agora, o desktop só tem a implementação V2. No ambiente de teste é possível demonstrar: o desktop obtém o QR code e entra no estado aguardando o celular; o pareamento bem-sucedido pode ser verificado com um relay falso.
 
-**Blocked by:** 02
+**Bloqueado por:** 02
 
 **Status:** in-progress
 
-**Parent:** [Web 远控接入 Relay V2：手机登录后连接桌面](./01-relay-v2-login-pairing.md)
+**Pai:** [Controle remoto Web com Relay V2: conectar o desktop após o login no celular](./01-relay-v2-login-pairing.md)
 
-## 验收标准
+## Critérios de aceite
 
-- [x] 文档先行：`relay-v2-pairing.md` 补桌面 device 的注册/token/握手时序图与 transport 状态机；架构文档 Transport 与 Desktop Main 两节改为 V2 描述并链接新文档。
-- [x] 新的桌面 device transport（独立类；心跳调度、pair_status 状态迁移、有界重试抽成可与手机端共用的 helper）：建连前通过注入的 token 获取函数申请 token；地址 `wss://<endpoint origin>/api/v1/remote/ws2?token=…&mid=<deviceMid>`；不再发送 `X-Device-ID`；`auth_init` 只带 `device_sid`、`meta`、`client_ts`（秒）；`pair_status_query` 不带 `device_sid`；心跳 5 秒 ±1 秒，15 秒无 ACK 重连；任何一次重连都重新申请 token，不复用 URL。
-- [x] `KICKED`：首次延迟 2~5 秒随机后换 token 重连一次；60 秒内再次收到则停止自动重连，transport 置 `kicked`，对外 failure 为 `session-conflict`。
-- [x] manager 懒注册：首次启动且已登录时调用设备注册接口（`device_mid` 沿用桌面 deviceMid，`meta.name` 为主机名），持久化 `{deviceSid, userId, endpointOrigin}` 到 AppSettings，不写 credential。当前用户 id 或 endpoint 与持久化不一致、或 `auth_init` 返回 `AUTH_FAILED` 时重新注册，并尽力调用删除接口清理旧记录，失败不阻塞。
-- [x] 首次进入 V2 时删除 V1 遗留的 `deviceSid` 设置与 `passHash` credential；桌面 V1 transport、HMAC proof 计算与 passHash 存储 provider 一并删除，对应旧测试删除或改写。
-- [x] 本票内无 JWT 时 `startAuthorized` 返回明确失败、不注册不连接（弹窗的"需要登录"状态与登录联动在 03 完成后由 04 承接）。
-- [x] token 接口 401 → 新 failure reason `auth-required`，runtime 进入 `error`、停止自动重连、不触发全局登出、不清除已启用记录。5xx 与网络错误按 1 秒起、上限 30 秒、带 jitter 的指数退避，`auth_ack` 后清零；其他 4xx → `relay-unavailable`。
-- [x] 桌面 main 直接用 Node fetch 携带 `Authorization: Bearer <jwt>` 调用设备与 token 接口，不经 services 进程。relay 地址推导改为 `/api/v1/remote/ws2`，test endpoint 映射保留，`ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` 覆盖语义改为 V2 地址。
-- [x] 二维码与"复制链接"URL 为 `/remote/v4?app_version=<ver>&sid=<device_sid>&mid=<mid>&name=<hostname>`，不含 `hash`/`t`。弹窗删除"刷新二维码"按钮、确认弹窗与 `resetPairingAuthorized` IPC；renderer 可达的 manager 依赖面只剩 `authorizeStart`、`startAuthorized`、`stop`、`getStatus`。一次性内部启动票据边界不变。
-- [x] 视觉核对：实现后提供弹窗截图（深浅主题 × zh-CN/en-US），确认"刷新二维码"入口已移除、二维码与复制链接区域布局无回归。
-- [x] 测试（接缝：manager 公开接口 + 真实 transport + 假 relay）：懒注册与持久化、用户/endpoint 变化重注册并尽力删除、`AUTH_FAILED` 重注册、token 401 → `auth-required` 且已启用记录保留、二维码 URL 形态、`KICKED` 有界重试的对外 status。
-- [x] 测试（接缝：transport 对假 relay，fake timers）：`auth_init`/`pair_status_query` 字段、`client_ts` 秒、心跳与 jitter、15 秒 watchdog、退避序列、每次重连重新申请 token、`KICKED` 计数窗口。
-- [ ] 手工验证：桌面 dev 走 test endpoint，已登录时弹窗出现二维码，日志显示注册、token、`auth_ack` waiting。
-- [x] `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响单测通过。
+- [x] Documentação primeiro: `relay-v2-pairing.md` recebe o diagrama de sequência de registro/token/handshake do device do desktop e a máquina de estados de transport; as seções Transport e Desktop Main do documento de arquitetura passam a descrever V2 e passam a linkar o novo documento.
+- [x] Novo transport de device do desktop (classe independente; o agendamento do heartbeat, as transições de estado de `pair_status` e a retentativa limitada extraídos para um helper compartilhável com o celular): solicita o token por uma função de obtenção de token injetada antes de conectar; endereço `wss://<endpoint origin>/api/v1/remote/ws2?token=…&mid=<deviceMid>`; não envia mais `X-Device-ID`; `auth_init` leva apenas `device_sid`, `meta` e `client_ts` (em segundos); `pair_status_query` não leva `device_sid`; heartbeat de 5 segundos ±1 segundo, reconexão após 15 segundos sem ACK; qualquer reconexão solicita um novo token, sem reutilizar a URL.
+- [x] `KICKED`: na primeira vez, espera aleatória de 2~5 segundos e então troca o token e reconecta uma vez; se receber novamente dentro de 60 segundos, para a reconexão automática, o transport fica em `kicked` e a failure exposta é `session-conflict`.
+- [x] Registro lazy do manager: na primeira inicialização, quando já há usuário logado, chama a API de registro de dispositivo (`device_mid` reaproveita o deviceMid do desktop, `meta.name` é o nome do host), persiste `{deviceSid, userId, endpointOrigin}` em AppSettings e não grava credential. Quando o id do usuário atual ou o endpoint divergem do persistido, ou quando o `auth_init` retorna `AUTH_FAILED`, refaz o registro e tenta chamar a API de remoção para limpar o registro antigo; a falha não bloqueia.
+- [x] Na primeira entrada em V2, remove a configuração `deviceSid` remanescente do V1 e o credential `passHash`; o transport V1 do desktop, o cálculo do HMAC proof e o storage provider do passHash são removidos junto; os testes antigos correspondentes são removidos ou reescritos.
+- [x] Sem JWT nesta ticket, `startAuthorized` retorna uma falha explícita, sem registrar e sem conectar (o estado "precisa fazer login" do pop-up e a integração com o login são tratados por 04 depois da conclusão de 03).
+- [x] API de token 401 → nova failure reason `auth-required`, o runtime entra em `error`, para a reconexão automática, não dispara logout global e não limpa o registro de habilitado. 5xx e erros de rede seguem backoff exponencial a partir de 1 segundo, com teto de 30 segundos e com jitter, zerado após o `auth_ack`; outros 4xx → `relay-unavailable`.
+- [x] O main do desktop usa o fetch do Node diretamente, com `Authorization: Bearer <jwt>`, para chamar as APIs de dispositivo e de token, sem passar pelo processo de services. A derivação do endereço do relay passa a ser `/api/v1/remote/ws2`, o mapeamento do endpoint de teste é mantido e a semântica de sobrescrita de `ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` passa a ser o endereço V2.
+- [x] A URL do QR code e de "copiar link" é `/remote/v4?app_version=<ver>&sid=<device_sid>&mid=<mid>&name=<hostname>`, sem `hash`/`t`. O pop-up remove o botão "Atualizar QR code", o pop-up de confirmação e o IPC `resetPairingAuthorized`; a superfície de dependências do manager alcançável pelo renderer fica restrita a `authorizeStart`, `startAuthorized`, `stop` e `getStatus`. O limite do ticket interno de inicialização única permanece inalterado.
+- [x] Conferência visual: após a implementação, fornecer captura de tela do pop-up (temas claro e escuro × zh-CN/en-US), confirmando que a entrada "Atualizar QR code" foi removida e que o layout da região do QR code e do link para copiar não teve regressão.
+- [x] Testes (costura: interface pública do manager + transport real + relay falso): registro lazy e persistência; novo registro quando usuário/endpoint mudam, com tentativa de remoção; novo registro em `AUTH_FAILED`; token 401 → `auth-required` com o registro de habilitado preservado; forma da URL do QR code; status exposto da retentativa limitada de `KICKED`.
+- [x] Testes (costura: transport contra relay falso, fake timers): campos de `auth_init`/`pair_status_query`, `client_ts` em segundos, heartbeat e jitter, watchdog de 15 segundos, sequência de backoff, novo token a cada reconexão, janela de contagem de `KICKED`.
+- [ ] Verificação manual: desktop dev usando o endpoint de teste; com usuário logado, o pop-up exibe o QR code e o log mostra registro, token e `auth_ack` waiting.
+- [x] `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed` e os testes unitários afetados passaram.
 
-## 验证记录（2026-09-19）
+## Registro de verificação (2026-09-19)
 
-实现与双轴评审已完成；保留 `in-progress`，等待已登录 test endpoint 的真实联调与验证门禁收口。
+A implementação e a revisão de dois eixos foram concluídas; o status `in-progress` é mantido, aguardando a integração real com o endpoint de teste logado e o fechamento do portão de verificação.
 
-- TDD 接缝：manager 公开 API + 真实 transport + loopback 假 relay；transport 假时钟覆盖握手、秒级时间戳、4~6秒心跳、15秒 watchdog、退避、401/4xx、KICKED窗口、双端配对与断开。额外回归覆盖 AUTH_FAILED 后注册5xx重试、首次30秒等待超时后后台恢复仍保存启用意图。
-- 最终定向验证：8个相关测试文件共132项用例通过（最后的manager边界修复复跑2文件65项）；根 `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、`git diff --check` 通过，lint有60项存量warning、0 error。补充main独立tsconfig检查暴露既有rootDir/浏览器类型等错误；本次新增main文件无类型报错，未扩大范围修复存量main配置。
-- 最后补充回归：workspace关闭通知不能将token401终止的 `error/auth-required` 改写为running，已通过回归与Spec复核。
-- 双轴评审：Standards 无发现；Spec 发现后台恢复持久化与连接成功遥测两项问题，均修复并复核通过。
-- 全量 `pnpm test:unit`：1916文件通过、1失败、2跳过；17937用例通过、1失败、12跳过。失败为未改动的 `packages/desktop/test/e2e/feedback/manual-review/pending/feedback-upload-privacy.test.ts:105` 使用 `/private/tmp`，触发 `e2eRuntimePaths.test.ts`；单独重跑同样失败，与本票代码无关。
-- 桌面标准 `pnpm dev:desktop:test`：首次缺失 CUA 原生 addon，已在安装依赖内补建；随后 CLI `node-repl-host` 编译因缺少 `@zcode/core/browser-client`、`@zcode/contracts/tools/node-repl` 等声明而失败，未修改 CLI。
-- `ZCODE_ENV=test pnpm --filter @zcode/desktop dev:runtime` 可构建并启动当前 main/renderer，但现有存储准备报 `transport_closed`；直接经真实 preload/main 启动远控返回 `auth-required`，当前无可用 JWT，因此没有注册/token/auth_ack waiting 的线上联调证据。
-- 视觉：实际 Electron renderer + 生产弹窗组件，注入明确标记的 waiting 测试状态，桌面1440×1040与窄屏390×844、zh-CN/en-US、Zai Light/Zai Dark共8张。二维码可见、无刷新按钮、复制链接行无横向溢出；窄屏沿用弹窗内部滚动。这些截图不替代已登录真实 relay 联调，也不声称手机V2业务链路已实现。
-- 截图及机器检查结果：本机会话产物 `~/.codex/visualizations/2026/09/19/01a0b79b-ac3d-76d3-99d7-6cc72352d1e6/relay03/`，包含 `desktop-<locale>-<theme>.png`、`mobile-<locale>-<theme>.png` 和 `evidence.json`。临时renderer夹具已移出源码目录，测试启动的dev进程已停止。
-- 原有02票工作区改动保留；本票不将它们混入提交。全量检查仍有失败且真实联调未完成，按根规则暂不自动commit。
+- Costura TDD: API pública do manager + transport real + relay falso em loopback; o relógio falso do transport cobre handshake, timestamp em segundos, heartbeat de 4~6 segundos, watchdog de 15 segundos, backoff, 401/4xx, janela de KICKED, pareamento dos dois lados e desconexão. Regressões adicionais cobrem novo registro após AUTH_FAILED com retentativa de 5xx, e a persistência da intenção de habilitação mesmo após timeout na primeira espera de 30 segundos e recuperação em segundo plano.
+- Verificação final direcionada: 8 arquivos de teste relacionados com 132 casos passando (após a última correção de fronteira do manager, reexecução de 2 arquivos com 65 casos); `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed` e `git diff --check` na raiz passaram, com 60 warnings preexistentes no lint e 0 erros. A checagem adicional do tsconfig independente do main expôs erros preexistentes de rootDir/tipos de navegador; os novos arquivos do main não geraram erros de tipo e o escopo não foi ampliado para corrigir a configuração preexistente do main.
+- Regressão final adicional: a notificação de fechamento de workspace não pode reescrever o `error/auth-required` encerrado por token 401 como running; isso passou pela regressão e pela revisão de Spec.
+- Revisão de dois eixos: Standards sem achados; Spec encontrou dois problemas — persistência na recuperação em segundo plano e telemetria de conexão bem-sucedida — ambos corrigidos e reconferidos.
+- `pnpm test:unit` completo: 1916 arquivos passaram, 1 falhou, 2 pulados; 17937 casos passaram, 1 falhou, 12 pulados. A falha é o `packages/desktop/test/e2e/feedback/manual-review/pending/feedback-upload-privacy.test.ts:105` sem alterações, que usa `/private/tmp` e dispara `e2eRuntimePaths.test.ts`; reexecutar isoladamente falha igual, sem relação com o código desta ticket.
+- `pnpm dev:desktop:test` padrão do desktop: na primeira execução faltava o addon nativo do CUA, reconstruído dentro das dependências instaladas; em seguida a compilação do CLI `node-repl-host` falhou por falta das declarações `@zcode/core/browser-client` e `@zcode/contracts/tools/node-repl`, sem alteração no CLI.
+- `ZCODE_ENV=test pnpm --filter @zcode/desktop dev:runtime` consegue compilar e iniciar o main/renderer atuais, mas a preparação de armazenamento existente reporta `transport_closed`; iniciar o controle remoto pelo preload/main real retorna `auth-required`, e não há JWT disponível no momento, portanto não há evidência de integração ao vivo com registro/token/`auth_ack` waiting.
+- Visual: renderer real do Electron mais o componente de pop-up de produção, com um estado de teste waiting claramente marcado; 8 capturas entre desktop 1440×1040 e tela estreita 390×844, zh-CN/en-US, Zai Light/Zai Dark. O QR code está visível, sem botão de atualizar e a linha de link para copiar não tem overflow horizontal; em tela estreita o pop-up mantém a rolagem interna. Essas capturas não substituem a integração real com o relay logado e também não afirmam que a cadeia de negócio V2 do celular já foi implementada.
+- Capturas e resultados da verificação automatizada: os artefatos da sessão local estão em `~/.codex/visualizations/2026/09/19/01a0b79b-ac3d-76d3-99d7-6cc72352d1e6/relay03/`, contendo `desktop-<locale>-<theme>.png`, `mobile-<locale>-<theme>.png` e `evidence.json`. A fixture temporária do renderer foi removida do diretório de código e o processo dev iniciado pelo teste foi encerrado.
+- As alterações de workspace da ticket 02 foram preservadas; esta ticket não as mistura no commit. A verificação completa ainda tem falhas e a integração real não foi concluída, portanto, conforme a regra da raiz, não há commit automático.

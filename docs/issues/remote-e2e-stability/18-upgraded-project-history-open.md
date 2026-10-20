@@ -1,37 +1,54 @@
-# 旧版项目历史打开：测试交互修正
+# Abertura do histórico do projeto antigo: correção da interação de teste
 
 Status: done
 
-## 补丁 08 的复验进展
+## Progresso da reverificação do patch 08
 
-批次 `r3-server-20261011143037600-31012b` 中，`history-single` 和 `history-merge` 使用项目内
-可见行的真实指针后，分别打开并续聊了 1 / 2 个原 taskId。导航快照的 canonical identity、active pane
-与原 taskId 一致；多线路还通过 completed ledger 和备份断言。因此原疑点不再列为已确认业务缺陷。
-业务代码未修改。旧版回退的测试入口修正后，补丁 09、批次 `r3-server-20261011150809016-2aeaba`
-两例均完整通过：single 275.9 秒、merge 310.0 秒。覆盖原历史续聊、真实旧程序回退；多线路还
-核对两个旧线路实际读取后合并数据仍保留。整体 history 用例现已计为 PASS。
+No lote `r3-server-20261011143037600-31012b`, `history-single` e `history-merge`, usando o
+ponteiro real da linha visível dentro do projeto, abriram e continuaram a conversa de
+1 / 2 taskId originais, respectivamente. A canonical identity do snapshot de navegação,
+o active pane e o taskId original estavam consistentes; a rota múltipla também passou pelo
+completed ledger e pelas asserções de backup. Portanto, a dúvida inicial deixa de ser
+listada como defeito de negócio confirmado. Nenhum código de negócio foi modificado.
+Após a correção do ponto de entrada de teste do fallback para a versão antiga, os patches 09 e o
+lote `r3-server-20261011150809016-2aeaba` passaram integralmente: single 275,9 segundos,
+merge 310,0 segundos. A cobertura inclui a continuação da conversa do histórico original e o
+fallback real para o programa antigo; a rota múltipla também conferiu que os dados lidos de fato
+das duas linhas antigas continuam preservados após a mesclagem. O caso history overall já
+conta como PASS.
 
-## 首次疑点
+## Dúvida inicial
 
-当前业务基线 `d31e735905cf744e75a0a93548a80acabe871ae5`，旧版夹具为
-`7a6e2eb3f1946aba9155155178e86cd947cee655`。测试补丁 07，批次
-`r3-server-20261011125749338-152f05`：`history-single` 258.3 秒失败，
-`history-merge` 281.5 秒失败。
+Na baseline de negócio atual `d31e735905cf744e75a0a93548a80acabe871ae5`, o fixture da
+versão antiga é `7a6e2eb3f1946aba9155155178e86cd947cee655`. Patch de teste 07, lote
+`r3-server-20261011125749338-152f05`: `history-single` falhou em 258,3 segundos,
+`history-merge` falhou em 281,5 segundos.
 
-旧版真实程序生成任务后，升级至当前版，再从项目列表加入迁移后的原 projectId。
-远端数据库中的任务 project_id、项目和原 root 均已核对；没有新建同目录“(2)”项目来替代旧项目。
-任务行出现，但点击原任务后 30 秒内没有对应 session pane。单线路录像停在“连接中 / 设备未连接”，
-多线路则仍是空草稿。日志中单线路的新 Main 在 21:42:00 收到一个 workspace-context-bound
-ready，但缺少原任务的新订阅记录。不能把 Source 连通直接视作旧工作区与任务已成功恢复。
+Depois que o programa antigo real gera a tarefa, houve upgrade para a versão atual e, em
+seguida, o projectId original migrado foi adicionado pela lista de projetos. O project_id da
+tarefa no banco remoto, o projeto e a root original foram conferidos; não foi criado um novo
+projeto "(2)" no mesmo diretório para substituir o antigo. A linha da tarefa aparece, mas, ao
+clicar na tarefa original, nenhum session pane correspondente apareceu em 30 segundos. Na rota
+simples, a gravação parou em "conectando / dispositivo não conectado"; na rota múltipla, o
+rascunho continuava vazio. Nos logs, o novo Main da rota simples recebeu um
+workspace-context-bound ready às 21:42:00, mas faltou o registro da nova assinatura da tarefa
+original. Não é possível tratar a conectividade do Source como prova de que o workspace
+antigo e a tarefa foram restaurados com sucesso.
 
 ```text
-旧程序自然生成历史 → 当前程序连接并迁移 → 加入原项目
-  → 旧任务行可见 → 点击 → 原任务 pane 未出现
+Programa antigo gera histórico naturalmente → programa atual conecta e migra → adiciona o projeto original
+  → linha da tarefa antiga visível → clique → pane da tarefa original não aparece
 ```
 
-首次结果不足以定位身份重键、attachment 发布、任务导航三者中哪一步失败，也不能证明数据丢失。
-当时后续旧任务续聊和旧程序回退尚未到达。测试补充项目内可见行的真实指针操作，并记录点击前后的
-项目 identity、连接状态、导航缓存和可见 pane；业务实现保持不变。
+O primeiro resultado não é suficiente para localizar se a falha está na reatribuição de
+identidade, na publicação do attachment ou na navegação de tarefas, nem para provar perda de
+dados. Naquele momento, a continuação das tarefas antigas seguintes e o fallback para o
+programa antigo ainda não tinham sido alcançados. O teste foi complementado com a operação de
+ponteiro real da linha visível dentro do projeto, registrando a identity do projeto, o estado
+da conexão, o cache de navegação e o pane visível antes e depois do clique; a implementação
+de negócio permanece inalterada.
 
-证据位于上述批次的 `history-single` / `history-merge` 用例目录，含 `upgrade-history.json`、
-失败录像和 Desktop 日志。[Renderer 重载任务导航](14-renderer-reload-task-navigation.md) 的业务失败仍独立跟踪。
+As evidências estão no diretório dos casos `history-single` / `history-merge` do lote acima,
+contendo `upgrade-history.json`, a gravação da falha e os logs do Desktop. A falha de negócio
+de [Renderer recarrega a navegação de tarefas](14-renderer-reload-task-navigation.md) continua
+sendo acompanhada de forma independente.

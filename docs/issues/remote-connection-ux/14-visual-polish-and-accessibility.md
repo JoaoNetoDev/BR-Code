@@ -1,65 +1,65 @@
-# 14 — 视觉打磨与无障碍
+# 14 — Acabamento visual e acessibilidade
 
 Status: done
 
-**父规格：** [远程连接交互与视觉体验优化](./01-remote-connection-ux-optimization.md)
+**Especificação pai:** [Otimização da interação e da experiência visual da conexão remota](./01-remote-connection-ux-optimization.md)
 
-**被阻塞于：**
+**Bloqueado por:**
 
-- [11 — 连接中屏与选目录屏重做](./11-connecting-and-directory-screens.md)
-- [12 — 侧栏、会话头部与菜单](./12-sidebar-header-and-menus.md)
-- [13 — 设置页设备卡、未完成的连接与更新提示](./13-settings-device-cards-and-updates.md)
+- [11 — Redesenho das telas de "Conectando" e de Seleção de Diretório](./11-connecting-and-directory-screens.md)
+- [12 — Barra lateral, cabeçalho da sessão e menus](./12-sidebar-header-and-menus.md)
+- [13 — Cartões de dispositivo, conexões incompletas e aviso de atualização na página de configurações](./13-settings-device-cards-and-updates.md)
 
-**要交付的行为：**
+**Comportamento a entregar:**
 
-主要界面重做完成后，对远程 UI 做一次统一收尾，覆盖深色主题、设计规范、文字细节、键盘和读屏几个方面，确保这些用户都能顺畅使用。
+Após a conclusão do redesenho principal da interface, fazer um acabamento unificado na UI remota, cobrindo tema escuro, especificação de design, detalhes de texto, teclado e leitor de tela, garantindo que esses usuários consigam usar o produto com fluidez.
 
-- **深色主题对比度**：状态标签、侧栏和设置导航的文字与背景对比度足够，看得清。
-- **设计规范违规清理**：
-  - 字阶以外的字号；
-  - 硬编码颜色和任意值颜色；
-  - 不在规范内的图标尺寸和圆角。
-- **文字细节**：
-  - 输入框占位符的字体统一；
-  - 说明文字不被截断；
-  - 中文段落末行不只剩一个字。
-- **键盘操作**：
-  - 向导、侧栏项目行、设置卡的所有操作都能只用键盘完成；
-  - 焦点移动合理。
-- **读屏**：
-  - 选择类控件能读出选中状态；
-  - 标签与对应控件正确关联；
-  - 连接状态能被读出；
-  - 对话框关闭按钮的可访问名称已本地化。
-- **其他细节**：
-  - 密码框可以切换显示和隐藏；
-  - 私钥选择按钮换成文件图标；
-  - 项目拖拽时的预览保留设备标签。
+- **Contraste no tema escuro**: o texto e o fundo das etiquetas de status, da barra lateral e da navegação das configurações têm contraste suficiente para ser legível.
+- **Limpeza de violações da especificação de design**:
+  - tamanhos de fonte fora da escala tipográfica;
+  - cores hardcoded e cores com valores arbitrários;
+  - tamanhos de ícone e raios de cantos que não estão na especificação.
+- **Detalhes de texto**:
+  - fonte unificada nos placeholders dos campos de entrada;
+  - textos explicativos não são truncados;
+  - parágrafos em chinês não terminam com uma única palavra na última linha.
+- **Operação por teclado**:
+  - todas as ações do assistente, das linhas de item da barra lateral e dos cartões de configurações podem ser concluídas apenas com o teclado;
+  - a navegação de foco é razoável.
+- **Leitor de tela**:
+  - controles de seleção conseguem anunciar o estado selecionado;
+  - os rótulos estão corretamente associados aos controles correspondentes;
+  - o estado da conexão pode ser anunciado;
+  - o nome acessível do botão de fechar dos diálogos está localizado.
+- **Outros detalhes**:
+  - o campo de senha permite alternar entre mostrar e ocultar;
+  - o botão de seleção de chave privada passa a usar um ícone de arquivo;
+  - a pré-visualização durante o arraste do projeto preserva a etiqueta do dispositivo.
 
-对应父规格中「设计系统」一节，以及缺陷修复清单里剩余的低优先级项。
+Corresponde à seção "Sistema de design" da especificação pai, assim como aos itens de baixa prioridade restantes da lista de correção de defeitos.
 
-范围：
+Escopo:
 
-- **旧代码清理**：没有生产引用的旧设备分组代码和注释块，先按主规格的旧主链删除清单确认可以删，再清理。
+- **Limpeza de código antigo**: o código antigo de agrupamento de dispositivos e os blocos de comentários sem referência em produção só são removidos depois de confirmados como removíveis pela lista de deleção da cadeia antiga da especificação principal.
 
-验收标准：
+Critérios de aceite:
 
-- [x] **截图复核**：覆盖浅色和深色主题、中英文、侧栏 264px 和窗口 900px 的全部组合，所有对比度问题都已修复。
-- [x] **自动化测试**：扩展远程 UI 的 token 合规测试和语义表面对比度测试，覆盖本票涉及的界面，并全部通过。
-- [x] **键盘走查**：向导、侧栏项目行、设置卡的完整流程都能只用键盘完成，并记录走查结果。
-- [x] **读屏测试**：选中状态、标签关联、连接状态的可访问名称都有测试覆盖。
-- [x] **提交前检查**：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、受影响的单测、受影响的 E2E 全部通过后，在本地提交。
+- [x] **Revisão por capturas de tela**: cobre todas as combinações de tema claro e escuro, português e inglês, barra lateral de 264px e janela de 900px; todos os problemas de contraste foram corrigidos.
+- [x] **Testes automatizados**: os testes de conformidade de token da UI remota e de contraste de superfícies semânticas foram estendidos para cobrir as interfaces desta issue, e todos passaram.
+- [x] **Verificação por teclado**: os fluxos completos do assistente, das linhas de item da barra lateral e dos cartões de configurações podem ser concluídos apenas com o teclado, e o resultado da verificação foi registrado.
+- [x] **Teste de leitor de tela**: o estado selecionado, a associação de rótulos e o nome acessível do estado de conexão têm cobertura de teste.
+- [x] **Verificação antes do commit**: `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed`, os testes unitários afetados e os E2E afetados passam; depois disso, commit local.
 
 
 ## Comments
 
-2026-09-29 实施与验收：
+2026-09-29 implementação e verificação:
 
-- 起点 `44ac7aeedd23924b4c4aa214117c5e92c22b353e`，开始时工作区干净。引入远程辅助文字 token，补齐标签、状态描述、密码显隐、历史候选及 Docker 列表键盘操作；拖拽保留设备名；删除无生产引用的旧设备分组组件和辅助函数，保留稳定身份与 legacy alias 解析。
-- `pnpm typecheck`、`pnpm --filter @zcode/desktop typecheck:e2e`、`pnpm lint`、`pnpm architecture:check --changed` 通过。Lint 为 65 个既有 warning、0 error；架构 0 violation。
-- 受影响单测覆盖 373 个文件、3892 项。最终批次 372 个文件通过；剩余项目行测试将可见短标签与新增读屏描述分开断言后，10 项定向复跑全部通过。没有运行全量单测。包含既有手机 Web 布局、远控任务和 relay 恢复相关单测。
-- 起点范围选择器因两个未改动的静态资源 import（mp3 / html?url）及已删除旧组头报告不完整；将它识别的测试、新增历史键盘测试及侧栏分区测试写为显式清单，经 `pnpm test:unit:affected --files-manifest` 执行。旧组头与分组函数已通过无范围限制的 dep:refs 和全仓引用搜索确认无生产调用，身份辅助函数保留回归。
-- 真实 SSH E2E `conversation-session-remote-accessibility.test.ts` 通过：新目标安装、密码显隐、下载切换、目录输入、项目回车、详情/更多菜单、设置卡断开与连接、稍后选择、历史候选回填和关闭均通过键盘操作；另用指针拖拽验证设备标签。测试凭据由 fixture 注入。
-- 截图已复核：选择屏、表单、安装确认、目录屏、侧栏详情、设置卡各 8 张，共 48 张，覆盖浅/深 × 中/英 × 1400/900px；每次截图断言侧栏 264px。状态表面 96 个组合和辅助文字、类型标签在四个主题上的对比度通过 4.5:1 门禁。
-- 本机证据：`packages/desktop/.e2e-artifacts/rdux14-accessibility/`，含 `summary.json`、六份 `*-matrix.jpg`、原图、`drag-device.png`、测试清单和检查日志。读屏通过 DOM 可访问名称/描述/选中状态测试验证，未运行原生 VoiceOver/NVDA；WSL/Docker 控件通过组件测试，实机链路使用 SSH。
-- code-review 双轴复查：Standards 无遗留发现；Spec 提出的历史键盘与密码显隐遗漏已修复并复查通过。新增 E2E 留在 manual-review/pending，尚未人工转正或加入 Docker CI。
+- Ponto de partida `44ac7aeedd23924b4c4aa214117c5e92c22b353e`, workspace inicialmente limpo. Foi introduzido o token de texto auxiliar remoto, complementando rótulos, descrições de status, exibição da senha, candidatos do histórico e a operação por teclado na lista do Docker; o arraste preserva o nome do dispositivo; foram removidos o componente antigo de agrupamento de dispositivos e as funções auxiliares sem referência em produção, mantendo a resolução da identidade estável e do legacy alias.
+- `pnpm typecheck`, `pnpm --filter @zcode/desktop typecheck:e2e`, `pnpm lint` e `pnpm architecture:check --changed` passaram. O lint ficou com 65 avisos pré-existentes e 0 erros; a arquitetura, com 0 violação.
+- Os testes unitários afetados cobriram 373 arquivos e 3892 itens. Na batch final, 372 arquivos passaram; depois de separar, nos testes da linha de projeto, a asserção da etiqueta curta visível da nova descrição para leitor de tela, as 10 execuções direcionadas passaram todas. Não foi executada a suíte completa de testes unitários. Inclui os testes unitários já existentes de layout web no celular, de tarefas de controle remoto e de recuperação do relay.
+- O seletor de escopo do ponto de partida reportou incompletude por causa de dois imports de recursos estáticos não alterados (mp3 / html?url) e do cabeçalho de grupo antigo removido; os testes por ele identificados, o novo teste de teclado do histórico e o teste de seções da barra lateral foram escritos como lista explícita e executados via `pnpm test:unit:affected --files-manifest`. A ausência de chamadas em produção do cabeçalho de grupo antigo e da função de agrupamento foi confirmada por dep:refs sem restrição de escopo e por busca de referências em todo o repositório; a função auxiliar de identidade foi mantida por regressão.
+- O E2E real por SSH `conversation-session-remote-accessibility.test.ts` passou: instalação no novo alvo, exibição da senha, alternância do download, entrada de diretório, Enter no projeto, menus de detalhe/mais, desconexão e conexão pelo cartão de configurações, "escolher depois", preenchimento de candidato do histórico e fechamento — todos por operação de teclado; a etiqueta do dispositivo foi verificada à parte com arraste via ponteiro. As credenciais de teste são injetadas por fixture.
+- Capturas de tela revisadas: 8 de cada para a tela de seleção, o formulário, a confirmação de instalação, a tela de diretório, o detalhe da barra lateral e o cartão de configurações, totalizando 48, cobrindo claro/escuro × pt/en × 1400/900px; cada captura afirma a barra lateral de 264px. As 96 combinações de superfície de status e o contraste do texto auxiliar e das etiquetas de tipo nos quatro temas passaram no portão de 4.5:1.
+- Evidências locais: `packages/desktop/.e2e-artifacts/rdux14-accessibility/`, com `summary.json`, seis `*-matrix.jpg`, as imagens originais, `drag-device.png`, a lista de testes e os logs de verificação. O leitor de tela foi validado por testes de nome acessível, descrição e estado selecionado no DOM; não foi executado VoiceOver/NVDA nativos; os controles de WSL/Docker foram verificados por teste de componente, e o caminho real foi exercitado por SSH.
+- Revisão code-review em dois eixos: Standards sem apontamentos residuais; Spec apontou omissões de teclado no histórico e na exibição da senha, corrigidas e reconferidas. Os novos casos E2E permanecem em manual-review/pending, ainda não promovidos manualmente nem incluídos no CI do Docker.

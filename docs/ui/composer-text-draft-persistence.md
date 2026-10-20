@@ -1,114 +1,109 @@
-# Composer 仅持久化文字草稿
+# O Composer persiste apenas o rascunho de texto
 
-> 2026-10-16 当前实现：新建草稿与 Recent 按项目/未归类任务归属，未发送任务复用执行目录；详见 [统一生命周期](project-task-draft-lifecycle.md)。下文 2026-10-14 的 workspace Root/Recent 与手机暂缓条款记录原实现，当前行为以新规格及其验证记录为准；正式 Session 恢复与非空文字规则继续适用。
+> Implementação atual em 2026-10-16: rascunhos novos e Recent pertencem ao projeto/tarefa não classificada; tarefas não enviadas reutilizam o diretório de execução; ver [ciclo de vida unificado](project-task-draft-lifecycle.md). As cláusulas de 2026-10-14 sobre o Root/Recent da workspace e a adiamento para o celular abaixo registram a implementação original; o comportamento atual segue a nova especificação e seus registros de verificação; as regras de restauração de Session oficial e de texto não vazio continuam valendo.
 
-## 规则与范围
+## Regras e escopo
 
-2026-10-14：用户确认“没有输入文字就不算草稿，不做持久化”。本文替代 Todo71 中空正文保留配置的规则。
-正文以 `text.trim().length > 0` 判定；键入、粘贴和模板预填等价，空格、换行、空 editor JSON、仅改模型/权限不构成可持久化草稿。引用 chip 的显示正文沿用编辑器现有文本序列化，不新增附件序列化。
+2026-10-14: o usuário confirmou que "sem texto digitado não conta como rascunho, não há persistência". Este documento substitui a regra do Todo71 sobre manter a configuração com corpo vazio.
+O corpo é determinado por `text.trim().length > 0`; digitação, colagem e pré-preenchimento por template são equivalentes, e espaços, quebras de linha, JSON vazio do editor, ou apenas mudanças de modelo/permissão não formam um rascunho persistível. O corpo exibido do chip de citação segue a serialização de texto já existente no editor, sem nova serialização de anexos.
 
-有文字时保存正文、编辑器状态、权限、Plan、完整 ModelSelection；删空时删除记录。发送沿用既有乐观清空：先冻结 Submission，再清空正文和记录；失败且未被后续编辑取代时恢复，接纳后更新 Recent。读取旧版本空草稿时只过滤，显式写入时清理，不让旧配置继续阻挡默认值。
-当前输入框的配置仍由 `useDraftConfigControl` 的内存态唯一持有；不因不写盘而在普通 render、目录刷新或 Snapshot 到达时回退。重新进入空白新建页使用当前 workspace Recent，已有 Session 始终从当前 Snapshot 恢复权限与 Plan，有文字草稿时只恢复其中的正文与模型。显式 New Task 即使复用当前 pane，也开启新的空白编辑生命周期；有文字的草稿继续恢复。
+Quando há texto, são salvos o corpo, o estado do editor, as permissões, o Plan e o `ModelSelection` completo; ao apagar tudo, o registro é removido. O envio segue o emptying otimista já existente: primeiro congela a Submission, depois limpa o corpo e o registro; em caso de falha, e se não foi substituído por uma edição posterior, restaura, e após a aceitação atualiza o Recent. Ao ler rascunhos vazios de versões antigas, apenas filtra; na escrita explícita, limpa, para que a configuração antiga não continue bloqueando o valor padrão.
 
-```mermaid
-flowchart LR
-    A[空白输入框：内存配置] -->|输入文字| B[持久文字草稿]
-    B -->|删空| A
-    B -->|提交| C[冻结 Submission，乐观清空正文与记录]
-    C -->|accepted| D[更新 Recent]
-    C -->|失败且未被新编辑取代| B
-    D -->|再次新建且无文字草稿| E[读取最新 Recent]
-```
-
-## 首个 Provider 就绪后的模型补选
-
-2026-10-16：新建 Root 草稿在空 Provider 配置下可能已初始化权限并输入正文。若它没有任何
-`modelSelection` 原意图，目标 Host 的首个合法 `preferredSelection` 到达后，现有 Composer
-owner 自动补选该完整模型。补选只写模型，保留正文、编辑器状态、权限和 Plan；不更新 Recent，
-不发送模型请求，也不启动第二个 Agent。不新增同步定时器或第二份状态。
-
-已有选择（包括失效模型或失效 reasoning）不补选；已有 Session 和分享导入不应用此 Root
-规则。后续目录变化不得覆盖已补选或用户显式选择的模型。仍按 workspace identity 隔离，
-桌面与手机使用同一 Hook，不改变 continuous/replayable 的传输边界。
+A configuração atual da caixa de entrada continua sendo mantida de forma única pelo estado em memória de `useDraftConfigControl`; por não ser gravada em disco, não há fallback em render comum, na atualização de diretório ou na chegada de Snapshot. Ao entrar novamente na página de criação em branco, usa o Recent atual da workspace; Sessions existentes sempre restauram permissões e Plan a partir do Snapshot atual; quando há rascunho com texto, apenas o corpo e o modelo são restaurados. Mesmo que o New Task explícito reutilize o pane atual, ele abre um novo ciclo de vida de edição em branco; rascunhos com texto continuam sendo restaurados.
 
 ```mermaid
 flowchart LR
-    A[Root 草稿无模型意图] --> B[目标 Host 首选模型就绪]
-    B --> C[Composer 只补齐模型]
-    C --> D[正文与权限保留，发送恢复]
-    E[已有模型意图或已有 Session] --> F[保持原意图，不自动替换]
+    A[Caixa de entrada em branco: configuração em memória] -->|digita texto| B[Rascunho de texto persistido]
+    B -->|apaga tudo| A
+    B -->|envia| C[Congela a Submission, limpa otimisticamente corpo e registro]
+    C -->|accepted| D[Atualiza o Recent]
+    C -->|falha e não substituído por nova edição| B
+    D -->|cria de novo e sem rascunho com texto| E[Lê o Recent mais recente]
 ```
 
-验证：I23/I24 桌面 E2E 覆盖空配置、历史读取、保存首个 Provider、原文保留、发送恢复和唯一
-Agent；Hook 单测覆盖本地/远端 identity、权限/Plan 保留、已选/失效选择与既有 Session 排除。
+## Complemento de modelo após o primeiro Provider ficar pronto
 
-## 状态归属与影响面
+2026-10-16: um rascunho Root novo pode já ter inicializado as permissões e o corpo digitado com uma configuração de Provider vazia. Se ele não tiver nenhuma intenção original de `modelSelection`, assim que o primeiro `preferredSelection` válido do Host de destino chegar, o owner atual do Composer completa automaticamente a seleção com esse model completo. O complemento escreve apenas o modelo e preserva o corpo, o estado do editor, as permissões e o Plan; não atualiza o Recent, não envia requisição de modelo e não inicia um segundo Agent. Nenhum novo timer de sincronização ou segunda cópia de estado é adicionada.
 
-| 场景 / 入口                  | 唯一 owner / 提交路径                                   | 持久化与初始化                                                     | 影响级别       |
-| ---------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------ | -------------- |
-| 新建 / 当前 Session 输入框   | useDraftConfigControl → Submission → CLI admission      | composerDraftStore 只保存文字；Recent 仅 accepted 更新             | must-inspect   |
-| New Task / 项目与分组菜单    | workspace UI store 的 draftProjectId / draftTaskGroupId | 当前创建意图留内存；有文字时随草稿保存，手机冷恢复只读取有文字草稿 | must-inspect   |
-| 分享首次导入                 | 导航参数 → Composer owner                               | 一次初始化配置仅内存；不伪造磁盘草稿、不修改 Recent                | must-inspect   |
-| 离线页与刷新                 | composerDraftStore 的只读结果                           | 只恢复有文字草稿，不新增离线队列                                   | should-inspect |
-| 自动化、子智能体、已接受队列 | 原有 record / CLI owner                                 | 不消费 Composer 草稿、不更改冻结的 Submission                      | invariant-only |
+Seleções já existentes (inclusive modelos inválidos ou reasoning inválido) não são complementadas; Sessions existentes e importações por compartilhamento não aplicam esta regra de Root. Mudanças posteriores no diretório não podem sobrescrever um modelo já completado ou escolhido explicitamente pelo usuário. O isolamento continua por workspace identity, o desktop e o celular usam o mesmo Hook, e a fronteira de transmissão continuous/replayable não muda.
 
-共享行为是草稿读写与有效模型解析；新建读 Recent，已有 Session 读自身 Snapshot，两者不统一为全局配置。权限/Plan 恢复以当前 Session Snapshot 为准；历史授权只用于本次打开周期内识别新变化，不存入草稿。
-工作区隔离始终使用 `workspaceIdentity?.trim() || workspacePath`；桌面 continuous 与手机 replayable 的传输、shared-host、owner/lease 和队列协议不变。没有新增 Host/Agent 状态或同步定时器。
+```mermaid
+flowchart LR
+    A[Rascunho Root sem intenção de modelo] --> B[Model preferido do Host de destino pronto]
+    B --> C[O Composer completa apenas o modelo]
+    C --> D[Corpo e permissões preservados, envio restaurado]
+    E[Já há intenção de modelo ou já existe Session] --> F[Mantém a intenção original, sem troca automática]
+```
 
-Recent 的作用域不变：同一项目/工作区内新建继承最近已接纳配置；当前全局未分类新建会分配新的工作目录，不自动复制另一个工作区的 Recent。桌面回归显式从同一项目入口创建，避免把工作区切换误判为空草稿恢复。
+Verificação: I23/I24 do E2E de desktop cobrem a configuração vazia, a leitura do histórico, o salvamento do primeiro Provider, a preservação do texto original, a restauração no envio e o Agent único; os testes unitários do Hook cobrem identity local/remota, a preservação de permissões/Plan, as escolhas já feitas/inválidas e a exclusão de Sessions existentes.
 
-## 实施顺序
+## Posse do estado e superfície de impacto
 
-1. 更新 spec、catalog、coverage；先写存储与 Hook 回归并观察旧实现失败。
-2. 将项目/分组当前创建意图收口到现有 workspace UI store，迁移原来从空草稿读它们的调用方；首次分享导入改为临时交接。
-3. 存储入口统一过滤空正文并清理旧记录；Hook 在 New Task 生命周期边界重新初始化空输入框，保持当前编辑与迟到 ACK 的 scope 防护。
-4. 更新已有空草稿测试，并扩展桌面 pending E2E；运行必要门禁后提交。
+| Cenário / entrada                  | Único owner / caminho de submissão                        | Persistência e inicialização                                                      | Nível de impacto   |
+| ---------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------- | ----------------- |
+| Nova / caixa de entrada da Session atual | useDraftConfigControl → Submission → CLI admission     | `composerDraftStore` guarda apenas o texto; o Recent só é atualizado no accepted      | must-inspect      |
+| New Task / menu de projetos e grupos | `draftProjectId` / `draftTaskGroupId` do workspace UI store | A intenção de criação atual fica em memória; é salva junto com o rascunho quando há texto; a recuperação a frio no celular só lê rascunhos com texto | must-inspect      |
+| Primeira importação por compartilhamento | Parâmetro de navegação → owner do Composer             | A configuração de inicialização única fica apenas em memória; não forja rascunho em disco nem altera o Recent | must-inspect      |
+| Página offline e atualização         | Resultado somente leitura do `composerDraftStore`        | Restaura apenas rascunhos com texto; não cria fila offline                             | should-inspect    |
+| Automação, subagentes, fila já aceita | record / CLI owner já existentes                        | Não consome rascunhos do Composer nem altera a Submission congelada                  | invariant-only    |
 
-## 用例与剪枝
+O comportamento compartilhado é a leitura/escrita de rascunhos e a resolução do modelo efetivo; a criação lê o Recent, enquanto Sessions existentes leem o próprio Snapshot, e os dois não são unificados como uma configuração global. A restauração de permissões/Plan segue o Snapshot da Session atual; as autorizações históricas servem apenas para identificar novas mudanças dentro do ciclo de abertura atual e não são guardadas no rascunho.
+O isolamento por workspace continua usando `workspaceIdentity?.trim() || workspacePath`; a transmissão, o shared-host, o owner/lease e o protocolo de fila do continuous de desktop e do replayable do celular permanecem inalterados. Nenhum novo estado de Host/Agent ou timer de sincronização foi criado.
 
-| ID   | 前置与操作                                                              | 断言                                                                    | 层次 / 状态                                     |
-| ---- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
-| TD01 | 全新输入框只选 yolo + A，然后切走/刷新                                  | 内存当前选择可用；localStorage 无草稿，重开按默认来源初始化             | storage + Hook / accepted                       |
-| TD02 | 首发 yolo + A；打开一次空白页；回原 Session 改 build + B 并提交；再新建 | Recent 为 build + B；新页同值、无空白持久记录；真实按钮和模型切换       | Desktop E2E / accepted pending                  |
-| TD03 | 输入文字并改权限模型，切 Session 后返回/刷新                            | 恢复文字及模型，已有 Session 权限/Plan 采用当前快照；不改 Recent        | Hook + Desktop E2E / accepted pending           |
-| TD04 | 文字删空或只剩空格后重新新建                                            | 旧持久记录删除，新页按最新 Recent；同 pane 的重复 New Task 不保留空配置 | storage + Hook + Desktop E2E / accepted pending |
-| TD05 | 发送成功、失败、ACK 迟到且用户已输入下一条                              | 成功只清原提交；失败保留正文配置；旧 ACK 不覆盖新 scope/新文字          | existing submission tests + Hook / accepted     |
-| TD06 | 存量空记录与同路径不同远端的有文字记录                                  | 仅清空记录；远端身份隔离、有文字坏模型保留待修正                        | storage / accepted                              |
-| TD07 | 未输入时选择项目/分组，随后输入并首发                                   | 空页面不写盘，首发仍进入所选项目/分组；有文字可冷恢复                   | store + navigation tests / accepted             |
-| TD08 | 首次分享导入、View 延迟、已有 Session reused                            | 导航初始化不写空草稿，导入仍遵循新建初始化；用户改选优先，reused 不重置 | Hook / accepted                                 |
+O escopo do Recent não muda: uma criação dentro do mesmo projeto/workspace herda a configuração aceita mais recentemente; a criação global não classificada atual recebe um novo diretório de trabalho e não copia automaticamente o Recent de outro workspace. A regressão do desktop cria explicitamente a partir da mesma entrada de projeto, para evitar confundir troca de workspace com restauração de rascunho em branco.
 
-纯样式、主题和国际化没有变化，沿用共享控件，不枚举全套外观叉乘。模型使用同 provider 两个合法模型作为代表；权限使用 yolo/build。队列 admission 与执行配置保持冻结，只验证发送草稿边界，不扩展队列功能。附件目前没有跨重启草稿持久化，不增加此能力。
+## Ordem de implementação
 
-## 扫描证据与后续验证
+1. Atualizar spec, catálogo e coverage; escrever primeiro as regressões de storage e Hook e observar a falha da implementação antiga.
+2. Convergir a intenção atual de criação de projeto/grupo no workspace UI store existente, migrando os chamadores que antes a liam a partir do rascunho vazio; a primeira importação por compartilhamento passa a ser uma entrega temporária.
+3. Unificar o filtro de corpo vazio e a limpeza de registros antigos na entrada de storage; o Hook reinicializa a caixa de entrada em branco na fronteira do ciclo de vida do New Task, mantendo a proteção de scope da edição atual e do ACK tardio.
+4. Atualizar os testes existentes de rascunho vazio e estender o E2E de pending do desktop; rodar os gates necessários e então submeter.
 
-codegraph 工具不可用；使用精确调用方检索追踪 storage → Hook → SessionPane/Root 及一跳项目菜单和分享入口，未声称完成 codegraph 扫描。功能图原有 conversation-model-control 缺少 text-only persistence 与新建生命周期关系，本次补充语义节点。没有待用户裁决的产品边界；空白不持久化已获确认。
+## Casos e podas
 
-验证记录（2026-10-14，基线 `7d60f53393`）：
+| ID   | Pré-condição e operação                                                            | Asserção                                                                                 | Camada / estado                                  |
+| ---- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| TD01 | Caixa de entrada nova seleciona apenas yolo + A e depois sai/atualiza               | A seleção atual em memória está disponível; o localStorage não tem rascunho e a reabertura inicializa pela fonte padrão | storage + Hook / accepted                        |
+| TD02 | Primeira envio com yolo + A; abre uma página em branco uma vez; volta à Session original, muda para build + B e envia; depois cria de novo | O Recent é build + B; a nova página tem o mesmo valor, sem registro persistente em branco; botões reais e troca de modelo | Desktop E2E / accepted pending                   |
+| TD03 | Digita texto e muda permissões/modelo, troca de Session e depois volta/atualiza    | Restaura texto e modelo; as permissões/Plan da Session existente seguem o Snapshot atual; o Recent não muda | Hook + Desktop E2E / accepted pending            |
+| TD04 | O texto é apagado ou sobra apenas espaço e então se cria de novo                   | O registro persistente antigo é removido; a nova página usa o Recent mais recente; o New Task repetido no mesmo pane não mantém configuração vazia | storage + Hook + Desktop E2E / accepted pending  |
+| TD05 | Envio com sucesso, com falha, ACK tardio e o usuário já digitou a próxima           | Sucesso limpa apenas a submissão original; falha preserva corpo e configuração; ACK antigo não sobrescreve o novo scope/texto | existing submission tests + Hook / accepted      |
+| TD06 | Registros vazios legados e registros com texto de um remoto de mesmo caminho        | Apenas os registros são limpos; a identidade remota fica isolada e o modelo ruim com texto é preservado para correção | storage / accepted                               |
+| TD07 | Seleciona projeto/grupo sem digitar e depois digita e faz o primeiro envio          | A página em branco não grava em disco; o primeiro envio ainda entra no projeto/grupo escolhido; com texto é possível recuperar a frio | store + navigation tests / accepted              |
+| TD08 | Primeira importação por compartilhamento, atraso do View, Session existente reutilizada | A inicialização por navegação não grava rascunho vazio e a importação segue a inicialização de criação; a escolha do usuário tem precedência e a reutilização não reseta | Hook / accepted                                  |
 
-- 先运行 TD01/02/04/06 存储和 Hook 回归观察失败，修改后通过；最终 `pnpm test:unit:affected` 为 301 文件、3,885 用例全部通过。含失败恢复、迟到 ACK、新任务配置继承、分享导入和手机项目初始化。
-- `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed`、case-local fixture 检查通过；Lint 为 0 errors（仓库既有 210 warnings）。功能图新增节点/边和源码种子检查无新增问题，图中既有 4 条悬空边未扩展处理；codegraph 未执行。
-- Linux Electron + Xvfb，回放 `common.json` 与本用例 fixture。`desktop-e2e-20261014-093656-755`：TD01/03/04 独立用例通过（空白不保存、正文/权限刷新恢复、空格删空、同项目重复新建）；截图与 JSON 为该 run 下 `conversation-session-composer-recent-mode/00-text-only-draft.*`。
-- 完整 I74/I75 + TD02 发送链路未通过：首条输入即报“草稿会话已切换，请重新发送”，尚未到 A→B 切换断言。将全部修改的产品源码临时还原到基线并重新构建，对照 run `desktop-e2e-20261014-093347-523` 同样在首发报错；Agent 日志同时记录预热 session 的 `loadPersistedEvents / Session not found`。产品源码随后完整恢复。本次不修改预热/Host/CLI 生命周期，TD02 的 Hook 回归通过不能替代这项 E2E。
-- 手机只完成共享逻辑与导航单测，未做手机实机、macOS、Windows GUI 验证。E2E 保持 pending，不自动晋级 formal/CI；完整发送流程需在基线预热问题修复后补跑。
+Estilos puros, tema e internacionalização não mudam, e os controles compartilhados são reutilizados, sem enumerar o cruzamento completo de aparências. O modelo usa dois modelos válidos do mesmo provider como representativo; as permissões usam yolo/build. O admission de fila e a configuração de execução permanecem congelados, validando apenas a fronteira de envio do rascunho, sem estender a funcionalidade da fila. Anexos hoje não têm persistência de rascunho entre reinícios, e essa capacidade não é adicionada.
 
-MR 集成补充：同步最新 staging 的远程目录确认流程后，普通项目入口与远程目录确认统一通过 `createProjectTask` 读取 workspace UI store 的 `draftTaskGroupId`。空白输入框选择分组也必须能随远程目录确认传递；已有任务仍不继承新建草稿分组。
+## Evidências de varredura e verificação posterior
 
-同步基线 `f67f7570ba` 后复验：项目菜单 38 用例通过；受影响单测 304 文件 / 3,948 用例通过；typecheck、lint（0 errors、210 既有 warnings）、architecture 通过。重新构建的 Linux Electron run `desktop-e2e-20261014-111418-638` 仅选择 TD01/03/04，1/1 通过。完整发送用例本轮未重跑，仍保留上述未通过记录。
+A ferramenta codegraph não está disponível; foi usada busca precisa de chamadores para rastrear storage → Hook → SessionPane/Root e, em um salto, o menu de projetos e a entrada de compartilhamento, sem afirmar que a varredura por codegraph foi concluída. O mapa funcional existente `conversation-model-control` não tinha a relação entre persistência apenas de texto e o ciclo de vida de criação, e esta versão acrescenta os nós semânticos correspondentes. Não há fronteiras de produto pendentes de decisão do usuário; a não persistência do texto em branco já foi confirmada.
 
-## Review 后的简化规则（2026-10-14）
+Registro de verificação (2026-10-14, baseline `7d60f53393`):
 
-用户确认：已有 Session 的文字草稿重新打开时，恢复正文和模型选择，权限与 Plan 使用该 Session 最新 Snapshot。当前打开期间的菜单选择仍归 Composer；普通快照不能覆盖，真实新授权/Plan 工具变化按最新 Snapshot 更新对应字段。首次匹配快照只建立当前状态和观察基线，不重放其中的历史授权。Snapshot 暂时缺席不重置观察基线；切换 scope/卸载才结束。
+- Rodaram-se primeiro as regressões de storage e Hook TD01/02/04/06 para observar a falha; após a alteração passaram. O `pnpm test:unit:affected` final teve 301 arquivos e 3.885 casos, todos passando. Inclui recuperação de falha, ACK tardio, herança de configuração de nova tarefa, importação por compartilhamento e inicialização de projeto no celular.
+- `pnpm typecheck`, `pnpm lint`, `pnpm architecture:check --changed` e a verificação de fixture local do caso passaram; o Lint ficou com 0 errors (210 warnings já existentes no repositório). Os novos nós/arestas do mapa funcional e a checagem de seeds do código-fonte não apontaram novos problemas; as 4 arestas pendentes já existentes no mapa não foram expandidas nem tratadas; o codegraph não foi executado.
+- Electron no Linux com Xvfb, reproduzindo `common.json` e a fixture deste caso. `desktop-e2e-20261014-093656-755`: os casos isolados TD01/03/04 passaram (branco não salva, restauração de corpo/permissões após atualização, apagar tudo, criação repetida no mesmo projeto); screenshots e JSON são os de `conversation-session-composer-recent-mode/00-text-only-draft.*` desse run.
+- O encadeamento completo de envio I74/I75 + TD02 não passou: a primeira digitação já acusou a mensagem de UI "草稿会话已切换，请重新发送" ("a sessão de rascunho foi trocada, envie novamente"), sem chegar à asserção da troca A→B. Restaurando temporariamente todo o código-fonte de produto modificado para o baseline e reconstruindo, o run de controle `desktop-e2e-20261014-093347-523` acusou o mesmo erro no primeiro envio; o log do Agent registrou simultaneamente `loadPersistedEvents / Session not found` da session de prewarm. O código-fonte de produto foi depois totalmente restaurado. Nesta rodada não se modifica o ciclo de vida de prewarm/Host/CLI, e a regressão de Hook do TD02 não substitui este E2E.
+- No celular foram concluídos apenas os testes unitários da lógica compartilhada e de navegação, sem verificação em aparelho real nem em GUI de macOS ou Windows. O E2E permanece pending e não é promovido automaticamente a formal/CI; o fluxo completo de envio precisa ser refeito depois que o problema de prewarm do baseline for corrigido.
 
-删除持久草稿的 lastPermissionGrantId、lastPlanTransitionId 和 initializeFromNewTask；旧字段读取时忽略。新建 Root 的文字草稿仍恢复其完整选择（尚无真实 Session）。首次导入由导航 owner 显式交付新建初始化配置；既有 Session/reused 不走导入初始化。首发绑定真实 Session 是同一 Composer 编辑周期的迁移，保留发送期间的新输入；离开后再打开才应用 Session 恢复规则。
+Complemento de integração do MR: após sincronizar o fluxo mais recente de confirmação de diretório remoto do staging, a entrada comum de projeto e a confirmação de diretório remoto passam unificadas a ler o `draftTaskGroupId` do workspace UI store por `createProjectTask`. A seleção de grupo em uma caixa de entrada em branco também precisa ser transmitida com a confirmação do diretório remoto; tarefas existentes continuam não herdando o grupo do rascunho de criação.
 
-首发不再使用全局 seed Map：当前 pane 只允许同 workspaceKey、同 draft generation 的已接受结果迁移；New Task、切页、卸载使旧回调失效。分享导入初始化附着于已有 workspace 导航动作，接收后清除，切任务/新建时废弃；不保存成空草稿。提交配置仍在发送时冻结，不因后续编辑变化。
+Após sincronizar o baseline `f67f7570ba` e reverificar: 38 casos do menu de projeto passaram; os testes unitários afetados passaram com 304 arquivos / 3.948 casos; typecheck, lint (0 errors, 210 warnings já existentes) e architecture passaram. O run de Electron no Linux reconstruído `desktop-e2e-20261014-111418-638` seleciona apenas TD01/03/04 e passou 1/1. O caso completo de envio não foi reexecutado nesta rodada e mantém o registro de falha acima.
 
-读取草稿只解析/过滤，不写 localStorage；旧空记录在显式写入时清理。无文字不保存，新建使用 workspace Recent，Recent 只在 accepted 时更新。
+## Regras simplificadas após o Review (2026-10-14)
 
-本轮明确不修改手机项目/导航恢复；共享 Composer 逻辑仍同时用于 desktop continuous 和 mobile replayable，不改变 Host、CLI、queue 或传输恢复语义。实现计划见 [状态简化规划](../plans/composer-state-simplification.md)。
+O usuário confirmou: ao reabrir um rascunho de texto de uma Session existente, restaura-se o corpo e a seleção de modelo, enquanto as permissões e o Plan usam o Snapshot mais recente dessa Session. As escolhas de menu feitas durante a abertura atual continuam pertencendo ao Composer; um Snapshot comum não pode sobrescrevê-las, e mudanças reais de novas autorizações/ferramentas de Plan atualizam os campos correspondentes conforme o Snapshot mais recente. O primeiro Snapshot correspondente apenas estabelece o estado atual e a linha de base de observação, sem reproduzir as autorizações históricas contidas nele. A ausência temporária de Snapshot não reseta a linha de base de observação; apenas a troca de scope ou o desmonte a encerra.
 
-新增回归 CS01–08、CS10：历史授权/Plan 不重放；有文字恢复最新权限与 Plan；live 新变化只更新对应字段；重复/迟到投影不覆盖编辑；首发迁移保留新输入且旧回调不清新页；导入初始化随导航消费/失效；render 读取零写入。CS09 手机项目恢复由用户明确排除。
+Removem-se `lastPermissionGrantId`, `lastPlanTransitionId` e `initializeFromNewTask` do rascunho persistido; os campos antigos são ignorados na leitura. O rascunho de texto de um Root novo continua restaurando sua seleção completa (ainda não existe uma Session real). A primeira importação é entregue explicitamente pelo owner de navegação com a configuração de inicialização de criação; Sessions existentes/reutilizadas não passam pela inicialização de importação. Vincular o primeiro envio a uma Session real é uma migração dentro do mesmo ciclo de edição do Composer, preservando o que foi digitado durante o envio; só ao sair e reabrir se aplicam as regras de restauração de Session.
 
-验证（2026-10-14）：新增回归先在旧实现失败；最终受影响单测 305 文件 / 3,956 用例通过。Hook/storage 定向 50 用例通过。浏览器 `share-import-selection.test.mjs` 14 组通过（导入 10 组，Session 恢复 4 组；390/1200px、中文浅色/英文深色），使用真实 Hook 与工具栏、受控 Snapshot，覆盖切回/刷新、历史记录不重放、live 授权/Plan 与重复投影。该浏览器夹具不代表真实 CLI 或手机 remote 链路。
+O primeiro envio deixa de usar o seed Map global: o pane atual só permite a migração de resultados aceitos com o mesmo `workspaceKey` e a mesma geração de rascunho; New Task, troca de página e desmonte invalidam o callback antigo. A inicialização por importação de compartilhamento é anexada a uma ação de navegação de workspace já existente, é consumida ao ser recebida e é descartada ao trocar de tarefa ou criar uma nova; não é salva como rascunho vazio. A configuração de submissão continua congelada no envio, sem mudar por causa de edições posteriores.
 
-Linux Electron 重建后 run `desktop-e2e-20261014-120739-442`，TD01/03/04 1/1 通过：空白不保存、文字刷新恢复、删空后 New Task 取默认。`pnpm typecheck`、`pnpm lint`（0 errors，210 既有 warnings）、`pnpm architecture:check --changed` 通过。完整 A→B 发送 E2E 仍保留此前基线预热阻塞，本轮未重跑；手机项目代码未进一步修改，手机实机、macOS/Windows GUI 未验证。用例仍在 manual-review/pending。
+A leitura de rascunhos apenas faz parse/filtragem, sem escrever no localStorage; registros vazios antigos são limpos na escrita explícita. Sem texto não há salvamento; a criação usa o Recent da workspace, e o Recent só é atualizado no accepted.
+
+Esta rodada não altera de forma explícita a restauração de projeto/navegação no celular; a lógica compartilhada do Composer continua sendo usada ao mesmo tempo pelo continuous de desktop e pelo replayable do celular, sem mudar a semântica de Host, CLI, fila ou restauração de transmissão. O plano de implementação está em [planejamento de simplificação de estado](../plans/composer-state-simplification.md).
+
+Novas regressões CS01–08 e CS10: as autorizações/Plan históricos não são reproduzidos; a restauração com texto traz as permissões e o Plan mais recentes; novas mudanças ao vivo atualizam apenas o campo correspondente; projeções repetidas ou tardias não sobrescrevem a edição; a migração no primeiro envio preserva a nova digitação e o callback antigo não limpa a página nova; a inicialização por importação é consumida/invalidada com a navegação; a leitura em render não escreve nada. CS09, a restauração de projeto no celular, foi excluído de forma explícita pelo usuário.
+
+Verificação (2026-10-14): as novas regressões falharam primeiro na implementação antiga; no final, os testes unitários afetados passaram com 305 arquivos / 3.956 casos. Os 50 casos direcionados de Hook/storage passaram. No navegador, `share-import-selection.test.mjs` passou com 14 conjuntos (10 de importação e 4 de restauração de Session; 390/1200px, claro em chinês/escuro em inglês), usando o Hook real e a barra de ferramentas, com Snapshot controlado, cobrindo voltar/atualizar, o histórico não ser reproduzido, as autorizações/Plan ao vivo e as projeções duplicadas. Essa fixture de navegador não representa o CLI real nem a cadeia remota do celular.
+
+Após reconstruir o Electron no Linux, o run `desktop-e2e-20261014-120739-442` passou em 1/1 para TD01/03/04: o branco não salva, o texto é restaurado após atualização e o New Task após apagar tudo usa o padrão. `pnpm typecheck`, `pnpm lint` (0 errors, 210 warnings já existentes) e `pnpm architecture:check --changed` passaram. O E2E completo de envio A→B mantém o bloqueio anterior de prewarm do baseline e não foi reexecutado nesta rodada; o código de projeto no celular não foi alterado mais adiante e não houve verificação em aparelho real do celular nem em GUI de macOS/Windows. Os casos continuam em manual-review/pending.

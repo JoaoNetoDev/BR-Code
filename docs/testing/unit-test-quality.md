@@ -1,442 +1,571 @@
-# 单测质量与删减规格
+# Qualidade dos testes unitários e especificação de redução
 
-## 目标与范围
+## Objetivo e escopo
 
-保留能发现行为错误的单测，删除仅锁定实现写法、没有独立保护价值的断言。
-本次清理只修改测试及其覆盖、验证文档，不修改产品源码、测试入口、架构策略或 E2E 代码。
-不以删除比例、覆盖率、文件长度或 mock 数量决定去留。
+Manter os testes unitários que conseguem detectar erros de comportamento e remover as
+asserções que apenas travam a forma da implementação, sem valor de proteção independente.
+Esta limpeza modifica apenas os testes e os documentos de cobertura e validação; não
+modifica o código-fonte do produto, as entradas de teste, as políticas de arquitetura nem o
+código de E2E.
+A decisão de manter ou remover não é tomada com base na proporção de remoção, na cobertura, no
+tamanho do arquivo ou na quantidade de mocks.
 
-## 删减标准
+## Critérios de remoção
 
-逐文件审查测试执行了什么，以及断言实际能证明什么：
+Revisar arquivo por arquivo o que os testes executam e o que as asserções realmente
+demonstram:
 
-| 类型                                                          | 处理                                                 |
-| ------------------------------------------------------------- | ---------------------------------------------------- |
-| 读取组件源码，检查 class 字符串、属性顺序、组件名或局部变量名 | 删除纯文本守卫；这些断言不能证明实际渲染、布局或交互 |
-| 仅检查某段实现采用指定 hook、函数调用或分支写法               | 无独立行为证据时删除，不用另一份文本断言替代         |
-| 测试自行创建替身，再断言替身返回预设值，没有调用被测实现      | 删除                                                 |
-| 同一输入、边界与结果已经由保留测试覆盖                        | 合并或删除，记录保留测试                             |
-| 实际调用解析、校验、业务函数，验证独立规则、边界或失败结果    | 保留；短测试也可能有独立价值                         |
-| 只逐字复制常量表、图标或标签映射、展示默认值，没有独立规则    | 删除重复定义；调用了真实函数也不自动代表有保护价值   |
-| getter 或简单透传只比对实现中的同一个字段，未验证边界接线     | 无独有契约价值时删除，不因方法存在就逐方法配一条测试 |
-| 权限、安全、协议兼容、身份隔离、持久化、竞态或真实 IO 接线    | 保留独有保护；不能仅因使用 mock 或读取文件而删除     |
-| 架构契约、发布资源清单、生成产物等静态约束                    | 按其约束价值审查，不归入普通源码字符串清理           |
-| 混合了源码守卫与真实行为的文件                                | 保留真实行为；只有能明确分离时才删除低价值用例       |
+| Tipo                                                                                          | Tratamento                                                                                  |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Ler o código-fonte do componente e verificar strings de class, ordem de atributos, nomes de componente ou de variável local | Remover guardas de texto puro; essas asserções não provam renderização, layout ou interação |
+| Apenas verificar se um trecho de implementação usa determinado hook, chamada de função ou forma de branching | Remover quando não houver evidência comportamental independente; não substituir por outra asserção textual |
+| O teste cria o próprio substituto e então verifica que o substituto devolve o valor pré-definido, sem chamar a implementação sob teste | Remover                                                                                        |
+| A mesma entrada, fronteira e resultado já estão cobertos por um teste mantido                      | Mesclar ou remover, registrando o teste mantido                                               |
+| Chama de fato a análise, validação ou função de negócio e verifica regras independentes, fronteiras ou resultados de falha | Manter; um teste curto também pode ter valor independente                                   |
+| Apenas copia literalmente tabelas de constantes, mapeamentos de ícones ou de rótulos e valores padrão de exibição, sem regra independente | Remover definições duplicadas; chamar uma função real não significa automaticamente ter valor de proteção |
+| Getter ou repasse simples que só compara o mesmo campo da implementação, sem verificar a fiação de fronteiras | Remover quando não houver valor de contrato exclusivo; não criar um teste por método só porque o método existe |
+| Permissões, segurança, compatibilidade de protocolo, isolamento de identidade, persistência, condições de corrida ou fiação real de IO | Manter a proteção exclusiva; não remover só por usar mock ou ler arquivo                  |
+| Contratos de arquitetura, manifestos de recursos de publicação, artefatos gerados e outras restrições estáticas | Revisar pelo valor da restrição, sem agrupá-los na limpeza de strings de código-fonte      |
+| Arquivos que misturam guardas de código-fonte e comportamento real                             | Manter o comportamento real; remover casos de baixo valor só quando for possível separá-los claramente |
 
-历史缺陷的测试也需检查断言能力。只断言源码出现某个词，不能视为已复现该缺陷。
-删除此类断言不表示相应行为已有完整自动化覆盖，也不为每个删除项强行新增测试。
-局部配置测试若重复断言整个默认目录，需先确认目录归属及独立覆盖，再收窄无关部分。
-MCP 局部接线测试只可明确排除已有独立验证的四个内置文档 server；仍保留一次启动、目标顺序、
-未知额外 server 拒绝，以及请求身份、用户覆盖、退役 server 排除等断言。
-保留架构要求的 `contract.test.ts` 和已有 E2E case、catalog；coverage matrix 仅校正失效的单测覆盖声明。
+Os testes de defeitos históricos também precisam ter a capacidade de asserção verificada.
+Apenas afirmar que uma palavra aparece no código-fonte não pode ser considerado como ter
+reproduzido o defeito.
+Remover esse tipo de asserção não significa que o comportamento correspondente já tenha
+cobertura de automação completa, e também não significa adicionar um teste à força para cada
+item removido.
+Testes de configuração local que repetem asserções sobre o diretório padrão inteiro exigem
+primeiro confirmar a titularidade do diretório e a cobertura independente, para depois
+restringir as partes não relevantes.
+Os testes de fiação local de MCP só podem excluir explicitamente os quatro servidores de
+documentação embutidos que já têm verificação independente; ainda se mantêm as asserções de
+uma única inicialização, da ordem dos alvos, da rejeição de servidores adicionais desconhecidos,
+assim como da identidade da requisição, da sobrescrita do usuário e da exclusão de servidores
+aposentados.
+Mantêm-se o `contract.test.ts` exigido pela arquitetura e os casos e catálogos de E2E já
+existentes; a matriz de cobertura (coverage matrix) apenas corrige as declarações de
+cobertura de testes unitários que ficaram inválidas.
 
-## 执行与验收
+## Execução e aceitação
 
-1. 记录任务起点，先完成只读审查与本规格，再删除已审查的测试。
-2. 删除清单按实际断言说明理由；混合文件不能整文件误删。
-3. 核对测试间 import、运行配置和当前覆盖文档是否引用删除文件，修正当前失效引用。
-   历史运行记录保留其历史语义，不将旧验证结果改写为本次验证。
-4. 执行根 typecheck、lint、变更架构检查、格式检查，以及任务起点的 affected 单测。
-   affected 未选中或跳过全量必须如实报告；不能据此声称保留测试全部通过。
-5. 定向执行相关保留行为测试，验证清理没有破坏测试装配；不自动扩展为全量单测。
-6. 自查仅有约定范围内的测试与文档变更，检查通过后提交本地 commit。
+1. Registrar o ponto de partida da tarefa, concluir primeiro a revisão somente leitura e esta
+   especificação e só então remover os testes já revisados.
+2. A lista de remoções deve explicar o motivo com base nas asserções reais; arquivos mistos não
+   podem ser removidos por inteiro por engano.
+3. Verificar se os imports entre testes, a configuração de execução e os documentos de cobertura
+   atuais referenciam os arquivos removidos, corrigindo as referências agora inválidas.
+   Registros históricos de execução mantêm seu sentido histórico; resultados de validação
+   antigos não são reescritos como se fossem desta validação.
+4. Executar o typecheck da raiz, o lint, a checagem de arquitetura das mudanças, a checagem de
+   formatação e os testes unitários affected do ponto de partida da tarefa.
+   Se affected não selecionar nada ou o conjunto completo for pulado, reportar isso com
+   honestidade; não é possível alegar com base nisso que todos os testes mantidos passaram.
+5. Executar de forma direcionada os testes de comportamento mantidos que são relevantes,
+   verificando que a limpeza não quebrou a montagem dos testes; não expandir automaticamente
+   para o conjunto completo de testes unitários.
+6. Verificar se apenas os testes e documentos dentro do escopo combinado foram alterados e,
+   após a verificação passar, fazer o commit local.
 
-## 剩余单测逐文件审查合同
+## Contrato de revisão arquivo por arquivo dos testes unitários restantes
 
-第三轮从 `0cd29a0ab4` 建立当前测试库存。范围是 Git tracked 的 TS/JS test/spec 文件，
-排除 E2E、浏览器验收、夹具、生成产物与第三方副本。源码旁未注册测试也纳入质量审查，
-实际执行数量仍按各测试入口分别统计。当前库存 3578 个文件，共 1069334 行。
+A terceira rodada estabeleceu o inventário atual de testes a partir de `0cd29a0ab4`. O escopo
+são os arquivos de teste/spec TS/JS rastreados pelo Git, excluindo E2E, aceitação de navegador,
+fixtures, artefatos gerados e cópias de terceiros. Testes não registrados ao lado do código-fonte
+também entram na revisão de qualidade; a quantidade efetivamente executada continua sendo
+contada separadamente por cada entrada de teste. O inventário atual tem 3578 arquivos, com
+1069334 linhas.
+A revisão das entradas de linguagem encontrou ainda 7 testes em Go, Python e Kotlin, com 2270
+linhas, incluídos em `unit-test-review/extra-languages.jsonl`; o escopo completo de leitura
+passa a ser 3585 arquivos e 1071604 linhas.
+O instrumentation do Android é aceitação de dispositivo e não entra nesta redução de testes
+unitários; o `action-settler.test` vazio não tem código-fonte nem caso registrado e também não
+entra na contagem de arquivos revisados. O número original do inventário TS/JS é mantido para
+conferir o razão de grupos.
 
-语言入口复核另发现 7 个 Go、Python、Kotlin 测试，共 2270 行，补入
-`unit-test-review/extra-languages.jsonl`；完整审读范围因此为 3585 个文件、1071604 行。
-Android instrumentation 属于设备验收，不纳入本次单测删减；空的 `action-settler.test`
-没有源码或注册用例，也不计入文件审读数量。原始 TS/JS 库存数保留，便于核对分组账本。
+Esta rodada não substitui a revisão pela varredura. Cada arquivo deve ser lido por inteiro,
+incluindo o teste, o setup e os helpers locais, lendo a implementação ou o contrato
+correspondente conforme a chamada efetivamente testada, e conferindo se os cenários duplicados
+realmente apresentam entradas, ordens ou fronteiras diferentes.
+Arquivos grandes devem ser lidos em partes contínuas; não é permitido marcar como revisado
+usando saída truncada, lista de títulos ou resumo de imports.
 
-本轮不以扫描结果代替审查完成。每个文件必须读完测试、setup 与本地 helper，按实际被测调用
-阅读对应实现或契约，并检查重复场景是否真的给出不同输入、顺序或边界。
-大文件分段阅读，不能用截断输出、标题列表或 imports 摘要标记为已审。
+O razão de revisão arquivo por arquivo é gravado em `docs/testing/unit-test-review/`:
 
-逐文件审查账本分组写入 `docs/testing/unit-test-review/`：
+- Cada registro contém o caminho do arquivo, o hash do conteúdo no momento da revisão, a
+  quantidade de linhas realmente lidas, os grupos de comportamento cobertos, a base da
+  implementação e a conclusão de manter/remover/simplificar.
+- Simplificar ou remover exige listar os casos concretos e o motivo; ao alegar duplicidade,
+  é preciso indicar o caso mantido e a evidência da mesma entrada.
+- `contract.test.ts` é obrigatório ser mantido, mas ainda precisa ser revisado e registrado;
+  proteções únicas de segurança, identidade e temporização não podem ser removidas só porque a
+  forma é simples.
+- Arquivos mistos lidos parcialmente não podem ser registrados como lidos por inteiro;
+  contratos que não é possível julgar continuam sendo verificados, e o razão não pode ser
+  preenchido com conclusões genéricas.
+- Após cada lote de revisão, primeiro conferir a lista e coletar os casos, e só então remover;
+  uma falha de validação não pode virar automaticamente motivo de remoção.
+- Só é possível declarar a revisão dos testes unitários restantes concluída quando todo arquivo
+  do inventário tiver um registro completo de revisão semântica. No caminho, reporta-se apenas o
+  já concluído e o que falta.
 
-- 每条记录包含文件路径、审查时内容哈希、实际阅读行数、覆盖的行为组、实现依据及保留/删除/精简结论。
-- 精简或删除必须列出具体用例及理由；声称重复时指明保留用例和相同输入的证据。
-- 强制 `contract.test.ts` 保留，但仍须审查并记录；唯一安全、身份和时序保护不能因写法简单而删除。
-- 局部阅读过的混合文件不能记为全文完成；遇到无法判断的契约继续查证，不能用通用结论填账本。
-- 每批审查后先核对清单并收集用例，再删除；验证失败不能直接成为删除理由。
-- 只有库存每个文件都有完整语义审查记录，才宣称剩余单测审查完成。途中仅报告已完成和剩余数量。
+## Registro desta limpeza
 
-## 本次清理记录
+### Primeira rodada: guardas de texto do código-fonte
 
-### 第一轮：源码文本守卫
+2026-10-15: linha de base `f540bccfa6`. Os três grupos de revisão verificaram item a item as
+asserções; foram removidos 64 arquivos de teste e simplificados 28 arquivos mistos. O código-fonte
+do produto, a configuração, as entradas de teste e os arquivos de E2E não mudaram.
 
-2026-10-15：基线 `f540bccfa6`。三个审查组逐项检查断言后，删除 64 个测试文件，
-精简 28 个混合文件。产品源码、配置、测试入口和 E2E 文件均不变。
+Antes da limpeza o Vitest efetivamente coletou 92 arquivos, com 608 casos; depois restaram 289.
+Foram removidos 319 casos ao todo, dos quais 1 já era `skipped`. Não se substitui a quantidade
+de casos paramétricos expandidos pela contagem estática de `it`.
 
-清理前 Vitest 实际收集上述 92 个文件共 608 条用例，清理后剩余 289 条。
-共删除 319 条，其中 1 条原本为 skipped。不以静态 `it` 次数代替参数化展开数量。
+Validação: typecheck da raiz, lint (210 warnings, 0 erros), checagem de arquitetura das mudanças e
+checagem de formatação dos arquivos alterados passaram. O affected do ponto de partida da tarefa
+selecionou e executou de fato 28 arquivos, com 289/289 casos passando; outros três arquivos
+mantidos de integridade de configuração, mapeamento de parâmetros e fronteiras de dados passaram
+com 87/87 casos. Não foram executados os testes unitários completos nem o E2E do produto.
 
-验证：根 typecheck、lint（210 条 warning、0 error）、变更架构检查、变更文件格式检查通过。
-任务起点的 affected 实际选中并运行 28 个文件，289/289 用例通过；另外三个保留的配置完整性、
-参数映射与数据边界测试文件通过 87/87 用例。未运行全量单测或产品 E2E。
+Os caminhos na tabela abaixo registram a localização dos testes removidos e não servem como
+links de arquivos atuais nem como entradas de execução.
 
-下表路径记录已删除测试的位置，不作为当前文件链接或运行入口。
+#### Remoção de arquivo inteiro
 
-#### 整文件删除
+| Arquivo                                                                                         | Motivo                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/desktop/test/cuaHelperOperationsDocs.test.ts`                                        | Trava o nome antigo do documento, exemplos de comando e o texto original do feature graph; não verifica as operações nem as assinaturas do Helper.               |
+| `packages/desktop/test/hostMediaPreviewLogging.test.ts`                                        | Afirma apenas o valor literal do limite e o texto do log; não executa o caminho de limitação nem o de autorização.                                                          |
+| `packages/desktop/test/rendererMessageHandler.test.ts`                                         | Os quatro casos só afirmam nomes, chamadas e textos de atributos do código-fonte; os mocks do topo não são consumidos por nenhuma chamada de negócio.             |
+| `packages/provider-node/test/zcode-builtin-map-formatting.test.ts`                             | Trava principalmente a formatação e a indentação de expressões CEL; a compilação e a análise reais continuam protegidas pelos testes de integridade do builtin e de comportamento do option-map. |
+| `packages/services/test/cuaProducerSurfaceSimplification.test.ts`                              | Faz apenas varredura de palavras proibidas no código-fonte da fachada antiga e dos aliases; não verifica o comportamento de nenhum consumidor.                           |
+| `packages/ui/test/appQuickPickCommandStability.test.ts`                                        | Trava o uso de useMemo, o nome das dependências e a montagem de props; não executa re-render nem verifica a estabilidade das referências.                                    |
+| `packages/ui/test/appearanceSettingsLayout.test.ts`                                            | Copia classes de layout, chaves de locale e constantes de texto; não verifica o comportamento de configurações nem de troca de idioma.                                     |
+| `packages/ui/test/assistantMarkdownTypeScale.test.ts`                                          | Casa literalmente, entre componentes, tamanhos de fonte, classes e declarações de token; não verifica a tipografia real.                                                          |
+| `packages/ui/test/automationCardBorderTokens.test.ts`                                          | Casa literalmente várias classes de borda de Card e escritas de sombra.                                                                                                      |
+| `packages/ui/test/automationCustomRepeatTestIds.test.ts`                                       | Casa atributos de Input no código-fonte, test id e constantes numéricas; não digita nada nem verifica as regras de agendamento.                                           |
+| `packages/ui/test/automationEditSubtitle.test.ts`                                              | Casa classes de título/subtítulo, chaves de i18n e a ordem no código-fonte.                                                                                                   |
+| `packages/ui/test/automationFormInputSurface.test.ts`                                          | Casa as classes de altura, raio e cor do campo de entrada.                                                                                                                   |
+| `packages/ui/test/automationMenuIconAssets.test.ts`                                            | Casa nomes de Lucide, tamanho, traço e o JSX dos ícones.                                                                                                                     |
+| `packages/ui/test/automationNewTaskHistoryInteraction.test.ts`                                 | Casa expressões ternárias, rótulos e strings do código-fonte; não troca o histórico nem dispara carregamento.                                                                  |
+| `packages/ui/test/automationScheduleInputHeight.test.ts`                                       | Recorta o código-fonte e trava as classes de altura, overflow, espaçamento e traço.                                                                                            |
+| `packages/ui/test/automationShowcaseTemplates.test.ts`                                         | Copia textos traduzidos, nomes de Lucide, componentes do código-fonte e strings de ramificação de renderização.                                                                  |
+| `packages/ui/test/automationsMainDragRegion.test.ts`                                           | Trava classes de layout, condições do código-fonte e a contagem de aparição de componentes; não executa arrasto de janela nem mede layout.                                      |
+| `packages/ui/test/codeFontStack.test.ts`                                                       | Copia as strings do código-fonte da pilha de fontes CSS e dos tokens do viewer.                                                                                                 |
+| `packages/ui/test/desktopTopOverlaySidebarWidth.test.ts`                                       | Trava nomes de variáveis, hooks, APIs e escrita de classes; não dispara resize nem lê as métricas nativas da janela.                                                            |
+| `packages/ui/test/dialogRadius.test.ts`                                                        | Varre com regex as classes `rounded` por componente; não renderiza nem mede o raio.                                                                                            |
+| `packages/ui/test/dropdownMenuContentWidth.test.ts`                                            | Copia as classes de largura; não renderiza texto longo nem layout de tela estreita.                                                                                             |
+| `packages/ui/test/executeToolCallBlockStyle.test.ts`                                           | Afirma apenas a classe de fonte no código-fonte do comando colapsado.                                                                                                          |
+| `packages/ui/test/floatingOverlayLayering.test.ts`                                             | Copia classes de z-index e de sombra; não abre nenhuma camada flutuante nem verifica o empilhamento.                                                                            |
+| `packages/ui/test/hookCreateButtonSize.test.ts`                                                | Casa o nome do componente compartilhado, a ordem das props e as classes; não verifica o tamanho do botão.                                                                       |
+| `packages/ui/test/hookIconStyle.test.ts`                                                       | Apenas copia o nome do ícone Anchor e strings de JSX de várias linhas; não renderiza o componente nem verifica a visibilidade do ícone.                                       |
+| `packages/ui/test/hooksHintStyle.test.ts`                                                      | Casa nomes de menu, linha divisória e atributos de contagem; não verifica interação.                                                                                           |
+| `packages/ui/test/interactionThemeTokens.test.ts`                                              | Copia literais de token e conta as ocorrências de declarações CSS.                                                                                                             |
+| `packages/ui/test/markdownTableLayoutRoot.test.ts`                                             | Casa atributos de dados, inset de CSS e a ordem no código-fonte; não mede o layout da tabela.                                                                                    |
+| `packages/ui/test/menuOptionSpacing.test.ts`                                                   | Conta as ocorrências de classes `gap` no código-fonte.                                                                                                                         |
+| `packages/ui/test/menuRadius.test.ts`                                                          | Recorta o código-fonte por componente e trava as classes `rounded`; não renderiza o menu.                                                                                       |
+| `packages/ui/test/modelProviderSettingsWidth.test.ts`                                          | Afirma apenas as classes de largura de SettingsPage e ModelDialog.                                                                                                             |
+| `packages/ui/test/newTaskDraftHelpButtonLayout.test.ts`                                        | Verifica apenas nomes de componente, strings de prop e a montagem do botão; não há renderização nem disparo de comportamento real.                                              |
+| `packages/ui/test/occupationOnboardingWindowControls.test.ts`                                   | Casa apenas o JSX dos controles de janela e suas classes/props; não verifica as operações de janela nem a exibição entre plataformas.                                       |
+| `packages/ui/test/offPeakFigmaLayout.test.ts`                                                  | Os 30 casos leem o código-fonte e casam classes, nomes de ícone, montagem de componentes e forma de escrita; não há renderização, operação nem medição de layout real.               |
+| `packages/ui/test/pluginDetailHeroStyle.test.ts`                                               | Verifica apenas as classes do Hero e o nome do componente; não prova o visual real.                                                                                            |
+| `packages/ui/test/pluginDetailResourceIconStyle.test.ts`                                       | Apenas repete as strings do código-fonte do mapeamento de ícones.                                                                                                              |
+| `packages/ui/test/rootWebRemoteTaskSyncBoundary.test.ts`                                       | Apenas proíbe uma string completa de seletor Zustand; não verifica o número de awakenings de atualização em streaming, e uma escrita equivalente passaria.                      |
+| `packages/ui/test/selectTriggerStyle.test.ts`                                                  | Apenas afirma que o código-fonte não contém uma determinada classe.                                                                                                            |
+| `packages/ui/test/settingsBreadcrumbReplacesBackNavigation.test.ts`                            | Verifica apenas o nome do componente e a classe de tamanho do título; não executa a navegação.                                                                                  |
+| `packages/ui/test/settingsCommandRowContent.test.ts`                                           | Verifica apenas a inexistência do campo de caminho e strings de avatar/classe.                                                                                                 |
+| `packages/ui/test/settingsEditFormDeleteAction.test.ts`                                        | Casa o estilo do JSX do botão de exclusão; não verifica o resultado da exclusão.                                                                                                |
+| `packages/ui/test/settingsEmptyStateStyle.test.ts`                                             | Casa apenas as classes de borda tracejada e o nome do componente de estado vazio.                                                                                             |
+| `packages/ui/test/settingsFormActions.test.ts`                                                 | Apenas conta as ocorrências do texto de salvar no código-fonte, a ordem, as classes e a expressão canSave; não há renderização real nem chamada de salvamento.                 |
+| `packages/ui/test/settingsHelpMenuEntry.test.ts`                                               | Verifica apenas imports, montagem de componente, comentários e strings de classe.                                                                                              |
+| `packages/ui/test/settingsHookRowContent.test.ts`                                              | Casa apenas expressões de exibição e classes de tipografia.                                                                                                                    |
+| `packages/ui/test/settingsItemSecondaryText.test.ts`                                           | Apenas afirma que várias ocorrências no código-fonte têm a mesma classe de texto.                                                                                             |
+| `packages/ui/test/settingsListCardColors.test.ts`                                              | Verifica apenas classes do contêiner e nomes de componentes delegado.                                                                                                         |
+| `packages/ui/test/settingsListCreateAction.test.ts`                                            | Apenas quebra o código-fonte para casar o JSX de botão/menu; não clica, não executa criação nem importação.                                                                      |
+| `packages/ui/test/settingsListHeaderActionSize.test.ts`                                        | Apenas conta size/variant/class de botões e nomes de componentes compartilhados.                                                                                              |
+| `packages/ui/test/settingsListRowActionSize.test.ts`                                           | Casa apenas strings de size/class de botões.                                                                                                                                   |
+| `packages/ui/test/settingsResourceFormContainer.test.ts`                                       | Apenas repete classes do formulário, nomes de componentes e atributos JSX do Select.                                                                                          |
+| `packages/ui/test/settingsResourceRowNavigation.test.ts`                                       | Casa apenas o tratamento de teclado e classes de cursor no código-fonte; o teste unitário do helper de interação real continua mantido.                                        |
+| `packages/ui/test/settingsUsageProviderTabs.test.ts`                                           | Casa por fatia de código-fonte unavailableReason e SegmentPill; não calcula os itens realmente visíveis nem troca de aba.                                                           |
+| `packages/ui/test/tabsLayoutSpacing.test.ts`                                                   | Apenas compara uma string de classe de tabs.                                                                                                                                |
+| `packages/ui/test/toolCommandTypography.test.ts`                                               | Casa apenas strings de classe do elemento `code`.                                                                                                                            |
+| `packages/ui/test/uiFontTokenMigration.test.ts`                                                | Trava apenas frases de documentação e um conjunto de classes no código-fonte; é um teste de forma de migração.                                                                  |
+| `packages/ui/test/v4ConversationTimelineScrollbarGutter.test.ts`                                | Verifica apenas condições de class/prop no código-fonte; não verifica o gutter, o bloqueio de rolagem ou o resultado visível da navegação.                                     |
+| `packages/ui/test/workspaceFileTreeStickyLayout.test.ts`                                       | Casa apenas o código-fonte de layout e formas específicas de escrever hook/chamada de DOM; não verifica o resultado da rolagem nem a geometria sticky.                           |
+| `packages/ui/test/workspaceShellRenderStabilitySource.test.ts`                                 | Afirma apenas o nome de uma variável de useMemo; não mede estabilidade nem a contagem de renders.                                                                              |
+| `packages/ui/test/workspaceShellResizeAutoCollapse.test.ts`                                    | Afirma apenas variáveis de timeout/ref e a forma de escrever setTimeout; não executa resize/colapso.                                                                             |
+| `packages/ui/test/workspaceShellSidebarResizePerformance.test.ts`                              | Verifica apenas nomes de chamadas de DOM/estado no corpo de useCallback; não há verificação de performance nem de render; ainda contém casos `skip` já desativados.                      |
+| `packages/web/test/homeOnlyMediaPreviewService.test.ts`                                        | Verifica apenas os campos do serviço e a forma de montagem genérica, sem executar o serviço `unsupported`.                                                                         |
+| `packages/zcode-cua/test/maas-tool-result-completeness.test.ts`                                | Apenas varre as constantes de retry, nomes de campo e textos de log do script de smoke; não executa o probe.                                                                        |
+| `packages/zcode-cua/test/native/pip-window-chrome.test.ts`                                     | Trava apenas valores de raio em Objective-C++, atributos de layer e constantes de curvatura, sem renderizar o painel nativo.                                                          |
 
-| 文件                                                                | 理由                                                                                           |
-| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `packages/desktop/test/cuaHelperOperationsDocs.test.ts`             | 锁定文档旧名称、命令示例和 feature graph 原文，不验证 Helper 操作或签名。                      |
-| `packages/desktop/test/hostMediaPreviewLogging.test.ts`             | 只断言限额字面值及日志文本，未运行限流或授权路径。                                             |
-| `packages/desktop/test/rendererMessageHandler.test.ts`              | 四个 case 只断言源码命名、调用与属性文本；顶部 mock 未被实际业务调用消费。                     |
-| `packages/provider-node/test/zcode-builtin-map-formatting.test.ts`  | 主要锁 CEL 表达式排版和缩进；实际编译和解析仍由 builtin integrity 与 option-map 行为测试保护。 |
-| `packages/services/test/cuaProducerSurfaceSimplification.test.ts`   | 只对旧 facade 与别名做源码禁词扫描；不验证 consumer 行为。                                     |
-| `packages/ui/test/appQuickPickCommandStability.test.ts`             | 只锁定 useMemo、依赖名称和 props 装配，未执行重渲染或验证引用稳定性                            |
-| `packages/ui/test/appearanceSettingsLayout.test.ts`                 | 复制布局 class、locale key 与文案常量，未验证设置或语言切换行为                                |
-| `packages/ui/test/assistantMarkdownTypeScale.test.ts`               | 跨组件逐字匹配字号、class 和 token 声明，未验证实际排版                                        |
-| `packages/ui/test/automationCardBorderTokens.test.ts`               | 逐字匹配多处 Card Border class 和阴影写法                                                      |
-| `packages/ui/test/automationCustomRepeatTestIds.test.ts`            | 匹配 Input 源码属性、test id 及数字常量，未输入或验证调度规则                                  |
-| `packages/ui/test/automationEditSubtitle.test.ts`                   | 匹配标题/subtitle class、i18n key 和源码先后次序                                               |
-| `packages/ui/test/automationFormInputSurface.test.ts`               | 匹配输入框高度、圆角和颜色 class                                                               |
-| `packages/ui/test/automationMenuIconAssets.test.ts`                 | 匹配 Lucide 名称、尺寸、描边和图标 JSX                                                         |
-| `packages/ui/test/automationNewTaskHistoryInteraction.test.ts`      | 匹配三目表达式、标签和源码字符串，未切换 history 或发起加载                                    |
-| `packages/ui/test/automationScheduleInputHeight.test.ts`            | 截取源码后锁高度、溢出、间距及描边 class                                                       |
-| `packages/ui/test/automationShowcaseTemplates.test.ts`              | 复制翻译文案、Lucide 名称、源码组件和渲染分支字符串                                            |
-| `packages/ui/test/automationsMainDragRegion.test.ts`                | 锁定布局 class、源码条件和组件出现次数，未执行拖窗或测量布局                                   |
-| `packages/ui/test/codeFontStack.test.ts`                            | 复制 CSS 字体栈和 viewer token 的源码字符串                                                    |
-| `packages/ui/test/desktopTopOverlaySidebarWidth.test.ts`            | 锁定变量、hook、API 名称和 class 写法，未触发 resize 或读取原生窗口指标                        |
-| `packages/ui/test/dialogRadius.test.ts`                             | 正则逐组件扫描 rounded class，未渲染或测量圆角                                                 |
-| `packages/ui/test/dropdownMenuContentWidth.test.ts`                 | 复制宽度 class，未渲染长文案或窄屏布局                                                         |
-| `packages/ui/test/executeToolCallBlockStyle.test.ts`                | 只断言 collapsed command 的 font class 源码                                                    |
-| `packages/ui/test/floatingOverlayLayering.test.ts`                  | 复制 z-index 和 shadow class，未打开浮层或验证堆叠                                             |
-| `packages/ui/test/hookCreateButtonSize.test.ts`                     | 匹配共享组件名、props 排列及 class，未验证按钮大小                                             |
-| `packages/ui/test/hookIconStyle.test.ts`                            | 只复制 Anchor 图标名与跨行 JSX 字符串，不渲染组件或验证图标可见性                              |
-| `packages/ui/test/hooksHintStyle.test.ts`                           | 匹配菜单名称、分隔线和 count 属性，未验证交互                                                  |
-| `packages/ui/test/interactionThemeTokens.test.ts`                   | 复制 token 字面量并统计 CSS 声明次数                                                           |
-| `packages/ui/test/markdownTableLayoutRoot.test.ts`                  | 匹配 data 属性、CSS inset 与源码顺序，未测量表格布局                                           |
-| `packages/ui/test/menuOptionSpacing.test.ts`                        | 统计 gap class 的源码出现次数                                                                  |
-| `packages/ui/test/menuRadius.test.ts`                               | 逐组件截取源码并锁 rounded class，未渲染菜单                                                   |
-| `packages/ui/test/modelProviderSettingsWidth.test.ts`               | 只断言 SettingsPage 与 ModelDialog 的宽度 class                                                |
-| `packages/ui/test/newTaskDraftHelpButtonLayout.test.ts`             | 只检查组件名、prop 字符串和按钮装配；没有渲染或触发真实行为。                                  |
-| `packages/ui/test/occupationOnboardingWindowControls.test.ts`       | 只匹配窗控 JSX 及 class/prop；不验证窗口操作及跨平台显示。                                     |
-| `packages/ui/test/offPeakFigmaLayout.test.ts`                       | 30 个用例全部读源码，匹配 class、图标名、组件装配及写法；无实际渲染、操作或布局测量。          |
-| `packages/ui/test/pluginDetailHeroStyle.test.ts`                    | 只检查 Hero class 和组件名；不能证明真实视觉。                                                 |
-| `packages/ui/test/pluginDetailResourceIconStyle.test.ts`            | 只复述图标映射源码字符串。                                                                     |
-| `packages/ui/test/rootWebRemoteTaskSyncBoundary.test.ts`            | 只禁止一条完整 Zustand selector 字符串；不验证流式更新唤醒次数，等价写法可绕过。               |
-| `packages/ui/test/selectTriggerStyle.test.ts`                       | 只断言源码不含某 class。                                                                       |
-| `packages/ui/test/settingsBreadcrumbReplacesBackNavigation.test.ts` | 只检查组件名与标题字号 class；不执行导航。                                                     |
-| `packages/ui/test/settingsCommandRowContent.test.ts`                | 只检查路径字段不存在和头像/class 字符串。                                                      |
-| `packages/ui/test/settingsEditFormDeleteAction.test.ts`             | 只匹配删除按钮 JSX 风格；不验证删除结果。                                                      |
-| `packages/ui/test/settingsEmptyStateStyle.test.ts`                  | 只匹配虚线边框 class 与空态组件名。                                                            |
-| `packages/ui/test/settingsFormActions.test.ts`                      | 只统计源码保存文案次数、顺序、class 和 canSave 表达式；没有真实渲染和保存调用。                |
-| `packages/ui/test/settingsHelpMenuEntry.test.ts`                    | 只检查 import、组件装配、注释和 class 字符串。                                                 |
-| `packages/ui/test/settingsHookRowContent.test.ts`                   | 只匹配显示表达式及 typography class。                                                          |
-| `packages/ui/test/settingsItemSecondaryText.test.ts`                | 只断言多个源码存在相同 text class。                                                            |
-| `packages/ui/test/settingsListCardColors.test.ts`                   | 只检查容器 class 和委托组件名。                                                                |
-| `packages/ui/test/settingsListCreateAction.test.ts`                 | 只拆源码匹配按钮/菜单 JSX；不点击、不执行创建或导入。                                          |
-| `packages/ui/test/settingsListHeaderActionSize.test.ts`             | 只统计按钮 size/variant/class 和共享组件名。                                                   |
-| `packages/ui/test/settingsListRowActionSize.test.ts`                | 只匹配按钮 size/class 字符串。                                                                 |
-| `packages/ui/test/settingsResourceFormContainer.test.ts`            | 只复述表单 class、组件名及 Select JSX 属性。                                                   |
-| `packages/ui/test/settingsResourceRowNavigation.test.ts`            | 只匹配键盘处理及 cursor class 源码；真实交互 helper 单测继续保留。                             |
-| `packages/ui/test/settingsUsageProviderTabs.test.ts`                | 源码切片匹配 unavailableReason 与 SegmentPill；不计算实际可见项或切换 tab。                    |
-| `packages/ui/test/tabsLayoutSpacing.test.ts`                        | 只比较一个 tabs class 字符串。                                                                 |
-| `packages/ui/test/toolCommandTypography.test.ts`                    | 只匹配 code 元素 class 字符串。                                                                |
-| `packages/ui/test/uiFontTokenMigration.test.ts`                     | 只锁定文档句子及一组 class 源码；迁移写法测试。                                                |
-| `packages/ui/test/v4ConversationTimelineScrollbarGutter.test.ts`    | 只检查 class/prop 条件源码；不验证 gutter、滚动锁或导航可见结果。                              |
-| `packages/ui/test/workspaceFileTreeStickyLayout.test.ts`            | 只匹配布局源码及特定 hook/DOM 调用写法；没有验证滚动结果或 sticky 几何。                       |
-| `packages/ui/test/workspaceShellRenderStabilitySource.test.ts`      | 只断言 useMemo 变量名；不测稳定性或 render 次数。                                              |
-| `packages/ui/test/workspaceShellResizeAutoCollapse.test.ts`         | 只断言 timeout/ref 变量及 setTimeout 写法；不执行 resize/折叠。                                |
-| `packages/ui/test/workspaceShellSidebarResizePerformance.test.ts`   | 只检查 useCallback 体中 DOM/状态调用名字；没有性能或 render 验证；还含已下线 skip 用例。       |
-| `packages/web/test/homeOnlyMediaPreviewService.test.ts`             | 只验证服务字段及泛型装配写法，没有执行 unsupported service。                                   |
-| `packages/zcode-cua/test/maas-tool-result-completeness.test.ts`     | 只扫描 smoke 脚本的重试常量、字段名及日志原文，未执行 probe。                                  |
-| `packages/zcode-cua/test/native/pip-window-chrome.test.ts`          | 只锁定 Objective-C++ 圆角数值、layer 属性与曲率常量，没有渲染原生面板。                        |
+#### Simplificação de arquivos mistos
 
-#### 混合文件精简
+| Arquivo                                                                                | Escopo de remoção e fronteira de manutenção                                                                          |
+| -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `packages/ui/test/appTaskQueryCacheSubscription.test.ts`                                 | Remove as guardas de nomes de API do código-fonte; mantém a guarda de comportamento de que selecionar uma task não limpa o diretório de workspace slash command |
+| `packages/ui/test/appUsageDailyModelTrendChart.test.ts`                                  | Remove as asserções de nome de componente de gráfico no código-fonte e as asserções de classe dentro do caso de tooltip; mantém os testes de view model real, filtro e formatação numérica |
+| `packages/ui/test/appUsageModelPieChart.test.ts`                                         | Remove as cópias de tamanho/classe do código-fonte; mantém a mesclagem real de modelos e o cálculo de participação                                                            |
+| `packages/ui/test/appUsagePanel.test.ts`                                                 | Remove classes de gráfico e a ordem no código-fonte; mantém os testes de uso e de troca de escopo do componente real                                        |
+| `packages/ui/test/automationTypographyTokens.test.ts`                                    | Remove apenas as verificações de classe/ícone/componente; mantém a guarda de comportamento exclusiva de que a configuração de persistência de schedule criada na sessão não sobrescreve |
+| `packages/ui/test/browserUseTabIcon.test.ts`                                             | Remove a cópia do CSS de animação; mantém o teste de recuperação do favicon com fake timer dirigindo o componente real                                  |
+| `packages/ui/test/confirmDialogClosingContent.test.ts`                                   | Remove as verificações puras de classe de largura/altura; mantém a guarda de temporização de que a animação de fechamento preserva o conteúdo                     |
+| `packages/ui/test/conversationSelectionGuard.test.ts`                                    | Remove as cópias de classe e de texto; mantém os testes das funções reais de fronteira de seleção                                                    |
+| `packages/ui/test/feedbackCenter.test.ts`                                                | A ausência do import no código-fonte já é coberta por um teste real de mount que não chama o watcher; o restante apenas copia JSX e textos traduzidos              |
+| `packages/ui/test/offPeakUiPresentation.test.ts`                                         | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/overlayWindowControls.test.ts`                                         | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/pluginDetailHeaderLayout.test.ts`                                      | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/pluginSettingsSection.test.ts`                                         | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/pluginStoreManageEntry.test.ts`                                        | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/pluginStoreSourcesDialog.test.ts`                                      | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/previewPane.test.ts`                                                  | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/rewardsMenuIcon.test.ts`                                               | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/settingsSearchInput.test.ts`                                           | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/sidePaneTabStripLayout.test.ts`                                        | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/v4ConversationTurnGroup.test.ts`                                       | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/v4SessionPaneLayoutParity.test.ts`                                     | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/v4WorkspaceDraftDragDrop.test.ts`                                      | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts`                   | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/ui/test/workspaceSidebarTerminologyI18n.test.ts`                               | Remove apenas os casos isolados de string de código-fonte/classe/montagem de componente; mantém os casos de renderização real do componente, de interação e de helper de negócio |
+| `packages/web/test/conversationShareRoute.test.ts`                                       | Esses casos só verificam texto de JSX e forma de escrita de instruções; mantém as verificações de resolução de rota, resultado de locale, OAuth e fiação de rota de dev |
+| `packages/web/test/shareHeaderLayout.test.ts`                                            | Verifica apenas marcadores de CSS, variáveis e textos de atributo; mantém os 8 testes de comportamento de funções de layout reais |
+| `packages/web/test/webRemoteControlAssistantCodeCommentCapability.test.ts`                 | Confere por fatia de código-fonte apenas props booleanas de JSX; mantém o comportamento de projeção do conteúdo de replay e de roteamento do clique no card              |
+| `packages/web/test/webRemoteControlBootstrapShell.test.ts`                               | Apenas faz verificação de inclusão de strings de CSS; mantém os casos JSDOM de validação dos bytes reais do recurso HTML e de execução do script de tema embutido     |
 
-| 文件                                                                       | 删除范围与保留边界                                                                               |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `packages/ui/test/appTaskQueryCacheSubscription.test.ts`                   | 删除源码 API 名称守卫，保留选择 task 不清理 workspace slash command 目录的行为守卫               |
-| `packages/ui/test/appUsageDailyModelTrendChart.test.ts`                    | 删除图表组件名称源码断言和 tooltip case 内 class 断言；保留真实 view model、过滤和数字格式化测试 |
-| `packages/ui/test/appUsageModelPieChart.test.ts`                           | 删除尺寸/class 源码复制，保留真实模型合并和份额计算                                              |
-| `packages/ui/test/appUsagePanel.test.ts`                                   | 删除图表 class 与源码顺序，保留真实组件的用量和范围切换测试                                      |
-| `packages/ui/test/automationTypographyTokens.test.ts`                      | 只删除 class/图标/组件写法检查；保留 session-created schedule 持久化配置不覆盖的独有行为守卫     |
-| `packages/ui/test/browserUseTabIcon.test.ts`                               | 删除动画 CSS 源码复制，保留 fake timer 驱动真实组件的 favicon 恢复测试                           |
-| `packages/ui/test/confirmDialogClosingContent.test.ts`                     | 删除纯宽高 class 检查，保留关闭动画保留内容的时序守卫                                            |
-| `packages/ui/test/conversationSelectionGuard.test.ts`                      | 删除 class 和文案复制，保留真实选区边界函数测试                                                  |
-| `packages/ui/test/feedbackCenter.test.ts`                                  | 源码 import 缺失已有真实 mount 不调用 watcher 的测试；其余只复制 JSX 和翻译文案                  |
-| `packages/ui/test/offPeakUiPresentation.test.ts`                           | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/overlayWindowControls.test.ts`                           | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/pluginDetailHeaderLayout.test.ts`                        | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/pluginSettingsSection.test.ts`                           | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/pluginStoreManageEntry.test.ts`                          | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/pluginStoreSourcesDialog.test.ts`                        | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/previewPane.test.ts`                                     | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/rewardsMenuIcon.test.ts`                                 | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/settingsSearchInput.test.ts`                             | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/sidePaneTabStripLayout.test.ts`                          | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/v4ConversationTurnGroup.test.ts`                         | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/v4SessionPaneLayoutParity.test.ts`                       | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/v4WorkspaceDraftDragDrop.test.ts`                        | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts`   | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/ui/test/workspaceSidebarTerminologyI18n.test.ts`                 | 仅移除独立的源码/class/组件装配字符串用例；保留实际组件渲染、交互及业务 helper 用例。            |
-| `packages/web/test/conversationShareRoute.test.ts`                         | 这些 case 仅检查 JSX 文本及语句写法；保留路由解析、locale 结果、OAuth 与 dev 路由接线检查。      |
-| `packages/web/test/shareHeaderLayout.test.ts`                              | 只检查 CSS 标记、变量与属性文本；保留8个真实 layout 函数行为测试。                               |
-| `packages/web/test/webRemoteControlAssistantCodeCommentCapability.test.ts` | 只按源码切片核对 JSX boolean prop；保留实际 replay 内容投影与卡片点击路由行为。                  |
-| `packages/web/test/webRemoteControlBootstrapShell.test.ts`                 | 只做 CSS 字符串包含判断；保留真实 HTML 资源字节验证与运行内嵌主题脚本的JSDOM用例。               |
+Depois de remover guardas de texto como `rendererMessageHandler` e
+`workspaceShellRenderStabilitySource`, a condição de corrida ou a estabilidade de renderização
+correspondente não pode ser declarada coberta com base na antiga correspondência de
+identificadores. A cobertura de rótulos de idioma do SL-02 também está explicitamente marcada
+como pendente de verificação comportamental na
+[matriz de cobertura de idiomas](settings-language-e2e-coverage-matrix.md).
 
-删除 `rendererMessageHandler` 和 `workspaceShellRenderStabilitySource` 等文本守卫后，
-相应竞态或渲染稳定性不能靠原有标识符匹配宣称已覆盖。SL-02 的语言标签覆盖也已在
-[语言覆盖矩阵](settings-language-e2e-coverage-matrix.md)中明确标为待补行为验证。
+### Segunda rodada: ampliar para constantes, repasses e cobertura duplicada
 
-### 第二轮：扩大到常量、透传与重复覆盖
+Linha de base `d027277ea8`. A primeira rodada não revisou item a item todos os testes
+unitários do repositório, portanto a revisão de candidatos por texto do código-fonte não pode
+ser descrita como uma auditoria de qualidade completa. A segunda rodada primeiro leu a estrutura
+de todos os arquivos de teste nomeados rastreados pelo Git e só então fez a revisão semântica dos
+candidatos e de suas implementações de referência. O índice tem 3678 arquivos depois de excluir
+diretórios de E2E e de fixtures; ele ainda contém E2E nomeados e cópias de build, e não pode
+ser tomado como o número de testes unitários ativos. A lista oficial do Vitest na raiz enumera
+2587 specifications; CLI, site de documentação, testes nativos do Node e testes não registrados
+ao lado do código-fonte foram conferidos entrada por entrada.
 
-基线 `d027277ea8`。第一轮没有逐条审查全库单测，不能把源码文本候选审查表述为全量质量审计。
-第二轮先读取全部 Git tracked 测试命名文件的结构，再对候选及其对照实现做语义审查。
-索引排除 E2E 与夹具目录后有 3678 个文件；其中仍含命名式 E2E 和构建副本，不能视为活跃单测数。
-根 Vitest 官方实际列出 2587 个 specifications；CLI、文档站、Node 原生测试和源码旁未注册测试分别核对入口。
+| Grupo de revisão                        | Arquivos varridos na estrutura | Candidatos lidos a fundo e arquivos de referência | Escopo                                                                                                   |
+| --------------------------------------- | ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| UI                                      | 1193                           | 100                                                 | Exclui o diretório de aceitação de navegador; inclui testes ao lado do código-fonte e mantém o `contract`  |
+| Serviços, compartilhado, Provider, Client, RPC | 590                      | 70                                                  | Arquivos de teste nomeados de sete pacotes                                                                 |
+| Desktop, CUA, Web, Server, outros pacotes e scripts | 873                | 65                                                  | Exclui E2E, fixtures, cópias de build e o `contract` obrigatório                                         |
+| CLI                                     | 917                            | 11                                                  | Varredura de estrutura de todos os arquivos nomeados; coleta separada por pacote e por entrada de teste nativo do Node |
 
-| 审查组                               | 结构扫描文件 | 深读候选及对照文件 | 范围                                                   |
-| ------------------------------------ | ------------ | ------------------ | ------------------------------------------------------ |
-| UI                                   | 1193         | 100                | 排除 browser 验收目录；包含源码旁测试，保留 contract   |
-| 服务、共享、Provider、Client、RPC    | 590          | 70                 | 七个包的测试命名文件                                   |
-| 桌面、CUA、Web、Server、其他包及脚本 | 873          | 65                 | 排除 E2E、夹具、构建副本和强制 contract                |
-| CLI                                  | 917          | 11                 | 全部命名文件结构扫描；按包与原生 Node 测试入口分开收集 |
+A varredura de estrutura inclui imports, declarações de teste, mocks, leitura de arquivos e
+verificação de callbacks idênticos token a token. A lista de leitura a fundo registra apenas o
+escopo realmente julgado; em arquivos mistos garante-se que os casos relevantes e suas
+referências foram revisados, o que não significa que cada caso do arquivo tenha sido lido por
+inteiro. Esta rodada remove dicionários de exibição fixos, eco de repasse simples, testes de
+algoritmo auto-inventados, sobras de functionality aposentada e cenários duplicados
+confirmadamente. Testes de OAuth, de protocolo de modelo e de keepalive de mídia com callbacks
+exatamente iguais no mesmo `describe` mantêm apenas uma cópia, sem remover a cobertura de
+fronteiras exclusivas. Arquivos `.test.tsx` não coletados pela configuração da raiz e testes
+órfãos apontando para caminhos de CLI já aposentados não contam como casos efetivamente
+executados.
 
-结构扫描包括 imports、测试声明、mock、文件读取和逐 token 完全相同的回调检查。
-深读列表只记录实际裁决范围；混合文件只保证相关用例及其对照已审查，不表示文件内每条用例均读完。
-本轮删除固定展示字典、简单透传回声、自造算法测试、退役遗留与确证重复场景。
-相同 describe 中回调完全相同的 OAuth、模型协议和媒体保活测试只保留一份，不删除其独有边界覆盖。
-根配置未收集的 `.test.tsx` 和指向已退役 CLI 源路径的孤儿测试，不计作实际执行过的用例。
+A versão original do teste de complexidade do site de documentação também apresentava
+`136 != 137`: o teste contava as arestas de nós ausentes como arestas entre grupos, enquanto a
+implementação conta apenas nós válidos e agrupamentos válidos. Esta rodada mantém a verificação
+dessa regra, trocando por expectativas independentes sobre um grafo fixo pequeno, cobrindo
+entre-grupos, dentro do mesmo grupo, nó ausente e grupo ausente; não copia a implementação da
+estatística, não modifica o algoritmo do produto e não remove esse teste por causa da falha
+original.
 
-文档站复杂度测试的原始版本也出现 `136 != 137`：测试把缺失节点的边计为跨群边，而实现
-只统计有效节点及有效分组。本轮保留该规则验证，改用固定小图的独立期望，覆盖跨群、同群、
-缺失节点与缺失分组；不复制统计实现，不修改产品算法，不因原有失败删除这条测试。
+#### Lista de remoções e manutenções da segunda rodada
 
-#### 第二轮删除与保留清单
+Esta rodada removeu 59 arquivos, simplificou 64 arquivos mistos e também corrigiu referências a
+testes unitários inválidas na matriz de cobertura atual. As três guardas de fiação de código-fonte
+divulgadas pela origem MCP oficial foram restauradas após revisão cruzada; testes que montam env
+manualmente não substituem a restrição de montagem real.
 
-本轮删除 59 个文件，精简 64 个混合文件；另修正当前覆盖矩阵中的失效单测引用。
-官方 MCP 权威 origin 下发的三条源码接线守卫经交叉复核恢复；手工构造 env 的测试不能替代真实装配约束。
+Coletados e executados pelas suas entradas reais, os casos registrados caíram de 1104 para 829,
+uma remoção de 275 casos. Também foram limpas 7 declarações estáticas em dois arquivos não
+registrados, que não foram contabilizadas na quantidade executada acima. Acumulando as duas
+rodadas: 123 arquivos de teste e 594 casos registrados removidos (incluindo o único caso `skipped`
+da primeira rodada), com uma redução líquida de 8305 linhas de código de teste.
 
-按各自真实入口收集和执行，本轮已注册用例从 1104 条降到 829 条，删除 275 条。
-另清理两个未注册文件中的 7 个静态声明，未把它们计入上述执行数量。
-两轮累计删除 123 个测试文件、594 条已注册用例（含第一轮原有的 1 条 skipped），测试代码净减 8305 行。
+Os 57 arquivos affected da raiz passaram primeiro com 721 casos; após restaurar as três guardas
+de segurança, o arquivo direcionado passou com 21/21, e o conjunto final mantido na raiz ficou
+com 724 casos. CLI Vitest 70/70, Office profile 1/1, TUI nativo 33/33 e o grafo fixo do site de
+documentação 1/1 passaram. Typecheck da raiz, lint (210 warnings) e checagem de arquitetura
+passaram; os 32 tarefas de typecheck do CLI e o lint (68 warnings, 0 erros) passaram. O script de
+CLI local não tinha o caminho do executável do Turbo; a mesma tarefa foi executada a partir do
+diretório do CLI usando a versão 2.9.14 do Turbo do lockfile. A formatação foi verificada
+separadamente pelas entradas da raiz e do CLI; os testes de CUA seguem as regras de exclusão já
+existentes do formatter da raiz. Não foram executados os testes unitários completos nem o E2E do
+produto; não foi modificado o código-fonte do produto, o protocolo público, as entradas de teste
+nem as políticas de arquitetura.
 
-根 affected 57 个文件先通过 721 条；恢复三个安全守卫后，该文件定向 21/21 通过，最终根保留集合为 724 条。
-CLI Vitest 70/70、Office profile 1/1、TUI 原生 33/33、文档站固定图 1/1 均通过。
-根 typecheck、lint（210 warning）、架构检查通过；CLI typecheck 的 32 个任务及 lint（68 warning、0 error）通过。
-本机 CLI script 缺少 Turbo 可执行路径，改从 CLI 目录使用锁文件版本 Turbo 2.9.14 执行同一任务。
-格式按根与 CLI 各自入口检查；CUA 测试沿用根 formatter 的既有排除规则。
-未运行全量单测或产品 E2E；没有修改产品源码、公共协议、测试入口或架构策略。
+A localização dos arquivos removidos está registrada abaixo e não serve como link de arquivo
+atual nem como entrada de execução.
 
-删除文件的位置记录如下，不作为当前文件链接或运行入口。
+| Arquivo                                                                            | Motivo da remoção                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/dev-docs/test/capabilityMapCurrentFeatures.test.ts`                             | Copia item a item as descrições de nós, as arestas de grafo e as palavras-chave do mapa de capacidades do site de documentação, sem comparação com a implementação de produção; não prova que os fatos escritos sobre as funcionalidades atuais são verdadeiros. Mantém os testes de cálculo de grafo, geometria e análise de YAML. |
+| `apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`                           | Copia os agrupamentos de dados mantidos à mão do mapa de capacidades, a estimativa de 1200 linhas, os nós/arestas e os textos originais das descrições; não verifica as funcionalidades de Office nem de CUA.                                            |
+| `apps/zcode-cli/packages/adapters/tests/runner-debug-storage-rollback.test.ts`        | Trava apenas a forma antiga de concatenar diretórios no código-fonte, sem executar a resolução do caminho de debug storage.                                                                                                                     |
+| `apps/zcode-cli/packages/bootstrap/tests/official-plugin-categories.test.ts`          | Pega plugins fixos da tabela de definição e copia as constantes de category/defaultEnabled, sem comportamento de montagem independente.                                                                                                          |
+| `apps/zcode-cli/packages/contracts/tests/model-options.test.ts`                       | Apenas atribui valores a um objeto de tipo local e afirma o próprio objeto; não há implementação em runtime sob teste; a origem comum dos tipos é mantida por model-schema-contract.                                                            |
+| `apps/zcode-cli/packages/debug/tests/gantt-style.test.ts`                             | Copia diretamente a constante de largura mínima e suas strings de CSS; não há verificação real das dimensões da linha do tempo.                                                                                                               |
+| `apps/zcode-cli/tests/core.unit.test.ts`                                              | O diretório raiz src/core antigo foi removido; o teste ainda aponta para um módulo inexistente e não pertence à entrada de testes atual dos pacotes Turbo; limpeza de sobras de testes aposentados.                                                        |
+| `packages/client/test/conversationShareRemoteServiceAccess.test.ts`                   | Depois de construir o accessor, verifica apenas que um descriptor foi solicitado e que o getter é truthy; não chama os métodos do proxy nem verifica o envio/recepção real no canal.                                                                |
+| `packages/desktop/test/app-launch-telemetry.test.ts`                                  | Apenas faz o mock de createRendererContext devolver um DTO pré-definido e afirma que outro mock recebe os mesmos campos; a função de produção tem só uma linha bridge.syncTelemetryContext(createRendererContext()). Os testes de temporização real de inicialização e de isolamento do renderer continuam mantidos. |
+| `packages/desktop/test/armsRumShared.test.ts`                                         | O runtime de development e o ambiente de produto production recebem a mesma entrada e a mesma saída local, o que já é verificado de fato pelo teste de montagem armsBrowserInit, que valida o env passado ao SDK; este último é mantido.                                |
+| `packages/desktop/test/cuaPermissionPanelMessages.test.ts`                            | Os dois casos copiam campo a campo o dicionário de textos em chinês e inglês; o resolver só tem locale/índice de permissão e expansão de campos; não executa a autorização de permissão, a janela nativa nem a interação. Os testes do fluxo de permissão não são tocados. |
+| `packages/desktop/test/desktopTelemetryFetch.test.ts`                                 | Apenas repete o repasse de uma camada de createDesktopTelemetryFetch: a mock de Response pré-definida é devolvida como está e o mesmo conjunto de URL/init é conferido; não verifica Electron, rede ou ramo de falha.                                               |
+| `packages/services/test/clientScenesService.test.ts`                                  | O wrapper fino apenas chama readApiJson e devolve a resposta fabricada tal como está; o teste copia em boa parte pseudo-respostas e não verifica nem a transformação de negócio nem o erro nem HTTP real.                                                     |
+| `packages/services/test/nodeCuaInstallerExports.test.ts`                              | Os 5 casos leem o código-fonte e casam exports de tipo, nomes de função, forma de configuração e comentários; não há evidência de instalação, saída ou execução de timer.                                                                     |
+| `packages/services/test/providerM2LegacyBoundary.test.ts`                             | Afirma ENOENT para 5 caminhos fixos de arquivos antigos já removidos; não verifica a implementação atual, a migração de dados ou o caminho de importação; é resíduo de uma limpeza pontual.                                                       |
+| `packages/shared/test/cuaPermissionDragChannels.test.ts`                              | Copia os valores literais de duas constantes de canal IPC compartilhado e verifica que as quatro constantes não se repetem; os dois lados consumidores importam a mesma constante e o teste não chama a cadeia real de arrastar.                                        |
+| `packages/shared/test/modelConfigBuildClosure.test.ts`                                | Verifica apenas o texto de COPY do Dockerfile e a ordem relativa das linhas; sem build, instalação ou importação de artefato, não prova o closure de build reduzido.                                                                              |
+| `packages/shared/test/modelProviderTypes.test.ts`                                     | Afirma apenas que uma string aposentada não está na enumeração de constantes nem no helper de comparação direta de enumerações; não executa a análise de Provider nem a admissão de validade.                                                            |
+| `packages/shared/test/offPeakTaskIdentity.test.ts`                                    | Os 3 casos repetem item a item o getter de uma única linha Boolean(task.offPeakTaskId); não há criação de tarefa, restauração, persistência nem comportamento de identidade na UI.                                                          |
+| `packages/shared/test/pluginMarketplaces.test.ts`                                     | Copia o objeto estático de mercado padrão e o resultado de classificação de um array de um elemento; sem carregamento de mercado, instalação, exceção ou verificação de interação.                                                              |
+| `packages/shared/test/zcodeAgentRuntime.test.ts`                                      | Copia diretamente a constante estática spawnArgs e o mapeamento de sufixos do binário Windows; não analisa recursos de runtime nem inicia o Agent.                                                                                                |
+| `packages/ui/test/automationAddScheduleIcon.test.ts`                                  | Depois de renderizar de verdade, copia apenas o viewBox, a classe e as constantes de traço do ícone Plus; não há seleção de ícone, evento ou resultado de layout.                                                                            |
+| `packages/ui/test/automationDesignPrimitives.test.tsx`                                | Os três casos apenas copiam o tamanho padrão, o traço e a classe de contêiner do SVG de terceiros Lucide; não verificam comportamento de negócio.                                                                                           |
+| `packages/ui/test/automationTemplateSkeletonGrid.test.ts`                             | Trava apenas quatro skeletons estáticos, a exibição do label passado tal como está e as classes; não há estado de carregamento assíncrono nem medição de layout.                                                                            |
+| `packages/ui/test/button.test.ts`                                                     | Asserções de string não vazia e repetição literal de transition-colors/transition-all da configuração cva; não executa interação de botão nem mede performance de animação.                                                                 |
+| `packages/ui/test/codingPlanEnterpriseTiers.test.ts`                                  | Apenas repete os textos da conversão direta de maiúsculas/minúsculas/label do nível técnico; os testes de benefícios, de compra e de agrupamento combinado são mantidos.                                                                          |
+| `packages/ui/test/collapsible.test.ts`                                                | Apenas trava, para o HTML servido do defaultOpen/forceMount fixo, as marcações do Radix e as classes de animação; não há ação de abrir/fechar nem ciclo de vida da animação.                                                                 |
+| `packages/ui/test/commandsSettings.test.ts`                                           | Os dois casos copiam tal como estão COMMAND_AGENT_SOURCES e as constantes de metadados; não verificam descoberta de comandos, isolamento de origem, carregamento nem execução.                                                                      |
+| `packages/ui/test/contextTrigger.test.ts`                                             | Apenas afirma que o aria-label passado é repassado tal como está, o tamanho do ícone e a ausência de texto de resumo; não dispara Context nem verifica o uso.                                                                                  |
+| `packages/ui/test/desktopWindowFrame.test.ts`                                         | A tabela de parâmetros de plataforma apenas repete classes de fundo/clip/radius; não opera a janela, não mede transparência nem verifica os controles nativos.                                                                               |
+| `packages/ui/test/enabledStatusFilter.test.ts`                                        | Os dois casos repetem por completo a comparação booleana dos três ramos all/enable/disable; sem combinação de filtro de lista, entrada real ou isolamento de origem.                                                                          |
+| `packages/ui/test/modelConfigHelpCopy.test.ts`                                        | Copia o trecho inteiro de texto de ajuda para um segundo dicionário de expected; qualquer alteração no texto obriga a alterar o teste, e o comportamento de configuração de modelo não é verificado.                                                  |
+| `packages/ui/test/modelProviderPresetVisibility.test.ts`                              | Apenas afirma que o array de constantes pré-definidas não contém um ID desativado; não executa a seleção de provider nem o gate de execução.                                                                                               |
+| `packages/ui/test/modelTrajectoryPane.test.ts`                                        | Depois de mockar a trajetória vazia e todos os hooks, verifica apenas a classe de overflow; não carrega a trajetória nem executa a rolagem.                                                                                                   |
+| `packages/ui/test/offPeakHistoryStatus.test.ts`                                       | A tabela de parâmetros copia literalmente o mapeamento puro de completed/failed/cancelled para a chave de exibição; não verifica membros do histórico, persistência nem estado de execução.                                                            |
+| `packages/ui/test/offPeakTemplateIcons.test.ts`                                       | A tabela de parâmetros copia item a item o mapeamento de template para nome de ícone Lucide e as constantes de SVG; o carregamento dinâmico de ícones e o fallback de ícone desconhecido são mantidos por automationTemplateRemoteIcons.           |
+| `packages/ui/test/onboardingWelcomeI18n.test.ts`                                      | A tabela de parâmetros copia os textos de botões e títulos; não executa o onboarding nem verifica a interpolação de mensagens.                                                          |
+| `packages/ui/test/pluginDetailHeaderLayout.test.ts`                                   | Apenas repete a regex simples de classificação de ícones por palavra-chave PDF/CSV, sem verificar análise, tipo de arquivo ou abertura de documento.                                                                                       |
+| `packages/ui/test/pluginStoreManageEntry.test.ts`                                     | O render estático com fixture de plugin fixo trava apenas o DOM de busca/cartão/divisória e as classes; não há comportamento de entrada de gerenciamento.                                                                                  |
+| `packages/ui/test/previewPaneI18n.test.ts`                                            | Copia literalmente os textos de botões/erros de pré-visualização e as descrições de tamanho; os casos reais de limite de tamanho, de caminho e de erro de formato são mantidos.                                                                   |
+| `packages/ui/test/providerKeyLinks.test.ts`                                           | Apenas conta as ocorrências dos botões estáticos de obter Key e das chaves de locale; o conteúdo de Key passado não participa de nenhuma verificação de autenticação ou de visibilidade.                                                           |
+| `packages/ui/test/providerStatusIndicator.test.ts`                                    | Reescreve o mapeamento direto de enabled/executable como expectativa de atributo de dados; a executabilidade real do provider, a hidratação e o comportamento de Registry vazio permanecem em modelProviderAvailability.                                        |
+| `packages/ui/test/readToolCallBlock.test.ts`                                          | As duas entradas clicáveis acabaram verificando apenas a classe de cor do nome do arquivo; o comportamento real de localizar/abrir arquivo não é tocado.                                                                                     |
+| `packages/ui/test/remoteConnectionEntryBehavior.test.ts`                              | A função de origem ignora os argumentos e retorna sempre open-workspace; as duas entradas booleanas apenas repetem a constante do getter e não testam o processo de conexão.                                                                   |
+| `packages/ui/test/remoteConnectionTags.test.ts`                                       | Apenas copia a tabela de exibição de transport para cor/chave de label; a temporização completa da apresentação remota, a recuperação e os testes do componente de detalhe são mantidos.                                                           |
+| `packages/ui/test/remoteDeviceTerminologyI18n.test.ts`                                | Apenas verifica as chaves de dicionário removidas e os termos de produto; identidade remota, estado de conexão, migração e verificação de integridade das chaves são mantidos.                                                                    |
+| `packages/ui/test/selectItemLayout.test.ts`                                           | Faz mock do DOM do Radix e depois verifica as classes px/pr do SelectItem; não verifica nenhum comportamento do Select.                                                                |
+| `packages/ui/test/settingsCloseToTrayI18n.test.ts`                                    | Apenas trava as palavras presentes no texto explicativo; os testes de capacidade de bandeja entre plataformas e de comportamento de fechamento são mantidos.                                                                            |
+| `packages/ui/test/settingsFormTextarea.test.ts`                                       | Depois de renderizar de verdade o wrapper sem lógica do Textarea, apenas repete o shell de DOM e as classes de cor/raio.                                                                                                                       |
+| `packages/ui/test/settingsHttpProxyI18n.test.ts`                                      | Apenas casa as palavras fixas do texto de ajuda do proxy; não define proxy nem verifica o acompanhamento do proxy do sistema.                                                       |
+| `packages/ui/test/settingsSkillScopeBadge.test.ts`                                    | Apenas casa no código-fonte os nomes de ícone, Badge e helper de agrupamento e o texto JSX; os casos reais de roteamento de scope e de identidade de marketplace são mantidos.                                                               |
+| `packages/ui/test/sourceServerManagementPresentation.test.ts`                         | Apenas repete a mesma chave de locale para dois getters de tabela direta; não envolve estado de migração nem validação de wire schema.                                                 |
+| `packages/ui/test/statusDot.test.ts`                                                  | Apenas renderiza com tone=subtle e repete o mapeamento de classes de cor; não há mudança de entrada de estado nem atribuição de estado de negócio.                                   |
+| `packages/ui/test/toolCallPresentationVocabulary.test.ts`                             | Copia por completo o texto em chinês e inglês de 29 chaves de tradução estáticas; não analisa ferramentas, não julga estado nem executa renderização.                                    |
+| `packages/ui/test/v4ConversationDraftEmptyStateLogo.test.ts`                          | Verifica apenas o material fixo do Logo claro/escuro e as classes CSS; não troca o tema nem verifica a assinatura do tema.                                                             |
+| `packages/ui/test/workspaceSidebarTerminologyI18n.test.ts`                            | Copia literalmente o mesmo dicionário de locale em chinês e inglês; não verifica que a interface obtém o valor segundo o locale.                                                            |
+| `packages/ui/test/zcodeProviders.test.ts`                                             | A função de origem ignora o provider e sempre retorna true, e a outra apenas nega; as dez expectativas são repetição de constantes, e o estado real da fork task e o guard alvo não são tocados.                       |
+| `packages/web/test/webRemoteControlFailures.test.ts`                                 | Apenas copia a construção do DTO com reason fixo mais message; a regressão de uso de connection-recovery-timeout depois de esgotar a recuperação da conexão continua verificada pelo teste real de agendamento de recuperação externalRelayFrameGapRecovery. |
+| `packages/zcode-cua/test/broker/host-surface-simplification.test.ts`                    | Apenas varre nomes de type/alias aposentados e textos de montagem fixos; a launch policy imutável real de ghost/PiP já tem teste de spec de host real + broker + launcher, e esse teste e todas as proteções de assinatura/permissão/ciclo de vida são mantidos.     |
 
-| 文件                                                                           | 删除理由                                                                                                                                                                                      |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/dev-docs/test/capabilityMapCurrentFeatures.test.ts`                      | 逐项复制文档站能力地图的节点说明、图边和关键词，没有与生产实现对照；不能证明所写当前功能事实真实。保留图计算、几何与YAML解析测试。                                                            |
-| `apps/dev-docs/test/capabilityMapOfficeComputerUse.test.ts`                    | 复制能力地图手工维护的数据分组、1200行估计、节点/边及说明原文；并未验证Office或CUA功能。                                                                                                      |
-| `apps/zcode-cli/packages/adapters/tests/runner-debug-storage-rollback.test.ts` | 只锁旧目录拼接源码写法，不执行debug storage路径解析。                                                                                                                                         |
-| `apps/zcode-cli/packages/bootstrap/tests/official-plugin-categories.test.ts`   | 从定义表取固定插件后复制category/defaultEnabled常量，无独立装配行为。                                                                                                                         |
-| `apps/zcode-cli/packages/contracts/tests/model-options.test.ts`                | 仅给本地类型对象赋值再断言原对象，无运行时被测实现；类型同源由model-schema-contract保留。                                                                                                     |
-| `apps/zcode-cli/packages/debug/tests/gantt-style.test.ts`                      | 直接复制最小宽度常量及其CSS字符串；没有实际时间轴尺寸验证。                                                                                                                                   |
-| `apps/zcode-cli/tests/core.unit.test.ts`                                       | 旧根目录src/core已移除，测试仍指向不存在的旧模块且不属于当前Turbo包测试入口；清理退役测试遗留。                                                                                               |
-| `packages/client/test/conversationShareRemoteServiceAccess.test.ts`            | 构造accessor后只检查请求过某descriptor和getter truthy；未调用代理方法，也未验证实际频道收发。                                                                                                 |
-| `packages/desktop/test/app-launch-telemetry.test.ts`                           | 仅让 createRendererContext mock 返回预设 DTO，再断言另一个 mock 收到相同字段；生产函数只有一行 bridge.syncTelemetryContext(createRendererContext())。真实启动时序与 renderer 隔离测试仍保留。 |
-| `packages/desktop/test/armsRumShared.test.ts`                                  | development运行态与production产品环境得到local的同一输入输出，已由 armsBrowserInit 装配测试实际验证传给SDK的env，保留后者。                                                                   |
-| `packages/desktop/test/cuaPermissionPanelMessages.test.ts`                     | 两个case逐字段复制中英文文案字典，resolver只有locale/permission索引与字段展开；没有执行权限授权、原生窗口或交互。权限流程相关测试不动。                                                       |
-| `packages/desktop/test/desktopTelemetryFetch.test.ts`                          | 仅复述 createDesktopTelemetryFetch 的单层透传：预设 mock Response 原样返回并核对同一组 URL/init；没有验证 Electron、网络或失败分支。                                                          |
-| `packages/services/test/clientScenesService.test.ts`                           | 薄包装只调用 readApiJson 并原样返回自造响应；测试大部分复制伪响应，既不验证业务变换也不验证错误或真实HTTP。                                                                                   |
-| `packages/services/test/nodeCuaInstallerExports.test.ts`                       | 5个用例都读取源码，匹配类型导出、函数名、配置写法及注释字样；没有实际安装、退出或定时器运行证据。                                                                                             |
-| `packages/services/test/providerM2LegacyBoundary.test.ts`                      | 对5个早已删除的固定旧文件路径断言ENOENT；不验证当前实现、数据迁移或导入路径，属于一次性清理的残留。                                                                                           |
-| `packages/shared/test/cuaPermissionDragChannels.test.ts`                       | 复制两个共享IPC通道常量字面值并检查四个常量不重复；消费者两端均导入同一常量，测试没有调用实际拖拽链路。                                                                                       |
-| `packages/shared/test/modelConfigBuildClosure.test.ts`                         | 只检查Dockerfile COPY文字和相对行序；没有构建、安装或产物导入，不能证明裁剪构建闭包。                                                                                                         |
-| `packages/shared/test/modelProviderTypes.test.ts`                              | 仅断言一个退役字符串不在常量枚举及直接枚举比较helper；不执行Provider解析或合法性准入。                                                                                                        |
-| `packages/shared/test/offPeakTaskIdentity.test.ts`                             | 3个用例逐项复述单行 Boolean(task.offPeakTaskId) getter；没有任务创建、恢复、持久化或UI身份行为。                                                                                              |
-| `packages/shared/test/pluginMarketplaces.test.ts`                              | 复制默认市场静态对象及单元素数组includes的分类结果；没有市场加载、安装、异常或交互验证。                                                                                                      |
-| `packages/shared/test/zcodeAgentRuntime.test.ts`                               | 直接复制静态spawnArgs常量与Windows二进制后缀映射；没有解析运行时资源或启动Agent。                                                                                                             |
-| `packages/ui/test/automationAddScheduleIcon.test.ts`                           | 真实渲染后只复制 Plus 图标 viewBox、class 和 stroke 常量；没有图标选择、事件或布局结果。                                                                                                      |
-| `packages/ui/test/automationDesignPrimitives.test.tsx`                         | 三个用例仅复制第三方 Lucide SVG 的默认尺寸、描边和容器 class；不验证业务行为。                                                                                                                |
-| `packages/ui/test/automationTemplateSkeletonGrid.test.ts`                      | 只锁四个静态 skeleton、传入 label 原样显示和 class；没有异步加载状态或布局测量。                                                                                                              |
-| `packages/ui/test/button.test.ts`                                              | 非空字符串断言以及 transition-colors/transition-all 字面量复述 cva 配置；不执行按钮交互或测量动画性能。                                                                                       |
-| `packages/ui/test/codingPlanEnterpriseTiers.test.ts`                           | 只对技术档位直接大小写/label 映射复述文案；权益、购买、组合分组测试保持。                                                                                                                     |
-| `packages/ui/test/collapsible.test.ts`                                         | 只对固定 defaultOpen/forceMount 的服务端 HTML 锁定 Radix 标记与动画 class；没有开关动作或动画生命周期。                                                                                       |
-| `packages/ui/test/commandsSettings.test.ts`                                    | 两个用例原样复制 COMMAND_AGENT_SOURCES 和元数据常量；不验证命令发现、来源隔离、加载或执行。                                                                                                   |
-| `packages/ui/test/contextTrigger.test.ts`                                      | 只断言传入 aria-label 原样透传、图标大小和无摘要文案；不触发 Context 或验证用量。                                                                                                             |
-| `packages/ui/test/desktopWindowFrame.test.ts`                                  | 平台参数表只复述背景/clip/radius class；未操作窗口、测量透明度或验证原生窗控。                                                                                                                |
-| `packages/ui/test/enabledStatusFilter.test.ts`                                 | 两用例完整复述 all/enable/disable 三分支布尔比较；无列表筛选组合、实际输入或来源隔离。                                                                                                        |
-| `packages/ui/test/modelConfigHelpCopy.test.ts`                                 | 把整段帮助文案复制成第二份 expected 字典；文案修改时必须同步改测试，无法验证模型配置行为。                                                                                                    |
-| `packages/ui/test/modelProviderPresetVisibility.test.ts`                       | 仅断言预置常量数组不含一个已下线 ID；不执行 provider 选择或运行门禁。                                                                                                                         |
-| `packages/ui/test/modelTrajectoryPane.test.ts`                                 | mock 空轨迹和所有 hooks 后只检查 overflow class，不加载轨迹或执行滚动。                                                                                                                       |
-| `packages/ui/test/offPeakHistoryStatus.test.ts`                                | 参数表逐字复制 completed/failed/cancelled 到展示 key 的纯映射；不验证历史成员、持久化或运行态。                                                                                               |
-| `packages/ui/test/offPeakTemplateIcons.test.ts`                                | 参数表逐项复制模板到 Lucide 图标名映射及 SVG 常量；动态图标加载和未知图标回退由 automationTemplateRemoteIcons 保留。                                                                          |
-| `packages/ui/test/onboardingWelcomeI18n.test.ts`                               | 参数表复制按钮和标题文案；不执行 onboarding，也不验证消息插值。                                                                                                                               |
-| `packages/ui/test/pluginDetailHeaderLayout.test.ts`                            | 只按 PDF/CSV 关键词重复简单图标分类正则，不验证解析、文件类型或打开文档。                                                                                                                     |
-| `packages/ui/test/pluginStoreManageEntry.test.ts`                              | 固定插件 fixture 静态渲染只锁搜索/卡片/分隔线 DOM 与 class；没有管理入口行为。                                                                                                                |
-| `packages/ui/test/previewPaneI18n.test.ts`                                     | 逐字复制预览按钮/错误文案及尺寸说明；实际预览大小边界、路径和格式错误用例保持。                                                                                                               |
-| `packages/ui/test/providerKeyLinks.test.ts`                                    | 只数静态获取 Key 按钮及 locale key 次数；传入的 Key 内容不参与任何鉴权或显隐验证。                                                                                                            |
-| `packages/ui/test/providerStatusIndicator.test.ts`                             | 把 enabled/executable 的直接三目映射再次写成 data 属性期望；真实 provider 可执行性、水合和空 Registry 行为保留于 modelProviderAvailability。                                                  |
-| `packages/ui/test/readToolCallBlock.test.ts`                                   | 两种 clickable 输入最终都只检查文件名颜色 class；真实文件定位/打开行为未触及。                                                                                                                |
-| `packages/ui/test/remoteConnectionEntryBehavior.test.ts`                       | 源函数忽略参数固定返回 open-workspace；两个布尔输入只是重复 getter 常量，不测试连接过程。                                                                                                     |
-| `packages/ui/test/remoteConnectionTags.test.ts`                                | 只复制 transport 到颜色/label key 的展示查表；完整远程 presentation 时序、recovery 与详情组件测试保留。                                                                                       |
-| `packages/ui/test/remoteDeviceTerminologyI18n.test.ts`                         | 只检查删除的字典 key 和产品术语词句；远程身份、连接状态、迁移和 key 完整性校验保持。                                                                                                          |
-| `packages/ui/test/selectItemLayout.test.ts`                                    | 先 mock Radix DOM，再检查 SelectItem 的 px/pr class；不验证任何 Select 行为。                                                                                                                 |
-| `packages/ui/test/settingsCloseToTrayI18n.test.ts`                             | 只锁定说明文字包含的词句；跨平台托盘能力和关闭行为测试保持。                                                                                                                                  |
-| `packages/ui/test/settingsFormTextarea.test.ts`                                | 真实渲染无逻辑 Textarea 包装后只复述 DOM 外壳及颜色/圆角 class。                                                                                                                              |
-| `packages/ui/test/settingsHttpProxyI18n.test.ts`                               | 只匹配代理帮助文案的固定词句；不设置代理或验证系统代理跟随。                                                                                                                                  |
-| `packages/ui/test/settingsSkillScopeBadge.test.ts`                             | 仅匹配源码中的图标、Badge、分组 helper 名字及 JSX 文本；真正 scope 路由与 marketplace identity 用例保持。                                                                                     |
-| `packages/ui/test/sourceServerManagementPresentation.test.ts`                  | 只对两个枚举直接查表 getter 复述同一 locale key；不涉及迁移状态或 wire schema 校验。                                                                                                          |
-| `packages/ui/test/statusDot.test.ts`                                           | 只渲染 tone=subtle 并复述颜色 class 映射；没有状态输入变化或业务状态归属。                                                                                                                    |
-| `packages/ui/test/toolCallPresentationVocabulary.test.ts`                      | 把 29 个静态翻译 key 的中英文文本完整复制一份；不解析工具、判断状态或执行渲染。                                                                                                               |
-| `packages/ui/test/v4ConversationDraftEmptyStateLogo.test.ts`                   | 只检查深浅 Logo 的固定素材和 CSS class；不切换主题或验证主题订阅。                                                                                                                            |
-| `packages/ui/test/workspaceSidebarTerminologyI18n.test.ts`                     | 逐字复制同一中英文 locale 字典值；不验证界面按 locale 取值。                                                                                                                                  |
-| `packages/ui/test/zcodeProviders.test.ts`                                      | 源函数忽略 provider 永远返回 true，另一函数仅取反；十条期望只是常量重复，真实 fork task 状态与目标 guard 未触及。                                                                             |
-| `packages/web/test/webRemoteControlFailures.test.ts`                           | 只照抄固定reason加message的DTO构造；实际连接恢复耗尽后使用connection-recovery-timeout的回归仍由 externalRelayFrameGapRecovery 真实恢复调度测试验证。                                          |
-| `packages/zcode-cua/test/broker/host-surface-simplification.test.ts`           | 只扫描已退役type/alias名称与固定装配文本；实际ghost/PiP不可变launch policy已有真实host启动+broker+launcher spec测试，保留该测试及全部签名/权限/生命周期保护。                                 |
+| Arquivo de simplificação                                                                | Escopo de remoção e fronteira de manutenção                                                                                                                                        |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/dev-docs/test/capabilityMapComplexity.test.ts`                                     | Remove o snapshot fixo de graus do grafo da documentação; mantém as regras de estatística, trocando por expectativas independentes sobre um grafo fixo pequeno cobrindo entre-grupos, dentro do mesmo grupo, nó ausente e grupo ausente. |
+| `apps/zcode-cli/packages/adapters/tests/mcp.test.ts`                                     | No mesmo describe e com os mesmos hooks há três grupos de títulos e callbacks exatamente iguais; de cada um se remove o último, mantendo a primeira cópia completa do teste de comportamento de OAuth.          |
+| `apps/zcode-cli/packages/adapters/tests/model-transform.test.ts`                         | Idêntico token a token ao caso mantido de projeção de bloco de inferência sem assinatura; mantém o último, que é a regressão completa.                                                  |
+| `apps/zcode-cli/packages/i18n/tests/i18n.test.ts`                                        | Remove a cópia de textos fixos em chinês; mantém a dedução de locale, os valores inválidos e a regra de compatibilidade do formato de diretório.                                          |
+| `apps/zcode-cli/packages/office-runtime/ui/profile.test.ts`                              | Apenas copia os textos e exemplos de cada profile; mantém os casos reais de endereçamento de recursos e de isolamento por tipo de arquivo.                                             |
+| `apps/zcode-cli/packages/tui/tests/tui-theme.test.ts`                                    | Remove a cópia direta dos quatro campos de cor; mantém a prioridade do tema, a inferência do fundo do terminal e a verificação de que o componente real muda com o tema.                          |
+| `apps/zcode-cli/packages/tui/tests/tui.unit.test.ts`                                     | Apenas verifica rótulos fixos, estilos flex e valores literais de cor; mantém os testes reais de exibição de conteúdo, renderização, interação e recuperação.                              |
+| `packages/client/test/remoteServiceAccess.test.ts`                                       | Testa apenas o nome do canal na construção e a existência do getter; a configuração real de chamadas RPC do mesmo arquivo, o isolamento de canais opcionais e a seleção de diretório de janela são mantidos.            |
+| `packages/rpc/test/buffer.test.ts`                                                     | Apenas reteste o comprimento e a inicialização zero de new Uint8Array; mantém os testes de wrap sem cópia, UTF8, concatenação, offset e operações de bytes BE.                                 |
+| `packages/rpc/test/foundation.test.ts`                                                 | Os cenários de dispose comum, destinatário único e primeira entrega do relay são cobertos por testes mais fortes de dispose idempotente, múltiplos listeners com Event.map e isolamento da origem antiga após a troca; mantém as fronteiras de limpeza e cancelamento. |
+| `packages/rpc/test/protocol.test.ts`                                                   | A entrega unidirecional de fila está contida no teste de entrega bidirecional vizinho; mantém o bidirecional, fragmentação/ACK/congestionamento/timeout e as fronteiras de liberação.                  |
+| `packages/rpc/test/serialization.test.ts`                                              | Repete um a um o happy path do cursor do reader e da concatenação do writer, já coberto pela serialize/deserialize de múltiplos quadros consecutivos do mesmo arquivo e pelo roundtrip de tipos; mantém todos os testes reais do protocolo de serialização. |
+| `packages/services/test/accountRequestAuthService.test.ts`                             | Apenas afirma de novo o valor devolvido pelo resolver fabricado, sendo a implementação um return direto de resolver.resolveCurrent(input); mantém a ausência de fallback no erro e os testes reais de segurança da resolução de autenticação. |
+| `packages/services/test/agentProxyEnv.test.ts`                                         | Remove apenas os 3 casos de fatia de código-fonte e de nome de ramo da suíte lazy de CUA; mantém as 3 guardas de montagem da origem MCP oficial confiável sensíveis a settings, bem como todos os testes reais de normalização de env e de consistência das regras de confiança entre Host e Agent. |
+| `packages/services/test/highspeedCardService.test.ts`                                  | Apenas verifica se o código-fonte contém a string createServiceLogger; não verifica a importação do navegador, a inicialização do log nem o comportamento de execução.                              |
+| `packages/services/test/pluginManagementService.test.ts`                               | Os três métodos são delegações diretas; o teste apenas repete os parâmetros e afirma o resultado de um mock fabricado, e não pode validar confiança, isolamento de alvo ou cancelamento; mantém os testes reais de regras de transformação de telemetria de ciclo de vida, de classificação de cancelamento e de duração concorrente. |
+| `packages/services/test/subagentSelectionAuthority.test.ts`                            | Repete o roundtrip de codificação/decodificação do mesmo helper de shared/subagentMarkdownSelection; mantém a validação de integração real deste arquivo, de análise de Markdown e de descarte de campos intermediários. |
+| `packages/services/test/zcodeAgentPresentationSurface.test.ts`                         | O true explícito apenas repete o caminho normal de !=false; permanecem a ativação por padrão com a mesma autoridade remota, o desligamento explícito por false e a recusa em não-Desktop.                              |
+| `packages/shared/test/dynamicWorkflowFeature.test.ts`                                  | A comparação direta com mode!=disabled já é coberta de forma completa pelas asserções de enabled dos três modos remotos válidos do mesmo arquivo; mantém os testes de fail-closed da escala, de sobrescrita do usuário e de compatibilidade com Host antigo. |
+| `packages/shared/test/launchMarks.test.ts`                                             | Apenas reescreve a string LAUNCH_MARKS_QUERY_KEY; mantém o roundtrip de serialização, o JSON inválido e as fronteiras de tipo de campo.                                                       |
+| `packages/shared/test/remoteResourcePackages.test.ts`                                  | A implementação de normalize ignora completamente a entrada e devolve a lista active; os dois cenários de valores históricos repetem os casos existentes de ignores historical selections e de lista padrão; mantém o conjunto de ferramentas por plataforma, a validade do schema e a recusa de pacotes desconhecidos. |
+| `packages/shared/test/shortcutCommands.test.ts`                                        | O teste de getter copia literalmente duas defaultBindings da tabela de comandos; mantém a unicidade de IDs dentro da tabela, a legalidade das bindings, as fronteiras de parsing, o escopo do composer e as regras de classificação de canal. |
+| `packages/ui/test/animatedSidePanePanelLayout.test.ts`                                 | Idêntico ao callback do caso mantido "keeps active media mounted..."; a única entrada é isMediaPreview=true, sem parâmetro de tipo de áudio, e não cobre cenário exclusivo.                                   |
+| `packages/ui/test/automationInstructionsComposer.test.ts`                              | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/automationsPageTabs.test.ts`                                         | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/changesGroupToolCallBlock.test.ts`                                   | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/codingPlanQuotaResetAction.test.ts`                                  | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/codingPlanQuotaResetOpportunity.test.ts`                             | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/commandCenterTypography.test.ts`                                     | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/contextAttachmentPill.test.ts`                                       | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/controlHintTooltip.test.ts`                                          | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/conversationShareImportNotice.test.ts`                               | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/desktopLogoStyle.test.ts`                                            | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/editToolCallBlock.test.ts`                                           | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/featureRequestDialog.test.ts`                                        | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/feedbackStatusMeta.test.ts`                                          | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/feedbackSubmitForm.test.ts`                                          | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/mentionPanel.test.ts`                                                | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/modelProviderCodingPlanI18n.test.ts`                                 | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/modelProviderModelRowEditor.test.ts`                                 | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/modelProviderSectionLayoutLoading.test.ts`                           | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/modelTrajectoryPaneParts.test.ts`                                    | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/pluginStoreAvatar.test.ts`                                           | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/previewPaneImageContent.test.ts`                                     | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/providerLogo.test.ts`                                                | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/rollingToolbarLabel.test.ts`                                         | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/settingsSearchInput.test.ts`                                         | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/sidePaneTabTrigger.test.ts`                                          | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/usageStatsHeatmap.test.ts`                                           | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/useWorkspaceServices.test.ts`                                        | Idêntico ao anterior "não registeredBaseServices...", que também passa null, com o callback exatamente igual; mantém o primeiro caso e os testes reais de ciclo de vida de serviços.                       |
+| `packages/ui/test/v4ConversationStatusPanel.test.ts`                                   | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/v4ConversationTurnGroup.test.ts`                                     | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/v4ModelTriggerDisplay.test.ts`                                       | Callback exatamente igual ao caso mantido de nome de provider customizado; nenhum dos três casos tem entrada de plataforma ou de viewport, e a variação de título não aumenta a cobertura.                |
+| `packages/ui/test/windowsCaptionMenuButton.test.ts`                                    | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/workspaceHeader.test.ts`                                             | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/workspacePurposeSection.test.ts`                                      | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts`                 | Remove apenas os casos que repetem CSS fixo, mapeamento de ícone/label ou exibição de props sem cálculo; os casos reais de interação, de fronteira e de transição de estado deste arquivo são mantidos.                       |
+| `packages/zcode-cua/test/annotations.test.ts`                                          | As asserções isoladas de request_access/stop repetem a verificação completa do conjunto de ferramentas feita antes e o sweep real do TOOL_REGISTRY; mantém o comportamento real de escrita em lote de applyToolAnnotations, o tier de segurança completo e o caminho de recusa de ferramenta desconhecida. |
+| `packages/zcode-cua/test/argv-shape.test.ts`                                           | O caso dito de ordem arbitrária é exatamente igual à entrada canônica; o roundtrip apenas reconstrói os mesmos argumentos de socket repetindo o parser determinístico; mantém o canônico, o sinal de igual, o terminador, as tags de compatibilidade e todos os caminhos de fail-closed. |
+| `packages/zcode-cua/test/manifest.test.ts`                                             | Remove as asserções duplicadas de comprimento, unicidade, texto de join, itens aposentados e comprimento de tier da lista exata de 14 itens, além de três casos que inventam um algoritmo de diferença de Set dentro do teste; mantém a lista exata de ferramentas, o registry/schema/map reais, a consistência de tiers e o contrato de associação. |
+| `packages/zcode-cua/test/server-security.parity.test.ts`                               | O título afirma token-only, mas o callback chama de fato buildServer({}), exatamente igual ao primeiro caso de ausência de credenciais; mantém o primeiro fail-closed sem credenciais e todas as verificações de entradas de socket distintas, de recusa de placeholders e de registro real de ferramentas. |
+| `packages/zcode-cua/test/tier-table.test.ts`                                           | O caso de soma 4+1+9 repete as listas exatas e as contagens por grupo já apresentadas antes no mesmo arquivo; mantém todos os tiers de segurança, os congelados e a classificação conservadora de nomes desconhecidos.                    |
+| `packages/zcode-cua/test/tool-manifest-json-drift.test.ts`                             | A segunda verificação de comprimento 14 é coberta por completo pela lista exata do manifest e pela igualdade de ordem com o espelho da primeira; mantém a consistência real entre os artefatos de src e eval.                                 |
+| `packages/zcode-cua/test/tool-surface-14.test.ts`                                      | Os itens aposentados são cobertos pela verificação de lista exata do manifest e pelos membros reais do MAP; o caso de aritmética 30-17+1 e a verificação isolada de existência de chave não trazem entrada nova nem fronteira; mantém o tamanho exato do MAP e toda a capacidade real de schema de dobra de clique/tecla. |
 
-| 精简文件                                                                 | 删除范围与保留边界                                                                                                                                                                         |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `apps/dev-docs/test/capabilityMapComplexity.test.ts`                     | 删除固定文档图度数快照；保留统计规则，改用固定小图验证跨群、同群、缺失节点及分组的独立期望。                                                                                               |
-| `apps/zcode-cli/packages/adapters/tests/mcp.test.ts`                     | 同一describe和相同hooks下有三组完全相同标题及callback；各删后一个，保留第一份完整OAuth行为测试。                                                                                           |
-| `apps/zcode-cli/packages/adapters/tests/model-transform.test.ts`         | 与保留的无签名推理块协议投影用例逐 token 相同，保留后一条完整回归。                                                                                                                        |
-| `apps/zcode-cli/packages/i18n/tests/i18n.test.ts`                        | 删除固定中文文案复制；保留locale推导、无效值、目录形状兼容规则。                                                                                                                           |
-| `apps/zcode-cli/packages/office-runtime/ui/profile.test.ts`              | 只复制各profile文案和例子；保留真正的资源寻址和文件种类隔离用例。                                                                                                                          |
-| `apps/zcode-cli/packages/tui/tests/tui-theme.test.ts`                    | 删除对四个颜色字段的直接复制；保留主题优先级、终端背景推断和真实组件随主题改变的验证。                                                                                                     |
-| `apps/zcode-cli/packages/tui/tests/tui.unit.test.ts`                     | 只检查固定标签、flex样式和颜色字面值；保留实际内容显隐、渲染、交互和恢复测试。                                                                                                             |
-| `packages/client/test/remoteServiceAccess.test.ts`                       | 只测构造时getChannel名称与getter存在；同文件配置实际RPC调用/可选频道隔离/窗口目录选择仍保留。                                                                                              |
-| `packages/rpc/test/buffer.test.ts`                                       | 仅重测new Uint8Array的长度和零初始化；保留零拷贝wrap、UTF8、拼接、offset与BE字节运算测试。                                                                                                 |
-| `packages/rpc/test/foundation.test.ts`                                   | 普通dispose/单收件者/relay首次投递场景分别被幂等dispose、多listener+Event.map、切换source后旧源隔离的更强测试覆盖。保留清理和取消生命周期边界。                                            |
-| `packages/rpc/test/protocol.test.ts`                                     | 单向队列投递被紧邻的双向投递测试包含；保留双向、分片/ACK/拥塞/超时及释放边界。                                                                                                             |
-| `packages/rpc/test/serialization.test.ts`                                | 逐个复述reader游标和writer拼接happy path，已被同文件多帧连续serialize/deserialize和类型roundtrip共同执行覆盖。保留全部实际序列化协议测试。                                                 |
-| `packages/services/test/accountRequestAuthService.test.ts`               | 只把自造resolver返回值原样再断言，源实现为直接return resolver.resolveCurrent(input)；保留失败不回退及实际鉴权解析安全测试。                                                                |
-| `packages/services/test/agentProxyEnv.test.ts`                           | 仅移除 lazy CUA suite 内3个源码切片/分支名字用例；保留 settings-aware 官方 MCP trusted origin 原始3个装配接线守卫，以及全部真实env归一和Host/Agent信任规则一致性执行测试。                 |
-| `packages/services/test/highspeedCardService.test.ts`                    | 仅检查源码是否含createServiceLogger字符串，不验证浏览器导入、日志初始化或运行行为。                                                                                                        |
-| `packages/services/test/pluginManagementService.test.ts`                 | 三个代理方法都是直接委托；测试只复述参数并断言自造mock结果，不能验证信任、目标隔离或取消执行。保留生命周期遥测变换、取消分类、并发耗时等真实规则测试。                                     |
-| `packages/services/test/subagentSelectionAuthority.test.ts`              | 重复shared/subagentMarkdownSelection中同一helper的编码/解码往返；保留本文件实际Markdown解析、中间字段忽略的集成验证。                                                                      |
-| `packages/services/test/zcodeAgentPresentationSurface.test.ts`           | 显式true只是!=false的重复正常路径；相同remote authority的缺省开启及显式false关闭、非Desktop拒绝仍保留。                                                                                    |
-| `packages/shared/test/dynamicWorkflowFeature.test.ts`                    | 直接比较mode!=disabled结果，已被同文件三个远端合法mode生成配置的enabled断言完整覆盖；保留灰度fail-closed/用户覆盖/旧Host兼容测试。                                                         |
-| `packages/shared/test/launchMarks.test.ts`                               | 仅复写LAUNCH_MARKS_QUERY_KEY字符串；保留序列化往返、非法JSON、字段类型边界。                                                                                                               |
-| `packages/shared/test/remoteResourcePackages.test.ts`                    | normalize实现完全忽略输入并返回active列表；两个历史值场景重复已有ignores historical selections和缺省列表用例。保留平台工具集合、schema合法与拒绝未知包。                                   |
-| `packages/shared/test/shortcutCommands.test.ts`                          | getter测试逐字复制命令表中两条defaultBindings；保留表内ID唯一/绑定合法性、解析边界、composer scope与通道分类规则。                                                                         |
-| `packages/ui/test/animatedSidePanePanelLayout.test.ts`                   | 与保留的 keeps active media mounted... callback 完全相同；输入只有 isMediaPreview=true，没有音频类型参数，未覆盖独有场景。                                                                 |
-| `packages/ui/test/automationInstructionsComposer.test.ts`                | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/automationsPageTabs.test.ts`                           | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/changesGroupToolCallBlock.test.ts`                     | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/codingPlanQuotaResetAction.test.ts`                    | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/codingPlanQuotaResetOpportunity.test.ts`               | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/commandCenterTypography.test.ts`                       | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/contextAttachmentPill.test.ts`                         | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/controlHintTooltip.test.ts`                            | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/conversationShareImportNotice.test.ts`                 | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/desktopLogoStyle.test.ts`                              | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/editToolCallBlock.test.ts`                             | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/featureRequestDialog.test.ts`                          | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/feedbackStatusMeta.test.ts`                            | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/feedbackSubmitForm.test.ts`                            | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/mentionPanel.test.ts`                                  | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/modelProviderCodingPlanI18n.test.ts`                   | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/modelProviderModelRowEditor.test.ts`                   | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/modelProviderSectionLayoutLoading.test.ts`             | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/modelTrajectoryPaneParts.test.ts`                      | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/pluginStoreAvatar.test.ts`                             | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/previewPaneImageContent.test.ts`                       | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/providerLogo.test.ts`                                  | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/rollingToolbarLabel.test.ts`                           | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/settingsSearchInput.test.ts`                           | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/sidePaneTabTrigger.test.ts`                            | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/usageStatsHeatmap.test.ts`                             | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/useWorkspaceServices.test.ts`                          | 与前一条 没有 registeredBaseServices... 同样传 null，callback 完全相同；保留首条与真实服务生命周期测试。                                                                                   |
-| `packages/ui/test/v4ConversationStatusPanel.test.ts`                     | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/v4ConversationTurnGroup.test.ts`                       | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/v4ModelTriggerDisplay.test.ts`                         | 与保留的自定义 provider 名称用例 callback 完全相同；三个用例都没有平台或 viewport 输入，标题变化未增加覆盖。                                                                               |
-| `packages/ui/test/windowsCaptionMenuButton.test.ts`                      | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/workspaceHeader.test.ts`                               | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/workspacePurposeSection.test.ts`                       | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/ui/test/workspaceSidebarFooterWebRemoteControlTooltip.test.ts` | 仅移除复述固定 CSS、图标/label 映射或无计算 props 展示的用例；本文件真实交互、边界和状态转换用例保留。                                                                                     |
-| `packages/zcode-cua/test/annotations.test.ts`                            | request_access/stop的单独断言重复前面的完整工具集合检查及真实TOOL_REGISTRY sweep；保留applyToolAnnotations实际批量写入行为、完整安全tier与未知工具拒绝路径。                               |
-| `packages/zcode-cua/test/argv-shape.test.ts`                             | 所谓任意顺序case与canonical输入完全一致；round-trip只重建相同socket参数重复调用确定性解析器。保留canonical、等号、terminator、兼容标签、所有fail-closed路径。                              |
-| `packages/zcode-cua/test/manifest.test.ts`                               | 删除精确14项名单已包含的长度、唯一性、join文本、退役项与tier长度重复断言；删除三个在测试内自造Set差集算法的case。保留精确工具名单、真实registry/schema/map、tiers一致性和association契约。 |
-| `packages/zcode-cua/test/server-security.parity.test.ts`                 | 标题声称token-only，但回调实际调用buildServer({})，与首条no credentials case完全相同；保留首条无凭据fail-closed和全部不同socket输入/占位符拒绝/真实tool注册检查。                          |
-| `packages/zcode-cua/test/tier-table.test.ts`                             | 4+1+9的合计case重复同文件前面逐组精确名单与数量；保留全部安全tier、冻结及未知名称保守分类。                                                                                                |
-| `packages/zcode-cua/test/tool-manifest-json-drift.test.ts`               | 第二条14长度检查被manifest精确名单与第一条mirror顺序相等完整覆盖；保留跨src与eval真实产物一致性。                                                                                          |
-| `packages/zcode-cua/test/tool-surface-14.test.ts`                        | 退役项由manifest精确名单和真实MAP成员全量检查覆盖；30-17+1算术case及单独key存在检查不提供新输入或边界。保留MAP精确大小和全部真实click/key折叠schema能力。                                  |
+### Terceira rodada: leitura semântica de todo o inventário
 
-### 第三轮：全库存语义审读
+Linha de base `0cd29a0ab4`. Esta rodada concluiu a revisão semântica arquivo por arquivo de todos
+os 3585 arquivos do inventário, totalizando 1071604 linhas de teste. A revisão inclui o setup
+completo, os helpers locais, as fixtures e a implementação correspondente às chamadas
+efetivamente testadas; arquivos grandes foram lidos em partes contínuas. Após a colaboração em
+quatro frentes, os candidatos à remoção foram revisados por outro revisor e só então os casos
+foram coletados, implementados e executados de forma direcionada.
 
-基线 `0cd29a0ab4`。本轮完成全部 3585 个库存文件的逐文件语义审查，共 1071604 行测试。
-审查包含完整 setup、局部 helper、夹具及实际被测调用对应的实现；大文件连续分段阅读。
-四路协作后，删除候选由另一位审查者复核，再收集用例、实施和定向运行。
+| Escopo                                             | Arquivos | Linhas de teste originais | Razão de revisão                                                                                                            |
+| -------------------------------------------------- | -------: | ------------------------: | -------------------------------------------------------------------------------------------------------------------------- |
+| CLI                                                |      905 |                 376692 | [cli](unit-test-review/cli.jsonl), [cli-tail](unit-test-review/cli-tail.jsonl)                                              |
+| UI                                                 |     1157 |                 296243 | [ui](unit-test-review/ui.jsonl), [ui-middle](unit-test-review/ui-middle.jsonl), [ui-tail](unit-test-review/ui-tail.jsonl), [ui-extra](unit-test-review/ui-extra.jsonl), [ui-root-extra](unit-test-review/ui-root-extra.jsonl), [ui-runtime-extra](unit-test-review/ui-runtime-extra.jsonl) |
+| Desktop, CUA, Web e outros pacotes de runtime       |     1141 |                 308364 | [runtime](unit-test-review/runtime.jsonl), [runtime-tail](unit-test-review/runtime-tail.jsonl), [runtime-extra](unit-test-review/runtime-extra.jsonl) |
+| Serviços, protocolo, Provider, RPC e scripts básicos |      375 |                  88035 | [foundation](unit-test-review/foundation.jsonl)                                                                              |
+| Go, Python, Kotlin                                 |        7 |                   2270 | [extra-languages](unit-test-review/extra-languages.jsonl)                                                                    |
 
-| 范围                                 | 文件 | 原始测试行 | 审查账本                                                                                                                                                                                                                                                                                   |
-| ------------------------------------ | ---: | ---------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| CLI                                  |  905 |     376692 | [cli](unit-test-review/cli.jsonl)、[cli-tail](unit-test-review/cli-tail.jsonl)                                                                                                                                                                                                             |
-| UI                                   | 1157 |     296243 | [ui](unit-test-review/ui.jsonl)、[ui-middle](unit-test-review/ui-middle.jsonl)、[ui-tail](unit-test-review/ui-tail.jsonl)、[ui-extra](unit-test-review/ui-extra.jsonl)、[ui-root-extra](unit-test-review/ui-root-extra.jsonl)、[ui-runtime-extra](unit-test-review/ui-runtime-extra.jsonl) |
-| 桌面、CUA、Web 与其他运行包          | 1141 |     308364 | [runtime](unit-test-review/runtime.jsonl)、[runtime-tail](unit-test-review/runtime-tail.jsonl)、[runtime-extra](unit-test-review/runtime-extra.jsonl)                                                                                                                                      |
-| 服务、协议、Provider、RPC 与基础脚本 |  375 |      88035 | [foundation](unit-test-review/foundation.jsonl)                                                                                                                                                                                                                                            |
-| Go、Python、Kotlin                   |    7 |       2270 | [extra-languages](unit-test-review/extra-languages.jsonl)                                                                                                                                                                                                                                  |
+Conferência entre inventário e razão: 3585 registros, sem caminhos duplicados nem ausentes; os
+hashes originais e a contagem de linhas de cada arquivo conferem item a item, e todos os
+caminhos de base da implementação existem. Há outros 619 arquivos de teste nomeados de E2E e de
+aceitação de navegador, excluídos pelo escopo; a implementação nativa e as fixtures de
+dispositivo não apresentaram entradas adicionais de testes unitários. Revisar tudo não significa
+remover tudo: os motivos de manutenção também são registrados arquivo por arquivo.
 
-库存与账本核对：3585 条记录，路径无重复、无缺失；原始哈希与全文行数逐项一致，
-所有实现依据路径均存在。测试命名文件另有 619 个 E2E、浏览器验收文件，按范围排除；
-原生实现与设备夹具未发现额外单测入口。审完不表示全部删除，保留理由同样逐文件记录。
+A limpeza inclui CSS estático, ícones e cópias de texto comum, parâmetros de cenário não
+consumidos, ecos que só verificam o substituto, repetições com a mesma entrada e asserções
+excessivamente amplas sobre o diretório padrão. Mantêm-se as proteções exclusivas de permissão,
+identidade de origem, temporização, fiação de IO, schema de protocolo, montagem de estado do
+lado chamador e consistência de diretório entre linguagens. O mesmo atributo de dados não
+substitui a fiação de estilo dinâmico efetivamente consumido.
 
-清理包括静态 CSS、图标与普通文案复制、未被消费的场景参数、仅验证替身的回声、
-同输入重复及过宽的默认目录断言。保留独有权限、来源身份、时序、IO 接线、协议 schema、
-调用端状态装配和跨语言目录一致性。相同数据属性不替代实际消费的动态样式接线。
+Alguns casos parametrizados foram registrados de forma combinada; mesmo assim, todas as entradas
+e os pontos de observação foram preservados. A redução de 537 registros da 067ª lote do CLI é
+desse tipo de combinação e não é contada como remoção de 537 cenários independentes. A base de
+cada redução está na razão de revisão, e a taxa de queda de registros não é usada como critério
+de avaliação.
 
-部分参数化用例合并注册后，输入与观察点仍全部保留。CLI 第 067 批减少的 537 个注册
-属于这类合并，不记为删除 537 个独立场景。逐项删减依据以账本为准，不按注册下降比例评价。
+Esta rodada removeu 60 arquivos de teste, simplificou 859 arquivos mistos e reduziu
+netamente 25410 linhas de teste; o código-fonte do produto, a configuração, as entradas de teste
+e o E2E não foram modificados. Somando as duas rodadas anteriores, o total é de 183 arquivos de
+teste removidos.
 
-本轮删除 60 个测试文件，精简 859 个混合文件，净减少 25410 行测试；
-产品源码、配置、测试入口与 E2E 均未修改。加上前两轮，累计删除 183 个测试文件。
+Nos 921 arquivos de referência efetivamente coletados pelo Vitest, o número de registros ativos
+caiu de 18542 para 16665, uma redução de 1877. Essa contagem inclui a combinação de registros
+parametrizados e não representa a remoção de 1877 entradas independentes; não inclui as entradas
+nativas do Node, os itens pulados por plataforma, as declarações estáticas do Android nem os
+arquivos não registrados. As entradas nativas são verificadas à parte, sem que suas declarações
+estáticas sejam apresentadas como casos executados.
 
-Vitest 已实际收集的 921 个对照文件，活跃注册数从 18542 减至 16665，减少 1877 个。
-该统计含参数化注册合并，不是删除 1877 个独立输入；不包含 Node 原生入口、平台跳过项、
-Android 静态声明和未注册文件。原生入口单独验证，不将其静态声明冒充已执行用例。
+Validação: typecheck da raiz e do CLI, lint, checagem de arquitetura das mudanças e checagem de
+formatação dos arquivos alterados da raiz e do CLI passaram. O CLI foi verificado de forma
+direcionada nos 257 arquivos modificados ainda existentes, com o diretório correto de pacote:
+7105 casos passaram, 24 foram pulados e houve 0 falhas; 3 arquivos removidos foram excluídos. As
+13 falhas iniciais dos testes de navegador vinham de executar no diretório errado e, depois de
+rodar a partir do pacote core, 48 casos passaram; as 2 falhas do SEA por dependências de build
+ausentes passaram depois de reconstruir model-option-map, com 42 casos aprovados. O MCP manteve
+todas as 11 verificações reais de fiação, excluindo com precisão, em quatro asserções, a lista de
+plugins de documentação padrão que já tem outra verificação, e mantendo a ordem dos alvos, uma
+única inicialização, a recusa de servidores adicionais desconhecidos e a verificação completa de
+confiança; a validação final do pacote passou.
 
-验证：根与 CLI 类型检查、Lint、变更架构检查、根与 CLI 变更文件格式检查通过。
-CLI 按正确的包目录定向验证 257 个现存修改文件：7105 条通过、24 条跳过、0 失败；
-3 个删除文件排除。早期浏览器测试的 13 处失败来自错误执行目录，改从 core 包运行后
-48 条通过；SEA 缺少构建依赖的 2 处失败在补建 model-option-map 后，42 条全部通过。
-MCP 保留全部 11 条真实接线测试，仅在四处断言中精确排除另有验证的默认文档插件名单，
-保留目标顺序、一次启动、未知额外 server 拒绝与完整信任检查，最终包级验证通过。
+O affected da raiz usou o ponto de partida da tarefa `f540bccfa694da2435227d252bf5c39ab512a34b`;
+a pré-visualização oficial selecionou 621 de 2481 specs; ao final, 620 arquivos passaram e 1 foi
+pulado, com 9938 casos passando e 10 pulados, em 229,19 segundos. Não foram executados os testes
+unitários completos nem o E2E. No Android só foi removido o teste de aritmética de template,
+porque o ambiente não tem Java Runtime e a coleta e a execução pelo Gradle não foram concluídas;
+essa única declaração é contada apenas como remoção estática. Os arquivos Go/Python mantidos não
+foram modificados, e não se afirma que eles foram executados nesta rodada.
 
-根 affected 使用任务起点 `f540bccfa694da2435227d252bf5c39ab512a34b`，
-官方预览选择 621/2481 个规格；最终 620 个文件通过、1 个文件跳过，
-9938 条通过、10 条跳过，耗时 229.19 秒。未运行全量单测或 E2E。
-Android 只删除模板算术测试，因环境无 Java Runtime，Gradle 收集与执行未完成；
-该一条声明仅计静态删除。Go/Python 保留文件未修改，不声称本轮执行了它们。
+A matriz de cobertura atual não ganhou novas referências inválidas a arquivos removidos; planos
+antigos, relatórios históricos de execução e o histórico desta especificação mantêm os caminhos
+históricos. Remover asserções que não conseguem provar layout, comportamento aposentado ou um
+cenário assíncrono específico não significa que esses comportamentos passem a ter cobertura de
+automação.
 
-当前覆盖矩阵没有新增失效的删除文件引用；旧计划、历史运行报告与本规格历史清单保留历史路径。
-删除无法证明布局、退役行为或特定异步场景的断言，不表示这些行为因此获得自动化覆盖。
+### Encadeamento da cobertura após a fusão do staging
 
-### 合并 staging 后的覆盖衔接
+Na fusão do staging `65f956a8fc`, os conflitos de testes unitários foram mesclados conforme o
+comportamento dos dois lados: manteve-se a divisão dos testes de inicialização do MCP do
+upstream, migrando para o novo arquivo as quatro casos de fiação mantidos na terceira rodada e o
+filtro preciso dos servidores de documentação; mantiveram-se o novo contrato de parâmetros da
+memória persistente, a identidade do objeto quando desabilitado ou sem configuração, a
+idempotência e as asserções de que a entrada original não muda; mantiveram-se a verificação do
+primeiro quadro do novo rascunho e a regressão de isolamento do resultado de envio antigo. Os
+limites numéricos de overflow da barra lateral foram mantidos, e as antigas asserções de CSS e
+de grafia do código-fonte continuam removidas; o upstream moveu uma delas, sem alterações, para
+`sidePaneTabStripAddMenu.test.ts`, e essa cópia migrada e sua exclusão de export inválida foram
+removidas juntas. A modificação do upstream em `pluginStoreManageEntry.test.ts` continua ajustando
+apenas a localização no código-fonte e as verificações de classe fixas, e segue a remoção de
+arquivo inteiro já concluída, sem reintroduzir asserções de baixo valor só porque a expressão de
+localização foi corrigida. Os testes de navegador mantêm as regressões do upstream de zoom do
+desktop, de reconexão após desconexão por inatividade do CDP e de sincronização de viewport,
+continuando a remover as antigas asserções duplicadas de repasse de parâmetros de construção e de
+contagem inicial de memória.
 
-合并 staging `65f956a8fc` 时，单测冲突按双方行为合并：保留上游 MCP 启动测试拆分，
-将第三轮保留的四条接线用例与精确文档 server 过滤迁入新文件；保留持久记忆的新参数契约、
-禁用/缺配置时对象身份、幂等和原输入不变断言；保留新草稿首帧检查与旧发送结果隔离回归。
-侧栏 overflow 数值边界保留，旧 CSS/源码拼写断言继续删除；上游将其中一条原样搬到
-`sidePaneTabStripAddMenu.test.ts`，该迁移副本及其失效导出排除项一并删除。
-`pluginStoreManageEntry.test.ts` 的上游修改仍只调整源码定位与固定 class 检查，
-沿用已完成的整文件删除，不因定位表达式修复重新引入低价值断言。
-浏览器测试保留上游桌面缩放、CDP 空闲断开后重连及 viewport 同步回归，
-继续删除构造参数透传与初始内存计数的旧重复断言。
+O inventário, as estatísticas e os hashes da razão da terceira rodada são mantidos como o
+snapshot de revisão de `7c90e96411` e não representam o inventário dos arquivos novos após a
+fusão.
 
-第三轮库存、统计和账本哈希保留为 `7c90e96411` 的审查快照，不代表合并后新增文件的库存。
+A validação da fusão reproduziu ao mesmo tempo a falha de estabilidade de referência já
+existente no staging: `ProjectTaskRows` cria uma nova referência de JSX para
+`TaskList.organizationActions` a cada render, invalidando a comparação de memo do
+subcomponente. Após confirmação, foi usado um `useMemo` que depende de `task` para manter a
+referência estável; quando o objeto da tarefa muda, o menu continua sendo atualizado, e o próprio
+menu continua assinando o diretório e o contexto de internacionalização. O caso de falha
+original passou depois da correção, sem afrouxar as asserções.
 
-合并验证同时复现 staging 已有的引用稳定性失败：`ProjectTaskRows` 每次渲染都为
-`TaskList.organizationActions` 创建新 JSX 引用，使子组件的 memo 比较失效。
-经确认后使用依赖 `task` 的 `useMemo` 保持引用稳定；任务对象变化时菜单仍更新，
-菜单自身继续订阅目录与国际化上下文。原有失败用例修复后通过，未放宽断言。
+A validação final da fusão partiu de `7c90e96411`: o affected da raiz selecionou 702 de 2483
+specs, com 702 arquivos e 7534 casos passando e 1 pulado; os quatro arquivos direcionados do CLI
+passaram com 36 casos no total. Typecheck da raiz e do CLI, lint, checagem de arquitetura, checagem
+da estrutura do banco e checagem de formatação dos arquivos em conflito passaram. As quatro
+falhas de carregamento de arquivo causadas pela falta dos artefatos de instalação do Electron na
+nova árvore de trabalho passaram na repetição depois de completar os artefatos; não foram
+executados os testes unitários completos, o E2E do desktop nem a aceitação de exportação open
+source.
 
-最终合并验证以 `7c90e96411` 为起点：根 affected 选择 702/2483 个规格，
-702 个文件、7534 条通过，1 条跳过；CLI 四个定向文件共 36 条通过。
-根与 CLI 类型检查、Lint、架构检查、数据库结构检查及冲突文件格式检查通过。
-新工作树缺少 Electron 安装产物导致的四个文件加载失败，在补齐产物后复跑通过；
-未运行全量单测、桌面 E2E 或开源导出验收。
+Na fusão subsequente do staging `840d040f57`, foram mantidas a migração da entrada
+`@zcode/shared/test-ids`, a instalação concorrente de plugins, a prontidão da conexão MCP, a
+liberação do lease de sessão e as novas regressões de autorização por Esc no desktop e no
+celular. As antigas classes, as constantes de dicionário e as asserções duplicadas de montagem
+nos conflitos continuam removidas; `pluginStoreManageEntry.test.ts` apenas atualiza a fixture
+vazia e segue com a remoção de arquivo inteiro.
 
-后续合并 staging `840d040f57` 时，保留 `@zcode/shared/test-ids` 入口迁移、
-插件并发安装、MCP 连接就绪、会话 lease 释放和桌面/手机 Esc 授权的新回归。
-冲突中的旧 class、字典常量和重复装配断言继续删除；
-`pluginStoreManageEntry.test.ts` 仅更新空操作夹具，仍沿用整文件删除。
+Nesta rodada, o typecheck da raiz e do CLI, o lint, a checagem de arquitetura e a checagem de
+formatação dos arquivos em conflito passaram; a verificação direcionada da UI passou com 131
+casos e a do CLI com 79 casos. O affected da raiz selecionou 1360 de 2484 specs e a execução foi
+interrompida conforme solicitado, sem a conclusão da rodada completa de validação; a entrega
+pulou o push hook, e uma execução interrompida não é registrada como aprovada.
 
-本次根与 CLI 类型检查、Lint、架构及冲突文件格式检查通过；
-UI 冲突定向验证 131 条、CLI 定向验证 79 条通过。
-根 affected 选择 1360/2484 个规格，执行中按要求停止，未完成整轮验证；
-交付按要求跳过 push hook，不将中断的执行记为通过。
+
+
+
+
+
+

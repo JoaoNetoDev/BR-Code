@@ -1,106 +1,106 @@
-# Web Remote Login V2
+# Login do Web Remote V2
 
-`/remote/v4`（含尾斜杠）是手机远控唯一正式 OAuth/二维码入口。手机只使用 Relay V2；`/web-remote`、其回调与等待页、remoteControlToken/relayOrigin bootstrap 已移除。普通 Web + Server 的 `/ws`、`/ws/remote/:id` 保持不变。
+`/remote/v4` (com barra final) é a única entrada oficial de OAuth/QR code do controle remoto pelo celular. O celular usa somente o Relay V2; `/web-remote`, seu callback e sua página de espera, além do bootstrap remoteControlToken/relayOrigin, foram removidos. O `/ws` e o `/ws/remote/:id` do Web + Server comuns permanecem inalterados.
 
-## 入口与认证
+## Entrada e autenticação
 
-- `code` / `authCode` + `state`（或 OAuth `error` + `state`）优先渲染现有 `WebCallbackPage`，由 `WebAuthService` 校验 nonce、交换 token、写入同源 localStorage，再 replace 安全 app_return_to。
-- OAuth 回调地址以构建 endpoint origin 的 `/remote/v4` 为基址，保留登录前同源远控 URL 的 `app_version/sid/mid/name` 参数（含空值与编码后的设备名）。不复制未知参数、旧凭据、历史 code/authCode/state/error 或 fragment；分享登录保持独立回调地址。Z.AI 使用 `redirect_uri`，BigModel 使用 `redirect`，授权 origin 随构建环境变化。
-- `WebAuthService` 在发起授权时通过 `BrowserOAuthCredentialRepo` 把本次登录记录（nonce、provider、完整回调地址）保存在同源 localStorage，按 nonce 区分。回调只取出 state 中 nonce 对应的那一条，取出即删除，再用该记录的 provider 与地址交换 token；找不到记录时报 CSRF 失败，不请求 token，也不改动其他记录。不得从含授权参数的回调 URL 拼出 token 请求地址。原因与边界见[回调落到同一浏览器的其他标签页](#回调落到同一浏览器的其他标签页)。
-- 无 JWT 时展示与桌面一致的 Z.AI / BigModel 两个 OAuth 入口（Z.AI 在前，使用桌面同款图标、连接文案与全球/中国标签），提示使用与电脑相同的平台和账号。登录卡片页头左侧为桌面端标题栏同款应用 logo 图标（40px，装饰性图片），右侧为“ZCode”品牌文字与标题；不再使用强调色方块里的字母占位。设备列表页与扫码占位页页头使用同一 logo 的 20px 版本加“ZCode”文字，见 [设备列表规格](./relay-v2-pairing.md#列表排布与文本线框)。选择后同时禁用两个按钮，所选 provider 经入口编排传入现有 WebAuthService；回调按 pending provider 交换并保存凭据。不增加 API Key 入口，因为远控需要账号身份；二维码不携带凭据或推断登录平台。
-- 无 JWT 时渲染登录页；appReturnTo 为当前完整 URL。安全回跳只保留同源 `/remote/v4`、`/remote/__test__`（均含尾斜杠）和既有分享路径，query 白名单为 app_version/sid/mid/name。
-- 有 JWT、有 SID 直接申请 terminal token 并连接 V2；无 SID 时按当前账号读取设备，最近 SID 在线则直连；最近 SID 不在线但同一台电脑（最近 MID）恰好只有一个在线连接时直连该连接；否则显示设备列表（规则见[落点](./relay-v2-pairing.md#落点状态归属与刷新)）。离线设备不可点击；选中在线设备回写 sid/mid/name/app_version 后连接，支持手动和回前台刷新。设备页标题下显示当前登录账号与平台，“切换”打开下文的切换账号确认弹窗。
-- token 401 清本地会话并回登录门禁，无需确认；用户手动“切换账号”需先确认，再清会话并保留当前 URL。AUTH_FAILED 不当作网络错误无限重试。
+- `code` / `authCode` + `state` (ou OAuth `error` + `state`) têm precedência e renderizam a `WebCallbackPage` existente; o `WebAuthService` valida o nonce, troca o token, grava no localStorage de mesma origem e então faz replace para um `app_return_to` seguro.
+- O endereço de callback OAuth tem como base o `/remote/v4` da origin do endpoint de build e preserva os parâmetros `app_version/sid/mid/name` da URL de controle remoto de mesma origem anterior ao login (inclusive valores vazios e nomes de dispositivo codificados). Não copia parâmetros desconhecidos, credenciais antigas, histórico de code/authCode/state/error nem fragment; o login compartilhado mantém seu endereço de callback separado. A Z.AI usa `redirect_uri`, a BigModel usa `redirect`, e a origin de autorização varia conforme o ambiente de build.
+- Na initiation da autorização, o `WebAuthService` registra a tentativa de login atual (nonce, provider, endereço completo de callback) no localStorage de mesma origem por meio do `BrowserOAuthCredentialRepo`, distinguindo as tentativas por nonce. O callback retrieve apenas o registro correspondente ao nonce presente no state, apaga-o ao ser retirado e usa o provider e o endereço desse registro para trocar o token; quando não encontra o registro, relata falha de CSRF, não solicita token e não altera os demais registros. Não é permitido montar a URL da solicitação de token a partir de uma URL de callback que contenha os parâmetros de autorização. Razão e limites em [O callback cai em outra aba do mesmo navegador](#o-callback-cai-em-outra-aba-do-mesmo-navegador).
+- Sem JWT, são exibidos os dois pontos de entrada OAuth Z.AI / BigModel, consistentes com o desktop (Z.AI primeiro, usando o mesmo ícone, texto de conexão e rótulos global/china do desktop), com a dica de usar a mesma plataforma e a mesma conta do computador. À esquerda do cabeçalho do cartão de login fica o ícone de logo do aplicativo em 40px (imagem decorativa), igual ao da barra de título do desktop; à direita, o texto de marca “ZCode” e o título. Não se usa mais o bloco de cor de destaque com a letra como placeholder. O cabeçalho da página de lista de dispositivos e o da página de placeholder do QR code usam a versão de 20px do mesmo logo, com o texto “ZCode”; ver [Layout da lista e wireframe de texto](./relay-v2-pairing.md#列表排布与文本线框). Após a seleção, os dois botões são desabilitados ao mesmo tempo, e o provider escolhido é passado à composição da entrada e entregue ao `WebAuthService` existente; o callback troca e salva as credenciais conforme o provider pendente. Não é adicionado um ponto de entrada por API Key, porque o controle remoto exige identidade de conta; o QR code não carrega credenciais nem infere a plataforma de login.
+- Sem JWT, a página de login é renderizada; appReturnTo é a URL completa atual. O retorno seguro mantém apenas o `/remote/v4` e o `/remote/__test__` de mesma origem (ambos com barra final) e os caminhos de compartilhamento existentes; a allowlist de query é app_version/sid/mid/name.
+- Com JWT e SID, solicita-se diretamente o terminal token e conecta-se ao V2; sem SID, lêem-se os dispositivos da conta atual, e, se o SID mais recente estiver online, conecta-se diretamente; se o SID mais recente não estiver online, mas a mesma máquina (MID mais recente) tiver exatamente uma conexão online, conecta-se a essa conexão; caso contrário, exibe-se a lista de dispositivos (regras em [Destino](./relay-v2-pairing.md#落点状态归属与刷新)). Dispositivos offline não são clicáveis; ao selecionar um dispositivo online, gravam-se sid/mid/name/app_version e conecta-se, com suporte ao acionamento manual e à atualização ao voltar para o primeiro plano. Sob o título da página de dispositivos são exibidos a conta e a plataforma do login atual; “Trocar” abre o diálogo de confirmação de troca de conta descrito abaixo.
+- Um 401 de token limpa a sessão local e retorna ao gate de login, sem confirmação; a troca de conta manual feita pelo usuário exige confirmação antes, e então limpa a sessão preservando a URL atual. AUTH_FAILED não é tratado como erro de rede com retentativa infinita.
 
-### 手动切换账号确认
+### Confirmação de troca de conta manual
 
-设备列表页与 `device-not-owned` 失败页的“切换账号”共用居中确认弹窗。标题为“切换账号？”，说明为“将退出当前手机网页端账号，返回登录页。电脑端仍保持登录。”，操作为左侧“取消”、右侧“退出并切换”。英文分别为 “Switch account?”、“You will sign out of this mobile web session and return to the sign-in page. Your computer will stay signed in.”、“Cancel” / “Sign out & switch”。按钮使用中性主次样式，不用危险红色。
+O “Trocar conta” da página de lista de dispositivos e da página de falha `device-not-owned` compartilham um diálogo de confirmação centralizado. O título é “Trocar conta?”, a descrição é “Você sairá da conta atual do web no celular e voltará para a página de login. O computador continua logado.”, e as ações são “Cancelar” à esquerda e “Sair e trocar” à direita. Em inglês, são “Switch account?”, “You will sign out of this mobile web session and return to the sign-in page. Your computer will stay signed in.” e “Cancel” / “Sign out & switch”. Os botões usam estilos neutros primário e secundário, sem vermelho de perigo.
 
-弹窗开关仅由共享确认组件的 Dialog 持有，不复制认证状态；UI 通过 `@zcode/ui/dialog` 子路径公开现有 Dialog 原语，Web 层组合本功能文案与触发按钮，确认按钮复用 `WebRemoteControlEntry.switchAccount()`。默认焦点在取消，焦点限制在弹窗内；点击取消、遮罩或按 Esc 关闭，焦点回到入口按钮。确认前不清凭据、不切换入口视图、不取消列表请求；确认后沿用原退出与 URL 保留逻辑。401、JWT 缺失等自动失效路径不经过此弹窗。桌面 continuous / 手机 replayable 恢复边界不变。
-
-```text
-手动入口 → Dialog 打开（仍登录）
-             ├─ 取消 / 遮罩 / Esc → 原页面（仍登录）
-             └─ 退出并切换 → Entry.switchAccount → reset → auth.logout → 登录页
-认证失效 ─────────────────→ Entry.switchAccount → reset → auth.logout → 登录页
-```
-
-验收：两个手动入口均覆盖打开、取消、遮罩、Esc、确认；取消保持凭据、URL 和原页面，确认清手机网页凭据并回登录页且保留 URL；401 不显示弹窗。浏览器验证覆盖 390px / 1024px、Zai Light / Zai Dark、中英文，检查焦点恢复、Tab 限制、按钮可达及无横向溢出。回归落在 `webRemoteControlSwitchAccount.test.ts` 与 pending `remote-login-v2.mjs`（MC01）；受控浏览器证据不替代真实手机 OAuth 验收。
-
-2026-09-22 本地验证：相关单测 4 文件 39 项通过，登录入口浏览器回归 75 项通过；确认 helper 拆分后独立复跑 16 组配置通过，并重新截取无进场动画的弹窗截图。截图与逐项结果在 `.tmp/remote-login-v2-e2e/`。typecheck、lint（60 条既有 warning / 0 error）、architecture、桌面 E2E typecheck 和修改代码格式检查通过；Web/UI 尚未纳入 managed architecture，边界由上述组件与入口回归核对。未执行真实手机、真实 OAuth 或线上部署验证。
-
-## 存储与边界
-
-`BrowserOAuthCredentialRepo` 是认证 storage 唯一边界，继续使用 zcodejwttoken、oauth:zai:access_token、oauth:zai:user_info、oauth:active_provider 以及已有 BigModel 独立键；进行中的登录记录使用 `oauth_pending_logins`。残缺或已过期会话清理后视为未登录；清理登录凭据或退出不删除进行中的登录记录。前置编排通过 WebAuthService 读取 JWT，不复制认证缓存；token 不持久化，不进入 QR、日志或业务 payload。
-
-## 开发回调转发
-
-`VITE_DEV_ORIGIN=http://192.168.x.x:5173` 将私网 `/remote/v4` 写入 OAuth state.return_to，并保留同一组远控参数。部署回调只有显式 `VITE_WEB_REMOTE_ALLOW_DEV_RETURN_TO=true` 才转发；转发保留白名单参数并追加本次 code/error/state，nonce 校验与 token 交换最终在发起登录的同源执行。已有分享 callback 路径继续支持。Vite 专用代理将 `/api/v1/oauth/token` 与 `/api/v1/remote` 转到当前构建 endpoint，位于普通 `/api` 代理之前。
-
-完整时序、错误映射、文案表和验收矩阵见 [Relay V2 手机首次进入与恢复](./relay-v2-pairing.md#手机首次进入与恢复05)。
-
-本地 `pnpm dev:web-remote-control` 保留 Vite root base，桌面默认二维码地址同步为 `http://localhost:5173/remote/v4`；手机调试时用 `ZCODE_WEB_REMOTE_CONTROL_URL` 指向可访问的同一路径，并配置对应 `VITE_DEV_ORIGIN`。避免使用不在 OAuth 回跳白名单中的 `/remote` 别名丢失 SID。
-
-### 独立测试入口的登录回跳
-
-保留的 `/remote/__test__` 测试资源链使用相同登录门禁。它是允许的登录来源和返回路径，OAuth 回调仍为 `/remote/v4`；不扩大私网 callback 白名单。发起授权时保留测试链接的 app_version/sid/mid/name，回调成功后恢复原测试路径及参数。401 清理会话后的重新登录遵循同一规则。
+A abertura do diálogo pertence apenas ao Dialog do componente compartilhado de confirmação, sem duplicar o estado de autenticação; a UI expõe a primitiva Dialog existente pela subpath `@zcode/ui/dialog`, e a camada Web combina o texto desta funcionalidade com o botão gatilho, reutilizando `WebRemoteControlEntry.switchAccount()` no botão de confirmação. O foco padrão fica em Cancelar, com o foco restrito ao diálogo; clicar em Cancelar, no overlay ou pressionar Esc fecha o diálogo, e o foco retorna ao botão de entrada. Antes da confirmação, não se limpam credenciais, não se troca a visão da entrada e não se cancela a requisição da lista; depois da confirmação, vale a lógica original de saída e de preservação de URL. Caminhos de invalidação automática, como 401 e JWT ausente, não passam por este diálogo. Os limites de restauração do continuous do desktop e do replayable do celular permanecem inalterados.
 
 ```text
-修复前：__test__ 扫码 → 登录 → 来源被拒、回调无参数 → safeReturn=null → /remote/v4
-修复后：__test__ 扫码 → 带扫码参数的 /remote/v4 回调
-                     → 原凭据 owner 校验 nonce、换 token → 原 __test__ 链接 → V2 配对
+Entrada manual → Dialog abre (ainda logado)
+             ├─ Cancelar / overlay / Esc → página original (ainda logado)
+             └─ Sair e trocar → Entry.switchAccount → reset → auth.logout → página de login
+Falha de auth ─────────────────→ Entry.switchAccount → reset → auth.logout → página de login
 ```
 
-验收复用 ML04：`/remote/v4` 与 `/remote/__test__` × Z.AI/BigModel × 390px/1024px × 首次登录/401 重登，断言实际授权回调保留参数、token 请求使用原 redirect_uri、返回原入口并完成配对。单测同时覆盖测试入口尾斜杠、外域与未知路径拒绝、敏感 query/fragment 剔除，以及回调白名单不扩大。桌面 continuous、手机 replayable 与业务 owner 不变。
+Aceitação: os dois pontos de entrada manuais cobrem abertura, cancelamento, overlay, Esc e confirmação; o cancelamento mantém credenciais, URL e página original, e a confirmação limpa as credenciais do web no celular, volta para a página de login e preserva a URL; 401 não exibe o diálogo. A verificação no navegador cobre 390px / 1024px, Zai Light / Zai Dark, chinês e inglês, checando a restauração de foco, a restrição de Tab, a alcançabilidade dos botões e a ausência de overflow horizontal. A regressão está em `webRemoteControlSwitchAccount.test.ts` e no pending `remote-login-v2.mjs` (MC01); evidência de navegador controlado não substitui a aceitação de OAuth em celular real.
 
-测试资源部署仍要求同源 `/remote/v4` 回调页面包含该返回路径规则，并由网关加载对应版本。受控浏览器回归不替代真实 OAuth 白名单、网关及测试镜像联调。
+2026-09-22 verificação local: 4 arquivos de teste unitário relacionados, 39 casos aprovados; 75 casos de regressão da entrada de login no navegador aprovados; após a separação do helper de confirmação, 16 configurações reexecutadas de forma isolada passaram, e o screenshot do diálogo sem a animação de entrada foi refeito. Screenshots e resultados item a item estão em `.tmp/remote-login-v2-e2e/`. typecheck, lint (60 warnings existentes / 0 errors), architecture, typecheck do E2E do desktop e a checagem de formatação do código modificado passaram; Web/UI ainda não entram na architecture gerenciada, e os limites são conferidos pelos componentes e pela regressão da entrada acima. Não foram executadas validações com celular real, OAuth real ou deploy em produção.
 
-2026-09-20 本地验证：修复前新增6项回归失败，修复后 codec、WebAuthService 和入口编排共3文件50项通过；pending 浏览器回归59项通过，含上述16组 ML04 登录路径，结果与32张入口截图在 `.tmp/remote-login-v2-e2e/`。typecheck、桌面 E2E typecheck、lint（61 warning / 0 error）、architecture 和修改代码的格式检查通过。测试使用现有依赖（Vitest 4.1.4，lock 为4.1.7）；未重新安装锁定依赖，也未执行真实 OAuth、真机或部署联调。
+## Armazenamento e limites
 
-## 双平台登录回归
+O `BrowserOAuthCredentialRepo` é o único limite de storage da autenticação; continua usando zcodejwttoken, oauth:zai:access_token, oauth:zai:user_info, oauth:active_provider e as chaves independentes já existentes da BigModel; os registros de login em andamento usam `oauth_pending_logins`. Sessões residuais ou expiradas são tratadas como não logadas depois da limpeza; limpar as credenciais de login ou sair não apaga os registros de login em andamento. A composição de pré-condição lê o JWT pelo WebAuthService, sem duplicar o cache de autenticação; o token não é persistido e não entra em QR code, logs ou payload de negócio.
+
+## Encaminhamento de callback de desenvolvimento
+
+`VITE_DEV_ORIGIN=http://192.168.x.x:5173` grava o `/remote/v4` da rede privada em OAuth state.return_to e preserva o mesmo conjunto de parâmetros de controle remoto. O callback de deploy só é encaminhado quando há `VITE_WEB_REMOTE_ALLOW_DEV_RETURN_TO=true` explícito; o encaminhamento preserva os parâmetros da allowlist e acrescenta o code/error/state desta tentativa, e a validação de nonce e a troca de token acabam executadas na mesma origem que iniciou o login. O caminho de callback de compartilhamento existente continua suportado. O proxy exclusivo do Vite encaminha `/api/v1/oauth/token` e `/api/v1/remote` para o endpoint de build atual, antes do proxy comum de `/api`.
+
+A sequência completa, o mapeamento de erros, a tabela de textos e a matriz de aceitação estão em [Primeiro acesso pelo celular e restauração no Relay V2](./relay-v2-pairing.md#手机首次进入与恢复05).
+
+O `pnpm dev:web-remote-control` local preserva a base root do Vite, e o endereço padrão do QR code no desktop passa a ser `http://localhost:5173/remote/v4`; ao depurar no celular, aponte `ZCODE_WEB_REMOTE_CONTROL_URL` para o mesmo caminho acessível e configure o `VITE_DEV_ORIGIN` correspondente. Evite o alias `/remote`, que não está na allowlist de retorno do OAuth, para não perder o SID.
+
+### Retorno de login da entrada de teste independente
+
+A cadeia de recursos de teste preservada em `/remote/__test__` usa o mesmo gate de login. Ele é uma origem de login e um caminho de retorno permitidos, mas o callback OAuth continua sendo `/remote/v4`; a allowlist de callback da rede privada não é ampliada. Na initiation da autorização, preservam-se o app_version/sid/mid/name do link de teste, e, após o callback bem-sucedido, o caminho e os parâmetros de teste originais são restaurados. O novo login após a limpeza de sessão por 401 segue a mesma regra.
 
 ```text
-修复前：登录页单按钮 → 入口未传 provider → WebAuthService 默认 zai
-修复后：登录页选择 zai / bigmodel → 入口传 provider + 原扫码 URL
-        → WebAuthService / BrowserOAuthCredentialRepo 保存 nonce、pending provider
-        → 对应平台授权 → 原 owner 校验回调并存凭据 → 原扫码 URL → Relay 校验账号归属
+Antes: QR code __test__ → login → origem rejeitada, callback sem parâmetros → safeReturn=null → /remote/v4
+Depois: QR code __test__ → callback /remote/v4 com os parâmetros do QR code
+                     → owner das credenciais originais valida o nonce, troca o token → link __test__ original → pareamento V2
 ```
 
-凭据 owner、存储键和 nonce 校验保持不变；桌面 continuous / 手机 replayable 的连接、恢复和业务 owner 不变。已有 Web 登录态继续可用，切换账号和 401 返回同一双平台门禁。
+Aceitação reaproveita ML04: `/remote/v4` e `/remote/__test__` × Z.AI/BigModel × 390px/1024px × primeiro login/relançamento após 401, afirmando que o callback de autorização real preserva os parâmetros, que a solicitação de token usa o redirect_uri original, que o retorno leva ao ponto de entrada original e que o pareamento é concluído. Os testes unitários cobrem também a barra final da entrada de teste, a rejeição de domínio externo e de caminho desconhecido, a remoção de query/fragment sensíveis e a não ampliação da allowlist de callback. O continuous do desktop, o replayable do celular e o owner de negócio permanecem inalterados.
 
-验收复用 `packages/web/test/e2e/manual-review/pending/remote-login-v2.mjs`：
+O deploy dos recursos de teste continua exigindo que a página de callback de mesma origem `/remote/v4` contenha a regra desse caminho de retorno, e que o gateway carregue a versão correspondente. A regressão em navegador controlado não substitui a integração com a allowlist real de OAuth, o gateway e a imagem de teste.
 
-- 390px / 1024px × Zai Light / Zai Dark × 中英文展示两入口，顺序、平台名称和标签与桌面一致。
-- 两平台分别验证点击、授权参数、pending provider、token 请求 provider、独立凭据键、原扫码地址回跳及 terminal 配对；BigModel 使用 authCode 回调。
-- 账号归属失败后切换到 BigModel，以及 401 后重新选择平台，保留原设备 URL。
-- 构建配置测试覆盖 test / production 的 BigModel 授权域名；真实第三方授权与真机扫码另行联调，本地受控响应不代表已完成线上验收。
+2026-09-20 verificação local: antes da correção, 6 novos casos de regressão falhavam; depois, codec, WebAuthService e a composição da entrada passaram juntos, 3 arquivos e 50 casos; regressão pendente no navegador com 59 casos aprovados, incluindo as 16 configurações de login ML04 acima, com os resultados e 32 screenshots da entrada em `.tmp/remote-login-v2-e2e/`. typecheck, typecheck do E2E do desktop, lint (61 warnings / 0 errors), architecture e a checagem de formatação do código modificado passaram. Os testes usaram as dependências existentes (Vitest 4.1.4, lock em 4.1.7); não houve reinstalação das dependências travadas nem validação com OAuth real, aparelho real ou deploy.
 
-## 回调保留扫码参数
+## Regressão de login em duas plataformas
 
 ```text
-修复前：版本化扫码 URL → WebAuthService → 固定回调 /remote/v4 → 网关加载 latest
-修复后：版本化扫码 URL → WebAuthService → 带 app_version/sid/mid/name 的回调
-                       └→ BrowserOAuthCredentialRepo 保存本次地址
-       → 网关按 app_version 加载页面 → 原 owner 校验 nonce → 用保存地址换 token
-       → 清理 pending 地址 → replace 安全 app_return_to → 原 V2 配对链路
+Antes: página de login com um único botão → entrada não passa provider → WebAuthService usa zai por padrão
+Depois: página de login escolhe zai / bigmodel → entrada passa provider + URL original do QR code
+        → WebAuthService / BrowserOAuthCredentialRepo salvam nonce e pending provider
+        → autorização na plataforma correspondente → owner original valida o callback e salva as credenciais → URL original do QR code → Relay valida a titularidade da conta
 ```
 
-复用 ML04 浏览器用例：两平台 × 手机/宽屏均从实际授权 URL 取回调地址，断言扫码参数完整保留，追加授权参数后导航，并核对 token 请求的 redirect_uri 与授权时一致。单测补充 Unicode/空值、未知及历史授权参数剔除、跨页恢复、nonce 失败、旧 pending 会话兼容与私网转发。此变更仅涉及 Web OAuth；桌面登录、continuous/replayable 与业务 owner 不变。发布后需真机验证两平台允许并保留带 query 的回调地址；缺少 app_version 的入口仍依赖 latest，不能据此宣称已修复线上旧资源。
+O owner das credenciais, as chaves de storage e a validação de nonce permanecem inalterados; a conexão, a restauração e o owner de negócio do continuous do desktop e do replayable do celular permanecem inalterados. O estado de login Web já existente continua utilizável, e a troca de conta e o 401 retornam ao mesmo gate de duas plataformas.
 
-## 回调落到同一浏览器的其他标签页
+Aceitação reaproveita `packages/web/test/e2e/manual-review/pending/remote-login-v2.mjs`:
 
-部分手机浏览器在 OAuth 往返后，回调页不在发起登录的标签页里，或标签页被系统回收后重建（例如切到短信 App 查看短信验证码）。登录记录原先只存在发起页的 sessionStorage，回调页读不到，就在换 token 前报 “OAuth CSRF 检测失败”；点“重新登录”在同一环境中仍会失败，换浏览器才能完成。
+- 390px / 1024px × Zai Light / Zai Dark × chinês e inglês exibem as duas entradas, com ordem, nomes de plataforma e rótulos iguais aos do desktop.
+- Cada uma das plataformas é validada em clique, parâmetros de autorização, pending provider, provider da solicitação de token, chave de credenciais independente, retorno ao endereço original do QR code e pareamento do terminal; a BigModel usa callback com authCode.
+- Após falha de titularidade de conta, troca-se para a BigModel; após 401, a plataforma é escolhida novamente, preservando a URL original do dispositivo.
+- Os testes de configuração de build cobrem o domínio de autorização da BigModel em test / production; a autorização real de terceiros e o QR code em aparelho real são integrados à parte, e a resposta local controlada não representa aceitação concluída em produção.
+
+## O callback preserva os parâmetros do QR code
 
 ```text
-修复前：Tab A 写 sessionStorage[A].nonce=N → provider 登录 → 回调落在 Tab B / 重建后的 Tab A
-        → sessionStorage 为空 → null≠N → CSRF 失败（不请求 token）
-修复后：Tab A 写 localStorage.oauth_pending_logins += {N, provider, redirectUri}
-        → provider 登录 → 回调落在同源任意标签页 → 取出并删除 N 对应记录 → 换 token → 安全回跳
+Antes: URL versionada do QR code → WebAuthService → callback fixo /remote/v4 → gateway carrega latest
+Depois: URL versionada do QR code → WebAuthService → callback com app_version/sid/mid/name
+                       └→ BrowserOAuthCredentialRepo salva o endereço desta tentativa
+       → gateway carrega a página conforme app_version → owner original valida o nonce → troca o token usando o endereço salvo
+       → limpa o endereço pending → replace seguro do app_return_to → cadeia de pareamento V2 original
 ```
 
-- 记录按 nonce 区分，多个标签页同时发起登录互不覆盖；最多保留最近 5 条，放弃的登录不会无限累积。
-- nonce 仍随机、同源可见、只能用一次。state 中的 nonce 找不到记录时拒绝，并保留其他记录。
-- 回调落到另一个浏览器 App 时仍拒绝：该浏览器没有本次登录记录，这是 CSRF 校验应有的结果。
-- 不再读取旧版本写在 sessionStorage 的 `oauth_pending_nonce` / `oauth_pending_provider` / `oauth_pending_redirect_uri`。网关按 `app_version` 为发起页和回调页加载同一版本目录，只有部署切换时正在进行的登录会受影响，用户重新登录即可。
+O caso de navegador ML04 é reutilizado: nas duas plataformas × celular/tela larga, o endereço de callback é obtido a partir da URL de autorização real, afirmando que os parâmetros do QR code são preservados por completo, que a navegação ocorre após acrescentar os parâmetros de autorização e que o redirect_uri da solicitação de token é conferido como idêntico ao da autorização. Os testes unitários complementam com Unicode/valores vazios, remoção de parâmetros desconhecidos e históricos de autorização, restauração entre páginas, falha de nonce, compatibilidade com sessões pending antigas e encaminhamento de rede privada. Esta mudança afeta apenas o OAuth do Web; o login do desktop, o continuous/replayable e o owner de negócio permanecem inalterados. Após o release, é preciso validar em aparelho real que as duas plataformas permitem e preservam endereços de callback com query; entradas sem app_version ainda dependem de latest, e isso não permite afirmar que recursos antigos em produção já foram corrigidos.
 
-验收：`browserOAuthCredentialRepo.test.ts` 覆盖跨标签页取回、只取匹配 nonce、取出即删、条数上限与损坏记录；`webAuthService.test.ts` 覆盖回调页使用空 sessionStorage 时两平台完成登录、nonce 不匹配时不请求 token 且保留记录、两个标签页并行登录各自完成。浏览器回归 `remote-login-v2.mjs` ML07 在同一浏览器 context 的新标签页完成回调，断言 token 请求参数、回跳与 terminal 配对。受控浏览器证据不替代真实手机浏览器验收。
+## O callback cai em outra aba do mesmo navegador
+
+Alguns navegadores de celular, após o ida-e-volta do OAuth, não exibem a página de callback na aba que iniciou o login, ou a aba é recriada pelo sistema (por exemplo, ao trocar para um App de SMS para ler o código de verificação). O registro de login existia apenas no sessionStorage da aba que iniciou, então a página de callback não o encontrava e relatava “OAuth CSRF 检测失败” antes da troca de token; clicar em “Entrar novamente” continuava falhando no mesmo ambiente, e só outro navegador permitia concluir.
+
+```text
+Antes: Tab A grava sessionStorage[A].nonce=N → login no provider → callback cai na Tab B / na Tab A recriada
+        → sessionStorage vazio → null≠N → falha de CSRF (não solicita token)
+Depois: Tab A grava localStorage.oauth_pending_logins += {N, provider, redirectUri}
+        → login no provider → callback cai em qualquer aba de mesma origem → retira e apaga o registro de N → troca o token → retorno seguro
+```
+
+- Os registros são distinguidos por nonce, e logins iniciados simultaneamente em várias abas não se sobrescrevem; no máximo as 5 mais recentes são mantidas, de modo que logins abandonados não se acumulam indefinidamente.
+- O nonce continua aleatório, visível na mesma origem e utilizável apenas uma vez. Quando o nonce do state não encontra registro, o callback é rejeitado e os demais registros são preservados.
+- Quando o callback cai em outro App de navegador, a rejeição permanece: aquele navegador não tem o registro deste login, o que é o resultado esperado da validação de CSRF.
+- Não se lêem mais o `oauth_pending_nonce` / `oauth_pending_provider` / `oauth_pending_redirect_uri` que versões antigas gravavam no sessionStorage. O gateway carrega o mesmo diretório de versão para a aba que iniciou e para a página de callback conforme o `app_version`, e somente logins em andamento são afetados na troca de deploy; basta o usuário entrar novamente.
+
+Aceitação: `browserOAuthCredentialRepo.test.ts` cobre a recuperação entre abas, a retirada apenas do nonce correspondente, a retirada com apagamento, o limite de itens e registros corrompidos; `webAuthService.test.ts` cobre a conclusão do login nas duas plataformas com sessionStorage vazio na página de callback, a ausência de solicitação de token quando o nonce não corresponde (com os registros preservados) e o login paralelo em duas abas concluindo de forma independente. A regressão `remote-login-v2.mjs` ML07 conclui o callback em uma nova aba do mesmo contexto de navegador, afirmando os parâmetros da solicitação de token, o retorno e o pareamento do terminal. Evidência de navegador controlado não substitui a aceitação em navegadores de celular reais.

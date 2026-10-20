@@ -1,94 +1,99 @@
-# CUA coordinate internal frame binding
+# Binding interno de frame de coordenada CUA
 
-## Problem
+## Problema
 
-The model-facing coordinate contract previously required the model to copy an
-opaque `frame_id` from a text block adjacent to the raster:
+O contrato de coordenadas visível ao model exigia anteriormente que o model
+copiasse um `frame_id` opaco a partir de um bloco de texto adjacente ao raster:
 
 ```json
 {"type":"coordinate","frame_id":"frame-ab12cd34","x":38,"y":105}
 ```
 
-`frame_id` is transport authority, not visual task input. Requiring the model to
-relay it leaks CUA bookkeeping into the model contract and makes correct visual
-actions depend on copying an opaque implementation token.
+`frame_id` é autoridade de transporte, não entrada visual da tarefa. Exigir que
+o model o repasse vaza a contabilidade interna do CUA para o contrato do model e
+torna as ações visuais corretas dependentes da cópia de um token de implementação
+opaco.
 
-## Contract
+## Contrato
 
-The public coordinate target is:
+O alvo de coordenada público é:
 
 ```json
 {"type":"coordinate","x":38,"y":105}
 ```
 
-The model copies the integer pixel indices from the exact raster it just
-observed. It performs no Retina, DPI, crop, resize, display-origin, or native
-pointer conversion.
+O model copia os índices de pixel inteiros do raster exato que acabou de observar.
+Ele não faz nenhuma conversão de Retina, DPI, crop, resize, origem do display ou
+ponteiro nativo.
 
-CUA binds an unqualified coordinate to the newest actionable raster in the
-current MCP transport session before any asynchronous work begins:
+O CUA liga uma coordenada sem qualificação ao raster acionável mais novo na
+sessão atual do transporte MCP, antes de qualquer trabalho assíncrono começar:
 
 ```text
-model-visible raster (1280 x 645)
-             │ x/y only
+raster visível ao model (1280 x 645)
+             │ somente x/y
              ▼
-bind latest actionable frame in this transport
-             │ immutable frame descriptor
+vincula o frame acionável mais recente neste transporte
+             │ descritor de frame imutável
              ▼
-validate actionable + TTL + app/window ownership
+valida acionável + TTL + posse de app/janela
              │
              ▼
-project raster pixel center ──► native pointer unit ──► dispatch
+projeta o centro do pixel do raster ──► unidade de ponteiro nativa ──► despacho
 ```
 
-The bound target carries the opaque frame id internally through queue admission
-and dispatch. If a newer actionable observation is issued while the action is
-waiting, the old bound target remains valid inside its retained-frame lifetime;
-it is never rebound to the newer geometry.
+O alvo vinculado carrega o id de frame opaco internamente, pela admissão na fila
+e pelo despacho. Se uma observação acionável mais nova for emitida enquanto a
+ação está aguardando, o antigo alvo vinculado permanece válido dentro do seu
+tempo de vida de frame retido; ele nunca é revinculado à geometria mais nova.
 
-A state-only observation publishes no raster and therefore neither advances nor
-revokes the current implicit pixel authority. The newest retained actionable
-raster remains the binding source until another actionable raster is published
-or its normal TTL/LRU/actionability checks fail. AX `bounds` in a state-only
-result remain global screen points and must never be submitted as raster `x/y`;
-models that need coordinates must continue using pixels chosen from the retained
-raster or request a new raster.
+Uma observação somente-estado não publica raster e portanto nem avança nem revoga
+a autoridade implícita de pixel atual. O raster acionável retido mais recente
+permanece a fonte de binding até que outro raster acionável seja publicado ou que
+suas checagens normais de TTL/LRU/acionabilidade falhem. Os `bounds` de AX em um
+resultado somente-estado continuam sendo pontos globais de tela e nunca devem ser
+submetidos como `x/y` de raster; models que precisam de coordenadas devem
+continuar usando pixels escolhidos do raster retido ou solicitar um novo raster.
 
-For backward compatibility, callers may still provide `frame_id`. An explicit
-identifier is authoritative: unknown, expired, evicted, cross-session, or
-non-actionable values fail closed and never fall back to the latest frame. A
-previous actionable frame that is still retained and in-TTL remains valid even
-after a later observation creates a newer frame.
+Por compatibilidade, os chamadores ainda podem fornecer `frame_id`. Um
+identificador explícito é autoritativo: valores desconhecidos, expirados,
+evictados, de outra sessão ou não acionáveis falham de forma fechada e nunca
+recorrem ao frame mais recente. Um frame acionável anterior que ainda está retido e
+dentro do TTL permanece válido mesmo depois que uma observação posterior cria um
+frame mais novo.
 
-## Invariants
+## Invariantes
 
-- No actionable raster in the current transport means coordinate actions fail
-  before dispatch.
-- The implicit binding is transport-local and cannot select another MCP
-  session's frame.
-- Binding happens synchronously before app resolution or broker I/O.
-- Queue-time revalidation uses the internally bound id, so concurrent
-  observations cannot reinterpret existing `x/y` values or reject them solely
-  because a newer frame now exists.
-- State-only observations update element state but do not mutate implicit pixel
-  authority; they cannot force the model to relay an opaque retained `frame_id`.
-- `image_ref` remains adjacent to the raster for integrity verification and
-  diagnostics, but the model does not need to read or repeat it.
-- Every raster observation starts with the canonical adjacent
-  `[image, image_ref]` pair. Task state or compact metadata follows it.
-- Coordinates selected from the latest per-app raster are submitted unchanged
-  and CUA binds that frame internally.
-- Model-visible recovery errors never instruct the model to copy
-  `image_ref.frame_id`. After expiry, missing retained pixels, non-actionable
-  frame status, or live-owner change, they require a fresh observation and new
-  raster `x/y`; deterministic compatibility callers may still use an explicit
-  retained id.
+- Nenhum raster acionável no transporte atual significa que as ações de
+  coordenada falham antes do despacho.
+- O binding implícito é local ao transporte e não pode selecionar o frame de
+  outra sessão MCP.
+- O binding acontece de forma síncrona antes da resolução do app ou do I/O do
+  broker.
+- A revalidação na hora da fila usa o id vinculado internamente, então
+  observações concorrentes não podem reinterpretar valores `x/y` existentes nem
+  rejeitá-los só porque agora existe um frame mais novo.
+- Observações somente-estado atualizam o estado dos elementos, mas não mutam a
+  autoridade implícita de pixel; elas não podem forçar o model a repassar um
+  `frame_id` retido opaco.
+- `image_ref` permanece adjacente ao raster para verificação de integridade e
+  diagnóstico, mas o model não precisa lê-lo nem repeti-lo.
+- Toda observação de raster começa com o par canônico adjacente
+  `[image, image_ref]`. O estado da tarefa ou os metadados compactos vêm depois.
+- Coordenadas selecionadas do raster por app mais recente são submetidas sem
+  alteração e o CUA vincula esse frame internamente.
+- Erros de recuperação visíveis ao model nunca instruem o model a copiar
+  `image_ref.frame_id`. Após expiração, pixels retidos ausentes, status de frame
+  não acionável ou mudança de dono live, eles exigem uma nova observação e um
+  novo `x/y` de raster; chamadores determinísticos de compatibilidade ainda
+  podem usar um id retido explícito.
 
-## Regression evidence
+## Evidência de regressão
 
-Tests must cover schema/runtime acceptance without `frame_id`, explicit invalid
-id refusal, no-frame refusal, latest-frame selection, retained explicit old-frame
-dispatch, queued bound-frame dispatch after a later observation, and rejection
-of implicit ancestor-space guessing. A provider probe must verify that every
-tool-result block is delivered in order, and a model-in-the-loop run must click
-from visual `x/y` without relaying the opaque id.
+Os testes devem cobrir aceitação de schema/runtime sem `frame_id`, recusa de id
+inválido explícito, recusa sem frame, seleção do frame mais recente, despacho
+com frame explícito antigo retido, despacho de frame vinculado na fila após uma
+observação posterior e rejeição de adivinhação implícita de espaço de ancestrais.
+Uma sondagem de provider deve verificar que todo bloco de resultado de ferramenta
+é entregue em ordem, e uma execução com o model no loop deve clicar a partir de
+`x/y` visual sem repassar o id opaco.

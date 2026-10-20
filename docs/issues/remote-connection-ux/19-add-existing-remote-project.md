@@ -1,47 +1,47 @@
-# 19: 添加已有远程项目
+# 19: Adicionar projeto remoto existente
 
 Status: done
 
-**Parent:** [#15 — 项目创建与远程连接管理分离](15-project-device-selection-and-connection-management.md)
+**Parent:** [#15 — Separação entre criação de projeto e gestão de conexão remota](15-project-device-selection-and-connection-management.md)
 
-**What to build:** 在新的项目表单选择远程设备后，用户可以通过「添加此设备上的已有项目…」浏览并添加原项目，在本机继续访问其任务。这个路径与新建项目明确分开，返回时保留尚未提交的新项目草稿。
+**O que construir:** depois de selecionar um dispositivo remoto no novo formulário de projeto, o usuário pode navegar e adicionar projetos existentes daquele dispositivo por meio de «Adicionar projeto existente deste dispositivo…», continuando a acessar suas tarefas no computador local. Esse caminho é explicitamente separado da criação de novo projeto e, ao voltar, preserva o rascunho de projeto novo ainda não enviado.
 
-**Blocked by:** [#18 — 直接创建项目与选择已有设备](18-direct-project-creation-and-device-selection.md)。本票需要该表单、所选设备和在项目内显式连接的完整路径。
+**Bloqueado por:** [#18 — Criação direta de projeto e seleção de dispositivo existente](18-direct-project-creation-and-device-selection.md). Esta issue precisa do formulário, do dispositivo selecionado e do caminho completo de conexão explícita dentro do projeto.
 
-**Spec coverage:** Q9；RDUX15-15、RDUX15-16，并覆盖 RDUX15-07／18／20 的离线连接、等待及失效分支。RDUX15-23／24／25 覆盖该列表的交互与平台边界。
+**Cobertura da spec:** Q9; RDUX15-15, RDUX15-16, cobrindo também as ramificações de conexão offline, espera e invalidação de RDUX15-07／18／20. RDUX15-23／24／25 cobrem a interação dessa listagem e os limites de plataforma.
 
 ## Acceptance criteria
 
-- [x] 项目表单选择远程设备后，在源文件夹区域提供「添加此设备上的已有项目…」次要入口；不要求先填写新项目名称或目录。
-- [x] 点击后在同一弹窗内进入该设备的已有项目列表。离线设备在当前项目流程内连接，保留选择已有项目的意图；补凭据、安装或重试成功后继续原列表，不进入新建项目或设置添加页。
-- [x] 用户选择列表中的项目后，仅登记该项目的本机入口，并能继续访问其原任务；不调用新建项目来模拟添加已有项目。
-- [x] 同设备同目录的不同项目保持不同项目身份并可分别选择；重复添加同一项目不产生重复本机入口。新建同目录项目的既有语义不被改为自动复用。
-- [x] 从列表返回时，名称、设备和已选目录恢复到原创建草稿；列表加载、失败、取消和重试不覆盖或提交该草稿。
-- [x] 旧远端仅支持读取已有项目时，仍可浏览和添加；不把只读能力误报为无项目，也不允许不支持的新建操作。
-- [x] 列表请求返回前切换设备、取消流程或使原意图失效，旧结果不得替换新设备的列表、添加项目或触发导航；取消只释放本次资源，不影响共享连接。
-- [x] 已有项目的明确打开／重连仍保留原项目身份和目录，不被当作另一份新项目草稿；项目历史与任务归属不迁移、不删除。
-- [x] 列表的键盘选择、返回焦点、空态／错误、长名称和路径在中英文、当前深浅主题及窄窗口下可用，Web／手机遵守原有 Host 能力。
-- [x] 先补测试再实现，完成下面的端到端身份断言及取消验证；已有入口迁移完并确认无使用者后，才移除被替代的入口与无用接线。
+- [x] Depois que o formulário de projeto seleciona um dispositivo remoto, a área de pasta de origem oferece a entrada secundária «Adicionar projeto existente deste dispositivo…»; não é exigido preencher antes o nome ou o diretório do novo projeto.
+- [x] Ao clicar, entra-se na listagem de projetos existentes daquele dispositivo dentro do mesmo diálogo. Dispositivos offline são conectados dentro do fluxo de projeto atual, preservando a intenção de escolher um projeto existente; depois de complemented as credenciais, instalar ou ter sucesso na retentativa, o fluxo continua na listagem original, sem entrar na criação de novo projeto nem na página de configurações de adição.
+- [x] Depois que o usuário seleciona um projeto da listagem, apenas o registro local (entrada local) desse projeto é registrado, e ele pode continuar acessando suas tarefas originais; não se chama a criação de novo projeto para simular a adição de um projeto existente.
+- [x] Projetos diferentes no mesmo dispositivo e no mesmo diretório mantêm identidades de projeto distintas e podem ser selecionados separadamente; adicionar o mesmo projeto repetidamente não gera entradas locais duplicadas. A semântica existente de criar um projeto no mesmo diretório não é alterada para reutilização automática.
+- [x] Ao voltar da listagem, nome, dispositivo e diretório selecionado são restaurados no rascunho de criação original; o carregamento, a falha, o cancelamento e a retentativa da listagem não sobrescrevem nem enviam esse rascunho.
+- [x] Quando um servidor antigo só suporta a leitura de projetos existentes, ainda é possível navegar e adicionar; a capacidade somente-leitura não é reportada erroneamente como ausência de projetos, e operações novas não suportadas não são permitidas.
+- [x] Se, antes de a requisição da listagem retornar, o dispositivo for trocado, o fluxo for cancelado ou a intenção original for invalidada, os resultados antigos não podem substituir a listagem do novo dispositivo, adicionar projetos nem disparar navegação; o cancelamento libera apenas os recursos desta execução, sem afetar a conexão compartilhada.
+- [x] A abertura／reconexão explícita de um projeto existente continua preservando a identidade e o diretório originais do projeto, sem ser tratada como outro rascunho de projeto novo; o histórico de projetos e a atribuição de tarefas não migram nem são removidos.
+- [x] A seleção por teclado, o retorno de foco, os estados vazio／de erro, nomes longos e caminhos da listagem funcionam em chinês e inglês, nos temas claro e escuro atuais e em janelas estreitas; Web／celular seguem as capacidades de Host já existentes.
+- [x] Testes são escritos antes da implementação, cobrindo as asserções de identidade ponta a ponta e a verificação de cancelamento abaixo; a entrada substituída e asligações inúteis só são removidas depois de a migração da entrada existente estar concluída e se confirmar que não há usuários remanescentes.
 
 ## Verification
 
-- 在真实远端准备已有任务的项目，从新表单添加后读取原任务，断言项目 ID、任务归属和本机入口数量；重复添加也要断言，而不只检查项目名称出现。
-- 准备同目录不同项目与旧远端只读能力，验证选择、去重与能力门禁；沿用现有项目服务合同和 E2E 组织方式。
-- 延迟已有项目列表或连接结果，取消或换目标后释放，验证旧结果无副作用；返回草稿时核对全部原值。
-- 实施需通过类型检查、lint、架构门禁、受影响单测、对应 Desktop E2E，以及适用的共享 UI／手机回归和视觉检查；记录真实远端与只读兼容验证的证据边界。
+- Em um servidor remoto real, preparar um projeto com tarefas existentes; depois de adicioná-lo pelo novo formulário, ler as tarefas originais e asseverar o ID do projeto, a atribuição de tarefas e a quantidade de entradas locais; a adição repetida também deve ser asseverada, e não apenas verificado que o nome do projeto aparece.
+- Preparar projetos diferentes no mesmo diretório e a capacidade somente-leitura de servidores antigos, verificando seleção, deduplicação e o bloqueio por capacidade; reaproveitar o contrato existente do serviço de projetos e a organização de E2E.
+- Atrasar a listagem de projetos existentes ou o resultado da conexão, cancelar ou trocar o alvo e liberar, verificando que os resultados antigos não têm efeito colateral; ao voltar ao rascunho, conferir todos os valores originais.
+- A implementação deve passar pela checagem de tipos, lint, portão de arquitetura, testes unitários afetados, E2E do Desktop correspondente, além das regressões de UI compartilhada／celular e da verificação visual aplicáveis; registrar os limites de evidência da verificação em servidor real e da compatibilidade somente-leitura.
 
 ## Scope and handoff
 
-- 不新增项目按路径去重、远程项目迁移或任务重归属逻辑。只调整入口与交接，复用既有远端项目查询和本机入口登记能力。
-- 该流程的后台继续与显式恢复由 [#22](22-background-connection-and-explicit-resume.md) 接入；本票前台返回、取消和迟到结果保护必须先完整可用。
+- Não há lógica nova de deduplicação de projetos por caminho, de migração de projeto remoto ou de reatribuição de tarefas. Apenas ajustam-se a entrada e a passagem de turno, reaproveitando a capacidade existente de consulta de projetos remotos e de registro de entrada local.
+- A continuação em segundo plano desse fluxo e a retomada explícita são conectadas por [#22](22-background-connection-and-explicit-resume.md); nesta issue, o retorno de primeiro plano, o cancelamento e a proteção contra resultados atrasados precisam estar completamente funcionais primeiro.
 
 
 ## Comments
 
-2026-10-12：按 Q9 完成已有项目入口与前台取消边界。ProjectEditor 保留同一份创建草稿，RemoteProjectList 只读取所选设备并在显式选择后以原 projectId 登记入口；旧连接入口的创建路径仍通过兼容包装器保留。只读旧端在 UI 与项目服务合同中验证：可读、可选、可登记，创建受限。
+2026-10-12: concluída conforme Q9 a entrada de projeto existente e a fronteira de cancelamento de primeiro plano. O ProjectEditor mantém uma única cópia do rascunho de criação; o RemoteProjectList apenas lê o dispositivo selecionado e registra a entrada com o `projectId` original após a seleção explícita; o caminho de criação da entrada de conexão antiga continua preservado por um wrapper de compatibilidade. Servidores antigos somente-leitura são verificados no contrato de UI e de serviço de projetos: legíveis, selecionáveis, registráveis, com criação restrita.
 
-验证：根 `pnpm typecheck`、`pnpm lint`（208 条既有 warning、0 error）、架构门禁、E2E 类型与 fixture 检查通过。本票 `--files` 受影响选择 661 个测试文件，Vitest 主组 657 文件／6367 测试及 Node 审计通过；旧端/项目存储与入口 4 份合同共 24 项通过。合入 #20 后，创建/设置返回/取消及启动凭据 5 文件 93 项重点回归通过。
+Verificação: `pnpm typecheck` da raiz, `pnpm lint` (208 warnings existentes, 0 error), portão de arquitetura, checagem de tipos e de fixtures de E2E aprovados. A seleção `--files` desta issue atingiu 661 arquivos de teste; o grupo principal do Vitest, com 657 arquivos／6367 testes, e a auditoria de Node passaram; 4 contratos de servidor antigo／armazenamento de projetos／entradas, totalizando 24 itens, passaram. Após integrar o #20, a regressão principal de criação／retorno das configurações／cancelamento e credenciais iniciais, com 5 arquivos e 93 itens, passou.
 
-真实 SSH Desktop E2E 1/1 通过：原项目与任务 ID/归属、同目录两个项目、重复添加后入口 ID/数量不变、返回草稿、迟到列表取消，以及离线显式连接后继续原列表均有断言。证据：`packages/desktop/.e2e-artifacts/desktop-e2e-20261012110913073-p90850-7427869e2d36d636/`。已检查中英 × Zai Light/Dark × 1440/480px 的 8 组截图。几何回归先测出默认 grid 行高 48px 容不下 65px 文字（scrollTop=0），改为内容行高后逐行边界断言与全部截图通过；失败证据保留在 `desktop-e2e-20261012110708521-p87877-215c3ab6cbef90b0`。
+E2E do Desktop com SSH real 1/1 aprovado: o ID／atribuição do projeto e das tarefas originais, dois projetos no mesmo diretório, a adição repetida sem alteração do ID／quantidade de entradas, o retorno ao rascunho, o cancelamento de listagem atrasada e a conexão explícita offline continuando na listagem original, todos com asserções. Evidência: `packages/desktop/.e2e-artifacts/desktop-e2e-20261012110913073-p90850-7427869e2d36d636/`. Foram verificadas 8 combinações de capturas de tela em chinês/inglês × Zai Light/Dark × 1440/480px. A regressão geométrica mediu primeiro que a altura de linha padrão do grid, 48px, não comportava o texto de 65px (scrollTop=0); após mudar para a altura de linha de conteúdo, as asserções de limite por linha e todas as capturas passaram; as evidências de falha foram preservadas em `desktop-e2e-20261012110708521-p87877-215c3ab6cbef90b0`.
 
-证据边界：真实 SSH 使用当前 runtime；旧版本二进制未单独运行，兼容分支由既有 legacy 服务 fixture 和可观察 UI 测试验证。WSL 与手机实机按用户要求保留 TODO，不将其标为通过。新 E2E 仍为 manual-review/pending，未转正或纳入 CI。
+Limites de evidência: o SSH real usa o runtime atual; o binário de versão antiga não foi executado separadamente, e os ramos de compatibilidade foram verificados pelo fixture de serviço legado existente e por testes de UI observáveis. WSL e celular físico mantêm TODO conforme solicitado pelo usuário, sem serem marcados como aprovados. O novo E2E continua como manual-review/pending, sem promoção nem inclusão no CI.

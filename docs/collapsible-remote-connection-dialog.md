@@ -1,66 +1,63 @@
-# Collapsible Remote connection Dialog
+# Diálogo de Conexão Remota Recolhível
 
-## Goal
+## Objetivo
 
-Remote connection setup can take a long time while SSH/Docker sessions are created and remote assets are prepared. The remote connection wizard supports minimizing the dialog from any wizard step without cancelling the active connection flow or discarding an idle draft/error state.
+A configuração de uma conexão remota pode demorar bastante enquanto sessões SSH/Docker são criadas e os recursos remotos são preparados. O assistente de conexão remota permite minimizar o diálogo a partir de qualquer etapa do assistente, sem cancelar o fluxo de conexão em andamento nem descartar um rascunho/estado de erro ocioso.
 
-## State Boundary
+## Limite de Estado
 
-### Connection type shortcuts
+### Atalhos de tipo de conexão
 
-The current three-screen wizard starts with the unified device list. New SSH,
-Docker, Windows-only WSL, and development-only Server entries open their matching
-configuration form on a single click. The form belongs to the first screen; there
-is no separate type-selection screen or Next action. Visibility rules are unchanged.
-This follows [RDUX-10](architecture/remote-device-connection-ux-spec.md#三屏向导与统一选择2026-09-28rdux-10).
+O assistente atual de três telas começa pela lista unificada de dispositivos. Novas entradas de SSH, Docker, WSL (somente Windows) e Servidor (somente desenvolvimento) abrem seu formulário de configuração correspondente com um único clique. O formulário pertence à primeira tela; não existe uma tela separada de seleção de tipo nem uma ação Avançar. As regras de visibilidade permanecem inalteradas.
+Isto segue [RDUX-10](architecture/remote-device-connection-ux-spec.md#三屏向导与统一选择2026-09-28rdux-10).
 
-The form hook owns the selected type, and the single dialog flow owner switches
-between the list and the form:
+O hook do formulário é dono do tipo selecionado, e o único dono do fluxo do diálogo alterna
+entre a lista e o formulário:
 
 ```text
-single click / double click -> new connection(type) -> reset draft / feedback -> matching form
-Back to list -> unified device list -> another explicit entry chooses its own type
-form submit -> validate -> connection screen
+clique simples / clique duplo -> nova conexão(tipo) -> reset rascunho / feedback -> formulário correspondente
+Voltar para a lista -> lista unificada de dispositivos -> outra entrada explícita escolhe seu próprio tipo
+envio do formulário -> validação -> tela de conexão
 ```
 
-A double-click must reach the same form as a single click without submitting it.
-After visiting another type and returning to the list, both gestures still open
-the chosen type. The list entries are actions rather than a retained radio
-selection; returning does not require a selected-card style. Only explicit form
-submission begins a connection. Keyboard activation uses the same entry action.
-Mobile Web currently does not mount this dialog; desktop continuous and mobile
-replayable connection recovery are unchanged.
+Um clique duplo precisa chegar ao mesmo formulário que o clique simples, sem enviá-lo.
+Depois de visitar outro tipo e voltar à lista, ambos os gestos ainda abrem o tipo
+escolhido. As entradas da lista são ações, e não uma seleção de rádio retida; voltar
+não exige um estilo de cartão selecionado. Somente o envio explícito do formulário inicia
+uma conexão. A ativação por teclado usa a mesma ação de entrada. O Web mobile
+atualmente não monta este diálogo; a recuperação de conexão contínua do desktop e a
+replayable do mobile permanecem inalteradas.
 
-Acceptance: for each visible type, verify single-click, double-click after visiting
-another type, and another double-click after returning to the list. All paths must
-show the matching form, produce no form submission, and remain outside connection
-or directory selection (catalog CWP20).
+Aceitação: para cada tipo visível, verificar clique simples, clique duplo após visitar
+outro tipo e outro clique duplo após voltar à lista. Todos os caminhos devem
+mostrar o formulário correspondente, não produzir envio de formulário e permanecer fora
+de conexão ou seleção de diretório (catálogo CWP20).
 
-### Active flow
+### Fluxo ativo
 
-The active remote connection wizard is mounted once from `RootInner`. This keeps the wizard state alive while the user moves between workspace views and settings.
+O assistente de conexão remota ativo é montado uma única vez a partir de `RootInner`. Isso mantém o estado do assistente vivo enquanto o usuário se move entre visualizações de workspace e configurações.
 
-The active-flow state is still defined as either:
+O estado do fluxo ativo ainda é definido como:
 
-- a connection request is still loading, or
-- a remote session is connected and waiting for directory selection.
+- uma requisição de conexão ainda está carregando, ou
+- uma sessão remota está conectada e aguardando seleção de diretório.
 
-When the flow is active, opening the dialog resumes the current wizard step. An explicit minimize also resumes the preserved step when the flow is idle, including the device list, connection settings, and failed connection context. A fresh open starts from the unified device list; a new connection form remains part of this first screen.
+Quando o fluxo está ativo, abrir o diálogo retoma a etapa atual do assistente. Uma minimização explícita também retoma a etapa preservada quando o fluxo está ocioso, incluindo a lista de dispositivos, as configurações de conexão e o contexto de conexão com falha. Uma abertura nova começa pela lista unificada de dispositivos; um novo formulário de conexão permanece parte dessa primeira tela.
 
-## Minimize vs Close
+## Minimizar vs Fechar
 
-Minimize only hides the dialog. It does not cancel the pending request, clear form/error/log state, reset the current step, or release a connected session. The minimize action is available throughout the three-screen flow, including the first-screen configuration form.
+Minimizar apenas oculta o diálogo. Não cancela a requisição pendente, não limpa o estado do formulário/erro/log, não reseta a etapa atual e não libera uma sessão conectada. A ação de minimizar está disponível ao longo de todo o fluxo de três telas, incluindo o formulário de configuração da primeira tela.
 
-Close keeps the previous destructive behavior. If a connection is pending, the user must confirm cancellation. If a session is connected but no directory has been selected, closing releases that session.
+Fechar mantém o comportamento destrutivo anterior. Se há uma conexão pendente, o usuário precisa confirmar o cancelamento. Se uma sessão está conectada mas nenhum diretório foi selecionado, fechar libera essa sessão.
 
-## Entry Indicators
+## Indicadores de Entrada
 
-When a minimized flow is active, the workspace sidebar `Open Workspace` button shows a connecting indicator.
+Quando um fluxo minimizado está ativo, o botão `Open Workspace` da barra lateral do workspace exibe um indicador de conectando.
 
-Clicking the entry opens the same global wizard instance and returns to the current step.
+Clicar na entrada abre a mesma instância global do assistente e retorna à etapa atual.
 
-## Reconnect Logs
+## Logs de Reconexão
 
-Remote workspace reconnects expose the same runtime log stream from hover tooltips in the workspace sidebar. The tooltip stays compact in the row and scrolls to the latest log line when opened.
+As reconexões de workspace remoto expõem o mesmo fluxo de logs de runtime a partir de tooltips no hover na barra lateral do workspace. O tooltip permanece compacto na linha e rola até a linha de log mais recente quando aberto.
 
-Log ownership is keyed by the reconnect request id when it is available. This prevents concurrent reconnects to the same SSH host, WSL distro, or Docker container from showing each other's upload or setup logs. Legacy log events without a request id only fall back to target-label matching when the target uniquely identifies one reconnecting workspace.
+A posse dos logs é indexada pelo id da requisição de reconexão quando ele está disponível. Isso impede que reconexões concorrentes ao mesmo host SSH, distribuição WSL ou container Docker mostrem os logs de upload ou setup uns dos outros. Eventos de log legados sem id de requisição só recorrem ao casamento por rótulo de alvo quando o alvo identifica unicamente um workspace em reconexão.

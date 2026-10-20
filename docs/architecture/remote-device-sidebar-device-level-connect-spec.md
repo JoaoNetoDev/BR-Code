@@ -1,21 +1,19 @@
-# 设备上线后的工作区恢复入口
+# Entrada de restauração do workspace após o dispositivo ficar online
 
-旧侧栏设备组头与 connect-and-chat UI 已由[平铺项目导航](../remote/project-first-remote-navigation-spec.md)替代。
-带目录入口恢复原项目，无目录的手动连接成功后选目录；需凭据、安装或升级时交接唯一向导，保留原意图。
-展示只依赖[统一五态](remote-device-connection-ux-spec.md)，不再维护旧四态或 pending→离线规则。
+O cabeçalho do grupo de dispositivos da barra lateral antiga e a UI de connect-and-chat foram substituídos pela [navegação de projetos em lista plana](../remote/project-first-remote-navigation-spec.md).
+A entrada com diretório restaura o projeto original; a conexão manual sem diretório permite escolher o diretório depois de concluída; quando são necessárias credenciais, instalação ou atualização, o processo é entregue ao único assistente, preservando a intenção original.
+A exibição depende apenas dos [cinco estados unificados](remote-device-connection-ux-spec.md), sem manter os quatro estados antigos nem a regra pending→offline.
 
-## C3 设备上线恢复门禁
+## Portão C3 de restauração após o dispositivo ficar online
 
-本项有效规则已集中到 [Renderer 重挂](../remote/desktop-remote-session-renderer-reattach.md)：
-Host 冷启动按设备最近 7 天 `lastOnlineAt` 选择静默连接候选；设备 online 后，Renderer 挂回当前窗口
-该 Source 下全部 open、断连且 stable identity 的项目，不再次按 workspace 年龄或上次 connected 状态过滤。
-同周期去重、terminal close、主动断开与迟到结果边界均由该规格维护。
+As regras efetivas deste item foram centralizadas em [reattach do Renderer](../remote/desktop-remote-session-renderer-reattach.md):
+Na partida a frio do Host, o dispositivo é escolhido como candidato de conexão silenciosa a partir do `lastOnlineAt` dos últimos 7 dias; depois que o dispositivo fica online, o Renderer reanexa à janela atual todos os projetos abertos, desconectados e com identidade estável daquela Source, sem filtrar novamente pela idade do workspace nem pelo último estado connected.
+As bordas de deduplicação no mesmo ciclo, de fechamento de terminal, de desconexão ativa e de resultados tardios são mantidas por essa especificação.
 
-历史 RDUX-12/13/14 是原设备组头回归编号，不等同于后来同号的 UX 实施票；保留原记录，
-不得用旧 connect-and-chat 断言替代当前导航验收。原根因日志、改动清单和测试记录：
+RDUX-12/13/14 são os números de regressão originais do cabeçalho de grupo de dispositivos e não equivalem às tickets de implementação de UX que reutilizaram os mesmos números depois; os registros originais são preservados e as aserções antigas de connect-and-chat não podem substituir a aceitação da navegação atual. Log da causa raiz original, lista de alterações e registros de teste:
 
 ```bash
 git show a17a875588b8d66c2bee49236292e174df651363:docs/architecture/remote-device-sidebar-device-level-connect-spec.md
 ```
 
-本次仅收敛文档，不改变 Host 门禁、数据格式或 desktop continuous / mobile replayable 语义。
+Esta rodada apenas converge a documentação, sem alterar o portão do Host, o formato de dados nem a semântica de desktop continuous / mobile replayable.

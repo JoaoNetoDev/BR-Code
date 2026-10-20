@@ -1,84 +1,84 @@
-# zcode-cua 并入 z-code monorepo
+# zcode-cua incorporado ao monorepo z-code
 
-## 目标
+## Objetivo
 
-`@zcode/zcode-cua`（CUA producer：MCP server、Helper runtime、`ax_native.node`、node_repl SDK、官方 Skill）从独立仓库 `git.example.invalid/codegeex/zcode-cua` 搬入 z-code 的 `packages/zcode-cua/`，成为普通 workspace 包：
+`@zcode/zcode-cua` (CUA producer: MCP server, runtime do Helper, `ax_native.node`, SDK do node_repl, Skill oficial) sai do repositório independente `git.example.invalid/codegeex/zcode-cua` e passa a morar em `packages/zcode-cua/` dentro do z-code, como um pacote comum do workspace:
 
-- 消费方统一 `workspace:*`，不再有 git SHA pin，也不再需要 `ZCODE_CUA_GIT_TOKEN` 之类的私有仓库凭据。
-- `dist/` 不入 git，由 `pnpm build:cua` 产出；根 `prepare` 与 CI 安装后自动构建。
-- CUA 的单测、eval 与真机 e2e 纳入 z-code CI；z-code 桌面端打包直接使用 workspace 内构建产物。
-- 许可跟随 z-code（Apache-2.0），TypeScript 等工具链对齐根仓库。
+- Os consumidores passam a usar `workspace:*` de forma unificada, sem pinos por SHA de git e sem precisar de credenciais de repositório privado como `ZCODE_CUA_GIT_TOKEN`.
+- `dist/` não entra no git; é produzido por `pnpm build:cua`; o `prepare` da raiz e a instalação do CI constroem automaticamente.
+- Os testes unitários, os evals e o e2e em máquina real da CUA passam a integrar o CI do z-code; o empacotamento do desktop do z-code usa diretamente os artefatos construídos dentro do workspace.
+- A licença acompanha a do z-code (Apache-2.0) e o toolchain (TypeScript etc.) fica alinhado ao repositório raiz.
 
-导入基线：`zcode-cua@4a3c507dd16f3ed840e87bc92e709ce339e6a4f3`（v0.6.4），以一个 squash 快照提交落地，提交尾注 `Imported-From` 记录来源。
+Baseline de importação: `zcode-cua@4a3c507dd16f3ed840e87bc92e709ce339e6a4f3` (v0.6.4), aplicado como um único commit de snapshot squash, com a nota de rodapé `Imported-From` registrando a origem.
 
-## 目录
+## Diretório
 
 ```
 packages/zcode-cua/
-  src/            TypeScript 源码（MCP server、broker、Helper、SDK）；src/native/ 为 ax_native N-API 源码
-  binding.gyp     ax_native.node 构建描述
-  test/           vitest 单测（root vitest 的 cua project）
-  tests/          python unittest、parity fixtures（仅保留 <1MB 样本）
-  evals/          zcode-gui-eval（独立 lockfile，不进 workspace）
-  scripts/        build / native / live smoke / 真机 e2e gate
-  plugin/         官方 Skill（SKILL.md）与 plugin.json 的唯一真相源
-docs/cua/producer/ 对外有效的 CUA producer 文档
+  src/            Código-fonte TypeScript (MCP server, broker, Helper, SDK); src/native/ é o código-fonte N-API do ax_native
+  binding.gyp     Descrição de build do ax_native.node
+  test/           Testes unitários vitest (projeto cua do vitest raiz)
+  tests/          unittest do python, fixtures de paridade (mantém-se apenas amostras <1MB)
+  evals/          zcode-gui-eval (lockfile independente, fora do workspace)
+  scripts/        build / native / live smoke / gate de e2e em máquina real
+  plugin/         Fonte única da verdade da Skill oficial (SKILL.md) e do plugin.json
+docs/cua/producer/ Documentos do CUA producer válidos para o público
 ```
 
-## 不随迁移搬入的内容
+## O que não é trazido na migração
 
-| 内容                                                                                             | 原因                                                  |
-| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| `dist/`                                                                                          | 改为构建产物                                          |
-| 独立仓库 CI（`.gitlab-ci*`、lore trailer、merge gate、AI review、dist freshness、package smoke） | 由 z-code CI 与 MR 规范替代                           |
-| remote smoke（Linux/Windows 远端 act-verify、frame-pixel 远端门）                                | 依赖私有远端机器，非仓库内可复现验证                  |
-| 大体积 parity fixture（≥1MB 的 11 组样本及其派生物）                                             | 仓库体积；oracle 同步裁剪，余下样本仍覆盖全部编码路径 |
-| 内部过程文档（测试证据、计划、已知问题、CI 流程）                                                | 仅对原仓库维护过程有效                                |
-| 原 MIT LICENSE、独立 lockfile                                                                    | 许可与依赖锁跟随 z-code                               |
+| Conteúdo                                                                                            | Motivo                                                        |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `dist/`                                                                                             | Passa a ser artefato de build                                  |
+| CI do repositório independente (`.gitlab-ci*`, trailer de lore, merge gate, AI review, freshness do dist, package smoke) | Substituído pelo CI do z-code e pelas normas de MR           |
+| remote smoke (act-verify remoto em Linux/Windows, portão remoto de frame-pixel)                       | Depende de máquinas remotas privadas, não é reproduzível dentro do repositório |
+| Fixtures de paridade de grande volume (11 conjuntos de amostras ≥1MB e seus derivados)                | Tamanho do repositório; o oracle é aparado em conjunto e as amostras restantes ainda cobrem todos os caminhos de codificação |
+| Documentos de processo internos (evidências de teste, planos, problemas conhecidos, fluxo de CI)      | Só são válidos para a manutenção de processo do repositório original |
+| LICENSE MIT original, lockfile independente                                                         | Licença e bloqueio de dependências acompanham o z-code       |
 
-## 版本与 pin
+## Versão e pinos
 
-- CUA 版本号唯一真相源：`packages/zcode-cua/package.json` 的 `version`。构建期仍内联进 `SERVER_VERSION`。
-- 删除 pin 工具链：`bump-zcode-cua-producer.mjs`、`check-cua-baseline.mjs`、`sync-skill-from-zcode-cua.mjs`、`upstream.json`。
-- `check-version-coherence.mjs` 直接读取 workspace 包的 `package.json` 与 `plugin/`；插件侧 Skill 由 `packages/zcode-cua/plugin/` 同步，14 KiB 预算守卫保留。
-- Windows Helper 产物名 `@zcode/zcode-cua-helper-runtime` 作为发布物名称保留，不再是 npm 依赖别名。
+- Fonte única da verdade da versão da CUA: o `version` de `packages/zcode-cua/package.json`. Em tempo de build ela ainda é embutida em `SERVER_VERSION`.
+- Ferramentas de pin removidas: `bump-zcode-cua-producer.mjs`, `check-cua-baseline.mjs`, `sync-skill-from-zcode-cua.mjs`, `upstream.json`.
+- `check-version-coherence.mjs` lê diretamente o `package.json` do pacote do workspace e `plugin/`; a Skill do lado do plugin é sincronizada a partir de `packages/zcode-cua/plugin/`, e o guard de orçamento de 14 KiB é mantido.
+- O nome do artefato do Helper para Windows, `@zcode/zcode-cua-helper-runtime`, é mantido como nome de artefato publicado e deixa de ser um alias de dependência npm.
 
-## 构建链路
+## Cadeia de build
 
 ```
 pnpm install
-  └─ zcode-cua install hook：node-gyp 编 ax_native.node（非 macOS/失败时 best-effort）
-  └─ root prepare：husky && pnpm build:cua
+  └─ hook de instalação do zcode-cua: node-gyp compila ax_native.node (fora do macOS / em caso de falha: best-effort)
+  └─ prepare da raiz: husky && pnpm build:cua
         └─ tsc -b tsconfig.build.json && node scripts/build.mjs  → packages/zcode-cua/dist
-消费方（desktop / services / cli adapters / core / node-repl-host / zcode-cua-plugin）
-  └─ 通过 workspace 软链解析 @zcode/zcode-cua → dist/**
+Consumidores (desktop / services / cli adapters / core / node-repl-host / zcode-cua-plugin)
+  └─ resolvem @zcode/zcode-cua → dist/** pelo symlink do workspace
 ```
 
-`typecheck`、`test:unit`、`dev:desktop`、`build:cua-helper` 以及 CI 安装步骤之后都依赖 `dist` 已存在。
+`typecheck`, `test:unit`, `dev:desktop`, `build:cua-helper` e a etapa de instalação do CI dependem de `dist` já existir.
 
-eval 的依赖回归测试同时核对 CI 安装先于 evaluator 执行，以及根 `prepare` 调用 `build:cua` 并指向 workspace producer。CI 不再单独重复执行 `pnpm build:cua`，测试不能继续要求这条已移除的命令。
+O teste de regressão de dependências do eval verifica simultaneamente que a instalação do CI ocorre antes da execução do evaluator e que o `prepare` da raiz chama `build:cua` apontando para o producer do workspace. O CI não executa mais `pnpm build:cua` separadamente, e os testes não podem continuar exigindo esse comando removido.
 
-包内 lint 使用自带的 `packages/zcode-cua/.oxlintrc.json`（oxlint 默认规则，与原仓库一致），不继承根配置的 `max-lines`；根 `pnpm lint` 通过 `ignorePatterns` 跳过本包。
+O lint dentro do pacote usa o próprio `packages/zcode-cua/.oxlintrc.json` (regras padrão do oxlint, iguais às do repositório original) e não herda o `max-lines` da configuração raiz; o `pnpm lint` da raiz pula este pacote via `ignorePatterns`.
 
 ## CI
 
-| job                  | 触发                                                                                    | 内容                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `cua:unit:macos`     | MR 改动 `packages/zcode-cua/**`（经 `approve:merge-request` 放行）或 web/api 手动流水线 | install（根 prepare 构建 dist）→ typecheck + oxlint → vitest cua project |
-| `cua:eval:macos`     | 同上                                                                                    | zcode-gui-eval 定义校验与 node test、全部 python unittest                |
-| `cua:real-e2e:macos` | MR / web / api 下手动触发，失败不阻塞                                                   | 启动产品 broker，真机跑 CUA e2e gate                                     |
-| Helper 构建/打包     | 原有规则                                                                                | producer SHA 取 `CI_COMMIT_SHA`，版本取 workspace 包                     |
+| job                  | Gatilho                                                                                    | Conteúdo                                                                 |
+| -------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `cua:unit:macos`     | MR alterando `packages/zcode-cua/**` (liberado por `approve:merge-request`) ou pipeline manual web/api | install (o prepare da raiz constrói o dist) → typecheck + oxlint → projeto cua do vitest |
+| `cua:eval:macos`     | O mesmo                                                                                    | Validação da definição do zcode-gui-eval, node test e todos os unittest do python |
+| `cua:real-e2e:macos` | acionamento manual em MR / web / api; falhas não bloqueiam                                   | Sobe o broker do produto e roda o gate de e2e da CUA em máquina real   |
+| Build/pacote do Helper | Regras existentes                                                                         | O SHA do producer vem de `CI_COMMIT_SHA` e a versão vem do pacote do workspace |
 
-Docker / Jenkins 不再改写 git URL、不再注入 zcode-cua 凭据（Jenkins `zcode-cua.gitlab-read` 可回收）：
+Docker / Jenkins não reescrevem mais a URL do git nem injetam credenciais do zcode-cua (o `zcode-cua.gitlab-read` do Jenkins pode ser removido):
 
-- web-share：运行时与构建期都不涉及 CUA，镜像不含 git，也不复制 `packages/zcode-cua`。
-- web-remote-control v4：把 `packages/zcode-cua` 放进构建上下文，`pnpm install --ignore-scripts` 后先 `pnpm build:cua` 再构建 Web。
+- web-share: em tempo de execução e de build não há nada de CUA; a imagem não contém git e não copia `packages/zcode-cua`.
+- web-remote-control v4: coloca `packages/zcode-cua` no contexto de build e, após `pnpm install --ignore-scripts`, executa `pnpm build:cua` antes de construir o Web.
 
-两个镜像均以 `--ignore-scripts` 安装，天然跳过 native 编译。
+As duas imagens instalam com `--ignore-scripts`, o que naturalmente pula a compilação nativa.
 
-## 验证
+## Verificação
 
-- `pnpm install` 后 `packages/zcode-cua/dist` 与 `ax_native.node` 存在。
-- `pnpm typecheck`、`pnpm lint`、`pnpm test:unit`（含 cua project）、`pnpm verify:pre-push` 通过。
-- `pnpm build:cua-helper` 能产出 Helper。
-- `ZCODE_CUA_DEV_MODE=1 pnpm dev:desktop` 能拉起 Helper 并完成真实 CUA 调用。
+- Após `pnpm install`, `packages/zcode-cua/dist` e `ax_native.node` existem.
+- `pnpm typecheck`, `pnpm lint`, `pnpm test:unit` (incluindo o projeto cua) e `pnpm verify:pre-push` passam.
+- `pnpm build:cua-helper` consegue produzir o Helper.
+- `ZCODE_CUA_DEV_MODE=1 pnpm dev:desktop` consegue subir o Helper e completar uma chamada CUA real.

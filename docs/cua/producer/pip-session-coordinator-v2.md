@@ -1,10 +1,11 @@
-# PiP Session Coordinator v2：关联窗口组合捕获
+# PiP Session Coordinator v2: captura composta de janelas relacionadas
 
-## 目标
+## Objetivo
 
-v2 延续 v1 的 session/turn authority，只修正 macOS native window 与 PiP presentation
-身份混用的问题。一次键盘或元素动作可以打开 attached sheet/dialog；它有独立 CGWindowID，
-但仍属于原顶层窗口的同一个 PiP presentation。
+O v2 mantém a autoridade de session/turn do v1 e corrige apenas o problema de mistura
+entre a identidade da janela nativa do macOS e a da apresentação PiP. Uma ação de teclado ou
+de elemento pode abrir um sheet/dialog anexado; ele tem um CGWindowID próprio, mas ainda
+pertence à mesma apresentação PiP da janela de topo original.
 
 ```text
 actual window 2310 (root) ───────────────┐
@@ -14,12 +15,13 @@ actual window 2324 (attached sheet) ─────┘                          
 actual window 2400 (independent root) ───── presentationWindowId=2400 ── second PiP
 ```
 
-CUA 工具的 state/frame 继续绑定实际窗口；只有 PiP presentation 使用逻辑根窗口。不得按快捷键名、
-工具名或 `include_screenshot` 推断关联关系。
+O state/frame das ferramentas CUA continua vinculado à janela real; somente a apresentação
+PiP usa a janela lógica raiz. Não é permitido inferir a relação de associação pelo nome do
+atalho, pelo nome da ferramenta ou por `include_screenshot`.
 
-## Capture binding
+## Vínculo de captura
 
-`PipCaptureTarget` 新增可选 `presentationWindowId`：
+`PipCaptureTarget` ganha o novo campo opcional `presentationWindowId`:
 
 ```ts
 type PipCaptureTarget = {
@@ -30,49 +32,60 @@ type PipCaptureTarget = {
 };
 ```
 
-macOS capture 从已选 AX window 沿 `AXParent` 最多向上 8 层。只接受同 PID、非零 CGWindowID 的
-祖先；取最外层有效祖先作为 presentation root。循环、超时、跨进程、无 ID 或读取失败均退回
-实际 window ID。Linux/Windows 保持 `presentationWindowId === windowId`。
+A captura no macOS sobe a partir da janela AX selecionada, siguiendo `AXParent`, no máximo 8
+níveis para cima. Só são aceitos ancestrais com o mesmo PID e CGWindowID diferente de zero; o
+ancestral válido mais externo é tomado como a presentation root. Ciclos, timeout, processos
+diferentes, ausência de ID ou falha de leitura recuam para o window ID real. Em Linux/Windows
+permanece `presentationWindowId === windowId`.
 
-macOS 14.0/14.1 没有 ScreenCaptureKit `includeChildWindows`，因此同样保持
-`presentationWindowId === windowId` 的 v1 独立 surface 展示；只在 macOS 14.2+ 合并身份与像素。
+O macOS 14.0/14.1 não tem `includeChildWindows` do ScreenCaptureKit, por isso também
+mantém a exibição de surface independente do v1 com `presentationWindowId === windowId`; só
+no macOS 14.2+ a identidade e os pixels são unificados.
 
-`window.window_id`、截图 frame provenance、输入目标和 post-action state 都继续报告实际窗口，
-`presentationWindowId` 不进入模型可见 window DTO。
+`window.window_id`, a procedência do frame da captura, o alvo de entrada e o post-action state
+continuam reportando a janela real; `presentationWindowId` não entra no DTO de janela visível
+ao modelo.
 
-## Strict native ABI
+## ABI nativa estrita
 
-公开协议升级为 version `2`、runtime id `zcode-cua-pip-session-v2`。Helper handshake 只有在 native
-提供 `pipStartVerifiedCompositeAsync` 时才 ready；缺少该 ABI 时关闭 Auto-PiP，禁止回退 v1
-`pipStartVerifiedAsync`。
+O protocolo público sobe para version `2`, runtime id `zcode-cua-pip-session-v2`. O handshake
+do Helper só fica ready quando a nativa oferece `pipStartVerifiedCompositeAsync`; sem essa ABI
+o Auto-PiP é desligado e não há fallback para a `pipStartVerifiedAsync` do v1.
 
-Composite start 参数固定为：
+Os parâmetros do composite start são fixos:
 
 ```text
 (presentationWindowId, windowId, pid, bundleId, width, height, group)
 ```
 
-Native panel registry、dismissal 与容量按 `(group, pid, presentationWindowId)` 建 key；controller
-另存最新实际 window ID，用于双击激活与诊断。
+O registry de painéis nativos, o dismissal e a capacidade usam chave `(group, pid,
+presentationWindowId)`; o controller guarda à parte o window ID real mais recente, usado na
+ativação por duplo clique e no diagnóstico.
 
-## Native presentation state
+## Estado da apresentação nativa
 
-- 新 presentation：解析 presentation root 的 `SCWindow`，创建 `includeChildWindows=YES` 的
-  ScreenCaptureKit filter。
-- 同 presentation、同 actual window：刷新 filter 并 promote，不创建 panel。
-- 同 presentation、actual window 变化：推进 capture generation、刷新 root filter 和 actual
-  activation target；新首帧前保留旧末帧。
-- 不同 presentation root：按既有 multi-panel 规则新建面板。
-- sheet 关闭后下一次 root capture 仍命中同一 presentation，并刷新为 root-only 画面。
+- Nova apresentação: resolve o `SCWindow` da presentation root e cria um filter do
+  ScreenCaptureKit com `includeChildWindows=YES`.
+- Mesma apresentação, mesma janela real: renova o filter e faz promote, sem criar painel.
+- Mesma apresentação, janela real alterada: avança a capture generation, renova o filter da
+  root e o actual activation target; o último frame antigo é mantido até o primeiro frame novo.
+- Presentation root diferente: cria um novo painel conforme as regras existentes de
+  multi-panel.
+- Depois que o sheet é fechado, a próxima captura da root continua atingindo a mesma
+  apresentação e é renovada para a imagem root-only.
 
-当 root 与 actual 不同而 composite filter 无法建立时，已有 panel 保留末帧；没有 panel 时放弃
-Auto-PiP。不得把 actual child 作为第二个 panel 启动。PiP 失败不改变 CUA 工具结果。
+Quando a root e a janela real diferem e o composite filter não pode ser estabelecido, os
+painéis existentes mantêm o último frame; sem painel, o Auto-PiP é abandonado. Não se pode
+iniciar a janela real filha como um segundo painel. A falha do PiP não altera o resultado das
+ferramentas CUA.
 
-## Presentation admission ordering
+## Ordenação de admissão da apresentação
 
-PiP session mode owns one producer-side presentation scheduler. Coordinator 仍同步校验
-focus revision、turn sequence 与 capture binding，但 native presentation start 必须经过 scheduler
-串行化；同一 turn 内并行到达的不同 presentation 不能直接竞争 native 的单 worker admission。
+O modo de sessão PiP possui um presentation scheduler do lado do producer. O Coordinator
+continua validando de forma síncrona a focus revision, a turn sequence e o capture binding,
+mas o native presentation start precisa passar pelo scheduler para ser serializado; contextos
+diferentes de apresentação que chegam em paralelo dentro do mesmo turn não podem competir
+diretamente pela admissão de worker único da nativa.
 
 ```text
 new turn ── synchronous cancellation barrier (pipBeginTurn)
@@ -90,54 +103,75 @@ coordinator ── capture(root) ── capture(sheet/root) ── terminal
                              one native start at a time
 ```
 
-- capture key 为 `(sessionId, turnId, pid, presentationWindowId)`；排队中的同 key 只保留最新
-  actual window。
-- completed terminal 排在此前已接受 capture 后；failed 与 closed 保持在 in-flight
-  start 收口后执行 native terminal effect，禁止晚到面板复活。
-- 新 turn 是例外的同 session cancellation barrier：`pipBeginTurn` 必须在 lifecycle ACK
-  之前同步执行，用 native generation 作废旧 start，并取消旧 turn 的排队 capture/
-  terminal。不得把 begin-turn 排在可能永不 settle 的 capture Promise 后；否则协议会
-  返回 `applied=true`，原生窗口却一直停在上一轮绿勾。
-- 如果 `pipBeginTurn` 抛异常，barrier 没有建立：必须中断旧 active capture，不能提交
-  新 turn 的 coordinator 状态，也不能返回 `applied=true`。返回
-  `native-reset-failed` 后，同一个 lifecycle event 可以重试；失败期间新 turn 的
-  capture 绑定按旧 turn 状态拒绝，避免 ACK 与 native 生命周期分叉。
-- native busy/false 只做有界重试，不得调用全局 `pipStop`，也不得推进另一个 in-flight worker
-  的 generation。
-- focus group 切换保持立即执行，不受 presentation admission 队列阻塞。
-- scheduler 最多保留 64 个唯一 capture；超限优先丢弃最旧后台 capture，lifecycle control 永不
-  丢弃。该降级仅影响 Auto-PiP，不改变 CUA 工具结果。
+- A capture key é `(sessionId, turnId, pid, presentationWindowId)`; na fila, chaves iguais
+  mantêm apenas a janela real mais recente.
+- Terminals concluídos são enfileirados depois das captures já aceitas; failed e closed
+  permanecem para depois do fechamento do start in-flight, com o native terminal effect
+  executado, proibindo o ressurgimento tardio de painéis.
+- Um novo turn é a exceção: uma cancellation barrier de mesmo session. `pipBeginTurn` precisa
+  ser executado de forma síncrona antes do lifecycle ACK, invalidando os starts antigos com a
+  generation nativa e cancelando as captures/terminals enfileiradas do turn anterior. Não se
+  pode enfileirar o begin-turn atrás de uma capture Promise que talvez nunca settled; caso
+  contrário o protocolo devolveria `applied=true` enquanto a janela nativa ficaria presa no
+  visto verde da rodada anterior.
+- Se `pipBeginTurn` lançar exceção, a barrier não foi estabelecida: é preciso interromper a
+  capture ativa antiga, não submeter o estado do coordinator para o novo turn e não devolver
+  `applied=true`. Depois de retornar `native-reset-failed`, o mesmo lifecycle event pode ser
+  tentado novamente; durante a falha, os bindings de capture do novo turn são rejeitados
+  conforme o estado do turn antigo, para evitar a divergência entre o ACK e o ciclo de vida
+  nativo.
+- Native busy/false só gera retry limitado; não se pode chamar o `pipStop` global nem avançar a
+  generation de outro worker in-flight.
+- A troca de focus group permanece de execução imediata, sem bloqueio pela fila de admissão de
+  apresentação.
+- O scheduler mantém no máximo 64 captures únicos; ao exceder, descarta primeiro o capture de
+  background mais antigo, e lifecycle control nunca é descartado. Essa degradação afeta
+  apenas o Auto-PiP e não altera o resultado das ferramentas CUA.
 
-Native start admission 必须先取得单 worker slot，再推进 request generation；worker 在 Promise
-settle 前释放 slot。只有 `pipStop`、`pipBeginTurn`、全局禁用等明确 lifecycle cancellation 可以
-让已 admission worker 的 generation 失效。
+A admissão do native start precisa primeiro obter o slot de worker único e só então avançar a
+request generation; o worker libera o slot antes de o Promise settled. Apenas
+`pipStop`, `pipBeginTurn`, desabilitações globais e outras cancelamentos explícitos de
+lifecycle podem invalidar a generation de um worker já admitido.
 
-## Explicit attached-surface resolution
+## Resolução explícita de surface anexada
 
-显式 `window_id` 不得只搜索 `kAXWindows`。macOS 依次检查 top-level windows、focused/main
-window，并在同 PID、8 层、64 节点的有界 surface-container 图中寻找请求的 CGWindowID；命中后
-再沿 `AXParent` 计算 presentation root。NSOpenPanel、sheet、dialog、popover 即使没有列在
-`kAXWindows` 中，只要 AX 关系可证明，也必须归到父 presentation。无关系的 CG-only/custom
-window 继续以 actual ID 独立展示，禁止按几何、标题或 bundle 猜父子关系。
+Um `window_id` explícito não pode procurar apenas em `kAXWindows`. No macOS, as janelas
+top-level são verificadas em sequência, depois a janela focada/main, e a busca pelo CGWindowID
+solicitado acontece no grafo limitado de surface-container com mesmo PID, 8 níveis e 64 nós;
+depois do acerto, a presentation root é calculada seguindo `AXParent`. NSOpenPanel, sheet,
+dialog e popover, mesmo não listados em `kAXWindows`, devem ser atribuídos à apresentação
+pai sempre que a relação AX puder ser provada. Windows CG-only/custom sem relação continuam
+sendo exibidos de forma independente com o actual ID; é proibido adivinhar a relação
+pai-filho por geometria, título ou bundle.
 
-## Pointer promotion ordering
+## Ordenação do promote do ponteiro
 
-accepted pointer-down 先在 event-tap 线程内只更新受 `g_pip_stack_mutex` 保护的 lead 顺序，再异步
-在 AppKit 主线程执行 `orderFrontRegardless`。异步提交按 membership、running、group visibility
-与 visibility epoch 复核，不依赖会随 drag/up 推进的 interaction generation。内部 arbitration
-顺序与 WindowServer 视觉顺序最终必须一致。
+O pointer-down aceito atualiza primeiro, dentro da thread do event-tap e apenas a ordem de
+lead protegida por `g_pip_stack_mutex`, e só então executa `orderFrontRegardless` de forma
+assíncrona na thread principal do AppKit. A submissão assíncrona é reconferida por
+membership, running, group visibility e visibility epoch, sem depender do interaction
+generation, que avança com drag/up. A ordem interna de arbitragem e a ordem visual do
+WindowServer devem finalmente coincidir.
 
-## 验收
+## Aceitação
 
-- `Cmd+Shift+G` 轨迹中的 `2310 -> 2324` 只产生一个 presentation。
-- attached sheet 与父窗口同时出现在 composite PiP；sheet 关闭后同一 panel 恢复父窗口。
-- 同 PID 的两个独立顶层窗口仍产生两个 panel。
-- 双击激活最新 actual window；关闭写入 presentation-root dismissal。
-- 重复 post-action settle、乱序晚帧和快速 sheet 开关不新增 panel、不闪回旧画面。
-- 同一 turn 并行捕获两个独立 presentation，最终恰好出现两块 panel；busy admission 不丢整组。
-- 旧 turn 的 native start 不 settle 时，新 turn ACK 之前已清除完成徽章，新 capture 不被旧
-  Promise 阻塞，旧 terminal 不得晚到重新加上绿勾。
-- native reset 抛异常时，新 turn 返回 `native-reset-failed`，旧 capture mailbox 被释放；
-  coordinator 不消费该 event 的 sequence/eventId，重试同一 event 可在 reset 成功后提交。
-- 显式捕获 root、未列入 `kAXWindows` 的 attached panel、独立顶层窗口，presentation 数量为 2。
-- 点击任一可见 panel 后，它同时成为 native lead 与 WindowServer front panel。
+- O rastro `2310 -> 2324` com `Cmd+Shift+G` produz apenas uma apresentação.
+- O attached sheet e a janela pai aparecem simultaneamente no PiP composto; depois que o sheet
+  fecha, o mesmo painel volta a exibir a janela pai.
+- Duas janelas top-level independentes com o mesmo PID ainda produzem dois painéis.
+- O duplo clique ativa a janela real mais recente; o fechamento registra dismissal na
+  presentation-root.
+- Settle de post-action repetido, frames tardios fora de ordem e abertura/fechamento rápido de
+  sheet não criam painel novo nem voltam a exibir a imagem antiga.
+- Capturar em paralelo dois contextos de apresentação independentes no mesmo turn resulta em
+  exatamente dois painéis; a admissão busy não descarta o grupo inteiro.
+- Quando o native start do turn antigo não settled, antes do ACK do novo turn o distintivo de
+  conclusão já foi limpo, a nova capture não fica bloqueada pela Promise antiga e o terminal
+  antigo não pode adicionar de volta o visto verde de forma tardia.
+- Quando o native reset lança exceção, o novo turn retorna `native-reset-failed`, a mailbox de
+  capture antiga é liberada; o coordinator não consome o sequence/eventId desse event, e a
+  repetição do mesmo event pode ser submetida após o reset bem-sucedido.
+- Capturar explicitamente a root, um attached panel não listado em `kAXWindows` e uma janela
+  top-level independente resulta em 2 apresentações.
+- Após clicar em qualquer painel visível, ele se torna ao mesmo tempo o lead nativo e o front
+  panel do WindowServer.

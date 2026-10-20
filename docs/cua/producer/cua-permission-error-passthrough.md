@@ -1,70 +1,89 @@
-# CUA 权限错误透传契约
+# Contrato de repasse de erros de permissão do CUA
 
-## 结论
+## Conclusão
 
-CUA 不再返回或翻译 `CUA_PERMISSION_REQUIRED`。Helper/Broker 的失败统一作为普通 MCP
-tool error 返回，模型依据准确的原始错误信息决定是否调用只读 `request_access`、提示用户授权，
-或采取重新激活应用、重新观察等其它恢复动作。
+O CUA não retorna mais nem traduz `CUA_PERMISSION_REQUIRED`. Falhas do Helper/Broker são
+retornadas de forma unificada como erro comum de ferramenta MCP, e o modelo decide, com base na
+mensagem de erro original e precisa, se chama o `request_access` somente leitura, pede ao usuário
+a autorização ou adota outras ações de recuperação, como reativar o aplicativo ou observar
+novamente.
 
-## 原因
+## Motivo
 
-`permission_denied` 并不等价于 macOS TCC 缺失。前台窗口不匹配、可信 Host 的
-`prevent_activation` 策略、Windows UIPI、Linux XTest、无效目标和部分 native capability
-失败都可能使用该错误码。producer 无法仅凭通用错误码可靠判断权限种类；consumer 再根据错误
-文本自动弹权限框会把一次不可靠推断扩散成产品行为。
+`permission_denied` não equivale à ausência de TCC no macOS. Janela em primeiro plano que não
+corresponde, política `prevent_activation` de um Host confiável, UIPI do Windows, XTest do Linux,
+alvo inválido e falhas parciais de native capability podem usar esse código de erro. O producer não
+consegue determinar de forma confiável o tipo de permissão apenas com um código de erro genérico; e
+o consumer, ao exibir automaticamente uma caixa de permissão com base no texto do erro, transformaria
+uma inferência pouco confiável em comportamento de produto.
 
-## 运行时契约
+## Contrato de runtime
 
 ```text
-Helper/Broker error
+Erro do Helper/Broker
         |
         v
-ordinary MCP tool error + original message + delivery evidence
+erro comum de ferramenta MCP + mensagem original + evidência de entrega
         |
         v
-model chooses request_access / re-observe / activate / stop
+o modelo escolhe request_access / observar novamente / ativar / parar
 
-official request_access success (macOS only)
+request_access oficial bem-sucedido (somente macOS)
         |
         v
-read-only text result + namespaced typed permission metadata
+resultado textual somente leitura + metadados de permissão tipados e namespaced
         |
         v
-trusted ZCode Host may ask the user whether to open onboarding
+o Host ZCode confiável pode perguntar ao usuário se deve abrir o onboarding
 ```
 
-- 不存在 producer 级 macOS 权限翻译分支。
-- 不存在 consumer 级错误文本扫描或由普通错误触发的自动权限弹窗。
-- `request_access` 保持只读，只报告当前授权主体、权限状态和能力，不主动弹系统框。
-- macOS 成功结果在 MCP result `_meta["zcode.cua/request-access-status-v1"]` 携带严格、
-  版本化的权限快照，供已经验证 official-CUA authority 的可信 Host 响应；模型可见 JSON
-  文本保持原样。非 macOS、字段缺失或枚举非法时不输出该 metadata。
-- `accessibility=denied|stale` 与 `screenRecording=denied` 是确定缺权；`unknown`
-  不足以触发权限引导。
-- Host 必须同时确认 official-CUA authority、精确 `request_access` 工具名和 live desktop
-  delivery，再由 UI 重新读取新鲜状态并询问用户。producer 自身不打开系统设置。
-- 设置页保留用户主动发起的权限引导。
-- `action_sent`、`request_delivery_state` 和 `retryable` 仍是安全事实；
-  `possibly_sent` 的非幂等动作不得自动重放。
-- `broker_unavailable` 继续使用已有 `CUA_NOT_READY` 契约，因为它表达 transport readiness
-  和安全重试边界，不是权限分类。
-- macOS、Windows、Linux 使用同一错误透传规则，不根据 `process.platform` 改写错误含义。
+- Não existe ramo de tradução de permissões macOS no nível do producer.
+- Não existe varredura do texto do erro no nível do consumer nem janela automática de permissão
+  disparada por erro comum.
+- `request_access` permanece somente leitura: apenas relata o sujeito de autorização atual, o estado da
+  permissão e as capacidades, sem abrir ativamente caixas de sistema.
+- O resultado de sucesso no macOS carrega, no MCP result
+  `_meta["zcode.cua/request-access-status-v1"]`, um snapshot de permissões estrito e versionado,
+  destinado ao Host confiável que já validou a autoridade official-CUA; o texto JSON visível ao
+  modelo permanece inalterado. Em plataformas não macOS, com campos ausentes ou com enumerações
+  inválidas, esse metadata não é emitido.
+- `accessibility=denied|stale` e `screenRecording=denied` são ausência de permissão determinística;
+  `unknown` não é suficiente para disparar o fluxo de permissões.
+- O Host deve confirmar simultaneamente a autoridade official-CUA, o nome exato da ferramenta
+  `request_access` e a entrega live desktop, e só então a UI relê o estado atualizado e pergunta ao
+  usuário. O producer em si não abre as configurações do sistema.
+- A página de configurações mantém o fluxo de permissões iniciado ativamente pelo usuário.
+- `action_sent`, `request_delivery_state` e `retryable` continuam sendo fatos de segurança; ações
+  não idempotentes com `possibly_sent` não devem ser repetidas automaticamente.
+- `broker_unavailable` continua usando o contrato `CUA_NOT_READY` já existente, porque ele expressa
+  a prontidão de transporte e o limite seguro de nova tentativa, e não uma classificação de
+  permissão.
+- macOS, Windows e Linux usam a mesma regra de repasse de erros, sem reescrever o significado do
+  erro conforme `process.platform`.
 
-## 模型恢复规则
+## Regras de recuperação do modelo
 
-- 错误明确提到 Accessibility 或 Screen Recording 时，可以调用一次 `request_access` 获取状态。
-  如果结果明确缺权，告知用户需要授权并结束当前轮；不得继续 CUA、自动重试或承诺授权后自动继续。
-- 错误属于 foreground、focus policy、stale target 或 capability 时，按原始错误给出的恢复路径处理，
-  不推断为 macOS 权限问题。
-- `possibly_sent` 时先重新观察或读取独立业务状态，禁止原样重放动作。
+- Quando o erro mencionar explicitamente Accessibility ou Screen Recording, é permitido chamar uma
+  vez `request_access` para obter o estado. Se o resultado indicar ausência de permissão de forma
+  explícita, informar ao usuário que a autorização é necessária e encerrar a rodada atual; não é
+  permitido continuar o CUA, tentar novamente automaticamente nem prometer retomada automática após
+  a autorização.
+- Quando o erro for de foreground, focus policy, stale target ou capability, tratar conforme o caminho
+  de recuperação indicado pelo erro original, sem inferir que se trata de problema de permissão do
+  macOS.
+- Em `possibly_sent`, observar novamente ou ler um estado de negócio independente antes de agir;
+  é proibido repetir a ação na mesma forma.
 
-## 验证
+## Verificação
 
-- 真实 stdio MCP：`permission_denied` 原始 message 到达模型，结果中没有
-  `CUA_PERMISSION_REQUIRED`。
-- `broker_unavailable`：仍返回 `CUA_NOT_READY`。
-- `possibly_sent`：delivery evidence 保留，native dispatch 不重复。
-- consumer replay：普通失败 ToolCallRow 正常显示，live/cold restore 一致，无自动权限弹窗。
-- `request_access` metadata：macOS 合法状态按 schema 输出，文本逐字不变；非 macOS、字段
-  缺失和非法枚举不输出可信 metadata。
-- 真实模型门禁统一使用 eval provider 配置指定的真实模型；最终成功必须由 fixture-owned 应用状态验证。
+- MCP stdio real: a mensagem original de `permission_denied` chega ao modelo e o resultado não
+  contém `CUA_PERMISSION_REQUIRED`.
+- `broker_unavailable`: continua retornando `CUA_NOT_READY`.
+- `possibly_sent`: a evidência de entrega é preservada e o native dispatch não é repetido.
+- consumer replay: a ToolCallRow de falha comum é exibida normalmente, live/cold restore são
+  consistentes e não há janela automática de permissão.
+- Metadata de `request_access`: no macOS, o estado legítimo sai conforme o schema e o texto
+  permanece literalmente inalterado; em plataformas não macOS, com campos ausentes ou enumerações
+  inválidas, não é emitido metadata confiável.
+- O portão de modelo real usa uniformemente o modelo real especificado na configuração do eval
+  provider; o sucesso final deve ser verificado pelo estado do aplicativo pertencente à fixture.
