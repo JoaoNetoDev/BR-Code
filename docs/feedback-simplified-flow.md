@@ -35,6 +35,8 @@ Regras de layout:
 
 1. Descrição do problema / Issue description
    - Um campo de entrada multilinha obrigatório.
+   - Antes do título exibe a marca vermelha `*` de campo obrigatório, reutilizando o mesmo componente de marca do popup de requisitos de produto; o asterisco é ocultado para leitores de tela, e o campo de entrada fornece o nome acessível no idioma atual e a semântica required.
+   - Quando a descrição está vazia ou contém apenas caracteres em branco, o envio é proibido; com um conteúdo válido preenchido, o envio é permitido, e ao limpar o campo ele é proibido novamente. O campo de contato continua opcional.
    - À direita do título exibe `当前字数/4000`.
    - O campo limita no máximo 4000 caracteres.
    - O campo exibe no máximo 5 linhas de texto, rolando internamente após isso.
@@ -113,6 +115,11 @@ O aviso de envio em segundo plano é tratado como uma camada leve de toast, sem 
 - A UI usa tokens semânticos, layout compacto de popup e textos i18n, precisando ser compatível com desktop widescreen e Web em tela estreita no celular.
 
 ## Verificação
+
+| Case ID    | Cenário                                                    | Asserção                                                                                     | Ponto de E2E                                                                                                                       |
+| ---------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| FB-DESC-01 | Envio de problema em chinês e inglês, janelas largas e estreitas, temas claro e escuro | A marca de obrigatório é visível e o campo de entrada tem semântica required; valor vazio proíbe o envio | `packages/desktop/test/e2e/feedback/manual-review/pending/feedback-upload-privacy.test.ts` FB-PRIV-01/08 / FB-DESC-01 |
+| FB-DESC-02 | Formulário real e serviço de feedback em memória             | Valor vazio, apenas caracteres em branco e o estado após limpar proíbem o envio, sem criar chamado, arquivar nem enviar; uma descrição válida pode criar o chamado | o mesmo, FB-DESC-02 com fixture Chromium isolado                                                                                   |
 
 - A página de envio de feedback não renderiza mais os campos de tipo, módulo, grau de impacto e exibição de modelo.
 - Colar/selecionar múltiplas imagens, pré-visualizar e remover continuam disponíveis.

@@ -3,7 +3,7 @@ import { resolveModelProviderFamilyIdByProviderId } from "@zcode/shared";
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import { useServices } from "@/hooks/useServices.js";
 import { type CodingPlanProviderId } from "@/settings/model-provider-section/constants.js";
-import { resolveCodingPlanUpgradeProductsProviderId } from "@/settings/model-provider-section/codingPlanPricingCards.js";
+import { resolveCodingPlanUpgradeProductsProviderId } from "@/settings/model-provider-section/constants.js";
 import { normalizeCodingPlanProviderId } from "@/settings/model-provider-section/codingPlanPurchaseAuth.js";
 import { useCodingPlanEntitlements } from "@/settings/model-provider-section/useCodingPlanEntitlements.js";
 import {

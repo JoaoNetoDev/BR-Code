@@ -43,9 +43,9 @@ Pontos-chave:
 
 Implementação correspondente:
 
-- `packages/web/src/webRemoteControlTransport.ts`
+- `packages/web/src/web-remote-control/adapters/webRemoteControlTransport.ts`
 - `packages/web/src/main.tsx`
-- `packages/desktop/src/main/webRemoteControlTransport.ts`
+- `packages/desktop/src/main/web-remote-relay/webRemoteControlTransport.ts`
 - `packages/desktop/src/main/webRemoteControlManager.ts`
 - `docs/web-remote-control/web-remote-control-architecture.md`
 

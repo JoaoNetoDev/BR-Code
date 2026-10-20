@@ -8,6 +8,8 @@
 >
 > Tarefas relacionadas: [`Todo 33`](./todo-33-personal-provider-config-file-cutover.md)
 
+> Decisão posterior de 2026-09-17: o [Todo161](todo-161-cli-legacy-output-token-migration.md) acrescenta apenas uma migração explícita de limite de saída para a primeira importação do Standalone CLI; as conclusões context-only sobre o CLI deste documento são substituídas por esse item, enquanto o Desktop e as evidências históricas de implementação são preservados.
+
 ## 1. Problema
 
 O Todo 33 já migrou o Personal Provider/Model Config oficial para `provider_config.json`, mas o Legacy Importer existente ainda migra pela forma de calcular a diferença entre o "Effective Config antigo" e o Built-in atual. O `config.json` antigo mistura Built-in Preset, enriquecimento de Catalog, preenchimento padrão da página de configurações, estado de execução da conta e hardcode de modelos já aposentados, portanto a diferença não equivale à intenção do usuário.

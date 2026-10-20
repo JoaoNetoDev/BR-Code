@@ -1,5 +1,7 @@
 # Empacotamento da Configuração de Built-in Provider em Dois Ambientes
 
+A manutenção diária de templates e modelos está no [ponto de entrada de manutenção](./builtin-provider-maintenance/README.md); este documento continua mantendo o contrato de build e de conversão de ambiente.
+
 ## Propriedade e Limites
 
 A ferramenta de build possui sozinha a responsabilidade de seleção de configuração, lendo o `ZCODE_ENV=test|production` já existente.
@@ -25,6 +27,7 @@ Comparando com `staging_backup@790884b1ce`, apenas os endereços de modelo do Pr
 | https://open.bigmodel.cn/api/anthropic         | https://open.bigmodel.cn/api/anthropic                  |
 | https://zcode.z.ai/api/v1/zcode-plan/anthropic | https://zcode.z.ai/api/v1/zcode-plan/anthropic |
 | https://zcode.z.ai/api/v1/off-peak/anthropic   | https://zcode.z.ai/api/v1/off-peak/anthropic   |
+| https://zcode.z.ai/api/v1/highspeed/anthropic  | https://zcode.z.ai/api/v1/highspeed/anthropic  |
 
 - Cada geração parte novamente da configuração de produção completa, sem modificação incremental da configuração de teste antiga e sem manter uma segunda cópia das capacidades de modelo.
 - Templates manuais, endereços de terceiros, links de gerenciamento de Key etc. são preservados como estão; ao encontrar um endereço de conta desconhecido, a geração falha explicitamente e exige o mapeamento correspondente, sem fazer request silenciosamente em produção.
@@ -76,7 +79,7 @@ sem alterar a política de seleção de configuração, validação e proibiçã
 ## Cache e Timing
 
 - Builds comuns de CLI, Desktop e Server seguem o fluxo original, sem nova camada de cache.
-- O JS já presente no bootstrap pode continuar sendo reutilizado, mas o recurso de configuração ao lado dele continua sendo validado e atualizado.
+- O bootstrap reconstrói o Agent JS a cada vez, e a mesma build da CLI valida e atualiza o recurso de configuração ao lado dele, evitando que o archive do Source Server traga um Agent antigo.
 - O CLI build e o build:desktop-agent do Turbo incluem ZCODE_ENV, os .env relevantes, as duas configurações e a ferramenta de build compartilhada.
 - O fingerprint de build do Desktop E2E inclui a ferramenta compartilhada e as entradas de configuração; o fingerprint de ambiente existente continua sendo reutilizado.
 - O Server remoto já embute a configuração no JS; o source hash / artifact hash existentes fazem naturalmente uma mudança de configuração disparar um novo empacotamento.
@@ -89,7 +92,7 @@ Os links de continuous do desktop e as cadeias shared-host/replayable do celular
 ## Verificação
 
 Usar Releases temporários com conteúdos diferentes para distinguir os ambientes, cobrindo JSON ausente/inválido/Schema inválido, prioridade de ambiente,
-atualização após reutilizar JS, atualização de conteúdo no mesmo ambiente, recurso SEA e o artefato final embutido. As duas configurações reais são decodificadas separadamente.
+reconstrução e atualização da configuração quando já existe JS, atualização de conteúdo no mesmo ambiente, recurso SEA e o artefato final embutido. As duas configurações reais são decodificadas separadamente.
 Não substituir as asserções de seleção de ambiente por "o teste passa porque hoje as duas configurações são iguais", e não exigir requisições reais a modelos.
 
 Os testes do entrypoint de build compartilhado e do teste de sync da configuração de ambiente de teste são mantidos em arquivos separados: `builtin-provider-build.test.ts`

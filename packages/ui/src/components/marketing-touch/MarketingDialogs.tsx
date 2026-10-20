@@ -3,7 +3,6 @@ import { useStore } from "zustand";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { toast } from "@/components/ui/toast.js";
 import { CloudContentDialog } from "@/components/cloud-content-dialog/CloudContentDialog.js";
-import { MarketingFailureDialog } from "@/components/marketing-touch/MarketingFailureDialog.js";
 import { adaptMarketingPopup } from "@/components/marketing-touch/marketingPopupAdapter.js";
 import { marketingNavigation } from "@/lib/marketingNavigation.js";
 import type { MarketingTouchController } from "@/components/marketing-touch/marketingTouchController.js";
@@ -15,13 +14,13 @@ export function MarketingDialogs({ controller }: { controller: MarketingTouchCon
     (state) => state.request?.target.page === "upgrade",
   );
   const { locale, intl } = useZCodeIntl();
-  const claimError = state.errorAction === "claim_zcode_plan" ? state.error : null;
+  // 领取错误弹窗已随 claim 移除：这里只承载中性投递的失败提示。
   useEffect(() => {
-    if (state.error && !claimError) {
+    if (state.error) {
       toast(state.error);
       controller.clearError();
     }
-  }, [state.error, claimError, controller]);
+  }, [state.error, controller]);
   const dialog = state.dialog;
   const content = !dialog
     ? null
@@ -40,18 +39,10 @@ export function MarketingDialogs({ controller }: { controller: MarketingTouchCon
       : null;
   return (
     <>
-      {claimError ? (
-        <MarketingFailureDialog
-          message={claimError}
-          title={intl.formatMessage({ id: "manualClaimPlan.claim.failure.title" })}
-          acknowledge={intl.formatMessage({ id: "manualClaimPlan.claim.dialog.acknowledge" })}
-          onClose={() => controller.clearError()}
-        />
-      ) : null}
       {payload && content ? (
         <CloudContentDialog
           payload={payload}
-          open={!openingUpgrade && !claimError}
+          open={!openingUpgrade}
           actionPending={state.pending}
           onClose={() => {
             void controller.closeDialog();
@@ -65,12 +56,6 @@ export function MarketingDialogs({ controller }: { controller: MarketingTouchCon
           handlers={{
             open_external: async (action) => {
               await controller.dialogAction({ type: "open_url", args: { url: action.url } });
-            },
-            claim_plan: async (action) => {
-              await controller.dialogAction({
-                type: "claim_zcode_plan",
-                args: { plan_id: action.planId },
-              });
             },
             copy_text: async (action) => {
               const result = await controller.dialogAction({

@@ -12,6 +12,10 @@ lista e estado vazio de Plugins, MCPs, Skills e Commands.
   e os Hooks fornecidos pelos plugins instalados nesse workspace.
 - `workspaceIdentity?.trim() || workspacePath` é usado para isolar o estado do workspace;
   `workspacePath` é usado apenas para caminhos de leitura e escrita.
+- O alvo de leitura e escrita é determinado apenas pela entrada de Scope selecionada
+  (`resolveHookScopeTarget`): ao selecionar o projeto local, a identity fica vazia e o serviço
+  local é usado, sem tomar emprestada a identity remota do workspace da conversa ativa; quando o
+  User não tem projeto selecionado, segue a rota do workspace atual.
 - Hooks de Workspace podem ser gerenciados, mas não entram no runtime do Agent conforme o
   contrato de segurança de `docs/hooks-runtime-contract.md`.
 - O formulário de criação herda o Scope do nível pai; o formulário de edição exibe o Scope

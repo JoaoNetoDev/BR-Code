@@ -12,7 +12,7 @@ O formato `pluginStoreOrder` do Nacos não muda e não exige ajuste das configur
 - `packages/shared/src/clientConfig.ts`: schema de resposta de configuração pública e o ClientConfigSnapshot jápodado.
 - `packages/services/src/client-config/clientConfig.ts`: contrato do IClientConfigService e canal de serviço.
 - `packages/services/src/client-config/clientConfigService.ts`: requisição, validação, cache, refresh e coalescência de concorrência.
-- `getSnapshot({ forceRefresh? })` retorna os campos públicos validados; na primeira fase, apenas pluginStoreOrder.
+- `getSnapshot({ forceRefresh? })` retorna os campos públicos validados; atualmente contém pluginStoreOrder, zsrcUrl e uiPluginRecommendations.
   Não retorna a resposta remota inteira nem expõe dados de conta ou provider ao Renderer.
 - Quando o serviço tem sucesso mas pluginStoreOrder está ausente/revogado, retorna null; um único esquema com formato corrompido continua degradando conforme o contrato de ordenação original.
   Falhas de envelope/HTTP/rede rejeitam esta leitura e preservam o snapshot já existente no serviço; o lado de negócio decide a exibição padrão.
@@ -80,3 +80,7 @@ O E2E de navegador continua usando os casos existentes manual-review/pending, in
 - typecheck, lint e a verificação de arquitetura passaram; os 43 warnings preexistentes do lint foram mantidos.
 - Os três arquivos-fonte de assinatura estão literalmente idênticos à baseline original do branch, e esta mudança não altera a lógica de assinatura posterior já existente no branch alvo.
 - Celular real via shared-host/SSH/WSL/Docker ainda não foi integrado em hardware; o reuso da mesma instância na camada de montagem de serviço já tem teste unitário.
+
+## Campo de Recommendations da UI
+
+`uiPluginRecommendations` retorna o `{ pluginId, surfaceId }[]` já validado; quando ausente ou com formato inválido, retorna um array vazio, sem afetar os demais campos públicos. A entrada de recomendação reaproveita este serviço, sem adicionar cache de requisições nem polling. As regras de configuração e de exposição estão em [spec do mercado de plugins](plugins/plugin-market-interactions-scope.md#side-pane-服务端推荐配置).

@@ -92,7 +92,7 @@ describe("marketing popup adapter", () => {
       "button-2",
     ]);
   });
-  it("maps existing inline actions and strips markup from button labels", () => {
+  it("strips markup from labels and drops legacy actions so no no-op button is rendered", () => {
     const payload = adaptMarketingPopup(
       "193001",
       "en-US",
@@ -104,19 +104,29 @@ describe("marketing popup adapter", () => {
             text: { format: "html", content: "<b>Claim</b><script>bad()</script>" },
             action: { type: "claim_zcode_plan", args: { plan_id: "plan" } },
           },
+          {
+            text: { format: "plaintext", content: "Close" },
+            action: { type: "close" },
+          },
         ],
       },
       null,
     );
     expect(payload.dialog.hero).toBeNull();
-    expect(payload.dialog.buttons[0]?.label).toBe("Claim");
-    expect(payload.dialog.buttons[0]?.formattedLabel).toEqual({
-      format: "html",
-      text: "<b>Claim</b><script>bad()</script>",
+    // CA-12：遗留 claim 动作不得落到弹窗上，否则 CloudContentDialog 会渲染一个
+    // 没有 handler 的绝对 no-op 按钮（无 pending、无报错、无上报）。
+    expect(payload.actions["button-0"]).toBeUndefined();
+    expect(payload.dialog.buttons.map((button) => button.actionId)).toEqual(["button-1"]);
+    expect(payload.actions["button-1"]).toEqual({ type: "close" });
+    expect(payload.dialog.buttons[0]?.label).toBe("Close");
+    expect(payload.dialog.formattedTitle).toEqual({
+      format: "plain_text",
+      text: "News",
     });
-    expect(payload.dialog.formattedTitle).toEqual({ format: "plain_text", text: "News" });
-    expect(payload.actions["button-0"]).toEqual({ type: "claim_plan", planId: "plan" });
-    expect(payload.dialog.description).toEqual({ format: "html", text: "<p>Hello</p>" });
+    expect(payload.dialog.description).toEqual({
+      format: "html",
+      text: "<p>Hello</p>",
+    });
   });
   it("keeps plaintext literal and does not attach remote styles", () => {
     expect(marketingLabel({ format: "plaintext", content: "<b>literal</b>" })).toBe(

@@ -1,5 +1,7 @@
 # Tarefa Fora do Pico (Off-Peak Task) — Design Técnico
 
+> **Implementação do ciclo de vida:** [Plano de execução em background e ciclo de vida](./background-lifecycle-plan.md) define owner, sequência, interfaces e progresso de verificação. O fechamento de rodada única do design histórico foi substituído pelo fechamento de execução inteira pela CLI.
+
 > **Status: implementada; em 2026-08-24 os fatos de execução do Provider Refactor M4 foram sincronizados.** O repositório atual já contém os tipos de domínio `offPeak`,
 > o Repo SQLite, o Service, o despacho scheduler/main/host, a cadeia de execução padrão de Provider/Model, a UI e o mock.
 > Scheduled Automation continua sendo um domínio independente; os limites estão em [Scheduled Tasks Main View](../ui/scheduled-tasks-main-view.md).
@@ -26,10 +28,10 @@
 | **Essência da tarefa** (D28, substitui D5/D23)      | **Tarefa em background de uso único** dentro do sistema Automations: criada em formulário, gerenciada na lista, com nova session no despacho; toda a UI segue o Figma final, e o switch da lua no composer/o paradigma de bloqueio são invalidados                                                          |
 | **Fila e concorrência pertencem ao servidor** (D18/D20) | FIFO global e cota de concorrência por usuário ficam todas no servidor; o cliente não hospeda nenhuma estratégia de agendamento                                                                                              |
 | **Cinco interfaces do ciclo de vida** (D39)        | availability → retirada de número `POST /ticket`(→ticket_id) → `POST /ticket/status` em lote → `POST /messages` → settle; o ready do servidor é gravado como schedulable local; o running local é gravado após o ACK de sendPrompt e não pode ser estritamente igualado ao active por tempo |
-| **Segmentação de 3h + retomada automática** (D26 corrige D3/D15) | Cada active ticket dura no máximo 3h; ao expirar com `3102`, troca-se o ticket e faz-se resume da mesma session, e cada turno de continuação reinjeta o idle plan                                             |
+| **Segmentação de 3h + retomada automática** (D26 corrige D3/D15) | Cada active ticket dura no máximo 3h; ao expirar com `3102`, o novo ticket é entregue à CLI residente, preservando a requisição original e o resultado de background, sem enviar prompt de continuação                                             |
 | **Reenfileiramento por requisição** (D19)          | O protocolo de fila é concentrado na camada adaptadora do idle plan provider; a espera não conta como falha e não tem limite, e o agent loop não percebe nada                                                                 |
 | **idle plan** (D11/D16/D33/D44)                    | O turno despachado automaticamente seleciona exatamente o Built-in oculto `builtin:offpeak-idle-plan` e cria o Active Model pelo Registry/ModelFactory padrão; permission é tratada na session comum e o estado agregado permanece running, sem troca de provider no meio após aprovação                |
-| **Limite de faturamento** (D23/D33)                | A idle Model Selection e o Request Auth pertencem apenas a esta execução, não modificam Session Selection e não são gravados em Config/Registry View/session/queue; interjeições e conversas após o estado terminal criam o modelo conforme a Session Selection do usuário                     |
+| **Limite de faturamento** (D23/D33)                | A Session Selection de runtime mantém a atribuição da continuação; a seleção ociosa temporária e as credenciais não são gravadas na entry comum de session, e após a aceitação de uma mensagem do usuário a continuação usa a seleção do usuário                     |
 | **Liquidação de estado terminal** (D22)            | settle idempotente reportado + outbox de reforço, com o timeout silencioso do servidor como rede de segurança                                                                                                                   |
 | **Switch de gradual rollout** (D31)                | A exposição da entrada é enviada pelo `offPeak.enable_offpeak_task` do `GET /api/v1/client/configs` compartilhado; a lista de modelos vem do Built-in `builtin:offpeak-idle-plan`. Habilitado de forma efetiva = switch true e lista de modelos do Built-in não vazia; a admissão continua sendo do servidor |
 | **Snapshot de cota** (D39)                         | `GET /ticket/availability` dedicado retorna `can_take_number` e `next_take_at`; a UI esmaece antecipadamente e reconsulta no horário, mas o `POST /ticket` real continua sendo a autoridade final em caso de corrida                     |
@@ -48,9 +50,7 @@ apenas é o Active Model dos turnos despachados automaticamente. Não se pode ma
 | Qualquer「取消」em estado não terminal seguido de retomada | A automação termina, os arquivos são preservados e a continuação manual ocorre inteiramente com a key do usuário                                                     |
 | Conversa após o estado terminal               | Cria-se um novo Loop Model comum, usando o provider do usuário apontado pela Session Selection                                                                                |
 
-A Session Selection nunca foi modificada pela execução fora do pico e, portanto, não existe ordem de restauração de modelo. Quando o idle Loop atual termina, primeiro encerra o ciclo de vida do seu
-Active Model/Request Auth e só então entra no drain de ready/queue. O projeto de D11/D27 "trocar explicitamente para o provider do usuário após a aprovação" foi
-cortado de forma explícita pelo D44. ~~queued「立即执行」~~ foi removido na v1 (D32).
+A Session Selection é a seleção de runtime da continuação, e a execução fora do pico aponta temporariamente para o modelo ocioso enquanto está residente. Assim que a mensagem do usuário é aceita, ela passa a usar a seleção comum daquela mensagem, e as mensagens antigas enfileiradas não podem sobrescrevê-la. A entry comum persistida mantém a seleção do usuário. O tempo de vida do ticket é gerenciado pela CLI `OffPeakLifecycle` e `OffPeakTicketAuthority`, o Host entrega o ticket por meio de `v4/offPeak/lifecycle` e `v4/conversation/offPeakControl` com schema estrito, e a gravação do estado terminal não depende de um terminal de rodada única.
 
 **Linha de base do contrato atual do servidor**: em `zcode-server/main@ec2b18daa01b8e1b801f0691ac22153c2e56c6db`
 está confirmado que os cinco endpoints exigem que o cliente envie `X-Coding-Plan-Api-Key`; a conexão BigModel Team também precisa enviar em par `bigmodel-organization` / `bigmodel-project` a partir do mesmo
@@ -315,7 +315,7 @@ sequenceDiagram
 end
 ```
 
-Decisão-chave (D30-8, revisando a decisão antiga D25): **a criação grava apenas os dados do formulário + a retirada de número, sem pré-criar nenhuma conversa**. No despacho, `createTask` cria a session (o mesmo caminho do CronRun do automation) e preenche sessionId; a recuperação de interrupção/a continuação faz resume da mesma session. As entradas do agrupamento Group da barra lateral levam à página de detalhes da tarefa quando não há session e vão direto para a conversa quando há session.
+Decisão-chave (D30-8, revisando a decisão antiga D25): **a criação grava apenas os dados do formulário + a retirada de número, sem pré-criar nenhuma conversa**. No despacho, `createTask` cria a session (o mesmo caminho do CronRun do automation) e preenche sessionId; a recuperação de interrupção das linhas de tarefa já existentes ainda pode fazer resume da mesma session; a troca de ticket nesta execução acontece pela interface de controle da CLI existente, sem reenviar o prompt. As entradas do agrupamento Group da barra lateral levam à página de detalhes da tarefa quando não há session e vão direto para a conversa quando há session.
 
 ### 4.2 Fluxo de agendamento + admissão (após autorização)
 
@@ -337,11 +337,12 @@ sequenceDiagram
   end
   S->>M: offpeak-dispatch-request {offPeakTaskId, conversationId, sessionId?, prompt, permissionMode, ...}
   M->>H: HostMessageTypes.OffPeakRun
-  Note over H: Na primeira vez createTask(user Session Selection); na continuação resume a mesma session<br/>sendPrompt com idle Model Selection + modelExecution.requestAuth
+  Note over H: Na primeira vez createTask e registro da execução residente, e só então a seleção ociosa e o contexto do ticket são enviados<br/>a troca de ticket chama apenas o offPeakControl da session existente, sem novo sendPrompt
   H->>H: sendPrompt(taskId, prompt, modelSelection, modelExecution)
-  H->>M: OffPeakRunResult {ok, sessionId} (ACK do sendPrompt)
+  H->>DB: Após a primeira aceitação bem-sucedida, markRunning e habilitação do consumo de eventos de ciclo de vida
+  H->>M: OffPeakRunResult {ok, sessionId, lifecycleManaged: true}
   M->>S: offpeak-dispatch-result
-  S->>DB: markRunning (antes da admissão efetiva de messages)
+  Note over S: Com lifecycleManaged, o estado de ciclo de vida já gravado pelo Host não é sobrescrito
   H->>A: primeira requisição de modelo do agent loop
   A->>G: POST /api/v1/off-peak/anthropic/v1/messages (ticket + credenciais duplas)
   alt Limite de taxa (válvula fina D19)
@@ -380,7 +381,7 @@ runner de generate/stream; só valem para `providerId=builtin:offpeak-idle-plan`
 - **Isenção do orçamento de retry**: HTTP 429 ou código de negócio 3105 são classificados como `ModelRetryReason.OffpeakQueued`, e o
   runner mantém/rola back a attempt, para que a espera de capacidade não consuma o orçamento comum de retry; outros providers não entram neste ramo.
 - **Limite seguro do stream**: só retenta antes de haver saída visível do provider; depois de cruzar o limite visível, não há replay.
-- **Abandono no primeiro despacho (regra 1, a decisão final de implementação passou a usar o TTL do ticket)**: a lógica de abandono não é implementada separadamente na camada adaptadora — quando o primeiro request do estado queued fica pendurado no gateway, o TTL de 5min do ready expira naturalmente, dispara `400/3102` → retoma a execução e volta para a fila (§4.6), e o limite superior da espera é ≈ TTL + uma sondagem com clamp de 5min ≤ 10min, o que atende à intenção da regra (não deixar o agent loop pendurado) com menos uma máquina de estados; o novo despacho reutiliza a semântica de resume da recuperação de interrupção.
+- **Abandono no primeiro despacho (regra 1, a decisão final de implementação passou a usar o TTL do ticket)**: a lógica de abandono não é implementada separadamente na camada adaptadora — quando o primeiro request do estado queued fica pendurado no gateway, o TTL de 5min do ready expira naturalmente, dispara `400/3102` → retoma a execução e volta para a fila (§4.6), e o limite superior da espera é ≈ TTL + uma sondagem com clamp de 5min ≤ 10min, o que atende à intenção da regra (não deixar o agent loop pendurado) com menos uma máquina de estados; o novo ticket é despachado para a execução residente original, que continua a requisição original, sem replay da instrução inicial nem das ferramentas já executadas.
 - Cancelamento da tarefa pelo usuário → aborta os timers em espera e as requisições em trânsito.
 - A injeção de headers acompanha a configuração do provider de escopo do run: `X-Off-Peak-Ticket-ID` / credenciais duplas (JWT + `X-Coding-Plan-Api-Key`, pontos de injeção D23/D26 feitos por conveniência).
 
@@ -402,12 +403,7 @@ Turn automático terminal
   └─ encerra o Active Model/Request Auth ocioso → ready / drena as mensagens enfileiradas do usuário
 ```
 
-A run session é uma conversa comum, e um prompt enviado pelo usuário durante running passa pela busy queue existente. Cada despacho automático envia uma idle
-Model Selection exata e anexa em `modelExecution` o Request Auth desta execução e a política de Child: os fatos estáticos entram no Registry permanente pela Config/Rules do Built-in,
-e o ModelFactory cria o Active Model para o Loop atual; Session Selection nunca
-muda, e o material dinâmico não é gravado no cache do app, no record do CLI, no catálogo do workspace, no snapshot de Session nem na Queue comum. Após o turno
-terminar, encerra-se o ciclo de vida do idle Active Model/Request Auth e só então se entra no drain de ready/queue, de modo que mensagens de usuário enfileiradas
-e conversas após o estado terminal usam o provider do usuário.
+A entrada do usuário na run session continua sendo acolhida exclusivamente pelo CommandInbox da CLI. `modelExecution.offPeak` carrega apenas a identidade de execução em memória; as credenciais são resolvidas pelas dependências da execução atual, e o controle de troca de ticket não entra no transcript. O takeover do usuário não equivale a cancelamento: o subturno já iniciado termina, e a recuperação posterior e o despertar por notificação passam a usar o modelo do usuário.
 
 ### 4.5 Recuperação de interrupção (reinício do app / máquina acorda)
 
@@ -421,10 +417,10 @@ O servidor tem um teto rígido de 3h para active, e tarefas longas precisam ser 
 flowchart TD
   A["active em execução (ticket deste segmento, janela de 3h)"] --> N{"Próximo /messages"}
   N -->|admitted| A
-  N -->|"agent loop conclui naturalmente"| Done["settle deste ticket → completed"]
+  N -->|"a execução inteira não tem mais trabalho"| Done["settle deste ticket → completed"]
   N -->|"400/3102 ticket indisponível (active de 3h expirado)"| Re["Nova retirada de número com o mesmo task_id via POST /ticket<br/> obtém um novo ticket_id, estado local volta a queued"]
   Re --> W["Espera o ready por polling em lote (próxima janela de baixo consumo + vez na fila)"]
-  W -->|ready| Dispatch["resume da mesma session → envia o primeiro /messages → active"]
+  W -->|ready| Dispatch["entrega o novo ticket → a requisição original continua → active"]
   Dispatch --> A
   Re -.->|"usuário cancela / atinge a restrição global"| Cancel["cancelled / failed"]
 ```
@@ -433,9 +429,9 @@ Pontos principais:
 
 - O gatilho é a message que recebe `400/3102` (active expirado, o servidor já marcou o ticket como expired), e não um cronômetro local do cliente — vale o do servidor, evitando erros por deriva de relógio.
 - A nova retirada de número usa o **mesmo `task_id`** (o servidor permite várias), troca por um novo `ticket_id`; a coluna `server_ticket_id` é atualizada e o ticket antigo é invalidado.
-- O segmento de continuação ainda passa pelo caminho completo "esperar ready → resume → primeiro message garante a janela de 5min", igual ao primeiro segmento (reaproveitando o pipeline de despacho da §4.2).
+- A espera do novo ticket pelo ready é entregue ao runtime existente, sem resume e sem sendPrompt; o primeiro despacho continua seguindo a §4.2.
 - O estado visível ao usuário volta a "aguardando computação ociosa" durante o intervalo de continuação (running→queued na exibição), e volta a running quando começa a rodar; para o usuário é uma tarefa que termina sozinha.
-- A session não se perde entre segmentos: `session/resume` + prompt de retomada (item 2 a verificar do spec).
+- A session e o processo local de background permanecem residentes entre tickets; não há recuperação de background entre reinícios.
 
 ### 4.7 Fluxo de criação dentro da sessão (D49)
 
@@ -519,17 +515,17 @@ Três camadas de bloqueio do turno ocioso (cada uma vale sozinha):
                             offPeakTaskId explícito (principal) ∥ prefixo "offpeak-" no queryId (fallback do resume)
                             ∥ denylist já contém OffPeakCreate (caminho de merge busy)
   L2 limite do handler     assertNotOffPeakTurn(context.offPeakTurn) → PermissionDenied
-                         o mesmo offPeakTurn também fecha o painel em background do Bash (D51): run_in_background → recoverable
-                         ToolExecutionFailed; timeout vira desativação em background; background do Agent recusado pelo runner BACKGROUND_UNAVAILABLE
+                         o background explícito e automático de Agent/Bash e o SendMessage passam pelo executor comum; a execução de workflow independente continua proibida
   L3 limite do protocolo   offpeak-port lê record.activeOffPeakTaskId → recusa, sem enviar requisição de protocolo
   (Guardas de vínculo D50 em três níveis: a leitura de porta em offPeak/list top-20 recusa rápido
     → antes de createTask retirar o número, repo.hasActiveBoundTask faz a pré-verificação exata
     → o índice único parcial idx_off_peak_bound_active fecha o TOCTOU no INSERT;
     os dois últimos níveis retornam session_bound, revisão CR-02)
 
-⚠ OFF_PEAK_MUTATION_TOOL_NAMES precisa ser independente de AUTOMATION_MUTATION_TOOL_NAMES (4 cópias:
-  services/automationToolPolicy, core/turn-loop-state, bootstrap/prompt-turn, adapter inline).
-  misturar qualquer uma delas faz o turno de cron automation negar OffPeakCreate por engano, violando D49-3.
+⚠ As restrições exclusivas do fora do pico são independentes de AUTOMATION_MUTATION_TOOL_NAMES.
+  Core e Bootstrap consomem uniformemente o OFF_PEAK_EXECUTION_TOOL_DENYLIST do shared;
+  a entrada de agendamento em services restringe adicionalmente o CronCreate.
+  Não se mistura item exclusivo do fora do pico no turno comum de cron automation.
 ```
 
 **Separação entre registro de ferramentas e admissão de criação (3.12.2)**:
@@ -626,7 +622,7 @@ e as mensagens são drenadas depois que o turno automático restaura o modelo do
 | `packages/services/src/session/offPeakTaskService.ts`    | Criação com retirada de número, cancelamento, Pause/Continue, edição, tombstone de History, sincronização de tickets em lote, retirada de número novamente, wake do scheduler e outbox de settle                                                                    | `automationService.ts`                                                 |
 | `packages/desktop/src/scheduler/`                        | `index.ts` ganha o ramo de tick offPeak (reivindicar tarefas schedulable + mensagem de despacho); `schedulerProtocol.ts` ganha o novo par de mensagens                                                                                             | tick de cron existente                                                 |
 | `packages/desktop/src/main/desktopCronScheduler.ts`      | Já integrado ao roteamento existente: encaminha OffPeakRun/Result e o wake do scheduler                                                                                                                                                                    | Roteamento CronRun                                                     |
-| `packages/desktop/src/host/index.ts`                     | Montagem preguiçosa do runtime Off-Peak; na primeira execução cria a task com a seleção exata salva na tarefa (resume se for sessão vinculada), na continuação faz resume; envia idle Model Selection + `modelExecution.requestAuth`, assina o outcome terminal e reconhece o marker 3102                                   | Bloco de tratamento CronRun                                            |
+| `packages/desktop/src/host/index.ts`                     | Montagem preguiçosa do runtime Off-Peak; na primeira execução cria a task com a seleção exata salva na tarefa (resume se for sessão vinculada), na continuação faz resume; envia a identidade de execução ociosa e o Request Auth, assina o lifecycle explícito e entrega à CLI existente o controle de troca de ticket/cancelamento                                  | Bloco de tratamento CronRun                                            |
 | idle plan provider                                       | Config Built-in oculta guarda Endpoint/models/access; o despacho só constrói o Request Auth com JWT + Coding Plan Key + header de Ticket, vinculado ao Model de escopo de execução atual, sem gravar em Config/Registry View/session/workspace catalog; a camada adaptadora implementa o protocolo de retry 429/3105 (§4.3) | Provider Config + `offpeak-retry.ts` + runner de generate/stream      |
 | `packages/ui`                                            | Extensão do AutomationsSection: tab/formulário/cartões de lista/History de Idle-time; barra de induce + cartões de template na página New task; agrupamento de sistema Group na barra lateral; switch de manter acordado (três entradas espelhadas); `offPeakStore`                          | `AutomationsSection` / `automationManagementStore` (extensão direta)  |
 | Notificações                                             | `useOffPeakTaskNotifications.ts` faz polling das tarefas e emite notificação de desktop nas bordas completed/failed/awaiting; a variante awaiting não dispara por enquanto, pois o estado é inalcançável em produção                                                                        | —                                                                      |
@@ -716,7 +712,7 @@ flowchart TD
 | Envio                   | Consulta primeiro a availability (só libera com retorno true bem-sucedido) → `POST /ticket`; só grava no banco se a retirada de número tiver sucesso | Gera o ticket e devolve state/position; a cota do servidor é a autoridade | Bloqueia em caso de falha de consulta/carregando; `429/3103 + next_take_at` → não grava a task e atualiza a availability |
 | Sincronização em lote   | Só faz `POST /ticket/status` quando há tickets não terminais; timer compartilhado conforme nextPollAfter | Devolve o state e a position dos tickets             | Falha com backoff exponencial a partir de 10 segundos; `not_found` hoje não faz retake automático |
 | Início da execução       | A task com `schedulable=1` é reivindicada pelo scheduler; o host grava markRunning após o ACK de `sendPrompt` | A primeira requisição de messages de um ticket ready ativa como active | Se messages retornar `429/3105`, a camada adaptadora espera; a UI ainda mostra running nesse momento |
-| Em execução             | Cada requisição carrega o ticket id; a espera por capacidade não consome o orçamento comum de retry | Após 3h active, messages devolve `400/3102`         | O host reconhece um marker estável, troca o ticket no mesmo task e faz resume da mesma session |
+| Em execução             | Cada requisição carrega o ticket id; a espera por capacidade não consome o orçamento comum de retry | Após 3h active, messages devolve `400/3102`         | A CLI reporta ticket_needed; o Host troca o ticket no mesmo task e entrega o canal de controle à execução residente |
 | Estado terminal         | Grava o estado terminal local (liquidação ver em 7.7/D22)                            | Remove do conjunto ativo e libera a cota (liquidação explícita ou recuperação por timeout silencioso) | Crash do cliente: o servidor recupera a cota por timeout; o cliente usa `recoverInterrupted` para reenfileirar |
 | Aprovação de permissão  | Nenhum estado/lógica de troca exclusivo do Off-Peak; após a aprovação o mesmo turno automático continua | Nenhuma ação extra no ticket                        | Continua usando o mesmo idle Active Model; o aviso de cota não foi implementado |
 
@@ -738,7 +734,7 @@ flowchart TD
   D --> G{"POST /anthropic/v1/messages"}
   G -->|"HTTP 429/3105 + Retry-After"| G0["Espera ciente de abort; uma vez ≤5min<br/>isenta do retry budget normal; localmente ainda running"] --> G
   G -->|"2xx/SSE"| R["loop continua"]
-  G -->|"400/3102"| X["Nova retirada de número com o mesmo task_id; resume da mesma session"] --> Q
+  G -->|"400/3102"| X["Nova retirada de número com o mesmo task_id; entrega à execução residente"] --> Q
   R -->|"conclusão natural"| E["estado terminal → settle outbox"]
 ```
 
@@ -894,15 +890,16 @@ validação ponta a ponta, e não basta restaurar campos de estado e UI.
 
 Os pontos abaixo preservam as restrições levantadas na investigação pré-início, mas formulações do tipo "é preciso adicionar/não existe hoje" já foram reescritas conforme o código final; eles não são uma lista de trabalho pendente.
 
-**① Mecanismo de baixo nível de `session/resume` para continuação entre tickets + troca de provider no meio — ✅ confirmado.**
-O mecanismo de recuperação a frio e de resume está disponível, e os segmentos de continuação do Off-Peak o usam para reutilizar a mesma session; a gravação única é garantida pelo despacho single-flight.
-O runtime genérico tem a capacidade de troca de provider entre turnos, mas o D44 não troca o provider do turno atual durante a espera de permissão;
-se isso for reaberto no futuro, é preciso provar primeiro que a ordem de eventos do mid-turn handoff e a limpeza de credenciais são seguras.
+**① Continuação entre tickets usa o controle de execução existente.**
+O wrapper de ciclo de vida e de autenticação de requisição preserva a requisição em espera, e o novo ticket é instalado por executionId e renewalId.
+A aceitação de uma mensagem do usuário muda a atribuição da execução inteira; o subagent já iniciado continua no turno atual com o modelo original, e os despertares e recuperações posteriores leem a Selection do usuário.
+A própria aprovação de permission continua aprovando apenas a ferramenta, e não é tratada como takeover do usuário. Esses trabalhos de background não são recuperados após reinício do processo.
 
 **② Execução de Provider/Model de escopo do run — ✅ os invariantes do D33 foram consolidados pelo Provider Refactor M4.**
 O `sendText` do V4 envia uma Model Selection padrão e um `modelExecution` mínimo; o CLI cria o idle Active Model pelo Registry/ModelFactory permanente,
-e o Request Auth dinâmico fica vinculado apenas à execução atual. Session Selection nunca mudou e, portanto, não há
-overlay de workspace/turn, restauração de modelo nem ordem de hot update temporário do Registry; o material dinâmico não é gravado no record do CLI, no snapshot de Session,
+e o Request Auth dinâmico fica vinculado apenas à execução atual. A Session Selection de runtime carrega temporariamente a seleção de continuação fora do pico;
+depois da aceitação de uma mensagem do usuário ela passa a ser a seleção do usuário, e a execução inteira que não foi tomada de volta restaura a seleção comum ao final. A seleção fora do pico não é persistida,
+e o material dinâmico não é gravado no record do CLI, no snapshot de Session,
 na Queue comum nem no catálogo do workspace.
 
 **③ Resolução da credencial de Coding Plan atualmente selecionada — ✅ implementada conforme o D40.**

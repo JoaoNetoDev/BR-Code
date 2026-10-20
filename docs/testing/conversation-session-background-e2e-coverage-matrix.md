@@ -1,5 +1,7 @@
 # Matriz de Cobertura E2E de Background da Sessão de Conversa
 
+> **Revisão de background em ocioso**: o design, as evidências de Core/protocolo e os resultados das três variantes de desktop OP10 estão no [plano de implementação](../off-peak-task/background-lifecycle-plan.md#最终验证记录2026-10-08). Os casos continuam como manual-review/pending; a interação no aparelho inteiro não foi verificada e isso não altera o escopo original de admissão e entrega desta matriz.
+
 Este documento registra o limite de enumeração E2E das background runtime tasks da área de sessão. Ele complementa o agrupamento `BG` da matriz principal e cobre apenas a cadeia principal do desktop já implementada e confirmada.
 
 > **Nota sobre o estado de cobertura**: o spec histórico consolidado `conversation-session-background.test.ts` está atualmente em

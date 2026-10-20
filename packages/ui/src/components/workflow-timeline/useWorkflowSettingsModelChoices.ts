@@ -67,11 +67,9 @@ export function useWorkflowSettingsModelChoices(scope: WorkflowSettingsModelScop
         : buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view, {
             apiKeyLabel: format("settings.modelProvider.apiKey"),
             apiKeyBadgeLabel: format("settings.modelProvider.connectionMode.apiKeyBadge"),
+            // RF-12a：工作流设置与自动化/子代理一致，只展示连接方式名称，不展示促销徽标。
+            hideAccountBadges: true,
             codingPlanLabel: format("settings.modelProvider.connectionMode.codingPlan"),
-            codingPlanBadgeLabel: format("settings.modelProvider.connectionMode.codingPlanBadge"),
-            startPlanLabel: format("settings.modelProvider.connectionMode.startPlan"),
-            startPlanBadgeLabel: format("settings.modelProvider.connectionMode.startPlanBadge"),
-            teamPlanBadgeLabel: format("settings.modelProvider.connectionMode.teamPlanBadge"),
             teamPlanFallbackLabel: format("settings.modelProvider.connectionMode.teamPlan"),
           }),
     [format, view],

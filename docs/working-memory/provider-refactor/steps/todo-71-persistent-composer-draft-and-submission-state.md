@@ -126,6 +126,8 @@ O estado lógico do Composer ainda inclui anexos, e a Submission deve congelar o
 - esta extensão de persistência cobre apenas os campos serializáveis com segurança já existentes e `mode/modelSelection`;
 - a recuperação de anexos entre reinícios fica para um design separado; não se deve gravar object URL inválido nem caminho local não validado diretamente no Draft persistente.
 
+> Atualização de 2026-10-14: a persistência de corpo vazio e as regras de inicialização são substituídas por [Composer persiste apenas o rascunho de texto](../../../ui/composer-text-draft-persistence.md). No design histórico abaixo, «gravar imediatamente no Draft» e «manter a configuração no texto vazio» deixam de ser o contrato de implementação atual.
+
 ## 4. Regras de inicialização
 
 A inicialização acontece uma única vez, quando o Composer é criado, quando o escopo Workspace/Session muda ou na recuperação. Depois disso, um render React comum não volta a mesclar o Session Snapshot com os respectivos valores padrão.

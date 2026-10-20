@@ -33,8 +33,11 @@ _Evitar_: "atualizar", "verificar atualizações" (aceitável na fala; na docume
 ### Estrutura da página da loja
 
 **Public Segment (segmento público)**:
-Um dos segmentos da página de listagem da loja, exibindo exclusivamente o catálogo do Official Marketplace (bloco Featured + blocos de categoria).
+Um dos segmentos da página de listagem da loja, exibindo os itens mantidos pela equipe de produto no marketplace oficial; o campo de publicação `publisherType` é `official` e, quando o catálogo antigo não informa o campo, o padrão é público.
 _Evitar_: tab oficial, tab da loja
+
+**Community Segment (segmento comunitário)**:
+Plugins externos mantidos por terceiros e incluídos no marketplace oficial; publicados a partir de `external_plugins/` com `publisherType: community`, como dimensão independente das categorias de finalidade.
 
 **Personal Segment (segmento pessoal)**:
 O outro segmento da página de listagem da loja, exibindo o catálogo de todas as fontes pessoais, agrupado por marketplace.
@@ -48,13 +51,14 @@ _Evitar_: confundir com Recommended
 Bloco de curadoria no topo do segmento pessoal; a lista é mantida pelo `recommendedPlugins.json` do repositório (atualmente recomenda os plugins em destaque do claude-plugins-official). Existe apenas no segmento pessoal.
 _Evitar_: confundir com Featured
 
-**Installed Strip (faixa de instalados)**:
-Fileira de ícones de plugins instalados no topo da página de listagem; clicar em um ícone abre a página de detalhes.
-_Evitar_: lista de instalados (isso é assunto do Manage Installed View)
+**Manage Installed View (visão de gerenciamento de plugins)**:
+A entrada "gerenciar plugins" no canto superior direito do mercado abre a visão de gerenciamento dentro da mesma página; mantém o padrão global e as sobrescritas por projeto, permite voltar à navegação preservando busca, origem e escopo de gerenciamento. O menu adicional oferece apenas pausar/ativar e desinstalar; atualizar e restaurar herdados usam operações independentes.
 
-**Manage Installed View (visão de gerenciar instalados)**:
-Interface de gerenciamento acessada pela engrenagem à direita da faixa de instalados; concentra os toggles de ativar/desativar por plugin, atualização, desinstalação e o filtro por estado de habilitação.
-_Evitar_: Installed tab (termo de IA antigo, já abandonado)
+**UI Plugin (plugin de interface)**:
+O manifesto declara `ui.surfaces` válidos e o diretório de publicação carrega `componentTypes: ["ui", …]`. Enquanto não está instalado, valem as capacidades do catálogo; depois de instalado, vale o manifesto real; pausar não muda a classificação. Titularidade, finalidade e capacidade de UI são dimensões independentes. A área dedicada de UI e a busca ficam restritas ao segmento de origem atual.
+
+**Default UI Recommendations (recomendações padrão de interface)**:
+Lista curada independente no Side Pane, distribuída pelo campo `uiPluginRecommendations` da interface de configuração do cliente, associada ao catálogo completo do marketplace e capaz de recomendar plugins não instalados ou não ativados; ao clicar, o cliente instala, ativa ou abre o painel real. A instalação em desenvolvimento e a instalação do usuário não entram automaticamente, ao contrário da área de UI completa do marketplace.
 
 ### Metadados
 

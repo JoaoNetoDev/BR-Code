@@ -61,12 +61,24 @@ Este documento registra a semântica de UI E2E no desktop para a largura respons
 - Action: despachar um evento de mouse do botão do meio (`button=1`) no corpo do rótulo do Tab inactive.
 - Assertions: o Tab inactive é fechado; o Tab active original permanece active; o comportamento padrão do evento é impedido e a ativação do rótulo não é disparada.
 
-### SPT-E2E-007 Duas entradas para o painel de plugin
 
-- Setup: `AnimatedSidePanePanel` real, hook de descoberta de plugins, menu e ação de abrir; o bridge injeta duas surfaces habilitadas, cobrindo largura desktop/en-US/claro e largura mobile/zh-CN/escuro.
-- Action: primeiro disparar um pedido de abertura de plugin a partir de uma página em branco, depois fornecer o estado de tab existente e abrir o menu «+»; selecionar o mesmo plugin com o mouse e outro com o teclado. Cobrir ainda rascunho, diretório vazio, ausência de ação de abrir e host sem bridge.
-- Assertions: os candidatos dos dois caminhos coincidem com os títulos localizados; a seleção no menu fecha o menu; o pedido de abertura preserva os campos de isolamento de workspace/sessão; aberturas repetidas apenas ativam o mesmo tab; rascunho/diretório vazio/host sem bridge não têm itens de plugin. O menu fica dentro do viewport e a página não tem overflow horizontal.
-- Limites: a UI E2E do browser injeta um diretório de serviço e verifica o resultado da abertura na fronteira de owner de tab existente, sem iniciar sandbox de plugin, Agent ou cadeia de controle remoto do celular; essas capacidades de host continuam com a validação existente.
+### SPT-E2E-007 Estado vazio e dupla entrada do painel de plugin na new-tab
+
+- Setup: `AnimatedSidePanePanel` real, hook de descoberta de plugins e ação de abrir; a fixture cria e ativa o tab por `activateNewTabSidePane` e pela função de atribuição unificada. A lista de recomendados inclui dois surfaces, e outro surface de desenvolvimento não é recomendado; cobre 1200px/en-US/claro e 390px/zh-CN/escuro.
+- Action: abrir um plugin a partir do launcher de new-tab padrão da primeira expansão; depois clicar em «+» para criar uma new-tab e, a partir do launcher do tabpanel active, abrir o mesmo plugin novamente; criar outro tab e usar Tab/Enter para abrir um segundo plugin.
+- Assertions: as duas entradas exibem os mesmos recomendados e títulos localizados; a requisição preserva os campos de workspace/sessão, e a abertura repetida reaproveita o plugin tab; depois de instalar e habilitar, é preciso clicar em abrir de novo. Sessão de rascunho oculta toda a área de plugins do app e o separador, bem como a entrada «ver todos os plugins»; sessão existente parte para o mercado tanto pelo estado vazio padrão quanto por uma new-tab explícita, e o retorno do estado vazio padrão mantém o painel expandido. Sem host ou sem bridge não há itens de plugin; lista de recomendados vazia ou falha de configuração mostra o estado vazio; carregamento frio mostra skeleton. A new-tab permanece visível, e em tela estreita não há overflow horizontal.
+- Regressão de progresso de operação: controlar as respostas de instalação/habilitação e confirmar que apenas o plugin alvo mostra carregamento e fica desabilitado, enquanto os outros plugins mantêm o texto original e o estado clicável. Submeter duas instalações de plugins diferentes em sequência, cada uma mantendo o próprio progresso; uma falha ou um sucesso limpa apenas o seu, e um plugin já habilitado continua abrível. Clicar de novo no mesmo plugin submete só uma vez, a falha pode ser retentada e o sucesso não abre automaticamente. Cobre o estado vazio e a new-tab, desktop claro em inglês e celular escuro em chinês.
+- Regressão do ícone de carregamento: durante a espera da resposta, a entrada alvo mostra um ícone giratório visível e `aria-busy`; depois do sucesso ou da falha, tudo é limpo. Os dois surfaces do mesmo plugin exibem o progresso em sincronia, e os outros plugins não têm progresso; com a preferência de reduzir animações, o ícone permanece, mas não gira.
+- Limites: o serviço é injetado por uma fixture de browser, e a requisição é verificada na fronteira de owner do plugin tab, sem iniciar sandbox, Agent ou link de controle remoto real do celular.
+- Validação atual: em 2026-10-19 o E2E de browser automatizado passou 16/16, incluindo 4 grupos de instalações concorrentes sem bloqueio mútuo, 8 grupos de progresso de operação e as regressões de múltiplos surfaces do mesmo plugin e da preferência de reduzir animações. A fixture inicializa o new-tab padrão conforme o owner de painel atual; continua em manual-review/pending e não representa validação de instalação real do Agent, sandbox de plugin ou controle remoto do celular.
+
+### SPT-E2E-008 Fechamento e restauração isolados por conversa (manual-review/pending)
+
+- Setup: duas conversas A/B do mesmo workspace, cada uma com tabs de Browser e de configurações de permissões de site.
+- Action: em B, fechar as outras e fechar todas; voltar para A e conferir a preservação; depois fechar o tab de configurações de A; ir a B e conferir as fechadas recentemente; voltar a A e reabrir.
+- Assertions: o fechamento em B não apaga o tab oculto de A; as fechadas recentemente mostram apenas os registros do owner atual; a reabertura em A restaura o tab de configurações original; o fechamento do Browser main é consistente com a UI.
+- Evidência: menu, tabs e página de settings reais do Electron, com logs do renderer. Não solicita modelo, não altera decisões de permissão de páginas e não precisa de provider fixture. A aprovação automática continua mantida em revisão manual pending.
+- Complemento por testes unitários: mesmo caminho com workspaceIdentity diferente, tabs pública/de conversa/de rascunho, cada tipo de owner intrínseco, ausência de tabs visíveis, troca de workspace/conversa ou abertura de novo tab durante o fechamento assíncrono em espera, e recusa de fechar o main.
 
 ## Invariantes
 
@@ -80,3 +92,99 @@ Este documento registra a semântica de UI E2E no desktop para a largura respons
 ## Padrão de interface geral / de programação M1
 
 O escopo e os casos MODE-01～07 estão em [matriz de verificação de modos](general-coding-mode-verification.md). Os novos casos de desktop estão em `packages/desktop/test/e2e/ui-shell/general-coding-mode.test.ts`, cobrindo preferências de Settings, ocultação da entrada e preservação de painéis existentes; já foram aceitos manualmente e convertidos em casos formais de ui-shell, mas ainda não foram adicionados ao preset Docker. A exibição da conversa é complementada por testes unitários de componente, e o estado de validação segue o da matriz.
+### Nova aba múltipla e comportamento padrão das tabs
+
+- Setup: abrir um tab Terminal.
+- Action: clicar duas vezes seguidas em «+», escolher a primeira new-tab e depois fechar as duas novas tabs.
+- Assert: ids independentes, a mais recente ativa, título de new-tab, largura não maior que 156px; a antiga pode ser re-focada e mostra a entrada de lançamento; fechar remove apenas o tab alvo.
+- Ajuste de entrada: a seleção no menu do antigo «+» passa a ser a linha de lançamento dentro da new-tab, usando a ação de abertura de app já existente.
+
+### SPT-E2E-009 New-tab padrão e substituição de ferramenta
+
+- Setup: rascunho de nova tarefa, sem tab de scope atual.
+- Action: expandir, escolher terminal, recolher e expandir de novo, clicar no «+», fechar a nova tab e a última tab de ferramenta.
+- Assertions: na primeira vez há exatamente uma new-tab e o «+»; o terminal substitui essa tab; recolher e expandir restaura o id original; o «+» adiciona de forma independente; fechar a última tab recolhe o painel; expandir de novo cria uma new-tab.
+- Escopo: interação do desktop e estado de UI compartilhado; travessia de scope e fechamento assíncrono são complementados pela regressão do hook.
+
+SPT-E2E-009 complementar: depois de fechar a última tab, o painel recolhe e não é recriado; expandir de novo cria uma new-tab. Depois que o comando real de menu de fechamento fecha a única new-tab, o próximo evento de contexto de fechamento não é interceptado pelo App e pode entrar no fallback de fechar a janela.
+
+## Visão completa (SPFV, spec: `docs/ui/side-pane-full-view.md`)
+
+### Dimensões de estado e podas
+
+| Dimensão     | Classe de equivalência                               | Decisão                                                                 |
+| -------- | ------------------------------------ | -------------------------------------------------------------------- |
+| Entrada     | botão / atalho                        | ambas as classes cobrem entrada e saída                                                 |
+| surface  | tab de conversa / tab de painel / nenhum tab de painel visível | as duas primeiras classes são cobertas; quando não há tab visível, a página inicial fica por conta da lógica do componente e não é coberta à parte            |
+| Forma da janela flutuante | recolhida / recolhida + barra de ações / expandida / minimizada | todas são cobertas                                                             |
+| Forma de saída | botão / atalho / ◫ / fechar o último tab | as três primeiras classes são cobertas; fechar o último tab reaproveita a lógica de recolhimento existente, coberta por teste unitário de memória do owner |
+| owner    | voltar à mesma session / session diferente       | coberto por caso de provider                                                 |
+| Interação bloqueante | aparece no estado recolhido / aparece quando minimizado | o caso minimizado é coberto (o que também prova que o card está dentro da janela flutuante)                             |
+| Cliente   | desktop / Web / controle remoto do celular                | só desktop; Web e controle remoto não renderizam a entrada, e são cobertos por teste unitário condicional do componente                   |
+
+### SPFV-E2E-001 Entrada, saída e instância única
+
+- Setup: rascunho no desktop, Side Pane aberto e um novo tab Terminal; aplicar uma marca DOM no nó raiz do SessionPane principal.
+- Action: clicar em «entrar na visão completa»; sair com o atalho; entrar de novo pelo botão.
+- Assertions: na visão completa a largura da lista de tasks da esquerda não muda, o grupo de botões do canto superior esquerdo continua presente, o WorkspaceHeader não existe e a largura da moldura do Side Pane fica próxima da largura de `#content`; a primeira tab da barra de tabs é a tab de conversa, e o estilo computado `-webkit-app-region` é `no-drag` (clicável com o mouse real); ao sair, a largura da sidebar e do painel volta à de antes da entrada; durante todo o processo o nó raiz do SessionPane mantém a mesma marca DOM (não foi remontado).
+
+### SPFV-E2E-002 Tab de conversa em largura total e janela flutuante do tab de painel
+
+- Setup: continua de 001, na visão completa o tab atual é Terminal.
+- Action: clicar na tab de conversa; depois clicar na tab Terminal.
+- Assertions: quando a tab de conversa está ativa, o host de conversa cobre o slot (erro de até 2px), a janela flutuante não existe, o input é de layout de duas linhas (`data-composer-layout=stacked`) e tem a barra de itens do rascunho; ao voltar para a tab Terminal, a janela flutuante aparece no canto inferior direito do slot (16px da borda), expondo apenas a área de input: a área de input tem a mesma largura da janela flutuante, a borda inferior é alinhada, não há margem externa, o drawer não está visível; o input é de linha única (`data-composer-layout=inline`, altura da janela flutuante de no máximo 64px, «+», área de input e botão de envio alinhados da esquerda para a direita na mesma linha, centralizados verticalmente com erro de até 2px, e a área de input ocupando pelo menos metade da largura), sem barra de itens do rascunho; a marca DOM colocada no nó do input antes da troca continua no lugar (o editor não foi remontado).
+
+### SPFV-E2E-003 Barra de ações, minimizar e restaurar
+
+- Setup: continua de 002, janela flutuante no estado recolhido.
+- Action: clicar no input da janela flutuante e digitar texto; clicar na área vazia do painel; focar o input de novo e clicar em «−»; clicar no botão redondo.
+- Assertions: com o input focado o drawer desliza, a barra de ações fica visível e sem título (nem loading quando ocioso), e o drawer se estende até a borda inferior do input (erro de até 1.5px, sem entalhes laterais); fica oculto após a perda de foco; depois de «−» resta apenas o botão redondo; ao clicar, o estado recolhido é restaurado e o input recebe foco com o texto ainda lá; ao trocar para a tab de conversa, o input principal mostra o mesmo texto.
+
+### SPFV-E2E-004 Arrastar com encaixe e menu
+
+- Setup: continua de 003, janela flutuante no estado recolhido.
+- Action: arrastar ⠿ para a região superior esquerda do slot e soltar; clicar em ⠿ para abrir o menu e escolher «abrir na visão completa».
+- Assertions: ao soltar, a janela flutuante encosta no canto superior esquerdo do slot (16px); a preferência global `zcode:side-pane-full-view:floating-anchor` é gravada como `top-left`; depois de escolher o item de menu a visualização muda para a tab de conversa, e o estado expandido da janela flutuante não é alterado pelo clique no menu (regressão: o evento do portal sobe pela árvore do React).
+
+### SPFV-MODEL-001 Fechamento do menu de modelos da janela flutuante (pending)
+
+- Setup: janela flutuante na visão completa, com uma página de plugin independente atrás; há dois modelos disponíveis e um bloqueado.
+- Action: abrir o menu de modelos e clicar na área do plugin; abrir de novo e escolher um modelo (incluindo o modelo atual e a confirmação por teclado), depois clicar fora para fechar; ajustar a faixa e trocar o Provider; fechar com Escape.
+- Assertions: um clique fora fecha o menu e não dispara a ação do plugin por baixo; depois de escolher um modelo disponível a escolha vale e o menu permanece aberto, e o modelo bloqueado não fecha; o ajuste de faixa e a navegação de Provider mantêm o menu aberto; depois de escolher o modelo ainda é possível clicar fora uma vez para fechar, e depois de fechar o plugin continua interativo. O desktop Electron usa um webview real e a largura de celular no browser usa um iframe independente, cobrindo os temas claro e escuro.
+- Candidatos de automação: `packages/ui/test/browser/manual-review/pending/composer-menu-dismiss.test.mjs`; junto com o `ui-shell/side-pane-full-view.test.ts` já existente, valida o comportamento da janela flutuante no App completo. A fixture de nível de componente não cobre instalação de plugin, handshake de Agent nem conexão de controle remoto.
+
+### SPFV-E2E-005 Expandir e recolher o fluxo de mensagens
+
+- Setup: janela flutuante recolhida + barra de ações.
+- Action: clicar no botão «⌃»; depois clicar no botão «⌄».
+- Assertions: ao expandir, a altura da janela flutuante passa de 400px e a timeline fica visível, com o botão `aria-expanded=true`; a borda inferior do contêiner de rolagem das mensagens fica pelo menos 8px acima do topo da área de input (a barra de rolagem não se estende para trás do input); clicar de novo volta ao estado recolhido.
+
+### SPFV-E2E-009 A camada da página de plugin não é coberta pela moldura do painel
+
+- Setup: continua de 005, na forma de janela flutuante da visão completa, o tab atual é Terminal.
+- Action: com o mesmo conjunto de estilos de `pluginUiPagePlane`, colocar no final do `body` uma camada de ancoragem (`[data-sandbox-page-parking]`, `position:fixed; inset:0`, sem z-index) contendo um nó de página `position:fixed; z-index:10` que cobre o slot; tomar `elementFromPoint` na região inferior direita do slot.
+- Assertions: o elemento atingido é o nó da página, e não um elemento dentro da moldura do painel (regressão: a moldura `z-10` encobre a UI do plugin, deixando o plugin tab em branco).
+
+### SPFV-E2E-006 Saída pelo painel
+
+- Setup: visão completa.
+- Action: clicar no botão de painel ◫; depois clicar no botão de painel no WorkspaceHeader para reabrir.
+- Assertions: ao fechar, volta-se ao layout comum; ao reabrir, continua-se na visão comum (não volta para a visão completa).
+
+### SPFV-E2E-007 Envio pela janela flutuante e memória por session (provider)
+
+- Setup: session A existente (primeira mensagem concluída), tab Terminal aberto, entrada na visão completa.
+- Action: enviar uma mensagem no input da janela flutuante; na visão completa, criar um rascunho pela paleta de comandos (⌘K → New task); voltar para A na lista de tasks da esquerda.
+- Assertions: a mensagem aparece na timeline de A e recebe resposta; ao fim da resposta, uma bolha de resposta aparece acima da janela flutuante contendo apenas o corpo da resposta (sem ícone, sem título); o rascunho fica na visão comum; ao voltar para A, a visão completa e a janela flutuante são restauradas, e a bolha continua lá (só some com × ou clique); ao clicar na bolha, a janela flutuante expande e a bolha some, e ao recolher ela não aparece de novo (regressão: trocar de sessão não gera React #185, e o painel não fica preso no estado recolhido).
+
+### SPFV-E2E-008 AskUserQuestion ao minimizar (provider)
+
+- Setup: continua de 007, sessão A na visão completa, tab atual Terminal.
+- Action: enviar na janela flutuante um prompt que dispare AskUserQuestion (replay com atraso de 4s), minimizar assim que a mensagem do usuário aparecer e aguardar a requisição da pergunta.
+- Assertions: depois que a mensagem do usuário aparece (com a requisição da pergunta ainda não chegada, com a conversa em execução), a barra de ações mostra loading à direita de «⌃ / ⌄», e o texto de placeholder do input é «trabalhando há N segundos» / `Working for …`, idêntico ao texto de duração da última linha da mensagem em streaming; a janela flutuante volta sozinha ao estado recolhido, e o card de pergunta aparece dentro da janela flutuante; depois de enviar a resposta, o card some e o input é restaurado; ao fim da resposta aparece uma nova bolha (`spfv-ask-done`), e clicar em × faz a bolha sumir mantendo a janela flutuante recolhida; com a conversa ociosa, ao focar a janela flutuante, a barra de ações fica visível, mas sem loading.
+
+### Invariantes
+
+- A troca para a visão completa não pode remontar o SessionPane, nem gravar persistência de proporção do painel ou de largura da sidebar.
+- A janela flutuante e a tab de conversa compartilham o mesmo rascunho.
+- A instância de webview / terminal do tab de painel permanece montada durante as trocas de surface.

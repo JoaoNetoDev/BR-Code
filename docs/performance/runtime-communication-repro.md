@@ -1,12 +1,12 @@
-# Runtime Communication Performance Reproduction
+# Reprodução de desempenho da comunicação do runtime
 
-## Background
+## Contexto
 
-The renderer CPU issue under investigation is suspected to happen while a task is actively communicating, not only when opening a long persisted history. Static database fixtures are useful for cold render and scroll baselines, but they do not exercise provider SSE, app-agent protocol fanout, subagent continuation, tool updates, or React updates during an active turn.
+O problema de CPU no renderizador em investigação suspeita ocorrer enquanto uma tarefa está comunicando-se ativamente, e não apenas ao abrir um histórico persistido longo. Fixtures estáticos de banco de dados são úteis para baseline de renderização fria e de rolagem, mas não exercitam SSE de provider, fanout do protocolo app-agent, continuação de subagente, atualizações de ferramenta ou atualizações de React durante um turno ativo.
 
-This reproduction suite keeps the first phase focused on building repeatable environments. Root-cause profiling and fixes are a separate phase.
+Esta suíte de reprodução mantém a primeira fase focada em construir ambientes repetíveis. O profiling de causa raiz e as correções são uma fase separada.
 
-## Communication Chain
+## Cadeia de comunicação
 
 ```text
 Provider replay SSE
@@ -18,7 +18,7 @@ Provider replay SSE
   -> React render / layout / paint
 ```
 
-For four-pane reproduction, the chain fans out per visible pane:
+Para a reprodução de quatro painéis, a cadeia faz fanout por painel visível:
 
 ```text
 pane A prompt -> parent Agent tool -> child subagent stream -> parent final stream -> pane A render
@@ -27,26 +27,26 @@ pane C prompt -> parent Agent tool -> child subagent stream -> parent final stre
 pane D prompt -> parent Agent tool -> child subagent stream -> parent final stream -> pane D render
 ```
 
-All cases in this document use desktop `desktop-continuous`. They must not be used to infer mobile `/remote` `web-remote-replayable` snapshot or gap-recovery behavior.
+Todos os casos deste documento usam o `desktop-continuous` do desktop. Eles não devem ser usados para inferir o comportamento de snapshot ou de recuperação de lacunas do `web-remote-replayable` de `/remote` no mobile.
 
-## Case Set
+## Conjunto de casos
 
-| ID | Purpose | Setup | Action | Evidence |
+| ID | Finalidade | Preparação | Ação | Evidência |
 | --- | --- | --- | --- | --- |
-| PERF01 | Isolate one visible pane under high-frequency stream traffic. | One v4 pane, one session, synthetic recorded-stream fixture with many text/reasoning/tool-input chunks. | Send one prompt and keep the stream open long enough for CPU sampling. | Network artifact with chunk timeline, optional CDP profile, UI remains responsive. |
-| PERF02 | Reproduce visible four-pane runtime fanout with tools and subagents. | Four v4 panes in one workbench, each bound to a different session. | Send four prompts that each trigger an `Agent` tool, a child subagent streamed response, then a streamed parent final response. | Electron window recording, replay artifact with multiple overlapping `/messages` streams, all panes reach final markers. |
+| PERF01 | Isolar um painel visível sob tráfego de stream de alta frequência. | Um painel v4, uma sessão, fixture sintética de stream gravado com muitos chunks de texto/razonamento/entrada de ferramenta. | Enviar um prompt e manter o stream aberto por tempo suficiente para amostragem de CPU. | Artefato de rede com linha do tempo de chunks, perfil CDP opcional, a UI permanece responsiva. |
+| PERF02（2026-10-16 descontinuado） | Reproduzir o fanout de runtime de quatro painéis visíveis com ferramentas e subagentes. Após a descontinuação da entrada de tela dividida, o usuário não pode mais criar um layout de quatro painéis; a spec, a fixture e o helper `openV4SplitFromSidebar` foram removidos; os comandos e as conclusões abaixo servem apenas como registro histórico. | Quatro painéis v4 em um workbench, cada um vinculado a uma sessão diferente. | Enviar quatro prompts que disparem cada um uma ferramenta `Agent`, uma resposta de subagente filho em streaming e, depois, uma resposta final do pai em streaming. | Gravação da janela do Electron, artefato de replay com múltiplos streams `/messages` sobrepostos, todos os painéis alcançam os marcadores finais. |
 
-## Recording And Profiling
+## Gravação e profiling
 
-Phase 1 records user-visible reproduction evidence:
+A fase 1 registra evidência de reprodução visível ao usuário:
 
-- WDIO drives the four-pane path.
-- The in-app Electron window recorder captures a video artifact.
-- The DeepSeek replay server writes request and response chunk timelines.
-- The recording path requires `ffmpeg` on `PATH`, or `ZCODE_E2E_FFMPEG_PATH`
-  pointing at a compatible binary.
+- O WDIO conduz o caminho de quatro painéis.
+- O gravador de janela do Electron dentro do app captura um artefato de vídeo.
+- O servidor de replay do DeepSeek escreve as linhas do tempo de chunks de requisição e resposta.
+- O caminho de gravação exige `ffmpeg` no `PATH`, ou `ZCODE_E2E_FFMPEG_PATH`
+  apontando para um binário compatível.
 
-Run PERF02 with:
+Executar PERF02 com:
 
 ```bash
 E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/common.json,packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-runtime-communication-performance.json \
@@ -54,7 +54,7 @@ ZCODE_E2E_MANUAL_REVIEW=1 \
 pnpm --filter @zcode/desktop test:e2e -- --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-runtime-communication-performance.test.ts'
 ```
 
-Run the same case without video recording but with a renderer CPU profile:
+Executar o mesmo caso sem gravação de vídeo, mas com um perfil de CPU do renderizador:
 
 ```bash
 E2E_PROVIDER_REPLAY_FIXTURE_PATH=packages/desktop/test/e2e/fixtures/upstream/common.json,packages/desktop/test/e2e/fixtures/upstream/conversation-session/conversation-session-runtime-communication-performance.json \
@@ -64,36 +64,36 @@ ZCODE_E2E_MANUAL_REVIEW=1 \
 pnpm --filter @zcode/desktop test:e2e -- --spec './test/e2e/conversation-session/manual-review/pending/conversation-session-runtime-communication-performance.test.ts'
 ```
 
-Phase 2 adds profiler evidence after PERF02 reliably reproduces high CPU:
+A fase 2 adiciona evidência de profiler depois que PERF02 reproduz CPU alta de forma confiável:
 
-- Start an Electron/Chromium performance profile during the overlapping child/final streams.
-- Compare active pane render cost, hidden shell fanout, protocol event batching, and tool/subagent update frequency.
-- Keep logging high-volume protocol or streaming diagnostics at `debug`; do not add production `info` logs for per-chunk traces.
+- Iniciar um perfil de desempenho do Electron/Chromium durante os streams sobrepostos de filho/final.
+- Comparar o custo de renderização do painel ativo, o fanout do shell oculto, o batching de eventos do protocolo e a frequência de atualizações de ferramenta/subagente.
+- Manter os logs de diagnóstico de protocolo ou streaming de alto volume em `debug`; não adicionar logs `info` de produção para rastros por chunk.
 
-## 2026-07-08 Local Baseline
+## Baseline local de 2026-07-08
 
-PERF02 was run with `ZCODE_E2E_PROFILE_ONLY=1` and `ZCODE_E2E_PROFILE_STREAMING=1`.
+PERF02 foi executado com `ZCODE_E2E_PROFILE_ONLY=1` e `ZCODE_E2E_PROFILE_STREAMING=1`.
 
-- Artifact dir: `packages/desktop/.e2e-artifacts/runtime-perf-20260708105637`
-- Case duration: `99552ms`
-- Visible renderer tab CPU mean / peak: `2.59%` / `3.87%`
-- Total Electron CPU mean / p95 / peak: `4.19%` / `5.96%` / `6.85%`
-- Visible renderer working set: `254MB` at start, `424MB` peak, `391MB` near end
-- Renderer V8 profile duration: `97455ms`, with about `82318ms` idle, `10320ms` unattributed program time, and `399ms` GC self time
+- Diretório de artefatos: `packages/desktop/.e2e-artifacts/runtime-perf-20260708105637`
+- Duração do caso: `99552ms`
+- CPU média / pico da aba visível do renderizador: `2.59%` / `3.87%`
+- CPU média / p95 / pico total do Electron: `4.19%` / `5.96%` / `6.85%`
+- Working set do renderizador visível: `254MB` no início, `424MB` no pico, `391MB` próximo ao fim
+- Duração do perfil V8 do renderizador: `97455ms`, com cerca de `82318ms` ocioso, `10320ms` de tempo de programa não atribuído e `399ms` de tempo próprio de GC
 
-Mapped renderer self-time hotspots:
+Hotspots mapeados de tempo próprio no renderizador:
 
-- `packages/ui/src/components/ai-elements/reasoning.tsx`: reasoning content auto-follow scroll and mask updates, especially `scrollToReasoningBottom`
-- `packages/ui/src/v4/ConversationTimeline.tsx`: bottom anchoring layout effect and scroll handling during streaming height changes
-- React DOM commit/render work triggered by streaming updates
-- `packages/rpc/src/serialization.ts`: small but visible deserialize cost for protocol frames
+- `packages/ui/src/components/ai-elements/reasoning.tsx`: auto-follow de rolagem e atualizações de máscara do conteúdo de reasoning, especialmente `scrollToReasoningBottom`
+- `packages/ui/src/v4/ConversationTimeline.tsx`: efeito de layout de ancoragem inferior e tratamento de rolagem durante mudanças de altura no streaming
+- Trabalho de commit/render do React DOM disparado por atualizações de streaming
+- `packages/rpc/src/serialization.ts`: custo de deserialização pequeno, mas visível, para frames de protocolo
 
-This baseline does not show a renderer process pegging CPU under deterministic replay; the current bottleneck shape is repeated streaming-driven React commit/layout work plus renderer memory growth. A follow-up high-CPU reproduction should either increase chunk concurrency/frequency or run against the live provider scenario where the original CPU spike was observed.
+Esta baseline não mostra um processo de renderizador com a CPU saturada sob replay determinístico; o formato atual do gargalo é trabalho repetido de commit/layout do React dirigido por streaming, somado ao crescimento de memória do renderizador. Uma reprodução posterior de CPU alta deve ou aumentar a concorrência/frequência de chunks, ou rodar contra o cenário de provider ao vivo, onde o pico original de CPU foi observado.
 
-## Boundaries
+## Limites
 
-- Desktop local `desktop-continuous` only.
-- No direct SQLite fixture injection for PERF02.
-- No separate mobile replayable or remote-host runtime is created.
-- Four-pane layout uses existing v4 pane split behavior and the `MAX_WORKBENCH_PANES = 4` boundary.
-- Provider traffic is synthetic replay; the goal is deterministic communication pressure, not live model quality.
+- Apenas `desktop-continuous` local do desktop.
+- Sem injeção direta de fixture SQLite para PERF02.
+- Nenhum replayable mobile separado ou runtime de host remoto é criado.
+- O layout de quatro painéis usa o comportamento existente de split de painel v4 e o limite `MAX_WORKBENCH_PANES = 4`.
+- O tráfego de provider é replay sintético; o objetivo é pressão de comunicação determinística, não qualidade de modelo ao vivo.

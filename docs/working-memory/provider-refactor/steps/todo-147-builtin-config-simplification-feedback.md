@@ -1,10 +1,9 @@
 # Todo 147: Simplificação do Builtin Config e Ajuste da Baseline Padrão
 
-> Status: coletando feedback continuamente; as direções abaixo já foram confirmadas, mas ainda não
-> foram implementadas.
+> Status: F01–F03 implementados e verificados em 2026-10-14.
 > Data: 2026-09-15.
-> O usuário pediu primeiro a criação deste Todo, e os feedbacks seguintes continuam sendo anexados
-> aqui; esta rodada apenas registra, sem alterar a configuração de execução nem publicar revisions.
+> Este documento registra primeiro o feedback do usuário; em 2026-10-14 foi aprovado implementá-lo a
+> partir do staging mais recente e submeter o MR.
 
 ## Objetivo
 
@@ -56,10 +55,10 @@ usuário.
 
 Modificar a regra de Model genérica com `modelMatch: ".*"`:
 
-| Campo de configuração | Valor atual | Valor-alvo confirmado |
-| --- | --- | --- |
-| `properties.contextWindow` | `200000` | `1000000` |
-| `optionSpecs.maxOutputTokens.max` | `32000` | `128000` |
+| Campo de configuração                      | Valor atual | Valor-alvo confirmado |
+| ----------------------------------------- | ----------- | --------------------- |
+| `properties.contextWindow`                | `200000`    | `1000000`             |
+| `optionSpecs.maxOutputTokens.max`         | `32000`     | `128000`              |
 
 - Com base na decisão do usuário nesta rodada, esses dois valores passam a ser a baseline padrão
   mainstream.
@@ -71,25 +70,25 @@ Modificar a regra de Model genérica com `modelMatch: ".*"`:
 - Campos não mencionados, como as faixas genéricas de raciocínio e a capacidade de mídia, mantêm
   a semântica atual.
 
-## Checklist de implementação (a executar)
+## Checklist de implementação
 
-- [ ] Continuar anexando o feedback do usuário e deixar explícito o escopo real de execução desta
+- [x] Continuar anexando o feedback do usuário e deixar explícito o escopo real de execução desta
   rodada; sugestões de review não confirmadas não entram na implementação automaticamente.
-- [ ] Antes de implementar, sincronizar no design vigente as descrições dos princípios de
+- [x] Antes de implementar, sincronizar no design vigente as descrições dos princípios de
   correspondência e da baseline padrão correspondentes.
-- [ ] Cobrir primeiro com regressões: baseline genérica de 1000000 / 128000, ausência das duas
+- [x] Cobrir primeiro com regressões: baseline genérica de 1000000 / 128000, ausência das duas
   regras acima e capacidade de os modelos específicos ainda sobrescreverem a baseline genérica.
-- [ ] Certificar ordem e herança campo a campo usando modelos base e variantes com diferenças;
+- [x] Certificar ordem e herança campo a campo usando modelos base e variantes com diferenças;
   não basta apenas afirmar que a string da regex ficou menor.
-- [ ] Alterar a configuração e revisar novamente a ordem das regras afetadas, as capacidades
+- [x] Alterar a configuração e revisar novamente a ordem das regras afetadas, as capacidades
   efetivas e o mapeamento de opções; preservar as overrides Personal existentes e a identidade
   exata dos modelos.
-- [ ] Atualizar os testes que dependem da baseline genérica antiga de 200000 / 32000; distinguir o
+- [x] Atualizar os testes que dependem da baseline genérica antiga de 200000 / 32000; distinguir o
   fallback de modelo desconhecido dos valores explícitos de modelos específicos.
-- [ ] Executar os testes de parsing de configuração, de mapeamento de requisição e as verificações
+- [x] Executar os testes de parsing de configuração, de mapeamento de requisição e as verificações
   exigidas pelo repositório; complementar com validação de interação conforme o impacto real na
   UI.
-- [ ] Na publicação, incrementar a builtin revision conforme a versão mais recente da época,
+- [x] Na publicação, incrementar a builtin revision conforme a versão mais recente da época,
   seguindo a cadeia de publicação existente; não antecipar a mudança de revision na fase de
   feedback.
 
@@ -105,3 +104,43 @@ do usuário; opiniões ainda em discussão não são tratadas como decisão de i
 - 2026-09-15: criação do Todo de feedback; registro de F01 (correspondência permissiva), F02
   (remoção das duas regras especiais de Model) e F03 (ajuste da baseline genérica). Apenas mudança
   de documentação; a configuração mantém os valores originais.
+
+## Implementação e limites de compatibilidade desta rodada
+
+- Builtin revision 31 → 32, com a configuração de produção e a de teste sincronizadas. Regras de
+  Model 84 → 82; Model + API, Site, membros de template e a contagem de identidades exatas
+  permanecem inalteradas.
+- Removidas declarações duplicadas que herdavam a capacidade genérica; as sobreposições necessárias
+  trazidas por capacidades explicitamente menores e por regras de famílias intermediárias
+  continuam preservadas.
+- GLM-4.7 FlashX é posicionado depois do Flash; a regra de Messages do GLM-4.6 mantém o `(?!v)`,
+  evitando que, após a simplificação, o mapeamento de texto sobrescreva os modelos visuais.
+- A restauração da faixa de desligamento antiga localizava a origem pela string do matcher; após a
+  simplificação, é preciso reconhecer tanto o matcher original quanto o novo matcher; a elegibilidade
+  da restauração continua sendo julgada pelo matcher original, sem ampliar o alcance dos aliases
+  históricos e sem escrever dados de migração.
+- Os fixtures históricos de mapeamento de requisição sincronizam apenas a string de localização do
+  matcher; o request map e os resultados esperados não mudam. Sufixos desconhecidos agora herdam a
+  capacidade da mesma família conforme a regra permissiva já confirmada.
+- A página de configurações continua exibindo a capacidade herdada; salvar a faixa de pensamento
+  não pode gravar junto uma override de capacidade em Personal. O limite de saída não altera o
+  número explícito de tokens da requisição.
+
+## Registro de verificação (2026-10-14)
+
+- Primeiro foram executadas as regressões novas para confirmar a falha da configuração antiga; só
+  então a configuração foi alterada; 52 arquivos e 550 itens da suíte completa de Provider /
+  Provider Node passaram.
+- 242 entradas de template × 3 APIs × 2 tipos de site, totalizando 1452 combinações de parsing:
+  descontando os ajustes de default explicitamente exigidos nesta rodada e a remoção das duas
+  regras, não houve outras diferenças de resultado. Essa enumeração cobre o catálogo mantido e
+  não garante equivalência para qualquer modelo desconhecido.
+- typecheck, lint e a checagem de arquitetura de todo o repositório passaram; a checagem de
+  sincronização entre as configurações de produção e de teste passou.
+- O staging mais recente foi sincronizado; no desktop Linux, `provider-reasoning-fallback.test.ts`
+  passou, usando o fixture replay common explícito e um servidor HTTP local dentro do caso, para
+  confirmar a exibição da capacidade herdada, o salvamento esparso e o orçamento real da requisição
+  de Model. Windows/macOS, Web mobile e todas as combinações de tema/idioma não foram executados.
+- Observação sobre o ambiente de verificação: o typecheck de todo o repositório escreve em
+  desktop/out e não pode rodar em paralelo com os artefatos de empacotamento do desktop; a
+  verificação final de interação foi executada após o typecheck, com um build completo refeito.

@@ -1,8 +1,4 @@
-import type {
-  BotConfig,
-  BotProvider,
-  BotReplyGranularity,
-} from "@zcode/shared";
+import type { BotConfig, BotProvider, BotReplyGranularity } from "@zcode/shared";
 import { getSupportedBotReplyGranularities } from "@zcode/shared";
 
 export type BotProviderEntryId = BotProvider | "dingding";
@@ -55,9 +51,7 @@ export function getBotReplyGranularitiesForProvider(
   provider: BotProvider,
 ): typeof BOT_REPLY_GRANULARITIES {
   const supportedIds = new Set(getSupportedBotReplyGranularities(provider));
-  return BOT_REPLY_GRANULARITIES.filter((granularity) =>
-    supportedIds.has(granularity.id),
-  );
+  return BOT_REPLY_GRANULARITIES.filter((granularity) => supportedIds.has(granularity.id));
 }
 
 export function getBotReplyGranularityEntryForProvider(
@@ -72,24 +66,18 @@ export function getBotReplyGranularityEntryForProvider(
   );
 }
 
-export function getBotProviderRegionTagLabelId(
-  provider: BotProviderEntryId,
-): string | null {
+export function getBotProviderRegionTagLabelId(provider: BotProviderEntryId): string | null {
   switch (provider) {
+    // 这些标签描述的是机器人渠道所属区域（飞书国际版 / 国内版），
+    // 与登录页的 provider 无关；登录 OAuth 文案在 RF-03 下被删除后，
+    // 这里改用机器人域自己的中性键，避免共享登录命名空间。
     case "lark":
-      return "login.oauth.regionTag.zai";
+      return "bots.channel.regionTag.lark";
     case "feishu":
-      return "login.oauth.regionTag.bigmodel";
+      return "bots.channel.regionTag.feishu";
     default:
       return null;
   }
-}
-
-export function buildCurrentWorkspaceId(
-  workspacePath: string,
-  workspaceIdentity?: string,
-): string {
-  return workspaceIdentity?.trim() || workspacePath;
 }
 
 type BotProviderEntryResolution =

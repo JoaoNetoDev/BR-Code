@@ -18,11 +18,13 @@ Os comandos abaixo são executados a partir da raiz do repositório:
 | Checagem de formatação | `pnpm fmt:check`                     |
 | Desenvolvimento desktop | `pnpm dev:desktop`                  |
 | Desenvolvimento web | `pnpm dev:web`                          |
-| Checagem pré-commit | `pnpm verify:pre-push` (Lint e checagem de arquitetura) |
+| Checagem pré-commit | `pnpm verify:pre-push` (Lint, checagem de arquitetura e testes unitários afetados) |
 | Checagem de arquitetura | `pnpm architecture:check --changed` |
 | Pacote de leitura de módulo | `pnpm architecture:context <module-id>` |
 | Dependências e exports não usados | `pnpm knip`               |
 | Consulta de referências de export | `pnpm dep:refs --list-exports <file>` |
+
+O modo `affected` usa a seleção oficial do Vitest e executa apenas as UT raiz selecionadas; quando o pacote inteiro é selecionado, a checagem explica e omite as UT, sai com sucesso e não impede o Push; não substitui os testes do CLI nem o E2E do desktop. A execução completa usa `pnpm test` / `pnpm test:unit` e só é acionada quando o usuário pedir explicitamente. O escopo e o contrato de saída estão descritos em [pre-push](docs/testing/pre-push-hook.md).
 
 Para pontos de entrada de teste, considere o `package.json` atual do pacote alvo e os arquivos de teste reais; não presuma a existência de comandos unificados de unit test ou E2E.
 
@@ -41,6 +43,7 @@ Para pontos de entrada de teste, considere o `package.json` atual do pacote alvo
 - Evite estado duplicado e múltiplos caminhos de escrita. Defina de forma clara o único dono, as interfaces, as direções de dependência, a ordem de eventos e os limites de idempotência; não use timeouts para mascarar problemas de sincronização.
 - Havendo mudança de comportamento, adicione antes os testes correspondentes; mudanças de interação exigem cenários de E2E. Verifique se os testes estão consistentes com a implementação e execute de fato as verificações disponíveis. Quando não executar ou quando o ambiente limitar, declare isso honestamente.
 - Ao corrigir bugs, comente em chinês explicando o motivo e a base da correção. Ao identificar um defeito de design, alinhe antes com o usuário; não fique acumulando branches de fallback.
+- A descrição do PR deve explicar o contexto, a intenção de design e o comportamento antes e depois; em caso de correção de bug, descreva item a item o cenário que dispara, a evidência da causa raiz, o mecanismo da correção e a verificação de regressão, associando o link da issue existente quando possível. Marque com honestidade as causas raiz não confirmadas ou os commits introduzidos, sem inferir atribuição por proximidade de módulo ou de tempo.
 - Em soluções que envolvam estado, ordenação, sincronização remota ou assíncrona, use diagramas para mostrar donos e ordem de eventos.
 - É obrigatório executar `pnpm typecheck` e `pnpm lint`, reportar os resultados reais e não relatar falhas pré-existentes como sucesso.
 - Use IO de arquivos e de rede assíncrono; para importações entre pacotes, use as entradas públicas e respeite os aliases de caminho existentes.

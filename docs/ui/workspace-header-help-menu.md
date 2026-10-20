@@ -15,6 +15,7 @@ A área de ações do header do Workspace oferece, à esquerda do botão de term
 O menu é dividido em dois grupos, sem exibir títulos de grupo; apenas o desktop exibe uma linha divisória entre os dois grupos.
 
 Primeiro grupo, de cima para baixo:
+
 1. Documentação do produto: abre `https://zcode.z.ai/docs`.
 2. Comunidade de usuários: usa `IPlatformService.openCommunity()`.
 3. Relatar problema: abre o formulário de feedback embutido, mantendo `type=bug`, `module=其它`, `includeLogs=true` e o comportamento de captura de tela.
@@ -45,6 +46,9 @@ Todo texto visível deve passar por i18n; os itens do menu usam ícones lucide, 
 
 - Não reutiliza o formulário genérico de reporte de problema, evitando que semânticas de bug como captura de tela, logs e descrição do problema confundam o usuário.
 - O diálogo contém um texto de orientação, os campos obrigatórios "需求描述" (descrição da solicitação) e "期望的解决方案" (solução esperada), e uma forma de contato opcional.
+- O `*` vermelho dos títulos obrigatórios reaproveita o mesmo componente de marcador do relato de problema, usando `aria-hidden`, para que o leitor de tela não leia o símbolo decorativo como parte do título.
+- Os dois campos de entrada obrigatórios expressam a semântica do campo por meio de `required`, `aria-required` e nomes acessíveis localizados, sem depender da leitura do asterisco.
+- FB-REQ-A11Y-01: os casos reais de menu de ajuda do `feedback-upload-privacy.test.ts` cobrem chinês e inglês, janelas largas e estreitas, temas claro e escuro, verificando que os dois asteriscos ficam visíveis e ocultos para tecnologias assistivas e que o formulário vazio impede o envio; nenhum ticket real de solicitação é submetido.
 - "重置内容" fica na parte inferior esquerda; "取消" e "提交需求" ficam na parte inferior direita.
 - O envio só é permitido quando os dois campos obrigatórios têm conteúdo.
 - No envio, os dois campos são organizados em uma descrição Markdown estruturada e um ticket do tipo `feature` é criado pelo feedback service.

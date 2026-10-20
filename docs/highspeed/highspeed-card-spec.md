@@ -121,6 +121,27 @@ WebSearch nativo do provider, entrada de imagem/vídeo). A aceleração muda ape
 pode fazer a superfície de capacidades da mesma sessão oscilar conforme o turno tenha ou não
 aceleração.
 
+Highspeed e Off-Peak Provider são entradas de execução derivadas da conexão Coding Plan atual e não
+possuem direitos independentes. O estado de publicação delas deve herdar o **resultado final de
+direitos** da resolução do Account Provider na mesma rodada para o Provider matriz escolhido: quando
+a matriz está explicitamente disponível nesta rodada, ela é publicada; quando está explicitamente
+indisponível, é despublicada; quando a consulta da matriz retorna `unknown`, primeiro resolve-se a
+matriz pela regra de last-known-good do Account Provider e só então o resultado final é projetado
+para os Providers derivados. É proibido tratar o `unknown` original como ausência de direitos, pois
+isso produziria um estado dividido em que a matriz ainda pode sortear cartas enquanto o Provider
+derivado já foi removido do Registry. O last-known-good só vale dentro da mesma conta conectada e da
+mesma identidade de Team `organization/project/product`; depois que a conta ou a identidade de Team
+muda, tanto a matriz quanto as entradas derivadas devem falhar de forma fechada (fail-closed), sem
+ressuscitar direitos antigos.
+
+```text
+Consulta original do Coding Plan      Resultado final da matriz          Entrada de execução derivada
+available                 -> available                 -> available
+unavailable               -> unavailable               -> unavailable
+unknown + direitos antigos da mesma identidade -> last-known-good available -> available
+unknown + identidade alterada -> fail-closed unavailable -> unavailable
+```
+
 Um Turn pode gerar múltiplas requisições Messages por causa de chamadas de ferramenta. Quando
 qualquer requisição Highspeed falhar — cartão expirado com `HTTP 400 / provider_code=3402`, falha de
 autenticação, rate limit, 5xx, erro de rede, timeout, interrupção de stream, **qualquer falha** — o
@@ -134,22 +155,115 @@ estruturado `TurnExecutionModelFallback`, e o Renderer exibe um aviso único: pa
 Essa degradação é expressa de forma declarativa por `modelExecution.selectionFallback`:
 `{ providerId, rules: [{ reason, providerErrorCode? }], target? }`. As regras são combinadas na ordem
 declarada e a primeira que casar define o motivo do retorno; `providerErrorCode` ausente significa
-qualquer falha daquele provider. O cartão de aceleração declara duas regras:
+qualquer falha daquele provider. O cartão de aceleração declara duas regras de período de requisição:
 `3402 → highspeed_card_expired`, e todas as demais `→ highspeed_request_failed`. O Core só degrada
 quando a falha vier do provider apontado pela Selection de execution deste turno (sem hardcode de
 prefixo de provider id, nome de modelo ou texto de erro), e degrada apenas uma vez.
 
+A mesma declaração também cobre o período de criação do modelo, antes do envio da requisição.
+Somente quando esta rodada for uma Selection de escopo execution, o provider da Selection for igual
+ao provider declarado e o erro de criação for estritamente `ProviderNotFound` ou `ModelNotFound`, o
+Core cria o modelo de retorno pela mesma ordem de candidatos e continua esta rodada, publicando ao
+mesmo tempo um `TurnExecutionModelFallback` com o motivo `highspeed_selection_unavailable`.
+Selection de sessão comum, outros erros de criação e a falha de criação do próprio destino de
+retorno não podem ser engolidos; quando todos os candidatos falham, a rodada termina com o erro real
+de criação do último candidato de modelo comum, com um `warn` registrado, e o erro de Registry do
+Highspeed não pode mais ser mostrado ao usuário. Depois de um retorno bem-sucedido no período de
+criação, a declaração de retorno desta rodada deve ser removida, e uma falha posterior do modelo
+comum não pode gerar um segundo retorno.
+
+Qualquer falha de criação ou de requisição já atribuída ao Highspeed significa que o cartão atual
+não deve continuar travando o Composer. Depois de observar o `TurnExecutionModelFallback`, o Renderer
+deve chamar o Highspeed Service para invalidar o cartão, usando o `cardId` da entrada à qual o
+evento pertence. Se o destino de retorno também não puder ser criado e nenhum evento for produzido,
+o Core publica `error.attribution.highspeedFallbackUnavailable=true` no `TurnError` daquela rodada
+(tanto o período de criação quanto o período de requisição publicam esse campo quando não há para
+onde retornar), e o V4 projeta isso em `control.lastError.attribution`; o Renderer só invalida o
+cartão atual quando `highspeedCardId` for igual ao cartão atual e esse campo for true, sem inferir
+pelo código de erro — o `code` de uma falha 3402/de rede no período de requisição é o código de erro
+do provider e não um erro de catálogo; estouro da janela de contexto, cancelamento pelo usuário e
+falhas locais de runtime não participam do retorno e não carregam esse campo. O Service só limpa o
+cartão quando o ID do cartão atual corresponde, e eventos antigos não podem limpar um cartão novo
+sorteado em seguida, preservando o fato de cooldown `nextDrawAt` para evitar que o próximo envio
+sorteie novamente de imediato e forme um ciclo de falhas. O travamento de modelo e o visual de
+aceleração derivam apenas do estado atual do cartão no Service; depois que o cartão correspondente é
+invalidado, sai-se imediatamente do estado Highspeed e destrava-se. Quando o retorno tem sucesso,
+não se mostra Banner de erro, apenas se avisa uma vez que já houve o retorno ao modelo original; se o
+modelo comum também falhar depois do retorno, a rodada termina com o erro real dele, mas nesse
+momento o Composer já está destravado e o usuário pode trocar de modelo para continuar trabalhando.
+
+A limpeza do cartão no estado final de erro precisa usar a atribuição de cartão presente nos fatos
+de execução. O `intent.highspeed.cardId` do comando Highspeed é a única identidade de cartão da
+rodada; a CLI o escreve em `error.attribution.highspeedCardId` ao gerar o `TurnError`, e o V4
+projeta isso em `control.lastError.attribution.highspeedCardId`. O Renderer só invalida o cartão
+quando esse valor é igual ao ID do cartão atual e `highspeedFallbackUnavailable` é true, sem mais
+procurar a linha de entrada por `rows.window`. Quando a criação do modelo falha, é preciso publicar
+primeiro o `TurnStarted` e persistir a entrada de usuário já aceita, e só depois publicar o
+`TurnError`; a atribuição explícita de erro continua sendo usada para invalidar o cartão correto, e
+não se pode usar a presença do userInput na janela histórica como critério de associação. O `inputId`
+continua sendo a âncora genérica de entrada do TurnError, mas não carrega a atribuição do cartão
+Highspeed. Um Agent antigo sem o campo `highspeedCardId` só pode limpar o cartão de forma
+conservadora, pelo código de erro de catálogo `provider_not_found` / `model_not_found` e usando o
+horário de emissão do cartão como limite inferior.
+
+Os comandos destrutivos `editUserQuery` / `retryTurn` precisam concluir uma verificação de admissão
+de modelo antes do branch cut e do rewind do workspace; depois que o branch cut é submetido, não se
+pode recusar o mesmo replacement input com um Provider Registry mutável. Se o Registry mudar depois
+da pré-verificação e antes de o Core criar o modelo, o Core pode encerrar a rodada com uma falha
+`model_creation`, mas precisa antes promover o replacement input a um user row autoritativo e
+recuperável. O estado final só pode ser «nova entrada + erro explícito», nunca apenas um histórico
+truncado ou um workspace já revertido.
+
+A rodada com falha de criação não duplica o fluxo de persistência. O Core apenas registra o erro de
+criação original e percorre o mesmo ciclo de vida da rodada comum: `TurnStarted`, hook
+`UserPromptSubmit`, resolução de anexos e persistência do user row. O estado final de erro é escrito
+apenas pelo mesmo catch do ciclo de vida principal. Depois de uma falha na criação do modelo, não se
+pode inicializar o Context nem executar o hook `SessionStart`: ambos dependem de um modelo disponível
+e ficam antes da persistência da entrada, e a falha sobrescreveria o erro de criação original e
+perderia de novo a entrada já aceita; o `SessionStart` também não pode ser consumido pela rodada com
+falha e precisa ficar para o próximo Turn em que o modelo possa ser criado.
+
+```text
+Falha na criação do modelo pelo Core ──> registra o erro original (sem escrever estado final) ──> pula a inicialização do Context e o hook SessionStart
+  └─> TurnStarted ──> hook UserPromptSubmit ─┬─ intercepta ──> completed(success, stopReason), entrada não persistida (regra da rodada comum)
+                                             └─ libera ──> resolução de anexos + persistência do user row ──> lança o erro original
+                                                                                       │
+catch do ciclo de vida principal (único ponto de escrita do estado final de erro) <────────┘
+  ├─ falha comum (inclui falha de persistência) ──> TurnError(model_creation, erro de criação original); falhas de persistência só geram warn
+  ├─ Stop do usuário ──> completed(cancelled), igual à rodada comum
+  └─ fault do host (passado pelo abort signal) ──> TurnError(fault code), igual à rodada comum
+```
+
+Essa rodada não entra no model step, portanto recusa o guide (`turn_not_steerable`) e o guide é
+redirecionado para a queue comum. Essa rodada também não aplica o modelo, o mode e o plan da
+submissão, e não conta como rodada-alvo do goal. O `/compact` não produz user row: quando a criação
+falha, publica-se diretamente `TurnError(model_creation)`, sem publicar `TurnStarted`.
+
+O Agent novo publica, para cada `TurnError`, uma atribuição de três estados: uma string representa o
+cartão usado nesta rodada, `null` significa que a rodada não usou Highspeed, e a ausência do campo
+significa apenas um Agent antigo. Por isso, um erro de catálogo de uma rodada comum enfileirada é
+`null` e não pode limpar um cartão alheio durante a posse do cartão; erros residuais atribuídos a um
+cartão antigo também não podem limpar o cartão atual. Compatibilidade com Agent antigo: quando o
+campo está ausente, mantém-se o comportamento conservador de limpeza pelo código de erro de
+catálogo e pelo horário de emissão do cartão como limite inferior; nesse caminho, um erro de catálogo
+de uma rodada comum ainda pode limpar o cartão por engano, mas isso só existe no período de
+transição em que o App novo se conecta a um Agent antigo.
+
 O destino do retorno é resolvido em ordem: **primeiro o `target` declarado, depois o `modelSelection`
-residente da sessão do runtime**. `target` é a seleção submetida pelo solicitante no momento do
-sorteio (modelo atual do Composer e nível de raciocínio), ou seja, exatamente aquela que este turno
-vincularia como seleção de sessão caso não fosse acelerado — o cartão de aceleração é obrigado a
-preenchê-la; a seleção residente da sessão é apenas um fallback, pois o escopo execution nunca a
-reescreve e normalmente as duas são iguais. O destino candidato não pode ser o próprio provider de
-execution deste turno; quando o destino não é resolvível no Registry, passa-se ao próximo candidato.
-Se nenhum for resolvível, não há para onde retornar: o turno falha com o erro real, sem ENTERRAR a
-causa raiz, e o Core precisa registrar um `warn` com o motivo. O retorno não constrói snapshot de
-execução adicional nem exige overlay/API de restauração de modelo; a requisição de retorno usa a
-autenticação regular do próprio usuário e deixa de carregar o `requestAuth` desta execução.
+residente da sessão copiado antes da aceitação desta rodada**. `target` é a seleção submetida pelo
+solicitante no momento do sorteio (modelo atual do Composer e nível de raciocínio), ou seja,
+exatamente aquela que este turno vincularia como seleção de sessão caso não fosse acelerado — o
+cartão de aceleração é obrigado a preenchê-la; a seleção residente da sessão é apenas um fallback,
+pois a aceitação da mensagem do usuário vincula a seleção de submissão comum, e normalmente as duas
+são iguais. O destino candidato não pode ser o próprio provider de execution deste turno; quando o
+destino não é resolvível no Registry, passa-se ao próximo candidato. Se nenhum for resolvível, não
+há para onde retornar: o turno falha com o erro real, sem ENTERRAR a causa raiz, e o Core precisa
+registrar um `warn` com o motivo. O Core guarda o candidato de sessão como um snapshot
+`highspeedFallbackSelection` exclusivo do cartão de aceleração, e uma atualização posterior da
+Session por entradas do usuário não pode mudar o destino de retorno de rodadas antigas; o retorno
+não constrói snapshot de execução adicional nem exige overlay/API de restauração de modelo; a
+requisição de retorno usa a autenticação regular do próprio usuário e deixa de carregar o
+`requestAuth` desta execução.
 
 Restrição de regressão (o destino de retorno precisa vir na declaração): o destino de retorno já
 dependeu só da seleção residente da sessão no runtime. Na recuperação a frio após reiniciar o
@@ -161,6 +275,30 @@ expiração do cartão (3402) é pulada silenciosamente e o turno inteiro falha 
 invalid`, exibindo um banner de erro. Como o solicitante sabe explicitamente qual é o modelo
 original no momento do sorteio, o destino passa a ser declarado pelo solicitante, sem apostar no
 estado do runtime.
+
+Restrição de admissão no ACK: a Selection de execution do Highspeed pode ser adiada para o Core
+resolver, de modo a permitir o retorno no período de criação quando o modelo acelerado está
+temporariamente ausente; antes de aceitar a entrada, o Bootstrap precisa confirmar que a Selection de
+execution ou o `selectionFallback.target` declarado existe ao menos um deles no Provider Registry
+atual do Worker. Quando a Selection de execution está disponível, não se pode recusar apenas porque
+o destino de retorno está ausente; quando nenhum dos dois é resolvível, é preciso recusar antes do
+ACK com `modelUnavailable`, e não aceitar a entrada e publicar apenas `TurnError(model_creation)`. O
+Renderer, diante de uma recusa de admissão do Highspeed desta vez, precisa invalidar o cartão
+correspondente, sair do estado de aceleração e destravar o seletor de modelos, ao mesmo tempo em que
+o Composer recupera o texto e os anexos, sem mostrar Turn Error nem Banner de erro genérico de envio.
+O ACK significa que a entrada já foi aceita de forma confiável; o watchdog de UI não pode ser usado
+para recuperar entradas que ainda não produziram a projeção de `TurnStarted` / userInput.
+
+`editUserQuery` / `retryTurn` persistem um active branch cut, e `workspaceMode=rewind` ainda modifica
+antes os arquivos do workspace. Eles precisam se basear no canonical intent e no material de
+execução que serão reenviados, executando a mesma verificação de admissão de modelo antes de parar o
+turno ativo, de reverter os arquivos e de fazer o branch cut. Quando a admissão falha, não se pode
+alterar o histórico ativo nem o workspace. A pré-verificação e o reenvio real precisam reutilizar as
+mesmas regras de admissão, para que o envio comum e o reenvio por edição não julguem «modelo
+disponível» separadamente. Depois de aceito, o `editUserQuery` do Highspeed segue o accepted-input
+projection recovery do conversation protocol: se o branch cut já estiver visível e o replacement user
+row ficar silencioso, recupera-se apenas a mesma owned subscription, sem reproduzir o comando, sem
+fabricar mensagens e sem restaurar o branch antigo.
 
 Limites da degradação:
 
@@ -201,12 +339,12 @@ Limites da degradação:
   eventos ou projeção. O «qualquer falha» da regra de fallback significa apenas falhas de requisição
   provider/rede explicitamente atribuídas ao provider de execution deste turno; não se pode
   classificar uma exceção local sem atribuição como falha do endpoint acelerado.
-- **Uma vez por turno, nova tentativa no próximo**: após a degradação, todas as requisições restantes
-  do turno usam o modelo de sessão; se o modelo de sessão após o retorno falhar de novo, o turno
-  inteiro falha com o erro real. O próximo envio do usuário passa novamente pelo prepare do
-  Highspeed e tenta acelerar de novo quando o cartão ainda for válido e pertencer a esta Task; falhas
-  não relacionadas à expiração não invalidam o cartão, ao custo de no máximo uma requisição acelerada
-  de falha rápida por turno.
+- **Uma vez por turno, e a falha já retira o cartão**: após a degradação, todas as requisições
+  restantes do turno usam o modelo de sessão; se o modelo de sessão após o retorno falhar de novo, a
+  rodada termina com o erro real dele. Uma falha de criação ou de requisição do Highspeed, assim que
+  atribuída, invalida imediatamente o cartão correspondente e preserva o cooldown, e a próxima rodada
+  não pode reutilizar a mesma carta; assim, mesmo que o modelo comum também falhe, o Composer já saiu
+  do estado Highspeed e o usuário pode escolher outro modelo para recuperar o trabalho.
 - **Estado final na recuperação a frio**: o attempt acelerado que sofreu retorno precisa ser
   persistido como um limite uniforme de stream-recovery discarded, e não como um assistant `completed`
   comum. Se o processo sair antes de o modelo de retorno produzir o assistant final, a recuperação a
@@ -223,11 +361,26 @@ Limites da degradação:
   conhecida e, para excluí-lo, seria preciso definir outra regra de estatística.
 
 ```text
-Highspeed request -- any failure --> preserve current Turn context/tools
-                                         |
-                                         +--> notify Renderer once (card expired / request failed)
-                                         +--> remaining model requests use original session model
-                                         +--> complete Turn metrics remain share-eligible
+execution Selection
+        |
+        +-- criação de ProviderNotFound / ModelNotFound
+        |       +--> modelo de sessão original criado
+        |       |       +--> emite selection_unavailable
+        |       |       +--> invalida o cartão correspondente + destrava o seletor
+        |       +--> nenhum candidato criado
+        |               +--> falha com o erro real do modelo comum
+        |               +--> TurnError.attribution.highspeedFallbackUnavailable
+        |               +--> invalida o cartão correspondente + destrava o seletor
+        |
+        +-- falha na requisição --> preserva o contexto/ferramentas do Turn atual
+                                +--> destino de retorno criado
+                                |       +--> notifica o Renderer uma vez (cartão expirado / requisição falhou)
+                                |       +--> invalida o cartão correspondente + destrava o seletor
+                                |       +--> as requisições restantes usam o modelo de sessão original
+                                +--> nenhum destino de retorno
+                                        +--> falha com o erro original do provider (ex.: 3402)
+                                        +--> TurnError.attribution.highspeedFallbackUnavailable
+                                        +--> invalida o cartão correspondente + destrava o seletor
 ```
 
 ### 2.3 Compartilhamento
@@ -325,24 +478,41 @@ Regras de corrida:
    `modelSelection`/`modelExecution`. O estado de execução precisa ter o `activeTurn` do Core como
    verdade final; mesmo que o controller do adapter ou a rota de projeção ainda não estejam
    sincronizados, enquanto o Core tiver um turno ativo a entrada precisa entrar na fila, sem recorrer
-   indevidamente a `startNow`. A fila persiste apenas os metadados do cartão Highspeed sem
-   credenciais e o `modelSelection` acelerado; o JWT do cartão em `modelExecution` fica somente na
-   memória do processo da CLI (guardado temporariamente por `sourceCommandId`) e é congelado no
-   contexto de execução deste turno apenas quando a entrada é promovida a um novo Turn. Quando o host
-   não oferece esse armazenamento temporário, é preciso recuar por completo para o modelo da sessão,
-   sem deixar aceleração pela metade.
+   indevidamente a `startNow`. A única semântica de `QueueItem.modelSelection` é a Selection de
+   submissão comum anterior ao envio: ela é persistida, sofre recuperação a frio e é restaurada no
+   Composer quando a edição é desfeita, assim como o mode e o Plan; é proibido gravar nela uma
+   Selection de execução de turno único como `account:*-highspeed-card`. O `selectionFallback.target`
+   só pode servir como Selection de submissão comum quando o Provider Family não é Highspeed; todos
+   os caminhos de escrita na fila precisam compartilhar o mesmo resolvedor de Selection comum. Se o
+   target for poluído por uma versão antiga ou por um payload anômalo e apontar para um Provider
+   Highspeed, é preciso passar à Selection comum residente da sessão, e é proibido escrever um
+   Provider interno em `QueueItem.modelSelection`. A fila pode persistir os metadados do cartão
+   Highspeed sem credenciais; o `modelSelection` acelerado e o `modelExecution` precisam formar um
+   único execution bundle, que reside apenas na memória do processo da CLI, indexado por
+   `sourceCommandId`, e só é congelado no contexto de execução deste turno quando a entrada é
+   promovida a um novo Turn. A admissão de enfileiramento submete apenas a Selection comum e os
+   metadados do cartão, sem `modelExecution`. Quando o host não oferece esse armazenamento
+   temporário, é preciso recuar por completo para a Selection comum do próprio QueueItem, sem deixar
+   aceleração pela metade.
 9. Na promoção de um item da fila Highspeed é preciso revalidar `expiresAt`: com o cartão ainda
-   válido, o consumo automático prioriza reaproveitar o material de execução guardado temporariamente
-   na memória da CLI; quando o usuário clica em “立即发送”, o Renderer precisa preparar novamente
-   `modelSelection` + `modelExecution` com base na mesma carta válida atual e submetê-los junto do
-   `sendQueuedNow`, evitando que a falta do material temporário em memória faça um cartão válido ser
-   degradado por engano; o material reaprovido precisa ser da mesma carta (`cardId`/`taskId`
-   coincidentes) e material de outra carta é sempre ignorado, evitando troca de credenciais. Com o
-   cartão expirado, ou com o material de execução ainda indisponível após o novo preparo, é preciso
-   remover simultaneamente a marca Highspeed do turno e reescrever o `modelSelection` de volta para a
-   Selection residente da sessão — remover apenas a marca do cartão deixaria o turno com o provider
-   acelerado e sem nenhuma credencial. Em qualquer um dos casos, a entrada do usuário não pode ser
-   perdida nem bloquear o FIFO subsequente.
+   válido, o consumo automático prioriza reaproveitar o execution bundle guardado temporariamente na
+   memória da CLI; quando o usuário clica em «立即发送», o Renderer precisa usar a Selection comum do
+   próprio QueueItem como entrada de preparo, reaproveitar `modelSelection` + `modelExecution` com
+   base na mesma carta válida atual e submetê-los junto do `sendQueuedNow`, evitando que a falta do
+   material temporário em memória faça um cartão válido ser degradado por engano; o material
+   reaprovido precisa ser da mesma carta (`cardId`/`taskId` coincidentes) e material de outra carta é
+   sempre ignorado, evitando troca de credenciais. O limite de promoção usa a Selection acelerada do
+   bundle, mas o `selectionFallback.target` precisa ser fixado na Selection comum do QueueItem. Com o
+   cartão expirado, ou com o execution bundle ainda indisponível após o novo preparo, apenas se
+   remove a marca Highspeed do turno e se usa diretamente a Selection comum já persistida no
+   QueueItem; não se pode voltar a olhar a Session Selection, que pode ter sido modificada por
+   entradas posteriores. Só se faz compatibilidade de migração para os QueueItem que uma versão
+   antiga persistiu incorretamente como `account:*-highspeed-card`, e apenas com base no Provider
+   Family, sem depender da presença de metadados de cartão (o reenvio poluído de uma versão antiga
+   pode produzir itens desse tipo sem metadados de cartão): na promoção, reescreve-se para a
+   Selection residente da sessão; ao desfazer a edição, essa Selection não é restaurada e o Composer
+   mantém a escolha atual; é proibido expor o Provider interno na face de erro ou no Composer. Em
+   qualquer um dos casos, a entrada do usuário não pode ser perdida nem bloquear o FIFO subsequente.
 10. Quando o usuário edita a última entrada real e reenvia, isso precisa ser tratado como um novo
     envio ativo: o Renderer reexecuta o prepare Highspeed da Task atual antes de submeter
     `editUserQuery` e envia junto os metadados do cartão obtidos nesta rodada, mais o `modelSelection` +
@@ -405,20 +575,27 @@ Regras de corrida:
     modelo precisa fazer admission com a nova seleção: quando o novo provider/model não satisfaz a
     portão de draw (regras 11/14), não se inicia draw e o turno envia normalmente conforme a seleção
     submetida; é proibido sortear com a combinação antiga da sessão e sobrescrever a escolha do usuário
-    com o modelo da carta. O reenvio por edição e a promoção da fila (semântica da regra 13) não levam
-    seleção submetida e continuam fazendo prepare pela Selection residente da sessão.
+    com o modelo da carta. O reenvio histórico por edição, quando não há seleção de submissão comum,
+    faz prepare pela Selection residente da sessão; a promoção manual da fila precisa passar
+    explicitamente a Selection comum do próprio QueueItem, sem voltar a olhar a Session Selection,
+    que pode ter sido reescrita por admissões posteriores.
 
 ```text
 running Highspeed turn
         |
-        +-- next user prompt --> queue(card metadata + highspeed modelSelection)
-        |                        + retainQueuedTurnExecution(sourceCommandId, modelExecution)
-                                      |
-                                      +-- auto promote while valid --> readQueuedTurnExecution -> freeze into turn
-                                      |
-                                      +-- manual promote ----------> same-card refreshed modelExecution
-                                      |
-                                      `-- expired/execution missing --> rewrite modelSelection back to session
+        +-- next user prompt --> queue(card metadata + ordinary submission modelSelection)
+        |                        + retainQueuedTurnExecution(
+        |                            sourceCommandId,
+        |                            highspeed modelSelection + modelExecution
+        |                          )
+        |                             |
+        |                             +-- auto promote while valid --> freeze bundle into turn
+        |                             |
+        |                             +-- manual promote ----------> refresh from queued ordinary Selection
+        |                             |
+        |                             `-- expired/bundle missing --> use queued ordinary Selection
+        |
+        `-- edit queued prompt --> restore ordinary Selection to Composer
 ```
 
 ```text
@@ -482,7 +659,8 @@ estatísticas em andamento por `sessionId + sourceCommandId`:
 
 - `fallbackAt` só aparece quando há degradação por falha de requisição acelerada dentro do Turn
   (`fallbackReason` registra o motivo junto: `highspeed_card_expired` /
-  `highspeed_request_failed`, e o Renderer escolhe o texto do aviso conforme isso, sendo escrito no
+  `highspeed_request_failed` / `highspeed_selection_unavailable`, e o Renderer escolhe o texto do
+  aviso conforme isso, sendo escrito no
   mesmo evento de `fallbackAt`, persistido e recuperado pelas mesmas regras), servindo para projetar o
   aviso de expiração de forma consistente entre desktop continuous e celular replayable; ele não
   altera a elegibilidade para compartilhamento nem o critério de estatística completa deste Turn. É um
@@ -626,14 +804,25 @@ Fixtures determinísticos fornecidos por transport/clock injetados via dependên
 - `share-success`
 - `share-refresh`
 - `share-expired`
+- `hit-invalid-model` (especial de fallback no período de criação)
+- `hit-queue-edit` (especial de edição de fila do Highspeed)
 
 O Mock substitui apenas o transport de draw/share do Highspeed, não modifica o deliveryKind da sessão
-e não inicia um Agent runtime/host separado. Num acerto do Mock o status de negócio retornado
+e não inicia um Agent runtime/host separado. Num acerto comum do Mock o status de negócio retornado
 continua sendo `accelerated`, para validar o consumo da carta, o travamento de modelo, a marcação da
 mensagem, as estatísticas e o compartilhamento; mas não pode entregar o `modelSelection` /
 `modelExecution` do Highspeed — o fluxo da mensagem continua usando o provider/model comum da sessão
 atual e a interface de inferência original, evitando que uma carta Mock solicite o endpoint real de
-inferência Highspeed e não receba dados.
+inferência Highspeed e não receba dados. Apenas duas exceções especiais entregam `modelSelection` /
+`modelExecution` reais do Highspeed: a Selection de `hit-invalid-model` aponta para um modelo fora
+do catálogo, para validar o fallback declarativo do período de criação; `hit-queue-edit` usa um
+modelo do catálogo e um fluxo lento controlável, para validar que a fila persiste apenas a Selection
+comum e que a execution temporária do Highspeed só é aplicada no limite de promoção. Nenhuma das
+duas exceções altera as demais fronteiras do Mock. As cartas dos Mocks comuns não têm execution
+bundle: uma entrada enfileirada durante a execução de uma Task é tratada, na promoção, conforme a
+regra 9 de §3 para o «bundle indisponível», removendo a marca Highspeed e usando a Selection comum
+do QueueItem. Por isso, a marca de mensagem dos Mocks comuns cobre apenas o Turn iniciado
+diretamente.
 
 Para encurtar o ciclo de validação manual local, as janelas de tempo do Mock são fixas:
 
@@ -656,8 +845,8 @@ do wdio escreve `ZCODE_HIGHSPEED_MOCK_SCENARIO`, com o mapa em
 cooldown de 2 minutos após o draw, portanto um arquivo de spec corresponde a apenas um cenário e
 completa apenas um draw; cenários novos exigem um novo arquivo de spec com o mapeamento registrado, e
 specs não registrados não recebem Mock, evitando que sessões normais sorteiem cartas por acidente. Os
-três casos compartilham o mesmo fluxo de preparação (credenciais de Coding Plan, escopo Team, modelo de
-sessão), e o caso `hit-fast` é ao mesmo tempo o controle positivo da cadeia de elegibilidade. As
+casos da tabela compartilham o mesmo fluxo de preparação (credenciais de Coding Plan, escopo Team,
+modelo de sessão), e o caso `hit-fast` é ao mesmo tempo o controle positivo da cadeia de elegibilidade. As
 requisições de modelo mantêm o Endpoint HTTPS embutido do Team Coding Plan, com replay pelo plano de
 dados de Coding Plan do wdio: na versão oficial a verificação de segurança da requisição é tratada como
 indisponível, e cada rodada usa o fixture case-local conforme a marca da última mensagem de usuário. É
@@ -665,11 +854,22 @@ proibido reescrever o Provider como um HTTP Mock Endpoint — o Team Coding Plan
 segurança da requisição da versão oficial e só aceita HTTPS; após a reescrita, todas as rodadas
 falhariam na fase de model creation:
 
-| Caso      | Arquivo de spec                                             | Cenário             | Asserção                                                                                                                                                                                                                                                   |
-| --------- | ---------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| HS-E2E-01 | `conversation-session-highspeed-card.test.ts`              | `hit-fast`          | Após o acerto, a caixa de entrada entra em Highspeed, o estado final traz a marca Highspeed e a entrada se dá por `activation`; ao voltar para a Task a apresentação é por `restore` (§9.2)                                                                                                                                         |
-| HS-E2E-02 | `conversation-session-highspeed-card-draw-timeout.test.ts` | `hit-after-timeout` | O draw da primeira rodada ultrapassa o orçamento de 1s: esta rodada envia normalmente, sem marca Highspeed; a carta atrasada é mantida e a próxima rodada da mesma Task acelera direto e traz a marca Highspeed (§1, regra 6 de §3). Não se afirma o estado da caixa de entrada durante a primeira rodada: no envio inicial de um rascunho o pane pode vincular a sessão só depois que a carta atrasada chega, e apresentar essa carta via snapshot por `restore` é exibição legítima |
-| HS-E2E-03 | `conversation-session-highspeed-card-draw-miss.test.ts`    | `miss`              | A primeira rodada sem sorteio e a próxima rodada dentro do cooldown enviam normalmente; a caixa de entrada nunca entra em Highspeed e não há marca Highspeed (regra 4 de §3)                                                                                                                                                   |
+| Caso      | Arquivo de spec                                                             | Cenário             | Asserção                                                                                                                                                                                                                                                   |
+| --------- | --------------------------------------------------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| HS-E2E-01 | `conversation-session-highspeed-card.test.ts`                         | `hit-fast`          | Após o acerto, a caixa de entrada entra em Highspeed, o estado final traz a marca Highspeed e a entrada se dá por `activation`; ao voltar para a Task a apresentação é por `restore` (§9.2)                                                                                                                                         |
+| HS-E2E-02 | `conversation-session-highspeed-card-draw-timeout.test.ts`            | `hit-after-timeout` | O draw da primeira rodada ultrapassa o orçamento de 1s: esta rodada envia normalmente, sem marca Highspeed; a carta atrasada é mantida e a próxima rodada da mesma Task acelera direto e traz a marca Highspeed (§1, regra 6 de §3). Não se afirma o estado da caixa de entrada durante a primeira rodada: no envio inicial de um rascunho o pane pode vincular a sessão só depois que a carta atrasada chega, e apresentar essa carta via snapshot por `restore` é exibição legítima |
+| HS-E2E-03 | `conversation-session-highspeed-card-draw-miss.test.ts`               | `miss`              | A primeira rodada sem sorteio e a próxima rodada dentro do cooldown enviam normalmente; a caixa de entrada nunca entra em Highspeed e não há marca Highspeed (regra 4 de §3)                                                                                                                                                   |
+| HS-E2E-04 | `conversation-session-highspeed-card-admission-retains-draft.test.ts` | `hit-invalid-model` | O envio é recusado antes do ACK porque o modelo acelerado está indisponível, preservando e restaurando o texto da entrada; a carta correspondente é invalidada, o estado Highspeed é encerrado e o seletor de modelos é destravado (§2.2)                                                                                                                                             |
+| HS-E2E-05 | `conversation-session-highspeed-card-fallback-unlocks-model.test.ts`  | `hit-invalid-model` | Após a falha na criação do modelo acelerado, há retorno automático ao modelo comum e a rodada conclui; a carta correspondente é invalidada, o estado Highspeed é encerrado, o seletor de modelos é destravado, mostra-se apenas um Toast de degradação e nenhum Banner de erro (§2.2)                                                                                                                  |
+| HS-E2E-06 | `conversation-session-highspeed-queue-edit.test.ts`                   | `hit-queue-edit`    | Um novo envio durante a execução do Highspeed entra na fila; desfazer a edição restaura a Selection comum do Coding Plan, e o reenvio modificado continua entrando na fila; `account:*-highspeed-card` não pode aparecer no Composer, na Session nem no Banner de erro (§3 regras 8/9/15)                                                                   |
+
+HS-E2E-04/05/06 estão atualmente em `manual-review/pending/` e ainda não foram promovidos para a CI; a
+promoção segue o processo `e2e-case-lifecycle`. Antes de ser promovido, o HS-E2E-06 ainda precisa
+conectar o fluxo lento da primeira rodada de `hit-queue-edit` à cadeia de requisições real: esse
+cenário usa a Selection de execution do Highspeed, e a requisição vai para o endpoint de inferência do
+Highspeed e não para o Team Coding Plan Endpoint; o proxy de plano de dados existente só faz replay do
+segundo e não suporta o atraso em blocos `chunks/offsetMs`; sem esse replay, o caso não consegue
+provar «enfileirar durante o streaming → desfazer → reenviar».
 
 ## 8. Limites multi-dispositivo e de recuperação
 

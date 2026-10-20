@@ -8,7 +8,6 @@ import {
 } from "@/lib/conversationTelemetryParityScenarioDefinitions.js";
 import {
   runRequestVerificationParityAssertions,
-  runQuotaParityStateAssertions,
 } from "@/lib/conversationTelemetryParityStateE2E.js";
 import { shouldExposeE2EStoreBridge } from "@/lib/e2eStoreBridge.js";
 import { resetMessageTelemetryForTest } from "@/lib/messageTelemetry.js";
@@ -128,10 +127,6 @@ async function applyCurrentOperation(input: {
   if (operation.kind === "web.noop") {
     await runCurrentWebNoopOperations(input, operation.operations);
     rememberStateAssertion(input.stateAssertions, "web:no-final-output");
-    return;
-  }
-  if (operation.kind === "quota.assert") {
-    input.stateAssertions.push(...runQuotaParityStateAssertions());
     return;
   }
   if (operation.kind === "verification.assert") {

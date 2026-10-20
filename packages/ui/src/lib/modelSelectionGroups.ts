@@ -19,6 +19,11 @@ export interface ModelProviderGroupLabelOptions {
   startPlanBadgeLabel?: string;
   teamPlanBadgeLabel?: string;
   teamPlanFallbackLabel?: string;
+  /**
+   * 关闭账号分组的促销徽标。RF-12a：自动化/子代理的模型下拉只展示连接方式名称，
+   * 不再出现 Free/Individual/Team 这类营销徽标；其它界面保持默认展示。
+   */
+  hideAccountBadges?: boolean;
 }
 
 function supportsRegistryApiFormat(
@@ -45,11 +50,20 @@ export function buildRegistryModelSelectGroups(
       ? getRegistryAccountProviderGroupPresentation(provider.providerId, accountAccess.data, labels)
       : null;
 
+    // 合并菜单仍需区分同名供应商的接入方式；API 标识直接来自 access，不能从名称猜测。
+    const labelBadge =
+      accountPresentation?.labelBadge ??
+      (provider.config.access?.type === "api-key" ||
+      provider.config.access?.type === "zhipu-coding-plan-api-key"
+        ? (labels.apiKeyBadgeLabel ?? "API")
+        : undefined);
+
     return [
       {
         key: `registry-provider:${provider.providerId}`,
         label: accountPresentation?.label || provider.providerName?.trim() || provider.providerId,
-        ...(accountPresentation?.labelBadge ? { labelBadge: accountPresentation.labelBadge } : {}),
+        ...(provider.config.logo ? { logo: provider.config.logo } : {}),
+        ...(labelBadge ? { labelBadge } : {}),
         ...(accountPresentation ? { directItems: true } : {}),
         items: provider.models.map(({ modelId, config }) => ({
           key: `registry-provider:${provider.providerId}:${modelId}`,
@@ -75,6 +89,8 @@ function getRegistryAccountProviderGroupPresentation(
 ): Pick<ModelSelectGroup, "label" | "labelBadge"> {
   const familySpec = resolveModelProviderFamilySpecByProviderId(providerId);
   const label = familySpec?.label ?? providerId;
+  // 关闭徽标时只返回分组名称；不传 hideAccountBadges 的界面沿用原有营销徽标。
+  if (labels.hideAccountBadges) return { label: access.mode === "start-plan" ? "Start Plan" : label };
   if (access.mode === "start-plan") {
     return { label: "Start Plan", labelBadge: labels.startPlanBadgeLabel ?? "Free" };
   }

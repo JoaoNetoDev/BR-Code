@@ -107,3 +107,19 @@ como timeline/child, gravam `v4/command_fact`, e a consulta após restart ainda 
 `queue/guide` pertence ao runtime antigo, e o cliente faz a conciliação silenciosamente; apenas `startNow` que não entrou no transcript ou `unknown`
 exibe a entrada "confirmar reenvio", nunca com replay automático. Uma queda comum de conexão do celular continua sendo recuperada pelo replayable snapshot do runtime atual para a queue autoritativa;
 relay, desktop main e host não podem contornar esse limite de produto por meio de uma fila persistente privada.
+
+### Navegação de diretório de projeto virtual em 2026-09
+
+O home do celular reaproveita o ProjectSidebar e lê, pelo attachment base atual, o conjunto de linhas de projeto do Host; o
+shell do celular possui apenas o estado de home/chat e o de retorno do navegador. `workspace-bridge-open.project` é uma
+intenção estrita de projectId/hostId, encaminhada pelo main ao ProjectService do Host da janela para preparar o diretório de
+execução. Ela permite criar ou reutilizar o escopo lógico do diretório em uma Source física já online, e não permite criar
+implicitamente uma nova conexão física, um Host ou um Agent. A identidade de membro, a entrada de projeto e o objeto de
+conexão física são verificados antes e depois da preparação; o main mantém apenas a promise RPC da navegação atual, e uma
+nova tentativa com a mesma identidade de bridge não aloca o diretório novamente; cancelamento, fechamento da janela ou uma
+navegação posterior invalidam um resultado tardio.
+
+Depois que o Host devolve o `workspaceIdentity`, o `remoteSessionId` e o `cwd` confiáveis, a bridge replayable do celular é
+estabelecida ao longo do attachment shared-host original. Projeto/provider/entrada inicial são passados apenas na handover do
+Root da Web, e o main não guarda rascunho nem estado de negócio de task. O desktop direct continuous, a restauração por
+snapshot/gap do celular, o owner/lease e a regra de fila única do CLI CommandInbox permanecem inalterados.

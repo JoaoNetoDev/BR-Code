@@ -9,6 +9,7 @@
 
 ## Todo95: modelo desconhecido configura apenas o nível de raciocínio
 
+- Extensão do Todo147: o mesmo caso pending, ao adicionar o modelo desconhecido, verifica a janela recomendada `1000000` e o limite de saída `128000`; após salvar, confirma que esses dois itens não foram gravados no Personal. Continua-se usando o orçamento de teste de conexão original, sem ampliar as requisições reais de sondagem por causa do aumento do limite recomendado. Os três protocolos, a cobertura de modelos conhecidos e a ordem dos aliases são cobertos por testes da camada de configuração; não há novo estado de UI nem novo layout de tema.
 - Pending: `settings/manual-review/pending/provider-reasoning-fallback.test.ts`. Apenas local `desktop-continuous`; não representa prova em celular ou em máquina remota real.
 - Setup: serviço loopback Chat Completions SSE sintético isolado, Provider custom com modelo customizado; não grava Map pessoal de raciocínio, não usa conta nem cota real.
 - Action: pela página de configurações real, adicionar `E2E_T95_UNKNOWN` desconhecido, alterando apenas o nível default disabled para high, mantendo a configuração inteligente; após salvar, clicar no teste de conexão dentro da linha.

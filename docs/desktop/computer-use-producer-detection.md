@@ -2,9 +2,15 @@
 
 ## Regras
 
-A implementação real do Computer Use vem do `@zcode/zcode-cua` (producer) no repositório privado. A exportação open source
+A implementação real do Computer Use vem do pacote `@zcode/zcode-cua` (producer) do workspace. A exportação open source
 o substitui pelo pacote placeholder `packages/zcode-cua`, que declara `zcodeCuaPlaceholder: true` em `package.json`, com
 todas as capacidades em fail-closed.
+
+O pacote placeholder mantém as entradas públicas `build` e `tsconfig.json`, e o build verifica apenas as declarações de tipo
+que acompanham o pacote. O `traceId` e os tipos de parâmetro do callback de log são idênticos aos do producer real, de modo
+que os chamadores públicos não precisam ramificar por versão de lançamento. O `vitest.config.ts` referenciado pelos testes
+unitários da raiz também precisa existir, executando os testes de contrato de indisponibilidade da entrada de execução
+placeholder e do broker.
 
 Etapas de desenvolvimento, build e empacotamento que sirvam apenas ao Computer Use real só podem ser executadas depois de
 detectar o producer real; quando a detecção falha, a etapa deve ser pulada, para que as entradas da árvore open source não

@@ -19,6 +19,7 @@ describe("model selection groups", () => {
         {
           providerId: "fixture",
           config: {
+            logo: { type: "builtin", key: "deepseek" },
             access: access as ModelSelectionView["providers"][number]["config"]["access"],
             api: { type: "anthropic-messages" },
           },
@@ -30,6 +31,10 @@ describe("model selection groups", () => {
       ],
     };
     const items = buildRegistryModelSelectGroups("glm", view)[0]!.items;
+    expect(buildRegistryModelSelectGroups("glm", view)[0]!.logo).toEqual({
+      type: "builtin",
+      key: "deepseek",
+    });
     expect(items[0]!.supportsVisionInput === true).toBe(expected);
     expect(items[1]!.supportsVisionInput).toBe(true);
     expect(items[2]!.supportsVisionInput).toBe(true);
@@ -103,6 +108,7 @@ describe("model selection groups", () => {
       {
         key: "registry-provider:anthropic-api",
         label: "Anthropic API",
+        labelBadge: "API",
         items: [
           {
             key: "registry-provider:anthropic-api:claude-a",
@@ -120,6 +126,7 @@ describe("model selection groups", () => {
       {
         key: "registry-provider:openai-api",
         label: "OpenAI API",
+        labelBadge: "API",
         items: [
           {
             key: "registry-provider:openai-api:model-a",
@@ -172,5 +179,59 @@ describe("model selection groups", () => {
         ],
       },
     ]);
+  });
+  // RF-12a：hideAccountBadges 是自动化/子代理模型下拉唯一的徽标开关。
+  // 若 early-return 被挪动，硬编码的 Free/Individual/Team 营销徽标会静默回流，且没有任何测试失败。
+  it("hideAccountBadges 关闭账号分组徽标，但保留分组名称", () => {
+    const providers = [
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+        mode: "individual-coding-plan",
+        badge: "Individual",
+      },
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+        mode: "team-coding-plan",
+        badge: "Team",
+      },
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
+        mode: "start-plan",
+        badge: "Free",
+      },
+    ] as const;
+
+    for (const { providerId, mode, badge } of providers) {
+      const selectionView: ModelSelectionView = {
+        revision: 1,
+        providers: [
+          {
+            providerId,
+            config: {
+              access: {
+                type: "zhipu-account",
+                accountType: mode === "team-coding-plan" ? "bigmodel" : "zai",
+                mode,
+                entitled: true,
+              },
+              api: { type: "anthropic-messages" },
+              models: ["GLM-5.2"],
+            },
+            models: [{ modelId: "GLM-5.2", config: {} }],
+          },
+        ],
+      };
+
+      const [hidden] = buildRegistryModelSelectGroups("glm", selectionView, {
+        hideAccountBadges: true,
+      });
+      expect(hidden).toBeDefined();
+      expect(hidden!.labelBadge).toBeUndefined();
+      expect(hidden!.label).toBeTruthy();
+
+      // 回归护栏：不传该选项时营销徽标必须继续存在（其它界面保持默认展示）。
+      const [shown] = buildRegistryModelSelectGroups("glm", selectionView);
+      expect(shown!.labelBadge).toBe(badge);
+    }
   });
 });

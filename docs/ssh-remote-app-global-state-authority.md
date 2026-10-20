@@ -131,7 +131,7 @@ Target Registry rebuilds itself
 O Provisioning precisa escrever primeiro no Store oficial do Environment de destino, e só então o Registry de destino se reconstrói. Ele não pode construir
 diretamente Registry, Model ou Runtime Headers, nem se tornar uma dependência online de cada requisição de modelo. Edição de configurações remotas e login
 remoto também devem chamar o Service oficial do Environment de destino, em vez de tratar o Desktop Credential Store como fonte de autenticação remota. A
-sincronização atual é explicitamente Local → Remote; um logout ou remoção local não revoga credenciais já gravadas no remoto.
+sincronização atual é explicitamente Local → Remote; o Provisioning atual é disparado automaticamente depois que uma credencial do allowlist local é salva ou removida com sucesso, e a próxima sincronização bem-sucedida revoga, pela semântica de replace, a credencial de mesmo nome no allowlist remoto, enquanto as credenciais fora do allowlist permanecem inalteradas. Durante o período offline ou de falha de sincronização, o feedback de remoção local não pode ser usado como prova de que a credencial já foi revogada no remoto; ver a especificação de Provisioning atual acima.
 
 ## Invariantes
 
@@ -150,3 +150,32 @@ sincronização atual é explicitamente Local → Remote; um logout ou remoção
 - `docs/working-memory/provider-refactor/design/registry/configuration.md`
 - `docs/remote/zcode-agent-remote-deployment.md`
 - `docs/web-remote-control/web-remote-control-architecture.md`
+
+## Atribuição das configurações de aplicativo na página de configurações (correção A2 de 2026-09-16)
+
+Ativar um workspace remoto muda apenas os serviços do workspace, e não o dono das configurações do Desktop. A página
+de configurações precisa carregar e salvar separadamente por consumidor:
+
+| Configuração | Dono de leitura e escrita | Motivo |
+| --- | --- | --- |
+| Aceleração de hardware do Chromium, bandeja do Windows, política de certificados do navegador embutido | base Local Host | O Desktop Main, na inicialização, lê apenas a configuração de bootstrap da própria máquina |
+| Diretório de armazenamento de dados | base Local Host | O picker nativo devolve um caminho local; a cópia e o ponteiro de bootstrap precisam ficar na mesma máquina |
+| Escolha de shell do terminal integrado | base Local Host | Os candidatos são enumerados pelo systemService local; um caminho de shell local não pode ser gravado no Source |
+| Proxy HTTP, No Proxy e caminho de CA customizado | base Local Host | Configuração de inicialização da camada de renderização do desktop, do navegador embutido e dos subprocessos locais; não configura implicitamente outro Environment |
+| Herança de Profile do terminal e fonte do terminal | Environment do workspace atual | Lidos quando o terminalService de destino cria o PTY |
+| Chave e número de dias de arquivamento automático de tarefas | Environment do workspace atual | Executados pelo taskService de destino, que é o dono das tarefas |
+| Skills/MCP/Plugins/Hooks/Subagents | scope resolver de destino já existente | Mantém a atribuição atual de User, Source e workspace |
+
+```text
+Página de configurações do Desktop (pode ser aberta em uma tab remota)
+  ├─ leitura/gravação das configurações de aplicativo ──> base Local Host ──> setting.json local ──> cold start do Main
+  └─ leitura/gravação das configurações de execução ──> workspace Source ──> setting.json do Source ──> serviços de destino
+native picker ── diretório local ──> Local Host.updateDataBaseDir ──> ponteiro salvo após a cópia local bem-sucedida
+```
+
+- O primeiro ponto de desconexão corrigido é a SettingsPage; o ServiceCollection remoto não é modificado e o Provider da página de configurações não é trocado por completo.
+- As cargas local e do Source são independentes; após a remoção ou a troca de destino, os resultados de leitura antigos são ignorados, evitando que um Source antigo sobrescreva a nova página.
+- Falhas de gravação/cópia continuam propagando para o feedback existente, sem atualizar o estado de sucesso, sem recorrer à outra ponta e sem acrescentar retentativas.
+- Campos gravados indevidamente no Source antes não são migrados nem removidos automaticamente: não se pode inferir pelo nome do campo se ele é uma configuração intencional do usuário remoto.
+- O fluxo local do Desktop reutiliza o mesmo base service. Web/celular mantêm os base services e a visibilidade de plataforma já existentes; não se criam Host, conexão ou Agent, e continuous/replayable, queue, snapshot ou estado de login não são modificados.
+- Verificação: os callbacks reais da SettingsPage com dublês local/remote separados; um caso único de SSH valida o salvamento local, a ausência de poluição do Source, o contraste de arquivamento automático no Source, a migração de diretório nativo e o cold restart do Electron. Shell/tray do Windows são complementados por testes de contrato, que não equivalem a uma validação em máquina Windows real.

@@ -180,7 +180,7 @@ selectionFallback: {
     reason: "highspeed_card_expired" | "highspeed_request_failed",
     providerErrorCode?: string,
   }>,
-  // alvo do fallback: a seleção enviada no momento do sorteio do cartão (modelo original da sessão + tier). Só na ausência deste é que se usa a seleção persistente da sessão do runtime.
+  // alvo do fallback: a seleção enviada no momento do sorteio do cartão (modelo original da sessão + tier); preserva-se também o candidato Session anterior à aceitação.
   target?: ModelSelection,
 }
 ```
@@ -188,13 +188,14 @@ selectionFallback: {
 O cartão de aceleração declara `[{ reason: "highspeed_card_expired", providerErrorCode: "3402" }, { reason: "highspeed_request_failed" }]`:
 cartão expirado é diferenciado por motivo na mensagem, e qualquer outra falha (autenticação, rate limit, 5xx, rede, timeout, interrupção de stream) também faz fallback.
 
+O alvo do fallback é congelado pela entrada de envio a partir da seleção comum daquela mensagem do usuário e é passado explicitamente como `selectionFallback.target`; o Core copia a Session Selection comum antes de aceitar essa entrada, como segundo candidato quando o alvo declarado está ausente ou não pode ser resolvido. Este é um snapshot de fallback exclusivo do cartão de aceleração; uma nova entrada pode atualizar a Session, mas o tratamento de erro não pode reler a Session para mudar o alvo de fallback do turno acelerado antigo.
+A requisição de fallback não carrega mais os `requestDependencies` desta execução, ou seja, usa a autenticação regular do próprio usuário.
+
 O lado do CLI faz apenas casamento puro (`turn-execution-fallback.ts`, chamado por `turn-model-step.ts`): o `providerId` da execution
 Selection deste turno casa com o valor declarado e a atribuição da falha não aponta para outro provider, e então o primeiro item casado na ordem das regras é usado para um único fallback.
 **Nada é hardcoded por prefixo de provider id, nome de modelo ou texto de erro** — é a mesma disciplina do Todo142. O motivo do fallback vem da regra casada; o CLI não interpreta códigos de erro por conta própria.
 
-O alvo do fallback vem primeiro do `target` declarado e depois da Session Selection persistente da sessão do runtime. A seleção de escopo execution nunca reescreve a
-Session Selection, então normalmente os dois são iguais; mas a seleção persistente da sessão só existe na memória do runtime, e uma recuperação a frio caindo na janela em que o Registry acabou de ficar pronto e os benefícios da conta ainda não foram resolvidos falha na validação e não é vinculada; depois, mesmo que só hajam turnos acelerados, ela nunca mais é vinculada (ver a restrição de regressão abaixo),
-portanto o solicitante precisa enviar a seleção do momento do sorteio do cartão como `target` junto com a declaração. A requisição de fallback não carrega mais os `requestDependencies` desta execução, ou seja, usa a autenticação regular do próprio usuário.
+O alvo do fallback vem primeiro do `target` declarado e depois da Session Selection fixada antes da aceitação. Aceitar a mensagem do usuário vincula a seleção comum de envio à Session, e o endpoint acelerado não entra na Session; mensagens posteriores não podem mudar o candidato já fixado para o turno acelerado atual. Na recuperação a frio a seleção antiga da sessão pode ainda não estar vinculada, então o solicitante precisa enviar a seleção do momento do sorteio do cartão como `target` junto com a declaração. A requisição de fallback não carrega mais os `requestDependencies` desta execução, ou seja, usa a autenticação regular do próprio usuário.
 
 Os limites precisam ser mantidos:
 

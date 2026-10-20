@@ -1,63 +1,47 @@
-# Comando de atalho `/plan` do Composer
+# Entrada de atalho do modo Plan no Composer
 
-## Objetivo
+## Objetivo e interação
 
-Fornecer ao V4 Composer do desktop, da Web e do `/remote` no celular um comando de atalho `/plan` descobrível,
-combinando "mudar para o modo Plan" e "enviar uma tarefa" em uma única operação de entrada.
+`/plan` é o termo de busca da ação «modo Plan» na lista do campo de entrada. Selecioná-la equivale a ativar o interruptor padrão de Plan da barra de ferramentas.
+A lista exibe o nome localizado «modo Plan / Plan mode» e a descrição «Ativar o modo Plan / Enable Plan mode», e não exibe a sintaxe de parâmetros do comando.
 
-Este comando pertence apenas à superfície do App Composer e não estende a CLI TUI, `--prompt` nem as entradas headless.
+| Operação | Resultado |
+| --- | --- |
+| Digitar `/plan` | exibe a ação de modo Plan, sem alterar o modo atual. |
+| Selecionar com Tab, Enter ou clique | ativa o Plan padrão; remove apenas o token de busca slash atual, fecha a lista e mantém o foco da entrada. |
+| Selecionar de novo com o Plan já ativo | continua ativo, sem alternar para desligado. |
+| Haver outro texto, anexo ou contexto estruturado | preservado como está, sem envio automático. |
+| Escape fecha a lista ou não há seleção | não altera o modo. |
+| Enviar o `/plan` ou `/plan <text>` original depois de fechar a lista | enviado como texto comum, preservando o texto original e o modo atual, sem parsing oculto. |
+| Sair do Plan | usar o interruptor existente da barra de ferramentas ou o botão de fechar da marca de Plan. |
 
-## Sintaxe e resultado
+## Estado único e cadeia de execução
 
-| Entrada                                     | Resultado                                                                                                |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `/plan`                                     | o draft atualiza o renderer draft mode; em uma session existente, envia `switchCollaborationMode(plan)`; não envia requisição ao modelo. |
-| `/plan <task>`                              | conclui primeiro o CAS de modo e depois envia com o `sendText(<task>)` comum; o provider e o transcript veem apenas `<task>`. |
-| `/plan` ou `/plan <task>` com anexo/contexto | exibe explicitamente que a primeira versão não suporta isso, preservando entrada, anexos e contexto, sem trocar de modo e sem enviar. |
-| Outros textos (por exemplo `/planner`)     | tratados como texto comum.                                                                                  |
-
-O nome do parâmetro não diferencia maiúsculas de minúsculas; o corpo da tarefa remove os espaços das pontas, mas preserva as quebras de linha e o conteúdo internos.
-Depois que o comando é consumido, o Composer limpa a entrada do comando; o `/plan` em si não gera nenhuma user transcript row.
-O comando original pode permanecer no prompt history local, mas não pode entrar no prompt do provider nem no conversation transcript.
-
-## Estado e limites de falha
-
-```text
-Composer submit
-      │
-      ├─ attachments/context -> unsupported toast -> keep draft
-      │
-      └─ text only
-           ├─ draft
-           │    ├─ update current Composer Draft mode to plan
-           │    └─ task present -> create/prewarm config mode=plan -> send task
-           └─ existing session
-                ├─ switchCollaborationMode(plan)
-                ├─ accepted/noop/duplicate
-                ├─ no task -> done
-                └─ task -> ordinary sendText(task)
+```mermaid
+flowchart TD
+  A[Seleção de modo Plan na lista] --> B[handleDraftSwitchMode: plan]
+  T[Barra de ferramentas ativa o Plan] --> B
+  B --> C[Composer Draft atual: planEnabled=true]
+  C --> D[Usuário envia o texto e os anexos separadamente]
+  D --> E[Submission padrão congela a configuração]
+  E --> F[sendText padrão com o runtime de Plan]
 ```
 
-Os comandos de configuração e de envio continuam usando a config barrier existente. Um CAS stale usa a retry limitada já existente; se o resultado final não for
-`accepted`, `noop` ou `duplicate`, retorna `blocked`, sem limpar o Composer e sem enviar a tarefa.
-Quando já está no modo Plan, o CAS de modo converge como noop e ainda permite enviar a tarefa.
+A seleção da lista só edita o Composer Draft atual, preservando o modo de permissão; não envia prompt, não cria user row e não muda antecipadamente o Agent em execução.
+Seleções consecutivas são idempotentes. Novo draft, session existente, desktop e celular usam a mesma ação; interfaces somente leitura não oferecem uma entrada executável.
+Envio, fila, recuperação de falha, limitações de ferramentas de Plan e ExitPlanMode continuam obedecendo ao contrato padrão de Plan.
 
-O `/plan` de draft compartilha a renderer draft preference com a troca de modo pela barra de ferramentas; a troca em uma session existente não reescreve
-o valor padrão dos drafts seguintes. Entradas running/queued continuam sendo admitidas pelo `CommandInbox` do runtime da CLI conforme o FIFO existente,
-sem criar uma fila específica para `/plan` nem um mode snapshot.
+## Catálogo e limites entre plataformas
 
-## Limites entre plataformas
+O modo Plan é oferecido pela ação local da lista do App e não é mais propagado pelo CLI como `/plan [task]`.
+`plan` continua sendo um nome reservado, para impedir que comandos personalizados assumam essa entrada; comandos antigos de mesmo nome propagados pelo Agent não devem sombrear a ação local.
+Skills e subagents continuam usando os itens de lista do próprio tipo, e a busca precisa por plan prioriza a ação de modo Plan.
+Não são adicionados wire command, campo de protocolo, cópia de configuração ou ramo de envio exclusivo de Plan.
+Desktop continuous e mobile remote replayable reutilizam este comportamento do Composer, com as fronteiras de transmissão e recuperação inalteradas.
 
-O workspace local/remoto do desktop continua usando o attachment confiável `desktop-continuous`, e o `/remote` no celular
-continua usando o attachment confiável `web-remote-replayable`. Os dois lados reutilizam a mesma ordem de comandos do Composer, sem alterar
-as responsabilidades de relay, desktop main, Host, workspace identity, remoteSessionId ou snapshot/gap replayable.
+## Aceitação
 
-Não é adicionado nenhum V4 wire command, campo de protocolo, estrutura persistida ou runtime separado.
-
-## Evidências de verificação
-
-- O slash catalog exibe `/plan [task]` e, ao selecionar, insere `/plan `.
-- O comando vazio em draft apenas muda o modo; o comando vazio em uma session existente não gera requisição ao modelo nem user row.
-- Com tarefa, o CAS de modo precede o `sendText`, e apenas o corpo da tarefa aparece no provider/transcript.
-- Falha de CAS e rejeição por anexo/contexto preservam o estado completo do Composer.
-- Desktop continuous e mobile replayable diferem apenas no delivery profile, com semântica final de comando idêntica.
+- As três formas de seleção apenas ativam o Plan, sem enviar; texto, anexos, contexto e foco são preservados.
+- Novo draft, session existente, seleção repetida, Escape e envio de texto original têm evidência de regressão.
+- O envio padrão carrega planEnabled; o provider recebe o texto e os anexos e entra no runtime padrão de Plan.
+- O catálogo do CLI não oferece mais o comando de Plan, e um comando customizado de mesmo nome não pode assumir a entrada.

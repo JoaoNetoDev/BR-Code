@@ -1,8 +1,11 @@
 # Workbench de múltiplos panes entre workspaces no v4 (fase dois da tela dividida)
 
-Status: **implementado, com os limites de produto reconfirmados em 2026-07-17**. Arrastar uma session da lista de Tasks
-para a borda da área de conversa ainda cria/restaura um workbench group; em 2026-07-13 apenas os botões explícitos
-“向右拆分 / 向下拆分” (dividir para a direita / dividir para baixo) do pane chrome foram temporariamente desativados.
+Status: **todas as entradas foram desativadas (2026-10-16)**. Arrastar da lista de Tasks para a borda da área de conversa
+para criar uma divisão e o item de sessão da barra lateral “在分屏打开” (abrir em tela dividida) foram removidos junto com a
+Side Pane de visão completa (`docs/ui/side-pane-full-view.md`); os botões “向右拆分 / 向下拆分” (dividir para a direita / dividir
+para baixo) do pane chrome não são exibidos desde 2026-07-13. Os layouts de divisão já existentes e os workbench groups
+continuam sendo renderizados, focados e fechados conforme este documento, sem migração. Arrastar da lista de Tasks para um
+projeto para mover a task não é afetado.
 
 ## Objetivo
 

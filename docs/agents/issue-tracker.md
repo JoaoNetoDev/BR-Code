@@ -19,3 +19,6 @@ Issues de projeto usam arquivos Markdown locais. O usuário já exigiu explicita
 ## Issue atual
 
 - [Telemetria de TTFT em fases para mensagens locais no desktop](../monitoring/ttft-stage-telemetry.md)
+- [Controle remoto pela Web com Relay V2: conectar o celular ao desktop após o login](../issues/web-remote-control-relay-v2/01-relay-v2-login-pairing.md)
+- [Otimização da interação e da experiência visual da conexão remota (SSH / WSL / Docker)](../issues/remote-connection-ux/01-remote-connection-ux-optimization.md)
+  - Tickets de implementação [02](../issues/remote-connection-ux/02-connection-log-and-error-contract.md)～[14](../issues/remote-connection-ux/14-visual-polish-and-accessibility.md), numerados por ordem de dependência, cada ticket declara seus bloqueadores

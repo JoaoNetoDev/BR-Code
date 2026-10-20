@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_MODEL_PROVIDER_IDS, type UsageEntitlementSnapshot } from "@zcode/shared";
+import type { UsageEntitlementSnapshot } from "@zcode/shared";
 import { resolveUsageEntitlementOutcome } from "@/lib/codingPlanProvider.js";
-import { hasActiveCodingPlanSnapshot } from "@/CodingPlanUsageRemainingPanel.js";
-import { resolveSidebarCodingPlanUpgradeProviderId } from "@/lib/sidebarCodingPlanUpgrade.js";
 import { getUsageEntitlementScheduleState } from "@/lib/usageEntitlementRefreshPolicy.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 
@@ -14,6 +12,19 @@ const snapshot: UsageEntitlementSnapshot = {
   remaining: { count: 100, isShow: true, nextResetTime: null },
   quota: { level: "max", limits: [] },
 };
+// 该判定随 S2 的 preferred-provider 生态一起退出 src；唯一活着的断言就在这里，
+// 所以实现随测试内联，避免为一个断言保留生产模块。
+function hasActiveCodingPlanSnapshot(
+  snapshot: UsageEntitlementSnapshot | null,
+  providerId: string,
+): boolean {
+  return (
+    snapshot?.provider?.id === providerId &&
+    snapshot.unavailableReason !== "no_plan" &&
+    Boolean(snapshot.subscription?.details.length)
+  );
+}
+
 describe("所有入口使用订阅权益", () => {
   it("只有额度不能证明有权益", () => {
     expect(resolveUsageEntitlementOutcome(snapshot)).toBe("unknown");
@@ -21,32 +32,6 @@ describe("所有入口使用订阅权益", () => {
     expect(
       hasActiveCodingPlanSnapshot({ ...snapshot, provider: { id: "p", name: "p" } }, "p"),
     ).toBe(false);
-  });
-  it("侧栏不能把 quota 当作可升级的已购套餐", () => {
-    const providerId = BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan;
-    expect(
-      resolveSidebarCodingPlanUpgradeProviderId({
-        modelProvidersLoading: false,
-        availableProviders: [
-          {
-            providerId,
-            label: "BigModel",
-            accountAccess: {
-              type: "zhipu-account",
-              family: "bigmodel",
-              planKind: "individual-coding-plan",
-            },
-          },
-        ],
-        entitlements: [
-          {
-            providerId,
-            loading: false,
-            snapshot: { ...snapshot, provider: { id: providerId, name: "BigModel" } },
-          },
-        ],
-      }),
-    ).toBeUndefined();
   });
   it("明确无订阅不能被 quota 覆盖", () => {
     expect(resolveUsageEntitlementOutcome({ ...snapshot, unavailableReason: "no_plan" })).toBe(

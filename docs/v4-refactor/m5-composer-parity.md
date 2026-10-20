@@ -212,6 +212,7 @@ Critério de implementação (`useDraftSessionPrewarm` + fiação no SessionPane
   `{ workspaceKey, paneId, transportGeneration }`: remontagens de componente no mesmo event loop e reexecuções de effect do StrictMode
   precisam reutilizar o mesmo pré-aquecimento pending/ready, sem enfileirar `createSession` de novo. Se uma remontagem após desmontagem real ainda tiver a criação antiga
   em voo, é preciso esperar a aposentadoria do owner antigo terminar.
+  A prontidão do modelo pertence ao ciclo de vida de verificação deste rascunho: o primeiro frame ao entrar no rascunho a partir de uma sessão formal já é checking, e não se pode reutilizar um ready antigo para iniciar o pré-aquecimento e depois recolhê-lo pelo effect. Ao entrar novamente no rascunho no mesmo caminho ou ao trocar o serviço de catálogo de modelos, os resultados tardios da verificação antiga e da reverificação do primeiro envio não podem sobrescrever a verificação atual.
   Quando `draftRuntimeInvalidationVersion` muda continuamente, só se mantém a geração-alvo mais recente; se a criação antiga ainda estiver em voo, é preciso esperar seu ACK, enviar primeiro a
   limpeza e só então criar a geração mais recente — em qualquer instante há no máximo um `createSession` em voo por owner.
 - **Semântica de vínculo inalterada**: externamente o pane continua sendo draft (o activeTaskId da casca continua null, e as decisões de draft no nível da casca como WorkspaceHeader
@@ -230,8 +231,27 @@ Critério de implementação (`useDraftSessionPrewarm` + fiação no SessionPane
   Antes de o renderer emitir o primeiro comando de admissão, ele precisa marcar o vínculo original como `promotion-pending` de forma síncrona;
   após o ACK accepted vira `promoted`, e rejeição explícita ou invalidez vira `discarded`. A inicialização de MCP, hooks ou a contrapressão do transport
   podem fazer o Agent já estar rodando enquanto o renderer ainda espera o ACK; nessa janela o owner cleanup não pode tratar aquela sessão como um draft não utilizado e apagá-la.
-  Pré-aquecimento ausente/inválido (reinício da CLI faz a sessão em memória sumir, sendText é recusado) → Volta ao caminho existente
-  `createSession + config`, sem perda de semântica.
+  **Correção de 2026-09-15 — atribuição única de criação**: o primeiro envio precisa esperar, junto ao owner de pré-aquecimento, a tarefa de criação atual; não se pode tratar `binding === null` como "não houve criação" e emitir outro `createSession`. Texto comum, anexos, shared context e `/goal` compartilham esta entrada; a config continua sendo inicializada na criação, e o primeiro envio carrega a Submission congelada no clique.
+  Quando a criação falha, esta submissão falha e o rascunho é preservado; a retentativa limitada em background e a retentativa explícita do usuário continuam sendo geridas pelo owner original, e não se cria mais uma entrada de criação no lado do envio. Durante a espera, uma mudança de workspace, de transport ou de invalidation, ou uma desmontagem real, invalidam a submissão antiga. Quando o resultado de admission do primeiro envio é desconhecido, o ciclo de vida pending do binding original é preservado, e é proibido reenviar automaticamente trocando de sessão.
+  Quando a nova assinatura do rascunho já está estabelecida, mas a criação antiga ainda está em processo de aposentadoria, este primeiro envio espera primeiro a criação antiga ser recolhida e depois espera a criação da assinatura atual; o próprio processo de aposentadoria não pode ser tratado como uma troca de usuário. A elegibilidade da espera é validada pela identidade do ciclo de vida da assinatura do rascunho, e não apenas pela comparação de invalidationVersion: mesmo com a mesma versão, sair e entrar de novo não pode dar continuidade à submissão antiga.
+  Durante qualquer espera, uma saída real, uma mudança de workspace/transport ou de versão invalida a submissão original.
+
+  ```mermaid
+  sequenceDiagram
+    participant D as owner de pré-aquecimento do rascunho
+    participant S as clique de envio
+    participant C as CLI
+    D->>C: createSession (criação única)
+    S->>D: espera a tarefa de criação atual
+    C-->>D: session A
+    D-->>S: binding A da mesma geração
+    S->>C: sendText / goal (A, Submission congelada)
+    C-->>S: accepted
+    S->>D: promove A, vincula a página de detalhes
+  ```
+
+  Cobertura da regressão: clique de envio antes do ACK de criação atrasado, com apenas um createSession antes da liberação do ACK; depois da liberação, a primeira admission aponta para a mesma session, cobrindo texto comum, anexos/context, goal, falha, troca de geração e remontagem síncrona.
+  O desktop continuous e o mobile shared-host replayable reutilizam o owner da UI; isso não muda o Host/runtime, a fila de input aceito nem os limites de recuperação de stream.
 - **Limpeza**: sair sem ter enviado (selecionar outra task/trocar de workspace/fechar o split/desmontar) → `deleteSession`
   da sessão pré-aquecida; o cleanup do effect dá primeiro uma chance de takeover para a remontagem síncrona do mesmo owner, e só limpa depois de confirmar uma saída real.
   Somente sessões pré-aquecidas ainda em `draft` podem ser apagadas automaticamente; `promotion-pending`, `promoted` e `discarded` proíbem

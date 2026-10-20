@@ -18,15 +18,15 @@ não é suportado na primeira fase.
 Uma sessão em execução pode compartilhar product turns concluídos anteriormente; um turn em execução pode
 ser exibido, mas não selecionado. A seleção de compartilhamento tem `productTurnId` como identidade, e
 `rowId` é usado apenas para localização no timeline. O título assume por padrão o título da tarefa atual e
-pode ser editado apenas para este compartilhamento; um novo rascunho de compartilhamento entra no Dock de
-confirmação com a permissão padrão `public_importable` (quem tiver o link pode importar e continuar); após
-o usuário trocar explicitamente a permissão, voltar à fase de seleção ou reabrir o mesmo rascunho
-mantém essa escolha.
+pode ser editado apenas para este compartilhamento; um novo rascunho de compartilhamento abre o flutuante
+de configurações com a permissão padrão `public_importable` (quem tiver o link pode importar e continuar);
+após o usuário trocar explicitamente a permissão, ajustar o escopo do compartilhamento ou reabrir o mesmo
+rascunho mantém essa escolha.
 
 ```text
 Desktop UI
   -> workspace-scoped ConversationShareService
-       |- 本地 JWT / Share API
+       |- JWT / Share API do Environment de destino
        |- local/remote Conversation Rows + fileChanges
        `- local/remote artifact staging
   -> prepare -> upload -> confirm -> share URL
@@ -43,6 +43,14 @@ e é publicada por `Dockerfile.web-share` e `nginx.web-share.conf` nas duas entr
 `/share`. As duas compartilham a mesma SPA e os mesmos assets estáticos, e o prefixo de caminho decide a
 locale de UI em chinês ou inglês; ela usa imagem, Deployment, Job de CI e versão de rollback independentes
 de `/remote/v4`; o Preview público é de acesso anônimo e o Preview privado usa o OAuth Web de mesma origem.
+
+A build recortada instala apenas a dependência transitiva de `@zcode/web-share`. Os arquivos de
+Web/UI reutilizados não podem depender dos links de `node_modules` do workspace completo; o Vite usa um
+alias de código-fonte com correspondência exata para a entrada raiz de `@zcode/shared`, evitando falha de
+resolução a partir do diretório Web, e ao mesmo tempo não pode reescrever subcaminhos de
+`@zcode/shared/*` para `index.ts/*`. Cada subcaminho de `@zcode/shared/*` usado pelo fechamento do Share
+(como `test-ids` e `zcode-protocol-v4`) precisa registrar um alias de código-fonte exato em
+`packages/web-share/vite.config.ts`. A regressão da build isolada cobre essa restrição.
 
 A verificação manual da imagem e das rotas nginx usa `scripts/test-web-share-build.sh` (requer Docker
 local, sem credenciais Git do CUA). Ele valida que o artefato de build fica em `/cn/share/assets`,
@@ -111,9 +119,9 @@ Há ainda dois fixtures de compatibilidade entre versões: `/cn/share/mock-parti
 reconhecidas são puladas, com um aviso suave no topo) e `/cn/share/mock-outdated-client` (versão do payload
 maior que esta build, mostrando 「需要更新 ZCode」 em vez de 「格式无效」).
 
-O runtime de compartilhamento do Desktop Host sempre usa a Share API real, com o endereço da API resolvido
-por `ZCODE_ENV`; não há mais chave de Mock em runtime. `ConversationShareMockApiClient` serve apenas a
-testes unitários de serviço e a fixtures de protocolo, e não pode gerar links de compartilhamento
+O runtime de compartilhamento do Environment de destino sempre usa a Share API real, com o endereço da API
+resolvido por `ZCODE_ENV`; não há mais chave de Mock em runtime. `ConversationShareMockApiClient` serve
+apenas a testes unitários de serviço e a fixtures de protocolo, e não pode gerar links de compartilhamento
 acessíveis de outro processo.
 
 A exibição do corpo da página pública reutiliza a camada de apresentação somente-leitura de
@@ -154,6 +162,15 @@ públicos, ou seja, os cartões de resultados do Assistant realmente exibidos no
 `preview.artifacts` é o manifest completo de downloads, compartilhado entre resultados e
 `userInput.attachments`, e não pode ser usado diretamente como contagem de resultados; anexos de entrada
 do usuário continuam participando do mapeamento de URL/nome e do download, mas não contam como "resultados".
+
+Os anexos de imagem do usuário são exibidos como miniatura conforme o `mime`, buscando a imagem primeiro
+por `previewRef` e depois por `ref` no mapeamento existente de URL de artifact; clicar na miniatura abre a
+imagem original pelo endereço correspondente ao `ref` do anexo. Em anexos comuns, sem endereço de imagem
+disponível ou quando o carregamento da imagem falha, mantém-se o nome do arquivo, o tamanho e a entrada de
+download do arquivo original. A prévia de compartilhamento somente-leitura do desktop e a página pública
+reutilizam a mesma apresentação, quebrando a linha automaticamente e restringindo a largura em celular
+estreito; os nomes acessíveis em dois temas e em chinês e inglês vêm das regras existentes, sem novo
+canal de leitura ou upload pelo host.
 
 ## Prioridade de protocolo
 
@@ -213,31 +230,48 @@ alterar um contrato de entrada, é preciso rodar os dois.
 
 ## Autoridade e fronteiras de segurança
 
-O HTTP de publicação, o JWT e os arquivos temporários de staging pertencem sempre ao Desktop Host.
-SSH/WSL/Docker fornecem apenas Rows, fileChanges e bytes de arquivo remotos, e não recebem credenciais de
-login do Desktop. O serviço precisa usar o `clientMode` confiável injetado pelo Host attachment: apenas
-`desktop-continuous` pode publicar/importar; `web-remote-replayable` precisa ser recusado.
+### Autoridade de compartilhamento do Source Server R3 (2026-09-16)
 
-A leitura de Rows/fileChanges do Share precisa reutilizar o
-`createZCodeAgentConnectionScope(...).service` do attachment MessagePort atual, cujo handshake já foi
-concluído. É proibido chamar diretamente a query V4 do Agent cru e proibido criar outro connectionId,
-hello/clientHello, Host, runtime de Agente ou subscription para o Share. O ciclo de vida do connection scope
-continua sendo gerenciado pelo owner do attachment; o Share apenas mantém uma facade leve durante a
-chamada atual.
-
-A key de isolamento remoto é fixa:
+O compartilhamento de um workspace remoto R3 é executado pelo Source Server de destino, lendo o OAuth/JWT,
+a configuração de rede, as sessões e os arquivos do Environment de destino atual. O Desktop apenas
+encaminha a requisição e fornece o contexto confiável do attachment; mesmo que a conta local seja diferente
+da remota, isso não pode alterar o dono do compartilhamento. O Provisioning pode gravar antecipadamente
+as credenciais remotas, mas cada compartilhamento lê apenas o Store oficial do remoto, não lê o JWT do
+Desktop on-line e não recai para a conta local quando não está autenticado ou a credencial é inválida. Esta
+regra substitui o antigo modo mixed-service de SSH, que combinava "arquivos remotos + JWT/API local";
+workspaces locais continuam sendo executados na própria máquina.
 
 ```text
-workspaceKey = workspaceIdentity?.trim() || workspacePath
+Desktop attachment (sobrescreve o contexto não confiável do caller)
+  → SSH/WSL/Docker → Share RPC do Source Server
+                    → OAuth remoto + HTTP remoto + Rows/File remotos
+                    → reuso do mesmo trusted carrier V4 / conexão com handshake já concluído
+  conexão direta ao server → permanece desabilitada na primeira fase
+  attachment do celular / entrada Web comum do Source → recusar publicação e importação
 ```
 
-A execução e a exibição de caminhos continuam usando `workspacePath`. Roteamento remoto, cache, tentativa
-de publicação e file source precisam carregar simultaneamente `workspaceIdentity` e `remoteSessionId`, e
-não podem comparar igualdade apenas por caminho.
+O Source Share RPC só aceita o contexto downstream desktop-continuous sob o transporte Host confiável; as
+consultas de Rows/File reutilizam o Agent scope existente desse transporte, que aplica namespace ao
+connectionId downstream, e não podem criar outra conexão ou handshake. Os campos raw de renderer do
+Desktop precisam ser sobrescritos pelo valor verdadeiro do attachment confiável, e clientes Web do Source
+não podem forjar esse campo. O estado de publicação, o cache de preflight, os arquivos temporários e o
+HTTP do Source são gerenciados pelo seu ShareService existente; reconectar reconstrói o attachment RPC, sem
+adicionar stream, fila ou semântica de recuperação. As fronteiras de Desktop continuous e celular
+replayable permanecem as mesmas.
 
-O status de publicação não entra no conversation snapshot, no task sqlite, em owner/lease, no CommandInbox,
-no relay nem no mirror mobile replayable. Logs não podem registrar JWT, Signed URL, corpo de Conversation
-Rows, conteúdo de arquivo ou caminho absoluto.
+Os dados de compartilhamento carregam `workspaceIdentity` e `remoteSessionId`; a key de isolamento continua
+sendo `workspaceIdentity?.trim() || workspacePath`. A conversão de identidade do Source reusa o canonical
+mapper existente. JWT, Signed URL, o corpo de Rows e o conteúdo de arquivos não podem entrar em logs.
+`remote:server:...` é um formato de identidade e não permite tratar o SSH como uma conexão direta ao
+Server escolhida pelo usuário.
+
+Regressão: fábrica remota real → Share RPC → trusted Agent na combinação completa; com conta local A e
+conta remota B, deve-se usar apenas B, e após a saída remota a publicação é recusada sem recair para A; o
+acesso direto por Web/mobile e a conexão direta ao Server continuam recusados; o contexto de handshake
+precisa ser consistente com as sessões existentes. SHARE18 roda isoladamente: primeiro, pelo Provisioning
+existente, grava no remoto o Team profile explicitamente fornecido; depois o remoto acessa a Share API de
+produção correspondente. O modelo usa replay case-local, precisa gerar arquivos de verdade e validar o
+sucesso da publicação e os bytes dos produtos.
 
 ### Fronteira defensiva da página pública contra conteúdo de terceiros
 
@@ -295,6 +329,108 @@ A seleção precisa conter pelo menos um product turn terminal. Cada ID selecion
 `turnHeader` e o estado não pode ser `running`. Qualquer inconsistência de revision/log epoch entre
 páginação precisa falhar antes da preparation.
 
+### Exibição de ferramentas Workflow
+
+`toolCall.display` suporta `create_workflow`, `get_workflow_run`, `list_workflow_runs`,
+`eval_workflow_snippet`, `saved_workflow_list`, `list_models` e `resume_workflow_run`.
+O cliente usa o `toolCallDisplaySchema` oficial para validar e copiar a exibição completa, e o servidor
+espelha campo a campo seus objetos aninhados, enums, campos opcionais, limites de array e comprimento de
+string em UTF-16; tipos desconhecidos, campos desconhecidos e valores inválidos continuam rejeitados.
+Imagens continuam passando pela conversão de artifact já existente, sem abrir Base64 inline nem URI local.
+
+Aqui o que é compartilhado é o snapshot de exibição no momento da execução da ferramenta: a linha da
+ferramenta precisa estar em estado terminal, e o status de workflow dentro do snapshot pode ainda estar
+`running`, sem exigir que o workflow em segundo plano termine. runId, os sites e os IDs de etapa dentro do
+grafo são dados do snapshot e não constituem autorização de execução no lado do compartilhamento; o estado
+ao vivo de workflowRuns não é publicado e nenhuma ação de executar, retomar ou assinar é adicionada.
+A página de share reutiliza os componentes de exibição de workflow existentes: o grafo estático de etapas
+e os diagnósticos de compilação de Create/Amend, o resumo de execução/etapas/subagentes/logs de Get, a
+lista de execuções de List, os diagnósticos/resultados de Eval, a lista de workflows de Saved e a descrição
+de resultado de Resume. A exibição representa apenas o snapshot do momento da chamada da ferramenta; não
+injeta arquivos locais, sessão, edição, execução ou callbacks de retomada. Linhas históricas sem display
+seguem o cartão de ferramenta genérico; ListModels usa o renderer compartilhado de catálogo de modelos. O
+lado de importação preserva o display, e o `schema_version` permanece 1.
+Em desktop/celular, nos temas claro e escuro e em chinês e inglês, o conteúdo é legível e os detalhes podem
+ser expandidos; o cabeçalho do cartão em tela estreita permite quebra de linha, e o nome do workflow não
+pode ser espremido a ponto de ficar invisível; a página não solicita serviços do host de desktop.
+
+Aceitação: as 7 exibições fazem a projeção completa, a validação de confirm no servidor e a decodificação na
+importação passam; campos aninhados desconhecidos, erros de tipo/enum, arrays/strings/inteiros fora do
+limite e null explícito falham, e o erro inclui o caminho do row e do campo aninhado; ferramentas comuns,
+conversão de imagens e a verificação de integridade do compartilhamento não regridem. Os testes dos dois
+lados usam a mesma amostra de JSON de workflow display.
+Aceitação no navegador SHARE-WF01 (pending): iniciar `pnpm dev:web-share:test` e rodar
+`node packages/web/test/e2e/manual-review/pending/share-workflow.mjs`; o teste intercepta a preview API e
+cobre desktop/celular, chinês/inglês, a exibição básica em Zai Light/Dark, a expansão de diagnósticos, o
+fallback histórico, o modo somente-leitura e a ausência de overflow horizontal.
+
+### Blocos de conteúdo somente-leitura extensíveis
+
+A projeção pública permite, além de `rows`, `content_blocks` opcionais; cada bloco traz `type`, uma
+`version` própria, a âncora pública de product-turn, `fallback_row_id`, `captured_at` e `resource_ids`. O
+primeiro tipo é `workflow` v1: grafo de execução e status, notificação de conclusão e seis classes de
+produtos do usuário. Não é um repasse do workflowRuns ao vivo; depois de publicado, é um snapshot imutável.
+O publicador gera um Row de resumo do tipo assistantText já existente, que os leitores antigos conseguem ler;
+os leitores novos só substituem o resumo por um cartão quando o bloco é reconhecido e renderizado com
+sucesso. Blocos desconhecidos ou corrompidos mantêm o resumo e não afetam o corpo do mesmo turno.
+
+O servidor declara a capacidade atual pelo `content_block_versions: { workflow: 2 }` opcional; a versão 1
+continua compatível, e a versão 2 acrescenta a pré-visualização de texto congelado. Quando a capacidade está
+ausente, publica-se apenas o resumo e os recursos comuns permitidos. O `schema_version` permanece 1. Os
+novos campos de bloco são validados com allowlist estrita, e os recursos precisam estar fechados dentro do
+manifest desta publicação; os blocos usam um `content_blocks_sha256` próprio, e os hashes existentes de
+rows/artifact não mudam. preview, continuation e o arquivo de importação preservam os blocos, e a
+integridade é verificada sobre os valores do wire antes da decodificação bloco a bloco.
+
+```text
+Turnos terminais selecionados → Share Service → leitura congelada dos eventos de journal do Agent original
+                              → o mesmo reducer gera o estado do run e as versões dos produtos
+                              → itens do quadro com os bytes da versão especificada / até a sequence de corte
+                              → projeção de campos públicos + resumo + upload → snapshot imutável no Server
+                                                           → exibição somente-leitura na Web / na importação
+```
+
+Os eventos de workflow são lidos paginados por `afterSequence`, e a sequence precisa crescer estritamente
+entre páginas; uma página vazia e inacabada, um cursor repetido, uma falha de leitura ou um total acumulado
+acima de 20000 itens marcam o run como indisponível. A leitura até `hasMore=false` forma um prefixo
+append-only, e a sequence do último item é o ponto de corte desta publicação (não o momento da primeira
+requisição); o acréscimo contínuo também respeita o limite total de itens. A paginação do quadro filtra os
+itens posteriores a esse nível de água, e os arquivos são lidos pela artifact version registrada pelo
+reducer. Não se pode usar a revision da conversation para fingir o nível de água do journal. Workflows em
+execução em segundo plano não bloqueiam o compartilhamento de turnos de produto já concluídos; o cartão
+deles indica explicitamente que é um snapshot do momento do compartilhamento. Quando a associação histórica
+ou os dados de origem não podem ser lidos, mantém-se um resumo com o motivo, sem forjar sucesso, contagem
+zero ou quadro vazio. Não são compartilhados transcripts de outras conversas/subagentes não selecionados, e
+não são habilitados parar, retomar, aprovar ou operar diretórios locais. Os cartões e o quadro reutilizam
+componentes e algoritmos puramente de exibição, e o bundle público não introduz Desktop service/store.
+
+Preflight e publicação usam o mesmo coletor; a publicação recongela e não reaproveita o estado de execução
+do preflight anterior. Os arquivos seguem a auditoria de upload já existente; o quadro estruturado entra na
+conta de payload do bloco e participa da auditoria de conteúdo. Cada novo tipo de conteúdo precisa declarar
+schema público, coletor, resumo, política de recursos e renderer somente-leitura; tipos desconhecidos ficam
+só com o resumo e não executam código de plugin automaticamente.
+
+O nome de arquivo de download do produto usa a extensão correspondente ao tipo de origem, e os pontos e
+números de versão do título não alteram o tipo do arquivo. Só depois que a decodificação de texto e a
+validação do schema público passam é que o bloco de conteúdo, a linha de artifact, os bytes e o orçamento
+de recursos são registrados em conjunto; um produto que falha mantém apenas a explicação de não inclusão e
+não entra no conjunto de upload. O resumo sintetizado de workflow serve só para exibição, e tanto o
+preflight quanto a publicação não podem voltar a tratar o seu título ou texto de erro como referência a
+arquivo do workspace. A descoberta de arquivos pelo assistantText real mantém o comportamento existente.
+
+Os URLs de produto retornados pela API pública aceitam apenas HTTP(S). Quando a imagem da ferramenta não
+tem capacidade de leitura do host nem recurso público correspondente, exibe-se o estado estático
+“预览不可用”, sem Loading sem tarefa assíncrona. Erros HTTP desconhecidos não são classificados como
+corrupção do contrato de resposta; um 403 sem código de negócio mantém a semântica de not_found de
+compartilhamento oculto, e códigos de negócio conhecidos têm prioridade. Uma estrutura de resposta de
+sucesso realmente inválida continua sendo invalid_contract.
+
+Aceitação SHARE-WF02: cartão de execução completo, cartão de conclusão, board/table/chart/metrics, abertura
+real de Markdown e de arquivos; seleção de turno concluído, snapshot em execução, resumo entre versões,
+fechamento de recursos/tamper, ausência de dependência do Desktop, e layout em celular/desktop, Zai
+Light/Dark e chinês/inglês. Dados ausentes de compartilhamentos antigos só podem ser completados
+republicando.
+
 ## Descoberta e upload de produtos
 
 Os candidatos de compartilhamento incluem os `userInput.attachments` do turno atual, os cartões de preview do
@@ -351,18 +487,160 @@ depois que cliente, servidor e landing page independente de share forem atualiza
 
 ## Máquina de estados da UI
 
+O botão de compartilhamento no topo abre um flutuante não modal ancorado no botão (largura sugerida de
+360px, com desvio automático das bordas), sem overlay de tela cheia e sem substituir o Composer. O
+flutuante exibe o título, o botão de escopo do compartilhamento em linha inteira, a permissão, a confirmação
+de informações sensíveis e 「生成分享链接」. O botão de escopo combina o resumo, o ícone de conversa e a
+seta para a direita; clicar na linha inteira abre o painel de seleção existente, e o item 「调整」 separado
+deixa de existir. Durante o preflight (inclusive stale) o botão exibe loading e 「正在检查分享内容…」 sem
+ocupar uma linha extra; quando a verificação termina, o resumo do escopo é restaurado e a altura do botão
+permanece a mesma.
+A entrada de problemas do preflight usa uma dica compacta (como 「有内容无法分享，查看问题」), e a
+explicação detalhada permanece na camada exibida após o clique. A dica usa fonte sm, alinhamento à
+esquerda e ícone fixo de 16px alinhado à primeira linha; em janela estreita o texto permanece alinhado à
+esquerda quando quebra.
+As setas do escopo e do dropdown de permissão unificam-se em 14px, com 8px de padding à direita; os
+detalhes de diagnóstico e as ações de correção mantêm as entradas existentes.
+O título principal do flutuante usa text-ui-lg, os labels de campo usam text-ui-base e as descrições
+auxiliares mantêm o tamanho de fonte secundário.
+O flutuante usa padding compacto de 12px e espaçamento entre campos; o campo de entrada, o botão de escopo
+e o seletor de permissão compartilham a especificação de controle lg; o botão principal 「生成分享链接」 no
+rodapé usa 40px de altura isoladamente, o texto mantém text-ui-base e os controles de formulário acima
+mantêm 32px.
+A confirmação de informações sensíveis não usa fundo de cartão, borda ou linha lateral laranja, e é
+apresentada como um checkbox comum com descrição secundária.
+O texto de confirmação, os nomes das fases de publicação, o corpo do diagnóstico e os campos e o link da
+página de sucesso usam text-ui-base; descrições, dicas de preflight e ações auxiliares usam text-ui-sm, sem
+degradar as descrições auxiliares para text-ui-xs; o título principal do flutuante mantém o text-ui-lg já
+confirmado.
+O overlay de escopo de verificação reaproveita o offset, a borda e a sombra padrão do Popover compartilhado,
+usa padding de 12px, corpo em base e agrupamentos/descrições em sm, e não sobrepõe ponta, separador, ponto
+laranja ou rodapé com fundo próprio. Ao abrir, o foco vai para o flutuante sem selecionar automaticamente o
+título.
+Por padrão são selecionados todos os turnos concluídos, e a permissão padrão é public_importable. Turnos em
+execução não são selecionáveis, e o título do compartilhamento não altera o título da tarefa.
+
 ```text
-closed
-  -> loading capabilities/catalog
-  -> selecting terminal turns
-  -> preflighting selected turns and attachment metadata
-  -> confirming title + access mode + disclosure in share dock
-  -> collecting -> uploading i/N -> confirming
-                           `-> 3215 safety pending -> confirming
-  -> published | failed
+Compartilhamento no topo → flutuante de configurações → gerar → collecting → uploading → checking → published / failed
+                    │
+                    └ Ajustar → painel de seleção existente à esquerda (marcação temporária)
+                                  ├ Confirmar → grava o escopo e fecha o painel de seleção
+                                  └ Cancelar → descarta a marcação temporária e fecha o painel de seleção
 ```
 
-O `SharePreflight` da fase de seleção é uma verificação somente-leitura independente, que não envia
+O `ConversationShareSelectionStore` mantém por `sessionId`, de forma única, o escopo confirmado, a marcação
+temporária, a visibilidade do flutuante e o estado de publicação. A visibilidade do flutuante é expressa
+por `open`, e a edição de escopo por `pendingExcludedRowIds != null`; não se mantém mais o antigo
+scope/stage/view nem um estado global de dropdown. O corpo do texto apenas faz a localização exibida, e a
+marcação e a seleção de tudo são tratadas pelos comandos transacionais do painel de escopo;
+`ConversationSharePreflightStatus` mostra apenas os problemas e as ações de retry/remoção do turno inteiro,
+sem manter o antigo próximo passo nem os controles de seleção em lote.
+「调整」 copia o escopo confirmado para a seleção temporária; a marcação por turno usa o `productTurnId`
+como identidade, e várias queries do mesmo turno mudam juntas.
+O painel de seleção reaproveita os resumos existentes de pergunta/resposta; clicar no item da lista (texto,
+resumo ou área em branco) e no checkbox alterna a seleção temporária; o botão de localização independente à
+direita apenas salta para o corpo, sem alterar a marcação. Enter/Space do teclado pode alternar o botão de
+texto, e o botão de localização pode receber foco de forma independente; itens em execução não podem ser
+marcados, mas ainda podem ser localizados.
+Cada linha do painel de seleção usa 8px de padding vertical uniforme e 4px de espaçamento entre título e
+resumo, e o recuo especial da primeira linha é removido; título em base com peso regular e resumo em sm.
+Checkbox e prompt da primeira linha são centralizados verticalmente, e message e prompt são alinhados à
+esquerda. O seletor tem 320px de largura, e em janela estreita não ultrapassa o viewport menos 16px; o
+prompt permanece em uma linha, e a message tem no máximo duas linhas e é truncada. O viewport de rolagem usa
+um mask de 32px de transparência acima e abaixo: ele só aparece quando ainda há conteúdo na direção
+correspondente, e o gradiente correspondente é removido ao chegar ao topo/fim; sem overflow não há gradiente.
+O mask não age sobre a barra de rolagem nem sobre a área de ações inferior. O checkbox fixo de selecionar
+tudo no topo é alinhado à esquerda com os checkboxes da lista, com três estados (tudo selecionado, nada
+selecionado, parcialmente selecionado); ao clicar no estado parcial completa a seleção, e ao clicar em
+tudo selecionado limpa tudo, operando apenas sobre linhas concluídas e selecionáveis. Modificações em lote
+escrevem apenas no rascunho de seleção atual, valem após a confirmação e são desfeitas ao cancelar; fica
+desabilitado quando não há linhas selecionáveis.
+
+O painel adota três camadas: selecionar tudo no topo, lista rolável no meio, e status e ações na base. A
+base mostra por padrão o número de turnos selecionados; ao exceder o limite, é substituída pelo texto em
+cor de warning 「超出上限 N 行」 e a confirmação é desabilitada. Durante o preflight o status de verificação
+é exibido e a confirmação é desabilitada, e a seleção vazia também desabilita a confirmação. A contagem de
+linhas e o limite vêm do preflight do serviço existente, não fixam 500 e não confundem turnos com linhas.
+
+Fluxo de dados: marcação → rascunho `pendingExcludedRowIds` do selection store → reaproveitar o
+cache/preflight por turno → agregar a contagem de linhas → estado do painel. Confirmar salva o rascunho,
+cancelar descarta o rascunho e restaura o preflight da seleção original; quando não há rascunho, usa-se a
+seleção confirmada. Mantém-se o isolamento por workspace/sessão e o tratamento de respostas expiradas. A
+aceitação cobre tudo/nada/parcialmente selecionado, restaurar a seleção depois de reduzir o excesso ao
+exceder o limite, rollback ao cancelar, efeito ao confirmar e desabilitação com seleção vazia, além de
+desktop/janela estreita e temas claro/escuro.
+A marcação é expressa pelo Checkbox compartilhado; desmarcado, o corpo do texto continua legível, e apenas
+os itens desabilitados em execução ficam esmaecidos; no hover usa-se um fundo claro uniforme.
+A base exibe fixamente 「已选 N 轮」「取消」「确认」, a contagem em sm, os botões uniformes de 32px, e a lista
+rola internamente; sem nenhum turno selecionado, confirmar fica desabilitado.
+A contagem no flutuante só é atualizada depois da confirmação; ao cancelar, o escopo original e a marcação
+de informação sensível são mantidos, e mudar o escopo reinicia a marcação de informação sensível.
+Durante o ajuste o flutuante permanece visível e a geração fica desabilitada; não são adicionadas páginas
+de segundo nível, listas recolhíveis ou seletores.
+
+Clicar fora dos dois painéis ou pressionar Esc cancela primeiro a seleção temporária e fecha apenas o painel
+de seleção; um novo clique fora ou Esc recolhe o flutuante.
+Clicar na localização do corpo do texto, no flutuante e nas suas camadas de permissão/diagnóstico não
+fecha o painel de seleção por engano. Recolher o flutuante preserva o rascunho da sessão atual, e abri-lo de
+novo o restaura.
+Trocar de sessão não pode reaproveitar seleção, título, permissão, progresso de publicação ou resultado de
+sucesso de outra sessão.
+
+Antes da publicação, gerar é proibido quando o título está vazio, nada está selecionado, o escopo está sendo
+ajustado ou o preflight não passou. Quando a confirmação de informações sensíveis não está marcada, clicar
+em gerar apenas localiza e foca o checkbox, exibe o texto de confirmação na cor de warning e faz a linha
+inteira do checkbox e do texto tremer levemente para os lados uma vez (280ms, no máximo 4px).
+Não muda o fundo nem a borda do checkbox e não publica automaticamente; cliques repetidos reiniciam a
+animação sem acumular, e marcar ou desmontar cancela imediatamente. Com a preferência por menos movimento,
+apenas mantém a cor de warning.
+Depois de marcar, o texto volta imediatamente à cor normal, e ainda é preciso clicar em gerar de novo.
+Quando o item de confirmação já está visível, não há rolagem; quando é preciso localizar, apenas o corpo do
+flutuante rola, e a página externa e o botão fixo no rodapé ficam estáveis.
+Durante a publicação, modificações e fechamento ficam bloqueados; em caso de falha, a causa, o diagnóstico e
+o retry são exibidos no lugar, preservando o rascunho.
+O flutuante em geração mantém 12px de espaçamento, exibe no máximo duas linhas do título da tarefa, uma
+barra de progresso fina e uma lista de três etapas; só a fase atual exibe a descrição auxiliar do progresso,
+e o progresso da fase atual (como a quantidade enviada) é a informação principal, usando text-ui-base; o
+resumo de turnos/permissão no rodapé usa text-ui-sm.
+O tamanho da fonte escala com o ajuste de interface, e o tamanho dos ícones permanece fixo. Ícone em
+andamento gira, o de conclusão é uma marca de verificação, e o de pendência é esmaecido. O texto de progresso
+duplicado no topo e o botão de gerar inoperante no rodapé são removidos, mantendo o resumo de
+turnos/permissão; após a falha, a entrada de retry é restaurada.
+Em sucesso, exibe no lugar o título somente-leitura, o link real, copiar link e ver no navegador; após
+copiar, mostra brevemente "copiado", e o flutuante continua aberto.
+O flutuante de sucesso remove a descrição duplicada e o rótulo 「分享标题」, e o título da tarefa ocupa no
+máximo duas linhas; a caixa do link tem 32px e mantém o texto selecionado para cópia.
+Padding uniforme de 12px, removendo o separador inferior; as duas ações têm a mesma largura e 40px de
+altura, ver no navegador como botão secundário e copiar link como botão principal, e o ícone de sucesso e o
+título ficam centralizados.
+Depois do sucesso, fechar e clicar de novo no compartilhamento do topo inicia uma nova rodada de configurações
+de compartilhamento: título e permissão são mantidos, o escopo volta a ser todos os turnos concluídos
+atualmente, o link de sucesso anterior, o diagnóstico, o progresso e o attempt de publicação são limpos, e a
+confirmação de informações sensíveis é reiniciada como não marcada; é possível ajustar o conteúdo de novo e
+gerar.
+Um rascunho que não foi publicado com sucesso, ao ser fechado, ainda restaura as configurações originais, e
+o retry após falha reaproveita o attempt original. Uma nova rodada apenas reinicia o estado local, sem
+revogar o link antigo.
+A posse do estado continua sendo do ConversationShareSelectionStore: published → closeShare (recolher) →
+openShare (nova configuração) → publish (novo attempt).
+Arquivos pulados mantêm warning não bloqueante. Sem um resultado de confirm real, não se pode mostrar o link.
+
+O corpo do flutuante rola de forma independente e o botão de gerar permanece visível; os botões na base do
+painel de seleção também não podem ser empurrados para fora pela lista. Quando a janela estreita não
+comporta os dois lado a lado, durante o ajuste a altura do flutuante de configurações é limitada, o painel de
+seleção é deslocado para baixo dele, e ambos mantêm as ações originais. Compatível com janela estreita,
+Zai Light/Dark e chinês/inglês. O remote do celular e a Web comum continuam sem entrada de compartilhamento,
+e as fronteiras de permissão/recuperação de Desktop continuous e celular replayable não mudam; a API de
+publicação, a autoridade do Host e o mecanismo de retry idempotente não mudam.
+
+Aceitação SHARE34: abrir/recolher preserva o rascunho; o ajuste da seleção temporária não altera o escopo
+confirmado; rollback ao cancelar, efeito ao confirmar e desabilitação com seleção vazia;
+clicar no texto localiza sem fechar o painel; Esc/clique externo fecham em camadas; turnos em execução não
+são selecionáveis; publicação bloqueada, retry após falha, cópia em sucesso; isolamento entre sessões.
+Os casos de integração de componente de browser ficam em manual-review/pending e não são considerados
+publicação real no Desktop nem teste real de controle remoto pelo celular.
+
+A fase de seleção do `SharePreflight` é uma verificação somente-leitura independente, que não envia
 arquivos, não lê o conteúdo completo dos anexos e não altera o rascunho de seleção. Ele se liga ao
 `sessionId` atual, a `workspaceIdentity/workspacePath`, ao `remoteSessionId`, à seleção, à
 `revision/logEpoch` das rows, ao fingerprint de capabilities e ao fingerprint de candidatos; depois de
@@ -373,8 +651,8 @@ Os resultados do preflight são divididos em quatro categorias:
 
 - **Bloqueante**: a seleção ficou inválida, falta product turn, há turno/corpo/ferramenta/subagente/compact/goal
   verification ainda em execução, URL local ou inline, referência de artifact não fechada, nível de água
-  obsoleto, capacidade conhecida excedida ou não há nenhum conteúdo compartilhável. Itens bloqueantes ficam
-  na fase de seleção e não permitem entrar na fase de confirmação.
+  obsoleto, capacidade conhecida excedida ou não há nenhum conteúdo compartilhável. Itens bloqueantes são
+  exibidos no flutuante de configurações e não permitem gerar o link.
 - **Ignorável**: arquivo de cartão de preview que existe mas não é suportado, anexo de entrada do usuário
   explicitamente inexistente ou alterado. Permite continuar, pulando o arquivo correspondente na publicação
   e exibindo um warning no estado de sucesso.
@@ -400,212 +678,43 @@ Os resultados do preflight são divididos em quatro categorias:
   Se, após a remoção silenciosa, a seleção inteira não tiver outro conteúdo compartilhável, aí sim ela é
   bloqueada como "sem conteúdo compartilhável".
 
-O Dock de seleção exibe o estado `checking` durante o preflight; itens bloqueantes mostram o turno específico
-e a ação "cancelar a seleção deste turno" (a remoção é do turno inteiro conforme o `productTurnId` carregado
-pelo issue, e `turnOrdinal` é usado apenas no texto de exibição — as duas numerações têm critérios
-diferentes, e usar o ordinal para consultar o diretório cancelaria o turno errado); quando há arquivos
-ignoráveis, a linha de ações mostra a quantidade ignorada. As fases de confirmação e publicação ainda
-precisam reutilizar o mesmo conjunto de validações e rechecar revision/log epoch, stat de arquivo, tamanho e
-SHA-256, evitando mudanças por corrida no arquivo ou na sessão depois do preflight.
+O flutuante de compartilhamento exibe o estado `checking` durante o preflight; itens bloqueantes mostram o
+turno específico e a ação "cancelar a seleção deste turno" (a remoção é do turno inteiro conforme o
+`productTurnId` carregado pelo issue, e `turnOrdinal` é usado apenas no texto de exibição — as duas
+numerações têm critérios diferentes, e usar o ordinal para consultar o diretório cancelaria o turno
+errado); quando há arquivos ignoráveis, a linha de ações mostra a quantidade ignorada. A confirmação e a
+publicação ainda precisam reutilizar o mesmo conjunto de validações e rechecar revision/log epoch, stat de
+arquivo, tamanho e SHA-256, evitando mudanças por corrida no arquivo ou na sessão depois do preflight.
 
 Os resultados do preflight são cacheados pelo owner renderer-local do fluxo de compartilhamento atual por
-`productTurnId`, em vez de rechecar a seleção inteira repetidamente. Ao entrar pela primeira vez na fase de
-seleção, apenas os turnos ainda não atingidos são verificados em lote; seleções posteriores verificam apenas
-as novas e ainda não atingidas. Cancelar turnos já verificados, reselecionar turnos já verificados e clicar
-em "Próximo" apenas leem o cache e não disparam novos RPCs de preflight. O cache está ligado a
-`workspaceKey`, `remoteSessionId`, `sessionId`, `productTurnId`, revision/log epoch das rows, fingerprint
-de turno/candidato, status de fileChanges e fingerprint de capabilities; quando o conteúdo do turno atual, o
-conjunto de candidatos, o status de alterações de arquivo ou as capabilities mudam, apenas os turnos
-afetados são invalidados.
+`productTurnId`, em vez de rechecar a seleção inteira repetidamente. Ao abrir pela primeira vez o flutuante
+de compartilhamento, apenas os turnos ainda não atingidos são verificados em lote; seleções posteriores
+verificam apenas as novas e ainda não atingidas. Cancelar turnos já verificados, reselecionar turnos já
+verificados e a confirmação do escopo apenas leem o cache e não disparam novos RPCs de preflight. O cache
+está ligado a `workspaceKey`, `remoteSessionId`, `sessionId`, `productTurnId`, revision/log epoch das rows,
+fingerprint de turno/candidato, status de fileChanges e fingerprint de capabilities; quando o conteúdo do
+turno atual, o conjunto de candidatos, o status de alterações de arquivo ou as capabilities mudam, apenas
+os turnos afetados são invalidados.
 
 O cache não entra no banco de dados nem no conversation snapshot, e é limpo ao cancelar/concluir o
 compartilhamento ou ao trocar de session/workspace.
 
-O Dock de seleção não insere mais uma barra independente "verificando o conteúdo compartilhado". O estado
-do preflight é expresso pela entrada de estado da linha de ações, e o botão "Próximo" sempre mostra apenas
-texto curto, sem ícone de espera ou placeholder reservado para ícone; permanece desabilitado antes de a
-verificação terminar e, depois, mantém as condições de desabilitação por problema bloqueante e por contagem
-de seleção. A lista detalhada de bloqueios/ignorados é exibida em um Popover da entrada de estado, evitando
-que a mudança de status de verificação faça a altura do Dock e a largura do botão saltarem.
+A interação do flutuante de compartilhamento passa a integrar o módulo gerenciado
+`packages/ui/src/conversation-share-interaction/`. O módulo fornece o flutuante, as dicas de preflight, as
+ações transacionais de escopo e os handlers de requisição e resposta de preflight; os chamadores acessam
+tudo isso pelas entradas registradas. O selection store ainda é o único dono do rascunho de escopo, o
+SessionPane ainda é o único dono do cache de preflight e do estado de publicação, e o módulo não adiciona
+persistência nem estado de negócio próprio. O controle remoto pelo celular não ganha entrada de
+compartilhamento.
 
-Os labels em lote do Dock de seleção permanecem em linha única conforme a largura do conteúdo, sem separar
-checkbox, label e contagem; quando falta espaço na área de ações, os botões cancelar/próximo vão como um
-grupo inteiro para a linha seguinte e ficam alinhados à direita. Chinês, inglês, tamanho de fonte ampliado e
-painel estreito seguem o mesmo layout CSS, sem alterar o estado de seleção ou a cadeia de compartilhamento.
-
-Seleção e confirmação de publicação são duas fases de UI reversíveis que sempre reutilizam o mesmo bottom
-dock. A fase de seleção cuida apenas de marcar product turns concluídos; ao clicar em 「Próximo」, a fase
-de confirmação exibe dentro do dock, simultaneamente, o título deste compartilhamento, a permissão de acesso
-e a confirmação de informações sensíveis, sem abrir um modal separado. Quando um rascunho novo entra pela
-primeira vez na fase de confirmação, a permissão de acesso padrão é `public_importable`; ao clicar em
-「Voltar」 para a fase de seleção, é preciso preservar seleção, título, permissão e o resto do rascunho
-renderer-local. O timeline da fase de seleção serve apenas para visualização e localização e não muda a
-fase de negócio. Após clicar em 「Confirmar e gerar link」, o dock troca no próprio lugar para o progresso de
-organização, upload e verificação de segurança; depois que a publicação começa, a fase não pode mais ser
-trocada.
-
-O estado de runtime renderer-local do dock de compartilhamento precisa ser salvo de forma independente por
-`sessionId` atual, incluindo pelo menos a sobrescrita de título, a confirmação de informações sensíveis, o
-estado "em publicação", o progresso, o link de sucesso, os detalhes de falha, os warnings e a tentativa
-idempotente atual. O SessionPane pode reutilizar a mesma instância de pane para trocar de sessão, mas a
-troca só altera a chave de leitura do dock atual: não pode projetar o resultado da sessão anterior na sessão
-atual, nem limpar o estado de compartilhamento de outras sessões por encerrar o compartilhamento da sessão
-atual. Rascunho de seleção e estado de runtime do dock são estado de UI renderer-local e não entram no
-conversation snapshot, no SQLite, no CommandInbox nem nas mensagens de recuperação mobile
-`web-remote-replayable`; o cache de preflight continua sendo limpo nas trocas de session/workspace pelas
-regras existentes.
-
-```text
-Session A:  closed -> selecting -> confirming -> publishing -> published
-Session B:  closed -> selecting -> confirming -> publishing -> published
-
-switch A -> B: read/write dockStates[B] only
-switch B -> A: read/write dockStates[A] only
-```
-
-O resumo na base do dock de progresso de publicação usa uma única linha em linguagem natural que expressa
-ao mesmo tempo o escopo do compartilhamento e a permissão de acesso, por exemplo
-“分享 2 个对话轮次，链接持有者可导入并继续”; as permissões privada e somente-leitura substituem
-respectivamente por “仅自己可见” e “链接持有者可查看”. Durante a publicação não é exibido um aviso extra de
-“não é possível modificar o conteúdo compartilhado”, porque os controles de título, permissão, voltar,
-cancelar e confirmar já estão ocultos ou desabilitados; o título de progresso, a fase e o botão desabilitado
-expressam juntos o estado atual. Telas estreitas permitem essa quebra natural do resumo sem alterar a
-semântica.
-
-A entrada de compartilhamento no topo reaproveita o `Button variant="ghost" size="icon-md"` da barra de
-ferramentas, com área de clique e fundo padrão de 28×28 CSS px, igual aos botões de ajuda, terminal e barra
-lateral; o ícone usa o Lucide `ShareIcon size-4`, sem ajuste separado de escala de máscara. O Windows
-continua reaproveitando a sobreposição existente de dimensões do caption control. Hover e fundo de seleção
-seguem os tokens semânticos; nome acessível, operação por teclado e visibilidade atual da entrada são
-preservados, e o `/remote` do celular não ganha entrada de compartilhamento. Essa ajuste afeta apenas a
-aparência e não muda a posse do rascunho de compartilhamento nem a semântica de clique.
-
-Ao clicar na entrada de compartilhamento do topo para entrar na fase de seleção, os product turns candidatos
-começam todos selecionados, o painel de seleção vem recolhido por padrão e mostra o timeline. Com o
-compartilhamento aberto, clicar de novo na entrada do topo cancela o compartilhamento da sessão atual,
-reaproveitando `finishSelection` para limpar o rascunho de seleção e o estado visível do dock; o
-comportamento é o mesmo nas fases de seleção, confirmação, falha e sucesso e não afeta outras sessões.
-Durante a publicação vale a proteção de cancelamento do dock e a entrada do topo fica desabilitada, evitando
-que o resultado assíncrono da publicação seja reescrito depois da limpeza.
-
-O ajuste do escopo de seleção é feito reabrindo a entrada à esquerda do timeline. Essa mudança envolve
-apenas o estado do renderer e não altera a fronteira de Desktop continuous, celular replayable e a regra de
-que o `/remote` do celular não inicia compartilhamento.
-
-```text
-普通对话 --顶部分享--> 选择/确认/结果 --顶部分享--> finishSelection(sessionId) --> 普通对话
-发布中   --顶部分享禁用--> 等待发布结束
-```
-
-Quando a confirmação de informações sensíveis não está marcada, 「生成分享链接」 permanece clicável; clicar
-não inicia a publicação, e sim rola a área de confirmação para a posição visível, foca o checkbox e pisca uma
-vez com fundo de warning (600ms), voltando ao normal ao final, sem adicionar texto de aviso nem realce
-persistente. Cliques repetidos reproduzem novamente, sem acumular animações; com preferência por menos
-movimento, apenas posiciona e foca o checkbox. Depois de marcar, não há publicação automática e é preciso
-clicar no botão de novo. Título vazio, nada selecionado ou publicação em andamento continuam desabilitados, e
-o retry após falha mantém o comportamento original. A confirmação de divulgação continua sendo mantida pelo
-estado existente, e o Dock não ganha novos estados de aviso; desktop e Web compartilham esse comportamento, e
-o protocolo de publicação não muda.
-
-A área de confirmação de informações sensíveis permanece em linha única quando a largura disponível
-permite: à esquerda o checkbox e o texto de confirmação, à direita uma breve explicação da detecção
-automática e a entrada 「查看检查范围」, com o conteúdo da direita no mesmo tamanho `text-ui-xs` e
-alinhado à direita como um todo. A lista completa de credenciais, tokens, senhas, chaves privadas, endereços
-internos e informações pessoais continua no Popover de escopo de verificação; em telas estreitas o
-conteúdo da direita pode quebrar naturalmente, sem mudar a semântica da confirmação nem as condições de
-validação.
-
-O cartão de confirmação compartilha com o campo de título e o seletor de permissão a mesma trilha de
-conteúdo `mx-3`, mantendo um espaçamento `mt-3` independente em relação à área de permissão, para evitar que
-a área de confirmação fique colada no cartão de permissão ou apresente limites laterais inconsistentes.
-
-### Layout do Dock de confirmação de compartilhamento em largura estreita (SHARE28)
-
-O Dock de confirmação responde à largura da caixa de conteúdo do próprio contêiner; não é possível inferir o
-espaço restante pelo breakpoint `md` da janela. Abaixo de 640px a permissão fica em coluna única, com labels
-e descrições quebrando por completo; a partir de 640px, permissão e fase de publicação voltam a três
-colunas. Abaixo de 480px a ação principal ocupa a primeira linha sozinha, e voltar/cancelar fica na segunda
-linha; a partir de 480px o layout horizontal é restaurado. A ordem do DOM é ajustada para 「生成分享链接」
-primeiro e voltar/cancelar depois (em tela estreita, a ação principal na primeira linha decorre diretamente
-dessa ordem), e a partir de 480px o container largo usa `order-last` para posicionar visualmente a ação
-principal na extrema direita. Em tela estreita, a ordem de foco por Tab coincide com a ordem visual; em
-container largo, o primeiro ponto de parada do Tab é a ação principal, na direção oposta à ordem visual
-(voltar/cancelar primeiro) — esse é um trade-off conhecido por não ser possível compartilhar uma única
-ordem de DOM entre as duas visuais "ação principal na primeira linha em tela estreita" e "ação principal na
-mais à direita em tela larga", e ter a ação principal como primeiro ponto de parada também corresponde ao
-caminho mais usado por usuários de teclado. O campo de título pode encolher até a largura do contêiner; na
-tela estreita a explicação da confirmação oculta o escudo decorativo e reduz a indentação repetida,
-mantendo o checkbox, a borda de alerta, o texto completo da confirmação, a explicação da detecção
-automática e a entrada de escopo de verificação. A altura total do Dock não passa de 70dvh, o corpo rola
-verticalmente de forma independente e a área de ações não sai junto com o corpo; o tamanho da fonte não
-diminui, nenhum texto de permissão novo é adicionado e a verificação de publicação não muda.
-
-```text
-container width -> CSS layout only -> single column / wrapped actions
-sessionId      -> existing dock state -> title / permission / acknowledgement
-```
-
-Verificação do SHARE28: painéis de 320/400/640/800px (incluindo painel estreito dentro de janela larga),
-chinês e inglês, temas claro e escuro, viewport baixo; controles e textos de permissão não estouram
-horizontalmente, a área de ações permanece visível e estreitar e depois alargar preserva título, permissão e
-o checkbox de confirmação. Reaproveitando o E2E existente de compartilhamento pendente, acrescentam-se
-asserções de geometria e de estado para painel estreito, sem elevar a formal. Barra lateral, página pública
-de compartilhamento, fronteira de publicação do `/remote` no celular e cadeias desktop continuous / mobile
-replayable permanecem inalteradas.
-
-Após a publicação bem-sucedida, entra em um estado de resultado `published` independente: o título do
-compartilhamento é mantido como informação somente-leitura, com um estado persistente de "compartilhamento
-criado" e uma explicação; permissão de acesso, contagem de seleção, dicas de confirmação, 「上一步」 e
-「取消」 são ocultados. As ações de negócio ficam apenas em 「去浏览器查看」 e 「复制链接」, e as duas mantêm o
-estado de resultado após concluídas, com saída pelo ícone de fechar ou `Esc`. O Toast de sucesso é apenas
-feedback imediato e não substitui o aviso persistente de sucesso do estado de resultado. Havendo arquivos
-ignorados, eles são exibidos como warning secundário no estado de sucesso, e sucesso parcial não pode ser
-relatado como falha.
-
-Os três bottom docks de compartilhamento (seleção, confirmação e sucesso) compartilham a mesma superfície
-base de entrada do Composer comum: a largura herda a coluna de conteúdo do timeline e usa `rounded-2xl`,
-`border-input-border` e `bg-input`. O dock de compartilhamento não usa mais ring de popover nem sombra
-grande, evitando diferenças desnecessárias de camadas e halo ao alternar entre campos comuns. As alturas
-de conteúdo exclusivas de compartilhamento, os botões de ação, o scrim da fase de seleção, a máscara de
-fade da camada de mensagens e as animações de entrada/saída do bottom dock continuam; esses efeitos não
-mudam o estado de compartilhamento, o protocolo de publicação nem a fronteira desktop continuous / mobile
-replayable.
-
-### Altura do painel de seleção e desvio da área inferior de entrada
-
-O `ConversationShareSelectionPanel` à esquerda na fase de seleção usa altura adaptativa ao conteúdo: com
-poucos candidatos, o painel envolve apenas o header, o conteúdo da lista e o padding interno, sem espaço em
-branco por altura fixa; quando o conteúdo dos candidatos excede o limite visível, apenas o `ScrollArea` da
-lista dentro do painel rola verticalmente. A altura final do painel é o menor valor entre a altura natural do
-conteúdo e a altura disponível do contêiner da sessão acima do composer/share dock inferior, sem um teto de
-altura em pixels. A altura disponível é medida de verdade em runtime e recalculada quando o dock inferior
-cresce, o campo de entrada vira multilinha, a janela é redimensionada ou o layout de tela dividida muda; há
-pelo menos 16px de espaço entre o fundo do painel e o topo do dock, e a área de entrada não pode ser
-coberta nem espremida.
-
-O painel de seleção não exibe botão de fechar no canto superior direito; o usuário volta ao timeline
-clicando no overlay ou usando a entrada de reabertura à esquerda do timeline. Clicar na área de texto de
-uma entrada do painel apenas posiciona o corpo no turno correspondente e não muda a visibilidade do painel de
-seleção; somente clicar fora do painel o recolhe e retorna ao timeline. Clicar no checkbox continua mudando
-apenas o estado de seleção do turno atual e não dispara o posicionamento do corpo.
-
-```text
-会话内容区
-┌──────────────────────────────┐
-│ 顶部安全边距                  │
-│ ┌─ 选择面板 ───────────────┐ │
-│ │ header                   │ │
-│ │ 列表：自然高度            │ │
-│ │ 超过可用高度时仅列表滚动  │ │
-│ └──────────────────────────┘ │
-│ 至少 16px 间距                │
-│ 底部 composer / share dock    │ ← 实时测量顶部
-└──────────────────────────────┘
-```
-
-Essa regra de layout ajusta apenas a geometria do painel de seleção no renderer e não muda o estado de
-seleção, o bloqueio de scroll do timeline, o protocolo de publicação nem a fronteira de capacidade de
-compartilhamento do `/remote` no celular.
+O tratamento de exceção da resposta de preflight também precisa encerrar a verificação: os turnos não
+atingidos pela requisição atual recebem um item de bloqueio de transporte retentável, a seleção é
+preservada, a geração é proibida e os detalhes do problema oferecem 「重新检查」. Os logs de exceção são
+registrados separadamente dos logs de falha do servidor. Só depois que todas as entradas da resposta foram
+construídas com sucesso é que a metainformação e o cache são submetidos, evitando que o fingerprint de
+capabilities de uma resposta com falha invalide imediatamente o resultado da recuperação; requisições
+expiradas não escrevem nenhum estado.
+Ordem de estados: `checking → ready（阻断）→ 重新检查 → checking → ready（成功或阻断）`.
 
 ## Contrato dos detalhes de erro de publicação
 
@@ -634,30 +743,61 @@ uma sugestão de retry segura, sem exibir o texto original do servidor.
 
 A classificação de erros HTTP parte da fonte da falha: páginas de erro 5xx não-JSON devolvidas por
 gateway/load balancer (502/504 em HTML) são falhas de infraestrutura e precisam ser classificadas como
-`network`, e não como `invalid_contract` só porque o body não pôde ser interpretado (a semântica de
-`invalid_contract` é o servidor violando o contrato da API, o que enganaria o troubleshooting e a
-mensagem ao usuário). O upload de artifact é uma transmissão grande que o usuário espera ativamente, e o
-timeout de requisição única é ampliado dinamicamente conforme os bytes do artifact (com uma estimativa de
-bandwidth mínima); ele não pode reutilizar o timeout padrão das requisições JSON comuns. As regras de
-ampliação de timeout fora do confirm têm a mesma origem.
+`service_unavailable`, distinguindo-as da classe `network` de ausência de resposta, e não como
+`invalid_contract` só porque o body não pôde ser interpretado (a semântica de `invalid_contract` é o
+servidor violando o contrato da API, o que enganaria o troubleshooting e a mensagem ao usuário). O upload de
+artifact é uma transmissão grande que o usuário espera ativamente, e o timeout de requisição única é ampliado
+dinamicamente conforme os bytes do artifact (com uma estimativa de bandwidth mínima); ele não pode reutilizar
+o timeout padrão das requisições JSON comuns. As regras de ampliação de timeout fora do confirm têm a mesma
+origem.
 
 O dock de compartilhamento permanece aberto, a falha de publicação continua no dock em estado de publicação e
 os detalhes de erro são exibidos inline e roláveis abaixo das informações de progresso; a falha de publicação
-não exibe mais o Toast de erro no topo. O estado de erro mantém 「上一步」, 「取消」 e 「重试生成链接」, e os
-detalhes antigos são limpos quando o usuário muda seleção, título ou permissão. Todos os textos de detalhe
-precisam suportar chinês e inglês, temas claro/escuro e layout estreito.
+não exibe mais o Toast de erro no topo. O estado de erro mantém 「调整」, o fechamento do flutuante e
+「重试生成链接」, e os detalhes antigos são limpos quando o usuário muda seleção, título ou permissão. Todos
+os textos de detalhe precisam suportar chinês e inglês, temas claro/escuro e layout estreito.
+
+A publicação, a importação e a prévia web compartilham a classificação de códigos de negócio e de status
+HTTP: 3216 indica que o conteúdo não passou na verificação de segurança e precisa ser ajustado; 3217 indica
+que o serviço de verificação de segurança está temporariamente indisponível e é preciso tentar de novo mais
+tarde; 5xx genérico indica que o serviço de compartilhamento está temporariamente indisponível. O code numérico
+original precisa ser preservado, inclusive para códigos de negócio desconhecidos. Respostas vazias de
+401/429 indicam respectivamente login e nova tentativa mais tarde, e páginas de erro em HTML também são
+julgadas pelo status HTTP. 3211/3212 na fase de publicação indicam gerar o link novamente e limpam o attempt
+antigo para gerar um novo request ID; na importação, 3211/3212/3214 e as versões não suportadas não
+oferecem retry idêntico, indicando respectivamente verificar o link ou a conta, pedir ao compartilhador para
+gerar de novo, que o compartilhamento somente-leitura não pode ser importado e atualizar o ZCode. 3210 não
+afirma que o arquivo foi perdido e indica de forma unificada que o upload não foi concluído ou que o estado do
+compartilhamento mudou. 3215 mantém o polling serial limitado já existente, preferindo um Retry-After-Ms
+legítimo.
+
+Os dados de falha de validação do servidor aceitam apenas os campos estruturais limitados
+rule/path/field/row_index/row_kind, ignorando o conteúdo original e os demais campos; campos de diagnóstico
+inválidos não afetam a classificação do erro. A mensagem principal mantém uma frase com a causa e o próximo
+passo, e a localização técnica vai para os detalhes de erro. O request ID do servidor é preferencialmente
+`x-request-id`, podendo ser o `logid` válido da resposta quando ausente; nunca se pode usar o request ID do
+cliente no lugar dele.
+A página de erro da web também oferece os detalhes de HTTP/code/request ID do servidor, e os logs de falha de
+importação preservam esses campos para a localização.
+
+```text
+Resposta HTTP → classificação/diagnóstico compartilhados → erro do Host ou do cliente Web
+                                 ├─ 3215 → polling serial limitado do owner de confirm existente
+                                 └─ terminal → estado de erro de UI existente → causa/ação + detalhes sob demanda
+                                      └─ 3211/3212 → UI limpa o attempt inválido → retry manual gera novo request ID
+```
 
 O `x-request-id` do servidor nos detalhes de erro não é exibido inline no dock de erro por padrão; o texto de
 guia de erro coloca no fim um botão de detalhe de erro somente por clique, que exibe e copia o request-id
 legítimo do servidor em um Popover que abre para cima. Quando não há request-id de resposta HTTP, a entrada
 continua presente, com um aviso de ausência estável no Popover e sem ação de copiar; nunca se pode usar um ID
-de request gerado pelo cliente para se passar por ID do servidor. Múltiplas issues compartilham uma única
+de request gerado pelo cliente para se passar por ID de servidor. Múltiplas issues compartilham uma única
 entrada de detalhe, sem repetir o request-id depois de cada issue. O botão de erro e o texto de erro mantêm a
 mesma coluna de conteúdo, usam uma área de clique de 24px e cor semântica destructive, e precisam suportar
 ativação por teclado, fechamento por Esc/clique fora, ajuste de colisão em tela estreita e temas claro e
-escuro. Na fase de seleção o painel pode ser fechado para o timeline e restaurado pela reopen tab à
-esquerda; essa ação só muda o `view`, não limpa seleção, título, permissão ou rascunho de erro, e a reopen
-tab aparece apenas quando `stage=selection`.
+escuro. Quando o painel de escopo é cancelado, o rascunho pending é descartado, e o escopo confirmado, o
+título, a permissão e o rascunho de erro são mantidos; clicar de novo no botão de escopo do flutuante abre
+uma nova transação de edição. A localização no corpo do texto não fecha o painel.
 
 O cartão de detalhes de erro usa layout compacto de linha única quando há apenas um texto acionável: o
 texto, o botão de detalhe e a ação "Fechar" ficam centralizados verticalmente, com padding vertical
@@ -671,12 +811,20 @@ Durante a publicação o painel não pode ser fechado. O `share_url` real só ap
 conteúdo reutilizam o clientRequestId, e uma nova ID é gerada após mudanças na entrada.
 
 A falha de publicação precisa exibir uma dica acionável por kind de erro estável, sem degradar tudo para
-"请重试". O Desktop Host registra `operationId`, fase, kind, HTTP status/code e contagens seguras; Server
-Remote e outras rejeições ativas registram um reason explícito. Logs não podem conter JWT, Signed URL, corpo
-de Rows, nomes de arquivo ou caminhos absolutos. Falhas na projeção pública e no staging de produtos
-registram ainda um `reasonCode` estável (como `input_attachment`, `running_turn`, `artifact_changed`, `unsafe_url`)
-e campos de diagnóstico seguros `rowKind/rowId/artifactType/phase`; a UI usa o reasonCode para sugerir a
-próxima ação e não exibe o texto de erro bruto da camada inferior.
+"请重试". O Host que executa o compartilhamento registra `operationId`, fase, kind, HTTP status/code e
+contagens seguras; Server Remote e outras rejeições ativas registram um reason explícito. Logs não podem
+conter JWT, Signed URL, corpo de Rows, nomes de arquivo ou caminhos absolutos. Falhas na projeção pública e no
+staging de produtos registram ainda um `reasonCode` estável (como `input_attachment`, `running_turn`,
+`artifact_changed`, `unsafe_url`) e campos de diagnóstico seguros `rowKind/rowId/artifactType/phase`; a UI
+usa o reasonCode para sugerir a próxima ação e não exibe o texto de erro bruto da camada inferior.
+
+Quando o parse da resposta HTTP de sucesso falha, o cliente HTTP registra `responseFormat` (`invalid_json` ou
+`schema_mismatch`), o tamanho da resposta em bytes, o path da interface, o request ID e no máximo 10 problemas
+de validação com caminho de campo e tipo seguros; não registra a resposta original, os valores de campo nem
+as mensagens de erro originais do validador. Nomes de campo dinâmicos desconhecidos são ocultados por
+placeholder. A interface explica que o ZCode não conseguiu ler o retorno do serviço de compartilhamento,
+orienta a tentar de novo mais tarde e, em falhas persistentes, orienta a copiar o request ID pelos detalhes de
+erro para contatar o suporte; não descreve um HTTP 200 como publicação bem-sucedida.
 
 ## Importação e continuação de trabalho
 
@@ -898,3 +1046,90 @@ Aceitação: turnos concluídos com imagens embutidas passam pelo preflight, sob
 artifacts baixáveis/importáveis; imagens não suportadas ou corrompidas geram warnings precisos; o excesso de
 capacidade de imagens é detectado na fase de seleção; HTTP 405 em HTML e corpo de resposta interrompido são
 exibidos como erros de interface/rede, com os detalhes preservando os IDs de correlação.
+
+### Consistência da exibição de Workflow no compartilhamento (SHARE-WF03)
+
+A lista de seleção do compartilhamento é construída por product turn, incluindo turnos de fundo concluídos
+sem bolha de realUser; a navegação de perguntas comuns permanece inalterada.
+Um CreateWorkflow que falhou na compilação e não criou run mantém apenas o diagnóstico da ferramenta e não
+gera cartão de execução indisponível.
+O cartão de execução reaproveita o cabeçalho de cartão do cliente, o grafo de etapas e a barra de produtos; um
+turno concluído mostra apenas o cartão de entrega final e as quatro estatísticas, sem repetir o grafo de
+etapas.
+Uma linha de artifact reivindicada por um bloco de conteúdo não exibe mais o cartão grande de download, e
+blocos desconhecidos mantêm o resumo e os recursos originais.
+O workflow na versão de conteúdo 2 acrescenta `preview_text` opcional para file/markdown (apenas text/plain e
+text/markdown, com bytes e caracteres em UTF-8 de no máximo 64 KiB). O publicador só envia quando o
+`capabilities.workflow>=2` do servidor permite; o texto vem dos mesmos bytes já congelados da versão e entra
+no hash do bloco e na verificação de segurança já existente. Os recursos de download são preservados.
+O lado de leitura prioriza o texto do snapshot e não depende de CORS do OSS; o compartilhamento v1 continua
+compatível, e os turnos concluídos que ficaram de fora precisam ser republicados.
+
+A visão somente-leitura do compartilhamento não exibe blocos de workflow sem status de execução, sem produtos
+e marcados como indisponíveis, e também remove o resumo degradado e a dica de snapshot desse bloco; workflows
+normais ou com dados parciais continuam sendo exibidos.
+Não são gerados cards de site adicionais para localhost/127.0.0.1; o texto original no corpo da mensagem é
+mantido. Esta regra também se aplica a compartilhamentos antigos.
+
+O preflight do compartilhamento precisa preservar as classificações estáveis de erro de autenticação, de rede,
+de serviço indisponível, de limitação de taxa, de função não liberada, de conexão de workspace, de contrato de
+resposta e de declaração de autorização, reutilizando as dicas de ação explícitas. Bloqueios puramente de
+transporte/autenticação usam o título "暂时无法检查分享", sem serem confundidos com problema de conteúdo; só
+problemas reais de conteúdo exibem o título de bloqueio de conteúdo. Causas desconhecidas não exibem um
+placeholder de fase vazio.
+
+## Unificação da exibição de ferramentas (tool-presentation v1)
+
+A timeline pública reaproveita todos os renderers de ferramenta do App, os resumos agrupados e os detalhes
+publicáveis. Adota as configurações padrão de produto: agrupamento de exploração/terminal/CUA ligado,
+agrupamento de alterações desligado, raciocínio visível, Todo oculto; as configurações pessoais não são
+enviadas. A fronteira somente-leitura do compartilhamento permanece, sem novo child session, operação de
+workspace ou aplicação de interação de plugin.
+
+Novo `content_blocks` com `type=tool-presentation` e `version=1`, negociado por `content_block_versions`, com o
+`schema_version` de topo ainda em 1. Vincula o `fallback_row_id` do toolCall e contém o display filtrado por
+allowlist estrita, as referências de recursos de imagem e o tipo de agent; não contém resumo formatado,
+tema, autorização de execução nem o `raw` original. Os workflows continuam usando os blocos de conteúdo
+existentes. A mídia reaproveita o upload de artifact e o fechamento de recursos, e é exibida pela
+atribuição da ferramenta e na ordem original.
+
+Compartilhamentos antigos são restaurados a partir das linhas de ferramenta originais, sem adivinhar fatos
+perdidos; o servidor antigo mantém a publicação V1 e informa que a exibição estruturada não foi preservada
+por completo. Blocos desconhecidos ou corrompidos voltam à linha original e não podem impedir que o
+compartilhamento inteiro abra. A ordem de lançamento do novo bloco é: servidor, site de compartilhamento, App.
+
+```mermaid
+flowchart TD
+  App[Linha de ferramenta do App] --> Facts[Fatos comuns de exibição de ferramenta]
+  Share[Linha de compartilhamento e bloco público de conteúdo] --> Facts
+  Facts --> Renderer[Renderer e agrupamento comuns]
+  Renderer --> Native[App injeta capacidades de host]
+  Renderer --> Readonly[Compartilhamento injeta recursos públicos]
+```
+
+### Falha de exibição de ferramenta e regressão de capacidade do host
+
+- Imagem embutida com URL de recurso é exibida diretamente; caso contrário, é carregada pela capacidade de
+  leitura. Sem capacidade ou com resultado vazio, exibe-se como indisponível; em exceção de leitura,
+  exibe-se falha de carregamento e registra-se o log. Ao trocar o caminho ou a capacidade, a imagem antiga é
+  invalidada imediatamente, e requisições tardias não podem sobrescrever o resultado atual.
+- O pop-up de aprovação também precisa injetar a capacidade de exibição do App quando reutiliza diretamente
+  o renderer de ferramenta. A aprovação apenas pré-visualiza o conteúdo pendente e não inicia a página de
+  interação do plugin. Linhas de ferramenta do App com declaração legítima de UI de plugin e vínculo de
+  sessão mantêm a entrada do plugin; sem declaração, continua usando o renderer dedicado. A timeline pública
+  não recebe permissões de plugin.
+- O preflight não lê os bytes dos arquivos de produto, usando apenas metadados e stat já existentes; arquivos
+  de workflow verificam o orçamento de arquivo único, total de bytes e quantidade por `version.bytes`. Quando
+  o tamanho declarado está ausente, o preflight não lê o arquivo extra, e a leitura com validação acontece na
+  publicação. As linhas de produto independentes removidas não são materializadas de novo.
+- Corrupção do contrato/integridade da importação não admite retry idêntico; falha de requisição de rede,
+  interrupção da leitura do corpo da resposta, serviço indisponível e unknown são retentáveis, preservando o
+  request ID da importação. Erros HTTP não podem ser classificados como corrupção de contrato apenas por não
+  serem resposta JSON.
+
+```text
+Mudança na imagem de entrada → leitura atual → sucesso / indisponível / falha
+             └→ cleanup invalida a leitura antiga → resultado tardio descartado
+Host do App → Provider de capacidade de exibição → linha de ferramenta / prévia de aprovação
+Requisição de importação → classificação HTTP → falha de transporte retentável / corrupção de contrato não retentável
+```

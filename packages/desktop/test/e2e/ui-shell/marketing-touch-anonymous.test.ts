@@ -5,12 +5,12 @@ import {
   TID_LOGOUT_BUTTON,
   TID_LOGIN_USE_API_KEY_BUTTON,
   TID_LOGIN_API_KEY_SKIP_BUTTON,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import {
   clearAppData,
   getE2EAppDataPaths,
   waitForDefaultWorkspaceReady,
-} from "../helpers/desktop-app.js";
+} from "#e2e/helpers/desktop-app";
 
 const byId = (id: string) => $(`[data-testid="${id}"]`);
 function origin() {
@@ -104,29 +104,31 @@ describe("Marketing Touch anonymous boundaries", () => {
     expect(requests.filter((request) => request.method === "POST")).toHaveLength(1);
     expect(requests.every((request) => !request.headers.authenticated)).toBe(true);
   });
-  it("MTE-05 anonymous banner: closes normally and opens login instead of submitting a claim", async () => {
-    const banner = byId("marketing-banner");
-    await banner.waitForDisplayed({ timeout: 15_000 });
-    await banner.$('button[aria-label="Close"]').click();
-    await banner.waitForExist({ reverse: true });
-    await browser.waitUntil(async () => (await state()).events.length === 1);
-    const closed = await state();
-    expect(closed.events).toEqual([{ campaign_id: "banner-1", action_type: "cancel" }]);
-    expect(
-      closed.requestDetails
-        .filter((request) => request.path.endsWith("/touch/action"))
-        .every((request) => !request.headers.authenticated),
-    ).toBe(true);
-    await fetch(`${origin()}/__e2e/marketing/redeliver-banner`, { method: "POST" });
+  // 标题刻意不含 "banner"/"popup"：beforeEach 靠标题子串决定 fixture 是否投递默认
+  // banner，含 "banner" 会打开 banner-1 默认投放，让断言在错误的前置状态下被评估。
+  it("MTE-05 legacy claim touch: is ignored silently, renders nothing and never claims", async () => {
+    const countTouchQueries = async () =>
+      (await state()).requestDetails.filter(
+        (request) =>
+          request.method === "GET" && request.path.startsWith("/api/v1/marketing/touch"),
+      ).length;
+    // beforeEach 的轮询已经产生过 GET，必须以「fetch 之后又多了一次 GET」作为同步点，
+    // 否则 waitUntil 会被历史请求立即满足、在投放到达前就开始断言。
+    const before = await countTouchQueries();
+    const created = (await (
+      await fetch(`${origin()}/__e2e/marketing/legacy-claim-banner`, { method: "POST" })
+    ).json()) as { campaignId: string };
+    expect(created.campaignId).toContain("legacy-claim-");
     await browser.execute(() => window.dispatchEvent(new Event("online")));
-    await banner.waitForDisplayed({ timeout: 15_000 });
-    await banner.$('button[aria-label="Open"]').click();
-    await byId(TID_LOGIN_USE_API_KEY_BUTTON).waitForDisplayed({ timeout: 15_000 });
-    const after = await state();
-    expect(after.events).toEqual(closed.events);
+    // 服务端已经返回该投放；UI 必须既不渲染任何触点，也不触发领取或登录。
+    await browser.waitUntil(async () => (await countTouchQueries()) > before, { timeout: 30_000 });
+    expect(await byId("marketing-banner").isExisting()).toBe(false);
+    expect(await byId("cloud-content-dialog").isExisting()).toBe(false);
+    const ledger = await state();
+    expect(ledger.events).toEqual([]);
     expect(
-      after.requestDetails.filter((request) => request.path.endsWith("/billing/claim")),
-    ).toHaveLength(0);
+      ledger.requestDetails.filter((request) => request.path.endsWith("/billing/claim")),
+    ).toEqual([]);
     await expectAnonymous();
   });
 });

@@ -16,7 +16,7 @@ painel de execução.
 |---|---|---|---|
 | ferramenta `CreateWorkflow`, `script` embutido | o modelo | a janela de confirmação | a sessão atual |
 | ferramenta `CreateWorkflow`, origem `saved` | o modelo | a janela de confirmação, com um selo de origem salva | a sessão atual |
-| ferramenta `AmendWorkflow` | o modelo | nenhuma quando a execução sendo revisada é da própria sessão; a janela de confirmação caso contrário (veja "Revisando as execuções desta sessão") | a sessão atual |
+| ferramenta `AmendWorkflow` | o modelo | nenhuma quando a execução sendo revisada é da própria sessão e a revisão não traz nenhum provedor novo; a janela de confirmação caso contrário (veja "Revisando as execuções desta sessão") | a sessão atual |
 | 「运行」 (Executar) na página do hub | o usuário | nenhuma: o clique é o consentimento | uma sessão nova e vazia no projeto do workflow |
 | Configure no cartão da execução ou no painel da execução (uma nova execução do mesmo script sob novas configurações; uma mudança não inicia nada, veja abaixo) | o usuário | nenhuma: o clique em Apply é o consentimento | a sessão que é dona da execução |
 | `/dwf resume`, o Resume do painel da execução, `ResumeWorkflowRun` | o usuário ou o modelo | nenhuma | a sessão que é dona da execução |
@@ -43,7 +43,7 @@ execução que perguntou.
 ### Quando o modelo pode chamá-la
 
 Somente quando o usuário pediu um workflow: por meio de `/workflow`, ou em prosa que nomeie
-workflow como o meio ("use um workflow para …", "用工作流 …"). Então a chamada é obrigatória,
+workflow como o meio ("use um workflow para …"). Então a chamada é obrigatória,
 por menor que seja a tarefa, e o tamanho decide apenas quantos subagentes o script recebe. Sem
 um pedido desses o modelo não inicia um workflow, qualquer que seja a forma da tarefa;
 trabalho de múltiplos passos ou múltiplos subagentes vai para a ferramenta `Agent` ou é feito
@@ -96,6 +96,21 @@ e o handler novamente vejam o valor que estará em vigor. A resposta o nomeia: "
 {model} (the main agent stays on the session model)". O parêntese é essencial. O agente principal
 mantém o modelo da sessão, o que quer que este campo diga, e sem essa meia frase ele lê
 "runs on X" como uma troca sua própria e relata ao usuário uma que nunca aconteceu.
+
+O campo é escolha do usuário, nunca do agente principal. O agente o define apenas quando o
+usuário pediu um modelo, passando o nome que ele usou, e nunca move os subagentes para um modelo
+sob outro provedor por conta própria: outro provedor é outra conta, e um modelo mais barato
+aparente ali não é motivo para agir, apenas motivo para perguntar. Quando o agente vê que um
+modelo mais leve ou mais rápido em outro lugar serviria à execução, ele pergunta ao usuário antes
+da chamada, nomeando o modelo, o provedor e o que economizaria, e toma a resposta como o pedido.
+Quando o usuário de fato pediu um modelo que vive sob outro provedor, por essa pergunta ou por
+conta própria, tudo bem; o agente então escreve o `providerId/modelId` completo, que é a única
+forma que o resolvedor aceita para um modelo que o provedor da sessão não tem (veja a tabela
+abaixo). A mesma regra amarra os modelos que um script nomeia para seus subagentes
+(`docs/dynamic-workflow/authoring.md`, "Choosing a model per subagent"). A regra de permissão
+cobre isso para o único caminho que não tem janela própria: um `AmendWorkflow` da execução desta
+sessão que trouxesse um provedor que nem a sessão nem a execução usaram pergunta ao usuário como
+qualquer outra revisão ("Revisando as execuções desta sessão").
 
 Exatamente um entre `script`, `saved` e `path` deve ser dado, e `args` apenas com `path`. A
 regra é imposta pelo `validateInput` da ferramenta sobre os argumentos do modelo, não pelo
@@ -187,8 +202,14 @@ resolve por especificidade:
 | O que o campo diz | Para o que resolve |
 |---|---|
 | `providerId/modelId` | aquela entrada |
-| um `modelId` solto configurado sob exatamente um provedor | aquela entrada |
-| um `modelId` solto configurado sob vários provedores | o modelo da própria sessão quando ele é um deles; caso contrário, uma falha nomeando todos |
+| um `modelId` solto que o provedor da própria sessão tem | a entrada daquele provedor, o que quer que os outros provedores também tenham |
+| um `modelId` solto que só os outros provedores têm | uma falha nomeando seus ids completos: um nome solto nunca cruza a fronteira do provedor, então mover os subagentes para outro provedor é sempre escrito como `providerId/modelId` |
+| um `modelId` solto, quando o modelo da sessão não está no catálogo | a entrada quando exatamente um provedor a tem; caso contrário, uma falha nomeando todos (não há fronteira de provedor a preservar) |
+
+A fronteira do provedor é a parte do resolvedor na regra acima: um id de modelo que por acaso
+existe sob mais um provedor do que o usuário tem em mente (o mesmo modelo em uma chave pessoal e
+em um plano de equipe, digamos) nunca é buscado em silêncio no outro, e a única forma que cruza
+a fronteira é a que o agente escreve apenas quando o usuário pediu.
 
 Ids de provedor e de modelo comparam sem distinção de maiúsculas, já que um registro não publica
 nome de exibição distinto do id, e a string canônica é escrita na grafia do próprio catálogo,
@@ -647,8 +668,9 @@ primeiro: o cache (perguntas inalteradas de subagentes nomeados reproduzem a cus
 primeira escrita da revisão no workspace; depois disso apenas perguntas que leram e não
 executaram nada continuam reproduzindo), o fato de que um subagente nomeado cuja pergunta
 inacabada a revisão não mudou retoma aquela pergunta de onde parou, e a regra de confirmação (as
-execuções desta sessão começam sem janela; a execução de outra sessão pergunta). Sua lista de
-campos enuncia uma regra, omita um campo e a nova execução mantém o valor da predecessora, em
+execuções desta sessão começam sem janela a menos que a revisão traga um provedor novo; a execução
+de outra sessão pergunta). Sua lista de campos enuncia uma regra, omita um campo e a nova
+execução mantém o valor da predecessora, em
 uma ordem fixa: primeiro o script (omita `path` e `script` para manter o da predecessora e mudar
 apenas as configurações), depois `max_concurrency` (omitir mantém, `null` remove, um número muda,
 e apenas quando o usuário pedir; uma chamada carregando nada além deste campo, em uma execução
@@ -799,7 +821,7 @@ Dentro do ramo always-ask a ordem é fixa:
 | a ferramenta está em `disallowedTools` | deny |
 | uma regra de deny do projeto casa | deny |
 | uma regra de allow da sessão casa | allow, sem evento, sem janela (`rule.session.allow`) |
-| `AmendWorkflow` de uma execução que esta sessão iniciou, não parada pelo usuário | allow, sem evento, sem janela (`rule.session.workflowOwner`) |
+| `AmendWorkflow` de uma execução que esta sessão iniciou, não parada pelo usuário, sem trazer um provedor novo | allow, sem evento, sem janela (`rule.session.workflowOwner`) |
 | caso contrário | ask (`tool.alwaysAsk`) |
 
 Regras de allow do projeto e `allowedTools` nunca são consultadas para uma ferramenta always-ask.
@@ -1004,9 +1026,24 @@ A regra é lida do journal, através do bloco `predecessor` que `resolveInput` p
 
 | Predecessora | Resultado |
 |---|---|
-| `parent_session_id` é esta sessão e `stop_reason` não é `user` | allow, `rule.session.workflowOwner`, em qualquer modo |
+| `parent_session_id` é esta sessão, `stop_reason` não é `user`, e a revisão não traz um provedor novo | allow, `rule.session.workflowOwner`, em qualquer modo |
+| `parent_session_id` é esta sessão mas a revisão traz um provedor novo | ask: outro provedor é outra conta, e só o usuário pode escolhê-la |
 | `parent_session_id` é esta sessão mas o usuário a parou | ask: o usuário encerrou aquela execução de propósito, e uma revisão dela é uma nova decisão |
 | a execução de outra sessão | ask |
+
+Um "provedor novo" é `predecessor.introduces_providers`, que `resolveInput` calcula como seu
+último passo, depois que os vínculos de modelo do script estão resolvidos. Ele lista, uma vez
+cada e em ordem alfabética, os provedores dos modelos que a revisão vai usar (o `subagent_model`
+resolvido e os valores de `model_bindings`) que não são nem o provedor do modelo da sessão nem um
+provedor dos modelos sobre os quais a predecessora rodou (o `subagentModel` e o `modelBindings`
+dela, de `run-launched`). A chave está presente apenas quando essa lista não é vazia. Um modelo que
+a predecessora já usou foi aprovado na janela daquela própria execução, então mantê-lo, ou mover
+para outro modelo sob o mesmo provedor, continua livre. O fato é calculado, nunca lido da
+chamada: o schema voltado ao modelo não tem `predecessor`, então uma chamada que carrega um é
+recusada antes de `resolveInput`, e um `providerId/modelId` completo escrito pelo modelo prova
+apenas que o nome é inequívoco, não que o usuário o escolheu. Sem um catálogo de modelos não há
+provedor de sessão para ler, então a comparação é só com a predecessora; um nome de modelo que a
+chamada passa não pode ser resolvido de todo modo então, e um herdado é o próprio da predecessora.
 
 Um início pelo hub é dono da sessão que criou, então revisá-lo a partir dessa sessão é livre. Uma
 execução que foi ela mesma uma revisão é dona da sessão que revisou, então uma cadeia de revisões
@@ -1024,10 +1061,12 @@ Os portões do servidor (`run_not_found`, `missing_boundaries`) ainda rodam no e
 apenas remove a janela. Um `max_concurrency` diferente do da predecessora também não traz a
 janela de volta, em nenhuma das direções: ele muda quantos dos subagentes do script aprovado
 trabalham por vez, não o que o script faz nem o que qualquer subagente pode fazer, e uma elevação
-ainda responde ao teto do governador em cada chave de provedor. Nem um `subagent_model` diferente.
-Ele move os subagentes para outro modelo que este host já tem configurado e não alarga nada sobre
-o que a execução pode fazer, então uma revisão que muda só o modelo começa sem janela como
-qualquer outra revisão da execução desta sessão. Uma revisão que omite `script` e `path` é
+ainda responde ao teto do governador em cada chave de provedor. Nem um `subagent_model` diferente
+sob um provedor que a sessão ou a execução já usaram. Ele move os subagentes para outro modelo
+que este host já tem configurado e não alarga nada sobre o que a execução pode fazer, então uma
+revisão assim começa sem janela como qualquer outra revisão da execução desta sessão. Um modelo
+sob um provedor que nenhum dos dois usou é a exceção na tabela acima: a janela volta, porque essa
+escolha move o custo para outra conta. Uma revisão que omite `script` e `path` é
 julgada do mesmo modo que uma que os passa: livre para a execução desta sessão, com janela para a
 de outra, onde a linha de linhagem diz que o script está inalterado.
 
@@ -1234,6 +1273,42 @@ A chamada segue o mesmo ciclo de vida de `CreateWorkflow`:
    tabela de argumentos (nome, tipo, obrigatório, padrão, descrição), e o script em um bloco
    recolhível fechado por padrão. Opções: Allow once e Deny, mais a linha de feedback genérica.
    Sem grafo, sem Refine, sem opção de sessão.
+
+   A janela fica acima do compositor, e o modelo escreve a descrição, os argumentos e o
+   script, então qualquer um deles pode ser longo. A janela tem no máximo o menor entre 72% da
+   altura da viewport e 42rem, o mesmo teto da janela de pergunta no mesmo lugar. Ela tem
+   exatamente uma área de rolagem vertical: tudo acima das opções. As opções, a linha de
+   feedback e o Confirm ficam abaixo dela, atrás de um fio de cabelo, então a decisão está
+   sempre na tela. A pergunta e o nome são o topo dessa área, não fixados acima dela: fixá-los
+   deixava pouco espaço em uma viewport curta e exigia um segundo rolador como reserva.
+
+   A fixação só vale em uma viewport de pelo menos 36rem de altura. A parte fixada sozinha pode
+   chegar a cerca de 320px (as opções, uma caixa de feedback que cresce até 5 linhas, uma linha
+   de erro e a linha do Confirm), mais que o teto em uma tela curta como um telefone deitado, onde
+   a janela a cortaria e cortaria o Confirm junto. Abaixo de 36rem a janela inteira é a área de
+   rolagem, e as opções rolam com o conteúdo; o teto, o fio de cabelo e cada revelação continuam
+   os mesmos. De qualquer jeito há exatamente um rolador vertical.
+
+   Nenhuma parte rola por conta própria. Um rolador dentro de outro manda um único gesto de roda
+   para a caixa que estiver sob o ponteiro, e então o passa para o de fora. Partes longas são
+   encurtadas por revelação, e cada revelação torna a área única mais longa:
+
+   | Parte | Recolhida | Expandida por |
+   |---|---|---|
+   | `description`, `whenToUse` | as 4 primeiras linhas | 「展开」 / "Show more" sob o texto, mostrado só quando o texto está realmente cortado; 「收起」 / "Show less" o dobra de volta |
+   | Argumentos | as 8 primeiras linhas | 「显示全部 N 个参数」 / "Show all N arguments" sob a tabela; 「收起参数」 / "Show fewer arguments" a dobra de volta |
+   | Script | fechado | o alternador do script; ele abre embutido na altura toda (uma linha longa ainda rola de lado dentro do bloco de código) |
+
+   O cabeçalho de coluna da tabela de argumentos gruda no topo da área de rolagem enquanto suas
+   linhas passam por baixo, e nomes e padrões longos quebram em vez de alargar a tabela. Um novo
+   pedido reinicia toda revelação como recolhida.
+
+   Toda revelação é alcançável pelo teclado. A janela abre com o foco na primeira opção, e o Tab
+   percorre as opções e a linha de feedback como em toda janela de permissão. Shift+Tab na
+   primeira opção sai desse ciclo e cai no último controle da área de rolagem (o alternador do
+   script); dali em diante Tab e Shift+Tab percorrem as revelações em ordem de leitura, e o Tab
+   depois da última volta para a opção selecionada. O navegador rola a área até o controle com
+   foco.
 5. Allow escreve o arquivo (criando o diretório), substituindo qualquer um existente. A flag
    `overwritten` da saída é recalculada no momento da escrita, não copiada da entrada.
 
@@ -1484,9 +1559,9 @@ Abaixo do título: um subtítulo
 (「保存在已打开项目里的工作流，填好参数就能再跑一次。」), o cabeçalho de seção 「已保存的工作流」 com
 a contagem total, e, à direita, um botão fantasma 「工作流设置」 (Workflow settings) seguido do
 rótulo do modo atual na cor de texto terciária, e então um botão de atualizar 「刷新」 que faz cada
-grupo recarregar além do seu cache. O botão de configurações abre Settings › 常规, onde mora a
-linha do modo (veja "A escolha do usuário"), e está presente exatamente quando aquela linha está:
-quando o recurso é oferecido.
+grupo recarregar além do seu cache. O botão de configurações abre Settings › Geral, onde mora a
+linha do modo (veja "A escolha do usuário"), e está presente exatamente quando aquela linha está,
+o que é sempre que o hub é mostrado, exceto por um snapshot de um Host mais antigo.
 
 ### Grupos
 
@@ -1539,13 +1614,15 @@ execução que o modelo iniciou sob outro `name` não pertence a nenhum workflow
 
 ### A página de detalhe
 
-A página de detalhe substitui a lista. Seu breadcrumb é 自动化 › projeto (ou 「全局」) › nome; o
-crumb de seção volta para a lista. Toda ação na página tem como alvo o projeto próprio do
+A página de detalhe substitui a lista. Seu breadcrumb é 「自动化」 (Automações) › nome, e o crumb de seção volta
+para a lista. O breadcrumb não tem nível de projeto: um projeto é um grupo na lista, não uma
+página, então um crumb para ele não teria para onde levar. A página diz a qual projeto o workflow
+pertence no seu cabeçalho, no lugar. Toda ação na página tem como alvo o projeto próprio do
 workflow, nunca o ativo.
 
 | Parte | Conteúdo |
 |---|---|
-| Cabeçalho | o nome, a descrição, um botão primário 「运行」 e um menu ⋯ (revisar, copiar caminho, o item de escopo, apagar) |
+| Cabeçalho | o nome, ao lado dele um pequeno rótulo contornado com o rótulo do projeto (「全局」 para um workflow global), a descrição, um botão primário 「运行」 e um menu ⋯ (revisar, copiar caminho, o item de escopo, apagar). O rótulo é texto simples, não um controle; um rótulo de projeto longo é cortado com reticências. |
 | 「最近产物」 (artefatos mais recentes) | os chips de artefato da execução concluída mais recente que publicou algum, clicáveis para a sessão daquela execução |
 | Abas | 「定义」 (definição) e 「运行历史」 (histórico de execuções, com a contagem); o caminho do arquivo com um botão de cópia à direita |
 | Definição: 「基本信息」 | 「说明」 (descrição, obrigatório), 「使用时机」 (quando usar, com a ajuda 「给 ZCode 的路由提示：什么场景该选这个工作流。」), e uma tabela de 「参数」 (nome, tipo, obrigatório, padrão, descrição) com adicionar e remover. Erros de linha: 「参数需要名字」, 「参数名重复」, 「默认值与类型不符」. |
@@ -1692,6 +1769,23 @@ precisa de um projeto alvo), abrem o diálogo:
 | Nota | 「将立即在 {project} 的新会话中运行」 |
 | Rodapé | 「取消」 e 「运行」, o último mostrando um spinner enquanto pendente |
 | Área de erro | aparece quando o início é recusado: o texto do motivo, e então a mensagem do agente em um bloco monoespaçado (para `compile_failed`, os diagnósticos) |
+
+O diálogo tem a altura do seu conteúdo, até o menor entre a altura da viewport menos uma margem
+de 1rem de cada lado e 45rem. Uma declaração pode trazer qualquer número de argumentos, então o
+diálogo é disposto em três zonas e só a do meio rola:
+
+| Zona | Partes | Comportamento |
+|---|---|---|
+| Topo | Cabeçalho | fixo |
+| Meio | 「运行于」 e os campos de argumento | rola por conta própria assim que o conteúdo passa do teto de altura. Com três linhas ou mais (「运行于」 conta como uma) ele não encolhe abaixo de 6rem; com menos, não encolhe de todo, já que o conteúdo dele já é mais curto que uma área de rolagem útil. |
+| Baixo | Nota, área de erro, rodapé | fixo, então a consequência do clique, o resultado da última tentativa e os botões estão sempre na tela. O bloco da mensagem do agente rola dentro da área de erro depois de 10rem. |
+
+Quando as zonas fixas sozinhas deixam menos que o mínimo da zona do meio (uma viewport muito
+curta), o diálogo inteiro rola, então cada parte continua alcançável.
+
+Um envio que falha na validação rola o primeiro campo que falhou para a vista e move o foco para
+ele: com uma lista longa o campo e seu erro podem estar longe da parte visível da lista, e um
+clique que não muda nada na tela parece um botão morto.
 
 ### O lançador
 
@@ -2437,12 +2531,11 @@ rótulo do modelo de subagente segue: em um plano de equipe ele é um UUID.
 
 ## Release cinza: a chave de recurso `dynamicWorkflow`
 
-Status: implementado. O servidor decide, por cliente, se workflows dinâmicos são oferecidos de
-todo modo, e qual modo um usuário recebe por padrão. A chave é
-`data.configs.dynamicWorkflow.mode` na resposta de `/api/v1/client/configs`, com os valores
-`"disabled" | "onDemand" | "alwaysOn"`. Onde o servidor oferece o recurso, o usuário pode escolher
-outro dos três modos em Settings (veja "A escolha do usuário"). O servidor oferece; o usuário
-escolhe entre o que é oferecido.
+Status: implementado. O servidor decide, por cliente, qual modo um usuário recebe por padrão. A
+chave é `data.configs.dynamicWorkflow.mode` na resposta de `/api/v1/client/configs`, com os
+valores `"disabled" | "onDemand" | "alwaysOn"`. O usuário pode escolher qualquer um dos três modos
+em Settings (veja "A escolha do usuário"), e uma escolha explícita sempre vence. O servidor só
+define o padrão: o modo de um usuário que não escolheu.
 
 ### O que cada modo significa
 
@@ -2455,9 +2548,10 @@ oferecido.
 | `onDemand` | Toda porta de `alwaysOn`, com a superfície de ferramentas voltada ao modelo adiada. O comando `/workflow` permanece no catálogo de slash (então a entrada do menu mais do compositor e a do painel `/` permanecem), a skill `dynamic-workflows` continua descobrível, a página de automações mantém sua aba 「工作流」 e toda afordância de Resume é oferecida; mas as dez ferramentas de workflow **não são registradas para o modelo, e as descrições de `Agent`/`Task` não carregam linha de CreateWorkflow, até que a sessão seja ativada** por seu primeiro `/workflow`, por um Resume ou Configure de uma de suas execuções, ou por retomar uma sessão cujos registros já contêm um workflow. Uma vez ativada uma sessão permanece ativada. Veja "Sob demanda: ativação". `enabled = mode !== "disabled"` (`isDynamicWorkflowModeEnabled` em `packages/shared/src/dynamic-workflow-feature.ts`) ainda responde a toda pergunta "o recurso é oferecido de todo modo"; apenas o portão de registro lê o modo em si. |
 | `alwaysOn` | Tudo o que este documento descreve; as dez ferramentas são registradas desde a primeira requisição da sessão. |
 
-A chave ausente, malformada, ou a requisição falhou: `disabled`. Um servidor que para de enviar a
-chave desligou o recurso; um snapshot "ligado" obsoleto nunca é carregado adiante para além de uma
-resposta bem-sucedida que não a tem. A UI de terminal e execuções `-p` headless nunca consultam a
+A chave ausente, malformada, ou a requisição falhou: a oferta é `disabled`. Um servidor que para
+de enviar a chave desligou o padrão; um snapshot "ligado" obsoleto nunca é carregado adiante para
+além de uma resposta bem-sucedida que não a tem. A escolha explícita do usuário ainda se aplica
+por cima (veja "A escolha do usuário"). A UI de terminal e execuções `-p` headless nunca consultam a
 chave: o CLI autônomo não lê `/client/configs`. Seu modo vem da flag `--workflow-mode` e é
 `disabled` quando a flag está ausente (veja "O CLI autônomo: `--workflow-mode`").
 
@@ -2499,12 +2593,15 @@ política posterior, criação e retomada de sessão nesse processo a reutiliza.
 não é travada: ela é aplicada à oferta travada a cada uso. Uma virada do servidor portanto tem
 efeito na próxima inicialização do app, a mesma regra que o release cinza do prompt de contexto do
 desktop. O travamento é o que impede que uma criação de sessão espere por um timeout de rede
-quando a máquina está offline; o custo é que um Host que começou offline fica desabilitado até
-reiniciar. O cache de envelope de 1 h do próprio provedor e o `forceRefresh` servem ao refresh do
+quando a máquina está offline; o custo é que um Host que começou offline oferece `disabled` até
+reiniciar, então um usuário que nunca escolheu um modo tem o recurso desligado até então (uma
+escolha explícita ainda se aplica, veja "A escolha do usuário"). O
+cache de envelope de 1 h do próprio provedor e o `forceRefresh` servem ao refresh do
 renderer, não ao portão do CLI. Hosts remotos por SSH, WSL e Docker avaliam a chave eles mesmos
 através da própria requisição `/client/configs`, então uma máquina remota que não alcança o
-servidor fica desabilitada a menos que a sobreposição chegue até ela (abaixo). O CLI nunca lê a
-chave nem a sobreposição; ele apenas consome o que o Host envia, do mesmo jeito que
+servidor oferece `disabled`: o recurso fica desligado ali a menos que a escolha do usuário
+(empurrada pelo desktop) ou a sobreposição (abaixo) o ligue. O CLI nunca lê
+a chave nem a sobreposição; ele apenas consome o que o Host envia, do mesmo jeito que
 `offPeakToolEnabled` funciona. CLIs antigos que não conhecem o método de política respondem
 método-não-encontrado, que o Host registra e ignora, e seus schemas `z.object` descartam a flag de
 sessão desconhecida, então o pareamento degrada para desabilitado. As sessões vivas de um
@@ -2610,25 +2707,29 @@ Status: implementado. Uma configuração de todo o app, `dynamicWorkflowMode` no
 configurações compartilhado, guarda a escolha do usuário. Ausente significa "seguir a oferta". Fora
 disso guarda um dos três modos.
 
-**Precedência.** O servidor (ou a sobreposição local) decide a *oferta*: se o recurso está
-disponível (`offeredMode` é um modo conhecido diferente de `disabled`,
-`isDynamicWorkflowOffered`) e qual modo é o padrão. Um snapshot sem um `offeredMode` legível conta
-como não oferecido: ele vem de um Host mais antigo (um bundle de UI mais novo, como o remoto do
-telefone, conectado a um desktop mais antigo), que ignora a escolha, então nem a linha nem o botão
-de configurações do hub aparece. A escolha do usuário
-se aplica apenas quando o recurso está disponível, e então substitui o modo oferecido. Uma escolha
-nunca liga o recurso onde a oferta é `disabled`: o valor armazenado fica no arquivo e se aplica de
-novo se uma oferta posterior tornar o recurso disponível. O helper compartilhado
-`applyDynamicWorkflowUserMode(offer, choice)` é o único lugar onde esta regra está escrita; o Host
-a chama, e o renderer só lê seu resultado.
+**Precedência.** A escolha do usuário sempre vence. O servidor (ou a sobreposição local) decide
+apenas a *oferta*, `offeredMode`: o modo padrão, que é o modo efetivo enquanto o usuário não
+escolheu. Uma oferta de `disabled` é um padrão como os outros, então um usuário pode ligar o
+recurso onde o servidor não envia a chave, onde a requisição falhou, ou em uma máquina remota
+que não alcança o servidor. Um Host sem um resolvedor para a oferta de todo (um que não liga o
+recurso) permanece `disabled` qualquer que seja a escolha. O servidor portanto não tem um
+interruptor remoto para um usuário que escolheu um modo; o recurso está geralmente disponível, e
+a chave só move o padrão. O helper compartilhado `applyDynamicWorkflowUserMode(offer, choice)`
+é o único lugar onde esta regra está escrita; o Host a chama, e o renderer só lê seu resultado.
+
+Um snapshot sem um `offeredMode` legível (`readDynamicWorkflowOfferedMode` não devolve nada)
+vem de um Host mais antigo (um bundle de UI mais novo, como o remoto do telefone, conectado a um
+desktop mais antigo), que ignora a escolha, então nem a linha nem o botão de configurações do hub
+aparece para ele.
 
 **Limpa no padrão.** Escolher a opção igual ao modo oferecido apaga o valor armazenado (o patch
 carrega a string vazia, que o normalizador de patch de configurações transforma em delete, já que
 `undefined` não sobrevive ao salto do RPC). Uma instalação intocada portanto continua seguindo
 viradas posteriores do servidor, por exemplo `onDemand` hoje e `alwaysOn` em uma versão futura.
 
-**Onde é mostrada.** Settings › 常规, no cartão que contém 交互行为, logo abaixo de
-提问自动继续: rótulo 「动态工作流」, descrição
+**Onde é mostrada.** Settings › Geral, no cartão que contém «Comportamento de interação», logo
+abaixo de «Continuar automaticamente ao perguntar»: rótulo 「动态工作流」 (Workflow dinâmico),
+descrição
 「让模型用脚本编排大量子代理并行工作，处理复杂任务、交付专业结果。」, e um select de 260 px à
 direita. A linha usa a coluna de controle larga (280 px, empilhada abaixo do rótulo em larguras de
 telefone); a coluna padrão de 192 px encolheria o select. A lista abre abaixo do gatilho
@@ -2637,14 +2738,15 @@ que quebra dentro da lista:
 
 | Valor | Título | Descrição |
 |---|---|---|
-| `disabled` | 关闭 / Off | 禁用动态工作流。不能创建新的工作流，自动化页也不再显示「工作流」；对话历史中已有的工作流仍可正常查看。 |
-| `onDemand` | 通过命令启用 / On command | 只有输入 /workflow 命令才会运行新的工作流。 |
-| `alwaysOn` | 始终开启 / Always on | 除了 /workflow 命令，模型也会根据你的意图主动运行工作流。 |
+| `disabled` | 关闭 / Off | Desativa o workflow dinâmico. Não se podem criar novos workflows, a página de automações deixa de mostrar a aba 「工作流」; os workflows já existentes no histórico da conversa continuam visíveis normalmente. |
+| `onDemand` | 通过命令启用 / On command | Somente o comando /workflow executa novos workflows. |
+| `alwaysOn` | 始终开启 / Always on | Além do comando /workflow, o modelo também executa workflows por conta própria conforme a sua intenção. |
 
 A opção igual ao modo oferecido carrega uma etiqueta 「默认」 (Default); o gatilho mostra apenas o
-título do modo efetivo. A linha não é desenhada enquanto o snapshot de disponibilidade está
-carregando, quando ele falhou, ou quando a oferta é `disabled`: o release cinza permanece
-invisível, e um usuário cujo servidor nunca ofereceu o recurso não vê nada que o mencione. A
+título do modo efetivo. A linha é sempre desenhada assim que o snapshot de disponibilidade está
+pronto, qualquer que seja a oferta: sob uma oferta de `disabled` o gatilho mostra Off e a
+etiqueta fica em Off. Ela não é desenhada enquanto o snapshot está carregando, quando a leitura
+falhou, ou para um snapshot de um Host mais antigo (acima). A
 linha não tem nota sobre temporização; sessões abertas mantendo suas ferramentas é a regra abaixo,
 não algo que a linha explica.
 
@@ -2679,9 +2781,9 @@ seu próprio Host e, uma vez que isso resolve, recarrega seu snapshot de disponi
 **O link do hub.** A linha de cabeçalho de seção do hub carrega 「工作流设置」 e o rótulo do modo
 atual (veja "A página do hub"). Ela é mostrada apenas enquanto o próprio hub é mostrado, ou seja,
 enquanto o modo efetivo não é `disabled`. Sob `disabled` a página volta ao título simples
-「自动化」 e nada aponta para a configuração; o caminho de volta é Settings › 常规, onde o
-usuário a desligou. Um usuário que escolheu Off e um usuário a quem o recurso nunca foi oferecido veem
-a mesma página de automações.
+「自动化」 e nada aponta para a configuração; o caminho de volta é Settings › Geral, onde o
+usuário a desligou. A linha está sempre presente. Um usuário que escolheu Off e um usuário cujo
+padrão é Off veem a mesma página de automações.
 
 ### A sobreposição local
 
@@ -2748,6 +2850,21 @@ O que o terminal mostra sob `disabled`:
 
 ### Aceitação
 
+O E2E do hub de workflows salvos (`automations-workflows-hub.test.ts`) exige que o gateway de
+configs de cliente local do caso ofereça `alwaysOn` antes do Electron iniciar. Ele não pode
+depender de um rollout vivo nem de uma sobreposição de modo local do desenvolvedor. O hub usa um
+provedor de replay local sem conta OAuth semeada; a autenticação específica de conta pertence a
+fixtures separados, não a este caso de gerenciamento de arquivos e início. Cada caso fecha um
+diálogo de início deixado pelo caso anterior e sai da página de automações pela ação de nova
+tarefa do projeto padrão antes de preparar a conversa. A limpeza adiada dos workers não reinicia
+a página entre casos no mesmo spec. Ações e asserções do painel lateral de execuções miram a aba
+ativa visível, porque abas inativas continuam montadas. Asserções de hover precisam estabelecer o
+hover do ponteiro na linha da execução expandida antes de verificar a opacidade de Stop. As
+asserções de concorrência leem o valor da entrada numérica, não o seu conteúdo de texto vazio, e
+verificam o decremento antes de aplicá-lo. O mesmo gateway continua omitindo a chave para o caso
+de release cinza desabilitado; habilitar a fixture do hub não pode mudar specs não relacionadas
+nem o padrão de produto fail-closed.
+
 | ID | Preparação → ação → asserção |
 |---|---|
 | DWG-01 | `resolveDynamicWorkflowClientConfig`: remoto `{mode:"alwaysOn"}` → enabled/remote; remoto ausente, `null`, ou `{mode:"bogus"}` → disabled/default; override de env definido → o override vence o remoto; `onDemand` → enabled com `mode` preservado como `onDemand` |
@@ -2770,12 +2887,12 @@ O que o terminal mostra sob `disabled`:
 | DWG-15 | Escopo da flag: `--workflow-mode` com `app-server`, `agent-server`, `login`, `skills` → saída 1 com o erro de escopo; com `-p`, `--target`, `tui` ou nenhum comando → aceita |
 | DWG-16 | TUI sob `disabled`: as sugestões de `/` e `/help` não têm `workflow`; `/workflow x` responde o aviso de desabilitado sem chamar `submitPrompt`; `/dwf list` e `/dwf cancel` funcionam; `/dwf resume <id>` responde o aviso sem chamar `resumeWorkflowRun`. Sob `onDemand` e `alwaysOn`: `/workflow` é sugerido e enviado como antes |
 | DWG-17 | Headless sob `disabled`: `-p "/workflow x"` → o aviso no stderr, saída 1, nenhum app criado; `-p "/help"` não lista `/workflow`. Com `--workflow-mode alwaysOn` o comando percorre o caminho de prompt simples e a espera de assentamento como antes |
-| DWG-18 | `applyDynamicWorkflowUserMode`: oferta `onDemand` + escolha `alwaysOn` → mode `alwaysOn`, `offeredMode` `onDemand`, `userMode` `alwaysOn`; oferta `disabled` + qualquer escolha → `disabled`, sem `userMode`; nenhuma escolha → a oferta inalterada; um valor armazenado inválido é ignorado |
+| DWG-18 | `applyDynamicWorkflowUserMode`: oferta `onDemand` + escolha `alwaysOn` → mode `alwaysOn`, `offeredMode` `onDemand`, `userMode` `alwaysOn`; oferta `disabled` + escolha `alwaysOn` → mode `alwaysOn`, enabled, `offeredMode` `disabled`; nenhuma escolha → a oferta inalterada; um valor armazenado inválido é ignorado. `readDynamicWorkflowOfferedMode` devolve o modo oferecido, `disabled` incluído, e nada para um snapshot sem `offeredMode` legível |
 | DWG-19 | Patch de configurações: `dynamicWorkflowMode: ""` apaga o valor armazenado; um modo é armazenado como está; um valor armazenado desconhecido não quebra a leitura do arquivo |
-| DWG-20 | Host: com uma oferta travada `alwaysOn`, uma escolha armazenada `onDemand` faz a próxima criação de sessão carregar `dynamicWorkflowMode: "onDemand"` sem uma nova leitura do servidor; uma escolha `disabled` faz ela não carregar campo de workflow algum; `syncDynamicWorkflowUserMode` reenvia a política para todo workspace vivo (`enabled: false` para `disabled`) apenas quando o modo efetivo mudou, na ordem das chamadas |
+| DWG-20 | Host: com uma oferta travada `alwaysOn`, uma escolha armazenada `onDemand` faz a próxima criação de sessão carregar `dynamicWorkflowMode: "onDemand"` sem uma nova leitura do servidor; uma escolha `disabled` faz ela não carregar campo de workflow algum; com uma oferta travada `disabled`, ou uma leitura da oferta que lançou, uma escolha armazenada `alwaysOn` envia a política `enabled: true` e faz a criação de sessão carregar o modo; sem um resolvedor de oferta a escolha é ignorada; `syncDynamicWorkflowUserMode` reenvia a política para todo workspace vivo (`enabled: false` para `disabled`) apenas quando o modo efetivo mudou, na ordem das chamadas |
 | DWG-21 | Host remoto conectado ao desktop: sem um resolvedor de configurações local ele aplica o último valor empurrado; o desktop empurra o valor de configurações quando constrói os serviços de workspace remotos e encaminha mudanças posteriores para conexões remotas vivas |
-| DWG-22 | Linha de Settings da UI: ausente enquanto carrega, em falha, quando a oferta é `disabled`, e para um snapshot sem `offeredMode` legível (um Host mais antigo), onde o botão de configurações do hub também está ausente; mostra o modo efetivo; a etiqueta 「默认」 fica no modo oferecido; escolher o modo oferecido escreve `""`, escolher outro escreve esse modo; o armazenamento recarrega depois de uma mudança |
-| DWG-23 | E2E do desktop contra um `/client/configs` simulado enviando `alwaysOn`: a linha mostra 始终开启 com a etiqueta; escolher 关闭 remove a palavra de título 「工作流」 e, em um rascunho novo, a entrada de menu mais; escolher 始终开启 de novo limpa o valor armazenado. Oferta `disabled`: nenhuma linha |
+| DWG-22 | Linha de Settings da UI: ausente enquanto carrega, em falha, e para um snapshot sem `offeredMode` legível (um Host mais antigo), onde o botão de configurações do hub também está ausente; presente sob uma oferta `disabled`, mostrando Off com a etiqueta; com uma oferta `disabled` e uma escolha `alwaysOn` o hub mostra seu botão de configurações; mostra o modo efetivo; a etiqueta 「默认」 fica no modo oferecido; escolher o modo oferecido escreve `""`, escolher outro escreve esse modo; o armazenamento recarrega depois de uma mudança |
+| DWG-23 | E2E do desktop contra um `/client/configs` simulado enviando `alwaysOn`: a linha mostra Always on com a etiqueta; escolher Off remove a palavra de título 「工作流」 e, em um rascunho novo, a entrada de menu mais; escolher Always on de novo limpa o valor armazenado. Oferta `disabled`: a linha mostra Off com a etiqueta; escolher Always on o armazena e traz de volta a aba 「工作流」 e, em um rascunho novo, a entrada de menu mais |
 
 ## Alternativas não adotadas
 

@@ -1,14 +1,14 @@
+import { SidebarNativeTooltip, ControlHintTooltip } from "@/ControlHintTooltip.js";
 /* oxlint-disable eslint(max-lines) -- footer 聚合账户、主题、模式和快捷键菜单。 */
 import type { Locale, UserInfo } from "@zcode/shared";
 import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
+import { DesktopCommandIds } from "@zcode/shared";
 import {
-  DesktopCommandIds,
   TID_LOGIN_MENU_ITEM,
   TID_LOGIN_TRIGGER,
   TID_LOGOUT_BUTTON,
   TID_TASK_SETTINGS_BUTTON,
-} from "@zcode/shared";
-import { ControlHintTooltip } from "@/ControlHintTooltip.js";
+} from "@zcode/shared/test-ids";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
@@ -50,11 +50,6 @@ import { useZCodeStore } from "@/store/StoreProvider.js";
 import { normalizeInterfaceMode } from "@/lib/interfaceMode.js";
 import type { Theme } from "@/useTheme.js";
 import { WorkspaceWebRemoteControlTrigger } from "@/WorkspaceWebRemoteControlTrigger.js";
-import {
-  WorkspaceSidebarFooterPlanBadge,
-  WorkspaceSidebarFooterUsageSummaryContent,
-  useWorkspaceSidebarFooterUsageSummaryState,
-} from "@/WorkspaceSidebarFooterUsageSummary.js";
 
 const DESKTOP_ZOOM_MIN_LEVEL = -3;
 const DESKTOP_ZOOM_MAX_LEVEL = 5;
@@ -95,8 +90,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   onLocaleChange,
   onThemeChange,
   onSettingsButtonClick,
-  onUsageClick,
-  onUpgradeClick,
+  onUsageClick: _onUsageClick,
   onLogin,
   onLogout,
   settingsButtonMode = "settings",
@@ -115,9 +109,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   onThemeChange: (value: string) => void;
   onSettingsButtonClick?: () => void;
   onUsageClick?: () => void;
-  onUpgradeClick?: Parameters<
-    typeof WorkspaceSidebarFooterUsageSummaryContent
-  >[0]["onUpgradeClick"];
   onLogin?: () => void;
   onLogout?: () => void;
   settingsButtonMode?: "settings" | "back";
@@ -143,11 +134,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   const avatarFallbackText = getAvatarFallbackText(user);
   const avatarKey = user?.avatarUrl ?? user?.id ?? "guest";
   const showAuthRestoreLoading = !user && isRestoringOAuthSession;
-  const usageSummaryState = useWorkspaceSidebarFooterUsageSummaryState({
-    enabled: true,
-    workspaceIdentity,
-    workspacePath,
-  });
   const copyUserId = async () => {
     if (!user?.id) return;
     try {
@@ -190,7 +176,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
     settingsButtonMode === "back"
       ? intl.formatMessage({ id: "workspace.backToWorkspace" })
       : intl.formatMessage({ id: "settings.title" });
-  const usageButtonClick = onUsageClick ?? onSettingsButtonClick;
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [desktopZoomLevel, setDesktopZoomLevel] = useState(0);
   const runDesktopZoomCommand = useCallback(
@@ -279,12 +264,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                       >
                         {profileBadge}
                       </span>
-                      <span
-                        data-testid="profile-menu-plan"
-                        className="flex shrink-0 [&>span]:border-border/50 [&>span]:bg-transparent [&>span]:font-normal"
-                      >
-                        <WorkspaceSidebarFooterPlanBadge state={usageSummaryState} />
-                      </span>
                     </div>
                     {user.id ? (
                       <div className="flex min-w-0 items-center gap-1 text-ui-sm text-foreground-subtle">
@@ -299,17 +278,19 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                             void copyUserId();
                           }}
                         >
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-xs"
-                            data-testid="copy-user-id"
-                            className="min-h-0 p-0 text-foreground-subtle"
-                            aria-label={intl.formatMessage({ id: "sidebar.profile.copyUserId" })}
-                            title={intl.formatMessage({ id: "sidebar.profile.copyUserId" })}
-                          >
-                            <Copy className="size-3" />
-                          </Button>
+                          <SidebarNativeTooltip>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-xs"
+                              data-testid="copy-user-id"
+                              className="min-h-0 p-0 text-foreground-subtle"
+                              aria-label={intl.formatMessage({ id: "sidebar.profile.copyUserId" })}
+                              title={intl.formatMessage({ id: "sidebar.profile.copyUserId" })}
+                            >
+                              <Copy className="size-3" />
+                            </Button>
+                          </SidebarNativeTooltip>
                         </DropdownMenuItem>
                       </div>
                     ) : null}
@@ -427,12 +408,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
             ) : null}
-            {/* Bugfix: 升级入口状态不再以菜单开关为生命周期边界。 */}
-            <WorkspaceSidebarFooterUsageSummaryContent
-              state={usageSummaryState}
-              onUsageClick={usageButtonClick}
-              onUpgradeClick={onUpgradeClick}
-            />
             {user ? (
               <DropdownMenuItem onSelect={() => openRewards?.()} data-testid="rewards-menu-item">
                 <Gift className="size-4" />

@@ -1,10 +1,9 @@
 # v4 Session Workbench Groups
 
-Estado: **implementado; em 2026-07-17 as fronteiras de produto foram reconfirmadas**. Arrastar um item da lista
-de Tasks para a borda da área de conversa continua sendo a entrada oficial de split, com suporte a combinação
-entre workspaces e restauração de group local ao renderer;
-em 2026-07-13 foram desativados apenas os botões explícitos 「Dividir para a direita / Dividir para baixo」 no
-pane chrome, o que não significa que o workbench como um todo foi aposentado.
+Estado: **todas as entradas de criação foram desativadas (2026-10-16)**. Arrastar da lista de Tasks para a borda da
+área de conversa e o 「Abrir em tela dividida」 pelo botão direito não criam nem expandem mais um group
+(veja `docs/v4-split-pane-workbench.md`); os groups já existentes ainda podem ser restaurados, ter o foco e ter seus
+panes fechados. O texto abaixo preserva o design original como contrato de comportamento dos groups existentes.
 
 ## Resumo da funcionalidade
 

@@ -24,7 +24,7 @@ atual: @zcode/web-share -> @zcode/share-ui / @zcode/shared
 - O build do Share não declara, resolve nem baixa `@zcode/services` e `@zcode/zcode-cua`.
 - `@zcode/share-ui` fornece a entrada de apresentação somente leitura necessária ao Share; Desktop/Remote continuam usando o `@zcode/ui` completo.
 - Share e Web completo compartilham os tipos de protocolo e as implementações de exibição somente leitura já confirmadas, sem compartilhar services em execução.
-- O build do Remote continua mantendo o secret do CUA e a dependência Git do CUA.
+- O build do Remote v4 constrói o CUA a partir do `packages/zcode-cua` dentro do workspace, sem envolver Git privado nem credenciais.
 
 ## Cadeia de build
 
@@ -35,12 +35,12 @@ Dockerfile.web-share
   -> nginx static image
 ```
 
-O Dockerfile do Share não precisa mais dos secrets BuildKit `zcode_cua_git_user` e `zcode_cua_git_token`.
+O `.npmrc` usa `node-linker=hoisted`, e o `--filter` não poda o lockfile achatado; depois que o CUA foi incorporado ao monorepo, o lockfile já não tem origem Git, de modo que a imagem do Share não precisa de git, de BuildKit secret ou de credenciais do Jenkins, e também não precisa de `packages/zcode-cua`.
 
 ## Aceitação
 
 - O comando de build da imagem do Share não contém secret do CUA.
-- O log de build do Share não acessa `git.example.invalid/codegeex/zcode-cua.git`.
+- O build do Share não acessa nenhum repositório Git.
 - `/cn/share`, `/share`, o callback, as fixtures de mock e os caminhos de recursos continuam funcionando.
 - As fronteiras de dependências de build do Web completo e do Remote v4 não mudam.
 - A página do Share não cria Host, Agent, service nem remote session.

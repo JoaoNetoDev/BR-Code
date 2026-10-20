@@ -7,7 +7,7 @@ O controle de tema do controle remoto no celular é tratado em duas etapas:
 
 Assim, garante-se que as duas pontas não se afetem depois: trocar o tema no celular altera apenas o armazenamento local do navegador do celular, e trocar o tema no desktop altera apenas o armazenamento local do renderer do desktop.
 
-Tanto a página de lista de tasks quanto a página de chat do celular renderizam `WebRemoteControlThemeMenu` à direita do header no topo. O menu expõe apenas `system`, `zai-dark` e `zai-light`, sendo `zai-dark` / `zai-light` exibidos respectivamente como Dark Theme / Light Theme.
+A página inicial de tasks do celular compartilha a sidebar de projetos com o desktop, e a entrada de tema fica no submenu de tema do menu de configurações no rodapé da sidebar; a página de chat renderiza `WebRemoteControlThemeMenu` à direita do header no topo. Ambos usam o mesmo conjunto de opções: apenas `system`, `zai-dark` e `zai-light`, sendo `zai-dark` / `zai-light` exibidos respectivamente como Dark Theme / Light Theme.
 
 ## Sincronização das superfícies do navegador
 

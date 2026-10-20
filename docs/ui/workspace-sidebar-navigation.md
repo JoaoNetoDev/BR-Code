@@ -20,6 +20,7 @@
 - Para cada workspace expandido, a primeira tela da lista de tasks comuns exibe apenas 5 itens; ao clicar em "Mostrar mais" apenas o próximo lote de 5 é adicionado, e a entrada é ocultada depois que todas as tasks ficarem visíveis — não há "Mostrar menos".
 - O progresso de paginação é estado temporário local do renderer, isolado por `workspaceKey = workspaceIdentity?.trim() || workspacePath`; carregar mais em um workspace não pode alterar a quantidade visível de outro workspace.
 - O progresso de paginação correspondente é limpo ao recolher um workspace individual, recolher a área de projetos, recolher tudo, sair da visão de workspace ou remover o workspace; ao expandir novamente, começa do padrão de 5 itens. Apenas alternar a ordenação created/updated não reseta a quantidade atualmente visível.
+- O título geral "Task list / 任务列表" usa `text-ui-base + font-medium + text-foreground-subtle`.
 - "Fixados", "Projetos" e "Tasks" são títulos de groupings do mesmo nível na barra lateral e usam uniformemente `text-ui-base + font-medium + text-foreground-subtlest`; o tamanho da fonte do título não muda conforme seja ou não recolhível ou arrastável.
 - Clicar na linha do workspace funciona como trigger para alternar a expansão/recolhimento da lista de tasks daquele workspace e sincronamente o define como o workspace active atual.
 - O botão "Nova task" e o atalho tentam primeiro voltar a `activeWorkspacePath` e então entram no estado de rascunho.
@@ -27,6 +28,12 @@
 - No desktop, `Cmd/Ctrl+O` envia o evento de plataforma `OpenWorkspace` pelo accelerator do menu nativo; na Web, um `keydown` fallback no nível raiz intercepta o comportamento padrão de abertura de arquivos do navegador.
 - Se não houver nenhum workspace no momento, o Root cria um workspace padrão como fallback, evitando entrar em uma página em branco ou na página intermediária de abertura de workspace.
 - `SettingsPage` oferece a entrada "Voltar ao workspace" quando existe um workspace active recente.
+
+## Informações de dispositivo e ações dos projetos remotos
+
+Os projetos continuam em disposição plana, com identidade, ordenação e isolamento de caminho herdados de `workspaceIdentity`. A linha do projeto exibe apenas um ícone de cinco estados, o nome do projeto e uma etiqueta de dispositivo com largura limitada; a etiqueta offline é substituída por um status curto, e as ações aparecem no hover/foco. Clicar na etiqueta de dispositivo ou passar o mouse sobre ela por 400ms abre o detalhe à direita da linha inteira; conectar preserva o diretório original, desconectar é uma ação no nível do dispositivo, editar usa o formulário existente e a ação de gerenciamento leva uma única vez ao cartão de dispositivo da página de configurações.
+
+"Projetos + → Abrir projeto remoto" lista os dispositivos a partir do snapshot de gerenciamento de dispositivos (incluindo dispositivos online que ainda não têm projeto); a prioridade da conexão selecionada vem do modelo de exibição unificado e, após conectar ou reutilizar a conexão, escolhe-se o diretório; o último item cria uma nova conexão remota. O cabeçalho de sessões e rascunhos e o menu de projetos da caixa de entrada usam o mesmo nome de exibição do dispositivo, e as linhas de task compartilham o estilo da etiqueta de dispositivo. O contrato completo e a aceitação estão em [contrato de navegação RDUX-12](../remote/project-first-remote-navigation-spec.md#21a-侧栏详情与设备菜单rdux-12).
 
 ## Regras de ordenação
 
@@ -57,3 +64,9 @@
 | `WSDR-04` | workspace A originalmente recolhido | Arrastar A e finalizar | A permanece sempre recolhido                  | accepted |
 
 Timeline, fixados, arquivamento, agrupamento e o índice de tasks independentes do controle remoto Web não reutilizam este estado de paginação e pertencem ao escopo podado (pruned) desta alteração; esta alteração não modifica os fluxos de dados de conversation, desktop continuous nem mobile replayable.
+
+## Aceitação do tamanho de fonte dos títulos da barra lateral
+
+- `Task list`, `Pinned`, `Projects` e `Tasks` usam todos o tamanho de fonte base; preservam-se as cores, os espaçamentos e as interações originais do título geral e dos títulos de groupings.
+- `command-center-focus.test.ts` verifica que o título geral e o título de grouping são iguais a `--ui-font-size`, que a diferença de tamanho de fonte entre os dois é 0, e valida os temas claro e escuro e a tela estreita.
+- A ordem de verificação é `pnpm typecheck` → build do E2E → execução do E2E. Não execute as duas primeiras etapas em paralelo: `tsconfig.host.json` emite JS não empacotado em `out/host`, que compartilha o diretório com o bundle do desktop, e isso pode fazer o Host carregar diretamente o TS do workspace e sair por não existir o módulo `.js`. Após a checagem de tipos, refaça o build; não altere a lógica de produto do Host para contornar a contaminação dos artefatos.

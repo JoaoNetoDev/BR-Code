@@ -11,7 +11,7 @@ Historicamente o desktop usava simultaneamente `ZCODE_ENV`, `ZCODE_API_ENV` e `Z
 - `test`: ambiente de teste, usa endpoints de API/OAuth de teste e permite exibir menus exclusivos de teste.
 - `production`: ambiente oficial, usa endpoints de API/OAuth oficiais e oculta menus exclusivos de teste.
 
-Desenvolvimento local não é um ambiente de produto. Quando `ZCODE_ENV` não é definido explicitamente, o padrão é `test`; as capacidades de depuração local são determinadas pela forma de execução, por exemplo se o Electron está packaged, o Vite dev mode ou um interruptor de debug dedicado.
+O desenvolvimento local não é um ambiente de produto. Quando `ZCODE_ENV` não é definido explicitamente, o build genérico usa `test` por padrão; a inicialização padrão do desktop e a entrada de inicialização remota selecionam explicitamente `production`, e as regras correspondentes estão descritos abaixo. As capacidades de depuração local são determinadas pela forma de execução, por exemplo se o Electron está packaged, o Vite dev mode ou um interruptor de debug dedicado.
 
 ## Regras de configuração
 
@@ -56,6 +56,7 @@ O script de inicialização do desktop injeta `ZCODE_ENV` explicitamente conform
 - `pnpm dev:desktop` equivale por padrão a `pnpm dev:desktop:prod`.
 - `pnpm dev:desktop:test` injeta explicitamente `ZCODE_ENV=test`.
 - `pnpm dev:desktop:prod` injeta explicitamente `ZCODE_ENV=production`.
+- `pnpm bootstrap:with-remote` injeta `production` em todos os subprocessos de build quando `ZCODE_ENV` está indefinido ou em branco; um `test|production` explícito é preservado, e valores inválidos são rejeitados antes de qualquer ação de inicialização. Os artefatos do ambiente de teste devem ser usados com `pnpm dev:desktop:test`; veja [Comandos de Bootstrap](bootstrap.md).
 - Quando o CI não recebe `ZCODE_ENV`, o padrão é `production`.
 - O CI aceita apenas `ZCODE_ENV=test|production` e não lê mais `ZCODE_DESKTOP_BUILD_ENV*` nem `ZCODE_API_ENV`.
 - `ZCODE_ENV=test` permite apenas construir, coletar e enviar artefatos de teste; o `publish-release.sh` recusa chamadas à API de release oficial a partir do ambiente de teste.

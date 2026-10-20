@@ -14,7 +14,7 @@ quatro surfaces:
 
 | Surface | Onde | Quando |
 |---|---|---|
-| a **linha de notificação** | o turno da transcrição que um evento de execução desperta | todo estado terminal, toda pergunta escalada, toda parada |
+| a **linha de notificação** | o turno da transcrição que um evento de execução desperta | todo estado terminal, toda pergunta escalada, todo hole, toda parada, todo lembrete de uma decisão deixada em aberto |
 | o **cartão de conclusão** | o fim desse turno | apenas execuções concluídas |
 | a **transcrição do script** | uma aba no painel lateral, uma por execução | qualquer execução que tenha tocado o projeto |
 | o **dobra do epílogo** | a aba de transcrição de um subagente | cada pedido despachado pelo motor |
@@ -60,6 +60,30 @@ workflowNotification?:
   | { kind: "stall"; sinceMs: number; reason?: string; cap?: number };
 ```
 
+O lembrete para um agente principal ocioso ("Removendo um agente principal ocioso", abaixo)
+não é membro desta união. Ele viaja em uma chave própria, ao lado de `workflowNotification`,
+no mesmo `BackgroundResultOriginMeta`:
+
+```ts
+workflowBlocked?: { questions: number; holes: number; sinceMs: number };
+```
+
+O motivo é o que um cliente faz com uma linha que ele não consegue ler. Um cliente faz parse
+de um quadro inteiro contra a sua própria cópia do schema, e a união é fechada: um `kind` que
+o cliente não conhece falha o quadro, não a linha. O snapshot que ele então pede carrega a
+mesma linha e falha do mesmo jeito, então o cliente não consegue abrir a sessão de jeito
+nenhum. Uma chave que o cliente não conhece é diferente: o objeto que a contém não é
+estrito, a chave é descartada, e a linha é lida como uma notificação de workflow sem payload,
+o que desenha como a linha de título puro. A CLI e o desktop são publicados juntos, mas a
+página remota do celular é implantada no seu próprio ritmo e pode ser mais antiga que a CLI
+com quem ela fala. Então a regra para este payload é: um novo kind de notificação ganha uma
+nova chave opcional, e `workflowNotification` não ganha membros. Uma linha carrega no máximo
+uma das duas chaves.
+
+`workflowBlocked` também é lido de forma tolerante pelos clientes que o conhecem: um valor que
+falha contra o schema é tratado como ausente, de modo que uma mudança posterior na forma dele
+degrada para a linha de título puro nesses clientes e não custa a sessão a eles.
+
 O payload viaja na linha do cabeçalho do turno pelo protocolo e pelo snapshot, portanto é
 limitado. O truncamento é honesto em vez de silencioso: `resultTruncated` significa que a prévia é
 parcial e que o valor completo é alcançável por `GetWorkflowRun`; `reports.count` maior que
@@ -87,7 +111,9 @@ cartão e o painel leem seus bytes pelas consultas de artefato.
 |---|---|---|
 | `terminal` | o caminho de liquidação do tracker de tarefas em segundo plano em `packages/core` (`background-tasks.ts`), tanto para lançamentos de `CreateWorkflow` quanto de `ResumeWorkflowRun` | o snapshot terminal da execução chega |
 | `escalation` | `dynamic-workflow-run-progress.ts` em `packages/core`, ao lado do evento de progresso da execução | um evento de execução `escalation-raised` |
-| `stall` | o mesmo arquivo | um evento de execução `run-stalled` |
+| `hole` | `dynamic-workflow-run-hole-notification.ts`, chamado do mesmo lugar | um evento de execução `hole-reached` |
+| `stall` | `dynamic-workflow-run-progress.ts` | um evento de execução `run-stalled` |
+| o lembrete (`workflowBlocked`) | `dynamic-workflow-blocked-reminder.ts` em `packages/core` | a sessão pai ficou ociosa enquanto uma de suas execuções vivas tem uma pergunta em aberto ou um hole em espera ("Removendo um agente principal ocioso", abaixo) |
 
 O payload terminal existe apenas quando o status do tracker é terminal **e** há um snapshot
 presente. Uma execução cujo estado em processo foi perdido não tem snapshot e não recebe payload;
@@ -96,12 +122,84 @@ execução: `failed` vira `errored`, `cancelled` vira `stopped`. Quando o snapsh
 e `stopReason` (o serviço de execução os projeta a partir do journal), esses prevalecem.
 
 Os emissores de escalation e stall nunca lançam: são observação, e a verdade da execução é o
-journal. Um evento malformado é pulado com uma linha de log. Cada `escalation-raised` gera
-exatamente uma notificação, nunca reenviada; uma pergunta respondida não gera nenhuma, porque a
-resposta foi a própria chamada de ferramenta do agente principal. Cada segmento de stall gera uma
-notificação; um sucesso posterior rearma o relógio sem uma mensagem de "destravado". O rótulo da
+journal. Um evento malformado é pulado com uma linha de log. Cada `escalation-raised` e cada
+`hole-reached` gera exatamente uma notificação da sua própria espécie, nunca reenviada; uma
+pergunta respondida ou um hole preenchido não gera nenhuma, porque a resposta foi a própria
+chamada de ferramenta do agente principal. Uma decisão que fica em aberto é recolhida pelo
+lembrete abaixo, que é uma notificação diferente construída a partir do estado da execução, e
+não uma segunda cópia da primeira. Cada segmento de stall gera uma notificação; um sucesso posterior rearma o relógio sem uma mensagem de "destravado". O rótulo da
 execução em ambas é a descrição do registro para a execução, senão o run id, e um subagente
 anônimo é nomeado por sua referência estrutural `site@ordinal`, o mesmo fallback que o texto usa.
+
+### Removendo um agente principal ocioso
+
+Uma pergunta ou um hole é o único tipo de evento depois do qual a execução não deve nada e o
+agente principal deve algo, e nada do lado da execução expira. A notificação da própria
+execução desperta um turno. Esse turno pode não dar em nada de três maneiras: ele falha (um
+erro de provider, o app fechando no meio da requisição), o modelo o encerra sem responder, ou
+ele carregava vários avisos e um deles foi deixado passar. Nenhuma dessas deixa um rastro que
+a execução possa ver, e se todos os ramos do script acabarem estacionados a execução nunca
+liquida, de modo que também não chega notificação terminal. Então um segundo mecanismo
+observa o estado em vez da entrega: **enquanto a sessão pai está ociosa e uma de suas execuções
+vivas tem uma decisão em aberto, um relógio corre, e quando ele expira o agente principal é
+avisado de novo.**
+
+```
+existe uma execução viva desta sessão?
+      │ não  ──────────────────────────────▶ nada é armado
+      │ sim
+a sessão está rodando um turno, ou tem um enfileirado?
+      │ sim ──────────────────────────────▶ nada é armado
+      │ não: sua fila de comandos acabou de esvaziar (a borda ociosa)
+    armado ── qualquer turno começa ──────▶ desarmado; armado de novo na próxima borda ociosa
+      │ o atraso passa
+lê o snapshot de cada execução devida
+      │ pergunta em aberto ou hole em espera ──▶ um lembrete para essa execução
+      │ nada em aberto ────────────────────────▶ nada; o próximo atraso, se houver, é armado
+```
+
+| Regra | Valor |
+|---|---|
+| O que o relógio mede | quanto tempo a sessão está ociosa: do momento em que sua fila de comandos esvazia (o último turno terminou, falhou ou foi cancelado) até agora. Um turno de qualquer origem o para, e a próxima borda ociosa o reinicia do zero |
+| Primeiro lembrete | depois de 15 minutos ociosos |
+| Segundo lembrete | depois de 30 minutos ociosos, contados a partir do fim do turno que o primeiro despertou |
+| Depois do segundo | nenhum, até um reinício |
+| Reinício para uma execução | seu conjunto em aberto muda: um evento `escalation-raised`, `escalation-resolved`, `hole-reached` ou `hole-filled` dessa execução. Se a sessão estiver ociosa nesse momento, o relógio ocioso também reinicia |
+| Reinício para todas as execuções | o usuário envia uma mensagem: um prompt, ou uma mensagem desviada para dentro de um turno em andamento |
+| Não é reinício | um turno despertado por outro aviso em segundo plano (um job Bash, uma parada, outra execução terminando), e o turno do próprio lembrete |
+| Cobertura | um aviso por execução, listando todas as perguntas e holes que ela tem em aberto; nunca um por decisão |
+| Devida | uma execução está devida quando o tempo ocioso alcançou o atraso que a sua própria contagem pede (15 minutos sem lembrete enviado, 30 com um) |
+
+O relógio mede tempo ocioso em vez de tempo desde o momento em que a decisão foi levantada
+porque os dois outros casos não precisam de lembrete: enquanto um turno está rodando, a
+notificação original está ou na frente do modelo ou enfileirada atrás do turno, e uma segunda
+notificação ao lado dela é duplicata. Uma sessão cujo turno está esperando o usuário (um
+pedido de permissão, uma pergunta ao usuário) está em um turno, então o relógio dela não corre.
+
+**Uma única fonte de verdade.** O que está em aberto é lido do `pendingQuestions` do snapshot da
+execução e dos seus `holes` no estado `waiting` no momento em que o relógio expira, a mesma
+projeção que `GetWorkflowRun` imprime. O lembrete não guarda cópia do conjunto em aberto; a
+única coisa que ele lembra é quantos lembretes cada execução já recebeu. Os quatro eventos
+acima servem apenas para esquecer essa contagem. Uma execução que não está mais viva
+(liquidada, ou pertencente a um ramo de conversa que foi rebobinado) é pulada e sua contagem é
+descartada.
+
+**Um lembrete conta quando é enfileirado**, não quando o turno dele tem sucesso. Um provider
+que continua falhando custa, portanto, dois turnos de lembrete e depois silêncio, em vez de um
+laço de retentativa; a próxima mensagem do usuário inicia um par novo.
+
+**O relógio pertence à sessão, não à execução.** A ociosidade é um fato sobre a sessão pai, de
+modo que o lembrete não é um evento de execução: o motor não sabe dele e o journal não o
+registra, ao contrário de `run-stalled`. Ele vive no processo que possui a sessão. Quando esse
+processo sai, uma execução viva é parada como `interrupted` e a sua retomada levanta de novo
+cada decisão em aberto com uma notificação da sua própria espécie.
+
+**A entrega não acrescenta nada novo.** Um lembrete é um comando de notificação em segundo plano
+comum: a mesma fila, a mesma admissão de ledger, o mesmo cercamento de ramo e a mesma queda por
+encerramento das notificações acima, tanto no stream contínuo do desktop quanto no stream
+replayable do celular. Com várias execuções bloqueadas, os avisos delas são enfileirados juntos
+e seguem a regra comum da fila: os posteriores são desviados para dentro do turno que o
+primeiro despertou, ou despertam um turno da sua própria espécie.
 
 ### O pipeline e a restauração a frio
 
@@ -136,10 +234,15 @@ anterior.
 | terminal, stopped | `Workflow` | Workflow stopped / 工作流已停止 `· <reason>` | `· <run name>` | o painel de erro quando há erro (provider, interrupted), senão o resultado |
 | escalation | `MessageCircleQuestion` | um de três estados vivos, abaixo | a pergunta, uma linha, 160 caracteres | a pergunta por completo, depois o contexto em texto sutil, depois há quanto tempo o subagente espera, depois o link da execução |
 | hole | `Pen` | um de três estados vivos, abaixo | `· <run name> · <hole name>` (o type fica no wire para o modelo, nunca na linha) | o prompt por completo (com os valores que o autor interpolou, tal como os carrega), onde o hole se encontra (as fases antes e depois), o caminho do draft, depois há quanto tempo espera, depois o link da execução |
+| blocked | `Hourglass` | Workflow waiting on the agent / 工作流等待主代理 | `· <run name>` | uma linha do que estava em aberto quando o lembrete foi enviado, `2 questions · 1 hole · open for 17 min` (uma contagem zero é omitida; os minutos são a espera da decisão em aberto mais antiga), depois o link da execução |
 | stall | `Hourglass` | Workflow waiting on the model / 工作流等待模型 | `· <run name>` | uma frase nomeando os minutos, depois as linhas de fato `Retry reason` e `Max concurrency` / 「最大并发数」 quando presentes (a segunda é o limite compartilhado no momento da parada: um teto, então carrega a palavra do teto, nunca uma palavra que se leia como contagem do que está rodando) |
 
 As palavras do motivo de parada são by you / by the agent / model error / process exited
 (你停止的 / 代理停止的 / 模型侧错误 / 进程已退出).
+
+A linha blocked, como a linha stall, descreve o momento em que foi enviada e não muda depois.
+Se cada decisão foi respondida desde então está na linha da própria decisão, e essa sim muda
+(abaixo).
 
 Uma linha terminal é expansível apenas quando tem resultado ou erro; sem nenhum dos dois, não
 tem chevron. Reports e uso são carregados no payload e não renderizados. Uma execução com erro
@@ -298,6 +401,24 @@ Ele afirma que apenas este ramo do script está estacionado e que o resto da exe
 nada expira, que o corpo é compilado onde o hole se encontra e vê cada binding declarado antes
 dele, que ele deve retornar o type nomeado, e que `GetWorkflowRun` lista os holes abertos caso a
 notificação se perca. Abre com a mesma faixa que os outros três.
+
+O texto do lembrete é um bloco `<workflow-blocked>` seguido do próximo passo. O bloco carrega o
+run id e o nome da execução, `<reminder>` (`1 of 2` ou `2 of 2`), `<open-questions count shown>`
+com um `<question id subagent waited-ms>` por pergunta, carregando seu texto e seu contexto,
+`<open-holes count shown>` com um `<hole id name type line waited-ms>` por hole, e o caminho do
+draft quando a execução registrou um. São listadas no máximo oito perguntas e oito holes, cada
+texto cortado em 2.000 caracteres; `count` maior que `shown` diz que o resto está em
+`GetWorkflowRun`. A prosa depois do bloco diz, nesta ordem:
+
+- a execução ainda está esperando o agente, quantas decisões estão em aberto e há quanto tempo a
+  mais antiga espera;
+- o próximo passo, literalmente: `ResolveWorkflowQuestion` com cada `question_id`, e
+  `FillWorkflowHole` com o `run_id` e cada `hole_id` depois de ler o draft;
+- se uma decisão precisa do usuário, diga ao usuário exatamente o que é preciso e encerre o
+  turno, e não chute uma resposta para fazer os lembretes pararem;
+- no primeiro lembrete, que mais um vem se nada mudar; no segundo, que ele é o último até o
+  usuário escrever ou as decisões em aberto da execução mudarem. As duas dizem que os ramos
+  estacionados continuam esperando e que nada expira por conta deles.
 
 ## O cartão de conclusão
 
@@ -801,6 +922,25 @@ persistido. O TUI mostra o texto completo.
 
 ## Alternativas não tomadas
 
+- **Um relógio contado a partir do momento em que a decisão foi levantada**: ele dispara
+  enquanto o agente principal está no meio de um turno com a notificação original ainda
+  enfileirada, o que acrescenta uma duplicata, e quando o agente já está ocioso ele apenas
+  atrasa um lembrete que nada tornaria desnecessário.
+- **Lembrar em um intervalo fixo enquanto a decisão estiver em aberto**: cada lembrete é uma
+  requisição completa do agente principal sobre a conversa inteira. Um modelo que está
+  corretamente esperando o usuário seria perguntado de novo a noite toda; dois lembretes e
+  então a próxima mensagem do usuário limitam o custo.
+- **Um lembrete por decisão em aberto**: vinte subagentes estacionados produziriam vinte avisos
+  para um único fato, "esta execução está esperando você".
+- **Reenviar a notificação da própria pergunta ou do próprio hole**: a transcrição mostraria
+  duas linhas vivas para uma decisão, e várias decisões em aberto precisariam da forma em lote,
+  que não carrega payload.
+- **Retentar o turno de notificação que falhou**: ele precisa de um registro durável de qual
+  turno entregou qual aviso e se ele terminou. Ler o que ainda está em aberto responde à mesma
+  pergunta a partir de um estado que já existe.
+- **Registrar o lembrete como um evento de execução**: o journal guardaria um fato sobre a
+  ociosidade da sessão pai, e uma execução retomada reproduziria lembretes que pertencem a um
+  processo que não existe mais.
 - **Uma entrada de notificação em estilo de ledger** (réguas duplas com a legenda encaixada na
   régua de cima, uma grade de alinhamento, marcas de calha): em uma transcrição real introduziu
   novos elementos visuais sem informação; a gramática de linha de ferramenta faz de uma
@@ -839,6 +979,13 @@ persistido. O TUI mostra o texto completo.
 
 ## Perguntas em aberto
 
+- Um lembrete chega apenas ao agente principal. Depois que os dois são gastos, quem pode mover
+  a execução é o usuário, e nada fora das linhas da transcrição diz isso: se uma execução
+  bloqueada deve levantar um sinal para o usuário (a barra lateral, uma notificação do SO)
+  continua em aberto.
+- Uma execução em que todos os ramos estão estacionados espera os mesmos 15 minutos ociosos que
+  uma com apenas um ramo estacionado. Distinguir as duas coisas exige um sinal que una os holes
+  estacionados do motor com as perguntas estacionadas do driver.
 - Tokens não estão no payload terminal, porque o tracker não pode saber o uso no momento da
   emissão; a figura depende da projeção da execução. Uma consulta de uso apoiada no journal
   tornaria o cartão completo sem a projeção.

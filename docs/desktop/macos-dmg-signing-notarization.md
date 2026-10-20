@@ -21,6 +21,23 @@ O DMG de release do macOS é o artefato final de distribuição que o usuário b
 5. Em release estrito, `scripts/notarize-macos.sh` também localiza o `ZCode.app` empacotado por meio de `ZCODE_MACOS_RELEASE_APP_PATH` ou `ZCODE_DESKTOP_DIST_DIR` e reaproveita `scripts/doctor-macos-release-app.sh` para validar o app principal; quando o caminho do app não é encontrado, ocorre fail-closed. O release gate de CUA/Helper define adicionalmente `ZCODE_CUA_REQUIRE_HELPER=1` e valida explicitamente o `Contents/Resources/cua-helper/ZCode Computer Use.app` dentro do app final; quando ausente, ocorre fail-closed.
 6. `scripts/upload-oss.sh`, na publicação oficial, aceita apenas os `*.dmg` que passaram por todo o fluxo acima.
 
+### Restrição da lista de busca do keychain temporário
+
+Os runners de shell sob o mesmo usuário macOS compartilham a lista de busca de nível de usuário. O arquivo de keychain de cada job é independente, mas a leitura, a sanitização e as adições/remoções da lista precisam acontecer dentro do lock compartilhado já existente, sem usar um snapshot do início do job para sobrescrever a lista.
+
+- A saída de `security list-keychains -d user` vem com indentação e aspas externas; primeiro remova o whitespace do início e do fim da linha, depois remova uma camada de aspas externas, preservando os espaços internos do path. Mantenha apenas paths de arquivo absolutos existentes, deduplicando pelo path completo e preservando a ordem original.
+- Se o arquivo `login.keychain-db` do usuário existir mas estiver ausente na lista, acrescente-o ao final da lista, restaurando o item padrão contaminado por scripts antigos. Isso não substitui as verificações de acesso à cadeia de certificados e à chave privada.
+- A adição precisa ser idempotente; a limpeza remove apenas os paths do job atual, preservando as entradas válidas dos outros jobs; quando não restam entradas, grave explicitamente a lista vazia. Se a leitura da lista falhar, é proibido gravá-la de volta: libere o lock e reporte a falha, sem tratar a falha de leitura como lista vazia.
+- Os testes de regressão executam as funções reais do CI via Bash, usando comandos simulados que fornecem listas com indentação e falhas de leitura/escrita, sem acessar o keychain real. Cobrem a recuperação de contaminação, paths com espaços, deduplicação, adições/remoções intercaladas e liberação do lock; o runner real ainda precisa validar a assinatura concorrente arm64/x64.
+
+```text
+obter o lock compartilhado → ler a lista atual → parsear e sanitizar → adicionar/remover as próprias entradas → gravar de volta → liberar o lock
+                                  └ falha na leitura → não gravar → liberar o lock e falhar
+```
+
+Esta restrição só protege os scripts que respeitam o mesmo protocolo de lock. Scripts de branches antigos ainda podem sobrescrever a lista; é preciso atualizar os scripts ou isolar o usuário do runner.
+Não se remove automaticamente o keychain temporário por idade do diretório, para não apagar recursos de job que ainda estão em build.
+
 ## Assinatura Independente e Restrições de Arquitetura do Computer Use Helper
 
 Embora `ZCode Computer Use.app` seja empacotado junto do app principal e copiado para o diretório do usuário em tempo de execução, ele é um sujeito de responsabilidade TCC independente (bundle id

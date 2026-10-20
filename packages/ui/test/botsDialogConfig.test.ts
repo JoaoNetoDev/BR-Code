@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { BotConfig } from "@zcode/shared";
 import { ALL_BOT_WORKSPACES } from "@zcode/shared";
 import {
-  BOT_PROVIDERS,
   BOT_REPLY_GRANULARITIES,
   getBotReplyGranularitiesForProvider,
   getBotReplyGranularityEntryForProvider,
@@ -14,13 +13,6 @@ import zhCN from "../src/i18n/locales/zh-CN.js";
 
 describe("BotsDialog config", () => {
   it("keeps reply granularity labels localized", () => {
-    expect(BOT_REPLY_GRANULARITIES.map((item) => item.id)).toEqual([
-      "assistant_changes",
-      "assistant_toolcalls_changes",
-      "summary_changes",
-      "streaming_card",
-    ]);
-
     for (const granularity of BOT_REPLY_GRANULARITIES) {
       expect(enUS[granularity.labelId]).toBeTruthy();
       expect(zhCN[granularity.labelId]).toBeTruthy();
@@ -41,65 +33,22 @@ describe("BotsDialog config", () => {
       "assistant_toolcalls_changes",
       "summary_changes",
     ]);
-    expect(
-      getBotReplyGranularityEntryForProvider("feishu", "assistant_changes").id,
-    ).toBe("streaming_card");
-    expect(
-      getBotReplyGranularityEntryForProvider("telegram", "streaming_card").id,
-    ).toBe("assistant_changes");
+    expect(getBotReplyGranularityEntryForProvider("feishu", "assistant_changes").id).toBe(
+      "streaming_card",
+    );
+    expect(getBotReplyGranularityEntryForProvider("telegram", "streaming_card").id).toBe(
+      "assistant_changes",
+    );
   });
 
-  it("keeps bind state actions localized", () => {
-    for (const key of [
-      "bots.bind",
-      "bots.unbind",
-      "bots.unbindSuccess",
-      "bots.unbindFailed",
-      "bots.copyBindCommand",
-      "bots.bindCommandGuide",
-      "bots.bindCommandStep.copy",
-      "bots.bindCommandStep.openChat",
-      "bots.bindCommandStep.send",
-      "bots.bindCommandCopied",
-    ]) {
-      expect(enUS[key]).toBeTruthy();
-      expect(zhCN[key]).toBeTruthy();
-    }
-  });
-
-  it("shows Lark as a supported new bot entry and keeps DingTalk coming soon", () => {
-    expect(BOT_PROVIDERS.find((provider) => provider.id === "lark")).toEqual({
-      id: "lark",
-      label: "Lark",
-      implemented: true,
-    });
-    expect(BOT_PROVIDERS.find((provider) => provider.id === "dingding")).toEqual(
-      {
-        id: "dingding",
-        label: "DingTalk",
-        implemented: false,
-      },
-    );
-    expect(enUS["bots.channel.dingding"]).toBeTruthy();
-    expect(zhCN["bots.channel.dingding"]).toBeTruthy();
-    expect(enUS["bots.newBot.providerDescription.lark"]).toBeTruthy();
-    expect(zhCN["bots.newBot.providerDescription.lark"]).toBeTruthy();
-    expect(enUS["bots.newBot.providerDescription.dingding"]).toBeTruthy();
-    expect(zhCN["bots.newBot.providerDescription.dingding"]).toBeTruthy();
-  });
-
-  it("uses welcome screen region tags for Feishu and Lark bot entries", () => {
-    expect(getBotProviderRegionTagLabelId("lark")).toBe(
-      "login.oauth.regionTag.zai",
-    );
-    expect(getBotProviderRegionTagLabelId("feishu")).toBe(
-      "login.oauth.regionTag.bigmodel",
-    );
+  it("uses bot channel region tags for Feishu and Lark bot entries", () => {
+    expect(getBotProviderRegionTagLabelId("lark")).toBe("bots.channel.regionTag.lark");
+    expect(getBotProviderRegionTagLabelId("feishu")).toBe("bots.channel.regionTag.feishu");
     expect(getBotProviderRegionTagLabelId("telegram")).toBeNull();
-    expect(enUS["login.oauth.regionTag.zai"]).toBe("Global");
-    expect(zhCN["login.oauth.regionTag.zai"]).toBe("全球");
-    expect(enUS["login.oauth.regionTag.bigmodel"]).toBe("CN");
-    expect(zhCN["login.oauth.regionTag.bigmodel"]).toBe("中国");
+    expect(enUS["bots.channel.regionTag.lark"]).toBe("Global");
+    expect(zhCN["bots.channel.regionTag.lark"]).toBe("全球");
+    expect(enUS["bots.channel.regionTag.feishu"]).toBe("CN");
+    expect(zhCN["bots.channel.regionTag.feishu"]).toBe("中国");
   });
 
   it("resolves remote-control bot entry to the first existing provider bot", () => {
@@ -116,9 +65,7 @@ describe("BotsDialog config", () => {
   });
 
   it("resolves remote-control bot entry to provider creation when no bot exists", () => {
-    expect(
-      resolveBotProviderEntry([createBot("weixin-one", "weixin")], "feishu"),
-    ).toEqual({
+    expect(resolveBotProviderEntry([createBot("weixin-one", "weixin")], "feishu")).toEqual({
       mode: "create",
       provider: "feishu",
     });

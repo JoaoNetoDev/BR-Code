@@ -1,5 +1,7 @@
 # Estado da seleção de modelo
 
+> **Implementado:** o [Plano de ciclo de vida em background do período ocioso](../../../../off-peak-task/background-lifecycle-plan.md) separa o `cliDefaultSelection` por sessão, mantém a Runtime Session Selection responsável pela retomada, reutiliza o armazenamento existente e não faz migração de configuração nem de banco de dados. O escopo de verificação e o registro das correções de review estão nesse plano.
+
 ModelSelection é a intenção de modelo que pode ser persistida e transportada:
 
 ```ts
@@ -147,8 +149,45 @@ inicialização. O contrato de campo de modelo do snapshot antigo não é afroux
 requisição, a Selection ainda é validada, e não se pode escolher automaticamente outro modelo ou nível só para que a
 criação tenha sucesso.
 
-A Session Selection guarda a ModelSelection que a Session continuará usando nas execuções seguintes. É gravada quando
-uma Submission comum inicia de fato o Agent Loop, ou quando o Guide é aceito pelo Loop atual.
+A Session Selection guarda a ModelSelection que a Session continuará usando nas execuções seguintes. Uma mensagem comum
+do usuário a atualiza quando é aceita pelo admission serial da CLI; uma mensagem já enfileirada usa o próprio snapshot da
+sua Submission ao ser executada, sem sobrescrever a escolha de retomada determinada por uma entrada mais recente. Tarefas
+off-peak mantêm uma escolha de retomada temporária no próprio ciclo de vida, e, depois que a entrada do usuário assume,
+passa-se a escolha submetida pelo usuário. O registro de verificação está no Plano de ciclo de vida em background do
+período ocioso.
+
+### CLI Default e fallback do cartão de aceleração
+
+O `cliDefaultSelection` é mantido pelo Bootstrap por sessão e serve apenas para completar o modelo das entradas de
+usuário da CLI/TUI que não têm uma escolha explícita. Uma sessão nova é inicializada a partir do
+`config.defaultModelSelection` de `~/.zcode/v2/provider_config.json`, e uma sessão restaurada reutiliza a escolha comum
+de usuário já existente; o default global não é relido a cada requisição. `/model` e `/effort` modificam e salvam esse
+valor padrão, e não alteram a escolha de retomada da Session enquanto a mensagem não foi aceita. O App continua mantendo
+o rascunho do Composer e não ganha um segundo estado de default da CLI.
+
+O `highspeedFallbackSelection` designa **apenas a escolha de fallback da expiração do cartão de aceleração**: ela é
+copiada e congelada da escolha comum da Session no momento, antes de qualquer inicialização assíncrona da rodada
+acelerada. O tratamento de erro lê somente esse snapshot e não pode ler uma Session atualizada depois por novas
+mensagens. O fallback preserva o histórico da rodada e remove a autenticação de requisição do cartão de aceleração; sem
+uma escolha comum, o erro real de expiração do cartão é preservado. Não é uma troca de ticket off-peak nem um fallback
+genérico de erro.
+
+```mermaid
+sequenceDiagram
+  participant CLI as default da CLI
+  participant Admission as admission de entrada
+  participant Session as escolha de retomada da Session
+  participant Turn as rodada acelerada atual
+  CLI->>CLI: /model atualiza o default da próxima entrada
+  CLI->>Admission: usuário envia mensagem, Submission fixada
+  Admission->>Session: aceita e atualiza a escolha de retomada
+  Session->>Turn: copia no início a escolha de fallback do cartão de aceleração
+  Admission->>Session: entradas posteriores do usuário atualizam a escolha
+  Turn->>Turn: cartão expirou, usa apenas o snapshot de fallback do início
+```
+
+Essa separação de responsabilidades reutiliza o Provider Config e o Session entry existentes e não acrescenta migração
+de configuração nem de banco de dados.
 
 A atualização do Provider Config não reescreve a Session Selection. A execução seguinte consulta o Registry mais recente
 com essa Selection e cria um novo Model. Como apenas a Selection é guardada na Session, atualizações de API Key,
@@ -234,8 +273,8 @@ Entry 初始化 Composer
 ```
 
 Um Entry de longa duração relê o Configured Default ao criar cada nova Session. Atualizações de arquivo ou de outro
-portador persistente só afetam as Sessions criadas depois; uma Session já iniciada continua sendo decidida pela Session
-Selection.
+portador persistente só afetam as Sessions criadas depois; uma sessão CLI/TUI já iniciada tem as requisições sem escolha
+explícita completadas pelo cliDefaultSelection, e a retomada em background é decidida pela Session Selection.
 
 O Configured Default não é lido ao restaurar uma Session existente. A Session Selection persistida mantém a intenção
 original mesmo quando está temporariamente indisponível, e a interface avisa ou a execução reporta que não foi possível
@@ -358,7 +397,7 @@ Restaurando uma Session existente no Prompt CLI:
 ```text
 显式 --model / --reasoning
   >
-Session Selection
+cliDefaultSelection（从持久普通用户选择初始化）
 ```
 
 O Configured Default pertence à configuração do Host/domain do Workspace de destino. O `preferredSelection` do Host já
@@ -382,13 +421,16 @@ ModelFactory apenas valida e congela, sem preencher defaults.
 | ------------------ | ------------------------------------------------------ | ---------------------------- |
 | Draft Selection    | Edição no Composer                                     | Entry Draft                  |
 | App Recent         | O App aceita a Submission do usuário                   | App × workspaceKey           |
-| Session Selection  | Submission comum inicia o Loop, ou Guide é aceito      | Session                      |
+| Session Selection  | Submission comum é aceita; a execução off-peak faz uma atribuição temporária | Session (apenas a escolha comum é persistida) |
+| CLI Default Selection | /model e /effort da CLI/TUI; inicialização da sessão | Reaproveita o armazenamento da escolha comum de usuário já existente |
 | Active Model       | Início do Loop, ou troca do Guide no limite de Step    | Agent Loop atual, sem persistência |
 
 Esses estados compartilham a semântica de ModelSelection, mas não compartilham o momento de escrita. Depois que um
 estado muda, outro pode ser atualizado por um evento explícito; nenhum estado adivinha o que deve salvar observando o
 valor atual dos outros estados.
 
-O ModelSelection das tarefas ociosas pertence apenas ao próprio contexto de execução delas e não é escrito no App
-Recent, no Configured Default nem na Session Selection. Como não há reescrita da Session Selection, também não existe
-etapa de restauração após a execução.
+Tarefas off-peak atualizam temporariamente a Session Selection em memória, para que a recuperação/despertar do background
+pertencente a elas possa lê-la; elas não escrevem no App Recent, no Configured Default, no CLI Default nem na escolha de
+usuário persistida. Quando o item inteiro é concluído e não foi assumido pelo usuário, a escolha comum original é
+restaurada; depois que a entrada do usuário é aceita, a escolha do usuário prevalece, e o fechamento off-peak antigo não
+sobrescreve mais nada.

@@ -53,3 +53,22 @@ primeira versão que viu.
   `download-progress` real continuam sendo pulados, evitando downloads concorrentes. Em macOS /
   Linux, a instalação automática na saída é mantida apenas quando a versão do pacote ready é igual
   ao alvo atual.
+
+- O único estado da instalação é mantido pelo `quitAndInstallState` do main, na sequência `idle → preparing → installing`; após uma falha entra no estado terminal `recovering` e reinicia de forma controlada. Ao confirmar a instalação, o pacote já pronto é travado imediatamente, e as requisições de manifest em segundo plano não participam da admissão da instalação; um resultado de verificação tardio ou uma verificação falha não pode alterar o pacote travado nem ser tomado por erro de instalação nativo.
+- Os eventos de download são primeiro registrados no CancellationToken correspondente, e o estado ready só é publicado depois que a Promise de download é encerrada com sucesso. A instalação não espera pelo trabalho de rede: um download pendente ainda não está ready, e um ready existente não depende do fim da verificação em segundo plano; um download cancelado ou com falha não pode publicar um ready obsoleto.
+- Depois que `preparing` começa, não são aceitos novos resultados de verificação, download ou atualização. A limpeza de Host/Agent não pode desfazer o estado; falhas de preparação, erros de staging durante a preparação e falhas da instalação nativa após a entrega são tratadas com reinício controlado, sem voltar para a janela antiga cujo serviço já foi destruído. A recuperação é executada uma única vez; erros repetidos não reiniciam de novo.
+- O retorno de `quitAndInstall()` não significa que a instalação terminou; após a entrega bem-sucedida o estado `installing` é mantido, o `before-quit` nativo é liberado, e comandos de instalação repetidos não reentram. Erros reais de instalação e erros com origem na verificação são tratados separadamente, sem adivinhar a origem pelo menu atual.
+- Esta correção altera apenas o ciclo de vida de atualização do main do desktop, sem modificar as barreiras de saída de Host/Agent, o attachment de shared host do celular ou as fronteiras de mensagens desktop continuous / web remote replayable.
+
+```text
+Promise de download encerrada com sucesso → ready → confirmar instalação/travar pacote → preparing → installing → saída
+                                                a verificação em segundo plano não participa da espera   │          │
+                                                                                                        └─falha────┴→ recovering → reinício de recuperação
+```
+
+## Verificação de regressão
+
+- Os testes unitários cobrem a liberação de saída após a chamada de instalação no macOS/Linux, a idempotência de comandos repetidos e o novo estado ready após falhas síncronas e assíncronas.
+- Os testes unitários cobrem uma verificação pendente que não bloqueia a instalação de um ready, a publicação de ready após a conclusão do download, o travamento do alvo após a preparação e os erros nativos e eventos repetidos. O smoke do Electron cobre eventos de nova versão durante a preparação e IPC repetido, confirmando que a instalação é entregue uma única vez mesmo após a limpeza de Host/Agent.
+- O smoke de nível de processo do Electron usa o `MacUpdater.quitAndInstall()` real, o IPC do renderer e o `app.before-quit`, controlando a chegada do callback nativo de staging depois do retorno da chamada de instalação; ele afirma que a instalação é iniciada apenas uma vez e que o processo sai normalmente. O atualizador nativo usa fixtures, sem substituir a aplicação do usuário nem executar uma instalação ShipIt real.
+- A substituição de arquivos do ShipIt e o reinício automático do pacote assinado ainda exigem verificação antes da publicação, e não são substituídos pelo smoke.

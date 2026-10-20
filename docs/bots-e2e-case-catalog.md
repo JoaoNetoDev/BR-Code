@@ -146,6 +146,13 @@ A importação única do arquivo antigo, o Reader estrito antigo e os bytes de r
 
 Verificação de DF-01 (2026-09-07): o WDIO de Desktop no macOS passou (`desktop-e2e-20260907040958265-p60496-c535b8967f7e59a1`). Falhas de negócio HTTP 200/400, log ID de body/header, rejeição de atualização, status do circuito de streaming e renderização de erro localizada são cobertos por 124 testes unitários passando. Typecheck, typecheck de Desktop E2E e lint passaram (43 warnings, 0 errors). O caso pendente não é promovido. Feishu real, Windows/Linux, dispositivos móveis e interação de DOM com falha de entrega permanecem não verificados; a regressão de DOM de erro de conexão existente CF-01 passou no WDIO de Desktop no macOS.
 
+## BOT-E2E-RW-02: identidade R3 stable / legacy do Bot
+
+- accepted: a Source já passou pelo handshake e a sessão remota da janela atual está online, e o snapshot de fallback ainda é legacy; os pontos de entrada de modelo/tarefa são requisitados separadamente com o Bot context stable e o legacy.
+- Asserção: os dois pontos de entrada são normalizados para o mesmo stable scope; sem reportar desconexão indevidamente, sem chamar task local e sem criar Host/Agent extra; a identidade antiga apenas autorizada continua limitada à mesma Source mesmo depois do upgrade.
+- Contraste: mesmo path com Source diferente, religação de linha antiga, preferred Profile diferente da linha online, troca por desconexão/reconexão, lookup concorrente de task/model, port tardio e dispose.
+- A evidência principal é a sonda de encadeamento dos módulos reais e o E2E sintético do Bot service; não se afirma que a entrega real no Feishu/Telegram foi verificada.
+
 ## Colaboração em grupo do Feishu (aceito, automação pendente)
 
 - BOT-E2E-GR-01: dois grupos habilitados e a conversa privada mantêm task/configuração separadas; comandos de membros não podem trocar de task nem aprovar. Prompts de grupo carregam a origem confiável até a admissão canônica; sem sendPrompt legado.

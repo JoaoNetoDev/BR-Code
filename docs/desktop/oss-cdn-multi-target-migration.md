@@ -27,6 +27,8 @@ OSS_CONFIG_FILE=/etc/ossutil/new,/etc/ossutil/old-a,/etc/ossutil/old-b
 
 Versão já publicada, sem novas alterações. O CDN/OSS antigo continua mantendo o stable feed, os instaladores, o blockmap, o `manifest-*.json` e o `components/**`.
 
+A versão R3 Source Server não adiciona mais manifest/components legados; esta regra de retenção vale apenas para compatibilidade com clientes já existentes, e o pipeline normal de novas versões não deve remover objetos históricos.
+
 ### 3.1.3 versão ponte
 
 Configura três grupos de alvos:

@@ -66,3 +66,11 @@ I27–I31 validam o fallback da conexão atual, a troca de Family e a restauraç
 - o reinício usa um reload real do Electron, provando a re-hidratação de main/host/renderer/Agent e do estado em disco;
 - cada case afirma ao menos uma camada de evidência de runtime, entre a Selection de UI e uma sessão/requisição real;
 - o Desktop continua usando a cadeia continuous; este grupo não introduz estado mobile replayable.
+
+## BR117-F01: falha de download do Built-in remoto não bloqueia a conexão da conta
+
+- Pending spec: `settings/manual-review/pending/provider-builtin-refresh-failure.test.ts`.
+- Setup: isolar o plano de controle de conta local, o pacote de configuração válido e o login BigModel válido, com o plano pessoal como seleção inicial; o plano de controle case-local entrega um endereço HTTP do Built-in, que o downloader oficial precisa rejeitar, sem sobrescrever o Active do produto.
+- Action: alternar para Team pela página de configurações, voltar ao Composer para selecionar o modelo do Team e então selecionar o modelo Start.
+- Assert: o RPC de atualização de configuração tem sucesso e existe um aviso de falha remota; a escolha do time preserva a identidade completa de organização/projeto, sem rollback; os modelos Team/Start continuam selecionáveis; não há acesso a endereços de download inválidos.
+- Este caso prova apenas a interação real do desktop-continuous; os testes unitários do serviço compartilhado cobrem a classificação de erros, e não se afirma que o mobile, o workspace remoto ou requisições reais de modelos pagos foram aceitos. Não há requisição externa de modelo, e as respostas de conta reutilizam o mock local.

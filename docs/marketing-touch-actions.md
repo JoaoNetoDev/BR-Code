@@ -206,7 +206,7 @@ Controller 防连点
 - Quando o alvo indicado não existe, a operação falha sem voltar silenciosamente à página inicial; enquanto a lista não terminou de carregar, aguarda-se o resultado de carga existente para evitar avaliação errada.
 - A camada modal do popup de marketing e da página alvo é coordenada pelos mecanismos existentes para evitar disputa de foco; em caso de falha, a entrada de tentar novamente é mantida/restaurada.
 - Após o sucesso de navigate, não se exibe success_popup, para não cobrir a nova página. Isso vale apenas para as novas ações e não muda os comportamentos existentes de resgate/link externo.
-- navigate/copy_text não acionam a consulta imediata após um resgate, evitando que a consulta compita com o confirm assíncrono e cause sobreposição de popup antigo sobre o alvo; o polling periódico normal e a reexibição pelo servidor são mantidos, sem deduplicação histórica.
+- Somente após o sucesso de claim_zcode_plan a elegibilidade do resgate é consultada imediatamente. open_url/navigate/copy_text não disparam essa consulta, evitando que ela compita com o confirm assíncrono e faça o popup antigo já fechado reabrir; o polling periódico normal e a reexibição pelo servidor são mantidos, sem deduplicação histórica.
 - O mercado de plugins fica no workspace: depois de enviar a intenção de mercado, ativa-se o workspace original (com workspaceIdentity), e o componente alvo verifica a identidade do workspace ativo e o estado de lista/detalhes antes de confirmar; não se pode considerar sucesso o fato de o componente estar montado atrás da camada de configurações.
 
 ### Adaptação da área de transferência

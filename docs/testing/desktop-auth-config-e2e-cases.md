@@ -31,6 +31,33 @@ Cada caso deve satisfazer:
 - se não disparar requisições de modelo, o manifest deve declarar explicitamente `providerRequestPolicy: "none"`.
 - se gravar configuração local via seed do WDIO, o documento deve informar o arquivo de seed e os limites de limpeza a verificar.
 
+## Contrato de credenciais de inicialização padrão
+
+O caso comum, o Personal Provider local, o replay remoto e o spec desconhecido gravam por padrão um objeto
+vazio em `~/.zcode/v2/credentials.json` do HOME isolado. Sem spec fornecido, lista vazia ou glob de suíte,
+também não se restaura implicitamente um OAuth / JWT falso; novos casos comuns não precisam mais registrar uma
+"exceção sem conta".
+
+```text
+spec concreto do worker -> escolha do mock de conta existente -> seed de cold start -> Electron / Host
+                           |
+                           +-- sem mock de conta escolhido: credenciais vazias
+                           +-- Coding Plan dedicado: apenas o OAuth sintético da família de contas correspondente
+                           +-- JWT dedicado: mantém o JWT sintético declarado por esse dedicado
+```
+
+A ativação do mock de conta é informada ao gerador de credenciais pelo resultado da seleção do fixture WDIO
+existente; não se mantém mais uma lista de exclusão de casos comuns. O dedicado BigModel semeia apenas o OAuth
+BigModel, sem carregar a identidade falsa da Z.AI. O JWT continua sendo mantido conforme o dedicado explícito
+existente, sem injeção default por haver mock de conta. O replay remoto sempre inicia sem conta; a importação de
+conta real, o texto cifrado corrompido e o JWT expirado continuam usando seus respectivos setups explícitos.
+
+Requisitos de regressão: unitários cobrem as credenciais vazias default, os caminhos Windows / POSIX, o fixture
+de conta explícito, o dedicado JWT, a prioridade remota e a imutabilidade da entrada; o E2E de Browser verifica
+que a inicialização comum não tem chaves de conta, o E2E do Coding Plan verifica que só há a família de contas
+correspondente e depois executa a operação real de UI já existente. Não se pode substituir o isolamento por
+bloquear o popup de login inválido ou afrouxar as asserções.
+
 ## AUTH-01: recuperação de cold start com credenciais OAuth corrompidas
 
 ### Definição do caso
@@ -47,6 +74,8 @@ Cada caso deve satisfazer:
 O usuário tem um estado de login OAuth residual no `credentials.json` local, mas o `oauth:active_provider` therein é um texto cifrado que a máquina atual não consegue descriptografar. No cold start do desktop, a restauração de sessão OAuth não pode deixar a entrada de login num estado morto de "falha ao carregar / nenhum canal de login"; o sistema deve limpar o estado de login corrompido e exibir novamente os canais onde é possível fazer login.
 
 Este caso verifica apenas "credenciais OAuth corrompidas -> recuperação no cold start -> canal de login visível -> estado de login corrompido limpo". Não cobre login web real, callback OAuth, refresh de token, fluxo de compra, remote workspace nem envio de modelo.
+
+Regressão de business token corrompido (2026-10-12): executa o mesmo AUTH-01 com `ZCODE_E2E_CORRUPT_OAUTH_TOKEN_PROVIDER=bigmodel` ou `zai`, mantendo o seed com o active provider, o user info e o JWT compartilhado normais, e apenas o business access token como texto cifrado impossível de descriptografar. Verifica a visibilidade dos canais de login, a limpeza de todas as credenciais OAuth e a preservação das credenciais de Bot independentes. A execução default continua cobrindo a corrupção do active provider; a recuperação intercalada com novo login, as exceções comuns de IO e o cancelamento de requisição são cobertos por testes controlados no nível de serviço.
 
 Limitação: AUTH-01 hoje cobre apenas o desktop local host; a recuperação de corrupção OAuth do remote workspace e do `/remote` no celular já é protegida por testes de regressão no nível de serviço; o caso E2E oficial de remote fica para complemento posterior.
 
@@ -90,6 +119,13 @@ Executado em 2026-07-09:
 
 A admissão em Docker não é executada: este caso não depende de replay de provider nem pertence ao preset Docker de conversation.
 
+### Verificação da correção de business token corrompido (2026-10-12)
+
+- A corrupção de um único business token do BigModel/ZAI e a corrupção do active provider default passaram pelo AUTH-01 do Electron isolado em macOS; após a limpeza OAuth os canais de login ficaram utilizáveis e as credenciais de Bot independentes foram preservadas. Na primeira execução da ZAI o caso parou na tela de início; os logs de RPC do runtime e a cadeia de refresh localizaram que o callback de limpeza do repositório em background aguardava a próxima rodada de refresh do próprio Account Source; após corrigir essa espera circular a build foi refeita e passou.
+- 260 testes unitários direcionados de services e 18 testes de recuperação de login/onboarding passaram; cobrem business/shared token corrompido nas duas plataformas, erro comum de IO, recuperação antiga intercalada com novo login, verificação de cancelamento de fetch/corpo, timeout da requisição original, orçamento de observação e cancelamento de assinatura compartilhada.
+- O AUTH-06 validou com a mesma build final a limpeza de invalidez, o aviso único, a entrada no login após a confirmação e a ausência de comando de reinício, e passou. Typecheck, typecheck de E2E, lint e checagem de arquitetura passaram; o lint mantém os avisos de baseline.
+- Não foram executadas as regressões de shared-host mobile, remote workspace, Windows/Linux nem o revoke do backend real; o owner de autenticação e o protocolo desktop-continuous / web-remote-replayable não mudaram.
+
 ## AUTH-02: portão de readiness de provider e recuperação
 
 ### Definição do caso
@@ -103,7 +139,7 @@ A admissão em Docker não é executada: este caso não depende de replay de pro
 
 ### Cenário de teste
 
-O desktop local faz cold start com HOME isolado; o session DB da CLI é pré-carregado com um histórico interativo, mas o usuário não tem login OAuth, API Key nem outro provider estruturalmente utilizável. Depois que a entrada de login termina de renderizar, o usuário pula temporariamente e entra no workspace padrão; o sessions-index deve iniciar sob demanda o único Agente de sessão somente-leitura, exibindo esse histórico real na barra lateral, e ao clicar é possível ler o corpo persistido, enquanto a home continua exibindo o banner `modelConfigMissing`. Quando o usuário cria um rascunho e tenta o primeiro envio, nenhum comando de session/model deve ser criado. Em seguida, ao reabrir a entrada de login/configuração de provider e salvar um provider habilitado, com Runtime Base URL, modelos não desabilitados e a credential necessária; o mesmo workspace deve reutilizar esse Agente, manter a contagem em 1, concluir a hidratação de modelo do rascunho e limpar o banner.
+O desktop local faz cold start com HOME isolado; o session DB da CLI e o tasks-index do App são pré-carregados com o mesmo histórico interativo, mas o usuário não tem login OAuth, API Key nem outro provider estruturalmente utilizável. Depois que a entrada de login termina de renderizar, o usuário pula temporariamente e entra no workspace padrão; a barra lateral deve exibir o histórico do tasks-index; a assinatura somente-leitura inicia sob demanda o único Agente de sessão, e ao clicar é possível ler o corpo persistido na CLI, enquanto a home continua exibindo o banner `modelConfigMissing`. O usuário retorna ao rascunho pela mesma entrada do projeto e digita um texto; sem modelo, o botão de envio fica desabilitado, o texto original é preservado e o pending command fica vazio. Em seguida, a partir do banner de modelo ausente ele entra nas configurações e cria, pelo BigModel Template, um Personal Provider com ID próprio, confirmando a gravação após o blur do campo de API Key; o mesmo workspace deve reutilizar esse Agente, manter a contagem em 1, concluir a hidratação de modelo do rascunho, limpar o banner e, preservando o texto original, voltar a habilitar o botão de envio. O teste não clica no botão de envio já recuperado.
 
 Este caso verifica apenas a readiness estrutural local, o limite de início de processo e a hidratação do rascunho; não envia prompt, não verifica conectividade de provider na rede e não cobre o Agente de gerenciamento de plugins/MCP. O remote workspace usa service/integration case para verificar os limites antes/depois do downlink do registry do desktop.
 
@@ -113,20 +149,28 @@ Este caso verifica apenas a readiness estrutural local, o limite de início de p
 | --------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | AUTH-02-A | Entrada de login/provider utilizável quando não configurado                  | `waitForTestIdByDom(TID_LOGIN_USE_API_KEY_BUTTON)`                                                                                                                  |
 | AUTH-02-B | Após pular, a home do rascunho exibe o banner de modelo ausente                 | `TID_CHAT_ERROR_BANNER` ecoa "atualmente não há modelo disponível"                                                                                                                      |
-| AUTH-02-C | Com nada configurado, o envio é rejeitado pela admission da UI            | o texto do composer é preservado; não há registro pending de `createSession` nem banner de recuperação unknown/discarded                                                                                   |
+| AUTH-02-C | Com nada configurado, o botão de envio é desabilitado pela admission da UI            | Após digitar o texto o botão continua desabilitado, o texto do composer é preservado e o ledger de pending command fica vazio                                                                                 |
 | AUTH-02-D | Com nada configurado, o histórico é visível e legível                          | a row da sessão interativa de CLI pré-carregada, o corpo do usuário e o corpo do assistente na barra lateral estão visíveis, provando que o sessions-index/topic de conversation real funciona                                                |
 | AUTH-02-E | Sem configuração, não há deferred draft/retry               | testes focados de service/UI afirmam que `provider_not_ready` permanece idle e projeta o banner                                                                                          |
 | AUTH-02-F | Sem configuração, o número de Agentes somente-leitura no workspace alvo é 1        | o snapshot do resource manager é afirmado como 1 pela workspace tag `ZCodeProject`; o sibling de conversation do sistema não conta, apenas leituras de sessions-index/history são permitidas, sem session create/model command |
 | AUTH-02-G | Após salvar o provider, o único Agente do workspace alvo ainda é reutilizado | o número de linhas de Agentes do resource manager para o mesmo workspace permanece 1, e uma segunda asserção após a janela de estabilidade continua 1, sem reinício read→write duplicado                                                                      |
-| AUTH-02-H | Modelo do rascunho hidratado e banner de modelo ausente removido                | o trigger de modelo ecoa o primeiro modelo não desabilitado, `TID_CHAT_ERROR_BANNER` deixa de existir                                                                                                   |
+| AUTH-02-H | Após a configuração, modelo hidratado, rascunho preservado e envio reabilitado                | O trigger de modelo aponta para a nova instância de Personal Provider e para um modelo não vazio; o banner desaparece, o texto original é preservado e o botão de envio fica habilitado                                                                                                 |
 
 ### Contrato do fixture
 
 - o manifest usa `providerRequestPolicy: "none"` e `requests` vazio; o caso inteiro não gera requisições de modelo.
-- O fixture de entrada grava apenas interactive session/message/part no SQLite do Agent CLI; não grava o `tasks-index` do App, e a membership da barra lateral deve ser criada pelo baseline real de sessions-index no cold start. O restante das entradas é o estado vazio de auth/provider do HOME isolado, além da configuração local de provider salva durante o teste pela entrada de login por API Key real.
+- O fixture de entrada pré-carrega ao mesmo tempo a interactive session/message/part do SQLite do Agent CLI e a membership do `tasks-index` do App; a row da barra lateral vem do tasks-index e o corpo deve ser lido pela assinatura real de conversation somente-leitura. O restante das entradas é o estado vazio de auth/provider do HOME isolado, além da configuração local de Personal Provider criada pelo Template e salva durante o teste.
 - As asserções de processo leem o snapshot de processos da mesma origem do resource manager e do lifecycle registry do processo principal, sem usar asserções `pgrep`/`ps` que só funcionam em um único sistema operacional.
 
 ### Conclusão da verificação real
+
+2026-10-16 após a correção, nova execução: 1 spec / 1 case passed. Artefato:
+`packages/desktop/.e2e-artifacts/desktop-e2e-20261016040830885-p3810818-9b9ec2468aec7c23/summary.md`.
+As novas asserções confirmam que o texto original é preservado depois do primeiro Provider ficar pronto, que o
+botão de envio é habilitado, que o pending command continua vazio e que o Agente do mesmo workspace permanece em
+1; o controle de modelo é validado pela função de decodificação compartilhada para a identidade da instância
+Personal. O Hook compartilhado tem unitário cobrindo identity local/remota; não foi executado o E2E real de
+pareamento mobile.
 
 Executado em 2026-07-20:
 
@@ -139,6 +183,8 @@ Executado em 2026-07-20:
 A admissão em Docker não é executada: este caso de auth/config não depende de replay de provider nem pertence ao preset Docker de conversation.
 
 ## AUTH-03: reautenticação após expiração do ZCode JWT
+
+2026-10-12 novo teste automático com Electron isolado: 1 case passed; artefato: `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-113824-131/summary.md`. Confirma que a mudança desta rodada na entrada de recuperação não quebrou a limpeza de expiração no cold start nem a entrada de login; permanece pending.
 
 ### Definição do caso
 
@@ -209,7 +255,14 @@ Executado em 2026-08-06:
 Apenas a execução automática foi concluída; como a aceitação visual manual ainda não foi registrada, o caso continua em `manual-review/pending`, sem promoção nem admissão em Docker.
 
 <!-- O cenário JWT do staging fixo tinha numeração original AUTH-05, conflitando com o número de cancelamento de login acima; aqui é nomeado AUTH-JWT-401, e a evidência histórica não conta como aprovação deste ciclo. -->
+
 ## AUTH-JWT-401: logout e reinício por 401 de ZCode JWT em execução
+
+### Comportamento atual (2026-10-12)
+
+O JWT compartilhado e o business access_token usam a mesma entrada de aviso de expiração; após a confirmação, o usuário vai direto para a página de login Welcome. O caso passou a usar um fixture HTTP local que pausa a requisição real de saldo do Host e retorna HTTP 401; não usa mais o mock de net.fetch do main no lugar do transport do Host. Antes da confirmação, OAuth/JWT são limpos e as credenciais de Bot independentes são preservadas; depois da confirmação, a entrada de login é afirmada como visível e app.relaunch/quit não são chamados.
+
+Novo teste automático com Electron isolado: 1 case passed; artefato: `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-113752-866/summary.md`. O caso permanece pending; as asserções de reinício e os registros de execução abaixo são contexto histórico.
 
 ### Definição do caso
 
@@ -278,56 +331,42 @@ Usuário confirma -> DesktopCommandIds.RelaunchApp
 
 ### Cenário de teste
 
-O desktop local faz cold start com HOME isolado: as credenciais OAuth estão vazias e o Environment atual é pré-carregado com um modelo DeepSeek customizado com faixa de reasoning. O usuário completa o OAuth da BigModel pelo Welcome; após o callback, o Account Overlay e o Provider Runtime do Environment atual são atualizados, colocando `builtin:bigmodel-coding-plan/GLM-5.2` na Model Selection View. Sem reiniciar e sem salvar manualmente o Provider, o usuário abre direto as configurações de Subagent e, na mesma linha `general-purpose`, seleciona o modelo customizado e depois o modelo Coding Plan embutido.
+O desktop local faz cold start com HOME isolado, com as credenciais OAuth vazias. Se o onboarding de carreira cobrir o app, ele é fechado primeiro pelo Escape real, e só então se observa o Welcome ou o workspace não logado. O Local Host atual é pré-carregado com um modelo DeepSeek customizado com faixa de reasoning. Depois de completar o OAuth da BigModel, sem reiniciar e sem salvar manualmente o Provider, o usuário abre direto as configurações de Subagent e, na mesma linha `general-purpose`, seleciona o modelo customizado e o Coding Plan GLM-5.3.
 
-Este caso também lê os `configOptions` de workspace expostos pelo renderer, evitando adivinhar o estado de capacidade apenas pelo texto. `configOptions` é a projeção de sessão da Model Selection View do Environment atual, não uma segunda Provider Registry mantida pelo Desktop e empurrada ao Worker. O caso observa apenas a cadeia local desktop `desktop-continuous`, não modifica a implementação de negócio e não dispara os limites de restauração replayable do `/remote` no celular.
+A única fonte de membros de modelo e de capacidades das Settings é a Model Selection View do Local Host. O E2E lê apenas as View props realmente consumidas pela linha de Subagent, validando o catálogo de modelos e o controle de reasoning antes e depois do login; não lê mais os `configOptions` de workspace, que já saíram da responsabilidade de catálogo de modelos, nem escreve ready artificialmente. Este caso cobre apenas o desktop local; o `/remote` no celular é verificado separadamente.
 
 ### Sequência de estado e operação
 
 ```text
-cold start com HOME isolado
-  OAuth sem login; Environment atual só com DeepSeek customizado
-                 |
-                 v
-Usuário clica em login BigModel ----> callback OAuth
-                 |                |
-                 |                +--> setUser, App/workspace começam a montar
-                 |                +--> Account Overlay é atualizado
-                 |                +--> Registry do Environment atual é reconstruído
-                 |                                  |
-                 v                                  v
-Abre direto as configurações de Subagent       GLM-5.2 aparece na Model Selection View
-                 |                                               |
-                 +----------------+-----------------+
-                                  |
-                                  v
-                    projeção workspace configOptions pronta
-                 |
-                                  +--> DeepSeek customizado: effort selecionável
-                                  `--> Coding Plan GLM-5.2: effort exibido sem reiniciar
+HOME isolado → fecha o onboarding de carreira → workspace não logado
+                                  ↓
+                   Subagent Local Host View contém o modelo customizado
+                                  ↓
+                       BigModel OAuth callback
+                                  ↓
+                 Account Overlay / Local Host View é atualizado
+                                  ↓
+                    Subagent seleciona o modelo customizado: effort disponível
+                                  ↓
+                    seleciona Coding Plan GLM-5.3: effort disponível
+                                  ↓
+                 a View consumida pela página contém GLM-5.3 high / max
 ```
-
-Na cadeia de defeito, o callback OAuth já havia concluído, mas o estado dos `configOptions` do workspace ainda não convergira, e o Subagent tratava readiness como um portão de UI, carregando indefinidamente. A fronteira atual é: os fatos de Provider e Model são produzidos pela Effective Config e pelo Registry do Environment atual; o renderer apenas consome a Model Selection View e sua projeção de sessão, e não mantém um snapshot de App que possa sobrescrever o Registry em sentido inverso. O E2E verifica separadamente a usabilidade dos controles após o login e o fato de os `configOptions` do workspace acabarem em `ready` contendo a faixa de reasoning do Coding Plan.
 
 ### Itens de verificação
 
-| Número    | Item de verificação                                    | Explicação de validade                                                           |
-| --------- | -------------------------------------------- | -------------------------------------------------------------------- |
-| AUTH-04-A | OAuth token, user info e configuração do Coding Plan concluídos | Exclui o loading transitório causado por "o callback de login ainda não terminou"                             |
-| AUTH-04-B | GLM-5.2 reasoning aparece na Model Selection View | Prova que as restrições de conta e a configuração de modelo do Environment atual já estão em vigor                    |
-| AUTH-04-C | A projeção do workspace converge a partir do estado não pronto               | Prova que a UI não fica permanentemente bloqueada pelo estado transitório de `configOptionsStatus`            |
-| AUTH-04-D | Effort do DeepSeek customizado é selecionável                  | Prova que uma capacidade explícita já existente no Runtime continua acionando corretamente os controles de Subagent                    |
-| AUTH-04-E | Effort do Coding Plan disponível sem reiniciar            | Prova que o Account Overlay e a atualização da Model Selection após o login podem ser observados na página atual |
-| AUTH-04-F | `configOptions` exibe finalmente GLM-5.2 high/max    | Prova de forma independente que o Registry Host/Worker do Environment atual e a projeção de sessão terminam consistentes  |
+- Antes do login o modelo customizado existe e o modelo Coding Plan não existe.
+- A URL real do OAuth, o state e o deep link concluem o login.
+- Depois do login o modelo customizado existente continua utilizável, e o reasoning inclui high / max.
+- O modelo Coding Plan e o reasoning podem ser selecionados sem reiniciar; a Model Selection View da página termina em ready e contém a mesma capacidade.
 
 ### Contrato e fronteiras do fixture
 
-- o manifest usa `providerRequestPolicy: "none"` e `noProviderRequests: true`, e não envia requisições a providers de modelo.
-- O mock HTTP compartilhado do Coding Plan redefine o case mode conforme o spec de worker atual em cada `beforeSession`; só este spec habilita as respostas de OAuth token, `/api/v2/releases/latest`, `/api/v1/client/configs` e do saldo do Start Plan. Os demais casos E2E de Coding Plan executados depois restauram primeiro o modo padrão e não herdam esse comportamento de diretório nem o estado do OAuth.
-- No caminho de polling OAuth do Desktop, o mock case-local fixa a resposta do flow `/api/v1/oauth/cli/init`, e `/api/v1/oauth/cli/poll/:flowId` permanece pending; o caso continua concluindo o login via deep link, evitando acoplar a semântica de conclusão do polling às asserções de catálogo deste caso.
-- `release/latest` retorna um `config_version` diferente antes e depois do login; o `client/configs` versionado retorna um catálogo imutável conforme a versão solicitada, evitando que um cache antigo do cliente seja substituído silenciosamente pelo catálogo atual por causa do estado OAuth.
-- `client/configs` entrega de forma fixa `builtin:bigmodel-coding-plan/GLM-5.2` e os metadados de reasoning de três faixas: `high`, `max` e `nothink`.
-- O caso atual afirma separadamente a usabilidade da UI após o login e a consistência final da projeção de sessão da Model Selection do Environment atual; o spec oficial é coletado pelo diretório raiz padrão do desktop E2E, e a matriz é marcada como covered.
+- o manifest é `providerRequestPolicy: "none"` e não envia requisições de modelo; as interfaces de OAuth, release/latest, client/configs, de plano e de credenciais são fixadas pelo mock HTTP case-local.
+- A cada beforeSession o modo do mock é redefinido conforme o spec de worker atual; os demais casos de Coding Plan não herdam o estado de catálogo logado.
+- O polling de OAuth permanece pending e o login é concluído pelo deep link, evitando misturar a semântica de conclusão do polling.
+- release/latest usa um `config_version` diferente antes e depois do login; o client/configs versionado entrega um catálogo imutável conforme a versão.
+- O GLM-5.3 embutido atual depois do login precisa oferecer as faixas high e max; o payload de release deixa de ser a fonte de membros de modelo. A UI real e a View somente-leitura provam juntas a atualização, sem injetar catálogo no renderer.
 
 ### Registros de execução automática
 
@@ -355,6 +394,34 @@ Este caso foi movido de `manual-review/pending` para o caminho formal. Ele não 
 
 <!-- O cenário AUTH-06 abaixo e seus registros de execução vêm do staging fixo; os números de execução não são resultados do ciclo Todo103. -->
 ## AUTH-06: reutilização do aviso de logout para 401 HTTP/de negócio do access token de perfil
+
+### Comportamento atual (2026-10-12)
+
+- As duas plataformas escolhem a identidade de login sintética por `ZCODE_E2E_AUTH_EXPIRY_PROVIDER=bigmodel|zai`; tanto o HTTP `401` quanto o `401` de negócio numérico dentro de `200` reutilizam a saída condicional.
+- A BigModel cobre também `ZCODE_E2E_AUTH_EXPIRY_HTTP_STATUS=200 ZCODE_E2E_AUTH_EXPIRY_RESPONSE_KIND=empty`: o Host real recebe um customerInfo de zero bytes com 200 e reconhece o logout remoto.
+- Antes da confirmação são limpos o OAuth/JWT/profile atuais e as credenciais de Bot independentes são preservadas; o aviso de expiração aparece apenas uma vez; o botão de confirmação é "fazer login novamente" e a entrada de login Welcome aparece diretamente, sem executar RelaunchApp. O registro IPC original é mantido para afirmar que não houve comando de reinício.
+- A resposta de negócio vazia com verificação de identidade, a identidade normal que não desloga, a resposta de identidade vazia da ZAI com evidência insuficiente, a deduplicação concorrente e a verificação antiga que não limpa a sessão nova são cobertas por testes controlados no nível de serviço; o Electron não reivindica cobrir as corridas de rede precisas.
+- O comportamento de confirmação com reinício registrado mais adiante é aceitação histórica, e não o comportamento atual.
+
+Regressão de verificação de token nu do CR-01: `ZCODE_E2E_AUTH_VALIDATION_HEADER=1` usa uma identidade sintética válida da ZAI; a leitura de dados do PAT obtém organização/projeto e as interfaces de negócio seguintes retornam um 200 vazio ou um 403 comum conforme `ZCODE_E2E_AUTH_EXPIRY_HTTP_STATUS=200|403`. Todas as requisições de customerInfo (incluindo a leitura de dados do PAT e a verificação de identidade após a exceção) aceitam apenas o token nu, e o Bearer retorna 401. Exige que o Host real tenha emitido a requisição de negócio com exceção e a verificação de identidade correta; ao entrar no workspace, o OAuth/JWT e as credenciais de Bot ainda existem e a UI não mostra o aviso de expiração; este cenário não chama as interfaces do site e não gera requisições de modelo. Os casos existentes de entrada de login após uma invalidez real continuam em regressão, e todos permanecem pending.
+
+Regressão local com Electron isolado do CR-01 (2026-10-12), com 1 case passed em cada um dos três grupos. Os registros de fechamento dos dois primeiros grupos foram 5 requisições de negócio com exceção, 8 leituras de identidade com token nu após a exceção e 0 rejeições de cabeçalho de autenticação; o fato de o backend real rejeitar o Bearer não faz parte das conclusões deste fixture.
+
+| Cenário                             | Artefato de execução                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| Identidade válida ZAI, 403 de negócio comum | `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-130134-910/summary.md` |
+| Identidade válida ZAI, 200 vazio de negócio  | `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-130212-817/summary.md` |
+| ZAI realmente em 401 e depois reentra no novo login | `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-130238-083/summary.md` |
+
+Nova execução automática com Electron isolado nesta rodada (2026-10-12), com 1 case passed em cada um dos três grupos:
+
+| Cenário                             | Artefato de execução                                                                    |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| Corpo vazio da interface de identidade BigModel com HTTP 200 | `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-113906-886/summary.md` |
+| ZAI com HTTP 200 e 401 de negócio numérico | `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-112942-876/summary.md` |
+| BigModel com HTTP 401             | `packages/desktop/.e2e-artifacts/desktop-e2e-20261012-113245-109/summary.md` |
+
+Usa fixture HTTP local e credenciais sintéticas; o caso continua pending. Não foram validados o backend real, dispositivos móveis ou Windows/Linux, e não se reivindica admissão formal em CI.
 
 - Spec candidato: `packages/desktop/test/e2e/manual-review/pending/access-token-401-auto-logout.test.ts`.
 - Manifest: `packages/desktop/test/e2e/fixtures/cases/auth-config/access-token-401-auto-logout.json`.
@@ -464,10 +531,72 @@ O usuário confirmou a promoção em 2026-09-16. Casos oficiais `packages/deskto
 - `pnpm typecheck` de todo o repositório, lint (0 erros / 54 avisos), o portão de arquitetura e os 151 testes unitários relacionados passaram.
 - Após reconstruir o App, o AUTH-07 passou, run id `desktop-e2e-20260917075008349-p32477-57ae7b5093a2bbd0`.
 
+## AUTH-08: portão de login do controle remoto do desktop (pending)
+
+- Regressão de falha ao salvar a identidade do dispositivo (CR-02): `manual-review/pending/web-remote-control-session-events.test.ts`, depois da primeira registration já existente, para o controle remoto pelo popup real, apaga o SID antigo no relay de loopback e então torna o setting.json do HOME isolado e o diretório pai somente-leitura, preservando a leitura do arquivo e o endpoint e bloqueando apenas a escrita atômica. Reabrir o popup dispara `AUTH_FAILED` e retoma o registro; as asserções cobrem a entrada imediata em `error`, a ausência de QR Code, a remoção compensatória do novo dispositivo e o não crescimento da contagem de dispositivos após a primeira janela de backoff; após restaurar as permissões, o usuário abre o popup de novo e o controle remoto inicia normalmente. Reutiliza o relay V2 de loopback e não gera requisições de modelo; não se faz passar por disco cheio real, relay online ou validação em Windows/Linux. O caso permanece pending, aguardando revisão manual.
+
+- Regressão do evento de conclusão de credenciais: `manual-review/pending/web-remote-control-session-events.test.ts` usa janela única, OAuth real do Host e relay V2 de loopback. Depois do pareamento, mantém o lock de escrita do setting.json do HOME isolado, preservando a leitura de settings válidos e a escrita de credenciais independentes, e então desloga pelo menu real de usuário; as asserções cobrem o esvaziamento das credenciais, o Main em `auth-required`, o fechamento do WS de terminal antigo sem depender de reinício. Asserções extras cobrem o aparecimento de `setting.update FAIL` depois da limpeza das credenciais, liberando o lock de escrita na etapa de limpeza. Este candidato não cobre múltiplas janelas e não representa aceitação de OAuth real ou relay online.
+
+- Spec: `packages/desktop/test/e2e/manual-review/pending/web-remote-control-auth-gate.test.ts`.
+- Pré-requisitos: credenciais OAuth/JWT do HOME isolado vazias; último alvo habilitado preservado; o serviço local de contagem HTTP/WS do case é conectado ao endpoint do main e à URL do relay antes do start do Electron.
+- Ação: abrir o popup de controle remoto mobile e verificar em sequência Zai Light/Dark × zh-CN/en-US, clicando na entrada de login.
+- Asserções: o main permanece em `auth-required`; título, descrição e botão de login visíveis; sem QR Code, sem link de cópia e sem placeholder de geração; o canal de login real é alcançável; a contagem de HTTP e de WS Upgrade do controle remoto é zero.
+- Regressão de reautenticação: restaurar o usuário em cache e o JWT sintético, fazendo o HTTP do controle remoto retornar 401; o usuário global permanece, e ao clicar no botão de login do controle remoto deve ser criada uma nova tentativa de login conforme o canal OAuth atual, disparar uma autorização e ficar na página de espera, sem concluir imediatamente por causa do usuário em cache. O botão fica desabilitado enquanto os canais carregam; com usuário existente mas falha na leitura dos canais, o popup é mantido, a falha é informada e a leitura é refeita, permitindo nova tentativa após a recuperação da leitura.
+- Evidências: quatro capturas de tela do popup e o JSON de contagem de rede dentro dos artefatos do E2E. `providerRequestPolicy: none`, sem requisições de modelo; não substitui o OAuth real, o login mobile ou a validação em Windows/Linux.
+- Estado: semântica accepted, pendente de validação de implementação e revisão manual das capturas; após a confirmação manual é promovido. Este caminho auth-config não pertence à admissão de conversation/provider replay nem de Docker conversation.
+
+### Verificação do AUTH-08 nesta rodada (2026-09-19, macOS arm64)
+
+- Após a build completa do App/Agent, o E2E Electron pending passou 1/1; run id final: `desktop-e2e-20260919054022407-p76850-149c65ccfe5737d4`.
+- O `auth-required-network.json` é `{remoteHttp: 0, wsUpgrades: 0}`; as quatro capturas são `auth-required-{zh-CN,en-US}-{zai-light,zai-dark}.png` no diretório de artefatos, e a montagem é `auth-required-review.png`.
+- Passaram as regressões de manager, do snapshot completo de workspace, de IPC e de hook/renderização de UI relacionados; o problema de workspace misto apontado na revisão Standards/Spec foi corrigido e reconferido.
+- O fixture checker só suporta conversation-session/plugins e rejeita o caminho auth-config; o manifest deste caso já declara a ausência de requisições de modelo e o caminho formal canônico, sendo verificado diretamente pelo contrato auth-config.
+- Mantém-se pending, aguardando confirmação manual das capturas antes da promoção; não foram executadas a validação mobile, Windows/Linux nem a admissão em Docker.
+
+### Regressão de reentrada no login por 401 do controle remoto do AUTH-08 (2026-09-19, macOS arm64)
+
+- Após a build completa do App/Agent com o código final, os dois E2E Electron passaram; run id: `desktop-e2e-20260919094618238-p38547-51d7c0efafe28411`. A impressão digital do código-fonte é a mesma antes e depois da build, e a validação de portão dos quatro temas e idiomas se mantém aprovada.
+- O `remote-401-relogin.json` registra um HTTP de controle remoto, zero WS Upgrade e uma inicialização de OAuth `zai`; antes do clique o usuário em cache ainda é visível e depois do clique a aplicação entra na página real unificada de espera de login. A captura é `remote-401-relogin.png`, e o link de autorização foi interceptado pelo mock de shell do Electron, sem acessar o provedor OAuth real.
+- Passaram as regressões direcionadas de UI e login de quatro arquivos com 27 itens, cobrindo ZAI/BigModel, o carregamento de canais, a nova tentativa após falha de leitura e a entrada de não logado; o `typecheck:e2e` passou. O caso continua pending e não substitui a conclusão da autorização OAuth real nem a aceitação mobile.
+
+### Regressão dos eventos de credenciais e de falha de settings do AUTH-08 (2026-09-22, macOS arm64)
+
+- O `web-remote-control-session-events.test.ts` passou 1/1, run id: `desktop-e2e-20260922033841444-p82542-b070f1a88919befa`. Reutiliza a build completa do App/Agent do mesmo código de produto anterior, corrigindo apenas o ponto de entrada do teste e a espera de eventos.
+- O `remote-logout-settings-failure.json` registra as credenciais já esvaziadas, o Main em `auth-required`, o WS de terminal já pareado fechado e zero chamadas de reinício. A falha real de diretório no setting.json faz a escrita de settings da UI falhar enquanto a projeção do usuário é preservada, provando que o fechamento não depende da atualização da UI nem de reinício.
+- Passaram 9 arquivos com 158 itens de regressão de owner do OAuth, RPC, Root hook, Main/relay de loopback e login/logout adjacentes. O caso permanece pending e não representa aceitação de múltiplas janelas, celular real, OAuth/relay online ou Windows/Linux.
+- Os dois casos anteriores de portão de login e reentrada no login por 401 passaram, run id: `desktop-e2e-20260922034047265-p83703-d5d6a95570facec2`. O caso espera o botão de controle remoto ficar visível após a recuperação do workspace e inicializa de forma independente o cenário de reentrada no login com seu idioma, evitando que o estado intermediário de start ou a falha do caso anterior gerem falso positivo.
+
+### Verificação do CR-02 do AUTH-08 nesta rodada (2026-10-09, macOS arm64)
+
+- Os dois casos do `web-remote-control-session-events.test.ts` passaram, run id: `desktop-e2e-20261008210518141-p70374-763dbf6ff9c57299`. Primeiro foi feita a build completa do App/Agent atual e depois apenas testes e fixture foram modificados, reutilizando os artefatos; o replay pending usa explicitamente `fixtures/upstream/common.json`, e as interfaces de negócio da conta e o relay do fixture seguem pelo loopback.
+- O `remote-device-save-failure.json` registra o Main em `error`, `relay-unavailable` e nenhum link de QR Code, com a lista de dispositivos vazia antes e depois da compensação; o log real confirma que a falha ao salvar a nova identidade veio do `mkdir` no diretório com lock de settings retornando `EACCES`. Depois de restaurar as permissões o start manual funcionou, e a regressão existente de evento de credenciais e de logout continuou passando. Captura: `remote-device-save-failure.png`.
+- Passaram 77 itens de testes unitários focados nos quatro arquivos de manager, transport, HTTP e entrada de build; o typecheck de todo o repositório, o lint (0 erros / 68 avisos), o typecheck de E2E e o portão de arquitetura passaram. O caso continua pending, sem promoção manual; não foram validados disco cheio real, relay online, celular real ou Windows/Linux.
+
+### Reverificação da migração de módulo do AUTH-08 (2026-10-11, macOS arm64)
+
+- Os dois casos de portão de login e reautenticação por 401 passaram, run id `desktop-e2e-20261011124104790-p96630-dfdfff8d46f12a96`.
+  O fixture ganhou a configuração de loopback da API de negócio independente, evitando que as credenciais sintéticas acessem as interfaces de negócio externas e desloguem antes da hora.
+- Os dois casos de registro compensatório e de evento de credenciais passaram, run id `desktop-e2e-20261011124451683-p19041-9baf640b4fc4d95e`.
+  Reutiliza a build do código de produto da execução anterior; o teste preserva um setting.json válido e mantém o lock de escrita exclusivo; o log real confirma `setting.update FAIL` depois da limpeza das credenciais, com o Main em `auth-required`, o terminal fechado e nenhum reinício chamado.
+- O estado pending não muda; não substitui a aceitação de OAuth/relay real, mobile ou Windows/Linux.
+
+## PAT-LOCATION-RECOVERY: recuperação parcial de localização de projeto com texto cifrado anormal (pending)
+
+- Spec: `packages/desktop/test/e2e/manual-review/pending/project-location-decrypt-recovery.test.ts`.
+- OAuth válido da BigModel coexiste com uma localização ruim da mesma conta; o Host real apaga atomicamente a localização ruim, consulta novamente e emite um certificado novo.
+- Asserções: o texto cifrado original do OAuth e as credenciais de Bot são preservados; o avatar é recuperado; sem aviso de login inválido, sem polling de OAuth e sem reinício.
+- O mesmo caso usa o controle HTTP local para provocar de novo uma falha de cache e um metadado 503; as asserções de que a recuperação falha mantendo o login atual são mantidas, e após a recuperação do servidor a atualização passa pelo ProviderSettingsFacade real, sem criar uma fonte extra de estado de login.
+- Dois serviços de credenciais independentes, o registro já corrigido, o IO comum, a invalidação durante a espera do lock, o clear do cliente e a consolidação do pending são cobertos por unitários do nível de serviço; a confirmação de invalidação de login de negócio continua coberta pelo caso de verificação 401 existente.
+- O HTTP é de conta sintética; mantém-se pending e não se reivindica validação de OAuth real, Windows/Linux ou celular real.
+- 2026-10-15 macOS Electron: 1 case passed, runId `desktop-e2e-20261015-074508-840`; a recuperação automática, a retenção do login no 503, a troca de certificado pelo refresh manual e a entrada de pacote já conectado/desvinculado foram todas afirmadas. HTTP: 7 consultas de localização, 2 emissões, 0 logins por polling de OAuth. Captura: `project-location-recovered.png` no diretório de artefatos do mesmo runId.
+- 135 testes unitários direcionados passaram; no final, os 1.384 specs afetados passaram com 15.435 itens aprovados e 6 pulados. O typecheck raiz, o typecheck de E2E, o lint e a checagem de arquitetura passaram; o lint tem 210 avisos preexistentes.
+- Reverificação com log complementar: runId `desktop-e2e-20261015-081458-266`, com o mesmo caso Electron aprovado; o log real do Host mostra em ordem `project_token_location_unreadable` e `project_token_location_recovery`, cobrindo a primeira recuperação e a reconstrução no 503, e os dois eventos contêm apenas family, stage e code fixo. A falha de IO dentro da recuperação é coberta por unitários do cliente.
+- O fixture checker ainda não suporta o caminho pending auth-config; a checagem estática local de JSON/caminhos passou, o caso continua pending e não é promovido manualmente nem admitido em CI. A evidência antiga de "logout imediato e novo login" não se aplica a esta solução.
+
 ## PAT-KEY-UPGRADE: coexistência de login válido com uma Key antiga corrompida
 
 Caso candidato: `packages/desktop/test/e2e/manual-review/pending/account-key-usage-scene.test.ts`.
-Reutiliza o caso de recuperação Z.AI desse arquivo: no credentials.json do HOME isolado salva OAuth sintético válido e dados de conta, ao mesmo tempo em que o account-provider:*:api-key da mesma conta é escrito como texto cifrado corrompido; reinicia o Electron e exige que o workspace seja restaurado diretamente, com o Host criando uma Key dedicada de usageScene=1 e emitindo Token, sem chamar Copy, e o registro antigo corrompido permanece inalterado. O caso da BigModel cobre o caminho de criação/renovação sem Key antiga.
+Reutiliza o caso de recuperação Z.AI desse arquivo: no credentials.json do HOME isolado salva OAuth sintético válido e dados de conta, ao mesmo tempo em que o account-provider:\*:api-key da mesma conta é escrito como texto cifrado corrompido; reinicia o Electron e exige que o workspace seja restaurado diretamente, com o Host criando uma Key dedicada de usageScene=1 e emitindo Token, sem chamar Copy, e o registro antigo corrompido permanece inalterado. O caso da BigModel cobre o caminho de criação/renovação sem Key antiga.
 Este caso não dispara inferência de modelo; o HTTP é o mock local de Coding Plan já existente e não representa integração real com o backend. Os caminhos de celular/remoto são cobertos por testes de Provisioning e do serviço de autenticação, e esta rodada não reivindica E2E remoto em nível de dispositivo. Permanece pending, sem promoção automática.
 
 Reteste automático desta rodada: 2026-09-23, 2 cases passed; artefato: `packages/desktop/.e2e-artifacts/desktop-e2e-20260923070315610-p85476-12717808333f5136/summary.md`. Nenhuma confirmação manual ou promoção foi feita; celular, backend real e remoto com versões misturadas não estão no escopo deste caso.

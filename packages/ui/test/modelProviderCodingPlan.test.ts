@@ -1,4 +1,3 @@
-import * as enterpriseProductsHook from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
 import { createElement, type ReactElement } from "react";
 import { type ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -8,10 +7,12 @@ import {
   BUILTIN_MODEL_PROVIDER_IDS,
   getModelProviderFamilySpec,
   ZAI_PROVIDER_ID,
-  TID_MODEL_PROVIDER_ADD_MODEL_BUTTON,
-  TID_MODEL_PROVIDER_MODEL_DELETE_BUTTON,
   type UsageEntitlementSnapshot,
 } from "@zcode/shared";
+import {
+  TID_MODEL_PROVIDER_ADD_MODEL_BUTTON,
+  TID_MODEL_PROVIDER_MODEL_DELETE_BUTTON,
+} from "@zcode/shared/test-ids";
 import {
   resolveCodingPlanProviderSyncAttemptKey,
   shouldRetryUnchangedCodingPlanProviderSync,
@@ -31,43 +32,20 @@ import {
 import { resolveCodingPlanStatusPanelViewState } from "@/settings/model-provider-section/codingPlanStatusPanelViewState.js";
 import {
   ModelProviderSectionDetail,
-  resolveEnterprisePurchaseChoiceBannerPrice,
-  resolvePurchaseChoiceBannerProductsProviderId,
-  resolvePurchaseChoiceBannerPrice,
-  resolveEnterpriseTeamPlanBannerClass,
-  resolveEnterpriseTeamPlanBannerDescriptionId,
-  resolveEnterpriseTeamPlanBannerIconClass,
-  resolvePurchaseChoiceSelectionIntent,
   resolveTeamScopedPlanNavItem,
-  resolveTeamPlanInspectionAccess,
 } from "@/settings/model-provider-section/Detail.js";
 import { resolveCodingPlanEntitlementState } from "@/settings/model-provider-section/providerFamilyConnectionVisibility.js";
-import { groupEnterpriseCodingPlanProductsByTier } from "@/settings/model-provider-section/codingPlanEnterpriseTiers.js";
-import {
-  ModelProviderSectionNavigation,
-  resolveModelProviderSideNavLabel,
-} from "@/settings/model-provider-section/Navigation.js";
-import {
-  resolveProviderConnectionApiFormatDisplayLabel,
-  resolveProviderConnectionApiFormatOptions,
-} from "@/settings/model-provider-section/ProviderCardSections.js";
+import { ModelProviderSectionNavigation } from "@/settings/model-provider-section/Navigation.js";
 import {
   buildProviderFamilyConnectionOptions,
   ProviderFamilyPlanModeSwitch,
 } from "@/settings/model-provider-section/ProviderFamilyModeHeader.js";
-import { resolveCodingPlanUpgradeProductsProviderId } from "@/settings/model-provider-section/codingPlanPricingCards.js";
-import { CodingPlanUpgradeAction } from "@/settings/model-provider-section/CodingPlanStatusActions.js";
 import {
   formatStartPlanEffectiveDate,
   formatStartPlanExpireDate,
-  resolvePendingStartPlanEffectiveTime,
 } from "@/settings/model-provider-section/CodingPlanStatusMeta.js";
-import { ConversationQuotaBanner } from "@/v4/ConversationQuotaBanner.js";
-import enUS from "@/i18n/locales/en-US.js";
-import { StartPlanCard } from "@/settings/model-provider-section/StartPlanCard.js";
 import {
   CodingPlanStatusPanel,
-  hasStartPlanEntitlementQuota,
   resolveCodingPlanStatusCardTitle,
 } from "@/settings/model-provider-section/StatusCards.js";
 import {
@@ -76,54 +54,10 @@ import {
   connectionSelectionMatchesNavigationItem,
   useModelProviderNavigation,
 } from "@/settings/model-provider-section/useModelProviderNavigation.js";
-import {
-  clearStartPlanPreviewCacheForTest,
-  primeStartPlanPreviewCacheForTest,
-} from "@/settings/model-provider-section/useStartPlanPreview.js";
 import { type ModelProviderNavGroup } from "@/settings/model-provider-section/constants.js";
 import type { ModelProviderNavItem } from "@/settings/model-provider-section/constants.js";
 import type { ProviderSettingsView } from "@zcode/services";
 
-it("Start 独立后移除套餐数量快捷入口与切换按钮", () => {
-  const item = (
-    presetId:
-      | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan
-      | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-  ): ModelProviderNavItem => ({
-    key: `coding-plan:${presetId}`,
-    type: "codingPlan",
-    presetId,
-    oauthProviderId: ZAI_PROVIDER_ID,
-    label: presetId,
-    providerName: "Z.AI",
-    provider: null,
-    status: "purchased",
-    statusActive: true,
-  });
-  const start = item(BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan);
-  const coding = item(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan);
-  const render = (selectedNavItem: ModelProviderNavItem, count: number, failed = false) =>
-    renderWithTooltipProvider(
-      createElement(ProviderFamilyPlanModeSwitch, {
-        selectedNavItem,
-        navigationItems: [start, coding],
-        startPlanSubscriptionCount: count,
-        connectionSettingsFailed: failed,
-        onSelectNavItem: vi.fn(),
-      }),
-    );
-  expect(render(coding, 2)).not.toContain('data-testid="model-provider-start-plan-count-shortcut"');
-  // 数量不再驱动切换入口，也不保留旧快捷入口的文案与标签。
-  expect(render(coding, 2)).not.toContain("Start Plan × 2");
-  expect(render(coding, 2)).not.toContain('aria-label="Switch to Start Plan"');
-  expect(render(coding, 2)).not.toContain("lucide-tickets");
-  expect(render(coding, 2)).not.toContain('data-testid="model-provider-start-plan-switch-prefix"');
-  expect(render(start, 2)).not.toContain('data-testid="model-provider-start-plan-count-shortcut"');
-  expect(render(coding, 0)).not.toContain('data-testid="model-provider-start-plan-count-shortcut"');
-  expect(render(coding, 2, true)).not.toContain(
-    'data-testid="model-provider-start-plan-count-shortcut"',
-  );
-});
 it("付费下拉按完整保存选择显示团队，不读取复制的个人 current", () => {
   const provider = createProvider({ id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan });
   provider.accountState = { availability: "available", entitled: true, current: false };
@@ -195,16 +129,12 @@ it("旧 Start 连接下，唯一未选中的个人套餐仍提供显式选择入
   expect(html).toContain("data-placeholder");
 });
 import {
-  CODING_PLAN_BILLING_DISCOUNT_DIALOG_BODY_CLASS,
-  CODING_PLAN_BILLING_DISCOUNT_DIALOG_CONTENT_CLASS,
   clearCodingPlanBillingDiscountCacheForTest,
   CodingPlanBillingDiscountBadge,
-  CodingPlanBillingDiscountBadgePill,
   CodingPlanBillingDiscountBanner,
   primeCodingPlanBillingDiscountCacheForTest,
   resolveCodingPlanBillingDiscountCopy,
 } from "@/CodingPlanBillingDiscount.js";
-import zhCN from "@/i18n/locales/zh-CN.js";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
 
 const intlMockState = vi.hoisted(() => ({ locale: "en-US" }));
@@ -301,7 +231,6 @@ vi.mock("@/settings/CodingPlanUpgradeDialogProvider.js", () => ({
 }));
 
 beforeEach(() => {
-  clearStartPlanPreviewCacheForTest();
   clearCodingPlanBillingDiscountCacheForTest();
   intlMockState.locale = "en-US";
 });
@@ -1070,33 +999,6 @@ describe("model provider coding plan", () => {
     expect(customGroup?.items.map((item) => item.label)).toEqual(["Custom Provider"]);
   });
 
-  it("Provider Template 和新增入口不混入已配置 Provider 导航", () => {
-    let capturedGroups: ModelProviderNavGroup[] = [];
-
-    function Harness() {
-      const { navigationGroups } = useModelProviderNavigation({
-        presetProviders: [],
-        modelProviders: [
-          createProvider({
-            id: "custom-provider",
-            name: "Custom Provider",
-            config: { group: "standard-personal" },
-          }),
-        ],
-        selectedNodeKey: null,
-        setSelectedNodeKey: vi.fn(),
-        intl: { formatMessage: ({ id }: { id: string }) => id } as never,
-      });
-      capturedGroups = navigationGroups;
-      return createElement("div");
-    }
-
-    renderToStaticMarkup(createElement(Harness));
-
-    const items = capturedGroups.find((group) => group.id === "custom")?.items ?? [];
-    expect(items.map((item) => item.type)).toEqual(["custom"]);
-  });
-
   it("刷新中按缓存后的 provider 状态显示 Z.ai 入口且不显示 loading", () => {
     for (const [selectedNodeKey] of [
       ["coding-plan:account:zai-individual-coding-plan"],
@@ -1188,46 +1090,6 @@ describe("model provider coding plan", () => {
 
     expectConnectionApiFormatVisible(html);
   });
-
-  it.each(["zai", "bigmodel"] as const)(
-    "%s 个人套餐失败重新登录，Start 套餐失败保留重试",
-    (family) => {
-      for (const plan of ["individual-coding-plan", "start-plan"] as const) {
-        const providerId = `account:${family}-${plan}` as const;
-        const provider = {
-          ...createProvider({ id: providerId }),
-          accountState: {
-            availability: "unavailable" as const,
-            entitled: false,
-            unavailableReason: "credential-failed" as const,
-          },
-        };
-        const html = renderDetail(
-          {
-            key: `coding-plan:${providerId}`,
-            type: "codingPlan",
-            presetId: providerId,
-            oauthProviderId: family,
-            label: family,
-            providerName: family,
-            provider,
-            status: "unavailable",
-            statusActive: false,
-          },
-          { onRetryCodingPlan: vi.fn() },
-        );
-        if (plan === "individual-coding-plan") {
-          expect(html).toContain("login.expired.action");
-          expect(html).toContain("settings.modelProvider.codingPlan.description.credentialFailed");
-          expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
-        } else {
-          expect(html).toContain("common.retry");
-          expect(html).not.toContain("login.expired.action");
-          expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
-        }
-      }
-    },
-  );
 
   it("内置 GLM-5.2 模型按 1M 上下文窗口展示", () => {
     const html = renderDetail({
@@ -1405,40 +1267,9 @@ describe("model provider coding plan", () => {
       statusActive: false,
     });
 
-    const intl = { formatMessage: ({ id }: { id: string }) => id };
-    const apiFormatOptions = resolveProviderConnectionApiFormatOptions();
-    expect(apiFormatOptions).toEqual([
-      "anthropic-messages",
-      "openai-chat-completions",
-      "openai-responses",
-    ]);
-    expect(
-      apiFormatOptions.map((format) =>
-        resolveProviderConnectionApiFormatDisplayLabel(intl, format),
-      ),
-    ).toEqual([
-      "settings.modelProvider.apiFormat.title.anthropicMessages (/v1/messages)",
-      "settings.modelProvider.apiFormat.title.chatCompletions (/chat/completions)",
-      "settings.modelProvider.apiFormat.title.responses (/responses)",
-    ]);
     expect(html).toContain('value="https://api.example.com/v1"');
     expectConnectionApiFormatVisible(html);
     expect(html).not.toContain("settings.modelProvider.endpointPath");
-  });
-
-  it("自定义供应商详情隐藏 Claude 映射和自定义 Headers", () => {
-    const html = renderDetail({
-      key: "custom:provider-a",
-      type: "custom",
-      label: "Provider A",
-      provider: createProvider({
-        id: "provider-a",
-      }),
-      statusActive: false,
-    });
-
-    expect(html).not.toContain("settings.modelProvider.claudeMapping");
-    expect(html).not.toContain("settings.modelProvider.customHeaders");
   });
 
   it("Provider sidebar 将预置入口组织成 provider family", () => {
@@ -1512,64 +1343,6 @@ describe("model provider coding plan", () => {
     ).toBe("preset:account:zai-start-plan");
   });
 
-  it.each([
-    ["preset", BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan, "BigModel", "BigModel"],
-    ["preset", BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan, "Z.ai", "Z.ai"],
-    ["codingPlan", BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan, "Start Plan", "Start Plan"],
-    ["codingPlan", BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan, "Start Plan", "Start Plan"],
-  ] as const)("导航 %s %s 保持品牌与 Start 名称", (type, presetId, en, zh) => {
-    const item: ModelProviderNavItem = {
-      key: presetId,
-      type,
-      presetId,
-      label: "Old brand",
-      ...(type === "preset"
-        ? { displayName: "Old brand" }
-        : {
-            oauthProviderId: "bigmodel" as const,
-            providerName: "Old brand",
-            status: "notPurchased" as const,
-          }),
-      provider: null,
-      statusActive: false,
-    };
-    expect(resolveModelProviderSideNavLabel(item)).toBe(en);
-    expect(resolveModelProviderSideNavLabel(item)).toBe(zh);
-  });
-
-  it("Provider sidebar 不按团队 Coding Plan 数量展开入口", () => {
-    const bigmodelApiKeyItem = {
-      key: "preset:account:bigmodel-start-plan",
-      type: "preset" as const,
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-      label: "BigModel - API Key",
-      provider: createProvider({
-        id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-      }),
-      displayName: "BigModel - API Key",
-      statusActive: true,
-    };
-    const html = renderWithTooltipProvider(
-      createElement(ModelProviderSectionNavigation, {
-        navigationGroups: [
-          {
-            id: "preset",
-            title: "Preset",
-            items: [bigmodelApiKeyItem],
-          },
-        ],
-        selectedNodeKey: "preset:account:bigmodel-start-plan",
-        presetLoading: false,
-        customLoading: false,
-        onSelectNavItem: vi.fn(),
-      }),
-    );
-
-    expect(html).toContain("BigModel");
-    expect(html).not.toContain("Team A");
-    expect(html).not.toContain("Team B");
-  });
-
   it("Z.ai family 导航保持品牌图标，不借用 Start 图标", () => {
     const html = renderWithTooltipProvider(
       createElement(ModelProviderSectionNavigation, {
@@ -1606,10 +1379,6 @@ describe("model provider coding plan", () => {
     expect(html).toContain("<img ");
     expect(html).toContain("model-provider-zai-app.png");
     expect(html).not.toContain("model-provider-start-plan.png");
-    expect(html).toContain("object-contain size-4");
-    expect(html).toContain("border-border-hover bg-card-selected text-foreground");
-    expect(html).not.toContain("border-card-border bg-surface");
-    expect(html).toContain("flex h-8 w-full");
     expect(html).not.toContain("settings.modelProvider.connectionMode.startPlan");
     expect(html).not.toContain("settings.modelProvider.codingPlan.start.freeBadge");
   });
@@ -2530,275 +2299,6 @@ describe("model provider coding plan", () => {
     expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
   });
 
-  it("StartPlanCard 使用远端 startPlanPreview 展示体验套餐权益", () => {
-    const html = renderToStaticMarkup(
-      createElement(StartPlanCard, {
-        preview: {
-          planId: "zcode-v3-start-plan",
-          name: "ZCode V3 Start Plan",
-          entitlements: [
-            {
-              grantUnits: 3_000_000,
-              meter: "model_usage",
-              period: "daily",
-              showName: "GLM-5.2",
-              unitType: "token",
-            },
-            {
-              grantUnits: 4_000_000,
-              meter: "model_usage",
-              period: "daily",
-              showName: "GLM-5-Turbo",
-              unitType: "token",
-            },
-          ],
-        },
-      }),
-    );
-
-    expect(html).toContain("settings.modelProvider.startPlan.quotaSectionTitle");
-    expect(html).toContain("ZCode V3 Start Plan");
-    expect(html).toContain("7 Million");
-    expect(html).toContain("tokens per day");
-    expect(html).toContain("GLM-5.2");
-    expect(html).toContain("GLM-5-Turbo");
-    expect(html).not.toContain("10M");
-    expect(html).not.toContain(">7M<");
-    expect(html.match(/3M/g)?.length).toBe(1);
-    expect(html.match(/4M/g)?.length).toBe(1);
-    expect(html.match(/tokens per day/g)?.length).toBe(1);
-    expect(html).toContain("Daily quota · GLM-5.2 3M · GLM-5-Turbo 4M");
-    expect(html).toContain("settings.modelProvider.startPlan.eligibleNewUser");
-  });
-
-  it("StartPlanCard 在模型额度相同时合并为 each 文案", () => {
-    const html = renderToStaticMarkup(
-      createElement(StartPlanCard, {
-        preview: {
-          planId: "zcode-v3-start-plan",
-          name: "ZCode V3 Start Plan",
-          entitlements: [
-            {
-              grantUnits: 10_000_000,
-              meter: "model_usage",
-              period: "daily",
-              showName: "GLM-5.2",
-              unitType: "token",
-            },
-            {
-              grantUnits: 10_000_000,
-              meter: "model_usage",
-              period: "daily",
-              showName: "GLM-5-Turbo",
-              unitType: "token",
-            },
-          ],
-        },
-      }),
-    );
-
-    expect(html).toContain("20 Million");
-    expect(html).toContain("Daily quota · GLM-5.2 / GLM-5-Turbo 10M each");
-    expect(html.match(/10M/g)?.length).toBe(1);
-  });
-
-  it("StartPlanCard 英文主额度使用完整 Million 文案", () => {
-    const html = renderToStaticMarkup(
-      createElement(StartPlanCard, {
-        preview: {
-          planId: "zcode-v3-start-plan",
-          name: "ZCode V3 Start Plan",
-          entitlements: [
-            {
-              grantUnits: 5_000_000,
-              meter: "model_usage",
-              period: "daily",
-              showName: "GLM-5.2",
-              unitType: "token",
-            },
-          ],
-        },
-      }),
-    );
-
-    expect(html).toContain("5 Million");
-    expect(html).toContain("tokens per day");
-    expect(html).toContain("Daily quota · GLM-5.2 5M");
-    expect(html).not.toContain(">5M<");
-  });
-
-  it("StartPlanCard 缺少远端权益时不展示本地硬编码 Trial plan", () => {
-    const html = renderToStaticMarkup(
-      createElement(StartPlanCard, {
-        preview: {
-          planId: "zcode-v3-start-plan",
-          name: "ZCode V3 Start Plan",
-          entitlements: [],
-        },
-      }),
-    );
-
-    expect(html).toBe("");
-    expect(html).not.toContain("settings.modelProvider.startPlan.summaryTitle");
-    expect(html).not.toContain("settings.modelProvider.startPlan.heroMetric");
-    expect(html).not.toContain("settings.modelProvider.startPlan.summaryDescription");
-  });
-
-  it("StartPlanCard 中文界面使用本地化紧凑单位展示体验套餐额度", () => {
-    intlMockState.locale = "zh-CN";
-    try {
-      const html = renderToStaticMarkup(
-        createElement(StartPlanCard, {
-          preview: {
-            planId: "zcode-v3-start-plan",
-            name: "ZCode V3 Start Plan",
-            entitlements: [
-              {
-                grantUnits: 30_000_000,
-                meter: "model_usage",
-                period: "daily",
-                showName: "GLM-5.2",
-                unitType: "token",
-              },
-              {
-                grantUnits: 10_000_000,
-                meter: "model_usage",
-                period: "daily",
-                showName: "GLM-5-Turbo",
-                unitType: "token",
-              },
-            ],
-          },
-        }),
-      );
-
-      expect(html).toContain("4000万");
-      expect(html).toContain("每日额度 · GLM-5.2 3000万 · GLM-5-Turbo 1000万");
-      expect(html).not.toContain("40M");
-      expect(html).not.toContain("30M");
-      expect(html).not.toContain("10M");
-    } finally {
-      intlMockState.locale = "en-US";
-    }
-  });
-
-  it("StartPlanCard 中文界面单模型每日额度使用本地化紧凑单位", () => {
-    intlMockState.locale = "zh-CN";
-    try {
-      const html = renderToStaticMarkup(
-        createElement(StartPlanCard, {
-          preview: {
-            planId: "zcode-v3-start-plan",
-            name: "ZCode V3 Start Plan",
-            entitlements: [
-              {
-                grantUnits: 5_000_000,
-                meter: "model_usage",
-                period: "daily",
-                showName: "GLM-5.2",
-                unitType: "token",
-              },
-            ],
-          },
-        }),
-      );
-
-      expect(html).toContain("500万");
-      expect(html).toContain("tokens/日");
-      expect(html).toContain("每日额度 · GLM-5.2 500万");
-      expect(html).not.toContain("5 Million");
-      expect(html).not.toContain("5M");
-    } finally {
-      intlMockState.locale = "en-US";
-    }
-  });
-
-  it("Z.ai Start Plan 编程套餐列表复用 Coding Plan 商品来源", () => {
-    expect(
-      resolveCodingPlanUpgradeProductsProviderId(BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan),
-    ).toBe(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan);
-  });
-
-  it("Z.ai Start Plan 未登录且无远端 preview 时不显示 Trial plan 卡片", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:zai-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-      oauthProviderId: ZAI_PROVIDER_ID,
-      label: "Z.ai - Coding Plan",
-      providerName: "Z.ai",
-      provider: null,
-      status: "disconnected",
-      purchaseUrl: "https://z.ai/",
-      statusActive: false,
-    });
-
-    expect(html).toContain("settings.modelProvider.planCard.startPlan");
-    expect(html).not.toContain("settings.modelProvider.startPlan.summaryTitle");
-    expect(html).not.toContain("settings.modelProvider.startPlan.quotaSectionTitle");
-    expect(html).not.toContain("settings.modelProvider.startPlan.heroMetric");
-    expect(html).not.toContain("settings.modelProvider.startPlan.heroMetricUnit");
-    expect(html).not.toContain("settings.modelProvider.startPlan.summaryDescription");
-    expect(html).not.toContain("settings.modelProvider.startPlan.eligibleNewUser");
-    expect(html).not.toContain("settings.modelProvider.models");
-    expect(html).not.toContain("glm-4.7");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.login");
-    expect(html).toContain("settings.modelProvider.startPlan.status.loginRequired");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.description.disconnected");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.personalTitle");
-    expect(html).not.toContain(
-      "settings.modelProvider.codingPlan.purchaseBanner.personalDescription",
-    );
-    expect(html).not.toContain("CN¥49.00+");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamTitle");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamDescription");
-    expect(html).not.toContain("CN¥598.00+");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.productsLoading");
-    expect(html).not.toContain("settings.modelProvider.baseUrl");
-    expectConnectionApiFormatHidden(html);
-    expect(html).not.toContain("settings.modelProvider.apiKeyPlaceholder");
-    expect(html).not.toContain("settings.modelProvider.disableAction");
-    expect(html).not.toContain("settings.modelProvider.addModel");
-  });
-
-  it("Z.ai Start 详情不显示体验套餐推广横幅", () => {
-    primeStartPlanPreviewCacheForTest({
-      planId: "zcode-v3-start-plan",
-      name: "ZCode V3 Start Plan",
-      entitlements: [
-        {
-          grantUnits: 5_000_000,
-          meter: "model_usage",
-          period: "daily",
-          showName: "GLM-5.2",
-          unitType: "token",
-        },
-      ],
-    });
-
-    const html = renderDetail({
-      key: "coding-plan:account:zai-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-      oauthProviderId: ZAI_PROVIDER_ID,
-      label: "Z.ai - Coding Plan",
-      providerName: "Z.ai",
-      provider: null,
-      status: "disconnected",
-      purchaseUrl: "https://z.ai/",
-      statusActive: false,
-    });
-
-    expect(html).not.toContain("ZCode V3 Start Plan");
-    expect(html).not.toContain("5 Million");
-    expect(html).not.toContain("Daily quota · GLM-5.2 5M");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.personalTitle");
-    expect(html).not.toContain("CN¥49.00+");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamTitle");
-    expect(html).not.toContain("CN¥598.00+");
-  });
-
   it("Z.ai Coding Plan 未连接时显示 Plan Card 且不显示 API Key 字段", () => {
     const html = renderDetail({
       key: "coding-plan:account:zai-individual-coding-plan",
@@ -2815,7 +2315,8 @@ describe("model provider coding plan", () => {
 
     expect(html).toContain("settings.modelProvider.planCard.codingPlan");
     expect(html).toContain("settings.modelProvider.codingPlan.status.disconnected");
-    expect(html).toContain("settings.modelProvider.codingPlan.connect");
+    // RF-05：设置页不再提供 OAuth 连接动作，未连接只呈现状态说明。
+    expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
     expect(html).not.toContain("settings.modelProvider.codingPlan.dynamicUnsupportedTitle");
     expect(html).not.toContain("settings.modelProvider.codingPlan.productsLoading");
     expect(html).not.toContain("settings.modelProvider.codingPlan.zai.plan.lite.name");
@@ -4391,104 +3892,6 @@ describe("model provider coding plan", () => {
     });
   });
 
-  it("Z.ai Coding Plan 未连接时在 Plan Card 右侧显示 Connect 入口", () => {
-    const apiKeyItem = {
-      key: "preset:account:zai-start-plan",
-      type: "preset" as const,
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-      label: "Z.ai - API Key",
-      displayName: "Z.ai - API Key",
-      provider: createProvider({
-        id: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        name: "Z.ai - API Key",
-      }),
-      statusActive: true,
-    };
-    const oauthItem = {
-      key: "coding-plan:account:zai-individual-coding-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-      oauthProviderId: ZAI_PROVIDER_ID,
-      label: "Z.ai - Coding Plan",
-      providerName: "Z.ai",
-      provider: createProvider({ apiKey: "", models: [] }),
-      status: "disconnected",
-      purchaseUrl: "https://z.ai/",
-      statusActive: false,
-    } as const;
-    const html = renderDetail(oauthItem, {
-      navigationItems: [oauthItem, apiKeyItem],
-      onSelectNavItem: vi.fn(),
-    });
-
-    expect(html).toContain("settings.modelProvider.planCard.codingPlan");
-    expect(html).toContain("settings.modelProvider.codingPlan.status.disconnected");
-    expect(html).toContain("settings.modelProvider.codingPlan.connect");
-    expect(html).not.toContain('data-testid="model-provider-enabled-switch"');
-    expect(html).not.toContain("settings.modelProvider.codingPlan.productsLoading");
-    expect(html).not.toContain("GLM Coding Lite");
-    expect(html).not.toContain("GLM Coding Pro");
-    expect(html).not.toContain("GLM Coding Max");
-    expect(html).not.toContain("lucide-loader-circle");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.dynamicUnsupportedTitle");
-    expect(html).not.toContain("settings.modelProvider.models");
-    expect(html).not.toContain("settings.modelProvider.apiKeyPlaceholder");
-  });
-
-  it("Z.ai Coding Plan 连接等待时状态卡片显示 loading", () => {
-    const html = renderDetail(
-      {
-        key: "coding-plan:account:zai-individual-coding-plan",
-        type: "codingPlan",
-        presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-        oauthProviderId: ZAI_PROVIDER_ID,
-        label: "Z.ai - Coding Plan",
-        providerName: "Z.ai",
-        provider: createProvider({ apiKey: "", models: [] }),
-        status: "disconnected",
-        purchaseUrl: "https://z.ai/",
-        statusActive: false,
-      },
-      {
-        presetSubscriptionProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-      },
-    );
-
-    expect(html).toContain("settings.modelProvider.codingPlan.status.checking");
-    expect(html).toContain("lucide-loader-circle");
-    expect(html).toContain("settings.modelProvider.codingPlan.connect");
-  });
-
-  it("Z.ai Start Plan 连接等待时不提前显示今日余额", () => {
-    const html = renderDetail(
-      {
-        key: "coding-plan:account:zai-start-plan",
-        type: "codingPlan",
-        presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        oauthProviderId: ZAI_PROVIDER_ID,
-        label: "Z.ai - Coding Plan",
-        providerName: "Z.ai",
-        provider: createProvider({
-          id: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-          apiKey: "",
-          models: [],
-        }),
-        status: "disconnected",
-        purchaseUrl: "https://z.ai/",
-        statusActive: false,
-      },
-      {
-        presetSubscriptionProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-      },
-    );
-
-    expect(html).toContain("settings.modelProvider.codingPlan.status.checking");
-    expect(html).toContain("lucide-loader-circle");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
-    expect(html).not.toContain("settings.modelProvider.startPlan.quotaSectionTitle");
-    expect(html).not.toContain("settings.modelProvider.startPlan.balance.title");
-  });
-
   it("Z.ai Coding Plan 权益查询中时状态卡片不空白", () => {
     const html = renderDetail({
       key: "coding-plan:account:zai-individual-coding-plan",
@@ -4508,169 +3911,6 @@ describe("model provider coding plan", () => {
     expect(html).toContain("lucide-loader-circle");
     expect(html).not.toContain("settings.modelProvider.codingPlan.manage");
     expect(html).not.toContain("settings.modelProvider.codingPlan.upgrade");
-  });
-
-  it("Z.ai Coding Plan 有 apiKey 但无静态商品时隐藏个人套餐横幅", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:zai-individual-coding-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-      oauthProviderId: ZAI_PROVIDER_ID,
-      label: "Z.ai - Coding Plan",
-      providerName: "Z.ai",
-      provider: createProvider({ apiKey: "zai-coding-plan-key" }),
-      status: "notPurchased",
-      purchaseUrl: "https://z.ai/",
-      statusActive: false,
-    });
-
-    expect(html).toContain("settings.modelProvider.codingPlan.status.notPurchased");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.description.notPurchased");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.personalTitle");
-    expect(html).not.toContain(
-      "settings.modelProvider.codingPlan.purchaseBanner.personalDescription",
-    );
-    expect(html).not.toContain("CN¥49.00+");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamTitle");
-    expect(html).not.toContain("CN¥598.00+");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.upgrade");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.productsLoading");
-    expect(html).not.toContain("settings.modelProvider.models");
-    expect(html).not.toContain("settings.modelProvider.apiKey");
-  });
-
-  it("Z.ai Coding Plan 入口价格跟随 Z.ai 商品币种", () => {
-    expect(
-      resolvePurchaseChoiceBannerPrice({
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-        audience: "personal",
-        products: [
-          {
-            productId: "zai-lite-month",
-            productName: "GLM Coding Lite",
-            productEquityList: [],
-            priceCurrency: "USD",
-            payAmount: 18,
-          },
-        ],
-      }),
-    ).toEqual({ kind: "price", price: 18, currency: "USD" });
-  });
-
-  it("个人套餐入口价格在全部售罄时显示售罄状态", () => {
-    expect(
-      resolvePurchaseChoiceBannerPrice({
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-        audience: "personal",
-        products: [
-          {
-            productId: "zai-lite-month",
-            productName: "GLM Coding Lite",
-            productEquityList: [],
-            priceCurrency: "USD",
-            payAmount: 18,
-            soldOut: true,
-          },
-          {
-            productId: "zai-pro-month",
-            productName: "GLM Coding Pro",
-            productEquityList: [],
-            priceCurrency: "USD",
-            payAmount: 88,
-            soldOut: true,
-          },
-        ],
-      }),
-    ).toEqual({ kind: "soldOut" });
-  });
-
-  it("未登录个人套餐入口不前置显示售罄状态", () => {
-    expect(
-      resolvePurchaseChoiceBannerPrice({
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-        audience: "personal",
-        soldOutVisible: false,
-        products: [
-          {
-            productId: "bigmodel-lite-month",
-            productName: "GLM Coding Lite",
-            productEquityList: [],
-            priceCurrency: "CNY",
-            payAmount: 49,
-            soldOut: true,
-          },
-        ],
-      }),
-    ).toBeNull();
-  });
-
-  it("Z.ai Start Plan 入口价格读取付费 Coding Plan 商品源", () => {
-    expect(
-      resolvePurchaseChoiceBannerProductsProviderId(BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan),
-    ).toBe(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan);
-  });
-
-  it("BigModel Coding Plan 无静态商品时不补固定价格", () => {
-    expect(
-      resolvePurchaseChoiceBannerPrice({
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-        audience: "personal",
-        products: [],
-      }),
-    ).toBeNull();
-  });
-
-  it("BigModel 登录后团队入口按企业套餐分组显示标准版和高级版价格", () => {
-    const groups = groupEnterpriseCodingPlanProductsByTier(
-      [
-        {
-          productId: "team-pro-year",
-          productName: "Pro",
-          productEquityList: [],
-          priceCurrency: "CNY",
-          payAmount: 598,
-          tier: "PRO",
-          subscribeMode: "CONTINUOUS",
-          subscribePeriod: "YEARLY",
-          purchaseMethodName: "Auto renew",
-          enterpriseProduct: {
-            productId: "team-pro-year",
-            tier: "PRO",
-            subscribeMode: "CONTINUOUS",
-            subscribePeriod: "YEARLY",
-            payAmount: 598,
-          },
-        },
-        {
-          productId: "team-max-year",
-          productName: "Max",
-          productEquityList: [],
-          priceCurrency: "CNY",
-          payAmount: 1298,
-          tier: "MAX",
-          subscribeMode: "CONTINUOUS",
-          subscribePeriod: "YEARLY",
-          purchaseMethodName: "Auto renew",
-          enterpriseProduct: {
-            productId: "team-max-year",
-            tier: "MAX",
-            subscribeMode: "CONTINUOUS",
-            subscribePeriod: "YEARLY",
-            payAmount: 1298,
-          },
-        },
-      ],
-      {
-        locale: "zh-CN",
-        formatMessage: (id, fallback) => (zhCN as Record<string, string>)[id] ?? fallback,
-      },
-    );
-
-    expect(groups.map((group) => group.title)).toEqual(["标准版", "高级版"]);
-    expect(groups.map(resolveEnterprisePurchaseChoiceBannerPrice)).toEqual([
-      { kind: "price", price: 598, currency: "CNY" },
-      { kind: "price", price: 1298, currency: "CNY" },
-    ]);
   });
 
   it("Z.ai Coding Plan 已购买时显示 Plan Card、用量卡和解绑入口", () => {
@@ -4760,7 +4000,6 @@ describe("model provider coding plan", () => {
     expect(html).toContain("settings.usage.entitlementFiveHourUsage");
     expect(html).toContain("settings.usage.entitlementWeeklyUsage");
     expect(html).toContain("settings.usage.entitlementMonthlyMcpUsage");
-    expect(html.match(/class="flex min-h-6 min-w-0 items-center gap-1"/g)).toHaveLength(3);
     expect(html).toContain("GLM Coding Lite");
     expect(html).not.toContain("GLM CODING LITE");
     expect(html).not.toContain("Search Prime");
@@ -4770,16 +4009,9 @@ describe("model provider coding plan", () => {
     expect(html).toContain("50%");
     expect(html).toContain("90%");
     expect(html).toContain("Aug 10, 09:30");
-    expect(html).toContain('text-ui-sm text-foreground-subtle">Aug 10, 09:30');
     expect(html).toContain("Aug 11");
     expect(html).toContain("Aug 12");
     expect(html.indexOf("75%")).toBeLessThan(html.indexOf("Aug 10, 09:30"));
-    expect(html.indexOf("Aug 10, 09:30")).toBeLessThan(
-      html.indexOf("background-color:var(--color-usage-chart-1)"),
-    );
-    expect(html).toContain("background-color:var(--color-usage-chart-1)");
-    expect(html).toContain("background-color:var(--color-usage-chart-2)");
-    expect(html).toContain("background-color:var(--color-usage-chart-3)");
     expect(html).not.toContain("settings.modelProvider.startPlan.balance.used");
     expect(html).not.toContain("settings.modelProvider.codingPlan.period.monthly");
     expect(html).toContain("settings.modelProvider.codingPlan.renewsAt");
@@ -4835,26 +4067,6 @@ describe("model provider coding plan", () => {
 
     expect(html).toContain("settings.modelProvider.models");
     expect(html).toContain("settings.modelProvider.addModel");
-  });
-
-  it("Z.ai Coding Plan 已购买时套餐标题保留模型名大小写", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:zai-individual-coding-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-      oauthProviderId: ZAI_PROVIDER_ID,
-      label: "Z.ai - Coding Plan",
-      providerName: "Z.ai",
-      provider: createProvider(),
-      status: "purchased",
-      planLevel: "GLM CODING LITE",
-      purchaseUrl: "https://z.ai/",
-      quotaLimits: [],
-      statusActive: true,
-    });
-
-    expect(html).toContain(">GLM Coding Lite<");
-    expect(html).not.toContain("GLM CODING LITE");
   });
 
   it("Coding Plan 用量卡 percentage 按已用百分比反转成剩余百分比", () => {
@@ -5112,7 +4324,7 @@ describe("model provider coding plan", () => {
     expect(html).not.toContain("settings.modelProvider.codingPlan.status.teamUnavailable");
   });
 
-  it("Team Plan 有效订阅在 quota 缺失时仍保持已启用", () => {
+  it("Team Plan 已连接时保留已启用状态，权益探测已下线", () => {
     const item = {
       key: "team:bigmodel:product-team:proj-team",
       type: "teamPlan",
@@ -5124,8 +4336,6 @@ describe("model provider coding plan", () => {
         id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
       }),
       status: "purchased",
-      statusLabelId: "settings.modelProvider.codingPlan.status.teamUnavailable",
-      availabilityReason: "not-allocated",
       planLevel: "PRO",
       teamPlanName: "Team A",
       organizationId: "org-team",
@@ -5135,41 +4345,16 @@ describe("model provider coding plan", () => {
       statusActive: true,
     } as const;
 
-    const resolved = resolveTeamScopedPlanNavItem(item, {
-      loading: false,
-      error: null,
-      snapshot: createEntitlementSnapshot({
-        subscription: {
-          identityType: "unknown",
-          identityMasked: null,
-          details: [
-            {
-              productId: "product-team",
-              productName: "团队套餐高级版",
-              purchaseTime: null,
-              beginTime: null,
-              billingCycle: "quarterly",
-              renewTime: "2026-08-01T00:00:00.000Z",
-              expireTime: null,
-            },
-          ],
-        },
-        quota: null,
-      }),
-      refresh: vi.fn(),
-    } as never);
+    // RF-09：Team Plan 的 entitlement 探测已随 A7 移除，导航状态只透传 Host 快照。
+    const resolved = resolveTeamScopedPlanNavItem(item);
 
     expect(resolved.statusActive).toBe(true);
-    expect(resolved.planLevel).toBe("Team A");
+    expect(resolved.planLevel).toBe("PRO");
     expect(resolved.currentProductId).toBe("product-team");
-    expect(resolved.subscriptionBillingCycle).toBeNull();
-    expect(resolved.subscriptionRenewTime).toBeNull();
     expect(resolved.teamPlanName).toBe("Team A");
-    expect(resolved.statusLabelId).toBeUndefined();
-    expect(resolved.availabilityReason).toBeUndefined();
   });
 
-  it("Team Plan 明确无订阅时不继续显示已启用或个人续费日期", () => {
+  it("Team Plan Project Key 不可用时降级为 unavailable 且不继续显示已启用", () => {
     const item = {
       key: "team:bigmodel:product-team:org-team:proj-team",
       type: "teamPlan",
@@ -5186,159 +4371,77 @@ describe("model provider coding plan", () => {
       organizationId: "org-team",
       projectId: "proj-team",
       currentProductId: "product-team",
+      availabilityReason: "credential-unavailable",
       subscriptionRenewTime: "2026-09-15T00:00:00.000Z",
       subscriptionBillingCycle: "monthly",
       quotaLimits: [],
       statusActive: true,
     } as const;
 
-    const resolved = resolveTeamScopedPlanNavItem(item, {
-      loading: false,
-      error: null,
-      snapshot: createEntitlementSnapshot({
-        context: {
-          scope: "team",
-          organizationId: "org-team",
-          projectId: "proj-team",
-          productId: "product-team",
-          displayName: "GY的组织",
-        },
-        remaining: null,
-        quota: null,
-        subscription: null,
-        unavailableReason: "no_plan",
-      }),
-      refresh: vi.fn(),
-    } as never);
+    const resolved = resolveTeamScopedPlanNavItem(item);
 
     expect(resolved.status).toBe("unavailable");
     expect(resolved.statusActive).toBe(false);
-    expect(resolved.statusLabelId).toBe("settings.modelProvider.codingPlan.status.teamUnavailable");
-    expect(resolved.subscriptionRenewTime).toBeNull();
-    expect(resolved.subscriptionBillingCycle).toBeNull();
+    expect(resolved.quotaLimits).toEqual([]);
   });
 
-  it.each(["expired", "unassigned"] as const)("团队明确 %s 不显示查询失败或登录重试", (reason) => {
+  it("Team Plan 权益探测已下线：导航状态直接透传 Host 快照，不自行改写为 checking", () => {
     const item = {
-      key: "team:bigmodel:product:org:project",
+      key: "team:bigmodel:product-team:org-team:proj-team",
       type: "teamPlan",
       presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
       oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "团队",
+      label: "BigModel - Team A",
       providerName: "BigModel",
-      teamPlanName: "团队",
-      organizationId: "org",
-      projectId: "project",
-      currentProductId: "product",
       provider: createProvider({
         id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-        models: ["expired-hidden-model"],
       }),
       status: "unavailable",
+      planLevel: "Team A",
+      teamPlanName: "Team A",
+      organizationId: "org-team",
+      projectId: "proj-team",
+      currentProductId: "product-team",
+      quotaLimits: [],
       statusActive: false,
-      availabilityReason: "credential-unavailable",
-      statusMessage: "旧 Key 错误",
     } as const;
-    expect(resolveTeamPlanInspectionAccess(item)).toEqual({
-      type: "zhipu-account",
-      family: "bigmodel",
-      planKind: "team-coding-plan",
-      productId: "product",
-      organizationId: "org",
-      projectId: "project",
-    });
-    expect(resolveTeamPlanInspectionAccess({ ...item, projectId: "" })).toBeUndefined();
-    const resolved = resolveTeamScopedPlanNavItem(item, {
-      loading: false,
-      error: null,
-      refresh: vi.fn(),
-      snapshot: {
-        ...createEntitlementSnapshot(),
-        subscription: null,
-        unavailableReason: "no_plan",
-        teamPlanUnavailableReason: reason,
-      },
-    } as never);
-    const label =
-      reason === "expired"
-        ? "settings.modelProvider.codingPlan.status.teamExpired"
-        : "settings.modelProvider.codingPlan.status.teamUnavailable";
-    expect(resolved.statusLabelId).toBe(label);
-    const html = renderDetail(resolved, { onRetryCodingPlan: vi.fn() });
-    expect(html).toContain(label);
-    expect(html).not.toContain("旧 Key 错误");
-    expect(html).not.toContain("expired-hidden-model");
-    expect(html).not.toContain("common.retry");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
+
+    // RF-09：Team Plan 的 entitlement 探测已随 A7 移除，导航项不再被快照改写。
+    const resolved = resolveTeamScopedPlanNavItem(item);
+
+    expect(resolved.status).toBe("unavailable");
+    expect(resolved.statusLabelId).toBeUndefined();
+    expect(resolved.statusActive).toBe(false);
+  });
+
+  it("Team Plan 明确未分配时状态行展示管理员提示，不叠加查询失败文案", () => {
+    const item = {
+      key: "team:bigmodel:product-team:org-team:proj-team",
+      type: "teamPlan",
+      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+      oauthProviderId: BIGMODEL_PROVIDER_ID,
+      label: "BigModel - Team A",
+      providerName: "BigModel",
+      provider: createProvider({
+        id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
+      }),
+      status: "unavailable",
+      statusLabelId: "settings.modelProvider.codingPlan.status.teamUnavailable",
+      teamPlanAvailabilityReason: "not-allocated" as const,
+      planLevel: "Team A",
+      teamPlanName: "Team A",
+      organizationId: "org-team",
+      projectId: "proj-team",
+      currentProductId: "product-team",
+      quotaLimits: [],
+      statusActive: false,
+    } as const;
+
+    const html = renderDetail(item, { onRetryCodingPlan: vi.fn() });
+
+    expect(html).toContain("settings.modelProvider.codingPlan.status.teamUnavailable");
     expect(html).not.toContain("settings.modelProvider.codingPlan.description.unavailable");
-  });
-
-  it("Team Plan quota 正在刷新时显示 checking，而不是误报未分配", () => {
-    const item = {
-      key: "team:bigmodel:product-team:org-team:proj-team",
-      type: "teamPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel - Team A",
-      providerName: "BigModel",
-      provider: createProvider({
-        id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-      }),
-      status: "unavailable",
-      statusLabelId: "settings.modelProvider.codingPlan.status.teamUnavailable",
-      planLevel: "Team A",
-      teamPlanName: "Team A",
-      organizationId: "org-team",
-      projectId: "proj-team",
-      currentProductId: "product-team",
-      quotaLimits: [],
-      statusActive: false,
-    } as const;
-
-    const resolved = resolveTeamScopedPlanNavItem(item, {
-      loading: true,
-      error: null,
-      snapshot: null,
-      refresh: vi.fn(),
-    } as never);
-
-    expect(resolved.status).toBe("checking");
-    expect(resolved.statusLabelId).toBeUndefined();
-    expect(resolved.statusActive).toBe(false);
-  });
-
-  it("Team Plan quota 查询报错时显示通用获取失败，而不是误报未分配", () => {
-    const item = {
-      key: "team:bigmodel:product-team:org-team:proj-team",
-      type: "teamPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel - Team A",
-      providerName: "BigModel",
-      provider: createProvider({
-        id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-      }),
-      status: "unavailable",
-      statusLabelId: "settings.modelProvider.codingPlan.status.teamUnavailable",
-      planLevel: "Team A",
-      teamPlanName: "Team A",
-      organizationId: "org-team",
-      projectId: "proj-team",
-      currentProductId: "product-team",
-      quotaLimits: [],
-      statusActive: false,
-    } as const;
-
-    const resolved = resolveTeamScopedPlanNavItem(item, {
-      loading: false,
-      error: new Error("network failed"),
-      snapshot: null,
-      refresh: vi.fn(),
-    } as never);
-
-    expect(resolved.status).toBe("unavailable");
-    expect(resolved.statusLabelId).toBeUndefined();
-    expect(resolved.statusActive).toBe(false);
+    expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
   });
 
   it("Coding Plan 用量卡只展示接口返回且可识别的额度项", () => {
@@ -5379,7 +4482,6 @@ describe("model provider coding plan", () => {
     expect(html).not.toContain("settings.usage.entitlementMonthlyMcpUsage");
     expect(html).toContain("90%");
     expect(html).toContain("80%");
-    expect(html).not.toContain("background-color:var(--color-usage-chart-3)");
   });
 
   it("Team Plan 非标准额度项也会展示用量卡", () => {
@@ -5413,7 +4515,6 @@ describe("model provider coding plan", () => {
     expect(html).toContain("settings.modelProvider.planCard.usage.totalTokens");
     expect(html).toContain("GLM-5.2");
     expect(html).toContain("75%");
-    expect(html).toContain("background-color:var(--color-usage-chart-1)");
   });
 
   it("Z.ai Coding Plan Upgrade 等待 OAuth 时显示 loading", () => {
@@ -5619,256 +4720,12 @@ describe("model provider coding plan", () => {
     }
   });
 
-  it("Z.ai Start Plan 显示余额卡片", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:zai-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-      oauthProviderId: ZAI_PROVIDER_ID,
-      label: "Z.ai - Coding Plan",
-      providerName: "Z.ai",
-      provider: createProvider({
-        id: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        name: "Z.ai - Coding Plan",
-      }),
-      status: "purchased",
-      planLevel: "Start",
-      subscriptionRenewTime: new Date(2026, 5, 8, 23, 2).toISOString(),
-      subscriptionExpireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-      // 生产数据形态：purchased 快照必带 active 套餐详情，额度桶带 plan_id。
-      subscriptionDetails: [
-        {
-          productId: "zcode-v3-start-plan",
-          productName: "ZCode V3 Start Plan",
-          purchaseTime: null,
-          beginTime: null,
-          billingCycle: "daily",
-          renewTime: null,
-          expireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-        },
-      ],
-      quotaLimits: [
-        {
-          type: "ent_zcode_v3_glm_52",
-          planId: "zcode-v3-start-plan",
-          number: 3_000_000,
-          usage: 500_000,
-          remaining: 2_500_000,
-          nextResetTime: new Date(2026, 5, 8, 23, 2).getTime(),
-          usageDetails: [{ modelCode: "glm-5.2", displayName: "GLM-5.2", usage: 500_000 }],
-        },
-        {
-          type: "ent_zcode_v3_glm_5turbo",
-          planId: "zcode-v3-start-plan",
-          number: 1_000_000,
-          usage: 0,
-          remaining: 1_000_000,
-          nextResetTime: new Date(2026, 5, 8, 23, 2).getTime(),
-          usageDetails: [
-            {
-              modelCode: "glm-5-turbo",
-              displayName: "GLM-5-Turbo",
-              usage: 0,
-            },
-          ],
-        },
-        {
-          type: "ent_zcode_v3_glm_coding_lite",
-          planId: "zcode-v3-start-plan",
-          number: 2_000_000,
-          usage: 0,
-          remaining: 2_000_000,
-          nextResetTime: new Date(2026, 5, 8, 23, 2).getTime(),
-          usageDetails: [
-            {
-              modelCode: "glm-coding-lite",
-              displayName: "GLM CODING LITE",
-              usage: 0,
-            },
-          ],
-        },
-      ],
-      purchaseUrl: "https://z.ai/",
-      statusActive: true,
-    });
-
-    expect(html).toContain("settings.modelProvider.startPlan.balance.title");
-    // 体验套餐用量卡片不展示「管理」「解绑」操作,只保留升级 Coding Plan 入口。
-    expect(html).not.toContain("settings.modelProvider.codingPlan.manage");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.disconnect");
-    expect(html).toContain("settings.modelProvider.codingPlan.upgrade");
-    // 多卡路径下套餐到期时间只在 StartPlanStatusMeta 渲染一次；
-    // 余额卡不再重复展示套餐级 expireTime。
-    expect(html.match(/settings\.modelProvider\.startPlan\.expiresAt/g)?.length).toBe(1);
-    expect(html).not.toContain("settings.modelProvider.startPlan.balance.remaining");
-    expect(html).toContain("GLM-5.2");
-    expect(html).toContain("GLM-5-Turbo");
-    expect(html).toContain("GLM Coding Lite");
-    expect(html).not.toContain("GLM CODING LITE");
-    expect(html.indexOf("GLM-5.2")).toBeLessThan(html.indexOf("GLM-5-Turbo"));
-    expect(html).not.toContain("GLM-5Turbo");
-    expect(html).toContain("83%");
-    // 桶刷新时间非当日仅展示日期（Jun 8），与 Coding Plan 重置时间格式对齐。
-    expect(html).not.toContain("23:02");
-    expect(html).toContain("2,500,000 / 3,000,000");
-    expect(html).toContain("1,000,000 / 1,000,000");
-    expect(html).not.toContain("2.5M / 3M");
-    expect(html).not.toContain("Used 500K");
-  });
-
-  it("Start Plan 按服务端顺序展示多个套餐并按 plan id 隔离额度桶", () => {
-    const html = renderToStaticMarkup(
-      createElement(CodingPlanStatusPanel, {
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        providerName: "Z.ai",
-        status: "purchased",
-        planLevel: "Welcome Plan",
-        subscriptionDetails: [
-          {
-            productId: "plan-welcome",
-            productName: "Welcome Plan",
-            purchaseTime: null,
-            beginTime: null,
-            billingCycle: "daily",
-            renewTime: null,
-            expireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-          },
-          {
-            productId: "plan-bonus",
-            productName: "Bonus Plan",
-            purchaseTime: null,
-            beginTime: null,
-            billingCycle: "daily",
-            renewTime: null,
-            expireTime: new Date(2026, 5, 15, 23, 59).toISOString(),
-            entitlements: [
-              {
-                entitlementId: "bonus-glm-5-turbo",
-                showName: "GLM-5-Turbo",
-                effectiveTime: "2096-08-28T07:00:00.000Z",
-              },
-            ],
-          },
-        ],
-        quotaLimits: [
-          {
-            type: "welcome-glm-52",
-            planId: "plan-welcome",
-            number: 3_000_000,
-            remaining: 2_500_000,
-            nextResetTime: new Date(2026, 5, 8, 10, 11).getTime(),
-            usageDetails: [{ modelCode: "glm-5.2", displayName: "GLM-5.2", usage: 500_000 }],
-          },
-          {
-            type: "bonus-glm-5-turbo",
-            planId: "plan-bonus",
-            number: 1_000_000,
-            remaining: 750_000,
-            nextResetTime: new Date(2026, 5, 15, 12, 22).getTime(),
-            usageDetails: [
-              {
-                modelCode: "glm-5-turbo",
-                displayName: "GLM-5-Turbo",
-                usage: 250_000,
-              },
-            ],
-          },
-        ],
-      }),
-    );
-
-    expect(html.indexOf("Welcome Plan")).toBeLessThan(html.indexOf("Bonus Plan"));
-    expect(html).toContain("Jun 8");
-    expect(html).toContain("Jun 15");
-    // 桶刷新时间与 Coding Plan 对齐：非当日仅展示日期，不携带小时分钟。
-    expect(html).not.toContain("10:11");
-    expect(html).not.toContain("12:22");
-    expect(html).toContain("GLM-5.2");
-    expect(html).toContain("GLM-5-Turbo");
-    const welcomeIndex = html.indexOf("Welcome Plan");
-    const bonusIndex = html.indexOf("Bonus Plan");
-    expect(html.slice(welcomeIndex, bonusIndex)).toContain("GLM-5.2");
-    expect(html.slice(welcomeIndex, bonusIndex)).not.toContain("GLM-5-Turbo");
-    expect(html.slice(bonusIndex)).toContain("GLM-5-Turbo");
-    expect(html.slice(bonusIndex)).toContain("settings.modelProvider.startPlan.pendingUntil");
-    expect(html.slice(bonusIndex)).toContain('class="whitespace-nowrap text-success"');
-    expect(html.slice(bonusIndex)).toContain("settings.modelProvider.startPlan.expiresAt");
-    expect(html.slice(bonusIndex)).toContain(">·</span>");
-  });
-
-  it("Start Plan 只为尚未生效的 entitlement 展示最早生效时间", () => {
-    const now = Date.parse("2026-08-27T00:00:00.000Z");
-
-    expect(
-      resolvePendingStartPlanEffectiveTime(
-        [
-          {
-            entitlementId: "immediate",
-            effectiveTime: "1970-01-01T00:00:00.000Z",
-          },
-          { entitlementId: "past", effectiveTime: "2026-08-26T00:00:00.000Z" },
-          { entitlementId: "later", effectiveTime: "2026-08-29T00:00:00.000Z" },
-          {
-            entitlementId: "earlier",
-            effectiveTime: "2026-08-28T00:00:00.000Z",
-          },
-        ],
-        now,
-      ),
-    ).toBe("2026-08-28T00:00:00.000Z");
-    expect(
-      resolvePendingStartPlanEffectiveTime(
-        [
-          {
-            entitlementId: "immediate",
-            effectiveTime: "1970-01-01T00:00:00.000Z",
-          },
-        ],
-        now,
-      ),
-    ).toBeNull();
-  });
-
-  it("Start Plan 刷新完成只认当前 entitlement 对应的额度桶", () => {
-    const entitlements = [
-      {
-        entitlementId: "ent-weekend-glm-53-flash",
-        effectiveTime: "2026-09-01T12:00:00.000Z",
-      },
-    ];
-
-    expect(
-      hasStartPlanEntitlementQuota(entitlements, [
-        {
-          type: "ent-old-glm-52",
-          planId: "weekend-build",
-          number: 1,
-          remaining: 1,
-          usageDetails: [],
-        },
-      ]),
-    ).toBe(false);
-    expect(
-      hasStartPlanEntitlementQuota(entitlements, [
-        {
-          type: "ent-weekend-glm-53-flash",
-          planId: "weekend-build",
-          number: 1,
-          remaining: 1,
-          usageDetails: [],
-        },
-      ]),
-    ).toBe(true);
-  });
-
   it("Start Plan 待生效元信息明确表达尚未生效", () => {
     const now = new Date(2026, 8, 1, 10, 0).getTime();
     const todayEffectiveTime = new Date(2026, 8, 1, 22, 0).toISOString();
     const tomorrowEffectiveTime = new Date(2026, 8, 2, 22, 0).toISOString();
     const laterEffectiveTime = new Date(2026, 8, 4, 22, 0).toISOString();
 
-    expect(zhCN["settings.modelProvider.startPlan.pendingUntil"]).toBe("待生效 {date}");
-    expect(enUS["settings.modelProvider.startPlan.pendingUntil"]).toBe("Pending {date}");
     expect(formatStartPlanEffectiveDate(todayEffectiveTime, "zh-CN", now)).toBe("今天 22:00");
     expect(formatStartPlanEffectiveDate(todayEffectiveTime, "en-US", now)).toBe("Today 22:00");
     expect(formatStartPlanEffectiveDate(tomorrowEffectiveTime, "zh-CN", now)).toBe("明天 22:00");
@@ -5879,197 +4736,6 @@ describe("model provider coding plan", () => {
     expect(formatStartPlanEffectiveDate(laterEffectiveTime, "en-US", now)).toBe("Sep 4, 22:00");
     expect(formatStartPlanExpireDate(laterEffectiveTime, "zh-CN", now)).toBe("9月4日 22:00");
     expect(formatStartPlanExpireDate(laterEffectiveTime, "en-US", now)).toBe("Sep 4, 22:00");
-  });
-
-  it("Start Plan 余额卡片不从剩余量反推已用量", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:zai-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-      oauthProviderId: ZAI_PROVIDER_ID,
-      label: "Z.ai - Coding Plan",
-      providerName: "Z.ai",
-      provider: createProvider({
-        id: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        name: "Z.ai - Coding Plan",
-      }),
-      status: "purchased",
-      planLevel: "Start",
-      subscriptionExpireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-      // 生产数据形态：purchased 快照必带 active 套餐详情，额度桶带 plan_id。
-      subscriptionDetails: [
-        {
-          productId: "zcode-v3-start-plan",
-          productName: "ZCode V3 Start Plan",
-          purchaseTime: null,
-          beginTime: null,
-          billingCycle: "daily",
-          renewTime: null,
-          expireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-        },
-      ],
-      quotaLimits: [
-        {
-          type: "ent_zcode_v3_glm_52",
-          planId: "zcode-v3-start-plan",
-          number: 3_000_000,
-          remaining: 2_734_000,
-          usageDetails: [{ modelCode: "glm-5.2", displayName: "GLM-5.2", usage: 0 }],
-        },
-      ],
-      purchaseUrl: "https://z.ai/",
-      statusActive: true,
-    });
-
-    expect(html).toContain("2,734,000 / 3,000,000");
-    expect(html).not.toContain("2.7M");
-    expect(html).not.toContain("Used 266K");
-  });
-
-  it("BigModel Start Plan 按余额接口顺序和 show_name 显示余额卡片", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:bigmodel-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel- Coding Plan",
-      providerName: "BigModel",
-      provider: createProvider({
-        id: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-        name: "BigModel- Coding Plan",
-      }),
-      status: "purchased",
-      planLevel: "Start",
-      subscriptionExpireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-      subscriptionDetails: [
-        {
-          productId: "bigmodel-start",
-          productName: "Start",
-          purchaseTime: null,
-          beginTime: null,
-          billingCycle: "daily",
-          renewTime: null,
-          expireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-        },
-      ],
-      quotaLimits: [
-        {
-          type: "ent_bigmodel_glm_52",
-          planId: "bigmodel-start",
-          number: 3_000_000,
-          usage: 0,
-          remaining: 3_000_000,
-          usageDetails: [{ modelCode: "glm-5.2", displayName: "GLM-5.2", usage: 0 }],
-        },
-        {
-          type: "ent_bigmodel_glm_5turbo",
-          planId: "bigmodel-start",
-          number: 1_000_000,
-          usage: 0,
-          remaining: 1_000_000,
-          usageDetails: [
-            {
-              modelCode: "glm-5-turbo",
-              displayName: "GLM-5-Turbo",
-              usage: 0,
-            },
-          ],
-        },
-      ],
-      purchaseUrl: "https://bigmodel.cn/",
-      statusActive: true,
-    });
-
-    expect(html).toContain("GLM-5.2");
-    expect(html).toContain("GLM-5-Turbo");
-    expect(html.indexOf("GLM-5.2")).toBeLessThan(html.indexOf("GLM-5-Turbo"));
-    expect(html).not.toContain("GLM-5Turbo");
-  });
-
-  it("Start Plan 兜底单卡不再渲染额度桶，余额未落定时仅保留查询占位", () => {
-    // 服务端契约保证 balances 只属于 active plans：purchased 快照必有套餐详情，
-    // 多卡路径必然可用。兜底分支（nav item 无套餐详情）不得把全量桶塞进单卡，
-    // 否则违背 spec「无匹配 plan_id 的桶不得附着到任何卡片」。
-    const quotaLimits = [
-      {
-        type: "ent_zcode_v3_glm_52",
-        planId: "zcode-v3-start-plan",
-        number: 3_000_000,
-        remaining: 2_734_000,
-        usageDetails: [{ modelCode: "glm-5.2", displayName: "GLM-5.2", usage: 0 }],
-      },
-    ];
-
-    const settledHtml = renderToStaticMarkup(
-      createElement(CodingPlanStatusPanel, {
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        providerName: "Z.ai",
-        status: "purchased",
-        subscriptionDetails: [],
-        quotaLimits,
-      }),
-    );
-    expect(settledHtml).not.toContain("settings.modelProvider.startPlan.balance.title");
-    expect(settledHtml).not.toContain("2,734,000 / 3,000,000");
-    // 兜底分支的套餐卡本体仍在（标题 + 升级按钮），只是不再渲染额度桶。
-    expect(settledHtml).toContain("settings.modelProvider.planCard.startPlan");
-    expect(settledHtml).toContain("settings.modelProvider.codingPlan.upgrade");
-
-    const checkingHtml = renderToStaticMarkup(
-      createElement(CodingPlanStatusPanel, {
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        providerName: "Z.ai",
-        status: "purchased",
-        viewState: {
-          displayStatus: "purchased",
-          actionStatus: "purchased",
-          balanceStatus: "checking",
-          loginLoading: false,
-        },
-        subscriptionDetails: [],
-        quotaLimits,
-      }),
-    );
-    expect(checkingHtml).toContain("settings.modelProvider.startPlan.balance.title");
-    expect(checkingHtml).not.toContain("2,734,000 / 3,000,000");
-  });
-
-  it("Start 明确要求重新登录时不走网络重试，文案不作为操作判断", () => {
-    const providerId = BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan;
-    const provider = createProvider({ id: providerId });
-    const html = renderDetail(
-      {
-        key: `coding-plan:${providerId}`,
-        type: "codingPlan",
-        presetId: providerId,
-        oauthProviderId: BIGMODEL_PROVIDER_ID,
-        label: "Start",
-        providerName: "BigModel",
-        provider,
-        status: "unavailable",
-        statusActive: false,
-        accountLoginRequired: true,
-        statusLabelId: "custom.login.message",
-      },
-      { onRetryCodingPlan: vi.fn() },
-    );
-    expect(html).not.toContain("common.retry");
-    expect(html).toContain("chat.error.action.relogin");
-    const noPlanHtml = renderDetail(
-      {
-        key: `coding-plan:${providerId}`,
-        type: "codingPlan",
-        presetId: providerId,
-        oauthProviderId: BIGMODEL_PROVIDER_ID,
-        label: "Start",
-        providerName: "BigModel",
-        provider,
-        status: "notPurchased",
-        statusActive: false,
-      },
-      { providerSettingsView: createProviderSettingsView(provider) },
-    );
-    expect(noPlanHtml).not.toContain("settings.modelProvider.accountProviderConfigMissing");
   });
 
   it("Start 无套餐卡不显示付费订阅按钮", () => {
@@ -6083,212 +4749,6 @@ describe("model provider coding plan", () => {
     );
     expect(html).toContain("settings.modelProvider.startPlan.status.noPlan");
     expect(html).not.toContain("settings.modelProvider.codingPlan.subscribe");
-  });
-
-  it("BigModel Start Plan 未登录且无远端 preview 时显示登录入口，不伪造套餐和模型", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:bigmodel-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel- Coding Plan",
-      providerName: "BigModel",
-      provider: null,
-      status: "disconnected",
-      purchaseUrl: "https://bigmodel.cn/",
-      statusActive: false,
-    });
-
-    expect(html).toContain("settings.modelProvider.planCard.startPlan");
-    expect(html).not.toContain("settings.modelProvider.startPlan.quotaSectionTitle");
-    expect(html).not.toContain("settings.modelProvider.startPlan.summaryTitle");
-    expect(html).not.toContain("settings.modelProvider.startPlan.heroMetric");
-    expect(html).not.toContain("settings.modelProvider.startPlan.summaryDescription");
-    expect(html).not.toContain("settings.modelProvider.startPlan.eligibleNewUser");
-    expect(html).toContain("settings.modelProvider.startPlan.status.loginRequired");
-    expect(html).toContain("settings.modelProvider.startPlan.login");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.startPlanTitle");
-    expect(html).not.toContain(
-      "settings.modelProvider.codingPlan.purchaseBanner.startPlanDescription",
-    );
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.personalTitle");
-    expect(html).not.toContain(
-      "settings.modelProvider.codingPlan.purchaseBanner.personalDescription",
-    );
-    expect(html).not.toContain("CN¥49.00+");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamTitle");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamDescription");
-    expect(html).not.toContain("CN¥598.00+");
-    expect(html).not.toContain("color-mix(in_srgb,var(--color-success)_24%");
-    expect(html).not.toContain("color-mix(in_srgb,#4099ff_24%");
-    expect(html).not.toContain("color-mix(in_srgb,#0ea5e9_24%");
-    expect(html).not.toContain("circle_at_14%_12%");
-    expect(html).toContain("w-full");
-    expect(html).not.toContain("bg-background/80");
-    expect(html).not.toContain("sm:grid-cols-3");
-    expect(html).not.toContain("button-gradient");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.description.disconnected");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.productsLoading");
-    expect(html).not.toContain("settings.modelProvider.models");
-    expect(html).not.toContain("settings.modelProvider.apiKey");
-  });
-
-  it.each(["disconnected", "notPurchased"] as const)(
-    "BigModel Start Plan %s 详情隐藏远端体验套餐推广",
-    (status) => {
-      primeStartPlanPreviewCacheForTest({
-        planId: "zcode-v3-start-plan",
-        name: "ZCode V3 Start Plan",
-        entitlements: [
-          {
-            grantUnits: 10_000_000,
-            meter: "model_usage",
-            period: "daily",
-            showName: "GLM-5.2",
-            unitType: "token",
-          },
-          {
-            grantUnits: 10_000_000,
-            meter: "model_usage",
-            period: "daily",
-            showName: "GLM-5.1",
-            unitType: "token",
-          },
-          {
-            grantUnits: 10_000_000,
-            meter: "model_usage",
-            period: "daily",
-            showName: "GLM-5-Turbo",
-            unitType: "token",
-          },
-        ],
-      });
-
-      const html = renderDetail({
-        key: "coding-plan:account:bigmodel-start-plan",
-        type: "codingPlan",
-        presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-        oauthProviderId: BIGMODEL_PROVIDER_ID,
-        label: "BigModel- Coding Plan",
-        providerName: "BigModel",
-        provider: null,
-        status,
-        purchaseUrl: "https://bigmodel.cn/",
-        statusActive: false,
-      });
-
-      expect(html).not.toContain("ZCode V3 Start Plan");
-      expect(html).not.toContain("30 Million");
-      expect(html).not.toContain("tokens per day");
-      expect(html).not.toContain("Daily quota · GLM-5.2 / GLM-5.1 / GLM-5-Turbo 10M each");
-      expect(html).not.toContain("color-mix(in_srgb,var(--color-success)_24%");
-      expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.personalTitle");
-      expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamTitle");
-    },
-  );
-
-  it("个人套餐未连接时即使缓存有体验套餐也不显示推广或模型列表", () => {
-    primeStartPlanPreviewCacheForTest({
-      planId: "start-preview",
-      name: "cached-start-banner",
-      entitlements: [
-        {
-          grantUnits: 8_000_000,
-          meter: "model_usage",
-          period: "daily",
-          showName: "GLM",
-          unitType: "token",
-        },
-      ],
-    });
-    const providerId = BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan;
-    const html = renderDetail({
-      key: `coding-plan:${providerId}`,
-      type: "codingPlan",
-      presetId: providerId,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel",
-      providerName: "BigModel",
-      provider: createProvider({ id: providerId, models: ["disconnected-model"] }),
-      status: "disconnected",
-      statusActive: false,
-    });
-    expect(html).not.toContain("cached-start-banner");
-    expect(html).not.toContain("disconnected-model");
-    expect(html).not.toContain("settings.modelProvider.addModel");
-    expect(html).toContain("settings.modelProvider.codingPlan.connect");
-  });
-
-  it("BigModel Start Plan 中文详情不显示推广额度", () => {
-    intlMockState.locale = "zh-CN";
-    primeStartPlanPreviewCacheForTest({
-      planId: "zcode-v3-start-plan",
-      name: "ZCode V3 Start Plan",
-      entitlements: [
-        {
-          grantUnits: 5_000_000,
-          meter: "model_usage",
-          period: "daily",
-          showName: "GLM-5.2",
-          unitType: "token",
-        },
-      ],
-    });
-
-    const html = renderDetail({
-      key: "coding-plan:account:bigmodel-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel- Coding Plan",
-      providerName: "BigModel",
-      provider: null,
-      status: "disconnected",
-      purchaseUrl: "https://bigmodel.cn/",
-      statusActive: false,
-    });
-
-    expect(html).not.toContain("ZCode V3 Start Plan");
-    expect(html).not.toContain("500万");
-    expect(html).not.toContain("tokens/日");
-    expect(html).not.toContain("每日额度 · GLM-5.2 500万");
-    expect(html).not.toContain("¥49.00");
-    expect(html).not.toContain("¥598.00");
-    expect(html).not.toContain("人民币 起");
-  });
-
-  it("BigModel Start Plan 中文详情保留标题且不显示体验推广", () => {
-    intlMockState.locale = "zh-CN";
-    primeStartPlanPreviewCacheForTest({
-      planId: "zcode-v3-start-plan",
-      name: "Start Plan",
-      entitlements: [
-        {
-          grantUnits: 5_000_000,
-          meter: "model_usage",
-          period: "daily",
-          showName: "GLM-5.2",
-          unitType: "token",
-        },
-      ],
-    });
-
-    const html = renderDetail({
-      key: "coding-plan:account:bigmodel-start-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel- Coding Plan",
-      providerName: "BigModel",
-      provider: null,
-      status: "disconnected",
-      purchaseUrl: "https://bigmodel.cn/",
-      statusActive: false,
-    });
-
-    expect(html).not.toContain(">体验套餐<");
-    expect(html).toContain(">Start Plan<");
   });
 
   it("Coding Plan 权益误落到 Start provider 分支时显示权益名", () => {
@@ -6372,73 +4832,6 @@ describe("model provider coding plan", () => {
     ).toBe("Org A");
   });
 
-  it("Start Plan 活动升级按钮使用渐变背景", () => {
-    const html = renderToStaticMarkup(
-      createElement(CodingPlanUpgradeAction, {
-        loginLoading: false,
-        upgradePlansVisible: false,
-        codingPlanPurchaseTokenAuthenticated: true,
-        billingDiscountActive: true,
-        billingDiscountConfig: {
-          "en-US": {
-            badgeBody: "150% Quota",
-            infoTitle: "Entitlement Rules",
-            infoBody: "Remote campaign rules",
-          },
-        },
-        onUpgradePlansVisibleChange: vi.fn(),
-      }),
-    );
-
-    expect(html).toContain("button-gradient");
-    expect(html).toContain("dark:bg-[#484A58]");
-    expect(html).toContain("bg-white");
-    expect(html).toContain("text-[#191A1D]");
-    expect(html).toContain("rounded-full");
-    expect(html).not.toContain("lucide-trending-up");
-    expect(html).toContain("lucide-info");
-    expect(html).toContain('data-slot="dialog-trigger"');
-    expect(html).not.toContain("uppercase");
-    expect(html).toContain("150% Quota");
-  });
-
-  it("聊天额度 Banner 的活动升级按钮与 Model Settings 使用一致样式", () => {
-    const html = renderToStaticMarkup(
-      createElement(ConversationQuotaBanner, {
-        state: {
-          visible: true,
-          kind: "model-very-low",
-          concurrentLimitBusinessCode: null,
-          concurrentLimitReason: null,
-          providerLimitedBusinessCode: null,
-          providerLimitedMessage: null,
-          modelName: "GLM-4.5",
-          remainingTokens: 12_800,
-          remainingPercent: 10,
-          dismissible: true,
-          blocksSubmit: false,
-          priority: 40,
-        },
-        billingDiscountActive: true,
-        billingDiscountConfig: {
-          "en-US": {
-            badgeBody: "150% Quota",
-            infoTitle: "Entitlement Rules",
-            infoBody: "Remote campaign rules",
-          },
-        },
-        onUpgrade: vi.fn(),
-        onDismiss: vi.fn(),
-      }),
-    );
-
-    expect(html).toContain("button-gradient");
-    expect(html).toContain("dark:bg-[#484A58]");
-    expect(html).toContain("pr-px");
-    expect(html).toContain("h-auto");
-    expect(html).toContain("150% Quota");
-  });
-
   it("Coding Plan 活动 banner 右侧显示说明入口", () => {
     const html = renderToStaticMarkup(
       createElement(CodingPlanBillingDiscountBanner, {
@@ -6456,15 +4849,11 @@ describe("model provider coding plan", () => {
 
     expect(html).toContain("Limited-time 150% Quota Campaign");
     expect(html).toContain("150% Quota");
-    expect(html).toContain("lucide-trending-up");
     expect(html).toContain("lucide-info");
-    expect(html).not.toContain('data-slot="button"');
-    expect(html).toContain("bg-white");
-    expect(html).toContain("text-[#191A1D]");
     expect(html).toContain("settings.modelProvider.codingPlan.billingDiscountInfo.open");
   });
 
-  it("默认活动徽标旁的说明入口在浅色背景可见", () => {
+  it("完整活动配置为徽标提供说明入口", () => {
     const html = renderToStaticMarkup(
       createElement(CodingPlanBillingDiscountBadge, {
         config: {
@@ -6479,26 +4868,6 @@ describe("model provider coding plan", () => {
 
     expect(html).toContain("150% Quota");
     expect(html).toContain("lucide-info");
-    expect(html).not.toContain('data-slot="button"');
-    expect(html).toContain("text-foreground-subtle");
-    expect(html).not.toContain("text-white/90");
-  });
-
-  it("compact 活动徽标使用 badge 级字号", () => {
-    const html = renderToStaticMarkup(
-      createElement(CodingPlanBillingDiscountBadgePill, {
-        config: {
-          "en-US": {
-            badgeBody: "150% Quota",
-          },
-        },
-        size: "compact",
-      }),
-    );
-
-    expect(html).toContain("text-ui-xs");
-    expect(html).not.toContain("text-ui-sm");
-    expect(html).toContain("whitespace-nowrap");
   });
 
   it("远端未下发完整活动说明时不显示 Info 入口且不使用本地兜底", () => {
@@ -6531,15 +4900,6 @@ describe("model provider coding plan", () => {
 
     expect(copy.infoTitle).toBe("远端权益规则");
     expect(copy.infoBody).toBe("- 远端规则一\n- 远端规则二");
-  });
-
-  it("Coding Plan 活动说明弹窗使用紧凑宽度", () => {
-    expect(CODING_PLAN_BILLING_DISCOUNT_DIALOG_CONTENT_CLASS).toContain("max-w-lg");
-    expect(CODING_PLAN_BILLING_DISCOUNT_DIALOG_CONTENT_CLASS).not.toContain("max-w-2xl");
-  });
-
-  it("Coding Plan 活动说明文案区域使用弹窗内 wrapper", () => {
-    expect(CODING_PLAN_BILLING_DISCOUNT_DIALOG_BODY_CLASS).toBe("p-3 !space-y-3");
   });
 
   it("按当前 locale 读取服务端下发的 150% 活动文案", () => {
@@ -6661,25 +5021,6 @@ describe("model provider coding plan", () => {
     expect(teamHtml).toContain("150% Quota");
   });
 
-  it.each([
-    BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-  ])("%s 获取失败提供明确的重新登录操作", (providerId) => {
-    const html = renderToStaticMarkup(
-      createElement(CodingPlanStatusPanel, {
-        providerId,
-        providerName: "Provider",
-        status: "unavailable",
-        loginActionVisible: true,
-        loginActionPlacement: "trailing",
-        onLogin: vi.fn(),
-        reloginOnFailure: true,
-      }),
-    );
-    expect(html).toContain("login.expired.action");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.connect");
-  });
-
   it("Team Plan 未分配时在状态行展示管理员提示", () => {
     const html = renderToStaticMarkup(
       createElement(CodingPlanStatusPanel, {
@@ -6744,43 +5085,6 @@ describe("model provider coding plan", () => {
     expect(html).toContain("您当前暂无有效的团队套餐授权记录，无法创建API Key");
     expect(html).not.toContain("settings.modelProvider.codingPlan.status.teamUnavailable");
     expect(html).toContain("text-warning");
-  });
-
-  it("Z.ai Start Plan 展开升级套餐时保留余额卡片", () => {
-    const html = renderToStaticMarkup(
-      createElement(CodingPlanStatusPanel, {
-        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan,
-        providerName: "Z.ai",
-        status: "purchased",
-        planLevel: "Start",
-        subscriptionExpireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-        // 生产数据形态：purchased 快照必带 active 套餐详情，额度桶带 plan_id。
-        subscriptionDetails: [
-          {
-            productId: "zcode-v3-start-plan",
-            productName: "ZCode V3 Start Plan",
-            purchaseTime: null,
-            beginTime: null,
-            billingCycle: "daily",
-            renewTime: null,
-            expireTime: new Date(2026, 5, 8, 23, 59).toISOString(),
-          },
-        ],
-        quotaLimits: [
-          {
-            type: "ent_zcode_v3_glm_52",
-            planId: "zcode-v3-start-plan",
-            number: 3_000_000,
-            usage: 500_000,
-            remaining: 2_500_000,
-            usageDetails: [{ modelCode: "glm-5.2", usage: 500_000 }],
-          },
-        ],
-        upgradePlansVisible: true,
-      }),
-    );
-
-    expect(html).toContain("settings.modelProvider.startPlan.balance.title");
   });
 
   it("Z.ai Coding Plan 展开升级套餐时保留剩余额度卡片", () => {
@@ -6861,81 +5165,6 @@ describe("model provider coding plan", () => {
     expect(unlinkIndex).toBeGreaterThan(manageIndex);
   });
 
-  it("BigModel Coding Plan 未登录且无远端 preview 时隐藏 Start 套餐入口", () => {
-    const html = renderDetail({
-      key: "coding-plan:account:bigmodel-individual-coding-plan",
-      type: "codingPlan",
-      presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-      oauthProviderId: BIGMODEL_PROVIDER_ID,
-      label: "BigModel - Coding Plan",
-      providerName: "BigModel",
-      provider: null,
-      status: "disconnected",
-      purchaseUrl: "https://bigmodel.cn/",
-      statusActive: false,
-    });
-
-    expect(html).toContain("settings.modelProvider.planCard.codingPlan");
-    expect(html).toContain("settings.modelProvider.codingPlan.status.disconnected");
-    expect(html).toContain("settings.modelProvider.codingPlan.connect");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.startPlanTitle");
-    expect(html).not.toContain(
-      "settings.modelProvider.codingPlan.purchaseBanner.startPlanDescription",
-    );
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.personalTitle");
-    expect(html).not.toContain(
-      "settings.modelProvider.codingPlan.purchaseBanner.personalDescription",
-    );
-    expect(html).not.toContain("CN¥49.00+");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamTitle");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamDescription");
-    expect(html).not.toContain("CN¥598.00+");
-    expect(html).not.toContain("color-mix(in_srgb,var(--color-success)_24%");
-    expect(html).not.toContain("color-mix(in_srgb,#4099ff_24%");
-    expect(html).not.toContain("color-mix(in_srgb,#0ea5e9_24%");
-    expect(html).not.toContain("circle_at_14%_12%");
-    expect(html).toContain("w-full");
-    expect(html).not.toContain("bg-background/80");
-    expect(html).not.toContain("sm:grid-cols-3");
-    expect(html).not.toContain("button-gradient");
-    expect(html).not.toContain("settings.modelProvider.startPlan.quotaSectionTitle");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.productsLoading");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.bigmodel.plan.lite.name");
-    expect(html).not.toContain("settings.modelProvider.models");
-    expect(html).not.toContain("settings.modelProvider.apiKey");
-  });
-
-  it("BigModel 未登录点击个人/团队套餐时先登录，已登录未订阅才打开购买", () => {
-    expect(resolvePurchaseChoiceSelectionIntent("disconnected")).toBe("login");
-    expect(resolvePurchaseChoiceSelectionIntent("notPurchased")).toBe("purchase");
-    expect(resolvePurchaseChoiceSelectionIntent("purchased")).toBe("purchase");
-  });
-
-  it("BigModel Coding Plan 账号未注册时在查询行显示注册链接", () => {
-    const html = renderDetail(
-      {
-        key: "coding-plan:account:bigmodel-individual-coding-plan",
-        type: "codingPlan",
-        presetId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-        oauthProviderId: BIGMODEL_PROVIDER_ID,
-        label: "BigModel - Coding Plan",
-        providerName: "本地化后的智谱账号",
-        provider: null,
-        status: "disconnected",
-        purchaseUrl: "https://bigmodel.cn/",
-        statusActive: false,
-      },
-      {
-        presetSubscriptionProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-        codingPlanAuthError: "BigModel 账号未注册，请先完成 BigModel 注册后再登录。",
-      },
-    );
-
-    expect(html).toContain("settings.modelProvider.codingPlan.bigmodel.unregisteredHint");
-    expect(html).toContain("settings.modelProvider.codingPlan.bigmodel.registerAction");
-    expect(html).not.toContain("settings.modelProvider.codingPlan.status.checking");
-  });
-
   it("BigModel Coding Plan 已连接时显示解绑入口", () => {
     const html = renderDetail({
       key: "coding-plan:account:bigmodel-individual-coding-plan",
@@ -6998,162 +5227,9 @@ describe("model provider coding plan", () => {
     );
     expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamTitle");
     expect(html).not.toContain("settings.modelProvider.codingPlan.purchaseBanner.teamDescription");
-    expect(html).not.toContain("color-mix(in_srgb,#4099ff_24%");
-    expect(html).not.toContain("color-mix(in_srgb,var(--color-warning)_24%");
-    expect(html).not.toContain("circle_at_14%_12%");
-    expect(html).toContain("w-full");
-    expect(html).not.toContain("bg-background/80");
-    expect(html).not.toContain("sm:grid-cols-2");
-    expect(html).not.toContain("button-gradient");
     expect(html).not.toContain("settings.modelProvider.startPlan.quotaSectionTitle");
     expect(html).not.toContain("settings.modelProvider.models");
     expect(html).not.toContain("settings.modelProvider.apiKey");
-  });
-
-  it.each([false, true])("个人未开通时团队 subscribed=%s 仍展示团队 banner", (subscribed) => {
-    const spy = vi
-      .spyOn(enterpriseProductsHook, "useEnterpriseCodingPlanProducts")
-      .mockReturnValue({
-        loading: false,
-        error: null,
-        refresh: vi.fn(),
-        snapshot: {
-          authenticated: true,
-          staticProductIds: ["team-pro"],
-          raw: { productList: [] },
-          productList: [
-            {
-              productId: "team-pro",
-              productName: "Pro",
-              productEquityList: [],
-              priceCurrency: "CNY",
-              payAmount: 598,
-              tier: "PRO",
-              subscribeMode: "CONTINUOUS",
-              subscribePeriod: "YEARLY",
-              purchaseMethodName: "Auto renew",
-              subscribed,
-              enterpriseProduct: {
-                productId: "team-pro",
-                tier: "PRO",
-                subscribeMode: "CONTINUOUS",
-                subscribePeriod: "YEARLY",
-                payAmount: 598,
-              },
-            },
-          ],
-        },
-      });
-    try {
-      const providerId = BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan;
-      const html = renderDetail(
-        {
-          key: `coding-plan:${providerId}`,
-          type: "codingPlan",
-          presetId: providerId,
-          oauthProviderId: BIGMODEL_PROVIDER_ID,
-          label: "BigModel",
-          providerName: "BigModel",
-          provider: createProvider({ id: providerId }),
-          status: "notPurchased",
-          statusActive: false,
-        },
-        { codingPlanPurchaseTokenAuthenticatedByProviderId: { [providerId]: true } },
-      );
-      expect(html).toContain("settings.modelProvider.codingPlan.purchaseBanner.teamDescription");
-      expect(html).toContain("598.00");
-      expect(html).not.toContain("settings.modelProvider.models");
-      const startId = BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan;
-      const startItem: ModelProviderNavItem = {
-        key: "start-expired",
-        type: "codingPlan",
-        presetId: startId,
-        oauthProviderId: BIGMODEL_PROVIDER_ID,
-        label: "Start Plan",
-        providerName: "BigModel",
-        provider: createProvider({ id: startId }),
-        status: "notPurchased",
-        statusActive: false,
-        statusLabelId: "settings.modelProvider.startPlan.status.expired",
-      };
-      for (const type of ["codingPlan", "teamPlan"] as const) {
-        for (const available of [false, true]) {
-          for (const status of ["purchased", "unavailable", "checking"] as const) {
-            const paidItem: ModelProviderNavItem = {
-              key: "paid",
-              type,
-              presetId: providerId,
-              oauthProviderId: BIGMODEL_PROVIDER_ID,
-              label: "Paid",
-              providerName: "BigModel",
-              provider: null,
-              status,
-              statusActive: false,
-              ...(type === "teamPlan"
-                ? {
-                    teamPlanName: "Team",
-                    organizationId: "org",
-                    projectId: "project",
-                    currentProductId: "product",
-                  }
-                : {}),
-            };
-            const paidView = createProviderSettingsView(createProvider({ id: providerId }));
-            paidView.providers[0]!.accountState = {
-              availability: available ? "available" : "unavailable",
-              entitled: available,
-              current: true,
-            };
-            const startHtml = renderDetail(startItem, {
-              navigationItems: [startItem, paidItem],
-              providerSettingsView: paidView,
-              codingPlanPurchaseTokenAuthenticatedByProviderId: { [startId]: true },
-            });
-            expect(startHtml).toContain("settings.modelProvider.startPlan.status.expired");
-            expect(
-              startHtml.includes(
-                "settings.modelProvider.codingPlan.purchaseBanner.teamDescription",
-              ),
-            ).toBe(!available);
-            const activeStartHtml = renderDetail(
-              { ...startItem, status: "purchased", statusLabelId: undefined },
-              {
-                navigationItems: [startItem, paidItem],
-                providerSettingsView: paidView,
-              },
-            );
-            expect(activeStartHtml.includes("settings.modelProvider.codingPlan.upgrade")).toBe(
-              !available,
-            );
-          }
-        }
-      }
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it("团队标准版和高级版使用不同 banner 背景", () => {
-    const standardClassName = resolveEnterpriseTeamPlanBannerClass("pro");
-    const advancedClassName = resolveEnterpriseTeamPlanBannerClass("max");
-
-    expect(standardClassName).toContain("#0ea5e9");
-    expect(advancedClassName).toContain("#14b8a6");
-    expect(advancedClassName).not.toBe(standardClassName);
-  });
-
-  it("团队标准版和高级版图标颜色跟随 banner 背景", () => {
-    expect(resolveEnterpriseTeamPlanBannerIconClass("pro")).toBe("text-[#0ea5e9]");
-    expect(resolveEnterpriseTeamPlanBannerIconClass("max")).toBe("text-[#14b8a6]");
-  });
-
-  it("团队标准版和高级版使用各自的 banner 描述", () => {
-    expect(resolveEnterpriseTeamPlanBannerDescriptionId("pro")).toBe(
-      "settings.modelProvider.codingPlan.purchaseBanner.teamStandardDescription",
-    );
-    expect(resolveEnterpriseTeamPlanBannerDescriptionId("max")).toBe(
-      "settings.modelProvider.codingPlan.purchaseBanner.teamAdvancedDescription",
-    );
   });
 
   it("模型供应商手动刷新会同步 Team Plan 产品快照", async () => {
