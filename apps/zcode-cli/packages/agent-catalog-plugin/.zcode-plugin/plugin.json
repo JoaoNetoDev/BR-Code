@@ -1,0 +1,14 @@
+{
+  "name": "agent-catalog",
+  "version": "0.1.0",
+  "description": "Curated role-based sub-agents for routing by model.",
+  "description_i18n": {
+    "en": "Curated role-based sub-agents: each one declares when to use it and which tools it may touch.",
+    "zh-CN": "按角色划分的子智能体：每个都说明了何时使用以及可使用的工具范围。"
+  },
+  "author": {
+    "name": "BR-Code"
+  },
+  "license": "Apache-2.0",
+  "agents": "agents"
+}

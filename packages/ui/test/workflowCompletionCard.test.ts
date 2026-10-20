@@ -86,7 +86,9 @@ describe("WorkflowCompletionCard · 形态", () => {
     );
     const tokens = view.getByTestId("workflow-completion-figure-tokens");
     expect(tokens.getAttribute("data-value")).toBe("386.4k");
-    expect(tokens.querySelector("[title]")?.getAttribute("title")).toBe("386,412 tokens");
+    expect(tokens.querySelector("[title]")?.getAttribute("title")).toBe(
+      `${(386_412).toLocaleString()} tokens`,
+    );
     expect(
       view.getByTestId("workflow-completion-figure-subagents").getAttribute("data-value"),
     ).toBe("10");

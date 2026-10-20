@@ -215,19 +215,6 @@ describe("desktop e2e startup credentials", () => {
     });
   });
 
-  it("Start Plan 手动领取 spec 保留调用 claim API 所需的 zcode JWT", () => {
-    expect(
-      createE2EStartupCredentialSeed({
-        specs: ["/repo/packages/desktop/test/e2e/ui-shell/marketing-touch-entitlement.test.ts"],
-        legacyAuthToken: "fake-auth-token",
-        restoredOAuthCredentials,
-      }),
-    ).toEqual({
-      auth_token: "fake-auth-token",
-      ...restoredOAuthCredentials,
-    });
-  });
-
   it("分享浮窗交互具备本地 mock 账号态", () => {
     expect(
       createE2EStartupCredentialSeed({

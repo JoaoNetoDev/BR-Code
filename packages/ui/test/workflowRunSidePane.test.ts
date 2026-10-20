@@ -594,7 +594,7 @@ describe("WorkflowRunSidePane 子代理模型", () => {
     const usage = view.getByTestId("workflow-run-usage").textContent ?? "";
     expect(usage.indexOf("Subagents GLM-5.3-Flash")).toBe(0);
     expect(usage).toContain("Usage");
-    expect(usage).toContain("12,345 tokens · 3 steps");
+    expect(usage).toContain(`${(12_345).toLocaleString()} tokens · 3 steps`);
   });
 
   it("没指定过模型的 run 里整段缺席（子代理跟随会话模型）", () => {
@@ -626,7 +626,7 @@ describe("WorkflowRunSidePane 摘要行", () => {
     const usage = view.getByTestId("workflow-run-usage").textContent ?? "";
     expect(usage).toContain("1 agent working");
     expect(usage).toContain("0/1 steps");
-    expect(usage).toContain("12,345 tokens");
+    expect(usage).toContain(`${(12_345).toLocaleString()} tokens`);
     expect(usage).not.toContain("%");
     expect(view.container.querySelector("progress")).toBeNull();
   });
@@ -639,7 +639,7 @@ describe("WorkflowRunSidePane 摘要行", () => {
     const view = renderPane();
     const usage = view.getByTestId("workflow-run-usage").textContent ?? "";
     expect(usage).toContain("Usage");
-    expect(usage).toContain("12,345 tokens · 3 steps");
+    expect(usage).toContain(`${(12_345).toLocaleString()} tokens · 3 steps`);
   });
 
   // 实例表撞界（docs/dynamic-workflow/presentation.md「The run pane」）：摘要行里的步数已经把
@@ -1068,7 +1068,9 @@ describe("WorkflowRunSidePane 国际化", () => {
     expect(text).toContain("停止运行");
     // 摘要行与聊天卡页脚同文案：三条子代理车道 + 步数 + token。
     expect(view.getByTestId("workflow-run-usage").textContent).toContain("3 个子代理");
-    expect(view.getByTestId("workflow-run-usage").textContent).toContain("1,000 tokens");
+    expect(view.getByTestId("workflow-run-usage").textContent).toContain(
+      `${(1_000).toLocaleString()} tokens`,
+    );
     expect(text).toContain("结果");
     // 没有英文兜底漏出来。
     expect(text).not.toContain("Stop run");

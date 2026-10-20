@@ -314,73 +314,17 @@ describe("ModelProviderSection preset subscription action", () => {
     setOAuthErrorMock.mockClear();
   });
 
-  it("Z.ai Coding Plan Connect 会打开 App 登录入口", async () => {
+  it("API Key 表单不再暴露使用订阅入口", async () => {
     const { ModelProviderSection } = await import("@/settings/ModelProviderSection.js");
 
     renderToStaticMarkup(createElement(ModelProviderSection));
 
     expect(capturedDetailProps).not.toBeNull();
 
-    await (
-      capturedDetailProps?.onCodingPlanLogin as
-        | ((presetId: string, providerId: string, providerName: string) => Promise<void>)
-        | undefined
-    )?.(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan, ZAI_PROVIDER_ID, "Z.ai");
-
-    expect(refreshMock).not.toHaveBeenCalled();
-    expect(requestLoginEntryMock).toHaveBeenCalledWith(ZAI_PROVIDER_ID);
+    expect(capturedDetailProps?.onPresetSubscriptionLogin).toBeUndefined();
     expect(startOAuthMock).not.toHaveBeenCalled();
-  });
-
-  it("Z.ai Coding Plan 同步失败时点击登录会重新打开登录入口", async () => {
-    const { ModelProviderSection } = await import("@/settings/ModelProviderSection.js");
-
-    renderToStaticMarkup(createElement(ModelProviderSection));
-
-    expect(capturedDetailProps).not.toBeNull();
-
-    await (
-      capturedDetailProps?.onCodingPlanLogin as
-        | ((
-            presetId: string,
-            providerId: string,
-            providerName: string,
-            status: string,
-          ) => Promise<void>)
-        | undefined
-    )?.(BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan, ZAI_PROVIDER_ID, "Z.ai", "unavailable");
-
-    expect(requestLoginEntryMock).toHaveBeenCalledWith(ZAI_PROVIDER_ID);
-    expect(refreshMock).not.toHaveBeenCalled();
-  });
-
-  it("Z.ai Coding Plan token 恢复强制走应用内登录入口", async () => {
-    const { ModelProviderSection } = await import("@/settings/ModelProviderSection.js");
-
-    renderToStaticMarkup(createElement(ModelProviderSection));
-
-    expect(capturedDetailProps).not.toBeNull();
-
-    await (
-      capturedDetailProps?.onCodingPlanLogin as
-        | ((
-            presetId: string,
-            providerId: string,
-            providerName: string,
-            status: string,
-            options?: { forceOAuth?: boolean },
-          ) => Promise<void>)
-        | undefined
-    )?.(
-      BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-      ZAI_PROVIDER_ID,
-      "Z.ai",
-      "notPurchased",
-      { forceOAuth: true },
-    );
-
-    expect(requestLoginEntryMock).toHaveBeenCalledWith(ZAI_PROVIDER_ID);
     expect(openExternalMock).not.toHaveBeenCalled();
+    expect(registerOAuthStateMock).not.toHaveBeenCalled();
     expect(refreshMock).not.toHaveBeenCalled();
   });
 

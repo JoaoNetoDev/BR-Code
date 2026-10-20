@@ -59,10 +59,6 @@ vi.mock("@/hooks/usePlatform.js", () => ({
   usePlatform: () => platformMock,
 }));
 
-vi.mock("@/hooks/useOAuth.js", () => ({
-  useOAuth: () => ({ activeProvider: null, loadingProviders: false, refreshProviders: vi.fn() }),
-}));
-
 vi.mock("@/store/StoreProvider.js", () => ({
   useZCodeStore: (
     selector: (state: {
@@ -265,13 +261,13 @@ describe("WebRemoteControlDialog layout", () => {
     expect(html).toContain("webRemoteControl.botChannel.feishu.title");
     expect(html).toContain("webRemoteControl.botChannel.lark.title");
     expect(html).toContain("webRemoteControl.botChannel.telegram.title");
-    expect(html).toContain("login.oauth.regionTag.bigmodel");
-    expect(html).toContain("login.oauth.regionTag.zai");
+    expect(html).toContain("bots.channel.regionTag.feishu");
+    expect(html).toContain("bots.channel.regionTag.lark");
     expect(html).toContain('data-testid="web-remote-control-open-bots"');
     expect(html).toContain("webRemoteControl.botChannel.manageBots");
 
     const larkIndex = html.indexOf("webRemoteControl.botChannel.lark.title");
-    const larkTagIndex = html.indexOf("login.oauth.regionTag.zai");
+    const larkTagIndex = html.indexOf("bots.channel.regionTag.lark");
     const telegramIndex = html.indexOf("webRemoteControl.botChannel.telegram.title");
     const openBotsIndex = html.indexOf('data-testid="web-remote-control-open-bots"');
     expect(larkTagIndex).toBeGreaterThan(larkIndex);

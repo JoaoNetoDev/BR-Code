@@ -105,9 +105,6 @@ vi.mock("@/hooks/usePlatform.js", () => ({
 vi.mock("@/settings/CodingPlanUpgradeDialogProvider.js", () => ({
   useCodingPlanUpgradeDialog: () => ({ openCodingPlanUpgrade: fixture.openUpgrade }),
 }));
-vi.mock("@/components/manual-claim-plan/ManualClaimPlanBanner.js", () => ({
-  ManualClaimPlanBanner: () => null,
-}));
 vi.mock("@/WorkspaceSidebarFooter.js", () => ({
   WorkspaceSidebarFooter: () => createElement("footer", {}, "Footer"),
 }));

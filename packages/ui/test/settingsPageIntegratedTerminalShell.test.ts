@@ -224,11 +224,9 @@ vi.mock("@/lib/settingsNavigation.js", () => ({
   clearPendingSettingsPluginOrigin: () => undefined,
   clearPendingSettingsPluginScopeKey: () => undefined,
   consumePendingSettingsModelProviderTarget: () => undefined,
-  consumePendingSettingsUsageTab: () => undefined,
   consumePendingSettingsSourceServerId: () => undefined,
   consumePendingSettingsSourceServerDetails: () => false,
   resolveSettingsSection: (section: string) => section,
-  shouldFallbackSettingsUsageTabToApp: () => false,
   writeLastSettingsSectionPreference: vi.fn(),
 }));
 
@@ -236,12 +234,6 @@ vi.mock("@/settings/CodingPlanUpgradeDialogProvider.js", () => ({
   useCodingPlanUpgradeDialog: () => ({
     openCodingPlanUpgrade: vi.fn(),
   }),
-}));
-
-vi.mock("@/lib/sidebarUsageCodingPlanProviderPreference.js", () => ({
-  readSidebarUsageCodingPlanProviderPreference: () => undefined,
-  readSidebarUsageCodingPlanSourcePreference: () => undefined,
-  writeSidebarUsageCodingPlanProviderPreference: vi.fn(),
 }));
 
 vi.mock("@/lib/codingPlanProvider.js", () => ({}));

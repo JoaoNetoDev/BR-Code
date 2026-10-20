@@ -12,7 +12,7 @@ import { isMarketingBannerRenderable } from "@/components/marketing-touch/market
 import type { MarketingTouchController } from "@/components/marketing-touch/marketingTouchController.js";
 import { ZCodeIntlProvider } from "@/i18n/IntlProvider.js";
 
-// 领 token banner 的真实渲染树依赖 iframe/cloud-hero/intl，已由 marketingBanner.test.ts 覆盖；
+// 营销 banner 的真实渲染树依赖 iframe/cloud-hero/intl，已由 marketingBanner.test.ts 覆盖；
 // 这里只验仲裁选择，故把 MarketingBanner 换成轻量桩，保留真实的 useMarketingBannerVisible 与 Context。
 vi.mock("@/components/marketing-touch/MarketingTouchProvider.js", async (importActual) => {
   const actual =
@@ -76,8 +76,13 @@ function fakeController(banner: unknown): MarketingTouchController {
 type GlobalNoticeStore = ReturnType<typeof createGlobalNoticeStore>;
 
 // 可渲染的 banner 候选：满足 isMarketingBannerRenderable 谓词的最小结构。
+// 谓词还要求主动作落在 UI 仍实现的白名单内，
+// 遗留 claim 一律判定为不可见（槽位让位 highspeed）。
 const renderableBanner = {
-  delivery: { resource_position: "banner" },
+  delivery: {
+    resource_position: "banner",
+    banner: { buttons: [{ action: { type: "open_url", args: { url: "https://x.dev" } } }] },
+  },
   image: "data:image/png;base64,a",
 } as unknown;
 
@@ -118,15 +123,27 @@ describe("isMarketingBannerRenderable", () => {
   it("banner 位置且有 bannerHero 时可见", () => {
     expect(
       isMarketingBannerRenderable({
-        delivery: { resource_position: "banner" },
+        ...(renderableBanner as object),
+        image: undefined,
         bannerHero: { type: "video" },
       } as never),
     ).toBe(true);
   });
+  it("主动作为 UI 已不再实现的遗留 claim banner 不可见", () => {
+    expect(
+      isMarketingBannerRenderable({
+        delivery: {
+          resource_position: "banner",
+          banner: { buttons: [{ action: { type: "claim_zcode_plan", args: { plan_id: "p" } } }] },
+        },
+        image: "data:image/png;base64,a",
+      } as never),
+    ).toBe(false);
+  });
 });
 
 describe("SidebarBottomActivity 共享槽位仲裁", () => {
-  it("banner 可见 + highspeed 有通知 → 只渲染领 token banner，让位 highspeed", () => {
+  it("banner 可见 + highspeed 有通知 → 只渲染营销 banner，让位 highspeed", () => {
     const noticeStore = createGlobalNoticeStore({ storage: memoryStorage() });
     publishShareNotice(noticeStore);
     const { container } = renderActivity(fakeController(renderableBanner), noticeStore);

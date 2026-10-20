@@ -5,6 +5,7 @@ import {
   BOT_REPLY_GRANULARITIES,
   getBotReplyGranularitiesForProvider,
   getBotReplyGranularityEntryForProvider,
+  getBotProviderRegionTagLabelId,
   resolveBotProviderEntry,
 } from "../src/botsUi.js";
 import enUS from "../src/i18n/locales/en-US.js";
@@ -38,6 +39,16 @@ describe("BotsDialog config", () => {
     expect(getBotReplyGranularityEntryForProvider("telegram", "streaming_card").id).toBe(
       "assistant_changes",
     );
+  });
+
+  it("uses bot channel region tags for Feishu and Lark bot entries", () => {
+    expect(getBotProviderRegionTagLabelId("lark")).toBe("bots.channel.regionTag.lark");
+    expect(getBotProviderRegionTagLabelId("feishu")).toBe("bots.channel.regionTag.feishu");
+    expect(getBotProviderRegionTagLabelId("telegram")).toBeNull();
+    expect(enUS["bots.channel.regionTag.lark"]).toBe("Global");
+    expect(zhCN["bots.channel.regionTag.lark"]).toBe("全球");
+    expect(enUS["bots.channel.regionTag.feishu"]).toBe("CN");
+    expect(zhCN["bots.channel.regionTag.feishu"]).toBe("中国");
   });
 
   it("resolves remote-control bot entry to the first existing provider bot", () => {

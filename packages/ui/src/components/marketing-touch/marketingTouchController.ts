@@ -22,7 +22,6 @@ export interface MarketingTouchState {
   pending: boolean;
   phase: "idle" | "verifying" | "submitting" | "preparing";
   error: string | null;
-  errorAction: MarketingAction["type"] | null;
 }
 export type MarketingActionResult = {
   status: "success" | "cancelled" | "failure" | "uncertain";
@@ -30,9 +29,44 @@ export type MarketingActionResult = {
   terminal?: boolean;
 };
 
+// UI 仍然实现的中性动作白名单。PRD 风险 R3：服务端仍可能投递 UI 已不再实现的遗留动作
+// （plan claim 及其它 Coding Plan 专属动作）。这里按白名单而非黑名单判断，既不在 UI 重新引入
+// 领取语义，也能让新出现的未支持动作自动走静默忽略路径。
+const supportedMarketingActionTypes: ReadonlySet<MarketingAction["type"]> = new Set([
+  "close",
+  "open_url",
+  "navigate",
+  "copy_text",
+]);
+
+/** 主动作是否落在 UI 仍实现的白名单内；未实现的动作不允许进入任何交互面。 */
+export function isSupportedMarketingAction(
+  action: MarketingAction,
+): action is SupportedMarketingAction {
+  return supportedMarketingActionTypes.has(action.type);
+}
+
+/** UI 仍承载的中性动作联合类型：由上面的白名单推导，新增动作时适配层必须同步处理。 */
+export type SupportedMarketingAction = Extract<
+  MarketingAction,
+  { type: "close" | "open_url" | "navigate" | "copy_text" }
+>;
+
+/**
+ * 遗留动作的唯一静默忽略出口：只写一条 debug 日志，不弹窗、不请求登录、不抛异常。
+ * 执行前守卫（clickBanner）与执行兜底（MarketingTouchProvider）共用它，
+ * 避免两个强制点各自记日志而产生两套文案。
+ */
+export function logUnsupportedMarketingAction(action: MarketingAction): void {
+  logger.debug("[marketing-touch] ignore unsupported action", {
+    action: action.type,
+  });
+}
+
 // 左下角活动槽位的唯一可见性判断：Banner 与 ConnectedBanner 的渲染守卫共用此谓词，
 // 避免仲裁层（SidebarBottomActivity）与展示层对「Banner 是否可见」出现两套判断而漂移。
-// 领取 pending 期间 banner 仍非空 → 判定可见，Highspeed 分享卡继续让位。
+// 动作 pending 期间 banner 仍非空 → 判定可见，Highspeed 分享卡继续让位。
+// 纯图片 Banner（没有主动作）照常渲染；主动作不被支持时整条 Banner 不再占用槽位。
 // 用类型谓词收窄 delivery 到 banner 变体，保留调用点原有的 narrowing。
 type RenderableBannerCandidate = Candidate & {
   delivery: Extract<MarketingDelivery, { resource_position: "banner" }>;
@@ -40,9 +74,17 @@ type RenderableBannerCandidate = Candidate & {
 export function isMarketingBannerRenderable(
   banner: Candidate | null,
 ): banner is RenderableBannerCandidate {
-  return Boolean(
-    banner && banner.delivery.resource_position === "banner" && (banner.image || banner.bannerHero),
-  );
+  const candidate = banner;
+  if (
+    !candidate ||
+    candidate.delivery.resource_position !== "banner" ||
+    !(candidate.image || candidate.bannerHero)
+  )
+    return false;
+  const action = candidate.delivery.banner.buttons.find(
+    (button) => button.action.type !== "close",
+  )?.action;
+  return !action || isSupportedMarketingAction(action);
 }
 
 export function createMarketingTouchController(options: {
@@ -64,7 +106,6 @@ export function createMarketingTouchController(options: {
     pending: false,
     phase: "idle",
     error: null,
-    errorAction: null,
   }));
   let disposed = false;
   let generation = 0;
@@ -154,7 +195,9 @@ export function createMarketingTouchController(options: {
             JSON.stringify(state.banner?.delivery) === JSON.stringify(delivery)
           ) {
             if (!state.pending && state.banner)
-              store.setState({ banner: { ...state.banner, scope: snapshot.scope } });
+              store.setState({
+                banner: { ...state.banner, scope: snapshot.scope },
+              });
             return;
           }
           if (delivery === popupWire && waitingPopup) return;
@@ -202,14 +245,7 @@ export function createMarketingTouchController(options: {
   async function showPending() {
     const state = store.getState();
     // 错误状态先于 React 弹窗挂载；仅检查 DOM 会让等待中的投放抢先出队并叠加。
-    if (
-      disposed ||
-      state.pending ||
-      state.dialog ||
-      (state.errorAction === "claim_zcode_plan" && state.error) ||
-      !options.canOpen()
-    )
-      return;
+    if (disposed || state.pending || state.dialog || !options.canOpen()) return;
     if (waitingResult) {
       const result = waitingResult;
       waitingResult = null;
@@ -223,30 +259,26 @@ export function createMarketingTouchController(options: {
   }
   async function run(candidate: Candidate, action: MarketingAction) {
     if (disposed || store.getState().pending) return;
-    store.setState({ pending: true, phase: "verifying", error: null, errorAction: null });
+    store.setState({ pending: true, phase: "verifying", error: null });
     let completed = false;
-    let succeeded = false;
     try {
       const result = await options.execute(action, lifetime.signal, (phase) => {
         if (!disposed) store.setState({ phase });
       });
       if (disposed) return;
       if (result.status !== "success") {
-        if (
-          (action.type === "claim_zcode_plan" || action.type === "open_url") &&
-          (result.terminal || result.status === "uncertain")
-        ) {
+        // 只有仍由 UI 承载的外部跳转才是终态；其余失败保留当前内容等待用户重试。
+        if (action.type === "open_url" && (result.terminal || result.status === "uncertain")) {
           completed = true;
           invalidatePendingSnapshot();
         }
-        store.setState({ error: result.message ?? null, errorAction: action.type });
+        store.setState({ error: result.message ?? null });
         return result;
       }
       completed = action.type !== "copy_text";
-      succeeded = true;
       invalidatePendingSnapshot();
       report(candidate, "confirm");
-      // 复制是可重复操作；不能沿用领取的完成清理，否则首次复制就会移除内容。
+      // 复制是可重复操作；不能沿用其它动作的完成清理，否则首次复制就会移除内容。
       if (action.type === "copy_text") return result;
       if (
         action.type !== "navigate" &&
@@ -257,7 +289,10 @@ export function createMarketingTouchController(options: {
         const prepared = await candidate.success;
         if (disposed) return;
         // 业务等待期间也可能打开别的 modal；结果排队到安全展示点，不能直接叠加。
-        waitingResult = { ...candidate, hero: prepared?.hero ?? candidate.hero };
+        waitingResult = {
+          ...candidate,
+          hero: prepared?.hero ?? candidate.hero,
+        };
       } else {
         if (store.getState().dialog === candidate) {
           store.setState({ dialog: null });
@@ -284,8 +319,9 @@ export function createMarketingTouchController(options: {
           release(state.banner);
         store.setState({ pending: false, phase: "idle", banner: next });
         await showPending();
-        // 只有领取会改变资格；外链等动作立即查询会与异步 confirm 竞争，使已关闭的旧弹窗重开。
-        if (succeeded && action.type === "claim_zcode_plan" && !disposed) options.refresh();
+        // 上游 v3.16.2：只有会改变投放资格的动作才需要立即重新查询；外链等动作立即查询会与
+        // 异步 confirm 竞争，使已关闭的旧弹窗重开。
+        // fork 已移除 Coding Plan 领取类动作，剩余受支持动作都不改变投递资格，因此这里不触发刷新。
       }
     }
   }
@@ -304,7 +340,14 @@ export function createMarketingTouchController(options: {
       const action = candidate.delivery.banner.buttons.find(
         (b) => b.action.type !== "close",
       )?.action;
-      if (action) await run(candidate, action);
+      // 执行前与渲染守卫（isMarketingBannerRenderable）对齐：同一套白名单，
+      // 避免「渲染层拦住、点击层放行」两个强制点随时间漂移。
+      if (!action) return;
+      if (!isSupportedMarketingAction(action)) {
+        logUnsupportedMarketingAction(action);
+        return;
+      }
+      await run(candidate, action);
     },
     async closeBanner() {
       const candidate = store.getState().banner;
@@ -327,7 +370,7 @@ export function createMarketingTouchController(options: {
       if (dialog) return run(dialog, action);
     },
     clearError() {
-      store.setState({ error: null, errorAction: null });
+      store.setState({ error: null });
     },
     dispose() {
       disposed = true;

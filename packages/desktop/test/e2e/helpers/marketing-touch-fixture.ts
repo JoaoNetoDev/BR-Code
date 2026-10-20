@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- E2E 投放 fixture 按端点集中编排，拆分会割裂同一份投放状态机。 */
 import { createHash } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createMarketingTouchAssets } from "./marketing-touch-assets.js";
@@ -7,16 +8,15 @@ import { createTelemetryReportFixture } from "./telemetry-report-fixture.js";
 export async function createMarketingTouchFixture() {
   const { png, zip, assets } = await createMarketingTouchAssets();
   const assetGate = createMarketingAssetGate();
-  const hash = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
+  const hash = (bytes: Buffer) =>
+    createHash("sha256").update(bytes).digest("hex");
   const events: unknown[] = [];
   const handleTelemetry = createTelemetryReportFixture();
-  let held = true;
   let claimed = false;
-  let claimFailure: unknown = null;
   let popupVisible = true;
-  let actionDelivery: { campaign_id: string; [key: string]: unknown } | null = null;
+  let actionDelivery: { campaign_id: string; [key: string]: unknown } | null =
+    null;
   let actionSequence = 0;
-  const waiters: Array<() => void> = [];
   const queryWaiters: Array<() => void> = [];
   let queryHeld = false;
   const requests: string[] = [];
@@ -32,17 +32,19 @@ export async function createMarketingTouchFixture() {
       authenticated: boolean;
     };
   }> = [];
-  let generation = 0;
   let overrideDeliveries: unknown[] | null = null;
   let queryStatus = 200;
   let reportStatus = 200;
   let video = Buffer.alloc(0);
-  const text = (content: string) => ({ format: "plaintext", content, style: null });
+  const text = (content: string) => ({
+    format: "plaintext",
+    content,
+    style: null,
+  });
   const close = { text: text("Close campaign"), action: { type: "close" } };
   return {
     stop() {
       assetGate.reset();
-      waiters.splice(0).forEach((done) => done());
       queryWaiters.splice(0).forEach((done) => done());
     },
     async handle(req: IncomingMessage, res: ServerResponse) {
@@ -59,7 +61,12 @@ export async function createMarketingTouchFixture() {
         return true;
       }
       if (path === "/__e2e/marketing/state") {
-        json({ events, requests, requestDetails, pendingQueries: queryWaiters.length });
+        json({
+          events,
+          requests,
+          requestDetails,
+          pendingQueries: queryWaiters.length,
+        });
         return true;
       }
       if (path.startsWith("/__e2e/marketing/query-")) {
@@ -77,7 +84,10 @@ export async function createMarketingTouchFixture() {
           Object.fromEntries(
             Object.entries(assets).map(([key, asset]) => [
               key,
-              { src: `http://${req.headers.host}${asset.path}`, sha256: hash(asset.bytes) },
+              {
+                src: `http://${req.headers.host}${asset.path}`,
+                sha256: hash(asset.bytes),
+              },
             ]),
           ),
         );
@@ -87,18 +97,15 @@ export async function createMarketingTouchFixture() {
         const chunks: Buffer[] = [];
         for await (const chunk of req) chunks.push(Buffer.from(chunk));
         const options = JSON.parse(Buffer.concat(chunks).toString() || "{}");
-        // 旧用例挂起的 claim 不能在 reset 后改写下一用例的服务端投放。
-        generation++;
         assetGate.reset();
         queryHeld = false;
         queryWaiters.splice(0).forEach((done) => done());
-        waiters.splice(0).forEach((done) => done());
-        held = options.held === true;
         claimed = options.banner !== true;
         popupVisible = options.popup === true;
-        claimFailure = null;
         actionDelivery = null;
-        overrideDeliveries = Array.isArray(options.deliveries) ? options.deliveries : null;
+        overrideDeliveries = Array.isArray(options.deliveries)
+          ? options.deliveries
+          : null;
         queryStatus = 200;
         reportStatus = 200;
         events.length = 0;
@@ -116,17 +123,10 @@ export async function createMarketingTouchFixture() {
         json({ ok: true });
         return true;
       }
-      if (path === "/__e2e/marketing/claim-failure") {
-        const body: Buffer[] = [];
-        for await (const chunk of req) body.push(Buffer.from(chunk));
-        claimFailure = JSON.parse(Buffer.concat(body).toString());
-        claimed = false;
-        actionDelivery = null;
-        held = false;
-        json({ ok: true });
-        return true;
-      }
-      if (path === "/__e2e/marketing/rich-delivery" || path === "/__e2e/marketing/video-banner") {
+      if (
+        path === "/__e2e/marketing/rich-delivery" ||
+        path === "/__e2e/marketing/video-banner"
+      ) {
         const body: Buffer[] = [];
         for await (const chunk of req) body.push(Buffer.from(chunk));
         const data = JSON.parse(Buffer.concat(body).toString());
@@ -142,8 +142,14 @@ export async function createMarketingTouchFixture() {
               background: {
                 type: "video",
                 video: {
-                  src: { src: `${origin}/marketing-assets/banner.mp4`, sha256: hash(video) },
-                  fallback: { src: `${origin}/marketing-assets/banner.png`, sha256: hash(png) },
+                  src: {
+                    src: `${origin}/marketing-assets/banner.mp4`,
+                    sha256: hash(video),
+                  },
+                  fallback: {
+                    src: `${origin}/marketing-assets/banner.png`,
+                    sha256: hash(png),
+                  },
                 },
               },
               buttons: [
@@ -182,7 +188,10 @@ export async function createMarketingTouchFixture() {
             background: {
               type: "bundle",
               bundle: {
-                bundle: { src: `${origin}/marketing-assets/hero.zip`, sha256: hash(zip) },
+                bundle: {
+                  src: `${origin}/marketing-assets/hero.zip`,
+                  sha256: hash(zip),
+                },
                 entry: "index.html",
               },
               args: {
@@ -196,7 +205,10 @@ export async function createMarketingTouchFixture() {
               { ...close, text: { ...text(""), format: "" } },
               {
                 text: text(""),
-                action: { type: "copy_text", args: { text: "Bundle banner copied" } },
+                action: {
+                  type: "copy_text",
+                  args: { text: "Bundle banner copied" },
+                },
               },
             ],
           },
@@ -228,7 +240,8 @@ export async function createMarketingTouchFixture() {
                     theme: {
                       variant: "outline",
                       class: "rounded-lg font-semibold",
-                      style: "font-weight:400;color:var(--color-foreground);position:fixed",
+                      style:
+                        "font-weight:400;color:var(--color-foreground);position:fixed",
                     },
                   },
                 ]
@@ -239,14 +252,44 @@ export async function createMarketingTouchFixture() {
         return true;
       }
       if (path === "/__e2e/marketing/release") {
-        held = false;
-        waiters.splice(0).forEach((done) => done());
         json({ ok: true });
         return true;
       }
       if (path === "/__e2e/marketing/redeliver-banner") {
         claimed = false;
         json({ ok: true });
+        return true;
+      }
+      if (path === "/__e2e/marketing/legacy-claim-banner") {
+        // S3：UI 已不再实现 claim 动作。仍需能投递这种过期触点以验证静默忽略路径。
+        const origin = `http://${req.headers.host}`;
+        actionDelivery = {
+          campaign_id: `legacy-claim-${++actionSequence}`,
+          resource_position: "banner",
+          priority: 100,
+          banner: {
+            background: {
+              type: "image",
+              image: {
+                default: {
+                  src: `${origin}/marketing-assets/banner.png`,
+                  sha256: hash(png),
+                },
+              },
+            },
+            buttons: [
+              { ...close, text: { ...text(""), format: "" } },
+              {
+                text: { ...text(""), format: "" },
+                action: {
+                  type: "claim_zcode_plan",
+                  args: { plan_id: "weekend-plan-e2e" },
+                },
+              },
+            ],
+          },
+        };
+        json({ campaignId: actionDelivery.campaign_id });
         return true;
       }
       if (path === "/__e2e/marketing/redeliver-popup") {
@@ -273,7 +316,9 @@ export async function createMarketingTouchFixture() {
           },
         });
       }
-      const staticAsset = Object.values(assets).find((asset) => asset.path === path);
+      const staticAsset = Object.values(assets).find(
+        (asset) => asset.path === path,
+      );
       if (staticAsset) {
         await assetGate.wait();
         res.writeHead(200, { "Content-Type": staticAsset.type });
@@ -286,10 +331,14 @@ export async function createMarketingTouchFixture() {
         const event = JSON.parse(Buffer.concat(body).toString());
         events.push(event);
         if (reportStatus !== 200) {
-          json({ code: reportStatus, data: { message: "E2E report fault" } }, reportStatus);
+          json(
+            { code: reportStatus, data: { message: "E2E report fault" } },
+            reportStatus,
+          );
           return true;
         }
-        if (event.campaign_id === actionDelivery?.campaign_id) actionDelivery = null;
+        if (event.campaign_id === actionDelivery?.campaign_id)
+          actionDelivery = null;
         // 是否继续投放由服务端 fixture 决定；重新下发保留原 campaign_id。
         if (event.campaign_id === "independent") popupVisible = false;
         if (event.campaign_id === "banner-1") claimed = true;
@@ -298,14 +347,20 @@ export async function createMarketingTouchFixture() {
       }
       if (path === "/api/v1/marketing/touch") {
         if (queryStatus !== 200) {
-          json({ code: queryStatus, data: { message: "E2E query fault" } }, queryStatus);
+          json(
+            { code: queryStatus, data: { message: "E2E query fault" } },
+            queryStatus,
+          );
           return true;
         }
         const origin = `http://${req.headers.host}`;
         const hero = {
           type: "bundle",
           bundle: {
-            bundle: { src: `${origin}/marketing-assets/hero.zip`, sha256: hash(zip) },
+            bundle: {
+              src: `${origin}/marketing-assets/hero.zip`,
+              sha256: hash(zip),
+            },
             entry: "index.html",
           },
           args: {
@@ -326,7 +381,8 @@ export async function createMarketingTouchFixture() {
           code: 0,
           data: {
             server_time: Math.floor(Date.now() / 1000),
-            language: req.headers["x-client-language"] === "zh-CN" ? "zh-CN" : "en-US",
+            language:
+              req.headers["x-client-language"] === "zh-CN" ? "zh-CN" : "en-US",
             deliveries:
               overrideDeliveries ??
               (actionDelivery
@@ -352,9 +408,13 @@ export async function createMarketingTouchFixture() {
                                 { ...close, text: { ...text(""), format: "" } },
                                 {
                                   text: { ...text(""), format: "" },
+                                  // 默认 banner 保持中性：claim 已从 UI 移除，
+                                  // 只有 legacy-claim-banner 端点才投递过期触点。
                                   action: {
-                                    type: "claim_zcode_plan",
-                                    args: { plan_id: "weekend-plan-e2e" },
+                                    type: "open_url",
+                                    args: {
+                                      url: `${origin}/marketing-assets/banner.png`,
+                                    },
                                   },
                                 },
                               ],
@@ -369,7 +429,11 @@ export async function createMarketingTouchFixture() {
                             campaign_id: "independent",
                             resource_position: "popup",
                             priority: 100,
-                            popup: { ...result, title: text("E2E independent popup"), hero: null },
+                            popup: {
+                              ...result,
+                              title: text("E2E independent popup"),
+                              hero: null,
+                            },
                           },
                         ]
                       : []),
@@ -377,23 +441,10 @@ export async function createMarketingTouchFixture() {
           },
         };
         // 在操作前冻结响应；释放时不重新计算投放，才能复现真实迟到快照。
-        if (queryHeld) await new Promise<void>((done) => queryWaiters.push(done));
+        if (queryHeld)
+          await new Promise<void>((done) => queryWaiters.push(done));
         json(snapshot);
         return true;
-      }
-      if (path === "/api/v1/zcode-plan/billing/claim") {
-        const requestGeneration = generation;
-        if (held) await new Promise<void>((done) => waiters.push(done));
-        if (requestGeneration !== generation) {
-          json({ code: 409, data: { message: "Fixture case reset" } });
-          return true;
-        }
-        claimed = true;
-        if (claimFailure) {
-          json(claimFailure);
-          claimFailure = null;
-          return true;
-        }
       }
       return false;
     },

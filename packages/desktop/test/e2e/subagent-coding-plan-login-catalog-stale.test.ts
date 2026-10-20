@@ -10,8 +10,8 @@ import {
   TID_CHAT_MODEL_SELECT_TRIGGER,
   TID_CHAT_THOUGHT_LEVEL_SELECT_TRIGGER,
   TID_LOGIN_TRIGGER,
+  TID_LOGIN_USE_API_KEY_BUTTON,
   TID_MODEL_PROVIDER_NAV_ITEM,
-  TID_OAUTH_LOGIN_BUTTON,
   TID_SETTINGS_PAGE,
   TID_SETTINGS_SECTION_NAV,
   TID_SUBAGENT_ROW,
@@ -54,33 +54,30 @@ describe("BigModel 登录后 Subagent runtime catalog 滞后", () => {
     const openExternalMock = await browser.electron.mock("shell", "openExternal");
     await openExternalMock.mockResolvedValue(undefined);
 
-    const loginSurface = await waitForInitialLoginSurface();
-    if (loginSurface === "workspace") {
-      await openSubagentSettings();
-      const seededRuntime = await waitForModelCatalogSeeded();
-      expect(findCatalogModel(seededRuntime, UPSTREAM_PROVIDER_ID, UPSTREAM_MODEL)).not.toBeNull();
-      expect(
-        findCatalogModel(
-          seededRuntime,
-          BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-          "GLM-5.3",
-        ),
-      ).toBeNull();
-      const runtimeBeforeLogin = await waitForModelCatalogReady();
-      expect(
-        findCatalogModel(runtimeBeforeLogin, UPSTREAM_PROVIDER_ID, UPSTREAM_MODEL),
-      ).not.toBeNull();
-      expect(
-        findCatalogModel(
-          runtimeBeforeLogin,
-          BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-          "GLM-5.3",
-        ),
-      ).toBeNull();
-      await startBigModelLoginFromSettings();
-    } else {
-      await clickTestIdByDom(TID_OAUTH_LOGIN_BUTTON);
-    }
+    // RF-01：welcome screen 不再提供任何 OAuth 渠道按钮，BigModel 登录只能从
+    // settings 的供应商卡片发起。因此这里统一要求已存在未登录的工作区 shell，
+    // 并删掉原先“从 welcome 点 OAuth 按钮”的分支。
+    await waitForWorkspaceShell();
+    await openSubagentSettings();
+    const seededRuntime = await waitForModelCatalogSeeded();
+    expect(findCatalogModel(seededRuntime, UPSTREAM_PROVIDER_ID, UPSTREAM_MODEL)).not.toBeNull();
+    expect(
+      findCatalogModel(
+        seededRuntime,
+        BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+        "GLM-5.3",
+      ),
+    ).toBeNull();
+    const runtimeBeforeLogin = await waitForModelCatalogReady();
+    expect(findCatalogModel(runtimeBeforeLogin, UPSTREAM_PROVIDER_ID, UPSTREAM_MODEL)).not.toBeNull();
+    expect(
+      findCatalogModel(
+        runtimeBeforeLogin,
+        BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+        "GLM-5.3",
+      ),
+    ).toBeNull();
+    await startBigModelLoginFromSettings();
 
     const authorizationUrl = await waitForBigModelAuthorizationUrl(openExternalMock);
     const state = new URL(authorizationUrl).searchParams.get("state");
@@ -146,11 +143,11 @@ async function readCodingPlanMockRequests(): Promise<unknown[]> {
   return payload.requests ?? [];
 }
 
-async function waitForInitialLoginSurface(): Promise<"welcome" | "workspace"> {
+async function waitForWorkspaceShell() {
   let latest: {
     body: string;
+    hasLoginEntry: boolean;
     hasLoginTrigger: boolean;
-    hasOAuthButton: boolean;
     testIds: string[];
   } | null = null;
   await browser.waitUntil(
@@ -161,9 +158,9 @@ async function waitForInitialLoginSurface(): Promise<"welcome" | "workspace"> {
         return false;
       }
       latest = await browser.execute(
-        (oauthLoginButtonId, loginTriggerId) => {
-          const hasOAuthButton = Boolean(
-            document.querySelector(`[data-testid="${oauthLoginButtonId}"]`),
+        (loginEntryButtonId, loginTriggerId) => {
+          const hasLoginEntry = Boolean(
+            document.querySelector(`[data-testid="${loginEntryButtonId}"]`),
           );
           const hasLoginTrigger = Boolean(
             document.querySelector(`[data-testid="${loginTriggerId}"]`),
@@ -175,25 +172,22 @@ async function waitForInitialLoginSurface(): Promise<"welcome" | "workspace"> {
           return {
             body: document.body.textContent?.replace(/\s+/g, " ").trim().slice(0, 800) ?? "",
             hasLoginTrigger,
-            hasOAuthButton,
+            hasLoginEntry,
             testIds,
           };
         },
-        TID_OAUTH_LOGIN_BUTTON,
+        TID_LOGIN_USE_API_KEY_BUTTON,
         TID_LOGIN_TRIGGER,
       );
-      return latest.hasOAuthButton || latest.hasLoginTrigger;
+      return latest.hasLoginTrigger && !latest.hasLoginEntry;
     },
     {
       timeout: 60_000,
-      timeoutMsg: `冷启动没有进入登录页或工作区: ${JSON.stringify(latest)}`,
+      // welcome 已不提供 OAuth 入口，BigModel 登录只能从 settings 发起；
+      // 落进 welcome 时直接给出可读失败，而不是等后续 OAuth 超时。
+      timeoutMsg: `没有进入未登录的工作区（welcome 已不提供 OAuth 入口）: ${JSON.stringify(latest)}`,
     },
   );
-
-  const hasOAuthButton = await browser.execute((oauthLoginButtonId) => {
-    return Boolean(document.querySelector(`[data-testid="${oauthLoginButtonId}"]`));
-  }, TID_OAUTH_LOGIN_BUTTON);
-  return hasOAuthButton ? "welcome" : "workspace";
 }
 
 async function startBigModelLoginFromSettings() {

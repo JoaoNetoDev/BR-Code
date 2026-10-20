@@ -128,7 +128,7 @@ describe("highspeed client share", () => {
       copied = blob;
     });
     expect(copied?.type).toBe("image/svg+xml");
-    expect(await copied?.text()).toContain("120,000 tokens");
+    expect(await copied?.text()).toContain(`${(120_000).toLocaleString()} tokens`);
     expect(await copied?.text()).not.toContain("Copy image");
   });
 

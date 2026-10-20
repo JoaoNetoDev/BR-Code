@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMarketingTouchController } from "@/components/marketing-touch/marketingTouchController.js";
+import {
+  createMarketingTouchController,
+  isMarketingBannerRenderable,
+} from "@/components/marketing-touch/marketingTouchController.js";
 import type { MarketingDelivery } from "@zcode/shared";
 
 const text = { format: "plaintext" as const, content: "News" };
@@ -15,11 +18,19 @@ const banner: MarketingDelivery = {
   banner: {
     background: {
       type: "image",
-      image: { default: { src: "https://cdn.example.com/a.png", sha256: "a".repeat(64) } },
+      image: {
+        default: {
+          src: "https://cdn.example.com/a.png",
+          sha256: "a".repeat(64),
+        },
+      },
     },
     buttons: [
       { text, action: { type: "close" } },
-      { text, action: { type: "claim_zcode_plan", args: { plan_id: "plan" } } },
+      {
+        text,
+        action: { type: "open_url", args: { url: "https://example.com" } },
+      },
     ],
     success_popup: popup,
   },
@@ -30,10 +41,12 @@ const independent: MarketingDelivery = {
   priority: 1,
   popup,
 };
-function fixture(overrides: Partial<Parameters<typeof createMarketingTouchController>[0]> = {}) {
-  const report = vi.fn<Parameters<typeof createMarketingTouchController>[0]["report"]>(
-    async () => {},
-  );
+function fixture(
+  overrides: Partial<Parameters<typeof createMarketingTouchController>[0]> = {},
+) {
+  const report = vi.fn<
+    Parameters<typeof createMarketingTouchController>[0]["report"]
+  >(async () => {});
   const execute = vi.fn(async () => ({ status: "success" as const }));
   const prepare = vi.fn(async (delivery: MarketingDelivery) => ({
     delivery,
@@ -61,24 +74,51 @@ function fixture(overrides: Partial<Parameters<typeof createMarketingTouchContro
   return { controller, report, execute, prepare, query };
 }
 describe("marketing touch controller", () => {
-  it("keeps claim errors for the dialog and acknowledgement never retries or reports", async () => {
-    const execute = vi.fn(async () => ({ status: "failure" as const, message: "Server message" }));
+  it("no longer blocks queued deliveries on a claim-specific error action", async () => {
+    const execute = vi.fn(async () => ({
+      status: "failure" as const,
+      message: "Server message",
+    }));
     const { controller, report } = fixture({ execute });
     await controller.refresh();
     await controller.clickBanner();
+    // 领取专属的错误抑制已移除：error 不再挡住等待中的投放，队列在动作收尾时就出队。
     expect(controller.store.getState()).toMatchObject({
       pending: false,
       error: "Server message",
-      errorAction: "claim_zcode_plan",
-      dialog: null,
     });
-    controller.clearError();
-    expect(controller.store.getState()).toMatchObject({ error: null, errorAction: null });
+    // errorAction 字段已随领取语义一并移除：错误文案是唯一的失败信息载体。
+    expect("errorAction" in controller.store.getState()).toBe(false);
+    expect(controller.store.getState().dialog?.delivery.campaign_id).toBe(
+      "popup",
+    );
     expect(execute).toHaveBeenCalledTimes(1);
     expect(report).not.toHaveBeenCalled();
-    await controller.showPending();
-    expect(controller.store.getState().dialog?.delivery.campaign_id).toBe("popup");
+    controller.clearError();
+    expect(controller.store.getState()).toMatchObject({ error: null });
     controller.dispose();
+  });
+  it("keeps a legacy claim banner out of every renderable surface", async () => {
+    const legacy = structuredClone(banner);
+    if (legacy.resource_position !== "banner") throw new Error("fixture");
+    legacy.banner.buttons[1] = {
+      text,
+      action: { type: "claim_zcode_plan", args: { plan_id: "plan" } },
+    };
+    const f = fixture();
+    f.query.mockResolvedValue({
+      scope: "scope",
+      serverTime: 1,
+      language: "en-US" as const,
+      deliveries: [legacy],
+      rejectedCount: 0,
+    });
+    await f.controller.refresh();
+    // UI 已不再实现该动作：仲裁层与展示层共用同一谓词，都判定为不可见。
+    expect(
+      isMarketingBannerRenderable(f.controller.store.getState().banner),
+    ).toBe(false);
+    f.controller.dispose();
   });
   it("reports a new copy in the claim result without reporting cancel on result close", async () => {
     const f = fixture();
@@ -91,17 +131,28 @@ describe("marketing touch controller", () => {
     });
     await f.controller.refresh();
     await f.controller.clickBanner();
-    await f.controller.dialogAction({ type: "copy_text", args: { text: "result" } });
+    await f.controller.dialogAction({
+      type: "copy_text",
+      args: { text: "result" },
+    });
     expect(f.controller.store.getState().dialog?.result).toBe(true);
     await f.controller.closeDialog();
-    expect(f.report.mock.calls.map(([event]) => event.actionType)).toEqual(["confirm", "confirm"]);
+    expect(f.report.mock.calls.map(([event]) => event.actionType)).toEqual([
+      "confirm",
+      "confirm",
+    ]);
     f.controller.dispose();
   });
   it("retains content after an uncertain clipboard outcome without confirming", async () => {
-    const f = fixture({ execute: async () => ({ status: "uncertain", message: "timeout" }) });
+    const f = fixture({
+      execute: async () => ({ status: "uncertain", message: "timeout" }),
+    });
     await f.controller.refresh();
     await f.controller.showPending();
-    await f.controller.dialogAction({ type: "copy_text", args: { text: "hello" } });
+    await f.controller.dialogAction({
+      type: "copy_text",
+      args: { text: "hello" },
+    });
     expect(f.controller.store.getState().dialog).not.toBeNull();
     expect(f.controller.store.getState().pending).toBe(false);
     expect(f.report).not.toHaveBeenCalled();
@@ -112,11 +163,17 @@ describe("marketing touch controller", () => {
     const f = fixture({ refresh });
     await f.controller.refresh();
     await f.controller.showPending();
-    const action = { type: "copy_text" as const, args: { text: "hello\nworld" } };
+    const action = {
+      type: "copy_text" as const,
+      args: { text: "hello\nworld" },
+    };
     await f.controller.dialogAction(action);
     await f.controller.dialogAction(action);
     expect(f.controller.store.getState().dialog).not.toBeNull();
-    expect(f.report.mock.calls.map(([event]) => event.actionType)).toEqual(["confirm", "confirm"]);
+    expect(f.report.mock.calls.map(([event]) => event.actionType)).toEqual([
+      "confirm",
+      "confirm",
+    ]);
     expect(refresh).not.toHaveBeenCalled();
     await f.controller.closeDialog();
     expect(f.report.mock.calls.map(([event]) => event.actionType)).toEqual([
@@ -127,11 +184,16 @@ describe("marketing touch controller", () => {
     f.controller.dispose();
   });
   it("returns failed copy outcomes without removing the popup or reporting success", async () => {
-    const f = fixture({ execute: async () => ({ status: "failure", message: "failed" }) });
+    const f = fixture({
+      execute: async () => ({ status: "failure", message: "failed" }),
+    });
     await f.controller.refresh();
     await f.controller.showPending();
     expect(
-      await f.controller.dialogAction({ type: "copy_text", args: { text: "hello" } }),
+      await f.controller.dialogAction({
+        type: "copy_text",
+        args: { text: "hello" },
+      }),
     ).toMatchObject({ status: "failure" });
     expect(f.controller.store.getState().dialog).not.toBeNull();
     expect(f.report).not.toHaveBeenCalled();
@@ -189,7 +251,9 @@ describe("marketing touch controller", () => {
       await f.controller.refresh();
       await f.controller.clickBanner();
       expect(f.controller.store.getState().dialog).toBeNull();
-      expect(Boolean(f.controller.store.getState().banner)).toBe(type === "copy_text");
+      expect(Boolean(f.controller.store.getState().banner)).toBe(
+        type === "copy_text",
+      );
       expect(f.report).toHaveBeenCalledTimes(1);
       expect(refresh).not.toHaveBeenCalled();
       f.controller.dispose();
@@ -230,7 +294,9 @@ describe("marketing touch controller", () => {
       phase: "idle",
       dialog: null,
     });
-    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe("banner");
+    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe(
+      "banner",
+    );
     expect(f.report).not.toHaveBeenCalled();
     f.controller.dispose();
   });
@@ -253,10 +319,14 @@ describe("marketing touch controller", () => {
       rejectedCount: 0,
     });
     await f.controller.refresh();
-    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe("banner");
+    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe(
+      "banner",
+    );
     resolve({ status: "cancelled" });
     await operation;
-    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe("next");
+    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe(
+      "next",
+    );
     expect(f.report).not.toHaveBeenCalled();
     f.controller.dispose();
   });
@@ -268,14 +338,18 @@ describe("marketing touch controller", () => {
     expect(f.controller.store.getState().dialog).toBeNull();
     visible = true;
     await f.controller.showPending();
-    expect(f.controller.store.getState().dialog?.delivery.campaign_id).toBe("popup");
+    expect(f.controller.store.getState().dialog?.delivery.campaign_id).toBe(
+      "popup",
+    );
     f.controller.dispose();
   });
   it("reports each independent close and allows the server to redeliver the same popup", async () => {
     const f = fixture();
     await f.controller.refresh();
     await f.controller.showPending();
-    expect(f.controller.store.getState().dialog?.delivery.campaign_id).toBe("popup");
+    expect(f.controller.store.getState().dialog?.delivery.campaign_id).toBe(
+      "popup",
+    );
     await f.controller.closeDialog();
     await f.controller.closeDialog();
     expect(f.report).toHaveBeenCalledTimes(1);
@@ -286,7 +360,9 @@ describe("marketing touch controller", () => {
     expect(f.controller.store.getState().banner).toBeTruthy();
     await f.controller.refresh();
     await f.controller.showPending();
-    expect(f.controller.store.getState().dialog?.delivery.campaign_id).toBe("popup");
+    expect(f.controller.store.getState().dialog?.delivery.campaign_id).toBe(
+      "popup",
+    );
     await f.controller.closeDialog();
     expect(f.report).toHaveBeenCalledTimes(2);
     f.controller.dispose();
@@ -299,7 +375,9 @@ describe("marketing touch controller", () => {
     expect(f.report).toHaveBeenCalledTimes(1);
     expect(f.controller.store.getState().banner).toBeNull();
     await f.controller.refresh();
-    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe("banner");
+    expect(f.controller.store.getState().banner?.delivery.campaign_id).toBe(
+      "banner",
+    );
     await f.controller.closeBanner();
     expect(f.report).toHaveBeenCalledTimes(2);
     f.controller.dispose();
@@ -315,7 +393,9 @@ describe("marketing touch controller", () => {
     }
     expect(f.execute).toHaveBeenCalledTimes(2);
     expect(f.report).toHaveBeenCalledTimes(2);
-    expect(f.report.mock.calls.every(([event]) => event.actionType === "confirm")).toBe(true);
+    expect(
+      f.report.mock.calls.every(([event]) => event.actionType === "confirm"),
+    ).toBe(true);
     f.controller.dispose();
   });
   it("does not queue the currently open popup again from background polls", async () => {

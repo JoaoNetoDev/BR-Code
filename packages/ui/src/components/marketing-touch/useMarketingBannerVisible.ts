@@ -6,8 +6,11 @@ import { MarketingTouchContext } from "@/components/marketing-touch/MarketingTou
 const subscribeNoop = () => () => {};
 
 /**
- * 仲裁层（SidebarBottomActivity）用它只读订阅左下角领 token banner 是否可见；
+ * 仲裁层（SidebarBottomActivity）用它只读订阅左下角营销 banner 是否可见；
  * 判断源仍是 controller.store，本 hook 不持有任何状态。
+ *
+ * 可见性完全委托给 isMarketingBannerRenderable：UI 已不再实现的动作（如遗留的 plan claim）
+ * 在该谓词里即不可渲染，因此这里不会为它们让位，槽位回落到 highspeed 分享卡。
  */
 export function useMarketingBannerVisible(): boolean {
   const controller = useContext(MarketingTouchContext);
