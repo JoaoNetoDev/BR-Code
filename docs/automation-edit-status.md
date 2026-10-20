@@ -4,6 +4,8 @@
 
 Depois que uma tarefa agendada entra na página de edição, a aba `Settings` precisa exibir o estado atual da tarefa no topo do formulário, para que o usuário possa confirmar se a tarefa ainda está em execução antes de modificar título, agendamento e instruções.
 
+Os E2E de intervalo mensal e de seletor de mês/dia anual usam o Personal Provider local, sem depender de entitlement da conta. Esses dois casos não devem semear identidades OAuth falsas, para que o plano de controle real não recuse um Token falso e cubra o formulário com um pop-up de login expirado. O teste continua clicando nos controles pelo WebDriver real, sem contornar pop-ups nem afrouxar as asserções de clicabilidade.
+
 ## Sincronização de idioma do título padrão na página de criação
 
 Ao criar uma nova tarefa agendada sem um rascunho de template, o campo Task title usa o título localizado padrão da interface atual. Depois que o usuário alterna entre chinês e inglês na página de criação, a caixa de entrada que mantém esse valor automático padrão deve trocar imediatamente para o idioma de destino, evitando que o restante da página já tenha mudado enquanto o título continua no idioma antigo.

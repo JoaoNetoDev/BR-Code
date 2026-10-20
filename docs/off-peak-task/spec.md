@@ -1,5 +1,7 @@
 # Tarefa Fora do Pico (Off-Peak Task) v1 — Spec de Implementação
 
+> **Revisão do ciclo de vida em background:** os limites de implementação e o progresso de verificação desta rodada estão no [plano de implementação](./background-lifecycle-plan.md). As restrições de background e de SendMessage de D51/D52 são substituídas pelo ciclo de vida descrito abaixo; as decisões históricas permanecem em decisions.md.
+
 > **Status: implementada, em fechamento contínuo conforme o Figma.** O repositório atual já contém os tipos de domínio `offPeak`, repo, service,
 > scheduler, UI e mock em processo; este documento registra a semântica de produto atual e as restrições de implementação.
 >
@@ -17,7 +19,7 @@
 
 ## 1. Definição em uma frase
 
-Tarefa fora do pico = **uma tarefa em background de uso único dentro do sistema Automations** (D28, paradigma final do Figma): o usuário cria na visão principal de Automations / no cartão de template (title + instructions + projeto + permissões + modelo), e ao submeter chama `POST /ticket` para tirar número e entrar na fila. **A fila é hospedada pelo servidor** (FIFO global de tickets, controle de concorrência pela folga de recursos); o cliente observa os tickets com `POST /ticket/status` em lote, e quando `ready` grava `schedulable=true` e despacha. A execução sem supervisão é segmentada por active ticket de 3h; ao receber `400/3102`, tira um novo número com o mesmo task_id e retoma a mesma session até a conclusão natural; cada turno despachado automaticamente usa um idle plan provider invisível ao usuário.
+Tarefa fora do pico = **uma tarefa em background de uso único dentro do sistema Automations** (D28, paradigma final do Figma): o usuário cria na visão principal de Automations / no cartão de template (title + instructions + projeto + permissões + modelo), e ao submeter chama `POST /ticket` para tirar número e entrar na fila. **A fila é hospedada pelo servidor** (FIFO global de tickets, controle de concorrência pela folga de recursos); o cliente observa os tickets com `POST /ticket/status` em lote, e quando `ready` grava `schedulable=true` e despacha. A execução sem supervisão é segmentada por active ticket de 3h; ao receber `400/3102`, tira um novo número com o mesmo task_id, entrega o novo ticket à CLI residente e continua a requisição original até a conclusão do item inteiro; cada turno despachado automaticamente usa um idle plan provider invisível ao usuário.
 
 A nomenclatura é fixa por camada: o conceito unitário na UI em inglês usa `Idle-time task`, o agrupamento de sistema da barra lateral usa o plural
 `Idle-time tasks`; a UI em chinês usa uniformemente 闲时任务. Tipos/variáveis/constantes TypeScript usam respectivamente
@@ -129,7 +131,7 @@ Invariantes:
 
 - Estados terminais são irreversíveis; modificações de arquivo nunca são revertidas.
 - Uma tarefa pode executar várias instâncias concorrentes; a cota de concorrência é determinada pelo agendamento do servidor (D20); o despacho de uma única tarefa é single-flight para evitar duplicidade. O risco de conflito de arquivos em execuções concorrentes no mesmo workspace é o mesmo de conversas manuais concorrentes; não se adiciona isolamento.
-- ~~trava do composer~~ (abolida por D28/D30): run session é uma conversa comum, e prompts enviados durante running passam pela busy queue existente; depois que o turno automático termina em estado terminal, a fila é drenada, e as mensagens enfileiradas criam o modelo do usuário conforme Session Selection. As operações da tarefa ficam no menu do cartão: queued「Pause / Delete」, paused「Continue / Delete」, running「取消」。
+- ~~trava do composer~~ (abolida por D28/D30): run session é uma conversa comum, e o prompt reenviado continua passando pelo CommandInbox existente; assim que a mensagem é admitida, ela assume a tarefa inteira, e a ordem de execução continua seguindo as regras de fila existentes. As operações da tarefa ficam no menu do cartão: queued「Pause / Delete」, paused「Continue / Delete」, running「取消」。
 - O modo de permissão `build` / elicitation reutiliza a cadeia de interação da session comum: o Agent espera a resposta do usuário dentro da sessão, mas o estado agregado do Off-Peak permanece `running`, e o cartão não oferece estado de Review separado nem notificação dedicada. Aprovação/rejeição continuam no mesmo turno automático e ainda usam o idle Active Model daquele turno; não se promete a troca para o provider do usuário após aprovação prevista em D11/D27.
 - failed não faz retry automático; o usuário pode reenfileirar manualmente = nova tentativa de submissão.
 
@@ -145,8 +147,10 @@ Invariantes:
 - Durante running, **cada** requisição de modelo pode ser **re-enfileirada** (D19): apenas o idle plan provider classifica HTTP 429/3105 como `OffpeakQueued`, com espera única de `min(Retry-After ou 60s, 5min)`, abort-aware, sondagem idempotente ilimitada e sem consumir o retry budget comum. stream só retenta antes de um limite de saída visível. O cliente não adiciona estado persistente; como running é gravado após o ACK de `sendPrompt`, a UI também permanece running enquanto a primeira requisição de messages aguarda um 429. Quando a espera pelo ticket ready expira no TTL, o 3102 troca o ticket de forma unificada, sem um mecanismo de estado separado de "abandonar o primeiro despacho após um limite".
 - Despacho de execução: nova conversa = createTask + sendPrompt; continuação de conversa existente = resume sessionId + sendPrompt. permissionMode é enviado no despacho.
 - Recuperação de interrupção: ao reiniciar o app e encontrar running residual (o processo morreu) → coloca de volta no início da fila como queued, e após autorização inicia a tentativa de novo e retoma a mesma session (essa é a implementação da texto de "continuar automaticamente após reinício").
-- Provider: execução fora do pico → idle plan (segmentação por ticket de 3h + retomada automática, D26). O Built-in oculto `builtin:offpeak-idle-plan` fornece os fatos estáticos de Provider/Model; cada despacho submete uma Model Selection padrão e, em `modelExecution`, carrega apenas o Request Auth desta requisição, o override de Child em foreground e a política de rejeição em background. Ele cria o idle Active Model pelo mesmo Registry/ModelFactory, sem modificar Session Selection e sem construir um snapshot completo de Runtime Model. Ao criar a session no primeiro despacho, a seleção usa `workspace/readState(preferWorkspaceDefaults=true)` pelo `providerId/modelId` completo, na ordem `defaultModel → lastUsed → settings.model.current`, sem adivinhar por `available[0]` ou pela ordem do registry de providers; com múltiplos providers a barra de modelo exibe de forma estável o modelo do usuário do workspace. O modelo do formulário OffPeak só determina o turno automático idle e não sobrescreve Session Selection. Quando a aprovação de permissão ocorre no mesmo turno automático, continua-se usando o idle Active Model, sem troca para o provider do usuário e sem aviso de cota de plano; quando o usuário envia um prompt extra, ele é drenado após o turno atual terminar e cria o modelo do usuário conforme sua própria Submission e Session Selection. A troca após aprovação de D11/D27 é uma intenção histórica não adotada; ~~execução imediata~~ foi removida na v1 (D32).
+- Provider: depois que a tarefa fora do pico é iniciada, o `sessionModelSelection` em tempo de execução mantém a escolha de retomada off-peak; o Agent em background, a retomada por SendMessage e o despertar pela conclusão do Bash herdam a mesma atribuição de execução e o ticket dinâmico; a escolha off-peak temporária não é escrita no `runtime/model_selection` comum. Quando uma mensagem do usuário é admitida pela CLI, ela assume imediatamente a tarefa inteira e atualiza a Session Selection conforme a ordem de admission; apenas mudar o menu de modelo não assume. Os subagentes em execução mantêm o modelo desta rodada, e os despertares e retomadas posteriores usam o modelo do usuário. Respostas de permission/elicitation não são novas mensagens do usuário e não alteram a atribuição do plano.
 - Classificação de falha de despacho: rede, falha de inicialização do Agent e outros erros desconhecidos ou autocuráveis são `transient`, permanecem queued e usam backoff começando em 30s, com teto de 15min; ausência de modelo disponível no workspace do usuário, ausência de modelo disponível no idle plan ou credenciais duplas ausentes são `permanent` determinísticos, devem ir direto a `failed`, registrar o motivo e parar retries/retakes, cabendo ao usuário corrigir a configuração e reenviar. É proibido mascarar erros determinísticos de configuração como uma longa "espera por computação ociosa".
+
+Os cenários de replay da UI oficial — layout da página inicial e quotas esmaecidas — também exigem o plano de controle da conta, um login válido e a conexão atual. O mock do gateway de retirada de número não fornece fatos de modelo do Registry; sem a conta preparada, não se deve assumir que a entrada de criação está visível.
 
 ## 4. Contrato atual do servidor (D26/D39; o cliente também fornece mock em processo)
 
@@ -480,7 +484,7 @@ O usuário cria tarefas fora do pico em linguagem natural dentro de qualquer ses
 ```text
 普通用户 turn ──────────── OffPeakCreate ✅  OffPeakList ✅
 cron automation 自动 turn ─ OffPeakCreate ✅（D49-3 组合玩法） OffPeakList ✅
-闲时自动派发 turn ───────── OffPeakCreate ❌ SendMessage ❌ Workflow ❌（D52，denylist ["CronCreate","OffPeakCreate","SendMessage","Workflow"]） OffPeakList ✅
+turn de despacho automático off-peak ───────── OffPeakCreate ❌ entrada de execução de Workflow/dynamic workflow ❌ CronCreate ❌; SendMessage ✅ Agent em background ✅ Bash em background ✅ OffPeakList ✅
 subagent_child ──────────── 均不注册
 ```
 
@@ -493,12 +497,37 @@ a tab idle de Automations faz o roteamento pelo prefixo `offpeak-` → a view `o
 running/estados terminais em readOnly, D30-7); quando a tarefa já foi excluída, toast targetNotFound.
 
 **Execução na sessão vinculada (D50)**: a tarefa é executada na sessão que a criou. Antes do despacho, o sistema sonda se a sessão está executando um turno do usuário; se estiver ocupada, há
-backoff transient e nova tentativa sem alterar nenhuma configuração da sessão; o modo de permissão gravado no despacho (padrão yolo) não é revertido ao fim da tarefa; se o usuário clicar em Stop no turno da
-tarefa, isso cancela a tarefa (o ticket é invalidado); se a sessão vinculada for excluída, a falha é permanent. O rodapé do cartão de Automations e a página de edição exibem o título da sessão vinculada
-(`sessionTitle`, buscado junto na listagem via tasks-index), e a página de edição traz a dica de que Stop equivale a cancelar. A criação pelo formulário continua criando uma session independente.
+backoff transient e nova tentativa sem alterar nenhuma configuração da sessão; o modo de permissão gravado no despacho (padrão yolo) não é revertido ao fim da tarefa; o Stop do chat segue o comportamento de parada do Agent comum; somente o「取消」do cartão de tarefa encerra a tarefa off-peak inteira e suprime despertares tardios; se a sessão vinculada for excluída, a falha é permanent. O rodapé do cartão de Automations e a página de edição exibem o título da sessão vinculada
+(`sessionTitle`, buscado junto na listagem via tasks-index), e a página de edição distingue a parada do chat do cancelamento pelo cartão de tarefa. A criação pelo formulário continua criando uma session independente.
 
 **Não feito**: ferramentas de update/cancel dentro da sessão; congelamento do título da sessão (não se copia o
 setCustomSessionTitle do CronCreate); assinatura de estado ativo no cartão; contagem local de cota; chave de vínculo/sessão independente; rollback do modo de permissão ao fim da tarefa.
+
+## Trabalho em background e fechamento de tickets
+
+Depois que a rodada principal termina de forma natural, enquanto ainda houver trabalho em background, notificações não consumidas, entradas admitidas ou espera de troca de ticket, a tarefa inteira permanece não concluída. A CLI decide com base no registro de tarefas existente e na fila de comandos, e o Host consome apenas eventos explícitos de ciclo de vida. A liberação do ticket é independente da conclusão da tarefa: depois que o usuário assume, o ticket antigo é liberado quando todas as sub-rodadas off-peak terminam, e a tarefa pode continuar usando o plano do usuário.
+
+```mermaid
+stateDiagram-v2
+  execução off-peak --> aguardando background: rodada principal terminou e o background não terminou
+  aguardando background --> execução off-peak: resposta ou notificação de conclusão
+  execução off-peak --> aguardando novo ticket: a requisição retornou 3102
+  aguardando background --> aguardando novo ticket: o despertar precisa de um novo ticket
+  aguardando novo ticket --> execução off-peak: entrega do novo ticket
+  execução off-peak --> execução do usuário: mensagem do usuário admitida
+  aguardando background --> execução do usuário: mensagem do usuário admitida
+  aguardando novo ticket --> execução do usuário: mensagem do usuário admitida
+  execução off-peak --> item concluído: não resta trabalho
+  execução do usuário --> item concluído: não resta trabalho
+```
+
+Durante a troca de ticket, é permitido que o Bash local já iniciado termine e salve sua saída; as requisições de modelo esperam um novo ticket, e é proibido reenviar o prompt original ou reexecutar a ferramenta. Erros de ticket concorrentes são mesclados em uma única renovação; tickets tardios após a tomada de posse ou o cancelamento são apenas liberados. O registro de background, a fila de notificações, as credenciais de ticket e a escolha off-peak temporária não são restaurados após reinício do App/CLI; a coleta de linhas de tarefas existentes no cold start segue as regras originais e não restaura processos de background que já desapareceram.
+
+Os controles tardios de cancelamento e de troca de ticket precisam ser idempotentes: o cancel de uma execução já concluída ou cancelada não pode parar uma rodada posterior do usuário na mesma sessão. Um cancel válido para apenas a execução em foreground capturada no momento do cancelamento. Uma falha no recibo do RPC de troca de ticket significa que o resultado da entrega é desconhecido; o Host mantém o mesmo `executionId + renewalId + ticketId` e as credenciais em memória e retenta a confirmação pelo ciclo de sincronização existente; a entrega desconhecida não é gravada de volta como queued, o ticket não é retirado de novo e a tarefa não é reproduzida. Um novo ciclo de ticket_needed descarta a escrita do recibo da entrega antiga; após a tomada de posse ou a conclusão, ainda é possível confirmar o ticket já instalado, e tickets candidatos não instalados são apenas liberados. A retentativa da entrega não adiciona persistência, timer nem fila de recuperação de conversa, e as fronteiras de desktop continuous e mobile replayable permanecem inalteradas.
+
+O valor padrão de entrada da CLI/TUI é nomeado `cliDefaultSelection`, reutilizando o `config.defaultModelSelection` de `provider_config.json` e a entrada de session comum existente. `/model` e `/effort` alteram apenas o valor padrão de entrada e o local de memória já existente; o runtime Session Selection só é atualizado no envio. Não há configuração nem migração de banco de dados. O cartão de aceleração passa a escolha comum daquela mensagem do usuário por `selectionFallback.target`; o `highspeedFallbackSelection` do Core fixa o candidato de Session anterior à admissão desta rodada, usado no fallback de expiração do cartão de aceleração ou de falha da requisição, sem relação com a renovação de ticket off-peak.
+
+A extração automática do Project Memory continua sendo ignorada: especificamente, a extração de memória de projeto em background após o término bem-sucedido; a chave de Memory da sessão não é modificada. A limpeza final do Bash embutido no child runtime é igual à do Agent comum.
 
 ## 6. Consulta rápida de pontos de reuso (infra de feat/cron)
 

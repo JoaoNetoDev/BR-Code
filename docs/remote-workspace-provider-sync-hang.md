@@ -4,6 +4,11 @@
 > Versão do incidente: 3.8.1 (commit `99f955e2`); material de forensics: pacote de logs do usuário `zcode-logs-full-20260821-100852-ssh-hang` (2026-08-21, fuso local UTC+8).
 > O Provider Refactor removeu por completo a funcionalidade de sincronização do Registry envolvida no caso, portanto este documento descreve apenas o incidente da 3.8.1 e o invariante genérico de dispose de RPC,
 > e não se aplica mais à arquitetura atual de Provider. Símbolos históricos e logs são mantidos como estão para forensics.
+> Nota de 2026-09-07: o `packages/ui/src/lib/remoteWorkspaceProviderSync.ts` citado acima (com o cache in-flight e o
+> `remoteWorkspaceProviderSync.test.ts`), assim como o candidato E2E `SSH-P0-LIFE-03`, foram revertidos junto com a
+> refatoração de Provider (rota A da refatoração de provider); o `ssh-remote-p0-e2e-plan.md` não registra mais esse número;
+> este documento serve apenas como registro histórico do incidente. Ainda continuam válidos somente os dois invariantes
+> genéricos de RPC: o reject das requests in-flight em `ChannelClient.dispose()` e o `RemoteWorkspaceSession.dispose` no lado renderer.
 
 ## 0. Conclusão da análise de correção (visão rápida)
 

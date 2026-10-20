@@ -13,6 +13,8 @@ BR Code é um workbench de programação com IA — adaptado brasileiro do [ZCod
 
 ## Atualizações
 
+- 2026-10-19: sincronizado com o ZCode v3.16.2.
+- 2026-10-16: sincronizado com o ZCode v3.16.1.
 - 2026-10-10: sincronizado com o ZCode v3.15.1.
 - 2026-09-23: sincronizado com o ZCode v3.14.3.
 
@@ -104,6 +106,8 @@ Ao iniciar diretamente a entrada HTTP do serviço web genérico, a autenticaçã
 O build é detalhado na seção de empacotamento. O `pnpm build:zcode` apenas gera o pacote de distribuição; ele não substitui um `zcode` já existente no `PATH`. Se o comando ainda apontar para uma instalação antiga, verifique com `command -v zcode` (macOS / Linux) ou `where.exe zcode` (Windows).
 
 ### Desenvolvimento do código da CLI
+
+A configuração de modelos do CLI, as chamadas não interativas, as ferramentas e extensões, a avaliação em lote e o registro de trajetórias estão no [guia de uso da CLI](apps/zcode-cli/docs/usage/README.md).
 
 Para desenvolver diretamente a TUI ou o agente, rode a entrada a partir do código-fonte:
 

@@ -272,6 +272,10 @@ O registro de 2026-09-07 abaixo é evidência histórica fixa de staging; o resu
 
 DF-01 verification (2026-09-07): macOS Desktop WDIO passed (`desktop-e2e-20260907040958265-p60496-c535b8967f7e59a1`). HTTP 200/400 business failures, body/header log ID, update rejection, streaming circuit status, and localized error rendering are covered by 124 passing unit tests. Typecheck, Desktop E2E typecheck, and lint passed (43 warnings, 0 errors). Pending case is not promoted. Live Feishu, Windows/Linux, mobile devices, and delivery-failure DOM interaction remain unverified; existing connection-error DOM regression CF-01 passed in macOS Desktop WDIO.
 
+## Regressão de identidade de Bot R3 (A3)
+
+`BOT-E2E-RW-02`: pending; contrato de Host resolver + Bot bridge + roteamento exato do Main e cenário sintético do Bot service. Cobre stable/legacy, mesmo path entre Sources, permission key e troca de geração de runtime. Evidência de execução em `packages/desktop/.e2e-artifacts/bot-identity-fix-20260916/`; não inclui entrega real de mensagens de terceiros nem relay de celular.
+
 ## Adições de colaboração em grupo
 
 | Case          | Status  | Evidência necessária                                                        |

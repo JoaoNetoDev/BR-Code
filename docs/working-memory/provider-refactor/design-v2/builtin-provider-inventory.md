@@ -1,6 +1,11 @@
-# Lista de Manutenção de Builtin Provider
+# Lista Histórica de Manutenção de Builtin Provider
 
-> Status: linha de base de manutenção Builtin já implementada nos Todo 76/79 (manutenção contínua)
+> Este documento preserva a lista de alvos e as decisões do momento original da investigação; não representa a configuração atual nem o estado em tempo real do upstream.
+> A partir de 2026-10-14, a manutenção diária está na [entrada de manutenção](../../../builtin-provider-maintenance/README.md),
+> e os membros já configurados e a ativação/desativação padrão estão no [estado atual](../../../builtin-provider-maintenance/current-state.md).
+> As tabelas e os trechos de remoção deste documento também têm diferenças históricas; não restaure nem remova modelos com base neles.
+
+> Status: linha de base de manutenção Builtin no momento dos Todo 76/79; o inventário posterior foi movido para o novo diretório de manutenção.
 >
 > Data: 2026-09-10 (atualizado pelos Todo105/111/112/113)
 

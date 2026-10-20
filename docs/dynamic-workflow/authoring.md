@@ -210,6 +210,16 @@ Em tempo de execução um `ModelRef` é sua string de nome: o lowering apaga
 que o lançamento resolveu. Um nome ausente dessa tabela, que só um cast pode produzir, faz
 falhar o primeiro ask desse subagent com `DriverError`.
 
+De quem é a escolha do nome importa tanto quanto sua sintaxe. Uma persona nomeia um modelo
+apenas quando o usuário pediu um, e o agente de autoria nunca move um subagent para um modelo
+de outro provider por conta própria, por mais leve que o trabalho pareça: outro provider é
+outra fatura (`docs/dynamic-workflow/launch.md`, `subagent_model`, expõe a regra para o
+campo de nível de execução; é a mesma regra). Ver que o modelo serve é motivo para perguntar,
+não para agir: o agente propõe o modelo e pergunta ao usuário antes da chamada, e o sim dele
+é o pedido. Um nome sem provider só resolve dentro do provider da sessão; quando o usuário
+pediu um modelo que vive em outro lugar, o script o escreve como `providerId/modelId`, que é o
+que o resolver exige para atravessar a fronteira.
+
 O modelo próprio de um subagent sobrepõe tudo; o `subagent_model` da execução vira o padrão
 para os subagents que não nomeam nenhum (`execution-engine.md`, "Subagent sessions"). O
 modelo não faz parte da identidade de cache de um subagent: um amend que muda só o modelo em
@@ -618,7 +628,18 @@ Como o pacote chega a cada runtime:
   entrada do CLI, pela mesma caminhada de diretórios candidatos que plugins oficiais usam,
   e leem no lugar; nada é copiado.
   `packages/desktop/scripts/prepare-agent-node-bundle.mjs` o prepara ao lado de
-  `resources/glm/zcode.cjs`; `scripts/prepare-prebuilds.mjs` o prepara para hosts remotos.
+  `resources/glm/zcode.cjs`.
+- Os releases do ZCode Server (Server headless e Source Server de SSH / WSL / Docker) usam
+  `stageRelease` para preparar o `README.md` e o `skills/` do pacote a partir de
+  `bundledSkillsDir` em `runtime/packages/bundled-skills`, ao lado de `runtime/zcode.cjs`.
+  Outros arquivos de topo são excluídos. O pacote pertence apenas ao componente
+  `agent-runtime`, incluindo seu hash de conteúdo e seu arquivo, e não é listado em
+  `plugins` do manifesto. O prepare de plugins oficiais nem fornece nem sobrescreve o
+  pacote. O deployment remoto de desenvolvimento prepara o mesmo diretório ao lado do seu
+  bundle de agente, inclui todo arquivo do pacote no hash do deployment e checa os arquivos
+  obrigatórios antes de reutilizar uma instalação remota. Os dois caminhos recusam um pacote
+  ausente ou incompleto antes de publicar ou enviar. Eles não dependem de um cache de plugin
+  antigo nem do diretório de trabalho do servidor.
 - Binários SEA embutem `skills/**` sob o prefixo de asset `zcode-bundled-skills/`
   (`cli/scripts/sea-bundled-skill-assets.mjs`) com um manifesto cujo hash cobre cada arquivo.
   Na inicialização o CLI extrai o pacote uma vez em
@@ -734,7 +755,7 @@ O que a skill ensina, seção por seção:
 | A régua | Um workflow existe para produzir o entregável que um profissional sênior entregaria. Quando um atalho e o jeito do especialista divergem, pegue o jeito do especialista. A profundidade é medida pelo que está em jogo: corte o trabalho quando a tarefa é pequena, corte a checagem quando uma afirmação errada custa pouco ou um comando já decidiu. |
 | Esta é a ferramenta certa | O roteamento é por pedido, não pela forma da tarefa. Quando o usuário nomeia workflow como meio, `CreateWorkflow` é obrigatório e o tamanho decide apenas quantos subagents; sem esse pedido a tarefa vai para `Agent` (uma delegação, ou consultas independentes em paralelo) ou é feita inline, por mais passos que tenha. Só depois que um workflow foi pedido a forma importa: resultados alimentando resultados, um laço com condição de parada, fluxo de controle sobre um resultado tipado é o que o script faz bem. |
 | Topologia de subagents | Um subagent novo por item dá vereditos independentes e paralelos; um subagent compartilhado dá vereditos consistentes e serializa. Nomes são identidades únicas e a chave de cache do amend. Personas se apoiam no contrato do harness, então escreva o papel, não as regras. Em cada handoff, um item passa para o próximo estágio assim que fica pronto; o estágio espera por todos os seus itens só onde o próximo passo precisa de cada um. Reutilize os mesmos dois subagents entre rodadas do laço. Sem aninhamento. |
-| Escolhendo modelos | Só quando o usuário pede modelos, ou quando o trabalho tem um tier leve óbvio (juízes de um turno, classificadores, routers) e o usuário pediu custo ou velocidade. Uma escolha fixa é o nome inline; roteamento declara uma tabela `model()` no topo e mapeia uma chave tipada do router para ela. Os nomes vêm de `ListModels`; cada um é verificado no lançamento. |
+| Escolhendo modelos | Só quando o usuário pede um modelo, com o nome que ele usou; nunca um modelo de outro provider a menos que o usuário tenha pedido esse modelo, por mais leve que o trabalho seja — quando um modelo mais leve serviria claramente, pergunte ao usuário antes da chamada e considere o sim dele como o pedido. Uma escolha fixa é o nome inline; roteamento declara uma tabela `model()` no topo e mapeia uma chave tipada do router para ela. Os nomes vêm de `ListModels`; cada um é verificado no lançamento. |
 | Olhos frescos | Um contexto separado vê as lacunas que o autor preencheu. Peça falhas, não aprovação. Dê aos revisores a mesma evidência. Um entregável, um mecanismo: um plano ganha um revisor que lê o código, achados ganham um confirmador, prosa ganha um leitor; dois é o teto e exige um motivo. A leitura independente é para prosa que nada mais checou; um relatório cujos achados foram cada um confirmados já teve seus olhos. Não é um gate para submeter o script. |
 | Resultados tipados | Tipa o ask quando o fluxo de controle ramifica sobre ele. JSDoc vira a descrição do campo. Mantenha os resultados estreitos; passe caminhos, não conteúdos de arquivo. |
 | Trazendo o mundo | `files.glob` e `git.changedFiles` são fontes de fan-out. Limites recusam. `world.run` é o gate determinístico. Escolha o gate pelas checagens do próprio repositório, construa-o em dois tiers, e deixe o tier mais forte que o pedido implica decidir a saída, rodando ao menos uma vez antes do retorno final com o timeout de que precisa. |

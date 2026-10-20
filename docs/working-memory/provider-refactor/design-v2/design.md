@@ -104,6 +104,12 @@ Todas as regras continuam sendo escritas em ordem de array, sem introduzir algor
 
 ### Princípios de manutenção de configuração de Match (decisão de 2026-09-10)
 
+- 2026-10-14: na linha de base do Model geral, o `contextWindow` é `1000000` e o `maxOutputTokens.max` é `128000`; o segundo é um limite de capacidade, e não o comprimento de saída padrão da requisição. As diferenças explícitas dos modelos conhecidos continuam prevalecendo, e o Personal ainda tem efeito por último.
+- Model / Model+API usam curingas simples de prefixo e sufixo para conjuntos de manutenção limitados (por exemplo `.*deepseek-flash.*`), sem exigir separador de sufixo nem formato de data; o escape literal e o agrupamento semântico de modelos são preservados. A família geral vem antes e a variante concreta depois, sem adicionar ordenação automática em runtime. As regras de identidade precisa de Site URL e de Template/Provider permanecem inalteradas.
+- As duas regras de Model que existiam apenas para definir a janela de `[1m]` e o limite de saída de 128000 apenas para o alias de preview são removidas. Declarações que duplicam os novos valores padrão e não têm nenhuma diferença de camada anterior a sobrepor podem ser omitidas; não é permitido remover mecanicamente campos de mesmo valor que sobrescrevem a linha de base de uma família menor.
+- A aceitação cobre a mesma origem de configuração de produção/teste, a linha de base dos três protocolos para modelos desconhecidos, aliases de prefixo e sufixo, a herança entre a variante base e a concreta, as sobrescritas de Site e Personal, e a preservação do comprimento de saída explicitamente solicitado. O preenchimento histórico de modelos, a política de protocolo de raciocínio e a ferramenta de visualização da configuração não fazem parte deste ajuste.
+- As diferenças reais dos modelos mantidos ainda prevalecem sobre a unificação formal: o mapeamento Messages do GLM-4.6 usa `(?!v)` para excluir os modelos de visão, evitando que a simplificação reescreva sua linha de base de protocolo existente. A restauração histórica de `off/nothink` reconhece ao mesmo tempo as identidades do matcher antigo e do novo, mas usa o matcher antigo para limitar o escopo da restauração; o novo sufixo mais permissivo não ganha assim a eligibilidade de alias histórico, e o arquivo do usuário não é modificado.
+
 - O Match Built-in se baseia em configurações principais e capacidades oficiais, com prioridade para o oficial; não se reduz a capacidade padrão de modelos conhecidos para suportar implementações de terceiros desatualizadas ou incompletas.
 - Capacidades suportadas por modelos conhecidos sob o API Schema correspondente devem ser escritas nas regras de modelo/modelo API, mantendo o casamento por prefixo e sufixo. Não se deve desligar por padrão apenas por acessar via proxy de terceiros; quando o proxy não suportar, o usuário desliga pela Config pessoal do modelo concreto.
 - Prioridade para o oficial não significa que todos os modelos de uma mesma marca suportem algo: os limites explícitos de suporte por modelo e por API Schema devem ser preservados, sem conceder a capacidade de um modelo a todos os outros por uma regex ampla de marca.
@@ -113,8 +119,10 @@ Todas as regras continuam sendo escritas em ordem de array, sem introduzir algor
 
 ### 2.3 Lista de manutenção de Builtin Provider
 
-O escopo de manutenção do Builtin é expresso por uma tabela curta de inventário de entradas, sem repetir aqui a Provider Config completa; veja
-[`Lista de Manutenção de Builtin Provider`](./builtin-provider-inventory.md):
+A manutenção diária entra por [templates de Provider embutidos e manutenção de modelos](../../../builtin-provider-maintenance/README.md);
+neles, o [estado atual](../../../builtin-provider-maintenance/current-state.md) registra os templates, os membros completos e a ativação padrão conforme a configuração real, e os [princípios de escopo](../../../builtin-provider-maintenance/scope.md) e a [especificação de configuração](../../../builtin-provider-maintenance/configuration.md) dão suporte à manutenção contínua. Os links antigos de inventário abaixo são preservados como histórico de investigação e não são mais a lista de configuração vigente.
+
+O escopo de manutenção do Builtin é expresso por um inventário de entradas, sem repetir aqui a Provider Config completa; os membros reais estão no estado atual acima, e a base da investigação original é preservada na [`lista de manutenção histórica`](./builtin-provider-inventory.md). O critério da lista é:
 
 ```text
 供应商 | 类型 | templateId / providerId | Base URL | 产品维护模型

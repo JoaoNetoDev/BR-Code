@@ -127,8 +127,9 @@ Restrições de estado:
 
 - active-first só é habilitado na cadeia de restauração local `desktop-continuous` da janela principal do Desktop. Web, celular
   `web-remote-replayable` e janelas secundárias que não restauram sessão mantêm a situação atual.
-- A escolha do workspace ativo continua reutilizando `resolveStartupLocalWorkspaceSessionIndex`: quando o active persistido é
-  um remote desconectado, ainda se escolhe um workspace local disponível; isso não altera a semântica de auto-reconexão remota desabilitada.
+- O Renderer restaura o último projeto ativado por `lastActiveTabIndex`, inclusive um remote desconectado.
+  `resolveStartupLocalWorkspaceSessionIndex` decide apenas o alvo de pré-aquecimento local do Main, podendo diferir do projeto
+  ativado pelo Renderer; isso não altera a semântica de auto-reconexão remota desabilitada.
 - O preenchimento dos inativos precisa ser um merge: não pode reconstruir a tab ativa já restaurada, não pode roubar o foco e não pode sobrescrever
   as tabs de settings/workspace que o usuário abriu antes do preenchimento.
 - active-only é uma projeção transitória, não um novo fato persistido. Até que o preenchimento dos inativos termine ou falhe, a persistência de

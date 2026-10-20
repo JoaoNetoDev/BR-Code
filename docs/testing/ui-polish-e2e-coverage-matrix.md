@@ -1,5 +1,7 @@
 # Matriz de Cobertura E2E de UI Polish
 
+- Migração de estilo do logo: UP-00 verifica a posição antiga na página de settings do Windows, a base de 18px e o SVG estático de 11px. Aprovado no Windows real: `desktop-e2e-20261009065931122-p21208-9f6085045aa4ea21`, 1/1; as capturas de tema claro e escuro foram verificadas.
+
 ## Todo153: exibição do nível de raciocínio e ordem de configuração
 
 Com base na [spec do controle](../ui/chat-thought-level-control.md) e no [Todo153](../working-memory/provider-refactor/steps/todo-153-thought-level-display-mapping.md), as semânticas a seguir estão confirmadas. O candidato de navegador está em `packages/ui/test/browser/manual-review/pending/thought-level-display.test.mjs`, e a fixture usa o controle compartilhado real, o SubagentReasoningField e o hook de atalhos da toolbar, isolando o serviço de settings e sem enviar requisições ao modelo.
@@ -153,3 +155,5 @@ UP-01 adicionou no macOS uma asserção de background de cálculo transparente d
 - Verificação: antes da modificação o teste unitário no macOS falhava; depois da modificação os testes unitários dos quatro branches de plataforma passaram; o typecheck de todo o repositório, o typecheck de E2E e o lint passaram (41 avisos já existentes, 0 erros).
 - Electron no macOS: 3/3 passaram, com o background calculado do framework raiz igual a `rgba(0, 0, 0, 0)`; ID da execução: `desktop-e2e-20260904082702490-p81892-0a8af92f6cb52575`.
 - Os branches de background de Windows/Linux/Web têm testes unitários, mas não houve verificação visual independente por plataforma; a página de settings e a página de erro reutilizam o mesmo componente e não foram validadas com capturas página a página.
+
+2026-10-09 dimensões de plataforma: UP-00 passou na borda externa de 6px, no raio de 8px e no alinhamento do grupo de ações no canto superior direito da página de settings do Windows, run `desktop-e2e-20261009070918592-p12424-e7971ff15e21066b`.

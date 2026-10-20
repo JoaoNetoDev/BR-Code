@@ -1,5 +1,7 @@
 # Conexão de Remote Workspace com Server
 
+> **Status (2026-09-13)**: a conexão direta com `kind:"server"` continua sendo uma entrada dev-only e usa o ingress token (spec principal §6.1, §15 item 5); as descrições de interface do Server, titularidade dos serviços e fronteiras de Realtime deste documento continuam válidas. O modelo de processos de «SSH e WSL fazem pool de conexões dentro do Host, enquanto Docker/Server usam uma dedicated connection» pertence à cadeia principal anterior ao R3; hoje SSH/WSL/Docker seguem uniformemente a cadeia principal do Source Server, ver `docs/architecture/r3-source-server-remote-architecture.md` §4.
+
 ## Contexto
 
 Atualmente o Desktop App já suporta a criação de remote workspace via SSH / WSL / Docker / Server.

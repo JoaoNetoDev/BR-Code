@@ -13,6 +13,24 @@ O painel `/` do composer principal oferece adicionalmente o comando de camada Ap
 
 O cliente móvel não registra a entrada de seleção; “mais detalhes” não faz parte desta funcionalidade. A tela secundária serve para explicação e exploração leve, permitindo ferramentas normais, modificação de arquivos e interação de permissões, mas não oferece goal, edit/retry nem fork.
 
+## Titularidade do foco do Esc de parada
+
+Conversa principal e auxiliar visíveis ao mesmo tempo não significa ter o foco de teclado ao mesmo tempo. Com o painel da direita aberto, o Esc só pode parar o `SessionPane` ao qual pertence o evento de teclado; o alvo é determinado pelo DOM do pane no caminho do evento do navegador, e não pela visibilidade do tab ou pela ordem de registro dos listeners. Com o foco na conversa que já foi parada, apertar Esc de novo não para a outra conversa; o alvo só muda depois de trocar o foco de entrada. Com o painel da direita aberto, o foco fora das conversas não para nenhuma conversa; depois que o painel é fechado, o Esc para por padrão a conversa atual da área principal, sem necessidade de clicar antes no campo de entrada. Na tela dividida, apenas o focused pane já existente na área principal recebe essa entrada padrão; a conversa auxiliar oculta não participa. A entrada padrão é despachada pelo toggle de painel e pelo estado de visibilidade que o Shell já possui, sem novo estado de foco ou de painel. Ela é revogada imediatamente ao abrir e habilitada depois que o painel é fechado e deixa de estar visível; os layouts de desktop e de celular seguem a mesma regra. Diálogos e sugestões de entrada que já consumiram o Esc continuam com prioridade, e o botão de parada continua roteado pela própria sessão.
+
+```text
+Esc → diálogo / já consumido → sem comando de parada
+    → painel da direita aberto → SessionPane dono do evento de teclado → o próprio session stop
+    → painel da direita fechado → SessionPane em foco na área principal → o próprio session stop
+                                      └─ idle → sem comando de parada
+```
+
+SSC34: a sessão principal roda primeiro e a conversa auxiliar depois, com o foco no campo de entrada auxiliar; o Esc para apenas a conversa auxiliar, teclas repetidas não afetam a sessão principal, e só é possível parar a sessão principal depois de voltar ao campo de entrada principal.
+SSC35: a conversa auxiliar roda primeiro e a sessão principal depois, com o foco no campo de entrada principal; as asserções são simétricas.
+SSC36: com as duas rodando, apertar Esc fora da área principal com o painel aberto não para nada; ao recolher o painel, o foco é movido para uma área em branco da página sem overlay, e o Esc para apenas a conversa principal; ao expandir o painel de novo, confirma-se que a conversa auxiliar continua emitindo saída. A regressão de componente cobre a entrada padrão nos layouts de desktop e de celular, o gate de workspace oculto e a prioridade de dialog/defaultPrevented mesmo com a entrada padrão habilitada.
+Todos esses cenários verificam que o lado que não foi parado continua recebendo o corpo em streaming; usa-se E2E local de controlled-stream, evitando que um provider real termine antes.
+Essa regra de foco é compartilhada pelo renderer de desktop/Web e não muda o session owner, o protocolo de parada nem a transmissão continuous/replayable.
+O celular não tem entrada de conversa auxiliar; esta rodada não estende as combinações de transport remoto, tema e locale.
+
 ## Registro de esclarecimentos
 
 | Boundary            | Decision                                                                                                                                                                                                                                                                                                          |

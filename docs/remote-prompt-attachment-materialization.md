@@ -39,23 +39,48 @@ Isto é apenas um reparo de fronteira. A semântica de protocolo mais completa a
 O composer do V4 não espera mais o clique em enviar para materializar. Após selecionar um anexo host-local, o renderer solicita imediatamente, via `IPromptAttachmentTransferService`, o staging no Local/Remote Host que hospeda o escopo do workspace atual; o serviço publica progresso no nível da conexão por operation id e suporta cancel/cleanup.
 
 ```text
-renderer composer
-  -> workspace service resolver
-     ├─ local workspace
-     │  -> window Local Host IPromptAttachmentTransferService
-     │  -> stat + localPath zero-copy
-     │  -> AttachmentRef(local path, staged=false)
-     ├─ SSH/WSL/Docker remote workspace
-     │  -> target Remote Host IPromptAttachmentTransferService
-     │  -> IRemoteBackend.upload(progress, signal)
-     │  -> ~/.zcode/tmp/prompt-attachments/<operation>/...
-     │  -> AttachmentRef(remote path, staged=true)
-     └─ Server remote workspace
-        -> server-authoritative IPromptAttachmentTransferService
-        -> AttachmentRef(server runtime path)
+renderer composer (Desktop continuous / Mobile shared-host replayable)
+  -> attachment do Host já existente na janela atual
+     ├─ local: transfer local, localPath zero-copy, staged=false
+     ├─ SSH/WSL/Docker: transfer no escopo do attachment
+     │    -> capacidade de transferência de arquivos da generation atual do SourceServerConnectionManager
+     │    -> exec + upload(progress, signal) do mesmo Transport Adapter / backend
+     │    -> ~/.zcode/tmp/prompt-attachments/... privado do usuário Source, staged=true
+     └─ Server dev direto: mantém o service do Source; não expõe o staging localPath do desktop
+
+attachment fechado / troca de Source -> abort das operações não concluídas + cleanup dos arquivos não adotados
+já adotado -> ciclo de vida do ref já aceito pelo CLI, não é removido pelo fechamento do attachment
 ```
 
-O service resolver usa o accessor de sessão do workspace atual como fronteira: workspaces locais usam o `createLocalPromptAttachmentTransferService()` do Local Host da janela; workspaces SSH/WSL/Docker devem usar o `createRemotePromptAttachmentTransferService()` injetado pelo Remote Host; o remote Server usa por completo a service collection server-authoritative. O escopo de serviço do workspace apenas decide qual instância de serviço usar e não cria um novo processo de Host.
+### R3 fiação e ciclo de vida (2026-09-16)
+
+Causa raiz: ao remover o antigo mixed service factory, R3 também removeu o staging entre máquinas; todo o
+encaminhamento apontava para o `createLocalPromptAttachmentTransferService` do Source, que apenas devolve o
+`localPath` original com `staged:false`. Isso é a falta de conversão de fronteira de sistema de arquivos, e não
+pode ser corrigido restaurando o JWT local, removendo a proteção do composer ou forçando `staged`.
+
+O staging entre máquinas é gerenciado pelo owning attachment do Window Host atual, e não é um RPC de negócio comum
+que o Source Core possa executar diretamente. O Host sobrescreve `IPromptAttachmentTransferService` ao expor o
+attachment; o service do Source no contrato RPC é mantido para a semântica de caminho local do Source. Somente
+attachments SSH/WSL/Docker oferecem a capacidade entre máquinas. O Transport Adapter expõe apenas a capacidade
+estreita `exec/upload`, reutilizando o backend já estabelecido; o Manager liga a capacidade à conexão online atual, e
+operações novas de uma generation antiga falham de forma fechada, sem criar novas conexões SSH/WSL/Docker nem novos
+Agents. Provider, JWT e estado de arquivo/sessão do Source continuam mantidos no lado remoto, sem voltar à autoridade
+mista antiga.
+
+- Há apenas um registro de operation dentro do attachment; o Host valida no scope confiável `workspaceIdentity`,
+  `workspacePath` e `remoteSessionId`, e recusa stage entre scopes. Main/relay não guarda progresso, tarefas, filas
+  nem cópias.
+- Uma repetição com o mesmo operationId invalida primeiro o registro antigo e aborta; um resultado atrasado só pode
+  limpar a si mesmo, sem apagar o registro novo.
+- cancel/cleanup/dispose removem o registro de forma síncrona e abortam; mesmo que o upload conclua tarde, ele não
+  pode publicar ready, e o arquivo precisa ser recolhido.
+- O fechamento do attachment aplica esse fechamento a todas as operações não adotadas; a adoção remove o registro de
+  staging e mantém a referência já aceita pelo CLI. Em caso de queda de rede o cleanup é best-effort, e o janitor de
+  24 horas continua limpando os arquivos remanescentes; não há reconexão nem troca de linha por causa da limpeza.
+- O desktop usa continuous, e o celular continua usando apenas o Host já existente em attachment; colar arquivos
+  temporários segue o mesmo contrato de staging, e bytes inline continuam pelo transaction de attachment do V4 já
+  existente. O staging não altera a semântica de stream/queue/replay.
 
 - O isolamento de identidade usa `workspaceKey = workspaceIdentity?.trim() || workspacePath`; o roteamento da conexão remota continua passando `remoteSessionId`.
 - Quando o composer decide se um anexo precisa obrigatoriamente de materialização remota, para qualquer `workspaceIdentity` não vazio ele falha de forma fechada (fail closed) como alvo remoto, sem exigir que a identity já seja reconhecível pelo resolvedor atual; o próprio `remoteSessionId` já prova que o alvo é remoto.

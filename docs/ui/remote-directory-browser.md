@@ -14,6 +14,7 @@ A página de seleção de diretórios após uma conexão remota bem-sucedida reu
 - A página de seleção de diretórios exibe apenas entradas com `type === "directory"`; arquivos não aparecem na lista.
 - Symlinks de diretório são resolvidos pela camada de serviço conforme o tipo do alvo; quando o alvo do symlink é um diretório, retornam `type === "directory"`, e portanto precisam ser exibidos e podem ser acessados pela página.
 - Symlinks de diretório alteram apenas o ícone da lista: quando `isSymbolicLink === true`, exibe-se o ícone de diretório de symlink, mas o comportamento de clique e seleção continua sendo o de diretório.
+- Um clique em um item de diretório entra nesse diretório e atualiza o campo de entrada de caminho e a lista de subdiretórios; o "在此目录打开工作区" ("abrir o workspace neste diretório") no rodapé confirma o caminho de navegação atual. O item de diretório não pode apenas alternar o estilo de seleção, senão o usuário perde a entrada para descer nível a nível nos subdiretórios.
 - `..` é a entrada de retorno ao nível superior oferecida pela UI, e não uma entrada real retornada por `readdir`.
 - Quando não há diretórios exibíveis após o filtro, mostra-se "无子目录" ("Sem subdiretórios").
 

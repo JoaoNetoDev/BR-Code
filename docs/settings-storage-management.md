@@ -1,5 +1,9 @@
 # Planejamento de Gerenciamento de Armazenamento (Storage Management)
 
+> A saída do Bash é gravada primeiro no tmp do sistema, reutilizando `cli/exec` quando o diretório não está disponível. As estatísticas desta página ainda cobrem apenas as raízes de dados `.zcode` existentes:
+> A saída em tmp ainda não entra nos números de uso nem ganha ação de limpeza; o `cli/exec` histórico e o usado em fallback continuam classificados como saídas de ferramentas e cache temporário.
+> A entrada de leitura e de abertura de arquivos usa o caminho real da saída, sem impacto do escopo de estatística. O contrato de caminhos está em `tmpdir-storage-paths-spec.md`.
+
 > Status: **Implementado (2026-09-10)**. Registro das decisões em §8, pontos de implementação em §11.
 > Local: **Janela do Gerenciador de Recursos → aba 「Armazenamento」** (decisão de 2026-09-10: migrado por completo da página de Configurações 「Dados e Estatísticas」 para o Gerenciador de Recursos, ao lado de CPU / Memória; a página de Configurações não tem mais entrada). A arquitetura da janela em si está em `docs/electron/resource-manager.md`.
 
@@ -270,7 +274,7 @@ E2E (`packages/desktop/test/e2e/settings/settings-storage-management.test.ts`, f
 
 | Case | Setup | Action | Assertion |
 | --- | --- | --- | --- |
-| SM-01 scan | Seed em HOME: `cli/debug` com 2 arquivos, `v2/logs` com ontem+hoje, `backup/x` | Abrir Configurações › Dados e Estatísticas › Gerenciamento de Armazenamento | Aparece o estado de varredura; ao terminar, o total = soma das fixtures; as linhas de categoria batem com o tamanho na legenda |
+| SM-01 scan | Aguardar a migração inicial, limpar `backup/` do HOME isolado, e então semear 4 KiB em `cli/debug`, 6 KiB em `backup/` e logs de ontem/hoje | Abrir Gerenciador de Recursos › Armazenamento | Após a varredura, a trajetória fica em 4.0 KB e os backups em 6.0 KB; o total inclui os dados de execução normal do app |
 | SM-02 drill-down | Idem | Clicar em 「Trajetórias de chamada de modelo」 | O detalhe lista os 2 arquivos e a raiz `~/.zcode`; o breadcrumb permite voltar |
 | SM-03 clean safe | Idem | Clicar em 「Limpar」 na linha da trajetória | Sem caixa de confirmação; toast com tamanho liberado; arquivos apagados; tamanho da linha vira 0 |
 | SM-04 clean confirm | Idem | Clicar em 「Limpar」 na linha 「Backups」 → cancelar / confirmar | Cancelar não apaga; confirmar apaga |

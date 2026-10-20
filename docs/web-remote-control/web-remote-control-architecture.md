@@ -9,9 +9,9 @@ O controle remoto Web pelo celular permite ao usuário acessar, no navegador, o 
 ### Fluxo de uso e páginas
 
 1. No desktop, abra a caixa de diálogo do controle remoto Web, inicie o controle e obtenha o QR code ou o link de conexão; o navegador do celular abre o link e conclui o pareamento.
-2. Em tela estreita, o primeiro acesso pelo QR code entra por padrão na página inicial de tarefas, onde se pode navegar pelas tarefas agrupadas por workspace ou em uma linha do tempo entre workspaces.
-   A tarefa inicial carregada no QR code serve para seleção e posicionamento, e não leva direto para a página de chat.
-3. Clicar em uma tarefa abre o chat; o ponto de entrada de nova tarefa de um workspace leva à página de rascunho desse workspace. Operações entre workspaces trocam primeiro o bridge e depois acessam o serviço do workspace de destino. Voltar ao início preserva o estado de seleção das tarefas; a página de chat, ao ser recarregada, pode restaurar a si mesma com base no history state do navegador.
+2. Em tela estreita, o primeiro acesso pelo QR code entra por padrão na página inicial de tarefas: a página inicial e o desktop compartilham a barra lateral de projetos, e é possível navegar pelas tarefas por projeto ou em uma linha do tempo entre projetos;
+   na conexão Relay V2, o topo da barra lateral (acima de 「Nova tarefa」) exibe a linha do computador atual, e clicar na linha inteira equivale a 「Trocar dispositivo」. A tarefa inicial carregada no QR code serve para seleção e posicionamento, e não leva direto para a página de chat.
+3. Clicar em uma tarefa abre o chat; o ponto de entrada de nova tarefa de um projeto ou global leva à página de rascunho correspondente. Operações entre workspaces trocam primeiro o bridge e depois acessam o serviço do workspace de destino. Voltar ao início preserva o estado de seleção das tarefas; a página de chat, ao ser recarregada, pode restaurar a si mesma com base no history state do navegador.
 4. O workspace e a tarefa selecionados no celular são independentes da seleção do desktop e não fazem o desktop trocar de tab/task.
 5. Quando a rede se recupera ou a página volta ao primeiro plano, a conexão é restaurada e o estado das tarefas é ressincronizado pelo protocolo replayable;
    um workspace remoto desconectado pode acionar, pela página inicial, o fluxo de reconexão já existente no desktop, e nenhuma de suas tarefas pode ser aberta ou criada antes de a conexão ser bem-sucedida.
@@ -54,171 +54,44 @@ A partir daqui descreve-se a implementação técnica atual; o [plano mínimo fu
 
 ## Entrada
 
-Desktop e mobile web só mudam para o relay de teste no endpoint de teste padrão; production e os demais endpoints customizados continuam usando o relay de produção:
+Desktop e mobile web usam a entrada Relay V2 do endpoint origin atual; HTTPS corresponde a WSS, HTTP corresponde a WS:
 
 ```bash
-production/default: wss://zcode.z.ai/ws
-test endpoint:       wss://zcode.z.ai/ws
+production/default: wss://zcode.z.ai/api/v1/remote/ws2
+test endpoint:       wss://zcode.z.ai/api/v1/remote/ws2
+local/custom:        ws://localhost:3030/api/v1/remote/ws2
 ```
 
-`ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` continua sendo a sobrescrita explícita de debug com maior prioridade. Sem sobrescrita, o relay de teste só é usado quando a origem do endpoint normalizada é `https://zcode.z.ai`; production e endpoints localhost/custom mantêm o relay de produção, evitando ampliar a semântica já existente dos endpoints customizados. A URL da página no QR code continua sendo derivada pela versão do App entre `/remote/v3` e `/remote/v4`; `ZCODE_WEB_REMOTE_CONTROL_URL` serve apenas para sobrescrita explícita de debug.
+`ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` continua sendo a sobrescrita explícita de debug de maior prioridade do relay do desktop, e precisa apontar para a entrada V2. Sem sobrescrita, o endpoint localhost/custom também deriva o relay a partir da sua própria origin. A versão atual do desktop gera o QR code de `/remote/v4`; `ZCODE_WEB_REMOTE_CONTROL_URL` serve apenas para sobrescrita explícita de debug.
 
 No desenvolvimento, é possível apontar a página do celular para o web local:
 
 ```bash
-ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL=wss://zcode.z.ai/ws \
-ZCODE_WEB_REMOTE_CONTROL_URL=http://localhost:5173/remote \
-pnpm dev:desktop
+ZCODE_WEB_REMOTE_CONTROL_URL=http://localhost:5173/remote/v4 \
+pnpm dev:web-remote-control
 ```
 
 ## Deploy estático
 
-A página de controle remoto do celular é a SPA Vite de `packages/web`, não usa exportação estática do Next.js e não existe um arquivo de página como `remote.html`. O deploy de produção só precisa entregar `packages/web/dist` ao nginx e mapear o caminho de entrada de volta para `index.html`.
-
-Atualmente são mantidas quatro cadeias de deploy estático:
+A página V2 do celular é publicada apenas pela pipeline de múltiplas versões do OSS, sem necessidade de variáveis de entrada. Na pipeline principal, rode manualmente `upload:remote:test`, `upload:remote:prod`, ou o job `:latest` correspondente; o ambiente, a seleção da versão de origem e as restrições de produção estão em [Deploy de múltiplas versões no OSS](./remote-v4-static-deployment.md#gitlab-ci-测试与生产-oss-多版本产物).
 
 ```text
-v2:
-  -> pnpm run build:web-remote-control
-  -> packages/web/dist
-  -> Dockerfile.web-remote-control
-  -> uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-v2
-  -> zcode/frontend/deployment-remote.yaml
-  -> /remote
-
-v3:
-  -> pnpm run build:web-remote-control:v3
-  -> packages/web/dist
-  -> Dockerfile.web-remote-control-v3
-  -> uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-v3
-  -> zcode/frontend/deployment-remote-v3.yaml
-  -> /remote/v3
-
-v4:
-  -> pnpm run build:web-remote-control:v4
-  -> packages/web/dist
-  -> Dockerfile.web-remote-control-v4
-  -> uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-v4
-  -> 外部基础设施的 zcode/frontend/deployment-remote-v4.yaml
-  -> /remote/v4
-
-test:
-  -> pnpm run build:web-remote-control:test
-  -> packages/web/dist
-  -> Dockerfile.web-remote-control-test
-  -> uhub.service.ucloud.cn/tianqi/zcode-remote-mobile-test
-  -> zcode/frontend/deployment-remote-test.yaml
-  -> /remote/__test__
+commit/tag selecionado → constrói os recursos de /remote/v4/<version>/ pela versão do app
+                       → prepare valida o ambiente e o manifesto → diretório de versão no OSS
+                       → o gateway escolhe o index por app_version e os recursos estáticos por diretório
 ```
 
-Os deploysonline de test e production do v4 compartilham o mesmo Dockerfile e a mesma base de assets `/remote/v4`, mas ficam isolados por um Job Jenkins, uma imagem e um Deployment próprios. Os dois Jobs devem passar explicitamente `ZCODE_ENV=test` e `ZCODE_ENV=production`, respectivamente; o Dockerfile valida isso na etapa builder e entrega ao Vite para injetar o endpoint. O domínio em si não reescreve em tempo de execução no navegador o ambiente de produto que já foi compilado dentro do JS:
+O roteamento de página é fixo em `/remote/v4`. As implantações Docker de versão única antigas em `/remote`, `/remote/v3` e `/remote/v4` estão congeladas na última imagem V1; o repositório removeu as entradas correspondentes de build, push e verificação, e as implantações antigas não podem ser sobrescritas. A cadeia de teste independente de `/remote/__test__` continua mantida; o modo de uso está no [documento de deploy estático](./remote-v4-static-deployment.md).
 
-```text
-test:       zcode.z.ai/remote/v4 -> wss://zcode.z.ai/ws
-production: zcode.z.ai/remote/v4         -> wss://zcode.z.ai/ws
-```
-
-`/remote/__test__` continua sendo uma entrada independente de validação de assets estáticos e não substitui o ambiente de produto de teste padrão `/remote/v4`.
-
-`/remote` é a entrada antiga de assets, e o script de publicação ainda atualiza `deployment-remote.yaml`.
-`/remote/v3` é a entrada de assets das versões antigas do App, e o script de publicação atualiza apenas `deployment-remote-v3.yaml`.
-`/remote/v4` é a entrada de assets do App a partir da versão oficial `3.4.0`, e o script de publicação atualiza apenas
-`deployment-remote-v4.yaml`.
-`/remote/__test__` é a entrada de assets de teste, e o script de publicação atualiza apenas `deployment-remote-test.yaml`.
-As quatro cadeias usam Dockerfiles, configurações de nginx, nomes de imagem e arquivos de deployment k8s separados, evitando que a publicação de novos assets sobrescreva assets ainda usados por versões antigas do App.
-
-As quatro configurações de nginx precisam mapear explicitamente `assets/`, `material-icons/` e
-`pdfjs/cmaps/` da sua própria base de build para os artefatos correspondentes dentro de
-`/usr/share/nginx/html`. Os CMaps do PDF.js ficam de fato em
-`/usr/share/nginx/html/pdfjs/cmaps/`; requisições com os prefixos `/remote`, `/remote/v3`, `/remote/v4` ou
-`/remote/__test__` não podem entrar no SPA fallback, caso contrário o nginx disfarça uma resposta 200 de `index.html` como se fosse sucesso de asset estático. O smoke de Docker precisa comparar o corpo de resposta real de um `.bcmap` representativo, e não apenas afirmar HTTP 200.
-
-Verificação local:
-
-```bash
-pnpm run typecheck
-pnpm run lint
-pnpm run build:web-remote-control
-bash scripts/test-web-remote-control-docker-build.sh
-pnpm run build:web-remote-control:v3
-bash scripts/test-web-remote-control-v3-docker-build.sh
-pnpm run build:web-remote-control:v4
-bash scripts/test-web-remote-control-v4-docker-build.sh
-pnpm run build:web-remote-control:test
-bash scripts/test-web-remote-control-test-docker-build.sh
-```
-
-Build e push:
-
-```bash
-export DOCKER_REGISTRY_PASSWORD='***'
-bash scripts/docker-build-and-push-web-remote-control.sh --tag 202604291800
-bash scripts/docker-build-and-push-web-remote-control-v3.sh --tag 202604291800
-bash scripts/docker-build-and-push-web-remote-control-v4.sh --tag 202604291800
-bash scripts/docker-build-and-push-web-remote-control-test.sh --tag 202604291800
-```
-
-`zcode/frontend/deployment-remote-v4.yaml` e `zcode/frontend/deployment-remote-test.yaml` são caminhos convencionais dentro do repositório de infraestrutura externa, não estão no repositório atual e não são criados por esta funcionalidade. Por padrão, os scripts de publicação usam `K8S_REPO_DIR=~/workspace/cgx-dev-k8s` para atualizar os arquivos de deployment correspondentes e criar um MR; se for passado `--skip-mr`, o script apenas constrói e envia a imagem, sem atualizar o repositório externo.
-
-A URL padrão do QR code no desktop não aponta para `/remote/__test__`. Para validar os assets de teste, sobrescreva pela variável de ambiente:
-
-```bash
-ZCODE_WEB_REMOTE_CONTROL_URL=https://zcode.z.ai/remote/__test__ pnpm dev:desktop
-```
-
-O nginx cuida apenas dos assets estáticos e do SPA fallback; ele não faz proxy do relay. O lado do navegador conecta direto ao relay correspondente conforme o endpoint do build:
-production usa `wss://zcode.z.ai/ws`, test usa `wss://zcode.z.ai/ws`. Quando o Desktop App oficial for maior ou igual a `3.4.0`, a URL do QR code usa
-`https://zcode.z.ai/remote/v4?...`; versões abaixo de `3.4.0`, pré-`3.4.0` da própria `3.4.0` ou versões que não possam ser interpretadas continuam usando
-`https://zcode.z.ai/remote/v3?...`. Pré-`3.4.0` acima desse patamar (por exemplo `3.5.0-beta.1`) usam v4; um valor de sobrescrita explícito em
-`ZCODE_WEB_REMOTE_CONTROL_URL` não é reescrito pela lógica de versão.
-
-Os quatro `Dockerfile.web-remote-control*` usam um builder Node para executar a instalação filtrada e o build Vite dentro do contêiner:
-`pnpm install --frozen-lockfile --filter @zcode/web... --ignore-scripts`. A etapa de runtime mantém apenas
-`nginx:alpine` e o `dist` estático, sem runtime Node. Os scripts de publicação não repetem o build no host, garantindo que os assets da imagem final venham somente do Docker builder.
+A seleção de versão do OSS, o isolamento de ambiente, as regras do latest, o roteamento do gateway e a verificação estão em [deploy de múltiplas versões](./remote-v4-static-deployment.md). Antes de publicar, é obrigatório concluir a [validação de dependências externas do Relay V2 e de aparelho real](./relay-v2-pairing.md#外部依赖与发布顺序07).
 
 ## Transporte
 
-O relay externo cuida apenas da camada de transporte:
+O device do desktop usa o [pareamento e a máquina de estados do Relay V2](./relay-v2-pairing.md#桌面-device-生命周期03): o main registra o dispositivo de forma preguiçosa com o JWT da conta atual, pede um token de uso único com role=device antes de cada conexão e então conecta em `/api/v1/remote/ws2?token&mid` do endpoint atual. Não é enviado `X-Device-ID`; o `auth_init` carrega apenas SID, meta e o client_ts em segundos.
 
-1. o desktop conecta ao relay externo do endpoint atual com o papel `device`, podendo enviar `device_mid` via `X-Device-ID`
-2. o mobile web conecta ao mesmo endpoint com o papel `terminal`, e o navegador envia a dica de roteamento pela query `mid=<device_mid>`
-3. o relay conclui `device_register_init`, `auth_init`, `auth_challenge`, `auth_response`, `auth_ack`
-4. as duas pontas fazem heartbeat com `pair_status_query` / `pair_status_ack`, com média de 10 segundos e jitter limitado entre 8 e 12 segundos; quando o último ACK não é atualizado há mais de 30 segundos, o watchdog local dispara a reconexão, e a reconexão disparada pelo watchdog acrescenta um pequeno atraso aleatório para evitar picos de reconexão
-5. todas as mensagens de negócio do ZCode ficam em `data.payload`; o relay não faz parse do payload
+O heartbeat do V2 é um `pair_status_query` de 4~6 segundos reamostrado a cada rodada (sem SID), com um watchdog de ACK de 15 segundos independente para detectar perda de conexão. Backoff exponencial em erro de rede/5xx; 401 interrompe e reporta auth-required; KICKED permite somente uma recuperação atrasada de 2~5 segundos em 60 segundos. O QR code é `/remote/v4?app_version=<ver>&sid=<sid>&mid=<mid>&name=<hostname>`, sem hash/t nem JWT/token. O terminal do celular também usa o token/auth_init do V2, e a camada compartilhada exporta apenas o contrato do relay V2.
 
-A sincronização em tempo real das tasks também respeita essa fronteira: o relay apenas encaminha `rpc-frame` entre mobile e desktop main, sem fazer parse de task, session, workspace ou eventos realtime do ZCode. A página de controle remoto do celular não tem Host próprio nem inicia um runtime de Agent independente. Ao receber `workspace-bridge-open`, o desktop main cria um novo attachment de `MessagePort` para o bridge do celular e o anexa ao service/CLI scope correspondente ao workspaceKey local/remoto do único Window Host da janela de desktop alvo. O relay apenas repassa `rpc-frame`, sem interpretar a semântica de negócio de task, stream ou workspace do ZCode.
-
-### Agendamento do heartbeat e recuperação de perda de conexão
-
-O heartbeat pertence apenas ao estado local de transporte do desktop device transport e do mobile terminal transport; o relay não armazena nem difunde o agendamento dos clientes:
-
-```text
-auth_ack / matched
-        │
-        ▼
-本地随机等待 8~12 秒
-        │
-        ▼
-发送 pair_status_query ─────────────┐
-        │                           │
-        └─ 再随机等待 8~12 秒         │
-                                    ▼
-                         收到 pair_status_ack
-                                    │
-                         重置 30 秒 ACK watchdog
-                                    │
-                         30 秒无 ACK → 本地重连
-```
-
-O heartbeat usa `setTimeout` recursivo e reamostra a cada rodada, mantendo o ciclo médio em 10 segundos; não é permitido reenviar heartbeats históricos perdidos durante período em segundo plano ou de suspensão do sistema. Os 30 segundos são um deadline temporal de ACK, não uma contagem fixa para inferir falha; a reconexão disparada pelo watchdog acrescenta um pequeno atraso aleatório, enquanto caminhos de erro explícito, parada do usuário e retorno ao primeiro plano mantêm a semântica de recuperação imediata já existente. O payload de heartbeat e o schema do protocolo relay permanecem inalterados.
-
-A identidade de pareamento é `device_sid`. A URL do QR é:
-
-```text
-/remote/v4?sid=<device_sid>&hash=<pass_hash>&t=<timestamp>&mid=<device_mid>&name=<device_name>&app_version=<app_version>
-```
-
-`hash` é material de chave HMAC e só aparece na URL do QR code e no armazenamento de credenciais; não é gravado em logs, no state do OAuth nem em setting.json.
+O relay cuida apenas de autenticação, pareamento, heartbeat e repasse de `data.payload`, sem analisar os negócios internos de task, session, workspace ou rpc-frame. O main anexa o attachment do bridge do celular ao Window Host existente, conforme o workspaceKey, e os limites de owner e de recuperação do continuous do desktop e do replayable do celular permanecem inalterados.
 
 ## App Payload
 
@@ -263,12 +136,14 @@ Depois de receber `data.payload` do relay, desktop e mobile devem passar primeir
 desktop main: o relay continua apenas repassando `data.payload`, e o desktop main continua apenas compondo e encaminhando o índice de workspaces/tasks já sincronizado pelo
 renderer, sem manter estado de negócio de task, stream, queue ou snapshot do ZCode.
 
+`bridge-degraded` não é uma app response comum que possa ser descartada. O Desktop main mantém, para a geração de bridge atual, um invalidation latch sem snapshot de negócio: ao trocar a sessão lógica de origem ou depois de um raw transport fault, ele libera imediatamente o attachment antigo do celular e reenvia a notificação quando o relay fica paired/send-ready de novo, até que um novo `workspace-bridge-ready` tenha sucesso e o latch seja limpo. Isso é apenas uma notificação confiável de nível de conexão, sem afundar fatos de task/session/queue/snapshot no main. Ao receber, o Mobile reconstrói com um novo `bridgeSessionId + bridgeGeneration + recoveryId`; depois da primeira falha de reconstrução, só é permitido continuar tentando com backoff limitado de 1s/2s/5s, mantendo o mesmo `recoveryId` no mesmo recovery flight e usando um novo bridge generation a cada tentativa. Qualquer sucesso zera o orçamento; com o orçamento esgotado, é preciso destruir antes o bridge protocol e o service registration antigos, e então entrar no estado terminal não ativo explícito `connection-recovery-timeout`, oferecendo uma retentativa de página inteira disparada pelo usuário. Não se pode continuar exibindo a bridge antiga degradada como active, nem usar estado de negócio no relay/main para mascarar a falha de recuperação.
+
 ## Desktop Main
 
 `packages/desktop/src/main/webRemoteControlManager.ts` é responsável por:
 
-1. conectar ao relay externo via `WebRemoteControlDeviceTransport`
-2. guardar o `deviceSid` não sensível nos AppSettings e o `passHash` no credentialService, via `WebRemoteControlRelayAuthStorageProvider`
+1. conectar ao relay V2 pelo `WebRemoteControlDeviceTransport` independente; o handshake, a reconexão e o heartbeat estão em [ciclo de vida do desktop](./relay-v2-pairing.md#桌面-device-生命周期03)
+2. o main chama as interfaces de registro/token diretamente com o fetch do Node; o `webRemoteControlRelayV2Device` guarda o `{deviceSid, userId, endpointOrigin}` não sensível, e o sid/passHash do V1 é limpo na primeira migração, sem gravar nova credential
 3. casar o workspace por `workspaceKey = workspaceIdentity?.trim() || workspacePath`
 4. criar um novo attachment de `MessagePort` para o mobile bridge atual
 5. codificar as mensagens RPC do `MessagePortProtocol` do host em fragmentos `rpc-frame` limitados usando o shared acknowledged adapter, e consumir os ACKs cumulativos
@@ -285,15 +160,17 @@ Mudanças de configuração como troca de endpoint podem pausar o runtime atual,
 O alvo persistido guarda apenas `workspacePath`, `workspaceIdentity` opcional e `initialTaskId` opcional.
 `remoteSessionId` pertence à identidade da conexão remota dentro deste processo e é proibido persistir entre reinícios do app. O novo processo precisa esperar o
 renderer sincronizar para o main o contexto de workspace já restaurado da janela atual, casar o último alvo por
-`workspaceKey = workspaceIdentity?.trim() || workspacePath` e iniciar o device relay usando o `remoteSessionId` do processo atual. Enquanto o alvo não tiver sido restaurado em nenhuma janela, o estado permanece `idle` e não deve iniciar outro local host, session remota ou runtime de Agent para a recuperação automática.
+`workspaceKey = workspaceIdentity?.trim() || workspacePath` e iniciar o device relay usando o `remoteSessionId` do processo atual. Antes de iniciar, é preciso ainda ler um JWT de login válido. Sem JWT, o estado permanece `auth-required`, o alvo habilitado é preservado e, depois da notificação de login do renderer, as credenciais são relidas e a tentativa é repetida. O logout interrompe imediatamente todos os runtimes de remoto, sem limpar o alvo habilitado. Com o JWT pronto e o alvo ainda não restaurado em nenhuma janela, o estado permanece `idle` e não deve iniciar outro local host, session remota ou runtime de Agent para a recuperação automática.
 
 ```text
 上次启动成功 ──> 保存 enabled target ──┐
                                          v
-新 desktop main -> 等待窗口 workspace sync -> workspaceKey 匹配 -> 启动 device relay
+新 desktop main -> 等待窗口 workspace sync -> workspaceKey 匹配 -> 等待 JWT -> 启动 device relay
                                          |
                                          +-> 不匹配：保持 idle，继续等待后续窗口同步
 
+登录通知 ──> 重读 JWT + 已同步 workspace ──> 重试恢复
+登出通知 ──> abort 启动 / 停止 runtime ──> auth-required（保留 enabled target）
 用户明确停止 ──> 清除 enabled target ──> 下次启动保持 idle
 ```
 
@@ -408,24 +285,30 @@ Eventos bloqueantes não podem ser filtrados como conteúdo comum owner-only. `p
 
 ## Web
 
-`/remote`, `/remote/v3` e `/remote/v4` são entradas de conexão direta por QR code, processadas antes da lógica OAuth de `/web-remote`.
+`/remote/v4` é a entrada de login V2 e de conexão direta por QR code; o modo de callback vem antes do portão de login. Os aliases de desenvolvimento/build seguem a configuração de rotas, e todos usam o V2.
 
 Fluxo de conexão do mobile web:
 
-1. analisar `sid/hash/t/mid/name/app_version`
-2. Autenticar como `terminal` via `WebRemoteControlTerminalTransport`
+1. Reconhecer o callback de code/state e salvar o retorno do estado de login; caso contrário, passar pelo portão de login JWT e só então analisar `sid/mid/name/app_version`. Sem SID, ler a lista de dispositivos da conta atual; se o dispositivo mais recente ainda estiver online, conectar direto, caso contrário mostrar uma lista de dispositivos atualizável; depois de escolher um dispositivo online, reescrever a URL.
+2. Pedir um token com role=terminal via `WebRemoteControlTerminalTransport`, conectar em `ws2?token&mid` e então enviar o `auth_init(device_sid)` do V2; 401 volta para o login, e AUTH_FAILED mostra a falha de titularidade da conta com a ação de trocar de conta.
 3. Após o pareamento, enviar `bootstrap-request`; o v4 usa o `desktopAppVersion` opcional da resposta para validar a URL.
    Na primeira inconsistência, corrigir e navegar; se a página já foi acessada, manter a página e pedir confirmação antes de recarregar; em desktops antigos sem o campo, manter o comportamento original.
    Na reconexão/retorno ao primeiro plano, revalidar mesmo com o bridge saudável; os limites exatos estão em [sincronização de versão v4](./remote-v4-static-deployment.md#v4-url-与桌面实际版本同步).
 4. Escolher o workspace inicial por `mobileViewState -> initialViewState -> first workspace`
 5. Se o workspace remoto alvo ainda não tiver condições de bridge, renderizar o `Root` somente com home, preservando a lista de workspaces e a entrada de reconexão;
    nesse caso nenhum workspace bridge é criado e nenhuma operação de tarefa dependente de serviço de workspace é liberada. Sem workspaces opcionais, mostrar a página de erro.
+   A lista de workspaces é lida pelo ProjectSidebar a partir de `listWorkspaces` e dos pushes quando não há projectService; o comportamento está em
+   [projetos virtuais §6.0.3](../superpowers/specs/2026-09-09-virtual-project-design.md#603-手机项目新目录的-shared-host-admission).
+   O serviço vazio do home-only segue o contrato de nomenclatura do `ProxyChannel`: `onXxx` é um Event que nunca dispara, `onDynamicXxx(arg)` retorna esse Event de forma síncrona,
+   e os demais métodos não implementados explicitamente retornam `undefined` de forma assíncrona. Depois de montado, o `Root` home-only marca ready do mesmo jeito que o `Root` com bridge,
+   e as mudanças de estado de pareamento posteriores apenas atualizam o banner, sem trocar por uma página de carregamento nem remontar o home.
+   Quando a mesma sessão remota já aberta for desconectada depois, os services inválidos são desregistrados, o conteúdo somente leitura e o rascunho do `Root` atual são preservados, e o banner de desconexão é exibido; ver [reconexão de workspace](./mobile-remote-workspace-reconnect.md).
 6. Quando o alvo puder estabelecer bridge, enviar `workspace-bridge-open` e usar `createAcknowledgedWebRemoteControlRelayProtocol()`
    para adaptar os app payloads `rpc-frame` / `rpc-frame-ack` a um `IMessagePassingProtocol`, mantendo fragmentação, ACK e recuperação de transporte.
 7. Depois de `connectViaProtocol()`, renderizar o `Root`; em tela estreita o `WebRemoteControlMobileShell` gerencia as páginas de início/chat, e em
    tela larga usa a barra lateral do controle remoto. A seleção do workspace inicial e o ponto de chegada da página são dois estados distintos; não se pode confundir ter uma task selecionada com entrar automaticamente no chat.
 
-`/web-remote` continua sendo a entrada do login OAuth ZAI e da página de espera; `remoteControlToken` / `relayOrigin` pertencem apenas ao comportamento antigo de `/web-remote` e não se aplicam às novas rotas por QR code `/remote`, `/remote/v3` ou `/remote/v4`.
+O V1/HMAC do celular, a rota `/web-remote`, a página de espera já logada e o antigo HTTP bootstrap de `remoteControlToken` / `relayOrigin` foram removidos. O owner de autenticação e de conexão, a recuperação de erros e a ordem de eventos estão em [Relay V2](./relay-v2-pairing.md#手机首次进入与恢复05).
 
 ## Feature Exposure
 
@@ -441,11 +324,11 @@ A fiação atual está em `packages/desktop/src/main/index.ts`, e a implementaç
 ## Fronteira da chamada de inicialização e sua relação com o XSS do Office
 
 Abrir o `WebRemoteControlDialog` é o ponto de entrada já existente para o usuário entrar no controle remoto Web. Quando o alvo atual não tem runtime reutilizável, o
-renderer envia imediatamente o IPC de inicialização; o refresh do QR code continua usando o diálogo de confirmação já existente dentro do renderer. Para preservar a experiência de controle remoto já existente, o
-Desktop main não sobrepõe mais uma confirmação nativa secundária para iniciar ou atualizar.
+renderer envia o IPC de inicialização depois de passar pelo portão de login; o QR code não oferece mais a ação de atualizar o pareamento. O
+Desktop main não sobrepõe uma confirmação nativa secundária.
 
 ```text
-WebRemoteControlDialog open / confirmed QR refresh
+WebRemoteControlDialog open (signed in)
         │
         ▼
 Desktop main: window/source check
@@ -459,15 +342,15 @@ Manager: consume ticket exactly once -> start relay
 O manager continua gerando um ticket interno de curta duração e uso único, vinculado a `windowId + workspaceKey + remoteSessionId`, onde
 `workspaceKey = workspaceIdentity?.trim() || workspacePath`;
 o ticket não pode entrar em um protocolo compartilhado gravável pelo renderer nem ser escrito em logs, telemetria ou configurações comuns. Ele serve para restringir
-a chamada e a consistência de alvo de `startAuthorized` / `resetPairingAuthorized`, mas, como a mesma requisição IPC emite o
+a chamada e a consistência de alvo de `startAuthorized`, mas, como a mesma requisição IPC emite o
 ticket imediatamente, ele não é autorização do usuário e não impede que um renderer já comprometido chame o IPC de inicialização.
 
 O tipo de dependência do manager no handler IPC só pode expor `authorizeStart`, `startAuthorized`,
-`resetPairingAuthorized`, `stop` e `getStatus`. `start` / `resetPairing` diretos pertencem apenas à implementação interna
-do ciclo de vida do manager e não podem entrar na interface de dependências IPC alcançável pelo renderer. O tipo de retorno público mantém o ramo de compatibilidade `cancelled`,
-mas a cadeia atual de inicialização e refresh do Desktop não produz esse estado final.
+`notifyAuthStateChanged`, `stop` e `getStatus`. O `start` direto pertence apenas à implementação interna
+do ciclo de vida do manager e não pode entrar na interface de dependências IPC alcançável pelo renderer; o IPC de atualização do pareamento foi removido. A notificação de autenticação contém apenas o estado, e o main relê as credenciais. O tipo de retorno público mantém o ramo de compatibilidade `cancelled`,
+mas a cadeia atual de inicialização do Desktop não produz esse estado final.
 
-Inicialização, refresh do pareamento, fechamento de janela, parada pelo usuário e expiração do ticket precisam invalidar os tickets não consumidos. Restaurar
+Inicialização, fechamento de janela, parada pelo usuário e expiração do ticket precisam invalidar os tickets não consumidos. Restaurar
 "habilitado da última vez" na inicialização do app continua sendo uma operação interna de ciclo de vida e não pode contornar a vinculação workspace/session.
 
 A fronteira da causa raiz do XSS em documentos do Office é definida em `docs/ui/office-file-preview.md`: links não confiáveis precisam passar por uma allowlist de
@@ -508,3 +391,11 @@ Restrições:
 - Um reinício do Runtime gera uma nova epoch de run; interactions antigas, Allow once e pending sensitive commands não podem ser reutilizados entre epochs.
 - Com `workspaceHookTrustEnabled=false`, o Runtime não lê o Trust store nem cria review; o Protocol Host pode desligar esse campo na fronteira de trusted bootstrap para reverter ao hard block.
 - Negação gerenciada sempre tem precedência sobre o Trust estabelecido por UI/CLI; relay/main apenas roteiam command opaco e projection, sem manter cópia de policy, Trust store ou lease.
+
+### 2026-09 Navegação de diretórios de projetos virtuais
+
+O home do celular reaproveita o ProjectSidebar e lê o conjunto de linhas de projetos do Host pela attachment base atual; o shell do celular possui apenas o home/chat e o estado de retorno do navegador. `workspace-bridge-open.project` é uma intenção estrita de projectId/hostId, encaminhada pelo main ao ProjectService da Window Host para preparar o diretório de execução. Ele permite criar ou reaproveitar o logical scope de diretório em uma Source física já online, e não permite criar implicitamente uma nova conexão física, um Host ou um Agent. Antes e depois da preparação, são verificados a geração de membro da conexão, a entrada do projeto e o objeto da conexão física; o main mantém apenas a promise RPC da navegação atual, e uma nova tentativa com a mesma bridge identity não realoca o diretório; cancelamento, fechamento da janela ou navegação posterior invalidam os resultados tardios.
+
+Depois que o Host devolve o workspaceIdentity, o remoteSessionId e o cwd confiáveis, o bridge replayable do celular é estabelecido pelo mesmo shared-host attachment. Projeto, provider e a entrada inicial são passados apenas na handover do Root da Web, e o main não guarda rascunhos nem estado de negócio de tarefa. O continuous direto do desktop, a recuperação por snapshot/gap do celular, o owner/lease e a fila única do CLI CommandInbox permanecem inalterados.
+
+O rascunho de projeto ainda não submetido no celular reaproveita a persistência de composer já existente no Renderer: o scope `__draft__` por workspaceKey guarda o projectId opcional, restaurado junto com o corpo e o modelo. A reconstrução do Root ou o reload da página restauram essa escolha antes do prewarm; um rascunho novo explicitamente não categorizado grava NULL, e a abertura de um histórico com taskId explícito tem prioridade. Depois de virar uma tarefa persistente, o projectId não é copiado para o session composer scope; a pertença de uma tarefa já submetida continua sendo exclusiva da biblioteca do app do Host. Nem o main, nem o relay, nem o shared-host transport mantêm esse rascunho.

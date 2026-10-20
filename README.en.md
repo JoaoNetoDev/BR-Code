@@ -13,6 +13,8 @@ BR Code is an AI coding workbench — a Brazilian adaptation of [ZCode](https://
 
 ## Updates
 
+- 2026-10-19: synced with ZCode v3.16.2.
+- 2026-10-16: synced with ZCode v3.16.1.
 - 2026-10-10: synced with ZCode v3.15.1.
 - 2026-09-23: synced with ZCode v3.14.3.
 
@@ -104,6 +106,8 @@ When starting the HTTP entry of the general web service directly, API/WebSocket 
 The build is detailed in the packaging section. `pnpm build:zcode` only generates the distribution package; it does not replace an existing `zcode` on the `PATH`. If the command still points to an old installation, check it with `command -v zcode` (macOS / Linux) or `where.exe zcode` (Windows).
 
 ### CLI Source Development
+
+See the [CLI usage guide (Chinese)](apps/zcode-cli/docs/usage/README.md) for model configuration, non-interactive runs, tools and extensions, batch evaluation, and trajectory capture.
 
 To develop the TUI or agent directly, run the entry from the source code:
 

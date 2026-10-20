@@ -21,6 +21,24 @@
 
 ## Decisões de limite
 
+### Falha do projeto local padrão (2026-09-15)
+
+Quando o diretório do projeto local selecionado na restauração da inicialização não existe, não é um diretório ou é inacessível, o padrão é entrar no rascunho sem projeto de 「任务」, sem definir o projeto indisponível como o workspace ativo. A entrada do projeto inválido e as tasks históricas são preservadas; não se exclui o projeto nem se cria uma session formal. O rascunho segue o cwd app-owned devolvido por `fileService.ensureConversationWorkspace()`, com `projectId=null` e `activeTaskId=null`.
+
+A escolha da restauração continua sendo calculada uma única vez por `restorePersistedRemoteWorkspaceSessions` e submetida ao TabStore:
+
+```text
+Main verifica o diretório local padrão → unavailableWorkspacePath
+Host resolve o cwd sem projeto → Renderer calcula a lista de restauração e o índice ativo
+  → primeiro frame ativa o workspace sem projeto → primary draft / composer existentes
+  → active-first depois completa a entrada inválida, mantendo a escolha atual do usuário
+```
+
+Também cobre a restauração da nova `lastActiveWorkspace` e da lista antiga, e a ordem da lista não afeta a escolha de fallback. Quando a resolução do diretório sem projeto falha, a capacidade de restauração de erro/somente leitura existente é preservada, sem passar um diretório inválido por um rascunho enviável. Diretório local válido e navegação explícita por task histórico mantêm a semântica existente; o remoto com o mesmo caminho não usa a marca de indisponibilidade local.
+Esta rodada só muda a navegação da inicialização do desktop, e não a atribuição de estado do Host/CLI, o schema de persistência, nem os limites de restauração do shared-host attachment do celular e do `web-remote-replayable`.
+
+Verificação: testes unitários da função de restauração cobrem a versão nova/velha, a ordem, o active-first e a nova escolha do usuário; o Desktop E2E, após um reinício completo, afirma que o rascunho sem projeto aceita entrada, que o diretório inválido continua inexistente e que ainda aceita entrada após um refresh.
+
 | Limite         | Decisão                                             | Inclui                                  | Exclui / poda               | Origem                |
 | ---------------- | ---------------------------------------------------- | ----------------------------------------- | ------------------------------- | --------------------- |
 | cold start do app       | restaura as tabs de workspace, mas não restaura o dono de sessão visível       | tabs locais, SSH/WSL/Docker                  | não apaga sessões históricas              | usuário                  |

@@ -263,6 +263,28 @@ Referências: [send](https://open.feishu.cn/document/server-docs/im-v1/message/c
 
 A versão atual tanto da configuração quanto do conteúdo de estado é 3. Quando o arquivo v3 correspondente não existe, o Repository importa em uma única direção os antigos `bot-config.json` e `bot-state.v2.json` (estado anterior em `bot-state.json`) e grava v3 imediatamente. Os arquivos antigos são mantidos apenas para rollback, sem modificação, sem remoção e sem escrita dupla contínua. Depois que o v3 existe, apenas os novos campos são lidos, e erros de parsing ou de IO são expostos diretamente, sem voltar secretamente para os arquivos antigos. Modelos antigos são convertidos conforme a identidade explícita do Todo 72; quando não for possível determinar, o campo fica vazio e o Bot é preservado. O App antigo, após o rollback, vê o snapshot de bots de antes do upgrade e não promete ver bots adicionados, removidos ou modificados na versão nova.
 
+## Resolução de identidade remota R3 (A3, 2026-09-16)
+
+A verificação de conexão do Bot, o reconexão explícito, o runtime attachment, a lista de workspaces, o contexto e o casamento de autorização devem usar a mesma Source stable identity. O `lastWorkspaceSession` do controlador é um snapshot de compatibilidade de fallback, e não o diretório de conexões do R3.
+
+- O Window Host injeta um resolver estreito, usando `SourceServerDirectory` e o `WindowRemoteConnectionRegistry` atual. A camada de services não importa implementações do Desktop.
+- A stable identity é casada por Source de forma exata; a legacy identity só é convertida quando um Profile / histórico de workspace já handshakeado prova um mapeamento único. É proibido adivinhar apenas por path, alias ou nome de host semelhante.
+- Online, prioriza-se o logical session target já conectado na janela atual; não se pode reportar desconexão apenas porque o preferred Profile mudou. Offline, apenas `/reconnect` usa os credential refs formais do Profile ativo atual; o lookup não descriptografa credenciais nem cria conexões.
+- Quando um Profile retired/rebound faz a rota antiga corresponder a múltiplos Sources, a migração é recusada; quando o destino está ausente, a identidade é ambígua ou a janela não tem sessão, não há fallback para o Local Host.
+- Os workspace refs, o context e as allowedWorkspaces exatas do Bot são normalizados sob demanda pelo mesmo resolver; a semântica de permissão de `*` ou de path local não muda. O taskId já vinculado, as pending interactions e as draft options são preservados. Uma legacy identity desconhecida é preservada e recusada pela fronteira de conexão, e não por upgrade de mesmo path.
+- O runtime cache é isolado por stable workspace + logical session/geração atual, e conexões antigas não podem ser reutilizadas; obtenções concorrentes de task/model da mesma geração compartilham um attachment. Resultados tardios de uma geração trocada ou de uma sessão fechada são liberados e não entram no cache novo.
+- O Main continua executando o casamento exato de window + path + stable identity + target. O antigo `lastWorkspaceSession`, o mirror de credenciais e a Source canonical storage key não são reescritos.
+
+```text
+Bot legacy / stable ref
+  -> resolver do owning Window Host (mapeamento provado pelo Directory)
+  -> stable workspace ref + current route generation
+  -> roteamento exato do Main -> o remote scope já existente do mesmo Window Host
+  -> task / model selection do Environment de destino
+```
+
+A correção não muda os delivery profile, stream, snapshot, queue ou o estado de login do Source de cada um de Bot/desktop/mobile, nem amplia o escopo de produto do próprio Source Core para iniciar Bots. A validação usa Bot actor/mensagens sintéticos e repo isolado, sem enviar mensagens a plataformas de chat reais.
+
 ### Ações de entrega de respostas em grupo (2026-09-07)
 
 Desktop e mobile não exibem mais a faixa persistente de sincronização de grupo/workspace compartilhado acima do composer. A sincronização de grupo e os rótulos de origem continuam ativos.

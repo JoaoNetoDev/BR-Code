@@ -1,5 +1,81 @@
 # Task Grouped View
 
+## Decisão de restauração de 2026-10-13 (atual)
+
+Status: implementado; os casos GUI permanecem em manual-review/pending. A decisão abaixo sobrescreve a descrição histórica de implementação deste documento.
+
+- O menu de filtro é, na ordem, "por projeto / por group / atualização recente", sem restaurar o antigo seletor de dois níveis.
+- Uma task pertence a no máximo um projeto e um group. O group permite misturar tasks de projetos locais e remotos; ele organiza apenas membros e ordem, e não altera project_id, cwd, diretórios adicionais, configuração, permissões ou o tempo de atividade do CLI.
+- Mantêm-se os groups existentes manuais, gerados automaticamente, vazios e de sistema (agendados e ociosos); não se criam mais groups automaticamente por workspace. A consulta é somente leitura, sem restaurar o arquivamento forçado de 7 dias; o arquivamento automático continua seguindo o agendador do Host e as preferências do usuário.
+- Restauram-se nome, sete cores, collapsing, expandir/recolher tudo, arraste manual, fixação no topo, lista virtualizada e cancelamento de group. O cancelamento de group move todos os membros, na ordem original, de volta à posição original no nível superior, sem excluir nem arquivar tasks.
+- A visualização por group reaproveita no topo a área global de tasks fixadas, e o corpo não repete as fixadas; tasks arquivadas ficam ocultas, mas mantêm membros e posição. pin/unpin e archive/unarchive não alteram a relação de group; somente a exclusão explícita limpa as referências.
+- O menu de task das três visualizações compartilha adicionar/remover de group. A movimentação de projeto e a movimentação de group são expressas separadamente e não se modificam mutuamente.
+- A criação dentro de um group fixa o placement nesse group; o projeto de execução continua sendo escolhido pelo Composer. A seleção comum de projeto e a confirmação do diretório remoto após a conexão do chat seguem o placement desse rascunho; um rascunho novo iniciado a partir de uma session existente não lê o group do rascunho residual. A criação global na visualização por group herda o group da task atual, caso contrário vai para o nível superior. A nova task de fork entra no nível superior.
+- O placement é ligado a uma identidade de rascunho estável; o primeiro envio reaproveita o single-flight de pré-aquecimento existente; após a criação bem-sucedida, a entrada no group é idempotente e não pode ser inferida pela navegação comum de task. Se o group de destino foi cancelado, a task entra no nível superior. Uma falha no envio da organização retenta apenas a ação de organização, sem criar a session de novo.
+- A confirmação do diretório de primeiro envio e o envio da organização são concluídos separadamente: assim que a linha autoritativa da task chega, o diretório compartilhado é publicado e a promoção do detalhe é concluída; o registro no group é executado de forma independente, e a releitura do group não entra na barreira de primeiro envio. O cancelamento da navegação encerra imediatamente a espera de UI; se a linha da task ainda não chegou, o owner do diretório original retém o callback de organização desta criação, executado uma única vez após a confirmação, sem navegar de volta para um detalhe já abandonado. Registro pendente ou com falha não pode prender a leitura do diretório, bloquear outras tasks ou disparar criação duplicada; a falha retenta com o mesmo creationId.
+- Os groups de sistema continuam recebendo novas tasks agendadas/ociosas; o primeiro registro é enviado na mesma transaction de membros/ordem, a sincronização repetida não repõe a task no topo, e um restart após o usuário mover ou reorganizar não traz a task de volta.
+- A preferência de exibição pertence ao cliente atual, e uma nova visualização válida existente tem precedência. Quando a nova preferência ainda não existe, migra-se a antiga `zcode-sidebar-task-preferences.organizeBy`: `grouped` → por group, `chronological` → atualização recente, `project` → por projeto; sem preferência válida, o padrão é por projeto. Usuários que escolhiam por group antes da atualização continuam com por group por padrão depois dela; trocas explícitas posteriores seguem a nova preferência. A ordem de projetos e a de groups não se afetam, e o diretório de projetos do Composer não responde à troca de visualização.
+
+```text
+projeção de tasks/projetos do Host de pertenência ──┐
+                         ├─ owner de diretório compartilhado ── por projeto / por group / atualização recente
+estrutura de groups do Host de controle ────┘
+menu/arraste -> validação do Host -> transaction única no SQLite -> commit -> invalidação por broadcast -> releitura
+rascunho -> captura de identity/placement -> mesma criação -> confirmação do diretório autoritativo -> publicação do diretório / promoção da task real
+                                                        └-> envio de entrada no group -> releitura do group
+desktop continuous / celular replayable -> mesmo owner de organização, cadeia de session inalterada
+```
+
+- Reutilizam-se task_groups, task_group_members e task_group_view_node_orders; as tabelas de bootstrap ficam apenas para histórico. O serviço de groups oferece leitura de estrutura, CRUD, movimentação de um único nó e registro inicial de task, salvando no tasks-index.sqlite do lado do controle.
+- A referência de task mantém Host, workspace identity canônica e taskId; um remoteSessionId temporário não entra na chave de persistência. Reutiliza-se a árvore de tasks compartilhada atual, sem criar outro cache de fatos de task e sem conectar a remoto ou levantar o Agent para consultas de group.
+- A movimentação submete apenas os nós e a âncora envolvidos, revalidando origem e destino dentro da transaction; invalidações são recusadas e a lista é recarregada. Não se sobrescreve o banco inteiro com a lista visível, preservando membros offline/arquivados/fixados. Queda de conexão ou ausência de linha no snapshot não significa exclusão. A migração de identity remota atualiza ao mesmo tempo os membros e a key de nível superior; respostas atrasadas não podem restaurar entradas já removidas.
+- Cancela-se a conversão de Group → Project e mantêm-se a passagem de fatos de workspace → Project e a de CLI. Não se modificam IDs de migration/checksum de SQL existentes nem se reexecutam migrations já contabilizadas; o estado de inicialização necessário usa migrations aditivas. Este refactor não foi publicado, e devbases já convertidas não têm projetos apagados por adivinhação de nome ou diretório.
+
+### 2026-10-14 Restauração da apresentação e das interações da versão antiga
+
+A apresentação e as interações seguem o código-fonte de `fd2f4f38a4a^1` (antes do merge da remoção de groups), ou seja, `workspace-grouped-tasks/`, `WorkspaceGroupedTasksSection.tsx` e a barra de ferramentas da sidebar; as capturas de tela servem apenas como conferência auxiliar. Restauram-se os componentes originais, com a fiação adaptada ao diretório e ao serviço de organização atuais, sem redesenhar estilos ou gestos.
+
+- O filtro "por group" usa `Hash`; a entrada de novo group e a de colapsar tudo voltam para a barra de ferramentas da lista, sem inserir de novo o título "por group" na lista.
+- Restauram-se a densidade original das linhas de task, o esmaecimento do título, as ações de tempo/estado/hover, o menu de contexto, o diálogo de renomeação e a entrada de arquivos.
+- Restauram-se o marcador circular de cor do group, a seta após o título, a contagem, MessageCirclePlus, a linha vertical colorida e o estado vazio pontilhado clicável. Clicar no marcador circular muda a cor; título/cabeçalho recolhem; o botão direito renomeia, muda a cor ou cancela o group. Os groups de sistema, como no componente antigo, proíbem renomear e cancelar. A criação gera primeiro o group, depois entra na edição de nome e abre o menu de cores; preservam-se a proteção de IME e o foco do menu.
+- Durante a renomeação só o arraste é desabilitado, sem marcar o campo de entrada como indisponível; o retorno de foco no fechamento do menu não pode selecionar de novo todo o texto já digitado, e o Enter fora do IME submete explicitamente. Isso é verificado pela regressão do componente real e pela renomeação por toque longo no celular.
+- Restauram-se o arraste de linha inteira, a inserção antes/depois conforme a direção, os pontos de queda no cabeçalho/rodapé do group e em group vazio, o recolhimento temporário do group arrastado com restauração, a animação de preview e a entrega ao split do Workbench; quando o split assume, não se submete a movimentação de group. A lista virtualizada original e a fixação fora da máscara são reaproveitadas.
+- A exibição do rascunho dentro de um group usa o placement do rascunho atual do Composer; não se pode criar outro fato de task nem uma cópia de organização persistida. Quando o corpo vazio não é persistido, a exibição do rascunho atual assina o `draftTaskGroupId` do rascunho em memória do workspace existente; ao ver uma session, mostra-se apenas o rascunho de texto não submetido realmente salvo, sem linhas vazias residuais após o primeiro envio. Fechar limpa apenas a intenção em memória e o campo de group do texto salvo, preservando corpo, projeto, modelo e estado de pré-aquecimento.
+- A entrada de criação do group de sistema ocioso continua abrindo Automations; fechar a linha do rascunho revoga apenas a intenção de group, preservando corpo e seleção de projeto.
+- A view de que o componente antigo precisa é apenas a projeção de apresentação da árvore de tasks atual e da estrutura de groups do Host. A preview de arraste vive somente durante o gesto e a submissão, sendo limpa ao concluir ou falhar; o soltar submete apenas o nó atual e a âncora, preservando a validação de origem, sem restaurar a escrita em massa de applyOrder. A correção CR-01 do diretório de primeiro envio e do registro de group independente permanece inalterada.
+
+GRP11 (accepted): conferência do componente antigo no desktop e no celular, nos temas claro e escuro; clique real na cor, renomear/cancelar com o botão direito, criação de group vazio, rascunho, arraste de linha inteira entre group e nível superior, ordenação de group, cancelamento e fixação no topo, asseverando a pertença ao Host e que a task atual não se confunde.
+
+O resultado desta rodada no celular Web shared-host foi 1/1 (`desktop-e2e-20261014050943064-p51374-dd60ab66d87ef0e2`): toque no marcador circular para mudar a cor, expandir/recolher, renomear e cancelar group por toque longo, lidos de volta pelo Host real; as capturas de tela dos temas claro e escuro e os limites de viewport foram conferidos. O resultado final do desktop está na [matriz de cobertura](../testing/conversation-session-e2e-coverage-matrix.md). Os casos GUI permanecem em manual-review/pending, e isso não autoriza estender a conclusão a celulares físicos, Windows/Linux ou a uma reconexão remota real.
+
+### Aceitação da restauração
+
+| Case  | Setup → Action → Asserção                                                            | Evidência          |
+| ----- | ------------------------------------------------------------------------------------------ | ------------------ |
+| GRP01 | group antigo/group vazio/group de sistema/fixture de dispositivos mistos → duas atualizações → groups preservados, sem projeto Group, projetos de workspace normais | hash do SQLite/ledger |
+| GRP02 | três visualizações → troca/recarregamento → preferência e collapsing restaurados, ordem dos projetos e task atual inalterados | GUI/localStorage   |
+| GRP03 | criação/renomeação/mudança de cor/cancelamento de group → restart → persistido e sem excluir tasks | GUI/SQLite         |
+| GRP04 | nível superior/dentro de group/group vazio e membros invisíveis → menu/arraste → só o nó alvo muda, o escopo de execução não muda | GUI/Host           |
+| GRP05 | task dentro de group → pin/archive/restauração/delete → sem duplicatas, posição restaurada, exclusão explícita limpa as referências | GUI/SQLite         |
+| GRP06 | rascunho pré-aquecido → primeiro envio/troca de group/troca de projeto/cancelamento de group/ACK atrasado → uma session, placement sem cruzar groups | GUI/chamada de criação |
+| GRP07 | primeira marcação de agendada/ociosa → sincronização/remoção/restart → entrada no group uma única vez, respeitando a organização | Host/GUI           |
+| GRP08 | Hosts diferentes com o mesmo caminho e taskId → grupo misto/offline/reconexão/migração de identity → sem cruzar tasks, sem perder membros | identity/GUI       |
+| GRP09 | movimentação concorrente em duas janelas/celular → submissões intercaladas → nós não relacionados não são sobrescritos, âncoras invalidadas recusadas | duas conexões/SQLite |
+| GRP10 | lista grande/atividade contínua/arraste em split → rolagem e troca → sem flash vazio, split não muda a ordenação | GUI/runtime        |
+
+A aceitação cobre desktop e celular shared-host, os temas claro e escuro e os idiomas chinês e inglês. Capturas de tela estreitas não substituem a evidência do celular. Os novos casos GUI entram primeiro em manual-review/pending, e a execução real e a admissão formal são registradas separadamente. A permutação completa de modelos/providers, o refactor do agendador e a correção de devbases reais estão fora de escopo.
+
+### Validação desta rodada (2026-10-13)
+
+- macOS desktop 4/4 aprovado, runId: `desktop-e2e-20261013112431949-p31219-24a66fb6a84a439e`. Cobriu a migração da preferência antiga de group, a precedência de recarga da nova view, a edição de group, o primeiro envio, a restauração de fixação/arquivamento, o arraste de alça entre groups, o scroll virtual de listas de mil linhas, a fixação no topo e o collapsing recarregado; as capturas cobrem o tema claro em chinês e o tema escuro em inglês.
+- Banco de dados, comandos de organização concorrentes, pertença ao Host, placement de rascunho e projeção da view foram verificados pelos testes unitários afetados. O SQL/checksum de migration existente permanece inalterado; o novo `0006_task_group_admissions` registra a primeira entrada, evitando que tasks de sistema trazidas de volta pela sincronização sejam repostas depois de o usuário movê-las. O baseline de schema e o resultado gerado coincidem.
+- O resultado no celular shared-host e as evidências estão na [matriz de cobertura](../testing/conversation-session-e2e-coverage-matrix.md). A interação completa de grouping por SSH/WSL/Docker reais, a recuperação do ACK de criação após queda de rede e a pressão de atividade contínua por tempo prolongado não foram verificadas. Não se afirma, com base nisso, que todas as combinações de GRP01–GRP10 estão cobertas, e não há promoção automática.
+- `pnpm typecheck` (incluindo tipos de E2E), `pnpm lint`, `pnpm architecture:check --changed` e `pnpm db:schema:check` passaram; os 8 arquivos de teste unitário afetados, que falharam na primeira rodada por asserções antigas/mocks de serviço, foram corrigidos e revalidados de forma direcionada em 50/50, com regressão final do núcleo 26/26 e da sidebar 20/20. A suíte unitária raiz completa não foi chamada. As 10 ocorrências da varredura de termos de código aberto estão em documentos históricos já existentes, e as novas são 0.
+
+## Histórico de implementação (não representa a cadeia de dados atual)
+
+> O texto abaixo registra a implementação de groups de 2026-09 e anteriores; o comportamento atual segue a decisão de restauração acima. O bootstrap antigo de workspace, o arquivamento automático na consulta de groups e o antigo seletor de dois níveis não são restaurados.
+
 `Group` é a entrada visível ao usuário da área de tarefas da barra lateral, usada para exibir em uma mesma lista misturada os task groups entre workspaces definidos pelo usuário e as tasks não agrupadas. O estado interno, as interfaces e a persistência continuam usando a nomenclatura `grouped` / `Grouped`, evitando quebrar as estruturas de dados existentes.
 
 A implementação atual suporta a entrada de visualização `Group`, `New Group`, exibição misturada de tasks/groups entre workspaces, mover para group / mover para fora do group pelo menu, persistência em SQLite, submissão otimista, rename de group, cor de group, menu de contexto no group header e ordenação por arraste task sobre task com escopo limitado.

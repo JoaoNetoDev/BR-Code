@@ -160,22 +160,10 @@ quando não contém um tool call completo e satisfaz qualquer um destes stop rea
 - `finishReason` normalizado igual a `"length"`;
 - reason bruto `max_tokens`, `max_output_tokens` ou `model_context_window_exceeded`.
 
-Um `model_context_window_exceeded` em resposta bem-sucedida pertence à recuperação por Continue acima e não pode, apenas por esse marcador de término, virar
-Reactive Compact; o mesmo vale quando o reason normalizado é `other` ou `length` e o conteúdo e o usage estão totalmente vazios.
-Após 3 Continue consecutivos esgotados, o erro de output-limit continua sendo reportado e o raw reason não faz o fluxo ir para Reactive Compact.
+Um `model_context_window_exceeded` em resposta bem-sucedida continua seguindo a recuperação por Continue acima quando há um partial válido.
+A nova exceção vale apenas para o overflow explicitado sem corpo, sem reasoning válido (incluindo metadata opaca) e sem tool call completo: o Adapter o converte no `ModelContextExceeded` já existente antes do finish/completed bem-sucedido, e o caminho de recuperação de exceção já existente do Core executa o Reactive Compact e então refaz a requisição atual, sem acrescentar Continue. O usage não participa da determinação de saída vazia.
 
-Esse é um comportamento intencional (não é bug), confirmado por teste isolado e consistente com o commit original da implementação
-`6e7ef0d6171c54d6cd65c88bd79762ad0a9be54d`: o `model_context_window_exceeded` de uma resposta bem-sucedida é mapeado como `apiError: max_output_tokens`, e mesmo
-com o conteúdo totalmente vazio ele passa por três Continue. A proposta inicial de "priorizar o Compact conforme o raw reason"discussida na história foi corrigida por esta verificação e não é o acordo final.
-
-A distinção no nível do protocolo é entre "geração truncada" e "requisição que falhou": a
-[definição de overflow da context window da Anthropic](https://platform.claude.com/docs/en/build-with-claude/context-windows#context-window-overflow-behavior)
-permite que modelos que suportam esse comportamento aceitem requisições em que o input em si não excede a janela, mas input + `max_tokens` excede, retornando esse stop reason
-apenas quando a geração preenche a janela; se o input em si já excede, retorna `400 invalid_request_error` (prompt is too long).
-Esse marcador continua significando que a capacidade de contexto foi atingida e não significa que a janela não tenha sido preenchida; é uma resposta válida mas truncada, e não se pode
-construir uma exceção de requisição só pelo nome. Consulte a [definição de stop reason](https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons#model_context_window_exceeded).
-As três recuperações e o tratamento de conteúdo vazio são um acordo confirmado por este projeto, e não uma garantia de protocolo de que a continuação terá sucesso; cada Continue
-ainda volta ao outer loop existente, preservando Micro/Auto Compact, e, se mais tarde for lançada uma exceção real de overflow, ela segue para o Reactive Compact.
+O comportamento original de passar por três Continue mesmo com o conteúdo vazio era um design intencional; desta vez só muda essa fronteira de overflow vazio. O partial válido continua preservando corpo/pensamento e seguindo a regra de continuação original; o `length` comum e o limite de output token não mudam, e o branch de compatibilidade de overflow em resposta bem-sucedida já existente no Core e seus comentários explicativos permanecem iguais. O Adapter não julga se é possível dar Continue e também não muda a passagem de metadata no modo não streaming.
 
 Os limites normais de padronização dos adapters de protocolo são os seguintes; o runtime consome apenas os fatos normalized/raw e não reinfere a partir do nome do evento HTTP:
 

@@ -1,5 +1,14 @@
 # Sidebar Task View Switcher
 
+## Comportamento atual (2026-10-13)
+
+O filtro da barra lateral é 「按项目」/「按分组」/「最近更新」, cada item mantendo seu ícone, sem restaurar o antigo switch de dois níveis.
+Agrupamento e projeto são independentes entre si; o contrato específico está em [visão de agrupamento](task-grouped-view.md).
+Quando o cliente tem uma nova `view` válida, ela é mantida; caso contrário, a preferência antiga `organizeBy` é migrada: `grouped` → `grouped`, `chronological` → `timeline`, `project` → `projects`. Sem preferência histórica válida, o padrão é por projeto.
+As trocas explícitas posteriores seguem a nova preferência; a troca não altera a ordem das tasks, dos projetos nem o diretório de execução.
+
+## Switch de dois níveis histórico (não é mais usado)
+
 As entradas de visão da área de tarefas da barra lateral são divididas em dois níveis:
 
 1. Slider de primeiro nível: `Group` / `Project`
@@ -100,3 +109,17 @@ A ordem das sections é uma preferência renderer-local: a janela atual atualiza
 - Continua reaproveitando `readSidebarTaskPreferences()` / `persistSidebarTaskPreferences()`.
 - Continua compatível com desktop, Web, macOS, Windows, Linux, além de Zai Light / Zai Dark.
 - Os textos passam pelas i18n keys existentes; novos textos precisam vir com `en-US` e `zh-CN` ao mesmo tempo.
+
+## Gestos da lista de tasks do controle remoto no celular (2026-10-14)
+
+O `/remote` do celular reutiliza o componente de barra lateral de projetos, e a capacidade de interação é decidida pelo `isWebRemoteControl` da entrada, sem inferir capacidade de desktop pela largura da janela.
+
+- O título do projeto não registra arraste de ordenação (incluindo ordenação por teclado), permitindo rolagem vertical por toque; o clique continua expandindo ou recolhendo. O mesmo vale para os projetos da área de fixados.
+- Todas as visões de sessão (projeto, fixados, agrupamento, timeline) não respondem a hover, e o focus produzido pelo toque não alterna a área de operações nem oculta metadados. Um clique abre a sessão.
+- O celular mantém as ações permanentes existentes e a capacidade de abrir pelo teclado; o desktop continua com ordenação de projetos, hover de sessão e ações por focus.
+- Não muda a identidade da task, a persistência da ordenação, o Host compartilhado nem a cadeia replayable.
+
+```text
+entrada do celular → configuração de exibição compartilhada da barra lateral → projeto sem ordenação / sessão com exibição fixa → clique → cadeia de abertura existente
+entrada do desktop → configuração de interação padrão → ordenação de projetos / hover + focus na sessão → clique → cadeia de abertura existente
+```

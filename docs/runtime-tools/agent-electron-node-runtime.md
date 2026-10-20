@@ -7,7 +7,7 @@ O ZCode Agent antes embutia um binário nativo independente `zcode-agent` em cad
 Mas, tanto no desktop quanto no remoto, o ambiente que roda o agent **já tem uma cópia do Node**:
 
 - **Desktop**: o Host roda em um `utilityProcess` do Electron, `process.execPath` aponta para o Electron Helper, com Node 24.x embutido (Electron 41).
-- **Remoto SSH/WSL/Docker**: no deploy é entregue um `node` independente (`<REMOTE_BASE>/node`, v22.16.0) usado para rodar `zcode-server.cjs`.
+- **Remoto SSH/WSL/Docker**: o archive do Source Server já traz o Node alvo e o usa para rodar o Server CLI/Core e o `zcode.cjs`.
 
 Portanto o agent não precisa carregar mais um Node: basta usar o Node já existente para executar o artefato compilado `zcode.cjs`.
 
@@ -25,16 +25,7 @@ process.execPath  <Electron Helper>
   env:  { ELECTRON_RUN_AS_NODE: "1" }   // obrigatório, senão o subprocesso é tratado como subprocesso do Chromium e trava na inicialização da GPU
 ```
 
-**Remoto** (sem Electron, reaproveitando o mecanismo já existente no dev): fazer o deploy de `zcode.cjs` para `~/.zcode/server/agents/glm/zcode.cjs` e então escrever um **wrapper com o mesmo nome** (é a entrada executável `zcode-agent` que o resolver espera):
-
-```sh
-#!/bin/sh
-set -eu
-runtime_root="${ZCODE_SERVER_RUNTIME_ROOT:-$HOME/.zcode/server}"
-exec "$runtime_root/node" "$HOME/.zcode/server/agents/glm/zcode.cjs" "$@"
-```
-
-Assim o provider runtime resolver **não precisa de nenhuma mudança de código para o remoto** — ele continua procurando o executável `zcode-agent`; o que encontra é o wrapper, que usa o node remoto para executar `zcode.cjs`.
+**Remoto**: o archive completo coloca o `zcode.cjs` em `runtime/` do release imutável, e o Server Core cria o Workspace Agent conforme o release manifest; não se implanta mais arquivos soltos nem wrapper em `~/.zcode/server/agents/glm/`.
 
 ## Implementação
 
@@ -48,13 +39,9 @@ O `target` do esbuild desce de `node26` para **`node22`**, tomando a menor vers�
 - Empacotamento: `prepare:agent-bundle` (`prepare-agent-node-bundle.mjs`) compila a cli, faz o stage de `zcode.cjs` em `bundled-agents/<platform>/glm/` e remove o antigo `zcode-agent` nativo; `prepare:runtime-assets` usa-o no lugar de `prepare:glm` na lista local; o electron-builder copia o diretório inteiro `resources/glm`.
 
 **Remoto**
-- `zcodeAgentBundleWrapper.ts` (novo): `REMOTE_AGENT_BUNDLE_NAME` + `buildRemoteAgentBundleWrapper()`, uma única semântica de wrapper compartilhada entre dev e produção.
-- `zcodeAgentDeploy.ts`: remoção da restrição «somente binário nativo»; passa a ① `installFile` instalar `zcode.cjs` em `agents/glm/zcode.cjs`, ② gravar o wrapper em `agents/glm/zcode-agent`. A verificação de skip passa a validar tanto o wrapper quanto o bundle.
-- Em produção, `glm/zcode.cjs` acompanha sempre a versão do app/server do ZCode: quando o `zcode-server.cjs` principal entra no caminho de deploy por mudança de versão do app, força a atualização de `glm`; o modo de upload local precisa sobrescrever o arquivo vindo do release atual do app, e o modo de download remoto precisa atualizar o cache remoto pelo conteúdo dos componentes do manifest atual antes de sobrescrever — evitando reinstalar um `zcode.cjs` antigo de mesma versão semântica de runtime mas com hash de conteúdo diferente. Quando a versão do app não muda, `glm` não é mais verificado nem retransmitido isoladamente.
-- `zcodeAgentDevDeploy.ts`: reaproveita o wrapper compartilhado acima (remove a cópia local).
-- mock-cdn (`prepare-prebuilds.mjs`): `stageRemoteAgentBundles()` coloca o `zcode.cjs` em `releases/<ver>/glm/<platform>/` de cada plataforma após compilar a cli, substituindo o download do binário nativo por plataforma; o componente glm passa a reaproveitar required-paths como `["zcode.cjs"]`. O mecanismo de tar.gz / manifest / sha dos componentes permanece igual, apenas o arquivo dentro do pacote troca de binário para JS.
-
-O resolver **não precisa de alterações no remoto**: o nome do wrapper continua sendo `zcode-agent`, alcançado por `findZCodeAgentRuntimeBinary`.
+- `@zcode/server-cli stage:remote-assets` gera o archive completo para as quatro plataformas; `runtime/zcode.cjs` usa a mesma identidade de SHA de descriptor que o Server CLI/Core.
+- O download local com upload a partir do Desktop e o download direto no remoto SSH só mudam de onde o archive é obtido; no fim ambos entram em `zcode update --from-archive`.
+- O `prepare-prebuilds.mjs` legado, o component manifest e a implantação de arquivos soltos deixam de participar das cadeias de desenvolvimento, CI ou publicação.
 
 ## Verificação
 

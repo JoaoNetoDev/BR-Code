@@ -4,7 +4,17 @@
 
 O desktop e o Web em tela larga mantêm a barra lateral e separam a sessão e o Side Pane, que antes compartilhavam o mesmo quadro externo, em painéis independentes; o fundo raiz da janela e a barra lateral mantêm a semântica original.
 
-Cantos arredondados por plataforma no workspace layout: 5px no Windows, 6px no macOS Sequoia e anteriores, 12px no Tahoe 26+, e 6px provisório para versões de macOS desconhecidas; `xl` (12px) no Linux e na Web. A página de configurações mantém os raios por plataforma já existentes.
+Cantos arredondados por plataforma no workspace layout: `rounded-md` (6px por padrão) no Windows, 6px no macOS Sequoia e anteriores, 12px no Tahoe 26+, e 6px provisório para versões de macOS desconhecidas; `xl` (12px) no Linux e na Web. A página de configurações do Windows usa 6px de forma sincronizada.
+
+A aceitação do token de canto no SPT-E2E-000 distingue os estados do Side Pane: com ele expandido, verifica-se apenas o `rounded-md` / `rounded-l-md` do quadro externo do Side Pane, e o quadro externo da sessão mantém o canto de painel independente por meio de `--workspace-panel-radius`; depois de recolhido, verifica-se o chrome token do quadro externo da sessão. Os dois estados checam o raio efetivamente calculado, evitando interpretar a variável dinâmica do estado expandido como ausência de token.
+
+## Dimensões da borda externa por plataforma (2026-10-09, substitui as dimensões históricas abaixo)
+
+- No Windows, o espaçamento extra à direita, na base e no topo do workspace, e também a margem esquerda depois de recolher a Sidebar, são de 6px; no Linux todos permanecem em 4px, e o canto de 12px do painel principal é preservado.
+- A página de configurações do Windows sincroniza as margens de 6px à direita, na base e no topo e o canto de 6px; o lado esquerdo, onde a navegação encosta no conteúdo, não ganha espaçamento. macOS, Web e celular mantêm as regras existentes.
+- Nova task, sessão, plugins e Automations reutilizam a borda compartilhada do workspace, e o terminal e o Side Pane sincronizam o canto; a zona quente de arrasto de 4px entre os painéis não muda.
+- A linha indicadora de arrasto mantém 2px, foreground-subtlest/50, a extensão ao longo da borda e as regras atuais de exibição. As pontas da linha indicadora da Sidebar recuam conforme a margem externa da plataforma somada ao canto: 12px no Windows e 16px no Linux.
+- O SPT-E2E-000 valida as dimensões por plataforma, a margem esquerda recolhida e o arrasto, e o UP-00 valida a página de configurações; os testes unitários das funções de plataforma cobrem Linux, capacidade desconhecida do Windows e janela normal e maximizada.
 
 A versão do macOS precisa ser consultada via `IPlatformService.getDesktopWindowChromeState` e acompanhada por meio dos eventos de estado da janela, e então repassada por `useAppChromeState` ao cálculo dos cantos do workspace. Anteriormente o hook excluía o macOS, o que fazia todas as versões de macOS caírem no ramo de 6px de versão desconhecida; os desktops de todas as plataformas compartilham o mecanismo já existente de revisão contra sobrescrita de consulta/evento, e a Web não consulta o estado do desktop. O teste de regressão precisa rodar o hook real e validar os cantos de Sequoia/Tahoe após a consulta assíncrona, bem como a limpeza da assinatura; não basta injetar a versão na função de raio.
 
@@ -42,6 +52,12 @@ Window / Sidebar / transparent body layout
 - O tab do terminal inferior também usa ghost: o fundo de seleção permanece igual no hover, o conteúdo usa fade com mask; o botão de fechar participa do layout flex normal, aparece somente quando selecionado, em hover ou em focus-within, mantém um espaço reservado quando oculto e a mask não é deslocada conforme o estado de exibição. O espaçamento entre tabs é de 4px, a largura acompanha o conteúdo, com máximo de 144px, sem largura fixa nem largura mínima. O título “终端” permanece como está, e o nome do shell usa texto auxiliar comum, sem fundo de pill, raio ou padding.
 - Nova task, sessão comum, plugins e Automations usam a mesma borda de painel principal, sem criar um segundo estado de negócio.
 - O controle remoto no celular mantém o caminho de coluna única / gaveta de sobreposição, sem espaçamento extra entre dois painéis; a contração responsiva não pode espremer a área de entrada nem gerar rolagem horizontal.
+
+- Validação no Windows aprovada: SPT-E2E-000 `desktop-e2e-20261009070445229-p20968-57b667c6addfb7fa`; UP-00 `desktop-e2e-20261009070918592-p12424-e7971ff15e21066b`. 65 testes unitários relacionados passaram e 1 existente foi pulado; typecheck, typecheck:e2e, lint e a checagem de arquitetura passaram. As máquinas reais Linux/macOS, o navegador real do celular e a visualização página a página das páginas de plugins/Automations ainda precisam ser complementados; os testes unitários já existentes de plataforma e de layout do celular passaram.
+
+## Cor da linha indicadora de arrasto no desktop (2026-10-09)
+
+A Sidebar, o Side Pane e o terminal inferior unificam o uso do token `resize-handle`: sky-500 no tema claro e sky-400 no tema escuro; vale para os desktops macOS, Windows e Linux. A Web mantém foreground-subtlest/50, e a regra de ocultação no celular não muda. Mantêm-se a espessura de 2px, as pontas arredondadas, a extensão ao longo da borda e a exibição no hover, no foco por teclado e durante o arrasto, com ocultação por padrão. A zona quente de 4px e a lógica de arrasto não mudam. O SPT-E2E-000 valida nos dois temas a cor, o comprimento, a exibição/ocultação das três linhas indicadoras e o arrasto real.
 
 ## Limites de Compatibilidade
 
@@ -161,3 +177,15 @@ Validação da tipografia: 7/7 testes unitários relacionados, 7/7 de Electron n
 - 2026-09-10 MR !2586 CR-01: correção da consulta de estado de janela do macOS estar sendo pulada pelo guarda do hook. Duas novas regressões com o hook real falharam antes e passaram depois; 26 testes unitários relacionados, typecheck e lint (44 avisos já existentes, 0 erros) passaram. O SPT-E2E-000 de Electron no Windows passou, com run ID desktop-e2e-20260910-040930-907. A visual nativa do macOS e o celular em máquina real não foram verificados.
 
 - O footer inferior do Workspace Sidebar mantém padding esquerdo de 16px (`pl-4`) e padding direito de 12px (`pr-3`); o padding vertical não muda. Essa sobrescrita é passada apenas pelo chamador do Workspace, e o footer reaproveitado pelas Settings mantém o padrão de 16px dos dois lados (`px-4`).
+
+2026-10-09 correção de cantos: o workspace e a página de configurações do Windows são unificados em 6px, mantendo a margem externa de 6px e as pontas da linha indicadora da Sidebar em 12px. 50 testes unitários relacionados passaram; o SPT-E2E-000 do Windows (run desktop-e2e-20261009071323579-p14952-58feeab7544382d9) e o UP-00 (run desktop-e2e-20261009071448683-p19548-4169d17082d86dfb) passaram. typecheck, typecheck:e2e, lint e a checagem de arquitetura passaram.
+
+2026-10-09 validação da cor da linha indicadora: o SPT-E2E-000 do Windows nos dois temas passou (desktop-e2e-20261009071748019-p456-09549c1404406786), com 39 testes unitários relacionados, typecheck, typecheck:e2e, lint e checagem de arquitetura aprovados; as máquinas reais Linux/macOS ainda precisam ser complementadas.
+
+## Token de canto por plataforma (2026-10-12)
+
+O canto de painel de 6px do Windows e das versões antigas do macOS usa `rounded-md`, e o lado esquerdo do caminho de canto não nativo do Windows usa `rounded-l-md`. A página de configurações reutiliza o mesmo token. Mantêm-se os 6px do cálculo de raio por plataforma, o recuo da linha indicadora de arrasto e os raios das outras plataformas; o layout e a interação de desktop e celular não mudam. A base do Logo segue o `rounded` já existente. Os testes unitários validam a escolha do token, e o E2E valida ao mesmo tempo a class da plataforma e o raio calculado.
+
+Registro de verificação: 44 testes unitários relacionados passaram; typecheck, typecheck:e2e, lint (0 erros) e a checagem de arquitetura passaram. A tentativa de SPT-E2E-000 no macOS saiu na etapa de download do ChromeDriver por falha na validação do certificado do proxy, com 0 casos executados; as máquinas reais Windows/Linux e o navegador do celular não foram executados. Esta rodada não altera o cálculo do raio por plataforma nem os eventos de layout.
+
+Limite de regressão dos controles de janela: o onboarding de tela cheia do OccupationOnboarding continua usando o deslocamento de 4px no topo e à direita; o painel independente da página de configurações posiciona os controles de janela conforme a margem externa de 6px do Windows e de 4px do Linux. Ambos mantêm a mesma compensação de borda de 1px, a altura de 48px e o padding horizontal de 8px. O teste antigo forçava erroneamente a igualdade dos deslocamentos dos dois contêineres; ele passa a verificar separadamente cada deslocamento e as dimensões compartilhadas, sem mudar a interface.

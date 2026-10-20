@@ -186,22 +186,22 @@ Workspace: [local workspace / remote workspace]
 
 Após selecionar um Workspace, todas as leituras e escritas ficam vinculadas ao alvo Workspace selecionado.
 
-O Plugin Marketplace é uma visão principal separada e não oferece seletor de escopo:
+O Plugin Marketplace é uma visão principal separada; a página de navegação não oferece seletor de escopo, e o item "gerenciar plugins" dentro da página mantém o escopo de configuração User / Workspace.
 
 ```text
-Settings / Plugins / Workspace A
-        | open marketplace; remember returnScopeKey=A
+Settings / Sidebar
+        | open marketplace
         v
 Plugin Marketplace
   | install/update/uninstall package in Host User inventory
   | new install defaults User enabled=true
-        | back
+  | manage -> [User | Workspace] -> browse all
+        | primary navigation back
         v
-Settings / Plugins / Workspace A
-  | row is visible as effective enabled, source=User
+Chat
 ```
 
-Ao abrir o Marketplace a partir de uma entrada que não seja Settings, o alvo de retorno é fixado na lista de instalados do User. A source do Marketplace vem apenas da configuração de User/Host; o Workspace não suporta declaração, adição ou atualização do Marketplace, e o Workspace atual serve somente como contexto de execução da janela/do Agent, sem alterar a instalação ou o escopo de configuração do mercado.
+A navegação principal volta ao chat; dentro do mercado, gerenciar e os detalhes voltam à navegação do mercado. A source do Marketplace vem apenas da configuração de User/Host; o Workspace não suporta declaração, adição ou atualização do Marketplace. A instalação de pacotes escreve no Host User, e a ativação e a configuração por projeto continuam sendo determinadas pelo escopo escolhido explicitamente na página de gerenciamento. A interação completa está em [escopo do mercado](plugin-market-interactions-scope.md).
 
 Os detalhes do plugin distinguem três categorias de estado:
 
@@ -378,7 +378,7 @@ Os grupos de features E2E de nível Workspace são:
 | shared-host mobile              | `WPL-012` | `/remote` usa o Host existente e não copia runtime/store de Plugin                                                                    |
 | desabilitar builtin no Workspace       | `WPL-013` | Altera apenas enabledPlugins, sem apagar asset builtin nem dados de usuário                                                                     |
 | raiz de Plugin de projeto/MCP         | `WPL-014` | Uma raiz de Plugin de projeto válida é ativada diretamente; manifest/path inválidos falham de forma fechada                                                           |
-| roundtrip Marketplace/instalado | `WPL-015` | Partir de instalados do User para o mercado global; o mercado não tem escopo/config; a instalação grava em User; retorno ao User e depois troca para Workspace para configurar                          |
+| roundtrip Marketplace/instalado | `WPL-015` | Partir de instalados do User para o mercado global; a página de navegação não tem escopo/config; a instalação grava em User; a navegação principal volta ao chat e depois se entra no gerenciamento para trocar para Workspace e configurar          |
 
 A evidência E2E é estratificada:
 
@@ -443,7 +443,7 @@ O estado atual das evidências não é "tudo concluído": `WPL-001` a `WPL-011`,
 11. Os casos WPL com targeted pass atual possuem setup/action/assertion/evidence E2E independentes; pending, review, fixture, Docker e as gates de múltiplas plataformas continuam sendo condições posteriores de promoção.
 12. Só é possível declarar o feature completamente concluído quando `WPL-001` a `WPL-015` tiverem concluído as implementações, o E2E independente, a revisão manual e as gates de plataforma correspondentes; este commit V1 não faz essa declaração.
 13. O próprio commit atual precisa passar por `pnpm typecheck`, `pnpm lint`, typecheck de E2E e o E2E direcionado dos WPL já implementados.
-14. O Marketplace não exibe controles de escopo, enable ou options; a instalação grava sempre no inventário de User do Host e no enablement de User, e a ação de retorno restaura a visão de configuração de origem.
+14. A página de navegação do Marketplace não exibe controles de escopo ou options; a instalação grava sempre no inventário de User do Host e no enablement de User; a página de gerenciamento mantém o escopo de projeto e a navegação principal volta ao chat.
 
 ## 11. Fora de escopo
 

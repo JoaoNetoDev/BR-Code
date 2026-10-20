@@ -1,5 +1,7 @@
 # Cadeia de Resolução do Modelo Atual ao Criar uma Nova Task
 
+> O ciclo de vida dos rascunhos de nova task, dos valores padrão de modelo e permissão e do catálogo de tasks não classificadas segue o [design unificado](../ui/project-task-draft-lifecycle.md): isolamento por cliente, host de destino e ID de projeto; o catálogo pendente de envio e não classificado é consumido após a aceitação do primeiro envio. As demais restrições de estado organizacional e de catálogo de execução deste documento continuam valendo.
+
 Data de atualização: 2026-07-16
 
 No V4, "criar task" começa se manifestando como um painel de rascunho sem sessão vinculada. Os fatos sobre o modelo vêm da intenção de rascunho do renderer e das sementes de configuração `last-selected`; só após o primeiro envio é que a projeção de sessão da CLI se torna autoritativa. O antigo `createTaskWithSessionControl` e a cadeia de primeiro envio legada `runtimeModel` já não são o caminho principal da UI.

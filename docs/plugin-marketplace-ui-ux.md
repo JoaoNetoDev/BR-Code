@@ -10,18 +10,20 @@
 > [ADR-0001(listing fica na camada de catálogo)](./adr/0001-store-listing-in-marketplace-catalog.md) e
 > [ADR-0002(desvio deliberado do estilo contido do DESIGN.md)](./adr/0002-plugin-store-style-deviation.md).
 
+> Atualização de 2026-10-12: o mercado ganhou o segmento de comunidade, a área de capacidades de UI e a entrada no Side Pane; o gerenciamento é concluído dentro do mercado e preserva a configuração por projeto. Os limites de implementação e a verificação atuais estão em [escopo de interações](./plugins/plugin-market-interactions-scope.md).
+
 ## Contexto e objetivos
 
 Visual e interação das páginas de listagem e de detalhe:
 
-- Página de listagem: título grande + subtítulo, caixa de busca de largura total, faixa de instalados (engrenagem à direita), segmentação público/pessoal,
+- Página de listagem: título e ações do topo (incluindo a entrada de gerenciamento de plugins) na mesma linha, segmentação público/comunidade/pessoal e caixa de busca na mesma linha,
   grande seção Featured + fluxo de cartões em duas colunas por blocos de categoria, todos os grupos expandidos por padrão, com recolhimento manual.
 - Página de detalhe: icon grande + nome + descrição de uma linha,「…」e「立即试用」no canto superior direito, cápsulas de prompt de exemplo embutidas na imagem hero,
   descrição longa, seções de componentes como「MCP 服务器」「技能」, seção「信息」(desenvolvedor/categoria/versão/site/
   política de privacidade/termos de serviço).
 
-A segmentação pública corresponde ao mercado oficial `zcode-plugins-official` (plugins embutidos + plugins zip do CDN, fonte de catálogo
-`https://cdn-zcode.z.ai/zcode/official-plugin/marketplace.json`); a segmentação pessoal abriga todas as demais
+A segmentação pública e a de comunidade usam em conjunto o mercado oficial `zcode-plugins-official` (plugins embutidos + plugins zip do CDN, fonte de catálogo
+`https://cdn-zcode.z.ai/zcode/official-plugin/marketplace.json`), distinguindo a atribuição de manutenção pelo `publisherType` da entrada publicada; a segmentação pessoal abriga todas as demais
 fontes pessoais (claude-plugins-official, mercados adicionados pelo usuário, inline).
 
 ### Identidade única do mercado oficial e contrato de merge
@@ -76,7 +78,7 @@ CDP do desktop para verificar a interação de refresh. O espaço de estados do 
 | Pills duplas「插件 / 技能」no topo | Skills são uma área de configuração independente e não são mescladas nesta rodada.                                                                                        |
 | Dropdown「本地 / 远程」no topo | A entrada existente de sincronização remota SSH é recolhida na visão de instalados gerenciados, sem troca de visão.                                                       |
 | Scaffold「新建插件」                                             | O botão New do topo abre diretamente「添加市场源」nesta rodada.                                                                                                            |
-| Ícones de filtro/ordenação à direita da linha de segmentação público/pessoal | A semântica não está definida e os blocos de categoria já cobrem a navegação; omitido por enquanto.                                                           |
+| Ícones de filtro/ordenação à direita da linha de segmentação público/comunidade/pessoal | A semântica não está definida e os blocos de categoria já cobrem a navegação; omitido por enquanto.                                                           |
 | Avaliações, número de downloads, renderização de README       | Sem fonte de dados.                                                                                                                                                        |
 
 ### Lacunas conhecidas do E2E de Lifecycle
@@ -94,7 +96,7 @@ contornando a UI ou afrouxando as asserções:
 ### Semântica dos plugins instalados ao remover uma Personal Source
 
 Remover uma origem remove apenas a descoberta de catálogo e a relação de atualização, sem cascatear a remoção de plugins já instalados, configurações ou dados. Depois que um plugin entra no
-estado `Orphaned Installed Plugin`, ele continua presente na faixa de instalados, na página de detalhe e na página de gerenciamento, e continua suportando configuração, ligar/desligar,
+estado `Orphaned Installed Plugin`, ele continua presente nos cartões do mercado, na página de detalhe e na página de gerenciamento, e continua suportando configuração, ligar/desligar,
 execução e remoção; a entrada de atualização precisa ser ocultada ou desabilitada, com um aviso honesto de origem ausente. Depois de adicionar a mesma origem novamente,
 o plugin recupera os detalhes de catálogo e a capacidade de atualização. A decisão completa está em
 [ADR-0003](./adr/0003-marketplace-source-removal-keeps-installed-plugins.md).
@@ -110,9 +112,9 @@ flowchart TD
     Detail["插件详情页"]
     Manage["管理已安装视图"]
 
-    Store -- "点卡片 / 点已安装条图标" --> Detail
+    Store -- "点普通插件卡片" --> Detail
     Detail -- "← 返回（保持分段与滚动位置）" --> Store
-    Store -- "已安装条右侧齿轮" --> Manage
+    Store -- "右上插件管理入口" --> Manage
     Manage -- "← 返回" --> Store
     Manage -- "点插件行" --> Detail
 
@@ -130,7 +132,7 @@ De cima para baixo:
 
 ### 1. Barra superior
 
-- Esquerda: nada (a tab「插件/技能」não é feita). À direita, o grupo de ações, nesta ordem:
+- Título e grupo de ações na mesma linha: título à esquerda, grupo de ações à direita; em largura estreita, quebra de linha. Todos os botões usam `secondary`, botões só com ícone usam `icon-lg` e botões de texto usam `lg`. Ordem:
   - **Refresh**(Manual Refresh): dispara `plugins/marketplace/update(null)` (todos os mercados), reutilizando o estado de loading existente; não é afetado pelo throttling do refresh automático.
   - **Catalog Auto-Refresh**(refresh automático de catálogo): após entrar na página da loja, atualiza apenas `zcode-plugins-official`,
     com o critério `now - max(lastUpdated, lastAttemptAt) >= 10 minutos`. `lastUpdated` vem da persistência de catálogo em nível de usuário do Host;
@@ -142,8 +144,9 @@ De cima para baixo:
     atualizar/validar/remover/diagnosticar).「Adicionar」não fica aqui.
     As linhas de origem de mercado são ordenadas pelas regras a seguir: `zcode-plugins-official` e `claude-plugins-official` ficam fixos no topo;
     as demais origens customizadas são ordenadas por `lastUpdated` decrescente; origens customizadas sem `lastUpdated` vão para o fim; em caso de empate de horário, ordenação estável pelo nome de exibição localizado.
-  - **New**: botão de icon com texto usando `default`, `size="lg"`, que abre diretamente「添加市场源」, recolhendo as capacidades existentes do AddMarketplacePopover de
+  - **Adicionar**: menu suspenso, contendo a criação de plugin e a adição de fonte de mercado, recolhendo as capacidades existentes do AddMarketplacePopover de
     github / git / URL / caminho local (incluindo arrastar e soltar). Zero adição de backend.
+  - **Gerenciamento de plugins**: botão de texto `secondary + lg + font-medium`, que entra na visão de gerenciamento dentro do mercado.
 
 O diálogo「添加插件市场」e o diálogo「市场源」usam uniformemente título `text-ui-lg`, corpo `text-ui-base` e informação auxiliar.
 Os botões de ação de texto do diálogo de adição usam `size="lg"`; as ações só com ícone dentro da linha de origem de mercado usam `size="icon-lg"`.
@@ -156,36 +159,27 @@ O grupo de ações é alinhado verticalmente ao centro e os cartões da lista co
 
 ### 2. Área de título
 
-- Título grande no nível Display「插件」+ um subtítulo (redação da ZCode, i18n bilíngue; texto final definido na implementação).
+- O título「插件市场」usa `text-ui-xl` (título de nível 1 do DESIGN.md). Não exibe subtítulo, comprimindo a densidade de informação do cabeçalho.
 
 ### 3. Caixa de busca
 
-- Largura total, bordas arredondadas, prefixo de lupa, placeholder「搜索插件」.
+- Na mesma linha da segmentação de origem: a segmentação à esquerda e a caixa de busca alinhada à direita, com largura máxima `max-w-xs`; quando a largura não é suficiente, quebra para a linha seguinte. Bordas arredondadas, prefixo de lupa, placeholder「搜索插件」.
 - Nomes em chinês suportam pinyin sem tom e iniciais (feishu, fei shu, fs), e a interface em inglês também usa o nome em chinês presente no listing. Compartilha o matcher com a página de gerenciamento, sem correspondência aproximada de erros de digitação nem alteração de ordenação.
-- **O escopo da busca atravessa público + pessoal**(mantendo a lógica de busca total existente). Quando a entrada não está vazia, o layout de segmentação/Featured/categoria
-  cede lugar a um fluxo unificado de cartões de resultado (duas colunas, o mesmo estilo de cartão); limpar restaura.
+- A busca fica limitada à segmentação de origem atual, preservando as entradas de troca entre público, comunidade e pessoal. Quando a entrada não está vazia, são exibidos os cartões correspondentes daquela segmentação; limpar restaura os agrupamentos e a área de UI.
 
-### 4. Faixa de instalados (Installed Strip)
+### 4. Entrada de gerenciamento de plugins
 
-- Correção de recorte de 2026-09-15: o viewport de rolagem horizontal precisa reservar espaço para o botão de atualização no canto superior direito, o zoom no hover e o anel de foco por teclado; o lado esquerdo do primeiro item e o lado direito do último item também não podem ser recortados, e a caixa de dica do nome não pode cobrir o canto de atualização. Mantém-se o alinhamento original dos ícones, o espaçamento superior e a capacidade de rolagem horizontal, com estilos compartilhados entre desktop e web móvel. O layout é de responsabilidade exclusiva de `PluginStoreListView`, sem alterar o comando de atualização nem o estado de instalação.
+- A faixa de ícones de plugins instalados foi removida; a entrada「插件管理」no grupo de ações do topo entra na visão de gerenciamento dentro do mercado.
+- Reaproveita o PluginsSection, separando a instalação global da configuração por projeto; a sobrescrita por projeto pode restaurar a herança.
+- 「浏览全部插件」volta do gerenciamento para o mercado, preservando a origem, a busca e o escopo de gerenciamento.
+- O menu de mais ações contém apenas pausar/habilitar e desinstalar. A atualização é mantida como operação independente no cartão, na linha de gerenciamento e no detalhe; restaurar a herança fica no detalhe.
 
-- Uma fileira de ícones de plugins instalados (incluindo os embutidos), com PDF, PPT, Excel e Word oficiais priorizados nesta ordem, e os demais plugins embutidos/inline ordenados de forma estável pelo nome de exibição;
-  os demais plugins instalados de mercados são ordenados por tempo de instalação decrescente, com transbordo em rolagem horizontal.
-- Ao passar o mouse ou focar por teclado um ícone, exibe-se o nome do plugin no Tooltip unificado do app.
-- Clicar no ícone → página de detalhe daquele plugin.
-- Título「已安装」no início da linha e **engrenagem → gerenciar a visão de instalados** no fim.
-- Os ícones da Faixa de Instalados mantêm a opacidade original do recurso e não ficam globalmente mais transparentes conforme o estado de habilitação; o estado de habilitação é expresso
-na visão「管理已安装」.
-- Quando há plugins atualizáveis (`canUpdatePluginItem`, excluindo plugins órfãos), um botão de atualização circular `size-4` é sobreposto no canto superior direito do ícone
-(fundo success + ícone `Download`, virando spinner durante a atualização), e o clique dispara a atualização no local, sem precisar entrar na
-página de detalhe; fica desabilitado enquanto alguma operação de plugin estiver em andamento.
-  > Revisão de 2026-09-02: antes, a entrada de atualização só ficava escondida na área recolhida de「高级信息」da página de detalhe, e depois que o usuário conferia as atualizações não dava para ver
-  > qual plugin tinha atualização nem encontrava a entrada. A faixa de instalados, o cartão e a visão de gerenciamento de instalados expõem de forma unificada o canto e a
-  > entrada de atualização na linha, e o julgamento reaproveita o mesmo `canUpdatePluginItem`.
+### 5. Segmentação público / comunidade / pessoal
 
-### 5. Segmentação público / pessoal
-
-- Controle de segmentação em pílulas, com「公开」por padrão. Trocar altera apenas o conteúdo do catálogo abaixo; a caixa de busca e a faixa de instalados permanecem.
+- Público por padrão. Entradas external do catálogo oficial aparecem na comunidade; outras fontes pessoais só entram na pessoal, mesmo que decliquem por conta própria a atribuição de manutenção.
+- Origem, categoria de uso e capacidade de UI são independentes entre si. `ui.surfaces` legítimo é publicado como `ui` em `componentTypes`, e é julgado pelo manifesto real depois da instalação. Pausar não altera a classificação de UI.
+- A área「应用插件」de cada segmentação compartilha o expandir/recolher por grupo com as categorias de uso: exibe tudo por padrão, acima de 6 itens pode ser recolhido manualmente para os 6 primeiros e expandido no lugar de origem. O「查看全部」e a lista de UI independente foram removidos, e não é mais necessária uma entrada de retorno da área; a seleção manual é salva por segmentação de origem, e a busca ou o ato de limpar a busca não alteram essa seleção. Cartões de UI instalados abrem a interface, no estado pausado são habilitados com sucesso antes de abrir, e cartões não instalados entram no detalhe ou na instalação.
+- O detalhe de UI exibe a capacidade de interface e a imagem ampliada. No desktop local a sessão existente é reaproveitada; em outros clientes a abertura informa que não é suportado por enquanto; em ambos os casos a instalação e o gerenciamento são preservados.
 
 ### 6. Conteúdo da segmentação pública
 
@@ -197,8 +191,8 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
 - Categorias e plugins dentro de cada categoria suportam ordenação enviada pelo servidor conforme o modo de interface; veja
   [contrato de ordenação por modo](plugins/plugin-store-mode-order.md). O modo de programação usa `code` e o modo geral usa
   `work`; itens não configurados são adicionados na ordem original, e a configuração explícita permite reposicionar「其他」. Destaques e as demais listas não são afetados.
-- O Divider de título do bloco de categoria usa a cor semântica `surface`; o padding superior e inferior soma 32px (16px cada), formando um espaçamento estável de 32px entre categorias vizinhas. Esse espaçamento vale apenas para as categorias de catálogo e não altera o layout da busca,
-  da Faixa de Instalados ou do controle de segmentação.
+- O Divider de título do bloco de categoria usa a cor semântica `surface`; o padding superior e inferior soma 32px (16px cada), formando um espaçamento estável de 32px entre categorias vizinhas. Esse espaçamento vale apenas para as categorias de catálogo e não altera o layout da busca
+  ou do controle de segmentação.
 - Plugins **embutidos** desinstalados (recuperáveis) aparecem normalmente na segmentação pública, e o botão do cartão é「安装」(via
   `plugins/restoreBuiltin`).
 - O nome de exibição de categoria segue um mapeamento conhecido de i18n (como `productivity` → 生产力/Productivity),
@@ -218,26 +212,24 @@ página de detalhe; fica desabilitado enquanto alguma operação de plugin estiv
 
 - Estrutura: ícone (40px, cantos arredondados) · nome de exibição (negrito) · descrição truncada em uma linha · ações à direita.
 - Ações à direita: não instalado → botão de cápsula「安装」(virando spinner durante a instalação, cancelável, mantendo o fluxo de operações existente);
-  instalado → menu「…」: habilitar/desabilitar, atualizar(somente quando há atualização e a origem ainda existe), remover
+  instalado → menu「…」: habilitar/pausar, remover
   (a remoção passa pelo diálogo de confirmação existente).
-  > Revisão de 2026-07-17: os cartões da loja em duas colunas permanecem compactos e não repetem o Switch de nível de plugin; ligar/desligar continua possível pelo
-  > menu「…」. Quando for necessário ver explicitamente o estado atual de habilitação, o cabeçalho da página de detalhe e a visão「管理已安装」continuam
-  > oferecendo um Switch de nível de plugin visível (o interruptor individual de componentes continua fora do escopo desta rodada, ver os limites do ADR).
+  > Revisão de 2026-10-11: os cartões e o detalhe ligam/desligam pelo menu「…」, e o cartão exibe o estado efetivo no projeto atual; a lista de gerenciamento mantém o switch de nível de plugin original.
 - Quando instalado e com atualização disponível: o canto「可更新」é acrescentado à direita do título (ícone `Download` `size-3` +
   `settings.plugins.list.updateAvailable`, cápsula com cor semântica success, `text-ui-sm`, lado a lado com a especificação do badge de plano); a área de ações à direita ganha um botão de cápsula「更新」antes do menu「…」(virando spinner durante a atualização),
-  e o item de atualizar do menu「…」é mantido. A condição de exibição do canto e do botão é exatamente a mesma da entrada de atualização da página de detalhe.
-- Clicar no corpo do cartão (fora da área de botões) → página de detalhe.
+  e a atualização não é repetida dentro do menu「…」. A condição de exibição do canto e do botão é exatamente a mesma da entrada de atualização da página de detalhe.
+- Clicar no corpo do cartão de um plugin comum ou de um plugin de UI não instalado → página de detalhe; plugin de UI instalado → abrir, e no estado pausado é habilitado com sucesso antes de abrir. A entrada de detalhe independente continua disponível para ver informações e configuração.
 
 ## Especificação da página de detalhe
 
 De cima para baixo, coluna única centralizada (max-width conforme o design):
 
 1. **Cabeçalho**: após o ícone grande (64px), o nome de exibição e as ações permanecem na mesma linha horizontal:
-   `显示名 | 插件级启停 Switch | 「…」菜单 | Try now / 安装`. O nome de exibição pode encolher e truncar,
+   `显示名 | 「…」菜单 | 打开 / Try now / 安装`. O nome de exibição pode encolher e truncar,
    a área de ações não encolhe; a descrição de uma linha e o aviso de origem ausente ocupam a linha seguinte sozinhos e não podem ficar entre o nome e as ações.
-   - **Switch de ligar/desligar do plugin**(quando instalado e há runtime info, explicitando o estado).
-   - Menu「…」: igual ao menu do cartão (habilitar/desabilitar, atualizar, remover); plugins órfãos não exibem o item de atualizar antes de a origem ser reassociada.
-   - Botão principal: instalado →「立即试用 / Try now」; não instalado →「安装」.
+   - Menu「…」: igual ao menu do cartão (habilitar/pausar, remover). Restaurar a herança é uma operação de detalhe independente.
+   - Botão principal: plugin comum instalado →「立即试用 / Try now」; plugin de UI instalado no mercado à direita da sessão →「打开」(no estado pausado,「启用」), no mercado da navegação principal →「立即试用」; não instalado →「安装」。
+     Cartões e linhas da página de gerenciamento: a linha inteira entra no detalhe, sem botão「详情」independente; apenas o mercado à direita da sessão acrescenta um「打开 / 启用」no fim da linha do cartão e da linha de gerenciamento.
      Clicar em「立即试用」reaproveita a ação padrão de nova tarefa do Root, preenchendo apenas
      a mention estruturada `[@Plugin](plugin://stable-id)`, sem anexar texto de exemplo e sem enviar automaticamente.
 2. **Área do Hero**(renderizada apenas se houver `heroImage`): imagem de banner arredondada, sobre a qual são empilhadas verticalmente as **cápsulas de prompt de exemplo**
@@ -332,7 +324,7 @@ O `marketplace.json` de nível superior já tem `name` / `description(_i18n)` / 
 Os campos já disponíveis continuam sendo repassados: `category`, `author{name,url?}`, `description_i18n`, `keywords`.
 
 - Aviso de plano pago: `requiresPaidPlan` só tem efeito com o booleano explícito `true`, e formas ambíguas como
-  `"true"` / `1` são sempre tratadas como sem plano, evitando que um erro no catálogo acople um aviso pago a um plugin gratuito. O campo descreve a "condição de uso"
+  `"true"` / `1` são sempre tratadas como sem plano, evitando que um erro no catálogo acouple um aviso pago a um plugin gratuito. O campo descreve a "condição de uso"
   (é preciso ter um plano pago para que funcione bem) e não significa que o próprio plugin seja um produto pago — é uma marca puramente de exibição e não participa de gate de instalação
   nem de faturamento. O nome é deliberadamente não ligado a nenhum nome comercial de plano, para que uma mudança de nome ou de redação do plano não obrigue a mudar o campo.
 - Cartão e título de detalhe usam o visual de cápsula cor de damasco, com um pequeno ícone de coroa `size-3` antes do texto; no tema claro usa-se como referência o fundo `#FFE3C8` com texto `#4B280F`,
@@ -389,7 +381,7 @@ sequenceDiagram
     Boot-->>UI: 组件「名称 + 描述」/ 诊断降级
 ```
 
-Regra de bucketing público/pessoal (puramente na camada de UI, por id de mercado): `zcode-plugins-official` → público;
+Regra de bucketing público/comunidade/pessoal: o mercado oficial distingue público e comunidade pelo `publisherType` do catálogo publicado, com omissão significando público;
 todo o resto (incluindo `claude-plugins-official`, `inline` e os adicionados pelo usuário) → pessoal.
 
 ## Matriz de degradação
@@ -412,10 +404,11 @@ todo o resto (incluindo `claude-plugins-official`, `inline` e os adicionados pel
 
 As capacidades de gerenciamento da tab Installed existente são migradas inteiramente, sem reduzir funcionalidades:
 
-- Uma linha por plugin: ícone + nome de exibição + versão + badge de origem + badge de atualização + **Switch de ligar/desligar do plugin**.
+- Uma linha por plugin: ícone + nome de exibição + versão + badge de origem + badge de atualização + switch de ligar/desligar do plugin + menu「…」。
   O badge de atualização é o canto「可更新」(o mesmo componente do cartão), logo após o nome de exibição; havendo atualização, um botão「更新」na linha é fornecido antes do menu「…」no fim da
-  linha, e o item de atualizar do menu é mantido.
-- Clicar na linha → página de detalhe; a remoção é concluída na página de detalhe e a atualização pode ser feita na linha ou na página de detalhe.
+  linha; o menu contém apenas habilitar/pausar e remover.
+- Clicar na linha de um plugin comum → página de detalhe; na linha de um plugin de UI → abrir. A entrada de detalhe independente preserva a configuração e a restauração da herança; a remoção tem confirmação de impacto global e a atualização pode ser feita na linha ou na página de detalhe.
+- Na primeira vez, o escopo é global por padrão, mantendo a troca para um projeto específico. As idas e voltas dentro do mercado preservam o escopo; a sobrescrita por projeto não modifica o padrão global nem os outros projetos.
 - No topo: filtro por estado de habilitação (todos/habilitados/desabilitados), verificar atualizações (todas), entrada de sincronização remota SSH
   (o RemotePluginSyncDialog existente é recolhido aqui).
 
@@ -432,21 +425,21 @@ As capacidades de gerenciamento da tab Installed existente são migradas inteira
 
 Página de listagem:
 
-- [ ] Settings → 插件 apresenta a página da loja: título grande, subtítulo, caixa de busca, faixa de instalados, segmentação público/pessoal, fluxo de cartões, com visual conforme o design (espaçamento/fonte/raio/grade de duas colunas).
-- [ ] A faixa de instalados mostra o ícone de todos os plugins instalados (incluindo embutidos, com fallback do ícone Blocks neutro), exibe o nome do plugin no hover/foco e leva ao detalhe ao clicar; a engrenagem leva à visão de gerenciamento.
-- [ ] A segmentação pública = apenas o mercado oficial: seção Featured (dirigida pelo `featured` do CDN, pode estar vazia) + blocos de categoria; cada seção é exibida completa por padrão; cada seção com mais de 6 pode ser recolhida manualmente e expandida de novo por "查看 A、B，以及另外 N 个".
-- [ ] A segmentação pessoal = seção de recomendados (recommendedPlugins.json) + as demais origens agrupadas por mercado (incluindo claude-plugins-official, inline).
-- [ ] A busca atravessa as duas segmentações e, ao digitar, vira um fluxo unificado de resultados; limpar restaura (segmentação e posição de rolagem preservadas).
-- [ ] Cartão: não instalado mostra「安装」(incluindo os estados em andamento/cancelamento), instalado mostra「…」(habilitar/desabilitar, atualizar, remover); a remoção tem diálogo de confirmação.
-- [ ] Atualização disponível: o canto「可更新」no título do cartão + a cápsula「更新」na linha, o botão de atualização no canto superior direito do ícone da faixa de instalados e o canto/botão na linha da visão de gerenciamento de instalados aparecem simultaneamente; sem atualização ou em plugin órfão, nenhum dos três aparece.
-- [ ] Barra superior: o refresh dispara update de todos os mercados; a engrenagem abre o gerenciamento de fontes de mercado (atualizar/validar/remover); New abre diretamente「添加市场源」, com github/git/URL/caminho local e arrastar e soltar todos funcionais.
+- [ ] Settings → 插件 apresenta a página da loja: título e ações do topo (incluindo a entrada de gerenciamento de plugins) na mesma linha, sem subtítulo; segmentação público/comunidade/pessoal e caixa de busca na mesma linha; fluxo de cartões, com visual conforme o design (espaçamento/fonte/raio/grade de duas colunas).
+- [ ] A entrada unificada「插件管理」entra no gerenciamento dentro do mercado;「浏览全部插件」volta e preserva a busca e a segmentação.
+- [ ] A segmentação pública contém apenas os plugins do mercado oficial mantidos oficialmente, e a segmentação de comunidade contém os plugins mantidos pela comunidade; Featured, a área de UI e as categorias de uso são todas limitadas à segmentação atual, cada seção é exibida completa por padrão e suporta recolhimento manual.
+- [ ] A segmentação pessoal agrupa os mercados adicionados pelo usuário (incluindo mercados compatíveis e inline); uma origem que se declara não entra em público nem em comunidade.
+- [ ] A busca fica limitada à segmentação atual e limpar restaura; alternar para a lista completa de UI e voltar preserva as condições.
+- [ ] Cartão: não instalado mostra「安装」(incluindo os estados em andamento/cancelamento), instalado mostra「…」(habilitar/pausar, remover); a remoção tem confirmação de impacto global.
+- [ ] Atualização disponível: o canto「可更新」no título do cartão + a cápsula「更新」na linha e o canto/botão na linha da visão de gerenciamento de instalados aparecem simultaneamente; sem atualização ou em plugin órfão, nenhum dos três aparece.
+- [ ] Barra superior: o refresh dispara update de todos os mercados; a engrenagem abre o gerenciamento de fontes de mercado (atualizar/validar/remover); o menu「添加」contém criar plugin e adicionar mercado, com github/git/URL/caminho local e arrastar e soltar mantendo as capacidades originais.
 - [ ] Refresh automático de catálogo: ao entrar na página da loja, o mercado oficial é atualizado automaticamente e só ele; reentrar dentro de 10 minutos não atualiza; falha no refresh ou reentrada com requisição em voo não reinicia; o refresh manual não é afetado por throttling (PLM-LC-018/019).
 - [ ] Plugins embutidos desinstalados aparecem na segmentação pública e podem ter a instalação restaurada.
 - [ ] Refresh automático de catálogo: apenas o catálogo oficial da ZCode expirado é atualizado; reentrada dentro de dez minutos e reentrada após falha não reiniciam; o refresh manual contorna o throttling (PLM-LC-018/019).
 
 Página de detalhe:
 
-- [ ] O cabeçalho tem ícone/nome/descrição e as ações à direita (instalado = switch de ligar/desligar +「…」+「立即试用」; não instalado = botão principal「安装」).
+- [ ] O cabeçalho tem ícone/nome/descrição e as ações à direita (instalado =「…」+「打开」(apenas para plugin de UI no mercado à direita da sessão) ou「立即试用」; não instalado = botão principal「安装」).
 - [ ]「立即试用」preenche apenas a mention canônica de Plugin; a cápsula de prompt de exemplo preenche mention + prompt; nenhum dos dois envia automaticamente e, quando não instalado, ainda só a entrada de instalação é exibida.
 - [ ] Hero/prompts/linhas de informação são renderizados conforme a matriz de degradação, sem imagem quebrada, sem bloco vazio e sem campo inventado.
 - [ ] As seções de componentes são renderizadas por MCP servidor/skill/comando/subagente/Hooks com nome+descrição, sem interruptor individual; candidatos não instalados passam por `plugins/describe` (loading→conteúdo, falha com degradação honesta, segunda chamada usa cache).
@@ -455,9 +448,9 @@ Página de detalhe:
 
 Visão de gerenciamento e transversal:
 
-- [ ] A visão de gerenciamento de instalados preserva: switch de nível de plugin, badge de atualização, remoção, filtro de estado, verificação de atualizações e entrada de sincronização remota SSH.
-- [ ] Chinês e inglês completos, temas claro e escuro sem quebrar, e layout sem overflow em viewport estreito (larguras web/mobile): o fluxo de cartões vira uma coluna, a faixa de instalados rola horizontalmente e a página de detalhe se adapta em coluna única.
-- [ ] A verificação por capturas de CDP cobre: página de listagem (público/pessoal/estado de busca/recolher-expandir), página de detalhe (listing completo e os dois estados degradados) e visão de gerenciamento.
+- [ ] A visão de gerenciamento preserva o escopo global/projeto, o switch de ligar/desligar do plugin, a sobrescrita de configuração e a restauração da herança, o badge de atualização, a remoção, o filtro de estado, a verificação de atualizações e a entrada de sincronização remota SSH.
+- [ ] Chinês e inglês completos, temas claro e escuro sem quebrar, e layout sem overflow em viewport estreito (larguras web/mobile): o fluxo de cartões vira uma coluna e a página de detalhe se adapta em coluna única.
+- [ ] A verificação por capturas de CDP cobre: página de listagem (público/comunidade/pessoal/estado de busca/recolher-expandir), página de detalhe (listing completo e os dois estados degradados) e visão de gerenciamento.
 
 ## Menu Adicionar de 2026-09-16
 
@@ -478,6 +471,10 @@ Cenário de regressão: `PLM-MISSING-CONFIG`, ver o catálogo de casos de lifecy
 ### Ordenação padrão dos plugins de documentos(2026-09-17)
 
 Os IDs oficiais completos `pdf`, `presentations`, `spreadsheets`, `documents`(todos de `zcode-plugins-official`)
-ocupam as quatro primeiras posições da faixa de ícones instalados e dos grupos pré-definidos da página de gerenciamento, na ordem PDF → PPT → Excel → Word. Plugins ausentes são pulados, desativação não afeta a ordenação e plugins pessoais homônimos não são promovidos ao topo.
+ocupam as quatro primeiras posições dos grupos pré-definidos da página de gerenciamento, na ordem PDF → PPT → Excel → Word. Plugins ausentes são pulados, desativação não afeta a ordenação e plugins pessoais homônimos não são promovidos ao topo; em 2026-10-11 a faixa de ícones de instalados do mercado foi removida.
 As categorias públicas e os seletores de referência que reutilizam sua ordenação priorizam, por padrão, a ordem acima dentro da mesma categoria; a ordenação explícita de categorias/plugins do servidor continua prevalecendo e as demais regras são mantidas.
 Desktop/celular, chinês/inglês e os temas claro e escuro usam a mesma ordem. A ordenação altera apenas a exibição, e não a instalação, o ligar/desligar, a configuração ou o array original.
+
+### Estado ocupado em operações concorrentes
+
+O store de gerenciamento de plugins mantém entradas em trânsito independentes por chamada. Ao instalar plugins diferentes em sequência, todos os plugins ainda não concluídos exibem“安装中” e desabilitam cliques repetidos; o enfileiramento no backend também conta como instalação em andamento. Uma operação bem-sucedida ou malsucedida encerra apenas o próprio estado ocupado. Trocar de projeto, Source ou camada de configuração limpa a projeção em trânsito da visão antiga, e o retorno de uma chamada antiga não pode limpar uma operação de mesmo nome no novo contexto. A instalação e o refresh seguem as cadeias de serviço existentes, sem novas filas, temporizadores ou polling.

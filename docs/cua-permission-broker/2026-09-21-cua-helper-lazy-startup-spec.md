@@ -205,6 +205,18 @@ Usuário                     Host(página de config/getStatus)        Helper
   dev mantém a compatibilidade adicional com o bundle de instalação única instalado sob o nome estável na
   raiz `dev/` (intenção da correção de 2026-09-10 preservada). Candidatos ausentes → segue o caminho de
   falha ao subir, com o guia de instalação.
+- No darwin, antes de subir é preciso passar pelo instalador, com a mesma semântica do caminho de primeira
+  chamada do SDK: quando o Helper embutido no pacote (`resolveBundledCuaHelperAppPath`, no estado empacotado
+  em `Contents/Resources/cua-helper/…`) existe, primeiro
+  `createCanonicalCuaHelperInstaller(...).ensureInstalled()` (verificação de assinatura / Team / buildId; se
+  não casar, substituição atômica no mesmo caminho, preservando a autorização TCC) e só então subir **o
+  caminho retornado pelo instalador**; se a instalação falhar, há degradação para falha ao subir
+  (`idle:true` + log warn), e **não é permitido voltar a subir a cópia antiga já instalada**. Só quando o
+  Helper embutido no pacote não existe (runtime dev) é que os candidatos instalados são enumerados pela
+  linha anterior.
+  Contraexemplo (2026-09-29, máquina real, versão empacotada 3.14.3): a página de configurações fez `open`
+  direto do Helper 3.14.1 já instalado (IPC v2), o broker rejeitou o novo cliente (IPC v3), e o Helper novo
+  embutido no App nunca foi instalado.
 - No win32, remover o atalho "only available on macOS" (a lógica de consulta do valor real da permissão é,
   em si, uma chamada de método do broker independente de plataforma).
 
@@ -265,6 +277,7 @@ Usuário                     Host(página de config/getStatus)        Helper
 | MC-7 | win32 | dois Agents em primeira chamada concorrente | ensure simultâneo | Pipe de instância única; o segundo fork falha de forma inofensiva; conectam ao mesmo Helper |
 | MC-8 | ambas | Helper já reiniciado/trocado de geração | spawn env e credenciais de Agents existentes | Caminho de transporte constante (mesmo socket/pipe), trocar a geração do Helper não reemite credenciais; authority do darwin é cunhada por spawn e pode diferir por agent, o que é semântica existente |
 | MC-9 | win32 | sem conversa aberta | entrar direto na página de configurações | probe → fork pelo Host → valor real da permissão; em caso de falha, idle:true degradado |
+| MC-10 | darwin | versão empacotada, com um Helper antigo de buildId já instalado | entrar direto na página de configurações | primeiro ensureInstalled substitui pelo Helper embutido no pacote e só então sobe; em caso de falha de instalação, idle:true degradado, sem subir a cópia antiga |
 
 Linhas vermelhas de regressão (conforme a especificação de isolamento §7, ainda válidas):
 

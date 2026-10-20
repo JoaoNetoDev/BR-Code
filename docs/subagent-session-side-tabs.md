@@ -134,6 +134,52 @@ A implementação precisa satisfazer:
 
 ## Recuperação a frio, isolamento de lista e admissão de entrada do usuário (3.12.2)
 
+### Resolução do diretório de projeto de sub-sessões remotas
+
+Sub-sessões não entram no índice de tasks principal, e não se pode usar o childSessionId para consultar a
+atribuição de projeto da task principal e decidir se a assinatura é permitida. O Host usa a query somente leitura
+`session/list(sessionIds)` do mesmo Agent para consultar o tipo persistido e a relação pai-filho; após confirmar o
+tipo de sessão auxiliar pela tabela abaixo, ele percorre a cadeia de pais até encontrar a task principal e, então,
+o serviço de projetos existente valida projeto, Host e diretório. Quando a sub-sessão não tem workspace identity
+salva separadamente, a query de ID exato da CLI só retorna se o cwd do child for igual e a cadeia de pais
+persistida provar que pertence ao workspace solicitado; uma identidade explicitamente diferente continua sendo
+recusada. A listagem comum continua excluindo children, e a query não regrava a identidade nem ativa runtime.
+Cada sessão precisa corresponder à workspace identity e ao cwd do attachment atual; pai ausente, ciclo ou
+travessia entre workspaces são recusados. Tasks principais remotas comuns continuam exigindo um projeto;
+sub-sessões não são reconhecidas por prefixo de ID ou por linhas de índice antigas, não se criam linhas de task
+para sub-sessões, e o escopo de diretório não é ampliado.
+
+| Tipo persistido | Resolução de projeto | Lista principal | Entrada do usuário |
+| --- | --- | --- | --- |
+| `interactive`, `fork`, `workflow_parent` | o projeto da própria task | visível | mantém a admissão existente |
+| `subagent_child`, `workflow_child` | após validar a cadeia de pais, usa o projeto da task principal pertencente | oculto | somente leitura |
+| `selection_side_chat` | após validar a cadeia de pais, usa o projeto da task principal pertencente | oculto | pode conversar, mantendo as restrições de comando próprias da conversa auxiliar |
+| `nested_workflow_child` | tratado como sub-sessão de workflow persistida; nenhuma nova entrada de criação | oculto | somente leitura |
+
+Regressão de 2026-10-19: a correção original reconhecia apenas `subagent_child`, e workflows e conversas
+auxiliares ainda consultavam o projeto pelo ID do child. A herança de projeto e a admissão somente leitura
+julgam o tipo separadamente; não se pode substituir uma pela outra usando `parentID` ou o mesmo interruptor de
+somente leitura; uma cadeia de pais mista é validada camada por camada, e mesmo que o índice antigo de child tenha
+projeto, isso não pode pular a cadeia de pais da CLI. Um fork comum pode ter seu próprio projeto, e a herança
+precisa parar no fork. Antes de reenviar uma conversa auxiliar, ao salvar a configuração Recent a UI consulta o
+projeto usando a sessão principal registrada na barra lateral, e o destino do envio continua sendo o child; não se
+pode consultar o projeto de um child que não está no índice principal, nem reescrever o Recent de uma sessão
+comum ou de um fork no projeto do pai.
+
+```text
+desktop continuous / mobile replayable → mesmo Host → tipo de sessão persistido do Agent
+  ├─ task principal → validação do diretório de projeto original
+  └─ sub-sessão → validação da identidade da cadeia de pais persistida → validação do diretório de projeto da task principal pertencente
+```
+
+A relação pai-filho é mantida apenas pelo armazenamento de sessões da CLI, e a atribuição de projeto apenas pelo
+repositório de projetos do Host; a query não adiciona cache, fila nem runtime, e o cold recovery e a assinatura
+em execução usam o mesmo caminho. A regressão cobre child remoto em execução/concluído, ressubscrição, os dois
+clientMode, o índice antigo de child, task principal sem projeto, e as recusas de pai ausente, ciclo e travessia
+entre workspaces.
+
+### Cold recovery e isolamento da lista principal
+
 Causa raiz: depois que a 3.12.1 recicla o publisher detached da child, abrir os detalhes entra em cold recovery; o bootstrap omite o taskType persistido ao criar o record, o default é interactive e o sessions-index transmite a child como se fosse uma task principal.
 
 A única fonte autoritativa de identidade é o taskType do Agent session store. O cold recovery precisa receber esse valor antes de registrar o record e publicar eventos; runtime e record de protocolo ficam consistentes. A lista principal projeta apenas interactive, fork e workflow_parent, e não pode usar a presença de parentID como substituta da visibilidade. O cache de transcripts continua sendo reciclado pelas regras existentes de grace de estado terminal e de liberação da sessão pai.
@@ -147,10 +193,10 @@ child 完成 → publisher 回收 → subscribe → 读取持久化 taskType →
 手机 web-remote-replayable ─ snapshot/gap ┴─ 同一个 Host / Agent 身份与命令准入
 ```
 
-Comandos de entrada iniciados pelo usuário, como sendText, retry/edit e continuação de goal, rejeitam subagent_child antes da escrita em session_input / input_history; uma child já ativada retorna o reasonCode `guard.subagentReadOnly`, e uma child em execução que ainda não tem record próprio continua sendo rejeitada pelo `proto.sessionNotFound` existente, sem nunca ativar um runtime extra para enviar entrada. O despacho normal de child pela ferramenta Agent continua sendo dirigido pelo runtime pai e não passa pela admissão de entrada do protocolo do usuário; o undo de arquivo workspace-only mantém os limites existentes.
+Comandos de entrada iniciados pelo usuário, como sendText, retry/edit e continuação de goal, rejeitam subagent_child, workflow_child e nested_workflow_child antes da escrita em session_input / input_history; uma child já ativada retorna o reasonCode `guard.subagentReadOnly`, e uma child em execução que ainda não tem record próprio continua sendo rejeitada pelo `proto.sessionNotFound` existente, sem nunca ativar um runtime extra para enviar entrada. O despacho normal de child pela ferramenta Agent continua sendo dirigido pelo runtime pai e não passa pela admissão de entrada do protocolo do usuário; o undo de arquivo workspace-only mantém os limites existentes.
 
-A correção da poluição histórica é executada pelo Host task index syncer depois que a primeira baseline autoritativa de sessions-index do workspace chega: para as tasks que existem localmente mas estão ausentes da baseline, ele chama em lotes a session/list(sessionIds) somente leitura, confirma subagent_child a partir dos metadados persistidos do Agent e então apenas marca o task index correspondente como invisível, limpando as referências de agrupamento/ordenação; não apaga sessions, messages nem parts do Agent. A consulta não cria runtime, não lê transcript e não muda a atribuição. A identidade remota precisa percorrer workspaceIdentity / remoteSessionId, e os resultados assíncronos só se aplicam às gerações de assinatura ainda válidas; um Agent antigo que não suporta consulta explícita, uma session ausente ou uma falha na consulta preservam o índice, com nova tentativa na próxima baseline do workspace. Não se pode apagar apenas com base em ausência na baseline ou em parentID. O session/list comum continua retornando apenas os tipos da lista principal; a consulta explícita por sessionIds retorna as identidades persistidas que correspondem ao workspace (incluindo tipos ocultos), com no máximo 64 por lote, e includeArchived mantém o significado atual.
+A correção da poluição histórica é executada pelo Host task index syncer depois que a primeira baseline autoritativa de sessions-index do workspace chega: para as tasks que existem localmente mas estão ausentes da baseline, ele chama em lotes a session/list(sessionIds) somente leitura, confirma os tipos de sessão auxiliar ocultos na tabela acima a partir dos metadados persistidos do Agent e então apenas marca o task index correspondente como invisível, limpando as referências de agrupamento/ordenação; não apaga sessions, messages nem parts do Agent. A consulta não cria runtime, não lê transcript e não muda a atribuição. A identidade remota precisa percorrer workspaceIdentity / remoteSessionId, e os resultados assíncronos só se aplicam às gerações de assinatura ainda válidas; um Agent antigo que não suporta consulta explícita, uma session ausente ou uma falha na consulta preservam o índice, com nova tentativa na próxima baseline do workspace. Não se pode apagar apenas com base em ausência na baseline ou em parentID. O session/list comum continua retornando apenas os tipos da lista principal; a consulta explícita por sessionIds retorna as identidades persistidas que correspondem ao workspace (incluindo tipos ocultos), com no máximo 64 por lote, e includeArchived mantém o significado atual.
 
-A sincronização completa por snapshot também não pode escrever subagent_child como task principal; para abas antigas já abertas e poluídas, a admissão do backend continua rejeitando entrada. A correção não adiciona accepted queue, timer nem owner, e não muda os limites continuous/replayable.
+A sincronização completa por snapshot também não pode escrever os tipos ocultos da tabela acima como task principal; para as abas antigas já abertas e poluídas de subagente somente leitura, a admissão do backend continua rejeitando entrada. A correção não adiciona accepted queue, timer nem owner, e não muda os limites continuous/replayable.
 
 Aceitação: SAT27 cobre warm, reciclagem por grace, liberação pelo pai, reabertura de detalhes após cold start e isolamento de lista; SAT28 cobre entrada do usuário rejeitada sem gravação no banco, tasks principais comuns, fork e despacho pelo Agent funcionando; SAT29 cobre convergência da poluição do índice histórico, isolamento de workspace identity, preservação em falha remota e preservação do transcript original. As duas clientMode são verificadas na camada de protocolo; o E2E do Electron passa por despacho real do Agent, reinício de CLI e clique nos detalhes, afirmando que o corpo da child somente leitura está visível e que não há child no lado esquerdo.

@@ -3,7 +3,7 @@
 O empacotamento do desktop passou a ter «dois conjuntos de recursos explicitamente estratificados»:
 
 - o runtime do agent local do desktop, preparado para a plataforma atual, entra no instalador
-- os recursos exclusivos de remote são produzidos apenas em `mock-cdn/releases/...` e não entram mais no instalador
+- os recursos exclusivos de remote são produzidos por `@zcode/server-cli stage:remote-assets` em `mock-cdn/releases/...` e não entram mais no instalador
 
 ## Convenções de diretório
 
@@ -13,13 +13,13 @@ O empacotamento do desktop passou a ter «dois conjuntos de recursos explicitame
   - no mesmo diretório é gerado o arquivo `*-<platform>.tgz`, para facilitar a auditoria e o reuso posterior na distribuição remota
 - `packages/desktop/mock-cdn/`
   - ponto de entrada dos recursos remote em modo de desenvolvimento
-  - armazena `node`, `server`, `node-pty`, `glm`, `tools` uniformemente no layout `releases/<version>/...`
+  - armazena uniformemente no layout `releases/<version>/...` o `source-server-release.json` e os quatro archives do Source Server por plataforma
 
 ## Produção
 
 - o instalador de produção não contém mais `remote-assets`
-- os recursos remote de produção são distribuídos via o `manifest-<platform-arch>.json` do CDN e o `components/...` compartilhado entre versões
-- na primeira conexão remote, os componentes ausentes são baixados conforme o manifest, descompactados no cache local de componentes e montados em `remoteCacheDir/releases/<version>/<platform-arch>/`; acertos posteriores de cache não baixam de novo
+- os recursos remote de produção são distribuídos via o `source-server-release.json` da raiz de versão do CDN e o `zcode-server-<platform-arch>.tar.gz`
+- na primeira instalação ou atualização explícita, o SHA-256 e o tamanho são validados conforme o descriptor; o modo de download local armazena em cache o archive completo e depois o envia, e o modo de download remote por SSH baixa o mesmo archive na máquina de destino — no final, ambos entram no immutable release installer
 - com `ZCODE_ENV=production`, dois CDNs oficiais são embutidos por padrão:
   - doméstico: `https://cdn.codegeex.cn/zcode/electron/releases/<version>`
   - internacional: `https://cdn-zcode.z.ai/zcode/electron/releases/<version>`
@@ -32,70 +32,34 @@ O empacotamento do desktop passou a ter «dois conjuntos de recursos explicitame
 - Se uma lista de `CDN_DOMAIN` for injetada em tempo de build, ela é usada na ordem da lista da CI, sem reordenação por idioma/fuso horário.
 - com `ZCODE_ENV=test`, usa-se por padrão a raiz de recursos de teste da rede interna:
   `http://intranet.example.invalid:12345/ssh-remote-assets/<version>`. Esse diretório é gerado pela CI, no job
-  `build:remote:assets`, durante o build no ambiente de teste, a partir de `mock-cdn/releases/<version>/manifest-*.json`
-  e `mock-cdn/components/`; o diretório contém diretamente `manifest-*.json` e `components/`.
+  `build:remote:assets`, que sincroniza o descriptor e os quatro archives.
 - `remoteCdnBaseUrl` ainda pode ser sobrescrito por variável de ambiente; uma vez definido explicitamente, apenas essa base personalizada é usada, sem aplicar
   os valores padrão de `ZCODE_ENV` nem o roteamento regional de produção
-- O modo de download por servidor SSH remoto armazena em cache, sob `~/.zcode/server/asset-cache/` no host remoto, os componentes já verificados e descompactados; o caminho final de instalação continua sendo os diretórios existentes de runtime, server, agent e tools em `~/.zcode/server/`.
+- O modo de download por servidor SSH remoto baixa e valida o archive completo em um diretório temporário no host remoto; a instalação final fica em `~/.zcode/server/releases/`, com a troca feita atomicamente via `current.json`.
 
 ## Alternar para o CDN público em modo de desenvolvimento
 
-- em desenvolvimento, o padrão continua sendo `mock-cdn/releases/<version>/...`
+- em desenvolvimento, o padrão é o `mock-cdn/releases/<version>/...` escrito pelo staging do Source Server desta rodada
 - para forçar o CDN público em desenvolvimento, defina a variável de ambiente `ZCODE_DEV_REMOTE_ASSET_USE_CDN=1`
-- uma vez ativado, o remote deploy deixa de ler `mock-cdn` e entra diretamente na cadeia de download via CDN + cache local
+- uma vez ativado, o remote deploy deixa de ler `mock-cdn` e entra diretamente na cadeia descriptor/CDN + cache local de archive
 - sem `ZCODE_REMOTE_ASSET_CDN_BASE_URL` definido, a lista de candidatos «CDN principal + CDN reserva» continua sendo gerada conforme as regras de roteamento regional acima
 - pode ser combinado com `ZCODE_REMOTE_ASSET_CDN_BASE_URL` apontando para uma base de CDN personalizada
 - pode-se definir `ZCODE_REMOTE_ASSET_CACHE_DIR` para sobrescrever o diretório de cache remote; por exemplo, ao iniciar em dev, apontar para o da versão oficial `~/Library/Application Support/ZCode/remote-assets-cache`, reutilizando apenas o cache de recursos remote, sem trocar o `userData` do Electron
 - as variáveis de ambiente de remote asset acima podem ser passadas pelo shell ou escritas em `.env.local` na raiz do repositório ou em `packages/desktop`; as variáveis do shell têm prioridade mais alta
 - para iniciar com um clique «desktop dev + cadeia remote SSH de produção com download/cache», use `pnpm dev:desktop:remote-prod`
 
-## Cadeia de preparação do agent
+## Cadeia de preparação do Source Server
 
-Atualmente tanto o desktop quanto o remote usam por padrão o `zcode.cjs` compilado, e não baixam mais o
-`zcode-agent` nativo com Node embutido por plataforma:
+1. `@zcode/server-cli stage:remote-assets` constrói o Server CLI/Core e o bundle do Agent.
+2. Os Node, node-pty, plugins oficiais e native tools alvo são coletados por linux/darwin × x64/arm64.
+3. Cada plataforma gera um archive completo, gravado em um `source-server-release.json` unificado.
+4. O contrato de instalação do archive é o mesmo em desenvolvimento e em produção, sem gerar mais componentes soltos, wrappers ou manifest legado.
 
-1. `scripts/build-desktop-agent-cli.mjs` constrói `apps/zcode-cli/packages/cli/dist/zcode.cjs` e constrói e valida os runtimes
-   de plugins oficiais necessários ao Dev, como o CUA. `pnpm dev:desktop` executa esse script após o `pre-dev`, e em desenvolvimento o
-   resolver prioriza o bundle dentro do próprio workspace.
-2. O `prepare:agent-bundle` do empacotamento do desktop grava `zcode.cjs` e os recursos seed dos plugins oficiais em
-   `packages/desktop/bundled-agents/<platform>/glm/`, que depois são copiados para o instalador pelo electron-builder.
-3. O `prepare-prebuilds.mjs` dos assets remote reaproveita o mesmo `zcode.cjs`, grava-o em
-   `packages/desktop/mock-cdn/releases/<version>/glm/<platform>/` para cada plataforma e então produz o artifact de componente; o remoto executa esse bundle com o Node já implantado.
+O lado desktop e o lado remote consomem a mesma cópia compilada do `zcode.cjs`, sem baixar mais o `zcode-agent` nativo com Node embutido por plataforma:
 
-`scripts/download-glm.mjs` e o `prepare:glm` do desktop são mantidos apenas como fallback manual de compatibilidade e não entram nas cadeias padrão de Dev, de empacotamento do desktop ou de preparação de assets remote.
-
-Os motivos:
-
-- o release generator deixa de preparar runtimes de agent de terceiros
-- desktop, web e remote deploy passam a consumir a mesma estrutura de recursos do ZCode Agent
-- evita levar `node_modules` de desenvolvimento, natives multiplataforma, símbolos de depuração e caches direto para o instalador
-
-### Override do SSH agent em desenvolvimento
-
-`pnpm dev:desktop` constrói primeiro `apps/zcode-cli/packages/cli/dist/zcode.cjs`. Quando
-executado em desenvolvimento local e esse arquivo existe, o componente `glm` do SSH remote deploy deixa de usar
-o binário nativo `zcode-agent` do mock-cdn/CDN e passa a enviar o `zcode.cjs` local para
-`~/.zcode/server/agents/glm/zcode.cjs` no host remoto, gerando um wrapper executável
-`~/.zcode/server/agents/glm/zcode-agent`. O wrapper usa o `~/.zcode/server/node` já implantado no remoto para
-iniciar esse bundle, de modo que o agent continua rodando dentro da máquina SSH de destino, preservando a semântica
-remota de arquivos, Git e terminal cwd.
-
-O remoto também grava em `.dev-version` um content hash; o reenvio é evitado somente quando esse marcador
-corresponde, os recursos necessários estão completos e o SHA-256 real do `zcode.cjs` remoto é igual ao local. Se um
-pacote de release ou outro cliente sobrescrever o bundle e deixar um marcador de desenvolvimento para trás, é
-obrigatório reenviar; se não for possível verificar o conteúdo real, também se faz novo deploy conforme o caso.
-O override não é habilitado em produção, que segue usando estritamente os recursos manifest/component. Para desligar
-temporariamente o override durante o desenvolvimento, defina `ZCODE_REMOTE_DEV_AGENT_BUNDLE=0`.
-
-## Quais recursos podem existir multiplataforma mas são proibidos no pacote
-
-- `mock-cdn/releases/<version>/node-pty/linux-x64`
-- `mock-cdn/releases/<version>/node-pty/linux-arm64`
-- `mock-cdn/releases/<version>/glm/<platform>/`
-- `mock-cdn/releases/<version>/tools/<platform>/ripgrep/`
-
-Esses diretórios são pontos de entrada exclusivos para a funcionalidade remote e podem manter várias cópias por
-plataforma alvo remota, mas não devem mais ser copiados para o `.app` pelo electron-builder.
+- `scripts/build-desktop-agent-cli.mjs` constrói `apps/zcode-cli/packages/cli/dist/zcode.cjs` e constrói e valida os runtimes de plugins oficiais necessários ao Dev, como o node-repl-host, o client do Browser Use e o simulador. `pnpm dev:desktop` executa esse script após o `pre-dev`, e em desenvolvimento o resolver prioriza o bundle dentro do próprio workspace; o `stage:remote-assets` também obtém o bundle do Agent por ele.
+- O `prepare:agent-bundle` do empacotamento do desktop grava `zcode.cjs` e os recursos seed dos plugins oficiais em `packages/desktop/bundled-agents/<platform>/glm/`, que depois são copiados para o instalador pelo electron-builder.
+- `scripts/download-glm.mjs` e o `prepare:glm` do desktop são mantidos apenas como fallback manual de compatibilidade e não entram nas cadeias padrão de Dev, de empacotamento do desktop ou de preparação de assets remote.
 
 ## Quais recursos são proibidos no instalador
 

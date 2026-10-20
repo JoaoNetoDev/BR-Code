@@ -1,21 +1,8 @@
-# Tooltip de Workspace Remoto via SSH
+# Detalhes da Conexão do Projeto Remoto
 
-## Objetivo
+O tooltip exclusivo de SSH foi substituído pelos detalhes unificados do projeto remoto; o contrato atual está em [Navegação de projetos plana · RDUX-12](../remote/project-first-remote-navigation-spec.md#21a-侧栏详情与设备菜单rdux-12). SSH, WSL, Docker e Direct Server compartilham o mesmo modelo de exibição.
 
-Workspaces remotos sem alias no SSH config ainda precisam ser distinguidos por servidor na lista de tarefas da esquerda. Quando o usuário passa o mouse sobre a área do rótulo principal da tab da barra lateral de um workspace remoto SSH, um tooltip com as informações de conexão é exibido.
-
-## Comportamento
-
-- O tooltip é exibido apenas para workspaces remotos SSH; workspaces locais, WSL e Docker permanecem como estão.
-- O tooltip mostra informações de conexão não sensíveis:
-  - `Alias`: exibido apenas quando `remoteTarget.sshConfigAlias` existe.
-  - `Host`: exibe `username@host:port`; quando a porta está ausente, é exibida a porta padrão do SSH, `22`.
-  - `Path`: exibe o caminho atual do workspace remoto.
-- O tooltip serve apenas para identificar o workspace e não participa de ordenação, desduplicação, chaves de persistência nem do cálculo da identidade do workspace.
-- Os tooltips dos botões de ação que já existem à direita (nova task, árvore de arquivos, reconexão, log de erros) permanecem inalterados.
-
-## Notas de implementação
-
-- A origem dos dados é `WorkspaceTabState.remoteTarget` e `workspacePath`; nenhuma credencial é lida e senha, caminho de chave privada ou passphrase não são exibidos.
-- Apenas a camada de apresentação da UI é alterada; nenhum estado de session/task realtime, snapshot, queue, stream, owner command ou web remote-control do ZCode é adicionado ou modificado.
-- Desktop e Web compartilham os componentes de `packages/ui`; a página inicial de tarefas do controle remoto no celular não usa a barra lateral do desktop e não é afetada por esse tooltip.
+- Clicar no rótulo do dispositivo abre imediatamente os detalhes acionáveis; passar o mouse por 400ms abre a mesma camada flutuante. Ela é ancorada à direita da linha inteira do projeto e fecha com Escape, clique externo ou ao sair de um detalhe não fixado; fechar o menu não deixa tooltip residual.
+- Os detalhes mostram o nome do projeto, o nome do dispositivo, a descrição da conexão, o caminho remoto completo, o status e o motivo; não mostram senha, caminho de chave privada, passphrase nem token de URL. O nome e o caminho no cabeçalho da sessão são consistentes com isso.
+- A conexão segue a intenção original do diretório do projeto; desconectar atua sobre o dispositivo; editar reutiliza a caixa de edição de conexão; gerenciar entra nas configurações e rola e foca, de uma vez, o cartão do dispositivo alvo.
+- O nome de exibição não participa do cálculo de ordenação, desduplicação ou workspace identity; a camada flutuante pertence à UI e não muda task, snapshot, queue, owner nem a cadeia desktop continuous / mobile replayable.

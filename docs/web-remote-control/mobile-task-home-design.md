@@ -1,6 +1,13 @@
 # Plano de reformulação da homepage de tarefas do controle remoto no celular
 
-> **Status: implementado.** Os pontos de entrada atuais no código são
+> **Status: descontinuado (confirmado em 2026-10, no merge do staging).** Após a refatoração
+> de projetos virtuais, o home do celular passou a compartilhar o `ProjectSidebar` com o desktop
+> (ver `docs/superpowers/specs/2026-09-09-virtual-project-design.md` §6.0.3 e o registro de desvio
+> D64), e a homepage de tarefas exclusiva do celular, o snapshot de tarefas desktop→celular e o
+> código relacionado descritos neste documento foram removidos. O texto abaixo serve apenas como
+> histórico de fundo e não como base de implementação.
+
+> **Status original: implementado.** Os pontos de entrada originais no código são
 > `packages/ui/src/WebRemoteControlMobileShell.tsx`,
 > `WebRemoteControlMobileTaskHome.tsx` e `hooks/useWebRemoteControlTaskOpen.ts`; a seção
 > “Recomendação/ordem de implementação” abaixo preserva o rastro do design e não indica estado
@@ -71,8 +78,9 @@ A primeira versão não faz:
 
 ## Complemento de 2026-05-02: entrada de criação de task no nível do workspace
 
-Para completar o ciclo de operação no celular, cada workspace card da homepage de tarefas recebe um
-botão “新建任务” à direita, com o seguinte comportamento:
+Para completar o ciclo de operação no celular, a homepage de tarefas oferece uma entrada “新建任务”
+(desde 2026-09-23, um botão flutuante no canto inferior direito + uma camada de seleção de workspace,
+veja a seção “Homepage”), com o seguinte comportamento depois de selecionado o workspace:
 
 1. Mesmo workspace:
    - chama `startDraft(workspacePath, workspaceIdentity)` para entrar no estado de rascunho;
@@ -125,37 +133,107 @@ Os benefícios dessa abordagem:
 ### Homepage
 
 A homepage serve para navegar pelos workspaces e tasks já abertos dentro da janela atual do desktop.
+Em 2026-09-23 ela foi reformulada, com a prioridade “处理阻塞 > 看进度 > 继续工作 > 切换电脑”, para
+uma lista agrupada em estilo de app nativo (protótipo confirmado arquivado no branch
+`prototype/mobile-remote-redesign`).
 
-Estrutura de informações:
+```text
+┌──────────────────────────────────────┐
+│ [] Alice’s MacBook Pro ●  ⌄    (...) │  ← 页头：平台图标 + 电脑名 + 在线点，点击回设备列表
+├──────────────────────────────────────┤
+│ 已置顶 1                             │
+│ 全部任务              [最近 | 工作区] │
+│ 今天 3                               │
+│ ┌──────────────────────────────────┐ │
+│ │ ✋ 迁移设备列表到 relay v2 接口    │ │
+│ │    z-code · 2 分钟前 · 2 项待确认  │ │
+│ │ ◌  补充 attention 去重签名测试     │ │
+│ │    z-code · 刚刚                   │ │
+│ │ •  修复手机端主题切换闪白          │ │
+│ └──────────────────────────────────┘ │
+│ 昨天 / 本周 / 更早 …    [+ 新建任务] │
+└──────────────────────────────────────┘
+```
 
-1. Marca e status do dispositivo no topo:
-   - `ZCode Remote Control`
-   - a primeira versão mostra o estado da conexão e não adiciona um campo de protocolo para o nome
-     do dispositivo
-2. Área de aviso dispensável:
-   - explica que esta conexão via QR code permite ver os projetos, tarefas e sessões do dispositivo
-     atual
-   - depois que o QR code expira, é preciso voltar ao desktop para reconectar
-3. Área de workspaces e tarefas:
-   - título: os workspaces e as tarefas no dispositivo atual
-   - texto secundário: contagem total de workspaces/tasks
-   - ações: recolher tudo, atualizar
-4. Workspace card:
-   - nome do workspace
-   - caminho do workspace
-   - rótulos leves como local / SSH remote / Docker / WSL; na primeira versão pode começar com
-     local / remote
-   - horário de atualização mais recente, derivado do maior `updatedAt` entre as tasks daquele
-     workspace; não é exibido quando não há tasks
-   - quantidade de tasks
-   - botão de expandir/recolher
-5. Linha de task:
-   - título da tarefa
-   - provider CLI
-   - horário de atualização
-   - pill de status
-   - indicadores como não lida, em execução, erro
-   - a task atualmente selecionada usa o estilo selected
+1. Cabeçalho (fixo no topo):
+   - Entrada de dispositivo (comportamento vigente desde 2026-10-14, depois que o home do celular e
+     o controle remoto em tela larga passaram a compartilhar a sidebar de projetos; protótipo
+     arquivado no branch `prototype/mobile-device-row`): fica no topo da sidebar, acima de
+     “新建任务”, e é uma linha ghost `lg` como “新建任务 / 自动化 / 插件市场”, sem divisor. A linha
+     traz, nesta ordem, o ícone de plataforma (a plataforma do dispositivo lembrada pela máquina;
+     ícone genérico de computador quando desconhecida), o nome do computador (`font-medium`,
+     truncado em uma linha, sem reescrever o nome original; “未命名设备” quando ausente) e a seta
+     `ChevronsUpDown`; sem o prefixo “当前设备：” e sem ponto de online. A linha inteira é clicável,
+     com nome acessível e tooltip “切换设备”, e o clique chama
+     `deviceNavigation.chooseOtherDevice()` para voltar à lista de dispositivos. No celular a linha
+     de dispositivo ocupa o respiro do topo original (sem `pt-11` adicional); em tela larga fica
+     abaixo da área de arraste de `h-12`. A linha de dispositivo não é renderizada quando
+     `deviceNavigation` não é injetado.
+   - Quando o terminal transport está em `reconnecting`, mantém-se o aviso flutuante centralizado
+     no topo do mobile shell (“正在自动重连...”, sem interceptar cliques); a linha de dispositivo não
+     carrega o estado de conexão.
+   - Menu “更多” à direita: modo de ordenação (更新时间 / 创建时间), recolher tudo (apenas na visão
+     de workspace), aparência (submenu de tema) e atualizar.
+2. Não se exibem mais o card de aviso do QR code, o título “当前设备上的工作区和任务” nem a contagem
+   “n 个工作区 · m 个任务”.
+3. Seções de cima para baixo: “已置顶” → a linha “全部任务” (com o seletor segmentado
+   “最近 | 工作区” à direita) → a lista comum. Em 2026-09-24 foram canceladas as seções
+   independentes de “需要处理” e “运行中” e a ordenação running-first do celular, sem adicionar
+   filtro por status:
+   - “已置顶”: todas as tasks `pinned` não arquivadas, inclusive as em execução e as aguardando
+     aprovação.
+   - Lista comum: as demais tasks não arquivadas. A visão “最近” (padrão) agrupa pela linha do tempo
+     do desktop; a visão “工作区” agrupa, na primeira exibição, pela ordem de workspaces devolvida
+     pelo desktop. A exibição inicial ordena de forma decrescente pelo horário de atualização /
+     de criação escolhido.
+   - Cada task aparece uma única vez. Mudanças de status, attention, trabalho em segundo plano ou
+     horário de atualização apenas atualizam o conteúdo da linha, sem mover a task já exibida e sem
+     alterar o bucket de data desta permanência nem a ordem relativa dos grupos já existentes.
+   - Uma task nova entra imediatamente na primeira posição do seu grupo; tasks novas do mesmo lote
+     são ordenadas pela preferência de tempo vigente; um grupo novo é acrescentado ao fim da lista
+     comum, sem expansão automática e sem rolagem automática. Fixar ou Desafixar muda a atribuição
+     imediatamente; a área de fixados fica sempre no topo. Tasks arquivadas, removidas ou que
+     saem do alcance visível do snapshot deixam a exibição imediatamente.
+   - A reordenação é uniforme na primeira carga, em um refresh bem-sucedido (inclusive retry /
+     refresh ao voltar para a home), ao voltar para a home, e ao trocar de seção ou de ordenação de
+     propósito. Um refresh que falha mantém a ordem e o conteúdo atuais; o push automático não
+     reordena. A mudança de idioma recalcula os grupos por data.
+   - Seções de fixados e de data sem membros não são exibidas; o workspace mantém título
+     recolhível e estado vazio. O título da seção é um texto pequeno esmaecido com a contagem, e
+     cada seção é um grupo de listas `rounded-xl`.
+4. Linha de task (altura clicável de pelo menos 56px):
+   - Coluna de status fixa de 20px à esquerda: spinner durante a troca; ícone de mão em cor de aviso
+     quando precisa de processamento; spinner quando está em execução; ícone de alarme em vermelho
+     quando há erro; ponto azul quando não lida; vazio caso contrário. Os ícones têm formas
+     diferentes e nome acessível, e não dependem apenas da cor.
+   - A primeira linha tem o título truncado em uma linha; a segunda é “nome do workspace · tempo
+     relativo” (a visão de workspace omite o nome do workspace), com “{count} 项待确认” em cor de
+     aviso ao final quando precisa de processamento e “报错” em vermelho quando há erro; sem rótulo
+     de status à direita da linha.
+   - Quando há workflow em execução, a linha de execução é desenhada abaixo da segunda linha.
+   - A task atualmente selecionada usa o fundo selected; tasks de um workspace remoto desconectado
+     ficam desabilitadas.
+5. O título de grupo da visão de workspace pode ser clicado para recolher: ícone do workspace (pasta
+   local / nuvem remota / conversa), nome, o rótulo “远程” dos workspaces remotos, contagem de tasks
+   e seta de recolhimento; quando recolhido, as não lidas aparecem como um ponto azul agregado. O
+   título mostra ainda “运行中 n” e “待处理 m”, ocultos quando a contagem é 0, visíveis tanto
+   expandido quanto recolhido. Conta-se apenas as tasks não fixadas do próprio grupo; o
+   “a processar” conta tasks e não interações; tasks com attention contam como “a processar”, e as
+   demais em execução ou com trabalho em segundo plano contam como “em execução”. Mudanças na
+   contagem não expandem nem reordenam. O caminho é oculto por padrão e só aparece em texto pequeno
+   quando há workspaces homônimos. Quando o remoto está desconectado, mostram-se “未连接” e o botão
+   “重新连接”, e `lastConnectionError` aparece em texto pequeno abaixo do título. O workspace atual
+   vem expandido por padrão, e “全部收起” fica no menu “更多”.
+6. Nova task: botão flutuante “+ 新建任务” no canto inferior direito (nas duas visões). O clique
+   abre a seleção de workspace a partir da parte de baixo, ordenada pela atividade recente do
+   workspace (maior `updatedAt` do grupo), mostrando tipo, caminho e horário recente; com apenas um
+   workspace disponível, entra direto no rascunho; workspaces remotos desconectados ficam
+   esmaecidos e oferecem “重新连接”. Depois da seleção vale a regra de `startDraft` acima.
+7. Estado: na primeira carga, linhas de esqueleto; sem nenhuma task, “还没有任务” e o botão
+   “新建任务” (nesse caso o botão flutuante fica oculto, e sem workspace nenhum o botão não é
+   exibido); falhas de carga ou de operação mostram uma barra de erro embutida e “重试”.
+8. A lista de tasks do controle remoto em tela larga não está no escopo desta reformulação e não
+   exibe `attention`.
 
 Complemento de 2026-05-28: a homepage do celular ganha uma seção global pinned no topo. Quando o
 renderer do desktop sincroniza o snapshot de tarefas, ele lê simultaneamente as duas listas sqlite
@@ -163,21 +241,94 @@ renderer do desktop sincroniza o snapshot de tarefas, ele lê simultaneamente as
 separa primeiro a seção de fixados por `pinned === true` e depois entrega as tarefas não fixadas às
 listas normais por workspace/timeline. As tarefas fixadas não aparecem mais duplicadas em workspace
 cards comuns nem na lista de timeline, mas a validação de task ativa e o estado selecionado precisam
-casar simultaneamente com a seção pinned e com o agrupamento comum.
+casar simultaneamente com a seção pinned e com o agrupamento comum. Desde 2026-09-24 o status não
+afeta mais a atribuição de seção.
 
 A homepage tem sua própria área de rolagem e não pode depender do container de rolagem da sidebar do
-desktop.
+desktop. O snapshot de workspaces (primeira carga, refresh ao voltar para a home, push de
+`onWorkspaceListUpdated`) é mantido de forma unificada pelo `WebRemoteControlMobileShell` através do
+`useWebRemoteControlWorkspaceList`; a homepage e a barra superior da página de chat leem a mesma
+projeção. Ele é apenas o cache de exibição do snapshot do desktop, não cria uma nova entrada de
+consulta e não faz polling.
+
+### Limite de rolagem da lista de tasks do workspace
+
+Depois que a homepage do celular muda para a visão “工作区”, cada grupo expandido mostra a altura
+completa de, no máximo, as cinco primeiras tasks; quando passa de cinco, a lista de tasks rola
+verticalmente dentro do grupo, preservando todas as tasks e o comportamento de clique já existente.
+Dentro de cinco, a exibição segue a altura do conteúdo, sem reservar linhas vazias. O título do
+grupo fica fora da área de rolagem da lista, e a contagem continua representando todas as tasks do
+grupo.
+
+A altura é calculada com as cinco primeiras linhas de task reais e é atualizada conforme mudam o
+tamanho da fonte da interface, a linha de execução de workflow e conteúdos semelhantes, sem cortar a
+quinta linha. Cada workspace rola de forma independente, e a homepage ainda pode rolar até os
+outros grupos. A visão “最近”, a área global de fixados, a tela larga e as listas do desktop mantêm
+a exibição já existente. Essa limitação é apenas de layout de UI e não altera o snapshot, a
+ordenação, o owner das tasks nem as cadeias continuous/replayable.
+
+Aceitação MH05: cobre 0, menos de cinco, exatamente cinco e mais de cinco; depois de ultrapassar, é
+possível rolar até a última linha, e os outros grupos e os títulos não rolam junto com o grupo
+interno; a limitação continua correta depois de expandir/recolher, adicionar/remover tasks, mudar o
+tamanho da fonte e mudar a altura da linha de workflow. Validado em Zai Light / Zai Dark do celular,
+em chinês e inglês, mantendo a regressão de tela larga. O caso de navegador reaproveita
+`remote-device-switch.mjs`, e as asserções de rolagem ficam em
+`remote-mobile-workspace-scroll.helpers.mjs`, ainda como validação pending de relay controlado.
+
+### Propriedade e aceitação da ordem de exibição da homepage do celular
+
+```text
+桌面任务 owner → 既有 replayable 快照 → Shell 的唯一快照投影
+                                         ├→ 任务行/工作区计数：读取最新事实
+                                         └→ 首页本次停留的展示顺序（仅身份 key、日期桶）
+自动推送 → 保留已有归属/顺序 + 首部插入新增项 + 移除不可见项
+成功刷新 / 切换视图或排序 / 重新进入 → 按最新快照重建展示顺序
+离开首页 → 丢弃本次展示顺序；不持久化、不增加 accepted queue
+```
+
+A identidade usa `workspaceIdentity?.trim() || workspacePath` mais o `taskId`; tasks diferentes com o
+mesmo taskId e workspaces diferentes não podem compartilhar a mesma posição. O refresh bem-sucedido
+publica o snapshot de forma atômica; um refresh expirado não pode sobrescrever um push que chegou
+entre ele e a publicação, e um refresh que falha não pode disparar reordenação. Essa memória de
+exibição pertence apenas à UI do celular e não altera os fatos de task do continuous do desktop, do
+replayable do celular nem os limites de recuperação.
+
+Cenários de aceitação:
+
+- MH01: execução → aguardando aprovação → retomada → conclusão/erro/fim do trabalho em segundo plano:
+  o conteúdo da linha e a contagem dos títulos são atualizados, e o workspace/bucket de data e a
+  ordem relativa das linhas já existentes não mudam.
+- Task de ontem atualizada para hoje, push recebido à meia-noite: a permanência não troca de bucket
+  de data; depois de um refresh bem-sucedido, a ordenação passa a usar a data e os campos de tempo
+  atuais.
+- MH02: task nova entra na primeira posição do grupo; fixar/desafixar migra na hora e sem duplicar;
+  arquivar/apagar/workspace sumindo do snapshot remove na hora.
+- MH03: com o workspace recolhido, mostram-se as contagens de tasks em execução e a processar, sem
+  contar os fixados globais e sem contar os múltiplos interacting de uma mesma task como várias
+  tasks.
+- MH04: refresh manual bem-sucedido reordena, o que falha preserva, e um push mais novo durante o
+  refresh não é sobrescrito por uma requisição antiga; voltar para a home e trocar ordenação/visão
+  usam a nova ordem.
+- Tema claro e escuro, chinês e inglês, título legível sob nome de workspace longo e sem transbordo
+  horizontal; tela larga e desktop continuam usando a semântica de ordenação existente.
 
 ### Página de chat
 
 A página de chat reutiliza o conteúdo principal existente do workspace:
 
-1. No topo, mantém-se o chat header simplificado para mobile.
-2. Adiciona-se uma entrada para voltar à homepage.
-3. O corpo continua usando o V4 chat content injetado pelo Root (finalmente hospedado por
+1. Barra superior: à esquerda o “‹” de volta à homepage; no centro o título da task atual (“新任务”
+   quando é rascunho) e o nome do workspace, com o subtítulo substituído por um spinner e
+   “正在自动重连...” quando o transport está reconectando; à direita o menu de tema.
+2. O botão de voltar carrega um contador numérico na cor de aviso: conta as tasks com `attention`
+   além da task atual, e não é exibido quando a contagem é 0; o nome acessível inclui essa contagem.
+3. O título da aba do browser recebe o prefixo “(n) ” quando há tasks aguardando confirmação (a
+   homepage conta todas, a página de chat não conta a task atual), e o título original é restaurado
+   ao sair da página de controle remoto.
+4. Abaixo da barra superior continuam sendo renderizados o chat header simplificado para mobile e o
+   V4 chat content injetado pelo Root (finalmente hospedado por
    `packages/ui/src/v4/SessionPane.tsx`, que carrega a sessão).
-4. As regras de exibição móvel de terminal, browser e side pane seguem a estratégia de controle
-   remoto existente; a primeira versão não as estende ativamente.
+5. As regras de exibição móvel de terminal, browser e side pane seguem a estratégia de controle
+   remoto existente; desta vez elas não são estendidas, e a área de conteúdo do chat não muda.
 
 ### Limite das camadas flutuantes de interação na página de chat
 
@@ -326,6 +477,49 @@ Task de outro workspace:
    na página `chat`.
 6. Em caso de falha, registra `logger.error` e permanece na homepage exibindo o erro.
 
+Limites de identidade e de falha na abertura de uma task remota já existente (2026-10-13):
+
+- O adaptador de projetos remotos do Host precisa, antes de `resolveSessionDirectories` retornar,
+  registrar e completar o `workspaceIdentity` para o **cwd real retornado**, usando o mesmo resolver
+  de `readTree` e `prepareSession`. Ele não copia diretamente a identidade da requisição e não muda o
+  cwd, a pertença ao projeto nem os diretórios anexos; uma resolução que falha é recusada como veio.
+- `project-workspace-navigation` mantém as validações de task, diretório, identidade de dispositivo e
+  troca de membro. Quando o diretório ou a identidade não batem, a recusa continua valendo, sem criar
+  um scope local novo e sem relaxar para comparar apenas o caminho.
+- Ao clicar em uma task de outro workspace, apenas o estado de espera é definido. O Root antigo não
+  entra antecipadamente na página de chat; depois que o bridge de destino tem sucesso, a navegação é
+  concluída pela intenção única `chat` do novo Root. Em caso de falha, a homepage e a task ativa
+  original são preservadas, e o alvo que falhou não é registrado como o workspace/task da UI atual;
+  é possível clicar de novo para tentar de novo, sem retry automático e sem trocar para uma task
+  local.
+- A falha estruturada do bridge `{ reason, message }` deve exibir `message`, preservando o `reason`
+  original para o 판단 de recuperação de transporte. Não é permitido exibir o erro por
+  `String(object)` nem reescrever o tipo do erro de transporte para quebrar o contrato de recuperação.
+  Tasks do mesmo workspace continuam sendo selecionadas diretamente e entrando na página de chat.
+
+```text
+手机列表点击 → 等待 bridge → Host 恢复已有任务目录 → 适配器登记远程身份
+                                               → 导航校验 → shared-host attachment
+                   ├─ 成功 → 新 Root 消费 chat 意图 → 目标远程任务
+                   └─ 失败 → 退出等待、显示 message → 保留列表和原任务
+```
+
+A regressão `MRO01` cobre a abertura bem-sucedida de uma task remota já existente, a recusa por
+diretório/identidade divergentes, a falha estruturada, a nova tentativa após a falha e a abertura no
+mesmo workspace. A camada de serviço usa o armazenamento real de projetos e o adaptador de
+identidade; o candidato de interação do celular está em
+`packages/web/test/e2e/manual-review/pending/remote-task-open.mjs`, e controla o sucesso/falha do
+bridge pela entrada Web real e pelo protocolo de quadros RPC, cobrindo temas claro/escuro e
+chinês/inglês. Esse candidato não representa validação em SSH real, em aparelho real ou em
+implantação em produção.
+
+Validação de 2026-10-13: as 4 combinações de tema/idioma no Chrome local a 390px passaram; primeiro
+abre-se o histórico local e então se verificam a espera/falha do bridge remoto mantendo a lista, a
+mensagem exibida, o corpo e a identidade remotos após o retry bem-sucedido, e a abertura no mesmo
+workspace sem criar bridge. O snapshot de histórico controlado entra na página pelo V4 schema e por
+eventos RPC reais, sem nenhuma requisição de modelo; as capturas e os registros de comunicação estão
+em `.tmp/remote-task-open-e2e/`. O caso permanece pending.
+
 Atenção: a task inicial do QR code afeta apenas o estado selecionado da homepage e não chama este
 fluxo de clique.
 
@@ -435,6 +629,8 @@ hasBackgroundWork?: boolean;
 // 2026-09-14 追记：工作流运行摘要（≤ 4 条 run：在跑优先，其后最近结束的），来源是 sidecar 的 workflowActivity。
 // 手机行在标题下绘制 Workflow 图标 + 迷你轨道灯 + 当前 phase 名（24px，13px 文字）；只绘制，不参与排序或状态 pill。
 workflowActivity?: SessionWorkflowActivity;
+// 2026-09-23 追记：会话挂着的待确认交互（权限审批 / 用户提问），见下文「需要处理信号」。
+attention?: { kind: "permission" | "userInput"; count: number };
 ```
 
 A origem dos campos é stratified por nível de autoridade; não se pode tratar vários caches como
@@ -461,12 +657,12 @@ fatos de mesmo nível:
 
 Essa precedência precisa cobrir todas as direções de conflito, e não apenas corrigir `running`:
 
-| sessions-index activity | runtime antigo / cache persistente | exibição no celular |
-| --- | --- | --- |
-| `prewarming` / `running` | `completed` / `failed` / `error` | `running` |
-| `completedSuccess` / `completedInterrupted` | live / `failed` / `running` | `completed` |
-| `error` | live / `completed` / `running` | `error` |
-| ausente ou compatível com `draft` | qualquer | mantém o runtime existente → fallback de estado terminal persistido |
+| sessions-index activity                     | runtime antigo / cache persistente            | exibição no celular                             |
+| ------------------------------------------- | -------------------------------- | ------------------------------------ |
+| `prewarming` / `running`                    | `completed` / `failed` / `error` | `running`                            |
+| `completedSuccess` / `completedInterrupted` | live / `failed` / `running`      | `completed`                          |
+| `error`                                     | live / `completed` / `running`   | `error`                              |
+| ausente ou compatível com `draft`            | qualquer                         | mantém o runtime existente → fallback de estado terminal persistido |
 
 Assim, um novo frame do sessions-index tanto consegue promover um cache antigo `completed/error` para
 `running` quanto consegue encerrar um cache live antigo como `completed/error`. A homepage do celular
@@ -489,6 +685,34 @@ Limites de agregação:
    estado no runtime do ZCode. Quando os dados antigos não têm o campo, o frontend do mobile faz
    fallback para `idle`.
 
+### Sinal de item a processar (attention)
+
+A seção “需要处理” da homepage do celular recebe apenas as tasks com interações aguardando
+confirmação (aprovação de permissão ou pergunta do usuário); um erro não é um item a processar e
+continua sendo expresso por `displayStatus = error`. Esse sinal é uma dimensão independente do
+phase: enquanto se aguarda uma confirmação, o phase normalmente continua `running`, por isso a
+enumeração de `displayStatus` não é estendida e o sinal é carregado separadamente em `attention`.
+
+1. Origem: o `pendingInteractions` do activity sidecar do sessions-index (`permissionCount` /
+   `userInputCount`), normalizado pelo desktop renderer em `buildWebRemoteControlTaskTargets()`
+   reutilizando o `getTaskListAttention()` da sidebar do desktop: `count = permissionCount +
+   userInputCount`; quando há pergunta do usuário, `kind = "userInput"`, caso contrário `"permission"`.
+   Com `count = 0` ou sem activity, o campo não é carregado.
+2. Schema: `count` é um inteiro positivo, e `kind` só permite `permission | userInput`; a página do
+   celular é implantada na mesma versão do desktop, e não se mantém um ramo de compatibilidade extra
+   para versões antigas.
+3. Owner: o fato das interações aguardando confirmação continua pertencendo ao session runtime /
+   sessions-index; o desktop main, o relay e o celular apenas repassam e exibem, sem alterar por
+   causa disso o estado da task ou da session. O celular não lê o runtime nem o Repo para inferir por
+   conta própria.
+4. O celular separa a seção “需要处理” conforme a presença de `attention`; o texto reaproveita a
+   semântica de “等待确认” do desktop, e a contagem é exibida como “{count} 项待确认”.
+
+```text
+sessions-index pendingInteractions ─> getTaskListAttention ─> WebRemoteControlTaskTarget.attention
+                                                                   └─> main 快照签名 ─> relay ─> 手机“需要处理”
+```
+
 ### Limite de deduplicação do push do snapshot da homepage
 
 O desktop main faz apenas deduplicação de transporte sobre o `WebRemoteControlWorkspaceListResult`
@@ -496,7 +720,7 @@ já construído pelo renderer; ele não possui nem reinterpreta o estado de neg�
 assinatura de deduplicação precisa cobrir os campos que a homepage do celular precisa adotar
 imediatamente, mas que só mudam em pontos do ciclo de vida ou em ações do usuário:
 
-1. task: `title`, `unreadAt`, `displayStatus`, `pinned`, `archived`, `remoteSessionId`;
+1. task: `title`, `unreadAt`, `displayStatus`, `attention`, `pinned`, `archived`, `remoteSessionId`;
 2. estado de conexão do workspace: `kind`, `connectionState`, `remoteSessionId`,
    `lastConnectionError`;
 3. os campos de identidade estáveis de task/workspace continuam participando da assinatura, garantindo
@@ -625,7 +849,9 @@ A UI precisa seguir o `DESIGN.md` da raiz:
 
 1. Usar tokens semânticos, por exemplo `bg-background`, `bg-card`, `border-card-border`,
    `text-foreground-subtle`.
-2. Cards usam `rounded-lg`; não use raios grandes demais.
+2. O container da lista agrupada usa `rounded-xl`, e os controles internos seguem a hierarquia de
+   raio de canto do DESIGN.md; a camada inferior reutiliza `BottomSheet`, e o shell usa
+   `bg-popover border-popover-border rounded-t-2xl` do diálogo.
 3. A homepage é uma interface de ferramenta de negócio: mantê-la compacta, clara e legível, sem cara de
    página de marketing.
 4. Suportar light, dark, Zai light e Zai dark.
@@ -671,12 +897,21 @@ Entradas de teste atuais:
    - workspaces agrupados na ordem retornada pelo desktop.
    - expansão padrão do `activeWorkspaceKey`.
    - a task correspondente ao `activeTaskId` aparece como selected.
-   - após clicar em recolher tudo, todos os workspace cards ficam recolhidos.
-2. `packages/ui/test/useWebRemoteControlTaskOpen.test.ts`
+   - a prioridade de atribuição entre “需要处理” / “运行中” / “已置顶” / lista comum, com cada task
+     aparecendo uma única vez.
+   - o ícone de status na linha e o “n 项待确认”/“报错” na segunda linha; a visão de workspace omite
+     o nome do workspace, e o caminho só aparece em workspaces homônimos.
+   - a entrada de dispositivo no cabeçalho, o menu “更多”, o estado vazio e a entrada de nova task.
+2. `packages/ui/test/webRemoteControlMobileShell.test.ts`
+   - a barra superior da página de chat mostra o título da task atual e o workspace; o contador do
+     botão de voltar não conta a task atual.
+   - o estado de reconexão passa a fazer parte do cabeçalho/barra superior, e o aviso flutuante não é
+     mais renderizado.
+3. `packages/ui/test/useWebRemoteControlTaskOpen.test.ts`
    - task do mesmo workspace chama `onSelectTask` e `updateMobileViewState`.
    - task de outro workspace chama `switchWorkspace` com `{ taskId, mobileNavigationIntent: "chat" }`.
    - em caso de falha na troca, o erro é preservado e o estado de switching é limpo.
-3. `packages/ui/test/workspaceShellRemoteMobileLayout.test.ts`
+4. `packages/ui/test/workspaceShellRemoteMobileLayout.test.ts`
    - o breakpoint de controle remoto do celular renderiza o mobile shell.
    - fora do breakpoint de celular, continua renderizando o shell/sidebar existente.
    - a task inicial do QR code apenas expande o card da homepage e seleciona a linha da task, sem
@@ -685,23 +920,34 @@ Entradas de teste atuais:
      adicionada, e o retorno do browser volta para home.
    - após um clique entre workspaces remontar o Root, o `mobileNavigationIntent` de uso único é
      consumido para entrar no chat e é limpo após o consumo.
-4. `packages/shared/test/webRemoteControl.test.ts`
+5. `packages/shared/test/webRemoteControl.test.ts`
    - se `displayStatus` for novo, acrescentar testes de compatibilidade de schema/tipo.
-5. `packages/ui/test/webRemoteControlTaskIndex.test.ts`
+6. `packages/ui/test/webRemoteControlTaskIndex.test.ts`
    - `buildWebRemoteControlTaskTargets()` calcula `displayStatus` pela prioridade activity do
      sessions-index → task runtime → `ZCodeTaskMeta.status`.
    - cobre os conflitos entre phase live e cache runtime/persistido obsoleto nas três direções
      running, completed e error.
    - quando o activity está ausente ou é o `draft` compatível, o fallback runtime/persistido original
      é mantido, e um `running` persistido ainda não pode fabricar um running falso.
-6. `packages/desktop/test/webRemoteControlManagerExternalRelay.test.ts`
-   - quando apenas `title`, `unreadAt`, `displayStatus`, `pinned`, `archived` ou `remoteSessionId`
-     mudam na mesma task, é preciso enviar `workspace-list-updated`.
+   - `pendingInteractions` é normalizado como `attention` (kind/count); com contagem 0 ou sem activity
+     o campo não é carregado, e o `displayStatus` não muda.
+7. `packages/desktop/test/webRemoteControlManagerExternalRelay.test.ts`
+   - quando apenas `title`, `unreadAt`, `displayStatus`, `attention`, `pinned`, `archived` ou
+     `remoteSessionId` mudam na mesma task, é preciso enviar `workspace-list-updated`.
    - quando apenas `connectionState`, `remoteSessionId` ou `lastConnectionError` mudam no mesmo
      workspace, é preciso enviar; um snapshot de campos válidos totalmente idêntico ainda deve ser
      deduplicado.
    - mudar apenas o `updatedAt` de alta frequência não faz parte do contrato de push imediato desta
      rodada.
+
+Validação da reformulação de 2026-09-23: além dos testes unitários acima, foi adicionado
+`packages/ui/test/webRemoteControlMobileShellAttention.test.ts` (jsdom), cobrindo o contador do botão
+de voltar e o título da aba dirigidos por push, a entrada de dispositivo no cabeçalho e a criação
+direta de rascunho com um único workspace. O caso de navegador pending
+`packages/web/test/e2e/manual-review/pending/remote-device-switch.mjs` passou a usar, na homepage após
+a conexão, um snapshot com amostras de seções; as capturas do mobile bridge/home-only cobrem as
+visões “最近” e “工作区” e a camada de seleção de nova task, com 12 configurações aprovadas; uma
+resposta de desktop controlada não equivale à validação em aparelho real ou em implantação em produção.
 
 ## Ordem histórica de implementação
 
@@ -734,3 +980,16 @@ Sugere-se a seguinte ordem de execução:
    remoto do desktop.
 5. Se uma rota real por URL for adicionada depois, é preciso evitar misturar o `remoteControlToken` de
    curto prazo com o estado interno de página de task.
+
+Validação de estabilidade de posição de 2026-09-24: `webRemoteControlMobileTaskOrder.test.ts`
+cobre o bucket de data, o isolamento de identidade, o término de status e a atribuição de tasks;
+`useWebRemoteControlMobileTaskOrder.test.ts` cobre refresh bem-sucedido, com falha e concorrente, e
+respostas expiradas, e a regressão do Shell cobre a reordenação após o retorno do chat. Os
+MH01–MH04 acima são semântica confirmada, e o caso de navegador pending `remote-device-switch.mjs`
+reaproveita `remote-mobile-task-order.helpers.mjs`, validando pela entrada Web real e por snapshots
+de relay controlados a atualização no lugar, o refresh bem-sucedido e com falha, a task nova na
+primeira posição, a migração de fixados, a remoção e a contagem de recolhimento. As combinações de
+tema claro/escuro e de chinês/inglês do mobile bridge/home-only e do bridge em tela larga continuam
+seguindo o MD07; as capturas estão em `.tmp/remote-device-switch-e2e/`. Não foi promovido, e a
+validação por interface controlada não substitui a validação em aparelho real e em ambiente de
+produção.

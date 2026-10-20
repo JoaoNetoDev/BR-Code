@@ -1,5 +1,7 @@
 # Execução e herança de Model
 
+> **Implementado:** o [Plano de ciclo de vida em background do período ocioso](../../../../off-peak-task/background-lifecycle-plan.md) ajusta a escolha de retomada da Session off-peak, a herança e a tomada de posse do background, e esclarece o snapshot de fallback exclusivo do cartão de aceleração; o texto abaixo descreve as regras de execução atuais.
+
 Este documento especifica como, depois que uma Submission entra no Core, cada tipo de execução obtém, mantém ou troca o Model. O estado da Selection está em [`../interaction/interaction.md`](../interaction/interaction.md), e a criação e autenticação do Model em [`../registry/model-creation.md`](../registry/model-creation.md).
 
 ## Princípios gerais
@@ -17,14 +19,14 @@ Este documento especifica como, depois que uma Submission entra no Core, cada ti
 | Execução                   | Origem da Selection                    | Ciclo de vida do Model  | Session Selection |
 | ----------------------- | ------------------------------------- | ------------------- | ----------------- |
 | start-now comum          | Submission atual                       | novo Agent Loop       | atualizada ao receber        |
-| Queue drain comum        | Submission guardado no item da Queue   | novo Agent Loop       | atualizada ao iniciar o dequeue |
+| Queue drain comum        | Submission guardado no item da Queue   | novo Agent Loop       | atualizada na admissão, não sobrescrita no dequeue |
 | Guide / «立即»           | Submission do Guide                    | Steps seguintes do Loop atual | atualizada ao receber o Guide |
 | Automatic Compact        | Active Model do Loop atual             | Loop atual           | não atualizada       |
 | Compact manual           | Submission do Compact                  | novo Loop             | regras comuns     |
 | Subagent                 | override > Profile > Parent Selection  | ciclo de vida do Child | não atualiza a Session do pai |
-| Background               | Selection definida na inicialização     | ciclo de vida do Background | não atualiza retroativamente |
+| Background               | Selection definida na inicialização de cada rodada | rodada atual do modelo em background | não atualiza retroativamente |
 | Goal continuation        | Session Selection no momento da continuação | novo Loop principal por rodada | não salva nada extra |
-| Turn automático off-Peak | ModelSelection da Submission idle      | Loop automático atual | não atualizada       |
+| Turn automático off-Peak | ModelSelection da Submission idle      | rodada de modelo dentro da execução residente do item | atualização temporária, não persistida |
 
 ## Agent Loop comum
 
@@ -134,7 +136,7 @@ O Goal não salva uma Selection de continuation adicional. O novo Loop usa a Ses
 
 ## Background
 
-O Background cria seu próprio Model na inicialização e o mantém durante o próprio ciclo de vida:
+O Background cria seu próprio Model na inicialização e o mantém durante a rodada atual de modelo; novas rodadas acionadas por retomada de mensagem ou por despertar do background leem a Session Selection atual:
 
 ```text
 Turn 1: Selection A, inicia Background A
@@ -178,30 +180,22 @@ Visibility, Access, Endpoint, models e Model Config do Provider vêm todos do Co
 
 ### Estado da Session
 
-Tarefas off-peak não modificam e depois restauram a Session Selection do usuário:
+A execução off-peak define temporariamente a Session Selection como a escolha off-peak, para a continuação do trabalho de background que lhe pertence; a escolha comum continua preservada como valor persistido, sem alterar App Recent, Configured Default ou CLI Default.
 
 ```text
-Session Selection = U
-
-Idle Loop starts
-├─ Session Selection = U
-└─ Active Model = I
-
-Idle Loop terminal
-├─ Model I ends
-└─ Session Selection = U
-
-Next user Submission
-└─ Registry cria Model a partir de U
+Session do usuário = U → Session da execução off-peak = I
+                         ├─ item inteiro concluído e sem tomada de posse → restaura U
+                         └─ mensagem do usuário admitida → Session = escolha V submetida pelo usuário
+                                              └─ retomadas/despertares posteriores usam V
 ```
 
-Não existem `previousModel`, `setModel` temporário nem `finally` de restore.
+As sub-rodadas off-peak já iniciadas mantêm seu próprio modelo e seu próprio ticket até o fim da rodada. O controlador antigo mantém apenas o recibo idempotente, sem sobrescrever as escolhas posteriores do usuário.
 
 ### Busy e Queue
 
 O despacho off-peak só é aceito quando a Session atual pode executar start-now. Diante de uma corrida busy, retorna um admission rejection tipado, e o Scheduler despacha novamente mais tarde; Request Auth/Ticket não entram na Queue comum, no Guide, na held queue nem em pending input replayable.
 
-Uma Submission comum enviada pelo usuário durante a execução entra na Queue única da CLI. Depois que o Turn idle chega ao terminal, os itens da fila são executados com a Selection/regra comum guardada por eles próprios, sem herdar Access, Ticket ou attribution de idle.
+Uma Submission comum resubmetida pelo usuário durante a execução, após ser admitida pela CLI, assume a tarefa inteira e entra na Queue única da CLI. Os itens da fila são executados com a Selection guardada por eles mesmos, sem herdar Access, Ticket ou attribution de idle; as retomadas e os despertares posteriores do background leem a escolha mais recente do usuário. A rodada principal à espera de um novo ticket é retomada pelo caminho de tomada de posse já existente, e as sub-rodadas já iniciadas com ticket válido podem terminar primeiro.
 
 ### Automatic Compact
 
@@ -209,7 +203,9 @@ O Automatic Compact off-peak usa diretamente o Idle Active Model e o Request Aut
 
 ### Foreground Subagent
 
-O override comum de Subagent da Submission off-peak fixa os Foreground Children permitidos na idle Selection. Cada Child ainda cria seu próprio Model pelo Registry/ModelFactory e usa o contexto de Request Auth/Ticket da execução off-peak atual. Outros overrides de Provider/model nos Profiles Explore, general-purpose e custom são sobrepostos por esse override do Core desta rodada. Background Children são barrados pela Tool Policy em modo fail-closed antes de emitir qualquer requisição de modelo. Essa proibição pertence à política de agendamento off-peak e não é escrita no Provider Config nem no Registry.
+O override comum de Subagent da Submission off-peak fixa os Foreground Children permitidos na idle Selection. Cada Child ainda cria seu próprio Model pelo Registry/ModelFactory e usa o contexto de Request Auth/Ticket da execução off-peak atual. Outros overrides de Provider/model nos Profiles Explore, general-purpose e custom são sobrepostos por esse override do Core desta rodada.
+
+Children de background e de foreground podem ambos ser iniciados, herdando a escolha off-peak e uma locação de ticket independente; SendMessage e o Bash em background seguem os mecanismos normais de ferramenta e de notificação. Depois que a rodada principal termina, enquanto ainda houver trabalho de background ou notificações pendentes, a tarefa inteira continua residente.
 
 ### Permission / elicitation
 
@@ -228,7 +224,9 @@ Não é adicionado um estado off-peak `awaiting_approval`, não há troca para o
 
 ### Ticket e retomada
 
-Expiração, cancelamento, falha, sucesso do Ticket ou reinício do processo encerram o contexto de execução válido atual. O Scheduler preserva Task, Session e transcript, obtém um novo Ticket e envia uma nova Submission idle, criando um novo Idle Model. Ticket, fila, timebox de 3 horas, continuation e settle pertencem ao domínio de Off-Peak e não entram no Registry.
+Quando o Ticket expira, a execução já em andamento aguarda a troca; o Scheduler faz a entrega idempotente de um novo ticket usando executionId + renewalId + ticketId; a tarefa original não é reenviada e o Bash não é reexecutado. Apenas requisições de modelo cujo conteúdo ainda não foi entregue podem ser repetidas. A liberação do ticket e a conclusão do item são separadas; só há conclusão quando a rodada principal, o trabalho de background, as notificações/entradas pendentes, a troca de ticket e as locações de modelo estão todos esgotados.
+
+Após a tomada de posse do usuário, não são mais solicitados tickets off-peak; as sub-rodadas já iniciadas com ticket válido podem terminar; as rodadas posteriores usam a escolha do usuário. O reinício não restaura processos de background nem notificações. Ticket, enfileiramento e settle pertencem ao domínio de Off-Peak e não entram no Registry.
 
 ## Tarefas de modelo independentes
 
@@ -237,6 +235,8 @@ Title, Repo Wiki, Memory, WebFetch/WebSearch e outras tarefas de modelo pontuais
 - pertencem ao Loop atual: usam o Active Model atual;
 - execução independente: criam seu próprio Model a partir de uma Selection explícita;
 - despertar posterior do Loop principal: usam a Session Selection vigente naquele momento.
+
+O título padrão congela no momento da enfileiração a execução e a Selection às quais pertence e reserva de forma independente a locação do ticket off-peak, até a geração/gravação ser concluída ou haver saída antecipada ou falha. O modelo de título explícito é executado conforme a configuração independente; títulos externos sem vínculo off-peak não tomam emprestada a Session Selection off-peak temporária.
 
 ## Atribuição
 
@@ -250,7 +250,7 @@ Usage, Trace e erros de cada ModelRequest são atribuídos ao `providerId + mode
 - O Automatic Compact usa o Active Model atual.
 - Cada Subagent cria seu próprio Model.
 - Goal/Background não modificam retroativamente a Session Selection.
-- Tarefas off-peak não modificam e depois restauram a Session Selection.
+- A escolha off-peak apenas armazena temporariamente a Session; a persistência mantém a escolha comum e, após a tomada de posse do usuário, ela não é sobrescrita pelo fechamento off-peak antigo.
 - Após a resposta de permissão off-peak, o mesmo Turn continua usando o idle Model.
 - Request Auth/Ticket dinâmicos não entram no Config, na Registry View, na Queue comum nem na persistência.
 - Execuções especiais não criam um Provider temporário, um segundo Registry nem um segundo tipo de Model.

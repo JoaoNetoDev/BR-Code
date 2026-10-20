@@ -1,5 +1,7 @@
 # Design da validação de login da página de controle remoto Web
 
+> Substituído pela [spec Web de controle remoto Relay V2](../../issues/web-remote-control-relay-v2/01-relay-v2-login-pairing.md). Este é o design histórico; a entrada de login, o QR code e a seleção de dispositivo atuais seguem o [Relay V2](../../web-remote-control/relay-v2-pairing.md).
+
 > Este documento se aplica somente ao fluxo de login `/web-remote` com gate OAuth. `remoteControlToken` / `relayOrigin` são a explicação do comportamento antigo de `/web-remote` e não se aplicam à nova rota QR `/remote`; a nova rota usa o relay externo `sid/hash/t/mid/name/app_version` e não pode gravar `sid` ou `hash` no state do OAuth.
 
 ## Contexto

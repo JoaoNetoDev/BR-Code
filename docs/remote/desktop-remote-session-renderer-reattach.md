@@ -1,102 +1,81 @@
-# Design de Reattach do Renderer de Sessão Remota no Desktop
+# Reattach do Renderer de Workspace Remoto no Desktop
 
-> **Estado atual**: o reattach do renderer continua vale para a logical remote session que permanece viva dentro da mesma BrowserWindow.
-> Uma sessão SSH pode compartilhar o Remote Host correspondente a `sshHostsByPoolKey`; sessões WSL compartilham o Host em pool por
-> `window + normalized(distro,user)`; Docker/Server usam um Host dedicado.
-> O reattach substitui apenas a attachment/renderer port daquela logical session, sem destruir o Host compartilhado nem alterar os limites de replay.
+Especificação atual. Aplica-se ao reload do renderer / recuperação por ErrorBoundary na mesma BrowserWindow, e ao reanexamento do attachment de projeto depois que a Source fica online.
+SSH/WSL/Docker são gerenciados uniformemente pelo Local Host da janela, sem o modelo de processo de Remote Host separado ou em pool.
+A propriedade das entradas e dos caches de projeto segue o [design de projetos virtuais](../superpowers/specs/2026-09-09-virtual-project-design.md).
 
-## Resumo da Funcionalidade
+## Autoridade e ordem de entrega
 
-| Campo                  | Valor                                                                                                                                                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Alteração              | Após o reload do renderer / a atualização do React ErrorBoundary no desktop, o main precisa reanexar ao novo renderer service store o Remote Host que continua vivo e hospeda aquele workspace scope.                                                   |
-| Superfícies visíveis ao usuário | Tabs de remote workspace SSH / WSL / Docker já abertas, listas de tarefas remotas, workspace RPC de primeiro envio e árvore de arquivos.                                                                        |
-| Documentação existente | `docs/remote-workspace-session-unified-settings.md`, `docs/architecture/zcode-code-architecture-overview.md`, `docs/architecture/message-flow.md`, `docs/web-remote-control/web-remote-control-architecture.md`. |
-| Responsáveis pelo código existente | `packages/desktop/src/main/desktopRemoteSessions.ts`, `packages/desktop/src/main/desktopWindowLifecycle.ts`, `packages/desktop/src/renderer/src/main.tsx`, `packages/ui/src/store/remoteWorkspaceSessionStore.ts`. |
-| Fora de escopo          | Sem reconexão automática de SSH; sem alterar a semântica de recuperação `web-remote-replayable` do `/remote` no celular; sem reconectar automaticamente ao iniciar tabs de histórico desconectadas.                                   |
+| Fato | Owner único |
+| --- | --- |
+| Conexão física da Source e sua recuperação | Window Host `SourceServerConnectionManager` |
+| logical session, remoteSessionId, generation, workspace readiness | Window Host `WindowRemoteConnectionRegistry` |
+| Roteamento da janela e entrega de portas do Renderer | `routesBySessionId` em `desktopRemoteSessions.ts` do Main |
+| Registro e gating dos services do Renderer | service store do Renderer; o sessionId da tab não é evidência de ready |
+| Identidade do projeto | `workspaceIdentity?.trim() \|\| workspacePath`, separada do caminho de execução real |
 
-## Registro de Esclarecimentos
+```text
+renderer ready na mesma janela → Main enumera as routes com attachmentState=attachable
+  → solicita o attachment ao Window Host existente → entrega a RemoteServicePort
+  → Renderer registra os services scoped / ready ACK → permite o workspace RPC
+Troca de Source → Registry troca session/generation → Main troca a route → reanexa o attachment
+```
 
-| Rodada | Pergunta                                                                                              | Resposta do usuário | Limite definido                                                                              | Necessário acompanhamento |
-| ------ | ----------------------------------------------------------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------- | ------------------------- |
-| 1      | Vale a pena corrigar a perda de vínculo da remote session causada por reload do renderer / crash / atualização do ErrorBoundary? | Vale, continue.     | Priorizar a correção do desvinculo em que o desktop renderer perde estado, mas o remote host do main continua vivo. | no |
+- Só reanexa as rotas desta janela que ainda estiverem attachable; pending, já descartadas e gerações obsoletas não são entregues.
+- O reattach troca a porta e o attachment, sem destruir o Window Host compartilhado, a Source física ou as tarefas remotas.
+- Quando a remote port chega antes da base ServicePort, ela é armazenada temporariamente e só é liberada (flush) depois que a base fica ready; a porta não pode ser descartada.
+- Connects concorrentes do mesmo workspace podem retornar o mesmo sessionId; o Main faz join da route/attachment existente e não sobrescreve uma route saudável.
+- Um ready, port ou timer tardio não pode coletar a nova generation; a falha libera com precisão apenas o attachment desta tentativa.
+- O Desktop continua continuous; o celular continua com o replayable attachment do Host existente, e Main/relay não mantém snapshot de negócio.
 
-## Decisões de Limite
+## Seleção de cold start e reanexamento do Renderer existente
 
-| Limite         | Decisão                                                                                     | Inclui                                                                                    | Exclui / poda                                                                        | Fonte   |
-| -------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------- |
-| Alvo do reattach | Somente reanexar remote workspace sessions que ainda estão tracked no main e com `connected=true`. | A mesma BrowserWindow após reload do renderer e `window.location.reload()` do ErrorBoundary. | Conexões pending, sessions já descartadas, hosts cujo exit session já ocorreu.            | code    |
-| Semântica do caminho principal | Preservar o caminho principal desktop `desktop-continuous`.                                   | Reentregar `RemoteServicePort`, para que o renderer registre novamente os remote services.  | Não usar snapshot/gap de replay do mobile para recuperação.                              | docs    |
-| Recuperação na inicialização | Ainda recuperar apenas remote tabs desconectados, sem conectar em background.                  | O remote history do settings permanece com reconexão manual.                                | Não tratar o cold start do app como recuperação de sessão viva.                         | docs    |
-| Ponte de remote control     | Reutilizar o padrão existente `AttachServicePort`, sem alterar o ciclo de vida de attachment de shared host no celular. | O main entrega uma nova porta ao desktop renderer. | relay/main não possui estado de task/session.                                              | docs/code |
-| Timing de entrega           | Permitir que a remote service port chegue antes da base ServicePort.                           | A remote port que chega cedo é armazenada temporariamente e só é liberada após o registro das base services. | Não descartar remote port porque as base services ainda não estão prontas. | code    |
+O [F5 de projetos virtuais](../superpowers/specs/2026-09-09-virtual-project-design.md) é a nova autoridade de persistência:
+o cold start restaura apenas o diretório de execução ativo a partir de `lastActiveWorkspace`; as outras entradas de projeto são lidas do SQLite do Host, e o attachment é criado quando o usuário abre o projeto.
+`lastWorkspaceSession` é uma projeção de compatibilidade para fallback, e não o novo open set; não se pode exigir, só porque ela contenha A/B, que o cold start gere todas as tabs A/B.
+As settings antigas sem os novos campos continuam usando a importação única e a complementação active-first.
+Abaixo, "todos os projetos open" se refere apenas às tabs desconectadas que o Renderer atual realmente mantém, e não a todos os diretórios dos campos antigos.
 
-## Escopo de Domínio
+```text
+cold start: conexões salvas no Host → Source online
+        lastActiveWorkspace → tab ativa → attachment
+        entrada de projeto do Host → usuário abre outro projeto → attachment desse diretório
+recuperação de desconexão na mesma janela: tabs já existentes → Source online → reanexar uma a uma, sem roubar o foco
+```
 
-| Domínio                                   | Inclui? | Por que pode alterar comportamento                                                      | Fontes primárias                                              |
-| ----------------------------------------- | ------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Limite de arquitetura/processo             | sim     | renderer, desktop main e remote host reestabelecem as três camadas de transporte RPC.    | `docs/architecture/zcode-code-architecture-overview.md`      |
-| Identidade do workspace / remote runtime   | sim     | O reattach deve preservar o isolamento de `remoteSessionId`, `target` e `workspaceIdentity/workspacePath`. | `docs/remote-workspace-session-unified-settings.md`          |
-| Remote/replayable em tempo real no mobile  | limitado | Precisa confirmar que não afeta o attachment de remote control replayable no celular.      | `docs/web-remote-control/web-remote-control-architecture.md` |
-| Comportamento de conversa/sessão           | não     | Não modifica conteúdo de session, queue, snapshot ou regras de replay.                    | `docs/testing/conversation-session-e2e-coverage-matrix.md`   |
+## Gating de recuperação em dois níveis
 
-## Mapa de Conceitos
+1. No cold start, o Host tenta uma vez cada uma das conexões salvas, ordenadas pelo tempo de último online, sem mais filtrar por 7 dias; usa apenas as credenciais que o Profile padrão consegue obter silenciosamente e respeita o switch global de auto-reconexão desligado. Candidatos legacy, que exigem interação ou confirmação de upgrade/migração, permanecem manuais.
+2. O Renderer só recupera, depois que o Management observa a Source online, os projetos open, desconectados e de stable identity sob essa Source na janela atual; sem mais filtrar por idade do workspace ou pelo último estado connected.
+3. A validade do diretório é verificada pelo Host admission; a falha de um projeto não bloqueia os demais. A UI de conversation remota está desativada, e suas entradas históricas não entram como candidatos de recuperação.
+4. Deduplicação por ciclo; após um terminal close sem offline observado, não há auto-recuperação imediata. Os siblings que chegam depois do active-first são verificados por workspace key e não podem ser engolidos pela marca attempted de nível Source.
 
-| Conceito                          | Por que importa                                                                        | Fonte                                               |
-| --------------------------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `RemoteServicePort`               | Único ponto de entrada em runtime para o renderer registrar remote services.              | `packages/desktop/src/renderer/src/main.tsx`         |
-| `remoteWorkspaceSessionsById`     | Índice autoritativo de logical session, referência de Host e attachment no lado do main. | `packages/desktop/src/main/desktopRemoteSessions.ts` |
-| `sshHostsByPoolKey`               | Índice autoritativo de vivacidade e readiness dos SSH Hosts na mesma janela.              | `packages/desktop/src/main/desktopRemoteSessions.ts` |
-| `AttachServicePort`               | Permite anexar uma nova porta RPC quando o remote host já tem `activeServices`.           | `packages/desktop/src/host/index.ts`                 |
-| Remote tab desconectado           | O remote tab restaurado pelo settings não tem `remoteSessionId` vivo e depende de reconexão manual. | `docs/remote-workspace-session-unified-settings.md`  |
+## Gating de recuperação de navegação e reanexamento (RDUX-09)
 
-## Responsáveis por Estado
+A janela principal restaura o último projeto remoto ativado e a seleção de sessão; veja a [spec de navegação §2.3](./project-first-remote-navigation-spec.md#23-重连与重启后回到原处rdux-09). A restrição de "Source online não ativa automaticamente" permanece aqui: a posição de inicialização é determinada pela persistência das abas, e o reattach em background não reescreve o foco. O Host ainda pré-aquece apenas caminhos locais, e o Renderer pode ativar primeiro o placeholder remoto; antes do primeiro ready não se lê nem se renderiza conteúdo remoto, e em caso de falha ou de não conexão a aba e o banner originais são mantidos. O conteúdo já carregado permanece somente leitura conforme o owner existente; o replayable do celular não consome a recuperação de navegação do desktop.
 
-| Estado / fato                                 | Autoridade                  | Espelhos / caches   | Evidência                                     |
-| --------------------------------------------- | --------------------------- | ------------------- | ---------------------------------------------- |
-| Se o processo de remote host SSH está vivo    | desktop main                | nenhum             | `sshHostsByPoolKey`                            |
-| Se os remote services do renderer estão disponíveis | renderer Zustand store | `remoteSessionId` da tab | `registerRemoteWorkspaceSession`               |
-| Identidade do remote workspace                | remote entry da tab/settings | session context do main | `workspaceIdentity?.trim() \|\| workspacePath` |
-| Coleção de services RPC do remote host        | `activeServices` do processo host | portas anexadas | log de `AttachServicePort`                     |
+## Manual Disconnect Boundary
 
-## Dimensões
+A desconexão iniciada pelo usuário é a intenção de encerramento dentro da janela atual, e não pertence à recuperação de inicialização nem à recuperação de desconexão anormal. O evento de estado da Source só pode disparar a recuperação de inicialização de workspaces históricos quando entra em `online`; quando uma tab existente passa de live session para placeholder desconectado, apenas o estado de desconexão é atualizado, sem redisparar a recuperação. A complementação active-first na inicialização, ao criar uma nova tab desconectada, ainda pode disparar um recálculo de candidatos.
 
-| Dimensão        | Valores / classes de equivalência | Fonte | Inclui? | Razão                                                                |
-| ---------------- | --------------------------------- | ----- | ------- | --------------------------------------------------------------------- |
-| session state    | pending / connected / disposed-exited | code  | sim     | Apenas sessions connected devem ser reanexadas.                      |
-| evento do renderer | initial create / same-window reload | code | sim     | Ambos passam pela entrega de porta após `dom-ready`.                 |
-| tipo de remote   | SSH / WSL / Docker                 | shared target | não | O reattach só depende do session host, não do backend específico. |
-| modo do cliente  | desktop-continuous / web-remote-replayable | docs | sim | Esta correção só atua no desktop renderer.                   |
+O Directory delta em si não é sinal de reconexão; mas, quando ele completa pela primeira vez o mapeamento `legacyWorkspaceIdentity -> remote:server:*`, o Renderer deve primeiro reprojetar de forma sincronizada as sessions em memória já recuperadas e as tabs desconectadas. Se a recuperação seguirá ou não é decidido somente pelo Source `online`, pela open membership, pela stable identity e pela dedup de uma vez por ciclo de conexão; credenciais silenciosas e o switch global de auto-reconexão são aplicados na reconexão de inicialização do Host.
+Não se pode ampliar para iniciadores de auto-recuperação uma renomeação comum, a remoção de uma linha, o registro de um projeto aberto ou um history `failed` isolado; depois que o flight da Source é aprovado, uma failed open entry conta apenas como membro de recuperação desse flight.
 
-## Combinações Candidatas
+O owner da auto-recuperação é a Source online, e não um workspace initiator. O Source `online` só decide se o flight da Source deste ciclo pode começar; depois que o flight começa, ele deve percorrer todas as entries open e disconnected dessa Source na janela atual, sem filtrar por idade do workspace ou pelo último connected. Quando um membro já está live ou está em outro flight de recuperação, apenas esse membro é liquidado, e o grupo inteiro não pode ser marcado como skipped. Sources conectados manualmente que ainda não estão online continuam reutilizando o initiator/gate de credenciais de dispositivo do Host, e esta regra não é ampliada.
 
-| ID do candidato | Estado                     | Evento                      | Alvo/superfície  | Guard/efeito esperado                                                                 | Status inicial | Observações            |
-| ---------------- | -------------------------- | --------------------------- | ----------------- | ------------------------------------------------------------------------------------- | -------------- | ---------------------- |
-| DRS-RR-01        | connected remote session   | renderer reload/dom-ready  | desktop renderer  | O main reenvia `RemoteServicePort` e o renderer pode re-registrar o mesmo `sessionId`.  | aceito         | Implementação atual.    |
-| DRS-RR-02        | pending remote session     | renderer reload/dom-ready  | desktop renderer  | Sem reattach, para não expor ao renderer um host não inicializado.                     | aceito         | Coberto por teste unitário. |
-| DRS-RR-05        | connected remote session   | remote port antes da base port | desktop renderer | O renderer armazena a remote port e registra os remote services após a base ServicePort estar pronta. | aceito | Implementação atual.    |
-| DRS-RR-03        | disconnected history tab  | recuperação em cold start  | tab de UI         | Mantém o placeholder desconectado, sem criar runtime SSH automaticamente.              | podado         | Coberto pelo design de recuperação existente. |
-| DRS-RR-04        | mobile bridge attachment   | mobile reconnect           | web remote        | Mantém a lógica existente de shared-host attachment, sem nova recuperação replayable.  | podado         | Fora do escopo desta alteração. |
+## Limites de regressão e de evidência
 
-## Casos Aceitos
+| ID estável | Contrato e status do registro original |
+| --- | --- |
+| DRS-RR-01 | Com ready na mesma janela, troca o attachment e mantém a session; unit original covered. |
+| DRS-RR-02/05 | pending não é entregue; a remote port é armazenada temporariamente antes do base ready; os Accepted Cases originais são planned e não podem ser presumidos aprovados a partir da tabela de candidatos. |
+| DRS-RR-03/08 | Recuperação em dois níveis e reprojeção legacy→stable; unit / SSH real covered originais, válidos apenas como linha de base do registro. |
+| DRS-RR-04/06/07 | Limites do celular inalterados; candidatos de inicialização inelegíveis permanecem desconectados; a desconexão manual não dispara auto-recuperação. |
+| DRS-RR-09 | O flight da Source aprovado pula membros já live e continua com os siblings; a UI atual só recupera projetos. |
+| DRS-RR-10 | Join de route/attachment para connects repetidos; o cenário original de conversation é unit + real SSH pending. Cenários de UI antiga não servem como evidência de aprovação da navegação atual. |
 
-| ID do caso | Setup                                                                                 | Ação                                                             | Asserções                                                                                                                     | Camadas de evidência             | Status E2E |
-| ---------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ---------- |
-| DRS-RR-01  | Remote workspace session connected pertencente a `webContents.id=99`.                 | O renderer da mesma janela fica ready novamente e o main chama o reattach da remote session. | O attachment antigo é detachado com precisão e o child recebe `AttachServicePort` com o novo `attachmentId`; o renderer recebe `RemoteServicePort` com o mesmo `sessionId`. | unit: mensagem/porta do main manager | coberto |
-| DRS-RR-02  | Remote workspace session pending que ainda não recebeu `Connected`.                   | O renderer fica ready novamente.                                 | Nenhuma porta é entregue.                                                                                                     | unit: no-op do main manager      | planejado |
-| DRS-RR-05  | O renderer recebe a `RemoteServicePort` remota antes de as base services estarem registradas. | Em seguida recebe a `ServicePort` local.                    | A remote port não é descartada; as remote ports pendentes são liberadas após as base services ficarem prontas.                 | unit: guard no source do renderer | planejado |
+O budget de 10 segundos da inicialização pertence apenas ao physical flight do Host; em caso de timeout, primeiro se liquida um erro estável, depois se aborta e se cancela com precisão o transport.
+O Renderer não pode chamar connectProfile antecipadamente para ampliar o mesmo flight de recuperação, e um handshake tardio não pode registrar online.
 
-## Decisões de Poda
-
-| ID da decisão | Combinações podadas                          | Guard/invariante                                    | Razão de produto                                                  | Cobertura representativa        |
-| ------------- | -------------------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------- |
-| PD-01         | Reconexão automática do remote history no cold start | A recuperação do settings só gera tab desconectado | O usuário não pode ser puxado de volta ao remoto silenciosamente por background. | Testes de persistência existentes |
-| PD-02         | Recuperação via snapshot replayable no mobile  | relay/main não possui estado de task/session/stream | O remote control do celular só pode anexar um host existente, sem criar runtime independente. | Testes de web remote existentes |
-
-## Notas de Handoff para E2E
-
-- Fixture de provider: não necessário.
-- Fixture de sistema de arquivos: não necessário.
-- Estratégia de timing: o teste unitário simula diretamente `Connected` e o renderer ready.
-- Preset Docker: não necessário.
-- Riscos de revisão: é preciso confirmar que reload na mesma janela não duplica o registro de sessions pending; e que o reattach de sessions connected não altera o ciclo de vida do remote host.
+Os arquivos de teste e as evidências de execução ver a [matriz de cobertura](../testing/conversation-session-e2e-coverage-matrix.md); a tabela de candidatos antiga, os Accepted Cases e as restrições históricas estão preservados completos em `git show a17a875588b8d66c2bee49236292e174df651363:docs/remote/desktop-remote-session-renderer-reattach.md`.
+Esta alteração apenas corrige a documentação, sem registrar resultados de execução nem alterar status formal/pending.

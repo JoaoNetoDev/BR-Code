@@ -24,13 +24,16 @@ mantém apenas os remote assets:
   windows-arm64/
   linux-x64/
   linux-arm64/
-  manifest-*.json
-  components/
+  source-server-release.json
+  zcode-server-linux-x64.tar.gz
+  zcode-server-linux-arm64.tar.gz
+  zcode-server-darwin-x64.tar.gz
+  zcode-server-darwin-arm64.tar.gz
 ```
 
 Dentro de cada subdiretório `<platform>-<arch>/` ficam somente o instalador daquela plataforma/arquitetura, o blockmap,
-o `latest*.yml` e o `manifest.json` do próprio diretório. O `manifest-*.json` e `components/` do runtime remoto
-continuam na raiz do release, para o upload adjunto de `release:upload:macos:arm64`.
+o `latest*.yml` e o `manifest.json` do próprio diretório. O descriptor/archive do Source Server permanece na raiz do
+release, para o upload junto de `release:upload:macos:arm64`.
 
 ## Regras de leitura
 
@@ -49,6 +52,6 @@ continuam na raiz do release, para o upload adjunto de `release:upload:macos:arm
 - cada build job de plataforma só pode gravar instalador, blockmap, `latest*.yml` e `manifest.json` no diretório
   correspondente de plataforma/arquitetura.
 - ao reutilizar o diretório compartilhado, o build job deve limpar as cópias históricas de instaladores da raiz, mas
-  não pode remover os `manifest-*.json` e `components/` dos remote assets.
+  não pode remover o descriptor/archive do Source Server desta rodada.
 - o `SOURCE_DIR` do upload job deve apontar para o subdiretório de plataforma/arquitetura.
-- o upload dos remote assets continua lendo os `manifest-*.json` e `components/` da raiz do release.
+- o upload dos remote assets lê apenas o `source-server-release.json` e o `zcode-server-*.tar.gz` da raiz do release.

@@ -30,7 +30,58 @@ A implantação do E2E responde "como testar de forma estável":
 9. O MR e a GitLab Web pipeline rodam, por job opcional manual, o replay default do diretório formal: o job compartilhado de macOS e o job de macOS dedicado são execução de instância única, e só o job do Windows usa quatro shards nativos GitLab/WDIO. As três entradas reutilizam globs direct-root como `ZCODE_E2E_SPEC=./test/e2e/conversation-session/*.test.ts`; esses globs não são recursivos e só coletam specs já promovidos ao diretório formal, não `manual-review/pending`.
 10. A Docker CI só recebe suites já estabilizadas e automatizadas.
 
+A entrada full do Desktop exclui candidatos de forma unificada por diretórios `manual-review` em qualquer nível, e não pode enumerar apenas os domínios conhecidos, senão novos diretórios de bots/settings/feedback seriam coletados indevidamente pela execução full de processo único. Spec explícita ou modo manual-review ainda pode rodar candidatos; o conjunto formal do processo único e o dos shards precisam ser consistentes, sem registrar candidatos sem ambiente de capture como falha de regressão formal.
+
 ## Contrato de inicialização compartilhado
+
+### Manutenção do contrato de replay formal (2026-10-15)
+
+A entrada e o Enter da TUI são executados separadamente: usa-se o protocolo de colagem do terminal e espera-se que o conteúdo desta entrada seja desenhado; não se pode tomar os novos quadros gerados pela animação como sinal de que a entrada foi concluída. A conclusão de um comando espera o seu recibo explícito; o desenho incremental do terminal pode emitir apenas o sufixo alterado do texto de placeholder, sem exigir que o placeholder completo reapareça.
+
+O Provider permite mesclar mensagens de sistema adjacentes; o incoming reminder é validado no wire quanto ao texto completo, ao papel e à unicidade, sem exigir um system text block exclusivo. O wrapper de system-reminder do user continua exigindo um block completo e independente e tags pareadas.
+
+O helper de criação de projeto aguarda apenas o rascunho vazio único do pane principal; o campo de entrada de conversas auxiliares pode coexistir e não conta para a decisão de troca do pane principal.
+
+- Os Providers de equipe compartilham o Provider ID, e os itens do menu de modelos são agrupados pela identidade completa da conexão de equipe; o helper especializado recebe a connection key pela fixture e não pode continuar localizando a linha da equipe por `registry-provider:<id>`. O Composer em branco não salva uma troca de seleção não submetida; ao validar a seleção não submetida entre tarefas ou após reinício, mantém-se um rascunho de texto não vazio.
+
+- Depois que o ícone de menção de Plugin passou a ser renderizado por variável CSS, lê-se a URL real de `--mention-image`; não se procura mais o `img` filho removido. O teste de avaliação da loja cria um rascunho independente, e os casos posteriores com cwd fixo precisam preparar de novo o projeto de fixture.
+
+- Os artefatos do app de teste devem ser independentes do `out` compartilhado: usa-se copy-on-write (cópia normal quando o sistema de arquivos não suporta), nunca hard link. Quando o build de origem for sobrescrito no lugar pelo `tsc -b` ou quando um exemplar isolado for escrito pelo teste, os demais exemplares de replay precisam permanecer inalterados. Após a checagem de tipos, é preciso refazer o build E2E; não se pode reutilizar a entrada do Host sobrescrita pelo emit do TypeScript.
+
+O caso especial I68 precisa fornecer explicitamente as quatro faixas de reasoning Option Spec e o mapeamento do protocolo de requisição; não se depende mais da complementação pelo Agent catalog descontinuado. O teste de herança do editor de modelos precisa remover a sobrescrita exata de `disabled` do replay genérico, manter a configuração recomendada atual e expandir explicitamente a área avançada a cada reabertura.
+
+A lista `values` da reasoning Option Spec é ordenada de baixa para alta, e o último item é a faixa máxima padrão na troca ativa de modelo; a fixture de I20 fornece explicitamente as `off/low/high/max` que ela assere, sem seguir a antiga regra de colocar o valor padrão em primeiro. O teste de cobertura do profile somente-leitura do plugin oficial usa o `documents:visual-judge` atual, sem procurar mais o `document-skills:judge` descontinuado.
+
+Depois de salvar um Subagent, fecha-se o formulário primeiro e só então a lista é atualizada de forma assíncrona. Para editar de novo, é preciso esperar a linha voltar a `role="button"`; não se pode apenas esperar a linha existir e clicar em uma linha que ainda está atualizando e sem o evento de edição vinculado.
+
+Os casos formais de settings localizam a entrada por uma identidade estável: I23/I24 criam um Personal Provider a partir do BigModel Template e conferem a API Key e a hidratação de modelo pelo ID da nova instância, sem consultar o item de conexão de Family API Key descontinuado. O escopo de Subagent é selecionado por `data-plugin-scope-key`, entre `user` e a workspace key alvo; o nome de exibição contém informação de dispositivo, e não se pode determinar a identidade apenas pelo nome cru do projeto. O caso formal de MCP reutiliza a inicialização V4, preservando a negociação real do Agent e as asserções de wire.
+
+A coleta de telemetry das tarefas em background é reiniciada por case no HTTP mock e no buffer do ARMS; não se pode reutilizar um cursor entre cases, senão cases intermediários sem asserção de telemetry também contariam para a asserção de contagem exata da seguinte.
+
+A visibilidade da linha de tarefa em background usa o `checkVisibility` nativo do navegador. Os ancestrais com `display: contents` do V4 não têm sua própria caixa de layout, mas não ocultam os filhos; não se pode exigir que cada ancestral tenha um retângulo não nulo, sob pena de tomar controles running/stop visíveis como desaparecidos.
+
+Os dados de preparação dos casos formais precisam satisfazer o contrato de produto atual; não se pode eliminar falhas reduzindo asserções, pulando o caso ou alterando a lógica de negócio:
+
+- Os cenários de arquivos, Hook e cold recovery de diretório fixo mantêm o cwd pela entrada de nova tarefa do projeto; a nova tarefa global continua validando um diretório independente, sem misturar as duas entradas.
+- A preferência de modelo precisa ser declarada em `reasoningLevel.values` da fixture; o caso especial que verifica os parâmetros de pensamento da requisição também fornece um Option Map não vazio, enquanto o replay comum mantém o mapa vazio.
+- `/plan` é a ação local `app-slash:plan`; a identidade de session formal só exige ser não vazia e não draft, sem depender do prefixo `sess_`.
+- A seleção de Markdown entra na requisição por referência estruturada, verificando o caminho de origem e o corpo em `<conversation_quote>` e as referências históricas, sem mais exigir o wrapper antigo `# userselect`.
+- A fixture de integração de Bot usa o contrato de reserva de criação de session do repositório do projeto; o ToolSearch coleta o corpo completo quando o evento de requisição real chega e continua arquivando o Model IO original do Adapter, sem tomar a contagem estatística de eventos em memória reduzida como o corpo da mensagem.
+- Ao configurar o Provider na página de settings, primeiro tira-se o foco do campo de entrada e confere-se a gravação dos campos de conexão; só então se opera o menu de formato de API. Se o formato está selecionado, o critério é o `data-state=checked` do menu; o overlay Personal ausente pode herdar o formato de protocolo do Template, e não se pode pular a troca usando o valor default de um snapshot antigo.
+- Após o fork, a identidade de session troca primeiro e a projeção de capacidades do modelo chega depois; espera-se o conjunto de capacidades alvo ficar pronto antes de asseverar a faixa e a requisição real, sem tomar o conjunto vazio do instante da troca como capacidade final.
+- Quando um lote falha e um único cenário passa, verifica-se primeiro o limite estável dos owners de preparação, limpeza e navegação, sem aumentar tempos de espera fixos. Exceções reais de produto, como permissão, mantêm a asserção original e são listadas como bloqueio.
+
+```text
+requisitos de diretório e modelo do case → entrada do projeto / fixture de Provider → rascunho atual pronto
+                                                   ↓
+                               ação real do usuário → asserções de wire / persistência / UI
+```
+
+A preparação do Provider de replay `env` padrão escolhe `high`, e sua Personal Config precisa declarar simultaneamente as faixas de pensamento `high` / `max`; o caso especial da barra de ferramentas do Composer também precisa declarar essas duas faixas nos outros presets. Não se pode semear apenas `disabled` e deixar a barra de ferramentas selecionar uma opção inexistente; o replay comum continua usando o mapeamento de parâmetros vazio, sem injetar parâmetros de pensamento do modelo real na requisição.
+
+O teste de regressão da entrada precisa usar o glob do diretório formal e reduzir o escopo de casos com exclude; rodar apenas o glob de nome de funcionalidade não prova o caminho de inicialização do CI. Este contrato envolve apenas a camada de inicialização do E2E e não modifica a implementação de produção.
+
+As operações de projeto do `automations-create-manage` usam o `automation-project-select` atual e `role=option`. Conforme a [especificação de projeto virtual B18](../superpowers/specs/2026-09-09-virtual-project-design.md), os candidatos vêm dos projetos virtuais locais, sem usar mais o menu de rascunhos de session; a fixture isolada deve listar apenas `ZCodeProject`. Mantêm-se as asserções de criação, edição, pausa, retomada e exclusão, sem tomar a antiga entrada «não trabalhar em um projeto» como pré-condição do formulário atual.
 
 Specs no diretório formal usam `prepareV4ConversationE2E` para levar o teste a um "rascunho vazio pronto para envio"; candidatos da fase de migração em `manual-review/pending` ainda podem usar `prepareConversationE2E`. Specs já promovidos não podem importar o legacy `helpers/conversation-session.js`: operações de pane/composer/timeline do V4 vêm de `v4-conversation.ts`, asserções de bloco de tool vêm de `conversation-session-tool.ts` e asserções de request do provider vêm de `conversation-session-network.ts`. Essa fronteira apenas converge a implementação da evidência formal e não altera as combinações de estado de produto do catalog.
 
@@ -38,15 +89,20 @@ Antes do merge da promoção formal também é preciso satisfazer simultaneament
 
 `prepareV4ConversationE2E` só é responsável por levar o teste ao "rascunho vazio pronto para envio", precisa ser idempotente e não pode tratar a própria inicialização como uma operação de produto "criar nova tarefa". Se, após o cold start ou a reativação do workspace, já valem `activeTaskId=null`, o pane do V4 com `data-session-id="draft"`, o estado idle e o composer visível, o rascunho é reutilizado diretamente após a configuração do provider; só se clica em nova tarefa quando ainda houver session existente vinculada, quando a página não for draft ou quando o composer não existir.
 
+A preparação da fixture de diretório fixo também precisa confirmar que o cwd do owner de navegação é o diretório principal `ZCodeProject`, e isso precisa acontecer antes da inicialização do Provider. O rascunho vazio inicial nesse diretório pode ser reutilizado mesmo sem rótulo de projeto; não se pode repetir a criação para completar o rótulo, o que trocaria o owner de pré-aquecimento. A criação global segue a especificação de projeto virtual D3 e cria um diretório independente, e não pode ser usada para inicializar a fixture de diretório fixo; session existente, outro cwd ou rascunho não vazio devem voltar ao diretório da fixture pela entrada de nova tarefa da linha de projeto existente. `skipShellReady` preserva a semântica de workspace preparado pelo chamador e não força a escolha da fixture local. `startNewV4Draft` explícito continua clicando na entrada global de nova tarefa.
+
+A preparação de acesso total dos casos de ferramenta reutiliza `switchV4Mode("yolo")` e confirma o retorno do comando pelo `data-mode` do composer V4 atual; não se pode consultar a antiga Select option nem agregar a configuração de outros workspaces para julgar a permissão atual.
+
+A preparação de tamanho da janela reutiliza `setCurrentElectronRendererContentSize`, seleciona a janela pela URL atual do WebDriver, define o tamanho da área de conteúdo e confere o viewport do renderer pelo zoom factor real. Não se pode estimar a área de conteúdo subtraindo uma margem fixa do tamanho externo. Os casos responsivos de saída em background e de tarefa em background adotam 800px de altura de conteúdo, mantendo as quebras de largura existentes e as asserções de rolagem; sem depender de o monitor do host suportar janelas de 900/1000px de altura.
+
 ```text
-workspace shell ready -> provider setup -> inspect draft
-                                         | ready
-                                         v
-                                  reuse current draft
-                                         |
-                                         | active session / missing composer
-                                         v
-                                  click New Task -> wait draft ready
+workspace shell ready -> inspecionar rascunho do projeto de fixture
+                              | vazio e idle -> reutilizar
+                              | caso contrário -> nova tarefa no projeto
+                              v
+                         provider setup
+                              v
+                     reinspecionar rascunho -> selecionar modelo e nível de pensamento
 ```
 
 `startNewTask` continua representando uma ação explícita do usuário dentro dos passos de teste: é preciso clicar de verdade na entrada de nova tarefa e esperar o mesmo conjunto de condições de draft, e isso não pode ser substituído pela inicialização idempotente. O helper compartilhado prioriza test id / pane / renderer store do V4 para composer, controles de envio/parada, mensagens e estado de execução, usando o legacy ChatView apenas como fallback de compatibilidade. Quando a inicialização ou a criação explícita falha, o helper deve carregar na mensagem de erro o estado do pane/store, se o composer existe e quais test ids estão visíveis, evitando que o before hook deixe só um timeout sem contexto do tipo "elemento não exibido". Quando o pane do V4 é draft, o helper precisa obter do TabStore da janela atual `workspaceKey = activeWorkspaceIdentity?.trim() || activeWorkspacePath` e ler exatamente esse bucket, proibindo adivinhar entre vários draft workspaces com `activeTaskId=null`; quando o pane já está vinculado a uma task, o Goal metadata e o `stopRequested` devem reutilizar a semântica de leitura optimistic/cache do snapshot do task store, sem forjar valor vazio. Esse contrato não adiciona combinações de estado de caso; ele segue os três limites já confirmados no catalog: TSL08 workspace draft, estado H de Goal e action I11 new-task.
@@ -245,3 +301,16 @@ A primeira fase faz apenas a infraestrutura da linha de implantação de E2E:
 6. Disponibilizar o scaffolding de admissão Docker `e2e:docker:admit`, reduzindo as operações repetidas de manter preset e documento de admissão.
 
 Depois se complementa o capture-to-fixture, convertendo automaticamente o capture artifact em rascunhos main/common/ignore/synthetic aguardando review.
+
+### Restrições atuais de interface e build dos casos formais
+
+- A caixa de entrada principal do I68 usa o menu de modelos combinado e o slider de pensamento; as configurações de Subagent continuam usando o controle de faixas separado. Ambos os lugares verificam o conjunto real de faixas e os parâmetros da requisição.
+- O CTP-02B verifica o rótulo Team dentro do menu do avatar; o lote da página de settings fecha a camada de settings remanescente da preparação anterior antes de cada preparação.
+- O MP-UI-06 segue o Todo141: exibe por padrão ID, contexto e saída máxima, com a configuração avançada colapsada por padrão; depois do clique para expandir, verifica as caixas de capacidade, a edição de raciocínio e o salvamento.
+- Os controles de modelo do I24 usam a codificação `custom:` compartilhada; não se trata o valor de provider/model do protocolo como valor de interface, nem se contorna a asserção de hidratação automática escolhendo o modelo manualmente.
+- O CLH-02 injeta falha em toda a escrita do `setting.json` do Host alvo, evitando que a falha única padrão seja consumida pela escrita de inicialização.
+- O build pai compartilhado pelos shards não inclui a origem de mock de páginas dinâmicas do subprocesso. O child com mock de página web precisa ser reconstruído depois de alocar a porta; o lock de build compartilhado é retido do build à cópia dos artefatos isolados. Um child comum sem mock pode reutilizar o build pai.
+
+```text
+child aloca a porta do mock → obtém o lock de build → compila a origem correspondente → copia os artefatos isolados → libera o lock → replay
+```

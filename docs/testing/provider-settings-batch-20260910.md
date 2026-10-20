@@ -1,5 +1,13 @@
 # Casos de Browser do Lote de Settings de Provider
 
+## Divisão dos Templates MiMo (2026-10-14)
+
+MIMO-03 (accepted, pending): 390px chinês claro / 1200px inglês escuro, o seletor real de templates mostra separadamente Xiaomi MiMo API e Xiaomi MiMo Token Plan, com tooltip e ícones consistentes; ao clicar em cada um, apenas a ação de criação do templateId correspondente é enviada, e os detalhes de Base URL mostram respectivamente o endereço de pagamento por uso e o endereço do China Token Plan; sem overflow horizontal, erros de página ou escritas adicionais. A especificação e a verificação oficial estão em [Templates MiMo](../provider-mimo-templates.md). Reaproveita o fixture de browser existente, sem afirmar que Electron nativo, celular via shared-host ou requisições reais pagas foram verificadas.
+
+Execução: `node --test --test-name-pattern='mimo templates' packages/ui/test/browser/manual-review/pending/provider-settings-batch.test.mjs`.
+
+Os dois casos desta rodada passaram, e as capturas foram revisadas: os dois templates, o ícone, os dois endereços, o chinês claro e o inglês escuro estão normais. As 18 verificações direcionadas de configuração e as 17 verificações affected finais passaram; a identidade pending foi mantida.
+
 ## Todo148 Correção do Ícone do App no Dock (2026-09-15)
 
 Complemento de nomes do Todo150: o caso existente `zai app icon` de duplo tamanho/idioma afirma ao mesmo tempo que as duas tarjetas de template e seus tooltips mostram `Z.ai Coding Plan` e `Z.ai API`, respectivamente, com ícone e protocolo inalterados.

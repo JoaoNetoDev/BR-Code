@@ -22,7 +22,18 @@ A validação original entendia "não gerar no diretório atual" como "tem de es
 
 Outro equívoco foi tratar o agrupamento do diretório de geração como isolamento de leitura, o que impedia que as mensagens do fork, mantendo o caminho da sessão pai, fossem exibidas.
 
-Esta mudança remove a restrição de contenção do workspace e a restrição de leitura de arquivos entre sessões/workspaces; não modifica skill, escolha da raiz fixa, regras de cópia do fork nem roteamento do serviço remoto. A cadeia continuous do desktop e a cadeia replayable do celular mantêm as fronteiras originais; o HTML continua sendo lido pelo Host da ponta de execução e o widget state continua pertencendo ao host do desktop.
+Esta mudança remove a restrição de contenção do workspace e a restrição de leitura de arquivos entre sessões/workspaces; não modifica skill, escolha da raiz fixa nem regras de cópia do fork.
+
+A leitura de HTML em SSH / WSL / Docker / Server precisa passar pelo canal RPC `gen-ui` remoto. O registro de encaminhamento do Desktop Host e o contrato RPC precisam conter esse canal; ao mesclar legacy mixed services também é preciso escolher explicitamente o `genUiService` remoto, sem pegar a raiz de saída local para validar um caminho remoto só porque os services locais foram expandidos. A falha de leitura é retornada como está, sem recorrer à leitura local e sem remover a validação da raiz de saída.
+
+```text
+Gen UI 卡片 → workspace services → Desktop Host 转发 → Source gen-ui.readDocument
+                                                         ↓
+                                              执行端输出根目录校验 / 读取
+Gen UI 卡片 → desktop base services → widget state / prepareSandbox → 桌面沙箱
+```
+
+A identidade do workspace, o session ID e o caminho do arquivo seguem a requisição original; não se adiciona cache, retry nem cópia de arquivos. A cadeia continuous do desktop e a cadeia replayable do celular mantêm as fronteiras originais. Sem Gen UI sandbox no celular, continua exibindo o aviso existente, exclusivo do desktop; a allowlist RPC do celular não é estendida. O HTML continua sendo lido pelo Host da ponta de execução e o widget state continua pertencendo ao host do desktop.
 
 ## Verificação de Regressão
 
@@ -30,3 +41,6 @@ Esta mudança remove a restrição de contenção do workspace e a restrição d
 - Testes de leitura de arquivos cobrindo workspace que contém o diretório de saída, leitura entre sessões/workspaces, resolução de alias da raiz e as já existentes restrições de saída da raiz, link simbólico, tipo de arquivo e tamanho.
 - O E2E Gen UI existente do Electron define o workspace como ancestral do diretório raiz de saída, verificando leitura real de arquivo, renderização e interação com a página; ao trocar de sessão e referenciar o mesmo arquivo da sessão pai, verifica a semântica de carregamento do histórico do fork.
   Isso é um fixture local de identidade remota e não representa transmissão SSH real nem verificação completa do comando de fork.
+- A regressão do serviço remoto passa por Source → Desktop Host → Renderer em duas etapas de RPC reais, cobrindo SSH / WSL / Docker / Server, o merge legacy, a passagem da identidade original e a propagação do erro de leitura; o canal do celular continua recusando Gen UI.
+- O fixture do Electron usa raízes de saída local e da ponta de execução diferentes, e usa a função de merge de services do Renderer de produção. Verifica a renderização de HTML remoto, a remontagem entre sessões, o widget state preservado no desktop e o aviso de celular sem sandbox.
+  Esse fixture verifica o roteamento de services e o sandbox real do Electron, e não substitui a verificação de rede SSH real nem a verificação em dispositivo real de outro sistema operacional.

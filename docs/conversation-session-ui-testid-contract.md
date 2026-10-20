@@ -13,6 +13,7 @@ O projeto já tem uma fonte única para test ids globais:
 As regras existentes continuam válidas:
 
 - Todas as constantes `data-testid` são declaradas de forma unificada em `packages/shared/src/test-ids.ts`.
+- As constantes de `test-ids.ts` são importadas somente de `@zcode/shared/test-ids`; a entrada raiz `@zcode/shared` não as exporta; a família de workflow `test-ids-workflow.ts` continua importando da entrada raiz. O motivo está na seção de testes afetados da [nota de pre-push](testing/pre-push-hook.md).
 - Constantes novas devem ter comentário em chinês.
 - Componentes de UI são proibidos de codificar strings de test id na mão.
 - O E2E usa `sel(tid)` ou helper equivalente de `packages/desktop/test/e2e/helpers/selectors.ts`.
@@ -179,6 +180,34 @@ Por padrão, um conversation E2E positivo precisa afirmar a ausência de `TID_CH
 | `TID_CHAT_MODEL_SELECT_GROUP` | grupo de provider de modelo da session atual | chave do grupo de provider | `data-model-provider-key`, `data-model-provider-selected` |
 | `TID_CHAT_THOUGHT_LEVEL_SELECT_TRIGGER` | seletor de profundidade de pensamento da session atual | nenhum | `data-session-id`, `data-thought-level` |
 
+### Barra lateral de projetos (após a refatoração de projetos virtuais de 2026-09)
+
+Os nós antigos da barra lateral de workspace (`workspace-item` / `workspace-list` / `workspace-close` /
+`workspace-file-tree-button` / `conversation-new-task`) foram desativados junto com a visão Group e os nós
+de diretório, e as constantes correspondentes foram removidas de `test-ids.ts`. O E2E localiza o projeto
+pelo `data-project-id` / `data-project-name` da `<section>` do projeto (o workspace antigo migra pela
+primeira vez para um projeto root com o mesmo nome, e o nome do projeto = basename do diretório),
+com o helper em `packages/desktop/test/e2e/helpers/project-sidebar.ts`.
+
+| Constante | Valor | Uso |
+| --- | --- | --- |
+| `TID_PROJECT_SECTION` / `TID_CONVERSATION_SECTION` | `project-section` / `conversation-section` | contêiner da área de projetos / da área de tarefas (`data-slot="collapsible-trigger"` com aria-expanded) |
+| `TID_VIRTUAL_PROJECT_ADD` | `virtual-project-add` | botão de novo projeto na área de projetos |
+| `TID_VIRTUAL_PROJECT_NEW_TASK` | `virtual-project-new-task` | botão global de nova tarefa na área de tarefas |
+| `TID_VIRTUAL_PROJECT_ROW` | `virtual-project-row` | linha de projeto (a section pai tem `data-project-id` / `data-project-name`) |
+| `TID_VIRTUAL_PROJECT_TOGGLE` | `virtual-project-toggle` | gatilho de expansão da linha de projeto; `aria-expanded` indica se a lista de tarefas está expandida |
+| `TID_VIRTUAL_PROJECT_UNREAD` | `virtual-project-unread` | indicador de não lidas no estado recolhido |
+| `TID_VIRTUAL_PROJECT_TASKS` | `virtual-project-tasks` | contêiner da lista de tarefas da linha de projeto; as linhas de tarefa internas continuam sendo `TID_TASK_ITEM` |
+| `TID_VIRTUAL_PROJECT_ACTIONS` / `TID_VIRTUAL_PROJECT_MENU` | `virtual-project-actions` / `virtual-project-menu` | área de ações no hover e gatilho do menu "mais" (Radix trigger, requer o gesto de pointerdown) |
+| `TID_VIRTUAL_PROJECT_FILES` | `virtual-project-files` | abre a árvore de arquivos do diretório principal (com múltiplos roots, é um gatilho de dropdown) |
+| `TID_VIRTUAL_PROJECT_CREATE_TASK` | `virtual-project-create-task` | nova tarefa na linha de projeto (cwd = diretório principal) |
+| `virtualProjectActionTestId(id, context)` | `virtual-project-<id>` / `virtual-project-context-<id>` | itens do menu "mais" / de ação de contexto direito: `edit`, `pin`, `delete`, `remove-entry`, `device-settings`, `create-task`, `files-<index>` |
+| `TID_PROJECT_PINNED_TASKS` | `project-pinned-tasks` | área global de tarefas fixadas no topo |
+| `TID_REMOTE_PROJECT_HOST` | `remote-project-host` | agrupamento de host remoto, `data-host-id` é o host id; ícone do botão de conexão `lucide-plug` |
+
+Atenção: `packages/ui/src/project-sidebar/*` ainda codifica essas strings na mão, com o mesmo valor das
+constantes; migrar os componentes para usar as constantes é um item de fechamento do lado src.
+
 ## Requisitos de Page Object do WDIO
 
 Os testes da área de sessão não devem montar CSS diretamente dentro do spec. Crie um page object de conversation/session que centralize localização e asserções.
@@ -186,17 +215,17 @@ Os testes da área de sessão não devem montar CSS diretamente dentro do spec. 
 Interface de exemplo:
 
 ```ts
-chat.sessionRoot(sessionId)
-chat.queuePanel(sessionId)
-chat.queueItems(sessionId)
-chat.queueItem(queueItemId)
-chat.queueSendNowButton(queueItemId)
-chat.message(messageId)
-chat.messageForkButton(messageId)
-chat.messageEditButton(messageId)
-chat.compactMarker(inputId)
-chat.expectQueueOrder([queueItemIdA, queueItemIdB])
-chat.expectNoProtocolFrame({ method: "session/compact", inputId })
+chat.sessionRoot(sessionId);
+chat.queuePanel(sessionId);
+chat.queueItems(sessionId);
+chat.queueItem(queueItemId);
+chat.queueSendNowButton(queueItemId);
+chat.message(messageId);
+chat.messageForkButton(messageId);
+chat.messageEditButton(messageId);
+chat.compactMarker(inputId);
+chat.expectQueueOrder([queueItemIdA, queueItemIdB]);
+chat.expectNoProtocolFrame({ method: "session/compact", inputId });
 ```
 
 ## Correções na matriz de validação

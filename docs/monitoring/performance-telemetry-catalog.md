@@ -303,7 +303,7 @@ Ambos são congelados pelo workspace attachment; não é permitido enviar `remot
 Campos da fase de entrada (`queuePromptTelemetry` injeta em `message_completion`): `input_start_time` / `input_first_char_time` / `input_send_time`.
 `agent_step_cnt`, `tool_call_total`, `tool_call_failed` e cada `agent_step` individual usam o mesmo
 ciclo de vida do prompt ativo; mensagens de assistant antigas da mesma session não participam da contagem de completion deste turno.
-Steps de ferramenta Skill podem ainda carregar `skill_qualified_name`, `skill_plugin_id`, `skill_source`; são escritos apenas quando
+Steps de ferramenta Skill sempre carregam `skill_name` (apenas o nome já resolvido que passa pela validação de telemetria, senão `unknown`, sem ler os parâmetros da requisição), e podem ainda carregar `skill_qualified_name`, `skill_plugin_id`, `skill_source`; são escritos apenas quando
 `tool_name=Skill` e o runtime resolve os metadados com sucesso, e não incluem o corpo nem a description do Skill.
 Tanto o handler de primeiro plano quanto o runtime monitor de background precisam primeiro alimentar os eventos de step/terminal recebidos nesse ciclo de vida
 e só então reportar `message_completion`; trocar de task não pode zerar nem fazer perder a contagem de background da mesma volta nem os `agent_step` individuais.

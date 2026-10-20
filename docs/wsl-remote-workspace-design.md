@@ -124,8 +124,13 @@ export class WSLBackend implements IRemoteBackend {
   }
 
   // 3. executar comando: wsl.exe --exec
+  //    é preciso usar --exec e não `--`: sem --exec o wsl.exe entrega a linha de comando inteira ao
+  //    shell padrão do usuário via `-c`, e as aspas duplas adicionadas pelo Node fazem o shell externo
+  //    expandir `"$var"` antes — as variáveis locais viram string vazia antes de chegar ao bash -lc
+  //    (causa raiz do falso positivo «remote sem tar» na conexão WSL em 2026-09-14).
+  //    O --exec é analisado por CommandLineToArgvW e faz exec direto.
   async exec(command: string): Promise<StdioStream> {
-    const proc = spawn("wsl.exe", ["--distribution", this.distro, "--", "bash", "-c", command], {
+    const proc = spawn("wsl.exe", ["--distribution", this.distro, "--exec", "bash", "-c", command], {
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -163,7 +168,7 @@ export class WSLBackend implements IRemoteBackend {
 
   private getHomeDir(): string {
     try {
-      return execSync(`wsl.exe --distribution ${this.distro} -- bash -c "printf %s \\$HOME"`, {
+      return execSync(`wsl.exe --distribution ${this.distro} --exec bash -c "printf %s \\$HOME"`, {
         encoding: "utf-8",
       }).trim();
     } catch {

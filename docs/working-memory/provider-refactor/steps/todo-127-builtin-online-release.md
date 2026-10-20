@@ -225,3 +225,41 @@ O ciclo de vida reaproveita o Node Config Runtime, e o owner de download executa
 - [x] Registrar as limitações reais de lançamento; a publicação online é executada por um processo com permissões à parte. Este Goal só autorizou o push da branch de trabalho, sem publicação automática de configuração.
 
 A integração central e os gates já foram executados; a UI real/multiaplicador e o arquivo de publicação após a atualização final do catálogo do Todo113 serão consolidados na aceitação do lote completo. Este Todo e o Design V2 vigente prevalecem; os exemplos de campo inline do antigo Todo18 servem apenas como material histórico.
+
+## 2026-10-12: falha de refresh remoto e isolamento do refresh de negócio
+
+Defeito: o refreshSources das Settings colocava o refresh remoto de Built-in e de Account no mesmo
+allSettled e depois lançava qualquer falha. Quando a validação do endereço de download remoto falhava, mesmo
+com Bundled/Active válidos e Account já atualizado, a RPC inteira das Settings falhava; a troca de conexão
+era revertida e o refresh de direitos após o login também era interrompido.
+
+O único ponto de coordenação continua sendo Services ProviderRuntime.refreshSources. O erro de download remoto
+é registrado em warn por essa entrada e depois degradado; o erro de refresh de Account continua propagando, e o
+refresh final do Registry continua responsável por validar a consistência e a usabilidade dos snapshots atuais
+de Config e de Account. Não se deve engolir o erro na UI, forjar direitos nem guardar uma segunda cópia do estado
+disponível.
+
+```text
+Refresh das Settings
+  ├─ atualização remota de Built-in → a falha só registra um aviso e mantém o candidato local válido
+  └─ refresh de direitos de Account → a falha ainda é devolvida ao chamador
+                 ↓
+       Registry lê o Config + Account existentes
+                 ↓
+       válidos e consistentes → devolve a View; falha de leitura/parsing → mantém a semântica de falha
+```
+
+Esta rodada não altera o protocolo de download remoto, a validação HTTPS, a ordem de revision, o backoff nem a
+escolha de cache, e não acrescenta migração de configuração/banco de dados. O refresh concorrente e a ordem de
+eventos seguem o owner existente; ainda se aguarda a conclusão das duas verificações de origem desta rodada, sem
+novas tarefas de background nem timeouts. O desktop e o Web compartilham a fronteira de Services; não são
+modificados o Host attachment, a fila de tarefas, a entrega de mensagens desktop-continuous ou
+web-remote-replayable. A chamada de download independente da CLI continua preservando a semântica original de
+falha.
+
+Regressão: em rejeição de endereço HTTP, HTTP 503, JSON inválido e falhas de cancelamento/timeout, com
+Bundled/Active disponíveis o refresh deve continuar atualizando os direitos de Team/Start e o catálogo de
+modelos; a falha na consulta da conta não pode ser mascarada pelo erro remoto; quando todos os configs
+válidos estão ausentes, não se pode fingir sucesso. A UI reproduz o endereço remoto inválido usando um plano
+de controle isolado e afirma que a seleção de equipe não é revertida e que os modelos de Start continuam
+selecionáveis; o arquivo de teste entra em pending e não é promovido sem revisão manual.

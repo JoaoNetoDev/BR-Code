@@ -7,7 +7,7 @@ Baseline congelado: `3ee0eadbe3dfda41a65bf2ac1a0d4ab761311060`
 
 Design upstream: Feishu `O3s2dIIooo1uuExdipOcVJ9Vnvg`, revision 75 (V3).
 
-Implementação do producer: `zcode-cua@4a3c507dd16f3ed840e87bc92e709ce339e6a4f3` (pin atômico do feature do producer SDK; inclui image-first, binding interno de frame no transport e guidance de recuperação raster-only).
+Implementação do producer: pacote de workspace `packages/zcode-cua` (baseline de importação `zcode-cua@4a3c507dd16f3ed840e87bc92e709ce339e6a4f3`; inclui image-first, binding interno de frame no transport e guidance de recuperação raster-only).
 
 A revision inclui simultaneamente a simplificação da surface do producer 0.5.7, a autoridade final de raster/Zoom, clique com screenshot do
 WindowServer, feedback de Ghost Cursor via window-event, a renomeação do Helper e o guidance de autorização `PERMISSION_REQUIRED`,

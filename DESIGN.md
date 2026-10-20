@@ -14,6 +14,7 @@ Este arquivo é destinado a agentes de codificação. Ao gerar ou editar UI nest
 A escala dedicada `text-ui-*` é uma restrição obrigatória em todo o repositório para a tipografia da interface da aplicação:
 
 - Os componentes de UI devem usar `text-ui-xl`, `text-ui-lg`, `text-ui-base`, `text-ui-caption`, `text-ui-sm` ou `text-ui-xs`.
+- O cabeçalho compartilhado de seção de Settings pode usar o papel dedicado `text-ui-settings-title` / `lg:text-ui-settings-title-lg` definido abaixo.
 - Não introduza os utilitários nativos do Tailwind `text-base`, `text-sm` ou `text-xs` para a UI da aplicação.
 - Não introduza tamanhos de fonte arbitrários de UI, como `text-[13px]` ou valores inline de `font-size`.
 - As únicas exceções no nível de conteúdo são a renderização de código, Diff e terminal, que consomem suas próprias configurações numéricas independentes de tamanho de fonte. Seus controles, rótulos, cabeçalhos e metadados ao redor ainda devem usar `text-ui-*`.
@@ -88,6 +89,8 @@ As variáveis CSS padrão de claro e escuro ainda existem como fundações de fa
   Superfície de contêiner de baixa elevação.
 - **Surface Hover**: `--color-surface-hover`
   Estado hover para superfícies de baixa elevação.
+- **Remote Continuity Panel**: `--color-remote-continuity-panel`, `--color-remote-continuity-panel-surface`, `--color-remote-continuity-panel-foreground`, `--color-remote-continuity-panel-subtle`
+  Reservado para a comparação de primeiro conectar local-offline / remoto-em-execução. Permanece escuro em ambos os temas para que a passagem de contexto fique visualmente estável; não o reutilize como um card escuro genérico.
 - **Card**: `--color-card`
   Background padrão de cartão de conteúdo.
 - **Card Selected**: `--color-card-selected`
@@ -116,6 +119,8 @@ As variáveis CSS padrão de claro e escuro ainda existem como fundações de fa
 
 ### Cores de borda
 
+- **Desktop Resize Handle**: `--color-resize-handle` usa sky-500 nos temas claros e sky-400 nos temas escuros. Use apenas para os indicadores de redimensionamento de workspace do desktop; mantenha a geometria e os estados de interação existentes.
+
 - **Border**: `--color-border`
   Borda e separador padrão.
 - **Border Hover**: `--color-border-hover`
@@ -131,6 +136,9 @@ As variáveis CSS padrão de claro e escuro ainda existem como fundações de fa
 - **Success**: `--color-success` com `--color-success-foreground`
 - **Warning**: `--color-warning` com `--color-warning-foreground`
 - **Destructive**: `--color-destructive` com `--color-destructive-foreground`
+- **Success surface**: `--color-success-surface` com `--color-success-surface-foreground`
+- **Warning surface**: `--color-warning-surface` com `--color-warning-surface-foreground`
+- **Destructive surface**: `--color-destructive-surface` com `--color-destructive-surface-foreground`
 - **Idle-time task**: `--color-idle-task` com `--color-idle-task-surface`
   Use apenas para tags de fila de tempo ocioso e pausadas, para que permaneçam visualmente
   distintas do tratamento verde das tarefas agendadas.
@@ -138,6 +146,7 @@ As variáveis CSS padrão de claro e escuro ainda existem como fundações de fa
 - **Diff Removed**: `--color-diff-removed` com `--color-diff-removed-foreground`
 
 Use cores semânticas apenas para estados semânticos reais. Não pegue emprestadas as cores de success, warning ou destructive apenas para fazer um bloco parecer mais chamativo.
+Use `*-surface` para chips de estado translúcidos e banners; combine-o com o `*-surface-foreground` correspondente e nunca adicione alpha ad hoc em um componente. Os valores de foreground de superfície devem preservar pelo menos 4.5:1 de contraste nos temas distribuídos.
 
 ### Cores de interação bloqueante
 
@@ -259,20 +268,27 @@ Cada utility `text-ui-*` mapeia para o token CSS `--text-ui-*` correspondente.
 
 Toda a tipografia da interface deve usar a escala dedicada `text-ui-*`. A configuração de Appearance controla `--ui-font-size`, cujo padrão é `14px`:
 
-| Token | Fórmula | Padrão |
-| --- | --- | ---: |
-| `text-ui-xl` | `--ui-font-size + 4px` | 18px |
-| `text-ui-lg` | `--ui-font-size + 2px` | 16px |
-| `text-ui-base` | `--ui-font-size` | 14px |
-| `text-ui-caption` | `--ui-font-size - 1px` | 13px |
-| `text-ui-sm` | `--ui-font-size - 2px` | 12px |
-| `text-ui-xs` | `--ui-font-size - 4px` | 10px |
-| `text-ui-2xs` | `--ui-font-size - 5px` | 9px |
+| Token             | Fórmula                | Padrão |
+| ----------------- | ---------------------- | -----: |
+| `text-ui-xl`      | `--ui-font-size + 4px` |   18px |
+| `text-ui-lg`      | `--ui-font-size + 2px` |   16px |
+| `text-ui-base`    | `--ui-font-size`       |   14px |
+| `text-ui-caption` | `--ui-font-size - 1px` |   13px |
+| `text-ui-sm`      | `--ui-font-size - 2px` |   12px |
+| `text-ui-xs`      | `--ui-font-size - 4px` |   10px |
+| `text-ui-2xs`     | `--ui-font-size - 5px` |    9px |
 
 `text-ui-2xs` é uma exceção restrita abaixo do piso de `text-ui-xs`: é permitido
 apenas para **mobiliário de eixo** de gráficos — rótulos de marcação da linha de tempo, códigos de canal e sufixos
 de unidade na timeline de workflow — nunca para conteúdo, rótulos ou metadados.
 Trate qualquer outro uso como um defeito do sistema de design.
+
+O cabeçalho compartilhado de seção de Settings usa `text-ui-settings-title` com
+`lg:text-ui-settings-title-lg`: `--ui-font-size + 10px` / `+ 16px` (24px / 30px
+na configuração padrão), com razões de line-height de `4 / 3` / `1.2` (32px / 36px
+por padrão). Esses tokens preservam o cabeçalho responsivo maior enquanto seguem a
+configuração de fonte da interface. Eles são reservados para este cabeçalho de página;
+títulos de seção comuns e controles mantêm a escala padrão.
 
 `text-mobile-input-safe` é um token fixo de 16px de compatibilidade entre plataformas. É
 reservado para controles editáveis em superfícies de Mobile Web onde é preciso evitar
@@ -287,14 +303,14 @@ o zoom de foco do iOS e, portanto, não escala com `--ui-font-size`.
 
 A escala `text-ui-*` expressa papéis semânticos estáveis. Escolha um token pelo papel do conteúdo, e não por preferência visual isolada:
 
-| Token | Papéis principais |
-| --- | --- |
-| `text-ui-xl` | Markdown `h1` e cabeçalhos de leitura equivalentes de primeiro nível |
-| `text-ui-lg` | Markdown `h2` e cabeçalhos de leitura equivalentes de segundo nível |
-| `text-ui-base` | Markdown `h3`-`h6`, corpo de texto, botões comuns, títulos de workspace e de seção, e outros textos primários de UI |
-| `text-ui-caption` | Texto de apoio compacto que deve permanecer um passo abaixo do corpo de texto, como o anúncio da feature New Task |
-| `text-ui-sm` | Texto secundário, informação de apoio, texto de ajuda, conteúdo de Tooltip e código inline de Markdown |
-| `text-ui-xs` | Atalhos de teclado de tooltip, badges, rótulos compactos, contadores e metadados muito fracos |
+| Token             | Papéis principais                                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `text-ui-xl`      | Markdown `h1` e cabeçalhos de leitura equivalentes de primeiro nível                                                |
+| `text-ui-lg`      | Markdown `h2` e cabeçalhos de leitura equivalentes de segundo nível                                                 |
+| `text-ui-base`    | Markdown `h3`-`h6`, corpo de texto, botões comuns, títulos de workspace e de seção, e outros textos primários de UI |
+| `text-ui-caption` | Texto de apoio compacto que deve permanecer um passo abaixo do corpo de texto, como o anúncio da feature New Task   |
+| `text-ui-sm`      | Texto secundário, informação de apoio, texto de ajuda, conteúdo de Tooltip e código inline de Markdown              |
+| `text-ui-xs`      | Atalhos de teclado de tooltip, badges, rótulos compactos, contadores e metadados muito fracos                       |
 
 - Markdown `h3`-`h6` compartilham `text-ui-base`; diferencie sua hierarquia pelo peso: `h3`-`h4` usam `font-semibold`, `h5` usa `font-medium` e `h6` usa `font-normal`.
 - Corpo de texto e controles comuns normalmente usam `text-ui-base font-normal`; títulos e rótulos podem reforçar o peso sem mudar seu papel semântico de tamanho.
@@ -368,6 +384,7 @@ As seguintes exceções explícitas podem manter `rounded-2xl`; não as estenda 
 
 - **Casca principal de entrada de chat**: a casca de entrada do `ChatPromptEditor` em si pode usar `rounded-2xl`. Seu overlay de arraste corresponde à casca, pois cobre a mesma superfície, em vez de introduzir um contêiner aninhado.
 - **Painel flutuante de status de conversa**: a casca compartilhada pode manter `rounded-2xl` nas apresentações recolhida e expandida.
+- **Composer flutuante da visão completa do Side Pane**: na visão completa do Side Pane a casca principal de entrada de chat flutua por conta própria (sem moldura externa); o drawer que desliza para fora por trás dela e a bolha de resposta exibida acima dela usam `rounded-2xl` para corresponder à casca; o estado minimizado e o botão de fechar da bolha de resposta são círculos deliberados (`rounded-full`).
 - **Toast**: a casca independente de notificação pode manter `rounded-2xl`.
 - **Backplates de ícone de marca**: a arte de marca da tela de boas-vindas e os ícones de detalhe de plugin podem manter `rounded-2xl` como parte de sua forma de ícone. Esta não é uma exceção geral para botões de ícone ou cards de conteúdo.
 
@@ -379,11 +396,11 @@ Estas exceções não concedem automaticamente `2xl` a controles aninhados ou co
 
 Botões, botões de abertura de menu, Input comum, Textarea e triggers de Select usam `rounded-lg` por padrão. Ajuste-os conforme o contêiner pai arredondado mais próximo:
 
-| Pai arredondado mais próximo | Raio do controle |
-| --- | --- |
-| Nenhum, ou `rounded-xl` ou maior | `rounded-lg` |
-| `rounded-lg` | `rounded-md` |
-| `rounded-md` / `rounded-sm` | `rounded-sm` |
+| Pai arredondado mais próximo     | Raio do controle |
+| -------------------------------- | ---------------- |
+| Nenhum, ou `rounded-xl` ou maior | `rounded-lg`     |
+| `rounded-lg`                     | `rounded-md`     |
+| `rounded-md` / `rounded-sm`      | `rounded-sm`     |
 
 O tamanho do controle e a ênfase de ação primária/secundária não alteram o raio de forma independente.
 
@@ -593,7 +610,7 @@ de adicionar sobrescritas de breakpoint.
 ## Acessibilidade e Internacionalização
 
 - Suporte navegação por teclado como um caminho de interação de primeira classe.
-- Preserve o comportamento de foco visível usando os padrões de estilo de foco estabelecidos no repositório.
+- Preserve o estilo de foco de componente estabelecido no repositório. Não adicione um outline compartilhado com `!important` aos descendentes de diálogo, aos controles remotos ou à navegação de configurações. Inputs compostos usam sua borda externa ou ring existentes, sem um outline interno adicional. Isso também se aplica no modo forced-colors; test IDs não são contratos de estilo.
 - Garanta que o contraste permaneça seguro nos modos claro, escuro e Zai.
 - Escreva layouts que tolerem traduções mais longas.
 - Evite significado apenas por ícone quando um rótulo de texto for prático.
@@ -627,3 +644,11 @@ de adicionar sobrescritas de breakpoint.
 - use cores semânticas de erro ou sucesso para decoração não semântica
 - crie componentes que só parecem corretos em um tema
 - troque clareza por novidade visual em telas com muitas ferramentas
+
+## Progresso de conexão remota (RDUX-03)
+
+`--color-progress-surface` / `--color-progress-surface-foreground` expressam trabalho em andamento, incluindo conexão, recuperação automática e atualização. Use `bg-progress-surface` com `text-progress-surface-foreground`; o foreground também pode colorir indicadores de progresso e bordas. Quatro temas definem o par e todos os backgrounds pais devem manter um contraste de texto de 4.5:1.
+
+Mapeamento de estado remoto: conectado → success (nuvem neutra nas linhas de projeto); conectando/atualizando → progress; desconectado → surface neutra / foreground sutil; precisa de atenção → warning; falhou → destructive. Os tokens SSH/WSL/Docker são reservados para rótulos de tipo de conexão, nunca para status de conexão. Sempre inclua texto de status visível fora do estado conectado; tentativas de recuperação são texto visível. Consulte a especificação de UX de dispositivos remotos para o mapeamento autoritativo e o glossário.
+
+Texto auxiliar legível do remoto: `--color-remote-foreground-muted` / `text-remote-foreground-muted` é usado no assistente remoto, nos cards de dispositivo e no texto auxiliar de log, nos rótulos de dispositivo da barra lateral e na navegação de configurações; o alternador de visão de tarefa/projeto compartilhado da barra lateral, as ações de agrupamento e os atalhos de busca também seguem este nível de texto auxiliar legível, `#595959` no tema claro e `#b3b3b3` no escuro, mantendo pelo menos 4.5:1 sobre sidebar / popover / surface / card / selected / background. O foreground do rótulo de tipo SSH no Zai Light é `#0867ce`, mantendo pelo menos 4.5:1 sobre o fundo `#ebf4ff`.

@@ -159,6 +159,24 @@ Os novos métodos precisam ter schema Zod de runtime em `packages/shared/src/zco
 
 `plugins/describe` é a interface somente leitura de enumeração de componentes da página de detalhes do plugin, usada para retornar os nomes e descrições opcionais de skills, commands, agents, hooks e MCP servers de um único plugin. Ela não inicia MCP, não executa hooks e não resolve variáveis de runtime. Plugins instalados precisam ler primeiro o cache/diretório de instalação local; candidatos não instalados só podem ter a source de marketplace analisada sob demanda.
 
+Restrição de agendamento: as requisições de leitura de plugin `plugins/describe`, `plugins/list` e `plugins/overview` não entram na fila de requisições seriais da conexão do Agent, não esperam as requisições enfileiradas antes delas começarem e são processadas imediatamente ao serem recebidas, de modo que a área de recomendação da página de detalhes e da nova tab da direita não fique atrás de instalações ou atualizações longas. O describe só entra no plugin storage lock quando o marketplace manifest está ausente e precisa ser buscado e gravado. list/overview são handlers síncronos, que não cedem o event loop durante a execução; o seed dos plugins embutidos só grava em disco quando o conteúdo muda e tem um seed lock entre processos, portanto não se entrelaça com a leitura-modificação-escrita da instalação atravessando awaits. As operações de escrita como install, update, setEnabled e configure continuam serializadas: setEnabled e configure não seguram o lock de armazenamento e se desencontram das escritas de configuração da instalação pela fila serial.
+
+```mermaid
+sequenceDiagram
+  participant UI
+  participant Q as Fila serial
+  participant L as storage lock
+  participant D as Ramo de requisições de leitura
+  UI->>Q: plugins/install A (baixando)
+  Q->>L: segura o lock
+  UI->>Q: plugins/install B
+  Note over Q: B espera A terminar
+  UI->>D: plugins/describe, list, overview (processamento imediato)
+  D-->>UI: componentes e lista (não espera a instalação)
+  L-->>Q: liberado depois que A termina
+  Q->>L: B segura o lock
+```
+
 Restrição de correção de bug: o escopo de enumeração de MCP e hook de `plugins/describe` precisa estar alinhado ao plugin loader real e não pode ler apenas campos inline de `plugin.json`. O nome de MCP server precisa vir da união de `.mcp.json` na raiz do plugin com `manifest.mcpServers`; o nome de evento de hook precisa vir da união de `hooks/hooks.json` com `manifest.hooks`. Caso contrário, plugins do Claude Marketplace que declaram capacidades por arquivos convencionais (por exemplo `airtable`, que declara MCP via `.mcp.json`) deixariam de mostrar componentes nos detalhes do mercado, enquanto os detalhes de um plugin instalado conseguiriam mostrar por causa de `plugins/list` usar metadata do loader, produzindo uma contagem de componentes inconsistente entre os dois lados.
 
 Os plugins descobertos retornados por `plugins/list` e `plugins/overview` precisam conter um `hookDetails` serializável. Cada detalhe é expandido por item individual de execução de hook e contém no mínimo:

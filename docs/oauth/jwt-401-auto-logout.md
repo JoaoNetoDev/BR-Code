@@ -1,105 +1,83 @@
-# Logout automático por HTTP/business 401 de credencial de login do ZCode
+# Invalidação de credenciais de login do ZCode e novo login
 
-## Objetivo
+## Recuperação local do cache de localização de projeto
 
-O servidor devolve HTTP `401` para credenciais de login confirmadamente inválidas, ou HTTP `200` com
-corpo JSON completo contendo o valor numérico `code: 401`. A camada de serviço do Desktop compara o
-Authorization da requisição com a credencial atual, notifica o Host e reaproveita a limpeza de logout
-OAuth existente, o popup de login expirado e o reinício após confirmação.
-
-2026-09-08, escopo mínimo de compatibilidade: manter a verificação de JWT do ZCode já existente e
-adicionar a verificação do `access_token` de negócio do único active provider atual (BigModel ou ZAI).
-A nova verificação cobre apenas `/api/biz/customer/getCustomerInfo` do ambiente atual, além das URLs
-de userinfo configuradas por plataforma, aceitando tanto o Authorization nu quanto
-`Bearer <access_token>`. A URL precisa casar origin e pathname ao mesmo tempo, e os query parameters não
-participam da decisão de identidade.
-
-2026-10-08, complemento: na resposta JSON completa de HTTP `200`, o valor numérico `code: 401` também
-significa login inválido. A whitelist do token de negócio da plataforma atual ganha
-`/api/biz/subscription/enterprise/v2/pricing` e
-`/api/biz/team/subscribe/product/querySubscribeDetail`, que compartilham a verificação de HTTP 401 e de
-401 de negócio com customerInfo/userinfo.
-
-Pagamentos/pedidos, listagem/criação/cópia de API key, requisições de API key de modelo e requisições
-dentro do WebView não entram na nova verificação. A mesma interface de customerInfo, mesmo quando chamada
-por uma atualização de configuração de modelo, continua sendo uma consulta de identidade de
-usuário/equipe; o fato de o chamador de cima ser diferente não muda a semântica de 401 dessa interface.
-
-## Saída das requisições
+`project-key-location:v1:*` é um cache reconsultável de organização, projeto e Key ID, e não um fato de login.
+Ao ler esse cache, quando ocorre explicitamente um erro de descriptografia, o owner de Token de projeto tenta uma reconstrução local única na resolução atual:
+primeiro valida a geração da requisição e depois, pela porta de recuperação de cache privado do Host, relê o registro alvo dentro do lock compartilhado do arquivo de credenciais.
+Se o registro já foi reparado, o valor novo é reutilizado; se foi removido, trata-se como cache miss; só quando continua impossível descriptografar é que a entrada é removida.
+Erros comuns de IO, corrupção de arquivo ou erro de permissão não executam a remoção e também não podem ser tratados como cache miss.
 
 ```text
-Camada de serviço -> NodeApiClient.request -> HTTP 401 ou HTTP 200 + JSON code=401
-                                    |
-                     +--------------+----------------+
-                     |                               |
-              JWT atual do ZCode        Whitelist de identidade/preço/detalhe de assinatura da plataforma atual
-                     |                     + access_token atual
-                     +--------------+----------------+
-                                    |
-                       logout existente -> broadcast -> popup de expiração
-                                    |
-                       Reinício após confirmação (refresh no Web)
+falha na descriptografia da localização → valida a geração atual → revisão / remoção condicional dentro do lock compartilhado
+                              → já reparado: reutilizar; ausente ou ainda corrompido: consultar a localização → emitir Token
+falha na consulta de localização ou na emissão → classificação de erro existente
+                    ├─ rede / timeout / falha do serviço / permissão do projeto → mantém o login válido, retorna falha
+                    └─ login atual confirmado como inválido → verificação de autenticação existente / entrada de recuperação de login
 ```
 
-O ponto de observação emite apenas um callback com a URL da requisição e o Authorization, sem ler nem
-escrever credenciais diretamente. No lado do Host, a deduplicação é feita revalidando a credencial
-atual dentro da fila de sessão, e o fluxo existente de logout/limpeza de provider derivado é chamado.
-Depois que um 401 é retornado, a credencial atual é lida, e um token antigo ou uma requisição de
-plataforma não ativa não pode disparar o novo tratamento. Depois de ler o access token, a plataforma
-ativa é reconfirmada para evitar que a leitura assíncrona atravesse uma troca de plataforma.
+A porta de recuperação modifica apenas o cache alvo, sem ler nem limpar OAuth, Bot, Key manual, outras contas ou registros de projeto.
+Uma recuperação bem-sucedida não transmite expiração de login, não encerra o login e não reinicia o App. Depois de uma falha, não há nova tentativa recursiva nesta resolução.
+O cliente individual mantém a consolidação de pending já existente; entre janelas, o lock compartilhado de arquivo protege a "releitura e a remoção", proibindo remover um registro que já foi reparado por outra escrita. Tanto o caminho de sucesso quanto o de falha precisam verificar a geração antes dos efeitos colaterais da recuperação e antes do commit do armazenamento; o salvamento da localização e a remoção por 404 também passam a mesma verificação para o armazenamento local, e a verificam dentro do lock compartilhado, evitando que uma invalidação ocorrida durante a espera pelo lock ainda seja submetida.
 
-## Fronteiras de compatibilidade
+A porta pertence à capacidade de armazenamento local do Host e não estende o contrato Renderer/RPC do ICredentialService;
+consumidores sem porta de recuperação mantêm a semântica de falha original. Token de curta duração não vai para disco, e o namespace da localização, o algoritmo de criptografia e
+as credenciais de login permanecem inalterados. Desktop e celular shared-host usam o mesmo owner de Token, sem nova fonte de estado de UI.
 
-Um 401 comum do servidor antigo pode ser classificado pela credencial da requisição; a restauração de
-startup continua responsável pela pré-julgamento do `exp` do JWT local, e esse pré-julgamento não
-substitui a decisão de revogação do servidor. APIs Key que acessem o serviço oficial contornando
-diretamente a saída de requisições do ZCode não são protegidas por este mecanismo.
+Observabilidade: depois de confirmar a geração atual e haver porta de recuperação, registra-se primeiro `project_token_location_unreadable`,
+e só então a porta é chamada; quando a porta retorna e a geração ainda é válida, mantém-se `project_token_location_recovery`.
+O último evento indica apenas que a revisão dentro do lock retornou, e não que a consulta de localização ou a troca de credencial teve sucesso. Uma falha de IO dentro da recuperação mantém o evento anterior;
+uma falha posterior na consulta mantém os dois eventos e o código de falha existente. Erros comuns de leitura, ausência de porta de recuperação e requisições já invalidadas não registram
+o evento de início da recuperação. Os eventos contêm apenas family, stage e code fixo, sem conta, cache key, texto cifrado ou exceção original.
 
-Nenhuma refresh, análise de expiração, sondagem ativa ou limpeza de chaves históricas é adicionada.
-Erros de negócio diferentes do valor numérico `code: 401` dentro de HTTP 200, corpo vazio, HTML, JSON
-corrompido, 403 e falhas de rede não disparam este mecanismo. A observação de 401 de negócio só roda em
-uma whitelist explícita de interfaces de negócio OAuth, a leitura da cópia é limitada a 64 KiB e espera
-no máximo 1 segundo por requisição; timeout, excesso de limite ou falha de parsing cancelam a cópia
-observada e devolvem imediatamente a resposta original, sem consumir o corpo do chamador. Respostas SSE
-não são lidas nem esperadas até o fim. A arquitetura de conta do CLI independente não faz parte do
-Todo103.
+Aceitação: recuperação concorrente em arquivo criptografado real, reparo submetido primeiro, invalidação da geração durante a espera do lock; reconstrução automática quando há OAuth válido e localização quebrada coexistindo; o login é preservado quando a reconstrução falha; depois do clear da requisição antiga não pode haver recuperação. Os testes unitários existentes de login inválido permanecem.
+Esta correção trata de uma lacuna de recuperação de cache já confirmada e não afirma ter determinado a causa original da anomalia do usuário.
 
-O popup, a internacionalização e o tema existentes são reaproveitados, sem modificar a UI, o protocolo
-de broadcast ou a ação de reinício. O attachment de shared-host do celular continua consumindo o
-broadcast de Host existente, sem novos Hosts/Agents e sem mudar a semântica de mensagens entre
-desktop-continuous e web-remote-replayable. O OAuth independente da Web e o transport MCP oficial do
-Agent não recebem novos interceptadores por causa disso.
+## 2026-10-12: recuperação de credencial de negócio revogada
 
-## Aceitação
+Quando o access_token de negócio do active provider atual de BigModel/ZAI é explicitamente recusado, reutilizam-se a saída condicional do OAuthService, a limpeza das credenciais derivadas e o broadcast do Host; o Renderer limpa a exibição do usuário, mostra o aviso existente de "login expirado" e, após a confirmação, entra direto na entrada de login do Welcome, sem reiniciar o App nem recarregar o Web.
 
-- HTTP 401 nas interfaces alvo do business token atual de BigModel/ZAI dispara o mesmo callback de
-  invalidez; tanto token nu quanto Bearer são cobertos;
-- HTTP 200 + JSON `code: 401` nas interfaces da whitelist de BigModel/ZAI dispara o mesmo callback de
-  invalidez; o corpo da resposta continua podendo ser analisado normalmente pelo chamador;
-- domínio errado, ambiente errado, caminhos de pagamento/pedido/API key, API key anônima/comum, token
-  antigo e plataforma não ativa não disparam o novo callback;
-- o teste de isolamento de ambiente injeta explicitamente para BigModel/ZAI os conjuntos de endereços
-  de negócio e de userinfo `production.example` e `test.example`, verificando em cada um dos dois
-  produtos que o endereço atual dispara e o endereço do outro ambiente não dispara; o teste não depende
-  de domínios reais de teste e de produção serem diferentes e, mesmo após reescrita dos endereços por
-  código aberto, preserva o mesmo conjunto de asserções;
-- atualizar o token ou trocar de plataforma antes de o 401 atrasado retornar não notifica invalidez da
-  sessão antiga;
-- outros erros de negócio em HTTP 200, corpo vazio/corrompido, SSE, 403 e 500 não disparam; os testes
-  originais de 401 de JWT do ZCode continuam passando;
-- E2E de Electron isolado obtém separadamente HTTP 401 local e HTTP 200 + 401 de negócio por meio de
-  requisições reais do Host, confirmam que as credenciais de autenticação foram limpas antes do aviso e
-  que o comando de reinício existente é chamado após a confirmação; não são usadas credenciais reais de
-  usuário nem requisições a plataformas reais.
+A recuperação de cache no startup verifica ao mesmo tempo o exp do JWT compartilhado e o exp do JWT do access_token de negócio atual; qualquer expiração explícita é reconferida dentro da fila de sessão original e retorna reauthentication-required. Quando o token de negócio não tem exp ou não é parseável, não se sai por causa dele, e a revogação remota é confirmada por requisições seguintes; não há nova requisição de rede no startup nem verificação periódica de expiração.
 
-A causa do 401 de negócio é o servidor empacotar expiração de login em HTTP 200; o observador antigo só
-verificava o status HTTP, o que fazia a disponibilidade do projeto degradar para unknown, a precificação
-lançar uma mensagem genérica e o resumo de assinaturas perder o motivo, mantendo o estado de login
-antigo. A correção reaproveita a mesma entrada de invalidez, a revalidação de credencial e o broadcast, e
-não interpreta uma resposta temporariamente vazia como expiração. Também pode ocorrer um novo login
-durante a cópia em parsing, então a limpeza final continua obrigatoriamente revalidada dentro da fila de
-sessão; interfaces concorrentes produzem apenas uma limpeza real e um aviso. A leitura limitada da cópia
-observada garante que um chunked body anormal não altere o ciclo de vida da requisição principal.
+O escopo das requisições de negócio é o ambiente atual e a plataforma atual: `/api/biz/`, `/api/pay/` e a URL de userinfo configurada, e o Authorization precisa corresponder exatamente ao token de negócio atual (compatível com token nu e Bearer). Key/PAT de modelo comum, outras plataformas/ambientes e tokens antigos não pertencem à invalidação da autenticação de negócio.
+
+Evidência de invalidação: HTTP 401 ou HTTP 200/403 com JSON completo de code=401 numérico. Uma resposta HTTP 200 de corpo vazio em requisição de negócio e um HTTP 403 comum exigem antes uma verificação de identidade somente leitura do customerInfo da plataforma atual, usando as mesmas credenciais da requisição; só a verificação que retorna 401 explícito, ou a semântica de logout já verificada do customerInfo do BigModel (HTTP 200, corpo de zero bytes), entra na saída condicional. Corpo vazio do ZAI, HTML, JSON corrompido, rede/timeout e 5xx não provam invalidação de credencial. Quando o próprio customerInfo retorna 403 comum, não se repete a sondagem.
+
+A verificação de identidade usa o transport de rede existente, um request ID próprio e timeout limitado, sem passar pela cadeia recursiva de observação. Verificações concorrentes da mesma identidade mantêm apenas uma Promise em voo, removida ao final, sem cachear a validade do login; não se registram token, Cookie, resposta bruta de conta ou Key derivado. A resposta de negócio original continua indo ao chamador, e a leitura da cópia não consome o corpo. Após a confirmação, o próprio OAuthService reconfere as credenciais da requisição original e limpa dentro da fila de mutação de sessão; respostas e verificações antigas não podem limpar um login novo com token trocado ou plataforma trocada.
+
+A checagem local de token no startup passa pela classificação unificada de erros de descriptografia do OAuthCredentialRepo e pela limpeza de sessão corrompida, e entra na fila de mutação de sessão do OAuthService. Confirmada a corrupção, retorna-se signed-out, limpando as credenciais OAuth registradas e o estado de autenticação derivado, preservando credenciais independentes como Bot/PAT; exceções comuns de IO/RPC continuam sendo lançadas. A admission na fila reconfere a generation da recuperação, e uma recuperação antiga não pode limpar um novo login já submetido. A migração de dados antigos do BigModel só é iniciada depois que a checagem local de credenciais tem sucesso.
+
+O repositório de credenciais em background do Host pode detectar corrupção dentro do próprio resolver de refresh do Account Source; concluída a remoção local de OAuth, seu callback submete o refresh derivado da conta e observa o erro, sem esperar a conclusão desse refresh, evitando o ciclo "refresh lê credenciais → limpa → espera a próxima rodada de refresh". A saída normal do OAuthService continua aguardando o callback de limpeza derivado original, e o Account Source continua sendo dono e executando em série suas rodadas de refresh.
+
+A observação da cópia da resposta, a requisição de identidade e a leitura do corpo de identidade são todas controladas pelo signal/timeout da requisição original. No cancelamento, o contrato de ApiError existente encerra imediatamente, liberando timers e assinaturas de observação, sem submeter notificação de invalidação tardia. Cada chamador cancela a verificação compartilhada de forma independente; o transport só é cancelado quando o último assinante sai, evitando que o cancelamento de uma requisição afete as demais. O desktop continuous e o celular shared-host/replayable continuam reutilizando o owner de autenticação existente, sem mudar a semântica de recuperação de mensagens.
+
+O customerInfo da verificação de identidade usa, em BigModel/ZAI, a convenção de token nu das interfaces de login de negócio já existentes, alinhada a createBigModelLoginAuthHeaders / createZaiLoginAuthHeaders. A compatibilidade da classificação da requisição original com Bearer não significa que o endpoint de verificação também aceite Bearer; não se pode interpretar como invalidação de credencial o 401 gerado por um prefixo errado adicionado pelo cliente. As regressões cobrem as duas plataformas, o header nu/Bearer da requisição original e o caso de identidade válida com 200 vazio/403 comum, em que não há limpeza nem broadcast.
+
+```mermaid
+flowchart LR
+  A[Requisição com o token de negócio atual] --> B{401 explícito}
+  B -->|sim| D[Revisão de credenciais dentro da fila do OAuthService]
+  B -->|200 vazio ou 403 comum| C[Verificação de identidade com as mesmas credenciais]
+  C -->|invalidação confirmada| D
+  C -->|normal ou evidência insuficiente| E[Mantém o login, erro da requisição original]
+  D -->|ainda corresponde| F[Limpar e transmitir]
+  D -->|credenciais já trocadas| G[Ignorar resultado antigo]
+  F --> H[Aviso de expiração, confirmação entra na página de login]
+```
+
+O owner do estado continua sendo o OAuthService do Local Host, e a verificação não mantém uma segunda cópia do estado de sessão. O celular shared-host continua consumindo o broadcast existente e a entrada de login atual; não há novo Host, RPC, polling periódico ou troca automática de token. O ciclo de vida de sessão do site e do emissor de OAuth não é modificado.
+
+O Renderer lê o active provider do owner ao exibir o aviso e ao encerrá-lo; se um novo login já foi submetido, o evento de expiração antigo é ignorado, sem limpar o novo avatar nem abrir a página de login de novo. O aviso mantém apenas a marca de em voo deste componente, para deduplicação, sem manter um segundo estado de autenticação.
+
+Aceitação: 401 explícito nas interfaces de negócio e de emissão de PAT de BigModel/ZAI limpa e avisa; a resposta vazia gerada pelo logout do site BigModel entra no mesmo fluxo pela verificação de identidade; resposta de negócio vazia ou 403 de permissão com identidade normal não desloga; o ZAI não julga invalidez a partir de uma resposta vazia; verificações concorrentes executam uma única vez, e o resultado antigo não limpa a sessão nova; o Electron cobre a invalidação explícita nas duas plataformas e o 200 vazio do BigModel, vendo a entrada de login após a confirmação e sem enviar RelaunchApp.
+
+## Fronteiras de compatibilidade e motivos históricos
+
+As correções anteriores acrescentaram o 401 de negócio numérico em HTTP 200 para três interfaces de identidade/plano, mas não cobriram a entrada de emissão de PAT nem a resposta vazia de customerInfo após o logout do BigModel. Por isso o avatar era mantido e as requisições de plano continuavam falhando. O comportamento atual segue as regras de recuperação por revogação descritas acima.
+
+A leitura da cópia da resposta é limitada a 64 KiB e espera no máximo 1 segundo por requisição; timeout, excesso de limite ou falha de parsing cancelam a cópia observada e devolvem a resposta original. SSE não é lida nem espera o fim. O teste de isolamento de ambiente injeta explicitamente endereços neutros de produção/teste, sem depender de os domínios reais de ambiente serem diferentes; token nu e Bearer são cobertos.
+
+Reutiliza-se o popup original, a internacionalização e o tema, sem alterar o protocolo de broadcast, o formato do credentials.json ou a semântica de mensagens de desktop-continuous / web-remote-replayable. CLI independente, requisições dentro do WebView e o transport MCP oficial do Agent que contorna o NodeApiClient não recebem interceptadores.
 
 ## SG-01: proteção de submissão da sessão para 401 atrasado (2026-09-09)
 
@@ -135,8 +113,8 @@ refresh é adicionada e os adapters atuais de BigModel/ZAI não oferecem troca d
 O state owner continua sendo o OAuthService do Host atual; essa fila serializa login, logout e escrita de
 refresh nesta instância, sem introduzir transações entre processos nem mudar o formato do
 credentials.json. As operações de arquivo concorrentes entre Hosts/CLI continuam respeitando as
-fronteiras existentes do credential store. As fronteiras de attachment, broadcast, aviso e reinício de
-desktop continuous / replayable do celular permanecem inalteradas.
+fronteiras existentes do credential store. As fronteiras de attachment e broadcast de desktop continuous /
+replayable do celular permanecem inalteradas; após a confirmação, o aviso atual entra na entrada de login.
 
 ### Restrição de integração do Todo103: preservar a identidade da conta encerrada
 

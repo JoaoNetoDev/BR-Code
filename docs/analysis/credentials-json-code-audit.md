@@ -64,7 +64,7 @@ Server remoto
 
 OAuth do próprio navegador
     `-- BrowserOAuthCredentialRepo --------------------------> localStorage
-        pending nonce --------------------------------------> sessionStorage
+        pending login (nonce/provedor/endereço de callback)--> localStorage
 ```
 
 - `ICredentialService` expõe `load/save/delete`; a UI usa hooks como `useCredentials()`. A camada de armazenamento genérica não entende provider OAuth, conta ou workspace, apenas aceita chave/valor. [interface](../../packages/services/src/credential/credential.ts#L11), [hook](../../packages/ui/src/hooks/useCredentials.ts#L8).
@@ -348,7 +348,7 @@ O handler padrão de `onProviderLogout` também limpa as API keys de Coding Plan
 
 ### A fronteira independente dos campos homônimos no navegador Web
 
-O `BrowserOAuthCredentialRepo` da Web coloca os campos ZAI homônimos em **localStorage**, e não no credentials.json em disco; `oauth_pending_nonce` vai para sessionStorage. A implementação de navegador atual só suporta active provider ZAI. A troca de token do navegador salva diretamente o `data.zai.access_token` do backend, sem passar pela conversão de negócio do `ZaiBusinessTokenResolver` do Desktop, portanto a semântica de origem do `oauth:zai:access_token` homônimo nas duas armazenamentos não pode ser tratada como a mesma.
+O `BrowserOAuthCredentialRepo` da Web coloca os campos ZAI homônimos em **localStorage**, e não no credentials.json em disco; os registros de login em andamento `oauth_pending_logins` ficam no mesmo localStorage, diferenciados por nonce. A implementação de navegador atual só suporta active provider ZAI. A troca de token do navegador salva diretamente o `data.zai.access_token` do backend, sem passar pela conversão de negócio do `ZaiBusinessTokenResolver` do Desktop, portanto a semântica de origem do `oauth:zai:access_token` homônimo nas duas armazenamentos não pode ser tratada como a mesma.
 
 O cached restore do navegador exige active = zai e a presença de JWT/access/user_info; qualquer estado incompleto ou JSON de usuário inválido dispara clearAll; JWT explicitamente expirado retorna reauthentication-required. O logout do navegador apenas limpa o próprio localStorage; não é o logout OAuth do credentialService do Desktop. Os limites de attachment de controle remoto / autoridade do Host e de encaminhamento de credenciais são descritos na seção de controle remoto.
 

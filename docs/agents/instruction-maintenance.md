@@ -43,7 +43,31 @@ Sempre que a fronteira da tarefa, a condição de leitura ou a condição de con
 | "Corrigir o roteamento de tarefas em workspace remoto" | Limites de runtime, instruções da CLI (se tocar a CLI) e contratos relevantes; desenhar diagrama de estado ou temporização | Validar identity, owner e limites continuous/replayable; testes unitários da raiz não substituem CLI/E2E |
 | "Implementar uma interação já confirmada, mas o ambiente E2E necessário está indisponível" | Concluir a implementação executável e a validação, registrando a causa da falha e os itens não verificados | Manter as alterações, não commitar automaticamente e não alegar validação concluída |
 
+Aceite complementar das regras de escopo de teste unitário (2026-10-13):
+
+| Pedido/condição | Esperado |
+| --- | --- |
+| O workspace já tem alterações | Registrar o ponto de partida da tarefa; todas as alterações não commitadas existentes são incluídas e preservadas |
+| Exclusão de código-fonte, alteração de dependência ou associação irresolvível | Seguir a seleção oficial do Vitest, sem adicionar consumidores de baseline nem compensação por origem |
+| Alvo de push diferente de HEAD / sem baseline / workspace sujo | Saída não zero, bloqueando o push |
+| Arquivos trazidos por merge de integração | Participam normalmente da seleção oficial, sem filtro por origem |
+| Configuração, setup comum ou dependência compartilhada seleciona o suite inteiro | Explicar e pular o UT, exit 0, sem bloquear o Push por isso |
+| Nenhum teste selecionado | Explicar e sair com 0, sem alegar que todas as alterações foram verificadas |
+| Falha no teste direcionado | Corrigir e revalidar o escopo correspondente, sem migrar para uma reexecução completa |
+| Requisito explícito de suíte completa | Usar pnpm test / pnpm test:unit |
+| Tarefa atravessando vários commits | Usar o SHA do ponto de partida da tarefa no final; o escopo de push é usado apenas para a verificação de push |
+
 Também é preciso verificar dois ramos entre cenários: alteração puramente visual validando desktop/celular e temas claro e escuro; refatoração sem mudança de comportamento reutilizando de preferência os testes existentes, criando novos apenas em lacunas de cobertura.
+
+Aceite complementar das regras de descrição de MR (2026-10-16):
+
+| Pedido/condição | Esperado |
+| --- | --- |
+| Escrever ou atualizar a descrição do MR | Organizar em cinco seções: TL;DR, objetivo, escopo das mudanças, verificação, riscos e rollback; não exigir mapa de capacidades, classificação de módulos ou varredura de superfície de impacto |
+| Nova funcionalidade, ajuste de comportamento ou refatoração pura | O objetivo explica o contexto, o comportamento anterior, a intenção de design e o comportamento esperado; sem defeito existente, dizer isso com honestidade e não inventar causa raiz de bug |
+| O MR contém bugfix (incluindo mudanças mistas) | Para cada problema independente, descrever o cenário de gatilho, o comportamento esperado/real, a causa raiz, a evidência e o mecanismo de correção, com o caso de regressão correspondente; associar o ticket existente com link direto sempre que possível, manter o ID apenas quando confirmável e, sem ticket, dizer isso com honestidade, sem inventar link |
+| Causa raiz, associação de feedback ou commit introdutor sem evidência | Marcar como pendente de confirmação ou não localizado; mesmo módulo e tempo próximo servem apenas como pista e não podem ser escritos como atribuição confirmada |
+| Uso do helper de descrição de cinco seções | Able ler e passar o corpo completo; a descrição antiga de sete seções continua legível; arquivo vazio ou sem qualquer uma das cinco seções continua sendo recusado |
 
 ## Observação do efeito real
 
