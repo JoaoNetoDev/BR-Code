@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { TID_LOGIN_USE_API_KEY_BUTTON } from "@zcode/shared/test-ids";
 import { Button } from "./components/ui/button.js";
-import { ZCodeAboutLogo } from "@/components/ui/ZCodeAboutLogo.js";
+import { BrCodeAboutLogo } from "@/components/ui/BrCodeAboutLogo.js";
 import { useZCodeIntl } from "./i18n/IntlProvider.js";
 import { LoginApiKeyForm } from "./login/LoginApiKeyForm.js";
 import { useZCodeStore } from "./store/StoreProvider.js";
@@ -150,10 +150,10 @@ function LoginPanelLogo() {
     // 登录 logo 壳是固定深色底，边框不能跟随浅色主题 token，否则浅色主题下边框过重。
     <div
       className="relative mb-1 flex size-16 items-center justify-center rounded-2xl bg-[linear-gradient(180deg,#000000_0%,#151718_100%)] text-[#ffffff] shadow-lg/20 before:pointer-events-none before:absolute before:inset-0 before:rounded-2xl before:border before:border-[rgba(255,255,255,0.1)]"
-      aria-label="ZCode"
+      aria-label="BR Code"
       role="img"
     >
-      <ZCodeAboutLogo className="h-auto w-10" />
+      <BrCodeAboutLogo className="h-auto w-10" />
     </div>
   );
 }

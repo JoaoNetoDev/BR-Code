@@ -901,3 +901,7 @@ exceptions:
     rule: unmanaged-new-file
     paths: [packages/ui/src/settings/model-provider-section/codingPlanErrorMessage.ts]
     reason: Arquivo novo do BR Code que substitui o removedor manual-claim-plan do upstream ao remover o fluxo de código do Coding Plan; fica ao lado dos demais arquivos da seção de provider e a adoção do diretório exige um refactor separado de fronteira de módulo.
+  - id: br-code-logo-component-new-file
+    rule: unmanaged-new-file
+    paths: [packages/ui/src/components/ui/BrCodeAboutLogo.tsx]
+    reason: BR Code 的品牌标记组件，只渲染仓库内已有的位图资源，不引入新的模块边界或依赖；与既有的 ZCode 标记组件同目录，接管整个 ui 目录需要单独的边界重构。
