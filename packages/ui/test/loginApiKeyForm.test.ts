@@ -4,6 +4,8 @@ import {
   buildLoginApiKeySkipSettings,
   resolveLoginApiKeyDefaultProvider,
   resolveHydratedLoginApiKeyValue,
+  resolveLoginApiKeyProviderFamilyDomain,
+  resolveLoginApiKeyProviderLabel,
   resolveLoginApiKeyTemplateId,
   shouldShowLoginApiKeyLink,
 } from "@/login/LoginApiKeyForm.helpers.js";
@@ -20,12 +22,21 @@ describe("LoginApiKeyForm provider update helpers", () => {
     expect(resolveLoginApiKeyTemplateId("bigmodel")).toBe("bigmodel-api");
   });
 
+  it("通用 provider 不绑定内置模板，也不占用 zai/bigmodel 运行域", () => {
+    expect(resolveLoginApiKeyTemplateId("custom")).toBeUndefined();
+    expect(resolveLoginApiKeyProviderLabel("custom")).toBe("Genérica");
+    expect(resolveLoginApiKeyProviderFamilyDomain("custom")).toBeUndefined();
+    expect(resolveLoginApiKeyProviderFamilyDomain("zai")).toBe("zai");
+  });
+
   it("跳过 API key 时只写入当前 provider family domain", () => {
     expect(buildLoginApiKeySkipSettings("bigmodel", 300)).toEqual({
       providerFamilyDomain: "bigmodel",
       providerFamilyDomainUpdatedAt: 300,
       providerFamilyDomainMigrated: true,
     });
+    // 通用 provider 没有运行域可写，跳过也不能编造一个。
+    expect(buildLoginApiKeySkipSettings("custom", 300)).toEqual({});
   });
 
   it("只有输入框为空且 provider 有 URL 时展示获取 API key 链接", () => {

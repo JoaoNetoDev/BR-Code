@@ -17,6 +17,10 @@ export const TID_LOGIN_API_KEY_PROVIDER_TRIGGER = "login-api-key-provider-trigge
 export const TID_LOGIN_API_KEY_PROVIDER_ITEM = "login-api-key-provider-item";
 /** API Key 登录密钥输入框 */
 export const TID_LOGIN_API_KEY_INPUT = "login-api-key-input";
+/** API Key 登录通用 provider 的 Base URL 输入框 */
+export const TID_LOGIN_API_KEY_BASE_URL_INPUT = "login-api-key-base-url-input";
+/** API Key 登录通用 provider 的模型 ID 输入框 */
+export const TID_LOGIN_API_KEY_MODEL_INPUT = "login-api-key-model-input";
 /** API Key 登录继续按钮 */
 export const TID_LOGIN_API_KEY_CONTINUE_BUTTON = "login-api-key-continue-button";
 /** API Key 登录取消按钮 */

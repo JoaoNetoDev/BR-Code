@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { isApiKeyAccess } from "@zcode/provider";
-import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { isApiKeyAccess, type ProviderApiType } from "@zcode/provider";
+import { KeyRoundIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { BIGMODEL_PROVIDER_ID, ZAI_PROVIDER_ID } from "@zcode/shared";
 import {
+  TID_LOGIN_API_KEY_BASE_URL_INPUT,
   TID_LOGIN_API_KEY_CANCEL_BUTTON,
   TID_LOGIN_API_KEY_CONTINUE_BUTTON,
   TID_LOGIN_API_KEY_ERROR,
   TID_LOGIN_API_KEY_INPUT,
+  TID_LOGIN_API_KEY_MODEL_INPUT,
   TID_LOGIN_API_KEY_PROVIDER_ITEM,
   TID_LOGIN_API_KEY_PROVIDER_TRIGGER,
   TID_LOGIN_API_KEY_SKIP_BUTTON,
@@ -37,6 +39,7 @@ import {
   shouldShowLoginApiKeyLink,
   type ApiKeyProviderChoice,
 } from "@/login/LoginApiKeyForm.helpers.js";
+import { ProviderApiFormatSelect } from "@/settings/model-provider-section/ProviderApiFormatSelect.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 
 interface LoginApiKeyFormProps {
@@ -54,6 +57,10 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
     resolveLoginApiKeyDefaultProvider(locale),
   );
   const [apiKeyValue, setApiKeyValue] = useState("");
+  // 通用 provider 的三项配置：没有它们，provider 不会被发布到 registry。
+  const [baseUrlValue, setBaseUrlValue] = useState("");
+  const [modelIdValue, setModelIdValue] = useState("");
+  const [apiFormat, setApiFormat] = useState<ProviderApiType>("openai-chat-completions");
   const [saving, setSaving] = useState(false);
   const [skipping, setSkipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,12 +70,42 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
 
   const providerLabel = resolveLoginApiKeyProviderLabel(providerChoice);
   const templateId = resolveLoginApiKeyTemplateId(providerChoice);
+  const isCustomProvider = providerChoice === "custom";
   const templateAccess = providerSettingsView?.providerTemplates.find(
     (template) => template.templateId === templateId,
   )?.config.access;
   const apiKeyUrl = isApiKeyAccess(templateAccess) ? templateAccess.apiKeyManagementUrl : undefined;
   // 用户已经输入或回填 API Key 后，右侧获取入口会挤占密码输入区域。
   const showApiKeyLink = shouldShowLoginApiKeyLink(apiKeyValue, apiKeyUrl ?? undefined);
+  // 通用 provider 必须四项齐全才能落库，否则用户会得到一个选不出模型的空 provider。
+  const customProviderReady =
+    !isCustomProvider ||
+    (baseUrlValue.trim().length > 0 && modelIdValue.trim().length > 0);
+  const busy = saving || skipping;
+  const canSubmit = apiKeyValue.trim().length > 0 && customProviderReady && !busy;
+
+  const saveCustomProvider = async (apiKey: string) => {
+    const baseUrl = baseUrlValue.trim();
+    const modelId = modelIdValue.trim();
+    if (!baseUrl) {
+      setError(intl.formatMessage({ id: "login.apiKey.baseUrlRequiredError" }));
+      return;
+    }
+    if (!modelId) {
+      setError(intl.formatMessage({ id: "login.apiKey.modelRequiredError" }));
+      return;
+    }
+    const created = await providerSettingsService.createPersonalProvider({
+      providerName: intl.formatMessage({ id: "login.apiKey.customProviderName" }),
+      initialConfig: {
+        api: { type: apiFormat, baseUrl },
+        access: { type: "api-key", apiKey },
+      },
+    });
+    // 自建 provider 没有模型时不会进 registry，模型选择会空；所以在这里补上用户填的模型。
+    await providerSettingsService.addPersonalModel(created.providerId, modelId, {});
+    return created.providerId;
+  };
 
   const saveApiKeyProvider = async () => {
     const apiKey = apiKeyValue.trim();
@@ -80,6 +117,18 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
     setSaving(true);
     setError(null);
     try {
+      if (isCustomProvider) {
+        const providerId = await saveCustomProvider(apiKey);
+        if (!providerId) return;
+        const defaultModelPreference = buildLoginApiKeyDefaultModelPreferenceFromSelection(
+          await modelSelectionService.getView(),
+          providerId,
+        );
+        markApiKeyLoginSuccess(defaultModelPreference);
+        await onSaved();
+        return;
+      }
+
       const template = (await providerSettingsService.getView()).providerTemplates.find(
         (item) => item.templateId === templateId,
       );
@@ -147,8 +196,6 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
     }
   };
 
-  const busy = saving || skipping;
-
   return (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -192,9 +239,82 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
                     id: "login.apiKey.provider.bigmodel",
                   })}
                 </SelectItem>
+                <SelectItem
+                  value="custom"
+                  className="rounded-md"
+                  data-testid={testId(TID_LOGIN_API_KEY_PROVIDER_ITEM, "custom")}
+                >
+                  <KeyRoundIcon className="size-4" />
+                  {intl.formatMessage({ id: "login.apiKey.provider.custom" })}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {isCustomProvider ? (
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <label
+                  className="text-ui-sm text-foreground-subtle"
+                  htmlFor="login-api-key-base-url"
+                >
+                  {intl.formatMessage({ id: "login.apiKey.baseUrlLabel" })}
+                </label>
+                <Input
+                  id="login-api-key-base-url"
+                  type="text"
+                  size="lg"
+                  className="h-10 w-full text-ui-base"
+                  data-testid={TID_LOGIN_API_KEY_BASE_URL_INPUT}
+                  value={baseUrlValue}
+                  placeholder={intl.formatMessage({
+                    id: "login.apiKey.baseUrlPlaceholder",
+                  })}
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setBaseUrlValue(event.target.value);
+                    setError(null);
+                  }}
+                />
+              </div>
+              <div className="space-y-1">
+                <label
+                  className="text-ui-sm text-foreground-subtle"
+                  htmlFor="login-api-key-api-format"
+                >
+                  {intl.formatMessage({ id: "login.apiKey.apiFormatLabel" })}
+                </label>
+                <ProviderApiFormatSelect
+                  triggerId="login-api-key-api-format"
+                  value={apiFormat}
+                  onChange={setApiFormat}
+                />
+              </div>
+              <div className="space-y-1">
+                <label
+                  className="text-ui-sm text-foreground-subtle"
+                  htmlFor="login-api-key-model"
+                >
+                  {intl.formatMessage({ id: "login.apiKey.modelLabel" })}
+                </label>
+                <Input
+                  id="login-api-key-model"
+                  type="text"
+                  size="lg"
+                  className="h-10 w-full text-ui-base"
+                  data-testid={TID_LOGIN_API_KEY_MODEL_INPUT}
+                  value={modelIdValue}
+                  placeholder={intl.formatMessage({
+                    id: "login.apiKey.modelPlaceholder",
+                  })}
+                  autoComplete="off"
+                  onChange={(event) => {
+                    setModelIdValue(event.target.value);
+                    setError(null);
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
           <div className="relative">
             <Input
               id="login-api-key"
@@ -215,7 +335,7 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
                 setError(null);
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && apiKeyValue.trim() && !busy) {
+                if (event.key === "Enter" && canSubmit) {
                   void saveApiKeyProvider();
                 }
               }}
@@ -251,7 +371,7 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
           className="h-10 w-full text-ui-base"
           size="lg"
           data-testid={TID_LOGIN_API_KEY_CONTINUE_BUTTON}
-          disabled={!apiKeyValue.trim() || busy}
+          disabled={!canSubmit}
           onClick={() => void saveApiKeyProvider()}
         >
           {saving ? <Loader2Icon className="size-4 animate-spin" /> : null}
@@ -273,7 +393,8 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
           variant="link"
           className="h-7 w-full text-ui-base text-foreground-subtle hover:text-foreground"
           data-testid={TID_LOGIN_API_KEY_SKIP_BUTTON}
-          disabled={busy}
+          // 通用 provider 没有 family domain 可写，"暂时跳过"对它没有意义。
+          disabled={busy || isCustomProvider}
           onClick={() => void skipApiKeyProvider()}
         >
           {skipping ? <Loader2Icon className="size-4 animate-spin" /> : null}

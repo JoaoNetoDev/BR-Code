@@ -98,11 +98,11 @@ describe("设置页 UI polish E2E", () => {
     ).toEqual({ left: 17, top: 19 });
     const settingsLogo = await $('[data-testid="settings-logo"]');
     expect(await settingsLogo.$("[data-desktop-logo-badge]").getSize("width")).toBe(20);
-    expect(await settingsLogo.$("svg").getSize("width")).toBe(13);
+    expect(await settingsLogo.$("img").getSize("width")).toBe(13);
     expect(await settingsLogo.$("animate").isExisting()).toBe(false);
     for (const theme of ["light", "dark"]) {
       await setPresentation({ locale: "zh-CN", theme });
-      expect(await settingsLogo.$("svg").getSize("width")).toBe(13);
+      expect(await settingsLogo.$("img").getSize("width")).toBe(13);
       const screenshotDir = join(process.cwd(), ".e2e-artifacts", "desktop-logo");
       await mkdir(screenshotDir, { recursive: true });
       await browser.saveScreenshot(join(screenshotDir, `settings-${theme}.png`));

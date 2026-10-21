@@ -134,7 +134,7 @@ describe("Side Pane Tab responsive interactions", () => {
       const logoButton = await $('[data-testid="desktop-top-logo-sidebar-toggle"]');
       expect(await logoButton.getSize("width")).toBe(28);
       expect(await logoButton.$("[data-desktop-logo-badge]").getSize("width")).toBe(20);
-      expect(await logoButton.$("[data-desktop-logo-badge] svg").getSize("width")).toBe(13);
+      expect(await logoButton.$("[data-desktop-logo-badge] img").getSize("width")).toBe(13);
       expect(await logoButton.$("animate").isExisting()).toBe(false);
       await logoButton.moveTo();
       await browser.waitUntil(
